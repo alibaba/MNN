@@ -268,6 +268,9 @@ public:
         // Weight Buffer Cache File
         EXTERNAL_WEIGHT_DIR = 2,
 
+        // Path of the NPU Model directory
+        EXTERNAL_NPU_FILE_DIR = 3,
+
         // Other types ...
     };
 

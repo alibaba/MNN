@@ -59,7 +59,7 @@
 if(!(success)){ \
 MNN_ERROR("Check failed: %s ==> %s\n", #success, #log); \
 }
-
+#ifndef MNN_BUILD_STATIC_LIBS
 #if defined(_MSC_VER)
 #if defined(BUILDING_MNN_DLL)
 #define MNN_PUBLIC __declspec(dllexport)
@@ -71,7 +71,9 @@ MNN_ERROR("Check failed: %s ==> %s\n", #success, #log); \
 #else
 #define MNN_PUBLIC __attribute__((visibility("default")))
 #endif
-
+#else
+#define MNN_PUBLIC
+#endif
 #define STR_IMP(x) #x
 #define STR(x) STR_IMP(x)
 #define MNN_VERSION_MAJOR 3

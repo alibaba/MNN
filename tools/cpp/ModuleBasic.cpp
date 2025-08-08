@@ -334,6 +334,16 @@ int main(int argc, char *argv[]) {
     if (runMask & 2048) {
         rtmgr->setExternalPath("tmp", Interpreter::EXTERNAL_FEATUREMAP_DIR);
     }
+    // set npu model dir, npu model and mnn model in same path
+    size_t pos = modelName.find_last_of("/\\");
+    std::string modelPath;
+    if (pos == std::string::npos) {
+        // current path
+        modelPath = "./";
+    } else {
+        modelPath = modelName.substr(0, pos);
+    }
+    rtmgr->setExternalPath(modelPath, 3);
     std::shared_ptr<Module> net;
     {
         AUTOTIME;

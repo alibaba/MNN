@@ -91,6 +91,9 @@ static std::shared_ptr<MNN::Tensor> biasForConv(Backend *bn, const Convolution2D
     if (!res) {
         return nullptr;
     }
+    if (bn->getRuntime()->hint().useCachedMmap > 1) {
+        return t;
+    }
     auto bias_size = bias_size_unit *bytes;
     auto buffer = MetalBackend::getBuffer(t.get());
     auto src    = bias->data();
@@ -192,7 +195,7 @@ static std::pair<std::shared_ptr<MNN::Tensor>, float> getDequantScale(const floa
     }
     int blockSize = totalCount / oc;
     int alignOutputCount = ALIGN_UP4(oc);
-    std::shared_ptr<MNN::Tensor> dequantScale(MNN::Tensor::createDevice<uint8_t>({alignOutputCount, blockSize, (int)(sizeof(DType) * 2)}));
+    std::shared_ptr<MNN::Tensor> dequantScale(MNN::Tensor::createDevice<uint8_t>({alignOutputCount * blockSize * (int)(sizeof(DType) * 2) + (int)sizeof(float)}));
     bool res = backend->onAcquireBuffer(dequantScale.get(), Backend::STATIC);
     if (!res) {
         MNN_ERROR("Buffer allocated error!\n");
@@ -200,6 +203,10 @@ static std::pair<std::shared_ptr<MNN::Tensor>, float> getDequantScale(const floa
     }
     auto buffer0 = MetalBackend::getBuffer(dequantScale.get());
     DType* dst_scale = (DType*)((uint8_t*)[buffer0.first contents] + buffer0.second);
+    auto coefPtr = (float*)((uint8_t*)dst_scale + alignOutputCount * blockSize * (int)(sizeof(DType) * 2));
+    if (backend->getRuntime()->hint().useCachedMmap > 1) {
+        return std::make_pair(dequantScale, *coefPtr);
+    }
     ::memset(dst_scale, 0, dequantScale->usize());
     
     float coef = 1.0;
@@ -260,6 +267,7 @@ static std::pair<std::shared_ptr<MNN::Tensor>, float> getDequantScale(const floa
             }
         }
     }
+    *coefPtr = coef;
     return std::make_pair(dequantScale, coef);
 }
 void MetalConvolutionCommon::loadWeight(const MNN::Op *op, bool loadWeightInt8) {
@@ -273,6 +281,7 @@ void MetalConvolutionCommon::loadWeight(const MNN::Op *op, bool loadWeightInt8) 
     
     void* weightMemPtr = nullptr;
     id<MTLBuffer> srcGpuBuffer = nil;
+    auto useOriginMmap = backend()->getRuntime()->hint().useCachedMmap > 1;
     bool preAllocGpuMem = ic != 0 && conv->quanParameter();
     int quantBit;
     // only for weight int4/int8 now.
@@ -287,7 +296,7 @@ void MetalConvolutionCommon::loadWeight(const MNN::Op *op, bool loadWeightInt8) 
             preAllocGpuMem = false;
         }
     }
-    if (preAllocGpuMem) {
+    if (preAllocGpuMem && (!useOriginMmap)) {
         size_t size = oc * ic * kh * kw / group;
         
         if (loadWeightInt8) {
@@ -311,20 +320,23 @@ void MetalConvolutionCommon::loadWeight(const MNN::Op *op, bool loadWeightInt8) 
         qnt = ConvolutionCommon::load(op, backend(), true, false, (void *)srcGpuBuffer.contents);
     }
     // param
-    auto size   = qnt ? MAX(qnt->weight.size(), qnt->weightFloat.size()) : conv->weight()->size();
-    if (0 == ic) {
+    size_t size = 0;
+    if (ic > 0) {
+        size = oc * ic * kh * kw / group;
+    } else {
+        size   = qnt ? MAX(qnt->weight.size(), qnt->weightFloat.size()) : conv->weight()->size();
         ic = size / kw / kh / (oc / group);
     }
     // convert
-    if (loadWeightInt8 && qnt->weight.get() != nullptr) {
+    if (loadWeightInt8) {
         auto backend = static_cast<MetalBackend *>(this->backend());
         mWeight = weightTransform(group, oc, ic, kh, kw, (float*)qnt->weight.get(), !qnt->canUseInt4, qnt->canUseInt4, srcGpuBuffer);
         if(backend->useFp16InsteadFp32()) {
-            auto dequantParams = getDequantScale<__fp16>(qnt->alpha.get(), qnt->alpha.size(), backend, qnt->asymmetric, oc);
+            auto dequantParams = getDequantScale<__fp16>(qnt->alpha.get(), qnt->alphaSize, backend, qnt->asymmetric, oc);
             mDequantScaleBias = dequantParams.first;
             mScaleCoef = dequantParams.second;
         } else {
-            auto dequantParams = getDequantScale<float>(qnt->alpha.get(), qnt->alpha.size(), backend, qnt->asymmetric, oc);
+            auto dequantParams = getDequantScale<float>(qnt->alpha.get(), qnt->alphaSize, backend, qnt->asymmetric, oc);
             mDequantScaleBias = dequantParams.first;
             mScaleCoef = dequantParams.second;
         }
@@ -358,6 +370,10 @@ std::shared_ptr<MNN::Tensor> MetalConvolutionCommon::weightTransform(int group, 
         if (!res) {
             MNN_ERROR("Memory alloc error!\n");
             return nullptr;
+        }
+        if (nil == src) {
+            // Use mmap weight. No need to compute
+            return weightLow;
         }
         
         auto buf = MetalBackend::getBuffer(weightLow.get());
@@ -452,6 +468,10 @@ std::shared_ptr<MNN::Tensor> MetalConvolutionCommon::weightTransform(int group, 
     bool res = backend->onAcquireBuffer(t.get(), Backend::STATIC);
     if (!res) {
         return nullptr;
+    }
+    if (nullptr == src) {
+        // No need to compute
+        return t;
     }
     auto buffer = MetalBackend::getBuffer(t.get());
     auto dst = (uint8_t*)[buffer.first contents] + buffer.second;

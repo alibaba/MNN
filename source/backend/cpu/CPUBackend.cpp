@@ -326,10 +326,10 @@ Backend* CPURuntime::onCreate(const BackendConfig* config, Backend* origin) cons
         auto core = MNNGetCoreFunctions();
         if (core->supportFp16arith && precision == BackendConfig::Precision_Low) {
             res = new Arm82Backend(this, memory);
-            if (hint().useArmSme2Cores && res->threadNumber() <= 2 && core->supportSME2 && res->functions()->sme2MatmulRelatedFuncions.Int8GemmKernel) {
-                res->mRelatedFunctions = &(res->functions()->sme2MatmulRelatedFuncions);
+            if (hint().useArmSme2Cores && res->threadNumber() <= 2 && core->supportSME2 && res->functions()->sme2Int8MatmulRelatedFuncionsHp32.Int8GemmKernel) {
+                res->mRelatedFunctions = &(res->functions()->sme2Int8MatmulRelatedFuncionsHp32);
             } else {
-                res->mRelatedFunctions = &(res->functions()->backendMatmulRelatedFunctions);
+                res->mRelatedFunctions = &(res->functions()->int8MatmulRelatedFunctions);
             }
             break;
         }
@@ -458,11 +458,11 @@ CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode p
     mRuntime = const_cast<CPURuntime*>(runtime);
     auto core = MNNGetCoreFunctions();
     mThreadNumber = mRuntime->mThreadNumber;
-    if (mRuntime->hint().useArmSme2Cores && core->supportSME2 && core->sme2MatmulRelatedFuncions.Int8GemmKernel) {
-        mThreadNumber = 2;
-        mRelatedFunctions = &core->sme2MatmulRelatedFuncions;
+    if (mRuntime->hint().useArmSme2Cores && core->supportSME2 && core->sme2Int8MatmulRelatedFuncionsHp32.Int8GemmKernel) {
+        mThreadNumber = ALIMIN(2, mThreadNumber);
+        mRelatedFunctions = &core->sme2Int8MatmulRelatedFuncionsHp32;
     } else {
-        mRelatedFunctions = &core->backendMatmulRelatedFunctions;
+        mRelatedFunctions = &core->int8MatmulRelatedFunctions;
     }
     // Compute Group Rate
     do {

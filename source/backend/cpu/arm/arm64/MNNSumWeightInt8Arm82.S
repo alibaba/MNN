@@ -19,7 +19,7 @@
 .endm
 
 asm_function MNNSumWeightInt8Arm82
-// void MNNSumWeightInt8Arm82(float* kernlesum, int8_t* source, size_t outside, size_t reduceAxis, size_t hP, size_t lP)
+// void MNNSumWeightInt8Arm82(float* kernelsum, int8_t* source, size_t outside, size_t reduceAxis, size_t hP, size_t lP)
 // auto load: x0: dest, x1: source, x2: outside, x3: reduceAxis, x4: hP, x5: lP
 
 // weight shape: [outside, axis, hP, lP]

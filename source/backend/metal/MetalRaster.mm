@@ -276,18 +276,23 @@ id<MTLComputePipelineState> MetalRaster::getBlitPipeline(int bytes, Backend* bac
     return pipeline;
 }
 
-MetalRaster::MetalRaster(Backend *backend) : MetalExecution(backend) {
-    // Do nothing
-}
-MetalRaster::~MetalRaster() {
+void MetalRaster::_clear() {
     auto mtbn = static_cast<MetalBackend*>(backend());
     if (nil != mZeroCopy) {
         mtbn->returnConstBuffer(mZeroCopy);
+        mZeroCopy = nil;
     }
     auto bufferAlloc = mtbn->getStaticBufferPool();
     for(auto& iter : mTempInputCopy) {
         bufferAlloc->free(iter.second.blit);
     }
+    mTempInputCopy.clear();
+}
+MetalRaster::MetalRaster(Backend *backend) : MetalExecution(backend) {
+    // Do nothing
+}
+MetalRaster::~MetalRaster() {
+    _clear();
 }
 struct MemsetInfo {
     int value[4];
@@ -306,6 +311,8 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &____inputs, const s
     auto context  = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend())->context();
     auto mtbn = static_cast<MetalBackend*>(backend());
     auto bufferAlloc = mtbn->getStaticBufferPool();
+    _clear();
+
     auto bytes = outputs[0]->getType().bytes();
     if (outputs[0]->getType().code == halide_type_float) {
         if (mtbn->useFp16InsteadFp32()) {
@@ -322,15 +329,9 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &____inputs, const s
             mtbn->runtime()->insertPipeline(keys, pipeline);
         }
         mZeroPipeline = pipeline;
-        if (nil == mZeroCopy) {
-            mZeroCopy = mtbn->getConstBuffer(sizeof(MemsetInfo));
-        }
+        mZeroCopy = mtbn->getConstBuffer(sizeof(MemsetInfo));
     }
 
-    for (auto& iter : mTempInputCopy) {
-        bufferAlloc->free(iter.second.blit);
-    }
-    mTempInputCopy.clear();
     mOutputPtr = output;
 #ifndef MNN_METAL_FORBID_RASTER_C4
     if (outputDes->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
@@ -384,25 +385,28 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &____inputs, const s
                 auto local = [context computeBestGroupAndLocal:mBlitPipeline[0] threads:MTLSizeMake(maxSize[0] * iter.second.size(), maxSize[1], maxSize[2])];
                 blit.global = local.first;
                 blit.local = local.second;
-                mTempInputCopy.insert(std::make_pair(iter.first, blit));
+                mTempInputCopy.emplace_back(std::make_pair(iter.first, blit));
             }
             return NO_ERROR;
         }
     }
 #endif
     
-    std::map<Tensor*, std::vector<int>> collectForTensor;
+    std::vector<std::pair<Tensor*, std::vector<int>>> collectForTensor;
+    std::map<Tensor*, int> tensorExists;
     for (int i=0; i< des->regions.size(); ++i) {
         auto& slice = des->regions[i];
         if (nullptr == slice.origin) {
             continue;
         }
         Tensor* t = slice.origin;
-        auto coliter = collectForTensor.find(t);
-        if (coliter == collectForTensor.end()) {
-            collectForTensor.insert(std::make_pair(t, std::vector<int>{i}));
+        auto coliter = tensorExists.find(t);
+        if (coliter == tensorExists.end()) {
+            collectForTensor.emplace_back(std::make_pair(t, std::vector<int>{i}));
+            tensorExists.insert(std::make_pair(t, tensorExists.size()));
         } else {
-            coliter->second.emplace_back(i);
+            auto index = coliter->second;
+            collectForTensor[index].second.emplace_back(i);
         }
     }
     
@@ -495,7 +499,7 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &____inputs, const s
         auto local = [context computeBestGroupAndLocal:mBlitPipeline[index++] threads:MTLSizeMake(maxSize[0] * iter.second.size(), maxSize[1], maxSize[2])];
         blit.global = local.first;
         blit.local = local.second;
-        mTempInputCopy.insert(std::make_pair(iter.first, blit));
+        mTempInputCopy.emplace_back(std::make_pair(iter.first, blit));
     }
     return NO_ERROR;
 }

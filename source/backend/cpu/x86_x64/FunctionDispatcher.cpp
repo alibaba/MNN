@@ -80,13 +80,6 @@ void MNNFunctionInit() {
     }
 #endif
     _SSE_ImageProcessInit(coreFunction, cpuFlags);
-    {
-        coreFunction->backendMatmulRelatedFunctions.MNNGetMatMulPackMode = coreFunction->MNNGetMatMulPackMode;
-        coreFunction->backendMatmulRelatedFunctions.MNNPackC4ForMatMul_A = coreFunction->MNNPackC4ForMatMul_A;
-        coreFunction->backendMatmulRelatedFunctions.MNNPackForMatMul_B = coreFunction->MNNPackForMatMul_B;
-        coreFunction->backendMatmulRelatedFunctions.MNNPackedMatMul = coreFunction->MNNPackedMatMul;
-        coreFunction->backendMatmulRelatedFunctions.MNNPackedMatMulRemain = coreFunction->MNNPackedMatMulRemain;
-    }   
 }
 
 void MNNAvgPoolUint8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx, ssize_t paddingx, ssize_t factor) {
@@ -152,11 +145,11 @@ void MNNInt8FunctionInit() {
 #endif
     }
     {
-        gcore->backendMatmulRelatedFunctions.Int8GemmKernel = core->Int8GemmKernel;
-        gcore->backendMatmulRelatedFunctions.Int8GemmKernelFast = core->Int8GemmKernelFast;
-        gcore->backendMatmulRelatedFunctions.Int8GemmKernel_W4 = core->Int8GemmKernel_W4;
-        gcore->backendMatmulRelatedFunctions.MNNGetGemmUnit = core->MNNGetGemmUnit;
-        gcore->backendMatmulRelatedFunctions.MNNPackC4Int8ForMatMul_A = core->MNNPackC4Int8ForMatMul_A;
+        gcore->int8MatmulRelatedFunctions.Int8GemmKernel = core->Int8GemmKernel;
+        gcore->int8MatmulRelatedFunctions.Int8GemmKernelFast = core->Int8GemmKernelFast;
+        gcore->int8MatmulRelatedFunctions.Int8GemmKernel_W4 = core->Int8GemmKernel_W4;
+        gcore->int8MatmulRelatedFunctions.MNNGetGemmUnit = core->MNNGetGemmUnit;
+        gcore->int8MatmulRelatedFunctions.MNNPackC4Int8ForMatMul_A = core->MNNPackC4Int8ForMatMul_A;
     }
 }
 

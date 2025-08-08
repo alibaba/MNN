@@ -106,6 +106,7 @@ runtime_manager_->setExternalPath("tmp", MNN::Interpreter::EXTERNAL_FEATUREMAP_D
 
 - MNN::Interpreter::EXTERNAL_WEIGHT_DIR : 权重重排后的内存转换为文件存储
 - MNN::Interpreter::EXTERNAL_FEATUREMAP_DIR : 中间内存转换为文件存储
+- MNN::Interpreter::EXTERNAL_NPU_FILE_DIR : 存储NPU模型对应的文件夹路径
 
 ### 创建Module
 `Module`可以通过指定模型，输入输出的名称，配置文件创建

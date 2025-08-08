@@ -39,7 +39,7 @@ ErrorCode QNNStridedSlice::onEncode(const std::vector<Tensor *> &inputs, const s
             slice_num = static_cast<int64_t>(outputs.size());
         }
         auto shape = inputs[0]->shape();
-        #ifdef QNN_VORBOSE
+        #ifdef QNN_VERBOSE
         MNN_PRINT("slice:%d %d %d %d, axis:%d, slice_num:%d output_num:%d, dim:%d\n", shape[0], shape[1], shape[2], shape[3], axis, slice_num, outputs.size(), mInputDim);
         #endif
         int realAxis = getNHWCAxis(axis, mInputDim, mDimType);

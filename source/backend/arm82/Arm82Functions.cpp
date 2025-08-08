@@ -1671,8 +1671,8 @@ bool Arm82Functions::init() {
     gInstance = new CoreFunctions;
     gArm82CoreInt8Functions = new CoreInt8Functions;
     *gArm82CoreInt8Functions = *MNNGetInt8CoreFunctions();
-    gInstance->backendMatmulRelatedFunctions = origin->backendMatmulRelatedFunctions;
-    gInstance->sme2MatmulRelatedFuncions = origin->sme2MatmulRelatedFuncions;
+    gInstance->int8MatmulRelatedFunctions = origin->int8MatmulRelatedFunctions;
+    gInstance->sme2Int8MatmulRelatedFuncionsHp32 = origin->sme2Int8MatmulRelatedFuncionsHp32;
     {
         if (origin->supportSDot) {
             gArm82CoreInt8Functions->MNNPackC4Int8ForMatMul_A = _Arm82MNNPackC4ForMatMul_A<12, 4>;
@@ -1706,6 +1706,7 @@ bool Arm82Functions::init() {
     FUNC_PTR_ASSIGN(gInstance->MNNStrassenMergeCFunction, ARM82StrassenMerge);
     gInstance->MNNReorderWeightInt4 = origin->MNNReorderWeightInt4;
     gInstance->MNNSumWeightInt8 = origin->MNNSumWeightInt8;
+    gInstance->MNNSumWeightInt8SmeHp64 = origin->MNNSumWeightInt8SmeHp64;
     gInstance->penalty = 2.0f;
     FUNC_PTR_ASSIGN(gInstance->MNNScaleAndAddBias, MNNScaleAndAddBiasFP16);
     FUNC_PTR_ASSIGN(gInstance->MNNGridSampleComputeCord, MNNGridSampleComputeCordFP16);
@@ -1776,20 +1777,14 @@ bool Arm82Functions::init() {
     gInstance->MNNPoolingAvg = (decltype(gInstance->MNNPoolingAvg))(poolingAvg<float16_t, Vec, 8>);
     
     {
-        gInstance->backendMatmulRelatedFunctions.MNNPackC4Int8ForMatMul_A = gArm82CoreInt8Functions->MNNPackC4Int8ForMatMul_A;
-        gInstance->backendMatmulRelatedFunctions.MNNGeneralIm2Col = gInstance->MNNGeneralIm2Col;
-        
-        gInstance->backendMatmulRelatedFunctions.MNNGetMatMulPackMode = gInstance->MNNGetMatMulPackMode;
-        gInstance->backendMatmulRelatedFunctions.MNNPackedMatMul = gInstance->MNNPackedMatMul;
-        gInstance->backendMatmulRelatedFunctions.MNNPackedMatMulRemain = gInstance->MNNPackedMatMulRemain;
-        gInstance->backendMatmulRelatedFunctions.MNNPackC4ForMatMul_A = gInstance->MNNPackC4ForMatMul_A;
-        gInstance->backendMatmulRelatedFunctions.MNNPackForMatMul_B = gInstance->MNNPackForMatMul_B;
+        gInstance->int8MatmulRelatedFunctions.MNNPackC4Int8ForMatMul_A = gArm82CoreInt8Functions->MNNPackC4Int8ForMatMul_A;
+        gInstance->int8MatmulRelatedFunctions.MNNGeneralIm2Col = gInstance->MNNGeneralIm2Col;
     }
 #ifdef __aarch64__
 #ifdef MNN_SME2
         if (origin->supportSME2) {
             gArm82CoreInt8Functions->MNNPackC4Int8ForMatMul_A = _Arm82MNNPackC4ForMatMul_A<16, 4>;
-            gInstance->sme2MatmulRelatedFuncions.MNNPackC4Int8ForMatMul_A = _Arm82MNNPackC4ForMatMul_A<16, 4>;
+            gInstance->sme2Int8MatmulRelatedFuncionsHp32.MNNPackC4Int8ForMatMul_A = _Arm82MNNPackC4ForMatMul_A<16, 4>;
 
             FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMul, MNNPackedMatMulFP16_SME2);
             FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMulRemain, MNNPackedMatMulRemainFP16_SME2);
@@ -1797,15 +1792,9 @@ bool Arm82Functions::init() {
             FUNC_PTR_ASSIGN(gInstance->MNNPackC4ForMatMul_A, Sme2MNNPackForMatMul_A_FP16);
             FUNC_PTR_ASSIGN(gInstance->MNNPackForMatMul_B, Sme2MNNPackForMatMul_B);
 
-            gInstance->sme2MatmulRelatedFuncions.MNNPackedMatMul = MNNPackedMatMulFP16_SME2;
-            gInstance->sme2MatmulRelatedFuncions.MNNPackedMatMulRemain = MNNPackedMatMulRemainFP16_SME2;
-            gInstance->sme2MatmulRelatedFuncions.MNNGetMatMulPackMode = Sme2MNNGetMatMulPackMode;
-            gInstance->sme2MatmulRelatedFuncions.MNNPackC4ForMatMul_A = Sme2MNNPackForMatMul_A_FP16;
-            gInstance->sme2MatmulRelatedFuncions.MNNPackForMatMul_B = Sme2MNNPackForMatMul_B;
-
 #ifdef MNN_LOW_MEMORY
             FUNC_PTR_ASSIGN(gInstance->MNNGeneralIm2Col, MNNGeneralIm2col_Fp16Sme2);
-            gInstance->sme2MatmulRelatedFuncions.MNNGeneralIm2Col = MNNGeneralIm2col_Fp16Sme2;
+            gInstance->sme2Int8MatmulRelatedFuncionsHp32.MNNGeneralIm2Col = MNNGeneralIm2col_Fp16Sme2;
 #endif
         }
 #endif // MNN_SME2

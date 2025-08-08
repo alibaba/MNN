@@ -131,6 +131,10 @@ IF(WIN32)
   ENDIF()
 ENDIF()
 
+IF (NOT MNN_BUILD_SHARED_LIBS)
+    add_definitions(-DMNN_BUILD_STATIC_LIBS)
+ENDIF()
+
 # for coverage test
 IF( MNN_ENABLE_COVERAGE)
     SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-arcs -ftest-coverage")
@@ -565,8 +569,10 @@ if ((NOT MSVC) AND MNN_HIDDEN)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvisibility-inlines-hidden -fvisibility=hidden")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fvisibility=hidden")
     set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} -fvisibility=hidden")
-    # Omit frame pointer may cause difficult debug
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fomit-frame-pointer")
+    if (NOT APPLE)
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fomit-frame-pointer -funwind-tables")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fomit-frame-pointer -funwind-tables")
+    endif()
 endif()
 if (NOT MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fstrict-aliasing -ffunction-sections -fdata-sections -fno-rtti -fno-exceptions ")
