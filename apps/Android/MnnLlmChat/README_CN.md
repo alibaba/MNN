@@ -53,6 +53,12 @@
   ```
 
 # Releases
+
+## Version 0.7.0
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_0.apk)
++ 增加新模型: gpt-oss-20b
+
+## 0.6.8
 + 点击这里  [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_6_8.apk)
 + 新增模型支持 ：现已支持 SmolLM3-3B 和 gemma-3-1b 模型。
 + 采样器功能增强 ：在混合采样器模式中新增对 penalty sampler 的支持，提升生成质量与多样性。

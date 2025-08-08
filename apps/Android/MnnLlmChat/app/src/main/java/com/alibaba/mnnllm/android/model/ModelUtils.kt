@@ -81,6 +81,10 @@ object ModelUtils {
             return R.drawable.internlm_icon
         } else if (modelLower.contains("gemma")) {
             return R.drawable.gemma_icon
+        } else if (modelLower.contains("gpt")) {
+            return R.drawable.openai_icon
+        } else if (modelLower.contains("hunyuan")) {
+            return R.drawable.hunyuan_icon
         }
         return 0
     }

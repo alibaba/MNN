@@ -8,6 +8,7 @@
     tools:context=".debug.DebugActivity">
 
     <TextView
+        android:id="@+id/titleTextView"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="@string/debug_activity_title"
@@ -15,6 +16,8 @@
         android:textStyle="bold"
         android:gravity="center"
         android:layout_marginBottom="16dp" />
+
+    <!-- ... existing code ... -->
 
     <TextView
         android:layout_width="match_parent"
@@ -169,4 +172,4 @@
 
     </LinearLayout>
 
-</LinearLayout> 
+</LinearLayout>

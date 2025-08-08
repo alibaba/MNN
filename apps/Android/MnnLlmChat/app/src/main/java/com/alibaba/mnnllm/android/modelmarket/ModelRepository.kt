@@ -55,12 +55,31 @@ class ModelRepository(private val context: Context) {
         }
 
         try {
+            // Load assets data first for version comparison
+            val assetsData = loadFromAssets()
+            
             // Try to get data from network first (only once per app lifecycle)
             if (!isNetworkRequestAttempted) {
                 Log.d(TAG, "Attempting to fetch model market data from network")
                 val networkData = fetchFromNetwork()
                 if (networkData != null) {
                     Log.d(TAG, "Successfully fetched data from network")
+                    
+                    // Compare versions
+                    if (assetsData != null) {
+                        val networkVersion = networkData.version ?: "0"
+                        val assetsVersion = assetsData.version
+                        Log.d(TAG, "Network version: $networkVersion, Assets version: $assetsVersion")
+                        
+                        if (isVersionLower(networkVersion, assetsVersion)) {
+                            Log.d(TAG, "Network version is lower than assets version, using assets data")
+                            cachedModelMarketData = assetsData
+                            return@withContext assetsData
+                        } else {
+                            Log.d(TAG, "Network version is higher or equal, using network data")
+                        }
+                    }
+                    
                     cachedModelMarketData = networkData
                     saveCacheToFile(networkData)
                     isNetworkRequestAttempted = true
@@ -80,7 +99,6 @@ class ModelRepository(private val context: Context) {
 
             // If cache also failed, fallback to assets
             Log.d(TAG, "Local cache not available, falling back to assets")
-            val assetsData = loadFromAssets()
             if (assetsData != null) {
                 Log.d(TAG, "Successfully loaded data from assets")
                 cachedModelMarketData = assetsData
@@ -117,14 +135,14 @@ class ModelRepository(private val context: Context) {
                 val jsonString = response.body?.string()
                 if (!jsonString.isNullOrEmpty()) {
                     val data = gson.fromJson(jsonString, ModelMarketData::class.java)
-                    Log.d(TAG, "Successfully parsed network data: $jsonString")
+                    Log.d(TAG, "Successfully parsed network data: ${jsonString.take(100)}")
                     return@withContext data
                 }
             } else {
                 Log.w(TAG, "Network request failed with code: ${response.code}")
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Network request failed", e)
+            Log.e(TAG, "Network request failed", e)
         }
         return@withContext null
     }
@@ -280,4 +298,21 @@ class ModelRepository(private val context: Context) {
         return@withContext "LLM"
     }
 
+    /**
+     * Compare two version strings
+     * @param version1 First version string
+     * @param version2 Second version string
+     * @return true if version1 is lower than version2
+     */
+    private fun isVersionLower(version1: String, version2: String): Boolean {
+        return try {
+            val v1 = version1.toInt()
+            val v2 = version2.toInt()
+            v1 < v2
+        } catch (e: NumberFormatException) {
+            Log.w(TAG, "Failed to parse version numbers: $version1, $version2", e)
+            // If parsing fails, treat as equal (use network data)
+            false
+        }
+    }
 } 

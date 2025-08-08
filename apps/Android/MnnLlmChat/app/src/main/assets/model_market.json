@@ -1,4 +1,5 @@
 {
+    "version": "3",
     "tagTranslations": {
         "Vision": "图片理解",
         "Video": "视频理解",
@@ -39,8 +40,114 @@
     ],
     "models": [
         {
-            "modelName": "Hunyuan-0.5B-Instruct-MNN",
+            "modelName": "gpt-oss-20b-MNN",
+            "tags": [
+                "Think"
+            ],
+            "categories": [
+                "recommended",
+                "qwen"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/gpt-oss-20b-MNN",
+                "ModelScope": "MNN/gpt-oss-20b-MNN",
+                "Modelers": "MNN/gpt-oss-20b-MNN"
+            },
+            "size_gb": 20,
+            "vendor": "GPT",
+            "file_size": 13898033950
+        },
+        {
+            "modelName": "Qwen3-4B-Thinking-2507-MNN",
+            "tags": [
+                "Think"
+            ],
+            "categories": [
+                "recommended",
+                "qwen"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/Qwen3-4B-Thinking-2507-MNN",
+                "ModelScope": "MNN/Qwen3-4B-Thinking-2507-MNN",
+                "Modelers": "MNN/Qwen3-4B-Thinking-2507-MNN"
+            },
+            "size_gb": 4.0,
+            "vendor": "Qwen",
+            "file_size": 2715010257
+        },
+        {
+            "modelName": "Qwen3-4B-Instruct-2507-MNN",
             "tags": [],
+            "categories": [
+                "recommended",
+                "qwen"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/Qwen3-4B-Instruct-2507-MNN",
+                "ModelScope": "MNN/Qwen3-4B-Instruct-2507-MNN",
+                "Modelers": "MNN/Qwen3-4B-Instruct-2507-MNN"
+            },
+            "size_gb": 4.0,
+            "vendor": "Qwen",
+            "file_size": 2715010252
+        },
+        {
+            "modelName": "Qwen3-Coder-30B-A3B-Instruct-MNN",
+            "tags": [
+                "Code"
+            ],
+            "categories": [
+                "recommended",
+                "qwen"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/Qwen3-Coder-30B-A3B-Instruct-MNN",
+                "ModelScope": "MNN/Qwen3-Coder-30B-A3B-Instruct-MNN",
+                "Modelers": "MNN/Qwen3-Coder-30B-A3B-Instruct-MNN"
+            },
+            "size_gb": 30,
+            "vendor": "Qwen",
+            "file_size": 19575785072
+        },
+        {
+            "modelName": "Qwen3-30B-A3B-Thinking-2507-MNN",
+            "tags": [
+                "Think"
+            ],
+            "categories": [
+                "recommended",
+                "qwen"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/Qwen3-30B-A3B-Thinking-2507-MNN",
+                "ModelScope": "MNN/Qwen3-30B-A3B-Thinking-2507-MNN",
+                "Modelers": "MNN/Qwen3-30B-A3B-Thinking-2507-MNN"
+            },
+            "size_gb": 30,
+            "vendor": "Qwen",
+            "file_size": 19575782105
+        },
+        {
+            "modelName": "Qwen3-30B-A3B-Instruct-2507-MNN",
+            "tags": [],
+            "categories": [
+                "recommended",
+                "qwen"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/Qwen3-30B-A3B-Instruct-2507-MNN",
+                "ModelScope": "MNN/Qwen3-30B-A3B-Instruct-2507-MNN",
+                "Modelers": "MNN/Qwen3-30B-A3B-Instruct-2507-MNN"
+            },
+            "size_gb": 30,
+            "vendor": "Qwen",
+            "file_size": 19575782087
+        },
+        {
+            "modelName": "Hunyuan-0.5B-Instruct-MNN",
+            "tags": [
+                "Think"
+            ],
             "categories": [
                 "recommended",
                 "qwen"
@@ -56,7 +163,9 @@
         },
         {
             "modelName": "Hunyuan-1.8B-Instruct-MNN",
-            "tags": [],
+            "tags": [
+                "Think"
+            ],
             "categories": [
                 "recommended",
                 "qwen"
@@ -72,7 +181,9 @@
         },
         {
             "modelName": "Hunyuan-4B-Instruct-MNN",
-            "tags": [],
+            "tags": [
+                "Think"
+            ],
             "categories": [
                 "recommended",
                 "qwen"
@@ -88,7 +199,9 @@
         },
         {
             "modelName": "Hunyuan-7B-Instruct-MNN",
-            "tags": [],
+            "tags": [
+                "Think"
+            ],
             "categories": [
                 "recommended",
                 "qwen"
@@ -100,11 +213,13 @@
             },
             "size_gb": 7.0,
             "vendor": "Hunyuan",
-            "file_size": 4957879110
+            "file_size": 4957879120
         },
         {
             "modelName": "SmolLM3-3B-MNN",
-            "tags": [],
+            "tags": [
+                "Think"
+            ],
             "categories": [
                 "recommended",
                 "qwen"
