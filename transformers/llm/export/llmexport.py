@@ -19,6 +19,7 @@ from utils.custom_op import FakeLinear
 from utils.onnx_rebuilder import OnnxRebuilder
 from utils.mnn_converter import MNNConveter
 from utils.awq_quantizer import AwqQuantizer
+from utils.spinquant import fuse_spinquant_rot
 from utils.smooth_quantizer import SmoothQuantizer
 from utils.model_mapper import ModelMapper
 from utils.transformers import Embedding, Rotary, Decoder, Lm
@@ -120,6 +121,12 @@ class LlmExporter(torch.nn.Module):
             adapter = PeftModel.from_pretrained(self.model, model_id=self.args.lora_path)
             self.model = adapter.merge_and_unload(progressbar=True)
 
+    def apply_prequant_transforms(self):
+        if self.args.spinquant_path is not None:
+            print("applying spinquant...")
+            self.args.seperate_embed = True
+            self.model, self.R1, self.R2 = fuse_spinquant_rot(self.model, self.args.spinquant_path)
+
     @staticmethod
     def has_attr(obj, attr):
         return hasattr(obj, attr) and getattr(obj, attr) is not None
@@ -127,6 +134,7 @@ class LlmExporter(torch.nn.Module):
     @spinner_run(f'load pretrained model ', True)
     def load_model(self, model_path):
         self.load_pretrained(model_path)
+        self.apply_prequant_transforms()
         self.attention_mask_type = 'float'
         # load tokenizer info
         self.stop_ids.append(self.tokenizer.eos_token_id)
@@ -600,6 +608,7 @@ class LlmExporter(torch.nn.Module):
                                                       cross_attention_states = cross_attention_states,
                                                       cross_attention_mask = cross_attention_mask)
             token_id = torch.argmax(logits[:,-1,:])
+            
             if token_id in self.stop_ids:
                 print("", end='\n')
                 break
@@ -1256,6 +1265,7 @@ def main():
                         )
     parser.add_argument('--tokenizer_path', type=str, default=None, help='tokenizer path, defaut is `None` mean using `--path` value.')
     parser.add_argument('--lora_path', type=str, default=None, help='lora path, defaut is `None` mean not apply lora.')
+    parser.add_argument('--spinquant_path', type=str, default=None, help='spinquant path, defaut is `None` mean not apply spinquant.')
     parser.add_argument('--gptq_path', type=str, default=None, help='gptq path, defaut is `None` mean not apply gptq.')
     parser.add_argument('--dst_path', type=str, default='./model', help='export onnx/mnn model to path, defaut is `./model`.')
     parser.add_argument('--verbose', action='store_true', help='Whether or not to print verbose.')
