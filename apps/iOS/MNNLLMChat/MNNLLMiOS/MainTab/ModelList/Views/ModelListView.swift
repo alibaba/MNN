@@ -32,7 +32,9 @@ struct ModelListView: View {
             await viewModel.fetchModels()
         }
         .alert("Error", isPresented: $viewModel.showError) {
-            Button("OK") { }
+            Button("OK") {
+                viewModel.dismissError()
+            }
         } message: {
             Text(viewModel.errorMessage)
         }

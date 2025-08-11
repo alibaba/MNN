@@ -95,6 +95,12 @@ class BenchmarkViewModel: ObservableObject {
     
     // MARK: - Public Action Handlers
     
+    @MainActor
+    func dismissError() {
+        showError = false
+        errorMessage = ""
+    }
+    
     /// Handles start/stop benchmark button taps
     func onStartBenchmarkTapped() {
         if !isRunning {
