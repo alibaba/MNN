@@ -92,39 +92,38 @@ struct ModelInfo: Codable {
     // MARK: - File System & Path Management
     
     var localPath: String {
+        
         // Check if this is a local model from LocalModel folder or Bundle root
-        if let sources = sources {
-            // First check for explicit "local" key
-            if let huggingfaceSource = sources["huggingface"], huggingfaceSource.hasPrefix("local/") {
-                guard let bundlePath = Bundle.main.resourcePath else {
-                    return ""
-                }
+        if let sources = sources, let localSource = sources["local"] {
+            guard let bundlePath = Bundle.main.resourcePath else {
+                return ""
+            }
+            
+            // Check if this is a flattened model (files directly in Bundle root)
+            if localSource.hasPrefix("bundle_root/") {
+                // For flattened models, return the Bundle root path
+                // The model files are directly in the Bundle root directory
+                return bundlePath
+            } else {
+                // Original LocalModel folder structure
+                let localModelPath = (bundlePath as NSString).deletingLastPathComponent + "/LocalModel"
                 
-                // Extract the actual model path after "local/"
-                let modelPath = String(huggingfaceSource.dropFirst("local/".count))
-                
-                // Check if this is a flattened model (files directly in Bundle root)
-                if modelPath.hasPrefix("bundle_root/") || modelPath == modelName {
-                    // For flattened models, return the Bundle root path
-                    return bundlePath
+                // If modelName is "LocalModel", return the LocalModel folder directly
+                if modelName == "LocalModel" {
+                    return localModelPath
                 } else {
-                    // Original LocalModel folder structure
-                    let localModelPath = (bundlePath as NSString).deletingLastPathComponent + "/LocalModel"
-                    
-                    // If modelName is "LocalModel", return the LocalModel folder directly
-                    if modelName == "LocalModel" {
-                        return localModelPath
-                    } else {
-                        // For subdirectory models, append the model name
-                        return (localModelPath as NSString).appendingPathComponent(modelName)
-                    }
+                    // For subdirectory models, append the model name
+                    return (localModelPath as NSString).appendingPathComponent(modelName)
                 }
             }
+        } else if let sources = sources, let localSource = sources["huggingface"], localSource.contains("local") {
+            guard let bundlePath = Bundle.main.resourcePath else { return "" }
+            return bundlePath
+        } else {
+            // For downloaded models, use the original Hub API path
+            let modelScopeId = "taobao-mnn/\(modelName)"
+            return HubApi.shared.localRepoLocation(HubApi.Repo.init(id: modelScopeId)).path
         }
-        
-        // For downloaded models, use the original Hub API path
-        let modelScopeId = "taobao-mnn/\(modelName)"
-        return HubApi.shared.localRepoLocation(HubApi.Repo.init(id: modelScopeId)).path
     }
     
     // MARK: - Size Calculation & Formatting
