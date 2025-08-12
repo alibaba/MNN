@@ -1,5 +1,5 @@
 {
-    "version": "3",
+    "version": "4",
     "tagTranslations": {
         "Vision": "图片理解",
         "Video": "视频理解",
@@ -36,9 +36,46 @@
         "THUDM",
         "InternLM",
         "01.AI",
-        "Hunyuan"
+        "Hunyuan",
+        "MiniCPM"
     ],
     "models": [
+        {
+            "modelName": "MiniCPM4-0.5B-MNN",
+            "tags": [
+                "Think"
+            ],
+            "categories": [
+                "recommended",
+                "qwen"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/MiniCPM4-0.5B-MNN",
+                "ModelScope": "MNN/MiniCPM4-0.5B-MNN",
+                "Modelers": "MNN/MiniCPM4-0.5B-MNN"
+            },
+            "size_gb": 8,
+            "vendor": "MiniCPM",
+            "file_size": 311061970
+        },
+        {
+            "modelName": "MiniCPM4-8B-MNN",
+            "tags": [
+                "Think"
+            ],
+            "categories": [
+                "recommended",
+                "qwen"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/MiniCPM4-8B-MNN",
+                "ModelScope": "MNN/MiniCPM4-8B-MNN",
+                "Modelers": "MNN/MiniCPM4-8B-MNN"
+            },
+            "size_gb": 8,
+            "vendor": "MiniCPM",
+            "file_size": 5533462384
+        },
         {
             "modelName": "gpt-oss-20b-MNN",
             "tags": [

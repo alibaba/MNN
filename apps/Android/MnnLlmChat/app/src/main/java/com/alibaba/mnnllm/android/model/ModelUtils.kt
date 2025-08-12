@@ -85,6 +85,8 @@ object ModelUtils {
             return R.drawable.openai_icon
         } else if (modelLower.contains("hunyuan")) {
             return R.drawable.hunyuan_icon
+        } else if (modelLower.contains("minicpm")) {
+            return R.drawable.minicpm_icon
         }
         return 0
     }
