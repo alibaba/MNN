@@ -550,7 +550,7 @@ class ModelMapper:
         if TRANSFORMERS_VERSION <= '4.52.1':
             return
         qwen2vl_model = {
-            'lm_': 'model.lm_head',
+            'lm_': 'lm_head',
             'embed_': 'model.language_model.embed_tokens',
             'blocks_': 'model.language_model.layers',
             'final_layernorm_': 'model.language_model.norm',

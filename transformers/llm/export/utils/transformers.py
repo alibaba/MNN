@@ -264,21 +264,27 @@ class Rotary(torch.nn.Module):
         self.theta_sections = None
         self.attention_scaling = 1.0
         self.is_scaled = False
+
+        def get_theta():
+            return 1.0 / (self.rope_theta ** (torch.arange(0, self.rotary_dim, 2, dtype=torch.float32) / self.rotary_dim))
+        # default rope type's theta
+        self.theta = get_theta()
+        # other type
         if hasattr(config, 'rope_scaling') and config.rope_scaling is not None:
             scaling_config = config.rope_scaling
-            if 'mrope_section' in config.rope_scaling:
-                self.mrope_section = config.rope_scaling['mrope_section']
-                self.theta_sections = self.theta.unsqueeze(0).split(self.mrope_section, dim=-1)
+            # get rope_type
             rope_type = 'default'
             if 'type' in config.rope_scaling:
                 rope_type = config.rope_scaling['type']
             elif 'rope_type' in config.rope_scaling:
                 rope_type = config.rope_scaling['rope_type']
+            # gen theta for rope_type
             if rope_type == 'dynamic': # NTK
                 if 'alpha' in config.rope_scaling: # NTKAlpha
                     self.rope_theta *= (config.rope_scaling['alpha'] ** (self.rotary_dim / (self.rotary_dim - 2)))
                 else: # NTKScaling
                     pass
+                self.theta = get_theta()
             elif rope_type == 'yarn':
                 self.is_scaled = True
                 self.theta, self.attention_scaling = _compute_yarn_parameters(
@@ -287,8 +293,10 @@ class Rotary(torch.nn.Module):
                     scaling_config=scaling_config,
                     max_position_embeddings=config.max_position_embeddings
                 )
-        if not self.is_scaled:
-            self.theta = 1.0 / (self.rope_theta ** (torch.arange(0, self.rotary_dim, 2, dtype=torch.float32) / self.rotary_dim))
+            # mrope for multimode
+            if 'mrope_section' in scaling_config:
+                self.mrope_section = scaling_config['mrope_section']
+                self.theta_sections = get_theta().unsqueeze(0).split(self.mrope_section, dim=-1)
 
     def forward(self, position_ids):
         if self.theta_sections is not None:

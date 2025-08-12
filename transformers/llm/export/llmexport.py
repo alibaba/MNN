@@ -71,7 +71,7 @@ class LlmExporter(torch.nn.Module):
         if 'Qwen2.5-Omni' in model_path:
             from transformers import Qwen2_5OmniForConditionalGeneration
             self.model = Qwen2_5OmniForConditionalGeneration.from_pretrained(model_path, torch_dtype="auto").eval()
-        elif 'Qwen2.5-VL' in model_path or 'Qwen2___5-VL' in model_path:
+        elif 'Qwen2.5-VL' in model_path or 'Qwen2___5-VL' in model_path or 'Lingshu' in model_path:
             from transformers import Qwen2_5_VLForConditionalGeneration
             self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(model_path, torch_dtype='auto').eval()
         elif 'Qwen2-VL' in model_path:
@@ -224,6 +224,7 @@ class LlmExporter(torch.nn.Module):
             self.llm_config['jinja'] = prompt_template['jinja']
         # load modules
         ModelMapper.do_map(self, self.model, self.model_map['model'])
+
         # rebuild modules
         if self.lm_ is None:
             out_features, in_features = self.embed_.weight.shape
@@ -243,6 +244,7 @@ class LlmExporter(torch.nn.Module):
             self.embed = Embedding(embed_copy, self)
         else:
             self.embed = Embedding(self.embed_, self)
+
         # tie word embeddings
         self.tie_word_embeddings = not self.args.seperate_embed and self.lm_.weight.equal(self.embed_.weight)
         if self.tie_word_embeddings:
