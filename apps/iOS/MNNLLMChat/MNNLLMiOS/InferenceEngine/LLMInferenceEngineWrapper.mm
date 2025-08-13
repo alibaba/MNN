@@ -623,6 +623,37 @@ bool remove_directory_safely(const std::string& path) {
 }
 
 /**
+ * Set thinking mode for the LLM engine
+ * 
+ * @param enabled Whether to enable thinking mode
+ */
+- (void)setThinkingModeEnabled:(BOOL)enabled {
+    if (!_llm) {
+        NSLog(@"Warning: LLM engine not initialized, cannot set thinking mode");
+        return;
+    }
+    
+    try {
+        std::string configJson = R"({
+            "jinja": {
+                "context": {
+                    "enable_thinking":)" + std::string(enabled ? "true" : "false") + R"(
+                }
+            }
+        })";
+        
+        _llm->set_config(configJson);
+        
+        NSLog(@"Thinking mode %@", enabled ? @"enabled" : @"disabled");
+        
+    } catch (const std::exception& e) {
+        NSLog(@"Error setting thinking mode: %s", e.what());
+    } catch (...) {
+        NSLog(@"Unknown error occurred while setting thinking mode");
+    }
+}
+
+/**
  * Processes user input and generates streaming LLM response with enhanced error handling
  *
  * This method handles the main inference process by:

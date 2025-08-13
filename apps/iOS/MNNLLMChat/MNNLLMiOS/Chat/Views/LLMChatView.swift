@@ -50,6 +50,13 @@ struct LLMChatView: View {
         )
         .messageUseMarkdown(true)
         .setRecorderSettings(recorderSettings)
+        .setThinkingMode(
+            supportsThinkingMode: viewModel.supportsThinkingMode,
+            isEnabled: viewModel.isThinkingModeEnabled,
+            onToggle: {
+                viewModel.toggleThinkingMode()
+            }
+        )
         .chatTheme(
             ChatTheme(
                 colors: .init(
@@ -108,11 +115,14 @@ struct LLMChatView: View {
             }
 
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: { showSettings.toggle() }) {
-                    Image(systemName: "gear")
-                }
-                .sheet(isPresented: $showSettings) {
-                    ModelSettingsView(showSettings: $showSettings, viewModel: viewModel)
+                HStack(spacing: 8) {
+                    // Settings Button
+                    Button(action: { showSettings.toggle() }) {
+                        Image(systemName: "gear")
+                    }
+                    .sheet(isPresented: $showSettings) {
+                        ModelSettingsView(showSettings: $showSettings, viewModel: viewModel)
+                    }
                 }
             }
         }

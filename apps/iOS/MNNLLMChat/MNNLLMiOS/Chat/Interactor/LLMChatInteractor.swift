@@ -21,8 +21,10 @@ final class LLMChatInteractor: ChatInteractorProtocol {
     var chatData: LLMChatData
     var modelInfo: ModelInfo
     var historyMessages: [HistoryMessage]?
+    var isThinkingModeEnabled: Bool = false
     
     private let processor = ThinkResultProcessor(thinkingPrefix: "<think>", completePrefix: "</think>")
+    
     private lazy var chatState = CurrentValueSubject<[LLMChatMessage], Never>(generateStartMessages(historyMessages: historyMessages))
     private lazy var sharedState = chatState.share()
 
@@ -102,7 +104,7 @@ final class LLMChatInteractor: ChatInteractorProtocol {
 //                    PerformanceMonitor.shared.measureExecutionTime(operation: "String concatenation") {
                         var updateLastMsg = self?.chatState.value[(self?.chatState.value.count ?? 1) - 1]
                         
-                        if let tags = self?.modelInfo.tags {
+                        if let tags = self?.modelInfo.tags, self?.isThinkingModeEnabled == true {
                             if tags.contains(where: { $0.localizedCaseInsensitiveContains("Think") }) || tags.contains(where: { $0.localizedCaseInsensitiveContains("思考") }), let text = self?.processor.process(progress: message.text) {
                                 updateLastMsg?.text = text
                             }
