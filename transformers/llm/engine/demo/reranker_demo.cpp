@@ -7,6 +7,7 @@
 
 #include "llm/reranker.hpp"
 #include <stdlib.h>
+#include <chrono>
 
 using namespace MNN::Transformer;
 

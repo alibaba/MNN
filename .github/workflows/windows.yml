@@ -8,6 +8,7 @@ on:
       - 'source/**'
       - 'express/**'
       - 'test/**'
+      - 'transformers/llm/engine/**'
       - '.github/workflows/windows.yml'
   pull_request:
     branches: [master]
