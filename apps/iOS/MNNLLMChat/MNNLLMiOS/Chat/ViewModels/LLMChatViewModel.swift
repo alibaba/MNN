@@ -24,6 +24,10 @@ final class LLMChatViewModel: ObservableObject {
     
     @Published var useMmap: Bool = false
     
+    // MARK: - Think Mode Properties
+    @Published var isThinkingModeEnabled: Bool = true
+    @Published var supportsThinkingMode: Bool = false
+    
     var chatInputUnavilable: Bool {
         if isModelLoaded == false || isProcessing == true {
             return true
@@ -70,6 +74,18 @@ final class LLMChatViewModel: ObservableObject {
         self.modelConfigManager = ModelConfigManager(modelPath: modelInfo.localPath)
         
         self.useMmap = self.modelConfigManager.readUseMmap()
+        
+        // Check if model supports thinking mode
+        self.supportsThinkingMode = ModelUtils.isSupportThinkingSwitch(modelInfo.modelName)
+        
+        // Initialize thinking mode state
+        if self.supportsThinkingMode {
+            interactor.isThinkingModeEnabled = true
+            self.isThinkingModeEnabled = true
+        } else {
+            interactor.isThinkingModeEnabled = true
+            self.isThinkingModeEnabled = false
+        }
     }
     
     deinit {
@@ -79,6 +95,21 @@ final class LLMChatViewModel: ObservableObject {
         llm = nil
         diffusion = nil
         print("yxy:: LLMChat View Model cleanup complete")
+    }
+    
+    // MARK: - Think Mode Methods
+    
+    /// Toggle thinking mode on/off
+    func toggleThinkingMode() {
+        guard supportsThinkingMode else { return }
+        
+        isThinkingModeEnabled.toggle()
+        interactor.isThinkingModeEnabled = isThinkingModeEnabled
+        
+        // Update the LLM engine's thinking mode
+        llm?.setThinkingModeEnabled(isThinkingModeEnabled)
+        
+        print("Think mode toggled to: \(isThinkingModeEnabled)")
     }
     
     func setupLLM(modelPath: String) {
@@ -107,9 +138,23 @@ final class LLMChatViewModel: ObservableObject {
                     self?.isModelLoaded = success
                     self?.sendModelLoadStatus(success: success)
                     self?.processHistoryMessages()
+                    
+                    // Configure thinking mode after model is loaded
+                    if success {
+                        self?.configureThinkingMode()
+                    }
                 }
             }
         }
+    }
+    
+    /// Configure thinking mode after model loading
+    private func configureThinkingMode() {
+        guard let llm = llm, supportsThinkingMode else { return }
+        
+        llm.setThinkingModeEnabled(isThinkingModeEnabled)
+        
+        print("Thinking mode configured: \(isThinkingModeEnabled)")
     }
     
     private func sendModelLoadStatus(success: Bool) {

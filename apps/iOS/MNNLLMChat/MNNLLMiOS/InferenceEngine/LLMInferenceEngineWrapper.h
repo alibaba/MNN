@@ -123,6 +123,13 @@ typedef void (^BenchmarkCompleteCallback)(BenchmarkResult *result);
 - (void)setConfigWithJSONString:(NSString *)jsonStr;
 
 /**
+ * Set thinking mode for the LLM engine
+ * 
+ * @param enabled Whether to enable thinking mode
+ */
+- (void)setThinkingModeEnabled:(BOOL)enabled;
+
+/**
  * Check if model is ready for inference
  * 
  * @return YES if model is loaded and ready

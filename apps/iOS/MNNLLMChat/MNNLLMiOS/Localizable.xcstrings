@@ -1046,12 +1046,12 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Deep Thinking"
+            "value" : "Think"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "深度思考"
           }
         }
@@ -1260,7 +1260,7 @@
         }
       }
     },
-    "Use modeler to download" : {
+    "Use Modelers to download" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
