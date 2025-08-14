@@ -34,15 +34,18 @@ struct LLMChatView: View {
         ChatView(messages: viewModel.messages, chatType: .conversation) { draft in
             viewModel.sendToLLM(draft: draft)
         }
-        messageBuilder: { message, positionInGroup, positionInCommentsGroup, showContextMenuClosure, messageActionClosure, showAttachmentClosure in
-            LLMChatMessageView(
-                message: message,
-                positionInGroup: positionInGroup,
-                showContextMenuClosure: showContextMenuClosure,
-                messageActionClosure: messageActionClosure,
-                showAttachmentClosure: showAttachmentClosure
-            )
+        .setStreamingMessageProvider {
+            viewModel.currentStreamingMessageId
         }
+//        messageBuilder: { message, positionInGroup, positionInCommentsGroup, showContextMenuClosure, messageActionClosure, showAttachmentClosure in
+//            LLMChatMessageView(
+//                message: message,
+//                positionInGroup: positionInGroup,
+//                showContextMenuClosure: showContextMenuClosure,
+//                messageActionClosure: messageActionClosure,
+//                showAttachmentClosure: showAttachmentClosure
+//            )
+//        }
         .setAvailableInput(
             self.title.lowercased().contains("vl") ? .textAndMedia :
             self.title.lowercased().contains("audio") ? .textAndAudio :
