@@ -62,11 +62,12 @@ struct BenchmarkView: View {
             Text("Are you sure you want to stop the benchmark test?")
         }
         .alert("Error", isPresented: $viewModel.showError) {
-            Button("OK") { }
+            Button("OK") {
+                viewModel.dismissError()
+            }
         } message: {
             Text(viewModel.errorMessage)
         }
 
     }
 }
-

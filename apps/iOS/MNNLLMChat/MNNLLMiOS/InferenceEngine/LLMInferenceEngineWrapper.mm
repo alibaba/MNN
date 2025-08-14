@@ -623,6 +623,37 @@ bool remove_directory_safely(const std::string& path) {
 }
 
 /**
+ * Set thinking mode for the LLM engine
+ * 
+ * @param enabled Whether to enable thinking mode
+ */
+- (void)setThinkingModeEnabled:(BOOL)enabled {
+    if (!_llm) {
+        NSLog(@"Warning: LLM engine not initialized, cannot set thinking mode");
+        return;
+    }
+    
+    try {
+        std::string configJson = R"({
+            "jinja": {
+                "context": {
+                    "enable_thinking":)" + std::string(enabled ? "true" : "false") + R"(
+                }
+            }
+        })";
+        
+        _llm->set_config(configJson);
+        
+        NSLog(@"Thinking mode %@", enabled ? @"enabled" : @"disabled");
+        
+    } catch (const std::exception& e) {
+        NSLog(@"Error setting thinking mode: %s", e.what());
+    } catch (...) {
+        NSLog(@"Unknown error occurred while setting thinking mode");
+    }
+}
+
+/**
  * Processes user input and generates streaming LLM response with enhanced error handling
  *
  * This method handles the main inference process by:
@@ -668,6 +699,23 @@ bool remove_directory_safely(const std::string& path) {
         return;
     }
     
+    // Performance measurement initialization
+    auto inference_start_time = std::chrono::high_resolution_clock::now();
+    
+    // Get initial context state BEFORE inference starts
+    auto* context = _llm->getContext();
+    int initial_prompt_len = 0;
+    int initial_decode_len = 0;
+    int64_t initial_prefill_time = 0;
+    int64_t initial_decode_time = 0;
+    
+    if (context && showPerformance) {
+        initial_prompt_len = context->prompt_len;
+        initial_decode_len = context->gen_seq_len;
+        initial_prefill_time = context->prefill_us;
+        initial_decode_time = context->decode_us;
+    }
+
     _isProcessing = true;
     
     // Store reference for block execution
@@ -781,39 +829,56 @@ bool remove_directory_safely(const std::string& path) {
                 }
                 
                 // Calculate performance metrics if requested
-                if (showPerformance) {
+                if (showPerformance && context) {
                     auto inference_end_time = std::chrono::high_resolution_clock::now();
-                    auto total_inference_time = std::chrono::duration_cast<std::chrono::milliseconds>(inference_end_time - inference_start_time);
+                    auto total_inference_time = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        inference_end_time - inference_start_time
+                    );
                     
-                    // Get final context state
+                    // Get final context state AFTER inference completes
                     int final_prompt_len = context->prompt_len;
                     int final_decode_len = context->gen_seq_len;
                     int64_t final_prefill_time = context->prefill_us;
                     int64_t final_decode_time = context->decode_us;
                     
-                    // Calculate differences for this inference
+                    // Calculate differences for this inference session
                     int current_prompt_len = final_prompt_len - initial_prompt_len;
                     int current_decode_len = final_decode_len - initial_decode_len;
                     int64_t current_prefill_time = final_prefill_time - initial_prefill_time;
                     int64_t current_decode_time = final_decode_time - initial_decode_time;
                     
-                    float prefill_s = current_prefill_time / 1e6;
-                    float decode_s = current_decode_time / 1e6;
+                    // Convert microseconds to seconds
+                    float prefill_s = static_cast<float>(current_prefill_time) / 1e6f;
+                    float decode_s = static_cast<float>(current_decode_time) / 1e6f;
                     
-                    // Format performance results
+                    // Calculate speeds (tokens per second)
+                    float prefill_speed = (prefill_s > 0.001f) ?
+                        static_cast<float>(current_prompt_len) / prefill_s : 0.0f;
+                    float decode_speed = (decode_s > 0.001f) ?
+                        static_cast<float>(current_decode_len) / decode_s : 0.0f;
+                    
+                    // Format performance results with better formatting
                     std::ostringstream performance_output;
-                    performance_output << "\n\n> Performance Results:\n"
-                                      << "> Total inference time: " << total_inference_time.count() << " ms\n"
-                                      << "Prompt tokens: " << current_prompt_len << "\n"
+                    performance_output << "\n\n > Performance Metrics:\n"
+                                      << "Total inference time: " << total_inference_time.count() << " ms\n"
+                                      << " Prompt tokens: " << current_prompt_len << "\n"
                                       << "Generated tokens: " << current_decode_len << "\n"
-                                      << "Prefill time: " << std::fixed << std::setprecision(2) << prefill_s << " s\n"
-                                      << "Decode time: " << std::fixed << std::setprecision(2) << decode_s << " s\n"
-                                      << "Prefill speed: " << std::fixed << std::setprecision(2)
-                                      << (prefill_s > 0 ? current_prompt_len / prefill_s : 0) << " tok/s\n"
-                                      << "Decode speed: " << std::fixed << std::setprecision(2)
-                                      << (decode_s > 0 ? current_decode_len / decode_s : 0) << " tok/s\n\n";
+                                      << "Prefill time: " << std::fixed << std::setprecision(3) << prefill_s << " s\n"
+                                      << "Decode time: " << std::fixed << std::setprecision(3) << decode_s << " s\n"
+                                      << "Prefill speed: " << std::fixed << std::setprecision(1) << prefill_speed << " tok/s\n"
+                                      << "Decode speed: " << std::fixed << std::setprecision(1) << decode_speed << " tok/s\n";
                     
-                    // Output performance results
+                    // Add efficiency metrics
+                    if (current_prompt_len > 0 && current_decode_len > 0) {
+                        float total_tokens = static_cast<float>(current_prompt_len + current_decode_len);
+                        float total_time_s = static_cast<float>(total_inference_time.count()) / 1000.0f;
+                        float overall_speed = total_time_s > 0.001f ? total_tokens / total_time_s : 0.0f;
+                        
+                        performance_output << "> Overall speed: " << std::fixed << std::setprecision(1)
+                                          << overall_speed << " tok/s\n";
+                    }
+                    
+                    // Output performance results on main queue
                     std::string perf_str = performance_output.str();
                     if (output) {
                         dispatch_async(dispatch_get_main_queue(), ^{

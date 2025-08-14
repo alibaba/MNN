@@ -444,6 +444,14 @@ class ModelListViewModel: ObservableObject {
         }
     }
     
+    // MARK: - Error Management
+    
+    @MainActor
+    func dismissError() {
+        showError = false
+        errorMessage = ""
+    }
+    
     // MARK: - Model Deletion
     
     func deleteModel(_ model: ModelInfo) async {

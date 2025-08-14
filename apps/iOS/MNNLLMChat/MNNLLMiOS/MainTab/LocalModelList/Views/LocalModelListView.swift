@@ -46,10 +46,5 @@ struct LocalModelListView: View {
         .refreshable {
             await viewModel.fetchModels()
         }
-        .alert("Error", isPresented: $viewModel.showError) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(viewModel.errorMessage)
-        }
     }
 }
