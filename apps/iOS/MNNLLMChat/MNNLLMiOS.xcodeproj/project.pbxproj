@@ -8,9 +8,9 @@
 
 /* Begin PBXBuildFile section */
 		3E301C692D5C84730045E5E1 /* MNN.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3E301C682D5C84730045E5E1 /* MNN.framework */; };
-		3E3778952D672F730085BF21 /* ExyteChat in Frameworks */ = {isa = PBXBuildFile; productRef = 3E3778942D672F730085BF21 /* ExyteChat */; };
-		3E7915A12D66CC8C00BDF49E /* Transformers in Frameworks */ = {isa = PBXBuildFile; productRef = 3E7915A02D66CC8C00BDF49E /* Transformers */; };
 		3E94DFF12D37DBA900BE39A7 /* SQLite in Frameworks */ = {isa = PBXBuildFile; productRef = 3E94DFF02D37DBA900BE39A7 /* SQLite */; };
+		3EC8DF852E4DCF5600861131 /* ExyteChat in Frameworks */ = {isa = PBXBuildFile; productRef = 3EC8DF842E4DCF5600861131 /* ExyteChat */; };
+		3EC8DF872E4DCF5800861131 /* Transformers in Frameworks */ = {isa = PBXBuildFile; productRef = 3EC8DF862E4DCF5800861131 /* Transformers */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -84,10 +84,10 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				3E3778952D672F730085BF21 /* ExyteChat in Frameworks */,
 				3E301C692D5C84730045E5E1 /* MNN.framework in Frameworks */,
 				3E94DFF12D37DBA900BE39A7 /* SQLite in Frameworks */,
-				3E7915A12D66CC8C00BDF49E /* Transformers in Frameworks */,
+				3EC8DF872E4DCF5800861131 /* Transformers in Frameworks */,
+				3EC8DF852E4DCF5600861131 /* ExyteChat in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -158,8 +158,8 @@
 			name = MNNLLMiOS;
 			packageProductDependencies = (
 				3E94DFF02D37DBA900BE39A7 /* SQLite */,
-				3E7915A02D66CC8C00BDF49E /* Transformers */,
-				3E3778942D672F730085BF21 /* ExyteChat */,
+				3EC8DF842E4DCF5600861131 /* ExyteChat */,
+				3EC8DF862E4DCF5800861131 /* Transformers */,
 			);
 			productName = MNNLLMiOS;
 			productReference = 3E8591FE2D1D45070067B46F /* MNNLLMiOS.app */;
@@ -246,8 +246,8 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				3E94DF8A2D37D8FF00BE39A7 /* XCRemoteSwiftPackageReference "SQLite" */,
-				3E79159F2D66C78A00BDF49E /* XCRemoteSwiftPackageReference "swift-transformers" */,
-				3E3778932D672F3C0085BF21 /* XCRemoteSwiftPackageReference "Chat" */,
+				3EC8DF822E4DCDF500861131 /* XCRemoteSwiftPackageReference "Chat" */,
+				3EC8DF832E4DCF4A00861131 /* XCRemoteSwiftPackageReference "swift-transformers" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 3E8591FF2D1D45070067B46F /* Products */;
@@ -686,22 +686,6 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		3E3778932D672F3C0085BF21 /* XCRemoteSwiftPackageReference "Chat" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/Yogayu/Chat.git";
-			requirement = {
-				branch = main;
-				kind = branch;
-			};
-		};
-		3E79159F2D66C78A00BDF49E /* XCRemoteSwiftPackageReference "swift-transformers" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/huggingface/swift-transformers/";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.1.17;
-			};
-		};
 		3E94DF8A2D37D8FF00BE39A7 /* XCRemoteSwiftPackageReference "SQLite" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/stephencelis/SQLite.swift";
@@ -710,23 +694,39 @@
 				minimumVersion = 0.15.3;
 			};
 		};
+		3EC8DF822E4DCDF500861131 /* XCRemoteSwiftPackageReference "Chat" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Yogayu/Chat.git";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
+		3EC8DF832E4DCF4A00861131 /* XCRemoteSwiftPackageReference "swift-transformers" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/huggingface/swift-transformers/";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.1.22;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		3E3778942D672F730085BF21 /* ExyteChat */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 3E3778932D672F3C0085BF21 /* XCRemoteSwiftPackageReference "Chat" */;
-			productName = ExyteChat;
-		};
-		3E7915A02D66CC8C00BDF49E /* Transformers */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 3E79159F2D66C78A00BDF49E /* XCRemoteSwiftPackageReference "swift-transformers" */;
-			productName = Transformers;
-		};
 		3E94DFF02D37DBA900BE39A7 /* SQLite */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 3E94DF8A2D37D8FF00BE39A7 /* XCRemoteSwiftPackageReference "SQLite" */;
 			productName = SQLite;
+		};
+		3EC8DF842E4DCF5600861131 /* ExyteChat */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3EC8DF822E4DCDF500861131 /* XCRemoteSwiftPackageReference "Chat" */;
+			productName = ExyteChat;
+		};
+		3EC8DF862E4DCF5800861131 /* Transformers */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3EC8DF832E4DCF4A00861131 /* XCRemoteSwiftPackageReference "swift-transformers" */;
+			productName = Transformers;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
