@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import MarkdownUI
 
 struct ChatHistoryItemView: View {
     let history: ChatHistory
@@ -14,10 +15,22 @@ struct ChatHistoryItemView: View {
         VStack(alignment: .leading, spacing: 8) {
             
             if let lastMessage = getLastNonEmptyMessage() {
-                Text(String(lastMessage.content.prefix(200)))
-                    .lineLimit(3)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(.primary)
+                
+                Markdown(String(lastMessage.content.prefix(100)))
+                    .markdownTextStyle {
+                       FontSize(15)
+                       FontWeight(.regular)
+                    }
+                    .markdownBlockStyle(\.blockquote) { configuration in
+                      configuration.label
+                            .lineLimit(3)
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(.primary)
+                        .markdownTextStyle {
+                            BackgroundColor(nil)
+                            FontSize(15)
+                        }
+                    }
             }
             
             HStack(alignment: .bottom) {
