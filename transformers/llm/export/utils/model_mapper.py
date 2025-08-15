@@ -446,6 +446,8 @@ class ModelMapper:
                 'eos_token_id': 'eos_token_id',
                 'max_position_embeddings': 'max_position_embeddings',
                 'pad_token_id': 'pad_token_id',
+                'layer_types': 'layer_types',
+                'sliding_window': 'sliding_window'
             },
             'model': {
                 'lm_': 'lm_head',
@@ -612,6 +614,38 @@ class ModelMapper:
         }
         self.regist('gpt_oss', gpt_osss_map)
 
+    def regist_minicpm(self):
+        minicpm_config = copy.deepcopy(self.default_config)
+        minicpm_config['scale_emb'] = 'scale_emb'
+        minicpm_decoder = copy.deepcopy(self.default_decoder)
+        minicpm_decoder['scale_depth'] = 'scale_depth'
+        minicpm_map = {
+            'config': minicpm_config,
+            'model': self.defualt_model,
+            'decoder': minicpm_decoder,
+            'attention': self.default_attention
+        }
+        self.regist('minicpm', minicpm_map)
+
+    def regist_minicpmv(self):
+        minicpmv_config = copy.deepcopy(self.default_config)
+        minicpmv_config['scale_emb'] = 'scale_emb'
+        minicpmv_model = {
+            'lm_': 'llm.lm_head',
+            'embed_': 'llm.model.embed_tokens',
+            'blocks_': 'llm.model.layers',
+            'final_layernorm_': 'llm.model.norm',
+            'visual': 'vpm',
+            'resampler': 'resampler'
+        }
+        minicpmv_map = {
+            'config': minicpmv_config,
+            'model': minicpmv_model,
+            'decoder': self.default_decoder,
+            'attention': self.default_attention
+        }
+        self.regist('minicpmv', minicpmv_map)
+
     def defualt_map(self):
         # default map is `LlamaForCausalLM`
         self.config_key = 'config'
@@ -625,7 +659,8 @@ class ModelMapper:
             'num_hidden_layers': 'num_hidden_layers',
             'num_key_value_heads': 'num_key_value_heads',
             'rope_theta': 'rope_theta',
-            'rope_scaling': 'rope_scaling'
+            'rope_scaling': 'rope_scaling',
+            'max_position_embeddings': 'max_position_embeddings'
         }
         self.defualt_model = {
             'lm_': 'lm_head',
