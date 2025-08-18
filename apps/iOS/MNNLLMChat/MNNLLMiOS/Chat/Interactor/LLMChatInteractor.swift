@@ -101,13 +101,12 @@ final class LLMChatInteractor: ChatInteractorProtocol {
                     
                 case .assistant:
                     
-//                    PerformanceMonitor.shared.measureExecutionTime(operation: "String concatenation") {
-                        var updateLastMsg = self?.chatState.value[(self?.chatState.value.count ?? 1) - 1]
-                        
-                        if let tags = self?.modelInfo.tags, self?.isThinkingModeEnabled == true {
-                            if tags.contains(where: { $0.localizedCaseInsensitiveContains("Think") }) || tags.contains(where: { $0.localizedCaseInsensitiveContains("思考") }), let text = self?.processor.process(progress: message.text) {
+                    var updateLastMsg = self?.chatState.value[(self?.chatState.value.count ?? 1) - 1]
+
+                    if let tags = self?.modelInfo.tags, self?.isThinkingModeEnabled == true,
+                        (tags.contains(where: { $0.localizedCaseInsensitiveContains("Think") }) || tags.contains(where: { $0.localizedCaseInsensitiveContains("思考") })),
+                        let text = self?.processor.process(progress: message.text) {
                                 updateLastMsg?.text = text
-                            }
                         } else {
                             if let currentText = updateLastMsg?.text {
                                 updateLastMsg?.text = currentText + message.text

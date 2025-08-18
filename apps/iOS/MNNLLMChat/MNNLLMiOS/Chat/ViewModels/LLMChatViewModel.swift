@@ -76,14 +76,14 @@ final class LLMChatViewModel: ObservableObject {
         self.useMmap = self.modelConfigManager.readUseMmap()
         
         // Check if model supports thinking mode
-        self.supportsThinkingMode = ModelUtils.isSupportThinkingSwitch(modelInfo.modelName)
+        self.supportsThinkingMode = ModelUtils.isSupportThinkingSwitch(modelInfo.tags)
         
         // Initialize thinking mode state
         if self.supportsThinkingMode {
             interactor.isThinkingModeEnabled = true
             self.isThinkingModeEnabled = true
         } else {
-            interactor.isThinkingModeEnabled = true
+            interactor.isThinkingModeEnabled = false
             self.isThinkingModeEnabled = false
         }
     }
