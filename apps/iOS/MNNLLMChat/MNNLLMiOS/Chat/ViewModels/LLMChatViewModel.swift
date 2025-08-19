@@ -398,6 +398,9 @@ final class LLMChatViewModel: ObservableObject {
             messages: messages
         )
         
+        
+        subscriptions.removeAll()
+        
         interactor.disconnect()
         
         llm?.cancelInference()
