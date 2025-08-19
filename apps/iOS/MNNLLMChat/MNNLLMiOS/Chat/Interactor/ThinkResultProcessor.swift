@@ -45,10 +45,11 @@ class ThinkResultProcessor {
         var rawBuilder = ""
         rawBuilder.append(progress)
         
-        if progress.contains("</think>")   {
-            updatedProgress = updatedProgress.replacingOccurrences(of: "</think>", with: "\n")
+        if progress.contains(completePrefix)   {
+            updatedProgress = updatedProgress.replacingOccurrences(of: completePrefix, with: "\n")
             hasProcessed = true
         } else if !hasProcessed && progress.contains("\n") && !progress.contains("\n >") {
+            updatedProgress = updatedProgress.replacingOccurrences(of: thinkingPrefix, with: "\n")
             updatedProgress = updatedProgress.replacingOccurrences(of: "\n", with: "\n > ")
         }
         

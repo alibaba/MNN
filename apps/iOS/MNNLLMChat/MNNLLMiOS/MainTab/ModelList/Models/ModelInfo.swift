@@ -8,7 +8,7 @@
 import Hub
 import Foundation
 
-struct ModelInfo: Codable {
+struct ModelInfo: Codable, Hashable {
     // MARK: - Properties
     let modelName: String
     let tags: [String]
@@ -92,6 +92,7 @@ struct ModelInfo: Codable {
     // MARK: - File System & Path Management
     
     var localPath: String {
+        
         // Check if this is a local model from LocalModel folder or Bundle root
         if let sources = sources, let localSource = sources["local"] {
             guard let bundlePath = Bundle.main.resourcePath else {
@@ -115,6 +116,9 @@ struct ModelInfo: Codable {
                     return (localModelPath as NSString).appendingPathComponent(modelName)
                 }
             }
+        } else if let sources = sources, let localSource = sources["huggingface"], localSource.contains("local") {
+            guard let bundlePath = Bundle.main.resourcePath else { return "" }
+            return bundlePath
         } else {
             // For downloaded models, use the original Hub API path
             let modelScopeId = "taobao-mnn/\(modelName)"

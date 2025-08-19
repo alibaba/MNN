@@ -71,11 +71,14 @@ class ModelListViewModel: ObservableObject {
             
             if !foundModelFiles.isEmpty {
                 // Check if we have a complete model (at least config.json)
-                if foundModelFiles.contains("config.json") {
+                if foundModelFiles.contains("llm.mnn") {
+                    // MARK: Config the Local Model here
                     let modelName = "Qwen3-0.6B-MNN-Inside"
                     let localModel = ModelInfo(
                         modelName: modelName,
-                        tags: [NSLocalizedString("tag.deepThinking", comment: "Deep thinking tag for local model"),
+                        tags: [
+                            // MARK: if you know that model support think, uncomment the line
+                             NSLocalizedString("tag.deepThinking", comment: "Deep thinking tag for local model"),
                                NSLocalizedString("tag.localModel", comment: "Local model inside the app")],
                         categories: ["Local Models"],
                         vendor: "Local",
@@ -442,6 +445,14 @@ class ModelListViewModel: ObservableObject {
             // Re-sort models after unpinning
             sortModels(fetchedModels: &models)
         }
+    }
+    
+    // MARK: - Error Management
+    
+    @MainActor
+    func dismissError() {
+        showError = false
+        errorMessage = ""
     }
     
     // MARK: - Model Deletion
