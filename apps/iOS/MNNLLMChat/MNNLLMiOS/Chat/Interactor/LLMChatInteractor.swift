@@ -135,12 +135,12 @@ final class LLMChatInteractor: ChatInteractorProtocol {
     }
 
     func connect() {
-        Timer.publish(every: 2, on: .main, in: .default)
-            .autoconnect()
-            .sink { [weak self] _ in
-                self?.updateSendingStatuses()
-            }
-            .store(in: &subscriptions)
+//        Timer.publish(every: 2, on: .main, in: .default)
+//            .autoconnect()
+//            .sink { [weak self] _ in
+//                self?.updateSendingStatuses()
+//            }
+//            .store(in: &subscriptions)
     }
 
     func disconnect() {

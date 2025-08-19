@@ -226,7 +226,8 @@ final class LLMChatViewModel: ObservableObject {
                           imagePath: tempImagePath, 
                          iterations: Int32(userIterations), 
                                seed: Int32(userSeed),
-                    progressCallback: {progress in
+                    progressCallback: { [weak self] progress in
+                guard let self = self else { return }
                 if progress == 100 {
                     self.send(draft: DraftMessage(text: "Image generated successfully!", thinkText: "", medias: [], recording: nil, replyMessage: nil, createdAt: Date()), userType: .system)
                     self.interactor.sendImage(imageURL: URL(string: "file://" + tempImagePath)!)
@@ -285,9 +286,10 @@ final class LLMChatViewModel: ObservableObject {
                 guard let self = self else { return }
                 
                 if output.contains("<eop>") {
-                    // force flush
+                    
                     Task {
-                        await UIUpdateOptimizer.shared.forceFlush { finalOutput in
+                        await UIUpdateOptimizer.shared.forceFlush { [weak self] finalOutput in
+                            guard let self = self else { return }
                             if !finalOutput.isEmpty {
                                 self.send(draft: DraftMessage(
                                     text: finalOutput,
@@ -312,8 +314,10 @@ final class LLMChatViewModel: ObservableObject {
                     }
                     return
                 }
-                Task { @MainActor in
-                await UIUpdateOptimizer.shared.addUpdate(output) { output in
+                
+                Task { 
+                    await UIUpdateOptimizer.shared.addUpdate(output) { [weak self] output in
+                        guard let self = self else { return }
                         self.send(draft: DraftMessage(
                             text: output,
                             thinkText: "",
@@ -371,12 +375,16 @@ final class LLMChatViewModel: ObservableObject {
     }
     
     func onStart() {
+        
         interactor.messages
-            .compactMap { messages in
+            .map { messages in
                 messages.map { $0.toChatMessage() }
             }
-            .assign(to: &$messages)
-
+            .sink { messages in
+                self.messages = messages
+            }
+            .store(in: &subscriptions)
+        
         interactor.connect()
         
         self.setupLLM(modelPath: self.modelInfo.localPath)
