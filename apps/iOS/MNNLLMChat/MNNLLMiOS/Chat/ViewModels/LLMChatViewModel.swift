@@ -76,16 +76,8 @@ final class LLMChatViewModel: ObservableObject {
         self.useMmap = self.modelConfigManager.readUseMmap()
         
         // Check if model supports thinking mode
-        self.supportsThinkingMode = ModelUtils.isSupportThinkingSwitch(modelInfo.tags)
+        self.supportsThinkingMode = ModelUtils.isSupportThinkingSwitch(modelInfo.tags, modelName: modelInfo.modelName)
         
-        // Initialize thinking mode state
-        if self.supportsThinkingMode {
-            interactor.isThinkingModeEnabled = true
-            self.isThinkingModeEnabled = true
-        } else {
-            interactor.isThinkingModeEnabled = false
-            self.isThinkingModeEnabled = false
-        }
     }
     
     deinit {
@@ -104,10 +96,8 @@ final class LLMChatViewModel: ObservableObject {
         guard supportsThinkingMode else { return }
         
         isThinkingModeEnabled.toggle()
-        interactor.isThinkingModeEnabled = isThinkingModeEnabled
         
-        // Update the LLM engine's thinking mode
-        llm?.setThinkingModeEnabled(isThinkingModeEnabled)
+        self.configureThinkingMode()
         
         print("Think mode toggled to: \(isThinkingModeEnabled)")
     }
@@ -152,7 +142,9 @@ final class LLMChatViewModel: ObservableObject {
     private func configureThinkingMode() {
         guard let llm = llm, supportsThinkingMode else { return }
         
-        llm.setThinkingModeEnabled(isThinkingModeEnabled)
+        if self.supportsThinkingMode {
+            llm.setThinkingModeEnabled(isThinkingModeEnabled)
+        }
         
         print("Thinking mode configured: \(isThinkingModeEnabled)")
     }

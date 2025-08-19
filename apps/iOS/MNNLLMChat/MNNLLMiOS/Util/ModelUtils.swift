@@ -12,9 +12,10 @@ class ModelUtils {
     /// Check if the model supports thinking mode switching
     /// - Parameter tags: Model tags
     /// - Returns: Whether thinking mode switching is supported
-    static func isSupportThinkingSwitch(_ tags: [String]) -> Bool {
-        return tags.contains(where: { $0.localizedCaseInsensitiveContains("Think") }) || 
-               tags.contains(where: { $0.localizedCaseInsensitiveContains("思考") })
+    static func isSupportThinkingSwitch(_ tags: [String], modelName: String) -> Bool {
+        
+        return isQwen3(modelName) && !modelName.contains("2507") && (tags.contains(where: { $0.localizedCaseInsensitiveContains("Think") }) ||
+               tags.contains(where: { $0.localizedCaseInsensitiveContains("思考") }))
     }
     
     /// Check if it's an R1 model
