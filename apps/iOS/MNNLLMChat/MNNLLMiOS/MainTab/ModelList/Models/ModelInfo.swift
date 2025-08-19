@@ -8,7 +8,7 @@
 import Hub
 import Foundation
 
-struct ModelInfo: Codable {
+struct ModelInfo: Codable, Hashable {
     // MARK: - Properties
     let modelName: String
     let tags: [String]
