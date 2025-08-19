@@ -8,7 +8,7 @@
 
 import ExyteChat
 
-struct ChatHistory: Codable, Identifiable {
+struct ChatHistory: Codable, Identifiable, Hashable {
     let id: String
     let modelId: String
     let modelName: String
@@ -17,7 +17,7 @@ struct ChatHistory: Codable, Identifiable {
     var updatedAt: Date
 }
 
-struct HistoryMessage: Codable {
+struct HistoryMessage: Codable, Hashable {
     let id: String
     let content: String
     let images: [LLMChatImage]?

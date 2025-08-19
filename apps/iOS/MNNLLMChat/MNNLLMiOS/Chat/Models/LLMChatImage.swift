@@ -8,7 +8,7 @@
 import SwiftUI
 import ExyteChat
 
-struct LLMChatImage: Codable {
+struct LLMChatImage: Codable, Hashable {
     let id: String
     let thumbnail: URL
     let full: URL
