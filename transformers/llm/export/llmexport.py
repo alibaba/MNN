@@ -37,6 +37,7 @@ class LlmExporter(torch.nn.Module):
         self.audio = None
         self.talker = None
         self.mtp = None
+        self.scale_emb = None
         self.args = args
         self.max_length = 1024
         self.stop_ids = []
@@ -224,7 +225,6 @@ class LlmExporter(torch.nn.Module):
             self.llm_config['jinja'] = prompt_template['jinja']
         # load modules
         ModelMapper.do_map(self, self.model, self.model_map['model'])
-
         # rebuild modules
         if self.lm_ is None:
             out_features, in_features = self.embed_.weight.shape
@@ -244,12 +244,15 @@ class LlmExporter(torch.nn.Module):
             self.embed = Embedding(embed_copy, self)
         else:
             self.embed = Embedding(self.embed_, self)
-
         # tie word embeddings
         self.tie_word_embeddings = not self.args.seperate_embed and self.lm_.weight.equal(self.embed_.weight)
         if self.tie_word_embeddings:
             print("Tie word embeddings in lm, set lm quant bit to 8")
             self.args.lm_quant_bit = 8
+
+        if 'gemma' in self.model_type:
+            self.scale_emb = self.embed.embed_scale
+
         # Rotary
         self.rotary = Rotary(self)
         self.blocks = []
@@ -372,11 +375,8 @@ class LlmExporter(torch.nn.Module):
                 cross_attention_mask: Optional[torch.Tensor] = None,
                 ):
         hidden_states = input_ids # llm forward without embedding
-        if self.model_type == 'gemma':
-            normalizer = torch.tensor(self.hidden_size**0.5, dtype=hidden_states.dtype)
-            hidden_states = hidden_states * normalizer
-        if self.model_type == 'gemma3' or self.model_type == 'gemma3_text': # if --test, comments these
-            hidden_states = hidden_states * self.embed.embed_scale
+        if self.scale_emb is not None:
+            hidden_states = hidden_states * self.scale_emb
         presents = [None for i in range(len(self.blocks))]
         rotary_pos_emb = self.rotary(position_ids)
         if self.args.test and rotary_pos_emb.dtype != hidden_states.dtype:
@@ -528,6 +528,13 @@ class LlmExporter(torch.nn.Module):
         return template
 
     def build_prompt(self, messages):
+        if hasattr(self.tokenizer, 'apply_chat_template'):
+            prompt = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+            return prompt
         template = self.build_prompt_template()
         prompt = template['bos']
         for item in messages:
@@ -951,9 +958,12 @@ class LlmExporter(torch.nn.Module):
             # add special tokens to vocab_list
             for index in special_list:
                 if index >= len(vocab_list):
-                    token = self.tokenizer.decode(index)
-                    token_encode = base64.b64encode(token.encode("utf-8")).decode("utf8")
-                    vocab_list.append(f'{token_encode} {0} {NORMAL}\n')
+                    try:
+                        token = self.tokenizer.decode(index)
+                        token_encode = base64.b64encode(token.encode("utf-8")).decode("utf8")
+                        vocab_list.append(f'{token_encode} {0} {NORMAL}\n')
+                    except:
+                        pass
             with open(file_path, "w", encoding="utf8") as fp:
                 write_header(fp, SENTENCEPIECE, special_list, prefix_list)
                 if self.model_type == "gemma3" or self.model_type == "gemma3-text":

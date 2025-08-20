@@ -114,11 +114,13 @@ public:
     std::vector<int> defaultVisionProcess(VARP image);
     std::vector<int> qwen2VisionProcess(VARP image);
     std::vector<int> smolvlmVisionProcess(VARP image);
+    std::vector<int> minicpmVisionProcess(VARP image);
 private:
     int mVisionHeight = 448, mVisionWidth = 448, mVisionStart = 151857,
         mVisionEnd = 151858, mVisionPad = 151859, mAudioPad = 151646;
     int mVisionGlobal = 49152;
     int mVisionSizeUnit = 1, mVisionMaxSize = 2048;
+    int mVisionNum = 0;
     std::vector<float> mVisionMean{122.7709383, 116.7460125, 104.09373615};
     std::vector<float> mVisionNorm{0.01459843, 0.01500777, 0.01422007};
     std::vector<int> multimodeProcess(const std::string& mode, std::string info);
