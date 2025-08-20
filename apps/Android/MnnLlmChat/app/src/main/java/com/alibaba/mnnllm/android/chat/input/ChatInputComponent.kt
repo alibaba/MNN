@@ -30,8 +30,10 @@ import java.util.Date
 class ChatInputComponent(
     private val chatActivity: ChatActivity,
     private val binding: ActivityChatBinding,
+    modelId:String,
     modelName: String,
 ) {
+    private var currentModelId: String = modelId
     private var currentModelName: String = modelName
     private var onStopGenerating: (() -> Unit)? = null
     private var onThinkingModeChanged: ((Boolean) -> Unit)? = null
@@ -59,7 +61,9 @@ class ChatInputComponent(
     /**
      * Update the model name and refresh related UI components
      */
-    fun updateModel(newModelName: String) {
+    fun updateModel(newModelId:String, newModelName: String) {
+        val oldModelId = currentModelId
+        currentModelId = newModelId
         val oldModelName = currentModelName
         currentModelName = newModelName
         
@@ -70,11 +74,10 @@ class ChatInputComponent(
         updateAudioOutput()
         
         // Update attachment picker if model capabilities changed
-        if (ModelUtils.isVisualModel(oldModelName) != ModelUtils.isVisualModel(newModelName) ||
-            ModelUtils.isAudioModel(oldModelName) != ModelUtils.isAudioModel(newModelName)) {
+        if (ModelUtils.isVisualModel(oldModelId) != ModelUtils.isVisualModel(newModelId) ||
+            ModelUtils.isAudioModel(oldModelId) != ModelUtils.isAudioModel(newModelId)) {
             setupAttachmentPickerModule()
         }
-        
         // Update voice recording module
         voiceRecordingModule.updateModel(newModelName)
         
@@ -211,7 +214,7 @@ class ChatInputComponent(
     private fun setupAttachmentPickerModule() {
         imageMore = binding.btPlus
         buttonSwitchVoice = binding.btSwitchAudio
-        if (!ModelUtils.isVisualModel(currentModelName) && !ModelUtils.isAudioModel(currentModelName!!)) {
+        if (!ModelUtils.isVisualModel(currentModelId) && !ModelUtils.isAudioModel(currentModelId)) {
             imageMore.setVisibility(View.GONE)
             return
         }

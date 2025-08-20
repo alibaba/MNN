@@ -93,7 +93,7 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
 
         if (currentFilterState.modality != null) {
             filteredList = filteredList.filter { wrapper ->
-                Modality.checkModality(wrapper.modelMarketItem.modelName.lowercase(),
+                Modality.checkModality(wrapper.modelMarketItem.modelId.lowercase(),
                     currentFilterState.modality!!
                 )
             }

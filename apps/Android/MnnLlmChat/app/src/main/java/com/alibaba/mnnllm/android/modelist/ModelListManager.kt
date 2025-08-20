@@ -3,7 +3,7 @@ package com.alibaba.mnnllm.android.modelist
 import android.content.Context
 import android.util.Log
 import com.alibaba.mls.api.ModelItem
-import com.alibaba.mls.api.ModelTagsCache
+import com.alibaba.mnnllm.android.tag.ModelTagsCache
 import com.alibaba.mnnllm.android.chat.model.ChatDataManager
 import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.modelmarket.ModelRepository
@@ -18,6 +18,48 @@ import com.alibaba.mnnllm.android.utils.PreferenceUtils
 
 object ModelListManager {
     private const val TAG = "ModelListManager"
+
+    // Map to store modelId to ModelItem mapping for external access
+    private val modelIdModelMap = mutableMapOf<String, ModelItem>()
+
+    /**
+     * Get the model map for external use
+     */
+    fun getModelIdModelMap(): Map<String, ModelItem> {
+        return modelIdModelMap
+    }
+
+    /**
+     * Get model tags for a specific model by modelId
+     */
+    fun getModelTags(modelId: String): List<String> {
+        val modelItem = modelIdModelMap[modelId]
+        return modelItem?.getTags() ?: emptyList()
+    }
+
+    /**
+     * Check if a model is a thinking model by examining its tags
+     */
+    fun isThinkingModel(modelId: String): Boolean {
+        val tags = getModelTags(modelId)
+        return ModelUtils.isThinkingModelByTags(tags)
+    }
+
+    /**
+     * Check if a model is a visual model by examining its tags
+     */
+    fun isVisualModel(modelId: String): Boolean {
+        val tags = getModelTags(modelId)
+        return ModelUtils.isVisualModelByTags(tags)
+    }
+
+    /**
+     * Check if a model is an audio model by examining its tags
+     */
+    fun isAudioModel(modelId: String): Boolean {
+        val tags = getModelTags(modelId)
+        return ModelUtils.isAudioModelByTags(tags)
+    }
 
     /**
      * Load all available models (downloaded + local) wrapped with their info
@@ -121,6 +163,11 @@ object ModelListManager {
                 }
             )
             Log.d(TAG, "loadAvailableModels sort complte: Found ${sortedModels.size} total models")
+            // Clear and cache modelId model to a map
+            modelIdModelMap.clear()
+            sortedModels.forEach {
+                modelIdModelMap[it.modelItem.modelId!!] = it.modelItem
+            }
             return@withContext sortedModels
         } catch (e: Exception) {
             Log.e(TAG, "Error loading available models", e)

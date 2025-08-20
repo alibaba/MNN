@@ -36,7 +36,7 @@ class AttachmentPickerModule(private val activity: ChatActivity) {
         val modelName = activity.modelName
         takePhotoView = activity.findViewById(R.id.more_item_camera)
         chooseImageView = activity.findViewById(R.id.more_item_photo)
-        if (ModelUtils.isVisualModel(modelName)) {
+        if (ModelUtils.isVisualModel(activity.modelId!!)) {
             takePhotoView.setOnClickListener { v: View? -> takePhoto() }
             chooseImageView.setOnClickListener { v: View? -> chooseImageView() }
         } else {
@@ -44,19 +44,12 @@ class AttachmentPickerModule(private val activity: ChatActivity) {
             chooseImageView.visibility = View.GONE
         }
         val chooseAudioView = activity.findViewById<View>(R.id.more_item_audio)
-        if (ModelUtils.isAudioModel(modelName)) {
+        if (ModelUtils.isAudioModel(activity.modelId!!)) {
             chooseAudioView.setOnClickListener { v: View? -> chooseAudio() }
         } else {
             chooseAudioView.visibility = View.GONE
         }
-
-        // Voice chat menu item - show for all models except diffusion
         val voiceChatView = activity.findViewById<View>(R.id.more_item_voice_chat)
-//        if (!ModelUtils.isDiffusionModel(modelName)) {
-//            voiceChatView.setOnClickListener { v: View? -> startVoiceChat() }
-//        } else {
-//            voiceChatView.visibility = View.GONE
-//        }
         //disable temporary
         voiceChatView.visibility = View.GONE
         attachmentPreview = activity.findViewById(R.id.image_preview)

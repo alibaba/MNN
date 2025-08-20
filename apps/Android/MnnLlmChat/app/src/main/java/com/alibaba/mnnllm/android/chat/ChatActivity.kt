@@ -75,7 +75,7 @@ class ChatActivity : AppCompatActivity() {
     private val _isGenerating = MutableStateFlow(false)
     private var layoutModelLoading: View? = null
     var modelName: String = ""
-    private var modelId: String? = null
+    var modelId: String? = null
     private var currentUserMessage: ChatDataItem? = null
     private var sessionName: String? = null
     private lateinit var binding: ActivityChatBinding
@@ -140,7 +140,7 @@ class ChatActivity : AppCompatActivity() {
         
         chatPresenter = ChatPresenter(this, modelName, modelId)
         setChatPresenter(chatPresenter)
-        chatInputModule = ChatInputComponent(this, binding, modelName)
+        chatInputModule = ChatInputComponent(this, binding, modelId, modelName)
         setupChatListComponent()
         setupInputModule()
         binding.modelSwitcher.text = modelName
@@ -770,14 +770,8 @@ class ChatActivity : AppCompatActivity() {
 //            binding.modelSwitcher.setBackgroundResource(R.drawable.bg_rounded_dropdown)
             dropdownArrow?.visibility = View.VISIBLE
         }
-        
-        // Update existing chat input component instead of recreating it
-        chatInputModule?.updateModel(selectedModelName)
-        
-        // Update chat list component
+        chatInputModule?.updateModel(selectedModelId, selectedModelName)
         chatListComponent.updateModel(selectedModelName)
-        
-        // Note: ChatPresenter model update is handled in switchModel method
     }
 
     companion object {

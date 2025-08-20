@@ -1,7 +1,7 @@
 {
     "version": "4",
     "tagTranslations": {
-        "Vision": "图片理解",
+        "Vision": "图像理解",
         "Video": "视频理解",
         "Audio": "音频理解",
         "Code": "代码",
@@ -37,9 +37,78 @@
         "InternLM",
         "01.AI",
         "Hunyuan",
-        "MiniCPM"
+        "MiniCPM",
+        "Lingshu"
     ],
     "models": [
+        {
+            "modelName": "WebSailor-3B-MNN",
+            "tags": [
+            ],
+            "categories": [
+                "recommended",
+                "qwen"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/WebSailor-3B-MNN",
+                "ModelScope": "MNN/WebSailor-3B-MNN"
+            },
+            "size_gb": 7,
+            "vendor": "Qwen",
+            "file_size": 2089778449
+        },
+        {
+            "modelName": "Lingshu-7B-MNN",
+            "tags": [
+                "Vision"
+            ],
+            "categories": [
+                "recommended",
+                "qwen"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/Lingshu-7B-MNN",
+                "ModelScope": "MNN/Lingshu-7B-MNN"
+            },
+            "size_gb": 7,
+            "vendor": "Lingshu",
+            "file_size": 5890502337
+        },
+        {
+            "modelName": "MiniCPM-V-4-MNN",
+            "tags": [
+                "Vision"
+            ],
+            "categories": [
+                "recommended",
+                "qwen"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/MiniCPM-V-4-MNN",
+                "ModelScope": "MNN/MiniCPM-V-4-MNN",
+                "Modelers": "MNN/MiniCPM-V-4-MNN"
+            },
+            "size_gb": 4.1,
+            "vendor": "MiniCPM",
+            "file_size": 2834668967
+        },
+        {
+            "modelName": "gemma-3-270m-it-MNN",
+            "tags": [
+            ],
+            "categories": [
+                "recommended",
+                "qwen"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/gemma-3-270m-it-MNN",
+                "ModelScope": "MNN/gemma-3-270m-it-MNN",
+                "Modelers": "MNN/gemma-3-270m-it-MNN"
+            },
+            "size_gb": 0.27,
+            "vendor": "Gemma",
+            "file_size": 308727585
+        },
         {
             "modelName": "MiniCPM4-0.5B-MNN",
             "tags": [
