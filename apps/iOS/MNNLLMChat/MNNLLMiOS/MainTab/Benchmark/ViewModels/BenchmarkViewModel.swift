@@ -80,7 +80,7 @@ class BenchmarkViewModel: ObservableObject {
                 
                 // Filter only downloaded models that are available locally
                 availableModels = allModels.filter { model in
-                    model.isDownloaded && model.localPath != nil
+                    model.isDownloaded && model.localPath != ""
                 }
                 
                 print("BenchmarkViewModel: Loaded \(availableModels.count) available local models")

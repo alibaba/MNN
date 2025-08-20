@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import Combine
 
 /**
  * Observable class representing a single benchmark test instance.

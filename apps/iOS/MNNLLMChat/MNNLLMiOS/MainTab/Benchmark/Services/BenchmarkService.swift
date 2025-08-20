@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import Combine
 
 /**
  * Protocol defining callback methods for benchmark execution events.
