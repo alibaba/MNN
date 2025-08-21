@@ -14,6 +14,7 @@ struct ModelInfo: Codable, Hashable {
     let tags: [String]
     let categories: [String]?
     let size_gb: Double?
+    let file_size: Double?
     let vendor: String?
     let sources: [String: String]?
     let tagTranslations: [String: [String]]?
@@ -29,6 +30,7 @@ struct ModelInfo: Codable, Hashable {
          tags: [String] = [],
          categories: [String]? = nil,
          size_gb: Double? = nil,
+         file_size: Double? = nil,
          vendor: String? = nil,
          sources: [String: String]? = nil,
          tagTranslations: [String: [String]]? = nil,
@@ -40,6 +42,7 @@ struct ModelInfo: Codable, Hashable {
         self.tags = tags
         self.categories = categories
         self.size_gb = size_gb
+        self.file_size = file_size
         self.vendor = vendor
         self.sources = sources
         self.tagTranslations = tagTranslations
@@ -129,12 +132,13 @@ struct ModelInfo: Codable, Hashable {
     // MARK: - Size Calculation & Formatting
     
     var formattedSize: String {
-        if let cached = cachedSize {
+        if var fileSize = file_size, fileSize > 0 {
+            fileSize = Double(fileSize) / 1024.0 / 1024.0 / 1024.0
+            return String(format: "%.1f GB", fileSize)
+        } else if let cached = cachedSize {
             return FileOperationManager.shared.formatBytes(cached)
         } else if isDownloaded {
             return FileOperationManager.shared.formatLocalDirectorySize(at: localPath)
-        } else if let sizeGb = size_gb {
-            return String(format: "%.1f GB", sizeGb)
         } else {
             return "None"
         }
@@ -235,6 +239,6 @@ struct ModelInfo: Codable, Hashable {
     // MARK: - Codable
     
     private enum CodingKeys: String, CodingKey {
-        case modelName, tags, categories, size_gb, vendor, sources, tagTranslations, cachedSize
+        case modelName, tags, categories, size_gb, file_size, vendor, sources, tagTranslations, cachedSize
     }
 }
