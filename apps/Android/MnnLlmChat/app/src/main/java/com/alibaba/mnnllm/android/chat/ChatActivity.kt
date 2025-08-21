@@ -423,14 +423,7 @@ class ChatActivity : AppCompatActivity() {
         }
     }
 
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<String>,
-        grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        this.chatInputModule!!.onRequestPermissionsResult(requestCode, permissions, grantResults)
-    }
+
 
     private fun handleNewSession() {
         if (!isGenerating) {
@@ -456,6 +449,20 @@ class ChatActivity : AppCompatActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         this.chatInputModule!!.handleResult(requestCode, resultCode, data)
+    }
+    
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        // Forward permission results to the attachment picker module
+        this.chatInputModule?.let { inputModule ->
+            if (inputModule is ChatInputComponent) {
+                inputModule.attachmentPickerModule?.onRequestPermissionsResult(requestCode, permissions, grantResults)
+            }
+        }
     }
 
     private suspend fun handleSendMessage(userData: ChatDataItem): HashMap<String, Any> {

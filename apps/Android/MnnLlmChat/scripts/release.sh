@@ -144,7 +144,7 @@ build_googleplay_release() {
     ./gradlew bundleGoogleplayRelease
     
     # Copy AAB to output directory
-    AAB_PATH="$BUILD_DIR/outputs/bundle/googleplay/release/app-googleplay-release.aab"
+    AAB_PATH="$BUILD_DIR/outputs/bundle/googleplayRelease/app-googleplay-release.aab"
     if [[ -f "$AAB_PATH" ]]; then
         cp "$AAB_PATH" "$GOOGLE_PLAY_DIR/"
         log_success "Google Play release AAB built: $GOOGLE_PLAY_DIR/app-googleplay-release.aab"

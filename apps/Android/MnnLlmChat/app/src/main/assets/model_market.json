@@ -1,5 +1,5 @@
 {
-    "version": "4",
+    "version": "5",
     "tagTranslations": {
         "Vision": "图像理解",
         "Video": "视频理解",
@@ -91,23 +91,6 @@
             "size_gb": 4.1,
             "vendor": "MiniCPM",
             "file_size": 2834668967
-        },
-        {
-            "modelName": "gemma-3-270m-it-MNN",
-            "tags": [
-            ],
-            "categories": [
-                "recommended",
-                "qwen"
-            ],
-            "sources": {
-                "HuggingFace": "taobao-mnn/gemma-3-270m-it-MNN",
-                "ModelScope": "MNN/gemma-3-270m-it-MNN",
-                "Modelers": "MNN/gemma-3-270m-it-MNN"
-            },
-            "size_gb": 0.27,
-            "vendor": "Gemma",
-            "file_size": 308727585
         },
         {
             "modelName": "MiniCPM4-0.5B-MNN",
@@ -348,8 +331,7 @@
             ],
             "sources": {
                 "HuggingFace": "taobao-mnn/ERNIE-4.5-0.3B-PT-MNN",
-                "ModelScope": "MNN/ERNIE-4.5-0.3B-PT-MNN",
-                "Modelers": "MNN/ERNIE-4.5-0.3B-PT-MNN"
+                "ModelScope": "MNN/ERNIE-4.5-0.3B-PT-MNN"
             },
             "size_gb": 0.3,
             "vendor": "ERNIE",

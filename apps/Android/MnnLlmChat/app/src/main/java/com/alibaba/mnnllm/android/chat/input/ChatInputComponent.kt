@@ -42,7 +42,7 @@ class ChatInputComponent(
     private lateinit var editUserMessage: EditText
     private var buttonSend: ImageView = binding.btnSend
     private lateinit var imageMore: ImageView
-    private var attachmentPickerModule: AttachmentPickerModule? = null
+    var attachmentPickerModule: AttachmentPickerModule? = null
     private lateinit var voiceRecordingModule: VoiceRecordingModule
     private var currentUserMessage: ChatDataItem? = null
     private var buttonSwitchVoice: View? = null
@@ -335,6 +335,9 @@ class ChatInputComponent(
             } else {
                 voiceRecordingModule.handlePermissionDenied()
             }
+        } else if (attachmentPickerModule != null && 
+                   requestCode == AttachmentPickerModule.REQUEST_CODE_CAMERA_PERMISSION) {
+            attachmentPickerModule!!.onRequestPermissionsResult(requestCode, permissions, grantResults)
         }
     }
 

@@ -54,6 +54,13 @@
     <string name="diffusion_generate_progress">图片生成进度: %1$s%%</string>
     <string name="no_history">没有历史记录，请在模型列表页面选择模型聊天</string>
     <string name="recording_permission_denied">请允许录音权限</string>
+    <string name="camera_permission_denied">需要相机权限才能拍照</string>
+    <string name="camera_permission_rationale">需要相机权限来为聊天拍照</string>
+    <string name="no_camera_app_found">此设备上没有找到相机应用</string>
+    <string name="file_manager_required">请安装文件管理器</string>
+    <string name="audio_file_failed">获取音频文件失败</string>
+    <string name="select_picture">选择图片</string>
+    <string name="select_wav_file">选择 WAV 文件</string>
     <string name="release_to_send">松开发送，上滑取消</string>
     <string name="release_to_cancel">松开取消</string>
     <string name="r1_thinking_message">思考中…</string>
