@@ -1160,10 +1160,7 @@ ErrorCode ConvFpAIntBExecution::onResize(const std::vector<Tensor*> &inputs, con
         pool->free(buffer);
     }
 
-    if (mDequantFilterTensor) {
-        backend()->onReleaseBuffer(mDequantFilterTensor.get(), Backend::STATIC);
-        mDequantFilterTensor = nullptr;
-    }
+    mDequantFilterTensor = nullptr;
 
     // 运行时离线反量化
     if (!mFp32Infer) {
@@ -1174,49 +1171,12 @@ ErrorCode ConvFpAIntBExecution::onResize(const std::vector<Tensor*> &inputs, con
             } else {
                 mDequantFilterTensor.reset(Tensor::createDevice<float>(dequantShape));
             }
-            backend()->onAcquireBuffer(mDequantFilterTensor.get(), Backend::STATIC);
-            mDequantFilter = (void*)mDequantFilterTensor->buffer().device;
-            
-            mFilterAddr = mDequantFilter;
+            backend()->onAcquireBuffer(mDequantFilterTensor.get(), Backend::DYNAMIC);
+            backend()->onReleaseBuffer(mDequantFilterTensor.get(), Backend::DYNAMIC);
             mBiasAddr   = mResource->mBias;
             mBackendPtr = mResource->mBackend;
-    
-            cuda_check(cudaMemset(mDequantFilter, 0, mDequantFilterTensor->size()));
-    
-            if (mResource->mIsWeightInt4) {
-                dim3 threads(32, 32);
-                dim3 blocks(UP_DIV(ic, threads.x), UP_DIV(oc, threads.y));
-                if (mFp16Infer) {
-                    DequantizeInt4Weight<half, half><<<blocks, threads>>>(
-                        (const uint8_t*)mResource->mFilter, (half*)mDequantFilter,
-                        (const half*)mResource->mScale, (const half*)mResource->mOffset,
-                        oc, ic, icp, mResource->mQuanC
-                    );
-                } else if (mFp16Fp32MixInfer) {
-                    DequantizeInt4Weight<float, half><<<blocks, threads>>>(
-                        (const uint8_t*)mResource->mFilter, (half*)mDequantFilter,
-                        (const float*)mResource->mScale, (const float*)mResource->mOffset,
-                        oc, ic, icp, mResource->mQuanC
-                    );
-                }
-            } else {
-                dim3 threads(32, 32);
-                dim3 blocks(UP_DIV(ic, threads.x), UP_DIV(oc, threads.y));
-                if (mFp16Infer) {
-                    DequantizeInt8Weight<half, half><<<blocks, threads>>>(
-                        (const int8_t*)mResource->mFilter, (half*)mDequantFilter,
-                        (const half*)mResource->mScale, (const half*)mResource->mOffset,
-                        oc, ic, icp, mResource->mQuanC
-                    );
-                } else if (mFp16Fp32MixInfer) {
-                    DequantizeInt8Weight<float, half><<<blocks, threads>>>(
-                        (const int8_t*)mResource->mFilter, (half*)mDequantFilter,
-                        (const float*)mResource->mScale, (const float*)mResource->mOffset,
-                        oc, ic, icp, mResource->mQuanC
-                    );
-                }
-            }
-    
+            mDequantFilter = (void*)mDequantFilterTensor->buffer().device;            
+            mFilterAddr = mDequantFilter;
             if (mFp32Infer) {
                 return callCutlassGemmCudaCoreFloat32(inputs, outputs);
             }
@@ -1287,6 +1247,44 @@ ErrorCode ConvFpAIntBExecution::onExecute(const std::vector<Tensor*> &inputs, co
     DivModFast d_oh(oh);
 
     const int batch = inputs[0]->batch();
+    if (mDequantFilterTensor != nullptr) {
+        cuda_check(cudaMemset(mDequantFilter, 0, mDequantFilterTensor->size()));
+
+        if (mResource->mIsWeightInt4) {
+            dim3 threads(32, 32);
+            dim3 blocks(UP_DIV(ic, threads.x), UP_DIV(oc, threads.y));
+            if (mFp16Infer) {
+                DequantizeInt4Weight<half, half><<<blocks, threads>>>(
+                    (const uint8_t*)mResource->mFilter, (half*)mDequantFilter,
+                    (const half*)mResource->mScale, (const half*)mResource->mOffset,
+                    oc, ic, icp, mResource->mQuanC
+                );
+            } else if (mFp16Fp32MixInfer) {
+                DequantizeInt4Weight<float, half><<<blocks, threads>>>(
+                    (const uint8_t*)mResource->mFilter, (half*)mDequantFilter,
+                    (const float*)mResource->mScale, (const float*)mResource->mOffset,
+                    oc, ic, icp, mResource->mQuanC
+                );
+            }
+        } else {
+            dim3 threads(32, 32);
+            dim3 blocks(UP_DIV(ic, threads.x), UP_DIV(oc, threads.y));
+            if (mFp16Infer) {
+                DequantizeInt8Weight<half, half><<<blocks, threads>>>(
+                    (const int8_t*)mResource->mFilter, (half*)mDequantFilter,
+                    (const half*)mResource->mScale, (const half*)mResource->mOffset,
+                    oc, ic, icp, mResource->mQuanC
+                );
+            } else if (mFp16Fp32MixInfer) {
+                DequantizeInt8Weight<float, half><<<blocks, threads>>>(
+                    (const int8_t*)mResource->mFilter, (half*)mDequantFilter,
+                    (const float*)mResource->mScale, (const float*)mResource->mOffset,
+                    oc, ic, icp, mResource->mQuanC
+                );
+            }
+        }
+    }
+
     
     if(mResource->mIsWeightInt4) {
         if (mIsConv1x1S1D1P0) {
