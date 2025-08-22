@@ -9,6 +9,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <iomanip>
 #include <unordered_set>
 
 #include <MNN/AutoTime.hpp>
@@ -97,11 +98,44 @@ bool Llm::set_config(const std::string& content) {
     return res;
 }
 
+std::string Llm::get_statistics() {
+    auto context = getContext();
+    int prompt_len = context->prompt_len;
+    int decode_len = context->gen_seq_len;
+    int64_t vision_time = context->vision_us;
+    int64_t audio_time = context->audio_us;
+    int64_t prefill_time = context->prefill_us;
+    int64_t decode_time = context->decode_us;
+    int64_t sample_time = context->sample_us;
+    float vision_s = vision_time / 1e6;
+    float audio_s = audio_time / 1e6;
+    float prefill_s = prefill_time / 1e6;
+    float decode_s = decode_time / 1e6;
+    float sample_s = sample_time / 1e6;
+    float prefill_speed = (prefill_s > 0.0f) ? (prompt_len / prefill_s) : 0.0f;
+    float decode_speed = (decode_s > 0.0f) ? (decode_len / decode_s) : 0.0f;
+
+    std::ostringstream json_stream;
+    json_stream << "{"
+                << "\"prompt_tokens\":" << prompt_len << ","
+                << "\"decode_tokens\":" << decode_len << ","
+                << "\"vision_time\":" << std::fixed << std::setprecision(2) << vision_s << ","
+                << "\"audio_time\":" << std::fixed << std::setprecision(2) << audio_s << ","
+                << "\"prefill_time\":" << std::fixed << std::setprecision(2) << prefill_s << ","
+                << "\"decode_time\":" << std::fixed << std::setprecision(2) << decode_s << ","
+                << "\"sample_time\":" << std::fixed << std::setprecision(2) << sample_s << ","
+                << "\"prefill_speed\":" << std::fixed << std::setprecision(2) << prefill_speed << ","
+                << "\"decode_speed\":" << std::fixed << std::setprecision(2) << decode_speed
+                << "}";
+
+    return json_stream.str();
+}
+
 void Llm::setRuntimeHint(std::shared_ptr<Express::Executor::RuntimeManager> &rtg) {
     rtg->setHint(MNN::Interpreter::INIT_THREAD_NUMBER, 4);
 
     rtg->setHint(MNN::Interpreter::MEM_ALLOCATOR_TYPE, 0);
-    rtg->setHint(MNN::Interpreter::QKV_QUANT_OPTIONS, mConfig->quant_qkv());
+    rtg->setHint(MNN::Interpreter::QKV_QUANT_OPTIONS, mConfig->config_.value("quant_qkv", 8));
     rtg->setHint(MNN::Interpreter::KVCACHE_SIZE_LIMIT, mConfig->kvcache_limit());
     if (mConfig->use_cached_mmap()) {
         rtg->setHint(MNN::Interpreter::USE_CACHED_MMAP, 1);
@@ -113,6 +147,8 @@ void Llm::setRuntimeHint(std::shared_ptr<Express::Executor::RuntimeManager> &rtg
     if (mConfig->use_mmap()) {
         rtg->setExternalPath(tmpPath, MNN::Interpreter::EXTERNAL_WEIGHT_DIR);
     }
+    // set npu model dir
+    rtg->setExternalPath(mConfig->npu_model_dir(), 3);
     auto dynamicOption = mConfig->dynamic_option();
     if (mConfig->dynamic_option()) {
         rtg->setHint(MNN::Interpreter::DYNAMIC_QUANT_OPTIONS, mConfig->dynamic_option());
@@ -246,8 +282,7 @@ void Llm::load() {
     if (needHiddenState) {
         outputNames.emplace_back("hidden_states");
     }
-    // set npu model dir
-    mRuntimeManager->setExternalPath(mConfig->npu_model_dir(), 3);
+
     mRuntimeManager->setExternalFile(mConfig->llm_weight());
     mModules[0].reset(Module::load(inputNames, outputNames, model_path.c_str(), mRuntimeManager, &module_config));
     mRuntimeManager->setExternalFile("");
@@ -594,6 +629,29 @@ std::vector<int> Llm::tokenizer_encode(const std::string& user_content) {
     return mTokenizer->encode(user_content);
 }
 
+std::vector<int> Llm::tokenizer_encode(const MultimodalPrompt& multimodal_input) {
+    return mTokenizer->encode(multimodal_input.prompt_template);
+}
+
+void Llm::response(const MultimodalPrompt& multimodal_input, 
+                   std::ostream* os, const char* end_with, int max_new_tokens) {
+    auto prompt = multimodal_input.prompt_template;
+    if (mConfig->use_template()) {
+        prompt = mPrompt->applyTemplate(prompt, true);
+    }
+    
+    int prompt_len = 0;
+    int decode_len = 0;
+    int64_t vision_time = 0;
+    int64_t audio_time = 0;
+    int64_t prefill_time = 0;
+    int64_t decode_time = 0;
+    int64_t sample_time = 0;
+    
+    std::vector<int> input_ids = tokenizer_encode(multimodal_input);
+    response(input_ids, os, end_with, max_new_tokens);
+}
+
 std::vector<int> Llm::generate(MNN::Express::VARP input_embeds, int max_tokens) {
     if (max_tokens < 0) {
         max_tokens = mConfig->max_new_tokens();
@@ -621,8 +679,8 @@ std::vector<int> Llm::generate(MNN::Express::VARP input_embeds, int max_tokens) 
     }
     {
         std::ofstream outFile("logits.txt");
-        auto temp = outputs[0]->readMap<float>();
-        for (size_t i = 0; i < outputs[0]->getInfo()->size; ++i) {
+        auto temp = mGenerateParam->outputs[0]->readMap<float>();
+        for (size_t i = 0; i < mGenerateParam->outputs[0]->getInfo()->size; ++i) {
             outFile << temp[i] << " "; // 每个数字后加空格
         }
         outFile.close();

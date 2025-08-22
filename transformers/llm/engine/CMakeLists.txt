@@ -51,6 +51,21 @@ if (LLM_SUPPORT_AUDIO AND MNN_BUILD_AUDIO)
     add_definitions(-DLLM_SUPPORT_AUDIO)
 endif()
 
+IF(CMAKE_SYSTEM_NAME MATCHES "^Android" AND NOT MNN_BUILD_FOR_ANDROID_COMMAND)
+IF(NOT NATIVE_INCLUDE_OUTPUT)
+  set(NATIVE_INCLUDE_OUTPUT ".")
+ENDIF()
+add_custom_command(
+  TARGET llm
+  POST_BUILD
+  COMMAND ${CMAKE_COMMAND}
+  ARGS -E copy_directory ${CMAKE_CURRENT_LIST_DIR}/include ${NATIVE_INCLUDE_OUTPUT}
+)
+ELSE()
+INSTALL(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/include/ DESTINATION include FILES_MATCHING PATTERN *.hpp)
+ENDIF()
+
+
 add_executable(llm_demo ${CMAKE_CURRENT_LIST_DIR}/demo/llm_demo.cpp)
 add_executable(embedding_demo ${CMAKE_CURRENT_LIST_DIR}/demo/embedding_demo.cpp)
 add_executable(reranker_demo ${CMAKE_CURRENT_LIST_DIR}/demo/reranker_demo.cpp)

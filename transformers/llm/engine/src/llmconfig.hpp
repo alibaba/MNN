@@ -359,10 +359,6 @@ public:
         return config_.value("memory", "low");
     }
 
-    int quant_qkv() const {
-        return config_.value("quant_qkv", 0);
-    }
-
     int kvcache_limit() const {
         return config_.value("kvcache_limit", -1);
     }

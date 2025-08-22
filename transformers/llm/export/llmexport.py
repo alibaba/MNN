@@ -225,6 +225,7 @@ class LlmExporter(torch.nn.Module):
             self.llm_config['jinja'] = prompt_template['jinja']
         # load modules
         ModelMapper.do_map(self, self.model, self.model_map['model'])
+
         # rebuild modules
         if self.lm_ is None:
             out_features, in_features = self.embed_.weight.shape
@@ -244,6 +245,7 @@ class LlmExporter(torch.nn.Module):
             self.embed = Embedding(embed_copy, self)
         else:
             self.embed = Embedding(self.embed_, self)
+
         # tie word embeddings
         self.tie_word_embeddings = not self.args.seperate_embed and self.lm_.weight.equal(self.embed_.weight)
         if self.tie_word_embeddings:
@@ -802,14 +804,21 @@ class LlmExporter(torch.nn.Module):
         if self.mnn_converter:
             fuse_transformer = self.visual.transformer_fuse
             native_group_conv = self.visual.group_conv_native
+            quant_bit_visual = self.visual.quant_bit
+            quant_block_visual = self.visual.quant_block
             if self.args.transformer_fuse:
                 fuse_transformer = True
             if self.args.group_conv_native:
                 native_group_conv = True
-            self.mnn_converter.export(vision_onnx, self.visual.quant_bit,
-                                      self.visual.quant_block,
+            if self.args.visual_quant_bit is not None:
+                quant_bit_visual = self.args.visual_quant_bit
+            if self.args.visual_quant_block is not None:
+                quant_block_visual = self.args.visual_quant_block
+            self.mnn_converter.export(vision_onnx, quant_bit_visual,
+                                      quant_block_visual,
                                       transformer_fuse=fuse_transformer,
-                                      group_conv_native=native_group_conv)
+                                      group_conv_native=native_group_conv,
+                                      weight_sym=self.args.visual_sym)
 
     def export_audio(self):
         if self.audio is None:
@@ -1237,6 +1246,9 @@ def export(path,
         'onnx_slim': onnx_slim,
         'quant_bit': quant_bit,
         'quant_block': quant_block,
+        'visual_quant_bit': visual_quant_bit,
+        'visual_quant_block': visual_quant_block,
+        'visual_sym': visual_sym,
         'lm_quant_bit': lm_quant_bit,
         'mnnconvert': mnnconvert,
         'ppl': ppl,
@@ -1276,6 +1288,8 @@ def main():
     parser.add_argument('--onnx_slim', action='store_true', help='Whether or not to use onnx-slim.')
     parser.add_argument('--quant_bit', type=int, default=4, help='mnn quant bit, 4 or 8, default is 4.')
     parser.add_argument('--quant_block', type=int, default=64, help='mnn quant block, 0 mean channle-wise, default is 64.')
+    parser.add_argument('--visual_quant_bit', type=int, default=None, help='mnn viusal quant bit, 4 or 8, default is setting in utils/vision.py by different vit model.')
+    parser.add_argument('--visual_quant_block', type=int, default=None, help='mnn quant block, default is setting in utils/vision.py by different vit model.')
     parser.add_argument('--lm_quant_bit', type=int, default=None, help='mnn lm_head quant bit, 4 or 8, default is `quant_bit`.')
     parser.add_argument('--mnnconvert', type=str, default='../../../build/MNNConvert', help='local mnnconvert path, if invalid, using pymnn.')
     parser.add_argument('--ppl', action='store_true', help='Whether or not to get all logits of input tokens.')
@@ -1284,9 +1298,10 @@ def main():
     parser.add_argument('--transformer_fuse', action='store_true', help='Whether or not to fuse vision transformer op.')
     parser.add_argument('--group_conv_native', action='store_true', help='Whether or not to keep native group_conv.')
     parser.add_argument('--smooth', action='store_true', help='Whether or not to use smooth quant.')
-    parser.add_argument('--sym', action='store_true', help='Whether or not to using symmetric quant (without zeropoint), defualt is False.')
-    parser.add_argument('--seperate_embed', action='store_true', help='For lm and embed shared model, whether or not to sepearte embed to avoid quant, defualt is False, if True, embed weight will be seperate to embeddingbf16.bin.')
-    parser.add_argument('--lora_split', action='store_true', help='Whether or not export lora split, defualt is False.')
+    parser.add_argument('--sym', action='store_true', help='Whether or not to using symmetric quant (without zeropoint), default is False.')
+    parser.add_argument('--visual_sym', action='store_true', help='Whether or not to using symmetric quant (without zeropoint) for visual model, default is False.')
+    parser.add_argument('--seperate_embed', action='store_true', help='For lm and embed shared model, whether or not to sepearte embed to avoid quant, default is False, if True, embed weight will be seperate to embeddingbf16.bin.')
+    parser.add_argument('--lora_split', action='store_true', help='Whether or not export lora split, default is False.')
     parser.add_argument('--calib_data', type=str, default=None, help='calibration data path, defaut is `None` mean not use calib data.')
     args = parser.parse_args()
 

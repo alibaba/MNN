@@ -805,17 +805,16 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
         return OUT_OF_MEMORY;
     }
     if (mOnlineReorderWeightSme && planeSize > 1) { // only prefill need
-        int dstHp = 32; // if mOnlineReorderWeightSme==true, UNIT is 64 when model loaded.
-        int weightlenNew = ROUND_UP(outC, dstHp) * mBlockNum * ROUND_UP(ic / mBlockNum, SRC_UNIT) * kernelCount * SRC_UNIT * dstHp;
+        int weightlenNew = ROUND_UP(outC, SME_DECODE_MAXHP) * mBlockNum * ROUND_UP(ic / mBlockNum, SRC_UNIT) * kernelCount;
         if (mResourceInt8->mActBits == 4) {
             weightlenNew /= 2;
         }
-        mWeight4Prefill = bufferAlloc->alloc(weightlenNew + 2 * ROUND_UP(outC, dstHp) * QUANT_INFO_BYTES);
+        mWeight4Prefill = bufferAlloc->alloc(weightlenNew + 2 * mBlockNum * ROUND_UP(outC, SME_DECODE_MAXHP) * QUANT_INFO_BYTES);
         if (mWeight4Prefill.invalid()) {
             return OUT_OF_MEMORY;
         }
         if (mInputBlockNum > 1) { // only in this case, need to use weight_kernel_sum
-            mWeightKernelSum4Prefill = bufferAlloc->alloc(ROUND_UP(outC, 32) * mBlockNum * sizeof(float));
+            mWeightKernelSum4Prefill = bufferAlloc->alloc(ROUND_UP(outC, SME_DECODE_MAXHP) * mBlockNum * sizeof(float));
             if (mWeightKernelSum4Prefill.invalid()) {
                 return OUT_OF_MEMORY;
             }

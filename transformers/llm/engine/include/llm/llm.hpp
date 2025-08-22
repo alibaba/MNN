@@ -37,6 +37,23 @@ struct TimePerformance;
 using ChatMessage = std::pair<std::string, std::string>; // <role, content>
 using ChatMessages = std::vector<ChatMessage>;
 
+struct MNN_PUBLIC PromptImagePart {
+    MNN::Express::VARP image_data;
+    int width;
+    int height;
+};
+
+struct MNN_PUBLIC PromptAudioPart {
+    std::string file_path;
+    MNN::Express::VARP waveform;
+};
+
+struct MNN_PUBLIC MultimodalPrompt {
+    std::string prompt_template;
+    std::map<std::string, PromptImagePart> images;
+    std::map<std::string, PromptAudioPart> audios;
+};
+
 enum TuneType {
     // op encoder number for commit
     OP_ENCODER_NUMBER = 0,
@@ -108,11 +125,17 @@ public:
     std::string dump_config();
     bool set_config(const std::string& content);
     Llm* create_lora(const std::string& lora_path);
+    std::string get_statistics();
     // tokenier function
     bool is_stop(int token);
     std::string tokenizer_decode(int token);
     virtual std::vector<int> tokenizer_encode(const std::string& query);
     friend class Pipeline;
+    virtual std::vector<int> tokenizer_encode(const MultimodalPrompt& multimodal_input);
+    void response(const MultimodalPrompt& multimodal_input, 
+                  std::ostream* os = &std::cout, 
+                  const char* end_with = nullptr, 
+                  int max_new_tokens = -1);
     const LlmContext* getContext() const {
         return mContext.get();
     }

@@ -46,8 +46,8 @@ private:
     std::shared_ptr<Tensor> mKeySum;                // numhead, [maxlen/hP8, hP8]
     file_t mKeyCacheFD   = INVALID_FILE;            // The file descriptor of keys
     file_t mValueCacheFD = INVALID_FILE;            // The file descriptor of values
-    char * mMapKeyAddr   = nullptr;                 // Memory-mapped address of keys
-    char * mMapValueAddr = nullptr;                 // Memory-mapped address of values
+    int8_t * mMapKeyAddr   = nullptr;                 // Memory-mapped address of keys
+    int8_t * mMapValueAddr = nullptr;                 // Memory-mapped address of values
     bool mKVCacheInDisk  = false;                   // Whether the kvcache is in disk or in memory now
     int  mPastLength     = 0;                       // Length of past kvcache
     int  mMaxLength      = 0;                       // Capacity of current kvcache buffer (how many kv items can be stored at most)
@@ -104,15 +104,15 @@ public:
         return mMaxLength;
     }
     uint8_t* keyAddr() {
-        char * baseAddr = mKVCacheInDisk ? mMapKeyAddr : mPastKey->host<char>();
+        int8_t * baseAddr = mKVCacheInDisk ? mMapKeyAddr : mPastKey->host<int8_t>();
         return (uint8_t*)baseAddr;
     }
     uint8_t* valudAddr() {
-        char * baseAddr = mKVCacheInDisk ? mMapValueAddr : mPastValue->host<char>();
+        int8_t * baseAddr = mKVCacheInDisk ? mMapValueAddr : mPastValue->host<int8_t>();
         return (uint8_t*)baseAddr;
     }
-    char * addrOfKey(int kv_h) {
-        char * baseAddr = mKVCacheInDisk ? mMapKeyAddr : mPastKey->host<char>();
+    int8_t * addrOfKey(int kv_h) {
+        int8_t * baseAddr = mKVCacheInDisk ? mMapKeyAddr : mPastKey->host<int8_t>();
         if (mConfig.mUseInt8Kernel) {
             return baseAddr + kv_h * UP_DIV(mMaxLength, hP8) * UP_DIV(mHeadDim, lP8) * hP8 * lP8;
         } else if (mConfig.mQuantKey) {
@@ -121,35 +121,35 @@ public:
             return baseAddr + kv_h * UP_DIV(mMaxLength, hP) * ROUND_UP(mHeadDim, lP) * hP * mBytes;
         }
     }
-    char * addrOfValue(int kv_h) {
-        char * baseAddr = mKVCacheInDisk ? mMapValueAddr : mPastValue->host<char>();
+    int8_t * addrOfValue(int kv_h) {
+        int8_t * baseAddr = mKVCacheInDisk ? mMapValueAddr : mPastValue->host<int8_t>();
         if (mConfig.mQuantValue) {
             return baseAddr + kv_h * UP_DIV(mHeadDim, hP) * ROUND_UP(mMaxLength, lP) * hP;
         } else {
             return baseAddr + kv_h * UP_DIV(mHeadDim, hP) * ROUND_UP(mMaxLength, lP) * hP * mBytes;
         }
     }
-    char * addrOfScale(int kv_h) {
+    int8_t * addrOfScale(int kv_h) {
         if (mConfig.mUseInt8Kernel) {
-            return mKeyScale->host<char>() + kv_h * UP_DIV(mMaxLength, hP8) * hP8 * 4;
+            return mKeyScale->host<int8_t>() + kv_h * UP_DIV(mMaxLength, hP8) * hP8 * 4;
         } else if (mConfig.mQuantKey) {
-            return mKeyScale->host<char>() + kv_h * UP_DIV(mMaxLength, hP) * hP * mBytes;
+            return mKeyScale->host<int8_t>() + kv_h * UP_DIV(mMaxLength, hP) * hP * mBytes;
         } else {
             return nullptr;
         }
     }
-    char * addrOfZeroPoint(int kv_h) {
+    int8_t * addrOfZeroPoint(int kv_h) {
         if (mConfig.mUseInt8Kernel) {
-            return mKeyZeroPoint->host<char>() + kv_h * UP_DIV(mMaxLength, hP8) * hP8 * 4;
+            return mKeyZeroPoint->host<int8_t>() + kv_h * UP_DIV(mMaxLength, hP8) * hP8 * 4;
         } else if (mConfig.mQuantKey) {
-            return mKeyZeroPoint->host<char>() + kv_h * UP_DIV(mMaxLength, hP) * hP * mBytes;
+            return mKeyZeroPoint->host<int8_t>() + kv_h * UP_DIV(mMaxLength, hP) * hP * mBytes;
         } else {
             return nullptr;
         }
     }
-    char * addrOfKeySum(int kv_h) {
+    int8_t * addrOfKeySum(int kv_h) {
         if (mConfig.mUseInt8Kernel) {
-            return mKeySum->host<char>() + kv_h * UP_DIV(mMaxLength, hP8) * hP8 * 4;
+            return mKeySum->host<int8_t>() + kv_h * UP_DIV(mMaxLength, hP8) * hP8 * 4;
         }else {
             return nullptr;
         }

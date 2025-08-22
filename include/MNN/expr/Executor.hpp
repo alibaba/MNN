@@ -130,6 +130,7 @@ public:
         void setHint(Interpreter::HintMode mode, int* value, size_t size);
         void setHintPtr(Interpreter::HintMode mode, void* value);
         bool getInfo(Interpreter::SessionInfoCode code, void* ptr);
+        static bool getDeviceInfo(const std::string& deviceKey, const MNNForwardType type, std::string& deviceValue);
         BackendConfig* getBnConfig();
         const RuntimeAttr* getInside() const {
             return mInside;

@@ -24,7 +24,7 @@ struct FunctionGroup {
     int lP                                                                                       = 1;
     int hP                                                                                       = 4;
     void (*MNNExpC8)(float* dest, const float* source, float* offset, const float* parameters, size_t countC8) = _SSE_MNNExpC8;
-    void (*MNNSoftmax)(float* dest, const float* source, size_t size) = _SSE_MNNSoftmax;
+    void (*MNNSoftmax)(float* softmaxDst, float* input, float* runningMax, float* runningSum, float* updateScale, int outside, int reduceSize) = _SSE_MNNSoftmax;
     void (*MNNReluInt8)(int8_t* dst, const int8_t* src, size_t size, ssize_t zeroPoint) = _SSE_MNNReluInt8;
     void (*MNNHardSwish)(float* dst, const float* src, size_t size) = _SSE_MNNHardSwish;
     void (*MNNGelu)(float* dst, const float* src, size_t size, float* parameters) = _SSE_MNNGelu;
@@ -65,6 +65,8 @@ void MNNFunctionInit() {
         coreFunction->MNNPackForMatMul_B    = _SSE_MNNPackForMatMul_B;
         // Dynamic Quant
         coreFunction->MNNCountMaxMinValue = _SSE_MNNCountMinMaxValue;
+
+        coreFunction->MNNSoftmax = _SSE_MNNSoftmax;
     }
 #ifdef MNN_USE_AVX
     if (cpuFlags & libyuv::kCpuHasAVX2) {
@@ -205,8 +207,8 @@ void MNNInt8ToInt16(int16_t* dest, const int8_t* source, size_t count) {
     _SSE_MNNInt8ToInt16(dest, source, count);
 }
 
-void MNNSoftmax(float* dest, const float* source, size_t size) {
-    gFunc.MNNSoftmax(dest, source, size);
+void MNNSoftmax(float* softmaxDst, float* input, float* runningMax, float* runningSum, float* updateScale, int outside, int reduceSize) {
+    gFunc.MNNSoftmax(softmaxDst, input, runningMax, runningSum, updateScale, outside, reduceSize);
 }
 
 void MNNNorm(float* dest, const float* source, const float *gamma, const float *beta, float epsilon, size_t size, bool RMSNorm) {

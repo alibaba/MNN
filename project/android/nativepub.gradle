@@ -20,23 +20,48 @@ afterEvaluate {
 android.libraryVariants.all {variant ->
     def name = variant.buildType.name
     def zipTask = tasks.create(name: "zipNative${name.capitalize()}", type: Zip) {
-        from project.zipTree("${variant.packageLibrary.destinationDir.path}/${project.name}-${name}.aar")
+        from project.zipTree("${variant.packageLibrary.destinationDir.path}/${artifactName}-${name}.aar")
         from "$buildDir/native-packed"
-        archiveName "${project.name}-${name}-tmp.aar"
+        archiveName "${artifactName}-${name}-tmp.aar"
         destinationDir(variant.packageLibrary.destinationDir)
+        inputs.dir("$buildDir/native-packed")
+        inputs.file("${variant.packageLibrary.destinationDir.path}/${artifactName}-${name}.aar")
+        outputs.file("${variant.packageLibrary.destinationDir.path}/${artifactName}-${name}.aar")
     }
+    
+    zipTask.dependsOn("externalNativeBuild${name.capitalize()}")
+    
+    // Ensure QNN dependencies are prepared when BUILD_QNN is enabled
+    if (project.ext.has('BUILD_QNN') && project.ext.BUILD_QNN) {
+        zipTask.dependsOn('prepareQnnDeps')
+    }
+    
     zipTask.doLast {
         copy {
-            from "${variant.packageLibrary.destinationDir.path}/${project.name}-${name}-tmp.aar"
+            from "${variant.packageLibrary.destinationDir.path}/${artifactName}-${name}-tmp.aar"
             into "${variant.packageLibrary.destinationDir.path}"
             rename{
                 String fileName->
                     fileName.replace('-tmp','')
             }
         }
-        delete "${variant.packageLibrary.destinationDir.path}/${project.name}-${name}-tmp.aar"
+        delete "${variant.packageLibrary.destinationDir.path}/${artifactName}-${name}-tmp.aar"
+        
+        println "Generated final AAR: ${variant.packageLibrary.destinationDir.path}/${artifactName}-${name}.aar"
     }
-    tasks.findByName("assemble${name.capitalize()}").doLast {
-        zipTask.execute()
+    
+    def bundleTask = tasks.findByName("bundle${name.capitalize()}Aar")
+    if (bundleTask != null) {
+        zipTask.dependsOn(bundleTask)
+    }
+    
+    def assembleTask = tasks.findByName("assemble${name.capitalize()}")
+    if (assembleTask != null) {
+        assembleTask.dependsOn(zipTask)
+        zipTask.mustRunAfter(bundleTask)
+    }
+    def packageTask = tasks.findByName("package${name.capitalize()}Aar")
+    if (packageTask != null) {
+        packageTask.finalizedBy(zipTask)
     }
 }

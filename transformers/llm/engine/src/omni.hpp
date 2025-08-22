@@ -105,12 +105,14 @@ public:
     virtual void load() override;
     virtual std::vector<Express::VARP> forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos) override;
     virtual std::vector<int> tokenizer_encode(const std::string& query) override;
+    virtual std::vector<int> tokenizer_encode(const MultimodalPrompt& multimodal_input) override;
     virtual Express::VARP embedding(const std::vector<int>& input_ids) override;
     virtual Express::VARP gen_position_ids(int seq_len) override;
     virtual void response(const std::vector<int>& input_ids, std::ostream* os = &std::cout, const char* end_with = nullptr, int max_new_tokens = -1) override;
     virtual void setWavformCallback(std::function<bool(const float*, size_t, bool)> callback) override;
     virtual void generateWavform() override;
     // some models preprocess function
+    std::vector<int> visionProcess(VARP image);
     std::vector<int> defaultVisionProcess(VARP image);
     std::vector<int> qwen2VisionProcess(VARP image);
     std::vector<int> smolvlmVisionProcess(VARP image);
@@ -126,6 +128,9 @@ private:
     std::vector<int> multimodeProcess(const std::string& mode, std::string info);
     std::vector<int> visionProcess(const std::string& file);
     std::vector<int> audioProcess(const std::string& file);
+    std::vector<int> audioProcess(MNN::Express::VARP waveform);
+    std::vector<int> processImageContent(const std::string& content, const std::map<std::string, PromptImagePart>& images);
+    std::vector<int> processAudioContent(const std::string& content, const std::map<std::string, PromptAudioPart>& audios);
     std::shared_ptr<Module> mVisionModule, mAudioModule;
     std::vector<VARP> mVisionEmbeddings, mAudioEmbeddings;
     std::shared_ptr<Talker> mTalker;

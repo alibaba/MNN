@@ -130,7 +130,17 @@ bool CompleteSubGraph(const std::unordered_map<std::string, VARP>& inputs, const
     return true;
 }
 
-
+static bool _hasDupName(std::unique_ptr<MNN::NetT>& originNet) {
+    std::set<std::string> names;
+    for (auto& tensorName : originNet->tensorName) {
+        if (names.find(tensorName) != names.end()) {
+            MNN_ERROR("Repeat name %s\n", tensorName.c_str());
+            return true;
+        }
+        names.insert(tensorName);
+    }
+    return false;
+}
 void RunNetPass(const std::vector<std::string>& passes, std::unique_ptr<MNN::NetT>& originNet) {
     for (auto pass : passes) {
         auto convert = PostConverter::get(pass);
@@ -138,7 +148,14 @@ void RunNetPass(const std::vector<std::string>& passes, std::unique_ptr<MNN::Net
             LOG(INFO) << "Can't find pass of " << pass << "\n";
             continue;
         }
+        auto originSize = originNet->oplists.size();
         bool valid = convert->onExecute(originNet);
+#ifdef DEBUG
+        auto hasDup = _hasDupName(originNet);
+        if (originSize != originNet->oplists.size() || hasDup) {
+            MNN_PRINT("%s: %d -> %d, dup: %d\n", pass.c_str(), originSize, originNet->oplists.size(), hasDup);
+        }
+#endif
         if (!valid) {
             LOG(INFO) << "Run " << pass << "Error\n";
         }

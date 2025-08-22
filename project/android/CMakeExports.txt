@@ -25,3 +25,9 @@ set_target_properties( MNNOpenCV
                 PROPERTIES IMPORTED_LOCATION
                 ${CMAKE_CURRENT_LIST_DIR}/libs/${ANDROID_ABI}/libMNNOpenCV.so
                 )
+
+add_library(MNN_LLM  SHARED IMPORTED GLOBAL )
+set_target_properties(MNN_LLM
+            PROPERTIES IMPORTED_LOCATION
+            ${CMAKE_CURRENT_LIST_DIR}/libs/${ANDROID_ABI}/libllm.so
+)

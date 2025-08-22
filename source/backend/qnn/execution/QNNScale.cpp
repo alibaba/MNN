@@ -28,10 +28,25 @@ ErrorCode QNNScale::onEncode(const std::vector<Tensor *> &inputs, const std::vec
         MNN_ASSERT(channel == mWeightData.size());
 
         Qnn_DataType_t dataType = mBackend->getNativeTensor(inputs[0])->v1.dataType;
-
-        this->createStaticFloatTensor("weight", dataType, {(uint32_t)channel}, mWeightData.data());
-        this->createStaticFloatTensor("bias", dataType, {(uint32_t)channel}, mBiasData.data());
-        this->createStageTensor("Stage", dataType, getNHWCShape(inputs[0]));
+        mNeedQuantDequant = dataType != QNN_DATATYPE_FLOAT_16 && dataType != QNN_DATATYPE_FLOAT_32;
+        if(mNeedQuantDequant){
+            Qnn_DataType_t tempDataType = QNN_DATATYPE_FLOAT_32;
+            if(mBackend->getUseFP16()){
+                tempDataType = QNN_DATATYPE_FLOAT_16;
+            }
+            this->createStaticFloatTensor("weight", tempDataType, {(uint32_t)channel}, mWeightData.data());
+            this->createStaticFloatTensor("bias", tempDataType, {(uint32_t)channel}, mBiasData.data());
+            this->createStageTensor("Stage", tempDataType, getNHWCShape(inputs[0]));
+            this->createStageTensor("Stage_dequantize_input", tempDataType, getNHWCShape(inputs[0]));
+            this->createStageTensor("Stage_add_output", tempDataType, getNHWCShape(outputs[0]));
+            if(mBackend->getUseFP16()){
+                this->createStageTensor("Stage_cast_output", QNN_DATATYPE_FLOAT_32, getNHWCShape(outputs[0]));
+            }
+        }else{
+            this->createStaticFloatTensor("weight", dataType, {(uint32_t)channel}, mWeightData.data());
+            this->createStaticFloatTensor("bias", dataType, {(uint32_t)channel}, mBiasData.data());
+            this->createStageTensor("Stage", dataType, getNHWCShape(inputs[0]));
+        }
     }
 
     // add nodes
@@ -42,34 +57,98 @@ ErrorCode QNNScale::onEncode(const std::vector<Tensor *> &inputs, const std::vec
 }
 
 void QNNScale::mulWeight(Tensor * input) {
-    mNodeType = "ElementWiseMultiply";
-    std::string name = mNodeName + "_mul";
-    mParams.clear();
-    mInputs.clear();
-    mOutputs.clear();
-
-    mInputs.push_back(*(mBackend->getNativeTensor(input)));
-    mInputs.push_back(*(mTempTensorWrappers[0]->getNativeTensor()));
-
-    mOutputs.push_back(*(mTempTensorWrappers[2]->getNativeTensor()));
-
-    mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
+    Qnn_DataType_t dataType = mBackend->getNativeTensor(input)->v1.dataType;
+    // need dequantize to float16
+    if(mNeedQuantDequant){
+        mNodeType.clear();
+        mParams.clear();
+        mInputs.clear();
+        mOutputs.clear();
+        mNodeType = "Dequantize";
+        std::string name = mNodeName + "_Dequantize";
+    
+        mInputs.push_back(*(mBackend->getNativeTensor(input))); // input
+        mOutputs.push_back(*(mTempTensorWrappers[3]->getNativeTensor())); //Stage_dequantize_input
+        mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
+    }
+    {
+        mNodeType.clear();
+        mParams.clear();
+        mInputs.clear();
+        mOutputs.clear();
+        mNodeType = "ElementWiseMultiply";
+        std::string name = mNodeName + "_mul";
+        
+        if(mNeedQuantDequant){
+            mInputs.push_back(*(mTempTensorWrappers[3]->getNativeTensor())); //Stage_dequantize_input
+        }else{
+            mInputs.push_back(*(mBackend->getNativeTensor(input)));
+        }
+        mInputs.push_back(*(mTempTensorWrappers[0]->getNativeTensor()));
+        
+        mOutputs.push_back(*(mTempTensorWrappers[2]->getNativeTensor()));
+        
+        mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
+    }
 }
 
 
 void QNNScale::addBias(Tensor * output) {
-    mNodeType = "ElementWiseAdd";
-    std::string name = mNodeName + "_add";
-    mParams.clear();
-    mInputs.clear();
-    mOutputs.clear();
+    Qnn_DataType_t dataType = mBackend->getNativeTensor(output)->v1.dataType;
+    {
+        mNodeType.clear();
+        mParams.clear();
+        mInputs.clear();
+        mOutputs.clear();
+        mNodeType = "ElementWiseAdd";
+        std::string name = mNodeName + "_add";
+        
+        mInputs.push_back(*(mTempTensorWrappers[2]->getNativeTensor()));
+        mInputs.push_back(*(mTempTensorWrappers[1]->getNativeTensor()));
+        
+        if(mNeedQuantDequant){
+            mOutputs.push_back(*(mTempTensorWrappers[4]->getNativeTensor())); // Stage_add_output
+        }else{
+            mOutputs.push_back(*(mBackend->getNativeTensor(output)));
+        }
+        
+        mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
+    }
+    
+    // need quantize output
+    if(mNeedQuantDequant){
+        // Stage one  fp16 -> fp32
+        if(mBackend->getUseFP16()){
+           mNodeType.clear();
+           mParams.clear();
+           mInputs.clear();
+           mOutputs.clear();
+           mNodeType = "Cast";
+           std::string name = mNodeName + "_Cast";
+       
+           mInputs.push_back(*(mTempTensorWrappers[4]->getNativeTensor())); // Stage_add_output
+           mOutputs.push_back(*(mTempTensorWrappers[5]->getNativeTensor())); // Stage_cast_output
+           mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
+       }
 
-    mInputs.push_back(*(mTempTensorWrappers[2]->getNativeTensor()));
-    mInputs.push_back(*(mTempTensorWrappers[1]->getNativeTensor()));
-
-    mOutputs.push_back(*(mBackend->getNativeTensor(output)));
-
-    mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
+       // Stage two  fp32 -> int8
+       {
+           mNodeType.clear();
+           mParams.clear();
+           mInputs.clear();
+           mOutputs.clear();
+           mNodeType = "Quantize";
+           std::string name = mNodeName + "_Quantize";
+           
+           if(mBackend->getUseFP16()){
+               mInputs.push_back(*(mTempTensorWrappers[5]->getNativeTensor())); // Stage_cast_output
+           }else{
+               mInputs.push_back(*(mTempTensorWrappers[4]->getNativeTensor())); // Stage_add_output
+           }
+           mOutputs.push_back(*(mBackend->getNativeTensor(output))); // output
+           mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
+       }
+    }
 }
 
 ErrorCode QNNScale::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {

@@ -372,10 +372,10 @@ LoopSzEnd_TILE_1:
     .inst 0x05b02324  // dup z4.q, z25.q[2]
     .inst 0x05f02325  // dup z5.q, z25.q[3]
 
-    add x9, x6, x4, lsl #1
-    add x15, x6, x4, lsl #2
-    add x8, x9, x4, lsl #2
-    add x11, x6, x4, lsl #3
+    add x9, x6, x4, lsl #1 // +2
+    add x15, x6, x4, lsl #2 // +4
+    add x8, x9, x4, lsl #2 // +6
+    add x11, x6, x4, lsl #3 // +8
 
     .inst 0xe400f4d8  // st1b {z24.b}, p5, [x6]
     .inst 0xe40454c0  // st1b {z0.b}, p5, [x6, x4]
@@ -397,10 +397,10 @@ LoopSzEnd_TILE_1:
     .inst 0x05f02325  // dup z5.q, z25.q[3]
     .inst 0x05702346  // dup z6.q, z26.q[1]
 
-    add x9, x6, x4, lsl #1
-    add x15, x6, x4, lsl #2
-    add x8, x9, x4, lsl #2
-    add x11, x6, x4, lsl #3
+    add x9, x6, x4, lsl #1 // +2
+    add x15, x6, x4, lsl #2 // +4
+    add x8, x9, x4, lsl #2 // +6
+    add x11, x6, x4, lsl #3 // +8
 
     .inst 0xe400f4d8  // st1b {z24.b}, p5, [x6]
     .inst 0xe40454c0  // st1b {z0.b}, p5, [x6, x4]
@@ -424,11 +424,11 @@ LoopSzEnd_TILE_1:
     .inst 0x05702346  // dup z6.q, z26.q[1]
     .inst 0x05b02347  // dup z7.q, z26.q[2]
 
-    add x9, x6, x4, lsl #1
-    add x15, x6, x4, lsl #2
-    add x8, x9, x4, lsl #2
-    add x11, x6, x4, lsl #3
-    add x13, x9, x4, lsl #3
+    add x9, x6, x4, lsl #1 // +2
+    add x15, x6, x4, lsl #2 // +4
+    add x8, x9, x4, lsl #2 // +6
+    add x11, x6, x4, lsl #3 // +8
+    add x13, x9, x4, lsl #3 // +10
 
     .inst 0xe400f4d8  // st1b {z24.b}, p5, [x6]
     .inst 0xe40454c0  // st1b {z0.b}, p5, [x6, x4]
@@ -454,11 +454,11 @@ TILE1_STORE48:
     .inst 0x05b02347  // dup z7.q, z26.q[2]
     .inst 0x05f02348  // dup z8.q, z26.q[3]
 
-    add x9, x6, x4, lsl #1
-    add x15, x6, x4, lsl #2
-    add x8, x9, x4, lsl #2
-    add x11, x6, x4, lsl #3
-    add x13, x9, x4, lsl #3
+    add x9, x6, x4, lsl #1 // +2
+    add x15, x6, x4, lsl #2 // +4
+    add x8, x9, x4, lsl #2 // +6
+    add x11, x6, x4, lsl #3 // +8
+    add x13, x9, x4, lsl #3 // +10
 
     .inst 0xe400f4d8  // st1b {z24.b}, p5, [x6]
     .inst 0xe40454c0  // st1b {z0.b}, p5, [x6, x4]
@@ -485,12 +485,12 @@ TILE1_STORE52:
     .inst 0x05b02347  // dup z7.q, z26.q[2]
     .inst 0x05f02348  // dup z8.q, z26.q[3]
 
-    add x9, x6, x4, lsl #1
-    add x15, x6, x4, lsl #2
-    add x8, x9, x4, lsl #2
-    add x11, x6, x4, lsl #3
-    add x13, x9, x4, lsl #3
-    add x23, x15, x4, lsl #3
+    add x9, x6, x4, lsl #1 // +2
+    add x15, x6, x4, lsl #2 // +4
+    add x8, x9, x4, lsl #2 // +6
+    add x11, x6, x4, lsl #3 // +8
+    add x13, x9, x4, lsl #3 // +10
+    add x23, x15, x4, lsl #3 // +12
 
     .inst 0xe400f4d8  // st1b {z24.b}, p5, [x6]
     .inst 0xe40454c0  // st1b {z0.b}, p5, [x6, x4]
@@ -519,12 +519,12 @@ TILE1_STORE56:
     .inst 0x05f02348  // dup z8.q, z26.q[3]
     .inst 0x05702369  // dup z9.q, z27.q[1]
 
-    add x9, x6, x4, lsl #1
-    add x15, x6, x4, lsl #2
-    add x8, x9, x4, lsl #2
-    add x11, x6, x4, lsl #3
-    add x13, x9, x4, lsl #3
-    add x23, x15, x4, lsl #3
+    add x9, x6, x4, lsl #1 // +2
+    add x15, x6, x4, lsl #2 // +4
+    add x8, x9, x4, lsl #2 // +6
+    add x11, x6, x4, lsl #3 // +8
+    add x13, x9, x4, lsl #3 // +10
+    add x23, x15, x4, lsl #3 // +12
 
     .inst 0xe400f4d8  // st1b {z24.b}, p5, [x6]
     .inst 0xe40454c0  // st1b {z0.b}, p5, [x6, x4]
@@ -555,13 +555,13 @@ TILE1_STORE60:
     .inst 0x05702369  // dup z9.q, z27.q[1]
     .inst 0x05b0236a  // dup z10.q, z27.q[2]
 
-    add x9, x6, x4, lsl #1
-    add x15, x6, x4, lsl #2
-    add x8, x9, x4, lsl #2
-    add x11, x6, x4, lsl #3
-    add x13, x9, x4, lsl #3
-    add x23, x15, x4, lsl #3
-    add x5, x8, x4, lsl #3
+    add x9, x6, x4, lsl #1 // +2
+    add x15, x6, x4, lsl #2 // +4
+    add x8, x9, x4, lsl #2 // +6
+    add x11, x6, x4, lsl #3 // +8
+    add x13, x9, x4, lsl #3 // +10
+    add x23, x15, x4, lsl #3 // +12
+    add x5, x8, x4, lsl #3   // +14
 
     .inst 0xe400f4d8  // st1b {z24.b}, p5, [x6]
     .inst 0xe40454c0  // st1b {z0.b}, p5, [x6, x4]
@@ -594,13 +594,13 @@ TILE1_STORE64:
     .inst 0x05b0236a  // dup z10.q, z27.q[2]
     .inst 0x05f0236b  // dup z11.q, z27.q[3]
 
-    add x9, x6, x4, lsl #1
-    add x15, x6, x4, lsl #2
-    add x8, x9, x4, lsl #2
-    add x11, x6, x4, lsl #3
-    add x13, x9, x4, lsl #3
-    add x23, x15, x4, lsl #3
-    add x5, x8, x4, lsl #3
+    add x9, x6, x4, lsl #1 // +2
+    add x15, x6, x4, lsl #2 // +4
+    add x8, x9, x4, lsl #2 // +6
+    add x11, x6, x4, lsl #3 // +8
+    add x13, x9, x4, lsl #3 // +10
+    add x23, x15, x4, lsl #3 // +12
+    add x5, x8, x4, lsl #3   // +14
 
     .inst 0xe400f4d8  // st1b {z24.b}, p5, [x6]
     .inst 0xe40454c0  // st1b {z0.b}, p5, [x6, x4]
@@ -633,15 +633,14 @@ TILE1_STORE68:
     .inst 0x05702369  // dup z9.q, z27.q[1]
     .inst 0x05b0236a  // dup z10.q, z27.q[2]
     .inst 0x05f0236b  // dup z11.q, z27.q[3]
-    .inst 0x0570238c  // dup z12.q, z28.q[1]
 
-    add x9, x6, x4, lsl #1
-    add x15, x6, x4, lsl #2
-    add x8, x9, x4, lsl #2
-    add x11, x6, x4, lsl #3
-    add x13, x9, x4, lsl #3
-    add x23, x15, x4, lsl #3
-    add x5, x8, x4, lsl #3
+    add x9, x6, x4, lsl #1 // +2
+    add x15, x6, x4, lsl #2 // +4
+    add x8, x9, x4, lsl #2 // +6
+    add x11, x6, x4, lsl #3 // +8
+    add x13, x9, x4, lsl #3 // +10
+    add x23, x15, x4, lsl #3 // +12
+    add x5, x8, x4, lsl #3   // +14
 
     .inst 0xe400f4d8  // st1b {z24.b}, p5, [x6]
     .inst 0xe40454c0  // st1b {z0.b}, p5, [x6, x4]
@@ -660,7 +659,7 @@ TILE1_STORE68:
     .inst 0xe400f4aa  // st1b {z10.b}, p5, [x5]
     .inst 0xe40454ab  // st1b {z11.b}, p5, [x5, x4]
 
-    add x9, x6, x4, lsl #4
+    add x9, x6, x4, lsl #4 // +16
 
     .inst 0xe400f53c  // st1b {z28.b}, p5, [x9]
     b TILE1_Dz_End
@@ -678,14 +677,15 @@ TILE1_STORE72:
     .inst 0x05702369  // dup z9.q, z27.q[1]
     .inst 0x05b0236a  // dup z10.q, z27.q[2]
     .inst 0x05f0236b  // dup z11.q, z27.q[3]
+    .inst 0x0570238c  // dup z12.q, z28.q[1]
 
-    add x9, x6, x4, lsl #1
-    add x15, x6, x4, lsl #2
-    add x8, x9, x4, lsl #2
-    add x11, x6, x4, lsl #3
-    add x13, x9, x4, lsl #3
-    add x23, x15, x4, lsl #3
-    add x5, x8, x4, lsl #3
+    add x9, x6, x4, lsl #1 // +2
+    add x15, x6, x4, lsl #2 // +4
+    add x8, x9, x4, lsl #2 // +6
+    add x11, x6, x4, lsl #3 // +8
+    add x13, x9, x4, lsl #3 // +10
+    add x23, x15, x4, lsl #3 // +12
+    add x5, x8, x4, lsl #3   // +14
 
     .inst 0xe400f4d8  // st1b {z24.b}, p5, [x6]
     .inst 0xe40454c0  // st1b {z0.b}, p5, [x6, x4]
@@ -704,7 +704,7 @@ TILE1_STORE72:
     .inst 0xe400f4aa  // st1b {z10.b}, p5, [x5]
     .inst 0xe40454ab  // st1b {z11.b}, p5, [x5, x4]
 
-    add x9, x6, x4, lsl #4
+    add x9, x6, x4, lsl #4 // +16
 
     .inst 0xe400f53c  // st1b {z28.b}, p5, [x9]
     .inst 0xe404552c  // st1b {z12.b}, p5, [x9, x4]
@@ -724,14 +724,15 @@ TILE1_STORE76:
     .inst 0x05b0236a  // dup z10.q, z27.q[2]
     .inst 0x05f0236b  // dup z11.q, z27.q[3]
     .inst 0x0570238c  // dup z12.q, z28.q[1]
+    .inst 0x05b0238d  // dup z13.q, z28.q[2]
 
-    add x9, x6, x4, lsl #1
-    add x15, x6, x4, lsl #2
-    add x8, x9, x4, lsl #2
-    add x11, x6, x4, lsl #3
-    add x13, x9, x4, lsl #3
-    add x23, x15, x4, lsl #3
-    add x5, x8, x4, lsl #3
+    add x9, x6, x4, lsl #1 // +2
+    add x15, x6, x4, lsl #2 // +4
+    add x8, x9, x4, lsl #2 // +6
+    add x11, x6, x4, lsl #3 // +8
+    add x13, x9, x4, lsl #3 // +10
+    add x23, x15, x4, lsl #3 // +12
+    add x5, x8, x4, lsl #3   // +14
 
     .inst 0xe400f4d8  // st1b {z24.b}, p5, [x6]
     .inst 0xe40454c0  // st1b {z0.b}, p5, [x6, x4]
@@ -750,8 +751,8 @@ TILE1_STORE76:
     .inst 0xe400f4aa  // st1b {z10.b}, p5, [x5]
     .inst 0xe40454ab  // st1b {z11.b}, p5, [x5, x4]
 
-    add x9, x6, x4, lsl #4
-    add x15, x13, x4, lsl #3
+    add x9, x6, x4, lsl #4 // +16
+    add x15, x13, x4, lsl #3 // +18
 
     .inst 0xe400f53c  // st1b {z28.b}, p5, [x9]
     .inst 0xe404552c  // st1b {z12.b}, p5, [x9, x4]
@@ -772,14 +773,16 @@ TILE1_STORE80:
     .inst 0x05b0236a  // dup z10.q, z27.q[2]
     .inst 0x05f0236b  // dup z11.q, z27.q[3]
     .inst 0x0570238c  // dup z12.q, z28.q[1]
+    .inst 0x05b0238d  // dup z13.q, z28.q[2]
+    .inst 0x05f0238e  // dup z14.q, z28.q[3]
 
-    add x9, x6, x4, lsl #1
-    add x15, x6, x4, lsl #2
-    add x8, x9, x4, lsl #2
-    add x11, x6, x4, lsl #3
-    add x13, x9, x4, lsl #3
-    add x23, x15, x4, lsl #3
-    add x5, x8, x4, lsl #3
+    add x9, x6, x4, lsl #1 // +2
+    add x15, x6, x4, lsl #2 // +4
+    add x8, x9, x4, lsl #2 // +6
+    add x11, x6, x4, lsl #3 // +8
+    add x13, x9, x4, lsl #3 // +10
+    add x23, x15, x4, lsl #3 // +12
+    add x5, x8, x4, lsl #3   // +14
 
     .inst 0xe400f4d8  // st1b {z24.b}, p5, [x6]
     .inst 0xe40454c0  // st1b {z0.b}, p5, [x6, x4]
@@ -798,12 +801,13 @@ TILE1_STORE80:
     .inst 0xe400f4aa  // st1b {z10.b}, p5, [x5]
     .inst 0xe40454ab  // st1b {z11.b}, p5, [x5, x4]
 
-    add x9, x6, x4, lsl #4
-    add x15, x13, x4, lsl #3
+    add x9, x6, x4, lsl #4 // +16
+    add x15, x13, x4, lsl #3 // +18
 
     .inst 0xe400f53c  // st1b {z28.b}, p5, [x9]
     .inst 0xe404552c  // st1b {z12.b}, p5, [x9, x4]
     .inst 0xe400f5ed  // st1b {z13.b}, p5, [x15]
+    .inst 0xe40455ee  // st1b {z14.b}, p5, [x15, x4]
     b TILE1_Dz_End
 
 TILE1_STORE84:
@@ -820,14 +824,16 @@ TILE1_STORE84:
     .inst 0x05b0236a  // dup z10.q, z27.q[2]
     .inst 0x05f0236b  // dup z11.q, z27.q[3]
     .inst 0x0570238c  // dup z12.q, z28.q[1]
+    .inst 0x05b0238d  // dup z13.q, z28.q[2]
+    .inst 0x05f0238e  // dup z14.q, z28.q[3]
 
-    add x9, x6, x4, lsl #1
-    add x15, x6, x4, lsl #2
-    add x8, x9, x4, lsl #2
-    add x11, x6, x4, lsl #3
-    add x13, x9, x4, lsl #3
-    add x23, x15, x4, lsl #3
-    add x5, x8, x4, lsl #3
+    add x9, x6, x4, lsl #1 // +2
+    add x15, x6, x4, lsl #2 // +4
+    add x8, x9, x4, lsl #2 // +6
+    add x11, x6, x4, lsl #3 // +8
+    add x13, x9, x4, lsl #3 // +10
+    add x23, x15, x4, lsl #3 // +12
+    add x5, x8, x4, lsl #3   // +14
 
     .inst 0xe400f4d8  // st1b {z24.b}, p5, [x6]
     .inst 0xe40454c0  // st1b {z0.b}, p5, [x6, x4]
@@ -846,12 +852,15 @@ TILE1_STORE84:
     .inst 0xe400f4aa  // st1b {z10.b}, p5, [x5]
     .inst 0xe40454ab  // st1b {z11.b}, p5, [x5, x4]
 
-    add x9, x6, x4, lsl #4
-    add x15, x13, x4, lsl #3
+    add x9, x6, x4, lsl #4 // +16
+    add x15, x13, x4, lsl #3 // +18
+    add x8, x23, x4, lsl #3 // +20
 
     .inst 0xe400f53c  // st1b {z28.b}, p5, [x9]
     .inst 0xe404552c  // st1b {z12.b}, p5, [x9, x4]
     .inst 0xe400f5ed  // st1b {z13.b}, p5, [x15]
+    .inst 0xe40455ee  // st1b {z14.b}, p5, [x15, x4]
+    .inst 0xe400f51d  // st1b {z29.b}, p5, [x8]
     b TILE1_Dz_End
 
 TILE1_STORE88:
@@ -869,14 +878,16 @@ TILE1_STORE88:
     .inst 0x05f0236b  // dup z11.q, z27.q[3]
     .inst 0x0570238c  // dup z12.q, z28.q[1]
     .inst 0x05b0238d  // dup z13.q, z28.q[2]
+    .inst 0x05f0238e  // dup z14.q, z28.q[3]
+    .inst 0x057023af  // dup z15.q, z29.q[1]
 
-    add x9, x6, x4, lsl #1
-    add x15, x6, x4, lsl #2
-    add x8, x9, x4, lsl #2
-    add x11, x6, x4, lsl #3
-    add x13, x9, x4, lsl #3
-    add x23, x15, x4, lsl #3
-    add x5, x8, x4, lsl #3
+    add x9, x6, x4, lsl #1 // +2
+    add x15, x6, x4, lsl #2 // +4
+    add x8, x9, x4, lsl #2 // +6
+    add x11, x6, x4, lsl #3 // +8
+    add x13, x9, x4, lsl #3 // +10
+    add x23, x15, x4, lsl #3 // +12
+    add x5, x8, x4, lsl #3   // +14
 
     .inst 0xe400f4d8  // st1b {z24.b}, p5, [x6]
     .inst 0xe40454c0  // st1b {z0.b}, p5, [x6, x4]
@@ -895,12 +906,16 @@ TILE1_STORE88:
     .inst 0xe400f4aa  // st1b {z10.b}, p5, [x5]
     .inst 0xe40454ab  // st1b {z11.b}, p5, [x5, x4]
 
-    add x9, x6, x4, lsl #4
-    add x15, x13, x4, lsl #3
+    add x9, x6, x4, lsl #4 // +16
+    add x15, x13, x4, lsl #3 // +18
+    add x8, x23, x4, lsl #3 // +20
 
     .inst 0xe400f53c  // st1b {z28.b}, p5, [x9]
     .inst 0xe404552c  // st1b {z12.b}, p5, [x9, x4]
     .inst 0xe400f5ed  // st1b {z13.b}, p5, [x15]
+    .inst 0xe40455ee  // st1b {z14.b}, p5, [x15, x4]
+    .inst 0xe400f51d  // st1b {z29.b}, p5, [x8]
+    .inst 0xe404550f  // st1b {z15.b}, p5, [x8, x4]
     b TILE1_Dz_End
 
 TILE1_STORE92:
@@ -919,14 +934,17 @@ TILE1_STORE92:
     .inst 0x0570238c  // dup z12.q, z28.q[1]
     .inst 0x05b0238d  // dup z13.q, z28.q[2]
     .inst 0x05f0238e  // dup z14.q, z28.q[3]
+    .inst 0x057023af  // dup z15.q, z29.q[1]
+    .inst 0x05b023b0  // dup z16.q, z29.q[2]
+    .inst 0x05f023b1  // dup z17.q, z29.q[3]
 
-    add x9, x6, x4, lsl #1
-    add x15, x6, x4, lsl #2
-    add x8, x9, x4, lsl #2
-    add x11, x6, x4, lsl #3
-    add x13, x9, x4, lsl #3
-    add x23, x15, x4, lsl #3
-    add x5, x8, x4, lsl #3
+    add x9, x6, x4, lsl #1 // +2
+    add x15, x6, x4, lsl #2 // +4
+    add x8, x9, x4, lsl #2 // +6
+    add x11, x6, x4, lsl #3 // +8
+    add x13, x9, x4, lsl #3 // +10
+    add x23, x15, x4, lsl #3 // +12
+    add x5, x8, x4, lsl #3   // +14
 
     .inst 0xe400f4d8  // st1b {z24.b}, p5, [x6]
     .inst 0xe40454c0  // st1b {z0.b}, p5, [x6, x4]
@@ -945,15 +963,18 @@ TILE1_STORE92:
     .inst 0xe400f4aa  // st1b {z10.b}, p5, [x5]
     .inst 0xe40454ab  // st1b {z11.b}, p5, [x5, x4]
 
-    add x9, x6, x4, lsl #4
-    add x15, x13, x4, lsl #3
-    add x8, x23, x4, lsl #3
+    add x9, x6, x4, lsl #4 // +16
+    add x15, x13, x4, lsl #3 // +18
+    add x8, x23, x4, lsl #3 // +20
+    add x11, x5, x4, lsl #3 // +22
 
     .inst 0xe400f53c  // st1b {z28.b}, p5, [x9]
     .inst 0xe404552c  // st1b {z12.b}, p5, [x9, x4]
     .inst 0xe400f5ed  // st1b {z13.b}, p5, [x15]
     .inst 0xe40455ee  // st1b {z14.b}, p5, [x15, x4]
     .inst 0xe400f51d  // st1b {z29.b}, p5, [x8]
+    .inst 0xe404550f  // st1b {z15.b}, p5, [x8, x4]
+    .inst 0xe400f570  // st1b {z16.b}, p5, [x11]
     b TILE1_Dz_End
 
 TILE1_STORE96:
@@ -973,14 +994,16 @@ TILE1_STORE96:
     .inst 0x05b0238d  // dup z13.q, z28.q[2]
     .inst 0x05f0238e  // dup z14.q, z28.q[3]
     .inst 0x057023af  // dup z15.q, z29.q[1]
+    .inst 0x05b023b0  // dup z16.q, z29.q[2]
+    .inst 0x05f023b1  // dup z17.q, z29.q[3]
 
-    add x9, x6, x4, lsl #1
-    add x15, x6, x4, lsl #2
-    add x8, x9, x4, lsl #2
-    add x11, x6, x4, lsl #3
-    add x13, x9, x4, lsl #3
-    add x23, x15, x4, lsl #3
-    add x5, x8, x4, lsl #3
+    add x9, x6, x4, lsl #1 // +2
+    add x15, x6, x4, lsl #2 // +4
+    add x8, x9, x4, lsl #2 // +6
+    add x11, x6, x4, lsl #3 // +8
+    add x13, x9, x4, lsl #3 // +10
+    add x23, x15, x4, lsl #3 // +12
+    add x5, x8, x4, lsl #3   // +14
 
     .inst 0xe400f4d8  // st1b {z24.b}, p5, [x6]
     .inst 0xe40454c0  // st1b {z0.b}, p5, [x6, x4]
@@ -999,9 +1022,10 @@ TILE1_STORE96:
     .inst 0xe400f4aa  // st1b {z10.b}, p5, [x5]
     .inst 0xe40454ab  // st1b {z11.b}, p5, [x5, x4]
 
-    add x9, x6, x4, lsl #4
-    add x15, x13, x4, lsl #3
-    add x8, x23, x4, lsl #3
+    add x9, x6, x4, lsl #4 // +16
+    add x15, x13, x4, lsl #3 // +18
+    add x8, x23, x4, lsl #3 // +20
+    add x11, x5, x4, lsl #3 // +22
 
     .inst 0xe400f53c  // st1b {z28.b}, p5, [x9]
     .inst 0xe404552c  // st1b {z12.b}, p5, [x9, x4]
@@ -1009,6 +1033,8 @@ TILE1_STORE96:
     .inst 0xe40455ee  // st1b {z14.b}, p5, [x15, x4]
     .inst 0xe400f51d  // st1b {z29.b}, p5, [x8]
     .inst 0xe404550f  // st1b {z15.b}, p5, [x8, x4]
+    .inst 0xe400f570  // st1b {z16.b}, p5, [x11]
+    .inst 0xe4045571  // st1b {z17.b}, p5, [x11, x4]
     b TILE1_Dz_End
 
 TILE1_STORE100:
@@ -1029,14 +1055,15 @@ TILE1_STORE100:
     .inst 0x05f0238e  // dup z14.q, z28.q[3]
     .inst 0x057023af  // dup z15.q, z29.q[1]
     .inst 0x05b023b0  // dup z16.q, z29.q[2]
+    .inst 0x05f023b1  // dup z17.q, z29.q[3]
 
-    add x9, x6, x4, lsl #1
-    add x15, x6, x4, lsl #2
-    add x8, x9, x4, lsl #2
-    add x11, x6, x4, lsl #3
-    add x13, x9, x4, lsl #3
-    add x23, x15, x4, lsl #3
-    add x5, x8, x4, lsl #3
+    add x9, x6, x4, lsl #1 // +2
+    add x15, x6, x4, lsl #2 // +4
+    add x8, x9, x4, lsl #2 // +6
+    add x11, x6, x4, lsl #3 // +8
+    add x13, x9, x4, lsl #3 // +10
+    add x23, x15, x4, lsl #3 // +12
+    add x5, x8, x4, lsl #3   // +14
 
     .inst 0xe400f4d8  // st1b {z24.b}, p5, [x6]
     .inst 0xe40454c0  // st1b {z0.b}, p5, [x6, x4]
@@ -1055,10 +1082,11 @@ TILE1_STORE100:
     .inst 0xe400f4aa  // st1b {z10.b}, p5, [x5]
     .inst 0xe40454ab  // st1b {z11.b}, p5, [x5, x4]
 
-    add x9, x6, x4, lsl #4
-    add x15, x13, x4, lsl #3
-    add x8, x23, x4, lsl #3
-    add x11, x5, x4, lsl #3
+    add x9, x6, x4, lsl #4 // +16
+    add x15, x13, x4, lsl #3 // +18
+    add x8, x23, x4, lsl #3 // +20
+    add x11, x5, x4, lsl #3 // +22
+    add x13, x9, x4, lsl #3 // +24
 
     .inst 0xe400f53c  // st1b {z28.b}, p5, [x9]
     .inst 0xe404552c  // st1b {z12.b}, p5, [x9, x4]
@@ -1067,6 +1095,8 @@ TILE1_STORE100:
     .inst 0xe400f51d  // st1b {z29.b}, p5, [x8]
     .inst 0xe404550f  // st1b {z15.b}, p5, [x8, x4]
     .inst 0xe400f570  // st1b {z16.b}, p5, [x11]
+    .inst 0xe4045571  // st1b {z17.b}, p5, [x11, x4]
+    .inst 0xe400f5be  // st1b {z30.b}, p5, [x13]
     b TILE1_Dz_End
 
 TILE1_STORE104:
@@ -1088,75 +1118,15 @@ TILE1_STORE104:
     .inst 0x057023af  // dup z15.q, z29.q[1]
     .inst 0x05b023b0  // dup z16.q, z29.q[2]
     .inst 0x05f023b1  // dup z17.q, z29.q[3]
-
-    add x9, x6, x4, lsl #1
-    add x15, x6, x4, lsl #2
-    add x8, x9, x4, lsl #2
-    add x11, x6, x4, lsl #3
-    add x13, x9, x4, lsl #3
-    add x23, x15, x4, lsl #3
-    add x5, x8, x4, lsl #3
-
-    .inst 0xe400f4d8  // st1b {z24.b}, p5, [x6]
-    .inst 0xe40454c0  // st1b {z0.b}, p5, [x6, x4]
-    .inst 0xe400f521  // st1b {z1.b}, p5, [x9]
-    .inst 0xe4045522  // st1b {z2.b}, p5, [x9, x4]
-    .inst 0xe400f5f9  // st1b {z25.b}, p5, [x15]
-    .inst 0xe40455e3  // st1b {z3.b}, p5, [x15, x4]
-    .inst 0xe400f504  // st1b {z4.b}, p5, [x8]
-    .inst 0xe4045505  // st1b {z5.b}, p5, [x8, x4]
-    .inst 0xe400f57a  // st1b {z26.b}, p5, [x11]
-    .inst 0xe4045566  // st1b {z6.b}, p5, [x11, x4]
-    .inst 0xe400f5a7  // st1b {z7.b}, p5, [x13]
-    .inst 0xe40455a8  // st1b {z8.b}, p5, [x13, x4]
-    .inst 0xe400f6fb  // st1b {z27.b}, p5, [x23]
-    .inst 0xe40456e9  // st1b {z9.b}, p5, [x23, x4]
-    .inst 0xe400f4aa  // st1b {z10.b}, p5, [x5]
-    .inst 0xe40454ab  // st1b {z11.b}, p5, [x5, x4]
-
-    add x9, x6, x4, lsl #4
-    add x15, x13, x4, lsl #3
-    add x8, x23, x4, lsl #3
-    add x11, x5, x4, lsl #3
-
-    .inst 0xe400f53c  // st1b {z28.b}, p5, [x9]
-    .inst 0xe404552c  // st1b {z12.b}, p5, [x9, x4]
-    .inst 0xe400f5ed  // st1b {z13.b}, p5, [x15]
-    .inst 0xe40455ee  // st1b {z14.b}, p5, [x15, x4]
-    .inst 0xe400f51d  // st1b {z29.b}, p5, [x8]
-    .inst 0xe404550f  // st1b {z15.b}, p5, [x8, x4]
-    .inst 0xe400f570  // st1b {z16.b}, p5, [x11]
-    .inst 0xe4045571  // st1b {z17.b}, p5, [x11, x4]
-    b TILE1_Dz_End
-
-TILE1_STORE108:
-    .inst 0x05702300  // dup z0.q, z24.q[1]
-    .inst 0x05b02301  // dup z1.q, z24.q[2]
-    .inst 0x05f02302  // dup z2.q, z24.q[3]
-    .inst 0x05702323  // dup z3.q, z25.q[1]
-    .inst 0x05b02324  // dup z4.q, z25.q[2]
-    .inst 0x05f02325  // dup z5.q, z25.q[3]
-    .inst 0x05702346  // dup z6.q, z26.q[1]
-    .inst 0x05b02347  // dup z7.q, z26.q[2]
-    .inst 0x05f02348  // dup z8.q, z26.q[3]
-    .inst 0x05702369  // dup z9.q, z27.q[1]
-    .inst 0x05b0236a  // dup z10.q, z27.q[2]
-    .inst 0x05f0236b  // dup z11.q, z27.q[3]
-    .inst 0x0570238c  // dup z12.q, z28.q[1]
-    .inst 0x05b0238d  // dup z13.q, z28.q[2]
-    .inst 0x05f0238e  // dup z14.q, z28.q[3]
-    .inst 0x057023af  // dup z15.q, z29.q[1]
-    .inst 0x05b023b0  // dup z16.q, z29.q[2]
-    .inst 0x05f023b1  // dup z17.q, z29.q[3]
     .inst 0x057023d2  // dup z18.q, z30.q[1]
 
-    add x9, x6, x4, lsl #1
-    add x15, x6, x4, lsl #2
-    add x8, x9, x4, lsl #2
-    add x11, x6, x4, lsl #3
-    add x13, x9, x4, lsl #3
-    add x23, x15, x4, lsl #3
-    add x5, x8, x4, lsl #3
+    add x9, x6, x4, lsl #1 // +2
+    add x15, x6, x4, lsl #2 // +4
+    add x8, x9, x4, lsl #2 // +6
+    add x11, x6, x4, lsl #3 // +8
+    add x13, x9, x4, lsl #3 // +10
+    add x23, x15, x4, lsl #3 // +12
+    add x5, x8, x4, lsl #3   // +14
 
     .inst 0xe400f4d8  // st1b {z24.b}, p5, [x6]
     .inst 0xe40454c0  // st1b {z0.b}, p5, [x6, x4]
@@ -1175,11 +1145,11 @@ TILE1_STORE108:
     .inst 0xe400f4aa  // st1b {z10.b}, p5, [x5]
     .inst 0xe40454ab  // st1b {z11.b}, p5, [x5, x4]
 
-    add x9, x6, x4, lsl #4
-    add x15, x13, x4, lsl #3
-    add x8, x23, x4, lsl #3
-    add x11, x5, x4, lsl #3
-    add x13, x9, x4, lsl #3
+    add x9, x6, x4, lsl #4 // +16
+    add x15, x13, x4, lsl #3 // +18
+    add x8, x23, x4, lsl #3 // +20
+    add x11, x5, x4, lsl #3 // +22
+    add x13, x9, x4, lsl #3 // +24
 
     .inst 0xe400f53c  // st1b {z28.b}, p5, [x9]
     .inst 0xe404552c  // st1b {z12.b}, p5, [x9, x4]
@@ -1193,7 +1163,8 @@ TILE1_STORE108:
     .inst 0xe40455b2  // st1b {z18.b}, p5, [x13, x4]
     b TILE1_Dz_End
 
-    TILE1_STORE112:
+    /* oc=108 */
+    TILE1_STORE108:
     .inst 0x05702300  // dup z0.q, z24.q[1]
     .inst 0x05b02301  // dup z1.q, z24.q[2]
     .inst 0x05f02302  // dup z2.q, z24.q[3]
@@ -1215,13 +1186,13 @@ TILE1_STORE108:
     .inst 0x057023d2  // dup z18.q, z30.q[1]
     .inst 0x05b023d3  // dup z19.q, z30.q[2]
 
-    add x9, x6, x4, lsl #1
-    add x15, x6, x4, lsl #2
-    add x8, x9, x4, lsl #2
-    add x11, x6, x4, lsl #3
-    add x13, x9, x4, lsl #3
-    add x23, x15, x4, lsl #3
-    add x5, x8, x4, lsl #3
+    add x9, x6, x4, lsl #1 // +2
+    add x15, x6, x4, lsl #2 // +4
+    add x8, x9, x4, lsl #2 // +6
+    add x11, x6, x4, lsl #3 // +8
+    add x13, x9, x4, lsl #3 // +10
+    add x23, x15, x4, lsl #3 // +12
+    add x5, x8, x4, lsl #3   // +14
 
     .inst 0xe400f4d8  // st1b {z24.b}, p5, [x6]
     .inst 0xe40454c0  // st1b {z0.b}, p5, [x6, x4]
@@ -1240,12 +1211,12 @@ TILE1_STORE108:
     .inst 0xe400f4aa  // st1b {z10.b}, p5, [x5]
     .inst 0xe40454ab  // st1b {z11.b}, p5, [x5, x4]
 
-    add x9, x6, x4, lsl #4
-    add x15, x13, x4, lsl #3
-    add x8, x23, x4, lsl #3
-    add x11, x5, x4, lsl #3
-    add x13, x9, x4, lsl #3
-    add x23, x15, x4, lsl #3
+    add x9, x6, x4, lsl #4 // +16
+    add x15, x13, x4, lsl #3 // +18
+    add x8, x23, x4, lsl #3 // +20
+    add x11, x5, x4, lsl #3 // +22
+    add x13, x9, x4, lsl #3 // +24
+    add x23, x15, x4, lsl #3 // +26
 
     .inst 0xe400f53c  // st1b {z28.b}, p5, [x9]
     .inst 0xe404552c  // st1b {z12.b}, p5, [x9, x4]
@@ -1260,6 +1231,77 @@ TILE1_STORE108:
     .inst 0xe400f6f3  // st1b {z19.b}, p5, [x23]
     b TILE1_Dz_End
 
+    /* oc=112 */
+    TILE1_STORE112:
+    .inst 0x05702300  // dup z0.q, z24.q[1]
+    .inst 0x05b02301  // dup z1.q, z24.q[2]
+    .inst 0x05f02302  // dup z2.q, z24.q[3]
+    .inst 0x05702323  // dup z3.q, z25.q[1]
+    .inst 0x05b02324  // dup z4.q, z25.q[2]
+    .inst 0x05f02325  // dup z5.q, z25.q[3]
+    .inst 0x05702346  // dup z6.q, z26.q[1]
+    .inst 0x05b02347  // dup z7.q, z26.q[2]
+    .inst 0x05f02348  // dup z8.q, z26.q[3]
+    .inst 0x05702369  // dup z9.q, z27.q[1]
+    .inst 0x05b0236a  // dup z10.q, z27.q[2]
+    .inst 0x05f0236b  // dup z11.q, z27.q[3]
+    .inst 0x0570238c  // dup z12.q, z28.q[1]
+    .inst 0x05b0238d  // dup z13.q, z28.q[2]
+    .inst 0x05f0238e  // dup z14.q, z28.q[3]
+    .inst 0x057023af  // dup z15.q, z29.q[1]
+    .inst 0x05b023b0  // dup z16.q, z29.q[2]
+    .inst 0x05f023b1  // dup z17.q, z29.q[3]
+    .inst 0x057023d2  // dup z18.q, z30.q[1]
+    .inst 0x05b023d3  // dup z19.q, z30.q[2]
+    .inst 0x05f023d4  // dup z20.q, z30.q[3]
+
+    add x9, x6, x4, lsl #1 // +2
+    add x15, x6, x4, lsl #2 // +4
+    add x8, x9, x4, lsl #2 // +6
+    add x11, x6, x4, lsl #3 // +8
+    add x13, x9, x4, lsl #3 // +10
+    add x23, x15, x4, lsl #3 // +12
+    add x5, x8, x4, lsl #3   // +14
+
+    .inst 0xe400f4d8  // st1b {z24.b}, p5, [x6]
+    .inst 0xe40454c0  // st1b {z0.b}, p5, [x6, x4]
+    .inst 0xe400f521  // st1b {z1.b}, p5, [x9]
+    .inst 0xe4045522  // st1b {z2.b}, p5, [x9, x4]
+    .inst 0xe400f5f9  // st1b {z25.b}, p5, [x15]
+    .inst 0xe40455e3  // st1b {z3.b}, p5, [x15, x4]
+    .inst 0xe400f504  // st1b {z4.b}, p5, [x8]
+    .inst 0xe4045505  // st1b {z5.b}, p5, [x8, x4]
+    .inst 0xe400f57a  // st1b {z26.b}, p5, [x11]
+    .inst 0xe4045566  // st1b {z6.b}, p5, [x11, x4]
+    .inst 0xe400f5a7  // st1b {z7.b}, p5, [x13]
+    .inst 0xe40455a8  // st1b {z8.b}, p5, [x13, x4]
+    .inst 0xe400f6fb  // st1b {z27.b}, p5, [x23]
+    .inst 0xe40456e9  // st1b {z9.b}, p5, [x23, x4]
+    .inst 0xe400f4aa  // st1b {z10.b}, p5, [x5]
+    .inst 0xe40454ab  // st1b {z11.b}, p5, [x5, x4]
+
+    add x9, x6, x4, lsl #4 // +16
+    add x15, x13, x4, lsl #3 // +18
+    add x8, x23, x4, lsl #3 // +20
+    add x11, x5, x4, lsl #3 // +22
+    add x13, x9, x4, lsl #3 // +24
+    add x23, x15, x4, lsl #3 // +26
+
+    .inst 0xe400f53c  // st1b {z28.b}, p5, [x9]
+    .inst 0xe404552c  // st1b {z12.b}, p5, [x9, x4]
+    .inst 0xe400f5ed  // st1b {z13.b}, p5, [x15]
+    .inst 0xe40455ee  // st1b {z14.b}, p5, [x15, x4]
+    .inst 0xe400f51d  // st1b {z29.b}, p5, [x8]
+    .inst 0xe404550f  // st1b {z15.b}, p5, [x8, x4]
+    .inst 0xe400f570  // st1b {z16.b}, p5, [x11]
+    .inst 0xe4045571  // st1b {z17.b}, p5, [x11, x4]
+    .inst 0xe400f5be  // st1b {z30.b}, p5, [x13]
+    .inst 0xe40455b2  // st1b {z18.b}, p5, [x13, x4]
+    .inst 0xe400f6f3  // st1b {z19.b}, p5, [x23]
+    .inst 0xe40456f4  // st1b {z20.b}, p5, [x23, x4]
+    b TILE1_Dz_End
+
+    /* oc=116 */
     TILE1_STORE116:
     .inst 0x05702300  // dup z0.q, z24.q[1]
     .inst 0x05b02301  // dup z1.q, z24.q[2]
@@ -1283,13 +1325,13 @@ TILE1_STORE108:
     .inst 0x05b023d3  // dup z19.q, z30.q[2]
     .inst 0x05f023d4  // dup z20.q, z30.q[3]
 
-    add x9, x6, x4, lsl #1
-    add x15, x6, x4, lsl #2
-    add x8, x9, x4, lsl #2
-    add x11, x6, x4, lsl #3
-    add x13, x9, x4, lsl #3
-    add x23, x15, x4, lsl #3
-    add x5, x8, x4, lsl #3
+    add x9, x6, x4, lsl #1 // +2
+    add x15, x6, x4, lsl #2 // +4
+    add x8, x9, x4, lsl #2 // +6
+    add x11, x6, x4, lsl #3 // +8
+    add x13, x9, x4, lsl #3 // +10
+    add x23, x15, x4, lsl #3 // +12
+    add x5, x8, x4, lsl #3   // +14
 
     .inst 0xe400f4d8  // st1b {z24.b}, p5, [x6]
     .inst 0xe40454c0  // st1b {z0.b}, p5, [x6, x4]
@@ -1308,13 +1350,13 @@ TILE1_STORE108:
     .inst 0xe400f4aa  // st1b {z10.b}, p5, [x5]
     .inst 0xe40454ab  // st1b {z11.b}, p5, [x5, x4]
 
-    add x9, x6, x4, lsl #4
-    add x15, x13, x4, lsl #3
-    add x8, x23, x4, lsl #3
-    add x11, x5, x4, lsl #3
-    add x13, x9, x4, lsl #3
-    add x23, x15, x4, lsl #3
-    add x5, x8, x4, lsl #3
+    add x9, x6, x4, lsl #4 // +16
+    add x15, x13, x4, lsl #3 // +18
+    add x8, x23, x4, lsl #3 // +20
+    add x11, x5, x4, lsl #3 // +22
+    add x13, x9, x4, lsl #3 // +24
+    add x23, x15, x4, lsl #3 // +26
+    add x5, x8, x4, lsl #3   // +28
 
     .inst 0xe400f53c  // st1b {z28.b}, p5, [x9]
     .inst 0xe404552c  // st1b {z12.b}, p5, [x9, x4]
@@ -1331,6 +1373,7 @@ TILE1_STORE108:
     .inst 0xe400f4bf  // st1b {z31.b}, p5, [x5]
     b TILE1_Dz_End
 
+    /* oc=120 */
     TILE1_STORE120:
     .inst 0x05702300  // dup z0.q, z24.q[1]
     .inst 0x05b02301  // dup z1.q, z24.q[2]
@@ -1355,13 +1398,13 @@ TILE1_STORE108:
     .inst 0x05f023d4  // dup z20.q, z30.q[3]
     .inst 0x057023f5  // dup z21.q, z31.q[1]
 
-    add x9, x6, x4, lsl #1
-    add x15, x6, x4, lsl #2
-    add x8, x9, x4, lsl #2
-    add x11, x6, x4, lsl #3
-    add x13, x9, x4, lsl #3
-    add x23, x15, x4, lsl #3
-    add x5, x8, x4, lsl #3
+    add x9, x6, x4, lsl #1 // +2
+    add x15, x6, x4, lsl #2 // +4
+    add x8, x9, x4, lsl #2 // +6
+    add x11, x6, x4, lsl #3 // +8
+    add x13, x9, x4, lsl #3 // +10
+    add x23, x15, x4, lsl #3 // +12
+    add x5, x8, x4, lsl #3   // +14
 
     .inst 0xe400f4d8  // st1b {z24.b}, p5, [x6]
     .inst 0xe40454c0  // st1b {z0.b}, p5, [x6, x4]
@@ -1380,13 +1423,13 @@ TILE1_STORE108:
     .inst 0xe400f4aa  // st1b {z10.b}, p5, [x5]
     .inst 0xe40454ab  // st1b {z11.b}, p5, [x5, x4]
 
-    add x9, x6, x4, lsl #4
-    add x15, x13, x4, lsl #3
-    add x8, x23, x4, lsl #3
-    add x11, x5, x4, lsl #3
-    add x13, x9, x4, lsl #3
-    add x23, x15, x4, lsl #3
-    add x5, x8, x4, lsl #3
+    add x9, x6, x4, lsl #4 // +16
+    add x15, x13, x4, lsl #3 // +18
+    add x8, x23, x4, lsl #3 // +20
+    add x11, x5, x4, lsl #3 // +22
+    add x13, x9, x4, lsl #3 // +24
+    add x23, x15, x4, lsl #3 // +26
+    add x5, x8, x4, lsl #3   // +28
 
     .inst 0xe400f53c  // st1b {z28.b}, p5, [x9]
     .inst 0xe404552c  // st1b {z12.b}, p5, [x9, x4]
@@ -1404,6 +1447,7 @@ TILE1_STORE108:
     .inst 0xe40454b5  // st1b {z21.b}, p5, [x5, x4]
     b TILE1_Dz_End
 
+    /* oc=124 */
     TILE1_STORE124:
     .inst 0x05702300  // dup z0.q, z24.q[1]
     .inst 0x05b02301  // dup z1.q, z24.q[2]
@@ -1480,6 +1524,7 @@ TILE1_STORE108:
     .inst 0xe400f596  // st1b {z22.b}, p5, [x12]
     b TILE1_Dz_End
 
+    /* oc=128 */
     TILE1_STORE128:
     .inst 0x05702300  // dup z0.q, z24.q[1]
     .inst 0x05b02301  // dup z1.q, z24.q[2]

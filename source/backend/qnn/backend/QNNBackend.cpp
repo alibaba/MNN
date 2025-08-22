@@ -18,6 +18,8 @@ struct QnnContext {
     Qnn_LogHandle_t logHandle = nullptr;
     Qnn_BackendHandle_t backendHandle = nullptr;
     Qnn_DeviceHandle_t deviceHandle = nullptr;
+    int soc_id;
+    int dsp_arch;
 };
 
 static QnnContext gContext;
@@ -94,6 +96,7 @@ bool PluginShapeRaw::compute(InferShapeContext* ctx) {
             auto dst = ctx->output(i);
             std::string key = prefix + std::to_string(i);
             auto attr = ctx->getAttr(key.c_str());
+
             if (nullptr == attr || nullptr == attr->tensor()) {
                 MNN_ERROR("MNN_QNN: Failed to find raw shape %s.\n", key.c_str());
                 return false;
@@ -886,7 +889,12 @@ ErrorCode QnnBackend::onResizeEnd() {
     #ifdef QNN_VERBOSE
     MNN_PRINT("start finalize\n");
     #endif
+    buildOutputDequant();
     finalizeGraph();
+    for(auto func : mReleaseFunc){
+        func();
+    }
+    mReleaseFunc.clear();
     #ifdef QNN_VERBOSE
     MNN_PRINT("end finalize\n");
     #endif
@@ -915,7 +923,14 @@ Backend::MemObj* QnnBackend::onAcquire(const Tensor* tensor, StorageType storage
     }
 
     Qnn_DataType_t tDataType;
-    MNN_ASSERT((tensor->getType().code == halide_type_float) || (tensor->getType().code == halide_type_int && tensor->getType().bits == 32));
+    Qnn_QuantizeParams_t tQuantizeParams{};
+    tQuantizeParams.encodingDefinition = QNN_DEFINITION_UNDEFINED;
+    tQuantizeParams.quantizationEncoding = QNN_QUANTIZATION_ENCODING_UNDEFINED;
+    Qnn_ScaleOffset_t tScaleOffsetEncoding;
+    tScaleOffsetEncoding.scale = 0.0f;
+    tScaleOffsetEncoding.offset = 0;
+    auto quant = TensorUtils::getDescribe(tensor)->quantAttr.get();
+    //MNN_ASSERT((tensor->getType().code == halide_type_float) || (tensor->getType().code == halide_type_int && tensor->getType().bits == 32));
     if (mUseFP16 && tensor->getType().code == halide_type_float) {
         tDataType = QNN_DATATYPE_FLOAT_16;
     } else if (tensor->getType().code == halide_type_float) {
@@ -926,13 +941,19 @@ Backend::MemObj* QnnBackend::onAcquire(const Tensor* tensor, StorageType storage
         MNN_PRINT("MNN_QNN: Not supported data type in <QnnBackend::onAcquire>.\n");
         return nullptr;
     }
-
-    Qnn_QuantizeParams_t tQuantizeParams{};
-    tQuantizeParams.encodingDefinition = QNN_DEFINITION_UNDEFINED;
-    tQuantizeParams.quantizationEncoding = QNN_QUANTIZATION_ENCODING_UNDEFINED;
-    Qnn_ScaleOffset_t tScaleOffsetEncoding;
-    tScaleOffsetEncoding.scale = 0.0f;
-    tScaleOffsetEncoding.offset = 0;
+    if(quant != nullptr && TensorUtils::getDescribe(tensor)->type == DataType_DT_INT8) {
+        tQuantizeParams.encodingDefinition = QNN_DEFINITION_DEFINED;
+        tQuantizeParams.quantizationEncoding = QNN_QUANTIZATION_ENCODING_SCALE_OFFSET;
+        tScaleOffsetEncoding.scale = quant->scale;
+        if(quant->zero != 0){
+            MNN_PRINT("MNN_QNN: Not supported asymmetric quant in <QnnBackend::onAcquire>.\n");
+            return nullptr;
+        }
+        tDataType = QNN_DATATYPE_SFIXED_POINT_8;
+        if (isOutput) {
+            tType = QNN_TENSOR_TYPE_NATIVE;
+        }
+    }
     tQuantizeParams.scaleOffsetEncoding = tScaleOffsetEncoding;
 
     std::unique_ptr<Tensor> tempTensor(new Tensor(tensor, gQnnTensorDimType, false));
@@ -947,17 +968,41 @@ Backend::MemObj* QnnBackend::onAcquire(const Tensor* tensor, StorageType storage
 
     Qnn_Tensor_t * qnnTensor = qnnTensorWrapper->getNativeTensor();
     CALL_QNN(mRuntime->mQnnInterface.tensorCreateGraphTensor(mQnnGraphHandle, qnnTensor));
+    mQNNTensorWrappers.push_back(qnnTensorWrapper);
+    mTensorMap.insert({TensorUtils::getDescribe(tensor), mTensorCounter});
 
     if (isInput) {
         mInputTensorIndexes.push_back(mTensorCounter);
         qnnTensorWrapper->alloc();
     }
     if (isOutput) {
-        mOutputTensorIndexes.push_back(mTensorCounter);
-        qnnTensorWrapper->alloc();
+        if(quant != nullptr && TensorUtils::getDescribe(tensor)->type == DataType_DT_INT8){
+            mTensorCounter += 1;
+            std::shared_ptr<Tensor> stageTensor;
+            stageTensor.reset(Tensor::create<float>(tensor->shape(), nullptr, gQnnTensorDimType));
+            tName = "QnnTensor_" + std::to_string(mTensorCounter);
+            tType = QNN_TENSOR_TYPE_APP_READ;
+            if (mUseFP16 && tensor->getType().code == halide_type_float) {
+                tDataType = QNN_DATATYPE_FLOAT_16;
+            } else if (tensor->getType().code == halide_type_float) {
+                tDataType = QNN_DATATYPE_FLOAT_32;
+            } else {
+                MNN_PRINT("MNN_QNN: Not supported data type in <QnnBackend::onAcquire>.\n");
+                return nullptr;
+            }
+            Qnn_QuantizeParams_t tQuantizeParamstmp = QNN_QUANTIZE_PARAMS_INIT;
+            std::shared_ptr<QNNTensorWrapper> qnnOutputTensorWrapper = QNNTensorWrapper::create(tName, tType, tDataType, tDims, tQuantizeParamstmp);
+            CALL_QNN(mRuntime->mQnnInterface.tensorCreateGraphTensor(mQnnGraphHandle, qnnOutputTensorWrapper->getNativeTensor()));
+            mDeQuantOutputTensorMap.insert({TensorUtils::getDescribe(tensor), {tensor, stageTensor}});
+            mQNNTensorWrappers.push_back(qnnOutputTensorWrapper);
+            mTensorMap.insert({TensorUtils::getDescribe(const_cast<const Tensor*>(stageTensor.get())), mTensorCounter});
+            mOutputTensorIndexes.push_back(mTensorCounter);
+            qnnOutputTensorWrapper->alloc();
+        } else{
+            mOutputTensorIndexes.push_back(mTensorCounter);
+            qnnTensorWrapper->alloc();
+        }
     }
-    mQNNTensorWrappers.push_back(qnnTensorWrapper);
-    mTensorMap.insert({TensorUtils::getDescribe(tensor), mTensorCounter});
 
     mTensorCounter += 1;
     #ifdef QNN_VERBOSE
@@ -1029,7 +1074,13 @@ void QnnBackend::inputIO(const Tensor* srcTensor, const Tensor* dstTensor) const
 }
 
 void QnnBackend::outputIO(const Tensor* srcTensor, const Tensor* dstTensor) const {
-    int srcIndex = getTensorIdx(srcTensor);
+    auto iter = mDeQuantOutputTensorMap.find(TensorUtils::getDescribe(srcTensor));
+    int srcIndex = -1;
+    if(iter != mDeQuantOutputTensorMap.end()){
+        srcIndex = getTensorIdx(iter->second.second.get());
+    } else{
+        srcIndex = getTensorIdx(srcTensor);
+    }
     std::shared_ptr<QNNTensorWrapper> srcQnnTensorWrapper = mQNNTensorWrappers[srcIndex];
     std::shared_ptr<Tensor> srcDataContainer = srcQnnTensorWrapper->getDataContainer();
 
@@ -1091,7 +1142,7 @@ void QnnBackend::finalizeGraph() {
         // set QNN_PROFILE_LEVEL_DETAILED
         QnnProfile_Level_t profileLevel = QNN_PROFILE_LEVEL_DETAILED;
         MNN_PRINT("[QNN Profile] Creating QNN Profile Handle with DETAILED level.\n");
-        auto profile_err = mRuntime->mQnnInterface.profileCreate(mQnnContextHandle, profileLevel, &mQnnProfileHandle);
+        auto profile_err = mRuntime->mQnnInterface.profileCreate(mRuntime->mQnnContextHandle, profileLevel, &mQnnProfileHandle);
         if (profile_err != QNN_SUCCESS || mQnnProfileHandle == nullptr) {
             MNN_ERROR("[QNN Profile] Failed to create QNN Profile Handle, error: %d\n", (int)profile_err);
             mQnnProfileHandle = nullptr;
@@ -1216,6 +1267,27 @@ void QnnBackend::clean() {
     mTensorMap.clear();
     mInputTensorIndexes.clear();
     mOutputTensorIndexes.clear();
+    mDeQuantOutputTensorMap.clear();
+}
+void QnnBackend::buildOutputDequant(){
+    Qnn_OpConfigVersion_t mOpConfigVersion = QNN_OPCONFIG_VERSION_1;
+    std::string mNodeName;
+    std::string mPackageName = "qti.aisw";
+    std::string mNodeType;
+    std::vector<Qnn_Param_t> mParams;
+    std::vector<Qnn_Tensor_t> mInputs;
+    std::vector<Qnn_Tensor_t> mOutputs;
+    for(auto iter : mDeQuantOutputTensorMap){
+        mNodeType.clear();
+        mParams.clear();
+        mInputs.clear();
+        mOutputs.clear();
+        mNodeType = "Dequantize";
+        std::string name = "Dequantize_I_" + std::to_string(getTensorIdx(iter.second.first)) + "_O_" + std::to_string(getTensorIdx(iter.second.second.get()));;
+        mInputs.push_back(*(getNativeTensor(iter.second.first))); // input
+        mOutputs.push_back(*(getNativeTensor(iter.second.second.get()))); // output
+        addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
+    }
 }
 
 QnnRuntime::QnnRuntime(const Backend::Info& info, QNN_INTERFACE_VER_TYPE qnnInterface, Qnn_LogHandle_t qnnLogHandle, Qnn_BackendHandle_t qnnBackendHandle, Qnn_DeviceHandle_t qnnDeviceHandle) {
@@ -1324,11 +1396,22 @@ bool QnnRuntime::registerCustomOpPackage(QNN_INTERFACE_VER_TYPE qnnInterface, Qn
 
 class QnnRuntimeCreator : public RuntimeCreator {
 public:
-    virtual Runtime* onCreate(const Backend::Info& info) const {
+    virtual Runtime* onCreate(const Backend::Info& info) const override {
         return QnnRuntime::create(info);
     }
-    virtual bool onValid(Backend::Info& info) const {
+    virtual bool onValid(Backend::Info& info) const override {
         return true;
+    }
+    virtual bool onGetDeviceInfo(const std::string& deviceKey, std::string& deviceValue) const override {
+        if(deviceKey == "soc_id" && gContext.soc_id != 0) {
+            deviceValue = std::to_string(gContext.soc_id);
+            return true;
+        }
+        if(deviceKey == "dsp_arch" && gContext.dsp_arch != 0) {
+            deviceValue = "v" + std::to_string(gContext.dsp_arch);
+            return true;
+        }
+        return false;
     }
 };
 
@@ -1401,6 +1484,8 @@ void registerQNNRuntimeCreator() {
 
     // Create Device.
     Qnn_DeviceHandle_t deviceHandle = nullptr;
+    QnnHtpDevice_Arch_t dspArch = QNN_HTP_DEVICE_ARCH_NONE;
+    uint32_t socId = 0;
     {
         // Check whether the device API is supported.
         bool supportDevice = QNN::checkCapability(qnnInterface, QNN_PROPERTY_GROUP_DEVICE);
@@ -1422,10 +1507,8 @@ void registerQNNRuntimeCreator() {
                     MNN_PRINT("[Warning]: deviceGetPlatformInfo Failed to query platform info");
                 } else {
                     QnnDevice_HardwareDeviceInfo_t* hwDeviceInfo = backendPlatformInfoPtr->v1.hwDevices;
-                    QnnHtpDevice_Arch_t arch = hwDeviceInfo->v1.deviceInfoExtension->onChipDevice.arch;
-                    uint32_t socModel = hwDeviceInfo->v1.deviceInfoExtension->onChipDevice.socModel;
-                    MNN_PRINT("Qnn Device soc_id: %d\n", socModel);
-                    MNN_PRINT("Qnn Device dsp_arch: v%d\n", arch);
+                    dspArch = hwDeviceInfo->v1.deviceInfoExtension->onChipDevice.arch;
+                    socId = hwDeviceInfo->v1.deviceInfoExtension->onChipDevice.socModel;
                 }
             }
         } else {
@@ -1478,6 +1561,8 @@ void registerQNNRuntimeCreator() {
     QNN::gContext.backendHandle = backendHandle;
     QNN::gContext.deviceHandle = deviceHandle;
     QNN::gContext.logHandle = logHandle;
+    QNN::gContext.soc_id = socId;
+    QNN::gContext.dsp_arch = dspArch;
 
     QNN::registerQNNOps();
     MNNInsertExtraRuntimeCreator(MNN_FORWARD_NN, new QNN::QnnRuntimeCreator, false);
