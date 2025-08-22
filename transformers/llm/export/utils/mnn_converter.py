@@ -51,7 +51,7 @@ class MNNConveter:
             os.close(log_fd)
 
     @spinner_run(f'convert onnx model to ')
-    def onnx2mnn(self, onnx_path, mnn_path, args = [], transformer_fuse = True, group_conv_native = False, save_external_data = True):
+    def onnx2mnn(self, onnx_path, mnn_path, args = [], transformer_fuse = True, group_conv_native = False, weight_sym = False, save_external_data = True):
         convert_args = [
             '',
             '-f',
@@ -66,6 +66,8 @@ class MNNConveter:
             convert_args += ['--transformerFuse']
         if group_conv_native:
             convert_args += ['--groupConvNative']
+        if weight_sym:
+            convert_args += ['--weightQuantAsymmetric=0']
         if save_external_data:
             convert_args += ['--saveExternalData']
         convert_args += args
@@ -112,7 +114,7 @@ class MNNConveter:
         self.convert(convert_args)
         return mnn_path
 
-    def export(self, onnx_path, quant_bit = None, quant_block = None, transformer_fuse = True, group_conv_native = False):
+    def export(self, onnx_path, quant_bit = None, quant_block = None, transformer_fuse = True, group_conv_native = False, weight_sym = None):
         self.onnx_model_path = onnx_path
         self.mnn_name = os.path.basename(onnx_path).replace('.onnx', '.mnn')
         self.mnn_model_path = os.path.join(self.config.args.dst_path, self.mnn_name)
@@ -133,10 +135,10 @@ class MNNConveter:
                 ]
             if quant_bit == 32:
                 quant_args = []
-            self.onnx2mnn(self.onnx_model_path, self.mnn_model_path, quant_args, transformer_fuse=transformer_fuse, group_conv_native=group_conv_native)
+            self.onnx2mnn(self.onnx_model_path, self.mnn_model_path, quant_args, transformer_fuse=transformer_fuse, group_conv_native=group_conv_native, weight_sym=weight_sym)
         else:
             mnn_json = f'{self.mnn_model_path}.json'
-            self.onnx2mnn(self.onnx_model_path, self.mnn_model_path, transformer_fuse=transformer_fuse, group_conv_native=group_conv_native)
+            self.onnx2mnn(self.onnx_model_path, self.mnn_model_path, transformer_fuse=transformer_fuse, group_conv_native=group_conv_native, weight_sym=weight_sym)
             self.mnn2json(self.mnn_model_path, mnn_json)
             self.rebuild(mnn_json)
             self.json2mnn(mnn_json, self.mnn_model_path)

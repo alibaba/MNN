@@ -48,6 +48,7 @@ DiskEmbedding::DiskEmbedding(const std::shared_ptr<LlmConfig>& config, std::stri
         if (mQuantBit != 16) {
             if (mQuantBlock == 0) {
                 mBlockNum = 1;
+                mQuantBlock = mHiddenSize; // be used for mDequantFunc.
             } else {
                 mBlockNum = mHiddenSize / mQuantBlock;
             }

@@ -388,3 +388,12 @@ npu model path:./qnn_smolvlm_model.bin
  
 ./ModuleBasic.out qnn_smolvlm_model.mnn dir 0 0 10
 ```
+### 生成多种QNN设备模型脚本
+tools/script/genQNNModelsFromMNN.py中提供了8Gen1 ~ 8Elite设备的QNN模型生成脚本
+```
+// 使用示例
+cd mnn_path
+cd build
+python3 ../tools/script/genQNNModelsFromMNN.py --config_path ../source/backend/qnn/convertor/config_example/ --graph_name visual_qnn --qnn_sdk_root_path /mnt/2Tpartition/tianbu/QNN/qairt/2.37.0.250724/ --src_model visual.mnn --executable_path ./MNN2QNNModel
+```
+后续将在qnn_models文件夹下生成8Gen1 ~ 8Elite设备的QNN模型产物。

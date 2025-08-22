@@ -266,7 +266,6 @@ class Rotary(torch.nn.Module):
 
         def get_theta():
             return 1.0 / (self.rope_theta ** (torch.arange(0, self.rotary_dim, 2, dtype=torch.float32) / self.rotary_dim))
-
         # default rope type's theta
         self.theta = get_theta()
         # other type
@@ -278,7 +277,6 @@ class Rotary(torch.nn.Module):
                 rope_type = config.rope_scaling['type']
             elif 'rope_type' in config.rope_scaling:
                 rope_type = config.rope_scaling['rope_type']
-
             # gen theta for rope_type
             if rope_type == 'dynamic': # NTK
                 if 'alpha' in config.rope_scaling: # NTKAlpha in Hunyuan
@@ -286,7 +284,7 @@ class Rotary(torch.nn.Module):
                 else: # NTKScaling
                     pass
                 self.theta = get_theta()
-            elif rope_type == 'yarn': # YaRN in gpt-oss
+            elif rope_type == 'yarn':
                 self.is_scaled = True
                 self.theta, self.attention_scaling = _compute_yarn_parameters(
                     rotary_dim=self.rotary_dim,

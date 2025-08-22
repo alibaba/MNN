@@ -33,6 +33,11 @@ public:
                 return true;
             }
         }
+        if (op->type == OpType_Identity) {
+            // Support 1->N
+            return op->inputIndexes.size() == 1 && op->outputIndexes.size() > 1;
+        }
+
         if (op->type == OpType_Cast) {
             if (op->main.AsCastParam()->dstT == op->main.AsCastParam()->srcT) {
                 return true;

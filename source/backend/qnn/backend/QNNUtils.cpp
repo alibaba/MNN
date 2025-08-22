@@ -134,6 +134,8 @@ void registerQNNOps() {
     #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
     ___QNNAttentionCreator__OpType_Attention__();
     #endif
+    ___QNNQuantCreator__OpType_FloatToInt8__();
+    ___QNNDeQuantCreator__OpType_Int8ToFloat__();
 }
 
 Tensor::DimensionType gQnnTensorDimType = Tensor::TENSORFLOW;

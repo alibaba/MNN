@@ -106,6 +106,10 @@ optional arguments:
                         mnn quant bit, 4 or 8, default is 4.
   --quant_block QUANT_BLOCK
                         mnn quant block, 0 mean channle-wise, default is 128.
+  --visual_quant_bit VISUAL_QUANT_BIT
+                        mnn visual model quant bit, 4 or 8, default is setting in utils/vision.py by different vit model.
+  --visual_quant_block VISUAL_QUANT_BLOCK
+                        mnn visual model quant block, 0 mean channle-wise, default is setting in utils/vision.py by different vit model.
   --lm_quant_bit LM_QUANT_BIT
                         mnn lm_head quant bit, 4 or 8, default is `quant_bit`.
   --mnnconvert MNNCONVERT
@@ -113,9 +117,11 @@ optional arguments:
   --ppl                 Whether or not to get all logits of input tokens.
   --awq                 Whether or not to use awq quant.
   --sym                 Whether or not to using symmetric quant (without zeropoint), defualt is False.
+  --visual_sym          Whether or not to using symmetric quant (without zeropoint) for visual model, defualt is False.
   --seperate_embed      For lm and embed shared model, whether or not to sepearte embed to avoid quant, defualt is False, if True, embed weight will be seperate to embeddingbf16.bin.
   --lora_split          Whether or not export lora split, defualt is False.
 ```
+
 
 ### 权重读取
 llmexport.py 同时支持 LLM 的验证功能，有较多的依赖。在没有相应环境的情况下，MNN-LLM也提供由 safetensors 或 gguf 文件读取权重的工具，可以降低内存需求，提高转换速度。使用方法如下：
@@ -166,6 +172,7 @@ python3 gguf2mnn.py --gguf ~/third/llama.cpp/build/ggml-model-Q4_K.gguf --mnn_di
 ```
 -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true
 ```
+
 - 需要开启音频功能时，增加相关编译宏
 ```
 -DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true
@@ -194,6 +201,12 @@ make -j16
 cd project/android
 mkdir build_64
 ../build_64.sh -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_ARM82=true -DMNN_OPENCL=true -DMNN_USE_LOGCAT=true
+```
+高通设备部分视觉模型支持NPU功能，可增加`MNN_QNN` 和`MNN_WITH_PLUGIN`的宏启用QNN功能。
+```
+cd project/android
+mkdir build_64
+../build_64.sh -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_ARM82=true -DMNN_OPENCL=true -DMNN_QNN=true -DMNN_WITH_PLUGIN=true -DMNN_USE_LOGCAT=true
 ```
 
 #### iOS: 参考 transformers/llm/engine/ios/README.md

@@ -12,34 +12,76 @@
 class RemoveCopy : public PostConverter {
 public:
     virtual bool onExecute(std::unique_ptr<MNN::NetT>& net) const override {
-        auto config = Global<modelConfig>::Get();
-        if (config->optimizeLevel < 1 || config->inSubGraph) {
-            return true;
+        std::set<std::string> netOutputNames;
+        for (auto& t : net->outputName) {
+            netOutputNames.insert(t);
         }
+        for (auto iter = net->oplists.begin(); iter != net->oplists.end(); iter++) {
+            auto& op          = *iter;
+            if (op->type == MNN::OpType_Input) {
+                for (auto o : op->outputIndexes) {
+                    netOutputNames.insert(net->tensorName[o]);
+                }
+            }
+        }
+        auto config = Global<modelConfig>::Get();
         for (auto iter = net->oplists.begin(); iter != net->oplists.end();) {
             auto& op          = *iter;
-            if (op->type != MNN::OpType_Identity) {
+            if (op->type != MNN::OpType_Identity || op->inputIndexes.size() != op->outputIndexes.size()) {
                 iter++;
                 continue;
             }
+            
+            bool hasOutputName = false;
+            for (auto o : op->outputIndexes) {
+                if (netOutputNames.find(net->tensorName[o]) != netOutputNames.end()) {
+                    hasOutputName = true;
+                    break;
+                }
+            }
+            bool hasOutputFromInput = false;
+            for (auto o : op->inputIndexes) {
+                if (netOutputNames.find(net->tensorName[o]) != netOutputNames.end()) {
+                    hasOutputFromInput = true;
+                    break;
+                }
+            }
+            if (hasOutputFromInput && hasOutputName) {
+                iter++;
+                continue;
+            }
+            auto originInput  = op->inputIndexes;
+            auto originOutputs = op->outputIndexes;
+            MNN_ASSERT(originInput.size() == originOutputs.size());
+            if (hasOutputName) {
+                bool valid = true;
+                for (int i=0; i<op->inputIndexes.size(); ++i) {
+                    auto o = op->outputIndexes[i];
+                    auto originInput = op->inputIndexes[i];
+                    if (netOutputNames.find(net->tensorName[o]) != netOutputNames.end()) {
+                        if (netOutputNames.find(net->tensorName[originInput]) != netOutputNames.end()) {
+                            valid = false;
+                            break;
+                        }
+                        auto originName = net->tensorName[originInput];
+                        net->tensorName[originInput] = net->tensorName[o];
+                        net->tensorName[o] = originName;
+                    }
+                }
+                if (!valid) {
+                    continue;
+                }
+            }
+
             std::map<int, int> replaceIndexes;
             for (int i=0; i<op->inputIndexes.size();++i) {
                 replaceIndexes.insert(std::make_pair(op->outputIndexes[i], op->inputIndexes[i]));
-                net->tensorName[op->inputIndexes[i]] = net->tensorName[op->outputIndexes[i]];
             }
             for (auto subIter = net->oplists.begin(); subIter != net->oplists.end(); subIter++) {
                 auto& subOp = *subIter;
                 for (int v = 0; v < subOp->inputIndexes.size(); ++v) {
                     if (replaceIndexes.find(subOp->inputIndexes[v]) != replaceIndexes.end()) {
                         subOp->inputIndexes[v] = replaceIndexes[subOp->inputIndexes[v]];
-                    }
-                }
-            }
-            for (int v=0; v<op->inputIndexes.size(); ++v) {
-                for (auto& o : net->outputName) {
-                    if (o == net->tensorName[op->inputIndexes[v]]) {
-                        o = net->tensorName[op->outputIndexes[v]];
-                        break;
                     }
                 }
             }

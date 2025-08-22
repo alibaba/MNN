@@ -78,6 +78,10 @@ public:
     std::shared_ptr<QNNTensorWrapper> getTensorWrapper(const Tensor * tensor);
     bool useCache() const;
     bool getUseFP16() const;
+    void buildOutputDequant();
+    void pushReleaseFunc(std::function<void()> func){
+        mReleaseFunc.push_back(func);
+    }
 
 private:
     void clean();
@@ -109,8 +113,10 @@ private:
     mutable int mTensorCounter = 0;
     mutable std::vector<std::shared_ptr<QNNTensorWrapper>> mQNNTensorWrappers;
     mutable std::map<const Tensor::InsideDescribe::NativeInsideDescribe *, int> mTensorMap;
+    mutable std::map<const Tensor::InsideDescribe::NativeInsideDescribe *, std::pair<const Tensor*, std::shared_ptr<Tensor>>> mDeQuantOutputTensorMap;
     std::vector<int> mInputTensorIndexes;
     std::vector<int> mOutputTensorIndexes;
+    std::vector<std::function<void()>> mReleaseFunc;
 };
 
 

@@ -23,12 +23,14 @@
 
 namespace MNN {
 class WorkerThread;
+class CPUResizeCache;
 class CPURuntime : public Runtime {
 public:
     struct DynamicAllocator {
         std::shared_ptr<BufferAllocator> mDynamicAllocator;
         std::shared_ptr<BufferAllocator> mDynamicAllocatorBackup;
         BufferAllocator* mCurrentDynamicAllocator = nullptr;
+        std::vector<std::shared_ptr<CPUResizeCache>> mCacheGroup;
     };
     friend class CPUBackend;
     CPURuntime(const Backend::Info& info);
@@ -82,7 +84,6 @@ struct CoreFunctions;
 struct CoreInt8Functions;
 struct MatmulRelatedFunctions;
 
-class CPUResizeCache;
 class CPUMemObj : public Backend::MemObj {
 public:
     CPUMemObj(BufferAllocator* allocator, MemChunk chunk, int size) : mAllocator(allocator), mChunk(chunk), mSize(size) {}
@@ -199,7 +200,6 @@ private:
     BackendConfig::MemoryMode mMemory;
     static std::map<OpType, CPUBackend::Creator*>* gCreator;
     CPUResizeCache* mCache;
-    std::vector<std::shared_ptr<CPUResizeCache>> mCacheGroup;
 };
 /** execution cast wrapper. insert tensor cast dynamic. */
 class CastWrapExecution : public Execution {

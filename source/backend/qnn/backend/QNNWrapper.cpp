@@ -25,7 +25,7 @@ std::shared_ptr<QNNTensorWrapper> QNNTensorWrapper::create(const std::string & n
 
 std::shared_ptr<QNNTensorWrapper> QNNTensorWrapper::createStaticTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<uint32_t> & dimensions, const void * buffer, Qnn_QuantizeParams_t quantizeParam) {
     MNN_ASSERT(!name.empty() && !dimensions.empty() && buffer);
-    MNN_ASSERT(dataType == QNN_DATATYPE_SFIXED_POINT_8 || dataType == QNN_DATATYPE_INT_32);
+    MNN_ASSERT(dataType == QNN_DATATYPE_SFIXED_POINT_8 || dataType == QNN_DATATYPE_INT_32 || dataType == QNN_DATATYPE_SFIXED_POINT_32 || dataType == QNN_DATATYPE_UFIXED_POINT_8);
 
     std::shared_ptr<QNNTensorWrapper> tensorWrapper = QNNTensorWrapper::create(name, QNN_TENSOR_TYPE_STATIC, dataType, dimensions, quantizeParam);
     uint32_t numElement = 1;
@@ -114,7 +114,8 @@ void * QNNTensorWrapper::alloc() {
         dims[i] = (int)mDimensions[i];
     }
 
-    MNN_ASSERT(mQnnTensor.v1.dataType == QNN_DATATYPE_FLOAT_32 || mQnnTensor.v1.dataType == QNN_DATATYPE_FLOAT_16 || mQnnTensor.v1.dataType == QNN_DATATYPE_INT_32 ||  mQnnTensor.v1.dataType == QNN_DATATYPE_SFIXED_POINT_8);
+    MNN_ASSERT(mQnnTensor.v1.dataType == QNN_DATATYPE_FLOAT_32 || mQnnTensor.v1.dataType == QNN_DATATYPE_FLOAT_16 || mQnnTensor.v1.dataType == QNN_DATATYPE_INT_32 ||  mQnnTensor.v1.dataType == QNN_DATATYPE_SFIXED_POINT_8 || mQnnTensor.v1.dataType == QNN_DATATYPE_SFIXED_POINT_32
+    || mQnnTensor.v1.dataType == QNN_DATATYPE_UFIXED_POINT_8);
     halide_type_t halideType;
 
     halideType.lanes = 1;
@@ -134,6 +135,15 @@ void * QNNTensorWrapper::alloc() {
         case QNN_DATATYPE_SFIXED_POINT_8:
             halideType.code = halide_type_int;
             halideType.bits = 8;
+            break;
+        case QNN_DATATYPE_SFIXED_POINT_32:
+            halideType.code = halide_type_int;
+            halideType.bits = 32;
+            break;
+        case QNN_DATATYPE_UFIXED_POINT_8:
+            halideType.code = halide_type_int;
+            halideType.bits = 8;
+            break;
         default:
             break;
     }

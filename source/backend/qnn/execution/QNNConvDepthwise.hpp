@@ -19,10 +19,28 @@ class QNNConvDepthwise : public QNNCommonExecution {
 public:
     QNNConvDepthwise(Backend *backend, const Op *op) : QNNCommonExecution(backend, op) {}
     virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    ErrorCode onEncodeQuantDequantDepthConv(Tensor *input, Tensor *output, const int n, const int ic, const int oc);
 private:
-    void createWeight(Qnn_DataType_t dataType, int oc, int kernelH, int kernelW);
-    void createBias(Qnn_DataType_t dataType, int oc);
-    void convertWeight(const float * src, float * dst, int oc, int kernelH, int kernelW);
+template <typename T>
+    void convertWeight(const T * src, T * dst, int oc, int kernelH, int kernelW) {
+        for (int c = 0; c < oc; c++) {
+            for (int h = 0; h < kernelH; h++) {
+                for (int w = 0; w < kernelW; w++) {
+                    int srcOffset = w + kernelW * (h + kernelH * c);
+                    int dstOffset = c + oc * (w + kernelW * h);
+                    dst[dstOffset] = src[srcOffset];
+                }
+            }
+        }
+    }
+    void isWeightQuantSupported(const Tensor *input, const int oc);
+    void createWeightAndBias(Qnn_DataType_t dataType, const Tensor *input, int oc, int kernelH, int kernelW);
+    std::vector<float> mScale;
+    std::vector<Qnn_ScaleOffset_t> mScaleOffsetData;
+    std::vector<Qnn_ScaleOffset_t> mBiasScaleOffsetData;
+    std::vector<uint8_t> mBlockScale;
+    float *mDequantAlpha = nullptr;
+    bool mWeightQuant = false;
 };
 
 } // end namespace QNN

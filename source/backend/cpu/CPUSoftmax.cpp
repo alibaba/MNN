@@ -200,7 +200,7 @@ int CPUSoftmax::_softmaxCommon(const uint8_t *srcData, uint8_t *dstData) {
             for (int v=0; v<mInside; ++v) {
                 //TODO: Fix x86 compute error and use the same function
 #ifdef MNN_USE_SSE
-                MNNSoftmax(workDst+v*mChannel, workSrc+v*mChannel, mChannel);
+                MNNSoftmax(workDst+v*mChannel, workSrc+v*mChannel, nullptr, nullptr, nullptr, 1, mChannel);
 #else
                 ___MNNSoftmax(workDst+v*mChannel, workSrc+v*mChannel, mChannel, mulFunction);
 #endif

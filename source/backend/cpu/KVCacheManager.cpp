@@ -75,13 +75,13 @@ void KVCacheManager::resetKVCacheFileSize(size_t keySize, size_t valueSize) {
 void KVCacheManager::mmapKVCache(size_t keySize, size_t valueSize)
 {
     if (mMapKeyAddr == nullptr) {
-        mMapKeyAddr = (char *)MNNMmapFile(mKeyCacheFD, keySize);
+        mMapKeyAddr = (int8_t *)MNNMmapFile(mKeyCacheFD, keySize);
         if (mMapKeyAddr == nullptr) {
             MNN_PRINT("Failed to memory-map the kvcache!\n");
         }
     }
     if (mMapValueAddr == nullptr) {
-        mMapValueAddr = (char *)MNNMmapFile(mValueCacheFD, valueSize);
+        mMapValueAddr = (int8_t *)MNNMmapFile(mValueCacheFD, valueSize);
         if (mMapValueAddr == nullptr) {
             MNN_PRINT("Failed to memory-map the kvcache!\n");
         }
@@ -111,8 +111,8 @@ void KVCacheManager::expandKVCacheInMem(int oldMaxLength) {
         mBackend->onAcquireBuffer(new_key, Backend::STATIC);
         for (int h = 0; h < mKvNumHead; h++) {
             memcpy(
-                new_key->host<char>() + h * UP_DIV(mMaxLength, hP8) * UP_DIV(mHeadDim, lP8) * hP8 * lP8,
-                mPastKey->host<char>() + h * UP_DIV(oldMaxLength, hP8) * UP_DIV(mHeadDim, lP8) * hP8 * lP8,
+                new_key->host<int8_t>() + h * UP_DIV(mMaxLength, hP8) * UP_DIV(mHeadDim, lP8) * hP8 * lP8,
+                mPastKey->host<int8_t>() + h * UP_DIV(oldMaxLength, hP8) * UP_DIV(mHeadDim, lP8) * hP8 * lP8,
                 UP_DIV(oldMaxLength, hP8) * UP_DIV(mHeadDim, lP8) * hP8 * lP8
             );
         }
@@ -123,8 +123,8 @@ void KVCacheManager::expandKVCacheInMem(int oldMaxLength) {
         mBackend->onAcquireBuffer(new_key, Backend::STATIC);
         for (int h = 0; h < mKvNumHead; h++) {
             memcpy(
-                new_key->host<char>() + h * new_key->stride(0),
-                mPastKey->host<char>() + h * ROUND_UP(oldMaxLength, hP) * ROUND_UP(mHeadDim, lP),
+                new_key->host<int8_t>() + h * new_key->stride(0),
+                mPastKey->host<int8_t>() + h * ROUND_UP(oldMaxLength, hP) * ROUND_UP(mHeadDim, lP),
                 ROUND_UP(oldMaxLength, hP) * ROUND_UP(mHeadDim, lP)
             );
         }
@@ -135,12 +135,12 @@ void KVCacheManager::expandKVCacheInMem(int oldMaxLength) {
         mBackend->onAcquireBuffer(new_key, Backend::STATIC);
         for (int h = 0; h < mKvNumHead; h++) {
             memcpy(
-                new_key->host<char>() + h * new_key->stride(0) * mBytes,
-                mPastKey->host<char>() + h * ROUND_UP(oldMaxLength, hP) * ROUND_UP(mHeadDim, lP) * mBytes,
+                new_key->host<int8_t>() + h * new_key->stride(0) * mBytes,
+                mPastKey->host<int8_t>() + h * ROUND_UP(oldMaxLength, hP) * ROUND_UP(mHeadDim, lP) * mBytes,
                 ROUND_UP(oldMaxLength, hP) * ROUND_UP(mHeadDim, lP) * mBytes
             );
             if ((new_key->stride(0) - mPastKey->stride(0)) > 0) {
-                memset(new_key->host<char>() + h * new_key->stride(0) * mBytes + mPastKey->stride(0) * mBytes, 0, (new_key->stride(0) - mPastKey->stride(0)) * mBytes);
+                memset(new_key->host<int8_t>() + h * new_key->stride(0) * mBytes + mPastKey->stride(0) * mBytes, 0, (new_key->stride(0) - mPastKey->stride(0)) * mBytes);
             }
         }
         mPastKey.reset(new_key);
@@ -152,8 +152,8 @@ void KVCacheManager::expandKVCacheInMem(int oldMaxLength) {
         for (int h = 0; h < mKvNumHead; h++) {
             for (int i = 0; i < UP_DIV(mHeadDim, hP); i++) {
                 memcpy(
-                    new_value->host<char>() + (h * UP_DIV(mHeadDim, hP) + i) * ROUND_UP(mMaxLength, lP) * hP,
-                    mPastValue->host<char>() + (h * UP_DIV(mHeadDim, hP) + i) * ROUND_UP(oldMaxLength, lP) * hP,
+                    new_value->host<int8_t>() + (h * UP_DIV(mHeadDim, hP) + i) * ROUND_UP(mMaxLength, lP) * hP,
+                    mPastValue->host<int8_t>() + (h * UP_DIV(mHeadDim, hP) + i) * ROUND_UP(oldMaxLength, lP) * hP,
                     ROUND_UP(oldMaxLength, lP) * hP
                 );
             }
@@ -166,12 +166,12 @@ void KVCacheManager::expandKVCacheInMem(int oldMaxLength) {
         for (int h = 0; h < mKvNumHead; h++) {
             for (int i = 0; i < UP_DIV(mHeadDim, hP); i++) {
                 memcpy(
-                    new_value->host<char>() + (h * UP_DIV(mHeadDim, hP) + i) * ROUND_UP(mMaxLength, lP) * hP * mBytes,
-                    mPastValue->host<char>() + (h * UP_DIV(mHeadDim, hP) + i) * ROUND_UP(oldMaxLength, lP) * hP * mBytes,
+                    new_value->host<int8_t>() + (h * UP_DIV(mHeadDim, hP) + i) * ROUND_UP(mMaxLength, lP) * hP * mBytes,
+                    mPastValue->host<int8_t>() + (h * UP_DIV(mHeadDim, hP) + i) * ROUND_UP(oldMaxLength, lP) * hP * mBytes,
                     ROUND_UP(oldMaxLength, lP) * hP * mBytes
                 );
                 if ((new_value->stride(1) - mPastValue->stride(1)) > 0) {
-                    memset(new_value->host<char>() + (h * new_value->stride(0) + i * new_value->stride(1)) * mBytes + mPastValue->stride(1) * mBytes, 0, (new_value->stride(1) - mPastValue->stride(1)) * mBytes);
+                    memset(new_value->host<int8_t>() + (h * new_value->stride(0) + i * new_value->stride(1)) * mBytes + mPastValue->stride(1) * mBytes, 0, (new_value->stride(1) - mPastValue->stride(1)) * mBytes);
                 }
             }
         }
@@ -189,7 +189,7 @@ void KVCacheManager::moveKVCacheFromMemToDisk(int oldMaxLength) {
         for (int h = 0; h < mKvNumHead; h++) {
             memcpy(
                 mMapKeyAddr + h * UP_DIV(mMaxLength, hP8) * UP_DIV(mHeadDim, lP8) * hP8 * lP8,
-                mPastKey->host<char>() + h * UP_DIV(oldMaxLength, hP8) * UP_DIV(mHeadDim, lP8) * hP8 * lP8,
+                mPastKey->host<int8_t>() + h * UP_DIV(oldMaxLength, hP8) * UP_DIV(mHeadDim, lP8) * hP8 * lP8,
                 UP_DIV(oldMaxLength, hP8) * UP_DIV(mHeadDim, lP8) * hP8 * lP8
             );
         }
@@ -200,7 +200,7 @@ void KVCacheManager::moveKVCacheFromMemToDisk(int oldMaxLength) {
         for (int h = 0; h < mKvNumHead; h++) {
             memcpy(
                 mMapKeyAddr + h * UP_DIV(mMaxLength, hP) * ROUND_UP(mHeadDim, lP) * hP,
-                mPastKey->host<char>() + h * UP_DIV(oldMaxLength, hP) * ROUND_UP(mHeadDim, lP) * hP,
+                mPastKey->host<int8_t>() + h * UP_DIV(oldMaxLength, hP) * ROUND_UP(mHeadDim, lP) * hP,
                 UP_DIV(oldMaxLength, hP) * ROUND_UP(mHeadDim, lP) * hP
             );
         }
@@ -214,7 +214,7 @@ void KVCacheManager::moveKVCacheFromMemToDisk(int oldMaxLength) {
         for (int h = 0; h < mKvNumHead; h++) {
             memcpy(
                 mMapKeyAddr + h * UP_DIV(mMaxLength, hP) * ROUND_UP(mHeadDim, lP) * hP * mBytes,
-                mPastKey->host<char>() + h * UP_DIV(oldMaxLength, hP) * ROUND_UP(mHeadDim, lP) * hP * mBytes,
+                mPastKey->host<int8_t>() + h * UP_DIV(oldMaxLength, hP) * ROUND_UP(mHeadDim, lP) * hP * mBytes,
                 UP_DIV(oldMaxLength, hP) * ROUND_UP(mHeadDim, lP) * hP * mBytes
             );
         }
@@ -227,7 +227,7 @@ void KVCacheManager::moveKVCacheFromMemToDisk(int oldMaxLength) {
             for (int i = 0; i < UP_DIV(mHeadDim, hP); i++) {
                 memcpy(
                     mMapValueAddr + (h * UP_DIV(mHeadDim, hP) + i) * ROUND_UP(mMaxLength, lP) * hP,
-                    mPastValue->host<char>() + (h * UP_DIV(mHeadDim, hP) + i) * ROUND_UP(oldMaxLength, lP) * hP,
+                    mPastValue->host<int8_t>() + (h * UP_DIV(mHeadDim, hP) + i) * ROUND_UP(oldMaxLength, lP) * hP,
                     ROUND_UP(oldMaxLength, lP) * hP
                 );
             }
@@ -243,7 +243,7 @@ void KVCacheManager::moveKVCacheFromMemToDisk(int oldMaxLength) {
             for (int i = 0; i < UP_DIV(mHeadDim, hP); i++) {
                 memcpy(
                     mMapValueAddr + (h * UP_DIV(mHeadDim, hP) + i) * ROUND_UP(mMaxLength, lP) * hP * mBytes,
-                    mPastValue->host<char>() + (h * UP_DIV(mHeadDim, hP) + i) * ROUND_UP(oldMaxLength, lP) * hP * mBytes,
+                    mPastValue->host<int8_t>() + (h * UP_DIV(mHeadDim, hP) + i) * ROUND_UP(oldMaxLength, lP) * hP * mBytes,
                     ROUND_UP(oldMaxLength, lP) * hP * mBytes
                 );
             }
@@ -282,8 +282,8 @@ void KVCacheManager::expandKVCacheInDisk(int oldMaxLength, int oldKeySize, int o
         memset(old_value->host<uint8_t>(), 0, old_value->length(0) * old_value->stride(0) * mBytes);
     }
     mmapKVCache(oldKeySize, oldValueSize);
-    memcpy(old_key->host<char>(),   mMapKeyAddr,   oldKeySize);
-    memcpy(old_value->host<char>(), mMapValueAddr, oldValueSize);
+    memcpy(old_key->host<int8_t>(),   mMapKeyAddr,   oldKeySize);
+    memcpy(old_value->host<int8_t>(), mMapValueAddr, oldValueSize);
     // Step 2: Resize the kvcache files and remap them
     unmapKVCache(oldKeySize, oldValueSize);
     resetKVCacheFileSize(keySize, valueSize);
@@ -293,7 +293,7 @@ void KVCacheManager::expandKVCacheInDisk(int oldMaxLength, int oldKeySize, int o
         for (int h = 0; h < mKvNumHead; h++) {
             memcpy(
                 mMapKeyAddr + h * UP_DIV(mMaxLength, hP8) * UP_DIV(mHeadDim, lP8) * hP8 * lP8,
-                old_key->host<char>() + h * UP_DIV(oldMaxLength, hP8) * UP_DIV(mHeadDim, lP8) * hP8 * lP8,
+                old_key->host<int8_t>() + h * UP_DIV(oldMaxLength, hP8) * UP_DIV(mHeadDim, lP8) * hP8 * lP8,
                 UP_DIV(oldMaxLength, hP8) * UP_DIV(mHeadDim, lP8) * hP8 * lP8
             );
         }
@@ -301,7 +301,7 @@ void KVCacheManager::expandKVCacheInDisk(int oldMaxLength, int oldKeySize, int o
         for (int h = 0; h < mKvNumHead; h++) {
             memcpy(
                 mMapKeyAddr + h * UP_DIV(mMaxLength, hP) * ROUND_UP(mHeadDim, lP) * hP,
-                old_key->host<char>() + h * UP_DIV(oldMaxLength, hP) * ROUND_UP(mHeadDim, lP) * hP,
+                old_key->host<int8_t>() + h * UP_DIV(oldMaxLength, hP) * ROUND_UP(mHeadDim, lP) * hP,
                 UP_DIV(oldMaxLength, hP) * ROUND_UP(mHeadDim, lP) * hP
             );
         }
@@ -309,7 +309,7 @@ void KVCacheManager::expandKVCacheInDisk(int oldMaxLength, int oldKeySize, int o
         for (int h = 0; h < mKvNumHead; h++) {
             memcpy(
                 mMapKeyAddr + h * UP_DIV(mMaxLength, hP) * ROUND_UP(mHeadDim, lP) * hP * mBytes,
-                old_key->host<char>() + h * UP_DIV(oldMaxLength, hP) * ROUND_UP(mHeadDim, lP) * hP * mBytes,
+                old_key->host<int8_t>() + h * UP_DIV(oldMaxLength, hP) * ROUND_UP(mHeadDim, lP) * hP * mBytes,
                 UP_DIV(oldMaxLength, hP) * ROUND_UP(mHeadDim, lP) * hP * mBytes
             );
         }
@@ -319,7 +319,7 @@ void KVCacheManager::expandKVCacheInDisk(int oldMaxLength, int oldKeySize, int o
             for (int i = 0; i < UP_DIV(mHeadDim, hP); i++) {
                 memcpy(
                     mMapValueAddr + (h * UP_DIV(mHeadDim, hP) + i) * ROUND_UP(mMaxLength, lP) * hP,
-                    old_value->host<char>() + (h * UP_DIV(mHeadDim, hP) + i) * ROUND_UP(oldMaxLength, lP) * hP,
+                    old_value->host<int8_t>() + (h * UP_DIV(mHeadDim, hP) + i) * ROUND_UP(oldMaxLength, lP) * hP,
                     ROUND_UP(oldMaxLength, lP) * hP
                 );
             }
@@ -329,7 +329,7 @@ void KVCacheManager::expandKVCacheInDisk(int oldMaxLength, int oldKeySize, int o
             for (int i = 0; i < UP_DIV(mHeadDim, hP); i++) {
                 memcpy(
                     mMapValueAddr + (h * UP_DIV(mHeadDim, hP) + i) * ROUND_UP(mMaxLength, lP) * hP * mBytes,
-                    old_value->host<char>() + (h * UP_DIV(mHeadDim, hP) + i) * ROUND_UP(oldMaxLength, lP) * hP * mBytes,
+                    old_value->host<int8_t>() + (h * UP_DIV(mHeadDim, hP) + i) * ROUND_UP(oldMaxLength, lP) * hP * mBytes,
                     ROUND_UP(oldMaxLength, lP) * hP * mBytes
                 );
             }
@@ -460,9 +460,9 @@ void KVCacheManager::onRealloc(const KVMeta* meta) {
             mBackend->onAcquireBuffer(new_zeroPoint, Backend::STATIC);
             mBackend->onAcquireBuffer(new_sum, Backend::STATIC);
             for (int h = 0; h < mKvNumHead; h++) {
-                memcpy(new_scale->host<char>() + h * UP_DIV(mMaxLength, hP8) * hP8 * 4, mKeyScale->host<char>() + h * UP_DIV(oldMaxLength, hP8) * hP8 * 4, UP_DIV(oldMaxLength, hP8) * hP8 * 4);
-                memcpy(new_zeroPoint->host<char>() + h * UP_DIV(mMaxLength, hP8) * hP8 * 4, mKeyZeroPoint->host<char>() + h * UP_DIV(oldMaxLength, hP8) * hP8 * 4, UP_DIV(oldMaxLength, hP8) * hP8 * 4);
-                memcpy(new_sum->host<char>() + h * UP_DIV(mMaxLength, hP8) * hP8 * 4, mKeySum->host<char>() + h * UP_DIV(oldMaxLength, hP8) * hP8 * 4, UP_DIV(oldMaxLength, hP8) * hP8 * 4);
+                memcpy(new_scale->host<int8_t>() + h * UP_DIV(mMaxLength, hP8) * hP8 * 4, mKeyScale->host<int8_t>() + h * UP_DIV(oldMaxLength, hP8) * hP8 * 4, UP_DIV(oldMaxLength, hP8) * hP8 * 4);
+                memcpy(new_zeroPoint->host<int8_t>() + h * UP_DIV(mMaxLength, hP8) * hP8 * 4, mKeyZeroPoint->host<int8_t>() + h * UP_DIV(oldMaxLength, hP8) * hP8 * 4, UP_DIV(oldMaxLength, hP8) * hP8 * 4);
+                memcpy(new_sum->host<int8_t>() + h * UP_DIV(mMaxLength, hP8) * hP8 * 4, mKeySum->host<int8_t>() + h * UP_DIV(oldMaxLength, hP8) * hP8 * 4, UP_DIV(oldMaxLength, hP8) * hP8 * 4);
             }
             mKeyScale.reset(new_scale);
             mKeyZeroPoint.reset(new_zeroPoint);
@@ -473,8 +473,8 @@ void KVCacheManager::onRealloc(const KVMeta* meta) {
             mBackend->onAcquireBuffer(new_scale, Backend::STATIC);
             mBackend->onAcquireBuffer(new_zeroPoint, Backend::STATIC);
             for (int h = 0; h < mKvNumHead; h++) {
-                memcpy(new_scale->host<char>() + h * UP_DIV(mMaxLength, hP) * hP * mBytes, mKeyScale->host<char>() + h * UP_DIV(oldMaxLength, hP) * hP * mBytes, UP_DIV(oldMaxLength, hP) * hP * mBytes);
-                memcpy(new_zeroPoint->host<char>() + h * UP_DIV(mMaxLength, hP) * hP * mBytes, mKeyZeroPoint->host<char>() + h * UP_DIV(oldMaxLength, hP) * hP * mBytes, UP_DIV(oldMaxLength, hP) * hP * mBytes);
+                memcpy(new_scale->host<int8_t>() + h * UP_DIV(mMaxLength, hP) * hP * mBytes, mKeyScale->host<int8_t>() + h * UP_DIV(oldMaxLength, hP) * hP * mBytes, UP_DIV(oldMaxLength, hP) * hP * mBytes);
+                memcpy(new_zeroPoint->host<int8_t>() + h * UP_DIV(mMaxLength, hP) * hP * mBytes, mKeyZeroPoint->host<int8_t>() + h * UP_DIV(oldMaxLength, hP) * hP * mBytes, UP_DIV(oldMaxLength, hP) * hP * mBytes);
             }
             mKeyScale.reset(new_scale);
             mKeyZeroPoint.reset(new_zeroPoint);
@@ -690,8 +690,8 @@ void KVCacheManager::onDequantValue(Tensor * dequantedValues) {
     int tileCount = UP_DIV(mKvNumHead, mThreadNum);
     std::function<void(int)> dequant = [=](int tid) {
         for (int kv_h = tid * tileCount; kv_h < (tid+1) * tileCount && kv_h < mKvNumHead; kv_h++) {
-            char * dst = dequantedValues->host<char>() + kv_h * UP_DIV(mHeadDim, hP) * mPastLength * hP * mBytes;
-            char * src = addrOfValue(kv_h);
+            int8_t * dst = dequantedValues->host<int8_t>() + kv_h * UP_DIV(mHeadDim, hP) * mPastLength * hP * mBytes;
+            int8_t * src = addrOfValue(kv_h);
             for (int i = 0; i < UP_DIV(mHeadDim, hP); i++) {
                 if (mBytes == 2) {
                     core->MNNFp8ToFp16((uint16_t*)dst, (uint8_t*)src, mPastLength * hP);

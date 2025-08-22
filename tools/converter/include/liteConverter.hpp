@@ -13,9 +13,7 @@
 #include <iostream>
 #include <MNN/MNNDefine.h>
 #include <memory>
-namespace MNN {
-class NetT;
-};
+#include "MNN_generated.h"
 
 /**
  * @brief convert tflite model to MNN model
@@ -23,8 +21,8 @@ class NetT;
  * @param bizCode(not used, always is MNN)
  * @param MNN net
  */
-MNN_PUBLIC int tflite2MNNNet(const std::string inputModel, const std::string bizCode,
+int tflite2MNNNet(const std::string inputModel, const std::string bizCode,
                   std::unique_ptr<MNN::NetT>& MNNNetT);
-MNN_PUBLIC bool dumpTflite2Json(const char* inputModel, const char* outputJson);
+bool dumpTflite2Json(const char* inputModel, const char* outputJson);
 
 #endif // LITECONVERTER_HPP

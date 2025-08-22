@@ -1,0 +1,174 @@
+// QNN Dependencies Preparation
+// This gradle file handles downloading and preparing QNN dependencies
+
+// QNN configuration
+ext {
+    // QNN download settings
+    QNN_LIBS_URL = 'http://meta.alicdn.com/data/mnn/libs/qnn_inc_libs.zip'
+}
+
+def qnnZipName = 'qnn_inc_libs.zip'
+def qnnZipFile = new File(buildDir, qnnZipName)
+def qnnTmpDir = new File(buildDir, 'qnn_tmp')
+
+task prepareQnnDeps {
+    group = 'build setup'
+    description = 'Download and extract QNN include/lib into source/backend/qnn/3rdParty when BUILD_QNN is enabled.'
+    onlyIf { 
+        project.ext.has('BUILD_QNN') && project.ext.BUILD_QNN
+    }
+    
+    // Define inputs and outputs for incremental build
+    inputs.property("qnn_libs_url", { QNN_LIBS_URL })
+    inputs.property("build_qnn", { project.ext.has('BUILD_QNN') && project.ext.BUILD_QNN })
+    outputs.dir(new File(project.rootDir, '../../source/backend/qnn/3rdParty'))
+    outputs.dir(new File(buildDir, 'native-packed/native/libs'))
+    
+    doLast {
+        println "BUILD_QNN is ON. Preparing QNN dependencies..."
+        
+        def url = QNN_LIBS_URL
+        println "Downloading QNN dependencies from ${url}"
+        
+        if (!qnnZipFile.exists()) {
+            println "Downloading ${qnnZipName} ..."
+            qnnZipFile.parentFile.mkdirs()
+            
+            try {
+                new java.net.URL(url).withInputStream { inputStream ->
+                    qnnZipFile.withOutputStream { outputStream ->
+                        outputStream << inputStream
+                    }
+                }
+                println "Downloaded to: ${qnnZipFile.absolutePath}"
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to download QNN dependencies from ${url}. Error: ${e.message}")
+            }
+        } else {
+            println "Using cached zip: ${qnnZipFile.absolutePath}"
+        }
+
+        // Clean temp dir and unpack
+        project.delete(qnnTmpDir)
+        qnnTmpDir.mkdirs()
+        copy {
+            from zipTree(qnnZipFile)
+            into qnnTmpDir
+        }
+
+        // Find the extracted QNN directory
+        def extractedQnnDir = findQnnDirectory(qnnTmpDir)
+        if (extractedQnnDir == null) {
+            throw new RuntimeException("Failed to find QNN directory structure in ${qnnZipFile.name}")
+        }
+        
+        copyQnnFiles(extractedQnnDir)
+    }
+}
+
+def findQnnDirectory(File searchDir) {
+    // Look for directory containing both include and jniLibs (or lib) directories
+    def candidates = []
+    
+    searchDir.eachDirRecurse { dir ->
+        def hasInclude = new File(dir, 'include').exists()
+        def hasLibs = new File(dir, 'jniLibs').exists() || new File(dir, 'lib').exists()
+        
+        if (hasInclude && hasLibs) {
+            candidates.add(dir)
+        }
+    }
+    
+    if (candidates.isEmpty()) {
+        // Fallback: look for directory that contains include
+        searchDir.eachDirRecurse { dir ->
+            if (new File(dir, 'include').exists()) {
+                candidates.add(dir)
+            }
+        }
+    }
+    
+    return candidates.isEmpty() ? null : candidates[0]
+}
+
+def copyQnnFiles(File sourceDir) {
+    // Resolve destination directories
+    def qnnRoot = new File(project.rootDir, '../../source/backend/qnn/3rdParty')
+    def includeDir = new File(qnnRoot, 'include')
+    def libDir = new File(qnnRoot, 'lib')
+    
+    includeDir.mkdirs()
+    libDir.mkdirs()
+
+    // Copy include files
+    def sourceInclude = new File(sourceDir, 'include')
+    if (sourceInclude.exists()) {
+        copy {
+            from sourceInclude
+            into includeDir
+        }
+        println "QNN includes copied to: ${includeDir.absolutePath}"
+    } else {
+        throw new RuntimeException("Include directory not found in ${sourceDir.absolutePath}")
+    }
+
+    // Copy library files - try both jniLibs and lib directories
+    def sourceLibs = new File(sourceDir, 'jniLibs')
+    if (!sourceLibs.exists()) {
+        sourceLibs = new File(sourceDir, 'lib')
+    }
+    
+    if (sourceLibs.exists()) {
+        copy {
+            from sourceLibs
+            into libDir
+        }
+        println "QNN libs copied to: ${libDir.absolutePath}"
+        
+        // Also copy QNN .so files to native-packed for AAR packaging
+        copyQnnLibsToNativePacked(sourceLibs)
+    } else {
+        println "Warning: No lib/jniLibs directory found in ${sourceDir.absolutePath}"
+    }
+    
+    println "QNN dependencies preparation completed successfully."
+}
+
+def copyQnnLibsToNativePacked(File sourceLibsDir) {
+    // Create native-packed directory structure for QNN .so files
+    def nativePackedLibsDir = new File(buildDir, 'native-packed/native/libs')
+    nativePackedLibsDir.mkdirs()
+    
+    println "Copying QNN .so files to native-packed for AAR packaging..."
+    
+    // Copy all .so files from QNN libs to native-packed
+    sourceLibsDir.eachFileRecurse { file ->
+        if (file.name.endsWith('.so')) {
+            // Determine the ABI directory (arm64-v8a, armeabi-v7a, etc.)
+            def relativePath = sourceLibsDir.toPath().relativize(file.toPath())
+            def targetFile = new File(nativePackedLibsDir, relativePath.toString())
+            
+            // Create parent directories if they don't exist
+            targetFile.parentFile.mkdirs()
+            
+            // Copy the .so file
+            copy {
+                from file
+                into targetFile.parentFile
+            }
+            
+            println "Copied QNN lib: ${file.name} -> ${targetFile.absolutePath}"
+        }
+    }
+    
+    println "QNN .so files copied to native-packed directory"
+}
+
+// Ensure preparation runs before compilation when enabled
+if (project.ext.has('BUILD_QNN') && project.ext.BUILD_QNN) {
+    afterEvaluate {
+        if (tasks.findByName('preBuild')) {
+            preBuild.dependsOn prepareQnnDeps
+        }
+    }
+}

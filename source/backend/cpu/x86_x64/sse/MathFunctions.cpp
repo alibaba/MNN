@@ -69,100 +69,68 @@ void _SSE_MNNExpC8(float* dest, const float* source, float* offset, const float*
     offset[3] = total;
 }
 
-void _SSE_MNNSoftmax(float* dest, const float* source, size_t size) {
-    float tmpfloat4[4];
-    int count  = static_cast<int32_t>(size / 4);
-    int remain = count * 4;
-    // step 1: get maxValue
-    float maxValue = source[0];
-    if (count > 0) {
-        auto maxVal = _mm_loadu_ps(source);
-        for (int i = 1; i < count; i++) {
-            maxVal = _mm_max_ps(maxVal, _mm_loadu_ps(source + i * 4));
+void _SSE_MNNSoftmax(float* softmaxDst, float* input, float* runningMax, float* runningSum, float* updateScale, int outside, int reduceSize) {
+    const float xLimit = 87.0f;
+    const float param = 0.6931471805599453f; // ln(2)
+    const float inv_param = 1.0f / param;
+    const int32_t exp_offset = 127;
+    const float exp_scale = 8388608.0f; // 2^23
+
+    for (int k = 0; k < outside; ++k) {
+        float* source = input + k * reduceSize;
+        float* dest = softmaxDst + k * reduceSize;
+
+        float tmpfloat4[4];
+        int count  = static_cast<int32_t>(reduceSize / 4);
+        int remain = count * 4;
+        // step 1: get maxValue
+        float maxValue = source[0];
+        float oldMax = maxValue;
+        if (runningMax) {
+            oldMax = runningMax[k];
         }
-        _mm_storeu_ps(tmpfloat4, maxVal);
-        maxValue = tmpfloat4[0] > tmpfloat4[1] ? tmpfloat4[0] : tmpfloat4[1];
-        maxValue = maxValue > tmpfloat4[2] ? maxValue : tmpfloat4[2];
-        maxValue = maxValue > tmpfloat4[3] ? maxValue : tmpfloat4[3];
-    }
-    for (int i = remain; i < size; i++) {
-        maxValue = maxValue > source[i] ? maxValue : source[i];
-    }
-
-    // step 2: get exp(x - maxValue) and sum(exp(x - maxValue))
-    float sumValue = 0.f;
-    if (count > 0) {
-        auto sumVal = _mm_set1_ps(0.f);
-        auto p0    = _mm_set1_ps(0.6931471805599453);
-        auto p1    = _mm_set1_ps(1.4426950408889634);
-        auto p2    = _mm_set1_ps(1.f);
-        auto p3    = _mm_set1_ps(1.f);
-        auto p4    = _mm_set1_ps(0.5);
-        auto p5    = _mm_set1_ps(0.1666666666666666);
-        auto p6    = _mm_set1_ps(0.041666666666666664);
-        auto p7    = _mm_set1_ps(0.008333333333333333);
-        auto xMax  = _mm_set1_ps(87);
-        auto xMin  = _mm_set1_ps(-87);
-        // auto basic = _mm_set1_epi32(1 << 23);
-        for (int i = 0; i < count; ++i) {
-            auto x            = _mm_sub_ps(_mm_loadu_ps(source + i * 4), _mm_set1_ps(maxValue));
-            x                 = _mm_max_ps(x, xMin);
-            x                 = _mm_min_ps(x, xMax);
-            auto div          = _mm_mul_ps(x, p1);
-            auto divInt       = _mm_cvtps_epi32(div);
-            div               = _mm_cvtepi32_ps(divInt);
-            auto div2         = _mm_add_epi32(divInt, _mm_set1_epi32(127));
-            // div2 = _mm_mullo_epi32(div2, basic);
-            div2 = _mm_slli_epi32(div2, 23);
-            auto expBasic  = _mm_castsi128_ps(div2);
-            auto xReamin   = _mm_sub_ps(x, _mm_mul_ps(div, p0));
-            auto t         = xReamin;
-            auto c0        = _mm_mul_ps(p7, t);
-            auto c1        = _mm_add_ps(c0, p6);
-            auto c2        = _mm_mul_ps(c1, t);
-            auto c3        = _mm_add_ps(c2, p5);
-            auto c4        = _mm_mul_ps(c3, t);
-            auto c5        = _mm_add_ps(c4, p4);
-            auto c6        = _mm_mul_ps(c5, t);
-            auto c7        = _mm_add_ps(c6, p3);
-            auto c8        = _mm_mul_ps(c7, t);
-            auto c9        = _mm_add_ps(c8, p2);
-            auto expRemain = c9;
-            auto expRes    = _mm_mul_ps(expBasic, expRemain);
-            sumVal         = _mm_add_ps(expRes, sumVal);
-            _mm_storeu_ps(dest + 4 * i, expRes);
+        if (count > 0) {
+            auto maxVal = _mm_loadu_ps(source);
+            for (int i = 1; i < count; i++) {
+                maxVal = _mm_max_ps(maxVal, _mm_loadu_ps(source + i * 4));
+            }
+            _mm_storeu_ps(tmpfloat4, maxVal);
+            maxValue = tmpfloat4[0] > tmpfloat4[1] ? tmpfloat4[0] : tmpfloat4[1];
+            maxValue = maxValue > tmpfloat4[2] ? maxValue : tmpfloat4[2];
+            maxValue = maxValue > tmpfloat4[3] ? maxValue : tmpfloat4[3];
         }
-        _mm_storeu_ps(tmpfloat4, sumVal);
-        sumValue = tmpfloat4[0] + tmpfloat4[1] + tmpfloat4[2] + tmpfloat4[3];
-    }
-    auto param = 0.6931471805599453;
-    float xLimit = 87;
-    for (int i = remain; i < size; i++) {
-        auto x         = source[i] - maxValue;
-        x = x > -xLimit ? x : -xLimit;
-        x = x < xLimit ? x : xLimit;
+        for (int i = remain; i < reduceSize; i++) {
+            maxValue = maxValue > source[i] ? maxValue : source[i];
+        }
 
-        int div        = (x / param);
-        int div2       = (div + 127) << 23;
-        auto xReamin   = x - div * param;
-        float expBasic = *(float*)(&div2);
+        float newMax = ALIMAX(oldMax, maxValue);
 
-        auto t         = xReamin;
-        auto expRemain = ((((1.0f / 120 * t + 1.0f / 24) * t + 1.0f / 6) * t + 0.5f) * t + 1.0f) * t + 1.0f;
-        dest[i]  = expBasic * expRemain;
-        sumValue += dest[i];
-    }
-    // step 3: get x / sum and store
-    for (int i = 0; i < count; ++i) {
-        // using  1 / ((1 / x) * sum) instead x * (1 / sum) or x / sum for some bugs in intel cpu
-        auto x = _mm_rcp_ps(_mm_loadu_ps(dest + 4 * i));
-        auto y = _mm_set1_ps(sumValue);
-        auto z = _mm_rcp_ps(_mm_mul_ps(x, y));
-        _mm_storeu_ps(dest + 4 * i, z);
-    }
-    sumValue = 1.f / sumValue;
-    for (int i = remain; i < size; i++) {
-        dest[i] *= sumValue;
+        // step 2: get exp(x - newMax) and sum(exp(x - newMax))
+        float exprOffset[4] = {1.0f, 0.0f, 0.0f, 0.0f };
+        exprOffset[2] = -newMax;
+        MNNExp(dest, source, exprOffset, reduceSize);
+        float sumValue = exprOffset[3];
+
+        if (runningMax != nullptr && runningSum != nullptr && updateScale != nullptr) {
+            // === Step 3: Update running variables ===
+            float scale = expf(oldMax - newMax);
+            runningSum[k] = runningSum[k] * scale + sumValue;
+            runningMax[k] = newMax;
+            updateScale[k] = scale;
+        } else {
+            // step 3: get x / sum and store
+            for (int i = 0; i < count; ++i) {
+                // using  1 / ((1 / x) * sum) instead x * (1 / sum) or x / sum for some bugs in intel cpu
+                auto x = _mm_rcp_ps(_mm_loadu_ps(dest + 4 * i));
+                auto y = _mm_set1_ps(sumValue);
+                auto z = _mm_rcp_ps(_mm_mul_ps(x, y));
+                _mm_storeu_ps(dest + 4 * i, z);
+            }
+            auto scale = 1.f / sumValue;
+            for (int i = remain; i < reduceSize; i++) {
+                dest[i] *= scale;
+            }
+        }
     }
 }
 

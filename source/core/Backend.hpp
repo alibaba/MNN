@@ -34,12 +34,17 @@ struct RuntimeHint {
     int cpuDecreaseRate = 50;
     int dynamicQuantOption = 0;
 
+    // qkvQuantOption % 8:
     // 0: Do not quantize
     // 1: Only quantize key, use int8 asymmetric quantization
     // 2: Only quantize value, use fp8 quantization
     // 3: quantize both key and value
     // 4: quantize query, key and value, and use gemm int8 kernel to compute K*V
-    int qkvQuantOption = 0;
+
+    // qkvQuantOption / 8:
+    // 1: use flash attention
+
+    int qkvQuantOption = 8;
 
     // the kvcache size limit of each layer
     // if the size of kvcache in memory exceeds the limit
@@ -402,6 +407,9 @@ public:
     virtual bool onValid(Backend::Info& info) const {
         info.mode = Backend::Info::DIRECT;
         return true;
+    }
+    virtual bool onGetDeviceInfo(const std::string& deviceKey, std::string& deviceValue) const {
+        return false;
     }
 protected:
     /**
