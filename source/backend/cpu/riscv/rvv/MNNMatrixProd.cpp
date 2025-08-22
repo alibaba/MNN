@@ -1,6 +1,6 @@
 #include <riscv_vector.h>
 
-void MNNMatrixProd0(float* C, const float* A, const float* B,
+void MNNMatrixProd(float* C, const float* A, const float* B,
                        size_t widthC4, size_t cStride, size_t aStride,
                        size_t bStride, size_t height) {
     size_t total = widthC4 * 4;
