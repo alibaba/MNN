@@ -146,6 +146,8 @@ final class LLMChatViewModel: ObservableObject {
             llm.setThinkingModeEnabled(isThinkingModeEnabled)
         }
         
+        interactor.isThinkingModeEnabled = isThinkingModeEnabled
+        
         print("Thinking mode configured: \(isThinkingModeEnabled)")
     }
     

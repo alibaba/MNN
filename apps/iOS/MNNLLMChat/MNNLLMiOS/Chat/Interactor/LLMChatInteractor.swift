@@ -21,6 +21,7 @@ final class LLMChatInteractor: ChatInteractorProtocol {
     var chatData: LLMChatData
     var modelInfo: ModelInfo
     var historyMessages: [HistoryMessage]?
+    var isThinkingModeEnabled: Bool = true
     
     private let processor = ThinkResultProcessor(thinkingPrefix: "<think>", completePrefix: "</think>")
     
@@ -103,7 +104,7 @@ final class LLMChatInteractor: ChatInteractorProtocol {
                     
                     var updateLastMsg = self?.chatState.value[(self?.chatState.value.count ?? 1) - 1]
 
-                    if let tags = self?.modelInfo.tags,
+                    if let tags = self?.modelInfo.tags, self?.isThinkingModeEnabled == true,
                         (tags.contains(where: { $0.localizedCaseInsensitiveContains("Think") }) || tags.contains(where: { $0.localizedCaseInsensitiveContains("思考") })),
                         let text = self?.processor.process(progress: message.text) {
                                 updateLastMsg?.text = text
