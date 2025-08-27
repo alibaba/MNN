@@ -16,7 +16,7 @@ import Foundation
 /// - File integrity validation
 /// - Directory structure preservation
 @available(iOS 13.4, macOS 10.15, *)
-public actor ModelScopeDownloadManager: Sendable {
+public actor ModelScopeDownloadManager: ModelDownloadManagerProtocol {
     // MARK: - Properties
     
     private let repoPath: String
@@ -275,7 +275,7 @@ public actor ModelScopeDownloadManager: Sendable {
                         downloadedBytes += 1
                         bytesCount += 1
                         
-                        // 减少进度回调频率：每 64KB * 5 更新一次而不是每1KB
+                        // Reduce progress callback frequency: update every 64KB * 5 instead of every 1KB
                         if bytesCount >= 64 * 1024 * 5 {
                             onProgress(downloadedBytes)
                             bytesCount = 0
@@ -331,24 +331,8 @@ public actor ModelScopeDownloadManager: Sendable {
             throw ModelScopeError.downloadCancelled
         }
         
-        func calculateTotalSize(files: [ModelFile]) async throws -> Int64 {
-            var size: Int64 = 0
-            for file in files {
-                if file.type == "tree" {
-                    let subFiles = try await fetchFileList(
-                        root: file.path,
-                        revision: revision
-                    )
-                    size += try await calculateTotalSize(files: subFiles)
-                } else if file.type == "blob" {
-                    size += Int64(file.size)
-                }
-            }
-            return size
-        }
-        
         if totalSize == 0 {
-            totalSize = try await calculateTotalSize(files: files)
+            totalSize = try await calculateTotalSize(files: files, revision: revision)
             print("Total download size: \(totalSize) bytes")
         }
         
@@ -380,7 +364,9 @@ public actor ModelScopeDownloadManager: Sendable {
                     progress: progress
                 )
             } else if file.type == "blob" {
+                
                 ModelScopeLogger.debug("Downloading: \(file.name)")
+                
                 if !storage.isFileDownloaded(file, at: destinationPath) {
                     try await downloadFile(
                         file: file,
@@ -389,8 +375,8 @@ public actor ModelScopeDownloadManager: Sendable {
                             let currentProgress = Double(self.downloadedSize + downloadedBytes) / Double(self.totalSize)
                             self.updateProgress(currentProgress, callback: progress)
                         },
-                        maxRetries: 500,
-                        retryDelay: 1.0
+                        maxRetries: 500, // Can be made configurable
+                        retryDelay: 1.0 // Can be made configurable
                     )
                     
                     downloadedSize += Int64(file.size)
@@ -410,6 +396,22 @@ public actor ModelScopeDownloadManager: Sendable {
         Task { @MainActor in
             progress(1.0)
         }
+    }
+    
+    private func calculateTotalSize(files: [ModelFile], revision: String) async throws -> Int64 {
+        var size: Int64 = 0
+        for file in files {
+            if file.type == "tree" {
+                let subFiles = try await fetchFileList(
+                    root: file.path,
+                    revision: revision
+                )
+                size += try await calculateTotalSize(files: subFiles, revision: revision)
+            } else if file.type == "blob" {
+                size += Int64(file.size)
+            }
+        }
+        return size
     }
     
     

@@ -9,6 +9,8 @@ import Hub
 import Foundation
 
 class ModelClient {
+    // MARK: - Properties
+    
     private let maxRetries = 5
     
     private let baseMirrorURL = "https://hf-mirror.com"
@@ -18,7 +20,8 @@ class ModelClient {
     // Debug flag to use local mock data instead of network API
     private let useLocalMockData = false
     
-    private var currentDownloadManager: ModelScopeDownloadManager?
+    private var currentDownloadManager: ModelDownloadManagerProtocol?
+    private let downloadManagerFactory: ModelDownloadManagerFactory
     
     private lazy var baseURLString: String = {
         switch ModelSourceManager.shared.selectedSource {
@@ -29,7 +32,13 @@ class ModelClient {
         }
     }()
     
-    init() {}
+    /** Creates a ModelClient with dependency injection for download manager
+     * - Parameter downloadManagerFactory: Factory for creating download managers.
+     *                                     Defaults to DefaultModelDownloadManagerFactory
+     */
+    init(downloadManagerFactory: ModelDownloadManagerFactory = DefaultModelDownloadManagerFactory()) {
+        self.downloadManagerFactory = downloadManagerFactory
+    }
     
     func getModelInfo() async throws -> TBDataResponse {
         if useLocalMockData {
@@ -92,8 +101,10 @@ class ModelClient {
     func downloadModel(model: ModelInfo,
                        progress: @escaping (Double) -> Void) async throws {
         switch ModelSourceManager.shared.selectedSource {
-        case .modelScope, .modeler:
-            try await downloadFromModelScope(model, progress: progress)
+        case .modelScope:
+            try await downloadFromModelScope(model, source: .modelScope , progress: progress)
+        case .modeler:
+            try await downloadFromModelScope(model, source: .modeler, progress: progress)
         case .huggingFace:
             try await downloadFromHuggingFace(model, progress: progress)
         }
@@ -103,36 +114,46 @@ class ModelClient {
      * Cancels the current download operation
      */
     func cancelDownload() async {
-        if let manager = currentDownloadManager {
-            await manager.cancelDownload()
-            currentDownloadManager = nil
-            print("Download cancelled")
+        switch ModelSourceManager.shared.selectedSource {
+        case .modelScope, .modeler:
+            await currentDownloadManager?.cancelDownload()
+        case .huggingFace:
+            // TODO: await currentDownloadManager?.cancelDownload()
+//            try await mirrorHubApi.
+            print("cant stop")
         }
     }
+    
     /**
-     * Downloads model from ModelScope platform
+     * Downloads model from ModelScope/Modler platform
      *
      * @param model The ModelInfo object to download
      * @param progress Progress callback for download updates
      * @throws Download or network related errors
      */
     private func downloadFromModelScope(_ model: ModelInfo,
+                                        source: ModelSource,
                                         progress: @escaping (Double) -> Void) async throws {
-        let ModelScopeId = model.id
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 30
-        config.timeoutIntervalForResource = 300
         
-        let manager = ModelScopeDownloadManager.init(repoPath: ModelScopeId, config: config, enableLogging: true, source: ModelSourceManager.shared.selectedSource)
-        currentDownloadManager = manager
+        currentDownloadManager = downloadManagerFactory.createDownloadManager(
+            repoPath: model.id,
+            source: .modelScope
+        )
         
-        try await manager.downloadModel(to:"huggingface/models/taobao-mnn", modelId: ModelScopeId, modelName: model.modelName) { fileProgress in
-            Task { @MainActor in
-                progress(fileProgress)
+        do {
+            try await currentDownloadManager?.downloadModel(
+                to: "huggingface/models/taobao-mnn",
+                modelId: model.id,
+                modelName: model.modelName
+            ) { fileProgress in
+                Task { @MainActor in
+                    progress(fileProgress)
+                }
             }
+        } catch {
+            print("Download failed: \(error)")
+            throw NetworkError.downloadFailed
         }
-        
-        currentDownloadManager = nil
     }
 
     /**
