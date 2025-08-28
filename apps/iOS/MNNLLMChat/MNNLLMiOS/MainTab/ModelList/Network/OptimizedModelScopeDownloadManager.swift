@@ -2,7 +2,7 @@
 //  OptimizedModelScopeDownloadManager.swift
 //  MNNLLMiOS
 //
-//  Created by 游薪渝(揽清) on 2025/8/21.
+//  Created by 游薪渝(揽清) on 2025/8/27.
 //
 
 import Foundation
@@ -24,7 +24,6 @@ public actor OptimizedModelScopeDownloadManager: ModelDownloadManagerProtocol {
     private let concurrencyManager: DynamicConcurrencyManager
     private var downloadSemaphore: AsyncSemaphore
     private var downloadChunkSemaphore: AsyncSemaphore?
-    private var activeTasks: [String: Task<Void, Error>] = [:]
     private var downloadQueue: [DownloadTask] = []
     
     private var progress = DownloadProgress()
@@ -93,12 +92,6 @@ public actor OptimizedModelScopeDownloadManager: ModelDownloadManagerProtocol {
     
     public func cancelDownload() async {
         isCancelled = true
-        
-        // Cancel all active tasks
-        for (_, task) in activeTasks {
-            task.cancel()
-        }
-        activeTasks.removeAll()
         
         // Cancel all session tasks but don't invalidate the session
         session.getAllTasks { tasks in
@@ -332,7 +325,7 @@ public actor OptimizedModelScopeDownloadManager: ModelDownloadManagerProtocol {
                     try fileHandle.write(contentsOf: [byte])
                     bytesCount += 1
                     
-                    if bytesCount >= 64 * 1024 * 5 {
+                    if bytesCount >= 64 * 1024 {
                         await updateDownloadProgress(bytes: Int64(bytesCount))
                         bytesCount = 0
                     }
@@ -425,7 +418,7 @@ public actor OptimizedModelScopeDownloadManager: ModelDownloadManagerProtocol {
                     bytesCount += 1
                     
                     // Update progress less frequently
-                    if bytesCount >= 64 * 1024 * 5 {
+                    if bytesCount >= 64 * 1024 {
                         await updateDownloadProgress(bytes: Int64(bytesCount))
                         bytesCount = 0
                     }
