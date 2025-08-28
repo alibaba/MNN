@@ -2,7 +2,7 @@
 //  DynamicConcurrencyManager.swift
 //  MNNLLMiOS
 //
-//  Created by 游薪渝(揽清) on 2025/1/15.
+//  Created by 游薪渝(揽清) on 2025/8/27.
 //
 
 import Foundation
@@ -21,7 +21,7 @@ import Network
  let concurrencyManager = DynamicConcurrencyManager()
 
  // 2. Get download strategy for file
- let fileSize: Int64 = 240 * 1024 * 1024 // 240MB文件
+ let fileSize: Int64 = 240 * 1024 * 1024 // 240MB
  let strategy = await concurrencyManager.recommendDownloadStrategy(fileSize: fileSize)
 
  print(strategy.description)
