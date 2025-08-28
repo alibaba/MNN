@@ -269,6 +269,10 @@ std::vector<std::string> QNNTranslator::TranslateTensor(const QNNCommandTensor& 
     if (isParam) {
         result.push_back(QNNTranslator::TranslateParamDataArray(dataNameSymbol, cmdT.dataType, cmdT.clientBuf));
     }
+    if(hasQuant){
+        std::vector<std::string> linesQuantScaleOffset = TranslateQuantizeScaleOffsetDataArray(tensorNameSymbol, cmdT.quantizeParams, cmdT.rank, cmdT.dimensions);
+        APPEND_VECTOR(result, linesQuantScaleOffset);
+    }
     result.push_back("  Qnn_Tensor_t " + tensorNameSymbol +   " = QNN_TENSOR_INIT;");
     result.push_back("  {");
     result.push_back("  " + tensorNameSymbol + ".version = QNN_TENSOR_VERSION_1;");
@@ -456,11 +460,122 @@ std::string QNNTranslator::TranslateParamDataArray(const std::string & dataNameS
     return result;
 }
 
+std::vector<std::string> QNNTranslator::TranslateQuantizeScaleOffsetDataArray(const std::string & tensorNameSymbol, const Qnn_QuantizeParams_t & quantizeParams, uint32_t rank, const uint32_t * dimensions){
+    std::vector<std::string> result;
+    if(quantizeParams.encodingDefinition == QNN_DEFINITION_DEFINED && quantizeParams.quantizationEncoding == QNN_QUANTIZATION_ENCODING_AXIS_SCALE_OFFSET){
+        result.push_back("  Qnn_ScaleOffset_t " + tensorNameSymbol + "_axis_scale_offset[] = {");
+        int totalnum = (quantizeParams.axisScaleOffsetEncoding.numScaleOffsets + 3) / 4;
+        for(int i = 0; i < totalnum; ++i){
+            std::string line = "    ";
+            for(int j = 0; j < 4; ++j){
+                int index = i * 4 + j;
+                if(index >= quantizeParams.axisScaleOffsetEncoding.numScaleOffsets)
+                    break;
+                line += "{.scale= " + std::to_string(quantizeParams.axisScaleOffsetEncoding.scaleOffset[index].scale) + ", .offset= " + std::to_string(quantizeParams.axisScaleOffsetEncoding.scaleOffset[index].offset) + "}, ";
+            }
+            result.push_back(line);
+        }
+        result.push_back("  };");
+    }
+    
+    if(quantizeParams.encodingDefinition == QNN_DEFINITION_DEFINED && quantizeParams.quantizationEncoding == QNN_QUANTIZATION_ENCODING_BW_AXIS_SCALE_OFFSET){
+        result.push_back("  float " + tensorNameSymbol + "_bwaxis_scale[] = {");
+        int totalnum = (quantizeParams.bwAxisScaleOffsetEncoding.numElements + 3) / 4;
+        for(int i = 0; i < totalnum; ++i){
+            std::string line = "    ";
+            for(int j = 0; j < 4; ++j){
+                int index = i * 4 + j;
+                if(index >= quantizeParams.bwAxisScaleOffsetEncoding.numElements)
+                    break;
+                line += std::to_string(quantizeParams.bwAxisScaleOffsetEncoding.scales[index]) + ", ";
+            }
+            result.push_back(line);
+        }
+        result.push_back("  };");
+        if(quantizeParams.bwAxisScaleOffsetEncoding.offsets != nullptr){
+            result.push_back("  int32_t " + tensorNameSymbol + "_bwaxis_offset[] = {");
+            for(int i = 0; i < totalnum; ++i){
+                std::string line = "    ";
+                for(int j = 0; j < 4; ++j){
+                    int index = i * 4 + j;
+                    if(index >= quantizeParams.bwAxisScaleOffsetEncoding.numElements)
+                        break;
+                    line += std::to_string(quantizeParams.bwAxisScaleOffsetEncoding.offsets[index]) + ", ";
+                }
+                result.push_back(line);
+            }
+            result.push_back("  };");
+        }
+    }
+    
+    if(quantizeParams.encodingDefinition == QNN_DEFINITION_DEFINED && quantizeParams.quantizationEncoding == QNN_QUANTIZATION_ENCODING_BLOCKWISE_EXPANSION){
+        int axis = quantizeParams.blockwiseExpansion->axis;
+        int oc = dimensions[axis];
+        int blockSize = quantizeParams.blockwiseExpansion->numBlocksPerAxis;
+        result.push_back("  Qnn_BlockwiseExpansion_t " + tensorNameSymbol + "_blockwiseExpansion = QNN_BLOCKWISE_EXPANSION_INIT;");
+        
+        result.push_back("  Qnn_ScaleOffset_t " + tensorNameSymbol + "_blockwiseExpansionScaleOffset[] = {");
+        int totalnum = (oc + 3) / 4;
+        for(int i = 0; i < totalnum; ++i){
+            std::string line = "    ";
+            for(int j = 0; j < 4; ++j){
+                int index = i * 4 + j;
+                if(index >= oc)
+                    break;
+                line += "{.scale= " + std::to_string(quantizeParams.blockwiseExpansion->scaleOffsets[index].scale) + ", .offset= " + std::to_string(quantizeParams.blockwiseExpansion->scaleOffsets[index].offset) + "}, ";
+            }
+            result.push_back(line);
+        }
+        result.push_back("  };");
+        if(quantizeParams.blockwiseExpansion->blockScaleStorageType == QNN_BLOCKWISE_EXPANSION_BITWIDTH_SCALE_STORAGE_8){
+            result.push_back("  uint8_t " + tensorNameSymbol + "_blockwiseExpansionBlockScale[] = {");
+            totalnum = (oc * blockSize + 3) / 4;
+            for(int i = 0; i < totalnum; ++i){
+                std::string line = "    ";
+                for(int j = 0; j < 4; ++j){
+                    int index = i * 4 + j;
+                    if(index >= oc * blockSize)
+                        break;
+                    line += std::to_string(quantizeParams.blockwiseExpansion->blocksScale8[index]) + ", ";
+                }
+                result.push_back(line);
+            }
+            result.push_back("  };");
+        }else{
+            result.push_back("  uint16_t " + tensorNameSymbol + "_blockwiseExpansionBlockScale[] = {");
+            totalnum = (oc * blockSize + 3) / 4;
+            for(int i = 0; i < totalnum; ++i){
+                std::string line = "    ";
+                for(int j = 0; j < 4; ++j){
+                    int index = i * 4 + j;
+                    if(index >= oc * blockSize)
+                        break;
+                    line += std::to_string(quantizeParams.blockwiseExpansion->blocksScale16[index]) + ", ";
+                }
+                result.push_back(line);
+            }
+            result.push_back("  };");
+        }
+        result.push_back("  " + tensorNameSymbol + "_blockwiseExpansion.axis = " + std::to_string(quantizeParams.blockwiseExpansion->axis) + ";");
+        result.push_back("  " + tensorNameSymbol + "_blockwiseExpansion.scaleOffsets = " + tensorNameSymbol + "_blockwiseExpansionScaleOffset;");
+        result.push_back("  " + tensorNameSymbol + "_blockwiseExpansion.numBlocksPerAxis = " + std::to_string(quantizeParams.blockwiseExpansion->numBlocksPerAxis) + ";");
+        result.push_back("  " + tensorNameSymbol + "_blockwiseExpansion.blockScaleBitwidth = " + std::to_string(quantizeParams.blockwiseExpansion->blockScaleBitwidth) + ";");
+        if(quantizeParams.blockwiseExpansion->blockScaleStorageType == QNN_BLOCKWISE_EXPANSION_BITWIDTH_SCALE_STORAGE_8){
+            result.push_back("  " + tensorNameSymbol + "_blockwiseExpansion.blockScaleStorageType = QNN_BLOCKWISE_EXPANSION_BITWIDTH_SCALE_STORAGE_8;");
+            result.push_back("  " + tensorNameSymbol + "_blockwiseExpansion.blocksScale8 = " + tensorNameSymbol + "_blockwiseExpansionBlockScale;");
+        }else{
+            result.push_back("  " + tensorNameSymbol + "_blockwiseExpansion.blockScaleStorageType = QNN_BLOCKWISE_EXPANSION_BITWIDTH_SCALE_STORAGE_16;");
+            result.push_back("  " + tensorNameSymbol + "_blockwiseExpansion.blocksScale16 = " + tensorNameSymbol + "_blockwiseExpansionBlockScale;");
+        }
+    }
+    return result;
+}
+
 // Currently, only support QNN_QUANTIZATION_ENCODING_UNDEFINED, QNN_QUANTIZATION_ENCODING_SCALE_OFFSET.
-std::vector<std::string> QNNTranslator::TranslateTensorQuantizeParams(const std::string tensorNameSymbol, const Qnn_QuantizeParams_t & quantizeParmas) {
+std::vector<std::string> QNNTranslator::TranslateTensorQuantizeParams(const std::string tensorNameSymbol, const Qnn_QuantizeParams_t & quantizeParams) {
     std::vector<std::string> result;
 
-    if (quantizeParmas.encodingDefinition == QNN_DEFINITION_UNDEFINED) {
+    if (quantizeParams.encodingDefinition == QNN_DEFINITION_UNDEFINED) {
         result.push_back("  " + tensorNameSymbol + ".v1.quantizeParams.encodingDefinition = QNN_DEFINITION_UNDEFINED;");
         result.push_back("  " + tensorNameSymbol + ".v1.quantizeParams.quantizationEncoding = QNN_QUANTIZATION_ENCODING_UNDEFINED;");
         result.push_back("  " + tensorNameSymbol + ".v1.quantizeParams.scaleOffsetEncoding.scale = 0.0f;");
@@ -468,13 +583,42 @@ std::vector<std::string> QNNTranslator::TranslateTensorQuantizeParams(const std:
         return result;
     }
 
-    if (quantizeParmas.encodingDefinition == QNN_DEFINITION_DEFINED && quantizeParmas.quantizationEncoding == QNN_QUANTIZATION_ENCODING_SCALE_OFFSET) {
+    if (quantizeParams.encodingDefinition == QNN_DEFINITION_DEFINED && quantizeParams.quantizationEncoding == QNN_QUANTIZATION_ENCODING_SCALE_OFFSET) {
         result.push_back("  " + tensorNameSymbol + ".v1.quantizeParams.encodingDefinition = QNN_DEFINITION_DEFINED;");
         result.push_back("  " + tensorNameSymbol + ".v1.quantizeParams.quantizationEncoding = QNN_QUANTIZATION_ENCODING_SCALE_OFFSET;");
-        result.push_back("  " + tensorNameSymbol + ".v1.quantizeParams.scaleOffsetEncoding.scale = " + std::to_string(quantizeParmas.scaleOffsetEncoding.scale) + ";");
-        result.push_back("  " + tensorNameSymbol + ".v1.quantizeParams.scaleOffsetEncoding.offset = " + std::to_string(quantizeParmas.scaleOffsetEncoding.offset) + ";");
+        result.push_back("  " + tensorNameSymbol + ".v1.quantizeParams.scaleOffsetEncoding.scale = " + std::to_string(quantizeParams.scaleOffsetEncoding.scale) + ";");
+        result.push_back("  " + tensorNameSymbol + ".v1.quantizeParams.scaleOffsetEncoding.offset = " + std::to_string(quantizeParams.scaleOffsetEncoding.offset) + ";");
         return result;
     }
+    
+    if(quantizeParams.encodingDefinition == QNN_DEFINITION_DEFINED && quantizeParams.quantizationEncoding == QNN_QUANTIZATION_ENCODING_AXIS_SCALE_OFFSET){
+        result.push_back("  " + tensorNameSymbol + ".v1.quantizeParams.encodingDefinition = QNN_DEFINITION_DEFINED;");
+        result.push_back("  " + tensorNameSymbol + ".v1.quantizeParams.quantizationEncoding = QNN_QUANTIZATION_ENCODING_AXIS_SCALE_OFFSET;");
+        result.push_back("  " + tensorNameSymbol + ".v1.quantizeParams.axisScaleOffsetEncoding.axis = " + std::to_string(quantizeParams.axisScaleOffsetEncoding.axis) + ";");
+        result.push_back("  " + tensorNameSymbol + ".v1.quantizeParams.axisScaleOffsetEncoding.numScaleOffsets = " + std::to_string(quantizeParams.axisScaleOffsetEncoding.numScaleOffsets) + ";");
+        result.push_back("  " + tensorNameSymbol + ".v1.quantizeParams.axisScaleOffsetEncoding.scaleOffset = " + tensorNameSymbol + "_axis_scale_offset;");
+        return result;
+    }
+    
+    if(quantizeParams.encodingDefinition == QNN_DEFINITION_DEFINED && quantizeParams.quantizationEncoding == QNN_QUANTIZATION_ENCODING_BW_AXIS_SCALE_OFFSET){
+        result.push_back("  " + tensorNameSymbol + ".v1.quantizeParams.encodingDefinition = QNN_DEFINITION_DEFINED;");
+        result.push_back("  " + tensorNameSymbol + ".v1.quantizeParams.quantizationEncoding = QNN_QUANTIZATION_ENCODING_BW_AXIS_SCALE_OFFSET;");
+        result.push_back("  " + tensorNameSymbol + ".v1.quantizeParams.bwAxisScaleOffsetEncoding.axis = " + std::to_string(quantizeParams.bwAxisScaleOffsetEncoding.axis) + ";");
+        result.push_back("  " + tensorNameSymbol + ".v1.quantizeParams.bwAxisScaleOffsetEncoding.bitwidth = " + std::to_string(quantizeParams.bwAxisScaleOffsetEncoding.bitwidth) + ";");
+        result.push_back("  " + tensorNameSymbol + ".v1.quantizeParams.bwAxisScaleOffsetEncoding.numElements = " + std::to_string(quantizeParams.bwAxisScaleOffsetEncoding.numElements) + ";");
+        result.push_back("  " + tensorNameSymbol + ".v1.quantizeParams.bwAxisScaleOffsetEncoding.scales = " + tensorNameSymbol + "_bwaxis_scale;");
+        if(quantizeParams.bwAxisScaleOffsetEncoding.offsets != nullptr)
+            result.push_back("  " + tensorNameSymbol + ".v1.quantizeParams.bwAxisScaleOffsetEncoding.offset = " + tensorNameSymbol + "_bwaxis_offset;");
+        return result;
+    }
+    
+    if(quantizeParams.encodingDefinition == QNN_DEFINITION_DEFINED && quantizeParams.quantizationEncoding == QNN_QUANTIZATION_ENCODING_BLOCKWISE_EXPANSION){
+        result.push_back("  " + tensorNameSymbol + ".v1.quantizeParams.encodingDefinition = QNN_DEFINITION_DEFINED;");
+        result.push_back("  " + tensorNameSymbol + ".v1.quantizeParams.quantizationEncoding = QNN_QUANTIZATION_ENCODING_BLOCKWISE_EXPANSION;");
+        result.push_back("  " + tensorNameSymbol + ".v1.quantizeParams.blockwiseExpansion = &" + tensorNameSymbol + "_blockwiseExpansion;");
+        return result;
+    }
+
 
     MNN_ERROR("MNN_QNN: Unknown QuantizeParams.\n");
 

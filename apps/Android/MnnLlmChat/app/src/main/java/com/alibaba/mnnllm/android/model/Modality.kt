@@ -13,17 +13,17 @@ object Modality {
     const val Omni = "Omni"
     const val Diffusion = "Diffusion"
 
-    fun checkModality(modelName: String, modality:String): Boolean {
+    fun checkModality(modelId: String, modality:String): Boolean {
         if (modality == Text) {
             return true
         } else if (modality == Visual) {
-            return isVisualModel(modelName)
+            return isVisualModel(modelId)
         } else if (modality == Audio) {
-            return isAudioModel(modelName)
+            return isAudioModel(modelId)
         } else if (modality == Omni) {
-            return ModelUtils.isOmni(modelName)
+            return ModelUtils.isOmni(modelId)
         } else if (modality == Diffusion) {
-            return ModelUtils.isDiffusionModel(modelName)
+            return ModelUtils.isDiffusionModel(modelId)
         }
         return false
     }

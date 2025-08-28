@@ -37,6 +37,7 @@ class LlmExporter(torch.nn.Module):
         self.audio = None
         self.talker = None
         self.mtp = None
+        self.scale_emb = None
         self.args = args
         self.max_length = 1024
         self.stop_ids = []
@@ -250,6 +251,10 @@ class LlmExporter(torch.nn.Module):
         if self.tie_word_embeddings:
             print("Tie word embeddings in lm, set lm quant bit to 8")
             self.args.lm_quant_bit = 8
+
+        if 'gemma' in self.model_type:
+            self.scale_emb = self.embed.embed_scale
+
         # Rotary
         self.rotary = Rotary(self)
         self.blocks = []
@@ -372,11 +377,8 @@ class LlmExporter(torch.nn.Module):
                 cross_attention_mask: Optional[torch.Tensor] = None,
                 ):
         hidden_states = input_ids # llm forward without embedding
-        if self.model_type == 'gemma':
-            normalizer = torch.tensor(self.hidden_size**0.5, dtype=hidden_states.dtype)
-            hidden_states = hidden_states * normalizer
-        if self.model_type == 'gemma3' or self.model_type == 'gemma3_text': # if --test, comments these
-            hidden_states = hidden_states * self.embed.embed_scale
+        if self.scale_emb is not None:
+            hidden_states = hidden_states * self.scale_emb
         presents = [None for i in range(len(self.blocks))]
         rotary_pos_emb = self.rotary(position_ids)
         if self.args.test and rotary_pos_emb.dtype != hidden_states.dtype:
@@ -528,6 +530,13 @@ class LlmExporter(torch.nn.Module):
         return template
 
     def build_prompt(self, messages):
+        if hasattr(self.tokenizer, 'apply_chat_template'):
+            prompt = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+            return prompt
         template = self.build_prompt_template()
         prompt = template['bos']
         for item in messages:
@@ -795,14 +804,21 @@ class LlmExporter(torch.nn.Module):
         if self.mnn_converter:
             fuse_transformer = self.visual.transformer_fuse
             native_group_conv = self.visual.group_conv_native
+            quant_bit_visual = self.visual.quant_bit
+            quant_block_visual = self.visual.quant_block
             if self.args.transformer_fuse:
                 fuse_transformer = True
             if self.args.group_conv_native:
                 native_group_conv = True
-            self.mnn_converter.export(vision_onnx, self.visual.quant_bit,
-                                      self.visual.quant_block,
+            if self.args.visual_quant_bit is not None:
+                quant_bit_visual = self.args.visual_quant_bit
+            if self.args.visual_quant_block is not None:
+                quant_block_visual = self.args.visual_quant_block
+            self.mnn_converter.export(vision_onnx, quant_bit_visual,
+                                      quant_block_visual,
                                       transformer_fuse=fuse_transformer,
-                                      group_conv_native=native_group_conv)
+                                      group_conv_native=native_group_conv,
+                                      weight_sym=self.args.visual_sym)
 
     def export_audio(self):
         if self.audio is None:
@@ -951,9 +967,12 @@ class LlmExporter(torch.nn.Module):
             # add special tokens to vocab_list
             for index in special_list:
                 if index >= len(vocab_list):
-                    token = self.tokenizer.decode(index)
-                    token_encode = base64.b64encode(token.encode("utf-8")).decode("utf8")
-                    vocab_list.append(f'{token_encode} {0} {NORMAL}\n')
+                    try:
+                        token = self.tokenizer.decode(index)
+                        token_encode = base64.b64encode(token.encode("utf-8")).decode("utf8")
+                        vocab_list.append(f'{token_encode} {0} {NORMAL}\n')
+                    except:
+                        pass
             with open(file_path, "w", encoding="utf8") as fp:
                 write_header(fp, SENTENCEPIECE, special_list, prefix_list)
                 if self.model_type == "gemma3" or self.model_type == "gemma3-text":
@@ -1227,6 +1246,9 @@ def export(path,
         'onnx_slim': onnx_slim,
         'quant_bit': quant_bit,
         'quant_block': quant_block,
+        'visual_quant_bit': visual_quant_bit,
+        'visual_quant_block': visual_quant_block,
+        'visual_sym': visual_sym,
         'lm_quant_bit': lm_quant_bit,
         'mnnconvert': mnnconvert,
         'ppl': ppl,
@@ -1266,6 +1288,8 @@ def main():
     parser.add_argument('--onnx_slim', action='store_true', help='Whether or not to use onnx-slim.')
     parser.add_argument('--quant_bit', type=int, default=4, help='mnn quant bit, 4 or 8, default is 4.')
     parser.add_argument('--quant_block', type=int, default=64, help='mnn quant block, 0 mean channle-wise, default is 64.')
+    parser.add_argument('--visual_quant_bit', type=int, default=None, help='mnn viusal quant bit, 4 or 8, default is setting in utils/vision.py by different vit model.')
+    parser.add_argument('--visual_quant_block', type=int, default=None, help='mnn quant block, default is setting in utils/vision.py by different vit model.')
     parser.add_argument('--lm_quant_bit', type=int, default=None, help='mnn lm_head quant bit, 4 or 8, default is `quant_bit`.')
     parser.add_argument('--mnnconvert', type=str, default='../../../build/MNNConvert', help='local mnnconvert path, if invalid, using pymnn.')
     parser.add_argument('--ppl', action='store_true', help='Whether or not to get all logits of input tokens.')
@@ -1274,9 +1298,10 @@ def main():
     parser.add_argument('--transformer_fuse', action='store_true', help='Whether or not to fuse vision transformer op.')
     parser.add_argument('--group_conv_native', action='store_true', help='Whether or not to keep native group_conv.')
     parser.add_argument('--smooth', action='store_true', help='Whether or not to use smooth quant.')
-    parser.add_argument('--sym', action='store_true', help='Whether or not to using symmetric quant (without zeropoint), defualt is False.')
-    parser.add_argument('--seperate_embed', action='store_true', help='For lm and embed shared model, whether or not to sepearte embed to avoid quant, defualt is False, if True, embed weight will be seperate to embeddingbf16.bin.')
-    parser.add_argument('--lora_split', action='store_true', help='Whether or not export lora split, defualt is False.')
+    parser.add_argument('--sym', action='store_true', help='Whether or not to using symmetric quant (without zeropoint), default is False.')
+    parser.add_argument('--visual_sym', action='store_true', help='Whether or not to using symmetric quant (without zeropoint) for visual model, default is False.')
+    parser.add_argument('--seperate_embed', action='store_true', help='For lm and embed shared model, whether or not to sepearte embed to avoid quant, default is False, if True, embed weight will be seperate to embeddingbf16.bin.')
+    parser.add_argument('--lora_split', action='store_true', help='Whether or not export lora split, default is False.')
     parser.add_argument('--calib_data', type=str, default=None, help='calibration data path, defaut is `None` mean not use calib data.')
     args = parser.parse_args()
 

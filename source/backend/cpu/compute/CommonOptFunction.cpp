@@ -1390,6 +1390,89 @@ void MNNAccumulateSequenceNumber (float* dst, const float* src, int size) {
     *dst = sum;
 }
 
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+
+static void MNNFlashAttentionUpdateBlockOutput(float* dst, float* src, float* scale, float* normalizeScale, int depthQuad, int plane, int pack, int idx, int kvBlocks, int size, int bytes) {
+    // source shape:                 [headDim/pack, seqLen, pack]
+    // scale & normalizeScale shape: [seqLen]
+    // dest shape:                   [headDim/pack, seqLen, pack]
+    auto stride0 = plane * pack;
+
+    if (idx > 0) {
+        for (int j = 0; j < depthQuad; ++j) {
+            for (int i = 0; i < plane; ++i) {
+                auto dataNew = Vec::load(src + j * stride0 + i * pack);
+                auto dataOld = Vec::load(dst + j * stride0 + i * pack);
+                auto s = Vec(scale[i]);
+                dataNew = Vec::fma(dataNew, dataOld, s);
+                Vec::save(dst + j * stride0 + i * pack, dataNew);
+            }
+        }
+    } else {
+        memcpy(dst, src, size * bytes);
+    }
+    if (idx == kvBlocks - 1) { // if last subBlock, exp(xi)/sum(exp(xi))
+        for (int j = 0; j < depthQuad; ++j) {
+            for (int i = 0; i < plane; ++i) {
+                auto dataNew = Vec::load(dst + j * stride0 + i * pack);
+                auto ns = Vec(1.0f / normalizeScale[i]);
+                dataNew = dataNew * ns;
+                Vec::save(dst + j * stride0 + i * pack, dataNew);
+            }
+        }
+    }
+}
+
+static void MNNAttenPackAndScaleSingleHead(float* dst, const float* srcHeadBase, size_t srcRowStride, const float* scale, const int32_t* units, size_t seqLen, size_t headDim) {
+    const int32_t eP = units[0];
+    const int32_t lP = units[1];
+
+    if (lP != 1) {
+        MNN_ERROR("This function only supports lP=1 or 2\n");
+        return;
+    }
+
+    const float scaleVal = scale[0];
+#ifdef MNN_USE_NEON
+    const float32x4_t vScale = vdupq_n_f32(scaleVal);
+#endif
+    const size_t packedHeadDim = UP_DIV(headDim, lP);
+    const size_t dstStrideDOuter = (size_t)eP * lP;
+    const size_t dstStrideSOuter = packedHeadDim * dstStrideDOuter;
+
+    for (int s = 0; s < seqLen; ++s) {
+        const int sOuter = s / eP;
+        const int sInner = s % eP;
+        const float* srcRowPtr = srcHeadBase + s * srcRowStride;
+        float* dstBasePtr = dst + sOuter * dstStrideSOuter + sInner * lP;
+        
+        size_t d = 0;
+#ifdef MNN_USE_NEON
+        for (; d + 7 < headDim; d += 8) {
+            float32x4_t sVec0 = vld1q_f32(srcRowPtr + d);
+            float32x4_t sVec1 = vld1q_f32(srcRowPtr + d + 4);
+            sVec0 = vmulq_f32(sVec0, vScale);
+            sVec1 = vmulq_f32(sVec1, vScale);
+            
+            dstBasePtr[(d + 0) * dstStrideDOuter] = sVec0[0];
+            dstBasePtr[(d + 1) * dstStrideDOuter] = sVec0[1];
+            dstBasePtr[(d + 2) * dstStrideDOuter] = sVec0[2];
+            dstBasePtr[(d + 3) * dstStrideDOuter] = sVec0[3];
+            dstBasePtr[(d + 4) * dstStrideDOuter] = sVec1[0];
+            dstBasePtr[(d + 5) * dstStrideDOuter] = sVec1[1];
+            dstBasePtr[(d + 6) * dstStrideDOuter] = sVec1[2];
+            dstBasePtr[(d + 7) * dstStrideDOuter] = sVec1[3];
+        }
+#else
+        for (; d < headDim; ++d) {
+            dstBasePtr[d * dstStrideDOuter] = srcRowPtr[d] * scaleVal;
+        }
+#endif
+    }
+}
+#endif // MNN_SUPPORT_TRANSFORMER_FUSE
+
+
 #ifndef MNN_USE_NEON
 void MNNGetMatMulPackMode(int* eP, int *lP, int* hP) {
     *eP = 16;
@@ -2619,30 +2702,54 @@ void MNNExpC8(float* dest, const float* source, float* offset, const float* para
     offset[3] = summer;
 }
 
-void MNNSoftmax(float* dest, const float* source, size_t size) {
-    float maxValue = ALIMAX(source[0], source[1]);
-    for (int i = 2; i < size; ++i) {
-        maxValue = ALIMAX(maxValue, source[i]);
-    }
-    float xLimit = 87, param = 0.6931471805599453, sumValue = 0.f;
-    for (int i = 0; i < size; ++i) {
-        auto x         = source[i] - maxValue;
-        x = x > -xLimit ? x : -xLimit;
-        x = x < xLimit ? x : xLimit;
+void MNNSoftmax(float* softmaxDst, float* input, float* runningMax, float* runningSum, float* updateScale, int outside, int reduceSize) {
+    for (int k = 0; k < outside; ++k) {
+        auto source = input + k * reduceSize;
+        auto dest = softmaxDst + k * reduceSize;
 
-        int div        = (x / param);
-        int div2       = (div + 127) << 23;
-        auto xReamin   = x - div * param;
-        float expBasic = *(float*)(&div2);
+        float oldMax = source[0];
+        if (runningMax) {
+            oldMax = runningMax[k];
+        }
 
-        auto t         = xReamin;
-        auto expRemain = ((((1.0f / 120 * t + 1.0f / 24) * t + 1.0f / 6) * t + 0.5f) * t + 1.0f) * t + 1.0f;
-        dest[i]  = expBasic * expRemain;
-        sumValue += dest[i];
-    }
-    sumValue = 1.f / sumValue;
-    for (int i = 0; i < size; ++i) {
-        dest[i] *= sumValue;
+        // find max value of current block
+        float blockMax =source[0];
+        for (int i = 1; i < reduceSize; ++i) {
+            blockMax = ALIMAX(blockMax, source[i]);
+        }
+        float newMax = ALIMAX(oldMax, blockMax);
+        
+        // caculate block's expr(xi-newmax) and update runningMax
+        float xLimit = 87, param = 0.6931471805599453;
+        float blockSum = 0.f;
+        for (int i = 0; i < reduceSize; ++i) {
+            auto x         = source[i] - newMax;
+            x = x > -xLimit ? x : -xLimit;
+            x = x < xLimit ? x : xLimit;
+
+            int div        = (x / param);
+            int div2       = (div + 127) << 23;
+            auto xReamin   = x - div * param;
+            float expBasic = *(float*)(&div2);
+
+            auto t         = xReamin;
+            auto expRemain = ((((1.0f / 120 * t + 1.0f / 24) * t + 1.0f / 6) * t + 0.5f) * t + 1.0f) * t + 1.0f;
+            dest[i]  = expBasic * expRemain;
+            blockSum += dest[i];
+        }
+
+        if (runningMax != nullptr && runningSum != nullptr && updateScale != nullptr) {
+            // update runningSum, runningMax, scale=expf(oldMax-newMax)
+            runningSum[k] = runningSum[k] * expf(oldMax - newMax) + blockSum;
+            runningMax[k] = newMax;
+            updateScale[k] = expf(oldMax - newMax);
+        } else {
+            // Normalize
+            auto scale = 1.f / blockSum;
+            for (int i = 0; i < reduceSize; ++i) {
+                dest[i] *= scale;
+            }
+        }
     }
 }
 
@@ -2656,6 +2763,68 @@ void MNNReluInt8(int8_t* dst, const int8_t* src, size_t size, ssize_t zeroPoint)
     }
 }
 #endif // no MNN_USE_SSE
+
+void MNNExp(float* dst, const float* src, float* offset, size_t dataSize) {
+    int countC8        = static_cast<int32_t>(dataSize) / 8;
+    int remain = static_cast<int32_t>(dataSize) % 8;
+    static const float parameters[] = {
+        (float)logf(2.0f), 1.0f / (float)logf(2.0f), 0.25f, 1.0f, 0.5f, 1.0f / 6.0f, 1.0f / 24.0f, 1.0f / 120.0f};
+    if (countC8 > 0) {
+        // Align to eight so asm is easier to write
+        MNNExpC8(dst, src, offset, parameters, countC8);
+    }
+    if (remain > 0) {
+        auto param = parameters[0];
+        float xLimit = 87;
+        float summer = offset[3];
+        auto source = src + countC8 * 8;
+        auto dest = dst + countC8 * 8;
+        for (int i = 0; i < remain; ++i) {
+            auto x         = source[i] * offset[0] + offset[2];
+            x = ALIMAX(x, -xLimit);
+            x = ALIMIN(x, xLimit);
+            int div        = (x * parameters[1]);
+            int div2       = (div + 127) << 23;
+            auto xReamin   = x - div * param;
+            float expBasic = *(float*)(&div2);
+            auto t = xReamin * 0.25f;
+            auto expRemain =
+            ((((parameters[7] * t + parameters[6]) * t + parameters[5]) * t + parameters[4]) * t + 1.0f) * t +
+                1.0f;
+            expRemain = expRemain * expRemain;
+            expRemain = expRemain * expRemain;
+            dest[i] = expBasic * expRemain + offset[1];
+            summer+= dest[i];
+        }
+        offset[3] = summer;
+    }
+}
+
+void packKvCache(float* dst, const float* src, size_t seqLen, size_t kvSeqLen, size_t eP) {
+    if (seqLen == 0 || kvSeqLen == 0) {
+        return;
+    }
+
+    const size_t dstSOuterStride = kvSeqLen * eP;
+
+    for (size_t sBase = 0; sBase < seqLen; sBase += eP) {
+        const size_t numRowsInBlock = std::min(eP, seqLen - sBase);
+        const size_t sOuter = sBase / eP;
+
+        float* dstSOuterBase = dst + sOuter * dstSOuterStride;
+
+        for (size_t k = 0; k < kvSeqLen; ++k) {
+            float* dstColStart = dstSOuterBase + k * eP;
+
+            for (size_t sInner = 0; sInner < numRowsInBlock; ++sInner) {
+                const size_t s = sBase + sInner;
+
+                const float value = src[s * kvSeqLen + k];
+                dstColStart[sInner] = value;
+            }
+        }
+    }
+}
 
 void MNNMaxFloat(float* input, float* maxBuffer, int32_t inputCountUnit) {
     for (int i = 0; i < inputCountUnit; i++) {
@@ -3170,42 +3339,6 @@ void MNNPackTranspose(float* dst, const float* src, size_t area, size_t depth, i
         for (int ci = 0; ci < cReamin; ++ci) {
             dstHeight[ci] = srcHeight[ci];
         }
-    }
-}
-
-void MNNExp(float* dst, const float* src, float* offset, size_t dataSize) {
-    int countC8        = static_cast<int32_t>(dataSize) / 8;
-    int remain = static_cast<int32_t>(dataSize) % 8;
-    static const float parameters[] = {
-        (float)logf(2.0f), 1.0f / (float)logf(2.0f), 0.25f, 1.0f, 0.5f, 1.0f / 6.0f, 1.0f / 24.0f, 1.0f / 120.0f};
-    if (countC8 > 0) {
-        // Align to eight so asm is easier to write
-        MNNExpC8(dst, src, offset, parameters, countC8);
-    }
-    if (remain > 0) {
-        auto param = parameters[0];
-        float xLimit = 87;
-        float summer = offset[3];
-        auto source = src + countC8 * 8;
-        auto dest = dst + countC8 * 8;
-        for (int i = 0; i < remain; ++i) {
-            auto x         = source[i] * offset[0] + offset[2];
-            x = ALIMAX(x, -xLimit);
-            x = ALIMIN(x, xLimit);
-            int div        = (x * parameters[1]);
-            int div2       = (div + 127) << 23;
-            auto xReamin   = x - div * param;
-            float expBasic = *(float*)(&div2);
-            auto t = xReamin * 0.25f;
-            auto expRemain =
-            ((((parameters[7] * t + parameters[6]) * t + parameters[5]) * t + parameters[4]) * t + 1.0f) * t +
-                1.0f;
-            expRemain = expRemain * expRemain;
-            expRemain = expRemain * expRemain;
-            dest[i] = expBasic * expRemain + offset[1];
-            summer+= dest[i];
-        }
-        offset[3] = summer;
     }
 }
 
@@ -4011,6 +4144,7 @@ void MNNCoreFunctionInit() {
     gCoreFunction->chooseWinoDestUnrollTransform = WinogradFunction::chooseWinoDestUnrollTransform;
     gCoreFunction->MNNDeconvRunForLineDepthwise = MNNDeconvRunForLineDepthwise;
     gCoreFunction->MNNDeconvRunForUnitDepthWise = MNNDeconvRunForUnitDepthWise;
+    gCoreFunction->MNNSoftmax = MNNSoftmax;
 #ifdef MNN_USE_NEON
     gCoreFunction->MNNDepthwiseConvFastKernel = MNNDepthwiseConvFastKernel;
 #endif
@@ -4019,6 +4153,12 @@ void MNNCoreFunctionInit() {
 #ifdef MNN_SUPPORT_QUANT_EXTEND
     gCoreFunction->MNNSelectUnaryFunctionForInt8 = CPUUnary::selectForInt8;
 #endif
+
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+    gCoreFunction->MNNAttenPackAndScaleSingleHead = MNNAttenPackAndScaleSingleHead;
+    gCoreFunction->MNNFlashAttentionUpdateBlockOutput = MNNFlashAttentionUpdateBlockOutput;
+#endif
+
     gCoreFunction->MNNReluWithSlopeChannel = MNNReluWithSlopeChannel;
     gCoreFunction->MNNPoolingAvg = (decltype(gCoreFunction->MNNPoolingAvg))(poolingAvg<float, Vec4, 4>);
     // Set min value as 1 << 24

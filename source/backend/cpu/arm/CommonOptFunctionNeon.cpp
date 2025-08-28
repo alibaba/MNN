@@ -73,6 +73,386 @@ void MNNTranspose16Bit(int16_t* dstO, const int16_t* srcO, int32_t* dim) {
     }
 }
 
+
+#define EXP_APPROX_MIN_INPUT vdupq_n_f32(-88.0f)
+#define EXP_APPROX_MAX_INPUT vdupq_n_f32(88.0f)
+#define EXP_APPROX_LN2         vdupq_n_f32(0.69314718056f)  // ln(2)
+#define EXP_APPROX_LN2_INV     vdupq_n_f32(1.44269504089f)   // 1/ln(2)
+// Fourth-order polynomial approximation coefficients of exp(r):
+// P(x) = c4*x^4 + c3*x^3 + c2*x^2 + c1*x + c0
+#define EXP_APPROX_C4          vdupq_n_f32(0.0416624f)
+#define EXP_APPROX_C3          vdupq_n_f32(0.166665f)
+#define EXP_APPROX_C2          vdupq_n_f32(0.500000f)
+#define EXP_APPROX_C1          vdupq_n_f32(1.0f)
+#define EXP_APPROX_C0          vdupq_n_f32(1.0f)
+
+#ifndef __aarch64__
+static inline float32x4_t vrndaq_f32_compat(float32x4_t val) {
+    const float32x4_t v_zero = vdupq_n_f32(0.0f);
+
+    float32x4_t v_truncated = vcvtq_f32_s32(vcvtq_s32_f32(val));
+
+    uint32x4_t v_is_positive_frac = vcgtq_f32(val, v_truncated);
+    uint32x4_t v_is_negative_frac = vcltq_f32(val, v_truncated);
+
+    float32x4_t v_offset = vbslq_f32(v_is_positive_frac, vdupq_n_f32(1.0f), v_zero);
+    v_offset = vbslq_f32(v_is_negative_frac, vdupq_n_f32(-1.0f), v_offset);
+
+    return vaddq_f32(v_truncated, v_offset);
+}
+
+#endif
+
+static inline float32x4_t expApprox(float32x4_t x) {
+    x = vminq_f32(vmaxq_f32(x, EXP_APPROX_MIN_INPUT), EXP_APPROX_MAX_INPUT);
+    
+    float32x4_t k_float;
+    float32x4_t r;
+    float32x4_t exp_r;
+
+#if defined(__aarch64__)
+    // 1. x = k * ln(2) + r
+    k_float = vrndaq_f32(vmulq_f32(x, EXP_APPROX_LN2_INV));
+    
+    // r = x - k * ln(2)
+    r = vfmsq_f32(x, k_float, EXP_APPROX_LN2);
+
+    // 2. c0 + r*(c1 + r*(c2 + r*(c3 + r*c4)))  (Horner's method)
+    exp_r = vfmaq_f32(EXP_APPROX_C3, EXP_APPROX_C4, r); // c3 + c4*r
+    exp_r = vfmaq_f32(EXP_APPROX_C2, exp_r, r);         // c2 + r*(...)
+    exp_r = vfmaq_f32(EXP_APPROX_C1, exp_r, r);         // c1 + r*(...)
+    exp_r = vfmaq_f32(EXP_APPROX_C0, exp_r, r);         // c0 + r*(...)
+
+#else
+
+    k_float = vrndaq_f32_compat(vmulq_f32(x, EXP_APPROX_LN2_INV));
+    
+
+    r = vsubq_f32(x, vmulq_f32(k_float, EXP_APPROX_LN2));
+
+    // 2. c0 + r*(c1 + r*(c2 + r*(c3 + r*c4)))
+    exp_r = vmlaq_f32(EXP_APPROX_C3, EXP_APPROX_C4, r); // c3 + c4*r
+    exp_r = vmlaq_f32(EXP_APPROX_C2, exp_r, r);         // c2 + r*(...)
+    exp_r = vmlaq_f32(EXP_APPROX_C1, exp_r, r);         // c1 + r*(...)
+    exp_r = vmlaq_f32(EXP_APPROX_C0, exp_r, r);         // c0 + r*(...)
+
+#endif
+
+    int32x4_t k_int = vcvtq_s32_f32(k_float);
+    int32x4_t k_shifted = vshlq_n_s32(k_int, 23);
+    float32x4_t result = vreinterpretq_f32_s32(vaddq_s32(vreinterpretq_s32_f32(exp_r), k_shifted));   
+    return result;
+}
+
+void MNNExpC8(float* dst, const float* src, float* offset, const float* parameters, size_t countC8) {
+    float32x4_t maxVec = vdupq_n_f32(offset[2]);
+    float32x4_t sumVec0 = vdupq_n_f32(0);
+    float32x4_t sumVec1 = vdupq_n_f32(0);
+
+    float32x4_t c0 = vdupq_n_f32(offset[0]);
+    float32x4_t c1 = vdupq_n_f32(offset[1]);
+
+
+    for (int i = 0; i < countC8; ++i) {
+        float32x4_t srcVec0 = vld1q_f32(src);
+        float32x4_t srcVec1 = vld1q_f32(src + 4);
+        auto subVec0 = vaddq_f32(vmulq_f32(srcVec0, c0), maxVec);
+        auto subVec1 = vaddq_f32(vmulq_f32(srcVec1, c0), maxVec);
+        auto expVec0 = vaddq_f32(expApprox(subVec0), c1);
+        auto expVec1 = vaddq_f32(expApprox(subVec1), c1);
+        vst1q_f32(dst, expVec0);
+        vst1q_f32(dst + 4, expVec1);
+        sumVec0 = vaddq_f32(sumVec0, expVec0);
+        sumVec1 = vaddq_f32(sumVec1, expVec1);
+
+        src += 8;
+        dst += 8;
+    }
+
+    sumVec0 = vaddq_f32(sumVec0, sumVec1);
+    float32x2_t sumP = vpadd_f32(vget_low_f32(sumVec0), vget_high_f32(sumVec0));
+    sumP = vpadd_f32(sumP, sumP);
+    offset[3] += vget_lane_f32(sumP, 0);
+}
+
+
+void MNNExp(float* destPtr, const float* srcPtr, float* offset, size_t size) {
+    float32x4_t maxVec = vdupq_n_f32(-offset[2]);
+    float32x4_t sumVec0 = vdupq_n_f32(0);
+    float32x4_t sumVec1 = vdupq_n_f32(0);
+    if (offset[0] == 1.f && offset[1] == 0.f) {
+        while (size >= 8) {
+            float32x4_t srcVec0 = vld1q_f32(srcPtr);
+            float32x4_t srcVec1 = vld1q_f32(srcPtr + 4);
+            auto subVec0 = vsubq_f32(srcVec0, maxVec);
+            auto subVec1 = vsubq_f32(srcVec1, maxVec);
+            auto expVec0 = expApprox(subVec0);
+            auto expVec1 = expApprox(subVec1);
+            vst1q_f32(destPtr, expVec0);
+            vst1q_f32(destPtr + 4, expVec1);
+            sumVec0 = vaddq_f32(sumVec0, expVec0);
+            sumVec1 = vaddq_f32(sumVec1, expVec1);
+            srcPtr += 8;
+            destPtr += 8;
+            size -= 8;
+            
+        }
+        while (size >= 4) {
+            float32x4_t srcVec0 = vld1q_f32(srcPtr);
+            auto subVec0 = vsubq_f32(srcVec0, maxVec);
+            auto expVec0 = expApprox(subVec0);
+            sumVec0 = vaddq_f32(sumVec0, expVec0);
+            vst1q_f32(destPtr, expVec0);
+            srcPtr += 4;
+            destPtr += 4;
+            size -= 4;
+        }
+        //merge
+        sumVec0 = vaddq_f32(sumVec0, sumVec1);
+        float32x2_t sumP = vpadd_f32(vget_low_f32(sumVec0), vget_high_f32(sumVec0));
+        sumP = vpadd_f32(sumP, sumP);
+        auto newSum = vget_lane_f32(sumP, 0);
+        if (size > 0) {
+            float tmp[4];
+            memcpy(tmp, srcPtr, size * sizeof(float));
+            float32x4_t srcVec0 = vld1q_f32(tmp);
+            auto subVec0 = vsubq_f32(srcVec0, maxVec);
+            auto expVec0 = expApprox(subVec0);
+            vst1q_f32(tmp, expVec0);
+            for (int i = 0; i < size; ++i) {
+                newSum += tmp[i];
+                destPtr[i] = tmp[i];
+            }
+        }
+        offset[3] += newSum;
+    } else {
+        float32x4_t c0 = vdupq_n_f32(offset[0]);
+        float32x4_t c1 = vdupq_n_f32(offset[1]);
+        while (size >= 8) {
+            float32x4_t srcVec0 = vld1q_f32(srcPtr);
+            float32x4_t srcVec1 = vld1q_f32(srcPtr + 4);
+            auto subVec0 = vsubq_f32(vmulq_f32(srcVec0, c0), maxVec);
+            auto subVec1 = vsubq_f32(vmulq_f32(srcVec1, c0), maxVec);
+            auto expVec0 = vaddq_f32(expApprox(subVec0), c1);
+            auto expVec1 = vaddq_f32(expApprox(subVec1), c1);
+            vst1q_f32(destPtr, expVec0);
+            vst1q_f32(destPtr + 4, expVec1);
+            sumVec0 = vaddq_f32(sumVec0, expVec0);
+            sumVec1 = vaddq_f32(sumVec1, expVec1);
+            srcPtr += 8;
+            destPtr += 8;
+            size -= 8;
+            
+        }
+        while (size >= 4) {
+            float32x4_t srcVec0 = vld1q_f32(srcPtr);
+            auto subVec0 = vsubq_f32(vmulq_f32(srcVec0, c0), maxVec);
+            auto expVec0 = vaddq_f32(expApprox(subVec0), c1);
+            sumVec0 = vaddq_f32(sumVec0, expVec0);
+            vst1q_f32(destPtr, expVec0);
+            srcPtr += 4;
+            destPtr += 4;
+            size -= 4;
+        }
+        //merge
+        sumVec0 = vaddq_f32(sumVec0, sumVec1);
+        float32x2_t sumP = vpadd_f32(vget_low_f32(sumVec0), vget_high_f32(sumVec0));
+        sumP = vpadd_f32(sumP, sumP);
+        auto newSum = vget_lane_f32(sumP, 0);
+        if (size > 0) {
+            float tmp[4];
+            memcpy(tmp, srcPtr, size * sizeof(float));
+            float32x4_t srcVec0 = vld1q_f32(tmp);
+            auto subVec0 = vsubq_f32(vmulq_f32(srcVec0, c0), maxVec);
+            auto expVec0 = vaddq_f32(expApprox(subVec0), c1);
+            vst1q_f32(tmp, expVec0);
+            for (int i = 0; i < size; ++i) {
+                newSum += tmp[i];
+                destPtr[i] = tmp[i];
+            }
+        }
+        offset[3] += newSum;
+    }
+}
+
+
+static inline void transposeAndStore4x4(const float* srcRowPtrs[4], float* dstColBase, size_t dstColStride) {
+    float32x4_t row0 = vld1q_f32(srcRowPtrs[0]);
+    float32x4_t row1 = vld1q_f32(srcRowPtrs[1]);
+    float32x4_t row2 = vld1q_f32(srcRowPtrs[2]);
+    float32x4_t row3 = vld1q_f32(srcRowPtrs[3]);
+
+    // Step 1: Transpose 2x2 blocks of 2-element vectors
+    float32x4x2_t t01 = vtrnq_f32(row0, row1);
+    float32x4x2_t t23 = vtrnq_f32(row2, row3);
+
+    // Step 2: Combine the results to get the full transpose
+    float32x4_t col0 = vcombine_f32(vget_low_f32(t01.val[0]), vget_low_f32(t23.val[0]));
+    float32x4_t col1 = vcombine_f32(vget_low_f32(t01.val[1]), vget_low_f32(t23.val[1]));
+    float32x4_t col2 = vcombine_f32(vget_high_f32(t01.val[0]), vget_high_f32(t23.val[0]));
+    float32x4_t col3 = vcombine_f32(vget_high_f32(t01.val[1]), vget_high_f32(t23.val[1]));
+
+    vst1q_f32(dstColBase, col0);
+    vst1q_f32(dstColBase + dstColStride, col1);
+    vst1q_f32(dstColBase + 2 * dstColStride, col2);
+    vst1q_f32(dstColBase + 3 * dstColStride, col3);
+}
+
+
+void packKvCache(float* dst, const float* src, size_t seqLen, size_t kvSeqLen, size_t eP) {
+    if (seqLen == 0 || kvSeqLen == 0) {
+        return;
+    }
+
+    // source [seqLen, kvSeqLen]
+    // dest   [seqLen/eP, kvSeqLen, eP]
+
+    const int kTileS = 4; // Tiling size for seqLen dimension
+    const int kTileK = 4; // Tiling size for kvSeqLen dimension
+    const size_t dstSOuterStride = kvSeqLen * eP;
+
+    int s = 0;
+    for (; s + kTileS <= seqLen; s += kTileS) {
+        const int sOuter = s / eP;
+        const int sInner = s % eP;
+        if (sInner + kTileS > eP) {
+            break;
+        }
+
+        float* dstSBase = dst + sOuter * dstSOuterStride + sInner;
+        const float* srcRowPtrs[kTileS];
+        srcRowPtrs[0] = src + (s + 0) * kvSeqLen;
+        srcRowPtrs[1] = src + (s + 1) * kvSeqLen;
+        srcRowPtrs[2] = src + (s + 2) * kvSeqLen;
+        srcRowPtrs[3] = src + (s + 3) * kvSeqLen;
+
+        int k = 0;
+        for (; k + kTileK <= kvSeqLen; k += kTileK) {
+            const float* currentSrcPtrs[kTileS];
+            currentSrcPtrs[0] = srcRowPtrs[0] + k;
+            currentSrcPtrs[1] = srcRowPtrs[1] + k;
+            currentSrcPtrs[2] = srcRowPtrs[2] + k;
+            currentSrcPtrs[3] = srcRowPtrs[3] + k;
+            float* dstKBase = dstSBase + k * eP;
+            transposeAndStore4x4(currentSrcPtrs, dstKBase, eP);
+        }
+
+        for (; k < kvSeqLen; ++k) {
+            float buffer[kTileS] = {
+                srcRowPtrs[0][k],
+                srcRowPtrs[1][k],
+                srcRowPtrs[2][k],
+                srcRowPtrs[3][k]
+            };
+            vst1q_f32(dstSBase + k * eP, vld1q_f32(buffer));
+        }
+    }
+
+    for (; s < seqLen; ++s) {
+        const int sOuter = s / eP;
+        const int sInner = s % eP;
+        const float* srcRow = src + s * kvSeqLen;
+        float* dstSBase = dst + sOuter * dstSOuterStride + sInner;
+        for (int k = 0; k < kvSeqLen; ++k) {
+            dstSBase[k * eP] = srcRow[k];
+        }
+    }
+}
+
+void MNNSoftmax(float* softmaxDst, float* input, float* runningMax, float* runningSum, float* updateScale, int outside, int reduceSize) {
+    for (int k = 0; k < outside; ++k) {
+        auto source = input + k * reduceSize;
+        auto dest = softmaxDst + k * reduceSize;
+
+        // new max
+        auto srcPtr = source;
+        auto size = reduceSize;
+        float32x4_t maxVec0 = vdupq_n_f32(source[0]);
+        auto maxVec1 = maxVec0;
+
+        float oldMax = source[0];
+        if (runningMax) {
+            oldMax = runningMax[k];
+        }
+
+        while (size >= 8) {
+            float32x4_t srcVec0 = vld1q_f32(srcPtr);
+            float32x4_t srcVec1 = vld1q_f32(srcPtr + 4);
+
+            maxVec0 = vmaxq_f32(maxVec0, srcVec0);
+            maxVec1 = vmaxq_f32(maxVec1, srcVec1);
+
+            srcPtr += 8;
+            size -= 8;
+        }
+
+        while (size >= 4) {
+            float32x4_t srcVec0 = vld1q_f32(srcPtr);
+            maxVec0 = vmaxq_f32(maxVec0, srcVec0);
+            srcPtr += 4;
+            size -= 4;
+        }
+
+        maxVec0 = vmaxq_f32(maxVec0, maxVec1);
+        float32x2_t maxP = vpmax_f32(vget_low_f32(maxVec0), vget_high_f32(maxVec0));
+        maxP = vpmax_f32(maxP, maxP);
+        auto newMax = vget_lane_f32(maxP, 0);
+
+        while (size > 0) {
+            newMax = ALIMAX(newMax, srcPtr[0]);
+            srcPtr += 1;
+            size -= 1;
+        }
+
+        newMax = ALIMAX(oldMax, newMax);
+        srcPtr = source;
+        auto destPtr = dest;
+        size = reduceSize;
+
+        float exprOffset[4] = {
+            1.0f,
+            0.0f,
+            0.0f,
+            0.0f
+        };
+        exprOffset[2] = -newMax;
+
+        // expf(xi-newmax) & new sum
+        MNNExp(destPtr, srcPtr, exprOffset, size);
+
+        if (runningMax != nullptr && runningSum != nullptr && updateScale != nullptr) {
+            // update runningSum, runningMax, scale=expf(oldMax-newMax)
+            float newSum = exprOffset[3];
+            runningSum[k] = runningSum[k] * expf(oldMax - newMax) + newSum;
+            runningMax[k] = newMax;
+            updateScale[k] = expf(oldMax - newMax);
+        } else {
+            // Normalize
+            float sum = exprOffset[3];
+            float scale = 1.0f / (sum + 1e-20f);
+            int count = reduceSize;
+            auto pDest = dest;
+
+            float32x4_t scaleVec = vdupq_n_f32(scale);
+            while (count >= 4) {
+                float32x4_t data = vld1q_f32(pDest);
+                data = vmulq_f32(data, scaleVec);
+                vst1q_f32(pDest, data);
+                
+                pDest += 4;
+                count -= 4;
+            }
+
+            while (count > 0) {
+                *pDest *= scale;
+                pDest++;
+                count--;
+            }
+        }
+    }
+}
+
+
 #ifndef MNN_USE_NEON
 
 void MNNPackedSparseMatMulEpx1(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, unsigned int* NNZMap, int* dataOffsetMap) {

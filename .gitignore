@@ -376,3 +376,6 @@ datasets/*
 
 # qnn 3rdParty
 source/backend/qnn/3rdParty/include
+project/android/.cxx
+pymnn/android/.cxx/
+pymnn/android/.cxx/abi_configuration_5u53tc49.json

@@ -55,6 +55,13 @@
     <string name="diffusion_generate_progress">Image Generate progress: %1$s%%</string>
     <string name="no_history">No history, please select model in the model list and chat</string>
     <string name="recording_permission_denied">Please allow permission to record audio</string>
+    <string name="camera_permission_denied">Camera permission is required to take photos</string>
+    <string name="camera_permission_rationale">Camera access is needed to take photos for your chat</string>
+    <string name="no_camera_app_found">No camera app found on this device</string>
+    <string name="file_manager_required">Please install a File Manager</string>
+    <string name="audio_file_failed">Failed to get audio file</string>
+    <string name="select_picture">Select Picture</string>
+    <string name="select_wav_file">Select a WAV file</string>
     <string name="release_to_send">Release to Send, Slide up to cancel</string>
     <string name="release_to_cancel">Release to cancel</string>
     <string name="scroll_to_bottom">Scroll to bottom</string>

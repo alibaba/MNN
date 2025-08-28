@@ -85,8 +85,8 @@ void KleidiAI::initKernelInfo() {
                 pParam->mKaiMrGemv = 1;
                 pParam->mKaiMrGemm = kai_get_mr_matmul_clamp_f32_qai8dxp1vlx8_qsi4cxp4vlx8_1vlx4vl_sme2_mopa();
                 pParam->mKaiNr = kai_get_nr_matmul_clamp_f32_qai8dxp1vlx8_qsi4cxp4vlx8_1vlx4vl_sme2_mopa();
-                pParam->mKaiKr = 4;
-                pParam->mKaiSr = 1;
+                pParam->mKaiKr = kai_get_kr_matmul_clamp_f32_qai8dxp1vlx8_qsi4cxp4vlx8_1vlx4vl_sme2_mopa();
+                pParam->mKaiSr = kai_get_sr_matmul_clamp_f32_qai8dxp1vlx8_qsi4cxp4vlx8_1vlx4vl_sme2_mopa();;
             } else if(mStaticInfo.mDot && mStaticInfo.mI8mm) {
                 bSupport = true;
                 pParam->mKaiMstepGemv = 1;
@@ -103,11 +103,46 @@ void KleidiAI::initKernelInfo() {
             break;
         }
         case AccelType::QI4_ASYM_CHNLQT_F32:
-        case AccelType::QI4_ASYM_CHNLQT_F16:
         case AccelType::QI4_ASYM_BLKQT_F32:
+            if(mStaticInfo.mSme2) {
+                bSupport = true;
+                pParam->mKaiMstepGemv = 1;
+                pParam->mKaiMstepGemm = kai_get_m_step_matmul_clamp_f32_qsi8d32p1vlx4_qai4c32p4vlx4_1vlx4vl_sme2_mopa();
+                pParam->mKaiNStep = kai_get_n_step_matmul_clamp_f32_qsi8d32p1vlx4_qai4c32p4vlx4_1vlx4vl_sme2_mopa();
+                pParam->mKaiMrGemv = 1;
+                pParam->mKaiMrGemm = kai_get_mr_matmul_clamp_f32_qsi8d32p1vlx4_qai4c32p4vlx4_1vlx4vl_sme2_mopa();
+                pParam->mKaiNr = kai_get_nr_matmul_clamp_f32_qsi8d32p1vlx4_qai4c32p4vlx4_1vlx4vl_sme2_mopa();
+                pParam->mKaiKr = kai_get_kr_matmul_clamp_f32_qsi8d32p1vlx4_qai4c32p4vlx4_1vlx4vl_sme2_mopa();
+                pParam->mKaiSr = kai_get_sr_matmul_clamp_f32_qsi8d32p1vlx4_qai4c32p4vlx4_1vlx4vl_sme2_mopa();
+            } else if(mStaticInfo.mDot && mStaticInfo.mI8mm) {
+                bSupport = true;
+                pParam->mKaiMstepGemv = 1;
+                pParam->mKaiMstepGemm = 8;
+                pParam->mKaiNStep = 4;
+                pParam->mKaiMrGemv = 1;
+                pParam->mKaiMrGemm = 4;
+                pParam->mKaiNr = 4;
+                pParam->mKaiKr = 16;
+                pParam->mKaiSr = 2;
+            } else {
+                bSupport = false;
+            }
+            break;
+            
+        case AccelType::QI4_ASYM_CHNLQT_F16:
         case AccelType::QI4_ASYM_BLKQT_F16:
-        {
-            if(mStaticInfo.mDot && mStaticInfo.mI8mm) {
+        {   
+            if(mStaticInfo.mSme2) {
+                bSupport = true;
+                pParam->mKaiMstepGemv = 1;
+                pParam->mKaiMstepGemm = kai_get_m_step_matmul_clamp_f16_qsi8d32p1vlx4_qai4c32p4vlx4_1vlx4vl_sme2_mopa();
+                pParam->mKaiNStep = kai_get_n_step_matmul_clamp_f16_qsi8d32p1vlx4_qai4c32p4vlx4_1vlx4vl_sme2_mopa();
+                pParam->mKaiMrGemv = 1;
+                pParam->mKaiMrGemm = kai_get_mr_matmul_clamp_f16_qsi8d32p1vlx4_qai4c32p4vlx4_1vlx4vl_sme2_mopa();
+                pParam->mKaiNr = kai_get_nr_matmul_clamp_f16_qsi8d32p1vlx4_qai4c32p4vlx4_1vlx4vl_sme2_mopa();
+                pParam->mKaiKr = kai_get_kr_matmul_clamp_f16_qsi8d32p1vlx4_qai4c32p4vlx4_1vlx4vl_sme2_mopa();;
+                pParam->mKaiSr = kai_get_sr_matmul_clamp_f16_qsi8d32p1vlx4_qai4c32p4vlx4_1vlx4vl_sme2_mopa();;
+            } else if(mStaticInfo.mDot && mStaticInfo.mI8mm) {
                 bSupport = true;
                 pParam->mKaiMstepGemv = 1;
                 pParam->mKaiMstepGemm = 8;
@@ -302,12 +337,17 @@ size_t KleidiAI::getRhsPackedSize(AccelType type, size_t n, size_t k, size_t bl)
         } else {
             return kai_get_rhs_packed_size_rhs_pack_nxk_qsi4cxp_qs4cxs1s0(n, k, getNr(type), getKr(type), getSr(type));
         }
-    case AccelType::QI4_ASYM_CHNLQT_F32:
+    
     case AccelType::QI4_ASYM_CHNLQT_F16:
+    case AccelType::QI4_ASYM_CHNLQT_F32:
         bl = k;
-    case AccelType::QI4_ASYM_BLKQT_F32:
     case AccelType::QI4_ASYM_BLKQT_F16:
-        return kai_get_rhs_packed_size_rhs_pack_nxk_qai4c32p_qau4c32s0s1_f32_f32_f32_neon(n, k, getNr(type), getKr(type), bl);
+    case AccelType::QI4_ASYM_BLKQT_F32:
+        if(mStaticInfo.mSme2) {
+            return kai_get_rhs_packed_size_rhs_pack_nxk_qai4c32ps1s0nrx4_qau4c32s0s1_f32_f32_f32_neon(n, k, getNr(type), getKr(type), bl);
+        } else {
+            return kai_get_rhs_packed_size_rhs_pack_nxk_qai4c32p_qau4c32s0s1_f32_f32_f32_neon(n, k, getNr(type), getKr(type), bl);
+        }
     case AccelType::FP16:
         return kai_get_rhs_packed_size_rhs_pack_nxk_x16p2vlx2b_x16_x16_sme(n, k);
     case AccelType::FP32:
@@ -330,12 +370,17 @@ size_t KleidiAI::getRhsPackedOffset(AccelType type, size_t nIdx, size_t k, size_
         } else {
             return kai_get_rhs_packed_offset_rhs_pack_nxk_qsi4cxp_qs4cxs1s0(nIdx, k, getNr(type), getKr(type), getSr(type));
         }
-    case AccelType::QI4_ASYM_CHNLQT_F32:
     case AccelType::QI4_ASYM_CHNLQT_F16:
+    case AccelType::QI4_ASYM_CHNLQT_F32:
         bl = k;
-    case AccelType::QI4_ASYM_BLKQT_F32:
     case AccelType::QI4_ASYM_BLKQT_F16:
-        return kai_get_rhs_packed_offset_rhs_pack_nxk_qai4c32p_qau4c32s0s1_f32_f32_f32_neon(nIdx, k, getNr(type), getKr(type), bl);
+    case AccelType::QI4_ASYM_BLKQT_F32:
+        if(mStaticInfo.mSme2) {
+            return kai_get_rhs_packed_offset_rhs_pack_nxk_qai4c32ps1s0nrx4_qau4c32s0s1_f32_f32_f32_neon(nIdx, k, getNr(type), getKr(type), bl);
+        } else {
+            return kai_get_rhs_packed_offset_rhs_pack_nxk_qai4c32p_qau4c32s0s1_f32_f32_f32_neon(nIdx, k, getNr(type), getKr(type), bl);
+        }
+        
     default:
         MNN_ASSERT(0);
         return 0;
@@ -360,18 +405,26 @@ void KleidiAI::runRhsPack(AccelType type, size_t numGroups, size_t n, size_t k, 
         }
         break;
     }
-    case AccelType::QI4_ASYM_CHNLQT_F32:
     case AccelType::QI4_ASYM_CHNLQT_F16:
+    case AccelType::QI4_ASYM_CHNLQT_F32: 
         bl = k;
-    case AccelType::QI4_ASYM_BLKQT_F32:
     case AccelType::QI4_ASYM_BLKQT_F16:
-        struct kai_rhs_pack_nxk_qai4c32p_params params;
-        params.lhs_zero_point = 1;
-        params.rhs_zero_point = 8;
-        kai_run_rhs_pack_nxk_qai4c32p_qau4c32s0s1_f32_f32_f32_neon(numGroups, n, k, getNr(type), getKr(type), getSr(type), bl,
-                                                    (const uint8_t *)rhs, zeroPoint, bias, scale,
-                                                    rhsPacked, 0, &params);
-        break;
+    case AccelType::QI4_ASYM_BLKQT_F32:
+        {
+            struct kai_rhs_pack_nxk_qai4c32p_params params;
+            params.lhs_zero_point = 1;
+            params.rhs_zero_point = 8;
+            if(mStaticInfo.mSme2) {
+                kai_run_rhs_pack_nxk_qai4c32ps1s0nrx4_qau4c32s0s1_f32_f32_f32_neon(numGroups, n, k, getNr(type), getKr(type), getSr(type), bl,
+                                                        (const uint8_t *)rhs, zeroPoint, bias, scale,
+                                                        rhsPacked, 0, &params);
+            } else{       
+                kai_run_rhs_pack_nxk_qai4c32p_qau4c32s0s1_f32_f32_f32_neon(numGroups, n, k, getNr(type), getKr(type), getSr(type), bl,
+                                                            (const uint8_t *)rhs, zeroPoint, bias, scale,
+                                                            rhsPacked, 0, &params);
+            }
+            break;
+        }
     case AccelType::FP16:
         kai_run_rhs_pack_nxk_x16p2vlx2b_x16_x16_sme(numGroups, n, k, getNr(type), getKr(type), getSr(type),
                                                     rhsStride, rhs, bias, scale, rhsPacked, 0, nullptr);
@@ -422,27 +475,51 @@ void KleidiAI::runMatmul(AccelType type, size_t m, size_t n, size_t k, size_t bl
     case AccelType::QI4_ASYM_CHNLQT_F32:
         bl = k;
     case AccelType::QI4_ASYM_BLKQT_F32:
-        if(m == 1) {
-            kai_run_matmul_clamp_f32_qsi8d32p1x8_qai4c32p4x8_1x4_neon_dotprod(m, n, k, bl,
+        if(mStaticInfo.mSme2) {
+            if(m == 1) {
+                kai_run_matmul_clamp_f32_qsi8d32p1x4_qai4c32p4vlx4_1x4vl_sme2_dot(m, n, k, bl,
+                                                                                 (const void *)lhsPacked, (const void *)rhsPacked, (float *)dst,
+                                                                                 dstStrideRow, dstStrideCol, scalarMin, scalarMax);
+            } else {
+                kai_run_matmul_clamp_f32_qsi8d32p1vlx4_qai4c32p4vlx4_1vlx4vl_sme2_mopa(m, n, k, bl,
+                                                                                     (const void *)lhsPacked, (const void *)rhsPacked, (float *)dst,
+                                                                                     dstStrideRow, dstStrideCol, scalarMin, scalarMax);
+            }
+        } else {
+            if(m == 1) {
+                kai_run_matmul_clamp_f32_qsi8d32p1x8_qai4c32p4x8_1x4_neon_dotprod(m, n, k, bl,
+                                                                                (const void *)lhsPacked, (const void *)rhsPacked, (float *)dst,
+                                                                                dstStrideRow, dstStrideCol, scalarMin, scalarMax);
+            } else {
+                kai_run_matmul_clamp_f32_qsi8d32p4x8_qai4c32p4x8_8x4_neon_i8mm(m, n, k, bl,
                                                                             (const void *)lhsPacked, (const void *)rhsPacked, (float *)dst,
                                                                             dstStrideRow, dstStrideCol, scalarMin, scalarMax);
-        } else {
-            kai_run_matmul_clamp_f32_qsi8d32p4x8_qai4c32p4x8_8x4_neon_i8mm(m, n, k, bl,
-                                                                        (const void *)lhsPacked, (const void *)rhsPacked, (float *)dst,
-                                                                        dstStrideRow, dstStrideCol, scalarMin, scalarMax);
+            }
         }
         break;
     case AccelType::QI4_ASYM_CHNLQT_F16:
         bl = k;
     case AccelType::QI4_ASYM_BLKQT_F16:
-        if(m == 1) {
-            kai_run_matmul_clamp_f16_qsi8d32p1x8_qai4c32p4x8_1x4_neon_dotprod(m, n, k, bl,
+        if(mStaticInfo.mSme2) {
+            if(m == 1) {
+                kai_run_matmul_clamp_f16_qsi8d32p1x4_qai4c32p4vlx4_1x4vl_sme2_dot(m, n, k, bl,
+                                                                                 (const void *)lhsPacked, (const void *)rhsPacked, (float *)dst,
+                                                                                 dstStrideRow, dstStrideCol, scalarMin, scalarMax);
+            } else {
+                kai_run_matmul_clamp_f16_qsi8d32p1vlx4_qai4c32p4vlx4_1vlx4vl_sme2_mopa(m, n, k, bl,
+                                                                                     (const void *)lhsPacked, (const void *)rhsPacked, (float *)dst,
+                                                                                     dstStrideRow, dstStrideCol, scalarMin, scalarMax);
+            }
+        } else{
+            if(m == 1) {
+                kai_run_matmul_clamp_f16_qsi8d32p1x8_qai4c32p4x8_1x4_neon_dotprod(m, n, k, bl,
+                                                                                (const void *)lhsPacked, (const void *)rhsPacked, (float *)dst,
+                                                                                dstStrideRow, dstStrideCol, scalarMin, scalarMax);
+            } else {
+                kai_run_matmul_clamp_f16_qsi8d32p4x8_qai4c32p4x8_8x4_neon_i8mm(m, n, k, bl,
                                                                             (const void *)lhsPacked, (const void *)rhsPacked, (float *)dst,
                                                                             dstStrideRow, dstStrideCol, scalarMin, scalarMax);
-        } else {
-            kai_run_matmul_clamp_f16_qsi8d32p4x8_qai4c32p4x8_8x4_neon_i8mm(m, n, k, bl,
-                                                                        (const void *)lhsPacked, (const void *)rhsPacked, (float *)dst,
-                                                                        dstStrideRow, dstStrideCol, scalarMin, scalarMax);
+            }
         }
         break;
     case AccelType::FP16:

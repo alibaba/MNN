@@ -8,7 +8,7 @@ import com.alibaba.mnnllm.android.utils.CrashUtil
 import com.alibaba.mnnllm.android.utils.CurrentActivityTracker
 import timber.log.Timber
 import android.content.Context
-import com.alibaba.mls.api.ModelTagsCache
+import com.alibaba.mnnllm.android.tag.ModelTagsCache
 import com.jaredrummler.android.device.DeviceName
 
 class MnnLlmApplication : Application() {

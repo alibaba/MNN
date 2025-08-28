@@ -11,7 +11,7 @@ class Embedding(torch.nn.Module):
         self.hidden_size = config.hidden_size
         self.embed = embed
         self.embed_scale = 1.0
-        if config.model_type == 'gemma2':
+        if config.model_type == 'gemma' or config.model_type == 'gemma2':
             self.embed_scale = self.hidden_size**0.5
         if hasattr(embed, 'embed_scale'):
             self.embed_scale = embed.embed_scale
@@ -250,7 +250,6 @@ class Rotary(torch.nn.Module):
     def __init__(self, config):
         super().__init__()
         if config is None: return
-
         self.rope_theta = config.rope_theta
         self.rope_ratio = config.rope_ratio
         self.rope_theta *= self.rope_ratio
@@ -280,7 +279,7 @@ class Rotary(torch.nn.Module):
                 rope_type = config.rope_scaling['rope_type']
             # gen theta for rope_type
             if rope_type == 'dynamic': # NTK
-                if 'alpha' in config.rope_scaling: # NTKAlpha
+                if 'alpha' in config.rope_scaling: # NTKAlpha in Hunyuan
                     self.rope_theta *= (config.rope_scaling['alpha'] ** (self.rotary_dim / (self.rotary_dim - 2)))
                 else: # NTKScaling
                     pass
@@ -293,6 +292,15 @@ class Rotary(torch.nn.Module):
                     scaling_config=scaling_config,
                     max_position_embeddings=config.max_position_embeddings
                 )
+            elif rope_type == 'longrope': # longrope in MiniCPM
+                self.is_scaled = True
+                original_max_position_embeddings = config.rope_scaling['original_max_position_embeddings']
+                scale = (config.max_position_embeddings / original_max_position_embeddings)
+                self.attention_scaling = math.sqrt(1 + math.log(scale) / math.log(original_max_position_embeddings))
+                # long_factor = config.rope_scaling['long_factor']
+                short_factor = config.rope_scaling['short_factor']
+                self.theta = get_theta() / torch.tensor(short_factor, dtype=torch.float32)
+
             # mrope for multimode
             if 'mrope_section' in scaling_config:
                 self.mrope_section = scaling_config['mrope_section']
@@ -539,8 +547,11 @@ class Decoder(torch.nn.Module):
         else:
             self.self_attn = Attention(self.self_attn, layer_id, config)
         self.hidden_size = config.hidden_size
-        # chatglm
-        self.alpha = (2 * config.num_hidden_layers) ** 0.5 if config.model_type == 'chatglm' else 1.0
+        if hasattr(config, 'num_hidden_layers'):
+            # minicpm
+            self.num_hidden_layers = config.num_hidden_layers
+            # chatglm
+            self.alpha = (2 * config.num_hidden_layers) ** 0.5 if config.model_type == 'chatglm' else 1.0
 
     def forward(
         self,
@@ -568,7 +579,7 @@ class Decoder(torch.nn.Module):
             # phi
             feed_forward_hidden_states = self.mlp(norm_hidden_states)
             hidden_states = hidden_states + feed_forward_hidden_states + residual
-        elif self.alpha != 1.0:
+        elif hasattr(self, 'alpha') and self.alpha != 1.0:
             # chatglm-6b
             hidden_states = norm_hidden_states * self.alpha + hidden_states
             mlp_input = self.post_attention_layernorm(hidden_states)
@@ -590,6 +601,13 @@ class Decoder(torch.nn.Module):
             hidden_states = self.mlp(hidden_states)
             hidden_states = cross_attention_mask * hidden_states
             hidden_states = residual + self.cross_attn_mlp_gate.tanh() * hidden_states
+        elif hasattr(self, 'scale_depth'):
+            # minicpm
+            hidden_states = residual + hidden_states * (self.scale_depth / math.sqrt(self.num_hidden_layers))
+            residual = hidden_states
+            hidden_states = self.post_attention_layernorm(hidden_states)
+            hidden_states = self.mlp(hidden_states)
+            hidden_states = residual + hidden_states * (self.scale_depth / math.sqrt(self.num_hidden_layers))
         else:
             # general
             hidden_states = residual + hidden_states

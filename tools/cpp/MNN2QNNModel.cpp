@@ -37,11 +37,21 @@ int main(int argc, const char* argv[]) {
     /**
     generate qnn .cpp and .bin
     */
-
+    std::string dstModelName = dstMNN;
+    size_t pos = dstModelName.find_last_of("/\\");
+    std::string dstModelPath;
+    if (pos == std::string::npos) {
+        // current path
+        dstModelPath = "./";
+    } else {
+        dstModelPath = dstModelName.substr(0, pos);
+    }
+    std::string qnnModelPath = dstModelPath + "/" + qnnModelName;
+    MNN_PRINT("[Temp Product]: Qnn temp product generate at %s\n", qnnModelPath.c_str());
     MNN::ScheduleConfig config;
     config.type = MNN_FORWARD_NN;
     std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
-    rtmgr->setCache(qnnModelName.c_str());
+    rtmgr->setCache(qnnModelPath.c_str());
     MNN::Express::Module::Config mConfig;
     mConfig.shapeMutable = false;
     std::shared_ptr<MNN::Express::Module> m(MNN::Express::Module::load(inputNames, outputNames, srcMNN, rtmgr, &mConfig), MNN::Express::Module::destroy);
@@ -64,7 +74,7 @@ int main(int argc, const char* argv[]) {
     }
 
     int ret = 0;
-    std::string tarBinCmd = "cd " + qnnModelName + \
+    std::string tarBinCmd = "cd " + qnnModelPath + \
         " && " + \
         "tar -cf " + qnnModelName + ".bin *.raw";
     ret = system(tarBinCmd.c_str());
@@ -74,10 +84,10 @@ int main(int argc, const char* argv[]) {
     }
 
     std::string modelLibCmd = qnnSdkPath + "/bin/x86_64-linux-clang/qnn-model-lib-generator " + \
-        "-c " + qnnModelName + "/" + qnnModelName + ".cpp " + \
-        "-b " + qnnModelName + "/" + qnnModelName + ".bin " + \
+        "-c " + qnnModelPath + "/" + qnnModelName + ".cpp " + \
+        "-b " + qnnModelPath + "/" + qnnModelName + ".bin " + \
         "-t x86_64-linux-clang " + \
-        "-o " + qnnModelName + "/lib ";
+        "-o " + qnnModelPath + "/lib ";
     ret = system(modelLibCmd.c_str());
     if(ret) {
         MNN_ERROR("[Error]: qnn-model-lib-generator error!\n");
@@ -86,12 +96,13 @@ int main(int argc, const char* argv[]) {
         MNN_PRINT("[Pass]: qnn-model-lib-generator success!\n");
     }
 
+    std::string qnnBin = dstModelPath + "/" + qnnModelName + ".bin";
     std::string binaryGenCmd = qnnSdkPath + "/bin/x86_64-linux-clang/qnn-context-binary-generator " + \
-        "--model " + qnnModelName + "/lib/x86_64-linux-clang/lib" + qnnModelName + ".so " + \
+        "--model " + qnnModelPath + "/lib/x86_64-linux-clang/lib" + qnnModelName + ".so " + \
         "--backend " + qnnSdkPath + "/lib/x86_64-linux-clang/libQnnHtp.so " + \
         "--binary_file " + qnnModelName + " " + \
         "--config_file " + qnnContextConfig + " " + \
-        "--output_dir " + qnnModelName + "/binary";
+        "--output_dir " + dstModelPath;
     ret = system(binaryGenCmd.c_str());
     if(ret) {
         MNN_ERROR("[Error]: qnn-context-binary-generator error!\n");
@@ -100,7 +111,7 @@ int main(int argc, const char* argv[]) {
         MNN_PRINT("[Pass]: qnn-context-binary-generator success!\n");
     }
 
-    
+
     std::vector<MNN::Express::Variable::Info> inputInfos(inputs.size());
     for (int i=0; i<inputInfos.size(); ++i) {
         inputInfos[i] = *inputs[i]->getInfo();
@@ -122,7 +133,8 @@ int main(int argc, const char* argv[]) {
         dstNet->oplists.emplace_back(std::move(input));
     }
 
-    std::string npuPath = std::string("/") + qnnModelName + std::string(".bin"); 
+    std::string npuPath = std::string("/") + qnnModelName + std::string(".bin");
+ 
     MNN_PRINT("npu model path:%s\n", npuPath.c_str());
     /** Fuse to Op*/
     std::unique_ptr<MNN::OpT> op(new OpT);
@@ -204,7 +216,7 @@ int main(int argc, const char* argv[]) {
     }
     for (int i=0; i<outputInfos.size(); ++i) {
         attr.reset(new MNN::AttributeT);
-        attr->key = "o_" + std::to_string(i) + "_0";
+        attr->key = "o_0_" + std::to_string(i);
         attr->tensor.reset(new BlobT);
         attr->tensor->dataType = OpCommonUtils::convertDataType(outputInfos[i].type);
         attr->tensor->dims = outputInfos[i].dim;
@@ -240,7 +252,6 @@ int main(int argc, const char* argv[]) {
     outputOs.close();
 
     MNN_PRINT("[All Pass]: npu model generator success!\n");
-    std::string qnnBin = qnnModelName + "/binary/" + qnnModelName + ".bin";
     MNN_PRINT("[Output Product]:\nNew mnn model path: %s\nNpu model path: %s\n", dstMNN, qnnBin.c_str());
     return 0;
 }

@@ -104,6 +104,8 @@ extern void ___QNNMatMulCreator__OpType_MatMul__();
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 extern void ___QNNAttentionCreator__OpType_Attention__();
 #endif
+extern void ___QNNQuantCreator__OpType_FloatToInt8__();
+extern void ___QNNDeQuantCreator__OpType_Int8ToFloat__();
 void registerQNNOps();
 
 extern Tensor::DimensionType gQnnTensorDimType;

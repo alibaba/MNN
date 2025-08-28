@@ -58,6 +58,10 @@ adb push ${MNN_ROOT}/source/backend/qnn/3rdParty/lib/hexagon-v${HEXAGON_ARCH}/un
 adb shell "cd /data/local/tmp && LD_LIBRARY_PATH=/data/local/tmp ADSP_LIBRARY_PATH=/data/local/tmp ./MyExe.out"
 ```
 
+### QNN量化功能说明
+- 仅权重量化（激活是浮点）：只支持Linear权重int8、channel-wise的对称量化。
+- 激活&权重都量化：支持激活per-tensor对称量化，权重是int8/int4、channel-wise的对称量化。
+
 ## CoreML
 适用于 Mac / iOS / iPad
 

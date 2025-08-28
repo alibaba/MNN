@@ -54,6 +54,15 @@
 
 # Releases
 
+## 版本 0.7.1
++ [点击此处下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_1.apk)
++ 新增模型：
+  + [MiniCPM-V-4](https://huggingface.co/openbmb/MiniCPM-V-4)：可在手机上运行的、达到 GPT-4V 水准的多模态大语言模型，支持单图、多图和视频理解
+  + [WebSailor-3B](https://huggingface.co/Alibaba-NLP/WebSailor-3B)：一种完整的后训练方法论，旨在教会大语言模型代理在复杂网页导航和信息检索任务中进行高级推理
+  + [Lingshu-7B](https://huggingface.co/lingshu-medical-mllm/Lingshu-7B)：面向医疗领域的多模态大语言模型
++ 问题修复：
+  + 选择图片时崩溃的问题
+  
 ## Version 0.7.0
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_0.apk)
 + 增加新模型: gpt-oss-20b

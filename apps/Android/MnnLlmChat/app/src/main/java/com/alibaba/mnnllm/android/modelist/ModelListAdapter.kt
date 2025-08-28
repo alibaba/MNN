@@ -203,7 +203,7 @@ class ModelListAdapter(private val items: MutableList<ModelItemWrapper>) :
                         }
                     }
                     "modality" -> {
-                        if (!Modality.checkModality(modelNameLowerCase, value)) {
+                        if (!Modality.checkModality(modelItem.modelId!!.lowercase(), value)) {
                             return@filter false
                         }
                     }
@@ -250,7 +250,7 @@ class ModelListAdapter(private val items: MutableList<ModelItemWrapper>) :
                                 }
                             }
                             "modality" -> {
-                                if (!Modality.checkModality(modelNameLowerCase, value)) {
+                                if (!Modality.checkModality(modelItem.modelId!!, value)) {
                                     return@filter false
                                 }
                             }

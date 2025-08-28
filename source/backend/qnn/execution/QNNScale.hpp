@@ -25,6 +25,7 @@ private:
 private:
     std::vector<float> mWeightData;
     std::vector<float> mBiasData;
+    bool mNeedQuantDequant = false;
 };
 
 } // end namespace QNN

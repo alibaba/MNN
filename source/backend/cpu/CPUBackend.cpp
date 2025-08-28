@@ -509,21 +509,21 @@ CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode p
         mDmaInfo.reset(new CPURuntime::DynamicAllocator);
         mDmaInfo->mDynamicAllocator.reset(mRuntime->createDynamicBufferAlloctor(0));
         mDmaInfo->mCurrentDynamicAllocator = mDmaInfo->mDynamicAllocator.get();
+        mDmaInfo->mCacheGroup.resize(MNN_CPU_MAX_BUFFER_INDEX);
+        for (int i=0; i<mDmaInfo->mCacheGroup.size(); ++i) {
+            mDmaInfo->mCacheGroup[i].reset(new CPUResizeCache);
+        }
     } else {
         mDmaInfo = dynamicAlloc;
     }
     mPrecisionMode = precision;
     mCoreFunctions = MNNGetCoreFunctions();
     mInt8CoreFunctions = MNNGetInt8CoreFunctions();
-    mCacheGroup.resize(MNN_CPU_MAX_BUFFER_INDEX);
-    for (int i=0; i<mCacheGroup.size(); ++i) {
-        mCacheGroup[i].reset(new CPUResizeCache);
-    }
-    mCache = mCacheGroup[0].get();
+    mCache = mDmaInfo->mCacheGroup[0].get();
 }
 
 CPUBackend::~CPUBackend() {
-    mCacheGroup.clear();
+    // Do nothing
 }
 void CPUBackend::_resetDynamicMemory() const {
     mRuntime->pCurrentStatus = mDmaInfo->mDynamicAllocator->apply();
@@ -560,7 +560,7 @@ bool CPUBackend::onSelectDynamicAllocator(int index, int maxIndex) {
         mRuntime->buffer(0)->release();
         mDmaInfo->mCurrentDynamicAllocator = mDmaInfo->mDynamicAllocator.get();
     }
-    mCache = mCacheGroup[index].get();
+    mCache = mDmaInfo->mCacheGroup[index].get();
     return true;
 }
 

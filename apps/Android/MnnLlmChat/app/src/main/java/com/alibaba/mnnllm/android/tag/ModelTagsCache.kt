@@ -1,14 +1,13 @@
 // Created by ruoyi.sjd on 2025/1/14.
 // Copyright (c) 2024 Alibaba Group Holding Limited. All rights reserved.
 
-package com.alibaba.mls.api
+package com.alibaba.mnnllm.android.tag
 
 import android.content.Context
 import android.util.Log
 import com.alibaba.mnnllm.android.modelmarket.ModelRepository
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig
 import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob

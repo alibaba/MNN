@@ -6,7 +6,7 @@
 #include <map>
 #include <set>
 namespace MNN {
-class MNN_PUBLIC OpCount {
+class OpCount {
 public:
     OpCount();
     ~OpCount();

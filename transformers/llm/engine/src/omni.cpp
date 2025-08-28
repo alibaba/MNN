@@ -9,6 +9,7 @@
 #define _USE_MATH_DEFINES
 #endif
 #include <regex>
+#include <algorithm>
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
 #include "omni.hpp"
@@ -123,7 +124,7 @@ void Omni::load() {
 std::vector<int> Omni::defaultVisionProcess(VARP image) {
     mVisionHeight = UP_DIV(mVisionHeight, mVisionSizeUnit) * mVisionSizeUnit;
     mVisionWidth  = UP_DIV(mVisionWidth, mVisionSizeUnit) * mVisionSizeUnit;
-    image = MNN::CV::resize(image, {mVisionHeight, mVisionWidth}, 0, 0,
+    image = MNN::CV::resize(image, {mVisionWidth, mVisionHeight}, 0, 0,
                             MNN::CV::INTER_LINEAR, MNN::CV::COLOR_BGR2RGB,
                             mVisionMean, mVisionNorm);
     image = Express::_Unsqueeze(image, {0});
@@ -146,7 +147,7 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
     // Qwen2-VL / Qwen2.5-VL
     mVisionHeight = round(mVisionHeight / 28.0) * 28;
     mVisionWidth = round(mVisionWidth / 28.0) * 28;
-    image = MNN::CV::resize(image, {mVisionHeight, mVisionWidth}, 0, 0,
+    image = MNN::CV::resize(image, {mVisionWidth, mVisionHeight}, 0, 0,
                             MNN::CV::INTER_LINEAR, MNN::CV::COLOR_BGR2RGB,
                             mVisionMean, mVisionNorm);
     image = Express::_Unsqueeze(image, {0});
@@ -299,7 +300,7 @@ std::vector<int> Omni::smolvlmVisionProcess(VARP image) {
         if (mVisionWidth > mVisionMaxSize) {
             mVisionWidth = mVisionMaxSize;
         }
-        auto patches = MNN::CV::resize(image, {mVisionHeight, mVisionWidth}, 0, 0,
+        auto patches = MNN::CV::resize(image, {mVisionWidth, mVisionHeight}, 0, 0,
                                        MNN::CV::INTER_LINEAR, MNN::CV::COLOR_BGR2RGB,
                                        mVisionMean, mVisionNorm);
         patches = Express::_Unsqueeze(patches, {0});
@@ -358,13 +359,213 @@ std::vector<int> Omni::smolvlmVisionProcess(VARP image) {
     imgIds.push_back(mVisionEnd);
     return imgIds;
 }
+
+std::vector<std::pair<int, int>> minicpmBestSize(std::pair<int, int> original_size, int patch_size) {
+    constexpr int max_slice_nums = 9, scale_resolution = 448;
+    auto _get_target_size =
+        [&](std::pair<int, int> size, bool upscale) -> std::pair<int, int> {
+        int h = size.first;
+        int w = size.second;
+        int target_w, target_h;
+        if (!upscale && (static_cast<long long>(w) * h <= static_cast<long long>(scale_resolution) * scale_resolution)) {
+            target_w = w;
+            target_h = h;
+        } else {
+            double r = (h != 0) ? static_cast<double>(w) / h : 0.0;
+            if (r > 0) {
+                target_h = static_cast<int>(scale_resolution / std::sqrt(r));
+                target_w = static_cast<int>(target_h * r);
+            } else {
+                target_h = 0;
+                target_w = scale_resolution;
+            }
+        }
+        int final_h = std::max(static_cast<int>(std::round(static_cast<double>(target_h) / patch_size)) * patch_size, patch_size);
+        int final_w = std::max(static_cast<int>(std::round(static_cast<double>(target_w) / patch_size)) * patch_size, patch_size);
+        return std::make_pair(final_h, final_w);
+    };
+    int original_height = original_size.first;
+    int original_width = original_size.second;
+    double ratio = (static_cast<double>(original_width) * original_height) / (static_cast<double>(scale_resolution) * scale_resolution);
+    int multiple = std::min(static_cast<int>(std::ceil(ratio)), max_slice_nums);
+    std::vector<std::pair<int, int>> candidates;
+    std::set<int> nums_to_check;
+    if (multiple > 1) nums_to_check.insert(multiple - 1);
+    nums_to_check.insert(multiple);
+    nums_to_check.insert(multiple + 1);
+    for (std::set<int>::iterator it = nums_to_check.begin(); it != nums_to_check.end(); ++it) {
+        int num = *it;
+        if (num >= 1 && num <= max_slice_nums) {
+            for (int m = 1; m * m <= num; ++m) {
+                if (num % m == 0) {
+                    candidates.push_back(std::make_pair(m, num / m));
+                    if (m * m != num) candidates.push_back(std::make_pair(num / m, m));
+                }
+            }
+        }
+    }
+    if (candidates.empty()) { candidates.push_back(std::make_pair(1, 1)); }
+    double log_ratio = std::log(static_cast<double>(original_width) / original_height);
+    std::pair<int, int> best_grid = *std::min_element(candidates.begin(), candidates.end(),
+        [log_ratio](const std::pair<int, int>& g1, const std::pair<int, int>& g2) {
+            auto key = [log_ratio](const std::pair<int, int>& g) -> double {
+                if (g.first == 0) return std::numeric_limits<double>::infinity();
+                return std::abs(log_ratio - std::log(static_cast<double>(g.second) / g.first));
+            };
+            return key(g1) < key(g2);
+        });
+    std::pair<int, int> source_image_size = _get_target_size(original_size, false);
+    double patch_h = static_cast<double>(original_height) / best_grid.first;
+    double patch_w = static_cast<double>(original_width) / best_grid.second;
+    std::pair<int, int> best_patch_size = _get_target_size(std::make_pair(static_cast<int>(patch_h), static_cast<int>(patch_w)), true);
+    std::pair<int, int> refine_image_size = std::make_pair(
+        best_patch_size.first * best_grid.first,
+        best_patch_size.second * best_grid.second
+    );
+    std::vector<std::pair<int, int>> result;
+    result.push_back(source_image_size);
+    result.push_back(refine_image_size);
+    result.push_back(best_grid);
+    return result;
+}
+
+std::vector<int> Omni::minicpmVisionProcess(VARP image) {
+    constexpr int visionLen = 64, patchesPerSide = 70;
+    const int patchSize = mVisionSizeUnit;
+    auto bestSize = minicpmBestSize(std::make_pair(mVisionHeight, mVisionWidth), patchSize);
+    auto globalSize = bestSize[0];
+    auto refineSize = bestSize[1];
+    auto sliceGrids = bestSize[2];
+    auto reoderImage = [this, &patchSize](
+        Express::VARP img, std::pair<int, int> targetSize, std::pair<int,int> grid, std::vector<int>& tgtSize) {
+        auto patches = MNN::CV::resize(img, {targetSize.second, targetSize.first}, 0, 0,
+                                    MNN::CV::INTER_LINEAR, MNN::CV::COLOR_BGR2RGB,
+                                    mVisionMean, mVisionNorm);
+        patches = Express::_Unsqueeze(patches, {0});
+        patches = Express::_Convert(patches, NCHW);
+        auto imageDims = patches->getInfo()->dim;
+        int batch   = imageDims[0];
+        int channel = imageDims[1];
+        int height  = imageDims[2];
+        int width   = imageDims[3];
+        int gridH   = grid.first;
+        int gridW   = grid.second;
+        int subHeight = height / gridH;
+        int subWidth = width / gridW;
+        int numPatchesH = subHeight / patchSize;
+        int numPatchesW = subWidth / patchSize;
+        patches = Express::_Reshape(patches, {
+            channel,
+            gridH,
+            numPatchesH,
+            patchSize,
+            gridW,
+            numPatchesW,
+            patchSize
+        });
+        patches = Express::_Permute(patches, {1, 4, 0, 3, 2, 5, 6});
+        patches = Express::_Reshape(patches, {
+            gridH * gridW,
+            channel,
+            patchSize,
+            numPatchesH * numPatchesW * patchSize
+        });
+        for (int i = 0; i < gridH * gridW; i++) {
+            tgtSize.push_back(numPatchesH);
+            tgtSize.push_back(numPatchesW);
+        }
+        return patches;
+    };
+    // pixel values
+    std::vector<int> tgtSize;
+    auto globalImage = reoderImage(image, globalSize, std::make_pair(1, 1), tgtSize);
+    auto refineImage = reoderImage(image, refineSize, sliceGrids, tgtSize);
+    int globleDim = globalImage->getInfo()->dim[3];
+    int refineDim = refineImage->getInfo()->dim[3];
+    globalImage = _Pad(globalImage, _var<int>({0, 0, 0, 0, 0, 0, 0, refineDim - globleDim}, {8}), CONSTANT);
+    auto pixel_values = _Concat({globalImage, refineImage}, 0);
+    // position ids
+    int B = tgtSize.size() / 2;
+    int S = tgtSize[0] * tgtSize[1];
+    int L = tgtSize[2] * tgtSize[3];
+    auto position_ids = Express::_Input({B, L}, NCHW, halide_type_of<int>());
+    auto posPtr = position_ids->writeMap<int>();
+    memset(posPtr, 0, B * L * sizeof(int));
+    for (int i = 0; i < B; ++i) {
+        int nb_patches_h = tgtSize[i * 2];
+        int nb_patches_w = tgtSize[i * 2 + 1];
+        for (int h_idx = 0; h_idx < nb_patches_h; ++h_idx) {
+            long bucket_h = static_cast<long>(std::floor(
+                (static_cast<float>(h_idx) / nb_patches_h) * patchesPerSide
+            ));
+            for (int w_idx = 0; w_idx < nb_patches_w; ++w_idx) {
+                long bucket_w = static_cast<long>(std::floor(
+                    (static_cast<float>(w_idx) / nb_patches_w) * patchesPerSide
+                ));
+                long pos_id = bucket_h * patchesPerSide + bucket_w;
+                long patch_idx = h_idx * nb_patches_w + w_idx;
+                posPtr[i * L + patch_idx] = static_cast<int>(pos_id);
+            }
+        }
+    }
+    // attention mask
+    auto attention_mask = Express::_Input({B, L}, NCHW);
+    auto maskPtr = attention_mask->writeMap<float>();
+    memset(maskPtr, 0, B * L * sizeof(float));
+    for (int i = S; i < L; i++) {
+        maskPtr[i] = std::numeric_limits<float>::lowest();
+    }
+    // tgt size
+    auto tgt_sizes = Express::_Input({B, 2}, NCHW, halide_type_of<int>());
+    ::memcpy(tgt_sizes->writeMap<int>(), tgtSize.data(), tgtSize.size() * sizeof(int));
+    auto imageEmbedding = mVisionModule->onForward({pixel_values, position_ids, attention_mask, tgt_sizes})[0];
+    for (int i = 0; i < B; i++) {
+        auto embedding = _Permute(_GatherV2(imageEmbedding, _var<int>({i}, {1}), _var<int>({0}, {1})), {1, 0, 2});
+        mVisionEmbeddings.push_back(embedding);
+    }
+    int visionSliceStart = mConfig->config_.value("vision_slice_start_id", 111);
+    int visionSliceEnd = mConfig->config_.value("vision_slice_end_id", 112);
+    int visionIdStart = mConfig->config_.value("vision_id_start_id", 113);
+    int visionIdEnd = mConfig->config_.value("vision_id_end_id", 114);
+    std::vector<int> imgIds;
+    // image id
+    imgIds.push_back(visionIdStart);
+    auto visionIdxIds = tokenizer_encode(std::to_string(mVisionNum));
+    for (auto idx : visionIdxIds) {
+        imgIds.push_back(idx);
+    }
+    imgIds.push_back(visionIdEnd);
+    // global image
+    imgIds.push_back(mVisionStart);
+    for (int p = 0; p < visionLen; p++) {
+        imgIds.push_back(mVisionPad);
+    }
+    imgIds.push_back(mVisionEnd);
+    // slice images
+    for (int i = 0; i < B - 1; i++) {
+        imgIds.push_back(visionSliceStart);
+        for (int p = 0; p < visionLen; p++) {
+            imgIds.push_back(mVisionPad);
+        }
+        imgIds.push_back(visionSliceEnd);
+    }
+    return imgIds;
+}
 #endif
 
 std::vector<int> Omni::visionProcess(const std::string& file) {
 #ifdef LLM_SUPPORT_VISION
     VARP image = MNN::CV::imread(file);
+    return visionProcess(image);
+#else
+    return std::vector<int>(0);
+#endif
+}
+
+std::vector<int> Omni::visionProcess(VARP image) {
+#ifdef LLM_SUPPORT_VISION
     if (image == nullptr) {
-        MNN_PRINT("Omni Can't open image: %s\n", file.c_str());
+        MNN_PRINT("Omni Can't open image\n");
         return std::vector<int>(0);
     }
     Timer _t;
@@ -373,11 +574,17 @@ std::vector<int> Omni::visionProcess(const std::string& file) {
     if (inputNames.size() >= 3 && inputNames[0] == "patches") {
         imgIds = qwen2VisionProcess(image);
     } else if (inputNames[0] == "pixel_values") {
-        imgIds = smolvlmVisionProcess(image);
+        if (inputNames.size() == 1) {
+            imgIds = smolvlmVisionProcess(image);
+        } else {
+            imgIds = minicpmVisionProcess(image);
+        }
     } else {
         imgIds = defaultVisionProcess(image);
     }
-    mContext->vision_us = _t.durationInUs();
+    mContext->vision_us += _t.durationInUs();
+    // set vision number for image idx
+    mVisionNum += 1;
     return imgIds;
 #else
     return std::vector<int>(0);
@@ -393,9 +600,19 @@ std::vector<int> Omni::audioProcess(const std::string& file) {
         MNN_PRINT("Omni Can't open audio: %s\n", file.c_str());
         return std::vector<int>(0);
     }
-    // int sample_rate      = load_res.second;
-    int wav_len          = waveform->getInfo()->dim[0];
-    int hop_length       = 160;
+    return audioProcess(waveform);
+#else
+    return std::vector<int>(0);
+#endif
+}
+
+std::vector<int> Omni::audioProcess(MNN::Express::VARP waveform) {
+#ifdef LLM_SUPPORT_AUDIO
+    if (waveform == nullptr) {
+        MNN_PRINT("Omni Can't process audio: waveform is null\n");
+        return std::vector<int>(0);
+    }
+    
     Timer _t;
     auto input_features  = MNN::AUDIO::whisper_fbank(waveform);
     VARP audio_embedding;
@@ -529,21 +746,30 @@ void Omni::addPositionIds(int t, int h, int w) {
     }
 }
 
-std::vector<int> Omni::tokenizer_encode(const std::string& prompt) {
-    // split query
+std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input) {
+    std::string prompt = multimodal_input.prompt_template;
+    // MNN_PRINT("tokenizer_encode(MultimodalPrompt) prompt: %s", prompt.c_str());
     std::regex multimode_regex("<(img|audio)>(.*?)</\\1>");
     std::string::const_iterator searchStart(prompt.cbegin());
     std::smatch match;
-    std::vector<std::string> img_infos;
     std::vector<int> ids{};
-
     mPositionIds.clear();
+    
     while (std::regex_search(searchStart, prompt.cend(), match, multimode_regex)) {
-        // std::cout << "img match: " << match[1].str() << std::endl;
         auto txt_ids = mTokenizer->encode(match.prefix().str());
         addPositionIds(txt_ids.size());
         ids.insert(ids.end(), txt_ids.begin(), txt_ids.end());
-        auto mul_ids = multimodeProcess(match[1].str(), match[2].str());
+        std::string mode = match[1].str();
+        std::string content = match[2].str();
+        std::vector<int> mul_ids;
+        if (mode == "img") {
+            mul_ids = processImageContent(content, multimodal_input.images);
+            // MNN_PRINT("tokenizer_encode(MultimodalPrompt) image mul_ids size: %lu", mul_ids.size());
+        } else if (mode == "audio") {
+            mul_ids = processAudioContent(content, multimodal_input.audios);
+            // MNN_PRINT("tokenizer_encode(MultimodalPrompt) audio mul_ids size: %lu", mul_ids.size());
+        }
+        
         ids.insert(ids.end(), mul_ids.begin(), mul_ids.end());
         searchStart = match.suffix().first;
     }
@@ -553,6 +779,43 @@ std::vector<int> Omni::tokenizer_encode(const std::string& prompt) {
         ids.insert(ids.end(), txt_ids.begin(), txt_ids.end());
     }
     return ids;
+}
+
+std::vector<int> Omni::tokenizer_encode(const std::string& prompt) {
+    MultimodalPrompt multimodal_input;
+    multimodal_input.prompt_template = prompt;
+    return tokenizer_encode(multimodal_input);
+}
+
+std::vector<int> Omni::processImageContent(const std::string& content, const std::map<std::string, PromptImagePart>& images) {
+    auto it = images.find(content);
+    if (it != images.end()) {
+        if (it->second.height > 0 && it->second.width > 0) {
+            mVisionHeight = it->second.height;
+            mVisionWidth = it->second.width;
+        }
+        // MNN_PRINT("processImageContent: using placeholder '%s' with size %dx%d", content.c_str(), mVisionWidth, mVisionHeight);
+        return visionProcess(it->second.image_data);
+    }
+    // MNN_PRINT("processImageContent: treating '%s' as file path or URL", content.c_str());
+    return multimodeProcess("img", content);
+}
+
+std::vector<int> Omni::processAudioContent(const std::string& content, const std::map<std::string, PromptAudioPart>& audios) {
+    auto it = audios.find(content);
+    if (it != audios.end()) {
+        // MNN_PRINT("processAudioContent: using placeholder '%s'", content.c_str());
+        if (it->second.waveform.get() != nullptr) {
+            return audioProcess(it->second.waveform);
+        } else if (!it->second.file_path.empty()) {
+            return audioProcess(it->second.file_path);
+        } else {
+            MNN_PRINT("processAudioContent: audio_part has no valid input\n");
+            return std::vector<int>(0);
+        }
+    }
+    // MNN_PRINT("processAudioContent: treating '%s' as file path", content.c_str());
+    return multimodeProcess("audio", content);
 }
 
 VARP Omni::embedding(const std::vector<int>& input_ids) {
@@ -647,21 +910,28 @@ VARP Omni::gen_position_ids(int seq_len) {
     auto ptr = positionIds->writeMap<int>();
     if (mContext->gen_seq_len > 0) {
         for (int i=0; i<seq_len; ++i) {
-            auto pos = mContext->gen_seq_len + mPositionIds.back() + i;
+            // auto pos = mContext->gen_seq_len + mPositionIds.back() + i;
+            auto pos = mContext->all_seq_len + i;
             ptr[i + 0] = pos;
             ptr[i + seq_len] = pos;
             ptr[i + seq_len * 2] = pos;
         }
     } else {
         for (int i = 0; i < seq_len; i++) {
-            ptr[i] = mPositionIds.mT[i];
-            ptr[i + seq_len] = mPositionIds.mH[i];
-            ptr[i + seq_len * 2] = mPositionIds.mW[i];
+            ptr[i] = mPositionIds.mT[i] + mContext->all_seq_len;
+            ptr[i + seq_len] = mPositionIds.mH[i] + mContext->all_seq_len;
+            ptr[i + seq_len * 2] = mPositionIds.mW[i] + mContext->all_seq_len;
         }
         if (mTalker) {
             mTalker->setPostionIds(mPositionIds);
         }
     }
+    // // dump position ids
+    // printf("position_ids = [");
+    // for (int i = 0; i < seq_len; i++) {
+    //     printf("%d ", ptr[i]);
+    // }
+    // printf("]\n");
     return positionIds;
 }
 

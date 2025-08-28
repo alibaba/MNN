@@ -1,6 +1,10 @@
 #include <sstream>
+#include <iostream>
+#ifdef BUILD_FOR_IOS
+#include "MNN/llm/llm.hpp"
+#else
 #include "llm/llm.hpp"
-
+#endif
 #ifdef PYMNN_LLM_COLLECTION
 #include "cpp/getLinearInput.hpp"
 #endif
@@ -85,18 +89,87 @@ static PyObject* PyMNNLLM_getCurrentHistory(LLM *self, PyObject *args) {
 }
 static PyObject* PyMNNLLM_response(LLM *self, PyObject *args) {
     if (self->is_embedding) {
+        MNN_PRINT("[MNNLLM] response: is_embedding\n");
         Py_RETURN_NONE;
     }
-    const char* query = NULL;
+    
+    PyObject* content = nullptr;
     int stream = 0;
-    if (!PyArg_ParseTuple(args, "s|p", &query, &stream)) {
+    int max_new_tokens = 2048;
+    
+    if (!PyArg_ParseTuple(args, "O|ii", &content, &stream, &max_new_tokens)) {
+        MNN_PRINT("[MNNLLM] response: PyArg_ParseTuple failed\n");
         Py_RETURN_NONE;
     }
+    
     std::ostringstream null_os;
-    self->llm->response(query, stream ? &std::cout : &null_os);
-    return string2Object(null_os.str());
+    std::ostream* output_stream = stream ? &std::cout : &null_os;
+    
+    if (isString(content)) {
+        std::string text = object2String(content);
+        MNN_PRINT("[MNNLLM] response: text=%s, stream=%d, max_new_tokens=%d\n", text.c_str(), stream, max_new_tokens);
+        self->llm->response(text, output_stream, nullptr, max_new_tokens);
+    } else if (isPyDict(content)) {
+        MNN::Transformer::MultimodalPrompt multimodal_input;
+        PyObject* text_obj = PyDict_GetItemString(content, "text");
+        if (text_obj && isString(text_obj)) {
+            multimodal_input.prompt_template = object2String(text_obj);
+        }
+        PyObject* images_obj = PyDict_GetItemString(content, "images");
+        if (images_obj && PyList_Check(images_obj)) {
+            Py_ssize_t img_count = PyList_Size(images_obj);
+            for (Py_ssize_t i = 0; i < img_count; i++) {
+                PyObject* img_dict = PyList_GetItem(images_obj, i);
+                if (isPyDict(img_dict)) {
+                    PyObject* data_obj = PyDict_GetItemString(img_dict, "data");
+                    PyObject* width_obj = PyDict_GetItemString(img_dict, "width");
+                    PyObject* height_obj = PyDict_GetItemString(img_dict, "height");
+                    
+                    if (data_obj && width_obj && height_obj) {
+                        MNN::Transformer::PromptImagePart image_part;
+                        image_part.image_data = toVar(data_obj);
+                        image_part.width = PyLong_AsLong(width_obj);
+                        image_part.height = PyLong_AsLong(height_obj);
+                        
+                        std::string key = "image_" + std::to_string(i);
+                        multimodal_input.images[key] = image_part;
+                    }
+                }
+            }
+        }
+        
+        PyObject* audios_obj = PyDict_GetItemString(content, "audios");
+        if (audios_obj && PyList_Check(audios_obj)) {
+            Py_ssize_t audio_count = PyList_Size(audios_obj);
+            for (Py_ssize_t i = 0; i < audio_count; i++) {
+                PyObject* audio_dict = PyList_GetItem(audios_obj, i);
+                if (isPyDict(audio_dict)) {
+                    MNN::Transformer::PromptAudioPart audio_part;
+                    
+                    PyObject* file_path_obj = PyDict_GetItemString(audio_dict, "file_path");
+                    if (file_path_obj && isString(file_path_obj)) {
+                        audio_part.file_path = object2String(file_path_obj);
+                    }
+                    
+                    PyObject* waveform_obj = PyDict_GetItemString(audio_dict, "waveform");
+                    if (waveform_obj) {
+                        audio_part.waveform = toVar(waveform_obj);
+                    }
+                    
+                    std::string key = "audio_" + std::to_string(i);
+                    multimodal_input.audios[key] = audio_part;
+                }
+            }
+        }
+        MNN_PRINT("[MNNLLM] response: multimodal, stream=%d, max_new_tokens=%d\n", stream, max_new_tokens);
+        self->llm->response(multimodal_input, output_stream, nullptr, max_new_tokens);
+    } else {
+        PyMNN_ERROR("content must be str or dict");
+    }
+    std::string response_str = null_os.str();
+    MNN_PRINT("[MNNLLM] response: %s\n", response_str.c_str());
+    return string2Object(response_str);
 }
-
 static PyObject* PyMNNLLM_tokenizer_encode(LLM *self, PyObject *args) {
     if (self->is_embedding) {
         Py_RETURN_NONE;
@@ -147,6 +220,14 @@ static PyObject* PyMNNLLM_set_config(LLM *self, PyObject *args) {
 static PyObject* PyMNNLLM_reset(LLM *self, PyObject *args) {
     self->llm->reset();
     Py_RETURN_NONE;
+}
+
+static PyObject* PyMNNLLM_get_statistics(LLM *self, PyObject *args) {
+    if (self->is_embedding) {
+        Py_RETURN_NONE;
+    }
+    auto statistics = self->llm->get_statistics();
+    return string2Object(statistics);
 }
 
 #ifdef PYMNN_LLM_COLLECTION
@@ -205,12 +286,11 @@ static PyObject* PyMNNLLM_enable_collection_mode(LLM *self, PyObject *args) {
     return toPyObj(true);  
 }
 #endif
-
 static PyMethodDef PyMNNLLM_methods[] = {
     {"load", (PyCFunction)PyMNNLLM_load, METH_VARARGS, "load model."},
     {"forward", (PyCFunction)PyMNNLLM_forward, METH_VARARGS, "forward `logits` by `input_ids`."},
     {"generate", (PyCFunction)PyMNNLLM_generate, METH_VARARGS, "generate `output_ids` by `input_ids`."},
-    {"response", (PyCFunction)PyMNNLLM_response, METH_VARARGS, "response `query` without hsitory."},
+    {"response", (PyCFunction)PyMNNLLM_response, METH_VARARGS, "response `query` - supports both text and multimodal input."},
     {"get_current_history", (PyCFunction)PyMNNLLM_getCurrentHistory, METH_VARARGS, "Get Current History."},
     {"erase_history", (PyCFunction)PyMNNLLM_eraseHistory, METH_VARARGS, "Erase History."},
     {"tokenizer_encode", (PyCFunction)PyMNNLLM_tokenizer_encode, METH_VARARGS, "tokenizer encode."},
@@ -219,6 +299,7 @@ static PyMethodDef PyMNNLLM_methods[] = {
     {"create_lora", (PyCFunction)PyMNNLLM_create_lora, METH_VARARGS, "create_lora."},
     {"set_config", (PyCFunction)PyMNNLLM_set_config, METH_VARARGS, "set_config."},
     {"reset", (PyCFunction)PyMNNLLM_reset, METH_VARARGS, "reset."},
+    {"get_statistics", (PyCFunction)PyMNNLLM_get_statistics, METH_VARARGS, "get performance statistics."},
 #ifdef PYMNN_LLM_COLLECTION
     {"enable_collection_mode", (PyCFunction)PyMNNLLM_enable_collection_mode, METH_VARARGS, "Enable data collection mode."},
 #endif
@@ -274,7 +355,7 @@ static PyObject* PyMNNLLM_create_lora(LLM *self, PyObject *args) {
         Py_RETURN_NONE;
     }
     auto lora = self->llm->create_lora(path);
-    LLM *llm = (LLM *)PyObject_Call((PyObject*)&PyMNNLLM, PyTuple_New(0), NULL);
+    LLM *llm = (LLM *)PyObject_Call((PyObject*)PyType_FindTLSType(&PyMNNLLM), PyTuple_New(0), NULL);
     if (!llm) {
         return NULL;
     }
@@ -288,10 +369,11 @@ static PyObject* PyMNNLLM_create(PyObject *self, PyObject *args) {
     }
     const char* path = NULL;
     int embedding_model = 0;
-    if (!PyArg_ParseTuple(args, "s|p", &path, &embedding_model)) {
+    if (!PyArg_ParseTuple(args, "s|i", &path, &embedding_model)) {
+        PyMNN_ERROR_LOG("Invalid arguments. Usage: create(path, embedding_model=False)");
         return NULL;
     }
-    LLM *llm = (LLM *)PyObject_Call((PyObject*)&PyMNNLLM, PyTuple_New(0), NULL);
+    LLM *llm = (LLM *)PyObject_Call((PyObject*)PyType_FindTLSType(&PyMNNLLM), PyTuple_New(0), NULL);
     if (!llm) {
         return NULL;
     }

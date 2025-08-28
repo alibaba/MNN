@@ -324,9 +324,9 @@ bool BufferConvertor::convertToNC4HW4Buffer(const Tensor *buffer, const OpenCLBu
     auto formattedBufferShape = tensorShapeFormat(buffer);//NHWC
     std::vector<size_t> imageShape;
     getImageShape(formattedBufferShape, type, &imageShape);
-
+    
     uint32_t gws[2] = {static_cast<uint32_t>(imageShape[0]), static_cast<uint32_t>(imageShape[1])};
-
+    
     auto runtime = mOpenCLRuntime;
     std::string kernelName;
     std::string kernelFile = "buffer_convert_buf";
@@ -360,26 +360,23 @@ bool BufferConvertor::convertToNC4HW4Buffer(const Tensor *buffer, const OpenCLBu
         default:
             break;
     }
-    if (mBufferToImageKernel.get() == nullptr || mBufferToImageKernelName != kernelName) {
-        mBufferToImageKernelName = kernelName;
-        std::set<std::string> buildOptions;
-        if(needTrans) {
-            //buildOptions.emplace("-DBUFFER_FORMAT_INP_TRANS");
-            kernelName += "_floatin";
-        }
-#ifdef MNN_LOW_MEMORY
-        if (lowMemory) {
-            if (quantBit == 8) {
-                // int8 case
-                buildOptions.emplace("-DUSE_LOW_BIT_WEIGHT_INT8");
-            } else if (quantBit == 4){
-                // int4 case
-                buildOptions.emplace("-DUSE_LOW_BIT_WEIGHT_INT4");
-            } else {/* More types to be supported. */}
-        }
-#endif
-        mBufferToImageKernel = runtime->buildKernelWithCache(kernelFile, kernelName, buildOptions, precision, buffer, image);
+    std::set<std::string> buildOptions;
+    if(needTrans) {
+        //buildOptions.emplace("-DBUFFER_FORMAT_INP_TRANS");
+        kernelName += "_floatin";
     }
+#ifdef MNN_LOW_MEMORY
+    if (lowMemory) {
+        if (quantBit == 8) {
+            // int8 case
+            buildOptions.emplace("-DUSE_LOW_BIT_WEIGHT_INT8");
+        } else if (quantBit == 4){
+            // int4 case
+            buildOptions.emplace("-DUSE_LOW_BIT_WEIGHT_INT4");
+        } else {/* More types to be supported. */}
+    }
+#endif
+    mBufferToImageKernel = runtime->buildKernelWithCache(kernelFile, kernelName, buildOptions, precision, buffer, image);
     auto kernel = mBufferToImageKernel->get();
 
     uint32_t idx = 0;

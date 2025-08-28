@@ -19,6 +19,7 @@ class ModelRepository(private val context: Context) {
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
+        .cache(null) // Disable HTTP cache
         .build()
 
     private val gson = Gson()
@@ -127,6 +128,9 @@ class ModelRepository(private val context: Context) {
         try {
             val request = Request.Builder()
                 .url(NETWORK_URL)
+                .addHeader("Cache-Control", "no-cache, no-store, must-revalidate")
+                .addHeader("Pragma", "no-cache")
+                .addHeader("Expires", "0")
                 .build()
 
             val response = httpClient.newCall(request).execute()
