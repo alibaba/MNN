@@ -20,7 +20,9 @@ struct ActionButtonsView: View {
     var body: some View {
         VStack(alignment: .center, spacing: 4) {
             if model.isDownloaded {
-                DownloadedButtonView(showDeleteAlert: $showDeleteAlert)
+                if !ModelUtils.isBuiltInLocalModel(model) {
+                    DownloadedButtonView(showDeleteAlert: $showDeleteAlert)
+                }
             } else if isDownloading {
                 DownloadingButtonView(
                     viewModel: viewModel,
