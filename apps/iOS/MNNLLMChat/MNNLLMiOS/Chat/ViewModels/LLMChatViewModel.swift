@@ -395,8 +395,7 @@ final class LLMChatViewModel: ObservableObject {
     func onStop() {
         ChatHistoryManager.shared.saveChat(
             historyId: historyId,
-            modelId: modelInfo.id,
-            modelName: modelInfo.modelName,
+            modelInfo: modelInfo,
             messages: messages
         )
         
