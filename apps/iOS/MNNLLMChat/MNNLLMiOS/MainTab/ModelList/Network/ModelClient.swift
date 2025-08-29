@@ -8,6 +8,34 @@
 import Hub
 import Foundation
 
+/**
+ * ModelClient - Unified model download and management client
+ * 
+ * This class provides a centralized interface for downloading models from multiple sources
+ * including ModelScope, Modeler, and HuggingFace platforms. It handles source-specific
+ * download logic, progress tracking, and error handling.
+ * 
+ * Key Features:
+ * - Multi-platform support (ModelScope, Modeler, HuggingFace)
+ * - Progress tracking with throttling to prevent UI stuttering
+ * - Automatic fallback to local mock data for development
+ * - Dependency injection for download managers
+ * - Cancellation support for ongoing downloads
+ * 
+ * Architecture:
+ * - Uses factory pattern for download manager creation
+ * - Implements strategy pattern for different download sources
+ * - Provides async/await interface for modern Swift concurrency
+ * 
+ * Usage:
+ * ```swift
+ * let client = ModelClient()
+ * let models = try await client.getModelInfo()
+ * try await client.downloadModel(model: selectedModel) { progress in
+ *     print("Download progress: \(progress * 100)%")
+ * }
+ * ```
+ */
 class ModelClient {
     // MARK: - Properties
     
@@ -32,14 +60,25 @@ class ModelClient {
         }
     }()
     
-    /** Creates a ModelClient with dependency injection for download manager
-     * - Parameter downloadManagerFactory: Factory for creating download managers.
-     *                                     Defaults to DefaultModelDownloadManagerFactory
+    /**
+     * Creates a ModelClient with dependency injection for download manager
+     * 
+     * @param downloadManagerFactory Factory for creating download managers.
+     *                               Defaults to DefaultModelDownloadManagerFactory
      */
     init(downloadManagerFactory: ModelDownloadManagerFactory = DefaultModelDownloadManagerFactory()) {
         self.downloadManagerFactory = downloadManagerFactory
     }
     
+    /**
+     * Retrieves model information from the configured API endpoint
+     * 
+     * This method fetches the latest model catalog from the network API.
+     * In debug mode or when network fails, it falls back to local mock data.
+     * 
+     * @return TBDataResponse containing the model catalog
+     * @throws NetworkError if both network request and local fallback fail
+     */
     func getModelInfo() async throws -> TBDataResponse {
         if useLocalMockData {
             // Debug mode: use local mock data
@@ -212,6 +251,18 @@ class ModelClient {
 }
 
 
+/**
+ * NetworkError - Enumeration of network-related errors
+ * 
+ * This enum defines the various error conditions that can occur during
+ * network operations and model downloads.
+ * 
+ * Error Cases:
+ * - invalidResponse: HTTP response is invalid or has non-200 status code
+ * - invalidData: Data received is corrupted or cannot be decoded
+ * - downloadFailed: Download operation failed due to network or file system issues
+ * - unknown: Unexpected error occurred during network operation
+ */
 enum NetworkError: Error {
     case invalidResponse
     case invalidData
