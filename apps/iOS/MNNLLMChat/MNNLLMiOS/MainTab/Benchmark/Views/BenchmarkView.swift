@@ -7,10 +7,8 @@
 
 import SwiftUI
 
-/**
- * Main benchmark view that provides interface for running performance tests on ML models.
- * Features include model selection, progress tracking, and results visualization.
- */
+/// Main benchmark view that provides interface for running performance tests on ML models.
+/// Features include model selection, progress tracking, and results visualization.
 struct BenchmarkView: View {
     @StateObject private var viewModel = BenchmarkViewModel()
     

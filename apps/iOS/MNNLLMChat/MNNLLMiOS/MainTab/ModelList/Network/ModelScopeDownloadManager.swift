@@ -9,56 +9,54 @@ import Foundation
 
 // MARK: - ModelScopeDownloadManager
 
-/**
- * ModelScopeDownloadManager - Specialized download manager for ModelScope and Modeler platforms
- * 
- * This actor-based download manager provides platform-specific optimizations for downloading
- * models from ModelScope and Modeler repositories. It implements intelligent resume functionality,
- * comprehensive error handling, and maintains directory structure integrity.
- * 
- * Key Features:
- * - Platform-specific URL handling for ModelScope and Modeler
- * - Intelligent resume capability with temporary file preservation
- * - Real-time progress tracking with optimized callback frequency
- * - Recursive directory structure preservation
- * - File integrity validation using size verification
- * - Exponential backoff retry mechanism with configurable attempts
- * - Memory-efficient streaming downloads
- * - Thread-safe operations using Swift Actor model
- * 
- * Architecture:
- * - Uses URLSession.bytes for memory-efficient streaming
- * - Implements temporary file management for resume functionality
- * - Supports both ModelScope and Modeler API endpoints
- * - Maintains download state persistence through ModelDownloadStorage
- * 
- * Performance Optimizations:
- * - Progress update throttling (every 320KB) to prevent UI blocking
- * - Temporary file reuse for interrupted downloads
- * - Efficient directory traversal with recursive file discovery
- * - Minimal memory footprint through streaming downloads
- * 
- * Error Handling:
- * - Comprehensive retry logic with exponential backoff
- * - Graceful cancellation with state preservation
- * - File integrity validation and automatic cleanup
- * - Network error recovery with configurable retry attempts
- * 
- * Usage:
- * ```swift
- * let manager = ModelScopeDownloadManager(
- *     repoPath: "damo/Qwen-1.5B",
- *     source: .modelScope
- * )
- * try await manager.downloadModel(
- *     to: "models",
- *     modelId: "qwen-1.5b",
- *     modelName: "Qwen-1.5B"
- * ) { progress in
- *     print("Progress: \(progress * 100)%")
- * }
- * ```
- */
+/// ModelScopeDownloadManager - Specialized download manager for ModelScope and Modeler platforms
+/// 
+/// This actor-based download manager provides platform-specific optimizations for downloading
+/// models from ModelScope and Modeler repositories. It implements intelligent resume functionality,
+/// comprehensive error handling, and maintains directory structure integrity.
+/// 
+/// Key Features:
+/// - Platform-specific URL handling for ModelScope and Modeler
+/// - Intelligent resume capability with temporary file preservation
+/// - Real-time progress tracking with optimized callback frequency
+/// - Recursive directory structure preservation
+/// - File integrity validation using size verification
+/// - Exponential backoff retry mechanism with configurable attempts
+/// - Memory-efficient streaming downloads
+/// - Thread-safe operations using Swift Actor model
+/// 
+/// Architecture:
+/// - Uses URLSession.bytes for memory-efficient streaming
+/// - Implements temporary file management for resume functionality
+/// - Supports both ModelScope and Modeler API endpoints
+/// - Maintains download state persistence through ModelDownloadStorage
+/// 
+/// Performance Optimizations:
+/// - Progress update throttling (every 320KB) to prevent UI blocking
+/// - Temporary file reuse for interrupted downloads
+/// - Efficient directory traversal with recursive file discovery
+/// - Minimal memory footprint through streaming downloads
+/// 
+/// Error Handling:
+/// - Comprehensive retry logic with exponential backoff
+/// - Graceful cancellation with state preservation
+/// - File integrity validation and automatic cleanup
+/// - Network error recovery with configurable retry attempts
+/// 
+/// Usage:
+/// ```swift
+/// let manager = ModelScopeDownloadManager(
+///     repoPath: "damo/Qwen-1.5B",
+///     source: .modelScope
+/// )
+/// try await manager.downloadModel(
+///     to: "models",
+///     modelId: "qwen-1.5b",
+///     modelName: "Qwen-1.5B"
+/// ) { progress in
+///     print("Progress: \(progress * 100)%")
+/// }
+/// ```
 @available(iOS 13.4, macOS 10.15, *)
 public actor ModelScopeDownloadManager: ModelDownloadManagerProtocol {
     // MARK: - Properties
@@ -82,16 +80,15 @@ public actor ModelScopeDownloadManager: ModelDownloadManagerProtocol {
     
     // MARK: - Initialization
     
-    /**
-     * Creates a new ModelScope download manager with platform-specific configuration
-     * 
-     * @param repoPath Repository path in format "owner/model-name"
-     * @param config URLSession configuration for network behavior customization
-     *               Use .default for standard downloads, .background for background downloads
-     * @param enableLogging Whether to enable detailed debug logging
-     * @param source Target platform (ModelScope or Modeler)
-     * @note When using background configuration, the app must handle URLSession background events
-     */
+    /// Creates a new ModelScope download manager with platform-specific configuration
+    /// 
+    /// - Parameters:
+    ///   - repoPath: Repository path in format "owner/model-name"
+    ///   - config: URLSession configuration for network behavior customization
+    ///             Use .default for standard downloads, .background for background downloads
+    ///   - enableLogging: Whether to enable detailed debug logging
+    ///   - source: Target platform (ModelScope or Modeler)
+    /// - Note: When using background configuration, the app must handle URLSession background events
     public init(
         repoPath: String,
         config: URLSessionConfiguration = .default,
@@ -108,30 +105,29 @@ public actor ModelScopeDownloadManager: ModelDownloadManagerProtocol {
     
     // MARK: - Public Methods
     
-    /**
-     * Downloads a complete model from ModelScope or Modeler repository
-     * 
-     * This method orchestrates the entire download process including file discovery,
-     * directory structure creation, resume functionality, and progress tracking.
-     * It supports both ModelScope and Modeler platforms with platform-specific optimizations.
-     * 
-     * @param destinationFolder Base folder for download (relative to Documents)
-     * @param modelId Unique identifier for the model
-     * @param modelName Display name used for folder creation
-     * @param progress Optional progress callback (0.0 to 1.0)
-     * @throws ModelScopeError for network, file system, or validation failures
-     * 
-     * Example:
-     * ```swift
-     * try await manager.downloadModel(
-     *     to: "models",
-     *     modelId: "qwen-1.5b",
-     *     modelName: "Qwen-1.5B"
-     * ) { progress in
-     *     print("Progress: \(progress * 100)%")
-     * }
-     * ```
-     */
+    /// Downloads a complete model from ModelScope or Modeler repository
+    /// 
+    /// This method orchestrates the entire download process including file discovery,
+    /// directory structure creation, resume functionality, and progress tracking.
+    /// It supports both ModelScope and Modeler platforms with platform-specific optimizations.
+    /// 
+    /// - Parameters:
+    ///   - destinationFolder: Base folder for download (relative to Documents)
+    ///   - modelId: Unique identifier for the model
+    ///   - modelName: Display name used for folder creation
+    ///   - progress: Optional progress callback (0.0 to 1.0)
+    /// - Throws: ModelScopeError for network, file system, or validation failures
+    /// 
+    /// Example:
+    /// ```swift
+    /// try await manager.downloadModel(
+    ///     to: "models",
+    ///     modelId: "qwen-1.5b",
+    ///     modelName: "Qwen-1.5B"
+    /// ) { progress in
+    ///     print("Progress: \(progress * 100)%")
+    /// }
+    /// ```
     public func downloadModel(
         to destinationFolder: String = "",
         modelId: String,
@@ -158,13 +154,11 @@ public actor ModelScopeDownloadManager: ModelDownloadManagerProtocol {
         )
     }
     
-    /**
-     * Cancels all ongoing download operations while preserving resume capability
-     * 
-     * This method gracefully stops all active downloads, closes file handles,
-     * and preserves temporary files to enable resume functionality in future attempts.
-     * The URLSession is invalidated to ensure clean cancellation.
-     */
+    /// Cancels all ongoing download operations while preserving resume capability
+    /// 
+    /// This method gracefully stops all active downloads, closes file handles,
+    /// and preserves temporary files to enable resume functionality in future attempts.
+    /// The URLSession is invalidated to ensure clean cancellation.
     public func cancelDownload() async {
         isCancelled = true
         
@@ -180,30 +174,28 @@ public actor ModelScopeDownloadManager: ModelDownloadManagerProtocol {
     
     // MARK: - Private Methods - Progress Management
     
-    /**
-     * Updates download progress with throttling to prevent excessive UI updates
-     * 
-     * @param progress Current progress value (0.0 to 1.0)
-     * @param callback Progress callback function to invoke on main thread
-     */
+    /// Updates download progress with throttling to prevent excessive UI updates
+    /// 
+    /// - Parameters:
+    ///   - progress: Current progress value (0.0 to 1.0)
+    ///   - callback: Progress callback function to invoke on main thread
     private func updateProgress(_ progress: Double, callback: @escaping (Double) -> Void) {
         Task { @MainActor in
             callback(progress)
         }
     }
     
-    /**
-     * Fetches the complete file list from ModelScope or Modeler repository
-     * 
-     * This method queries the repository API to discover all available files,
-     * supporting both ModelScope and Modeler platform endpoints with proper
-     * error handling and response validation.
-     * 
-     * @param root Root directory path to fetch files from
-     * @param revision Model revision/version to fetch files for
-     * @return Array of ModelFile objects representing repository files
-     * @throws ModelScopeError if request fails or response is invalid
-     */
+    /// Fetches the complete file list from ModelScope or Modeler repository
+    /// 
+    /// This method queries the repository API to discover all available files,
+    /// supporting both ModelScope and Modeler platform endpoints with proper
+    /// error handling and response validation.
+    /// 
+    /// - Parameters:
+    ///   - root: Root directory path to fetch files from
+    ///   - revision: Model revision/version to fetch files for
+    /// - Returns: Array of ModelFile objects representing repository files
+    /// - Throws: ModelScopeError if request fails or response is invalid
     private func fetchFileList(
         root: String,
         revision: String
@@ -414,19 +406,18 @@ public actor ModelScopeDownloadManager: ModelDownloadManagerProtocol {
         }
     }
     
-    /**
-     * Downloads files recursively with directory structure preservation
-     * 
-     * This method processes the complete file list, creating necessary directory
-     * structures and downloading files in the correct order. It calculates total
-     * download size, handles existing files, and maintains progress tracking.
-     * 
-     * @param files Array of ModelFile objects representing all repository files
-     * @param revision Model revision/version for download URLs
-     * @param destinationPath Base directory path for downloads
-     * @param progress Progress callback function (0.0 to 1.0)
-     * @throws ModelScopeError if any file download fails
-     */
+    /// Downloads files recursively with directory structure preservation
+    /// 
+    /// This method processes the complete file list, creating necessary directory
+    /// structures and downloading files in the correct order. It calculates total
+    /// download size, handles existing files, and maintains progress tracking.
+    /// 
+    /// - Parameters:
+    ///   - files: Array of ModelFile objects representing all repository files
+    ///   - revision: Model revision/version for download URLs
+    ///   - destinationPath: Base directory path for downloads
+    ///   - progress: Progress callback function (0.0 to 1.0)
+    /// - Throws: ModelScopeError if any file download fails
     private func downloadFiles(
         files: [ModelFile],
         revision: String,
@@ -506,17 +497,16 @@ public actor ModelScopeDownloadManager: ModelDownloadManagerProtocol {
         }
     }
     
-    /**
-     * Calculates the total download size for progress tracking
-     * 
-     * Recursively traverses directory structures to compute the total size
-     * of all files that need to be downloaded, enabling accurate progress reporting.
-     * 
-     * @param files Array of ModelFile objects to calculate size for
-     * @param revision Model revision for fetching subdirectory contents
-     * @return Total size in bytes across all files
-     * @throws ModelScopeError if file list fetching fails
-     */
+    /// Calculates the total download size for progress tracking
+    /// 
+    /// Recursively traverses directory structures to compute the total size
+    /// of all files that need to be downloaded, enabling accurate progress reporting.
+    /// 
+    /// - Parameters:
+    ///   - files: Array of ModelFile objects to calculate size for
+    ///   - revision: Model revision for fetching subdirectory contents
+    /// - Returns: Total size in bytes across all files
+    /// - Throws: ModelScopeError if file list fetching fails
     private func calculateTotalSize(files: [ModelFile], revision: String) async throws -> Int64 {
         var size: Int64 = 0
         for file in files {
@@ -534,12 +524,10 @@ public actor ModelScopeDownloadManager: ModelDownloadManagerProtocol {
     }
     
     
-    /**
-     * Resets internal download state for a fresh download session
-     * 
-     * Clears progress counters and prepares the manager for a new download operation.
-     * This method is called at the beginning of each download to ensure clean state.
-     */
+    /// Resets internal download state for a fresh download session
+    /// 
+    /// Clears progress counters and prepares the manager for a new download operation.
+    /// This method is called at the beginning of each download to ensure clean state.
     private func resetDownloadState() async {
         totalFiles = 0
         downloadedFiles = 0
@@ -548,12 +536,10 @@ public actor ModelScopeDownloadManager: ModelDownloadManagerProtocol {
         lastUpdatedBytes = 0
     }
     
-    /**
-     * Resets the cancellation flag to allow new download operations
-     * 
-     * Clears all download state including cancellation status and progress counters,
-     * preparing the manager for a completely fresh download session.
-     */
+    /// Resets the cancellation flag to allow new download operations
+    /// 
+    /// Clears all download state including cancellation status and progress counters,
+    /// preparing the manager for a completely fresh download session.
     private func resetCancelStatus() {
         isCancelled = false
         
@@ -564,12 +550,10 @@ public actor ModelScopeDownloadManager: ModelDownloadManagerProtocol {
         lastUpdatedBytes = 0
     }
     
-    /**
-     * Safely closes the current file handle to prevent resource leaks
-     * 
-     * This method ensures proper cleanup of file handles during cancellation
-     * or error conditions, preventing file descriptor leaks.
-     */
+    /// Safely closes the current file handle to prevent resource leaks
+    /// 
+    /// This method ensures proper cleanup of file handles during cancellation
+    /// or error conditions, preventing file descriptor leaks.
     private func closeFileHandle() async {
         do {
             try currentFileHandle?.close()
@@ -579,17 +563,16 @@ public actor ModelScopeDownloadManager: ModelDownloadManagerProtocol {
         }
     }
     
-    /**
-     * Constructs ModelScope API URLs with proper query parameters
-     * 
-     * Builds complete URLs for ModelScope repository API endpoints,
-     * handling URL encoding and validation.
-     * 
-     * @param path API endpoint path to append to base URL
-     * @param queryItems URL query parameters for the request
-     * @return Constructed and validated URL
-     * @throws ModelScopeError.invalidURL if URL construction fails
-     */
+    /// Constructs ModelScope API URLs with proper query parameters
+    /// 
+    /// Builds complete URLs for ModelScope repository API endpoints,
+    /// handling URL encoding and validation.
+    /// 
+    /// - Parameters:
+    ///   - path: API endpoint path to append to base URL
+    ///   - queryItems: URL query parameters for the request
+    /// - Returns: Constructed and validated URL
+    /// - Throws: ModelScopeError.invalidURL if URL construction fails
     private func buildURL(
         path: String,
         queryItems: [URLQueryItem]
@@ -606,17 +589,16 @@ public actor ModelScopeDownloadManager: ModelDownloadManagerProtocol {
         return url
     }
     
-    /**
-     * Constructs Modeler platform URLs with proper query parameters
-     * 
-     * Builds complete URLs for Modeler repository API endpoints,
-     * handling URL encoding and validation for the Modeler platform.
-     * 
-     * @param path File path within the repository
-     * @param queryItems URL query parameters for the request
-     * @return Constructed and validated URL
-     * @throws ModelScopeError.invalidURL if URL construction fails
-     */
+    /// Constructs Modeler platform URLs with proper query parameters
+    /// 
+    /// Builds complete URLs for Modeler repository API endpoints,
+    /// handling URL encoding and validation for the Modeler platform.
+    /// 
+    /// - Parameters:
+    ///   - path: File path within the repository
+    ///   - queryItems: URL query parameters for the request
+    /// - Returns: Constructed and validated URL
+    /// - Throws: ModelScopeError.invalidURL if URL construction fails
     private func buildModelerURL(
         path: String,
         queryItems: [URLQueryItem]
@@ -633,15 +615,13 @@ public actor ModelScopeDownloadManager: ModelDownloadManagerProtocol {
         return url
     }
     
-    /**
-     * Validates HTTP response status codes for successful requests
-     * 
-     * Ensures the HTTP response indicates success (2xx status codes)
-     * and throws appropriate errors for failed requests.
-     * 
-     * @param response URLResponse to validate
-     * @throws ModelScopeError.invalidResponse if status code indicates failure
-     */
+    /// Validates HTTP response status codes for successful requests
+    /// 
+    /// Ensures the HTTP response indicates success (2xx status codes)
+    /// and throws appropriate errors for failed requests.
+    /// 
+    /// - Parameter response: URLResponse to validate
+    /// - Throws: ModelScopeError.invalidResponse if status code indicates failure
     private func validateResponse(_ response: URLResponse) throws {
         guard let httpResponse = response as? HTTPURLResponse,
               (200...299).contains(httpResponse.statusCode) else {
@@ -649,17 +629,16 @@ public actor ModelScopeDownloadManager: ModelDownloadManagerProtocol {
         }
     }
     
-    /**
-     * Resolves and creates the complete destination path for model downloads
-     * 
-     * Constructs the full local file system path where the model will be downloaded,
-     * creating necessary directory structures and validating access permissions.
-     * 
-     * @param base Base folder path relative to Documents directory
-     * @param modelId Model identifier used for folder naming
-     * @return Absolute path to the model download directory
-     * @throws ModelScopeError.fileSystemError if directory creation fails
-     */
+    /// Resolves and creates the complete destination path for model downloads
+    /// 
+    /// Constructs the full local file system path where the model will be downloaded,
+    /// creating necessary directory structures and validating access permissions.
+    /// 
+    /// - Parameters:
+    ///   - base: Base folder path relative to Documents directory
+    ///   - modelId: Model identifier used for folder naming
+    /// - Returns: Absolute path to the model download directory
+    /// - Throws: ModelScopeError.fileSystemError if directory creation fails
     private func resolveDestinationPath(
         base: String,
         modelId: String
@@ -687,25 +666,22 @@ public actor ModelScopeDownloadManager: ModelDownloadManagerProtocol {
         return modelScopePath.path
     }
     
-    /**
-     * Thread-safe setter for the current file handle
-     * 
-     * @param handle FileHandle instance to set, or nil to clear
-     */
+    /// Thread-safe setter for the current file handle
+    /// 
+    /// - Parameter handle: FileHandle instance to set, or nil to clear
     private func setCurrentFileHandle(_ handle: FileHandle?) {
         currentFileHandle = handle
     }
     
-    /**
-     * Retrieves the size of a temporary file for resume functionality
-     * 
-     * Calculates the current size of a temporary download file to determine
-     * the resume offset for interrupted downloads.
-     * 
-     * @param file ModelFile to get temporary file size for
-     * @param destinationPath Destination path used for temp file naming
-     * @return Size of temporary file in bytes, or 0 if file doesn't exist
-     */
+    /// Retrieves the size of a temporary file for resume functionality
+    /// 
+    /// Calculates the current size of a temporary download file to determine
+    /// the resume offset for interrupted downloads.
+    /// 
+    /// - Parameters:
+    ///   - file: ModelFile to get temporary file size for
+    ///   - destinationPath: Destination path used for temp file naming
+    /// - Returns: Size of temporary file in bytes, or 0 if file doesn't exist
     private func getTempFileSize(for file: ModelFile, destinationPath: String) -> Int64 {
         let modelHash = repoPath.hash
         let fileHash = file.path.hash

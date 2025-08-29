@@ -7,10 +7,8 @@
 
 import SwiftUI
 
-/**
- * Reusable results display card component for benchmark interface.
- * Shows comprehensive benchmark results with performance metrics and statistics.
- */
+/// Reusable results display card component for benchmark interface.
+/// Shows comprehensive benchmark results with performance metrics and statistics.
 struct ResultsCard: View {
     let results: BenchmarkResults
     

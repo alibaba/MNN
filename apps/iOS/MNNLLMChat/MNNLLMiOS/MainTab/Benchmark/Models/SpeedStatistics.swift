@@ -7,10 +7,8 @@
 
 import Foundation
 
-/**
- * Structure containing statistical analysis of benchmark speed metrics.
- * Provides average, standard deviation, and descriptive label for performance data.
- */
+/// Structure containing statistical analysis of benchmark speed metrics.
+/// Provides average, standard deviation, and descriptive label for performance data.
 struct SpeedStatistics {
     let average: Double
     let stdev: Double

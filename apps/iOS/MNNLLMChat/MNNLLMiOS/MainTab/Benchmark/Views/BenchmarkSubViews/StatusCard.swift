@@ -7,10 +7,8 @@
 
 import SwiftUI
 
-/**
- * Reusable status display card component for benchmark interface.
- * Shows status messages and updates to provide user feedback.
- */
+/// Reusable status display card component for benchmark interface.
+/// Shows status messages and updates to provide user feedback.
 struct StatusCard: View {
     let statusMessage: String
     

@@ -7,10 +7,8 @@
 
 import Foundation
 
-/**
- * Structure containing detailed progress information for benchmark execution.
- * Provides real-time metrics including timing data and performance statistics.
- */
+/// Structure containing detailed progress information for benchmark execution.
+/// Provides real-time metrics including timing data and performance statistics.
 struct BenchmarkProgress {
     let progress: Int // 0-100
     let statusMessage: String
