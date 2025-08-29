@@ -7,21 +7,17 @@
 
 import Foundation
 
-/**
- * Protocol defining callback methods for benchmark execution events.
- * Provides progress updates, completion notifications, and error handling.
- */
+/// Protocol defining callback methods for benchmark execution events.
+/// Provides progress updates, completion notifications, and error handling.
 protocol BenchmarkCallback: AnyObject {
     func onProgress(_ progress: BenchmarkProgress)
     func onComplete(_ result: BenchmarkResult)
     func onBenchmarkError(_ errorCode: Int, _ message: String)
 }
 
-/**
- * Singleton service class responsible for managing benchmark operations.
- * Coordinates with LLMInferenceEngineWrapper to execute performance tests
- * and provides real-time progress updates through callback mechanisms.
- */
+/// Singleton service class responsible for managing benchmark operations.
+/// Coordinates with LLMInferenceEngineWrapper to execute performance tests
+/// and provides real-time progress updates through callback mechanisms.
 class BenchmarkService: ObservableObject {
     
     // MARK: - Singleton & Properties

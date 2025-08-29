@@ -7,10 +7,8 @@
 
 import SwiftUI
 
-/**
- * Enhanced performance metric display component.
- * Shows detailed performance metrics with gradient backgrounds, icons, and custom colors.
- */
+/// Enhanced performance metric display component.
+/// Shows detailed performance metrics with gradient backgrounds, icons, and custom colors.
 struct PerformanceMetricView: View {
     let icon: String
     let title: String

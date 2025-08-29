@@ -7,10 +7,8 @@
 import Foundation
 import UIKit
 
-/**
- * FileOperationManager is a singleton utility class that handles various file operations
- * including image processing, audio processing, directory size calculation, and file cleanup.
- */
+/// FileOperationManager is a singleton utility class that handles various file operations
+/// including image processing, audio processing, directory size calculation, and file cleanup.
 final class FileOperationManager {
     
     /// Shared singleton instance
@@ -21,22 +19,20 @@ final class FileOperationManager {
     
     // MARK: - Image Processing
     
-    /**
-     * Processes image files by copying to temporary directory and performing HEIC conversion if needed
-     * 
-     * - Parameters:
-     *   - url: The original image URL
-     *   - fileName: The desired file name for the processed image
-     * - Returns: The processed image URL, or nil if processing fails
-     * 
-     * Usage:
-     * ```swift
-     * let imageURL = URL(fileURLWithPath: "/path/to/image.heic")
-     * if let processedURL = FileOperationManager.shared.processImageFile(from: imageURL, fileName: "converted.jpg") {
-     *     // Use the processed image URL
-     * }
-     * ```
-     */
+    /// Processes image files by copying to temporary directory and performing HEIC conversion if needed
+    /// 
+    /// - Parameters:
+    ///   - url: The original image URL
+    ///   - fileName: The desired file name for the processed image
+    /// - Returns: The processed image URL, or nil if processing fails
+    /// 
+    /// Usage:
+    /// ```swift
+    /// let imageURL = URL(fileURLWithPath: "/path/to/image.heic")
+    /// if let processedURL = FileOperationManager.shared.processImageFile(from: imageURL, fileName: "converted.jpg") {
+    ///     // Use the processed image URL
+    /// }
+    /// ```
     func processImageFile(from url: URL, fileName: String) -> URL? {
         let isInTempDirectory = url.path.contains("/tmp/")
         
@@ -50,12 +46,10 @@ final class FileOperationManager {
         }
     }
     
-    /**
-     * Converts HEIC images to JPG format using AssetExtractor utility
-     * 
-     * - Parameter url: The HEIC image URL to convert
-     * - Returns: The converted JPG image URL, or original URL if not HEIC format
-     */
+    /// Converts HEIC images to JPG format using AssetExtractor utility
+    /// 
+    /// - Parameter url: The HEIC image URL to convert
+    /// - Returns: The converted JPG image URL, or original URL if not HEIC format
     private func convertHEICImage(from url: URL) -> URL? {
         var fileUrl = url
         if fileUrl.isHEICImage() {
@@ -69,19 +63,17 @@ final class FileOperationManager {
     
     // MARK: - Directory Size Calculation
     
-    /**
-     * Formats byte count into human-readable string using ByteCountFormatter
-     * 
-     * - Parameter bytes: The number of bytes to format
-     * - Returns: Formatted string (e.g., "1.5 GB")
-     * 
-     * Usage:
-     * ```swift
-     * let size: Int64 = 1073741824 // 1 GB
-     * let formatted = FileOperationManager.shared.formatBytes(size)
-     * print(formatted) // "1.0 GB"
-     * ```
-     */
+    /// Formats byte count into human-readable string using ByteCountFormatter
+    /// 
+    /// - Parameter bytes: The number of bytes to format
+    /// - Returns: Formatted string (e.g., "1.5 GB")
+    /// 
+    /// Usage:
+    /// ```swift
+    /// let size: Int64 = 1073741824 // 1 GB
+    /// let formatted = FileOperationManager.shared.formatBytes(size)
+    /// print(formatted) // "1.0 GB"
+    /// ```
     func formatBytes(_ bytes: Int64) -> String {
         let formatter = ByteCountFormatter()
         formatter.allowedUnits = [.useGB]
@@ -89,19 +81,17 @@ final class FileOperationManager {
         return formatter.string(fromByteCount: bytes)
     }
     
-    /**
-     * Calculates the size of a local directory and returns a formatted string
-     * 
-     * - Parameter path: The directory path to calculate size for
-     * - Returns: Formatted size string or "Unknown" if calculation fails
-     * 
-     * Usage:
-     * ```swift
-     * let directoryPath = "/path/to/directory"
-     * let sizeString = FileOperationManager.shared.formatLocalDirectorySize(at: directoryPath)
-     * print("Directory size: \(sizeString)")
-     * ```
-     */
+    /// Calculates the size of a local directory and returns a formatted string
+    /// 
+    /// - Parameter path: The directory path to calculate size for
+    /// - Returns: Formatted size string or "Unknown" if calculation fails
+    /// 
+    /// Usage:
+    /// ```swift
+    /// let directoryPath = "/path/to/directory"
+    /// let sizeString = FileOperationManager.shared.formatLocalDirectorySize(at: directoryPath)
+    /// print("Directory size: \(sizeString)")
+    /// ```
     func formatLocalDirectorySize(at path: String) -> String {
         guard FileManager.default.fileExists(atPath: path) else { return "Unknown" }
         
@@ -113,24 +103,22 @@ final class FileOperationManager {
         }
     }
     
-    /**
-     * Calculates the total size of a directory by traversing all files recursively
-     * Uses actual disk allocated size when available, falls back to logical file size
-     * 
-     * - Parameter path: The directory path to calculate size for
-     * - Returns: Total directory size in bytes
-     * - Throws: FileSystem errors during directory traversal
-     * 
-     * Usage:
-     * ```swift
-     * do {
-     *     let size = try FileOperationManager.shared.calculateDirectorySize(at: "/path/to/directory")
-     *     print("Directory size: \(size) bytes")
-     * } catch {
-     *     print("Failed to calculate directory size: \(error)")
-     * }
-     * ```
-     */
+    /// Calculates the total size of a directory by traversing all files recursively
+    /// Uses actual disk allocated size when available, falls back to logical file size
+    /// 
+    /// - Parameter path: The directory path to calculate size for
+    /// - Returns: Total directory size in bytes
+    /// - Throws: FileSystem errors during directory traversal
+    /// 
+    /// Usage:
+    /// ```swift
+    /// do {
+    ///     let size = try FileOperationManager.shared.calculateDirectorySize(at: "/path/to/directory")
+    ///     print("Directory size: \(size) bytes")
+    /// } catch {
+    ///     print("Failed to calculate directory size: \(error)")
+    /// }
+    /// ```
     func calculateDirectorySize(at path: String) throws -> Int64 {
         let fileManager = FileManager.default
         var totalSize: Int64 = 0
@@ -201,17 +189,15 @@ final class FileOperationManager {
     
     // MARK: - Directory Cleaning
     
-    /**
-     * Cleans temporary directories based on memory mapping usage
-     * Cleans system temporary directory and optionally model temporary directories
-     *
-     * 
-     * Usage:
-     * ```swift
-     * // Clean temporary directories
-     * FileOperationManager.shared.cleanTempDirectories()
-     * ```
-     */
+    /// Cleans temporary directories based on memory mapping usage
+    /// Cleans system temporary directory and optionally model temporary directories
+    ///
+    /// 
+    /// Usage:
+    /// ```swift
+    /// // Clean temporary directories
+    /// FileOperationManager.shared.cleanTempDirectories()
+    /// ```
     func cleanTempDirectories() {
         let fileManager = FileManager.default
         let tmpDirectoryURL = fileManager.temporaryDirectory
@@ -219,28 +205,24 @@ final class FileOperationManager {
         cleanFolder(at: tmpDirectoryURL)
     }
     
-    /**
-     * Cleans the temporary folder for a specific model
-     * 
-     * - Parameter modelPath: The path to the model directory
-     * 
-     * Usage:
-     * ```swift
-     * let modelPath = "/path/to/model"
-     * FileOperationManager.shared.cleanModelTempFolder(modelPath: modelPath)
-     * ```
-     */
+    /// Cleans the temporary folder for a specific model
+    /// 
+    /// - Parameter modelPath: The path to the model directory
+    /// 
+    /// Usage:
+    /// ```swift
+    /// let modelPath = "/path/to/model"
+    /// FileOperationManager.shared.cleanModelTempFolder(modelPath: modelPath)
+    /// ```
     func cleanModelTempFolder(modelPath: String) {
         let tmpFolderURL = URL(fileURLWithPath: modelPath).appendingPathComponent("temp")
         cleanFolder(at: tmpFolderURL)
     }
     
-    /**
-     * Recursively cleans all files in the specified folder
-     * Preserves files containing "networkdownload" in their path
-     * 
-     * - Parameter folderURL: The folder URL to clean
-     */
+    /// Recursively cleans all files in the specified folder
+    /// Preserves files containing "networkdownload" in their path
+    /// 
+    /// - Parameter folderURL: The folder URL to clean
     private func cleanFolder(at folderURL: URL) {
         let fileManager = FileManager.default
         do {
@@ -262,18 +244,16 @@ final class FileOperationManager {
     
     // MARK: - Diffusion Image Generation
     
-    /**
-     * Generates a unique temporary file path for Diffusion model image output
-     * Creates a unique JPG filename in the system temporary directory
-     * 
-     * - Returns: A unique temporary image file URL
-     * 
-     * Usage:
-     * ```swift
-     * let tempImageURL = FileOperationManager.shared.generateTempImagePath()
-     * // Use tempImageURL for image generation output
-     * ```
-     */
+    /// Generates a unique temporary file path for Diffusion model image output
+    /// Creates a unique JPG filename in the system temporary directory
+    /// 
+    /// - Returns: A unique temporary image file URL
+    /// 
+    /// Usage:
+    /// ```swift
+    /// let tempImageURL = FileOperationManager.shared.generateTempImagePath()
+    /// // Use tempImageURL for image generation output
+    /// ```
     func generateTempImagePath() -> URL {
         let tempDir = FileManager.default.temporaryDirectory
         let imageName = UUID().uuidString + ".jpg"

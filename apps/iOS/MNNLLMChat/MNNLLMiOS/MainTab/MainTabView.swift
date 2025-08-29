@@ -1,6 +1,6 @@
 //
-//  MNNLLMiOSApp.swift
-//  MainTabView
+//  MainTabView.swift
+//  MNNLLMiOS
 //
 //  Created by 游薪渝(揽清) on 2025/06/20.
 //
@@ -8,18 +8,22 @@
 import SwiftUI
 
 struct MainTabView: View {
-    // MARK: - State Properties
     
+    @State private var histories: [ChatHistory] = []
     @State private var showHistory = false
-    @State private var selectedHistory: ChatHistory? = nil
-    @State private var histories: [ChatHistory] = ChatHistoryManager.shared.getAllHistory()
     @State private var showHistoryButton = true
+    @State private var selectedHistory: ChatHistory? = nil
+    
     @State private var showSettings = false
-    @State private var showWebView = false
-    @State private var webViewURL: URL?
+    
     @State private var navigateToSettings = false
-    @StateObject private var modelListViewModel = ModelListViewModel()
+    @State private var navigateToChat = false
+    
     @State private var selectedTab: Int = 0
+    @State private var hasConfiguredAppearance = false
+    
+    @StateObject private var modelListViewModel = ModelListViewModel()
+    
     
     private var titles: [String] {
         [
@@ -29,97 +33,34 @@ struct MainTabView: View {
         ]
     }
     
-    // MARK: - Body
-    
     var body: some View {
         ZStack {
-            // Main TabView for navigation between Local Model, Model Market, and Benchmark
+            
             TabView(selection: $selectedTab) {
-                NavigationView {
-                    LocalModelListView(viewModel: modelListViewModel)
-                        .navigationTitle(titles[0])
-                        .navigationBarTitleDisplayMode(.inline)
-                        .navigationBarHidden(false)
-                        .onAppear {
-                            setupNavigationBarAppearance()
-                        }
-                        .toolbar {
-                            CommonToolbarView(
-                                showHistory: $showHistory,
-                                showHistoryButton: $showHistoryButton,
-                            )
-                        }
-                        .background(
-                            ZStack {
-                                NavigationLink(destination: chatDestination, isActive: chatIsActiveBinding) { EmptyView() }
-                                NavigationLink(destination: SettingsView(), isActive: $navigateToSettings) { EmptyView() }
-                            }
-                        )
-                        // Hide TabBar when entering chat or settings view
-                        .toolbar((chatIsActiveBinding.wrappedValue || navigateToSettings) ? .hidden : .visible, for: .tabBar)
-                }
-                .tabItem {
-                    Image(systemName: "house.fill")
-                    Text(titles[0])
-                }
-                .tag(0)
+                createTabContent(
+                    content: LocalModelListView(viewModel: modelListViewModel),
+                    title: titles[0],
+                    icon: "house.fill",
+                    tag: 0
+                )
                 
-                NavigationView {
-                    ModelListView(viewModel: modelListViewModel)
-                        .navigationTitle(titles[1])
-                        .navigationBarTitleDisplayMode(.inline)
-                        .navigationBarHidden(false)
-                        .onAppear {
-                            setupNavigationBarAppearance()
-                        }
-                        .toolbar {
-                            CommonToolbarView(
-                                showHistory: $showHistory,
-                                showHistoryButton: $showHistoryButton,
-                            )
-                        }
-                        .background(
-                            ZStack {
-                                NavigationLink(destination: chatDestination, isActive: chatIsActiveBinding) { EmptyView() }
-                                NavigationLink(destination: SettingsView(), isActive: $navigateToSettings) { EmptyView() }
-                            }
-                        )
-                }
-                .tabItem {
-                    Image(systemName: "doc.text.fill")
-                    Text(titles[1])
-                }
-                .tag(1)
+                createTabContent(
+                    content: ModelListView(viewModel: modelListViewModel),
+                    title: titles[1],
+                    icon: "doc.text.fill",
+                    tag: 1
+                )
                 
-                NavigationView {
-                    BenchmarkView()
-                        .navigationTitle(titles[2])
-                        .navigationBarTitleDisplayMode(.inline)
-                        .navigationBarHidden(false)
-                        .onAppear {
-                            setupNavigationBarAppearance()
-                        }
-                        .toolbar {
-                            CommonToolbarView(
-                                showHistory: $showHistory,
-                                showHistoryButton: $showHistoryButton,
-                            )
-                        }
-                        .background(
-                            ZStack {
-                                NavigationLink(destination: chatDestination, isActive: chatIsActiveBinding) { EmptyView() }
-                                NavigationLink(destination: SettingsView(), isActive: $navigateToSettings) { EmptyView() }
-                            }
-                        )
-                }
-                .tabItem {
-                    Image(systemName: "clock.fill")
-                    Text(titles[2])
-                }
-                .tag(2)
+                createTabContent(
+                    content: BenchmarkView(),
+                    title: titles[2],
+                    icon: "clock.fill",
+                    tag: 2
+                )
             }
             .onAppear {
-                setupTabBarAppearance()
+                setupAppearanceOnce()
+                loadHistoriesIfNeeded()
             }
             .tint(.black)
             
@@ -142,20 +83,23 @@ struct MainTabView: View {
                         .edgesIgnoringSafeArea(.all)
         }
         .onChange(of: showHistory) { oldValue, newValue in
-            if newValue {
-                // Refresh chat history when opening the side menu
-                histories = ChatHistoryManager.shared.getAllHistory()
-            } else {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    withAnimation {
-                        showHistoryButton = true
-                    }
-                }
+            handleHistoryToggle(newValue)
+        }
+        .onChange(of: modelListViewModel.selectedModel) { oldValue, newValue in
+            if newValue != nil {
+                navigateToChat = true
             }
         }
-        .sheet(isPresented: $showWebView) {
-            if let url = webViewURL {
-                WebView(url: url)
+        .onChange(of: selectedHistory) { oldValue, newValue in
+            if newValue != nil {
+                navigateToChat = true
+            }
+        }
+        .onChange(of: navigateToChat) { oldValue, newValue in
+            if !newValue && oldValue {
+                refreshHistories()
+                modelListViewModel.selectedModel = nil
+                selectedHistory = nil
             }
         }
     }
@@ -170,42 +114,84 @@ struct MainTabView: View {
                 .navigationBarHidden(false)
                 .navigationBarTitleDisplayMode(.inline)
         } else if let history = selectedHistory {
-            let modelInfo = ModelInfo(modelId: history.modelId, isDownloaded: true)
-            LLMChatView(modelInfo: modelInfo, history: history)
+            LLMChatView(modelInfo: history.modelInfo, history: history)
                 .navigationBarHidden(false)
                 .navigationBarTitleDisplayMode(.inline)
         } else {
             EmptyView()
         }
     }
+
+    // MARK: - Private Methods
     
-    // MARK: - Bindings
-    
-    /// Binding to control the activation of the chat view.
-    private var chatIsActiveBinding: Binding<Bool> {
-        Binding<Bool>(
-            get: { 
-                return modelListViewModel.selectedModel != nil || selectedHistory != nil
-            },
-            set: { isActive in
-                if !isActive {
-                    // Record usage when returning from chat
-                    if let model = modelListViewModel.selectedModel {
-                        modelListViewModel.recordModelUsage(modelName: model.modelName)
-                    }
-                    
-                    // Refresh chat history when returning from chat
-                    histories = ChatHistoryManager.shared.getAllHistory()
-                    
-                    // Clear selections
-                    modelListViewModel.selectedModel = nil
-                    selectedHistory = nil
+    /// Creates a reusable tab content with navigation and common configurations.
+    @ViewBuilder
+    private func createTabContent<Content: View>(
+        content: Content,
+        title: String,
+        icon: String,
+        tag: Int
+    ) -> some View {
+        NavigationStack {
+            content
+                .navigationTitle(title)
+                .navigationBarTitleDisplayMode(.inline)
+                .navigationBarHidden(false)
+                .toolbar {
+                    CommonToolbarView(
+                        showHistory: $showHistory,
+                        showHistoryButton: $showHistoryButton
+                    )
                 }
-            }
-        )
+                .navigationDestination(isPresented: $navigateToChat) {
+                    chatDestination
+                }
+                .navigationDestination(isPresented: $navigateToSettings) {
+                    SettingsView()
+                }
+                .toolbar((navigateToChat || navigateToSettings) ? .hidden : .visible, for: .tabBar)
+        }
+        .tabItem {
+            Image(systemName: icon)
+            Text(title)
+        }
+        .tag(tag)
     }
     
-    // MARK: - Private Methods
+    /// Configures UI appearance only once to prevent memory issues.
+    private func setupAppearanceOnce() {
+        guard !hasConfiguredAppearance else { return }
+        hasConfiguredAppearance = true
+        
+        setupNavigationBarAppearance()
+        setupTabBarAppearance()
+    }
+    
+    /// Loads chat histories if not already loaded.
+    private func loadHistoriesIfNeeded() {
+        if histories.isEmpty {
+            histories = ChatHistoryManager.shared.getAllHistory()
+        }
+    }
+    
+    /// Refreshes the histories array.
+    private func refreshHistories() {
+        histories = ChatHistoryManager.shared.getAllHistory()
+    }
+    
+    /// Handles history toggle with proper memory management.
+    private func handleHistoryToggle(_ isShowing: Bool) {
+        if isShowing {
+            refreshHistories()
+        } else {
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 300_000_000) // 0.3 seconds
+                withAnimation {
+                    self.showHistoryButton = true
+                }
+            }
+        }
+    }
     
     /// Configures the appearance of the navigation bar.
     private func setupNavigationBarAppearance() {

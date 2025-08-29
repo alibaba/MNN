@@ -12,13 +12,18 @@ class ChatHistoryManager {
     
     private init() {}
     
-    func saveChat(historyId: String, modelId: String, modelName: String, messages: [Message]) {
+    func saveChat(historyId: String, modelInfo: ModelInfo, messages: [Message]) {
         ChatHistoryDatabase.shared?.saveChat(
             historyId: historyId,
-            modelId: modelId,
-            modelName: modelName,
+            modelInfo: modelInfo,
             messages: messages
         )
+    }
+    
+    // For backward compatibility
+    func saveChat(historyId: String, modelId: String, modelName: String, messages: [Message]) {
+        let modelInfo = ModelInfo(modelId: modelId, isDownloaded: true)
+        saveChat(historyId: historyId, modelInfo: modelInfo, messages: messages)
     }
     
     func getAllHistory() -> [ChatHistory] {
@@ -35,4 +40,4 @@ class ChatHistoryManager {
     func deleteHistory(_ history: ChatHistory) {
         ChatHistoryDatabase.shared?.deleteHistory(history)
     }
-} 
+}

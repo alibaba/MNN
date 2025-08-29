@@ -7,10 +7,8 @@
 
 import Foundation
 
-/**
- * Observable class representing a single benchmark test instance.
- * Contains test configuration parameters and stores timing results.
- */
+/// Observable class representing a single benchmark test instance.
+/// Contains test configuration parameters and stores timing results.
 class TestInstance: ObservableObject, Identifiable {
     let id = UUID()
     let modelConfigFile: String

@@ -7,10 +7,8 @@
 
 import Foundation
 
-/**
- * Enumeration of possible error codes that can occur during benchmark execution.
- * Provides specific error identification for different failure scenarios.
- */
+/// Enumeration of possible error codes that can occur during benchmark execution.
+/// Provides specific error identification for different failure scenarios.
 enum BenchmarkErrorCode: Int {
     case benchmarkFailedUnknown = 30
     case testInstanceFailed = 40
