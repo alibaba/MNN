@@ -2,7 +2,7 @@
 //  ModelDownloadManagerProtocol.swift
 //  MNNLLMiOS
 //
-//  Created by Dependency Injection Refactor
+//  Created by 游薪渝(揽清) on 2025/8/27.
 //
 
 import Foundation
