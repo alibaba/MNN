@@ -18,6 +18,15 @@ class ModelUtils {
                tags.contains(where: { $0.localizedCaseInsensitiveContains("思考") }))
     }
     
+    /// Check if the model is built in local model
+    /// - Parameter model: ModelInfo
+    /// - Returns: Whether is built in local model
+    static func isBuiltInLocalModel(_ model: ModelInfo) -> Bool {
+        guard let vendor = model.vendor, vendor == "Local" else { return false }
+        guard let sources = model.sources, let localSource = sources["local"] else { return false }
+        return localSource.hasPrefix("bundle_root/")
+    }
+    
     /// Check if it's an R1 model
     /// - Parameter modelName: Model name
     /// - Returns: Whether it's an R1 model

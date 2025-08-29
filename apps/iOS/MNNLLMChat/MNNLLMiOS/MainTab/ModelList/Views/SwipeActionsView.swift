@@ -12,12 +12,6 @@ struct SwipeActionsView: View {
     let model: ModelInfo
     @ObservedObject var viewModel: ModelListViewModel
     
-    private func isBuiltInLocalModel(_ model: ModelInfo) -> Bool {
-        guard let vendor = model.vendor, vendor == "Local" else { return false }
-        guard let sources = model.sources, let localSource = sources["local"] else { return false }
-        return localSource.hasPrefix("bundle_root/")
-    }
-    
     var body: some View {
         if viewModel.pinnedModelIds.contains(model.id) {
             Button {
@@ -32,7 +26,7 @@ struct SwipeActionsView: View {
                 Label(LocalizedStringKey("button.pin"), systemImage: "pin")
             }.tint(.primaryBlue)
         }
-        if model.isDownloaded && !isBuiltInLocalModel(model) {
+        if model.isDownloaded && !ModelUtils.isBuiltInLocalModel(model) {
             Button(role: .destructive) {
                 Task {
                     await viewModel.deleteModel(model)
