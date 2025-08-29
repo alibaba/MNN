@@ -7,10 +7,8 @@
 
 import Foundation
 
-/**
- * Structure containing comprehensive statistical analysis of benchmark results.
- * Aggregates performance metrics, configuration details, and test summary information.
- */
+/// Structure containing comprehensive statistical analysis of benchmark results.
+/// Aggregates performance metrics, configuration details, and test summary information.
 struct BenchmarkStatistics {
     let configText: String
     let prefillStats: SpeedStatistics?

@@ -79,11 +79,9 @@ struct SettingsView: View {
         .alert("settings.alert.switchLanguage.title", isPresented: $showLanguageAlert) {
             Button("settings.alert.switchLanguage.confirm") {
                 LanguageManager.shared.applyLanguage(selectedLanguage)
-                // 重启应用以应用语言更改
                 exit(0)
             }
             Button("settings.alert.switchLanguage.cancel", role: .cancel) {
-                // 恢复原来的选择
                 selectedLanguage = LanguageManager.shared.currentLanguage
             }
         } message: {

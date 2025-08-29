@@ -7,10 +7,8 @@
 
 import SwiftUI
 
-/**
- * Reusable model selection card component for benchmark interface.
- * Provides dropdown menu for model selection and start/stop controls.
- */
+/// Reusable model selection card component for benchmark interface.
+/// Provides dropdown menu for model selection and start/stop controls.
 struct ModelSelectionCard: View {
     @ObservedObject var viewModel: BenchmarkViewModel
     

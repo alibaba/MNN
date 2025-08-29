@@ -21,6 +21,7 @@ final class LLMChatInteractor: ChatInteractorProtocol {
     var chatData: LLMChatData
     var modelInfo: ModelInfo
     var historyMessages: [HistoryMessage]?
+    var isThinkingModeEnabled: Bool = true
     
     private let processor = ThinkResultProcessor(thinkingPrefix: "<think>", completePrefix: "</think>")
     
@@ -49,6 +50,7 @@ final class LLMChatInteractor: ChatInteractorProtocol {
         self.modelInfo = modelInfo
         self.chatData = LLMChatData(modelInfo: modelInfo)
         self.historyMessages = historyMessages
+        print("yxy:: LLMChatInteractor init")
     }
     
     deinit {
@@ -102,7 +104,7 @@ final class LLMChatInteractor: ChatInteractorProtocol {
                     
                     var updateLastMsg = self?.chatState.value[(self?.chatState.value.count ?? 1) - 1]
 
-                    if let tags = self?.modelInfo.tags,
+                    if let tags = self?.modelInfo.tags, self?.isThinkingModeEnabled == true,
                         (tags.contains(where: { $0.localizedCaseInsensitiveContains("Think") }) || tags.contains(where: { $0.localizedCaseInsensitiveContains("思考") })),
                         let text = self?.processor.process(progress: message.text) {
                                 updateLastMsg?.text = text
@@ -135,12 +137,6 @@ final class LLMChatInteractor: ChatInteractorProtocol {
     }
 
     func connect() {
-//        Timer.publish(every: 2, on: .main, in: .default)
-//            .autoconnect()
-//            .sink { [weak self] _ in
-//                self?.updateSendingStatuses()
-//            }
-//            .store(in: &subscriptions)
     }
 
     func disconnect() {
@@ -169,18 +165,5 @@ private extension LLMChatInteractor {
     
     func generateStartMessages(historyMessages: [HistoryMessage]? = nil) -> [LLMChatMessage] {
         return chatData.greatingMessage(historyMessages: historyMessages)
-    }
-
-    func updateSendingStatuses() {
-        let updated = chatState.value.map {
-            var message = $0
-            if message.status == .sending {
-                message.status = .sent
-            } else if message.status == .sent {
-                message.status = .read
-            }
-            return message
-        }
-        chatState.value = updated
     }
 }

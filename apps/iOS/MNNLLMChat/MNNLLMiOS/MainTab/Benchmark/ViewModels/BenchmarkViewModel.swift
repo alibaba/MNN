@@ -9,11 +9,9 @@ import Foundation
 import SwiftUI
 import Combine
 
-/**
- * ViewModel for managing benchmark operations including model selection, test execution,
- * progress tracking, and result management. Handles communication with BenchmarkService
- * and provides UI state management for the benchmark interface.
- */
+/// ViewModel for managing benchmark operations including model selection, test execution,
+/// progress tracking, and result management. Handles communication with BenchmarkService
+/// and provides UI state management for the benchmark interface.
 @MainActor
 class BenchmarkViewModel: ObservableObject {
     
@@ -80,7 +78,7 @@ class BenchmarkViewModel: ObservableObject {
                 
                 // Filter only downloaded models that are available locally
                 availableModels = allModels.filter { model in
-                    model.isDownloaded && model.localPath != nil
+                    model.isDownloaded && model.localPath != ""
                 }
                 
                 print("BenchmarkViewModel: Loaded \(availableModels.count) available local models")

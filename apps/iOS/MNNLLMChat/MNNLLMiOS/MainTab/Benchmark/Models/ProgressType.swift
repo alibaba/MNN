@@ -7,10 +7,8 @@
 
 import Foundation
 
-/**
- * Enumeration representing different stages of benchmark execution progress.
- * Used to track and display the current state of benchmark operations.
- */
+/// Enumeration representing different stages of benchmark execution progress.
+/// Used to track and display the current state of benchmark operations.
 enum ProgressType: Int, CaseIterable {
     case unknown = 0
     case initializing

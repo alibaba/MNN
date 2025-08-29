@@ -227,7 +227,7 @@ class ModelListViewModel: ObservableObject {
         await withTaskGroup(of: Void.self) { group in
             for (_, model) in models.enumerated() {
                 // Handle undownloaded models - fetch remote size
-                if !model.isDownloaded && model.cachedSize == nil && model.size_gb == nil {
+                if !model.isDownloaded && model.cachedSize == nil && model.file_size == nil {
                     group.addTask {
                         if let size = await model.fetchRemoteSize() {
                             await MainActor.run {

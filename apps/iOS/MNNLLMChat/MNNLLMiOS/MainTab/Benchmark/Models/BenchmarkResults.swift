@@ -7,10 +7,8 @@
 
 import Foundation
 
-/**
- * Structure containing comprehensive benchmark results for display and sharing.
- * Aggregates test results, memory usage, and metadata for result presentation.
- */
+/// Structure containing comprehensive benchmark results for display and sharing.
+/// Aggregates test results, memory usage, and metadata for result presentation.
 struct BenchmarkResults {
     let modelDisplayName: String
     let maxMemoryKb: Int64

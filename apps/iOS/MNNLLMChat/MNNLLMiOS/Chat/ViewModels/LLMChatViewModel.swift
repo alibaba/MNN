@@ -146,6 +146,8 @@ final class LLMChatViewModel: ObservableObject {
             llm.setThinkingModeEnabled(isThinkingModeEnabled)
         }
         
+        interactor.isThinkingModeEnabled = isThinkingModeEnabled
+        
         print("Thinking mode configured: \(isThinkingModeEnabled)")
     }
     
@@ -393,8 +395,7 @@ final class LLMChatViewModel: ObservableObject {
     func onStop() {
         ChatHistoryManager.shared.saveChat(
             historyId: historyId,
-            modelId: modelInfo.id,
-            modelName: modelInfo.modelName,
+            modelInfo: modelInfo,
             messages: messages
         )
         
