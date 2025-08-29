@@ -95,6 +95,13 @@ struct MainTabView: View {
                 navigateToChat = true
             }
         }
+        .onChange(of: navigateToChat) { oldValue, newValue in
+            if !newValue && oldValue {
+                refreshHistories()
+                modelListViewModel.selectedModel = nil
+                selectedHistory = nil
+            }
+        }
     }
 
     // MARK: - View Builders
@@ -107,8 +114,7 @@ struct MainTabView: View {
                 .navigationBarHidden(false)
                 .navigationBarTitleDisplayMode(.inline)
         } else if let history = selectedHistory {
-            let modelInfo = ModelInfo(modelId: history.modelId, isDownloaded: true)
-            LLMChatView(modelInfo: modelInfo, history: history)
+            LLMChatView(modelInfo: history.modelInfo, history: history)
                 .navigationBarHidden(false)
                 .navigationBarTitleDisplayMode(.inline)
         } else {
@@ -168,10 +174,15 @@ struct MainTabView: View {
         }
     }
     
+    /// Refreshes the histories array.
+    private func refreshHistories() {
+        histories = ChatHistoryManager.shared.getAllHistory()
+    }
+    
     /// Handles history toggle with proper memory management.
     private func handleHistoryToggle(_ isShowing: Bool) {
         if isShowing {
-            histories = ChatHistoryManager.shared.getAllHistory()
+            refreshHistories()
         } else {
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 300_000_000) // 0.3 seconds
