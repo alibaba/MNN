@@ -49,7 +49,7 @@ actor UIUpdateOptimizer {
     
     // Configuration constants
     private let batchSize: Int = 5          // Batch size threshold for immediate flush
-    private let flushInterval: TimeInterval = 0.03 // 30ms throttling interval
+    private let flushInterval: TimeInterval = 0.5
     
     private init() {}
     

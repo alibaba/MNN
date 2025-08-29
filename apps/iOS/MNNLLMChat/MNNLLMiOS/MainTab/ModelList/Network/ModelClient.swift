@@ -151,8 +151,11 @@ class ModelClient {
                 }
             }
         } catch {
-            print("Download failed: \(error)")
-            throw NetworkError.downloadFailed
+            if case ModelScopeError.downloadCancelled = error {
+                throw ModelScopeError.downloadCancelled
+            } else {
+                throw NetworkError.downloadFailed
+            }
         }
     }
 
