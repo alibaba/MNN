@@ -1,5 +1,5 @@
 //
-//  OptimizedModelScopeDownloadManager.swift
+//  ModelDownloadManager.swift
 //  MNNLLMiOS
 //
 //  Created by 游薪渝(揽清) on 2025/8/27.
@@ -7,8 +7,51 @@
 
 import Foundation
 
+/**
+ * ModelDownloadManager - Advanced concurrent model download manager
+ * 
+ * This actor-based download manager provides high-performance, resumable downloads
+ * with intelligent chunking, dynamic concurrency optimization, and comprehensive
+ * error handling for model files from various sources.
+ * 
+ * Key Features:
+ * - Concurrent downloads with dynamic concurrency adjustment
+ * - Intelligent file chunking for large files (>50MB)
+ * - Resume capability with partial download preservation
+ * - Exponential backoff retry mechanism
+ * - Real-time progress tracking with throttling
+ * - Memory-efficient streaming downloads
+ * - Thread-safe operations using Swift Actor model
+ * 
+ * Architecture:
+ * - Uses URLSession for network operations
+ * - Implements semaphore-based concurrency control
+ * - Supports both direct and chunked download strategies
+ * - Maintains download state persistence
+ * 
+ * Performance Optimizations:
+ * - Dynamic chunk size calculation based on network conditions
+ * - Optimal concurrency level determination
+ * - Progress update throttling to prevent UI blocking
+ * - Temporary file management for resume functionality
+ * 
+ * Usage:
+ * ```swift
+ * let manager = ModelDownloadManager(
+ *     repoPath: "owner/model-name",
+ *     source: .modelScope
+ * )
+ * try await manager.downloadModel(
+ *     to: "models",
+ *     modelId: "example-model",
+ *     modelName: "ExampleModel"
+ * ) { progress in
+ *     print("Progress: \(progress * 100)%")
+ * }
+ * ```
+ */
 @available(iOS 13.4, macOS 10.15, *)
-public actor OptimizedModelScopeDownloadManager: ModelDownloadManagerProtocol {
+public actor ModelDownloadManager: ModelDownloadManagerProtocol {
     
     // MARK: - Properties
     
@@ -33,6 +76,16 @@ public actor OptimizedModelScopeDownloadManager: ModelDownloadManagerProtocol {
     
     // MARK: - Initialization
     
+    /**
+     * Initializes a new ModelDownloadManager with configurable parameters
+     * 
+     * @param repoPath Repository path in format "owner/model-name"
+     * @param config Download configuration including retry and chunk settings
+     * @param sessionConfig URLSession configuration for network requests
+     * @param enableLogging Whether to enable detailed logging
+     * @param source Model source platform (ModelScope, Modeler, etc.)
+     * @param concurrencyConfig Dynamic concurrency management configuration
+     */
     public init(
         repoPath: String,
         config: DownloadConfig = .default,
@@ -51,11 +104,24 @@ public actor OptimizedModelScopeDownloadManager: ModelDownloadManagerProtocol {
         self.concurrencyManager = DynamicConcurrencyManager(config: concurrencyConfig)
         self.downloadSemaphore = AsyncSemaphore(value: config.maxConcurrentDownloads)
         
-        ModelScopeLogger.isEnabled = enableLogging
+        ModelDownloadLogger.isEnabled = enableLogging
     }
     
     // MARK: - Public Methods
     
+    /**
+     * Downloads a complete model with all its files
+     * 
+     * This method orchestrates the entire download process including file discovery,
+     * task preparation, concurrent execution, and progress tracking. It supports
+     * resume functionality and handles various error conditions gracefully.
+     * 
+     * @param destinationFolder Base folder for download (relative to Documents)
+     * @param modelId Unique identifier for the model
+     * @param modelName Display name used for folder creation
+     * @param progress Optional progress callback (0.0 to 1.0)
+     * @throws ModelScopeError for various download failures
+     */
     public func downloadModel(
         to destinationFolder: String = "",
         modelId: String,
@@ -67,10 +133,10 @@ public actor OptimizedModelScopeDownloadManager: ModelDownloadManagerProtocol {
         // Ensure we have a valid session and reset cancelled state
         await ensureValidSession()
         
-        ModelScopeLogger.info("Starting optimized download for modelId: \(modelId)")
+        ModelDownloadLogger.info("Starting optimized download for modelId: \(modelId)")
         
         let destination = try resolveDestinationPath(base: destinationFolder, modelId: modelName)
-        ModelScopeLogger.info("Will download to: \(destination)")
+        ModelDownloadLogger.info("Will download to: \(destination)")
         
         let files = try await fetchFileList(root: "", revision: "")
         
@@ -82,14 +148,20 @@ public actor OptimizedModelScopeDownloadManager: ModelDownloadManagerProtocol {
         
         // Check if download was cancelled during execution
         if isCancelled {
-            ModelScopeLogger.info("Download was cancelled, maintaining current progress state")
+            ModelDownloadLogger.info("Download was cancelled, maintaining current progress state")
             throw ModelScopeError.downloadCancelled
         }
         
         await updateProgress(1.0)
-        ModelScopeLogger.info("Download completed successfully")
+        ModelDownloadLogger.info("Download completed successfully")
     }
     
+    /**
+     * Cancels all ongoing download operations while preserving partial downloads
+     * 
+     * This method gracefully stops all active downloads and preserves temporary
+     * files to enable resume functionality in future download attempts.
+     */
     public func cancelDownload() async {
         isCancelled = true
         
@@ -100,11 +172,21 @@ public actor OptimizedModelScopeDownloadManager: ModelDownloadManagerProtocol {
             }
         }
         
-        ModelScopeLogger.info("Download cancelled, temporary files preserved for resume")
+        ModelDownloadLogger.info("Download cancelled, temporary files preserved for resume")
     }
     
     // MARK: - Private Methods - Task Preparation
     
+    /**
+     * Prepares download tasks by analyzing files and creating appropriate download strategies
+     * 
+     * This method processes the file list and determines the optimal download approach
+     * for each file based on size, existing partial downloads, and configuration.
+     * 
+     * @param files Array of ModelFile objects representing files to download
+     * @param destinationPath Target directory path for downloads
+     * @throws ModelScopeError for file system or processing errors
+     */
     private func prepareDownloadTasks(
         files: [ModelFile],
         destinationPath: String
@@ -115,9 +197,20 @@ public actor OptimizedModelScopeDownloadManager: ModelDownloadManagerProtocol {
         try await processFiles(files, destinationPath: destinationPath)
         
         progress.totalFiles = downloadQueue.count
-        ModelScopeLogger.info("Prepared \(downloadQueue.count) download tasks, total size: \(progress.totalBytes) bytes")
+        ModelDownloadLogger.info("Prepared \(downloadQueue.count) download tasks, total size: \(progress.totalBytes) bytes")
     }
     
+    /**
+     * Processes individual files and creates corresponding download tasks
+     * 
+     * Analyzes each file to determine if it needs chunked or direct download
+     * based on file size and configuration thresholds. Handles directory creation
+     * and recursive file processing for nested structures.
+     * 
+     * @param files Array of ModelFile objects to process
+     * @param destinationPath Base destination path for downloads
+     * @throws ModelScopeError for file system or network errors
+     */
     private func processFiles(
         _ files: [ModelFile],
         destinationPath: String
@@ -141,7 +234,7 @@ public actor OptimizedModelScopeDownloadManager: ModelDownloadManagerProtocol {
                     // Check if file should be chunked
                     if Int64(file.size) > config.largeFileThreshold {
                         task.chunks = await createChunks(for: file)
-                        ModelScopeLogger.info("File \(file.name) will be downloaded in \(task.chunks.count) chunks")
+                        ModelDownloadLogger.info("File \(file.name) will be downloaded in \(task.chunks.count) chunks")
                     }
                     
                     downloadQueue.append(task)
@@ -153,6 +246,16 @@ public actor OptimizedModelScopeDownloadManager: ModelDownloadManagerProtocol {
         }
     }
     
+    /**
+     * Creates chunked download information for large files
+     * 
+     * Divides large files into optimal chunks for concurrent downloading,
+     * calculates resume offsets for existing partial downloads, and creates
+     * chunk metadata with temporary file locations.
+     * 
+     * @param file ModelFile object representing the file to chunk
+     * @return Array of ChunkInfo objects containing chunk metadata
+     */
     private func createChunks(for file: ModelFile) async -> [ChunkInfo] {
         let fileSize = Int64(file.size)
         
@@ -162,7 +265,7 @@ public actor OptimizedModelScopeDownloadManager: ModelDownloadManagerProtocol {
         let chunkCount = Int(ceil(Double(fileSize) / Double(chunkSize)))
         var chunks: [ChunkInfo] = []
         
-        ModelScopeLogger.info("File \(file.name): using chunk size \(chunkSize / 1024 / 1024)MB, total \(chunkCount) chunks")
+        ModelDownloadLogger.info("File \(file.name): using chunk size \(chunkSize / 1024 / 1024)MB, total \(chunkCount) chunks")
         
         for i in 0..<chunkCount {
             let startOffset = Int64(i) * chunkSize
@@ -184,7 +287,7 @@ public actor OptimizedModelScopeDownloadManager: ModelDownloadManagerProtocol {
                     let expectedChunkSize = endOffset - startOffset + 1
                     isCompleted = downloadedBytes >= expectedChunkSize
                 } catch {
-                    ModelScopeLogger.error("Failed to get chunk attributes: \(error)")
+                    ModelDownloadLogger.error("Failed to get chunk attributes: \(error)")
                 }
             }
             
@@ -203,6 +306,15 @@ public actor OptimizedModelScopeDownloadManager: ModelDownloadManagerProtocol {
     
     // MARK: - Download Execution
     
+    /**
+     * Executes download tasks with dynamic concurrency management
+     * 
+     * Manages the concurrent execution of download tasks using semaphores
+     * and dynamic concurrency adjustment based on network performance.
+     * Handles both chunked and direct download strategies.
+     * 
+     * @throws ModelScopeError if downloads fail or are cancelled
+     */
     private func executeDownloads() async throws {
         await withTaskGroup(of: Void.self) { group in
             for task in downloadQueue {
@@ -225,7 +337,7 @@ public actor OptimizedModelScopeDownloadManager: ModelDownloadManagerProtocol {
                         }
                     } catch {
                         if await !self.isCancelled {
-                            ModelScopeLogger.error("Failed to download \(task.file.name): \(error)")
+                            ModelDownloadLogger.error("Failed to download \(task.file.name): \(error)")
                         }
                     }
                 }
@@ -233,14 +345,24 @@ public actor OptimizedModelScopeDownloadManager: ModelDownloadManagerProtocol {
         }
     }
     
+    /**
+     * Downloads a file using chunked strategy with resume capability
+     * 
+     * Handles the download of individual file chunks with retry logic,
+     * progress tracking, and automatic chunk merging upon completion.
+     * Uses optimal concurrency for chunk downloads.
+     * 
+     * @param task DownloadTask containing chunk information and file metadata
+     * @throws ModelScopeError for network or file system errors
+     */
     private func downloadFileInChunks(task: DownloadTask) async throws {
-        ModelScopeLogger.info("Starting chunked download for: \(task.file.name)")
+        ModelDownloadLogger.info("Starting chunked download for: \(task.file.name)")
         
         let concurrencyCount = await concurrencyManager.calculateOptimalConcurrency(chunkCount: task.chunks.count)
         
         downloadChunkSemaphore = AsyncSemaphore(value: concurrencyCount)
         
-        ModelScopeLogger.info("Using optimal concurrency: \(concurrencyCount) for \(task.chunks.count) chunks")
+        ModelDownloadLogger.info("Using optimal concurrency: \(concurrencyCount) for \(task.chunks.count) chunks")
         
         // Check if any chunks are already completed and update progress
         let completedBytes = task.chunks.reduce(0) { total, chunk in
@@ -248,7 +370,7 @@ public actor OptimizedModelScopeDownloadManager: ModelDownloadManagerProtocol {
         }
         if completedBytes > 0 {
             await updateDownloadProgress(bytes: completedBytes)
-            ModelScopeLogger.info("Found \(completedBytes) bytes already downloaded for \(task.file.name)")
+            ModelDownloadLogger.info("Found \(completedBytes) bytes already downloaded for \(task.file.name)")
         }
         
         try await withThrowingTaskGroup(of: Void.self) { group in
@@ -275,10 +397,21 @@ public actor OptimizedModelScopeDownloadManager: ModelDownloadManagerProtocol {
         try await mergeChunks(task: task)
     }
     
+    /**
+     * Downloads a specific chunk with range requests and resume support
+     * 
+     * Performs HTTP range request to download a specific portion of a file,
+     * with automatic resume from existing partial downloads and exponential
+     * backoff retry logic.
+     * 
+     * @param chunk ChunkInfo containing chunk metadata and temporary file location
+     * @param file ModelFile object representing the source file
+     * @throws ModelScopeError for network or file system errors
+     */
     private func downloadChunk(chunk: ChunkInfo, file: ModelFile) async throws {
         
         if chunk.isCompleted {
-            ModelScopeLogger.info("Chunk \(chunk.index) already completed, skipping")
+            ModelDownloadLogger.info("Chunk \(chunk.index) already completed, skipping")
             return
         }
         
@@ -297,7 +430,7 @@ public actor OptimizedModelScopeDownloadManager: ModelDownloadManagerProtocol {
                 // Set Range header for resumable download
                 if chunk.downloadedBytes > 0 {
                     request.setValue("bytes=\(resumeOffset)-\(remainingEndOffset)", forHTTPHeaderField: "Range")
-                    ModelScopeLogger.info("Resuming chunk \(chunk.index) from offset \(chunk.downloadedBytes)")
+                    ModelDownloadLogger.info("Resuming chunk \(chunk.index) from offset \(chunk.downloadedBytes)")
                 } else {
                     request.setValue("bytes=\(chunk.startOffset)-\(chunk.endOffset)", forHTTPHeaderField: "Range")
                 }
@@ -335,13 +468,13 @@ public actor OptimizedModelScopeDownloadManager: ModelDownloadManagerProtocol {
                     await updateDownloadProgress(bytes: Int64(bytesCount))
                 }
 
-                ModelScopeLogger.info("Chunk \(chunk.index) downloaded successfully")
+                ModelDownloadLogger.info("Chunk \(chunk.index) downloaded successfully")
                 
                 return // Success, exit retry loop
                 
             } catch {
                 lastError = error
-                ModelScopeLogger.error("Chunk \(chunk.index) download attempt \(attempt + 1) failed: \(error)")
+                ModelDownloadLogger.error("Chunk \(chunk.index) download attempt \(attempt + 1) failed: \(error)")
                 
                 // Don't retry if cancelled
                 if isCancelled {
@@ -351,7 +484,7 @@ public actor OptimizedModelScopeDownloadManager: ModelDownloadManagerProtocol {
                 // Don't wait after the last attempt
                 if attempt < config.maxRetries - 1 {
                     let delay = config.retryDelay * pow(2.0, Double(attempt)) // Exponential backoff
-                    ModelScopeLogger.info("Retrying chunk \(chunk.index) in \(delay) seconds...")
+                    ModelDownloadLogger.info("Retrying chunk \(chunk.index) in \(delay) seconds...")
                     try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 }
             }
@@ -365,8 +498,18 @@ public actor OptimizedModelScopeDownloadManager: ModelDownloadManagerProtocol {
         ))
     }
     
+    /**
+     * Downloads a file directly without chunking
+     * 
+     * Performs a complete file download in a single request with resume
+     * capability and progress tracking for smaller files. Uses exponential
+     * backoff retry mechanism for failed attempts.
+     * 
+     * @param task DownloadTask containing file information and destination
+     * @throws ModelScopeError for network or file system errors
+     */
     private func downloadFileDirect(task: DownloadTask) async throws {
-        ModelScopeLogger.info("downloadFileDirect \(task.file.name)")
+        ModelDownloadLogger.info("downloadFileDirect \(task.file.name)")
         
         let file = task.file
         let destination = URL(fileURLWithPath: task.destinationPath)
@@ -435,12 +578,12 @@ public actor OptimizedModelScopeDownloadManager: ModelDownloadManagerProtocol {
                 }
                 try fileManager.moveItem(at: tempURL, to: destination)
                 
-                ModelScopeLogger.info("File \(file.name) downloaded successfully")
+                ModelDownloadLogger.info("File \(file.name) downloaded successfully")
                 return // Success, exit retry loop
                 
             } catch {
                 lastError = error
-                ModelScopeLogger.error("File \(file.name) download attempt \(attempt + 1) failed: \(error)")
+                ModelDownloadLogger.error("File \(file.name) download attempt \(attempt + 1) failed: \(error)")
                 
                 // Don't retry if cancelled
                 if isCancelled {
@@ -450,7 +593,7 @@ public actor OptimizedModelScopeDownloadManager: ModelDownloadManagerProtocol {
                 // Don't wait after the last attempt
                 if attempt < config.maxRetries - 1 {
                     let delay = config.retryDelay * pow(2.0, Double(attempt)) // Exponential backoff
-                    ModelScopeLogger.info("Retrying file \(file.name) in \(delay) seconds...")
+                    ModelDownloadLogger.info("Retrying file \(file.name) in \(delay) seconds...")
                     try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 }
             }
@@ -464,6 +607,15 @@ public actor OptimizedModelScopeDownloadManager: ModelDownloadManagerProtocol {
         ))
     }
     
+    /**
+     * Merges downloaded chunks into the final file
+     * 
+     * Combines all downloaded chunks in the correct order to create the
+     * final file, then cleans up temporary chunk files.
+     * 
+     * @param task DownloadTask containing chunk information and destination
+     * @throws ModelScopeError for file system errors during merging
+     */
     private func mergeChunks(task: DownloadTask) async throws {
         let destination = URL(fileURLWithPath: task.destinationPath)
             .appendingPathComponent(task.file.name.sanitizedPath)
@@ -489,7 +641,7 @@ public actor OptimizedModelScopeDownloadManager: ModelDownloadManagerProtocol {
             try? fileManager.removeItem(at: chunk.tempURL)
         }
         
-        ModelScopeLogger.info("Successfully merged \(sortedChunks.count) chunks for \(task.file.name)")
+        ModelDownloadLogger.info("Successfully merged \(sortedChunks.count) chunks for \(task.file.name)")
     }
     
     // MARK: - Helper Methods
@@ -499,7 +651,7 @@ public actor OptimizedModelScopeDownloadManager: ModelDownloadManagerProtocol {
             // Create a new session if the previous one was invalidated
             session = URLSession(configuration: sessionConfig)
             isSessionInvalidated = false
-            ModelScopeLogger.info("Created new URLSession after previous invalidation")
+            ModelDownloadLogger.info("Created new URLSession after previous invalidation")
         }
         
         // Always reset the cancelled flag when ensuring valid session
@@ -526,7 +678,7 @@ public actor OptimizedModelScopeDownloadManager: ModelDownloadManagerProtocol {
     private func markFileCompleted(task: DownloadTask) async {
         progress.completedFiles += 1
         storage.saveFileStatus(task.file, at: task.destinationPath)
-        ModelScopeLogger.info("Completed: \(task.file.name) (\(progress.completedFiles)/\(progress.totalFiles))")
+        ModelDownloadLogger.info("Completed: \(task.file.name) (\(progress.completedFiles)/\(progress.totalFiles))")
     }
     
     private func updateDownloadProgress(bytes: Int64) async {

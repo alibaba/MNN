@@ -87,7 +87,7 @@ public struct DynamicConcurrencyConfig {
         idealChunksPerConcurrency: 3,
         networkTypeMultiplier: 1.0,
         devicePerformanceMultiplier: 1.0,
-        largeFileThreshold: 50 * 1024 * 1024
+        largeFileThreshold: 100 * 1024 * 1024
     )
 }
 

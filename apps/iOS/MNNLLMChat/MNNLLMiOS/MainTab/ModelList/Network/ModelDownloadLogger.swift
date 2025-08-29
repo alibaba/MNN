@@ -8,13 +8,10 @@
 import Foundation
 import os.log
 
-public final class ModelScopeLogger {
-    // MARK: - Properties
+public final class ModelDownloadLogger {
     
     static var isEnabled: Bool = false
     private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "ModelScope", category: "Download")
-    
-    // MARK: - Logging Methods
     
     static func debug(_ message: String) {
         guard isEnabled else { return }
