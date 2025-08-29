@@ -9,11 +9,9 @@ import Foundation
 import SwiftUI
 import Combine
 
-/**
- * ViewModel for managing benchmark operations including model selection, test execution,
- * progress tracking, and result management. Handles communication with BenchmarkService
- * and provides UI state management for the benchmark interface.
- */
+/// ViewModel for managing benchmark operations including model selection, test execution,
+/// progress tracking, and result management. Handles communication with BenchmarkService
+/// and provides UI state management for the benchmark interface.
 @MainActor
 class BenchmarkViewModel: ObservableObject {
     

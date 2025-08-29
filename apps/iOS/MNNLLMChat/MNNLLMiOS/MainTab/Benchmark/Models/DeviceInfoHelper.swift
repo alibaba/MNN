@@ -8,10 +8,8 @@
 import Foundation
 import UIKit
 
-/**
- * Helper class for retrieving device information including model identification
- * and system details. Provides device-specific information for benchmark results.
- */
+/// Helper class for retrieving device information including model identification
+/// and system details. Provides device-specific information for benchmark results.
 class DeviceInfoHelper {
     static let shared = DeviceInfoHelper()
     

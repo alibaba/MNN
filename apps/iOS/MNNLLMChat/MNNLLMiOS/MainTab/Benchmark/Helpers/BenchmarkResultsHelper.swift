@@ -8,11 +8,9 @@
 import Foundation
 import Darwin
 
-/**
- * Helper class for processing and formatting benchmark test results.
- * Provides statistical analysis, formatting utilities, and device information
- * for benchmark result display and sharing.
- */
+/// Helper class for processing and formatting benchmark test results.
+/// Provides statistical analysis, formatting utilities, and device information
+/// for benchmark result display and sharing.
 class BenchmarkResultsHelper {
     static let shared = BenchmarkResultsHelper()
     

@@ -7,10 +7,8 @@
 
 import SwiftUI
 
-/**
- * Reusable progress tracking card component for benchmark interface.
- * Displays test progress with detailed metrics and visual indicators.
- */
+/// Reusable progress tracking card component for benchmark interface.
+/// Displays test progress with detailed metrics and visual indicators.
 struct ProgressCard: View {
     let progress: BenchmarkProgress?
     

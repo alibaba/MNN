@@ -10,60 +10,72 @@ import Network
 
 // MARK: - Dynamic Concurrency Configuration
 
-/**
- Dynamic concurrency control manager - intelligently adjusts concurrency parameters
- based on chunk count and network conditions
- 
- Usage Examples:
+/// Dynamic concurrency control manager - intelligently adjusts concurrency parameters
+/// based on chunk count and network conditions
+/// 
+/// Usage Examples:
+///
+/// ```swift
+/// // 1. Create dynamic concurrency manager
+/// let concurrencyManager = DynamicConcurrencyManager()
+///
+/// // 2. Get download strategy for file
+/// let fileSize: Int64 = 240 * 1024 * 1024 // 240MB
+/// let strategy = await concurrencyManager.recommendDownloadStrategy(fileSize: fileSize)
+///
+/// print(strategy.description)
+/// // Output might be:
+/// // Download Strategy:
+/// // - Use Chunking: Yes
+/// // - Chunk Size: 10MB
+/// // - Chunk Count: 24
+/// // - Concurrency: 6 (24 chunks / 4 ideal chunks per concurrency = 6)
+/// // - Network Type: wifi
+/// // - Device Performance: high
+///
+/// // 3. Create DownloadConfig using strategy
+/// let dynamicConfig = DownloadConfig(
+///     maxConcurrentDownloads: strategy.concurrency,
+///     chunkSize: strategy.chunkSize,
+///     largeFileThreshold: strategy.chunkSize * 2,
+///     maxRetries: 3,
+///     retryDelay: 2.0
+/// )
+/// ```
+/// 
+/// Best Practices:
+///
+/// 1. **Intelligent Concurrency Control**:
+///    - For 24 chunks: use 6-8 concurrent downloads (instead of fixed 3)
+///    - For 4 chunks: use 2-3 concurrent downloads
+///    - For 1 chunk: use 1 concurrent download
+///
+/// 2. **Network Adaptation**:
+///    - WiFi: larger chunk size and more concurrency
+///    - 4G: medium chunk size and concurrency
+///    - 3G: small chunk size and less concurrency
+///
+/// 3. **Device Performance Consideration**:
+///    - High-performance devices: can handle more concurrency
+///    - Low-performance devices: reduce concurrency to avoid lag
+///
+/// 4. **Dynamic Adjustment**:
+///    - Automatically adjust strategy when network status changes
+///    - Dynamically optimize based on actual download performance
 
- ```swift
- // 1. Create dynamic concurrency manager
- let concurrencyManager = DynamicConcurrencyManager()
-
- // 2. Get download strategy for file
- let fileSize: Int64 = 240 * 1024 * 1024 // 240MB
- let strategy = await concurrencyManager.recommendDownloadStrategy(fileSize: fileSize)
-
- print(strategy.description)
- // Output might be:
- // Download Strategy:
- // - Use Chunking: Yes
- // - Chunk Size: 10MB
- // - Chunk Count: 24
- // - Concurrency: 6 (24 chunks / 4 ideal chunks per concurrency = 6)
- // - Network Type: wifi
- // - Device Performance: high
-
- // 3. Create DownloadConfig using strategy
- let dynamicConfig = DownloadConfig(
-     maxConcurrentDownloads: strategy.concurrency,
-     chunkSize: strategy.chunkSize,
-     largeFileThreshold: strategy.chunkSize * 2,
-     maxRetries: 3,
-     retryDelay: 2.0
- )
- 
- Best Practices:
-
- 1. **Intelligent Concurrency Control**:
-    - For 24 chunks: use 6-8 concurrent downloads (instead of fixed 3)
-    - For 4 chunks: use 2-3 concurrent downloads
-    - For 1 chunk: use 1 concurrent download
-
- 2. **Network Adaptation**:
-    - WiFi: larger chunk size and more concurrency
-    - 4G: medium chunk size and concurrency
-    - 3G: small chunk size and less concurrency
-
- 3. **Device Performance Consideration**:
-    - High-performance devices: can handle more concurrency
-    - Low-performance devices: reduce concurrency to avoid lag
-
- 4. **Dynamic Adjustment**:
-    - Automatically adjust strategy when network status changes
-    - Dynamically optimize based on actual download performance
- */
-
+/// Configuration for dynamic concurrency management
+/// 
+/// This structure defines the parameters used to dynamically adjust download concurrency
+/// based on network conditions and device performance characteristics.
+/// 
+/// - Parameters:
+///   - baseConcurrency: The baseline number of concurrent downloads
+///   - maxConcurrency: The maximum number of concurrent downloads allowed
+///   - minConcurrency: The minimum number of concurrent downloads to maintain
+///   - idealChunksPerConcurrency: The ideal number of chunks per concurrent download
+///   - networkTypeMultiplier: Multiplier for network type adjustments
+///   - devicePerformanceMultiplier: Multiplier for device performance adjustments
+///   - largeFileThreshold: File size threshold for enabling chunked downloads
 public struct DynamicConcurrencyConfig {
     
     let baseConcurrency: Int
@@ -93,12 +105,19 @@ public struct DynamicConcurrencyConfig {
 
 // MARK: - Network Type Detection
 
+/// Network type classification for optimization
+/// 
+/// Categorizes different network connection types to enable appropriate
+/// download strategy selection and performance optimization.
 public enum NetworkType {
     case wifi
     case cellular
     case lowBandwidth
     case unknown
     
+    /// Multiplier for adjusting concurrency based on device performance
+    /// 
+    /// - Returns: A multiplier value used to scale the base concurrency level
     var concurrencyMultiplier: Double {
         switch self {
         case .wifi: return 1.5
@@ -120,6 +139,10 @@ public enum NetworkType {
 
 // MARK: - Device Performance Detection
 
+/// Device performance classification
+/// 
+/// Categorizes device performance capabilities to optimize download strategies
+/// based on available processing power and memory resources.
 public enum DevicePerformance {
     case high
     case medium
@@ -133,6 +156,9 @@ public enum DevicePerformance {
         }
     }
     
+    /// Detect the current device's performance level
+    /// 
+    /// - Returns: The detected device performance classification
     static func detect() -> DevicePerformance {
         let processInfo = ProcessInfo.processInfo
         let physicalMemory = processInfo.physicalMemory
@@ -192,6 +218,9 @@ public actor DynamicConcurrencyManager {
     }
     
     /// Calculate optimal concurrency based on chunk count and current network conditions
+    /// 
+    /// - Parameter chunkCount: The number of chunks to download
+    /// - Returns: The recommended number of concurrent downloads
     public func calculateOptimalConcurrency(chunkCount: Int) -> Int {
         // Base calculation: based on chunk count and ideal ratio
         let baseConcurrency = max(1, min(chunkCount / config.idealChunksPerConcurrency, config.baseConcurrency))
@@ -209,11 +238,15 @@ public actor DynamicConcurrencyManager {
     }
     
     /// Get current network status information
+    /// 
+    /// - Returns: A tuple containing the current network type and device performance
     public func getNetworkInfo() -> (type: NetworkType, performance: DevicePerformance) {
         return (currentNetworkType, devicePerformance)
     }
     
-    /// Get recommended chunk size
+    /// Get recommended chunk size based on current network conditions and device performance
+    /// 
+    /// - Returns: The recommended chunk size in bytes
     public func recommendedChunkSize() -> Int64 {
         let baseChunkSize = currentNetworkType.recommendedChunkSize
         let performanceMultiplier = devicePerformance.concurrencyMultiplier
@@ -222,6 +255,9 @@ public actor DynamicConcurrencyManager {
     }
     
     /// Recommend download strategy based on file size and network conditions
+    /// 
+    /// - Parameter fileSize: The size of the file being downloaded
+    /// - Returns: A complete download strategy configuration
     public func recommendDownloadStrategy(fileSize: Int64) -> DownloadStrategy {
         let chunkSize = recommendedChunkSize()
         let shouldUseChunking = fileSize > config.largeFileThreshold
@@ -245,6 +281,10 @@ public actor DynamicConcurrencyManager {
 
 // MARK: - Download Strategy
 
+/// Download strategy configuration
+/// 
+/// Contains all the parameters needed to optimize download performance
+/// based on current network and device conditions.
 public struct DownloadStrategy {
     let shouldUseChunking: Bool
     let chunkSize: Int64

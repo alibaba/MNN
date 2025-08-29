@@ -7,49 +7,47 @@
 
 import Foundation
 
-/**
- * ModelDownloadManager - Advanced concurrent model download manager
- * 
- * This actor-based download manager provides high-performance, resumable downloads
- * with intelligent chunking, dynamic concurrency optimization, and comprehensive
- * error handling for model files from various sources.
- * 
- * Key Features:
- * - Concurrent downloads with dynamic concurrency adjustment
- * - Intelligent file chunking for large files (>50MB)
- * - Resume capability with partial download preservation
- * - Exponential backoff retry mechanism
- * - Real-time progress tracking with throttling
- * - Memory-efficient streaming downloads
- * - Thread-safe operations using Swift Actor model
- * 
- * Architecture:
- * - Uses URLSession for network operations
- * - Implements semaphore-based concurrency control
- * - Supports both direct and chunked download strategies
- * - Maintains download state persistence
- * 
- * Performance Optimizations:
- * - Dynamic chunk size calculation based on network conditions
- * - Optimal concurrency level determination
- * - Progress update throttling to prevent UI blocking
- * - Temporary file management for resume functionality
- * 
- * Usage:
- * ```swift
- * let manager = ModelDownloadManager(
- *     repoPath: "owner/model-name",
- *     source: .modelScope
- * )
- * try await manager.downloadModel(
- *     to: "models",
- *     modelId: "example-model",
- *     modelName: "ExampleModel"
- * ) { progress in
- *     print("Progress: \(progress * 100)%")
- * }
- * ```
- */
+/// ModelDownloadManager - Advanced concurrent model download manager
+/// 
+/// This actor-based download manager provides high-performance, resumable downloads
+/// with intelligent chunking, dynamic concurrency optimization, and comprehensive
+/// error handling for model files from various sources.
+/// 
+/// Key Features:
+/// - Concurrent downloads with dynamic concurrency adjustment
+/// - Intelligent file chunking for large files (>50MB)
+/// - Resume capability with partial download preservation
+/// - Exponential backoff retry mechanism
+/// - Real-time progress tracking with throttling
+/// - Memory-efficient streaming downloads
+/// - Thread-safe operations using Swift Actor model
+/// 
+/// Architecture:
+/// - Uses URLSession for network operations
+/// - Implements semaphore-based concurrency control
+/// - Supports both direct and chunked download strategies
+/// - Maintains download state persistence
+/// 
+/// Performance Optimizations:
+/// - Dynamic chunk size calculation based on network conditions
+/// - Optimal concurrency level determination
+/// - Progress update throttling to prevent UI blocking
+/// - Temporary file management for resume functionality
+/// 
+/// Usage:
+/// ```swift
+/// let manager = ModelDownloadManager(
+///     repoPath: "owner/model-name",
+///     source: .modelScope
+/// )
+/// try await manager.downloadModel(
+///     to: "models",
+///     modelId: "example-model",
+///     modelName: "ExampleModel"
+/// ) { progress in
+///     print("Progress: \(progress * 100)%")
+/// }
+/// ```
 @available(iOS 13.4, macOS 10.15, *)
 public actor ModelDownloadManager: ModelDownloadManagerProtocol {
     
@@ -76,16 +74,15 @@ public actor ModelDownloadManager: ModelDownloadManagerProtocol {
     
     // MARK: - Initialization
     
-    /**
-     * Initializes a new ModelDownloadManager with configurable parameters
-     * 
-     * @param repoPath Repository path in format "owner/model-name"
-     * @param config Download configuration including retry and chunk settings
-     * @param sessionConfig URLSession configuration for network requests
-     * @param enableLogging Whether to enable detailed logging
-     * @param source Model source platform (ModelScope, Modeler, etc.)
-     * @param concurrencyConfig Dynamic concurrency management configuration
-     */
+    /// Initializes a new ModelDownloadManager with configurable parameters
+    /// 
+    /// - Parameters:
+    ///   - repoPath: Repository path in format "owner/model-name"
+    ///   - config: Download configuration including retry and chunk settings
+    ///   - sessionConfig: URLSession configuration for network requests
+    ///   - enableLogging: Whether to enable detailed logging
+    ///   - source: Model source platform (ModelScope, Modeler, etc.)
+    ///   - concurrencyConfig: Dynamic concurrency management configuration
     public init(
         repoPath: String,
         config: DownloadConfig = .default,
@@ -109,19 +106,18 @@ public actor ModelDownloadManager: ModelDownloadManagerProtocol {
     
     // MARK: - Public Methods
     
-    /**
-     * Downloads a complete model with all its files
-     * 
-     * This method orchestrates the entire download process including file discovery,
-     * task preparation, concurrent execution, and progress tracking. It supports
-     * resume functionality and handles various error conditions gracefully.
-     * 
-     * @param destinationFolder Base folder for download (relative to Documents)
-     * @param modelId Unique identifier for the model
-     * @param modelName Display name used for folder creation
-     * @param progress Optional progress callback (0.0 to 1.0)
-     * @throws ModelScopeError for various download failures
-     */
+    /// Downloads a complete model with all its files
+    /// 
+    /// This method orchestrates the entire download process including file discovery,
+    /// task preparation, concurrent execution, and progress tracking. It supports
+    /// resume functionality and handles various error conditions gracefully.
+    /// 
+    /// - Parameters:
+    ///   - destinationFolder: Base folder for download (relative to Documents)
+    ///   - modelId: Unique identifier for the model
+    ///   - modelName: Display name used for folder creation
+    ///   - progress: Optional progress callback (0.0 to 1.0)
+    /// - Throws: ModelScopeError for various download failures
     public func downloadModel(
         to destinationFolder: String = "",
         modelId: String,
@@ -156,12 +152,10 @@ public actor ModelDownloadManager: ModelDownloadManagerProtocol {
         ModelDownloadLogger.info("Download completed successfully")
     }
     
-    /**
-     * Cancels all ongoing download operations while preserving partial downloads
-     * 
-     * This method gracefully stops all active downloads and preserves temporary
-     * files to enable resume functionality in future download attempts.
-     */
+    /// Cancels all ongoing download operations while preserving partial downloads
+    /// 
+    /// This method gracefully stops all active downloads and preserves temporary
+    /// files to enable resume functionality in future download attempts.
     public func cancelDownload() async {
         isCancelled = true
         
@@ -177,16 +171,15 @@ public actor ModelDownloadManager: ModelDownloadManagerProtocol {
     
     // MARK: - Private Methods - Task Preparation
     
-    /**
-     * Prepares download tasks by analyzing files and creating appropriate download strategies
-     * 
-     * This method processes the file list and determines the optimal download approach
-     * for each file based on size, existing partial downloads, and configuration.
-     * 
-     * @param files Array of ModelFile objects representing files to download
-     * @param destinationPath Target directory path for downloads
-     * @throws ModelScopeError for file system or processing errors
-     */
+    /// Prepares download tasks by analyzing files and creating appropriate download strategies
+    /// 
+    /// This method processes the file list and determines the optimal download approach
+    /// for each file based on size, existing partial downloads, and configuration.
+    /// 
+    /// - Parameters:
+    ///   - files: Array of ModelFile objects representing files to download
+    ///   - destinationPath: Target directory path for downloads
+    /// - Throws: ModelScopeError for file system or processing errors
     private func prepareDownloadTasks(
         files: [ModelFile],
         destinationPath: String
@@ -200,17 +193,16 @@ public actor ModelDownloadManager: ModelDownloadManagerProtocol {
         ModelDownloadLogger.info("Prepared \(downloadQueue.count) download tasks, total size: \(progress.totalBytes) bytes")
     }
     
-    /**
-     * Processes individual files and creates corresponding download tasks
-     * 
-     * Analyzes each file to determine if it needs chunked or direct download
-     * based on file size and configuration thresholds. Handles directory creation
-     * and recursive file processing for nested structures.
-     * 
-     * @param files Array of ModelFile objects to process
-     * @param destinationPath Base destination path for downloads
-     * @throws ModelScopeError for file system or network errors
-     */
+    /// Processes individual files and creates corresponding download tasks
+    /// 
+    /// Analyzes each file to determine if it needs chunked or direct download
+    /// based on file size and configuration thresholds. Handles directory creation
+    /// and recursive file processing for nested structures.
+    /// 
+    /// - Parameters:
+    ///   - files: Array of ModelFile objects to process
+    ///   - destinationPath: Base destination path for downloads
+    /// - Throws: ModelScopeError for file system or network errors
     private func processFiles(
         _ files: [ModelFile],
         destinationPath: String
@@ -246,16 +238,14 @@ public actor ModelDownloadManager: ModelDownloadManagerProtocol {
         }
     }
     
-    /**
-     * Creates chunked download information for large files
-     * 
-     * Divides large files into optimal chunks for concurrent downloading,
-     * calculates resume offsets for existing partial downloads, and creates
-     * chunk metadata with temporary file locations.
-     * 
-     * @param file ModelFile object representing the file to chunk
-     * @return Array of ChunkInfo objects containing chunk metadata
-     */
+    /// Creates chunked download information for large files
+    /// 
+    /// Divides large files into optimal chunks for concurrent downloading,
+    /// calculates resume offsets for existing partial downloads, and creates
+    /// chunk metadata with temporary file locations.
+    /// 
+    /// - Parameter file: ModelFile object representing the file to chunk
+    /// - Returns: Array of ChunkInfo objects containing chunk metadata
     private func createChunks(for file: ModelFile) async -> [ChunkInfo] {
         let fileSize = Int64(file.size)
         
@@ -306,15 +296,13 @@ public actor ModelDownloadManager: ModelDownloadManagerProtocol {
     
     // MARK: - Download Execution
     
-    /**
-     * Executes download tasks with dynamic concurrency management
-     * 
-     * Manages the concurrent execution of download tasks using semaphores
-     * and dynamic concurrency adjustment based on network performance.
-     * Handles both chunked and direct download strategies.
-     * 
-     * @throws ModelScopeError if downloads fail or are cancelled
-     */
+    /// Executes download tasks with dynamic concurrency management
+    /// 
+    /// Manages the concurrent execution of download tasks using semaphores
+    /// and dynamic concurrency adjustment based on network performance.
+    /// Handles both chunked and direct download strategies.
+    /// 
+    /// - Throws: ModelScopeError if downloads fail or are cancelled
     private func executeDownloads() async throws {
         await withTaskGroup(of: Void.self) { group in
             for task in downloadQueue {
@@ -345,16 +333,14 @@ public actor ModelDownloadManager: ModelDownloadManagerProtocol {
         }
     }
     
-    /**
-     * Downloads a file using chunked strategy with resume capability
-     * 
-     * Handles the download of individual file chunks with retry logic,
-     * progress tracking, and automatic chunk merging upon completion.
-     * Uses optimal concurrency for chunk downloads.
-     * 
-     * @param task DownloadTask containing chunk information and file metadata
-     * @throws ModelScopeError for network or file system errors
-     */
+    /// Downloads a file using chunked strategy with resume capability
+    /// 
+    /// Handles the download of individual file chunks with retry logic,
+    /// progress tracking, and automatic chunk merging upon completion.
+    /// Uses optimal concurrency for chunk downloads.
+    /// 
+    /// - Parameter task: DownloadTask containing chunk information and file metadata
+    /// - Throws: ModelScopeError for network or file system errors
     private func downloadFileInChunks(task: DownloadTask) async throws {
         ModelDownloadLogger.info("Starting chunked download for: \(task.file.name)")
         
@@ -397,17 +383,16 @@ public actor ModelDownloadManager: ModelDownloadManagerProtocol {
         try await mergeChunks(task: task)
     }
     
-    /**
-     * Downloads a specific chunk with range requests and resume support
-     * 
-     * Performs HTTP range request to download a specific portion of a file,
-     * with automatic resume from existing partial downloads and exponential
-     * backoff retry logic.
-     * 
-     * @param chunk ChunkInfo containing chunk metadata and temporary file location
-     * @param file ModelFile object representing the source file
-     * @throws ModelScopeError for network or file system errors
-     */
+    /// Downloads a specific chunk with range requests and resume support
+    /// 
+    /// Performs HTTP range request to download a specific portion of a file,
+    /// with automatic resume from existing partial downloads and exponential
+    /// backoff retry logic.
+    /// 
+    /// - Parameters:
+    ///   - chunk: ChunkInfo containing chunk metadata and temporary file location
+    ///   - file: ModelFile object representing the source file
+    /// - Throws: ModelScopeError for network or file system errors
     private func downloadChunk(chunk: ChunkInfo, file: ModelFile) async throws {
         
         if chunk.isCompleted {
@@ -498,16 +483,14 @@ public actor ModelDownloadManager: ModelDownloadManagerProtocol {
         ))
     }
     
-    /**
-     * Downloads a file directly without chunking
-     * 
-     * Performs a complete file download in a single request with resume
-     * capability and progress tracking for smaller files. Uses exponential
-     * backoff retry mechanism for failed attempts.
-     * 
-     * @param task DownloadTask containing file information and destination
-     * @throws ModelScopeError for network or file system errors
-     */
+    /// Downloads a file directly without chunking
+    /// 
+    /// Performs a complete file download in a single request with resume
+    /// capability and progress tracking for smaller files. Uses exponential
+    /// backoff retry mechanism for failed attempts.
+    /// 
+    /// - Parameter task: DownloadTask containing file information and destination
+    /// - Throws: ModelScopeError for network or file system errors
     private func downloadFileDirect(task: DownloadTask) async throws {
         ModelDownloadLogger.info("downloadFileDirect \(task.file.name)")
         
@@ -607,15 +590,13 @@ public actor ModelDownloadManager: ModelDownloadManagerProtocol {
         ))
     }
     
-    /**
-     * Merges downloaded chunks into the final file
-     * 
-     * Combines all downloaded chunks in the correct order to create the
-     * final file, then cleans up temporary chunk files.
-     * 
-     * @param task DownloadTask containing chunk information and destination
-     * @throws ModelScopeError for file system errors during merging
-     */
+    /// Merges downloaded chunks into the final file
+    /// 
+    /// Combines all downloaded chunks in the correct order to create the
+    /// final file, then cleans up temporary chunk files.
+    /// 
+    /// - Parameter task: DownloadTask containing chunk information and destination
+    /// - Throws: ModelScopeError for file system errors during merging
     private func mergeChunks(task: DownloadTask) async throws {
         let destination = URL(fileURLWithPath: task.destinationPath)
             .appendingPathComponent(task.file.name.sanitizedPath)

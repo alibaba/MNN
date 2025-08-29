@@ -7,10 +7,8 @@
 
 import Foundation
 
-/**
- * Structure representing a model item with download state information.
- * Used for tracking model availability and download progress in the benchmark interface.
- */
+/// Structure representing a model item with download state information.
+/// Used for tracking model availability and download progress in the benchmark interface.
 struct ModelItem: Identifiable, Equatable {
     let id = UUID()
     let modelId: String
