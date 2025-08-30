@@ -42,20 +42,11 @@
         task.first  = [&](int __iter__) {
 #define MNN_CONCURRENCY_END()                                      \
     }                                                              \
-    ; if (1 == task.second) {task.first(0);} else {\
+    ;                                                              \
     auto cpuBn = (CPUBackend*)backend();                           \
     auto thrPl = static_cast<const CPURuntime*>(cpuBn->getRuntime())->pQueue.get(); \
-    std::vector<ffrt::task_handle> handles;\
-    for (int ffrtIndex=0; ffrtIndex<task.second; ++ffrtIndex) {\
-        auto handle = thrPl->submit_h([&task, ffrtIndex]() {\
-            task.first(ffrtIndex);\
-        }, ffrt::task_attr());\
-        handles.emplace_back(std::move(handle));\
-    }\
-    for (int ffrtIndex=0; ffrtIndex<task.second; ++ffrtIndex) {\
-        thrPl->wait(handles[ffrtIndex]);\
-    }\
-    }}
+    ffrt_enqueue_task(thrPl, task);           \
+    }
 #else
 // iOS / OSX
 #if defined(__APPLE__)

@@ -22,6 +22,7 @@
 #endif
 #ifdef MNN_FFRT
 #include "ffrt.h"
+void ffrt_enqueue_task(ffrt::queue* thrPl, const std::pair<std::function<void(int)>, int>& task);
 #endif
 
 namespace MNN {

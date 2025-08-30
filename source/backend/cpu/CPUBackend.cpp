@@ -24,6 +24,25 @@
 #include "core/WorkerThread.hpp"
 #ifdef MNN_FFRT
 #include "ffrt.h"
+void ffrt_enqueue_task(ffrt::queue* thrPl, const std::pair<std::function<void(int)>, int>& task) {
+    int num_tasks = task.second;
+    const auto& task_func = task.first;
+    if (num_tasks == 1) {
+        task_func(0);
+        return;
+    }
+    std::vector<ffrt::task_handle> handles;
+    handles.reserve(num_tasks);
+    for (int i = 0; i < num_tasks; ++i) {
+        auto handle = thrPl->submit_h([&task_func, i]() {
+            task_func(i);
+        }, ffrt::task_attr());
+        handles.emplace_back(std::move(handle));
+    }
+    for (auto& handle : handles) {
+        thrPl->wait(handle);
+    }
+}
 #endif
 #ifdef _OPENMP
 #include <omp.h>
