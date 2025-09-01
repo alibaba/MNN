@@ -417,22 +417,22 @@ class MemoryMonitor: ObservableObject {
         maxMemoryKb = max(maxMemoryKb, memoryUsage)
     }
     
-    /// Gets current memory usage from system using mach task info
+    /// Gets current memory usage from system using task_vm_info for physical footprint
     private func getCurrentMemoryUsage() -> Int64 {
-        var info = mach_task_basic_info()
-        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size) / UInt32(MemoryLayout<integer_t>.size)
         
         let kerr: kern_return_t = withUnsafeMutablePointer(to: &info) {
             $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
                 task_info(mach_task_self_,
-                         task_flavor_t(MACH_TASK_BASIC_INFO),
+                         task_flavor_t(TASK_VM_INFO),
                          $0,
                          &count)
             }
         }
         
         if kerr == KERN_SUCCESS {
-            return Int64(info.resident_size) / 1024 // Convert to KB
+            return Int64(info.phys_footprint) / 1024 // Convert to KB
         } else {
             return 0
         }
