@@ -22,10 +22,13 @@ import com.alibaba.mnnllm.android.chat.input.VoiceRecordingModule.VoiceRecording
 import com.alibaba.mnnllm.android.chat.chatlist.ChatViewHolders
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.databinding.ActivityChatBinding
+import com.alibaba.mnnllm.android.llm.LlmSession
 import com.alibaba.mnnllm.android.utils.KeyboardUtils
 import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.utils.Permissions.REQUEST_RECORD_AUDIO_PERMISSION
 import java.util.Date
+import com.alibaba.mnnllm.android.modelist.ModelListManager
+import com.alibaba.mnnllm.android.modelsettings.ModelConfig
 
 class ChatInputComponent(
     private val chatActivity: ChatActivity,
@@ -87,6 +90,9 @@ class ChatInputComponent(
 
     private fun setupToggleAudioOutput() {
         binding.btnToggleAudioOutput.setOnClickListener {
+            if (chatActivity.isLoading) {
+                return@setOnClickListener
+            }
             if (!binding.btnToggleAudioOutput.isSelected) {
                 android.app.AlertDialog.Builder(chatActivity)
                     .setMessage(R.string.audio_output_confirm)
@@ -117,13 +123,18 @@ class ChatInputComponent(
     }
     
     private fun setupThinkingMode() {
-        binding.btnToggleThinking.visibility = if (ModelUtils.isSupportThinkingSwitch(currentModelName)) {
-            binding.btnToggleThinking.isSelected = true
+        val extraTags = ModelListManager.getExtraTags(currentModelId)
+        binding.btnToggleThinking.visibility = if (ModelUtils.isSupportThinkingSwitchByTags(extraTags)) {
+            binding.btnToggleThinking.isSelected = ModelConfig.loadConfig(currentModelId)?.jinja?.context?.enableThinking != false
             View.VISIBLE
         } else  {
             View.GONE
         }
         binding.btnToggleThinking.setOnClickListener {
+            Log.d(TAG, "handleSendClick isGenerating : ${chatActivity.isLoading}")
+            if (chatActivity.isLoading) {
+                return@setOnClickListener
+            }
             binding.btnToggleThinking.isSelected = !binding.btnToggleThinking.isSelected
             onThinkingModeChanged?.apply {
                 this(binding.btnToggleThinking.isSelected)
@@ -268,7 +279,8 @@ class ChatInputComponent(
             }
 
             override fun onLeaveRecordingMode() {
-                if (ModelUtils.isSupportThinkingSwitch(currentModelName)) {
+                val extraTags = ModelListManager.getExtraTags(currentModelId)
+                if (ModelUtils.isSupportThinkingSwitchByTags(extraTags)) {
                     binding.btnToggleThinking.visibility = View.VISIBLE
                 }
                 updateAudioOutput()
@@ -322,6 +334,7 @@ class ChatInputComponent(
         if (!loading && ModelUtils.isAudioModel(currentModelName)) {
             voiceRecordingModule.onEnabled()
         }
+
     }
 
     fun onRequestPermissionsResult(

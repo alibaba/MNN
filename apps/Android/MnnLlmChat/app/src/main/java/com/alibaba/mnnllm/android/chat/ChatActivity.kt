@@ -166,11 +166,8 @@ class ChatActivity : AppCompatActivity() {
     private fun setupInputModule() {
         this.chatInputModule!!.apply {
             setOnThinkingModeChanged {isThinking ->
-                (chatSession as LlmSession).updateAssistantPrompt(if (isThinking) {
-                    "<|im_start|>assistant\n%s<|im_end|>\n"
-                } else {
-                    "<|im_start|>assistant\n<think>\n</think>%s<|im_end|>\n"
-                })
+                Log.d(TAG, "isThinking: $isThinking")
+                (chatSession as LlmSession).updateThinking(isThinking)
             }
             setOnAudioOutputModeChanged {
                 chatPresenter.setEnableAudioOutput(it)
@@ -326,6 +323,7 @@ class ChatActivity : AppCompatActivity() {
     }
 
     fun onLoadingChanged(loading: Boolean) {
+        isLoading = loading
         this.chatInputModule!!.onLoadingStatesChanged(loading)
         layoutModelLoading!!.visibility =
             if (loading) View.VISIBLE else View.GONE
@@ -585,6 +583,27 @@ class ChatActivity : AppCompatActivity() {
             chatPresenter.saveResponseToDatabase(recentItem)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save response to database", e)
+        }
+    }
+
+    /**
+     * Handle generation stop request from voice chat or other components
+     * This method triggers the same stop logic as the UI stop button
+     */
+    fun onStopGenerationRequested() {
+        Log.d(TAG, "Stop generation requested from external component")
+        if (isGenerating) {
+            // Trigger the same stop logic as the UI stop button
+            chatPresenter.stopGenerate()
+            
+            // Update UI state immediately
+            setIsGenerating(false)
+            val recentItem = chatListComponent.recentItem
+            recentItem?.loading = false
+            
+            Log.d(TAG, "Generation stopped by external request")
+        } else {
+            Log.d(TAG, "No active generation to stop")
         }
     }
 

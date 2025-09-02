@@ -453,6 +453,14 @@ class VoiceChatPresenter(
         // Reset generation state
         isGenerationFinished = false
         
+        // Stop any ongoing generation and trigger ChatActivity's stop logic
+        if (isProcessingLlm || isSpeaking) {
+            chatPresenter.stopGenerate()
+            if (activity is com.alibaba.mnnllm.android.chat.ChatActivity) {
+                activity.onStopGenerationRequested()
+            }
+        }
+        
         // Unregister from ChatPresenter
         chatPresenter.removeGenerateListener(this)
         
@@ -495,7 +503,15 @@ class VoiceChatPresenter(
         if (isProcessingLlm || isSpeaking) {
             isStoppingGeneration = true
             isGenerationFinished = false
-            chatPresenter.stopGenerate()  // Stop generation in ChatPresenter
+            
+            // Stop generation in ChatPresenter
+            chatPresenter.stopGenerate()
+            
+            // Trigger ChatActivity's stop logic
+            if (activity is com.alibaba.mnnllm.android.chat.ChatActivity) {
+                activity.onStopGenerationRequested()
+            }
+            
             audioPlayer?.stop()
             isProcessingLlm = false
             isSpeaking = false

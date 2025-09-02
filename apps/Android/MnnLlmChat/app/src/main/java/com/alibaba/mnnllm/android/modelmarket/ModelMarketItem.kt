@@ -12,6 +12,7 @@ data class ModelMarketItem(
     val sources: Map<String, String>,
     val description: String? = null,
     @SerializedName("file_size") val fileSize: Long = 0L, // File size in bytes from model_market.json
+    @SerializedName("extra_tags") val extraTags: List<String> = emptyList(), // Extra tags not shown to users
     var currentSource: String = "", // e.g. "modelscope", "huggingface"
     var currentRepoPath: String = "", // e.g. "MNN/Qwen-1.8B-Chat-Int4"
     var modelId: String = "" // e.g. "ModelScope/MNN/Qwen-1.8B-Chat-Int4"

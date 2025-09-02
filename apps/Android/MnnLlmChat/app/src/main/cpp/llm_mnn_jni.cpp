@@ -398,7 +398,21 @@ Java_com_alibaba_mnnllm_android_llm_LlmSession_updateAssistantPromptNative(JNIEn
     }
     env->ReleaseStringUTFChars(assistant_prompt_j, assistant_prompt_cstr);
 }
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_alibaba_mnnllm_android_llm_LlmSession_updateConfigNative(JNIEnv *env,
+                                                                 jobject thiz,
+                                                                 jlong llm_ptr,
+                                                                 jstring config_json_j) {
+    auto *llm = reinterpret_cast<mls::LlmSession *>(llm_ptr);
+    const char *config_json_cstr = env->GetStringUTFChars(config_json_j, nullptr);
+    if (llm) {
+        llm->updateConfig(config_json_cstr);
+    }
+    env->ReleaseStringUTFChars(config_json_j, config_json_cstr);
 }
+
 extern "C"
 JNIEXPORT void JNICALL
 Java_com_alibaba_mnnllm_android_llm_LlmSession_updateEnableAudioOutputNative(JNIEnv *env,jobject thiz, jlong llm_ptr, jboolean enable) {
@@ -629,3 +643,4 @@ Java_com_alibaba_mnnllm_android_llm_LlmSession_runBenchmarkNative(
     return env->NewObject(resultClass, resultCtor, testInstance, (jboolean)result.success, errorMessage);
 }
 
+} // extern "C"

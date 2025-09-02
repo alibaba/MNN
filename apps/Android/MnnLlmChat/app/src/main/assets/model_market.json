@@ -1,5 +1,5 @@
 {
-    "version": "5",
+    "version": "6",
     "tagTranslations": {
         "Vision": "图像理解",
         "Video": "视频理解",
@@ -95,7 +95,6 @@
         {
             "modelName": "MiniCPM4-0.5B-MNN",
             "tags": [
-                "Think"
             ],
             "categories": [
                 "recommended",
@@ -113,7 +112,6 @@
         {
             "modelName": "MiniCPM4-8B-MNN",
             "tags": [
-                "Think"
             ],
             "categories": [
                 "recommended",
@@ -359,6 +357,7 @@
             "tags": [
                 "Think"
             ],
+            "extra_tags": ["ThinkingSwitch"],
             "categories": [
                 "recommended",
                 "qwen"
@@ -377,6 +376,7 @@
             "tags": [
                 "Think"
             ],
+            "extra_tags": ["ThinkingSwitch"],
             "categories": [
                 "recommended",
                 "qwen"
@@ -415,6 +415,7 @@
             "tags": [
                 "Think"
             ],
+            "extra_tags": ["ThinkingSwitch"],
             "categories": [
                 "recommended",
                 "qwen"
@@ -433,6 +434,7 @@
             "tags": [
                 "Think"
             ],
+            "extra_tags": ["ThinkingSwitch"],
             "categories": [
                 "recommended",
                 "qwen"
@@ -469,6 +471,7 @@
             "tags": [
                 "Think"
             ],
+            "extra_tags": ["ThinkingSwitch"],
             "categories": [
                 "recommended",
                 "qwen"
@@ -507,6 +510,7 @@
             "tags": [
                 "Think"
             ],
+            "extra_tags": ["ThinkingSwitch"],
             "categories": [
                 "recommended",
                 "qwen"
@@ -525,6 +529,7 @@
             "tags": [
                 "Think"
             ],
+            "extra_tags": ["ThinkingSwitch"],
             "categories": [
                 "recommended",
                 "qwen"

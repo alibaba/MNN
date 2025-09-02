@@ -38,6 +38,14 @@ object ModelListManager {
     }
 
     /**
+     * Get extra tags for a specific model by modelId (not shown to users)
+     */
+    fun getExtraTags(modelId: String): List<String> {
+        val modelItem = modelIdModelMap[modelId]
+        return modelItem?.getExtraTags() ?: emptyList()
+    }
+
+    /**
      * Check if a model is a thinking model by examining its tags
      */
     fun isThinkingModel(modelId: String): Boolean {

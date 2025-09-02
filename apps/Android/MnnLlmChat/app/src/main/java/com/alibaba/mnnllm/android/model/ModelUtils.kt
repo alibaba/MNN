@@ -188,8 +188,8 @@ object ModelUtils {
         return modelName.lowercase(Locale.getDefault()).contains("omni")
     }
 
-    fun isSupportThinkingSwitch(modelName: String): Boolean {
-        return isQwen3(modelName)
+    fun isSupportThinkingSwitchByTags(extraTags: List<String>): Boolean {
+        return extraTags.any { it.equals("ThinkingSwitch", ignoreCase = true) }
     }
 
     fun supportAudioOutput(modelName: String): Boolean {
