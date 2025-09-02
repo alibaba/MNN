@@ -21,7 +21,7 @@ class ModelListViewModel: ObservableObject {
     @Published private(set) var currentlyDownloading: String?
     
     // MARK: - Private Properties
-    private let modelClient = ModelClient()
+    private let modelClient = ModelClient.shared
     private let pinnedModelKey = "com.mnnllm.pinnedModelIds"
     
     // MARK: - Model Data Access
@@ -357,7 +357,10 @@ class ModelListViewModel: ObservableObject {
         await MainActor.run {
             guard currentlyDownloading == nil else { return }
             currentlyDownloading = model.id
-            downloadProgress[model.id] = 0
+            
+            if downloadProgress[model.id] == nil {
+                downloadProgress[model.id] = 0
+            }
         }
         
         do {
@@ -372,6 +375,9 @@ class ModelListViewModel: ObservableObject {
                     self.models[index].isDownloaded = true
                     ModelStorageManager.shared.markModelAsDownloaded(model.modelName)
                 }
+                
+                self.downloadProgress.removeValue(forKey: model.id)
+                self.currentlyDownloading = nil
             }
             
             // Calculate and cache size for newly downloaded model
@@ -392,15 +398,12 @@ class ModelListViewModel: ObservableObject {
                 if case ModelScopeError.downloadCancelled = error {
                     print("Download was cancelled")
                 } else {
+                    self.downloadProgress.removeValue(forKey: model.id)
                     self.showError = true
                     self.errorMessage = "Failed to download model: \(error.localizedDescription)"
                 }
+                self.currentlyDownloading = nil
             }
-        }
-        
-        await MainActor.run {
-            self.currentlyDownloading = nil
-            self.downloadProgress.removeValue(forKey: model.id)
         }
     }
     
@@ -408,10 +411,9 @@ class ModelListViewModel: ObservableObject {
         let modelId = await MainActor.run { currentlyDownloading }
         
         if let modelId = modelId {
-            await modelClient.cancelDownload()
+            await modelClient.cancelDownload(for: modelId)
             
             await MainActor.run {
-                self.downloadProgress.removeValue(forKey: modelId)
                 self.currentlyDownloading = nil
             }
             
