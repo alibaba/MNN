@@ -38,6 +38,7 @@ struct LLMChatView: View {
             viewModel.currentStreamingMessageId
         }
         .setAvailableInput(
+            self.title.lowercased().contains("omni") ? .full:
             self.title.lowercased().contains("vl") ? .textAndMedia :
             self.title.lowercased().contains("audio") ? .textAndAudio :
             (self.title.isEmpty ? .textOnly : .textOnly)
