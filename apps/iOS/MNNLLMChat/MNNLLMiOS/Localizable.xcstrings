@@ -536,6 +536,16 @@
         }
       }
     },
+    "Model is loading..." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "模型加载中，请稍后……"
+          }
+        }
+      }
+    },
     "Model Market" : {
       "comment" : "模型市场标签",
       "localizations" : {
@@ -1331,7 +1341,7 @@
       }
     },
     "Total Time" : {
-      "extractionState" : "stale",
+      "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -1342,6 +1352,7 @@
       }
     },
     "Total Tokens" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {

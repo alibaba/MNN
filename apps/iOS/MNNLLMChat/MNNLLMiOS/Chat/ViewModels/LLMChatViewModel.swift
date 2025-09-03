@@ -77,7 +77,6 @@ final class LLMChatViewModel: ObservableObject {
         
         // Check if model supports thinking mode
         self.supportsThinkingMode = ModelUtils.isSupportThinkingSwitch(modelInfo.tags, modelName: modelInfo.modelName)
-        
     }
     
     deinit {
@@ -104,6 +103,7 @@ final class LLMChatViewModel: ObservableObject {
     
     func setupLLM(modelPath: String) {
         Task { @MainActor in
+            self.isModelLoaded = false
             self.send(draft: DraftMessage(
                 text: NSLocalizedString("ModelLoadingText", comment: ""),
                 thinkText: "",
@@ -118,16 +118,16 @@ final class LLMChatViewModel: ObservableObject {
             diffusion = DiffusionSession(modelPath: modelPath, completion: { [weak self] success in
                 Task { @MainActor in
                     print("Diffusion Model \(success)")
-                    self?.isModelLoaded = success
                     self?.sendModelLoadStatus(success: success)
+                    self?.isModelLoaded = success
                 }
             })
         } else {
             llm = LLMInferenceEngineWrapper(modelPath: modelPath) { [weak self] success in
                 Task { @MainActor in
-                    self?.isModelLoaded = success
                     self?.sendModelLoadStatus(success: success)
                     self?.processHistoryMessages()
+                    self?.isModelLoaded = success
                     
                     // Configure thinking mode after model is loaded
                     if success {
