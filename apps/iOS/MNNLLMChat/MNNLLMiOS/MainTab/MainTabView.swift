@@ -27,7 +27,7 @@ struct MainTabView: View {
     
     private var titles: [String] {
         [
-            NSLocalizedString("Local Model", comment: "本地模型标签"),
+            NSLocalizedString("My Model", comment: "我的模型标签"),
             NSLocalizedString("Model Market", comment: "模型市场标签"),
             NSLocalizedString("Benchmark", comment: "基准测试标签")
         ]
@@ -40,21 +40,21 @@ struct MainTabView: View {
                 createTabContent(
                     content: LocalModelListView(viewModel: modelListViewModel),
                     title: titles[0],
-                    icon: "house.fill",
+                    icon: "home",
                     tag: 0
                 )
                 
                 createTabContent(
                     content: ModelListView(viewModel: modelListViewModel),
                     title: titles[1],
-                    icon: "doc.text.fill",
+                    icon: "market",
                     tag: 1
                 )
                 
                 createTabContent(
                     content: BenchmarkView(),
                     title: titles[2],
-                    icon: "clock.fill",
+                    icon: "benchmark",
                     tag: 2
                 )
             }
@@ -143,17 +143,26 @@ struct MainTabView: View {
                         showHistoryButton: $showHistoryButton
                     )
                 }
-                .navigationDestination(isPresented: $navigateToChat) {
+                .navigationDestination(isPresented: Binding(
+                    get: { navigateToChat && selectedTab == tag },
+                    set: { _ in navigateToChat = false }
+                )) {
                     chatDestination
                 }
-                .navigationDestination(isPresented: $navigateToSettings) {
+                .navigationDestination(isPresented: Binding(
+                    get: { navigateToSettings && selectedTab == tag },
+                    set: { _ in navigateToSettings = false }
+                )) {
                     SettingsView()
                 }
                 .toolbar((navigateToChat || navigateToSettings) ? .hidden : .visible, for: .tabBar)
         }
         .tabItem {
-            Image(systemName: icon)
-            Text(title)
+            MainTabItem(
+                imageName: selectedTab == tag ? "\(icon)Fill" : icon,
+                title: title,
+                isSelected: selectedTab == tag
+            )
         }
         .tag(tag)
     }
