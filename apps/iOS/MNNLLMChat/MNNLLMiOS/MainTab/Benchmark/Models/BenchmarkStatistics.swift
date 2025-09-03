@@ -15,12 +15,14 @@ struct BenchmarkStatistics {
     let decodeStats: SpeedStatistics?
     let totalTokensProcessed: Int
     let totalTests: Int
+    let totalTimeSeconds: Double
     
     static let empty = BenchmarkStatistics(
         configText: "",
         prefillStats: nil,
         decodeStats: nil,
         totalTokensProcessed: 0,
-        totalTests: 0
+        totalTests: 0,
+        totalTimeSeconds: 0.0
     )
 }

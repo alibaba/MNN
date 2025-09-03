@@ -34,7 +34,7 @@ struct ResultsCard: View {
     
     private var infoHeader: some View {
         
-        let statistics = BenchmarkResultsHelper.shared.processTestResults(results.testResults)
+        let statistics = BenchmarkResultsHelper.shared.processTestResults(results.testResults, totalTimeSeconds: results.totalTimeSeconds)
         
         return VStack(alignment: .leading, spacing: 8) {
             Text(results.modelDisplayName)
@@ -105,7 +105,7 @@ struct ResultsCard: View {
 
     
     private var performanceMetrics: some View {
-        let statistics = BenchmarkResultsHelper.shared.processTestResults(results.testResults)
+        let statistics = BenchmarkResultsHelper.shared.processTestResults(results.testResults, totalTimeSeconds: results.totalTimeSeconds)
         
         return VStack(spacing: 16) {
             HStack(spacing: 12) {
@@ -163,8 +163,8 @@ struct ResultsCard: View {
                 
                 PerformanceMetricView(
                     icon: "clock",
-                    title: String(localized: "Total Tokens"),
-                    value: "\(statistics.totalTokensProcessed)",
+                    title: String(localized: "Total Time"),
+                    value: String(format: "%.2f s", statistics.totalTimeSeconds),
                     subtitle: String(localized: "Complete duration"),
                     color: .benchmarkSuccess
                 )
@@ -238,7 +238,7 @@ struct ResultsCard: View {
     
     /// Formats benchmark results into shareable text format with performance metrics and hashtags
     private func formatResultsForSharing() -> String {
-        let statistics = BenchmarkResultsHelper.shared.processTestResults(results.testResults)
+        let statistics = BenchmarkResultsHelper.shared.processTestResults(results.testResults, totalTimeSeconds: results.totalTimeSeconds)
         let deviceInfo = BenchmarkResultsHelper.shared.getDeviceInfo()
         
         var shareText = """

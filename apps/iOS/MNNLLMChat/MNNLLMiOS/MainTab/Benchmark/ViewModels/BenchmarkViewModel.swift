@@ -43,6 +43,10 @@ class BenchmarkViewModel: ObservableObject {
     // Model list manager for getting local models
     private let modelListManager = ModelListManager.shared
     
+    // Track total benchmark runtime from start to completion
+    private var totalBenchmarkTimeSeconds: Float = 0.0
+    private var benchmarkStartTime: Date?
+    
     // MARK: - Initialization & Setup
     
     init() {
@@ -78,7 +82,7 @@ class BenchmarkViewModel: ObservableObject {
                 
                 // Filter only downloaded models that are available locally
                 availableModels = allModels.filter { model in
-                    model.isDownloaded && model.localPath != ""
+                    model.isDownloaded && model.localPath != "" && !model.modelName.lowercased().contains("omni")
                 }
                 
                 print("BenchmarkViewModel: Loaded \(availableModels.count) available local models")
@@ -218,6 +222,8 @@ class BenchmarkViewModel: ObservableObject {
         startButtonText = String(localized: "Stop Test")
         showProgressBar = true
         showResults = false
+        totalBenchmarkTimeSeconds = 0.0
+        benchmarkStartTime = Date()
         updateStatus("Initializing benchmark...")
     }
     
@@ -229,6 +235,7 @@ class BenchmarkViewModel: ObservableObject {
         showProgressBar = false
         hideStatus()
         showResults = false
+        benchmarkStartTime = nil
         cleanupBenchmarkResources()
     }
     
@@ -309,6 +316,11 @@ extension BenchmarkViewModel: BenchmarkCallback {
         let formattedProgress = formatProgressMessage(progress)
         currentProgress = formattedProgress
         updateStatus(formattedProgress.statusMessage)
+        
+        // Calculate the total runtime from benchmark start to current point
+        if let startTime = benchmarkStartTime {
+            totalBenchmarkTimeSeconds = Float(Date().timeIntervalSince(startTime))
+        }
     }
     
     /// Handles benchmark completion with results processing
@@ -322,7 +334,8 @@ extension BenchmarkViewModel: BenchmarkCallback {
             modelDisplayName: model.modelName,
             maxMemoryKb: MemoryMonitor.shared.getMaxMemoryKb(),
             testResults: [result.testInstance],
-            timestamp: DateFormatter.benchmarkTimestamp.string(from: Date())
+            timestamp: DateFormatter.benchmarkTimestamp.string(from: Date()),
+            totalTimeSeconds: totalBenchmarkTimeSeconds
         )
         
         benchmarkResults = results
