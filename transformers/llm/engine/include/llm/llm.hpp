@@ -76,8 +76,8 @@ struct LlmContext {
     int64_t prefill_us = 0;
     int64_t decode_us = 0;
     int64_t sample_us = 0;
-    float prefill_mb = 0;
-    float decode_mb = 0;
+    float pixels_mp = 0;
+    float audio_input_s = 0;
     // tokens
     int current_token;
     std::vector<int> history_tokens;

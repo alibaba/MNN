@@ -554,6 +554,10 @@ void Llm::reset() {
     mContext->history_tokens.clear();
     mContext->all_seq_len = 0;
     mContext->gen_seq_len = 0;
+    mContext->vision_us = 0;
+    mContext->pixels_mp = 0.0f;
+    mContext->audio_us = 0;
+    mContext->audio_input_s = 0.0f;
     mMeta->remove = mMeta->previous;
 }
 
