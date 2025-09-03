@@ -846,26 +846,12 @@ bool remove_directory_safely(const std::string& path) {
                     float decode_speed = (decode_s > 0.001f) ?
                         static_cast<float>(decode_len) / decode_s : 0.0f;
                     
-                    // Format performance results with better formatting
+                    // Format performance results in 2-line format
                     std::ostringstream performance_output;
-                    performance_output << "\n\n > Performance Metrics:\n"
-                                      << "Total inference time: " << total_inference_time.count() << " ms\n"
-                                      << "Prompt tokens: " << prompt_len << "\n"
-                                      << "Generated tokens: " << decode_len << "\n"
-                                      << "Prefill time: " << std::fixed << std::setprecision(3) << prefill_s << " s\n"
-                                      << "Decode time: " << std::fixed << std::setprecision(3) << decode_s << " s\n"
-                                      << "Prefill speed: " << std::fixed << std::setprecision(1) << prefill_speed << " tok/s\n"
-                                      << "Decode speed: " << std::fixed << std::setprecision(1) << decode_speed << " tok/s\n";
-                    
-                    // Add efficiency metrics
-                    if (prompt_len > 0 && decode_len > 0) {
-                        float total_tokens = static_cast<float>(prompt_len + decode_len);
-                        float total_time_s = static_cast<float>(total_inference_time.count()) / 1000.0f;
-                        float overall_speed = total_time_s > 0.001f ? total_tokens / total_time_s : 0.0f;
-                        
-                        performance_output << "> Overall speed: " << std::fixed << std::setprecision(1)
-                                          << overall_speed << " tok/s\n";
-                    }
+                    performance_output << "\n\nPrefill: " << std::fixed << std::setprecision(2) << prefill_s << "s, "
+                                      << prompt_len << " tokens, " << std::setprecision(2) << prefill_speed << " tokens/s\n"
+                                      << "Decode: " << std::fixed << std::setprecision(2) << decode_s << "s, "
+                                      << decode_len << " tokens, " << std::setprecision(2) << decode_speed << " tokens/s\n";
                     
                     // Output performance results on main queue
                     std::string perf_str = performance_output.str();
