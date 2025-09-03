@@ -139,7 +139,7 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_
     printf("decode tokens num = %d\n", decode_len);
     printf(" vision time = %.2f s\n", vision_s);
     printf(" pixels_mp = %.2f MP\n", context->pixels_mp);
-    printf("  audio treat time = %.2f s\n", audio_s);
+    printf("  audio process time = %.2f s\n", audio_s);
     printf("  audio input time = %.2f s\n", context->audio_input_s);
     printf("prefill time = %.2f s\n", prefill_s);
     printf(" decode time = %.2f s\n", decode_s);
