@@ -196,6 +196,9 @@ final class LLMChatViewModel: ObservableObject {
         NotificationCenter.default.post(name: .dismissKeyboard, object: nil)
         
         self.send(draft: draft, userType: .user)
+        
+        recordModelUsage()
+        
         if isModelLoaded {
             if modelInfo.modelName.lowercased().contains("diffusion") {
                 self.getDiffusionResponse(draft: draft)
@@ -390,9 +393,14 @@ final class LLMChatViewModel: ObservableObject {
         interactor.connect()
         
         self.setupLLM(modelPath: self.modelInfo.localPath)
+        
+        recordModelUsage()
     }
 
     func onStop() {
+        
+        recordModelUsage()
+        
         ChatHistoryManager.shared.saveChat(
             historyId: historyId,
             modelInfo: modelInfo,
@@ -418,5 +426,15 @@ final class LLMChatViewModel: ObservableObject {
         interactor.loadNextPage()
             .sink { _ in }
             .store(in: &subscriptions)
+    }
+    
+    private func recordModelUsage() {
+        ModelStorageManager.shared.updateLastUsed(for: modelInfo.modelName)
+        
+        NotificationCenter.default.post(
+            name: .modelUsageUpdated,
+            object: nil,
+            userInfo: ["modelName": modelInfo.modelName]
+        )
     }
 }

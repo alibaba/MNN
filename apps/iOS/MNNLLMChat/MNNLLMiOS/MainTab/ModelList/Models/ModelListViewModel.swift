@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftUI
+import Combine
 
 class ModelListViewModel: ObservableObject {
     // MARK: - Published Properties
@@ -23,6 +24,7 @@ class ModelListViewModel: ObservableObject {
     // MARK: - Private Properties
     private let modelClient = ModelClient.shared
     private let pinnedModelKey = "com.mnnllm.pinnedModelIds"
+    private var cancellables = Set<AnyCancellable>()
     
     // MARK: - Model Data Access
     
@@ -49,6 +51,17 @@ class ModelListViewModel: ObservableObject {
         Task { @MainActor in
             await fetchModels()
         }
+        
+        NotificationCenter.default
+            .publisher(for: .modelUsageUpdated)
+            .sink { [weak self] notification in
+                if let modelName = notification.userInfo?["modelName"] as? String {
+                    Task { @MainActor in
+                        self?.updateModelLastUsed(modelName: modelName)
+                    }
+                }
+            }
+            .store(in: &cancellables)
     }
     
     // MARK: - Model Data Management
@@ -490,4 +503,20 @@ class ModelListViewModel: ObservableObject {
             }
         }
     }
+    
+    @MainActor
+    private func updateModelLastUsed(modelName: String) {
+        if let index = models.firstIndex(where: { $0.modelName == modelName }) {
+            if let lastUsed = ModelStorageManager.shared.getLastUsed(for: modelName) {
+                models[index].lastUsedAt = lastUsed
+                sortModels(fetchedModels: &models)
+            }
+        }
+    }
+}
+
+// MARK: - Notification Names
+
+extension Notification.Name {
+    static let modelUsageUpdated = Notification.Name("modelUsageUpdated")
 }
