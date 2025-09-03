@@ -78,17 +78,17 @@ struct PerformanceMetricView: View {
         HStack(spacing: 12) {
             PerformanceMetricView(
                 icon: "speedometer",
-                title: "Prefill Speed",
+                title: String(localized: "Prefill Speed"),
                 value: "1024.5 t/s",
-                subtitle: "Tokens per second",
+                subtitle: String(localized: "Tokens per second"),
                 color: .benchmarkGradientStart
             )
             
             PerformanceMetricView(
                 icon: "gauge",
-                title: "Decode Speed",
+                title: String(localized: "Decode Speed"),
                 value: "109.8 t/s",
-                subtitle: "Generation rate",
+                subtitle: String(localized: "Generation rate"),
                 color: .benchmarkGradientEnd
             )
         }
@@ -96,17 +96,17 @@ struct PerformanceMetricView: View {
         HStack(spacing: 12) {
             PerformanceMetricView(
                 icon: "memorychip",
-                title: "Memory Usage",
+                title: String(localized: "Memory Usage"),
                 value: "1.2 GB",
-                subtitle: "Peak memory",
+                subtitle: String(localized: "Peak memory"),
                 color: .benchmarkWarning
             )
             
             PerformanceMetricView(
                 icon: "clock",
-                title: "Total Time",
+                title: String(localized: "Total Time"),
                 value: "2.456s",
-                subtitle: "Complete duration",
+                subtitle: String(localized: "Complete duration"),
                 color: .benchmarkSuccess
             )
         }
