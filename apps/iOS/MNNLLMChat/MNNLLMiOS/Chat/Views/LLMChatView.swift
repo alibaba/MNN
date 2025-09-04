@@ -8,6 +8,7 @@
 import Foundation
 import SwiftUI
 import ExyteChat
+import ExyteMediaPicker
 import AVFoundation
 
 struct LLMChatView: View {
@@ -52,6 +53,11 @@ struct LLMChatView: View {
                 onToggle: {
                     viewModel.toggleThinkingMode()
                 }
+            )
+            .setMediaPickerSelectionParameters(
+                MediaPickerParameters(mediaType: .photo,
+                                      selectionLimit: 1,
+                                     showFullscreenPreview: false)
             )
             .chatTheme(
                 ChatTheme(

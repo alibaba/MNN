@@ -9,7 +9,6 @@ import SwiftUI
 import AVFoundation
 
 import ExyteChat
-import ExyteMediaPicker
 
 final class LLMChatViewModel: ObservableObject {
     
