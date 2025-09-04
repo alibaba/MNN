@@ -63,11 +63,11 @@ object ModelMarketUtils {
                 }
 
                 val localMarketVersion: String? = readLocalMarketVersion(modelId)
-
-                val shouldRefreshFromRepository = (currentMarketVersion != null && (localMarketVersion == null || localMarketVersion != currentMarketVersion))
+                val shouldRefreshFromRepository = (currentMarketVersion == null ||
+                                                 localMarketVersion == null ||
+                                                 localMarketVersion != currentMarketVersion)
 
                 if (!shouldRefreshFromRepository) {
-                    // Try local first if versions match or version unknown
                     marketItem = readMarketConfigFromLocal(modelId)
                     if (marketItem != null) {
                         return@withContext marketItem
@@ -75,21 +75,16 @@ object ModelMarketUtils {
                 } else {
                     Log.d(TAG, "Local market version ($localMarketVersion) != current market version ($currentMarketVersion), refreshing from repository")
                 }
-
-                // Read from repository as fallback or when forced by version mismatch
                 try {
-                    if (shouldRefreshFromRepository) {
-                        // Force a network refresh to ensure we fetch the latest data
-                        repository.refreshFromNetwork()
-                    }
-                    // Get all models from different categories and find the one with matching modelId
                     val allModels = mutableListOf<ModelMarketItem>()
                     allModels.addAll(repository.getModels())
                     allModels.addAll(repository.getTtsModels())
                     allModels.addAll(repository.getAsrModels())
                     marketItem = allModels.find { it.modelId == modelId }
                     if (marketItem != null) {
-                        writeMarketConfig(marketItem!!, currentMarketVersion)
+                        writeMarketConfig(marketItem, currentMarketVersion)
+                    } else  {
+                        Log.e(TAG, "Failed to find model $modelId in ModelRepository ${allModels.joinToString { it.modelId }}")
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to read from ModelRepository for $modelId", e)

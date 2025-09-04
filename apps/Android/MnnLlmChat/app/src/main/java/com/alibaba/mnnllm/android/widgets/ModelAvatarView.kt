@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.AttributeSet
 import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
 import com.alibaba.mnnllm.android.R
@@ -18,6 +19,7 @@ class ModelAvatarView @JvmOverloads constructor(
 
     private val tvModelName: TextView
     private val headerIcon: ImageView
+    private var isCompactMode: Boolean = false
 
     init {
         LayoutInflater.from(context).inflate(R.layout.view_model_avatar, this, true)
@@ -35,9 +37,11 @@ class ModelAvatarView @JvmOverloads constructor(
             
             try {
                 val modelName = typedArray.getString(R.styleable.ModelAvatarView_modelName)
+                val compactMode = typedArray.getBoolean(R.styleable.ModelAvatarView_compactMode, false)
                 if (!modelName.isNullOrEmpty()) {
                     setModelName(modelName)
                 }
+                setCompactMode(compactMode)
             } finally {
                 typedArray.recycle()
             }
@@ -67,15 +71,20 @@ class ModelAvatarView @JvmOverloads constructor(
                 ) else headerText
             tvModelName.visibility = View.VISIBLE
         }
-//
-//        if (name.contains("qwen", ignoreCase = true)) {
-//            tvModelName.visibility = View.GONE
-//            headerIcon.visibility = View.VISIBLE
-//            headerIcon.setImageResource(R.drawable.qwen_icon)
-//        } else {
-//            tvModelName.visibility = View.VISIBLE
-//            headerIcon.visibility = View.GONE
-//            tvModelName.text = name.split("-").joinToString("") { it.firstOrNull()?.toString() ?: "" }.take(2).uppercase()
-//        }
+    }
+
+    fun setCompactMode(compactMode: Boolean) {
+        isCompactMode = compactMode
+        if (compactMode) {
+            // 在紧凑模式下移除 ImageView 的 margin 和 CardView 的背景
+            val layoutParams = headerIcon.layoutParams as? ViewGroup.MarginLayoutParams
+            layoutParams?.setMargins(0, 0, 0, 0)
+            headerIcon.layoutParams = layoutParams
+            
+            // 移除 CardView 的背景
+            setCardBackgroundColor(android.graphics.Color.TRANSPARENT)
+            cardElevation = 0f
+            strokeWidth = 0
+        }
     }
 }

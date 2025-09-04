@@ -246,9 +246,16 @@
     <string name="audio_output_confirm">Audio Output is very slow for now, Would you like to continue anyway?</string>
     <string name="confirm_delete_model_title">Confirm Deletion</string>
     <string name="confirm_delete_model_message">Are you sure you want to delete this model? This action cannot be undone.</string>
+    <string name="delete_history_title">Delete Chat History</string>
+    <string name="delete_history_message">Are you sure you want to delete this chat history? This action cannot be undone.</string>
     <string name="vendor_menu_title">Vendor</string>
     <string name="modality_menu_title">Modality</string>
     <string name="downloaded">Downloaded</string>
+    <string name="unknown_time">Unknown time</string>
+    <string name="just_now">Just now</string>
+    <string name="minutes_ago">%1$d minutes ago</string>
+    <string name="hours_ago">%1$d hours ago</string>
+    <string name="days_ago">%1$d days ago</string>
     <string name="last_chat">Last chat</string>
     <string name="show_model_info">Show model info</string>
     <string name="model_info_title">Model Information</string>
@@ -332,7 +339,7 @@
     <string name="voice_chat_stopping">Stopping...</string>
     <string name="voice_chat_ready_greeting">What can I help you with?</string>
     <string name="voice_chat_usage_notice">To use voice chat, TTS and ASR models need to be downloaded. Please note multi-language support.</string>
-    <string name="nav_name_chats">Chats</string>
+    <string name="nav_name_chats">My Models</string>
     <string name="benchmark">Benchmark</string>
     <string name="download_source">Select Download Source</string>
     <string name="filter">Filter</string>
@@ -384,10 +391,15 @@
     <string name="no">No</string>
     <string name="select_a_model_to_start">Start benchmark after selected your model</string>
     <string name="start_test">Start Test</string>
+    <string name="restart_test">Restart Test</string>
     <string name="prefill_speed">"Prefill Speed: "</string>
     <string name="memory_title">Peak Memory: </string>
     <string name="decode_speed">Decode Speed: </string>
     <string name="test_result">Test Result</string>
+    <string name="test_progress">Test Progress</string>
+    <string name="running_performance_tests">Running performance tests</string>
+    <string name="complete">Complete</string>
+    <string name="status_update">Status Update</string>
     <string name="share">Share</string>
 
     <!-- Benchmark Strings -->
@@ -500,4 +512,28 @@
     <string name="download_service_title">MNN Chat Download Service</string>
     <string name="downloading_single_model">Downloading %1$s</string>
     <string name="downloading_multiple_models">Downloading %1$d models</string>
+    
+    <!-- Benchmark Performance Metric Strings -->
+    <string name="prefill_speed_title">Prefill Speed</string>
+    <string name="prefill_speed_subtitle">Tokens per second</string>
+    <string name="decode_speed_title">Decode Speed</string>
+    <string name="decode_speed_subtitle">Generation rate</string>
+    <string name="memory_usage_title">Memory Usage</string>
+    <string name="memory_usage_subtitle">Peak memory</string>
+    <string name="total_tokens_title">Total Time</string>
+    <string name="total_tokens_subtitle">Completion duration</string>
+    <string name="benchmark_config_title">Benchmark Configuration</string>
+    <string name="powered_by_mnn">Powered By MNN</string>
+    <string name="completion_time">Completion Time</string>
+    <string name="benchmark_results_title">基准测试结果</string>
+    <string name="performance_analysis_complete">Performance analysis complete</string>
+    <string name="completed">Completed</string>
+    <string name="select_model_title">Select Model</string>
+    <string name="click_to_select_model">Click to select model</string>
+    <string name="ready_for_benchmark">Ready for benchmark</string>
+    <string name="cannot_change_model_during_benchmark">Cannot change model during benchmark</string>
+    <string name="failed_to_share_result">Failed to share result: %1$s</string>
+    <string name="unknown_error">Unknown error</string>
+    <string name="not_available">N/A</string>
+    <string name="unknown_model">Unknown Model</string>
 </resources>

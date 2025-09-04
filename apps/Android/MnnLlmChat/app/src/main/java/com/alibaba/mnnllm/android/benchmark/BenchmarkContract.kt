@@ -27,6 +27,24 @@ class BenchmarkContract {
         fun updateStatus(message: String)
         fun hideStatus()
         
+        // Progress and Status Cards
+        fun showProgressCard(show: Boolean)
+        fun showStatusCard(show: Boolean)
+        fun updateStatusMessage(message: String)
+        fun updateTestDetails(
+            currentIteration: Int,
+            totalIterations: Int,
+            nPrompt: Int,
+            nGenerate: Int
+        )
+        fun updateProgressMetrics(
+            runtime: Float,
+            prefillTime: Float,
+            decodeTime: Float,
+            prefillSpeed: Float,
+            decodeSpeed: Float
+        )
+        
         // UI state
         fun setStartButtonText(text: String)
         fun setStartButtonEnabled(enabled: Boolean)

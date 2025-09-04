@@ -61,6 +61,12 @@ This is our full multimodal language model (LLM) Android app
   ```
 
 # Releases
+## Version 0.7.2
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_2.apk)
++ Bugfix:
+  + qwen think/no_think switch sometimes not work.
++ UI Update:
+  + update ui for history and benchmark test screen.
 ## Version 0.7.1
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_1.apk)
 + add new models: 

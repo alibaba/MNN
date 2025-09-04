@@ -24,6 +24,8 @@ object BenchmarkResultsHelper {
         var totalTokensProcessed = 0
         var configText = context.getString(R.string.benchmark_config) + "\n"
         
+        var totalTimeSeconds = 0.0
+        
         testResults.forEach { testInstance ->
             // Calculate speeds for this test instance
             if (testInstance.prefillUs.isNotEmpty()) {
@@ -38,6 +40,11 @@ object BenchmarkResultsHelper {
             
             totalTokensProcessed += testInstance.nPrompt + testInstance.nGenerate
             configText += "PP: ${testInstance.nPrompt} • TG: ${testInstance.nGenerate}\n"
+            
+            // Calculate total time for this test instance
+            val prefillTimeSeconds = testInstance.prefillUs.sum() / 1_000_000.0
+            val decodeTimeSeconds = testInstance.decodeUs.sum() / 1_000_000.0
+            totalTimeSeconds += prefillTimeSeconds + decodeTimeSeconds
         }
         
         android.util.Log.d("BenchmarkResultsHelper", "Processing results: prefillSpeeds=${allPrefillSpeeds.size}, decodeSpeeds=${allDecodeSpeeds.size}")
@@ -75,7 +82,8 @@ object BenchmarkResultsHelper {
             prefillStats = prefillStats,
             decodeStats = decodeStats,
             totalTokensProcessed = totalTokensProcessed,
-            totalTests = testResults.size
+            totalTests = testResults.size,
+            totalTimeSeconds = totalTimeSeconds
         )
     }
     
@@ -93,14 +101,14 @@ object BenchmarkResultsHelper {
      * Format speed statistics for display
      */
     fun formatSpeedStatistics(stats: SpeedStatistics): String {
-        return "%.2f ± %.2f t/s".format(stats.average, stats.stdev)
+        return "%.1f ± %.1f tok/s".format(stats.average, stats.stdev)
     }
     
     /**
-     * Format speed value (average and stdev) for display in a single line like "avg ± stdev t/s".
+     * Format speed value (average and stdev) for display in a single line like "avg ± stdev tok/s".
      */
     fun formatSpeedStatisticsLine(stats: SpeedStatistics): String {
-        return "%.2f ± %.2f t/s".format(stats.average, stats.stdev)
+        return "%.1f ± %.1f tok/s".format(stats.average, stats.stdev)
     }
     
     /**
@@ -114,7 +122,7 @@ object BenchmarkResultsHelper {
      * Format speed value (average only) for display
      */
     fun formatSpeedValue(stats: SpeedStatistics): String {
-        return "%.2f t/s".format(stats.average)
+        return "%.1f tok/s".format(stats.average)
     }
     
     /**
@@ -149,6 +157,40 @@ object BenchmarkResultsHelper {
     }
     
     /**
+     * Format memory usage with percentage and absolute values
+     * Returns Pair<value,label> where value is like "12.3%" and label is "Peak Memory\n3 GB / 24 GB"
+     */
+    fun formatMemoryUsage(maxMemoryKb: Long, totalKb: Long): Pair<String, String> {
+        val percentage = if (totalKb > 0) {
+            (maxMemoryKb.toDouble() / totalKb.toDouble()) * 100.0
+        } else {
+            0.0
+        }
+        
+        // Format memory values with appropriate units (MB or GB)
+        val maxMemoryFormatted = formatMemorySize(maxMemoryKb)
+        val totalMemoryFormatted = formatMemorySize(totalKb)
+        
+        val valueText = maxMemoryFormatted
+        val labelText = "%.1f%% of %s".format(percentage, totalMemoryFormatted)
+        
+        return Pair(valueText, labelText)
+    }
+    
+    /**
+     * Format memory size with appropriate unit (MB or GB)
+     */
+    private fun formatMemorySize(memoryKb: Long): String {
+        val memoryMB = memoryKb / 1024.0
+        return if (memoryMB >= 1024.0) {
+            val memoryGB = memoryMB / 1024.0
+            "%.1f GB".format(memoryGB)
+        } else {
+            "%.0f MB".format(memoryMB)
+        }
+    }
+    
+    /**
      * Format peak memory usage value and label.
      * Returns Pair<value,label> where value is like "12.0%" and label is "Peak Memory\n3 GB / 24 GB".
      */
@@ -177,7 +219,8 @@ data class BenchmarkStatistics(
     val prefillStats: SpeedStatistics?,
     val decodeStats: SpeedStatistics?,
     val totalTokensProcessed: Int,
-    val totalTests: Int
+    val totalTests: Int,
+    val totalTimeSeconds: Double
 ) {
     companion object {
         fun empty() = BenchmarkStatistics(
@@ -185,7 +228,8 @@ data class BenchmarkStatistics(
             prefillStats = null,
             decodeStats = null,
             totalTokensProcessed = 0,
-            totalTests = 0
+            totalTests = 0,
+            totalTimeSeconds = 0.0
         )
     }
 }
