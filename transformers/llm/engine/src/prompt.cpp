@@ -55,22 +55,24 @@ void Prompt::setParams(std::shared_ptr<LlmConfig> config) {
 #ifdef LLM_USE_MINJA
     if (config->config_.document.HasMember("jinja")) {
         auto& document = config->config_.document["jinja"];
-        if (nullptr == mCommonTemplate.get()) {
-            // Only create jinja once
-            std::string bosToken, eosToken;
-            if (document.HasMember("bos") && document["bos"].IsString()) {
-                bosToken = document["bos"].GetString();
+        if (document.HasMember("chat_template")) {
+            if (nullptr == mCommonTemplate.get()) {
+                // Only create jinja once
+                std::string bosToken, eosToken;
+                if (document.HasMember("bos") && document["bos"].IsString()) {
+                    bosToken = document["bos"].GetString();
+                }
+                if (document.HasMember("eos") && document["eos"].IsString()) {
+                    eosToken = document["eos"].GetString();
+                }
+                std::string templateChat = document["chat_template"].GetString();
+                mCommonTemplate.reset(new JinjaTemplate(templateChat, bosToken, eosToken));
             }
-            if (document.HasMember("eos") && document["eos"].IsString()) {
-                eosToken = document["eos"].GetString();
+            if (document.HasMember("context")) {
+                mCommonTemplate->setExtraContext(document["context"]);
             }
-            std::string templateChat = document["chat_template"].GetString();
-            mCommonTemplate.reset(new JinjaTemplate(templateChat, bosToken, eosToken));
+            return;
         }
-        if (document.HasMember("context")) {
-            mCommonTemplate->setExtraContext(document["context"]);
-        }
-        return;
     }
 #endif
     mCommonTemplate.reset();
