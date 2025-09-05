@@ -114,7 +114,6 @@ android {
                     signingConfig signingConfigs.release
                 }
                 applicationIdSuffix ".release"
-                versionNameSuffix ".gp"
             }
         }
     }
@@ -127,6 +126,7 @@ android {
         googleplay {
             dimension "store"
             buildConfigField "boolean", "IS_GOOGLE_PLAY_BUILD", "true"
+            versionNameSuffix ".gp"
         }
     }
 

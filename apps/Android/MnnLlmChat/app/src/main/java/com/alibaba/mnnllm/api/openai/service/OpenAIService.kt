@@ -110,7 +110,6 @@ class OpenAIService : Service() {
 
 
 
-@RequiresApi(Build.VERSION_CODES.Q)
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (!isServiceRunning) {
             Timber.tag("ServiceLifecycle").w("Service started illegally and will be stopped immediately.")
@@ -119,24 +118,25 @@ class OpenAIService : Service() {
         }
         val notification = coordinator.getNotification()
         if (notification != null) {
-            startForeground(ApiNotificationManager.NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(ApiNotificationManager.NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            } else {
+                startForeground(ApiNotificationManager.NOTIFICATION_ID, notification)
+            }
         }
         return START_NOT_STICKY
     }
-
-
-
 
     override fun onCreate() {
         super.onCreate()
         coordinator = ApiServiceCoordinator(this)
         coordinator.initialize()
-        
-        val notification = coordinator.getNotification()
-        if (notification != null) {
-            startForeground(ApiNotificationManager.NOTIFICATION_ID, notification)
-        }
     }
+
+
+
+
+    
 
     override fun onDestroy() {
         Timber.tag(TAG).i("Service is being destroyed")

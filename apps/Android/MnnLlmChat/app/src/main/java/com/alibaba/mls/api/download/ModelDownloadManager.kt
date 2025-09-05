@@ -354,7 +354,7 @@ class ModelDownloadManager private constructor(context: Context) {
         }
         
         if (count == 1) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 if (ContextCompat.checkSelfPermission(
                         appContext,
                         Manifest.permission.POST_NOTIFICATIONS

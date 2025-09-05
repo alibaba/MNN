@@ -49,7 +49,7 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
     private val serverEventManager = ServerEventManager.getInstance()
     private val logCollector = LogCollector.getInstance()
 
-    // 管理协程订阅
+    // Manage coroutine subscriptions
     private var serverStateJob: Job? = null
     private var serverInfoJob: Job? = null
     private var logCollectorJob: Job? = null
@@ -73,6 +73,13 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
                     behavior.state = BottomSheetBehavior.STATE_EXPANDED
                 }
                 behavior.skipCollapsed = false
+                
+                // Optimize touch event handling to reduce conflicts with ScrollView
+                behavior.isDraggable = true
+                behavior.isHideable = false
+                
+                // Set up touch event listener to optimize scrolling experience
+                setupBottomSheetTouchHandling(bottomSheet, behavior)
             }
         }
     }
@@ -85,18 +92,21 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
         setupLogArea()
         setupActionButtons()
         observeServerEvents()
+        
+        // Resolve scrolling conflicts between ScrollView and BottomSheetDialog
+        setupScrollViewTouchHandling()
     }
 
     override fun onResume() {
         super.onResume()
-        // 重新订阅事件，确保状态监听正常工作
+        // Re-subscribe to events to ensure status monitoring works correctly
         //observeServerEvents()
 
 
-        // 每次Fragment可见时刷新状态，确保显示最新的服务器状态
+        // Refresh status every time the fragment is visible to ensure the latest server status is displayed
        // updateServiceStatus()
 
-        // 延迟再次检查状态，确保服务重启后能正确获取状态
+        // Check status again after a delay to ensure correct status is obtained after service restart
         //binding.root.postDelayed({
            // if (isAdded && !isDetached) {
           //     updateServiceStatus()
@@ -115,7 +125,7 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
         val serverState = serverEventManager.getCurrentState()
         val serverInfo = serverEventManager.getCurrentInfo()
 
-        // 获取配置的IP和端口，用于显示API端点
+        // Get configured IP and port to display the API endpoint
         val configuredHost = ApiServerConfig.getIpAddress(context)
         val configuredPort = ApiServerConfig.getPort(context)
 
@@ -137,7 +147,7 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
                 binding.textServiceStatus.setTextColor(resources.getColor(android.R.color.holo_green_dark, null))
                 binding.textListenAddress.visibility = View.GONE
                 binding.labelListenAddress.visibility = View.GONE
-                // 使用实际运行的服务器信息，如果为空则使用配置信息
+                // Use actual running server info, otherwise use configured info
                 val displayHost = if (serverInfo.host.isNotEmpty()) serverInfo.host else configuredHost
                 val displayPort = if (serverInfo.port > 0) serverInfo.port else configuredPort
                 val endpointUrl = "http://${displayHost}:${displayPort}/v1/chat/completions"
@@ -187,7 +197,7 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
         binding.textCorsStatus.text = if (corsEnabled) getString(R.string.cors_enabled) else getString(R.string.cors_disabled_status)
         binding.textAuthStatus.text = if (authEnabled) getString(R.string.api_key_enabled) else getString(R.string.no_authentication)
 
-        // 设置折叠/展开功能
+        // Set up collapse/expand functionality
         binding.layoutConfigHeader.setOnClickListener {
             val isVisible = binding.layoutConfigDetails.isVisible
             binding.layoutConfigDetails.isVisible = !isVisible
@@ -197,20 +207,21 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
     }
 
     private fun setupLogArea() {
-        // 设置RecyclerView
+        // Set up RecyclerView
         binding.recyclerLogContent.apply {
             layoutManager = LinearLayoutManager(context)
             adapter = logAdapter
-            // 设置触摸事件拦截，防止滑动冲突
-            setOnTouchListener { view, event ->
-                // 请求父容器不要拦截触摸事件
+            // Intercept touch events to prevent scrolling conflicts
+            setOnTouchListener {
+                view, event ->
+                // Request parent container not to intercept touch events
                 view.parent.requestDisallowInterceptTouchEvent(true)
                 false
             }
         }
 
         Timber.tag("ApiConsoleUI").d("[Log] Initializing log area")
-        // 添加初始日志
+        // Add initial log message
         addLogMessage(getString(R.string.console_started))
 
         val serverState = serverEventManager.getCurrentState()
@@ -227,9 +238,10 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
             }
         }
 
-        // 订阅实时日志
+        // Subscribe to real-time logs
         logCollector.logFlow
-            .onEach { logEntry ->
+            .onEach {
+                logEntry ->
                 if (isAdded && !isDetached) {
                     val (formattedLog, clickableInfo) = logCollector.formatLogEntryWithClickableInfo(logEntry)
                     addRawLogEntryWithClickInfo(formattedLog, clickableInfo)
@@ -237,7 +249,7 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
             }
             .launchIn(lifecycleScope)
 
-        // 设置折叠/展开功能
+        // Set up collapse/expand functionality
         binding.layoutLogHeader.setOnClickListener {
             val isVisible = binding.layoutLogContent.isVisible
             binding.layoutLogContent.isVisible = !isVisible
@@ -251,14 +263,14 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
         val logEntry = "[$timestamp] $message"
         logAdapter.addLogMessage(logEntry)
 
-        // 自动滚动到底部
+        // Auto-scroll to the bottom
         scrollToBottom()
     }
 
     private fun addRawLogMessage(message: String) {
         logAdapter.addLogMessage(message)
 
-        // 自动滚动到底部
+        // Auto-scroll to the bottom
         scrollToBottom()
     }
     
@@ -266,7 +278,7 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
         val logEntry = LogAdapter.LogEntryData(message, clickableInfo)
         logAdapter.addLogEntry(logEntry)
 
-        // 自动滚动到底部
+        // Auto-scroll to the bottom
         scrollToBottom()
     }
 
@@ -279,6 +291,57 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
     }
 
 
+
+    private fun setupScrollViewTouchHandling() {
+        // Set up touch event handling for the ScrollView to resolve scrolling conflicts with the BottomSheetDialog
+        binding.settingsScrollView.setOnTouchListener {
+            view, event ->
+            when (event.action) {
+                android.view.MotionEvent.ACTION_DOWN -> {
+                    // When touch starts, request parent container not to intercept touch events
+                    view.parent.requestDisallowInterceptTouchEvent(true)
+                }
+                android.view.MotionEvent.ACTION_MOVE -> {
+                    // Check if scrolling is needed
+                    val scrollView = view as androidx.core.widget.NestedScrollView
+                    if (scrollView.canScrollVertically(-1) || scrollView.canScrollVertically(1)) {
+                        // If it can scroll, continue to request no interception
+                        view.parent.requestDisallowInterceptTouchEvent(true)
+                    }
+                }
+                android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                    // When touch ends, allow parent container to intercept touch events
+                    view.parent.requestDisallowInterceptTouchEvent(false)
+                }
+            }
+            false // Return false to let the ScrollView continue handling the touch event
+        }
+    }
+
+    private fun setupBottomSheetTouchHandling(bottomSheet: FrameLayout, behavior: BottomSheetBehavior<FrameLayout>) {
+        // Set up touch event handling for the BottomSheet to optimize interaction with the ScrollView
+        bottomSheet.setOnTouchListener {
+            view, event ->
+            when (event.action) {
+                android.view.MotionEvent.ACTION_DOWN -> {
+                    // When touch starts, check the touch position
+                    val scrollView = binding.settingsScrollView
+                    if (scrollView.canScrollVertically(-1) || scrollView.canScrollVertically(1)) {
+                        // If the ScrollView can scroll, let the ScrollView handle the touch event
+                        scrollView.requestDisallowInterceptTouchEvent(true)
+                    }
+                }
+                android.view.MotionEvent.ACTION_MOVE -> {
+                    // When moving, if the ScrollView is scrolling, let it continue to handle it
+                    val scrollView = binding.settingsScrollView
+                    if (scrollView.canScrollVertically(-1) || scrollView.canScrollVertically(1)) {
+                        scrollView.requestDisallowInterceptTouchEvent(true)
+                    }
+                }
+            }
+            false // Return false to let the BottomSheet continue handling the touch event
+        }
+    }
 
     private fun setupActionButtons() {
         binding.buttonClose.setOnClickListener {
@@ -293,7 +356,7 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
             copyLogToClipboard()
         }
         
-        // 添加测试按钮（长按清空日志按钮）
+        // Add test button (long press to clear log)
         binding.buttonClearLog.setOnLongClickListener {
             addTestLogWithCodeLocation()
             true
@@ -301,7 +364,7 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
     }
     
     /**
-     * 添加测试日志，包含代码行号信息
+     * Add test log, including code line number information
      */
     private fun addTestLogWithCodeLocation() {
         Timber.tag("TestLog").i(getString(R.string.test_log_message1))
@@ -326,21 +389,22 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
     }
 
     private fun observeServerEvents() {
-        // 取消之前的订阅
+        // Cancel previous subscriptions
         cancelObservations()
         Timber.tag("ApiConsoleUI").d("[ServerEvent] Subscribing to server events")
 
-        // 立即获取当前状态并更新UI
+        // Immediately get the current status and update the UI
         updateServiceStatus()
 
-        // 观察服务器状态变化
+        // Observe server status changes
         serverStateJob = serverEventManager.serverState
-            .onEach { state ->
+            .onEach {
+                state ->
                 if (isAdded && !isDetached) {
-                    // 强制更新UI状态
+                    // Force update UI status
                     updateServiceStatus()
 
-                    // 根据状态变化添加日志
+                    // Add log based on status change
                     when (state) {
                         ServerEventManager.ServerState.STARTING -> {
                             addLogMessage(getString(R.string.server_starting_message))
@@ -365,11 +429,12 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
             }
             .launchIn(lifecycleScope)
 
-        // 观察服务器信息变化
+        // Observe server info changes
         serverInfoJob = serverEventManager.serverInfo
-            .onEach { info ->
+            .onEach {
+                info ->
                 if (isAdded && !isDetached) {
-                    // 当服务器信息变化时强制更新状态
+                    // Force update status when server info changes
                     updateServiceStatus()
 
                     if (info.isRunning) {

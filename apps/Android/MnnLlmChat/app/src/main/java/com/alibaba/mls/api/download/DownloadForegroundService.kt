@@ -42,7 +42,7 @@ class DownloadForegroundService : Service() {
         
         val notification = createNotification()
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(SERVICE_ID, notification, FOREGROUND_SERVICE_TYPE_DATA_SYNC)
             } else {
                 startForeground(SERVICE_ID, notification)
