@@ -734,7 +734,7 @@ public actor ModelDownloadManager: ModelDownloadManagerProtocol {
             
             let newProgress = progress.progress
             let progressDiff = abs(newProgress - progress.lastReportedProgress)
-            if progressDiff >= 0.01 || newProgress >= 1.0 {
+            if progressDiff >= 0.001 || newProgress >= 1.0 {
                 progress.lastReportedProgress = newProgress
                 await updateProgress(newProgress)
             }

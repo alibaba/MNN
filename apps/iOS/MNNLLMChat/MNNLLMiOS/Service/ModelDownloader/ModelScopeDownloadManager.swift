@@ -196,7 +196,7 @@ public actor ModelScopeDownloadManager: ModelDownloadManagerProtocol {
     private func updateProgress(_ progress: Double, callback: @escaping (Double) -> Void) {
         // Only update UI progress if there's a significant change (>0.1%)
         let progressDiff = abs(progress - lastReportedProgress)
-        if progressDiff >= 0.01 || progress >= 1.0 {
+        if progressDiff >= 0.001 || progress >= 1.0 {
             lastReportedProgress = progress
             Task { @MainActor in
                 callback(progress)

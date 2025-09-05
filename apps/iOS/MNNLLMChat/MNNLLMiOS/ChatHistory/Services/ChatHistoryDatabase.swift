@@ -32,7 +32,9 @@ class ChatHistoryDatabase {
     private let updatedAt: Column<Date>
     
     private init() throws {
-        let path = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true).first!
+        guard let path = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true).first else {
+            throw NSError(domain: "ChatHistoryDatabase", code: -1, userInfo: [NSLocalizedDescriptionKey: "Documents directory not found"])
+        }
         db = try Connection("\(path)/chatHistory.sqlite3")
         
         chatHistories = Table("chatHistories")

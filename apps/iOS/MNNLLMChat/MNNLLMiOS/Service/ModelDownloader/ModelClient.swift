@@ -253,7 +253,7 @@ class ModelClient {
         var lastUpdateTime = Date()
         var lastProgress: Double = 0.0
         let progressUpdateInterval: TimeInterval = 0.1 // Limit update frequency to every 100ms
-        let progressThreshold: Double = 0.01 // Progress change threshold of 1%
+        let progressThreshold: Double = 0.001 // Progress change threshold of 0.1%
         
         try await mirrorHubApi.snapshot(from: repo, matching: modelFiles) { fileProgress in
             let currentProgress = fileProgress.fractionCompleted

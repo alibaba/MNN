@@ -16,13 +16,14 @@ struct ModelListView: View {
     @State private var selectedCategories: Set<String> = []
     @State private var selectedVendors: Set<String> = []
     @State private var showFilterMenu = false
+    private let topID = "topID"
     
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
                     
-                    Color.clear.frame(height: 0).id("TOP")
+                    Color.clear.frame(height: 0).id(topID)
                     
                     Section {
                         modelListSection
@@ -44,17 +45,17 @@ struct ModelListView: View {
             }
             // Auto-scroll to top when filters change to avoid blank screen when data shrinks
             .onChange(of: selectedTags) { old, new in
-                withAnimation { proxy.scrollTo("TOP", anchor: .top) }
+                withAnimation { proxy.scrollTo(topID, anchor: .top) }
             }
             .onChange(of: selectedCategories) { old, new in
-                withAnimation { proxy.scrollTo("TOP", anchor: .top) }
+                withAnimation { proxy.scrollTo(topID, anchor: .top) }
             }
             .onChange(of: selectedVendors) { old, new in
-                withAnimation { proxy.scrollTo("TOP", anchor: .top) }
+                withAnimation { proxy.scrollTo(topID, anchor: .top) }
             }
             .onChange(of: showFilterMenu) { old, new in
                 if old != new {
-                    withAnimation { proxy.scrollTo("TOP", anchor: .top) }
+                    withAnimation { proxy.scrollTo(topID, anchor: .top) }
                 }
             }
         }

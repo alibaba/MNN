@@ -8,9 +8,10 @@
 
 /* Begin PBXBuildFile section */
 		3E301C692D5C84730045E5E1 /* MNN.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3E301C682D5C84730045E5E1 /* MNN.framework */; };
+		3E6301D42E6A8A470004EC63 /* ExyteChat in Frameworks */ = {isa = PBXBuildFile; productRef = 3E6301D32E6A8A470004EC63 /* ExyteChat */; };
 		3E94DFF12D37DBA900BE39A7 /* SQLite in Frameworks */ = {isa = PBXBuildFile; productRef = 3E94DFF02D37DBA900BE39A7 /* SQLite */; };
-		3EC8DF852E4DCF5600861131 /* ExyteChat in Frameworks */ = {isa = PBXBuildFile; productRef = 3EC8DF842E4DCF5600861131 /* ExyteChat */; };
 		3EC8DF872E4DCF5800861131 /* Transformers in Frameworks */ = {isa = PBXBuildFile; productRef = 3EC8DF862E4DCF5800861131 /* Transformers */; };
+		3EDA70222E605BE700B17E48 /* ExyteChat in Frameworks */ = {isa = PBXBuildFile; productRef = 3EDA70212E605BE700B17E48 /* ExyteChat */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -84,10 +85,11 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3EDA70222E605BE700B17E48 /* ExyteChat in Frameworks */,
 				3E301C692D5C84730045E5E1 /* MNN.framework in Frameworks */,
+				3E6301D42E6A8A470004EC63 /* ExyteChat in Frameworks */,
 				3E94DFF12D37DBA900BE39A7 /* SQLite in Frameworks */,
 				3EC8DF872E4DCF5800861131 /* Transformers in Frameworks */,
-				3EC8DF852E4DCF5600861131 /* ExyteChat in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -158,8 +160,9 @@
 			name = MNNLLMiOS;
 			packageProductDependencies = (
 				3E94DFF02D37DBA900BE39A7 /* SQLite */,
-				3EC8DF842E4DCF5600861131 /* ExyteChat */,
 				3EC8DF862E4DCF5800861131 /* Transformers */,
+				3EDA70212E605BE700B17E48 /* ExyteChat */,
+				3E6301D32E6A8A470004EC63 /* ExyteChat */,
 			);
 			productName = MNNLLMiOS;
 			productReference = 3E8591FE2D1D45070067B46F /* MNNLLMiOS.app */;
@@ -246,8 +249,8 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				3E94DF8A2D37D8FF00BE39A7 /* XCRemoteSwiftPackageReference "SQLite" */,
-				3EC8DF822E4DCDF500861131 /* XCRemoteSwiftPackageReference "Chat" */,
 				3EC8DF832E4DCF4A00861131 /* XCRemoteSwiftPackageReference "swift-transformers" */,
+				3E6301D22E6A8A470004EC63 /* XCRemoteSwiftPackageReference "Chat" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 3E8591FF2D1D45070067B46F /* Products */;
@@ -357,7 +360,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -451,6 +454,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = MNNLLMiOS/MNNLLMiOS.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"MNNLLMiOS/Preview Content\"";
@@ -465,7 +469,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = MNNLLMiOS/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "MNN Chat";
-				INFOPLIST_KEY_LSApplicationCategoryType = "";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSCameraUsageDescription = "We need access your camera to capture image or video";
 				INFOPLIST_KEY_NSDocumentsFolderUsageDescription = "This app needs to access your documents to save downloaded models";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "This app needs to access your local network to download models";
@@ -479,8 +483,7 @@
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				IPHONEOS_DEPLOYMENT_TARGET = 17;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
@@ -488,6 +491,7 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnnchat;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -506,6 +510,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = MNNLLMiOS/MNNLLMiOS.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"MNNLLMiOS/Preview Content\"";
@@ -520,7 +525,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = MNNLLMiOS/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "MNN Chat";
-				INFOPLIST_KEY_LSApplicationCategoryType = "";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSCameraUsageDescription = "We need access your camera to capture image or video";
 				INFOPLIST_KEY_NSDocumentsFolderUsageDescription = "This app needs to access your documents to save downloaded models";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "This app needs to access your local network to download models";
@@ -534,15 +539,15 @@
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				IPHONEOS_DEPLOYMENT_TARGET = 17;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14;
-				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnnchat;
+				MARKETING_VERSION = 1.0.1;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -562,6 +567,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 6QW92DF7RL;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
 				MACOSX_DEPLOYMENT_TARGET = 15.2;
 				MARKETING_VERSION = 1.0;
@@ -686,20 +692,20 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		3E6301D22E6A8A470004EC63 /* XCRemoteSwiftPackageReference "Chat" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Yogayu/Chat.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.1;
+			};
+		};
 		3E94DF8A2D37D8FF00BE39A7 /* XCRemoteSwiftPackageReference "SQLite" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/stephencelis/SQLite.swift";
 			requirement = {
 				kind = upToNextMajorVersion;
 				minimumVersion = 0.15.3;
-			};
-		};
-		3EC8DF822E4DCDF500861131 /* XCRemoteSwiftPackageReference "Chat" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/Yogayu/Chat.git";
-			requirement = {
-				branch = main;
-				kind = branch;
 			};
 		};
 		3EC8DF832E4DCF4A00861131 /* XCRemoteSwiftPackageReference "swift-transformers" */ = {
@@ -713,20 +719,24 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		3E6301D32E6A8A470004EC63 /* ExyteChat */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3E6301D22E6A8A470004EC63 /* XCRemoteSwiftPackageReference "Chat" */;
+			productName = ExyteChat;
+		};
 		3E94DFF02D37DBA900BE39A7 /* SQLite */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 3E94DF8A2D37D8FF00BE39A7 /* XCRemoteSwiftPackageReference "SQLite" */;
 			productName = SQLite;
 		};
-		3EC8DF842E4DCF5600861131 /* ExyteChat */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 3EC8DF822E4DCDF500861131 /* XCRemoteSwiftPackageReference "Chat" */;
-			productName = ExyteChat;
-		};
 		3EC8DF862E4DCF5800861131 /* Transformers */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 3EC8DF832E4DCF4A00861131 /* XCRemoteSwiftPackageReference "swift-transformers" */;
 			productName = Transformers;
+		};
+		3EDA70212E605BE700B17E48 /* ExyteChat */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ExyteChat;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

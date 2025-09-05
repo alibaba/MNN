@@ -104,11 +104,9 @@ extension DraftMessage {
             .asyncMap { (media : Media) -> (Media, URL?, URL?) in
                 (media, await media.getThumbnailURL(), await media.getURL())
             }
-            .filter { (media: Media, thumb: URL?, full: URL?) -> Bool in
-                thumb != nil && full != nil
-            }
-            .map { media, thumb, full in
-                LLMChatImage(id: media.id.uuidString, thumbnail: thumb!, full: full!)
+            .compactMap { media, thumb, full in
+                guard let thumb, let full else { return nil }
+                return LLMChatImage(id: media.id.uuidString, thumbnail: thumb, full: full)
             }
     }
 
@@ -118,11 +116,9 @@ extension DraftMessage {
             .asyncMap { (media : Media) -> (Media, URL?, URL?) in
                 (media, await media.getThumbnailURL(), await media.getURL())
             }
-            .filter { (media: Media, thumb: URL?, full: URL?) -> Bool in
-                thumb != nil && full != nil
-            }
-            .map { media, thumb, full in
-                LLMChatVideo(id: media.id.uuidString, thumbnail: thumb!, full: full!)
+            .compactMap { media, thumb, full in
+                guard let thumb, let full else { return nil }
+                return LLMChatVideo(id: media.id.uuidString, thumbnail: thumb, full: full)
             }
     }
 

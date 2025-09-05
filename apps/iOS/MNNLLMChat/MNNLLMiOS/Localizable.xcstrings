@@ -537,14 +537,7 @@
       }
     },
     "Model is loading..." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "模型加载中，请稍后……"
-          }
-        }
-      }
+
     },
     "Model Market" : {
       "comment" : "模型市场标签",
@@ -1450,7 +1443,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "搜索模型..."
+            "value" : "搜索模型"
           }
         }
       }
