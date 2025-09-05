@@ -337,7 +337,7 @@ class ChatActivity : AppCompatActivity() {
             }
             // Check API service settings and start service
             if (isApiServiceEnabled(this)) {
-                ApiServiceManager.startApiService(this)
+                ApiServiceManager.startApiService(this, modelId)
             }
         }
     }

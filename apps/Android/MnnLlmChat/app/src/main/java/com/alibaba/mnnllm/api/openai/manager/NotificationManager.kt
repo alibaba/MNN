@@ -136,7 +136,6 @@ class ApiNotificationManager(private val context: Context) {
             .setOngoing(true)
             .setAutoCancel(false)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setContentIntent(mainActivityPendingIntent)
             // .addAction(
             //     R.drawable.ic_dialog_alert,
             //     context.getString(com.alibaba.mnnllm.android.R.string.api_service_stop),
