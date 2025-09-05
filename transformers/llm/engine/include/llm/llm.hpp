@@ -76,8 +76,8 @@ struct LlmContext {
     int64_t prefill_us = 0;
     int64_t decode_us = 0;
     int64_t sample_us = 0;
-    float prefill_mb = 0;
-    float decode_mb = 0;
+    float pixels_mp = 0;
+    float audio_input_s = 0;
     // tokens
     int current_token;
     std::vector<int> history_tokens;
@@ -95,7 +95,7 @@ public:
     static void destroy(Llm* llm);// For Windows RT mode should use destroy
     Llm(std::shared_ptr<LlmConfig> config);
     virtual ~Llm();
-    virtual void load();
+    virtual bool load();
     virtual Express::VARP gen_attention_mask(int seq_len);
     virtual Express::VARP gen_position_ids(int seq_len);
     virtual Express::VARP embedding(const std::vector<int>& input_ids);
@@ -152,7 +152,7 @@ protected:
     std::shared_ptr<DiskEmbedding> mDiskEmbedding;
     std::shared_ptr<Sampler> mSampler;
     std::shared_ptr<Express::Executor::RuntimeManager> mRuntimeManager, mProcessorRuntimeManager;
-    std::vector<std::shared_ptr<Express::Module>> mModules;
+    std::shared_ptr<Express::Module> mModule;
     /**
      key: <seq_len, all_logists>
      value : module
@@ -190,7 +190,7 @@ public:
     static Embedding* createEmbedding(const std::string& config_path, bool load = true);
     static float dist(Express::VARP var0, Express::VARP var1);
     static float cos_sim(Express::VARP var0, Express::VARP var1);
-    virtual void load() override;
+    virtual bool load() override;
     Express::VARP ids_embedding(const std::vector<int>& ids);
     Express::VARP txt_embedding(const std::string& txt);
     int dim() const;

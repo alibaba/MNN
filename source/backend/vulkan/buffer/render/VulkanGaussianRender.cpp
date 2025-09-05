@@ -1,4 +1,5 @@
 #include <cmath>
+#include <limits.h>
 #include "VulkanGaussianRender.hpp"
 namespace MNN {
 struct ImageConstant {
