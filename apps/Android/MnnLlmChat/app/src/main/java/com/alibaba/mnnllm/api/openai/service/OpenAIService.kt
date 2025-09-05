@@ -16,17 +16,19 @@ import androidx.core.content.ContextCompat
 import com.alibaba.mnnllm.android.chat.ChatActivity
 import com.alibaba.mnnllm.api.openai.service.ApiServiceCoordinator
 import com.alibaba.mnnllm.api.openai.manager.ApiNotificationManager
+import com.alibaba.mnnllm.api.openai.manager.CurrentModelManager
 import timber.log.Timber
 
 class OpenAIService : Service() {
     private val TAG = this::class.java.simpleName
     private lateinit var coordinator: ApiServiceCoordinator
+    private var currentModelId: String? = null
 
     companion object {
         private var isServiceRunning = false
         private var serviceConnection: ServiceConnection? = null
 
-        fun startService(context: Context) {
+        fun startService(context: Context, modelId: String? = null) {
             if (context !is ChatActivity) {
                 Timber.tag("ServiceStartCondition").w("Invalid context. Not starting service.")
                 return
@@ -44,6 +46,8 @@ class OpenAIService : Service() {
             }
 
             val serviceIntent = Intent(context, OpenAIService::class.java)
+            // 传递 modelId 到服务
+            modelId?.let { serviceIntent.putExtra("modelId", it) }
             isServiceRunning = true
             try {
                 context.startForegroundService(serviceIntent)
@@ -135,6 +139,14 @@ class OpenAIService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        
+        // 获取传递的 modelId
+        intent?.getStringExtra("modelId")?.let { modelId ->
+            currentModelId = modelId
+            CurrentModelManager.setCurrentModelId(modelId)
+            Timber.tag(TAG).i("Service started with modelId: $modelId")
+        }
+        
         val notification = coordinator.getNotification()
         if (notification != null) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -186,6 +198,9 @@ class OpenAIService : Service() {
         } catch (e: Exception) {
             Timber.tag(TAG).e(e, "Failed to cleanup coordinator")
         }
+        
+        // 清除全局模型ID
+        CurrentModelManager.clearCurrentModelId()
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -218,4 +233,6 @@ class OpenAIService : Service() {
     fun getServerPort(): Int? = coordinator.getServerPort()
     
     fun isServerRunning(): Boolean = coordinator.isServerRunning
+    
+    fun getCurrentModelId(): String? = currentModelId
 }
