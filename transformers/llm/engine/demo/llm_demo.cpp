@@ -264,7 +264,11 @@ int main(int argc, const char* argv[]) {
     llm->set_config("{\"tmp_path\":\"tmp\"}");
     {
         AUTOTIME;
-        llm->load();
+        bool res = llm->load();
+        if (!res) {
+            MNN_ERROR("LLM init error\n");
+            return 0;
+        }
     }
     if (true) {
         AUTOTIME;

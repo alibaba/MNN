@@ -59,7 +59,7 @@ public:
     Talker(std::shared_ptr<LlmConfig> config) : Llm(config), mThinker(nullptr) {}
     Talker(std::shared_ptr<LlmConfig> config, Llm* thinker) : Llm(config), mThinker(thinker) {}
     ~Talker() {}
-    virtual void load() override;
+    virtual bool load() override;
     virtual void generate_init(std::ostream* os = nullptr, const char* end_with = nullptr) override;
     virtual Express::VARP embedding(const std::vector<int>& input_ids) override;
     virtual Express::VARP gen_position_ids(int seq_len) override;
@@ -102,7 +102,7 @@ public:
         mVisionModule.reset();
         mAudioModule.reset();
     }
-    virtual void load() override;
+    virtual bool load() override;
     virtual std::vector<Express::VARP> forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos) override;
     virtual std::vector<int> tokenizer_encode(const std::string& query) override;
     virtual std::vector<int> tokenizer_encode(const MultimodalPrompt& multimodal_input) override;

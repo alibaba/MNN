@@ -234,7 +234,7 @@ static bool canSpecDecode(std::shared_ptr<Express::Module> module) {
 void Llm::setSpeculativeConfig() {
     auto specultive_type = mConfig->speculative_type();
     if(!specultive_type.empty()) {
-        if(!canSpecDecode(mModules[0])) {
+        if(!canSpecDecode(mModule)) {
             mInSpec = false;
             return;
         }
@@ -243,7 +243,7 @@ void Llm::setSpeculativeConfig() {
     }
 }
 
-void Llm::load() {
+bool Llm::load() {
     initRuntime();
     // init module status
     // 1. load vocab
@@ -264,7 +264,6 @@ void Llm::load() {
         module_config.base = mBaseModule;
     }
     // load single model
-    mModules.resize(1);
     std::string model_path = mConfig->llm_model();
 
     std::vector<std::string> inputNames {"input_ids", "attention_mask", "position_ids", "logits_index"};
@@ -284,14 +283,14 @@ void Llm::load() {
     }
 
     mRuntimeManager->setExternalFile(mConfig->llm_weight());
-    mModules[0].reset(Module::load(inputNames, outputNames, model_path.c_str(), mRuntimeManager, &module_config));
+    mModule.reset(Module::load(inputNames, outputNames, model_path.c_str(), mRuntimeManager, &module_config));
     mRuntimeManager->setExternalFile("");
-    if(nullptr == mModules[0]) {
+    if(nullptr == mModule) {
         MNN_ERROR("[Error]: Load module failed, please check model.\n");
         if(outputNames.size() > 1) {
             MNN_ERROR("[Warning]: Set module multi outputs, please double check.\n");
         }
-        return;
+        return false;
     }
     // set speculative decoding params
     setSpeculativeConfig();
@@ -305,13 +304,13 @@ void Llm::load() {
         decode_type_num = 2;
         verify_length = mDraftLength + 1;
         // speculative decode module
-        mModulePool[std::make_pair(verify_length, true)].reset(Module::clone(mModules[0].get()));
+        mModulePool[std::make_pair(verify_length, true)].reset(Module::clone(mModule.get()));
     }
 
     // autoregressive decode module
-    mModulePool[std::make_pair(1, false)].reset(Module::clone(mModules[0].get()));
+    mModulePool[std::make_pair(1, false)].reset(Module::clone(mModule.get()));
     // prefill module
-    mModulePool[std::make_pair(mPrefillKey, mConfig->all_logits())] = mModules[0];
+    mModulePool[std::make_pair(mPrefillKey, mConfig->all_logits())] = mModule;
 
     // module input varp setting
     logitsLastIdx = _var<int>({-1}, {1});
@@ -340,12 +339,13 @@ void Llm::load() {
 
     // MTP model load
     mGenerationStrategy->load(module_config);
+    return true;
 }
 
 Llm* Llm::create_lora(const std::string& lora_path) {
     auto llm = new Llm(std::make_shared<LlmConfig>(*mConfig));
     llm->set_config("{\"llm_model\": \"" + lora_path + "\", \"use_mmap\": false, \"use_cached_mmap\": false}");
-    llm->mBaseModule = mModules.begin()->get();
+    llm->mBaseModule = mModule.get();
     llm->load();
     return llm;
 }
@@ -426,7 +426,7 @@ std::vector<Express::VARP> Llm::forwardRaw(Express::VARP hiddenState, Express::V
     if(mModulePool.find(moduleKey) == mModulePool.end()) {
         MNN_PRINT("Warning: module need new clone, cloning now.\n");
         mRuntimeManager->setHintPtr(Interpreter::KVCACHE_INFO, mMeta.get());
-        mModulePool[moduleKey].reset(Module::clone(mModules[0].get()));
+        mModulePool[moduleKey].reset(Module::clone(mModule.get()));
     }
 
     if (isAllLogists) {
@@ -760,7 +760,7 @@ Llm::~Llm() {
     }
 #endif
     mGenerateParam.reset();
-    mModules.clear();
+    mModule.reset();
     mRuntimeManager.reset();
     mProcessorRuntimeManager.reset();
 }
