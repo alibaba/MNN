@@ -54,7 +54,7 @@
 
 # Releases
 ## Version 0.7.3
-+ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_3.apk)
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_3_1.apk)
 + 优化 API 服务
 
 ## 版本 0.7.2

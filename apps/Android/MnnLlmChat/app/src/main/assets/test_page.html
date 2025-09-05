@@ -74,6 +74,22 @@
       background: white;
     }
     
+    #model-select:disabled {
+      background-color: #f8f9fa;
+      color: #6c757d;
+      cursor: not-allowed;
+      opacity: 0.7;
+    }
+    
+    .model-notice {
+      margin-top: 0.5rem;
+      padding: 0.5rem;
+      background-color: #fff3cd;
+      border: 1px solid #ffeaa7;
+      border-radius: 6px;
+      text-align: center;
+    }
+    
     .button {
       padding: 0.5rem 1rem;
       font-size: 0.9rem;
@@ -254,10 +270,13 @@
     <div class="model-selector">
       <div class="model-row">
         <label for="model-select">Current Model:</label>
-        <select id="model-select">
+        <select id="model-select" disabled>
           <option value="unknown">Loading models...</option>
         </select>
-        <button class="button button-secondary" onclick="refreshModels()">Refresh Models</button>
+        <button class="button button-secondary" onclick="showModelSwitchAlert()">Switch Model</button>
+      </div>
+      <div class="model-notice">
+        <small style="color: #6c757d;">⚠️ Model switching is temporarily not supported. Pleas change models in the app.</small>
       </div>
     </div>
 
@@ -299,9 +318,14 @@
       refreshModels();
     };
 
+    // 显示模型切换提醒
+    function showModelSwitchAlert() {
+      alert("Model switching is temporarily not supported.\n\nTo change models, please:\n1. Close this web page\n2. Restart the MNN Chat app\n3. Select a different model from the model list");
+    }
+
     async function refreshModels() {
       try {
-        updateStatus("Loading models...");
+        updateStatus("Loading current model...");
         const response = await fetch("/v1/models", {
           method: "GET",
           headers: {
@@ -324,21 +348,16 @@
           modelSelect.innerHTML = '<option value="unknown">No models available</option>';
           updateStatus("No models available");
         } else {
-          availableModels.forEach(model => {
-            const option = document.createElement("option");
-            option.value = model.id;
-            // 只显示模型名称的后缀部分
-            const modelName = extractModelSuffix(model.id);
-            option.textContent = modelName;
-            modelSelect.appendChild(option);
-          });
+          // 只显示第一个模型（当前使用的模型）
+          const currentModelData = availableModels[0];
+          const option = document.createElement("option");
+          option.value = currentModelData.id;
+          option.textContent = extractModelSuffix(currentModelData.id);
+          modelSelect.appendChild(option);
           
-          // Set first model as default
-          if (availableModels.length > 0) {
-            currentModel = availableModels[0].id;
-            modelSelect.value = currentModel;
-            updateStatus(`Model loaded: ${extractModelSuffix(currentModel)}`);
-          }
+          currentModel = currentModelData.id;
+          modelSelect.value = currentModel;
+          updateStatus(`Current model: ${extractModelSuffix(currentModel)}`);
         }
       } catch (error) {
         console.error("Failed to load models:", error);
@@ -378,11 +397,7 @@
       return suffix || modelId;
     }
 
-    // Handle model selection change
-    document.getElementById("model-select").addEventListener("change", function() {
-      currentModel = this.value;
-      updateStatus(`Model switched to: ${extractModelSuffix(currentModel)}`);
-    });
+    // Model selection change is disabled - no event listener needed
 
     function updateStatus(message) {
       document.getElementById("status").textContent = message;
