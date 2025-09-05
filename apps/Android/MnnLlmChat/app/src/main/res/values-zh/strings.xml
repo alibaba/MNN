@@ -106,9 +106,14 @@
     <string name="api_service_not_started">API 服务未启动</string>
     <string name="no_active_session">未找到活跃会话</string>
     <string name="api_service_running">API 服务运行中</string>
+    <string name="api_service_running_on">API 服务运行在 %1$s:%2$d</string>
     <string name="api_service_port">端口：%1$d</string>
     <string name="api_service_start_failed">API 服务启动失败</string>
     <string name="api_service_error">错误：%1$s</string>
+    <string name="api_service_stop">停止</string>
+    <string name="api_service_copy_url">复制URL</string>
+    <string name="api_service_test_page">测试页面</string>
+    <string name="api_url_copied">API URL已复制到剪贴板</string>
     <string name="modelscope">魔搭</string>
     <string name="modelers">魔乐</string>
     <string name="huggingface">HuggingFace</string>

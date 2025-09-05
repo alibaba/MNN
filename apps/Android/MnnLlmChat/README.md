@@ -61,6 +61,9 @@ This is our full multimodal language model (LLM) Android app
   ```
 
 # Releases
+## Version 0.7.3
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_3.apk)
++ Optimize ApiService
 ## Version 0.7.2
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_2.apk)
 + Bugfix:

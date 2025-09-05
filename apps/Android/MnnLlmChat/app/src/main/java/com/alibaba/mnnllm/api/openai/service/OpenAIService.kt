@@ -1,15 +1,18 @@
 package com.alibaba.mnnllm.api.openai.service
 
+import android.Manifest
 import android.app.Service
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import androidx.annotation.RequiresApi
+import androidx.core.content.ContextCompat
 import com.alibaba.mnnllm.android.chat.ChatActivity
 import com.alibaba.mnnllm.api.openai.service.ApiServiceCoordinator
 import com.alibaba.mnnllm.api.openai.manager.ApiNotificationManager
@@ -29,10 +32,27 @@ class OpenAIService : Service() {
                 return
             }
 
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                if (ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.POST_NOTIFICATIONS
+                    ) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    Timber.tag("ServiceStartCondition").w("Notification permission not granted, cannot start foreground service")
+                    return
+                }
+            }
+
             val serviceIntent = Intent(context, OpenAIService::class.java)
-            // 在启动服务前设置标志，避免onStartCommand中的检查失败
             isServiceRunning = true
-            context.startForegroundService(serviceIntent)
+            try {
+                context.startForegroundService(serviceIntent)
+                Timber.tag("ServiceStartCondition").i("Foreground service started successfully")
+            } catch (e: Exception) {
+                Timber.tag("ServiceStartCondition").e(e, "Failed to start foreground service")
+                isServiceRunning = false
+                return
+            }
 
             val connection = object : ServiceConnection {
                 override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
@@ -43,7 +63,6 @@ class OpenAIService : Service() {
 
                 override fun onServiceDisconnected(name: ComponentName?) {
                     serviceConnection = null
-                    // 服务断开连接时重置标志
                     isServiceRunning = false
                 }
             }

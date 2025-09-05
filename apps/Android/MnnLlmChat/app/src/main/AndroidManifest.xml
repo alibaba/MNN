@@ -112,6 +112,18 @@
             android:exported="true"
             android:foregroundServiceType="dataSync" >
         </service>
+        
+        <!-- 注册通知操作按钮的广播接收器 -->
+        <receiver
+            android:name="com.alibaba.mnnllm.api.openai.manager.ApiServiceActionReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.alibaba.mnnllm.api.openai.STOP_SERVICE" />
+                <action android:name="com.alibaba.mnnllm.api.openai.COPY_URL" />
+                <action android:name="com.alibaba.mnnllm.api.openai.TEST_PAGE" />
+            </intent-filter>
+        </receiver>
 
         <activity android:name=".debug.WidgetTestActivity"
             android:enabled="true"

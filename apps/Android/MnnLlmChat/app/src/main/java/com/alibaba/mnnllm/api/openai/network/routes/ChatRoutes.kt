@@ -23,14 +23,8 @@ fun Route.chatRoutes() {
 
     post("/v1/chat/completions") {
         val traceId = UUID.randomUUID().toString()
-        
-        // 记录请求开始
         logger.logRequestStart(traceId, call)
-
-        // 接收请求体
         val chatRequest = call.receive<OpenAIChatRequest>()
-        
-        // 委托给服务层处理
         MNNChatService.processChatCompletion(call, chatRequest, traceId)
     }
 }

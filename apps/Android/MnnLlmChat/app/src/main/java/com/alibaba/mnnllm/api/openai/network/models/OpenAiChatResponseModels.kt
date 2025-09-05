@@ -65,3 +65,39 @@ data class Message(
     val role: String,
     val content: String
 )
+
+/**
+ * Models API 响应数据模型
+ */
+@Serializable
+data class ModelsResponse(
+    val `object`: String = "list",
+    val data: List<ModelData>
+)
+
+@Serializable
+data class ModelData(
+    val id: String,
+    val `object`: String = "model",
+    val created: Long,
+    val owned_by: String = "mnn",
+    val permission: List<ModelPermission> = emptyList(),
+    val root: String? = null,
+    val parent: String? = null
+)
+
+@Serializable
+data class ModelPermission(
+    val id: String,
+    val `object`: String = "model_permission",
+    val created: Long,
+    val allow_create_engine: Boolean = false,
+    val allow_sampling: Boolean = true,
+    val allow_logprobs: Boolean = true,
+    val allow_search_indices: Boolean = true,
+    val allow_view: Boolean = true,
+    val allow_fine_tuning: Boolean = false,
+    val organization: String = "*",
+    val group: String? = null,
+    val is_blocking: Boolean = false
+)
