@@ -34,6 +34,7 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
     private var _binding: FragmentApiConsoleSheetBinding? = null
     private val binding get() = _binding!!
     private var chatActivity: ChatActivity? = null
+    private var bottomSheetBehavior: BottomSheetBehavior<FrameLayout>? = null
 
     companion object {
         const val TAG = "ApiConsoleBottomSheetFragment"
@@ -69,6 +70,7 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
             val bottomSheet: FrameLayout? = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet)
             if (bottomSheet != null) {
                 val behavior = BottomSheetBehavior.from(bottomSheet)
+                this.bottomSheetBehavior = behavior // Store the behavior instance
                 bottomSheet.post {
                     behavior.state = BottomSheetBehavior.STATE_EXPANDED
                 }
@@ -79,7 +81,7 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
                 behavior.isHideable = false
                 
                 // Set up touch event listener to optimize scrolling experience
-                setupBottomSheetTouchHandling(bottomSheet, behavior)
+                // setupBottomSheetTouchHandling(bottomSheet, behavior) // Temporarily disabled for debugging
             }
         }
     }
@@ -95,7 +97,26 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
         
         // Resolve scrolling conflicts between ScrollView and BottomSheetDialog
         setupScrollViewTouchHandling()
+
+        // Resolve scrolling conflicts for the log RecyclerView using the isDraggable property
+        binding.recyclerLogContent.setOnTouchListener { _, event ->
+            when (event.action) {
+                android.view.MotionEvent.ACTION_MOVE -> {
+                    // When moving, dynamically enable/disable dragging on the BottomSheet
+                    val canScroll = binding.recyclerLogContent.canScrollVertically(1) || binding.recyclerLogContent.canScrollVertically(-1)
+                    bottomSheetBehavior?.isDraggable = !canScroll
+                }
+                android.view.MotionEvent.ACTION_UP,
+                android.view.MotionEvent.ACTION_CANCEL -> {
+                    // When the gesture ends, always re-enable dragging.
+                    bottomSheetBehavior?.isDraggable = true
+                }
+            }
+            false
+        }
     }
+
+    
 
     override fun onResume() {
         super.onResume()
