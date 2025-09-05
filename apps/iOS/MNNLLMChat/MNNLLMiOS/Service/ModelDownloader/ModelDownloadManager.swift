@@ -100,7 +100,8 @@ public actor ModelDownloadManager: ModelDownloadManagerProtocol {
         self.session = URLSession(configuration: sessionConfig)
         self.concurrencyManager = DynamicConcurrencyManager(config: concurrencyConfig)
         self.downloadSemaphore = AsyncSemaphore(value: config.maxConcurrentDownloads)
-        
+        print("ModelClient init")
+
         ModelDownloadLogger.isEnabled = enableLogging
     }
     
@@ -216,6 +217,10 @@ public actor ModelDownloadManager: ModelDownloadManagerProtocol {
                 let subFiles = try await fetchFileList(root: file.path, revision: "")
                 try await processFiles(subFiles, destinationPath: newPath)
             } else if file.type == "blob" {
+                // Initialize progress tracking for all files
+                await initializeFileProgress(fileName: file.name, totalBytes: Int64(file.size))
+                progress.totalBytes += Int64(file.size)
+                
                 if !storage.isFileDownloaded(file, at: destinationPath) {
                     var task = DownloadTask(
                         file: file,
@@ -230,9 +235,14 @@ public actor ModelDownloadManager: ModelDownloadManagerProtocol {
                     }
                     
                     downloadQueue.append(task)
-                    progress.totalBytes += Int64(file.size)
                 } else {
-                    progress.downloadedBytes += Int64(file.size)
+                    // File already downloaded, mark as completed in progress tracking
+                    if var fileProgress = progress.fileProgress[file.name] {
+                        fileProgress.downloadedBytes = fileProgress.totalBytes
+                        fileProgress.isCompleted = true
+                        progress.fileProgress[file.name] = fileProgress
+                    }
+                    ModelDownloadLogger.info("File \(file.name) already exists, skipping download")
                 }
             }
         }
@@ -261,9 +271,12 @@ public actor ModelDownloadManager: ModelDownloadManagerProtocol {
             let startOffset = Int64(i) * chunkSize
             let endOffset = min(startOffset + chunkSize - 1, fileSize - 1)
             
-            let modelHash = repoPath.hash
-            let fileHash = file.path.hash
-            let tempURL = FileManager.default.temporaryDirectory
+            let modelHash = repoPath.stableHash
+            let fileHash = file.path.stableHash
+            
+            let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+            let downloadsURL = documentsURL.appendingPathComponent(".downloads", isDirectory: true)
+            let tempURL = downloadsURL
                 .appendingPathComponent("model_\(modelHash)_file_\(fileHash)_chunk_\(i)_\(file.name.sanitizedPath).tmp")
             
             // Check if chunk already exists and calculate downloaded bytes
@@ -294,6 +307,31 @@ public actor ModelDownloadManager: ModelDownloadManagerProtocol {
         return chunks
     }
     
+    /// Calculate initial progress from existing downloaded files and chunks
+    private func calculateInitialProgress() async {
+        for task in downloadQueue {
+            if task.isChunked {
+                // For chunked files, sum up downloaded bytes from all chunks
+                let chunkBytes = task.chunks.reduce(0) { total, chunk in
+                    return total + (chunk.isCompleted ? (chunk.endOffset - chunk.startOffset + 1) : chunk.downloadedBytes)
+                }
+                
+                // Update file progress with chunk data
+                if var fileProgress = progress.fileProgress[task.file.name] {
+                    fileProgress.downloadedBytes = chunkBytes
+                    progress.fileProgress[task.file.name] = fileProgress
+                }
+            }
+            // For non-chunked files, if they exist, they would not be in downloadQueue
+        }
+        
+        let totalDownloadedBytes = progress.fileProgress.values.reduce(0) { sum, fileProgress in
+            return sum + fileProgress.downloadedBytes
+        }
+        
+        ModelDownloadLogger.info("Initial downloaded bytes: \(totalDownloadedBytes)")
+    }
+    
     // MARK: - Download Execution
     
     /// Executes download tasks with dynamic concurrency management
@@ -304,6 +342,9 @@ public actor ModelDownloadManager: ModelDownloadManagerProtocol {
     /// 
     /// - Throws: ModelScopeError if downloads fail or are cancelled
     private func executeDownloads() async throws {
+        // Calculate initial downloaded bytes from existing files and chunks
+        await calculateInitialProgress()
+        
         await withTaskGroup(of: Void.self) { group in
             for task in downloadQueue {
                 if isCancelled { break }
@@ -350,12 +391,11 @@ public actor ModelDownloadManager: ModelDownloadManagerProtocol {
         
         ModelDownloadLogger.info("Using optimal concurrency: \(concurrencyCount) for \(task.chunks.count) chunks")
         
-        // Check if any chunks are already completed and update progress
+        // Check if any chunks are already completed and log progress (but don't update global progress yet)
         let completedBytes = task.chunks.reduce(0) { total, chunk in
             return total + (chunk.isCompleted ? (chunk.endOffset - chunk.startOffset + 1) : chunk.downloadedBytes)
         }
         if completedBytes > 0 {
-            await updateDownloadProgress(bytes: completedBytes)
             ModelDownloadLogger.info("Found \(completedBytes) bytes already downloaded for \(task.file.name)")
         }
         
@@ -435,22 +475,26 @@ public actor ModelDownloadManager: ModelDownloadManagerProtocol {
                     try fileHandle.seekToEnd()
                 }
                 
-                var bytesCount = 0
+                var buffer = Data()
+                buffer.reserveCapacity(512 * 1024) // Reserve 512KB buffer for chunks
                 
                 for try await byte in asyncBytes {
                     if isCancelled { throw ModelScopeError.downloadCancelled }
                     
-                    try fileHandle.write(contentsOf: [byte])
-                    bytesCount += 1
+                    buffer.append(byte)
                     
-                    if bytesCount >= 64 * 1024 {
-                        await updateDownloadProgress(bytes: Int64(bytesCount))
-                        bytesCount = 0
+                    // Write in larger chunks to reduce I/O operations
+                    if buffer.count >= 128 * 1024 { // 128KB chunks for chunk downloads
+                        try fileHandle.write(contentsOf: buffer)
+                        await updateFileProgress(fileName: file.name, bytes: Int64(buffer.count))
+                        buffer.removeAll(keepingCapacity: true)
                     }
                 }
                 
-                if bytesCount > 0 {
-                    await updateDownloadProgress(bytes: Int64(bytesCount))
+                // Write remaining buffer
+                if !buffer.isEmpty {
+                    try fileHandle.write(contentsOf: buffer)
+                    await updateFileProgress(fileName: file.name, bytes: Int64(buffer.count))
                 }
 
                 ModelDownloadLogger.info("Chunk \(chunk.index) downloaded successfully")
@@ -498,9 +542,15 @@ public actor ModelDownloadManager: ModelDownloadManagerProtocol {
         let destination = URL(fileURLWithPath: task.destinationPath)
             .appendingPathComponent(file.name.sanitizedPath)
         
-        let modelHash = repoPath.hash
-        let fileHash = file.path.hash
-        let tempURL = FileManager.default.temporaryDirectory
+        let modelHash = repoPath.stableHash
+        let fileHash = file.path.stableHash
+        
+        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let downloadsURL = documentsURL.appendingPathComponent(".downloads", isDirectory: true)
+        
+        try? fileManager.createDirectory(at: downloadsURL, withIntermediateDirectories: true, attributes: nil)
+        
+        let tempURL = downloadsURL
             .appendingPathComponent("model_\(modelHash)_file_\(fileHash)_\(file.name.sanitizedPath).tmp")
         
         var lastError: Error?
@@ -534,26 +584,31 @@ public actor ModelDownloadManager: ModelDownloadManagerProtocol {
                 }
                 
                 var downloadedBytes: Int64 = resumeOffset
-                var bytesCount = 0
+                var buffer = Data()
+                buffer.reserveCapacity(1024 * 1024) // Reserve 1MB buffer
                 
                 for try await byte in asyncBytes {
                     if isCancelled { throw ModelScopeError.downloadCancelled }
                     
-                    try fileHandle.write(contentsOf: [byte])
-                    downloadedBytes += 1
-                    bytesCount += 1
+                    buffer.append(byte)
                     
-                    // Update progress less frequently
-                    if bytesCount >= 64 * 1024 {
-                        await updateDownloadProgress(bytes: Int64(bytesCount))
-                        bytesCount = 0
+                    // Write in larger chunks to reduce I/O operations
+                    if buffer.count >= 256 * 1024 { // 256KB chunks
+                        try fileHandle.write(contentsOf: buffer)
+                        downloadedBytes += Int64(buffer.count)
+                        await updateFileProgress(fileName: file.name, bytes: Int64(buffer.count))
+                        buffer.removeAll(keepingCapacity: true)
                     }
                 }
                 
-                // Final progress update
-                if bytesCount > 0 {
-                    await updateDownloadProgress(bytes: Int64(bytesCount))
+                // Write remaining buffer
+                if !buffer.isEmpty {
+                    try fileHandle.write(contentsOf: buffer)
+                    downloadedBytes += Int64(buffer.count)
+                    await updateFileProgress(fileName: file.name, bytes: Int64(buffer.count))
                 }
+                
+                // Progress already updated in the loop above
                 
                 // Move to final destination
                 if fileManager.fileExists(atPath: destination.path) {
@@ -658,13 +713,42 @@ public actor ModelDownloadManager: ModelDownloadManagerProtocol {
     
     private func markFileCompleted(task: DownloadTask) async {
         progress.completedFiles += 1
+        
+        // Mark file as completed in progress tracking
+        if var fileProgress = progress.fileProgress[task.file.name] {
+            fileProgress.downloadedBytes = fileProgress.totalBytes
+            fileProgress.isCompleted = true
+            progress.fileProgress[task.file.name] = fileProgress
+        }
+        
         storage.saveFileStatus(task.file, at: task.destinationPath)
         ModelDownloadLogger.info("Completed: \(task.file.name) (\(progress.completedFiles)/\(progress.totalFiles))")
+        
+        await updateProgress(progress.progress)
     }
     
-    private func updateDownloadProgress(bytes: Int64) async {
-        progress.downloadedBytes += bytes
-        await updateProgress(progress.progress)
+    private func updateFileProgress(fileName: String, bytes: Int64) async {
+        if var fileProgress = progress.fileProgress[fileName] {
+            fileProgress.downloadedBytes = min(fileProgress.downloadedBytes + bytes, fileProgress.totalBytes)
+            progress.fileProgress[fileName] = fileProgress
+            
+            let newProgress = progress.progress
+            let progressDiff = abs(newProgress - progress.lastReportedProgress)
+            if progressDiff >= 0.001 || newProgress >= 1.0 {
+                progress.lastReportedProgress = newProgress
+                await updateProgress(newProgress)
+            }
+        }
+    }
+    
+    private func initializeFileProgress(fileName: String, totalBytes: Int64) async {
+        let fileProgress = FileDownloadProgress(
+            fileName: fileName,
+            totalBytes: totalBytes,
+            downloadedBytes: 0,
+            isCompleted: false
+        )
+        progress.fileProgress[fileName] = fileProgress
     }
     
     private func updateProgress(_ value: Double) async {

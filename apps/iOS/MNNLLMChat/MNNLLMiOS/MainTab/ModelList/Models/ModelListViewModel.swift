@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftUI
+import Combine
 
 class ModelListViewModel: ObservableObject {
     // MARK: - Published Properties
@@ -21,8 +22,9 @@ class ModelListViewModel: ObservableObject {
     @Published private(set) var currentlyDownloading: String?
     
     // MARK: - Private Properties
-    private let modelClient = ModelClient()
+    private let modelClient = ModelClient.shared
     private let pinnedModelKey = "com.mnnllm.pinnedModelIds"
+    private var cancellables = Set<AnyCancellable>()
     
     // MARK: - Model Data Access
     
@@ -49,6 +51,17 @@ class ModelListViewModel: ObservableObject {
         Task { @MainActor in
             await fetchModels()
         }
+        
+        NotificationCenter.default
+            .publisher(for: .modelUsageUpdated)
+            .sink { [weak self] notification in
+                if let modelName = notification.userInfo?["modelName"] as? String {
+                    Task { @MainActor in
+                        self?.updateModelLastUsed(modelName: modelName)
+                    }
+                }
+            }
+            .store(in: &cancellables)
     }
     
     // MARK: - Model Data Management
@@ -187,6 +200,7 @@ class ModelListViewModel: ObservableObject {
             fetchedModels.append(contentsOf: uniqueLocalModels)
             
             filterDiffusionModels(fetchedModels: &fetchedModels)
+            filterModelsForRelease(fetchedModels: &fetchedModels)
             loadCachedSizes(for: &fetchedModels)
             syncDownloadStatus(for: &fetchedModels)
             sortModels(fetchedModels: &fetchedModels)
@@ -286,6 +300,24 @@ class ModelListViewModel: ObservableObject {
         }
     }
     
+    private func filterModelsForRelease(fetchedModels: inout [ModelInfo]) {
+        #if !DEBUG
+        fetchedModels = fetchedModels.filter { model in
+            // Filter out models with "MiniCPM" in the name
+            if model.modelName.lowercased().contains("minicpm") {
+                return false
+            }
+            
+            // Filter out models with size_gb > 8
+            if let sizeGB = model.size_gb, sizeGB > 8.0 {
+                return false
+            }
+            
+            return true
+        }
+        #endif
+    }
+    
     private func sortModels(fetchedModels: inout [ModelInfo]) {
         let pinned = pinnedModelIds
         
@@ -357,7 +389,10 @@ class ModelListViewModel: ObservableObject {
         await MainActor.run {
             guard currentlyDownloading == nil else { return }
             currentlyDownloading = model.id
-            downloadProgress[model.id] = 0
+            
+            if downloadProgress[model.id] == nil {
+                downloadProgress[model.id] = 0
+            }
         }
         
         do {
@@ -372,6 +407,9 @@ class ModelListViewModel: ObservableObject {
                     self.models[index].isDownloaded = true
                     ModelStorageManager.shared.markModelAsDownloaded(model.modelName)
                 }
+                
+                self.downloadProgress.removeValue(forKey: model.id)
+                self.currentlyDownloading = nil
             }
             
             // Calculate and cache size for newly downloaded model
@@ -392,15 +430,12 @@ class ModelListViewModel: ObservableObject {
                 if case ModelScopeError.downloadCancelled = error {
                     print("Download was cancelled")
                 } else {
+                    self.downloadProgress.removeValue(forKey: model.id)
                     self.showError = true
                     self.errorMessage = "Failed to download model: \(error.localizedDescription)"
                 }
+                self.currentlyDownloading = nil
             }
-        }
-        
-        await MainActor.run {
-            self.currentlyDownloading = nil
-            self.downloadProgress.removeValue(forKey: model.id)
         }
     }
     
@@ -408,10 +443,9 @@ class ModelListViewModel: ObservableObject {
         let modelId = await MainActor.run { currentlyDownloading }
         
         if let modelId = modelId {
-            await modelClient.cancelDownload()
+            await modelClient.cancelDownload(for: modelId)
             
             await MainActor.run {
-                self.downloadProgress.removeValue(forKey: modelId)
                 self.currentlyDownloading = nil
             }
             
@@ -488,4 +522,20 @@ class ModelListViewModel: ObservableObject {
             }
         }
     }
+    
+    @MainActor
+    private func updateModelLastUsed(modelName: String) {
+        if let index = models.firstIndex(where: { $0.modelName == modelName }) {
+            if let lastUsed = ModelStorageManager.shared.getLastUsed(for: modelName) {
+                models[index].lastUsedAt = lastUsed
+                sortModels(fetchedModels: &models)
+            }
+        }
+    }
+}
+
+// MARK: - Notification Names
+
+extension Notification.Name {
+    static let modelUsageUpdated = Notification.Name("modelUsageUpdated")
 }

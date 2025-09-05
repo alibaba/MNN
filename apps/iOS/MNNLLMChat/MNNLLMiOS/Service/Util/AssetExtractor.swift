@@ -126,11 +126,14 @@ extension UIImage {
         }
         
         UIGraphicsBeginImageContext(self.size)
-        let context = UIGraphicsGetCurrentContext()!
+        guard let context = UIGraphicsGetCurrentContext(), let cgImage = self.cgImage else {
+            UIGraphicsEndImageContext()
+            return self
+        }
         context.translateBy(x: self.size.width / 2, y: self.size.height / 2)
         context.rotate(by: angle)
         context.scaleBy(x: 1.0, y: -1.0)
-        context.draw(self.cgImage!, in: CGRect(x: -self.size.width / 2, y: -self.size.height / 2, width: self.size.width, height: self.size.height))
+        context.draw(cgImage, in: CGRect(x: -self.size.width / 2, y: -self.size.height / 2, width: self.size.width, height: self.size.height))
         
         let rotatedImage = UIGraphicsGetImageFromCurrentImageContext()
         UIGraphicsEndImageContext()

@@ -43,6 +43,10 @@ class BenchmarkViewModel: ObservableObject {
     // Model list manager for getting local models
     private let modelListManager = ModelListManager.shared
     
+    // Track total benchmark runtime from start to completion
+    private var totalBenchmarkTimeSeconds: Float = 0.0
+    private var benchmarkStartTime: Date?
+    
     // MARK: - Initialization & Setup
     
     init() {
@@ -78,7 +82,7 @@ class BenchmarkViewModel: ObservableObject {
                 
                 // Filter only downloaded models that are available locally
                 availableModels = allModels.filter { model in
-                    model.isDownloaded && model.localPath != ""
+                    model.isDownloaded && model.localPath != "" && !model.modelName.lowercased().contains("omni")
                 }
                 
                 print("BenchmarkViewModel: Loaded \(availableModels.count) available local models")
@@ -218,6 +222,8 @@ class BenchmarkViewModel: ObservableObject {
         startButtonText = String(localized: "Stop Test")
         showProgressBar = true
         showResults = false
+        totalBenchmarkTimeSeconds = 0.0
+        benchmarkStartTime = Date()
         updateStatus("Initializing benchmark...")
     }
     
@@ -229,6 +235,7 @@ class BenchmarkViewModel: ObservableObject {
         showProgressBar = false
         hideStatus()
         showResults = false
+        benchmarkStartTime = nil
         cleanupBenchmarkResources()
     }
     
@@ -309,6 +316,11 @@ extension BenchmarkViewModel: BenchmarkCallback {
         let formattedProgress = formatProgressMessage(progress)
         currentProgress = formattedProgress
         updateStatus(formattedProgress.statusMessage)
+        
+        // Calculate the total runtime from benchmark start to current point
+        if let startTime = benchmarkStartTime {
+            totalBenchmarkTimeSeconds = Float(Date().timeIntervalSince(startTime))
+        }
     }
     
     /// Handles benchmark completion with results processing
@@ -322,7 +334,8 @@ extension BenchmarkViewModel: BenchmarkCallback {
             modelDisplayName: model.modelName,
             maxMemoryKb: MemoryMonitor.shared.getMaxMemoryKb(),
             testResults: [result.testInstance],
-            timestamp: DateFormatter.benchmarkTimestamp.string(from: Date())
+            timestamp: DateFormatter.benchmarkTimestamp.string(from: Date()),
+            totalTimeSeconds: totalBenchmarkTimeSeconds
         )
         
         benchmarkResults = results
@@ -417,22 +430,22 @@ class MemoryMonitor: ObservableObject {
         maxMemoryKb = max(maxMemoryKb, memoryUsage)
     }
     
-    /// Gets current memory usage from system using mach task info
+    /// Gets current memory usage from system using task_vm_info for physical footprint
     private func getCurrentMemoryUsage() -> Int64 {
-        var info = mach_task_basic_info()
-        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size) / UInt32(MemoryLayout<integer_t>.size)
         
         let kerr: kern_return_t = withUnsafeMutablePointer(to: &info) {
             $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
                 task_info(mach_task_self_,
-                         task_flavor_t(MACH_TASK_BASIC_INFO),
+                         task_flavor_t(TASK_VM_INFO),
                          $0,
                          &count)
             }
         }
         
         if kerr == KERN_SUCCESS {
-            return Int64(info.resident_size) / 1024 // Convert to KB
+            return Int64(info.phys_footprint) / 1024 // Convert to KB
         } else {
             return 0
         }

@@ -16,27 +16,48 @@ struct ModelListView: View {
     @State private var selectedCategories: Set<String> = []
     @State private var selectedVendors: Set<String> = []
     @State private var showFilterMenu = false
+    private let topID = "topID"
     
     var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
-                Section {
-                    modelListSection
-                } header: {
-                    toolbarSection
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+                    
+                    Color.clear.frame(height: 0).id(topID)
+                    
+                    Section {
+                        modelListSection
+                    } header: {
+                        toolbarSection
+                    }
                 }
             }
-        }
-        .searchable(text: $searchText, prompt: "Search models...")
-        .refreshable {
-            await viewModel.fetchModels()
-        }
-        .alert("Error", isPresented: $viewModel.showError) {
-            Button("OK") {
-                viewModel.dismissError()
+            .searchable(text: $searchText, prompt: "Search models...")
+            .refreshable {
+                await viewModel.fetchModels()
             }
-        } message: {
-            Text(viewModel.errorMessage)
+            .alert("Error", isPresented: $viewModel.showError) {
+                Button("OK") {
+                    viewModel.dismissError()
+                }
+            } message: {
+                Text(viewModel.errorMessage)
+            }
+            // Auto-scroll to top when filters change to avoid blank screen when data shrinks
+            .onChange(of: selectedTags) { old, new in
+                withAnimation { proxy.scrollTo(topID, anchor: .top) }
+            }
+            .onChange(of: selectedCategories) { old, new in
+                withAnimation { proxy.scrollTo(topID, anchor: .top) }
+            }
+            .onChange(of: selectedVendors) { old, new in
+                withAnimation { proxy.scrollTo(topID, anchor: .top) }
+            }
+            .onChange(of: showFilterMenu) { old, new in
+                if old != new {
+                    withAnimation { proxy.scrollTo(topID, anchor: .top) }
+                }
+            }
         }
     }
     

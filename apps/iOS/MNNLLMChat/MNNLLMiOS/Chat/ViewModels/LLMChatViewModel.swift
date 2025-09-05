@@ -9,7 +9,6 @@ import SwiftUI
 import AVFoundation
 
 import ExyteChat
-import ExyteMediaPicker
 
 final class LLMChatViewModel: ObservableObject {
     
@@ -48,12 +47,12 @@ final class LLMChatViewModel: ObservableObject {
     }
     
     var chatCover: URL? {
-        interactor.otherSenders.count == 1 ? interactor.otherSenders.first!.avatar : nil
+        interactor.otherSenders.count == 1 ? interactor.otherSenders.first?.avatar : nil
     }
-
+    
     private let interactor: LLMChatInteractor
     private var subscriptions = Set<AnyCancellable>()
-
+    
     var modelInfo: ModelInfo
     var history: ChatHistory?
     private var historyId: String
@@ -65,6 +64,7 @@ final class LLMChatViewModel: ObservableObject {
     }
     
     init(modelInfo: ModelInfo, history: ChatHistory? = nil) {
+        print("yxy:: LLMChat View Model init")
         self.modelInfo = modelInfo
         self.history = history
         self.historyId = history?.id ?? UUID().uuidString
@@ -77,7 +77,6 @@ final class LLMChatViewModel: ObservableObject {
         
         // Check if model supports thinking mode
         self.supportsThinkingMode = ModelUtils.isSupportThinkingSwitch(modelInfo.tags, modelName: modelInfo.modelName)
-        
     }
     
     deinit {
@@ -104,6 +103,7 @@ final class LLMChatViewModel: ObservableObject {
     
     func setupLLM(modelPath: String) {
         Task { @MainActor in
+            self.isModelLoaded = false
             self.send(draft: DraftMessage(
                 text: NSLocalizedString("ModelLoadingText", comment: ""),
                 thinkText: "",
@@ -113,21 +113,21 @@ final class LLMChatViewModel: ObservableObject {
                 createdAt: Date()
             ), userType: .system)
         }
-
+        
         if modelInfo.modelName.lowercased().contains("diffusion") {
             diffusion = DiffusionSession(modelPath: modelPath, completion: { [weak self] success in
                 Task { @MainActor in
                     print("Diffusion Model \(success)")
-                    self?.isModelLoaded = success
                     self?.sendModelLoadStatus(success: success)
+                    self?.isModelLoaded = success
                 }
             })
         } else {
             llm = LLMInferenceEngineWrapper(modelPath: modelPath) { [weak self] success in
                 Task { @MainActor in
-                    self?.isModelLoaded = success
                     self?.sendModelLoadStatus(success: success)
                     self?.processHistoryMessages()
+                    self?.isModelLoaded = success
                     
                     // Configure thinking mode after model is loaded
                     if success {
@@ -155,7 +155,7 @@ final class LLMChatViewModel: ObservableObject {
         let modelLoadSuccessText = NSLocalizedString("ModelLoadingSuccessText", comment: "")
         let modelLoadFailText = NSLocalizedString("ModelLoadingFailText", comment: "")
         let loadResult = success ? modelLoadSuccessText : modelLoadFailText
-
+        
         self.send(draft: DraftMessage(
             text: loadResult,
             thinkText: "",
@@ -196,6 +196,9 @@ final class LLMChatViewModel: ObservableObject {
         NotificationCenter.default.post(name: .dismissKeyboard, object: nil)
         
         self.send(draft: draft, userType: .user)
+        
+        recordModelUsage()
+        
         if isModelLoaded {
             if modelInfo.modelName.lowercased().contains("diffusion") {
                 self.getDiffusionResponse(draft: draft)
@@ -214,7 +217,7 @@ final class LLMChatViewModel: ObservableObject {
         Task {
             
             let tempImagePath = FileOperationManager.shared.generateTempImagePath().path
-
+            
             var lastProcess:Int32 = 0
             
             self.send(draft: DraftMessage(text: "Start Generating Image...", thinkText: "", medias: [], recording: nil, replyMessage: nil, createdAt: Date()), userType: .assistant)
@@ -223,16 +226,15 @@ final class LLMChatViewModel: ObservableObject {
             let userIterations = self.modelConfigManager.readIterations()
             let userSeed = self.modelConfigManager.readSeed()
             
-            // 使用用户设置的参数调用新方法
-            diffusion?.run(withPrompt: draft.text, 
-                          imagePath: tempImagePath, 
-                         iterations: Int32(userIterations), 
-                               seed: Int32(userSeed),
-                    progressCallback: { [weak self] progress in
+            diffusion?.run(withPrompt: draft.text,
+                           imagePath: tempImagePath,
+                           iterations: Int32(userIterations),
+                           seed: Int32(userSeed),
+                           progressCallback: { [weak self] progress in
                 guard let self = self else { return }
                 if progress == 100 {
                     self.send(draft: DraftMessage(text: "Image generated successfully!", thinkText: "", medias: [], recording: nil, replyMessage: nil, createdAt: Date()), userType: .system)
-                    self.interactor.sendImage(imageURL: URL(string: "file://" + tempImagePath)!)
+                    self.interactor.sendImage(imageURL: URL(fileURLWithPath: tempImagePath))
                 } else if ((progress - lastProcess) > 20) {
                     lastProcess = progress
                     self.send(draft: DraftMessage(text: "Generating Image \(progress)%", thinkText: "", medias: [], recording: nil, replyMessage: nil, createdAt: Date()), userType: .system)
@@ -244,7 +246,7 @@ final class LLMChatViewModel: ObservableObject {
     func getLLMRespsonse(draft: DraftMessage) {
         Task {
             await llmState.setProcessing(true)
-            await MainActor.run { 
+            await MainActor.run {
                 self.isProcessing = true
                 let emptyMessage = DraftMessage(
                     text: "",
@@ -268,7 +270,7 @@ final class LLMChatViewModel: ObservableObject {
                 guard media.type == .image, let url = await media.getURL() else {
                     continue
                 }
-
+                
                 let fileName = url.lastPathComponent
                 
                 if let processedUrl = FileOperationManager.shared.processImageFile(from: url, fileName: fileName) {
@@ -277,9 +279,9 @@ final class LLMChatViewModel: ObservableObject {
             }
             
             if let audio = draft.recording, let path = audio.url {
-//                if let wavFile = await convertACCToWAV(accFileUrl: path) {
+                //                if let wavFile = await convertACCToWAV(accFileUrl: path) {
                 content = "<audio>\(path.path)</audio>" + content
-//                }
+                //                }
             }
             
             let convertedContent = self.convertDeepSeekMutliChat(content: content)
@@ -317,7 +319,7 @@ final class LLMChatViewModel: ObservableObject {
                     return
                 }
                 
-                Task { 
+                Task {
                     await UIUpdateOptimizer.shared.addUpdate(output) { [weak self] output in
                         guard let self = self else { return }
                         self.send(draft: DraftMessage(
@@ -390,15 +392,19 @@ final class LLMChatViewModel: ObservableObject {
         interactor.connect()
         
         self.setupLLM(modelPath: self.modelInfo.localPath)
+        
+        recordModelUsage()
     }
-
+    
     func onStop() {
+        
+        recordModelUsage()
+        
         ChatHistoryManager.shared.saveChat(
             historyId: historyId,
             modelInfo: modelInfo,
             messages: messages
         )
-        
         
         subscriptions.removeAll()
         
@@ -413,10 +419,20 @@ final class LLMChatViewModel: ObservableObject {
             FileOperationManager.shared.cleanModelTempFolder(modelPath: modelInfo.localPath)
         }
     }
-
+    
     func loadMoreMessage(before message: Message) {
         interactor.loadNextPage()
             .sink { _ in }
             .store(in: &subscriptions)
+    }
+    
+    private func recordModelUsage() {
+        ModelStorageManager.shared.updateLastUsed(for: modelInfo.modelName)
+        
+        NotificationCenter.default.post(
+            name: .modelUsageUpdated,
+            object: nil,
+            userInfo: ["modelName": modelInfo.modelName]
+        )
     }
 }

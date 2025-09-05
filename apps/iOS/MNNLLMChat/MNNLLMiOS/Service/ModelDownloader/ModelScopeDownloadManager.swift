@@ -62,7 +62,8 @@ public actor ModelScopeDownloadManager: ModelDownloadManagerProtocol {
     // MARK: - Properties
     
     private let repoPath: String
-    private let session: URLSession
+    private var session: URLSession
+    private let sessionConfig: URLSessionConfiguration
     private let fileManager: FileManager
     private let storage: ModelDownloadStorage
 
@@ -72,6 +73,7 @@ public actor ModelScopeDownloadManager: ModelDownloadManagerProtocol {
     private var totalSize: Int64 = 0
     private var downloadedSize: Int64 = 0
     private var lastUpdatedBytes: Int64 = 0
+    private var lastReportedProgress: Double = 0.0
     
     // Download cancellation related properties
     private var isCancelled: Bool = false
@@ -98,9 +100,17 @@ public actor ModelScopeDownloadManager: ModelDownloadManagerProtocol {
         self.repoPath = repoPath
         self.fileManager = .default
         self.storage = ModelDownloadStorage()
+        self.sessionConfig = config
         self.session = URLSession(configuration: config)
         self.source = source
         ModelDownloadLogger.isEnabled = enableLogging
+        print("ModelScopeDownloadManager init")
+    }
+    
+    deinit {
+        // Clean up session when the manager is deallocated
+        session.invalidateAndCancel()
+        print("ModelScopeDownloadManager deinit")
     }
     
     // MARK: - Public Methods
@@ -135,6 +145,9 @@ public actor ModelScopeDownloadManager: ModelDownloadManagerProtocol {
         progress: ((Double) -> Void)? = nil
     ) async throws {
         
+        // Ensure we have a valid session before starting download
+        ensureValidSession()
+        
         isCancelled = false
         
         ModelDownloadLogger.info("Starting download for modelId: \(modelId)")
@@ -158,7 +171,7 @@ public actor ModelScopeDownloadManager: ModelDownloadManagerProtocol {
     /// 
     /// This method gracefully stops all active downloads, closes file handles,
     /// and preserves temporary files to enable resume functionality in future attempts.
-    /// The URLSession is invalidated to ensure clean cancellation.
+    /// The URLSession is kept valid to allow future downloads.
     public func cancelDownload() async {
         isCancelled = true
         
@@ -167,7 +180,8 @@ public actor ModelScopeDownloadManager: ModelDownloadManagerProtocol {
         
         await closeFileHandle()
         
-        session.invalidateAndCancel()
+        // Don't invalidate session to allow future downloads
+        // session.invalidateAndCancel()
         
         ModelDownloadLogger.info("Download cancelled, temporary files preserved for resume")
     }
@@ -180,9 +194,23 @@ public actor ModelScopeDownloadManager: ModelDownloadManagerProtocol {
     ///   - progress: Current progress value (0.0 to 1.0)
     ///   - callback: Progress callback function to invoke on main thread
     private func updateProgress(_ progress: Double, callback: @escaping (Double) -> Void) {
-        Task { @MainActor in
-            callback(progress)
+        // Only update UI progress if there's a significant change (>0.1%)
+        let progressDiff = abs(progress - lastReportedProgress)
+        if progressDiff >= 0.001 || progress >= 1.0 {
+            lastReportedProgress = progress
+            Task { @MainActor in
+                callback(progress)
+            }
         }
+    }
+    
+    /// Ensures the URLSession is valid by recreating it if necessary
+    /// 
+    /// This method provides a simple and reliable way to ensure we have a valid URLSession
+    /// by always creating a fresh session before downloads. This prevents any potential
+    /// "Task created in a session that has been invalidated" errors.
+    private func ensureValidSession() {
+        session = URLSession(configuration: sessionConfig)
     }
     
     /// Fetches the complete file list from ModelScope or Modeler repository
@@ -215,28 +243,28 @@ public actor ModelScopeDownloadManager: ModelDownloadManagerProtocol {
     }
     
     
-    /**
-     * Downloads a single file with intelligent resume and retry mechanisms
-     * 
-     * This method handles individual file downloads with comprehensive error recovery,
-     * resume functionality through temporary files, and progress tracking. It supports
-     * both ModelScope and Modeler platforms with platform-specific URL construction.
-     * 
-     * Features:
-     * - Automatic resume from temporary files using HTTP Range requests
-     * - Exponential backoff retry mechanism (configurable attempts)
-     * - Memory-efficient streaming using URLSession.bytes
-     * - File integrity validation using size verification
-     * - Progress update throttling to prevent UI blocking
-     * - Graceful cancellation with state preservation
-     * 
-     * @param file ModelFile metadata including path, size, and download information
-     * @param destinationPath Target local path for the downloaded file
-     * @param onProgress Progress callback receiving downloaded bytes count
-     * @param maxRetries Maximum number of retry attempts (default: 3)
-     * @param retryDelay Delay between retry attempts in seconds (default: 2.0)
-     * @throws ModelScopeError if download fails after all retry attempts
-     */
+    /// Downloads a single file with intelligent resume and retry mechanisms.
+    ///
+    /// This method handles individual file downloads with comprehensive error recovery,
+    /// resume functionality through temporary files, and progress tracking. It supports
+    /// both ModelScope and Modeler platforms with platform-specific URL construction.
+    ///
+    /// - Features:
+    ///   - Automatic resume from temporary files using HTTP Range requests
+    ///   - Exponential backoff retry mechanism (configurable attempts)
+    ///   - Memory-efficient streaming using URLSession.bytes
+    ///   - File integrity validation using size verification
+    ///   - Progress update throttling to prevent UI blocking
+    ///   - Graceful cancellation with state preservation
+    ///
+    /// - Parameters:
+    ///   - file: ModelFile metadata including path, size, and download information.
+    ///   - destinationPath: Target local path for the downloaded file.
+    ///   - onProgress: Progress callback receiving downloaded bytes count.
+    ///   - maxRetries: Maximum number of retry attempts. Defaults to 3.
+    ///   - retryDelay: Delay between retry attempts in seconds. Defaults to 2.0.
+    ///
+    /// - Throws: `ModelScopeError` if download fails after all retry attempts.
     private func downloadFile(
         file: ModelFile,
         destinationPath: String,
@@ -293,9 +321,15 @@ public actor ModelScopeDownloadManager: ModelDownloadManagerProtocol {
         let destination = URL(fileURLWithPath: destinationPath)
             .appendingPathComponent(file.name.sanitizedPath)
         
-        let modelHash = repoPath.hash
-        let fileHash = file.path.hash
-        let tempURL = FileManager.default.temporaryDirectory
+        let modelHash = repoPath.stableHash
+        let fileHash = file.path.stableHash
+        
+        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let downloadsURL = documentsURL.appendingPathComponent(".downloads", isDirectory: true)
+        
+        try? fileManager.createDirectory(at: downloadsURL, withIntermediateDirectories: true, attributes: nil)
+        
+        let tempURL = downloadsURL
             .appendingPathComponent("model_\(modelHash)_file_\(fileHash)_\(file.name.sanitizedPath).tmp")
         
         var resumeOffset: Int64 = 0
@@ -346,7 +380,8 @@ public actor ModelScopeDownloadManager: ModelDownloadManagerProtocol {
                     }
                     
                     var downloadedBytes: Int64 = resumeOffset
-                    var bytesCount = 0
+                    var buffer = Data()
+                    buffer.reserveCapacity(1024 * 1024) // Reserve 1MB buffer
                     
                     for try await byte in asyncBytes {
                         // Frequently check cancellation status
@@ -358,15 +393,22 @@ public actor ModelScopeDownloadManager: ModelDownloadManagerProtocol {
                             return
                         }
                         
-                        try fileHandle.write(contentsOf: [byte])
-                        downloadedBytes += 1
-                        bytesCount += 1
+                        buffer.append(byte)
                         
-                        // Reduce progress callback frequency: update every 64KB * 5 instead of every 1KB
-                        if bytesCount >= 64 * 1024 * 5 {
+                        // Write in larger chunks to reduce I/O operations
+                        if buffer.count >= 256 * 1024 { // 256KB chunks
+                            try fileHandle.write(contentsOf: buffer)
+                            downloadedBytes += Int64(buffer.count)
                             onProgress(downloadedBytes)
-                            bytesCount = 0
+                            buffer.removeAll(keepingCapacity: true)
                         }
+                    }
+                    
+                    // Write remaining buffer
+                    if !buffer.isEmpty {
+                        try fileHandle.write(contentsOf: buffer)
+                        downloadedBytes += Int64(buffer.count)
+                        onProgress(downloadedBytes)
                     }
                     
                     try fileHandle.close()
@@ -467,11 +509,13 @@ public actor ModelScopeDownloadManager: ModelDownloadManagerProtocol {
                 ModelDownloadLogger.debug("Downloading: \(file.name)")
                 
                 if !storage.isFileDownloaded(file, at: destinationPath) {
+                    let fileStartSize = downloadedSize
                     try await downloadFile(
                         file: file,
                         destinationPath: destinationPath,
                         onProgress: { downloadedBytes in
-                            let currentProgress = Double(self.downloadedSize + downloadedBytes) / Double(self.totalSize)
+                            // 使用文件开始时的已下载大小 + 当前文件的下载字节数
+                            let currentProgress = Double(fileStartSize + downloadedBytes) / Double(self.totalSize)
                             self.updateProgress(currentProgress, callback: progress)
                         },
                         maxRetries: 500, // Can be made configurable
@@ -683,9 +727,12 @@ public actor ModelScopeDownloadManager: ModelDownloadManagerProtocol {
     ///   - destinationPath: Destination path used for temp file naming
     /// - Returns: Size of temporary file in bytes, or 0 if file doesn't exist
     private func getTempFileSize(for file: ModelFile, destinationPath: String) -> Int64 {
-        let modelHash = repoPath.hash
-        let fileHash = file.path.hash
-        let tempURL = FileManager.default.temporaryDirectory
+        let modelHash = repoPath.stableHash
+        let fileHash = file.path.stableHash
+        
+        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let downloadsURL = documentsURL.appendingPathComponent(".downloads", isDirectory: true)
+        let tempURL = downloadsURL
             .appendingPathComponent("model_\(modelHash)_file_\(fileHash)_\(file.name.sanitizedPath).tmp")
         
         guard fileManager.fileExists(atPath: tempURL.path) else {
