@@ -6,8 +6,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/exyte/ActivityIndicatorView",
       "state" : {
-        "revision" : "9970fd0bb7a05dad0b6566ae1f56937716686b24",
-        "version" : "1.1.1"
+        "revision" : "36140867802ae4a1d2b11490bcbbefe058001d14",
+        "version" : "1.2.1"
       }
     },
     {
@@ -15,8 +15,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Yogayu/Chat.git",
       "state" : {
-        "branch" : "main",
-        "revision" : "f9766674b74330dd77289ffb70904c465f0e4d94"
+        "revision" : "4c49b92811d42b8caa01e5c8562767640e19be56",
+        "version" : "1.0.1"
       }
     },
     {
@@ -24,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/exyte/FloatingButton",
       "state" : {
-        "revision" : "cf77c2f124df1423d90a9a1985e9b9ccfa4b9b3e",
-        "version" : "1.3.0"
+        "revision" : "c1e3e6a641ef5bacbcbc2b2c80db54793f75f974",
+        "version" : "1.4.0"
       }
     },
     {
@@ -33,8 +33,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/johnmai-dev/Jinja",
       "state" : {
-        "revision" : "bbddb92fc51ae420b87300298370fd1dfc308f73",
-        "version" : "1.1.1"
+        "revision" : "bb238dd96fbe4c18014f3107c00edd6edb15428e",
+        "version" : "1.2.4"
       }
     },
     {
@@ -78,8 +78,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/swiftlang/swift-cmark",
       "state" : {
-        "revision" : "3ccff77b2dc5b96b77db3da0d68d28068593fa53",
-        "version" : "0.5.0"
+        "revision" : "b022b08312decdc46585e0b3440d97f6f22ef703",
+        "version" : "0.6.0"
       }
     },
     {
@@ -105,8 +105,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/huggingface/swift-transformers/",
       "state" : {
-        "revision" : "55710ddfb1ae804b4b7ce973be75cf2e41272185",
-        "version" : "0.1.17"
+        "revision" : "e5bf0627bd134cf8ddc407cda403ae84207af959",
+        "version" : "0.1.22"
       }
     },
     {
