@@ -200,6 +200,7 @@ class ModelListViewModel: ObservableObject {
             fetchedModels.append(contentsOf: uniqueLocalModels)
             
             filterDiffusionModels(fetchedModels: &fetchedModels)
+            filterModelsForRelease(fetchedModels: &fetchedModels)
             loadCachedSizes(for: &fetchedModels)
             syncDownloadStatus(for: &fetchedModels)
             sortModels(fetchedModels: &fetchedModels)
@@ -297,6 +298,24 @@ class ModelListViewModel: ObservableObject {
             fetchedModels[i].isDownloaded = ModelStorageManager.shared.isModelDownloaded(model.modelName)
             fetchedModels[i].lastUsedAt = ModelStorageManager.shared.getLastUsed(for: model.modelName)
         }
+    }
+    
+    private func filterModelsForRelease(fetchedModels: inout [ModelInfo]) {
+        #if !DEBUG
+        fetchedModels = fetchedModels.filter { model in
+            // Filter out models with "MiniCPM" in the name
+            if model.modelName.lowercased().contains("minicpm") {
+                return false
+            }
+            
+            // Filter out models with size_gb > 8
+            if let sizeGB = model.size_gb, sizeGB > 8.0 {
+                return false
+            }
+            
+            return true
+        }
+        #endif
     }
     
     private func sortModels(fetchedModels: inout [ModelInfo]) {
