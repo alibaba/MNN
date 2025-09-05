@@ -53,7 +53,17 @@
   ```
 
 # Releases
+## Version 0.7.3
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_3.apk)
++ 优化 API 服务
 
+## 版本 0.7.2
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_2.apk)
++ 问题修复：
+  + 修复通义千问思考/不思考开关有时不生效的问题。
++ 界面更新：
+  + 更新历史记录和性能测试界面。
+  
 ## 版本 0.7.1
 + [点击此处下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_1.apk)
 + 新增模型：

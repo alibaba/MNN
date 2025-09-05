@@ -54,7 +54,10 @@ class BenchmarkPresenter(
                 statusMessage = "Loading models...",
                 enableModelSelector = false,
                 showBenchmarkIcon = true,
-                showBenchmarkProgressBar = false
+                showBenchmarkProgressBar = false,
+                showModelSelectorCard = true, // Show model selector card (like iOS)
+                showProgressCard = false,
+                showStatusCard = true // Show status card for loading message
             )
             BenchmarkState.LOADING_MODELS -> BenchmarkUIState(
                 startButtonText = context.getString(R.string.start_test),
@@ -65,7 +68,10 @@ class BenchmarkPresenter(
                 statusMessage = "Loading models...",
                 enableModelSelector = false,
                 showBenchmarkIcon = true,
-                showBenchmarkProgressBar = false
+                showBenchmarkProgressBar = false,
+                showModelSelectorCard = true, // Show model selector card (like iOS)
+                showProgressCard = false,
+                showStatusCard = false // Show status card for loading message
             )
             BenchmarkState.READY -> BenchmarkUIState(
                 startButtonText = context.getString(R.string.start_test),
@@ -76,7 +82,10 @@ class BenchmarkPresenter(
                 statusMessage = context.getString(R.string.select_a_model_to_start),
                 enableModelSelector = true,
                 showBenchmarkIcon = true,
-                showBenchmarkProgressBar = false
+                showBenchmarkProgressBar = false,
+                showModelSelectorCard = true, // Show model selector card (like iOS)
+                showProgressCard = false,
+                showStatusCard = false // Show status card for instructions
             )
             BenchmarkState.INITIALIZING -> BenchmarkUIState(
                 startButtonText = context.getString(R.string.stop_test),
@@ -88,7 +97,10 @@ class BenchmarkPresenter(
                 enableModelSelector = false,
                 showBenchmarkIcon = true,
                 showBenchmarkProgressBar = true,
-                benchmarkProgress = 5 // Initial 5% for starting
+                benchmarkProgress = 0, // Initial 0% before initialization
+                showProgressCard = true,
+                showStatusCard = true,
+                showModelSelectorCard = true // Show model selector card (like iOS)
             )
             BenchmarkState.RUNNING -> BenchmarkUIState(
                 startButtonText = context.getString(R.string.stop_test),
@@ -99,7 +111,10 @@ class BenchmarkPresenter(
                 enableModelSelector = false,
                 showBenchmarkIcon = true,
                 showBenchmarkProgressBar = true,
-                benchmarkProgress = 10 // Initial 10% (5% start + 5% initialization)
+                benchmarkProgress = 10, // Initial 10% for entering running state
+                showProgressCard = true,
+                showStatusCard = true,
+                showModelSelectorCard = true // Show model selector card (like iOS)
             )
             BenchmarkState.STOPPING -> BenchmarkUIState(
                 startButtonText = context.getString(R.string.stop_test),
@@ -110,22 +125,24 @@ class BenchmarkPresenter(
                 statusMessage = context.getString(R.string.benchmark_stopping),
                 enableModelSelector = false,
                 showBenchmarkIcon = true,
-                showBenchmarkProgressBar = true
+                showBenchmarkProgressBar = true,
+                showProgressCard = true,
+                showStatusCard = true,
+                showModelSelectorCard = true // Show model selector card (like iOS)
             )
             BenchmarkState.COMPLETED -> BenchmarkUIState(
-                startButtonText = if (useLeaderboardUpload) 
-                    context.getString(R.string.upload_to_leaderboard) 
-                else 
-                    context.getString(R.string.share),
+                startButtonText = context.getString(R.string.restart_test), // Changed to "重新评测"
                 startButtonEnabled = true,
                 showProgressBar = false,
                 showResults = true,
                 showStatus = false,
-                enableModelSelector = false, // Disable model selector in results view
+                enableModelSelector = true, // Enable model selector in results view (like iOS)
                 showBenchmarkIcon = false, // Hide icon when showing results
                 showBenchmarkProgressBar = false,
-                showBackButton = true, // Show back button in results view
-                showModelSelectorCard = false // Hide model selector card in results view
+                showBackButton = false, // Back button removed, share button in result card instead
+                showModelSelectorCard = true, // Show model selector card in results view (like iOS)
+                showProgressCard = false,
+                showStatusCard = false // Hide status card when showing results
             )
             BenchmarkState.ERROR -> BenchmarkUIState(
                 startButtonText = context.getString(R.string.start_test),
@@ -135,7 +152,10 @@ class BenchmarkPresenter(
                 showStatus = false,
                 enableModelSelector = true,
                 showBenchmarkIcon = true,
-                showBenchmarkProgressBar = false
+                showBenchmarkProgressBar = false,
+                showModelSelectorCard = true, // Show model selector card (like iOS)
+                showProgressCard = false,
+                showStatusCard = false // Hide status card for error state
             )
             BenchmarkState.ERROR_MODEL_NOT_FOUND -> BenchmarkUIState(
                 startButtonText = context.getString(R.string.start_test),
@@ -147,7 +167,10 @@ class BenchmarkPresenter(
                 showBenchmarkIcon = true,
                 showBenchmarkProgressBar = false,
                 statusMessage = context.getString(R.string.no_models_found),
-                )
+                showModelSelectorCard = true, // Show model selector card (like iOS)
+                showProgressCard = false,
+                showStatusCard = true // Show status card for error message
+            )
         }
         
         applyUIState(uiState)
@@ -157,7 +180,7 @@ class BenchmarkPresenter(
      * Apply UI state to view
      */
     private fun applyUIState(uiState: BenchmarkUIState) {
-        Log.d(TAG, "Applying UI state: buttonText='${uiState.startButtonText}', buttonEnabled=${uiState.startButtonEnabled}, showProgressBar=${uiState.showProgressBar}, showResults=${uiState.showResults}, showStatus=${uiState.showStatus}, showBenchmarkIcon=${uiState.showBenchmarkIcon}, showBenchmarkProgressBar=${uiState.showBenchmarkProgressBar}, benchmarkProgress=${uiState.benchmarkProgress}, showBackButton=${uiState.showBackButton}, showModelSelectorCard=${uiState.showModelSelectorCard}")
+        Log.d(TAG, "Applying UI state: buttonText='${uiState.startButtonText}', buttonEnabled=${uiState.startButtonEnabled}, showProgressBar=${uiState.showProgressBar}, showResults=${uiState.showResults}, showStatus=${uiState.showStatus}, showBenchmarkIcon=${uiState.showBenchmarkIcon}, showBenchmarkProgressBar=${uiState.showBenchmarkProgressBar}, benchmarkProgress=${uiState.benchmarkProgress}, showBackButton=${uiState.showBackButton}, showModelSelectorCard=${uiState.showModelSelectorCard}, showProgressCard=${uiState.showProgressCard}, showStatusCard=${uiState.showStatusCard}")
         
         view.setStartButtonText(uiState.startButtonText)
         view.setStartButtonEnabled(uiState.startButtonEnabled)
@@ -194,6 +217,10 @@ class BenchmarkPresenter(
         // Apply new button layout controls
         view.updateButtonLayout(uiState.showBackButton)
         view.showModelSelectorCard(uiState.showModelSelectorCard)
+        
+        // Apply progress and status cards
+        view.showProgressCard(uiState.showProgressCard)
+        view.showStatusCard(uiState.showStatusCard)
     }
     
     override fun onDestroy() {
@@ -217,12 +244,13 @@ class BenchmarkPresenter(
                 }
             }
             BenchmarkState.COMPLETED -> {
-                if (useLeaderboardUpload) {
-                    Log.d(TAG, "In COMPLETED state, uploading to leaderboard")
-                    view.uploadToLeaderboard()
+                Log.d(TAG, "In COMPLETED state, restarting benchmark")
+                // Restart benchmark instead of sharing
+                if (stateMachine.canStart()) {
+                    Log.d(TAG, "Restarting benchmark...")
+                    startBenchmark()
                 } else {
-                    Log.d(TAG, "In COMPLETED state, sharing result card")
-                    view.shareResultCard()
+                    Log.w(TAG, "Cannot restart benchmark in state: $currentState")
                 }
             }
             BenchmarkState.RUNNING, BenchmarkState.INITIALIZING -> {
@@ -471,7 +499,10 @@ class BenchmarkPresenter(
                     enableModelSelector = false,
                     showBenchmarkIcon = true,
                     showBenchmarkProgressBar = true,
-                    benchmarkProgress = 10 // 5% start + 5% initialization
+                    benchmarkProgress = 10, // 10% for entering running state
+                    showModelSelectorCard = true,
+                    showProgressCard = true, // 关键修复：显示进度卡片
+                    showStatusCard = true // 关键修复：显示状态卡片
                 )
                 applyUIState(runningUIState)
                 
@@ -492,6 +523,7 @@ class BenchmarkPresenter(
                             
                             // Calculate real progress based on token processing
                             val realProgress = calculateRealProgress(progress)
+                            Log.d(TAG, "onProgress: calculated realProgress=$realProgress for progressType=${progress.progressType}, nativeProgress=${progress.progress}")
                             
                             // Update UI with real progress
                             val uiState = when (currentState) {
@@ -504,7 +536,10 @@ class BenchmarkPresenter(
                                     enableModelSelector = false,
                                     showBenchmarkIcon = true,
                                     showBenchmarkProgressBar = true,
-                                    benchmarkProgress = realProgress
+                                    benchmarkProgress = realProgress,
+                                    showModelSelectorCard = true,
+                                    showProgressCard = true, // 关键修复：显示进度卡片
+                                    showStatusCard = true // 关键修复：显示状态卡片
                                 )
                                 else -> return
                             }
@@ -513,6 +548,34 @@ class BenchmarkPresenter(
                             // Format progress message based on structured data
                             val formattedProgress = formatProgressMessage(progress)
                             view.updateProgress(formattedProgress)
+                            
+                            // Update progress card with detailed information - use realProgress instead of native progress
+                            // Note: realProgress is already applied via UI state, no need to call again here
+                            if (formattedProgress.statusMessage.isNotEmpty()) {
+                                view.updateStatusMessage(formattedProgress.statusMessage)
+                            }
+                            
+                            // Update test details if available
+                            if (progress.totalIterations > 0) {
+                                view.updateTestDetails(
+                                    progress.currentIteration,
+                                    progress.totalIterations,
+                                    progress.nPrompt,
+                                    progress.nGenerate
+                                )
+                            }
+                            
+                            // Update performance metrics if available
+                            if (progress.runTimeSeconds > 0) {
+                                view.updateProgressMetrics(
+                                    progress.runTimeSeconds,
+                                    progress.prefillTimeSeconds,
+                                    progress.decodeTimeSeconds,
+                                    progress.prefillSpeed,
+                                    progress.decodeSpeed
+                                )
+                            }
+                            
                             Log.d(TAG, "Benchmark Progress (${progress.progress}% -> ${realProgress}% real): ${formattedProgress.statusMessage}")
                         }
                         
@@ -641,38 +704,67 @@ class BenchmarkPresenter(
     }
     
     /**
-     * Calculate real progress based on token processing
-     * - Start: 5%
-     * - Initialization: 5% (total 10%)
-     * - Running: 90% based on token progress
+     * Calculate real progress based on benchmark state
+     * - Running state start: 10%
+     * - After warming up: at least 20%
+     * - Remaining realProgress distributed over remaining 80%
      */
     private fun calculateRealProgress(progress: BenchmarkProgress): Int {
-        // Base progress: 5% for start + 5% for initialization = 10%
-        val baseProgress = 10
+        Log.d(TAG, "calculateRealProgress: progressType=${progress.progressType}, nativeProgress=${progress.progress}, currentIteration=${progress.currentIteration}, totalIterations=${progress.totalIterations}")
         
-        // If we have iteration information, calculate based on that
-        if (progress.totalIterations > 0 && progress.currentIteration >= 0) {
-            val iterationProgress = (progress.currentIteration.toFloat() / progress.totalIterations.toFloat() * 90).toInt()
-            return (baseProgress + iterationProgress).coerceIn(10, 100)
+        // Base progress for entering RUNNING state: 10%
+        val runningStateStart = 10
+        
+        // After warming up: at least 20%
+        val afterWarmupMin = 20
+        
+        // Remaining 80% for actual progress distribution
+        val remainingProgressRange = 80
+        
+        // Calculate progress based on progressType
+        val finalProgress = when (progress.progressType) {
+            ProgressType.INITIALIZING -> {
+                // During initialization: 0-10%
+                val initProgress = (progress.progress.coerceIn(0, 100) / 100.0f * runningStateStart).toInt()
+                initProgress.coerceIn(0, runningStateStart)
+            }
+            ProgressType.WARMING_UP -> {
+                // During warming up: 10-20%
+                val warmupProgress = runningStateStart + (progress.progress.coerceIn(0, 100) / 100.0f * (afterWarmupMin - runningStateStart)).toInt()
+                warmupProgress.coerceIn(runningStateStart, afterWarmupMin)
+            }
+            ProgressType.RUNNING_TEST -> {
+                // After warming up: 20-100%, distributed over remaining 80%
+                
+                // If we have iteration information, calculate based on that
+                if (progress.totalIterations > 0 && progress.currentIteration >= 0) {
+                    val iterationProgress = (progress.currentIteration.toFloat() / progress.totalIterations.toFloat() * remainingProgressRange).toInt()
+                    (afterWarmupMin + iterationProgress).coerceIn(afterWarmupMin, 100)
+                }
+                // If we have token information, calculate based on tokens
+                else if (progress.nPrompt > 0 && progress.nGenerate > 0) {
+                    // Use the native progress percentage if available, but scale it to our remaining 80% range
+                    val nativeProgress = progress.progress.coerceIn(0, 100)
+                    val scaledProgress = (nativeProgress / 100.0f * remainingProgressRange).toInt()
+                    
+                    (afterWarmupMin + scaledProgress).coerceIn(afterWarmupMin, 100)
+                }
+                // Fallback: use native progress but scale to remaining 80%
+                else {
+                    val fallbackProgress = progress.progress.coerceIn(0, 100)
+                    val scaledFallback = (fallbackProgress / 100.0f * remainingProgressRange).toInt()
+                    
+                    (afterWarmupMin + scaledFallback).coerceIn(afterWarmupMin, 100)
+                }
+            }
+            else -> {
+                // Fallback for unknown states
+                runningStateStart
+            }
         }
         
-        // If we have token information, calculate based on tokens
-        if (progress.nPrompt > 0 && progress.nGenerate > 0) {
-            // Total expected tokens per iteration
-            val totalTokensPerIteration = progress.nPrompt + progress.nGenerate
-            
-            // Use the native progress percentage if available, but scale it to our 90% range
-            val nativeProgress = progress.progress.coerceIn(0, 100)
-            val scaledProgress = (nativeProgress / 100.0f * 90).toInt()
-            
-            return (baseProgress + scaledProgress).coerceIn(10, 100)
-        }
-        
-        // Fallback: use native progress but ensure minimum 10%
-        val fallbackProgress = progress.progress.coerceIn(0, 100)
-        val scaledFallback = (fallbackProgress / 100.0f * 90).toInt()
-        
-        return (baseProgress + scaledFallback).coerceIn(10, 100)
+        Log.d(TAG, "calculateRealProgress result: $finalProgress")
+        return finalProgress
     }
 
     /**

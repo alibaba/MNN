@@ -142,6 +142,8 @@ object ChatViewHolders {
         RecyclerView.ViewHolder(view), View.OnClickListener, OnLongClickListener {
         private val viewText: TextView = view.findViewById(R.id.tv_chat_text)
         private val viewThinking: TextView = view.findViewById(R.id.tv_chat_thinking)
+        private val thinkingContainer: View = view.findViewById(R.id.ll_thinking_container)
+        private val thinkingMarker: View = view.findViewById(R.id.view_thinking_marker)
         private val benchmarkInfo: TextView = view.findViewById(R.id.tv_chat_benchmark)
         private val thinkingToggle: LinearLayout = view.findViewById(R.id.ll_thinking_toggle)
         private val textThinkingHeader:TextView = view.findViewById(R.id.tv_thinking_header)
@@ -299,12 +301,21 @@ object ChatViewHolders {
                 textThinkingHeader.resources.getString(R.string.r1_think_complete_template, (data.thinkingFinishedTime / 1000).toString())
             else textThinkingHeader.resources.getString(R.string.r1_thinking_message)
             if (showThinking && !TextUtils.isEmpty(data.thinkingText)) {
+                val thinkingText = data.thinkingText!!
+                thinkingContainer.visibility = View.VISIBLE
                 viewThinking.visibility = View.VISIBLE
-                markdown.setMarkdown(viewThinking, data.thinkingText!!)
+                // Legacy compatibility: if content starts with '>' assume preformatted blockquote
+                val isLegacyBlockQuote = thinkingText.trimStart().startsWith(">")
+                // Hide left marker if legacy content already has its own marker style
+                thinkingMarker.visibility = if (isLegacyBlockQuote) View.GONE else View.VISIBLE
+                markdown.setMarkdown(viewThinking, thinkingText)
                 ivThinkingHeader.setImageResource(R.drawable.ic_arrow_up)
             } else {
                 ivThinkingHeader.setImageResource(R.drawable.ic_arrow_down)
                 viewThinking.visibility = View.GONE
+                thinkingContainer.visibility = View.GONE
+                // Reset marker visible for next binds by default
+                thinkingMarker.visibility = View.VISIBLE
             }
         }
 

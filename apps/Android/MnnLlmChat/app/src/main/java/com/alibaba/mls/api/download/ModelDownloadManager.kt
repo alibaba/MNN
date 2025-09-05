@@ -354,7 +354,7 @@ class ModelDownloadManager private constructor(context: Context) {
         }
         
         if (count == 1) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 if (ContextCompat.checkSelfPermission(
                         appContext,
                         Manifest.permission.POST_NOTIFICATIONS
@@ -375,6 +375,9 @@ class ModelDownloadManager private constructor(context: Context) {
                 } else {
                     startForegroundService()
                 }
+            } else {
+                // For Android 13 and below, start foreground service directly
+                startForegroundService()
             }
         }
         updateNotification()
@@ -383,6 +386,7 @@ class ModelDownloadManager private constructor(context: Context) {
     private fun startForegroundService() {
         // Do not start foreground service in Google Play build
         if (disableForegroundService) {
+            Log.d(TAG, "startForegroundService: skipped - disableForegroundService is true")
             return
         }
         
@@ -393,8 +397,10 @@ class ModelDownloadManager private constructor(context: Context) {
             foregroundServiceIntent.putExtra(DownloadForegroundService.EXTRA_DOWNLOAD_COUNT, count)
             foregroundServiceIntent.putExtra(DownloadForegroundService.EXTRA_MODEL_NAME, modelName)
             
+            Log.d(TAG, "startForegroundService: starting service with count=$count, modelName=$modelName")
             ApplicationProvider.get().startForegroundService(foregroundServiceIntent)
             foregroundServiceStarted = true
+            Log.d(TAG, "startForegroundService: service started successfully")
         } catch (e: Exception) {
             Log.e(TAG, "start foreground service failed", e)
             foregroundServiceStarted = false
@@ -417,6 +423,7 @@ class ModelDownloadManager private constructor(context: Context) {
     
     private fun updateNotification() {
         if (!foregroundServiceStarted || disableForegroundService) {
+            Log.d(TAG, "updateNotification: skipped - foregroundServiceStarted: $foregroundServiceStarted, disableForegroundService: $disableForegroundService")
             return
         }
         
@@ -424,6 +431,7 @@ class ModelDownloadManager private constructor(context: Context) {
             val count = activeDownloadCount.get()
             val modelName = getActiveDownloadModelName()
             
+            Log.d(TAG, "updateNotification: count=$count, modelName=$modelName")
             // Use the static method to update notification
             DownloadForegroundService.updateNotification(count, modelName)
         } catch (e: Exception) {
@@ -525,6 +533,9 @@ class ModelDownloadManager private constructor(context: Context) {
         }
         Log.v(TAG, "[updateDownloadingProgress] Notifying ${listeners.size} listeners for $modelId stage: $stage")
         listeners.forEach { it.onDownloadProgress(modelId, downloadInfo) }
+        
+        // Update notification with progress information
+        updateNotification()
     }
 
     suspend fun deleteModel(item: ModelMarketItem) {

@@ -47,7 +47,7 @@
     <string name="nav_close">Close navigation drawer</string>
     <string name="models">模型列表</string>
     <string name="models_market">模型市场</string>
-    <string name="history">历史会话</string>
+    <string name="history">对话历史</string>
     <string name="history_title">Chat History</string>
     <string name="history_delete_success">历史被删除</string>
     <string name="diffusion_generated_message">已生成图片：</string>
@@ -106,9 +106,14 @@
     <string name="api_service_not_started">API 服务未启动</string>
     <string name="no_active_session">未找到活跃会话</string>
     <string name="api_service_running">API 服务运行中</string>
+    <string name="api_service_running_on">API 服务运行在 %1$s:%2$d</string>
     <string name="api_service_port">端口：%1$d</string>
     <string name="api_service_start_failed">API 服务启动失败</string>
     <string name="api_service_error">错误：%1$s</string>
+    <string name="api_service_stop">停止</string>
+    <string name="api_service_copy_url">复制URL</string>
+    <string name="api_service_test_page">测试页面</string>
+    <string name="api_url_copied">API URL已复制到剪贴板</string>
     <string name="modelscope">魔搭</string>
     <string name="modelers">魔乐</string>
     <string name="huggingface">HuggingFace</string>
@@ -236,9 +241,16 @@
     <string name="audio_output_confirm">当前音频输出可能较慢。您是否仍要打开？</string>
     <string name="confirm_delete_model_title">确认删除</string>
     <string name="confirm_delete_model_message">您确定要删除这个模型吗？此操作无法恢复。</string>
+    <string name="delete_history_title">删除聊天记录</string>
+    <string name="delete_history_message">您确定要删除这条聊天记录吗？此操作无法恢复。</string>
     <string name="vendor_menu_title">厂商</string>
     <string name="modality_menu_title">模态</string>
     <string name="downloaded">已下载</string>
+    <string name="unknown_time">未知时间</string>
+    <string name="just_now">刚刚</string>
+    <string name="minutes_ago">%1$d分钟前</string>
+    <string name="hours_ago">%1$d小时前</string>
+    <string name="days_ago">%1$d天前</string>
     <string name="last_chat">最后聊天</string>
     <string name="show_model_info">显示模型信息</string>
     <string name="model_info_title">模型信息</string>
@@ -327,7 +339,7 @@
     <string name="voice_chat_stopping">正在停止...</string>
     <string name="voice_chat_ready_greeting">有什么可以帮助您的？</string>
     <string name="voice_chat_usage_notice">使用语音聊天需要下载TTS和ASR模型，请注意多语言支持。</string>
-    <string name="nav_name_chats">会话</string>
+    <string name="nav_name_chats">我的模型</string>
     <string name="benchmark">性能评测</string>
     <string name="download_source">选择下载源</string>
     <string name="filter">筛选</string>
@@ -375,10 +387,15 @@
     <string name="no">否</string>
     <string name="select_a_model_to_start">选择好模型后，就可以开始评测了</string>
     <string name="start_test">开始测试</string>
+    <string name="restart_test">重新评测</string>
     <string name="prefill_speed">"预填充速度: "</string>
     <string name="memory_title">峰值内存：</string>
     <string name="decode_speed">解码速度：</string>
     <string name="test_result">评测结果</string>
+    <string name="test_progress">测试进度</string>
+    <string name="running_performance_tests">正在运行性能测试</string>
+    <string name="complete">完成</string>
+    <string name="status_update">状态更新</string>
     <string name="share">分享</string>
 
     <!-- Benchmark Strings -->
@@ -497,4 +514,28 @@
     <string name="download_service_title">MNN Chat 下载服务</string>
     <string name="downloading_single_model">正在下载 %1$s</string>
     <string name="downloading_multiple_models">正在下载 %1$d 个模型</string>
+    
+    <!-- Benchmark Performance Metric Strings -->
+    <string name="prefill_speed_title">预填充速度</string>
+    <string name="prefill_speed_subtitle">每秒令牌数</string>
+    <string name="decode_speed_title">解码速度</string>
+    <string name="decode_speed_subtitle">生成速率</string>
+    <string name="memory_usage_title">内存使用</string>
+    <string name="memory_usage_subtitle">峰值内存</string>
+    <string name="total_tokens_title">总时间</string>
+    <string name="total_tokens_subtitle">完成时长</string>
+    <string name="benchmark_config_title">基准测试配置</string>
+    <string name="powered_by_mnn">Powered By MNN</string>
+    <string name="benchmark_results_title">基准测试结果</string>
+    <string name="performance_analysis_complete">性能分析完成</string>
+    <string name="completed">完成时间</string>
+    <string name="completion_time">完成时间</string>
+    <string name="select_model_title">选择模型</string>
+    <string name="click_to_select_model">点击选择模型</string>
+    <string name="ready_for_benchmark">准备进行基准测试</string>
+    <string name="cannot_change_model_during_benchmark">基准测试期间无法更改模型</string>
+    <string name="failed_to_share_result">分享结果失败：%1$s</string>
+    <string name="unknown_error">未知错误</string>
+    <string name="not_available">不可用</string>
+    <string name="unknown_model">未知模型</string>
 </resources>

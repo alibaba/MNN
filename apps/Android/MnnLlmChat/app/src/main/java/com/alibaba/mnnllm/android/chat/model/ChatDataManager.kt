@@ -243,7 +243,12 @@ class ChatDataManager private constructor(context: Context) {
                         cursor.getString(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_MODEL_ID))
                     val name =
                         cursor.getString(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_SESSION_NAME))
-                    list.add(SessionItem(sid, mid, name))
+                    val lastChatTime = try {
+                        cursor.getLong(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_LAST_CHAT_TIME))
+                    } catch (e: Exception) {
+                        0L // Fallback for when column doesn't exist
+                    }
+                    list.add(SessionItem(sid, mid, name, lastChatTime))
                 }
                 cursor.close()
             }

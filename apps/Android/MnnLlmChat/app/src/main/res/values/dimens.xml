@@ -37,4 +37,7 @@
     <dimen name="filter_chip_height">30dp</dimen>
     <dimen name="filter_chip_margin_end">8dp</dimen>
     <dimen name="bottom_tab_icon_size">30dp</dimen>
+    
+    <!-- Performance Metric View -->
+    <dimen name="performance_metric_padding">0dp</dimen>
 </resources>

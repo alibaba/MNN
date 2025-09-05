@@ -38,6 +38,14 @@ object ModelListManager {
     }
 
     /**
+     * Get extra tags for a specific model by modelId (not shown to users)
+     */
+    fun getExtraTags(modelId: String): List<String> {
+        val modelItem = modelIdModelMap[modelId]
+        return modelItem?.getExtraTags() ?: emptyList()
+    }
+
+    /**
      * Check if a model is a thinking model by examining its tags
      */
     fun isThinkingModel(modelId: String): Boolean {
@@ -90,8 +98,7 @@ object ModelListManager {
                 val modelItem = ModelItem.fromDownloadModel(context, downloadedModel.modelId, downloadedModel.modelPath)
                 // Set market item data if available
                 modelItem.modelMarketItem = ModelMarketUtils.readMarketConfig(downloadedModel.modelId)
-
-                // Calculate download size
+                // Calculate download size  
                 val downloadSize = try {
                     val file = File(downloadedModel.modelPath)
                     if (file.exists()) file.length() else 0L
@@ -125,6 +132,9 @@ object ModelListManager {
 
                     // Load market tags for local model
                     localModel.loadMarketTags(context)
+                    
+                    // Set market item data if available (same as downloaded models)
+                    localModel.modelMarketItem = ModelMarketUtils.readMarketConfig(localModel.modelId!!)
 
                     // Calculate local model size
                     val localSize = try {
@@ -166,6 +176,8 @@ object ModelListManager {
             // Clear and cache modelId model to a map
             modelIdModelMap.clear()
             sortedModels.forEach {
+                //add log for each it.modelItem.modelId
+                Log.d(TAG, "loadAvailableModels modelIdModelMap: ${it.modelItem.modelId} ${it.modelItem.modelMarketItem?.vendor} ${it.modelItem.modelMarketItem?.modelName}")
                 modelIdModelMap[it.modelItem.modelId!!] = it.modelItem
             }
             return@withContext sortedModels

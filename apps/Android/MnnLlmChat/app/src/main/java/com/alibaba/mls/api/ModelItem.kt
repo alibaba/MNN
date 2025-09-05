@@ -32,6 +32,10 @@ class ModelItem {
         }
     }
 
+    fun getExtraTags(): List<String> {
+        return modelMarketItem?.extraTags ?: emptyList()
+    }
+
     fun addTag(tag: String) {
         tags.add(tag)
     }

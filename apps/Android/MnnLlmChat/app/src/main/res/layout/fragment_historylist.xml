@@ -19,7 +19,6 @@
         />
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/chat_history_recycler_view"
-        android:layout_marginStart="20dp"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:layout_below="@id/history_title"

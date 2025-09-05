@@ -19,8 +19,15 @@ import com.alibaba.mnnllm.android.modelist.ModelListManager
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig
 
 object ModelUtils {
-    @Deprecated("Use ModelMarketItem.vendor field instead for market models")
+
     fun getVendor(modelName: String):String {
+        // First try to get vendor from ModelMarketItem
+        val modelItem = ModelListManager.getModelIdModelMap()[modelName]
+        if (modelItem?.modelMarketItem?.vendor != null) {
+            return modelItem.modelMarketItem!!.vendor
+        }
+        
+        // If not available from market item, use the existing logic
         val modelLower = modelName.lowercase(Locale.getDefault())
         if (modelLower.contains("deepseek")) {
             return ModelVendors.DeepSeek
@@ -51,6 +58,21 @@ object ModelUtils {
         } else if (modelLower.contains("openelm")) {
             return ModelVendors.OpenElm
         } else {
+            // If still not found, try to extract vendor from modelName by splitting on - or _
+            // First split by "/" and take last part
+            val lastPart = modelName.split("/").last()
+            
+            // Then split that by "-" or "_"
+            val parts = lastPart.split("-", "_")
+            for (part in parts) {
+                val trimmedPart = part.trim()
+                if (trimmedPart.isNotEmpty()) {
+                    // Capitalize first letter to match vendor naming convention
+                    return trimmedPart.replaceFirstChar { 
+                        if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() 
+                    }
+                }
+            }
             return ModelVendors.Others
         }
     }
@@ -188,8 +210,8 @@ object ModelUtils {
         return modelName.lowercase(Locale.getDefault()).contains("omni")
     }
 
-    fun isSupportThinkingSwitch(modelName: String): Boolean {
-        return isQwen3(modelName)
+    fun isSupportThinkingSwitchByTags(extraTags: List<String>): Boolean {
+        return extraTags.any { it.equals("ThinkingSwitch", ignoreCase = true) }
     }
 
     fun supportAudioOutput(modelName: String): Boolean {

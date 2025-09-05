@@ -57,4 +57,16 @@
 
     <!-- Chip -->
     <color name="chip_background">#e8f1ff</color>
+    
+    <!-- Benchmark Performance Metric Colors -->
+    <color name="benchmark_gradient_start">#667eea</color>
+    <color name="benchmark_gradient_end">#764ba2</color>
+    <color name="benchmark_warning">#f59e0b</color>
+    <color name="benchmark_success">#10b981</color>
+    <color name="benchmark_error">#ef4444</color>
+    <color name="benchmark_secondary">#6b7280</color>
+    <color name="benchmark_light">#f8fafc</color>
+    <color name="benchmark_card_bg">#FFFFFF</color>
+    <color name="benchmark_card_border">#E0E0E0</color>
+    <color name="benchmark_accent">#6366f1</color>
 </resources>

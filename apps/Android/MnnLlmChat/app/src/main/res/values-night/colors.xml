@@ -45,5 +45,17 @@
     <color name="benchmark_result_text_secondary">#B3B3B3</color>
 
     <color name="chip_background">#2c2c2e</color>
+    
+    <!-- Benchmark Performance Metric Colors (夜间模式) -->
+    <color name="benchmark_gradient_start">#667eea</color>
+    <color name="benchmark_gradient_end">#764ba2</color>
+    <color name="benchmark_warning">#f59e0b</color>
+    <color name="benchmark_success">#10b981</color>
+    <color name="benchmark_error">#ef4444</color>
+    <color name="benchmark_secondary">#9ca3af</color>
+    <color name="benchmark_light">#1f2937</color>
+    <color name="benchmark_card_bg">#1c1b1f</color>
+    <color name="benchmark_card_border">#3f3f46</color>
+    <color name="benchmark_accent">#6366f1</color>
 
 </resources>

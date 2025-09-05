@@ -15,6 +15,14 @@ import com.google.gson.JsonParser
 import java.io.File
 import com.google.gson.annotations.SerializedName
 
+data class JinjaContext(
+    @SerializedName("enable_thinking") var enableThinking: Boolean = false
+)
+
+data class Jinja(
+    @SerializedName("context") var context: JinjaContext? = null
+)
+
 data class ModelConfig(
     @SerializedName("llm_model") var llmModel: String?,
     @SerializedName("llm_weight") var llmWeight: String?,
@@ -37,7 +45,8 @@ data class ModelConfig(
     @SerializedName("ngram_factor")var nGramFactor:Float?,
     @SerializedName("max_new_tokens")var maxNewTokens:Int?,
     @SerializedName("assistant_prompt_template")var assistantPromptTemplate:String?,
-    @SerializedName("penalty_sampler")var penaltySampler:String?
+    @SerializedName("penalty_sampler")var penaltySampler:String?,
+    @SerializedName("jinja") var jinja: Jinja?
     ) {
     fun deepCopy(): ModelConfig {
         return ModelConfig(
@@ -62,7 +71,10 @@ data class ModelConfig(
             maxNewTokens = this.maxNewTokens,
             assistantPromptTemplate = this.assistantPromptTemplate,
             penaltySampler = this.penaltySampler,
-            useMmap =  this.useMmap
+            useMmap =  this.useMmap,
+            jinja = this.jinja?.let { 
+                Jinja(context = JinjaContext(enableThinking = it.context?.enableThinking == true))
+            }
         )
     }
 
@@ -145,7 +157,10 @@ data class ModelConfig(
         }
 
         fun toJson(): String {
-            return Gson().toJson(this)
+            return GsonBuilder()
+                .disableHtmlEscaping()
+                .create()
+                .toJson(this)
         }
 
         fun saveConfig(filePath: String, config: ModelConfig): Boolean {
@@ -153,7 +168,10 @@ data class ModelConfig(
                 Log.d(TAG, "file is : $filePath")
                 val file = File(filePath)
                 FileUtils.ensureParentDirectoriesExist(file)
-                val gson = GsonBuilder().setPrettyPrinting().create()
+                val gson = GsonBuilder()
+                    .setPrettyPrinting()
+                    .disableHtmlEscaping()
+                    .create()
                 val jsonString = gson.toJson(config)
                 file.writeText(jsonString)
                 true
@@ -201,7 +219,8 @@ data class ModelConfig(
             maxNewTokens = 2048,
             assistantPromptTemplate = "",
             penaltySampler = "greedy",
-            useMmap = false
+            useMmap = false,
+            jinja = null
         )
 
     }

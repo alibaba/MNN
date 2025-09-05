@@ -29,8 +29,9 @@ class DownloadForegroundService : Service() {
         val channel = NotificationChannel(
             CHANNEL_ID, 
             getString(AppR.string.download_service_title), 
-            NotificationManager.IMPORTANCE_LOW
+            NotificationManager.IMPORTANCE_DEFAULT
         )
+        channel.description = "Shows download progress for model files"
         notificationManager.createNotificationChannel(channel)
     }
 
@@ -41,7 +42,7 @@ class DownloadForegroundService : Service() {
         
         val notification = createNotification()
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(SERVICE_ID, notification, FOREGROUND_SERVICE_TYPE_DATA_SYNC)
             } else {
                 startForeground(SERVICE_ID, notification)
@@ -90,8 +91,10 @@ class DownloadForegroundService : Service() {
     fun updateNotification(downloadCount: Int, modelName: String? = null) {
         currentDownloadCount = downloadCount
         currentModelName = modelName
+        android.util.Log.d("DownloadForegroundService", "updateNotification: count=$downloadCount, modelName=$modelName")
         val notification = createNotification()
         notificationManager.notify(SERVICE_ID, notification)
+        android.util.Log.d("DownloadForegroundService", "Notification updated successfully")
     }
 
     override fun onDestroy() {

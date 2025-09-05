@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@drawable/benchmark_button_disabled_gradient" android:state_enabled="false" />
+    <item android:drawable="@drawable/benchmark_button_gradient" />
+</selector>
