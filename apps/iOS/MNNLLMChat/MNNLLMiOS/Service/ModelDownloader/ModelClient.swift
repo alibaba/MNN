@@ -28,13 +28,16 @@ import Foundation
 /// 
 /// Usage:
 /// ```swift
-/// let client = ModelClient()
+/// let client = ModelClient.shared
 /// let models = try await client.getModelInfo()
 /// try await client.downloadModel(model: selectedModel) { progress in
 ///     print("Download progress: \(progress * 100)%")
 /// }
 /// ```
 class ModelClient {
+    // MARK: - Singleton
+    static let shared = ModelClient()
+    
     // MARK: - Properties
     
     private let maxRetries = 5
@@ -46,8 +49,9 @@ class ModelClient {
     // Debug flag to use local mock data instead of network API
     private let useLocalMockData = false
     
-    private var currentDownloadManager: ModelDownloadManagerProtocol?
+    private var downloadManagers: [String: ModelDownloadManagerProtocol] = [:]
     private let downloadManagerFactory: ModelDownloadManagerFactory
+    private let downloadManagerQueue = DispatchQueue(label: "com.mnn.downloadManager", attributes: .concurrent)
     
     private lazy var baseURLString: String = {
         switch ModelSourceManager.shared.selectedSource {
@@ -58,12 +62,18 @@ class ModelClient {
         }
     }()
     
-    /// Creates a ModelClient with dependency injection for download manager
+    /// Private initializer for singleton pattern
     /// 
     /// - Parameter downloadManagerFactory: Factory for creating download managers.
-    ///                                      Defaults to DefaultModelDownloadManagerFactory
-    init(downloadManagerFactory: ModelDownloadManagerFactory = DefaultModelDownloadManagerFactory()) {
+    ///                                      Defaults to LegacyModelDownloadManagerFactory
+    private init(downloadManagerFactory: ModelDownloadManagerFactory = LegacyModelDownloadManagerFactory()) {
+        print("ModelClient singleton initialized")
         self.downloadManagerFactory = downloadManagerFactory
+    }
+    
+    deinit {
+        print("ModelClient deinit")
+        downloadManagers.removeAll()
     }
     
     /// Retrieves model information from the configured API endpoint
@@ -140,15 +150,30 @@ class ModelClient {
         }
     }
     
-    /// Cancels the current download operation
-    func cancelDownload() async {
-        switch ModelSourceManager.shared.selectedSource {
-        case .modelScope, .modeler:
-            await currentDownloadManager?.cancelDownload()
-        case .huggingFace:
-            // TODO: await currentDownloadManager?.cancelDownload()
-//            try await mirrorHubApi.
-            print("cant stop")
+    /// Cancels download for a specific model
+    /// - Parameter modelId: The ID of the model to cancel download for
+    func cancelDownload(for modelId: String) async {
+        downloadManagerQueue.sync {
+            if let downloadManager = downloadManagers[modelId] {
+                Task {
+                    await downloadManager.cancelDownload()
+                }
+            }
+        }
+    }
+    
+    /// Cancels all active downloads
+    func cancelAllDownloads() async {
+        let managers = downloadManagerQueue.sync {
+            return Array(downloadManagers.values)
+        }
+        
+        await withTaskGroup(of: Void.self) { group in
+            for manager in managers {
+                group.addTask {
+                    await manager.cancelDownload()
+                }
+            }
         }
     }
     
@@ -161,14 +186,21 @@ class ModelClient {
     private func downloadFromModelScope(_ model: ModelInfo,
                                         source: ModelSource,
                                         progress: @escaping (Double) -> Void) async throws {
-        
-        currentDownloadManager = downloadManagerFactory.createDownloadManager(
-            repoPath: model.id,
-            source: .modelScope
-        )
+        let downloadManager = downloadManagerQueue.sync {
+            if let existingManager = downloadManagers[model.id] {
+                return existingManager
+            } else {
+                let newManager = downloadManagerFactory.createDownloadManager(
+                    repoPath: model.id,
+                    source: .modelScope
+                )
+                downloadManagers[model.id] = newManager
+                return newManager
+            }
+        }
         
         do {
-            try await currentDownloadManager?.downloadModel(
+            try await downloadManager.downloadModel(
                 to: "huggingface/models/taobao-mnn",
                 modelId: model.id,
                 modelName: model.modelName
@@ -177,12 +209,28 @@ class ModelClient {
                     progress(fileProgress)
                 }
             }
+            
+            await cleanupDownloadManager(for: model.id)
+            
         } catch {
             if case ModelScopeError.downloadCancelled = error {
                 throw ModelScopeError.downloadCancelled
             } else {
+                await cleanupDownloadManager(for: model.id)
                 throw NetworkError.downloadFailed
             }
+        }
+    }
+    
+    private func cleanupDownloadManager(for modelId: String) async {
+        _ = downloadManagerQueue.sync {
+            downloadManagers.removeValue(forKey: modelId)
+        }
+    }
+    
+    func getActiveDownloadersCount() -> Int {
+        return downloadManagerQueue.sync {
+            return downloadManagers.count
         }
     }
 
@@ -205,7 +253,7 @@ class ModelClient {
         var lastUpdateTime = Date()
         var lastProgress: Double = 0.0
         let progressUpdateInterval: TimeInterval = 0.1 // Limit update frequency to every 100ms
-        let progressThreshold: Double = 0.01 // Progress change threshold of 1%
+        let progressThreshold: Double = 0.001 // Progress change threshold of 0.1%
         
         try await mirrorHubApi.snapshot(from: repo, matching: modelFiles) { fileProgress in
             let currentProgress = fileProgress.fractionCompleted

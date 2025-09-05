@@ -42,7 +42,7 @@ struct LocalModelListView: View {
             }
         }
         .listStyle(.plain)
-        .searchable(text: $localSearchText, prompt: "搜索本地模型...")
+        .searchable(text: $localSearchText, prompt: "搜索模型...")
         .refreshable {
             await viewModel.fetchModels()
         }

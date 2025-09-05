@@ -31,7 +31,7 @@ struct StatusCard: View {
             }
             
             VStack(alignment: .leading, spacing: 4) {
-                Text("Status Update")
+                Text(String(localized: "Status Update"))
                     .font(.subheadline)
                     .fontWeight(.semibold)
                     .foregroundColor(.primary)

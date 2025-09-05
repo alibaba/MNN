@@ -34,7 +34,7 @@ struct ResultsCard: View {
     
     private var infoHeader: some View {
         
-        let statistics = BenchmarkResultsHelper.shared.processTestResults(results.testResults)
+        let statistics = BenchmarkResultsHelper.shared.processTestResults(results.testResults, totalTimeSeconds: results.totalTimeSeconds)
         
         return VStack(alignment: .leading, spacing: 8) {
             Text(results.modelDisplayName)
@@ -43,7 +43,7 @@ struct ResultsCard: View {
                 .font(.subheadline)
                 .foregroundColor(.secondary)
         
-            Text("Benchmark Config")
+            Text(String(localized: "Benchmark Config"))
                 .font(.headline)
             Text(statistics.configText)
                 .font(.subheadline)
@@ -73,12 +73,12 @@ struct ResultsCard: View {
                 }
                 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Benchmark Results")
+                    Text(String(localized: "Benchmark Results"))
                         .font(.title3)
                         .fontWeight(.semibold)
                         .foregroundColor(.primary)
                     
-                    Text("Performance analysis complete")
+                    Text(String(localized: "Performance analysis complete"))
                         .font(.caption)
                         .foregroundColor(.benchmarkSecondary)
                 }
@@ -94,7 +94,7 @@ struct ResultsCard: View {
                         .font(.title2)
                         .foregroundColor(.benchmarkSuccess)
                     
-                    Text("Share")
+                    Text(String(localized: "Share"))
                         .font(.caption)
                         .foregroundColor(.benchmarkSecondary)
                 }
@@ -105,24 +105,24 @@ struct ResultsCard: View {
 
     
     private var performanceMetrics: some View {
-        let statistics = BenchmarkResultsHelper.shared.processTestResults(results.testResults)
+        let statistics = BenchmarkResultsHelper.shared.processTestResults(results.testResults, totalTimeSeconds: results.totalTimeSeconds)
         
         return VStack(spacing: 16) {
             HStack(spacing: 12) {
                 if let prefillStats = statistics.prefillStats {
                     PerformanceMetricView(
                         icon: "speedometer",
-                        title: "Prefill Speed",
+                        title: String(localized: "Prefill Speed"),
                         value: BenchmarkResultsHelper.shared.formatSpeedStatisticsLine(prefillStats),
-                        subtitle: "Tokens per second",
+                        subtitle: String(localized: "Tokens per second"),
                         color: .benchmarkGradientStart
                     )
                 } else {
                     PerformanceMetricView(
                         icon: "speedometer",
-                        title: "Prefill Speed",
-                        value: "N/A",
-                        subtitle: "Tokens per second",
+                        title: String(localized: "Prefill Speed"),
+                        value: String(localized: "N/A"),
+                        subtitle: String(localized: "Tokens per second"),
                         color: .benchmarkGradientStart
                     )
                 }
@@ -130,17 +130,17 @@ struct ResultsCard: View {
                 if let decodeStats = statistics.decodeStats {
                     PerformanceMetricView(
                         icon: "gauge",
-                        title: "Decode Speed",
+                        title: String(localized: "Decode Speed"),
                         value: BenchmarkResultsHelper.shared.formatSpeedStatisticsLine(decodeStats),
-                        subtitle: "Generation rate",
+                        subtitle: String(localized: "Generation rate"),
                         color: .benchmarkGradientEnd
                     )
                 } else {
                     PerformanceMetricView(
                         icon: "gauge",
-                        title: "Decode Speed",
-                        value: "N/A",
-                        subtitle: "Generation rate",
+                        title: String(localized: "Decode Speed"),
+                        value: String(localized: "N/A"),
+                        subtitle: String(localized: "Generation rate"),
                         color: .benchmarkGradientEnd
                     )
                 }
@@ -155,17 +155,17 @@ struct ResultsCard: View {
                 
                 PerformanceMetricView(
                     icon: "memorychip",
-                    title: "Memory Usage",
+                    title: String(localized: "Memory Usage"),
                     value: memoryInfo.valueText,
-                    subtitle: "Peak memory",
+                    subtitle: String(localized: "Peak memory"),
                     color: .benchmarkWarning
                 )
                 
                 PerformanceMetricView(
                     icon: "clock",
-                    title: "Total Tokens",
-                    value: "\(statistics.totalTokensProcessed)",
-                    subtitle: "Complete duration",
+                    title: String(localized: "Total Time"),
+                    value: String(format: "%.2f s", statistics.totalTimeSeconds),
+                    subtitle: String(localized: "Complete duration"),
                     color: .benchmarkSuccess
                 )
             }
@@ -176,9 +176,9 @@ struct ResultsCard: View {
         return VStack(alignment: .leading, spacing: 12) {
             VStack(spacing: 8) {
                 HStack {
-                    Text("Completed")
-                        .font(.caption)
-                        .foregroundColor(.benchmarkSecondary)
+                    Text(String(localized: "Completed"))
+                    .font(.caption)
+                    .foregroundColor(.benchmarkSecondary)
                     Spacer()
                     Text(results.timestamp)
                         .font(.caption)
@@ -186,9 +186,9 @@ struct ResultsCard: View {
                 }
                 
                 HStack {
-                    Text("Powered By MNN")
-                        .font(.caption)
-                        .foregroundColor(.benchmarkSecondary)
+                    Text(String(localized: "Powered By MNN"))
+                    .font(.caption)
+                    .foregroundColor(.benchmarkSecondary)
                     Spacer()
                     Text(verbatim: "https://github.com/alibaba/MNN")
                         .font(.caption)
@@ -238,7 +238,7 @@ struct ResultsCard: View {
     
     /// Formats benchmark results into shareable text format with performance metrics and hashtags
     private func formatResultsForSharing() -> String {
-        let statistics = BenchmarkResultsHelper.shared.processTestResults(results.testResults)
+        let statistics = BenchmarkResultsHelper.shared.processTestResults(results.testResults, totalTimeSeconds: results.totalTimeSeconds)
         let deviceInfo = BenchmarkResultsHelper.shared.getDeviceInfo()
         
         var shareText = """

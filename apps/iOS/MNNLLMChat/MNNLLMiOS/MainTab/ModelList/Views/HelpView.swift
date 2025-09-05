@@ -9,7 +9,7 @@ import SwiftUI
 
 struct HelpView: View {
     var body: some View {
-        WebView(url: URL(string: "https://github.com/alibaba/MNN")!) // ?tab=readme-ov-file#intro
+        WebView(url: URL(string: "https://github.com/alibaba/MNN") ?? URL(fileURLWithPath: "/")) // ?tab=readme-ov-file#intro
             .navigationTitle("Help")
             .navigationBarTitleDisplayMode(.inline)
     }

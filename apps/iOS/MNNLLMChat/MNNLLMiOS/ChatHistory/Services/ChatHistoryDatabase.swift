@@ -32,7 +32,9 @@ class ChatHistoryDatabase {
     private let updatedAt: Column<Date>
     
     private init() throws {
-        let path = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true).first!
+        guard let path = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true).first else {
+            throw NSError(domain: "ChatHistoryDatabase", code: -1, userInfo: [NSLocalizedDescriptionKey: "Documents directory not found"])
+        }
         db = try Connection("\(path)/chatHistory.sqlite3")
         
         chatHistories = Table("chatHistories")
@@ -174,19 +176,19 @@ class ChatHistoryDatabase {
                         do {
                             let modelInfoData = modelInfoString.data(using: .utf8)!
                             modelInfoObj = try JSONDecoder().decode(ModelInfo.self, from: modelInfoData)
-                            print("Successfully decoded ModelInfo from JSON for history: \(history[id])")
+                            // print("Successfully decoded ModelInfo from JSON for history: \(history[id])")
                         } catch {
-                            print("Failed to decode ModelInfo from JSON, using fallback: \(error)")
+                            // print("Failed to decode ModelInfo from JSON, using fallback: \(error)")
                             modelInfoObj = ModelInfo(modelId: history[modelId], isDownloaded: true)
                         }
                     } else {
                         // For backward compatibility
-                        print("No modelInfo data found, using fallback for history: \(history[id])")
+                        // print("No modelInfo data found, using fallback for history: \(history[id])")
                         modelInfoObj = ModelInfo(modelId: history[modelId], isDownloaded: true)
                     }
                 } catch {
                     // For backward compatibility
-                    print("ModelInfo column not found, using fallback for history: \(history[id])")
+                    // print("ModelInfo column not found, using fallback for history: \(history[id])")
                     modelInfoObj = ModelInfo(modelId: history[modelId], isDownloaded: true)
                 }
                 

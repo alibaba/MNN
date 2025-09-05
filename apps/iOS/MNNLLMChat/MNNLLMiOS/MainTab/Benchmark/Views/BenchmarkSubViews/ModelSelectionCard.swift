@@ -15,7 +15,7 @@ struct ModelSelectionCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text("Select Model")
+                Text(String(localized: "Select Model"))
                     .font(.title3)
                     .fontWeight(.semibold)
                     .foregroundColor(.primary)
@@ -27,7 +27,7 @@ struct ModelSelectionCard: View {
                 HStack {
                     ProgressView()
                         .scaleEffect(0.8)
-                    Text("Loading models...")
+                    Text(String(localized: "Loading models..."))
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
@@ -56,7 +56,7 @@ struct ModelSelectionCard: View {
     private var modelDropdownMenu: some View {
         Menu {
             if viewModel.availableModels.isEmpty {
-                Button("No models available") {
+                Button(String(localized: "No models available")) {
                     // Placeholder - no action
                 }
                 .disabled(true)
@@ -69,7 +69,7 @@ struct ModelSelectionCard: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(model.modelName)
                                     .font(.system(size: 14, weight: .medium))
-                                Text("Local")
+                                Text(String(localized: "Local"))
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
@@ -91,7 +91,7 @@ struct ModelSelectionCard: View {
                                 Circle()
                                     .fill(Color.benchmarkSuccess)
                                     .frame(width: 6, height: 6)
-                                Text("Ready")
+                                Text(String(localized: "Ready"))
                                     .font(.caption)
                                     .foregroundColor(.benchmarkSuccess)
                             }
@@ -103,7 +103,7 @@ struct ModelSelectionCard: View {
                             }
                         }
                     } else {
-                        Text("Tap to select a model for testing")
+                        Text(String(localized: "Tap to select a model for testing"))
                             .font(.caption)
                             .foregroundColor(.benchmarkSecondary)
                     }
@@ -202,12 +202,12 @@ struct ModelSelectionCard: View {
     private var statusMessages: some View {
         Group {
             if viewModel.selectedModel == nil {
-                Text("Start benchmark after selecting your model")
+                Text(String(localized: "Start benchmark after selecting your model"))
                     .font(.caption)
                     .foregroundColor(.orange)
                     .padding(.horizontal, 16)
             } else if viewModel.availableModels.isEmpty {
-                Text("No local models found. Please download a model first.")
+                Text(String(localized: "No local models found. Please download a model first."))
                     .font(.caption)
                     .foregroundColor(.orange)
                     .padding(.horizontal, 16)

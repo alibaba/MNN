@@ -69,7 +69,14 @@
       }
     },
     "Audio Message" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "语音信息"
+          }
+        }
+      }
     },
     "Benchmark" : {
       "comment" : "基准测试标签",
@@ -112,7 +119,7 @@
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "清除"
           }
         }
@@ -144,7 +151,7 @@
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "完成"
           }
         }
@@ -218,17 +225,6 @@
         }
       }
     },
-    "Chat" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "对话"
-          }
-        }
-      }
-    },
     "ChatHistroyTitle" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -283,6 +279,16 @@
         }
       }
     },
+    "Complete duration" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "完成时长"
+          }
+        }
+      }
+    },
     "Completed" : {
       "localizations" : {
         "zh-Hans" : {
@@ -299,6 +305,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "配置 mixed samplers"
+          }
+        }
+      }
+    },
+    "Decode Speed" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "解码速度"
           }
         }
       }
@@ -380,7 +396,7 @@
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "按标签筛选"
           }
         }
@@ -396,7 +412,7 @@
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "按厂商筛选"
           }
         }
@@ -412,8 +428,18 @@
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "筛选选项"
+          }
+        }
+      }
+    },
+    "Generation rate" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "生成速率"
           }
         }
       }
@@ -490,13 +516,12 @@
         }
       }
     },
-    "Local Model" : {
-      "comment" : "本地模型标签",
+    "Memory Usage" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "本地模型"
+            "value" : "内存使用"
           }
         }
       }
@@ -510,6 +535,9 @@
           }
         }
       }
+    },
+    "Model is loading..." : {
+
     },
     "Model Market" : {
       "comment" : "模型市场标签",
@@ -583,8 +611,29 @@
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "下载源"
+          }
+        }
+      }
+    },
+    "My Model" : {
+      "comment" : "我的模型标签",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "我的模型"
+          }
+        }
+      }
+    },
+    "N/A" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不可用"
           }
         }
       }
@@ -629,6 +678,16 @@
         }
       }
     },
+    "Peak memory" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "峰值内存"
+          }
+        }
+      }
+    },
     "Penalty Sampler" : {
 
     },
@@ -655,8 +714,25 @@
         }
       }
     },
+    "Prefill Speed" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "预填充速度"
+          }
+        }
+      }
+    },
     "Progress" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "进展"
+          }
+        }
+      }
     },
     "Random Seed" : {
       "localizations" : {
@@ -669,7 +745,14 @@
       }
     },
     "Ready" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "准备"
+          }
+        }
+      }
     },
     "Running performance tests" : {
       "localizations" : {
@@ -1240,6 +1323,38 @@
         }
       }
     },
+    "Tokens per second" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每秒令牌数"
+          }
+        }
+      }
+    },
+    "Total Time" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "总时间"
+          }
+        }
+      }
+    },
+    "Total Tokens" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "总令牌数"
+          }
+        }
+      }
+    },
     "Use HuggingFace to download" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1317,12 +1432,18 @@
         }
       }
     },
-    "搜索本地模型..." : {
+    "搜索模型..." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Search local models …"
+            "value" : "Search Models…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "搜索模型"
           }
         }
       }
