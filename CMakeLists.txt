@@ -248,7 +248,7 @@ option(MNN_CUDA "Enable CUDA" OFF)
 option(MNN_TENSORRT "Enable TensorRT" OFF)
 option(MNN_COREML "Enable CoreML" OFF)
 option(MNN_NNAPI "Enable NNAPI" OFF)
-
+option(MNN_USE_RVV "Enable RVV" OFF)
 option(MNN_GPU_TIME_PROFILE "Enable time profiling for the OpenCL backend and Vulkan backend." OFF)
 
 option(MNN_CUDA_PROFILE "Enable CUDA profile" OFF)
