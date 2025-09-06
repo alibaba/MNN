@@ -1,0 +1,73 @@
+# Copyright (c) 2024 Huawei Device Co., Ltd.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# yaml-language-server: $schema=https://huacnlee.github.io/autocorrect/schema.json
+rules:
+  # Auto add spacing between CJK (Chinese, Japanese, Korean) and English words.
+  # 0 - off, 1 - error, 2 - warning
+  space-word: 1
+  # Add space between some punctuations.
+  space-punctuation: 1
+  # Add space between brackets (), [] when near the CJK.
+  space-bracket: 1
+  # Add space between ``, when near the CJK.
+  space-backticks: 1
+  # Add space between dash `-`
+  space-dash: 1
+  # Convert to fullwidth.
+  fullwidth: 1
+  # To remove space near the fullwidth punctuations.
+  no-space-fullwidth: 1
+  # To remove space arouned the fullwidth quotes “”, ''.
+  no-space-fullwidth-quote: 1
+  # Fullwidth alphanumeric characters to halfwidth.
+  halfwidth-word: 1
+  # Fullwidth punctuations to halfwidth in english.
+  halfwidth-punctuation: 1
+  # Spellcheck
+  spellcheck: 0
+# Enable or disable in spatial context
+context:
+  # Enable or disable to format codeblock in Markdown or AsciiDoc etc.
+  codeblock: 1
+textRules:
+  # No default text rules.
+spellcheck:
+  words:
+    # Please do not add a general English word (eg. apple, python) here.
+    # Users can add their special words to their .autocorrectrc file by their need.
+fileTypes:
+  # ext: grammar_name
+  # YAML
+  yaml: yaml
+  yml: yaml
+  # JSON
+  json: json
+  json5: json
+  # Markdown
+  markdown: markdown
+  md: markdown
+  mdx: markdown
+  # C / C++
+  cc: c
+  cpp: c
+  c: c
+  # XML
+  xml: xml
+  # Shell
+  sh: ruby
+  shell: ruby
+  # Text
+  text: text
+  plain: text
+  txt: text
