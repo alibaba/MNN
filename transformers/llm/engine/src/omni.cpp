@@ -120,11 +120,17 @@ bool Omni::load() {
     }
     if (mConfig->is_visual()) {
         mVisionModule.reset(Module::load({}, {}, mConfig->visual_model().c_str(), mProcessorRuntimeManager, &module_config));
+        if (nullptr == mVisionModule.get()) {
+            return false;
+        }
     }
     if (mConfig->is_audio()) {
         mAudioModule.reset(Module::load({}, {}, mConfig->audio_model().c_str(), mProcessorRuntimeManager, &module_config));
+        if (nullptr == mAudioModule.get()) {
+            return false;
+        }
     }
-    return mAudioModule.get() != nullptr && mVisionModule.get() != nullptr;
+    return true;
 }
 
 #ifdef LLM_SUPPORT_VISION
