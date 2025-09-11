@@ -13,7 +13,7 @@ struct FilterMenuView: View {
     @Binding var selectedTags: Set<String>
     @Binding var selectedCategories: Set<String>
     @Binding var selectedVendors: Set<String>
-    
+
     var body: some View {
         NavigationView {
             ScrollView {
@@ -22,7 +22,7 @@ struct FilterMenuView: View {
                         Text("filter.byTag")
                             .font(.headline)
                             .fontWeight(.semibold)
-                        
+
                         LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 8) {
                             ForEach(viewModel.allTags.sorted(), id: \.self) { tag in
                                 FilterOptionRow(
@@ -38,14 +38,14 @@ struct FilterMenuView: View {
                             }
                         }
                     }
-                    
+
                     Divider()
-                    
+
                     VStack(alignment: .leading, spacing: 12) {
                         Text("filter.byVendor")
                             .font(.headline)
                             .fontWeight(.semibold)
-                        
+
                         LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 8) {
                             ForEach(viewModel.allVendors.sorted(), id: \.self) { vendor in
                                 FilterOptionRow(
@@ -61,7 +61,7 @@ struct FilterMenuView: View {
                             }
                         }
                     }
-                    
+
                     Spacer(minLength: 100)
                 }
                 .padding()
@@ -76,7 +76,7 @@ struct FilterMenuView: View {
                         selectedVendors.removeAll()
                     }
                 }
-                
+
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("button.done") {
                         dismiss()

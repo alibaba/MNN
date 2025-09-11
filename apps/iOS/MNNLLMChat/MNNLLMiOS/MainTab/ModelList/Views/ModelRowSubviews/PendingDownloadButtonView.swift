@@ -11,7 +11,7 @@ struct PendingDownloadButtonView: View {
     let isOtherDownloading: Bool
     let formattedSize: String
     let onDownload: () -> Void
-    
+
     var body: some View {
         Button(action: onDownload) {
             Image(systemName: "arrow.down.circle.fill")
