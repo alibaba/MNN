@@ -729,6 +729,11 @@
 			package = 3E94DF8A2D37D8FF00BE39A7 /* XCRemoteSwiftPackageReference "SQLite" */;
 			productName = SQLite;
 		};
+		3EAB12352E7FD12300C4E5F6 /* MarkdownView */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3EAB12342E7FD12300C4E5F6 /* XCRemoteSwiftPackageReference "MarkdownView" */;
+			productName = MarkdownView;
+		};
 		3EC8DF862E4DCF5800861131 /* Transformers */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 3EC8DF832E4DCF4A00861131 /* XCRemoteSwiftPackageReference "swift-transformers" */;

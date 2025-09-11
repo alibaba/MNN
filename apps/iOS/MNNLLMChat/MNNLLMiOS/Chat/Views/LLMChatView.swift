@@ -5,45 +5,41 @@
 //  Created by 游薪渝(揽清) on 2025/1/8.
 //
 
-import Foundation
-import SwiftUI
+import AVFoundation
 import ExyteChat
 import ExyteMediaPicker
-import AVFoundation
+import Foundation
+import SwiftUI
 
 struct LLMChatView: View {
+    @State private var showSettings = false
     @StateObject private var viewModel: LLMChatViewModel
     @Environment(\.presentationMode) private var presentationMode
-    
+
     private let title: String
     private let modelPath: String
-
     private let recorderSettings = RecorderSettings(audioFormatID: kAudioFormatLinearPCM,
                                                     sampleRate: 44100, numberOfChannels: 2,
                                                     linearPCMBitDepth: 16)
 
-    @State private var showSettings = false
-
     init(modelInfo: ModelInfo, history: ChatHistory? = nil) {
-        self.title = modelInfo.modelName
-        self.modelPath = modelInfo.localPath
+        title = modelInfo.modelName
+        modelPath = modelInfo.localPath
         let viewModel = LLMChatViewModel(modelInfo: modelInfo, history: history)
         _viewModel = StateObject(wrappedValue: viewModel)
     }
-    
+
     var body: some View {
         ZStack {
             ChatView(messages: viewModel.messages, chatType: .conversation) { draft in
                 viewModel.sendToLLM(draft: draft)
             }
-            .setStreamingMessageProvider {
-                viewModel.currentStreamingMessageId
-            }
+            .setStreamingMessageProvider(viewModel)
             .setAvailableInput(
-                self.title.lowercased().contains("omni") ? .full:
-                self.title.lowercased().contains("vl") ? .textAndMedia :
-                self.title.lowercased().contains("audio") ? .textAndAudio :
-                (self.title.isEmpty ? .textOnly : .textOnly)
+                self.title.lowercased().contains("omni") ? .full :
+                    self.title.lowercased().contains("vl") ? .textAndMedia :
+                    self.title.lowercased().contains("audio") ? .textAndAudio :
+                    (self.title.isEmpty ? .textOnly : .textOnly)
             )
             .messageUseMarkdown(true)
             .setRecorderSettings(recorderSettings)
@@ -57,7 +53,7 @@ struct LLMChatView: View {
             .setMediaPickerSelectionParameters(
                 MediaPickerParameters(mediaType: .photo,
                                       selectionLimit: 1,
-                                     showFullscreenPreview: false)
+                                      showFullscreenPreview: false)
             )
             .chatTheme(
                 ChatTheme(
@@ -106,7 +102,7 @@ struct LLMChatView: View {
                                 .fontWeight(.semibold)
                                 .font(.headline)
                                 .foregroundColor(.black)
-                            
+
                             Text(viewModel.chatStatus)
                                 .font(.footnote)
                                 .foregroundColor(Color(hex: "AFB3B8"))
@@ -136,7 +132,7 @@ struct LLMChatView: View {
                 // Hidden keyboard
                 UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
             }
-                
+
             // Loading overlay
             if !viewModel.isModelLoaded {
                 Color.black.opacity(0.4)
@@ -146,7 +142,7 @@ struct LLMChatView: View {
                             ProgressView()
                                 .progressViewStyle(CircularProgressViewStyle(tint: .white))
                                 .scaleEffect(1.5)
-                            
+
                             Text(NSLocalizedString("Model is loading...", comment: ""))
                                 .font(.system(size: 15, weight: .regular))
                                 .foregroundColor(.white)
@@ -155,29 +151,5 @@ struct LLMChatView: View {
                     )
             }
         }
-    }
-    
-    // MARK: - LLM Chat Message Builder
-    @ViewBuilder
-    private func LLMChatMessageView(
-        message: Message,
-        positionInGroup: PositionInUserGroup,
-        showContextMenuClosure: @escaping () -> Void,
-        messageActionClosure: @escaping (Message, DefaultMessageMenuAction) -> Void,
-        showAttachmentClosure: @escaping (Attachment) -> Void
-    ) -> some View {
-        LLMMessageView(
-            message: message,
-            positionInGroup: positionInGroup,
-            isAssistantMessage: !message.user.isCurrentUser,
-            isStreamingMessage: viewModel.currentStreamingMessageId == message.id,
-            showContextMenuClosure: {
-                if !viewModel.isProcessing {
-                    showContextMenuClosure()
-                }
-            },
-            messageActionClosure: messageActionClosure,
-            showAttachmentClosure: showAttachmentClosure
-        )
     }
 }
