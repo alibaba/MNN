@@ -66,6 +66,7 @@ final class LLMChatData {
             sender: sender,
             createdAt: date,
             status: sender.isCurrentUser ? .read : nil,
+            useMarkdown: false,
             text: NSLocalizedString("WelcomeSceneText", comment: "") + sender.name + "!",
             images: [],
             videos: [],
