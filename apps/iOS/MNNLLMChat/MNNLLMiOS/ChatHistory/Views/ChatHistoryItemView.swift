@@ -6,7 +6,8 @@
 //
 
 import SwiftUI
-import MarkdownUI
+import ExyteChat
+import MarkdownView
 
 struct ChatHistoryItemView: View {
     let history: ChatHistory
@@ -15,22 +16,9 @@ struct ChatHistoryItemView: View {
         VStack(alignment: .leading, spacing: 8) {
             
             if let lastMessage = getLastNonEmptyMessage() {
-                
-                Markdown(String(lastMessage.content.prefix(100)))
-                    .markdownTextStyle {
-                       FontSize(15)
-                       FontWeight(.regular)
-                    }
-                    .markdownBlockStyle(\.blockquote) { configuration in
-                      configuration.label
-                            .lineLimit(3)
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundColor(.primary)
-                        .markdownTextStyle {
-                            BackgroundColor(nil)
-                            FontSize(15)
-                        }
-                    }
+                MarkdownTextViewWrapper(text: String(lastMessage.content.prefix(100)), bindScrollView: true)
+                    .frame(maxHeight: 60)
+                    .lineLimit(3)
             }
             
             HStack(alignment: .bottom) {
