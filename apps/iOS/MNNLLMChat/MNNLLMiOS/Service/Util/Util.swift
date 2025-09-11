@@ -128,6 +128,7 @@ extension DraftMessage {
             sender: user,
             createdAt: createdAt,
             status: user.isCurrentUser ? status : nil,
+            useMarkdown: useMarkdown,
             text: text,
             images: await makeLLMChatImages(),
             videos: await makeLLMChatVideos(),
