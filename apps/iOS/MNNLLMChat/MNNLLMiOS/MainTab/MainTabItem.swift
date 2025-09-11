@@ -11,7 +11,7 @@ struct MainTabItem: View {
     let imageName: String
     let title: String
     let isSelected: Bool
-    
+
     var body: some View {
         VStack {
             Image(imageName)

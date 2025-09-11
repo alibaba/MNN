@@ -14,12 +14,12 @@ struct ChatHistory: Codable, Identifiable, Hashable {
     var messages: [HistoryMessage]
     let createdAt: Date
     var updatedAt: Date
-    
+
     // For backward compatibility, provide convenient properties
     var modelId: String {
         return modelInfo.id
     }
-    
+
     var modelName: String {
         return modelInfo.modelName
     }

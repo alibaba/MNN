@@ -12,7 +12,7 @@ struct TBDataResponse: Codable {
     let quickFilterTags: [String]?
     let models: [ModelInfo]
     let metadata: Metadata?
-    
+
     struct Metadata: Codable {
         let version: String
         let lastUpdated: String

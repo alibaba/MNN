@@ -11,11 +11,10 @@ struct CustomPopupMenu: View {
     @Binding var isPresented: Bool
     @Binding var selectedSource: ModelSource
     let anchorFrame: CGRect
-    
+
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .top) {
-                
                 Color.black.opacity(0.3)
                     .frame(maxWidth: .infinity)
                     .frame(height: UIScreen.main.bounds.height - anchorFrame.maxY)
@@ -23,7 +22,7 @@ struct CustomPopupMenu: View {
                     .onTapGesture {
                         isPresented = false
                     }
-                
+
                 VStack(spacing: 0) {
                     ForEach(ModelSource.allCases) { source in
                         Button {
@@ -62,4 +61,3 @@ struct CustomPopupMenu: View {
         .animation(.spring(response: 0.3, dampingFraction: 0.8, blendDuration: 0), value: isPresented)
     }
 }
-
