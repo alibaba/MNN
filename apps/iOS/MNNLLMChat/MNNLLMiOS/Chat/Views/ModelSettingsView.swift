@@ -8,7 +8,6 @@
 import SwiftUI
 
 struct ModelSettingsView: View {
-    
     @Binding var showSettings: Bool
     @State private var useMmap: Bool = false
     @ObservedObject var viewModel: LLMChatViewModel
@@ -16,24 +15,24 @@ struct ModelSettingsView: View {
     @State private var iterations: Int = 20
     @State private var seed: Int = -1
     @State private var useRandomSeed: Bool = true
-    
+
     @State private var temperature: Double = 1.0
     @State private var topK: Double = 40
     @State private var topP: Double = 0.9
     @State private var minP: Double = 0.1
-    
+
     @State private var tfsZ: Double = 1.0
     @State private var typical: Double = 1.0
     @State private var penalty: Double = 0.0
     @State private var nGram: Double = 8.0
     @State private var nGramFactor: Double = 1.0
-    
+
     @State private var selectedSampler: SamplerType = .temperature
     @State private var selectedMixedSamplers: Set<String> = []
     @State private var mixedSamplersOrder: [String] = []
-    
+
     @State private var penaltySampler: PenaltySamplerType = .greedy
-    
+
     var body: some View {
         NavigationView {
             Form {
@@ -42,7 +41,7 @@ struct ModelSettingsView: View {
                         .onChange(of: viewModel.useMmap) { newValue in
                             viewModel.modelConfigManager.updateUseMmap(newValue)
                         }
-                    
+
                     Button("Clear mmap Cache") {
                         viewModel.cleanModelTmpFolder()
                         showAlert = true
@@ -50,29 +49,29 @@ struct ModelSettingsView: View {
                 } header: {
                     Text("Model Configuration")
                 }
-                
+
                 // Diffusion Settings
                 if viewModel.isDiffusionModel {
                     Section {
-                        Stepper(value: $iterations, in: 1...100) {
+                        Stepper(value: $iterations, in: 1 ... 100) {
                             HStack {
                                 Text("Iterations")
                                 Spacer()
                                 Text("\(iterations)")
                             }
                         }
-                        .onChange(of: iterations) { oldValue, newValue in
+                        .onChange(of: iterations) { _, newValue in
                             viewModel.modelConfigManager.updateIterations(newValue)
                         }
-                        
+
                         Toggle("Random Seed", isOn: $useRandomSeed)
-                            .onChange(of: useRandomSeed) { oldValue, newValue in
+                            .onChange(of: useRandomSeed) { _, newValue in
                                 if newValue {
                                     seed = -1
                                     viewModel.modelConfigManager.updateSeed(-1)
                                 }
                             }
-                        
+
                         if !useRandomSeed {
                             HStack {
                                 Text("Seed")
@@ -81,7 +80,7 @@ struct ModelSettingsView: View {
                                     .keyboardType(.numberPad)
                                     .multilineTextAlignment(.trailing)
                                     .frame(width: 100)
-                                    .onChange(of: seed) { oldValue, newValue in
+                                    .onChange(of: seed) { _, newValue in
                                         viewModel.modelConfigManager.updateSeed(max(0, newValue))
                                     }
                             }
@@ -97,16 +96,16 @@ struct ModelSettingsView: View {
                                     .tag(sampler)
                             }
                         }
-                        .onChange(of: selectedSampler) { newValue in
+                        .onChange(of: selectedSampler) { _, newValue in
                             viewModel.modelConfigManager.updateSamplerType(newValue)
                         }
-                        
+
                         switch selectedSampler {
                         case .temperature:
                             ParameterSliderView(
                                 title: "Temperature",
                                 value: $temperature,
-                                range: 0.0...2.0,
+                                range: 0.0 ... 2.0,
                                 format: "%.2f",
                                 intValue: false,
                                 onChanged: viewModel.modelConfigManager.updateTemperature(_:)
@@ -115,7 +114,7 @@ struct ModelSettingsView: View {
                             ParameterSliderView(
                                 title: "Top K",
                                 value: $topK,
-                                range: 1...100,
+                                range: 1 ... 100,
                                 format: "%.0f",
                                 intValue: true,
                                 onChanged: { viewModel.modelConfigManager.updateTopK(Int($0)) }
@@ -124,7 +123,7 @@ struct ModelSettingsView: View {
                             ParameterSliderView(
                                 title: "Top P",
                                 value: $topP,
-                                range: 0.0...1.0,
+                                range: 0.0 ... 1.0,
                                 format: "%.2f",
                                 intValue: false,
                                 onChanged: viewModel.modelConfigManager.updateTopP(_:)
@@ -133,7 +132,7 @@ struct ModelSettingsView: View {
                             ParameterSliderView(
                                 title: "Min P",
                                 value: $minP,
-                                range: 0.05...0.3,
+                                range: 0.05 ... 0.3,
                                 format: "%.2f",
                                 intValue: false,
                                 onChanged: viewModel.modelConfigManager.updateMinP(_:)
@@ -142,7 +141,7 @@ struct ModelSettingsView: View {
                             ParameterSliderView(
                                 title: "TFS-Z",
                                 value: $tfsZ,
-                                range: 0.9...0.99,
+                                range: 0.9 ... 0.99,
                                 format: "%.2f",
                                 intValue: false,
                                 onChanged: viewModel.modelConfigManager.updateTfsZ(_:)
@@ -151,44 +150,44 @@ struct ModelSettingsView: View {
                             ParameterSliderView(
                                 title: "Typical",
                                 value: $typical,
-                                range: 0.8...0.95,
+                                range: 0.8 ... 0.95,
                                 format: "%.2f",
                                 intValue: false,
                                 onChanged: viewModel.modelConfigManager.updateTypical(_:)
                             )
                         case .penalty:
                             VStack(spacing: 8) {
-                                // Penalty 参数
+                                // Penalty parameters
                                 ParameterSliderView(
                                     title: "Penalty",
                                     value: $penalty,
-                                    range: 0.0...0.5,
+                                    range: 0.0 ... 0.5,
                                     format: "%.2f",
                                     intValue: false,
                                     onChanged: viewModel.modelConfigManager.updatePenalty(_:)
                                 )
-                                
-                                // N-gram Size 参数
+
+                                // N-gram Size parameters
                                 ParameterSliderView(
                                     title: "N-gram Size",
                                     value: $nGram,
-                                    range: 3...8,
+                                    range: 3 ... 8,
                                     format: "%.0f",
                                     intValue: true,
                                     onChanged: { viewModel.modelConfigManager.updateNGram(Int($0)) }
                                 )
-                                
-                                // N-gram Factor 参数
+
+                                // N-gram Factor parameters
                                 ParameterSliderView(
                                     title: "N-gram Factor",
                                     value: $nGramFactor,
-                                    range: 1.0...3.0,
+                                    range: 1.0 ... 3.0,
                                     format: "%.1f",
                                     intValue: false,
                                     onChanged: viewModel.modelConfigManager.updateNGramFactor(_:)
                                 )
-                                
-                                // Penalty Sampler 选择器
+
+                                // Penalty Sampler selector
                                 Picker("Penalty Sampler", selection: $penaltySampler) {
                                     ForEach(PenaltySamplerType.allCases, id: \.self) { samplerType in
                                         Text(samplerType.displayName)
@@ -237,13 +236,13 @@ struct ModelSettingsView: View {
             }
         }
         .alert(NSLocalizedString("Success", comment: ""), isPresented: $showAlert) {
-            Button("OK", role: .cancel) { }
+            Button("OK", role: .cancel) {}
         } message: {
             Text(NSLocalizedString("Cache Cleared Successfully", comment: ""))
         }
         .onAppear {
             selectedSampler = viewModel.modelConfigManager.readSamplerType()
-            
+
             if viewModel.isDiffusionModel {
                 iterations = viewModel.modelConfigManager.readIterations()
                 seed = viewModel.modelConfigManager.readSeed()
@@ -259,20 +258,20 @@ struct ModelSettingsView: View {
                 nGram = Double(viewModel.modelConfigManager.readNGram())
                 nGramFactor = viewModel.modelConfigManager.readNGramFactor()
             }
-            
-            // 初始化 mixed samplers
+
+            // Initialize mixed samplers
             let savedMixedSamplers = viewModel.modelConfigManager.readMixedSamplers()
             mixedSamplersOrder = ["topK", "tfs", "typical", "topP", "minP", "temperature"]
             selectedMixedSamplers = Set(savedMixedSamplers)
-            
-            // 初始化 penalty sampler
+
+            // Initialize penalty sampler
             penaltySampler = viewModel.modelConfigManager.readPenaltySampler()
         }
         .onDisappear {
             viewModel.setModelConfig()
         }
     }
-    
+
     private func updateMixedSamplers() {
         let orderedSelection = mixedSamplersOrder.filter { selectedMixedSamplers.contains($0) }
         viewModel.modelConfigManager.updateMixedSamplers(orderedSelection)

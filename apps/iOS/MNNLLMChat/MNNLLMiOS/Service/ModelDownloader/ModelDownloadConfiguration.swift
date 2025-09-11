@@ -13,7 +13,7 @@ public struct DownloadConfig {
     let largeFileThreshold: Int64
     let maxRetries: Int
     let retryDelay: TimeInterval
-    
+
     public static let `default` = DownloadConfig(
         maxConcurrentDownloads: 3,
         chunkSize: 20 * 1024 * 1024, // 20MB chunks
@@ -49,18 +49,18 @@ struct DownloadProgress {
     var activeDownloads: Int = 0
     var completedFiles: Int = 0
     var totalFiles: Int = 0
-    
+
     // Track individual file progress
     var fileProgress: [String: FileDownloadProgress] = [:]
     var lastReportedProgress: Double = 0.0
-    
+
     var progress: Double {
         guard totalBytes > 0 else { return 0.0 }
-        
+
         let totalDownloadedBytes = fileProgress.values.reduce(0) { sum, fileProgress in
-            return sum + fileProgress.downloadedBytes
+            sum + fileProgress.downloadedBytes
         }
-        
+
         let calculatedProgress = Double(totalDownloadedBytes) / Double(totalBytes)
         return min(calculatedProgress, 1.0) // Ensure progress never exceeds 100%
     }
@@ -71,7 +71,7 @@ struct FileDownloadProgress {
     let totalBytes: Int64
     var downloadedBytes: Int64 = 0
     var isCompleted: Bool = false
-    
+
     var progress: Double {
         guard totalBytes > 0 else { return 0.0 }
         return Double(downloadedBytes) / Double(totalBytes)

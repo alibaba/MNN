@@ -7,8 +7,8 @@
 
 import ExyteChat
 
-extension Attachment {
-    public var mediaString: String {
+public extension Attachment {
+    var mediaString: String {
         switch type {
         case .image:
             return "\(full.path)"
@@ -18,12 +18,12 @@ extension Attachment {
     }
 }
 
-extension Recording {
-    public var recordingString: String {
+public extension Recording {
+    var recordingString: String {
         return "\(String(describing: url?.path))"
     }
-    
-    public var durationString: String {
+
+    var durationString: String {
         return "\(String(duration))"
     }
 }

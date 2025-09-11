@@ -69,6 +69,7 @@
       }
     },
     "Audio Message" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {

@@ -17,7 +17,7 @@ enum ProgressType: Int, CaseIterable {
     case processingResults
     case completed
     case stopping
-    
+
     var description: String {
         switch self {
         case .unknown: return "Unknown"

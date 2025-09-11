@@ -10,7 +10,7 @@ import SwiftUI
 struct QuickFilterTags: View {
     let tags: [String]
     @Binding var selectedTags: Set<String>
-    
+
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {

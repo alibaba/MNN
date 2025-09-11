@@ -15,7 +15,7 @@ struct BenchmarkResults {
     let testResults: [TestInstance]
     let timestamp: String
     let totalTimeSeconds: Float
-    
+
     init(modelDisplayName: String, maxMemoryKb: Int64, testResults: [TestInstance], timestamp: String, totalTimeSeconds: Float = 0.0) {
         self.modelDisplayName = modelDisplayName
         self.maxMemoryKb = maxMemoryKb

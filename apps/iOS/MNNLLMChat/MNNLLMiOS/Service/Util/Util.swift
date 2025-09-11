@@ -8,22 +8,21 @@
 import ExyteChat
 import ExyteMediaPicker
 
-import Foundation
 import AVFoundation
+import Foundation
 
 func convertToWavFormat(inputUrl: URL, outputUrl: URL) throws {
-
     let inputFile = try AVAudioFile(forReading: inputUrl)
-    
+
     let format = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 2)!
     let outputFile = try AVAudioFile(forWriting: outputUrl, settings: format.settings)
-    
+
     let buffer = AVAudioPCMBuffer(pcmFormat: inputFile.processingFormat, frameCapacity: 1024)!
-    
+
     if inputFile.processingFormat.sampleRate != format.sampleRate || inputFile.processingFormat.channelCount != format.channelCount {
         throw NSError(domain: "AudioConversionError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Input format does not match output format."])
     }
-    
+
     while true {
         try inputFile.read(into: buffer)
         if buffer.frameLength == 0 { break }
@@ -35,23 +34,23 @@ func convertACCToWAV(accFileUrl: URL) async -> URL? {
     let directoryUrl = accFileUrl.deletingLastPathComponent()
     let wavFileName = accFileUrl.deletingPathExtension().lastPathComponent + ".wav"
     let wavFileUrl = directoryUrl.appendingPathComponent(wavFileName)
-    
-    // 如果目标文件已存在，先删除
+
+    // Delete target file if it already exists
     try? FileManager.default.removeItem(at: wavFileUrl)
-    
+
     let asset = AVAsset(url: accFileUrl)
-    
-    // 使用 AVAssetExportPresetPassthrough 预设
+
+    // Use AVAssetExportPresetPassthrough preset
     guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough) else {
         print("Failed to create AVAssetExportSession.")
         return nil
     }
-    
-    // 设置输出格式为 caf，后续再转换为 wav
+
+    // Set output format to CAF, then convert to WAV later
     exportSession.outputFileType = .caf
     exportSession.outputURL = wavFileUrl
-    
-    // 使用 async/await 替代 DispatchGroup
+
+    // Use async/await instead of DispatchGroup
     await withCheckedContinuation { continuation in
         exportSession.exportAsynchronously {
             switch exportSession.status {
@@ -69,22 +68,22 @@ func convertACCToWAV(accFileUrl: URL) async -> URL? {
             continuation.resume()
         }
     }
-    
-    // 检查文件是否存在
+
+    // Check if file exists
     if FileManager.default.fileExists(atPath: wavFileUrl.path) {
         do {
-            // 使用 AVAudioFile 将 CAF 转换为 WAV
+            // Use AVAudioFile to convert CAF to WAV
             let inputFile = try AVAudioFile(forReading: wavFileUrl)
             let format = AVAudioFormat(standardFormatWithSampleRate: inputFile.processingFormat.sampleRate,
-                                     channels: inputFile.processingFormat.channelCount)!
+                                       channels: inputFile.processingFormat.channelCount)!
             let outputFile = try AVAudioFile(forWriting: wavFileUrl, settings: format.settings)
-            
+
             let buffer = AVAudioPCMBuffer(pcmFormat: inputFile.processingFormat,
-                                        frameCapacity: AVAudioFrameCount(inputFile.length))!
-            
+                                          frameCapacity: AVAudioFrameCount(inputFile.length))!
+
             try inputFile.read(into: buffer)
             try outputFile.write(from: buffer)
-            
+
             return wavFileUrl
         } catch {
             print("Error converting to WAV: \(error)")
@@ -96,12 +95,11 @@ func convertACCToWAV(accFileUrl: URL) async -> URL? {
     }
 }
 
-
 extension DraftMessage {
     func makeLLMChatImages() async -> [LLMChatImage] {
         await medias
             .filter { $0.type == .image }
-            .asyncMap { (media : Media) -> (Media, URL?, URL?) in
+            .asyncMap { (media: Media) -> (Media, URL?, URL?) in
                 (media, await media.getThumbnailURL(), await media.getURL())
             }
             .compactMap { media, thumb, full in
@@ -113,7 +111,7 @@ extension DraftMessage {
     func makeLLMChatVideos() async -> [LLMChatVideo] {
         await medias
             .filter { $0.type == .video }
-            .asyncMap { (media : Media) -> (Media, URL?, URL?) in
+            .asyncMap { (media: Media) -> (Media, URL?, URL?) in
                 (media, await media.getThumbnailURL(), await media.getURL())
             }
             .compactMap { media, thumb, full in
@@ -138,7 +136,7 @@ extension DraftMessage {
     }
 }
 
-/// MARK: Util
+// MARK: Util
 
 class DateFormatting {
     static var agoFormatter = RelativeDateTimeFormatter()
@@ -151,15 +149,14 @@ extension Date {
         if result.contains("second") {
             return "Just now"
         }
-        
+
         if result.contains("秒钟") {
             return "刚刚"
         }
-        
+
         return result
     }
 }
-
 
 extension Sequence {
     func asyncMap<T>(
@@ -174,5 +171,3 @@ extension Sequence {
         return values
     }
 }
-
-
