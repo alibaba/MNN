@@ -81,19 +81,15 @@ final class LLMChatInteractor: ChatInteractorProtocol {
                 status: status
             )
 
-            DispatchQueue.main.async { [weak self] in
-//                PerformanceMonitor.shared.recordUIUpdate()
-
+            await MainActor.run { [weak self] in
                 switch userType {
                 case .user, .system:
                     self?.chatState.value.append(message)
 
                     if userType == .user {
-                        sender = self?.chatData.assistant ?? message.sender
-                        let emptyMessage = LLMChatMessage(uid: UUID().uuidString, sender: sender, createdAt: Date(), text: "", images: [], videos: [], recording: nil, replyMessage: nil)
+                        let assistantSender = self?.chatData.assistant ?? message.sender
+                        let emptyMessage = LLMChatMessage(uid: UUID().uuidString, sender: assistantSender, createdAt: Date(), text: "", images: [], videos: [], recording: nil, replyMessage: nil)
                         self?.chatState.value.append(emptyMessage)
-                    } else {
-                        sender = self?.chatData.system ?? message.sender
                     }
 
                     self?.processor.startNewChat()
@@ -117,7 +113,6 @@ final class LLMChatInteractor: ChatInteractorProtocol {
                     if let updatedMsg = updateLastMsg {
                         self?.chatState.value[(self?.chatState.value.count ?? 1) - 1] = updatedMsg
                     }
-//                    }
                 }
             }
         }
@@ -125,7 +120,7 @@ final class LLMChatInteractor: ChatInteractorProtocol {
 
     func sendImage(imageURL: URL) {
         Task {
-            DispatchQueue.main.async { [weak self] in
+            await MainActor.run { [weak self] in
                 let image = LLMChatImage(id: UUID().uuidString, thumbnail: imageURL, full: imageURL)
 
                 let message = LLMChatMessage(uid: UUID().uuidString, sender: self?.chatData.assistant ?? LLMChatUser(uid: "0", name: ""), createdAt: Date(), text: "", images: [image], videos: [], recording: nil, replyMessage: nil)
