@@ -384,3 +384,4 @@ apps/iOS/MNNLLMChat/Chat/
 apps/iOS/MNNLLMChat/swift-transformers/
 apps/iOS/MNNLLMChat/MNNLLMiOS/LocalModel/Qwen2.5-Omni-3B-MNN
 apps/mnncli/.cursorrules
+apps/Android/MnnLlmChat/app/src/main/assets/builtin_models

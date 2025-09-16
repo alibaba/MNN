@@ -18,7 +18,7 @@ import java.io.InputStream
 object BuiltinModelManager {
     private const val TAG = "BuiltinModelManager"
     private const val ASSETS_BUILTIN_MODELS_DIR = "builtin_models"
-    private const val BUILTIN_MODELS_COPIED_KEY = "builtin_models_copied"
+    private const val BUILTIN_MODELS_COPIED_KEY = "builtin_models_copied_v1"
     
     /**
      * Check if builtin models need to be copied and copy them if necessary
