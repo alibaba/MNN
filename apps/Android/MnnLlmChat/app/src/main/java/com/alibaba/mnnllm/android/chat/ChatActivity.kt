@@ -121,7 +121,7 @@ class ChatActivity : AppCompatActivity() {
         this.modelId = modelId
         this.modelName = modelName
         isDiffusion = ModelUtils.isDiffusionModel(modelName)
-        isAudioModel = ModelUtils.isAudioModel(modelName)
+        isAudioModel = ModelUtils.isAudioModel(modelId)
         binding.modelSwitcher.text = modelName
         
         // Hide model switcher click functionality for diffusion models
@@ -778,7 +778,7 @@ class ChatActivity : AppCompatActivity() {
         this.modelId = selectedModelId
         this.modelName = selectedModelName
         isDiffusion = ModelUtils.isDiffusionModel(selectedModelName)
-        isAudioModel = ModelUtils.isAudioModel(selectedModelName)
+        isAudioModel = ModelUtils.isAudioModel(selectedModelId)
         
         // Update model switcher text
         binding.modelSwitcher.text = selectedModelName

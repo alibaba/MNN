@@ -205,11 +205,11 @@ class ChatInputComponent(
     }
 
     private fun updateVoiceButtonVisibility() {
-        if (!ModelUtils.isAudioModel(currentModelName)) {
+        if (!ModelUtils.isAudioModel(currentModelId)) {
             return
         }
         var visible = true
-        if (!ModelUtils.isAudioModel(currentModelName)) {
+        if (!ModelUtils.isAudioModel(currentModelId)) {
             visible = false
         } else if (chatActivity.isGenerating) {
             visible = false
@@ -337,7 +337,7 @@ class ChatInputComponent(
 
     fun onLoadingStatesChanged(loading: Boolean) {
         this.updateSenderButton()
-        if (!loading && ModelUtils.isAudioModel(currentModelName)) {
+        if (!loading && ModelUtils.isAudioModel(currentModelId)) {
             voiceRecordingModule.onEnabled()
         }
     }

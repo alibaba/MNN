@@ -70,7 +70,7 @@ class VoiceRecordingModule(private val activity: ChatActivity) {
      */
     fun updateModel(modelName: String) {
         currentModelName = modelName
-        val isAudioModel = com.alibaba.mnnllm.android.model.ModelUtils.isAudioModel(modelName)
+        val isAudioModel = com.alibaba.mnnllm.android.model.ModelUtils.isAudioModel(activity.modelId!!)
         updateVoiceButtonVisibility(isAudioModel)
         
         // If switching away from audio model and currently in recording mode, exit

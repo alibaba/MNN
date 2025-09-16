@@ -105,7 +105,7 @@
                 "ModelScope": "MNN/MiniCPM4-0.5B-MNN",
                 "Modelers": "MNN/MiniCPM4-0.5B-MNN"
             },
-            "size_gb": 8,
+            "size_gb": 0.5,
             "vendor": "MiniCPM",
             "file_size": 311061970
         },

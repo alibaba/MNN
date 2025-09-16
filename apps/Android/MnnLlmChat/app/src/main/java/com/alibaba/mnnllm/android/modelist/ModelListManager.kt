@@ -34,7 +34,22 @@ object ModelListManager {
      */
     fun getModelTags(modelId: String): List<String> {
         val modelItem = modelIdModelMap[modelId]
-        return modelItem?.getTags() ?: emptyList()
+        Log.e(TAG, "getModelTags: $modelId modelItem: ${modelItem?.modelId} ${modelItem?.modelMarketItem?.modelName}")
+        
+        // If modelItem is found in map, return its tags
+        if (modelItem != null) {
+            return modelItem.getTags()
+        }
+        
+        // Fallback: try to read tags directly from market_config.json
+        Log.d(TAG, "ModelItem not found in map for $modelId, trying fallback to read market_config.json")
+        return try {
+            val marketItem = runBlocking { ModelMarketUtils.readMarketConfigFromLocal(modelId) }
+            marketItem?.tags ?: emptyList()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to read market config for $modelId in fallback", e)
+            emptyList()
+        }
     }
 
     /**
@@ -98,10 +113,15 @@ object ModelListManager {
                 val modelItem = ModelItem.fromDownloadModel(context, downloadedModel.modelId, downloadedModel.modelPath)
                 // Set market item data if available
                 modelItem.modelMarketItem = ModelMarketUtils.readMarketConfig(downloadedModel.modelId)
+                Log.d(TAG, "ModelItem ${downloadedModel.modelId}: modelMarketItem=${modelItem.modelMarketItem?.modelName}, tags=${modelItem.getTags()}")
                 // Calculate download size  
                 val downloadSize = try {
                     val file = File(downloadedModel.modelPath)
-                    if (file.exists()) file.length() else 0L
+                    if (file.exists()) {
+                        // For builtin models (directories), use FileUtils.getFileSize to calculate total size
+                        // For other models, also use FileUtils.getFileSize for consistency
+                        FileUtils.getFileSize(file)
+                    } else 0L
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to get file size for ${downloadedModel.modelPath}", e)
                     0L
@@ -135,6 +155,7 @@ object ModelListManager {
                     
                     // Set market item data if available (same as downloaded models)
                     localModel.modelMarketItem = ModelMarketUtils.readMarketConfig(localModel.modelId!!)
+                    Log.d(TAG, "LocalModel ${localModel.modelId}: modelMarketItem=${localModel.modelMarketItem?.modelName}, tags=${localModel.getTags()}")
 
                     // Calculate local model size
                     val localSize = try {
@@ -197,22 +218,36 @@ object ModelListManager {
         downloadedModels: MutableList<ChatDataManager.DownloadedModelInfo>,
         modelRepository: ModelRepository
     ) {
+        Log.d(TAG, "scanModelsDirectory: scanning directory ${directory.absolutePath}")
         directory.listFiles()?.forEach { file ->
-            if (Files.isSymbolicLink(file.toPath())) {
+            val isBuiltinModel = directory.name == "builtin"
+            val shouldProcessFile = if (isBuiltinModel) {
+                file.isDirectory
+            } else {
+                Files.isSymbolicLink(file.toPath())
+            }
+            
+            if (shouldProcessFile) {
                 val modelPath = file.absolutePath
                 val modelId = createModelIdFromPath(context, modelPath)
+                Log.d(TAG, "Processing file: $file.name, isBuiltinModel: $isBuiltinModel, modelId: $modelId")
                 if (modelId != null) {
                     // Check if this is an LLM model, skip if it's TTS or ASR
-                    // First try to get model type from database, fallback to repository
-                    // Database access on Main thread to avoid connection pool issues
-                    val modelType = withContext(Dispatchers.Main) {
-                        chatDataManager.getDownloadModelType(modelId)
-                    } ?: runBlocking {
-                        try {
-                            modelRepository.getModelType(modelId)
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Failed to get model type for $modelId, assuming LLM", e)
-                            "LLM"
+                    // For builtin models, assume LLM type directly
+                    val modelType = if (isBuiltinModel) {
+                        "LLM"
+                    } else {
+                        // First try to get model type from database, fallback to repository
+                        // Database access on Main thread to avoid connection pool issues
+                        withContext(Dispatchers.Main) {
+                            chatDataManager.getDownloadModelType(modelId)
+                        } ?: runBlocking {
+                            try {
+                                modelRepository.getModelType(modelId)
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Failed to get model type for $modelId, assuming LLM", e)
+                                "LLM"
+                            }
                         }
                     }
                     
@@ -224,43 +259,53 @@ object ModelListManager {
                     // Check if config path exists for this model
                     val modelName = ModelUtils.getModelName(modelId)
                     val configPath = ModelUtils.getConfigPathForModel(modelId)
+                    Log.d(TAG, "Model $modelId: modelName=$modelName, configPath=$configPath")
                     if (configPath == null || !File(configPath).exists()) {
                         Log.d(TAG, "Skipping model $modelId: config path not found or doesn't exist (path: $configPath)")
                         return@forEach
                     }
                     
                     // Database access on Main thread
-                    var downloadTime = withContext(Dispatchers.Main) {
-                        chatDataManager.getDownloadTime(modelId)
+                    var downloadTime = if (isBuiltinModel) {
+                        // For builtin models, use file modification time
+                        file.lastModified()
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            chatDataManager.getDownloadTime(modelId)
+                        }.also { dbTime ->
+                            if (dbTime <= 0) {
+                                try {
+                                    withContext(Dispatchers.Main) {
+                                        chatDataManager.recordDownloadHistory(modelId, modelPath, modelType)
+                                    }
+                                } catch (e: Exception) {
+                                    Log.w(TAG, "Failed to record model in database: $modelId", e)
+                                }
+                            }
+                        }
                     }
                     if (downloadTime <= 0) {
                         downloadTime = file.lastModified()
-                        try {
-                            withContext(Dispatchers.Main) {
-                                chatDataManager.recordDownloadHistory(modelId, modelPath, modelType)
-                            }
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Failed to record model in database: $modelId", e)
-                        }
                     }
                     
                     // Database access on Main thread
-                    var lastChatTime = withContext(Dispatchers.Main) {
-                        chatDataManager.getLastChatTime(modelId)
+                    var lastChatTime = if (isBuiltinModel) {
+                        // For builtin models, use default value
+                        0L
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            chatDataManager.getLastChatTime(modelId)
+                        }
                     }
                     Log.d(TAG, "getLastChatTime: $modelId lastChatTime: $lastChatTime")
-                    val fixedModelId = "taobao-mnn/$modelName"
-                    if (lastChatTime < 10000) {
-                        lastChatTime = withContext(Dispatchers.Main) {
-                            chatDataManager.getLastChatTime(fixedModelId)
+                    if (!isBuiltinModel) {
+                        val fixedModelId = "taobao-mnn/$modelName"
+                        if (lastChatTime < 10000 && modelName != null) {
+                            lastChatTime = withContext(Dispatchers.Main) {
+                                chatDataManager.getLastChatTime(modelName)
+                            }
+                            Log.d(TAG, "getLastChatTimeFix: $modelName lastChatTime: $lastChatTime")
                         }
-                        Log.d(TAG, "getLastChatTimeFix: $fixedModelId lastChatTime: $lastChatTime")
-                    }
-                    if (lastChatTime < 10000) {
-                        lastChatTime = withContext(Dispatchers.Main) {
-                            chatDataManager.getLastChatTime(modelName!!)
-                        }
-                        Log.d(TAG, "getLastChatTimeFix: $modelName lastChatTime: $lastChatTime")
                     }
                     
                     downloadedModels.add(ChatDataManager.DownloadedModelInfo(
@@ -269,9 +314,9 @@ object ModelListManager {
                     
                     Log.d(TAG, "Found LLM model with valid config: $modelId at $modelPath (config: $configPath)")
                 }
-            } else if (file.isDirectory && (file.name == "modelscope" || file.name == "modelers")) {
-                scanModelsDirectory(file, context, chatDataManager, downloadedModels, modelRepository)
-            }
+        } else if (file.isDirectory && (file.name == "modelscope" || file.name == "modelers" || file.name == "builtin")) {
+            scanModelsDirectory(file, context, chatDataManager, downloadedModels, modelRepository)
+        }
         }
     }
     
@@ -293,6 +338,10 @@ object ModelListManager {
             relativePath.startsWith("modelscope/") -> {
                 val modelName = relativePath.substring("modelscope/".length)
                 if (modelName.isNotEmpty()) "ModelScope/MNN/$modelName" else null
+            }
+            relativePath.startsWith("builtin/") -> {
+                val modelName = relativePath.substring("builtin/".length)
+                if (modelName.isNotEmpty()) "Builtin/MNN/$modelName" else null
             }
             !relativePath.contains("/") -> {
                 if (relativePath.isNotEmpty()) "HuggingFace/taobao-mnn/$relativePath" else null

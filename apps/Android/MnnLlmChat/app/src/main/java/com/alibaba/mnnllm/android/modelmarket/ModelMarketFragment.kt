@@ -26,6 +26,7 @@ import com.alibaba.mnnllm.android.modelsettings.DropDownMenuHelper
 import com.alibaba.mnnllm.android.utils.Searchable
 import com.alibaba.mnnllm.android.widgets.ModelSwitcherView
 import android.widget.Toast
+import com.alibaba.mnnllm.android.utils.LargeModelConfirmationDialog
 
 class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
 
@@ -598,8 +599,25 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
                     // For voice models, clicking the item sets it as default
                     handleVoiceModelClick(item.modelMarketItem)
                 } else {
-                    // For other models, run the model
-                    (requireActivity() as MainActivity).runModel(null, item.modelMarketItem.modelId, null)
+                    // For other models, check if it's a large model before running
+                    if (item.modelMarketItem.sizeB > 10.0) {
+                        // Show confirmation dialog for large models
+                        LargeModelConfirmationDialog.show(
+                            fragment = this,
+                            modelName = item.modelMarketItem.modelName,
+                            modelSize = item.modelMarketItem.sizeB,
+                            onConfirm = {
+                                // User confirmed, proceed with running the model
+                                (requireActivity() as MainActivity).runModel(null, item.modelMarketItem.modelId, null)
+                            },
+                            onCancel = {
+                                // User cancelled, do nothing
+                            }
+                        )
+                    } else {
+                        // Model is not large, run directly
+                        (requireActivity() as MainActivity).runModel(null, item.modelMarketItem.modelId, null)
+                    }
                 }
             }
             DownloadState.NOT_START,

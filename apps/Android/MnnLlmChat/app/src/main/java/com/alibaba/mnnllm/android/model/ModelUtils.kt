@@ -315,7 +315,9 @@ object ModelUtils {
         val modelName = modelItem.modelName!!
 
         return if (isDiffusionModel(modelName)) {
-            if (modelItem.isLocal) {
+            if (modelItem.isBuiltin) {
+                ModelConfig.getDefaultConfigFile(modelId)
+            } else if (modelItem.isLocal) {
                 // For local models, use the local path directly
                 modelItem.localPath
             } else {
@@ -323,7 +325,9 @@ object ModelUtils {
                     .getDownloadedFile(modelId)?.absolutePath
             }
         } else {
-            if (modelItem.isLocal) {
+            if (modelItem.isBuiltin) {
+                ModelConfig.getDefaultConfigFile(modelId)
+            } else if (modelItem.isLocal) {
                 // For local models, look for config.json in the same directory
                 val localPath = modelItem.localPath
                 if (!localPath.isNullOrEmpty()) {

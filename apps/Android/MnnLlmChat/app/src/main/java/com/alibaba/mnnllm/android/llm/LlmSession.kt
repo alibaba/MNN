@@ -22,6 +22,7 @@ import com.alibaba.mnnllm.android.modelsettings.Jinja
 import com.alibaba.mnnllm.android.modelsettings.JinjaContext
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig.Companion.defaultConfig
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig.Companion.loadConfig
+import com.alibaba.mnnllm.android.utils.FileSplitter
 
 class LlmSession (
     private val modelId: String,
@@ -53,6 +54,10 @@ class LlmSession (
     override fun load() {
         Log.d(TAG, "MNN_DEBUG load begin")
         modelLoading = true
+        
+        // Check and merge split files before loading the model
+        checkAndMergeSplitFiles()
+        
         var historyStringList: List<String>? = null
         val currentHistory = this.savedHistory
         if (!currentHistory.isNullOrEmpty()) {
@@ -90,6 +95,36 @@ class LlmSession (
         modelLoading = false
         if (releaseRequested) {
             release()
+        }
+    }
+    
+    /**
+     * Check and merge split files for the current model
+     */
+    private fun checkAndMergeSplitFiles() {
+        try {
+            val configFile = File(configPath)
+            val modelDir = configFile.parentFile
+            
+            if (modelDir != null && modelDir.exists()) {
+                Log.d(TAG, "Checking for split files in model directory: ${modelDir.absolutePath}")
+                
+                if (FileSplitter.needsMerging(modelDir)) {
+                    Log.d(TAG, "Found split files that need merging in ${modelDir.absolutePath}")
+                    val success = FileSplitter.mergeAllSplitFiles(modelDir)
+                    if (success) {
+                        Log.d(TAG, "Successfully merged split files for model: $modelId")
+                    } else {
+                        Log.w(TAG, "Failed to merge some split files for model: $modelId")
+                    }
+                } else {
+                    Log.d(TAG, "No split files found for model: $modelId")
+                }
+            } else {
+                Log.w(TAG, "Model directory not found: ${modelDir?.absolutePath}")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error checking/merging split files for model: $modelId", e)
         }
     }
 

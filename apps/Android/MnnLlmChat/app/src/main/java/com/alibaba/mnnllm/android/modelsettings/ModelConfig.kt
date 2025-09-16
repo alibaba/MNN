@@ -138,6 +138,17 @@ data class ModelConfig(
                 }
                 return null
             }
+            if (modelId.startsWith("Builtin/")) {
+                val modelName = modelId.removePrefix("Builtin/MNN/")
+                val builtinModelsDir = File(ApplicationProvider.get().filesDir, ".mnnmodels/builtin")
+                val modelDir = File(builtinModelsDir, modelName)
+                val configFilePath = File(modelDir, "config.json")
+                Log.d(TAG, "getDefaultConfigFile for builtin model $modelId: modelName=$modelName, builtinModelsDir=${builtinModelsDir.absolutePath}, modelDir=${modelDir.absolutePath}, configFilePath=${configFilePath.absolutePath}, exists=${configFilePath.exists()}")
+                if (configFilePath.exists()) {
+                    return configFilePath.absolutePath
+                }
+                return null
+            }
             val configFileName = "config.json"
             val destModelDir = ModelDownloadManager.getInstance(ApplicationProvider.get())
                 .getDownloadedFile(modelId)?.absolutePath
@@ -186,6 +197,16 @@ data class ModelConfig(
         }
 
         fun getMarketConfigFile(modelId: String):String {
+            if (modelId.startsWith("local/")) {
+                val localPath = modelId.removePrefix("local/")
+                return File(localPath, "market_config.json").absolutePath
+            }
+            if (modelId.startsWith("Builtin/")) {
+                val modelName = modelId.removePrefix("Builtin/MNN/")
+                val builtinModelsDir = File(ApplicationProvider.get().filesDir, ".mnnmodels/builtin")
+                val modelDir = File(builtinModelsDir, modelName)
+                return File(modelDir, "market_config.json").absolutePath
+            }
             return getModelConfigDir(modelId) + "/market_config.json"
         }
 

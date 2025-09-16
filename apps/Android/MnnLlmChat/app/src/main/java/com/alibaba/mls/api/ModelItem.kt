@@ -24,6 +24,9 @@ class ModelItem {
     val isLocal: Boolean
         get() = !localPath.isNullOrEmpty()
 
+    val isBuiltin: Boolean
+        get() = modelId?.startsWith("Builtin/") == true
+
     fun getTags(): List<String> {
         return when {
             modelMarketItem != null -> modelMarketItem!!.tags
@@ -52,10 +55,15 @@ class ModelItem {
         // Use getTags() which now prioritizes market tags from model_market.json
         val marketTags = getTags()
 
-        // Add local/downloaded status
-        if (isLocal) {
+        // Add builtin/local/downloaded status
+        if (isBuiltin) {
+            tags.add(context.getString(com.alibaba.mnnllm.android.R.string.builtin))
+        } else if (isLocal) {
             tags.add(context.getString(com.alibaba.mnnllm.android.R.string.local))
-        } else if (marketTags.isNotEmpty()) {
+        }
+        
+        // Add market tags for all models (including builtin and local)
+        if (marketTags.isNotEmpty()) {
             // Use ModelTagsCache to translate market tags to Chinese only in Chinese mode
             val tagsToAdd = if (DeviceUtils.isChinese) {
                 ModelTagsCache.getTagTranslations(context, marketTags.take(2))

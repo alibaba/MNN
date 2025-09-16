@@ -571,4 +571,21 @@
     <string name="unknown_error">Unknown error</string>
     <string name="not_available">N/A</string>
     <string name="unknown_model">Unknown Model</string>
+    
+    <!-- Large Model Warning Dialog Strings -->
+    <string name="large_model_warning_title">Large Model Warning</string>
+    <string name="large_model_warning_message">The model \"%1$s\" is %2$sB in size, which is quite large and may cause the app to crash due to memory limitations. Do you want to continue opening this model?</string>
+    <string name="continue_open">Continue Open</string>
+    
+    <!-- Privacy Policy Strings -->
+    <string name="privacy_policy_title">Privacy Policy Agreement</string>
+    <string name="privacy_policy_content">Welcome to MNN Chat! Before using our application, please read and agree to our Privacy Policy.\n\nWe are committed to protecting your privacy and personal information. This application may collect and process certain data to provide you with better services.\n\nBy using this application, you agree to:\n• Allow the application to collect necessary data for functionality\n• Understand that your data may be processed locally on your device\n• Accept our terms of service and privacy practices\n\nIf you do not agree to these terms, please do not use this application.\n\nFor more detailed information about our privacy practices, please contact us through our official channels.</string>
+    <string name="privacy_policy_agree">I have read and agree to the Privacy Policy</string>
+    <string name="privacy_policy_agree_button">Agree and Continue</string>
+    <string name="privacy_policy_disagree">Disagree</string>
+    <string name="privacy_policy_required">You must agree to the Privacy Policy to use this application</string>
+    <string name="privacy_policy_exit_message">You have chosen not to agree to the Privacy Policy. The application will now exit.</string>
+    <string name="loading_models">Loading models…</string>
+    <string name="copying_builtin_models">First install, copying built-in models…</string>
+    <string name="builtin">Builtin</string>
 </resources>

@@ -5,6 +5,9 @@ plugins {
 
 }
 
+// Apply split assets configuration
+apply from: '../split_assets.gradle'
+
 task downloadAndUnzipNativeLibs {
     group = 'Pre-build'
     description = 'Downloads and unzips libsherpa-mnn-jni native library from CDN.'
@@ -46,7 +49,99 @@ task downloadAndUnzipNativeLibs {
     }
 }
 
-preBuild.dependsOn downloadAndUnzipNativeLibs
+task downloadAndUnzipBuiltinModels {
+    group = 'Pre-build'
+    description = 'Downloads and unzips builtin model files from CDN.'
+    
+    def modelUrls = [
+        'Qwen3-0.6B-MNN': 'https://meta.alicdn.com/data/mnn/models/Qwen3-0.6B-MNN.zip',
+        'Qwen3-4B-MNN': 'https://meta.alicdn.com/data/mnn/models/Qwen3-4B-MNN.zip'
+    ]
+    
+    def outputDir = file('src/main/assets/builtin_models')
+    def checkFiles = []
+    
+    modelUrls.each { modelName, url ->
+        def zipFileName = "${modelName}.zip"
+        def downloadedZip = new File(project.buildDir, zipFileName)
+        def modelDir = new File(outputDir, modelName)
+        def checkFile = new File(modelDir, 'llm.mnn')
+        
+        checkFiles.add(checkFile)
+        
+        inputs.property("url_${modelName}", url)
+        outputs.file(checkFile)
+    }
+    
+    doLast {
+        println "-> Executing downloadAndUnzipBuiltinModels task..."
+        
+        // Create output directory if it doesn't exist
+        outputDir.mkdirs()
+        
+        modelUrls.each { modelName, url ->
+            def zipFileName = "${modelName}.zip"
+            def downloadedZip = new File(project.buildDir, zipFileName)
+            def modelDir = new File(outputDir, modelName)
+            def checkFile = new File(modelDir, 'llm.mnn')
+            
+            // Skip if model already exists
+            if (checkFile.exists()) {
+                println "   Model ${modelName} already exists, skipping..."
+                return
+            }
+            
+            println "   Downloading ${modelName} from ${url}"
+            
+            try {
+                ant.get(src: url, dest: downloadedZip)
+                
+                if (!downloadedZip.exists()) {
+                    throw new GradleException("Download failed: ${downloadedZip} not found.")
+                }
+                
+                println "   Download complete for ${modelName}."
+                println "   Unzipping ${downloadedZip.name} to ${modelDir}..."
+                
+                // Create model directory
+                modelDir.mkdirs()
+                
+                copy {
+                    from(zipTree(downloadedZip))
+                    into(modelDir)
+                    eachFile { fileCopyDetails ->
+                        // Remove the top-level directory from the zip file
+                        def segments = fileCopyDetails.relativePath.segments
+                        if (segments.length > 1) {
+                            fileCopyDetails.relativePath = new org.gradle.api.file.RelativePath(true, segments[1..-1] as String[])
+                        }
+                    }
+                    includeEmptyDirs = false
+                }
+                
+                println "   Unzip complete for ${modelName}."
+                downloadedZip.delete()
+                
+            } catch (Exception e) {
+                println "   Warning: Failed to download ${modelName}: ${e.message}"
+                // Continue with other models even if one fails
+            }
+        }
+        
+        println "-> downloadAndUnzipBuiltinModels task completed."
+    }
+    
+    onlyIf {
+        def allExist = checkFiles.every { it.exists() }
+        println "-> Checking if builtin models exist... [All exist: ${allExist}]"
+        return !allExist
+    }
+}
+
+preBuild.dependsOn downloadAndUnzipNativeLibs, downloadAndUnzipBuiltinModels
+
+// Ensure split task runs after model download
+splitLargeAssets.dependsOn downloadAndUnzipBuiltinModels
 
 android {
     namespace 'com.alibaba.mnnllm.android'
@@ -54,14 +149,15 @@ android {
     ndkVersion "27.2.12479018"
     
     flavorDimensions "store"
-    
+    androidResources {
+        noCompress += ['weight', 'part1', 'part2', 'part3', 'part4', 'part5', 'part6', 'part7', 'part8', 'part9', 'part10', 'mnn', 'bin', 'jar']
+    }
     defaultConfig {
         applicationId "com.alibaba.mnnllm.android"
         minSdk 26
         targetSdk 35
         versionCode 740
         versionName "0.7.4"
-
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         externalNativeBuild {
             cmake {
@@ -159,6 +255,10 @@ android {
                 'META-INF/LICENSE',
                 'META-INF/MANIFEST.MF'
         ])
+        // Exclude large model files from compression
+        jniLibs {
+            useLegacyPackaging = true
+        }
     }
 
     testOptions {

@@ -21,7 +21,7 @@ object ChatRouter {
         val isDiffusion = ModelUtils.isDiffusionModel(modelIdParam)
         var modelId:String? = modelIdParam
         val downloadManager = ModelDownloadManager.getInstance(context)
-        if (!modelIdParam.startsWith("local") && !modelIdParam.contains("/") && !isDiffusion) {
+        if (!modelIdParam.startsWith("local") && !modelIdParam.startsWith("Builtin") && !modelIdParam.contains("/") && !isDiffusion) {
             modelId = ModelUtils.getValidModelIdFromName(downloadManager, modelIdParam)
         }
         Log.d(TAG, "modelId: $modelId")

@@ -46,9 +46,36 @@ object ModelMarketUtils {
 
     suspend fun readMarketConfig(modelId:String):ModelMarketItem? {
         return withContext(Dispatchers.IO) {
-            var marketItem: ModelMarketItem? = readMarketConfigFromLocal(modelId)
-            if (marketItem == null) {
-                //read from ModelRepository
+            if (modelId.startsWith("Builtin/")) {
+                Log.d(TAG, "Reading market config for builtin model: $modelId")
+                return@withContext readMarketConfigFromLocal(modelId)
+            }
+            var marketItem: ModelMarketItem? = null
+            try {
+                val context = ApplicationProvider.get()
+                val repository = ModelRepository(context)
+
+                // Get current market data version from repository (network/cache/assets)
+                val currentMarketVersion: String? = try {
+                    repository.getModelMarketData()?.version
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to get current market version from repository", e)
+                    null
+                }
+
+                val localMarketVersion: String? = readLocalMarketVersion(modelId)
+                val shouldRefreshFromRepository = (currentMarketVersion == null ||
+                                                 localMarketVersion == null ||
+                                                 localMarketVersion != currentMarketVersion)
+
+                if (!shouldRefreshFromRepository) {
+                    marketItem = readMarketConfigFromLocal(modelId)
+                    if (marketItem != null) {
+                        return@withContext marketItem
+                    }
+                } else {
+                    Log.d(TAG, "Local market version ($localMarketVersion) != current market version ($currentMarketVersion), refreshing from repository")
+                }
                 try {
                     val context = ApplicationProvider.get()
                     val repository = ModelRepository(context)
@@ -72,13 +99,18 @@ object ModelMarketUtils {
     suspend fun readMarketConfigFromLocal(modelId:String):ModelMarketItem? {
         return withContext(Dispatchers.IO) {
             val marketConfigFile = ModelConfig.getMarketConfigFile(modelId)
+            Log.d(TAG, "readMarketConfigFromLocal for $modelId: looking for file at $marketConfigFile")
             var marketItem: ModelMarketItem? = null
             try {
                 val configFile = File(marketConfigFile)
+                Log.d(TAG, "Config file exists: ${configFile.exists()}")
                 if (configFile.exists()) {
                     val configJson = configFile.readText()
+                    Log.d(TAG, "Config file content: $configJson")
                     marketItem = Gson().fromJson(configJson, ModelMarketItem::class.java)
-                    Log.d(TAG, "Loaded market config for ${modelId}: ${marketItem.modelName}")
+                    Log.d(TAG, "Loaded market config for ${modelId}: ${marketItem.modelName}, tags=${marketItem.tags}")
+                } else {
+                    Log.w(TAG, "Market config file does not exist: $marketConfigFile")
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to load market config for ${modelId}", e)
