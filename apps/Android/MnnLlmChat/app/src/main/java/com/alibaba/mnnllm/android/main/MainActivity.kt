@@ -46,6 +46,7 @@ import com.google.android.material.appbar.AppBarLayout
 import com.google.android.material.appbar.MaterialToolbar
 import com.alibaba.mnnllm.android.chat.SelectSourceFragment
 import android.content.Intent
+import com.alibaba.mnnllm.android.qnn.QnnModule
 
 class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleListener {
     private lateinit var drawerLayout: DrawerLayout
@@ -389,6 +390,7 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
         
         // Handle intent extras for navigation from notification
         handleIntentExtras(intent)
+        QnnModule.loadQnnLibs(this)
     }
     
     private fun handleIntentExtras(intent: Intent?) {

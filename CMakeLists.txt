@@ -70,6 +70,7 @@ option(MNN_BUILD_CODEGEN "Build with codegen" OFF)
 option(MNN_ENABLE_COVERAGE "Build with coverage enable" OFF)
 option(MNN_BUILD_PROTOBUFFER "Build with protobuffer in MNN" ON)
 option(MNN_BUILD_OPENCV "Build OpenCV api in MNN." OFF)
+option(MNN_USE_SYSTEM_OPENCV "Use system OpenCV instead of MNN's." OFF)
 option(MNN_BUILD_LLM "Build llm library based MNN." OFF)
 option(MNN_BUILD_DIFFUSION "Build diffusion demo based MNN." OFF)
 option(MNN_INTERNAL "Build with MNN internal features, such as model authentication, metrics logging" OFF)
@@ -79,6 +80,11 @@ option(MNN_LOW_MEMORY "Build MNN support low memory for weight quant model." OFF
 option(MNN_CPU_WEIGHT_DEQUANT_GEMM "Build MNN CPU weight dequant related gemm kernels." OFF)
 option(MNN_BUILD_AUDIO "Build audio api in MNN." OFF)
 option(MNN_SME2 "Use Arm sme2 instructions" ON)
+
+if(APPLE AND MNN_USE_SYSTEM_OPENCV)
+    set(OpenCV_DIR "/opt/homebrew/lib/cmake/opencv4")
+    find_package(OpenCV REQUIRED)
+endif()
 
 if (MNN_BUILD_MINI)
     set(MNN_SKIPBUILD_GEOMETRY ON)
@@ -1020,3 +1026,13 @@ ENDIF()
 if (MNN_JNI)
     add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/source/jni/)
 endif()
+
+# Add mnncli support
+if (BUILD_MNNCLI)
+    add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/apps/mnncli/)
+endif()
+
+IF (MNN_USE_SYSTEM_OPENCV)
+    find_package(OpenCV REQUIRED)
+    include_directories(${OpenCV_INCLUDE_DIRS})
+ENDIF()

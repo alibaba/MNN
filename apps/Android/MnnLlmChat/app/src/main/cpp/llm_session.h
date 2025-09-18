@@ -24,6 +24,15 @@ using MNN::Transformer::Llm;
 namespace mls {
 using PromptItem = std::pair<std::string, std::string>;
 
+// Forward declarations for video processing functions
+#ifdef LLM_SUPPORT_VISION
+#ifndef OPENCV_NOT_AVAILABLE
+#ifdef __ANDROID__
+std::vector<MNN::Express::VARP> decodeVideoWithMediaCodec(const std::string& video_path);
+#endif
+#endif
+#endif
+
 class LlmSession {
 public:
     LlmSession(std::string, json config, json extra_config, std::vector<std::string> string_history);

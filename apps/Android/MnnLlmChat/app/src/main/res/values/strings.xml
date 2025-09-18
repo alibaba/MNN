@@ -36,6 +36,7 @@
     <string name="take_photo">Photo</string>
     <string name="choose_image">Image</string>
     <string name="select_audio">Audio(wav)</string>
+    <string name="select_video">Video</string>
     <string name="show_performance_metrics">Show Performance Metrics</string>
     <string name="realtime_audio_playback">Real-time Audio Playback</string>
     <string name="report_issue">Issue</string>
@@ -60,6 +61,7 @@
     <string name="no_camera_app_found">No camera app found on this device</string>
     <string name="file_manager_required">Please install a File Manager</string>
     <string name="audio_file_failed">Failed to get audio file</string>
+    <string name="video_file_failed">Failed to get video file</string>
     <string name="select_picture">Select Picture</string>
     <string name="select_wav_file">Select a WAV file</string>
     <string name="release_to_send">Release to Send, Slide up to cancel</string>
@@ -321,9 +323,37 @@
     <string name="tts_playback_completed">Playback completed. Generated %1$d samples.</string>
     <string name="tts_error">TTS Error: %1$s</string>
     <string name="tts_not_ready">TTS Service not ready</string>
+    <string name="start_video_decoder_test">Start Video Decoder Test</string>
+    <string name="stop_video_decoder_test">Stop Video Decoder Test</string>
+    <string name="process_video_file">Process Video File</string>
+    <string name="video_decoder_test_input_hint">Select a video file to decode</string>
+    <string name="video_decoder_test_title">Video Decoder Test</string>
+    <string name="video_decoder_test_description">Test the optimized video decoder implementation</string>
+    <string name="video_file_selection">Video File Selection</string>
+    <string name="select_video_file">Select Video File</string>
+    <string name="no_video_selected">No video file selected</string>
+    <string name="decoder_configuration">Decoder Configuration</string>
+    <string name="max_frames">Max Frames</string>
+    <string name="sample_interval">Sample Interval</string>
+    <string name="max_buffer_count">Max Buffer Count</string>
+    <string name="control_buttons">Control Buttons</string>
+    <string name="start_decode">Start Decode</string>
+    <string name="stop_decode">Stop Decode</string>
+    <string name="decode_results">Decode Results</string>
+    <string name="no_results_yet">No results yet</string>
+    <string name="decode_log">Decode Log</string>
+    <string name="long_press_to_clear_video">Long press video name to clear selection</string>
     <string name="placeholder_test_1">Test Item 1 (Coming Soon)</string>
     <string name="placeholder_test_2">Test Item 2 (Coming Soon)</string>
     <string name="debug_log">Debug Log</string>
+    
+    <!-- Test Case Strings -->
+    <string name="asr_test_title">ASR Test</string>
+    <string name="asr_test_description">Test Automatic Speech Recognition functionality</string>
+    <string name="tts_test_title">TTS Test</string>
+    <string name="tts_test_description">Test Text-to-Speech functionality</string>
+    <string name="debug_settings_title">Debug Settings</string>
+    <string name="debug_settings_description">Configure debug mode settings and preferences</string>
     
     <!-- Voice Chat Strings -->
     <string name="voice_chat">Voice Chat</string>

@@ -639,20 +639,11 @@ std::vector<int> Llm::tokenizer_encode(const MultimodalPrompt& multimodal_input)
 
 void Llm::response(const MultimodalPrompt& multimodal_input, 
                    std::ostream* os, const char* end_with, int max_new_tokens) {
-    auto prompt = multimodal_input.prompt_template;
+    auto multimodal_input_copy = multimodal_input;
     if (mConfig->use_template()) {
-        prompt = mPrompt->applyTemplate(prompt, true);
+        multimodal_input_copy.prompt_template = mPrompt->applyTemplate(multimodal_input_copy.prompt_template, true);
     }
-    
-    int prompt_len = 0;
-    int decode_len = 0;
-    int64_t vision_time = 0;
-    int64_t audio_time = 0;
-    int64_t prefill_time = 0;
-    int64_t decode_time = 0;
-    int64_t sample_time = 0;
-    
-    std::vector<int> input_ids = tokenizer_encode(multimodal_input);
+    std::vector<int> input_ids = tokenizer_encode(multimodal_input_copy);
     response(input_ids, os, end_with, max_new_tokens);
 }
 

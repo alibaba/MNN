@@ -35,6 +35,7 @@
     <string name="take_photo">拍照</string>
     <string name="choose_image">图片</string>
     <string name="select_audio">音频(wav)</string>
+    <string name="select_video">视频</string>
     <string name="show_performance_metrics">显示性能指标</string>
     <string name="realtime_audio_playback">实时音频播放</string>
     <string name="report_issue">反馈</string>
@@ -316,9 +317,37 @@
     <string name="tts_playback_completed">播放完成。生成了%1$d个样本。</string>
     <string name="tts_error">TTS错误：%1$s</string>
     <string name="tts_not_ready">TTS服务未就绪</string>
+    <string name="start_video_decoder_test">开始视频解码器测试</string>
+    <string name="stop_video_decoder_test">停止视频解码器测试</string>
+    <string name="process_video_file">处理视频文件</string>
+    <string name="video_decoder_test_input_hint">选择要解码的视频文件</string>
+    <string name="video_decoder_test_title">视频解码器测试</string>
+    <string name="video_decoder_test_description">测试优化的视频解码器实现</string>
+    <string name="video_file_selection">视频文件选择</string>
+    <string name="select_video_file">选择视频文件</string>
+    <string name="no_video_selected">未选择视频文件</string>
+    <string name="decoder_configuration">解码器配置</string>
+    <string name="max_frames">最大帧数</string>
+    <string name="sample_interval">采样间隔</string>
+    <string name="max_buffer_count">最大缓冲区数量</string>
+    <string name="control_buttons">控制按钮</string>
+    <string name="start_decode">开始解码</string>
+    <string name="stop_decode">停止解码</string>
+    <string name="decode_results">解码结果</string>
+    <string name="no_results_yet">暂无结果</string>
+    <string name="decode_log">解码日志</string>
+    <string name="long_press_to_clear_video">长按视频名称可清除选择</string>
     <string name="placeholder_test_1">测试项目1（即将推出）</string>
     <string name="placeholder_test_2">测试项目2（即将推出）</string>
     <string name="debug_log">调试日志</string>
+    
+    <!-- Test Case Strings -->
+    <string name="asr_test_title">ASR测试</string>
+    <string name="asr_test_description">测试自动语音识别功能</string>
+    <string name="tts_test_title">TTS测试</string>
+    <string name="tts_test_description">测试文本转语音功能</string>
+    <string name="debug_settings_title">调试设置</string>
+    <string name="debug_settings_description">配置调试模式设置和首选项</string>
     
     <!-- Voice Chat Strings -->
     <string name="voice_chat">语音聊天</string>

@@ -235,10 +235,16 @@ class ChatInputComponent(
                 imageMore.setVisibility(View.GONE)
                 updateVoiceButtonVisibility()
                 currentUserMessage = ChatDataItem(ChatViewHolders.USER)
-                if (audio == AttachmentType.Audio) {
-                    currentUserMessage!!.audioUri = imageUri
-                } else {
-                    currentUserMessage!!.imageUri = imageUri
+                when (audio) {
+                    AttachmentType.Audio -> {
+                        currentUserMessage!!.audioUri = imageUri
+                    }
+                    AttachmentType.Video -> {
+                        currentUserMessage!!.videoUri = imageUri
+                    }
+                    else -> {
+                        currentUserMessage!!.imageUri = imageUri
+                    }
                 }
                 updateSenderButton()
             }
@@ -334,7 +340,6 @@ class ChatInputComponent(
         if (!loading && ModelUtils.isAudioModel(currentModelName)) {
             voiceRecordingModule.onEnabled()
         }
-
     }
 
     fun onRequestPermissionsResult(

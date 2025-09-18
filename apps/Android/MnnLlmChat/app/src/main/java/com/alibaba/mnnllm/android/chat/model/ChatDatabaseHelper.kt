@@ -53,11 +53,18 @@ class ChatDatabaseHelper(context: Context?) :
                 // Column might already exist, ignore
             }
         }
+        if (oldVersion < 8) {
+            try {
+                db.execSQL("ALTER TABLE $TABLE_CHAT ADD COLUMN $COLUMN_VIDEO_URI TEXT")
+            } catch (e: Exception) {
+                // Column might already exist, ignore
+            }
+        }
     }
 
     companion object {
         private const val DB_NAME = "chat.db"
-        private const val DB_VERSION = 7
+        private const val DB_VERSION = 8
         const val TABLE_SESSION: String = "Session"
         const val COLUMN_SESSION_ID: String = "sessionId"
         const val COLUMN_MODEL_ID: String = "modelId"
@@ -73,6 +80,7 @@ class ChatDatabaseHelper(context: Context?) :
 
         const val COLUMN_AUDIO_URI: String = "audioUri"
         const val COLUMN_AUDIO_DURATION: String = "audioDuration"
+        const val COLUMN_VIDEO_URI: String = "videoUri"
 
         const val COLUMN_RESERVE1: String = "reserve1"
         const val COLUMN_RESERVE2: String = "reserve2"
@@ -104,6 +112,7 @@ class ChatDatabaseHelper(context: Context?) :
                 COLUMN_IMAGE_URI + " TEXT," +
                 COLUMN_AUDIO_URI + " TEXT," +
                 COLUMN_AUDIO_DURATION + " REAL," +
+                COLUMN_VIDEO_URI + " TEXT," +
                 COLUMN_DISPLAY_TEXT + " TEXT," +
                 COLUMN_RESERVE1 + " TEXT, " +
                 COLUMN_RESERVE2 + " TEXT," +

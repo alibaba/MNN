@@ -56,12 +56,12 @@ class ChatDataManager private constructor(context: Context) {
             return
         }
         
-        if (chatDataItem.text.isNullOrEmpty() && chatDataItem.imageUri == null && chatDataItem.audioUri == null) {
+        if (chatDataItem.text.isNullOrEmpty() && chatDataItem.imageUri == null && chatDataItem.audioUri == null && chatDataItem.videoUri == null) {
             Log.w(TAG, "addChatData: chatDataItem has no content to save")
             return
         }
         
-        Log.d(TAG, "addChatData: sessionId=$sessionId, type=${chatDataItem.type}, textLength=${chatDataItem.text?.length ?: 0}, hasImage=${chatDataItem.imageUri != null}")
+        Log.d(TAG, "addChatData: sessionId=$sessionId, type=${chatDataItem.type}, textLength=${chatDataItem.text?.length ?: 0}, hasImage=${chatDataItem.imageUri != null}, hasVideo=${chatDataItem.videoUri != null}")
         
         val db = dbHelper.writableDatabase
         try {
@@ -82,6 +82,11 @@ class ChatDataManager private constructor(context: Context) {
                 values.put(ChatDatabaseHelper.COLUMN_AUDIO_URI, chatDataItem.audioUri.toString())
             } else {
                 values.put(ChatDatabaseHelper.COLUMN_AUDIO_URI, null as String?)
+            }
+            if (chatDataItem.videoUri != null) {
+                values.put(ChatDatabaseHelper.COLUMN_VIDEO_URI, chatDataItem.videoUri.toString())
+            } else {
+                values.put(ChatDatabaseHelper.COLUMN_VIDEO_URI, null as String?)
             }
             values.put(ChatDatabaseHelper.COLUMN_AUDIO_DURATION, chatDataItem.audioDuration)
             values.put(ChatDatabaseHelper.COLUMN_DISPLAY_TEXT, chatDataItem.displayText)
@@ -147,6 +152,8 @@ class ChatDataManager private constructor(context: Context) {
                 cursor.getString(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_IMAGE_URI))
             val audioUriStr =
                 cursor.getString(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_AUDIO_URI))
+            val videoUriStr =
+                cursor.getString(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_VIDEO_URI))
             val audioDuration =
                 cursor.getFloat(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_AUDIO_DURATION))
             val displayText =
@@ -161,6 +168,9 @@ class ChatDataManager private constructor(context: Context) {
             if (audioUriStr != null) {
                 chatDataItem.audioUri = Uri.parse(audioUriStr)
                 chatDataItem.audioDuration = audioDuration
+            }
+            if (videoUriStr != null) {
+                chatDataItem.videoUri = Uri.parse(videoUriStr)
             }
             val thinkingText =
                 cursor.getString(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_THINKING_TEXT))

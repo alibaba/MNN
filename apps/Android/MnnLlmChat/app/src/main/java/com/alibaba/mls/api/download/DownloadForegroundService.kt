@@ -7,6 +7,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
 import android.os.Build
 import android.os.IBinder
@@ -29,9 +30,8 @@ class DownloadForegroundService : Service() {
         val channel = NotificationChannel(
             CHANNEL_ID, 
             getString(AppR.string.download_service_title), 
-            NotificationManager.IMPORTANCE_DEFAULT
+            NotificationManager.IMPORTANCE_LOW
         )
-        channel.description = "Shows download progress for model files"
         notificationManager.createNotificationChannel(channel)
     }
 
@@ -42,9 +42,19 @@ class DownloadForegroundService : Service() {
         
         val notification = createNotification()
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                // Use DATA_SYNC for Android 10-13 (API 29-33)
                 startForeground(SERVICE_ID, notification, FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                // For Android 14+ (API 34+), use SPECIAL_USE or no specific type
+                try {
+                    startForeground(SERVICE_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+                } catch (e: Exception) {
+                    // Fallback to no specific type if SPECIAL_USE is not available
+                    startForeground(SERVICE_ID, notification)
+                }
             } else {
+                // For older versions, use default
                 startForeground(SERVICE_ID, notification)
             }
         } catch (e: Exception) {
@@ -91,10 +101,8 @@ class DownloadForegroundService : Service() {
     fun updateNotification(downloadCount: Int, modelName: String? = null) {
         currentDownloadCount = downloadCount
         currentModelName = modelName
-        android.util.Log.d("DownloadForegroundService", "updateNotification: count=$downloadCount, modelName=$modelName")
         val notification = createNotification()
         notificationManager.notify(SERVICE_ID, notification)
-        android.util.Log.d("DownloadForegroundService", "Notification updated successfully")
     }
 
     override fun onDestroy() {

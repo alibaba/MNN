@@ -27,6 +27,9 @@
         <uses-native-library
             android:name="libOpenCL.so"
             android:required="false" />
+        <uses-library
+            android:name="libcdsprpc.so"
+            android:required="false"/>
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -49,6 +52,7 @@
 
         <service
             android:name="com.alibaba.mls.api.download.DownloadForegroundService"
+            tools:targetApi="33"
             android:foregroundServiceType="dataSync" />
 
         <activity
@@ -59,6 +63,12 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".widgets.FullScreenVideoPlayer"
+            android:exported="false"
+            android:theme="@style/AppTheme"
+            android:configChanges="orientation|screenSize" />
 
         <activity
             android:name=".main.MainActivity"
@@ -97,6 +107,12 @@
             android:theme="@style/AppTheme" />
 
         <activity
+            android:name=".debug.VideoDecoderTestActivity"
+            android:exported="false"
+            android:label="@string/video_decoder_test_title"
+            android:theme="@style/AppTheme" />
+
+        <activity
             android:name=".debug.DebugAnimationActivity"
             android:exported="true"
             android:theme="@style/AppTheme">
@@ -110,20 +126,9 @@
             android:name="com.alibaba.mnnllm.api.openai.service.OpenAIService"
             android:enabled="true"
             android:exported="true"
+            tools:targetApi="33"
             android:foregroundServiceType="dataSync" >
         </service>
-        
-        <!-- 注册通知操作按钮的广播接收器 -->
-        <receiver
-            android:name="com.alibaba.mnnllm.api.openai.manager.ApiServiceActionReceiver"
-            android:enabled="true"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="com.alibaba.mnnllm.api.openai.STOP_SERVICE" />
-                <action android:name="com.alibaba.mnnllm.api.openai.COPY_URL" />
-                <action android:name="com.alibaba.mnnllm.api.openai.TEST_PAGE" />
-            </intent-filter>
-        </receiver>
 
         <activity android:name=".debug.WidgetTestActivity"
             android:enabled="true"
