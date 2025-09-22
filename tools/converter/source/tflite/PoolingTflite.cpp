@@ -28,8 +28,24 @@ void PoolingTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT
                         const std::vector<std::unique_ptr<tflite::BufferT>>& tfliteModelBuffer,
                         const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, int quantizedModel) {
     const auto& tflitePoolOption = tfliteOp->builtin_options.AsPool2DOptions();
+    const int outputIndex    = tfliteOp->outputs[0];
+    const auto& outputTensor = tfliteTensors[outputIndex];
+    if (outputTensor->type == tflite::TensorType_INT8) {
+        quantizedModel = 2;
+        dstOp->type = MNN::OpType_Pooling;
+        dstOp->main.type = MNN::OpParameter_Pool;
+    } else if (outputTensor->type == tflite::TensorType_UINT8) {
+        quantizedModel = 1;
+        dstOp->type = MNN::OpType_QuantizedAvgPool;
+        dstOp->main.type = MNN::OpParameter_QuantizedAvgPool;
+    } else {
+        MNN_ASSERT(outputTensor->type == tflite::TensorType_FLOAT32);
+        quantizedModel = 0;
+        dstOp->type = MNN::OpType_Pooling;
+        dstOp->main.type = MNN::OpParameter_Pool;
+    }
 
-    if (quantizedModel) {
+    if (quantizedModel == 1) {
         auto quantizedAvgPoolQuan         = new MNN::QuantizedAvgPoolT;
         quantizedAvgPoolQuan->modelFormat = MNN::ModeFormat_TFLITE;
 

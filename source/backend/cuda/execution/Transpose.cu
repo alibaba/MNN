@@ -902,7 +902,7 @@ void FormatConvert(void* output, void* input, MNN_DATA_FORMAT srcDataFormat, MNN
 
     // int8 case
     auto des = TensorUtils::getDescribe(srcTensor);
-    if ((des->quantAttr.get() != nullptr && des->type == DataType_DT_INT8) || srcTensor->getType().bits == 8) {
+    if ((des->quantAttr.get() != nullptr && des->applyQuant) || srcTensor->getType().bits == 8) {
         insideFormatConvert<int8_t, int8_t>((int8_t *)input, (int8_t *)output, srcDataFormat, dstDataFormat, runtime, area, batch, channel, srcDevice, dstDevice);
         return;
     }

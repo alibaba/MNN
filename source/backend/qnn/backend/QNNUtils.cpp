@@ -99,6 +99,19 @@ bool loadQNNSymbol() {
     return true;
 }
 
+
+bool checkCapability(QNN_INTERFACE_VER_TYPE qnnInterface, QnnProperty_Key_t key) {
+    Qnn_ErrorHandle_t errorCode;
+    errorCode = qnnInterface.propertyHasCapability(key);
+    if (errorCode == QNN_PROPERTY_SUPPORTED) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
+
 void registerQNNOps() {
     ___QNNActivationCreator__OpType_ReLU__();
     ___QNNActivationCreator__OpType_ReLU6__();
@@ -129,6 +142,8 @@ void registerQNNOps() {
     ___QNNCastCreator__OpType_Cast__();
     ___QNNPermuteCreator__OpType_Permute__();
     ___QNNGatherCreator__OpType_GatherV2__();
+    ___QNNGatherCreator__OpType_GatherElements__();
+
     ___QNNBroadcastToCreator__OpType_BroadcastTo__();
     ___QNNMatMulCreator__OpType_MatMul__();
     #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
@@ -254,16 +269,6 @@ std::vector<uint32_t> getNHWCShape(const Tensor * tensor) {
     return NHWCShape;
 }
 
-bool checkCapability(QNN_INTERFACE_VER_TYPE qnnInterface, QnnProperty_Key_t key) {
-    Qnn_ErrorHandle_t errorCode;
-    errorCode = qnnInterface.propertyHasCapability(key);
-    if (errorCode == QNN_PROPERTY_SUPPORTED) {
-        return true;
-    } else {
-        return false;
-    }
-}
-
 void printNHWCShape(const Tensor * tensor) {
     std::vector<uint32_t> shape = getNHWCShape(tensor);
     MNN_PRINT("NHWC shape is:");
@@ -272,6 +277,6 @@ void printNHWCShape(const Tensor * tensor) {
     }
     MNN_PRINT(".\n");
 }
-
+#endif
 } // end namespace QNN
 } // end namespace MNN

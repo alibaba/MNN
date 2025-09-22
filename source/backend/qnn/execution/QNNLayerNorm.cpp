@@ -10,6 +10,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 QNNLayerNorm::QNNLayerNorm(Backend *backend, const Op *op, Tensor * input) : QNNCommonExecution(backend, op) {
     auto param = mOp->main_as_LayerNorm();
@@ -323,6 +324,6 @@ public:
 };
 
 REGISTER_QNN_OP_CREATOR(QNNLayerNormCreator, OpType_LayerNorm)
-
+#endif
 } // end namespace MNN
 } // end namespace QNN

@@ -7,8 +7,14 @@
 //
 
 #include "QNNBackend.hpp"
-#include "QnnTypeMacros.hpp"
 #include "core/MNNFileUtils.h"
+#include "QnnTypeMacros.hpp"
+// #define MNN_OPEN_TIME_TRACE
+#include <MNN/AutoTime.hpp>
+
+// #define QNN_PROFILE_OP
+// #define QNN_PROFILE_SUMMARIZE
+// #define QNN_VERBOSE
 
 namespace MNN {
 namespace QNN {
@@ -23,8 +29,171 @@ struct QnnContext {
 };
 
 static QnnContext gContext;
+
+#ifdef QNN_PROFILE_SUMMARIZE
+static std::string getOpTypeFromName(const std::string& nodeName) {
+    // The pattern is usually "OpType_..."
+    size_t pos = nodeName.find('_');
+    if (pos != std::string::npos) {
+        return nodeName.substr(0, pos);
+    }
+    // Fallback for names without '_', like "Input OpId_2 (cycles)"
+    pos = nodeName.find(' ');
+    if (pos != std::string::npos) {
+        return nodeName.substr(0, pos);
+    }
+    // If no delimiter is found, return the whole name as the type
+    return nodeName;
+}
+#endif
+
+static void createProfileHandle(const QNN_INTERFACE_VER_TYPE& interface, const Qnn_BackendHandle_t& backend_handle, Qnn_ProfileHandle_t* profile_handle_ptr) {
+    #if defined(QNN_PROFILE_SUMMARIZE) || defined(QNN_PROFILE_OP)
+    if (*profile_handle_ptr == nullptr) {
+        // set QNN_PROFILE_LEVEL_DETAILED
+        QnnProfile_Level_t profileLevel = QNN_PROFILE_LEVEL_DETAILED;
+        MNN_PRINT("[QNN Profile] Creating QNN Profile Handle with DETAILED level.\n");
+        auto profile_err = interface.profileCreate(backend_handle, profileLevel, profile_handle_ptr);
+        if (profile_err != QNN_SUCCESS || *profile_handle_ptr == nullptr) {
+            MNN_ERROR("[QNN Profile] Failed to create QNN Profile Handle, error: %d\n", (int)profile_err);
+            *profile_handle_ptr = nullptr;
+        }
+    }
+    #endif
+}
+
+static void doProfile(const QNN_INTERFACE_VER_TYPE& interface, const Qnn_ProfileHandle_t& profile_handle) {
+#ifdef QNN_PROFILE_OP
+    if (profile_handle) {
+        uint32_t numTopLevelEvents = 0;
+        const QnnProfile_EventId_t* topLevelEvents = nullptr;
+
+        auto get_err = interface.profileGetEvents(profile_handle, &topLevelEvents, &numTopLevelEvents);
+        if (get_err != QNN_SUCCESS) {
+            MNN_PRINT("[QNN Profile] Failed to get top-level events. Error: %d\n", (int)get_err);
+            return;
+        }
+
+        MNN_PRINT("\n--- QNN Node-level Performance Report ---\n");
+        bool foundNodeData = false;
+
+        for (uint32_t i = 0; i < numTopLevelEvents; ++i) {
+            QnnProfile_EventData_t eventData = QNN_PROFILE_EVENT_DATA_INIT;
+            interface.profileGetEventData(topLevelEvents[i], &eventData);
+
+            if (eventData.type) {
+                MNN_PRINT("Found EXECUTE event. Total time: %llu us. Querying sub-events...\n", (unsigned long long)eventData.value);
+                
+                uint32_t numSubEvents = 0;
+                const QnnProfile_EventId_t* subEvents = nullptr;
+
+                // 3. GetSubEvents
+                auto get_sub_err = interface.profileGetSubEvents(topLevelEvents[i], &subEvents, &numSubEvents);
+                if (get_sub_err != QNN_SUCCESS) {
+                    MNN_PRINT("[QNN Profile] Failed to get sub-events for EXECUTE event. Error: %d\n", (int)get_sub_err);
+                    continue;
+                }
+
+                for (uint32_t j = 0; j < numSubEvents; ++j) {
+                    QnnProfile_EventData_t subEventData = QNN_PROFILE_EVENT_DATA_INIT;
+                    interface.profileGetEventData(subEvents[j], &subEventData);
+
+                    if (subEventData.type == QNN_PROFILE_EVENTTYPE_NODE) {
+                        foundNodeData = true;
+                        const char* nodeName = subEventData.identifier;
+                        uint64_t value = subEventData.value;
+
+                        switch (subEventData.unit) {
+                            case QNN_PROFILE_EVENTUNIT_MICROSEC:
+                                MNN_PRINT("Node: %-45s | Time: %10llu us (%.3f ms)\n", 
+                                        nodeName, (unsigned long long)value, (double)value / 1000.0);
+                                break;
+                            case QNN_PROFILE_EVENTUNIT_CYCLES:
+                                MNN_PRINT("Node: %-45s | Cycles: %.2f*10^6\n", nodeName, (double)value / 1000000.0);
+                                break;
+                            // ... other dealing ...
+                            default:
+                                MNN_PRINT("Node: %-45s | Value: %10llu (Unit: %u - Unknown)\n",
+                                        nodeName, (unsigned long long)value, subEventData.unit);
+                                break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!foundNodeData) {
+            MNN_PRINT("No node-specific performance data found. Please ensure you have set:\n");
+            MNN_PRINT("1. Profile level to QNN_PROFILE_LEVEL_DETAILED.\n");
+            MNN_PRINT("2. HTP graph config with QNN_HTP_GRAPH_CONFIG_OPTION_PERF_PROFILE (if available).\n");
+        }
+        MNN_PRINT("-----------------------------------------\n");
+    }
+#endif
+
+#ifdef QNN_PROFILE_SUMMARIZE
+    if (profile_handle) {
+        std::map<std::string, uint64_t> opCycleStats;
+        uint64_t totalNodeCycles = 0;
+
+        uint32_t numTopLevelEvents = 0;
+        const QnnProfile_EventId_t* topLevelEvents = nullptr;
+
+        auto get_err = interface.profileGetEvents(profile_handle, &topLevelEvents, &numTopLevelEvents);
+        if (get_err != QNN_SUCCESS) {
+            MNN_PRINT("[QNN Profile] Failed to get top-level events. Error: %d\n", (int)get_err);
+            return;
+        }
+
+        for (uint32_t i = 0; i < numTopLevelEvents; ++i) {
+            QnnProfile_EventData_t eventData = QNN_PROFILE_EVENT_DATA_INIT;
+            interface.profileGetEventData(topLevelEvents[i], &eventData);
+
+            if (eventData.type) { // == QNN_PROFILE_EVENTTYPE_EXECUTE) {
+                uint32_t numSubEvents = 0;
+                const QnnProfile_EventId_t* subEvents = nullptr;
+                auto get_sub_err = interface.profileGetSubEvents(topLevelEvents[i], &subEvents, &numSubEvents);
+                if (get_sub_err != QNN_SUCCESS) continue;
+
+                for (uint32_t j = 0; j < numSubEvents; ++j) {
+                    QnnProfile_EventData_t subEventData = QNN_PROFILE_EVENT_DATA_INIT;
+                    interface.profileGetEventData(subEvents[j], &subEventData);
+
+                    if (subEventData.type == QNN_PROFILE_EVENTTYPE_NODE) {
+                        if (subEventData.identifier) {
+                            std::string opType = getOpTypeFromName(subEventData.identifier);
+                            opCycleStats[opType] += subEventData.value;
+                            totalNodeCycles += subEventData.value;
+                        }
+                    }
+                }
+            }
+        }
+        
+        if (!opCycleStats.empty()) {
+            MNN_PRINT("\n--- QNN Operator-wise Performance Summary ---\n");
+            MNN_PRINT("%-20s | %15s | %s\n", "Operator Type", "Total Cycles", "Percentage");
+            MNN_PRINT("--------------------------------------------------\n");
+
+            std::vector<std::pair<std::string, uint64_t>> sortedStats(opCycleStats.begin(), opCycleStats.end());
+            std::sort(sortedStats.begin(), sortedStats.end(), [](const std::pair<std::string, uint64_t>& a, const std::pair<std::string, uint64_t>& b) {
+                return a.second > b.second; // sort by large -> small
+            });
+
+            for (const auto& pair : sortedStats) {
+                double percentage = (totalNodeCycles > 0) ? ((double)pair.second * 100.0 / totalNodeCycles) : 0.0;
+                MNN_PRINT("%-20s | %15llu | %.2f%%\n", pair.first.c_str(), pair.second, percentage);
+            }
+            MNN_PRINT("--------------------------------------------------\n");
+            MNN_PRINT("%-20s | %15llu | 100.00%%\n", "Total", totalNodeCycles);
+        }
+    }
+    // =========================================================
+#endif
 }
 }
+}
+
 #ifdef MNN_WITH_PLUGIN
 
 #include "MNN/plugin/PluginShapeInference.hpp"
@@ -426,12 +595,14 @@ private:
     std::vector<Qnn_GraphHandle_t> mQnnGraphHandleVec = {};
     QnnHtpGraph_CustomConfig_t mQnnHtpGraphCustomConfig{};
     QnnGraph_Config_t mQnnGraphConfig{};
+    Qnn_ProfileHandle_t mQnnProfileHandle = nullptr;
     int mInputNumber;
     int mOutputNumber;
     GraphInfo **mGraphsInfo = nullptr;
     uint32_t mGraphCount = 0;
     std::string mPath;
     std::unique_ptr<QNN::QNNPerf> mPerf;
+
 public:
     RawExecutorWrapper(int inputNumber, int outputNumber) {
         mInputNumber = inputNumber;
@@ -441,6 +612,10 @@ public:
         mPerf->setRpcLatencyAndPolling();
     }
     ~ RawExecutorWrapper() {
+        if (mQnnProfileHandle) {
+            QNN::gContext.interface.profileFree(mQnnProfileHandle);
+            mQnnProfileHandle = nullptr;
+        }
         if (nullptr != mQnnContextHandle) {
             CALL_QNN(QNN::gContext.interface.contextFree(mQnnContextHandle, nullptr));
         }
@@ -477,7 +652,11 @@ public:
                 MNN_ERROR("QNN: Failed to validate binary: %d\n", (int) error);
                 return false;
             }
-            CALL_QNN(QNN::gContext.interface.contextCreateFromBinary(QNN::gContext.backendHandle, QNN::gContext.deviceHandle, mQnnContextConfig, buffer, size, &mQnnContextHandle, nullptr));
+
+            // Create Graph profile
+            MNN::QNN::createProfileHandle(QNN::gContext.interface, QNN::gContext.backendHandle, &mQnnProfileHandle);
+
+            CALL_QNN(QNN::gContext.interface.contextCreateFromBinary(QNN::gContext.backendHandle, QNN::gContext.deviceHandle, mQnnContextConfig, buffer, size, &mQnnContextHandle, mQnnProfileHandle));
 
             mQnnGraphHandleVec.resize(mGraphCount, nullptr);
             // [此处排序]
@@ -485,6 +664,7 @@ public:
                 CALL_QNN(QNN::gContext.interface.graphRetrieve(mQnnContextHandle, mGraphsInfo[i]->graphName, &(mQnnGraphHandleVec[i])));
             }
         }
+
 
         MNNUnmapFile(buffer, file);
         MNNCloseFile(file);
@@ -509,7 +689,7 @@ public:
         }
         MNN_ASSERT(graph && qnnGraphHandle);
 
-        //MNN_PRINT("%s, Input:%d, output:%d\n", mPath.c_str(), inputs.size(), outputs.size());
+        // MNN_PRINT("%s, Input:%d, output:%d\n", mPath.c_str(), inputs.size(), outputs.size());
         for (int i=0; i<inputs.size(); ++i) {
             auto t = inputs[i].first;
             bool find = false;
@@ -556,7 +736,9 @@ public:
                 FUNC_PRINT(i);
             }
         }
-        CALL_QNN(QNN::gContext.interface.graphExecute(qnnGraphHandle, graph->inputTensors,graph->numInputTensors, graph->outputTensors, graph->numOutputTensors, nullptr, nullptr));
+        CALL_QNN(QNN::gContext.interface.graphExecute(qnnGraphHandle, graph->inputTensors, graph->numInputTensors, \
+            graph->outputTensors, graph->numOutputTensors, mQnnProfileHandle, nullptr));
+        MNN::QNN::doProfile(QNN::gContext.interface, mQnnProfileHandle);
     }
 };
 class PluginExecuteRaw : public CPUComputeKernel {
@@ -603,12 +785,37 @@ public:
         return mRawExecutor->compileModel(path);
     }
     bool compute(CPUKernelContext* ctx) override {
+        AUTOTIME;
         int shapeIndex = 0;
         if (!(shape_inference::computeIndex(ctx, shapeIndex))) {
             MNN_ERROR("MNN_QNN: Failed to execute Plugin Op.\n");
             return false;
         }
         std::string graphName = ctx->getAttr("allGraphName")->list()->s()->GetAsString(shapeIndex)->str();
+
+        // compute and alloc real in-time inputs and outputs tensor
+        {
+            auto inputs = ctx->getAttr("inputs")->list();
+            auto inputTensor = ctx->inputs();
+            MNN_ASSERT(inputs->s()->size() == inputTensor.size());
+            mInputs.resize(inputs->s()->size());
+            mRealInputs.resize(inputTensor.size());
+            for (int i=0; i<inputs->s()->size(); ++i) {
+                mRealInputs[i].reset(new Tensor(inputTensor[i], Tensor::TENSORFLOW));
+                mInputs[i].second = inputs->s()->GetAsString(i)->str();
+                mInputs[i].first = mRealInputs[i].get();
+            }
+            auto outputs = ctx->getAttr("outputs")->list();
+            auto outputTensor = ctx->outputs();
+            mOutputs.resize(outputs->s()->size());
+            MNN_ASSERT(outputs->s()->size() == outputTensor.size());
+            mRealOutputs.resize(outputTensor.size());
+            for (int i=0; i<outputs->s()->size(); ++i) {
+                mRealOutputs[i].reset(new Tensor(outputTensor[i], Tensor::TENSORFLOW));
+                mOutputs[i].second = outputs->s()->GetAsString(i)->str();
+                mOutputs[i].first = mRealOutputs[i].get();
+            }
+        }
 
         #ifdef QNN_VERBOSE
         MNN_PRINT("Graph name:%s, %d\n", graphName.c_str(), shapeIndex);
@@ -641,9 +848,8 @@ public:
 
 namespace MNN {
 namespace QNN {
-// #define QNN_PROFILE_OP
-// #define QNN_PROFILE_SUMMARIZE
-// #define QNN_VERBOSE
+
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 QnnBackend::QnnBackend(const QnnRuntime* runtime) : Backend(MNNForwardType::MNN_FORWARD_NN), mPower(runtime->mPower) {
     mRuntime = runtime;
     mUseFP16 = (runtime->mPrecision != BackendConfig::Precision_High) ? true : false;
@@ -723,151 +929,8 @@ void QnnBackend::onExecuteBegin() const {
     return;
 }
 
-#ifdef QNN_PROFILE_SUMMARIZE
-static std::string getOpTypeFromName(const std::string& nodeName) {
-    // The pattern is usually "OpType_..."
-    size_t pos = nodeName.find('_');
-    if (pos != std::string::npos) {
-        return nodeName.substr(0, pos);
-    }
-    // Fallback for names without '_', like "Input OpId_2 (cycles)"
-    pos = nodeName.find(' ');
-    if (pos != std::string::npos) {
-        return nodeName.substr(0, pos);
-    }
-    // If no delimiter is found, return the whole name as the type
-    return nodeName;
-}
-#endif
-
 void QnnBackend::startProfile() const{
-#ifdef QNN_PROFILE_OP
-    if (mQnnProfileHandle) {
-        uint32_t numTopLevelEvents = 0;
-        const QnnProfile_EventId_t* topLevelEvents = nullptr;
-
-        auto get_err = mRuntime->mQnnInterface.profileGetEvents(mQnnProfileHandle, &topLevelEvents, &numTopLevelEvents);
-        if (get_err != QNN_SUCCESS) {
-            MNN_PRINT("[QNN Profile] Failed to get top-level events. Error: %d\n", (int)get_err);
-            return;
-        }
-
-        MNN_PRINT("\n--- QNN Node-level Performance Report ---\n");
-        bool foundNodeData = false;
-
-        for (uint32_t i = 0; i < numTopLevelEvents; ++i) {
-            QnnProfile_EventData_t eventData = QNN_PROFILE_EVENT_DATA_INIT;
-            mRuntime->mQnnInterface.profileGetEventData(topLevelEvents[i], &eventData);
-
-            if (eventData.type) {
-                MNN_PRINT("Found EXECUTE event. Total time: %llu us. Querying sub-events...\n", (unsigned long long)eventData.value);
-                
-                uint32_t numSubEvents = 0;
-                const QnnProfile_EventId_t* subEvents = nullptr;
-
-                // 3. GetSubEvents
-                auto get_sub_err = mRuntime->mQnnInterface.profileGetSubEvents(topLevelEvents[i], &subEvents, &numSubEvents);
-                if (get_sub_err != QNN_SUCCESS) {
-                    MNN_PRINT("[QNN Profile] Failed to get sub-events for EXECUTE event. Error: %d\n", (int)get_sub_err);
-                    continue;
-                }
-
-                for (uint32_t j = 0; j < numSubEvents; ++j) {
-                    QnnProfile_EventData_t subEventData = QNN_PROFILE_EVENT_DATA_INIT;
-                    mRuntime->mQnnInterface.profileGetEventData(subEvents[j], &subEventData);
-
-                    if (subEventData.type == QNN_PROFILE_EVENTTYPE_NODE) {
-                        foundNodeData = true;
-                        const char* nodeName = subEventData.identifier;
-                        uint64_t value = subEventData.value;
-
-                        switch (subEventData.unit) {
-                            case QNN_PROFILE_EVENTUNIT_MICROSEC:
-                                MNN_PRINT("Node: %-45s | Time: %10llu us (%.3f ms)\n", 
-                                        nodeName, (unsigned long long)value, (double)value / 1000.0);
-                                break;
-                            case QNN_PROFILE_EVENTUNIT_CYCLES:
-                                MNN_PRINT("Node: %-45s | Cycles: %.2f*10^6\n", nodeName, (double)value / 1000000.0);
-                                break;
-                            // ... other dealing ...
-                            default:
-                                MNN_PRINT("Node: %-45s | Value: %10llu (Unit: %u - Unknown)\n",
-                                        nodeName, (unsigned long long)value, subEventData.unit);
-                                break;
-                        }
-                    }
-                }
-            }
-        }
-
-        if (!foundNodeData) {
-            MNN_PRINT("No node-specific performance data found. Please ensure you have set:\n");
-            MNN_PRINT("1. Profile level to QNN_PROFILE_LEVEL_DETAILED.\n");
-            MNN_PRINT("2. HTP graph config with QNN_HTP_GRAPH_CONFIG_OPTION_PERF_PROFILE (if available).\n");
-        }
-        MNN_PRINT("-----------------------------------------\n");
-    }
-#endif
-
-#ifdef QNN_PROFILE_SUMMARIZE
-    if (mQnnProfileHandle) {
-        std::map<std::string, uint64_t> opCycleStats;
-        uint64_t totalNodeCycles = 0;
-
-        uint32_t numTopLevelEvents = 0;
-        const QnnProfile_EventId_t* topLevelEvents = nullptr;
-
-        auto get_err = mRuntime->mQnnInterface.profileGetEvents(mQnnProfileHandle, &topLevelEvents, &numTopLevelEvents);
-        if (get_err != QNN_SUCCESS) {
-            MNN_PRINT("[QNN Profile] Failed to get top-level events. Error: %d\n", (int)get_err);
-            return;
-        }
-
-        for (uint32_t i = 0; i < numTopLevelEvents; ++i) {
-            QnnProfile_EventData_t eventData = QNN_PROFILE_EVENT_DATA_INIT;
-            mRuntime->mQnnInterface.profileGetEventData(topLevelEvents[i], &eventData);
-
-            if (eventData.type) { // == QNN_PROFILE_EVENTTYPE_EXECUTE) {
-                uint32_t numSubEvents = 0;
-                const QnnProfile_EventId_t* subEvents = nullptr;
-                auto get_sub_err = mRuntime->mQnnInterface.profileGetSubEvents(topLevelEvents[i], &subEvents, &numSubEvents);
-                if (get_sub_err != QNN_SUCCESS) continue;
-
-                for (uint32_t j = 0; j < numSubEvents; ++j) {
-                    QnnProfile_EventData_t subEventData = QNN_PROFILE_EVENT_DATA_INIT;
-                    mRuntime->mQnnInterface.profileGetEventData(subEvents[j], &subEventData);
-
-                    if (subEventData.type == QNN_PROFILE_EVENTTYPE_NODE) {
-                        if (subEventData.identifier) {
-                            std::string opType = getOpTypeFromName(subEventData.identifier);
-                            opCycleStats[opType] += subEventData.value;
-                            totalNodeCycles += subEventData.value;
-                        }
-                    }
-                }
-            }
-        }
-        
-        if (!opCycleStats.empty()) {
-            MNN_PRINT("\n--- QNN Operator-wise Performance Summary ---\n");
-            MNN_PRINT("%-20s | %15s | %s\n", "Operator Type", "Total Cycles", "Percentage");
-            MNN_PRINT("--------------------------------------------------\n");
-
-            std::vector<std::pair<std::string, uint64_t>> sortedStats(opCycleStats.begin(), opCycleStats.end());
-            std::sort(sortedStats.begin(), sortedStats.end(), [](const std::pair<std::string, uint64_t>& a, const std::pair<std::string, uint64_t>& b) {
-                return a.second > b.second; // sort by large -> small
-            });
-
-            for (const auto& pair : sortedStats) {
-                double percentage = (totalNodeCycles > 0) ? ((double)pair.second * 100.0 / totalNodeCycles) : 0.0;
-                MNN_PRINT("%-20s | %15llu | %.2f%%\n", pair.first.c_str(), pair.second, percentage);
-            }
-            MNN_PRINT("--------------------------------------------------\n");
-            MNN_PRINT("%-20s | %15llu | 100.00%%\n", "Total", totalNodeCycles);
-        }
-    }
-    // =========================================================
-#endif
+    MNN::QNN::doProfile(mRuntime->mQnnInterface, mQnnProfileHandle);
 }
 
 void QnnBackend::onExecuteEnd() const {
@@ -901,7 +964,6 @@ ErrorCode QnnBackend::onResizeEnd() {
     return NO_ERROR;
 }
 
-
 Backend::MemObj* QnnBackend::onAcquire(const Tensor* tensor, StorageType storageType) {
     std::string tName = "QnnTensor_" + std::to_string(mTensorCounter);
     if (TensorUtils::getDescribe(tensor)->index >= 0) {
@@ -930,6 +992,7 @@ Backend::MemObj* QnnBackend::onAcquire(const Tensor* tensor, StorageType storage
     tScaleOffsetEncoding.scale = 0.0f;
     tScaleOffsetEncoding.offset = 0;
     auto quant = TensorUtils::getDescribe(tensor)->quantAttr.get();
+    bool isQuant = quant != nullptr && TensorUtils::getDescribe(tensor)->applyQuant;
     //MNN_ASSERT((tensor->getType().code == halide_type_float) || (tensor->getType().code == halide_type_int && tensor->getType().bits == 32));
     if (mUseFP16 && tensor->getType().code == halide_type_float) {
         tDataType = QNN_DATATYPE_FLOAT_16;
@@ -941,17 +1004,31 @@ Backend::MemObj* QnnBackend::onAcquire(const Tensor* tensor, StorageType storage
         MNN_PRINT("MNN_QNN: Not supported data type in <QnnBackend::onAcquire>.\n");
         return nullptr;
     }
-    if(quant != nullptr && TensorUtils::getDescribe(tensor)->type == DataType_DT_INT8) {
-        tQuantizeParams.encodingDefinition = QNN_DEFINITION_DEFINED;
-        tQuantizeParams.quantizationEncoding = QNN_QUANTIZATION_ENCODING_SCALE_OFFSET;
-        tScaleOffsetEncoding.scale = quant->scale;
-        if(quant->zero != 0){
-            MNN_PRINT("MNN_QNN: Not supported asymmetric quant in <QnnBackend::onAcquire>.\n");
-            return nullptr;
-        }
-        tDataType = QNN_DATATYPE_SFIXED_POINT_8;
-        if (isOutput) {
-            tType = QNN_TENSOR_TYPE_NATIVE;
+    if(isQuant) {
+        auto quantType = TensorUtils::getDescribe(tensor)->quantAttr->type;
+        if(quantType == DataType_DT_INT8){
+            tQuantizeParams.encodingDefinition = QNN_DEFINITION_DEFINED;
+            tQuantizeParams.quantizationEncoding = QNN_QUANTIZATION_ENCODING_SCALE_OFFSET;
+            if(quant->zero != 0){
+                MNN_PRINT("MNN_QNN: Not supported asymmetric quant in <QnnBackend::onAcquire>.\n");
+                return nullptr;
+            }
+            tScaleOffsetEncoding.scale = quant->scale;
+            tScaleOffsetEncoding.offset = 0;
+            tDataType = QNN_DATATYPE_SFIXED_POINT_8;
+            if (isOutput) {
+                tType = QNN_TENSOR_TYPE_NATIVE;
+            }
+        }else if(quantType == DataType_DT_INT16){
+            // uint16
+            tQuantizeParams.encodingDefinition = QNN_DEFINITION_DEFINED;
+            tQuantizeParams.quantizationEncoding = QNN_QUANTIZATION_ENCODING_SCALE_OFFSET;
+            tScaleOffsetEncoding.scale = quant->scale;
+            tScaleOffsetEncoding.offset = -32768;
+            tDataType = QNN_DATATYPE_UFIXED_POINT_16;
+            if (isOutput) {
+                tType = QNN_TENSOR_TYPE_NATIVE;
+            }
         }
     }
     tQuantizeParams.scaleOffsetEncoding = tScaleOffsetEncoding;
@@ -976,7 +1053,7 @@ Backend::MemObj* QnnBackend::onAcquire(const Tensor* tensor, StorageType storage
         qnnTensorWrapper->alloc();
     }
     if (isOutput) {
-        if(quant != nullptr && TensorUtils::getDescribe(tensor)->type == DataType_DT_INT8){
+        if(isQuant){
             mTensorCounter += 1;
             std::shared_ptr<Tensor> stageTensor;
             stageTensor.reset(Tensor::create<float>(tensor->shape(), nullptr, gQnnTensorDimType));
@@ -1137,18 +1214,9 @@ void QnnBackend::finalizeGraph() {
     MNN_PRINT("Total qnn tensor count:%d\n", mTensorCounter);
     #endif
 
-    #if defined(QNN_PROFILE_SUMMARIZE) || defined(QNN_PROFILE_OP)
-    if (mQnnProfileHandle == nullptr) {
-        // set QNN_PROFILE_LEVEL_DETAILED
-        QnnProfile_Level_t profileLevel = QNN_PROFILE_LEVEL_DETAILED;
-        MNN_PRINT("[QNN Profile] Creating QNN Profile Handle with DETAILED level.\n");
-        auto profile_err = mRuntime->mQnnInterface.profileCreate(mRuntime->mQnnContextHandle, profileLevel, &mQnnProfileHandle);
-        if (profile_err != QNN_SUCCESS || mQnnProfileHandle == nullptr) {
-            MNN_ERROR("[QNN Profile] Failed to create QNN Profile Handle, error: %d\n", (int)profile_err);
-            mQnnProfileHandle = nullptr;
-        }
-    }
-    #endif
+    // Create Prefile Handle
+    MNN::QNN::createProfileHandle(mRuntime->mQnnInterface, mRuntime->mQnnBackendHandle, &mQnnProfileHandle);
+
     CALL_QNN(mRuntime->mQnnInterface.graphFinalize(mQnnGraphHandle, mQnnProfileHandle, mQnnSignalHandle));
 }
 
@@ -1399,6 +1467,48 @@ public:
     virtual Runtime* onCreate(const Backend::Info& info) const override {
         return QnnRuntime::create(info);
     }
+    static bool _supportQuant(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+        auto otype = op->type();
+        for (auto t : inputs) {
+            auto des = TensorUtils::getDescribe(t);
+            if (des->quantAttr == nullptr) {
+                return false;
+            }
+        }
+        switch (otype) {
+            case OpType_Convolution:
+            case OpType_ConvolutionDepthwise:
+                if (inputs.size() > 1) {
+                    return false;
+                }
+                if (op->main_as_Convolution2D() && op->main_as_Convolution2D()->weight() != nullptr) {
+                    return false;
+                } else {
+                    return true;
+                }
+            case OpType_ReLU:
+                if ((op->main_as_Relu() == nullptr) || op->main_as_Relu()->slope() == 0.f) {
+                    return true;
+                } else {
+                    return false;
+                }
+            case OpType_Scale:
+                return false;
+            default:
+                break;
+        }
+        return true;
+    }
+    virtual bool onSetQuantInfo(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) const override {
+        if (nullptr == op) {
+            return true;
+        }
+        auto res = _supportQuant(op, inputs, outputs);
+        for (auto t : outputs) {
+            TensorUtils::getDescribe(t)->applyQuant = res;
+        }
+        return res;
+    }
     virtual bool onValid(Backend::Info& info) const override {
         return true;
     }
@@ -1414,7 +1524,7 @@ public:
         return false;
     }
 };
-
+#endif
 } // end namespace QNN
 
 void registerQNNRuntimeCreator() {
@@ -1564,8 +1674,10 @@ void registerQNNRuntimeCreator() {
     QNN::gContext.soc_id = socId;
     QNN::gContext.dsp_arch = dspArch;
 
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
     QNN::registerQNNOps();
     MNNInsertExtraRuntimeCreator(MNN_FORWARD_NN, new QNN::QnnRuntimeCreator, false);
+#endif
 
 #ifdef MNN_WITH_PLUGIN
     plugin::InferShapeKernelRegister::add("QNN", []() { // NOLINT

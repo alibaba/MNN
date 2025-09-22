@@ -24,7 +24,7 @@
 #include <string>
 #include "core/TensorUtils.hpp"
 
-std::set<std::string> Helper::gNotNeedFeatureOp = { "Raster", "Pooling", "ReLU", "ReLU6", "Interp", "CropAndResize", "ROIPooling", "Gather", "GatherV2", "GatherND", "ScatterNd" };
+std::set<std::string> Helper::gNotNeedFeatureOp = { };
 
 std::set<std::string> Helper::featureQuantizeMethod = {"EMA", "KL", "ADMM"};
 std::set<std::string> Helper::weightQuantizeMethod  = {"MAX_ABS", "ADMM"};

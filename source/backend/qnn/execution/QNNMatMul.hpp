@@ -5,6 +5,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 class QNNMatMul : public QNNCommonExecution {
 public:
@@ -13,7 +14,7 @@ public:
 private:
     ErrorCode onEncodePermute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
 };
-
+#endif
 } // end namespace QNN
 } // end namespace MNN
 

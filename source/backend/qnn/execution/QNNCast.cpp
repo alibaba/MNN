@@ -2,6 +2,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 static DataType _mapDataType(DataType src) {
     if (DataType_DT_BOOL == src) {
@@ -38,15 +39,17 @@ public:
 
     const auto &inputDataType = inputs[0]->getType();
 
-    bool flag0 = ((dstT == MNN::DataType_DT_INT32) && (halide_type_of<float>() == inputDataType));
-    bool flag1 = ((dstT == MNN::DataType_DT_FLOAT) && (halide_type_of<int32_t>() == inputDataType));
+    bool flag0 = ((halide_type_of<int32_t>() == inputDataType) || (halide_type_of<float>() == inputDataType));
+    bool flag1 = ((dstT == MNN::DataType_DT_FLOAT) || (dstT == MNN::DataType_DT_INT32));
 
-    // Currently, only support float2int and int2float.
-    if (!flag0 && !flag1) {
+    // Currently, only support int and float cast.
+    if (!flag0 || !flag1) {
+        MNN_ERROR("Cast src:%d dst:%d\n", inputDataType, dstT);
         return nullptr;
     }
 
     if (inputs.size() > 1) {
+        MNN_ERROR("QNN Cast inputs size: %d, error\n", inputs.size());
         return nullptr;
     }
 
@@ -55,6 +58,6 @@ public:
 };
 
 REGISTER_QNN_OP_CREATOR(QNNCastCreator, OpType_Cast)
-
+#endif
 } // end namespace QNN
 } // end namespace MNN

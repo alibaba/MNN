@@ -33,6 +33,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 class QnnRuntime;
 
@@ -166,7 +167,7 @@ friend class QnnBackend;
 };
 
 
-
+#endif
 } // end namespace QNN
 } // end namespace MNN
 

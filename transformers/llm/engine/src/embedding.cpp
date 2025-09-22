@@ -55,7 +55,11 @@ bool Embedding::load() {
     mDiskEmbedding.reset(new DiskEmbedding(mConfig));
     // 2. load model
     Module::Config module_config;
-    module_config.shapeMutable = true;
+    if(mConfig->backend_type() == "npu") {
+        module_config.shapeMutable = false;
+    } else {
+        module_config.shapeMutable = true;
+    }
     module_config.rearrange    = true;
     auto model_path            = mConfig->llm_model();
     MNN_PRINT("load %s ... ", model_path.c_str());
@@ -68,14 +72,16 @@ bool Embedding::load() {
     return true;
 }
 
+std::vector<Express::VARP> Embedding::forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos) {
+    return mModule->onForward({hiddenState, mask, inputPos});
+}
+
 VARP Embedding::ids_embedding(const std::vector<int>& ids) {
     int prompt_len           = ids.size();
     auto inputs_ids          = embedding(ids);
     auto attention_mask      = gen_attention_mask(prompt_len);
     auto position_ids        = gen_position_ids(prompt_len);
-    auto outputs             = mModule->onForward({inputs_ids, attention_mask, position_ids});
-    auto sentence_embeddings = outputs[0];
-    return sentence_embeddings;
+    return forwardRaw(inputs_ids, attention_mask, position_ids)[0];
 }
 
 VARP Embedding::txt_embedding(const std::string& txt) {

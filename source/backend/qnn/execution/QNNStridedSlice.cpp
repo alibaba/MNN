@@ -12,6 +12,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 QNNStridedSlice::QNNStridedSlice(Backend *backend, const Op *op) : QNNCommonExecution(backend, op) {
     if(op->type() == OpType_Slice) {
@@ -23,9 +24,13 @@ ErrorCode QNNStridedSlice::onEncode(const std::vector<Tensor *> &inputs, const s
     auto inputTensor = inputs[0];
     mInputDim = inputTensor->dimensions();
     mDimType = inputTensor->getDimensionType();
+
     if(mIsSlice) {
         auto param = mOp->main_as_Slice();
         auto axis = param->axis();
+        if (axis < 0) {
+            axis = inputTensor->dimensions() + axis;
+        }
         int64_t slice_num = 0;
         if (param->slicePoints() != nullptr) {
             if (param->slicePoints()->size() < outputs.size()) {
@@ -211,7 +216,7 @@ public:
 
 REGISTER_QNN_OP_CREATOR(QNNStridedSliceCreator, OpType_StridedSlice)
 REGISTER_QNN_OP_CREATOR(QNNStridedSliceCreator, OpType_Slice)
-
+#endif
 } // end namespace QNN
 } // end namespace MNN
 

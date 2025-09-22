@@ -143,6 +143,14 @@ MNNBinaryExecInt8 CPUBinaryInt8::selectForInt8(int type) {
             return executeInt8<int8_t, int8_t, BinaryAtan2<float, float, float>>;
         case BinaryOpOperation_MOD:
             return executeInt8<int8_t, int8_t, BinaryMod<float, float, float>>;
+        case BinaryOpOperation_LESS:
+            return executeInt8<int8_t, int8_t, BinaryLess<float, float, float>>;
+        case BinaryOpOperation_LESS_EQUAL:
+            return executeInt8<int8_t, int8_t, BinaryLessEqual<float, float, float>>;
+        case BinaryOpOperation_GREATER:
+            return executeInt8<int8_t, int8_t, BinaryGreater<float, float, float>>;
+        case BinaryOpOperation_GREATER_EQUAL:
+            return executeInt8<int8_t, int8_t, BinaryGreaterEqual<float, float, float>>;
         default:
             MNN_ASSERT(false);
             break;

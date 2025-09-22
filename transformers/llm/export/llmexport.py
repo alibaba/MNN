@@ -434,13 +434,16 @@ class LlmExporter(torch.nn.Module):
             'user': '{content}',
             'assistant': '{content}'
         }
-        if hasattr(self.tokenizer, 'get_chat_template'):
+        try:
+            chat_temp = self.tokenizer.get_chat_template()
             template['jinja'] = {}
-            template['jinja']['chat_template'] = self.tokenizer.get_chat_template()
+            template['jinja']['chat_template'] = chat_temp
             if None != self.tokenizer.bos_token:
                 template['jinja']['bos'] = self.tokenizer.bos_token
             if None != self.tokenizer.eos_token:
                 template['jinja']['eos'] = self.tokenizer.eos_token
+        except:
+            print("Can't get chat template for the model")
         if self.model_type == 'baichuan':
             template['user'] = '<reserved_106>{content}'
             template['assistant'] = '<reserved_107>{content}'
@@ -631,16 +634,45 @@ class LlmExporter(torch.nn.Module):
     @spinner_run(f'export embedding to ')
     def export_embed(self):
         import ctypes
+        from utils.torch_utils import quant as torch_quant
+
         if hasattr(self, 'word_embeddings'):
             # embedding model's embed
-            tensor_data = self.word_embeddings.weight.data.bfloat16()
+            tensor_data = self.word_embeddings.weight.data
         else:
-            tensor_data = self.embed.embed.weight.data.bfloat16()
-        data_ptr = tensor_data.untyped_storage().data_ptr()
-        buffer = (ctypes.c_byte * (tensor_data.numel() * 2)).from_address(data_ptr)
-        embedding_file = f'{self.args.dst_path}/embeddings_bf16.bin'
-        with open(embedding_file, 'wb') as f:
-            f.write(buffer)
+            tensor_data = self.embed.embed.weight.data
+
+        format_bit = getattr(self.args, 'embed_bit', 16)
+
+        if format_bit == 16:
+            # BF16 format
+            tensor_data = tensor_data.bfloat16()
+            data_ptr = tensor_data.untyped_storage().data_ptr()
+            buffer = (ctypes.c_byte * (tensor_data.numel() * 2)).from_address(data_ptr)
+            embedding_file = f'{self.args.dst_path}/embeddings_bf16.bin'
+            with open(embedding_file, 'wb') as f:
+                f.write(buffer)
+        elif format_bit in [8, 4]:
+            # Quantized formats
+            quant_bit = format_bit
+            format_name = f'int{format_bit}'
+            quant_block = getattr(self.args, 'quant_block', 64)
+            symmetric = getattr(self.args, 'sym', False)
+            awq = getattr(self.args, 'awq', False)
+            hqq = getattr(self.args, 'hqq', False)
+
+            # Apply quantization
+            q_weight, alpha = torch_quant(tensor_data.float(), quant_bit, quant_block, symmetric, awq, hqq)
+
+            # Save quantized weights and scales together in one file
+            embedding_file = f'{self.args.dst_path}/embeddings_{format_name}.bin'
+            with open(embedding_file, 'wb') as f:
+                weight_size = f.write(q_weight.numpy().tobytes())
+                alpha_size = f.write(alpha.numpy().tobytes())
+            self.llm_config['tie_embeddings'] = [0, weight_size, alpha_size, quant_bit, quant_block]
+        else:
+            raise ValueError(f"Unsupported embedding bit precision: {format_bit}")
+
         return embedding_file
 
     @spinner_run(f'export config to ')
@@ -662,6 +694,8 @@ class LlmExporter(torch.nn.Module):
                 "sampler_type":'penalty',
                 "penalty":1.1
             }
+            if self.args.embed_bit < 16:
+                config['embedding_file'] = f"embeddings_int{self.args.embed_bit}.bin"
             if self.talker is not None:
                 config['system_prompt'] = "You are Qwen, a virtual human developed by the Qwen Team, Alibaba Group, capable of perceiving auditory and visual inputs, as well as generating text and speech."
                 config['talker_max_new_tokens'] = 2048
@@ -793,7 +827,7 @@ class LlmExporter(torch.nn.Module):
         self.is_awq_quantized = True
 
     def smooth_quant(self):
-        self.smooth_quantizer = SmoothQuantizer(self)
+        self.smooth_quantizer = SmoothQuantizer(model = self, act_bit=self.args.act_bit)
         self.smooth_quantizer.quantize()
         self.is_smooth_quantized = True
 
@@ -931,6 +965,8 @@ class LlmExporter(torch.nn.Module):
         prefix_list = []
         if hasattr(self.tokenizer, 'get_prefix_tokens'):
             prefix_list = self.tokenizer.get_prefix_tokens()
+
+        # Simple prefix token detection
         if len(prefix_list) == 0:
             try:
                 test_txt = 'A'
@@ -938,7 +974,7 @@ class LlmExporter(torch.nn.Module):
                 get_txt = self.tokenizer.decode(ids[-1])
                 if len(ids) > 1 and get_txt == test_txt:
                     prefix_list += ids[:-1]
-            except:
+            except Exception:
                 pass
 
         if self.sp_model is not None:
@@ -1022,46 +1058,109 @@ class LlmExporter(torch.nn.Module):
                 for m in merge_list:
                     fp.write(m)
         else:
-            # tiktoken or bert
-            if 'bert' in type(self.tokenizer).__name__.lower():
+            # Determine tokenizer type based on tokenizer class and characteristics
+            tokenizer_class_name = type(self.tokenizer).__name__.lower()
+
+            # Check for SentencePiece-based tokenizers first
+            if ('xlmroberta' in tokenizer_class_name or
+                'roberta' in tokenizer_class_name or
+                'sentencepiece' in tokenizer_class_name or
+                hasattr(self.tokenizer, 'sp_model') or
+                (hasattr(self.tokenizer, 'vocab_file') and
+                 self.tokenizer.vocab_file and 'sentencepiece' in self.tokenizer.vocab_file.lower()) or
+                # Check if tokenizer uses SentencePiece patterns (▁ prefix)
+                (len(vocab) > 0 and any('▁' in token for token in list(vocab.keys())[:100]))):
+                tokenizer_type = SENTENCEPIECE
+                print(f"Detected SentencePiece-based tokenizer: {tokenizer_class_name}")
+            elif 'bert' in tokenizer_class_name:
                 tokenizer_type = BERT
+                print(f"Detected BERT tokenizer: {tokenizer_class_name}")
             else:
                 tokenizer_type = TIKTOIKEN
-            # bert tokenizer
-            def unicode_to_byte(u: int):
-                if u >= 256 and u <= 288:
-                    return u - 256
-                if u >= 289 and u <= 322:
-                    return u - 162
-                if u == 323:
-                    return 173
-                # need not convert using jinja
-                # if u == 65372: # |
-                #     return 124
-                # if u == 9601:  # _
-                #     return 95
-                return u
-            vocab = self.tokenizer.get_vocab()
-            vocab_list = ['<unk>' for i in range(len(vocab))]
-            for k, v in vocab.items():
-                try:
-                    vocab_list[int(v)] = bytes([unicode_to_byte(ord(c)) for c in k])
-                except:
-                    vocab_list[int(v)] = k.encode('utf-8')
+                print(f"Detected TikToken tokenizer: {tokenizer_class_name}")
 
-            special_list = list(self.tokenizer.added_tokens_decoder.keys())
-            with open(file_path, "w", encoding="utf8") as fp:
-                write_header(fp, tokenizer_type, special_list)
-                fp.write(f'{len(vocab_list)}\n')
-                for v in vocab_list:
-                    line = base64.b64encode(v).decode("utf8") + "\n"
-                    fp.write(line)
+            vocab = self.tokenizer.get_vocab()
+
+            if tokenizer_type == SENTENCEPIECE:
+                # Handle SentencePiece tokenizer (like XLMRoberta)
+                # Try to get SentencePiece model if available
+                sp_model_path = None
+                if hasattr(self.tokenizer, 'vocab_file') and self.tokenizer.vocab_file:
+                    sp_model_path = self.tokenizer.vocab_file
+                elif hasattr(self.tokenizer, 'sp_model_kwargs'):
+                    sp_model_path = getattr(self.tokenizer, 'vocab_file', None)
+
+                if sp_model_path and os.path.exists(sp_model_path):
+                    # Use existing SentencePiece export logic
+                    print(f"Found SentencePiece model file: {sp_model_path}")
+                    # This will be handled by the existing SentencePiece logic above
+                    # For now, fall back to vocab-based export
+                    pass
+
+                # Export SentencePiece vocabulary in the correct format
+                vocab_list = []
+                NORMAL = 1  # SentencePiece piece type
+
+                for token, token_id in sorted(vocab.items(), key=lambda x: x[1]):
+                    try:
+                        # SentencePiece tokens are typically already properly encoded
+                        token_bytes = token.encode('utf-8')
+                        token_b64 = base64.b64encode(token_bytes).decode('utf-8')
+                        # Format: token_base64 score piece_type
+                        vocab_list.append(f'{token_b64} 0.0 {NORMAL}\n')
+                    except Exception as e:
+                        print(f"Warning: Failed to encode SentencePiece token '{token}': {e}")
+                        # Use replacement character for problematic tokens
+                        token_b64 = base64.b64encode('▁'.encode('utf-8')).decode('utf-8')
+                        vocab_list.append(f'{token_b64} 0.0 {NORMAL}\n')
+
+                with open(file_path, "w", encoding="utf8") as fp:
+                    write_header(fp, SENTENCEPIECE, special_list, prefix_list)
+                    fp.write(f'{len(vocab_list)}\n')
+                    for vocab_line in vocab_list:
+                        fp.write(vocab_line)
+            else:
+                # Handle BERT or TikToken tokenizer
+                # bert tokenizer
+                def unicode_to_byte(u: int):
+                    # Handle special unicode mappings for BERT tokenizers
+                    if u >= 256 and u <= 288:
+                        return u - 256
+                    if u >= 289 and u <= 322:
+                        return u - 162
+                    if u == 323:
+                        return 173
+                    return u
+
+                vocab_list = ['<unk>' for i in range(len(vocab))]
+
+                # Process vocabulary with better UTF-8 handling
+                for k, v in vocab.items():
+                    try:
+                        # For BERT tokenizers, preserve the original token format
+                        # Most BERT models already have proper UTF-8 encoded tokens
+                        vocab_list[int(v)] = k.encode('utf-8')
+                    except Exception as e:
+                        # Fallback: try unicode_to_byte conversion for special cases
+                        try:
+                            vocab_list[int(v)] = bytes([unicode_to_byte(ord(c)) for c in k])
+                        except Exception as e2:
+                            print(f"Warning: Failed to encode token '{k}' with id {v}: {e2}")
+                            vocab_list[int(v)] = k.encode('utf-8', errors='replace')
+
+                special_list = list(self.tokenizer.added_tokens_decoder.keys())
+                with open(file_path, "w", encoding="utf8") as fp:
+                    write_header(fp, tokenizer_type, special_list)
+                    fp.write(f'{len(vocab_list)}\n')
+                    for v in vocab_list:
+                        line = base64.b64encode(v).decode("utf8") + "\n"
+                        fp.write(line)
         return file_path
 
 class EmbeddingExporter(LlmExporter):
     def __init__(self, args):
         super().__init__(args)
-        self.dst_name = 'embedding'
+        self.dst_name = 'reranker' if self.is_reranker else 'embedding'
 
     def word_embed(self, input_ids):
         if hasattr(self, 'word_embeddings'):
@@ -1080,7 +1179,18 @@ class EmbeddingExporter(LlmExporter):
         sentence_embeddings = torch.nn.functional.normalize(sentence_embeddings, p=2, dim=1)
         return sentence_embeddings
 
-    def gte_forward(self, inputs_embeds, attention_mask, position_ids):
+    def gte_reranker_forward(self, inputs_embeds, attention_mask, position_ids):
+        freqs = position_ids.float().reshape(-1, 1) * self.inv_freq
+        emb = torch.cat((freqs, freqs), dim=-1)
+        rope_embeds = torch.stack([emb.cos(), emb.sin()]).unsqueeze(-2).unsqueeze(1)
+        hidden_states = self.embedding_layernorm(inputs_embeds + self.token_type_embeddings)
+        for i in range(self.num_hidden_layers):
+            hidden_states = self.blocks[i](hidden_states, attention_mask, rope_embeds)[0]
+        pooled_output = self.lm(hidden_states)
+        logits = self.classifier(pooled_output)
+        return logits
+
+    def gte_embedding_forward(self, inputs_embeds, attention_mask, position_ids):
         # rope position
         inputs_embeds = inputs_embeds.reshape(1, -1, self.hidden_size)
         freqs = position_ids.float().reshape(-1, 1) * self.inv_freq
@@ -1093,6 +1203,11 @@ class EmbeddingExporter(LlmExporter):
         sentence_embeddings = hidden_states[:, 0]
         sentence_embeddings = torch.nn.functional.normalize(sentence_embeddings, p=2, dim=1)
         return sentence_embeddings
+
+    def gte_forward(self, inputs_embeds, attention_mask, position_ids):
+        if self.is_reranker:
+            return self.gte_reranker_forward(inputs_embeds, attention_mask, position_ids)
+        return self.gte_embedding_forward(inputs_embeds, attention_mask, position_ids)
 
     def forward(self, inputs_embeds, attention_mask, position_ids):
         if self.model_type == 'bert':
@@ -1111,7 +1226,7 @@ class EmbeddingExporter(LlmExporter):
         position_ids = self.get_position_ids()
         attention_mask = self.get_attention_mask()
         inputs_embeds = self.word_embed(input_ids)
-        res = self.forward(inputs_embeds, position_ids, attention_mask)
+        res = self.forward(inputs_embeds, attention_mask, position_ids)
         # print(res)
         return res
 
@@ -1125,9 +1240,17 @@ class EmbeddingExporter(LlmExporter):
         self.tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
         self.config = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
         self.config._attn_implementation = 'eager'
-        self.model = AutoModel.from_pretrained(model_path, config=self.config, trust_remote_code=True).float().eval()
-        transformer = self.model.encoder
         self.model_type = self.config.model_type
+        self.is_reranker = False
+        if 'gte' in model_path and 'rank' in model_path:
+            self.is_reranker = True
+            from transformers import AutoModelForSequenceClassification
+            self.model = AutoModelForSequenceClassification.from_pretrained(model_path, config=self.config, trust_remote_code=True).float().eval()
+            self.classifier = self.model.classifier
+            self.model = self.model.new
+        else:
+            self.model = AutoModel.from_pretrained(model_path, config=self.config, trust_remote_code=True).float().eval()
+        transformer = self.model.encoder
         self.lm_ = self.model.pooler
         self.embed_ = self.model.embeddings
         self.word_embeddings = self.embed_.word_embeddings
@@ -1161,8 +1284,38 @@ class EmbeddingExporter(LlmExporter):
         }
         return model_path
 
+    def export_reranker(self):
+        model = self.eval()
+        self.seq_len = 4
+        input_ids = torch.arange(12, dtype=torch.long)
+        position_ids = self.get_position_ids()
+        attention_mask = self.get_attention_mask()
+        inputs_embeds = self.word_embed(input_ids)
+        inputs_embeds = inputs_embeds.reshape(3, 4, self.hidden_size)
+        attention_mask = torch.zeros(3, 1, 1, 4, dtype=torch.float)
+        onnx_model = f'{self.onnx_path}/{self.dst_name}.onnx'
+        torch.onnx.export(
+            model, (inputs_embeds, attention_mask, position_ids),
+            onnx_model,
+            input_names=[
+                'input_ids',
+                'attention_mask',
+                'position_ids'
+            ],
+            output_names=['sentence_embeddings'],
+            dynamic_axes={
+                "input_ids" : { 0: "batch", 1: "seq_len" },
+                "position_ids" : { 1: "seq_len" },
+                "attention_mask" : { 0: "batch", 3: "seq_len" }
+            },
+            do_constant_folding=True,
+            opset_version=15)
+        return onnx_model
+
     @spinner_run(f'export onnx model to ')
     def export_onnx(self):
+        if self.is_reranker:
+            return self.export_reranker()
         model = self.eval()
         self.seq_len = 3
         input_ids = torch.arange(3, dtype=torch.long)
@@ -1187,13 +1340,14 @@ class EmbeddingExporter(LlmExporter):
     def export(self, export_type):
         export_mnn = 'mnn' in export_type
         self.export_tokenizer()
-        self.export_config(export_mnn)
         self.export_embed()
+        self.export_config(export_mnn)
         onnx_model = self.export_onnx()
         if self.args.onnx_slim:
             self.slim_onnx(onnx_model)
         if export_mnn:
-            MNNConveter(self).export(onnx_model)
+            transformer_fuse = not self.is_reranker
+            MNNConveter(self).export(onnx_model, transformer_fuse=transformer_fuse)
             # delete onnx file
             try:
                 for file in glob.glob(f'{self.onnx_path}/*'):
@@ -1225,6 +1379,9 @@ def export(path,
            quant_bit = 4,
            quant_block = 64,
            lm_quant_bit = None,
+           visual_quant_bit = None,
+           visual_quant_block = None,
+           visual_sym = False,
            mnnconvert = None,
            ppl = False,
            awq = False,
@@ -1233,7 +1390,8 @@ def export(path,
            group_conv_native = False,
            sym = False,
            seperate_embed = False,
-           lora_split = False):
+           lora_split = False,
+           embed_bit = 16):
     args = argparse.Namespace()
     for k, v in {
         'path': path,
@@ -1258,7 +1416,8 @@ def export(path,
         'group_conv_native': group_conv_native,
         'sym': sym,
         'seperate_embed': seperate_embed,
-        'lora_split': lora_split
+        'lora_split': lora_split,
+        'embed_bit': embed_bit
     }.items():
         setattr(args, k, v)
     if 'bge' in path:
@@ -1303,6 +1462,8 @@ def main():
     parser.add_argument('--seperate_embed', action='store_true', help='For lm and embed shared model, whether or not to sepearte embed to avoid quant, default is False, if True, embed weight will be seperate to embeddingbf16.bin.')
     parser.add_argument('--lora_split', action='store_true', help='Whether or not export lora split, default is False.')
     parser.add_argument('--calib_data', type=str, default=None, help='calibration data path, defaut is `None` mean not use calib data.')
+    parser.add_argument('--act_bit', type=int, default=16, help='smooth quant act bit, 8 or 16, default is 16.')
+    parser.add_argument('--embed_bit', type=int, default=16, choices=[16, 8, 4], help='embedding export bit precision, choices are 16 (bf16), 8 (int8), 4 (int4), default is 16.')
     args = parser.parse_args()
 
     model_path = args.path

@@ -13,6 +13,17 @@ option(MNN_IMGCODECS "Enable imgcodecs" OFF)
 option(MNN_OPENCV_TEST "Enable opencv test" OFF)
 option(MNN_OPENCV_BENCH "Enable opencv benchmark" OFF)
 
+# For Transformer App needed
+IF (MNN_BUILD_LLM)
+    IF (MNN_BUILD_LLM_OMNI)
+        set(MNN_IMGCODECS ON)
+    ENDIF()
+ENDIF()
+IF (MNN_BUILD_DIFFUSION)
+    set(MNN_IMGCODECS ON)
+ENDIF()
+message(STATUS "MNN_IMGCODECS: ${MNN_IMGCODECS}")
+
 SET(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/../../)
 include_directories(${CMAKE_CURRENT_LIST_DIR}/include)
 include_directories(${CMAKE_CURRENT_LIST_DIR}/../../3rd_party/imageHelper/)

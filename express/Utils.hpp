@@ -42,7 +42,6 @@ struct Executor::SubGraph {
 };
 class Executor::ComputeCache {
 public:
-    void setShapeDirty();
     void setContentDirty();
     void* mapOutput(int offset, Tensor* dest);
 

@@ -9,6 +9,8 @@
 #include "QNNCommonExecution.hpp"
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
+
 // #define QNN_VERBOSE
 QNNCommonExecution::QNNCommonExecution(Backend *backend, const Op *op) : Execution(backend), mOp(op) {
     mBackend = (QnnBackend *)backend;
@@ -191,6 +193,6 @@ void QNNCommonExecution::clean() {
     mInputs.clear();
     mOutputs.clear();
 }
-
+#endif
 } // end namespace QNN
 } // end namespace MNN

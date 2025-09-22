@@ -10,6 +10,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 ErrorCode QNNActivation::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto opType = mOp->type();
@@ -51,6 +52,6 @@ REGISTER_QNN_OP_CREATOR(QNNActivationCreator, OpType_ReLU)
 REGISTER_QNN_OP_CREATOR(QNNActivationCreator, OpType_ReLU6)
 REGISTER_QNN_OP_CREATOR(QNNActivationCreator, OpType_Sigmoid)
 REGISTER_QNN_OP_CREATOR(QNNActivationCreator, OpType_ELU)
-
+#endif
 } // end namespace QNN
 } // end namespace MNN

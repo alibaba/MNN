@@ -9,6 +9,7 @@
 #pragma once
 #include "QnnTypes.h"
 #define QNN_OP_CFG_VALID(opConfig) ((opConfig).version == QNN_OPCONFIG_VERSION_1)
+
 /**
  * @brief Verifies the tensor object passed is of supported Qnn_Tensor_t API version
  *

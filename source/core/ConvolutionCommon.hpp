@@ -31,7 +31,7 @@ public:
     static int getQuantBitFromExternalFile(const Op* op);
     static void getConvParameters(std::shared_ptr<ConvolutionCommon::Int8Common> *quanCommon, Backend* backend, const MNN::Op *op, const float** originWeight, int* originWeightSize);
     static bool getConvInt8Parameters(const MNN::Op* op, std::shared_ptr<Int8Common>& quanCommon, Backend* backend,
-                                      const int8_t*& weight, int& weightSize, float* scale, int32_t* bias, int ocUp4);
+                                      const int8_t*& weight, int& weightSize, float* scale, int32_t* bias, int ocUpHp);
 
     // Return padX, padY
     static std::pair<int, int> convolutionPad(const Tensor* input, const Tensor* output,

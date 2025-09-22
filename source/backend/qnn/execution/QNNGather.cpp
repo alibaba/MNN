@@ -3,6 +3,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 ErrorCode QNNGather::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto input = inputs[0];
@@ -18,6 +19,39 @@ ErrorCode QNNGather::onEncode(const std::vector<Tensor *> &inputs, const std::ve
     mRawAxis = (mRawAxis >= 0) ? mRawAxis : (input->buffer().dimensions + mRawAxis);
     mQnnDataType = mBackend->getNativeTensor(input)->v1.dataType;
     mFlagScalarIndices = (indices->dimensions() == 0) ? true : false;
+
+#ifdef QNN_VERBOSE
+    MNN_PRINT("QNN Gather inputs shape:\n");
+    for(int i = 0; i < inputs.size(); i++) {
+        auto shape = inputs[i]->shape();
+        for(int j = 0; j < shape.size(); j++) {
+            MNN_PRINT("%d ", shape[j]);
+        }
+        MNN_PRINT("\n");
+    }
+    MNN_PRINT("QNN Gather axis: %d %d\n", mRawAxis, mDimType);
+    MNN_PRINT("QNN Gather outputs shape:\n");
+    for(int i = 0; i < outputs.size(); i++) {
+        auto shape = outputs[i]->shape();
+        for(int j = 0; j < shape.size(); j++) {
+            MNN_PRINT("%d ", shape[j]);
+        }
+        MNN_PRINT("\n");
+    }
+#endif
+
+    if(mOp->type() == OpType_GatherElements) {
+        if (mDimType == Tensor::DimensionType::CAFFE) {
+            if(mRawAxis == 1) {
+                mRawAxis = indices->dimensions() - 1;
+            } else if(mRawAxis == 2) {
+                mRawAxis = 1;
+            } else if(mRawAxis == 3) {
+                mRawAxis = 2;
+            } 
+        }  
+        return this->onEncodeNHWCTensor(inputs, outputs);
+    }
 
     // Goto branches.
     if (mDimType == Tensor::DimensionType::TENSORFLOW && mFlagScalarIndices) {
@@ -64,8 +98,11 @@ ErrorCode QNNGather::onEncodeNHWCScalar(const std::vector<Tensor *> &inputs, con
 
 ErrorCode QNNGather::onEncodeNHWCTensor(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     // Create resources.
-    this->createParamScalar("axis", mRawAxis);
-
+    if(mOp->type() == OpType_GatherElements) {
+        this->createParamScalar("axis", (uint32_t)mRawAxis);
+    } else {
+        this->createParamScalar("axis", (int)mRawAxis);
+    }
     // Add Node.
     this->addNodeGather("Gather",
                         *(mBackend->getNativeTensor(inputs[0])),
@@ -168,6 +205,10 @@ void QNNGather::addNodeGather(const std::string & nodeNamePostfix, const Qnn_Ten
     std::string name = mNodeName + "_" + nodeNamePostfix;
     mNodeType = "Gather";
 
+    if(mOp->type() == OpType_GatherElements) {
+        mNodeType = "GatherElements";    
+    }
+    // MNN_PRINT("mNodeType: %s\n", mNodeType.c_str());
     mInputs.push_back(input0);
     mInputs.push_back(input1);
     mParams.push_back(paramAxis);
@@ -195,16 +236,13 @@ public:
     virtual QNNCommonExecution * onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
                                 Backend* backend) const override {
         if (op->main_type() == OpParameter_Axis) {
+            MNN_ERROR("QNN Gather type error fallback\n");
             return nullptr;
         }
 
-        if (inputs.size() != 3) {
+        if (inputs.size() < 2) {
+            MNN_ERROR("QNN Gather inputs size:%d error fallback\n", inputs.size());
             return nullptr;
-        }
-
-        // Avoid Permute for indices.
-        if (inputs[1]->dimensions() > 2) {
-            return  nullptr;
         }
 
         return new QNNGather(backend, op);
@@ -212,6 +250,7 @@ public:
 };
 
 REGISTER_QNN_OP_CREATOR(QNNGatherCreator, OpType_GatherV2)
-
+REGISTER_QNN_OP_CREATOR(QNNGatherCreator, OpType_GatherElements)
+#endif
 } // end namespace QNN
 } // end namespace MNN

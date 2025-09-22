@@ -43,7 +43,7 @@ void ArGeneration::generate(GenerationParams& param) {
     while (len < max_token) {
         AUTOTIME;
         // Update gen seq
-        mContext->current_token = mLlm->sample(param.outputs[0]);
+        mContext->current_token = mLlm->sample(param.outputs[0], param.validLogitStart, param.validLogitSize);
         mContext->history_tokens.push_back(mContext->current_token);
         mContext->output_tokens.push_back(mContext->current_token);
         mLlm->updateContext(0, 1);
@@ -63,7 +63,6 @@ void ArGeneration::generate(GenerationParams& param) {
         }
         
         // Compute Next Logits
-        mLlm->mMeta->remove = 0;
         auto outputs = mLlm->forwardVec({mContext->current_token});
         if(outputs.empty()) {
             break;

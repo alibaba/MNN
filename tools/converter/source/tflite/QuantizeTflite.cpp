@@ -26,6 +26,13 @@ void QuantizeTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::Operator
     auto outputIndex = tfliteOp->outputs[0];
     const auto& inputTensor = tfliteTensors[inputIndex];
     const auto& outputTensor = tfliteTensors[outputIndex];
+    if (inputTensor->type == tflite::TensorType_INT8 || inputTensor->type == tflite::TensorType_FLOAT16 || inputTensor->type == tflite::TensorType_FLOAT32) {
+        if (outputTensor->type == tflite::TensorType_INT8 || outputTensor->type == tflite::TensorType_FLOAT16 || outputTensor->type == tflite::TensorType_FLOAT32) {
+            dstOp->type = MNN::OpType_Identity;
+            dstOp->main.type = MNN::OpParameter_NONE;
+            return;
+        }
+    }
 #if 0
     auto extraOpParam = new MNN::ExtraT;
     extraOpParam->engine = "Tflite";

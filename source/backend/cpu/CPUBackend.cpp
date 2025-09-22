@@ -699,14 +699,7 @@ size_t CPUBackend::getTensorSize(const Tensor* tensor, bool multiBytes) const {
         dataSize *= currentDimSize;
     }
     if (multiBytes) {
-        size_t bytes = tensor->getType().bytes();
-        if (TensorUtils::getDescribe(tensor)->quantAttr != nullptr) {
-            if (TensorUtils::getDescribe(tensor)->type == DataType_DT_FLOAT) {
-                bytes = 4;
-            } else {
-                bytes = 1;
-            }
-        }
+        size_t bytes = getBytes(this, tensor);
         return dataSize * bytes;
     }
     return dataSize;
@@ -719,7 +712,7 @@ size_t CPUBackend::getBytes(const Backend* backend, const Tensor* output) {
     if (output->getType().code == halide_type_float) {
         bytes = core->bytes;
     }
-    if (nullptr != quant && TensorUtils::getDescribe(output)->type == DataType_DT_INT8) {
+    if (nullptr != quant && TensorUtils::getDescribe(output)->applyQuant) {
         bytes = 1;
     }
     return bytes;
@@ -727,10 +720,10 @@ size_t CPUBackend::getBytes(const Backend* backend, const Tensor* output) {
 
 DataType CPUBackend::getDataType(const Tensor* tensor) {
     auto des = TensorUtils::getDescribe(tensor);
-    if (nullptr == des->quantAttr.get()) {
+    if (nullptr == des->quantAttr.get() || (!des->applyQuant)) {
         return DataType_DT_FLOAT;
     }
-    return des->type;
+    return des->quantAttr->type;
 }
 
 /// get execution
@@ -744,8 +737,10 @@ Execution* CPUBackend::onCreate(const std::vector<Tensor*>& inputs, const std::v
         return nullptr;
     }
     auto opType = op->type();
-    if (outputs.size() > 0) {
-        if (TensorUtils::getDescribe(outputs[0])->quantAttr != nullptr && TensorUtils::getDescribe(outputs[0])->type == DataType_DT_INT8) {
+    if (outputs.size() > 0 && inputs.size() > 0) {
+        bool outputQuant = TensorUtils::getDescribe(outputs[0])->quantAttr != nullptr && TensorUtils::getDescribe(outputs[0])->quantAttr->type == DataType_DT_INT8;
+        bool inputQuant = TensorUtils::getDescribe(inputs[0])->quantAttr != nullptr && TensorUtils::getDescribe(inputs[0])->quantAttr->type == DataType_DT_INT8;
+        if (inputQuant && outputQuant) {
             opType = _getRealOpType(opType);
         }
     }
@@ -848,6 +843,98 @@ class CPURuntimeCreator : public RuntimeCreator {
 public:
     virtual Runtime* onCreate(const Backend::Info& info) const override {
         return new CPURuntime(info);
+    }
+    static bool _supportQuant(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+        auto otype = op->type();
+        for (auto t : inputs) {
+            auto des = TensorUtils::getDescribe(t);
+            if (des->quantAttr == nullptr) {
+                return false;
+            }
+            auto type = des->quantAttr->type;
+            if (type != DataType_DT_INT8) {
+                return false;
+            }
+        }
+        switch (otype) {
+            case OpType_Convolution:
+            case OpType_ConvolutionDepthwise:
+                if (inputs.size() > 1) {
+                    return false;
+                }
+                if (op->main_as_Convolution2D() && op->main_as_Convolution2D()->weight() != nullptr) {
+                    return false;
+                } else {
+                    return true;
+                }
+            case OpType_ConvInt8:
+            case OpType_DepthwiseConvInt8:
+                return true;
+                // case OpType_Eltwise:
+            case OpType_Raster:
+            {
+                for (auto input : inputs) {
+                    if (TensorUtils::getDescribe(input)->quantAttr.get() != TensorUtils::getDescribe(outputs[0])->quantAttr.get()) {
+                        return false;
+                    }
+                    if (TensorUtils::getDescribe(input)->quantAttr.get() && TensorUtils::getDescribe(outputs[0])->quantAttr.get() && (TensorUtils::getDescribe(input)->quantAttr.get()->scale == 0 || TensorUtils::getDescribe(outputs[0])->quantAttr.get()->scale == 0)) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+            case OpType_Pooling:
+                if (op->main_as_Pool() && op->main_as_Pool()->type() == PoolType_MAXPOOL ) {
+                    return true;
+                } else if (op->main_as_Pool() && op->main_as_Pool()->type() == PoolType_AVEPOOL) {
+                    return true;
+                } else {
+                    return false;
+                }
+            case OpType_Softmax:
+                return true;
+            case OpType_LayerNorm:
+                return true;
+#ifdef MNN_SUPPORT_QUANT_EXTEND
+            case OpType_ReLU:
+                if (TensorUtils::getDescribe(inputs[0])->quantAttr.get() != TensorUtils::getDescribe(outputs[0])->quantAttr.get()) {
+                    return false;
+                }
+                // now just relu without slope support quant
+                if ((op->main_as_Relu() == nullptr) || op->main_as_Relu()->slope() == 0.f) {
+                    return true;
+                } else {
+                    return false;
+                }
+            case OpType_BinaryOp:
+                return true;
+            case OpType_Scale:
+                return true;
+            case OpType_Interp:
+                return true;
+            case OpType_UnaryOp:
+                if (op->main_as_UnaryOp()->tableInt8() || op->main_as_UnaryOp()->opType() == UnaryOpOperation_NEG || op->main_as_UnaryOp()->opType() == UnaryOpOperation_ABS || op->main_as_UnaryOp()->opType() == UnaryOpOperation_SIGN) {
+                    return true;
+                } else {
+                    return false;
+                }
+            case OpType_PReLU:
+                return true;
+#endif
+            default:
+                break;
+        }
+        return false;
+    }
+    virtual bool onSetQuantInfo(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) const override {
+        if (nullptr == op) {
+            return true;
+        }
+        auto res = _supportQuant(op, inputs, outputs);
+        for (auto t : outputs) {
+            TensorUtils::getDescribe(t)->applyQuant = res;
+        }
+        return res;
     }
 };
 

@@ -10,6 +10,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 ErrorCode QNNUnary::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     MNN_ASSERT(inputs.size() == 1 && outputs.size() == 1);
@@ -23,7 +24,7 @@ ErrorCode QNNUnary::onEncode(const std::vector<Tensor *> &inputs, const std::vec
             mOutputs.clear();
             mInputs.push_back(*(mBackend->getNativeTensor(input)));
             mOutputs.push_back(*(mTempTensorWrappers[0]->getNativeTensor()));
-            std::string name = "Sigmoid__";
+            std::string name = mNodeName + "Sigmoid__";
             mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), "Sigmoid", mParams, mInputs, mOutputs);
         }
         {
@@ -33,7 +34,7 @@ ErrorCode QNNUnary::onEncode(const std::vector<Tensor *> &inputs, const std::vec
             mInputs.push_back(*(mBackend->getNativeTensor(input)));
             mInputs.push_back(*(mTempTensorWrappers[0]->getNativeTensor()));
             mOutputs.push_back(*(mBackend->getNativeTensor(outputs[0])));
-            std::string name = "ElementWiseMultiply__";
+            std::string name = mNodeName + "ElementWiseMultiply__";
             mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), "ElementWiseMultiply", mParams, mInputs, mOutputs);
         }
 
@@ -144,7 +145,7 @@ public:
 };
 
 REGISTER_QNN_OP_CREATOR(QNNUnaryCreator, OpType_UnaryOp)
-
+#endif
 } // end namespace QNN
 } // end namespace MNN
 

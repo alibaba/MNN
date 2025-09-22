@@ -255,7 +255,7 @@ std::vector<int> SizeComputer::needInputContent(const MNN::Op* op, int inputSize
     }
     return std::vector<int>{};
 }
-bool SizeComputer::computeBroadCastDims(const MNN::Op* op, const std::vector<Tensor*>& inputs,
+bool SizeComputer::computeBroadCastDims(const std::vector<Tensor*>& inputs,
                                  const std::vector<Tensor*>& outputs) {
     int maxDimensions = inputs[0]->dimensions();
     int maxIndex = 0;

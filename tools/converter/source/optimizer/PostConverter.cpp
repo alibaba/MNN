@@ -148,12 +148,15 @@ void RunNetPass(const std::vector<std::string>& passes, std::unique_ptr<MNN::Net
             LOG(INFO) << "Can't find pass of " << pass << "\n";
             continue;
         }
+#ifdef DEBUG
         auto originSize = originNet->oplists.size();
+        auto originDesSize = originNet->extraTensorDescribe.size();
+#endif
         bool valid = convert->onExecute(originNet);
 #ifdef DEBUG
         auto hasDup = _hasDupName(originNet);
-        if (originSize != originNet->oplists.size() || hasDup) {
-            MNN_PRINT("%s: %d -> %d, dup: %d\n", pass.c_str(), originSize, originNet->oplists.size(), hasDup);
+        if (originSize != originNet->oplists.size() || hasDup || originDesSize != originNet->extraTensorDescribe.size()) {
+            MNN_PRINT("%s: %d -> %d, dup: %d, des: %d -> %d\n", pass.c_str(), originSize, originNet->oplists.size(), hasDup, originDesSize, originNet->extraTensorDescribe.size());
         }
 #endif
         if (!valid) {
@@ -224,7 +227,11 @@ std::unique_ptr<MNN::NetT> RunMergePass(std::unique_ptr<MNN::NetT>& originNet,
     newNet->bizCode    = originNet->bizCode;
     newNet->outputName = originNet->outputName;
     program->save(newNet.get());
-
+#ifdef DEBUG
+    if (originNet->extraTensorDescribe.size() != newNet->extraTensorDescribe.size()) {
+        MNN_PRINT("Merge: %d -> %d\n", originNet->extraTensorDescribe.size(), newNet->extraTensorDescribe.size());
+    }
+#endif
     RunNetPass({"RemoveUnusefulOp"}, newNet);
     return std::move(newNet);
 }
@@ -292,10 +299,6 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
         // Remove Invalid Cast
         "RemoveInvalidCast"
     };
-    std::vector<std::unique_ptr<TensorDescribeT>> tensorDescribe;
-    if (originNet->extraTensorDescribe.size() > 0) {
-        tensorDescribe = std::move(originNet->extraTensorDescribe);
-    }
     
     std::unique_ptr<MNN::NetT> newNet;
     newNet = std::move(RunExtraPass(originNet, inputs));
@@ -358,18 +361,9 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
     };
     RunNetPass(afterProgramConvert, newNet);
 
-    // Maybe eliminate the redundant quantize and dequantize ops, then remove
-    // the unuseful `Identity`.
-    newNet = std::move(RunMergePass(newNet, inputs, PASS_PRIORITY_LOW));
-
-    // Maybe eliminate the redundant tensor format ops, then remove the unuseful
-    // `Identity`.
     newNet = std::move(RunMergePass(newNet, inputs, PASS_PRIORITY_LOW));
     newNet = std::move(RunMergePass(newNet, inputs, PASS_PRIORITY_FINAL));
 
-    if (tensorDescribe.size() > 0) {
-        newNet->extraTensorDescribe = std::move(tensorDescribe);
-    }
     RunNetPass({"ReIndexTensor"}, newNet);
     RunNetPass({"ReIndexOnnxIfAlias"}, newNet);
 

@@ -10,6 +10,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 ErrorCode QNNReshape::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     mNodeType = "Reshape";
@@ -33,6 +34,6 @@ public:
 // REGISTER_QNN_OP_CREATOR(QNNReshapeCreator, OpType_Squeeze)
 // REGISTER_QNN_OP_CREATOR(QNNReshapeCreator, OpType_Unsqueeze)
 REGISTER_QNN_OP_CREATOR(QNNReshapeCreator, OpType_ConvertTensor)
-
+#endif
 } // end namespace QNN
 } // end namespace MNN

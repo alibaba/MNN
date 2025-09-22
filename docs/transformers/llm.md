@@ -4,8 +4,120 @@
 - 模型导出：将torch模型导出为onnx，然后转换为mnn模型；导出tokenizer文件，embedding等文件；
 - 模型推理：支持导出的模型推理，支持LLM模型的文本生成；
 
+## 快速开始
 
-## 模型导出
+### **第一步：模型导出 (Export)**
+
+此步骤是将原始的 PyTorch 模型（如 Qwen2 系列）转换为 MNN 引擎可以加载和推理的格式。
+
+1.  **安装依赖**：
+    进入导出工具目录并安装必要的 Python 包。
+    ```bash
+    cd ./transformers/llm/export
+    pip install -r requirements.txt
+    ```
+
+2.  **准备原始模型**：
+    将需要部署的开源 LLM 模型（例如 `Qwen2-0.5B-Instruct`）克隆到本地。**务必确保 `git lfs` 已安装，以下载完整的模型文件**。
+    ```bash
+    git lfs install
+    git clone https://www.modelscope.cn/qwen/Qwen2-0.5B-Instruct.git
+    ```
+
+3.  **执行导出命令**：
+    运行 `llmexport.py` 脚本，将模型、Tokenizer、Embedding 等导出为 MNN 格式。
+    ```bash
+    python llmexport.py \
+        --path /path/to/Qwen2-0.5B-Instruct \
+        --export mnn --hqq
+    ```
+    *   **关键产物**：脚本会生成一个包含 `llm.mnn`, `llm.mnn.weight`, `tokenizer.txt`, `embeddings_bf16.bin`【可能存在】, `llm_config.json`, `config.json` 等文件的模型目录。
+
+4.  **（可选）高级功能**：
+    *   **量化**：通过 `--quant_bit 4` 和 `--quant_block 128` 等参数可以调节量化的Bits数，默认为`4 bit , block size 64`。通过 `--hqq` 或 `--awq` 可以启用对应算法以提升量化后的模型精度，一般建议增加`--hqq`
+    *   **LoRA**：通过 `--lora_path` 合并或分离 LoRA 权重。
+    *   **Embeding**：对于目前主流的8b以下模型，采用了`Tie-Embeding`技术，默认不会导出`embeddings_bf16.bin`，而是复用`llm.mnn.weight`中的`lm`权重，需要提升embed精度可以设置 `--seperate_embed` 分离出`embeddings_bf16.bin`。
+    *   **GPTQ**：通过 `--gptq_path` 应用预量化好的 GPTQ 权重。
+    *   **手动转换**：如果直接导出 `mnn` 失败，或者需要fp16/fp32精度的模型，可先导出 `onnx`，再用 `MNNConvert` 工具手动转换。
+
+---
+
+### **第二步：引擎编译 (Compile)**
+
+此步骤是编译 MNN 的 C++ 推理引擎，使其支持 LLM 推理功能。
+
+1.  **配置编译选项**：
+    在标准的 MNN 编译命令中，**必须添加 `-DMNN_BUILD_LLM=true`** 以启用 LLM 支持。
+    *   **Omni 模型**：如果需要支持图像/音频输入，还需添加 `-DMNN_BUILD_LLM_OMNI=ON`。
+    *   **平台优化**：
+        *   **x86 (Mac/Linux)**：可添加 `-DMNN_AVX512=true` 以利用 AVX512 指令集加速。
+        *   **Android**：可添加 `-DMNN_OPENCL=true` 以利用 GPU 加速。
+        *   **iOS**：可添加 `-DMNN_METAL=ON` 以利用 GPU 加速。
+        *   **Web (WASM)**：使用 `emcmake` 并配置 `-DMNN_FORBID_MULTI_THREAD=ON` 等特定选项。
+
+2.  **执行编译**：
+    以 Linux/Mac 为例：
+    ```bash
+    mkdir build && cd build
+    cmake .. -DMNN_BUILD_LLM=true -DMNN_AVX512=true # 根据平台调整选项
+    make -j16
+    ```
+    编译完成后，会生成核心库文件（如 `libMNN.so`, `libllm.so`）。
+
+---
+
+### **第三步：运行时配置与推理 (Inference)**
+
+此步骤是配置模型运行参数并启动推理。
+
+1.  **准备模型目录**：
+    将第一步导出的所有文件（`llm.mnn`, `llm.mnn.weight`, `tokenizer.txt`, `embeddings_bf16.bin`, `llm_config.json`）放在同一个文件夹下。
+
+2.  **配置 `config.json`**：
+    编辑或使用自动生成的 `config.json` 文件，根据你的硬件和需求调整参数：
+    *   **硬件**：设置 `backend_type` (如 `"cpu"`, `"opencl"`) 和 `thread_num`。
+    *   **性能**：设置 `precision` (如 `"low"` for fp16) 和 `memory` (如 `"low"` for runtime quant)。
+    *   **生成**：设置 `max_new_tokens`, `sampler_type` (如 `"mixed"`), `temperature`, `topK`, `topP` 等。
+    *   **高级**：设置 `reuse_kv` (多轮对话), `chunk` (内存分块) 等。
+    *   **示例**：
+        ```json
+        {
+            "backend_type": "cpu",
+            "thread_num": 4,
+            "precision": "low",
+            "sampler_type": "mixed",
+            "temperature": 0.7,
+            "topP": 0.9,
+            "reuse_kv": true
+        }
+        ```
+
+3.  **运行推理 Demo**：
+    使用编译好的 `llm_demo` 工具进行推理。
+    *   **交互式聊天**：
+        ```bash
+        ./llm_demo /path/to/model_dir/config.json
+        ```
+    *   **批量处理 Prompt**：
+        ```bash
+        ./llm_demo /path/to/model_dir/config.json /path/to/prompt.txt
+        ```
+    *   **多模态输入** (Omni 模型)：在 Prompt 中嵌入 `<img>` 或 `<audio>` 标签。
+
+4.  **（可选）性能基准测试**：
+    使用 `llm_bench` 工具对不同后端、线程数、Prompt 长度等配置进行性能压测，以找到最优配置。
+    ```bash
+    ./llm_bench -m ./model/config.json -a cpu,opencl -t 4,8 -p 32,64 -n 32 -rep 3
+    ```
+
+---
+
+**总结流程图**：
+`准备PyTorch模型` -> `使用 llmexport.py 导出为 MNN 格式` -> `编译 MNN 引擎 (启用 LLM)` -> `配置 config.json` -> `使用 llm_demo 进行推理`
+
+
+
+## 模型导出工具`llmexport`
 
 
 `llmexport`是一个llm模型导出工具，能够将llm模型导出为onnx和mnn模型。
@@ -87,10 +199,10 @@ optional arguments:
   -h, --help            show this help message and exit
   --path PATH           path(`str` or `os.PathLike`):
                         Can be either:
-                        	- A string, the *model id* of a pretrained model like `THUDM/chatglm-6b`. [TODO]
-                        	- A path to a *directory* clone from repo like `../chatglm-6b`.
+                            - A string, the *model id* of a pretrained model like `THUDM/chatglm-6b`. [TODO]
+                            - A path to a *directory* clone from repo like `../chatglm-6b`.
   --type TYPE           type(`str`, *optional*):
-                        	The pretrain llm model type.
+                            The pretrain llm model type.
   --tokenizer_path TOKENIZER_PATH
                         tokenizer path, defaut is `None` mean using `--path` value.
   --lora_path LORA_PATH
@@ -163,19 +275,14 @@ python3 gguf2mnn.py --gguf ~/third/llama.cpp/build/ggml-model-Q4_K.gguf --mnn_di
 ### 编译
 
 [从源码编译](../compile/other.html#id4)
-在原有编译过程中增加必需编译宏即可：
+在原有编译过程中增加llm开关即可：
 ```
--DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true
-```
-
-- 需要开启视觉功能时，增加相关编译宏
-```
--DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true
+-DMNN_BUILD_LLM=ON
 ```
 
-- 需要开启音频功能时，增加相关编译宏
+若需要开启Omni功能（支持图像/音频输入），增加`MNN_BUILD_LLM_OMNI`选项
 ```
--DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true
+-DMNN_BUILD_LLM=ON -D MNN_BUILD_LLM_OMNI=ON
 ```
 
 #### mac / linux / windows
@@ -184,7 +291,7 @@ python3 gguf2mnn.py --gguf ~/third/llama.cpp/build/ggml-model-Q4_K.gguf --mnn_di
 ```
 make build
 cd build
-cmake ../ -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true
+cmake ../ -DMNN_BUILD_LLM=true
 make -j16
 ```
 
@@ -192,26 +299,28 @@ x86架构额外加 `MNN_AVX512` 的宏：
 ```
 make build
 cd build
-cmake ../ -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_AVX512=true
+cmake ../ -DMNN_BUILD_LLM=true -DMNN_AVX512=true
 make -j16
 ```
 
-#### Android：额外增加 `MNN_ARM82` 和`MNN_OPENCL`的宏
+#### Android：额外增加`MNN_OPENCL`的宏
 ```
 cd project/android
 mkdir build_64
-../build_64.sh -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_ARM82=true -DMNN_OPENCL=true -DMNN_USE_LOGCAT=true
+../build_64.sh -DMNN_BUILD_LLM=true -DMNN_OPENCL=true -DMNN_USE_LOGCAT=true
 ```
-高通设备部分视觉模型支持NPU功能，可增加`MNN_QNN` 和`MNN_WITH_PLUGIN`的宏启用QNN功能。
+高通设备部分视觉模型支持NPU功能，可增加`MNN_QNN`宏启用QNN功能。QNN运行分2种模式：
+- 在线编译QNN模型：运行其它后端统一的mnn模型，运行时进行编译构图，通过需要较长的构图启动时间，主要用于功能正确性验证。
+- 离线编译QNN模型：使用MNN2QNNModel转换工具将统一的mnn模型离线编译转换成含有Plugin算子的mnn模型以及QNN模型，运行时直接运行编译好的QNN模型，用于生产部署情况。此时需要开启`MNN_WITH_PLUGIN`宏。
 ```
 cd project/android
 mkdir build_64
-../build_64.sh -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_ARM82=true -DMNN_OPENCL=true -DMNN_QNN=true -DMNN_WITH_PLUGIN=true -DMNN_USE_LOGCAT=true
+../build_64.sh -DMNN_BUILD_LLM=true -DMNN_OPENCL=true -DMNN_QNN=true -DMNN_WITH_PLUGIN=true -DMNN_USE_LOGCAT=true
 ```
 
 #### iOS: 参考 transformers/llm/engine/ios/README.md
 ```
-sh package_scripts/ios/buildiOS.sh -DMNN_ARM82=true -DMNN_LOW_MEMORY=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_BUILD_LLM=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true
+sh package_scripts/ios/buildiOS.sh -DMNN_BUILD_LLM=true
 ```
 
 #### Web
@@ -221,7 +330,7 @@ sh package_scripts/ios/buildiOS.sh -DMNN_ARM82=true -DMNN_LOW_MEMORY=true -DMNN_
 
 ```
 mkdir buildweb
-emcmake cmake .. -DCMAKE_BUILD_TYPE=Release -DMNN_FORBID_MULTI_THREAD=ON -DMNN_USE_THREAD_POOL=OFF -DMNN_USE_SSE=OFF -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true
+emcmake cmake .. -DCMAKE_BUILD_TYPE=Release -DMNN_FORBID_MULTI_THREAD=ON -DMNN_USE_THREAD_POOL=OFF -DMNN_USE_SSE=OFF -DMNN_BUILD_LLM=true
 make -j16
 ```
 
@@ -284,6 +393,8 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
     - 3: 使用非对称8bit量化存储key，使用fp8格式量化存储value
     - 4: 量化kv的同时使用非对称8bit量化query，并使用int8矩阵乘计算Q*K
   - use_mmap: 是否使用mmap方式，在内存不足时将权重写入磁盘，避免溢出，默认为false，手机上建议设成true
+  - chunk: 限制每次最大处理的token数，高于此值将分块运行，以减少内存占用，eg: chunk: 128
+  - chunk_limits: 限制每次处理的token数，不在此范围内将分拆或者补零处理，eg: chunk_limits: [128, 1] , 存在 chunk_limits 时，chunk 配置无效
   - kvcache_mmap: 是否使用mmap方式，在内存不足时将在KV Cache 写入磁盘，避免溢出，默认为false
   - tmp_path: 启用 mmap 相关功能时，写入磁盘的缓存目录
     - iOS 上可用如下语句创建临时目录并设置：`NSString *tempDirectory = NSTemporaryDirectory();llm->set_config("{\"tmp_path\":\"" + std::string([tempDirectory UTF8String]) + "\"}")`
@@ -443,7 +554,7 @@ options:
 
 
 #### GPTQ权重
-需要使用GPTQ权重，可以在导出[Qwen2.5-0.5B-Instruct]模型时，使用`--gptq_path PATH`来指定[Qwen2.5-0.5B-Instruct-GPTQ-Int4]()的路径，使用如下：
+需要使用GPTQ权重，可以在导出模型时，使用`--gptq_path PATH`来指定的路径，使用如下：
 ```bash
 # 导出GPTQ量化的模型
 python llmexport.py --path /path/to/Qwen2.5-0.5B-Instruct --gptq_path /path/to/Qwen2.5-0.5B-Instruct-GPTQ-Int4 --export mnn
@@ -455,35 +566,23 @@ LoRA权重有两使用方式：1. 合并LoRA权重到原始模型；2. LoRA模�
 第一种模式速度更快，使用更简单但是不支持运行时切换；第二种略微增加一些内存和计算开销，但是更加灵活，支持运行时切换LoRA，适合多LoRA场景。
 ##### 融合LoRA
 
-###### 导出
 将LoRA权重合并到原始模型中导出，在模型导出时指定`--lora_path PATH`参数，默认使用合并方式导出，使用如下：
 ```bash
 # 导出LoRA合并的模型
 python llmexport.py --path /path/to/Qwen2.5-0.5B-Instruct --lora_path /path/to/lora --export mnn
 ```
 
-###### 使用
 融合LoRA模型使用与原始模型使用方法完全一样。
 
 ##### 分离LoRA
 
-###### 导出
 将LoRA单独导出为一个模型，支持运行时切换，在模型导出时指定`--lora_path PATH`参数，并指定`--lora_split`，就会将LoRA分离导出，使用如下：
 ```bash
 python llmexport.py --path /path/to/Qwen2.5-0.5B-Instruct --lora_path /path/to/lora --lora_split --export mnn
 ```
 导出后模型文件夹内除了原始模型外，还会增加`lora.mnn`，这个就是lora模型文件。
 
-###### 使用
-- lora模型使用
-  - 直接加载lora模型使用，创建`lora.json`配置文件，这样与直接运行融合LoRA的模型相似。
-  ```json
-  {
-      "llm_model": "lora.mnn",
-      "llm_weight": "base.mnn.weight",
-  }
-  ```
-  - 运行时创建lora模型
+运行时创建lora模型
   ```cpp
   // 创建并加载base模型
   std::unique_ptr<Llm> llm(Llm::createLLM(config_path));
@@ -639,4 +738,29 @@ int main() {
     llm->generateWavform();
     return 0;
 }
+```
+
+### Python 中使用
+参考 `pymnn/examples/MNNLlm` 下面的 demo 使用
+
+```
+import MNN.llm as llm
+import sys
+
+if len(sys.argv) < 2:
+    print('usage: python llm_example.py <path_to_model_config>')
+    exit(1)
+
+config_path = sys.argv[1]
+# create model
+qwen = llm.create(config_path)
+# load model
+qwen.load()
+
+# response stream
+out = qwen.response('你好', True)
+print(out)
+
+out_ids = qwen.generate([151644, 872, 198, 108386, 151645, 198, 151644, 77091])
+print(out_ids)
 ```

@@ -31,6 +31,7 @@ do { \
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 class QNNCommonExecution : public Execution {
 public:
@@ -81,7 +82,7 @@ public:
     std::vector<std::shared_ptr<QNNParamTensorWrapper>> mParamTensorWrappers;
     std::vector<std::shared_ptr<QNNParamScalarWrapper>> mParamScalarWrappers;
 };
-
+#endif
 } // end namespace QNN
 } // end namespace MNN
 

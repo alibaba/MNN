@@ -2,6 +2,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 ErrorCode QNNBroadcastTo::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto input  = inputs[0];
@@ -53,6 +54,6 @@ public:
 };
 
 REGISTER_QNN_OP_CREATOR(QNNBroadcastToCreator, OpType_BroadcastTo)
-
+#endif
 } // end namespace QNN
 } // end namespace MNN

@@ -13,6 +13,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 class QNNLayerNorm : public QNNCommonExecution {
 public:
@@ -32,7 +33,7 @@ private:
     std::vector<float> mGammaData;
     std::vector<float> mBetaData;
 };
-
+#endif
 } // end namespace MNN
 } // end namespace QNN
 
