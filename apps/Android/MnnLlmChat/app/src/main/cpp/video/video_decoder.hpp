@@ -19,9 +19,9 @@ class VARP;
 
 class VideoDecoder {
  public:
-  // Debug callback receives RGB pixels ready for inspection/saving.
+  // Debug callback receives MNN tensor ready for inspection/saving.
   using FrameDebugCallback = std::function<void(
-      const std::vector<uint8_t>& rgb,
+      MNN::Express::VARP tensor,
       int64_t pts,
       long native_ms,
       int64_t target_us,
@@ -47,16 +47,30 @@ class VideoDecoder {
       int mode,
       const char* strategy,
       const char* csv_path,
-      float fps,
+      float target_fps,
       FrameDebugCallback callback = nullptr);
+
+  // Simplified interface for VideoProcessor - returns MNN tensors directly
+  int DecodeWithFps(int max_frames, float target_fps, 
+                   std::vector<MNN::Express::VARP>* out_tensors,
+                   std::vector<int64_t>* out_timestamps,
+                   FrameDebugCallback callback = nullptr);
 
   // Implementations fill out_rgb with packed RGB data when available
   // (surface decoder leaves it empty).
-  virtual bool DecodeFrame(int64_t next_target_us,
+  virtual bool DecodeFrame(int64_t target_timestamp_us,
+                           int64_t tolerance_us,
                            std::vector<uint8_t>* out_rgb,
                            int64_t* out_pts_us,
                            long* native_ms,
                            bool* out_eos) = 0;
+
+  virtual bool DecodeFrameToTensor(int64_t target_timestamp_us,
+                                   int64_t tolerance_us,
+                                   MNN::Express::VARP* out_tensor,
+                                   int64_t* out_pts_us,
+                                   long* native_ms,
+                                   bool* out_eos);
 
   int width() const { return video_width_; }
   int height() const { return video_height_; }
@@ -65,7 +79,7 @@ class VideoDecoder {
  protected:
   void Teardown();
   void LogCodecName(const char* prefix);
-  bool StepFeedInput(int mode, int64_t next_target_us, bool* saw_input_eos);
+  bool StepFeedInput(int mode, int64_t target_timestamp_us, bool* saw_input_eos);
 
   AMediaExtractor* media_extractor_ = nullptr;
   AMediaCodec* media_codec_ = nullptr;

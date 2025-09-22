@@ -11,7 +11,8 @@ class SurfaceDecoder : public VideoDecoder {
   ~SurfaceDecoder() override;
 
   bool Configure() override;
-  bool DecodeFrame(int64_t next_target_us,
+  bool DecodeFrame(int64_t target_timestamp_us,
+                   int64_t tolerance_us,
                    std::vector<uint8_t>* out_rgb,
                    int64_t* out_pts_us,
                    long* native_ms,

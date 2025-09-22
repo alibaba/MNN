@@ -128,67 +128,48 @@ std::vector<VideoFrame> VideoProcessor::ExtractFrames(
   MNN_DEBUG("VideoProcessor: Decoder configured, dimensions: %dx%d",
              decoder_->width(), decoder_->height());
   
-  int frames_extracted = 0;
-  int64_t next_target_us = 0;
-  bool saw_eos = false;
-  const int64_t step_us = static_cast<int64_t>(1000000.0f / config_.fps);
-
-  MNN_DEBUG("VideoProcessor: Starting frame extraction with decoder instance");
-
-  int consecutive_failures = 0;
-  while (frames_extracted < config_.max_frames && !saw_eos) {
-    std::vector<uint8_t> rgb_data;
-    int64_t pts_us = 0;
-    if (!decoder_->DecodeFrame(next_target_us, &rgb_data, &pts_us, nullptr,
-                               &saw_eos)) {
-      if (saw_eos) {
-        break;
-      }
-      if (++consecutive_failures > 50) {
-        MNN_ERROR("VideoProcessor: Too many consecutive decode failures "
-                  "at frame %d", frames_extracted);
-        break;
-      }
-      std::this_thread::sleep_for(std::chrono::milliseconds(2));
-      continue;
-    }
-
-    consecutive_failures = 0;
-    if (rgb_data.empty()) {
-      next_target_us += step_us;
-      continue;
-    }
-
-    if (debug_callback_) {
-      debug_callback_(rgb_data, decoder_->width(), decoder_->height(),
-                      frames_extracted, pts_us);
-    }
-
-    auto pixel_values = RawRgbToVar(rgb_data.data(), decoder_->width(),
-                                    decoder_->height());
-    if (pixel_values.get() == nullptr) {
-      MNN_ERROR("VideoProcessor: Failed to create MNN tensor from RGB data");
-      next_target_us += step_us;
-      continue;
-    }
-
+  // Use VideoDecoder's DecodeWithFps method - now returns tensors directly
+  std::vector<MNN::Express::VARP> tensors;
+  std::vector<int64_t> timestamps;
+  
+  // Create debug callback wrapper
+  VideoDecoder::FrameDebugCallback decoder_callback = nullptr;
+  if (debug_callback_) {
+    decoder_callback = [this](MNN::Express::VARP tensor,
+                             int64_t pts, long native_ms, int64_t target_us,
+                             const char* strategy, int width, int height) {
+      debug_callback_(tensor, width, height, 0, pts);  // frame_index not available here
+    };
+  }
+  
+  int frames_decoded = decoder_->DecodeWithFps(config_.max_frames, config_.fps,
+                                               &tensors, &timestamps,
+                                               decoder_callback);
+  
+  if (frames_decoded <= 0) {
+    MNN_ERROR("VideoProcessor: Failed to decode frames");
+    return frames;
+  }
+  
+  MNN_DEBUG("VideoProcessor: Decoded %d frames, creating VideoFrames",
+            frames_decoded);
+  
+  // Create VideoFrame objects directly from tensors
+  for (int i = 0; i < frames_decoded; ++i) {
     VideoFrame frame;
-    frame.pixel_values = pixel_values;
-    frame.timestamp_us = pts_us;
-    frame.frame_index = frames_extracted;
+    frame.pixel_values = tensors[i];
+    frame.timestamp_us = timestamps[i];
+    frame.frame_index = i;
     frame.width = decoder_->width();
     frame.height = decoder_->height();
     frames.push_back(frame);
 
-    MNN_DEBUG("VideoProcessor: Extracted frame %d, pts=%ld, size=%dx%d",
-              frame.frame_index, pts_us, frame.width, frame.height);
-
-    ++frames_extracted;
-    next_target_us += step_us;
+    MNN_DEBUG("VideoProcessor: Created VideoFrame %d, pts=%ld, size=%dx%d",
+              frame.frame_index, frame.timestamp_us, frame.width, frame.height);
   }
 
-  MNN_DEBUG("VideoProcessor: Extracted %d frames from video",
-            frames_extracted);
+  MNN_DEBUG("VideoProcessor: Successfully extracted %zu frames from video",
+            frames.size());
   return frames;
 }
 
@@ -246,19 +227,19 @@ void VideoProcessor::UpdateConfig(const VideoProcessorConfig& config) {
 }
 
 // Convert raw RGB data to MNN::Express::VARP
-MNN::Express::VARP RawRgbToVar(const uint8_t* rgb_data,
-                               int width,
-                               int height) {
+MNN::Express::VARP CreateTensorFromRgb(const uint8_t* rgb_data,
+                                       int width,
+                                       int height) {
   if (!rgb_data || width <= 0 || height <= 0) {
     MNN_ERROR("Invalid RGB data or dimensions: %dx%d", width, height);
     return nullptr;
   }
   
-  MNN_DEBUG("RawRgbToVar: creating tensor for %dx%d RGB data", width, height);
+  MNN_DEBUG("CreateTensorFromRgb: creating tensor for %dx%d RGB data", width, height);
   
   // Log first few RGB values for debugging
   if (width * height >= 4) {
-    MNN_DEBUG("RawRgbToVar: input RGB values: R=%d,G=%d,B=%d, "
+    MNN_DEBUG("CreateTensorFromRgb: input RGB values: R=%d,G=%d,B=%d, "
               "R=%d,G=%d,B=%d, R=%d,G=%d,B=%d, R=%d,G=%d,B=%d",
               rgb_data[0], rgb_data[1], rgb_data[2], rgb_data[3],
               rgb_data[4], rgb_data[5], rgb_data[6], rgb_data[7],
@@ -273,13 +254,13 @@ MNN::Express::VARP RawRgbToVar(const uint8_t* rgb_data,
   // Direct memcpy should work for continuous RGB data
   memcpy(ptr, rgb_data, width * height * 3);
   
-  MNN_DEBUG("RawRgbToVar: tensor created successfully, size=%dx%dx3",
+  MNN_DEBUG("CreateTensorFromRgb: tensor created successfully, size=%dx%dx3",
             height, width);
   
   // Verify the tensor data by reading back a few values
   auto verify_ptr = var->readMap<uint8_t>();
   if (verify_ptr && width * height >= 4) {
-    MNN_DEBUG("RawRgbToVar: tensor verification - first RGB values: "
+    MNN_DEBUG("CreateTensorFromRgb: tensor verification - first RGB values: "
               "R=%d,G=%d,B=%d, R=%d,G=%d,B=%d, R=%d,G=%d,B=%d, "
               "R=%d,G=%d,B=%d",
               verify_ptr[0], verify_ptr[1], verify_ptr[2], verify_ptr[3],

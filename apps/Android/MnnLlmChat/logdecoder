@@ -1,1 +1,1 @@
- adb logcat | grep -E "(MNN_DEBUG|SurfaceDecoder|openFromFD|AMediaExtractor|ImageUtils)"
+ adb logcat | grep -E "(MNN_DEBUG|SurfaceDecoder|openFromFD|AMediaExtractor|ImageUtils|ByteBufferDecoder|VideoDecoder)"

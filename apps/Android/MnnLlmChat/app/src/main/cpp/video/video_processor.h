@@ -53,7 +53,7 @@ struct VideoFrame {
 class VideoProcessor {
  public:
   using DebugFrameCallback = std::function<void(
-      const std::vector<uint8_t>& rgb,
+      MNN::Express::VARP tensor,
       int width,
       int height,
       int frame_index,
@@ -100,9 +100,9 @@ class VideoProcessor {
 };
 
 // Convert raw RGB data to MNN::Express::VARP
-MNN::Express::VARP RawRgbToVar(const uint8_t* rgb_data,
-                               int width,
-                               int height);
+MNN::Express::VARP CreateTensorFromRgb(const uint8_t* rgb_data,
+                                      int width,
+                                      int height);
 
 } // namespace mls
 
