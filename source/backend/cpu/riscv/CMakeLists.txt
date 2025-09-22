@@ -5,13 +5,41 @@ ENDIF()
 FILE(GLOB MNN_RVV_SRC ${CMAKE_CURRENT_LIST_DIR}/rvv/*.cpp)
 
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "^riscv64" OR ARCHS STREQUAL "riscv64")
-    message(STATUS "Enabling RVV Optimizations")
-    add_library(MNNRVV OBJECT ${MNN_RVV_SRC})
-    target_include_directories(MNNRVV PRIVATE ${CMAKE_CURRENT_LIST_DIR}/rvv/)
-    list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNNRVV>)
-    list(APPEND MNN_TARGETS MNNRVV)
-    add_definitions(-DMNN_USE_RVV)
-    target_compile_options(MNNRVV PRIVATE -march=rv64gcv -mabi=lp64d)
+    message(STATUS "Target is riscv64. Performing fine-grained toolchain check for RVV support...")
+    set(RVV_TEST_FLAGS "-march=rv64gcv -mabi=lp64d")
+
+    set(RVV_CHECK_SOURCE_CONTENT
+      "
+      #ifndef __riscv_v
+      #error \"Compiler does not define __riscv_v. RVV is not properly supported.\"
+      #endif
+      int main() { return 0; }
+      "
+    )
+    set(TRY_COMPILE_DIR "${CMAKE_BINARY_DIR}/CMakeFiles/CMakeTmp")
+    set(RVV_CHECK_FILE_PATH "${TRY_COMPILE_DIR}/rvv_check.cpp")
+    file(WRITE "${RVV_CHECK_FILE_PATH}" "${RVV_CHECK_SOURCE_CONTENT}")
+
+    try_compile(
+        TOOLCHAIN_SUPPORTS_RVV
+        SOURCES "${RVV_CHECK_FILE_PATH}"
+        CMAKE_FLAGS "-DCMAKE_CXX_FLAGS=${RVV_TEST_FLAGS}"
+    )
+
+    message(STATUS "Cleaning up temporary compile directory...")
+    file(REMOVE_RECURSE "${TRY_COMPILE_DIR}")
+
+    if(TOOLCHAIN_SUPPORTS_RVV)
+        message(STATUS "Toolchain check passed. Enabling RVV Optimizations.")
+        add_library(MNNRVV OBJECT ${MNN_RVV_SRC})
+        target_include_directories(MNNRVV PRIVATE ${CMAKE_CURRENT_LIST_DIR}/rvv/)
+        list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNNRVV>)
+        list(APPEND MNN_TARGETS MNNRVV)
+        add_definitions(-DMNN_USE_RVV)
+        target_compile_options(MNNRVV PRIVATE ${RVV_TEST_FLAGS})
+    else()
+        message(WARNING "Target is riscv64, but the toolchain check failed with flags (${RVV_TEST_FLAGS}). Please check if your compiler version supports the 'V' extension. RVV optimizations will be disabled.")
+    endif()
 else()
-    message(WARNING "RVV optimizations are only supported on riscv64 architecture")
+    message(STATUS "RVV optimizations are skipped for non-riscv64 targets.")
 endif()
