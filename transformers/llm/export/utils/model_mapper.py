@@ -25,7 +25,7 @@ class ModelMapper:
         self.mapper[model_type] = model_map
 
     def init_models(self):
-        self.defualt_map()
+        self.init_default_map()
         for method_name in dir(self):
             if callable(getattr(self, method_name)) and method_name.startswith("regist_"):
                 method = getattr(self, method_name)
@@ -178,7 +178,7 @@ class ModelMapper:
         }
         qwen3_map = {
             'config': self.default_config,
-            'model': self.defualt_model,
+            'model': self.default_model,
             'decoder': self.default_decoder,
             'attention': qwen3_attention
         }
@@ -202,7 +202,7 @@ class ModelMapper:
         }
         qwen3_moe_map = {
             'config': self.default_config,
-            'model': self.defualt_model,
+            'model': self.default_model,
             'decoder': self.default_decoder,
             'attention': qwen3_attention,
             'mlp': qwen3_mlp,
@@ -210,7 +210,7 @@ class ModelMapper:
         self.regist('qwen3_moe', qwen3_moe_map)
 
     def regist_mimo(self):
-        mimo_model = copy.deepcopy(self.defualt_model)
+        mimo_model = copy.deepcopy(self.default_model)
         mimo_model['mtp'] = 'model.mtp_layers'
         mimo_map = {
             'config': self.default_config,
@@ -221,7 +221,7 @@ class ModelMapper:
         self.regist('mimo', mimo_map)
 
     def regist_poi_qwen2_mtp(self):
-        poi_qwen2_mtp_model = copy.deepcopy(self.defualt_model)
+        poi_qwen2_mtp_model = copy.deepcopy(self.default_model)
         poi_qwen2_mtp_model['mtp1'] = 'MTP1'
         poi_qwen2_mtp_model['mtp2'] = 'MTP2'
         poi_qwen2_mtp_map = {
@@ -378,7 +378,7 @@ class ModelMapper:
         gemma2_decoder['post_feedforward_layernorm'] = 'post_feedforward_layernorm'
         gemma2_map = {
             'config': self.default_config,
-            'model': self.defualt_model,
+            'model': self.default_model,
             'decoder': gemma2_decoder,
             'attention': self.default_attention
         }
@@ -538,7 +538,7 @@ class ModelMapper:
         self.regist('smolvlm', idefics3_map)
 
     def regist_fastvlm(self):
-        fastvlm_model = copy.deepcopy(self.defualt_model)
+        fastvlm_model = copy.deepcopy(self.default_model)
         fastvlm_model['visual'] = 'model.vision_tower'
         fastvlm_map = {
             'config': self.default_config,
@@ -578,7 +578,7 @@ class ModelMapper:
         }
         hunyuan_map = {
             'config': self.default_config,
-            'model': self.defualt_model,
+            'model': self.default_model,
             'decoder': self.default_decoder,
             'attention': hunyuan_attention
         }
@@ -607,7 +607,7 @@ class ModelMapper:
         }
         gpt_osss_map = {
             'config': gpt_oss_config,
-            'model': self.defualt_model,
+            'model': self.default_model,
             'decoder': self.default_decoder,
             'attention': gpt_oss_attention,
             'mlp': gpt_oss_mlp
@@ -621,7 +621,7 @@ class ModelMapper:
         minicpm_decoder['scale_depth'] = 'scale_depth'
         minicpm_map = {
             'config': minicpm_config,
-            'model': self.defualt_model,
+            'model': self.default_model,
             'decoder': minicpm_decoder,
             'attention': self.default_attention
         }
@@ -646,7 +646,7 @@ class ModelMapper:
         }
         self.regist('minicpmv', minicpmv_map)
 
-    def defualt_map(self):
+    def init_default_map(self):
         # default map is `LlamaForCausalLM`
         self.config_key = 'config'
         self.model_key = 'model'
@@ -662,7 +662,7 @@ class ModelMapper:
             'rope_scaling': 'rope_scaling',
             'max_position_embeddings': 'max_position_embeddings'
         }
-        self.defualt_model = {
+        self.default_model = {
             'lm_': 'lm_head',
             'embed_': 'model.embed_tokens',
             'blocks_': 'model.layers',
@@ -684,7 +684,7 @@ class ModelMapper:
         }
         self.default_map = {
             'config': self.default_config,
-            'model': self.defualt_model,
+            'model': self.default_model,
             'decoder': self.default_decoder,
             'attention': self.default_attention
         }
