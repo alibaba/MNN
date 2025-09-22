@@ -127,6 +127,152 @@ protected:
     }
 };
 
+inline int8_t int32ToInt8(int data, int bias, float scale) {
+    float value = 0.f;
+    value = roundf((float)(data + bias) * scale);
+
+    value       = std::max(value, -127.0f);
+    value       = std::min(value, 127.0f);
+    return static_cast<int8_t>(value);
+}
+static std::vector<int8_t> naiveConvInt8(const int8_t* x, const int8_t* weight, const int* bias, const float* scale,
+                                           int ow, int oh, int iw, int ih, int ic, int oc, int kw, int kh, int padX, int padY, int group, int padValue = 0,
+                                           int strideX = 1, int strideY = 1, int dilateX = 1, int dilateY = 1, int batch = 1) {
+    int ocGroup = oc / group, icGroup = ic / group;
+    std::vector<int8_t> yCorrect(batch * oc * oh * ow, 0);
+    for (int b = 0; b < batch; ++b) {
+        for (int oz = 0; oz < oc; ++oz) {
+            int gId = oz / ocGroup;
+            for (int oy = 0; oy < oh; ++oy) {
+                for (int ox = 0; ox < ow; ++ox) {
+                    int32_t yInt32 = 0;
+                    auto destOffset = ((b * oc + oz) * oh + oy) * ow + ox;
+                    for (int sz = gId * icGroup; sz < (gId + 1) * icGroup; ++sz) {
+                        for (int ky = 0; ky < kh; ++ky) {
+                            for (int kx = 0; kx < kw; ++kx) {
+                                int ix = ox * strideX + kx * dilateX - padX, iy = oy * strideY + ky * dilateY - padY;
+                                int8_t xValue = padValue;
+                                if (ix >= 0 && ix < iw && iy >= 0 && iy < ih) {
+                                    xValue = x[(((b * ic + sz) * ih + iy) * iw + ix)];
+                                }
+                                yInt32 += xValue * weight[(((gId * ocGroup + oz % ocGroup) * icGroup + sz % icGroup) * kh + ky) * kw + kx];
+                            }
+                        }
+                    }
+                    yCorrect[destOffset] = int32ToInt8(yInt32, bias[oz], scale[oz]);
+                }
+            }
+        }
+    }
+    return yCorrect;
+}
+
+class PtqTestCommon : public MNNTestCase {
+protected:
+    static bool testKernel(std::string title, INTS inputShape, INTS kernel, INTS channel, INTS pad, INTS strides, INTS dilate, int batch = 1, int nbit = 8, int precision = 1, int blocksize = 0) {
+        float fac = 0.23;
+        float tail = 0;
+        int ic = channel[0], oc = channel[1];
+        int iw = inputShape[0], ih = inputShape[1];
+        std::vector<float> bias(oc), biastest(oc), biasdup(oc);
+        int area = kernel[0] * kernel[1];
+        int blocknum = 1;
+        if (0 == blocksize || ic % blocksize != 0) {
+            blocksize = ic;
+            blocknum = 1;
+        } else {
+            blocknum = ic / blocksize;
+        }
+        
+        std::vector<float> weightFp32(oc * ic * area);
+        std::vector<float> wScale(2 * oc * blocknum);
+        
+        float threshold = (float)(1 << (nbit - 1)) - 1.0f;
+        float clampMin = -threshold - 1;
+        
+        VARP x;
+        int8_t xMin = -(1<<(8-1)), xMax = (1<<(8-1))-1;
+        x = _Input({batch, ic, ih, iw}, NCHW, halide_type_of<float>());
+        auto xInfo = x->getInfo();
+        auto xPtr = x->writeMap<float>();
+        for (int i = 0; i < xInfo->size; ++i) {
+            xPtr[i] = (float)((i % (xMax - xMin + 1)) + xMin); // x in [xMin, xMax]
+        }
+        x = _Convert(x, NC4HW4);
+        x->writeScaleMap(1.0f, 0.f);
+        
+        for (int i = 0; i < oc; ++i) {
+            bias[i] = i % 10 + 0.005;
+            for (int j = 0; j < ic; ++j) {
+                for (int k = 0; k < area; k++) {
+                    weightFp32[(i * ic + j) * area + k] = ((i * ic + j) * area + k) % nbit * fac + tail;
+                }
+            }
+        }
+        ::memcpy(biastest.data(), bias.data(), oc * sizeof(float));
+        ::memcpy(biasdup.data(), bias.data(), oc * sizeof(float));
+        int kernel_size = ic * area;
+        auto newWeightFp32 = weightFp32;
+        for (int k = 0; k < oc; ++k) {
+            int beginIndex = k * kernel_size;
+            for (int j = 0; j < blocknum; ++j) {
+                auto index = k * blocknum + j;
+                auto minmax = findMinMax(weightFp32.data() + k * ic * area + j * blocksize * area, blocksize * area);
+                auto scale_ = (minmax.second - minmax.first) / (threshold - clampMin);
+                wScale[2 * index] = minmax.first;
+                wScale[2 * index + 1] = scale_;
+                for (int u = 0; u < blocksize; ++u) {
+                    for (int i = 0; i < area; ++i) {
+                        int idx = k * ic * area + j * blocksize * area + u * area + i;
+                        int q_weight = (weightFp32[idx] - minmax.first) * (threshold - clampMin) / (minmax.second - minmax.first) + clampMin;
+                        newWeightFp32[idx] = (q_weight - xMin) * scale_ + minmax.first;
+                    }
+                }
+            }
+        }
+        auto y     = _HybridConv(weightFp32, std::move(bias), std::move(wScale), x, channel, kernel, PaddingMode::CAFFE, strides, dilate, 1, pad, false, false, nbit, true);
+        
+        
+        auto yfp32 = _Conv(std::move(newWeightFp32), std::move(biasdup), x, {ic, oc}, kernel, PaddingMode::CAFFE, strides, dilate, 1, pad);
+        yfp32 = _Convert(yfp32, NCHW);
+        auto tgPtr = yfp32->readMap<FLOAT_T>();
+        
+        auto yInfo = y->getInfo();
+        
+        auto elesize = yfp32->getInfo()->size;
+        float limit = 0.1f;
+        
+        bool correct = true;
+        float maxValue = tgPtr[0];
+        float min_ = tgPtr[0];
+        float max_ = min_;
+        for (int i = 0; i < elesize; ++i) {
+            maxValue = fmaxf(maxValue, fabsf(tgPtr[i]));
+            min_ = fminf(min_, tgPtr[i]);
+            max_ = fmax(max_, tgPtr[i]);
+        }
+        float outputScale = (max_ - min_) / (threshold - clampMin);
+        float outputZero = min_ + (-clampMin) * outputScale;
+        y->writeScaleMap(outputScale, outputZero);
+
+        y = _Convert(y, NCHW);
+        auto yint8 = y->readMap<int8_t>();
+
+        for (int i = 0; i < elesize; ++i) {
+            float targetValue = tgPtr[i], computeResult = yint8[i] * outputScale + outputZero;
+            float diff = targetValue - computeResult;
+            float ratio = fabsf(diff) / maxValue;
+            if (ratio > limit) {
+                MNN_PRINT("%d result Error ratio=%f: right=%f, error=%f\n", i, ratio, targetValue, computeResult);
+                MNN_PRINT("conv info: input=(%dx%dx%dx%d) output=(%dx%dx%dx%d)\n", batch, ic, ih, iw, batch, oc, yInfo->dim[2], yInfo->dim[3]);
+                correct = false;
+                break;
+            }
+        }
+        return true;
+    }
+};
+
 class HybridConvSpeedInt8Test : public HybridConvSpeedTestCommon {
 public:
     virtual bool run(int precision) {
@@ -270,7 +416,43 @@ public:
     }
 };
 
+class PTQInt4Test: public PtqTestCommon {
+public:
+    virtual bool run(int precision) {
+        std::vector< std::vector<int>> channels = {{16, 16}, {128, 127}};
+        INTS strides = {1, 1}, dilate = {1, 1}, pad = {0, 0}, inputShape = {1, 1}; // {w, h}
+        std::vector<int> batch = {1};
+        std::vector<std::vector<int>> kernels = {{1, 1}};
+        std::vector<int> weightBits = {4};
+        std::vector<int> blocks = {0, 32};
+        bool lowmemory = true;
+        int n = 0;
+        for (auto& bits : weightBits) {
+            for (int n = 0; n < batch.size(); ++n) {
+                for (int i = 0; i < channels.size(); ++i) {
+                    for (auto kernel : kernels) {
+                        for (auto block : blocks) {
+                            if (block > 0 && channels[i][0] % block != 0) {
+                                continue;
+                            }
+                            if (dilate[0] > inputShape[0] || dilate[0] * (kernel[0] - 1) + 1 > inputShape[0] || dilate[0] * (kernel[1] - 1) + 1 > inputShape[1])
+                                continue;
+                            auto res = testKernel("Low memory ConvInt8 with kernel test:", inputShape, kernel, channels[i], pad, strides, dilate, batch[n], bits, precision, block);
+                            if (!res) {
+                                MNN_ERROR("Error: low memory ConvInt8 with %dx%d kernel when bits=%d, n=%d, ic=%d, oc=%d, block=%d\n", kernel[0], kernel[1], bits, batch[n], channels[i][0], channels[i][1], block);
+                                return false;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return true;
+    }
+};
+
 MNNTestSuiteRegister(DenseConvInt8Test, "op/lowMemory/DenseConv");
 MNNTestSuiteRegister(HybridConvInt8Test, "op/lowMemory/HybridConv");
 MNNTestSuiteRegister(HybridConvSpeedInt8Test, "speed/HybridConv");
 MNNTestSuiteRegister(ConvInt8BlockQuantTest, "op/lowMemory/blockConv");
+//MNNTestSuiteRegister(PTQInt4Test, "op/int4Ptq");

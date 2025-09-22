@@ -411,6 +411,10 @@ public:
     virtual bool onGetDeviceInfo(const std::string& deviceKey, std::string& deviceValue) const {
         return false;
     }
+    
+    virtual bool onSetQuantInfo(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) const {
+        return false;
+    }
 protected:
     /**
      @brief deinitializer.

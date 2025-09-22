@@ -10,6 +10,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 ErrorCode QNNPadding::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     MNN_ASSERT(inputs.size() == 2);
@@ -55,6 +56,6 @@ public:
 };
 
 REGISTER_QNN_OP_CREATOR(QNNPaddingCreator, OpType_Padding)
-
+#endif
 } // end namespace QNN
 } // end namespace MNN

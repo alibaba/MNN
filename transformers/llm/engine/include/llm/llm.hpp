@@ -125,16 +125,18 @@ public:
     std::string dump_config();
     bool set_config(const std::string& content);
     Llm* create_lora(const std::string& lora_path);
-    std::string get_statistics();
     // tokenier function
     bool is_stop(int token);
     std::string tokenizer_decode(int token);
     virtual std::vector<int> tokenizer_encode(const std::string& query);
     friend class Pipeline;
     virtual std::vector<int> tokenizer_encode(const MultimodalPrompt& multimodal_input);
-    void response(const MultimodalPrompt& multimodal_input, 
-                  std::ostream* os = &std::cout, 
-                  const char* end_with = nullptr, 
+    // ptompt functions
+    std::string apply_chat_template(const std::string& user_content) const;
+    std::string apply_chat_template(const ChatMessages& chat_prompts) const;
+    void response(const MultimodalPrompt& multimodal_input,
+                  std::ostream* os = &std::cout,
+                  const char* end_with = nullptr,
                   int max_new_tokens = -1);
     const LlmContext* getContext() const {
         return mContext.get();
@@ -181,6 +183,8 @@ private:
     int mDraftLength = 4;
     std::shared_ptr<GenerationParams> mGenerateParam;
     bool mAsync = true;
+    int mBlockSize = 0;
+    std::vector<int> mValidBlockSize;
 };
 
 // Embedding start
@@ -193,6 +197,7 @@ public:
     virtual bool load() override;
     Express::VARP ids_embedding(const std::vector<int>& ids);
     Express::VARP txt_embedding(const std::string& txt);
+    std::vector<Express::VARP> forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos) override;
     int dim() const;
     virtual Express::VARP gen_attention_mask(int seq_len) override;
     virtual Express::VARP gen_position_ids(int seq_len) override;

@@ -191,7 +191,7 @@ void MNNComputeMatMulForE_1(const float* A, const float* B, float* C, const floa
 void MNNCopyC4Int16WithStride(const float* sourceF, float* destF, size_t srcStride, size_t dstStride, size_t count);
 void MNNInt8ToInt16(int16_t* dest, const int8_t* source, size_t count);
 
-void packKvCache(float* dst, const float* src, size_t seqLen, size_t kvSeqLen, size_t eP);
+void MNNPackForMatMul_A(float* dst, const float* src, size_t E, size_t L, size_t eP, size_t lP, size_t bytes);
 
 struct SumByAxisParams {
     ssize_t kernelCountUnitDouble;
@@ -292,7 +292,7 @@ struct CoreFunctions {
     MNNBinaryExecute(*MNNSelectBinaryFunctionForFloat)(int opType);
     MNNUnaryExecute(*MNNSelectUnaryFunctionForFloat)(int opType, int precisionMode);
 #ifdef MNN_SUPPORT_QUANT_EXTEND
-    MNNUnaryExecuteInt8(*MNNSelectUnaryFunctionForInt8)(int opType);
+    MNNUnaryExecuteInt8(*MNNSelectUnaryFunctionForInt8)(int opType) = nullptr;
 #endif
     // B matrix is sparsed
     typedef void(*MNNPackedSparseMatMul)(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, unsigned int* NNZMap, int* dataOffsetMap);

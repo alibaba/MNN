@@ -19,12 +19,13 @@ class SmoothQuantizer:
         max_calib_samples=128,
         max_calib_seq_len=512,
         alpha=0.5,
+        act_bit=8
     ) -> None:
     
         self.model = model
         self.tokenizer = model.tokenizer
         #self.w_bit = model.args.quant_bit
-        self.act_bit = 8
+        self.act_bit = act_bit
         self.group_size = model.args.quant_block
         self.alpha = alpha
         
@@ -388,6 +389,11 @@ class SmoothQuantizer:
 
         max_val = 2 ** (self.act_bit - 1) - 1
         min_val = -max_val
+        data_type = 'DT_INT16'
+        if self.act_bit <= 8:
+            data_type = 'DT_INT8'
+        if self.act_bit > 8 and self.act_bit <= 16:
+            data_type = 'DT_INT16'
 
         quant_info_dict = {}
 
@@ -406,7 +412,8 @@ class SmoothQuantizer:
                         'quantInfo': {
                             'scale': self.act_dict[layer_idx][layer_name]['input'],
                             'min': min_val,
-                            'max': max_val
+                            'max': max_val,
+                            "type":data_type
                         }
                     }
                 
@@ -416,7 +423,8 @@ class SmoothQuantizer:
                         'quantInfo': {
                             'scale': self.act_dict[layer_idx][layer_name]['output'],
                             'min': min_val,
-                            'max': max_val
+                            'max': max_val,
+                            "type":data_type
                         }
                     }
         mnn['extraTensorDescribe'] = list(quant_info_dict.values())

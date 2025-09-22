@@ -5,6 +5,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 enum QNNCommandType {
     QNNCommandTypeBegin,
@@ -99,7 +100,7 @@ private:
     static std::string CppBuffer;
     static const uint32_t CppBufferSize;
 };
-
+#endif
 } // end namespace MNN
 } // end namespace QNN
 

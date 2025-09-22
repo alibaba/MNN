@@ -11,6 +11,7 @@
 #include "TfliteUtils.hpp"
 #include "liteOpConverter.hpp"
 #include "core/OpCommonUtils.hpp"
+#include "core/IDSTEncoder.hpp"
 
 DECLARE_OP_COVERTER(Conv2DTflite);
 
@@ -40,6 +41,20 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
     const auto& inputTensor  = tfliteTensors[inputIndex];
     const auto& weightTensor = tfliteTensors[weightIndex];
     const auto& outputTensor = tfliteTensors[outputIndex];
+    if (weightTensor->type == tflite::TensorType_INT8) {
+        quantizedModel = 2;
+        dstOp->type = MNN::OpType_Convolution;
+        dstOp->main.type = MNN::OpParameter_Convolution2D;
+    } else if (weightTensor->type == tflite::TensorType_UINT8) {
+        quantizedModel = 1;
+        dstOp->type = MNN::OpType_TfQuantizedConv2D;
+        dstOp->main.type = MNN::OpParameter_TfQuantizedConv2D;
+    } else {
+        MNN_ASSERT(weightTensor->type == tflite::TensorType_FLOAT32);
+        quantizedModel = 0;
+        dstOp->type = MNN::OpType_Convolution;
+        dstOp->main.type = MNN::OpParameter_Convolution2D;
+    }
     
     auto inputShape = inputTensor->shape;
     int group = 1;
@@ -197,13 +212,10 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
         MNN_ASSERT(weightTensor->quantization->scale.size() == co);
         MNN_ASSERT(tfliteModelBuffer[weightTensor->buffer]->data.size() == weightSize);
         convolution2DQuant->symmetricQuan.reset(new MNN::QuantizedFloatParamT);
-        convolution2DQuant->quanParameter.reset(new MNN::IDSTQuanT);
-        auto& quanParam = convolution2DQuant->quanParameter;
-        quanParam->type = 4;
-        quanParam->buffer.resize(weightSize);
-        quanParam->alpha.resize(co);
+        std::vector<int8_t> transposeWeight(weightSize, 0);
         auto weight = reinterpret_cast<const int8_t*>(tfliteModelBuffer[weightTensor->buffer]->data.data());
         auto alpha = weightTensor->quantization->scale.data();
+        // TODO: Support zero
         float scaleIn = inputTensor->quantization->scale[0];
         float scaleOut = outputTensor->quantization->scale[0];
         // [co, kh, kw, ci] -> [co, ci, kh, kw]
@@ -211,13 +223,11 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
         for (int i = 0; i < co; i ++) {
             for (int j = 0; j < ci; j++) {
                 for (int k = 0; k < area; k++) {
-                    quanParam->buffer[i * ci * area + j * area + k] = weight[i * area * ci + k * ci + j];
+                    transposeWeight[i * ci * area + j * area + k] = weight[i * area * ci + k * ci + j];
                 }
             }
         }
-        ::memcpy(quanParam->alpha.data(), alpha, co * sizeof(float));
-        quanParam->scaleIn = scaleIn;
-        quanParam->scaleOut = scaleOut;
+        convolution2DQuant->quanParameter = IDSTEncoder::encode(nullptr, weightTensor->quantization->scale, kh * kw * ci, co, false, transposeWeight.data(), -128);
 
         // bias
         convolution2DQuant->bias.resize(co);

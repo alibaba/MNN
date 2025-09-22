@@ -10,6 +10,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 ErrorCode QNNPool::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     // Params: filter_size([h, w]), stride([h, w]), pad_amount([[height_pad_before, height_pad_after], [width_pad_before, width_pad_after]]), count_pad_for_edges(false), rounding_mode
@@ -193,7 +194,7 @@ public:
 
 REGISTER_QNN_OP_CREATOR(QNNPoolCreator, OpType_Pooling)
 REGISTER_QNN_OP_CREATOR(QNNPoolCreator, OpType_Pooling3D)
-
+#endif
 } // end namespace QNN
 } // end namespace MNN
 

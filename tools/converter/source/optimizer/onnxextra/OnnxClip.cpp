@@ -41,7 +41,7 @@ static EXPRP clipConvert(EXPRP expr, bool supportRelu6) {
             minValue = minPtr[0];
         }
     }
-    if (inputs.size() == 3 && !unknown_min_max) {
+    if (inputs.size() == 3 && !unknown_min_max && inputs[2].get() != nullptr) {
         auto maxPtr = inputs[2]->readMap<T>();
         if (nullptr == maxPtr) {
             unknown_min_max = true;

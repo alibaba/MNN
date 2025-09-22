@@ -11,7 +11,7 @@ def main(args):
     model = mnnllm.create(args.mnn_path)
     model.load()
     model.set_config({'all_logits': True, 'use_template': False})
-    # model.set_config("")
+    model.generate_init()
 
     # load dataset
     eval_dataset = args.eval_dataset
@@ -31,6 +31,7 @@ def main(args):
     for begin_loc in tqdm(range(0, seq_len, stride)):
         end_loc = min(begin_loc + context_length, seq_len)
         chunk_ids = input_ids[begin_loc:end_loc]
+        model.reset()
         logits = model.forward(chunk_ids)
         npy_logits = copy.deepcopy(logits.read())
         logits = torch.from_numpy(npy_logits).squeeze(0)

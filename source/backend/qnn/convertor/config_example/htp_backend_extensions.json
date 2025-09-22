@@ -5,6 +5,7 @@
     "graph_names": ["qnn_smolvlm_model"],
     "O": 3.0,
     "fp16_relaxed_precision": 1,
+    "weights_packing": true,
     "hvx_threads": 4
     }
     ],
@@ -22,6 +23,6 @@
     }
     ],
     "context": {
-    "weight_sharing_enabled": false
+    "weight_sharing_enabled": true
     }
 }

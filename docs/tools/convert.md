@@ -335,27 +335,29 @@ cat mobilenet_v1.json
 ## MNN2QNNModel
 ### 功能
 利用QNN工具将mnn模型转为可以在QNN运行的mnn模型结构文件以及QNN离线序列化模型，后续可以在QNN上运行该离线模型。
-- 注意：该工具目前仅支持在Linux环境运行，需要提前下载QNN SDK，参考QNN环境准备(docs/inference/npu.md)
+- 注意：该工具目前仅支持在Linux环境(推荐Ubuntu22.04)运行，需要提前下载QNN SDK，参考QNN环境准备(docs/inference/npu.md)
 ### 参数
-`Usage: ./MNN2QNNModel src.mnn dst.mnn qnn_sdk_path qnn_model_name qnn_context_config.json`
+`Usage: ./MNN2QNNModel src.mnn dst.mnn qnn_sdk_path qnn_model_name qnn_context_config.json input_type_size input_type_0/input_type_mnn_0 input_type_1/input_type_mnn_1`
 - `src.mnn:str` 源mnn模型文件路径
 - `dst.mnn:str` 目标mnn模型文件路径
-- `qnn_sdk_path:str` QNN SDK绝对路径
+- `qnn_sdk_path:str` QNN SDK绝对路径,建议2.37及之后的版本
 - `qnn_model_name:str` 转完后的QNN模型图名字，同时需要新建同名文件夹，后续生成的QNN产物放在该目录下
 - `qnn_context_config.json:str` QNN生成context binary的配置文件（示例文件：source/backend/qnn/convertor/config_example/context_config.json和source/backend/qnn/convertor/config_example/htp_backend_extensions.json），通常需要改context_config.json文件中路径地址，htp_backend_extensions.json中graph_names（需要与qnn_model_name保持一致）、soc_id、dsp_arch（根据机型参考[高通官网的设备架构表](https://docs.qualcomm.com/bundle/publicresource/topics/80-63442-50/overview.html#supported-snapdragon-devices)进行设置）
+- （可选）`input_type_size:str`，对于要指定输入形状或者多种输入形状的场景，设置输入形状的种类数。例如想生成2种类型的输入形状，则设置2，后面两个参数则需要传入2中输入形状。
+- 说明：输入形状设置可以是:input_type_x直接设置shape字符串，或者是input_type_mnn设置输入的mnn文件。通常建议单输入单输出模型采用直接设置字符串形状较方便，多输入多输出模型通过mnn模型方式更容易避免设置出错。
+- （可选）`input_type_x`说明：单输入模型形状设置例如'1x3x512x512'。多输入模型形状设置每个输入形状使用'_'连接，例如'1x3x512x512_1x128'。多输入多输出模型建议使用input.mnn为输入形状设置。
 ### 使用示例
 ```
 cd mnn_path
 mkdir build
 cd build
 // 确保已经把高通SDK头文件拷贝到对应路径
-cmake .. -DMNN_QNN=ON -DMNN_QNN_CONVERT_MODE=ON -DMNN_SUPPORT_TRANSFORMER_FUSE=ON -DMNN_WITH_PLUGIN=ON
+cmake .. -DMNN_QNN=ON -DMNN_QNN_CONVERT_MODE=ON -DMNN_SUPPORT_TRANSFORMER_FUSE=ON
 make -j16
-
-// 新建qnn_model_name名字文件夹，后续产物放在这里 
-mkdir qnn_smolvlm_model
-
-./MNN2QNNModel mnnfuse_smolvlm/visual.mnn qnn_smolvlm_model.mnn /mnt/2Tpartition/huaiqian/QNN_DEV/qairt_2_32 qnn_smolvlm_model ../source/backend/qnn/convertor/config_example/context_config.json
+```
+#### 默认输入形状(不手动设置输入形状)
+```
+./MNN2QNNModel mnnfuse_smolvlm/visual.mnn qnn_smolvlm_model.mnn /mnt/2Tpartition/tianbu/QNN/qairt/2.37.0.250724 qnn_smolvlm_model ../source/backend/qnn/convertor/config_example/context_config.json
 
 Can't open file:/sys/devices/system/cpu/cpufreq/schedutil/affected_cpus
 Can't open file:/sys/devices/system/cpu/cpufreq/boost/affected_cpus
@@ -375,9 +377,12 @@ qnn-context-binary-generator pid:1490535
 npu model path:./qnn_smolvlm_model.bin
 [All Pass]: npu model generator success!
 ```
-`[All Pass]: npu model generator success!`说明整个过程成功。结果：
+`[All Pass]: npu model generator success!`说明整个过程成功。
+
+#### 推理方式说明
 - 生成所需的两个模型dst.mnn和qnn_model_name/binary/qnn_model_name.bin两个QNN文件。
-- 将这两个文件替换原来src.mnn使用，运行设置为CPU后端，
+- 将这两个文件替换原来src.mnn使用
+- 需要打开`MNN_WITH_PLUGIN`宏重新编译，运行后端设置为CPU
 - 正确性验证，例如：
 ```
 /* 
@@ -388,6 +393,19 @@ npu model path:./qnn_smolvlm_model.bin
  
 ./ModuleBasic.out qnn_smolvlm_model.mnn dir 0 0 10
 ```
+
+#### 自定义输入形状(多种推理尺寸设置)
+```
+./MNN2QNNModel /home/mnnteam/tianbu/models/mnnfuse_fastvlm2_q8b0sym/visual.mnn ./qnn_models/fastvlm_visual_8_sym_57_v75.mnn /mnt/2Tpartition/tianbu/QNN/qairt/2.37.0.250724/ fastvlm_visual_8_sym_57_v75 ../source/backend/qnn/convertor/config_example/context_config.json 2 1x3x512x512 1x3x1024x1024
+
+...
+[Pass]: qnn-context-binary-generator success!
+[All Pass]: npu model generator success!
+[Output Product]:
+New mnn model path: ./qnn_models/fastvlm_visual_8_sym_57_v75.mnn
+Npu model path: ./qnn_models/fastvlm_visual_8_sym_57_v75_combined.bin
+```
+
 ### 生成多种QNN设备模型脚本
 tools/script/genQNNModelsFromMNN.py中提供了8Gen1 ~ 8Elite设备的QNN模型生成脚本
 ```

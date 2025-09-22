@@ -10,6 +10,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 void QNNConvDepthwise::isWeightQuantSupported(const Tensor *input, const int oc){
     Qnn_DataType_t dataType = mBackend->getNativeTensor(input)->v1.dataType;
@@ -101,12 +102,8 @@ ErrorCode QNNConvDepthwise::onEncodeQuantDequantDepthConv(Tensor *input, Tensor 
                 mParams.clear();
                 mInputs.clear();
                 mOutputs.clear();
-                mNodeType = common->relu6() ? "ReluMinMax" : "Relu";
+                mNodeType = common->relu6() ? "Relu6" : "Relu";
                 std::string name = mNodeName + "_relu";
-                if (common->relu6()) {
-                    mParams.push_back(*(mParamScalarWrappers[1]->getNativeParam())); // min_value
-                    mParams.push_back(*(mParamScalarWrappers[2]->getNativeParam())); // max_value
-                }
                 mInputs.push_back(*(mTempTensorWrappers[4]->getNativeTensor())); // ReluTensor
                 mOutputs.push_back(*(mTempTensorWrappers[3]->getNativeTensor())); // QuantOutput
                 mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
@@ -196,10 +193,6 @@ ErrorCode QNNConvDepthwise::onEncode(const std::vector<Tensor *> &inputs, const 
     this->createParamTensor("stride", QNN_DATATYPE_UINT_32, {2}, (void *)strideData.data());
     this->createParamTensor("pad_amount", QNN_DATATYPE_UINT_32, {2, 2}, (void *)padAmountData.data());
     this->createParamTensor("dilation", QNN_DATATYPE_UINT_32, {2}, (void *)dilationData.data());
-    if (common->relu6()) {
-        this->createParamScalar("min_value", 0.0f);
-        this->createParamScalar("max_value", 6.0f);
-    }
 
     this->createWeightAndBias(dataType, inputs[0], oc, kernelH, kernelW);
     // dequant input and quant output
@@ -211,11 +204,11 @@ ErrorCode QNNConvDepthwise::onEncode(const std::vector<Tensor *> &inputs, const 
         Qnn_QuantizeParams_t quantize = DEFAULT_QUANTIZE_PARAMS;
         Qnn_ScaleOffset_t tScaleOffsetEncoding;
         auto quant = TensorUtils::getDescribe(outputs[0])->quantAttr.get();
-        if(quant != nullptr && TensorUtils::getDescribe(outputs[0])->type == DataType_DT_INT8){
+        if(quant != nullptr && TensorUtils::getDescribe(outputs[0])->applyQuant){
             quantize.encodingDefinition = QNN_DEFINITION_DEFINED;
             quantize.quantizationEncoding = QNN_QUANTIZATION_ENCODING_SCALE_OFFSET;
-            tScaleOffsetEncoding.scale = quant->scale;
-            tScaleOffsetEncoding.offset = quant->zero;
+            tScaleOffsetEncoding.scale = mBackend->getNativeTensor(outputs[0])->v1.quantizeParams.scaleOffsetEncoding.scale;
+            tScaleOffsetEncoding.offset = mBackend->getNativeTensor(outputs[0])->v1.quantizeParams.scaleOffsetEncoding.offset;
             quantize.scaleOffsetEncoding = tScaleOffsetEncoding;
         }
         this->createStageTensor("ReluTensor", dataType, getNHWCShape(outputs[0]), quantize);
@@ -247,12 +240,8 @@ ErrorCode QNNConvDepthwise::onEncode(const std::vector<Tensor *> &inputs, const 
                 mParams.clear();
                 mInputs.clear();
                 mOutputs.clear();
-                mNodeType = common->relu6() ? "ReluMinMax" : "Relu";
+                mNodeType = common->relu6() ? "Relu6" : "Relu";
                 std::string name = mNodeName + "_relu";
-                if (common->relu6()) {
-                    mParams.push_back(*(mParamScalarWrappers[0]->getNativeParam())); // min_value
-                    mParams.push_back(*(mParamScalarWrappers[1]->getNativeParam())); // max_value
-                }
                 mInputs.push_back(*(mTempTensorWrappers[2]->getNativeTensor())); // stage tensor
                 mOutputs.push_back(*(mBackend->getNativeTensor(outputs[0]))); // output
                 mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
@@ -371,7 +360,7 @@ void QNNConvDepthwise::createWeightAndBias(Qnn_DataType_t dataType, const Tensor
                     float biasScale = inputScale * mDequantAlpha[i];
                     mBiasScaleOffsetData[i].scale = 0.f;
                     mBiasScaleOffsetData[i].offset = 0;
-                    if(fabs(biasPtr[i]) < 0.000001 || fabs(biasScale) < 0.000001){
+                    if(biasPtr[i] == 0.0f){
                         biasData[i] = 0;
                     } else{
                         biasData[i] = (int)(biasPtr[i] / (biasScale));
@@ -422,6 +411,6 @@ public:
 };
 
 REGISTER_QNN_OP_CREATOR(QNNConvDepthwiseCreator, OpType_ConvolutionDepthwise)
-
+#endif
 } // end namespace QNN
 } // end namespace MNN

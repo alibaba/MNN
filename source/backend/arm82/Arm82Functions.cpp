@@ -78,10 +78,14 @@ void MNNConvRunForLineDepthwiseFP16(float* dst, const float* src, const float* w
 
 namespace MNN {
 
+#define FP16_SME2_MATMUL_EP 16
+#define FP16_SME2_MATMUL_LP 2
+#define FP16_SME2_MATMUL_HP 64
+
 static void Sme2MNNGetMatMulPackMode(int* eP, int *lP, int* hP) {
-    *hP = 64;
-    *eP = 16;
-    *lP = 2;
+    *hP = FP16_SME2_MATMUL_HP;
+    *eP = FP16_SME2_MATMUL_EP;
+    *lP = FP16_SME2_MATMUL_LP;
 }
 
 static void MNNMatrixAddFP16(FLOAT16* C, const FLOAT16* A, const FLOAT16* B, size_t widthC8, size_t cStride, size_t aStride, size_t bStride, size_t height) {
@@ -190,8 +194,8 @@ static void Arm82MNNPackForMatMul_B(float* destC, const float* sourceC, size_t h
 static void Sme2MNNPackForMatMul_B(float* destC, const float* sourceC, size_t h, size_t kernelsize, size_t ic ,bool transpose) {
     auto dest = (int16_t*)destC;
     auto source = (int16_t*)sourceC;
-    int LP = 2;
-    int HP = 64;
+    int LP = FP16_SME2_MATMUL_LP;
+    int HP = FP16_SME2_MATMUL_HP;
     auto l = kernelsize * ic;
     memset(dest, 0, ROUND_UP(h, HP) * ROUND_UP(ic, LP) * kernelsize * sizeof(FLOAT16));
     auto stride0 = ROUND_UP(ic, LP) * kernelsize * HP;
@@ -930,10 +934,10 @@ static void _ArmBasicMNNPackC4ForMatMul_A_L8(int8_t* destOrigin, int8_t const** 
     }
 }
 
-static void Sme2MNNPackForMatMul_A_FP16(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el) {
-    int LP = 2;
+static void Sme2MNNPackC4ForMatMul_A_FP16(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el) {
+    int LP = FP16_SME2_MATMUL_LP;
     int pack = 8;
-    int eDest = 16;
+    int eDest = FP16_SME2_MATMUL_EP;
     // LP >= pack
     int number = info[0];
     int eReal = info[1];
@@ -2525,7 +2529,7 @@ bool Arm82Functions::init() {
             FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMul, MNNPackedMatMulFP16_SME2);
             FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMulRemain, MNNPackedMatMulRemainFP16_SME2);
             FUNC_PTR_ASSIGN(gInstance->MNNGetMatMulPackMode, Sme2MNNGetMatMulPackMode);
-            FUNC_PTR_ASSIGN(gInstance->MNNPackC4ForMatMul_A, Sme2MNNPackForMatMul_A_FP16);
+            FUNC_PTR_ASSIGN(gInstance->MNNPackC4ForMatMul_A, Sme2MNNPackC4ForMatMul_A_FP16);
             FUNC_PTR_ASSIGN(gInstance->MNNPackForMatMul_B, Sme2MNNPackForMatMul_B);
 
 #ifdef MNN_LOW_MEMORY

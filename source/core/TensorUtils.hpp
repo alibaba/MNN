@@ -35,6 +35,7 @@ struct QuantAttr {
     float zero = 0.0f;
     float min  = -127.0f;
     float max  = 127.0f;
+    DataType type = DataType_DT_INT8;
 };
 struct Tensor::InsideDescribe {
     struct View {
@@ -104,8 +105,7 @@ struct Tensor::InsideDescribe {
         std::shared_ptr<TensorArrayAttr> tensorArrayAttr;
         // Tensor Quant Attribute
         std::shared_ptr<QuantAttr> quantAttr;
-        // Only valid when quantAttr is not nullptr
-        DataType type = DataType_DT_FLOAT;
+        bool applyQuant = false;
         bool isMutable = true;
         int index = -1;
         int group = 0;

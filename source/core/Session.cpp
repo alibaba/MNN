@@ -478,10 +478,11 @@ static void initTensors(std::vector<std::shared_ptr<Tensor>>& tensors,
             continue;
         }
         // Init all tensor except for const
-        if (tensors[i].get() == nullptr) {
-            tensors[i].reset(new Tensor);
-            TensorUtils::getDescribe(tensors[i].get())->index = i;
+        if (tensors[i].get() != nullptr) {
+            continue;
         }
+        tensors[i].reset(new Tensor);
+        TensorUtils::getDescribe(tensors[i].get())->index = i;
         auto srcDes = TensorUtils::getDescribe(tensorSrc[i].get());
         if (srcDes->quantAttr != nullptr) {
             TensorUtils::getDescribe(tensors[i].get())->quantAttr.reset(new QuantAttr);

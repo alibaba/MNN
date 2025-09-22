@@ -10,6 +10,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 ErrorCode QNNSoftmax::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     this->createParamScalar("axis", (uint32_t) inputs[0]->dimensions() - 1);
@@ -100,6 +101,6 @@ public:
 };
 
 REGISTER_QNN_OP_CREATOR(QNNSoftmaxCreator, OpType_Softmax)
-
+#endif
 } // end namespace QNN
 } // end namespace MNN

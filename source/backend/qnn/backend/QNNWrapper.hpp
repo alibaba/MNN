@@ -17,6 +17,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 // Wrap 'Qnn_Tensor_t' for the convenience of memory management.
 class QNNTensorWrapper {
@@ -76,7 +77,7 @@ private:
     std::string mName;
     Qnn_Param_t mQnnParam{};
 };
-
+#endif
 } // end namespace QNN
 } // end namespace MNN
 

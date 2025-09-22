@@ -181,7 +181,7 @@ size_t CUDABackend::getBytes(const Tensor* tensor) const {
         }
     }
     auto quant = TensorUtils::getDescribe(tensor)->quantAttr.get();
-    if (nullptr != quant && TensorUtils::getDescribe(tensor)->type == DataType_DT_INT8) {
+    if (nullptr != quant && TensorUtils::getDescribe(tensor)->applyQuant) {
         bytes = 1;
     }
     return bytes;
@@ -275,7 +275,7 @@ Execution* CUDABackend::onCreate(const std::vector<Tensor*>& inputs, const std::
 // #endif
     auto opType = op->type();
     if (outputs.size() > 0) {
-        if (TensorUtils::getDescribe(outputs[0])->quantAttr != nullptr && TensorUtils::getDescribe(outputs[0])->type == DataType_DT_INT8) {
+        if (TensorUtils::getDescribe(outputs[0])->quantAttr != nullptr && TensorUtils::getDescribe(outputs[0])->applyQuant) {
             opType = _getRealOpType(opType);
         }
     }
@@ -572,10 +572,10 @@ int CUDABackend::onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTens
 
 DataType CUDABackend::getDataType(const Tensor* tensor) {
     auto des = TensorUtils::getDescribe(tensor);
-    if (nullptr == des->quantAttr.get()) {
+    if (nullptr == des->quantAttr.get() || (!des->applyQuant)) {
         return DataType_DT_FLOAT;
     }
-    return des->type;
+    return des->quantAttr->type;
 }
 
 ErrorCode CastWrapExecution::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {

@@ -10,6 +10,7 @@
 
 #include "TfliteUtils.hpp"
 #include "liteOpConverter.hpp"
+#include "core/IDSTEncoder.hpp"
 
 DECLARE_OP_COVERTER(DepthwiseConv2DTflite);
 
@@ -23,6 +24,45 @@ MNN::OpParameter DepthwiseConv2DTflite::type(int quantizedModel) {
     if (quantizedModel)
         return MNN::OpParameter_TfQuantizedConv2D;
     return MNN::OpParameter_Convolution2D;
+}
+static void _writeCommon(MNN::OpT* dstOp, Convolution2DCommonT* common, tflite::OperatorT* tfliteOp, int ci, int kw, int kh) {
+    common->relu       = false;
+    common->relu6      = false;
+    const auto& tfliteConvOption = tfliteOp->builtin_options.AsDepthwiseConv2DOptions();
+    auto acticationFun = tfliteConvOption->fused_activation_function;
+    if (acticationFun == tflite::ActivationFunctionType_RELU) {
+        common->relu = true;
+    } else if (acticationFun == tflite::ActivationFunctionType_RELU6) {
+        common->relu6 = true;
+    } else if (acticationFun > tflite::ActivationFunctionType_NONE) {
+        DLOG(ERROR) << "MNN Convolution do not Support fused_activation_function: " << acticationFun;
+    }
+
+    common->group       = ci;
+    common->outputCount = ci;
+    common->inputCount  = ci;
+    common->kernelX     = kw;
+    common->kernelY     = kh;
+    common->dilateX     = tfliteConvOption->dilation_w_factor;
+    common->dilateY     = tfliteConvOption->dilation_h_factor;
+    common->strideX     = tfliteConvOption->stride_w;
+    common->strideY     = tfliteConvOption->stride_h;
+    common->padMode     = MNN::PadMode_SAME;
+    if (tfliteConvOption->depth_multiplier > 1) {
+        if (ci == tfliteConvOption->depth_multiplier) {
+            // Special case, turn to convolution
+            dstOp->type = MNN::OpType_Convolution;
+            common->outputCount = tfliteConvOption->depth_multiplier;
+            common->inputCount = 1;
+            common->group = 1;
+        } else {
+            DLOG(ERROR) << "MNN don't support tflite's depth_multiplier, please turn to pb or onnx";
+        }
+    }
+
+    if (tfliteConvOption->padding == tflite::Padding_VALID) {
+        common->padMode = MNN::PadMode_VALID;
+    }
 }
 
 void DepthwiseConv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>& tfliteOp,
@@ -45,80 +85,124 @@ void DepthwiseConv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::O
     const int ci                 = weightShape[3];
     const int weightSize         = kh * kw * ci;
     const auto& tfliteConvOption = tfliteOp->builtin_options.AsDepthwiseConv2DOptions();
+    if (weightTensor->type == tflite::TensorType_INT8) {
+        quantizedModel = 2;
+        dstOp->type = MNN::OpType_ConvolutionDepthwise;
+        dstOp->main.type = MNN::OpParameter_Convolution2D;
+    } else if (weightTensor->type == tflite::TensorType_UINT8) {
+        quantizedModel = 1;
+        dstOp->type = MNN::OpType_DepthwiseConvInt8;
+        dstOp->main.type = MNN::OpParameter_TfQuantizedConv2D;
+    } else {
+        MNN_ASSERT(weightTensor->type == tflite::TensorType_FLOAT32);
+        quantizedModel = 0;
+        dstOp->type = MNN::OpType_ConvolutionDepthwise;
+        dstOp->main.type = MNN::OpParameter_Convolution2D;
+    }
+
+    std::unique_ptr<MNN::Convolution2DCommonT> dstCommon(new MNN::Convolution2DCommonT);
+    _writeCommon(dstOp, dstCommon.get(), tfliteOp.get(), ci, kw, kh);
     if (quantizedModel) {
-        auto depthwiseConv2dParamQuan         = new MNN::TfQuantizedConv2DT;
-        depthwiseConv2dParamQuan->modelFormat = MNN::ModeFormat_TFLITE;
-        depthwiseConv2dParamQuan->common = std::unique_ptr<MNN::Convolution2DCommonT>(new MNN::Convolution2DCommonT);
+        if (weightTensor->type == tflite::TensorType_INT8) {
+            dstOp->type = OpType_ConvolutionDepthwise;
+            dstOp->main.type = OpParameter_Convolution2D;
+            auto depthwiseConv2dParamFloat = new MNN::Convolution2DT;
+            depthwiseConv2dParamFloat->common = std::move(dstCommon);
+            dstOp->main.value = depthwiseConv2dParamFloat;
+            // Bias Turn to float
+            auto outputCount = depthwiseConv2dParamFloat->common->outputCount;
+            depthwiseConv2dParamFloat->bias.resize(ci);
+            ::memset(depthwiseConv2dParamFloat->bias.data(), 0, outputCount * sizeof(float));
+            if (inputSize == 3) {
+                const auto& biasTensor = tfliteTensors[tfliteOp->inputs[2]];
+                if (biasTensor->quantization->scale.size() == 1) {
+                    auto scale = biasTensor->quantization->scale[0];
+                    auto zero = biasTensor->quantization->zero_point[0];;
+                    const auto& biasData = tfliteModelBuffer[biasTensor->buffer]->data;
+                    auto biasDataPtr = biasData.data();
+                    const int32_t* realBiasDataPtr = (int32_t*)biasDataPtr;
+                    for (int i=0; i<outputCount; ++i) {
+                        depthwiseConv2dParamFloat->bias[i] = (float)(realBiasDataPtr[i] - zero) * scale;
+                    }
+                } else {
+                    const auto& biasData = tfliteModelBuffer[biasTensor->buffer]->data;
+                    auto biasDataPtr = biasData.data();
+                    const int32_t* realBiasDataPtr = (int32_t*)biasDataPtr;
+                    for (int i=0; i<outputCount; ++i) {
+                        depthwiseConv2dParamFloat->bias[i] = (float)(realBiasDataPtr[i] - biasTensor->quantization->zero_point[i]) * biasTensor->quantization->scale[i];
+                    }
+                }
+            }
+            // Weight
+            // Transpose first
+            std::vector<int8_t> transposeWeight(kw * kh * ci);
+            const auto& weightData = tfliteModelBuffer[weightTensor->buffer]->data;
+            auto weightDataPtr = (int8_t*)weightData.data();
 
-        // filterOffset
-        depthwiseConv2dParamQuan->filterQuantizedParam =
-            std::unique_ptr<MNN::QuantizedParamT>(new MNN::QuantizedParamT);
-        depthwiseConv2dParamQuan->filterQuantizedParam->zeroPoint = weightTensor->quantization->zero_point[0];
-        depthwiseConv2dParamQuan->filterQuantizedParam->scale     = weightTensor->quantization->scale[0];
+            for (int i=0; i<ci; ++i) {
+                for (int j=0; j<kw*kh; ++j) {
+                    transposeWeight[i*kw*kh+j] = weightDataPtr[i+j*ci];
+                }
+            }
+            auto quan = IDSTEncoder::encode(nullptr, weightTensor->quantization->scale, kw * kh, ci, false, transposeWeight.data(), -128);
+            depthwiseConv2dParamFloat->quanParameter = std::move(quan);
+        } else {
+            // For old uint8 model
+            auto depthwiseConv2dParamQuan         = new MNN::TfQuantizedConv2DT;
+            depthwiseConv2dParamQuan->modelFormat = MNN::ModeFormat_TFLITE;
+            depthwiseConv2dParamQuan->common = std::move(dstCommon);
 
-        // input
-        const int inputIndex                          = tfliteOp->inputs[0];
-        const auto& inputTensor                       = tfliteTensors[inputIndex];
-        depthwiseConv2dParamQuan->inputQuantizedParam = std::unique_ptr<MNN::QuantizedParamT>(new MNN::QuantizedParamT);
-        depthwiseConv2dParamQuan->inputQuantizedParam->zeroPoint = inputTensor->quantization->zero_point[0];
-        depthwiseConv2dParamQuan->inputQuantizedParam->scale     = inputTensor->quantization->scale[0];
-
-        // output
-        const int outputIndex    = tfliteOp->outputs[0];
-        const auto& outputTensor = tfliteTensors[outputIndex];
-        depthwiseConv2dParamQuan->outputQuantizedParam =
-            std::unique_ptr<MNN::QuantizedParamT>(new MNN::QuantizedParamT);
-        depthwiseConv2dParamQuan->outputQuantizedParam->zeroPoint = outputTensor->quantization->zero_point[0];
-        depthwiseConv2dParamQuan->outputQuantizedParam->scale     = outputTensor->quantization->scale[0];
-
-        // kernel size
-        depthwiseConv2dParamQuan->common->kernelX     = kw;
-        depthwiseConv2dParamQuan->common->kernelY     = kh;
-        depthwiseConv2dParamQuan->common->outputCount = ci;
-
-        // default
-        depthwiseConv2dParamQuan->common->group   = 1;
-        depthwiseConv2dParamQuan->common->dilateX = tfliteConvOption->dilation_w_factor;
-        depthwiseConv2dParamQuan->common->dilateY = tfliteConvOption->dilation_h_factor;
-
-        depthwiseConv2dParamQuan->depthMultiplier = tfliteConvOption->depth_multiplier;
-        // stride
-        depthwiseConv2dParamQuan->common->strideX = tfliteConvOption->stride_w;
-        depthwiseConv2dParamQuan->common->strideY = tfliteConvOption->stride_h;
-
-        const auto tflitePadMode = tfliteConvOption->padding;
-        if (tflitePadMode == tflite::Padding_SAME) {
-            depthwiseConv2dParamQuan->common->padMode = MNN::PadMode_SAME;
-        } else if (tflitePadMode == tflite::Padding_VALID) {
-            depthwiseConv2dParamQuan->common->padMode = MNN::PadMode_VALID;
-        }
-
-        // weight
-        DCHECK(weightTensor->type == tflite::TensorType_UINT8) << "Data type ERROR";
-        depthwiseConv2dParamQuan->weight   = tfliteModelBuffer[weightTensor->buffer]->data;
-        depthwiseConv2dParamQuan->biasflag = inputSize == 3;
-        // have bias
-        const auto& biasTensor = tfliteTensors[tfliteOp->inputs[2]];
-        if (inputSize == 3) {
-            DCHECK(biasTensor->type == tflite::TensorType_INT32) << "Bias Type ERROR";
-
-            const auto& biasData = tfliteModelBuffer[biasTensor->buffer]->data;
-            depthwiseConv2dParamQuan->biasQuantizedParam =
+            // filterOffset
+            depthwiseConv2dParamQuan->filterQuantizedParam =
                 std::unique_ptr<MNN::QuantizedParamT>(new MNN::QuantizedParamT);
-            depthwiseConv2dParamQuan->biasQuantizedParam->zeroPoint = biasTensor->quantization->zero_point[0];
-            depthwiseConv2dParamQuan->biasQuantizedParam->scale     = biasTensor->quantization->scale[0];
+            depthwiseConv2dParamQuan->filterQuantizedParam->zeroPoint = weightTensor->quantization->zero_point[0];
+            depthwiseConv2dParamQuan->filterQuantizedParam->scale     = weightTensor->quantization->scale[0];
 
-            auto shape = biasTensor->shape;
+            // input
+            const int inputIndex                          = tfliteOp->inputs[0];
+            const auto& inputTensor                       = tfliteTensors[inputIndex];
+            depthwiseConv2dParamQuan->inputQuantizedParam = std::unique_ptr<MNN::QuantizedParamT>(new MNN::QuantizedParamT);
+            depthwiseConv2dParamQuan->inputQuantizedParam->zeroPoint = inputTensor->quantization->zero_point[0];
+            depthwiseConv2dParamQuan->inputQuantizedParam->scale     = inputTensor->quantization->scale[0];
 
-            DCHECK(biasData.size() / 4 == ci) << "Bias Data ERROR";
-            auto biasDataPtr               = biasData.data();
-            const int32_t* realBiasDataPtr = (int32_t*)biasDataPtr;
-            std::vector<int32_t> biasInt32Vec(realBiasDataPtr, realBiasDataPtr + ci);
-            depthwiseConv2dParamQuan->bias = biasInt32Vec;
+            // output
+            const int outputIndex    = tfliteOp->outputs[0];
+            const auto& outputTensor = tfliteTensors[outputIndex];
+            depthwiseConv2dParamQuan->outputQuantizedParam =
+                std::unique_ptr<MNN::QuantizedParamT>(new MNN::QuantizedParamT);
+            depthwiseConv2dParamQuan->outputQuantizedParam->zeroPoint = outputTensor->quantization->zero_point[0];
+            depthwiseConv2dParamQuan->outputQuantizedParam->scale     = outputTensor->quantization->scale[0];
+
+
+            depthwiseConv2dParamQuan->depthMultiplier = tfliteConvOption->depth_multiplier;
+
+            // weight
+            DCHECK(weightTensor->type == tflite::TensorType_UINT8) << "Data type ERROR";
+            depthwiseConv2dParamQuan->weight   = tfliteModelBuffer[weightTensor->buffer]->data;
+            depthwiseConv2dParamQuan->biasflag = inputSize == 3;
+            // have bias
+            if (inputSize == 3) {
+                const auto& biasTensor = tfliteTensors[tfliteOp->inputs[2]];
+                DCHECK(biasTensor->type == tflite::TensorType_INT32) << "Bias Type ERROR";
+
+                const auto& biasData = tfliteModelBuffer[biasTensor->buffer]->data;
+                depthwiseConv2dParamQuan->biasQuantizedParam =
+                    std::unique_ptr<MNN::QuantizedParamT>(new MNN::QuantizedParamT);
+                depthwiseConv2dParamQuan->biasQuantizedParam->zeroPoint = biasTensor->quantization->zero_point[0];
+                depthwiseConv2dParamQuan->biasQuantizedParam->scale     = biasTensor->quantization->scale[0];
+
+                auto shape = biasTensor->shape;
+
+                DCHECK(biasData.size() / 4 == ci) << "Bias Data ERROR";
+                auto biasDataPtr               = biasData.data();
+                const int32_t* realBiasDataPtr = (int32_t*)biasDataPtr;
+                std::vector<int32_t> biasInt32Vec(realBiasDataPtr, realBiasDataPtr + ci);
+                depthwiseConv2dParamQuan->bias = biasInt32Vec;
+            }
+            depthwiseConv2dParamQuan->activationType =
+                static_cast<MNN::FusedActivation>(tfliteConvOption->fused_activation_function);
+            dstOp->main.value = depthwiseConv2dParamQuan;
         }
-        depthwiseConv2dParamQuan->activationType =
-            static_cast<MNN::FusedActivation>(tfliteConvOption->fused_activation_function);
-        dstOp->main.value = depthwiseConv2dParamQuan;
     } else {
         auto depthwiseConv2dParamFloat = new MNN::Convolution2DT;
         std::vector<float> weightData;
@@ -139,46 +223,7 @@ void DepthwiseConv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::O
                 depthwiseConv2dParamFloat->bias   = biasData;
             }
         }
-        depthwiseConv2dParamFloat->common = std::unique_ptr<MNN::Convolution2DCommonT>(new MNN::Convolution2DCommonT);
-        auto& common                      = depthwiseConv2dParamFloat->common;
-
-        common->relu       = false;
-        common->relu6      = false;
-        auto acticationFun = tfliteConvOption->fused_activation_function;
-        if (acticationFun == tflite::ActivationFunctionType_RELU) {
-            common->relu = true;
-        } else if (acticationFun == tflite::ActivationFunctionType_RELU6) {
-            common->relu6 = true;
-        } else if (acticationFun > tflite::ActivationFunctionType_NONE) {
-            DLOG(ERROR) << "MNN Convolution do not Support fused_activation_function: " << acticationFun;
-        }
-
-        common->group       = ci;
-        common->outputCount = ci;
-        common->inputCount  = ci;
-        common->kernelX     = kw;
-        common->kernelY     = kh;
-        common->dilateX     = tfliteConvOption->dilation_w_factor;
-        common->dilateY     = tfliteConvOption->dilation_h_factor;
-        common->strideX     = tfliteConvOption->stride_w;
-        common->strideY     = tfliteConvOption->stride_h;
-        common->padMode     = MNN::PadMode_SAME;
-        if (tfliteConvOption->depth_multiplier > 1) {
-            if (ci == tfliteConvOption->depth_multiplier) {
-                // Special case, turn to convolution
-                dstOp->type = MNN::OpType_Convolution;
-                common->outputCount = tfliteConvOption->depth_multiplier;
-                common->inputCount = 1;
-                common->group = 1;
-            } else {
-                DLOG(ERROR) << "MNN don't support tflite's depth_multiplier, please turn to pb or onnx";
-            }
-        }
-
-        if (tfliteConvOption->padding == tflite::Padding_VALID) {
-            common->padMode = MNN::PadMode_VALID;
-        }
-
+        depthwiseConv2dParamFloat->common = std::move(dstCommon);
         dstOp->main.value = depthwiseConv2dParamFloat;
     }
     

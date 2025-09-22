@@ -64,7 +64,7 @@ public:
             input1 = temp;
         }
         TensorUtils::getDescribe(output)->dimensionFormat = TensorUtils::getDescribe(input0)->dimensionFormat;
-        return SizeComputer::computeBroadCastDims(op, inputs, outputs);
+        return SizeComputer::computeBroadCastDims(inputs, outputs);
     }
 };
 

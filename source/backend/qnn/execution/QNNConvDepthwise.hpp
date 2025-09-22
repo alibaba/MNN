@@ -14,6 +14,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 class QNNConvDepthwise : public QNNCommonExecution {
 public:
@@ -42,7 +43,7 @@ template <typename T>
     float *mDequantAlpha = nullptr;
     bool mWeightQuant = false;
 };
-
+#endif
 } // end namespace QNN
 } // end namespace MNN
 

@@ -2,6 +2,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 ErrorCode QNNMatMul::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto param = mOp->main_as_MatMul();
@@ -124,11 +125,12 @@ ErrorCode QNNMatMul::onEncodePermute(const std::vector<Tensor *> &inputs, const 
         permAfterData[i] = getNCHWAxis(i, dim, Tensor::DimensionType::TENSORFLOW);
     }
 
-    this->createParamTensor("perm", QNN_DATATYPE_UINT_32, {(uint32_t) dim}, (void *) permBeforeData.data(), "before");        // mParamTensorWrappers[0], perm before
-    this->createParamTensor("perm", QNN_DATATYPE_UINT_32, {(uint32_t) dim}, (void *) permAfterData.data(), "after");          // mParamTensorWrappers[1], perm after
+    this->createParamTensor("perm", QNN_DATATYPE_UINT_32, {(uint32_t) dim}, (void *) permBeforeData.data(), "_in0_before");        // mParamTensorWrappers[0], perm before
+    this->createParamTensor("perm", QNN_DATATYPE_UINT_32, {(uint32_t) dim}, (void *) permBeforeData.data(), "_in1_before");          // mParamTensorWrappers[1], perm after
+    this->createParamTensor("perm", QNN_DATATYPE_UINT_32, {(uint32_t) dim}, (void *) permAfterData.data(), "_out_after");        // mParamTensorWrappers[2], perm before
 
     this->addNodeCommonPermute("permInput0", *(mBackend->getNativeTensor(inputs[0])), *(mParamTensorWrappers[0]->getNativeParam()), *(mTempTensorWrappers[0]->getNativeTensor()));
-    this->addNodeCommonPermute("permInput1", *(mBackend->getNativeTensor(inputs[1])), *(mParamTensorWrappers[0]->getNativeParam()), *(mTempTensorWrappers[1]->getNativeTensor()));
+    this->addNodeCommonPermute("permInput1", *(mBackend->getNativeTensor(inputs[1])), *(mParamTensorWrappers[1]->getNativeParam()), *(mTempTensorWrappers[1]->getNativeTensor()));
 
     {
         CLEAR_BEFORE_ADDING_NODE;
@@ -147,7 +149,7 @@ ErrorCode QNNMatMul::onEncodePermute(const std::vector<Tensor *> &inputs, const 
         mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
     }
 
-    this->addNodeCommonPermute("permOutput", *(mTempTensorWrappers[2]->getNativeTensor()), *(mParamTensorWrappers[1]->getNativeParam()), *(mBackend->getNativeTensor(outputs[0])));
+    this->addNodeCommonPermute("permOutput", *(mTempTensorWrappers[2]->getNativeTensor()), *(mParamTensorWrappers[2]->getNativeParam()), *(mBackend->getNativeTensor(outputs[0])));
 
     return NO_ERROR;
 }
@@ -171,6 +173,6 @@ public:
 };
 
 REGISTER_QNN_OP_CREATOR(QNNMatMulCreator, OpType_MatMul)
-
+#endif
 } // end namespace QNN
 } // end namespace MNN

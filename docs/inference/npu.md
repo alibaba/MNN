@@ -31,7 +31,9 @@ cp -r ${LIB_SRC} ${LIB_DEST}
 ```
 
 ### QNN后端编译
-编译 MNN 时打开编译宏`MNN_QNN`，即`-DMNN_QNN=ON`。
+- 编译 MNN 时打开编译宏`MNN_QNN`，即`-DMNN_QNN=ON`。
+- 如果运行离线编译QNN模型(离线编译方法：使用MNN2QNNModel工具)，需要开启`MNN_WITH_PLUGIN`宏。若需要减小库体积，可以选择关闭`MNN_QNN_ONLINE_FINALIZE`宏
+
 
 ### QNN后端运行
 - Backend Type设置为`MNN_FORWARD_NN`，即 5 。

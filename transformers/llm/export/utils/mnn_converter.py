@@ -48,7 +48,7 @@ class MNNConveter:
             sys.argv = []
         finally:
             os.dup2(sfd, 1)
-            os.close(log_fd)
+            log_fp.close()
 
     @spinner_run(f'convert onnx model to ')
     def onnx2mnn(self, onnx_path, mnn_path, args = [], transformer_fuse = True, group_conv_native = False, weight_sym = False, save_external_data = True):
@@ -124,6 +124,8 @@ class MNNConveter:
                 quant_bit = self.quant_bit
             if quant_block is None:
                 quant_block = self.quant_block
+            if weight_sym is None:
+                weight_sym = self.symmetric
             if quant_bit == 16:
                 quant_args = ['--fp16']
             else:
