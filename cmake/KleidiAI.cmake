@@ -22,9 +22,9 @@ function (download_kleidiai_and_collect_sources)
     # Disable the KleidiAI tests
     set(KLEIDIAI_BUILD_TESTS OFF)
 
-    set(KLEIDIAI_COMMIT_SHA "v1.13.0")
-    set(KLEIDIAI_DOWNLOAD_URL "https://gitlab.arm.com/kleidi/kleidiai/-/archive/${KLEIDIAI_COMMIT_SHA}/kleidiai-${KLEIDIAI_COMMIT_SHA}.tar.gz")
-    set(KLEIDIAI_ARCHIVE_MD5 "7b73541c7ed442541b35e94725b2fd1f")
+    set(KLEIDIAI_COMMIT_SHA "1.14.0")
+    set(KLEIDIAI_DOWNLOAD_URL "https://github.com/ARM-software/kleidiai/archive/refs/tags/v${KLEIDIAI_COMMIT_SHA}.tar.gz")
+    set(KLEIDIAI_ARCHIVE_MD5 "45e110675d93f99f82c23a1afcca76bc")
 
     set(_kleidiai_src_dir "")
     if(DEFINED KLEIDIAI_SRC_DIR AND EXISTS "${KLEIDIAI_SRC_DIR}")
@@ -33,7 +33,7 @@ function (download_kleidiai_and_collect_sources)
         set(_deps_dir "${CMAKE_BINARY_DIR}/_deps")
         file(MAKE_DIRECTORY "${_deps_dir}")
 
-        set(_tar_path "${_deps_dir}/kleidiai-${KLEIDIAI_COMMIT_SHA}.tar.gz")
+        set(_tar_path "${_deps_dir}/v${KLEIDIAI_COMMIT_SHA}.tar.gz")
 
         file(
             DOWNLOAD "${KLEIDIAI_DOWNLOAD_URL}" "${_tar_path}"
