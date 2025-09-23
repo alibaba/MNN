@@ -1,0 +1,94 @@
+{
+    "name": "@ohos/ffrt",
+    "description": "Concurrent Programming Framework",
+    "optional": "false",
+    "version": "4.0",
+    "license": "Apache License 2.0",
+    "publishAs": "code-segment",
+    "segment": {
+        "destPath": "foundation/resourceschedule/ffrt"
+    },
+    "dirs": {},
+    "scripts": {},
+    "component": {
+        "name": "ffrt",
+        "subsystem": "resourceschedule",
+        "syscap": [
+            "SystemCapability.Resourceschedule.Ffrt.Core"
+        ],
+        "features": [
+            "ffrt_support_enable",
+            "ffrt_allocator_mmap_size",
+            "ffrt_stack_size"
+        ],
+        "adapted_system_type": [
+            "standard"
+        ],
+        "hisysevent_config": [
+            "//foundation/resourceschedule/ffrt/hisysevent.yaml"
+        ],
+        "rom": "",
+        "ram": "",
+        "deps": {
+            "components": [
+                "bounds_checking_function",
+                "c_utils",
+                "hilog",
+                "hisysevent",
+                "faultloggerd",
+                "napi"
+            ]
+        },
+        "build": {
+            "sub_component": [
+                "//foundation/resourceschedule/ffrt:libffrt",
+                "//foundation/resourceschedule/ffrt:ffrt_ndk"
+            ],
+            "inner_kits": [
+                {
+                    "header": {
+                        "header_base": "//foundation/resourceschedule/ffrt/interfaces/",
+                        "header_files": [
+                            "kits/ffrt.h",
+                            "kits/c/condition_variable.h",
+                            "kits/c/loop.h",
+                            "kits/c/mutex.h",
+                            "kits/c/shared_mutex.h",							
+                            "kits/c/sleep.h",
+                            "kits/c/task.h",
+                            "kits/c/timer.h",
+                            "kits/c/type_def.h",
+                            "kits/cpp/condition_variable.h",
+                            "kits/cpp/mutex.h",
+                            "kits/cpp/shared_mutex.h",							
+                            "kits/cpp/queue.h",
+                            "kits/cpp/sleep.h",
+                            "kits/cpp/task.h",
+
+                            "inner_api/ffrt_inner.h",
+                            "inner_api/c/deadline.h",
+                            "inner_api/c/executor_task.h",
+                            "inner_api/c/ffrt_cpu_boost.h",
+                            "inner_api/c/ffrt_dump.h",
+                            "inner_api/c/ffrt_ipc.h",
+                            "inner_api/c/init.h",
+                            "inner_api/c/queue_ext.h",
+                            "inner_api/c/task_ext.h",
+                            "inner_api/c/thread.h",
+                            "inner_api/c/type_def_ext.h",
+                            "inner_api/cpp/deadline.h",
+                            "inner_api/cpp/future.h",
+                            "inner_api/cpp/qos_convert.h",
+                            "inner_api/cpp/task_ext.h",
+                            "inner_api/cpp/thread.h"
+                        ]
+                    },
+                    "name": "//foundation/resourceschedule/ffrt:libffrt"
+                }
+            ],
+            "test": [
+                "//foundation/resourceschedule/ffrt/test/ut:ffrt_unittest_ffrt"
+            ]
+        }
+    }
+}
