@@ -3,9 +3,9 @@
 
 #include <android/log.h>
 
-// #ifndef VIDEO_DEBUG_ENABLED
-// #define VIDEO_DEBUG_ENABLED 1
-// #endif
+#ifndef VIDEO_DEBUG_ENABLED
+#define VIDEO_DEBUG_ENABLED 1
+#endif
 
 #if VIDEO_DEBUG_ENABLED
     #define VIDEO_LOGV(tag, ...) __android_log_print(ANDROID_LOG_VERBOSE, tag, __VA_ARGS__)

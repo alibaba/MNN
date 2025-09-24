@@ -112,21 +112,6 @@ bool MultimodalProcessor::handleImageTags(const std::string& prompt_text,
                 state.image_index++;
                 state.successful_loads++;
                 MNN_DEBUG("Successfully loaded image: %s as %s", image_path.c_str(), image_key.c_str());
-
-                if (config_.save_first_image && !state.first_image_saved) {
-                    try {
-                        std::string debug_path = "/data/data/com.alibaba.mnnllm.android/files/debug_first_image.jpg";
-                        MNN_DEBUG("Saving first image for debugging to: %s", debug_path.c_str());
-                        if (ImageUtils::saveTensorAsJPG(image_var, debug_path.c_str())) {
-                            MNN_DEBUG("First image saved for debugging: %s", debug_path.c_str());
-                            state.first_image_saved = true;
-                        } else {
-                            MNN_ERROR("Failed to save first image for debugging: %s", debug_path.c_str());
-                        }
-                    } catch (const std::exception& e) {
-                        MNN_ERROR("Failed to save first image for debugging: %s", e.what());
-                    }
-                }
             } else {
                 state.failed_loads++;
                 MNN_ERROR("Failed to load image from path: %s", image_path.c_str());
@@ -188,21 +173,6 @@ bool MultimodalProcessor::handleVideoTags(const std::string& prompt_text,
                     image_part.height = 0;
                     result.multimodalPrompt.images[frame_key] = image_part;
                     state.image_index++;
-
-                    if (config_.save_first_image && !state.first_image_saved && i == 0) {
-                        try {
-                            std::string debug_path = "/data/data/com.alibaba.mnnllm.android/files/debug_first_video_frame.jpg";
-                            MNN_DEBUG("Saving first video frame for debugging to: %s", debug_path.c_str());
-                            if (ImageUtils::saveTensorAsJPG(video_frames[i], debug_path.c_str())) {
-                                MNN_DEBUG("First video frame saved for debugging: %s", debug_path.c_str());
-                                state.first_image_saved = true;
-                            } else {
-                                MNN_ERROR("Failed to save first video frame for debugging: %s", debug_path.c_str());
-                            }
-                        } catch (const std::exception& e) {
-                            MNN_ERROR("Failed to save first video frame for debugging: %s", e.what());
-                        }
-                    }
                 }
 
                 const std::string escaped_path = escapeForRegex(video_path);
