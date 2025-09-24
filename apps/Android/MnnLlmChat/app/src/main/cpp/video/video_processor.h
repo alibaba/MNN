@@ -26,17 +26,18 @@
 namespace mls {
 
 // Video Processor Configuration (similar to Hugging Face Transformers)
+// we use the smolvlm config for default.
 struct VideoProcessorConfig {
   // Frame extraction settings
-  int max_frames = 50;  // Maximum number of frames to extract
-  float fps = 5.0f;     // Target FPS for frame extraction
+  int max_frames = 64;  // Maximum number of frames to extract
+  float fps = 1.0f;     // Target FPS for frame extraction
   // Preprocessing settings
-  int target_width = 224;   // Target width for resizing
-  int target_height = 224;  // Target height for resizing
+  int target_width = 512;   // Target width for resizing
+  int target_height = 512;  // Target height for resizing
   
   // Debug settings
   int max_debug_images = 9999;  // Limit number of images for debugging
-  bool save_first_image = true;  // Save first image to local path for debugging
+  bool save_first_image = false;  // Save first image to local path for debugging
   std::string debug_output_path = 
       "/data/data/com.alibaba.mnnllm.android/files/";  // Debug output directory
 };

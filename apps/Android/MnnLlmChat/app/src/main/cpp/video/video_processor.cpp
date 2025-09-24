@@ -9,6 +9,7 @@
 #include <cstring>
 #include <thread>
 #include <utility>
+#include <inttypes.h>
 
 #include "../mls_log.h"
 #include "MNN/MNNDefine.h"
@@ -164,7 +165,7 @@ std::vector<VideoFrame> VideoProcessor::ExtractFrames(
     frame.height = decoder_->height();
     frames.push_back(frame);
 
-    MNN_DEBUG("VideoProcessor: Created VideoFrame %d, pts=%ld, size=%dx%d",
+    MNN_DEBUG("VideoProcessor: Created VideoFrame %d, pts=%" PRId64 ", size=%dx%d",
               frame.frame_index, frame.timestamp_us, frame.width, frame.height);
   }
 
@@ -299,15 +300,10 @@ std::vector<MNN::Express::VARP> VideoProcessor::ProcessVideoFrames(
         images.push_back(processed_frames[i].pixel_values);
       }
     }
-    
-    MNN_DEBUG("VideoProcessor: Converted %zu frames to VARP format "
-              "(limited to %zu for debugging)",
-              processed_frames.size(), max_frames_to_return);
   } else {
     MNN_ERROR("VideoProcessor: No frames processed from: %s",
                video_path.c_str());
   }
-  
   MNN_DEBUG("Total frames processed: %zu", images.size());
   return images;
 }

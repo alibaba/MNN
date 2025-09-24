@@ -23,7 +23,6 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         # Video processing files (moved to video/ directory)
         video/video_decoder.cpp
         video/byte_buffer_decoder.cpp
-        video/surface_decoder.cpp
         video/image_utils.cpp
         video/video_processor.cpp
 )

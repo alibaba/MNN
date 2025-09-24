@@ -3,6 +3,8 @@
 #include <cstring>
 #include <ctime>
 #include <memory>
+#include <inttypes.h>
+#include <unistd.h>
 
 #include "MNN/ImageProcess.hpp"
 #include "MNN/expr/Expr.hpp"
@@ -84,71 +86,6 @@ bool ConvertYuvToRgbWithImageProcess(const std::vector<uint8_t>& yuv_data,
   return true;
 }
 
-bool ConvertYuvToTensorWithImageProcess(const std::vector<uint8_t>& yuv_data,
-                                        const ImageUtils::YUVFormatInfo& format_info,
-                                        MNN::Express::VARP* out_tensor) {
-  if (!out_tensor) {
-    return false;
-  }
-
-  if (yuv_data.empty() || !format_info.isValid) {
-    *out_tensor = nullptr;
-    return false;
-  }
-
-  int dst_width = format_info.outputWidth;
-  int dst_height = format_info.outputHeight;
-  if (dst_width <= 0 || dst_height <= 0) {
-    VIDEO_LOGE(TAG,"ConvertYuvToTensorWithImageProcess: invalid dimensions %dx%d", dst_width,
-         dst_height);
-    *out_tensor = nullptr;
-    return false;
-  }
-
-  int stride = format_info.stride > 0 ? format_info.stride : dst_width;
-  int slice_height = format_info.sliceHeight > 0 ? format_info.sliceHeight : dst_height;
-  VIDEO_LOGV(TAG,"ConvertYuvToTensor: dims=%dx%d stride=%d slice=%d bytes=%zu format=%d",
-       dst_width, dst_height, stride, slice_height, yuv_data.size(),
-       static_cast<int>(format_info.format));
-
-  MNN::CV::ImageProcess::Config config;
-  config.sourceFormat = ToImageProcessFormat(format_info.format);
-  config.destFormat = MNN::CV::RGB;
-
-  std::unique_ptr<MNN::CV::ImageProcess> processor(
-      MNN::CV::ImageProcess::create(config));
-  if (!processor) {
-    VIDEO_LOGE(TAG,"ConvertYuvToTensorWithImageProcess: failed to create ImageProcess");
-    *out_tensor = nullptr;
-    return false;
-  }
-
-  auto tensor = MNN::Express::_Input({dst_height, dst_width, 3},
-                                     MNN::Express::NHWC,
-                                     halide_type_of<uint8_t>());
-  auto buffer = tensor->writeMap<uint8_t>();
-  if (!buffer) {
-    VIDEO_LOGE(TAG,"ConvertYuvToTensorWithImageProcess: failed to map tensor memory");
-    *out_tensor = nullptr;
-    return false;
-  }
-
-  auto status = processor->convert(yuv_data.data(), dst_width, slice_height,
-                                   stride, buffer, dst_width, dst_height, 3,
-                                   dst_width * 3, halide_type_of<uint8_t>());
-  if (status != MNN::NO_ERROR) {
-    VIDEO_LOGE(TAG,"ConvertYuvToTensorWithImageProcess: convert failed, status=%d",
-         static_cast<int>(status));
-    *out_tensor = nullptr;
-    return false;
-  }
-
-  VIDEO_LOGV(TAG,"ConvertYuvToTensor: conversion succeeded, tensor=%p", tensor.get());
-
-  *out_tensor = tensor;
-  return true;
-}
-
 }  // namespace
 
 ByteBufferDecoder::ByteBufferDecoder() = default;
@@ -202,8 +139,19 @@ bool ByteBufferDecoder::ConfigureByteBuffer() {
     return false;
   }
 
-  output_format_info_ = {};
-  format_info_updated_ = false;
+  // Reset EOS tracking
+  input_eos_ = false;
+  output_eos_ = false;
+  
+  // Initialize video metadata after successful configuration
+  // This will get basic information from track format
+  if (!GetVideoMetadata(&video_metadata_)) {
+    VIDEO_LOGW(TAG, "ConfigureByteBuffer: failed to get initial video metadata");
+  } else {
+    VIDEO_LOGV(TAG, "ConfigureByteBuffer: initial metadata - dims=%dx%d, fps=%.2f, duration=%" PRId64 " us",
+               video_metadata_.width, video_metadata_.height, video_metadata_.native_fps, video_metadata_.duration_us);
+  }
+  
   return true;
 }
 
@@ -211,132 +159,111 @@ bool ByteBufferDecoder::UpdateOutputFormatInfo() {
   if (!media_codec_) {
     return false;
   }
-
-  AMediaFormat* output_format = AMediaCodec_getOutputFormat(media_codec_);
-  if (!output_format) {
-    VIDEO_LOGE(TAG,"UpdateOutputFormatInfo: failed to get output format");
+  
+  // Update video metadata with the latest output format information
+  // This ensures we have the most accurate format details including YUV format info
+  if (!GetVideoMetadata(&video_metadata_)) {
+    VIDEO_LOGW(TAG, "UpdateOutputFormatInfo: failed to update video metadata");
     return false;
   }
-
-  VIDEO_LOGV(TAG,"UpdateOutputFormatInfo: output format = %s",
-       AMediaFormat_toString(output_format));
-
-  int32_t color_format = 0;
-  int32_t stride = 0;
-  int32_t slice_height = 0;
-  int32_t crop_left = 0;
-  int32_t crop_top = 0;
-  int32_t crop_right = 0;
-  int32_t crop_bottom = 0;
-
-  AMediaFormat_getInt32(output_format, AMEDIAFORMAT_KEY_COLOR_FORMAT,
-                        &color_format);
-  AMediaFormat_getInt32(output_format, AMEDIAFORMAT_KEY_STRIDE, &stride);
-#if __ANDROID_API__ >= 28
-  AMediaFormat_getInt32(output_format, AMEDIAFORMAT_KEY_SLICE_HEIGHT,
-                        &slice_height);
-#else
-  slice_height = video_height_;
-#endif
-#if defined(AMEDIAFORMAT_KEY_CROP_LEFT)
-  AMediaFormat_getInt32(output_format, AMEDIAFORMAT_KEY_CROP_LEFT, &crop_left);
-  AMediaFormat_getInt32(output_format, AMEDIAFORMAT_KEY_CROP_TOP, &crop_top);
-  AMediaFormat_getInt32(output_format, AMEDIAFORMAT_KEY_CROP_RIGHT, &crop_right);
-  AMediaFormat_getInt32(output_format, AMEDIAFORMAT_KEY_CROP_BOTTOM, &crop_bottom);
-#else
-  // Older NDK levels do not expose the crop keys; fall back to the full frame.
-  crop_left = 0;
-  crop_top = 0;
-  crop_right = video_width_ > 0 ? video_width_ - 1 : 0;
-  crop_bottom = video_height_ > 0 ? video_height_ - 1 : 0;
-#endif
-
-  output_format_info_ = ImageUtils::DetectYUVFormatFromMediaCodec(
-      color_format,
-      stride,
-      slice_height,
-      video_width_,
-      video_height_,
-      crop_left,
-      crop_top,
-      crop_right,
-      crop_bottom);
-
-  format_info_updated_ = output_format_info_.isValid;
-  AMediaFormat_delete(output_format);
-  return format_info_updated_;
+  
+  VIDEO_LOGV(TAG, "UpdateOutputFormatInfo: metadata updated - fps=%.2f, stride=%d, slice=%d, crop=[%d,%d,%d,%d], output=%dx%d, yuv_format=%d",
+             video_metadata_.native_fps, video_metadata_.stride, video_metadata_.slice_height,
+             video_metadata_.crop_left, video_metadata_.crop_top, video_metadata_.crop_right, video_metadata_.crop_bottom,
+             video_metadata_.output_width, video_metadata_.output_height, static_cast<int>(video_metadata_.yuv_format_info.format));
+  
+  return video_metadata_.format_info_ready;
 }
 
-bool ByteBufferDecoder::DecodeFrameToYuv(int64_t target_timestamp_us,
-                                         int64_t tolerance_us,
-                                         std::vector<uint8_t>* out_yuv,
-                                         ImageUtils::YUVFormatInfo* format_info,
-                                         int64_t* out_pts_us,
-                                         long* native_ms,
-                                         bool* out_eos) {
-  if (!media_codec_ || !media_extractor_) {
-    VIDEO_LOGE(TAG,"DecodeFrameToYuv: codec or extractor not ready");
-    return false;
-  }
-  if (!out_yuv || !format_info || !out_eos) {
-    VIDEO_LOGE(TAG,"DecodeFrameToYuv: invalid output parameters");
+// Feed input data to codec (separated from YUV decoding)
+bool ByteBufferDecoder::FeedInputToCodec(bool* out_eos) {
+  if (!media_codec_ || !media_extractor_ || !out_eos) {
     return false;
   }
 
-  if (!*out_eos) {
-    ssize_t in_idx = AMediaCodec_dequeueInputBuffer(media_codec_, 10000);
-    if (in_idx >= 0) {
-      size_t in_size = 0;
-      uint8_t* in = AMediaCodec_getInputBuffer(media_codec_, in_idx, &in_size);
-      ssize_t ss = AMediaExtractor_readSampleData(media_extractor_, in, in_size);
-      int64_t pts = AMediaExtractor_getSampleTime(media_extractor_);
-
-      if (ss < 0) {
-        ss = 0;
-        *out_eos = true;
-      }
-
-      AMediaCodec_queueInputBuffer(media_codec_, in_idx, 0, ss, pts,
-                                   *out_eos ? AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM : 0);
-      if (!*out_eos) {
-        AMediaExtractor_advance(media_extractor_);
-      }
-    }
+  if (*out_eos) {
+    return true; // Already at end of stream
   }
 
-  while (true) {
-    timespec t0{};
-    clock_gettime(CLOCK_MONOTONIC, &t0);
-
-    AMediaCodecBufferInfo info{};
-    ssize_t out_idx = AMediaCodec_dequeueOutputBuffer(media_codec_, &info, 10000);
-    if (out_idx < 0) {
-      if (out_idx == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED) {
-        VIDEO_LOGV(TAG,"DecodeFrameToYuv: output format changed, updating info");
-        if (!UpdateOutputFormatInfo()) {
-          VIDEO_LOGE(TAG,"DecodeFrameToYuv: failed to handle format change");
-          return false;
-        }
-        continue;
-      }
-      VIDEO_LOGV(TAG,"DecodeFrameToYuv: no output buffer available (idx=%zd)", out_idx);
+  ssize_t in_idx = AMediaCodec_dequeueInputBuffer(media_codec_, 10000);
+  VIDEO_LOGV(TAG, "FeedInputToCodec: dequeueInputBuffer returned %zd", in_idx);
+  if (in_idx >= 0) {
+    size_t in_size = 0;
+    uint8_t* in = AMediaCodec_getInputBuffer(media_codec_, in_idx, &in_size);
+    if (!in || in_size == 0) {
+      VIDEO_LOGW(TAG, "FeedInputToCodec: input buffer null or zero, size=%zu", in_size);
+      // Return buffer to codec to avoid stalling
+      AMediaCodec_queueInputBuffer(media_codec_, in_idx, 0, 0, 0, 0);
       return false;
     }
 
-    *out_eos = (info.flags & AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM) != 0;
-    int64_t pts = info.presentationTimeUs;
-    if (out_pts_us) {
-      *out_pts_us = pts;
+    ssize_t ss = AMediaExtractor_readSampleData(media_extractor_, in, in_size);
+    int64_t pts = AMediaExtractor_getSampleTime(media_extractor_);
+
+    if (ss < 0) {
+      ss = 0;
+      *out_eos = true;
     }
 
-    bool capture = (target_timestamp_us <= 0) || *out_eos ||
-                   (pts + tolerance_us >= target_timestamp_us);
-    if (!capture) {
-      VIDEO_LOGV(TAG,"DecodeFrameToYuv: skip frame pts=%lld target=%lld tolerance=%lld",
-           (long long)pts, (long long)target_timestamp_us,
-           (long long)tolerance_us);
-      AMediaCodec_releaseOutputBuffer(media_codec_, out_idx, false);
+    AMediaCodec_queueInputBuffer(media_codec_, in_idx, 0, ss, pts,
+                                 *out_eos ? AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM : 0);
+    VIDEO_LOGV(TAG, "FeedInputToCodec: queued size=%zd, pts=%" PRId64 ", eos=%d", ss, pts, *out_eos);
+    if (!*out_eos) {
+      AMediaExtractor_advance(media_extractor_);
+    }
+    return true;
+  }
+  return false;
+}
+
+// Simple function to get next available YUV frame from codec
+bool ByteBufferDecoder::GetNextYuvFrame(std::vector<uint8_t>* out_yuv,
+                                        ImageUtils::YUVFormatInfo* format_info,
+                                        int64_t* out_pts_us,
+                                        long* native_ms,
+                                        bool* out_eos) {
+  if (!media_codec_ || !out_yuv || !format_info || !out_eos) {
+    VIDEO_LOGE(TAG, "GetNextYuvFrame: invalid parameters");
+    return false;
+  }
+
+  timespec t0{};
+  if (native_ms) {
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+  }
+
+  // Non-blocking poll with limited retries to be robust around startup/drain
+  const int kMaxPolls = 100;
+  for (int tries = 0; tries < kMaxPolls; ++tries) {
+    AMediaCodecBufferInfo info{};
+    ssize_t out_idx = AMediaCodec_dequeueOutputBuffer(media_codec_, &info, 0 /* non-blocking */);
+    if (out_idx == AMEDIACODEC_INFO_TRY_AGAIN_LATER) {
+      // Backoff a little to avoid busy spin
+      usleep(2000); // 2ms
       continue;
+    }
+
+    if (out_idx == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED) {
+      VIDEO_LOGV(TAG, "GetNextYuvFrame: output format changed, updating info");
+      UpdateOutputFormatInfo();
+      continue;
+    }
+
+    if (out_idx == AMEDIACODEC_INFO_OUTPUT_BUFFERS_CHANGED) {
+      // With NDK API, we still use getOutputBuffer per index; just log and continue.
+      VIDEO_LOGV(TAG, "GetNextYuvFrame: output buffers changed");
+      continue;
+    }
+
+    if (out_idx < 0) {
+      VIDEO_LOGV(TAG, "GetNextYuvFrame: dequeueOutputBuffer returned code=%zd", out_idx);
+      continue;
+    }
+
+    // Valid buffer
+    *out_eos = (info.flags & AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM) != 0;
+    if (out_pts_us) {
+      *out_pts_us = info.presentationTimeUs;
     }
 
     bool success = true;
@@ -344,37 +271,31 @@ bool ByteBufferDecoder::DecodeFrameToYuv(int64_t target_timestamp_us,
       size_t out_size = 0;
       uint8_t* out = AMediaCodec_getOutputBuffer(media_codec_, out_idx, &out_size);
       if (!out || out_size < static_cast<size_t>(info.offset + info.size)) {
-        VIDEO_LOGE(TAG,"DecodeFrameToYuv: invalid output buffer");
+        VIDEO_LOGE(TAG, "GetNextYuvFrame: invalid output buffer");
         success = false;
       } else {
         out_yuv->resize(info.size);
         memcpy(out_yuv->data(), out + info.offset, info.size);
-        VIDEO_LOGV(TAG,"DecodeFrameToYuv: copied %d bytes (offset=%d, capacity=%zu)",
-             info.size, info.offset, out_size);
 
-        if (format_info_updated_ && output_format_info_.isValid) {
-          *format_info = output_format_info_;
+        if (video_metadata_.format_info_ready && video_metadata_.yuv_format_info.isValid) {
+          *format_info = video_metadata_.yuv_format_info;
         } else {
           *format_info = ImageUtils::DetectYUVFormatWithFallback(
               out_yuv->data(),
-              video_width_,
-              video_height_,
+              video_metadata_.width,
+              video_metadata_.height,
               info.size);
         }
 
         if (!format_info->isValid) {
-          VIDEO_LOGE(TAG,"DecodeFrameToYuv: unable to determine YUV format for frame");
+          VIDEO_LOGE(TAG, "GetNextYuvFrame: unable to determine YUV format for frame");
           success = false;
-        } else {
-          VIDEO_LOGV(TAG,"DecodeFrameToYuv: format=%d stride=%d slice=%d output=%dx%d",
-               static_cast<int>(format_info->format), format_info->stride,
-               format_info->sliceHeight, format_info->outputWidth,
-               format_info->outputHeight);
         }
       }
     } else {
       out_yuv->clear();
       format_info->isValid = false;
+      success = false;
     }
 
     if (native_ms) {
@@ -385,27 +306,17 @@ bool ByteBufferDecoder::DecodeFrameToYuv(int64_t target_timestamp_us,
     }
 
     AMediaCodec_releaseOutputBuffer(media_codec_, out_idx, false);
-    VIDEO_LOGV(TAG,"DecodeFrameToYuv: return %d yuv_size=%zu", success ? 1 : 0,
-         out_yuv->size());
     return success;
   }
+
+  return false;
 }
 
-bool ByteBufferDecoder::DecodeFrame(int64_t target_timestamp_us,
-                                        int64_t tolerance_us,
-                                        std::vector<uint8_t>* out_rgb,
-                                        int64_t* out_pts_us,
-                                        long* native_ms,
-                                        bool* out_eos) {
-  if (!out_rgb || !out_eos) {
-    VIDEO_LOGE(TAG,"DecodeFrame: invalid output parameters");
-    return false;
-  }
-
-  ImageUtils::YUVFormatInfo format_info;
-  std::vector<uint8_t> yuv_data;
-  if (!DecodeFrameToYuv(target_timestamp_us, tolerance_us, &yuv_data, &format_info,
-                        out_pts_us, native_ms, out_eos)) {
+bool ByteBufferDecoder::ConvertYuvToRgb(const std::vector<uint8_t>& yuv_data,
+                                        const ImageUtils::YUVFormatInfo& format_info,
+                                        std::vector<uint8_t>* out_rgb) {
+  if (!out_rgb) {
+    VIDEO_LOGE(TAG, "ConvertYuvToRgb: invalid output parameter");
     return false;
   }
 
@@ -415,52 +326,145 @@ bool ByteBufferDecoder::DecodeFrame(int64_t target_timestamp_us,
   }
 
   if (!ConvertYuvToRgbWithImageProcess(yuv_data, format_info, out_rgb)) {
-    VIDEO_LOGE(TAG,"DecodeFrame: YUV to RGB conversion failed via ImageProcess");
+    VIDEO_LOGE(TAG, "ConvertYuvToRgb: YUV to RGB conversion failed via ImageProcess");
     return false;
   }
 
-  VIDEO_LOGV(TAG,"DecodeFrame: converted frame to RGB via ImageProcess, size=%zu",
-       out_rgb->size());
+  VIDEO_LOGV(TAG, "ConvertYuvToRgb: converted frame to RGB via ImageProcess, size=%zu",
+             out_rgb->size());
   return true;
 }
 
-bool ByteBufferDecoder::DecodeFrameToTensor(int64_t target_timestamp_us,
-                                            int64_t tolerance_us,
-                                            MNN::Express::VARP* out_tensor,
-                                            int64_t* out_pts_us,
-                                            long* native_ms,
-                                            bool* out_eos) {
-  if (!out_tensor || !out_eos) {
-    VIDEO_LOGE(TAG,"DecodeFrameToTensor: invalid output parameters");
+bool ByteBufferDecoder::GetNextFrame(std::vector<uint8_t>* out_yuv,
+                                     ImageUtils::YUVFormatInfo* format_info,
+                                     int64_t* out_pts_us,
+                                     long* native_ms,
+                                     bool* out_eos) {
+  if (!media_codec_ || !out_yuv || !format_info || !out_eos) {
+    VIDEO_LOGE(TAG, "GetNextFrame: invalid parameters");
     return false;
   }
 
-  ImageUtils::YUVFormatInfo format_info;
-  std::vector<uint8_t> yuv_data;
-  if (!DecodeFrameToYuv(target_timestamp_us, tolerance_us, &yuv_data, &format_info,
-                        out_pts_us, native_ms, out_eos)) {
-    return false;
+  timespec t0{};
+  if (native_ms) {
+    clock_gettime(CLOCK_MONOTONIC, &t0);
   }
 
-  if (yuv_data.empty() || !format_info.isValid) {
-    *out_tensor = nullptr;
-    VIDEO_LOGV(TAG,"DecodeFrameToTensor: empty YUV buffer or invalid format (valid=%d)",
-         format_info.isValid);
-    return true;
-  }
+  // We consider out_eos as OUTPUT EOS only. Input EOS is tracked separately.
+  *out_eos = output_eos_;
 
-  if (!ConvertYuvToTensorWithImageProcess(yuv_data, format_info, out_tensor)) {
-    VIDEO_LOGE(TAG,"DecodeFrameToTensor: ImageProcess conversion to tensor failed");
-    return false;
-  }
+  // Try repeatedly to feed input and dequeue output until we either get a frame
+  // or observe OUTPUT EOS from the codec. This makes EOS handling robust.
+  const int kMaxOuterLoops = 200;          // Safeguard against infinite loops per call
+  const int kMaxDrainPollsAfterInputEos = 200; // Extra polls after input EOS to drain pending frames
+  int drain_polls = 0;
 
-  if (out_tensor && out_tensor->get()) {
-    auto info = (*out_tensor)->getInfo();
-    if (info && info->dim.size() >= 3) {
-      VIDEO_LOGV(TAG,"DecodeFrameToTensor: tensor ready dims=%d,%d,%d",
-           info->dim[0], info->dim[1], info->dim[2]);
+  for (int loop = 0; loop < kMaxOuterLoops; ++loop) {
+    // Feed more input if available and not yet EOS on input side
+    if (!input_eos_) {
+      bool feed_ok = FeedInputToCodec(&input_eos_);
+      VIDEO_LOGV(TAG, "GetNextFrame: FeedInputToCodec ok=%d, input_eos=%d", feed_ok, input_eos_);
     }
+
+    // Dequeue output non-blocking and handle special return codes in-loop
+    AMediaCodecBufferInfo info{};
+    ssize_t out_idx = AMediaCodec_dequeueOutputBuffer(media_codec_, &info, 0 /* non-blocking */);
+    if (out_idx == AMEDIACODEC_INFO_TRY_AGAIN_LATER) {
+      // No output available right now. If input has ended, keep draining more aggressively.
+      if (input_eos_) {
+        if (++drain_polls >= kMaxDrainPollsAfterInputEos) {
+          // Assume drained if we've polled many times after input EOS.
+          output_eos_ = true;
+          *out_eos = true;
+          VIDEO_LOGV(TAG, "GetNextFrame: assume drained after %d polls post input EOS", drain_polls);
+          return false;
+        }
+        usleep(1000); // 1ms backoff while draining
+        continue; // keep polling output
+      }
+      // Otherwise, go back to feed more input
+      usleep(1000); // backoff to avoid busy spin
+      continue;
+    }
+
+    if (out_idx == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED) {
+      VIDEO_LOGV(TAG, "GetNextFrame: output format changed, updating info");
+      UpdateOutputFormatInfo();
+      continue; // Try dequeue again
+    }
+
+    if (out_idx == AMEDIACODEC_INFO_OUTPUT_BUFFERS_CHANGED) {
+      VIDEO_LOGV(TAG, "GetNextFrame: output buffers changed");
+      continue; // No special handling needed for NDK; retry
+    }
+
+    if (out_idx < 0) {
+      // Other negative codes (buffers changed etc.) - continue loop
+      VIDEO_LOGV(TAG, "GetNextFrame: dequeueOutputBuffer returned code=%zd", out_idx);
+      continue;
+    }
+
+    // Valid output buffer
+    output_eos_ = (info.flags & AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM) != 0;
+    *out_eos = output_eos_;
+    if (out_pts_us) {
+      *out_pts_us = info.presentationTimeUs;
+    }
+
+    bool success = true;
+    if (info.size > 0) {
+      size_t out_size = 0;
+      uint8_t* out = AMediaCodec_getOutputBuffer(media_codec_, out_idx, &out_size);
+      if (!out || out_size < static_cast<size_t>(info.offset + info.size)) {
+        VIDEO_LOGE(TAG, "GetNextFrame: invalid output buffer");
+        success = false;
+      } else {
+        out_yuv->resize(info.size);
+        memcpy(out_yuv->data(), out + info.offset, info.size);
+
+        if (video_metadata_.format_info_ready && video_metadata_.yuv_format_info.isValid) {
+          *format_info = video_metadata_.yuv_format_info;
+        } else {
+          *format_info = ImageUtils::DetectYUVFormatWithFallback(
+              out_yuv->data(),
+              video_metadata_.width,
+              video_metadata_.height,
+              info.size);
+        }
+
+        if (!format_info->isValid) {
+          VIDEO_LOGE(TAG, "GetNextFrame: unable to determine YUV format for frame");
+          success = false;
+        }
+      }
+    } else {
+      // size == 0 frame: nothing to output; if EOS, we signal completion.
+      out_yuv->clear();
+      format_info->isValid = false;
+      success = false;
+    }
+
+    if (native_ms) {
+      timespec t1{};
+      clock_gettime(CLOCK_MONOTONIC, &t1);
+      *native_ms = (t1.tv_sec - t0.tv_sec) * 1000 +
+                   (t1.tv_nsec - t0.tv_nsec) / 1000000;
+    }
+
+    AMediaCodec_releaseOutputBuffer(media_codec_, out_idx, false);
+
+    if (success) {
+      return true; // Produced a frame
+    }
+
+    if (output_eos_) {
+      // Drained final buffer (possibly empty) after EOS
+      return false;
+    }
+
+    // Otherwise continue feeding/dequeuing
   }
 
-  return true;
+  // Loop exhausted without producing a frame; return false (not EOS unless flagged)
+  return false;
 }

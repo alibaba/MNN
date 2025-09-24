@@ -14,7 +14,7 @@ struct MultimodalProcessingResult {
 };
 
 struct MultimodalProcessorConfig {
-    int max_debug_images{999999};
+    int max_debug_images{64};
     bool save_first_image{true};
     VideoProcessorConfig video_processor_config;
 };
