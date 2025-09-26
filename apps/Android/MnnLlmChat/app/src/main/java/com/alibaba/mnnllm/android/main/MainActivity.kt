@@ -486,6 +486,10 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
      * If not, show privacy policy dialog
      */
     private fun checkPrivacyPolicyAgreement() {
+        if (!ENABLE_PRIVACY_POLICY_CHECK) {
+            return
+        }
+        
         val privacyManager = PrivacyPolicyManager.getInstance(this)
         
         if (!privacyManager.hasUserAgreed()) {
@@ -520,5 +524,8 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
         const val TAG: String = "MainActivity"
         const val EXTRA_SELECT_TAB = "com.alibaba.mnnllm.android.select_tab"
         const val TAB_MODEL_MARKET = "model_market"
+        
+        // Control whether to show privacy policy agreement dialog
+        const val ENABLE_PRIVACY_POLICY_CHECK = true
     }
 }

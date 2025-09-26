@@ -131,8 +131,11 @@ task copyModelInfoToMarketConfig {
     def modelConfigFile = rootProject.file('model-config.json')
     def outputDir = file('src/main/assets/builtin_models')
     
-    inputs.file(modelConfigFile)
-    outputs.dir(outputDir)
+    // Only set inputs/outputs if the config file exists
+    if (modelConfigFile.exists()) {
+        inputs.file(modelConfigFile)
+        outputs.dir(outputDir)
+    }
     
     doLast {
         if (!modelConfigFile.exists()) {

@@ -32,6 +32,9 @@ class DownloadForegroundService : Service() {
             getString(AppR.string.download_service_title), 
             NotificationManager.IMPORTANCE_LOW
         )
+        channel.enableLights(false)
+        channel.enableVibration(false)
+        channel.setSound(null, null)
         notificationManager.createNotificationChannel(channel)
     }
 
@@ -95,6 +98,7 @@ class DownloadForegroundService : Service() {
             .setContentIntent(pendingIntent)
             .setAutoCancel(false)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
             .build()
     }
 
