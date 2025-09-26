@@ -4,7 +4,7 @@
 #include <android/log.h>
 
 #ifndef VIDEO_DEBUG_ENABLED
-#define VIDEO_DEBUG_ENABLED 1
+#define VIDEO_DEBUG_ENABLED 0
 #endif
 
 #if VIDEO_DEBUG_ENABLED

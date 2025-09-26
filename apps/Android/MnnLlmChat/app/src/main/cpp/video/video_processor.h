@@ -12,13 +12,14 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <map>
 
 #ifdef __ANDROID__
 #include <media/NdkMediaCodec.h>
 #include <media/NdkMediaExtractor.h>
 #include <media/NdkMediaFormat.h>
 #endif
-
+#include "llm/llm.hpp"
 #include "MNN/expr/Expr.hpp"
 #include "image_utils.hpp"
 #include "video_decoder.hpp"
@@ -31,6 +32,7 @@ struct VideoProcessorConfig {
   // Frame extraction settings
   int max_frames = 64;  // Maximum number of frames to extract
   float fps = 1.0f;     // Target FPS for frame extraction
+  float skip_secs = 1.0f;  // Number of seconds to skip from start and end
   // Preprocessing settings
   int target_width = 512;   // Target width for resizing
   int target_height = 512;  // Target height for resizing
@@ -50,6 +52,14 @@ struct VideoFrame {
   int width, height;                // Frame dimensions
 };
 
+// Video Processing Result Structure
+struct VideoProcessingResult {
+  std::string prompt_template;              // Processed prompt template with SmolVLM format
+  std::map<std::string, MNN::Transformer::PromptImagePart> images;  // Image data for multimodal_prompt
+  VideoMetadata metadata;                   // Video metadata
+  bool success;                            // Processing success flag
+};
+
 // Video Processor Class (similar to Hugging Face VideoProcessor)
 class VideoProcessor {
  public:
@@ -64,7 +74,7 @@ class VideoProcessor {
       const VideoProcessorConfig& config = VideoProcessorConfig{});
 
   // Main processing pipeline
-  std::vector<VideoFrame> ProcessVideo(const std::string& video_path);
+  VideoProcessingResult ProcessVideo(const std::string& video_path);
 
   // Optional debug callback for accessing raw RGB frames
   void SetDebugCallback(DebugFrameCallback callback);
@@ -89,10 +99,16 @@ class VideoProcessor {
   // Update configuration
   void UpdateConfig(const VideoProcessorConfig& config);
 
-  // Convenience helper: run full pipeline and return tensors
-  static std::vector<MNN::Express::VARP> ProcessVideoFrames(
+  // Convenience helper: run full pipeline and return processed prompt with images
+  static VideoProcessingResult ProcessVideoFrames(
       const std::string& video_path,
       const VideoProcessorConfig& config);
+
+  // Generate SmolVLM format video description
+  static std::string GenerateSmolVLMVideoDescription(
+      const std::vector<VideoFrame>& video_frames,
+      const VideoMetadata& metadata,
+      int start_image_index);
 
  private:
   VideoProcessorConfig config_;

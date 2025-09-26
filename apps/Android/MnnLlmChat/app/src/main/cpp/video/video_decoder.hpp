@@ -59,6 +59,10 @@ class VARP;
 } // namespace Express
 } // namespace MNN
 
+namespace mls {
+struct VideoProcessorConfig;
+} // namespace mls
+
 class VideoDecoder {
  public:
   // Debug callback receives MNN tensor ready for inspection/saving.
@@ -67,7 +71,6 @@ class VideoDecoder {
       int64_t pts,
       long native_ms,
       int64_t target_us,
-      const char* strategy,
       int width,
       int height)>;
 
@@ -81,27 +84,17 @@ class VideoDecoder {
   bool SelectVideoTrack();
   virtual bool Configure() = 0;
 
-  int DecodeWithFps(int max_frames, float target_fps, 
-                   std::vector<MNN::Express::VARP>* out_tensors,
-                   std::vector<int64_t>* out_timestamps,
-                   FrameDebugCallback callback = nullptr);
-
-  int DecodeWithFps(int max_frames, float target_fps, 
-                   std::vector<MNN::Express::VARP>* out_tensors,
-                   std::vector<int64_t>* out_timestamps,
-                   float skip_secs,
-                   FrameDebugCallback callback = nullptr);
+  // Decode with VideoProcessorConfig
+  int DecodeWithConfig(const mls::VideoProcessorConfig& config,
+                      std::vector<MNN::Express::VARP>* out_tensors,
+                      std::vector<int64_t>* out_timestamps,
+                      FrameDebugCallback callback = nullptr);
 
   bool GetVideoMetadata(VideoMetadata* metadata);
 
   bool CalculateRealFps(VideoMetadata* metadata, int sample_frames = 10);
 
   virtual float GetDetectedFps() const { return -1.0f; }
-
-  std::vector<int64_t> CalculateSampleIndices(const VideoMetadata& metadata, 
-                                             int max_frames, 
-                                             float target_fps,
-                                             float skip_secs = 0.0f);
 
   // Helper function to determine if we should capture the current frame based on target_fps
   bool ShouldCaptureFrame(int64_t current_pts_us, int64_t last_captured_pts_us, float target_fps);

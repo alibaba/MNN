@@ -18,6 +18,7 @@
 
 #include "../mls_log.h"
 #include "byte_buffer_decoder.hpp"
+#include "video_processor.h"
 #include "video_utils.hpp"
 
 // Forward declaration for tensor creation
@@ -197,11 +198,145 @@ void VideoDecoder::Teardown() {
   video_metadata_ = VideoMetadata{};
 }
 
-int VideoDecoder::DecodeWithFps(int max_frames, float target_fps, 
-                               std::vector<MNN::Express::VARP>* out_tensors,
-                               std::vector<int64_t>* out_timestamps,
-                               FrameDebugCallback callback) {
-  return DecodeWithFps(max_frames, target_fps, out_tensors, out_timestamps, 1.0f, callback);
+// Decode with VideoProcessorConfig
+int VideoDecoder::DecodeWithConfig(const mls::VideoProcessorConfig& config,
+                                  std::vector<MNN::Express::VARP>* out_tensors,
+                                  std::vector<int64_t>* out_timestamps,
+                                  FrameDebugCallback callback) {
+  if (!media_codec_ || !media_extractor_) {
+    VIDEO_LOGE(TAG, "VIDEO_DECODE: decoder not properly initialized");
+    return -1;
+  }
+
+  if (!out_tensors || !out_timestamps) {
+    VIDEO_LOGE(TAG, "VIDEO_DECODE: output parameters cannot be null");
+    return -1;
+  }
+
+  out_tensors->clear();
+  out_timestamps->clear();
+
+  // Calculate effective max_frames as minimum of max_frames and max_debug_images
+  int effective_max_frames = std::min(config.max_frames, config.max_debug_images);
+  
+  VIDEO_LOGV(TAG, "DecodeWithConfig: max_frames=%d, max_debug_images=%d, effective_max_frames=%d, skip_secs=%.2f",
+             config.max_frames, config.max_debug_images, effective_max_frames, config.skip_secs);
+
+  // Get video metadata for basic info
+  VideoMetadata metadata;
+  bool metadata_ok = GetVideoMetadata(&metadata);
+
+  VIDEO_LOGV(TAG, "VIDEO_DECODE: ===== DECODE SESSION START =====");
+  VIDEO_LOGV(TAG, "VIDEO_DECODE: target_fps=%.2f, max_frames=%d, skip_secs=%.1f", 
+             config.fps, effective_max_frames, config.skip_secs);
+
+  int frames_captured = 0;
+  int64_t last_captured_pts_us = -1;
+  int64_t current_frame_index = 0;  // Frame index counter
+  int64_t first_frame_pts_us = -1;  // First frame timestamp for fixed logic
+  std::vector<int64_t> sample_indices;  // Video-style sample indices
+  bool indices_calculated = false;  // Whether we've calculated indices after first frame
+  
+  while (frames_captured < effective_max_frames) {
+    VIDEO_LOGV(TAG, "VIDEO_DECODE: ----- DECODE ATTEMPT (frame_idx=%" PRId64 ") -----", 
+               current_frame_index);
+
+    std::vector<uint8_t> yuv_data;
+    ImageUtils::YUVFormatInfo format_info;
+    int64_t pts_us = 0;
+    long native_ms = 0;
+    bool saw_eos = false;
+
+    // Get next frame from codec (no RGB conversion yet)
+    bool decode_ok = GetNextFrame(&yuv_data, &format_info, &pts_us, &native_ms, &saw_eos);
+
+    if (saw_eos) {
+      VIDEO_LOGV(TAG, "VIDEO_DECODE: EOS reached, captured %d frames", frames_captured);
+      break;
+    }
+
+    if (!decode_ok || yuv_data.empty()) {
+      VIDEO_LOGV(TAG, "VIDEO_DECODE: FAILED to decode frame (frame_idx=%" PRId64 ")", 
+                 current_frame_index);
+      break;;
+    }
+    VIDEO_LOGV(TAG, "VIDEO_DECODE: DECODED frame %" PRId64 " - pts=%" PRId64 " us, yuv_size=%zu bytes", 
+      current_frame_index, pts_us, yuv_data.size());
+    // Record first frame timestamp for fixed logic
+    if (current_frame_index == 0) {
+      first_frame_pts_us = pts_us;
+      last_captured_pts_us = 0;
+      VIDEO_LOGV(TAG, "VIDEO_DECODE: First frame pts recorded: %" PRId64 " us", first_frame_pts_us);
+    }
+    // Calculate sample indices after first frame (when we have accurate metadata)
+    if (!indices_calculated && metadata_ok && current_frame_index == 0) {
+      // Update metadata with actual frame information if needed
+      if (metadata.total_frames <= 0 && metadata.duration_us > 0 && metadata.native_fps > 0) {
+        metadata.total_frames = static_cast<int64_t>((metadata.duration_us / 1000000.0) * metadata.native_fps);
+        VIDEO_LOGV(TAG, "VIDEO_DECODE: Estimated total_frames=%" PRId64 " from duration and fps", metadata.total_frames);
+      }
+      sample_indices = CalculateVideoSampleIndices(metadata, effective_max_frames, config.fps, config.skip_secs);
+      indices_calculated = true;
+      
+      // Print indices for debugging
+      std::string indices_str;
+      for (size_t i = 0; i < sample_indices.size(); i++) {
+        if (i > 0) indices_str += ",";
+        indices_str += std::to_string(sample_indices[i]);
+      }
+      VIDEO_LOGV(TAG, "VIDEO_DECODE: Video sample indices: [%s]", indices_str.c_str());
+    }
+    // Determine capture decision using both methods for cross-validation
+    bool should_capture = 
+        ShouldCaptureFrameByIndex(current_frame_index, sample_indices);
+    if (should_capture) {
+      // Only now convert YUV to RGB since we decided to capture this frame
+      std::vector<uint8_t> rgb_data;
+      if (!ConvertYuvToRgb(yuv_data, format_info, &rgb_data)) {
+        VIDEO_LOGE(TAG, "VIDEO_DECODE: FAILED to convert YUV to RGB");
+        break;
+      }
+
+      // Convert RGB data to MNN tensor
+      MNN::Express::VARP tensor = mls::CreateTensorFromRgb(
+          rgb_data.data(), video_metadata_.width, video_metadata_.height);
+      
+      if (!tensor.get()) {
+        VIDEO_LOGE(TAG, "VIDEO_DECODE: FAILED to create tensor from RGB data");
+        break;
+      }
+
+      // Store the captured frame
+      auto video_timestamp = pts_us - first_frame_pts_us;
+      out_tensors->push_back(tensor);
+      out_timestamps->push_back(video_timestamp);
+      last_captured_pts_us = pts_us;
+
+      VIDEO_LOGV(TAG, "VIDEO_DECODE: FRAME %d CAPTURED - timestamp=%" PRId64 " us, interval_since_last=%" PRId64 " us, rgb_size=%zu", 
+                 frames_captured, video_timestamp, 
+                 frames_captured > 0 ? (pts_us - (frames_captured > 1 ? (*out_timestamps)[frames_captured-1] : 0)) : 0,
+                 rgb_data.size());
+
+      // Call the debug callback if provided
+      if (callback) {
+        callback(tensor, video_timestamp, native_ms, video_timestamp, 
+                 video_metadata_.width, video_metadata_.height);
+      }
+
+      frames_captured++;
+    } else {
+      VIDEO_LOGV(TAG, "VIDEO_DECODE: SKIPPED frame %" PRId64 " - pts=%" PRId64 " us, method=%s", 
+                 current_frame_index, pts_us, indices_calculated ? "index" : "timestamp");
+    }
+    current_frame_index++;
+    VIDEO_LOGV(TAG, "VIDEO_DECODE: frame captured %d max frames %d", frames_captured, effective_max_frames);
+  }
+
+  VIDEO_LOGV(TAG, "VIDEO_DECODE: ===== DECODE SESSION END =====");
+  VIDEO_LOGV(TAG, "VIDEO_DECODE: SUMMARY - requested=%d, captured=%d, success_rate=%.1f%%", 
+             effective_max_frames, frames_captured, (frames_captured * 100.0f / effective_max_frames));
+  
+  return frames_captured;
 }
 
 bool VideoDecoder::GetVideoMetadata(VideoMetadata* metadata) {
@@ -320,90 +455,6 @@ bool VideoDecoder::ExtractOutputFormatInfo(VideoMetadata* metadata) {
   AMediaFormat_delete(output_format);
   return true;
 }
-
-std::vector<int64_t> VideoDecoder::CalculateSampleIndices(const VideoMetadata& metadata, 
-                                                          int max_frames, 
-                                                          float target_fps,
-                                                          float skip_secs) {
-  std::vector<int64_t> indices;
-  
-  if (metadata.total_frames <= 0) {
-    VIDEO_LOGW(TAG, "CalculateSampleIndices: invalid total_frames=%" PRId64, metadata.total_frames);
-    return indices;
-  }
-  
-  if (metadata.duration_us <= 0) {
-    VIDEO_LOGW(TAG, "CalculateSampleIndices: invalid duration=%" PRId64 " us", metadata.duration_us);
-    return indices;
-  }
-  
-  // Convert duration to seconds
-  double duration_seconds = static_cast<double>(metadata.duration_us) / 1000000.0;
-  
-  // Step 1: Estimate how many frames we'd sample at target_fps
-  int estimated_frames = static_cast<int>(round(target_fps * duration_seconds));
-  
-  // Step 2: Determine desired frames
-  int desired_frames = std::min(estimated_frames, max_frames);
-  if (desired_frames < 1) {
-    desired_frames = 1;
-  }
-  
-  // Step 3: Calculate sampling range with skip logic
-  int64_t start_idx = 0;
-  int64_t end_idx = metadata.total_frames - 1;
-  
-  if (skip_secs > 0 && (duration_seconds - 2 * skip_secs) > (max_frames / target_fps)) {
-    start_idx = static_cast<int64_t>(skip_secs * metadata.native_fps);
-    end_idx = metadata.total_frames - static_cast<int64_t>(skip_secs * metadata.native_fps);
-  }
-  
-  // Ensure valid range
-  start_idx = std::max<int64_t>(0, start_idx);
-  end_idx = std::min<int64_t>(end_idx, metadata.total_frames - 1);
-  
-  if (start_idx >= end_idx) {
-    start_idx = 0;
-    end_idx = metadata.total_frames - 1;
-  }
-  
-  // Step 4: Uniform sampling using linear interpolation
-  if (desired_frames == 1) {
-    // Single frame: take middle
-    indices.push_back((start_idx + end_idx) / 2);
-  } else {
-    for (int i = 0; i < desired_frames; ++i) {
-      double ratio = static_cast<double>(i) / (desired_frames - 1);
-      int64_t idx = start_idx + static_cast<int64_t>(ratio * (end_idx - start_idx));
-      indices.push_back(idx);
-    }
-  }
-  
-  // Remove duplicates and sort
-  std::sort(indices.begin(), indices.end());
-  indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
-  
-  VIDEO_LOGV(TAG, "CalculateSampleIndices: total_frames=%" PRId64 ", duration=%.2fs, desired=%d, range=[%" PRId64 ",%" PRId64 "], result=%zu indices",
-             metadata.total_frames, duration_seconds, desired_frames, start_idx, end_idx, indices.size());
-  
-  return indices;
-}
-
-// Helper function to determine if we should capture the current frame based on target_fps
-bool VideoDecoder::ShouldCaptureFrame(int64_t current_pts_us, int64_t last_captured_pts_us, float target_fps) {
-  if (last_captured_pts_us < 0) {
-    // First frame, always capture
-    return true;
-  }
-  
-  const int64_t target_interval_us = static_cast<int64_t>(1000000.0f / target_fps);
-  const int64_t time_since_last_capture = current_pts_us - last_captured_pts_us;
-  
-  // Capture if enough time has passed since last capture
-  return time_since_last_capture >= target_interval_us;
-}
-
-// Helper function to determine if we should capture the current frame based on frame index (Video-style)
 bool VideoDecoder::ShouldCaptureFrameByIndex(int64_t current_frame_index, const std::vector<int64_t>& sample_indices) {
   // Binary search to check if current_frame_index is in sample_indices
   return std::binary_search(sample_indices.begin(), sample_indices.end(), current_frame_index);
@@ -477,170 +528,6 @@ std::vector<int64_t> VideoDecoder::CalculateVideoSampleIndices(const VideoMetada
              total_num_frames, duration_seconds, desired_frames, start_idx, end_idx, indices.size());
   
   return indices;
-}
-
-int VideoDecoder::DecodeWithFps(int max_frames, float target_fps, 
-                               std::vector<MNN::Express::VARP>* out_tensors,
-                               std::vector<int64_t>* out_timestamps,
-                               float skip_secs,
-                               FrameDebugCallback callback) {
-  if (!media_codec_ || !media_extractor_) {
-    VIDEO_LOGE(TAG, "VIDEO_DECODE: decoder not properly initialized");
-    return -1;
-  }
-
-  if (!out_tensors || !out_timestamps) {
-    VIDEO_LOGE(TAG, "VIDEO_DECODE: output parameters cannot be null");
-    return -1;
-  }
-
-  out_tensors->clear();
-  out_timestamps->clear();
-
-  // Get video metadata for basic info
-  VideoMetadata metadata;
-  bool metadata_ok = GetVideoMetadata(&metadata);
-
-  VIDEO_LOGV(TAG, "VIDEO_DECODE: ===== DECODE SESSION START =====");
-  VIDEO_LOGV(TAG, "VIDEO_DECODE: target_fps=%.2f, max_frames=%d, skip_secs=%.1f", 
-             target_fps, max_frames, skip_secs);
-
-  int frames_captured = 0;
-  int64_t last_captured_pts_us = -1;
-  int64_t current_frame_index = 0;  // Frame index counter
-  int64_t first_frame_pts_us = -1;  // First frame timestamp for fixed logic
-  std::vector<int64_t> sample_indices;  // Video-style sample indices
-  bool indices_calculated = false;  // Whether we've calculated indices after first frame
-  int consecutive_failures = 0;  // Track consecutive decode failures to prevent infinite loops
-  const int max_consecutive_failures = 10;  // Maximum failures before giving up
-  
-  // Calculate start time considering skip_secs
-  int64_t start_time_us = 0;
-  if (skip_secs > 0 && metadata_ok && metadata.duration_us > 0) {
-    start_time_us = static_cast<int64_t>(skip_secs * 1000000.0f);
-  }
-  
-  // Start decoding from the beginning or skip position
-  int64_t current_decode_timestamp_us = start_time_us;
-  const int64_t decode_step_us = 33333; // ~30fps decode step for smooth scanning
-
-  while (frames_captured < max_frames) {
-    VIDEO_LOGV(TAG, "VIDEO_DECODE: ----- DECODE ATTEMPT AT %" PRId64 " us (frame_idx=%" PRId64 ") -----", 
-               current_decode_timestamp_us, current_frame_index);
-
-    std::vector<uint8_t> yuv_data;
-    ImageUtils::YUVFormatInfo format_info;
-    int64_t pts_us = 0;
-    long native_ms = 0;
-    bool saw_eos = false;
-
-    // Get next frame from codec (no RGB conversion yet)
-    bool decode_ok = GetNextFrame(&yuv_data, &format_info, &pts_us, &native_ms, &saw_eos);
-
-    if (saw_eos) {
-      VIDEO_LOGV(TAG, "VIDEO_DECODE: EOS reached, captured %d frames", frames_captured);
-      break;
-    }
-
-    if (!decode_ok || yuv_data.empty()) {
-      consecutive_failures++;
-      VIDEO_LOGV(TAG, "VIDEO_DECODE: FAILED to decode frame at timestamp=%" PRId64 " us (frame_idx=%" PRId64 "), consecutive_failures=%d", 
-                 current_decode_timestamp_us, current_frame_index, consecutive_failures);
-      
-      // Check for too many consecutive failures
-      if (consecutive_failures >= max_consecutive_failures) {
-        VIDEO_LOGW(TAG, "VIDEO_DECODE: Too many consecutive failures (%d), ending decode session", consecutive_failures);
-        break;
-      }
-      
-      // Still increment frame index even on decode failure to avoid infinite loop
-      current_frame_index++;
-      current_decode_timestamp_us += decode_step_us;
-      continue;
-    }
-    VIDEO_LOGV(TAG, "VIDEO_DECODE: DECODED frame %" PRId64 " - pts=%" PRId64 " us, yuv_size=%zu bytes", 
-      current_frame_index, pts_us, yuv_data.size());
-    // Record first frame timestamp for fixed logic
-    if (current_frame_index == 0) {
-      first_frame_pts_us = pts_us;
-      last_captured_pts_us = 0;
-      VIDEO_LOGV(TAG, "VIDEO_DECODE: First frame pts recorded: %" PRId64 " us", first_frame_pts_us);
-    }
-
-    // Reset failure counter on successful decode
-    consecutive_failures = 0;
-    VIDEO_LOGV(TAG, "VIDEO_DECODE test 1");
-    // Calculate sample indices after first frame (when we have accurate metadata)
-    if (!indices_calculated && metadata_ok && current_frame_index == 0) {
-      // Update metadata with actual frame information if needed
-      if (metadata.total_frames <= 0 && metadata.duration_us > 0 && metadata.native_fps > 0) {
-        metadata.total_frames = static_cast<int64_t>((metadata.duration_us / 1000000.0) * metadata.native_fps);
-        VIDEO_LOGV(TAG, "VIDEO_DECODE: Estimated total_frames=%" PRId64 " from duration and fps", metadata.total_frames);
-      }
-      sample_indices = CalculateVideoSampleIndices(metadata, max_frames, target_fps, skip_secs);
-      indices_calculated = true;
-      
-      // Print indices for debugging
-      std::string indices_str;
-      for (size_t i = 0; i < sample_indices.size(); i++) {
-        if (i > 0) indices_str += ",";
-        indices_str += std::to_string(sample_indices[i]);
-      }
-      VIDEO_LOGV(TAG, "VIDEO_DECODE: Video sample indices: [%s]", indices_str.c_str());
-    }
-    // Determine capture decision using both methods for cross-validation
-    bool should_capture = 
-        ShouldCaptureFrameByIndex(current_frame_index, sample_indices);
-    if (should_capture) {
-      // Only now convert YUV to RGB since we decided to capture this frame
-      std::vector<uint8_t> rgb_data;
-      if (!ConvertYuvToRgb(yuv_data, format_info, &rgb_data)) {
-        VIDEO_LOGE(TAG, "VIDEO_DECODE: FAILED to convert YUV to RGB");
-        current_decode_timestamp_us += decode_step_us;
-        continue;
-      }
-
-      // Convert RGB data to MNN tensor
-      MNN::Express::VARP tensor = mls::CreateTensorFromRgb(
-          rgb_data.data(), video_metadata_.width, video_metadata_.height);
-      
-      if (!tensor.get()) {
-        VIDEO_LOGE(TAG, "VIDEO_DECODE: FAILED to create tensor from RGB data");
-        current_decode_timestamp_us += decode_step_us;
-        continue;
-      }
-
-      // Store the captured frame
-      out_tensors->push_back(tensor);
-      out_timestamps->push_back(pts_us);
-      last_captured_pts_us = pts_us;
-
-      VIDEO_LOGV(TAG, "VIDEO_DECODE: FRAME %d CAPTURED - pts=%" PRId64 " us, interval_since_last=%" PRId64 " us, rgb_size=%zu", 
-                 frames_captured, pts_us, 
-                 frames_captured > 0 ? (pts_us - (frames_captured > 1 ? (*out_timestamps)[frames_captured-1] : 0)) : 0,
-                 rgb_data.size());
-
-      // Call the debug callback if provided
-      if (callback) {
-        callback(tensor, pts_us, native_ms, current_decode_timestamp_us, "DynamicCapture", 
-                 video_metadata_.width, video_metadata_.height);
-      }
-
-      frames_captured++;
-    } else {
-      VIDEO_LOGV(TAG, "VIDEO_DECODE: SKIPPED frame %" PRId64 " - pts=%" PRId64 " us, method=%s", 
-                 current_frame_index, pts_us, indices_calculated ? "index" : "timestamp");
-    }
-    current_frame_index++;
-    current_decode_timestamp_us += decode_step_us;
-    VIDEO_LOGV(TAG, "VIDEO_DECODE: frame captured %d max frames %d", frames_captured, max_frames);
-  }
-
-  VIDEO_LOGV(TAG, "VIDEO_DECODE: ===== DECODE SESSION END =====");
-  VIDEO_LOGV(TAG, "VIDEO_DECODE: SUMMARY - requested=%d, captured=%d, success_rate=%.1f%%", 
-             max_frames, frames_captured, (frames_captured * 100.0f / max_frames));
-  
-  return frames_captured;
 }
 
 namespace mls {

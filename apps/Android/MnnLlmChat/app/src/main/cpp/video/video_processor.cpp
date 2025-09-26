@@ -10,7 +10,7 @@
 #include <thread>
 #include <utility>
 #include <inttypes.h>
-
+#include "llm/llm.hpp"
 #include "../mls_log.h"
 #include "MNN/MNNDefine.h"
 #include "MNN/expr/Expr.hpp"
@@ -48,33 +48,48 @@ void VideoProcessor::SetDebugCallback(DebugFrameCallback callback) {
 }
 
 // Main processing pipeline
-std::vector<VideoFrame> VideoProcessor::ProcessVideo(
+VideoProcessingResult VideoProcessor::ProcessVideo(
     const std::string& video_path) {
   MNN_DEBUG("VideoProcessor: Starting video processing pipeline for: %s",
             video_path.c_str());
   
-  std::vector<VideoFrame> processed_frames;
+  VideoProcessingResult result;
+  result.success = false;
   
   // Step 1: Extract raw frames
   auto raw_frames = ExtractFrames(video_path);
   if (raw_frames.empty()) {
     MNN_ERROR("VideoProcessor: No frames extracted from: %s",
                video_path.c_str());
-    return processed_frames;
+    return result;
   }
-  
   MNN_DEBUG("VideoProcessor: Extracted %zu raw frames", raw_frames.size());
-  
   // Step 2: Preprocess frames
   auto preprocessed_frames = PreprocessFrames(raw_frames);
   MNN_DEBUG("VideoProcessor: Preprocessed %zu frames",
             preprocessed_frames.size());
   
-  processed_frames = std::move(preprocessed_frames);
+  if (preprocessed_frames.empty()) {
+    MNN_ERROR("VideoProcessor: No frames after preprocessing");
+    return result;
+  }
   
+  for (size_t i = 0; i < preprocessed_frames.size(); ++i) {
+    std::string frame_key = "video_frame_" + std::to_string(i);
+    MNN::Transformer::PromptImagePart image_part;
+    image_part.image_data = preprocessed_frames[i].pixel_values;
+    image_part.width = preprocessed_frames[i].width;
+    image_part.height = preprocessed_frames[i].height;
+    result.images[frame_key] = image_part;
+  }
+  
+  result.prompt_template = GenerateSmolVLMVideoDescription(
+    preprocessed_frames, result.metadata, 0);
+  
+  result.success = true;
   MNN_DEBUG("VideoProcessor: Completed processing, returning %zu frames",
-            processed_frames.size());
-  return processed_frames;
+    preprocessed_frames.size());
+  return result;
 }
 
 // Extract frames from video file
@@ -138,14 +153,14 @@ std::vector<VideoFrame> VideoProcessor::ExtractFrames(
   if (debug_callback_) {
     decoder_callback = [this](MNN::Express::VARP tensor,
                              int64_t pts, long native_ms, int64_t target_us,
-                             const char* strategy, int width, int height) {
+                             int width, int height) {
       debug_callback_(tensor, width, height, 0, pts);  // frame_index not available here
     };
   }
   
-  int frames_decoded = decoder_->DecodeWithFps(config_.max_frames, config_.fps,
-                                               &tensors, &timestamps,
-                                               decoder_callback);
+  int frames_decoded = decoder_->DecodeWithConfig(config_,
+                                                  &tensors, &timestamps,
+                                                  decoder_callback);
   
   if (frames_decoded <= 0) {
     MNN_ERROR("VideoProcessor: Failed to decode frames");
@@ -235,77 +250,76 @@ MNN::Express::VARP CreateTensorFromRgb(const uint8_t* rgb_data,
     MNN_ERROR("Invalid RGB data or dimensions: %dx%d", width, height);
     return nullptr;
   }
-  
-  MNN_DEBUG("CreateTensorFromRgb: creating tensor for %dx%d RGB data", width, height);
-  
-  // Log first few RGB values for debugging
-  if (width * height >= 4) {
-    MNN_DEBUG("CreateTensorFromRgb: input RGB values: R=%d,G=%d,B=%d, "
-              "R=%d,G=%d,B=%d, R=%d,G=%d,B=%d, R=%d,G=%d,B=%d",
-              rgb_data[0], rgb_data[1], rgb_data[2], rgb_data[3],
-              rgb_data[4], rgb_data[5], rgb_data[6], rgb_data[7],
-              rgb_data[8], rgb_data[9], rgb_data[10], rgb_data[11]);
-  }
-  
   // Create tensor with HWC layout: {height, width, channels}
   auto var = MNN::Express::_Input({height, width, 3}, MNN::Express::NHWC,
                                   halide_type_of<uint8_t>());
   auto ptr = var->writeMap<uint8_t>();
-  
-  // Direct memcpy should work for continuous RGB data
   memcpy(ptr, rgb_data, width * height * 3);
-  
   MNN_DEBUG("CreateTensorFromRgb: tensor created successfully, size=%dx%dx3",
             height, width);
-  
-  // Verify the tensor data by reading back a few values
-  auto verify_ptr = var->readMap<uint8_t>();
-  if (verify_ptr && width * height >= 4) {
-    MNN_DEBUG("CreateTensorFromRgb: tensor verification - first RGB values: "
-              "R=%d,G=%d,B=%d, R=%d,G=%d,B=%d, R=%d,G=%d,B=%d, "
-              "R=%d,G=%d,B=%d",
-              verify_ptr[0], verify_ptr[1], verify_ptr[2], verify_ptr[3],
-              verify_ptr[4], verify_ptr[5], verify_ptr[6], verify_ptr[7],
-              verify_ptr[8], verify_ptr[9], verify_ptr[10], verify_ptr[11]);
-  }
-  
   return var;
 }
 
 // Convenience static helper
-std::vector<MNN::Express::VARP> VideoProcessor::ProcessVideoFrames(
+VideoProcessingResult VideoProcessor::ProcessVideoFrames(
     const std::string& video_path,
     const VideoProcessorConfig& config) {
-  std::vector<MNN::Express::VARP> images;
-  VideoProcessorConfig processor_config = config;
-  
   MNN_DEBUG("Using VideoProcessor (Hugging Face style) for: %s",
             video_path.c_str());
   
   // Create VideoProcessor with provided configuration
-  VideoProcessor processor(processor_config);
+  VideoProcessor processor(config);
   
   // Process video through the complete pipeline
-  auto processed_frames = processor.ProcessVideo(video_path);
+  return processor.ProcessVideo(video_path);
+}
+
+// Generate SmolVLM format video description
+std::string VideoProcessor::GenerateSmolVLMVideoDescription(
+    const std::vector<VideoFrame>& video_frames,
+    const VideoMetadata& metadata,
+    int start_image_index) {
   
-  if (!processed_frames.empty()) {
-    MNN_DEBUG("VideoProcessor: Successfully processed %zu frames",
-              processed_frames.size());
-    size_t max_frames_to_return = std::min(
-        processed_frames.size(),
-        static_cast<size_t>(processor_config.max_debug_images));
+  std::string description;
+  
+  // Calculate video duration in seconds
+  int64_t duration_seconds = metadata.duration_us / 1000000;
+  int hours = duration_seconds / 3600;
+  int minutes = (duration_seconds % 3600) / 60;
+  int seconds = duration_seconds % 60;
+  
+  // Generate title in SmolVLM format
+  char duration_str[32];
+  snprintf(duration_str, sizeof(duration_str), "%d:%02d:%02d", hours, minutes, seconds);
+  
+  description += "You are provided the following series of " + 
+                 std::to_string(video_frames.size()) + 
+                 " frames from a " + duration_str + " [H:MM:SS] video.\n\n";
+  
+  // Generate frame descriptions using MNN compatible <img> format
+  for (size_t i = 0; i < video_frames.size(); ++i) {
+    // Use actual timestamp from the frame instead of estimating
+    int64_t timestamp_us = video_frames[i].timestamp_us;
+    int frame_seconds = timestamp_us / 1000000;
+    int frame_minutes = frame_seconds / 60;
+    int frame_secs = frame_seconds % 60;
     
-    for (size_t i = 0; i < max_frames_to_return; ++i) {
-      if (processed_frames[i].pixel_values.get() != nullptr) {
-        images.push_back(processed_frames[i].pixel_values);
-      }
-    }
-  } else {
-    MNN_ERROR("VideoProcessor: No frames processed from: %s",
-               video_path.c_str());
+    char timestamp_str[16];
+    snprintf(timestamp_str, sizeof(timestamp_str), "%02d:%02d", frame_minutes, frame_secs);
+    
+    // Debug logging to verify timestamp calculation
+    MNN_DEBUG("GenerateSmolVLMVideoDescription: Frame %zu - timestamp_us=%" PRId64 ", formatted=%s", 
+              i, timestamp_us, timestamp_str);
+    
+    // Generate frame description (MNN compatible format)
+    std::string frame_key = "video_frame_" + std::to_string(start_image_index + i);
+    description += "Frame from " + std::string(timestamp_str) + ":";
+    description += "<img>" + frame_key + "</img>\n";
   }
-  MNN_DEBUG("Total frames processed: %zu", images.size());
-  return images;
+  
+  MNN_DEBUG("Generated SmolVLM video description with %zu frames", video_frames.size());
+  return description;
 }
 
 } // namespace mls
+

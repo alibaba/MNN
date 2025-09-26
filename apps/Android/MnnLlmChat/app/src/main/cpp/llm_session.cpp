@@ -5,7 +5,6 @@
 #include "llm_session.h"
 #include <utility>
 #include <chrono>
-#include <exception>
 #include <fstream>
 #include <algorithm>
 #include "MNN/MNNForwardType.h"
@@ -69,17 +68,9 @@ std::string getR1AssistantString(std::string assistant_content) {
 }
 
 // Process multimodal prompt and convert to MultimodalPrompt structure
-MultimodalProcessingResult processMultimodalPrompt(const std::string& prompt_text) {
-    try {
-        MultimodalProcessor processor;
-        return processor.process(prompt_text);
-    } catch (const std::exception& e) {
-        MultimodalProcessingResult result;
-        result.multimodalPrompt.prompt_template = prompt_text;
-        result.errorMessage = "Processing exception: " + std::string(e.what()) + "; ";
-        MNN_ERROR("Exception during multimodal processing: %s", e.what());
-        return result;
-    }
+mls::PromptProcessingResult processMultimodalPrompt(const std::string& prompt_text) {
+    mls::PromptProcessor processor;
+    return processor.Process(prompt_text);
 }
 
 void LlmSession::Reset() {
@@ -202,14 +193,14 @@ const MNN::Transformer::LlmContext * LlmSession::Response(const std::string &pro
     
     // Check for multimodal content in the full prompt
     auto multimodal_result = processMultimodalPrompt(full_prompt_text);
-    if (multimodal_result.hasMultimodal) {
+    if (multimodal_result.has_multimodal) {
         MNN_DEBUG("Detected multimodal content, using multimodal API prompt %s with %zu images",
-             multimodal_result.multimodalPrompt.prompt_template.c_str(),
-             multimodal_result.multimodalPrompt.images.size());
-        if (!multimodal_result.errorMessage.empty()) {
-            MNN_ERROR("Multimodal processing errors: %s", multimodal_result.errorMessage.c_str());
+             multimodal_result.multimodal_prompt.prompt_template.c_str(),
+             multimodal_result.multimodal_prompt.images.size());
+        if (!multimodal_result.error_message.empty()) {
+            MNN_ERROR("Multimodal processing errors: %s", multimodal_result.error_message.c_str());
         }
-        llm_->response(multimodal_result.multimodalPrompt, &output_ostream, "<eop>", 1);
+        llm_->response(multimodal_result.multimodal_prompt, &output_ostream, "<eop>", 1);
     } else {
         MNN_DEBUG("No multimodal content detected, using regular text API");
         llm_->response(history_, &output_ostream, "<eop>", 1);
@@ -279,19 +270,20 @@ void LlmSession::SetAssistantPrompt(const std::string& assistant_prompt) {
 }
 
 void LlmSession::updateConfig(const std::string& config_json) {
-    try {
-        json new_config = json::parse(config_json);
-        for (auto& [key, value] : new_config.items()) {
-            current_config_[key] = value;
-        }
-        if (llm_) {
-            llm_->set_config(current_config_.dump());
-            MNN_DEBUG("Updated config applied: %s", current_config_.dump().c_str());
-        } else {
-            MNN_DEBUG("LLM not initialized yet, config saved for later: %s", current_config_.dump().c_str());
-        }
-    } catch (const std::exception& e) {
-        MNN_ERROR("Failed to parse config JSON: %s", e.what());
+    json new_config = json::parse(config_json, nullptr, false);
+    if (new_config.is_null()) {
+        MNN_ERROR("Failed to parse config JSON: invalid JSON format");
+        return;
+    }
+    
+    for (auto& [key, value] : new_config.items()) {
+        current_config_[key] = value;
+    }
+    if (llm_) {
+        llm_->set_config(current_config_.dump());
+        MNN_DEBUG("Updated config applied: %s", current_config_.dump().c_str());
+    } else {
+        MNN_DEBUG("LLM not initialized yet, config saved for later: %s", current_config_.dump().c_str());
     }
 }
 
@@ -359,12 +351,12 @@ const MNN::Transformer::LlmContext * LlmSession::ResponseWithHistory(
     
     // Check for multimodal content in the full prompt
     auto multimodal_result = processMultimodalPrompt(full_prompt_text);
-    if (multimodal_result.hasMultimodal) {
+    if (multimodal_result.has_multimodal) {
         MNN_DEBUG("ResponseWithHistory: Detected multimodal content, using multimodal API");
-        if (!multimodal_result.errorMessage.empty()) {
-            MNN_ERROR("ResponseWithHistory: Multimodal processing errors: %s", multimodal_result.errorMessage.c_str());
+        if (!multimodal_result.error_message.empty()) {
+            MNN_ERROR("ResponseWithHistory: Multimodal processing errors: %s", multimodal_result.error_message.c_str());
         }
-        llm_->response(multimodal_result.multimodalPrompt, &output_ostream, "<eop>", 1);
+        llm_->response(multimodal_result.multimodal_prompt, &output_ostream, "<eop>", 1);
     } else {
         MNN_DEBUG("ResponseWithHistory: No multimodal content detected, using regular text API");
         llm_->response(temp_history, &output_ostream, "<eop>", 1);

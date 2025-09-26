@@ -3,27 +3,28 @@
 #include <string>
 #include "MNN/expr/Expr.hpp"
 #include "llm/prompt.hpp"
+#include "llm/llm.hpp"
 #include "video/video_processor.h"
 
 namespace mls {
 
-struct MultimodalProcessingResult {
-    bool hasMultimodal{false};
-    MNN::Transformer::MultimodalPrompt multimodalPrompt;
-    std::string errorMessage;
+struct PromptProcessingResult {
+    bool has_multimodal{false};
+    MNN::Transformer::MultimodalPrompt multimodal_prompt;
+    std::string error_message;
 };
 
-struct MultimodalProcessorConfig {
+struct PromptProcessorConfig {
     int max_debug_images{64};
     bool save_first_image{true};
     VideoProcessorConfig video_processor_config;
 };
 
-class MultimodalProcessor {
+class PromptProcessor {
 public:
-    explicit MultimodalProcessor(MultimodalProcessorConfig config = {});
+    explicit PromptProcessor(PromptProcessorConfig config = {});
 
-    MultimodalProcessingResult process(const std::string& prompt_text) const;
+    PromptProcessingResult Process(const std::string& prompt_text) const;
 
 private:
     struct ProcessorState {
@@ -34,16 +35,16 @@ private:
         bool first_image_saved{false};
     };
 
-    static MNN::Express::VARP loadImageFromPath(const std::string& image_path);
-    static std::string escapeForRegex(const std::string& text);
-    bool handleImageTags(const std::string& prompt_text,
-                         MultimodalProcessingResult& result,
+    static MNN::Express::VARP LoadImageFromPath(const std::string& image_path);
+    static std::string EscapeForRegex(const std::string& text);
+    bool HandleImageTags(const std::string& prompt_text,
+                         PromptProcessingResult& result,
                          ProcessorState& state) const;
-    bool handleVideoTags(const std::string& prompt_text,
-                         MultimodalProcessingResult& result,
+    bool HandleVideoTags(const std::string& prompt_text,
+                         PromptProcessingResult& result,
                          ProcessorState& state) const;
 
-    MultimodalProcessorConfig config_;
+    PromptProcessorConfig config_;
 };
 
 } // namespace mls

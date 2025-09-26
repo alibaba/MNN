@@ -3,11 +3,6 @@
 #include <cstdio>
 #include <algorithm>
 #include "MNN/expr/Expr.hpp"
-
-// Add stb_image support for proper JPEG/PNG saving
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "../stb_image_write.h"
-
 #include "video_utils.hpp"
 
 #define TAG "ImageUtils"

@@ -1,7 +1,6 @@
 #include "processor.h"
 
 #include <algorithm>
-#include <exception>
 #include <regex>
 #include <utility>
 
@@ -9,7 +8,7 @@
 #include "video/video_processor.h"
 
 namespace mls {
-MultimodalProcessor::MultimodalProcessor(MultimodalProcessorConfig config)
+PromptProcessor::PromptProcessor(PromptProcessorConfig config)
     : config_(std::move(config)) {
     config_.video_processor_config.max_debug_images = config_.max_debug_images;
     config_.video_processor_config.save_first_image = config_.save_first_image;
@@ -17,12 +16,12 @@ MultimodalProcessor::MultimodalProcessor(MultimodalProcessorConfig config)
                                                          config_.max_debug_images);
 }
 
-MNN::Express::VARP MultimodalProcessor::loadImageFromPath(const std::string& image_path) {
+MNN::Express::VARP PromptProcessor::LoadImageFromPath(const std::string& image_path) {
     MNN_ERROR("Image loading not yet implemented for Android native path: %s", image_path.c_str());
     return nullptr;
 }
 
-std::string MultimodalProcessor::escapeForRegex(const std::string& text) {
+std::string PromptProcessor::EscapeForRegex(const std::string& text) {
     std::string escaped;
     escaped.reserve(text.size() * 2);
     for (char c : text) {
@@ -51,9 +50,9 @@ std::string MultimodalProcessor::escapeForRegex(const std::string& text) {
     return escaped;
 }
 
-MultimodalProcessingResult MultimodalProcessor::process(const std::string& prompt_text) const {
-    MultimodalProcessingResult result;
-    result.multimodalPrompt.prompt_template = prompt_text;
+PromptProcessingResult PromptProcessor::Process(const std::string& prompt_text) const {
+    PromptProcessingResult result;
+    result.multimodal_prompt.prompt_template = prompt_text;
 
     ProcessorState state;
     state.final_prompt = prompt_text;
@@ -62,18 +61,18 @@ MultimodalProcessingResult MultimodalProcessor::process(const std::string& promp
         return result;
     }
 
-    bool hasImages = false;
-    bool hasVideos = false;
+    bool has_images = false;
+    bool has_videos = false;
 
-    hasImages = handleImageTags(prompt_text, result, state);
-    hasVideos = handleVideoTags(prompt_text, result, state);
+    has_images = HandleImageTags(prompt_text, result, state);
+    has_videos = HandleVideoTags(prompt_text, result, state);
 
-    result.hasMultimodal = (hasImages || hasVideos) && (state.successful_loads > 0);
-    result.multimodalPrompt.prompt_template = state.final_prompt;
+    result.has_multimodal = (has_images || has_videos) && (state.successful_loads > 0);
+    result.multimodal_prompt.prompt_template = state.final_prompt;
 
-    if (result.hasMultimodal) {
+    if (result.has_multimodal) {
         MNN_DEBUG("Processed multimodal prompt with %zu images (%d successful, %d failed)",
-                  result.multimodalPrompt.images.size(), state.successful_loads, state.failed_loads);
+                  result.multimodal_prompt.images.size(), state.successful_loads, state.failed_loads);
     } else if (state.failed_loads > 0) {
         MNN_DEBUG("All multimodal content failed to load, falling back to text-only mode");
     }
@@ -81,10 +80,10 @@ MultimodalProcessingResult MultimodalProcessor::process(const std::string& promp
     return result;
 }
 
-bool MultimodalProcessor::handleImageTags(const std::string& prompt_text,
-                                          MultimodalProcessingResult& result,
+bool PromptProcessor::HandleImageTags(const std::string& prompt_text,
+                                          PromptProcessingResult& result,
                                           ProcessorState& state) const {
-    bool hasImages = false;
+    bool has_images = false;
 
     std::regex img_regex("<img>([^<]*)</img>");
     std::smatch match;
@@ -100,23 +99,23 @@ bool MultimodalProcessor::handleImageTags(const std::string& prompt_text,
         if (!image_path.empty()) {
             MNN_DEBUG("Found image tag with path: %s", image_path.c_str());
 
-            auto image_var = loadImageFromPath(image_path);
+            auto image_var = LoadImageFromPath(image_path);
             if (image_var.get() != nullptr) {
                 std::string image_key = "image_" + std::to_string(state.image_index);
                 MNN::Transformer::PromptImagePart image_part;
                 image_part.image_data = image_var;
                 image_part.width = 0;
                 image_part.height = 0;
-                result.multimodalPrompt.images[image_key] = image_part;
-                hasImages = true;
+                result.multimodal_prompt.images[image_key] = image_part;
+                has_images = true;
                 state.image_index++;
                 state.successful_loads++;
                 MNN_DEBUG("Successfully loaded image: %s as %s", image_path.c_str(), image_key.c_str());
             } else {
                 state.failed_loads++;
                 MNN_ERROR("Failed to load image from path: %s", image_path.c_str());
-                result.errorMessage += "Failed to load image: " + image_path + "; ";
-                const std::string escaped_path = escapeForRegex(image_path);
+                result.error_message += "Failed to load image: " + image_path + "; ";
+                const std::string escaped_path = EscapeForRegex(image_path);
                 state.final_prompt = std::regex_replace(
                     state.final_prompt,
                     std::regex("<img>" + escaped_path + "</img>"),
@@ -127,13 +126,13 @@ bool MultimodalProcessor::handleImageTags(const std::string& prompt_text,
         search_start = match.suffix().first;
     }
 
-    return hasImages;
+    return has_images;
 }
 
-bool MultimodalProcessor::handleVideoTags(const std::string& prompt_text,
-                                          MultimodalProcessingResult& result,
+bool PromptProcessor::HandleVideoTags(const std::string& prompt_text,
+                                          PromptProcessingResult& result,
                                           ProcessorState& state) const {
-    bool hasVideos = false;
+    bool has_videos = false;
 
     std::regex video_regex("<video>([^<]*)</video>");
     std::smatch match;
@@ -158,38 +157,31 @@ bool MultimodalProcessor::handleVideoTags(const std::string& prompt_text,
             video_config.max_frames = std::min(video_config.max_frames, remaining_slots);
             video_config.max_debug_images = std::min(video_config.max_debug_images, remaining_slots);
 
-            auto video_frames = VideoProcessor::ProcessVideoFrames(video_path, video_config);
-            if (!video_frames.empty()) {
-                std::string replacement;
-                size_t max_frames_to_process = std::min(video_frames.size(),
-                    static_cast<size_t>(config_.max_debug_images - state.image_index));
-
-                for (size_t i = 0; i < max_frames_to_process; ++i) {
-                    std::string frame_key = "video_frame_" + std::to_string(state.image_index);
-                    replacement += "<img>" + frame_key + "</img>";
-                    MNN::Transformer::PromptImagePart image_part;
-                    image_part.image_data = video_frames[i];
-                    image_part.width = 0;
-                    image_part.height = 0;
-                    result.multimodalPrompt.images[frame_key] = image_part;
-                    state.image_index++;
-                }
-
-                const std::string escaped_path = escapeForRegex(video_path);
+            auto video_result = VideoProcessor::ProcessVideoFrames(video_path, video_config);
+            if (video_result.success && !video_result.images.empty()) {
+                // Use the processed prompt template directly
+                const std::string escaped_path = EscapeForRegex(video_path);
                 state.final_prompt = std::regex_replace(
                     state.final_prompt,
                     std::regex("<video>" + escaped_path + "</video>"),
-                    replacement
+                    video_result.prompt_template
                 );
-                hasVideos = true;
+                
+                // Add images to multimodal_prompt
+                for (const auto& pair : video_result.images) {
+                    result.multimodal_prompt.images[pair.first] = pair.second;
+                    state.image_index++;
+                }
+                
+                has_videos = true;
                 state.successful_loads++;
-                MNN_DEBUG("Successfully processed video: %s into %zu frames (limited to %zu for debugging)",
-                          video_path.c_str(), video_frames.size(), max_frames_to_process);
+                MNN_DEBUG("Successfully processed video: %s into %zu frames with SmolVLM format",
+                          video_path.c_str(), video_result.images.size());
             } else {
                 state.failed_loads++;
                 MNN_ERROR("Failed to process video from path: %s", video_path.c_str());
-                result.errorMessage += "Failed to process video: " + video_path + "; ";
-                const std::string escaped_path = escapeForRegex(video_path);
+                result.error_message += "Failed to process video: " + video_path + "; ";
+                const std::string escaped_path = EscapeForRegex(video_path);
                 state.final_prompt = std::regex_replace(
                     state.final_prompt,
                     std::regex("<video>" + escaped_path + "</video>"),
@@ -200,7 +192,7 @@ bool MultimodalProcessor::handleVideoTags(const std::string& prompt_text,
         search_start = match.suffix().first;
     }
 
-    return hasVideos;
+    return has_videos;
 }
 
 } // namespace mls
