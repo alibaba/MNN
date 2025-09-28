@@ -75,6 +75,34 @@
         style="@style/EnableButtonStatus"/>
 
     <Button
+        android:id="@+id/btnPickImage"
+        android:layout_width="140dp"
+        android:layout_height="wrap_content"
+        tools:visibility="visible"
+        android:text="Pick Image"
+        android:textAllCaps="false"
+        android:layout_alignParentRight="true"
+        android:layout_alignParentBottom="true"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:textColor="#333"
+        style="@style/EnableButtonStatus"/>
+
+    <Button
+        android:id="@+id/btn_classify"
+        style="@style/EnableButtonStatus"
+        android:layout_width="140dp"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:layout_marginBottom="0dp"
+        android:layout_marginRight="0dp"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:text="Image Classifier"
+        android:textAllCaps="false"
+        android:textColor="#333" />
+
+    <Button
         android:id="@+id/button_home_page"
         android:visibility="visible"
         android:layout_width="140dp"
@@ -128,23 +156,14 @@
         android:layout_height="match_parent"
         tools:visibility="gone"
         android:background="#66000000"/>
+
     <FrameLayout
         android:id="@+id/text_status_layout"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_centerHorizontal="true"
-        android:layout_alignParentBottom="true">
-        <TextView
-            android:id="@+id/text_status"
-            android:text="@string/connecting"
-            android:visibility="invisible"
-            android:layout_width="130dp"
-            android:gravity="center"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="70dp"
-            android:textColor="@color/black"
-            android:textSize="18sp"
-            tools:visibility="visible" />
+        android:layout_alignParentBottom="true"
+        android:layout_marginBottom="-6dp">
+
     </FrameLayout>
 
     <androidx.cardview.widget.CardView
@@ -326,4 +345,16 @@
         android:layout_centerHorizontal="true"
         android:layout_marginBottom="24dp"
         android:layout_alignParentBottom="true"/>
+
+    <TextView
+        android:id="@+id/text_status"
+        android:layout_width="130dp"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="70dp"
+        android:gravity="center"
+        android:text="@string/connecting"
+        android:textColor="@color/black"
+        android:textSize="18sp"
+        android:visibility="invisible"
+        tools:visibility="visible" />
 </RelativeLayout>

@@ -1,12 +1,18 @@
 package com.taobao.meta.avatar
 
 import android.annotation.SuppressLint
+import android.app.Activity
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Bundle
+import android.provider.MediaStore
 import android.util.Log
 import android.view.View
 import android.view.WindowManager
+import android.widget.Button
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
@@ -36,9 +42,13 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.newSingleThreadContext
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 import kotlin.system.exitProcess
-
 
 enum class ChatStatus {
     STATUS_IDLE,
@@ -66,6 +76,12 @@ class MainActivity : AppCompatActivity(),
     private var chatSessionJobs = mutableSetOf<Job>()
     lateinit var mainView:MainView
     private lateinit var downloadManager: DownloadModule
+
+    // Image pick / classifier
+    private val PICK_IMAGE_REQUEST = 1001
+    private val nativeDispatcher = newSingleThreadContext("native-init-thread")
+    private val classifierMutex = Mutex()
+    @Volatile private var classifierInitialized = false
 
     @SuppressLint("UseCompatLoadingForDrawables")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -95,6 +111,151 @@ class MainActivity : AppCompatActivity(),
             }
         }
         mainView.updateDownloadStatus(downloadManager.isDownloadComplete())
+
+        // Hook UI buttons for classifier & pick image
+        findViewById<Button>(R.id.btnPickImage)?.setOnClickListener { pickImageFromGallery() }
+        findViewById<Button>(R.id.btn_classify)?.setOnClickListener { runClassifierOnTestImage() }
+    }
+
+    /** Copy model (if needed), init model once and run inference on bundled test image */
+    private fun runClassifierOnTestImage() {
+        lifecycleScope.launch {
+            val assetModelPath = "models/mobilenet-v1-1.0.mnn"
+            val modelDir = File(filesDir, "models")
+            modelDir.mkdirs()
+            val destModel = File(modelDir, "mobilenet-v1-1.0.mnn")
+            if (!destModel.exists()) {
+                try {
+                    assets.open(assetModelPath).use { input ->
+                        destModel.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    Toast.makeText(this@MainActivity, "Model copied to ${destModel.absolutePath}", Toast.LENGTH_SHORT).show()
+                } catch (e: Exception) {
+                    Toast.makeText(this@MainActivity, "Failed to copy model: ${e.message}", Toast.LENGTH_LONG).show()
+                    return@launch
+                }
+            }
+            // init if needed
+            if (!classifierInitialized) {
+                withContext(nativeDispatcher) {
+                    classifierMutex.withLock {
+                        try {
+                            classifierInitialized = MNNClassifier.init(destModel.absolutePath)
+                            Log.i(TAG, "Classifier init -> $classifierInitialized")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Classifier init error", e)
+                            classifierInitialized = false
+                        }
+                    }
+                }
+            }
+            if (!classifierInitialized) {
+                Toast.makeText(this@MainActivity, "Classifier init failed", Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            val bitmap = BitmapFactory.decodeResource(resources, R.drawable.testme)
+            if (bitmap == null) {
+                Toast.makeText(this@MainActivity, "Test image not found", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            val inputArray = bitmapToNCHWFloatArray(bitmap, 224, 224)
+            val resultIndex = withContext(nativeDispatcher) {
+                classifierMutex.withLock {
+                    try {
+                        MNNClassifier.run(inputArray)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Classifier run error", e)
+                        -1
+                    }
+                }
+            }
+            withContext(Dispatchers.Main) {
+                if (resultIndex >= 0) Toast.makeText(this@MainActivity, "Predicted class index: $resultIndex", Toast.LENGTH_LONG).show()
+                else Toast.makeText(this@MainActivity, "Inference failed", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun pickImageFromGallery() {
+        try {
+            val intent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
+            intent.type = "image/*"
+            startActivityForResult(intent, PICK_IMAGE_REQUEST)
+        } catch (e: Exception) {
+            Log.e(TAG, "pickImageFromGallery failed", e)
+            Toast.makeText(this, "Failed to open gallery: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == PICK_IMAGE_REQUEST && resultCode == Activity.RESULT_OK) {
+            try {
+                data?.data?.let { uri ->
+                    val inputStream = contentResolver.openInputStream(uri)
+                    val bitmap = BitmapFactory.decodeStream(inputStream)
+                    inputStream?.close()
+                    if (bitmap == null) {
+                        Toast.makeText(this, "Failed to decode image", Toast.LENGTH_SHORT).show()
+                        return
+                    }
+                    runClassifierOnBitmap(bitmap)
+                } ?: run {
+                    Toast.makeText(this, "No image selected", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "onActivityResult handling error", e)
+                Toast.makeText(this, "Image pick error: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun runClassifierOnBitmap(bitmap: Bitmap) {
+        lifecycleScope.launch {
+            val modelFile = File(filesDir, "models/mobilenet-v1-1.0.mnn")
+            if (!modelFile.exists()) {
+                Toast.makeText(this@MainActivity,
+                    "Model file not found. Please run 'Run Classifier' first to copy & init model.",
+                    Toast.LENGTH_LONG).show()
+                return@launch
+            }
+
+            if (!classifierInitialized) {
+                withContext(nativeDispatcher) {
+                    classifierMutex.withLock {
+                        try {
+                            classifierInitialized = MNNClassifier.init(modelFile.absolutePath)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Classifier init error on picked image", e)
+                            classifierInitialized = false
+                        }
+                    }
+                }
+            }
+
+            if (!classifierInitialized) {
+                Toast.makeText(this@MainActivity, "Classifier init failed", Toast.LENGTH_LONG).show()
+                return@launch
+            }
+
+            val inputArray = bitmapToNCHWFloatArray(bitmap, 224, 224)
+            val idx = withContext(nativeDispatcher) {
+                classifierMutex.withLock {
+                    try {
+                        MNNClassifier.run(inputArray)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Classifier run failed", e)
+                        -1
+                    }
+                }
+            }
+
+            withContext(Dispatchers.Main) {
+                if (idx >= 0) Toast.makeText(this@MainActivity, "Predicted class index: $idx", Toast.LENGTH_LONG).show()
+                else Toast.makeText(this@MainActivity, "Inference failed or invalid result", Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     private fun stopAnswer() {
@@ -107,9 +268,7 @@ class MainActivity : AppCompatActivity(),
 
     private fun cancelAllJobs() {
         chatSessionJobs.apply {
-            forEach {
-                it.cancel()
-            }
+            forEach { it.cancel() }
             clear()
         }
     }
@@ -324,7 +483,10 @@ class MainActivity : AppCompatActivity(),
         if (memoryMonitor != null) {
             memoryMonitor!!.stopMonitoring()
         }
-        exitProcess(0)
+        try {
+            nativeDispatcher.close()
+        } catch (e: Exception) { /* ignore */ }
+        // Do not call exitProcess(0) — let Android manage the lifecycle (unless you deliberately want to).
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -407,7 +569,34 @@ class MainActivity : AppCompatActivity(),
         Log.e(TAG, "Download error", error)
         mainView.onDownloadError(error)
     }
-    
+
+    // ----------------- helper: bitmap -> NCHW float array -----------------
+    private fun bitmapToNCHWFloatArray(bitmap: android.graphics.Bitmap, targetW: Int, targetH: Int): FloatArray {
+        val resized = android.graphics.Bitmap.createScaledBitmap(bitmap, targetW, targetH, true)
+        val w = targetW
+        val h = targetH
+        val hw = w * h
+        val floatArray = FloatArray(3 * hw)
+
+        val pixels = IntArray(hw)
+        resized.getPixels(pixels, 0, w, 0, 0, w, h)
+
+        for (y in 0 until h) {
+            for (x in 0 until w) {
+                val idx = y * w + x
+                val px = pixels[idx]
+                val r = ((px shr 16) and 0xFF).toFloat() / 255.0f
+                val g = ((px shr 8) and 0xFF).toFloat() / 255.0f
+                val b = (px and 0xFF).toFloat() / 255.0f
+                floatArray[0 * hw + idx] = r
+                floatArray[1 * hw + idx] = g
+                floatArray[2 * hw + idx] = b
+            }
+        }
+        return floatArray
+    }
+    // ----------------------------------------------------------------------
+
     companion object {
         private const val TAG = "MainActivity"
         init {
