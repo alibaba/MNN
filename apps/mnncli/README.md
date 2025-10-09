@@ -12,48 +12,50 @@ MNNCLI is a command-line interface tool for MNN (Mobile Neural Network) that pro
 
 ## Building
 
-To build MNNCLI, set the `BUILD_MNNCLI` option to `ON` when configuring CMake:
+To build MNNCLI, run the following commands from the project's root directory:
 
 ```bash
-cmake -DBUILD_MNNCLI=ON ..
-make
+cmake -B build -DBUILD_MNNCLI=ON
+cmake --build build
 ```
+
+The executable will be located at `build/mnncli`.
 
 ## Usage
 
 ### List Models
 ```bash
-./mnncli list
+./build/mnncli list
 ```
 
 ### Serve Model
 ```bash
-./mnncli serve <model_name>
+./build/mnncli serve <model_name>
 ```
 
 ### Run Model
 ```bash
-./mnncli run <model_name> [-c config_path] [-p prompt] [-f prompt_file]
+./build/mnncli run <model_name> [-c config_path] [-p prompt] [-f prompt_file]
 ```
 
 ### Benchmark Model
 ```bash
-./mnncli benchmark <model_name> [-c config_path]
+./build/mnncli benchmark <model_name> [-c config_path]
 ```
 
 ### Download Model
 ```bash
-./mnncli download <model_name> <repo_name>
+./build/mnncli download <model_name> <repo_name>
 ```
 
 ### Search Models
 ```bash
-./mnncli search <keyword>
+./build/mnncli search <keyword>
 ```
 
 ### Delete Model
 ```bash
-./mnncli delete <model_name>
+./build/mnncli delete <model_name>
 ```
 
 ## Dependencies

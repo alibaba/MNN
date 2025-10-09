@@ -15,7 +15,7 @@
 namespace mnncli {
 
 // Helper function for case-insensitive string comparison
-bool caseInsensitiveEquals(const std::string& str1, const std::string& str2) {
+bool CaseInsensitiveEquals(const std::string& str1, const std::string& str2) {
     if (str1.length() != str2.length()) {
         return false;
     }
@@ -28,7 +28,7 @@ bool caseInsensitiveEquals(const std::string& str1, const std::string& str2) {
 }
 
 // Static member initialization
-const std::vector<std::string> ModelRepository::DEFAULT_PROVIDERS = {
+const std::vector<std::string> ModelRepository::kDefaultProviders = {
     "HuggingFace", "ModelScope", "Modelers"
 };
 
@@ -36,73 +36,73 @@ ModelRepository::ModelRepository(const std::string& cache_root_path)
     : cache_root_path_(cache_root_path), is_network_request_attempted_(false) {
     
     // Set default download provider
-    current_download_provider_ = DEFAULT_DOWNLOAD_PROVIDER;
+    current_download_provider_ = kDefaultDownloadProvider;
 }
 
-ModelRepository& ModelRepository::getInstance(const std::string& cache_root_path) {
+ModelRepository& ModelRepository::GetInstance(const std::string& cache_root_path) {
     static ModelRepository instance(cache_root_path);
     return instance;
 }
 
-std::optional<ModelMarketData> ModelRepository::getModelMarketData() {
+std::optional<ModelMarketData> ModelRepository::GetModelMarketData() {
     // For now, only load from assets (similar to Kotlin version when network is disabled)
-    LOG_DEBUG_TAG("Loading model market data from assets", TAG);
+    LOG_DEBUG_TAG("Loading model market data from assets", kTag);
     
-    auto assetsData = loadFromAssets();
+    auto assetsData = LoadFromAssets();
     if (assetsData) {
         cached_model_market_data_ = assetsData;
-        LOG_DEBUG_TAG("Successfully loaded data from assets", TAG);
+        LOG_DEBUG_TAG("Successfully loaded data from assets", kTag);
     }
     
     return cached_model_market_data_;
 }
 
-std::vector<ModelMarketItem> ModelRepository::getModels() {
+std::vector<ModelMarketItem> ModelRepository::GetModels() {
     try {
-        auto data = getModelMarketData();
+        auto data = GetModelMarketData();
         if (data && !data->models.empty()) {
-            return processModels(data->models);
+            return ProcessModels(data->models);
         }
     } catch (const std::exception& e) {
-        LOG_DEBUG_TAG("Failed to get models: " + std::string(e.what()), TAG);
+        LOG_DEBUG_TAG("Failed to get models: " + std::string(e.what()), kTag);
     }
     return {};
 }
 
-std::vector<ModelMarketItem> ModelRepository::getTtsModels() {
+std::vector<ModelMarketItem> ModelRepository::GetTtsModels() {
     try {
-        auto data = getModelMarketData();
+        auto data = GetModelMarketData();
         if (data && !data->ttsModels.empty()) {
-            return processModels(data->ttsModels);
+            return ProcessModels(data->ttsModels);
         }
     } catch (const std::exception& e) {
-        LOG_DEBUG_TAG("Failed to get TTS models: " + std::string(e.what()), TAG);
+        LOG_DEBUG_TAG("Failed to get TTS models: " + std::string(e.what()), kTag);
     }
     return {};
 }
 
-std::vector<ModelMarketItem> ModelRepository::getAsrModels() {
+std::vector<ModelMarketItem> ModelRepository::GetAsrModels() {
     try {
-        auto data = getModelMarketData();
+        auto data = GetModelMarketData();
         if (data && !data->asrModels.empty()) {
-            return processModels(data->asrModels);
+            return ProcessModels(data->asrModels);
         }
     } catch (const std::exception& e) {
-        LOG_DEBUG_TAG("Failed to get ASR models: " + std::string(e.what()), TAG);
+        LOG_DEBUG_TAG("Failed to get ASR models: " + std::string(e.what()), kTag);
     }
     return {};
 }
 
-std::optional<std::string> ModelRepository::getModelIdForDownload(const std::string& modelName, const std::string& downloadProvider) {
+std::optional<std::string> ModelRepository::GetModelIdForDownload(const std::string& modelName, const std::string& downloadProvider) {
     if (modelName.empty()) {
-        LOG_DEBUG_TAG("Model name is empty", TAG);
+        LOG_DEBUG_TAG("Model name is empty", kTag);
         return std::nullopt;
     }
     
     // Find model by name
-    auto model = findModelByName(modelName);
+    auto model = FindModelByName(modelName);
     if (!model) {
-        LOG_DEBUG_TAG("Model not found: " + modelName, TAG);
+        LOG_DEBUG_TAG("Model not found: " + modelName, kTag);
         return std::nullopt;
     }
     
@@ -112,7 +112,7 @@ std::optional<std::string> ModelRepository::getModelIdForDownload(const std::str
     bool providerFound = false;
     
     for (const auto& [source, repoPath] : model->sources) {
-        if (caseInsensitiveEquals(source, downloadProvider)) {
+        if (CaseInsensitiveEquals(source, downloadProvider)) {
             foundProvider = source;
             foundRepoPath = repoPath;
             providerFound = true;
@@ -121,21 +121,21 @@ std::optional<std::string> ModelRepository::getModelIdForDownload(const std::str
     }
     
     if (!providerFound) {
-        LOG_DEBUG_TAG("Download provider '" + downloadProvider + "' not available for model: " + modelName, TAG);
+        LOG_DEBUG_TAG("Download provider '" + downloadProvider + "' not available for model: " + modelName, kTag);
         return std::nullopt;
     }
     
     // Create model ID in format: "HuggingFace/taobao-mnn/gpt-oss-20b-MNN"
-    std::string modelId = createModelId(foundProvider, foundRepoPath);
+    std::string modelId = CreateModelId(foundProvider, foundRepoPath);
     
-    LOG_DEBUG_TAG("Created model ID: " + modelId + " for model: " + modelName, TAG);
+    LOG_DEBUG_TAG("Created model ID: " + modelId + " for model: " + modelName, kTag);
     
     return modelId;
 }
 
-std::string ModelRepository::getModelType(const std::string& modelId) {
+std::string ModelRepository::GetModelType(const std::string& modelId) {
     try {
-        auto data = getModelMarketData();
+        auto data = GetModelMarketData();
         if (!data) {
             return "LLM"; // Default to LLM if no data available
         }
@@ -143,9 +143,9 @@ std::string ModelRepository::getModelType(const std::string& modelId) {
         // Check ASR models
         for (const auto& model : data->asrModels) {
             for (const auto& [source, repoPath] : model.sources) {
-                std::string testModelId = createModelId(source, repoPath);
+                std::string testModelId = CreateModelId(source, repoPath);
                 if (testModelId == modelId) {
-                    LOG_DEBUG_TAG("Found ASR model: " + modelId, TAG);
+                    LOG_DEBUG_TAG("Found ASR model: " + modelId, kTag);
                     return "ASR";
                 }
             }
@@ -154,34 +154,34 @@ std::string ModelRepository::getModelType(const std::string& modelId) {
         // Check TTS models
         for (const auto& model : data->ttsModels) {
             for (const auto& [source, repoPath] : model.sources) {
-                std::string testModelId = createModelId(source, repoPath);
+                std::string testModelId = CreateModelId(source, repoPath);
                 if (testModelId == modelId) {
-                    LOG_DEBUG_TAG("Found TTS model: " + modelId, TAG);
+                    LOG_DEBUG_TAG("Found TTS model: " + modelId, kTag);
                     return "TTS";
                 }
             }
         }
         
     } catch (const std::exception& e) {
-        LOG_DEBUG_TAG("Failed to determine model type for " + modelId + ": " + std::string(e.what()), TAG);
+        LOG_DEBUG_TAG("Failed to determine model type for " + modelId + ": " + std::string(e.what()), kTag);
     }
     
     // Default to LLM
     return "LLM";
 }
 
-std::optional<ModelMarketData> ModelRepository::loadFromAssets() {
+std::optional<ModelMarketData> ModelRepository::LoadFromAssets() {
     try {
         // Try to load from assets directory (similar to Android assets)
-        std::string assetsPath = cache_root_path_ + "/assets/" + ASSETS_FILE_NAME;
+        std::string assetsPath = cache_root_path_ + "/assets/" + kAssetsFileName;
         
         if (!std::filesystem::exists(assetsPath)) {
             // Try alternative paths
             std::vector<std::string> possiblePaths = {
-                cache_root_path_ + "/" + ASSETS_FILE_NAME,
-                std::string("./") + ASSETS_FILE_NAME,
-                std::string("../assets/") + ASSETS_FILE_NAME,
-                std::string("../../assets/") + ASSETS_FILE_NAME
+                cache_root_path_ + "/" + kAssetsFileName,
+                std::string("./") + kAssetsFileName,
+                std::string("../assets/") + kAssetsFileName,
+                std::string("../../assets/") + kAssetsFileName
             };
             
             for (const auto& path : possiblePaths) {
@@ -193,14 +193,14 @@ std::optional<ModelMarketData> ModelRepository::loadFromAssets() {
         }
         
         if (!std::filesystem::exists(assetsPath)) {
-            LOG_DEBUG_TAG("Assets file not found: " + std::string(ASSETS_FILE_NAME), TAG);
+            LOG_DEBUG_TAG("Assets file not found: " + std::string(kAssetsFileName), kTag);
             return std::nullopt;
         }
         
         // Read and parse JSON file
         std::ifstream file(assetsPath);
         if (!file.is_open()) {
-            LOG_DEBUG_TAG("Failed to open assets file: " + assetsPath, TAG);
+            LOG_DEBUG_TAG("Failed to open assets file: " + assetsPath, kTag);
             return std::nullopt;
         }
         
@@ -341,39 +341,39 @@ std::optional<ModelMarketData> ModelRepository::loadFromAssets() {
         LOG_DEBUG_TAG("Successfully parsed model market data with " + 
                       std::to_string(data.models.size()) + " models, " + 
                       std::to_string(data.ttsModels.size()) + " TTS models, and " +
-                      std::to_string(data.asrModels.size()) + " ASR models", TAG);
+                      std::to_string(data.asrModels.size()) + " ASR models", kTag);
         
         return data;
         
     } catch (const std::exception& e) {
-        LOG_DEBUG_TAG("Failed to load from assets: " + std::string(e.what()), TAG);
+        LOG_DEBUG_TAG("Failed to load from assets: " + std::string(e.what()), kTag);
         return std::nullopt;
     }
 }
 
-std::optional<ModelMarketItem> ModelRepository::findModelByName(const std::string& modelName) {
-    auto data = getModelMarketData();
+std::optional<ModelMarketItem> ModelRepository::FindModelByName(const std::string& modelName) {
+    auto data = GetModelMarketData();
     if (!data) {
         return std::nullopt;
     }
     
     // Search in regular models
     for (const auto& model : data->models) {
-        if (caseInsensitiveEquals(model.modelName, modelName)) {
+        if (CaseInsensitiveEquals(model.modelName, modelName)) {
             return model;
         }
     }
     
     // Search in TTS models
     for (const auto& model : data->ttsModels) {
-        if (caseInsensitiveEquals(model.modelName, modelName)) {
+        if (CaseInsensitiveEquals(model.modelName, modelName)) {
             return model;
         }
     }
     
     // Search in ASR models
     for (const auto& model : data->asrModels) {
-        if (caseInsensitiveEquals(model.modelName, modelName)) {
+        if (CaseInsensitiveEquals(model.modelName, modelName)) {
             return model;
         }
     }
@@ -381,7 +381,7 @@ std::optional<ModelMarketItem> ModelRepository::findModelByName(const std::strin
     return std::nullopt;
 }
 
-std::vector<ModelMarketItem> ModelRepository::processModels(const std::vector<ModelMarketItem>& models) {
+std::vector<ModelMarketItem> ModelRepository::ProcessModels(const std::vector<ModelMarketItem>& models) {
     std::vector<ModelMarketItem> processedModels;
     
     for (const auto& model : models) {
@@ -391,7 +391,7 @@ std::vector<ModelMarketItem> ModelRepository::processModels(const std::vector<Mo
         bool providerFound = false;
         
         for (const auto& [source, repoPath] : model.sources) {
-            if (caseInsensitiveEquals(source, current_download_provider_)) {
+            if (CaseInsensitiveEquals(source, current_download_provider_)) {
                 foundProvider = source;
                 foundRepoPath = repoPath;
                 providerFound = true;
@@ -407,52 +407,52 @@ std::vector<ModelMarketItem> ModelRepository::processModels(const std::vector<Mo
         ModelMarketItem processedModel = model;
         processedModel.currentSource = foundProvider;
         processedModel.currentRepoPath = foundRepoPath;
-        processedModel.modelId = createModelId(foundProvider, foundRepoPath);
+        processedModel.modelId = CreateModelId(foundProvider, foundRepoPath);
         
         processedModels.push_back(processedModel);
     }
     
             LOG_DEBUG_TAG("Processed " + std::to_string(processedModels.size()) + 
-                      " models with provider: " + current_download_provider_, TAG);
+                      " models with provider: " + current_download_provider_, kTag);
     
     return processedModels;
 }
 
-bool ModelRepository::isVersionLower(const std::string& version1, const std::string& version2) {
+bool ModelRepository::IsVersionLower(const std::string& version1, const std::string& version2) {
     try {
         int v1 = std::stoi(version1);
         int v2 = std::stoi(version2);
         return v1 < v2;
     } catch (const std::exception& e) {
-        LOG_DEBUG_TAG("Failed to parse version numbers: " + version1 + ", " + version2, TAG);
+        LOG_DEBUG_TAG("Failed to parse version numbers: " + version1 + ", " + version2, kTag);
         // If parsing fails, treat as equal (use network data)
         return false;
     }
 }
 
-std::string ModelRepository::createModelId(const std::string& source, const std::string& repoPath) {
+std::string ModelRepository::CreateModelId(const std::string& source, const std::string& repoPath) {
     // Format: "HuggingFace/taobao-mnn/gpt-oss-20b-MNN"
     return source + "/" + repoPath;
 }
 
-std::vector<ModelMarketItem> ModelRepository::searchModels(const std::string& keyword) {
+std::vector<ModelMarketItem> ModelRepository::SearchModels(const std::string& keyword) {
     std::vector<ModelMarketItem> searchResults;
     
     if (keyword.empty()) {
-        LOG_DEBUG_TAG("Search keyword is empty, returning all LLM models", TAG);
+        LOG_DEBUG_TAG("Search keyword is empty, returning all LLM models", kTag);
         // Return all LLM models filtered by current source
-        return processModels(getModels());
+        return ProcessModels(GetModels());
     }
     
     try {
-        auto data = getModelMarketData();
+        auto data = GetModelMarketData();
         if (!data) {
-            LOG_DEBUG_TAG("No model market data available for search", TAG);
+            LOG_DEBUG_TAG("No model market data available for search", kTag);
             return searchResults;
         }
         
-        LOG_DEBUG_TAG("Searching for models with keyword: '" + keyword + "'", TAG);
-        LOG_DEBUG_TAG("Current download provider: " + current_download_provider_, TAG);
+        LOG_DEBUG_TAG("Searching for models with keyword: '" + keyword + "'", kTag);
+        LOG_DEBUG_TAG("Current download provider: " + current_download_provider_, kTag);
         
         // Helper function to check if text contains keyword (case-insensitive)
         auto containsKeyword = [&keyword](const std::string& text) -> bool {
@@ -470,7 +470,7 @@ std::vector<ModelMarketItem> ModelRepository::searchModels(const std::string& ke
         // Helper function to check if model supports current source
         auto supportsCurrentSource = [this](const ModelMarketItem& model) -> bool {
             for (const auto& [source, repoPath] : model.sources) {
-                if (caseInsensitiveEquals(source, current_download_provider_)) {
+                if (CaseInsensitiveEquals(source, current_download_provider_)) {
                     return true;
                 }
             }
@@ -481,47 +481,29 @@ std::vector<ModelMarketItem> ModelRepository::searchModels(const std::string& ke
         for (const auto& model : data->models) {
             // First check if model supports current source
             if (!supportsCurrentSource(model)) {
-                LOG_DEBUG_TAG("Model '" + model.modelName + "' does not support current source '" + current_download_provider_ + "', skipping", TAG);
+                LOG_DEBUG_TAG("Model '" + model.modelName + "' does not support current source '" + current_download_provider_ + "', skipping", kTag);
                 continue;
             }
             
             // Check if model name contains keyword
             bool nameMatches = containsKeyword(model.modelName);
             
-            // Check if any tags contain keyword
-            bool tagMatches = false;
-            for (const auto& tag : model.tags) {
-                if (containsKeyword(tag)) {
-                    tagMatches = true;
-                    break;
-                }
-            }
-            
-            // Check if any categories contain keyword
-            bool categoryMatches = false;
-            for (const auto& category : model.categories) {
-                if (containsKeyword(category)) {
-                    categoryMatches = true;
-                    break;
-                }
-            }
-            
             // Check if vendor contains keyword
             bool vendorMatches = containsKeyword(model.vendor);
             
-            // If any field matches, add to results
-            if (nameMatches || tagMatches || categoryMatches || vendorMatches) {
-                LOG_DEBUG_TAG("Found matching model: " + model.modelName + " (source: " + current_download_provider_ + ")", TAG);
+            // Only match model name and vendor (ignore categories and tags)
+            if (nameMatches || vendorMatches) {
+                LOG_DEBUG_TAG("Found matching model: " + model.modelName + " (source: " + current_download_provider_ + ")", kTag);
                 
                 // Create a copy and set runtime fields
                 ModelMarketItem resultModel = model;
                 
                 // Find the matching source and repo path
                 for (const auto& [source, repoPath] : model.sources) {
-                    if (caseInsensitiveEquals(source, current_download_provider_)) {
+                    if (CaseInsensitiveEquals(source, current_download_provider_)) {
                         resultModel.currentSource = source;
                         resultModel.currentRepoPath = repoPath;
-                        resultModel.modelId = createModelId(source, repoPath);
+                        resultModel.modelId = CreateModelId(source, repoPath);
                         break;
                     }
                 }
@@ -530,10 +512,10 @@ std::vector<ModelMarketItem> ModelRepository::searchModels(const std::string& ke
             }
         }
         
-        LOG_DEBUG_TAG("Search completed. Found " + std::to_string(searchResults.size()) + " matching models", TAG);
+        LOG_DEBUG_TAG("Search completed. Found " + std::to_string(searchResults.size()) + " matching models", kTag);
         
     } catch (const std::exception& e) {
-        LOG_DEBUG_TAG("Error during search: " + std::string(e.what()), TAG);
+        LOG_DEBUG_TAG("Error during search: " + std::string(e.what()), kTag);
     }
     
     return searchResults;

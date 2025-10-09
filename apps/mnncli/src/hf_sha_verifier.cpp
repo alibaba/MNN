@@ -3,6 +3,7 @@
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 //
 #include "hf_sha_verifier.hpp"
+#include "log_utils.hpp"
 #include <fstream>
 #include <sstream>
 #include <algorithm>
@@ -14,7 +15,7 @@ namespace mnncli {
 bool HfShaVerifier::verify(const std::string& etag, const fs::path& file) {
 #ifdef CPPHTTPLIB_OPENSSL_SUPPORT
     if (!fs::exists(file)) {
-        std::cerr << "HfShaVerifier: File " << file.string() << " does not exist" << std::endl;
+        LOG_DEBUG("HfShaVerifier: File %s does not exist (may be during retry)", file.string().c_str());
         return false;
     }
     
@@ -33,15 +34,15 @@ bool HfShaVerifier::verify(const std::string& etag, const fs::path& file) {
     } else if (expected.length() == 64) {
         actual = sha256Hex(file);
     } else {
-        std::cerr << "HfShaVerifier: Unexpected ETag length: " << expected.length() << std::endl;
+        LOG_ERROR("HfShaVerifier: Unexpected ETag length: %zu", expected.length());
         return false;
     }
     
-    std::cout << "HfShaVerifier: Verifying " << file.string() << ": expected=" << expected << " actual=" << actual << std::endl;
+    LOG_DEBUG("HfShaVerifier: Verifying " + file.string() + ": expected=" + expected + " actual=" + actual);
     return expected == actual;
 #else
     // SHA verification not available without OpenSSL
-    std::cerr << "HfShaVerifier: SHA verification not available without OpenSSL support" << std::endl;
+    LOG_ERROR("HfShaVerifier: SHA verification not available without OpenSSL support");
     return false;
 #endif
 }
@@ -86,10 +87,14 @@ std::string HfShaVerifier::gitSha1Hex(const fs::path& file) {
         const size_t buffer_size = 8192;
         char buffer[buffer_size];
         
-        while (file_stream.read(buffer, buffer_size)) {
-            if (EVP_DigestUpdate(ctx, buffer, file_stream.gcount()) != 1) {
-                EVP_MD_CTX_free(ctx);
-                throw std::runtime_error("Failed to update SHA1 with file content");
+        // Fixed: Process all data including the last chunk (which may be less than buffer_size)
+        while (file_stream.read(buffer, buffer_size) || file_stream.gcount() > 0) {
+            std::streamsize count = file_stream.gcount();
+            if (count > 0) {
+                if (EVP_DigestUpdate(ctx, buffer, count) != 1) {
+                    EVP_MD_CTX_free(ctx);
+                    throw std::runtime_error("Failed to update SHA1 with file content");
+                }
             }
         }
         
@@ -106,12 +111,12 @@ std::string HfShaVerifier::gitSha1Hex(const fs::path& file) {
         return bytesToHex(hash, hash_length);
         
     } catch (const std::exception& e) {
-        std::cerr << "HfShaVerifier: Error calculating Git SHA1: " << e.what() << std::endl;
+        LOG_ERROR("HfShaVerifier: Error calculating Git SHA1: %s", e.what());
         return "";
     }
 #else
     // SHA calculation not available without OpenSSL
-    std::cerr << "HfShaVerifier: SHA calculation not available without OpenSSL support" << std::endl;
+    LOG_ERROR("HfShaVerifier: SHA calculation not available without OpenSSL support");
     return "";
 #endif
 }
@@ -121,7 +126,7 @@ std::string HfShaVerifier::sha256Hex(const fs::path& file) {
     return digestHex(file, "SHA-256");
 #else
     // SHA calculation not available without OpenSSL
-    std::cerr << "HfShaVerifier: SHA calculation not available without OpenSSL support" << std::endl;
+    LOG_ERROR("HfShaVerifier: SHA calculation not available without OpenSSL support");
     return "";
 #endif
 }
@@ -162,10 +167,14 @@ std::string HfShaVerifier::digestHex(const fs::path& file, const std::string& al
         const size_t buffer_size = 8192;
         char buffer[buffer_size];
         
-        while (file_stream.read(buffer, buffer_size)) {
-            if (EVP_DigestUpdate(ctx, buffer, file_stream.gcount()) != 1) {
-                EVP_MD_CTX_free(ctx);
-                throw std::runtime_error("Failed to update " + algo + " with file content");
+        // Fixed: Process all data including the last chunk (which may be less than buffer_size)
+        while (file_stream.read(buffer, buffer_size) || file_stream.gcount() > 0) {
+            std::streamsize count = file_stream.gcount();
+            if (count > 0) {
+                if (EVP_DigestUpdate(ctx, buffer, count) != 1) {
+                    EVP_MD_CTX_free(ctx);
+                    throw std::runtime_error("Failed to update " + algo + " with file content");
+                }
             }
         }
         
@@ -182,12 +191,12 @@ std::string HfShaVerifier::digestHex(const fs::path& file, const std::string& al
         return bytesToHex(hash, hash_length);
         
     } catch (const std::exception& e) {
-        std::cerr << "HfShaVerifier: Error calculating " << algo << ": " << e.what() << std::endl;
+        LOG_ERROR("HfShaVerifier: Error calculating %s: %s", algo.c_str(), e.what());
         return "";
     }
 #else
     // SHA calculation not available without OpenSSL
-    std::cerr << "HfShaVerifier: SHA calculation not available without OpenSSL support" << std::endl;
+    LOG_ERROR("HfShaVerifier: SHA calculation not available without OpenSSL support");
     return "";
 #endif
 }

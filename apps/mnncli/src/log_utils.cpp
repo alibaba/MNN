@@ -19,34 +19,34 @@ bool LogUtils::is_verbose_ = false;
 // All other methods are now defined inline in the header.
 
 // Implement the missing methods that are not inline
-void LogUtils::debug(const std::string& message, const std::string& tag) {
+void LogUtils::Debug(const std::string& message, const std::string& tag) {
     if (is_verbose_) {
-        std::string formatted = formatMessage(LogLevel::DEBUG, message, tag);
+        std::string formatted = FormatMessage(LogLevel::DEBUG, message, tag);
         std::cout << formatted << std::endl;
     }
 }
 
-void LogUtils::info(const std::string& message, const std::string& tag) {
-    std::string formatted = formatMessage(LogLevel::INFO, message, tag);
+void LogUtils::Info(const std::string& message, const std::string& tag) {
+    std::string formatted = FormatMessage(LogLevel::INFO, message, tag);
     std::cout << formatted << std::endl;
 }
 
-void LogUtils::warning(const std::string& message, const std::string& tag) {
-    std::string formatted = formatMessage(LogLevel::WARNING, message, tag);
+void LogUtils::Warning(const std::string& message, const std::string& tag) {
+    std::string formatted = FormatMessage(LogLevel::WARNING, message, tag);
     std::cerr << formatted << std::endl;
 }
 
-void LogUtils::error(const std::string& message, const std::string& tag) {
-    std::string formatted = formatMessage(LogLevel::ERROR, message, tag);
+void LogUtils::Error(const std::string& message, const std::string& tag) {
+    std::string formatted = FormatMessage(LogLevel::ERROR, message, tag);
     std::cerr << formatted << std::endl;
 }
 
-void LogUtils::error(const char* message, const std::string& tag) {
-    std::string formatted = formatMessage(LogLevel::ERROR, std::string(message), tag);
+void LogUtils::Error(const char* message, const std::string& tag) {
+    std::string formatted = FormatMessage(LogLevel::ERROR, std::string(message), tag);
     std::cerr << formatted << std::endl;
 }
 
-void LogUtils::errorFormatted(const char* format, ...) {
+void LogUtils::ErrorFormatted(const char* format, ...) {
     va_list args;
     va_start(args, format);
     
@@ -62,14 +62,14 @@ void LogUtils::errorFormatted(const char* format, ...) {
         vsnprintf(buffer.data(), buffer.size(), format, args);
         
         // Create formatted message and output
-        std::string formatted = formatMessage(LogLevel::ERROR, std::string(buffer.data()), "");
+        std::string formatted = FormatMessage(LogLevel::ERROR, std::string(buffer.data()), "");
         std::cerr << formatted << std::endl;
     }
     
     va_end(args);
 }
 
-std::string LogUtils::formatFileSize(int64_t bytes) {
+std::string LogUtils::FormatFileSize(int64_t bytes) {
     const char* units[] = {"B", "KB", "MB", "GB", "TB"};
     int unit_index = 0;
     double size = static_cast<double>(bytes);
@@ -88,13 +88,13 @@ std::string LogUtils::formatFileSize(int64_t bytes) {
     return std::string(buffer);
 }
 
-std::string LogUtils::formatProgress(double progress) {
+std::string LogUtils::FormatProgress(double progress) {
     char buffer[16];
     snprintf(buffer, sizeof(buffer), "%.1f%%", progress * 100.0);
     return std::string(buffer);
 }
 
-std::string LogUtils::getTimestamp() {
+std::string LogUtils::GetTimestamp() {
     auto now = std::chrono::system_clock::now();
     auto time_t = std::chrono::system_clock::to_time_t(now);
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -106,35 +106,37 @@ std::string LogUtils::getTimestamp() {
     return ss.str();
 }
 
-std::string LogUtils::formatMessage(LogLevel level, const std::string& message, const std::string& tag) {
+std::string LogUtils::FormatMessage(LogLevel level, const std::string& message, const std::string& tag) {
     std::stringstream ss;
     
     // Add timestamp
-    ss << "[" << getTimestamp() << "] ";
+    ss << "[" << GetTimestamp() << "] ";
     
     // Add level with color
     switch (level) {
         case LogLevel::DEBUG:
-            ss << Colors::CYAN << "[DEBUG]" << Colors::RESET;
+            ss << Colors::CYAN << "[DEBUG]" << Colors::RESET << " ";
             break;
         case LogLevel::INFO:
-            ss << Colors::GREEN << "[INFO]" << Colors::RESET;
+            ss << Colors::GREEN << "[INFO]" << Colors::RESET << " ";
             break;
         case LogLevel::WARNING:
-            ss << Colors::YELLOW << "[WARNING]" << Colors::RESET;
+            ss << Colors::YELLOW << "[WARNING]" << Colors::RESET << " ";
             break;
         case LogLevel::ERROR:
-            ss << Colors::RED << "[ERROR]" << Colors::RESET;
+            ss << Colors::RED << "[ERROR]" << Colors::RESET << " ";
             break;
     }
     
-    // Add tag if provided
-    if (!tag.empty()) {
-        ss << " " << Colors::BLUE << "(" << tag << ")" << Colors::RESET;
+    // Add tag - use [*] if no tag specified, otherwise [tag]
+    if (tag.empty()) {
+        ss << Colors::BLUE << "[*]" << Colors::RESET << " ";
+    } else {
+        ss << Colors::BLUE << "[" << tag << "]" << Colors::RESET << " ";
     }
     
     // Add message
-    ss << " " << message;
+    ss << message;
     
     return ss.str();
 }

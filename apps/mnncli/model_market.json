@@ -47,7 +47,7 @@
             ],
             "categories": [
                 "recommended",
-                "qwen"
+                "minicpm"
             ],
             "sources": {
                 "HuggingFace": "taobao-mnn/MiniCPM4-0.5B-MNN",
@@ -65,7 +65,7 @@
             ],
             "categories": [
                 "recommended",
-                "qwen"
+                "minicpm"
             ],
             "sources": {
                 "HuggingFace": "taobao-mnn/MiniCPM4-8B-MNN",
@@ -83,7 +83,7 @@
             ],
             "categories": [
                 "recommended",
-                "qwen"
+                "gpt"
             ],
             "sources": {
                 "HuggingFace": "taobao-mnn/gpt-oss-20b-MNN",
@@ -187,7 +187,7 @@
             ],
             "categories": [
                 "recommended",
-                "qwen"
+                "hunyuan"
             ],
             "sources": {
                 "HuggingFace": "taobao-mnn/Hunyuan-0.5B-Instruct-MNN",
@@ -205,7 +205,7 @@
             ],
             "categories": [
                 "recommended",
-                "qwen"
+                "hunyuan"
             ],
             "sources": {
                 "HuggingFace": "taobao-mnn/Hunyuan-1.8B-Instruct-MNN",
@@ -223,7 +223,7 @@
             ],
             "categories": [
                 "recommended",
-                "qwen"
+                "hunyuan"
             ],
             "sources": {
                 "HuggingFace": "taobao-mnn/Hunyuan-4B-Instruct-MNN",
@@ -241,7 +241,7 @@
             ],
             "categories": [
                 "recommended",
-                "qwen"
+                "hunyuan"
             ],
             "sources": {
                 "HuggingFace": "taobao-mnn/Hunyuan-7B-Instruct-MNN",
@@ -259,7 +259,7 @@
             ],
             "categories": [
                 "recommended",
-                "qwen"
+                "smol"
             ],
             "sources": {
                 "HuggingFace": "taobao-mnn/SmolLM3-3B-MNN",
@@ -275,7 +275,7 @@
             "tags": [],
             "categories": [
                 "recommended",
-                "qwen"
+                "ernie"
             ],
             "sources": {
                 "HuggingFace": "taobao-mnn/ERNIE-4.5-0.3B-PT-MNN",
@@ -293,7 +293,7 @@
             ],
             "categories": [
                 "recommended",
-                "qwen"
+                "gemma"
             ],
             "sources": {
                 "HuggingFace": "taobao-mnn/gemma-3-1b-it-qat-q4_0-gguf-MNN",

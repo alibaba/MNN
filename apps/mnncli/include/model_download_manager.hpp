@@ -32,19 +32,19 @@ public:
     static constexpr const char* SOURCE_MODELERS = "Modelers";
     
     // Convert string to ModelSource
-    static ModelSource fromString(const std::string& source_str);
+    static ModelSource FromString(const std::string& source_str);
     
     // Convert ModelSource to string
-    static std::string toString(ModelSource source);
+    static std::string ToString(ModelSource source);
     
     // Extract source from model ID
-    static ModelSource getSource(const std::string& model_id);
+    static ModelSource GetSource(const std::string& model_id);
     
     // Split model ID into source and path
-    static std::pair<std::string, std::string> splitSource(const std::string& model_id);
+    static std::pair<std::string, std::string> SplitSource(const std::string& model_id);
     
     // Get model name from model ID
-    static std::string getModelName(const std::string& model_id);
+    static std::string GetModelName(const std::string& model_id);
 };
 
 // Main download manager class
@@ -54,63 +54,64 @@ public:
     ~ModelDownloadManager() = default;
     
     // Singleton access
-    static ModelDownloadManager& getInstance(const std::string& cache_root_path = "");
+    static ModelDownloadManager& GetInstance(const std::string& cache_root_path = "");
     
     // Listener management
-    void addListener(DownloadListener* listener);
-    void removeListener(DownloadListener* listener);
+    void AddListener(DownloadListener* listener);
+    void RemoveListener(DownloadListener* listener);
     
     // Download operations
-    void startDownload(const std::string& model_id);
-    void startDownload(const std::string& model_id, const std::string& source);
-    void startDownload(const std::string& model_id, const std::string& source, const std::string& model_name);
+    void StartDownload(const std::string& model_id);
+    void StartDownload(const std::string& model_id, const std::string& source);
+    void StartDownload(const std::string& model_id, const std::string& source, const std::string& model_name);
     
     // Download control
-    void pauseDownload(const std::string& model_id);
-    void resumeDownload(const std::string& model_id);
-    void cancelDownload(const std::string& model_id);
+    void PauseDownload(const std::string& model_id);
+    void ResumeDownload(const std::string& model_id);
+    void CancelDownload(const std::string& model_id);
     
     // Repository management
-    std::filesystem::path getDownloadedFile(const std::string& model_id);
-    bool deleteRepo(const std::string& model_id);
-    int64_t getRepoSize(const std::string& model_id);
-    bool checkUpdate(const std::string& model_id);
+    std::filesystem::path GetDownloadedFile(const std::string& model_id);
+    bool DeleteRepo(const std::string& model_id);
+    int64_t GetRepoSize(const std::string& model_id);
+    bool CheckUpdate(const std::string& model_id);
     
     // Download information
-    DownloadProgress getDownloadInfo(const std::string& model_id);
-    std::vector<std::string> getActiveDownloads() const;
-    bool isDownloading(const std::string& model_id) const;
+    DownloadProgress GetDownloadInfo(const std::string& model_id);
+    std::vector<std::string> GetActiveDownloads() const;
+    bool IsDownloading(const std::string& model_id) const;
     
     // Utility methods
-    std::string getCacheRootPath() const { return cache_root_path_; }
+    std::string GetCacheRootPath() const { return cache_root_path_; }
     
     // DownloadListener implementation
-    void onDownloadFinished(const std::string& model_id, const std::string& path) override;
-    void onDownloadFailed(const std::string& model_id, const std::string& error) override;
-    void onDownloadPaused(const std::string& model_id) override;
+    void OnDownloadStart(const std::string& model_id);
+    void OnDownloadFinished(const std::string& model_id, const std::string& path);
+    void OnDownloadFailed(const std::string& model_id, const std::string& error);
+    void OnDownloadPaused(const std::string& model_id);
 
 private:
     // Get appropriate downloader for source
-    ModelRepoDownloader* getDownloaderForSource(ModelSource source);
-    ModelRepoDownloader* getDownloaderForSource(const std::string& source_str);
+    ModelRepoDownloader* GetDownloaderForSource(ModelSource source);
+    ModelRepoDownloader* GetDownloaderForSource(const std::string& source_str);
     
     // Download state management
-    void updateDownloadState(const std::string& model_id, DownloadState state);
-    void updateDownloadProgress(const std::string& model_id, const std::string& stage,
+    void UpdateDownloadState(const std::string& model_id, DownloadState state);
+    void UpdateDownloadProgress(const std::string& model_id, const std::string& stage,
                               const std::string& current_file, int64_t saved_size, int64_t total_size);
     
     // Active download tracking
-    void addActiveDownload(const std::string& model_id, const std::string& display_name);
-    void removeActiveDownload(const std::string& model_id);
+    void AddActiveDownload(const std::string& model_id, const std::string& display_name);
+    void RemoveActiveDownload(const std::string& model_id);
     
     // Calculate real download size
-    int64_t getRealDownloadSize(const std::string& model_id);
+    int64_t GetRealDownloadSize(const std::string& model_id);
     
     // Calculate download speed
-    void calculateDownloadSpeed(const std::string& model_id, int64_t current_download_size);
+    void CalculateDownloadSpeed(const std::string& model_id, int64_t current_download_size);
     
     // Setup download callbacks
-    void setupDownloadCallbacks();
+    void SetupDownloadCallbacks();
 
 private:
     std::string cache_root_path_;
@@ -134,8 +135,8 @@ private:
     std::unordered_map<std::string, int64_t> last_log_times_;
     
     // Constants
-    static constexpr const char* TAG = "ModelDownloadManager";
-    static constexpr int64_t SPEED_UPDATE_INTERVAL_MS = 1000;
+    static constexpr const char* kTag = "ModelDownloadManager";
+    static constexpr int64_t kSpeedUpdateIntervalMs = 1000;
 };
 
 } // namespace mnncli

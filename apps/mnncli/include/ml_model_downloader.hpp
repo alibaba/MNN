@@ -21,30 +21,20 @@ public:
     explicit MlModelDownloader(const std::string& cache_root_path);
     
     // Implement virtual methods from ModelRepoDownloader
-    void download(const std::string& model_id) override;
-    void pause(const std::string& model_id) override;
-    void resume(const std::string& model_id) override;
+    void Download(const std::string& model_id) override;
+    void Pause(const std::string& model_id) override;
+    void Resume(const std::string& model_id) override;
     
     // Repository management
-    std::filesystem::path getDownloadPath(const std::string& model_id) override;
-    bool deleteRepo(const std::string& model_id) override;
-    int64_t getRepoSize(const std::string& model_id) override;
-    bool checkUpdate(const std::string& model_id) override;
+    std::filesystem::path GetDownloadPath(const std::string& model_id) override;
+    bool DeleteRepo(const std::string& model_id) override;
+    int64_t GetRepoSize(const std::string& model_id) override;
+    bool CheckUpdate(const std::string& model_id) override;
     
     // Legacy methods for backward compatibility
     bool DownloadModel(const std::string& model_id, std::string& error_info, bool verbose = false);
-    
-    // Get the download path for a model
-    std::filesystem::path GetDownloadPath(const std::string& model_id);
-    
-    // Delete a model repository
-    bool DeleteRepo(const std::string& model_id);
-    
-    // Get repository size
-    int64_t GetRepoSize(const std::string& model_id, std::string& error_info);
-    
-    // Check for updates
-    bool CheckUpdate(const std::string& model_id, std::string& error_info);
+    int64_t GetRepoSizeWithError(const std::string& model_id, std::string& error_info);
+    bool CheckUpdateWithError(const std::string& model_id, std::string& error_info);
 
 private:
     // Download the Modelers repository
@@ -66,6 +56,9 @@ private:
     // Download a single file
     bool DownloadFile(const std::string& url, const std::filesystem::path& destination_path, 
                      int64_t expected_size, const std::string& file_name, std::string& error_info);
+    
+    // Internal delete repo implementation
+    bool DeleteRepoImpl(const std::string& model_id);
     
     // Get cache path root for Modelers
     static std::string GetCachePathRoot(const std::string& model_download_path_root);

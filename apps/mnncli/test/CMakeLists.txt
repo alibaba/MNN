@@ -1,7 +1,15 @@
-# Build MNNCLI test programs when BUILD_MNNCLI is enabled
-if (BUILD_MNNCLI)
+# Build MNNCLI test programs when BUILD_MNNCLI_TEST is enabled
+if (BUILD_MNNCLI_TEST)
     add_executable(ms_model_downloader_test
             ms_model_downloader_test.cpp
+    )
+    
+    add_executable(hf_model_download_test
+            hf_model_download_test.cpp
+    )
+    
+    add_executable(hf_file_metadata_test
+            hf_file_metadata_test.cpp
     )
     
 
@@ -44,9 +52,13 @@ if (BUILD_MNNCLI)
 
         # Use the OpenSSL include directory
         target_include_directories(ms_model_downloader_test PRIVATE ${OPENSSL_INCLUDE_DIR})
+        target_include_directories(hf_model_download_test PRIVATE ${OPENSSL_INCLUDE_DIR})
+        target_include_directories(hf_file_metadata_test PRIVATE ${OPENSSL_INCLUDE_DIR})
 
         # Link to OpenSSL libraries
         target_link_libraries(ms_model_downloader_test PRIVATE ${OPENSSL_LIBRARIES})
+        target_link_libraries(hf_model_download_test PRIVATE ${OPENSSL_LIBRARIES})
+        target_link_libraries(hf_file_metadata_test PRIVATE ${OPENSSL_LIBRARIES})
 
         # If on Apple platform, link with Security framework and Core Foundation
         if(APPLE)
@@ -54,11 +66,15 @@ if (BUILD_MNNCLI)
             find_library(CORE_FOUNDATION_FRAMEWORK CoreFoundation)
             if(SECURITY_FRAMEWORK)
                 target_link_libraries(ms_model_downloader_test PRIVATE ${SECURITY_FRAMEWORK})
+                target_link_libraries(hf_model_download_test PRIVATE ${SECURITY_FRAMEWORK})
+                target_link_libraries(hf_file_metadata_test PRIVATE ${SECURITY_FRAMEWORK})
             else()
                 message(FATAL_ERROR "Could not find Security framework")
             endif()
             if(CORE_FOUNDATION_FRAMEWORK)
                 target_link_libraries(ms_model_downloader_test PRIVATE ${CORE_FOUNDATION_FRAMEWORK})
+                target_link_libraries(hf_model_download_test PRIVATE ${CORE_FOUNDATION_FRAMEWORK})
+                target_link_libraries(hf_file_metadata_test PRIVATE ${CORE_FOUNDATION_FRAMEWORK})
             else()
                 message(FATAL_ERROR "Could not find CoreFoundation framework")
             endif()
@@ -73,26 +89,94 @@ if (BUILD_MNNCLI)
 
     # Use MNN project's standard include directories and dependencies
     target_include_directories(ms_model_downloader_test PRIVATE 
-        ${MNN_INCLUDES} 
-        ${CMAKE_CURRENT_LIST_DIR}/../include/ 
-        ${CMAKE_CURRENT_LIST_DIR}/../../../include/ 
+        ${CMAKE_CURRENT_LIST_DIR}/../../../include/
+        ${CMAKE_CURRENT_LIST_DIR}/../../../source/
+        ${CMAKE_CURRENT_LIST_DIR}/../../../express/
+        ${CMAKE_CURRENT_LIST_DIR}/../../../tools/
+        ${CMAKE_CURRENT_LIST_DIR}/../../../codegen/
+        ${CMAKE_CURRENT_LIST_DIR}/../../../schema/current/
         ${CMAKE_CURRENT_LIST_DIR}/../../../3rd_party/
+        ${CMAKE_CURRENT_LIST_DIR}/../../../3rd_party/flatbuffers/include
+        ${CMAKE_CURRENT_LIST_DIR}/../../../3rd_party/half
+        ${CMAKE_CURRENT_LIST_DIR}/../../../3rd_party/imageHelper
+        ${CMAKE_CURRENT_LIST_DIR}/../../../3rd_party/OpenCLHeaders/
+        ${CMAKE_CURRENT_LIST_DIR}/../include/ 
         ${CMAKE_CURRENT_LIST_DIR}/../../frameworks/3rd_party/include/
         ${CMAKE_CURRENT_LIST_DIR}/../../../transformers/llm/engine/src/
+    )
+    
+    target_include_directories(hf_model_download_test PRIVATE 
+        ${CMAKE_CURRENT_LIST_DIR}/../../../include/
+        ${CMAKE_CURRENT_LIST_DIR}/../../../source/
+        ${CMAKE_CURRENT_LIST_DIR}/../../../express/
+        ${CMAKE_CURRENT_LIST_DIR}/../../../tools/
+        ${CMAKE_CURRENT_LIST_DIR}/../../../codegen/
+        ${CMAKE_CURRENT_LIST_DIR}/../../../schema/current/
+        ${CMAKE_CURRENT_LIST_DIR}/../../../3rd_party/
+        ${CMAKE_CURRENT_LIST_DIR}/../../../3rd_party/flatbuffers/include
+        ${CMAKE_CURRENT_LIST_DIR}/../../../3rd_party/half
+        ${CMAKE_CURRENT_LIST_DIR}/../../../3rd_party/imageHelper
+        ${CMAKE_CURRENT_LIST_DIR}/../../../3rd_party/OpenCLHeaders/
+        ${CMAKE_CURRENT_LIST_DIR}/../include/ 
+        ${CMAKE_CURRENT_LIST_DIR}/../../frameworks/3rd_party/include/
+        ${CMAKE_CURRENT_LIST_DIR}/../../../transformers/llm/engine/src/
+    )
+    
+    target_include_directories(hf_file_metadata_test PRIVATE 
+        ${CMAKE_CURRENT_LIST_DIR}/../../../include/
+        ${CMAKE_CURRENT_LIST_DIR}/../../../source/
+        ${CMAKE_CURRENT_LIST_DIR}/../../../express/
+        ${CMAKE_CURRENT_LIST_DIR}/../../../tools/
+        ${CMAKE_CURRENT_LIST_DIR}/../../../codegen/
+        ${CMAKE_CURRENT_LIST_DIR}/../../../schema/current/
+        ${CMAKE_CURRENT_LIST_DIR}/../../../3rd_party/
+        ${CMAKE_CURRENT_LIST_DIR}/../../../3rd_party/flatbuffers/include
+        ${CMAKE_CURRENT_LIST_DIR}/../../../3rd_party/half
+        ${CMAKE_CURRENT_LIST_DIR}/../../../3rd_party/imageHelper
+        ${CMAKE_CURRENT_LIST_DIR}/../../../3rd_party/OpenCLHeaders/
+        ${CMAKE_CURRENT_LIST_DIR}/../include/ 
+        ${CMAKE_CURRENT_LIST_DIR}/../../frameworks/3rd_party/include/
+        ${CMAKE_CURRENT_LIST_DIR}/../../../transformers/llm/engine/src/
+    )
+    
+    # Add system include directories for standard C++ headers
+    target_include_directories(hf_file_metadata_test SYSTEM PRIVATE 
+        /usr/local/include
+        /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1
+        /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/17/include
+        /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include
+        /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include
     )
     
     set_property(TARGET ms_model_downloader_test PROPERTY CXX_STANDARD 17)
     set_property(TARGET ms_model_downloader_test PROPERTY CXX_STANDARD_REQUIRED ON)
     
+    set_property(TARGET hf_model_download_test PROPERTY CXX_STANDARD 17)
+    set_property(TARGET hf_model_download_test PROPERTY CXX_STANDARD_REQUIRED ON)
+    
+    set_property(TARGET hf_file_metadata_test PROPERTY CXX_STANDARD 17)
+    set_property(TARGET hf_file_metadata_test PROPERTY CXX_STANDARD_REQUIRED ON)
+    
     # Enable exceptions for test (override global -fno-exceptions)
     target_compile_options(ms_model_downloader_test PRIVATE -fexceptions)
+    target_compile_options(hf_model_download_test PRIVATE -fexceptions)
+    target_compile_options(hf_file_metadata_test PRIVATE -fexceptions)
+    
+    # Enable standard C++ headers
+    target_compile_options(ms_model_downloader_test PRIVATE -std=c++17)
+    target_compile_options(hf_model_download_test PRIVATE -std=c++17)
+    target_compile_options(hf_file_metadata_test PRIVATE -std=c++17)
     
     # Link to required libraries
     target_link_libraries(ms_model_downloader_test PRIVATE ${MNN_DEPS})
+    target_link_libraries(hf_model_download_test PRIVATE ${MNN_DEPS})
+    target_link_libraries(hf_file_metadata_test PRIVATE ${MNN_DEPS})
     
     # Only add OpenSSL support compile definition when OpenSSL is available
     if(OpenSSL_FOUND)
         target_compile_definitions(ms_model_downloader_test PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
+        target_compile_definitions(hf_model_download_test PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
+        target_compile_definitions(hf_file_metadata_test PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
     endif()
     
 

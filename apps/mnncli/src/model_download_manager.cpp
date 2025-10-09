@@ -4,6 +4,7 @@
 //
 
 #include "model_download_manager.hpp"
+#include "log_utils.hpp"
 #include <iostream>
 #include <algorithm>
 #include <chrono>
@@ -13,7 +14,7 @@
 namespace mnncli {
 
 // ModelSources implementation
-ModelSource ModelSources::fromString(const std::string& source_str) {
+ModelSource ModelSources::FromString(const std::string& source_str) {
     std::string lower = source_str;
     std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
     
@@ -24,7 +25,7 @@ ModelSource ModelSources::fromString(const std::string& source_str) {
     return ModelSource::UNKNOWN;
 }
 
-std::string ModelSources::toString(ModelSource source) {
+std::string ModelSources::ToString(ModelSource source) {
     switch (source) {
         case ModelSource::HUGGING_FACE: return SOURCE_HUGGING_FACE;
         case ModelSource::MODEL_SCOPE: return SOURCE_MODEL_SCOPE;
@@ -33,12 +34,12 @@ std::string ModelSources::toString(ModelSource source) {
     }
 }
 
-ModelSource ModelSources::getSource(const std::string& model_id) {
-    auto splits = splitSource(model_id);
-    return fromString(splits.first);
+ModelSource ModelSources::GetSource(const std::string& model_id) {
+    auto splits = SplitSource(model_id);
+    return FromString(splits.first);
 }
 
-std::pair<std::string, std::string> ModelSources::splitSource(const std::string& model_id) {
+std::pair<std::string, std::string> ModelSources::SplitSource(const std::string& model_id) {
     size_t colon_pos = model_id.find(':');
     if (colon_pos == std::string::npos) {
         return {"", model_id};
@@ -49,8 +50,8 @@ std::pair<std::string, std::string> ModelSources::splitSource(const std::string&
     return {source, path};
 }
 
-std::string ModelSources::getModelName(const std::string& model_id) {
-    auto splits = splitSource(model_id);
+std::string ModelSources::GetModelName(const std::string& model_id) {
+    auto splits = SplitSource(model_id);
     if (splits.second.empty()) {
         return model_id;
     }
@@ -66,7 +67,7 @@ std::string ModelSources::getModelName(const std::string& model_id) {
 
 // ModelDownloadManager implementation
 ModelDownloadManager::ModelDownloadManager(const std::string& cache_root_path)
-    : cache_root_path_(cache_root_path), verbose_(false) {
+    : cache_root_path_(cache_root_path), verbose_(true) {
     
     // Initialize downloaders
     hf_downloader_ = std::make_unique<HfModelDownloader>(cache_root_path);
@@ -74,143 +75,144 @@ ModelDownloadManager::ModelDownloadManager(const std::string& cache_root_path)
     ml_downloader_ = std::make_unique<MlModelDownloader>(cache_root_path);
     
     // Set up download callbacks for each downloader
-    setupDownloadCallbacks();
+    SetupDownloadCallbacks();
 }
 
-ModelDownloadManager& ModelDownloadManager::getInstance(const std::string& cache_root_path) {
-    static ModelDownloadManager instance(cache_root_path);
+ModelDownloadManager& ModelDownloadManager::GetInstance(const std::string& cache_root_path) {
+    // Expand ~ to home directory before using the path
+    static ModelDownloadManager instance(FileUtils::ExpandTilde(cache_root_path));
     return instance;
 }
 
-void ModelDownloadManager::addListener(DownloadListener* listener) {
+void ModelDownloadManager::AddListener(DownloadListener* listener) {
     if (listener && std::find(listeners_.begin(), listeners_.end(), listener) == listeners_.end()) {
         listeners_.push_back(listener);
-        std::cout << "[" << TAG << "] Added listener: " << listener->getClassTypeName() << std::endl;
+        LOG_DEBUG("Added listener: " + listener->GetClassTypeName());
     }
 }
 
-void ModelDownloadManager::removeListener(DownloadListener* listener) {
+void ModelDownloadManager::RemoveListener(DownloadListener* listener) {
     auto it = std::find(listeners_.begin(), listeners_.end(), listener);
     if (it != listeners_.end()) {
         listeners_.erase(it);
-        std::cout << "[" << TAG << "] Removed listener: " << listener->getClassTypeName() << std::endl;
+        LOG_DEBUG("Removed listener: " + listener->GetClassTypeName());
     }
 }
 
-void ModelDownloadManager::startDownload(const std::string& model_id) {
-    auto splits = ModelSources::splitSource(model_id);
+void ModelDownloadManager::StartDownload(const std::string& model_id) {
+    auto splits = ModelSources::SplitSource(model_id);
     if (splits.first.empty()) {
         // Default to HuggingFace if no source specified
-        startDownload(model_id, "HuggingFace");
+        StartDownload(model_id, "HuggingFace");
         return;
     }
-    startDownload(model_id, splits.first);
+    StartDownload(model_id, splits.first);
 }
 
-void ModelDownloadManager::startDownload(const std::string& model_id, const std::string& source) {
-    startDownload(model_id, source, ModelSources::getModelName(model_id));
+void ModelDownloadManager::StartDownload(const std::string& model_id, const std::string& source) {
+    StartDownload(model_id, source, ModelSources::GetModelName(model_id));
 }
 
-void ModelDownloadManager::startDownload(const std::string& model_id, const std::string& source, const std::string& model_name) {
+void ModelDownloadManager::StartDownload(const std::string& model_id, const std::string& source, const std::string& model_name) {
     if (verbose_) {
-        std::cout << "[" << TAG << "] Starting download: " << model_id << " source: " << source << std::endl;
+        LOG_INFO("Starting download: " + model_id + " source: " + source);
     }
     
     // Get appropriate downloader
-    auto downloader = getDownloaderForSource(source);
+    auto downloader = GetDownloaderForSource(source);
     if (!downloader) {
         std::string error = "Unknown source: " + source;
         if (verbose_) {
-            std::cerr << "[" << TAG << "] " << error << std::endl;
+            LOG_ERROR(error);
         }
         return;
     }
     
     // Notify listeners
     for (auto listener : listeners_) {
-        listener->onDownloadStart(model_id);
+        listener->OnDownloadStart(model_id);
     }
     
     // Track active download
-    addActiveDownload(model_id, model_name);
+    AddActiveDownload(model_id, model_name);
     
     // Start download
-    downloader->download(model_id);
+    downloader->Download(model_id);
 }
 
-void ModelDownloadManager::pauseDownload(const std::string& model_id) {
+void ModelDownloadManager::PauseDownload(const std::string& model_id) {
     if (verbose_) {
-        std::cout << "[" << TAG << "] Pausing download: " << model_id << std::endl;
+        LOG_INFO("Pausing download: " + model_id);
     }
     
-    auto source = ModelSources::getSource(model_id);
-    auto downloader = getDownloaderForSource(source);
+    auto source = ModelSources::GetSource(model_id);
+    auto downloader = GetDownloaderForSource(source);
     if (downloader) {
-        downloader->pause(model_id);
+        downloader->Pause(model_id);
     }
 }
 
-void ModelDownloadManager::resumeDownload(const std::string& model_id) {
+void ModelDownloadManager::ResumeDownload(const std::string& model_id) {
     if (verbose_) {
-        std::cout << "[" << TAG << "] Resuming download: " << model_id << std::endl;
+        LOG_INFO("Resuming download: " + model_id);
     }
     
-    auto source = ModelSources::getSource(model_id);
-    auto downloader = getDownloaderForSource(source);
+    auto source = ModelSources::GetSource(model_id);
+    auto downloader = GetDownloaderForSource(source);
     if (downloader) {
-        downloader->resume(model_id);
+        downloader->Resume(model_id);
     }
 }
 
-void ModelDownloadManager::cancelDownload(const std::string& model_id) {
+void ModelDownloadManager::CancelDownload(const std::string& model_id) {
     if (verbose_) {
-        std::cout << "[" << TAG << "] Canceling download: " << model_id << std::endl;
+        LOG_INFO("Canceling download: " + model_id);
     }
     
     // Remove from active downloads
-    removeActiveDownload(model_id);
+    RemoveActiveDownload(model_id);
     
     // Update state
-    updateDownloadState(model_id, DownloadState::NOT_START);
+    UpdateDownloadState(model_id, DownloadState::NOT_START);
 }
 
-std::filesystem::path ModelDownloadManager::getDownloadedFile(const std::string& model_id) {
-    auto source = ModelSources::getSource(model_id);
-    auto downloader = getDownloaderForSource(source);
+std::filesystem::path ModelDownloadManager::GetDownloadedFile(const std::string& model_id) {
+    auto source = ModelSources::GetSource(model_id);
+    auto downloader = GetDownloaderForSource(source);
     if (downloader) {
-        return downloader->getDownloadPath(model_id);
+        return downloader->GetDownloadPath(model_id);
     }
     return std::filesystem::path();
 }
 
-bool ModelDownloadManager::deleteRepo(const std::string& model_id) {
-    auto source = ModelSources::getSource(model_id);
-    auto downloader = getDownloaderForSource(source);
+bool ModelDownloadManager::DeleteRepo(const std::string& model_id) {
+    auto source = ModelSources::GetSource(model_id);
+    auto downloader = GetDownloaderForSource(source);
     if (downloader) {
-        return downloader->deleteRepo(model_id);
+        return downloader->DeleteRepo(model_id);
     }
     return false;
 }
 
-int64_t ModelDownloadManager::getRepoSize(const std::string& model_id) {
-    auto source = ModelSources::getSource(model_id);
-    auto downloader = getDownloaderForSource(source);
+int64_t ModelDownloadManager::GetRepoSize(const std::string& model_id) {
+    auto source = ModelSources::GetSource(model_id);
+    auto downloader = GetDownloaderForSource(source);
     if (downloader) {
-        return downloader->getRepoSize(model_id);
+        return downloader->GetRepoSize(model_id);
     }
     return 0;
 }
 
-bool ModelDownloadManager::checkUpdate(const std::string& model_id) {
-    auto source = ModelSources::getSource(model_id);
-    auto downloader = getDownloaderForSource(source);
+bool ModelDownloadManager::CheckUpdate(const std::string& model_id) {
+    auto source = ModelSources::GetSource(model_id);
+    auto downloader = GetDownloaderForSource(source);
     if (downloader) {
-        return downloader->checkUpdate(model_id);
+        return downloader->CheckUpdate(model_id);
     }
     return false;
 }
 
-DownloadProgress ModelDownloadManager::getDownloadInfo(const std::string& model_id) {
+DownloadProgress ModelDownloadManager::GetDownloadInfo(const std::string& model_id) {
     auto it = download_info_map_.find(model_id);
     if (it != download_info_map_.end()) {
         return it->second;
@@ -225,27 +227,39 @@ DownloadProgress ModelDownloadManager::getDownloadInfo(const std::string& model_
     info.total_size = 0;
     
     // Check if file exists
-    auto downloaded_file = getDownloadedFile(model_id);
+    auto downloaded_file = GetDownloadedFile(model_id);
     if (std::filesystem::exists(downloaded_file)) {
         info.state = DownloadState::COMPLETED;
         info.progress = 1.0;
-        info.saved_size = getRealDownloadSize(model_id);
-        info.total_size = getRepoSize(model_id);
+        info.saved_size = GetRealDownloadSize(model_id);
+        info.total_size = GetRepoSize(model_id);
     }
     
     download_info_map_[model_id] = info;
     return info;
 }
 
-std::vector<std::string> ModelDownloadManager::getActiveDownloads() const {
+std::vector<std::string> ModelDownloadManager::GetActiveDownloads() const {
     return active_downloads_;
 }
 
-bool ModelDownloadManager::isDownloading(const std::string& model_id) const {
-    return std::find(active_downloads_.begin(), active_downloads_.end(), model_id) != active_downloads_.end();
+bool ModelDownloadManager::IsDownloading(const std::string& model_id) const {
+    bool found = std::find(active_downloads_.begin(), active_downloads_.end(), model_id) != active_downloads_.end();
+    if (verbose_) {
+        LOG_DEBUG("isDownloading(" + model_id + "): " + (found ? "true" : "false") + 
+                 " (active_downloads_.size()=" + std::to_string(active_downloads_.size()) + ")");
+        if (!active_downloads_.empty()) {
+            std::string active_list = "Active downloads: ";
+            for (const auto& id : active_downloads_) {
+                active_list += id + " ";
+            }
+            LOG_DEBUG(active_list);
+        }
+    }
+    return found;
 }
 
-ModelRepoDownloader* ModelDownloadManager::getDownloaderForSource(ModelSource source) {
+ModelRepoDownloader* ModelDownloadManager::GetDownloaderForSource(ModelSource source) {
     switch (source) {
         case ModelSource::HUGGING_FACE: return hf_downloader_.get();
         case ModelSource::MODEL_SCOPE: return ms_downloader_.get();
@@ -254,11 +268,11 @@ ModelRepoDownloader* ModelDownloadManager::getDownloaderForSource(ModelSource so
     }
 }
 
-ModelRepoDownloader* ModelDownloadManager::getDownloaderForSource(const std::string& source_str) {
-    return getDownloaderForSource(ModelSources::fromString(source_str));
+ModelRepoDownloader* ModelDownloadManager::GetDownloaderForSource(const std::string& source_str) {
+    return GetDownloaderForSource(ModelSources::FromString(source_str));
 }
 
-void ModelDownloadManager::updateDownloadState(const std::string& model_id, DownloadState state) {
+void ModelDownloadManager::UpdateDownloadState(const std::string& model_id, DownloadState state) {
     auto& info = download_info_map_[model_id];
     info.model_id = model_id;
     info.state = state;
@@ -267,11 +281,11 @@ void ModelDownloadManager::updateDownloadState(const std::string& model_id, Down
     for (auto listener : listeners_) {
         // Create progress object for state change
         DownloadProgress progress = info;
-        listener->onDownloadProgress(model_id, progress);
+        listener->OnDownloadProgress(model_id, progress);
     }
 }
 
-void ModelDownloadManager::updateDownloadProgress(const std::string& model_id, const std::string& stage,
+void ModelDownloadManager::UpdateDownloadProgress(const std::string& model_id, const std::string& stage,
                                                 const std::string& current_file, int64_t saved_size, int64_t total_size) {
     auto& info = download_info_map_[model_id];
     info.model_id = model_id;
@@ -282,36 +296,50 @@ void ModelDownloadManager::updateDownloadProgress(const std::string& model_id, c
     info.progress = (total_size > 0) ? static_cast<double>(saved_size) / total_size : 0.0;
     
     // Calculate download speed
-    calculateDownloadSpeed(model_id, saved_size);
+    CalculateDownloadSpeed(model_id, saved_size);
     
     // Notify listeners
     for (auto listener : listeners_) {
-        listener->onDownloadProgress(model_id, info);
+        listener->OnDownloadProgress(model_id, info);
     }
 }
 
-void ModelDownloadManager::addActiveDownload(const std::string& model_id, const std::string& display_name) {
+void ModelDownloadManager::AddActiveDownload(const std::string& model_id, const std::string& display_name) {
     if (std::find(active_downloads_.begin(), active_downloads_.end(), model_id) == active_downloads_.end()) {
         active_downloads_.push_back(model_id);
         active_download_names_[model_id] = display_name;
+        if (verbose_) {
+            LOG_DEBUG("Added to active downloads: " + model_id + " (total: " + std::to_string(active_downloads_.size()) + ")");
+        }
+    } else {
+        if (verbose_) {
+            LOG_DEBUG("Model already in active downloads: " + model_id);
+        }
     }
 }
 
-void ModelDownloadManager::removeActiveDownload(const std::string& model_id) {
+void ModelDownloadManager::RemoveActiveDownload(const std::string& model_id) {
     auto it = std::find(active_downloads_.begin(), active_downloads_.end(), model_id);
     if (it != active_downloads_.end()) {
         active_downloads_.erase(it);
         active_download_names_.erase(model_id);
+        if (verbose_) {
+            LOG_DEBUG("Removed from active downloads: " + model_id + " (remaining: " + std::to_string(active_downloads_.size()) + ")");
+        }
+    } else {
+        if (verbose_) {
+            LOG_DEBUG("Model not found in active downloads: " + model_id);
+        }
     }
 }
 
-int64_t ModelDownloadManager::getRealDownloadSize(const std::string& model_id) {
+int64_t ModelDownloadManager::GetRealDownloadSize(const std::string& model_id) {
     // This would implement actual file size calculation
     // For now, return 0 as placeholder
     return 0;
 }
 
-void ModelDownloadManager::calculateDownloadSpeed(const std::string& model_id, int64_t current_download_size) {
+void ModelDownloadManager::CalculateDownloadSpeed(const std::string& model_id, int64_t current_download_size) {
     auto current_time = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
     
@@ -322,7 +350,7 @@ void ModelDownloadManager::calculateDownloadSpeed(const std::string& model_id, i
         int64_t time_diff = current_time - last_time_it->second;
         int64_t size_diff = current_download_size - last_size_it->second;
         
-        if (time_diff >= SPEED_UPDATE_INTERVAL_MS && size_diff >= 0) {
+        if (time_diff >= kSpeedUpdateIntervalMs && size_diff >= 0) {
             // Calculate speed (bytes per second)
             double speed_bps = (size_diff * 1000.0) / time_diff;
             
@@ -336,7 +364,7 @@ void ModelDownloadManager::calculateDownloadSpeed(const std::string& model_id, i
                     speed_str = std::to_string(speed_bps) + " B/s";
                 }
                 
-                std::cout << "[" << TAG << "] Download speed for " << model_id << ": " << speed_str << std::endl;
+                LOG_DEBUG("Download speed for " + model_id + ": " + speed_str);
             }
         }
     }
@@ -346,63 +374,77 @@ void ModelDownloadManager::calculateDownloadSpeed(const std::string& model_id, i
     last_download_sizes_[model_id] = current_download_size;
 }
 
-void ModelDownloadManager::setupDownloadCallbacks() {
+void ModelDownloadManager::SetupDownloadCallbacks() {
     // Set up callbacks for each downloader to forward events to listeners
     // Set this manager as the listener for each downloader
-    hf_downloader_->setListener(this);
-    ms_downloader_->setListener(this);
-    ml_downloader_->setListener(this);
+    hf_downloader_->SetListener(this);
+    ms_downloader_->SetListener(this);
+    ml_downloader_->SetListener(this);
 }
 
 // DownloadListener implementation
-void ModelDownloadManager::onDownloadFinished(const std::string& model_id, const std::string& path) {
+void ModelDownloadManager::OnDownloadStart(const std::string& model_id) {
     if (verbose_) {
-        std::cout << "[" << TAG << "] Download finished: " << model_id << " -> " << path << std::endl;
+        LOG_INFO("Download started: " + model_id);
     }
     
-    // Remove from active downloads
-    removeActiveDownload(model_id);
-    
-    // Update download state
-    updateDownloadState(model_id, DownloadState::COMPLETED);
+    // Add to active downloads
+    AddActiveDownload(model_id, model_id);
     
     // Forward to other listeners
     for (auto listener : listeners_) {
-        listener->onDownloadFinished(model_id, path);
+        listener->OnDownloadStart(model_id);
     }
 }
 
-void ModelDownloadManager::onDownloadFailed(const std::string& model_id, const std::string& error) {
+void ModelDownloadManager::OnDownloadFinished(const std::string& model_id, const std::string& path) {
     if (verbose_) {
-        std::cout << "[" << TAG << "] Download failed: " << model_id << " - " << error << std::endl;
+        LOG_INFO("Download finished: " + model_id + " -> " + path);
     }
     
     // Remove from active downloads
-    removeActiveDownload(model_id);
+    RemoveActiveDownload(model_id);
     
     // Update download state
-    updateDownloadState(model_id, DownloadState::FAILED);
+    UpdateDownloadState(model_id, DownloadState::COMPLETED);
     
     // Forward to other listeners
     for (auto listener : listeners_) {
-        listener->onDownloadFailed(model_id, error);
+        listener->OnDownloadFinished(model_id, path);
     }
 }
 
-void ModelDownloadManager::onDownloadPaused(const std::string& model_id) {
+void ModelDownloadManager::OnDownloadFailed(const std::string& model_id, const std::string& error) {
     if (verbose_) {
-        std::cout << "[" << TAG << "] Download paused: " << model_id << std::endl;
+        LOG_ERROR("Download failed: " + model_id + " - " + error);
     }
     
     // Remove from active downloads
-    removeActiveDownload(model_id);
+    RemoveActiveDownload(model_id);
     
     // Update download state
-    updateDownloadState(model_id, DownloadState::PAUSED);
+    UpdateDownloadState(model_id, DownloadState::FAILED);
     
     // Forward to other listeners
     for (auto listener : listeners_) {
-        listener->onDownloadPaused(model_id);
+        listener->OnDownloadFailed(model_id, error);
+    }
+}
+
+void ModelDownloadManager::OnDownloadPaused(const std::string& model_id) {
+    if (verbose_) {
+        LOG_INFO("Download paused: " + model_id);
+    }
+    
+    // Remove from active downloads
+    RemoveActiveDownload(model_id);
+    
+    // Update download state
+    UpdateDownloadState(model_id, DownloadState::PAUSED);
+    
+    // Forward to other listeners
+    for (auto listener : listeners_) {
+        listener->OnDownloadPaused(model_id);
     }
 }
 

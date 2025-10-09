@@ -18,41 +18,41 @@ MlModelDownloader::MlModelDownloader(const std::string& cache_root_path)
 }
 
 // Implement pure virtual functions from ModelRepoDownloader base class
-void MlModelDownloader::download(const std::string& model_id) {
+void MlModelDownloader::Download(const std::string& model_id) {
     std::string error_info;
     if (!DownloadModel(model_id, error_info, verbose_)) {
-        notifyDownloadFailed(model_id, error_info);
+        NotifyDownloadFailed(model_id, error_info);
     } else {
-        notifyDownloadFinished(model_id, GetDownloadPath(model_id).string());
+        NotifyDownloadFinished(model_id, GetDownloadPath(model_id).string());
     }
 }
 
-void MlModelDownloader::pause(const std::string& model_id) {
-    addPausedModel(model_id);
-    notifyDownloadPaused(model_id);
+void MlModelDownloader::Pause(const std::string& model_id) {
+    AddPausedModel(model_id);
+    NotifyDownloadPaused(model_id);
 }
 
-void MlModelDownloader::resume(const std::string& model_id) {
-    removePausedModel(model_id);
-    download(model_id);
+void MlModelDownloader::Resume(const std::string& model_id) {
+    RemovePausedModel(model_id);
+    Download(model_id);
 }
 
-std::filesystem::path MlModelDownloader::getDownloadPath(const std::string& model_id) {
-    return GetDownloadPath(model_id);
+std::filesystem::path MlModelDownloader::GetDownloadPath(const std::string& model_id) {
+    return GetModelPath(cache_root_path_, model_id);
 }
 
-bool MlModelDownloader::deleteRepo(const std::string& model_id) {
-    return DeleteRepo(model_id);
+bool MlModelDownloader::DeleteRepo(const std::string& model_id) {
+    return DeleteRepoImpl(model_id);
 }
 
-int64_t MlModelDownloader::getRepoSize(const std::string& model_id) {
+int64_t MlModelDownloader::GetRepoSize(const std::string& model_id) {
     std::string error_info;
-    return GetRepoSize(model_id, error_info);
+    return GetRepoSizeWithError(model_id, error_info);
 }
 
-bool MlModelDownloader::checkUpdate(const std::string& model_id) {
+bool MlModelDownloader::CheckUpdate(const std::string& model_id) {
     std::string error_info;
-    return CheckUpdate(model_id, error_info);
+    return CheckUpdateWithError(model_id, error_info);
 }
 
 bool MlModelDownloader::DownloadModel(const std::string& model_id, std::string& error_info, bool verbose) {
@@ -314,11 +314,7 @@ bool MlModelDownloader::DownloadFile(const std::string& url, const std::filesyst
     return true;
 }
 
-std::filesystem::path MlModelDownloader::GetDownloadPath(const std::string& model_id) {
-    return GetModelPath(cache_root_path_, model_id);
-}
-
-bool MlModelDownloader::DeleteRepo(const std::string& model_id) {
+bool MlModelDownloader::DeleteRepoImpl(const std::string& model_id) {
     auto ml_model_id = model_id;
     if (ml_model_id.find("ml:") == 0) {
         ml_model_id = ml_model_id.substr(3);
@@ -348,7 +344,7 @@ bool MlModelDownloader::DeleteRepo(const std::string& model_id) {
     return true;
 }
 
-int64_t MlModelDownloader::GetRepoSize(const std::string& model_id, std::string& error_info) {
+int64_t MlModelDownloader::GetRepoSizeWithError(const std::string& model_id, std::string& error_info) {
     // Get repository info to calculate size
     std::string modelers_id = model_id;
     if (modelers_id.find("ml:") == 0) {
@@ -371,7 +367,7 @@ int64_t MlModelDownloader::GetRepoSize(const std::string& model_id, std::string&
     return total_size;
 }
 
-bool MlModelDownloader::CheckUpdate(const std::string& model_id, std::string& error_info) {
+bool MlModelDownloader::CheckUpdateWithError(const std::string& model_id, std::string& error_info) {
     // For now, just get repository info to check for updates
     // In a full implementation, this would compare timestamps
     std::string modelers_id = model_id;

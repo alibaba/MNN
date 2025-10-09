@@ -13,14 +13,14 @@ ModelRepoDownloader::ModelRepoDownloader(const std::string& cache_root_path)
     : cache_root_path_(cache_root_path), listener_(nullptr) {
 }
 
-void ModelRepoDownloader::notifyDownloadStart(const std::string& model_id) {
+void ModelRepoDownloader::NotifyDownloadStart(const std::string& model_id) {
     if (listener_) {
-        listener_->onDownloadStart(model_id);
+        listener_->OnDownloadStart(model_id);
     }
-    updateDownloadState(model_id, DownloadState::DOWNLOADING);
+    UpdateDownloadState(model_id, DownloadState::DOWNLOADING);
 }
 
-void ModelRepoDownloader::notifyDownloadProgress(const std::string& model_id, const std::string& stage,
+void ModelRepoDownloader::NotifyDownloadProgress(const std::string& model_id, const std::string& stage,
                                                const std::string& current_file, int64_t saved_size, int64_t total_size) {
     if (listener_) {
         DownloadProgress progress;
@@ -29,76 +29,108 @@ void ModelRepoDownloader::notifyDownloadProgress(const std::string& model_id, co
         progress.current_file = current_file;
         progress.saved_size = saved_size;
         progress.total_size = total_size;
-        progress.progress = calculateProgress(saved_size, total_size);
+        progress.progress = CalculateProgress(saved_size, total_size);
         progress.state = download_states_[model_id];
         
-        listener_->onDownloadProgress(model_id, progress);
+        listener_->OnDownloadProgress(model_id, progress);
     }
 }
 
-void ModelRepoDownloader::notifyDownloadFinished(const std::string& model_id, const std::string& path) {
+void ModelRepoDownloader::NotifyDownloadFinished(const std::string& model_id, const std::string& path) {
     if (listener_) {
-        listener_->onDownloadFinished(model_id, path);
+        listener_->OnDownloadFinished(model_id, path);
     }
-    updateDownloadState(model_id, DownloadState::COMPLETED);
+    UpdateDownloadState(model_id, DownloadState::COMPLETED);
 }
 
-void ModelRepoDownloader::notifyDownloadFailed(const std::string& model_id, const std::string& error) {
+void ModelRepoDownloader::NotifyDownloadFailed(const std::string& model_id, const std::string& error) {
     if (listener_) {
-        listener_->onDownloadFailed(model_id, error);
+        listener_->OnDownloadFailed(model_id, error);
     }
-    updateDownloadState(model_id, DownloadState::FAILED);
+    UpdateDownloadState(model_id, DownloadState::FAILED);
 }
 
-void ModelRepoDownloader::notifyDownloadPaused(const std::string& model_id) {
+void ModelRepoDownloader::NotifyDownloadPaused(const std::string& model_id) {
     if (listener_) {
-        listener_->onDownloadPaused(model_id);
+        listener_->OnDownloadPaused(model_id);
     }
-    updateDownloadState(model_id, DownloadState::PAUSED);
+    UpdateDownloadState(model_id, DownloadState::PAUSED);
 }
 
-void ModelRepoDownloader::notifyDownloadTaskAdded() {
+void ModelRepoDownloader::NotifyDownloadTaskAdded() {
     if (listener_) {
-        listener_->onDownloadTaskAdded();
+        listener_->OnDownloadTaskAdded();
     }
 }
 
-void ModelRepoDownloader::notifyDownloadTaskRemoved() {
+void ModelRepoDownloader::NotifyDownloadTaskRemoved() {
     if (listener_) {
-        listener_->onDownloadTaskRemoved();
+        listener_->OnDownloadTaskRemoved();
     }
 }
 
-void ModelRepoDownloader::notifyRepoInfo(const std::string& model_id, int64_t last_modified, int64_t repo_size) {
+void ModelRepoDownloader::NotifyRepoInfo(const std::string& model_id, int64_t last_modified, int64_t repo_size) {
     if (listener_) {
-        listener_->onRepoInfo(model_id, last_modified, repo_size);
+        listener_->OnRepoInfo(model_id, last_modified, repo_size);
     }
 }
 
-double ModelRepoDownloader::calculateProgress(int64_t saved_size, int64_t total_size) const {
+double ModelRepoDownloader::CalculateProgress(int64_t saved_size, int64_t total_size) const {
     if (total_size <= 0) return 0.0;
     return static_cast<double>(saved_size) / static_cast<double>(total_size);
 }
 
-void ModelRepoDownloader::updateDownloadState(const std::string& model_id, DownloadState state) {
+void ModelRepoDownloader::UpdateDownloadState(const std::string& model_id, DownloadState state) {
     download_states_[model_id] = state;
 }
 
-bool ModelRepoDownloader::isPaused(const std::string& model_id) const {
+bool ModelRepoDownloader::IsPaused(const std::string& model_id) const {
     return std::find(paused_models_.begin(), paused_models_.end(), model_id) != paused_models_.end();
 }
 
-void ModelRepoDownloader::addPausedModel(const std::string& model_id) {
-    if (!isPaused(model_id)) {
+void ModelRepoDownloader::AddPausedModel(const std::string& model_id) {
+    if (!IsPaused(model_id)) {
         paused_models_.push_back(model_id);
     }
 }
 
-void ModelRepoDownloader::removePausedModel(const std::string& model_id) {
+void ModelRepoDownloader::RemovePausedModel(const std::string& model_id) {
     auto it = std::find(paused_models_.begin(), paused_models_.end(), model_id);
     if (it != paused_models_.end()) {
         paused_models_.erase(it);
     }
+}
+
+// Static utility method: Format file size with smart unit selection
+std::string ModelRepoDownloader::FormatFileSizeInfo(int64_t downloaded_bytes, int64_t total_bytes) {
+    std::string size_info;
+    
+    // Smart unit selection: use KB for files < 1MB, MB otherwise
+    if (total_bytes < 1024 * 1024) {
+        // Use KB for small files
+        int64_t downloaded_kb = downloaded_bytes / 1024;
+        int64_t total_kb = total_bytes / 1024;
+        if (total_kb == 0) total_kb = 1; // Avoid "0 KB / 0 KB"
+        size_info = " (" + std::to_string(downloaded_kb) + " KB / " + 
+                   std::to_string(total_kb) + " KB)";
+    } else {
+        // Use MB for larger files
+        int64_t downloaded_mb = downloaded_bytes / (1024 * 1024);
+        int64_t total_mb = total_bytes / (1024 * 1024);
+        size_info = " (" + std::to_string(downloaded_mb) + " MB / " + 
+                   std::to_string(total_mb) + " MB)";
+    }
+    
+    return size_info;
+}
+
+// Static utility method: Extract filename from path for cleaner display
+std::string ModelRepoDownloader::ExtractFileName(const std::string& file_path) {
+    size_t last_slash = file_path.find_last_of('/');
+    if (last_slash != std::string::npos) {
+        return file_path.substr(last_slash + 1);
+    }
+    return file_path;
 }
 
 } // namespace mnncli

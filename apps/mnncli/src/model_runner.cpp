@@ -98,7 +98,6 @@ void ModelRunner::InteractiveChat() {
         else if (input == "/config") ShowConfig();
         else if (!input.empty()) {
             std::cout << "\n🤖 Assistant: " << std::flush;
-            
             // Use ProcessPrompt to handle both text and video prompts
             ProcessPrompt(input, &std::cout);
             std::cout << "\n";
@@ -119,9 +118,6 @@ int ModelRunner::ProcessPrompt(const std::string& prompt, std::ostream* output, 
         return ProcessVideoPrompt(prompt, output);
     }
 #endif
-
-    // Regular text prompt processing
-    MNN::AutoTime _t(0, "response");
     llm_->response(prompt, output, nullptr, max_new_tokens);
     return 0;
 }

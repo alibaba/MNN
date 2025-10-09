@@ -7,6 +7,7 @@
 #include "httplib.h"
 #include "file_utils.hpp"
 #include "hf_sha_verifier.hpp"
+#include "log_utils.hpp"
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -27,77 +28,61 @@ namespace mnncli
         // Each download will create its own client with the correct host
     }
 
-    // Verbose logging helper implementation
-    void ModelFileDownloader::logVerbose(const std::string& message) const {
-        if (verbose_) {
-            std::cout << "[ModelFileDownloader] " << message << std::endl;
-        }
-    }
 
-    // Main download method matching Android ModelFileDownloader.downloadFile() exactly
-    void ModelFileDownloader::downloadFile(FileDownloadTask& fileDownloadTask, FileDownloadListener& fileDownloadListener)
+    // Main download method - simplified for direct storage (ModelScope style)
+    // Based on Android ModelFileDownloader.downloadFile() but without symlinks
+    void ModelFileDownloader::DownloadFile(FileDownloadTask& fileDownloadTask, FileDownloadListener& fileDownloadListener)
     {
-        logVerbose("Starting download for file: " + fileDownloadTask.relativePath);
+        LOG_DEBUG_TAG("Starting download for file: " + fileDownloadTask.relativePath, "ModelFileDownloader");
         
+        // Simplified: only one path to validate and create
+        if (fileDownloadTask.downloadPath.empty()) {
+            throw FileDownloadException("Invalid download path");
+        }
+        
+        // Create parent directory
         try {
-            // Validate paths to prevent symlink issues
-            if (fileDownloadTask.pointerPath.empty() || fileDownloadTask.blobPath.empty()) {
-                throw FileDownloadException("Invalid file paths");
-            }
-            
-            // Check for circular symlink references
-            if (fileDownloadTask.pointerPath == fileDownloadTask.blobPath) {
-                throw FileDownloadException("Pointer path cannot be the same as blob path");
-            }
-            
-            // Create directories
-            std::filesystem::create_directories(fileDownloadTask.pointerPath.parent_path());
-            std::filesystem::create_directories(fileDownloadTask.blobPath.parent_path());
-            
-            logVerbose("Directories created successfully");
+            std::filesystem::create_directories(fileDownloadTask.downloadPath.parent_path());
+            LOG_DEBUG_TAG("Directory created: " + fileDownloadTask.downloadPath.parent_path().string(), "ModelFileDownloader");
         } catch (const std::exception& e) {
-            logVerbose("Error during directory creation: " + std::string(e.what()));
-            throw;
+            LOG_DEBUG_TAG("Error during directory creation: " + std::string(e.what()), "ModelFileDownloader");
+            throw FileDownloadException("Failed to create directory: " + std::string(e.what()));
         }
 
-        // Check if file already exists
-        if (std::filesystem::exists(fileDownloadTask.pointerPath))
+        // Check if file already exists at final location
+        if (std::filesystem::exists(fileDownloadTask.downloadPath))
         {
-            printf("DownloadFile %s already exists\n", fileDownloadTask.relativePath.c_str());
+            LOG_DEBUG("File already exists: " + fileDownloadTask.relativePath);
             return;
         }
 
-        // Check if blob already exists
-        if (std::filesystem::exists(fileDownloadTask.blobPath))
-        {
-            logVerbose("Blob file already exists, creating symlink");
-            createSymlinkSafely(fileDownloadTask.blobPath, fileDownloadTask.pointerPath);
-            logVerbose("DownloadFile " + fileDownloadTask.relativePath + " already exists just create symlink");
-            return;
-        }
-
-        // Download the file
-        logVerbose("Starting download process");
+        // Download the file directly to final location
+        LOG_DEBUG_TAG("Starting download process", "ModelFileDownloader");
         try {
             std::mutex lock;
             {
                 std::lock_guard<std::mutex> guard(lock);
-                downloadToTmpAndMove(fileDownloadTask, fileDownloadTask.blobPathIncomplete, fileDownloadTask.blobPath, 
-                                   fileDownloadTask.fileMetadata.location, fileDownloadTask.fileMetadata.size,
-                                   fileDownloadTask.relativePath, fileDownloadListener);
+                fs::path incompletePath = fileDownloadTask.GetIncompletePath();
                 
-                logVerbose("Download completed, creating symlink");
-                createSymlinkSafely(fileDownloadTask.blobPath, fileDownloadTask.pointerPath);
-                logVerbose("Download and symlink creation completed successfully");
+                DownloadToTmpAndMove(
+                    fileDownloadTask, 
+                    incompletePath,                          // Temporary file (.incomplete)
+                    fileDownloadTask.downloadPath,           // Final destination
+                    fileDownloadTask.fileMetadata.location,  // Download URL
+                    fileDownloadTask.fileMetadata.size,      // Expected size
+                    fileDownloadTask.relativePath,           // Display name
+                    fileDownloadListener);
+                
+                LOG_DEBUG_TAG("Download completed successfully: " + fileDownloadTask.downloadPath.string(), "ModelFileDownloader");
             }
         } catch (const std::exception& e) {
-            logVerbose("Error during download process: " + std::string(e.what()));
+            LOG_DEBUG_TAG("Error during download process: " + std::string(e.what()), "ModelFileDownloader");
             throw;
         }
     }
 
     // downloadToTmpAndMove method matching Android implementation exactly
-    void ModelFileDownloader::downloadToTmpAndMove(
+    void ModelFileDownloader::DownloadToTmpAndMove(
         FileDownloadTask& fileDownloadTask,
         const fs::path& incompletePath,
         const fs::path& destinationPath,
@@ -111,30 +96,59 @@ namespace mnncli
         // Check if destination already exists and validate it (like Kotlin)
         if (std::filesystem::exists(destinationPath))
         {
-            if (validate(fileDownloadTask, destinationPath))
+            if (Validate(fileDownloadTask, destinationPath))
             {
+                LOG_DEBUG_TAG("Destination file already exists and is valid: " + destinationPath.string(), "ModelFileDownloader");
                 return;
             }
             else
             {
+                LOG_DEBUG_TAG("Destination file exists but is invalid, removing", "ModelFileDownloader");
                 std::filesystem::remove(destinationPath);
                 fileDownloadTask.downloadedSize = 0;
             }
         }
         
-        // Check if we can resume from incomplete file (like Kotlin - simple size check, no validation)
-        if (fileDownloadTask.downloadedSize >= expectedSize)
+        // Check if incomplete file exists and read its size for resume (like Android lines 86-94)
+        if (std::filesystem::exists(incompletePath))
         {
-            if (std::filesystem::exists(incompletePath) && std::filesystem::file_size(incompletePath) >= expectedSize)
-            {
-                moveWithPermissions(incompletePath, destinationPath);
-                return;
-            }
-            else
-            {
-                std::filesystem::remove(incompletePath);
+            try {
+                int64_t incomplete_size = std::filesystem::file_size(incompletePath);
+                
+                // If incomplete file size is valid, use it for resume
+                if (incomplete_size > 0 && incomplete_size <= expectedSize) {
+                    fileDownloadTask.downloadedSize = incomplete_size;
+                    LOG_DEBUG_TAG("Found incomplete file with size: " + std::to_string(incomplete_size) + 
+                                 " bytes, will resume download", "ModelFileDownloader");
+                } else if (incomplete_size >= expectedSize) {
+                    // File is complete, validate it
+                    LOG_DEBUG_TAG("Incomplete file size >= expected size, validating", "ModelFileDownloader");
+                    if (Validate(fileDownloadTask, incompletePath))
+                    {
+                        LOG_DEBUG_TAG("Incomplete file is valid, moving to destination", "ModelFileDownloader");
+                        MoveWithPermissions(incompletePath, destinationPath);
+                        return;
+                    }
+                    else
+                    {
+                        LOG_DEBUG_TAG("Incomplete file validation failed, removing and restarting", "ModelFileDownloader");
+                        std::filesystem::remove(incompletePath);
+                        fileDownloadTask.downloadedSize = 0;
+                    }
+                } else {
+                    LOG_DEBUG_TAG("Incomplete file has invalid size: " + std::to_string(incomplete_size) + 
+                                 ", removing", "ModelFileDownloader");
+                    std::filesystem::remove(incompletePath);
+                    fileDownloadTask.downloadedSize = 0;
+                }
+            } catch (const std::exception& e) {
+                LOG_DEBUG_TAG("Error reading incomplete file size: " + std::string(e.what()) + 
+                             ", starting from scratch", "ModelFileDownloader");
                 fileDownloadTask.downloadedSize = 0;
             }
+        } else {
+            LOG_DEBUG_TAG("No incomplete file found, starting fresh download", "ModelFileDownloader");
+            fileDownloadTask.downloadedSize = 0;
         }
         
         // Check for redirects first (like Android does)
@@ -142,6 +156,15 @@ namespace mnncli
         httplib::Headers headers;
         headers.emplace("User-Agent", "MNN-CLI/1.0");
         headers.emplace("Accept", "*/*");
+        
+        // Add Hugging Face authentication token ONLY for huggingface.co requests
+        // DO NOT add Authorization header for pre-signed CDN URLs
+        if (host.find("huggingface.co") != std::string::npos) {
+            if (const char* hf_token = std::getenv("HF_TOKEN")) {
+                std::string auth_header = "Bearer " + std::string(hf_token);
+                headers.emplace("Authorization", auth_header);
+            }
+        }
         
         auto head_res = client_.Head(path, headers);
         if (head_res && (head_res->status >= 301 && head_res->status <= 308))
@@ -153,33 +176,44 @@ namespace mnncli
             }
         }
         
-        logVerbose("downloadToTmpAndMove urlToDownload: " + theUrlToDownload + " to file: " + incompletePath.string() + " to destination: " + destinationPath.string());
+        LOG_DEBUG_TAG("downloadToTmpAndMove urlToDownload: " + theUrlToDownload + " to file: " + incompletePath.string() + " to destination: " + destinationPath.string(), "ModelFileDownloader");
         
         // Download with retry logic like Android (max 10 retries)
         if (fileDownloadTask.downloadedSize < expectedSize)
         {
-            for (int i = 0; i < MAX_RETRY; i++)
+            for (int i = 0; i < kMaxRetry; i++)
             {
                 try
                 {
-                    logVerbose("downloadChunk try the " + std::to_string(i) + " turn");
+                    LOG_DEBUG_TAG("downloadChunk try the " + std::to_string(i) + " turn", "ModelFileDownloader");
                     
-                    downloadChunk(fileDownloadTask, theUrlToDownload, incompletePath, expectedSize, fileName, &fileDownloadListener);
+                    DownloadChunk(fileDownloadTask, theUrlToDownload, incompletePath, expectedSize, fileName, &fileDownloadListener);
                     
-                    logVerbose("downloadChunk try the " + std::to_string(i) + " turn finish");
+                    LOG_DEBUG_TAG("downloadChunk try the " + std::to_string(i) + " turn finish", "ModelFileDownloader");
                     
-                    // After download, validate the incomplete file (like Kotlin - only validate after download is complete)
-                    if (std::filesystem::exists(incompletePath) && std::filesystem::file_size(incompletePath) >= expectedSize)
+                    // After download, validate the incomplete file (exactly like Kotlin lines 142-145)
+                    if (!Validate(fileDownloadTask, incompletePath))
                     {
-                        logVerbose("Download completed successfully, moving to final location");
-                        break;
-                    }
-                    else
-                    {
-                        logVerbose("Download validation failed, removing incomplete file and resetting download size");
+                        LOG_DEBUG_TAG("Download validation failed, removing incomplete file and resetting download size", "ModelFileDownloader");
                         std::filesystem::remove(incompletePath);
                         fileDownloadTask.downloadedSize = 0;
+                        
+                        // If this was the last retry, throw exception
+                        if (i == kMaxRetry - 1)
+                        {
+                            LOG_DEBUG_TAG("Max retries reached after validation failure", "ModelFileDownloader");
+                            throw FileDownloadException("File validation failed after max retries");
+                        }
+                        
+                        // Otherwise, retry by continuing the loop
+                        LOG_DEBUG_TAG("Retrying download after validation failure (attempt " + std::to_string(i + 2) + "/" + std::to_string(kMaxRetry) + ")", "ModelFileDownloader");
+                        std::this_thread::sleep_for(std::chrono::seconds(1));
+                        continue;
                     }
+                    
+                    // Validation passed, break out of retry loop
+                    LOG_DEBUG_TAG("Download validation succeeded", "ModelFileDownloader");
+                    break;
                 }
                 catch (const DownloadPausedException& e)
                 {
@@ -187,21 +221,21 @@ namespace mnncli
                 }
                 catch (const std::exception& e)
                 {
-                    if (i == MAX_RETRY - 1)
+                    if (i == kMaxRetry - 1)
                     {
-                        logVerbose("Max retries reached, throwing exception: " + std::string(e.what()));
+                        LOG_DEBUG_TAG("Max retries reached, throwing exception: " + std::string(e.what()), "ModelFileDownloader");
                         throw e;
                     }
                     else
                     {
-                        logVerbose("downloadChunk failed sleep and retrying: " + std::string(e.what()));
+                        LOG_DEBUG_TAG("downloadChunk failed sleep and retrying: " + std::string(e.what()), "ModelFileDownloader");
                         try
                         {
                             std::this_thread::sleep_for(std::chrono::seconds(1));
                         }
                         catch (const std::exception& ex)
                         {
-                            logVerbose("Error during sleep: " + std::string(ex.what()));
+                            LOG_DEBUG_TAG("Error during sleep: " + std::string(ex.what()), "ModelFileDownloader");
                             throw std::runtime_error(ex.what());
                         }
                     }
@@ -209,22 +243,24 @@ namespace mnncli
             }
         }
         
-        // Like Kotlin: only check if file exists and has correct size, no SHA verification during download
-        if (std::filesystem::exists(incompletePath) && std::filesystem::file_size(incompletePath) >= expectedSize)
+        // Like Kotlin: validate and move (exactly matching Kotlin lines 163-169)
+        if (Validate(fileDownloadTask, incompletePath))
         {
-            logVerbose("Download completed successfully, moving file to destination");
-            moveWithPermissions(incompletePath, destinationPath);
+            LOG_DEBUG_TAG("Validation passed, moving file to destination", "ModelFileDownloader");
+            MoveWithPermissions(incompletePath, destinationPath);
         }
         else
         {
-            logVerbose("Download validation failed, removing incomplete file and resetting download size");
+            LOG_DEBUG_TAG("Final validation failed, removing incomplete file and resetting download size", "ModelFileDownloader");
             std::filesystem::remove(incompletePath);
             fileDownloadTask.downloadedSize = 0;
+            throw FileDownloadException("File validation failed after download");
         }
     }
 
+    
     // downloadChunk method matching Android implementation exactly
-    void ModelFileDownloader::downloadChunk(
+    void ModelFileDownloader::DownloadChunk(
         FileDownloadTask& fileDownloadTask,
         const std::string& url,
         const fs::path& tempFile,
@@ -233,28 +269,41 @@ namespace mnncli
         FileDownloadListener* fileDownloadListener)
     {
         auto [host, path] = HfApiClient::ParseUrl(url);
-        printf("downloadChunk: URL='%s', host='%s', path='%s'\n", url.c_str(), host.c_str(), path.c_str());
         
         // Create HTTP client for download
+        // For pre-signed URLs (like AWS S3), DO NOT specify port explicitly to avoid 
+        // Host header mismatch (e.g., "Host: example.com:443" vs "Host: example.com")
 #ifdef CPPHTTPLIB_OPENSSL_SUPPORT
-        httplib::SSLClient download_client(host, 443);
+        httplib::SSLClient download_client(host);
 #else
-        httplib::Client download_client(host, 80);
+        httplib::Client download_client(host);
 #endif
-        download_client.set_connection_timeout(CONNECT_TIMEOUT_SECONDS, 0);
-        download_client.set_read_timeout(CONNECT_TIMEOUT_SECONDS, 0);
-        download_client.set_write_timeout(CONNECT_TIMEOUT_SECONDS, 0);
+        download_client.set_connection_timeout(kConnectTimeoutSeconds, 0);
+        download_client.set_read_timeout(kConnectTimeoutSeconds, 0);
+        download_client.set_write_timeout(kConnectTimeoutSeconds, 0);
 #ifdef CPPHTTPLIB_OPENSSL_SUPPORT
         download_client.enable_server_certificate_verification(false);
 #endif
-        download_client.set_keep_alive(true);
+        // For pre-signed URLs, we need minimal headers - disable keep-alive to avoid Connection header
+        download_client.set_keep_alive(false);
+        // Set empty user agent to avoid automatic User-Agent header
+        download_client.set_default_headers({});
         
         if (verbose_) {
-            printf("downloadChunk: Created new HTTP client for host: %s\n", host.c_str());
+            LOG_DEBUG("downloadChunk: Created new HTTP client for host: " + host);
         }
         
         httplib::Headers requestHeaders;
-        requestHeaders.emplace("Accept-Encoding", "identity");
+        
+        // Add Hugging Face authentication token and headers ONLY for huggingface.co requests
+        // For pre-signed CDN URLs, headers are already in URL parameters
+        if (host.find("huggingface.co") != std::string::npos) {
+            requestHeaders.emplace("Accept-Encoding", "identity");
+            if (const char* hf_token = std::getenv("HF_TOKEN")) {
+                std::string auth_header = "Bearer " + std::string(hf_token);
+                requestHeaders.emplace("Authorization", auth_header);
+            }
+        }
         
         if (fileDownloadTask.downloadedSize >= expectedSize)
         {
@@ -268,8 +317,6 @@ namespace mnncli
             requestHeaders.emplace("Range", "bytes=" + std::to_string(fileDownloadTask.downloadedSize) + "-");
         }
         
-        printf("resume size: %lld expectedSize: %lld\n", fileDownloadTask.downloadedSize, expectedSize);
-        
         // Open output file for writing
         std::ofstream output;
         try {
@@ -279,171 +326,100 @@ namespace mnncli
                 throw FileDownloadException("Failed to open output file: " + tempFile.string());
             }
         } catch (const std::exception& e) {
-            printf("downloadChunk: Exception opening file: %s\n", e.what());
             throw FileDownloadException("File operation failed: " + std::string(e.what()));
         }
-
+        
+        LOG_DEBUG_TAG("Starting HTTP GET request to: " + url, "ModelFileDownloader");
         auto res = download_client.Get(path, requestHeaders, [&](const httplib::Response &response)
                               {
-            printf("downloadChunk response: success: %s code: %d\n", 
-                   response.status >= 200 && response.status < 300 ? "true" : "false", response.status);
+            LOG_DEBUG_TAG("Received HTTP response with status: " + std::to_string(response.status), "ModelFileDownloader");
             // Return false for non-successful status codes to stop the download
             if (response.status < 200 || response.status >= 300) {
-                printf("downloadChunk: Stopping download due to HTTP error %d\n", response.status);
+                LOG_DEBUG_TAG("HTTP error status, stopping download: " + std::to_string(response.status), "ModelFileDownloader");
                 return false;
             }
             return true; }, [&](const char *data, size_t data_length)
                               {
-            try {
-                output.write(data, data_length);
-                downloadedBytes += data_length;
-                fileDownloadTask.downloadedSize += data_length;
-                
-                if (fileDownloadListener != nullptr)
+            output.write(data, data_length);
+            downloadedBytes += data_length;
+            fileDownloadTask.downloadedSize += data_length;
+            
+            if (fileDownloadListener != nullptr)
+            {
+                bool paused = fileDownloadListener->onDownloadDelta(
+                    &displayedFilename, downloadedBytes, expectedSize, data_length);
+                if (paused)
                 {
-                    bool paused = fileDownloadListener->onDownloadDelta(
-                        &displayedFilename, downloadedBytes, expectedSize, data_length);
-                    if (paused)
-                    {
-                        throw DownloadPausedException("Download paused");
-                    }
+                    throw DownloadPausedException("Download paused");
                 }
-            } catch (const std::exception& e) {
-                printf("downloadChunk: Exception during data processing: %s\n", e.what());
-                throw FileDownloadException("Data processing failed: " + std::string(e.what()));
             }
             return true; });
 
+        LOG_DEBUG_TAG("HTTP request completed", "ModelFileDownloader");
         if (res)
         {
-            if (res->status >= 200 && res->status < 300 || res->status == 416)
+            LOG_DEBUG_TAG("HTTP response received with status: " + std::to_string(res->status), "ModelFileDownloader");
+            if (!(res->status >= 200 && res->status < 300) && res->status != 416)
             {
-                printf("downloadChunk completed successfully\n");
-            }
-            else
-            {
+                LOG_DEBUG_TAG("HTTP error status: " + std::to_string(res->status), "ModelFileDownloader");
                 throw FileDownloadException("HTTP error: " + std::to_string(res->status));
             }
         }
         else
         {
-            std::string error_msg = "Connection error: " + std::string(httplib::to_string(res.error()));
-            printf("downloadChunk: %s\n", error_msg.c_str());
-            throw FileDownloadException(error_msg);
+            LOG_DEBUG_TAG("HTTP request failed with error: " + std::string(httplib::to_string(res.error())), "ModelFileDownloader");
+            throw FileDownloadException("Connection error: " + std::string(httplib::to_string(res.error())));
         }
 
-        try {
-            output.flush();
-            output.close();
-        } catch (const std::exception& e) {
-            printf("downloadChunk: Exception closing file: %s\n", e.what());
-            throw FileDownloadException("File close failed: " + std::string(e.what()));
-        }
+        output.flush();
+        output.close();
     }
 
-    // validate method matching Android implementation
-    bool ModelFileDownloader::validate(const FileDownloadTask& fileDownloadTask, const fs::path& src)
+    // validate method matching Android implementation (exactly like Kotlin lines 240-247)
+    bool ModelFileDownloader::Validate(const FileDownloadTask& fileDownloadTask, const fs::path& src)
     {
-        // Check if file exists
-        if (!std::filesystem::exists(src)) {
-            if (verbose_) {
-                printf("validate: File %s does not exist\n", src.string().c_str());
-            }
-            return false;
-        }
+        LOG_DEBUG_TAG("validate: Checking file " + src.string(), "ModelFileDownloader");
         
-        // Check if file has content
-        auto file_size = std::filesystem::file_size(src);
-        if (file_size == 0) {
-            if (verbose_) {
-                printf("validate: File %s is empty (0 bytes)\n", src.string().c_str());
-            }
-            return false;
-        }
+        // Exactly matching Kotlin implementation:
+        // var verifyResult = true
+        bool verify_result = true;
         
-        // If we have an etag, verify the file hash using HfShaVerifier (like Android HfShaVerifier.verify())
+        // if (!fileDownloadTask.etag.isNullOrEmpty()) {
         if (!fileDownloadTask.etag.empty()) {
-            try {
-                if (verbose_) {
-                    printf("validate: Verifying file hash for %s with etag: %s\n", 
-                           src.string().c_str(), fileDownloadTask.etag.c_str());
-                }
-                
-                // Use the SHA verifier to check file integrity
-                bool hash_verified = HfShaVerifier::verify(fileDownloadTask.etag, src);
-                
-                if (!hash_verified) {
-                    if (verbose_) {
-                        printf("validate: Hash verification failed for %s\n", src.string().c_str());
-                    }
-                    return false;
-                }
-                
-                if (verbose_) {
-                    printf("validate: Hash verification passed for %s\n", src.string().c_str());
-                }
-                
-            } catch (const std::exception& e) {
-                if (verbose_) {
-                    printf("validate: Error during hash verification: %s\n", e.what());
-                }
-                // Continue with basic validation even if hash verification fails
-                // This allows the download to proceed even if verification has issues
-            }
-        }
-        
-        if (verbose_) {
-            printf("validate: File %s validation passed - size: %zu bytes\n", 
-                   src.string().c_str(), file_size);
-        }
-        
-        return true;
-    }
-
-    // Helper function to safely create symlinks
-    void ModelFileDownloader::createSymlinkSafely(const fs::path& target, const fs::path& link_path)
-    {
-        // Remove existing link if it exists
-        if (std::filesystem::exists(link_path)) {
-            std::filesystem::remove(link_path);
-        }
-        
-        // Check if target exists and is not a symlink to avoid circular references
-        if (!std::filesystem::exists(target)) {
-            throw FileDownloadException("Target file does not exist: " + target.string());
-        }
-        
-        // Check if target is already a symlink to prevent circular references
-        if (std::filesystem::is_symlink(target)) {
-            // Resolve the actual target
-            std::error_code ec;
-            auto resolved_target = std::filesystem::read_symlink(target, ec);
-            if (ec) {
-                throw FileDownloadException("Failed to read symlink target: " + ec.message());
-            }
-            // Create symlink to the resolved target instead
-            std::error_code symlink_ec;
-            mnncli::FileUtils::CreateSymlink(resolved_target, link_path, symlink_ec);
-            if (symlink_ec) {
-                throw FileDownloadException("Failed to create symlink to resolved target: " + symlink_ec.message());
-            }
+            LOG_DEBUG_TAG("validate: Verifying file hash with etag: " + fileDownloadTask.etag, "ModelFileDownloader");
+            
+            // verifyResult = HfShaVerifier.verify(fileDownloadTask.etag!!, src.toPath())
+            verify_result = HfShaVerifier::verify(fileDownloadTask.etag, src);
+            
+            LOG_DEBUG_TAG("validate: verifyResult: " + std::string(verify_result ? "true" : "false"), "ModelFileDownloader");
         } else {
-            // Create normal symlink
-            std::error_code ec;
-            mnncli::FileUtils::CreateSymlink(target, link_path, ec);
-            if (ec) {
-                throw FileDownloadException("Failed to create symlink: " + ec.message());
-            }
+            LOG_DEBUG_TAG("validate: No etag, skipping verification", "ModelFileDownloader");
         }
+        
+        // return verifyResult
+        return verify_result;
     }
 
-    // moveWithPermissions method matching Android implementation
-    void ModelFileDownloader::moveWithPermissions(const fs::path& src, const fs::path& dest)
+    // Note: CreateSymlinkSafely removed - no longer needed with direct storage architecture
+
+    // MoveWithPermissions method matching Android implementation
+    void ModelFileDownloader::MoveWithPermissions(const fs::path& src, const fs::path& dest)
     {
-        printf("moveWithPermissions %s to %s\n", src.string().c_str(), dest.string().c_str());
+        LOG_DEBUG("MoveWithPermissions " + src.string() + " to " + dest.string());
         
-        // Use std::filesystem::rename which is equivalent to Files.move in Java
-        std::filesystem::rename(src, dest);
+        // Ensure destination directory exists
+        std::filesystem::create_directories(dest.parent_path());
+        
+        // Try rename first (fastest), fall back to copy+remove if it fails
+        std::error_code ec;
+        std::filesystem::rename(src, dest, ec);
+        
+        if (ec) {
+            LOG_DEBUG("rename failed: " + ec.message() + ", trying copy+remove");
+            // Fall back to copy + remove (for cross-filesystem moves)
+            std::filesystem::copy_file(src, dest, std::filesystem::copy_options::overwrite_existing);
+            std::filesystem::remove(src);
+        }
         
         // Set permissions equivalent to Android setReadable(true, true), setWritable(true, true), setExecutable(false, false)
         std::filesystem::permissions(dest, 

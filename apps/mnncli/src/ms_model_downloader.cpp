@@ -5,6 +5,7 @@
 
 #include "ms_model_downloader.hpp"
 #include "log_utils.hpp"
+#include "user_interface.hpp"
 #include <iostream>
 #include <fstream>
 #include <algorithm>
@@ -19,41 +20,59 @@ MsModelDownloader::MsModelDownloader(const std::string& cache_root_path)
 }
 
 // Implement pure virtual functions from ModelRepoDownloader base class
-void MsModelDownloader::download(const std::string& model_id) {
+void MsModelDownloader::Download(const std::string& model_id) {
     std::string error_info;
-    if (!DownloadModel(model_id, error_info, mnncli::LogUtils::isVerbose())) {
-        notifyDownloadFailed(model_id, error_info);
+    if (!DownloadModel(model_id, error_info, mnncli::LogUtils::IsVerbose())) {
+        NotifyDownloadFailed(model_id, error_info);
     } else {
-        notifyDownloadFinished(model_id, GetDownloadPath(model_id).string());
+        NotifyDownloadFinished(model_id, GetDownloadPath(model_id).string());
     }
 }
 
-void MsModelDownloader::pause(const std::string& model_id) {
-    addPausedModel(model_id);
-    notifyDownloadPaused(model_id);
+void MsModelDownloader::Pause(const std::string& model_id) {
+    AddPausedModel(model_id);
+    NotifyDownloadPaused(model_id);
 }
 
-void MsModelDownloader::resume(const std::string& model_id) {
-    removePausedModel(model_id);
-    download(model_id);
+void MsModelDownloader::Resume(const std::string& model_id) {
+    RemovePausedModel(model_id);
+    Download(model_id);
 }
 
-std::filesystem::path MsModelDownloader::getDownloadPath(const std::string& model_id) {
-    return GetDownloadPath(model_id);
+std::filesystem::path MsModelDownloader::GetDownloadPath(const std::string& model_id) {
+    // Parse model_id in format "ModelScope/MNN/Hunyuan-7B-Instruct-MNN"
+    // Extract the repo path part and create modelscope/MNN/Hunyuan-7B-Instruct-MNN
+    
+    std::string repo_path;
+    
+    // Handle different model_id formats
+    if (model_id.find("ModelScope/") == 0) {
+        // Format: "ModelScope/MNN/Hunyuan-7B-Instruct-MNN"
+        repo_path = model_id.substr(11); // Remove "ModelScope/"
+    } else if (model_id.find("ms:") == 0) {
+        // Format: "ms:MNN/Hunyuan-7B-Instruct-MNN"
+        repo_path = model_id.substr(3); // Remove "ms:"
+    } else {
+        // Assume it's already in owner/repo format
+        repo_path = model_id;
+    }
+    
+    // Create path: modelscope/MNN/Hunyuan-7B-Instruct-MNN
+    return std::filesystem::path(cache_root_path_) / repo_path;
 }
 
-bool MsModelDownloader::deleteRepo(const std::string& model_id) {
-    return DeleteRepo(model_id);
+bool MsModelDownloader::DeleteRepo(const std::string& model_id) {
+    return DeleteRepoImpl(model_id);
 }
 
-int64_t MsModelDownloader::getRepoSize(const std::string& model_id) {
+int64_t MsModelDownloader::GetRepoSize(const std::string& model_id) {
     std::string error_info;
-    return GetRepoSize(model_id, error_info);
+    return GetRepoSizeWithError(model_id, error_info);
 }
 
-bool MsModelDownloader::checkUpdate(const std::string& model_id) {
+bool MsModelDownloader::CheckUpdate(const std::string& model_id) {
     std::string error_info;
-    return CheckUpdate(model_id, error_info);
+    return CheckUpdateWithError(model_id, error_info);
 }
 
 bool MsModelDownloader::DownloadModel(const std::string& model_id, std::string& error_info, bool verbose) {
@@ -77,14 +96,14 @@ bool MsModelDownloader::DownloadMsRepo(const std::string& model_id, std::string&
         model_scope_id = model_scope_id.substr(11);
     }
     
-    if (mnncli::LogUtils::isVerbose()) {
+    if (mnncli::LogUtils::IsVerbose()) {
         LOG_DEBUG_TAG("MsModelDownloader downloadMsRepo: " + model_id + " modelScopeId: " + model_scope_id, "MsModelDownloader");
     }
     
     // Parse owner/repo from the repository path
     size_t slash_pos = model_scope_id.find('/');
     if (slash_pos == std::string::npos) {
-        error_info = "Invalid model ID format, expected: owner/repo";
+        error_info = "Invalid model ID format, expected: owner/repo (e.g., 'Qwen/Qwen-7B-Chat')";
         return false;
     }
     
@@ -97,7 +116,7 @@ bool MsModelDownloader::DownloadMsRepo(const std::string& model_id, std::string&
         return false;
     }
     
-    if (mnncli::LogUtils::isVerbose()) {
+    if (mnncli::LogUtils::IsVerbose()) {
         LOG_DEBUG_TAG("downloadMsRepo repoInfo: " + repo_info.model_id, "MsModelDownloader");
     }
     
@@ -106,28 +125,28 @@ bool MsModelDownloader::DownloadMsRepo(const std::string& model_id, std::string&
 
 bool MsModelDownloader::DownloadMsRepoInner(const std::string& model_id, const std::string& model_scope_id, 
                                            const MsRepoInfo& ms_repo_info, std::string& error_info) {
-    if (mnncli::LogUtils::isVerbose()) {
+    if (mnncli::LogUtils::IsVerbose()) {
         LOG_DEBUG_TAG("downloadMsRepoInner", "MsModelDownloader");
     }
     
     // Check if already downloaded
-    auto folder_link_file = GetModelPath(cache_root_path_, model_id);
-    if (std::filesystem::exists(folder_link_file)) {
-        if (mnncli::LogUtils::isVerbose()) {
-            std::cout << "downloadMsRepoInner already exists at " << folder_link_file.string() << std::endl;
+    auto model_folder = GetDownloadPath(model_id);
+    if (std::filesystem::exists(model_folder)) {
+        if (mnncli::LogUtils::IsVerbose()) {
+            std::cout << "downloadMsRepoInner already exists at " << model_folder.string() << std::endl;
         }
         return true;
     }
     
-    // Create storage folder structure
-    auto repo_folder_name = FileUtils::RepoFolderName(model_scope_id, "model");
-    auto storage_folder = std::filesystem::path(cache_root_path_) / repo_folder_name;
-    auto parent_pointer_path = FileUtils::GetPointerPathParent(storage_folder, "_no_sha_");
+    // Create direct storage folder structure 
+    // Use GetDownloadPath to get the correct path: modelscope/MNN/Hunyuan-7B-Instruct-MNN
+    auto direct_model_folder = GetDownloadPath(model_id);
+    
+    LOG_DEBUG_TAG("Model folder (direct storage): " + direct_model_folder.string(), "MsModelDownloader");
     
     // Create necessary directories
     std::error_code ec;
-    std::filesystem::create_directories(storage_folder / "blobs", ec);
-    std::filesystem::create_directories(parent_pointer_path, ec);
+    std::filesystem::create_directories(direct_model_folder, ec);
     
     if (ec) {
         error_info = "Failed to create directories: " + ec.message();
@@ -137,10 +156,10 @@ bool MsModelDownloader::DownloadMsRepoInner(const std::string& model_id, const s
     // Collect download tasks
     int64_t total_size = 0;
     int64_t downloaded_size = 0;
-    auto download_tasks = CollectMsTaskList(model_scope_id, storage_folder, parent_pointer_path, 
+    auto download_tasks = CollectMsTaskList(model_id, direct_model_folder, 
                                            ms_repo_info, total_size, downloaded_size);
     
-    if (mnncli::LogUtils::isVerbose()) {
+    if (mnncli::LogUtils::IsVerbose()) {
         std::cout << "downloadMsRepoInner downloadTaskList: " << download_tasks.size() << std::endl;
     }
     
@@ -155,7 +174,7 @@ bool MsModelDownloader::DownloadMsRepoInner(const std::string& model_id, const s
                               [&file_path](const MsFileInfo& f) { return f.path == file_path; });
         
         if (it == ms_repo_info.files.end()) {
-            if (mnncli::LogUtils::isVerbose()) {
+            if (mnncli::LogUtils::IsVerbose()) {
                 std::cerr << "File info not found for: " << file_path << std::endl;
             }
             continue;
@@ -165,7 +184,7 @@ bool MsModelDownloader::DownloadMsRepoInner(const std::string& model_id, const s
         std::string download_url = "https://modelscope.cn/api/v1/models/" + model_scope_id + "/repo";
         download_url += "?Revision=master&FilePath=" + file_path;
         
-        if (mnncli::LogUtils::isVerbose()) {
+        if (mnncli::LogUtils::IsVerbose()) {
             std::cout << "Downloading file: " << file_path << " (" << it->size << " bytes)" << std::endl;
         }
         
@@ -176,34 +195,30 @@ bool MsModelDownloader::DownloadMsRepoInner(const std::string& model_id, const s
         
         downloaded_size += it->size;
         
-        // Show progress
-        if (mnncli::LogUtils::isVerbose()) {
-            double progress = (static_cast<double>(downloaded_size) / total_size) * 100.0;
-            ShowProgressBar(progress, downloaded_size, total_size);
+        // Show progress using unified system
+        if (mnncli::LogUtils::IsVerbose()) {
+            float progress = static_cast<float>(downloaded_size) / total_size;
+            std::string size_info = " (" + std::to_string(downloaded_size / (1024 * 1024)) + " MB / " + 
+                                   std::to_string(total_size / (1024 * 1024)) + " MB)";
+            std::string message = "Overall progress" + size_info;
+            mnncli::UserInterface::ShowProgress(message, progress);
         }
     }
     
-    if (mnncli::LogUtils::isVerbose()) {
+    if (mnncli::LogUtils::IsVerbose()) {
         std::cout << std::endl; // New line after progress
     }
     
     if (!has_error) {
-        // Create the main symlink
-        std::filesystem::create_symlink(parent_pointer_path, folder_link_file, ec);
-        if (ec) {
-            if (mnncli::LogUtils::isVerbose()) {
-                std::cerr << "Failed to create main symlink: " << ec.message() << std::endl;
-            }
-            error_info = "Failed to create symlink: " + ec.message();
-            return false;
-        }
-        
-        if (mnncli::LogUtils::isVerbose()) {
-            std::cout << "✅ Model downloaded successfully to " << folder_link_file.string() << std::endl;
+        // Download completed - notify (no symlink needed with direct storage)
+        auto model_path = GetDownloadPath(model_id);
+        LOG_DEBUG_TAG("Download completed at: " + model_path.string(), "MsModelDownloader");
+        if (mnncli::LogUtils::IsVerbose()) {
+            std::cout << "✅ Model downloaded successfully to " << model_path.string() << std::endl;
         }
         return true;
     } else {
-        if (mnncli::LogUtils::isVerbose()) {
+        if (mnncli::LogUtils::IsVerbose()) {
             std::cerr << "❌ Download failed with errors" << std::endl;
         }
         return false;
@@ -211,41 +226,75 @@ bool MsModelDownloader::DownloadMsRepoInner(const std::string& model_id, const s
 }
 
 std::vector<std::pair<std::string, std::filesystem::path>> MsModelDownloader::CollectMsTaskList(
-    const std::string& model_scope_id,
-    const std::filesystem::path& storage_folder,
-    const std::filesystem::path& parent_pointer_path,
+    const std::string& model_id,
+    const std::filesystem::path& model_folder,
     const MsRepoInfo& ms_repo_info,
     int64_t& total_size,
     int64_t& downloaded_size) {
     
     std::vector<std::pair<std::string, std::filesystem::path>> file_download_tasks;
     
+    LOG_DEBUG_TAG("CollectMsTaskList: Processing " + std::to_string(ms_repo_info.files.size()) + " files", "MsModelDownloader");
+    
     for (const auto& sub_file : ms_repo_info.files) {
         if (sub_file.type == "tree") {
             continue; // Skip directories
         }
         
-        // Create file paths
-        auto blob_path = storage_folder / "blobs" / sub_file.sha256;
-        auto pointer_path = parent_pointer_path / sub_file.path;
+        // Simplified: direct download path (HuggingFace style)
+        // model_folder/filename (no blobs or snapshots)
+        auto direct_path = model_folder / sub_file.path;
         
         // Check if already downloaded
         int64_t file_downloaded_size = 0;
-        if (std::filesystem::exists(blob_path)) {
-            file_downloaded_size = std::filesystem::file_size(blob_path);
+        if (std::filesystem::exists(direct_path)) {
+            file_downloaded_size = std::filesystem::file_size(direct_path);
+        } else {
+            // Check for incomplete file (.incomplete suffix)
+            auto incomplete_path = std::filesystem::path(direct_path.string() + ".incomplete");
+            if (std::filesystem::exists(incomplete_path)) {
+                file_downloaded_size = std::filesystem::file_size(incomplete_path);
+            }
         }
         
         total_size += sub_file.size;
         downloaded_size += file_downloaded_size;
         
-        file_download_tasks.emplace_back(sub_file.path, pointer_path);
+        LOG_DEBUG_TAG("  Added task: " + sub_file.path + 
+                     " -> path: " + direct_path.string(), "MsModelDownloader");
+        
+        file_download_tasks.emplace_back(sub_file.path, direct_path);
     }
+    
+    LOG_DEBUG_TAG("CollectMsTaskList: Created " + std::to_string(file_download_tasks.size()) + " tasks", "MsModelDownloader");
     
     return file_download_tasks;
 }
 
 bool MsModelDownloader::DownloadFile(const std::string& url, const std::filesystem::path& destination_path, 
                                     int64_t expected_size, const std::string& file_name, std::string& error_info) {
+    // Check if file already exists and is complete
+    if (std::filesystem::exists(destination_path)) {
+        int64_t existing_size = std::filesystem::file_size(destination_path);
+        if (existing_size == expected_size) {
+            if (mnncli::LogUtils::IsVerbose()) {
+                std::cout << "File already downloaded: " << file_name << std::endl;
+            }
+            return true;
+        }
+    }
+    
+    // Check for incomplete file (.incomplete suffix)
+    auto incomplete_path = std::filesystem::path(destination_path.string() + ".incomplete");
+    int64_t resume_from = 0;
+    
+    if (std::filesystem::exists(incomplete_path)) {
+        resume_from = std::filesystem::file_size(incomplete_path);
+        if (mnncli::LogUtils::IsVerbose()) {
+            std::cout << "Resuming download from " << (resume_from / (1024 * 1024)) << " MB" << std::endl;
+        }
+    }
+    
     // Parse URL to get host and path
     size_t protocol_end = url.find("://");
     if (protocol_end == std::string::npos) {
@@ -284,7 +333,7 @@ bool MsModelDownloader::DownloadFile(const std::string& url, const std::filesyst
         // Handle redirect
         auto location_header = redirect_res->get_header_value("Location");
         if (!location_header.empty()) {
-            if (mnncli::LogUtils::isVerbose()) {
+            if (mnncli::LogUtils::IsVerbose()) {
                 std::cout << "Redirect detected: " << redirect_res->status << " -> " << location_header << std::endl;
             }
             
@@ -315,7 +364,7 @@ bool MsModelDownloader::DownloadFile(const std::string& url, const std::filesyst
                 }
             }
             
-            if (mnncli::LogUtils::isVerbose()) {
+            if (mnncli::LogUtils::IsVerbose()) {
                 std::cout << "Following redirect to: " << final_url << std::endl;
             }
         }
@@ -339,25 +388,44 @@ bool MsModelDownloader::DownloadFile(const std::string& url, const std::filesyst
     headers.emplace("User-Agent", "MNN-CLI/1.0");
     headers.emplace("Accept", "*/*");
     
-    // Open output file
-    std::ofstream output(destination_path, std::ios::binary);
+    // Add Range header for resume
+    if (resume_from > 0) {
+        headers.emplace("Range", "bytes=" + std::to_string(resume_from) + "-");
+    }
+    
+    // Open output file in append mode (for resume)
+    std::ofstream output;
+    if (resume_from > 0) {
+        output.open(incomplete_path, std::ios::binary | std::ios::app);
+    } else {
+        output.open(incomplete_path, std::ios::binary);
+    }
+    
     if (!output.is_open()) {
-        error_info = "Failed to open output file: " + destination_path.string();
+        error_info = "Failed to open output file: " + incomplete_path.string();
         return false;
     }
     
-    // Download progress tracking
-    int64_t downloaded = 0;
+    // Download progress tracking (start from resume point)
+    int64_t downloaded = resume_from;
     int64_t content_length = expected_size;
     
     // Perform the download
     auto res = client.Get(final_path, headers,
         [&](const httplib::Response& response) -> bool {
             // Handle response headers
+            // NOTE: When using Range header, Content-Length is the REMAINING bytes, not total file size
+            // We should use expected_size as the total, not Content-Length from response
             auto content_length_str = response.get_header_value("Content-Length");
             if (!content_length_str.empty()) {
-                content_length = std::stoll(content_length_str);
+                int64_t remaining_bytes = std::stoll(content_length_str);
+                if (mnncli::LogUtils::IsVerbose()) {
+                    std::cout << "Response Content-Length: " << remaining_bytes 
+                             << " bytes (remaining to download)" << std::endl;
+                }
             }
+            // Use expected_size as content_length for progress calculation
+            content_length = expected_size;
             return true;
         },
         [&](const char* data, size_t data_length) -> bool {
@@ -365,10 +433,17 @@ bool MsModelDownloader::DownloadFile(const std::string& url, const std::filesyst
             output.write(data, data_length);
             downloaded += data_length;
             
-            // Show progress
-            if (content_length > 0) {
-                double percentage = (static_cast<double>(downloaded) / content_length) * 100.0;
-                ShowFileDownloadProgress(file_name, percentage, downloaded, content_length);
+            // Show progress using unified system with smart unit selection
+            // Use expected_size (total file size) for progress calculation, not Content-Length
+            if (expected_size > 0) {
+                float progress = static_cast<float>(downloaded) / expected_size;
+                
+                // Use parent class utility methods for formatting
+                std::string display_name = ModelRepoDownloader::ExtractFileName(file_name);
+                std::string size_info = ModelRepoDownloader::FormatFileSizeInfo(downloaded, expected_size);
+                
+                std::string message = display_name + size_info;
+                mnncli::UserInterface::ShowProgress(message, progress);
             }
             return true;
         }
@@ -376,73 +451,68 @@ bool MsModelDownloader::DownloadFile(const std::string& url, const std::filesyst
     
     output.close();
     
-    if (!res || res->status < 200 || res->status >= 300) {
+    // Check for partial content status (206) which is expected for resume
+    if (!res || (res->status < 200 || res->status >= 300) && res->status != 206) {
         error_info = "Download failed for " + file_name + " with status: " + 
                     (res ? std::to_string(res->status) : "no response");
         return false;
     }
     
-    // Verify file size
-    if (std::filesystem::exists(destination_path)) {
-        int64_t actual_size = std::filesystem::file_size(destination_path);
-        if (actual_size != expected_size) {
-            error_info = "File size mismatch for " + file_name + ": expected " + 
-                        std::to_string(expected_size) + ", got " + std::to_string(actual_size);
-            return false;
-        }
-    }
-    
-    if (mnncli::LogUtils::isVerbose()) {
-        std::cout << std::endl; // New line after progress
-    }
-    if (mnncli::LogUtils::isVerbose()) {
-        std::cout << "Downloaded: " << file_name << " (" << (downloaded / (1024 * 1024)) << " MB)" << std::endl;
-    }
-    
-    return true;
-}
-
-std::filesystem::path MsModelDownloader::GetDownloadPath(const std::string& model_id) {
-    return GetModelPath(cache_root_path_, model_id);
-}
-
-bool MsModelDownloader::DeleteRepo(const std::string& model_id) {
-    auto ms_model_id = model_id;
-    if (ms_model_id.find("ms:") == 0) {
-        ms_model_id = ms_model_id.substr(3);
-    }
-    
-    auto ms_repo_folder_name = FileUtils::RepoFolderName(ms_model_id, "model");
-    auto ms_storage_folder = std::filesystem::path(cache_root_path_) / ms_repo_folder_name;
-    
-    if (mnncli::LogUtils::isVerbose()) {
-        std::cout << "removeStorageFolder: " << ms_storage_folder.string() << std::endl;
-    }
-    
-    if (std::filesystem::exists(ms_storage_folder)) {
-        std::error_code ec;
-        std::filesystem::remove_all(ms_storage_folder, ec);
-        if (ec) {
-            if (mnncli::LogUtils::isVerbose()) {
-                std::cerr << "remove storageFolder " << ms_storage_folder.string() << " failed: " << ec.message() << std::endl;
+    // Verify file size of incomplete file
+    if (std::filesystem::exists(incomplete_path)) {
+        int64_t actual_size = std::filesystem::file_size(incomplete_path);
+        if (actual_size == expected_size) {
+            // Download complete, move from .incomplete to final destination
+            std::error_code ec;
+            std::filesystem::rename(incomplete_path, destination_path, ec);
+            if (ec) {
+                error_info = "Failed to move file from incomplete to final destination: " + ec.message();
+                return false;
             }
+            if (mnncli::LogUtils::IsVerbose()) {
+                std::cout << "Download complete, moved to: " << destination_path.string() << std::endl;
+            }
+            return true;
+        } else if (actual_size > expected_size) {
+            error_info = "File size exceeds expected size for " + file_name + ": expected " + 
+                        std::to_string(expected_size) + ", got " + std::to_string(actual_size);
+            // Remove corrupted file
+            std::filesystem::remove(incomplete_path);
+            return false;
+        } else {
+            // Incomplete download, will be resumed next time
+            if (mnncli::LogUtils::IsVerbose()) {
+                std::cout << "Download incomplete (" << actual_size << " / " << expected_size << " bytes), saved for resume" << std::endl;
+            }
+            error_info = "Download incomplete, please run again to resume";
             return false;
         }
     }
     
-    auto ms_link_folder = GetDownloadPath(model_id);
-    if (mnncli::LogUtils::isVerbose()) {
-        std::cout << "removeMsLinkFolder: " << ms_link_folder.string() << std::endl;
-    }
+    // If we get here, something went wrong
+    error_info = "Download failed: incomplete file not found";
+    return false;
+}
+
+bool MsModelDownloader::DeleteRepoImpl(const std::string& model_id) {
+    // Simplified: delete model folder directly (HuggingFace style)
+    auto model_folder = GetDownloadPath(model_id);
     
-    if (std::filesystem::exists(ms_link_folder)) {
-        std::filesystem::remove(ms_link_folder);
+    LOG_INFO("Removing model folder: " + model_folder.string());
+    
+    if (std::filesystem::exists(model_folder)) {
+        std::error_code ec;
+        std::filesystem::remove_all(model_folder, ec);
+        if (ec) {
+            LOG_ERROR("Failed to remove model folder " + model_folder.string() + ": " + ec.message());
+            return false;
+        }
     }
     
     return true;
 }
 
-int64_t MsModelDownloader::GetRepoSize(const std::string& model_id, std::string& error_info) {
+int64_t MsModelDownloader::GetRepoSizeWithError(const std::string& model_id, std::string& error_info) {
     // Get repository info to calculate size
     std::string model_scope_id = model_id;
     if (model_scope_id.find("ms:") == 0) {
@@ -465,7 +535,7 @@ int64_t MsModelDownloader::GetRepoSize(const std::string& model_id, std::string&
     return total_size;
 }
 
-bool MsModelDownloader::CheckUpdate(const std::string& model_id, std::string& error_info) {
+bool MsModelDownloader::CheckUpdateWithError(const std::string& model_id, std::string& error_info) {
     // For now, just get repository info to check for updates
     // In a full implementation, this would compare timestamps
     std::string model_scope_id = model_id;
@@ -485,48 +555,5 @@ std::filesystem::path MsModelDownloader::GetModelPath(const std::string& models_
     return std::filesystem::path(models_download_path_root) / FileUtils::GetFileName(model_id);
 }
 
-void MsModelDownloader::ShowProgressBar(double progress, int64_t downloaded_size, int64_t total_size) {
-    const int bar_width = 50;
-    int pos = static_cast<int>(bar_width * progress / 100.0);
-    
-    // Clear the line and show progress bar
-    std::cout << "\r[";
-    for (int i = 0; i < bar_width; ++i) {
-        if (i < pos) {
-            std::cout << "█";  // Filled block
-        } else if (i == pos) {
-            std::cout << "▶";  // Arrow
-        } else {
-            std::cout << "░";  // Light block
-        }
-    }
-    std::cout << "] ";
-    
-    // Show percentage and size info
-    std::cout << std::fixed << std::setprecision(1) << progress << "% ";
-    std::cout << "(" << (downloaded_size / (1024 * 1024)) << " MB / " << (total_size / (1024 * 1024)) << " MB)" << std::flush;
-}
-
-void MsModelDownloader::ShowFileDownloadProgress(const std::string& file_name, double percentage, int64_t downloaded_size, int64_t total_size) {
-    const int bar_width = 40;
-    int pos = static_cast<int>(bar_width * percentage / 100.0);
-    
-    // Clear the line and show progress bar with file name
-    std::cout << "\r" << file_name << " [";
-    for (int i = 0; i < bar_width; ++i) {
-        if (i < pos) {
-            std::cout << "█";  // Filled block
-        } else if (i == pos) {
-            std::cout << "▶";  // Arrow
-        } else {
-            std::cout << "░";  // Light block
-        }
-    }
-    std::cout << "] ";
-    
-    // Show percentage and size info
-    std::cout << std::fixed << std::setprecision(1) << percentage << "% ";
-    std::cout << "(" << (downloaded_size / (1024 * 1024)) << " MB)" << std::flush;
-}
 
 } // namespace mnncli

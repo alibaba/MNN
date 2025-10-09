@@ -4,6 +4,7 @@
 //
 
 #include "mnncli_server.hpp"
+#include "log_utils.hpp"
 #include <iostream>
 
 
@@ -84,7 +85,7 @@ void MnncliServer::Answer(MNN::Transformer::Llm* llm, const json &messages, std:
     for (const auto& item_json : messages) {
       PromptItem item;
       if (!FromJson(item_json, item)) {
-        std::cerr << "Error converting JSON object to PromptItem." << std::endl;
+        LOG_DEBUG("Error converting JSON object to PromptItem.");
         break;
       }
       prompts.push_back(item);
@@ -116,7 +117,7 @@ void MnncliServer::AnswerStreaming(MNN::Transformer::Llm* llm,
         for (const auto& item_json : messages) {
             PromptItem item;
             if (!FromJson(item_json, item)) {
-                std::cerr << "Error converting JSON object to PromptItem." << std::endl;
+                LOG_DEBUG("Error converting JSON object to PromptItem.");
                 return;
             }
             prompts.push_back(item);
@@ -127,7 +128,7 @@ void MnncliServer::AnswerStreaming(MNN::Transformer::Llm* llm,
         bool is_eop = (utf8Char.find("<eop>") != std::string::npos);
         if (is_eop) {
             std::string response_result = answer;
-            std::cout<<"response result: "<<response_result<<std::endl;
+            LOG_DEBUG("response result: " + response_result);
             on_partial("", true);
         } else {
             answer += utf8Char;
@@ -152,7 +153,7 @@ void AllowCors(httplib::Response& res) {
     res.set_header("Access-Control-Allow-Headers",  "Content-Type, Authorization");
 }
 
-void MnncliServer::Start(MNN::Transformer::Llm* llm, bool is_r1) {
+void MnncliServer::Start(MNN::Transformer::Llm* llm, bool is_r1, const std::string& host, int port) {
     this->is_r1_ = is_r1;
     // Create a server instance
     httplib::Server server;
@@ -163,18 +164,45 @@ void MnncliServer::Start(MNN::Transformer::Llm* llm, bool is_r1) {
         res.set_content(html_content, "text/html");
     });
     server.Post("/reset", [&](const httplib::Request &req, httplib::Response &res) {
-      printf("POST /reset\n");
+      LOG_DEBUG("POST /reset");
       AllowCors(res);
       llm->reset();
       res.set_content("{\"status\": \"ok\"}", "application/json");
     });
+    
+    server.Get("/v1/models", [&](const httplib::Request &req, httplib::Response &res) {
+      LOG_DEBUG("GET /v1/models");
+      AllowCors(res);
+      json models_response = {
+        {"object", "list"},
+        {"data", json::array({
+          {
+            {"id", "ModelScope/MNN/Qwen2.5-0.5B-Instruct"},
+            {"object", "model"},
+            {"created", static_cast<int>(time(nullptr))},
+            {"owned_by", "mnn"}
+          }
+        })}
+      };
+      res.set_content(models_response.dump(), "application/json");
+    });
+    server.Options("/v1/models", [](const httplib::Request& /*req*/, httplib::Response& res) {
+        AllowCors(res);
+        res.status = 200;
+    });
+    
     server.Options("/chat/completions", [](const httplib::Request& /*req*/, httplib::Response& res) {
         AllowCors(res);
-        res.status  = 200;
+        res.status = 200;
     });
-    server.Post("/chat/completions", [&](const httplib::Request &req, httplib::Response &res) {
-        std::cout << "POST /chat/completions, handled by thread: "
-                << std::this_thread::get_id() << std::endl;
+    
+    server.Options("/v1/chat/completions", [](const httplib::Request& /*req*/, httplib::Response& res) {
+        AllowCors(res);
+        res.status = 200;
+    });
+    // Handler function for chat completions
+    auto chatCompletionsHandler = [&](const httplib::Request &req, httplib::Response &res) {
+        LOG_DEBUG("POST chat/completions, handled by thread: " + std::to_string(std::hash<std::thread::id>{}(std::this_thread::get_id())));
       AllowCors(res);
       if (!json::accept(req.body)) {
           json err;
@@ -185,7 +213,7 @@ void MnncliServer::Start(MNN::Transformer::Llm* llm, bool is_r1) {
       }
       json request_json = json::parse(req.body, nullptr, false);
       json messages = request_json["messages"];
-      std::cout<<"received messages:"<<messages.dump(0)<<std::endl;
+      LOG_DEBUG("received messages:" + messages.dump(0));
       std::string model = request_json.value("model", "undefined-model");
       bool stream = request_json.value("stream", false);
       if (!stream) {
@@ -255,11 +283,17 @@ void MnncliServer::Start(MNN::Transformer::Llm* llm, bool is_r1) {
                 return false;
             }
         );
-    });
-    // Start the server on port
-    std::cout << "Starting server on http://localhost:9090\n";
-    if (!server.listen("0.0.0.0", 9090)) {
-        std::cerr << "Error: Could not start server.\n";
+    };
+    
+    // Register both endpoints with the same handler
+    server.Post("/chat/completions", chatCompletionsHandler);
+    server.Post("/v1/chat/completions", chatCompletionsHandler);
+    // Start the server on specified host and port
+    LOG_DEBUG("✅ Model initialized successfully!");
+    LOG_DEBUG("🚀 Server ready at http://" + host + ":" + std::to_string(port));
+    LOG_DEBUG("💡 Press Ctrl+C to stop the server");
+    if (!server.listen(host.c_str(), port)) {
+        LOG_DEBUG("Error: Could not start server on " + host + ":" + std::to_string(port));
     }
 }
 }

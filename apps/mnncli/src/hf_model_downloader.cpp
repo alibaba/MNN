@@ -7,6 +7,7 @@
 #include "file_utils.hpp"
 #include "model_file_downloader.hpp"
 #include "log_utils.hpp"
+#include "user_interface.hpp"
 #include <iostream>
 #include <fstream>
 #include <algorithm>
@@ -28,10 +29,13 @@ HfModelDownloader::HfModelDownloader(const std::string& cache_root_path)
     // but we can handle this in the request logic
 }
 
-void HfModelDownloader::download(const std::string& model_id) {
+void HfModelDownloader::Download(const std::string& model_id) {
     try {
         LOG_INFO("Starting download for model: " + model_id);
-        notifyDownloadTaskAdded();
+        NotifyDownloadTaskAdded();
+        
+        // Store original model_id for notifications
+        original_model_id_ = model_id;
         
         // Get repository info
         auto client = getHfApiClient();
@@ -41,71 +45,66 @@ void HfModelDownloader::download(const std::string& model_id) {
         
         if (!error_info.empty()) {
             LOG_ERROR("Failed to fetch repo info: " + error_info);
-            notifyDownloadFailed(model_id, "Failed to fetch repo info: " + error_info);
-            notifyDownloadTaskRemoved();
+            NotifyDownloadFailed(original_model_id_, "Failed to fetch repo info: " + error_info);
+            NotifyDownloadTaskRemoved();
             return;
         }
         
         LOG_DEBUG_TAG("Repository info fetched successfully", "HfModelDownloader");
+        LOG_DEBUG_TAG("Siblings count: " + std::to_string(repo_info.siblings.size()), "HfModelDownloader");
         
         // Notify repo info
-        notifyRepoInfo(model_id, 0, 0); // TODO: Add proper timestamp and size calculation
+        NotifyRepoInfo(model_id, 0, 0); // TODO: Add proper timestamp and size calculation
         
         // Start download
         downloadHfRepo(repo_info);
         
-        notifyDownloadTaskRemoved();
+        NotifyDownloadTaskRemoved();
         LOG_INFO("Download completed for model: " + model_id);
         
     } catch (const std::exception& e) {
         LOG_ERROR("Download failed with exception: " + std::string(e.what()));
-        notifyDownloadFailed(model_id, "Download failed: " + std::string(e.what()));
-        notifyDownloadTaskRemoved();
+        NotifyDownloadFailed(model_id, "Download failed: " + std::string(e.what()));
+        NotifyDownloadTaskRemoved();
     }
 }
 
-void HfModelDownloader::pause(const std::string& model_id) {
-    addPausedModel(model_id);
-    notifyDownloadPaused(model_id);
+void HfModelDownloader::Pause(const std::string& model_id) {
+    AddPausedModel(model_id);
+    NotifyDownloadPaused(model_id);
 }
 
-void HfModelDownloader::resume(const std::string& model_id) {
-    removePausedModel(model_id);
+void HfModelDownloader::Resume(const std::string& model_id) {
+    RemovePausedModel(model_id);
     // Restart download
-    download(model_id);
+    Download(model_id);
 }
 
-std::filesystem::path HfModelDownloader::getDownloadPath(const std::string& model_id) {
-    return getModelPath(cache_root_path_, model_id);
+std::filesystem::path HfModelDownloader::GetDownloadPath(const std::string& model_id) {
+    // Simplified: return cache_root/owner/model (ModelScope style)
+    auto hf_model_id = getHfModelId(model_id);  // Remove "hf:" prefix if present
+    return std::filesystem::path(cache_root_path_) / hf_model_id;
 }
 
-bool HfModelDownloader::deleteRepo(const std::string& model_id) {
-    auto hf_model_id = getHfModelId(model_id);
-    auto repo_folder_name = FileUtils::RepoFolderName(hf_model_id, "model");
-    auto hf_storage_folder = std::filesystem::path(cache_root_path_) / repo_folder_name;
+bool HfModelDownloader::DeleteRepo(const std::string& model_id) {
+    // Simplified: delete model folder directly (ModelScope style)
+    auto model_folder = GetDownloadPath(model_id);
     
-    LOG_INFO("Removing storage folder: " + hf_storage_folder.string());
+    LOG_INFO("Removing model folder: " + model_folder.string());
     
-    if (std::filesystem::exists(hf_storage_folder)) {
+    if (std::filesystem::exists(model_folder)) {
         std::error_code ec;
-        std::filesystem::remove_all(hf_storage_folder, ec);
+        std::filesystem::remove_all(model_folder, ec);
         if (ec) {
-            LOG_ERROR("Failed to remove storage folder " + hf_storage_folder.string() + ": " + ec.message());
+            LOG_ERROR("Failed to remove model folder " + model_folder.string() + ": " + ec.message());
             return false;
         }
-    }
-    
-    auto hf_link_folder = getDownloadPath(model_id);
-    LOG_INFO("Removing link folder: " + hf_link_folder.string());
-    
-    if (std::filesystem::exists(hf_link_folder)) {
-        std::filesystem::remove(hf_link_folder);
     }
     
     return true;
 }
 
-int64_t HfModelDownloader::getRepoSize(const std::string& model_id) {
+int64_t HfModelDownloader::GetRepoSize(const std::string& model_id) {
     try {
         auto client = getHfApiClient();
         std::string error_info;
@@ -129,7 +128,7 @@ int64_t HfModelDownloader::getRepoSize(const std::string& model_id) {
     }
 }
 
-bool HfModelDownloader::checkUpdate(const std::string& model_id) {
+bool HfModelDownloader::CheckUpdate(const std::string& model_id) {
     try {
         auto client = getHfApiClient();
         std::string error_info;
@@ -155,6 +154,8 @@ void HfModelDownloader::downloadHfRepo(const RepoInfo& repo_info) {
     if (repo_info.siblings.empty()) {
         LOG_ERROR("No files to download - siblings list is empty!");
         LOG_ERROR("This usually means the API call failed or returned no files");
+        std::cout << "[DEBUG] Calling NotifyDownloadFailed due to empty siblings: " << original_model_id_ << std::endl;
+        NotifyDownloadFailed(original_model_id_, "No files to download - siblings list is empty");
         return;
     }
     
@@ -163,24 +164,22 @@ void HfModelDownloader::downloadHfRepo(const RepoInfo& repo_info) {
         LOG_DEBUG_TAG("  - " + sibling, "HfModelDownloader");
     }
     
-    // Create download tasks
-    auto storage_folder = std::filesystem::path(cache_root_path_) / 
-                         FileUtils::RepoFolderName(repo_info.model_id, "model");
+    // Create download path - simplified to cache_root/owner/model (ModelScope style)
+    // repo_info.model_id is already in "owner/model" format
+    auto model_folder = std::filesystem::path(cache_root_path_) / repo_info.model_id;
     
-    auto parent_pointer_path = storage_folder / "snapshots" / repo_info.sha;
-    
-    LOG_DEBUG_TAG("Storage folder: " + storage_folder.string(), "HfModelDownloader");
-    LOG_DEBUG_TAG("Parent pointer path: " + parent_pointer_path.string(), "HfModelDownloader");
+    LOG_DEBUG_TAG("Model folder (direct storage): " + model_folder.string(), "HfModelDownloader");
     
     int64_t total_size = 0;
     int64_t downloaded_size = 0;
     
-    auto task_list = collectTaskList(storage_folder, parent_pointer_path, repo_info, total_size, downloaded_size);
+    auto task_list = collectTaskList(model_folder, repo_info, total_size, downloaded_size);
     
     LOG_DEBUG_TAG("Created " + std::to_string(task_list.size()) + " download tasks", "HfModelDownloader");
     
     if (task_list.empty()) {
         LOG_ERROR("No download tasks created!");
+        NotifyDownloadFailed(original_model_id_, "No download tasks created");
         return;
     }
     
@@ -188,29 +187,28 @@ void HfModelDownloader::downloadHfRepo(const RepoInfo& repo_info) {
     for (const auto& task : task_list) {
         LOG_DEBUG_TAG("Starting download of: " + task.relativePath, "HfModelDownloader");
         
-        if (isPaused(repo_info.model_id)) {
-            notifyDownloadPaused(repo_info.model_id);
+        if (IsPaused(original_model_id_)) {
+            NotifyDownloadPaused(original_model_id_);
             return;
         }
         
         std::string error_info;
-        if (!downloadFile(task.fileMetadata.location, task.pointerPath, task.fileMetadata, task.relativePath, error_info)) {
-            notifyDownloadFailed(repo_info.model_id, "Failed to download file: " + error_info);
+        if (!downloadFile(task.fileMetadata.location, task.downloadPath, task.fileMetadata, task.relativePath, error_info)) {
+            NotifyDownloadFailed(original_model_id_, "Failed to download file: " + error_info);
             return;
         }
         
         // Update progress
         downloaded_size += task.downloadedSize;
-        notifyDownloadProgress(repo_info.model_id, "file", task.relativePath, 
+        NotifyDownloadProgress(original_model_id_, "file", task.relativePath, 
                              downloaded_size, total_size);
     }
     
-    // Create symlink
-    auto link_path = getDownloadPath(repo_info.model_id);
-    std::filesystem::create_directories(link_path.parent_path());
-    std::filesystem::create_symlink(parent_pointer_path, link_path);
-    
-    notifyDownloadFinished(repo_info.model_id, link_path.string());
+    // Download completed - notify (no symlink needed with direct storage)
+    auto model_path = GetDownloadPath(repo_info.model_id);
+    LOG_DEBUG_TAG("Download completed at: " + model_path.string(), "HfModelDownloader");
+    std::cout << "[DEBUG] Calling NotifyDownloadFinished: " << original_model_id_ << std::endl;
+    NotifyDownloadFinished(original_model_id_, model_path.string());
 }
 
 void HfModelDownloader::downloadHfRepoInner(const RepoInfo& repo_info) {
@@ -219,8 +217,7 @@ void HfModelDownloader::downloadHfRepoInner(const RepoInfo& repo_info) {
 }
 
 std::vector<FileDownloadTask> HfModelDownloader::collectTaskList(
-    const std::filesystem::path& storage_folder,
-    const std::filesystem::path& parent_pointer_path,
+    const std::filesystem::path& model_folder,
     const RepoInfo& repo_info,
     int64_t& total_size,
     int64_t& downloaded_size) {
@@ -241,27 +238,16 @@ std::vector<FileDownloadTask> HfModelDownloader::collectTaskList(
         task.relativePath = sub_file;
         task.fileMetadata = metadata;
         
-        // Blob path: storage_folder/blobs/etag (stores actual file content)
-        task.blobPath = storage_folder / "blobs" / metadata.etag;
-        
-        // Blob incomplete path: storage_folder/blobs/etag.incomplete (temporary download file)
-        task.blobPathIncomplete = storage_folder / "blobs" / (metadata.etag + ".incomplete");
-        
-        // Pointer path: parent_pointer_path/sub_file (creates symlink to blob)
-        task.pointerPath = parent_pointer_path / sub_file;
+        // Simplified: direct download path (ModelScope style)
+        // model_folder/filename (no blobs or snapshots)
+        task.downloadPath = model_folder / sub_file;
         
         // Calculate downloaded size from existing files
-        // Only check file size if etag is valid (non-empty)
-        if (!metadata.etag.empty()) {
-            if (std::filesystem::exists(task.blobPath)) {
-                task.downloadedSize = std::filesystem::file_size(task.blobPath);
-            } else if (std::filesystem::exists(task.blobPathIncomplete)) {
-                task.downloadedSize = std::filesystem::file_size(task.blobPathIncomplete);
-            } else {
-                task.downloadedSize = 0;
-            }
+        if (std::filesystem::exists(task.downloadPath)) {
+            task.downloadedSize = std::filesystem::file_size(task.downloadPath);
+        } else if (std::filesystem::exists(task.GetIncompletePath())) {
+            task.downloadedSize = std::filesystem::file_size(task.GetIncompletePath());
         } else {
-            LOG_WARNING("collectTaskList: Empty etag for file " + sub_file + ", skipping size check");
             task.downloadedSize = 0;
         }
         
@@ -269,8 +255,7 @@ std::vector<FileDownloadTask> HfModelDownloader::collectTaskList(
         downloaded_size += task.downloadedSize;
         
         LOG_DEBUG_TAG("  Added task: " + sub_file + 
-                     " -> blob: " + task.blobPath.string() + 
-                     ", pointer: " + task.pointerPath.string(), "HfModelDownloader");
+                     " -> path: " + task.downloadPath.string(), "HfModelDownloader");
         
         tasks.push_back(task);
     }
@@ -287,6 +272,8 @@ std::vector<HfFileMetadata> HfModelDownloader::requestMetadataList(const RepoInf
         std::string url = "https://" + getHfApiClient()->GetHost() + "/" + 
                          repo_info.model_id + "/resolve/main/" + sub_file;
         
+        LOG_DEBUG_TAG("requestMetadataList: Getting metadata for " + sub_file + " from " + url, "HfModelDownloader");
+        
         std::string error_info;
         auto metadata = getFileMetadata(url, error_info);
         metadata_list.push_back(metadata);
@@ -296,7 +283,7 @@ std::vector<HfFileMetadata> HfModelDownloader::requestMetadataList(const RepoInf
 }
 
 HfFileMetadata HfModelDownloader::getFileMetadata(const std::string& url, std::string& error_info) {
-    return HfFileMetadataUtils::getFileMetadata(url, error_info);
+    return HfFileMetadataUtils::GetFileMetadata(url, error_info);
 }
 
 bool HfModelDownloader::downloadFile(const std::string& url, const std::filesystem::path& destination_path,
@@ -306,38 +293,22 @@ bool HfModelDownloader::downloadFile(const std::string& url, const std::filesyst
     LOG_DEBUG_TAG("downloadFile: Starting download of " + file_name, "HfModelDownloader");
     LOG_DEBUG_TAG("downloadFile: URL: " + url, "HfModelDownloader");
     
-    // Use ModelFileDownloader for actual file download (matching Android API)
+    // Use ModelFileDownloader for actual file download
     ModelFileDownloader downloader;
     
-    // Create FileDownloadTask matching Android structure
+    // Create FileDownloadTask (simplified for direct storage)
     FileDownloadTask task;
     task.etag = metadata.etag;
     task.relativePath = file_name;
     task.fileMetadata = metadata;
     
-    // Blob path: storage_folder/blobs/etag (stores actual file content)
-    // The destination_path is already the pointer path, so we need to go up to the storage folder
-    auto storage_folder = destination_path.parent_path().parent_path().parent_path(); // Go up from "snapshots/sha/filename" to storage folder
-    
-    // Ensure etag is valid before constructing blob paths
-    if (metadata.etag.empty()) {
-        error_info = "Invalid metadata: empty etag for file " + file_name;
-        LOG_ERROR("downloadFile: " + error_info);
-        return false;
-    }
-    
-    task.blobPath = storage_folder / "blobs" / metadata.etag;
-    
-    // Blob incomplete path: storage_folder/blobs/etag.incomplete (temporary download file)
-    task.blobPathIncomplete = storage_folder / "blobs" / (metadata.etag + ".incomplete");
-    
-    // Pointer path: destination_path (creates symlink to blob)
-    task.pointerPath = destination_path;
+    // Simplified: direct download path (ModelScope style)
+    // destination_path is the final file location
+    task.downloadPath = destination_path;
     task.downloadedSize = 0;
     
     LOG_DEBUG_TAG("downloadFile: Created download task for " + file_name, "HfModelDownloader");
-    LOG_DEBUG_TAG("downloadFile: Blob path: " + task.blobPath.string(), "HfModelDownloader");
-    LOG_DEBUG_TAG("downloadFile: Pointer path: " + task.pointerPath.string(), "HfModelDownloader");
+    LOG_DEBUG_TAG("downloadFile: Download path: " + task.downloadPath.string(), "HfModelDownloader");
     
     // Create a simple FileDownloadListener implementation
     class SimpleFileDownloadListener : public FileDownloadListener {
@@ -345,11 +316,17 @@ bool HfModelDownloader::downloadFile(const std::string& url, const std::filesyst
         SimpleFileDownloadListener(std::string& error_info) : error_info_(error_info) {}
         
         bool onDownloadDelta(const std::string* fileName, int64_t downloadedBytes, int64_t totalBytes, int64_t delta) override {
-            // Simple progress logging
+            // Use unified progress system with ModelScope style
             if (totalBytes > 0) {
-                double percentage = (static_cast<double>(downloadedBytes) / totalBytes) * 100.0;
-                printf("\rDownloading %s: %.2f%%", fileName ? fileName->c_str() : "file", percentage);
-                fflush(stdout);
+                float progress = static_cast<float>(downloadedBytes) / totalBytes;
+                std::string file_name = fileName ? *fileName : "file";
+                
+                // Use parent class utility methods for formatting
+                file_name = ModelRepoDownloader::ExtractFileName(file_name);
+                std::string size_info = ModelRepoDownloader::FormatFileSizeInfo(downloadedBytes, totalBytes);
+                
+                std::string message = file_name + size_info;
+                UserInterface::ShowProgress(message, progress);
             }
             return false; // Don't pause
         }
@@ -361,10 +338,9 @@ bool HfModelDownloader::downloadFile(const std::string& url, const std::filesyst
     SimpleFileDownloadListener listener(error_info);
     
     try {
-        LOG_DEBUG_TAG("downloadFile: Calling downloader.downloadFile()", "HfModelDownloader");
-        downloader.downloadFile(task, listener);
+        LOG_DEBUG_TAG("downloadFile: Calling downloader.DownloadFile()", "HfModelDownloader");
+        downloader.DownloadFile(task, listener);
         LOG_DEBUG_TAG("downloadFile: Download completed successfully for " + file_name, "HfModelDownloader");
-        printf("\nDownload completed successfully\n");
     } catch (const FileDownloadException& e) {
         error_info = "Download failed: " + std::string(e.what());
         LOG_ERROR("downloadFile: " + error_info);
@@ -377,28 +353,6 @@ bool HfModelDownloader::downloadFile(const std::string& url, const std::filesyst
         error_info = "Download failed with exception: " + std::string(e.what());
         LOG_ERROR("downloadFile: " + error_info);
         return false;
-    }
-    
-    // Check if file already exists and use actual size (like Kotlin does)
-    LOG_DEBUG_TAG("downloadFile: Checking if blob file exists: " + task.blobPath.string(), "HfModelDownloader");
-    
-    if (std::filesystem::exists(task.blobPath)) {
-        int64_t actual_size = std::filesystem::file_size(task.blobPath);
-        LOG_DEBUG_TAG("downloadFile: Blob file exists, actual size: " + std::to_string(actual_size) + " bytes", "HfModelDownloader");
-        
-        // Use the actual file size as downloaded size (like Kotlin does)
-        task.downloadedSize = actual_size;
-        
-        // Skip download if file is complete (like Kotlin logic)
-        if (actual_size >= metadata.size) {
-            LOG_DEBUG_TAG("downloadFile: File already complete, skipping download: " + file_name, "HfModelDownloader");
-            return true;
-        }
-        
-        LOG_DEBUG_TAG("downloadFile: File exists but incomplete, will resume download: " + file_name, "HfModelDownloader");
-    } else {
-        LOG_DEBUG_TAG("downloadFile: Blob file does not exist, will download: " + task.blobPath.string(), "HfModelDownloader");
-        task.downloadedSize = 0;
     }
     
     return true;
@@ -430,7 +384,8 @@ std::string HfModelDownloader::getCachePathRoot(const std::string& model_downloa
 }
 
 std::filesystem::path HfModelDownloader::getModelPath(const std::string& cache_root_path, const std::string& model_id) {
-    return std::filesystem::path(cache_root_path) / FileUtils::GetFileName(model_id);
+    // Simplified: return cache_root/owner/model (ModelScope style)
+    return std::filesystem::path(cache_root_path) / model_id;
 }
 
 } // namespace mnncli

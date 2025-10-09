@@ -14,6 +14,7 @@
 #include <functional>
 #include <cmath>
 #include "mnncli_config.hpp"
+#include "log_utils.hpp"
 
 namespace mnncli {
 
@@ -60,7 +61,7 @@ std::vector<RepoItem> HfApiClient::SearchRepos(const std::string& keyword) {
     std::string error_info;
     auto result =  SearchReposInner(keyword, error_info);
     if (!error_info.empty()) {
-        printf("Failed to search repos: %s", error_info.c_str());
+        LOG_ERROR("Failed to search repos: " + error_info);
     }
     return result;
 }
@@ -91,10 +92,10 @@ std::vector<RepoItem> HfApiClient::SearchReposInner(const std::string& keyword, 
     if (const char* hf_token = std::getenv("HF_TOKEN")) {
         std::string auth_header = "Bearer " + std::string(hf_token);
         headers.emplace("Authorization", auth_header);
-        std::cout << "🔑 Using HF_TOKEN for authentication" << std::endl;
+        LOG_DEBUG("🔑 Using HF_TOKEN for authentication");
     } else {
-        std::cout << "⚠️  No HF_TOKEN found. Some models may require authentication." << std::endl;
-        std::cout << "   To authenticate, export HF_TOKEN=your_token_here" << std::endl;
+        LOG_DEBUG("⚠️  No HF_TOKEN found. Some models may require authentication.");
+        LOG_DEBUG("   To authenticate, export HF_TOKEN=your_token_here");
     }
     
     std::string path = "/api/models?search=" + keyword + "&author=taobao-mnn&limit=100";
@@ -208,13 +209,13 @@ mnncli::RepoInfo HfApiClient::GetRepoInfo(
         if (const char* hf_token = std::getenv("HF_TOKEN")) {
             std::string auth_header = "Bearer " + std::string(hf_token);
             headers.emplace("Authorization", auth_header);
-            std::cout << "🔑 Using HF_TOKEN for authentication" << std::endl;
+            LOG_DEBUG("🔑 Using HF_TOKEN for authentication");
         } else {
-            std::cout << "⚠️  No HF_TOKEN found. Some models may require authentication." << std::endl;
-            std::cout << "   To authenticate, export HF_TOKEN=your_token_here" << std::endl;
+            LOG_DEBUG("⚠️  No HF_TOKEN found. Some models may require authentication.");
+            LOG_DEBUG("   To authenticate, export HF_TOKEN=your_token_here");
         }
         
-        std::cout << "🔍 Making request to: https://" << GetHost() << path << std::endl;
+        LOG_DEBUG("🔍 Making request to: https://" + GetHost() + path);
         
         auto res = cli.Get(path, headers);
         if (!res || res->status != 200) {
@@ -230,38 +231,38 @@ mnncli::RepoInfo HfApiClient::GetRepoInfo(
                 } else if (res->status >= 500) {
                     error_msg += " - Server error. Please try again later.";
                 }
-                std::cout << "❌ " << error_msg << std::endl;
-                std::cout << "   Response headers:" << std::endl;
+                LOG_ERROR(error_msg);
+                LOG_DEBUG("   Response headers:");
                 for (const auto& header : res->headers) {
-                    std::cout << "     " << header.first << ": " << header.second << std::endl;
+                    LOG_DEBUG("     " + header.first + ": " + header.second);
                 }
                 if (!res->body.empty()) {
-                    std::cout << "   Response body preview: " << res->body.substr(0, 200) << "..." << std::endl;
+                    LOG_DEBUG("   Response body preview: " + res->body.substr(0, 200) + "...");
                 }
             } else {
                 error_msg += " - No response received";
-                std::cout << "❌ " << error_msg << std::endl;
+                LOG_ERROR(error_msg);
                 
                 // Check for SSL errors
 #ifdef CPPHTTPLIB_OPENSSL_SUPPORT
                 auto ssl_error = cli.get_openssl_verify_result();
                 if (ssl_error != 0) {
-                    std::cerr << "SSL verification failed: " << ssl_error << std::endl;
+                    LOG_ERROR("SSL verification failed: " + std::to_string(ssl_error));
                     error_info = "SSL verification failed";
                     return {};
                 }
 #endif
                 
                 // Check if it's a connection timeout or other network issue
-                std::cout << "   Possible causes:" << std::endl;
-                std::cout << "   - Network connectivity issues" << std::endl;
-                std::cout << "   - SSL/TLS certificate problems" << std::endl;
-                std::cout << "   - Firewall blocking HTTPS traffic" << std::endl;
-                std::cout << "   - DNS resolution failure for " << GetHost() << std::endl;
-                std::cout << "   - Server is down or unreachable" << std::endl;
+                LOG_DEBUG("   Possible causes:");
+                LOG_DEBUG("   - Network connectivity issues");
+                LOG_DEBUG("   - SSL/TLS certificate problems");
+                LOG_DEBUG("   - Firewall blocking HTTPS traffic");
+                LOG_DEBUG("   - DNS resolution failure for " + GetHost());
+                LOG_DEBUG("   - Server is down or unreachable");
                 
                 // Try a simple connection test
-                std::cout << "   Testing basic connectivity..." << std::endl;
+                LOG_DEBUG("   Testing basic connectivity...");
                 // Create HTTP client
 #ifdef CPPHTTPLIB_OPENSSL_SUPPORT
                 httplib::SSLClient test_cli(GetHost(), 443);
@@ -274,65 +275,65 @@ mnncli::RepoInfo HfApiClient::GetRepoInfo(
 #endif
                 auto test_res = test_cli.Get("/");
                 if (test_res) {
-                    std::cout << "   Basic connectivity: OK (got response)" << std::endl;
+                    LOG_DEBUG("   Basic connectivity: OK (got response)");
                 } else {
-                    std::cout << "   Basic connectivity: FAILED (no response)" << std::endl;
+                    LOG_DEBUG("   Basic connectivity: FAILED (no response)");
                 }
             }
             return false;
         }
 
-        std::cout << "✅ API response received successfully" << std::endl;
-        std::cout << "   Status: " << res->status << std::endl;
-        std::cout << "   Content-Length: " << res->get_header_value("Content-Length") << std::endl;
-        std::cout << "   Content-Type: " << res->get_header_value("Content-Type") << std::endl;
+        LOG_DEBUG("✅ API response received successfully");
+        LOG_DEBUG("   Status: " + std::to_string(res->status));
+        LOG_DEBUG("   Content-Length: " + res->get_header_value("Content-Length"));
+        LOG_DEBUG("   Content-Type: " + res->get_header_value("Content-Type"));
 
         // Parse the JSON response
         rapidjson::Document doc;
         if (doc.Parse(res->body.c_str()).HasParseError()) {
             error_info = "Failed to parse JSON response";
-            std::cout << "❌ " << error_info << std::endl;
-            std::cout << "   Parse error at position: " << doc.GetErrorOffset() << std::endl;
-            std::cout << "   Response preview: " << res->body.substr(0, 200) << "..." << std::endl;
+            LOG_ERROR(error_info);
+            LOG_DEBUG("   Parse error at position: " + std::to_string(doc.GetErrorOffset()));
+            LOG_DEBUG("   Response preview: " + res->body.substr(0, 200) + "...");
             return false;
         }
 
-        std::cout << "✅ JSON parsed successfully" << std::endl;
+        LOG_DEBUG("✅ JSON parsed successfully");
 
         // Extract fields
         if (doc.HasMember("modelId") && doc["modelId"].IsString()) {
             repo_info.model_id = doc["modelId"].GetString();
-            std::cout << "   Model ID: " << repo_info.model_id << std::endl;
+            LOG_DEBUG("   Model ID: " + repo_info.model_id);
         } else {
-            std::cout << "⚠️  Missing or invalid modelId field" << std::endl;
+            LOG_DEBUG("⚠️  Missing or invalid modelId field");
         }
         
         if (doc.HasMember("sha") && doc["sha"].IsString()) {
             repo_info.sha = doc["sha"].GetString();
-            std::cout << "   SHA: " << repo_info.sha << std::endl;
+            LOG_DEBUG("   SHA: " + repo_info.sha);
         } else {
-            std::cout << "⚠️  Missing or invalid sha field" << std::endl;
+            LOG_DEBUG("⚠️  Missing or invalid sha field");
         }
         
         if (doc.HasMember("revision") && doc["revision"].IsString()) {
             repo_info.revision = doc["revision"].GetString();
-            std::cout << "   Revision: " << repo_info.revision << std::endl;
+            LOG_DEBUG("   Revision: " + repo_info.revision);
         } else {
-            std::cout << "⚠️  Missing or invalid revision field" << std::endl;
+            LOG_DEBUG("⚠️  Missing or invalid revision field");
         }
         
         if (doc.HasMember("siblings") && doc["siblings"].IsArray()) {
             const rapidjson::Value& siblings = doc["siblings"];
-            std::cout << "   Siblings array size: " << siblings.Size() << std::endl;
+            LOG_DEBUG("   Siblings array size: " + std::to_string(siblings.Size()));
             
             for (rapidjson::Value::ConstValueIterator it = siblings.Begin(); it != siblings.End(); ++it) {
                 if (it->IsObject() && it->HasMember("rfilename") && (*it)["rfilename"].IsString()) {
                     repo_info.siblings.emplace_back((*it)["rfilename"].GetString());
                 }
             }
-            std::cout << "   Valid siblings found: " << repo_info.siblings.size() << std::endl;
+            LOG_DEBUG("   Valid siblings found: " + std::to_string(repo_info.siblings.size()));
         } else {
-            std::cout << "⚠️  Missing or invalid siblings field" << std::endl;
+            LOG_DEBUG("⚠️  Missing or invalid siblings field");
         }
 
         return true;
@@ -340,11 +341,11 @@ mnncli::RepoInfo HfApiClient::GetRepoInfo(
 
     if (!HfApiClient::PerformRequestWithRetry(request_func, 3, 1)) {
         error_info = "Failed to fetch repository info after retries";
-        std::cout << "❌ " << error_info << std::endl;
+        LOG_ERROR(error_info);
         return {};
     }
 
-    std::cout << "✅ Repository info retrieved successfully" << std::endl;
+    LOG_DEBUG("✅ Repository info retrieved successfully");
     return repo_info;
 }
 

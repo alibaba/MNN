@@ -1,4 +1,5 @@
 option(BUILD_MNNCLI "Build PC Commandline." OFF)
+option(BUILD_MNNCLI_TEST "Build MNNCLI test programs." OFF)
 
 if (BUILD_MNNCLI)
     # Enable assembler support, required for libyuv's NEON optimizations on ARM.
@@ -215,6 +216,12 @@ if (BUILD_MNNCLI)
     # Enable RTTI for OpenCV compatibility
     target_compile_options(mnncli PRIVATE -frtti)
     
+    # Suppress macOS version mismatch warnings for better compatibility
+    if(APPLE)
+        target_compile_options(mnncli PRIVATE -Wno-deprecated-declarations)
+        target_link_options(mnncli PRIVATE -Wl,-w)
+    endif()
+    
     # Link to MNN libraries - these will be built as part of the same project
     target_link_libraries(mnncli PRIVATE ${MNN_DEPS} MNN)
     
@@ -228,6 +235,15 @@ if (BUILD_MNNCLI)
         target_compile_definitions(mnncli PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
     endif()
     
+    # Disable exceptions in httplib since MNN is compiled with -fno-exceptions
+    target_compile_definitions(mnncli PRIVATE CPPHTTPLIB_NO_EXCEPTIONS)
+    
+    # Add test directory
+    add_subdirectory(test)
+endif()
+
+# Build test programs when BUILD_MNNCLI_TEST is enabled
+if (BUILD_MNNCLI_TEST)
     # Add test directory
     add_subdirectory(test)
 endif()

@@ -10,7 +10,7 @@ namespace mnncli {
    // On Android, use a relative path in the mnncli directory to avoid filesystem permission issues
    const char* const kCachePath = ".mnnmodels";
 #else
-   // On other platforms, use the home directory
-   const char* const kCachePath = "~/.mnnmodels";
+   // On other platforms, use the cache directory following XDG Base Directory Specification
+   const char* const kCachePath = "~/.cache/mnncli/mnnmodels";
 #endif
 }

@@ -37,86 +37,87 @@ enum class LogLevel {
 class LogUtils {
 public:
     // Set global verbose mode
-    static void setVerbose(bool verbose) {
+    static void SetVerbose(bool verbose) {
         is_verbose_ = verbose;
     }
     
     // Check if verbose mode is enabled
-    static bool isVerbose() {
+    static bool IsVerbose() {
         return is_verbose_;
     }
     
     // Log methods with different levels
-    static void debug(const std::string& message, const std::string& tag = "");
-    static void info(const std::string& message, const std::string& tag = "");
-    static void warning(const std::string& message, const std::string& tag = "");
-    static void error(const std::string& message, const std::string& tag = "");
+    static void Debug(const std::string& message, const std::string& tag = "");
+    static void Info(const std::string& message, const std::string& tag = "");
+    static void Warning(const std::string& message, const std::string& tag = "");
+    static void Error(const std::string& message, const std::string& tag = "");
     
     // Add formatted error method for printf-style formatting
-    static void errorFormatted(const char* format, ...);
+    static void ErrorFormatted(const char* format, ...);
     
     // Overloaded error method for const char* (for backward compatibility)
-    static void error(const char* message, const std::string& tag = "");
+    static void Error(const char* message, const std::string& tag = "");
     
     // Conditional debug logging (only outputs when verbose is enabled)
-    static void debugIfVerbose(const std::string& message) {
+    static void DebugIfVerbose(const std::string& message) {
         if (is_verbose_) {
-            fprintf(stderr, "[DEBUG] %s\n", message.c_str());
+            Debug(message);
         }
     }
     
     // Template version for backward compatibility (deprecated)
     template<typename... Args>
-    static void debugIfVerbose(const std::string& format, Args... args) {
+    static void DebugIfVerbose(const std::string& format, Args... args) {
         if (is_verbose_) {
-            fprintf(stderr, "[DEBUG] ");
-            fprintf(stderr, format.c_str(), args...);
-            fprintf(stderr, "\n");
+            // Format the message using sprintf-style formatting
+            char buffer[1024];
+            snprintf(buffer, sizeof(buffer), format.c_str(), args...);
+            Debug(std::string(buffer));
         }
     }
     
     // Format file size for logging
-    static std::string formatFileSize(int64_t bytes);
+    static std::string FormatFileSize(int64_t bytes);
     
     // Format progress percentage
-    static std::string formatProgress(double progress);
+    static std::string FormatProgress(double progress);
     
     // Get current timestamp string
-    static std::string getTimestamp();
+    static std::string GetTimestamp();
 
 private:
     static bool is_verbose_;
-    static std::string formatMessage(LogLevel level, const std::string& message, const std::string& tag);
+    static std::string FormatMessage(LogLevel level, const std::string& message, const std::string& tag);
 };
 
 // Convenience macros for logging
-#define LOG_DEBUG(...) mnncli::LogUtils::debugIfVerbose(__VA_ARGS__)
-#define LOG_DEBUG_TAG(msg, tag) mnncli::LogUtils::debugIfVerbose(msg, tag)
-#define LOG_INFO(msg) mnncli::LogUtils::info(msg)
-#define LOG_WARNING(msg) mnncli::LogUtils::warning(msg)
+#define LOG_DEBUG(...) mnncli::LogUtils::DebugIfVerbose(__VA_ARGS__)
+#define LOG_DEBUG_TAG(msg, tag) mnncli::LogUtils::Debug(msg, tag)
+#define LOG_INFO(msg) mnncli::LogUtils::Info(msg)
+#define LOG_WARNING(msg) mnncli::LogUtils::Warning(msg)
 
 // Smart LOG_ERROR macro that automatically chooses the right method based on argument count
-#define LOG_ERROR_1(msg) mnncli::LogUtils::error(msg)
-#define LOG_ERROR_2(msg, ...) mnncli::LogUtils::errorFormatted(msg, ##__VA_ARGS__)
-#define LOG_ERROR_3(msg, ...) mnncli::LogUtils::errorFormatted(msg, ##__VA_ARGS__)
-#define LOG_ERROR_4(msg, ...) mnncli::LogUtils::errorFormatted(msg, ##__VA_ARGS__)
-#define LOG_ERROR_5(msg, ...) mnncli::LogUtils::errorFormatted(msg, ##__VA_ARGS__)
-#define LOG_ERROR_6(msg, ...) mnncli::LogUtils::errorFormatted(msg, ##__VA_ARGS__)
-#define LOG_ERROR_7(msg, ...) mnncli::LogUtils::errorFormatted(msg, ##__VA_ARGS__)
-#define LOG_ERROR_8(msg, ...) mnncli::LogUtils::errorFormatted(msg, ##__VA_ARGS__)
-#define LOG_ERROR_9(msg, ...) mnncli::LogUtils::errorFormatted(msg, ##__VA_ARGS__)
-#define LOG_ERROR_10(msg, ...) mnncli::LogUtils::errorFormatted(msg, ##__VA_ARGS__)
+#define LOG_ERROR_1(msg) mnncli::LogUtils::Error(msg)
+#define LOG_ERROR_2(msg, ...) mnncli::LogUtils::ErrorFormatted(msg, ##__VA_ARGS__)
+#define LOG_ERROR_3(msg, ...) mnncli::LogUtils::ErrorFormatted(msg, ##__VA_ARGS__)
+#define LOG_ERROR_4(msg, ...) mnncli::LogUtils::ErrorFormatted(msg, ##__VA_ARGS__)
+#define LOG_ERROR_5(msg, ...) mnncli::LogUtils::ErrorFormatted(msg, ##__VA_ARGS__)
+#define LOG_ERROR_6(msg, ...) mnncli::LogUtils::ErrorFormatted(msg, ##__VA_ARGS__)
+#define LOG_ERROR_7(msg, ...) mnncli::LogUtils::ErrorFormatted(msg, ##__VA_ARGS__)
+#define LOG_ERROR_8(msg, ...) mnncli::LogUtils::ErrorFormatted(msg, ##__VA_ARGS__)
+#define LOG_ERROR_9(msg, ...) mnncli::LogUtils::ErrorFormatted(msg, ##__VA_ARGS__)
+#define LOG_ERROR_10(msg, ...) mnncli::LogUtils::ErrorFormatted(msg, ##__VA_ARGS__)
 
 #define GET_MACRO(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, NAME, ...) NAME
 #define LOG_ERROR(...) GET_MACRO(__VA_ARGS__, LOG_ERROR_10, LOG_ERROR_9, LOG_ERROR_8, LOG_ERROR_7, LOG_ERROR_6, LOG_ERROR_5, LOG_ERROR_4, LOG_ERROR_3, LOG_ERROR_2, LOG_ERROR_1)(__VA_ARGS__)
 
 // Special macro for string concatenation cases
-#define LOG_ERROR_STR(msg) mnncli::LogUtils::error(msg)
+#define LOG_ERROR_STR(msg) mnncli::LogUtils::Error(msg)
 
 // Conditional debug macro that only compiles when verbose is enabled
 #ifdef DEBUG
-#define VERBOSE_LOG(msg) mnncli::LogUtils::debug(msg)
-#define VERBOSE_LOG_TAG(msg, tag) mnncli::LogUtils::debug(msg, tag)
+#define VERBOSE_LOG(msg) mnncli::LogUtils::Debug(msg)
+#define VERBOSE_LOG_TAG(msg, tag) mnncli::LogUtils::Debug(msg, tag)
 #else
 #define VERBOSE_LOG(msg) do {} while(0)
 #define VERBOSE_LOG_TAG(msg, tag) do {} while(0)

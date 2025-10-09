@@ -15,15 +15,22 @@ namespace mnncli {
 
 // HfFileMetadata is already defined in hf_file_metadata.hpp
 
-// FileDownloadTask structure matching Android FileDownloadTask.kt exactly
+// FileDownloadTask structure - simplified for direct storage (ModelScope style)
+// Removed blob/pointer paths, using direct storage path only
 struct FileDownloadTask {
-    std::string etag;
-    std::string relativePath;
-    HfFileMetadata fileMetadata;
-    fs::path blobPath;
-    fs::path blobPathIncomplete;
-    fs::path pointerPath;
-    int64_t downloadedSize = 0;
+    std::string etag;              // For SHA validation
+    std::string relativePath;      // Relative path in model repo
+    HfFileMetadata fileMetadata;   // File metadata (location, size, etc.)
+    
+    // Simplified: single download path (cache_root/owner/model/file)
+    fs::path downloadPath;         // Final destination path
+    
+    int64_t downloadedSize = 0;    // For resume support
+    
+    // Helper to get incomplete path (.incomplete suffix)
+    fs::path GetIncompletePath() const {
+        return fs::path(downloadPath.string() + ".incomplete");
+    }
 };
 
 // FileDownloadException matching Android FileDownloadException.kt exactly
@@ -55,14 +62,14 @@ public:
     ModelFileDownloader();
     
     // Set verbose mode for logging
-    void setVerbose(bool verbose) { verbose_ = verbose; }
+    void SetVerbose(bool verbose) { verbose_ = verbose; }
     
     // Main download method matching Android ModelFileDownloader.downloadFile() exactly
-    void downloadFile(FileDownloadTask& fileDownloadTask, FileDownloadListener& fileDownloadListener);
+    void DownloadFile(FileDownloadTask& fileDownloadTask, FileDownloadListener& fileDownloadListener);
 
 private:
     // Private methods matching Android implementation exactly
-    void downloadToTmpAndMove(
+    void DownloadToTmpAndMove(
         FileDownloadTask& fileDownloadTask,
         const fs::path& incompletePath,
         const fs::path& destinationPath,
@@ -71,7 +78,7 @@ private:
         const std::string& fileName,
         FileDownloadListener& fileDownloadListener);
 
-    void downloadChunk(
+    void DownloadChunk(
         FileDownloadTask& fileDownloadTask,
         const std::string& url,
         const fs::path& tempFile,
@@ -79,12 +86,10 @@ private:
         const std::string& displayedFilename,
         FileDownloadListener* fileDownloadListener);
 
-    bool validate(const FileDownloadTask& fileDownloadTask, const fs::path& src);
-    void moveWithPermissions(const fs::path& src, const fs::path& dest);
-    void createSymlinkSafely(const fs::path& target, const fs::path& link_path);
-    
-    // Verbose logging helper
-    void logVerbose(const std::string& message) const;
+
+    bool Validate(const FileDownloadTask& fileDownloadTask, const fs::path& src);
+    void MoveWithPermissions(const fs::path& src, const fs::path& dest);
+    // Note: CreateSymlinkSafely removed - no longer needed with direct storage
 
 private:
     // HTTP client for downloads
@@ -93,9 +98,9 @@ private:
 #else
     httplib::Client client_;
 #endif
-    static constexpr int CONNECT_TIMEOUT_SECONDS = 30;
-    static constexpr int MAX_RETRY = 10;
-    static constexpr int BUFFER_SIZE = 8192;
+    static constexpr int kConnectTimeoutSeconds = 30;
+    static constexpr int kMaxRetry = 10;
+    static constexpr int kBufferSize = 8192;
     
     // Verbose logging flag
     bool verbose_ = false;

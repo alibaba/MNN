@@ -24,15 +24,15 @@ public:
     ~HfModelDownloader() override = default;
     
     // Core download methods
-    void download(const std::string& model_id) override;
-    void pause(const std::string& model_id) override;
-    void resume(const std::string& model_id) override;
+    void Download(const std::string& model_id) override;
+    void Pause(const std::string& model_id) override;
+    void Resume(const std::string& model_id) override;
     
     // Repository management
-    std::filesystem::path getDownloadPath(const std::string& model_id) override;
-    bool deleteRepo(const std::string& model_id) override;
-    int64_t getRepoSize(const std::string& model_id) override;
-    bool checkUpdate(const std::string& model_id) override;
+    std::filesystem::path GetDownloadPath(const std::string& model_id) override;
+    bool DeleteRepo(const std::string& model_id) override;
+    int64_t GetRepoSize(const std::string& model_id) override;
+    bool CheckUpdate(const std::string& model_id) override;
     
     // Set HuggingFace API client
     void setHfApiClient(std::shared_ptr<HfApiClient> client) { hf_api_client_ = client; }
@@ -44,10 +44,9 @@ private:
     // Inner download implementation
     void downloadHfRepoInner(const RepoInfo& repo_info);
     
-    // Collect download tasks for all files in the repo
+    // Collect download tasks for all files in the repo (simplified for direct storage)
     std::vector<FileDownloadTask> collectTaskList(
-        const std::filesystem::path& storage_folder,
-        const std::filesystem::path& parent_pointer_path,
+        const std::filesystem::path& model_folder,
         const RepoInfo& repo_info,
         int64_t& total_size,
         int64_t& downloaded_size);
@@ -83,6 +82,9 @@ private:
 #else
     std::shared_ptr<httplib::Client> metadata_client_;
 #endif
+    
+    // Store original model_id for notifications
+    std::string original_model_id_;
     
     // Constants
     static constexpr const char* HOST_DEFAULT = "huggingface.co";
