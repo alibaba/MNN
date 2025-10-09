@@ -102,7 +102,7 @@ object ModelListManager {
             val downloadedModels = mutableListOf<ChatDataManager.DownloadedModelInfo>()
             val pinnedModels = PreferenceUtils.getPinnedModels(context)
             
-            // Initialize ModelMarketUtils cache (统一的内存缓存)
+            //Initialize ModelMarketUtils cache (unified memory cache)
             val marketDataStart = System.currentTimeMillis()
             try {
                 ModelMarketUtils.initializeCache(context)

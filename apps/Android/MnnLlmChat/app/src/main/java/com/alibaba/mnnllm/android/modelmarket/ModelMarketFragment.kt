@@ -707,7 +707,7 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
      * Refresh adapter to update all checkbox states, ensuring only one is selected
      */
     private fun refreshAdapterForVoiceModelChange() {
-        // 通知 adapter 刷新所有 item，这样每个 item 都会重新检查是否为默认模型
+        //Notify adapter to refresh all items so each item rechecks if it's the default model
         adapter.notifyDataSetChanged()
     }
 

@@ -16,11 +16,7 @@ import io.ktor.server.response.respond
 import kotlinx.coroutines.runBlocking
 import java.util.UUID
 
-/**
- * 聊天服务
- * 负责协调各个组件，处理聊天请求的核心业务逻辑
- * 现在所有请求都通过队列管理器进行排队处理，确保同一时刻只有一个LLM生成任务运行
- */
+/** * chat service * responsible for coordinatingvarious components,processchatrequestcorebusinesslogic * nowallrequests throughqueuemanagerperformqueueprocess,ensuresame timeonlyoneLLM generationtaskrunning*/
 class MNNChatService {
 
     private val messageTransformer = MessageTransformer()
@@ -29,35 +25,26 @@ class MNNChatService {
     private val logger = ChatLogger()
     private val requestQueueManager = RequestQueueManager.getInstance()
 
-    // 获取依赖
+    //getdependency
     private val chatSessionProvider = ServiceLocator.getChatSessionProvider()
     private val imageProcessor = MnnImageProcessor.getInstance(MnnLlmApplication.getAppContext())
     
-    /**
-     * 获取LLM会话实例
-     * @return LlmSession实例，如果没有则抛出异常
-     */
+    /** * getLLMsessioninstance * @return LlmSessioninstance，if not availablethenthrowexception*/
     private fun getLlmSession(): LlmSession {
         return chatSessionProvider.getLlmSession() 
             ?: throw IllegalStateException("No active LLM session available")
     }
 
-    /**
-     * 处理聊天完成请求
-     * 现在所有请求都会被加入队列，确保按顺序处理
-     * @param call Ktor应用调用上下文
-     * @param chatRequest 聊天请求对象
-     * @param traceId 追踪ID
-     */
+    /** * processchatcompleterequest * nowallrequests willbeen added toqueue,ensureaccording to orderprocess * @param call Ktorapplicationcallcontext * @param chatRequest chat request object * @param traceId traceID*/
     suspend fun processChatCompletion(
         call: ApplicationCall,
         chatRequest: OpenAIChatRequest,
         traceId: String
     ) {
-        // 生成唯一的请求ID
+        //generate uniquerequest ID
         val requestId = UUID.randomUUID().toString()
         
-        // 先进行基本验证，避免无效请求进入队列
+        //first performbasic verification,avoidinvalidrequest enteringqueue
         val validationResult = chatRequestValidator.validateChatRequest(chatRequest)
         if (!validationResult.isValid) {
             call.respond(
@@ -70,13 +57,13 @@ class MNNChatService {
         logger.logRequestBody(traceId, chatRequest)
         logger.logInfo(traceId, "请求已提交到队列，requestId=$requestId")
         
-        // 将请求提交到队列进行排队处理，并等待完成
+        //willrequesttoqueueperformqueueprocess,andwaitcomplete
         try {
             requestQueueManager.submitRequest(
                 requestId = requestId,
                 traceId = traceId,
                 task = {
-                    // 这里是实际的LLM处理逻辑
+                    //here isactualLLM processinglogic
                     processLlmGeneration(call, chatRequest, traceId)
                 },
                 onComplete = {
@@ -100,27 +87,24 @@ class MNNChatService {
         }
     }
     
-    /**
-     * 实际的LLM生成处理逻辑
-     * 这个方法会在队列中按顺序执行
-     */
+    /** * actualLLMgenerateprocesslogic * thismethodwillatqueueinaccording toorderexecute*/
     private suspend fun processLlmGeneration(
         call: ApplicationCall,
         chatRequest: OpenAIChatRequest,
         traceId: String
     ) {
         try {
-            // 转换为MNN格式的统一历史消息（包含系统提示词）
+            //willas MNNformatunifiedhistory message (containingsystem prompt)
             val unifiedHistory = messageTransformer.convertToUnifiedMnnHistory(
                 chatRequest.messages,
                 imageProcessor,
                 getLlmSession()
             )
 
-            // 记录转换后的历史消息
+            //recordconvertafterhistorymessage
             logger.logTransformedHistory(traceId, unifiedHistory)
 
-            // 使用统一的完整历史消息进行推理（API服务模式）
+            //useunifiedcompletehistorymessageperforminference（APIservicemode）
             if (unifiedHistory.isNotEmpty()) {
                 logger.logInferenceStart(traceId, unifiedHistory.size)
 
@@ -150,8 +134,6 @@ class MNNChatService {
         }
     }
     
-    /**
-     * 获取队列统计信息
-     */
+    /** * getqueuestatisticsinfo*/
     fun getQueueStats() = requestQueueManager.getQueueStats()
 }

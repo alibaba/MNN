@@ -81,7 +81,7 @@ class MainSettingsFragment : PreferenceFragmentCompat() {
         }
 
 
-        // 重置 API配置
+        //Reset API configuration
         val resetApiConfigPref = findPreference<Preference>("reset_api_config")
         resetApiConfigPref?.setOnPreferenceClickListener {
             MaterialAlertDialogBuilder(requireContext())

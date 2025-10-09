@@ -8,14 +8,9 @@ import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import java.util.UUID
 
-/**
- * 模型路由定义
- * 负责定义 /v1/models API路由
- */
+/** * modelroutedefine * responsible fordefine /v1/models APIroute*/
 
-/**
- * 注册模型相关的路由
- */
+/** * registermodelrelatedroute*/
 fun Route.modelsRoutes() {
     val modelsService = MNNModelsService()
 

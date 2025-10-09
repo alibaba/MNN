@@ -283,17 +283,17 @@ class LlmSession (
 
 
 
-    // 新增：支持完整历史消息的公开方法
+    //New: public method supporting complete history messages
     fun submitFullHistory(
         history: List<Pair<String, String>>,
         progressListener: GenerateProgressListener
     ): HashMap<String, Any> {
         synchronized(this) {
-            // 使用 Timber 替代 Log
+            //Use Timber instead of Log
             Timber.d("MNN_DEBUG submitFullHistory with ${history.size} messages")
-            // 转换类型：kotlin.Pair -> android.util.Pair
+            //Type conversion: kotlin.Pair -> android.util.Pair
             val androidHistory = history.map { android.util.Pair(it.first, it.second) }
-            // 调用JNI方法，移除不必要的类型转换
+            //Call JNI method, remove unnecessary type conversion
             val result = submitFullHistoryNative(nativePtr, androidHistory, progressListener)
             generating = false
             return result
@@ -306,7 +306,7 @@ class LlmSession (
     ): HashMap<String, Any>
 
     fun modelId(): String {
-        //创建一个临时变量，避免修改原始的modelId
+        //Create temporary variable to avoid modifying original modelId
         return modelId
 
     }

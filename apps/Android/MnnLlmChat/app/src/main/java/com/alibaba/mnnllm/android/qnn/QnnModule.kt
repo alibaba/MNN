@@ -14,8 +14,8 @@ object QnnModule {
     @Volatile
     private var qnnInit = false
 
-    // SOC_MODEL -> Hexagon Arch 映射表
-    // 基于 https://docs.qualcomm.com/bundle/publicresource/topics/80-63442-50/overview.html#supported-snapdragon-devices
+    //SOC_MODEL -> Hexagon Arch mapping table
+    //Based on https://docs.qualcomm.com/bundle/publicresource/topics/80-63442-50/overview.html#supported-snapdragon-devices
     private val sQnnConfigMap = hashMapOf<String, String>().apply {
         put("SM8750", "V79")
         put("SM8650", "V75")

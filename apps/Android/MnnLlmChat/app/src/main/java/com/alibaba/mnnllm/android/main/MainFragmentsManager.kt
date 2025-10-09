@@ -30,10 +30,7 @@ class MainFragmentManager(
     private var benchmarkFragment: BenchmarkFragment? = null
     var activeFragment: Fragment? = null
 
-    /**
-     * An interface for the manager to communicate important events back to the hosting Activity.
-     * 这让 Activity 可以响应 Fragment 的变化来更新自己的 UI (e.g., Toolbar title)。
-     */
+    /** * An interface for the manager to communicate important events back to the hosting Activity. * This lets Activity can respond to Fragment changes to updateits own UI (e.g., Toolbar title).*/
     interface FragmentLifecycleListener {
         fun onTabChanged(newTab: BottomTabBar.Tab)
     }
@@ -51,7 +48,7 @@ class MainFragmentManager(
             activity.supportFragmentManager.beginTransaction()
                 .add(containerId, benchmarkFragment!!, TAG_BENCHMARK).hide(benchmarkFragment!!)
                 .add(containerId, modelMarketFragment!!, TAG_MARKET).hide(modelMarketFragment!!)
-                .add(containerId, modelListFragment!!, TAG_LIST) // 默认显示
+                .add(containerId, modelListFragment!!, TAG_LIST) //Default display
                 .commit()
 
             activeFragment = modelListFragment
@@ -103,7 +100,7 @@ class MainFragmentManager(
 
             if (targetFragment != null && activeFragment != targetFragment) {
                 switchFragment(targetFragment)
-                listener.onTabChanged(tab) // 通知 Activity
+                listener.onTabChanged(tab) //Notify Activity
             }
         }
     }

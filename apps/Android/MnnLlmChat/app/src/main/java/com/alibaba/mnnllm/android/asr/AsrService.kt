@@ -70,7 +70,7 @@ class AsrService(
         setAsrModelDir(actualModelDir)
         Log.i(TAG, "Set ASR model directory: $actualModelDir (from ${if (modelDir != null) "parameter" else "VoiceModelPathUtils"})")
         
-        // 使用新的配置系统，直接传入模型目录
+        //Use new config system, pass model directory directly
         Log.i(TAG, "Loading model configuration from: $actualModelDir")
         val config = getModelConfigFromDirectory(actualModelDir)?.let {
             OnlineRecognizerConfig(

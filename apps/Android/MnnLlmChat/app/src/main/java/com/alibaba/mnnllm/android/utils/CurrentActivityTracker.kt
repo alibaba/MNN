@@ -6,8 +6,7 @@ import android.os.Bundle
 import java.lang.ref.WeakReference
 
 /**
- * 全局工具类，用于跟踪当前活跃的 Activity
- */
+ * Global utility class for tracking current active Activity*/
 object CurrentActivityTracker : Application.ActivityLifecycleCallbacks {
     private var currentActivityRef: WeakReference<Activity>? = null
     
@@ -33,7 +32,7 @@ object CurrentActivityTracker : Application.ActivityLifecycleCallbacks {
     override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
     
     override fun onActivityDestroyed(activity: Activity) {
-        // 清理已销毁的Activity引用
+        //Clean up destroyed Activity references
         if (currentActivityRef?.get() == activity) {
             currentActivityRef = null
         }
