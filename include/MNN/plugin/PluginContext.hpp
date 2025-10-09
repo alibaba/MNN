@@ -130,7 +130,9 @@ inline void PluginContext::setAttrs( // NOLINT
 
 inline const Attribute* PluginContext::getAttr(const std::string& name) const {
     const auto& it = attrs_.find(name);
-    MNN_ASSERT(it != attrs_.end());
+    if (it == attrs_.end()) {
+        return nullptr;
+    }
     return it->second;
 }
 

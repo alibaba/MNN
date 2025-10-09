@@ -206,7 +206,10 @@ int tflite2MNNNet(const std::string inputModel, const std::string bizCode,
         const int opNums    = static_cast<int>(ops.size());
         for (int j = 0; j < opNums; ++j) {
             const int opcodeIndex = ops[j]->opcode_index;
-            const auto opCode     = tfliteOpSet[opcodeIndex]->builtin_code;
+            int opCode     = tfliteOpSet[opcodeIndex]->builtin_code;
+            if (tfliteOpSet[opcodeIndex]->deprecated_builtin_code > 0) {
+                opCode = tfliteOpSet[opcodeIndex]->deprecated_builtin_code;
+            }
             if (opCode == tflite::BuiltinOperator_CONV_2D || opCode == tflite::BuiltinOperator_DEPTHWISE_CONV_2D ||
                 opCode == tflite::BuiltinOperator_TRANSPOSE_CONV) {
                 const int weightIndex    = ops[j]->inputs[1];
@@ -257,7 +260,11 @@ int tflite2MNNNet(const std::string inputModel, const std::string bizCode,
         const int opNums = ops.size();
         for (int j = 0; j < opNums; ++j) {
             const int opcodeIndex = ops[j]->opcode_index;
-            const auto opCode     = tfliteOpSet[opcodeIndex]->builtin_code;
+            tflite::BuiltinOperator opCode     = tfliteOpSet[opcodeIndex]->builtin_code;
+            if (tfliteOpSet[opcodeIndex]->deprecated_builtin_code > 0) {
+                opCode = (tflite::BuiltinOperator )tfliteOpSet[opcodeIndex]->deprecated_builtin_code;
+            }
+
             if (needExtractInput(opCode)) {
                 for (auto input : ops[j]->inputs) {
                     if (input < 0 || extractedTensors[input]) {

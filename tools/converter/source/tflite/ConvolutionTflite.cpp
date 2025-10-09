@@ -41,7 +41,7 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
     const auto& inputTensor  = tfliteTensors[inputIndex];
     const auto& weightTensor = tfliteTensors[weightIndex];
     const auto& outputTensor = tfliteTensors[outputIndex];
-    if (weightTensor->type == tflite::TensorType_INT8) {
+    if (weightTensor->type == tflite::TensorType_INT8 || weightTensor->type == tflite::TensorType_INT4) {
         quantizedModel = 2;
         dstOp->type = MNN::OpType_Convolution;
         dstOp->main.type = MNN::OpParameter_Convolution2D;
@@ -207,13 +207,35 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
             dstOp->main.value = convolution2DQuant.release();
             return;
         }
+        std::vector<int8_t> weightTmp;
+        auto weight = reinterpret_cast<const int8_t*>(tfliteModelBuffer[weightTensor->buffer]->data.data());
+        if (weightTensor->type == tflite::TensorType_INT4) {
+            // Add one to assume has enough memory
+            weightTmp.resize(weightSize + 1);
+            auto originSize = tfliteModelBuffer[weightTensor->buffer]->data.size();
+            // Int4 -> Int8
+            int halfSize = (weightSize + 1) / 2;
+            auto srcInt4 = reinterpret_cast<const uint8_t*>(tfliteModelBuffer[weightTensor->buffer]->data.data());
+            for (int v=0; v<halfSize; ++v) {
+                int srcValue = srcInt4[v];
+                weightTmp[2 * v] = srcValue & 0x0F;
+                weightTmp[2 * v + 1] = (srcValue >> 4) & 0x0F;
+            }
+            for (int v=0; v<weightSize; ++v) {
+                if (weightTmp[v] >= 8) {
+                    weightTmp[v] = weightTmp[v] - 16;
+                }
+            }
 
-        MNN_ASSERT(weightTensor->type == tflite::TensorType_INT8);
+            weight = weightTmp.data();
+        } else {
+            MNN_ASSERT(weightTensor->type == tflite::TensorType_INT8);
+            MNN_ASSERT(tfliteModelBuffer[weightTensor->buffer]->data.size() == weightSize);
+        }
+
         MNN_ASSERT(weightTensor->quantization->scale.size() == co);
-        MNN_ASSERT(tfliteModelBuffer[weightTensor->buffer]->data.size() == weightSize);
         convolution2DQuant->symmetricQuan.reset(new MNN::QuantizedFloatParamT);
         std::vector<int8_t> transposeWeight(weightSize, 0);
-        auto weight = reinterpret_cast<const int8_t*>(tfliteModelBuffer[weightTensor->buffer]->data.data());
         auto alpha = weightTensor->quantization->scale.data();
         // TODO: Support zero
         float scaleIn = inputTensor->quantization->scale[0];

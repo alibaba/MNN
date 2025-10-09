@@ -80,6 +80,7 @@ option(MNN_LOW_MEMORY "Build MNN support low memory for weight quant model." OFF
 option(MNN_CPU_WEIGHT_DEQUANT_GEMM "Build MNN CPU weight dequant related gemm kernels." OFF)
 option(MNN_BUILD_AUDIO "Build audio api in MNN." OFF)
 option(MNN_SME2 "Use Arm sme2 instructions" ON)
+option(MNN_NPU_OFFLINE_MODE "" OFF)
 
 if (MNN_BUILD_MINI)
     set(MNN_SKIPBUILD_GEOMETRY ON)
@@ -656,6 +657,15 @@ IF(MNN_QNN)
     list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNN_QNN>)
 ENDIF()
 
+# NEUROPILOT
+IF(MNN_NEUROPILOT)
+    target_compile_options(MNNCore PRIVATE -DMNN_NEUROPILOT=1)
+    add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/source/backend/neuropilot)
+    list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNN_NEUROPILOT>)
+ENDIF()
+
+# Vulkan
+
 # Vulkan
 IF(MNN_VULKAN)
   add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/source/backend/vulkan/)
@@ -901,7 +911,7 @@ if(CMAKE_SYSTEM_NAME MATCHES "^Linux")
 # https://stackoverflow.com/questions/23250863/difference-between-pthread-and-lpthread-while-compiling
   target_link_libraries(MNN PUBLIC -pthread dl)
 elseif(CMAKE_SYSTEM_NAME MATCHES "^Android")
-  target_link_libraries(MNN PUBLIC log m)
+  target_link_libraries(MNN PUBLIC log m android)
 else()
 endif()
 if (NOT MNN_BUILD_SHARED_LIBS)
@@ -982,7 +992,6 @@ ELSEIF(NOT APPLE)
   install(TARGETS MNN
       LIBRARY DESTINATION lib
       ARCHIVE DESTINATION lib
-      RUNTIME DESTINATION bin
   )
 ELSE()
   install(TARGETS MNN

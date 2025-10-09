@@ -380,12 +380,16 @@ class LlmExporter(torch.nn.Module):
         if self.scale_emb is not None:
             hidden_states = hidden_states * self.scale_emb
         presents = [None for i in range(len(self.blocks))]
+        eagle_hidden_states = []
         rotary_pos_emb = self.rotary(position_ids)
         if self.args.test and rotary_pos_emb.dtype != hidden_states.dtype:
             rotary_pos_emb = rotary_pos_emb.type(hidden_states.dtype)
         for i in range(len(self.blocks)):
             if self.blocks[i].cross_decoder and cross_attention_states is None:
                 continue
+            # eagle3 hidden states
+            if i == len(self.blocks)-3 or i == len(self.blocks)//2 or i==2:
+                eagle_hidden_states.append(hidden_states)
             if past_key_values is not None and past_key_values[i] is not None:
                 past_kv = past_key_values[i]
             else:
@@ -424,6 +428,10 @@ class LlmExporter(torch.nn.Module):
             presents = torch.stack(presents)
         self.seq_len += 1
         self.token_len += 1
+
+        if self.args.eagle_path is not None:
+            final_layernorm = torch.cat(eagle_hidden_states, dim=-1)
+
         return logits, final_layernorm, presents, talker_embeds
 
     # some test functions
@@ -434,16 +442,13 @@ class LlmExporter(torch.nn.Module):
             'user': '{content}',
             'assistant': '{content}'
         }
-        try:
-            chat_temp = self.tokenizer.get_chat_template()
+        if hasattr(self.tokenizer, 'get_chat_template'):
             template['jinja'] = {}
-            template['jinja']['chat_template'] = chat_temp
+            template['jinja']['chat_template'] = self.tokenizer.get_chat_template()
             if None != self.tokenizer.bos_token:
                 template['jinja']['bos'] = self.tokenizer.bos_token
             if None != self.tokenizer.eos_token:
                 template['jinja']['eos'] = self.tokenizer.eos_token
-        except:
-            print("Can't get chat template for the model")
         if self.model_type == 'baichuan':
             template['user'] = '<reserved_106>{content}'
             template['assistant'] = '<reserved_107>{content}'
@@ -631,6 +636,16 @@ class LlmExporter(torch.nn.Module):
             self.mtp.unloaded_ops['/lm/lm_head/Linear'] = self.unloaded_ops['/lm/lm_head/Linear']
             MNNConveter(self, self.mtp.unloaded_ops).export(mtp_onnx)
 
+    def export_eagle(self):
+        if self.args.eagle_path is None:
+            return
+        from utils.eagle import Eagle
+        self.eagle = Eagle.get_eagle(self.model_type)(self.args.eagle_path, self)
+        eagle_onnx, eagle_fc_onnx = self.eagle.export(self.onnx_path)
+        if self.mnn_converter:
+            MNNConveter(self, None).export(eagle_onnx)
+            MNNConveter(self, None).export(eagle_fc_onnx)
+
     @spinner_run(f'export embedding to ')
     def export_embed(self):
         import ctypes
@@ -711,6 +726,9 @@ class LlmExporter(torch.nn.Module):
                     "precision": "normal",
                     "memory": "low"
                 }
+            if self.args.eagle_path is not None:
+                config['speculative_type'] = 'eagle'
+                config['hidden_states'] = True
             json.dump(config, f, ensure_ascii=False, indent=4)
         return config_json
 
@@ -899,6 +917,7 @@ class LlmExporter(torch.nn.Module):
         self.export_talker()
         self.export_vision()
         self.export_audio()
+        self.export_eagle()
         self.export_language()
         self.export_mtp()
         self.export_tokenizer()
@@ -1060,6 +1079,7 @@ class LlmExporter(torch.nn.Module):
         else:
             # Determine tokenizer type based on tokenizer class and characteristics
             tokenizer_class_name = type(self.tokenizer).__name__.lower()
+            vocab = self.tokenizer.get_vocab()
 
             # Check for SentencePiece-based tokenizers first
             if ('xlmroberta' in tokenizer_class_name or
@@ -1136,11 +1156,19 @@ class LlmExporter(torch.nn.Module):
 
                 # Process vocabulary with better UTF-8 handling
                 for k, v in vocab.items():
-                    try:
-                        # For BERT tokenizers, preserve the original token format
-                        # Most BERT models already have proper UTF-8 encoded tokens
-                        vocab_list[int(v)] = k.encode('utf-8')
-                    except Exception as e:
+                    if tokenizer_type == "BERT":
+                        try:
+                            # For BERT tokenizers, preserve the original token format
+                            # Most BERT models already have proper UTF-8 encoded tokens
+                            vocab_list[int(v)] = k.encode('utf-8')
+                        except Exception as e:
+                            # Fallback: try unicode_to_byte conversion for special cases
+                            try:
+                                vocab_list[int(v)] = bytes([unicode_to_byte(ord(c)) for c in k])
+                            except Exception as e2:
+                                print(f"Warning: Failed to encode token '{k}' with id {v}: {e2}")
+                                vocab_list[int(v)] = k.encode('utf-8', errors='replace')
+                    else:
                         # Fallback: try unicode_to_byte conversion for special cases
                         try:
                             vocab_list[int(v)] = bytes([unicode_to_byte(ord(c)) for c in k])
@@ -1371,6 +1399,7 @@ class EmbeddingExporter(LlmExporter):
 def export(path,
            type = None,
            tokenizer_path = None,
+           eagle_path = None,
            lora_path = None,
            gptq_path = None,
            dst_path = './model',
@@ -1397,6 +1426,7 @@ def export(path,
         'path': path,
         'type': type,
         'tokenizer_path': tokenizer_path,
+        'eagle_path': eagle_path,
         'lora_path': lora_path,
         'gptq_path': gptq_path,
         'dst_path': dst_path,
@@ -1438,6 +1468,7 @@ def main():
                         '\n\tThe pretrain llm model type.'
                         )
     parser.add_argument('--tokenizer_path', type=str, default=None, help='tokenizer path, defaut is `None` mean using `--path` value.')
+    parser.add_argument('--eagle_path', type=str, default=None, help='eagle model path, defaut is `None`')
     parser.add_argument('--lora_path', type=str, default=None, help='lora path, defaut is `None` mean not apply lora.')
     parser.add_argument('--gptq_path', type=str, default=None, help='gptq path, defaut is `None` mean not apply gptq.')
     parser.add_argument('--dst_path', type=str, default='./model', help='export onnx/mnn model to path, defaut is `./model`.')

@@ -34,7 +34,7 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^aarch64" OR ARCHS STREQUAL "arm64" OR AR
     message(STATUS "Enabling AArch64 Assemblies")
   
     if (MNN_KLEIDIAI)
-       include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/KleidiAI.cmake)
+       include(${CMAKE_SOURCE_DIR}/cmake/KleidiAI.cmake)
        download_kleidiai_and_collect_sources()
     endif()
 

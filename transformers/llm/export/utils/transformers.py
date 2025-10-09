@@ -129,6 +129,11 @@ class Attention(torch.nn.Module):
             query_states = self.rotary.apply_rotary_pos(query_states, cos, sin)
             key_states = self.rotary.apply_rotary_pos(key_states, cos, sin)
 
+        # MobileLLM model llama4_text has qk_norm after rotary
+        if hasattr(self, 'qk_norm') and self.qk_norm is not None :
+            query_states = self.qk_norm(query_states)
+            key_states = self.qk_norm(key_states)
+
         if self.export_fused_attn:
             attn_output = self.fused_attn(query_states, key_states, value_states, attention_mask)
             attn_output = self.o_proj(attn_output)
@@ -626,3 +631,19 @@ class Lm(torch.nn.Module):
     def forward(self, hidden_states):
         m_logits = self.lm(hidden_states)
         return m_logits
+
+class RMSNorm(torch.nn.Module):
+    def __init__(self, hidden_size, eps=1e-6):
+        """
+        LlamaRMSNorm is equivalent to T5LayerNorm
+        """
+        super().__init__()
+        self.weight = torch.nn.Parameter(torch.ones(hidden_size))
+        self.variance_epsilon = eps
+
+    def forward(self, hidden_states):
+        input_dtype = hidden_states.dtype
+        hidden_states = hidden_states.to(torch.float32)
+        variance = hidden_states.pow(2).mean(-1, keepdim=True)
+        hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
+        return self.weight * hidden_states.to(input_dtype)

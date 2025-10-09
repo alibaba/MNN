@@ -25,17 +25,8 @@ void DequantizeTflite::run(MNN::OpT *dstOp, const std::unique_ptr<tflite::Operat
     auto inputIndex = tfliteOp->inputs[0];
     const auto& inputTensor = tfliteTensors[inputIndex];
     const auto& outputTensor = tfliteTensors[tfliteOp->outputs[0]];
-    if (inputTensor->quantization.get() == nullptr || inputTensor->quantization->zero_point.empty()) {
-        // It's half to float / float to half, just use cast
-        dstOp->type = MNN::OpType_Cast;
-        dstOp->main.type = MNN::OpParameter_CastParam;
-        dstOp->main.value = new MNN::CastParamT;
-        dstOp->main.AsCastParam()->srcT = MNN::DataType_DT_FLOAT;
-        dstOp->main.AsCastParam()->dstT = MNN::DataType_DT_FLOAT;
-        return;
-    }
-    if (inputTensor->type == tflite::TensorType_INT8 || inputTensor->type == tflite::TensorType_FLOAT16 || inputTensor->type == tflite::TensorType_FLOAT32) {
-        if (outputTensor->type == tflite::TensorType_INT8 || outputTensor->type == tflite::TensorType_FLOAT16 || outputTensor->type == tflite::TensorType_FLOAT32) {
+    if (inputTensor->type != tflite::TensorType_UINT8) {
+        if (outputTensor->type != tflite::TensorType_UINT8) {
             dstOp->type = MNN::OpType_Identity;
             dstOp->main.type = MNN::OpParameter_NONE;
             return;

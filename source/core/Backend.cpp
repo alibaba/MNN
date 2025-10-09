@@ -48,7 +48,9 @@ extern void registerNNAPIRuntimeCreator();
 #if MNN_QNN_ENABLED
 extern void registerQNNRuntimeCreator();
 #endif
-
+#ifdef MNN_NEUROPILOT
+extern void registerNeuroPilot();
+#endif
 static std::once_flag s_flag;
 void registerBackend() {
     std::call_once(s_flag, [&]() {
@@ -74,6 +76,9 @@ void registerBackend() {
 #endif
 #if MNN_METAL_ENABLED
         registerMetalRuntimeCreator();
+#endif
+#ifdef MNN_NEUROPILOT
+        registerNeuroPilot();
 #endif
     });
 }

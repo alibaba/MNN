@@ -12,6 +12,7 @@ add_executable(GetMNNInfo ${CMAKE_CURRENT_LIST_DIR}/GetMNNInfo.cpp)
 list(APPEND MNN_CPP_TOOLS GetMNNInfo)
 add_executable(ModuleBasic.out ${CMAKE_CURRENT_LIST_DIR}/ModuleBasic.cpp)
 list(APPEND MNN_CPP_TOOLS ModuleBasic.out)
+
 IF(CMAKE_SYSTEM_NAME MATCHES "^Android")
     add_executable(GpuInterTest.out ${CMAKE_CURRENT_LIST_DIR}/GpuInterTest.cpp )
     target_link_libraries(GpuInterTest.out android)
@@ -43,10 +44,17 @@ list(APPEND MNN_CPP_TOOLS backendTest.out)
 add_executable(testModel.out ${CMAKE_CURRENT_LIST_DIR}/testModel.cpp)
 list(APPEND MNN_CPP_TOOLS testModel.out)
 
+add_executable(seperatenpu ${CMAKE_CURRENT_LIST_DIR}/seperatenpu.cpp)
+list(APPEND MNN_CPP_TOOLS seperatenpu)
+
+
 if (MNN_QNN)
     add_executable(MNN2QNNModel ${CMAKE_CURRENT_LIST_DIR}/MNN2QNNModel.cpp)
     list(APPEND MNN_CPP_TOOLS MNN2QNNModel)
 endif()
+add_executable(generateLlmIO ${CMAKE_CURRENT_LIST_DIR}/generateLlmIO.cpp)
+list(APPEND MNN_CPP_TOOLS generateLlmIO)
+
 
 add_executable(testModel_expr.out ${CMAKE_CURRENT_LIST_DIR}/testModel_expr.cpp)
 list(APPEND MNN_CPP_TOOLS testModel_expr.out)

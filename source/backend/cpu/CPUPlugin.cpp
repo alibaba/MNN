@@ -38,18 +38,25 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor*>& inputs, // NOLINT
                                 const std::vector<Tensor*>& outputs) override;
 
+    virtual ErrorCode onResize(const std::vector<Tensor*>& inputs, // NOLINT
+                                const std::vector<Tensor*>& outputs) override;
+
 private:
     std::unique_ptr<plugin::CPUKernelContext> ctx_;
     std::shared_ptr<plugin::CPUComputeKernel> kernel_;
 };
+ErrorCode CPUPlugin::onResize(const std::vector<Tensor*>& inputs,
+                               const std::vector<Tensor*>& outputs) {
+    auto success = kernel_->resize(ctx_.get());
+    if (!success) {
+        return OUT_OF_MEMORY;
+    }
+    return NO_ERROR;
+}
 
 ErrorCode CPUPlugin::onExecute(const std::vector<Tensor*>& inputs, // NOLINT
                                const std::vector<Tensor*>& outputs) {
-    // Setup new context with inputs and outputs.
-    plugin::CPUKernelContext ctx( // NOLINT
-        ctx_->op_type(), ctx_->backend(), inputs, outputs, ctx_->dir_path());
-    ctx.setAttrs(ctx_->getAttrs());
-    if (kernel_->compute(&ctx)) {
+    if (kernel_->compute(ctx_.get())) {
         return NO_ERROR;
     } else {
         MNN_ERROR("Plugin kernel compute failed with false returned.");

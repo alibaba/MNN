@@ -455,4 +455,4 @@ MNNTestSuiteRegister(DenseConvInt8Test, "op/lowMemory/DenseConv");
 MNNTestSuiteRegister(HybridConvInt8Test, "op/lowMemory/HybridConv");
 MNNTestSuiteRegister(HybridConvSpeedInt8Test, "speed/HybridConv");
 MNNTestSuiteRegister(ConvInt8BlockQuantTest, "op/lowMemory/blockConv");
-//MNNTestSuiteRegister(PTQInt4Test, "op/int4Ptq");
+MNNTestSuiteRegister(PTQInt4Test, "op/int4Ptq");

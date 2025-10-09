@@ -32,6 +32,7 @@ class DiskEmbedding;
 class Sampler;
 class Prompt;
 class Generation;
+class EagleGeneration;
 struct TimePerformance;
 
 using ChatMessage = std::pair<std::string, std::string>; // <role, content>
@@ -171,6 +172,7 @@ protected:
     friend class ArGeneration;
     friend class LookaheadGeneration;
     friend class MtpGeneration;
+    friend class EagleGeneration;
     std::vector<Express::VARP> forwardVec(const std::vector<int>& input_ids);
     std::vector<Express::VARP> forwardVec(MNN::Express::VARP input_embeds);
 private:

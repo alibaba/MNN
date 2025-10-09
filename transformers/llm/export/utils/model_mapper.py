@@ -184,6 +184,24 @@ class ModelMapper:
         }
         self.regist('qwen3', qwen3_map)
 
+    def regist_llama4_text(self):
+        llama4_text_attention = {
+            'q_proj': 'q_proj',
+            'k_proj': 'k_proj',
+            'v_proj': 'v_proj',
+            'o_proj': 'o_proj',
+            'qk_norm': 'qk_norm'
+        }
+        llama4_text_decoder = copy.deepcopy(self.default_decoder)
+        llama4_text_decoder['mlp'] = 'feed_forward'
+        llama4_text_map = {
+            'config': self.default_config,
+            'model': self.default_model,
+            'decoder': llama4_text_decoder,
+            'attention': llama4_text_attention
+        }
+        self.regist('llama4_text', llama4_text_map)
+
     def regist_qwen3_moe(self):
         qwen3_attention = {
             'q_proj': 'q_proj',
