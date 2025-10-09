@@ -19,6 +19,7 @@ class ModelRepository(private val context: Context) {
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
+        .cache(null) // Disable HTTP cache
         .build()
 
     private val gson = Gson()
@@ -93,6 +94,16 @@ class ModelRepository(private val context: Context) {
             val cacheData = loadFromCache()
             if (cacheData != null) {
                 Log.d(TAG, "Successfully loaded data from local cache")
+                if (assetsData != null) {
+                    val cacheVersion = cacheData.version
+                    val assetsVersion = assetsData.version
+                    Log.d(TAG, "Cache version: $cacheVersion, Assets version: $assetsVersion")
+                    if (isVersionLower(cacheVersion, assetsVersion)) {
+                        Log.d(TAG, "Cache version is lower than assets version, using assets data")
+                        cachedModelMarketData = assetsData
+                        return@withContext assetsData
+                    }
+                }
                 cachedModelMarketData = cacheData
                 return@withContext cacheData
             }
@@ -127,6 +138,9 @@ class ModelRepository(private val context: Context) {
         try {
             val request = Request.Builder()
                 .url(NETWORK_URL)
+                .addHeader("Cache-Control", "no-cache, no-store, must-revalidate")
+                .addHeader("Pragma", "no-cache")
+                .addHeader("Expires", "0")
                 .build()
 
             val response = httpClient.newCall(request).execute()
@@ -143,6 +157,37 @@ class ModelRepository(private val context: Context) {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Network request failed", e)
+        }
+        return@withContext null
+    }
+
+    /**
+     * Force refresh market data from network and update cache.
+     * Will still prefer assets if network version is older than assets.
+     */
+    suspend fun refreshFromNetwork(): ModelMarketData? = withContext(Dispatchers.IO) {
+        try {
+            val assetsData = loadFromAssets()
+            val networkData = fetchFromNetwork()
+            if (networkData != null) {
+                if (assetsData != null) {
+                    val networkVersion = networkData.version ?: "0"
+                    val assetsVersion = assetsData.version
+                    if (isVersionLower(networkVersion, assetsVersion)) {
+                        Log.d(TAG, "[refreshFromNetwork] Network version lower than assets, using assets data")
+                        cachedModelMarketData = assetsData
+                        isNetworkRequestAttempted = true
+                        return@withContext assetsData
+                    }
+                }
+                Log.d(TAG, "[refreshFromNetwork] Using network data and updating cache")
+                cachedModelMarketData = networkData
+                saveCacheToFile(networkData)
+                isNetworkRequestAttempted = true
+                return@withContext networkData
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "refreshFromNetwork failed", e)
         }
         return@withContext null
     }

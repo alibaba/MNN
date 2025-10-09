@@ -10,6 +10,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 ErrorCode QNNReduce::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     MNN_ASSERT(inputs.size() == 2 || inputs.size() == 1);
@@ -75,6 +76,6 @@ public:
 };
 
 REGISTER_QNN_OP_CREATOR(QNNReduceCreator, OpType_Reduction)
-
+#endif
 } // end namespace QNN
 } // end namespace MNN

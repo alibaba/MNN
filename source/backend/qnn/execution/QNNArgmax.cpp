@@ -10,6 +10,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 ErrorCode QNNArgmax::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     if (mOp->type() == OpType_ArgMin) {
@@ -43,6 +44,6 @@ public:
 
 REGISTER_QNN_OP_CREATOR(QNNArgmaxCreator, OpType_ArgMax)
 REGISTER_QNN_OP_CREATOR(QNNArgmaxCreator, OpType_ArgMin)
-
+#endif
 } // end namespace QNN
 } // end namespace MNN

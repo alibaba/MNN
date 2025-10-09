@@ -164,6 +164,7 @@ ErrorCode KleidiAIConvInt8::onResize(const std::vector<Tensor*>& inputs, const s
     auto inputOriginFmt = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
     auto outputOriginFmt = TensorUtils::getDescribe(outputs[0])->dimensionFormat;
     halide_type_t dataType = core->bytes == 2 ? halide_type_of<int16_t>() : halide_type_of<float>();
+
     if(inputOriginFmt != MNN_DATA_FORMAT_NHWC){
         mInputConvertBuffer.reset(Tensor::createDevice(std::vector<int>{input->batch(), input->height(), input->width(), input->channel()}, dataType, Tensor::DimensionType::TENSORFLOW));
         mValid = b->onAcquireBuffer(mInputConvertBuffer.get(), Backend::DYNAMIC);
@@ -269,7 +270,7 @@ ErrorCode KleidiAIConvInt8::onExecute(const std::vector<Tensor*>& inputs, const 
         dst = mOutputConvertBuffer->host<uint8_t>();
     }
 
-    if(kai.bSupportSme2() && mAccelType == KleidiAI::AccelType::QI4_SYM_CHNLQT_F32) {
+    if(kai.bSupportSme2()) {
         //SME prefer running on single thread to obtain better performance/power consumption ratio.
         threadNum = 1;
     }

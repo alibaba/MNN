@@ -5,6 +5,7 @@ import com.alibaba.mnnllm.android.chat.ChatActivity
 import com.alibaba.mnnllm.android.llm.LlmSession
 import com.alibaba.mnnllm.api.openai.network.routes.chatRoutes
 import com.alibaba.mnnllm.api.openai.network.routes.queueRoutes
+import com.alibaba.mnnllm.api.openai.network.routes.modelsRoutes
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
@@ -19,6 +20,8 @@ import io.ktor.server.routing.*
 import io.ktor.server.sse.*
 import io.ktor.sse.*
 import org.slf4j.event.*
+import android.content.Context
+import java.io.InputStream
 
 
 fun Application.configureRouting() {
@@ -26,8 +29,12 @@ fun Application.configureRouting() {
 
     routing {
         get("/") {
-            val response = "Hello, World!"
-            call.respondText(response, contentType = ContentType.Text.Plain)
+            try {
+                val htmlContent = loadHtmlFromAssets()
+                call.respondText(htmlContent, contentType = ContentType.Text.Html)
+            } catch (e: Exception) {
+                call.respondText("Error loading test page: ${e.message}", contentType = ContentType.Text.Plain)
+            }
         }
         sse("/hello") {
             send(ServerSentEvent("world"))
@@ -40,6 +47,8 @@ fun Application.configureRouting() {
             // 在这里定义需要认证的路由
             // /v1/chat/completions
             chatRoutes()
+            // /v1/models
+            modelsRoutes()
         }
     }
 
@@ -59,4 +68,19 @@ fun Application.configureRouting() {
 
 }
 
-
+/**
+ * 从assets目录加载HTML文件
+ */
+private fun loadHtmlFromAssets(): String {
+    return try {
+        // 使用Application Context来访问assets
+        val context = com.alibaba.mnnllm.android.MnnLlmApplication.getAppContext()
+        val inputStream: InputStream = context.assets.open("test_page.html")
+        
+        inputStream.bufferedReader().use { reader ->
+            reader.readText()
+        }
+    } catch (e: Exception) {
+        throw Exception("Failed to load HTML from assets: ${e.message}")
+    }
+}

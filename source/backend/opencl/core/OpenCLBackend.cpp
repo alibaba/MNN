@@ -47,8 +47,13 @@ CLRuntime::CLRuntime(const Backend::Info& info){
         mPrecision = mInfo.user->precision;
         mMemory    = mInfo.user->memory;
     }
-
-        mOpenCLRuntime.reset(new OpenCLRuntime(platform_size, platform_id, device_id, context_ptr, hint()));
+    
+    // protect
+    if(mPrecision > 2 || mPrecision < 0){
+        mPrecision = BackendConfig::Precision_High;
+    }
+    
+    mOpenCLRuntime.reset(new OpenCLRuntime(platform_size, platform_id, device_id, context_ptr, hint()));
     
     //Whether runtimeError
     mCLRuntimeError = mOpenCLRuntime->isCreateError();
@@ -206,6 +211,10 @@ Backend* CLRuntime::onCreate(const BackendConfig* config, Backend* origin) const
         precision = config->precision;
         memory = config->memory;
     }
+    // protect
+    if(precision > 2 || precision < 0){
+        precision = BackendConfig::Precision_High;
+    }
     auto backend = new OpenCLBackend(precision, memory, mInfo.gpuMode, mImagePool, mBufferPool, this);
     backend->setMetaPtr(pMeta);
     return backend;
@@ -244,6 +253,10 @@ OpenCLBackend::OpenCLBackend(BackendConfig::PrecisionMode precision, BackendConf
             mPrecision = BackendConfig::Precision_Low;
         }
     } else{
+        mPrecision = BackendConfig::Precision_High;
+    }
+    // protect
+    if(mPrecision > 2 || mPrecision < 0){
         mPrecision = BackendConfig::Precision_High;
     }
     mMemory = memory;
@@ -343,7 +356,7 @@ float OpenCLBackend::getBytes(const Tensor* tensor) {
         }
     }
     auto quant = TensorUtils::getDescribe(tensor)->quantAttr.get();
-    if (nullptr != quant && TensorUtils::getDescribe(tensor)->type == DataType_DT_INT8) {
+    if (nullptr != quant && TensorUtils::getDescribe(tensor)->applyQuant) {
         bytes = 1.0;
     }
     if(tensor->getType().bits == 4) {
@@ -1208,10 +1221,10 @@ class CLRuntimeCreator : public RuntimeCreator {
 
 DataType OpenCLBackend::getDataType(const Tensor* tensor) const{
     auto des = TensorUtils::getDescribe(tensor);
-    if (nullptr == des->quantAttr.get()) {
-        return DataType_DT_FLOAT;
+    if (nullptr != des->quantAttr.get() && des->applyQuant) {
+        return des->quantAttr->type;
     }
-    return des->type;
+    return DataType_DT_FLOAT;
 }
 
 cl_channel_type OpenCLBackend::fpType() {

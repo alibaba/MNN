@@ -18,6 +18,10 @@ import android.util.Pair
 import com.alibaba.mnnllm.android.utils.MmapUtils
 import android.content.Context
 import android.app.ActivityManager
+import com.alibaba.mnnllm.android.modelsettings.Jinja
+import com.alibaba.mnnllm.android.modelsettings.JinjaContext
+import com.alibaba.mnnllm.android.modelsettings.ModelConfig.Companion.defaultConfig
+import com.alibaba.mnnllm.android.modelsettings.ModelConfig.Companion.loadConfig
 
 class LlmSession (
     private val modelId: String,
@@ -25,7 +29,6 @@ class LlmSession (
     private val configPath: String,
     var savedHistory: List<ChatDataItem>?,
 ): ChatSession{
-    private var extraAssistantPrompt: String? = null
     override var supportOmni: Boolean = false
     private var nativePtr: Long = 0
 
@@ -66,16 +69,12 @@ class LlmSession (
             rootCacheDir = MmapUtils.getMmapDir(modelId)
             File(rootCacheDir).mkdirs()
         }
-        val backend = config.backendType
         val configMap = HashMap<String, Any>().apply {
             put("is_r1", ModelUtils.isR1Model(modelId))
             put("mmap_dir", rootCacheDir ?: "")
             put("keep_history", keepHistory)
         }
-        val extraConfig = ModelConfig.loadMergedConfig(configPath, getExtraConfigFile(modelId))?.apply {
-            this.assistantPromptTemplate = extraAssistantPrompt
-            this.backendType = backend
-        }
+        val extraConfig = ModelConfig.loadMergedConfig(configPath, getExtraConfigFile(modelId))
         Log.d(TAG, "MNN_DEBUG load initNative")
         nativePtr = initNative(
                 configPath,
@@ -92,6 +91,10 @@ class LlmSession (
         if (releaseRequested) {
             release()
         }
+    }
+
+    fun getConfig(): ModelConfig? {
+        return ModelConfig.loadMergedConfig(configPath, getExtraConfigFile(modelId))
     }
 
     private fun generateNewSessionId(): String {
@@ -209,9 +212,18 @@ class LlmSession (
         updateSystemPromptNative(nativePtr, systemPrompt)
     }
 
-    fun updateAssistantPrompt(assistantPrompt: String) {
-        extraAssistantPrompt = assistantPrompt
-        updateAssistantPromptNative(nativePtr, assistantPrompt)
+    override fun updateThinking(thinking: Boolean) {
+        val loadedConfig = loadConfig(modelId)
+        loadedConfig?.let {
+            loadedConfig.jinja = Jinja(context = JinjaContext(enableThinking = thinking))
+            ModelConfig.saveConfig(getExtraConfigFile(modelId), loadedConfig)
+            updateConfig(Gson().toJson(loadedConfig))
+        }
+    }
+
+    fun updateConfig(configJson: String) {
+        Log.d(TAG, "updateConfig: $configJson")
+        updateConfigNative(nativePtr, configJson)
     }
 
     private external fun updateEnableAudioOutputNative(llmPtr: Long, enable: Boolean)
@@ -222,6 +234,8 @@ class LlmSession (
     private external fun updateSystemPromptNative(llmPtr: Long, systemPrompt: String)
 
     private external fun updateAssistantPromptNative(llmPtr: Long, assistantPrompt: String)
+
+    private external fun updateConfigNative(llmPtr: Long, configJson: String)
 
 
     companion object {

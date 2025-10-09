@@ -10,6 +10,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 ErrorCode QNNConcat::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     mNodeType = "Concat";
@@ -51,7 +52,7 @@ public:
 };
 
 REGISTER_QNN_OP_CREATOR(QNNConcatCreator, OpType_Concat)
-
+#endif
 } // end namespace QNN
 } // end namespace MNN
 

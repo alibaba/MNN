@@ -33,11 +33,8 @@ mkdir build && cd build && cmake .. -DCMAKE_OSX_ARCHITECTURES=arm64 && make -j8
 
 ## Windows(Visual-Studio)
 - 编译环境
-  建议使用`Windows Terminal`，选择`VS`环境的Tab后进行编译， 如下：
-  ![image.png](../_static/images/compile/vs_shell.png)
-  如不使用`Windows Terminal`，可参考如下：
-    - 64位编译：在设置中找到vcvars64.bat（适用于 VS 2017 的 x64 本机工具命令提示）并单击，打开VS编译x64架构程序的虚拟环境
-    - 32位编译：在设置中找到vcvarsamd64_x86.bat（VS 2017的 x64_x86 交叉工具命令提示符）并单击，打开VS交叉编译x86架构程序的虚拟环境
+  - 64位编译：在设置中找到`vcvars64.bat`（适用于 VS 2017 的 x64 本机工具命令提示）并单击，打开VS编译x64架构程序的虚拟环境
+  - 32位编译：在设置中找到`vcvarsamd64_x86.bat`（VS 2017的 `x64_x86` 交叉工具命令提示符）并单击，打开VS交叉编译x86架构程序的虚拟环境
 - 环境要求
   - Microsoft Visual Studio >= 2017
   - cmake >= 3.13

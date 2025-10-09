@@ -1,10 +1,8 @@
-option(LLM_SUPPORT_VISION "Llm model support vision input." OFF)
-option(LLM_SUPPORT_AUDIO "Llm model support audio input." OFF)
 option(BUILD_MLS "Build PC Commandline." OFF)
 option(LLM_USE_MINJA "Use minja to apply template" ON)
 
 set(LLM_DEPS ${MNN_DEPS})
-if (LLM_SUPPORT_VISION AND MNN_BUILD_OPENCV)
+if (MNN_BUILD_OPENCV)
     add_definitions(-DLLM_SUPPORT_VISION)
     if (MNN_SEP_BUILD)
         list(APPEND LLM_DEPS MNNOpenCV)
@@ -12,7 +10,11 @@ if (LLM_SUPPORT_VISION AND MNN_BUILD_OPENCV)
     include_directories(${CMAKE_CURRENT_LIST_DIR}/../../../tools/cv/include/)
 endif()
 
-if (LLM_SUPPORT_AUDIO AND MNN_BUILD_AUDIO)
+if(MNN_IMGCODECS)
+    add_definitions(-DMNN_IMGCODECS)
+endif()
+
+if (MNN_BUILD_AUDIO)
     if (MNN_SEP_BUILD)
         list(APPEND LLM_DEPS MNNAudio)
     endif()
@@ -44,12 +46,27 @@ if (LLM_USE_MINJA)
     target_link_libraries(apply_template ${LLM_DEPS})
 endif()
 
-if (LLM_SUPPORT_VISION AND MNN_BUILD_OPENCV)
+if (MNN_BUILD_OPENCV)
     target_compile_definitions(llm PRIVATE LLM_SUPPORT_VISION)
 endif()
-if (LLM_SUPPORT_AUDIO AND MNN_BUILD_AUDIO)
+if (MNN_BUILD_AUDIO)
     add_definitions(-DLLM_SUPPORT_AUDIO)
 endif()
+
+IF(CMAKE_SYSTEM_NAME MATCHES "^Android" AND NOT MNN_BUILD_FOR_ANDROID_COMMAND)
+IF(NOT NATIVE_INCLUDE_OUTPUT)
+  set(NATIVE_INCLUDE_OUTPUT ".")
+ENDIF()
+add_custom_command(
+  TARGET llm
+  POST_BUILD
+  COMMAND ${CMAKE_COMMAND}
+  ARGS -E copy_directory ${CMAKE_CURRENT_LIST_DIR}/include ${NATIVE_INCLUDE_OUTPUT}
+)
+ELSE()
+INSTALL(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/include/ DESTINATION include FILES_MATCHING PATTERN *.hpp)
+ENDIF()
+
 
 add_executable(llm_demo ${CMAKE_CURRENT_LIST_DIR}/demo/llm_demo.cpp)
 add_executable(embedding_demo ${CMAKE_CURRENT_LIST_DIR}/demo/embedding_demo.cpp)

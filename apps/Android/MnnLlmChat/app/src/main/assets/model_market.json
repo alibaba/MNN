@@ -1,7 +1,7 @@
 {
-    "version": "3",
+    "version": "6",
     "tagTranslations": {
-        "Vision": "图片理解",
+        "Vision": "图像理解",
         "Video": "视频理解",
         "Audio": "音频理解",
         "Code": "代码",
@@ -36,9 +36,96 @@
         "THUDM",
         "InternLM",
         "01.AI",
-        "Hunyuan"
+        "Hunyuan",
+        "MiniCPM",
+        "Lingshu"
     ],
     "models": [
+        {
+            "modelName": "WebSailor-3B-MNN",
+            "tags": [
+            ],
+            "categories": [
+                "recommended",
+                "qwen"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/WebSailor-3B-MNN",
+                "ModelScope": "MNN/WebSailor-3B-MNN"
+            },
+            "size_gb": 7,
+            "vendor": "Qwen",
+            "file_size": 2089778449
+        },
+        {
+            "modelName": "Lingshu-7B-MNN",
+            "tags": [
+                "Vision"
+            ],
+            "categories": [
+                "recommended",
+                "qwen"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/Lingshu-7B-MNN",
+                "ModelScope": "MNN/Lingshu-7B-MNN"
+            },
+            "size_gb": 7,
+            "vendor": "Lingshu",
+            "file_size": 5890502337
+        },
+        {
+            "modelName": "MiniCPM-V-4-MNN",
+            "tags": [
+                "Vision"
+            ],
+            "categories": [
+                "recommended",
+                "qwen"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/MiniCPM-V-4-MNN",
+                "ModelScope": "MNN/MiniCPM-V-4-MNN",
+                "Modelers": "MNN/MiniCPM-V-4-MNN"
+            },
+            "size_gb": 4.1,
+            "vendor": "MiniCPM",
+            "file_size": 2834668967
+        },
+        {
+            "modelName": "MiniCPM4-0.5B-MNN",
+            "tags": [
+            ],
+            "categories": [
+                "recommended",
+                "qwen"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/MiniCPM4-0.5B-MNN",
+                "ModelScope": "MNN/MiniCPM4-0.5B-MNN",
+                "Modelers": "MNN/MiniCPM4-0.5B-MNN"
+            },
+            "size_gb": 8,
+            "vendor": "MiniCPM",
+            "file_size": 311061970
+        },
+        {
+            "modelName": "MiniCPM4-8B-MNN",
+            "tags": [
+            ],
+            "categories": [
+                "recommended",
+                "qwen"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/MiniCPM4-8B-MNN",
+                "ModelScope": "MNN/MiniCPM4-8B-MNN",
+                "Modelers": "MNN/MiniCPM4-8B-MNN"
+            },
+            "size_gb": 8,
+            "vendor": "MiniCPM",
+            "file_size": 5533462384
+        },
         {
             "modelName": "gpt-oss-20b-MNN",
             "tags": [
@@ -242,8 +329,7 @@
             ],
             "sources": {
                 "HuggingFace": "taobao-mnn/ERNIE-4.5-0.3B-PT-MNN",
-                "ModelScope": "MNN/ERNIE-4.5-0.3B-PT-MNN",
-                "Modelers": "MNN/ERNIE-4.5-0.3B-PT-MNN"
+                "ModelScope": "MNN/ERNIE-4.5-0.3B-PT-MNN"
             },
             "size_gb": 0.3,
             "vendor": "ERNIE",
@@ -271,6 +357,7 @@
             "tags": [
                 "Think"
             ],
+            "extra_tags": ["ThinkingSwitch"],
             "categories": [
                 "recommended",
                 "qwen"
@@ -289,6 +376,7 @@
             "tags": [
                 "Think"
             ],
+            "extra_tags": ["ThinkingSwitch"],
             "categories": [
                 "recommended",
                 "qwen"
@@ -327,6 +415,7 @@
             "tags": [
                 "Think"
             ],
+            "extra_tags": ["ThinkingSwitch"],
             "categories": [
                 "recommended",
                 "qwen"
@@ -345,6 +434,7 @@
             "tags": [
                 "Think"
             ],
+            "extra_tags": ["ThinkingSwitch"],
             "categories": [
                 "recommended",
                 "qwen"
@@ -381,6 +471,7 @@
             "tags": [
                 "Think"
             ],
+            "extra_tags": ["ThinkingSwitch"],
             "categories": [
                 "recommended",
                 "qwen"
@@ -419,6 +510,7 @@
             "tags": [
                 "Think"
             ],
+            "extra_tags": ["ThinkingSwitch"],
             "categories": [
                 "recommended",
                 "qwen"
@@ -437,6 +529,7 @@
             "tags": [
                 "Think"
             ],
+            "extra_tags": ["ThinkingSwitch"],
             "categories": [
                 "recommended",
                 "qwen"

@@ -63,15 +63,22 @@
 2. 编译 MNN.framework:
 
     ```shell
-    cd MNN/
-    sh package_scripts/ios/buildiOS.sh "-DMNN_ARM82=true -DMNN_LOW_MEMORY=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_BUILD_LLM=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true
+    sh package_scripts/ios/buildiOS.sh "
+    -DMNN_ARM82=ON
+    -DMNN_LOW_MEMORY=ON
+    -DMNN_SUPPORT_TRANSFORMER_FUSE=ON
+    -DMNN_BUILD_LLM=ON
+    -DMNN_CPU_WEIGHT_DEQUANT_GEMM=ON
     -DMNN_METAL=ON
     -DMNN_BUILD_DIFFUSION=ON
-    -DMNN_BUILD_OPENCV=ON
-    -DMNN_IMGCODECS=ON
     -DMNN_OPENCL=OFF
     -DMNN_SEP_BUILD=OFF
-    -DMNN_SUPPORT_TRANSFORMER_FUSE=ON"
+    -DLLM_SUPPORT_AUDIO=ON
+    -DMNN_BUILD_AUDIO=ON
+    -DLLM_SUPPORT_VISION=ON
+    -DMNN_BUILD_OPENCV=ON
+    -DMNN_IMGCODECS=ON
+    "
     ```
 
 3. 拷贝 framework 到 iOS 项目中
@@ -124,8 +131,29 @@ iPhone 因为内存有限，建议使用7B以及以下的模型，避免内存�
 3. 确保以上文件都已经在 copy bundle resources 中
 
     <img width="400" alt="image" src="./assets/copyLocalMode3.png" />
+4. 配置模型：
 
-4. 运行项目，点击进入聊天对话页面，进行模型对话和调试。
+进入ModelListViewModel.swift的配置，比如是否支持思考：
+
+```swift
+// MARK: Config the Local Model here
+let modelName = "Qwen3-0.6B-MNN-Inside" // 模型名称
+let localModel = ModelInfo(
+    modelName: modelName,
+    tags: [
+        // MARK: if you know that model support think, uncomment the line
+        // NSLocalizedString("tag.deepThinking", comment: "Deep thinking tag for local model"), // 是否支持 think
+            NSLocalizedString("tag.localModel", comment: "Local model inside the app")],
+    categories: ["Local Models"],
+    vendor: "Local",
+    sources: ["local": "bundle_root/\(modelName)"],
+    isDownloaded: true
+)
+localModels.append(localModel)
+ModelStorageManager.shared.markModelAsDownloaded(modelName)
+```
+
+5. 运行项目，点击进入聊天对话页面，进行模型对话和调试。
 
 应用会自动检测并加载LocalModel文件夹中的模型，无需额外配置。
 

@@ -10,6 +10,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
@@ -60,15 +61,15 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
     }
 
     private fun setupClickListeners() {
-        binding.startTestButton.setOnClickListener {
-            Log.d(TAG, "Start test button clicked, current text: ${binding.startTestButton.text}")
+        binding.startTestButtonContainer.setOnClickListener {
+            Log.d(TAG, "Start test button clicked, current text: ${binding.startTestText.text}")
             presenter?.onStartBenchmarkClicked()
         }
 
-        // Back button click handler
-        binding.backButton.setOnClickListener {
-            Log.d(TAG, "Back button clicked")
-            presenter?.onBackClicked()
+        // Share button click handler
+        binding.shareButton.setOnClickListener {
+            Log.d(TAG, "Share button clicked")
+            shareResultCard()
         }
 
         // Model selector click handler - now clicking the entire layout
@@ -79,7 +80,7 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
                 showModelSelectionDialog()
             } else {
                 Log.d(TAG, "Model selection disabled in state: $currentState")
-                showToast("Cannot change model during benchmark")
+                showToast(getString(R.string.cannot_change_model_during_benchmark))
             }
         }
         
@@ -138,20 +139,20 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
         
         // Update the new UI elements
         if (models.isEmpty()) {
-            binding.modelSelectorTitle.text = requireContext().getString(R.string.no_models_available)
-            binding.modelSelectorStatus.text = requireContext().getString(R.string.please_download_model)
-            binding.modelAvatar.setModelName("")
-            binding.modelTagsLayout.setTags(emptyList())
+            _binding?.modelSelectorTitle?.text = requireContext().getString(R.string.no_models_available)
+            _binding?.modelSelectorStatus?.text = requireContext().getString(R.string.please_download_model)
+            _binding?.modelAvatar?.setModelName("")
+            _binding?.modelTagsLayout?.setTags(emptyList())
         } else {
-            binding.modelSelectorTitle.text = "Select Model"
-            binding.modelSelectorStatus.text = "Click to select model"
-            binding.modelAvatar.setModelName("")
-            binding.modelTagsLayout.setTags(emptyList())
+            _binding?.modelSelectorTitle?.text = requireContext().getString(R.string.select_model_title)
+            _binding?.modelSelectorStatus?.text = requireContext().getString(R.string.click_to_select_model)
+            _binding?.modelAvatar?.setModelName("")
+            _binding?.modelTagsLayout?.setTags(emptyList())
         }
         
         // Keep the autocomplete for compatibility
-        binding.modelSelectorAutocomplete.apply {
-            setText("Select Model")
+        _binding?.modelSelectorAutocomplete?.apply {
+            setText(getString(R.string.select_model_title))
             isFocusable = false
             isClickable = true
         }
@@ -162,65 +163,151 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
         
         // Update the new UI elements with model information
         val modelItem = modelWrapper.modelItem
-        val modelName = modelItem.modelName ?: modelItem.modelId ?: "Unknown Model"
+        val modelName = modelItem.modelName ?: modelItem.modelId ?: getString(R.string.unknown_model)
         
         // Set model title and avatar
-        binding.modelSelectorTitle.text = modelName
-        binding.modelAvatar.setModelName(modelName)
+        _binding?.modelSelectorTitle?.text = modelName
+        _binding?.modelAvatar?.setModelName(modelName)
         
         // Set tags similar to ModelItemHolder
         val tags = getDisplayTags(modelItem)
-        binding.modelTagsLayout.setTags(tags)
+        _binding?.modelTagsLayout?.setTags(tags)
         
         // Set status with file size
         val formattedSize = getFormattedFileSize(modelWrapper)
-        binding.modelSelectorStatus.text = if (formattedSize.isNotEmpty()) {
+        _binding?.modelSelectorStatus?.text = if (formattedSize.isNotEmpty()) {
             getString(R.string.downloaded_click_to_chat, formattedSize)
         } else {
-            "Ready for benchmark"
+            getString(R.string.ready_for_benchmark)
         }
         
         // Keep the autocomplete updated for compatibility
-        binding.modelSelectorAutocomplete.setText(modelWrapper.displayName)
+        _binding?.modelSelectorAutocomplete?.setText(modelWrapper.displayName)
         Log.d(TAG, "Selected model: ${modelWrapper.displayName}")
     }
 
     override fun enableStartButton(enabled: Boolean) {
-        binding.startTestButton.isEnabled = enabled
+        _binding?.startTestButtonContainer?.isEnabled = enabled
+        _binding?.startTestButtonContainer?.alpha = if (enabled) 1.0f else 0.5f
     }
 
     override fun updateProgress(progress: BenchmarkProgress) {
-        binding.textStatus.text = progress.statusMessage
-        binding.textStatus.visibility = View.VISIBLE
-        binding.resultCard.visibility = View.INVISIBLE
+        Log.d(TAG, "updateProgress: $progress")
+        
+        // Note: Do NOT update progress bar here as it's handled by UI state with realProgress
+        // updateBenchmarkProgress(progress.progress) - REMOVED to avoid overriding realProgress
+        
+        // Update status message
+        if (progress.statusMessage.isNotEmpty()) {
+            updateStatusMessage(progress.statusMessage)
+        }
+        
+        // Update test details if available
+        if (progress.totalIterations > 0) {
+            updateTestDetails(
+                progress.currentIteration,
+                progress.totalIterations,
+                progress.nPrompt,
+                progress.nGenerate
+            )
+        }
+        
+        // Update performance metrics if available
+        if (progress.runTimeSeconds > 0) {
+            updateProgressMetrics(
+                progress.runTimeSeconds,
+                progress.prefillTimeSeconds,
+                progress.decodeTimeSeconds,
+                progress.prefillSpeed,
+                progress.decodeSpeed
+            )
+        }
     }
 
     override fun showResults(results: BenchmarkContract.BenchmarkResults) {
         populateResultsUI(results)
-        binding.resultCard.visibility = View.VISIBLE
+        _binding?.resultCard?.visibility = View.VISIBLE
+        
+        // Scroll to result_layout after showing results
+        _binding?.resultLayout?.let { resultLayout ->
+            resultLayout.postDelayed({
+                // Get the ScrollView parent and scroll to result_layout
+                val scrollView = binding.root as? android.widget.ScrollView
+                scrollView?.let { sv ->
+                    // Calculate the scroll position to show result_layout at the top
+                    val scrollToY = resultLayout.top - sv.paddingTop
+                    sv.smoothScrollTo(0, scrollToY)
+                }
+            }, 100) // Small delay to ensure results are fully rendered
+        }
     }
 
     override fun hideResults() {
-        binding.testResultsTitle.visibility = View.INVISIBLE
-        binding.resultCard.visibility = View.INVISIBLE
+        _binding?.resultCard?.visibility = View.GONE
     }
 
     override fun updateStatus(message: String) {
-        binding.textStatus.text = message
-        binding.textStatus.visibility = View.VISIBLE
+        _binding?.statusMessage?.text = message
+        _binding?.statusCard?.visibility = View.VISIBLE
     }
 
     override fun hideStatus() {
-        binding.textStatus.visibility = View.GONE
+        _binding?.statusCard?.visibility = View.GONE
     }
 
     override fun setStartButtonText(text: String) {
         Log.d(TAG, "Setting start button text to: $text")
-        binding.startTestButton.text = text
+        if (isFragmentValid()) {
+            binding.startTestText.text = text
+            
+            // Update button icon and background based on text
+            when (text) {
+                getString(R.string.start_test) -> {
+                    binding.startTestIcon.setImageResource(R.drawable.ic_play_fill)
+                    binding.startTestIcon.visibility = View.VISIBLE
+                    binding.startTestProgress.visibility = View.GONE
+                    binding.startTestArrow.visibility = View.VISIBLE
+                    binding.startTestButtonContainer.background = ContextCompat.getDrawable(requireContext(), R.drawable.benchmark_button_background_selector)
+                }
+                getString(R.string.restart_test) -> {
+                    binding.startTestIcon.setImageResource(R.drawable.ic_play_fill)
+                    binding.startTestIcon.visibility = View.VISIBLE
+                    binding.startTestProgress.visibility = View.GONE
+                    binding.startTestArrow.visibility = View.VISIBLE
+                    binding.startTestButtonContainer.background = ContextCompat.getDrawable(requireContext(), R.drawable.benchmark_button_background_selector)
+                }
+                getString(R.string.stop_test) -> {
+                    // Check if we're in a running state (progress card is visible)
+                    if (binding.progressCard.visibility == View.VISIBLE) {
+                        // Show progress indicator when actively running (like iOS)
+                        binding.startTestIcon.visibility = View.GONE
+                        binding.startTestProgress.visibility = View.VISIBLE
+                        binding.startTestArrow.visibility = View.GONE
+                    } else {
+                        // Show stop icon when just stopping/initializing
+                        binding.startTestIcon.setImageResource(R.drawable.ic_stop_fill)
+                        binding.startTestIcon.visibility = View.VISIBLE
+                        binding.startTestProgress.visibility = View.GONE
+                        binding.startTestArrow.visibility = View.GONE
+                    }
+                    binding.startTestButtonContainer.background = ContextCompat.getDrawable(requireContext(), R.drawable.benchmark_button_stop_background_selector)
+                }
+                else -> {
+                    // For other text (like "Share", "Upload to Leaderboard"), hide icon and arrow
+                    binding.startTestIcon.visibility = View.GONE
+                    binding.startTestProgress.visibility = View.GONE
+                    binding.startTestArrow.visibility = View.VISIBLE
+                    binding.startTestButtonContainer.background = ContextCompat.getDrawable(requireContext(), R.drawable.benchmark_button_background_selector)
+                }
+            }
+        }
     }
 
     override fun setStartButtonEnabled(enabled: Boolean) {
-        binding.startTestButton.isEnabled = enabled
+        if (isFragmentValid()) {
+            binding.startTestButtonContainer.isEnabled = enabled
+            binding.startTestButtonContainer.alpha = if (enabled) 1.0f else 0.5f
+        }
     }
 
     override fun showProgressBar() {
@@ -229,64 +316,132 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
 
     override fun hideProgressBar() {
 //        binding.progressBar.visibility = View.GONE
-        // Hide textStatus if results are visible
-        if (binding.resultCard.visibility == View.VISIBLE) {
-            binding.textStatus.visibility = View.INVISIBLE
+        // Hide status card if results are visible
+        if (_binding?.resultCard?.visibility == View.VISIBLE) {
+            _binding?.statusCard?.visibility = View.INVISIBLE
         }
     }
 
     override fun showBenchmarkIcon(show: Boolean) {
-        binding.iconBenchmark.visibility = if (show) View.VISIBLE else View.INVISIBLE
-        binding.iconBenchmarkParent.visibility = if (show) View.VISIBLE else View.INVISIBLE
-        Log.d(TAG, "showBenchmarkIcon: $show")
+        // Benchmark icon removed to match iOS - no large icon display
+        Log.d(TAG, "showBenchmarkIcon: $show (removed to match iOS)")
     }
 
     override fun showBenchmarkProgressBar(show: Boolean) {
-        binding.benchmarkProgressBar.visibility = if (show) View.VISIBLE else View.INVISIBLE
-        Log.d(TAG, "showBenchmarkProgressBar: $show")
+        // Progress bar removed with benchmark icon - using progress card instead
+        // Update button state for consistency
+        if (isFragmentValid()) {
+            updateButtonIconState()
+        }
+        Log.d(TAG, "showBenchmarkProgressBar: $show (using progress card instead)")
     }
 
     override fun updateBenchmarkProgress(progress: Int) {
-        binding.benchmarkProgressBar.progress = progress
-        Log.d(TAG, "updateBenchmarkProgress: $progress%")
+        if (isFragmentValid()) {
+            // Update progress percentage text
+            binding.progressPercentage.text = "$progress%"
+            // Update actual progress bar
+            binding.progressBar.progress = progress
+        }
+        Log.d(TAG, "updateBenchmarkProgress: $progress% (updated progress bar)")
+    }
+    
+    private fun updateButtonIconState() {
+        if (isFragmentValid()) {
+            val currentText = binding.startTestText.text.toString()
+            if (currentText == getString(R.string.stop_test)) {
+                // Re-evaluate the stop button state based on progress card visibility
+                if (binding.progressCard.visibility == View.VISIBLE) {
+                    // Show progress indicator when actively running (like iOS)
+                    binding.startTestIcon.visibility = View.GONE
+                    binding.startTestProgress.visibility = View.VISIBLE
+                    binding.startTestArrow.visibility = View.GONE
+                } else {
+                    // Show stop icon when just stopping/initializing
+                    binding.startTestIcon.setImageResource(R.drawable.ic_stop_fill)
+                    binding.startTestIcon.visibility = View.VISIBLE
+                    binding.startTestProgress.visibility = View.GONE
+                    binding.startTestArrow.visibility = View.GONE
+                }
+            }
+        }
+    }
+
+    override fun showProgressCard(show: Boolean) {
+        if (isFragmentValid()) {
+            binding.progressCard.visibility = if (show) View.VISIBLE else View.GONE
+        }
+        Log.d(TAG, "showProgressCard: $show")
+    }
+
+    override fun showStatusCard(show: Boolean) {
+        if (isFragmentValid()) {
+            binding.statusCard.visibility = if (show) View.VISIBLE else View.GONE
+        }
+        Log.d(TAG, "showStatusCard: $show")
+    }
+
+    override fun updateStatusMessage(message: String) {
+        if (isFragmentValid()) {
+            binding.statusMessage.text = message
+        }
+        Log.d(TAG, "updateStatusMessage: $message")
+    }
+
+    override fun updateTestDetails(
+        currentIteration: Int,
+        totalIterations: Int,
+        nPrompt: Int,
+        nGenerate: Int
+    ) {
+        if (isFragmentValid()) {
+            binding.testIterationInfo.text = "Test $currentIteration of $totalIterations"
+            binding.testConfigInfo.text = "PP: $nPrompt • TG: $nGenerate"
+            binding.testDetailsContainer.visibility = View.VISIBLE
+        }
+        Log.d(TAG, "updateTestDetails: $currentIteration/$totalIterations, PP: $nPrompt, TG: $nGenerate")
+    }
+
+    override fun updateProgressMetrics(
+        runtime: Float,
+        prefillTime: Float,
+        decodeTime: Float,
+        prefillSpeed: Float,
+        decodeSpeed: Float
+    ) {
+        if (isFragmentValid()) {
+            binding.runtimeMetric.updateMetric("Runtime", String.format("%.3fs", runtime), "ic_clock")
+            binding.prefillTimeMetric.updateMetric("Prefill", String.format("%.3fs", prefillTime), "ic_arrow_up_circle")
+            binding.decodeTimeMetric.updateMetric("Decode", String.format("%.3fs", decodeTime), "ic_arrow_down_circle")
+            binding.prefillSpeedMetricProgress.updateMetric("Prefill Speed", String.format("%.2f t/s", prefillSpeed), "ic_speedometer")
+            binding.decodeSpeedMetricProgress.updateMetric("Decode Speed", String.format("%.2f t/s", decodeSpeed), "ic_gauge")
+        }
+        Log.d(TAG, "updateProgressMetrics: runtime=$runtime, prefill=$prefillTime, decode=$decodeTime")
     }
 
     override fun enableModelSelector(enabled: Boolean) {
-        binding.modelSelectorLayout.isEnabled = enabled
-        binding.modelSelectorLayout.alpha = if (enabled) 1.0f else 0.6f
+        if (isFragmentValid()) {
+            binding.modelSelectorLayout.isEnabled = enabled
+            binding.modelSelectorLayout.alpha = if (enabled) 1.0f else 0.6f
+        }
         Log.d(TAG, "enableModelSelector: $enabled")
     }
 
     override fun showBackButton(show: Boolean) {
-        binding.backButton.visibility = if (show) View.VISIBLE else View.GONE
-        Log.d(TAG, "showBackButton: $show")
+        // Back button removed, no longer needed
+        Log.d(TAG, "showBackButton: $show (back button removed)")
     }
 
     override fun showModelSelectorCard(show: Boolean) {
-        binding.modelSelectorCard.visibility = if (show) View.VISIBLE else View.GONE
+        if (isFragmentValid()) {
+            binding.modelSelectorCard.visibility = if (show) View.VISIBLE else View.GONE
+        }
         Log.d(TAG, "showModelSelectorCard: $show")
     }
 
     override fun updateButtonLayout(showBackButton: Boolean) {
-        if (showBackButton) {
-            // Show back button and adjust main button layout
-            binding.backButton.visibility = View.VISIBLE
-            binding.startTestButton.layoutParams = LinearLayout.LayoutParams(
-                0, 
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                weight = 1f
-                marginStart = 8
-            }
-        } else {
-            // Hide back button and make main button full width
-            binding.backButton.visibility = View.GONE
-            binding.startTestButton.layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        }
-        Log.d(TAG, "updateButtonLayout: showBackButton=$showBackButton")
+        // Back button removed, main button always full width
+        Log.d(TAG, "updateButtonLayout: showBackButton=$showBackButton (back button removed)")
     }
 
     override fun shareResultCard() {
@@ -323,7 +478,7 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
             
         } catch (e: Exception) {
             Log.e(TAG, "Error sharing result card", e)
-            showToast("Failed to share result: ${e.message}")
+            showToast(getString(R.string.failed_to_share_result, e.message ?: getString(R.string.unknown_error)))
         }
     }
 
@@ -332,17 +487,19 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
     }
     
     override fun showUploadProgress(message: String) {
-        binding.textStatus.text = message
-        binding.textStatus.visibility = View.VISIBLE
+        _binding?.statusMessage?.text = message
+        _binding?.statusCard?.visibility = View.VISIBLE
         // Disable the upload button while uploading
-        binding.startTestButton.isEnabled = false
+        _binding?.startTestButtonContainer?.isEnabled = false
+        _binding?.startTestButtonContainer?.alpha = 0.5f
         Log.d(TAG, "Showing upload progress: $message")
     }
     
     override fun hideUploadProgress() {
-        binding.textStatus.visibility = View.GONE
+        _binding?.statusCard?.visibility = View.GONE
         // Re-enable the upload button
-        binding.startTestButton.isEnabled = true
+        _binding?.startTestButtonContainer?.isEnabled = true
+        _binding?.startTestButtonContainer?.alpha = 1.0f
         Log.d(TAG, "Hiding upload progress")
     }
     
@@ -376,57 +533,62 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
     // ===== UI Helpers =====
 
     private fun populateResultsUI(results: BenchmarkContract.BenchmarkResults) {
-        binding.resultCard.visibility = View.VISIBLE
-        binding.testResultsTitle.visibility = View.VISIBLE
-        binding.modelName.text = results.modelDisplayName
+        _binding?.resultCard?.visibility = View.VISIBLE
+        _binding?.modelName?.text = results.modelDisplayName
         DeviceName.with(requireContext()).request { info, error ->
             val deviceName = info?.marketName ?: info?.name ?: android.os.Build.MODEL
-            binding.deviceInfo.text = getString(R.string.benchmark_device_info, deviceName)
+            _binding?.deviceInfo?.text = getString(R.string.benchmark_device_info, deviceName)
         }
         
         // Use BenchmarkResultsHelper to process test results
         val statistics = BenchmarkResultsHelper.processTestResults(requireContext(), results.testResults)
         
         // Display configuration
-//        binding.benchmarkConfig.text = statistics.configText
+        _binding?.benchmarkConfigText?.text = statistics.configText
         
-        // Show prompt processing results (prefill)
-        statistics.prefillStats?.let { stats ->
-            // Display average value
-            val averageText = "%.2f".format(stats.average)
-            // Display standard deviation in label
-            val labelText = "tokens/s ±%.2f".format(stats.stdev)
-            Log.d(TAG, "Setting prefill - Average: '$averageText', Label: '$labelText'")
-            binding.promptProcessingValue.text = averageText
-            binding.promptProcessingLabel.text = labelText
-        } ?: run {
-            Log.d(TAG, "No prefill stats available")
-        }
+        // Set up performance metrics using new PerformanceMetricView components
+        _binding?.prefillSpeedMetric?.setSpeedMetric(
+            R.drawable.ic_speed,
+            R.string.prefill_speed_title,
+            statistics.prefillStats,
+            R.color.benchmark_gradient_start
+        )
         
-        // Show token generation results (decode)
-        statistics.decodeStats?.let { stats ->
-            // Display average value
-            val averageText = "%.2f".format(stats.average)
-            // Display standard deviation in label
-            val labelText = "tokens/s ±%.2f".format(stats.stdev)
-            Log.d(TAG, "Setting decode - Average: '$averageText', Label: '$labelText'")
-            binding.tokenGenerationValue.text = averageText
-            binding.tokenGenerationLabel.text = labelText
-        } ?: run {
-            Log.d(TAG, "No decode stats available")
-        }
+        _binding?.decodeSpeedMetric?.setSpeedMetric(
+            R.drawable.ic_gauge,
+            R.string.decode_speed_title, 
+            statistics.decodeStats,
+            R.color.benchmark_gradient_end
+        )
         
-        // Display peak memory usage
-        val (peakValue, maxValue) = BenchmarkResultsHelper.formatMemoryUsageDetailed(requireContext(), results.maxMemoryKb)
-        binding.peakMemoryValue.text = peakValue
-        binding.maxMemoryValue.text = maxValue
+        // Set up total time metric
+        _binding?.totalTokensMetric?.setTotalTimeMetric(
+            statistics.totalTimeSeconds,
+            R.color.benchmark_success
+        )
+        
+        // Set up peak memory metric
+        val totalMemoryKb = BenchmarkResultsHelper.getTotalMemoryKb()
+        _binding?.peakMemoryMetric?.setMemoryMetric(
+            results.maxMemoryKb,
+            totalMemoryKb,
+            R.color.benchmark_warning
+        )
+        
         // Timestamp
-        binding.timestamp.text = results.timestamp
+        _binding?.timestamp?.text = results.timestamp
         
         Log.d(TAG, "Results populated - Memory: ${results.maxMemoryKb} KB, Model: ${results.modelDisplayName}")
     }
 
     // ===== Helper Methods =====
+
+    /**
+     * Check if fragment is in valid state for UI updates
+     */
+    private fun isFragmentValid(): Boolean {
+        return isAdded && !isDetached && _binding != null
+    }
 
     /**
      * Get current benchmark state from presenter

@@ -73,6 +73,8 @@ private:
     MemChunk mBiasBufferFusedInputzero;
     MemChunk mWeight4Prefill;
     MemChunk mWeightKernelSum4Prefill;
+    // for 4Bit Ptq model
+    MemChunk mTempOutput;
     std::vector<int32_t> mDivides;
 
     int mGemmUnits[3];
@@ -86,6 +88,9 @@ private:
     int mSizeInputBlockQuant;
     bool mToFuseInputbias2Bias;
     bool mOnlineReorderWeightSme = false;
+
+    // for 4Bit Ptq model
+    bool m4BitPtq = false;
     MatmulRelatedFunctions mRelatedFunctions;
 };
 

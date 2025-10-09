@@ -85,6 +85,7 @@ int main(int argc, char* argv[]) {
     scope.Current()->getRuntime().second->setRuntimeHint(hint);
     MNNTestSuite::get()->pStaus.memory = memory;
     MNNTestSuite::get()->pStaus.precision = precision;
+    MNNTestSuite::get()->pStaus.forwardType = type;
     if (argc > 1) {
         auto name = argv[1];
         if (strcmp(name, "all") == 0) {

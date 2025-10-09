@@ -2,3 +2,4 @@
 toc.pb
 *.apks
 .cursorrules
+release_outputs/

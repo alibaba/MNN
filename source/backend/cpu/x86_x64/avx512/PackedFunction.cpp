@@ -1064,6 +1064,39 @@ static void _AVX512_MNNAdjustOptimalSparseKernel(int& sparseBlockOC, MNN::CoreFu
     }
 }
 
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+void _AVX512_MNNFlashAttentionUpdateBlockOutput(float* dst, float* src, float* scale, float* normalizeScale, int depthQuad, int plane, int pack, int idx, int kvBlocks, int size, int bytes) {
+    // source shape:                 [headDim/pack, seqLen, pack]
+    // scale & normalizeScale shape: [seqLen]
+    // dest shape:                   [headDim/pack, seqLen, pack]
+    auto stride0 = plane * pack;
+
+    if (idx > 0) {
+        for (int j = 0; j < depthQuad; ++j) {
+            for (int i = 0; i < plane; ++i) {
+                auto dataNew = Vec::load(src + j * stride0 + i * pack);
+                auto dataOld = Vec::load(dst + j * stride0 + i * pack);
+                auto s = Vec(scale[i]);
+                dataNew = Vec::fma(dataNew, dataOld, s);
+                Vec::save(dst + j * stride0 + i * pack, dataNew);
+            }
+        }
+    } else {
+        memcpy(dst, src, size * bytes);
+    }
+    if (idx == kvBlocks - 1) { // if last subBlock, exp(xi)/sum(exp(xi))
+        for (int j = 0; j < depthQuad; ++j) {
+            for (int i = 0; i < plane; ++i) {
+                auto dataNew = Vec::load(dst + j * stride0 + i * pack);
+                auto ns = Vec(1.0f / normalizeScale[i]);
+                dataNew = dataNew * ns;
+                Vec::save(dst + j * stride0 + i * pack, dataNew);
+            }
+        }
+    }
+}
+#endif
+
 
 void _AVX512_ExtraInit(void* functions) {
     auto coreFunction = static_cast<MNN::CoreFunctions*>(functions);
@@ -1100,4 +1133,8 @@ void _AVX512_ExtraInit(void* functions) {
 
     coreFunction->MNNGetSparseMatMulPackMode = _AVX512_MNNGetSparseMatMulPackMode;
     coreFunction->MNNAdjustOptimalSparseKernel = _AVX512_MNNAdjustOptimalSparseKernel;
+
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE 
+    coreFunction->MNNFlashAttentionUpdateBlockOutput = _AVX512_MNNFlashAttentionUpdateBlockOutput;
+#endif
 }

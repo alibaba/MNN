@@ -20,4 +20,5 @@ interface ChatSession  {
     fun setEnableAudioOutput(enable: Boolean)
     fun getHistory(): List<ChatDataItem>?
     fun setHistory(history:List<ChatDataItem>?)
+    fun updateThinking(thinking: Boolean)
 }

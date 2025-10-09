@@ -15,11 +15,19 @@ import android.content.Intent
 import android.net.Uri
 import android.util.Log
 import android.widget.Toast
+import com.alibaba.mnnllm.android.modelist.ModelListManager
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig
 
 object ModelUtils {
-    @Deprecated("Use ModelMarketItem.vendor field instead for market models")
+
     fun getVendor(modelName: String):String {
+        // First try to get vendor from ModelMarketItem
+        val modelItem = ModelListManager.getModelIdModelMap()[modelName]
+        if (modelItem?.modelMarketItem?.vendor != null) {
+            return modelItem.modelMarketItem!!.vendor
+        }
+        
+        // If not available from market item, use the existing logic
         val modelLower = modelName.lowercase(Locale.getDefault())
         if (modelLower.contains("deepseek")) {
             return ModelVendors.DeepSeek
@@ -50,6 +58,21 @@ object ModelUtils {
         } else if (modelLower.contains("openelm")) {
             return ModelVendors.OpenElm
         } else {
+            // If still not found, try to extract vendor from modelName by splitting on - or _
+            // First split by "/" and take last part
+            val lastPart = modelName.split("/").last()
+            
+            // Then split that by "-" or "_"
+            val parts = lastPart.split("-", "_")
+            for (part in parts) {
+                val trimmedPart = part.trim()
+                if (trimmedPart.isNotEmpty()) {
+                    // Capitalize first letter to match vendor naming convention
+                    return trimmedPart.replaceFirstChar { 
+                        if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() 
+                    }
+                }
+            }
             return ModelVendors.Others
         }
     }
@@ -85,6 +108,8 @@ object ModelUtils {
             return R.drawable.openai_icon
         } else if (modelLower.contains("hunyuan")) {
             return R.drawable.hunyuan_icon
+        } else if (modelLower.contains("minicpm")) {
+            return R.drawable.minicpm_icon
         }
         return 0
     }
@@ -147,8 +172,9 @@ object ModelUtils {
         return modelName.lowercase(Locale.getDefault()).contains("qwen3")
     }
 
-    fun isAudioModel(modelName: String): Boolean {
-        return modelName.lowercase(Locale.getDefault()).contains("audio") || isOmni(modelName)
+    fun isAudioModel(modelId: String): Boolean {
+        return modelId.lowercase(Locale.getDefault()).contains("audio") || isOmni(modelId)
+                || ModelListManager.isAudioModel(modelId)
     }
 
     fun isMultiModalModel(modelName: String): Boolean {
@@ -167,41 +193,9 @@ object ModelUtils {
         return modelId
     }
 
-    @JvmStatic
-    fun generateSimpleTags(modelName: String, modelItem: ModelItem): ArrayList<String> {
-        val splits = modelName.split("-".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
-        val tags = ArrayList<String>()
-        val isDiffusion = isDiffusionModel(modelName)
-        if (splits.size > 1 && !isDiffusion) {
-            val brand = splits[0]
-            tags.add(brand.lowercase(Locale.getDefault()))
-        }
-        for (i in 1 until splits.size) {
-            val tag = splits[i]
-            if (tag.lowercase(Locale.getDefault()).matches("^[\\\\.0-9]+[mb]$".toRegex())) {
-                tags.add(tag.lowercase(Locale.getDefault()))
-            }
-        }
-        if (isDiffusion) {
-            tags.add("diffusion")
-        } else {
-            tags.add("text")
-            if (isAudioModel(modelName)) {
-                tags.add("audio")
-            } else if (isVisualModel(modelName)) {
-                tags.add("visual")
-            }
-        }
-        if (modelItem.isLocal) {
-            tags.add("local")
-        } else {
-            tags.add(ModelItem.sourceToTag(getSource(modelItem.modelId!!)!!))
-        }
-        return tags
-    }
-
-    fun isVisualModel(modelName: String): Boolean {
-        return modelName.lowercase(Locale.getDefault()).contains("vl") || isOmni(modelName)
+    fun isVisualModel(modelId: String): Boolean {
+        return modelId.lowercase(Locale.getDefault()).contains("vl") || isOmni(modelId) ||
+                ModelListManager.isVisualModel(modelId)
     }
 
     fun isR1Model(modelName: String): Boolean {
@@ -216,8 +210,8 @@ object ModelUtils {
         return modelName.lowercase(Locale.getDefault()).contains("omni")
     }
 
-    fun isSupportThinkingSwitch(modelName: String): Boolean {
-        return isQwen3(modelName)
+    fun isSupportThinkingSwitchByTags(extraTags: List<String>): Boolean {
+        return extraTags.any { it.equals("ThinkingSwitch", ignoreCase = true) }
     }
 
     fun supportAudioOutput(modelName: String): Boolean {
@@ -244,6 +238,27 @@ object ModelUtils {
      */
     fun isAsrModelByTags(tags: List<String>): Boolean {
         return tags.any { it.equals("ASR", ignoreCase = true) }
+    }
+
+    /**
+     * Check if the model is a thinking model based on tags
+     */
+    fun isThinkingModelByTags(tags: List<String>): Boolean {
+        return tags.any { it.equals("Think", ignoreCase = true) }
+    }
+
+    /**
+     * Check if the model is a visual model based on tags
+     */
+    fun isVisualModelByTags(tags: List<String>): Boolean {
+        return tags.any { it.equals("Vision", ignoreCase = true) }
+    }
+
+    /**
+     * Check if the model is an audio model based on tags
+     */
+    fun isAudioModelByTags(tags: List<String>): Boolean {
+        return tags.any { it.equals("Audio", ignoreCase = true) }
     }
 
     //split "Huggingface/taobao-mnn/Qwen-1.5B" to ["Huggingface", "taobao-mnn/Qwen-1.5B"]

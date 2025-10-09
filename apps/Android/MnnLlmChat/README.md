@@ -61,6 +61,24 @@ This is our full multimodal language model (LLM) Android app
   ```
 
 # Releases
+## Version 0.7.3.1
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_3_1.apk)
++ Optimize ApiService
+## Version 0.7.2
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_2.apk)
++ Bugfix:
+  + qwen think/no_think switch sometimes not work.
++ UI Update:
+  + update ui for history and benchmark test screen.
+## Version 0.7.1
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_1.apk)
++ add new models: 
+  + [MiniCPM-V-4](https://huggingface.co/openbmb/MiniCPM-V-4): GPT-4V Level MLLM for Single Image, Multi Image and Video on Your Phone
+  + [WebSailor-3B](https://huggingface.co/Alibaba-NLP/WebSailor-3B): a complete post-training methodology designed to teach LLM agents sophisticated reasoning for complex web navigation and information-seeking tasks.
+  + [Lingshu-7B](https://huggingface.co/lingshu-medical-mllm/Lingshu-7B):Multimodal Large Language Models for Medical Domain
++ bugfix:  
+ + Crash when choose images.
+
 ## Version 0.7.0
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_0.apk)
 + add new models: gpt-oss-20b

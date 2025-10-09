@@ -16,12 +16,13 @@ object ApiServiceManager {
     /**
      * 启动API服务
      * @param context 上下文，必须是ChatActivity实例
+     * @param modelId 当前模型ID
      * @return 是否成功启动
      */
-    fun startApiService(context: Context): Boolean {
+    fun startApiService(context: Context, modelId: String? = null): Boolean {
         return try {
-            OpenAIService.startService(context)
-            Timber.tag(TAG).i("API service start requested")
+            OpenAIService.startService(context, modelId)
+            Timber.tag(TAG).i("API service start requested with modelId: $modelId")
             true
         } catch (e: Exception) {
             Timber.tag(TAG).e(e, "Failed to start API service")

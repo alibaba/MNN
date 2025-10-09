@@ -13,6 +13,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 class QNNScale : public QNNCommonExecution {
 public:
@@ -25,8 +26,9 @@ private:
 private:
     std::vector<float> mWeightData;
     std::vector<float> mBiasData;
+    bool mNeedQuantDequant = false;
 };
-
+#endif
 } // end namespace QNN
 } // end namespace MNN
 

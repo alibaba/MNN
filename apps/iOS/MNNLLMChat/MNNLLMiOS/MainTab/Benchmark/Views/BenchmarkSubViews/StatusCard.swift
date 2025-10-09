@@ -7,10 +7,8 @@
 
 import SwiftUI
 
-/**
- * Reusable status display card component for benchmark interface.
- * Shows status messages and updates to provide user feedback.
- */
+/// Reusable status display card component for benchmark interface.
+/// Shows status messages and updates to provide user feedback.
 struct StatusCard: View {
     let statusMessage: String
     
@@ -33,7 +31,7 @@ struct StatusCard: View {
             }
             
             VStack(alignment: .leading, spacing: 4) {
-                Text("Status Update")
+                Text(String(localized: "Status Update"))
                     .font(.subheadline)
                     .fontWeight(.semibold)
                     .foregroundColor(.primary)

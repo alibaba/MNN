@@ -6,7 +6,6 @@
 //
 
 import ExyteChat
-import ExyteMediaPicker
 
 actor LLMState {
     private var isProcessing: Bool = false

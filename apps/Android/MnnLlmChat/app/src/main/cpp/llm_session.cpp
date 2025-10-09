@@ -236,6 +236,23 @@ void LlmSession::SetAssistantPrompt(const std::string& assistant_prompt) {
     MNN_DEBUG("dumped config: %s", llm_->dump_config().c_str());
 }
 
+void LlmSession::updateConfig(const std::string& config_json) {
+    try {
+        json new_config = json::parse(config_json);
+        for (auto& [key, value] : new_config.items()) {
+            current_config_[key] = value;
+        }
+        if (llm_) {
+            llm_->set_config(current_config_.dump());
+            MNN_DEBUG("Updated config applied: %s", current_config_.dump().c_str());
+        } else {
+            MNN_DEBUG("LLM not initialized yet, config saved for later: %s", current_config_.dump().c_str());
+        }
+    } catch (const std::exception& e) {
+        MNN_ERROR("Failed to parse config JSON: %s", e.what());
+    }
+}
+
 void LlmSession::enableAudioOutput(bool enable) {
     enable_audio_output_ = enable;
 }

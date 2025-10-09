@@ -62,7 +62,8 @@ bool AVX2Functions::init(int cpuFlags) {
     coreFunction->MNNComputeMatMulForH_1 = _AVX_MNNComputeMatMulForH_1;
     // Dynamic Quant
     coreFunction->MNNCountMaxMinValue = _AVX_MNNCountMinMaxValue;
-    
+
+    coreFunction->MNNSoftmax = _AVX_MNNSoftmax;
 
     // For Packed Functions
     coreFunction->pack = 8;

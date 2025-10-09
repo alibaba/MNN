@@ -11,6 +11,7 @@ Tensor* CPUResizeCache::findCacheTensor(const Tensor* src, MNN_DATA_FORMAT forma
 }
 
 void CPUResizeCache::pushCacheTensor(std::shared_ptr<Tensor> dst, const Tensor* src, MNN_DATA_FORMAT format) {
+    MNN_ASSERT(mFormatCache.find(std::make_pair(src, format)) == mFormatCache.end());
     mFormatCache.insert(std::make_pair(std::make_pair(src, format), dst));
 }
 void CPUResizeCache::reset() {

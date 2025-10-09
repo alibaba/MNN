@@ -598,6 +598,37 @@ public:
                 param->axis = axisMap[originAxis];
             }
         }
+        // Add des for convert tensor
+        std::map<int, std::unique_ptr<MNN::TensorDescribeT>> desmap;
+        for (auto&& iter : net->extraTensorDescribe) {
+            desmap.insert(std::make_pair(iter->index, std::move(iter)));
+        }
+        net->extraTensorDescribe.clear();
+        auto copyDes = [&](int srcIndex, int dstIndex) {
+            std::unique_ptr<MNN::TensorDescribeT> newDes;
+            flatbuffers::FlatBufferBuilder builder;
+            builder.Finish(MNN::TensorDescribe::Pack(builder, desmap[srcIndex].get()));
+            newDes.reset(flatbuffers::GetRoot<MNN::TensorDescribe>(builder.GetBufferPointer())->UnPack());
+            newDes->name = net->tensorName[dstIndex];
+            newDes->index = dstIndex;
+            desmap[dstIndex] = std::move(newDes);
+        };
+        for (auto& op : net->oplists) {
+            if (op->type != OpType_ConvertTensor) {
+                continue;
+            }
+            auto srcIndex = op->inputIndexes[0];
+            auto dstIndex = op->outputIndexes[0];
+            if (desmap.find(srcIndex) != desmap.end() && desmap.find(dstIndex) == desmap.end()) {
+                copyDes(srcIndex, dstIndex);
+            }
+            if (desmap.find(dstIndex) != desmap.end() && desmap.find(srcIndex) == desmap.end()) {
+                copyDes(dstIndex, srcIndex);
+            }
+        }
+        for (auto&& iter : desmap) {
+            net->extraTensorDescribe.emplace_back(std::move(iter.second));
+        }
         return true;
     }
 };

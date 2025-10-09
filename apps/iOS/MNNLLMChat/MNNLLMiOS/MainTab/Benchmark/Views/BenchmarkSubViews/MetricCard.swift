@@ -7,10 +7,8 @@
 
 import SwiftUI
 
-/**
- * Reusable metric display card component.
- * Shows performance metrics with icon, title, and value in a compact format.
- */
+/// Reusable metric display card component.
+/// Shows performance metrics with icon, title, and value in a compact format.
 struct MetricCard: View {
     let title: String
     let value: String

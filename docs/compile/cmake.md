@@ -57,6 +57,7 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_COREML           | 是否构建`CoreML`后端，默认为`OFF` |
 | MNN_NNAPI            | 是否构建`NNAPI`后端，默认为`OFF`  |
 | MNN_QNN              | 是否构建`QNN`后端，默认为`OFF` |
+| MNN_QNN_ONLINE_FINALIZE | 在`MNN_QNN`开启的基础上,是否构建在线编译模式的QNN后端，默认为`ON` |
 | MNN_QNN_CONVERT_MODE | 在`MNN_QNN`开启的基础上,是否构建Convert模式的QNN后端，默认为`OFF` |
 | MNN_NPU            | 是否构建HIAI的`NPU`后端，默认为`OFF`  |
 | MNN_USE_SPARSE_COMPUTE | 是否使用稀疏计算，默认为`ON` |
@@ -95,6 +96,8 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_CPU_WEIGHT_DEQUANT_GEMM       | 是否编译CPU权重反量化的矩阵乘Kernel， 如果打开该编译宏并且在CPU推理时设置MNN::BackendConfig::MemoryMode=Memory_Normal，就会使用权重反量化算子进行权重量化模型的推理，默认为`OFF` |
 | MNN_SUPPORT_RENDER   | 是否支持图形渲染相关算子实现，默认为 `OFF` |
 | MNN_SUPPORT_TRANSFORMER_FUSE | 是否支持Fuse Transformer相关OP实现，默认为 `OFF` |
-| MNN_BUILD_LLM        | 是否构建基于MNN的llm库和demo，默认为`OFF` |
-| MNN_BUILD_DIFFUSION  | 是否构建基于MNN的diffusion demo，需要打开MNN_BUILD_OPENCV和MNN_IMGCODECS宏使用 默认为`OFF` |
+| MNN_BUILD_LLM        | 是否构建基于MNN的llm库和demo，默认为`OFF` ，打开时 MNN_LOW_MEMORY , MNN_SUPPORT_TRANSFORMER_FUSE 对应开启|
+| MNN_BUILD_LLM_OMNI        | 若构建基于MNN的llm库和demo，是否支持图像和音频输入功能，默认为`OFF` 。仅在MNN_BUILD_LLM 打开时生效。开启时 MNN_BUILD_OPENCV , MNN_IMGCODECS , MNN_BUILD_AUDIO 同时打开|
+| MNN_BUILD_DIFFUSION  | 是否构建基于MNN的diffusion demo，默认为`OFF` . 打开时MNN_BUILD_OPENCV , MNN_IMGCODECS, MNN_LOW_MEMORY, MNN_SUPPORT_TRANSFORMER_FUSE 同步开启|
 | MNN_KLEIDIAI         | 是否集成ARM的klediAI加速库，默认为`ON` |
+| MNN_USE_RVV          | 是否启用RISC-V向量扩展支持，默认为`OFF` |

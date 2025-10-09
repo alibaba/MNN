@@ -7,10 +7,8 @@
 
 import Foundation
 
-/**
- * Configuration parameters for benchmark runtime environment.
- * Defines hardware and execution settings for benchmark tests.
- */
+/// Configuration parameters for benchmark runtime environment.
+/// Defines hardware and execution settings for benchmark tests.
 struct RuntimeParameters {
     let backends: [Int]
     let threads: [Int]

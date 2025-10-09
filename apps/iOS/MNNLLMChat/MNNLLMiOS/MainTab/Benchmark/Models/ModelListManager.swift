@@ -7,10 +7,8 @@
 
 import Foundation
 
-/**
- * Manager class for integrating with ModelListViewModel to provide
- * downloaded models for benchmark testing.
- */
+/// Manager class for integrating with ModelListViewModel to provide
+/// downloaded models for benchmark testing.
 class ModelListManager {
     static let shared = ModelListManager()
     

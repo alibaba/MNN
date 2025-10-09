@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
 
 <!--    <style name="AppTheme" parent="Theme.Material3.DayNight.NoActionBar"> <item name="colorPrimary">@color/...</item>-->
@@ -151,4 +152,14 @@
     <style name="BottomSheetStyle" parent="Widget.Material3.BottomSheet">
         <item name="android:background">@drawable/bottom_sheet_background</item>
     </style>
+
+    <!-- Benchmark Button Style -->
+    <style name="Widget.Material3.Button.Benchmark" parent="Widget.Material3.Button">
+        <item name="android:background">@drawable/benchmark_button_background_selector</item>
+        <item name="android:textColor">@color/white</item>
+        <item name="android:textSize">18sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="cornerRadius">16dp</item>
+    </style>
+
 </resources>

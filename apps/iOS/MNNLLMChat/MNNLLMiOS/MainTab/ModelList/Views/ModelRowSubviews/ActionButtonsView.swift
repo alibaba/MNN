@@ -20,16 +20,15 @@ struct ActionButtonsView: View {
     var body: some View {
         VStack(alignment: .center, spacing: 4) {
             if model.isDownloaded {
-                // 已下载状态
-                DownloadedButtonView(showDeleteAlert: $showDeleteAlert)
+                if !ModelUtils.isBuiltInLocalModel(model) {
+                    DownloadedButtonView(showDeleteAlert: $showDeleteAlert)
+                }
             } else if isDownloading {
-                // 下载中状态
                 DownloadingButtonView(
                     viewModel: viewModel,
                     downloadProgress: downloadProgress
                 )
             } else {
-                // 待下载状态
                 PendingDownloadButtonView(
                     isOtherDownloading: isOtherDownloading,
                     formattedSize: formattedSize,

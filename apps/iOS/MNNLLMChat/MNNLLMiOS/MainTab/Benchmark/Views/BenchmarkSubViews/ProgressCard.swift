@@ -7,10 +7,8 @@
 
 import SwiftUI
 
-/**
- * Reusable progress tracking card component for benchmark interface.
- * Displays test progress with detailed metrics and visual indicators.
- */
+/// Reusable progress tracking card component for benchmark interface.
+/// Displays test progress with detailed metrics and visual indicators.
 struct ProgressCard: View {
     let progress: BenchmarkProgress?
     
@@ -62,12 +60,12 @@ struct ProgressCard: View {
                 }
                 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Test Progress")
+                    Text(String(localized: "Test Progress"))
                         .font(.title3)
                         .fontWeight(.semibold)
                         .foregroundColor(.primary)
                     
-                    Text("Running performance tests")
+                    Text(String(localized: "Running performance tests"))
                         .font(.caption)
                         .foregroundColor(.benchmarkSecondary)
                 }
@@ -81,7 +79,7 @@ struct ProgressCard: View {
                     .fontWeight(.bold)
                     .foregroundColor(.benchmarkAccent)
                 
-                Text("Complete")
+                Text(String(localized: "Complete"))
                     .font(.caption)
                     .foregroundColor(.benchmarkSecondary)
             }
@@ -158,7 +156,7 @@ struct ProgressCard: View {
     
     private var fallbackProgress: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Progress")
+            Text(String(localized: "Progress"))
                 .font(.headline)
             ProgressView()
                 .progressViewStyle(LinearProgressViewStyle())

@@ -14,6 +14,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 class QNNPool : public QNNCommonExecution {
 public:
@@ -24,7 +25,7 @@ public:
 private:
     void setParamPool(std::string & nodeType, std::vector<uint32_t> & filterSizeData, std::vector<uint32_t> & strideData, std::vector<uint32_t> & padAmountData, uint32_t & roundingMode, Tensor * input, Tensor * output);
 };
-
+#endif
 } // end namespace QNN
 } // end namespace MNN
 

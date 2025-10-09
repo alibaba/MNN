@@ -5,6 +5,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 class QNNGather : public QNNCommonExecution {
 public:
@@ -27,7 +28,7 @@ private:
     Qnn_DataType_t mQnnDataType;
     bool mFlagScalarIndices;
 };
-
+#endif
 } // end namespace QNN
 } // end namespace MNN
 

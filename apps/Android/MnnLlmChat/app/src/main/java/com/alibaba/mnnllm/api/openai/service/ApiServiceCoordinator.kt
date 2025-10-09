@@ -82,7 +82,8 @@ class ApiServiceCoordinator(private val context: Context) {
             // 更新通知
             notificationManager?.updateNotification(
                 context.getString(R.string.api_service_running),
-                context.getString(R.string.api_service_port, app.getPort())
+                "", // 让 NotificationManager 使用默认的 IP 地址显示
+                app.getPort()
             )
 
             _isServerRunning = true
@@ -123,8 +124,8 @@ class ApiServiceCoordinator(private val context: Context) {
     /**
      * 更新通知内容
      */
-    fun updateNotification(title: String, content: String) {
-        notificationManager?.updateNotification(title, content)
+    fun updateNotification(title: String, content: String, port: Int = 8080) {
+        notificationManager?.updateNotification(title, content, port)
     }
 
     /**
@@ -132,8 +133,9 @@ class ApiServiceCoordinator(private val context: Context) {
      */
     fun getNotification(
         title: String = context.getString(R.string.api_service_running),
-        content: String = context.getString(R.string.api_service_port, 8080)
-    ) = notificationManager?.buildNotification(title, content)
+        content: String = context.getString(R.string.api_service_port, 8080),
+        port: Int = 8080
+    ) = notificationManager?.buildNotification(title, content, port)
 
     /**
      * 获取服务器端口

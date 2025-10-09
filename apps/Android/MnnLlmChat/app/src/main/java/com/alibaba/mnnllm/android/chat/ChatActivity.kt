@@ -75,7 +75,7 @@ class ChatActivity : AppCompatActivity() {
     private val _isGenerating = MutableStateFlow(false)
     private var layoutModelLoading: View? = null
     var modelName: String = ""
-    private var modelId: String? = null
+    var modelId: String? = null
     private var currentUserMessage: ChatDataItem? = null
     private var sessionName: String? = null
     private lateinit var binding: ActivityChatBinding
@@ -140,7 +140,7 @@ class ChatActivity : AppCompatActivity() {
         
         chatPresenter = ChatPresenter(this, modelName, modelId)
         setChatPresenter(chatPresenter)
-        chatInputModule = ChatInputComponent(this, binding, modelName)
+        chatInputModule = ChatInputComponent(this, binding, modelId, modelName)
         setupChatListComponent()
         setupInputModule()
         binding.modelSwitcher.text = modelName
@@ -166,11 +166,8 @@ class ChatActivity : AppCompatActivity() {
     private fun setupInputModule() {
         this.chatInputModule!!.apply {
             setOnThinkingModeChanged {isThinking ->
-                (chatSession as LlmSession).updateAssistantPrompt(if (isThinking) {
-                    "<|im_start|>assistant\n%s<|im_end|>\n"
-                } else {
-                    "<|im_start|>assistant\n<think>\n</think>%s<|im_end|>\n"
-                })
+                Log.d(TAG, "isThinking: $isThinking")
+                (chatSession as LlmSession).updateThinking(isThinking)
             }
             setOnAudioOutputModeChanged {
                 chatPresenter.setEnableAudioOutput(it)
@@ -326,6 +323,7 @@ class ChatActivity : AppCompatActivity() {
     }
 
     fun onLoadingChanged(loading: Boolean) {
+        isLoading = loading
         this.chatInputModule!!.onLoadingStatesChanged(loading)
         layoutModelLoading!!.visibility =
             if (loading) View.VISIBLE else View.GONE
@@ -339,7 +337,7 @@ class ChatActivity : AppCompatActivity() {
             }
             // Check API service settings and start service
             if (isApiServiceEnabled(this)) {
-                ApiServiceManager.startApiService(this)
+                ApiServiceManager.startApiService(this, modelId)
             }
         }
     }
@@ -423,14 +421,7 @@ class ChatActivity : AppCompatActivity() {
         }
     }
 
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<String>,
-        grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        this.chatInputModule!!.onRequestPermissionsResult(requestCode, permissions, grantResults)
-    }
+
 
     private fun handleNewSession() {
         if (!isGenerating) {
@@ -456,6 +447,20 @@ class ChatActivity : AppCompatActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         this.chatInputModule!!.handleResult(requestCode, resultCode, data)
+    }
+    
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        // Forward permission results to the attachment picker module
+        this.chatInputModule?.let { inputModule ->
+            if (inputModule is ChatInputComponent) {
+                inputModule.attachmentPickerModule?.onRequestPermissionsResult(requestCode, permissions, grantResults)
+            }
+        }
     }
 
     private suspend fun handleSendMessage(userData: ChatDataItem): HashMap<String, Any> {
@@ -578,6 +583,27 @@ class ChatActivity : AppCompatActivity() {
             chatPresenter.saveResponseToDatabase(recentItem)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save response to database", e)
+        }
+    }
+
+    /**
+     * Handle generation stop request from voice chat or other components
+     * This method triggers the same stop logic as the UI stop button
+     */
+    fun onStopGenerationRequested() {
+        Log.d(TAG, "Stop generation requested from external component")
+        if (isGenerating) {
+            // Trigger the same stop logic as the UI stop button
+            chatPresenter.stopGenerate()
+            
+            // Update UI state immediately
+            setIsGenerating(false)
+            val recentItem = chatListComponent.recentItem
+            recentItem?.loading = false
+            
+            Log.d(TAG, "Generation stopped by external request")
+        } else {
+            Log.d(TAG, "No active generation to stop")
         }
     }
 
@@ -770,14 +796,8 @@ class ChatActivity : AppCompatActivity() {
 //            binding.modelSwitcher.setBackgroundResource(R.drawable.bg_rounded_dropdown)
             dropdownArrow?.visibility = View.VISIBLE
         }
-        
-        // Update existing chat input component instead of recreating it
-        chatInputModule?.updateModel(selectedModelName)
-        
-        // Update chat list component
+        chatInputModule?.updateModel(selectedModelId, selectedModelName)
         chatListComponent.updateModel(selectedModelName)
-        
-        // Note: ChatPresenter model update is handled in switchModel method
     }
 
     companion object {

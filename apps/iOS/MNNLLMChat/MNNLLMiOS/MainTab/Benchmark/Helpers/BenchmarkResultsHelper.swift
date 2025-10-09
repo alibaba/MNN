@@ -8,11 +8,9 @@
 import Foundation
 import Darwin
 
-/**
- * Helper class for processing and formatting benchmark test results.
- * Provides statistical analysis, formatting utilities, and device information
- * for benchmark result display and sharing.
- */
+/// Helper class for processing and formatting benchmark test results.
+/// Provides statistical analysis, formatting utilities, and device information
+/// for benchmark result display and sharing.
 class BenchmarkResultsHelper {
     static let shared = BenchmarkResultsHelper()
     
@@ -21,9 +19,11 @@ class BenchmarkResultsHelper {
     // MARK: - Results Processing & Statistics
     
     /// Processes test results to generate comprehensive benchmark statistics
-    /// - Parameter testResults: Array of completed test instances
+    /// - Parameters:
+    ///   - testResults: Array of completed test instances
+    ///   - totalTimeSeconds: Total benchmark runtime from start to completion
     /// - Returns: Processed statistics including speed metrics and configuration details
-    func processTestResults(_ testResults: [TestInstance]) -> BenchmarkStatistics {
+    func processTestResults(_ testResults: [TestInstance], totalTimeSeconds: Float = 0.0) -> BenchmarkStatistics {
         guard !testResults.isEmpty else {
             return BenchmarkStatistics.empty
         }
@@ -67,7 +67,8 @@ class BenchmarkResultsHelper {
             prefillStats: prefillStats,
             decodeStats: decodeStats,
             totalTokensProcessed: totalTokensProcessed,
-            totalTests: testResults.count
+            totalTests: testResults.count,
+            totalTimeSeconds: Double(totalTimeSeconds)
         )
     }
     

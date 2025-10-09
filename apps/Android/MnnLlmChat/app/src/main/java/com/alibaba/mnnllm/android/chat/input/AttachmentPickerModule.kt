@@ -2,15 +2,19 @@
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 package com.alibaba.mnnllm.android.chat.input
 
+import android.Manifest
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.MediaStore
 import android.util.Log
 import android.view.View
 import android.widget.ImageView
 import android.widget.Toast
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.chat.ChatActivity
@@ -36,7 +40,7 @@ class AttachmentPickerModule(private val activity: ChatActivity) {
         val modelName = activity.modelName
         takePhotoView = activity.findViewById(R.id.more_item_camera)
         chooseImageView = activity.findViewById(R.id.more_item_photo)
-        if (ModelUtils.isVisualModel(modelName)) {
+        if (ModelUtils.isVisualModel(activity.modelId!!)) {
             takePhotoView.setOnClickListener { v: View? -> takePhoto() }
             chooseImageView.setOnClickListener { v: View? -> chooseImageView() }
         } else {
@@ -44,19 +48,12 @@ class AttachmentPickerModule(private val activity: ChatActivity) {
             chooseImageView.visibility = View.GONE
         }
         val chooseAudioView = activity.findViewById<View>(R.id.more_item_audio)
-        if (ModelUtils.isAudioModel(modelName)) {
+        if (ModelUtils.isAudioModel(activity.modelId!!)) {
             chooseAudioView.setOnClickListener { v: View? -> chooseAudio() }
         } else {
             chooseAudioView.visibility = View.GONE
         }
-
-        // Voice chat menu item - show for all models except diffusion
         val voiceChatView = activity.findViewById<View>(R.id.more_item_voice_chat)
-//        if (!ModelUtils.isDiffusionModel(modelName)) {
-//            voiceChatView.setOnClickListener { v: View? -> startVoiceChat() }
-//        } else {
-//            voiceChatView.visibility = View.GONE
-//        }
         //disable temporary
         voiceChatView.visibility = View.GONE
         attachmentPreview = activity.findViewById(R.id.image_preview)
@@ -92,11 +89,11 @@ class AttachmentPickerModule(private val activity: ChatActivity) {
         intent.addCategory(Intent.CATEGORY_OPENABLE)
         try {
             activity.startActivityForResult(
-                Intent.createChooser(intent, "Select a WAV file"),
+                Intent.createChooser(intent, activity.getString(R.string.select_wav_file)),
                 REQUEST_CODE_SELECT_WAV
             )
         } catch (ex: ActivityNotFoundException) {
-            Toast.makeText(this.activity, "Please install a File Manager.", Toast.LENGTH_SHORT)
+            Toast.makeText(this.activity, R.string.file_manager_required, Toast.LENGTH_SHORT)
                 .show()
         }
     }
@@ -113,13 +110,33 @@ class AttachmentPickerModule(private val activity: ChatActivity) {
         val intent = Intent(Intent.ACTION_GET_CONTENT)
         intent.setType("image/*")
         activity.startActivityForResult(
-            Intent.createChooser(intent, "Select Picture"),
+            Intent.createChooser(intent, activity.getString(R.string.select_picture)),
             REQUEST_CODE_SELECT_IMAGE,
             null
         )
     }
 
     private fun takePhoto() {
+        if (ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA) 
+            != PackageManager.PERMISSION_GRANTED) {
+            // Permission is not granted, request it
+            if (ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.CAMERA)) {
+                // Show rationale to user
+                Toast.makeText(activity, R.string.camera_permission_rationale, Toast.LENGTH_LONG).show()
+            }
+            ActivityCompat.requestPermissions(
+                activity,
+                arrayOf(Manifest.permission.CAMERA),
+                REQUEST_CODE_CAMERA_PERMISSION
+            )
+            return
+        }
+        
+        // Permission is granted, proceed with camera
+        startCameraIntent()
+    }
+    
+    private fun startCameraIntent() {
         val cameraIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
         photoFile = File(
             FileUtils.generateDestPhotoFilePath(
@@ -134,7 +151,15 @@ class AttachmentPickerModule(private val activity: ChatActivity) {
             photoFile!!
         )
         cameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, fileProviderUri)
-        activity.startActivityForResult(cameraIntent, REQUEST_CODE_CAPTURE_IMAGE)
+        try {
+            activity.startActivityForResult(cameraIntent, REQUEST_CODE_CAPTURE_IMAGE)
+        } catch (e: SecurityException) {
+            Log.e(TAG, "Camera permission denied", e)
+            Toast.makeText(activity, R.string.camera_permission_denied, Toast.LENGTH_SHORT).show()
+        } catch (e: ActivityNotFoundException) {
+            Log.e(TAG, "No camera app found", e)
+            Toast.makeText(activity, R.string.no_camera_app_found, Toast.LENGTH_SHORT).show()
+        }
     }
 
     fun setOnImagePickCallback(callback: ImagePickCallback?) {
@@ -142,14 +167,14 @@ class AttachmentPickerModule(private val activity: ChatActivity) {
     }
 
     fun canHandleResult(requestCode: Int): Boolean {
-        return requestCode >= REQUEST_CODE_SELECT_WAV && requestCode <= REQUEST_CODE_CAPTURE_IMAGE
+        return requestCode >= REQUEST_CODE_SELECT_WAV && requestCode <= REQUEST_CODE_CAPTURE_IMAGE ||
+               requestCode == REQUEST_CODE_CAMERA_PERMISSION
     }
 
     fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (requestCode == REQUEST_CODE_CAPTURE_IMAGE) {
             if (resultCode == Activity.RESULT_OK) {
                 if (imageUri != null) {
-                    showImagePreview()
                     val imagePath = imageUri?.path
                     Log.d("ImagePath", "Image saved to: $imagePath")
                     showImagePreview()
@@ -188,9 +213,21 @@ class AttachmentPickerModule(private val activity: ChatActivity) {
                     showAudioPreview(Uri.fromFile(destFile))
                 } catch (e: IOException) {
                     Log.e(TAG, "get audio file failed", e)
-                    Toast.makeText(this.activity, "get audio file failed", Toast.LENGTH_SHORT)
+                    Toast.makeText(this.activity, R.string.audio_file_failed, Toast.LENGTH_SHORT)
                         .show()
                 }
+            }
+        }
+    }
+    
+    fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
+        if (requestCode == REQUEST_CODE_CAMERA_PERMISSION) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                // Camera permission granted, proceed with camera
+                startCameraIntent()
+            } else {
+                // Camera permission denied
+                Toast.makeText(activity, R.string.camera_permission_denied, Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -263,6 +300,7 @@ class AttachmentPickerModule(private val activity: ChatActivity) {
     companion object {
         const val TAG: String = "ImagePickerModule"
         var REQUEST_CODE_CAPTURE_IMAGE: Int = 100
+        const val REQUEST_CODE_CAMERA_PERMISSION: Int = 101
 
         var REQUEST_CODE_SELECT_IMAGE: Int = 99
         var REQUEST_CODE_SELECT_WAV: Int = 98

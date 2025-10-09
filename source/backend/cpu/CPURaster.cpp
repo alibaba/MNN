@@ -58,7 +58,7 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
     mNeedZero = !TensorUtils::regionIsFull(output);
     mZeroPoint = 0;
     mUseThreads = false;
-    if (outputDes->quantAttr != nullptr && outputDes->type == DataType_DT_INT8) {
+    if (outputDes->quantAttr != nullptr && outputDes->applyQuant) {
 #ifdef MNN_USE_SSE
         mZeroPoint = (int)outputDes->quantAttr->zero + 128;
 #else
@@ -182,6 +182,7 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
             TensorUtils::copyShape(origin, newTensor.get());
             TensorUtils::getDescribe(newTensor.get())->dimensionFormat = midFormat;
             TensorUtils::getDescribe(newTensor.get())->quantAttr = TensorUtils::getDescribe(origin)->quantAttr;
+            TensorUtils::getDescribe(newTensor.get())->applyQuant = TensorUtils::getDescribe(origin)->applyQuant;;
             newTensor->buffer().type = origin->getType();
             TensorUtils::setLinearLayout(newTensor.get());
             mTempInput.insert(std::make_pair(origin, newTensor.get()));
@@ -684,7 +685,7 @@ ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &____inputs, const st
         }
     }
     for (auto& iter : mTempInput) {
-        tensorConvert(iter.first, iter.second, bytes);
+        tensorConvert(iter.first, iter.second, (int)bytes);
     }
     if (mHasReduce) {
         // Don't support reduce with multi thread now
@@ -693,6 +694,7 @@ ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &____inputs, const st
     if (!mUseThreads) {
         threadNum = 1;
     }
+
     MNN_CONCURRENCY_BEGIN(tId, threadNum) {
         for (int u=tId; u<mTempInputCopy.size(); u+=threadNum) {
             auto& iter = mTempInputCopy[u];
@@ -703,12 +705,12 @@ ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &____inputs, const st
             }
             auto srcPtr = iter.first->host<uint8_t>() + slice.src.offset * bytes;
             auto dstPtr = (uint8_t*)mOutputPtr + slice.dst.offset * bytes;
-            _blit(slice, bytes, srcPtr, dstPtr, mHasReduce, core->MNNLowpToFp32, core->MNNFp32ToLowp);
+            _blit(slice, (int)bytes, srcPtr, dstPtr, mHasReduce, core->MNNLowpToFp32, core->MNNFp32ToLowp);
         }
     }
     MNN_CONCURRENCY_END();
     if (nullptr != mTempOutput) {
-        tensorConvert(mTempOutput.get(), output, bytes);
+        tensorConvert(mTempOutput.get(), output, (int)bytes);
     }
     return NO_ERROR;
 }

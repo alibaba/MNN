@@ -7,10 +7,8 @@
 
 import SwiftUI
 
-/**
- * Main benchmark view that provides interface for running performance tests on ML models.
- * Features include model selection, progress tracking, and results visualization.
- */
+/// Main benchmark view that provides interface for running performance tests on ML models.
+/// Features include model selection, progress tracking, and results visualization.
 struct BenchmarkView: View {
     @StateObject private var viewModel = BenchmarkViewModel()
     
@@ -53,20 +51,21 @@ struct BenchmarkView: View {
                 .padding(.vertical, 16)
             }
         }
-        .alert("Stop Benchmark", isPresented: $viewModel.showStopConfirmation) {
-            Button("Yes", role: .destructive) {
+        .alert(String(localized: "Stop Benchmark"), isPresented: $viewModel.showStopConfirmation) {
+            Button(String(localized: "Yes"), role: .destructive) {
                 viewModel.onStopBenchmarkTapped()
             }
-            Button("No", role: .cancel) { }
+            Button(String(localized: "No"), role: .cancel) { }
         } message: {
-            Text("Are you sure you want to stop the benchmark test?")
+            Text(String(localized: "Are you sure you want to stop the benchmark test?"))
         }
-        .alert("Error", isPresented: $viewModel.showError) {
-            Button("OK") { }
+        .alert(String(localized: "Error"), isPresented: $viewModel.showError) {
+            Button(String(localized: "OK")) {
+                viewModel.dismissError()
+            }
         } message: {
             Text(viewModel.errorMessage)
         }
 
     }
 }
-

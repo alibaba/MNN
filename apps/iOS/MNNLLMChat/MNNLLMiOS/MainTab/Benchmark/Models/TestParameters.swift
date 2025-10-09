@@ -7,10 +7,8 @@
 
 import Foundation
 
-/**
- * Configuration parameters for benchmark test execution.
- * Defines test scenarios including prompt sizes, generation lengths, and repetition counts.
- */
+/// Configuration parameters for benchmark test execution.
+/// Defines test scenarios including prompt sizes, generation lengths, and repetition counts.
 struct TestParameters {
     let nPrompt: [Int]
     let nGenerate: [Int]

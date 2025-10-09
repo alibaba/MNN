@@ -139,7 +139,29 @@ For local debugging, simply drag the model files to the LocalModel folder and ru
 
     <img width="400" alt="image" src="./assets/copyLocalMode3.png" />
 
-4. Run the project, navigate to the chat page, and perform model interactions and debugging.
+4. Configure the Model:
+
+Go to ModelListViewModel.swift for configuration, such as whether to support thinking mode:
+
+```swift
+// MARK: Config the Local Model here
+let modelName = "Qwen3-0.6B-MNN-Inside" // Model name
+let localModel = ModelInfo(
+    modelName: modelName,
+    tags: [
+        // MARK: if you know that model support think, uncomment the line
+        // NSLocalizedString("tag.deepThinking", comment: "Deep thinking tag for local model"), // Whether to support think
+            NSLocalizedString("tag.localModel", comment: "Local model inside the app")],
+    categories: ["Local Models"],
+    vendor: "Local",
+    sources: ["local": "bundle_root/\(modelName)"],
+    isDownloaded: true
+)
+localModels.append(localModel)
+ModelStorageManager.shared.markModelAsDownloaded(modelName)
+```
+
+5. Run the project, navigate to the chat page, and perform model interactions and debugging.
 
 The app will automatically detect and load models from the LocalModel folder without requiring additional configuration.
 

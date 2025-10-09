@@ -800,7 +800,7 @@ void ConvolutionCommon::getConvParameters(std::shared_ptr<Int8Common> *quanCommo
 }
 
 bool ConvolutionCommon::getConvInt8Parameters(const MNN::Op* op, std::shared_ptr<Int8Common>& quanCommon, Backend* backend,
-                                              const int8_t*& weight, int& weightSize, float* scale, int32_t* bias, int ocUp4) {
+                                              const int8_t*& weight, int& weightSize, float* scale, int32_t* bias, int ocUpHp) {
     // Compability for old quant model
     auto conv2d = op->main_as_Convolution2D();
     int outputCount = conv2d->common()->outputCount();
@@ -838,19 +838,22 @@ bool ConvolutionCommon::getConvInt8Parameters(const MNN::Op* op, std::shared_ptr
     }
     if ((conv2d->quanParameter() && conv2d->quanParameter()->alpha()) || quanCommon->alpha.get()) {
         int quantCount;
+        const float* alpha = nullptr;
         if (conv2d->quanParameter() && conv2d->quanParameter()->alpha()) {
             quantCount    = conv2d->quanParameter()->alpha()->size();
+            alpha = conv2d->quanParameter()->alpha()->data();
         } else {
             quantCount   = quanCommon->alpha.size();
+            alpha = quanCommon->alpha.get();
         }
-        
+
         if (false == weightAsy) { // symmetric quant
-            ::memcpy(scale, conv2d->quanParameter()->alpha()->data(), quantCount * sizeof(float));
+            ::memcpy(scale, alpha, quantCount * sizeof(float));
         } else if (true == weightAsy) { // asymmetric
             int scaleSize = quantCount / 2;
             for (int i = 0; i < scaleSize; ++i) {
-                scale[i] = quanCommon->alpha.get()[2 * i + 1];
-                scale[i + ocUp4] = quanCommon->alpha.get()[2 * i];
+                scale[i] = alpha[2 * i + 1];
+                scale[i + ocUpHp] = alpha[2 * i];
             }
         }
         return true;

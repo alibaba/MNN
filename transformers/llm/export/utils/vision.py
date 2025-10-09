@@ -3,6 +3,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 from torch import nn
+from typing import Tuple, Optional, Dict, Any
 
 from .transformers import VisionRotary, Decoder
 from .spinner import spinner_run
@@ -41,7 +42,8 @@ class Vision(torch.nn.Module):
             'gemma3': Gemma3Vision,
             'idefics3': Idefics3Vision,
             'smolvlm': Idefics3Vision,
-            'llava_qwen2': MobileCLIPVision
+            'llava_qwen2': MobileCLIPVision,
+            'minicpmv': MiniCPMVision,
         }
         if model_type in visual_models:
             return visual_models[model_type]
@@ -881,23 +883,6 @@ class Idefics3Vision(Vision):
         input_ids = self.tokenizer(txt_prompt, return_tensors="pt")['input_ids']
         return input_ids
 
-    def vision_reshape(self, images):
-        batch, channel, height, width = images.shape
-        grid_h, grid_w = height // self.patch_size, width // self.patch_size
-        patches = images.reshape(
-            batch,
-            channel,
-            grid_h,
-            self.patch_size,
-            grid_w,
-            self.patch_size,
-        )
-        patches = patches.permute(0, 2, 4, 1, 3, 5)
-        flatten_patches = patches.reshape(
-            batch * grid_h * grid_w, channel, self.patch_size, self.patch_size
-        )
-        return flatten_patches, grid_h, grid_w
-
     def images_forward(self, images):
         return self.forward(images)
 
@@ -927,6 +912,23 @@ class Idefics3Vision(Vision):
         if width > self.image_max_size:
             width = self.image_max_size
         return height, width
+
+    def vision_reshape(self, images):
+        batch, channel, height, width = images.shape
+        grid_h, grid_w = height // self.patch_size, width // self.patch_size
+        patches = images.reshape(
+            batch,
+            channel,
+            grid_h,
+            self.patch_size,
+            grid_w,
+            self.patch_size,
+        )
+        patches = patches.permute(0, 2, 4, 1, 3, 5)
+        flatten_patches = patches.reshape(
+            batch * grid_h * grid_w, channel, self.patch_size, self.patch_size
+        )
+        return flatten_patches, grid_h, grid_w
 
     def img_process(self, image):
         from transformers.image_transforms import (
@@ -1019,3 +1021,332 @@ class MobileCLIPVision(QwenVision):
         image_features = self.mm_projector(image_features)
         image_features = image_features.permute(1, 0, 2)
         return image_features
+
+class MiniCPMVision(Vision):
+    def __init__(self, visual, base):
+        self.scale_resolution = 448
+        self.max_slice_nums = 9
+        self.num_patches_per_side = 70
+        self.patch_size = base.config.patch_size
+        self.image_size = base.config.image_size
+        self.image_height = self.patch_size
+        self.image_width = self.image_height
+        self.image_embeds = []
+        self.image_mean = np.array([0.5, 0.5, 0.5], dtype=np.float32)
+        self.image_norm = np.array([0.5, 0.5, 0.5], dtype=np.float32)
+        super().__init__(visual, base)
+        self.quant_bit = base.args.quant_bit
+        self.transformer_fuse = False
+        # rebuild visual
+        self.visual = self.visual.float()
+        self.patch_embedding = self.visual.embeddings.patch_embedding
+        self.position_embedding = self.visual.embeddings.position_embedding
+        self.encoder = self.visual.encoder
+        self.post_layernorm = self.visual.post_layernorm
+        # rebuild resampler
+        self.resampler = base.model.resampler.float()
+        attrs = ['query', 'kv_proj', 'ln_kv', 'ln_q', 'attn', 'ln_post', 'proj', 'pos_embed', 'embed_dim']
+        for attr in attrs:
+            setattr(self, attr, getattr(self.resampler, attr))
+
+    def load(self):
+        pass
+
+    def init_config(self):
+        self.llm_config['is_visual'] = True
+        image_mean = self.image_mean * 255.0
+        image_norm = 1 / (self.image_norm * 255.0)
+        self.llm_config['image_mean'] = image_mean.tolist()
+        self.llm_config['image_norm'] = image_norm.tolist()
+        # vision tokens
+        self.vision_start_token = '<image>'
+        self.vision_end_token = '</image>'
+        self.image_pad_token = '<unk>'
+        self.vision_id_start_token = '<image_id>'
+        self.vision_id_end_token = '</image_id>'
+        self.vision_slice_start_token = '<slice>'
+        self.vision_slice_end_token = '</slice>'
+        self.vision_start_id = self.tokenizer.encode(self.vision_start_token)[1]
+        self.vision_end_id = self.tokenizer.encode(self.vision_end_token)[1]
+        self.image_pad_id = self.tokenizer.encode(self.image_pad_token)[1]
+        self.vision_id_start_id = self.tokenizer.encode(self.vision_id_start_token)[1]
+        self.vision_id_end_id = self.tokenizer.encode(self.vision_id_end_token)[1]
+        self.vision_slice_start_id = self.tokenizer.encode(self.vision_slice_start_token)[1]
+        self.vision_slice_end_id = self.tokenizer.encode(self.vision_slice_end_token)[1]
+        self.llm_config['image_size_unit'] = self.patch_size
+        self.llm_config['image_size'] = self.image_size
+        # self.llm_config['image_max_size'] = self.image_max_size
+        self.llm_config['vision_start'] = self.vision_start_id
+        self.llm_config['vision_end'] = self.vision_end_id
+        self.llm_config['image_pad'] = self.image_pad_id
+        self.llm_config['vision_id_start_id'] = self.vision_id_start_id
+        self.llm_config['vision_id_end_id'] = self.vision_id_end_id
+        self.llm_config['vision_slice_start_id'] = self.vision_slice_start_id
+        self.llm_config['vision_slice_end_id'] = self.vision_slice_end_id
+
+    def str_to_ids(self, prompt):
+        if '<img>' in prompt and '</img>' in prompt:
+            import re
+            import requests
+            from PIL import Image
+            pattern = r'(<img>.*?</img>)'
+            parts = re.split(pattern, prompt)
+            txt_prompt = ''
+            for part in parts:
+                idx = 0
+                if re.match(pattern, part):
+                    img_content = re.search(r'<img>(.*?)</img>', part).group(1)
+                    # find <hw></hw> in image_content
+                    match = re.search(r'<hw>(.*?)</hw>', img_content)
+                    if match:
+                        img_content = img_content[:match.start()] + img_content[match.end():]
+                        hw = match.group(1).split(',')
+                        self.image_height, self.image_width = int(hw[0]), int(hw[1])
+                    if img_content.startswith('http://') or img_content.startswith('https://'):
+                        image_obj = Image.open(requests.get(img_content, stream=True).raw)
+                    else:
+                        image_obj = Image.open(img_content)
+                    img_pad_len, num_images = self.img_process(image_obj)
+                    img_pad_str = self.image_pad_token * img_pad_len
+                    # image id
+                    txt_prompt += (f"{self.vision_id_start_token}{idx}{self.vision_id_end_token}")
+                    idx += 1
+                    # global image
+                    txt_prompt += (f'{self.vision_start_token}{img_pad_str}{self.vision_end_token}')
+                    # slices image
+                    for s in range(num_images - 1):
+                        txt_prompt += (f'{self.vision_slice_start_token}{img_pad_str}{self.vision_slice_end_token}')
+                else:
+                    txt_prompt += part
+        else:
+            txt_prompt = prompt
+        input_ids = self.tokenizer(txt_prompt, return_tensors="pt")['input_ids']
+        return input_ids
+
+    def calculate_image_processing_plan(
+        self,
+        original_size: Tuple[int, int],
+        max_slice_nums: int = 9,
+        scale_resolution: int = 448,
+        patch_size: int = 14,
+    ):
+        def _get_target_size(size: Tuple[int, int], upscale: bool) -> Tuple[int, int]:
+            h, w = size
+            if not (upscale or (w * h > scale_resolution * scale_resolution)):
+                target_w, target_h = w, h
+            else:
+                r = w / h if h != 0 else 0
+                if r > 0:
+                    target_h = int(scale_resolution / math.sqrt(r))
+                    target_w = int(target_h * r)
+                else:
+                    target_h, target_w = 0, scale_resolution
+
+            final_h = max(round(target_h / patch_size) * patch_size, patch_size)
+            final_w = max(round(target_w / patch_size) * patch_size, patch_size)
+            return final_h, final_w
+
+        original_height, original_width = original_size
+        best_grid = None
+        refine_image_size = None
+
+        if original_width > 0 and original_height > 0:
+            ratio = (original_width * original_height) / (scale_resolution * scale_resolution)
+            multiple = min(math.ceil(ratio), max_slice_nums)
+            if multiple > 1:
+                candidates = []
+                for num in {multiple - 1, multiple, multiple + 1}:
+                    if 1 < num <= max_slice_nums:
+                        m = 1
+                        while m * m <= num:
+                            if num % m == 0:
+                                candidates.append((m, num // m))
+                                if m * m != num:
+                                    candidates.append((num // m, m))
+                            m += 1
+                if candidates:
+                    log_ratio = math.log(original_width / original_height)
+                    best_grid = min(candidates, key=lambda g: abs(log_ratio - math.log(g[1] / g[0])) if g[0] != 0 else float('inf'))
+
+        if best_grid is None:
+            source_image_size = _get_target_size(original_size, upscale=True)
+        else:
+            source_image_size = _get_target_size(original_size, upscale=False)
+            patch_h = original_height / best_grid[0]
+            patch_w = original_width / best_grid[1]
+            best_patch_size = _get_target_size((patch_h, patch_w), upscale=True)
+            refine_image_size = (best_patch_size[0] * best_grid[0], best_patch_size[1] * best_grid[1])
+
+        return source_image_size, refine_image_size, best_grid
+
+    def vision_reshape(self, images, best_grid, patch_size):
+        channel, height, width = images.shape
+        grid_h, grid_w = best_grid
+        sub_height, sub_width = height // grid_h, width // grid_w
+        num_patches_h = sub_height // patch_size
+        num_patches_w = sub_width // patch_size
+        expanded_view = images.reshape(
+            channel,
+            grid_h,
+            num_patches_h,
+            patch_size,
+            grid_w,
+            num_patches_w,
+            patch_size
+        )
+        permuted_view = expanded_view.permute(1, 4, 0, 3, 2, 5, 6)
+        flatten_patches = permuted_view.reshape(
+            grid_h * grid_w, channel, patch_size, num_patches_h * num_patches_w * patch_size
+        )
+        tgt_sizes = torch.tensor([[num_patches_h, num_patches_w]] * (grid_h * grid_w))
+        return flatten_patches, tgt_sizes
+
+    def gen_position_ids(self, tgt_sizes: torch.Tensor, num_patches_per_side: int) -> torch.Tensor:
+        batch_size = tgt_sizes.size(0)
+        num_patches = (tgt_sizes[:, 0] * tgt_sizes[:, 1]).long()
+        max_patches = num_patches.max().item() if batch_size > 0 else 0
+        all_position_ids = torch.zeros(batch_size, max_patches, dtype=torch.long)
+        for i in range(batch_size):
+            nb_patches_h = tgt_sizes[i, 0].item()
+            nb_patches_w = tgt_sizes[i, 1].item()
+            num_current_patches = num_patches[i].item()
+            i_coords = torch.arange(nb_patches_h, dtype=torch.float32).unsqueeze(1)
+            j_coords = torch.arange(nb_patches_w, dtype=torch.float32).unsqueeze(0)
+            bucket_h = (i_coords / nb_patches_h * num_patches_per_side).floor()
+            bucket_w = (j_coords / nb_patches_w * num_patches_per_side).floor()
+            pos_ids = bucket_h * num_patches_per_side + bucket_w
+            pos_ids_flat = pos_ids.flatten().long()
+            all_position_ids[i, :num_current_patches] = pos_ids_flat
+        return all_position_ids
+
+    def img_process(self, image):
+        from transformers.image_transforms import (
+            convert_to_rgb,
+            resize,
+            rescale,
+            normalize
+        )
+        from transformers.image_utils import (
+            PILImageResampling,
+            infer_channel_dimension_format,
+            to_numpy_array
+        )
+        image = convert_to_rgb(image)
+        image = to_numpy_array(image)
+        h, w, c = image.shape
+        global_size, refine_size, best_grid = self.calculate_image_processing_plan((h, w))
+        def preprocess(image, tsize):
+            format = infer_channel_dimension_format(image)
+            resample = PILImageResampling.BICUBIC
+            image = resize(image, size=tsize, resample=resample, input_data_format=format)
+            image = rescale(image, scale=1 / 255.0, input_data_format=format)
+            image = normalize(image=image, mean=self.image_mean, std=self.image_norm, input_data_format=format)
+            image = image.transpose(2, 0, 1)
+            image = torch.from_numpy(image)
+            return image
+        global_image = preprocess(image, global_size)
+        refine_image = preprocess(image, refine_size)
+        global_patch, global_tgt_sizes = self.vision_reshape(global_image, (1, 1), self.patch_size)
+        refine_patches, refine_tgt_sizes = self.vision_reshape(refine_image, best_grid, self.patch_size)
+        # concat global image and slices
+        global_len = global_patch.shape[-1]
+        refine_len = refine_patches.shape[-1]
+        if refine_len > global_len:
+            global_patch = F.pad(global_patch, (0, refine_len - global_len))
+        all_pixel_values = torch.cat([global_patch, refine_patches], dim=0)
+        # tgt sizes and masks
+        tgt_sizes = torch.cat([global_tgt_sizes, refine_tgt_sizes], dim=0)
+        image_embed = self.images_forward(all_pixel_values, tgt_sizes)
+        num_images, img_pad_len, vision_hidden_size = image_embed.shape
+        self.image_embeds.append(image_embed.reshape(-1, 1, vision_hidden_size))
+        return img_pad_len, num_images
+
+    def embed(self, input_ids, images = None, videos = None):
+        input_embeds = self.embed_(input_ids)
+        if self.image_embeds is not None and len(self.image_embeds) > 0:
+            image_mask = (input_ids == self.image_pad_id).squeeze()
+            input_embeds[image_mask] = torch.concat(self.image_embeds, dim=0).to(input_embeds.dtype)
+        return input_embeds
+
+    def images_forward(self, pixel_values, tgt_sizes):
+        max_patches = torch.max(tgt_sizes[:, 0] * tgt_sizes[:, 1])
+        B = tgt_sizes.shape[0]
+        position_ids = self.gen_position_ids(tgt_sizes, self.num_patches_per_side)
+        attention_mask = torch.zeros((B, max_patches), dtype=torch.float32)
+        attention_mask[0, tgt_sizes[0][0] * tgt_sizes[0][1]:] = torch.finfo(torch.float32).min
+        return self.forward(pixel_values, position_ids, attention_mask, tgt_sizes)
+
+    def visual_forward(self, pixel_values, position_ids, attention_mask):
+        L = attention_mask.shape[1]
+        attention_mask = attention_mask.unsqueeze(1).unsqueeze(2).expand(-1, -1, L, -1) # 2D -> 4D
+        patch_embeds = self.patch_embedding(pixel_values)
+        pos_embeds = self.position_embedding(position_ids)
+        hidden_states = patch_embeds.flatten(2).transpose(1, 2) + pos_embeds
+        encoder_outputs = self.encoder(
+            inputs_embeds=hidden_states,
+            attention_mask=attention_mask,
+            output_attentions=False,
+            output_hidden_states=False,
+            return_dict=True,
+        )
+        last_hidden_state = encoder_outputs[0]
+        return self.post_layernorm(last_hidden_state)
+
+    def resampler_forward(self, x, tgt_sizes, attention_mask):
+        bs = x.shape[0]
+        N = bs - 1
+        D = self.embed_dim
+        gh, gw = tgt_sizes[0]
+        glen = gh * gw
+        sh, sw = tgt_sizes[1]
+        slen = sh * sw
+        # global image pos
+        pos_embed_global = self.pos_embed[:gh, :gw, :].reshape(glen, 1, D)
+        pad_tuple = (0, 0, 0, 0, 0, slen - glen)
+        pos_embed_global = F.pad(pos_embed_global, pad_tuple, "constant", 0)
+        # slice image pos
+        pos_embed_slice = self.pos_embed[:sh, :sw, :].reshape(slen, D)
+        pos_embed_slice = pos_embed_slice.unsqueeze(1).repeat(1, N, 1)
+        pos_embed = torch.cat([pos_embed_global, pos_embed_slice], dim=1)
+        x = self.kv_proj(x)  # B * L * D
+        x = self.ln_kv(x).permute(1, 0, 2)  # L * B * D
+        q = self.ln_q(self.query)  # Q * D
+        out = self.attn(
+            q.unsqueeze(1).repeat(1, bs, 1),
+            x + pos_embed,  # L * B * D +  L * B * D
+            x,
+            key_padding_mask=attention_mask)[0]
+        #  out: Q * B * D
+        x = out.permute(1, 0, 2)  # B * Q * D
+        x = self.ln_post(x)
+        return x @ self.proj
+
+    def forward(self, pixel_values, position_ids, attention_mask, tgt_sizes):
+        # rewrite position_ids in visual and pos_embed in resampler for onnx export
+        x = self.visual_forward(pixel_values, position_ids, attention_mask)
+        vision_embedding = self.resampler_forward(x, tgt_sizes, attention_mask)
+        return vision_embedding
+
+    @spinner_run(f'export visual to ')
+    def export(self, onnx_path):
+        num_grids = 5
+        num_patches = 2
+        pixel_values = torch.randn([num_grids, 3, self.patch_size, num_patches * num_patches * self.patch_size])
+        attention_mask = torch.zeros([num_grids, num_patches * num_patches], dtype=torch.float32)
+        tgt_sizes = torch.tensor([[num_patches, num_patches]] * num_grids, dtype=torch.int32)
+        position_ids = self.gen_position_ids(tgt_sizes, self.num_patches_per_side)
+        onnx_model = f'{onnx_path}/visual.onnx'
+        torch.onnx.export(self, (pixel_values, position_ids, attention_mask, tgt_sizes),
+                        onnx_model,
+                        input_names=['pixel_values', 'position_ids', 'attention_mask', 'tgt_sizes'],
+                        output_names=['image_embeds'],
+                        dynamic_axes={
+                            "pixel_values": { 0: "num", 3: "size" },
+                            "position_ids": { 0: "num", 1: "size" },
+                            "attention_mask": { 0: "num", 1: "size" },
+                            "tgt_sizes": { 0: "num" }
+                        },
+                        do_constant_folding=True,
+                        verbose=False,
+                        opset_version=18)
+        return onnx_model

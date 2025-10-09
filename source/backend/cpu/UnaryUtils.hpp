@@ -227,7 +227,7 @@ struct UnaryErfinv {
         }
         auto result = p * x;
         if (fabsf(fabsf(x) - 1) < 1e-8) {
-            return std::numeric_limits<float>::infinity();
+            return std::numeric_limits<float>::max();
         } else {
             return result;
         }

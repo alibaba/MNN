@@ -8,7 +8,6 @@
 
 import UIKit
 import ExyteChat
-import ExyteMediaPicker
 
 final class LLMChatData {
     var assistant: LLMChatUser

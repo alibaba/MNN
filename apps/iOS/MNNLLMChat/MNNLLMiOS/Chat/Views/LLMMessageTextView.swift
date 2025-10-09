@@ -8,61 +8,59 @@
 import SwiftUI
 import MarkdownUI
 
-/**
- * LLMMessageTextView - A specialized text view designed for LLM chat messages with typewriter animation
- * 
- * This SwiftUI component provides an enhanced text display specifically designed for AI chat applications.
- * It supports both plain text and Markdown rendering with an optional typewriter animation effect
- * that creates a dynamic, engaging user experience during AI response streaming.
- * 
- * Key Features:
- * - Typewriter animation for streaming AI responses
- * - Markdown support with custom styling
- * - Smart animation control based on message type and content length
- * - Automatic animation management with proper cleanup
- * - Performance-optimized character-by-character rendering
- * 
- * Usage Examples:
- * 
- * 1. Basic AI Message with Typewriter Effect:
- * ```swift
- * LLMMessageTextView(
- *     text: "Hello! This is an AI response with typewriter animation.",
- *     messageUseMarkdown: false,
- *     messageId: "msg_001",
- *     isAssistantMessage: true,
- *     isStreamingMessage: true
- * )
- * ```
- * 
- * 2. Markdown Message with Custom Styling:
- * ```swift
- * LLMMessageTextView(
- *     text: "**Bold text** and *italic text* with `code blocks`",
- *     messageUseMarkdown: true,
- *     messageId: "msg_002",
- *     isAssistantMessage: true,
- *     isStreamingMessage: true
- * )
- * ```
- * 
- * 3. User Message (No Animation):
- * ```swift
- * LLMMessageTextView(
- *     text: "This is a user message",
- *     messageUseMarkdown: false,
- *     messageId: "msg_003",
- *     isAssistantMessage: false,
- *     isStreamingMessage: false
- * )
- * ```
- * 
- * Animation Configuration:
- * - typingSpeed: 0.015 seconds per character (adjustable)
- * - chunkSize: 1 character per animation frame
- * - Minimum text length for animation: 5 characters
- * - Auto-cleanup on view disappear or streaming completion
- */
+/// LLMMessageTextView - A specialized text view designed for LLM chat messages with typewriter animation
+///
+/// This SwiftUI component provides an enhanced text display specifically designed for AI chat applications.
+/// It supports both plain text and Markdown rendering with an optional typewriter animation effect
+/// that creates a dynamic, engaging user experience during AI response streaming.
+///
+/// Key Features:
+/// - Typewriter animation for streaming AI responses
+/// - Markdown support with custom styling
+/// - Smart animation control based on message type and content length
+/// - Automatic animation management with proper cleanup
+/// - Performance-optimized character-by-character rendering
+///
+/// Usage Examples:
+///
+/// 1. Basic AI Message with Typewriter Effect:
+/// ```swift
+/// LLMMessageTextView(
+///     text: "Hello! This is an AI response with typewriter animation.",
+///     messageUseMarkdown: false,
+///     messageId: "msg_001",
+///     isAssistantMessage: true,
+///     isStreamingMessage: true
+/// )
+/// ```
+///
+/// 2. Markdown Message with Custom Styling:
+/// ```swift
+/// LLMMessageTextView(
+///     text: "**Bold text** and *italic text* with `code blocks`",
+///     messageUseMarkdown: true,
+///     messageId: "msg_002",
+///     isAssistantMessage: true,
+///     isStreamingMessage: true
+/// )
+/// ```
+///
+/// 3. User Message (No Animation):
+/// ```swift
+/// LLMMessageTextView(
+///     text: "This is a user message",
+///     messageUseMarkdown: false,
+///     messageId: "msg_003",
+///     isAssistantMessage: false,
+///     isStreamingMessage: false
+/// )
+/// ```
+///
+/// Animation Configuration:
+/// - typingSpeed: 0.015 seconds per character (adjustable)
+/// - chunkSize: 1 character per animation frame
+/// - Minimum text length for animation: 5 characters
+/// - Auto-cleanup on view disappear or streaming completion
 struct LLMMessageTextView: View {
     let text: String?
     let messageUseMarkdown: Bool
@@ -194,14 +192,12 @@ struct LLMMessageTextView: View {
         }
     }
     
-    /**
-     * Handles text content changes during streaming
-     * 
-     * This method intelligently manages animation continuation, restart, or direct display
-     * based on the relationship between old and new text content.
-     * 
-     * - Parameter newText: The updated text content
-     */
+    /// Handles text content changes and manages animation state
+    ///
+    /// This method intelligently manages animation continuation, restart, or direct display
+    /// based on the relationship between old and new text content.
+    ///
+    /// - Parameter newText: The updated text content
     private func handleTextChange(_ newText: String?) {
         guard let newText = newText else {
             displayedText = ""
@@ -225,24 +221,20 @@ struct LLMMessageTextView: View {
         }
     }
     
-    /**
-     * Initiates typewriter animation for the given text
-     * 
-     * - Parameter text: The text to animate
-     */
+    /// Initiates typewriter animation for the given text
+    ///
+    /// - Parameter text: The text to animate
     private func startTypewriterAnimation(for text: String) {
         displayedText = ""
         continueTypewriterAnimation(with: text)
     }
     
-    /**
-     * Continues or resumes typewriter animation
-     * 
-     * This method sets up a timer-based animation that progressively reveals
-     * characters at the configured typing speed.
-     * 
-     * - Parameter text: The complete text to animate
-     */
+    /// Continues or resumes typewriter animation
+    ///
+    /// This method sets up a timer-based animation that progressively reveals
+    /// characters at the configured typing speed.
+    ///
+    /// - Parameter text: The complete text to animate
     private func continueTypewriterAnimation(with text: String) {
         guard displayedText.count < text.count else { return }
         
@@ -255,25 +247,21 @@ struct LLMMessageTextView: View {
         }
     }
     
-    /**
-     * Restarts typewriter animation with new content
-     * 
-     * - Parameter text: The new text to animate
-     */
+    /// Restarts typewriter animation with new content
+    ///
+    /// - Parameter text: The new text to animate
     private func restartTypewriterAnimation(with text: String) {
         stopAnimation()
         displayedText = ""
         startTypewriterAnimation(for: text)
     }
     
-    /**
-     * Appends the next character(s) to the displayed text
-     * 
-     * This method is called by the animation timer to progressively reveal
-     * text characters. It handles proper string indexing and animation completion.
-     * 
-     * - Parameter text: The source text to extract characters from
-     */
+    /// Appends the next character(s) to the displayed text
+    ///
+    /// This method is called by the animation timer to progressively reveal
+    /// text characters. It handles proper string indexing and animation completion.
+    ///
+    /// - Parameter text: The source text to extract characters from
     private func appendNextCharacters(from text: String) {
         let currentLength = displayedText.count
         guard currentLength < text.count else {
@@ -293,12 +281,10 @@ struct LLMMessageTextView: View {
         }
     }
     
-    /**
-     * Stops and cleans up the typewriter animation
-     * 
-     * This method should be called when animation is no longer needed
-     * to prevent memory leaks and unnecessary timer execution.
-     */
+    /// Stops and cleans up the typewriter animation
+    ///
+    /// This method should be called when animation is no longer needed
+    /// to prevent memory leaks and unnecessary timer execution.
     private func stopAnimation() {
         animationTimer?.invalidate()
         animationTimer = nil

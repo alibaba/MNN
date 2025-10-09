@@ -9,6 +9,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <iomanip>
 #include <unordered_set>
 
 #include <MNN/AutoTime.hpp>
@@ -94,6 +95,30 @@ bool Llm::set_config(const std::string& content) {
         mPrompt.reset(Prompt::createPrompt(mContext, mConfig));
     }
     mAsync = mConfig->config_.document.HasMember("async") ? mConfig->config_.document["async"].GetBool() : true;
+    mValidBlockSize.clear();
+    mBlockSize = 0;
+    if (mConfig->config_.document.HasMember("chunk")) {
+        mBlockSize = mConfig->config_.document["chunk"].GetInt();
+    }
+    if (mConfig->config_.document.HasMember("chunk_limits")) {
+        auto& size_limit = mConfig->config_.document["chunk_limits"];
+        do {
+            if (!size_limit.IsArray()) {
+                MNN_ERROR("size_limit must be array, eg: [128, 1]\n");
+                break;
+            }
+            for (auto iter = size_limit.GetArray().begin(); iter != size_limit.GetArray().end(); iter++) {
+                mValidBlockSize.emplace_back(iter->GetInt());
+            }
+            if (mValidBlockSize.size() < 2) {
+                MNN_ERROR("size_limit must be array larger than 1, eg: [128, 1]\n");
+                mValidBlockSize.clear();
+                break;
+            }
+            std::sort(mValidBlockSize.begin(), mValidBlockSize.end());
+            mBlockSize = mValidBlockSize[mValidBlockSize.size()-1];
+        } while (false);
+    }
     return res;
 }
 
@@ -101,7 +126,7 @@ void Llm::setRuntimeHint(std::shared_ptr<Express::Executor::RuntimeManager> &rtg
     rtg->setHint(MNN::Interpreter::INIT_THREAD_NUMBER, 4);
 
     rtg->setHint(MNN::Interpreter::MEM_ALLOCATOR_TYPE, 0);
-    rtg->setHint(MNN::Interpreter::QKV_QUANT_OPTIONS, mConfig->quant_qkv());
+    rtg->setHint(MNN::Interpreter::QKV_QUANT_OPTIONS, mConfig->config_.value("quant_qkv", 8));
     rtg->setHint(MNN::Interpreter::KVCACHE_SIZE_LIMIT, mConfig->kvcache_limit());
     if (mConfig->use_cached_mmap()) {
         rtg->setHint(MNN::Interpreter::USE_CACHED_MMAP, 1);
@@ -113,6 +138,8 @@ void Llm::setRuntimeHint(std::shared_ptr<Express::Executor::RuntimeManager> &rtg
     if (mConfig->use_mmap()) {
         rtg->setExternalPath(tmpPath, MNN::Interpreter::EXTERNAL_WEIGHT_DIR);
     }
+    // set npu model dir
+    rtg->setExternalPath(mConfig->npu_model_dir(), 3);
     auto dynamicOption = mConfig->dynamic_option();
     if (mConfig->dynamic_option()) {
         rtg->setHint(MNN::Interpreter::DYNAMIC_QUANT_OPTIONS, mConfig->dynamic_option());
@@ -198,7 +225,7 @@ static bool canSpecDecode(std::shared_ptr<Express::Module> module) {
 void Llm::setSpeculativeConfig() {
     auto specultive_type = mConfig->speculative_type();
     if(!specultive_type.empty()) {
-        if(!canSpecDecode(mModules[0])) {
+        if(!canSpecDecode(mModule)) {
             mInSpec = false;
             return;
         }
@@ -207,7 +234,7 @@ void Llm::setSpeculativeConfig() {
     }
 }
 
-void Llm::load() {
+bool Llm::load() {
     initRuntime();
     // init module status
     // 1. load vocab
@@ -217,7 +244,7 @@ void Llm::load() {
     mSampler.reset(Sampler::createSampler(mContext, mConfig));
     // 3. load model
     Module::Config module_config;
-    if (mConfig->backend_type() == "opencl" || mConfig->backend_type() == "vulkan") {
+    if (mConfig->backend_type() == "opencl" || mConfig->backend_type() == "vulkan" || mConfig->backend_type() == "npu") {
         module_config.shapeMutable = false;
     } else {
         module_config.shapeMutable = true;
@@ -228,7 +255,6 @@ void Llm::load() {
         module_config.base = mBaseModule;
     }
     // load single model
-    mModules.resize(1);
     std::string model_path = mConfig->llm_model();
 
     std::vector<std::string> inputNames {"input_ids", "attention_mask", "position_ids", "logits_index"};
@@ -246,17 +272,16 @@ void Llm::load() {
     if (needHiddenState) {
         outputNames.emplace_back("hidden_states");
     }
-    // set npu model dir
-    mRuntimeManager->setExternalPath(mConfig->npu_model_dir(), 3);
+
     mRuntimeManager->setExternalFile(mConfig->llm_weight());
-    mModules[0].reset(Module::load(inputNames, outputNames, model_path.c_str(), mRuntimeManager, &module_config));
+    mModule.reset(Module::load(inputNames, outputNames, model_path.c_str(), mRuntimeManager, &module_config));
     mRuntimeManager->setExternalFile("");
-    if(nullptr == mModules[0]) {
+    if(nullptr == mModule) {
         MNN_ERROR("[Error]: Load module failed, please check model.\n");
         if(outputNames.size() > 1) {
             MNN_ERROR("[Warning]: Set module multi outputs, please double check.\n");
         }
-        return;
+        return false;
     }
     // set speculative decoding params
     setSpeculativeConfig();
@@ -270,13 +295,13 @@ void Llm::load() {
         decode_type_num = 2;
         verify_length = mDraftLength + 1;
         // speculative decode module
-        mModulePool[std::make_pair(verify_length, true)].reset(Module::clone(mModules[0].get()));
+        mModulePool[std::make_pair(verify_length, true)].reset(Module::clone(mModule.get()));
     }
 
     // autoregressive decode module
-    mModulePool[std::make_pair(1, false)].reset(Module::clone(mModules[0].get()));
+    mModulePool[std::make_pair(1, false)].reset(Module::clone(mModule.get()));
     // prefill module
-    mModulePool[std::make_pair(mPrefillKey, mConfig->all_logits())] = mModules[0];
+    mModulePool[std::make_pair(mPrefillKey, mConfig->all_logits())] = mModule;
 
     // module input varp setting
     logitsLastIdx = _var<int>({-1}, {1});
@@ -305,12 +330,13 @@ void Llm::load() {
 
     // MTP model load
     mGenerationStrategy->load(module_config);
+    return true;
 }
 
 Llm* Llm::create_lora(const std::string& lora_path) {
     auto llm = new Llm(std::make_shared<LlmConfig>(*mConfig));
     llm->set_config("{\"llm_model\": \"" + lora_path + "\", \"use_mmap\": false, \"use_cached_mmap\": false}");
-    llm->mBaseModule = mModules.begin()->get();
+    llm->mBaseModule = mModule.get();
     llm->load();
     return llm;
 }
@@ -385,13 +411,18 @@ std::vector<Express::VARP> Llm::forwardRaw(Express::VARP hiddenState, Express::V
     Express::VARP logitsIndex;
     bool inDecode = mContext->gen_seq_len > 0;
     bool isAllLogists = mConfig->all_logits() ? true : (inDecode ? mInSpec : false);
-    int seqLenKey = inDecode ? hiddenState->getInfo()->dim[0] : mPrefillKey;
+    auto seqLen = hiddenState->getInfo()->dim[mSeqLenIndex];
+    int seqLenKey = inDecode ? hiddenState->getInfo()->dim[mSeqLenIndex] : mPrefillKey;
     isAllLogists = seqLenKey == 1 ? false : isAllLogists;
     auto moduleKey = std::make_pair(seqLenKey, isAllLogists);
-    if(mModulePool.find(moduleKey) == mModulePool.end()) {
-        MNN_PRINT("Warning: module need new clone, cloning now.\n");
-        mRuntimeManager->setHintPtr(Interpreter::KVCACHE_INFO, mMeta.get());
-        mModulePool[moduleKey].reset(Module::clone(mModules[0].get()));
+    std::shared_ptr<Module> selectModule = mModule;
+    if (mValidBlockSize.empty()) {
+        if(mModulePool.find(moduleKey) == mModulePool.end()) {
+            MNN_PRINT("Warning: module need new clone, cloning now.\n");
+            mRuntimeManager->setHintPtr(Interpreter::KVCACHE_INFO, mMeta.get());
+            mModulePool[moduleKey].reset(Module::clone(mModule.get()));
+        }
+        selectModule = mModulePool[moduleKey];
     }
 
     if (isAllLogists) {
@@ -399,10 +430,17 @@ std::vector<Express::VARP> Llm::forwardRaw(Express::VARP hiddenState, Express::V
     } else {
         logitsIndex = logitsLastIdx;
     }
+    if (mMeta->add != seqLen) {
+        // Has Pad, need all logits
+        logitsIndex = logitsAllIdx;
+    }
+
     mGenerateParam->input_embeds = nullptr;
     mGenerateParam->outputs.clear();
+    mGenerateParam->validLogitSize = 0;
+    mGenerateParam->validLogitStart = 0;
     std::vector<Express::VARP> outputs;
-    outputs = mModulePool[moduleKey]->onForward({hiddenState, mask, inputPos, logitsIndex});
+    outputs = selectModule->onForward({hiddenState, mask, inputPos, logitsIndex});
 
     if (outputs.empty()) {
         return outputs;
@@ -493,10 +531,83 @@ std::vector<VARP> Llm::forwardVec(const std::vector<int>& input_ids) {
 
 std::vector<VARP> Llm::forwardVec(MNN::Express::VARP input_embeds) {
     int seq_len         = input_embeds->getInfo()->dim[mSeqLenIndex];
-    mMeta->add         = seq_len;
-    auto attention_mask = gen_attention_mask(seq_len);
-    auto position_ids = gen_position_ids(seq_len);
-    auto logits = forwardRaw(input_embeds, attention_mask, position_ids);
+    if (0 == mBlockSize) {
+        mMeta->add = seq_len;
+        auto attention_mask = gen_attention_mask(seq_len);
+        auto position_ids = gen_position_ids(seq_len);
+        auto res = forwardRaw(input_embeds, attention_mask, position_ids);
+        return res;
+    }
+    // For decode can't support seq_len <= mBlockSize
+    MNN_ASSERT(mContext->gen_seq_len <= 0 || seq_len <= mBlockSize);
+    auto blockNumber = seq_len / mBlockSize;
+    auto blockRemain = seq_len % mBlockSize;
+    std::vector<VARP> logits;
+    std::vector<VARP> embeddings;
+    auto blockSize = mBlockSize;
+    INTS sizeSplits;
+    if (0 < blockNumber) {
+        sizeSplits.resize(blockNumber);
+        for (int i=0; i<blockNumber; ++i) {
+            sizeSplits[i] = blockSize;
+        }
+        if (blockRemain > 0) {
+            sizeSplits.emplace_back(blockRemain);
+        }
+    }
+    if (sizeSplits.size() > 1) {
+        embeddings = MNN::Express::_Split(input_embeds, sizeSplits);
+    } else {
+        embeddings = {input_embeds};
+    }
+    int addSize = blockSize;
+    for (int i=0; i<blockNumber; ++i) {
+        logits.clear();
+        mMeta->add = blockSize;
+        auto embed = embeddings[i];
+        auto attention_mask = gen_attention_mask(blockSize);
+        auto position_ids = gen_position_ids(blockSize);
+        logits = forwardRaw(embed, attention_mask, position_ids);
+        updateContext(blockSize, 0);
+    }
+    bool hasPad = false;
+    if (blockRemain != 0) {
+        logits.clear();
+        mMeta->add = blockRemain;
+        addSize = blockRemain;
+        int forwardSize = blockRemain;
+        input_embeds = embeddings[embeddings.size()-1];
+        if (!mValidBlockSize.empty()) {
+            forwardSize = mValidBlockSize[mValidBlockSize.size()-1];
+            for (int j=mValidBlockSize.size()-2; j>=0; --j) {
+                if (mValidBlockSize[j] < blockRemain) {
+                    break;
+                }
+                forwardSize = mValidBlockSize[j];
+            }
+            if (blockRemain < forwardSize) {
+                // Pad
+                hasPad = true;
+                auto dim = input_embeds->getInfo()->dim;
+                dim[mSeqLenIndex] = forwardSize;
+                auto newEmbed = _Input(dim, NCHW);
+                ::memcpy(newEmbed->writeMap<void>(), input_embeds->readMap<void>(), input_embeds->getInfo()->size * sizeof(float));
+                ::memset(newEmbed->writeMap<float>() + input_embeds->getInfo()->size, 0, (newEmbed->getInfo()->size - input_embeds->getInfo()->size) * sizeof(float));
+                input_embeds = newEmbed;
+            }
+        }
+        auto attention_mask = gen_attention_mask(forwardSize);
+        auto position_ids = gen_position_ids(forwardSize);
+        logits = forwardRaw(input_embeds, attention_mask, position_ids);
+    }
+    updateContext(-blockSize * blockNumber, 0);
+    if (hasPad) {
+        auto logitSize = logits[0]->getInfo()->dim[2];
+        // encode
+        mGenerateParam->validLogitStart = ((int)addSize - 1) * logitSize;
+        mGenerateParam->validLogitSize = logitSize;
+    }
+
     return logits;
 }
 
@@ -508,6 +619,7 @@ void Llm::updateContext(int seq_len, int gen_len) {
 int Llm::sample(VARP logits, int offset, int size) {
     auto logitsShape = logits->getInfo()->dim;
     if (offset && size) {
+        MNN_ASSERT(logits->getInfo()->size >= offset + size);
         logits = _Const(logits->readMap<float>() + offset, {size}, NHWC, halide_type_of<float>());
     }
     auto token_id = mSampler->sample(logits);
@@ -519,6 +631,10 @@ void Llm::reset() {
     mContext->history_tokens.clear();
     mContext->all_seq_len = 0;
     mContext->gen_seq_len = 0;
+    mContext->vision_us = 0;
+    mContext->pixels_mp = 0.0f;
+    mContext->audio_us = 0;
+    mContext->audio_input_s = 0.0f;
     mMeta->remove = mMeta->previous;
 }
 
@@ -584,14 +700,52 @@ std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_tokens
     if (max_tokens < 0) {
         max_tokens = mConfig->max_new_tokens();
     }
-    mContext->prompt_len = static_cast<int>(input_ids.size());
     mContext->history_tokens.insert(mContext->history_tokens.end(), input_ids.begin(), input_ids.end()); // push to history_ids_
-    auto hidden_states = embedding(input_ids);
-    return generate(hidden_states, max_tokens);
+    if (0 == mBlockSize || input_ids.size() <= mBlockSize) {
+        auto hidden_states = embedding(input_ids);
+        return generate(hidden_states, max_tokens);
+    }
+    int total_size = (int)input_ids.size();
+    int loop_size = UP_DIV(total_size, mBlockSize);
+    for (int i = 0; i < loop_size; i++) {
+        auto start = i * mBlockSize;
+        auto end = (i+1) * mBlockSize;
+        if (end >= total_size) {
+            end = total_size;
+        }
+        std::vector<int> chunk_ids(input_ids.begin() + start, input_ids.begin() + end);
+        auto input_embeds = embedding(chunk_ids);
+        generate(input_embeds, 0);
+    }
+    generate(max_tokens);
+    mContext->prompt_len = static_cast<int>(input_ids.size());
+    return mContext->output_tokens;
+}
+
+std::string Llm::apply_chat_template(const std::string& user_content) const {
+    return mPrompt->applyTemplate(user_content, true);
+}
+
+std::string Llm::apply_chat_template(const ChatMessages& chat_prompts) const {
+    return mPrompt->applyTemplate(chat_prompts, true);
 }
 
 std::vector<int> Llm::tokenizer_encode(const std::string& user_content) {
     return mTokenizer->encode(user_content);
+}
+
+std::vector<int> Llm::tokenizer_encode(const MultimodalPrompt& multimodal_input) {
+    return mTokenizer->encode(multimodal_input.prompt_template);
+}
+
+void Llm::response(const MultimodalPrompt& multimodal_input,
+                   std::ostream* os, const char* end_with, int max_new_tokens) {
+    auto multimodal_input_copy = multimodal_input;
+    if (mConfig->use_template()) {
+        multimodal_input_copy.prompt_template = mPrompt->applyTemplate(multimodal_input_copy.prompt_template, true);
+    }
+    std::vector<int> input_ids = tokenizer_encode(multimodal_input_copy);
+    response(input_ids, os, end_with, max_new_tokens);
 }
 
 std::vector<int> Llm::generate(MNN::Express::VARP input_embeds, int max_tokens) {
@@ -606,7 +760,7 @@ std::vector<int> Llm::generate(MNN::Express::VARP input_embeds, int max_tokens) 
         return {};
     }
     updateContext(seqLen, 0);
-    mContext->prefill_us = _t.durationInUs();
+    mContext->prefill_us += _t.durationInUs();
 
     MNN::Express::ExecutorScope::Current()->gc(); // after prefill
 
@@ -621,18 +775,19 @@ std::vector<int> Llm::generate(MNN::Express::VARP input_embeds, int max_tokens) 
     }
     {
         std::ofstream outFile("logits.txt");
-        auto temp = outputs[0]->readMap<float>();
-        for (size_t i = 0; i < outputs[0]->getInfo()->size; ++i) {
+        auto temp = mGenerateParam->outputs[0]->readMap<float>();
+        for (size_t i = 0; i < mGenerateParam->outputs[0]->getInfo()->size; ++i) {
             outFile << temp[i] << " "; // 每个数字后加空格
         }
         outFile.close();
     }
 #endif
 
-    _t.reset();
     // call generation function
-    mGenerateParam->max_new_tokens = max_tokens;
-    mGenerationStrategy->generate(*mGenerateParam);
+    if (0 < max_tokens) {
+        mGenerateParam->max_new_tokens = max_tokens;
+        mGenerationStrategy->generate(*mGenerateParam);
+    }
     return mContext->output_tokens;
 }
 
@@ -698,7 +853,7 @@ Llm::~Llm() {
     }
 #endif
     mGenerateParam.reset();
-    mModules.clear();
+    mModule.reset();
     mRuntimeManager.reset();
     mProcessorRuntimeManager.reset();
 }

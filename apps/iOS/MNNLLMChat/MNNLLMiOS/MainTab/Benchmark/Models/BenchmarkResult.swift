@@ -7,10 +7,8 @@
 
 import Foundation
 
-/**
- * Structure containing the results of a completed benchmark test.
- * Encapsulates test instance data along with success status and error information.
- */
+/// Structure containing the results of a completed benchmark test.
+/// Encapsulates test instance data along with success status and error information.
 struct BenchmarkResult {
     let testInstance: TestInstance
     let success: Bool

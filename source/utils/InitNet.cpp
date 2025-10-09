@@ -153,6 +153,9 @@ bool initTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* net, 
                 quant->zero  =  des->quantInfo()->zero();
                 quant->min   =  des->quantInfo()->min();
                 quant->max   =  des->quantInfo()->max();
+                if (des->quantInfo()->type() != DataType_DT_INVALID) {
+                    quant->type = des->quantInfo()->type();
+                }
             }
         }
     }

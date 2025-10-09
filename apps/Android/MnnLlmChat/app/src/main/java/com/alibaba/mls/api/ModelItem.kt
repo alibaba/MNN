@@ -6,9 +6,9 @@ import android.content.Context
 import com.alibaba.mls.api.source.ModelSources
 import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.model.ModelUtils.getModelName
-import com.alibaba.mnnllm.android.modelmarket.SourceSelectionDialogFragment
 import com.alibaba.mnnllm.android.utils.DeviceUtils
 import com.alibaba.mnnllm.android.modelmarket.ModelMarketItem
+import com.alibaba.mnnllm.android.tag.ModelTagsCache
 
 class ModelItem {
     var modelId: String? = null
@@ -30,6 +30,10 @@ class ModelItem {
             !marketTags.isNullOrEmpty() -> marketTags!!
             else -> emptyList()
         }
+    }
+
+    fun getExtraTags(): List<String> {
+        return modelMarketItem?.extraTags ?: emptyList()
     }
 
     fun addTag(tag: String) {

@@ -187,10 +187,6 @@ void* Executor::ComputeCache::mapOutput(int offset, Tensor* dest) {
     return dest->host<void>();
 }
 
-void Executor::ComputeCache::setShapeDirty() {
-    mShapeDirty = true;
-}
-
 void Executor::ComputeCache::setContentDirty() {
     mContentDirty = true;
 }
@@ -333,3 +329,5 @@ int Executor::ComputeCache::gInstanceCount = 0;
 
 } // namespace Express
 } // namespace MNN
+
+
