@@ -2,6 +2,16 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>customDisplayName</key>
+	<string>MNN Chat</string>
+	<key>CFBundleName</key>
+	<string>MNN Chat</string>
+	<key>CFBundleShortVersionString</key>
+	<string>10.52.30.1000107</string>
+	<key>CFBundleVersion</key>
+	<string>49598652</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.taobao.mnnchat</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>

@@ -12,12 +12,19 @@ struct LocalModelListView: View {
     @State private var localSearchText = ""
 
     private var filteredLocalModels: [ModelInfo] {
-        let downloadedModels = viewModel.models.filter { $0.isDownloaded }
+        // Filter for truly local models (vendor is "Local") or downloaded models
+        let localModels = viewModel.models.filter { model in
+            // Check if it's a built-in local model or a downloaded remote model
+            if let vendor = model.vendor, vendor.lowercased() == "local" {
+                return true // Built-in local model
+            }
+            return model.isDownloaded // Downloaded remote model
+        }
 
         if localSearchText.isEmpty {
-            return downloadedModels
+            return localModels
         } else {
-            return downloadedModels.filter { model in
+            return localModels.filter { model in
                 model.id.localizedCaseInsensitiveContains(localSearchText) ||
                     model.modelName.localizedCaseInsensitiveContains(localSearchText) ||
                     model.localizedTags.contains { $0.localizedCaseInsensitiveContains(localSearchText) }
