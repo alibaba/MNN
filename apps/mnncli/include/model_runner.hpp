@@ -63,11 +63,13 @@ public:
 #ifndef OPENCV_NOT_AVAILABLE
     static MNN::Express::VARP MatToVar(const cv::Mat& mat);
     int ProcessVideoPrompt(const std::string& prompt_str, std::ostream* output = nullptr);
-#else
-    // Stub declarations when OpenCV is not available
+#endif
+#endif
+
+#ifndef LLM_SUPPORT_VISION
+    // Stub declarations when vision is not supported
     static MNN::Express::VARP MatToVar(void* mat);
     int ProcessVideoPrompt(const std::string& prompt_str, std::ostream* output = nullptr);
-#endif
 #endif
 
 private:

@@ -27,7 +27,7 @@ namespace Colors {
 
 // Log levels enum
 enum class LogLevel {
-    DEBUG,
+    DEBUG_LEVEL,
     INFO,
     WARNING,
     ERROR

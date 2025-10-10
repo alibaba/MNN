@@ -21,7 +21,7 @@ bool LogUtils::is_verbose_ = false;
 // Implement the missing methods that are not inline
 void LogUtils::Debug(const std::string& message, const std::string& tag) {
     if (is_verbose_) {
-        std::string formatted = FormatMessage(LogLevel::DEBUG, message, tag);
+        std::string formatted = FormatMessage(LogLevel::DEBUG_LEVEL, message, tag);
         std::cout << formatted << std::endl;
     }
 }
@@ -114,7 +114,7 @@ std::string LogUtils::FormatMessage(LogLevel level, const std::string& message, 
     
     // Add level with color
     switch (level) {
-        case LogLevel::DEBUG:
+        case LogLevel::DEBUG_LEVEL:
             ss << Colors::CYAN << "[DEBUG]" << Colors::RESET << " ";
             break;
         case LogLevel::INFO:
