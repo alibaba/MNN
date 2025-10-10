@@ -48,11 +48,9 @@ final class LLMChatInteractor: ChatInteractorProtocol {
         self.modelInfo = modelInfo
         chatData = LLMChatData(modelInfo: modelInfo)
         self.historyMessages = historyMessages
-        print("yxy:: LLMChatInteractor init")
     }
 
     deinit {
-        print("yxy:: LLMChatInteractor deinit")
     }
 
     /// Sends a draft message to the chat with the specified user type

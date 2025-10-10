@@ -77,7 +77,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <errno.h>
-#include "MNN/expr/ExecutorScope.hpp"
+// #include "MNN/expr/ExecutorScope.hpp" // Removed - file not found
 
 #import <Foundation/Foundation.h>
 #import "LLMInferenceEngineWrapper.h"
@@ -100,7 +100,7 @@
                  virtual void response(const std::vector<std::pair<std::string, std::string>>& history, std::ostream* os = nullptr, const char* end_with = nullptr, int max_new_tokens = 999999) = 0;
                  virtual void response(const std::vector<int>& tokens, std::ostream* os = nullptr, const char* end_with = nullptr, int max_new_tokens = 999999) = 0;
                  virtual void reset() = 0;
-                 virtual bool stopped() = 0;
+                 virtual bool stoped() = 0;
                  virtual int generate(int max_token_number = 0) = 0;
                  struct LlmContext {
                      int prompt_len;
@@ -128,7 +128,7 @@
                virtual void response(const std::vector<std::pair<std::string, std::string>>& history, std::ostream* os = nullptr, const char* end_with = nullptr, int max_new_tokens = 512) = 0;
                virtual void response(const std::vector<int>& tokens, std::ostream* os = nullptr, const char* end_with = nullptr, int max_new_tokens = 512) = 0;
                virtual void reset() = 0;
-               virtual bool stopped() = 0;
+               virtual bool stoped() = 0;
                virtual int generate(int max_token_number = 0) = 0;
                struct LlmContext {
                    int prompt_len;
@@ -383,7 +383,9 @@ private:
         _shouldStopInference = false;
         
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
-            BOOL success = [self loadModelFromPath:modelPath];
+            // Resolve the model path using the new path resolution logic
+            NSString *resolvedPath = [self resolveModelPath:modelPath];
+            BOOL success = [self loadModelFromPath:resolvedPath];
             
             dispatch_async(dispatch_get_main_queue(), ^{
                 if (completion) {
@@ -420,6 +422,29 @@ bool remove_directory_safely(const std::string& path) {
         NSLog(@"Exception removing directory %s: %@", path.c_str(), exception.reason);
         return false;
     }
+}
+
+/**
+ * Resolves model path for new ModelIndex.json structure
+ *
+ * @param modelPath The original model path from ModelInfo
+ * @return Resolved absolute path to the model directory
+ */
+- (NSString *)resolveModelPath:(NSString *)modelPath {
+    // Check if this is a new ModelIndex.json structure path
+    if ([modelPath hasPrefix:@"LocalModel/"]) {
+        NSString *bundlePath = [[NSBundle mainBundle] resourcePath];
+        return [bundlePath stringByAppendingPathComponent:modelPath];
+    }
+    
+    // Check if this is a bundle_root path (legacy flattened structure)
+    if ([modelPath hasPrefix:@"bundle_root/"]) {
+        NSString *bundlePath = [[NSBundle mainBundle] resourcePath];
+        return bundlePath;
+    }
+    
+    // For absolute paths or other formats, return as-is
+    return modelPath;
 }
 
 /**
@@ -529,10 +554,6 @@ bool remove_directory_safely(const std::string& path) {
             NSLog(@"Error parsing config JSON: %@", error.localizedDescription);
             return NO;
         }
-        
-        MNN::BackendConfig backendConfig;
-        auto executor = MNN::Express::Executor::newExecutor(MNN_FORWARD_CPU, backendConfig, 1);
-        MNN::Express::ExecutorScope s(executor);
         
         // Get memory mapping setting with default fallback
         BOOL useMmap = configDict[@"use_mmap"] == nil ? YES : [configDict[@"use_mmap"] boolValue];
@@ -796,7 +817,7 @@ bool remove_directory_safely(const std::string& path) {
                     if (output) {
                         dispatch_async(dispatch_get_main_queue(), ^{
                             if (blockSelf->_shouldStopInference.load()) {
-                                output(@"<stopped>");
+                                output(@"<stoped>");
                             } else {
                                 output(@"<eop>");
                             }
@@ -1593,6 +1614,119 @@ bool remove_directory_safely(const std::string& path) {
  */
 - (BOOL)isBenchmarkRunning {
     return _isBenchmarkRunning.load();
+}
+
+/**
+ * Process multiple prompts in a single batch and return their responses.
+ * This method executes each prompt sequentially using the underlying LLM engine,
+ * collects generated output without streaming to UI, and returns them in order.
+ *
+ * @param prompts Array of NSString prompts
+ * @param completion Completion block called on main thread with responses
+ */
+- (void)processBatchPrompts:(NSArray<NSString *> *)prompts
+                 completion:(void (^)(NSArray<NSString *> *responses))completion {
+    if (!_llm) {
+        if (completion) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                completion(@[]);
+            });
+        }
+        return;
+    }
+    if (!prompts || prompts.count == 0) {
+        if (completion) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                completion(@[]);
+            });
+        }
+        return;
+    }
+
+    // Prevent concurrent inference while batch is running
+    if (_isProcessing.load()) {
+        if (completion) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                completion(@[]);
+            });
+        }
+        return;
+    }
+
+    _isProcessing = true;
+
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
+        NSMutableArray<NSString *> *results = [[NSMutableArray alloc] initWithCapacity:prompts.count];
+        @try {
+            for (NSString *prompt in prompts) {
+                if (!prompt || prompt.length == 0) {
+                    [results addObject:@""]; // Keep position
+                    continue;
+                }
+
+                // Prepare stream buffer to accumulate output
+                std::string accumulator;
+                OptimizedLlmStreamBuffer::CallBack cb = [&accumulator](const char* str, size_t len) {
+                    if (str && len > 0) {
+                        accumulator.append(str, len);
+                    }
+                };
+                OptimizedLlmStreamBuffer streambuf(cb);
+                std::ostream os(&streambuf);
+
+                // Reset stop flag
+                self->_shouldStopInference = false;
+
+                // Clear and set history for this prompt
+                {
+                    std::lock_guard<std::mutex> lock(self->_historyMutex);
+                    self->_history.clear();
+                    self->_history.emplace_back(ChatMessage("user", [prompt UTF8String]));
+                }
+
+                // Perform response generation similar to streaming method but without UI callbacks
+                @try {
+                    self->_llm->response(self->_history, &os, "<eop>", 1);
+
+                    int current_size = 1;
+                    const int max_new_tokens = 999999;
+                    while (!self->_shouldStopInference.load() && !self->_llm->stoped() && current_size < max_new_tokens) {
+                        self->_llm->generate(1);
+                        current_size++;
+                    }
+                } @catch (NSException *e) {
+                    NSLog(@"Exception during batch response generation: %@", e.reason);
+                }
+
+                // Convert accumulated C++ string to NSString
+                NSString *nsOut = [NSString stringWithUTF8String:accumulator.c_str()];
+                if (!nsOut) {
+                    nsOut = @"";
+                }
+                // Strip trailing <eop> marker if present
+                if ([nsOut hasSuffix:@"<eop>"]) {
+                    nsOut = [nsOut stringByReplacingOccurrencesOfString:@"<eop>" withString:@"" options:0 range:NSMakeRange(nsOut.length - 5, 5)];
+                }
+                [results addObject:nsOut];
+
+                // Reset context/history between prompts
+                {
+                    std::lock_guard<std::mutex> lock(self->_historyMutex);
+                    self->_history.clear();
+                }
+            }
+        } @catch (NSException *exception) {
+            NSLog(@"Batch processing exception: %@", exception.reason);
+        }
+        @finally {
+            self->_isProcessing = false;
+            if (completion) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    completion([results copy]);
+                });
+            }
+        }
+    });
 }
 
 @end

@@ -33,7 +33,7 @@ class ModelStorageManager {
     }
 
     func getLastUsed(for modelName: String) -> Date? {
-        return lastUsedModels[modelName]
+        lastUsedModels[modelName]
     }
 
     var downloadedModels: [String] {
@@ -84,7 +84,7 @@ class ModelStorageManager {
     }
 
     func getCachedSize(for modelName: String) -> Int64? {
-        return cachedSizes[modelName]
+        cachedSizes[modelName]
     }
 
     func setCachedSize(_ size: Int64, for modelName: String) {

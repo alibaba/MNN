@@ -1,7 +1,7 @@
 //
 //  LLMChatViewModel.swift
 //  MNNLLMiOS
-//  Created by 游薪渝(揽清) on 2025/1/8.
+//  Created by 游薪渝(揽清) on 2025/9/29.
 //
 
 import AVFoundation
@@ -65,7 +65,6 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
     }
 
     init(modelInfo: ModelInfo, history: ChatHistory? = nil) {
-        // print("yxy:: LLMChat View Model init")
         self.modelInfo = modelInfo
         self.history = history
         historyId = history?.id ?? UUID().uuidString
@@ -89,7 +88,6 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
     }
 
     deinit {
-        // print("yxy:: LLMChat View Model deinit")
         // Cancel ongoing inference
         llm?.cancelInference()
         llm = nil
@@ -101,8 +99,6 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
 
         // Remove notification observers
         NotificationCenter.default.removeObserver(self)
-
-        print("yxy:: LLMChat View Model cleanup complete")
     }
 
     // MARK: - Think Mode Methods
@@ -436,6 +432,22 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
         }
     }
 
+    /// Retrieves batch LLM responses for the provided prompts.
+    ///
+    /// This method forwards the prompts to the LLM state, which performs batch processing
+    /// using the underlying inference engine wrapper.
+    /// - Parameters:
+    ///   - prompts: An array of prompt strings to process in batch.
+    ///   - completion: A closure invoked with the list of response strings.
+    func getBatchLLMResponse(prompts: [String], completion: @escaping ([String]) -> Void) {
+        Task { [weak self] in
+            guard let self = self else { return }
+            await self.llmState.processBatchTestContent(prompts, llm: self.llm) { responses in
+                completion(responses)
+            }
+        }
+    }
+
     func setModelConfig() {
         if let configStr = modelConfigManager.readConfigAsJSONString(), let llm = llm {
             llm.setConfigWithJSONString(configStr)
@@ -444,11 +456,7 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
 
     private func convertDeepSeekMutliChat(content: String) -> String {
         if modelInfo.modelName.lowercased().contains("deepseek") {
-            /* formate:: <|begin_of_sentence|><|User|>{text}<|Assistant|>{text}<|end_of_sentence|>
-             <|User|>{text}<|Assistant|>{text}<|end_of_sentence|>
-             */
             var deepSeekContent = "<|begin_of_sentence|>"
-
             for message in messages {
                 let senderTag: String
                 switch message.user.id {

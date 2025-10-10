@@ -36,15 +36,15 @@ class ModelListViewModel: ObservableObject {
     }
 
     var allTags: [String] {
-        Array(Set(models.flatMap { $0.tags }))
+        Array(Set(models.flatMap(\.tags)))
     }
 
     var allCategories: [String] {
-        Array(Set(models.compactMap { $0.categories }.flatMap { $0 }))
+        Array(Set(models.compactMap(\.categories).flatMap { $0 }))
     }
 
     var allVendors: [String] {
-        Array(Set(models.compactMap { $0.vendor }))
+        Array(Set(models.compactMap(\.vendor)))
     }
 
     // MARK: - Initialization
@@ -68,11 +68,21 @@ class ModelListViewModel: ObservableObject {
 
     // MARK: - Model Data Management
 
-    /// Load models from Bundle root directory (LocalModel folder structure flattened)
+    /// Load models from ModelIndex.json and Bundle root directory
     private func loadLocalModels() async -> [ModelInfo] {
-        let fileManager = FileManager.default
         var localModels: [ModelInfo] = []
 
+        // First, try to load models from ModelIndex.json
+        let indexModels = ModelInfo.getAvailableLocalModels()
+        localModels.append(contentsOf: indexModels)
+
+        // Mark all index models as downloaded
+        for model in indexModels {
+            ModelStorageManager.shared.markModelAsDownloaded(model.modelName)
+        }
+
+        // Fallback: Load models from Bundle root directory (legacy support)
+        let fileManager = FileManager.default
         guard let resourcePath = Bundle.main.resourcePath else {
             return localModels
         }
@@ -88,12 +98,14 @@ class ModelListViewModel: ObservableObject {
                 // Check if we have a complete model (at least config.json)
                 if foundModelFiles.contains("llm.mnn") {
                     // MARK: Config the Local Model here
-                    let modelName = "Qwen3-0.6B-MNN-Inside"
+
+                    let modelName = "Qwen3-0.6B-MNN-Built-In"
                     let localModel = ModelInfo(
                         modelName: modelName,
                         tags: [
                             // MARK: if you know that model support think, uncomment the line
-                            // NSLocalizedString("tag.deepThinking", comment: "Deep thinking tag for local model"),
+
+                            NSLocalizedString("tag.deepThinking", comment: "Deep thinking tag for local model"),
                             NSLocalizedString("tag.localModel", comment: "Local model inside the app"),
                         ],
                         categories: ["Local Models"],
@@ -111,7 +123,7 @@ class ModelListViewModel: ObservableObject {
                 var isDirectory: ObjCBool = false
 
                 if fileManager.fileExists(atPath: localModelPath, isDirectory: &isDirectory), isDirectory.boolValue {
-                    localModels.append(contentsOf: await processLocalModelFolder(at: localModelPath))
+                    await localModels.append(contentsOf: processLocalModelFolder(at: localModelPath))
                 }
             }
 
@@ -126,6 +138,18 @@ class ModelListViewModel: ObservableObject {
     private func processLocalModelFolder(at validPath: String) async -> [ModelInfo] {
         let fileManager = FileManager.default
         var localModels: [ModelInfo] = []
+
+        // Get list of folders already handled by ModelIndex.json to avoid duplicates
+        let indexModels = ModelInfo.getAvailableLocalModels()
+        let indexModelFolders = Set(indexModels.compactMap { model in
+            if let sources = model.sources,
+               let localSource = sources["local"],
+               localSource.hasPrefix("LocalModel/")
+            {
+                return String(localSource.dropFirst("LocalModel/".count))
+            }
+            return nil
+        })
 
         // Check if this is a valid model directory (contains config.json)
         let configPath = (validPath as NSString).appendingPathComponent("config.json")
@@ -148,8 +172,8 @@ class ModelListViewModel: ObservableObject {
                 let contents = try fileManager.contentsOfDirectory(atPath: validPath)
 
                 for item in contents {
-                    // Skip hidden files and common non-model files
-                    if item.hasPrefix(".") || item == "bench.txt" {
+                    // Skip hidden files, common non-model files, and folders already handled by ModelIndex.json
+                    if item.hasPrefix(".") || item == "bench.txt" || indexModelFolders.contains(item) {
                         continue
                     }
 
@@ -162,14 +186,14 @@ class ModelListViewModel: ObservableObject {
                         let itemConfigPath = (itemPath as NSString).appendingPathComponent("config.json")
 
                         if fileManager.fileExists(atPath: itemConfigPath) {
-                            // Use custom name for Qwen3-0.6B-MNN to avoid conflicts
-                            let modelName = item == "Qwen3-0.6B-MNN" ? "Qwen3-0.6B-MNN-Inside" : item
+                            // Use original folder name as model name
+                            let modelName = item
                             let localModel = ModelInfo(
                                 modelName: modelName,
-                                tags: ["local", "bundled"],
+                                tags: ["local", "Build-In", "Think"],
                                 categories: ["Local Models"],
                                 vendor: "Local",
-                                sources: ["local": "local/\(item)"],
+                                sources: ["local": "LocalModel/\(item)"],
                                 isDownloaded: true
                             )
                             localModels.append(localModel)
@@ -196,11 +220,19 @@ class ModelListViewModel: ObservableObject {
 
             var fetchedModels = info.models
 
-            // Add LocalModel folder models, avoiding duplicates
+            // Add LocalModel folder models, prioritizing local models over remote ones
             let localModels = await loadLocalModels()
-            let existingModelNames = Set(fetchedModels.map { $0.modelName })
-            let uniqueLocalModels = localModels.filter { !existingModelNames.contains($0.modelName) }
-            fetchedModels.append(contentsOf: uniqueLocalModels)
+
+            // Create a map of local model names for efficient lookup
+            let localModelNames = Set(localModels.map(\.modelName))
+
+            // Remove remote models that have the same name as local models
+            fetchedModels.removeAll { remoteModel in
+                localModelNames.contains(remoteModel.modelName)
+            }
+
+            // Add all local models
+            fetchedModels.append(contentsOf: localModels)
 
             filterDiffusionModels(fetchedModels: &fetchedModels)
             filterModelsForRelease(fetchedModels: &fetchedModels)
@@ -445,7 +477,7 @@ class ModelListViewModel: ObservableObject {
     func cancelDownload() async {
         let modelId = await MainActor.run { currentlyDownloading }
 
-        if let modelId = modelId {
+        if let modelId {
             await modelClient.cancelDownload(for: modelId)
 
             await MainActor.run {
