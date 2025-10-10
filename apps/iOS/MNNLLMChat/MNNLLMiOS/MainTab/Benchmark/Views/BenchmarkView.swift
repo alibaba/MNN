@@ -44,7 +44,6 @@ struct BenchmarkView: View {
                                 removal: .opacity
                             ))
                     }
-
                     Spacer(minLength: 20)
                 }
                 .padding(.horizontal, 20)

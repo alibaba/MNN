@@ -209,6 +209,19 @@ typedef void (^BenchmarkCompleteCallback)(BenchmarkResult *result);
  */
 - (BOOL)isBenchmarkRunning;
 
+/**
+ * Process multiple prompts in a single batch and return their responses.
+ *
+ * This method runs each prompt independently, clears the chat history per prompt,
+ * and collects the generated outputs without streaming UI callbacks.
+ *
+ * @param prompts An array of input prompt strings to process
+ * @param completion Completion block called on the main thread with an array of
+ *                   response strings in the same order as the input prompts
+ */
+- (void)processBatchPrompts:(NSArray<NSString *> *)prompts
+                 completion:(void (^)(NSArray<NSString *> *responses))completion;
+
 @end
 
 NS_ASSUME_NONNULL_END

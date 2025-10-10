@@ -97,7 +97,7 @@ class AssetExtractor {
             uiImage = uiImage.imageRotatedByDegrees(degrees: orientation)
         }
 
-        let jpegData = uiImage.jpegData(compressionQuality: 1.0)
+        let jpegData = uiImage.jpegData(compressionQuality: 0.8)
 
         let jpgUrl = heicUrl.deletingPathExtension().appendingPathExtension("jpg")
 

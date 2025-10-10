@@ -2,7 +2,7 @@
 //  LLMChatView.swift
 //  MNNLLMiOS
 //
-//  Created by 游薪渝(揽清) on 2025/1/8.
+//  Created by 游薪渝(揽清) on 2025/9/29.
 //
 
 import AVFoundation
@@ -13,6 +13,7 @@ import SwiftUI
 
 struct LLMChatView: View {
     @State private var showSettings = false
+    @State private var showBatchFileTest = false
     @StateObject private var viewModel: LLMChatViewModel
     @Environment(\.presentationMode) private var presentationMode
 
@@ -121,16 +122,23 @@ struct LLMChatView: View {
                         .sheet(isPresented: $showSettings) {
                             ModelSettingsView(showSettings: $showSettings, viewModel: viewModel)
                         }
+                        
+                        // Three-dot menu
+                        ChatMenuView(showBatchFileTest: $showBatchFileTest)
                     }
                 }
             }
             .onAppear {
                 viewModel.onStart()
+                setupBatchTestCallbacks()
             }
             .onDisappear(perform: viewModel.onStop)
             .onReceive(NotificationCenter.default.publisher(for: .dismissKeyboard)) { _ in
                 // Hidden keyboard
                 UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            }
+            .sheet(isPresented: $showBatchFileTest) {
+                BatchFileTestView(chatViewModel: viewModel)
             }
 
             // Loading overlay
@@ -151,5 +159,12 @@ struct LLMChatView: View {
                     )
             }
         }
+    }
+    
+    // MARK: - Private Methods
+    
+    /// Setup callbacks for batch test functionality
+    private func setupBatchTestCallbacks() {
+        // Setup any additional callbacks if needed
     }
 }

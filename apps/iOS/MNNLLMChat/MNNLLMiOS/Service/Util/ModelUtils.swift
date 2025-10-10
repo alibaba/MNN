@@ -2,7 +2,7 @@
 //  ModelUtils.swift
 //  MNNLLMiOS
 //
-//  Created by 游薪渝(揽清) on 2025/1/8.
+//  Created by 游薪渝(揽清) on 2025/9/29.
 //
 
 import Foundation
@@ -20,9 +20,9 @@ class ModelUtils {
     /// - Parameter model: ModelInfo
     /// - Returns: Whether is built in local model
     static func isBuiltInLocalModel(_ model: ModelInfo) -> Bool {
-        guard let vendor = model.vendor, vendor == "Local" else { return false }
+        guard let vendor = model.vendor, vendor.lowercased() == "local" else { return false }
         guard let sources = model.sources, let localSource = sources["local"] else { return false }
-        return localSource.hasPrefix("bundle_root/")
+        return true
     }
 
     /// Check if it's an R1 model

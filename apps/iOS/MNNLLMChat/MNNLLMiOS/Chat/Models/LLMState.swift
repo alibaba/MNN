@@ -21,4 +21,22 @@ actor LLMState {
     func processContent(_ content: String, llm: LLMInferenceEngineWrapper?, showPerformance _: Bool, completion: @escaping (String) -> Void) {
         llm?.processInput(content, withOutput: completion, showPerformance: true)
     }
+
+    /// Processes a batch of prompts and returns their responses.
+    ///
+    /// This method delegates batch processing to the underlying inference engine wrapper.
+    /// Responses are returned in the same order as the input prompts.
+    /// - Parameters:
+    ///   - prompts: An array of prompt strings to process.
+    ///   - llm: The inference engine wrapper instance to use.
+    ///   - completion: A closure invoked with an array of response strings.
+    func processBatchTestContent(_ prompts: [String], llm: LLMInferenceEngineWrapper?, completion: @escaping ([String]) -> Void) {
+        guard let llm = llm else {
+            completion([])
+            return
+        }
+        llm.processBatchPrompts(prompts) { responses in
+            completion(responses)
+        }
+    }
 }

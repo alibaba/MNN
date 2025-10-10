@@ -22,8 +22,22 @@ class ChatHistoryManager {
 
     // For backward compatibility
     func saveChat(historyId: String, modelId: String, modelName _: String, messages: [Message]) {
-        let modelInfo = ModelInfo(modelId: modelId, isDownloaded: true)
+        let modelInfo = createFallbackModelInfo(for: modelId)
         saveChat(historyId: historyId, modelInfo: modelInfo, messages: messages)
+    }
+
+    /// Create fallback ModelInfo that correctly identifies local models
+    private func createFallbackModelInfo(for modelId: String) -> ModelInfo {
+        // Check if this modelId corresponds to a local model
+        let localModels = ModelInfo.getAvailableLocalModels()
+
+        // Try to find matching local model by name or id
+        if let localModel = localModels.first(where: { $0.modelName == modelId || $0.id.contains(modelId) }) {
+            return localModel
+        }
+
+        // Fallback to downloaded model
+        return ModelInfo(modelId: modelId, isDownloaded: true)
     }
 
     func getAllHistory() -> [ChatHistory] {

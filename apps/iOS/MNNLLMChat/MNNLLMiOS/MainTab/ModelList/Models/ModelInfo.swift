@@ -66,7 +66,7 @@ struct ModelInfo: Codable, Hashable {
     // MARK: - Model Identity & Localization
 
     var id: String {
-        guard let sources = sources else {
+        guard let sources else {
             return "taobao-mnn/\(modelName)"
         }
 
@@ -97,7 +97,7 @@ struct ModelInfo: Codable, Hashable {
 
     var localPath: String {
         // Check if this is a local model from LocalModel folder or Bundle root
-        if let sources = sources, let localSource = sources["local"] {
+        if let sources, let localSource = sources["local"] {
             guard let bundlePath = Bundle.main.resourcePath else {
                 return ""
             }
@@ -109,17 +109,10 @@ struct ModelInfo: Codable, Hashable {
                 return bundlePath
             } else {
                 // Original LocalModel folder structure
-                let localModelPath = (bundlePath as NSString).deletingLastPathComponent + "/LocalModel"
-
-                // If modelName is "LocalModel", return the LocalModel folder directly
-                if modelName == "LocalModel" {
-                    return localModelPath
-                } else {
-                    // For subdirectory models, append the model name
-                    return (localModelPath as NSString).appendingPathComponent(modelName)
-                }
+                // Use the exact path from sources to ensure correct model folder mapping
+                return (bundlePath as NSString).appendingPathComponent(localSource)
             }
-        } else if let sources = sources, let localSource = sources["huggingface"], localSource.contains("local") {
+        } else if let sources, let localSource = sources["huggingface"], localSource.contains("local") {
             guard let bundlePath = Bundle.main.resourcePath else { return "" }
             return bundlePath
         } else {
@@ -241,5 +234,53 @@ struct ModelInfo: Codable, Hashable {
 
     private enum CodingKeys: String, CodingKey {
         case modelName, tags, categories, size_gb, file_size, vendor, sources, tagTranslations, cachedSize
+    }
+}
+
+// MARK: - Model Index Support
+
+/// Model index structure for reading ModelIndex.json
+struct ModelIndex: Codable {
+    let models: [ModelEntry]
+}
+
+/// Individual model entry in ModelIndex.json
+struct ModelEntry: Codable {
+    let id: String
+    let name: String
+    let folder: String
+    let tags: [String]
+    let description: String
+    let size: String
+    let type: String
+}
+
+// MARK: - ModelInfo Extensions for Local Model Support
+
+extension ModelInfo {
+    /// Get available local models from ModelIndex.json
+    static func getAvailableLocalModels() -> [ModelInfo] {
+        guard let indexPath = Bundle.main.path(forResource: "ModelIndex", ofType: "json", inDirectory: "LocalModel"),
+              let data = try? Data(contentsOf: URL(fileURLWithPath: indexPath)),
+              let index = try? JSONDecoder().decode(ModelIndex.self, from: data)
+        else {
+            return []
+        }
+
+        return index.models.compactMap { modelEntry in
+            let modelPath = "LocalModel/\(modelEntry.folder)"
+            guard Bundle.main.path(forResource: "config", ofType: "json", inDirectory: modelPath) != nil else {
+                return nil
+            }
+
+            return ModelInfo(
+                modelName: modelEntry.name,
+                tags: modelEntry.tags + ["local"],
+                categories: ["Local Models"],
+                vendor: "Local",
+                sources: ["local": "LocalModel/\(modelEntry.folder)"],
+                isDownloaded: true
+            )
+        }
     }
 }
