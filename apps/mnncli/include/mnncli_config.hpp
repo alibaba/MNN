@@ -14,3 +14,23 @@ namespace mnncli {
    const char* const kCachePath = "~/.cache/mnncli/mnnmodels";
 #endif
 }
+
+// Configuration management
+namespace ConfigManager {
+    struct Config {
+        std::string default_model;
+        std::string cache_dir;
+        std::string log_level;
+        int default_max_tokens;
+        float default_temperature;
+        std::string api_host;
+        int api_port;
+        std::string download_provider;  // "huggingface", "modelscope", or "modelers"
+    };
+    
+    Config LoadDefaultConfig();
+    bool SaveConfig(const Config& config);
+    void ShowConfig(const Config& config);
+    bool SetConfigValue(Config& config, const std::string& key, const std::string& value);
+    std::string GetConfigHelp();
+}

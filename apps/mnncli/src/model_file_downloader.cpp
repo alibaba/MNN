@@ -50,8 +50,7 @@ namespace mnncli
         }
 
         // Check if file already exists at final location
-        if (std::filesystem::exists(fileDownloadTask.downloadPath))
-        {
+        if (std::filesystem::exists(fileDownloadTask.downloadPath)) {
             LOG_DEBUG("File already exists: " + fileDownloadTask.relativePath);
             return;
         }
@@ -75,6 +74,9 @@ namespace mnncli
                 
                 LOG_DEBUG_TAG("Download completed successfully: " + fileDownloadTask.downloadPath.string(), "ModelFileDownloader");
             }
+        } catch (const FileDownloadException& e) {
+            LOG_DEBUG_TAG("File download error: " + std::string(e.what()), "ModelFileDownloader");
+            throw;
         } catch (const std::exception& e) {
             LOG_DEBUG_TAG("Error during download process: " + std::string(e.what()), "ModelFileDownloader");
             throw;
@@ -94,15 +96,11 @@ namespace mnncli
         std::string theUrlToDownload = urlToDownload;
         
         // Check if destination already exists and validate it (like Kotlin)
-        if (std::filesystem::exists(destinationPath))
-        {
-            if (Validate(fileDownloadTask, destinationPath))
-            {
+        if (std::filesystem::exists(destinationPath)) {
+            if (Validate(fileDownloadTask, destinationPath)) {
                 LOG_DEBUG_TAG("Destination file already exists and is valid: " + destinationPath.string(), "ModelFileDownloader");
                 return;
-            }
-            else
-            {
+            } else {
                 LOG_DEBUG_TAG("Destination file exists but is invalid, removing", "ModelFileDownloader");
                 std::filesystem::remove(destinationPath);
                 fileDownloadTask.downloadedSize = 0;
@@ -110,8 +108,7 @@ namespace mnncli
         }
         
         // Check if incomplete file exists and read its size for resume (like Android lines 86-94)
-        if (std::filesystem::exists(incompletePath))
-        {
+        if (std::filesystem::exists(incompletePath)) {
             try {
                 int64_t incomplete_size = std::filesystem::file_size(incompletePath);
                 
@@ -123,14 +120,11 @@ namespace mnncli
                 } else if (incomplete_size >= expectedSize) {
                     // File is complete, validate it
                     LOG_DEBUG_TAG("Incomplete file size >= expected size, validating", "ModelFileDownloader");
-                    if (Validate(fileDownloadTask, incompletePath))
-                    {
+                    if (Validate(fileDownloadTask, incompletePath)) {
                         LOG_DEBUG_TAG("Incomplete file is valid, moving to destination", "ModelFileDownloader");
                         MoveWithPermissions(incompletePath, destinationPath);
                         return;
-                    }
-                    else
-                    {
+                    } else {
                         LOG_DEBUG_TAG("Incomplete file validation failed, removing and restarting", "ModelFileDownloader");
                         std::filesystem::remove(incompletePath);
                         fileDownloadTask.downloadedSize = 0;
@@ -167,11 +161,9 @@ namespace mnncli
         }
         
         auto head_res = client_.Head(path, headers);
-        if (head_res && (head_res->status >= 301 && head_res->status <= 308))
-        {
+        if (head_res && (head_res->status >= 301 && head_res->status <= 308)) {
             std::string location = head_res->get_header_value("Location");
-            if (!location.empty())
-            {
+            if (!location.empty()) {
                 theUrlToDownload = location;
             }
         }
@@ -179,12 +171,9 @@ namespace mnncli
         LOG_DEBUG_TAG("downloadToTmpAndMove urlToDownload: " + theUrlToDownload + " to file: " + incompletePath.string() + " to destination: " + destinationPath.string(), "ModelFileDownloader");
         
         // Download with retry logic like Android (max 10 retries)
-        if (fileDownloadTask.downloadedSize < expectedSize)
-        {
-            for (int i = 0; i < kMaxRetry; i++)
-            {
-                try
-                {
+        if (fileDownloadTask.downloadedSize < expectedSize) {
+            for (int i = 0; i < kMaxRetry; i++) {
+                try {
                     LOG_DEBUG_TAG("downloadChunk try the " + std::to_string(i) + " turn", "ModelFileDownloader");
                     
                     DownloadChunk(fileDownloadTask, theUrlToDownload, incompletePath, expectedSize, fileName, &fileDownloadListener);
@@ -192,19 +181,15 @@ namespace mnncli
                     LOG_DEBUG_TAG("downloadChunk try the " + std::to_string(i) + " turn finish", "ModelFileDownloader");
                     
                     // After download, validate the incomplete file (exactly like Kotlin lines 142-145)
-                    if (!Validate(fileDownloadTask, incompletePath))
-                    {
-                        LOG_DEBUG_TAG("Download validation failed, removing incomplete file and resetting download size", "ModelFileDownloader");
-                        std::filesystem::remove(incompletePath);
-                        fileDownloadTask.downloadedSize = 0;
-                        
+                    if (!Validate(fileDownloadTask, incompletePath)) {
                         // If this was the last retry, throw exception
-                        if (i == kMaxRetry - 1)
-                        {
+                        if (i == kMaxRetry - 1) {
                             LOG_DEBUG_TAG("Max retries reached after validation failure", "ModelFileDownloader");
                             throw FileDownloadException("File validation failed after max retries");
                         }
-                        
+                        LOG_DEBUG_TAG("Download validation failed, removing incomplete file and resetting download size", "ModelFileDownloader");
+                        std::filesystem::remove(incompletePath);
+                        fileDownloadTask.downloadedSize = 0;
                         // Otherwise, retry by continuing the loop
                         LOG_DEBUG_TAG("Retrying download after validation failure (attempt " + std::to_string(i + 2) + "/" + std::to_string(kMaxRetry) + ")", "ModelFileDownloader");
                         std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -214,27 +199,17 @@ namespace mnncli
                     // Validation passed, break out of retry loop
                     LOG_DEBUG_TAG("Download validation succeeded", "ModelFileDownloader");
                     break;
-                }
-                catch (const DownloadPausedException& e)
-                {
+                } catch (const DownloadPausedException& e) {
                     throw e;
-                }
-                catch (const std::exception& e)
-                {
-                    if (i == kMaxRetry - 1)
-                    {
+                } catch (const std::exception& e) {
+                    if (i == kMaxRetry - 1) {
                         LOG_DEBUG_TAG("Max retries reached, throwing exception: " + std::string(e.what()), "ModelFileDownloader");
                         throw e;
-                    }
-                    else
-                    {
+                    } else {
                         LOG_DEBUG_TAG("downloadChunk failed sleep and retrying: " + std::string(e.what()), "ModelFileDownloader");
-                        try
-                        {
+                        try {
                             std::this_thread::sleep_for(std::chrono::seconds(1));
-                        }
-                        catch (const std::exception& ex)
-                        {
+                        } catch (const std::exception& ex) {
                             LOG_DEBUG_TAG("Error during sleep: " + std::string(ex.what()), "ModelFileDownloader");
                             throw std::runtime_error(ex.what());
                         }
@@ -244,13 +219,10 @@ namespace mnncli
         }
         
         // Like Kotlin: validate and move (exactly matching Kotlin lines 163-169)
-        if (Validate(fileDownloadTask, incompletePath))
-        {
+        if (Validate(fileDownloadTask, incompletePath)) {
             LOG_DEBUG_TAG("Validation passed, moving file to destination", "ModelFileDownloader");
             MoveWithPermissions(incompletePath, destinationPath);
-        }
-        else
-        {
+        } else {
             LOG_DEBUG_TAG("Final validation failed, removing incomplete file and resetting download size", "ModelFileDownloader");
             std::filesystem::remove(incompletePath);
             fileDownloadTask.downloadedSize = 0;
@@ -294,26 +266,25 @@ namespace mnncli
         }
         
         httplib::Headers requestHeaders;
-        
-        // Add Hugging Face authentication token and headers ONLY for huggingface.co requests
-        // For pre-signed CDN URLs, headers are already in URL parameters
+        // Always set Accept-Encoding: identity to prevent compression (matching Kotlin exactly)
+        requestHeaders.emplace("Accept-Encoding", "identity");
+
+        // Add Hugging Face authentication token ONLY for huggingface.co requests
+        // DO NOT add Authorization header for pre-signed CDN URLs
         if (host.find("huggingface.co") != std::string::npos) {
-            requestHeaders.emplace("Accept-Encoding", "identity");
             if (const char* hf_token = std::getenv("HF_TOKEN")) {
                 std::string auth_header = "Bearer " + std::string(hf_token);
                 requestHeaders.emplace("Authorization", auth_header);
             }
         }
         
-        if (fileDownloadTask.downloadedSize >= expectedSize)
-        {
+        if (fileDownloadTask.downloadedSize >= expectedSize) {
             return;
         }
         
         int64_t downloadedBytes = fileDownloadTask.downloadedSize;
 
-        if (fileDownloadTask.downloadedSize > 0)
-        {
+        if (fileDownloadTask.downloadedSize > 0) {
             requestHeaders.emplace("Range", "bytes=" + std::to_string(fileDownloadTask.downloadedSize) + "-");
         }
         
@@ -321,8 +292,7 @@ namespace mnncli
         std::ofstream output;
         try {
             output.open(tempFile, std::ios::binary | std::ios::app);
-            if (!output.is_open())
-            {
+            if (!output.is_open()) {
                 throw FileDownloadException("Failed to open output file: " + tempFile.string());
             }
         } catch (const std::exception& e) {
@@ -344,29 +314,23 @@ namespace mnncli
             downloadedBytes += data_length;
             fileDownloadTask.downloadedSize += data_length;
             
-            if (fileDownloadListener != nullptr)
-            {
+            if (fileDownloadListener != nullptr) {
                 bool paused = fileDownloadListener->onDownloadDelta(
                     &displayedFilename, downloadedBytes, expectedSize, data_length);
-                if (paused)
-                {
+                if (paused) {
                     throw DownloadPausedException("Download paused");
                 }
             }
             return true; });
 
         LOG_DEBUG_TAG("HTTP request completed", "ModelFileDownloader");
-        if (res)
-        {
+        if (res) {
             LOG_DEBUG_TAG("HTTP response received with status: " + std::to_string(res->status), "ModelFileDownloader");
-            if (!(res->status >= 200 && res->status < 300) && res->status != 416)
-            {
+            if (!(res->status >= 200 && res->status < 300) && res->status != 416) {
                 LOG_DEBUG_TAG("HTTP error status: " + std::to_string(res->status), "ModelFileDownloader");
                 throw FileDownloadException("HTTP error: " + std::to_string(res->status));
             }
-        }
-        else
-        {
+        } else {
             LOG_DEBUG_TAG("HTTP request failed with error: " + std::string(httplib::to_string(res.error())), "ModelFileDownloader");
             throw FileDownloadException("Connection error: " + std::string(httplib::to_string(res.error())));
         }
@@ -381,7 +345,6 @@ namespace mnncli
         LOG_DEBUG_TAG("validate: Checking file " + src.string(), "ModelFileDownloader");
         
         // Exactly matching Kotlin implementation:
-        // var verifyResult = true
         bool verify_result = true;
         
         // if (!fileDownloadTask.etag.isNullOrEmpty()) {

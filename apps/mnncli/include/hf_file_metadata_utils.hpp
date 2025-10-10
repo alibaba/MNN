@@ -51,6 +51,9 @@ private:
     // Helper method to get header value from multimap
     static std::string GetHeaderValue(const httplib::Headers& headers, const std::string& key);
     
+    // Print headers for debugging
+    static void PrintHeaders(const httplib::Headers& headers, const std::string& url);
+    
     // Constants for HuggingFace headers
     static constexpr const char* kHeaderXRepoCommit = "x-repo-commit";
     static constexpr const char* kHeaderXLinkedEtag = "x-linked-etag";

@@ -85,17 +85,13 @@ std::vector<RepoItem> HfApiClient::SearchReposInner(const std::string& keyword, 
     
     httplib::Headers headers;
     headers.emplace("User-Agent", "MNN-CLI/1.0");
-    headers.emplace("Accept", "application/json");
-    headers.emplace("Connection", "keep-alive");
-    
-    // Add Hugging Face authentication token if available
     if (const char* hf_token = std::getenv("HF_TOKEN")) {
         std::string auth_header = "Bearer " + std::string(hf_token);
         headers.emplace("Authorization", auth_header);
-        LOG_DEBUG("🔑 Using HF_TOKEN for authentication");
+        LOG_DEBUG_TAG("🔑 Using HF_TOKEN for authentication", "AUTH");
     } else {
-        LOG_DEBUG("⚠️  No HF_TOKEN found. Some models may require authentication.");
-        LOG_DEBUG("   To authenticate, export HF_TOKEN=your_token_here");
+        LOG_DEBUG_TAG("⚠️  No HF_TOKEN found. Some models may require authentication.", "AUTH");
+        LOG_DEBUG_TAG("   To authenticate, export HF_TOKEN=your_token_here", "AUTH");
     }
     
     std::string path = "/api/models?search=" + keyword + "&author=taobao-mnn&limit=100";
@@ -209,13 +205,13 @@ mnncli::RepoInfo HfApiClient::GetRepoInfo(
         if (const char* hf_token = std::getenv("HF_TOKEN")) {
             std::string auth_header = "Bearer " + std::string(hf_token);
             headers.emplace("Authorization", auth_header);
-            LOG_DEBUG("🔑 Using HF_TOKEN for authentication");
+            LOG_DEBUG_TAG("🔑 Using HF_TOKEN for authentication", "AUTH");
         } else {
-            LOG_DEBUG("⚠️  No HF_TOKEN found. Some models may require authentication.");
-            LOG_DEBUG("   To authenticate, export HF_TOKEN=your_token_here");
+            LOG_DEBUG_TAG("⚠️  No HF_TOKEN found. Some models may require authentication.", "AUTH");
+            LOG_DEBUG_TAG("   To authenticate, export HF_TOKEN=your_token_here", "AUTH");
         }
         
-        LOG_DEBUG("🔍 Making request to: https://" + GetHost() + path);
+        LOG_DEBUG_TAG("🔍 Making request to: https://" + GetHost() + path, "API_REQUEST");
         
         auto res = cli.Get(path, headers);
         if (!res || res->status != 200) {
@@ -232,12 +228,12 @@ mnncli::RepoInfo HfApiClient::GetRepoInfo(
                     error_msg += " - Server error. Please try again later.";
                 }
                 LOG_ERROR(error_msg);
-                LOG_DEBUG("   Response headers:");
+                LOG_DEBUG_TAG("   Response headers:", "API_RESPONSE");
                 for (const auto& header : res->headers) {
-                    LOG_DEBUG("     " + header.first + ": " + header.second);
+                    LOG_DEBUG_TAG("     " + header.first + ": " + header.second, "API_RESPONSE");
                 }
                 if (!res->body.empty()) {
-                    LOG_DEBUG("   Response body preview: " + res->body.substr(0, 200) + "...");
+                    LOG_DEBUG_TAG("   Response body preview: " + res->body.substr(0, 200) + "...", "API_RESPONSE");
                 }
             } else {
                 error_msg += " - No response received";
@@ -254,15 +250,15 @@ mnncli::RepoInfo HfApiClient::GetRepoInfo(
 #endif
                 
                 // Check if it's a connection timeout or other network issue
-                LOG_DEBUG("   Possible causes:");
-                LOG_DEBUG("   - Network connectivity issues");
-                LOG_DEBUG("   - SSL/TLS certificate problems");
-                LOG_DEBUG("   - Firewall blocking HTTPS traffic");
-                LOG_DEBUG("   - DNS resolution failure for " + GetHost());
-                LOG_DEBUG("   - Server is down or unreachable");
+                LOG_DEBUG_TAG("   Possible causes:", "CONNECTIVITY");
+                LOG_DEBUG_TAG("   - Network connectivity issues", "CONNECTIVITY");
+                LOG_DEBUG_TAG("   - SSL/TLS certificate problems", "CONNECTIVITY");
+                LOG_DEBUG_TAG("   - Firewall blocking HTTPS traffic", "CONNECTIVITY");
+                LOG_DEBUG_TAG("   - DNS resolution failure for " + GetHost(), "CONNECTIVITY");
+                LOG_DEBUG_TAG("   - Server is down or unreachable", "CONNECTIVITY");
                 
                 // Try a simple connection test
-                LOG_DEBUG("   Testing basic connectivity...");
+                LOG_DEBUG_TAG("   Testing basic connectivity...", "CONNECTIVITY");
                 // Create HTTP client
 #ifdef CPPHTTPLIB_OPENSSL_SUPPORT
                 httplib::SSLClient test_cli(GetHost(), 443);
@@ -275,51 +271,51 @@ mnncli::RepoInfo HfApiClient::GetRepoInfo(
 #endif
                 auto test_res = test_cli.Get("/");
                 if (test_res) {
-                    LOG_DEBUG("   Basic connectivity: OK (got response)");
+                    LOG_DEBUG_TAG("   Basic connectivity: OK (got response)", "CONNECTIVITY");
                 } else {
-                    LOG_DEBUG("   Basic connectivity: FAILED (no response)");
+                    LOG_DEBUG_TAG("   Basic connectivity: FAILED (no response)", "CONNECTIVITY");
                 }
             }
             return false;
         }
 
-        LOG_DEBUG("✅ API response received successfully");
-        LOG_DEBUG("   Status: " + std::to_string(res->status));
-        LOG_DEBUG("   Content-Length: " + res->get_header_value("Content-Length"));
-        LOG_DEBUG("   Content-Type: " + res->get_header_value("Content-Type"));
+        LOG_DEBUG_TAG("✅ API response received successfully", "API_RESPONSE");
+        LOG_DEBUG_TAG("   Status: " + std::to_string(res->status), "API_RESPONSE");
+        LOG_DEBUG_TAG("   Content-Length: " + res->get_header_value("Content-Length"), "API_RESPONSE");
+        LOG_DEBUG_TAG("   Content-Type: " + res->get_header_value("Content-Type"), "API_RESPONSE");
 
         // Parse the JSON response
         rapidjson::Document doc;
         if (doc.Parse(res->body.c_str()).HasParseError()) {
             error_info = "Failed to parse JSON response";
             LOG_ERROR(error_info);
-            LOG_DEBUG("   Parse error at position: " + std::to_string(doc.GetErrorOffset()));
-            LOG_DEBUG("   Response preview: " + res->body.substr(0, 200) + "...");
+            LOG_DEBUG_TAG("   Parse error at position: " + std::to_string(doc.GetErrorOffset()), "JSON_PARSE");
+            LOG_DEBUG_TAG("   Response preview: " + res->body.substr(0, 200) + "...", "JSON_PARSE");
             return false;
         }
 
-        LOG_DEBUG("✅ JSON parsed successfully");
+        LOG_DEBUG_TAG("✅ JSON parsed successfully", "JSON_PARSE");
 
         // Extract fields
         if (doc.HasMember("modelId") && doc["modelId"].IsString()) {
             repo_info.model_id = doc["modelId"].GetString();
-            LOG_DEBUG("   Model ID: " + repo_info.model_id);
+            LOG_DEBUG_TAG("   Model ID: " + repo_info.model_id, "JSON_PARSE");
         } else {
-            LOG_DEBUG("⚠️  Missing or invalid modelId field");
+            LOG_DEBUG_TAG("⚠️  Missing or invalid modelId field", "JSON_PARSE");
         }
         
         if (doc.HasMember("sha") && doc["sha"].IsString()) {
             repo_info.sha = doc["sha"].GetString();
-            LOG_DEBUG("   SHA: " + repo_info.sha);
+            LOG_DEBUG_TAG("   SHA: " + repo_info.sha, "JSON_PARSE");
         } else {
-            LOG_DEBUG("⚠️  Missing or invalid sha field");
+            LOG_DEBUG_TAG("⚠️  Missing or invalid sha field", "JSON_PARSE");
         }
         
         if (doc.HasMember("revision") && doc["revision"].IsString()) {
             repo_info.revision = doc["revision"].GetString();
-            LOG_DEBUG("   Revision: " + repo_info.revision);
+            LOG_DEBUG_TAG("   Revision: " + repo_info.revision, "JSON_PARSE");
         } else {
-            LOG_DEBUG("⚠️  Missing or invalid revision field");
+            LOG_DEBUG_TAG("⚠️  Missing or invalid revision field", "JSON_PARSE");
         }
         
         if (doc.HasMember("siblings") && doc["siblings"].IsArray()) {
@@ -345,7 +341,7 @@ mnncli::RepoInfo HfApiClient::GetRepoInfo(
         return {};
     }
 
-    LOG_DEBUG("✅ Repository info retrieved successfully");
+    LOG_DEBUG_TAG("✅ Repository info retrieved successfully", "API_REQUEST");
     return repo_info;
 }
 

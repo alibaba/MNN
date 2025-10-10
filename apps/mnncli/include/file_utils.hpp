@@ -40,6 +40,8 @@ public:
 
     static std::string GetBaseCacheDir();
 
+    static std::string GetModelPath(const std::string& model_id);
+
     static bool RemoveFileIfExists(const std::string& path);
     
     static std::string GetConfigPath(const std::string& model_id);

@@ -32,6 +32,7 @@
 #include "ml_model_downloader.hpp"
 #include "ml_api_client.hpp"
 #include "llm_benchmark.hpp"
+#include "mnncli_config.hpp"
 #include "mnncli_server.hpp"
 #include "nlohmann/json.hpp"
 #include "log_utils.hpp"
@@ -118,23 +119,12 @@ public:
 
 // Configuration management
 namespace ConfigManager {
-    struct Config {
-        std::string default_model;
-        std::string cache_dir;
-        std::string log_level;
-        int default_max_tokens;
-        float default_temperature;
-        std::string api_host;
-        int api_port;
-        std::string download_provider;  // "huggingface", "modelscope", or "modelers"
-    };
-    
     static std::string GetConfigFilePath() {
         std::string config_dir = mnncli::FileUtils::GetBaseCacheDir();
         return (fs::path(config_dir) / "mnncli_config.json").string();
     }
     
-    static bool SaveConfig(const Config& config) {
+    bool SaveConfig(const Config& config) {
         try {
             std::string config_path = GetConfigFilePath();
             std::string config_dir = fs::path(config_path).parent_path().string();
@@ -166,7 +156,7 @@ namespace ConfigManager {
         return false;
     }
     
-    static Config LoadDefaultConfig() {
+    Config LoadDefaultConfig() {
         Config config;
         
         // Try to load from config file first
@@ -251,7 +241,7 @@ namespace ConfigManager {
         };
     }
     
-    static void ShowConfig(const Config& config) {
+    void ShowConfig(const Config& config) {
         std::cout << "Configuration:\n";
         std::cout << "  Default Model(default_model): " << (config.default_model.empty() ? "Not set" : config.default_model) << "\n";
         std::cout << "  Cache Directory(cache_dir): " << config.cache_dir << "\n";
@@ -263,7 +253,7 @@ namespace ConfigManager {
         std::cout << "  Download Provider(download_provider): " << config.download_provider << "\n";
     }
     
-    static bool SetConfigValue(Config& config, const std::string& key, const std::string& value) {
+    bool SetConfigValue(Config& config, const std::string& key, const std::string& value) {
         if (key == "download_provider") {
             std::string lower_value = value;
             std::transform(lower_value.begin(), lower_value.end(), lower_value.begin(), ::tolower);
@@ -309,7 +299,7 @@ namespace ConfigManager {
         return false;
     }
     
-    static std::string GetConfigHelp() {
+    std::string GetConfigHelp() {
         return R"(
 Available configuration keys:
   download_provider  - Set default download provider (huggingface, modelscope, modelers)
@@ -375,7 +365,7 @@ public:
         auto config = ConfigManager::LoadDefaultConfig();
         std::string base_cache_dir = config.cache_dir;
         if (base_cache_dir.empty()) {
-            base_cache_dir = "~/.cache/mnncli";
+            base_cache_dir = mnncli::kCachePath;
         }
         
         // Expand tilde in path
@@ -388,28 +378,22 @@ public:
         }
         
         // Debug output
-        if (verbose) {
-            LOG_DEBUG("[DEBUG] Scanning cache directory: " + base_cache_dir);
-            LOG_DEBUG("[DEBUG] Expanded path: " + expanded_cache_dir);
-        }
+        LOG_DEBUG_TAG("Scanning cache directory: " + base_cache_dir, "ModelManager");
+        LOG_DEBUG_TAG("Expanded path: " + expanded_cache_dir, "ModelManager");
         
-        // List models from base cache directory
-        int result = list_local_models(expanded_cache_dir, model_names);
-        if (result != 0) {
-            mnncli::UserInterface::ShowError("Failed to list local models from base directory");
-            return result;
-        }
+        // List Hugging Face models (direct storage: owner/model)
+        int result = ListLocalModelsDirectories(expanded_cache_dir, model_names, verbose);
         
-        // List models from modelscope subdirectory
+        // List ModelScope models (direct storage: modelscope/owner/model)
         std::string modelscope_dir = expanded_cache_dir + "/modelscope";
         std::vector<std::string> modelscope_models;
-        if (list_local_models(modelscope_dir, modelscope_models) == 0) {
+        if (ListLocalModelsDirectories(modelscope_dir, modelscope_models, verbose) == 0) {
             for (auto& name : modelscope_models) {
                 model_names.emplace_back("modelscope/" + name);
             }
         }
         
-        // List models from modelers subdirectory
+        // List Modelers models (symlinks in base directory)
         std::string modelers_dir = expanded_cache_dir + "/modelers";
         std::vector<std::string> modelers_models;
         if (list_local_models(modelers_dir, modelers_models) == 0) {
@@ -425,8 +409,8 @@ public:
             }
         } else {
             std::cout << "No local models found.\n";
-            std::cout << "Use 'mnncli model search <keyword>' to search remote models\n";
-            std::cout << "Use 'mnncli model download <name>' to download models\n";
+            std::cout << "Use 'mnncli search <keyword>' to search remote models\n";
+            std::cout << "Use 'mnncli download <name>' to download models\n";
         }
         return 0;
     }
@@ -684,7 +668,7 @@ public:
     
     static int DeleteModel(const std::string& model_name) {
         if (model_name.empty()) {
-            mnncli::UserInterface::ShowError("Model name is required", "Usage: mnncli model delete <name>");
+            mnncli::UserInterface::ShowError("Model name is required", "Usage: mnncli delete <name>");
             return 1;
         }
         
@@ -791,43 +775,9 @@ public:
         LOG_INFO("Showing model info: " + model_name);
         
         try {
-            // Get current configuration
-            auto config = ConfigManager::LoadDefaultConfig();
-            std::string cache_dir = config.cache_dir;
-            if (cache_dir.empty()) {
-                cache_dir = mnncli::FileUtils::GetBaseCacheDir();
-            }
+            std::string model_path = mnncli::FileUtils::GetModelPath(model_name);
             
-            // Expand tilde in path
-            std::string expanded_cache_dir = cache_dir;
-            if (cache_dir[0] == '~') {
-                const char* home_dir = getenv("HOME");
-                if (home_dir) {
-                    expanded_cache_dir = std::string(home_dir) + cache_dir.substr(1);
-                }
-            }
-            
-            LOG_DEBUG_TAG("Cache directory: " + expanded_cache_dir, "ModelManager");
-            
-            // Try to find the model in different subdirectories
-            std::vector<std::string> search_paths = {
-                expanded_cache_dir + "/" + model_name,
-                expanded_cache_dir + "/modelscope/" + model_name,
-                expanded_cache_dir + "/modelers/" + model_name
-            };
-            
-            std::string model_path;
-            bool model_found = false;
-            
-            for (const auto& search_path : search_paths) {
-                if (fs::exists(search_path)) {
-                    model_path = search_path;
-                    model_found = true;
-                    break;
-                }
-            }
-            
-            if (!model_found) {
+            if (model_path.empty()) {
                 mnncli::UserInterface::ShowError("Model not found: " + model_name);
                 std::cout << "\n💡 Try:\n";
                 std::cout << "  • Use 'mnncli list' to see available models\n";
@@ -914,7 +864,12 @@ public:
             if (verbose) {
                 std::cout << "\n🔍 Additional Information:\n";
                 std::cout << "====================\n";
-                std::cout << "Cache Directory: " << expanded_cache_dir << "\n";
+                auto config = ConfigManager::LoadDefaultConfig();
+                std::string cache_dir = config.cache_dir;
+                if (cache_dir.empty()) {
+                    cache_dir = mnncli::FileUtils::GetBaseCacheDir();
+                }
+                std::cout << "Cache Directory: " << cache_dir << "\n";
                 std::cout << "Download Provider: " << config.download_provider << "\n";
                 
                 // Check for other common model files
@@ -998,6 +953,136 @@ private:
             }
         }
         std::sort(model_names.begin(), model_names.end());
+        return 0;
+    }
+    
+    static int ListLocalModelsDirectories(const std::string& directory_path, std::vector<std::string>& model_names, bool verbose) {
+        std::error_code ec;
+        if (!fs::exists(directory_path, ec)) {
+            LOG_DEBUG_TAG("Directory does not exist: " + directory_path, "ModelManager");
+            return 1;
+        }
+        if (!fs::is_directory(directory_path, ec)) {
+            LOG_DEBUG_TAG("Path is not a directory: " + directory_path, "ModelManager");
+            return 1;
+        }
+        
+        LOG_DEBUG_TAG("Scanning directory: " + directory_path, "ModelManager");
+        
+        for (const auto& entry : fs::directory_iterator(directory_path, ec)) {
+            if (ec) {
+                LOG_DEBUG_TAG("Error iterating directory: " + ec.message(), "ModelManager");
+                return 1;
+            }
+            
+            // Check if it's a directory (for direct storage models)
+            if (fs::is_directory(entry, ec)) {
+                if (ec) {
+                    continue; // Skip entries we can't access
+                }
+                
+                std::string dir_name = entry.path().filename().string();
+                
+                // Skip hidden directories and special directories
+                if (dir_name.empty() || dir_name[0] == '.') {
+                    continue;
+                }
+                
+                // For ModelScope, we need to go one level deeper (modelscope/owner/model)
+                if (directory_path.find("/modelscope") != std::string::npos) {
+                    std::string owner_path = entry.path().string();
+                    std::error_code owner_ec;
+                    if (fs::is_directory(owner_path, owner_ec)) {
+                        for (const auto& model_entry : fs::directory_iterator(owner_path, owner_ec)) {
+                            if (owner_ec) {
+                                continue;
+                            }
+                            if (fs::is_directory(model_entry, owner_ec)) {
+                                std::string model_name = model_entry.path().filename().string();
+                                if (!model_name.empty() && model_name[0] != '.') {
+                                    model_names.emplace_back(dir_name + "/" + model_name);
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // For Hugging Face models, check if this directory contains model files
+                    // or if it's a group directory containing nested models
+                    bool has_model_files = false;
+                    std::error_code model_ec;
+                    
+                    // First check if this directory directly contains model files
+                    for (const auto& file_entry : fs::directory_iterator(entry.path(), model_ec)) {
+                        if (model_ec) {
+                            continue;
+                        }
+                        std::string file_name = file_entry.path().filename().string();
+                        // Check for common model file extensions or config files
+                        if (file_name.length() >= 4 && (
+                            file_name.substr(file_name.length() - 4) == ".bin" ||
+                            file_name.substr(file_name.length() - 4) == ".txt" ||
+                            file_name.substr(file_name.length() - 4) == ".onnx" ||
+                            file_name.substr(file_name.length() - 4) == ".mnn" ||
+                            (file_name.length() >= 5 && file_name.substr(file_name.length() - 5) == ".json") ||
+                            (file_name.length() >= 11 && file_name.substr(file_name.length() - 11) == ".safetensors"))) {
+                            has_model_files = true;
+                            break;
+                        }
+                    }
+                    
+                    if (has_model_files) {
+                        model_names.emplace_back(dir_name);
+                    } else {
+                        // If no direct model files, check if this is a group directory with nested models
+                        // (e.g., taobao-mnn/SmolVLM-256M-Instruct-MNN)
+                        for (const auto& nested_entry : fs::directory_iterator(entry.path(), model_ec)) {
+                            if (model_ec) {
+                                continue;
+                            }
+                            if (fs::is_directory(nested_entry, model_ec)) {
+                                std::string nested_name = nested_entry.path().filename().string();
+                                if (!nested_name.empty() && nested_name[0] != '.') {
+                                    // Check if nested directory contains model files
+                                    bool nested_has_model_files = false;
+                                    std::error_code nested_ec;
+                                    for (const auto& nested_file_entry : fs::directory_iterator(nested_entry.path(), nested_ec)) {
+                                        if (nested_ec) {
+                                            continue;
+                                        }
+                                        std::string nested_file_name = nested_file_entry.path().filename().string();
+                                        if (nested_file_name.length() >= 4 && (
+                                            nested_file_name.substr(nested_file_name.length() - 4) == ".bin" ||
+                                            nested_file_name.substr(nested_file_name.length() - 4) == ".txt" ||
+                                            nested_file_name.substr(nested_file_name.length() - 4) == ".onnx" ||
+                                            nested_file_name.substr(nested_file_name.length() - 4) == ".mnn" ||
+                                            (nested_file_name.length() >= 5 && nested_file_name.substr(nested_file_name.length() - 5) == ".json") ||
+                                            (nested_file_name.length() >= 11 && nested_file_name.substr(nested_file_name.length() - 11) == ".safetensors"))) {
+                                            nested_has_model_files = true;
+                                            break;
+                                        }
+                                    }
+                                    
+                                    if (nested_has_model_files) {
+                                        model_names.emplace_back(dir_name + "/" + nested_name);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Also check for symlinks (for backward compatibility)
+            else if (fs::is_symlink(entry, ec)) {
+                if (ec) {
+                    continue;
+                }
+                std::string file_name = entry.path().filename().string();
+                model_names.emplace_back(file_name);
+            }
+        }
+        
+        std::sort(model_names.begin(), model_names.end());
+        LOG_DEBUG_TAG("Found " + std::to_string(model_names.size()) + " models in " + directory_path, "ModelManager");
         return 0;
     }
 };
@@ -1192,7 +1277,7 @@ private:
         }
         
         std::string model_name = argv[2];
-        std::string config_path = (fs::path(mnncli::FileUtils::GetBaseCacheDir()) / model_name / "config.json").string();
+        std::string config_path = mnncli::FileUtils::GetConfigPath(model_name);
         std::string host = "127.0.0.1";
         int port = 8000;
         
@@ -1448,4 +1533,5 @@ int main(int argc, const char* argv[]) {
     CommandLineInterface cli;
     return cli.Run(argc, argv);
 }
+
 

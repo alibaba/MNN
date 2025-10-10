@@ -179,8 +179,77 @@ std::string FileUtils::GetBaseCacheDir() {
     return cache_path.string();
 }
 
+std::string FileUtils::GetModelPath(const std::string& model_id) {
+    if (model_id.empty()) {
+        return "";
+    }
+    
+    try {
+        // Get current configuration
+        auto config = ConfigManager::LoadDefaultConfig();
+        std::string cache_dir = config.cache_dir;
+        if (cache_dir.empty()) {
+            cache_dir = GetBaseCacheDir();
+        }
+        
+        // Expand tilde in path
+        std::string expanded_cache_dir = cache_dir;
+        if (cache_dir[0] == '~') {
+            const char* home_dir = getenv("HOME");
+            if (home_dir) {
+                expanded_cache_dir = std::string(home_dir) + cache_dir.substr(1);
+            }
+        }
+        
+        // Check if model name already has provider prefix
+        bool has_provider_prefix = (model_id.find('/') != std::string::npos);
+        
+        // Try to find the model in different subdirectories
+        std::vector<std::string> search_paths = {
+            expanded_cache_dir + "/" + model_id,
+            expanded_cache_dir + "/modelscope/" + model_id,
+            expanded_cache_dir + "/modelers/" + model_id
+        };
+        
+        // If model name doesn't have provider prefix, try with provider-specific prefixes
+        if (!has_provider_prefix) {
+            std::string provider_prefix;
+            if (config.download_provider == "huggingface" || config.download_provider == "hf") {
+                provider_prefix = "taobao-mnn/";
+            } else if (config.download_provider == "modelscope" || config.download_provider == "ms" || 
+                      config.download_provider == "modelers") {
+                provider_prefix = "MNN/";
+            }
+            
+            if (!provider_prefix.empty()) {
+                std::string prefixed_name = provider_prefix + model_id;
+                // Add prefixed paths at the beginning to prioritize them
+                search_paths.insert(search_paths.begin(), expanded_cache_dir + "/" + prefixed_name);
+                search_paths.insert(search_paths.begin() + 1, expanded_cache_dir + "/modelscope/" + prefixed_name);
+                search_paths.insert(search_paths.begin() + 2, expanded_cache_dir + "/modelers/" + prefixed_name);
+            }
+        }
+        
+        for (const auto& search_path : search_paths) {
+            if (fs::exists(search_path)) {
+                return search_path;
+            }
+        }
+        
+        return ""; // Model not found
+    } catch (const std::exception& e) {
+        LOG_ERROR("Failed to get model path: " + std::string(e.what()));
+        return "";
+    }
+}
+
 std::string FileUtils::GetConfigPath(const std::string& model_id) {
-    return (fs::path(GetBaseCacheDir())/model_id/"config.json").string();
+    std::string model_path = GetModelPath(model_id);
+    if (!model_path.empty()) {
+        return (fs::path(model_path) / "config.json").string();
+    }
+    // Fallback
+    return (fs::path(GetBaseCacheDir()) / model_id / "config.json").string();
 }
 
 bool FileUtils::Move(const fs::path& src, const fs::path& dest, std::string& error_info) {

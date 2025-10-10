@@ -11,6 +11,7 @@
 #include <cctype>
 #include "log_utils.hpp"
 
+//same logic as Android's HfFileMetadataUtils.kt
 namespace mnncli {
 
 // Helper function to normalize ETag (remove quotes if present, like Android)
@@ -105,108 +106,108 @@ HfFileMetadata HfFileMetadataUtils::GetFileMetadata(const std::string& url,
             if (const char* hf_token = std::getenv("HF_TOKEN")) {
                 std::string auth_header = "Bearer " + std::string(hf_token);
                 headers.emplace("Authorization", auth_header);
-                LOG_DEBUG("[DEBUG] Using HF_TOKEN for authentication (host: " + host + ")");
+                LOG_DEBUG_TAG("[DEBUG] Using HF_TOKEN for authentication (host: " + host + ")", "HfFileMetadataUtils");
             }
         } else {
-            LOG_DEBUG("[DEBUG] Skipping HF_TOKEN for CDN host: " + host + " (using pre-signed URL)");
+            LOG_DEBUG_TAG("[DEBUG] Skipping HF_TOKEN for CDN host: " + host + " (using pre-signed URL)", "HfFileMetadataUtils");
         }
         
         // Make the HEAD request to get metadata (following official HF implementation)
-        LOG_DEBUG("[DEBUG] Making HEAD request to: " + url);
+        LOG_DEBUG_TAG("[DEBUG] Making HEAD request to: " + url, "HfFileMetadataUtils");
         auto res = client_ptr->Head(path, headers);
         
         // If HEAD fails with 404, try GET request (some CDN endpoints don't support HEAD)
         if (!res || res->status == 404) {
-            LOG_DEBUG("[DEBUG] HEAD request failed (status: " + std::to_string(res ? res->status : -1) + "), trying GET request");
+            LOG_DEBUG_TAG("[DEBUG] HEAD request failed (status: " + std::to_string(res ? res->status : -1) + "), trying GET request", "HfFileMetadataUtils");
             res = client_ptr->Get(path, headers);
         }
         if (!res) {
             error_info = "Failed to connect to server";
-            LOG_DEBUG("[DEBUG] HEAD request failed: " + error_info);
+            LOG_DEBUG_TAG("[DEBUG] HEAD request failed: " + error_info, "HfFileMetadataUtils");
             return {};
         }
         
-        // Follow redirects manually (like official HF implementation)
-        std::string finalLocation = url;  // Default to original URL
-        int redirectCount = 0;
-        const int maxRedirects = 5;
+        // Print headers before redirect handling
+        PrintHeaders(res->headers, url);
         
-        while (res->status >= 301 && res->status <= 308 && redirectCount < maxRedirects) {
+        // Follow redirects manually (like official HF implementation)
+        std::string final_location = url;  // Default to original URL
+        int redirect_count = 0;
+        const int max_redirects = 5;
+        auto linked_size = res->get_header_value("x-linked-size");
+        auto linked_etag = res->get_header_value("x-linked-etag");
+        while (res->status >= 301 && res->status <= 308 && redirect_count < max_redirects) {
             std::string location = res->get_header_value("Location");
             if (location.empty()) {
-                LOG_DEBUG("[DEBUG] Redirect without Location header, status: " + std::to_string(res->status));
+                LOG_DEBUG_TAG("[DEBUG] Redirect without Location header, status: " + std::to_string(res->status), "HfFileMetadataUtils");
                 break;
             }
             
-            LOG_DEBUG("[DEBUG] Redirect detected, status: " + std::to_string(res->status) + ", location: " + location);
+            LOG_DEBUG_TAG("[DEBUG] Redirect detected, status: " + std::to_string(res->status) + ", location: " + location, "HfFileMetadataUtils");
             
             // Handle relative URLs in redirect Location header
             if (location.front() == '/') {
                 // Extract the base URL (scheme + host + port) from the original URL
-                size_t schemeEnd = url.find("://");
-                if (schemeEnd != std::string::npos) {
-                    std::string scheme = url.substr(0, schemeEnd);
-                    size_t hostStart = schemeEnd + 3;
-                    size_t hostEnd = url.find('/', hostStart);
-                    if (hostEnd == std::string::npos) {
-                        hostEnd = url.length();
+                size_t scheme_end = url.find("://");
+                if (scheme_end != std::string::npos) {
+                    std::string scheme = url.substr(0, scheme_end);
+                    size_t host_start = scheme_end + 3;
+                    size_t host_end = url.find('/', host_start);
+                    if (host_end == std::string::npos) {
+                        host_end = url.length();
                     }
-                    std::string hostPort = url.substr(hostStart, hostEnd - hostStart);
-                    finalLocation = scheme + "://" + hostPort + location;
+                    std::string host_port = url.substr(host_start, host_end - host_start);
+                    final_location = scheme + "://" + host_port + location;
                 } else {
-                    finalLocation = location;
+                    final_location = location;
                 }
             } else {
-                finalLocation = location;
+                final_location = location;
             }
             
             // Parse the redirect URL and make a new request
-            auto [redirectHost, redirectPath] = HfApiClient::ParseUrl(finalLocation);
-            LOG_DEBUG("[DEBUG] Following redirect to: " + finalLocation);
+            auto [redirect_host, redirect_path] = HfApiClient::ParseUrl(final_location);
+            LOG_DEBUG_TAG("[DEBUG] Following redirect to: " + final_location, "HfFileMetadataUtils");
             
             // Create new client for redirect
-            std::unique_ptr<httplib::Client> redirectClient;
-            std::unique_ptr<httplib::SSLClient> redirectSSLClient;
+            std::unique_ptr<httplib::Client> redirect_client;
+            std::unique_ptr<httplib::SSLClient> redirect_ssl_client;
             
-            if (finalLocation.find("https://") == 0) {
+            if (final_location.find("https://") == 0) {
 #ifdef CPPHTTPLIB_OPENSSL_SUPPORT
-                redirectSSLClient = std::make_unique<httplib::SSLClient>(redirectHost, 443);
-                res = redirectSSLClient->Head(redirectPath, headers);
+                redirect_ssl_client = std::make_unique<httplib::SSLClient>(redirect_host, 443);
+                res = redirect_ssl_client->Head(redirect_path, headers);
 #else
-                LOG_DEBUG("[DEBUG] HTTPS redirect but SSL not supported");
+                LOG_DEBUG_TAG("[DEBUG] HTTPS redirect but SSL not supported", "HfFileMetadataUtils");
                 break;
 #endif
             } else {
-                redirectClient = std::make_unique<httplib::Client>(redirectHost, 80);
-                res = redirectClient->Head(redirectPath, headers);
+                redirect_client = std::make_unique<httplib::Client>(redirect_host, 80);
+                res = redirect_client->Head(redirect_path, headers);
             }
             
             if (!res) {
-                LOG_DEBUG("[DEBUG] Redirect request failed");
+                LOG_DEBUG_TAG("[DEBUG] Redirect request failed", "HfFileMetadataUtils");
                 break;
             }
             
-            redirectCount++;
+            redirect_count++;
         }
         
         if (res->status != 200) {
             error_info = "HTTP error: " + std::to_string(res->status);
-            LOG_DEBUG("[DEBUG] Request failed with status: " + std::to_string(res->status));
+            LOG_DEBUG_TAG("[DEBUG] Request failed with status: " + std::to_string(res->status), "HfFileMetadataUtils");
             return {};
         }
         
         // Debug: Print all response headers from final response
-        LOG_DEBUG("[DEBUG] Response headers for " + finalLocation + ":");
-        for (const auto& header : res->headers) {
-            LOG_DEBUG("  " + header.first + ": " + header.second);
-        }
+        PrintHeaders(res->headers, final_location);
         
         // Extract metadata from response headers (matching Android implementation)
         HfFileMetadata metadata;
-        metadata.location = finalLocation;  // Use final location (original or redirected)
+        metadata.location = final_location;  // Use final location (original or redirected)
         
         // Get file size - prioritize x-linked-size over Content-Length (following official HF implementation)
-        auto linked_size = res->get_header_value("x-linked-size");
         auto content_length = res->get_header_value("Content-Length");
         
         // Official implementation: r.headers.get("X-Linked-Size") or r.headers.get("Content-Length")
@@ -225,7 +226,6 @@ HfFileMetadata HfFileMetadataUtils::GetFileMetadata(const std::string& url,
         }
         
         // Get ETag for hash verification - prioritize x-linked-etag over ETag (like Android)
-        auto linked_etag = res->get_header_value("x-linked-etag");
         auto etag = res->get_header_value("ETag");
         
         if (!linked_etag.empty()) {
@@ -365,6 +365,14 @@ std::string HfFileMetadataUtils::GetHeaderValue(const httplib::Headers& headers,
         return it->second;
     }
     return "";
+}
+
+// Print headers for debugging
+void HfFileMetadataUtils::PrintHeaders(const httplib::Headers& headers, const std::string& url) {
+    LOG_DEBUG_TAG("[DEBUG] Response headers for " + url + ":", "HfFileMetadataUtils");
+    for (const auto& header : headers) {
+        LOG_DEBUG_TAG("  " + header.first + ": " + header.second, "HfFileMetadataUtils");
+    }
 }
 
 } // namespace mnncli

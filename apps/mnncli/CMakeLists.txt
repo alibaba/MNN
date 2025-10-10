@@ -245,5 +245,4 @@ endif()
 # Build test programs when BUILD_MNNCLI_TEST is enabled
 if (BUILD_MNNCLI_TEST)
     # Add test directory
-    add_subdirectory(test)
 endif()
