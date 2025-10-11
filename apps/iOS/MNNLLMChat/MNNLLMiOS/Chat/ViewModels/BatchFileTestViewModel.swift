@@ -67,9 +67,7 @@ class BatchFileTestViewModel: ObservableObject {
         testProgress = 0.0
         testResults.removeAll()
 
-        batchTestTask = Task {
-            await performBatchTest()
-        }
+        performBatchTest()
     }
 
     /// Stops the current batch testing process
@@ -211,7 +209,7 @@ class BatchFileTestViewModel: ObservableObject {
                 if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                    let prompt = json["prompt"] as? String
                 {
-                    items.append(BatchTestItem(prompt: prompt))
+                    items.append(BatchTestItem(prompt: prompt, image: nil, audio: nil))
                 }
             } catch {
                 // Skip invalid JSON lines
@@ -234,12 +232,12 @@ class BatchFileTestViewModel: ObservableObject {
             if let jsonArray = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
                 return jsonArray.compactMap { dict in
                     guard let prompt = dict["prompt"] as? String else { return nil }
-                    return BatchTestItem(prompt: prompt)
+                    return BatchTestItem(prompt: prompt, image: nil, audio: nil)
                 }
             } else if let jsonObject = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                       let prompts = jsonObject["prompts"] as? [String]
             {
-                return prompts.map { BatchTestItem(prompt: $0) }
+                return prompts.map { BatchTestItem(prompt: $0, image: nil, audio: nil) }
             }
         } catch {
             throw BatchFileTestError.invalidFileContent
@@ -255,11 +253,11 @@ class BatchFileTestViewModel: ObservableObject {
         return content.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-            .map { BatchTestItem(prompt: $0) }
+            .map { BatchTestItem(prompt: $0, image: nil, audio: nil) }
     }
 
     /// Performs the actual batch testing operation
-    private func performBatchTest() async {
+    private func performBatchTest() {
         let totalItems = testItems.count
         guard totalItems > 0 else { return }
 
@@ -287,7 +285,7 @@ class BatchFileTestViewModel: ObservableObject {
         // Convert simple string results to structured BatchTestResult array
         let structuredResults: [BatchTestResult] = results.enumerated().map { index, output in
             let prompt = index < testItems.count ? testItems[index].prompt : ""
-            let item = BatchTestItem(prompt: prompt)
+            let item = BatchTestItem(prompt: prompt, image: nil, audio: nil)
             return BatchTestResult(item: item, response: output, timestamp: Date())
         }
 
@@ -309,83 +307,6 @@ class BatchFileTestViewModel: ObservableObject {
     private func showErrorMessage(_ message: String) {
         errorMessage = message
         showingError = true
-    }
-}
-
-// MARK: - Supporting Types
-
-/// Errors that can occur during batch file testing
-enum BatchFileTestError: LocalizedError {
-    case unsupportedFileFormat
-    case invalidFileContent
-    case fileNotFound
-    case permissionDenied
-
-    var errorDescription: String? {
-        switch self {
-        case .unsupportedFileFormat:
-            return "Unsupported file format. Please use .txt, .json, or .jsonl files."
-        case .invalidFileContent:
-            return "Invalid file content. Please check the file format and try again."
-        case .fileNotFound:
-            return "The selected file could not be found."
-        case .permissionDenied:
-            return "Permission denied. Unable to access the selected file."
-        }
-    }
-}
-
-/// Represents a single test item in a batch
-struct BatchTestItem {
-    let prompt: String
-
-    init(prompt: String) {
-        self.prompt = prompt
-    }
-}
-
-/// Represents the result of a single test execution
-struct BatchTestResult {
-    let item: BatchTestItem
-    let response: String
-    let timestamp: Date
-
-    init(item: BatchTestItem, response: String, timestamp: Date) {
-        self.item = item
-        self.response = response
-        self.timestamp = timestamp
-    }
-}
-
-/// Available file formats for batch test output
-enum BatchTestFileFormat: String, CaseIterable {
-    case txt
-    case json
-    case jsonl
-
-    var displayName: String {
-        switch self {
-        case .txt:
-            return "Text (.txt)"
-        case .json:
-            return "JSON (.json)"
-        case .jsonl:
-            return "JSON Lines (.jsonl)"
-        }
-    }
-}
-
-
-/// Configuration for batch test operations
-struct BatchTestConfiguration {
-    let outputFormat: BatchTestFileFormat
-    let includeTimestamp: Bool
-    let includePrompt: Bool
-
-    init(outputFormat: BatchTestFileFormat, includeTimestamp: Bool, includePrompt: Bool) {
-        self.outputFormat = outputFormat
-        self.includeTimestamp = includeTimestamp
-        self.includePrompt = includePrompt
     }
 }
 

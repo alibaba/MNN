@@ -17,6 +17,8 @@
 		3E94DFF12D37DBA900BE39A7 /* SQLite in Frameworks */ = {isa = PBXBuildFile; productRef = 3E94DFF02D37DBA900BE39A7 /* SQLite */; };
 		3EAB12362E7FD12300C4E5F6 /* MarkdownView in Frameworks */ = {isa = PBXBuildFile; productRef = 3EAB12352E7FD12300C4E5F6 /* MarkdownView */; };
 		3EC8DF872E4DCF5800861131 /* Transformers in Frameworks */ = {isa = PBXBuildFile; productRef = 3EC8DF862E4DCF5800861131 /* Transformers */; };
+		3ECE19BE2E9904C9001A4CDD /* BatchTest.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 3ECE19BD2E9904C9001A4CDD /* BatchTest.swift */; };
+		3ECE19C32E99FED6001A4CDD /* LocalBatchTest in Resources */ = {isa = PBXBuildFile; fileRef = 3ECE19C22E99FED6001A4CDD /* LocalBatchTest */; };
 		3EEAB30B2E8BD5550039DF50 /* BatchFileTestViewModel.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 3EEAB30A2E8BD5550039DF50 /* BatchFileTestViewModel.swift */; };
 		3EFE3F0F2E85304800559BA0 /* ExyteChat in Frameworks */ = {isa = PBXBuildFile; productRef = 3EFE3F0E2E85304800559BA0 /* ExyteChat */; };
 		4230C2D22E7D4EB5001169DF /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4230C2A22E7D4EB5001169DF /* Preview Assets.xcassets */; };
@@ -138,6 +140,8 @@
 		3E301C682D5C84730045E5E1 /* MNN.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = MNN.framework; sourceTree = "<group>"; };
 		3E55A66B2E828189003CB2E2 /* LocalModel */ = {isa = PBXFileReference; lastKnownFileType = folder; name = LocalModel; path = MNNLLMiOS/LocalModel; sourceTree = "<group>"; };
 		3E8591FE2D1D45070067B46F /* MNNLLMiOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MNNLLMiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		3ECE19BD2E9904C9001A4CDD /* BatchTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchTest.swift; sourceTree = "<group>"; };
+		3ECE19C22E99FED6001A4CDD /* LocalBatchTest */ = {isa = PBXFileReference; lastKnownFileType = folder; name = LocalBatchTest; path = MNNLLMiOS/LocalBatchTest; sourceTree = "<group>"; };
 		3EEAB30A2E8BD5550039DF50 /* BatchFileTestViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchFileTestViewModel.swift; sourceTree = "<group>"; };
 		4230C22C2E7D4EB5001169DF /* ChatInteractorProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatInteractorProtocol.swift; sourceTree = "<group>"; };
 		4230C22D2E7D4EB5001169DF /* LLMChatInteractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMChatInteractor.swift; sourceTree = "<group>"; };
@@ -283,6 +287,7 @@
 		3E8591F52D1D45070067B46F = {
 			isa = PBXGroup;
 			children = (
+				3ECE19C22E99FED6001A4CDD /* LocalBatchTest */,
 				3E55A66B2E828189003CB2E2 /* LocalModel */,
 				4230C2D02E7D4EB5001169DF /* MNNLLMiOS */,
 				4230C3502E7D4EC0001169DF /* MNNLLMiOSTests */,
@@ -308,6 +313,14 @@
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
+		3ECE19BC2E9904B2001A4CDD /* BatchTestModels */ = {
+			isa = PBXGroup;
+			children = (
+				3ECE19BD2E9904C9001A4CDD /* BatchTest.swift */,
+			);
+			path = BatchTestModels;
+			sourceTree = "<group>";
+		};
 		4230C22F2E7D4EB5001169DF /* Interactor */ = {
 			isa = PBXGroup;
 			children = (
@@ -321,6 +334,7 @@
 		4230C2362E7D4EB5001169DF /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				3ECE19BC2E9904B2001A4CDD /* BatchTestModels */,
 				4230C2302E7D4EB5001169DF /* LLMChatData.swift */,
 				4230C2312E7D4EB5001169DF /* LLMChatImage.swift */,
 				4230C2322E7D4EB5001169DF /* LLMChatMessage.swift */,
@@ -829,6 +843,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3ECE19C32E99FED6001A4CDD /* LocalBatchTest in Resources */,
 				3E55A66C2E828189003CB2E2 /* LocalModel in Resources */,
 				4230C2D22E7D4EB5001169DF /* Preview Assets.xcassets in Resources */,
 				4230C2DB2E7D4EB5001169DF /* mock.json in Resources */,
@@ -907,6 +922,7 @@
 				4230C3192E7D4EB5001169DF /* FilterOptionRow.swift in MNNChat */,
 				4230C31A2E7D4EB5001169DF /* FilterTagChip.swift in MNNChat */,
 				4230C31B2E7D4EB5001169DF /* QuickFilterTags.swift in MNNChat */,
+				3ECE19BE2E9904C9001A4CDD /* BatchTest.swift in MNNChat */,
 				4230C31C2E7D4EB5001169DF /* SourceSelector.swift in MNNChat */,
 				4230C31D2E7D4EB5001169DF /* ToolbarView.swift in MNNChat */,
 				4230C31E2E7D4EB5001169DF /* ActionButtonsView.swift in MNNChat */,
