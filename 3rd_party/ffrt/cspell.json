@@ -1,0 +1,25 @@
+{
+    "enabledFileTypes": {
+        "*": false,
+        "cpp": true,
+        "markdown": true
+    },
+    "languageSettings": [
+        {
+            "languageId": "markdown",
+            "dictionaries": [
+                "cpp"
+            ],
+            "ignoreRegExpList": [
+                "/`(?:.)+?`/ig",
+                "/\\[(?:.)+?\\]/ig",
+                "/\\s+```(?:.|\\s)+?\\s+```/mig"
+            ]
+        }
+    ],
+    "words": [
+        "resourceschedule",
+        "ffrt",
+        "libffrt"
+    ]
+}

@@ -1,0 +1,58 @@
+#
+# Copyright (c) 2021 Huawei Device Co., Ltd.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+libsec_include_dirs = [ "//third_party/bounds_checking_function/include" ]
+
+libsec_sources = [
+  "//third_party/bounds_checking_function/src/fscanf_s.c",
+  "//third_party/bounds_checking_function/src/fwscanf_s.c",
+  "//third_party/bounds_checking_function/src/gets_s.c",
+  "//third_party/bounds_checking_function/src/memcpy_s.c",
+  "//third_party/bounds_checking_function/src/memmove_s.c",
+  "//third_party/bounds_checking_function/src/memset_s.c",
+  "//third_party/bounds_checking_function/src/scanf_s.c",
+  "//third_party/bounds_checking_function/src/securecutil.c",
+  "//third_party/bounds_checking_function/src/secureinput_a.c",
+  "//third_party/bounds_checking_function/src/secureinput_w.c",
+  "//third_party/bounds_checking_function/src/secureprintoutput_a.c",
+  "//third_party/bounds_checking_function/src/secureprintoutput_w.c",
+  "//third_party/bounds_checking_function/src/snprintf_s.c",
+  "//third_party/bounds_checking_function/src/sprintf_s.c",
+  "//third_party/bounds_checking_function/src/sscanf_s.c",
+  "//third_party/bounds_checking_function/src/strcat_s.c",
+  "//third_party/bounds_checking_function/src/strcpy_s.c",
+  "//third_party/bounds_checking_function/src/strncat_s.c",
+  "//third_party/bounds_checking_function/src/strncpy_s.c",
+  "//third_party/bounds_checking_function/src/strtok_s.c",
+  "//third_party/bounds_checking_function/src/swprintf_s.c",
+  "//third_party/bounds_checking_function/src/swscanf_s.c",
+  "//third_party/bounds_checking_function/src/vfscanf_s.c",
+  "//third_party/bounds_checking_function/src/vfwscanf_s.c",
+  "//third_party/bounds_checking_function/src/vscanf_s.c",
+  "//third_party/bounds_checking_function/src/vsnprintf_s.c",
+  "//third_party/bounds_checking_function/src/vsprintf_s.c",
+  "//third_party/bounds_checking_function/src/vsscanf_s.c",
+  "//third_party/bounds_checking_function/src/vswprintf_s.c",
+  "//third_party/bounds_checking_function/src/vswscanf_s.c",
+  "//third_party/bounds_checking_function/src/vwscanf_s.c",
+  "//third_party/bounds_checking_function/src/wcscat_s.c",
+  "//third_party/bounds_checking_function/src/wcscpy_s.c",
+  "//third_party/bounds_checking_function/src/wcsncat_s.c",
+  "//third_party/bounds_checking_function/src/wcsncpy_s.c",
+  "//third_party/bounds_checking_function/src/wcstok_s.c",
+  "//third_party/bounds_checking_function/src/wmemcpy_s.c",
+  "//third_party/bounds_checking_function/src/wmemmove_s.c",
+  "//third_party/bounds_checking_function/src/wscanf_s.c",
+]

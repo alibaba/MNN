@@ -1,0 +1,54 @@
+# Copyright (c) 2024 Huawei Device Co., Ltd.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+domain: FFRT
+
+AI_KERN_POWER_UP_ERR:
+  __BASE: {type: FAULT, level: MINOR, desc: AI KERNEL ipu powerup fail or status invalid, preserve: true}
+  ERROR_LEVEL: {type: INT32, desc: error level}
+  IC_NAME: {type: STRING, desc: IC name}
+  MODULE_NAME: {type: STRING, desc: module name}
+  DESCRIPTION: {type: STRING, desc: description}
+  COUNT: {type: INT32, desc: report counts}
+  CONTENT: {type: STRING, desc: fault message}
+  DEVICE_NAME: {type: STRING, desc: device name}
+  RUNNING_TEST_SWITCH: {type: BOOL, desc: running_test_switch}
+  FAULT_PHENOMENON: {type: STRING, desc: fault_phenomenon}
+  NFF_THRESHOLD_MONTH: {type: INT32, desc: nff_threshold_month}
+  NFF_THRESHOLD_DAY: {type: INT32, desc: nff_threshold_day}
+
+AI_KERN_WTD_TIMEOUT_ERR:
+  __BASE: {type: FAULT, level: MINOR, desc: AI KERNEL ipu soft wtd timeout, preserve: true}
+  ERROR_LEVEL: {type: INT32, desc: error level}
+  IC_NAME: {type: STRING, desc: IC name}
+  MODULE_NAME: {type: STRING, desc: module name}
+  DESCRIPTION: {type: STRING, desc: description}
+  COUNT: {type: INT32, desc: report counts}
+  CONTENT: {type: STRING, desc: fault message}
+  DEVICE_NAME: {type: STRING, desc: device name}
+  RUNNING_TEST_SWITCH: {type: BOOL, desc: running_test_switch}
+  FAULT_PHENOMENON: {type: STRING, desc: fault_phenomenon}
+  NFF_THRESHOLD_MONTH: {type: INT32, desc: nff_threshold_month}
+  NFF_THRESHOLD_DAY: {type: INT32, desc: nff_threshold_day}
+
+TASK_TIMEOUT:
+  __BASE: {type: FAULT, level: CRITICAL, desc: task timeout, preserve: true}
+  SENARIO: {type: STRING, desc: senario}
+  PROCESS_NAME: {type: STRING, desc: process name}
+  MSG: {type: STRING, desc: message}
+
+QUEUE_OVERFLOW:
+  __BASE: {type: FAULT, level: CRITICAL, desc: queue overflow, preserve: true}
+  SENARIO: {type: STRING, desc: senario}
+  PROCESS_NAME: {type: STRING, desc: process name}
+  MSG: {type: STRING, desc: message}

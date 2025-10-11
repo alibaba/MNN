@@ -1,0 +1,8 @@
+#ignore files
+.vscode
+ffrt.cfg
+build
+test/build
+benchmarks/output
+output
+trace.json
