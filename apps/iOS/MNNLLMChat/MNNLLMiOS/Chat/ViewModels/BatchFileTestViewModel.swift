@@ -8,40 +8,52 @@ import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// ViewModel for managing batch file testing operations
+/// Handles loading test files, executing batch tests, and managing results
 @MainActor
 class BatchFileTestViewModel: ObservableObject {
     // MARK: - Published Properties
-
+    
+    /// Array of test items loaded from file
     @Published var testItems: [BatchTestItem] = []
-
+    
+    /// Array of test results from batch execution
     @Published var testResults: [String] = []
-
-    @Published var testProgress: Double = 0.0
-
+    
+    /// Whether a batch test is currently running
     @Published var isTesting: Bool = false
-
-    @Published var showingShareSheet: Bool = false
-
-    @Published var pendingSharePresentation: Bool = false
-
-    @Published var shareFileURL: URL?
-
-    @Published var errorMessage: String = ""
-
-    @Published var showingError: Bool = false
-
+    
+    /// Selected output file format
     @Published var selectedFormat: BatchTestFileFormat = .jsonl
-
+    
+    /// URL for sharing the results file
+    @Published var shareFileURL: URL?
+    
+    /// Whether to show the share sheet
+    @Published var showingShareSheet: Bool = false
+    
+    /// Error message to display
+    @Published var errorMessage: String = ""
+    
+    /// Whether to show error alert
+    @Published var showingError: Bool = false
+    
+    /// Current batch test type
+    @Published var currentTestType: BatchTestType = .text
+    
     // MARK: - Private Properties
-
-    private var chatViewModel: LLMChatViewModel
-
+    
+    /// Reference to the chat view model for LLM operations
+    private let chatViewModel: LLMChatViewModel
+    
+    /// Service for batch file operations
     private let batchService = BatchFileTestService()
-
-    private var batchTestTask: Task<Void, Never>?
-
+    
+    /// Flag to track pending share sheet presentation
+    private var pendingSharePresentation = false
+    
     // MARK: - Initialization
-
+    
     /// Initializes the view model with a chat view model reference
     /// - Parameter chatViewModel: The LLM chat view model for processing requests
     init(chatViewModel: LLMChatViewModel) {
@@ -64,23 +76,27 @@ class BatchFileTestViewModel: ObservableObject {
         }
 
         isTesting = true
-        testProgress = 0.0
         testResults.removeAll()
 
         performBatchTest()
     }
 
-    /// Stops the current batch testing process
-    func stopBatchTest() {
-        batchTestTask?.cancel()
-        batchTestTask = nil
-        isTesting = false
-        testProgress = 0.0
-    }
 
-    /// Loads and parses a test file from the given URL
-    /// - Parameter url: The URL of the file to load
+
+    /// Loads test file from the specified URL with proper permission handling
+    /// - Parameter url: URL of the test file to load
     func loadTestFile(from url: URL) {
+        // For files selected through DocumentPicker, we always need security-scoped access
+        // This is required for accessing files outside the app's sandbox
+        let hasAccess = url.startAccessingSecurityScopedResource()
+        
+        // Ensure we stop accessing the resource when done
+        defer {
+            if hasAccess {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+        
         do {
             let content = try String(contentsOf: url)
             testItems = try parseFileContent(content, fileExtension: url.pathExtension.lowercased())
@@ -90,6 +106,32 @@ class BatchFileTestViewModel: ObservableObject {
             }
         } catch {
             showErrorMessage("Failed to load test file: \(error.localizedDescription)")
+        }
+    }
+    
+    /// Loads test files from LocalBatchTest folder based on test type
+    /// - Parameter testType: The type of test to load
+    func loadLocalBatchTest(for testType: BatchTestType) {
+        currentTestType = testType
+        
+        guard let bundlePath = Bundle.main.path(forResource: "LocalBatchTest", ofType: nil),
+              let localBatchTestURL = URL(string: "file://\(bundlePath)") else {
+            showErrorMessage("LocalBatchTest folder not found in bundle.")
+            return
+        }
+        
+        let testFolderURL = localBatchTestURL.appendingPathComponent(testType.localBatchTestFolder)
+        let promptFileURL = testFolderURL.appendingPathComponent("prompt.jsonl")
+        
+        do {
+            let content = try String(contentsOf: promptFileURL)
+            testItems = try parseJSONLContent(content, testType: testType, baseURL: testFolderURL)
+            
+            if testItems.isEmpty {
+                showErrorMessage("No valid test items found in \(testType.displayName) file.")
+            }
+        } catch {
+            showErrorMessage("Failed to load \(testType.displayName) file: \(error.localizedDescription)")
         }
     }
 
@@ -110,9 +152,9 @@ class BatchFileTestViewModel: ObservableObject {
         }
     }
 
-    /// Presents the share sheet if the scene is active, otherwise marks for pending presentation
+    /// Presents the share sheet if the app is in active state
     /// - Parameter scenePhase: Current scene phase
-    func presentShareSheetIfActive(scenePhase: ScenePhase) {
+    private func presentShareSheetIfActive(scenePhase: ScenePhase) {
         if scenePhase == .active {
             showingShareSheet = true
             pendingSharePresentation = false
@@ -121,10 +163,10 @@ class BatchFileTestViewModel: ObservableObject {
         }
     }
 
-    /// Handles scene phase changes for pending share presentations
+    /// Handles scene phase changes for share sheet presentation
     /// - Parameter scenePhase: New scene phase
     func handleScenePhaseChange(_ scenePhase: ScenePhase) {
-        if scenePhase == .active, pendingSharePresentation {
+        if scenePhase == .active && pendingSharePresentation {
             showingShareSheet = true
             pendingSharePresentation = false
         }
@@ -137,65 +179,42 @@ class BatchFileTestViewModel: ObservableObject {
 
     /// Resets all test data and state
     func reset() {
-        stopBatchTest()
+        isTesting = false
         testItems.removeAll()
         testResults.removeAll()
-        testProgress = 0.0
         shareFileURL = nil
         showingShareSheet = false
         pendingSharePresentation = false
         errorMessage = ""
         showingError = false
-    }
-
-    /// Handles file selection from document picker
-    /// - Parameter result: Result from document picker
-    func handleFileSelection(_ result: Result<[URL], Error>) {
-        switch result {
-        case let .success(urls):
-            guard let selectedURL = urls.first else { return }
-
-            // Start accessing security-scoped resource
-            guard selectedURL.startAccessingSecurityScopedResource() else {
-                showErrorMessage("Unable to access the selected file.")
-                return
-            }
-
-            defer {
-                selectedURL.stopAccessingSecurityScopedResource()
-            }
-
-            loadTestFile(from: selectedURL)
-
-        case let .failure(error):
-            showErrorMessage("File selection failed: \(error.localizedDescription)")
-        }
+        currentTestType = .text
     }
 
     // MARK: - Private Methods
 
-    /// Parses file content based on file extension
+    /// Parses file content based on extension
     /// - Parameters:
-    ///   - content: Raw file content
-    ///   - fileExtension: File extension to determine parsing method
+    ///   - content: File content string
+    ///   - fileExtension: File extension
     /// - Returns: Array of parsed test items
     private func parseFileContent(_ content: String, fileExtension: String) throws -> [BatchTestItem] {
         switch fileExtension {
         case "jsonl":
-            return try parseJSONLContent(content)
-        case "json":
-            return try parseJSONContent(content)
+            return try parseJSONLContent(content, testType: .text, baseURL: nil)
         case "txt":
             return parseTextContent(content)
         default:
-            throw BatchFileTestError.unsupportedFileFormat
+            throw NSError(domain: "BatchFileTestViewModel", code: 1, userInfo: [NSLocalizedDescriptionKey: "Unsupported file format: \(fileExtension)"])
         }
     }
 
-    /// Parses JSONL (JSON Lines) content
-    /// - Parameter content: JSONL content string
+    /// Parses JSONL content with support for images and audio
+    /// - Parameters:
+    ///   - content: JSONL content string
+    ///   - testType: Type of test being parsed
+    ///   - baseURL: Base URL for resolving relative paths
     /// - Returns: Array of parsed test items
-    private func parseJSONLContent(_ content: String) throws -> [BatchTestItem] {
+    private func parseJSONLContent(_ content: String, testType: BatchTestType, baseURL: URL?) throws -> [BatchTestItem] {
         let lines = content.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -203,47 +222,22 @@ class BatchFileTestViewModel: ObservableObject {
         var items: [BatchTestItem] = []
 
         for line in lines {
-            guard let data = line.data(using: .utf8) else { continue }
-
-            do {
-                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let prompt = json["prompt"] as? String
-                {
-                    items.append(BatchTestItem(prompt: prompt, image: nil, audio: nil))
-                }
-            } catch {
-                // Skip invalid JSON lines
+            guard let data = line.data(using: .utf8),
+                  let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let prompt = json["prompt"] as? String else {
                 continue
             }
+
+            let processedPrompt = batchService.processMediaReferences(json: json, prompt: prompt, baseURL: baseURL)
+
+            let item = BatchTestItem(
+                prompt: processedPrompt,
+                testType: testType
+            )
+            items.append(item)
         }
 
         return items
-    }
-
-    /// Parses JSON content
-    /// - Parameter content: JSON content string
-    /// - Returns: Array of parsed test items
-    private func parseJSONContent(_ content: String) throws -> [BatchTestItem] {
-        guard let data = content.data(using: .utf8) else {
-            throw BatchFileTestError.invalidFileContent
-        }
-
-        do {
-            if let jsonArray = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
-                return jsonArray.compactMap { dict in
-                    guard let prompt = dict["prompt"] as? String else { return nil }
-                    return BatchTestItem(prompt: prompt, image: nil, audio: nil)
-                }
-            } else if let jsonObject = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let prompts = jsonObject["prompts"] as? [String]
-            {
-                return prompts.map { BatchTestItem(prompt: $0, image: nil, audio: nil) }
-            }
-        } catch {
-            throw BatchFileTestError.invalidFileContent
-        }
-
-        return []
     }
 
     /// Parses plain text content
@@ -253,7 +247,7 @@ class BatchFileTestViewModel: ObservableObject {
         return content.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-            .map { BatchTestItem(prompt: $0, image: nil, audio: nil) }
+            .map { BatchTestItem(prompt: $0, testType: .text) }
     }
 
     /// Performs the actual batch testing operation
@@ -268,9 +262,8 @@ class BatchFileTestViewModel: ObservableObject {
             Task { @MainActor in
                 guard let self = self else { return }
 
-                // Update results and progress
+                // Update results
                 self.testResults = responses
-                self.testProgress = 1.0
                 self.isTesting = false
             }
         }
@@ -285,7 +278,7 @@ class BatchFileTestViewModel: ObservableObject {
         // Convert simple string results to structured BatchTestResult array
         let structuredResults: [BatchTestResult] = results.enumerated().map { index, output in
             let prompt = index < testItems.count ? testItems[index].prompt : ""
-            let item = BatchTestItem(prompt: prompt, image: nil, audio: nil)
+            let item = index < testItems.count ? testItems[index] : BatchTestItem(prompt: prompt, testType: .text)
             return BatchTestResult(item: item, response: output, timestamp: Date())
         }
 
@@ -401,5 +394,53 @@ class BatchFileTestService {
         }
 
         return lines.joined(separator: "\n")
+    }
+    
+    /// Processes media references (images and audios) in JSON data generically
+    /// - Parameters:
+    ///   - json: JSON dictionary containing media references
+    ///   - prompt: Original prompt string
+    ///   - baseURL: Base URL for resolving relative paths
+    /// - Returns: processedPrompt containing processed prompt
+    func processMediaReferences(json: [String: Any], prompt: String, baseURL: URL?) -> String {
+        var processedPrompt = prompt
+        
+        // Process all image references
+        let imageKeys = json.keys.filter { $0.hasPrefix("image") }
+        for imageKey in imageKeys.sorted() {
+            guard let imagePath = json[imageKey] as? String else { continue }
+            
+            // Extract the number from the key (e.g., "image1" -> "1", "image10" -> "10")
+            let numberString = String(imageKey.dropFirst(5)) // Remove "image" prefix
+            guard !numberString.isEmpty else { continue }
+            
+            // Process the image reference if baseURL is available
+            if let baseURL = baseURL {
+                let fullImagePath = baseURL.appendingPathComponent(imagePath).path
+                let placeholder = "<image \(numberString)>"
+                let replacement = "<img>\(fullImagePath)</img>"
+                processedPrompt = processedPrompt.replacingOccurrences(of: placeholder, with: replacement)
+            }
+        }
+        
+        // Process all audio references
+        let audioKeys = json.keys.filter { $0.hasPrefix("audio") }
+        for audioKey in audioKeys.sorted() {
+            guard let audioPath = json[audioKey] as? String else { continue }
+            
+            // Extract the number from the key (e.g., "audio1" -> "1", "audio10" -> "10")
+            let numberString = String(audioKey.dropFirst(5)) // Remove "audio" prefix
+            guard !numberString.isEmpty else { continue }
+            
+            // Process the audio reference if baseURL is available
+            if let baseURL = baseURL {
+                let fullAudioPath = baseURL.appendingPathComponent(audioPath).path
+                let placeholder = "<audio \(numberString)>"
+                let replacement = "<audio>\(fullAudioPath)</audio>"
+                processedPrompt = processedPrompt.replacingOccurrences(of: placeholder, with: replacement)
+            }
+        }
+        
+        return processedPrompt
     }
 }

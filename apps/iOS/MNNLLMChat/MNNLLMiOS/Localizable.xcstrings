@@ -10,6 +10,12 @@
     "%lld" : {
 
     },
+    "%lld items" : {
+
+    },
+    "%lld results" : {
+
+    },
     "%lld%%" : {
 
     },
@@ -79,10 +85,10 @@
         }
       }
     },
-    "Batch File Test" : {
+    "Audio Test" : {
 
     },
-    "Batch File Testing" : {
+    "Batch File Test" : {
 
     },
     "Benchmark" : {
@@ -249,6 +255,9 @@
         }
       }
     },
+    "Choose the type of batch test to run" : {
+
+    },
     "Choose your AI model" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -393,7 +402,7 @@
         }
       }
     },
-    "File Selection" : {
+    "Export Format:" : {
 
     },
     "filter.byTag" : {
@@ -467,6 +476,12 @@
         }
       }
     },
+    "Image Test" : {
+
+    },
+    "Item %lld" : {
+
+    },
     "Iterations" : {
       "localizations" : {
         "zh-Hans" : {
@@ -509,7 +524,13 @@
         }
       }
     },
-    "Loaded Test Items (%lld)" : {
+    "Load External File" : {
+
+    },
+    "Load Local Tests" : {
+
+    },
+    "Load Test Files" : {
 
     },
     "Loading models..." : {
@@ -691,6 +712,12 @@
         }
       }
     },
+    "No results available" : {
+
+    },
+    "No test items loaded" : {
+
+    },
     "OK" : {
       "localizations" : {
         "zh-Hans" : {
@@ -780,7 +807,7 @@
     "Reset" : {
 
     },
-    "Result %lld" : {
+    "Results" : {
 
     },
     "Running performance tests" : {
@@ -826,9 +853,6 @@
         }
       }
     },
-    "Select a file containing test prompts and run batch tests against the LLM model." : {
-
-    },
     "Select Model" : {
       "localizations" : {
         "zh-Hans" : {
@@ -839,7 +863,7 @@
         }
       }
     },
-    "Select Test File" : {
+    "Select Test Type" : {
 
     },
     "Settings" : {
@@ -1047,6 +1071,9 @@
     "Share Results" : {
 
     },
+    "Start Batch Test" : {
+
+    },
     "Start benchmark after selecting your model" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1109,9 +1136,6 @@
           }
         }
       }
-    },
-    "Supported formats: .txt, .json, .jsonl" : {
-
     },
     "tag.audioUnderstanding" : {
       "extractionState" : "stale",
@@ -1327,9 +1351,6 @@
         }
       }
     },
-    "Test %lld" : {
-
-    },
     "Test %lld of %lld" : {
       "localizations" : {
         "en" : {
@@ -1339,6 +1360,12 @@
           }
         }
       }
+    },
+    "Test Controls" : {
+
+    },
+    "Test Items" : {
+
     },
     "Test Progress" : {
       "localizations" : {
@@ -1350,10 +1377,10 @@
         }
       }
     },
-    "Test Results (%lld)" : {
+    "Testing, please wait..." : {
 
     },
-    "Testing in Progress..." : {
+    "Text Test" : {
 
     },
     "This is a local large model application that requires certain performance from your device.\nIt is recommended to choose different model sizes based on your device's memory. \n\nThe model recommendations for iPhone are as follows:\n- For 8GB of RAM, models up to 8B are recommended (e.g., iPhone 16 Pro).\n- For 6GB of RAM, models up to 3B are recommended (e.g., iPhone 15 Pro).\n- For 4GB of RAM, models up to 1B or smaller are recommended (e.g., iPhone 13).\n\nChoosing a model that is too large may cause insufficient memory and crashes." : {
@@ -1481,9 +1508,6 @@
           }
         }
       }
-    },
-    "批量文件测试" : {
-
     },
     "搜索模型..." : {
       "localizations" : {
