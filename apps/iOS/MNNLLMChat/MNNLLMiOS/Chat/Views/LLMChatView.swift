@@ -12,23 +12,47 @@ import Foundation
 import SwiftUI
 
 struct LLMChatView: View {
+    // MARK: - State Properties
+
+    /// Controls the visibility of the settings sheet
     @State private var showSettings = false
+
+    /// Controls the visibility of the batch file test sheet
     @State private var showBatchFileTest = false
+
+    /// View model for LLM chat functionality
     @StateObject private var viewModel: LLMChatViewModel
+
+    /// Environment variable for presentation mode
     @Environment(\.presentationMode) private var presentationMode
 
+    // MARK: - Properties
+
+    /// Title of the chat interface
     private let title: String
+
+    /// Path to the model file
     private let modelPath: String
+
+    /// Audio recorder settings configuration
     private let recorderSettings = RecorderSettings(audioFormatID: kAudioFormatLinearPCM,
                                                     sampleRate: 44100, numberOfChannels: 2,
                                                     linearPCMBitDepth: 16)
 
+    // MARK: - Initialization
+
+    /// Initializes the chat view with model information and optional history
+    /// - Parameters:
+    ///   - modelInfo: Information about the model to use
+    ///   - history: Optional chat history to restore
     init(modelInfo: ModelInfo, history: ChatHistory? = nil) {
         title = modelInfo.modelName
         modelPath = modelInfo.localPath
         let viewModel = LLMChatViewModel(modelInfo: modelInfo, history: history)
         _viewModel = StateObject(wrappedValue: viewModel)
     }
+
+    // MARK: - Body
 
     var body: some View {
         ZStack {
@@ -122,9 +146,11 @@ struct LLMChatView: View {
                         .sheet(isPresented: $showSettings) {
                             ModelSettingsView(showSettings: $showSettings, viewModel: viewModel)
                         }
-                        
-                        // Three-dot menu
-                        ChatMenuView(showBatchFileTest: $showBatchFileTest)
+
+                        // Three-dot menu with batch testing options
+                        ChatMenuView(
+                            showBatchFileTest: $showBatchFileTest
+                        )
                     }
                 }
             }
@@ -137,6 +163,7 @@ struct LLMChatView: View {
                 // Hidden keyboard
                 UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
             }
+            // Batch File Test Sheet
             .sheet(isPresented: $showBatchFileTest) {
                 BatchFileTestView(chatViewModel: viewModel)
             }
@@ -160,9 +187,9 @@ struct LLMChatView: View {
             }
         }
     }
-    
+
     // MARK: - Private Methods
-    
+
     /// Setup callbacks for batch test functionality
     private func setupBatchTestCallbacks() {
         // Setup any additional callbacks if needed
