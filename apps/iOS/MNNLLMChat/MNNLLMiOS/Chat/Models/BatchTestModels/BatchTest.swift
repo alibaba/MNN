@@ -28,16 +28,58 @@ enum BatchFileTestError: LocalizedError {
     }
 }
 
+/// Represents the type of batch test being performed
+enum BatchTestType: String, CaseIterable {
+    case text = "text"
+    case image = "image"
+    case audio = "audio"
+    
+    var displayName: String {
+        switch self {
+        case .text:
+            return "Text Test"
+        case .image:
+            return "Image Test"
+        case .audio:
+            return "Audio Test"
+        }
+    }
+    
+    var fileExtension: String {
+        switch self {
+        case .text:
+            return "jsonl"
+        case .image:
+            return "jsonl"
+        case .audio:
+            return "jsonl"
+        }
+    }
+    
+    var localBatchTestFolder: String {
+        switch self {
+        case .text:
+            return "Texts"
+        case .image:
+            return "Images"
+        case .audio:
+            return "Audios"
+        }
+    }
+}
+
 /// Represents a single test item in a batch
 struct BatchTestItem {
     let prompt: String
-    let image: String?
-    let audio: String?
+    let testType: BatchTestType
 
-    init(prompt: String, image: String?, audio: String?) {
+    /// Creates a BatchTestItem with explicit test type
+    /// - Parameters:
+    ///   - prompt: The test prompt text
+    ///   - testType: The type of batch test
+    init(prompt: String, testType: BatchTestType) {
         self.prompt = prompt
-        self.image = image
-        self.audio = audio
+        self.testType = testType
     }
 }
 

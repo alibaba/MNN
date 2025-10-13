@@ -10,21 +10,24 @@ import SwiftUI
 /// Chat menu view that provides additional options for the chat interface
 /// Displays a dropdown menu with options like batch file testing
 struct ChatMenuView: View {
+    // MARK: - Properties
+
+    /// Binding to control batch file test presentation
     @Binding var showBatchFileTest: Bool
+
+    /// Internal state for menu visibility
     @State private var showMenu = false
-    
+
+    // MARK: - Body
+
     var body: some View {
         Menu {
+            
             Button(action: {
                 showBatchFileTest = true
             }) {
-                Label("批量文件测试", systemImage: "doc.text.fill")
+                Label("Batch File Test", systemImage: "doc.text.fill")
             }
-            
-            // Future menu items can be added here
-            // Button(action: {}) {
-            //     Label("其他功能", systemImage: "star.fill")
-            // }
         } label: {
             Image(systemName: "ellipsis")
                 .foregroundColor(.primary)
@@ -33,6 +36,10 @@ struct ChatMenuView: View {
     }
 }
 
+// MARK: - Preview
+
 #Preview {
-    ChatMenuView(showBatchFileTest: .constant(false))
+    ChatMenuView(
+        showBatchFileTest: .constant(false)
+    )
 }
