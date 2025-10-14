@@ -19,6 +19,9 @@
 		3EC8DF872E4DCF5800861131 /* Transformers in Frameworks */ = {isa = PBXBuildFile; productRef = 3EC8DF862E4DCF5800861131 /* Transformers */; };
 		3ECE19BE2E9904C9001A4CDD /* BatchTest.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 3ECE19BD2E9904C9001A4CDD /* BatchTest.swift */; };
 		3ECE19C32E99FED6001A4CDD /* LocalBatchTest in Resources */ = {isa = PBXBuildFile; fileRef = 3ECE19C22E99FED6001A4CDD /* LocalBatchTest */; };
+		3ECE19C52E9CE17B001A4CDD /* DocumentPicker.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 3ECE19C42E9CE17B001A4CDD /* DocumentPicker.swift */; };
+		3ECE19C72E9CE1BD001A4CDD /* TextFileActivityItemSource.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 3ECE19C62E9CE1BD001A4CDD /* TextFileActivityItemSource.swift */; };
+		3ECE19C92E9CE1F0001A4CDD /* BatchFileTestService.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 3ECE19C82E9CE1F0001A4CDD /* BatchFileTestService.swift */; };
 		3EEAB30B2E8BD5550039DF50 /* BatchFileTestViewModel.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 3EEAB30A2E8BD5550039DF50 /* BatchFileTestViewModel.swift */; };
 		3EFE3F0F2E85304800559BA0 /* ExyteChat in Frameworks */ = {isa = PBXBuildFile; productRef = 3EFE3F0E2E85304800559BA0 /* ExyteChat */; };
 		4230C2D22E7D4EB5001169DF /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4230C2A22E7D4EB5001169DF /* Preview Assets.xcassets */; };
@@ -142,6 +145,9 @@
 		3E8591FE2D1D45070067B46F /* MNNLLMiOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MNNLLMiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		3ECE19BD2E9904C9001A4CDD /* BatchTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchTest.swift; sourceTree = "<group>"; };
 		3ECE19C22E99FED6001A4CDD /* LocalBatchTest */ = {isa = PBXFileReference; lastKnownFileType = folder; name = LocalBatchTest; path = MNNLLMiOS/LocalBatchTest; sourceTree = "<group>"; };
+		3ECE19C42E9CE17B001A4CDD /* DocumentPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentPicker.swift; sourceTree = "<group>"; };
+		3ECE19C62E9CE1BD001A4CDD /* TextFileActivityItemSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextFileActivityItemSource.swift; sourceTree = "<group>"; };
+		3ECE19C82E9CE1F0001A4CDD /* BatchFileTestService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchFileTestService.swift; sourceTree = "<group>"; };
 		3EEAB30A2E8BD5550039DF50 /* BatchFileTestViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchFileTestViewModel.swift; sourceTree = "<group>"; };
 		4230C22C2E7D4EB5001169DF /* ChatInteractorProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatInteractorProtocol.swift; sourceTree = "<group>"; };
 		4230C22D2E7D4EB5001169DF /* LLMChatInteractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMChatInteractor.swift; sourceTree = "<group>"; };
@@ -351,6 +357,9 @@
 				4230C2372E7D4EB5001169DF /* ModelConfigManager.swift */,
 				4230C2382E7D4EB5001169DF /* PerformanceMonitor.swift */,
 				4230C2392E7D4EB5001169DF /* UIUpdateOptimizer.swift */,
+				3ECE19C42E9CE17B001A4CDD /* DocumentPicker.swift */,
+				3ECE19C62E9CE1BD001A4CDD /* TextFileActivityItemSource.swift */,
+				3ECE19C82E9CE1F0001A4CDD /* BatchFileTestService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -865,6 +874,7 @@
 				4230C2E22E7D4EB5001169DF /* LLMChatData.swift in MNNChat */,
 				4230C2E32E7D4EB5001169DF /* LLMChatImage.swift in MNNChat */,
 				4230C2E42E7D4EB5001169DF /* LLMChatMessage.swift in MNNChat */,
+				3ECE19C72E9CE1BD001A4CDD /* TextFileActivityItemSource.swift in MNNChat */,
 				4230C2E52E7D4EB5001169DF /* LLMChatUser.swift in MNNChat */,
 				4230C2E62E7D4EB5001169DF /* LLMChatVideo.swift in MNNChat */,
 				4230C2E72E7D4EB5001169DF /* LLMState.swift in MNNChat */,
@@ -879,6 +889,7 @@
 				4230C2F02E7D4EB5001169DF /* ChatHistory.swift in MNNChat */,
 				4230C2F12E7D4EB5001169DF /* ChatHistoryDatabase.swift in MNNChat */,
 				4230C2F22E7D4EB5001169DF /* ChatHistoryFileManager.swift in MNNChat */,
+				3ECE19C52E9CE17B001A4CDD /* DocumentPicker.swift in MNNChat */,
 				4230C2F32E7D4EB5001169DF /* ChatHistoryManager.swift in MNNChat */,
 				4230C2F42E7D4EB5001169DF /* ChatHistoryItemView.swift in MNNChat */,
 				4230C2F52E7D4EB5001169DF /* ModelIconView.swift in MNNChat */,
@@ -963,6 +974,7 @@
 				4230C3402E7D4EB5001169DF /* FileOperationManager.swift in MNNChat */,
 				4230C3412E7D4EB5001169DF /* LanguageManager.swift in MNNChat */,
 				4230C3422E7D4EB5001169DF /* ModelUtils.swift in MNNChat */,
+				3ECE19C92E9CE1F0001A4CDD /* BatchFileTestService.swift in MNNChat */,
 				4230C3432E7D4EB5001169DF /* NotificationNames.swift in MNNChat */,
 				4230C3442E7D4EB5001169DF /* String+Extension.swift in MNNChat */,
 				4230C3452E7D4EB5001169DF /* URL+Extension.swift in MNNChat */,
