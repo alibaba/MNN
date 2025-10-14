@@ -86,10 +86,24 @@
       }
     },
     "Audio Test" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "语音测试集"
+          }
+        }
+      }
     },
     "Batch File Test" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "批量文件测试"
+          }
+        }
+      }
     },
     "Benchmark" : {
       "comment" : "基准测试标签",
@@ -256,7 +270,14 @@
       }
     },
     "Choose the type of batch test to run" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择需要批量测试的类型"
+          }
+        }
+      }
     },
     "Choose your AI model" : {
       "extractionState" : "manual",
@@ -403,7 +424,14 @@
       }
     },
     "Export Format:" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "导出格式："
+          }
+        }
+      }
     },
     "filter.byTag" : {
       "localizations" : {
@@ -454,7 +482,14 @@
       }
     },
     "Format" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "格式"
+          }
+        }
+      }
     },
     "Generation rate" : {
       "localizations" : {
@@ -477,7 +512,14 @@
       }
     },
     "Image Test" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图片测试集"
+          }
+        }
+      }
     },
     "Item %lld" : {
 
@@ -525,13 +567,34 @@
       }
     },
     "Load External File" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "加载外部测试集"
+          }
+        }
+      }
     },
     "Load Local Tests" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "加载内置测试集"
+          }
+        }
+      }
     },
     "Load Test Files" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "加载测试文件"
+          }
+        }
+      }
     },
     "Loading models..." : {
       "localizations" : {
@@ -713,10 +776,24 @@
       }
     },
     "No results available" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有结果"
+          }
+        }
+      }
     },
     "No test items loaded" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有已加载测试集"
+          }
+        }
+      }
     },
     "OK" : {
       "localizations" : {
@@ -805,10 +882,24 @@
       }
     },
     "Reset" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重置"
+          }
+        }
+      }
     },
     "Results" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "结果"
+          }
+        }
+      }
     },
     "Running performance tests" : {
       "localizations" : {
@@ -864,7 +955,14 @@
       }
     },
     "Select Test Type" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择测试类型"
+          }
+        }
+      }
     },
     "Settings" : {
       "localizations" : {
@@ -1069,10 +1167,24 @@
       }
     },
     "Share Results" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "分享结果"
+          }
+        }
+      }
     },
     "Start Batch Test" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开始批量测试"
+          }
+        }
+      }
     },
     "Start benchmark after selecting your model" : {
       "localizations" : {
@@ -1362,10 +1474,24 @@
       }
     },
     "Test Controls" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "测试控制"
+          }
+        }
+      }
     },
     "Test Items" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "测试集合"
+          }
+        }
+      }
     },
     "Test Progress" : {
       "localizations" : {
@@ -1378,10 +1504,24 @@
       }
     },
     "Testing, please wait..." : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "数据集测试中，请耐心等待……"
+          }
+        }
+      }
     },
     "Text Test" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文本测试"
+          }
+        }
+      }
     },
     "This is a local large model application that requires certain performance from your device.\nIt is recommended to choose different model sizes based on your device's memory. \n\nThe model recommendations for iPhone are as follows:\n- For 8GB of RAM, models up to 8B are recommended (e.g., iPhone 16 Pro).\n- For 6GB of RAM, models up to 3B are recommended (e.g., iPhone 15 Pro).\n- For 4GB of RAM, models up to 1B or smaller are recommended (e.g., iPhone 13).\n\nChoosing a model that is too large may cause insufficient memory and crashes." : {
       "extractionState" : "stale",
