@@ -21,7 +21,7 @@ import com.alibaba.mnnllm.android.main.FilterComponent
 import com.alibaba.mnnllm.android.mainsettings.MainSettings
 import com.alibaba.mnnllm.android.model.Modality
 import com.alibaba.mnnllm.android.model.ModelVendors
-import com.alibaba.mnnllm.android.model.ModelUtils
+import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.modelsettings.DropDownMenuHelper
 import com.alibaba.mnnllm.android.utils.Searchable
 import com.alibaba.mnnllm.android.widgets.ModelSwitcherView
@@ -595,7 +595,7 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
                 }
                 
                 // Check if it's a voice model (TTS or ASR)
-                if (ModelUtils.isTtsModelByTags(item.modelMarketItem.tags) || ModelUtils.isAsrModelByTags(item.modelMarketItem.tags)) {
+                if (ModelTypeUtils.isTtsModelByTags(item.modelMarketItem.tags) || ModelTypeUtils.isAsrModelByTags(item.modelMarketItem.tags)) {
                     // For voice models, clicking the item sets it as default
                     handleVoiceModelClick(item.modelMarketItem)
                 } else {
@@ -654,9 +654,9 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
     }
 
     private fun handleVoiceModelClick(modelMarketItem: ModelMarketItem) {
-        if (ModelUtils.isTtsModelByTags(modelMarketItem.tags)) {
+        if (ModelTypeUtils.isTtsModelByTags(modelMarketItem.tags)) {
             handleTtsModelClick(modelMarketItem)
-        } else if (ModelUtils.isAsrModelByTags(modelMarketItem.tags)) {
+        } else if (ModelTypeUtils.isAsrModelByTags(modelMarketItem.tags)) {
             handleAsrModelClick(modelMarketItem)
         }
     }

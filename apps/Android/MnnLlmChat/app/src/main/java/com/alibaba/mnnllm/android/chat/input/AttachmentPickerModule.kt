@@ -20,7 +20,7 @@ import androidx.lifecycle.lifecycleScope
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.chat.ChatActivity
 import com.alibaba.mnnllm.android.utils.FileUtils
-import com.alibaba.mnnllm.android.model.ModelUtils
+import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -42,21 +42,23 @@ class AttachmentPickerModule(private val activity: ChatActivity) {
     private var callback: ImagePickCallback? = null
 
     init {
-        val modelName = activity.modelName
         takePhotoView = activity.findViewById(R.id.more_item_camera)
         chooseImageView = activity.findViewById(R.id.more_item_photo)
         chooseVideoView = activity.findViewById(R.id.more_item_video)
-        if (ModelUtils.isVisualModel(activity.modelId!!)) {
+        if (ModelTypeUtils.isVisualModel(activity.modelId!!)) {
             takePhotoView.setOnClickListener { v: View? -> takePhoto() }
             chooseImageView.setOnClickListener { v: View? -> chooseImageView() }
-            chooseVideoView.setOnClickListener { v: View? -> chooseVideo() }
         } else {
             takePhotoView.visibility = View.GONE
             chooseImageView.visibility = View.GONE
+        }
+        if (ModelTypeUtils.isVideoModel(activity.modelId!!)) {
+            chooseVideoView.setOnClickListener { v: View? -> chooseVideo() }
+        } else {
             chooseVideoView.visibility = View.GONE
         }
         val chooseAudioView = activity.findViewById<View>(R.id.more_item_audio)
-        if (ModelUtils.isAudioModel(activity.modelId!!)) {
+        if (ModelTypeUtils.isAudioModel(activity.modelId!!)) {
             chooseAudioView.setOnClickListener { v: View? -> chooseAudio() }
         } else {
             chooseAudioView.visibility = View.GONE

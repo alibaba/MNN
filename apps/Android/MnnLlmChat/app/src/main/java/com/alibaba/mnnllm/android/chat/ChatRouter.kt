@@ -10,6 +10,7 @@ import android.widget.Toast
 import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.mainsettings.MainSettings.isStopDownloadOnChatEnabled
+import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.model.ModelUtils
 import java.io.File
 
@@ -18,7 +19,7 @@ object ChatRouter {
     fun startRun(context: Context, modelIdParam: String, destModelDir:String?, sessionId: String?) {
         Log.d(TAG, "startRun modelIdParam: $modelIdParam destModelDir: $destModelDir sessionId: $sessionId")
         var destPath = destModelDir
-        val isDiffusion = ModelUtils.isDiffusionModel(modelIdParam)
+        val isDiffusion = ModelTypeUtils.isDiffusionModel(modelIdParam)
         var modelId:String? = modelIdParam
         val downloadManager = ModelDownloadManager.getInstance(context)
         if (!modelIdParam.startsWith("local") && !modelIdParam.startsWith("Builtin") && !modelIdParam.contains("/") && !isDiffusion) {

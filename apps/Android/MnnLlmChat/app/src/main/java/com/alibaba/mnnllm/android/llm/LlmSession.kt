@@ -7,7 +7,7 @@ import android.util.Log
 import com.alibaba.mnnllm.android.llm.ChatService.Companion.provide
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig
-import com.alibaba.mnnllm.android.model.ModelUtils
+import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig.Companion.getExtraConfigFile
 import com.google.gson.Gson
 import timber.log.Timber
@@ -75,7 +75,7 @@ class LlmSession (
             File(rootCacheDir).mkdirs()
         }
         val configMap = HashMap<String, Any>().apply {
-            put("is_r1", ModelUtils.isR1Model(modelId))
+            put("is_r1", ModelTypeUtils.isR1Model(modelId))
             put("mmap_dir", rootCacheDir ?: "")
             put("keep_history", keepHistory)
         }

@@ -22,7 +22,7 @@ import com.alibaba.mnnllm.android.chat.SelectModelFragment
 import com.jaredrummler.android.device.DeviceName
 import com.alibaba.mls.api.ModelItem
 import com.alibaba.mls.api.download.ModelDownloadManager
-import com.alibaba.mnnllm.android.model.ModelUtils
+import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.modelist.ModelItemWrapper
 import com.alibaba.mnnllm.android.utils.FileUtils
 import java.io.File
@@ -96,7 +96,7 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
     private fun showModelSelectionDialog() {
         val currentModelId = selectedModelWrapper?.modelItem?.modelId
         val modelFilter: (ModelItemWrapper) -> Boolean = { modelWrapper ->
-            !ModelUtils.isDiffusionModel(modelWrapper.displayName)
+            !ModelTypeUtils.isDiffusionModel(modelWrapper.displayName)
         }
         val selectModelFragment = SelectModelFragment.newInstance(availableModels, modelFilter, currentModelId)
         selectModelFragment.setOnModelSelectedListener { modelWrapper ->

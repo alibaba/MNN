@@ -10,7 +10,7 @@ import PreprocessedVideoContent
 import TextContent
 import android.util.Pair
 import com.alibaba.mnnllm.android.llm.LlmSession
-import com.alibaba.mnnllm.android.model.ModelUtils
+import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.api.openai.network.processors.MnnImageProcessor
 import timber.log.Timber
 import kotlin.collections.get
@@ -29,7 +29,7 @@ class MessageTransformer {
         llmSession: LlmSession
     ): List<Pair<String, String>> {
         val unifiedHistory = mutableListOf<Pair<String, String>>()
-        val isR1Model = ModelUtils.isR1Model(llmSession.modelId())
+        val isR1Model = ModelTypeUtils.isR1Model(llmSession.modelId())
 
         val systemPromptPair = extractSystemPrompt(messages, imageProcessor, isR1Model)
         val systemPrompt = systemPromptPair.first

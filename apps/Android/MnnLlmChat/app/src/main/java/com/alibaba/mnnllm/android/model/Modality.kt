@@ -3,8 +3,8 @@
 
 package com.alibaba.mnnllm.android.model
 
-import com.alibaba.mnnllm.android.model.ModelUtils.isAudioModel
-import com.alibaba.mnnllm.android.model.ModelUtils.isVisualModel
+import com.alibaba.mnnllm.android.model.ModelTypeUtils.isAudioModel
+import com.alibaba.mnnllm.android.model.ModelTypeUtils.isVisualModel
 
 object Modality {
     const val Text = "Text"
@@ -21,9 +21,9 @@ object Modality {
         } else if (modality == Audio) {
             return isAudioModel(modelId)
         } else if (modality == Omni) {
-            return ModelUtils.isOmni(modelId)
+            return ModelTypeUtils.isOmni(modelId)
         } else if (modality == Diffusion) {
-            return ModelUtils.isDiffusionModel(modelId)
+            return ModelTypeUtils.isDiffusionModel(modelId)
         }
         return false
     }

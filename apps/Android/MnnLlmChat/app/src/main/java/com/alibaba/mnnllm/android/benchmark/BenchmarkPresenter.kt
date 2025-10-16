@@ -4,7 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.lifecycle.LifecycleCoroutineScope
 import com.alibaba.mnnllm.android.R
-import com.alibaba.mnnllm.android.model.ModelUtils
+import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.modelist.ModelItemWrapper
 import com.alibaba.mnnllm.android.modelist.ModelListManager
 import kotlinx.coroutines.launch
@@ -408,7 +408,7 @@ class BenchmarkPresenter(
         lifecycleScope.launch {
             try {
                 Log.d(TAG, "Loading available models...")
-                availableModels = model.loadAvailableModels(context).filterNot { ModelUtils.isDiffusionModel(
+                availableModels = model.loadAvailableModels(context).filterNot { ModelTypeUtils.isDiffusionModel(
                     it.modelItem.modelName!!) }
                 Log.d(TAG, "Found ${availableModels.size} models")
                 view.updateModelSelector(availableModels)

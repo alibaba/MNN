@@ -5,6 +5,7 @@ import android.util.Log
 import com.alibaba.mls.api.ModelItem
 import com.alibaba.mnnllm.android.tag.ModelTagsCache
 import com.alibaba.mnnllm.android.chat.model.ChatDataManager
+import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.modelmarket.ModelRepository
 import com.alibaba.mnnllm.android.modelmarket.ModelMarketItem
@@ -69,7 +70,7 @@ object ModelListManager {
      */
     fun isThinkingModel(modelId: String): Boolean {
         val tags = getModelTags(modelId)
-        return ModelUtils.isThinkingModelByTags(tags)
+        return ModelTypeUtils.isThinkingModelByTags(tags)
     }
 
     /**
@@ -77,7 +78,15 @@ object ModelListManager {
      */
     fun isVisualModel(modelId: String): Boolean {
         val tags = getModelTags(modelId)
-        return ModelUtils.isVisualModelByTags(tags)
+        return ModelTypeUtils.isVisualModelByTags(tags)
+    }
+
+    /**
+     * Check if a model is a video model by examining its tags
+     */
+    fun isVideoModel(modelId: String): Boolean {
+        val tags = getModelTags(modelId)
+        return ModelTypeUtils.isVideoModelByTags(tags)
     }
 
     /**
@@ -85,7 +94,7 @@ object ModelListManager {
      */
     fun isAudioModel(modelId: String): Boolean {
         val tags = getModelTags(modelId)
-        return ModelUtils.isAudioModelByTags(tags)
+        return ModelTypeUtils.isAudioModelByTags(tags)
     }
 
     /**
