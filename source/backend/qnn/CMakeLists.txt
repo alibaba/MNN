@@ -19,6 +19,10 @@ if (MNN_QNN_CONVERT_MODE)
     target_compile_options(MNN_QNN PRIVATE -DENABLE_QNN_CONVERT_MODE)
 endif()
 
+if (MNN_QNN_ONLINE_FINALIZE)
+    target_compile_options(MNN_QNN PRIVATE -DENABLE_QNN_ONLINE_FINALIZE)
+endif()
+
 target_include_directories(MNN_QNN PRIVATE ${CMAKE_CURRENT_LIST_DIR}/backend/)
 target_include_directories(MNN_QNN PRIVATE ${CMAKE_CURRENT_LIST_DIR}/convertor/)
 target_include_directories(MNN_QNN PRIVATE ${CMAKE_CURRENT_LIST_DIR}/3rdParty/include/)

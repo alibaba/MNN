@@ -61,9 +61,12 @@ static void dumpTensor2File(const MNN::Tensor* tensor, const char* file, std::of
     }
 }
 
-static std::ofstream gOrderFile;
+static std::ofstream& getOrderFile() {
+    static std::ofstream gOrderFile("order.txt");
+    return gOrderFile;
+}
 static void _initDebug() {
-    gOrderFile.open("order.txt");
+    auto& gOrderFile = getOrderFile();
     MNN::TensorCallBackWithInfo beforeCallBack = [&](const std::vector<MNN::Tensor*>& ntensors, const MNN::OperatorInfo* info) {
         auto opName = info->name();
         if (info->type() == "Copy") {
@@ -85,7 +88,7 @@ static void _initDebug() {
             }
             std::ostringstream outputFileName;
             outputFileName << "output/Input_" << opCopyName << "_" << i;
-            dumpTensor2File(ntensor, outputFileName.str().c_str(), gOrderFile);
+            dumpTensor2File(ntensor, outputFileName.str().c_str(), getOrderFile());
         }
         return true;
     };
@@ -123,7 +126,7 @@ static void _initDebug() {
             }
 
             outputFileName << "output/" << opCopyName << "_" << i;
-            dumpTensor2File(tensor, outputFileName.str().c_str(), gOrderFile);
+            dumpTensor2File(tensor, outputFileName.str().c_str(), getOrderFile());
         }
         return true;
     };

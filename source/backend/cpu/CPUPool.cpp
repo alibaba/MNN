@@ -35,7 +35,6 @@ public:
         int padWidth     = layer->padX();
         int padHeight    = layer->padY();
         auto core   = static_cast<CPUBackend*>(backend())->functions();
-        MNN_ASSERT(DataType_DT_INT8 != TensorUtils::getDescribe(inputs[0])->type);
         
         // edit const if global
         auto input       = inputs[0];

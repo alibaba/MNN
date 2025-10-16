@@ -17,14 +17,16 @@
 #include <set>
 #include <climits>
 #include <cctype>
+#include <cstring>
 namespace MNN {
 namespace Transformer {
 
 // base64
-static const std::string base64_chars =
-"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-"abcdefghijklmnopqrstuvwxyz"
-"0123456789+/";
+static const char* get_base64_chars() {
+    return "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+           "abcdefghijklmnopqrstuvwxyz"
+           "0123456789+/";
+}
 
 static inline bool is_base64(unsigned char c) {
     return (isalnum(c) || (c == '+') || (c == '/'));
@@ -46,7 +48,8 @@ static std::string base64_decode(const std::string& str) {
         char_array_4[i++] = str[in_]; in_++;
         if (i ==4) {
             for (i = 0; i <4; i++) {
-                char_array_4[i] = base64_chars.find(char_array_4[i]);
+                const char* base64_chars = get_base64_chars();
+                char_array_4[i] = strchr(base64_chars, char_array_4[i]) - base64_chars;
             }
             char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
             char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
@@ -62,7 +65,8 @@ static std::string base64_decode(const std::string& str) {
             char_array_4[j] = 0;
         }
         for (j = 0; j < 4; j++) {
-            char_array_4[j] = base64_chars.find(char_array_4[j]);
+            const char* base64_chars = get_base64_chars();
+            char_array_4[j] = strchr(base64_chars, char_array_4[j]) - base64_chars;
         }
         char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
         char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
@@ -389,7 +393,16 @@ Sentencepiece::EncodeResult Sentencepiece::bpe_encode(string_view_ normalized, f
 }
 
 void Sentencepiece::encode(const std::string& str, std::vector<int>& ids) {
-    auto result = bpe_encode(str);
+    // For SentencePiece, replace all spaces with ▁ and add ▁ prefix to the beginning
+    std::string normalized_str = "▁";
+    for (char c : str) {
+        if (c == ' ') {
+            normalized_str += "▁";
+        } else {
+            normalized_str += c;
+        }
+    }
+    auto result = bpe_encode(normalized_str);
     size_t consumed = 0;
     for (const auto &p : result) {
         const string_view_ w = p.first;   // piece
@@ -491,86 +504,123 @@ std::string BertTokenizer::decode(int id) {
 }
 
 std::vector<int> BertTokenizer::word_piece(const std::string& token) {
+    // First check if the entire token exists in vocabulary
     auto it = encoder_.find(token);
     if (it != encoder_.end()) {
         return {it->second};
     }
+
     std::vector<int> ids;
     std::string current = token;
+    bool is_first_piece = true;
+
     while (!current.empty()) {
         int match_id = -1;
         size_t match_pos = 0;
-        for (int len = current.size(); len > 0; --len) {
+
+        // Try to find the longest matching piece in vocabulary
+        // Start from the full length and work backwards
+        for (size_t len = current.size(); len > 0; --len) {
             std::string candidate = current.substr(0, len);
-            if (!ids.empty()) {
+
+            // Add ## prefix for sub-word pieces (not the first piece)
+            if (!is_first_piece) {
                 candidate = "##" + candidate;
             }
-            auto it = encoder_.find(candidate);
-            if (it != encoder_.end()) {
-                match_id = it->second;
+
+            auto vocab_it = encoder_.find(candidate);
+            if (vocab_it != encoder_.end()) {
+                match_id = vocab_it->second;
                 match_pos = len;
                 break;
             }
         }
-        // [UNK]
+
+        // If no match found, use [UNK] token
         if (match_id == -1) {
-            ids.push_back(100);
+            // Try to find [UNK] token, commonly has id 100 or 0
+            auto unk_it = encoder_.find("[UNK]");
+            if (unk_it != encoder_.end()) {
+                ids.push_back(unk_it->second);
+            } else {
+                // Fallback to id 100 which is commonly used for [UNK]
+                ids.push_back(100);
+            }
             break;
         }
+
         ids.push_back(match_id);
-        // not first word, adding ## prefix
         current = current.substr(match_pos);
+        is_first_piece = false;  // Subsequent pieces need ## prefix
     }
+
     return ids;
 }
 
 void BertTokenizer::encode(const std::string& str, std::vector<int>& ids) {
+    // Use a simpler approach that matches Python tokenizer behavior more closely
     std::vector<std::string> tokens;
     std::string current_token;
     size_t i = 0;
+
     while (i < str.size()) {
         current_token.clear();
         unsigned char c = static_cast<unsigned char>(str[i]);
-        // handle multi-byte UTF-8 characters
+
+        // Handle UTF-8 multi-byte characters (including Chinese characters)
         if ((c & 0x80) != 0) {
-            unsigned char mask = 0xE0; // 1110 0000 for 3-byte char
-            if ((c & mask) == mask) {
-                current_token = str.substr(i, 3);
-                i += 3;
+            // Determine UTF-8 character length
+            int char_len = 1;
+            if ((c & 0xE0) == 0xC0) {
+                char_len = 2;  // 2-byte character
+            } else if ((c & 0xF0) == 0xE0) {
+                char_len = 3;  // 3-byte character (most Chinese characters)
+            } else if ((c & 0xF8) == 0xF0) {
+                char_len = 4;  // 4-byte character
+            }
+
+            // Extract the complete UTF-8 character
+            if (i + char_len <= str.size()) {
+                current_token = str.substr(i, char_len);
+                i += char_len;
             } else {
+                // Invalid UTF-8 sequence, skip this byte
                 ++i;
                 continue;
             }
         }
-        // handle continuous sequence of letters and digits
+        // Handle ASCII letters and digits - collect consecutive alphanumeric characters
         else if (isalnum(c)) {
             while (i < str.size() && isalnum(static_cast<unsigned char>(str[i]))) {
                 current_token += tolower(str[i]);
                 ++i;
             }
         }
-        // handle punctuation and symbols
+        // Handle punctuation and symbols - treat each as separate token
         else if (ispunct(c)) {
             current_token = str[i];
             ++i;
         }
-        // handle space, tab, enter
+        // Skip whitespace characters
         else if (isspace(c)) {
             ++i;
             continue;
         }
-        // handle any other single-byte characters
+        // Handle any other single-byte characters
         else {
             current_token = str[i];
             ++i;
         }
+
         if (!current_token.empty()) {
             tokens.push_back(current_token);
         }
     }
 
-    for (auto token : tokens) {
-        for (auto id : word_piece(token)) {
+    // Apply WordPiece algorithm to each token
+    for (const auto& token : tokens) {
+        std::vector<int> token_ids = word_piece(token);
+        for (int id : token_ids) {
             ids.push_back(id);
         }
     }
@@ -718,11 +768,11 @@ void HuggingfaceTokenizer::encode(const std::string& str, std::vector<int>& ids)
      //    std::regex re("('s|'t|'re|'ve|'m|'ll|'d| ?[[:alpha:]]+| ?[[:digit:]]+| ?[^\\s\\w]+|\\s+)");
      */
     std::regex re("('s|'t|'re|'ve|'m|'ll|'d)|[^\\r\\n[:alpha:][:digit:]]?[[:alpha:]]+|[[:digit:]]| ?[^\\s[:alpha:][:digit:]]+[\r\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+", std::regex_constants::icase);
-    
+
     std::string input = str;
     std::vector<std::string> result;
     std::smatch match;
-    
+
     std::string token;
     while (std::regex_search(input, match, re)) {
         token = match.str(0);

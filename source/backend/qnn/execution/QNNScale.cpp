@@ -10,6 +10,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 QNNScale::QNNScale(Backend *backend, const Op *op) : QNNCommonExecution(backend, op) {
     auto scaleParam = mOp->main_as_Scale();
@@ -189,6 +190,6 @@ public:
 };
 
 REGISTER_QNN_OP_CREATOR(QNNScaleCreator, OpType_Scale)
-
+#endif
 } // end namespace QNN
 } // end namespace MNN

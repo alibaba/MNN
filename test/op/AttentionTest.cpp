@@ -8,6 +8,7 @@
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/ExprCreator.hpp>
+#include <MNN/expr/Module.hpp>
 #include "core/OpCommonUtils.hpp"
 #include "MNNTestSuite.h"
 #include "TestUtils.h"
@@ -22,8 +23,122 @@ int KvNumHead = 2;
 int HeadDim   = 128;
 const float diff_threshold = 0.001;
 const float diff_percent_threshold = 0.1;
+const int pastLength = 101;
 
 #define LOOP 30
+struct KVMeta {
+    size_t block = 4096;
+    size_t previous = 0;
+    size_t remove = 0;
+    int* reserve = nullptr;
+    int n_reserve = 0;
+    size_t add = 0;
+    std::vector<int> reserveHost;
+    void sync() {
+        int revertNumber = 0;
+        for (int i=0; i<n_reserve; ++i) {
+            revertNumber += reserve[2*i+1];
+        }
+        previous = previous - remove + add + revertNumber;
+        n_reserve = 0;
+        reserve = nullptr;
+        remove = 0;
+        add = 0;
+    }
+};
+
+static KVMeta gMeta;
+static std::shared_ptr<Module> _makeAttentionModule() {
+    auto Q = _Input();
+    auto K = _Input();
+    auto V = _Input();
+    auto mask = _Input();
+    std::shared_ptr<MNN::OpT> attention(new MNN::OpT);
+    attention->type = MNN::OpType_Attention;
+    attention->main.type = MNN::OpParameter_AttentionParam;
+    attention->main.value = new MNN::AttentionParamT;
+    attention->main.AsAttentionParam()->kv_cache = true;
+    auto o = Variable::create(Expr::create(attention.get(), {Q, K, V, mask}));
+    auto buffer = Variable::save({o});
+    MNN::ScheduleConfig config;
+    auto status = MNNTestSuite::get()->pStaus;
+    config.type = (MNNForwardType)status.forwardType;
+    MNN::BackendConfig bnConfig;
+    bnConfig.memory = (MNN::BackendConfig::MemoryMode)status.memory;
+    bnConfig.precision = (MNN::BackendConfig::PrecisionMode)status.precision;
+    bnConfig.power = (MNN::BackendConfig::PowerMode)status.power;
+    config.backendConfig = &bnConfig;
+    std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
+    rtmgr->setHintPtr(MNN::Interpreter::KVCACHE_INFO, &gMeta);
+    std::shared_ptr<Module> m(Module::load({}, {}, (uint8_t*)buffer.data(), buffer.size(), rtmgr));
+    return m;
+}
+
+struct KVCache {
+    VARP pastK;
+    VARP pastV;
+    VARP pastMask;
+    int current = 0;
+    KVCache() {
+        pastK = _Input({1, KvNumHead, 1, pastLength, HeadDim}, NCHW);
+        pastV = _Input({1, KvNumHead, 1, pastLength, HeadDim}, NCHW);
+        pastMask = _Input({pastLength}, NCHW);
+        ::memset(pastK->writeMap<float>(), 0, pastK->getInfo()->size * sizeof(float));
+        ::memset(pastV->writeMap<float>(), 0, pastK->getInfo()->size * sizeof(float));
+        for (int v=0; v<pastLength; ++v) {
+            pastMask->writeMap<float>()[v] = std::numeric_limits<float>::lowest();
+        }
+    }
+};
+
+static VARP _computeAttentionExpr(VARP Q, VARP K, VARP V, VARP mask, KVCache cache) {
+    auto qinfo = Q->getInfo();
+    auto kinfo = K->getInfo();
+    auto vinfo = V->getInfo();
+    auto seqLength = qinfo->dim[1];
+    auto numHead = qinfo->dim[2];
+    auto headDim = qinfo->dim[3];
+    auto kvNumHead = kinfo->dim[2];
+    auto batch = qinfo->dim[0];
+    auto group = numHead / kvNumHead;
+    if (mask->getInfo()->type.code == halide_type_int) {
+        mask = (_Scalar<float>(1.0) - _Cast<float>(mask)) * _Scalar<float>(std::numeric_limits<float>::lowest());
+    }
+    
+    Q = _Reshape(Q, {batch, seqLength, kvNumHead,group, headDim});
+    Q = _Transpose(Q, {0, 2, 3, 1, 4});
+    K = _Reshape(K, {batch, seqLength, kvNumHead, 1, headDim});
+    K = _Transpose(K, {0, 2, 3, 1, 4});
+
+    auto scale = 1.0f / sqrtf(headDim);
+    K = K * _Scalar<float>(scale);
+    K.fix(VARP::CONSTANT);
+    auto QK = _MatMul(Q, K, false, true); // [batch, kvNumHead, group , seq_len, seq_len]
+    QK = QK + mask;
+    auto QKPast = _MatMul(Q, cache.pastK, false, true);
+    QKPast = QKPast + cache.pastMask;
+    QK = _Concat({QKPast, QK}, -1);
+    QK = _Softmax(QK, -1);
+    V = _Reshape(V, {batch, seqLength, kvNumHead, 1, headDim});
+    V = _Transpose(V, {0, 2, 3, 1, 4});
+    V.fix(VARP::CONSTANT);
+    auto totalV = _Concat({cache.pastV, V}, 3);
+    auto QKV = _MatMul(QK, totalV, false, false);
+    auto info = QKV->getInfo();
+    auto O = _Transpose(QKV, {0, 3, 1, 2, 4});
+    O = _Reshape(O, {batch, seqLength, -1});
+    O.fix(VARP::CONSTANT);
+    // Update KVCache
+    for (int y=0; y<kvNumHead; ++y) {
+        ::memcpy(cache.pastK->writeMap<float>() + y * pastLength * headDim + cache.current * headDim, K->readMap<float>() + y * seqLength * headDim, seqLength * headDim * sizeof(float));
+        ::memcpy(cache.pastV->writeMap<float>() + y * pastLength * headDim + cache.current * headDim, V->readMap<float>() + y * seqLength * headDim, seqLength * headDim * sizeof(float));
+    }
+    for (int i=0; i<seqLength; ++i) {
+        cache.pastMask->writeMap<float>()[i+cache.current] = 0.0f;
+    }
+    cache.current += seqLength;
+    return O;
+}
 
 static std::vector< std::vector< std::vector<float> > > generateRandTensor(int C, int H, int W, int precision) {
     std::vector< std::vector< std::vector<float> > > a;
@@ -106,12 +221,25 @@ computeAttention (
         /*---- Mask QK ----*/
         if(mask.size() > 0) {
             float scale = 1.0 / sqrt(HeadDim);
-            for (int i = 0; i < seq_len; i++) {
-                for (int j = 0; j < kv_seq_len; j++) {
-                    if (mask[i][j] == 1) {
-                        qk[i][j] *= scale;
-                    } else {
-                        qk[i][j] = std::numeric_limits<float>::lowest();
+            if (mask[0].size() == seq_len) {
+                auto diff = kv_seq_len - seq_len;
+                for (int i = 0; i < seq_len; i++) {
+                    for (int j = 0; j < seq_len; j++) {
+                        if (mask[i][j] == 1) {
+                            qk[i][j+diff] *= scale;
+                        } else {
+                            qk[i][j+diff] = std::numeric_limits<float>::lowest();
+                        }
+                    }
+                }
+            } else {
+                for (int i = 0; i < seq_len; i++) {
+                    for (int j = 0; j < kv_seq_len; j++) {
+                        if (mask[i][j] == 1) {
+                            qk[i][j] *= scale;
+                        } else {
+                            qk[i][j] = std::numeric_limits<float>::lowest();
+                        }
                     }
                 }
             }
@@ -210,6 +338,8 @@ public:
             }
         }
         Mask  = vector_to_var(mask);
+        Mask = (_Scalar<float>(1.0) - _Cast<float>(Mask)) * _Scalar<float>(std::numeric_limits<float>::lowest());
+
     }
 
     bool compareResult(int seq_len) {
@@ -235,11 +365,6 @@ public:
         srand(2024);
         // unit test 1
         {
-            auto rt = ExecutorScope::Current()->getRuntime();
-            MNN::KVMeta meta;
-            for (auto& iter : rt.first) {
-                iter.second->pMeta = &meta;
-            }
             std::shared_ptr<NaiveAttention> naiveAttention(new NaiveAttention);
             std::shared_ptr<MNN::OpT> attention(new MNN::OpT);
             attention->type = MNN::OpType_Attention;
@@ -247,14 +372,33 @@ public:
             attention->main.value = new MNN::AttentionParamT;
             attention->main.AsAttentionParam()->kv_cache = true;
             int seq_len = 10;
-            meta.add = seq_len;
             generateInput(seq_len, precision);
             generateMask(seq_len, seq_len);
             expected_result = naiveAttention->onExecute(query, key, value, mask, seq_len);
-            Output = Variable::create(Expr::create(attention.get(), {Query, Key, Value, Mask}));
+            auto attn = _makeAttentionModule();
+            gMeta.add = seq_len;
+            Output = attn->onForward({Query, Key, Value, Mask})[0];
+            gMeta.sync();
+            KVCache kvCache;
             bool pass = compareResult(seq_len);
             if (!pass) {
                 printf("Error: Attention with kv_cache unit test failed!\n");
+                return false;
+            }
+            Output = _computeAttentionExpr(Query, Key, Value, Mask, kvCache);
+            pass = compareResult(seq_len);
+            if (!pass) {
+                FUNC_PRINT(1);
+                return false;
+            }
+            // naiveAttention with history is error, use expr to test
+            Output = _computeAttentionExpr(Query, Key, Value, Mask, kvCache);
+            gMeta.add = seq_len;
+            auto output2 = attn->onForward({Query, Key, Value, Mask})[0];
+            gMeta.sync();
+            auto diff = _ReduceMax(output2 - Output)->readMap<float>()[0];
+            if (diff >= 0.01f) {
+                FUNC_PRINT_ALL(diff, f);
                 return false;
             }
         }

@@ -20,7 +20,7 @@ public:
         const auto& ib = inputs[1]->buffer();
         auto& ob       = outputs[0]->buffer();
         ob.type       = inputs[1]->buffer().type;
-        bool res = SizeComputer::computeBroadCastDims(op, inputs, outputs);
+        bool res = SizeComputer::computeBroadCastDims(inputs, outputs);
         if (!res) {
             return false;
         }

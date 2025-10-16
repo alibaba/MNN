@@ -24,6 +24,10 @@ public:
                 }
             }
         }
+        std::map<int, std::unique_ptr<MNN::TensorDescribeT>> desmap;
+        for (auto&& iter : net->extraTensorDescribe) {
+            desmap.insert(std::make_pair(iter->index, std::move(iter)));
+        }
         auto config = Global<modelConfig>::Get();
         for (auto iter = net->oplists.begin(); iter != net->oplists.end();) {
             auto& op          = *iter;
@@ -77,6 +81,15 @@ public:
             for (int i=0; i<op->inputIndexes.size();++i) {
                 replaceIndexes.insert(std::make_pair(op->outputIndexes[i], op->inputIndexes[i]));
             }
+            for (auto& replaceIter : replaceIndexes) {
+                auto desIter = desmap.find(replaceIter.first);
+                if (desIter != desmap.end()) {
+                    desIter->second->index = replaceIter.second;
+                    desIter->second->name = net->tensorName[replaceIter.second];
+                    desmap[replaceIter.second] = std::move(desIter->second);
+                    desmap.erase(desIter);
+                }
+            }
             for (auto subIter = net->oplists.begin(); subIter != net->oplists.end(); subIter++) {
                 auto& subOp = *subIter;
                 for (int v = 0; v < subOp->inputIndexes.size(); ++v) {
@@ -86,6 +99,10 @@ public:
                 }
             }
             iter = net->oplists.erase(iter);
+        }
+        net->extraTensorDescribe.clear();
+        for (auto&& iter : desmap) {
+            net->extraTensorDescribe.emplace_back(std::move(iter.second));
         }
         return true;
     }

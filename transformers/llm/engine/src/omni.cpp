@@ -423,7 +423,7 @@ std::vector<std::pair<int, int>> minicpmBestSize(std::pair<int, int> original_si
     std::pair<int, int> best_grid = *std::min_element(candidates.begin(), candidates.end(),
         [log_ratio](const std::pair<int, int>& g1, const std::pair<int, int>& g2) {
             auto key = [log_ratio](const std::pair<int, int>& g) -> double {
-                if (g.first == 0) return std::numeric_limits<double>::infinity();
+                if (g.first == 0) return std::numeric_limits<double>::max();
                 return std::abs(log_ratio - std::log(static_cast<double>(g.second) / g.first));
             };
             return key(g1) < key(g2);
@@ -568,7 +568,7 @@ std::vector<int> Omni::minicpmVisionProcess(VARP image) {
 #endif
 
 std::vector<int> Omni::visionProcess(const std::string& file) {
-#ifdef LLM_SUPPORT_VISION
+#if defined(LLM_SUPPORT_VISION) && defined(MNN_IMGCODECS)
     VARP image = MNN::CV::imread(file);
     return visionProcess(image);
 #else
@@ -628,7 +628,7 @@ std::vector<int> Omni::audioProcess(MNN::Express::VARP waveform) {
         MNN_PRINT("Omni Can't process audio: waveform is null\n");
         return std::vector<int>(0);
     }
-    
+
     Timer _t;
     auto input_features  = MNN::AUDIO::whisper_fbank(waveform);
     VARP audio_embedding;
@@ -770,7 +770,7 @@ std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input
     std::smatch match;
     std::vector<int> ids{};
     mPositionIds.clear();
-    
+
     while (std::regex_search(searchStart, prompt.cend(), match, multimode_regex)) {
         auto txt_ids = mTokenizer->encode(match.prefix().str());
         addPositionIds(txt_ids.size());
@@ -785,7 +785,7 @@ std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input
             mul_ids = processAudioContent(content, multimodal_input.audios);
             // MNN_PRINT("tokenizer_encode(MultimodalPrompt) audio mul_ids size: %lu", mul_ids.size());
         }
-        
+
         ids.insert(ids.end(), mul_ids.begin(), mul_ids.end());
         searchStart = match.suffix().first;
     }

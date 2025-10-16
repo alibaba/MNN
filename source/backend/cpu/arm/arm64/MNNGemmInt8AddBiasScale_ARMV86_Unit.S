@@ -1451,7 +1451,7 @@ L4_Tile2Quan:
     ld1 {v22.2s}, [x27], x25 // input dequant bias
     ld1 {v25.4s}, [x28] // weight kernel sum
     MLA_WEIGHTZERO v0, v22, v25, 0 // tile:0, oc:0-3
-    MLA_WEIGHTZERO v1, v22, v25, 1 // tile:1, oc:0-3]
+    MLA_WEIGHTZERO v1, v22, v25, 1 // tile:1, oc:0-3
     add x28, x28, #32
 
     L4_TILE2_ADD_DSTV:

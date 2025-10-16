@@ -11,6 +11,15 @@
 #include "core/Macro.h"
 #include "ConvertUtils.hpp"
 namespace MNN {
+struct Block {
+    int start; // inclusive
+    int end;   // exclusive
+
+    bool operator<(const Block& other) const {
+        return start < other.start;
+    }
+};
+
 class GeometryStridedSlice : public GeometryComputer {
 public:
     virtual bool onCompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
@@ -312,8 +321,8 @@ public:
             reg.dst.stride[2] = 1;
         }
 
-        if (fromType == 0 && inputs.size() == 5) {
-            auto write = inputs[4];
+        if (fromType == 0 && inputs.size() == 5) { // stride slice write
+            auto write = inputs[4]; // Data that is not the same in the input and output.
             std::vector<int> shape(outputShape, outputShape + shapeNum);
             if (write->shape() != shape) {
                 std::shared_ptr<Tensor> newTensor(new Tensor);
@@ -326,16 +335,190 @@ public:
                 write = newTensor.get();
                 res.extras.emplace_back(newTensor);
             }
-            for (auto& reg : outputDes->regions) {
-                auto tmp = reg.dst;
-                reg.dst = reg.src;
-                reg.src = tmp;
-                reg.origin = write;
+
+            // Add regions to replicate data that is the same between output and input.
+            // We should copy 'A','B','C','D' from 'input', the shaded area is decided by 'write'
+            /*
+               +--------------+
+               |              |
+               |      A       |
+               |              |
+               +--------------+
+               | //////////// |
+               | //////////// |
+               | //////////// |
+               +--------------+
+               |              |
+               |      B       |
+               |              |
+               +--------------+
+               |              |
+               |      C       |
+               |              |
+               +--------------+
+               | //////////// |
+               | //////////// |
+               | //////////// |
+               +--------------+
+               |              |
+               |      D       |
+               |              |
+               +--------------+
+            */
+
+            std::vector< std::vector<int>> shadedInfos;
+            for (auto& regionShaded: outputDes->regions) {
+                // Swap the contents of src and dst in each region.
+                auto tmp = regionShaded.dst;
+                regionShaded.dst = regionShaded.src;
+                regionShaded.src = tmp;
+                regionShaded.origin = write;
+
+                int outterSize = regionShaded.size[0] * regionShaded.size[1];
+                int baseOffset = regionShaded.dst.offset;
+                int stride0 = regionShaded.dst.stride[0], size0 = regionShaded.size[0];
+                int stride1 = regionShaded.dst.stride[1], size1 = regionShaded.size[1];
+                int stride2 = regionShaded.dst.stride[2], size2 = regionShaded.size[2];
+                std::vector<int> tmpInfo = {outterSize, baseOffset, stride0, stride1, stride2, size0, size1, size2};
+                shadedInfos.emplace_back(tmpInfo);
             }
-            Tensor::InsideDescribe::Region region;
-            region.size[2] = input->elementSize();
-            region.origin = input;
-            outputDes->regions.insert(outputDes->regions.begin(), region);
+
+            int currentShadedInfoStart = 0;
+            int unitSize = input->length(inputDim - 1) * input->length(inputDim - 2) * input->length(inputDim - 3);
+            // shadedInfo size = output->elementSize() / unitSize
+            for (auto shadedInfo: shadedInfos) {
+                std::vector<Block> occupiedBlocks; // contains all shadow regions' start and end index.
+                occupiedBlocks.reserve(shadedInfo[0]);
+                int baseOffset = shadedInfo[1];
+                int stride0 = shadedInfo[2], size0 = shadedInfo[5];
+                int stride1 = shadedInfo[3], size1 = shadedInfo[6];
+                int stride2 = shadedInfo[4], size2 = shadedInfo[7];
+                int insideSize = output->length(inputDim - 1);
+
+                /*
+                 occupiedBlock.start=x0, .end=x1
+                 when stride2>1, the innermost axis (size2) is not continuous
+                 x0                                                               x1
+                 +-------+-------+-------+-------+-------+-------+-------+-------+
+                 |///////|       |///////|       |///////|       |///////|       |
+                 +-------+-------+-------+-------+-------+-------+-------+-------+
+                 */
+                
+                for (int i = 0; i < size0; ++i) {
+                    for (int j = 0; j < size1; ++j) {
+                        int blockStart = baseOffset + i * stride0 + j * stride1;
+                        occupiedBlocks.push_back({blockStart - (blockStart % insideSize), blockStart - (blockStart % insideSize) + insideSize });
+                    }
+                }
+                std::sort(occupiedBlocks.begin(), occupiedBlocks.end());
+
+                int currentFillPos = currentShadedInfoStart;
+                // 1. build region for A,B,C
+                for (const auto& block : occupiedBlocks) {
+                    int gapStart = currentFillPos;
+                    int gapEnd = block.start;
+                    
+                    if (gapStart < gapEnd) {
+                        // copy A, B, C
+                        Tensor::InsideDescribe::Region fillRegion;
+                        fillRegion.origin = input;
+                        fillRegion.size[2] = gapEnd - gapStart;
+                        fillRegion.src.offset = gapStart;
+                        fillRegion.dst.offset = gapStart;
+
+                        outputDes->regions.push_back(fillRegion);
+                    }
+
+                    currentFillPos = std::max(currentFillPos, block.end);
+                }
+
+                // last copied block D
+                const int totalSize = currentShadedInfoStart + unitSize;
+                int lastGapStart = currentFillPos;
+                if (lastGapStart < totalSize) {
+                    Tensor::InsideDescribe::Region lastFillRegion;
+                    lastFillRegion.origin = input;
+
+                    lastFillRegion.size[2] = totalSize - lastGapStart;
+                    lastFillRegion.src.offset = lastGapStart;
+                    lastFillRegion.dst.offset = lastGapStart;
+
+                    outputDes->regions.push_back(lastFillRegion);
+                }
+
+                // copied block between the innermost size2
+                const int headGapSize = baseOffset % insideSize;
+
+                if (headGapSize > 0) {
+                    Tensor::InsideDescribe::Region headGapRegion;
+                    headGapRegion.origin = input;
+
+                    headGapRegion.size[0] = size0;
+                    headGapRegion.size[1] = size1;
+                    headGapRegion.size[2] = headGapSize;
+
+                    headGapRegion.dst.stride[0] = stride0;
+                    headGapRegion.dst.stride[1] = stride1;
+                    headGapRegion.dst.stride[2] = 1;
+
+                    int headGapStartOffset = baseOffset - headGapSize;
+                    headGapRegion.dst.offset = headGapStartOffset;
+
+                    headGapRegion.src = headGapRegion.dst;
+
+                    outputDes->regions.push_back(headGapRegion);
+                }
+
+                // --- 2. inter the inside row
+                const int interPointGapSize = stride2 - 1;
+                if (interPointGapSize > 0 && size2 > 1) {
+                    for (int k = 0; k < size2 - 1; ++k) {
+                        Tensor::InsideDescribe::Region gapRegion;
+                        gapRegion.origin = input;
+
+                        gapRegion.size[0] = size0;
+                        gapRegion.size[1] = size1;
+                        gapRegion.size[2] = interPointGapSize;
+
+                        gapRegion.dst.stride[0] = stride0;
+                        gapRegion.dst.stride[1] = stride1;
+                        gapRegion.dst.stride[2] = 1;
+
+                        int gapStartOffset = baseOffset + k * stride2 + 1;
+                        gapRegion.dst.offset = gapStartOffset;
+
+                        gapRegion.src = gapRegion.dst;
+
+                        outputDes->regions.push_back(gapRegion);
+                    }
+                }
+
+                // Tail region of the row
+                const int lastOccupiedRelativePos = (baseOffset % insideSize) + (size2 - 1) * stride2;
+                const int tailGapSize = insideSize - lastOccupiedRelativePos - 1;
+
+                if (tailGapSize > 0) {
+                    Tensor::InsideDescribe::Region tailGapRegion;
+                    tailGapRegion.origin = input;
+
+                    tailGapRegion.size[0] = size0;
+                    tailGapRegion.size[1] = size1;
+                    tailGapRegion.size[2] = tailGapSize;
+
+                    tailGapRegion.dst.stride[0] = stride0;
+                    tailGapRegion.dst.stride[1] = stride1;
+                    tailGapRegion.dst.stride[2] = 1;
+
+                    int tailGapStartOffset = baseOffset + (size2 - 1) * stride2 + 1;
+                    tailGapRegion.dst.offset = tailGapStartOffset;
+
+                    tailGapRegion.src = tailGapRegion.dst;
+
+                    outputDes->regions.push_back(tailGapRegion);
+                }
+
+                currentShadedInfoStart += unitSize;
+            }
         }
         return true;
     }

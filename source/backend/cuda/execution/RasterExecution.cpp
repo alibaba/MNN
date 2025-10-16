@@ -207,7 +207,7 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &____inputs, con
             if (originDes->quantAttr != nullptr) {
                 des->quantAttr.reset(new QuantAttr);
                 *des->quantAttr = *originDes->quantAttr;
-                des->type = static_cast<CUDABackend*>(backend())->getDataType(origin);
+                des->applyQuant = originDes->applyQuant;
             }
 
             auto res = backend()->onAcquireBuffer(newTensor.get(), Backend::DYNAMIC);
@@ -235,7 +235,7 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &____inputs, con
         if (originDes->quantAttr != nullptr) {
             des->quantAttr.reset(new QuantAttr);
             *des->quantAttr = *originDes->quantAttr;
-            des->type = static_cast<CUDABackend*>(backend())->getDataType(output);
+            des->applyQuant = originDes->applyQuant;
         }
 
         auto res = backend()->onAcquireBuffer(mTempOutput.get(), Backend::DYNAMIC);

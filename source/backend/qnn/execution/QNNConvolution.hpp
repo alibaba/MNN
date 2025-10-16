@@ -14,6 +14,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 class QNNConvolution : public QNNCommonExecution {
 public:
@@ -51,7 +52,7 @@ private:
     bool mIsMatMul = false;
     bool mIs1x1Conv = false;
 };
-
+#endif
 } // end namespace QNN
 } // end namespace MNN
 

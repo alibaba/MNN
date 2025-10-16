@@ -516,7 +516,7 @@ static void MNNAsyQuantInfo_FP32(float* scale, float* bias, float* qscale, float
     auto blockLU = info[6];
     auto stride0 = blockNum * blockLU * plane * innerSide;
     auto stride1 = blockLU * plane * innerSide;
-    
+
     if (info[7] == 1) { // scale&bias:[1]
         float maxval, minval;
         MNNCountMaxMinValue(src, &minval, &maxval, kernelsize * stride0);
@@ -806,7 +806,7 @@ static void MNNReorderWeightInt4Arm82(uint8_t* dest, const uint8_t* source, int3
                     vst1_lane_s16(dstPtr + dstindex1, srcdata, 1);
                     vst1_lane_s16(dstPtr + dstindex2, srcdata, 2);
                     vst1_lane_s16(dstPtr + dstindex3, srcdata, 3);
-                    
+
                 }
                 while (j < lu)
                 {
@@ -873,7 +873,7 @@ static void MNNReorderWeightInt4Sme2(uint8_t* dest, const uint8_t* source, int32
                     vst1_lane_s16(dstPtr + dstindex1, srcdata, 1);
                     vst1_lane_s16(dstPtr + dstindex2, srcdata, 2);
                     vst1_lane_s16(dstPtr + dstindex3, srcdata, 3);
-                    
+
                 }
                 while (j < lu)
                 {
@@ -1445,7 +1445,7 @@ static void MNNAttenPackAndScaleSingleHead(float* dst, const float* srcHeadBase,
         const int sInner = s % eP;
         const float* srcRowPtr = srcHeadBase + s * srcRowStride;
         float* dstBasePtr = dst + sOuter * dstStrideSOuter + sInner * lP;
-        
+
         size_t d = 0;
 #ifdef MNN_USE_NEON
         for (; d + 7 < headDim; d += 8) {
@@ -1453,7 +1453,7 @@ static void MNNAttenPackAndScaleSingleHead(float* dst, const float* srcHeadBase,
             float32x4_t sVec1 = vld1q_f32(srcRowPtr + d + 4);
             sVec0 = vmulq_f32(sVec0, vScale);
             sVec1 = vmulq_f32(sVec1, vScale);
-            
+
             dstBasePtr[(d + 0) * dstStrideDOuter] = sVec0[0];
             dstBasePtr[(d + 1) * dstStrideDOuter] = sVec0[1];
             dstBasePtr[(d + 2) * dstStrideDOuter] = sVec0[2];
@@ -2718,7 +2718,7 @@ void MNNSoftmax(float* softmaxDst, float* input, float* runningMax, float* runni
             blockMax = ALIMAX(blockMax, source[i]);
         }
         float newMax = ALIMAX(oldMax, blockMax);
-        
+
         // caculate block's expr(xi-newmax) and update runningMax
         float xLimit = 87, param = 0.6931471805599453;
         float blockSum = 0.f;
@@ -2800,27 +2800,91 @@ void MNNExp(float* dst, const float* src, float* offset, size_t dataSize) {
     }
 }
 
-void packKvCache(float* dst, const float* src, size_t seqLen, size_t kvSeqLen, size_t eP) {
-    if (seqLen == 0 || kvSeqLen == 0) {
+
+inline void smartCopy(void* dest, const void* src, size_t size) {
+    switch (size) {
+        case 1:
+            *(uint8_t*)dest = *(const uint8_t*)src;
+            break;
+        case 2:
+            *(uint16_t*)dest = *(const uint16_t*)src;
+            break;
+        case 4:
+            *(uint32_t*)dest = *(const uint32_t*)src;
+            break;
+        case 8:
+            *(uint64_t*)dest = *(const uint64_t*)src;
+            break;
+        default:
+            ::memcpy(dest, src, size);
+            break;
+    }
+}
+
+void MNNPackForMatMul_A(float* dst, const float* src, size_t E, size_t L, size_t eP, size_t lP, size_t bytes) {
+    if (E == 0 || L == 0) {
         return;
     }
+    // [e,l] -> [e/eP,l/lP,eP,lP]
+    auto eU = UP_DIV(E, eP);
+    auto lU = UP_DIV(L, lP);
+    if (lP > 1) {
+        const int lC = L / lP;
+        const int lR = L % lP;
+        const size_t copySizeBytes = (size_t)lP * bytes;
 
-    const size_t dstSOuterStride = kvSeqLen * eP;
+        const size_t srcStride0 = (size_t)L * bytes;
+        const size_t dstStride0 = (size_t)lU * eP * lP * bytes;
+        const size_t dstStride1 = eP * lP * bytes;
+        const size_t dstStride2 = lP * bytes;
 
-    for (size_t sBase = 0; sBase < seqLen; sBase += eP) {
-        const size_t numRowsInBlock = std::min(eP, seqLen - sBase);
-        const size_t sOuter = sBase / eP;
+        for (int i = 0; i < eU; ++i) {
+            const int xC = ALIMIN(eP, E - i * eP);
+            const uint8_t* APtr = (uint8_t*)src + (i * eP) * srcStride0;
+            uint8_t* ADst = (uint8_t*)dst + i * dstStride0;
 
-        float* dstSOuterBase = dst + sOuter * dstSOuterStride;
+            if (lC > 0) {
+                for (int x = 0; x < xC; ++x) {
+                    auto srcBase = APtr + x * srcStride0;
+                    auto destBase = ADst + x * dstStride2;
 
-        for (size_t k = 0; k < kvSeqLen; ++k) {
-            float* dstColStart = dstSOuterBase + k * eP;
+                    for (int yy = 0; yy < lC; ++yy) {
+                        auto srcPtr = srcBase + (size_t)yy * copySizeBytes;
+                        auto destPtr = destBase + (size_t)yy * dstStride1;
 
-            for (size_t sInner = 0; sInner < numRowsInBlock; ++sInner) {
-                const size_t s = sBase + sInner;
+                        smartCopy(destPtr, srcPtr, copySizeBytes);
+                    }
+                }
+            }
 
-                const float value = src[s * kvSeqLen + k];
-                dstColStart[sInner] = value;
+            if (lR > 0) {
+                const int yy = lC;
+                const size_t remainderCopyBytes = (size_t)lR * bytes;
+
+                for (int x = 0; x < xC; ++x) {
+                    auto srcPtr = APtr + x * srcStride0 + lC * lP * bytes;
+                    auto destPtr = ADst + lC * dstStride1 + x * dstStride2;// (lC * eP * lP + x * lP) * bytes;
+
+                    ::memcpy(destPtr, srcPtr, remainderCopyBytes);
+                    ::memset(destPtr + remainderCopyBytes, 0, copySizeBytes - remainderCopyBytes);
+                }
+            }
+        }
+    } else { // lP=1
+        // e, l -> eU, l, eP, 1
+        for (int i = 0; i < eU; ++i) {
+            const int xC = ALIMIN(eP, E - i * eP);
+            auto APtr = (uint8_t*)src + (i * eP * L) * bytes;
+            auto ADst = (uint8_t*)dst + (i * lU * eP * lP) * bytes;
+            int dims[4] = {xC, (int)L, (int)L, (int)eP};
+            if (bytes == 2) {
+                auto S = (const int16_t*)APtr;
+                auto D = (int16_t*)ADst;
+                MNNTranspose16Bit(D, S, dims);
+            } else if (bytes == 4) {
+                auto S = (const int32_t*)APtr;
+                auto D = (int32_t*)ADst;
+                MNNTranspose32Bit(D, S, dims);
             }
         }
     }
@@ -4026,10 +4090,14 @@ static void generalIm2col(float* destOrigin, float const** sourceGroup, const in
 #endif // MNN_LOW_MEMORY
 
 #ifdef MNN_SME2
+#define SME2_MATMUL_EP 16
+#define SME2_MATMUL_LP 1
+#define SME2_MATMUL_HP 64
+
 static void SME2MNNGetMatMulPackMode(int* eP, int *lP, int* hP) {
-    *eP = 16;
-    *lP = 1;
-    *hP = 64;
+    *eP = SME2_MATMUL_EP;
+    *lP = SME2_MATMUL_LP;
+    *hP = SME2_MATMUL_HP;
 }
 static void MNNPackedMatMulFP32_SME2(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b) {
     MNNPackedMatMulRemainFP32_SME2(C, A, B, 16, parameter, postParameters, bias, k, b);
@@ -4040,8 +4108,8 @@ static void Sme2MNNPackForMatMul_B(float* destC, const float* sourceC, size_t h,
     // dst: [h/hp, kernelsize, ic/lp, hp, lp]
     auto dest = (int32_t*)destC;
     auto source = (int32_t*)sourceC;
-    int LP = 1;
-    int HP = 64;
+    int LP = SME2_MATMUL_LP;
+    int HP = SME2_MATMUL_HP;
     auto l = kernelsize * ic;
     memset(dest, 0, ROUND_UP(h, HP) * ROUND_UP(ic, LP) * kernelsize * 4);
     auto stride0 = kernelsize * ROUND_UP(ic, LP) * HP;
@@ -4066,8 +4134,8 @@ static void Sme2MNNPackForMatMul_B(float* destC, const float* sourceC, size_t h,
         }
     }
 }
-static void Sme2MNNPackForMatMul_A(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el) {
-    const int32_t infosme2[4] = {info[0], info[1], 16, info[3]};
+static void Sme2MNNPackC4ForMatMul_A(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el) {
+    const int32_t infosme2[4] = {info[0], info[1], SME2_MATMUL_EP, info[3]};
     MNNPackC4ForMatMul_A(destOrigin, sourceGroup, infosme2, el);
     return;
 }
@@ -4252,7 +4320,7 @@ void MNNCoreFunctionInit() {
         gCoreFunction->MNNPackedMatMul = MNNPackedMatMulFP32_SME2;
         gCoreFunction->MNNPackedMatMulRemain = MNNPackedMatMulRemainFP32_SME2;
         gCoreFunction->MNNGetMatMulPackMode = SME2MNNGetMatMulPackMode;
-        gCoreFunction->MNNPackC4ForMatMul_A = Sme2MNNPackForMatMul_A;
+        gCoreFunction->MNNPackC4ForMatMul_A = Sme2MNNPackC4ForMatMul_A;
         gCoreFunction->MNNPackForMatMul_B = Sme2MNNPackForMatMul_B;
     }
 #endif // MNN_SME2

@@ -560,6 +560,9 @@ public:
         MNNUnaryExecuteInt8 procInt8 = nullptr;
 #ifdef MNN_SUPPORT_QUANT_EXTEND
         if (CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1) {
+            if (nullptr == core->MNNSelectUnaryFunctionForInt8) {
+                return nullptr;
+            }
             procInt8 = core->MNNSelectUnaryFunctionForInt8(op->main_as_UnaryOp()->opType());
         }
 #endif

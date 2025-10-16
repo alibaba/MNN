@@ -202,6 +202,65 @@ static unsigned int GetBestMaxStep(const float* weightData, int weightSize, unsi
     return best_nnz;
 }
 
+static void WriteCQBlobsInt8(std::ostream &out, const int8_t* weightData, int area, int channel, bool& shapeUseInt32, const int bits)
+{
+    //push values into buffer
+    //Find int values in all blobs and check;
+    std::set<int> setWeight;
+    const int offset = 1 << (bits - 1);
+    int min_value = -offset;
+    int max_value = offset - 1;
+    setWeight.clear();
+    // using linear weight map
+    for (int i = min_value; i <= max_value; i++) {
+        setWeight.insert(i);
+    }
+    int iCount = setWeight.size();
+    int iNeedBits = ceil(log2(iCount));
+    iNeedBits = iNeedBits < 1 ? 1 : iNeedBits;
+    if (iNeedBits > 8) {
+        MNN_ERROR("The Bits need large than 8, the model may be error for user\n");
+        return;
+    }
+    size_t buf_len = size_t(ceil(0.125 * iNeedBits * area * channel));
+    char *buf = new char[buf_len];
+    {
+        char *arr = new char[area * channel];
+        unsigned char *tmp = (unsigned char*)arr;
+        for (int i = 0; i < channel; i++)
+        {
+            for (int j = 0; j < area; j++)
+            {
+                int value = weightData[i * area + j];
+                *tmp = value + offset;
+                tmp++;
+            }
+        }
+        FillBuffer(buf, buf_len, arr, area * channel, iNeedBits);
+        delete[] arr;
+    }
+    //begin write to file
+    {
+        char tmp[100];
+        //1. weights blob shape(unsigned int32)
+        shapeUseInt32 = WriteBlobDim(out, {channel, area});
+        // 2. Avalable values Count(unsigned char)
+        tmp[0] = (unsigned char)iCount;
+        out.write(tmp, 1);
+        // 3. valueset(signed char * valueset_size)
+        for (auto it = setWeight.begin(); it != setWeight.end(); it++)
+        {
+            tmp[0] = (unsigned char)*it;
+            out.write(tmp, 1);
+        }
+        // 4. weights indexes(size = ceil(0.125*weights_count*ceil(log2(Avalable_values_Count))))
+        out.write(buf, buf_len);
+        //g_totalSize += 1 + setWeight.size() + buf_len;
+    }
+    delete[] buf;
+}
+
+
 static void WriteCQBlobs(std::ostream &out, const float* weightData, const float* alphaData, int area, int channel, bool asymmetricQuantFlag, bool& shapeUseInt32, const int bits)
 {
     //push values into buffer
@@ -445,11 +504,11 @@ static std::unique_ptr<IDSTQuanT> encode(const float* weight, const std::vector<
     std::ostringstream outputStringStreamCQ;
     idst->aMaxOrBits = bits;
     if (quantWeightPtr && nullptr == weight) {
-        auto int8Size = kernelNum * kernelSize;
-        // Use Quanted weight
-        idst->type = 4;
-        idst->buffer.resize(int8Size);
-        ::memcpy(idst->buffer.data(), quantWeightPtr, int8Size);
+        WriteCQBlobsInt8(outputStringStreamCQ, quantWeightPtr, kernelSize, kernelNum, shapeUseInt32, bits);
+        auto cqStr = outputStringStreamCQ.str();
+        idst->type = 1;
+        idst->buffer.resize(cqStr.size());
+        ::memcpy(idst->buffer.data(), cqStr.data(), cqStr.size());
     } else {
         WriteCQBlobs(outputStringStreamCQ, weight, scale.data(), kernelSize, kernelNum, asymmetricQuantFlag, shapeUseInt32, bits);
         auto cqStr = outputStringStreamCQ.str();

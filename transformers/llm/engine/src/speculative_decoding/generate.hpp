@@ -21,6 +21,8 @@ struct GenerationParams {
     std::vector<int> input_ids;
     MNN::Express::VARP input_embeds;
     std::vector<MNN::Express::VARP> outputs;
+    int validLogitStart = 0;
+    int validLogitSize = 0;
 };
 
 class Generation {

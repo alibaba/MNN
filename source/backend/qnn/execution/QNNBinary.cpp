@@ -11,6 +11,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 ErrorCode QNNBinary::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     int dim0 = inputs[0]->dimensions();
@@ -205,6 +206,6 @@ public:
 
 REGISTER_QNN_OP_CREATOR(QNNBinaryCreator, OpType_BinaryOp)
 REGISTER_QNN_OP_CREATOR(QNNBinaryCreator, OpType_Eltwise)
-
+#endif
 } // end namespace QNN
 } // end namespace MNN

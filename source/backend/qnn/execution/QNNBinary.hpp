@@ -14,6 +14,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 class QNNBinary : public QNNCommonExecution {
 public:
@@ -25,7 +26,7 @@ private:
 private:
     std::string mBinaryTypeName;
 };
-
+#endif
 } // end namespace QNN
 } // end namespace MNN
 

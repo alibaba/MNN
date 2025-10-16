@@ -158,7 +158,7 @@ public:
     void onAlloc(int kv_seq_len);
     void onRealloc(const KVMeta* meta);
     void onClear();
-    void onPushBack(const Tensor * key, const Tensor * value);
+    void onPushBack(const Tensor * key, const Tensor * value, int add);
     void onDequantValue(Tensor * dequantedValues);
 };
 

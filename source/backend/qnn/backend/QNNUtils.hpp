@@ -68,7 +68,9 @@ extern QnnSystemInterface_getProviders_t QnnSystemInterface_getProviders;
 #endif
 
 bool loadQNNSymbol();
+bool checkCapability(QNN_INTERFACE_VER_TYPE qnnInterface, QnnProperty_Key_t key);
 
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 // op registration
 extern void ___QNNActivationCreator__OpType_ReLU__();
 extern void ___QNNActivationCreator__OpType_ReLU6__();
@@ -99,6 +101,7 @@ extern void ___QNNUnaryCreator__OpType_UnaryOp__();
 extern void ___QNNCastCreator__OpType_Cast__();
 extern void ___QNNPermuteCreator__OpType_Permute__();
 extern void ___QNNGatherCreator__OpType_GatherV2__();
+extern void ___QNNGatherCreator__OpType_GatherElements__();
 extern void ___QNNBroadcastToCreator__OpType_BroadcastTo__();
 extern void ___QNNMatMulCreator__OpType_MatMul__();
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
@@ -106,6 +109,7 @@ extern void ___QNNAttentionCreator__OpType_Attention__();
 #endif
 extern void ___QNNQuantCreator__OpType_FloatToInt8__();
 extern void ___QNNDeQuantCreator__OpType_Int8ToFloat__();
+
 void registerQNNOps();
 
 extern Tensor::DimensionType gQnnTensorDimType;
@@ -120,10 +124,8 @@ int getNCHWAxis(const int axis, const int dim, const Tensor::DimensionType type)
 
 std::vector<uint32_t> getNHWCShape(const Tensor * tensor);
 
-bool checkCapability(QNN_INTERFACE_VER_TYPE qnnInterface, QnnProperty_Key_t key);
-
 void printNHWCShape(const Tensor * tensor);
-
+#endif
 } // end namespace QNN
 } // end namespace MNN
 

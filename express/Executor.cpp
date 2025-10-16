@@ -533,8 +533,7 @@ void Executor::_makeCache(const std::vector<EXPRP>& expr, bool forceCPU) {
             if (TensorUtils::getDescribe(srcTensor)->quantAttr.get()) {
                 TensorUtils::getDescribe(tensor.get())->quantAttr.reset(new QuantAttr);
                 auto quant = TensorUtils::getDescribe(tensor.get())->quantAttr.get();
-                quant->scale = TensorUtils::getDescribe(srcTensor)->quantAttr.get()->scale;
-                quant->zero = TensorUtils::getDescribe(srcTensor)->quantAttr.get()->zero;
+                *quant = *(TensorUtils::getDescribe(srcTensor)->quantAttr);
             }
 
             TensorUtils::getDescribe(tensor.get())->index = (int)scheduleInfo.allTensors.size();

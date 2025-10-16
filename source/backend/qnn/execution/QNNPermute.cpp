@@ -2,6 +2,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 ErrorCode QNNPermute::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     Tensor * input = inputs[0];
@@ -80,6 +81,6 @@ public:
 };
 
 REGISTER_QNN_OP_CREATOR(QNNPermuteCreator, OpType_Permute)
-
+#endif
 } // end namespace QNN
 } // end namespace MNN
