@@ -35,6 +35,7 @@ for name in os.listdir(root_dir):
         mnnsize = (os.path.getsize("convert_cache.mnn") + os.path.getsize("convert_cache.mnn.weight")) / 1024.0 / 1024.0
         correct_num +=1
         total_size += mnnsize
+
     print(message)
     print("Model Size:", mnnsize, " MB")
 

@@ -50,8 +50,9 @@ Prompt* Prompt::createPrompt(std::shared_ptr<LlmContext> context, std::shared_pt
 bool contains(const std::string& str, const std::string& substring) {
     return str.find(substring) != std::string::npos;
 }
-    
+
 void Prompt::setParams(std::shared_ptr<LlmConfig> config) {
+    mSystemPrompt = config->system_prompt();
 #ifdef LLM_USE_MINJA
     if (config->config_.document.HasMember("jinja")) {
         auto& document = config->config_.document["jinja"];
@@ -76,7 +77,6 @@ void Prompt::setParams(std::shared_ptr<LlmConfig> config) {
     }
 #endif
     mCommonTemplate.reset();
-    mSystemPrompt = config->system_prompt();
     if (config->config_.document.HasMember("prompt_template")) {
         // std::cout << "legacy prompt_template" << std::endl;
         // legacy

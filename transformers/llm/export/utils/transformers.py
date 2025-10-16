@@ -129,6 +129,11 @@ class Attention(torch.nn.Module):
             query_states = self.rotary.apply_rotary_pos(query_states, cos, sin)
             key_states = self.rotary.apply_rotary_pos(key_states, cos, sin)
 
+        # MobileLLM model llama4_text has qk_norm after rotary
+        if hasattr(self, 'qk_norm') and self.qk_norm is not None :
+            query_states = self.qk_norm(query_states)
+            key_states = self.qk_norm(key_states)
+
         if self.export_fused_attn:
             attn_output = self.fused_attn(query_states, key_states, value_states, attention_mask)
             attn_output = self.o_proj(attn_output)
@@ -420,6 +425,21 @@ class GptOssExpert(torch.nn.Module):
         out = self.down_proj_linear(gated_output)
         return out
 
+class Qwen3Expert(torch.nn.Module):
+    def __init__(self, hidden_size, expert_dim, act_fn):
+        super().__init__()
+        self.expert_dim = expert_dim
+        self.gate_up_proj_linear = torch.nn.Linear(hidden_size, 2 * expert_dim, bias=False)
+        self.down_proj_linear = torch.nn.Linear(expert_dim, hidden_size, bias=False)
+        self.act_fn = act_fn
+
+    def forward(self, hidden_states: torch.Tensor, debug=False) -> torch.Tensor:
+        gate_up = self.gate_up_proj_linear(hidden_states)
+        # gate, up = gate_up[..., ::2], gate_up[..., 1::2]
+        gate, up = gate_up.chunk(2, dim=-1)
+        out = self.down_proj_linear(up * self.act_fn(gate))
+        return out
+
 class Mlp(torch.nn.Module):
     def __init__(self, mlp, config, layer_id):
         super().__init__()
@@ -428,7 +448,24 @@ class Mlp(torch.nn.Module):
         self.is_moe = hasattr(self, 'experts')
         self.export_moe = False
         self.custom_moe = MoE(self.num_experts, self.top_k, layer_id)
-        self.moe_type = 'qwen3_moe'
+        if isinstance(self.experts, torch.nn.ModuleList):
+            self.moe_type = 'qwen3_moe'
+        else:
+            self.moe_type = 'qwen3_vl_moe'
+            self.norm_topk_prob = True
+            # refacte experts to qwen3_experts
+            original_experts = self.experts
+            hidden_size = original_experts.hidden_size
+            expert_dim = original_experts.expert_dim
+            act_fn = original_experts.act_fn
+            new_experts_list = torch.nn.ModuleList()
+            for i in range(self.num_experts):
+                expert_mlp = Qwen3Expert(hidden_size, expert_dim, act_fn)
+                expert_mlp.gate_up_proj_linear.weight.data = original_experts.gate_up_proj.data[i].transpose(0, 1)
+                expert_mlp.down_proj_linear.weight.data = original_experts.down_proj.data[i].transpose(0, 1)
+                new_experts_list.append(expert_mlp)
+            self.experts = new_experts_list
+
         if hasattr(self, 'router'):
             self.moe_type = 'gpt_oss'
             hidden_dim = self.router.weight.shape[1]
@@ -626,3 +663,19 @@ class Lm(torch.nn.Module):
     def forward(self, hidden_states):
         m_logits = self.lm(hidden_states)
         return m_logits
+
+class RMSNorm(torch.nn.Module):
+    def __init__(self, hidden_size, eps=1e-6):
+        """
+        LlamaRMSNorm is equivalent to T5LayerNorm
+        """
+        super().__init__()
+        self.weight = torch.nn.Parameter(torch.ones(hidden_size))
+        self.variance_epsilon = eps
+
+    def forward(self, hidden_states):
+        input_dtype = hidden_states.dtype
+        hidden_states = hidden_states.to(torch.float32)
+        variance = hidden_states.pow(2).mean(-1, keepdim=True)
+        hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
+        return self.weight * hidden_states.to(input_dtype)

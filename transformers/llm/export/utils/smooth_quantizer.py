@@ -36,6 +36,9 @@ class SmoothQuantizer:
         self.best_device = SmoothQuantizer.get_best_device()
 
         self.modules = self.model.blocks
+        if "cpu" != self.best_device:
+            for idx in range(len(self.modules)):
+                SmoothQuantizer.to_device(self.modules[idx], "cpu")
 
         self.act_scales = [{} for _ in range(len(self.modules))]
         self.act_dict = [defaultdict(dict) for _ in range(len(self.modules))]
@@ -353,6 +356,8 @@ class SmoothQuantizer:
                 named_linears = SmoothQuantizer.get_named_linears(self.modules[idx])
 
                 self._get_max_input(idx, self.modules[idx], named_linears)
+                if "cpu" != self.best_device:
+                    SmoothQuantizer.to_device(self.modules[idx], "cpu")
 
         for idx in tqdm(range(len(self.modules)), desc="applying scales..."):
             self._apply_scale(idx, self.modules[idx])
@@ -375,6 +380,8 @@ class SmoothQuantizer:
                 named_linears = SmoothQuantizer.get_named_linears(self.modules[idx])
 
                 self._get_all_static_scales(idx, self.modules[idx], named_linears)
+                if "cpu" != self.best_device:
+                    SmoothQuantizer.to_device(self.modules[idx], "cpu")
         self._extract_static_scales()
 
         SmoothQuantizer.clear_memory()

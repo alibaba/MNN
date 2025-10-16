@@ -6,6 +6,7 @@ from typing import Optional, List, Tuple
 
 from .transformers import Attention
 from utils.custom_op import FakeLinear
+from utils.spinner import spinner_run
 
 class Mtp(torch.nn.Module):
     def __init__(self, mtp, base):
@@ -39,6 +40,7 @@ class Mtp(torch.nn.Module):
             return mtps[model_type]
         return None
 
+    @spinner_run(f'export onnx model to ')
     def export(self, onnx_path):
         onnx_model = f'{onnx_path}/mtp.onnx'
 

@@ -32,7 +32,7 @@ protected:
         } else {
             blocknum = ic / blocksize;
         }
-        
+
         std::vector<float> weightFp32(oc * ic * area);
         std::vector<float> wScale(2 * oc * blocknum);
 
@@ -183,13 +183,13 @@ protected:
         } else {
             blocknum = ic / blocksize;
         }
-        
+
         std::vector<float> weightFp32(oc * ic * area);
         std::vector<float> wScale(2 * oc * blocknum);
-        
+
         float threshold = (float)(1 << (nbit - 1)) - 1.0f;
         float clampMin = -threshold - 1;
-        
+
         VARP x;
         int8_t xMin = -(1<<(8-1)), xMax = (1<<(8-1))-1;
         x = _Input({batch, ic, ih, iw}, NCHW, halide_type_of<float>());
@@ -200,7 +200,7 @@ protected:
         }
         x = _Convert(x, NC4HW4);
         x->writeScaleMap(1.0f, 0.f);
-        
+
         for (int i = 0; i < oc; ++i) {
             bias[i] = i % 10 + 0.005;
             for (int j = 0; j < ic; ++j) {
@@ -231,17 +231,17 @@ protected:
             }
         }
         auto y     = _HybridConv(weightFp32, std::move(bias), std::move(wScale), x, channel, kernel, PaddingMode::CAFFE, strides, dilate, 1, pad, false, false, nbit, true);
-        
-        
+
+
         auto yfp32 = _Conv(std::move(newWeightFp32), std::move(biasdup), x, {ic, oc}, kernel, PaddingMode::CAFFE, strides, dilate, 1, pad);
         yfp32 = _Convert(yfp32, NCHW);
         auto tgPtr = yfp32->readMap<FLOAT_T>();
-        
+
         auto yInfo = y->getInfo();
-        
+
         auto elesize = yfp32->getInfo()->size;
         float limit = 0.1f;
-        
+
         bool correct = true;
         float maxValue = tgPtr[0];
         float min_ = tgPtr[0];
@@ -416,6 +416,7 @@ public:
     }
 };
 
+#ifdef MNN_LOW_MEMORY
 class PTQInt4Test: public PtqTestCommon {
 public:
     virtual bool run(int precision) {
@@ -450,9 +451,10 @@ public:
         return true;
     }
 };
+MNNTestSuiteRegister(PTQInt4Test, "op/int4Ptq");
+#endif
 
 MNNTestSuiteRegister(DenseConvInt8Test, "op/lowMemory/DenseConv");
 MNNTestSuiteRegister(HybridConvInt8Test, "op/lowMemory/HybridConv");
 MNNTestSuiteRegister(HybridConvSpeedInt8Test, "speed/HybridConv");
 MNNTestSuiteRegister(ConvInt8BlockQuantTest, "op/lowMemory/blockConv");
-//MNNTestSuiteRegister(PTQInt4Test, "op/int4Ptq");

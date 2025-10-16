@@ -32,6 +32,7 @@ class DiskEmbedding;
 class Sampler;
 class Prompt;
 class Generation;
+class EagleGeneration;
 struct TimePerformance;
 
 using ChatMessage = std::pair<std::string, std::string>; // <role, content>
@@ -104,7 +105,7 @@ public:
     int getOutputIndex(const std::string& name) const;
     void reset();
     void tuning(TuneType type, std::vector<int> candidates);
-    virtual std::vector<Express::VARP> forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos);
+    virtual std::vector<Express::VARP> forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos, Express::VARPS extraArgs = {});
     Express::VARP forward(const std::vector<int>& input_ids, bool is_prefill = true);
     Express::VARP forward(MNN::Express::VARP input_embeds);
     void switchMode(Stage stage);
@@ -171,6 +172,7 @@ protected:
     friend class ArGeneration;
     friend class LookaheadGeneration;
     friend class MtpGeneration;
+    friend class EagleGeneration;
     std::vector<Express::VARP> forwardVec(const std::vector<int>& input_ids);
     std::vector<Express::VARP> forwardVec(MNN::Express::VARP input_embeds);
 private:
@@ -197,7 +199,7 @@ public:
     virtual bool load() override;
     Express::VARP ids_embedding(const std::vector<int>& ids);
     Express::VARP txt_embedding(const std::string& txt);
-    std::vector<Express::VARP> forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos) override;
+    std::vector<Express::VARP> forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos, Express::VARPS extraArgs = {}) override;
     int dim() const;
     virtual Express::VARP gen_attention_mask(int seq_len) override;
     virtual Express::VARP gen_position_ids(int seq_len) override;

@@ -223,6 +223,10 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
      cxxopts::value<int>()
      )
     (
+     "hqq",
+     "using hqq quant method to improve accuracy, default: false, if use hqq, weightQuantAsymmetric is set as true"
+     )
+    (
      "compressionParamsFile",
      "The path of the compression parameters that stores activation, "
      "weight scales and zero points for quantization or information "
@@ -462,6 +466,9 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
     if (result.count("fp16")) {
         modelPath.saveHalfFloat = true;
     }
+    if (result.count("hqq")) {
+        modelPath.useHQQ = true;
+    }
     if (result.count("forTraining")) {
         modelPath.forTraining = true;
     }
@@ -473,6 +480,9 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
     }
     if (result.count("weightQuantBits")) {
         modelPath.weightQuantBits = result["weightQuantBits"].as<int>();
+        if (modelPath.useHQQ) {
+            MNN_PRINT("Use HQQ to quant weight\n");
+        }
     }
     if (result.count("weightQuantAsymmetric")) {
         modelPath.weightQuantAsymmetric = result["weightQuantAsymmetric"].as<bool>();
@@ -736,7 +746,7 @@ bool Cli::convertModel(modelConfig& modelPath) {
     if (needOptimize) {
         std::cout << "Start to Optimize the MNN Net..." << std::endl;
         std::unique_ptr<MNN::NetT> newNet = optimizeNet(netT, modelPath.forTraining, modelPath, expectedPass);
-        if (newNet->extraTensorDescribe.size()>0) {
+        if (newNet->extraTensorDescribe.size()>0 && expectedPass.empty()) {
             MNN_PRINT("MNN net has tensor quant info\n");
             computeUnaryBuffer(newNet.get());
         }

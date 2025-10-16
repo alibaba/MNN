@@ -460,7 +460,7 @@ void GeometryComputerUtils::makeRaster(const CommandBuffer& srcBuffer, CommandBu
 std::shared_ptr<Command> GeometryComputerUtils::makeBinary(int type, Tensor* input0, Tensor* input1, Tensor* output) {
     flatbuffers::FlatBufferBuilder builder(DEFAULT_ALLOCATE_SIZE);
     BinaryOpBuilder builder_(builder);
-    builder_.add_opType(type);
+    builder_.add_opType((BinaryOpOperation)type);
     auto mainOffset = builder_.Finish().Union();
     OpBuilder opB(builder);
     opB.add_type(OpType_BinaryOp);
