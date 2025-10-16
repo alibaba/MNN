@@ -40,11 +40,11 @@ fun Application.configureRouting() {
             send(ServerSentEvent("world"))
         }
         
-        // 队列状态路由 - 不需要认证
+        //queuestateroute - notneedauthentication
         queueRoutes()
 
         authenticate("auth-bearer") {
-            // 在这里定义需要认证的路由
+            //atheredefineneedauthenticationroute
             // /v1/chat/completions
             chatRoutes()
             // /v1/models
@@ -68,12 +68,10 @@ fun Application.configureRouting() {
 
 }
 
-/**
- * 从assets目录加载HTML文件
- */
+/** * fromassetsdirectoryloadHTMLfile*/
 private fun loadHtmlFromAssets(): String {
     return try {
-        // 使用Application Context来访问assets
+        //useApplication Contexttoaccessassets
         val context = com.alibaba.mnnllm.android.MnnLlmApplication.getAppContext()
         val inputStream: InputStream = context.assets.open("test_page.html")
         

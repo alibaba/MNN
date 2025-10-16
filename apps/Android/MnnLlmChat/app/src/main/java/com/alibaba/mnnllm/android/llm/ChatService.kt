@@ -4,7 +4,7 @@ package com.alibaba.mnnllm.android.llm
 
 import android.text.TextUtils
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
-import com.alibaba.mnnllm.android.model.ModelUtils
+import com.alibaba.mnnllm.android.model.ModelTypeUtils
 
 class ChatService {
     private val transformerSessionMap: MutableMap<String, ChatSession> = HashMap()
@@ -34,11 +34,11 @@ class ChatService {
             sessionIdParam!!
         }
         
-        val session = if (ModelUtils.isDiffusionModel(modelName)) {
+        val session = if (ModelTypeUtils.isDiffusionModel(modelName)) {
             DiffusionSession(sessionId, configPath!!, historyList)
         } else {
             val llmSession = LlmSession(modelId, sessionId, configPath!!, historyList)
-            llmSession.supportOmni = ModelUtils.isOmni(modelName)
+            llmSession.supportOmni = ModelTypeUtils.isOmni(modelName)
             llmSession
         }
         

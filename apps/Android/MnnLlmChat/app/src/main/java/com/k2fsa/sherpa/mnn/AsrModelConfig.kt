@@ -7,9 +7,7 @@ import android.util.Log
 import org.json.JSONObject
 import java.io.File
 
-/**
- * ASR 模型配置数据类 - 对应单个模型目录下的 config.json
- */
+/** * ASR modelconfigdataclass - correspond tosinglemodeldirectoryunder config.json*/
 data class AsrModelConfig(
     val modelType: String,
     val transducer: TransducerConfig,
@@ -30,18 +28,12 @@ data class LmConfig(
     val scale: Float = 0.5f
 )
 
-/**
- * ASR 配置管理器
- */
+/** * ASR configmanager*/
 object AsrConfigManager {
     private const val TAG = "AsrConfigManager"
     private const val CONFIG_FILE_NAME = "config.json"
     
-    /**
-     * 从指定模型目录读取配置文件并返回模型配置
-     * @param modelDir ASR模型目录路径 (如: /path/to/sherpa-mnn-streaming-zipformer-bilingual-zh-en-2023-02-20)
-     * @return OnlineModelConfig 或 null
-     */
+    /** * fromspecifiedmodeldirectoryreadconfigfileandreturnmodelconfig * @param modelDir ASRmodeldirectorypath (such as: /path/to/sherpa-mnn-streaming-zipformer-bilingual-zh-en-2023-02-20) * @return OnlineModelConfig or null*/
     fun getModelConfigFromDirectory(modelDir: String): OnlineModelConfig? {
         return try {
             val configFile = File(modelDir, CONFIG_FILE_NAME)
@@ -65,14 +57,12 @@ object AsrConfigManager {
         }
     }
     
-    /**
-     * 解析JSON配置文件 - 单个模型配置
-     */
+    /** * parseJSONconfigfile - singlemodelconfig*/
     private fun parseConfigJson(jsonContent: String): AsrModelConfig {
         val configJson = JSONObject(jsonContent)
         val transducerJson = configJson.getJSONObject("transducer")
         
-        // 解析可选的语言数组
+        //parseoptionallanguagearray
         val languages = if (configJson.has("language")) {
             val languageArray = configJson.getJSONArray("language")
             val langList = mutableListOf<String>()
@@ -88,7 +78,7 @@ object AsrConfigManager {
             joiner = transducerJson.getString("joiner")
         )
         
-        // 解析可选的LM配置
+        //parseoptionalLMconfig
         val lmConfig = if (configJson.has("lm")) {
             val lmJson = configJson.getJSONObject("lm")
             LmConfig(
@@ -107,9 +97,7 @@ object AsrConfigManager {
         )
     }
     
-    /**
-     * 将配置转换为 OnlineModelConfig
-     */
+    /** * convertconfigconvertas OnlineModelConfig*/
     private fun convertToOnlineModelConfig(modelDir: String, config: AsrModelConfig): OnlineModelConfig {
         return OnlineModelConfig(
             transducer = OnlineTransducerModelConfig(
@@ -122,13 +110,11 @@ object AsrConfigManager {
         )
     }
     
-    /**
-     * 获取回退配置（基于原有的硬编码逻辑）
-     */
+    /** * getfallbackconfig (based onoriginal hardencodinglogic)*/
     private fun getFallbackConfig(modelDir: String): OnlineModelConfig? {
         Log.w(TAG, "Using fallback configuration for modelDir: $modelDir")
         
-        // 根据模型目录名称推断配置
+        //according tomodeldirectorynameinferconfig
         val dirName = File(modelDir).name.lowercase()
         
         return when {
@@ -171,11 +157,7 @@ object AsrConfigManager {
         }
     }
     
-    /**
-     * 从指定模型目录获取语言模型配置
-     * @param modelDir ASR模型目录路径
-     * @return OnlineLMConfig
-     */
+    /** * fromspecifiedmodeldirectorygetlanguagemodelconfig * @param modelDir ASRmodeldirectorypath * @return OnlineLMConfig*/
     fun getLmConfigFromDirectory(modelDir: String): OnlineLMConfig {
         return try {
             val configFile = File(modelDir, CONFIG_FILE_NAME)
@@ -206,11 +188,9 @@ object AsrConfigManager {
         }
     }
     
-    /**
-     * 获取默认的语言模型配置
-     */
+    /** * getdefaultlanguagemodelconfig*/
     private fun getDefaultLmConfig(modelDir: String): OnlineLMConfig {
-        // 根据模型目录名称判断是否应该使用LM
+        //according tomodeldirectorynamedeterminewhethershoulduseLM
         val dirName = File(modelDir).name.lowercase()
         val shouldUseLm = dirName.contains("zh") || dirName.contains("bilingual") || dirName.contains("chinese")
         

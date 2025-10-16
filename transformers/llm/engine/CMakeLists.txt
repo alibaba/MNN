@@ -53,6 +53,9 @@ if (MNN_BUILD_AUDIO)
     add_definitions(-DLLM_SUPPORT_AUDIO)
 endif()
 
+# Disable exceptions in httplib since MNN is compiled with -fno-exceptions
+target_compile_definitions(llm PRIVATE CPPHTTPLIB_NO_EXCEPTIONS)
+
 IF(CMAKE_SYSTEM_NAME MATCHES "^Android" AND NOT MNN_BUILD_FOR_ANDROID_COMMAND)
 IF(NOT NATIVE_INCLUDE_OUTPUT)
   set(NATIVE_INCLUDE_OUTPUT ".")
@@ -88,6 +91,7 @@ add_executable(mls
         ${CMAKE_CURRENT_LIST_DIR}/app/remote_model_downloader.cpp
         ${CMAKE_CURRENT_LIST_DIR}/app/file_utils.cpp
         ${CMAKE_CURRENT_LIST_DIR}/app/llm_benchmark.cpp
+        ${CMAKE_CURRENT_LIST_DIR}/app/llm_benchmark_common.cpp
         ${CMAKE_CURRENT_LIST_DIR}/app/hf_api_client.cpp
         ${CMAKE_CURRENT_LIST_DIR}/app/mls_server.cpp
 )

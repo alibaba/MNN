@@ -20,6 +20,10 @@ object PromptUtils {
             val imagePath = FileUtils.getPathForUri(userData.imageUri!!)
                 ?: throw Exception("imagePath path is null")
             input = String.format("<img>%s</img>%s", imagePath, userData.text)
+        } else if (userData.videoUri != null) {
+            val videoPath = FileUtils.getPathForUri(userData.videoUri!!)
+                ?: throw Exception("videoPath path is null")
+            input = String.format("<video>%s</video>%s", videoPath, userData.text)
         } else {
             input = userData.text!!
         }

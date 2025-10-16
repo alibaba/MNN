@@ -269,6 +269,14 @@
                         app:text="@string/select_audio" />
 
                     <com.alibaba.mnnllm.android.chat.input.MoreMenuItemView
+                        android:id="@+id/more_item_video"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="20dp"
+                        app:icon="@drawable/ic_video"
+                        app:text="@string/select_video" />
+
+                    <com.alibaba.mnnllm.android.chat.input.MoreMenuItemView
                         android:id="@+id/more_item_voice_chat"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"

@@ -5,22 +5,17 @@ import kotlinx.coroutines.runBlocking
 import timber.log.Timber
 import java.util.Base64
 
-/**
- * 图像缓存测试工具类，用于验证双重哈希缓存机制
- */
+/** * imagecachetesttoolclass，forverificationdualhashcachemechanism*/
 class ImageCacheTest {
     
     companion object {
         private const val TAG = "ImageCacheTest"
         
-        /**
-         * 测试双重哈希缓存机制
-         * 模拟不同客户端对同一图像的不同Base64编码方式
-         */
+        /** * testdualhashcachemechanism * simulatedifferentclienttosameimagedifferentBase64encodingmethod*/
         fun testDualHashCache(context: Context) {
             val processor = MnnImageProcessor.getInstance(context)
             
-            // 模拟一个简单的图像数据（1x1像素的红色PNG）
+            //simulate onesimpleimage data (1x1 pixelred PNG)
             val originalImageBytes = byteArrayOf(
                 0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,  // PNG signature
                 0x00, 0x00, 0x00, 0x0D,  // IHDR chunk length
@@ -39,7 +34,7 @@ class ImageCacheTest {
                 0xAE.toByte(), 0x42, 0x60, 0x82.toByte()   // CRC
             )
             
-            // 生成不同的Base64编码（模拟不同客户端的编码差异）
+            //generatedifferentBase64encoding（simulatedifferentclientencodingdifferences）
             val base64Version1 = Base64.getEncoder().encodeToString(originalImageBytes)
             val base64Version2 = Base64.getEncoder().withoutPadding().encodeToString(originalImageBytes)
             val base64Version3 = Base64.getMimeEncoder().encodeToString(originalImageBytes)
@@ -51,7 +46,7 @@ class ImageCacheTest {
             logInfo("Base64版本3长度: ${base64Version3.length}")
             
             runBlocking {
-                // 第一次处理 - 应该创建新缓存
+                //first timeprocess - shouldcreatenewcache
                 logInfo("\n=== 第一次处理（版本1）===")
                 val startTime1 = System.currentTimeMillis()
                 val result1 = processor.processImageUrl("data:image/png;base64,$base64Version1")
@@ -60,7 +55,7 @@ class ImageCacheTest {
                 logInfo("耗时1: ${time1}ms")
                 logInfo(processor.getCacheStats())
                 
-                // 第二次处理相同内容但不同编码 - 应该命中内容哈希缓存
+                //second timeprocesssamecontentbutdifferentencoding - shouldhitcontenthashcache
                 logInfo("\n=== 第二次处理（版本2，相同内容不同编码）===")
                 val startTime2 = System.currentTimeMillis()
                 val result2 = processor.processImageUrl("data:image/png;base64,$base64Version2")
@@ -70,7 +65,7 @@ class ImageCacheTest {
                 logInfo("是否复用文件: ${result1 == result2}")
                 logInfo(processor.getCacheStats())
                 
-                // 第三次处理 - 应该命中字符串哈希缓存
+                //third timeprocess - shouldhitstringhashcache
                 logInfo("\n=== 第三次处理（版本1重复）===")
                 val startTime3 = System.currentTimeMillis()
                 val result3 = processor.processImageUrl("data:image/png;base64,$base64Version1")
@@ -80,7 +75,7 @@ class ImageCacheTest {
                 logInfo("是否复用文件: ${result1 == result3}")
                 logInfo(processor.getCacheStats())
                 
-                // 第四次处理版本3 - 应该命中内容哈希缓存
+                //fourth timeprocessversion3 - shouldhitcontenthashcache
                 logInfo("\n=== 第四次处理（版本3，MIME编码）===")
                 val startTime4 = System.currentTimeMillis()
                 val result4 = processor.processImageUrl("data:image/png;base64,$base64Version3")
@@ -90,7 +85,7 @@ class ImageCacheTest {
                 logInfo("是否复用文件: ${result1 == result4}")
                 logInfo(processor.getCacheStats())
                 
-                // 性能对比分析
+                //performancecomparisonanalysis
                 logInfo("\n=== 性能分析 ===")
                 logInfo("首次处理耗时: ${time1}ms（包含解码+保存）")
                 logInfo("字符串哈希命中耗时: ${time3}ms（应该<5ms）")
@@ -103,7 +98,7 @@ class ImageCacheTest {
                 logInfo("内容哈希加速比: ${String.format("%.2f", speedup2)}x, ${String.format("%.2f", speedup4)}x")
                 logInfo("字符串哈希加速比: ${String.format("%.2f", speedup3)}x")
                 
-                // 验证所有结果指向同一文件
+                //verificationallresultpoint tosamefile
                 val allSame = result1 == result2 && result2 == result3 && result3 == result4
                 logInfo("\n=== 缓存一致性验证 ===")
                 logInfo("所有处理结果指向同一文件: $allSame")
@@ -117,23 +112,22 @@ class ImageCacheTest {
         }
         
         /**
-         * 测试缓存清理功能
-         */
+         * testcachecleanupfunction*/
         fun testCacheCleanup(context: Context) {
             val processor = MnnImageProcessor.getInstance(context)
             
             logInfo("\n=== 缓存清理测试 ===")
             logInfo("清理前: ${processor.getCacheStats()}")
             
-            // 清理过期缓存（设置很短的过期时间来测试）
-            processor.cleanupCache(1) // 1ms过期时间，强制清理所有缓存
+            //cleanupexpiredcache（settingvery shortexpiredtimetotest）
+            processor.cleanupCache(1) //1msexpiredtime，forcecleanupallcache
             
             logInfo("清理后: ${processor.getCacheStats()}")
         }
         
         private fun logInfo(message: String) {
             Timber.tag(TAG).i(message)
-            println("[$TAG] $message") // 同时输出到控制台便于调试
+            println("[$TAG] $message") //simultaneouslyoutputtoconsolefordebug
         }
     }
 }

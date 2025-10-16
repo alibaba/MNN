@@ -72,7 +72,7 @@ class ApiNotificationManager(private val context: Context) {
         
         Timber.tag("ApiNotificationManager").i("Building notification - Config IP: $ipAddress, Port: $port, Text: $text")
         
-        // 创建停止服务的 PendingIntent
+        //createstopservice PendingIntent
         val stopIntent = Intent(ApiServiceActionReceiver.ACTION_STOP_SERVICE).apply {
             `package` = context.packageName
         }
@@ -86,7 +86,7 @@ class ApiNotificationManager(private val context: Context) {
         )
         Timber.tag("ApiNotificationManager").i("Stop PendingIntent created: $stopPendingIntent")
         
-        // 创建复制 URL 的 PendingIntent
+        //createcopy URL PendingIntent
         val copyIntent = Intent(ApiServiceActionReceiver.ACTION_COPY_URL).apply {
             `package` = context.packageName
             putExtra(ApiServiceActionReceiver.EXTRA_URL, url)
@@ -101,7 +101,7 @@ class ApiNotificationManager(private val context: Context) {
         )
         Timber.tag("ApiNotificationManager").i("Copy PendingIntent created: $copyPendingIntent")
         
-        // 创建打开测试页面的 PendingIntent
+        //createopentestpage PendingIntent
         val testIntent = Intent(ApiServiceActionReceiver.ACTION_TEST_PAGE).apply {
             `package` = context.packageName
             putExtra(ApiServiceActionReceiver.EXTRA_URL, url)
@@ -116,7 +116,7 @@ class ApiNotificationManager(private val context: Context) {
         )
         Timber.tag("ApiNotificationManager").i("Test PendingIntent created: $testPendingIntent")
         
-        // 创建点击通知时打开主Activity的PendingIntent
+        //createclicknotificationwhenopen mainActivityPendingIntent
         val mainActivityIntent = Intent(context, com.alibaba.mnnllm.android.main.MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }

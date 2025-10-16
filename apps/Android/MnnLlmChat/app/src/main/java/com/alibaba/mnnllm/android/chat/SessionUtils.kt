@@ -14,6 +14,9 @@ object SessionUtils {
         if (userData.imageUri != null) {
             sessionName = "[Image] $sessionName"
         }
+        if (userData.videoUri != null) {
+            sessionName = "[Video] $sessionName"
+        }
         return if (sessionName!!.length > 100) sessionName.substring(0, 100) else sessionName
     }
 }

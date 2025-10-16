@@ -1,0 +1,111 @@
+// File splitting task for large assets
+task splitLargeAssets {
+    group = 'build'
+    description = 'Split large files in assets into smaller chunks'
+    
+    // Only run if ADD_BUILTIN property is set to true
+    def addBuiltinEnabled = project.hasProperty('ADD_BUILTIN') && project.property('ADD_BUILTIN') == 'true'
+    
+    // Only run if there are large files that need splitting
+    def needsSplitting = false
+    def assetsDir = file('src/main/assets/builtin_models')
+    def maxSize = 512 * 1024 * 1024L // 512MB
+    
+    if (addBuiltinEnabled && assetsDir.exists()) {
+        assetsDir.listFiles().each { modelDir ->
+            if (modelDir.isDirectory()) {
+                modelDir.listFiles().each { file ->
+                    if (file.isFile() && file.length() > maxSize) {
+                        needsSplitting = true
+                    }
+                }
+            }
+        }
+    }
+    
+    onlyIf { addBuiltinEnabled && needsSplitting }
+    
+    doLast {
+        if (!addBuiltinEnabled) {
+            println "ADD_BUILTIN property not set to true, skipping asset splitting"
+            return
+        }
+        
+        if (!assetsDir.exists()) {
+            println "Assets directory does not exist: ${assetsDir.absolutePath}"
+            return
+        }
+        
+        assetsDir.listFiles().each { modelDir ->
+            if (modelDir.isDirectory()) {
+                println "Processing model directory: ${modelDir.name}"
+                
+                modelDir.listFiles().each { file ->
+                    if (file.isFile() && file.length() > maxSize) {
+                        println "Large file detected: ${file.name} (${file.length()} bytes)"
+                        
+                        def chunks = []
+                        def chunkSize = maxSize
+                        def totalChunks = ((file.length() + chunkSize - 1) / chunkSize).intValue()
+                        
+                        file.withInputStream { inputStream ->
+                            def buffer = new byte[chunkSize]
+                            
+                            for (int i = 0; i < totalChunks; i++) {
+                                def chunkFileName = "${file.name}.part${i + 1}"
+                                def chunkFile = new File(modelDir, chunkFileName)
+                                
+                                def bytesRead = inputStream.read(buffer)
+                                if (bytesRead == -1) break
+                                
+                                chunkFile.withOutputStream { outputStream ->
+                                    outputStream.write(buffer, 0, bytesRead)
+                                }
+                                
+                                chunks.add([
+                                    chunkIndex: i + 1,
+                                    chunkFileName: chunkFileName,
+                                    chunkSize: bytesRead
+                                ])
+                                
+                                println "Created chunk: ${chunkFileName} (${bytesRead} bytes)"
+                            }
+                        }
+                        
+                        // Create split info
+                        def splitInfo = [
+                            originalFileName: file.name,
+                            originalFileSize: file.length(),
+                            chunkSize: chunkSize,
+                            totalChunks: totalChunks,
+                            chunks: chunks
+                        ]
+                        
+                        def splitInfoFile = new File(modelDir, 'splits_info.json')
+                        def jsonBuilder = new groovy.json.JsonBuilder(splitInfo)
+                        splitInfoFile.text = jsonBuilder.toPrettyString()
+                        
+                        println "Split info saved to: ${splitInfoFile.absolutePath}"
+                        
+                        // Delete original file
+                        file.delete()
+                        println "Original file deleted: ${file.name}"
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Run split task before compress assets (only when ADD_BUILTIN=true)
+// Enable automatic splitting for large model files
+tasks.whenTaskAdded { task ->
+    if (task.name == 'compressStandardDebugAssets' || task.name == 'compressGoogleplayDebugAssets') {
+        def addBuiltinEnabled = project.hasProperty('ADD_BUILTIN') && project.property('ADD_BUILTIN') == 'true'
+        if (addBuiltinEnabled) {
+            task.dependsOn splitLargeAssets
+        }
+    }
+}
+
+// Dependency will be set in build.gradle after tasks are defined

@@ -3,8 +3,8 @@ package com.alibaba.mnnllm.android.modelmarket
 import com.alibaba.mnnllm.android.utils.DeviceUtils
 
 data class Tag(
-    val ch: String,   // 中文显示
-    val key: String   // 英文键值，用于过滤和记忆
+    val ch: String,   //Chinese display
+    val key: String   //English key for filtering and memory
 ) {
     fun getDisplayText(): String {
         return try {

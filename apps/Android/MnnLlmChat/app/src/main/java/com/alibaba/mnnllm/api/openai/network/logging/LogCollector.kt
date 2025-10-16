@@ -7,10 +7,7 @@ import timber.log.Timber
 import java.text.SimpleDateFormat
 import java.util.*
 
-/**
- * 日志收集器
- * 用于收集Timber日志并提供给UI显示
- */
+/** * logcollector * forcollectTimberlogandprovide toUIdisplay*/
 class LogCollector private constructor() {
     
     companion object {
@@ -25,12 +22,11 @@ class LogCollector private constructor() {
     }
     
     private val dateFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
-    private val _logFlow = MutableSharedFlow<LogEntry>(replay = 100) // 保留最近100条日志
+    private val _logFlow = MutableSharedFlow<LogEntry>(replay = 100) //preserve recent100 log entries
     val logFlow: SharedFlow<LogEntry> = _logFlow.asSharedFlow()
     
     /**
-     * 日志条目数据类
-     */
+     * logentrydataclass*/
     data class LogEntry(
         val timestamp: String,
         val level: LogLevel,
@@ -42,16 +38,12 @@ class LogCollector private constructor() {
         val methodName: String? = null
     )
     
-    /**
-     * 日志级别枚举
-     */
+    /** * loglevelenum*/
     enum class LogLevel {
         VERBOSE, DEBUG, INFO, WARN, ERROR
     }
     
-    /**
-     * 自定义Timber Tree，用于拦截日志并发送到Flow
-     */
+    /** * customTimber Tree，forinterceptlogandsendtoFlow*/
     inner class CollectorTree : Timber.Tree() {
         override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
             val level = when (priority) {
@@ -63,7 +55,7 @@ class LogCollector private constructor() {
                 else -> LogLevel.DEBUG
             }
             
-            // 获取调用栈信息
+            //getcallstackinfo
             val stackTrace = Thread.currentThread().stackTrace
             val callerInfo = findCallerInfo(stackTrace)
             
@@ -78,22 +70,20 @@ class LogCollector private constructor() {
                 methodName = callerInfo?.methodName
             )
             
-            // 只收集API相关的日志
+            //onlycollectAPIrelatedlog
             if (isApiRelatedLog(tag, message)) {
                 _logFlow.tryEmit(logEntry)
             }
         }
         
-        /**
-         * 查找调用者信息
-         */
+        /** * findcallerinfo*/
         private fun findCallerInfo(stackTrace: Array<StackTraceElement>): CallerInfo? {
-            // 跳过Timber和LogCollector相关的栈帧
+            //skipTimberandLogCollectorrelatedstackframe
             for (i in stackTrace.indices) {
                 val element = stackTrace[i]
                 val className = element.className
                 
-                // 跳过系统类、Timber类和LogCollector类
+                //skipsystemclass、TimberclassandLogCollectorclass
                 if (!className.startsWith("timber.log") &&
                     !className.startsWith("com.alibaba.mnnllm.api.openai.network.logging") &&
                     !className.startsWith("java.lang") &&
@@ -112,9 +102,7 @@ class LogCollector private constructor() {
         }
     }
     
-    /**
-     * 调用者信息数据类
-     */
+    /** * callerinfodataclass*/
     data class CallerInfo(
         val fileName: String,
         val lineNumber: Int,
@@ -122,9 +110,7 @@ class LogCollector private constructor() {
         val className: String
     )
     
-    /**
-     * 判断是否为API相关日志
-     */
+    /** * determinewhether as API-relatedlog*/
     private fun isApiRelatedLog(tag: String?, message: String): Boolean {
         if (tag == null) return false
         
@@ -135,17 +121,13 @@ class LogCollector private constructor() {
                message.contains("API", ignoreCase = true)
     }
     
-    /**
-     * 初始化日志收集器
-     */
+    /** * initializelogcollector*/
     fun initialize() {
-        // 添加自定义Tree到Timber
+        //addcustomTreetoTimber
         Timber.plant(CollectorTree())
     }
     
-    /**
-     * 手动添加日志条目
-     */
+    /** * manuallyaddlogentry*/
     fun addLog(level: LogLevel, tag: String, message: String, throwable: Throwable? = null) {
         val logEntry = LogEntry(
             timestamp = dateFormat.format(Date()),
@@ -157,9 +139,7 @@ class LogCollector private constructor() {
         _logFlow.tryEmit(logEntry)
     }
     
-    /**
-     * 格式化日志条目为字符串
-     */
+    /** * formatlogentryasstring*/
     fun formatLogEntry(entry: LogEntry): String {
         val levelChar = when (entry.level) {
             LogLevel.VERBOSE -> "V"
@@ -177,9 +157,7 @@ class LogCollector private constructor() {
                if (entry.throwable != null) "\n${entry.throwable}" else ""
     }
     
-    /**
-     * 格式化日志条目为带有点击信息的字符串
-     */
+    /** * formatlog entryas withclickinfostring*/
     fun formatLogEntryWithClickableInfo(entry: LogEntry): Pair<String, String?> {
         val formattedLog = formatLogEntry(entry)
         val clickableInfo = if (entry.fileName != null && entry.lineNumber != null) {

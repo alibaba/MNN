@@ -21,11 +21,11 @@ import io.ktor.server.auth.bearer
 fun Application.configureHTTP(context: Context) {
     install(DoubleReceive)
 
-    // 根据配置决定是否启用CORS
+    //according toconfigdecidewhetherenableCORS
     if (ApiServerConfig.isCorsEnabled(context)) {
         install(CORS) {
             val corsOrigins = ApiServerConfig.getCorsOrigins(context)
-            // 解析CORS来源配置
+            //parseCORSsourceconfig
             if (corsOrigins.isNotEmpty()) {
                 corsOrigins.split(",").forEach { origin ->
                     val trimmedOrigin = origin.trim()
@@ -34,13 +34,13 @@ fun Application.configureHTTP(context: Context) {
                     }
                 }
             } else {
-                // 如果没有配置具体来源，允许所有主机
+                //if not availableconfigspecificsource，allowallhosts
                 anyHost()
                 allowMethod(HttpMethod.Post)
                 allowMethod(HttpMethod.Get)
                 allowHeader(HttpHeaders.Authorization)
                 allowHeader(HttpHeaders.ContentType)
-                allowHeader("x-api-key") // 显式允许 x-api-key
+                allowHeader("x-api-key") //explicitlyallow x-api-key
                 allowCredentials = true
             }
         }
@@ -58,12 +58,12 @@ fun Application.configureHTTP(context: Context) {
 
     }
 
-    // 根据配置决定是否启用认证
+    //according toconfigdecidewhetherenableauthentication
     install(Authentication) {
         bearer("auth-bearer") {
             realm = "Access to the '/' path"
             skipWhen {
-                // 当认证未启用时，跳过认证逻辑
+                //when authenticationnotenabledwhen,skipauthenticationlogic
                 !ApiServerConfig.isAuthEnabled(context)
             }
             authenticate { tokenCredential ->

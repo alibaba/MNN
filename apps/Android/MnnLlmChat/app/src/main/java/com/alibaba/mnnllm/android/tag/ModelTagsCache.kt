@@ -5,6 +5,7 @@ package com.alibaba.mnnllm.android.tag
 
 import android.content.Context
 import android.util.Log
+import com.alibaba.mnnllm.android.modelist.ModelListManager
 import com.alibaba.mnnllm.android.modelmarket.ModelRepository
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig
 import com.google.gson.Gson
@@ -22,8 +23,7 @@ object ModelTagsCache {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val gson = Gson()
     
-    // In-memory cache for quick access
-    private var memoryCache: Map<String, List<String>> = emptyMap()
+    // In-memory cache for tag translations only
     private var tagTranslationsCache: Map<String, String> = emptyMap()
     private var cacheInitialized = false
     
@@ -35,7 +35,7 @@ object ModelTagsCache {
     )
 
     /**
-     * Initialize the cache by loading model market data
+     * Initialize the cache by loading tag translations only (model tags come from ModelListManager)
      */
     fun initializeCache(context: Context) {
         if (cacheInitialized) return
@@ -47,22 +47,21 @@ object ModelTagsCache {
                 
                 // Check if we need to refresh cache
                 if (cacheData == null || cacheData.version != CURRENT_CACHE_VERSION) {
-                    Log.d(TAG, "Cache version mismatch or not found, refreshing cache")
-                    refreshCacheFromAssets(context)
+                    Log.d(TAG, "Cache version mismatch or not found, refreshing tag translations")
+                    refreshTagTranslationsFromAssets(context)
                 } else {
-                    // Load from file
-                    memoryCache = cacheData.tags
+                    // Load tag translations from file
                     tagTranslationsCache = cacheData.tagTranslations
                     
-                    // If memory cache is empty, refresh from assets
-                    if (memoryCache.isEmpty()) {
-                        Log.d(TAG, "Memory cache is empty, refreshing from assets")
-                        refreshCacheFromAssets(context)
+                    // If tag translations cache is empty, refresh from assets
+                    if (tagTranslationsCache.isEmpty()) {
+                        Log.d(TAG, "Tag translations cache is empty, refreshing from assets")
+                        refreshTagTranslationsFromAssets(context)
                     }
                 }
                 
                 cacheInitialized = true
-                Log.d(TAG, "Cache initialized with ${memoryCache.size} entries")
+                Log.d(TAG, "Cache initialized with ${tagTranslationsCache.size} tag translations")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to initialize cache", e)
                 cacheInitialized = true // Prevent infinite retry
@@ -71,25 +70,11 @@ object ModelTagsCache {
     }
 
     /**
-     * Get tags for a model by modelId
+     * Get tags for a model by modelId using ModelListManager as ground truth
      */
     fun getTagsForModel(context: Context, modelId: String): List<String> {
-        if (!cacheInitialized) {
-            initializeCache(context)
-        }
-        
-        // Extract model name from modelId for matching
-        val modelName = extractModelNameFromId(modelId)
-        
-        // Check memory cache first
-        val cachedTags = memoryCache[modelName]
-        if (cachedTags != null) {
-            Log.d(TAG, "Found cached tags for $modelName: $cachedTags")
-            return cachedTags
-        }
-        
-        Log.d(TAG, "No cached tags found for $modelName")
-        return emptyList()
+        // Use ModelListManager as the single source of truth
+        return ModelListManager.getModelTags(modelId)
     }
 
     /**
@@ -118,32 +103,25 @@ object ModelTagsCache {
     }
 
     /**
-     * Refresh cache from assets
+     * Refresh tag translations from assets
      */
-    private suspend fun refreshCacheFromAssets(context: Context) {
+    private suspend fun refreshTagTranslationsFromAssets(context: Context) {
         try {
             val repository = ModelRepository(context)
-            val models = repository.getModels()
             val modelMarketData = repository.getModelMarketData()
-            
-            val newCache = mutableMapOf<String, List<String>>()
-            models.forEach { model ->
-                newCache[model.modelName] = model.tags
-            }
             
             // Get tag translations from model market data
             val tagTranslations = modelMarketData?.tagTranslations ?: emptyMap()
             
-            // Update memory cache
-            memoryCache = newCache
+            // Update tag translations cache
             tagTranslationsCache = tagTranslations
             
-            // Save to file
-            saveCacheToFile(context, newCache, tagTranslations)
+            // Save to file (with empty tags map since we don't cache model tags anymore)
+            saveCacheToFile(context, emptyMap(), tagTranslations)
             
-            Log.d(TAG, "Cache refreshed with ${newCache.size} entries and ${tagTranslations.size} translations")
+            Log.d(TAG, "Tag translations refreshed with ${tagTranslations.size} translations")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to refresh cache from assets", e)
+            Log.e(TAG, "Failed to refresh tag translations from assets", e)
         }
     }
 
@@ -210,7 +188,6 @@ object ModelTagsCache {
      * Clear cache (for debugging or cache invalidation)
      */
     fun clearCache(context: Context) {
-        memoryCache = emptyMap()
         tagTranslationsCache = emptyMap()
         try {
             val cacheFile = getCacheFile(context)

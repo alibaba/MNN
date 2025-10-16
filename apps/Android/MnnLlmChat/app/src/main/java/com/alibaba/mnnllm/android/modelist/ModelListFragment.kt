@@ -21,6 +21,8 @@ import com.alibaba.mnnllm.android.model.Modality
 import com.alibaba.mnnllm.android.model.ModelVendors
 import com.alibaba.mnnllm.android.modelsettings.DropDownMenuHelper
 import com.alibaba.mnnllm.android.utils.Searchable
+import com.alibaba.mnnllm.android.utils.LargeModelConfirmationDialog
+import com.alibaba.mnnllm.android.modelist.ModelListManager
 
 class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
     
@@ -40,6 +42,7 @@ class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
     private val modelItemList: MutableList<ModelItemWrapper> = mutableListOf()
 
     private var modelListErrorText: TextView? = null
+    private var loadingMessageText: TextView? = null
 
     private var filterDownloaded = false
     private var filterQuery = ""
@@ -74,6 +77,7 @@ class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
         modelListErrorView = view.findViewById(R.id.model_list_failed_view)
         modelListEmptyView = view.findViewById(R.id.model_list_empty_view)
         modelListErrorText = modelListErrorView.findViewById(R.id.tv_error_text)
+        loadingMessageText = modelListLoadingView.findViewById(R.id.tv_loading_message)
         modelListErrorView.setOnClickListener {
             modelListPresenter!!.load()
         }
@@ -318,7 +322,34 @@ class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
         modelListRecyclerView.visibility = View.GONE
     }
 
+    override fun onBuiltinModelsCopyProgress(current: Int, total: Int, message: String) {
+        requireActivity().runOnUiThread {
+            loadingMessageText?.text = message
+        }
+    }
+
     override fun runModel(destPath:String?, modelId: String?) {
-        ChatRouter.startRun(requireContext(), modelId!!, destPath, null)
+        // Check if model is larger than 7GB before running
+        val modelItem = ModelListManager.getModelIdModelMap()[modelId]
+        val modelMarketItem = modelItem?.modelMarketItem
+        
+        if (modelMarketItem != null && modelMarketItem.sizeB > 10.0) {
+            // Show confirmation dialog for large models
+            LargeModelConfirmationDialog.show(
+                fragment = this,
+                modelName = modelMarketItem.modelName,
+                modelSize = modelMarketItem.sizeB,
+                onConfirm = {
+                    // User confirmed, proceed with running the model
+                    ChatRouter.startRun(requireContext(), modelId!!, destPath, null)
+                },
+                onCancel = {
+                    // User cancelled, do nothing
+                }
+            )
+        } else {
+            // Model is not large or size info not available, run directly
+            ChatRouter.startRun(requireContext(), modelId!!, destPath, null)
+        }
     }
 }

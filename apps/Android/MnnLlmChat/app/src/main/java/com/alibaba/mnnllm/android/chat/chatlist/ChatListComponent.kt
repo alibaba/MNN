@@ -15,7 +15,7 @@ import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.chat.ChatActivity.Companion.TAG
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.databinding.ActivityChatBinding
-import com.alibaba.mnnllm.android.model.ModelUtils
+import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
 import com.alibaba.mnnllm.android.widgets.ModelAvatarView
 import java.text.DateFormat
@@ -125,7 +125,7 @@ class ChatListComponent(private val context: Context,
     private fun updateEmptyViewContent() {
         modelName?.let { name ->
             emptyModelAvatarView.setModelName(name)
-            emptyMessageTextView.text = if (ModelUtils.isDiffusionModel(name))  {
+            emptyMessageTextView.text = if (ModelTypeUtils.isDiffusionModel(name))  {
                 context.getString(R.string.model_hello_prompt_diffusion)
             } else {
                 context.getString(R.string.model_hello_prompt)
@@ -211,7 +211,7 @@ class ChatListComponent(private val context: Context,
 
     private fun addResponsePlaceholder() {
         val holderItem = ChatDataItem(dateFormat.format(Date()), ChatViewHolders.ASSISTANT, "")
-        holderItem.hasOmniAudio = ModelUtils.isOmni(modelName!!)
+        holderItem.hasOmniAudio = ModelTypeUtils.isOmni(modelName!!)
         adapter.addItem(holderItem)
         smoothScrollToBottom()
     }

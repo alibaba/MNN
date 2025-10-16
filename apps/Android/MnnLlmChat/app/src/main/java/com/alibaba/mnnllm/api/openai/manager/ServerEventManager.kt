@@ -12,10 +12,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import timber.log.Timber
 
-/**
- * 服务器事件管理器
- * 使用Ktor的事件系统来管理服务器状态，提供响应式的状态更新
- */
+/** * serviceeventmanager * useKtoreventsystemto manageservicestate,providereactivestateupdate*/
 class ServerEventManager {
 
     private val _serverState = MutableStateFlow(ServerState.STOPPED)
@@ -24,9 +21,7 @@ class ServerEventManager {
     private val _serverInfo = MutableStateFlow(ServerInfo())
     val serverInfo: StateFlow<ServerInfo> = _serverInfo.asStateFlow()
 
-    /**
-     * 服务器状态枚举
-     */
+    /** * servicestateenum*/
     enum class ServerState {
         STARTING,
         STARTED,
@@ -36,9 +31,7 @@ class ServerEventManager {
         STOPPED
     }
 
-    /**
-     * 服务器信息数据类
-     */
+    /** * serviceinfodataclass*/
     data class ServerInfo(
         val host: String = "",
         val port: Int = 0,
@@ -46,37 +39,28 @@ class ServerEventManager {
         val startTime: Long = 0L
     )
 
-    /**
-     * 检查服务器是否正在运行
-     */
+    /** * checkservicewhethercurrentlyrunning*/
     fun isServerRunning(): Boolean {
         return _serverState.value in listOf(ServerState.STARTED, ServerState.READY)
     }
 
-    /**
-     * 检查服务器是否已就绪
-     */
+    /** * checkservicewhetheralreadyready*/
     fun isServerReady(): Boolean {
         return _serverState.value == ServerState.READY
     }
 
-    /**
-     * 获取当前服务器状态
-     */
+    /** * getcurrentservicestate*/
     fun getCurrentState(): ServerState {
         return _serverState.value
     }
 
-    /**
-     * 获取当前服务器信息
-     */
+    /** * getcurrentserviceinfo*/
     fun getCurrentInfo(): ServerInfo {
         return _serverInfo.value
     }
 
     /**
-     * 处理 ApplicationStarting 事件
-     */
+     * process ApplicationStarting event*/
     fun handleApplicationStarting(host: String = "", port: Int = 0) {
         Timber.Forest.tag("ServerEvent").i("Application starting...")
         _serverState.value = ServerState.STARTING
@@ -88,8 +72,7 @@ class ServerEventManager {
     }
 
     /**
-     * 处理 ApplicationStarted 事件
-     */
+     * process ApplicationStarted event*/
     fun handleApplicationStarted(host: String = "", port: Int = 0) {
         _serverState.value = ServerState.STARTED
         val currentInfo = _serverInfo.value
@@ -103,8 +86,7 @@ class ServerEventManager {
     }
 
     /**
-     * 处理 ServerReady 事件
-     */
+     * process ServerReady event*/
     fun handleServerReady(host: String = "", port: Int = 0) {
         _serverState.value = ServerState.READY
         val currentInfo = _serverInfo.value
@@ -117,16 +99,14 @@ class ServerEventManager {
     }
 
     /**
-     * 处理 ApplicationStopping 事件
-     */
+     * process ApplicationStopping event*/
     fun handleApplicationStopping() {
         Timber.Forest.tag("ServerEvent").i("Application stopping...")
         _serverState.value = ServerState.STOPPING
     }
 
     /**
-     * 处理 ApplicationStopped 事件
-     */
+     * process ApplicationStopped event*/
     fun handleApplicationStopped() {
         _serverState.value = ServerState.STOPPED
         val currentInfo = _serverInfo.value
@@ -137,10 +117,7 @@ class ServerEventManager {
         Timber.Forest.tag("ServerEvent").i("Application stopped")
     }
 
-    /**
-     * 重置服务器状态（用于重启服务时）
-     * 只重置运行状态和时间，保留host和port配置信息
-     */
+    /** * resetservicestate (forrestartservicewhen) * onlyresetrunningstateandtime,preservehostandportconfiginfo*/
     fun resetRuntimeState() {
         Timber.Forest.tag("ServerEvent").i("Resetting ServerEventManager runtime state for restart")
         _serverState.value = ServerState.STOPPED

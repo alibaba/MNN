@@ -44,6 +44,12 @@ class ModelListPresenter(private val context: Context, private val view: ModelLi
         view.onLoading()
         presenterScope.launch {
             try {
+                val copySuccess = BuiltinModelManager.ensureBuiltinModelsCopied(context) { current, total, message ->
+                    view.onBuiltinModelsCopyProgress(current, total, message)
+                }
+                if (!copySuccess) {
+                    Log.w(TAG, "Failed to copy builtin models, continuing with loading")
+                }
                 val modelWrappers = ModelListManager.loadAvailableModels(context).toMutableList()
                 val sortedWrappers = modelWrappers.sortedBy { it.hasUpdate }
                 launch {

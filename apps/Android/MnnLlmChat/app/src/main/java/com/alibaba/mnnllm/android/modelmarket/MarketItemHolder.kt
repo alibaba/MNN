@@ -17,6 +17,7 @@ import com.alibaba.mls.api.download.DownloadInfo
 import com.alibaba.mls.api.download.DownloadState
 import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.R
+import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.utils.DialogUtils
 import com.alibaba.mnnllm.android.utils.FileUtils
@@ -399,7 +400,7 @@ class MarketItemHolder(
 
     private fun handleSettingsMenu(modelMarketItem: ModelMarketItem) {
         val context = itemView.context
-        if (ModelUtils.isDiffusionModel(modelMarketItem.modelName ?: "")) {
+        if (ModelTypeUtils.isDiffusionModel(modelMarketItem.modelName ?: "")) {
             Toast.makeText(context, R.string.diffusion_model_not_alloed, Toast.LENGTH_SHORT).show()
             return
         }

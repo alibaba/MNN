@@ -21,6 +21,10 @@ object MmapUtils {
             val safeId = ModelUtils.safeModelId(modelId)
             return ApplicationProvider.get().filesDir.toString() + "/local_temps/" + safeId
         }
+        if (modelId.startsWith("Builtin/")) {
+            val safeId = ModelUtils.safeModelId(modelId)
+            return ApplicationProvider.get().filesDir.toString() + "/builtin_temps/" + safeId
+        }
 
         var newModelId = modelId
         val isModelScope = modelId.startsWith(ModelSources.sourceModelScope)

@@ -13,10 +13,7 @@ import io.ktor.server.response.respond
 import kotlinx.coroutines.runBlocking
 import timber.log.Timber
 
-/**
- * MNN 模型服务
- * 负责处理模型相关的业务逻辑
- */
+/** * MNN modelservice * responsible forprocessmodelrelatedbusinesslogic*/
 class MNNModelsService {
     private val logger = ChatLogger()
 
@@ -37,7 +34,7 @@ class MNNModelsService {
                 ModelListManager.loadAvailableModels(context)
             }
             
-            // 只返回当前正在使用的模型
+            //onlyreturncurrentcurrentlyusemodel
             val currentModelWrapper = availableModels.find { 
                 it.modelItem.modelId == currentModelId 
             }
@@ -54,7 +51,7 @@ class MNNModelsService {
                     )
                 ))
             } else {
-                // 如果找不到当前模型，返回一个默认的模型数据
+                //ifcannot findcurrentmodel，returnonedefaultmodeldata
                 listOf(ModelData(
                     id = currentModelId,
                     created = System.currentTimeMillis() / 1000,

@@ -15,6 +15,7 @@ import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mls.api.download.DownloadInfo
 import com.alibaba.mls.api.download.DownloadState
 import com.alibaba.mnnllm.android.R
+import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.modelsettings.SettingsBottomSheetFragment
 import com.alibaba.mnnllm.android.utils.DialogUtils
@@ -288,7 +289,7 @@ class ModelItemHolder(
             } else if (item.itemId == R.id.menu_settings) {
                 val context = v.context
                 val modelId = modelItem.modelId
-                if (ModelUtils.isDiffusionModel(modelId!!)) {
+                if (ModelTypeUtils.isDiffusionModel(modelId!!)) {
                     Toast.makeText(context, R.string.diffusion_model_not_alloed, Toast.LENGTH_SHORT).show()
                     return@setOnMenuItemClickListener true
                 }

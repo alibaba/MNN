@@ -10,36 +10,26 @@ import PreprocessedVideoContent
 import TextContent
 import android.util.Pair
 import com.alibaba.mnnllm.android.llm.LlmSession
-import com.alibaba.mnnllm.android.model.ModelUtils
+import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.api.openai.network.processors.MnnImageProcessor
 import timber.log.Timber
 import kotlin.collections.get
 
-/**
- * 消息转换器
- * 负责将OpenAI格式的消息转换为MNN LLM所需的统一格式
- * 支持系统提示词合并、图片筛选等功能
- */
+/** * message will * responsible forwill OpenAI formatmessage willas MNN LLMrequiredunified format * supportsystem promptmerge,imagefiltering etc.functionality*/
 class MessageTransformer {
 
     companion object {
         private const val IMG_TAG_REGEX = "<img>.*?</img>"
     }
 
-    /**
-     * 将OpenAI格式的消息转换为MNN LLM所需的统一格式
-     * @param messages OpenAI格式的消息列表
-     * @param imageProcessor 图片处理器
-     * @param llmSession LLM会话实例
-     * @return 统一的历史消息列表（第一条为系统提示词，后续为角色对话）
-     */
+    /** * will OpenAI formatmessage willas MNN LLMrequiredunified format * @param messages OpenAIformatmessagelist * @param imageProcessor imageprocessor * @param llmSession LLM sessioninstance * @return unifiedhistory messagelist (firstas system prompt,subsequentas roledialogue)*/
     suspend fun convertToUnifiedMnnHistory(
         messages: List<OpenAIGenericMessage>,
         imageProcessor: MnnImageProcessor,
         llmSession: LlmSession
     ): List<Pair<String, String>> {
         val unifiedHistory = mutableListOf<Pair<String, String>>()
-        val isR1Model = ModelUtils.isR1Model(llmSession.modelId())
+        val isR1Model = ModelTypeUtils.isR1Model(llmSession.modelId())
 
         val systemPromptPair = extractSystemPrompt(messages, imageProcessor, isR1Model)
         val systemPrompt = systemPromptPair.first
@@ -59,7 +49,7 @@ class MessageTransformer {
         return unifiedHistory
     }
 
-    // 提取系统提示词及剩余消息
+    // extract system prompt and remaining messages
     private suspend fun extractSystemPrompt(
         messages: List<OpenAIGenericMessage>,
         imageProcessor: MnnImageProcessor,
@@ -79,7 +69,7 @@ class MessageTransformer {
         return Pair(systemPrompt, dialogMessages)
     }
 
-    // 构建最终的系统提示词
+        // build final system prompt
     private fun buildFinalSystemPrompt(
         sessionPrompt: String?,
         rawSystemPrompt: String,
@@ -93,7 +83,7 @@ class MessageTransformer {
         }
     }
 
-    // 处理并添加对话历史到结果中
+    //processandadddialoguehistorytoresultin
     private suspend fun addDialogMessagesToHistory(
         messages: List<OpenAIGenericMessage>,
         imageProcessor: MnnImageProcessor,
@@ -125,9 +115,7 @@ class MessageTransformer {
         }
     }
 
-    /**
-     * 处理单条消息的内容，支持文本和多模态内容
-     */
+    /** * processsinglemessagecontent，supporttextandmultimodalcontent*/
     private suspend fun processMessageContent(
         message: OpenAIGenericMessage,
         imageProcessor: MnnImageProcessor
@@ -141,7 +129,7 @@ class MessageTransformer {
         } ?: ""
     }
 
-    // 处理多模态内容（文本 + 图像 + 音频等）
+    //processmultimodalcontent（text + image + audioetc.）
     private suspend fun processMultiModalContent(
         content: MultiModalContent,
         imageProcessor: MnnImageProcessor
@@ -182,7 +170,7 @@ class MessageTransformer {
         }
     }
 
-    // 兼容旧版 List<Map<String, Any?>> 格式处理
+        // compatible with old version List<Map<String, Any?>> format processing
     private suspend fun processLegacyListContent(
         content: List<*>,
         imageProcessor: MnnImageProcessor
@@ -206,7 +194,7 @@ class MessageTransformer {
         }.joinToString("")
     }
 
-    // 图片处理：下载/缓存/路径提取
+        // image processing: download/cache/path extraction
     private suspend fun processImage(url: String, imageProcessor: MnnImageProcessor): String? {
         return try {
             val localPath = imageProcessor.processImageUrl(url)
@@ -217,11 +205,7 @@ class MessageTransformer {
         }
     }
 
-    /**
-     * 找到最后一条包含图片的消息索引
-     * @param messages OpenAI格式的消息列表
-     * @return 最后一条包含图片的消息索引，如果没有则返回-1
-     */
+    /** * findlastcontainingimagemessageindex * @param messages OpenAIformatmessagelist * @return lastcontainingimagemessageindex，if not availablethenreturn-1*/
     private fun findLastImageMessageIndex(messages: List<OpenAIGenericMessage>): Int {
         for (i in messages.indices.reversed()) {
             val content = messages[i].content

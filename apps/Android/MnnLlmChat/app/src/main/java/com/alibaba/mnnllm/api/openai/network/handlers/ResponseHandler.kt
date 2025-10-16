@@ -17,16 +17,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlin.time.Duration.Companion.seconds
 
-/**
- * 响应处理器
- * 负责处理流式和非流式响应的生成和发送
- * 
- * 主要功能：
- * - 流式响应处理（SSE）
- * - 非流式响应处理
- * - 统一的错误处理和日志记录
- * - LLM会话管理
- */
+/** * response processoror * responsible for processingstreamingand non-streaming responsegenerateand sending * * mainfunctionality： * - streaming response processor（SSE） * - non-streaming response processor * - unifiederrorprocessand logrecording * - LLM sessionmanaging*/
 class ResponseHandler {
     
     private val chatResponseFormatter = ChatResponseFormatter()
@@ -41,13 +32,7 @@ class ResponseHandler {
         private const val COMPLETION_OBJECT = "chat.completion"
     }
 
-    /**
-     * 处理带历史消息的流式响应
-     * 
-     * @param call Ktor应用调用上下文
-     * @param history 历史消息列表
-     * @param traceId 追踪ID
-     */
+    /** * processwithhistorymessagestreamingresponse * * @param call Ktorapplicationcallcontext * @param history historymessagelist * @param traceId traceID*/
     suspend fun handleStreamResponseWithFullHistory(
         call: ApplicationCall,
         history: List<android.util.Pair<String, String>>,
@@ -57,7 +42,7 @@ class ResponseHandler {
         var isFinished = false
 
         call.respond(SSEServerContent(call) {
-            // 设置心跳
+            //set heartbeenat
             heartbeat {
                 period = HEARTBEAT_PERIOD_SECONDS.seconds
                 event = ServerSentEvent(comments = "keep-alive")
@@ -67,13 +52,13 @@ class ResponseHandler {
                 try {
                     val llmSession = getLlmSession()
                     if (llmSession != null) {
-                        // 处理流式生成
+                        //processstreaminggenerate
                         val result = llmSession.submitFullHistory(history, object : GenerateProgressListener {
                             override fun onProgress(progress: String?): Boolean {
                                 return try {
                                     when {
                                         progress != null -> {
-                                            // 发送进度token
+                                            //sendprogresstoken
                                             logger.logStreamDelta(traceId, progress)
                                             val json = chatResponseFormatter.createDeltaResponse(
                                                 responseMetadata.responseId,
@@ -84,18 +69,18 @@ class ResponseHandler {
                                             runBlocking {
                                                 send(ServerSentEvent(data = json))
                                             }
-                                            false // 继续生成
+                                            false //continuegenerate
                                         }
                                         else -> {
-                                            // 生成完成，但不在这里发送完成信号
-                                            // 完成信号将在submitFullHistory返回后发送
+                                            //generatecomplete，butnotatheresendcompletesignal
+                                            //completion signalwillat submitFullHistoryreturn then send
                                             isFinished = true
                                             logger.logStreamEnd(traceId)
                                             false
                                         }
                                     }
                                 } catch (e: Exception) {
-                                    // 检查是否为连接关闭异常
+                                    //checkwhetherasconnectcloseexception
                                     val isConnectionClosed = e is io.ktor.utils.io.ClosedWriteChannelException ||
                                             e.cause is io.ktor.utils.io.ClosedWriteChannelException ||
                                             e.cause is io.ktor.util.cio.ChannelWriteException ||
@@ -107,12 +92,12 @@ class ResponseHandler {
                                     } else {
                                         logger.logError(traceId, e, "发送SSE事件时出错")
                                     }
-                                    true // 取消生成
+                                    true //cancelgenerate
                                 }
                             }
                         })
                         
-                        // 生成完成后发送最终chunk（包含usage统计信息）
+                        //generation completethen sendfinalchunk (containingusagestatisticsinfo)
                         if (isFinished) {
                             try {
                                 val usage = chatResponseFormatter.createUsageFromMetrics(result)
@@ -125,7 +110,7 @@ class ResponseHandler {
                                 )
                                 send(ServerSentEvent(data = finalJson))
                                 
-                                // 发送[DONE]标记
+                                //send[DONE]marker
                                 delay(DONE_DELAY_MS)
                                 try {
                                     send(ServerSentEvent(data = "[DONE]"))
@@ -133,7 +118,7 @@ class ResponseHandler {
                                     logger.logWarning(traceId, "连接已关闭，无法发送[DONE]标记", e)
                                 }
                             } catch (e: Exception) {
-                                // 检查是否为连接关闭异常
+                                //checkwhetherasconnectcloseexception
                                 val isConnectionClosed = e is io.ktor.utils.io.ClosedWriteChannelException ||
                                         e.cause is io.ktor.utils.io.ClosedWriteChannelException ||
                                         e.cause is io.ktor.util.cio.ChannelWriteException ||
@@ -150,7 +135,7 @@ class ResponseHandler {
                         }
                         logger.logInferenceComplete(traceId)
                     } else {
-                        // 处理LLM会话错误
+                        //processLLMsessionerror
                         logger.logLlmSessionError(traceId)
                         val errorJson = chatResponseFormatter.createDeltaResponse(
                             responseMetadata.responseId,
@@ -162,7 +147,7 @@ class ResponseHandler {
                         close()
                     }
                 } catch (e: Exception) {
-                    // 检查是否为连接关闭异常
+                    //checkwhetherasconnectcloseexception
                     val isConnectionClosed = e is io.ktor.utils.io.ClosedWriteChannelException ||
                             e.cause is io.ktor.utils.io.ClosedWriteChannelException ||
                             e.cause is io.ktor.util.cio.ChannelWriteException ||
@@ -192,7 +177,7 @@ class ResponseHandler {
                                 logger.logWarning(traceId, "连接已关闭，无法发送[DONE]标记", doneException)
                             }
                         } catch (closeException: Exception) {
-                            // 检查是否为连接关闭异常
+                            //checkwhetherasconnectcloseexception
                             val isCloseConnectionClosed = closeException is io.ktor.utils.io.ClosedWriteChannelException ||
                                     closeException.cause is io.ktor.utils.io.ClosedWriteChannelException ||
                                     closeException.cause is io.ktor.util.cio.ChannelWriteException ||
@@ -212,12 +197,7 @@ class ResponseHandler {
         })
     }
 
-    /**
-     * 处理带历史消息的非流式响应
-     * 
-     * @param call Ktor应用调用上下文
-     * @param history 历史消息列表
-     */
+    /** * processwithhistorymessagenon-streamingresponse * * @param call Ktorapplicationcallcontext * @param history historymessagelist*/
     suspend fun handleNonStreamResponseWithFullHistory(
         call: ApplicationCall,
         history: List<android.util.Pair<String, String>>
@@ -238,26 +218,22 @@ class ResponseHandler {
         }
 
         val response = createNonStreamResponse(responseMetadata, fullResponse.toString(), result)
-        // 设置正确的Content-Type为application/json
+        //set correctContent-Typeas application/json
         call.response.headers.append("Content-Type", "application/json")
         call.respondText(response, io.ktor.http.ContentType.Application.Json)
     }
     
     // ========================
-    // 私有辅助方法
+    //private helpermethod
     // ========================
     
-    /**
-     * 响应元数据
-     */
+    /** * response metadata*/
     private data class ResponseMetadata(
         val responseId: String,
         val created: Long
     )
     
-    /**
-     * 创建响应元数据
-     */
+    /** * createresponse metadata*/
     private fun createResponseMetadata(): ResponseMetadata {
         val timestamp = System.currentTimeMillis()
         return ResponseMetadata(
@@ -267,17 +243,14 @@ class ResponseHandler {
     }
     
     /**
-     * 获取LLM会话
-     */
+     * getLLMsession*/
     private fun getLlmSession(): LlmSession? {
         return chatSessionProvider.getLlmSession()
     }
     
 
     
-    /**
-     * 处理非流式生成
-     */
+    /** * processnon-streaminggenerate*/
     private fun processNonStreamGeneration(
         llmSession: LlmSession,
         history: List<android.util.Pair<String, String>>,
@@ -286,14 +259,12 @@ class ResponseHandler {
         return llmSession.submitFullHistory(history, object : GenerateProgressListener {
             override fun onProgress(progress: String?): Boolean {
                 progress?.let { fullResponse.append(it) }
-                return false // 继续生成
+                return false //continuegenerate
             }
         })
     }
     
-    /**
-     * 创建非流式响应
-     */
+    /** * createnon-streamingresponse*/
     private fun createNonStreamResponse(
         responseMetadata: ResponseMetadata,
         content: String,

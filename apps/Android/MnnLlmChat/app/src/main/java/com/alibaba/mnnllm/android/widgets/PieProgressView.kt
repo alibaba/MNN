@@ -19,14 +19,14 @@ class ProgressPieView @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : View(context, attrs, defStyleAttr) {
 
-    // 画扇形的画笔
+    //Paint for drawing sectors
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    // 画外部圆环的画笔
+    //Paint for drawing outer ring
     private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
     private val rectF = RectF()
 
-    // 属性
+    //Properties
     private var progress = 0f
     private var startAngle = -90f
 
@@ -40,11 +40,11 @@ class ProgressPieView @JvmOverloads constructor(
 
         val fillColor = typedArray.getColor(
             R.styleable.ProgressPieView_pie_fillColor,
-            Color.BLACK // 备用颜色
+            Color.BLACK //Fallback color
         )
         val ringColor = typedArray.getColor(
             R.styleable.ProgressPieView_pie_ringColor,
-            Color.BLACK // 备用颜色
+            Color.BLACK //Fallback color
         )
         val ringWidth = typedArray.getDimension(
             R.styleable.ProgressPieView_pie_ringWidth,
@@ -55,11 +55,11 @@ class ProgressPieView @JvmOverloads constructor(
         startAngle = typedArray.getFloat(R.styleable.ProgressPieView_pie_startAngle, startAngle)
         typedArray.recycle()
 
-        // 配置画扇形的画笔
+        //Configure paint for drawing sectors
         fillPaint.style = Paint.Style.FILL
         fillPaint.color = fillColor
 
-        // 配置画圆环的画笔
+        //Configure paint for drawing ring
         ringPaint.style = Paint.Style.STROKE
         ringPaint.color = ringColor
         ringPaint.strokeWidth = ringWidth
@@ -70,25 +70,25 @@ class ProgressPieView @JvmOverloads constructor(
 
         val sweepAngle = (progress / 100f) * 360f
         if (sweepAngle <= 0 && ringPaint.strokeWidth <= 0) {
-            return // 如果没进度也没圆环，就不画了
+            return //Don't draw if there's no progress and no ring
         }
 
-        // 计算中心和半径
+        //Calculate center and radius
         val centerX = width / 2f
         val centerY = height / 2f
 
-        // 半径需要为外部圆环的线宽留出空间
+        //Radius needs to leave space for outer ring line width
         val halfRingWidth = ringPaint.strokeWidth / 2f
         val radius = width.coerceAtMost(height) / 2f - halfRingWidth
 
-        // 1. 绘制外部的完整圆环
+        //1. Draw complete outer ring
         if (ringPaint.strokeWidth > 0) {
             canvas.drawCircle(centerX, centerY, radius, ringPaint)
         }
 
-        // 2. 绘制内部的实心扇形
+        //2. Draw solid inner sector
         if (sweepAngle > 0) {
-            // 扇形的绘制区域要稍微向内收缩，以免覆盖圆环
+            //Sector drawing area should shrink inward slightly to avoid covering the ring
             val inset = ringPaint.strokeWidth
             rectF.set(
                 paddingLeft + inset,
@@ -100,16 +100,12 @@ class ProgressPieView @JvmOverloads constructor(
         }
     }
 
-    /**
-     * 以编程方式设置进度
-     */
+    /** * programmaticallysettingprogress*/
     fun setProgress(@FloatRange(from = 0.0, to = 100.0) value: Float) {
         this.progress = value.coerceIn(0f, 100f)
-        invalidate() // 请求重绘
+        invalidate() //Request redraw
     }
 
-    /**
-     * 获取当前进度
-     */
+    /** * getcurrentprogress*/
     fun getProgress(): Float = progress
 }
