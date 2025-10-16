@@ -76,43 +76,6 @@ class ModelMapper:
         }
         self.regist('deepseek-vl', deepseek_vlmap)
 
-    def regist_mllama(self):
-        mllama_map = {
-            'config': {
-                'hidden_size': 'text_config.hidden_size',
-                'num_attention_heads': 'text_config.num_attention_heads',
-                'num_hidden_layers': 'text_config.num_hidden_layers',
-                'num_key_value_heads': 'text_config.num_key_value_heads',
-                'rope_theta': 'text_config.rope_theta'
-            },
-            'model': {
-                'lm_': 'language_model.lm_head',
-                'embed_': 'language_model.model.embed_tokens',
-                'blocks_': 'language_model.model.layers',
-                'final_layernorm_': 'language_model.model.norm',
-                'visual': 'vision_model',
-                'multi_modal_projector': 'multi_modal_projector'
-            },
-            'decoder': {
-                'self_attn': 'self_attn',
-                'cross_attn': 'cross_attn',
-                'mlp': 'mlp',
-                'input_layernorm': 'input_layernorm',
-                'post_attention_layernorm': 'post_attention_layernorm'
-            },
-            'attention': {
-                'q_proj': 'q_proj',
-                'k_proj': 'k_proj',
-                'v_proj': 'v_proj',
-                'o_proj': 'o_proj',
-                'q_norm': 'q_norm',
-                'k_norm': 'k_norm',
-                'cross_attn_attn_gate': 'cross_attn_attn_gate',
-                'cross_attn_mlp_gate': 'cross_attn_mlp_gate'
-            }
-        }
-        self.regist('mllama', mllama_map)
-
     def regist_qwen_omni(self):
         omni_map = {
             'config': {
@@ -183,6 +146,24 @@ class ModelMapper:
             'attention': qwen3_attention
         }
         self.regist('qwen3', qwen3_map)
+
+    def regist_llama4_text(self):
+        llama4_text_attention = {
+            'q_proj': 'q_proj',
+            'k_proj': 'k_proj',
+            'v_proj': 'v_proj',
+            'o_proj': 'o_proj',
+            'qk_norm': 'qk_norm'
+        }
+        llama4_text_decoder = copy.deepcopy(self.default_decoder)
+        llama4_text_decoder['mlp'] = 'feed_forward'
+        llama4_text_map = {
+            'config': self.default_config,
+            'model': self.default_model,
+            'decoder': llama4_text_decoder,
+            'attention': llama4_text_attention
+        }
+        self.regist('llama4_text', llama4_text_map)
 
     def regist_qwen3_moe(self):
         qwen3_attention = {
@@ -548,7 +529,7 @@ class ModelMapper:
         }
         self.regist('llava_qwen2', fastvlm_map)
 
-    def regist_qwen2vl(self):
+    def regist_qwenvl(self):
         if TRANSFORMERS_VERSION <= '4.52.1':
             return
         qwen2vl_model = {
@@ -566,6 +547,46 @@ class ModelMapper:
         }
         self.regist('qwen2_vl', qwen2vl_map)
         self.regist('qwen2_5_vl', qwen2vl_map)
+        qwen3vl_config = {
+            'hidden_size': 'text_config.hidden_size',
+            'head_dim': 'text_config.head_dim',
+            'num_attention_heads': 'text_config.num_attention_heads',
+            'num_hidden_layers': 'text_config.num_hidden_layers',
+            'num_key_value_heads': 'text_config.num_key_value_heads',
+            'rope_theta': 'text_config.rope_theta',
+            'rope_scaling': 'text_config.rope_scaling',
+            'max_position_embeddings': 'text_config.max_position_embeddings'
+        }
+        qwen3_attention = {
+            'q_proj': 'q_proj',
+            'k_proj': 'k_proj',
+            'v_proj': 'v_proj',
+            'o_proj': 'o_proj',
+            'q_norm': 'q_norm',
+            'k_norm': 'k_norm'
+        }
+        qwen3vl_map = {
+            'config': qwen3vl_config,
+            'model': qwen2vl_model,
+            'decoder': self.default_decoder,
+            'attention': qwen3_attention
+
+        }
+        qwen3vlmoe_mlp = {
+            'num_experts': 'num_experts',
+            'top_k': 'top_k',
+            'gate': 'gate',
+            'experts': 'experts'
+        }
+        qwen3vlmoe_map = {
+            'config': qwen3vl_config,
+            'model': qwen2vl_model,
+            'decoder': self.default_decoder,
+            'attention': qwen3_attention,
+            'mlp': qwen3vlmoe_mlp
+        }
+        self.regist('qwen3_vl', qwen3vl_map)
+        self.regist('qwen3_vl_moe', qwen3vlmoe_map)
 
     def regist_hunyuan_v1_dense(self):
         hunyuan_attention = {

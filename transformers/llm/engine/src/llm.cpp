@@ -274,6 +274,9 @@ bool Llm::load() {
     }
 
     mRuntimeManager->setExternalFile(mConfig->llm_weight());
+    if (mConfig->has_deepstack()) {
+        inputNames.emplace_back("deepstack_embeds");
+    }
     mModule.reset(Module::load(inputNames, outputNames, model_path.c_str(), mRuntimeManager, &module_config));
     mRuntimeManager->setExternalFile("");
     if(nullptr == mModule) {
@@ -407,7 +410,7 @@ void Llm::setKVCacheInfo(size_t add, size_t remove, int* reserve, int n_reserve)
     mMeta->add = add;
 }
 
-std::vector<Express::VARP> Llm::forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos) {
+std::vector<Express::VARP> Llm::forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos, Express::VARPS extraArgs) {
     Express::VARP logitsIndex;
     bool inDecode = mContext->gen_seq_len > 0;
     bool isAllLogists = mConfig->all_logits() ? true : (inDecode ? mInSpec : false);
@@ -439,8 +442,9 @@ std::vector<Express::VARP> Llm::forwardRaw(Express::VARP hiddenState, Express::V
     mGenerateParam->outputs.clear();
     mGenerateParam->validLogitSize = 0;
     mGenerateParam->validLogitStart = 0;
-    std::vector<Express::VARP> outputs;
-    outputs = selectModule->onForward({hiddenState, mask, inputPos, logitsIndex});
+    std::vector<Express::VARP> inputs {hiddenState, mask, inputPos, logitsIndex};
+    inputs.insert(inputs.end(), extraArgs.begin(), extraArgs.end());
+    std::vector<Express::VARP> outputs = selectModule->onForward(inputs);
 
     if (outputs.empty()) {
         return outputs;

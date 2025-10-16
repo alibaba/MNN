@@ -924,9 +924,6 @@ public:
                         TensorUtils::setTensorSupportPack(outputs[i], false);
                     }
                     return new ConvBufLowMemoryExecution(inputs, outputs, op, backend);
-                } else {
-                    MNN_ERROR("OpenCL Conv buf low memory init error. For Opencl Backend, only support low memory mode of int8 or int4 dequantization currently.\n");
-                    return nullptr;
                 }
             }
         }

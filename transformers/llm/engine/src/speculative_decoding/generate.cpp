@@ -23,6 +23,8 @@ std::shared_ptr<Generation> GenerationStrategyFactory::create(Llm* llm, std::sha
             res.reset(new LookaheadGeneration(llm, context, config));
         } else if(config->speculative_type() == "mtp") {
             res.reset(new MtpGeneration(llm, context, config));
+        } else if(config->speculative_type() == "eagle") {
+            res.reset(new EagleGeneration(llm, context, config));
         } else {
             // autoregressive generation
             res.reset(new ArGeneration(llm, context, config));
@@ -61,7 +63,7 @@ void ArGeneration::generate(GenerationParams& param) {
             *mContext->os << decodeStr;
             *mContext->os << std::flush;
         }
-        
+
         // Compute Next Logits
         auto outputs = mLlm->forwardVec({mContext->current_token});
         if(outputs.empty()) {
@@ -82,9 +84,9 @@ int Generation::draftVerify(VARP logits, const std::vector<int> &drafts, bool& s
         for(; i_dft < drafts.size(); i_dft++) {
             auto sample_size = logits->getInfo()->dim[logits->getInfo()->dim.size() - 1];
             auto sample_offset = logits->getInfo()->size - (drafts.size() - i_dft + 1) * sample_size;
-            
+
             auto predict = mLlm->sample(logits, sample_offset, sample_size);
-            
+
             // stop token just break the process
             if (mLlm->is_stop(predict)) {
                 mContext->current_token = predict;
@@ -109,7 +111,7 @@ int Generation::draftVerify(VARP logits, const std::vector<int> &drafts, bool& s
         if(i_dft == drafts.size()) {
             auto sample_size = logits->getInfo()->dim[logits->getInfo()->dim.size() - 1];
             auto sample_offset = logits->getInfo()->size -  sample_size;
-            
+
             auto predict = mLlm->sample(logits, sample_offset, sample_size);
             mContext->current_token = predict;
         }

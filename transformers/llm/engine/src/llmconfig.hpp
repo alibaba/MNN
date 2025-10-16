@@ -429,6 +429,10 @@ public:
         return config_.value("has_talker", false);
     }
 
+    bool has_deepstack() const {
+        return config_.value("has_deepstack", false);
+    }
+
     bool use_template() const {
         return config_.value("use_template", true);
     }
@@ -562,7 +566,7 @@ public:
 
     /**
      speculative decoding algrithm.
-     optional: "lookahead"、 ”mtp“、 "draftmodel"
+     optional: "lookahead"、 ”mtp“、 "draftmodel", "eagle"
      */
     std::string speculative_type() const {
         return config_.value("speculative_type", "");
@@ -621,6 +625,15 @@ public:
     }
     std::string mtp_model() const {
         return base_dir_ + config_.value("mtp_model", "mtp.mnn");
+    }
+    std::string eagle_model() const {
+        return base_dir_ + config_.value("eagle_model", "eagle.mnn");
+    }
+    std::string eagle_fc() const {
+        return base_dir_ + config_.value("eagle_fc", "eagle_fc.mnn");
+    }
+    std::string eagle_d2t() const {
+        return base_dir_ + config_.value("eagle_d2t", "eagle_d2t.mnn");
     }
     // speculative decoding config end >
 };

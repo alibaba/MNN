@@ -12,6 +12,7 @@ else:
 
 print('Use MNN Convert: ', mnnconvert)
 import argparse
+gUseHQQ = False
 class QuantInfo:
     def __init__(self, jsonPath):
         compress = None
@@ -62,7 +63,7 @@ class QuantInfo:
         for c in self.conv_1x1:
             c['weight'][0]['blockSize'] = block
         for c in self.conv_other:
-            c['weight'][0]['bits'] = 0
+            c['weight'][0]['blockSize'] = block
     def mutableSize(self):
         return len(self.conv_1x1)
     def setMultiBlock(self, seprate, block0, block1):
@@ -113,6 +114,9 @@ def testJson(model, dstjson, testdir, dstmodel):
     cmd += ' --thredhold 0.001'
     cmd += ' --testconfig ' + forwardJson
     cmd += ' --alignDenormalizedValue 0 '
+    global gUseHQQ
+    if gUseHQQ:
+        cmd += '--hqq '
     info = os.popen(cmd).read()
     return getRate(info)
 
@@ -217,14 +221,17 @@ def mainFunction():
     parser.add_argument('--rate', type=float, default=0.05,help='test rate')
     parser.add_argument('--select_bits', type=int, default=1,help='Try set layer as 4 bits')
     parser.add_argument('--select_block', type=int, default=1,help='Try select blocks')
+    parser.add_argument('--hqq', type=int, default=1,help='Use HQQ method')
     args = parser.parse_args()
     rate = args.rate
     model = args.model
     dstmodel = args.quant_model
     testdir = args.test_dir
+    global gUseHQQ
+    gUseHQQ = args.hqq > 0
     print("Target Rate is %f" %rate)
     targetRate = rate
-    print('src: ', model, ", dst:", dstmodel)
+    print('src: ', model, ", dst:", dstmodel, ", hqq:", gUseHQQ)
     dstjson = dstmodel + '.json'
     initDynamicQuantJson(2)
     if os.path.exists(dstjson):
