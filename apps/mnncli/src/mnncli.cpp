@@ -180,6 +180,9 @@ namespace ConfigManager {
                     file.close();
                     
                     // Check environment variables (they take precedence over file)
+                    if (const char* env_model = std::getenv("MNN_DEFAULT_MODEL")) {
+                        config.default_model = env_model;
+                    }
                     if (const char* env_provider = std::getenv("MNN_DOWNLOAD_PROVIDER")) {
                         config.download_provider = env_provider;
                     }
@@ -205,21 +208,26 @@ namespace ConfigManager {
         }
         
         // Fall back to defaults and environment variables
+        std::string default_model = ""; // default
+        if (const char* env_model = std::getenv("MNN_DEFAULT_MODEL")) {
+            default_model = env_model;
+        }
+
         std::string download_provider = "huggingface"; // default
         if (const char* env_provider = std::getenv("MNN_DOWNLOAD_PROVIDER")) {
             download_provider = env_provider;
         }
-        
+
         std::string cache_dir = "~/.cache/mnncli/mnnmodels";
         if (const char* env_cache = std::getenv("MNN_CACHE_DIR")) {
             cache_dir = env_cache;
         }
-        
+
         std::string api_host = "127.0.0.1";
         if (const char* env_host = std::getenv("MNN_API_HOST")) {
             api_host = env_host;
         }
-        
+
         int api_port = 8000;
         if (const char* env_port = std::getenv("MNN_API_PORT")) {
             try {
@@ -228,9 +236,9 @@ namespace ConfigManager {
                 // Keep default if invalid
             }
         }
-        
+
         return {
-            .default_model = "",
+            .default_model = default_model,
             .cache_dir = cache_dir,
             .log_level = "info",
             .default_max_tokens = 1000,
@@ -254,11 +262,14 @@ namespace ConfigManager {
     }
     
     bool SetConfigValue(Config& config, const std::string& key, const std::string& value) {
-        if (key == "download_provider") {
+        if (key == "default_model") {
+            config.default_model = value;
+            return true;
+        } else if (key == "download_provider") {
             std::string lower_value = value;
             std::transform(lower_value.begin(), lower_value.end(), lower_value.begin(), ::tolower);
-            if (lower_value == "huggingface" || lower_value == "hf" || 
-                lower_value == "modelscope" || lower_value == "ms" || 
+            if (lower_value == "huggingface" || lower_value == "hf" ||
+                lower_value == "modelscope" || lower_value == "ms" ||
                 lower_value == "modelers") {
                 config.download_provider = lower_value;
                 return true;
@@ -302,6 +313,7 @@ namespace ConfigManager {
     std::string GetConfigHelp() {
         return R"(
 Available configuration keys:
+  default_model      - Set default model name
   download_provider  - Set default download provider (huggingface, modelscope, modelers)
   cache_dir         - Set cache directory path
   log_level         - Set log level (debug, info, warn, error)
@@ -317,11 +329,13 @@ Environment Variables (take precedence over config):
   MNN_API_PORT         - Set API server port
 
 Examples:
+  mnncli config set default_model Qwen3-VL-4B-Instruct-MNN
   mnncli config set download_provider modelscope
   mnncli config set cache_dir ~/.cache/mnncli/mnnmodels
   mnncli config set api_port 8080
-  
+
   # Using environment variables
+  export MNN_DEFAULT_MODEL=Qwen3-VL-4B-Instruct-MNN
   export MNN_DOWNLOAD_PROVIDER=modelscope
   export MNN_CACHE_DIR=~/.cache/mnncli/mnnmodels
   mnncli config show
@@ -1187,18 +1201,12 @@ public:
 private:
     
     int HandleRunCommand(int argc, const char* argv[]) {
-        if (argc < 3) {
-            mnncli::UserInterface::ShowError("Model name required", "Usage: mnncli run <model_name> [options]");
-            PrintRunUsage();
-            return 1;
-        }
-        
         std::string model_name;
         std::string config_path;
         std::string prompt;
         std::string prompt_file;
-        
-        // Parse options first to see if we have a config path
+
+        // Parse options first to see if we have a config path or prompt
         for (int i = 2; i < argc; i++) {
             std::string arg = argv[i];
             if (arg == "-c" || arg == "--config") {
@@ -1208,33 +1216,7 @@ private:
                     return 1;
                 }
                 config_path = mnncli::FileUtils::ExpandTilde(argv[i]);
-            }
-        }
-        
-        // If no config path specified, require model name
-        if (config_path.empty()) {
-            if (argc < 3) {
-                mnncli::UserInterface::ShowError("Model name required", "Usage: mnncli run <model_name> [options]");
-                PrintRunUsage();
-                return 1;
-            }
-            model_name = argv[2];
-            config_path = mnncli::FileUtils::GetConfigPath(model_name);
-        } else {
-            // If config path is specified, extract model name from path or use a default
-            std::string config_dir = fs::path(config_path).parent_path().string();
-            std::string config_filename = fs::path(config_dir).filename().string();
-            if (!config_filename.empty()) {
-                model_name = config_filename;
-            } else {
-                model_name = "custom_model";
-            }
-        }
-        
-        // Parse remaining options
-        for (int i = 2; i < argc; i++) {
-            std::string arg = argv[i];
-            if (arg == "-p" || arg == "--prompt") {
+            } else if (arg == "-p" || arg == "--prompt") {
                 if (++i >= argc) {
                     mnncli::UserInterface::ShowError("Missing prompt text", "Usage: -p <prompt_text>");
                     PrintRunUsage();
@@ -1248,6 +1230,63 @@ private:
                     return 1;
                 }
                 prompt_file = argv[i];
+            }
+        }
+
+        // If no config path specified, check if we have a model name or can use default model
+        if (config_path.empty()) {
+            // Check if argv[2] exists and is not an option (doesn't start with -)
+            bool has_model_name = (argc >= 3) && (argv[2][0] != '-');
+
+            if (!has_model_name) {
+                // No model name provided, try to use default model
+                auto config = ConfigManager::LoadDefaultConfig();
+                if (!config.default_model.empty()) {
+                    model_name = config.default_model;
+                    LOG_INFO("Using default model: " + model_name);
+                } else {
+                    mnncli::UserInterface::ShowError("Model name required and no default model set",
+                                                    "Set a default model with: mnncli config set default_model <model_name>");
+                    PrintRunUsage();
+                    return 1;
+                }
+            } else {
+                // We have a model name
+                model_name = argv[2];
+            }
+            config_path = mnncli::FileUtils::GetConfigPath(model_name);
+        } else {
+            // If config path is specified, extract model name from path or use a default
+            std::string config_dir = fs::path(config_path).parent_path().string();
+            std::string config_filename = fs::path(config_dir).filename().string();
+            if (!config_filename.empty()) {
+                model_name = config_filename;
+            } else {
+                model_name = "custom_model";
+            }
+        }
+        
+        // Parse remaining options (backward compatibility - in case some options were not processed in first loop)
+        for (int i = 2; i < argc; i++) {
+            std::string arg = argv[i];
+            if (arg == "-p" || arg == "--prompt") {
+                if (++i >= argc) {
+                    mnncli::UserInterface::ShowError("Missing prompt text", "Usage: -p <prompt_text>");
+                    PrintRunUsage();
+                    return 1;
+                }
+                if (prompt.empty()) {  // Only set if not already set
+                    prompt = argv[i];
+                }
+            } else if (arg == "-f" || arg == "--file") {
+                if (++i >= argc) {
+                    mnncli::UserInterface::ShowError("Missing prompt file", "Usage: -f <prompt_file>");
+                    PrintRunUsage();
+                    return 1;
+                }
+                if (prompt_file.empty()) {  // Only set if not already set
+                    prompt_file = argv[i];
+                }
             } else if (arg == "-c" || arg == "--config") {
                 // Skip the config path that follows
                 i++;
@@ -1255,7 +1294,7 @@ private:
         }
         
         if (config_path.empty()) {
-            mnncli::UserInterface::ShowError("Config path is empty", "Use -c to specify config path");
+            mnncli::UserInterface::ShowError("Config path is empty", "Unable to determine config path for model: " + model_name);
             PrintRunUsage();
             return 1;
         }
@@ -1474,7 +1513,9 @@ private:
         std::cout << "  mnncli config set download_provider modelscope  # Set default provider\n";
         std::cout << "  mnncli config show                   # Show current configuration\n";
         std::cout << "  mnncli config help                   # Show configuration help\n";
+        std::cout << "  mnncli run                           # Run default model in interactive mode\n";
         std::cout << "  mnncli run qwen-7b                  # Run Qwen-7B model\n";
+        std::cout << "  mnncli run -p \"Hello world\"         # Run with prompt using default model\n";
         std::cout << "  mnncli serve qwen-7b --port 8000    # Start API server\n";
         std::cout << "  mnncli benchmark qwen-7b            # Run benchmark\n";
     }
@@ -1482,18 +1523,23 @@ private:
     
     void PrintRunUsage() {
         std::cout << "Run Command Usage:\n";
-        std::cout << "  mnncli run <model_name> [options]\n\n";
+        std::cout << "  mnncli run [model_name] [options]\n\n";
         std::cout << "Options:\n";
         std::cout << "  -c, --config <config_path>           # Specify custom config file path\n";
         std::cout << "  -p, --prompt <prompt_text>           # Provide prompt text directly\n";
         std::cout << "  -f, --file <prompt_file>             # Read prompts from file\n";
         std::cout << "  -v, --verbose                        # Enable verbose output\n\n";
         std::cout << "Examples:\n";
+        std::cout << "  mnncli run                           # Run default model in interactive mode\n";
         std::cout << "  mnncli run qwen-7b                   # Run with default config\n";
         std::cout << "  mnncli run qwen-7b -p \"Hello\"        # Run with prompt\n";
         std::cout << "  mnncli run qwen-7b -f prompts.txt    # Run with prompt file\n";
         std::cout << "  mnncli run qwen-7b -c custom.json    # Run with custom config\n";
         std::cout << "  mnncli run qwen-7b -p \"Hello\" -v     # Run with prompt and verbose\n";
+        std::cout << "  mnncli run -p \"Hello\"                # Run with prompt using default model\n";
+        std::cout << "  mnncli run -f prompts.txt            # Run with prompt file using default model\n\n";
+        std::cout << "Note: If no model_name is provided, the default model from configuration\n";
+        std::cout << "      will be used (set with: mnncli config set default_model <name>)\n";
     }
     
     void PrintVersion() {
