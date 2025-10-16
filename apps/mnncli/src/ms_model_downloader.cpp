@@ -133,7 +133,7 @@ bool MsModelDownloader::DownloadMsRepoInner(const std::string& model_id, const s
     auto model_folder = GetDownloadPath(model_id);
     if (std::filesystem::exists(model_folder)) {
         if (mnncli::LogUtils::IsVerbose()) {
-            std::cout << "downloadMsRepoInner already exists at " << model_folder.string() << std::endl;
+            LOG_DEBUG_TAG("downloadMsRepoInner already exists at " + model_folder.string(), "MsModelDownloader");
         }
         return true;
     }
@@ -160,7 +160,7 @@ bool MsModelDownloader::DownloadMsRepoInner(const std::string& model_id, const s
                                            ms_repo_info, total_size, downloaded_size);
     
     if (mnncli::LogUtils::IsVerbose()) {
-        std::cout << "downloadMsRepoInner downloadTaskList: " << download_tasks.size() << std::endl;
+        LOG_DEBUG_TAG("downloadMsRepoInner downloadTaskList: " + std::to_string(download_tasks.size()), "MsModelDownloader");
     }
     
     // Download each file
@@ -175,7 +175,7 @@ bool MsModelDownloader::DownloadMsRepoInner(const std::string& model_id, const s
         
         if (it == ms_repo_info.files.end()) {
             if (mnncli::LogUtils::IsVerbose()) {
-                std::cerr << "File info not found for: " << file_path << std::endl;
+                LOG_DEBUG_TAG("File info not found for: " + file_path, "MsModelDownloader");
             }
             continue;
         }
@@ -185,7 +185,7 @@ bool MsModelDownloader::DownloadMsRepoInner(const std::string& model_id, const s
         download_url += "?Revision=master&FilePath=" + file_path;
         
         if (mnncli::LogUtils::IsVerbose()) {
-            std::cout << "Downloading file: " << file_path << " (" << it->size << " bytes)" << std::endl;
+            LOG_DEBUG_TAG("Downloading file: " + file_path + " (" + std::to_string(it->size) + " bytes)", "MsModelDownloader");
         }
         
         if (!DownloadFile(download_url, destination_path, it->size, file_path, error_info)) {
@@ -206,7 +206,7 @@ bool MsModelDownloader::DownloadMsRepoInner(const std::string& model_id, const s
     }
     
     if (mnncli::LogUtils::IsVerbose()) {
-        std::cout << std::endl; // New line after progress
+        LOG_DEBUG_TAG("", "MsModelDownloader"); // New line after progress
     }
     
     if (!has_error) {
@@ -214,12 +214,12 @@ bool MsModelDownloader::DownloadMsRepoInner(const std::string& model_id, const s
         auto model_path = GetDownloadPath(model_id);
         LOG_DEBUG_TAG("Download completed at: " + model_path.string(), "MsModelDownloader");
         if (mnncli::LogUtils::IsVerbose()) {
-            std::cout << "✅ Model downloaded successfully to " << model_path.string() << std::endl;
+            LOG_DEBUG_TAG("✅ Model downloaded successfully to " + model_path.string(), "MsModelDownloader");
         }
         return true;
     } else {
         if (mnncli::LogUtils::IsVerbose()) {
-            std::cerr << "❌ Download failed with errors" << std::endl;
+            LOG_DEBUG_TAG("❌ Download failed with errors", "MsModelDownloader");
         }
         return false;
     }
@@ -278,7 +278,7 @@ bool MsModelDownloader::DownloadFile(const std::string& url, const std::filesyst
         int64_t existing_size = std::filesystem::file_size(destination_path);
         if (existing_size == expected_size) {
             if (mnncli::LogUtils::IsVerbose()) {
-                std::cout << "File already downloaded: " << file_name << std::endl;
+                LOG_DEBUG_TAG("File already downloaded: " + file_name, "MsModelDownloader");
             }
             return true;
         }
@@ -291,7 +291,7 @@ bool MsModelDownloader::DownloadFile(const std::string& url, const std::filesyst
     if (std::filesystem::exists(incomplete_path)) {
         resume_from = std::filesystem::file_size(incomplete_path);
         if (mnncli::LogUtils::IsVerbose()) {
-            std::cout << "Resuming download from " << (resume_from / (1024 * 1024)) << " MB" << std::endl;
+            LOG_DEBUG_TAG("Resuming download from " + std::to_string(resume_from / (1024 * 1024)) + " MB", "MsModelDownloader");
         }
     }
     
@@ -334,7 +334,7 @@ bool MsModelDownloader::DownloadFile(const std::string& url, const std::filesyst
         auto location_header = redirect_res->get_header_value("Location");
         if (!location_header.empty()) {
             if (mnncli::LogUtils::IsVerbose()) {
-                std::cout << "Redirect detected: " << redirect_res->status << " -> " << location_header << std::endl;
+                LOG_DEBUG_TAG("Redirect detected: " + std::to_string(redirect_res->status) + " -> " + location_header, "MsModelDownloader");
             }
             
             // Parse the new URL
@@ -365,7 +365,7 @@ bool MsModelDownloader::DownloadFile(const std::string& url, const std::filesyst
             }
             
             if (mnncli::LogUtils::IsVerbose()) {
-                std::cout << "Following redirect to: " << final_url << std::endl;
+                LOG_DEBUG_TAG("Following redirect to: " + final_url, "MsModelDownloader");
             }
         }
     }
@@ -420,8 +420,7 @@ bool MsModelDownloader::DownloadFile(const std::string& url, const std::filesyst
             if (!content_length_str.empty()) {
                 int64_t remaining_bytes = std::stoll(content_length_str);
                 if (mnncli::LogUtils::IsVerbose()) {
-                    std::cout << "Response Content-Length: " << remaining_bytes 
-                             << " bytes (remaining to download)" << std::endl;
+                    LOG_DEBUG_TAG("Response Content-Length: " + std::to_string(remaining_bytes) + " bytes (remaining to download)", "MsModelDownloader");
                 }
             }
             // Use expected_size as content_length for progress calculation
@@ -470,7 +469,7 @@ bool MsModelDownloader::DownloadFile(const std::string& url, const std::filesyst
                 return false;
             }
             if (mnncli::LogUtils::IsVerbose()) {
-                std::cout << "Download complete, moved to: " << destination_path.string() << std::endl;
+                LOG_DEBUG_TAG("Download complete, moved to: " + destination_path.string(), "MsModelDownloader");
             }
             return true;
         } else if (actual_size > expected_size) {
@@ -482,7 +481,7 @@ bool MsModelDownloader::DownloadFile(const std::string& url, const std::filesyst
         } else {
             // Incomplete download, will be resumed next time
             if (mnncli::LogUtils::IsVerbose()) {
-                std::cout << "Download incomplete (" << actual_size << " / " << expected_size << " bytes), saved for resume" << std::endl;
+                LOG_DEBUG_TAG("Download incomplete (" + std::to_string(actual_size) + " / " + std::to_string(expected_size) + " bytes), saved for resume", "MsModelDownloader");
             }
             error_info = "Download incomplete, please run again to resume";
             return false;

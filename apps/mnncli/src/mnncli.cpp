@@ -359,8 +359,8 @@ private:
 // Model management
 class ModelManager {
 public:
-    static int ListLocalModels(bool verbose = false) {
-        std::vector<std::string> model_names;
+    // Helper function to get all local models (shared by list and info commands)
+    static int GetLocalModelNames(std::vector<std::string>& model_names, bool verbose = false) {
         // Use configured cache directory instead of GetBaseCacheDir()
         auto config = ConfigManager::LoadDefaultConfig();
         std::string base_cache_dir = config.cache_dir;
@@ -396,11 +396,18 @@ public:
         // List Modelers models (symlinks in base directory)
         std::string modelers_dir = expanded_cache_dir + "/modelers";
         std::vector<std::string> modelers_models;
-        if (list_local_models(modelers_dir, modelers_models) == 0) {
+        if (ListLocalModels(modelers_dir, modelers_models) == 0) {
             for (auto& name : modelers_models) {
                 model_names.emplace_back("modelers/" + name);
             }
         }
+        
+        return 0;
+    }
+    
+    static int ListLocalModels(bool verbose = false) {
+        std::vector<std::string> model_names;
+        int result = GetLocalModelNames(model_names, verbose);
         
         if (!model_names.empty()) {
             std::cout << "Local models:\n";
@@ -412,7 +419,7 @@ public:
             std::cout << "Use 'mnncli search <keyword>' to search remote models\n";
             std::cout << "Use 'mnncli download <name>' to download models\n";
         }
-        return 0;
+        return result;
     }
     
     static int SearchRemoteModels(const std::string& keyword, bool verbose = false, const std::string& cache_dir_override = "") {
@@ -932,7 +939,8 @@ private:
         return true;
     }
     
-    static int list_local_models(const std::string& directory_path, std::vector<std::string>& model_names) {
+public:
+    static int ListLocalModels(const std::string& directory_path, std::vector<std::string>& model_names) {
         std::error_code ec;
         if (!fs::exists(directory_path, ec)) {
             return 1;
@@ -1414,12 +1422,10 @@ private:
         
         std::cout << "Available Models: ";
         
+        // Use the same logic as 'list' command to count models
         std::vector<std::string> model_names;
-        if (list_local_models(config.cache_dir, model_names) == 0) {
-            std::cout << model_names.size() << "\n";
-        } else {
-            std::cout << "Unknown\n";
-        }
+        ModelManager::GetLocalModelNames(model_names, false);
+        std::cout << model_names.size() << "\n";
         
         std::cout << "\nEnvironment Variables:\n";
         if (const char* env_provider = std::getenv("MNN_DOWNLOAD_PROVIDER")) {
@@ -1498,30 +1504,6 @@ private:
         std::string lowerModelName = path;
         std::transform(lowerModelName.begin(), lowerModelName.end(), lowerModelName.begin(), ::tolower);
         return lowerModelName.find("deepseek-r1") != std::string::npos;
-    }
-    
-    static int list_local_models(const std::string& directory_path, std::vector<std::string>& model_names) {
-        std::error_code ec;
-        if (!fs::exists(directory_path, ec)) {
-            return 1;
-        }
-        if (!fs::is_directory(directory_path, ec)) {
-            return 1;
-        }
-        for (const auto& entry : fs::directory_iterator(directory_path, ec)) {
-            if (ec) {
-                return 1;
-            }
-            if (fs::is_symlink(entry, ec)) {
-                if (ec) {
-                    return 1;
-                }
-                std::string file_name = entry.path().filename().string();
-                model_names.emplace_back(file_name);
-            }
-        }
-        std::sort(model_names.begin(), model_names.end());
-        return 0;
     }
     
     bool verbose_;

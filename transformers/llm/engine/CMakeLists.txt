@@ -89,6 +89,7 @@ add_executable(mls
         ${CMAKE_CURRENT_LIST_DIR}/app/remote_model_downloader.cpp
         ${CMAKE_CURRENT_LIST_DIR}/app/file_utils.cpp
         ${CMAKE_CURRENT_LIST_DIR}/app/llm_benchmark.cpp
+        ${CMAKE_CURRENT_LIST_DIR}/app/llm_benchmark_common.cpp
         ${CMAKE_CURRENT_LIST_DIR}/app/hf_api_client.cpp
         ${CMAKE_CURRENT_LIST_DIR}/app/mls_server.cpp
 )

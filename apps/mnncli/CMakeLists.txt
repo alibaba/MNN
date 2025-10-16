@@ -23,6 +23,7 @@ if (BUILD_MNNCLI)
         ${CMAKE_CURRENT_LIST_DIR}/src/model_file_downloader.cpp
         ${CMAKE_CURRENT_LIST_DIR}/src/file_utils.cpp
         ${CMAKE_CURRENT_LIST_DIR}/src/llm_benchmark.cpp
+        ${CMAKE_CURRENT_LIST_DIR}/../../transformers/llm/engine/app/llm_benchmark_common.cpp
         ${CMAKE_CURRENT_LIST_DIR}/src/hf_api_client.cpp
         ${CMAKE_CURRENT_LIST_DIR}/src/ms_api_client.cpp
         ${CMAKE_CURRENT_LIST_DIR}/src/ms_model_downloader.cpp
