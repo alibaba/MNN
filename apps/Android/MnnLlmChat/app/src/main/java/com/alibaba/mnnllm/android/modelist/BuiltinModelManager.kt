@@ -21,6 +21,22 @@ object BuiltinModelManager {
     private const val BUILTIN_MODELS_COPIED_KEY = "builtin_models_copied_v1"
     
     /**
+     * Check if there are any builtin models available in assets
+     * @param context Android context
+     * @return true if builtin models exist in assets, false otherwise
+     */
+    fun hasBuiltinModels(context: Context): Boolean {
+        return try {
+            val assetManager = context.assets
+            val modelDirs = assetManager.list(ASSETS_BUILTIN_MODELS_DIR) ?: emptyArray()
+            modelDirs.isNotEmpty()
+        } catch (e: Exception) {
+            Log.w(TAG, "Error checking for builtin models", e)
+            false
+        }
+    }
+    
+    /**
      * Check if builtin models need to be copied and copy them if necessary
      * @param context Android context
      * @param onProgress Callback for progress updates (current, total, message)
@@ -31,6 +47,12 @@ object BuiltinModelManager {
         onProgress: ((current: Int, total: Int, message: String) -> Unit)? = null
     ): Boolean = withContext(Dispatchers.IO) {
         try {
+            // First check if there are any builtin models in assets
+            if (!hasBuiltinModels(context)) {
+                Log.d(TAG, "No builtin models found in assets, skipping copy process")
+                return@withContext true
+            }
+            
             // Check if builtin models have already been copied
             if (PreferenceUtils.getBoolean(context, BUILTIN_MODELS_COPIED_KEY, false)) {
                 // Double check that the builtin directory actually exists
