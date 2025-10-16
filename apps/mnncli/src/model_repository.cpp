@@ -4,6 +4,7 @@
 //
 
 #include "model_repository.hpp"
+#include "model_market_data.hpp"
 #include "file_utils.hpp"
 #include "log_utils.hpp"
 #include <iostream>
@@ -172,41 +173,16 @@ std::string ModelRepository::GetModelType(const std::string& modelId) {
 
 std::optional<ModelMarketData> ModelRepository::LoadFromAssets() {
     try {
-        // Try to load from assets directory (similar to Android assets)
-        std::string assetsPath = cache_root_path_ + "/assets/" + kAssetsFileName;
-        
-        if (!std::filesystem::exists(assetsPath)) {
-            // Try alternative paths
-            std::vector<std::string> possiblePaths = {
-                cache_root_path_ + "/" + kAssetsFileName,
-                std::string("./") + kAssetsFileName,
-                std::string("../assets/") + kAssetsFileName,
-                std::string("../../assets/") + kAssetsFileName
-            };
-            
-            for (const auto& path : possiblePaths) {
-                if (std::filesystem::exists(path)) {
-                    assetsPath = path;
-                    break;
-                }
-            }
-        }
-        
-        if (!std::filesystem::exists(assetsPath)) {
-            LOG_DEBUG_TAG("Assets file not found: " + std::string(kAssetsFileName), kTag);
-            return std::nullopt;
-        }
-        
-        // Read and parse JSON file
-        std::ifstream file(assetsPath);
-        if (!file.is_open()) {
-            LOG_DEBUG_TAG("Failed to open assets file: " + assetsPath, kTag);
-            return std::nullopt;
-        }
-        
-        nlohmann::json jsonData;
-        file >> jsonData;
-        file.close();
+        // First try to load from embedded data
+        const unsigned char* embeddedData = GetModelMarketJsonData();
+        unsigned int embeddedDataLen = GetModelMarketJsonDataLen();
+
+        if (embeddedData != nullptr && embeddedDataLen > 0) {
+            // Parse embedded JSON data
+            std::string jsonDataStr(reinterpret_cast<const char*>(embeddedData), embeddedDataLen);
+            nlohmann::json jsonData = nlohmann::json::parse(jsonDataStr);
+
+            LOG_DEBUG_TAG("Successfully parsed embedded model market data", kTag);
         
         // Parse JSON into ModelMarketData structure
         ModelMarketData data;
@@ -338,13 +314,14 @@ std::optional<ModelMarketData> ModelRepository::LoadFromAssets() {
             }
         }
         
-        LOG_DEBUG_TAG("Successfully parsed model market data with " + 
-                      std::to_string(data.models.size()) + " models, " + 
+        LOG_DEBUG_TAG("Successfully parsed model market data with " +
+                      std::to_string(data.models.size()) + " models, " +
                       std::to_string(data.ttsModels.size()) + " TTS models, and " +
                       std::to_string(data.asrModels.size()) + " ASR models", kTag);
-        
+
         return data;
-        
+
+    }
     } catch (const std::exception& e) {
         LOG_DEBUG_TAG("Failed to load from assets: " + std::string(e.what()), kTag);
         return std::nullopt;

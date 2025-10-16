@@ -16,6 +16,26 @@ if (BUILD_MNNCLI)
         endif()
     endif()
 
+    # Function to convert file to C++ array
+    function(embed_file_as_c_array input_file output_file symbol_name)
+        file(READ ${input_file} hex_content HEX)
+        string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," hex_content ${hex_content})
+        string(REGEX REPLACE ",$" "" hex_content ${hex_content})
+        file(WRITE ${output_file} "const unsigned char ${symbol_name}[] = { ${hex_content} };\n")
+    endfunction()
+
+    # Generate embedded model_market.json data
+    set(MODEL_MARKET_JSON_FILE "${CMAKE_CURRENT_LIST_DIR}/MnnLlmChat/app/src/main/assets/model_market.json")
+    set(MODEL_MARKET_JSON_INC_FILE "${CMAKE_CURRENT_BINARY_DIR}/model_market_json_data.inc")
+
+    if(EXISTS ${MODEL_MARKET_JSON_FILE})
+        embed_file_as_c_array(${MODEL_MARKET_JSON_FILE} ${MODEL_MARKET_JSON_INC_FILE} model_market_json_data)
+    else()
+        message(WARNING "model_market.json not found at ${MODEL_MARKET_JSON_FILE}")
+        # Create an empty file so the build doesn't fail
+        file(WRITE ${MODEL_MARKET_JSON_INC_FILE} "const unsigned char model_market_json_data[] = { 0x7B, 0x7D }; // Empty JSON object {}\n")
+    endif()
+
     set(MNNCLI_SOURCES
         ${CMAKE_CURRENT_LIST_DIR}/src/mnncli.cpp
         ${CMAKE_CURRENT_LIST_DIR}/src/model_runner.cpp
@@ -36,6 +56,7 @@ if (BUILD_MNNCLI)
         ${CMAKE_CURRENT_LIST_DIR}/src/hf_sha_verifier.cpp
         ${CMAKE_CURRENT_LIST_DIR}/src/model_download_manager.cpp
         ${CMAKE_CURRENT_LIST_DIR}/src/model_repository.cpp
+        ${CMAKE_CURRENT_LIST_DIR}/src/model_market_data.cpp
     )
 
     if(CMAKE_SYSTEM_NAME STREQUAL "Android")
@@ -199,13 +220,14 @@ if (BUILD_MNNCLI)
     endif()
 
     # Use MNN project's standard include directories and dependencies
-    target_include_directories(mnncli PRIVATE 
-        ${MNN_INCLUDES} 
-        ${CMAKE_CURRENT_LIST_DIR}/include/ 
-        ${CMAKE_CURRENT_LIST_DIR}/../../include/ 
-        ${CMAKE_CURRENT_LIST_DIR}/../../transformers/llm/engine/src/ 
+    target_include_directories(mnncli PRIVATE
+        ${MNN_INCLUDES}
+        ${CMAKE_CURRENT_LIST_DIR}/include/
+        ${CMAKE_CURRENT_LIST_DIR}/../../include/
+        ${CMAKE_CURRENT_LIST_DIR}/../../transformers/llm/engine/src/
         ${CMAKE_CURRENT_LIST_DIR}/../../3rd_party/
         ${CMAKE_CURRENT_LIST_DIR}/../frameworks/3rd_party/include/
+        ${CMAKE_CURRENT_BINARY_DIR}
     )
     
     set_property(TARGET mnncli PROPERTY CXX_STANDARD 17)

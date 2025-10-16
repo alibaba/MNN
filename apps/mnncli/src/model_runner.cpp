@@ -109,14 +109,16 @@ int ModelRunner::ProcessPrompt(const std::string& prompt, std::ostream* output, 
     if (output == nullptr) {
         output = &std::cout;
     }
-    
+
 #ifdef LLM_SUPPORT_VISION
+#ifndef OPENCV_NOT_AVAILABLE
     // Check if prompt contains video tags
     std::regex video_regex("<video>(.*?)</video>");
     std::smatch match;
     if (std::regex_search(prompt, match, video_regex)) {
         return ProcessVideoPrompt(prompt, output);
     }
+#endif
 #endif
     llm_->response(prompt, output, nullptr, max_new_tokens);
     return 0;

@@ -1,5 +1,7 @@
 # MNNCLI
 
+> Note: This project is under active development and may contain bugs or unfinished features. Use with caution.
+
 MNNCLI is a command-line interface tool for MNN (Mobile Neural Network) that provides various functionalities for working with LLM models.
 
 ## Features
@@ -12,50 +14,49 @@ MNNCLI is a command-line interface tool for MNN (Mobile Neural Network) that pro
 
 ## Building
 
-To build MNNCLI, run the following commands from the project's root directory:
+To build MNNCLI, run the following commands from the mnncli directory:
 
 ```bash
-cmake -B build -DBUILD_MNNCLI=ON
-cmake --build build
+sh build.sh
 ```
 
-The executable will be located at `build/mnncli`.
+The executable will be located at `build_mnncli/apps/mnncli/mnncli`.
 
 ## Usage
 
 ### List Models
 ```bash
-./build/mnncli list
+./build_mnncli/apps/mnncli/mnncli list
 ```
 
 ### Serve Model
 ```bash
-./build/mnncli serve <model_name>
+./build_mnncli/apps/mnncli/mnncli serve <model_name>
 ```
 
 ### Run Model
 ```bash
-./build/mnncli run <model_name> [-c config_path] [-p prompt] [-f prompt_file]
+./build_mnncli/apps/mnncli/mnncli run <model_name> [-c config_path] [-p prompt] [-f prompt_file]
 ```
 
 ### Benchmark Model
 ```bash
-./build/mnncli benchmark <model_name> [-c config_path]
+./build_mnncli/apps/mnncli/mnncli benchmark <model_name> [-c config_path]
 ```
 
 ### Download Model
 ```bash
-./build/mnncli download <model_name> <repo_name>
+./build_mnncli/apps/mnncli/mnncli download <model_name> <repo_name>
 ```
 
 ### Search Models
 ```bash
-./build/mnncli search <keyword>
+./build_mnncli/apps/mnncli/mnncli search <keyword>
 ```
 
 ### Delete Model
 ```bash
-./build/mnncli delete <model_name>
+./build_mnncli/apps/mnncli/mnncli delete <model_name>
 ```
 
 ## Dependencies

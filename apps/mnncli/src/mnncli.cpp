@@ -473,11 +473,11 @@ public:
                 std::cout << "Found " << searchResults.size() << " matching LLM model(s):\n\n";
                 
                 // Display results in a table format
-                std::cout << std::left << std::setw(80) << "Model Name" 
-                          << std::setw(15) << "Vendor" 
-                          << std::setw(12) << "Size (GB)" 
+                std::cout << std::left << std::setw(50) << "Model Name"
+                          << std::setw(15) << "Vendor"
+                          << std::setw(12) << "Size"
                           << std::setw(15) << "Tags" << "\n";
-                std::cout << std::string(72, '-') << "\n";
+                std::cout << std::string(92, '-') << "\n";
                 
                 for (const auto& model : searchResults) {
                     // Format tags for display with TAB prefix
@@ -488,18 +488,19 @@ public:
                             tags_str += " (+" + std::to_string(model.tags.size() - 1) + ")";
                         }
                     }
-                    
-                    // Format size with 2 decimal places
+
+                    // Format file size using existing LogUtils::FormatFileSize function
                     std::string size_str;
-                    if (model.size_gb > 0) {
-                        std::ostringstream oss;
-                        oss << std::fixed << std::setprecision(2) << model.size_gb << " GB";
-                        size_str = oss.str();
+                    if (model.file_size > 0) {
+                        size_str = mnncli::LogUtils::FormatFileSize(model.file_size);
+                    } else if (model.size_gb > 0) {
+                        // Fallback to size_gb if file_size is not available
+                        size_str = mnncli::LogUtils::FormatFileSize(static_cast<int64_t>(model.size_gb * 1024 * 1024 * 1024));
                     } else {
                         size_str = "N/A";
                     }
-                    
-                    std::cout << std::left << std::setw(30) << model.modelName
+
+                    std::cout << std::left << std::setw(50) << model.modelName
                               << std::setw(15) << model.vendor
                               << std::setw(12) << size_str
                               << std::setw(15) << tags_str << "\n";

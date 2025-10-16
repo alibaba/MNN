@@ -18,7 +18,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Create build directory
-BUILD_DIR="$PROJECT_ROOT/build_mnncli"
+BUILD_DIR="$SCRIPT_DIR/build_mnncli"
 echo -e "${YELLOW}Build directory: $BUILD_DIR${NC}"
 
 # Clean build directory if it exists to avoid CMake cache conflicts
