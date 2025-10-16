@@ -52,7 +52,7 @@ static void easyBinaryEncode(int length, const std::vector<int>& indexes, int op
     rcmd->op->type = OpType_BinaryOp;
     rcmd->op->main.type = OpParameter_BinaryOp;
     rcmd->op->main.value = new BinaryOpT;
-    rcmd->op->main.AsBinaryOp()->opType = opType;
+    rcmd->op->main.AsBinaryOp()->opType = (BinaryOpOperation)opType;
     loop->commands.emplace_back(std::move(rcmd));
 }
 
@@ -212,7 +212,7 @@ public:
                     rcmd->op->type = OpType_BinaryOp;
                     rcmd->op->main.type = OpParameter_BinaryOp;
                     rcmd->op->main.value = new BinaryOpT;
-                    rcmd->op->main.AsBinaryOp()->opType = biOp;
+                    rcmd->op->main.AsBinaryOp()->opType = (BinaryOpOperation)biOp;
                     loop->commands.emplace_back(std::move(rcmd));
                 }
                 // Unary

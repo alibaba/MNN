@@ -110,6 +110,9 @@ bool Omni::load() {
         mProcessorRuntimeManager.reset(Executor::RuntimeManager::createRuntimeManager(config));
         setRuntimeHint(mProcessorRuntimeManager);
     }
+    if (mConfig->has_deepstack()) {
+        mExtraArgs.emplace_back(Express::_Fill(_var<int>({3, 1, 1}, {3}), _Scalar<float>(0.0)));
+    }
     Module::Config module_config;
     if(config.type == MNN_FORWARD_NN) {
         module_config.shapeMutable = false;
@@ -158,9 +161,14 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
     AUTOTIME;
     const auto inputNames = mVisionModule->getInfo()->inputNames;
     bool hasWindowIndex = inputNames.size() == 4 && inputNames[3] == "window_index";
-    // Qwen2-VL / Qwen2.5-VL
-    mVisionHeight = round(mVisionHeight / 28.0) * 28;
-    mVisionWidth = round(mVisionWidth / 28.0) * 28;
+    bool isQwen3VL = inputNames.size() == 5 && inputNames[3] == "idx_tensor";
+    const int patch_size = isQwen3VL ? 16 : 14;
+    constexpr int temporal_patch_size = 2;
+    constexpr int merge_size = 2;
+    const int align_size = patch_size * merge_size;
+    // Qwen2-VL / Qwen2.5-VL / Qwen3-VL
+    mVisionHeight = round(mVisionHeight / (float)align_size) * align_size;
+    mVisionWidth = round(mVisionWidth / (float)align_size) * align_size;
     image = MNN::CV::resize(image, {mVisionWidth, mVisionHeight}, 0, 0,
                             MNN::CV::INTER_LINEAR, MNN::CV::COLOR_BGR2RGB,
                             mVisionMean, mVisionNorm);
@@ -172,9 +180,6 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
     int channel  = patches_dim[1];
     int height   = patches_dim[2];
     int width    = patches_dim[3];
-    constexpr int temporal_patch_size = 2;
-    constexpr int patch_size = 14;
-    constexpr int merge_size = 2;
     int grid_t = temporal / temporal_patch_size;
     int grid_h = height / patch_size;
     int grid_w = width / patch_size;
@@ -210,7 +215,7 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
     VARP attention_mask, window_index;
     VARPS moduleInputs= {patches, position_ids};
     if (hasWindowIndex) {
-        // build window_index
+        // Qwen2.5-VL: build window_index
         window_index = Express::_Input({seq_len / 4}, NCHW, halide_type_of<int>());
         auto window_index_ptr = window_index->writeMap<int>();
         const int merge_unit = merge_size * merge_size;
@@ -273,6 +278,50 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
         ::memset(attention_mask->writeMap<float>(), 0, seq_len * seq_len * sizeof(float));
         moduleInputs.push_back(attention_mask);
     }
+    if (isQwen3VL) {
+        // Qwne3-VL
+        const int num_grid = mConfig->config_.value("num_grid_per_side", 1);
+        const int num_patches = grid_h * grid_w;
+        std::vector<float> h_idxs(grid_h);
+        std::vector<float> w_idxs(grid_w);
+        for (int i = 0; i < grid_h; ++i) {
+            h_idxs[i] = static_cast<float>(i) * (num_grid - 1) / (grid_h - 1);
+        }
+        for (int i = 0; i < grid_w; ++i) {
+            w_idxs[i] = static_cast<float>(i) * (num_grid - 1) / (grid_w - 1);
+        }
+        auto idx_tensor = Express::_Input({4, num_patches}, NCHW, halide_type_of<int>());
+        auto weight_tensor = Express::_Input({4, num_patches}, NCHW, halide_type_of<float>());
+        auto idx_ptr = idx_tensor->writeMap<int>();
+        auto weight_ptr = weight_tensor->writeMap<float>();
+        for (int i = 0; i < grid_h; ++i) {
+            int h_idx_floor = static_cast<int>(h_idxs[i]);
+            int h_idx_ceil = std::min(h_idx_floor + 1, num_grid - 1);
+            float dh = h_idxs[i] - h_idx_floor;
+            for (int j = 0; j < grid_w; ++j) {
+                int w_idx_floor = static_cast<int>(w_idxs[j]);
+                int w_idx_ceil = std::min(w_idx_floor + 1, num_grid - 1);
+                float dw = w_idxs[j] - w_idx_floor;
+                int idx = i * grid_w + j;
+                idx_ptr[0 * num_patches + idx] = h_idx_floor * num_grid + w_idx_floor;
+                idx_ptr[1 * num_patches + idx] = h_idx_floor * num_grid + w_idx_ceil;
+                idx_ptr[2 * num_patches + idx] = h_idx_ceil * num_grid + w_idx_floor;
+                idx_ptr[3 * num_patches + idx] = h_idx_ceil * num_grid + w_idx_floor;
+                weight_ptr[0 * num_patches + idx] = (1.0f - dh) * (1.0f - dw);
+                weight_ptr[1 * num_patches + idx] = (1.0f - dh) * dw;
+                weight_ptr[2 * num_patches + idx] = dh * (1.0f - dw);
+                weight_ptr[3 * num_patches + idx] = dh * dw;
+            }
+        }
+        idx_tensor = Express::_Reshape(idx_tensor, {4, grid_t, grid_h / merge_size, merge_size, grid_w / merge_size, merge_size});
+        idx_tensor = Express::_Permute(idx_tensor, {0, 1, 2, 4, 3, 5});
+        idx_tensor = Express::_Reshape(idx_tensor, {4, -1});
+        weight_tensor = Express::_Reshape(weight_tensor, {4, grid_t, grid_h / merge_size, merge_size, grid_w / merge_size, merge_size});
+        weight_tensor = Express::_Permute(weight_tensor, {0, 1, 2, 4, 3, 5});
+        weight_tensor = Express::_Reshape(weight_tensor, {4, -1});
+        moduleInputs.push_back(idx_tensor);
+        moduleInputs.push_back(weight_tensor);
+    }
 #ifdef DEBUG_IMAGE
     patches.fix(MNN::Express::VARP::CONSTANT);
     patches->setName("patches");
@@ -282,7 +331,11 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
     attention_mask->setName("attention_mask");
     MNN::Express::Variable::save({patches, position_ids, attention_mask}, "input.mnn");
 #endif
-    auto imageEmbedding = mVisionModule->onForward(moduleInputs)[0];
+    auto outputs = mVisionModule->onForward(moduleInputs);
+    auto imageEmbedding = outputs[0];
+    if (outputs.size() == 2) {
+        mDeepStackEmbeddings.push_back(outputs[1]);
+    }
 #ifdef DEBUG_IMAGE
     imageEmbedding->setName("image_embeds");
     MNN::Express::Variable::save({imageEmbedding}, "output.mnn");
@@ -836,13 +889,28 @@ std::vector<int> Omni::processAudioContent(const std::string& content, const std
 
 VARP Omni::embedding(const std::vector<int>& input_ids) {
     if (input_ids.size() == 1) {
+        if (mConfig->has_deepstack() && mExtraArgs.size() == 1) {
+            mExtraArgs[0] = Express::_Fill(_var<int>({3, 1, 1}, {3}), _Scalar<float>(0.0));
+        }
         return Llm::embedding(input_ids);
     }
     std::vector<VARP> embeddings;
+    std::vector<VARP> deepstacks;
     std::vector<int> position_ids;
     int vision_idx = 0, audio_idx = 0;
     std::vector<int> cur_txt_ids;
     bool inVision = false, inAudio = false;
+    bool hasDeepStack = !mDeepStackEmbeddings.empty();
+    std::vector<int> deepstackShape;
+    if (hasDeepStack) {
+        deepstackShape = mDeepStackEmbeddings[0]->getInfo()->dim; // N, seqlen, hddien_size
+    }
+    auto deepstacksTxt = [&]() {
+        if (hasDeepStack) {
+            deepstackShape[1] = cur_txt_ids.size();
+            deepstacks.push_back(Express::_Fill(_var<int>(deepstackShape, {static_cast<int>(deepstackShape.size())}), _Scalar<float>(0.0)));
+        }
+    };
     for (int i = 0; i < input_ids.size(); i++) {
         int id = input_ids[i];
         // audio
@@ -861,7 +929,6 @@ VARP Omni::embedding(const std::vector<int>& input_ids) {
             inAudio = true;
         }
         // vision
-#if 1
         if (inVision) {
             if (id == mVisionPad) {
                 continue;
@@ -871,36 +938,31 @@ VARP Omni::embedding(const std::vector<int>& input_ids) {
             }
         } else if (id == mVisionPad) {
             auto txt_embedding = Llm::embedding(cur_txt_ids);
+            if (hasDeepStack) {
+                deepstacksTxt();
+                auto deepstack_embedding = mDeepStackEmbeddings[vision_idx];
+                deepstacks.push_back(deepstack_embedding);
+            }
             auto mul_embedding = mVisionEmbeddings[vision_idx++];
             embeddings.push_back(txt_embedding);
             embeddings.push_back(mul_embedding);
             inVision = true;
         }
         cur_txt_ids.push_back(id);
-#else
-        if (id == mVisionPad) {
-            continue;
-        }
-        cur_txt_ids.push_back(id);
-        if (id == mVisionStart) {
-            auto txt_embedding = Llm::embedding(cur_txt_ids);
-            auto mul_embedding = mVisionEmbeddings[vision_idx++];
-            embeddings.push_back(txt_embedding);
-            embeddings.push_back(mul_embedding);
-        } else if (id == mVisionEnd) {
-            cur_txt_ids.clear();
-            cur_txt_ids.push_back(id);
-        }
-#endif
     }
-
     mVisionEmbeddings.clear();
     mAudioEmbeddings.clear();
+    mDeepStackEmbeddings.clear();
     if (!cur_txt_ids.empty()) {
         auto txt_embedding = Llm::embedding(cur_txt_ids);
         embeddings.push_back(txt_embedding);
+        deepstacksTxt();
     }
     auto embedding = Express::_Concat(embeddings, 0);
+    // Qwen3-VL
+    if (hasDeepStack) {
+        mExtraArgs[0] = Express::_Concat(deepstacks, 1);
+    }
     return embedding;
 }
 
@@ -951,8 +1013,9 @@ VARP Omni::gen_position_ids(int seq_len) {
     return positionIds;
 }
 
-std::vector<Express::VARP> Omni::forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos) {
-    auto outputs = Llm::forwardRaw(hiddenState, mask, inputPos);
+std::vector<Express::VARP> Omni::forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos, Express::VARPS extraArgs) {
+    extraArgs.insert(extraArgs.end(), mExtraArgs.begin(), mExtraArgs.end());
+    auto outputs = Llm::forwardRaw(hiddenState, mask, inputPos, extraArgs);
     if (mTalker && outputs.size() > 1) {
         mTalker->addTalkerEmbeds(outputs[1]);
     }

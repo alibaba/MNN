@@ -176,6 +176,7 @@ void AttentionBufExecution::reallocKVCache() {
         auto valueBuf = MetalBackend::getBuffer(mCache->mPastValue.get());
         auto value_ptr = (uint8_t*)[valueBuf.first contents] + valueBuf.second;
         
+        auto src_start = start;
         // TODO: need to ensure reserve info is sorted
         for (int n = 0; n < mMeta->n_reserve; ++n) {
             auto begin = mMeta->reserve[2 * n];
@@ -183,7 +184,7 @@ void AttentionBufExecution::reallocKVCache() {
             // past_key   : [mCache->mPastLength, mKvNumHead, mHeadDim]
             // past_value : [mKvNumHead, mHeadDim, mCache->mMaxLength]
 
-            auto copy_src_index = start + begin;
+            auto copy_src_index = src_start + begin;
             auto copy_dst_index = start;
             for(int i = 0; i < length; i++) {
                 ::memcpy(key_ptr + (copy_dst_index + i) * mKvNumHead * mHeadDim * byte, key_ptr + (copy_src_index + i) * mKvNumHead * mHeadDim * byte, mKvNumHead * mHeadDim * byte);

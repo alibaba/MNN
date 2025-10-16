@@ -53,6 +53,7 @@ bool Embedding::load() {
     mTokenizer.reset(Tokenizer::createTokenizer(mConfig->tokenizer_file()));
     printf("load tokenizer Done\n");
     mDiskEmbedding.reset(new DiskEmbedding(mConfig));
+    mPrompt.reset(Prompt::createPrompt(mContext, mConfig));
     // 2. load model
     Module::Config module_config;
     if(mConfig->backend_type() == "npu") {
@@ -72,7 +73,7 @@ bool Embedding::load() {
     return true;
 }
 
-std::vector<Express::VARP> Embedding::forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos) {
+std::vector<Express::VARP> Embedding::forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos, Express::VARPS extraArgs) {
     return mModule->onForward({hiddenState, mask, inputPos});
 }
 
@@ -85,7 +86,8 @@ VARP Embedding::ids_embedding(const std::vector<int>& ids) {
 }
 
 VARP Embedding::txt_embedding(const std::string& txt) {
-    return ids_embedding(tokenizer_encode(txt));
+    auto prompt = apply_chat_template(txt);
+    return ids_embedding(tokenizer_encode(prompt));
 }
 
 VARP Embedding::gen_attention_mask(int seq_len) {

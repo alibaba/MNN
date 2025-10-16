@@ -21,6 +21,7 @@ class MNNConveter:
         self.quant_bit = config.args.quant_bit
         self.lm_quant_bit = config.args.lm_quant_bit
         self.symmetric = config.args.sym
+        self.hqq = config.args.hqq
         self.mnn_weight_offset = 0
         if os.path.exists(config.args.mnnconvert):
             self.mnnconvert = config.args.mnnconvert
@@ -70,6 +71,8 @@ class MNNConveter:
             convert_args += ['--weightQuantAsymmetric=0']
         if save_external_data:
             convert_args += ['--saveExternalData']
+        if self.hqq:
+            convert_args += ['--hqq']
         convert_args += args
         self.convert(convert_args)
         return mnn_path
@@ -218,7 +221,7 @@ class MNNConveter:
         if os.path.exists(lora_json):
             os.remove(lora_json)
         return lora_model
-    
+
     @spinner_run(f'export smooth quant scale to ')
     def export_smooth_quant(self, mnn_json):
         self.config.smooth_quantizer.apply(mnn_json)

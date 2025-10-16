@@ -81,6 +81,7 @@
    tools/test
    tools/benchmark
    tools/compress
+   tools/mnncompress
    tools/visual
    tools/python
 
