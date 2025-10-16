@@ -76,12 +76,9 @@ class ModelAvatarView @JvmOverloads constructor(
     fun setCompactMode(compactMode: Boolean) {
         isCompactMode = compactMode
         if (compactMode) {
-            // 在紧凑模式下移除 ImageView 的 margin 和 CardView 的背景
             val layoutParams = headerIcon.layoutParams as? ViewGroup.MarginLayoutParams
             layoutParams?.setMargins(0, 0, 0, 0)
             headerIcon.layoutParams = layoutParams
-            
-            // 移除 CardView 的背景
             setCardBackgroundColor(android.graphics.Color.TRANSPARENT)
             cardElevation = 0f
             strokeWidth = 0

@@ -7,10 +7,7 @@ import io.ktor.server.request.path
 import io.ktor.util.flattenEntries
 import timber.log.Timber
 
-/**
- * 聊天日志管理器
- * 负责集中管理聊天相关的日志记录
- */
+/** * chatlogmanager * responsible forcentralizedmanagingchatrelatedlogrecord*/
 class ChatLogger {
 
     companion object {
@@ -19,18 +16,14 @@ class ChatLogger {
         private const val TAG_TRANSFORM = "MessageTransform"
     }
 
-    /**
-     * 记录请求开始
-     */
+    /** * recordrequeststart*/
     fun logRequestStart(traceId: String, call: ApplicationCall) {
         Timber.tag(TAG_REQUEST).d("[$traceId] 进入接口")
         Timber.tag(TAG_REQUEST).d("请求头: ${call.request.headers.flattenEntries().joinToString("; ")}")
         Timber.tag(TAG_REQUEST).i("收到请求: ${call.request.httpMethod.value} ${call.request.path()}")
     }
 
-    /**
-     * 记录请求体
-     */
+    /** * recordrequestbody*/
     fun logRequestBody(traceId: String, chatRequest: OpenAIChatRequest, rawBody: String? = null) {
         if (rawBody != null) {
             Timber.tag(TAG_REQUEST).d("原始请求体: $rawBody")
@@ -38,45 +31,34 @@ class ChatLogger {
         Timber.tag(TAG_REQUEST).d("[$traceId] 请求体: $chatRequest")
     }
 
-    /**
-     * 记录转换后的历史消息
-     */
+    /** * recordconvertafterhistorymessage*/
     fun logTransformedHistory(traceId: String, unifiedHistory: List<android.util.Pair<String, String>>) {
         Timber.tag(TAG_TRANSFORM).d("[$traceId] 转换后的统一历史消息: $unifiedHistory")
     }
 
-    /**
-     * 记录推理开始
-     */
+    /** * recordinferencestart*/
     fun logInferenceStart(traceId: String, historySize: Int) {
         Timber.tag(TAG_REQUEST).d("[$traceId] 使用API服务完整历史推理，消息数量: $historySize")
     }
 
-    /**
-     * 记录推理完成
-     */
+    /** * recordinferencecomplete*/
     fun logInferenceComplete(traceId: String) {
         Timber.tag(TAG_REQUEST).d("[$traceId] API服务推理完成")
     }
 
-    /**
-     * 记录流式响应
-     */
+    /** * recordstreamingresponse*/
     fun logStreamDelta(traceId: String, progress: String) {
         Timber.tag(TAG_STREAM).d("[$traceId] 发送delta: $progress")
     }
 
-    /**
-     * 记录流式响应结束
-     */
+    /** * recordstreamingresponseend*/
     fun logStreamEnd(traceId: String) {
         Timber.tag(TAG_STREAM).d("[$traceId] 发送最终chunk")
         Timber.tag(TAG_STREAM).d("[$traceId] 发送 [DONE] 兼容标记")
     }
 
     /**
-     * 记录错误
-     */
+     * recorderror*/
     fun logError(traceId: String, error: Throwable, context: String = "") {
         val tag = when {
             context.contains("stream", ignoreCase = true) -> TAG_STREAM
@@ -86,9 +68,7 @@ class ChatLogger {
         Timber.tag(tag).e(error, "[$traceId] $context")
     }
 
-    /**
-     * 记录警告
-     */
+    /** * recordwarning*/
     fun logWarning(traceId: String, message: String, error: Throwable? = null) {
         if (error != null) {
             Timber.tag(TAG_STREAM).w(error, "[$traceId] $message")
@@ -98,15 +78,13 @@ class ChatLogger {
     }
 
     /**
-     * 记录LLM Session状态
-     */
+     * recordLLM Sessionstate*/
     fun logLlmSessionError(traceId: String) {
         Timber.tag(TAG_REQUEST).e("[$traceId] LlmSession为空")
     }
     
     /**
-     * 记录信息日志
-     */
+     * recordinfolog*/
     fun logInfo(traceId: String, message: String) {
         Timber.tag(TAG_REQUEST).i("[$traceId] $message")
     }

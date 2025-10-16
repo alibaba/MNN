@@ -8,15 +8,9 @@ import io.ktor.server.routing.Route
 import io.ktor.server.routing.post
 import java.util.UUID
 
-/**
- * 聊天路由定义
- * 负责定义API路由和请求分发，遵循单一职责原则
- * 所有业务逻辑已拆分到专门的服务类中
- */
+/** * chatroutedefine * responsible fordefineAPIrouteandrequestdispatch，followsingleresponsibilityprinciple * allbusinesslogicalreadysplittodedicatedserviceclassin*/
 
-/**
- * 注册聊天相关的路由
- */
+/** * registerchatrelatedroute*/
 fun Route.chatRoutes() {
     val MNNChatService = MNNChatService()
     val logger = ChatLogger()

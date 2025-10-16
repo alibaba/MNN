@@ -12,11 +12,7 @@ import java.security.MessageDigest
 import java.security.NoSuchAlgorithmException
 import java.util.Base64
 
-/**
- * MNN图像处理器，负责处理图像URL（Base64或网络URL），
- * 将其保存到本地缓存并返回文件路径。
- * 集成双重哈希缓存机制以解决不同客户端Base64编码差异问题。
- */
+/** * MNN imageprocessor,responsible for processingimage URL (Base64 ornetworkURL）, * will andsave tolocalcache andreturn file path. * integratedual hashcachemechanismto solvedifferentclientBase64 encodingdifferencesissue.*/
 class MnnImageProcessor(private val context: Context) {
     private val hashToPathMap: MutableMap<String, String> = HashMap()
     private val imageCacheManager = ImageCacheManager.getInstance(context)
@@ -30,7 +26,7 @@ class MnnImageProcessor(private val context: Context) {
 
     init {
         ensureCacheDirExists()
-        // 启动时清理无效缓存条目
+        //start whencleanupinvalidcacheentry
         logDebug("初始化图像处理器，清理缓存...")
         logDebug(imageCacheManager.getCacheStats())
     }
@@ -44,11 +40,7 @@ class MnnImageProcessor(private val context: Context) {
         }
     }
 
-    /**
-     * 处理图像URL，可能是Base64数据URI或网络URL。
-     * @param imageUrl 图像的URL或Base64数据URI
-     * @return 本地文件路径，如果处理失败则返回null
-     */
+    /** * process imageURL,possiblyis Base64data URI ornetworkURL. * @param imageUrl image URL orBase64 data URI * @return localfile path,ifprocessfails thenreturn null*/
     suspend fun processImageUrl(imageUrl: String): String? {
         logDebug("Starting to process image URL. Input type detection...")
         return if (imageUrl.startsWith("data:image")) {
@@ -62,13 +54,13 @@ class MnnImageProcessor(private val context: Context) {
                 null
             }
         } else if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
-            // 网络URL
+            //networkURL
             logDebug("Processing network image URL: $imageUrl")
-            // TODO: 实现网络图片下载和缓存逻辑
-            // 临时返回原始URL或一个占位符，或者下载它
+            //TODO: implementationnetworkimagedownloadandcachelogic
+            //temporarily returnoriginal URLor aplaceholder,ordownload it
             downloadAndProcessNetworkImage(imageUrl)
         } else if (File(imageUrl).exists()) {
-            // 已经是本地文件路径
+            //already islocalfile path
             logDebug("Image is already a local file: $imageUrl")
             imageUrl
         } else {
@@ -94,7 +86,7 @@ class MnnImageProcessor(private val context: Context) {
                 }
                 logDebug("Successfully downloaded image data, byte length: ${imageData.size}")
 
-                // 使用URL的哈希或文件名作为缓存键
+                //use URLhash orfile nameascache key
                 val hash = calculateSHA256(urlString) // Hash the URL itself for caching
                 logDebug("Calculated hash for URL '$urlString': $hash")
 
@@ -134,7 +126,7 @@ class MnnImageProcessor(private val context: Context) {
     private suspend fun processBase64Image(base64Data: String): String? {
         logDebug("使用双重哈希缓存机制处理Base64图像")
         
-        // 使用新的ImageCacheManager处理Base64图像
+        //usenewImageCacheManagerprocessBase64image
         val result = imageCacheManager.processBase64Image(base64Data)
         
         if (result != null) {
@@ -142,14 +134,12 @@ class MnnImageProcessor(private val context: Context) {
             return result
         } else {
             logError("Base64图像处理失败，回退到原有方法")
-            // 回退到原有的处理方法
+            //fallbacktooriginalprocessmethod
             return processBase64ImageFallback(base64Data)
         }
     }
     
-    /**
-     * 原有的Base64处理方法，作为回退方案
-     */
+    /** * original Base64processing method,asfallbacksolution*/
     private suspend fun processBase64ImageFallback(base64Data: String): String? =
         withContext(Dispatchers.IO) {
             try {
@@ -252,14 +242,12 @@ class MnnImageProcessor(private val context: Context) {
         }
     }
 
-    /**
-     * 清理过期缓存（包括新的双重哈希缓存和旧的缓存）
-     */
+    /** * cleanup expiredcache (includingnewdual hashcache andold cache)*/
     fun cleanupCache(maxAgeMillis: Long = 24 * 60 * 60 * 1000L) { // Default 24 hours
-        // 清理新的双重哈希缓存
+        //cleanupnewdualhashcache
         imageCacheManager.cleanupExpiredCache(maxAgeMillis)
         
-        // 清理旧的缓存方式（向后兼容）
+        //cleanup oldcache method (backward compatible)
         val dir = File(cacheDir)
         if (dir.exists() && dir.isDirectory) {
             dir.listFiles()?.forEach { file ->
@@ -273,9 +261,7 @@ class MnnImageProcessor(private val context: Context) {
         }
     }
     
-    /**
-     * 获取缓存统计信息
-     */
+    /** * getcachestatisticsinfo*/
     fun getCacheStats(): String {
         return imageCacheManager.getCacheStats()
     }

@@ -36,6 +36,7 @@
     <string name="take_photo">Photo</string>
     <string name="choose_image">Image</string>
     <string name="select_audio">Audio(wav)</string>
+    <string name="select_video">Video</string>
     <string name="show_performance_metrics">Show Performance Metrics</string>
     <string name="realtime_audio_playback">Real-time Audio Playback</string>
     <string name="report_issue">Issue</string>
@@ -60,6 +61,7 @@
     <string name="no_camera_app_found">No camera app found on this device</string>
     <string name="file_manager_required">Please install a File Manager</string>
     <string name="audio_file_failed">Failed to get audio file</string>
+    <string name="video_file_failed">Failed to get video file</string>
     <string name="select_picture">Select Picture</string>
     <string name="select_wav_file">Select a WAV file</string>
     <string name="release_to_send">Release to Send, Slide up to cancel</string>
@@ -321,9 +323,37 @@
     <string name="tts_playback_completed">Playback completed. Generated %1$d samples.</string>
     <string name="tts_error">TTS Error: %1$s</string>
     <string name="tts_not_ready">TTS Service not ready</string>
+    <string name="start_video_decoder_test">Start Video Decoder Test</string>
+    <string name="stop_video_decoder_test">Stop Video Decoder Test</string>
+    <string name="process_video_file">Process Video File</string>
+    <string name="video_decoder_test_input_hint">Select a video file to decode</string>
+    <string name="video_decoder_test_title">Video Decoder Test</string>
+    <string name="video_decoder_test_description">Test the optimized video decoder implementation</string>
+    <string name="video_file_selection">Video File Selection</string>
+    <string name="select_video_file">Select Video File</string>
+    <string name="no_video_selected">No video file selected</string>
+    <string name="decoder_configuration">Decoder Configuration</string>
+    <string name="max_frames">Max Frames</string>
+    <string name="sample_interval">Sample Interval</string>
+    <string name="max_buffer_count">Max Buffer Count</string>
+    <string name="control_buttons">Control Buttons</string>
+    <string name="start_decode">Start Decode</string>
+    <string name="stop_decode">Stop Decode</string>
+    <string name="decode_results">Decode Results</string>
+    <string name="no_results_yet">No results yet</string>
+    <string name="decode_log">Decode Log</string>
+    <string name="long_press_to_clear_video">Long press video name to clear selection</string>
     <string name="placeholder_test_1">Test Item 1 (Coming Soon)</string>
     <string name="placeholder_test_2">Test Item 2 (Coming Soon)</string>
     <string name="debug_log">Debug Log</string>
+    
+    <!-- Test Case Strings -->
+    <string name="asr_test_title">ASR Test</string>
+    <string name="asr_test_description">Test Automatic Speech Recognition functionality</string>
+    <string name="tts_test_title">TTS Test</string>
+    <string name="tts_test_description">Test Text-to-Speech functionality</string>
+    <string name="debug_settings_title">Debug Settings</string>
+    <string name="debug_settings_description">Configure debug mode settings and preferences</string>
     
     <!-- Voice Chat Strings -->
     <string name="voice_chat">Voice Chat</string>
@@ -541,4 +571,21 @@
     <string name="unknown_error">Unknown error</string>
     <string name="not_available">N/A</string>
     <string name="unknown_model">Unknown Model</string>
+    
+    <!-- Large Model Warning Dialog Strings -->
+    <string name="large_model_warning_title">Large Model Warning</string>
+    <string name="large_model_warning_message">The model \"%1$s\" is %2$sB in size, which is quite large and may cause the app to crash due to memory limitations. Do you want to continue opening this model?</string>
+    <string name="continue_open">Continue Open</string>
+    
+    <!-- Privacy Policy Strings -->
+    <string name="privacy_policy_title">Privacy Policy Agreement</string>
+    <string name="privacy_policy_content">Welcome to MNN Chat! Before using our application, please read and agree to our Privacy Policy.\n\nWe are committed to protecting your privacy and personal information. This application may collect and process certain data to provide you with better services.\n\nBy using this application, you agree to:\n• Allow the application to collect necessary data for functionality\n• Understand that your data may be processed locally on your device\n• Accept our terms of service and privacy practices\n\nIf you do not agree to these terms, please do not use this application.\n\nFor more detailed information about our privacy practices, please contact us through our official channels.</string>
+    <string name="privacy_policy_agree">I have read and agree to the Privacy Policy</string>
+    <string name="privacy_policy_agree_button">Agree and Continue</string>
+    <string name="privacy_policy_disagree">Disagree</string>
+    <string name="privacy_policy_required">You must agree to the Privacy Policy to use this application</string>
+    <string name="privacy_policy_exit_message">You have chosen not to agree to the Privacy Policy. The application will now exit.</string>
+    <string name="loading_models">Loading models…</string>
+    <string name="copying_builtin_models">First install, copying built-in models…</string>
+    <string name="builtin">Builtin</string>
 </resources>

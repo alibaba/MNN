@@ -51,10 +51,10 @@ class VoiceChatPresenterTest {
         every { mockChatPresenter.addGenerateListener(any()) } just Runs
         every { mockChatPresenter.removeGenerateListener(any()) } just Runs
         presenter.start()
-        // 启动后状态会变为LISTENING（异步，需等待）
+        //Status will change to LISTENING after startup (async, need to wait)
         runBlocking { delay(100) }
         presenter.stop()
-        // 停止后isStopped应为true，状态不再变化
+        //After stopping, isStopped should be true, status no longer changes
         assertTrue(presenter.getCurrentStatus() == VoiceChatPresenterState.INITIALIZING ||
                    presenter.getCurrentStatus() == VoiceChatPresenterState.LISTENING)
         verify { mockChatPresenter.addGenerateListener(presenter) }
@@ -86,7 +86,7 @@ class VoiceChatPresenterTest {
         every { mockView.updateLastTranscript(any()) } just Runs
         presenter.onLlmGenerateProgress("hello", processor)
         runBlocking { delay(100) }
-        // 只要没有异常，说明流程可达
+        //As long as there's no exception, the process is reachable
     }
 
     @Test
@@ -94,16 +94,16 @@ class VoiceChatPresenterTest {
         every { mockView.updateStatus(any()) } just Runs
         presenter.onGenerateFinished(hashMapOf("response" to "ok"))
         runBlocking { delay(100) }
-        // 只要没有异常，说明流程可达
+        //As long as there's no exception, the process is reachable
     }
 
     @Test
     fun `test error handling in speakGreetingMessage`() {
-        // 模拟activity.getString抛异常
+        //Simulate activity.getString throwing exception
         every { mockActivity.getString(any()) } throws RuntimeException("test error")
         every { mockView.updateStatus(any()) } just Runs
         presenter.start()
         runBlocking { delay(200) }
-        // 只要没有crash，说明异常被处理
+        //As long as there's no crash, exceptions are handled
     }
 } 

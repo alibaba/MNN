@@ -2,10 +2,7 @@ package com.alibaba.mnnllm.api.openai.network.models
 
 import kotlinx.serialization.Serializable
 
-/**
- * OpenAI Chat API 响应数据模型
- * 负责定义聊天完成响应的数据结构
- */
+/** * OpenAI Chat API responsedatamodel * responsible fordefinechatcompleteresponsedatastructure*/
 
 @Serializable
 data class DeltaResponse(
@@ -14,14 +11,14 @@ data class DeltaResponse(
     val created: Long,
     val model: String,
     val choices: List<Choice>,
-    val usage: Usage? = null // 仅在最后一个chunk中包含
+    val usage: Usage? = null //only inlastchunkcontaining
 )
 
 @Serializable
 data class Choice(
     val delta: Delta,
     val finish_reason : String? = null,
-   // val index: Int  //后期要对传入请求检测index并在响应时添加index
+   //val index: Int //will need tofor incomingrequest detectionindexand in responsewhenadd index
 )
 
 @Serializable
@@ -29,10 +26,7 @@ data class Delta(
     val content: String
 )
 
-/**
- * Token使用统计信息
- * 符合OpenAI API标准
- */
+/** * Tokenusestatisticsinfo * comply withOpenAI APIstandard*/
 @Serializable
 data class Usage(
     val prompt_tokens: Int,
@@ -40,9 +34,7 @@ data class Usage(
     val total_tokens: Int
 )
 
-/**
- * 非流式响应数据模型
- */
+/** * non-streamingresponsedatamodel*/
 @Serializable
 data class ChatCompletionResponse(
     val id: String,
@@ -67,8 +59,7 @@ data class Message(
 )
 
 /**
- * Models API 响应数据模型
- */
+ * Models API responsedatamodel*/
 @Serializable
 data class ModelsResponse(
     val `object`: String = "list",

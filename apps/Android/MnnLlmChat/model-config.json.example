@@ -1,0 +1,42 @@
+{
+  "models": [
+    {
+      "name": "Qwen3-0.6B-MNN",
+      "url": "http://30.7.194.163:8080/Qwen3-0.6B-MNN.zip",
+      "modelName": "Qwen3-0.6B-MNN",
+      "vendor": "Qwen",
+      "size_gb": 0.6,
+      "tags": [
+        "Think"
+      ],
+      "categories": [
+        "recommended",
+        "qwen"
+      ],
+      "extra_tags": [
+        "ThinkingSwitch"
+      ],
+      "modelId": "Builtin/MNN/Qwen3-0.6B-MNN",
+      "market_version": "6"
+    },
+    {
+      "name": "Qwen3-4B-MNN",
+      "url": "http://30.7.194.163:8080/Qwen3-4B-MNN.zip",
+      "modelName": "Qwen3-4B-MNN",
+      "vendor": "Qwen",
+      "size_gb": 4,
+      "tags": [
+        "Think"
+      ],
+      "categories": [
+        "recommended",
+        "qwen"
+      ],
+      "extra_tags": [
+        "ThinkingSwitch"
+      ],
+      "modelId": "Builtin/MNN/Qwen3-4B-MNN",
+      "market_version": "6"
+    }
+  ]
+}

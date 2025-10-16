@@ -46,6 +46,9 @@ import com.google.android.material.appbar.AppBarLayout
 import com.google.android.material.appbar.MaterialToolbar
 import com.alibaba.mnnllm.android.chat.SelectSourceFragment
 import android.content.Intent
+import com.alibaba.mnnllm.android.qnn.QnnModule
+import com.alibaba.mnnllm.android.privacy.PrivacyPolicyManager
+import com.alibaba.mnnllm.android.privacy.PrivacyPolicyDialogFragment
 
 class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleListener {
     private lateinit var drawerLayout: DrawerLayout
@@ -337,6 +340,10 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Check privacy policy agreement first
+        checkPrivacyPolicyAgreement()
+        
         setContentView(R.layout.activity_main)
         val toolbar = findViewById<Toolbar>(R.id.toolbar)
         setupAppBar()
@@ -389,6 +396,7 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
         
         // Handle intent extras for navigation from notification
         handleIntentExtras(intent)
+        QnnModule.loadQnnLibs(this)
     }
     
     private fun handleIntentExtras(intent: Intent?) {
@@ -472,10 +480,52 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
     fun onAddModelButtonClick(view: View) {
         bottomNav.select(BottomTabBar.Tab.MODEL_MARKET)
     }
+    
+    /**
+     * Check if user has agreed to privacy policy
+     * If not, show privacy policy dialog
+     */
+    private fun checkPrivacyPolicyAgreement() {
+        if (!ENABLE_PRIVACY_POLICY_CHECK) {
+            return
+        }
+        
+        val privacyManager = PrivacyPolicyManager.getInstance(this)
+        
+        if (!privacyManager.hasUserAgreed()) {
+            showPrivacyPolicyDialog()
+        }
+    }
+    
+    /**
+     * Show privacy policy dialog
+     */
+    private fun showPrivacyPolicyDialog() {
+        val dialog = PrivacyPolicyDialogFragment.newInstance(
+            onAgree = {
+                // User agreed to privacy policy
+                val privacyManager = PrivacyPolicyManager.getInstance(this)
+                privacyManager.setUserAgreed(true)
+                Log.d(TAG, "User agreed to privacy policy")
+            },
+            onDisagree = {
+                // User disagreed to privacy policy
+                Toast.makeText(this, getString(R.string.privacy_policy_exit_message), Toast.LENGTH_LONG).show()
+                Log.d(TAG, "User disagreed to privacy policy")
+                // Exit the application
+                finishAffinity()
+            }
+        )
+        
+        dialog.show(supportFragmentManager, PrivacyPolicyDialogFragment.TAG)
+    }
 
     companion object {
         const val TAG: String = "MainActivity"
         const val EXTRA_SELECT_TAB = "com.alibaba.mnnllm.android.select_tab"
         const val TAB_MODEL_MARKET = "model_market"
+        
+        // Control whether to show privacy policy agreement dialog
+        const val ENABLE_PRIVACY_POLICY_CHECK = false
     }
 }

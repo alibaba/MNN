@@ -21,11 +21,12 @@ import com.alibaba.mnnllm.android.main.FilterComponent
 import com.alibaba.mnnllm.android.mainsettings.MainSettings
 import com.alibaba.mnnllm.android.model.Modality
 import com.alibaba.mnnllm.android.model.ModelVendors
-import com.alibaba.mnnllm.android.model.ModelUtils
+import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.modelsettings.DropDownMenuHelper
 import com.alibaba.mnnllm.android.utils.Searchable
 import com.alibaba.mnnllm.android.widgets.ModelSwitcherView
 import android.widget.Toast
+import com.alibaba.mnnllm.android.utils.LargeModelConfirmationDialog
 
 class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
 
@@ -594,12 +595,29 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
                 }
                 
                 // Check if it's a voice model (TTS or ASR)
-                if (ModelUtils.isTtsModelByTags(item.modelMarketItem.tags) || ModelUtils.isAsrModelByTags(item.modelMarketItem.tags)) {
+                if (ModelTypeUtils.isTtsModelByTags(item.modelMarketItem.tags) || ModelTypeUtils.isAsrModelByTags(item.modelMarketItem.tags)) {
                     // For voice models, clicking the item sets it as default
                     handleVoiceModelClick(item.modelMarketItem)
                 } else {
-                    // For other models, run the model
-                    (requireActivity() as MainActivity).runModel(null, item.modelMarketItem.modelId, null)
+                    // For other models, check if it's a large model before running
+                    if (item.modelMarketItem.sizeB > 10.0) {
+                        // Show confirmation dialog for large models
+                        LargeModelConfirmationDialog.show(
+                            fragment = this,
+                            modelName = item.modelMarketItem.modelName,
+                            modelSize = item.modelMarketItem.sizeB,
+                            onConfirm = {
+                                // User confirmed, proceed with running the model
+                                (requireActivity() as MainActivity).runModel(null, item.modelMarketItem.modelId, null)
+                            },
+                            onCancel = {
+                                // User cancelled, do nothing
+                            }
+                        )
+                    } else {
+                        // Model is not large, run directly
+                        (requireActivity() as MainActivity).runModel(null, item.modelMarketItem.modelId, null)
+                    }
                 }
             }
             DownloadState.NOT_START,
@@ -636,9 +654,9 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
     }
 
     private fun handleVoiceModelClick(modelMarketItem: ModelMarketItem) {
-        if (ModelUtils.isTtsModelByTags(modelMarketItem.tags)) {
+        if (ModelTypeUtils.isTtsModelByTags(modelMarketItem.tags)) {
             handleTtsModelClick(modelMarketItem)
-        } else if (ModelUtils.isAsrModelByTags(modelMarketItem.tags)) {
+        } else if (ModelTypeUtils.isAsrModelByTags(modelMarketItem.tags)) {
             handleAsrModelClick(modelMarketItem)
         }
     }
@@ -689,7 +707,7 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
      * Refresh adapter to update all checkbox states, ensuring only one is selected
      */
     private fun refreshAdapterForVoiceModelChange() {
-        // 通知 adapter 刷新所有 item，这样每个 item 都会重新检查是否为默认模型
+        //Notify adapter to refresh all items so each item rechecks if it's the default model
         adapter.notifyDataSetChanged()
     }
 

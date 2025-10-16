@@ -17,15 +17,33 @@
         android:clipToPadding="false"
         android:paddingBottom="8dp" />
 
-    <com.github.ybq.android.spinkit.SpinKitView
+    <LinearLayout
         android:id="@+id/model_list_loading_view"
         android:layout_centerVertical="true"
         android:layout_centerHorizontal="true"
-        style="@style/SpinKitView.Large.FadingCircle"
-        android:layout_width="50dp"
-        android:layout_height="50dp"
-        android:layout_gravity="center"
-        app:SpinKit_Color="?attr/colorPrimary" />
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center">
+        
+        <com.github.ybq.android.spinkit.SpinKitView
+            style="@style/SpinKitView.Large.FadingCircle"
+            android:layout_width="50dp"
+            android:layout_height="50dp"
+            android:layout_gravity="center"
+            app:SpinKit_Color="?attr/colorPrimary" />
+            
+        <TextView
+            android:id="@+id/tv_loading_message"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:textSize="14sp"
+            android:textColor="?attr/colorOnSurface"
+            android:text="@string/loading_models"
+            android:gravity="center" />
+            
+    </LinearLayout>
 
     <RelativeLayout
         android:id="@+id/model_list_failed_view"

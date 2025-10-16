@@ -9,14 +9,10 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.delete
 import kotlinx.serialization.Serializable
 
-/**
- * 队列状态路由
- * 提供队列监控和管理功能
- */
+/** * queuestateroute * providequeuemonitoringandmanagingfunction*/
 
 /**
- * 队列状态响应数据类
- */
+ * queuestateresponsedataclass*/
 @Serializable
 data class QueueStatusResponse(
     val status: String,
@@ -29,13 +25,11 @@ data class QueueStatusResponse(
     val message: String
 )
 
-/**
- * 注册队列相关的路由
- */
+/** * registerqueuerelatedroute*/
 fun Route.queueRoutes() {
     val requestQueueManager = RequestQueueManager.getInstance()
 
-    // 获取队列状态
+    //getqueuestate
     get("/v1/queue/status") {
         try {
             val stats = requestQueueManager.getQueueStats()
@@ -67,7 +61,7 @@ fun Route.queueRoutes() {
         }
     }
     
-    // 清空队列（仅用于管理目的，需要认证）
+    //clear queue (only for managingpurpose,neededauthentication)
     delete("/v1/queue/clear") {
         try {
             requestQueueManager.clearQueue()

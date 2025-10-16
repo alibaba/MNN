@@ -11,9 +11,7 @@ import com.alibaba.mnnllm.api.openai.service.OpenAIService
 import com.alibaba.mnnllm.api.openai.service.ApiServerConfig
 import timber.log.Timber
 
-/**
- * 处理通知栏操作按钮点击事件的广播接收器
- */
+/** * processnotificationbaroperationsbuttonclickeventbroadcastreceive*/
 class ApiServiceActionReceiver : BroadcastReceiver() {
     
     companion object {
@@ -59,8 +57,7 @@ class ApiServiceActionReceiver : BroadcastReceiver() {
     }
     
     /**
-     * 停止 API 服务
-     */
+     * stop API service*/
     private fun stopApiService(context: Context) {
         Timber.tag("ApiServiceActionReceiver").i("Starting to stop API service...")
         try {
@@ -74,9 +71,7 @@ class ApiServiceActionReceiver : BroadcastReceiver() {
         }
     }
     
-    /**
-     * 复制 URL 到剪贴板
-     */
+    /** * copy URL toclipboard*/
     private fun copyUrlToClipboard(context: Context, url: String) {
         Timber.tag("ApiServiceActionReceiver").i("Starting to copy URL to clipboard: $url")
         try {
@@ -98,13 +93,11 @@ class ApiServiceActionReceiver : BroadcastReceiver() {
         }
     }
     
-    /**
-     * 在浏览器中打开测试页面
-     */
+    /** * atbrowserinopentestpage*/
     private fun openTestPageInBrowser(context: Context, url: String) {
         Timber.tag("ApiServiceActionReceiver").i("Starting to open test page in browser: $url")
         try {
-            // 检查是否启用了认证，如果启用则添加token参数
+            //check whetherenabledauthentication,ifenabledthenaddtokenparameter
             val finalUrl = if (ApiServerConfig.isAuthEnabled(context)) {
                 val apiKey = ApiServerConfig.getApiKey(context)
                 val separator = if (url.contains("?")) "&" else "?"

@@ -17,8 +17,6 @@
         android:gravity="center"
         android:layout_marginBottom="16dp" />
 
-    <!-- ... existing code ... -->
-
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -27,7 +25,7 @@
         android:gravity="center"
         android:layout_marginBottom="24dp" />
 
-    <!-- Test Buttons Section -->
+    <!-- Test Case Selection Section -->
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -36,94 +34,26 @@
         android:textStyle="bold"
         android:layout_marginBottom="8dp" />
 
-    <Button
-        android:id="@+id/asrTestButton"
+    <Spinner
+        android:id="@+id/testCaseSpinner"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="@string/start_asr_test"
-        android:layout_marginBottom="8dp" />
-
-    <!-- TTS Test Section -->
-    <Button
-        android:id="@+id/ttsTestButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/start_tts_test"
-        android:layout_marginBottom="8dp" />
-
-    <EditText
-        android:id="@+id/ttsInputText"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="@string/tts_test_input_hint"
-        android:inputType="textMultiLine"
-        android:minLines="2"
-        android:maxLines="4"
-        android:enabled="false"
-        android:layout_marginBottom="8dp" />
-
-    <Button
-        android:id="@+id/ttsProcessButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/tts_test_button"
-        android:enabled="false"
         android:layout_marginBottom="16dp" />
 
-    <!-- Debug Mode Control Section -->
-    <TextView
+    <!-- Test Case Content Container -->
+    <FrameLayout
+        android:id="@+id/testCaseContainer"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/debug_mode_control"
-        android:textSize="18sp"
-        android:textStyle="bold"
-        android:layout_marginBottom="8dp" />
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:layout_marginBottom="8dp">
-
-        <TextView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/debug_show_model_info"
-            android:textSize="16sp" />
-
-        <Switch
-            android:id="@+id/showModelInfoSwitch"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
-
-    </LinearLayout>
-
-    <Switch
-        android:id="@+id/allowNetworkSwitch"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="@string/allow_network_market_data" />
-
-    <Switch
-        android:id="@+id/networkDelaySwitch"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="@string/enable_network_delay" />
-
-    <Button
-        android:id="@+id/closeDebugModeButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/close_debug_mode"
+        android:layout_height="0dp"
+        android:layout_weight="0.4"
+        android:background="@android:color/white"
         android:layout_marginBottom="16dp" />
 
     <!-- Log Section -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
+        android:layout_weight="0.6"
         android:orientation="vertical">
 
         <LinearLayout
