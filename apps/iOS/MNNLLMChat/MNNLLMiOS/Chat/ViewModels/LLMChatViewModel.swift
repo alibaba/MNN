@@ -347,14 +347,25 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
             // MARK: Add image
 
             for media in medias {
-                guard media.type == .image, let url = await media.getURL() else {
+                switch media.type {
+                case .image:
+                    guard let url = await media.getURL() else { continue }
+
+                    let fileName = url.lastPathComponent
+
+                    if let processedUrl = FileOperationManager.shared.processImageFile(from: url, fileName: fileName) {
+                        content = "<img>\(processedUrl.path)</img>" + content
+                    }
+                case .video:
+                    guard let url = await media.getURL() else { continue }
+
+                    let fileName = url.lastPathComponent
+
+                    if let processedUrl = FileOperationManager.shared.processVideoFile(from: url, fileName: fileName) {
+                        content = "<video>\(processedUrl.path)</video>" + content
+                    }
+                default:
                     continue
-                }
-
-                let fileName = url.lastPathComponent
-
-                if let processedUrl = FileOperationManager.shared.processImageFile(from: url, fileName: fileName) {
-                    content = "<img>\(processedUrl.path)</img>" + content
                 }
             }
 
