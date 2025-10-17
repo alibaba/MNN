@@ -59,6 +59,26 @@ final class FileOperationManager {
         return fileUrl
     }
 
+    // MARK: - Video Processing
+
+    /// Ensures the provided video file resides inside the app's temporary directory.
+    /// Copies the video into the tmp folder when necessary so that downstream
+    /// modules (LLM prompt builder, history persistence) can access a stable path.
+    ///
+    /// - Parameters:
+    ///   - url: Original video URL provided by the media picker.
+    ///   - fileName: Target file name to use inside the tmp directory.
+    /// - Returns: An accessible URL of the copied video, or nil if the copy fails.
+    func processVideoFile(from url: URL, fileName: String) -> URL? {
+        let isInTempDirectory = url.path.contains("/tmp/")
+
+        if isInTempDirectory {
+            return url
+        }
+
+        return AssetExtractor.copyFileToTmpDirectory(from: url, fileName: fileName)
+    }
+
     // MARK: - Directory Size Calculation
 
     /// Formats byte count into human-readable string using ByteCountFormatter
