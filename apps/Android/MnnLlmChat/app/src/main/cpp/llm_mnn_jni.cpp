@@ -80,7 +80,15 @@ JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_submitN
                                                                                       progressListener) {
     auto *llm = reinterpret_cast<mls::LlmSession *>(llmPtr);
     if (!llm) {
-        return env->NewStringUTF("Failed, Chat is not ready!");
+        // Return a HashMap with error info to match the Java signature
+        jclass hashMapClass = env->FindClass("java/util/HashMap");
+        jmethodID hashMapInit = env->GetMethodID(hashMapClass, "<init>", "()V");
+        jmethodID putMethod = env->GetMethodID(hashMapClass, "put",
+                                               "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
+        jobject hashMap = env->NewObject(hashMapClass, hashMapInit);
+        env->CallObjectMethod(hashMap, putMethod, env->NewStringUTF("error"),
+                              env->NewStringUTF("Failed, Chat is not ready!"));
+        return hashMap;
     }
     const char *input_str = env->GetStringUTFChars(inputStr, nullptr);
     jclass progressListenerClass = env->GetObjectClass(progressListener);
@@ -159,7 +167,15 @@ JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_submitF
 ) {
     auto *llm = reinterpret_cast<mls::LlmSession *>(llmPtr);
     if (!llm) {
-        return env->NewStringUTF("Failed, Chat is not ready!");
+        // Return a HashMap with error info to match the Java signature
+        jclass hashMapClass = env->FindClass("java/util/HashMap");
+        jmethodID hashMapInit = env->GetMethodID(hashMapClass, "<init>", "()V");
+        jmethodID putMethod = env->GetMethodID(hashMapClass, "put",
+                                               "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
+        jobject hashMap = env->NewObject(hashMapClass, hashMapInit);
+        env->CallObjectMethod(hashMap, putMethod, env->NewStringUTF("error"),
+                              env->NewStringUTF("Failed, Chat is not ready!"));
+        return hashMap;
     }
 
     // 解析 Java List<Pair<String, String>> 到 C++ vector
@@ -176,7 +192,15 @@ JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_submitF
     jclass pairClass = env->FindClass("android/util/Pair");
     if (pairClass == nullptr) {
         MNN_DEBUG("Failed to find android.util.Pair class");
-        return env->NewStringUTF("Failed to find android.util.Pair class");
+        // Return a HashMap with error info to match the Java signature
+        jclass hashMapClass = env->FindClass("java/util/HashMap");
+        jmethodID hashMapInit = env->GetMethodID(hashMapClass, "<init>", "()V");
+        jmethodID putMethod = env->GetMethodID(hashMapClass, "put",
+                                               "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
+        jobject hashMap = env->NewObject(hashMapClass, hashMapInit);
+        env->CallObjectMethod(hashMap, putMethod, env->NewStringUTF("error"),
+                              env->NewStringUTF("Failed to find android.util.Pair class"));
+        return hashMap;
     }
     // 使用 GetFieldID 访问 first 字段
     jfieldID firstField = env->GetFieldID(pairClass, "first", "Ljava/lang/Object;");

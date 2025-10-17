@@ -35,6 +35,7 @@
     <string name="take_photo">拍照</string>
     <string name="choose_image">图片</string>
     <string name="select_audio">音频(wav)</string>
+    <string name="select_video">视频</string>
     <string name="show_performance_metrics">显示性能指标</string>
     <string name="realtime_audio_playback">实时音频播放</string>
     <string name="report_issue">反馈</string>
@@ -316,9 +317,37 @@
     <string name="tts_playback_completed">播放完成。生成了%1$d个样本。</string>
     <string name="tts_error">TTS错误：%1$s</string>
     <string name="tts_not_ready">TTS服务未就绪</string>
+    <string name="start_video_decoder_test">开始视频解码器测试</string>
+    <string name="stop_video_decoder_test">停止视频解码器测试</string>
+    <string name="process_video_file">处理视频文件</string>
+    <string name="video_decoder_test_input_hint">选择要解码的视频文件</string>
+    <string name="video_decoder_test_title">视频解码器测试</string>
+    <string name="video_decoder_test_description">测试优化的视频解码器实现</string>
+    <string name="video_file_selection">视频文件选择</string>
+    <string name="select_video_file">选择视频文件</string>
+    <string name="no_video_selected">未选择视频文件</string>
+    <string name="decoder_configuration">解码器配置</string>
+    <string name="max_frames">最大帧数</string>
+    <string name="sample_interval">采样间隔</string>
+    <string name="max_buffer_count">最大缓冲区数量</string>
+    <string name="control_buttons">控制按钮</string>
+    <string name="start_decode">开始解码</string>
+    <string name="stop_decode">停止解码</string>
+    <string name="decode_results">解码结果</string>
+    <string name="no_results_yet">暂无结果</string>
+    <string name="decode_log">解码日志</string>
+    <string name="long_press_to_clear_video">长按视频名称可清除选择</string>
     <string name="placeholder_test_1">测试项目1（即将推出）</string>
     <string name="placeholder_test_2">测试项目2（即将推出）</string>
     <string name="debug_log">调试日志</string>
+    
+    <!-- Test Case Strings -->
+    <string name="asr_test_title">ASR测试</string>
+    <string name="asr_test_description">测试自动语音识别功能</string>
+    <string name="tts_test_title">TTS测试</string>
+    <string name="tts_test_description">测试文本转语音功能</string>
+    <string name="debug_settings_title">调试设置</string>
+    <string name="debug_settings_description">配置调试模式设置和首选项</string>
     
     <!-- Voice Chat Strings -->
     <string name="voice_chat">语音聊天</string>
@@ -538,4 +567,21 @@
     <string name="unknown_error">未知错误</string>
     <string name="not_available">不可用</string>
     <string name="unknown_model">未知模型</string>
+    
+    <!-- Large Model Warning Dialog Strings -->
+    <string name="large_model_warning_title">大模型警告</string>
+    <string name="large_model_warning_message">模型 "%1$s" 大小为 %2$sB，这是一个相当大的模型，可能会因为内存限制导致应用崩溃。您确定要继续打开这个模型吗？</string>
+    <string name="continue_open">继续打开</string>
+    
+    <!-- Privacy Policy Strings -->
+    <string name="privacy_policy_title">隐私政策协议</string>
+    <string name="privacy_policy_content">欢迎使用MNN Chat！在使用我们的应用程序之前，请阅读并同意我们的隐私政策。\n\n我们致力于保护您的隐私和个人信息。本应用程序可能会收集和处理某些数据，以便为您提供更好的服务。\n\n通过使用本应用程序，您同意：\n• 允许应用程序收集功能所需的必要数据\n• 了解您的数据可能在您的设备上进行本地处理\n• 接受我们的服务条款和隐私实践\n\n如果您不同意这些条款，请不要使用本应用程序。\n\n有关我们隐私实践的更多详细信息，请通过我们的官方渠道联系我们。</string>
+    <string name="privacy_policy_agree">我已阅读并同意隐私政策</string>
+    <string name="privacy_policy_agree_button">同意并继续</string>
+    <string name="privacy_policy_disagree">不同意</string>
+    <string name="privacy_policy_required">您必须同意隐私政策才能使用本应用程序</string>
+    <string name="privacy_policy_exit_message">您选择不同意隐私政策。应用程序现在将退出。</string>
+    <string name="loading_models">加载模型中…</string>
+    <string name="copying_builtin_models">首次安装，正在复制内置模型…</string>
+    <string name="builtin">内置</string>
 </resources>

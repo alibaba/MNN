@@ -213,11 +213,8 @@ class ModelDownloadManager private constructor(context: Context) {
         this.updateDownloadingProgress(modelId, "Preparing", null,
             getRealDownloadSize(modelId),
             DownloadPersistentData.getDownloadSizeTotal(ApplicationProvider.get(), modelId))
-        
-        // Track the model name for notification
         val displayName = modelName ?: ModelUtils.getModelName(modelId) ?: modelId
         addActiveDownload(modelId, displayName)
-        
         downloader.download(modelId)
     }
 

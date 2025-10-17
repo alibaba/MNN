@@ -367,9 +367,6 @@ project/MNNLLMForiOS/MNN.framework
 MNN-iOS-CPU-GPU/Static/MNN.framework
 apps/iOS/MNNLLMChat/MNN.framework
 
-# model path
-model/
-
 # datasets
 datasets/*
 !datasets/*.sh
@@ -378,4 +375,7 @@ datasets/*
 source/backend/qnn/3rdParty/include
 project/android/.cxx
 pymnn/android/.cxx/
-pymnn/android/.cxx/abi_configuration_5u53tc49.json
+apps/mnncli/.cursorrules
+apps/mnncli/model_market_json_data.inc
+#kledi
+_deps

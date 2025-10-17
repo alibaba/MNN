@@ -34,6 +34,7 @@ import com.alibaba.mnnllm.android.modelsettings.SettingsBottomSheetFragment
 import com.alibaba.mnnllm.api.openai.ui.ApiSettingsBottomSheetFragment
 import com.alibaba.mnnllm.api.openai.ui.ApiConsoleBottomSheetFragment
 import com.alibaba.mnnllm.android.utils.AudioPlayService
+import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
 import com.alibaba.mnnllm.api.openai.manager.ApiServiceManager
@@ -120,8 +121,8 @@ class ChatActivity : AppCompatActivity() {
     private fun setupView(modelId:String, modelName: String) {
         this.modelId = modelId
         this.modelName = modelName
-        isDiffusion = ModelUtils.isDiffusionModel(modelName)
-        isAudioModel = ModelUtils.isAudioModel(modelName)
+        isDiffusion = ModelTypeUtils.isDiffusionModel(modelName)
+        isAudioModel = ModelTypeUtils.isAudioModel(modelId)
         binding.modelSwitcher.text = modelName
         
         // Hide model switcher click functionality for diffusion models
@@ -357,7 +358,7 @@ class ChatActivity : AppCompatActivity() {
         // Voice chat is only available for non-diffusion models
         menu.findItem(R.id.start_voice_chat).isVisible = !isDiffusion
         // Real-time audio playback is only available for Omni models
-        val isOmniModel = ModelUtils.isOmni(modelName)
+        val isOmniModel = ModelTypeUtils.isOmni(modelName)
         menu.findItem(R.id.realtime_audio_playback).isVisible = false
         menu.findItem(R.id.realtime_audio_playback).isChecked = false
         return true
@@ -720,7 +721,7 @@ class ChatActivity : AppCompatActivity() {
 
             // Filter out diffusion models
             val modelFilter: (ModelItemWrapper) -> Boolean = { modelWrapper ->
-                !ModelUtils.isDiffusionModel(modelWrapper.displayName)
+                !ModelTypeUtils.isDiffusionModel(modelWrapper.displayName)
             }
 
             val selectModelFragment = SelectModelFragment.newInstance(availableModels, modelFilter, modelId)
@@ -777,8 +778,8 @@ class ChatActivity : AppCompatActivity() {
     private fun updateModelInfo(selectedModelId: String, selectedModelName: String) {
         this.modelId = selectedModelId
         this.modelName = selectedModelName
-        isDiffusion = ModelUtils.isDiffusionModel(selectedModelName)
-        isAudioModel = ModelUtils.isAudioModel(selectedModelName)
+        isDiffusion = ModelTypeUtils.isDiffusionModel(selectedModelName)
+        isAudioModel = ModelTypeUtils.isAudioModel(selectedModelId)
         
         // Update model switcher text
         binding.modelSwitcher.text = selectedModelName

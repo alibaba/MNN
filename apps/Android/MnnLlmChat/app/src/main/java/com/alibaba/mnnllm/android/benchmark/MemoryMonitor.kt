@@ -20,7 +20,7 @@ object MemoryMonitor {
                 val memoryInfo = Debug.MemoryInfo()
                 Debug.getMemoryInfo(memoryInfo)
                 
-                // getTotalPss() 返回的是 KB 单位的值
+                //getTotalPss() returns value in KB units
                 val currentPssKb = memoryInfo.totalPss.toLong()
 
                 if (currentPssKb > maxPssKb) {

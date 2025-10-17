@@ -30,9 +30,9 @@ class OpenAIApplication(private val lifecycleScope: CoroutineScope, private val 
     private val serverEventManager = ServerEventManager.getInstance()
     
     init {
-        // 初始化配置
+        //initializeconfig
         ApiServerConfig.initializeConfig(context)
-        // 初始化日志收集器
+        //initializelogcollector
         LogCollector.getInstance().initialize()
     }
 
@@ -44,7 +44,7 @@ class OpenAIApplication(private val lifecycleScope: CoroutineScope, private val 
         }
 
         try {
-            // 从配置中获取端口和IP地址
+            //fromconfigingetportandIPaddress
             val port = ApiServerConfig.getPort(context)
             val ipAddress = ApiServerConfig.getIpAddress(context)
             
@@ -59,7 +59,7 @@ class OpenAIApplication(private val lifecycleScope: CoroutineScope, private val 
                 port = port,
                 host = ipAddress,
                 module = { module(context, ipAddress, port) }
-            ).start(wait = false) // 不阻塞当前协程
+            ).start(wait = false) //notblockcurrentcoroutine
             
             Timber.tag("Network").i("Server started successfully on $ipAddress:$port")
 
@@ -70,11 +70,7 @@ class OpenAIApplication(private val lifecycleScope: CoroutineScope, private val 
     }
 
 
-    /**
-     * 停止服务器
-     * 
-     * 异步停止服务器并处理可能的取消情况
-     */
+    /** * stop server * * asynchronousstop serverandprocesspossiblecancelsituation*/
     fun stop() {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
@@ -110,21 +106,17 @@ class OpenAIApplication(private val lifecycleScope: CoroutineScope, private val 
             Socket().use { socket ->
                 socket.connect(InetSocketAddress("localhost", port), 1000)
                 Timber.tag("Network").e("Port $port 被使用")
-                false // 已被占用
+                false //alreadyoccupied
 
             }
         } catch (e: Exception) {
             Timber.tag("Network").i("Port $port 可用")
-            true // 可用
+            true //available
         }
     }
 
 
-    /**
-     * 内部方法，用于安全停止服务器
-     * 
-     * 处理服务器停止过程中的各种异常情况，包括协程取消
-     */
+    /** * internalmethod,forsafestop server * * process serverstopduringvariousexceptionsituation,includingcoroutinecancel*/
     suspend fun stopInternal() {
         try {
             Timber.tag("Network").d("Attempting to stop server...")
@@ -133,7 +125,7 @@ class OpenAIApplication(private val lifecycleScope: CoroutineScope, private val 
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             Timber.tag("Network").w("Server stop was cancelled: ${e.message}")
-            // 即使被取消也尝试强制停止
+            //even ifbecancelalsotryforcestop
             server?.stop(gracePeriodMillis = 0, timeoutMillis = 1000)
         } catch (e: Exception) {
             Timber.tag("Network").e(e, "Error stopping server")
@@ -146,12 +138,12 @@ class OpenAIApplication(private val lifecycleScope: CoroutineScope, private val 
 
 
 private fun Application.module(context: Context, host: String, port: Int) {
-    // 配置服务器事件监听
+    //configserviceeventlistener
     ServerEventMonitor(this).startMonitoring()
 
-    //来自com/alibaba/mnnllm/api/openai/network/application/HTTP.kt
+    //fromcom/alibaba/mnnllm/api/openai/network/application/HTTP.kt
     configureHTTP(context)
 
-    //来自com/alibaba/mnnllm/api/openai/network/application/Routing.kt
+    //fromcom/alibaba/mnnllm/api/openai/network/application/Routing.kt
     configureRouting()
 }

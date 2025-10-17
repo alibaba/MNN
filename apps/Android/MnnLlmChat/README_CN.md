@@ -53,6 +53,12 @@
   ```
 
 # Releases
+
+## Version 0.7.5
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_5.apk)
++ 新增 Qwen3-VL 支持（4B、8B、30B-A3B）
++ 支持 smolvlm-video 系列的视频输入
+
 ## Version 0.7.3
 + 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_3_1.apk)
 + 优化 API 服务

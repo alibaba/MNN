@@ -27,6 +27,9 @@
         <uses-native-library
             android:name="libOpenCL.so"
             android:required="false" />
+        <uses-library
+            android:name="libcdsprpc.so"
+            android:required="false"/>
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -59,6 +62,12 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".widgets.FullScreenVideoPlayer"
+            android:exported="false"
+            android:theme="@style/AppTheme"
+            android:configChanges="orientation|screenSize" />
 
         <activity
             android:name=".main.MainActivity"
@@ -97,6 +106,12 @@
             android:theme="@style/AppTheme" />
 
         <activity
+            android:name=".debug.VideoDecoderTestActivity"
+            android:exported="false"
+            android:label="@string/video_decoder_test_title"
+            android:theme="@style/AppTheme" />
+
+        <activity
             android:name=".debug.DebugAnimationActivity"
             android:exported="true"
             android:theme="@style/AppTheme">
@@ -112,8 +127,7 @@
             android:exported="true"
             android:foregroundServiceType="dataSync" >
         </service>
-        
-        <!-- 注册通知操作按钮的广播接收器 -->
+
         <receiver
             android:name="com.alibaba.mnnllm.api.openai.manager.ApiServiceActionReceiver"
             android:enabled="true"

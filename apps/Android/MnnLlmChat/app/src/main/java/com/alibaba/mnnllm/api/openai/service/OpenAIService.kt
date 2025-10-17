@@ -46,7 +46,7 @@ class OpenAIService : Service() {
             }
 
             val serviceIntent = Intent(context, OpenAIService::class.java)
-            // 传递 modelId 到服务
+            //pass modelId toservice
             modelId?.let { serviceIntent.putExtra("modelId", it) }
             isServiceRunning = true
             try {
@@ -75,12 +75,7 @@ class OpenAIService : Service() {
             serviceConnection = connection
         }
 
-        /**
-         * 释放服务资源并停止服务
-         *
-         * @param context 上下文对象
-         * @param force 是否强制停止，默认为false
-         */
+        /** * releaseserviceresourceandstopservice * * @param context contextobject * @param force whetherforcestop，defaultasfalse*/
         fun releaseService(context: Context, force: Boolean = false) {
             val serviceIntent = Intent(context, OpenAIService::class.java)
             
@@ -140,7 +135,7 @@ class OpenAIService : Service() {
             return START_NOT_STICKY
         }
         
-        // 获取传递的 modelId
+        //getpass modelId
         intent?.getStringExtra("modelId")?.let { modelId ->
             currentModelId = modelId
             CurrentModelManager.setCurrentModelId(modelId)
@@ -186,11 +181,7 @@ class OpenAIService : Service() {
     }
 
 
-    /**
-     * 清理服务资源
-     *
-     * 包括停止前台服务和清理协调器资源
-     */
+    /** * cleanupserviceresource * * includingstopforegroundserviceandcleanupcoordinatorresource*/
     private fun cleanup() {
         try {
             coordinator.cleanup()
@@ -199,7 +190,7 @@ class OpenAIService : Service() {
             Timber.tag(TAG).e(e, "Failed to cleanup coordinator")
         }
         
-        // 清除全局模型ID
+        //clearglobalmodelID
         CurrentModelManager.clearCurrentModelId()
 
         try {

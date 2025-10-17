@@ -1,5 +1,5 @@
 {
-    "version": "6",
+    "version": "9",
     "tagTranslations": {
         "Vision": "图像理解",
         "Video": "视频理解",
@@ -42,9 +42,101 @@
     ],
     "models": [
         {
-            "modelName": "WebSailor-3B-MNN",
+            "modelName": "Qwen3-VL-4B-Thinking-MNN",
             "tags": [
+                "Vision",
+                "Think"
             ],
+            "categories": [],
+            "sources": {
+                "HuggingFace": "taobao-mnn/Qwen3-VL-4B-Thinking-MNN",
+                "ModelScope": "MNN/Qwen3-VL-4B-Thinking-MNN",
+                "Modelers": "MNN/Qwen3-VL-4B-Thinking-MNN"
+            },
+            "size_gb": 4,
+            "vendor": "Qwen",
+            "file_size": 2958468649
+        },
+        {
+            "modelName": "Qwen3-VL-4B-Instruct-MNN",
+            "tags": [
+                "Vision"
+            ],
+            "categories": [],
+            "sources": {
+                "HuggingFace": "taobao-mnn/Qwen3-VL-4B-Instruct-MNN",
+                "ModelScope": "MNN/Qwen3-VL-4B-Instruct-MNN",
+                "Modelers": "MNN/Qwen3-VL-4B-Instruct-MNN"
+            },
+            "size_gb": 4,
+            "vendor": "Qwen",
+            "file_size": 2958468736
+        },
+        {
+            "modelName": "Qwen3-VL-8B-Thinking-MNN",
+            "tags": [
+                "Vision",
+                "Think"
+            ],
+            "categories": [],
+            "sources": {
+                "HuggingFace": "taobao-mnn/Qwen3-VL-8B-Thinking-MNN",
+                "ModelScope": "MNN/Qwen3-VL-8B-Thinking-MNN",
+                "Modelers": "MNN/Qwen3-VL-8B-Thinking-MNN"
+            },
+            "size_gb": 8,
+            "vendor": "Qwen",
+            "file_size": 5453819329
+        },
+        {
+            "modelName": "Qwen3-VL-8B-Instruct-MNN",
+            "tags": [
+                "Vision"
+            ],
+            "categories": [],
+            "sources": {
+                "HuggingFace": "taobao-mnn/Qwen3-VL-8B-Instruct-MNN",
+                "ModelScope": "MNN/Qwen3-VL-8B-Instruct-MNN",
+                "Modelers": "MNN/Qwen3-VL-8B-Instruct-MNN"
+            },
+            "size_gb": 8,
+            "vendor": "Qwen",
+            "file_size": 5453819411
+        },
+        {
+            "modelName": "Qwen3-VL-30B-A3B-Instruct-MNN",
+            "tags": [
+                "Vision"
+            ],
+            "categories": [],
+            "sources": {
+                "HuggingFace": "taobao-mnn/Qwen3-VL-30B-A3B-Instruct-MNN",
+                "ModelScope": "MNN/Qwen3-VL-30B-A3B-Instruct-MNN",
+                "Modelers": "MNN/Qwen3-VL-30B-A3B-Instruct-MNN"
+            },
+            "size_gb": 30,
+            "vendor": "Qwen",
+            "file_size": 19489921379
+        },
+        {
+            "modelName": "Qwen3-VL-30B-A3B-Thinking-MNN",
+            "tags": [
+                "Think",
+                "Vision"
+            ],
+            "categories": [],
+            "sources": {
+                "HuggingFace": "taobao-mnn/Qwen3-VL-30B-A3B-Thinking-MNN",
+                "ModelScope": "MNN/Qwen3-VL-30B-A3B-Thinking-MNN",
+                "Modelers": "MNN/Qwen3-VL-30B-A3B-Thinking-MNN"
+            },
+            "size_gb": 30,
+            "vendor": "Qwen",
+            "file_size": 19489921292
+        },
+        {
+            "modelName": "WebSailor-3B-MNN",
+            "tags": [],
             "categories": [
                 "recommended",
                 "qwen"
@@ -94,8 +186,7 @@
         },
         {
             "modelName": "MiniCPM4-0.5B-MNN",
-            "tags": [
-            ],
+            "tags": [],
             "categories": [
                 "recommended",
                 "qwen"
@@ -105,14 +196,13 @@
                 "ModelScope": "MNN/MiniCPM4-0.5B-MNN",
                 "Modelers": "MNN/MiniCPM4-0.5B-MNN"
             },
-            "size_gb": 8,
+            "size_gb": 0.5,
             "vendor": "MiniCPM",
             "file_size": 311061970
         },
         {
             "modelName": "MiniCPM4-8B-MNN",
-            "tags": [
-            ],
+            "tags": [],
             "categories": [
                 "recommended",
                 "qwen"
@@ -357,7 +447,9 @@
             "tags": [
                 "Think"
             ],
-            "extra_tags": ["ThinkingSwitch"],
+            "extra_tags": [
+                "ThinkingSwitch"
+            ],
             "categories": [
                 "recommended",
                 "qwen"
@@ -376,7 +468,9 @@
             "tags": [
                 "Think"
             ],
-            "extra_tags": ["ThinkingSwitch"],
+            "extra_tags": [
+                "ThinkingSwitch"
+            ],
             "categories": [
                 "recommended",
                 "qwen"
@@ -415,7 +509,9 @@
             "tags": [
                 "Think"
             ],
-            "extra_tags": ["ThinkingSwitch"],
+            "extra_tags": [
+                "ThinkingSwitch"
+            ],
             "categories": [
                 "recommended",
                 "qwen"
@@ -434,7 +530,9 @@
             "tags": [
                 "Think"
             ],
-            "extra_tags": ["ThinkingSwitch"],
+            "extra_tags": [
+                "ThinkingSwitch"
+            ],
             "categories": [
                 "recommended",
                 "qwen"
@@ -471,7 +569,9 @@
             "tags": [
                 "Think"
             ],
-            "extra_tags": ["ThinkingSwitch"],
+            "extra_tags": [
+                "ThinkingSwitch"
+            ],
             "categories": [
                 "recommended",
                 "qwen"
@@ -510,7 +610,9 @@
             "tags": [
                 "Think"
             ],
-            "extra_tags": ["ThinkingSwitch"],
+            "extra_tags": [
+                "ThinkingSwitch"
+            ],
             "categories": [
                 "recommended",
                 "qwen"
@@ -529,7 +631,9 @@
             "tags": [
                 "Think"
             ],
-            "extra_tags": ["ThinkingSwitch"],
+            "extra_tags": [
+                "ThinkingSwitch"
+            ],
             "categories": [
                 "recommended",
                 "qwen"

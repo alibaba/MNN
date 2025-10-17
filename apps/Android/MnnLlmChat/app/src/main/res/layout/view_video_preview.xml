@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <ImageView
+        android:id="@+id/video_thumbnail"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:background="@drawable/bg_chat_user"
+        android:contentDescription="Video thumbnail" />
+
+    <ImageView
+        android:id="@+id/video_play_icon"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_gravity="center"
+        android:src="@drawable/ic_play"
+        android:background="@drawable/bg_video_play_button"
+        android:padding="12dp"
+        android:contentDescription="Play video" />
+
+</FrameLayout>
