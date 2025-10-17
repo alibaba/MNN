@@ -9,7 +9,6 @@
 #include <algorithm>
 #include "MNN/MNNForwardType.h"
 #include "MNN/expr/ExecutorScope.hpp"
-#include "llm/prompt.hpp"
 #include "mls_log.h"
 #include "mls_config.h"
 #include "utf8_stream_processor.hpp"

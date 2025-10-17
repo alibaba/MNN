@@ -2,7 +2,6 @@
 
 #include <string>
 #include "MNN/expr/Expr.hpp"
-#include "llm/prompt.hpp"
 #include "llm/llm.hpp"
 #include "video/video_processor.h"
 
