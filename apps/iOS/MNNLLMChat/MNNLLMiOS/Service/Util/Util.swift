@@ -116,7 +116,11 @@ extension DraftMessage {
             }
             .compactMap { media, thumb, full in
                 guard let thumb, let full else { return nil }
-                return LLMChatVideo(id: media.id.uuidString, thumbnail: thumb, full: full)
+                let processedFull = FileOperationManager.shared.processVideoFile(
+                    from: full,
+                    fileName: full.lastPathComponent
+                ) ?? full
+                return LLMChatVideo(id: media.id.uuidString, thumbnail: thumb, full: processedFull)
             }
     }
 
