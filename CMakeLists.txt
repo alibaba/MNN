@@ -1045,8 +1045,3 @@ ENDIF()
 if (MNN_JNI)
     add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/source/jni/)
 endif()
-
-# Add mnncli support
-if (BUILD_MNNCLI)
-    add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/apps/mnncli/)
-endif()

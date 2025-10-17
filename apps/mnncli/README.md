@@ -20,43 +20,43 @@ To build MNNCLI, run the following commands from the mnncli directory:
 sh build.sh
 ```
 
-The executable will be located at `build_mnncli/apps/mnncli/mnncli`.
+The executable will be located at `build_mnncli/mnncli`.
 
 ## Usage
 
 ### List Models
 ```bash
-./build_mnncli/apps/mnncli/mnncli list
+./build_mnncli/mnncli list
 ```
 
 ### Serve Model
 ```bash
-./build_mnncli/apps/mnncli/mnncli serve <model_name>
+./build_mnncli/mnncli serve <model_name>
 ```
 
 ### Run Model
 ```bash
-./build_mnncli/apps/mnncli/mnncli run <model_name> [-c config_path] [-p prompt] [-f prompt_file]
+./build_mnncli/mnncli run <model_name> [-c config_path] [-p prompt] [-f prompt_file]
 ```
 
 ### Benchmark Model
 ```bash
-./build_mnncli/apps/mnncli/mnncli benchmark <model_name> [-c config_path]
+./build_mnncli/mnncli benchmark <model_name> [-c config_path]
 ```
 
 ### Download Model
 ```bash
-./build_mnncli/apps/mnncli/mnncli download <model_name> <repo_name>
+./build_mnncli/mnncli download <model_name> <repo_name>
 ```
 
 ### Search Models
 ```bash
-./build_mnncli/apps/mnncli/mnncli search <keyword>
+./build_mnncli/mnncli search <keyword>
 ```
 
 ### Delete Model
 ```bash
-./build_mnncli/apps/mnncli/mnncli delete <model_name>
+./build_mnncli/mnncli delete <model_name>
 ```
 
 ## Dependencies
