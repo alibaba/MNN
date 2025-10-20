@@ -7,6 +7,7 @@ import android.content.Context
 import android.os.Build
 import android.system.Os
 import android.util.Log
+import java.io.File
 
 object QnnModule {
     private const val TAG = "QnnModule"
@@ -114,5 +115,83 @@ object QnnModule {
         loadQnnLibrary("QnnHtp${qnnVersion}Stub", nativeLibPath)
 
         return true
+    }
+
+    /**
+     * Check if QNN libraries have already been copied to the app's libs directory
+     */
+    fun isQnnLibsCopied(context: Context): Boolean {
+        val sharedPrefs = context.getSharedPreferences("qnn_libs", Context.MODE_PRIVATE)
+        return sharedPrefs.getBoolean("qnn_libs_copied", false)
+    }
+
+    /**
+     * Mark QNN libraries as copied in SharedPreferences
+     */
+    fun markQnnLibsCopied(context: Context) {
+        val sharedPrefs = context.getSharedPreferences("qnn_libs", Context.MODE_PRIVATE)
+        sharedPrefs.edit().putBoolean("qnn_libs_copied", true).apply()
+    }
+
+    /**
+     * Copy .so files from source directory to target directory
+     */
+    fun copySoFiles(sourceDir: File, targetDir: File): Boolean {
+        try {
+            if (!sourceDir.exists() || !sourceDir.isDirectory) {
+                log("e", TAG, "Source directory does not exist or is not a directory: ${sourceDir.absolutePath}")
+                return false
+            }
+            
+            var copiedCount = 0
+            sourceDir.walkTopDown().forEach { file ->
+                if (file.isFile && file.extension == "so") {
+                    val targetFile = File(targetDir, file.name)
+                    try {
+                        file.copyTo(targetFile, overwrite = true)
+                        copiedCount++
+                        log("i", TAG, "Copied ${file.name} to ${targetFile.absolutePath}")
+                    } catch (e: Exception) {
+                        log("e", TAG, "Failed to copy ${file.name}", e)
+                    }
+                }
+            }
+            
+            log("i", TAG, "Copied $copiedCount .so files")
+            return copiedCount > 0
+        } catch (e: Exception) {
+            log("e", TAG, "Error copying .so files", e)
+            return false
+        }
+    }
+
+    /**
+     * Copy QNN libraries from downloaded directory to the app's libs directory
+     */
+    fun copyQnnLibs(context: Context, downloadedFile: File): Boolean {
+        try {
+            log("i", TAG, "Starting QNN libraries copy from ${downloadedFile.absolutePath}")
+            
+            // Create target libs directory
+            val targetLibsDir = File(context.filesDir, "libs")
+            if (!targetLibsDir.exists()) {
+                targetLibsDir.mkdirs()
+            }
+            
+            // Copy .so files from downloaded directory to target libs directory
+            val copied = copySoFiles(downloadedFile, targetLibsDir)
+            if (copied) {
+                markQnnLibsCopied(context)
+                log("i", TAG, "QNN ARM64 libraries successfully copied to ${targetLibsDir.absolutePath}")
+                return true
+            } else {
+                log("e", TAG, "Failed to copy QNN libraries")
+                return false
+            }
+            
+        } catch (e: Exception) {
+            log("e", TAG, "Error copying QNN libs", e)
+            return false
+        }
     }
 }

@@ -42,6 +42,10 @@ object ModelTypeUtils {
         return extraTags.any { it.equals("ThinkingSwitch", ignoreCase = true) }
     }
 
+    fun isQnnModel(tags: List<String>): Boolean {
+        return tags.any { it.equals("QNN", ignoreCase = true) }
+    }
+
     fun supportAudioOutput(modelName: String): Boolean {
         return isOmni(modelName)
     }

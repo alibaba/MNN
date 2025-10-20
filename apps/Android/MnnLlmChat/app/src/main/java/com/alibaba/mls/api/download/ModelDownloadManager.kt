@@ -18,8 +18,11 @@ import com.alibaba.mls.api.download.ms.MsModelDownloader
 import com.alibaba.mls.api.source.ModelSources
 import com.alibaba.mnnllm.android.chat.model.ChatDataManager
 import com.alibaba.mnnllm.android.model.ModelUtils
+import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.modelmarket.ModelMarketItem
+import com.alibaba.mnnllm.android.modelmarket.ModelRepository
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig
+import com.alibaba.mnnllm.android.qnn.QnnModule
 import com.alibaba.mnnllm.android.utils.CurrentActivityTracker
 import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.utils.MmapUtils.clearMmapCache
@@ -31,7 +34,6 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.collections.set
 import kotlin.concurrent.Volatile
-import com.alibaba.mnnllm.android.modelmarket.ModelRepository
 import kotlinx.coroutines.runBlocking
 
 class LoggingDownloadListener : DownloadListener {
@@ -194,6 +196,40 @@ class ModelDownloadManager private constructor(context: Context) {
             setDownloadFailed(item.modelId, Exception("currentRepoPath or currentSource is empty for $modelName"))
             return
         }
+        
+        // Check if this is a QNN model and device is ARM64
+        if (ModelTypeUtils.isQnnModel(item.tags) && isArm64Device()) {
+            Log.d(TAG, "QNN model detected on ARM64 device: $modelName")
+            
+            // Check if QNN libs are already copied
+            if (!QnnModule.isQnnLibsCopied(appContext)) {
+                Log.d(TAG, "QNN libs not copied yet, downloading and copying libs first")
+                
+                // Download and copy QNN libs in a coroutine
+                kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
+                    try {
+                        val success = downloadAndCopyQnnLibs()
+                        if (success) {
+                            Log.d(TAG, "QNN libs successfully downloaded and copied, starting model download")
+                            // Start the original model download after libs are ready
+                            startDownload(item.modelId, source, modelName)
+                        } else {
+                            Log.e(TAG, "Failed to download QNN libs, proceeding with model download anyway")
+                            // Still try to download the model even if libs failed
+                            startDownload(item.modelId, source, modelName)
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error handling QNN libs download", e)
+                        // Still try to download the model even if libs failed
+                        startDownload(item.modelId, source, modelName)
+                    }
+                }
+                return
+            } else {
+                Log.d(TAG, "QNN libs already copied, proceeding with model download")
+            }
+        }
+        
         startDownload(item.modelId, source, modelName)
     }
 
@@ -625,6 +661,84 @@ class ModelDownloadManager private constructor(context: Context) {
         checkedForUpdateModelIds.remove(modelId)
         Log.d(TAG, "resetCheckedStatus: $modelId")
     }
+
+
+    /**
+     * Check if the device supports ARM64 architecture
+     */
+    private fun isArm64Device(): Boolean {
+        return Build.SUPPORTED_ABIS.contains("arm64-v8a")
+    }
+
+    /**
+     * Download QNN ARM64 libraries and copy them to the app's libs directory
+     */
+    private suspend fun downloadAndCopyQnnLibs(): Boolean = withContext(Dispatchers.IO) {
+        try {
+            Log.d(TAG, "Starting QNN ARM64 libraries download")
+            
+            // Get libs from ModelRepository
+            val modelRepository = ModelRepository(appContext)
+            val libs = modelRepository.getLibs()
+            
+            // Find qnn_arm64_libs
+            val qnnLibsItem = libs.find { it.modelName.equals("qnn_arm64_libs", ignoreCase = true) }
+            if (qnnLibsItem == null) {
+                Log.e(TAG, "qnn_arm64_libs not found in libs list")
+                return@withContext false
+            }
+            
+            Log.d(TAG, "Found qnn_arm64_libs: ${qnnLibsItem.modelId}")
+            
+            // Download the QNN libs
+            val downloader = getDownloaderForSource(qnnLibsItem.currentSource)
+            downloader.download(qnnLibsItem.modelId)
+            
+            // Wait for download to complete
+            var downloadCompleted = false
+            var attempts = 0
+            val maxAttempts = 60 // Wait up to 60 seconds
+            
+            while (!downloadCompleted && attempts < maxAttempts) {
+                val downloadInfo = getDownloadInfo(qnnLibsItem.modelId)
+                if (downloadInfo.downloadState == DownloadState.COMPLETED) {
+                    downloadCompleted = true
+                } else if (downloadInfo.downloadState == DownloadState.FAILED) {
+                    Log.e(TAG, "QNN libs download failed")
+                    return@withContext false
+                }
+                kotlinx.coroutines.delay(1000)
+                attempts++
+            }
+            
+            if (!downloadCompleted) {
+                Log.e(TAG, "QNN libs download timeout")
+                return@withContext false
+            }
+            
+            // Get the downloaded file
+            val downloadedFile = getDownloadedFile(qnnLibsItem.modelId)
+            if (downloadedFile == null || !downloadedFile.exists()) {
+                Log.e(TAG, "QNN libs downloaded file not found")
+                return@withContext false
+            }
+            
+            // Use QnnModule to copy the libraries
+            val copied = QnnModule.copyQnnLibs(appContext, downloadedFile)
+            if (copied) {
+                Log.d(TAG, "QNN ARM64 libraries successfully downloaded and copied")
+                return@withContext true
+            } else {
+                Log.e(TAG, "Failed to copy QNN libraries")
+                return@withContext false
+            }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error downloading QNN libs", e)
+            return@withContext false
+        }
+    }
+
 
     companion object {
         @Volatile

@@ -286,6 +286,16 @@ class ModelRepository(private val context: Context) {
         }
     }
 
+    suspend fun getLibs(): List<ModelMarketItem> = withContext(Dispatchers.IO) {
+        try {
+            val data = getModelMarketData()
+            val allItems = data?.libs ?: emptyList()
+            processModels(allItems)
+        } catch (e: IOException) {
+            emptyList()
+        }
+    }
+
     private suspend fun processModels(models: List<ModelMarketItem>): List<ModelMarketItem> = withContext(Dispatchers.IO) {
         val selectedSource = MainSettings.getDownloadProviderString(context)
         
