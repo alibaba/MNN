@@ -289,8 +289,8 @@ class ModelRepository(private val context: Context) {
     suspend fun getLibs(): List<ModelMarketItem> = withContext(Dispatchers.IO) {
         try {
             val data = getModelMarketData()
-            val allItems = data?.libs ?: emptyList()
-            processModels(allItems)
+            val libsItem = data?.libs ?: emptyList()
+            processModels(libsItem)
         } catch (e: IOException) {
             emptyList()
         }

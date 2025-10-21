@@ -16,6 +16,18 @@ object ModelTypeUtils {
         return isAudioModel(modelName) || isVisualModel(modelName) || isDiffusionModel(modelName) || isOmni(modelName)
     }
 
+    fun isQnnModel(modelId: String): Boolean {
+        val normalizedId = modelId.lowercase(Locale.getDefault())
+        if (modelId.startsWith("local/") && normalizedId.contains("qnn")) {
+            return true
+        }
+        val tags = ModelListManager.getModelTags(modelId)
+        if (isQnnModel(tags)) {
+            return true
+        }
+        return false;
+    }
+
     fun isDiffusionModel(modelName: String): Boolean {
         return modelName.lowercase(Locale.getDefault()).contains("stable-diffusion")
     }

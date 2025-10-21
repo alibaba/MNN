@@ -48,6 +48,8 @@ import com.alibaba.mnnllm.android.chat.SelectSourceFragment
 import android.content.Intent
 import com.alibaba.mnnllm.android.qnn.QnnModule
 import com.alibaba.mnnllm.android.privacy.PrivacyPolicyManager
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.launch
 import com.alibaba.mnnllm.android.privacy.PrivacyPolicyDialogFragment
 
 class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleListener {
@@ -396,7 +398,6 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
         
         // Handle intent extras for navigation from notification
         handleIntentExtras(intent)
-        QnnModule.loadQnnLibs(this)
     }
     
     private fun handleIntentExtras(intent: Intent?) {
@@ -469,12 +470,6 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
 
     override fun onDestroy() {
         super.onDestroy()
-        /*
-        offsetChangedListener?.let {
-            appBarLayout.removeOnOffsetChangedListener(it)
-        }
-        */
-        
     }
 
     fun onAddModelButtonClick(view: View) {

@@ -28,6 +28,10 @@ import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.utils.MmapUtils.clearMmapCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
@@ -35,6 +39,61 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.collections.set
 import kotlin.concurrent.Volatile
 import kotlinx.coroutines.runBlocking
+
+/**
+ * Specialized listener for QNN library downloads that uses coroutines to wait for completion
+ */
+class QnnDownloadListener(
+    private val modelId: String,
+    private val completionChannel: Channel<DownloadResult>
+) : DownloadListener {
+    
+    override fun onDownloadStart(modelId: String) {
+        Log.d(ModelDownloadManager.TAG, "[QNNDownload] Download started: $modelId")
+    }
+
+    override fun onDownloadProgress(modelId: String, downloadInfo: DownloadInfo) {
+        Log.v(ModelDownloadManager.TAG, "[QNNDownload] Progress: $modelId, progress: ${downloadInfo.progress}, state: ${downloadInfo.downloadState}")
+    }
+
+    override fun onDownloadFinished(modelId: String, path: String) {
+        Log.d(ModelDownloadManager.TAG, "[QNNDownload] Download finished: $modelId, path: $path")
+        if (modelId == this.modelId) {
+            completionChannel.trySend(DownloadResult.Success(path))
+        }
+    }
+
+    override fun onDownloadFailed(modelId: String, e: Exception) {
+        Log.e(ModelDownloadManager.TAG, "[QNNDownload] Download failed: $modelId", e)
+        if (modelId == this.modelId) {
+            completionChannel.trySend(DownloadResult.Failure(e))
+        }
+    }
+
+    override fun onDownloadPaused(modelId: String) {
+        Log.d(ModelDownloadManager.TAG, "[QNNDownload] Download paused: $modelId")
+    }
+
+    override fun onDownloadFileRemoved(modelId: String) {
+        Log.d(ModelDownloadManager.TAG, "[QNNDownload] Download file removed: $modelId")
+    }
+
+    override fun onDownloadTotalSize(modelId: String, totalSize: Long) {
+        Log.d(ModelDownloadManager.TAG, "[QNNDownload] Total size: $modelId, totalSize: $totalSize")
+    }
+
+    override fun onDownloadHasUpdate(modelId: String, downloadInfo: DownloadInfo) {
+        Log.d(ModelDownloadManager.TAG, "[QNNDownload] Has update: $modelId, uploadTime: ${downloadInfo.remoteUpdateTime} downloadTime: ${downloadInfo.downloadedTime}")
+    }
+}
+
+/**
+ * Result of QNN download operation
+ */
+sealed class DownloadResult {
+    data class Success(val path: String) : DownloadResult()
+    data class Failure(val exception: Exception) : DownloadResult()
+}
 
 class LoggingDownloadListener : DownloadListener {
     override fun onDownloadStart(modelId: String) {
@@ -155,18 +214,6 @@ class ModelDownloadManager private constructor(context: Context) {
         }
     }
 
-    private fun getDownloaderForSource(source: ModelSources.ModelSourceType): ModelRepoDownloader {
-        return when (source) {
-            ModelSources.ModelSourceType.HUGGING_FACE -> hfDownloader
-            ModelSources.ModelSourceType.MODELERS -> mlDownloader
-            else -> msDownloader
-        }
-    }
-
-    fun getDownloadedFile(item: ModelMarketItem): File? {
-        return getDownloadedFile(item.modelId)
-    }
-
     fun getDownloadedFile(modelId: String): File? {
         val file = getDownloaderForSource(ModelUtils.getSource(modelId)!!).getDownloadPath(modelId)
         Log.d(TAG, "getDownloadedFile: $modelId file: $file")
@@ -187,6 +234,80 @@ class ModelDownloadManager private constructor(context: Context) {
         getDownloaderForSource(source).pause(modelId)
     }
 
+    suspend fun downloadQnnLibs(): Boolean {
+        if (!QnnModule.deviceSupported()) {
+            return false
+        }
+        
+        if (QnnModule.isQnnLibsDownloaded(appContext)) {
+            Log.d(TAG, "[QNNDownload] QNN libs already downloaded")
+            return true
+        }
+        
+        Log.d(TAG, "[QNNDownload] QNN libs not copied yet, starting prerequisite download")
+        return withContext(DownloadCoroutineManager.downloadDispatcher) {
+            try {
+                Log.d(TAG, "[QNNDownload] Starting QNN ARM64 libraries download")
+                val modelRepository = ModelRepository(appContext)
+                val libs = modelRepository.getLibs()
+
+                // Find qnn_arm64_libs
+                val qnnLibsItem = libs.find { it.modelName.equals("qnn_arm64_libs", ignoreCase = true) }
+                if (qnnLibsItem == null) {
+                    Log.e(TAG, "[QNNDownload] qnn_arm64_libs not found in libs list")
+                    return@withContext false
+                }
+
+                Log.d(TAG, "[QNNDownload] Found qnn_arm64_libs item: ${qnnLibsItem.modelId}")
+
+                // Create completion channel and listener for this specific download
+                val completionChannel = Channel<DownloadResult>(Channel.CONFLATED)
+                val qnnListener = QnnDownloadListener(qnnLibsItem.modelId, completionChannel)
+                
+                // Add the listener temporarily
+                addListener(qnnListener)
+
+                try {
+                    // Start the download
+                    val downloader = getDownloaderForSource(qnnLibsItem.currentSource)
+                    downloader.download(qnnLibsItem.modelId)
+
+                    // Wait for download completion using the listener
+                    Log.d(TAG, "[QNNDownload] Waiting for download completion...")
+                    val result = completionChannel.receive()
+                    
+                    when (result) {
+                        is DownloadResult.Success -> {
+                            Log.d(TAG, "[QNNDownload] Download completed successfully: ${result.path}")
+                            
+                            // Get the downloaded file to verify
+                            val downloadedFile = getDownloadedFile(qnnLibsItem.modelId)
+                            if (downloadedFile == null || !downloadedFile.exists()) {
+                                Log.e(TAG, "[QNNDownload] QNN libs downloaded file not found")
+                                return@withContext false
+                            }
+
+                            // Mark as downloaded with path
+                            QnnModule.markQnnLibsDownloaded(appContext, downloadedFile.absolutePath)
+                            Log.d(TAG, "[QNNDownload] QNN libs marked as downloaded at ${downloadedFile.absolutePath}")
+                            return@withContext true
+                        }
+                        is DownloadResult.Failure -> {
+                            Log.e(TAG, "[QNNDownload] QNN libs download failed", result.exception)
+                            return@withContext false
+                        }
+                    }
+                } finally {
+                    // Always remove the temporary listener
+                    removeListener(qnnListener)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "[QNNDownload] Error downloading QNN libs", e)
+                return@withContext false
+            }
+        }
+    }
+
     fun startDownload(item: ModelMarketItem) {
         Log.d(TAG, "startDownload: $item currentSource: ${item.currentSource} currentRepoPath: ${item.currentRepoPath}")
         val modelName = item.modelName
@@ -196,41 +317,26 @@ class ModelDownloadManager private constructor(context: Context) {
             setDownloadFailed(item.modelId, Exception("currentRepoPath or currentSource is empty for $modelName"))
             return
         }
-        
-        // Check if this is a QNN model and device is ARM64
-        if (ModelTypeUtils.isQnnModel(item.tags) && isArm64Device()) {
-            Log.d(TAG, "QNN model detected on ARM64 device: $modelName")
-            
-            // Check if QNN libs are already copied
-            if (!QnnModule.isQnnLibsCopied(appContext)) {
-                Log.d(TAG, "QNN libs not copied yet, downloading and copying libs first")
-                
-                // Download and copy QNN libs in a coroutine
-                kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
-                    try {
-                        val success = downloadAndCopyQnnLibs()
-                        if (success) {
-                            Log.d(TAG, "QNN libs successfully downloaded and copied, starting model download")
-                            // Start the original model download after libs are ready
-                            startDownload(item.modelId, source, modelName)
-                        } else {
-                            Log.e(TAG, "Failed to download QNN libs, proceeding with model download anyway")
-                            // Still try to download the model even if libs failed
-                            startDownload(item.modelId, source, modelName)
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error handling QNN libs download", e)
-                        // Still try to download the model even if libs failed
-                        startDownload(item.modelId, source, modelName)
-                    }
-                }
-                return
-            } else {
-                Log.d(TAG, "QNN libs already copied, proceeding with model download")
-            }
+        val isQnnModel = ModelTypeUtils.isQnnModel(item.tags)
+        val isDeviceSupportQnn = QnnModule.deviceSupported()
+        if (isQnnModel) {
+            Log.d(TAG, "[QNNDownload] Model tagged as QNN: $modelName isDeviceSupportQnn: $isDeviceSupportQnn")
         }
         
-        startDownload(item.modelId, source, modelName)
+        if (isQnnModel && isDeviceSupportQnn) {
+            DownloadCoroutineManager.launchDownload {
+                try {
+                    // Handle QNN libs download
+                    val success = downloadQnnLibs()
+                    Log.d(TAG, "[QNNDownload] QNN libs download ${if (success) "succeeded" else "failed"}")
+                } catch (e: Exception) {
+                    Log.e(TAG, "[QNNDownload] Error in QNN libs download", e)
+                }
+                startDownload(item.modelId, source, modelName)
+            }
+        } else {
+            startDownload(item.modelId, source, modelName)
+        }
     }
 
     fun startDownload(modelId: String) {
@@ -642,13 +748,13 @@ class ModelDownloadManager private constructor(context: Context) {
     }
 
     suspend fun checkForUpdate(modelId: String?) {
-        Log.d(TAG, "checkForUpdate: $modelId")
+        Log.v(TAG, "checkForUpdate: $modelId")
         modelId?.let {
             if (!checkedForUpdateModelIds.containsKey(it)) {
                 checkedForUpdateModelIds[it] = true
                 getDownloaderForSource(ModelUtils.getSource(modelId)!!).checkUpdate(modelId)
             } else {
-                Log.d(TAG, "checkForUpdate: $modelId already checked, skipping")
+                Log.v(TAG, "checkForUpdate: $modelId already checked, skipping")
             }
         }
     }
@@ -662,82 +768,6 @@ class ModelDownloadManager private constructor(context: Context) {
         Log.d(TAG, "resetCheckedStatus: $modelId")
     }
 
-
-    /**
-     * Check if the device supports ARM64 architecture
-     */
-    private fun isArm64Device(): Boolean {
-        return Build.SUPPORTED_ABIS.contains("arm64-v8a")
-    }
-
-    /**
-     * Download QNN ARM64 libraries and copy them to the app's libs directory
-     */
-    private suspend fun downloadAndCopyQnnLibs(): Boolean = withContext(Dispatchers.IO) {
-        try {
-            Log.d(TAG, "Starting QNN ARM64 libraries download")
-            
-            // Get libs from ModelRepository
-            val modelRepository = ModelRepository(appContext)
-            val libs = modelRepository.getLibs()
-            
-            // Find qnn_arm64_libs
-            val qnnLibsItem = libs.find { it.modelName.equals("qnn_arm64_libs", ignoreCase = true) }
-            if (qnnLibsItem == null) {
-                Log.e(TAG, "qnn_arm64_libs not found in libs list")
-                return@withContext false
-            }
-            
-            Log.d(TAG, "Found qnn_arm64_libs: ${qnnLibsItem.modelId}")
-            
-            // Download the QNN libs
-            val downloader = getDownloaderForSource(qnnLibsItem.currentSource)
-            downloader.download(qnnLibsItem.modelId)
-            
-            // Wait for download to complete
-            var downloadCompleted = false
-            var attempts = 0
-            val maxAttempts = 60 // Wait up to 60 seconds
-            
-            while (!downloadCompleted && attempts < maxAttempts) {
-                val downloadInfo = getDownloadInfo(qnnLibsItem.modelId)
-                if (downloadInfo.downloadState == DownloadState.COMPLETED) {
-                    downloadCompleted = true
-                } else if (downloadInfo.downloadState == DownloadState.FAILED) {
-                    Log.e(TAG, "QNN libs download failed")
-                    return@withContext false
-                }
-                kotlinx.coroutines.delay(1000)
-                attempts++
-            }
-            
-            if (!downloadCompleted) {
-                Log.e(TAG, "QNN libs download timeout")
-                return@withContext false
-            }
-            
-            // Get the downloaded file
-            val downloadedFile = getDownloadedFile(qnnLibsItem.modelId)
-            if (downloadedFile == null || !downloadedFile.exists()) {
-                Log.e(TAG, "QNN libs downloaded file not found")
-                return@withContext false
-            }
-            
-            // Use QnnModule to copy the libraries
-            val copied = QnnModule.copyQnnLibs(appContext, downloadedFile)
-            if (copied) {
-                Log.d(TAG, "QNN ARM64 libraries successfully downloaded and copied")
-                return@withContext true
-            } else {
-                Log.e(TAG, "Failed to copy QNN libraries")
-                return@withContext false
-            }
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error downloading QNN libs", e)
-            return@withContext false
-        }
-    }
 
 
     companion object {

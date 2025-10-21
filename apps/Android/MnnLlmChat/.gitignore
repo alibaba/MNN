@@ -3,6 +3,7 @@ toc.pb
 *.apks
 .cursorrules
 release_outputs/
+docs/
 
 # Model configuration files (contains internal URLs)
 model-config.json

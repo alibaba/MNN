@@ -47,9 +47,7 @@
             "modelName": "SmolVLM2-256M-Video-Instruct-NPU",
             "tags": [
                 "Vision",
-                "Video"
-            ],
-            "extra_tags":[
+                "Video",
                 "QNN"
             ],
             "categories": [],
