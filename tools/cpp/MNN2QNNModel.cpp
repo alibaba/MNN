@@ -478,8 +478,8 @@ int main(int argc, const char* argv[]) {
 
 
     for (int i=0; i<outputInfos.size(); ++i) {
-        attr.reset(new MNN::AttributeT);
         for(int j = 0; j < outputInfos[i].size(); j++) {
+            attr.reset(new MNN::AttributeT);
             attr->key = "o_" + std::to_string(i) + std::string("_") +  std::to_string(j);
             attr->tensor.reset(new BlobT);
             attr->tensor->dataType = OpCommonUtils::convertDataType(outputInfos[i][j].type);
@@ -498,8 +498,8 @@ int main(int argc, const char* argv[]) {
                     attr->tensor->dataFormat = MNN_DATA_FORMAT_NCHW;
                     break;
             }
+            extra->attr.emplace_back(std::move(attr));
         }
-        extra->attr.emplace_back(std::move(attr));
     }
 
     // Compile NPU Module
