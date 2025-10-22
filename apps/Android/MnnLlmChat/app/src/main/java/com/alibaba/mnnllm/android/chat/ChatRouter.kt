@@ -239,12 +239,8 @@ object ChatRouter {
         
         MainScope().launch {
             try {
-                // Get the QNN libs model ID for progress tracking
-                val modelRepository = ModelRepository(context)
-                val libs = modelRepository.getLibs()
+                val libs = ModelRepository.getMarketDataSuspend().libs
                 val qnnLibsItem = libs.find { it.modelName.equals("qnn_arm64_libs", ignoreCase = true) }
-                
-                // Update the progress dialog with the model ID
                 qnnLibsItem?.modelId?.let { qnnModelId ->
                     progressDialog.setupDownloadListener(qnnModelId)
                 }

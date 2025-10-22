@@ -221,4 +221,5 @@ dependencies {
     testImplementation 'org.mockito:mockito-inline:5.2.0'
     testImplementation 'org.mockito.kotlin:mockito-kotlin:5.2.0'
     testImplementation "io.mockk:mockk:1.13.10"
+    testImplementation "org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2"
 }

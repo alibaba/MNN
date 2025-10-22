@@ -19,6 +19,9 @@ object PreferenceUtils {
     // Pinned models management
     const val KEY_PINNED_MODELS: String = "PINNED_MODELS"
 
+    // Timber logging configuration
+    const val KEY_TIMBER_LOGGING_ENABLED: String = "TIMBER_LOGGING_ENABLED"
+
     fun setBoolean(context: Context?, key: String?, value: Boolean) {
         PreferenceManager.getDefaultSharedPreferences(context).edit().putBoolean(key, value).apply()
     }
@@ -44,6 +47,19 @@ object PreferenceUtils {
     }
 
     fun isUseModelsScopeDownload(context: Context?): Boolean {
+        return getBoolean(context, KEY_USE_MODELSCOPE_DOWNLOAD, true)
+    }
+
+    // Timber logging configuration methods
+    fun isTimberLoggingEnabled(context: Context?): Boolean {
+        return getBoolean(context, KEY_TIMBER_LOGGING_ENABLED, true) // Default to enabled
+    }
+
+    fun setTimberLoggingEnabled(context: Context?, enabled: Boolean) {
+        setBoolean(context, KEY_TIMBER_LOGGING_ENABLED, enabled)
+    }
+
+    fun isUseModelsScopeDownloadWithDefault(context: Context?): Boolean {
         val defaultValue = isChinese
         if (!PreferenceManager.getDefaultSharedPreferences(context).all.containsKey(
                 KEY_USE_MODELSCOPE_DOWNLOAD
