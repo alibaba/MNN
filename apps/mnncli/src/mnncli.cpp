@@ -35,6 +35,7 @@
 #include "mnncli_config.hpp"
 #include "mnncli_server.hpp"
 #include "nlohmann/json.hpp"
+#include "model_name_utils.hpp"
 #include "log_utils.hpp"
 #include "model_runner.hpp"
 #include "user_interface.hpp"
@@ -422,11 +423,12 @@ public:
     static int ListLocalModels(bool verbose = false) {
         std::vector<std::string> model_names;
         int result = GetLocalModelNames(model_names, verbose);
+        auto config = ConfigManager::LoadDefaultConfig();
         
         if (!model_names.empty()) {
             std::cout << "Local models:\n";
-            for (auto& name : model_names) {
-                std::cout << "  📁 " << name << "\n";
+            for (const auto& name : model_names) {
+                std::cout <<mnncli::ModelNameUtils::GetDisplayModelName(name, config) << "\n";
             }
         } else {
             std::cout << "No local models found.\n";
@@ -1562,5 +1564,3 @@ int main(int argc, const char* argv[]) {
     CommandLineInterface cli;
     return cli.Run(argc, argv);
 }
-
-

@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <string>
+
 namespace mnncli {
 #ifdef __ANDROID__
    // On Android, use a relative path in the mnncli directory to avoid filesystem permission issues

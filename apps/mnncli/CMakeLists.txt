@@ -105,6 +105,7 @@ set(MNNCLI_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/src/model_download_manager.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/model_repository.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/model_market_data.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/model_name_utils.cpp
 )
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")
