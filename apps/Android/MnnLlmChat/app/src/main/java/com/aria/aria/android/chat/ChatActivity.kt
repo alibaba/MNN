@@ -147,7 +147,7 @@ class ChatActivity : AppCompatActivity() {
             intent.type = "vnd.android.cursor.item/event"
             intent.putExtra(CalendarContract.Events.TITLE, "ARIA Event")
             intent.putExtra(CalendarContract.Events.EVENT_LOCATION, "ARIA Office")
-            intent.putExtra(CalendarSontract.EXTRA_EVENT_BEGIN_TIME, System.currentTimeMillis())
+            intent.putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, System.currentTimeMillis())
             intent.putExtra(CalendarContract.EXTRA_EVENT_END_TIME, System.currentTimeMillis() + 60 * 60 * 1000)
             if (intent.resolveActivity(packageManager) != null) {
                 startActivity(intent)

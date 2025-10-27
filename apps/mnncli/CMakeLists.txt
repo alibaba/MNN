@@ -111,7 +111,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Android")
     list(APPEND MNNCLI_SOURCES ${CMAKE_CURRENT_LIST_DIR}/src/AndroidVideoDecoder.cpp)
 endif()
 
-add_executable(mnncli ${MNNCLI_SOURCES})
+add_executable(ARIA ${MNNCLI_SOURCES})
+set_target_properties(ARIA PROPERTIES OUTPUT_NAME "ARIA")
 
 # OpenCV configuration
 if(MNN_BUILD_OPENCV)
