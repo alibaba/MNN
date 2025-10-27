@@ -1,14 +1,14 @@
 // Created by ruoyi.sjd on 2024/12/18.
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
-package com.alibaba.mnnllm.android
+package com.aria.aria.android
 
 import android.app.Application
-import com.alibaba.mls.api.ApplicationProvider
-import com.alibaba.mnnllm.android.utils.CrashUtil
-import com.alibaba.mnnllm.android.utils.CurrentActivityTracker
+import com.aria.mls.api.ApplicationProvider
+import com.aria.mnnllm.android.utils.CrashUtil
+import com.aria.mnnllm.android.utils.CurrentActivityTracker
 import timber.log.Timber
 import android.content.Context
-import com.alibaba.mnnllm.android.tag.ModelTagsCache
+import com.aria.mnnllm.android.tag.ModelTagsCache
 import com.jaredrummler.android.device.DeviceName
 
 class MnnLlmApplication : Application() {

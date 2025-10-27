@@ -1,10 +1,10 @@
-package com.alibaba.mnnllm.android.modelmarket
+package com.aria.mnnllm.android.modelmarket
 
 import android.content.Context
 import android.util.Log
 import androidx.preference.PreferenceManager
-import com.alibaba.mls.api.download.DownloadPersistentData
-import com.alibaba.mnnllm.android.mainsettings.MainSettings
+import com.aria.mls.api.download.DownloadPersistentData
+import com.aria.mnnllm.android.mainsettings.MainSettings
 import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext

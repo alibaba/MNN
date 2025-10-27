@@ -19,7 +19,7 @@ if (project.hasProperty('ADD_BUILTIN') && project.property('ADD_BUILTIN') == 'tr
 }
 
 android {
-    namespace 'com.alibaba.mnnllm.android'
+    namespace 'com.aria.aria.android'
     compileSdk 35
     ndkVersion "27.2.12479018"
     
@@ -28,7 +28,7 @@ android {
         noCompress += ['weight', 'part1', 'part2', 'part3', 'part4', 'part5', 'part6', 'part7', 'part8', 'part9', 'part10', 'mnn', 'bin', 'jar', 'mdl', 'msc', 'mv', 'txt', 'json', 'md']
     }
     defaultConfig {
-        applicationId "com.alibaba.mnnllm.android"
+        applicationId "com.aria.android"
         minSdk 26
         targetSdk 35
         versionCode 750

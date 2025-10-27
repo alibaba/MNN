@@ -2,13 +2,13 @@
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 
 
-package com.alibaba.mnnllm.android.mainsettings
+package com.aria.mnnllm.android.mainsettings
 
 import android.os.Bundle
 import android.view.MenuItem
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.Toolbar
-import com.alibaba.mnnllm.android.R
+import com.aria.mnnllm.android.R
 
 class MainSettingsActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {

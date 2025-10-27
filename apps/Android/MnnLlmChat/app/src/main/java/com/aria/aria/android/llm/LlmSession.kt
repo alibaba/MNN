@@ -1,28 +1,28 @@
 // Created by ruoyi.sjd on 2025/5/7.
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 
-package com.alibaba.mnnllm.android.llm;
+package com.aria.mnnllm.android.llm;
 
 import android.util.Log
-import com.alibaba.mnnllm.android.llm.ChatService.Companion.provide
-import com.alibaba.mnnllm.android.chat.model.ChatDataItem
-import com.alibaba.mnnllm.android.modelsettings.ModelConfig
-import com.alibaba.mnnllm.android.model.ModelTypeUtils
-import com.alibaba.mnnllm.android.modelsettings.ModelConfig.Companion.getExtraConfigFile
+import com.aria.mnnllm.android.llm.ChatService.Companion.provide
+import com.aria.mnnllm.android.chat.model.ChatDataItem
+import com.aria.mnnllm.android.modelsettings.ModelConfig
+import com.aria.mnnllm.android.model.ModelTypeUtils
+import com.aria.mnnllm.android.modelsettings.ModelConfig.Companion.getExtraConfigFile
 import com.google.gson.Gson
 import timber.log.Timber
 import java.io.File
 import java.util.stream.Collectors
 import kotlin.concurrent.Volatile
 import android.util.Pair
-import com.alibaba.mnnllm.android.utils.MmapUtils
+import com.aria.mnnllm.android.utils.MmapUtils
 import android.content.Context
 import android.app.ActivityManager
-import com.alibaba.mnnllm.android.modelsettings.Jinja
-import com.alibaba.mnnllm.android.modelsettings.JinjaContext
-import com.alibaba.mnnllm.android.modelsettings.ModelConfig.Companion.defaultConfig
-import com.alibaba.mnnllm.android.modelsettings.ModelConfig.Companion.loadConfig
-import com.alibaba.mnnllm.android.utils.FileSplitter
+import com.aria.mnnllm.android.modelsettings.Jinja
+import com.aria.mnnllm.android.modelsettings.JinjaContext
+import com.aria.mnnllm.android.modelsettings.ModelConfig.Companion.defaultConfig
+import com.aria.mnnllm.android.modelsettings.ModelConfig.Companion.loadConfig
+import com.aria.mnnllm.android.utils.FileSplitter
 
 class LlmSession (
     private val modelId: String,

@@ -1,6 +1,6 @@
 // Created by ruoyi.sjd on 2024/12/25.
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
-package com.alibaba.mnnllm.android.chat
+package com.aria.mnnllm.android.chat
 
 import android.content.Intent
 import android.net.Uri
@@ -14,34 +14,34 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import com.alibaba.mls.api.ApplicationProvider
-import com.alibaba.mnnllm.android.llm.ChatSession
-import com.alibaba.mnnllm.android.R
-import com.alibaba.mnnllm.android.audio.AudioChunksPlayer
-import com.alibaba.mnnllm.android.benchmark.BenchmarkModule
-import com.alibaba.mnnllm.android.modelist.ModelListManager
-import com.alibaba.mnnllm.android.utils.WavFileWriter
-import com.alibaba.mnnllm.android.utils.FileUtils
-import com.alibaba.mnnllm.android.chat.chatlist.ChatListComponent
-import com.alibaba.mnnllm.android.chat.chatlist.ChatViewHolders
-import com.alibaba.mnnllm.android.chat.input.ChatInputComponent
-import com.alibaba.mnnllm.android.chat.model.ChatDataItem
-import com.alibaba.mnnllm.android.databinding.ActivityChatBinding
-import com.alibaba.mnnllm.android.llm.AudioDataListener
-import com.alibaba.mnnllm.android.llm.LlmSession
-import com.alibaba.mnnllm.android.mainsettings.MainSettings.isApiServiceEnabled
-import com.alibaba.mnnllm.android.modelsettings.SettingsBottomSheetFragment
-import com.alibaba.mnnllm.api.openai.ui.ApiSettingsBottomSheetFragment
-import com.alibaba.mnnllm.api.openai.ui.ApiConsoleBottomSheetFragment
-import com.alibaba.mnnllm.android.utils.AudioPlayService
-import com.alibaba.mnnllm.android.model.ModelTypeUtils
-import com.alibaba.mnnllm.android.model.ModelUtils
-import com.alibaba.mnnllm.android.utils.PreferenceUtils
-import com.alibaba.mnnllm.api.openai.manager.ApiServiceManager
-import com.alibaba.mnnllm.android.chat.voice.VoiceChatFragment
-import com.alibaba.mnnllm.android.chat.voice.VoiceModelsChecker
-import com.alibaba.mnnllm.android.chat.voice.VoiceModelMarketBottomSheet
-import com.alibaba.mnnllm.android.modelist.ModelItemWrapper
+import com.aria.mls.api.ApplicationProvider
+import com.aria.mnnllm.android.llm.ChatSession
+import com.aria.mnnllm.android.R
+import com.aria.mnnllm.android.audio.AudioChunksPlayer
+import com.aria.mnnllm.android.benchmark.BenchmarkModule
+import com.aria.mnnllm.android.modelist.ModelListManager
+import com.aria.mnnllm.android.utils.WavFileWriter
+import com.aria.mnnllm.android.utils.FileUtils
+import com.aria.mnnllm.android.chat.chatlist.ChatListComponent
+import com.aria.mnnllm.android.chat.chatlist.ChatViewHolders
+import com.aria.mnnllm.android.chat.input.ChatInputComponent
+import com.aria.mnnllm.android.chat.model.ChatDataItem
+import com.aria.mnnllm.android.databinding.ActivityChatBinding
+import com.aria.mnnllm.android.llm.AudioDataListener
+import com.aria.mnnllm.android.llm.LlmSession
+import com.aria.mnnllm.android.mainsettings.MainSettings.isApiServiceEnabled
+import com.aria.mnnllm.android.modelsettings.SettingsBottomSheetFragment
+import com.aria.mnnllm.api.openai.ui.ApiSettingsBottomSheetFragment
+import com.aria.mnnllm.api.openai.ui.ApiConsoleBottomSheetFragment
+import com.aria.mnnllm.android.utils.AudioPlayService
+import com.aria.mnnllm.android.model.ModelTypeUtils
+import com.aria.mnnllm.android.model.ModelUtils
+import com.aria.mnnllm.android.utils.PreferenceUtils
+import com.aria.mnnllm.api.openai.manager.ApiServiceManager
+import com.aria.mnnllm.android.chat.voice.VoiceChatFragment
+import com.aria.mnnllm.android.chat.voice.VoiceModelsChecker
+import com.aria.mnnllm.android.chat.voice.VoiceModelMarketBottomSheet
+import com.aria.mnnllm.android.modelist.ModelItemWrapper
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filter
@@ -51,6 +51,9 @@ import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import android.provider.CalendarContract
+import android.widget.Button
+import android.app.SearchManager
 
 /**
  * @description:
@@ -116,6 +119,53 @@ class ChatActivity : AppCompatActivity() {
         setupView(this.modelId!!, this.modelName)
         this.setupSession()
         initializeVoiceModelsChecker()
+
+        findViewById<Button>(R.id.btn_web_search).setOnClickListener {
+            val intent = Intent(Intent.ACTION_WEB_SEARCH)
+            intent.putExtra(SearchManager.QUERY, "ARIA")
+            if (intent.resolveActivity(packageManager) != null) {
+                startActivity(intent)
+            } else {
+                Toast.makeText(this, "No web browser found", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        findViewById<Button>(R.id.btn_email).setOnClickListener {
+            val intent = Intent(Intent.ACTION_SENDTO)
+            intent.data = Uri.parse("mailto:")
+            intent.putExtra(Intent.EXTRA_EMAIL, arrayOf("test@example.com"))
+            intent.putExtra(Intent.EXTRA_SUBJECT, "ARIA Test")
+            if (intent.resolveActivity(packageManager) != null) {
+                startActivity(intent)
+            } else {
+                Toast.makeText(this, "No email client found", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        findViewById<Button>(R.id.btn_calendar).setOnClickListener {
+            val intent = Intent(Intent.ACTION_INSERT)
+            intent.type = "vnd.android.cursor.item/event"
+            intent.putExtra(CalendarContract.Events.TITLE, "ARIA Event")
+            intent.putExtra(CalendarContract.Events.EVENT_LOCATION, "ARIA Office")
+            intent.putExtra(CalendarSontract.EXTRA_EVENT_BEGIN_TIME, System.currentTimeMillis())
+            intent.putExtra(CalendarContract.EXTRA_EVENT_END_TIME, System.currentTimeMillis() + 60 * 60 * 1000)
+            if (intent.resolveActivity(packageManager) != null) {
+                startActivity(intent)
+            } else {
+                Toast.makeText(this, "No calendar app found", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        findViewById<Button>(R.id.btn_share).setOnClickListener {
+            val intent = Intent(Intent.ACTION_SEND)
+            intent.type = "text/plain"
+            intent.putExtra(Intent.EXTRA_TEXT, "Check out ARIA!")
+            if (intent.resolveActivity(packageManager) != null) {
+                startActivity(Intent.createChooser(intent, "Share via"))
+            } else {
+                Toast.makeText(this, "No app to handle sharing", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     private fun setupView(modelId:String, modelName: String) {

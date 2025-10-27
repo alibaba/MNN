@@ -1,6 +1,6 @@
 // Created by ruoyi.sjd on 2024/12/25.
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
-package com.alibaba.mls.api.download
+package com.aria.mls.api.download
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -11,18 +11,18 @@ import android.os.Build
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.alibaba.mls.api.ApplicationProvider
-import com.alibaba.mls.api.download.hf.HfModelDownloader
-import com.alibaba.mls.api.download.ml.MLModelDownloader
-import com.alibaba.mls.api.download.ms.MsModelDownloader
-import com.alibaba.mls.api.source.ModelSources
-import com.alibaba.mnnllm.android.chat.model.ChatDataManager
-import com.alibaba.mnnllm.android.model.ModelUtils
-import com.alibaba.mnnllm.android.modelmarket.ModelMarketItem
-import com.alibaba.mnnllm.android.modelsettings.ModelConfig
-import com.alibaba.mnnllm.android.utils.CurrentActivityTracker
-import com.alibaba.mnnllm.android.utils.FileUtils
-import com.alibaba.mnnllm.android.utils.MmapUtils.clearMmapCache
+import com.aria.mls.api.ApplicationProvider
+import com.aria.mls.api.download.hf.HfModelDownloader
+import com.aria.mls.api.download.ml.MLModelDownloader
+import com.aria.mls.api.download.ms.MsModelDownloader
+import com.aria.mls.api.source.ModelSources
+import com.aria.mnnllm.android.chat.model.ChatDataManager
+import com.aria.mnnllm.android.model.ModelUtils
+import com.aria.mnnllm.android.modelmarket.ModelMarketItem
+import com.aria.mnnllm.android.modelsettings.ModelConfig
+import com.aria.mnnllm.android.utils.CurrentActivityTracker
+import com.aria.mnnllm.android.utils.FileUtils
+import com.aria.mnnllm.android.utils.MmapUtils.clearMmapCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -31,7 +31,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.collections.set
 import kotlin.concurrent.Volatile
-import com.alibaba.mnnllm.android.modelmarket.ModelRepository
+import com.aria.mnnllm.android.modelmarket.ModelRepository
 import kotlinx.coroutines.runBlocking
 
 class LoggingDownloadListener : DownloadListener {

@@ -1,4 +1,4 @@
-package com.alibaba.mnnllm.android.benchmark
+package com.aria.mnnllm.android.benchmark
 
 import android.content.Intent
 import android.graphics.Bitmap
@@ -15,16 +15,16 @@ import androidx.core.content.FileProvider
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import java.io.FileOutputStream
-import com.alibaba.mnnllm.android.R
-import com.alibaba.mnnllm.android.databinding.FragmentBenchmarkBinding
-import com.alibaba.mnnllm.android.modelist.ModelListManager
-import com.alibaba.mnnllm.android.chat.SelectModelFragment
+import com.aria.mnnllm.android.R
+import com.aria.mnnllm.android.databinding.FragmentBenchmarkBinding
+import com.aria.mnnllm.android.modelist.ModelListManager
+import com.aria.mnnllm.android.chat.SelectModelFragment
 import com.jaredrummler.android.device.DeviceName
-import com.alibaba.mls.api.ModelItem
-import com.alibaba.mls.api.download.ModelDownloadManager
-import com.alibaba.mnnllm.android.model.ModelTypeUtils
-import com.alibaba.mnnllm.android.modelist.ModelItemWrapper
-import com.alibaba.mnnllm.android.utils.FileUtils
+import com.aria.mls.api.ModelItem
+import com.aria.mls.api.download.ModelDownloadManager
+import com.aria.mnnllm.android.model.ModelTypeUtils
+import com.aria.mnnllm.android.modelist.ModelItemWrapper
+import com.aria.mnnllm.android.utils.FileUtils
 import java.io.File
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
