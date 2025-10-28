@@ -9,9 +9,9 @@ plugins {
 apply from: '../build_prebuilt.gradle'
 
 // Apply Sherpa MNN native library download configuration
-apply from: '../downloadSherpaMnn.gradle'
+// apply from: '../downloadSherpaMnn.gradle'
 
-preBuild.dependsOn downloadAndUnzipNativeLibs
+// preBuild.dependsOn downloadAndUnzipNativeLibs
 
 // Only add builtin model tasks when ADD_BUILTIN=true
 if (project.hasProperty('ADD_BUILTIN') && project.property('ADD_BUILTIN') == 'true') {
