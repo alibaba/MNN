@@ -10,6 +10,8 @@ import SwiftUI
 import ExyteChat
 import ExyteMediaPicker
 import AVFoundation
+import MessageUI
+import EventKit
 
 struct LLMChatView: View {
     @StateObject private var viewModel: LLMChatViewModel
@@ -118,6 +120,75 @@ struct LLMChatView: View {
 
                 ToolbarItem(placement: .navigationBarTrailing) {
                     HStack(spacing: 8) {
+                        // System Integration Buttons
+                        Button(action: {
+                            // Web Search
+                            if let url = URL(string: "https://www.google.com/search?q=ARIA") {
+                                UIApplication.shared.open(url)
+                            }
+                        }) {
+                            Image(systemName: "magnifyingglass")
+                        }
+
+                        @State private var showMailView = false
+                        @State private var showAlert = false
+                        @State private var alertMessage = ""
+
+                        Button(action: {
+                            // Email
+                            if MFMailComposeViewController.canSendMail() {
+                                showMailView = true
+                            } else {
+                                alertMessage = "Mail services are not available."
+                                showAlert = true
+                            }
+                        }) {
+                            Image(systemName: "envelope")
+                        }
+                        .sheet(isPresented: $showMailView) {
+                            MailView(recipients: ["test@example.com"], subject: "ARIA Test")
+                        }
+                        .alert(isPresented: $showAlert) {
+                            Alert(title: Text("Error"), message: Text(alertMessage), dismissButton: .default(Text("OK")))
+                        }
+
+                        Button(action: {
+                            // Calendar
+                            let eventStore = EKEventStore()
+                            eventStore.requestAccess(to: .event) { (granted, error) in
+                                if granted && error == nil {
+                                    DispatchQueue.main.async {
+                                        let event = EKEvent(eventStore: eventStore)
+                                        event.title = "ARIA Event"
+                                        event.startDate = Date()
+                                        event.endDate = Date().addingTimeInterval(60 * 60)
+                                        event.location = "ARIA Office"
+                                        do {
+                                            try eventStore.save(event, span: .thisEvent)
+                                            alertMessage = "Event saved successfully."
+                                            showAlert = true
+                                        } catch {
+                                            alertMessage = "Failed to save event."
+                                            showAlert = true
+                                        }
+                                    }
+                                } else {
+                                    alertMessage = "Access to calendar was denied."
+                                    showAlert = true
+                                }
+                            }
+                        }) {
+                            Image(systemName: "calendar")
+                        }
+
+                        Button(action: {
+                            // Share
+                            let activityViewController = UIActivityViewController(activityItems: ["Check out ARIA!"], applicationActivities: nil)
+                            UIApplication.shared.windows.first?.rootViewController?.present(activityViewController, animated: true)
+                        }) {
+                            Image(systemName: "square.and.arrow.up")
+                        }
+
                         // Settings Button
                         Button(action: { showSettings.toggle() }) {
                             Image(systemName: "gear")

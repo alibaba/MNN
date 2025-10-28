@@ -1,4 +1,4 @@
-package com.alibaba.mnnllm.android.modelmarket
+package com.aria.mnnllm.android.modelmarket
 
 import android.os.Bundle
 import android.util.Log
@@ -11,22 +11,22 @@ import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
-import com.alibaba.mls.api.download.DownloadState
-import com.alibaba.mnnllm.android.R
-import com.alibaba.mnnllm.android.databinding.FragmentModelMarketBinding
-import com.alibaba.mnnllm.android.main.MainActivity
+import com.aria.mls.api.download.DownloadState
+import com.aria.mnnllm.android.R
+import com.aria.mnnllm.android.databinding.FragmentModelMarketBinding
+import com.aria.mnnllm.android.main.MainActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.alibaba.mnnllm.android.main.FilterComponent
-import com.alibaba.mnnllm.android.mainsettings.MainSettings
-import com.alibaba.mnnllm.android.model.Modality
-import com.alibaba.mnnllm.android.model.ModelVendors
-import com.alibaba.mnnllm.android.model.ModelTypeUtils
-import com.alibaba.mnnllm.android.modelsettings.DropDownMenuHelper
-import com.alibaba.mnnllm.android.utils.Searchable
-import com.alibaba.mnnllm.android.widgets.ModelSwitcherView
+import com.aria.mnnllm.android.main.FilterComponent
+import com.aria.mnnllm.android.mainsettings.MainSettings
+import com.aria.mnnllm.android.model.Modality
+import com.aria.mnnllm.android.model.ModelVendors
+import com.aria.mnnllm.android.model.ModelTypeUtils
+import com.aria.mnnllm.android.modelsettings.DropDownMenuHelper
+import com.aria.mnnllm.android.utils.Searchable
+import com.aria.mnnllm.android.widgets.ModelSwitcherView
 import android.widget.Toast
-import com.alibaba.mnnllm.android.utils.LargeModelConfirmationDialog
+import com.aria.mnnllm.android.utils.LargeModelConfirmationDialog
 
 class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
 

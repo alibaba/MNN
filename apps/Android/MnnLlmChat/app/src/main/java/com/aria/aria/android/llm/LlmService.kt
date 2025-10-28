@@ -1,7 +1,7 @@
 // Created by ruoyi.sjd on 2025/6/18.
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 
-package com.alibaba.mnnllm.android.llm
+package com.aria.mnnllm.android.llm
 
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope

@@ -1,6 +1,6 @@
 // Created by ruoyi.sjd on 2025/1/13.
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
-package com.alibaba.mnnllm.android.history
+package com.aria.mnnllm.android.history
 
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -11,13 +11,13 @@ import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.alibaba.mnnllm.android.main.MainActivity
-import com.alibaba.mnnllm.android.R
-import com.alibaba.mnnllm.android.chat.ChatRouter
-import com.alibaba.mnnllm.android.chat.model.ChatDataManager
-import com.alibaba.mnnllm.android.chat.model.ChatDataManager.Companion.getInstance
-import com.alibaba.mnnllm.android.chat.model.SessionItem
-import com.alibaba.mnnllm.android.history.HistoryListAdapter.OnHistoryCallback
+import com.aria.mnnllm.android.main.MainActivity
+import com.aria.mnnllm.android.R
+import com.aria.mnnllm.android.chat.ChatRouter
+import com.aria.mnnllm.android.chat.model.ChatDataManager
+import com.aria.mnnllm.android.chat.model.ChatDataManager.Companion.getInstance
+import com.aria.mnnllm.android.chat.model.SessionItem
+import com.aria.mnnllm.android.history.HistoryListAdapter.OnHistoryCallback
 
 class ChatHistoryFragment : Fragment() {
     private lateinit var chatListRecyclerView: RecyclerView

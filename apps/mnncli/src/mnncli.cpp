@@ -22,6 +22,10 @@
 #include <filesystem>
 #include <thread>
 #include <chrono>
+#if defined(_WIN32)
+#include <windows.h>
+#include <shellapi.h>
+#endif
 #include "file_utils.hpp"
 #include "model_download_manager.hpp"
 #include "model_repository.hpp"
@@ -1180,6 +1184,14 @@ public:
                 return HandleConfigCommand(argc, argv);
             } else if (cmd == "info") {
                 return HandleInfoCommand(argc, argv);
+            } else if (cmd == "web") {
+                return HandleWebSearchCommand(argc, argv);
+            } else if (cmd == "email") {
+                return HandleEmailCommand(argc, argv);
+            } else if (cmd == "calendar") {
+                return HandleCalendarCommand(argc, argv);
+            } else if (cmd == "share") {
+                return HandleShareCommand(argc, argv);
             } else if (cmd == "--help" || cmd == "-h") {
                 PrintUsage();
                 return 0;
@@ -1187,7 +1199,7 @@ public:
                 PrintVersion();
                 return 0;
             } else {
-                mnncli::UserInterface::ShowError("Unknown command: " + cmd, "Use 'mnncli --help' for usage information");
+                mnncli::UserInterface::ShowError("Unknown command: " + cmd, "Use 'ARIA --help' for usage information");
                 return 1;
             }
         } catch (const std::exception& e) {
@@ -1483,11 +1495,60 @@ private:
         
         return 0;
     }
+
+    int HandleWebSearchCommand(int argc, const char* argv[]) {
+#if defined(_WIN32)
+        ShellExecute(0, 0, "https://www.google.com/search?q=ARIA", 0, 0, SW_SHOW);
+#else
+        system("open https://www.google.com/search?q=ARIA");
+#endif
+        return 0;
+    }
+
+    int HandleEmailCommand(int argc, const char* argv[]) {
+#if defined(_WIN32)
+        ShellExecute(0, 0, "mailto:test@example.com?subject=ARIA%20Test", 0, 0, SW_SHOW);
+#else
+        system("open mailto:test@example.com?subject=ARIA%20Test");
+#endif
+        return 0;
+    }
+
+    int HandleCalendarCommand(int argc, const char* argv[]) {
+#if defined(_WIN32)
+        ShellExecute(0, 0, "outlookcal: L", 0, 0, SW_SHOW);
+#else
+        mnncli::UserInterface::ShowInfo("Calendar integration is not yet implemented for this platform.");
+#endif
+        return 0;
+    }
+
+    int HandleShareCommand(int argc, const char* argv[]) {
+#if defined(_WIN32)
+        const char* text = "Check out ARIA!";
+        OpenClipboard(0);
+        EmptyClipboard();
+        HGLOBAL hg = GlobalAlloc(GMEM_MOVEABLE, strlen(text) + 1);
+        if (!hg) {
+            CloseClipboard();
+            return 1;
+        }
+        memcpy(GlobalLock(hg), text, strlen(text) + 1);
+        GlobalUnlock(hg);
+        SetClipboardData(CF_TEXT, hg);
+        CloseClipboard();
+        GlobalFree(hg);
+        mnncli::UserInterface::ShowInfo("Text copied to clipboard. You can now paste it to share.");
+#else
+        mnncli::UserInterface::ShowInfo("Share functionality is not yet implemented for this platform.");
+#endif
+        return 0;
+    }
     
     
     void PrintUsage() {
-        std::cout << "MNN CLI - AI Model Command Line Interface\n\n";
-        std::cout << "Usage: mnncli <command> [options]\n\n";
+        std::cout << "ARIA - AI Model Command Line Interface\n\n";
+        std::cout << "Usage: ARIA <command> [options]\n\n";
         std::cout << "Commands:\n";
         std::cout << "  list       List local models\n";
         std::cout << "  search     Search remote models\n";
@@ -1499,6 +1560,10 @@ private:
         std::cout << "  benchmark  Run performance benchmarks\n";
         std::cout << "  config     Manage configuration (show, set, reset, help)\n";
         std::cout << "  info       Show system information\n";
+        std::cout << "  web        Perform a web search for 'ARIA'\n";
+        std::cout << "  email      Open the default email client with a sample message\n";
+        std::cout << "  calendar   (Not implemented) Create a calendar event\n";
+        std::cout << "  share      (Not implemented) Share a message\n";
         std::cout << "\nGlobal Options:\n";
         std::cout << "  -v, --verbose  Enable verbose output for detailed debugging\n";
         std::cout << "  --help    Show this help message\n";

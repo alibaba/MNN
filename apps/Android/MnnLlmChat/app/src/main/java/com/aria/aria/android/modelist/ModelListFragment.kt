@@ -1,6 +1,6 @@
 // Created by ruoyi.sjd on 2025/1/13.
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
-package com.alibaba.mnnllm.android.modelist
+package com.aria.mnnllm.android.modelist
 
 import android.os.Bundle
 import android.util.Log
@@ -12,17 +12,17 @@ import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.alibaba.mnnllm.android.main.MainActivity
-import com.alibaba.mnnllm.android.R
-import com.alibaba.mnnllm.android.chat.ChatRouter
-import com.alibaba.mnnllm.android.utils.PreferenceUtils.isFilterDownloaded
-import com.alibaba.mnnllm.android.utils.PreferenceUtils
-import com.alibaba.mnnllm.android.model.Modality
-import com.alibaba.mnnllm.android.model.ModelVendors
-import com.alibaba.mnnllm.android.modelsettings.DropDownMenuHelper
-import com.alibaba.mnnllm.android.utils.Searchable
-import com.alibaba.mnnllm.android.utils.LargeModelConfirmationDialog
-import com.alibaba.mnnllm.android.modelist.ModelListManager
+import com.aria.mnnllm.android.main.MainActivity
+import com.aria.mnnllm.android.R
+import com.aria.mnnllm.android.chat.ChatRouter
+import com.aria.mnnllm.android.utils.PreferenceUtils.isFilterDownloaded
+import com.aria.mnnllm.android.utils.PreferenceUtils
+import com.aria.mnnllm.android.model.Modality
+import com.aria.mnnllm.android.model.ModelVendors
+import com.aria.mnnllm.android.modelsettings.DropDownMenuHelper
+import com.aria.mnnllm.android.utils.Searchable
+import com.aria.mnnllm.android.utils.LargeModelConfirmationDialog
+import com.aria.mnnllm.android.modelist.ModelListManager
 
 class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
     

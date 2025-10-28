@@ -10,6 +10,9 @@ cmake ../../../ \
 -DMNN_BUILD_TEST=ON \
 -DANDROID_NATIVE_API_LEVEL=android-21  \
 -DMNN_BUILD_FOR_ANDROID_COMMAND=true \
--DNATIVE_LIBRARY_OUTPUT=. -DNATIVE_INCLUDE_OUTPUT=. $*
+-DNATIVE_LIBRARY_OUTPUT=lib -DNATIVE_INCLUDE_OUTPUT=include $*
 
 make -j4
+echo "### Files in build directory ###"
+ls -R
+echo "##################################"

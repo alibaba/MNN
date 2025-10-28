@@ -1,6 +1,6 @@
 // Created by ruoyi.sjd on 2024/12/25.
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
-package com.alibaba.mnnllm.android.main
+package com.aria.aria.android.main
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -25,30 +25,30 @@ import androidx.core.view.MenuProvider
 import androidx.drawerlayout.widget.DrawerLayout
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
-import com.alibaba.mls.api.download.ModelDownloadManager
-import com.alibaba.mls.api.source.ModelSources
-import com.alibaba.mnnllm.android.R
-import com.alibaba.mnnllm.android.benchmark.BenchmarkFragment
-import com.alibaba.mnnllm.android.chat.ChatRouter
-import com.alibaba.mnnllm.android.history.ChatHistoryFragment
-import com.alibaba.mnnllm.android.mainsettings.MainSettingsActivity
-import com.alibaba.mnnllm.android.modelist.ModelListFragment
-import com.alibaba.mnnllm.android.modelmarket.ModelMarketFragment
-import com.alibaba.mnnllm.android.update.UpdateChecker
-import com.alibaba.mnnllm.android.utils.CrashUtil
-import com.alibaba.mnnllm.android.utils.GithubUtils
-import com.alibaba.mnnllm.android.utils.RouterUtils.startActivity
-import com.alibaba.mnnllm.android.utils.Searchable
-import com.alibaba.mnnllm.android.widgets.BottomTabBar
-import com.alibaba.mnnllm.android.widgets.ModelSwitcherView
-import com.alibaba.mnnllm.android.mainsettings.MainSettings
+import com.aria.mls.api.download.ModelDownloadManager
+import com.aria.mls.api.source.ModelSources
+import com.aria.aria.android.R
+import com.aria.aria.android.benchmark.BenchmarkFragment
+import com.aria.aria.android.chat.ChatRouter
+import com.aria.aria.android.history.ChatHistoryFragment
+import com.aria.aria.android.mainsettings.MainSettingsActivity
+import com.aria.aria.android.modelist.ModelListFragment
+import com.aria.aria.android.modelmarket.ModelMarketFragment
+import com.aria.aria.android.update.UpdateChecker
+import com.aria.aria.android.utils.CrashUtil
+import com.aria.aria.android.utils.GithubUtils
+import com.aria.aria.android.utils.RouterUtils.startActivity
+import com.aria.aria.android.utils.Searchable
+import com.aria.aria.android.widgets.BottomTabBar
+import com.aria.aria.android.widgets.ModelSwitcherView
+import com.aria.aria.android.mainsettings.MainSettings
 import com.google.android.material.appbar.AppBarLayout
 import com.google.android.material.appbar.MaterialToolbar
-import com.alibaba.mnnllm.android.chat.SelectSourceFragment
+import com.aria.aria.android.chat.SelectSourceFragment
 import android.content.Intent
-import com.alibaba.mnnllm.android.qnn.QnnModule
-import com.alibaba.mnnllm.android.privacy.PrivacyPolicyManager
-import com.alibaba.mnnllm.android.privacy.PrivacyPolicyDialogFragment
+import com.aria.aria.android.qnn.QnnModule
+import com.aria.aria.android.privacy.PrivacyPolicyManager
+import com.aria.aria.android.privacy.PrivacyPolicyDialogFragment
 
 class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleListener {
     private lateinit var drawerLayout: DrawerLayout
