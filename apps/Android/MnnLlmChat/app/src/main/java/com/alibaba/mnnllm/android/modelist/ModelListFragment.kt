@@ -78,9 +78,6 @@ class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
         modelListEmptyView = view.findViewById(R.id.model_list_empty_view)
         modelListErrorText = modelListErrorView.findViewById(R.id.tv_error_text)
         loadingMessageText = modelListLoadingView.findViewById(R.id.tv_loading_message)
-        modelListErrorView.setOnClickListener {
-            modelListPresenter!!.load()
-        }
         modelListRecyclerView.setLayoutManager(
             LinearLayoutManager(
                 context,
@@ -106,6 +103,13 @@ class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
         filterDownloaded = isFilterDownloaded(context)
         adapter!!.setFilter(filterQuery)
         adapter!!.filterDownloadState(filterDownloaded.toString())
+
+        // Show loading view initially to prevent flash of empty list
+        modelListLoadingView.visibility = View.VISIBLE
+        modelListRecyclerView.visibility = View.GONE
+        modelListErrorView.visibility = View.GONE
+        modelListEmptyView.visibility = View.GONE
+        
         modelListPresenter!!.onCreate()
         return view
     }
@@ -131,9 +135,6 @@ class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
                 PreferenceUtils.unpinModel(requireContext(), modelId)
                 Toast.makeText(requireContext(), getString(R.string.model_unpinned), Toast.LENGTH_SHORT).show()
             }
-            
-            // Refresh the list with smart scroll handling
-            modelListPresenter?.refreshList()
             
             // If we were at the top and unpinned an item, scroll back to top after update
             if (shouldScrollToTop) {
@@ -253,18 +254,13 @@ class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
             removeCustomToolbar()
         } else {
             setupCustomToolbar()
-            // Refresh the list to update sorting based on recent chats
-            modelListPresenter?.refreshList()
-            // Restore search state if there was an active search
             restoreSearchStateIfNeeded()
         }
     }
     
     override fun onResume() {
         super.onResume()
-        // Refresh the list when fragment resumes to update sorting
-        modelListPresenter?.refreshList()
-        // Also restore search state on resume (for initial load)
+
         restoreSearchStateIfNeeded()
     }
     

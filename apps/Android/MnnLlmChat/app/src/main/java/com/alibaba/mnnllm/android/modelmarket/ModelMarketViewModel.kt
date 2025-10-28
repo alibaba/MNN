@@ -13,7 +13,7 @@ import com.alibaba.mls.api.download.DownloadListener
 import com.alibaba.mls.api.download.DownloadState
 import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.model.Modality
-import com.alibaba.mnnllm.android.modelmarket.ModelMarketUtils.writeMarketConfig
+import com.alibaba.mnnllm.android.modelmarket.ModelMarketCache
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -23,13 +23,12 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
         private const val TAG = "ModelMarketViewModel"
     }
 
-    private val repository = ModelRepository(application)
     private val downloadManager = ModelDownloadManager.getInstance(application)
     private var allModels: List<ModelMarketItemWrapper> = emptyList()
     private var mainHandler: Handler = Handler(application.mainLooper)
     private val lastUpdateTimeMap: MutableMap<String, Long> = HashMap()
     private val lastDownloadProgressStage: MutableMap<String, String> = HashMap()
-    private var modelMarketData: ModelMarketData? = null
+    private var modelMarketConfig: ModelMarketConfig? = null
     private var currentFilterState: FilterState = FilterState()
 
     private val _models = MutableLiveData<List<ModelMarketItemWrapper>>()
@@ -142,23 +141,22 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
                 _isLoading.postValue(true)
                 _loadError.postValue(null)
                 
-                // Load full data for TagMapper initialization
-                modelMarketData = repository.getModelMarketData()
+                // Get pre-processed config with all models
+                val config = ModelRepository.getModelMarketData()
+                modelMarketConfig = config
                 
-                if (modelMarketData == null) {
+                if (config == null) {
                     // Handle case where data couldn't be loaded
                     _isLoading.postValue(false)
                     _loadError.postValue("Failed to load model data")
                     return@launch
                 }
                 
-                modelMarketData?.let { data ->
-                    // Initialize TagMapper with data from JSON
-                    TagMapper.initializeFromData(data)
-                }
+                // Initialize TagMapper with config
+                TagMapper.initializeFromConfig(config)
                 
-                // Get filtered models with correctly set modelId
-                val marketItems = repository.getModels()
+                // Use pre-processed models directly from config
+                val marketItems = config.llmModels
                 allModels = marketItems.map {
                     val downloadInfo = downloadManager.getDownloadInfo(it)
                     Log.d(TAG, "Model: ${it.modelName}, modelId: ${it.modelId} initial downloadState: ${downloadInfo.downloadState}")
@@ -209,7 +207,7 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
 
     fun getAvailableVendors(): List<String> {
         val availableVendors = allModels.map { it.modelMarketItem.vendor }.distinct()
-        val vendorOrder = modelMarketData?.vendorOrder ?: emptyList()
+        val vendorOrder = modelMarketConfig?.vendorOrder ?: emptyList()
         
         // Sort vendors according to the custom order, with unlisted vendors at the end
         return availableVendors.sortedWith { a, b ->
@@ -232,8 +230,8 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
     }
     
     fun getQuickFilterTags(): List<Tag> {
-        return modelMarketData?.let { data ->
-            TagMapper.getQuickFilterTags(data.quickFilterTags)
+        return modelMarketConfig?.let { config ->
+            TagMapper.getQuickFilterTags(config.quickFilterTags)
         } ?: emptyList()
     }
 
@@ -328,8 +326,8 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
         mainHandler.post {
             allModels.find { it.modelMarketItem.modelId == modelId }?.let {
                 updateDownloadInfo(modelId, downloadManager.getDownloadInfo(it.modelMarketItem))
-                // Write market config after download
-                writeMarketConfig(it.modelMarketItem)
+                // Note: Market config write is now handled automatically by ModelMarketCache
+                // which subscribes to ModelRepository changes
             }
             _itemUpdate.value = modelId
         }

@@ -588,4 +588,12 @@
     <string name="loading_models">Loading models…</string>
     <string name="copying_builtin_models">First install, copying built-in models…</string>
     <string name="builtin">Builtin</string>
+    
+    <!-- QNN Libraries Download Strings -->
+    <string name="qnn_libs_download_title">Download QNN Libraries</string>
+    <string name="qnn_libs_download_message">This QNN model requires additional libraries. Download now?</string>
+    <string name="qnn_libs_downloading">Downloading QNN libraries…</string>
+    <string name="qnn_libs_download_failed">Failed to download QNN libraries</string>
+    <string name="qnn_libs_load_failed">Failed to load QNN libraries</string>
+    <string name="qnn_device_not_supported">QNN model detected but device does not support QNN acceleration. Please use a different model.</string>
 </resources>

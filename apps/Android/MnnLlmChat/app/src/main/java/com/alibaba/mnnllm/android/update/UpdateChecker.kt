@@ -28,7 +28,11 @@ import com.alibaba.mnnllm.android.utils.AppUtils.getAppVersionName
 import com.alibaba.mnnllm.android.utils.DeviceUtils
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
 import com.alibaba.mnnllm.android.utils.UiUtils
-import com.techiness.progressdialoglibrary.ProgressDialog
+import android.app.Dialog
+import android.view.LayoutInflater
+import android.widget.TextView
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.progressindicator.CircularProgressIndicator
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.Interceptor
@@ -48,7 +52,29 @@ import kotlin.math.max
 class UpdateChecker(private val context: Context) {
 
     private var manifestUrl = "https://modelscope.cn/datasets/MNN/mnn_llm_app_config/resolve/master/main_config.json"
-    private var progressDialog: ProgressDialog? = null
+    private var progressDialog: Dialog? = null
+    
+    private fun createMaterial3ProgressDialog(context: Context, message: String): Dialog {
+        // Create a custom layout for the progress dialog
+        val inflater = LayoutInflater.from(context)
+        val view = inflater.inflate(R.layout.dialog_progress_material3, null)
+        
+        val progressIndicator = view.findViewById<CircularProgressIndicator>(R.id.progress_indicator)
+        val progressText = view.findViewById<TextView>(R.id.progress_text)
+        
+        // Set progress indicator to indeterminate mode for this simple dialog
+        progressIndicator.isIndeterminate = true
+        progressText.text = message
+        
+        val dialog = MaterialAlertDialogBuilder(context)
+            .setView(view)
+            .setCancelable(false)
+            .create()
+        
+        dialog.show()
+        
+        return dialog
+    }
 
     init {
         if (File("/data/local/tmp/mnn_chat_test").exists()) {
@@ -75,8 +101,7 @@ class UpdateChecker(private val context: Context) {
             }
         }
         if (forceCheck) {
-            progressDialog = ProgressDialog(context)
-            progressDialog?.show()
+            progressDialog = createMaterial3ProgressDialog(context, context.getString(R.string.checking_repo_updates))
         }
         val loggingInterceptor = Interceptor { chain ->
             val request: Request = chain.request()

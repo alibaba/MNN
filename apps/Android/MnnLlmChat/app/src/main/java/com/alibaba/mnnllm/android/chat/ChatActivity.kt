@@ -14,6 +14,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.first
 import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mnnllm.android.llm.ChatSession
 import com.alibaba.mnnllm.android.R
@@ -718,8 +720,6 @@ class ChatActivity : AppCompatActivity() {
         }
         lifecycleScope.launch {
             val availableModels = getAvailableModels()
-
-            // Filter out diffusion models
             val modelFilter: (ModelItemWrapper) -> Boolean = { modelWrapper ->
                 !ModelTypeUtils.isDiffusionModel(modelWrapper.displayName)
             }
@@ -733,8 +733,9 @@ class ChatActivity : AppCompatActivity() {
         
     }
     
-    private suspend fun getAvailableModels(): List<ModelItemWrapper> {
-        return ModelListManager.loadAvailableModels(this)
+    private fun getAvailableModels(): List<ModelItemWrapper> {
+        // Get current models or wait for them
+        return ModelListManager.getCurrentModels()?: emptyList()
     }
     
     private fun handleModelSelection(selectedModelWrapper: ModelItemWrapper) {

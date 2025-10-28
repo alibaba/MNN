@@ -172,9 +172,6 @@ object ModelUtils {
         return modelName.lowercase(Locale.getDefault()).contains("qwen3")
     }
 
-
-
-
     @JvmStatic
     fun getModelName(modelId: String?): String? {
         if (modelId != null && modelId.contains("/")) {
@@ -183,22 +180,9 @@ object ModelUtils {
         return modelId
     }
 
-
-
-
     fun safeModelId(modelId: String): String {
         return modelId.replace("/".toRegex(), "_")
     }
-
-
-
-
-
-
-
-
-
-
 
     //split "Huggingface/taobao-mnn/Qwen-1.5B" to ["Huggingface", "taobao-mnn/Qwen-1.5B"]
     fun splitSource(modelId: String): Array<String> {

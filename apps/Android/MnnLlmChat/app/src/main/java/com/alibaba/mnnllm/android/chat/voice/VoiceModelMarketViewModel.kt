@@ -7,17 +7,12 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
-import androidx.preference.PreferenceManager
 import com.alibaba.mls.api.download.DownloadInfo
 import com.alibaba.mls.api.download.DownloadListener
-import com.alibaba.mls.api.download.DownloadState
 import com.alibaba.mls.api.download.ModelDownloadManager
-import com.alibaba.mnnllm.android.modelmarket.ModelMarketData
 import com.alibaba.mnnllm.android.modelmarket.ModelMarketItem
 import com.alibaba.mnnllm.android.modelmarket.ModelMarketItemWrapper
 import com.alibaba.mnnllm.android.modelmarket.ModelRepository
-import com.alibaba.mnnllm.android.modelmarket.SourceSelectionDialogFragment
-import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -29,7 +24,6 @@ class VoiceModelMarketViewModel(application: Application) : AndroidViewModel(app
     }
 
     private val downloadManager = ModelDownloadManager.getInstance(application)
-    private val modelRepository = ModelRepository(application)
     private var allTtsModels: List<ModelMarketItemWrapper> = emptyList()
     private var allAsrModels: List<ModelMarketItemWrapper> = emptyList()
     private var mainHandler: Handler = Handler(application.mainLooper)
@@ -50,7 +44,7 @@ class VoiceModelMarketViewModel(application: Application) : AndroidViewModel(app
     fun loadTtsModels() {
         viewModelScope.launch {
             try {
-                val ttsItems = modelRepository.getTtsModels()
+                val ttsItems = ModelRepository.getMarketDataSuspend().ttsModels
                 allTtsModels = processModels(ttsItems)
                 _models.postValue(allTtsModels)
                 Log.d(TAG, "Loaded ${allTtsModels.size} TTS models")
@@ -64,7 +58,7 @@ class VoiceModelMarketViewModel(application: Application) : AndroidViewModel(app
     fun loadAsrModels() {
         viewModelScope.launch {
             try {
-                val asrItems = modelRepository.getAsrModels()
+                val asrItems = ModelRepository.getMarketDataSuspend().asrModels
                 allAsrModels = processModels(asrItems)
                 _models.postValue(allAsrModels)
                 Log.d(TAG, "Loaded ${allAsrModels.size} ASR models")

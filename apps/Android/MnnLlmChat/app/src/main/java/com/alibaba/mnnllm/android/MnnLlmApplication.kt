@@ -6,12 +6,14 @@ import android.app.Application
 import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mnnllm.android.utils.CrashUtil
 import com.alibaba.mnnllm.android.utils.CurrentActivityTracker
+import com.alibaba.mnnllm.android.utils.TimberConfig
 import timber.log.Timber
 import android.content.Context
-import com.alibaba.mnnllm.android.tag.ModelTagsCache
 import com.jaredrummler.android.device.DeviceName
+import com.alibaba.mnnllm.android.modelist.ModelListManager
 
 class MnnLlmApplication : Application() {
+    
     override fun onCreate() {
         super.onCreate()
         ApplicationProvider.set(this)
@@ -22,10 +24,11 @@ class MnnLlmApplication : Application() {
         // Initialize CurrentActivityTracker
         CurrentActivityTracker.initialize(this)
 
-        Timber.plant(Timber.DebugTree())
-
-        // Initialize model tags cache for proper tag loading
-        ModelTagsCache.initializeCache(this)
+        // Initialize Timber logging based on configuration
+        TimberConfig.initialize()
+        
+        // Set context for ModelListManager (enables auto-initialization)
+        ModelListManager.setContext(getInstance())
     }
 
     companion object {
@@ -33,6 +36,13 @@ class MnnLlmApplication : Application() {
 
         fun getAppContext(): Context {
             return instance.applicationContext
+        }
+        
+        /**
+         * Get the application instance for accessing Timber configuration
+         */
+        fun getInstance(): MnnLlmApplication {
+            return instance
         }
     }
 }

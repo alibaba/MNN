@@ -2,6 +2,7 @@
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 package com.alibaba.mnnllm.android.modelist
 
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -18,6 +19,7 @@ import java.util.Locale
 class ModelListAdapter(private val items: MutableList<ModelItemWrapper>) :
     RecyclerView.Adapter<RecyclerView.ViewHolder>() {
     var initialized = false
+    private var isLoading = true  // Track loading state to prevent empty view flash
     private var filteredItems: List<ModelItemWrapper> = items.toList()
     private var modelListListener: ModelItemListener? = null
     
@@ -124,18 +126,31 @@ class ModelListAdapter(private val items: MutableList<ModelItemWrapper>) :
     }
 
     fun updateItems(modelWrappers: List<ModelItemWrapper>) {
+        val oldItems = getItems() // Get old items before update
+        
         items.clear()
         items.addAll(modelWrappers)
+        initialized = true
+        isLoading = false  // Mark as no longer loading
+        
+        // If filters are active, apply them to update filteredItems
+        if (hasActiveFilters()) {
+            filterItemsSync()
+        }
         
         // Use DiffUtil for efficient updates
-        val oldFiltered = filteredItems
-        filterItemsSync() // Filter synchronously for immediate update
-        
-        val diffCallback = ModelWrapperDiffCallback(oldFiltered, filteredItems)
+        val newItems = getItems() // Get new items after update
+        val diffCallback = ModelWrapperDiffCallback(oldItems, newItems)
         val diffResult = DiffUtil.calculateDiff(diffCallback)
         diffResult.dispatchUpdatesTo(this)
-        initialized = true
         checkIfEmpty()
+    }
+    
+    // Check if any filters are active
+    private fun hasActiveFilters(): Boolean {
+        return filterQueryMap.any { (key, value) -> 
+            value.isNotEmpty() && value != "-1"
+        }
     }
 
     fun updateItem(modelId: String) {
@@ -183,13 +198,19 @@ class ModelListAdapter(private val items: MutableList<ModelItemWrapper>) :
     }
 
     private fun getItems(): List<ModelItemWrapper> {
-        return filteredItems
+        // If no filters are active, return all items directly
+        // This prevents showing empty list when filters haven't been applied yet
+        return if (hasActiveFilters()) {
+            filteredItems
+        } else {
+            items
+        }
     }
 
     private fun filterItemsSync() {
         val filtered = items.filter { modelWrapper ->
             val modelItem = modelWrapper.modelItem
-            val modelNameLowerCase = modelItem.modelName!!.lowercase(Locale.getDefault())
+            val modelNameLowerCase = modelItem.modelName.lowercase(Locale.getDefault())
             
             for ((key, value) in filterQueryMap) {
                 if (value.isEmpty()) {
@@ -228,6 +249,12 @@ class ModelListAdapter(private val items: MutableList<ModelItemWrapper>) :
     }
 
     private fun filterItems() {
+        // Don't filter if adapter hasn't been initialized with data yet
+        if (!initialized) {
+            Log.d(TAG, "filterItems: skipping filter - adapter not yet initialized")
+            return
+        }
+        
         // Cancel previous filter job
         filterJob?.cancel()
         
@@ -236,7 +263,7 @@ class ModelListAdapter(private val items: MutableList<ModelItemWrapper>) :
             val filtered = withContext(Dispatchers.Default) {
                 items.filter { modelWrapper ->
                     val modelItem = modelWrapper.modelItem
-                    val modelNameLowerCase = modelItem.modelName!!.lowercase(Locale.getDefault())
+                    val modelNameLowerCase = modelItem.modelName.lowercase(Locale.getDefault())
                     
                     for ((key, value) in filterQueryMap) {
                         if (value.isEmpty()) {
@@ -288,13 +315,22 @@ class ModelListAdapter(private val items: MutableList<ModelItemWrapper>) :
     fun unfilter() {
         filterJob?.cancel()
         
-        val oldFiltered = filteredItems
-        filteredItems = items.toList()
+        val oldItems = getItems()
         
-        val diffCallback = ModelWrapperDiffCallback(oldFiltered, filteredItems)
+        // Clear all filters
+        filterQueryMap.clear()
+        filterQueryMap["query"] = ""
+        filterQueryMap["vendor"] = ""
+        filterQueryMap["modality"] = ""
+        filterQueryMap["download"] = "-1"
+        filterQuery = ""
+        
+        // getItems() will now return all items since no filters are active
+        val newItems = getItems()
+        
+        val diffCallback = ModelWrapperDiffCallback(oldItems, newItems)
         val diffResult = DiffUtil.calculateDiff(diffCallback)
         diffResult.dispatchUpdatesTo(this)
-        
         checkIfEmpty()
     }
 
@@ -324,11 +360,11 @@ class ModelListAdapter(private val items: MutableList<ModelItemWrapper>) :
     }
 
     private fun checkIfEmpty() {
-        if (!initialized) {
+        if (!initialized || isLoading) {
             return
         }
         if (emptyView != null) {
-            emptyView?.visibility = if (getItemCount() == 0) View.VISIBLE else View.GONE
+            emptyView?.visibility = if (itemCount == 0) View.VISIBLE else View.GONE
         }
     }
     
