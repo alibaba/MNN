@@ -340,7 +340,12 @@ Llm* Llm::create_lora(const std::string& lora_path) {
     auto llm = new Llm(std::make_shared<LlmConfig>(*mConfig));
     llm->set_config("{\"llm_model\": \"" + lora_path + "\", \"use_mmap\": false, \"use_cached_mmap\": false}");
     llm->mBaseModule = mModule.get();
-    llm->load();
+    auto res = llm->load();
+    if (!res) {
+        MNN_ERROR("[MNN:LLM] Load Lora error\n");
+        delete llm;
+        return nullptr;
+    }
     return llm;
 }
 
@@ -679,12 +684,19 @@ void Llm::eraseHistory(size_t begin, size_t end) {
         MNN_ERROR("MNN-LLM: erase history hasn't been executed by response, override erase info\n");
     }
     mMeta->remove = mMeta->previous - begin;
+    int revertNumber = 0;
     if (end != mMeta->previous) {
         mMeta->reserveHost.resize(2);
         mMeta->reserve = mMeta->reserveHost.data();
         mMeta->n_reserve = 1;
         mMeta->reserve[0] = end - begin;
         mMeta->reserve[1] = mMeta->previous - end;
+        revertNumber = mMeta->reserve[1];
+    }
+    mContext->all_seq_len = mMeta->previous - mMeta->remove + revertNumber;
+    // FIXME: support history_tokens erease the tokens with correct position
+    if(revertNumber == 0 && mMeta->remove <  mContext->history_tokens.size()){
+        mContext->history_tokens.resize(mContext->history_tokens.size() - mMeta->remove);
     }
 }
 
