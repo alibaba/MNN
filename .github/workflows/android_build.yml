@@ -35,7 +35,7 @@ jobs:
           ./gradlew assembleDebug
 
       - name: Upload APK
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: mnn-llm-chat-debug.apk
           path: apps/Android/MnnLlmChat/app/build/outputs/apk/debug/app-debug.apk
