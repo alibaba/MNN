@@ -13,3 +13,6 @@ cmake ../../../ \
 -DNATIVE_LIBRARY_OUTPUT=lib -DNATIVE_INCLUDE_OUTPUT=include $*
 
 make -j4
+echo "### Files in build directory ###"
+ls -R
+echo "##################################"
