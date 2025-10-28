@@ -173,7 +173,7 @@ std::string FileUtils::GetBaseCacheDir() {
 #endif
 
     if (!exists(cache_path)) {
-        create_directory(cache_path);
+        create_directories(cache_path);
     }
 
     return cache_path.string();

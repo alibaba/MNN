@@ -110,9 +110,11 @@ if [ -f "$MNNCLI_BUILD_DIR/mnncli" ]; then
         exit 1
     fi
     
-    # Show dependencies
-    echo -e "${YELLOW}Checking dependencies...${NC}"
-    otool -L "$MNNCLI_BUILD_DIR/mnncli"
+    # Show dependencies only on macOS with --check parameter
+    if [[ "$OSTYPE" == "darwin"* ]] && [[ "$1" == "--check" ]]; then
+        echo -e "${YELLOW}Checking dependencies...${NC}"
+        otool -L "$MNNCLI_BUILD_DIR/mnncli"
+    fi
 else
     echo -e "${RED}Build failed! Executable not found.${NC}"
     exit 1
