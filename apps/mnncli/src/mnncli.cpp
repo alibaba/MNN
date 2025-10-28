@@ -1516,7 +1516,7 @@ private:
 
     int HandleCalendarCommand(int argc, const char* argv[]) {
 #if defined(_WIN32)
-        ShellExecute(0, 0, "outlookcal:", 0, 0, SW_SHOW);
+        ShellExecute(0, 0, "outlookcal: L", 0, 0, SW_SHOW);
 #else
         mnncli::UserInterface::ShowInfo("Calendar integration is not yet implemented for this platform.");
 #endif
@@ -1525,8 +1525,20 @@ private:
 
     int HandleShareCommand(int argc, const char* argv[]) {
 #if defined(_WIN32)
-        // This is a placeholder for a more complex share implementation
-        mnncli::UserInterface::ShowInfo("Share functionality is not yet implemented for this platform.");
+        const char* text = "Check out ARIA!";
+        OpenClipboard(0);
+        EmptyClipboard();
+        HGLOBAL hg = GlobalAlloc(GMEM_MOVEABLE, strlen(text) + 1);
+        if (!hg) {
+            CloseClipboard();
+            return 1;
+        }
+        memcpy(GlobalLock(hg), text, strlen(text) + 1);
+        GlobalUnlock(hg);
+        SetClipboardData(CF_TEXT, hg);
+        CloseClipboard();
+        GlobalFree(hg);
+        mnncli::UserInterface::ShowInfo("Text copied to clipboard. You can now paste it to share.");
 #else
         mnncli::UserInterface::ShowInfo("Share functionality is not yet implemented for this platform.");
 #endif
