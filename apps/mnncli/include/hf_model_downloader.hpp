@@ -77,11 +77,7 @@ private:
 private:
     std::shared_ptr<HfApiClient> hf_api_client_;
     // HTTP client for metadata requests
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
     std::shared_ptr<httplib::SSLClient> metadata_client_;
-#else
-    std::shared_ptr<httplib::Client> metadata_client_;
-#endif
     
     // Store original model_id for notifications
     std::string original_model_id_;

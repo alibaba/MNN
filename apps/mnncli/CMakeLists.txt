@@ -61,7 +61,7 @@ function(embed_file_as_c_array input_file output_file symbol_name)
 endfunction()
 
 # Generate embedded model_market.json data
-set(MODEL_MARKET_JSON_FILE "/home/ruoyi/MNN/apps/Android/MnnLlmChat/app/src/main/assets/model_market.json")
+set(MODEL_MARKET_JSON_FILE "${CMAKE_CURRENT_LIST_DIR}/../../apps/Android/MnnLlmChat/app/src/main/assets/model_market.json")
 set(MODEL_MARKET_JSON_INC_FILE "${CMAKE_CURRENT_BINARY_DIR}/model_market_json_data.inc")
 
 if(EXISTS ${MODEL_MARKET_JSON_FILE})
@@ -78,6 +78,7 @@ set(MNNCLI_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/src/log_utils.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/model_file_downloader.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/file_utils.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/file_utils_config.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/llm_benchmark.cpp
     ${CMAKE_CURRENT_LIST_DIR}/../../transformers/llm/engine/app/llm_benchmark_common.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/hf_api_client.cpp
@@ -94,6 +95,25 @@ set(MNNCLI_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/src/model_repository.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/model_market_data.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/model_name_utils.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/model_sources.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/cli_download_listener.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/cli_config_manager.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/llm_manager.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/model_manager.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/local_model_utils.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/cli_command_handler.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/cli_command_parser.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/cli_command_spec.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/handlers/run_command_handler.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/handlers/delete_command_handler.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/handlers/list_command_handler.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/handlers/search_command_handler.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/handlers/download_command_handler.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/handlers/model_info_command_handler.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/handlers/serve_command_handler.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/handlers/benchmark_command_handler.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/handlers/config_command_handler.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/handlers/info_command_handler.cpp
 )
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")

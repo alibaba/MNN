@@ -72,12 +72,6 @@ MNNCLI_BUILD_DIR="$SCRIPT_DIR/build_mnncli"
 echo -e "${YELLOW}Stage 2: Building mnncli executable...${NC}"
 echo -e "${YELLOW}mnncli build directory: $MNNCLI_BUILD_DIR${NC}"
 
-# Clean mnncli build directory
-if [ -d "$MNNCLI_BUILD_DIR" ]; then
-    echo -e "${YELLOW}Cleaning mnncli build directory...${NC}"
-    rm -rf "$MNNCLI_BUILD_DIR"
-fi
-
 mkdir -p "$MNNCLI_BUILD_DIR"
 
 echo -e "${YELLOW}Configuring mnncli...${NC}"

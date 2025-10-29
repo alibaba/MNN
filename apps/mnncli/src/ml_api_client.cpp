@@ -4,6 +4,7 @@
 //
 
 #include "ml_api_client.hpp"
+#include "cli_config_manager.hpp"
 #include <httplib.h>
 #include <rapidjson/document.h>
 #include <rapidjson/error/en.h>
@@ -14,7 +15,8 @@
 namespace mnncli {
 
 MlApiClient::MlApiClient() : host_("modelers.cn"), max_attempts_(3), retry_delay_seconds_(2) {
-    cache_path_ = FileUtils::GetBaseCacheDir();
+    auto& config_mgr = ConfigManager::GetInstance();
+    cache_path_ = config_mgr.GetBaseCacheDir();
 }
 
 MlRepoInfo MlApiClient::GetRepoInfo(const std::string& repo_name, const std::string& revision, std::string& error_info) {
@@ -34,11 +36,7 @@ MlRepoInfo MlApiClient::GetRepoInfo(const std::string& repo_name, const std::str
     // Perform the API request
     auto request_func = [&]() -> bool {
         // Create HTTP client
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
         httplib::SSLClient cli(host_, 443);
-#else
-        httplib::Client cli(host_, 80);
-#endif
         httplib::Headers headers;
         headers.emplace("User-Agent", "MNN-CLI/1.0");
         headers.emplace("Accept", "application/json");

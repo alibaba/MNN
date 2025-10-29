@@ -5,6 +5,7 @@
 
 #include "model_repository.hpp"
 #include "model_market_data.hpp"
+#include "model_download_manager.hpp"
 #include "file_utils.hpp"
 #include "log_utils.hpp"
 #include <iostream>
@@ -30,7 +31,7 @@ bool CaseInsensitiveEquals(const std::string& str1, const std::string& str2) {
 
 // Static member initialization
 const std::vector<std::string> ModelRepository::kDefaultProviders = {
-    "HuggingFace", "ModelScope", "Modelers"
+    ModelSources::SOURCE_HUGGING_FACE, ModelSources::SOURCE_MODEL_SCOPE, ModelSources::SOURCE_MODELERS
 };
 
 ModelRepository::ModelRepository(const std::string& cache_root_path)

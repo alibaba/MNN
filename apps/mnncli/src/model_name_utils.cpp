@@ -1,4 +1,5 @@
 #include "model_name_utils.hpp"
+#include "model_sources.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -15,7 +16,7 @@ std::string ToLowerCopy(std::string value) {
 }
 } // namespace
 
-std::string GetDisplayModelName(const std::string& full_name, const ConfigManager::Config& config) {
+std::string GetDisplayModelName(const std::string& full_name, const mnncli::Config& config) {
     const std::string provider_lower = ToLowerCopy(config.download_provider);
     std::vector<std::string> prefixes;
 
@@ -70,6 +71,85 @@ std::string GetDisplayModelName(const std::string& full_name, const ConfigManage
     }
 
     return full_name;
+}
+
+// Example input/output:
+//   - model_name: "qwen-7b", config.download_provider: "modelscope"
+//       => "ModelScope/MNN/qwen-7b"
+//   - model_name: "huggingface/taobao-mnn/qwen-7b-chat", config.download_provider: "ms"
+//       => "huggingface/taobao-mnn/qwen-7b-chat"   (unchanged, already fully qualified)
+//   - model_name: "qwen-7b", config.download_provider: "huggingface"
+//       => "huggingface/taobao-mnn/qwen-7b"
+//   - model_name: "qwen-7b", provider: "" (fallback to ModelScope)
+//       => "ModelScope/MNN/qwen-7b"
+// Core implementation that takes provider directly
+std::string GetFullModelId(const std::string& model_name, const std::string& provider) {
+    if (model_name.empty()) {
+        return "";
+    }
+
+    const std::string provider_lower = ToLowerCopy(provider);
+    
+    // Check if model_name already contains a provider prefix (e.g., "ModelScope/MNN/qwen-7b")
+    std::vector<std::string> known_providers = {
+        mnncli::ModelSources::SOURCE_MODEL_SCOPE,
+        mnncli::ModelSources::SOURCE_MODELERS,
+        mnncli::ModelSources::SOURCE_HUGGING_FACE,
+    };
+    
+    std::string model_lower = ToLowerCopy(model_name);
+    for (const auto& prov : known_providers) {
+        std::string prov_lower = ToLowerCopy(prov);
+        if (model_lower.find(prov_lower + "/") == 0) {
+            // Already has provider prefix, return as is
+            return model_name;
+        }
+    }
+    
+    // Find the provider in known_providers and get the full provider name
+    std::string full_provider_name;
+    for (const auto& prov : known_providers) {
+        std::string prov_lower = ToLowerCopy(prov);
+        if (provider_lower == prov_lower) {
+            full_provider_name = prov;
+            break;
+        }
+    }
+    
+    // Handle abbreviations if no exact match
+    if (full_provider_name.empty()) {
+        if (provider_lower == "ms") {
+            full_provider_name = ModelSources::SOURCE_MODEL_SCOPE;
+        } else if (provider_lower == "hf") {
+            full_provider_name = ModelSources::SOURCE_HUGGING_FACE;
+        } else if (provider_lower == "ml") {
+            full_provider_name = ModelSources::SOURCE_MODELERS;
+        } else {
+            // Default to ModelScope if not found
+            full_provider_name = ModelSources::SOURCE_MODEL_SCOPE;
+        }
+    }
+    
+    // Check if model_name contains a slash (org_name/repo_name format)
+    bool has_slash = (model_name.find('/') != std::string::npos);
+    
+    // Build repo_id: has_slash ? model_name : default_org_name + "/" + model_name
+    std::string repo_id;
+    if (has_slash) {
+        repo_id = model_name;
+    } else {
+        std::string default_org_name = ModelSources::GetDefaultOrgName(provider);
+        repo_id = default_org_name + "/" + model_name;
+    }
+    
+    // full_model_id = provider + "/" + repo_id
+    return full_provider_name + "/" + repo_id;
+}
+
+// Convenience overload that takes Config and delegates to the provider string version
+std::string GetFullModelId(const std::string& model_name, const mnncli::Config& config) {
+    // Delegate to the provider string overload to reduce code redundancy
+    return GetFullModelId(model_name, config.download_provider);
 }
 
 } // namespace mnncli::ModelNameUtils

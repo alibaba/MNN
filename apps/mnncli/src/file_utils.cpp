@@ -5,13 +5,14 @@
 
 #include "file_utils.hpp"
 #include "log_utils.hpp"
-#include <stdexcept>
 #include <string>
 #include <sstream>
 #include <vector>
 #include <filesystem>
 
 #include "mnncli_config.hpp"
+#include "model_name_utils.hpp"
+#include "cli_config_manager.hpp"
 
 namespace mnncli {
 std::string FileUtils::JoinPaths(const std::string& base, const std::vector<std::string>& parts) {
@@ -118,12 +119,14 @@ std::string FileUtils::GetFileName(const std::string& path) {
 }
 
 std::string FileUtils::GetFolderLinkerPath(const std::string& model_id) {
-    return (fs::path(GetBaseCacheDir()) /  GetFileName(model_id)).string();
+    auto& config_mgr = ConfigManager::GetInstance();
+    return (fs::path(config_mgr.GetBaseCacheDir()) /  GetFileName(model_id)).string();
 }
 
 std::string FileUtils::GetStorageFolderPath(const std::string& model_id) {
     const auto repo_folder_name = RepoFolderName(model_id, "model");
-    auto storage_folder_path = (fs::path(GetBaseCacheDir()) / repo_folder_name).string();
+    auto& config_mgr = ConfigManager::GetInstance();
+    auto storage_folder_path = (fs::path(config_mgr.GetBaseCacheDir()) / repo_folder_name).string();
     LOG_DEBUG_TAG("GetStorageFolderPath: Model ID: " + model_id + ", Repo folder name: " + repo_folder_name + " -> " + storage_folder_path, "FileUtils");
     return storage_folder_path;
 }
@@ -147,110 +150,70 @@ bool FileUtils::RemoveFileIfExists(const std::string& path) {
     return result;
 }
 
-std::string FileUtils::GetBaseCacheDir() {
-#ifdef __ANDROID__
-    // On Android, use current working directory as base for relative path
-    std::string cache_dir = ExpandTilde(kCachePath);
-    
-    if (cache_dir.empty()) {
-        fprintf(stderr, "Unable to get cache directory path.");
-        return ""; // Handle error appropriately in your application
-    }
-    
-    // Get current working directory and append the cache path
-    std::filesystem::path cwd = std::filesystem::current_path();
-    std::filesystem::path cache_path = cwd / cache_dir;
-#else
-    // On other platforms, use the home directory
-    std::string cache_dir = ExpandTilde(kCachePath);
 
-    if (cache_dir.empty()) {
-        fprintf(stderr, "Unable to get home directory.");
-        return ""; // Handle error appropriately in your application
-    }
-
-    std::filesystem::path cache_path(cache_dir);
-#endif
-
-    if (!exists(cache_path)) {
-        create_directories(cache_path);
-    }
-
-    return cache_path.string();
-}
-
-std::string FileUtils::GetModelPath(const std::string& model_id) {
+// Returns the full filesystem path to a model's directory given the model_id.
+// This function consults the user config for the cache directory and enables
+// robust lookup with support for provider prefixes and multiple storage layouts.
+//
+// Example use cases:
+//   std::string path = FileUtils::GetModelPath("TinyLlama-1.1B");
+//     // Looks for: $cache_dir/TinyLlama-1.1B, $cache_dir/modelscope/TinyLlama-1.1B, etc.
+//
+//   std::string path = FileUtils::GetModelPath("taobao-mnn/TinyLlama-1.1B");
+//     // Looks for model in provider subfolder if given explicitly.
+//
+//   std::string path = FileUtils::GetModelPath("MNN/MyModel");
+//     // Will locate model in $cache_dir/MNN/MyModel, or provider-specific structure.
+//
+//   // If config.download_provider == "huggingface":
+//   FileUtils::GetModelPath("TinyLlama-1.1B"); // Will try "taobao-mnn/TinyLlama-1.1B" variant too.
+//
+// Typical scenarios:
+//   - User passes a model short name. This function expands it to the full disk path.
+//   - User specifies provider-prefixed names, which are prioritized for certain providers.
+//   - Works regardless of whether user input has provider prefix or not.
+//   - If the cache directory or config changes, this function always resolves to the correct place.
+//
+std::string FileUtils::GetModelPath(const std::string& model_id, const mnncli::Config& config) {
     if (model_id.empty()) {
         return "";
     }
     
-    try {
-        // Get current configuration
-        auto config = ConfigManager::LoadDefaultConfig();
-        std::string cache_dir = config.cache_dir;
-        if (cache_dir.empty()) {
-            cache_dir = GetBaseCacheDir();
-        }
-        
-        // Expand tilde in path
-        std::string expanded_cache_dir = cache_dir;
-        if (cache_dir[0] == '~') {
-            const char* home_dir = getenv("HOME");
-            if (home_dir) {
-                expanded_cache_dir = std::string(home_dir) + cache_dir.substr(1);
-            }
-        }
-        
-        // Check if model name already has provider prefix
-        bool has_provider_prefix = (model_id.find('/') != std::string::npos);
-        
-        // Try to find the model in different subdirectories
-        std::vector<std::string> search_paths = {
-            expanded_cache_dir + "/" + model_id,
-            expanded_cache_dir + "/modelscope/" + model_id,
-            expanded_cache_dir + "/modelers/" + model_id
-        };
-        
-        // If model name doesn't have provider prefix, try with provider-specific prefixes
-        if (!has_provider_prefix) {
-            std::string provider_prefix;
-            if (config.download_provider == "huggingface" || config.download_provider == "hf") {
-                provider_prefix = "taobao-mnn/";
-            } else if (config.download_provider == "modelscope" || config.download_provider == "ms" || 
-                      config.download_provider == "modelers") {
-                provider_prefix = "MNN/";
-            }
-            
-            if (!provider_prefix.empty()) {
-                std::string prefixed_name = provider_prefix + model_id;
-                // Add prefixed paths at the beginning to prioritize them
-                search_paths.insert(search_paths.begin(), expanded_cache_dir + "/" + prefixed_name);
-                search_paths.insert(search_paths.begin() + 1, expanded_cache_dir + "/modelscope/" + prefixed_name);
-                search_paths.insert(search_paths.begin() + 2, expanded_cache_dir + "/modelers/" + prefixed_name);
-            }
-        }
-        
-        for (const auto& search_path : search_paths) {
-            if (fs::exists(search_path)) {
-                return search_path;
-            }
-        }
-        
-        return ""; // Model not found
-    } catch (const std::exception& e) {
-        LOG_ERROR("Failed to get model path: " + std::string(e.what()));
+    // Standardize model_id using GetFullModelId
+    std::string full_model_id = mnncli::ModelNameUtils::GetFullModelId(model_id, config);
+    if (full_model_id.empty()) {
         return "";
     }
+    
+    // Parse full_model_id: Provider/org_name/repo_name
+    // Split by '/' to extract components
+    size_t first_slash = full_model_id.find('/');
+    if (first_slash == std::string::npos) {
+        return "";
+    }
+    
+    std::string provider = full_model_id.substr(0, first_slash);
+    std::string path_part = full_model_id.substr(first_slash + 1);
+    
+    // Get cache directory and expand tilde
+    auto& config_mgr = ConfigManager::GetInstance();
+    std::string expanded_cache_dir = config_mgr.GetBaseCacheDir();
+    std::string primary_path = expanded_cache_dir + "/" + provider + "/" + path_part;
+    return primary_path; // Model not found
 }
 
-std::string FileUtils::GetConfigPath(const std::string& model_id) {
-    std::string model_path = GetModelPath(model_id);
+std::string FileUtils::GetConfigPath(const std::string& model_id, const mnncli::Config& config) {
+    std::string model_path = GetModelPath(model_id, config);
     if (!model_path.empty()) {
         return (fs::path(model_path) / "config.json").string();
     }
     // Fallback
-    return (fs::path(GetBaseCacheDir()) / model_id / "config.json").string();
+    auto& config_mgr = ConfigManager::GetInstance();
+    return (fs::path(config_mgr.GetBaseCacheDir()) / model_id / "config.json").string();
 }
+
+// Note: GetConfigPath(const std::string&) is implemented in file_utils_config.cpp
+// to avoid pulling in cli_config_manager.hpp and its json dependency here
 
 bool FileUtils::Move(const fs::path& src, const fs::path& dest, std::string& error_info) {
     if (!std::filesystem::exists(src)) {
