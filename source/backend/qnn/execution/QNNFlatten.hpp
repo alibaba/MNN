@@ -19,10 +19,6 @@ class QNNFlatten : public QNNCommonExecution {
 public:
     QNNFlatten(Backend *backend, const Op *op) : QNNCommonExecution(backend, op) {}
     virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-private:
-    void NHWC2NCHW(const std::vector<Tensor *> &inputs);
-    void Reshape(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
-    void NCHW2NHWC(const std::vector<Tensor *> &outputs);
     void ReshapeTranspose(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
 };
 #endif

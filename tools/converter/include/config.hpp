@@ -74,6 +74,7 @@ public:
     int64_t externalOffset = 0;
     bool useOriginRNNImpl = false;
     PostTreatContext* compressInfo = nullptr;
+    bool splitQuantBlock = false;
 };
 
 #endif // CONFIG_HPP

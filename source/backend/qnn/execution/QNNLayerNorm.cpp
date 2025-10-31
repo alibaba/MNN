@@ -28,7 +28,7 @@ QNNLayerNorm::QNNLayerNorm(Backend *backend, const Op *op, Tensor * input) : QNN
     uint32_t axesSize = param->axis()->size();
     const int * axesData = param->axis()->data();
     int rawAxis = (axesData[0] >= 0) ? axesData[0] : (mInputDim + axesData[0]);
-    mRealAxis = getNHWCAxis(rawAxis, mInputDim, mDimType);
+    mRealAxis = rawAxis;
 
     // set gamma and beta
     {

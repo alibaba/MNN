@@ -679,7 +679,7 @@ kernel void softmax_plane_sg(const device ftype *in     [[buffer(0)]],
     auto axis_out = out + axis_off;
     
     // get max
-    float max1 = -INFINITY;
+    float max1 = -FLT_MAX;
     for (int i = tiisg; i < s.axis_length; i+=SIMD_GROUP_WIDTH) {
         max1 = max(max1, float(axis_in[i * s.inside_size]));
     }

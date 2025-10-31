@@ -336,7 +336,7 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
     auto quantlen = 2 * blockNum * ROUND_UP(oc, UNIT) * QUANT_INFO_BYTES;
     auto weightlen = shape[0] * shape[1] * shape[2] * shape[3] * shape[4];
     mResourceInt8->mWeightInt8.reset(Tensor::createDevice<uint8_t>({weightlen + quantlen}));
-    mResourceInt8->mOriginBias.reset(Tensor::createDevice<int32_t>({ocUpHp})); // float
+    mResourceInt8->mOriginBias.reset(Tensor::createDevice<int32_t>({ocUp4})); // float
     if (inputBlockQuantOption != 2) {
         mResourceInt8->mWeightKernelSum.reset(Tensor::createDevice<uint8_t>({QUANT_INFO_BYTES * ocUpHp}));
     } else {
@@ -357,7 +357,7 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
     }
 
     // read weight, weight's scale&bias, convolution bias
-    ::memset(mResourceInt8->mOriginBias->host<float>(), 0, ocUpHp * sizeof(float));
+    ::memset(mResourceInt8->mOriginBias->host<float>(), 0, ocUp4 * sizeof(float));
 
     // dynamic quant
     bool directReadInt4weight = (kernelCount == 1 && ROUND_UP(oc, UNIT) == oc && ROUND_UP(ic, SRC_UNIT) == ic);
@@ -506,7 +506,11 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
             }
 
             if (false == weightAsy) { // symmetric quant
-                ::memcpy(scaleAndBias.get(), convOp->quanParameter()->alpha()->data(), quantCount * sizeof(float));
+                if (convOp->quanParameter() && convOp->quanParameter()->alpha()) {
+                    ::memcpy(scaleAndBias.get(), convOp->quanParameter()->alpha()->data(), quantCount * sizeof(float));
+                } else {
+                    ::memcpy(scaleAndBias.get(), quanCommon->alpha.get(), quanCommon->alpha.size() * sizeof(float));
+                }
             } else if (true == weightAsy) { // asymmetric
                 int scaleSize = quantCount / 2;
                 for (int i = 0; i < scaleSize; ++i) {
@@ -658,7 +662,7 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
         mTileCount        = UP_DIV(planeSize, DynamicDestUnit);
         if (mTileCount > threads || (mOnlineReorderWeightSme && planeSize > 1)) {
             mSplitByOc = false;
-        }
+       }
 
     }
     if (mSplitByOc) {
@@ -717,7 +721,10 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
         mTempSrcSum = bufferAlloc->alloc(mTileCount * mBlockNum * DST_XUNIT * mIm2ColCount * QUANT_INFO_BYTES);
     }
 
+    mAccumBuffer.reset(Tensor::createDevice<int32_t>({threads, DST_XUNIT * ALIMAX(UNIT, gcore->pack)}));
+
     auto success = backend()->onAcquireBuffer(mTempIm2ColBuffer.get(), Backend::DYNAMIC);
+    success &= backend()->onAcquireBuffer(mAccumBuffer.get(), Backend::DYNAMIC);
     if (!success || mBlitInfo.invalid() || mTempSrcSum.invalid()) {
         return OUT_OF_MEMORY;
     }
@@ -728,6 +735,7 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
         if (mBatchQuantInfo.get()) {
             backend()->onReleaseBuffer(mBatchQuantInfo.get(), Backend::DYNAMIC);
         }
+        backend()->onReleaseBuffer(mAccumBuffer.get(), Backend::DYNAMIC);
         return NO_ERROR;
     }
 
@@ -853,8 +861,6 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
             return OUT_OF_MEMORY;
         }
     }
-    mAccumBuffer.reset(Tensor::createDevice<int32_t>({threads, DST_XUNIT * ALIMAX(UNIT, gcore->pack)}));
-    success &= backend()->onAcquireBuffer(mAccumBuffer.get(), Backend::DYNAMIC);
 
     if (mBlockNum > 1 && kernelCount > 1) {
         if (mSplitByOc) {

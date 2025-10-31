@@ -180,60 +180,6 @@ const std::map<Qnn_DataType_t, uint32_t> gQnnTypeSize = {
 
 std::string gParamMarker = "PARAM";
 
-int getNHWCAxis(const int axis, const int dim, const Tensor::DimensionType type) {
-    MNN_ASSERT(dim >= 1 && axis >= 0 && axis < dim);
-
-    if (dim <= 2) {
-        return axis;
-    }
-
-    std::vector<int> axisMap(dim);
-    switch (type) {
-        case Tensor::TENSORFLOW:
-            return axis;
-        case Tensor::CAFFE:
-        case Tensor::CAFFE_C4:
-            axisMap[0] = 0;
-            axisMap[1] = dim - 1;
-            for (int i = 2; i < dim; i++) {
-                axisMap[i] = i - 1;
-            }
-            break;
-        default:
-            MNN_ERROR("MNN_QNN: Not supports Tensor::DimensionType.\n");
-            break;
-    }
-
-    return axisMap[axis];
-}
-
-int getNCHWAxis(const int axis, const int dim, const Tensor::DimensionType type) {
-    MNN_ASSERT(dim >= 1 && axis >= 0 && axis < dim);
-
-    if (dim <= 2) {
-        return axis;
-    }
-
-    std::vector<int> axisMap(dim);
-    switch (type) {
-        case Tensor::CAFFE:
-        case Tensor::CAFFE_C4:
-            return axis;
-        case Tensor::TENSORFLOW:
-            axisMap[0] = 0;
-            axisMap[dim - 1] = 1;
-            for (int i = 2; i < dim; i++) {
-                axisMap[i - 1] = i;
-            }
-            break;
-        default:
-            MNN_ERROR("MNN_QNN: Not supports Tensor::DimensionType.\n");
-            break;
-    }
-
-    return axisMap[axis];
-}
-
 std::vector<uint32_t> getNHWCShape(const Tensor * tensor) {
     std::vector<int> rawShape = tensor->shape();
     if (rawShape.empty()) {
@@ -243,7 +189,7 @@ std::vector<uint32_t> getNHWCShape(const Tensor * tensor) {
     for (int i = 0; i < tensorShape.size(); i++) {
         tensorShape[i] = (uint32_t) rawShape[i];
     }
-    Tensor::DimensionType dimType = tensor->getDimensionType();
+    auto dataFormat = TensorUtils::getDescribe(tensor)->dimensionFormat;
     int dim = rawShape.size();
     MNN_ASSERT(dim >= 1);
 
@@ -252,11 +198,12 @@ std::vector<uint32_t> getNHWCShape(const Tensor * tensor) {
     }
 
     std::vector<uint32_t> NHWCShape(dim);
-    switch (dimType) {
-        case Tensor::TENSORFLOW:
+    // only Tensor::CAFFE_C4 convert to Tensor::TENSORFLOW on qnn
+    switch (dataFormat) {
+        case MNN_DATA_FORMAT_NCHW:
+        case MNN_DATA_FORMAT_NHWC:
             return tensorShape;
-        case Tensor::CAFFE:
-        case Tensor::CAFFE_C4:
+        case MNN_DATA_FORMAT_NC4HW4:
             NHWCShape[0] = tensorShape[0];
             NHWCShape[dim - 1] = tensorShape[1];
             for (int i = 1; i < dim - 1; i++) {

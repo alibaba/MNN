@@ -240,6 +240,10 @@ void Executor::RuntimeManager::setHint(Interpreter::HintMode mode, int* value, s
     }
 }
 void Executor::RuntimeManager::setExternalPath(std::string path, int type) {
+    if (type == MNN::Interpreter::EXTERNAL_NPU_FILE_DIR) {
+        mInside->mContent->mNpuDir = path;
+        return;
+    }
     mInside->mContent->modes.setExternalPath(path, type);
 }
 void Executor::RuntimeManager::setHintPtr(Interpreter::HintMode mode, void* value) {

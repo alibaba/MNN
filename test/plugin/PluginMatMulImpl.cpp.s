@@ -66,15 +66,22 @@ namespace backend {
 class PluginMatMul : public CPUComputeKernel {
 public:
     bool init(CPUKernelContext*) override { return true; }
+    bool resize(CPUKernelContext* ctx) override;
     bool compute(CPUKernelContext* ctx) override;
+private:
+    int M;
+    int K;
+    int N;
+    bool transpose_x;
+    bool transpose_y;
 };
 
-bool PluginMatMul::compute(CPUKernelContext* ctx) {
+bool PluginMatMul::resize(CPUKernelContext* ctx) {
     MNN_CHECK(ctx->inputs().size() == 2, // NOLINT
               "PluginMatMul needs two inputs (x and y).");
     MNN_CHECK(ctx->outputs().size() == 1, "PluginMatMul needs one output.");
-    bool transpose_x = false;
-    bool transpose_y = false;
+    transpose_x = false;
+    transpose_y = false;
     if (ctx->hasAttr("transpose_x")) {
         transpose_x = ctx->getAttr("transpose_x")->b();
     }
@@ -84,11 +91,10 @@ bool PluginMatMul::compute(CPUKernelContext* ctx) {
 
     const auto& x = ctx->input(0)->buffer();
     const auto& y = ctx->input(1)->buffer();
-    auto& output  = ctx->output(0)->buffer();
 
-    int M = x.dim[0].extent;
-    int K = x.dim[1].extent;
-    int N = y.dim[1].extent;
+    M = x.dim[0].extent;
+    K = x.dim[1].extent;
+    N = y.dim[1].extent;
     if (transpose_x) {
         M = x.dim[1].extent;
         K = x.dim[0].extent;
@@ -99,6 +105,13 @@ bool PluginMatMul::compute(CPUKernelContext* ctx) {
     } else {
         MNN_CHECK(K == y.dim[0].extent, "K dim does not match.");
     }
+    return true;
+}
+
+bool PluginMatMul::compute(CPUKernelContext* ctx) {
+    const auto& x = ctx->input(0)->buffer();
+    const auto& y = ctx->input(1)->buffer();
+    auto& output  = ctx->output(0)->buffer();
 
     const float* x_data = reinterpret_cast<const float*>(x.host);
     const float* y_data = reinterpret_cast<const float*>(y.host);

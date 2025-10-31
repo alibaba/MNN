@@ -3,6 +3,11 @@
 #include <numeric>
 #include <limits>
 #include <chrono>
+#include "CommonUtils.hpp"
+#define USE_CACHE_MODULE_OPT
+#include "../optimizer/Global.hpp"
+#include "config.hpp"
+
 using namespace MNN::Express;
 namespace MNN {
 namespace Quantization {
@@ -31,17 +36,19 @@ def _optimize_weights_proximal_legacy_step(self, W_f, scale, zero, min_max, beta
     zero = torch.mean(W_q - (W_f - W_e) * scale, axis=axis, keepdim=True)
     return scale, zero
 */
-static std::pair<VARP, VARP> _optimize_weights_proximal_legacy_step(VARP W_f, VARP scale, VARP zero, float minW, float maxW, float beta, float lp_norm) {
-    auto WQ = _Relu6(_Round(W_f * scale + zero), minW, maxW);
-    auto WR = (WQ - zero) * _Reciprocal(scale);
+static std::pair<VARP, VARP> _optimize_weights_proximal_legacy_step_scalefix(VARP W_f, VARP scale, VARP zero, float minW, float maxW, float beta, float lp_norm, VARP WFS, VARP scaleInv) {
+    auto WQ = _Relu6(_Round(WFS + zero), minW, maxW);
+    auto WR = (WQ - zero) * scaleInv;
     auto WE = _shrink(W_f-WR, beta, lp_norm);
     auto newZero = _ReduceMean(WQ-(W_f-WE)*scale, {1}, true);
-    Variable::compute({WQ, WR, WE, newZero});
-    WR.fix(VARP::CONSTANT);
-    WE.fix(VARP::CONSTANT);
-    newZero.fix(VARP::CONSTANT);
 
     return std::make_pair(scale, newZero);
+}
+
+static std::pair<VARP, VARP> _optimize_weights_proximal_legacy_step(VARP W_f, VARP scale, VARP zero, float minW, float maxW, float beta, float lp_norm) {
+    auto WFS = W_f * scale;
+    auto scaleInv = _Reciprocal(scale);
+    return _optimize_weights_proximal_legacy_step_scalefix(W_f, scale, zero, minW, maxW, beta, lp_norm, WFS, scaleInv);
 }
 
 HQQQuantizer::HQQQuantizer(const QuantizationConfig& config) : mConfig(config) {
@@ -62,7 +69,15 @@ HQQQuantizer::QuantizationResult HQQQuantizer::quantize(
     // 计算分组数量
     int num_groups = (total_elements + mConfig.group_size - 1) / mConfig.group_size;
     std::shared_ptr<MNN::Tensor> wrap(Tensor::create<float>({num_groups, mConfig.group_size}, (void*)weights.data()));
+    auto ctx = Global<modelConfig>::Get()->compressInfo;
+    ctx->startOptimize();
     auto W = Variable::create(Express::Expr::create(wrap.get(), false));
+    // TODO: Optimize Express Interface to avoid extra operation
+    if (ctx->accelerateType != MNN_FORWARD_CPU) {
+        // Turn VARP to GPU
+        W = W + _Scalar<float>(0.0f);
+        W.fix(VARP::CONSTANT);
+    }
     auto minW = _ReduceMin(W, {1}, true);
     auto maxW = _ReduceMax(W, {1}, true);
     int qmin = 0;
@@ -71,7 +86,7 @@ HQQQuantizer::QuantizationResult HQQQuantizer::quantize(
     auto scale = _Relu6((maxW-minW)*threadHold, 0.0000001f, std::numeric_limits<float>::max());
     auto scaleRev = _Scalar<float>(1.0f) / scale;
     auto zero = scaleRev * _Negative(minW);
-    Variable::compute({scaleRev, zero, W});
+    Variable::compute({scaleRev, zero});
     scaleRev.fix(VARP::CONSTANT);
     zero.fix(VARP::CONSTANT);
     if (mConfig.optimize) {
@@ -90,6 +105,7 @@ HQQQuantizer::QuantizationResult HQQQuantizer::quantize(
     Variable::compute({result.SZ, result.QW});
     result.SZ.fix(VARP::CONSTANT);
     result.QW.fix(VARP::CONSTANT);
+    ctx->endOptimize();
 
     return result;
 }
@@ -97,10 +113,40 @@ HQQQuantizer::QuantizationResult HQQQuantizer::quantize(
 void HQQQuantizer::optimize(MNN::Express::VARP& S, MNN::Express::VARP& Z, VARP WF) {
     int qmin = 0;
     int qmax = (1 << (mConfig.bits)) - 1;
+    auto ctx = Global<modelConfig>::Get()->compressInfo;
+
+#ifdef USE_CACHE_MODULE_OPT
+    // Make Key
+    std::string cacheModule = std::string("hqq") + std::to_string(qmin) + "_" + std::to_string(qmax) + "_" + std::to_string(mConfig.beta) + "_" + std::to_string(mConfig.lp_norm);
+    auto iter = ctx->cacheModules.find(cacheModule);
+    std::shared_ptr<Module> exe;
+    if (iter == ctx->cacheModules.end()) {
+        // Make Module
+        auto iWF = _Input({}, NCHW);
+        iWF->setName("WF");
+        auto iS = _Input({}, NCHW);
+        iS->setName("S");
+        auto iZ = _Input({}, NCHW);
+        iZ->setName("Z");
+        auto sz = _optimize_weights_proximal_legacy_step(iWF, iS, iZ, qmin, qmax, mConfig.beta, mConfig.lp_norm);
+        sz.second->setName("OZ");
+        auto buffer = Variable::save({sz.first, sz.second});
+        exe.reset(Module::load({"WF", "S", "Z"}, {"OZ"}, (uint8_t*)buffer.data(), buffer.size()));
+        ctx->cacheModules.insert(std::make_pair(cacheModule, exe));
+    } else {
+        exe = iter->second;
+    }
+#endif
+
     for (int i=0; i<mConfig.iters; ++i) {
+#ifdef USE_CACHE_MODULE_OPT
+        auto sz = exe->onForward({WF, S, Z});
+        Z = sz[0];
+#else
         auto sz = _optimize_weights_proximal_legacy_step(WF, S, Z, qmin, qmax, mConfig.beta, mConfig.lp_norm);
-        S = sz.first;
         Z = sz.second;
+        Z.fix(VARP::CONSTANT);
+#endif
     }
 }
 

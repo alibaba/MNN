@@ -67,7 +67,7 @@ static void poolingAvgNC16HW16Int8(void poolfunc(int8_t*, int8_t*, size_t, size_
                     ix = std::max(ix, 0);
                     int mul = static_cast<int>((1 << 24)/(kernelx_ * kernely_));
 
-                    const int indexOutput = pack * (ox + outputWidth * (oy + outputHeight * (ob + batchsize * oc)));    
+                    const int indexOutput = pack * (ox + outputWidth * (oy + outputHeight * (ob + batchsize * oc)));
                     const int indexInput = pack * (ix + inputWidth * (iy + inputHeight * (ob + batchsize * oc)));
 
                     int8_t* dstCur = dstPtr + indexOutput;
@@ -90,7 +90,7 @@ static void poolingAvgNC16HW16Int8(void poolfunc(int8_t*, int8_t*, size_t, size_
 
                     poolfunc(dstCur, srcCur, 1, inputWidth, kernelx_, kernely_, stridesx, paddingx, mul);
 
-                } 
+                }
             }
         }
     }
@@ -116,7 +116,7 @@ static void poolingMaxNC16HW16Int8(void poolfunc(int8_t*, int8_t*, size_t, size_
     for (int oc = 0; oc < channel16; ++oc){
         for(int ob = 0; ob < batchsize; ++ob){
             for (int oy = 0; oy < outputHeight; ++oy) {
-                
+
                 int iy = oy * stridesy - paddingy;
                 const int kernely_ = std::min(iy + kernely, inputHeight) - std::max(iy, 0);
                 iy = std::max(iy, 0);
@@ -141,7 +141,7 @@ static void poolingMaxNC16HW16Int8(void poolfunc(int8_t*, int8_t*, size_t, size_
                     const int kernelx_ = std::min(ix + kernelx, inputWidth) - std::max(ix, 0);
                     ix = std::max(ix, 0);
 
-                    const int indexOutput = pack * (ox + outputWidth * (oy + outputHeight * (ob + batchsize * oc)));    
+                    const int indexOutput = pack * (ox + outputWidth * (oy + outputHeight * (ob + batchsize * oc)));
                     const int indexInput = pack * (ix + inputWidth * (iy + inputHeight * (ob + batchsize * oc)));
 
                     int8_t* dstCur = dstPtr + indexOutput;
@@ -207,7 +207,7 @@ ErrorCode CPUPoolInt8::onResize(const std::vector<Tensor *> &inputs, const std::
     }
 
     const int channel = input->channel();
-    
+
     mThreadFunction = [=](const Tensor *src, Tensor *dst) {
         poolingMaxNC16HW16Int8(core->MNNMaxPoolInt8, src, dst, strideWidth, strideHeight, kernelWidth, kernelHeight, padWidth, padHeight);
     };
@@ -239,7 +239,7 @@ ErrorCode CPUPoolInt8::onExecute(const std::vector<Tensor *> &inputs, const std:
     auto plane_out = output->width() * output->height() * output->batch();
     auto core = static_cast<CPUBackend*>(backend())->functions();
     auto depth = UP_DIV(channel_input, core->pack);
-    
+
     if (core->pack == 8) {
         MNNPackC2Origin(mInputTemp.get()->host<double>(), input->host<double>(), plane_in, depth, plane_in);
         mThreadFunction(mInputTemp.get(), mOutputTemp.get());
@@ -256,14 +256,5 @@ ErrorCode CPUPoolInt8::onExecute(const std::vector<Tensor *> &inputs, const std:
     return NO_ERROR;
 }
 
-class CPUPoolInt8Creator : public CPUBackend::Creator {
-public:
-    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
-                                const MNN::Op *op, Backend *backend) const override {
-        return new CPUPoolInt8(backend, op->main_as_Pool());
-    }
-};
-
-REGISTER_CPU_OP_CREATOR(CPUPoolInt8Creator, OpType_PoolInt8);
 
 } // namespace MNN

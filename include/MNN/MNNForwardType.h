@@ -49,7 +49,13 @@ typedef enum {
     MNN_FORWARD_CPU_EXTENSION = 13,
     // use for shared memory on android device
     
-    MNN_MEMORY_AHARDWAREBUFFER = 14
+    MNN_MEMORY_AHARDWAREBUFFER = 14,
+
+    /* For Offline Convert*/
+    MNN_CONVERT_QNN = 32,
+    MNN_CONVERT_NEUROPILOT = 33,
+    MNN_CONVERT_COREML = 34,
+
 } MNNForwardType;
 
 typedef enum {

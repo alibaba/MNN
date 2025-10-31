@@ -109,6 +109,9 @@ void Arm82Backend::onCopyBuffer(const Tensor* srcTensorC, const Tensor* dstTenso
         return;
     }
     _resetDynamicMemory();
+    if (mRuntime->pCurrentStatus != NO_ERROR) {
+        return;
+    }
     auto source = TensorUtils::getDescribe(srcTensor)->dimensionFormat;
     auto dest   = TensorUtils::getDescribe(dstTensor)->dimensionFormat;
     auto srcType = _getBackendType(srcTensor);

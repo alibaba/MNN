@@ -18,6 +18,16 @@ typedef enum : int {
     ReLU6 = 2,
 } conv_activation_type;
 
+inline ftype2 activate(ftype2 value, conv_activation_type type) {
+    switch (type) {
+        case ReLU:
+            return max(value, (ftype2)0);
+        case ReLU6:
+            return clamp(value, (ftype2)0, (ftype2)6);
+        default: // None
+            return value;
+    }
+}
 inline ftype4 activate(ftype4 value, conv_activation_type type) {
     switch (type) {
         case ReLU:
@@ -79,6 +89,372 @@ typedef half4x4 FLOAT4x4;
     for(int i=0; i<d; i++) {\
         simdgroup_store(sgd[i], ptr + 64*i, 8);\
     }
+
+kernel void conv1x1_gemm_8x8_wquant_sg(const device ftype2 *in            [[buffer(0)]],
+                            device ftype2 *out                 [[buffer(1)]],
+                            constant conv1x1_constants& cst    [[buffer(2)]],
+                        #ifdef W_QUANT_4
+                            const device uchar *wt      [[buffer(3)]],
+                        #elif defined(W_QUANT_8)
+                            const device char2 *wt      [[buffer(3)]],
+                        #endif
+                            const device ftype2 *biasTerms     [[buffer(4)]],
+                            const device ftype2 *dequantScale  [[buffer(5)]],
+                            uint3 gid                          [[threadgroup_position_in_grid]],
+                            uint                  tiitg[[thread_index_in_threadgroup]],
+                            uint                  sgitg[[simdgroup_index_in_threadgroup]]) {
+    /*
+     // Read:
+     ftype 0~63   ---> input: [M8, K8]
+     ftype 64~127 ---> input: [K8, N8]
+     // Write:
+     ftype 0~63 ---> input: [M8, N8]
+     */
+
+    threadgroup FLOAT sdata[128] = {0.f};
+    INIT_SIMDGROUP_MATRIX(1, 1, 1);
+    
+    int rx = gid.x;// M/8
+    int uz = gid.y;// N/8
+    
+    int kl = tiitg / 16; // 0~1
+    int rcl = tiitg % 16; // 0~15
+    int kr = rcl % 2; // 0~1
+    int ml = rcl / 2; // 0 ~ 7
+    int nl = ml / 2; // 0 ~ 3
+    int nr = ml % 2; // 0 ~ 1
+
+
+    /** input:
+     threadgroup: [M8, K8]
+     each thread: K2
+     layout: [K/4, M, K4] -> [K/8, K2, M/8, M8, K2, K2]
+     index : [0, kr, rx, ml, kl, K2]
+     offset: ((0*2+kr) * M + rx * 8 + ml) * 2 + kl
+     */
+    /** weight:
+     threadgroup: [K8, N8]
+     each thread: K2
+     layout: [N/4, K/4, N4, K2, K2] -> [N/8, N2, K/8, K2, N4, K2, K2]
+     index : [uz, nr, 0, kr, nl, kl, K2]
+     offset: (((uz * 2 + nr) * K/4 + 0*2+kr) * 4 + nl) * 2 + kl
+     */
+    /** output:
+     threadgroup: [M8, N8] -> [M8, N4, N2]
+     sdata: [ml, kr * 2 + kl]
+     each thread: N4
+     layout: [N/4, M, N4] -> [N/8, N2, M/8, M8, N2, N2]
+     index : [uz, kr, rx, ml, kl, N2]
+     offset: (((uz * 2 + kr) * M + rx * 8 + ml) * 2 + kl) 
+     */
+
+    // boundary limit
+    int idx_n4 = (uz * 2 + nr) < cst.output_slice ? (uz * 2 + nr) : (cst.output_slice - 1);
+    int idx_m  = (rx * 8 + ml) < cst.input_size * cst.batch ? (rx * 8 + ml) : (cst.input_size * cst.batch - 1);
+    
+    auto xy_wt = wt +  ((idx_n4 * cst.input_slice + 0*2+kr) * 4 + nl) * 2 + kl;// [N/4, K/4, N4, K4]
+    auto xy_in0  = in + ((0*2+kr) * cst.input_size * cst.batch + idx_m) * 2 + kl;// [K/4, M, K2, K2]
+    auto xy_out = out + ((uz * 2 + kr) * cst.output_size * cst.batch + rx * 8 + ml) * 2 + kl;// [N/4, M, N4]
+    
+    int block = (cst.input_slice + cst.block_size - 1) / cst.block_size;
+    for (int bi=0; bi<cst.block_size; ++bi) {
+        // [N/4, cst.block_size, 2/*scale_bias*/, N2， N2]
+        FLOAT2 scale = FLOAT2(dequantScale[(2 * (idx_n4 * cst.block_size + bi) + 0) * 2 + nl / 2]) / (FLOAT)cst.scale_coef;
+        FLOAT2 dequant_bias = FLOAT2(dequantScale[(2 * (idx_n4 * cst.block_size + bi) + 1) * 2 + nl / 2]) / (FLOAT)cst.scale_coef;
+        int zmin = bi * block;
+        int zmax = min(zmin + block, cst.input_slice);
+
+        for (int z = zmin; z < zmax; z += 2) {
+            // [M8, K2, K2, K2]
+            ((threadgroup FLOAT2*)sdata)[(ml * 2 + kr) * 2 + kl] = (FLOAT2)(*xy_in0);
+            xy_in0 += 4 * cst.input_size * cst.batch;
+            
+            #ifdef W_QUANT_4
+                uchar w_int40 = xy_wt[8 * z]; // [N/4, K/4, N4, K4]
+                FLOAT2 w20 = FLOAT2((float)(w_int40 >> 4) - 8, (float)(w_int40 & 15) - 8);
+            #elif defined(W_QUANT_8)
+                char2 w_int40 = xy_wt[8 * z]; // [N/4, K/4, N4, K4]
+                FLOAT2 w20 = FLOAT2((float)w_int40[0], (float)w_int40[1]);
+            #endif
+                
+            FLOAT2 res = w20 * scale[nl % 2] + dequant_bias[nl % 2];
+            // [K8, N4, N2]
+            ((threadgroup FLOAT*)sdata)[64 + (kr * 4 + kl * 2 + 0) * 8 + nr * 4 + nl] = res[0];
+            ((threadgroup FLOAT*)sdata)[64 + (kr * 4 + kl * 2 + 1) * 8 + nr * 4 + nl] = res[1];
+
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            
+            simdgroup_load(sga[0], (const threadgroup FLOAT*)sdata, 8);            
+            simdgroup_load(sgb[0], ((const threadgroup FLOAT*)sdata) + 64, 8);
+            
+            SIMDGROUP_MATRIX_FMA(1, 1);
+
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
+    }
+    
+    SIMDGROUP_MATRIX_STORE((threadgroup FLOAT*)sdata, 1);
+
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    
+    if((rx * 8 + ml) < cst.input_size * cst.batch) {
+        if((uz * 2 + kr) < cst.output_slice) {
+            xy_out[0] =  activate(ftype2(((threadgroup FLOAT2*)sdata)[ml * 4 + kr * 2 + kl] + FLOAT2(biasTerms[(uz * 2 + kr) * 2 + kl])), cst.activation);
+        }
+    }
+}
+
+kernel void conv1x1_gemm_8x16_wquant_sg(const device ftype2 *in            [[buffer(0)]],
+                            device ftype4 *out                 [[buffer(1)]],
+                            constant conv1x1_constants& cst    [[buffer(2)]],
+                        #ifdef W_QUANT_4
+                            const device uchar2 *wt      [[buffer(3)]],
+                        #elif defined(W_QUANT_8)
+                            const device char4 *wt      [[buffer(3)]],
+                        #endif
+                            const device ftype4 *biasTerms     [[buffer(4)]],
+                            const device ftype4 *dequantScale  [[buffer(5)]],
+                            uint3 gid                          [[threadgroup_position_in_grid]],
+                            uint                  tiitg[[thread_index_in_threadgroup]],
+                            uint                  sgitg[[simdgroup_index_in_threadgroup]]) {
+    /*
+     // Read:
+     ftype 0~63   ---> input: [M8, K8]
+     ftype 64~191 ---> input: [K8, N16]
+     // Write:
+     ftype 0~127 ---> input: [N2, M8, N8]
+     */
+
+    threadgroup FLOAT sdata[256] = {0.f};
+    INIT_SIMDGROUP_MATRIX(1, 2, 2);
+    
+    int rx = gid.x;// M/8
+    int uz = gid.y;// N/16
+    
+    int kl = tiitg / 16; // 0~1
+    int rcl = tiitg % 16; // 0~15
+
+    /** input:
+     threadgroup: [M8, K8]
+     each thread: K2
+     layout: [K/4, M, K4] -> [K/8, K2, M/8, M8, K2, K2]
+     index : [0, rcl/8, rx, rcl%8, kl, K2]
+     offset: ((0*2+rcl/8) * M + rx * 8 + rcl%8) * 2 + kl
+     */
+    /** weight:
+     threadgroup: [K8, N16]
+     each thread: K4
+     layout: [N/4, K/4, N4, K4] -> [N/16, N4, K/8, K2, N4, K4]
+     index : [uz, rcl/4, 0, kl, rcl%4, K4]
+     offset: (((uz * 4 + rcl/4) * K/4 + 0*2+kl) * 4 + rcl%4)
+     */
+    /** output:
+     threadgroup: [M8, N16] -> [N2, M8, N2, N4]
+     sdata: [(rcl / 4) / 2, (rcl%4) * 2 + kl, (rcl / 4) % 2]
+     each thread: N4
+     layout: [N/4, M, N4] -> [N/16, N4, M/8, M4, M2, N4]
+     index : [uz, rcl/4, rx, rcl%4, kl, N4]
+     offset: ((uz * 4 + rcl/4) * M + (rx * 8 + (rcl%4) * 2 + kl))
+     */
+
+    // boundary limit
+    int idx_n4 = (4 * uz + rcl / 4) < cst.output_slice ? (4 * uz + rcl / 4) : (cst.output_slice - 1);
+    int idx_m  = (8 * rx + rcl%8) < cst.input_size * cst.batch ? (8 * rx + rcl%8) : (cst.input_size * cst.batch - 1);
+    
+    auto xy_wt = wt +  ((idx_n4 * cst.input_slice + 0*2+kl) * 4 + rcl % 4);// [N/4, K/4, N4, K4]
+    auto xy_in0  = in + ((0*2+rcl/8) * cst.input_size * cst.batch + idx_m) * 2 + kl;// [K/4, M, K2, K2]
+    auto xy_out = out + (4 * uz + rcl / 4) * cst.output_size * cst.batch + (rx * 8 + (rcl%4) * 2 + kl);// [N/4, M, N4]
+    
+    int block = (cst.input_slice + cst.block_size - 1) / cst.block_size;
+    for (int bi=0; bi<cst.block_size; ++bi) {
+        // [N/4, cst.block_size, 2/*scale_bias*/, N4]
+        FLOAT4 scale = FLOAT4(dequantScale[2 * (idx_n4 * cst.block_size + bi) + 0]) / (FLOAT)cst.scale_coef;
+        FLOAT4 dequant_bias = FLOAT4(dequantScale[2 * (idx_n4 * cst.block_size + bi) + 1]) / (FLOAT)cst.scale_coef;
+        int zmin = bi * block;
+        int zmax = min(zmin + block, cst.input_slice);
+
+        for (int z = zmin; z < zmax; z += 2) {
+            // [M8, K2, K2, K2]
+            ((threadgroup FLOAT2*)sdata)[((rcl%8) * 2 + (rcl/8)) * 2 + kl] = (FLOAT2)(*xy_in0);
+            xy_in0 += 4 * cst.input_size * cst.batch;
+            
+            #ifdef W_QUANT_4
+                uchar2 w_int40 = xy_wt[4 * z]; // [N/4, K/4, N4, K4]
+                FLOAT4 w40 = FLOAT4((float)(w_int40[0] >> 4) - 8, (float)(w_int40[0] & 15) - 8, (float)(w_int40[1] >> 4) - 8, (float)(w_int40[1] & 15) - 8);
+            #elif defined(W_QUANT_8)
+                char4 w_int40 = xy_wt[4 * z]; // [N/4, K/4, N4, K4]
+                FLOAT4 w40 = FLOAT4((float)w_int40[0], (float)w_int40[1], (float)w_int40[2], (float)w_int40[3]);
+            #endif
+                
+            FLOAT4 res = w40 * scale[rcl % 4] + dequant_bias[rcl % 4];
+            // [K8, N4, N4]
+            ((threadgroup FLOAT*)sdata)[64 + (kl * 4 + 0) * 16 + rcl] = res[0];
+            ((threadgroup FLOAT*)sdata)[64 + (kl * 4 + 1) * 16 + rcl] = res[1];
+            ((threadgroup FLOAT*)sdata)[64 + (kl * 4 + 2) * 16 + rcl] = res[2];
+            ((threadgroup FLOAT*)sdata)[64 + (kl * 4 + 3) * 16 + rcl] = res[3];
+
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            
+            simdgroup_load(sga[0], (const threadgroup FLOAT*)sdata, 8);            
+            simdgroup_load(sgb[0], ((const threadgroup FLOAT*)sdata) + 64, 16);
+            simdgroup_load(sgb[1], ((const threadgroup FLOAT*)sdata) + 72, 16);
+            
+            SIMDGROUP_MATRIX_FMA(1, 2);
+
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
+    }
+    
+    SIMDGROUP_MATRIX_STORE((threadgroup FLOAT*)sdata, 2);
+
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    
+    if((rx * 8 + (rcl%4) * 2 + kl) < cst.input_size * cst.batch) {
+        if((4 * uz + rcl / 4) < cst.output_slice) {
+            xy_out[0] =  activate(ftype4(((threadgroup FLOAT4*)sdata)[(((rcl / 4) / 2) * 8 + ((rcl%4) * 2 + kl)) * 2 + (rcl / 4) % 2] + FLOAT4(biasTerms[4 * uz + rcl / 4])), cst.activation);
+        }
+    }
+}
+
+kernel void conv1x1_gemm_8x32_wquant_sg(const device ftype2 *in            [[buffer(0)]],
+                            device ftype4 *out                 [[buffer(1)]],
+                            constant conv1x1_constants& cst    [[buffer(2)]],
+                        #ifdef W_QUANT_4
+                            const device uchar2 *wt      [[buffer(3)]],
+                        #elif defined(W_QUANT_8)
+                            const device char4 *wt      [[buffer(3)]],
+                        #endif
+                            const device ftype4 *biasTerms     [[buffer(4)]],
+                            const device ftype4 *dequantScale  [[buffer(5)]],
+                            uint3 gid                          [[threadgroup_position_in_grid]],
+                            uint                  tiitg[[thread_index_in_threadgroup]],
+                            uint                  sgitg[[simdgroup_index_in_threadgroup]]) {
+    /*
+     // Read:
+     ftype 0~63   ---> input: [M8, K8]
+     ftype 64~319 ---> input: [K8, N32]
+     // Write:
+     ftype 0~255 ---> input: [N4, M8, N8]
+     */
+
+    threadgroup FLOAT sdata[512] = {0.f};
+    INIT_SIMDGROUP_MATRIX(1, 4, 4);
+    
+    int rx = gid.x;// M/8
+    int uz = gid.y;// N/32
+    
+    int kl = tiitg / 16; // 0~1
+    int rcl = tiitg % 16; // 0~15
+    int kr = rcl % 2; // 0~1
+    int ml = rcl / 2; // 0 ~ 7
+
+    /** input:
+     threadgroup: [M8, K8]
+     each thread: K2
+     layout: [K/4, M, K4] -> [K/8, K2, M/8, M8, K2, K2]
+     index : [0, kr, rx, ml, kl, K2]
+     offset: ((0*2+kr) * M + rx * 8 + ml) * 2 + kl
+     */
+    /** weight:
+     threadgroup: [K8, N32]
+     each thread: N2K4
+     layout: [N/4, K/4, N4, K4] -> [N/32, N8, K/8, K2, N2, N2, K4]
+     index : [uz, ml, 0, kr, kl, N2, K4]
+     offset: (((uz * 8 + ml) * K/4 + 0*2+kr) * 4 + kl * 2)
+     */
+    /** output:
+     threadgroup: [M8, N32] -> [N4, M4, M2, N2, N4]
+     sdata: [ml/2, kr*2+kl, M2, ml%2, N4]
+     each thread: M2N4
+     layout: [N/4, M, N4] -> [N/32, N8, M/8, M4, M2, N4]
+     index : [uz, ml, rx, kr*2+kl, M2, N4]
+     offset: ((uz * 8 + ml) * M + (rx * 8 + (kr*2+kl) * 2 + 0/1))
+     */
+
+    // boundary limit
+    int idx_n4 = (uz * 8 + ml) < cst.output_slice ? (uz * 8 + ml) : (cst.output_slice - 1);
+    int idx_m  = (rx * 8 + ml) < cst.input_size * cst.batch ? (rx * 8 + ml) : (cst.input_size * cst.batch - 1);
+    
+    auto xy_wt = wt +  ((idx_n4 * cst.input_slice + 0*2+kr) * 4 + kl * 2);// [N/4, K/4, N4, K4]
+    auto xy_in0  = in + ((0*2+kr) * cst.input_size * cst.batch + idx_m) * 2 + kl;// [K/4, M, K2, K2]
+    auto xy_out = out + (uz * 8 + ml) * cst.output_size * cst.batch + (rx * 8 + (kr*2+kl) * 2);// [N/4, M, N4]
+    
+    int block = (cst.input_slice + cst.block_size - 1) / cst.block_size;
+    for (int bi=0; bi<cst.block_size; ++bi) {
+        // [N/4, cst.block_size, 2/*scale_bias*/, N4]
+        FLOAT4 scale = FLOAT4(dequantScale[2 * (idx_n4 * cst.block_size + bi) + 0]) / (FLOAT)cst.scale_coef;
+        FLOAT4 dequant_bias = FLOAT4(dequantScale[2 * (idx_n4 * cst.block_size + bi) + 1]) / (FLOAT)cst.scale_coef;
+        int zmin = bi * block;
+        int zmax = min(zmin + block, cst.input_slice);
+
+        for (int z = zmin; z < zmax; z += 2) {
+            // [M8, K2, K2, K2]
+            ((threadgroup FLOAT2*)sdata)[(ml * 2 + kr) * 2 + kl] = (FLOAT2)(*xy_in0);
+            xy_in0 += 4 * cst.input_size * cst.batch;
+            
+            {
+                #ifdef W_QUANT_4
+                    uchar2 w_int40 = xy_wt[4 * z + 0]; // [N/4, K/4, N4, K4]
+                    FLOAT4 w40 = FLOAT4((float)(w_int40[0] >> 4) - 8, (float)(w_int40[0] & 15) - 8, (float)(w_int40[1] >> 4) - 8, (float)(w_int40[1] & 15) - 8);
+                #elif defined(W_QUANT_8)
+                    char4 w_int40 = xy_wt[4 * z + 0]; // [N/4, K/4, N4, K4]
+                    FLOAT4 w40 = FLOAT4((float)w_int40[0], (float)w_int40[1], (float)w_int40[2], (float)w_int40[3]);
+                #endif
+                    
+                FLOAT4 res = w40 * scale[(kl * 2) % 4] + dequant_bias[(kl * 2) % 4];
+                // [K8, N4, N4]
+                ((threadgroup FLOAT*)sdata)[64 + (kr * 4 + 0) * 32 + ml * 4 + kl * 2] = res[0];
+                ((threadgroup FLOAT*)sdata)[64 + (kr * 4 + 1) * 32 + ml * 4 + kl * 2] = res[1];
+                ((threadgroup FLOAT*)sdata)[64 + (kr * 4 + 2) * 32 + ml * 4 + kl * 2] = res[2];
+                ((threadgroup FLOAT*)sdata)[64 + (kr * 4 + 3) * 32 + ml * 4 + kl * 2] = res[3];
+            }
+
+            {
+                #ifdef W_QUANT_4
+                    uchar2 w_int40 = xy_wt[4 * z + 1]; // [N/4, K/4, N4, K4]
+                    FLOAT4 w40 = FLOAT4((float)(w_int40[0] >> 4) - 8, (float)(w_int40[0] & 15) - 8, (float)(w_int40[1] >> 4) - 8, (float)(w_int40[1] & 15) - 8);
+                #elif defined(W_QUANT_8)
+                    char4 w_int40 = xy_wt[4 * z + 1]; // [N/4, K/4, N4, K4]
+                    FLOAT4 w40 = FLOAT4((float)w_int40[0], (float)w_int40[1], (float)w_int40[2], (float)w_int40[3]);
+                #endif
+                    
+                FLOAT4 res = w40 * scale[(kl * 2 + 1) % 4] + dequant_bias[(kl * 2 + 1) % 4];
+                // [K8, N4, N4]
+                ((threadgroup FLOAT*)sdata)[64 + (kr * 4 + 0) * 32 + ml * 4 + kl * 2 + 1] = res[0];
+                ((threadgroup FLOAT*)sdata)[64 + (kr * 4 + 1) * 32 + ml * 4 + kl * 2 + 1] = res[1];
+                ((threadgroup FLOAT*)sdata)[64 + (kr * 4 + 2) * 32 + ml * 4 + kl * 2 + 1] = res[2];
+                ((threadgroup FLOAT*)sdata)[64 + (kr * 4 + 3) * 32 + ml * 4 + kl * 2 + 1] = res[3];
+            }
+
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            
+            simdgroup_load(sga[0], (const threadgroup FLOAT*)sdata, 8);            
+            simdgroup_load(sgb[0], ((const threadgroup FLOAT*)sdata) + 64, 32);
+            simdgroup_load(sgb[1], ((const threadgroup FLOAT*)sdata) + 72, 32);
+            simdgroup_load(sgb[2], ((const threadgroup FLOAT*)sdata) + 80, 32);
+            simdgroup_load(sgb[3], ((const threadgroup FLOAT*)sdata) + 88, 32);
+
+            SIMDGROUP_MATRIX_FMA(1, 4);
+
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
+    }
+    
+    SIMDGROUP_MATRIX_STORE((threadgroup FLOAT*)sdata, 4);
+
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    
+    if((rx * 8 + (kr*2+kl) * 2) < cst.input_size * cst.batch) {
+        if((uz * 8 + ml) < cst.output_slice) {
+            xy_out[0] =  activate(ftype4(((threadgroup FLOAT4*)sdata)[((((ml/2) * 4 + (kr*2+kl)) * 2) + 0) * 2 + ml%2] + FLOAT4(biasTerms[uz * 8 + ml])), cst.activation);
+        }
+    }
+    if((rx * 8 + (kr*2+kl) * 2 + 1) < cst.input_size * cst.batch) {
+        if((uz * 8 + ml) < cst.output_slice) {
+            xy_out[1] =  activate(ftype4(((threadgroup FLOAT4*)sdata)[((((ml/2) * 4 + (kr*2+kl)) * 2) + 1) * 2 + ml%2] + FLOAT4(biasTerms[uz * 8 + ml])), cst.activation);
+        }
+    }
+}
 
 kernel void conv1x1_gemm_16x16_wquant_sg(const device ftype4 *in            [[buffer(0)]],
                             device ftype4 *out                 [[buffer(1)]],
@@ -1100,7 +1476,7 @@ kernel void conv1x1_gemv_g4mx_wquant_sg(const device ftype4 *in            [[buf
             #endif
 
             auto base_xy = xy_in0 + z * area_size;
-
+            
             for(int i = 0; i < AREA_THREAD; i++) {
                 #ifdef MNN_METAL_SRC_PROTECT
                 FLOAT4 in40 = (rx + (int)i) < area_size ? (FLOAT4)*(base_xy + i) : (FLOAT4)0;

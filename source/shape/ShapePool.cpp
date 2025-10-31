@@ -114,5 +114,4 @@ public:
 };
 
 REGISTER_SHAPE(PoolSizeComputer, OpType_Pooling);
-REGISTER_SHAPE(PoolSizeComputer, OpType_PoolInt8);
 } // namespace MNN

@@ -260,7 +260,7 @@ ErrorCode ConvolutionPackWinograd::onResize(const std::vector<Tensor *> &inputs,
 
     auto totalCount   = wUnit * hUnit * batch;
     // MNN_PRINT("ow=%d, oh=%d\n", ow, oh);
-    
+
     std::vector<int> divides(threadNumber+1);
     static_cast<CPUBackend *>(backend())->computeDivideSizes(totalCount, divides.data()+1);
     divides[0] = 0;
@@ -281,15 +281,16 @@ ErrorCode ConvolutionPackWinograd::onResize(const std::vector<Tensor *> &inputs,
         }
         int eRemain = (tFin-tSta) % ePack;
         std::vector<size_t> parameters(6);
+        parameters[0] = ePack * lPack * bytes;
         parameters[1] = ROUND_UP(input->channel(), lPack);
         parameters[2] = output->channel();
+        parameters[3] = ePack * pack * bytes;
         parameters[4] = 0;
         parameters[5] = 0;
-        parameters[0] = eRemain * bytes;
-        parameters[3] = ePack * pack * bytes;
+
 
         std::vector<size_t> parametersRemain = parameters;
-        parametersRemain[0] = eRemain * bytes;
+        parametersRemain[0] = eRemain * lPack * bytes;
         parametersRemain[3] = eRemain * pack * bytes;
 
         auto srcOrigin = inputOrigin;

@@ -492,6 +492,12 @@ ErrorCode AttentionBufExecution::longPrefillResize(const std::vector<Tensor *> &
     if(useMemorySize > 32.0) {
         mQseqSplitNum = useMemorySize >= 256.0 ? 8 : ((useMemorySize < 128.0) ? 2 : 4);
     }
+    // splitPiecesSize need aligned to 32, make sure XgemmBatched globalsize be divisible by localsize
+    int splitPiecesSize = ROUND_UP(seqlen, mAlignQ) / mQseqSplitNum;
+    while((splitPiecesSize % 32) != 0){
+        mAlignQ *= 2;
+        splitPiecesSize = ROUND_UP(seqlen, mAlignQ) / mQseqSplitNum;
+    }
     
     mKernel_rearrange_vec.resize(1); mGwsRearrgVec.resize(1); mLwsRearrgVec.resize(1);
     mKernel_mask_vec.resize(1);     mGwsMaskVec.resize(1);   mLwsMaskVec.resize(1);

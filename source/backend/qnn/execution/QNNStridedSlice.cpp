@@ -47,14 +47,13 @@ ErrorCode QNNStridedSlice::onEncode(const std::vector<Tensor *> &inputs, const s
         #ifdef QNN_VERBOSE
         MNN_PRINT("slice:%d %d %d %d, axis:%d, slice_num:%d output_num:%d, dim:%d\n", shape[0], shape[1], shape[2], shape[3], axis, slice_num, outputs.size(), mInputDim);
         #endif
-        int realAxis = getNHWCAxis(axis, mInputDim, mDimType);
+        int realAxis = axis;
         int slice_size = inputs[0]->length(axis) / slice_num;
         for(int index = 0; index < slice_num; index++) {
             std::vector<int> rangeData(mInputDim * 3, 0);
             for (int i = 0; i < mInputDim; i++) {
-                int realI = getNCHWAxis(i, mInputDim, Tensor::TENSORFLOW);
                 rangeData[3 * i + 0] = 0;
-                rangeData[3 * i + 1] = inputs[0]->length(realI);
+                rangeData[3 * i + 1] = inputs[0]->length(i);
                 rangeData[3 * i + 2] = 1;
             }
             rangeData[3 * realAxis + 0] = index * slice_size;
@@ -91,10 +90,9 @@ ErrorCode QNNStridedSlice::onEncode(const std::vector<Tensor *> &inputs, const s
 
     std::vector<int> rangeData(mInputDim * 3, 0);
     for (int axis = 0; axis < mInputDim; axis++) {
-        int realAxis = getNHWCAxis(axis, mInputDim, mDimType);
-        rangeData[3 * realAxis + 0] = beginRaw[axis];
-        rangeData[3 * realAxis + 1] = endRaw[axis];
-        rangeData[3 * realAxis + 2] = strideRaw[axis];
+        rangeData[3 * axis + 0] = beginRaw[axis];
+        rangeData[3 * axis + 1] = endRaw[axis];
+        rangeData[3 * axis + 2] = strideRaw[axis];
     }
     this->createParamTensor("ranges", QNN_DATATYPE_INT_32, {(uint32_t) mInputDim, 3}, (void *) rangeData.data());
 
@@ -171,7 +169,7 @@ uint32_t QNNStridedSlice::computeMask(uint32_t rawMask, int dim, Tensor::Dimensi
 
     uint32_t result = 0;
     for (int axis = 0; axis < dim; axis++) {
-        int realAxis = getNHWCAxis(axis, dim, mDimType);
+        int realAxis = axis;
         result |= ((rawMask >> axis) & 1) << realAxis; // If the axis-th bit of rawMask is 1, set the realAxis-th bit of result to 1.
     }
 

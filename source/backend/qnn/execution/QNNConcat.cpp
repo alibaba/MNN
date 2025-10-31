@@ -27,7 +27,6 @@ ErrorCode QNNConcat::onEncode(const std::vector<Tensor *> &inputs, const std::ve
         axis = dim + axis;
     }
     MNN_ASSERT(axis >= 0 && axis < dim);
-    axis = getNHWCAxis(axis, dim, TensorUtils::getDimType(outputs[0]));
     this->createParamScalar("axis", (uint32_t)axis);
 
     this->addNodeCommon(inputs, outputs);

@@ -59,24 +59,14 @@ void QNNConvolution::isWeightQuantSupported(const Tensor *input, const int ic, c
             return;
         }
         
-        float inputScale = mBackend->getNativeTensor(input)->v1.quantizeParams.scaleOffsetEncoding.scale;
-        int inputOffset = mBackend->getNativeTensor(input)->v1.quantizeParams.scaleOffsetEncoding.offset;
-        if(inputOffset == 0){
-            mWeightQuant = true;
-        }else{
-            if(hasBias){
-                mWeightQuant = false;
-            }else{
-                mWeightQuant = true;
-            }
-        }
-        
-        if(mBlockSize > 1 && mWeightQuant){
+        if(mBlockSize > 1){
             if(mIs1x1Conv && hasBias == false && (ic / mBlockSize) >= 16){
                 mWeightQuant = true;
             }else{
                 mWeightQuant = false;
             }
+        }else{
+            mWeightQuant = true;
         }
     }
 }
@@ -135,17 +125,7 @@ ErrorCode QNNConvolution::onEncode(const std::vector<Tensor *> &inputs, const st
     }
     
     if (common->relu() || common->relu6()) {
-        Qnn_QuantizeParams_t quantize = DEFAULT_QUANTIZE_PARAMS;
-        Qnn_ScaleOffset_t tScaleOffsetEncoding;
-        auto quant = TensorUtils::getDescribe(outputs[0])->quantAttr.get();
-        if(quant != nullptr && TensorUtils::getDescribe(outputs[0])->applyQuant){
-            quantize.encodingDefinition = QNN_DEFINITION_DEFINED;
-            quantize.quantizationEncoding = QNN_QUANTIZATION_ENCODING_SCALE_OFFSET;
-            tScaleOffsetEncoding.scale = mBackend->getNativeTensor(outputs[0])->v1.quantizeParams.scaleOffsetEncoding.scale;
-            tScaleOffsetEncoding.offset = mBackend->getNativeTensor(outputs[0])->v1.quantizeParams.scaleOffsetEncoding.offset;
-            quantize.scaleOffsetEncoding = tScaleOffsetEncoding;
-        }
-        this->createStageTensor("ReluTensor", dataType, getNHWCShape(outputs[0]), quantize);
+        this->createStageTensor("ReluTensor", dataType, getNHWCShape(outputs[0]), outputs[0]);
     }
 
     // add nodes
@@ -186,30 +166,10 @@ ErrorCode QNNConvolution::onEncode(const std::vector<Tensor *> &inputs, const st
             if(mIsMatMul && n > 1) {
                 auto num = closest_factors(n);
                 {
-                    Qnn_QuantizeParams_t quantize = DEFAULT_QUANTIZE_PARAMS;
-                    Qnn_ScaleOffset_t tScaleOffsetEncoding;
-                    auto quant = TensorUtils::getDescribe(inputs[0])->quantAttr.get();
-                    if(quant != nullptr && TensorUtils::getDescribe(inputs[0])->applyQuant){
-                        quantize.encodingDefinition = QNN_DEFINITION_DEFINED;
-                        quantize.quantizationEncoding = QNN_QUANTIZATION_ENCODING_SCALE_OFFSET;
-                        tScaleOffsetEncoding.scale = mBackend->getNativeTensor(inputs[0])->v1.quantizeParams.scaleOffsetEncoding.scale;
-                        tScaleOffsetEncoding.offset = mBackend->getNativeTensor(inputs[0])->v1.quantizeParams.scaleOffsetEncoding.offset;
-                        quantize.scaleOffsetEncoding = tScaleOffsetEncoding;
-                    }
-                    this->createStageTensor("InputReshapeTensor", dataType, std::vector<int>({1, num.first, num.second, ic}), quantize);
+                    this->createStageTensor("InputReshapeTensor", dataType, std::vector<int>({1, num.first, num.second, ic}), inputs[0]);
                 }
                 {
-                    Qnn_QuantizeParams_t quantize = DEFAULT_QUANTIZE_PARAMS;
-                    Qnn_ScaleOffset_t tScaleOffsetEncoding;
-                    auto quant = TensorUtils::getDescribe(outputs[0])->quantAttr.get();
-                    if(quant != nullptr && TensorUtils::getDescribe(outputs[0])->applyQuant){
-                        quantize.encodingDefinition = QNN_DEFINITION_DEFINED;
-                        quantize.quantizationEncoding = QNN_QUANTIZATION_ENCODING_SCALE_OFFSET;
-                        tScaleOffsetEncoding.scale = mBackend->getNativeTensor(outputs[0])->v1.quantizeParams.scaleOffsetEncoding.scale;
-                        tScaleOffsetEncoding.offset = mBackend->getNativeTensor(outputs[0])->v1.quantizeParams.scaleOffsetEncoding.offset;
-                        quantize.scaleOffsetEncoding = tScaleOffsetEncoding;
-                    }
-                    this->createStageTensor("OutputReshapeTensor", dataType, std::vector<int>({1, num.first, num.second, oc}), quantize);
+                    this->createStageTensor("OutputReshapeTensor", dataType, std::vector<int>({1, num.first, num.second, oc}), outputs[0]);
                 }
                 #ifdef QNN_VERBOSE
                 MNN_PRINT("Matmul2Conv, start reshape batch:%d -> %dx%d\n", n, num.first, num.second);

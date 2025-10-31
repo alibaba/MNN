@@ -85,7 +85,7 @@ void PoolingTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT
 
         poolParam->type    = MNN::PoolType_AVEPOOL;
         const auto opIndex = tfliteOp->opcode_index;
-        auto opType        = tfliteOpSet[opIndex]->builtin_code;
+        auto opType        = liteOpConverter::getOpCode(tfliteOpSet[opIndex].get());
         if (opType == tflite::BuiltinOperator_MAX_POOL_2D) {
             poolParam->type = MNN::PoolType_MAXPOOL;
         }

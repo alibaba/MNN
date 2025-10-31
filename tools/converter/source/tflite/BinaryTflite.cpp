@@ -31,7 +31,7 @@ void BinaryTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
     extraOpParam->attr[0].reset(new MNN::AttributeT);
     extraOpParam->attr[1].reset(new MNN::AttributeT);
     extraOpParam->attr[0]->key = "opType";
-    extraOpParam->attr[0]->i = tfliteOpSet[tfliteOp->opcode_index]->builtin_code;
+    extraOpParam->attr[0]->i = liteOpConverter::getOpCode(tfliteOpSet[tfliteOp->opcode_index].get());
     extraOpParam->attr[1]->key = "activationType";
     const auto& addOption = tfliteOp->builtin_options.AsAddOptions();
     if (addOption && addOption->fused_activation_function) {

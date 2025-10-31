@@ -193,7 +193,7 @@ void CPUMatMul::execute(const float* APtr, const float* BPtr, float* CPtr, const
             auto hC4 = UP_DIV(mH, core->pack);
             auto TC = mTempC.ptr() + tId * eP * hC4 * core->pack * core->bytes;
             size_t parameters[6];
-            parameters[0] = eP * core->bytes;
+            parameters[0] = eP * lP * core->bytes;
             parameters[1] = lAlign;
             parameters[2] = mH;
             parameters[3] = eP * core->pack * core->bytes;
@@ -281,6 +281,7 @@ void CPUMatMul::execute(const float* APtr, const float* BPtr, float* CPtr, const
                     auto dst = (uint8_t*)CPtr + xStart * core->bytes;
                     core->MNNUnpackCUnit((float*)dst, (const float*)TC, xC, mH, area);
                 }
+
             }
         };
         MNN_CONCURRENCY_END();

@@ -764,3 +764,167 @@ print(out)
 out_ids = qwen.generate([151644, 872, 198, 108386, 151645, 198, 151644, 77091])
 print(out_ids)
 ```
+
+## NPU 推理 LLM
+
+使用NPU推理，需要特定的导出参数，并针对目标设备转换出相应的模型。目前支持使用高通芯片和MTK芯片的NPU进行推理。一般流程是：LLM模型导出->转换成对应设备NPU模型->推到目标设备运行
+
+### LLM 模型导出
+NPU运行LLM需要特定的量化格式，需要按如下参数以导出 mnn
+`--smooth --act_bit=16 --quant_block=0 --lm_quant_bit=16 --quant_bit=4 --seperate_embed --sym --act_sym`
+
+eg:
+```
+python3 llmexport.py --path /Users/xtjiang/.cache/modelscope/hub/models/Qwen/Qwen3-4B --export mnn --smooth --act_bit=16 --quant_block=0 --lm_quant_bit=16 --seperate_embed --quant_bit=4 --sym --act_sym
+```
+
+### QNN LLM
+
+#### 获得QNN依赖
+
+可通过以下步骤获取依赖：
+- [注册高通账号](https://myaccount.qualcomm.com/signup)
+- 访问Qualcomm AI Engine Direct SDK（即QNN SDK），下载SDK，并解压。比如`/home/xiaying/third/qnn/qairt/2.38.0.250901`
+- 修改`~/.bashrc` ，增加SDK路径到环境变量, 然后运行 `source ~/.bashrc` 或者重启终端。eg：
+
+```
+export QNN_SDK_ROOT=/home/xiaying/third/qnn/qairt/2.38.0.250901
+export QNN_ROOT=/home/xiaying/third/qnn/qairt/2.38.0.250901
+export HEXAGON_SDK_ROOT=/home/xiaying/third/qnn/qairt/2.38.0.250901
+```
+
+#### 构建 QNN 模型
+
+在模型转换器编译时，增加`-DMNN_QNN=ON -DMNN_QNN_CONVERT_MODE=ON`，eg:
+
+```
+cd ${MNN_ROOT}
+mkdir build && cd build
+cmake .. -DMNN_QNN=ON -DMNN_QNN_CONVERT_MODE=ON -DMNN_BUILD_TOOLS=ON -DMNN_BUILD_LLM=ON
+make -j16
+```
+
+
+使用 `npu/generate_llm_qnn.py` 构建 qnn 模型
+eg:
+
+```
+cd ${MNN_ROOT}
+cd transformers/llm/export
+python3 npu/generate_llm_qnn.py --model model --soc_id=57 --dsp_arch=v75
+```
+
+目标设备`soc_id` 和 `dsp_arch` 可在高通官方查询，如下为一些设备的参考
+
+| 硬件    | SOC ID | HEXAGON ARCH |
+| :------ | :----- | :----------- |
+| 8 Gen 1 | 36     | 69           |
+| 8 Gen 2 | 43     | 73           |
+| 8 Gen 3 | 57     | 75           |
+| 8 Elite | 69     | 79           |
+
+
+***执行成功后，会在 model 目录下产出 config_qnn.json 及 model/qnn 目录***
+
+***构建完成后，model 目录下的 llm.mnn 及 llm.mnn.weight 不再需要，可以删除以减少文件总大小***
+
+#### Android设备上运行QNN LLM
+
+- 编译 MNN Android 库并推送到目标设备，编译时需要增加 `-DMNN_QNN=ON -DMNN_WITH_PLUGIN=ON`，eg:
+
+```
+cd ${MNN_ROOT}
+cd project/android
+mkdir build_64 && cd build_64
+../build_64.sh -DMNN_QNN=ON -DMNN_WITH_PLUGIN=ON -DMNN_BUILD_LLM=ON -DMNN_LOW_MEMORY=ON
+../updateTest.sh
+```
+
+- 参考如下脚本把 QNN 相关 so 放到 Android 对应测试目录中
+
+```
+ANDROID_WORKING_DIR=/data/local/tmp/MNN/
+HEXAGON_ARCH=v75
+adb push ${QNN_SDK_ROOT}/lib/aarch64-android/libQnnHtp.so ${ANDROID_WORKING_DIR}
+adb push ${QNN_SDK_ROOT}/lib/aarch64-android/libQnnHtpV${HEXAGON_ARCH}Stub.so ${ANDROID_WORKING_DIR}
+adb push ${QNN_SDK_ROOT}/lib/hexagon-v${HEXAGON_ARCH}/unsigned/libQnnHtpV${HEXAGON_ARCH}Skel.so ${ANDROID_WORKING_DIR}
+adb push ${QNN_SDK_ROOT}/lib/aarch64-android/libQnnSystem.so ${ANDROID_WORKING_DIR}
+```
+
+- 推送模型并执行
+
+推送模型：
+```
+cd ${MNN_ROOT}
+cd transformers/llm/export
+adb push model /data/local/tmp/MNN/model
+```
+
+运行：
+```
+cd ${MNN_ROOT}
+project/android/testCommon.sh ./llm_demo model/config_qnn.json
+```
+
+### MTK LLM
+#### 获得 MTK SDK
+- 目前MTK没有开放SDK获得方案，需自行联系MTK取得支持，获得对应的SDK
+- 获取后，修改`~/.bashrc`，添加环境变量，eg:
+
+```
+export NEURON_SDK=/home/xiaying/third/mtk/neuropilot-sdk-basic-7.0.8-build20240807/neuron_sdk
+```
+
+#### 构建 MLDA 模型
+MLDA 是 MTK 的 NPU 推理引擎，需要把 MNN 模型转成 MLDA 模型才可在其NPU上运行
+
+- 增加MNN对应的预转换后端配置 `-DMNN_NEUROPILOT=ON` ，eg:
+
+```
+cd ${MNN_ROOT}
+mkdir build && cd build
+cmake ../ -DMNN_BUILD_CONVERTER=ON -DMNN_BUILD_LLM=ON -DMNN_NEUROPILOT=ON
+make -j4
+```
+
+- 确定设备的`mlda`版本号和编译选项，并修改`source/backend/neuropilot/npu_convert.py`的`archoptions`，当前默认配置为`--arch=mdla5.1 --l1-size-kb=7168 --num-mdla=4`，支持天玑9300的NPU编译
+
+- 使用 `npu/generate_llm_mlda.py` 构建 MLDA 模型
+
+```
+cd ${MNN_ROOT}
+cd transformers/llm/export
+python3 npu/generate_llm_mlda.py --model model
+```
+
+执行成功后，会在 model 目录下产出`config_mlda.json`与`mlda`目录。
+
+***生成后，原先的llm.mnn和llm.mnn.weight可以删除***
+
+#### Android设备上运行 MLDA LLM
+
+- 增加`-DMNN_NEUROPILOT=ON -DMNN_WITH_PLUGIN=ON`编译 MNN Android 库
+
+```
+cd ${MNN_ROOT}
+cd project/android/
+mkdir build_64
+cd build_64
+../build_64.sh -DMNN_NEUROPILOT=ON -DMNN_WITH_PLUGIN=ON -DMNN_BUILD_LLM=ON
+../updateTest.sh
+```
+
+- 推送模型并执行
+
+推送模型：
+```
+cd ${MNN_ROOT}
+cd transformers/llm/export
+adb push model /data/local/tmp/MNN/model
+```
+
+运行：
+```
+cd ${MNN_ROOT}
+project/android/testCommon.sh ./llm_demo model/config_mlda.json
+```

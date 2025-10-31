@@ -46,7 +46,7 @@ void Helper::readClibrationFiles(std::vector<std::string>& images, const std::st
         std::cout << "open " << filePath << " failed: " << strerror(errno) << std::endl;
         return;
     }
-    
+
     while (FindNextFile(hFind, &ffd))
     {
         if (ffd.cFileName[0] == '.') {
@@ -171,7 +171,7 @@ void Helper::preprocessInput(MNN::CV::ImageProcess* pretreat, PreprocessConfig p
         };
         MNN::CV::Matrix trans;
         trans.setPolyToPoly((MNN::CV::Point*)dstPoints, (MNN::CV::Point*)srcPoints, 4);
-        
+
         pretreat->setMatrix(trans);
         pretreat->convert(bitmap32bits, originalWidth, originalHeight, 0, input);
 
