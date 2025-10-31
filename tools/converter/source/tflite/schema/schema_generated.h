@@ -11,6 +11,9 @@ namespace tflite {
 struct CustomQuantization;
 struct CustomQuantizationT;
 
+struct BlockwiseQuantization;
+struct BlockwiseQuantizationT;
+
 struct QuantizationParameters;
 struct QuantizationParametersT;
 
@@ -29,8 +32,68 @@ struct DimensionMetadataT;
 struct SparsityParameters;
 struct SparsityParametersT;
 
+struct VariantSubType;
+struct VariantSubTypeT;
+
 struct Tensor;
 struct TensorT;
+
+struct StablehloGatherOptions;
+struct StablehloGatherOptionsT;
+
+struct StablehloTransposeOptions;
+struct StablehloTransposeOptionsT;
+
+struct StablehloDotGeneralOptions;
+struct StablehloDotGeneralOptionsT;
+
+struct StablehloReduceWindowOptions;
+struct StablehloReduceWindowOptionsT;
+
+struct StablehloWhileOptions;
+struct StablehloWhileOptionsT;
+
+struct StablehloSortOptions;
+struct StablehloSortOptionsT;
+
+struct StablehloConcatenateOptions;
+struct StablehloConcatenateOptionsT;
+
+struct StablehloBroadcastInDimOptions;
+struct StablehloBroadcastInDimOptionsT;
+
+struct StablehloCompareOptions;
+struct StablehloCompareOptionsT;
+
+struct StablehloDynamicSliceOptions;
+struct StablehloDynamicSliceOptionsT;
+
+struct StablehloPadOptions;
+struct StablehloPadOptionsT;
+
+struct StablehloIotaOptions;
+struct StablehloIotaOptionsT;
+
+struct StablehloCustomCallOptions;
+struct StablehloCustomCallOptionsT;
+
+struct StablehloReduceOptions;
+struct StablehloReduceOptionsT;
+
+struct StablehloSliceOptions;
+struct StablehloSliceOptionsT;
+
+struct StablehloConvolutionOptions;
+struct StablehloConvolutionOptionsT;
+
+struct StablehloScatterOptions;
+struct StablehloScatterOptionsT;
+
+struct StablehloCaseOptions;
+struct StablehloCaseOptionsT;
+
+struct StablehloRngBitGeneratorOptions;
+struct StablehloRngBitGeneratorOptionsT;
 
 struct Conv2DOptions;
 struct Conv2DOptionsT;
@@ -371,8 +434,59 @@ struct ReadVariableOptionsT;
 struct AssignVariableOptions;
 struct AssignVariableOptionsT;
 
+struct RandomOptions;
+struct RandomOptionsT;
+
+struct BucketizeOptions;
+struct BucketizeOptionsT;
+
+struct GeluOptions;
+struct GeluOptionsT;
+
+struct DynamicUpdateSliceOptions;
+struct DynamicUpdateSliceOptionsT;
+
+struct UnsortedSegmentProdOptions;
+struct UnsortedSegmentProdOptionsT;
+
+struct UnsortedSegmentMaxOptions;
+struct UnsortedSegmentMaxOptionsT;
+
+struct UnsortedSegmentSumOptions;
+struct UnsortedSegmentSumOptionsT;
+
+struct ATan2Options;
+struct ATan2OptionsT;
+
+struct UnsortedSegmentMinOptions;
+struct UnsortedSegmentMinOptionsT;
+
+struct SignOptions;
+struct SignOptionsT;
+
+struct BitcastOptions;
+struct BitcastOptionsT;
+
+struct BitwiseXorOptions;
+struct BitwiseXorOptionsT;
+
+struct RightShiftOptions;
+struct RightShiftOptionsT;
+
+struct DilateOptions;
+struct DilateOptionsT;
+
+struct ReduceWindowOptions;
+struct ReduceWindowOptionsT;
+
 struct OperatorCode;
 struct OperatorCodeT;
+
+struct StableHLOCompositeOptions;
+struct StableHLOCompositeOptionsT;
+
+struct StablehloShiftLeftOptions;
+struct StablehloShiftLeftOptionsT;
 
 struct Operator;
 struct OperatorT;
@@ -397,6 +511,8 @@ struct ModelT;
 
 inline const flatbuffers::TypeTable *CustomQuantizationTypeTable();
 
+inline const flatbuffers::TypeTable *BlockwiseQuantizationTypeTable();
+
 inline const flatbuffers::TypeTable *QuantizationParametersTypeTable();
 
 inline const flatbuffers::TypeTable *Int32VectorTypeTable();
@@ -409,7 +525,47 @@ inline const flatbuffers::TypeTable *DimensionMetadataTypeTable();
 
 inline const flatbuffers::TypeTable *SparsityParametersTypeTable();
 
+inline const flatbuffers::TypeTable *VariantSubTypeTypeTable();
+
 inline const flatbuffers::TypeTable *TensorTypeTable();
+
+inline const flatbuffers::TypeTable *StablehloGatherOptionsTypeTable();
+
+inline const flatbuffers::TypeTable *StablehloTransposeOptionsTypeTable();
+
+inline const flatbuffers::TypeTable *StablehloDotGeneralOptionsTypeTable();
+
+inline const flatbuffers::TypeTable *StablehloReduceWindowOptionsTypeTable();
+
+inline const flatbuffers::TypeTable *StablehloWhileOptionsTypeTable();
+
+inline const flatbuffers::TypeTable *StablehloSortOptionsTypeTable();
+
+inline const flatbuffers::TypeTable *StablehloConcatenateOptionsTypeTable();
+
+inline const flatbuffers::TypeTable *StablehloBroadcastInDimOptionsTypeTable();
+
+inline const flatbuffers::TypeTable *StablehloCompareOptionsTypeTable();
+
+inline const flatbuffers::TypeTable *StablehloDynamicSliceOptionsTypeTable();
+
+inline const flatbuffers::TypeTable *StablehloPadOptionsTypeTable();
+
+inline const flatbuffers::TypeTable *StablehloIotaOptionsTypeTable();
+
+inline const flatbuffers::TypeTable *StablehloCustomCallOptionsTypeTable();
+
+inline const flatbuffers::TypeTable *StablehloReduceOptionsTypeTable();
+
+inline const flatbuffers::TypeTable *StablehloSliceOptionsTypeTable();
+
+inline const flatbuffers::TypeTable *StablehloConvolutionOptionsTypeTable();
+
+inline const flatbuffers::TypeTable *StablehloScatterOptionsTypeTable();
+
+inline const flatbuffers::TypeTable *StablehloCaseOptionsTypeTable();
+
+inline const flatbuffers::TypeTable *StablehloRngBitGeneratorOptionsTypeTable();
 
 inline const flatbuffers::TypeTable *Conv2DOptionsTypeTable();
 
@@ -637,7 +793,41 @@ inline const flatbuffers::TypeTable *ReadVariableOptionsTypeTable();
 
 inline const flatbuffers::TypeTable *AssignVariableOptionsTypeTable();
 
+inline const flatbuffers::TypeTable *RandomOptionsTypeTable();
+
+inline const flatbuffers::TypeTable *BucketizeOptionsTypeTable();
+
+inline const flatbuffers::TypeTable *GeluOptionsTypeTable();
+
+inline const flatbuffers::TypeTable *DynamicUpdateSliceOptionsTypeTable();
+
+inline const flatbuffers::TypeTable *UnsortedSegmentProdOptionsTypeTable();
+
+inline const flatbuffers::TypeTable *UnsortedSegmentMaxOptionsTypeTable();
+
+inline const flatbuffers::TypeTable *UnsortedSegmentSumOptionsTypeTable();
+
+inline const flatbuffers::TypeTable *ATan2OptionsTypeTable();
+
+inline const flatbuffers::TypeTable *UnsortedSegmentMinOptionsTypeTable();
+
+inline const flatbuffers::TypeTable *SignOptionsTypeTable();
+
+inline const flatbuffers::TypeTable *BitcastOptionsTypeTable();
+
+inline const flatbuffers::TypeTable *BitwiseXorOptionsTypeTable();
+
+inline const flatbuffers::TypeTable *RightShiftOptionsTypeTable();
+
+inline const flatbuffers::TypeTable *DilateOptionsTypeTable();
+
+inline const flatbuffers::TypeTable *ReduceWindowOptionsTypeTable();
+
 inline const flatbuffers::TypeTable *OperatorCodeTypeTable();
+
+inline const flatbuffers::TypeTable *StableHLOCompositeOptionsTypeTable();
+
+inline const flatbuffers::TypeTable *StablehloShiftLeftOptionsTypeTable();
 
 inline const flatbuffers::TypeTable *OperatorTypeTable();
 
@@ -670,11 +860,14 @@ enum TensorType {
   TensorType_RESOURCE = 13,
   TensorType_VARIANT = 14,
   TensorType_UINT32 = 15,
+  TensorType_UINT16 = 16,
+  TensorType_INT4 = 17,
+  TensorType_BFLOAT16 = 18,
   TensorType_MIN = TensorType_FLOAT32,
-  TensorType_MAX = TensorType_UINT32
+  TensorType_MAX = TensorType_BFLOAT16
 };
 
-inline const TensorType (&EnumValuesTensorType())[16] {
+inline const TensorType (&EnumValuesTensorType())[19] {
   static const TensorType values[] = {
     TensorType_FLOAT32,
     TensorType_FLOAT16,
@@ -691,7 +884,10 @@ inline const TensorType (&EnumValuesTensorType())[16] {
     TensorType_UINT64,
     TensorType_RESOURCE,
     TensorType_VARIANT,
-    TensorType_UINT32
+    TensorType_UINT32,
+    TensorType_UINT16,
+    TensorType_INT4,
+    TensorType_BFLOAT16
   };
   return values;
 }
@@ -714,13 +910,16 @@ inline const char * const *EnumNamesTensorType() {
     "RESOURCE",
     "VARIANT",
     "UINT32",
+    "UINT16",
+    "INT4",
+    "BFLOAT16",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameTensorType(TensorType e) {
-  if (e < TensorType_FLOAT32 || e > TensorType_UINT32) return "";
+  if (e < TensorType_FLOAT32 || e > TensorType_BFLOAT16) return "";
   const size_t index = static_cast<int>(e);
   return EnumNamesTensorType()[index];
 }
@@ -728,14 +927,16 @@ inline const char *EnumNameTensorType(TensorType e) {
 enum QuantizationDetails {
   QuantizationDetails_NONE = 0,
   QuantizationDetails_CustomQuantization = 1,
+  QuantizationDetails_BlockwiseQuantization = 2,
   QuantizationDetails_MIN = QuantizationDetails_NONE,
-  QuantizationDetails_MAX = QuantizationDetails_CustomQuantization
+  QuantizationDetails_MAX = QuantizationDetails_BlockwiseQuantization
 };
 
-inline const QuantizationDetails (&EnumValuesQuantizationDetails())[2] {
+inline const QuantizationDetails (&EnumValuesQuantizationDetails())[3] {
   static const QuantizationDetails values[] = {
     QuantizationDetails_NONE,
-    QuantizationDetails_CustomQuantization
+    QuantizationDetails_CustomQuantization,
+    QuantizationDetails_BlockwiseQuantization
   };
   return values;
 }
@@ -744,13 +945,14 @@ inline const char * const *EnumNamesQuantizationDetails() {
   static const char * const names[] = {
     "NONE",
     "CustomQuantization",
+    "BlockwiseQuantization",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameQuantizationDetails(QuantizationDetails e) {
-  if (e < QuantizationDetails_NONE || e > QuantizationDetails_CustomQuantization) return "";
+  if (e < QuantizationDetails_NONE || e > QuantizationDetails_BlockwiseQuantization) return "";
   const size_t index = static_cast<int>(e);
   return EnumNamesQuantizationDetails()[index];
 }
@@ -761,6 +963,10 @@ template<typename T> struct QuantizationDetailsTraits {
 
 template<> struct QuantizationDetailsTraits<CustomQuantization> {
   static const QuantizationDetails enum_value = QuantizationDetails_CustomQuantization;
+};
+
+template<> struct QuantizationDetailsTraits<BlockwiseQuantization> {
+  static const QuantizationDetails enum_value = QuantizationDetails_BlockwiseQuantization;
 };
 
 struct QuantizationDetailsUnion {
@@ -801,6 +1007,14 @@ struct QuantizationDetailsUnion {
   const CustomQuantizationT *AsCustomQuantization() const {
     return type == QuantizationDetails_CustomQuantization ?
       reinterpret_cast<const CustomQuantizationT *>(value) : nullptr;
+  }
+  BlockwiseQuantizationT *AsBlockwiseQuantization() {
+    return type == QuantizationDetails_BlockwiseQuantization ?
+      reinterpret_cast<BlockwiseQuantizationT *>(value) : nullptr;
+  }
+  const BlockwiseQuantizationT *AsBlockwiseQuantization() const {
+    return type == QuantizationDetails_BlockwiseQuantization ?
+      reinterpret_cast<const BlockwiseQuantizationT *>(value) : nullptr;
   }
 };
 
@@ -1077,11 +1291,94 @@ enum BuiltinOperator {
   BuiltinOperator_DENSIFY = 124,
   BuiltinOperator_SEGMENT_SUM = 125,
   BuiltinOperator_BATCH_MATMUL = 126,
+  BuiltinOperator_PLACEHOLDER_FOR_GREATER_OP_CODES = 127,
+  BuiltinOperator_CUMSUM = 128,
+  BuiltinOperator_CALL_ONCE = 129,
+  BuiltinOperator_BROADCAST_TO = 130,
+  BuiltinOperator_RFFT2D = 131,
+  BuiltinOperator_CONV_3D = 132,
+  BuiltinOperator_IMAG = 133,
+  BuiltinOperator_REAL = 134,
+  BuiltinOperator_COMPLEX_ABS = 135,
+  BuiltinOperator_HASHTABLE = 136,
+  BuiltinOperator_HASHTABLE_FIND = 137,
+  BuiltinOperator_HASHTABLE_IMPORT = 138,
+  BuiltinOperator_HASHTABLE_SIZE = 139,
+  BuiltinOperator_REDUCE_ALL = 140,
+  BuiltinOperator_CONV_3D_TRANSPOSE = 141,
+  BuiltinOperator_VAR_HANDLE = 142,
+  BuiltinOperator_READ_VARIABLE = 143,
+  BuiltinOperator_ASSIGN_VARIABLE = 144,
+  BuiltinOperator_BROADCAST_ARGS = 145,
+  BuiltinOperator_RANDOM_STANDARD_NORMAL = 146,
+  BuiltinOperator_BUCKETIZE = 147,
+  BuiltinOperator_RANDOM_UNIFORM = 148,
+  BuiltinOperator_MULTINOMIAL = 149,
+  BuiltinOperator_GELU = 150,
+  BuiltinOperator_DYNAMIC_UPDATE_SLICE = 151,
+  BuiltinOperator_RELU_0_TO_1 = 152,
+  BuiltinOperator_UNSORTED_SEGMENT_PROD = 153,
+  BuiltinOperator_UNSORTED_SEGMENT_MAX = 154,
+  BuiltinOperator_UNSORTED_SEGMENT_SUM = 155,
+  BuiltinOperator_ATAN2 = 156,
+  BuiltinOperator_UNSORTED_SEGMENT_MIN = 157,
+  BuiltinOperator_SIGN = 158,
+  BuiltinOperator_BITCAST = 159,
+  BuiltinOperator_BITWISE_XOR = 160,
+  BuiltinOperator_RIGHT_SHIFT = 161,
+  BuiltinOperator_STABLEHLO_LOGISTIC = 162,
+  BuiltinOperator_STABLEHLO_ADD = 163,
+  BuiltinOperator_STABLEHLO_DIVIDE = 164,
+  BuiltinOperator_STABLEHLO_MULTIPLY = 165,
+  BuiltinOperator_STABLEHLO_MAXIMUM = 166,
+  BuiltinOperator_STABLEHLO_RESHAPE = 167,
+  BuiltinOperator_STABLEHLO_CLAMP = 168,
+  BuiltinOperator_STABLEHLO_CONCATENATE = 169,
+  BuiltinOperator_STABLEHLO_BROADCAST_IN_DIM = 170,
+  BuiltinOperator_STABLEHLO_CONVOLUTION = 171,
+  BuiltinOperator_STABLEHLO_SLICE = 172,
+  BuiltinOperator_STABLEHLO_CUSTOM_CALL = 173,
+  BuiltinOperator_STABLEHLO_REDUCE = 174,
+  BuiltinOperator_STABLEHLO_ABS = 175,
+  BuiltinOperator_STABLEHLO_AND = 176,
+  BuiltinOperator_STABLEHLO_COSINE = 177,
+  BuiltinOperator_STABLEHLO_EXPONENTIAL = 178,
+  BuiltinOperator_STABLEHLO_FLOOR = 179,
+  BuiltinOperator_STABLEHLO_LOG = 180,
+  BuiltinOperator_STABLEHLO_MINIMUM = 181,
+  BuiltinOperator_STABLEHLO_NEGATE = 182,
+  BuiltinOperator_STABLEHLO_OR = 183,
+  BuiltinOperator_STABLEHLO_POWER = 184,
+  BuiltinOperator_STABLEHLO_REMAINDER = 185,
+  BuiltinOperator_STABLEHLO_RSQRT = 186,
+  BuiltinOperator_STABLEHLO_SELECT = 187,
+  BuiltinOperator_STABLEHLO_SUBTRACT = 188,
+  BuiltinOperator_STABLEHLO_TANH = 189,
+  BuiltinOperator_STABLEHLO_SCATTER = 190,
+  BuiltinOperator_STABLEHLO_COMPARE = 191,
+  BuiltinOperator_STABLEHLO_CONVERT = 192,
+  BuiltinOperator_STABLEHLO_DYNAMIC_SLICE = 193,
+  BuiltinOperator_STABLEHLO_DYNAMIC_UPDATE_SLICE = 194,
+  BuiltinOperator_STABLEHLO_PAD = 195,
+  BuiltinOperator_STABLEHLO_IOTA = 196,
+  BuiltinOperator_STABLEHLO_DOT_GENERAL = 197,
+  BuiltinOperator_STABLEHLO_REDUCE_WINDOW = 198,
+  BuiltinOperator_STABLEHLO_SORT = 199,
+  BuiltinOperator_STABLEHLO_WHILE = 200,
+  BuiltinOperator_STABLEHLO_GATHER = 201,
+  BuiltinOperator_STABLEHLO_TRANSPOSE = 202,
+  BuiltinOperator_DILATE = 203,
+  BuiltinOperator_STABLEHLO_RNG_BIT_GENERATOR = 204,
+  BuiltinOperator_REDUCE_WINDOW = 205,
+  BuiltinOperator_STABLEHLO_COMPOSITE = 206,
+  BuiltinOperator_STABLEHLO_SHIFT_LEFT = 207,
+  BuiltinOperator_STABLEHLO_CBRT = 208,
+  BuiltinOperator_STABLEHLO_CASE = 209,
   BuiltinOperator_MIN = BuiltinOperator_ADD,
-  BuiltinOperator_MAX = BuiltinOperator_BATCH_MATMUL
+  BuiltinOperator_MAX = BuiltinOperator_STABLEHLO_CASE
 };
 
-inline const BuiltinOperator (&EnumValuesBuiltinOperator())[127] {
+inline const BuiltinOperator (&EnumValuesBuiltinOperator())[210] {
   static const BuiltinOperator values[] = {
     BuiltinOperator_ADD,
     BuiltinOperator_AVERAGE_POOL_2D,
@@ -1209,7 +1506,90 @@ inline const BuiltinOperator (&EnumValuesBuiltinOperator())[127] {
     BuiltinOperator_SELECT_V2,
     BuiltinOperator_DENSIFY,
     BuiltinOperator_SEGMENT_SUM,
-    BuiltinOperator_BATCH_MATMUL
+    BuiltinOperator_BATCH_MATMUL,
+    BuiltinOperator_PLACEHOLDER_FOR_GREATER_OP_CODES,
+    BuiltinOperator_CUMSUM,
+    BuiltinOperator_CALL_ONCE,
+    BuiltinOperator_BROADCAST_TO,
+    BuiltinOperator_RFFT2D,
+    BuiltinOperator_CONV_3D,
+    BuiltinOperator_IMAG,
+    BuiltinOperator_REAL,
+    BuiltinOperator_COMPLEX_ABS,
+    BuiltinOperator_HASHTABLE,
+    BuiltinOperator_HASHTABLE_FIND,
+    BuiltinOperator_HASHTABLE_IMPORT,
+    BuiltinOperator_HASHTABLE_SIZE,
+    BuiltinOperator_REDUCE_ALL,
+    BuiltinOperator_CONV_3D_TRANSPOSE,
+    BuiltinOperator_VAR_HANDLE,
+    BuiltinOperator_READ_VARIABLE,
+    BuiltinOperator_ASSIGN_VARIABLE,
+    BuiltinOperator_BROADCAST_ARGS,
+    BuiltinOperator_RANDOM_STANDARD_NORMAL,
+    BuiltinOperator_BUCKETIZE,
+    BuiltinOperator_RANDOM_UNIFORM,
+    BuiltinOperator_MULTINOMIAL,
+    BuiltinOperator_GELU,
+    BuiltinOperator_DYNAMIC_UPDATE_SLICE,
+    BuiltinOperator_RELU_0_TO_1,
+    BuiltinOperator_UNSORTED_SEGMENT_PROD,
+    BuiltinOperator_UNSORTED_SEGMENT_MAX,
+    BuiltinOperator_UNSORTED_SEGMENT_SUM,
+    BuiltinOperator_ATAN2,
+    BuiltinOperator_UNSORTED_SEGMENT_MIN,
+    BuiltinOperator_SIGN,
+    BuiltinOperator_BITCAST,
+    BuiltinOperator_BITWISE_XOR,
+    BuiltinOperator_RIGHT_SHIFT,
+    BuiltinOperator_STABLEHLO_LOGISTIC,
+    BuiltinOperator_STABLEHLO_ADD,
+    BuiltinOperator_STABLEHLO_DIVIDE,
+    BuiltinOperator_STABLEHLO_MULTIPLY,
+    BuiltinOperator_STABLEHLO_MAXIMUM,
+    BuiltinOperator_STABLEHLO_RESHAPE,
+    BuiltinOperator_STABLEHLO_CLAMP,
+    BuiltinOperator_STABLEHLO_CONCATENATE,
+    BuiltinOperator_STABLEHLO_BROADCAST_IN_DIM,
+    BuiltinOperator_STABLEHLO_CONVOLUTION,
+    BuiltinOperator_STABLEHLO_SLICE,
+    BuiltinOperator_STABLEHLO_CUSTOM_CALL,
+    BuiltinOperator_STABLEHLO_REDUCE,
+    BuiltinOperator_STABLEHLO_ABS,
+    BuiltinOperator_STABLEHLO_AND,
+    BuiltinOperator_STABLEHLO_COSINE,
+    BuiltinOperator_STABLEHLO_EXPONENTIAL,
+    BuiltinOperator_STABLEHLO_FLOOR,
+    BuiltinOperator_STABLEHLO_LOG,
+    BuiltinOperator_STABLEHLO_MINIMUM,
+    BuiltinOperator_STABLEHLO_NEGATE,
+    BuiltinOperator_STABLEHLO_OR,
+    BuiltinOperator_STABLEHLO_POWER,
+    BuiltinOperator_STABLEHLO_REMAINDER,
+    BuiltinOperator_STABLEHLO_RSQRT,
+    BuiltinOperator_STABLEHLO_SELECT,
+    BuiltinOperator_STABLEHLO_SUBTRACT,
+    BuiltinOperator_STABLEHLO_TANH,
+    BuiltinOperator_STABLEHLO_SCATTER,
+    BuiltinOperator_STABLEHLO_COMPARE,
+    BuiltinOperator_STABLEHLO_CONVERT,
+    BuiltinOperator_STABLEHLO_DYNAMIC_SLICE,
+    BuiltinOperator_STABLEHLO_DYNAMIC_UPDATE_SLICE,
+    BuiltinOperator_STABLEHLO_PAD,
+    BuiltinOperator_STABLEHLO_IOTA,
+    BuiltinOperator_STABLEHLO_DOT_GENERAL,
+    BuiltinOperator_STABLEHLO_REDUCE_WINDOW,
+    BuiltinOperator_STABLEHLO_SORT,
+    BuiltinOperator_STABLEHLO_WHILE,
+    BuiltinOperator_STABLEHLO_GATHER,
+    BuiltinOperator_STABLEHLO_TRANSPOSE,
+    BuiltinOperator_DILATE,
+    BuiltinOperator_STABLEHLO_RNG_BIT_GENERATOR,
+    BuiltinOperator_REDUCE_WINDOW,
+    BuiltinOperator_STABLEHLO_COMPOSITE,
+    BuiltinOperator_STABLEHLO_SHIFT_LEFT,
+    BuiltinOperator_STABLEHLO_CBRT,
+    BuiltinOperator_STABLEHLO_CASE
   };
   return values;
 }
@@ -1343,13 +1723,96 @@ inline const char * const *EnumNamesBuiltinOperator() {
     "DENSIFY",
     "SEGMENT_SUM",
     "BATCH_MATMUL",
+    "PLACEHOLDER_FOR_GREATER_OP_CODES",
+    "CUMSUM",
+    "CALL_ONCE",
+    "BROADCAST_TO",
+    "RFFT2D",
+    "CONV_3D",
+    "IMAG",
+    "REAL",
+    "COMPLEX_ABS",
+    "HASHTABLE",
+    "HASHTABLE_FIND",
+    "HASHTABLE_IMPORT",
+    "HASHTABLE_SIZE",
+    "REDUCE_ALL",
+    "CONV_3D_TRANSPOSE",
+    "VAR_HANDLE",
+    "READ_VARIABLE",
+    "ASSIGN_VARIABLE",
+    "BROADCAST_ARGS",
+    "RANDOM_STANDARD_NORMAL",
+    "BUCKETIZE",
+    "RANDOM_UNIFORM",
+    "MULTINOMIAL",
+    "GELU",
+    "DYNAMIC_UPDATE_SLICE",
+    "RELU_0_TO_1",
+    "UNSORTED_SEGMENT_PROD",
+    "UNSORTED_SEGMENT_MAX",
+    "UNSORTED_SEGMENT_SUM",
+    "ATAN2",
+    "UNSORTED_SEGMENT_MIN",
+    "SIGN",
+    "BITCAST",
+    "BITWISE_XOR",
+    "RIGHT_SHIFT",
+    "STABLEHLO_LOGISTIC",
+    "STABLEHLO_ADD",
+    "STABLEHLO_DIVIDE",
+    "STABLEHLO_MULTIPLY",
+    "STABLEHLO_MAXIMUM",
+    "STABLEHLO_RESHAPE",
+    "STABLEHLO_CLAMP",
+    "STABLEHLO_CONCATENATE",
+    "STABLEHLO_BROADCAST_IN_DIM",
+    "STABLEHLO_CONVOLUTION",
+    "STABLEHLO_SLICE",
+    "STABLEHLO_CUSTOM_CALL",
+    "STABLEHLO_REDUCE",
+    "STABLEHLO_ABS",
+    "STABLEHLO_AND",
+    "STABLEHLO_COSINE",
+    "STABLEHLO_EXPONENTIAL",
+    "STABLEHLO_FLOOR",
+    "STABLEHLO_LOG",
+    "STABLEHLO_MINIMUM",
+    "STABLEHLO_NEGATE",
+    "STABLEHLO_OR",
+    "STABLEHLO_POWER",
+    "STABLEHLO_REMAINDER",
+    "STABLEHLO_RSQRT",
+    "STABLEHLO_SELECT",
+    "STABLEHLO_SUBTRACT",
+    "STABLEHLO_TANH",
+    "STABLEHLO_SCATTER",
+    "STABLEHLO_COMPARE",
+    "STABLEHLO_CONVERT",
+    "STABLEHLO_DYNAMIC_SLICE",
+    "STABLEHLO_DYNAMIC_UPDATE_SLICE",
+    "STABLEHLO_PAD",
+    "STABLEHLO_IOTA",
+    "STABLEHLO_DOT_GENERAL",
+    "STABLEHLO_REDUCE_WINDOW",
+    "STABLEHLO_SORT",
+    "STABLEHLO_WHILE",
+    "STABLEHLO_GATHER",
+    "STABLEHLO_TRANSPOSE",
+    "DILATE",
+    "STABLEHLO_RNG_BIT_GENERATOR",
+    "REDUCE_WINDOW",
+    "STABLEHLO_COMPOSITE",
+    "STABLEHLO_SHIFT_LEFT",
+    "STABLEHLO_CBRT",
+    "STABLEHLO_CASE",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameBuiltinOperator(BuiltinOperator e) {
-  if (e < BuiltinOperator_ADD || e > BuiltinOperator_BATCH_MATMUL) return "";
+  if (e < BuiltinOperator_ADD || e > BuiltinOperator_STABLEHLO_CASE) return "";
   const size_t index = static_cast<int>(e);
   return EnumNamesBuiltinOperator()[index];
 }
@@ -1469,11 +1932,24 @@ enum BuiltinOptions {
   BuiltinOptions_VarHandleOptions = 111,
   BuiltinOptions_ReadVariableOptions = 112,
   BuiltinOptions_AssignVariableOptions = 113,
+  BuiltinOptions_RandomOptions = 114,
+  BuiltinOptions_BucketizeOptions = 115,
+  BuiltinOptions_GeluOptions = 116,
+  BuiltinOptions_DynamicUpdateSliceOptions = 117,
+  BuiltinOptions_UnsortedSegmentProdOptions = 118,
+  BuiltinOptions_UnsortedSegmentMaxOptions = 119,
+  BuiltinOptions_UnsortedSegmentMinOptions = 120,
+  BuiltinOptions_UnsortedSegmentSumOptions = 121,
+  BuiltinOptions_ATan2Options = 122,
+  BuiltinOptions_SignOptions = 123,
+  BuiltinOptions_BitcastOptions = 124,
+  BuiltinOptions_BitwiseXorOptions = 125,
+  BuiltinOptions_RightShiftOptions = 126,
   BuiltinOptions_MIN = BuiltinOptions_NONE,
-  BuiltinOptions_MAX = BuiltinOptions_AssignVariableOptions
+  BuiltinOptions_MAX = BuiltinOptions_RightShiftOptions
 };
 
-inline const BuiltinOptions (&EnumValuesBuiltinOptions())[114] {
+inline const BuiltinOptions (&EnumValuesBuiltinOptions())[127] {
   static const BuiltinOptions values[] = {
     BuiltinOptions_NONE,
     BuiltinOptions_Conv2DOptions,
@@ -1588,7 +2064,20 @@ inline const BuiltinOptions (&EnumValuesBuiltinOptions())[114] {
     BuiltinOptions_HashtableSizeOptions,
     BuiltinOptions_VarHandleOptions,
     BuiltinOptions_ReadVariableOptions,
-    BuiltinOptions_AssignVariableOptions
+    BuiltinOptions_AssignVariableOptions,
+    BuiltinOptions_RandomOptions,
+    BuiltinOptions_BucketizeOptions,
+    BuiltinOptions_GeluOptions,
+    BuiltinOptions_DynamicUpdateSliceOptions,
+    BuiltinOptions_UnsortedSegmentProdOptions,
+    BuiltinOptions_UnsortedSegmentMaxOptions,
+    BuiltinOptions_UnsortedSegmentMinOptions,
+    BuiltinOptions_UnsortedSegmentSumOptions,
+    BuiltinOptions_ATan2Options,
+    BuiltinOptions_SignOptions,
+    BuiltinOptions_BitcastOptions,
+    BuiltinOptions_BitwiseXorOptions,
+    BuiltinOptions_RightShiftOptions
   };
   return values;
 }
@@ -1709,13 +2198,26 @@ inline const char * const *EnumNamesBuiltinOptions() {
     "VarHandleOptions",
     "ReadVariableOptions",
     "AssignVariableOptions",
+    "RandomOptions",
+    "BucketizeOptions",
+    "GeluOptions",
+    "DynamicUpdateSliceOptions",
+    "UnsortedSegmentProdOptions",
+    "UnsortedSegmentMaxOptions",
+    "UnsortedSegmentMinOptions",
+    "UnsortedSegmentSumOptions",
+    "ATan2Options",
+    "SignOptions",
+    "BitcastOptions",
+    "BitwiseXorOptions",
+    "RightShiftOptions",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameBuiltinOptions(BuiltinOptions e) {
-  if (e < BuiltinOptions_NONE || e > BuiltinOptions_AssignVariableOptions) return "";
+  if (e < BuiltinOptions_NONE || e > BuiltinOptions_RightShiftOptions) return "";
   const size_t index = static_cast<int>(e);
   return EnumNamesBuiltinOptions()[index];
 }
@@ -2174,6 +2676,58 @@ template<> struct BuiltinOptionsTraits<ReadVariableOptions> {
 
 template<> struct BuiltinOptionsTraits<AssignVariableOptions> {
   static const BuiltinOptions enum_value = BuiltinOptions_AssignVariableOptions;
+};
+
+template<> struct BuiltinOptionsTraits<RandomOptions> {
+  static const BuiltinOptions enum_value = BuiltinOptions_RandomOptions;
+};
+
+template<> struct BuiltinOptionsTraits<BucketizeOptions> {
+  static const BuiltinOptions enum_value = BuiltinOptions_BucketizeOptions;
+};
+
+template<> struct BuiltinOptionsTraits<GeluOptions> {
+  static const BuiltinOptions enum_value = BuiltinOptions_GeluOptions;
+};
+
+template<> struct BuiltinOptionsTraits<DynamicUpdateSliceOptions> {
+  static const BuiltinOptions enum_value = BuiltinOptions_DynamicUpdateSliceOptions;
+};
+
+template<> struct BuiltinOptionsTraits<UnsortedSegmentProdOptions> {
+  static const BuiltinOptions enum_value = BuiltinOptions_UnsortedSegmentProdOptions;
+};
+
+template<> struct BuiltinOptionsTraits<UnsortedSegmentMaxOptions> {
+  static const BuiltinOptions enum_value = BuiltinOptions_UnsortedSegmentMaxOptions;
+};
+
+template<> struct BuiltinOptionsTraits<UnsortedSegmentMinOptions> {
+  static const BuiltinOptions enum_value = BuiltinOptions_UnsortedSegmentMinOptions;
+};
+
+template<> struct BuiltinOptionsTraits<UnsortedSegmentSumOptions> {
+  static const BuiltinOptions enum_value = BuiltinOptions_UnsortedSegmentSumOptions;
+};
+
+template<> struct BuiltinOptionsTraits<ATan2Options> {
+  static const BuiltinOptions enum_value = BuiltinOptions_ATan2Options;
+};
+
+template<> struct BuiltinOptionsTraits<SignOptions> {
+  static const BuiltinOptions enum_value = BuiltinOptions_SignOptions;
+};
+
+template<> struct BuiltinOptionsTraits<BitcastOptions> {
+  static const BuiltinOptions enum_value = BuiltinOptions_BitcastOptions;
+};
+
+template<> struct BuiltinOptionsTraits<BitwiseXorOptions> {
+  static const BuiltinOptions enum_value = BuiltinOptions_BitwiseXorOptions;
+};
+
+template<> struct BuiltinOptionsTraits<RightShiftOptions> {
+  static const BuiltinOptions enum_value = BuiltinOptions_RightShiftOptions;
 };
 
 struct BuiltinOptionsUnion {
@@ -3111,10 +3665,673 @@ struct BuiltinOptionsUnion {
     return type == BuiltinOptions_AssignVariableOptions ?
       reinterpret_cast<const AssignVariableOptionsT *>(value) : nullptr;
   }
+  RandomOptionsT *AsRandomOptions() {
+    return type == BuiltinOptions_RandomOptions ?
+      reinterpret_cast<RandomOptionsT *>(value) : nullptr;
+  }
+  const RandomOptionsT *AsRandomOptions() const {
+    return type == BuiltinOptions_RandomOptions ?
+      reinterpret_cast<const RandomOptionsT *>(value) : nullptr;
+  }
+  BucketizeOptionsT *AsBucketizeOptions() {
+    return type == BuiltinOptions_BucketizeOptions ?
+      reinterpret_cast<BucketizeOptionsT *>(value) : nullptr;
+  }
+  const BucketizeOptionsT *AsBucketizeOptions() const {
+    return type == BuiltinOptions_BucketizeOptions ?
+      reinterpret_cast<const BucketizeOptionsT *>(value) : nullptr;
+  }
+  GeluOptionsT *AsGeluOptions() {
+    return type == BuiltinOptions_GeluOptions ?
+      reinterpret_cast<GeluOptionsT *>(value) : nullptr;
+  }
+  const GeluOptionsT *AsGeluOptions() const {
+    return type == BuiltinOptions_GeluOptions ?
+      reinterpret_cast<const GeluOptionsT *>(value) : nullptr;
+  }
+  DynamicUpdateSliceOptionsT *AsDynamicUpdateSliceOptions() {
+    return type == BuiltinOptions_DynamicUpdateSliceOptions ?
+      reinterpret_cast<DynamicUpdateSliceOptionsT *>(value) : nullptr;
+  }
+  const DynamicUpdateSliceOptionsT *AsDynamicUpdateSliceOptions() const {
+    return type == BuiltinOptions_DynamicUpdateSliceOptions ?
+      reinterpret_cast<const DynamicUpdateSliceOptionsT *>(value) : nullptr;
+  }
+  UnsortedSegmentProdOptionsT *AsUnsortedSegmentProdOptions() {
+    return type == BuiltinOptions_UnsortedSegmentProdOptions ?
+      reinterpret_cast<UnsortedSegmentProdOptionsT *>(value) : nullptr;
+  }
+  const UnsortedSegmentProdOptionsT *AsUnsortedSegmentProdOptions() const {
+    return type == BuiltinOptions_UnsortedSegmentProdOptions ?
+      reinterpret_cast<const UnsortedSegmentProdOptionsT *>(value) : nullptr;
+  }
+  UnsortedSegmentMaxOptionsT *AsUnsortedSegmentMaxOptions() {
+    return type == BuiltinOptions_UnsortedSegmentMaxOptions ?
+      reinterpret_cast<UnsortedSegmentMaxOptionsT *>(value) : nullptr;
+  }
+  const UnsortedSegmentMaxOptionsT *AsUnsortedSegmentMaxOptions() const {
+    return type == BuiltinOptions_UnsortedSegmentMaxOptions ?
+      reinterpret_cast<const UnsortedSegmentMaxOptionsT *>(value) : nullptr;
+  }
+  UnsortedSegmentMinOptionsT *AsUnsortedSegmentMinOptions() {
+    return type == BuiltinOptions_UnsortedSegmentMinOptions ?
+      reinterpret_cast<UnsortedSegmentMinOptionsT *>(value) : nullptr;
+  }
+  const UnsortedSegmentMinOptionsT *AsUnsortedSegmentMinOptions() const {
+    return type == BuiltinOptions_UnsortedSegmentMinOptions ?
+      reinterpret_cast<const UnsortedSegmentMinOptionsT *>(value) : nullptr;
+  }
+  UnsortedSegmentSumOptionsT *AsUnsortedSegmentSumOptions() {
+    return type == BuiltinOptions_UnsortedSegmentSumOptions ?
+      reinterpret_cast<UnsortedSegmentSumOptionsT *>(value) : nullptr;
+  }
+  const UnsortedSegmentSumOptionsT *AsUnsortedSegmentSumOptions() const {
+    return type == BuiltinOptions_UnsortedSegmentSumOptions ?
+      reinterpret_cast<const UnsortedSegmentSumOptionsT *>(value) : nullptr;
+  }
+  ATan2OptionsT *AsATan2Options() {
+    return type == BuiltinOptions_ATan2Options ?
+      reinterpret_cast<ATan2OptionsT *>(value) : nullptr;
+  }
+  const ATan2OptionsT *AsATan2Options() const {
+    return type == BuiltinOptions_ATan2Options ?
+      reinterpret_cast<const ATan2OptionsT *>(value) : nullptr;
+  }
+  SignOptionsT *AsSignOptions() {
+    return type == BuiltinOptions_SignOptions ?
+      reinterpret_cast<SignOptionsT *>(value) : nullptr;
+  }
+  const SignOptionsT *AsSignOptions() const {
+    return type == BuiltinOptions_SignOptions ?
+      reinterpret_cast<const SignOptionsT *>(value) : nullptr;
+  }
+  BitcastOptionsT *AsBitcastOptions() {
+    return type == BuiltinOptions_BitcastOptions ?
+      reinterpret_cast<BitcastOptionsT *>(value) : nullptr;
+  }
+  const BitcastOptionsT *AsBitcastOptions() const {
+    return type == BuiltinOptions_BitcastOptions ?
+      reinterpret_cast<const BitcastOptionsT *>(value) : nullptr;
+  }
+  BitwiseXorOptionsT *AsBitwiseXorOptions() {
+    return type == BuiltinOptions_BitwiseXorOptions ?
+      reinterpret_cast<BitwiseXorOptionsT *>(value) : nullptr;
+  }
+  const BitwiseXorOptionsT *AsBitwiseXorOptions() const {
+    return type == BuiltinOptions_BitwiseXorOptions ?
+      reinterpret_cast<const BitwiseXorOptionsT *>(value) : nullptr;
+  }
+  RightShiftOptionsT *AsRightShiftOptions() {
+    return type == BuiltinOptions_RightShiftOptions ?
+      reinterpret_cast<RightShiftOptionsT *>(value) : nullptr;
+  }
+  const RightShiftOptionsT *AsRightShiftOptions() const {
+    return type == BuiltinOptions_RightShiftOptions ?
+      reinterpret_cast<const RightShiftOptionsT *>(value) : nullptr;
+  }
 };
 
 bool VerifyBuiltinOptions(flatbuffers::Verifier &verifier, const void *obj, BuiltinOptions type);
 bool VerifyBuiltinOptionsVector(flatbuffers::Verifier &verifier, const flatbuffers::Vector<flatbuffers::Offset<void>> *values, const flatbuffers::Vector<uint8_t> *types);
+
+enum BuiltinOptions2 {
+  BuiltinOptions2_NONE = 0,
+  BuiltinOptions2_StablehloConcatenateOptions = 1,
+  BuiltinOptions2_StablehloBroadcastInDimOptions = 2,
+  BuiltinOptions2_StablehloSliceOptions = 3,
+  BuiltinOptions2_StablehloConvolutionOptions = 4,
+  BuiltinOptions2_StablehloCustomCallOptions = 5,
+  BuiltinOptions2_StablehloReduceOptions = 6,
+  BuiltinOptions2_StablehloScatterOptions = 7,
+  BuiltinOptions2_StablehloCompareOptions = 8,
+  BuiltinOptions2_StablehloDynamicSliceOptions = 9,
+  BuiltinOptions2_StablehloPadOptions = 10,
+  BuiltinOptions2_StablehloIotaOptions = 11,
+  BuiltinOptions2_StablehloDotGeneralOptions = 12,
+  BuiltinOptions2_StablehloReduceWindowOptions = 13,
+  BuiltinOptions2_StablehloSortOptions = 14,
+  BuiltinOptions2_StablehloWhileOptions = 15,
+  BuiltinOptions2_StablehloGatherOptions = 16,
+  BuiltinOptions2_StablehloTransposeOptions = 17,
+  BuiltinOptions2_DilateOptions = 18,
+  BuiltinOptions2_StablehloRngBitGeneratorOptions = 19,
+  BuiltinOptions2_ReduceWindowOptions = 20,
+  BuiltinOptions2_StableHLOCompositeOptions = 21,
+  BuiltinOptions2_StablehloShiftLeftOptions = 22,
+  BuiltinOptions2_StablehloCaseOptions = 23,
+  BuiltinOptions2_MIN = BuiltinOptions2_NONE,
+  BuiltinOptions2_MAX = BuiltinOptions2_StablehloCaseOptions
+};
+
+inline const BuiltinOptions2 (&EnumValuesBuiltinOptions2())[24] {
+  static const BuiltinOptions2 values[] = {
+    BuiltinOptions2_NONE,
+    BuiltinOptions2_StablehloConcatenateOptions,
+    BuiltinOptions2_StablehloBroadcastInDimOptions,
+    BuiltinOptions2_StablehloSliceOptions,
+    BuiltinOptions2_StablehloConvolutionOptions,
+    BuiltinOptions2_StablehloCustomCallOptions,
+    BuiltinOptions2_StablehloReduceOptions,
+    BuiltinOptions2_StablehloScatterOptions,
+    BuiltinOptions2_StablehloCompareOptions,
+    BuiltinOptions2_StablehloDynamicSliceOptions,
+    BuiltinOptions2_StablehloPadOptions,
+    BuiltinOptions2_StablehloIotaOptions,
+    BuiltinOptions2_StablehloDotGeneralOptions,
+    BuiltinOptions2_StablehloReduceWindowOptions,
+    BuiltinOptions2_StablehloSortOptions,
+    BuiltinOptions2_StablehloWhileOptions,
+    BuiltinOptions2_StablehloGatherOptions,
+    BuiltinOptions2_StablehloTransposeOptions,
+    BuiltinOptions2_DilateOptions,
+    BuiltinOptions2_StablehloRngBitGeneratorOptions,
+    BuiltinOptions2_ReduceWindowOptions,
+    BuiltinOptions2_StableHLOCompositeOptions,
+    BuiltinOptions2_StablehloShiftLeftOptions,
+    BuiltinOptions2_StablehloCaseOptions
+  };
+  return values;
+}
+
+inline const char * const *EnumNamesBuiltinOptions2() {
+  static const char * const names[] = {
+    "NONE",
+    "StablehloConcatenateOptions",
+    "StablehloBroadcastInDimOptions",
+    "StablehloSliceOptions",
+    "StablehloConvolutionOptions",
+    "StablehloCustomCallOptions",
+    "StablehloReduceOptions",
+    "StablehloScatterOptions",
+    "StablehloCompareOptions",
+    "StablehloDynamicSliceOptions",
+    "StablehloPadOptions",
+    "StablehloIotaOptions",
+    "StablehloDotGeneralOptions",
+    "StablehloReduceWindowOptions",
+    "StablehloSortOptions",
+    "StablehloWhileOptions",
+    "StablehloGatherOptions",
+    "StablehloTransposeOptions",
+    "DilateOptions",
+    "StablehloRngBitGeneratorOptions",
+    "ReduceWindowOptions",
+    "StableHLOCompositeOptions",
+    "StablehloShiftLeftOptions",
+    "StablehloCaseOptions",
+    nullptr
+  };
+  return names;
+}
+
+inline const char *EnumNameBuiltinOptions2(BuiltinOptions2 e) {
+  if (e < BuiltinOptions2_NONE || e > BuiltinOptions2_StablehloCaseOptions) return "";
+  const size_t index = static_cast<int>(e);
+  return EnumNamesBuiltinOptions2()[index];
+}
+
+template<typename T> struct BuiltinOptions2Traits {
+  static const BuiltinOptions2 enum_value = BuiltinOptions2_NONE;
+};
+
+template<> struct BuiltinOptions2Traits<StablehloConcatenateOptions> {
+  static const BuiltinOptions2 enum_value = BuiltinOptions2_StablehloConcatenateOptions;
+};
+
+template<> struct BuiltinOptions2Traits<StablehloBroadcastInDimOptions> {
+  static const BuiltinOptions2 enum_value = BuiltinOptions2_StablehloBroadcastInDimOptions;
+};
+
+template<> struct BuiltinOptions2Traits<StablehloSliceOptions> {
+  static const BuiltinOptions2 enum_value = BuiltinOptions2_StablehloSliceOptions;
+};
+
+template<> struct BuiltinOptions2Traits<StablehloConvolutionOptions> {
+  static const BuiltinOptions2 enum_value = BuiltinOptions2_StablehloConvolutionOptions;
+};
+
+template<> struct BuiltinOptions2Traits<StablehloCustomCallOptions> {
+  static const BuiltinOptions2 enum_value = BuiltinOptions2_StablehloCustomCallOptions;
+};
+
+template<> struct BuiltinOptions2Traits<StablehloReduceOptions> {
+  static const BuiltinOptions2 enum_value = BuiltinOptions2_StablehloReduceOptions;
+};
+
+template<> struct BuiltinOptions2Traits<StablehloScatterOptions> {
+  static const BuiltinOptions2 enum_value = BuiltinOptions2_StablehloScatterOptions;
+};
+
+template<> struct BuiltinOptions2Traits<StablehloCompareOptions> {
+  static const BuiltinOptions2 enum_value = BuiltinOptions2_StablehloCompareOptions;
+};
+
+template<> struct BuiltinOptions2Traits<StablehloDynamicSliceOptions> {
+  static const BuiltinOptions2 enum_value = BuiltinOptions2_StablehloDynamicSliceOptions;
+};
+
+template<> struct BuiltinOptions2Traits<StablehloPadOptions> {
+  static const BuiltinOptions2 enum_value = BuiltinOptions2_StablehloPadOptions;
+};
+
+template<> struct BuiltinOptions2Traits<StablehloIotaOptions> {
+  static const BuiltinOptions2 enum_value = BuiltinOptions2_StablehloIotaOptions;
+};
+
+template<> struct BuiltinOptions2Traits<StablehloDotGeneralOptions> {
+  static const BuiltinOptions2 enum_value = BuiltinOptions2_StablehloDotGeneralOptions;
+};
+
+template<> struct BuiltinOptions2Traits<StablehloReduceWindowOptions> {
+  static const BuiltinOptions2 enum_value = BuiltinOptions2_StablehloReduceWindowOptions;
+};
+
+template<> struct BuiltinOptions2Traits<StablehloSortOptions> {
+  static const BuiltinOptions2 enum_value = BuiltinOptions2_StablehloSortOptions;
+};
+
+template<> struct BuiltinOptions2Traits<StablehloWhileOptions> {
+  static const BuiltinOptions2 enum_value = BuiltinOptions2_StablehloWhileOptions;
+};
+
+template<> struct BuiltinOptions2Traits<StablehloGatherOptions> {
+  static const BuiltinOptions2 enum_value = BuiltinOptions2_StablehloGatherOptions;
+};
+
+template<> struct BuiltinOptions2Traits<StablehloTransposeOptions> {
+  static const BuiltinOptions2 enum_value = BuiltinOptions2_StablehloTransposeOptions;
+};
+
+template<> struct BuiltinOptions2Traits<DilateOptions> {
+  static const BuiltinOptions2 enum_value = BuiltinOptions2_DilateOptions;
+};
+
+template<> struct BuiltinOptions2Traits<StablehloRngBitGeneratorOptions> {
+  static const BuiltinOptions2 enum_value = BuiltinOptions2_StablehloRngBitGeneratorOptions;
+};
+
+template<> struct BuiltinOptions2Traits<ReduceWindowOptions> {
+  static const BuiltinOptions2 enum_value = BuiltinOptions2_ReduceWindowOptions;
+};
+
+template<> struct BuiltinOptions2Traits<StableHLOCompositeOptions> {
+  static const BuiltinOptions2 enum_value = BuiltinOptions2_StableHLOCompositeOptions;
+};
+
+template<> struct BuiltinOptions2Traits<StablehloShiftLeftOptions> {
+  static const BuiltinOptions2 enum_value = BuiltinOptions2_StablehloShiftLeftOptions;
+};
+
+template<> struct BuiltinOptions2Traits<StablehloCaseOptions> {
+  static const BuiltinOptions2 enum_value = BuiltinOptions2_StablehloCaseOptions;
+};
+
+struct BuiltinOptions2Union {
+  BuiltinOptions2 type;
+  void *value;
+
+  BuiltinOptions2Union() : type(BuiltinOptions2_NONE), value(nullptr) {}
+  BuiltinOptions2Union(BuiltinOptions2Union&& u) FLATBUFFERS_NOEXCEPT :
+    type(BuiltinOptions2_NONE), value(nullptr)
+    { std::swap(type, u.type); std::swap(value, u.value); }
+  BuiltinOptions2Union(const BuiltinOptions2Union &) FLATBUFFERS_NOEXCEPT;
+  BuiltinOptions2Union &operator=(const BuiltinOptions2Union &u) FLATBUFFERS_NOEXCEPT
+    { BuiltinOptions2Union t(u); std::swap(type, t.type); std::swap(value, t.value); return *this; }
+  BuiltinOptions2Union &operator=(BuiltinOptions2Union &&u) FLATBUFFERS_NOEXCEPT
+    { std::swap(type, u.type); std::swap(value, u.value); return *this; }
+  ~BuiltinOptions2Union() { Reset(); }
+
+  void Reset();
+
+#ifndef FLATBUFFERS_CPP98_STL
+  template <typename T>
+  void Set(T&& val) {
+    Reset();
+    type = BuiltinOptions2Traits<typename T::TableType>::enum_value;
+    if (type != BuiltinOptions2_NONE) {
+      value = new T(std::forward<T>(val));
+    }
+  }
+#endif  // FLATBUFFERS_CPP98_STL
+
+  static void *UnPack(const void *obj, BuiltinOptions2 type, const flatbuffers::resolver_function_t *resolver);
+  flatbuffers::Offset<void> Pack(flatbuffers::FlatBufferBuilder &_fbb, const flatbuffers::rehasher_function_t *_rehasher = nullptr) const;
+
+  StablehloConcatenateOptionsT *AsStablehloConcatenateOptions() {
+    return type == BuiltinOptions2_StablehloConcatenateOptions ?
+      reinterpret_cast<StablehloConcatenateOptionsT *>(value) : nullptr;
+  }
+  const StablehloConcatenateOptionsT *AsStablehloConcatenateOptions() const {
+    return type == BuiltinOptions2_StablehloConcatenateOptions ?
+      reinterpret_cast<const StablehloConcatenateOptionsT *>(value) : nullptr;
+  }
+  StablehloBroadcastInDimOptionsT *AsStablehloBroadcastInDimOptions() {
+    return type == BuiltinOptions2_StablehloBroadcastInDimOptions ?
+      reinterpret_cast<StablehloBroadcastInDimOptionsT *>(value) : nullptr;
+  }
+  const StablehloBroadcastInDimOptionsT *AsStablehloBroadcastInDimOptions() const {
+    return type == BuiltinOptions2_StablehloBroadcastInDimOptions ?
+      reinterpret_cast<const StablehloBroadcastInDimOptionsT *>(value) : nullptr;
+  }
+  StablehloSliceOptionsT *AsStablehloSliceOptions() {
+    return type == BuiltinOptions2_StablehloSliceOptions ?
+      reinterpret_cast<StablehloSliceOptionsT *>(value) : nullptr;
+  }
+  const StablehloSliceOptionsT *AsStablehloSliceOptions() const {
+    return type == BuiltinOptions2_StablehloSliceOptions ?
+      reinterpret_cast<const StablehloSliceOptionsT *>(value) : nullptr;
+  }
+  StablehloConvolutionOptionsT *AsStablehloConvolutionOptions() {
+    return type == BuiltinOptions2_StablehloConvolutionOptions ?
+      reinterpret_cast<StablehloConvolutionOptionsT *>(value) : nullptr;
+  }
+  const StablehloConvolutionOptionsT *AsStablehloConvolutionOptions() const {
+    return type == BuiltinOptions2_StablehloConvolutionOptions ?
+      reinterpret_cast<const StablehloConvolutionOptionsT *>(value) : nullptr;
+  }
+  StablehloCustomCallOptionsT *AsStablehloCustomCallOptions() {
+    return type == BuiltinOptions2_StablehloCustomCallOptions ?
+      reinterpret_cast<StablehloCustomCallOptionsT *>(value) : nullptr;
+  }
+  const StablehloCustomCallOptionsT *AsStablehloCustomCallOptions() const {
+    return type == BuiltinOptions2_StablehloCustomCallOptions ?
+      reinterpret_cast<const StablehloCustomCallOptionsT *>(value) : nullptr;
+  }
+  StablehloReduceOptionsT *AsStablehloReduceOptions() {
+    return type == BuiltinOptions2_StablehloReduceOptions ?
+      reinterpret_cast<StablehloReduceOptionsT *>(value) : nullptr;
+  }
+  const StablehloReduceOptionsT *AsStablehloReduceOptions() const {
+    return type == BuiltinOptions2_StablehloReduceOptions ?
+      reinterpret_cast<const StablehloReduceOptionsT *>(value) : nullptr;
+  }
+  StablehloScatterOptionsT *AsStablehloScatterOptions() {
+    return type == BuiltinOptions2_StablehloScatterOptions ?
+      reinterpret_cast<StablehloScatterOptionsT *>(value) : nullptr;
+  }
+  const StablehloScatterOptionsT *AsStablehloScatterOptions() const {
+    return type == BuiltinOptions2_StablehloScatterOptions ?
+      reinterpret_cast<const StablehloScatterOptionsT *>(value) : nullptr;
+  }
+  StablehloCompareOptionsT *AsStablehloCompareOptions() {
+    return type == BuiltinOptions2_StablehloCompareOptions ?
+      reinterpret_cast<StablehloCompareOptionsT *>(value) : nullptr;
+  }
+  const StablehloCompareOptionsT *AsStablehloCompareOptions() const {
+    return type == BuiltinOptions2_StablehloCompareOptions ?
+      reinterpret_cast<const StablehloCompareOptionsT *>(value) : nullptr;
+  }
+  StablehloDynamicSliceOptionsT *AsStablehloDynamicSliceOptions() {
+    return type == BuiltinOptions2_StablehloDynamicSliceOptions ?
+      reinterpret_cast<StablehloDynamicSliceOptionsT *>(value) : nullptr;
+  }
+  const StablehloDynamicSliceOptionsT *AsStablehloDynamicSliceOptions() const {
+    return type == BuiltinOptions2_StablehloDynamicSliceOptions ?
+      reinterpret_cast<const StablehloDynamicSliceOptionsT *>(value) : nullptr;
+  }
+  StablehloPadOptionsT *AsStablehloPadOptions() {
+    return type == BuiltinOptions2_StablehloPadOptions ?
+      reinterpret_cast<StablehloPadOptionsT *>(value) : nullptr;
+  }
+  const StablehloPadOptionsT *AsStablehloPadOptions() const {
+    return type == BuiltinOptions2_StablehloPadOptions ?
+      reinterpret_cast<const StablehloPadOptionsT *>(value) : nullptr;
+  }
+  StablehloIotaOptionsT *AsStablehloIotaOptions() {
+    return type == BuiltinOptions2_StablehloIotaOptions ?
+      reinterpret_cast<StablehloIotaOptionsT *>(value) : nullptr;
+  }
+  const StablehloIotaOptionsT *AsStablehloIotaOptions() const {
+    return type == BuiltinOptions2_StablehloIotaOptions ?
+      reinterpret_cast<const StablehloIotaOptionsT *>(value) : nullptr;
+  }
+  StablehloDotGeneralOptionsT *AsStablehloDotGeneralOptions() {
+    return type == BuiltinOptions2_StablehloDotGeneralOptions ?
+      reinterpret_cast<StablehloDotGeneralOptionsT *>(value) : nullptr;
+  }
+  const StablehloDotGeneralOptionsT *AsStablehloDotGeneralOptions() const {
+    return type == BuiltinOptions2_StablehloDotGeneralOptions ?
+      reinterpret_cast<const StablehloDotGeneralOptionsT *>(value) : nullptr;
+  }
+  StablehloReduceWindowOptionsT *AsStablehloReduceWindowOptions() {
+    return type == BuiltinOptions2_StablehloReduceWindowOptions ?
+      reinterpret_cast<StablehloReduceWindowOptionsT *>(value) : nullptr;
+  }
+  const StablehloReduceWindowOptionsT *AsStablehloReduceWindowOptions() const {
+    return type == BuiltinOptions2_StablehloReduceWindowOptions ?
+      reinterpret_cast<const StablehloReduceWindowOptionsT *>(value) : nullptr;
+  }
+  StablehloSortOptionsT *AsStablehloSortOptions() {
+    return type == BuiltinOptions2_StablehloSortOptions ?
+      reinterpret_cast<StablehloSortOptionsT *>(value) : nullptr;
+  }
+  const StablehloSortOptionsT *AsStablehloSortOptions() const {
+    return type == BuiltinOptions2_StablehloSortOptions ?
+      reinterpret_cast<const StablehloSortOptionsT *>(value) : nullptr;
+  }
+  StablehloWhileOptionsT *AsStablehloWhileOptions() {
+    return type == BuiltinOptions2_StablehloWhileOptions ?
+      reinterpret_cast<StablehloWhileOptionsT *>(value) : nullptr;
+  }
+  const StablehloWhileOptionsT *AsStablehloWhileOptions() const {
+    return type == BuiltinOptions2_StablehloWhileOptions ?
+      reinterpret_cast<const StablehloWhileOptionsT *>(value) : nullptr;
+  }
+  StablehloGatherOptionsT *AsStablehloGatherOptions() {
+    return type == BuiltinOptions2_StablehloGatherOptions ?
+      reinterpret_cast<StablehloGatherOptionsT *>(value) : nullptr;
+  }
+  const StablehloGatherOptionsT *AsStablehloGatherOptions() const {
+    return type == BuiltinOptions2_StablehloGatherOptions ?
+      reinterpret_cast<const StablehloGatherOptionsT *>(value) : nullptr;
+  }
+  StablehloTransposeOptionsT *AsStablehloTransposeOptions() {
+    return type == BuiltinOptions2_StablehloTransposeOptions ?
+      reinterpret_cast<StablehloTransposeOptionsT *>(value) : nullptr;
+  }
+  const StablehloTransposeOptionsT *AsStablehloTransposeOptions() const {
+    return type == BuiltinOptions2_StablehloTransposeOptions ?
+      reinterpret_cast<const StablehloTransposeOptionsT *>(value) : nullptr;
+  }
+  DilateOptionsT *AsDilateOptions() {
+    return type == BuiltinOptions2_DilateOptions ?
+      reinterpret_cast<DilateOptionsT *>(value) : nullptr;
+  }
+  const DilateOptionsT *AsDilateOptions() const {
+    return type == BuiltinOptions2_DilateOptions ?
+      reinterpret_cast<const DilateOptionsT *>(value) : nullptr;
+  }
+  StablehloRngBitGeneratorOptionsT *AsStablehloRngBitGeneratorOptions() {
+    return type == BuiltinOptions2_StablehloRngBitGeneratorOptions ?
+      reinterpret_cast<StablehloRngBitGeneratorOptionsT *>(value) : nullptr;
+  }
+  const StablehloRngBitGeneratorOptionsT *AsStablehloRngBitGeneratorOptions() const {
+    return type == BuiltinOptions2_StablehloRngBitGeneratorOptions ?
+      reinterpret_cast<const StablehloRngBitGeneratorOptionsT *>(value) : nullptr;
+  }
+  ReduceWindowOptionsT *AsReduceWindowOptions() {
+    return type == BuiltinOptions2_ReduceWindowOptions ?
+      reinterpret_cast<ReduceWindowOptionsT *>(value) : nullptr;
+  }
+  const ReduceWindowOptionsT *AsReduceWindowOptions() const {
+    return type == BuiltinOptions2_ReduceWindowOptions ?
+      reinterpret_cast<const ReduceWindowOptionsT *>(value) : nullptr;
+  }
+  StableHLOCompositeOptionsT *AsStableHLOCompositeOptions() {
+    return type == BuiltinOptions2_StableHLOCompositeOptions ?
+      reinterpret_cast<StableHLOCompositeOptionsT *>(value) : nullptr;
+  }
+  const StableHLOCompositeOptionsT *AsStableHLOCompositeOptions() const {
+    return type == BuiltinOptions2_StableHLOCompositeOptions ?
+      reinterpret_cast<const StableHLOCompositeOptionsT *>(value) : nullptr;
+  }
+  StablehloShiftLeftOptionsT *AsStablehloShiftLeftOptions() {
+    return type == BuiltinOptions2_StablehloShiftLeftOptions ?
+      reinterpret_cast<StablehloShiftLeftOptionsT *>(value) : nullptr;
+  }
+  const StablehloShiftLeftOptionsT *AsStablehloShiftLeftOptions() const {
+    return type == BuiltinOptions2_StablehloShiftLeftOptions ?
+      reinterpret_cast<const StablehloShiftLeftOptionsT *>(value) : nullptr;
+  }
+  StablehloCaseOptionsT *AsStablehloCaseOptions() {
+    return type == BuiltinOptions2_StablehloCaseOptions ?
+      reinterpret_cast<StablehloCaseOptionsT *>(value) : nullptr;
+  }
+  const StablehloCaseOptionsT *AsStablehloCaseOptions() const {
+    return type == BuiltinOptions2_StablehloCaseOptions ?
+      reinterpret_cast<const StablehloCaseOptionsT *>(value) : nullptr;
+  }
+};
+
+bool VerifyBuiltinOptions2(flatbuffers::Verifier &verifier, const void *obj, BuiltinOptions2 type);
+bool VerifyBuiltinOptions2Vector(flatbuffers::Verifier &verifier, const flatbuffers::Vector<flatbuffers::Offset<void>> *values, const flatbuffers::Vector<uint8_t> *types);
+
+enum StablehloPrecisionConfig {
+  StablehloPrecisionConfig_DEFAULT = 0,
+  StablehloPrecisionConfig_HIGH = 1,
+  StablehloPrecisionConfig_HIGHEST = 2,
+  StablehloPrecisionConfig_MIN = StablehloPrecisionConfig_DEFAULT,
+  StablehloPrecisionConfig_MAX = StablehloPrecisionConfig_HIGHEST
+};
+
+inline const StablehloPrecisionConfig (&EnumValuesStablehloPrecisionConfig())[3] {
+  static const StablehloPrecisionConfig values[] = {
+    StablehloPrecisionConfig_DEFAULT,
+    StablehloPrecisionConfig_HIGH,
+    StablehloPrecisionConfig_HIGHEST
+  };
+  return values;
+}
+
+inline const char * const *EnumNamesStablehloPrecisionConfig() {
+  static const char * const names[] = {
+    "DEFAULT",
+    "HIGH",
+    "HIGHEST",
+    nullptr
+  };
+  return names;
+}
+
+inline const char *EnumNameStablehloPrecisionConfig(StablehloPrecisionConfig e) {
+  if (e < StablehloPrecisionConfig_DEFAULT || e > StablehloPrecisionConfig_HIGHEST) return "";
+  const size_t index = static_cast<int>(e);
+  return EnumNamesStablehloPrecisionConfig()[index];
+}
+
+enum StablehloComparisonDirection {
+  StablehloComparisonDirection_STABLEHLO_COMPARISON_DIRECTION_EQ = 0,
+  StablehloComparisonDirection_STABLEHLO_COMPARISON_DIRECTION_NE = 1,
+  StablehloComparisonDirection_STABLEHLO_COMPARISON_DIRECTION_GE = 2,
+  StablehloComparisonDirection_STABLEHLO_COMPARISON_DIRECTION_GT = 3,
+  StablehloComparisonDirection_STABLEHLO_COMPARISON_DIRECTION_LE = 4,
+  StablehloComparisonDirection_STABLEHLO_COMPARISON_DIRECTION_LT = 5,
+  StablehloComparisonDirection_MIN = StablehloComparisonDirection_STABLEHLO_COMPARISON_DIRECTION_EQ,
+  StablehloComparisonDirection_MAX = StablehloComparisonDirection_STABLEHLO_COMPARISON_DIRECTION_LT
+};
+
+inline const StablehloComparisonDirection (&EnumValuesStablehloComparisonDirection())[6] {
+  static const StablehloComparisonDirection values[] = {
+    StablehloComparisonDirection_STABLEHLO_COMPARISON_DIRECTION_EQ,
+    StablehloComparisonDirection_STABLEHLO_COMPARISON_DIRECTION_NE,
+    StablehloComparisonDirection_STABLEHLO_COMPARISON_DIRECTION_GE,
+    StablehloComparisonDirection_STABLEHLO_COMPARISON_DIRECTION_GT,
+    StablehloComparisonDirection_STABLEHLO_COMPARISON_DIRECTION_LE,
+    StablehloComparisonDirection_STABLEHLO_COMPARISON_DIRECTION_LT
+  };
+  return values;
+}
+
+inline const char * const *EnumNamesStablehloComparisonDirection() {
+  static const char * const names[] = {
+    "STABLEHLO_COMPARISON_DIRECTION_EQ",
+    "STABLEHLO_COMPARISON_DIRECTION_NE",
+    "STABLEHLO_COMPARISON_DIRECTION_GE",
+    "STABLEHLO_COMPARISON_DIRECTION_GT",
+    "STABLEHLO_COMPARISON_DIRECTION_LE",
+    "STABLEHLO_COMPARISON_DIRECTION_LT",
+    nullptr
+  };
+  return names;
+}
+
+inline const char *EnumNameStablehloComparisonDirection(StablehloComparisonDirection e) {
+  if (e < StablehloComparisonDirection_STABLEHLO_COMPARISON_DIRECTION_EQ || e > StablehloComparisonDirection_STABLEHLO_COMPARISON_DIRECTION_LT) return "";
+  const size_t index = static_cast<int>(e);
+  return EnumNamesStablehloComparisonDirection()[index];
+}
+
+enum StablehloComparisonType {
+  StablehloComparisonType_STABLEHLO_COMPARISON_TYPE_NOTYPE = 0,
+  StablehloComparisonType_STABLEHLO_COMPARISON_TYPE_FLOAT = 1,
+  StablehloComparisonType_STABLEHLO_COMPARISON_TYPE_FLOAT_TOTAL_ORDER = 2,
+  StablehloComparisonType_STABLEHLO_COMPARISON_TYPE_SIGNED = 3,
+  StablehloComparisonType_STABLEHLO_COMPARISON_TYPE_UNSIGNED = 4,
+  StablehloComparisonType_MIN = StablehloComparisonType_STABLEHLO_COMPARISON_TYPE_NOTYPE,
+  StablehloComparisonType_MAX = StablehloComparisonType_STABLEHLO_COMPARISON_TYPE_UNSIGNED
+};
+
+inline const StablehloComparisonType (&EnumValuesStablehloComparisonType())[5] {
+  static const StablehloComparisonType values[] = {
+    StablehloComparisonType_STABLEHLO_COMPARISON_TYPE_NOTYPE,
+    StablehloComparisonType_STABLEHLO_COMPARISON_TYPE_FLOAT,
+    StablehloComparisonType_STABLEHLO_COMPARISON_TYPE_FLOAT_TOTAL_ORDER,
+    StablehloComparisonType_STABLEHLO_COMPARISON_TYPE_SIGNED,
+    StablehloComparisonType_STABLEHLO_COMPARISON_TYPE_UNSIGNED
+  };
+  return values;
+}
+
+inline const char * const *EnumNamesStablehloComparisonType() {
+  static const char * const names[] = {
+    "STABLEHLO_COMPARISON_TYPE_NOTYPE",
+    "STABLEHLO_COMPARISON_TYPE_FLOAT",
+    "STABLEHLO_COMPARISON_TYPE_FLOAT_TOTAL_ORDER",
+    "STABLEHLO_COMPARISON_TYPE_SIGNED",
+    "STABLEHLO_COMPARISON_TYPE_UNSIGNED",
+    nullptr
+  };
+  return names;
+}
+
+inline const char *EnumNameStablehloComparisonType(StablehloComparisonType e) {
+  if (e < StablehloComparisonType_STABLEHLO_COMPARISON_TYPE_NOTYPE || e > StablehloComparisonType_STABLEHLO_COMPARISON_TYPE_UNSIGNED) return "";
+  const size_t index = static_cast<int>(e);
+  return EnumNamesStablehloComparisonType()[index];
+}
+
+enum RngAlgorithm {
+  RngAlgorithm_DEFAULT = 0,
+  RngAlgorithm_PHILOX = 1,
+  RngAlgorithm_THREEFRY = 2,
+  RngAlgorithm_MIN = RngAlgorithm_DEFAULT,
+  RngAlgorithm_MAX = RngAlgorithm_THREEFRY
+};
+
+inline const RngAlgorithm (&EnumValuesRngAlgorithm())[3] {
+  static const RngAlgorithm values[] = {
+    RngAlgorithm_DEFAULT,
+    RngAlgorithm_PHILOX,
+    RngAlgorithm_THREEFRY
+  };
+  return values;
+}
+
+inline const char * const *EnumNamesRngAlgorithm() {
+  static const char * const names[] = {
+    "DEFAULT",
+    "PHILOX",
+    "THREEFRY",
+    nullptr
+  };
+  return names;
+}
+
+inline const char *EnumNameRngAlgorithm(RngAlgorithm e) {
+  if (e < RngAlgorithm_DEFAULT || e > RngAlgorithm_THREEFRY) return "";
+  const size_t index = static_cast<int>(e);
+  return EnumNamesRngAlgorithm()[index];
+}
 
 enum Padding {
   Padding_SAME = 0,
@@ -3344,6 +4561,51 @@ inline const char *EnumNameMirrorPadMode(MirrorPadMode e) {
   return EnumNamesMirrorPadMode()[index];
 }
 
+enum ReduceWindowFunction {
+  ReduceWindowFunction_UNSUPPORTED = 0,
+  ReduceWindowFunction_ADD = 1,
+  ReduceWindowFunction_MUL = 2,
+  ReduceWindowFunction_MINIMUM = 3,
+  ReduceWindowFunction_MAXIMUM = 4,
+  ReduceWindowFunction_ALL = 5,
+  ReduceWindowFunction_ANY = 6,
+  ReduceWindowFunction_MIN = ReduceWindowFunction_UNSUPPORTED,
+  ReduceWindowFunction_MAX = ReduceWindowFunction_ANY
+};
+
+inline const ReduceWindowFunction (&EnumValuesReduceWindowFunction())[7] {
+  static const ReduceWindowFunction values[] = {
+    ReduceWindowFunction_UNSUPPORTED,
+    ReduceWindowFunction_ADD,
+    ReduceWindowFunction_MUL,
+    ReduceWindowFunction_MINIMUM,
+    ReduceWindowFunction_MAXIMUM,
+    ReduceWindowFunction_ALL,
+    ReduceWindowFunction_ANY
+  };
+  return values;
+}
+
+inline const char * const *EnumNamesReduceWindowFunction() {
+  static const char * const names[] = {
+    "UNSUPPORTED",
+    "ADD",
+    "MUL",
+    "MINIMUM",
+    "MAXIMUM",
+    "ALL",
+    "ANY",
+    nullptr
+  };
+  return names;
+}
+
+inline const char *EnumNameReduceWindowFunction(ReduceWindowFunction e) {
+  if (e < ReduceWindowFunction_UNSUPPORTED || e > ReduceWindowFunction_ANY) return "";
+  const size_t index = static_cast<int>(e);
+  return EnumNamesReduceWindowFunction()[index];
+}
+
 enum CustomOptionsFormat {
   CustomOptionsFormat_FLEXBUFFERS = 0,
   CustomOptionsFormat_MIN = CustomOptionsFormat_FLEXBUFFERS,
@@ -3425,6 +4687,82 @@ inline flatbuffers::Offset<CustomQuantization> CreateCustomQuantization(
 
 flatbuffers::Offset<CustomQuantization> CreateCustomQuantization(flatbuffers::FlatBufferBuilder &_fbb, const CustomQuantizationT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
+struct BlockwiseQuantizationT : public flatbuffers::NativeTable {
+  typedef BlockwiseQuantization TableType;
+  int32_t scales;
+  int32_t zero_points;
+  int32_t block_size;
+  BlockwiseQuantizationT()
+      : scales(0),
+        zero_points(0),
+        block_size(0) {
+  }
+};
+
+struct BlockwiseQuantization FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef BlockwiseQuantizationT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return BlockwiseQuantizationTypeTable();
+  }
+  int32_t scales() const {
+    return GetField<int32_t>(4, 0);
+  }
+  int32_t zero_points() const {
+    return GetField<int32_t>(6, 0);
+  }
+  int32_t block_size() const {
+    return GetField<int32_t>(8, 0);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<int32_t>(verifier, 4) &&
+           VerifyField<int32_t>(verifier, 6) &&
+           VerifyField<int32_t>(verifier, 8) &&
+           verifier.EndTable();
+  }
+  BlockwiseQuantizationT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(BlockwiseQuantizationT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<BlockwiseQuantization> Pack(flatbuffers::FlatBufferBuilder &_fbb, const BlockwiseQuantizationT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct BlockwiseQuantizationBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_scales(int32_t scales) {
+    fbb_.AddElement<int32_t>(4, scales, 0);
+  }
+  void add_zero_points(int32_t zero_points) {
+    fbb_.AddElement<int32_t>(6, zero_points, 0);
+  }
+  void add_block_size(int32_t block_size) {
+    fbb_.AddElement<int32_t>(8, block_size, 0);
+  }
+  explicit BlockwiseQuantizationBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  BlockwiseQuantizationBuilder &operator=(const BlockwiseQuantizationBuilder &);
+  flatbuffers::Offset<BlockwiseQuantization> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<BlockwiseQuantization>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<BlockwiseQuantization> CreateBlockwiseQuantization(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    int32_t scales = 0,
+    int32_t zero_points = 0,
+    int32_t block_size = 0) {
+  BlockwiseQuantizationBuilder builder_(_fbb);
+  builder_.add_block_size(block_size);
+  builder_.add_zero_points(zero_points);
+  builder_.add_scales(scales);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<BlockwiseQuantization> CreateBlockwiseQuantization(flatbuffers::FlatBufferBuilder &_fbb, const BlockwiseQuantizationT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
 struct QuantizationParametersT : public flatbuffers::NativeTable {
   typedef QuantizationParameters TableType;
   std::vector<float> min;
@@ -3465,6 +4803,9 @@ struct QuantizationParameters FLATBUFFERS_FINAL_CLASS : private flatbuffers::Tab
   const CustomQuantization *details_as_CustomQuantization() const {
     return details_type() == QuantizationDetails_CustomQuantization ? static_cast<const CustomQuantization *>(details()) : nullptr;
   }
+  const BlockwiseQuantization *details_as_BlockwiseQuantization() const {
+    return details_type() == QuantizationDetails_BlockwiseQuantization ? static_cast<const BlockwiseQuantization *>(details()) : nullptr;
+  }
   int32_t quantized_dimension() const {
     return GetField<int32_t>(16, 0);
   }
@@ -3491,6 +4832,10 @@ struct QuantizationParameters FLATBUFFERS_FINAL_CLASS : private flatbuffers::Tab
 
 template<> inline const CustomQuantization *QuantizationParameters::details_as<CustomQuantization>() const {
   return details_as_CustomQuantization();
+}
+
+template<> inline const BlockwiseQuantization *QuantizationParameters::details_as<BlockwiseQuantization>() const {
+  return details_as_BlockwiseQuantization();
 }
 
 struct QuantizationParametersBuilder {
@@ -3939,6 +5284,82 @@ inline flatbuffers::Offset<SparsityParameters> CreateSparsityParameters(
 
 flatbuffers::Offset<SparsityParameters> CreateSparsityParameters(flatbuffers::FlatBufferBuilder &_fbb, const SparsityParametersT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
+struct VariantSubTypeT : public flatbuffers::NativeTable {
+  typedef VariantSubType TableType;
+  std::vector<int32_t> shape;
+  TensorType type;
+  bool has_rank;
+  VariantSubTypeT()
+      : type(TensorType_FLOAT32),
+        has_rank(false) {
+  }
+};
+
+struct VariantSubType FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef VariantSubTypeT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return VariantSubTypeTypeTable();
+  }
+  const flatbuffers::Vector<int32_t> *shape() const {
+    return GetPointer<const flatbuffers::Vector<int32_t> *>(4);
+  }
+  TensorType type() const {
+    return static_cast<TensorType>(GetField<int8_t>(6, 0));
+  }
+  bool has_rank() const {
+    return GetField<uint8_t>(8, 0) != 0;
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, 4) &&
+           verifier.VerifyVector(shape()) &&
+           VerifyField<int8_t>(verifier, 6) &&
+           VerifyField<uint8_t>(verifier, 8) &&
+           verifier.EndTable();
+  }
+  VariantSubTypeT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(VariantSubTypeT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<VariantSubType> Pack(flatbuffers::FlatBufferBuilder &_fbb, const VariantSubTypeT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct VariantSubTypeBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_shape(flatbuffers::Offset<flatbuffers::Vector<int32_t>> shape) {
+    fbb_.AddOffset(4, shape);
+  }
+  void add_type(TensorType type) {
+    fbb_.AddElement<int8_t>(6, static_cast<int8_t>(type), 0);
+  }
+  void add_has_rank(bool has_rank) {
+    fbb_.AddElement<uint8_t>(8, static_cast<uint8_t>(has_rank), 0);
+  }
+  explicit VariantSubTypeBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  VariantSubTypeBuilder &operator=(const VariantSubTypeBuilder &);
+  flatbuffers::Offset<VariantSubType> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<VariantSubType>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<VariantSubType> CreateVariantSubType(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<flatbuffers::Vector<int32_t>> shape = 0,
+    TensorType type = TensorType_FLOAT32,
+    bool has_rank = false) {
+  VariantSubTypeBuilder builder_(_fbb);
+  builder_.add_shape(shape);
+  builder_.add_has_rank(has_rank);
+  builder_.add_type(type);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<VariantSubType> CreateVariantSubType(flatbuffers::FlatBufferBuilder &_fbb, const VariantSubTypeT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
 struct TensorT : public flatbuffers::NativeTable {
   typedef Tensor TableType;
   std::vector<int32_t> shape;
@@ -3949,10 +5370,13 @@ struct TensorT : public flatbuffers::NativeTable {
   bool is_variable;
   std::unique_ptr<SparsityParametersT> sparsity;
   std::vector<int32_t> shape_signature;
+  bool has_rank;
+  std::vector<std::unique_ptr<VariantSubTypeT>> variant_tensors;
   TensorT()
       : type(TensorType_FLOAT32),
         buffer(0),
-        is_variable(false) {
+        is_variable(false),
+        has_rank(false) {
   }
 };
 
@@ -3985,6 +5409,12 @@ struct Tensor FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const flatbuffers::Vector<int32_t> *shape_signature() const {
     return GetPointer<const flatbuffers::Vector<int32_t> *>(18);
   }
+  bool has_rank() const {
+    return GetField<uint8_t>(20, 0) != 0;
+  }
+  const flatbuffers::Vector<flatbuffers::Offset<VariantSubType>> *variant_tensors() const {
+    return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<VariantSubType>> *>(22);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, 4) &&
@@ -4000,6 +5430,10 @@ struct Tensor FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            verifier.VerifyTable(sparsity()) &&
            VerifyOffset(verifier, 18) &&
            verifier.VerifyVector(shape_signature()) &&
+           VerifyField<uint8_t>(verifier, 20) &&
+           VerifyOffset(verifier, 22) &&
+           verifier.VerifyVector(variant_tensors()) &&
+           verifier.VerifyVectorOfTables(variant_tensors()) &&
            verifier.EndTable();
   }
   TensorT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -4034,6 +5468,12 @@ struct TensorBuilder {
   void add_shape_signature(flatbuffers::Offset<flatbuffers::Vector<int32_t>> shape_signature) {
     fbb_.AddOffset(18, shape_signature);
   }
+  void add_has_rank(bool has_rank) {
+    fbb_.AddElement<uint8_t>(20, static_cast<uint8_t>(has_rank), 0);
+  }
+  void add_variant_tensors(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<VariantSubType>>> variant_tensors) {
+    fbb_.AddOffset(22, variant_tensors);
+  }
   explicit TensorBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -4055,20 +5495,1600 @@ inline flatbuffers::Offset<Tensor> CreateTensor(
     flatbuffers::Offset<QuantizationParameters> quantization = 0,
     bool is_variable = false,
     flatbuffers::Offset<SparsityParameters> sparsity = 0,
-    flatbuffers::Offset<flatbuffers::Vector<int32_t>> shape_signature = 0) {
+    flatbuffers::Offset<flatbuffers::Vector<int32_t>> shape_signature = 0,
+    bool has_rank = false,
+    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<VariantSubType>>> variant_tensors = 0) {
   TensorBuilder builder_(_fbb);
+  builder_.add_variant_tensors(variant_tensors);
   builder_.add_shape_signature(shape_signature);
   builder_.add_sparsity(sparsity);
   builder_.add_quantization(quantization);
   builder_.add_name(name);
   builder_.add_buffer(buffer);
   builder_.add_shape(shape);
+  builder_.add_has_rank(has_rank);
   builder_.add_is_variable(is_variable);
   builder_.add_type(type);
   return builder_.Finish();
 }
 
 flatbuffers::Offset<Tensor> CreateTensor(flatbuffers::FlatBufferBuilder &_fbb, const TensorT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct StablehloGatherOptionsT : public flatbuffers::NativeTable {
+  typedef StablehloGatherOptions TableType;
+  std::vector<int64_t> offset_dims;
+  std::vector<int64_t> collapsed_slice_dims;
+  std::vector<int64_t> start_index_map;
+  int64_t index_vector_dim;
+  std::vector<int64_t> slice_sizes;
+  bool indices_are_sorted;
+  StablehloGatherOptionsT()
+      : index_vector_dim(0),
+        indices_are_sorted(false) {
+  }
+};
+
+struct StablehloGatherOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef StablehloGatherOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return StablehloGatherOptionsTypeTable();
+  }
+  const flatbuffers::Vector<int64_t> *offset_dims() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(4);
+  }
+  const flatbuffers::Vector<int64_t> *collapsed_slice_dims() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(6);
+  }
+  const flatbuffers::Vector<int64_t> *start_index_map() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(8);
+  }
+  int64_t index_vector_dim() const {
+    return GetField<int64_t>(10, 0);
+  }
+  const flatbuffers::Vector<int64_t> *slice_sizes() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(12);
+  }
+  bool indices_are_sorted() const {
+    return GetField<uint8_t>(14, 0) != 0;
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, 4) &&
+           verifier.VerifyVector(offset_dims()) &&
+           VerifyOffset(verifier, 6) &&
+           verifier.VerifyVector(collapsed_slice_dims()) &&
+           VerifyOffset(verifier, 8) &&
+           verifier.VerifyVector(start_index_map()) &&
+           VerifyField<int64_t>(verifier, 10) &&
+           VerifyOffset(verifier, 12) &&
+           verifier.VerifyVector(slice_sizes()) &&
+           VerifyField<uint8_t>(verifier, 14) &&
+           verifier.EndTable();
+  }
+  StablehloGatherOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(StablehloGatherOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<StablehloGatherOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloGatherOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct StablehloGatherOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_offset_dims(flatbuffers::Offset<flatbuffers::Vector<int64_t>> offset_dims) {
+    fbb_.AddOffset(4, offset_dims);
+  }
+  void add_collapsed_slice_dims(flatbuffers::Offset<flatbuffers::Vector<int64_t>> collapsed_slice_dims) {
+    fbb_.AddOffset(6, collapsed_slice_dims);
+  }
+  void add_start_index_map(flatbuffers::Offset<flatbuffers::Vector<int64_t>> start_index_map) {
+    fbb_.AddOffset(8, start_index_map);
+  }
+  void add_index_vector_dim(int64_t index_vector_dim) {
+    fbb_.AddElement<int64_t>(10, index_vector_dim, 0);
+  }
+  void add_slice_sizes(flatbuffers::Offset<flatbuffers::Vector<int64_t>> slice_sizes) {
+    fbb_.AddOffset(12, slice_sizes);
+  }
+  void add_indices_are_sorted(bool indices_are_sorted) {
+    fbb_.AddElement<uint8_t>(14, static_cast<uint8_t>(indices_are_sorted), 0);
+  }
+  explicit StablehloGatherOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  StablehloGatherOptionsBuilder &operator=(const StablehloGatherOptionsBuilder &);
+  flatbuffers::Offset<StablehloGatherOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<StablehloGatherOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<StablehloGatherOptions> CreateStablehloGatherOptions(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> offset_dims = 0,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> collapsed_slice_dims = 0,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> start_index_map = 0,
+    int64_t index_vector_dim = 0,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> slice_sizes = 0,
+    bool indices_are_sorted = false) {
+  StablehloGatherOptionsBuilder builder_(_fbb);
+  builder_.add_index_vector_dim(index_vector_dim);
+  builder_.add_slice_sizes(slice_sizes);
+  builder_.add_start_index_map(start_index_map);
+  builder_.add_collapsed_slice_dims(collapsed_slice_dims);
+  builder_.add_offset_dims(offset_dims);
+  builder_.add_indices_are_sorted(indices_are_sorted);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<StablehloGatherOptions> CreateStablehloGatherOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloGatherOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct StablehloTransposeOptionsT : public flatbuffers::NativeTable {
+  typedef StablehloTransposeOptions TableType;
+  std::vector<int64_t> permutation;
+  StablehloTransposeOptionsT() {
+  }
+};
+
+struct StablehloTransposeOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef StablehloTransposeOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return StablehloTransposeOptionsTypeTable();
+  }
+  const flatbuffers::Vector<int64_t> *permutation() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(4);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, 4) &&
+           verifier.VerifyVector(permutation()) &&
+           verifier.EndTable();
+  }
+  StablehloTransposeOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(StablehloTransposeOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<StablehloTransposeOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloTransposeOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct StablehloTransposeOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_permutation(flatbuffers::Offset<flatbuffers::Vector<int64_t>> permutation) {
+    fbb_.AddOffset(4, permutation);
+  }
+  explicit StablehloTransposeOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  StablehloTransposeOptionsBuilder &operator=(const StablehloTransposeOptionsBuilder &);
+  flatbuffers::Offset<StablehloTransposeOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<StablehloTransposeOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<StablehloTransposeOptions> CreateStablehloTransposeOptions(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> permutation = 0) {
+  StablehloTransposeOptionsBuilder builder_(_fbb);
+  builder_.add_permutation(permutation);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<StablehloTransposeOptions> CreateStablehloTransposeOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloTransposeOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct StablehloDotGeneralOptionsT : public flatbuffers::NativeTable {
+  typedef StablehloDotGeneralOptions TableType;
+  std::vector<int64_t> lhs_batching_dimensions;
+  std::vector<int64_t> rhs_batching_dimensions;
+  std::vector<int64_t> lhs_contracting_dimensions;
+  std::vector<int64_t> rhs_contracting_dimensions;
+  std::vector<StablehloPrecisionConfig> precision_config;
+  StablehloDotGeneralOptionsT() {
+  }
+};
+
+struct StablehloDotGeneralOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef StablehloDotGeneralOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return StablehloDotGeneralOptionsTypeTable();
+  }
+  const flatbuffers::Vector<int64_t> *lhs_batching_dimensions() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(4);
+  }
+  const flatbuffers::Vector<int64_t> *rhs_batching_dimensions() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(6);
+  }
+  const flatbuffers::Vector<int64_t> *lhs_contracting_dimensions() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(8);
+  }
+  const flatbuffers::Vector<int64_t> *rhs_contracting_dimensions() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(10);
+  }
+  const flatbuffers::Vector<uint32_t> *precision_config() const {
+    return GetPointer<const flatbuffers::Vector<uint32_t> *>(12);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, 4) &&
+           verifier.VerifyVector(lhs_batching_dimensions()) &&
+           VerifyOffset(verifier, 6) &&
+           verifier.VerifyVector(rhs_batching_dimensions()) &&
+           VerifyOffset(verifier, 8) &&
+           verifier.VerifyVector(lhs_contracting_dimensions()) &&
+           VerifyOffset(verifier, 10) &&
+           verifier.VerifyVector(rhs_contracting_dimensions()) &&
+           VerifyOffset(verifier, 12) &&
+           verifier.VerifyVector(precision_config()) &&
+           verifier.EndTable();
+  }
+  StablehloDotGeneralOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(StablehloDotGeneralOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<StablehloDotGeneralOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloDotGeneralOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct StablehloDotGeneralOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_lhs_batching_dimensions(flatbuffers::Offset<flatbuffers::Vector<int64_t>> lhs_batching_dimensions) {
+    fbb_.AddOffset(4, lhs_batching_dimensions);
+  }
+  void add_rhs_batching_dimensions(flatbuffers::Offset<flatbuffers::Vector<int64_t>> rhs_batching_dimensions) {
+    fbb_.AddOffset(6, rhs_batching_dimensions);
+  }
+  void add_lhs_contracting_dimensions(flatbuffers::Offset<flatbuffers::Vector<int64_t>> lhs_contracting_dimensions) {
+    fbb_.AddOffset(8, lhs_contracting_dimensions);
+  }
+  void add_rhs_contracting_dimensions(flatbuffers::Offset<flatbuffers::Vector<int64_t>> rhs_contracting_dimensions) {
+    fbb_.AddOffset(10, rhs_contracting_dimensions);
+  }
+  void add_precision_config(flatbuffers::Offset<flatbuffers::Vector<uint32_t>> precision_config) {
+    fbb_.AddOffset(12, precision_config);
+  }
+  explicit StablehloDotGeneralOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  StablehloDotGeneralOptionsBuilder &operator=(const StablehloDotGeneralOptionsBuilder &);
+  flatbuffers::Offset<StablehloDotGeneralOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<StablehloDotGeneralOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<StablehloDotGeneralOptions> CreateStablehloDotGeneralOptions(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> lhs_batching_dimensions = 0,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> rhs_batching_dimensions = 0,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> lhs_contracting_dimensions = 0,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> rhs_contracting_dimensions = 0,
+    flatbuffers::Offset<flatbuffers::Vector<uint32_t>> precision_config = 0) {
+  StablehloDotGeneralOptionsBuilder builder_(_fbb);
+  builder_.add_precision_config(precision_config);
+  builder_.add_rhs_contracting_dimensions(rhs_contracting_dimensions);
+  builder_.add_lhs_contracting_dimensions(lhs_contracting_dimensions);
+  builder_.add_rhs_batching_dimensions(rhs_batching_dimensions);
+  builder_.add_lhs_batching_dimensions(lhs_batching_dimensions);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<StablehloDotGeneralOptions> CreateStablehloDotGeneralOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloDotGeneralOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct StablehloReduceWindowOptionsT : public flatbuffers::NativeTable {
+  typedef StablehloReduceWindowOptions TableType;
+  std::vector<int64_t> window_dimensions;
+  std::vector<int64_t> window_strides;
+  std::vector<int64_t> base_dilations;
+  std::vector<int64_t> window_dilations;
+  std::vector<int64_t> padding;
+  int32_t body_subgraph_index;
+  StablehloReduceWindowOptionsT()
+      : body_subgraph_index(0) {
+  }
+};
+
+struct StablehloReduceWindowOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef StablehloReduceWindowOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return StablehloReduceWindowOptionsTypeTable();
+  }
+  const flatbuffers::Vector<int64_t> *window_dimensions() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(4);
+  }
+  const flatbuffers::Vector<int64_t> *window_strides() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(6);
+  }
+  const flatbuffers::Vector<int64_t> *base_dilations() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(8);
+  }
+  const flatbuffers::Vector<int64_t> *window_dilations() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(10);
+  }
+  const flatbuffers::Vector<int64_t> *padding() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(12);
+  }
+  int32_t body_subgraph_index() const {
+    return GetField<int32_t>(14, 0);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, 4) &&
+           verifier.VerifyVector(window_dimensions()) &&
+           VerifyOffset(verifier, 6) &&
+           verifier.VerifyVector(window_strides()) &&
+           VerifyOffset(verifier, 8) &&
+           verifier.VerifyVector(base_dilations()) &&
+           VerifyOffset(verifier, 10) &&
+           verifier.VerifyVector(window_dilations()) &&
+           VerifyOffset(verifier, 12) &&
+           verifier.VerifyVector(padding()) &&
+           VerifyField<int32_t>(verifier, 14) &&
+           verifier.EndTable();
+  }
+  StablehloReduceWindowOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(StablehloReduceWindowOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<StablehloReduceWindowOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloReduceWindowOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct StablehloReduceWindowOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_window_dimensions(flatbuffers::Offset<flatbuffers::Vector<int64_t>> window_dimensions) {
+    fbb_.AddOffset(4, window_dimensions);
+  }
+  void add_window_strides(flatbuffers::Offset<flatbuffers::Vector<int64_t>> window_strides) {
+    fbb_.AddOffset(6, window_strides);
+  }
+  void add_base_dilations(flatbuffers::Offset<flatbuffers::Vector<int64_t>> base_dilations) {
+    fbb_.AddOffset(8, base_dilations);
+  }
+  void add_window_dilations(flatbuffers::Offset<flatbuffers::Vector<int64_t>> window_dilations) {
+    fbb_.AddOffset(10, window_dilations);
+  }
+  void add_padding(flatbuffers::Offset<flatbuffers::Vector<int64_t>> padding) {
+    fbb_.AddOffset(12, padding);
+  }
+  void add_body_subgraph_index(int32_t body_subgraph_index) {
+    fbb_.AddElement<int32_t>(14, body_subgraph_index, 0);
+  }
+  explicit StablehloReduceWindowOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  StablehloReduceWindowOptionsBuilder &operator=(const StablehloReduceWindowOptionsBuilder &);
+  flatbuffers::Offset<StablehloReduceWindowOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<StablehloReduceWindowOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<StablehloReduceWindowOptions> CreateStablehloReduceWindowOptions(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> window_dimensions = 0,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> window_strides = 0,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> base_dilations = 0,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> window_dilations = 0,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> padding = 0,
+    int32_t body_subgraph_index = 0) {
+  StablehloReduceWindowOptionsBuilder builder_(_fbb);
+  builder_.add_body_subgraph_index(body_subgraph_index);
+  builder_.add_padding(padding);
+  builder_.add_window_dilations(window_dilations);
+  builder_.add_base_dilations(base_dilations);
+  builder_.add_window_strides(window_strides);
+  builder_.add_window_dimensions(window_dimensions);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<StablehloReduceWindowOptions> CreateStablehloReduceWindowOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloReduceWindowOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct StablehloWhileOptionsT : public flatbuffers::NativeTable {
+  typedef StablehloWhileOptions TableType;
+  int32_t cond_subgraph_index;
+  int32_t body_subgraph_index;
+  StablehloWhileOptionsT()
+      : cond_subgraph_index(0),
+        body_subgraph_index(0) {
+  }
+};
+
+struct StablehloWhileOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef StablehloWhileOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return StablehloWhileOptionsTypeTable();
+  }
+  int32_t cond_subgraph_index() const {
+    return GetField<int32_t>(4, 0);
+  }
+  int32_t body_subgraph_index() const {
+    return GetField<int32_t>(6, 0);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<int32_t>(verifier, 4) &&
+           VerifyField<int32_t>(verifier, 6) &&
+           verifier.EndTable();
+  }
+  StablehloWhileOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(StablehloWhileOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<StablehloWhileOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloWhileOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct StablehloWhileOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_cond_subgraph_index(int32_t cond_subgraph_index) {
+    fbb_.AddElement<int32_t>(4, cond_subgraph_index, 0);
+  }
+  void add_body_subgraph_index(int32_t body_subgraph_index) {
+    fbb_.AddElement<int32_t>(6, body_subgraph_index, 0);
+  }
+  explicit StablehloWhileOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  StablehloWhileOptionsBuilder &operator=(const StablehloWhileOptionsBuilder &);
+  flatbuffers::Offset<StablehloWhileOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<StablehloWhileOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<StablehloWhileOptions> CreateStablehloWhileOptions(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    int32_t cond_subgraph_index = 0,
+    int32_t body_subgraph_index = 0) {
+  StablehloWhileOptionsBuilder builder_(_fbb);
+  builder_.add_body_subgraph_index(body_subgraph_index);
+  builder_.add_cond_subgraph_index(cond_subgraph_index);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<StablehloWhileOptions> CreateStablehloWhileOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloWhileOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct StablehloSortOptionsT : public flatbuffers::NativeTable {
+  typedef StablehloSortOptions TableType;
+  int64_t dimension;
+  bool is_stable;
+  int32_t comparator_subgraph_index;
+  StablehloSortOptionsT()
+      : dimension(0),
+        is_stable(false),
+        comparator_subgraph_index(0) {
+  }
+};
+
+struct StablehloSortOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef StablehloSortOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return StablehloSortOptionsTypeTable();
+  }
+  int64_t dimension() const {
+    return GetField<int64_t>(4, 0);
+  }
+  bool is_stable() const {
+    return GetField<uint8_t>(6, 0) != 0;
+  }
+  int32_t comparator_subgraph_index() const {
+    return GetField<int32_t>(8, 0);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<int64_t>(verifier, 4) &&
+           VerifyField<uint8_t>(verifier, 6) &&
+           VerifyField<int32_t>(verifier, 8) &&
+           verifier.EndTable();
+  }
+  StablehloSortOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(StablehloSortOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<StablehloSortOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloSortOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct StablehloSortOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_dimension(int64_t dimension) {
+    fbb_.AddElement<int64_t>(4, dimension, 0);
+  }
+  void add_is_stable(bool is_stable) {
+    fbb_.AddElement<uint8_t>(6, static_cast<uint8_t>(is_stable), 0);
+  }
+  void add_comparator_subgraph_index(int32_t comparator_subgraph_index) {
+    fbb_.AddElement<int32_t>(8, comparator_subgraph_index, 0);
+  }
+  explicit StablehloSortOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  StablehloSortOptionsBuilder &operator=(const StablehloSortOptionsBuilder &);
+  flatbuffers::Offset<StablehloSortOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<StablehloSortOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<StablehloSortOptions> CreateStablehloSortOptions(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    int64_t dimension = 0,
+    bool is_stable = false,
+    int32_t comparator_subgraph_index = 0) {
+  StablehloSortOptionsBuilder builder_(_fbb);
+  builder_.add_dimension(dimension);
+  builder_.add_comparator_subgraph_index(comparator_subgraph_index);
+  builder_.add_is_stable(is_stable);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<StablehloSortOptions> CreateStablehloSortOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloSortOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct StablehloConcatenateOptionsT : public flatbuffers::NativeTable {
+  typedef StablehloConcatenateOptions TableType;
+  int64_t dimension;
+  StablehloConcatenateOptionsT()
+      : dimension(0) {
+  }
+};
+
+struct StablehloConcatenateOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef StablehloConcatenateOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return StablehloConcatenateOptionsTypeTable();
+  }
+  int64_t dimension() const {
+    return GetField<int64_t>(4, 0);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<int64_t>(verifier, 4) &&
+           verifier.EndTable();
+  }
+  StablehloConcatenateOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(StablehloConcatenateOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<StablehloConcatenateOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloConcatenateOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct StablehloConcatenateOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_dimension(int64_t dimension) {
+    fbb_.AddElement<int64_t>(4, dimension, 0);
+  }
+  explicit StablehloConcatenateOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  StablehloConcatenateOptionsBuilder &operator=(const StablehloConcatenateOptionsBuilder &);
+  flatbuffers::Offset<StablehloConcatenateOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<StablehloConcatenateOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<StablehloConcatenateOptions> CreateStablehloConcatenateOptions(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    int64_t dimension = 0) {
+  StablehloConcatenateOptionsBuilder builder_(_fbb);
+  builder_.add_dimension(dimension);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<StablehloConcatenateOptions> CreateStablehloConcatenateOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloConcatenateOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct StablehloBroadcastInDimOptionsT : public flatbuffers::NativeTable {
+  typedef StablehloBroadcastInDimOptions TableType;
+  std::vector<int64_t> broadcast_dimensions;
+  StablehloBroadcastInDimOptionsT() {
+  }
+};
+
+struct StablehloBroadcastInDimOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef StablehloBroadcastInDimOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return StablehloBroadcastInDimOptionsTypeTable();
+  }
+  const flatbuffers::Vector<int64_t> *broadcast_dimensions() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(4);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, 4) &&
+           verifier.VerifyVector(broadcast_dimensions()) &&
+           verifier.EndTable();
+  }
+  StablehloBroadcastInDimOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(StablehloBroadcastInDimOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<StablehloBroadcastInDimOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloBroadcastInDimOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct StablehloBroadcastInDimOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_broadcast_dimensions(flatbuffers::Offset<flatbuffers::Vector<int64_t>> broadcast_dimensions) {
+    fbb_.AddOffset(4, broadcast_dimensions);
+  }
+  explicit StablehloBroadcastInDimOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  StablehloBroadcastInDimOptionsBuilder &operator=(const StablehloBroadcastInDimOptionsBuilder &);
+  flatbuffers::Offset<StablehloBroadcastInDimOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<StablehloBroadcastInDimOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<StablehloBroadcastInDimOptions> CreateStablehloBroadcastInDimOptions(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> broadcast_dimensions = 0) {
+  StablehloBroadcastInDimOptionsBuilder builder_(_fbb);
+  builder_.add_broadcast_dimensions(broadcast_dimensions);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<StablehloBroadcastInDimOptions> CreateStablehloBroadcastInDimOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloBroadcastInDimOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct StablehloCompareOptionsT : public flatbuffers::NativeTable {
+  typedef StablehloCompareOptions TableType;
+  StablehloComparisonDirection comparison_direction;
+  StablehloComparisonType compare_type;
+  StablehloCompareOptionsT()
+      : comparison_direction(StablehloComparisonDirection_STABLEHLO_COMPARISON_DIRECTION_EQ),
+        compare_type(StablehloComparisonType_STABLEHLO_COMPARISON_TYPE_NOTYPE) {
+  }
+};
+
+struct StablehloCompareOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef StablehloCompareOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return StablehloCompareOptionsTypeTable();
+  }
+  StablehloComparisonDirection comparison_direction() const {
+    return static_cast<StablehloComparisonDirection>(GetField<uint32_t>(4, 0));
+  }
+  StablehloComparisonType compare_type() const {
+    return static_cast<StablehloComparisonType>(GetField<uint32_t>(6, 0));
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<uint32_t>(verifier, 4) &&
+           VerifyField<uint32_t>(verifier, 6) &&
+           verifier.EndTable();
+  }
+  StablehloCompareOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(StablehloCompareOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<StablehloCompareOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloCompareOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct StablehloCompareOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_comparison_direction(StablehloComparisonDirection comparison_direction) {
+    fbb_.AddElement<uint32_t>(4, static_cast<uint32_t>(comparison_direction), 0);
+  }
+  void add_compare_type(StablehloComparisonType compare_type) {
+    fbb_.AddElement<uint32_t>(6, static_cast<uint32_t>(compare_type), 0);
+  }
+  explicit StablehloCompareOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  StablehloCompareOptionsBuilder &operator=(const StablehloCompareOptionsBuilder &);
+  flatbuffers::Offset<StablehloCompareOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<StablehloCompareOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<StablehloCompareOptions> CreateStablehloCompareOptions(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    StablehloComparisonDirection comparison_direction = StablehloComparisonDirection_STABLEHLO_COMPARISON_DIRECTION_EQ,
+    StablehloComparisonType compare_type = StablehloComparisonType_STABLEHLO_COMPARISON_TYPE_NOTYPE) {
+  StablehloCompareOptionsBuilder builder_(_fbb);
+  builder_.add_compare_type(compare_type);
+  builder_.add_comparison_direction(comparison_direction);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<StablehloCompareOptions> CreateStablehloCompareOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloCompareOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct StablehloDynamicSliceOptionsT : public flatbuffers::NativeTable {
+  typedef StablehloDynamicSliceOptions TableType;
+  std::vector<int64_t> slice_sizes;
+  StablehloDynamicSliceOptionsT() {
+  }
+};
+
+struct StablehloDynamicSliceOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef StablehloDynamicSliceOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return StablehloDynamicSliceOptionsTypeTable();
+  }
+  const flatbuffers::Vector<int64_t> *slice_sizes() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(4);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, 4) &&
+           verifier.VerifyVector(slice_sizes()) &&
+           verifier.EndTable();
+  }
+  StablehloDynamicSliceOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(StablehloDynamicSliceOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<StablehloDynamicSliceOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloDynamicSliceOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct StablehloDynamicSliceOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_slice_sizes(flatbuffers::Offset<flatbuffers::Vector<int64_t>> slice_sizes) {
+    fbb_.AddOffset(4, slice_sizes);
+  }
+  explicit StablehloDynamicSliceOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  StablehloDynamicSliceOptionsBuilder &operator=(const StablehloDynamicSliceOptionsBuilder &);
+  flatbuffers::Offset<StablehloDynamicSliceOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<StablehloDynamicSliceOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<StablehloDynamicSliceOptions> CreateStablehloDynamicSliceOptions(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> slice_sizes = 0) {
+  StablehloDynamicSliceOptionsBuilder builder_(_fbb);
+  builder_.add_slice_sizes(slice_sizes);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<StablehloDynamicSliceOptions> CreateStablehloDynamicSliceOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloDynamicSliceOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct StablehloPadOptionsT : public flatbuffers::NativeTable {
+  typedef StablehloPadOptions TableType;
+  std::vector<int64_t> edge_padding_low;
+  std::vector<int64_t> edge_padding_high;
+  std::vector<int64_t> interior_padding;
+  StablehloPadOptionsT() {
+  }
+};
+
+struct StablehloPadOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef StablehloPadOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return StablehloPadOptionsTypeTable();
+  }
+  const flatbuffers::Vector<int64_t> *edge_padding_low() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(4);
+  }
+  const flatbuffers::Vector<int64_t> *edge_padding_high() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(6);
+  }
+  const flatbuffers::Vector<int64_t> *interior_padding() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(8);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, 4) &&
+           verifier.VerifyVector(edge_padding_low()) &&
+           VerifyOffset(verifier, 6) &&
+           verifier.VerifyVector(edge_padding_high()) &&
+           VerifyOffset(verifier, 8) &&
+           verifier.VerifyVector(interior_padding()) &&
+           verifier.EndTable();
+  }
+  StablehloPadOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(StablehloPadOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<StablehloPadOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloPadOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct StablehloPadOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_edge_padding_low(flatbuffers::Offset<flatbuffers::Vector<int64_t>> edge_padding_low) {
+    fbb_.AddOffset(4, edge_padding_low);
+  }
+  void add_edge_padding_high(flatbuffers::Offset<flatbuffers::Vector<int64_t>> edge_padding_high) {
+    fbb_.AddOffset(6, edge_padding_high);
+  }
+  void add_interior_padding(flatbuffers::Offset<flatbuffers::Vector<int64_t>> interior_padding) {
+    fbb_.AddOffset(8, interior_padding);
+  }
+  explicit StablehloPadOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  StablehloPadOptionsBuilder &operator=(const StablehloPadOptionsBuilder &);
+  flatbuffers::Offset<StablehloPadOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<StablehloPadOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<StablehloPadOptions> CreateStablehloPadOptions(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> edge_padding_low = 0,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> edge_padding_high = 0,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> interior_padding = 0) {
+  StablehloPadOptionsBuilder builder_(_fbb);
+  builder_.add_interior_padding(interior_padding);
+  builder_.add_edge_padding_high(edge_padding_high);
+  builder_.add_edge_padding_low(edge_padding_low);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<StablehloPadOptions> CreateStablehloPadOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloPadOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct StablehloIotaOptionsT : public flatbuffers::NativeTable {
+  typedef StablehloIotaOptions TableType;
+  int64_t iota_dimension;
+  StablehloIotaOptionsT()
+      : iota_dimension(0) {
+  }
+};
+
+struct StablehloIotaOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef StablehloIotaOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return StablehloIotaOptionsTypeTable();
+  }
+  int64_t iota_dimension() const {
+    return GetField<int64_t>(4, 0);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<int64_t>(verifier, 4) &&
+           verifier.EndTable();
+  }
+  StablehloIotaOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(StablehloIotaOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<StablehloIotaOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloIotaOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct StablehloIotaOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_iota_dimension(int64_t iota_dimension) {
+    fbb_.AddElement<int64_t>(4, iota_dimension, 0);
+  }
+  explicit StablehloIotaOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  StablehloIotaOptionsBuilder &operator=(const StablehloIotaOptionsBuilder &);
+  flatbuffers::Offset<StablehloIotaOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<StablehloIotaOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<StablehloIotaOptions> CreateStablehloIotaOptions(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    int64_t iota_dimension = 0) {
+  StablehloIotaOptionsBuilder builder_(_fbb);
+  builder_.add_iota_dimension(iota_dimension);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<StablehloIotaOptions> CreateStablehloIotaOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloIotaOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct StablehloCustomCallOptionsT : public flatbuffers::NativeTable {
+  typedef StablehloCustomCallOptions TableType;
+  std::string call_target_name;
+  bool has_side_effect;
+  std::string backend_config;
+  int32_t api_version;
+  std::vector<int32_t> called_computations;
+  std::vector<uint8_t> custom_attributes;
+  StablehloCustomCallOptionsT()
+      : has_side_effect(false),
+        api_version(0) {
+  }
+};
+
+struct StablehloCustomCallOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef StablehloCustomCallOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return StablehloCustomCallOptionsTypeTable();
+  }
+  const flatbuffers::String *call_target_name() const {
+    return GetPointer<const flatbuffers::String *>(4);
+  }
+  bool has_side_effect() const {
+    return GetField<uint8_t>(6, 0) != 0;
+  }
+  const flatbuffers::String *backend_config() const {
+    return GetPointer<const flatbuffers::String *>(8);
+  }
+  int32_t api_version() const {
+    return GetField<int32_t>(10, 0);
+  }
+  const flatbuffers::Vector<int32_t> *called_computations() const {
+    return GetPointer<const flatbuffers::Vector<int32_t> *>(12);
+  }
+  const flatbuffers::Vector<uint8_t> *custom_attributes() const {
+    return GetPointer<const flatbuffers::Vector<uint8_t> *>(14);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, 4) &&
+           verifier.VerifyString(call_target_name()) &&
+           VerifyField<uint8_t>(verifier, 6) &&
+           VerifyOffset(verifier, 8) &&
+           verifier.VerifyString(backend_config()) &&
+           VerifyField<int32_t>(verifier, 10) &&
+           VerifyOffset(verifier, 12) &&
+           verifier.VerifyVector(called_computations()) &&
+           VerifyOffset(verifier, 14) &&
+           verifier.VerifyVector(custom_attributes()) &&
+           verifier.EndTable();
+  }
+  StablehloCustomCallOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(StablehloCustomCallOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<StablehloCustomCallOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloCustomCallOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct StablehloCustomCallOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_call_target_name(flatbuffers::Offset<flatbuffers::String> call_target_name) {
+    fbb_.AddOffset(4, call_target_name);
+  }
+  void add_has_side_effect(bool has_side_effect) {
+    fbb_.AddElement<uint8_t>(6, static_cast<uint8_t>(has_side_effect), 0);
+  }
+  void add_backend_config(flatbuffers::Offset<flatbuffers::String> backend_config) {
+    fbb_.AddOffset(8, backend_config);
+  }
+  void add_api_version(int32_t api_version) {
+    fbb_.AddElement<int32_t>(10, api_version, 0);
+  }
+  void add_called_computations(flatbuffers::Offset<flatbuffers::Vector<int32_t>> called_computations) {
+    fbb_.AddOffset(12, called_computations);
+  }
+  void add_custom_attributes(flatbuffers::Offset<flatbuffers::Vector<uint8_t>> custom_attributes) {
+    fbb_.AddOffset(14, custom_attributes);
+  }
+  explicit StablehloCustomCallOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  StablehloCustomCallOptionsBuilder &operator=(const StablehloCustomCallOptionsBuilder &);
+  flatbuffers::Offset<StablehloCustomCallOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<StablehloCustomCallOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<StablehloCustomCallOptions> CreateStablehloCustomCallOptions(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<flatbuffers::String> call_target_name = 0,
+    bool has_side_effect = false,
+    flatbuffers::Offset<flatbuffers::String> backend_config = 0,
+    int32_t api_version = 0,
+    flatbuffers::Offset<flatbuffers::Vector<int32_t>> called_computations = 0,
+    flatbuffers::Offset<flatbuffers::Vector<uint8_t>> custom_attributes = 0) {
+  StablehloCustomCallOptionsBuilder builder_(_fbb);
+  builder_.add_custom_attributes(custom_attributes);
+  builder_.add_called_computations(called_computations);
+  builder_.add_api_version(api_version);
+  builder_.add_backend_config(backend_config);
+  builder_.add_call_target_name(call_target_name);
+  builder_.add_has_side_effect(has_side_effect);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<StablehloCustomCallOptions> CreateStablehloCustomCallOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloCustomCallOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct StablehloReduceOptionsT : public flatbuffers::NativeTable {
+  typedef StablehloReduceOptions TableType;
+  std::vector<int64_t> dimensions;
+  int32_t body_subgraph_index;
+  StablehloReduceOptionsT()
+      : body_subgraph_index(0) {
+  }
+};
+
+struct StablehloReduceOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef StablehloReduceOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return StablehloReduceOptionsTypeTable();
+  }
+  const flatbuffers::Vector<int64_t> *dimensions() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(4);
+  }
+  int32_t body_subgraph_index() const {
+    return GetField<int32_t>(6, 0);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, 4) &&
+           verifier.VerifyVector(dimensions()) &&
+           VerifyField<int32_t>(verifier, 6) &&
+           verifier.EndTable();
+  }
+  StablehloReduceOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(StablehloReduceOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<StablehloReduceOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloReduceOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct StablehloReduceOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_dimensions(flatbuffers::Offset<flatbuffers::Vector<int64_t>> dimensions) {
+    fbb_.AddOffset(4, dimensions);
+  }
+  void add_body_subgraph_index(int32_t body_subgraph_index) {
+    fbb_.AddElement<int32_t>(6, body_subgraph_index, 0);
+  }
+  explicit StablehloReduceOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  StablehloReduceOptionsBuilder &operator=(const StablehloReduceOptionsBuilder &);
+  flatbuffers::Offset<StablehloReduceOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<StablehloReduceOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<StablehloReduceOptions> CreateStablehloReduceOptions(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> dimensions = 0,
+    int32_t body_subgraph_index = 0) {
+  StablehloReduceOptionsBuilder builder_(_fbb);
+  builder_.add_body_subgraph_index(body_subgraph_index);
+  builder_.add_dimensions(dimensions);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<StablehloReduceOptions> CreateStablehloReduceOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloReduceOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct StablehloSliceOptionsT : public flatbuffers::NativeTable {
+  typedef StablehloSliceOptions TableType;
+  std::vector<int64_t> start_indices;
+  std::vector<int64_t> limit_indices;
+  std::vector<int64_t> strides;
+  StablehloSliceOptionsT() {
+  }
+};
+
+struct StablehloSliceOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef StablehloSliceOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return StablehloSliceOptionsTypeTable();
+  }
+  const flatbuffers::Vector<int64_t> *start_indices() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(4);
+  }
+  const flatbuffers::Vector<int64_t> *limit_indices() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(6);
+  }
+  const flatbuffers::Vector<int64_t> *strides() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(8);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, 4) &&
+           verifier.VerifyVector(start_indices()) &&
+           VerifyOffset(verifier, 6) &&
+           verifier.VerifyVector(limit_indices()) &&
+           VerifyOffset(verifier, 8) &&
+           verifier.VerifyVector(strides()) &&
+           verifier.EndTable();
+  }
+  StablehloSliceOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(StablehloSliceOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<StablehloSliceOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloSliceOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct StablehloSliceOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_start_indices(flatbuffers::Offset<flatbuffers::Vector<int64_t>> start_indices) {
+    fbb_.AddOffset(4, start_indices);
+  }
+  void add_limit_indices(flatbuffers::Offset<flatbuffers::Vector<int64_t>> limit_indices) {
+    fbb_.AddOffset(6, limit_indices);
+  }
+  void add_strides(flatbuffers::Offset<flatbuffers::Vector<int64_t>> strides) {
+    fbb_.AddOffset(8, strides);
+  }
+  explicit StablehloSliceOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  StablehloSliceOptionsBuilder &operator=(const StablehloSliceOptionsBuilder &);
+  flatbuffers::Offset<StablehloSliceOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<StablehloSliceOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<StablehloSliceOptions> CreateStablehloSliceOptions(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> start_indices = 0,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> limit_indices = 0,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> strides = 0) {
+  StablehloSliceOptionsBuilder builder_(_fbb);
+  builder_.add_strides(strides);
+  builder_.add_limit_indices(limit_indices);
+  builder_.add_start_indices(start_indices);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<StablehloSliceOptions> CreateStablehloSliceOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloSliceOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct StablehloConvolutionOptionsT : public flatbuffers::NativeTable {
+  typedef StablehloConvolutionOptions TableType;
+  std::vector<int64_t> window_strides;
+  std::vector<int64_t> padding;
+  std::vector<int64_t> lhs_dilation;
+  std::vector<int64_t> rhs_dilation;
+  std::vector<bool> window_reversal;
+  int64_t input_batch_dimension;
+  int64_t input_feature_dimension;
+  std::vector<int64_t> input_spatial_dimensions;
+  int64_t kernel_input_feature_dimension;
+  int64_t kernel_output_feature_dimension;
+  std::vector<int64_t> kernel_spatial_dimensions;
+  int64_t output_batch_dimension;
+  int64_t output_feature_dimension;
+  std::vector<int64_t> output_spatial_dimensions;
+  int64_t feature_group_count;
+  int64_t batch_group_count;
+  std::vector<StablehloPrecisionConfig> precision_config;
+  StablehloConvolutionOptionsT()
+      : input_batch_dimension(0),
+        input_feature_dimension(0),
+        kernel_input_feature_dimension(0),
+        kernel_output_feature_dimension(0),
+        output_batch_dimension(0),
+        output_feature_dimension(0),
+        feature_group_count(0),
+        batch_group_count(0) {
+  }
+};
+
+struct StablehloConvolutionOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef StablehloConvolutionOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return StablehloConvolutionOptionsTypeTable();
+  }
+  const flatbuffers::Vector<int64_t> *window_strides() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(4);
+  }
+  const flatbuffers::Vector<int64_t> *padding() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(6);
+  }
+  const flatbuffers::Vector<int64_t> *lhs_dilation() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(8);
+  }
+  const flatbuffers::Vector<int64_t> *rhs_dilation() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(10);
+  }
+  const flatbuffers::Vector<uint8_t> *window_reversal() const {
+    return GetPointer<const flatbuffers::Vector<uint8_t> *>(12);
+  }
+  int64_t input_batch_dimension() const {
+    return GetField<int64_t>(14, 0);
+  }
+  int64_t input_feature_dimension() const {
+    return GetField<int64_t>(16, 0);
+  }
+  const flatbuffers::Vector<int64_t> *input_spatial_dimensions() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(18);
+  }
+  int64_t kernel_input_feature_dimension() const {
+    return GetField<int64_t>(20, 0);
+  }
+  int64_t kernel_output_feature_dimension() const {
+    return GetField<int64_t>(22, 0);
+  }
+  const flatbuffers::Vector<int64_t> *kernel_spatial_dimensions() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(24);
+  }
+  int64_t output_batch_dimension() const {
+    return GetField<int64_t>(26, 0);
+  }
+  int64_t output_feature_dimension() const {
+    return GetField<int64_t>(28, 0);
+  }
+  const flatbuffers::Vector<int64_t> *output_spatial_dimensions() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(30);
+  }
+  int64_t feature_group_count() const {
+    return GetField<int64_t>(32, 0);
+  }
+  int64_t batch_group_count() const {
+    return GetField<int64_t>(34, 0);
+  }
+  const flatbuffers::Vector<uint32_t> *precision_config() const {
+    return GetPointer<const flatbuffers::Vector<uint32_t> *>(36);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, 4) &&
+           verifier.VerifyVector(window_strides()) &&
+           VerifyOffset(verifier, 6) &&
+           verifier.VerifyVector(padding()) &&
+           VerifyOffset(verifier, 8) &&
+           verifier.VerifyVector(lhs_dilation()) &&
+           VerifyOffset(verifier, 10) &&
+           verifier.VerifyVector(rhs_dilation()) &&
+           VerifyOffset(verifier, 12) &&
+           verifier.VerifyVector(window_reversal()) &&
+           VerifyField<int64_t>(verifier, 14) &&
+           VerifyField<int64_t>(verifier, 16) &&
+           VerifyOffset(verifier, 18) &&
+           verifier.VerifyVector(input_spatial_dimensions()) &&
+           VerifyField<int64_t>(verifier, 20) &&
+           VerifyField<int64_t>(verifier, 22) &&
+           VerifyOffset(verifier, 24) &&
+           verifier.VerifyVector(kernel_spatial_dimensions()) &&
+           VerifyField<int64_t>(verifier, 26) &&
+           VerifyField<int64_t>(verifier, 28) &&
+           VerifyOffset(verifier, 30) &&
+           verifier.VerifyVector(output_spatial_dimensions()) &&
+           VerifyField<int64_t>(verifier, 32) &&
+           VerifyField<int64_t>(verifier, 34) &&
+           VerifyOffset(verifier, 36) &&
+           verifier.VerifyVector(precision_config()) &&
+           verifier.EndTable();
+  }
+  StablehloConvolutionOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(StablehloConvolutionOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<StablehloConvolutionOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloConvolutionOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct StablehloConvolutionOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_window_strides(flatbuffers::Offset<flatbuffers::Vector<int64_t>> window_strides) {
+    fbb_.AddOffset(4, window_strides);
+  }
+  void add_padding(flatbuffers::Offset<flatbuffers::Vector<int64_t>> padding) {
+    fbb_.AddOffset(6, padding);
+  }
+  void add_lhs_dilation(flatbuffers::Offset<flatbuffers::Vector<int64_t>> lhs_dilation) {
+    fbb_.AddOffset(8, lhs_dilation);
+  }
+  void add_rhs_dilation(flatbuffers::Offset<flatbuffers::Vector<int64_t>> rhs_dilation) {
+    fbb_.AddOffset(10, rhs_dilation);
+  }
+  void add_window_reversal(flatbuffers::Offset<flatbuffers::Vector<uint8_t>> window_reversal) {
+    fbb_.AddOffset(12, window_reversal);
+  }
+  void add_input_batch_dimension(int64_t input_batch_dimension) {
+    fbb_.AddElement<int64_t>(14, input_batch_dimension, 0);
+  }
+  void add_input_feature_dimension(int64_t input_feature_dimension) {
+    fbb_.AddElement<int64_t>(16, input_feature_dimension, 0);
+  }
+  void add_input_spatial_dimensions(flatbuffers::Offset<flatbuffers::Vector<int64_t>> input_spatial_dimensions) {
+    fbb_.AddOffset(18, input_spatial_dimensions);
+  }
+  void add_kernel_input_feature_dimension(int64_t kernel_input_feature_dimension) {
+    fbb_.AddElement<int64_t>(20, kernel_input_feature_dimension, 0);
+  }
+  void add_kernel_output_feature_dimension(int64_t kernel_output_feature_dimension) {
+    fbb_.AddElement<int64_t>(22, kernel_output_feature_dimension, 0);
+  }
+  void add_kernel_spatial_dimensions(flatbuffers::Offset<flatbuffers::Vector<int64_t>> kernel_spatial_dimensions) {
+    fbb_.AddOffset(24, kernel_spatial_dimensions);
+  }
+  void add_output_batch_dimension(int64_t output_batch_dimension) {
+    fbb_.AddElement<int64_t>(26, output_batch_dimension, 0);
+  }
+  void add_output_feature_dimension(int64_t output_feature_dimension) {
+    fbb_.AddElement<int64_t>(28, output_feature_dimension, 0);
+  }
+  void add_output_spatial_dimensions(flatbuffers::Offset<flatbuffers::Vector<int64_t>> output_spatial_dimensions) {
+    fbb_.AddOffset(30, output_spatial_dimensions);
+  }
+  void add_feature_group_count(int64_t feature_group_count) {
+    fbb_.AddElement<int64_t>(32, feature_group_count, 0);
+  }
+  void add_batch_group_count(int64_t batch_group_count) {
+    fbb_.AddElement<int64_t>(34, batch_group_count, 0);
+  }
+  void add_precision_config(flatbuffers::Offset<flatbuffers::Vector<uint32_t>> precision_config) {
+    fbb_.AddOffset(36, precision_config);
+  }
+  explicit StablehloConvolutionOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  StablehloConvolutionOptionsBuilder &operator=(const StablehloConvolutionOptionsBuilder &);
+  flatbuffers::Offset<StablehloConvolutionOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<StablehloConvolutionOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<StablehloConvolutionOptions> CreateStablehloConvolutionOptions(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> window_strides = 0,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> padding = 0,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> lhs_dilation = 0,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> rhs_dilation = 0,
+    flatbuffers::Offset<flatbuffers::Vector<uint8_t>> window_reversal = 0,
+    int64_t input_batch_dimension = 0,
+    int64_t input_feature_dimension = 0,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> input_spatial_dimensions = 0,
+    int64_t kernel_input_feature_dimension = 0,
+    int64_t kernel_output_feature_dimension = 0,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> kernel_spatial_dimensions = 0,
+    int64_t output_batch_dimension = 0,
+    int64_t output_feature_dimension = 0,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> output_spatial_dimensions = 0,
+    int64_t feature_group_count = 0,
+    int64_t batch_group_count = 0,
+    flatbuffers::Offset<flatbuffers::Vector<uint32_t>> precision_config = 0) {
+  StablehloConvolutionOptionsBuilder builder_(_fbb);
+  builder_.add_batch_group_count(batch_group_count);
+  builder_.add_feature_group_count(feature_group_count);
+  builder_.add_output_feature_dimension(output_feature_dimension);
+  builder_.add_output_batch_dimension(output_batch_dimension);
+  builder_.add_kernel_output_feature_dimension(kernel_output_feature_dimension);
+  builder_.add_kernel_input_feature_dimension(kernel_input_feature_dimension);
+  builder_.add_input_feature_dimension(input_feature_dimension);
+  builder_.add_input_batch_dimension(input_batch_dimension);
+  builder_.add_precision_config(precision_config);
+  builder_.add_output_spatial_dimensions(output_spatial_dimensions);
+  builder_.add_kernel_spatial_dimensions(kernel_spatial_dimensions);
+  builder_.add_input_spatial_dimensions(input_spatial_dimensions);
+  builder_.add_window_reversal(window_reversal);
+  builder_.add_rhs_dilation(rhs_dilation);
+  builder_.add_lhs_dilation(lhs_dilation);
+  builder_.add_padding(padding);
+  builder_.add_window_strides(window_strides);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<StablehloConvolutionOptions> CreateStablehloConvolutionOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloConvolutionOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct StablehloScatterOptionsT : public flatbuffers::NativeTable {
+  typedef StablehloScatterOptions TableType;
+  bool indices_are_sorted;
+  std::vector<int64_t> update_window_dims;
+  std::vector<int64_t> inserted_window_dims;
+  std::vector<int64_t> scatter_dims_to_operand_dims;
+  int64_t index_vector_dim;
+  bool unique_indices;
+  int32_t update_computation_subgraph_index;
+  StablehloScatterOptionsT()
+      : indices_are_sorted(false),
+        index_vector_dim(0),
+        unique_indices(false),
+        update_computation_subgraph_index(0) {
+  }
+};
+
+struct StablehloScatterOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef StablehloScatterOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return StablehloScatterOptionsTypeTable();
+  }
+  bool indices_are_sorted() const {
+    return GetField<uint8_t>(4, 0) != 0;
+  }
+  const flatbuffers::Vector<int64_t> *update_window_dims() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(6);
+  }
+  const flatbuffers::Vector<int64_t> *inserted_window_dims() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(8);
+  }
+  const flatbuffers::Vector<int64_t> *scatter_dims_to_operand_dims() const {
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(10);
+  }
+  int64_t index_vector_dim() const {
+    return GetField<int64_t>(12, 0);
+  }
+  bool unique_indices() const {
+    return GetField<uint8_t>(14, 0) != 0;
+  }
+  int32_t update_computation_subgraph_index() const {
+    return GetField<int32_t>(16, 0);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<uint8_t>(verifier, 4) &&
+           VerifyOffset(verifier, 6) &&
+           verifier.VerifyVector(update_window_dims()) &&
+           VerifyOffset(verifier, 8) &&
+           verifier.VerifyVector(inserted_window_dims()) &&
+           VerifyOffset(verifier, 10) &&
+           verifier.VerifyVector(scatter_dims_to_operand_dims()) &&
+           VerifyField<int64_t>(verifier, 12) &&
+           VerifyField<uint8_t>(verifier, 14) &&
+           VerifyField<int32_t>(verifier, 16) &&
+           verifier.EndTable();
+  }
+  StablehloScatterOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(StablehloScatterOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<StablehloScatterOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloScatterOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct StablehloScatterOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_indices_are_sorted(bool indices_are_sorted) {
+    fbb_.AddElement<uint8_t>(4, static_cast<uint8_t>(indices_are_sorted), 0);
+  }
+  void add_update_window_dims(flatbuffers::Offset<flatbuffers::Vector<int64_t>> update_window_dims) {
+    fbb_.AddOffset(6, update_window_dims);
+  }
+  void add_inserted_window_dims(flatbuffers::Offset<flatbuffers::Vector<int64_t>> inserted_window_dims) {
+    fbb_.AddOffset(8, inserted_window_dims);
+  }
+  void add_scatter_dims_to_operand_dims(flatbuffers::Offset<flatbuffers::Vector<int64_t>> scatter_dims_to_operand_dims) {
+    fbb_.AddOffset(10, scatter_dims_to_operand_dims);
+  }
+  void add_index_vector_dim(int64_t index_vector_dim) {
+    fbb_.AddElement<int64_t>(12, index_vector_dim, 0);
+  }
+  void add_unique_indices(bool unique_indices) {
+    fbb_.AddElement<uint8_t>(14, static_cast<uint8_t>(unique_indices), 0);
+  }
+  void add_update_computation_subgraph_index(int32_t update_computation_subgraph_index) {
+    fbb_.AddElement<int32_t>(16, update_computation_subgraph_index, 0);
+  }
+  explicit StablehloScatterOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  StablehloScatterOptionsBuilder &operator=(const StablehloScatterOptionsBuilder &);
+  flatbuffers::Offset<StablehloScatterOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<StablehloScatterOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<StablehloScatterOptions> CreateStablehloScatterOptions(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    bool indices_are_sorted = false,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> update_window_dims = 0,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> inserted_window_dims = 0,
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> scatter_dims_to_operand_dims = 0,
+    int64_t index_vector_dim = 0,
+    bool unique_indices = false,
+    int32_t update_computation_subgraph_index = 0) {
+  StablehloScatterOptionsBuilder builder_(_fbb);
+  builder_.add_index_vector_dim(index_vector_dim);
+  builder_.add_update_computation_subgraph_index(update_computation_subgraph_index);
+  builder_.add_scatter_dims_to_operand_dims(scatter_dims_to_operand_dims);
+  builder_.add_inserted_window_dims(inserted_window_dims);
+  builder_.add_update_window_dims(update_window_dims);
+  builder_.add_unique_indices(unique_indices);
+  builder_.add_indices_are_sorted(indices_are_sorted);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<StablehloScatterOptions> CreateStablehloScatterOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloScatterOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct StablehloCaseOptionsT : public flatbuffers::NativeTable {
+  typedef StablehloCaseOptions TableType;
+  std::vector<int32_t> branch_subgraph_indices;
+  StablehloCaseOptionsT() {
+  }
+};
+
+struct StablehloCaseOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef StablehloCaseOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return StablehloCaseOptionsTypeTable();
+  }
+  const flatbuffers::Vector<int32_t> *branch_subgraph_indices() const {
+    return GetPointer<const flatbuffers::Vector<int32_t> *>(4);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, 4) &&
+           verifier.VerifyVector(branch_subgraph_indices()) &&
+           verifier.EndTable();
+  }
+  StablehloCaseOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(StablehloCaseOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<StablehloCaseOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloCaseOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct StablehloCaseOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_branch_subgraph_indices(flatbuffers::Offset<flatbuffers::Vector<int32_t>> branch_subgraph_indices) {
+    fbb_.AddOffset(4, branch_subgraph_indices);
+  }
+  explicit StablehloCaseOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  StablehloCaseOptionsBuilder &operator=(const StablehloCaseOptionsBuilder &);
+  flatbuffers::Offset<StablehloCaseOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<StablehloCaseOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<StablehloCaseOptions> CreateStablehloCaseOptions(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<flatbuffers::Vector<int32_t>> branch_subgraph_indices = 0) {
+  StablehloCaseOptionsBuilder builder_(_fbb);
+  builder_.add_branch_subgraph_indices(branch_subgraph_indices);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<StablehloCaseOptions> CreateStablehloCaseOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloCaseOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct StablehloRngBitGeneratorOptionsT : public flatbuffers::NativeTable {
+  typedef StablehloRngBitGeneratorOptions TableType;
+  RngAlgorithm algorithm;
+  StablehloRngBitGeneratorOptionsT()
+      : algorithm(RngAlgorithm_DEFAULT) {
+  }
+};
+
+struct StablehloRngBitGeneratorOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef StablehloRngBitGeneratorOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return StablehloRngBitGeneratorOptionsTypeTable();
+  }
+  RngAlgorithm algorithm() const {
+    return static_cast<RngAlgorithm>(GetField<int8_t>(4, 0));
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<int8_t>(verifier, 4) &&
+           verifier.EndTable();
+  }
+  StablehloRngBitGeneratorOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(StablehloRngBitGeneratorOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<StablehloRngBitGeneratorOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloRngBitGeneratorOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct StablehloRngBitGeneratorOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_algorithm(RngAlgorithm algorithm) {
+    fbb_.AddElement<int8_t>(4, static_cast<int8_t>(algorithm), 0);
+  }
+  explicit StablehloRngBitGeneratorOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  StablehloRngBitGeneratorOptionsBuilder &operator=(const StablehloRngBitGeneratorOptionsBuilder &);
+  flatbuffers::Offset<StablehloRngBitGeneratorOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<StablehloRngBitGeneratorOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<StablehloRngBitGeneratorOptions> CreateStablehloRngBitGeneratorOptions(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    RngAlgorithm algorithm = RngAlgorithm_DEFAULT) {
+  StablehloRngBitGeneratorOptionsBuilder builder_(_fbb);
+  builder_.add_algorithm(algorithm);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<StablehloRngBitGeneratorOptions> CreateStablehloRngBitGeneratorOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloRngBitGeneratorOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct Conv2DOptionsT : public flatbuffers::NativeTable {
   typedef Conv2DOptions TableType;
@@ -4078,13 +7098,15 @@ struct Conv2DOptionsT : public flatbuffers::NativeTable {
   ActivationFunctionType fused_activation_function;
   int32_t dilation_w_factor;
   int32_t dilation_h_factor;
+  TensorType quantized_bias_type;
   Conv2DOptionsT()
       : padding(Padding_SAME),
         stride_w(0),
         stride_h(0),
         fused_activation_function(ActivationFunctionType_NONE),
         dilation_w_factor(1),
-        dilation_h_factor(1) {
+        dilation_h_factor(1),
+        quantized_bias_type(TensorType_FLOAT32) {
   }
 };
 
@@ -4111,6 +7133,9 @@ struct Conv2DOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   int32_t dilation_h_factor() const {
     return GetField<int32_t>(14, 1);
   }
+  TensorType quantized_bias_type() const {
+    return static_cast<TensorType>(GetField<int8_t>(16, 0));
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<int8_t>(verifier, 4) &&
@@ -4119,6 +7144,7 @@ struct Conv2DOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            VerifyField<int8_t>(verifier, 10) &&
            VerifyField<int32_t>(verifier, 12) &&
            VerifyField<int32_t>(verifier, 14) &&
+           VerifyField<int8_t>(verifier, 16) &&
            verifier.EndTable();
   }
   Conv2DOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -4147,6 +7173,9 @@ struct Conv2DOptionsBuilder {
   void add_dilation_h_factor(int32_t dilation_h_factor) {
     fbb_.AddElement<int32_t>(14, dilation_h_factor, 1);
   }
+  void add_quantized_bias_type(TensorType quantized_bias_type) {
+    fbb_.AddElement<int8_t>(16, static_cast<int8_t>(quantized_bias_type), 0);
+  }
   explicit Conv2DOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -4166,12 +7195,14 @@ inline flatbuffers::Offset<Conv2DOptions> CreateConv2DOptions(
     int32_t stride_h = 0,
     ActivationFunctionType fused_activation_function = ActivationFunctionType_NONE,
     int32_t dilation_w_factor = 1,
-    int32_t dilation_h_factor = 1) {
+    int32_t dilation_h_factor = 1,
+    TensorType quantized_bias_type = TensorType_FLOAT32) {
   Conv2DOptionsBuilder builder_(_fbb);
   builder_.add_dilation_h_factor(dilation_h_factor);
   builder_.add_dilation_w_factor(dilation_w_factor);
   builder_.add_stride_h(stride_h);
   builder_.add_stride_w(stride_w);
+  builder_.add_quantized_bias_type(quantized_bias_type);
   builder_.add_fused_activation_function(fused_activation_function);
   builder_.add_padding(padding);
   return builder_.Finish();
@@ -4979,11 +8010,13 @@ struct FullyConnectedOptionsT : public flatbuffers::NativeTable {
   FullyConnectedOptionsWeightsFormat weights_format;
   bool keep_num_dims;
   bool asymmetric_quantize_inputs;
+  TensorType quantized_bias_type;
   FullyConnectedOptionsT()
       : fused_activation_function(ActivationFunctionType_NONE),
         weights_format(FullyConnectedOptionsWeightsFormat_DEFAULT),
         keep_num_dims(false),
-        asymmetric_quantize_inputs(false) {
+        asymmetric_quantize_inputs(false),
+        quantized_bias_type(TensorType_FLOAT32) {
   }
 };
 
@@ -5004,12 +8037,16 @@ struct FullyConnectedOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Tabl
   bool asymmetric_quantize_inputs() const {
     return GetField<uint8_t>(10, 0) != 0;
   }
+  TensorType quantized_bias_type() const {
+    return static_cast<TensorType>(GetField<int8_t>(12, 0));
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<int8_t>(verifier, 4) &&
            VerifyField<int8_t>(verifier, 6) &&
            VerifyField<uint8_t>(verifier, 8) &&
            VerifyField<uint8_t>(verifier, 10) &&
+           VerifyField<int8_t>(verifier, 12) &&
            verifier.EndTable();
   }
   FullyConnectedOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -5032,6 +8069,9 @@ struct FullyConnectedOptionsBuilder {
   void add_asymmetric_quantize_inputs(bool asymmetric_quantize_inputs) {
     fbb_.AddElement<uint8_t>(10, static_cast<uint8_t>(asymmetric_quantize_inputs), 0);
   }
+  void add_quantized_bias_type(TensorType quantized_bias_type) {
+    fbb_.AddElement<int8_t>(12, static_cast<int8_t>(quantized_bias_type), 0);
+  }
   explicit FullyConnectedOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -5049,8 +8089,10 @@ inline flatbuffers::Offset<FullyConnectedOptions> CreateFullyConnectedOptions(
     ActivationFunctionType fused_activation_function = ActivationFunctionType_NONE,
     FullyConnectedOptionsWeightsFormat weights_format = FullyConnectedOptionsWeightsFormat_DEFAULT,
     bool keep_num_dims = false,
-    bool asymmetric_quantize_inputs = false) {
+    bool asymmetric_quantize_inputs = false,
+    TensorType quantized_bias_type = TensorType_FLOAT32) {
   FullyConnectedOptionsBuilder builder_(_fbb);
+  builder_.add_quantized_bias_type(quantized_bias_type);
   builder_.add_asymmetric_quantize_inputs(asymmetric_quantize_inputs);
   builder_.add_keep_num_dims(keep_num_dims);
   builder_.add_weights_format(weights_format);
@@ -5544,12 +8586,14 @@ struct UnidirectionalSequenceLSTMOptionsT : public flatbuffers::NativeTable {
   float proj_clip;
   bool time_major;
   bool asymmetric_quantize_inputs;
+  bool diagonal_recurrent_tensors;
   UnidirectionalSequenceLSTMOptionsT()
       : fused_activation_function(ActivationFunctionType_NONE),
         cell_clip(0.0f),
         proj_clip(0.0f),
         time_major(false),
-        asymmetric_quantize_inputs(false) {
+        asymmetric_quantize_inputs(false),
+        diagonal_recurrent_tensors(false) {
   }
 };
 
@@ -5573,6 +8617,9 @@ struct UnidirectionalSequenceLSTMOptions FLATBUFFERS_FINAL_CLASS : private flatb
   bool asymmetric_quantize_inputs() const {
     return GetField<uint8_t>(12, 0) != 0;
   }
+  bool diagonal_recurrent_tensors() const {
+    return GetField<uint8_t>(14, 0) != 0;
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<int8_t>(verifier, 4) &&
@@ -5580,6 +8627,7 @@ struct UnidirectionalSequenceLSTMOptions FLATBUFFERS_FINAL_CLASS : private flatb
            VerifyField<float>(verifier, 8) &&
            VerifyField<uint8_t>(verifier, 10) &&
            VerifyField<uint8_t>(verifier, 12) &&
+           VerifyField<uint8_t>(verifier, 14) &&
            verifier.EndTable();
   }
   UnidirectionalSequenceLSTMOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -5605,6 +8653,9 @@ struct UnidirectionalSequenceLSTMOptionsBuilder {
   void add_asymmetric_quantize_inputs(bool asymmetric_quantize_inputs) {
     fbb_.AddElement<uint8_t>(12, static_cast<uint8_t>(asymmetric_quantize_inputs), 0);
   }
+  void add_diagonal_recurrent_tensors(bool diagonal_recurrent_tensors) {
+    fbb_.AddElement<uint8_t>(14, static_cast<uint8_t>(diagonal_recurrent_tensors), 0);
+  }
   explicit UnidirectionalSequenceLSTMOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -5623,10 +8674,12 @@ inline flatbuffers::Offset<UnidirectionalSequenceLSTMOptions> CreateUnidirection
     float cell_clip = 0.0f,
     float proj_clip = 0.0f,
     bool time_major = false,
-    bool asymmetric_quantize_inputs = false) {
+    bool asymmetric_quantize_inputs = false,
+    bool diagonal_recurrent_tensors = false) {
   UnidirectionalSequenceLSTMOptionsBuilder builder_(_fbb);
   builder_.add_proj_clip(proj_clip);
   builder_.add_cell_clip(cell_clip);
+  builder_.add_diagonal_recurrent_tensors(diagonal_recurrent_tensors);
   builder_.add_asymmetric_quantize_inputs(asymmetric_quantize_inputs);
   builder_.add_time_major(time_major);
   builder_.add_fused_activation_function(fused_activation_function);
@@ -6971,12 +10024,14 @@ struct StridedSliceOptionsT : public flatbuffers::NativeTable {
   int32_t ellipsis_mask;
   int32_t new_axis_mask;
   int32_t shrink_axis_mask;
+  bool offset;
   StridedSliceOptionsT()
       : begin_mask(0),
         end_mask(0),
         ellipsis_mask(0),
         new_axis_mask(0),
-        shrink_axis_mask(0) {
+        shrink_axis_mask(0),
+        offset(false) {
   }
 };
 
@@ -7000,6 +10055,9 @@ struct StridedSliceOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table 
   int32_t shrink_axis_mask() const {
     return GetField<int32_t>(12, 0);
   }
+  bool offset() const {
+    return GetField<uint8_t>(14, 0) != 0;
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<int32_t>(verifier, 4) &&
@@ -7007,6 +10065,7 @@ struct StridedSliceOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table 
            VerifyField<int32_t>(verifier, 8) &&
            VerifyField<int32_t>(verifier, 10) &&
            VerifyField<int32_t>(verifier, 12) &&
+           VerifyField<uint8_t>(verifier, 14) &&
            verifier.EndTable();
   }
   StridedSliceOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -7032,6 +10091,9 @@ struct StridedSliceOptionsBuilder {
   void add_shrink_axis_mask(int32_t shrink_axis_mask) {
     fbb_.AddElement<int32_t>(12, shrink_axis_mask, 0);
   }
+  void add_offset(bool offset) {
+    fbb_.AddElement<uint8_t>(14, static_cast<uint8_t>(offset), 0);
+  }
   explicit StridedSliceOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -7050,13 +10112,15 @@ inline flatbuffers::Offset<StridedSliceOptions> CreateStridedSliceOptions(
     int32_t end_mask = 0,
     int32_t ellipsis_mask = 0,
     int32_t new_axis_mask = 0,
-    int32_t shrink_axis_mask = 0) {
+    int32_t shrink_axis_mask = 0,
+    bool offset = false) {
   StridedSliceOptionsBuilder builder_(_fbb);
   builder_.add_shrink_axis_mask(shrink_axis_mask);
   builder_.add_new_axis_mask(new_axis_mask);
   builder_.add_ellipsis_mask(ellipsis_mask);
   builder_.add_end_mask(end_mask);
   builder_.add_begin_mask(begin_mask);
+  builder_.add_offset(offset);
   return builder_.Finish();
 }
 
@@ -7713,10 +10777,14 @@ struct TransposeConvOptionsT : public flatbuffers::NativeTable {
   Padding padding;
   int32_t stride_w;
   int32_t stride_h;
+  ActivationFunctionType fused_activation_function;
+  TensorType quantized_bias_type;
   TransposeConvOptionsT()
       : padding(Padding_SAME),
         stride_w(0),
-        stride_h(0) {
+        stride_h(0),
+        fused_activation_function(ActivationFunctionType_NONE),
+        quantized_bias_type(TensorType_FLOAT32) {
   }
 };
 
@@ -7734,11 +10802,19 @@ struct TransposeConvOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table
   int32_t stride_h() const {
     return GetField<int32_t>(8, 0);
   }
+  ActivationFunctionType fused_activation_function() const {
+    return static_cast<ActivationFunctionType>(GetField<int8_t>(10, 0));
+  }
+  TensorType quantized_bias_type() const {
+    return static_cast<TensorType>(GetField<int8_t>(12, 0));
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<int8_t>(verifier, 4) &&
            VerifyField<int32_t>(verifier, 6) &&
            VerifyField<int32_t>(verifier, 8) &&
+           VerifyField<int8_t>(verifier, 10) &&
+           VerifyField<int8_t>(verifier, 12) &&
            verifier.EndTable();
   }
   TransposeConvOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -7758,6 +10834,12 @@ struct TransposeConvOptionsBuilder {
   void add_stride_h(int32_t stride_h) {
     fbb_.AddElement<int32_t>(8, stride_h, 0);
   }
+  void add_fused_activation_function(ActivationFunctionType fused_activation_function) {
+    fbb_.AddElement<int8_t>(10, static_cast<int8_t>(fused_activation_function), 0);
+  }
+  void add_quantized_bias_type(TensorType quantized_bias_type) {
+    fbb_.AddElement<int8_t>(12, static_cast<int8_t>(quantized_bias_type), 0);
+  }
   explicit TransposeConvOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -7774,10 +10856,14 @@ inline flatbuffers::Offset<TransposeConvOptions> CreateTransposeConvOptions(
     flatbuffers::FlatBufferBuilder &_fbb,
     Padding padding = Padding_SAME,
     int32_t stride_w = 0,
-    int32_t stride_h = 0) {
+    int32_t stride_h = 0,
+    ActivationFunctionType fused_activation_function = ActivationFunctionType_NONE,
+    TensorType quantized_bias_type = TensorType_FLOAT32) {
   TransposeConvOptionsBuilder builder_(_fbb);
   builder_.add_stride_h(stride_h);
   builder_.add_stride_w(stride_w);
+  builder_.add_quantized_bias_type(quantized_bias_type);
+  builder_.add_fused_activation_function(fused_activation_function);
   builder_.add_padding(padding);
   return builder_.Finish();
 }
@@ -10447,14 +13533,716 @@ inline flatbuffers::Offset<AssignVariableOptions> CreateAssignVariableOptions(
 
 flatbuffers::Offset<AssignVariableOptions> CreateAssignVariableOptions(flatbuffers::FlatBufferBuilder &_fbb, const AssignVariableOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
+struct RandomOptionsT : public flatbuffers::NativeTable {
+  typedef RandomOptions TableType;
+  int64_t seed;
+  int64_t seed2;
+  RandomOptionsT()
+      : seed(0),
+        seed2(0) {
+  }
+};
+
+struct RandomOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef RandomOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return RandomOptionsTypeTable();
+  }
+  int64_t seed() const {
+    return GetField<int64_t>(4, 0);
+  }
+  int64_t seed2() const {
+    return GetField<int64_t>(6, 0);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<int64_t>(verifier, 4) &&
+           VerifyField<int64_t>(verifier, 6) &&
+           verifier.EndTable();
+  }
+  RandomOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(RandomOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<RandomOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const RandomOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct RandomOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_seed(int64_t seed) {
+    fbb_.AddElement<int64_t>(4, seed, 0);
+  }
+  void add_seed2(int64_t seed2) {
+    fbb_.AddElement<int64_t>(6, seed2, 0);
+  }
+  explicit RandomOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  RandomOptionsBuilder &operator=(const RandomOptionsBuilder &);
+  flatbuffers::Offset<RandomOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<RandomOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<RandomOptions> CreateRandomOptions(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    int64_t seed = 0,
+    int64_t seed2 = 0) {
+  RandomOptionsBuilder builder_(_fbb);
+  builder_.add_seed2(seed2);
+  builder_.add_seed(seed);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<RandomOptions> CreateRandomOptions(flatbuffers::FlatBufferBuilder &_fbb, const RandomOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct BucketizeOptionsT : public flatbuffers::NativeTable {
+  typedef BucketizeOptions TableType;
+  std::vector<float> boundaries;
+  BucketizeOptionsT() {
+  }
+};
+
+struct BucketizeOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef BucketizeOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return BucketizeOptionsTypeTable();
+  }
+  const flatbuffers::Vector<float> *boundaries() const {
+    return GetPointer<const flatbuffers::Vector<float> *>(4);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, 4) &&
+           verifier.VerifyVector(boundaries()) &&
+           verifier.EndTable();
+  }
+  BucketizeOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(BucketizeOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<BucketizeOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const BucketizeOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct BucketizeOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_boundaries(flatbuffers::Offset<flatbuffers::Vector<float>> boundaries) {
+    fbb_.AddOffset(4, boundaries);
+  }
+  explicit BucketizeOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  BucketizeOptionsBuilder &operator=(const BucketizeOptionsBuilder &);
+  flatbuffers::Offset<BucketizeOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<BucketizeOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<BucketizeOptions> CreateBucketizeOptions(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<flatbuffers::Vector<float>> boundaries = 0) {
+  BucketizeOptionsBuilder builder_(_fbb);
+  builder_.add_boundaries(boundaries);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<BucketizeOptions> CreateBucketizeOptions(flatbuffers::FlatBufferBuilder &_fbb, const BucketizeOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct GeluOptionsT : public flatbuffers::NativeTable {
+  typedef GeluOptions TableType;
+  bool approximate;
+  GeluOptionsT()
+      : approximate(false) {
+  }
+};
+
+struct GeluOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef GeluOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return GeluOptionsTypeTable();
+  }
+  bool approximate() const {
+    return GetField<uint8_t>(4, 0) != 0;
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<uint8_t>(verifier, 4) &&
+           verifier.EndTable();
+  }
+  GeluOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(GeluOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<GeluOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const GeluOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct GeluOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_approximate(bool approximate) {
+    fbb_.AddElement<uint8_t>(4, static_cast<uint8_t>(approximate), 0);
+  }
+  explicit GeluOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  GeluOptionsBuilder &operator=(const GeluOptionsBuilder &);
+  flatbuffers::Offset<GeluOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<GeluOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<GeluOptions> CreateGeluOptions(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    bool approximate = false) {
+  GeluOptionsBuilder builder_(_fbb);
+  builder_.add_approximate(approximate);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<GeluOptions> CreateGeluOptions(flatbuffers::FlatBufferBuilder &_fbb, const GeluOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct DynamicUpdateSliceOptionsT : public flatbuffers::NativeTable {
+  typedef DynamicUpdateSliceOptions TableType;
+  DynamicUpdateSliceOptionsT() {
+  }
+};
+
+struct DynamicUpdateSliceOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef DynamicUpdateSliceOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return DynamicUpdateSliceOptionsTypeTable();
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           verifier.EndTable();
+  }
+  DynamicUpdateSliceOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(DynamicUpdateSliceOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<DynamicUpdateSliceOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const DynamicUpdateSliceOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct DynamicUpdateSliceOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  explicit DynamicUpdateSliceOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  DynamicUpdateSliceOptionsBuilder &operator=(const DynamicUpdateSliceOptionsBuilder &);
+  flatbuffers::Offset<DynamicUpdateSliceOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<DynamicUpdateSliceOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<DynamicUpdateSliceOptions> CreateDynamicUpdateSliceOptions(
+    flatbuffers::FlatBufferBuilder &_fbb) {
+  DynamicUpdateSliceOptionsBuilder builder_(_fbb);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<DynamicUpdateSliceOptions> CreateDynamicUpdateSliceOptions(flatbuffers::FlatBufferBuilder &_fbb, const DynamicUpdateSliceOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct UnsortedSegmentProdOptionsT : public flatbuffers::NativeTable {
+  typedef UnsortedSegmentProdOptions TableType;
+  UnsortedSegmentProdOptionsT() {
+  }
+};
+
+struct UnsortedSegmentProdOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef UnsortedSegmentProdOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return UnsortedSegmentProdOptionsTypeTable();
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           verifier.EndTable();
+  }
+  UnsortedSegmentProdOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(UnsortedSegmentProdOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<UnsortedSegmentProdOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const UnsortedSegmentProdOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct UnsortedSegmentProdOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  explicit UnsortedSegmentProdOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  UnsortedSegmentProdOptionsBuilder &operator=(const UnsortedSegmentProdOptionsBuilder &);
+  flatbuffers::Offset<UnsortedSegmentProdOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<UnsortedSegmentProdOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<UnsortedSegmentProdOptions> CreateUnsortedSegmentProdOptions(
+    flatbuffers::FlatBufferBuilder &_fbb) {
+  UnsortedSegmentProdOptionsBuilder builder_(_fbb);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<UnsortedSegmentProdOptions> CreateUnsortedSegmentProdOptions(flatbuffers::FlatBufferBuilder &_fbb, const UnsortedSegmentProdOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct UnsortedSegmentMaxOptionsT : public flatbuffers::NativeTable {
+  typedef UnsortedSegmentMaxOptions TableType;
+  UnsortedSegmentMaxOptionsT() {
+  }
+};
+
+struct UnsortedSegmentMaxOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef UnsortedSegmentMaxOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return UnsortedSegmentMaxOptionsTypeTable();
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           verifier.EndTable();
+  }
+  UnsortedSegmentMaxOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(UnsortedSegmentMaxOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<UnsortedSegmentMaxOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const UnsortedSegmentMaxOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct UnsortedSegmentMaxOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  explicit UnsortedSegmentMaxOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  UnsortedSegmentMaxOptionsBuilder &operator=(const UnsortedSegmentMaxOptionsBuilder &);
+  flatbuffers::Offset<UnsortedSegmentMaxOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<UnsortedSegmentMaxOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<UnsortedSegmentMaxOptions> CreateUnsortedSegmentMaxOptions(
+    flatbuffers::FlatBufferBuilder &_fbb) {
+  UnsortedSegmentMaxOptionsBuilder builder_(_fbb);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<UnsortedSegmentMaxOptions> CreateUnsortedSegmentMaxOptions(flatbuffers::FlatBufferBuilder &_fbb, const UnsortedSegmentMaxOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct UnsortedSegmentSumOptionsT : public flatbuffers::NativeTable {
+  typedef UnsortedSegmentSumOptions TableType;
+  UnsortedSegmentSumOptionsT() {
+  }
+};
+
+struct UnsortedSegmentSumOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef UnsortedSegmentSumOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return UnsortedSegmentSumOptionsTypeTable();
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           verifier.EndTable();
+  }
+  UnsortedSegmentSumOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(UnsortedSegmentSumOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<UnsortedSegmentSumOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const UnsortedSegmentSumOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct UnsortedSegmentSumOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  explicit UnsortedSegmentSumOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  UnsortedSegmentSumOptionsBuilder &operator=(const UnsortedSegmentSumOptionsBuilder &);
+  flatbuffers::Offset<UnsortedSegmentSumOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<UnsortedSegmentSumOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<UnsortedSegmentSumOptions> CreateUnsortedSegmentSumOptions(
+    flatbuffers::FlatBufferBuilder &_fbb) {
+  UnsortedSegmentSumOptionsBuilder builder_(_fbb);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<UnsortedSegmentSumOptions> CreateUnsortedSegmentSumOptions(flatbuffers::FlatBufferBuilder &_fbb, const UnsortedSegmentSumOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct ATan2OptionsT : public flatbuffers::NativeTable {
+  typedef ATan2Options TableType;
+  ATan2OptionsT() {
+  }
+};
+
+struct ATan2Options FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef ATan2OptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return ATan2OptionsTypeTable();
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           verifier.EndTable();
+  }
+  ATan2OptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(ATan2OptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<ATan2Options> Pack(flatbuffers::FlatBufferBuilder &_fbb, const ATan2OptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct ATan2OptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  explicit ATan2OptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ATan2OptionsBuilder &operator=(const ATan2OptionsBuilder &);
+  flatbuffers::Offset<ATan2Options> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<ATan2Options>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<ATan2Options> CreateATan2Options(
+    flatbuffers::FlatBufferBuilder &_fbb) {
+  ATan2OptionsBuilder builder_(_fbb);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<ATan2Options> CreateATan2Options(flatbuffers::FlatBufferBuilder &_fbb, const ATan2OptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct UnsortedSegmentMinOptionsT : public flatbuffers::NativeTable {
+  typedef UnsortedSegmentMinOptions TableType;
+  UnsortedSegmentMinOptionsT() {
+  }
+};
+
+struct UnsortedSegmentMinOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef UnsortedSegmentMinOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return UnsortedSegmentMinOptionsTypeTable();
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           verifier.EndTable();
+  }
+  UnsortedSegmentMinOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(UnsortedSegmentMinOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<UnsortedSegmentMinOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const UnsortedSegmentMinOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct UnsortedSegmentMinOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  explicit UnsortedSegmentMinOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  UnsortedSegmentMinOptionsBuilder &operator=(const UnsortedSegmentMinOptionsBuilder &);
+  flatbuffers::Offset<UnsortedSegmentMinOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<UnsortedSegmentMinOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<UnsortedSegmentMinOptions> CreateUnsortedSegmentMinOptions(
+    flatbuffers::FlatBufferBuilder &_fbb) {
+  UnsortedSegmentMinOptionsBuilder builder_(_fbb);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<UnsortedSegmentMinOptions> CreateUnsortedSegmentMinOptions(flatbuffers::FlatBufferBuilder &_fbb, const UnsortedSegmentMinOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct SignOptionsT : public flatbuffers::NativeTable {
+  typedef SignOptions TableType;
+  SignOptionsT() {
+  }
+};
+
+struct SignOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef SignOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return SignOptionsTypeTable();
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           verifier.EndTable();
+  }
+  SignOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(SignOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<SignOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const SignOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct SignOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  explicit SignOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  SignOptionsBuilder &operator=(const SignOptionsBuilder &);
+  flatbuffers::Offset<SignOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<SignOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<SignOptions> CreateSignOptions(
+    flatbuffers::FlatBufferBuilder &_fbb) {
+  SignOptionsBuilder builder_(_fbb);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<SignOptions> CreateSignOptions(flatbuffers::FlatBufferBuilder &_fbb, const SignOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct BitcastOptionsT : public flatbuffers::NativeTable {
+  typedef BitcastOptions TableType;
+  BitcastOptionsT() {
+  }
+};
+
+struct BitcastOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef BitcastOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return BitcastOptionsTypeTable();
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           verifier.EndTable();
+  }
+  BitcastOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(BitcastOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<BitcastOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const BitcastOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct BitcastOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  explicit BitcastOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  BitcastOptionsBuilder &operator=(const BitcastOptionsBuilder &);
+  flatbuffers::Offset<BitcastOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<BitcastOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<BitcastOptions> CreateBitcastOptions(
+    flatbuffers::FlatBufferBuilder &_fbb) {
+  BitcastOptionsBuilder builder_(_fbb);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<BitcastOptions> CreateBitcastOptions(flatbuffers::FlatBufferBuilder &_fbb, const BitcastOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct BitwiseXorOptionsT : public flatbuffers::NativeTable {
+  typedef BitwiseXorOptions TableType;
+  BitwiseXorOptionsT() {
+  }
+};
+
+struct BitwiseXorOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef BitwiseXorOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return BitwiseXorOptionsTypeTable();
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           verifier.EndTable();
+  }
+  BitwiseXorOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(BitwiseXorOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<BitwiseXorOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const BitwiseXorOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct BitwiseXorOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  explicit BitwiseXorOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  BitwiseXorOptionsBuilder &operator=(const BitwiseXorOptionsBuilder &);
+  flatbuffers::Offset<BitwiseXorOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<BitwiseXorOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<BitwiseXorOptions> CreateBitwiseXorOptions(
+    flatbuffers::FlatBufferBuilder &_fbb) {
+  BitwiseXorOptionsBuilder builder_(_fbb);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<BitwiseXorOptions> CreateBitwiseXorOptions(flatbuffers::FlatBufferBuilder &_fbb, const BitwiseXorOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct RightShiftOptionsT : public flatbuffers::NativeTable {
+  typedef RightShiftOptions TableType;
+  RightShiftOptionsT() {
+  }
+};
+
+struct RightShiftOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef RightShiftOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return RightShiftOptionsTypeTable();
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           verifier.EndTable();
+  }
+  RightShiftOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(RightShiftOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<RightShiftOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const RightShiftOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct RightShiftOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  explicit RightShiftOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  RightShiftOptionsBuilder &operator=(const RightShiftOptionsBuilder &);
+  flatbuffers::Offset<RightShiftOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<RightShiftOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<RightShiftOptions> CreateRightShiftOptions(
+    flatbuffers::FlatBufferBuilder &_fbb) {
+  RightShiftOptionsBuilder builder_(_fbb);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<RightShiftOptions> CreateRightShiftOptions(flatbuffers::FlatBufferBuilder &_fbb, const RightShiftOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct DilateOptionsT : public flatbuffers::NativeTable {
+  typedef DilateOptions TableType;
+  DilateOptionsT() {
+  }
+};
+
+struct DilateOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef DilateOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return DilateOptionsTypeTable();
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           verifier.EndTable();
+  }
+  DilateOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(DilateOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<DilateOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const DilateOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct DilateOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  explicit DilateOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  DilateOptionsBuilder &operator=(const DilateOptionsBuilder &);
+  flatbuffers::Offset<DilateOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<DilateOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<DilateOptions> CreateDilateOptions(
+    flatbuffers::FlatBufferBuilder &_fbb) {
+  DilateOptionsBuilder builder_(_fbb);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<DilateOptions> CreateDilateOptions(flatbuffers::FlatBufferBuilder &_fbb, const DilateOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct ReduceWindowOptionsT : public flatbuffers::NativeTable {
+  typedef ReduceWindowOptions TableType;
+  ReduceWindowFunction reduce_function;
+  ReduceWindowOptionsT()
+      : reduce_function(ReduceWindowFunction_UNSUPPORTED) {
+  }
+};
+
+struct ReduceWindowOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef ReduceWindowOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return ReduceWindowOptionsTypeTable();
+  }
+  ReduceWindowFunction reduce_function() const {
+    return static_cast<ReduceWindowFunction>(GetField<int32_t>(4, 0));
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<int32_t>(verifier, 4) &&
+           verifier.EndTable();
+  }
+  ReduceWindowOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(ReduceWindowOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<ReduceWindowOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const ReduceWindowOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct ReduceWindowOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_reduce_function(ReduceWindowFunction reduce_function) {
+    fbb_.AddElement<int32_t>(4, static_cast<int32_t>(reduce_function), 0);
+  }
+  explicit ReduceWindowOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ReduceWindowOptionsBuilder &operator=(const ReduceWindowOptionsBuilder &);
+  flatbuffers::Offset<ReduceWindowOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<ReduceWindowOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<ReduceWindowOptions> CreateReduceWindowOptions(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    ReduceWindowFunction reduce_function = ReduceWindowFunction_UNSUPPORTED) {
+  ReduceWindowOptionsBuilder builder_(_fbb);
+  builder_.add_reduce_function(reduce_function);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<ReduceWindowOptions> CreateReduceWindowOptions(flatbuffers::FlatBufferBuilder &_fbb, const ReduceWindowOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
 struct OperatorCodeT : public flatbuffers::NativeTable {
   typedef OperatorCode TableType;
-  BuiltinOperator builtin_code;
+  int8_t deprecated_builtin_code;
   std::string custom_code;
   int32_t version;
+  BuiltinOperator builtin_code;
   OperatorCodeT()
-      : builtin_code(BuiltinOperator_ADD),
-        version(1) {
+      : deprecated_builtin_code(0),
+        version(1),
+        builtin_code(BuiltinOperator_ADD) {
   }
 };
 
@@ -10463,8 +14251,8 @@ struct OperatorCode FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return OperatorCodeTypeTable();
   }
-  BuiltinOperator builtin_code() const {
-    return static_cast<BuiltinOperator>(GetField<int8_t>(4, 0));
+  int8_t deprecated_builtin_code() const {
+    return GetField<int8_t>(4, 0);
   }
   const flatbuffers::String *custom_code() const {
     return GetPointer<const flatbuffers::String *>(6);
@@ -10472,12 +14260,16 @@ struct OperatorCode FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   int32_t version() const {
     return GetField<int32_t>(8, 1);
   }
+  BuiltinOperator builtin_code() const {
+    return static_cast<BuiltinOperator>(GetField<int32_t>(10, 0));
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<int8_t>(verifier, 4) &&
            VerifyOffset(verifier, 6) &&
            verifier.VerifyString(custom_code()) &&
            VerifyField<int32_t>(verifier, 8) &&
+           VerifyField<int32_t>(verifier, 10) &&
            verifier.EndTable();
   }
   OperatorCodeT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -10488,14 +14280,17 @@ struct OperatorCode FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
 struct OperatorCodeBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
-  void add_builtin_code(BuiltinOperator builtin_code) {
-    fbb_.AddElement<int8_t>(4, static_cast<int8_t>(builtin_code), 0);
+  void add_deprecated_builtin_code(int8_t deprecated_builtin_code) {
+    fbb_.AddElement<int8_t>(4, deprecated_builtin_code, 0);
   }
   void add_custom_code(flatbuffers::Offset<flatbuffers::String> custom_code) {
     fbb_.AddOffset(6, custom_code);
   }
   void add_version(int32_t version) {
     fbb_.AddElement<int32_t>(8, version, 1);
+  }
+  void add_builtin_code(BuiltinOperator builtin_code) {
+    fbb_.AddElement<int32_t>(10, static_cast<int32_t>(builtin_code), 0);
   }
   explicit OperatorCodeBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -10511,17 +14306,160 @@ struct OperatorCodeBuilder {
 
 inline flatbuffers::Offset<OperatorCode> CreateOperatorCode(
     flatbuffers::FlatBufferBuilder &_fbb,
-    BuiltinOperator builtin_code = BuiltinOperator_ADD,
+    int8_t deprecated_builtin_code = 0,
     flatbuffers::Offset<flatbuffers::String> custom_code = 0,
-    int32_t version = 1) {
+    int32_t version = 1,
+    BuiltinOperator builtin_code = BuiltinOperator_ADD) {
   OperatorCodeBuilder builder_(_fbb);
+  builder_.add_builtin_code(builtin_code);
   builder_.add_version(version);
   builder_.add_custom_code(custom_code);
-  builder_.add_builtin_code(builtin_code);
+  builder_.add_deprecated_builtin_code(deprecated_builtin_code);
   return builder_.Finish();
 }
 
 flatbuffers::Offset<OperatorCode> CreateOperatorCode(flatbuffers::FlatBufferBuilder &_fbb, const OperatorCodeT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct StableHLOCompositeOptionsT : public flatbuffers::NativeTable {
+  typedef StableHLOCompositeOptions TableType;
+  std::string name;
+  int32_t decomposition_subgraph_index;
+  std::vector<uint8_t> composite_attributes;
+  CustomOptionsFormat composite_attributes_format;
+  int32_t version;
+  StableHLOCompositeOptionsT()
+      : decomposition_subgraph_index(0),
+        composite_attributes_format(CustomOptionsFormat_FLEXBUFFERS),
+        version(0) {
+  }
+};
+
+struct StableHLOCompositeOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef StableHLOCompositeOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return StableHLOCompositeOptionsTypeTable();
+  }
+  const flatbuffers::String *name() const {
+    return GetPointer<const flatbuffers::String *>(4);
+  }
+  int32_t decomposition_subgraph_index() const {
+    return GetField<int32_t>(6, 0);
+  }
+  const flatbuffers::Vector<uint8_t> *composite_attributes() const {
+    return GetPointer<const flatbuffers::Vector<uint8_t> *>(8);
+  }
+  CustomOptionsFormat composite_attributes_format() const {
+    return static_cast<CustomOptionsFormat>(GetField<int8_t>(10, 0));
+  }
+  int32_t version() const {
+    return GetField<int32_t>(12, 0);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, 4) &&
+           verifier.VerifyString(name()) &&
+           VerifyField<int32_t>(verifier, 6) &&
+           VerifyOffset(verifier, 8) &&
+           verifier.VerifyVector(composite_attributes()) &&
+           VerifyField<int8_t>(verifier, 10) &&
+           VerifyField<int32_t>(verifier, 12) &&
+           verifier.EndTable();
+  }
+  StableHLOCompositeOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(StableHLOCompositeOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<StableHLOCompositeOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const StableHLOCompositeOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct StableHLOCompositeOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_name(flatbuffers::Offset<flatbuffers::String> name) {
+    fbb_.AddOffset(4, name);
+  }
+  void add_decomposition_subgraph_index(int32_t decomposition_subgraph_index) {
+    fbb_.AddElement<int32_t>(6, decomposition_subgraph_index, 0);
+  }
+  void add_composite_attributes(flatbuffers::Offset<flatbuffers::Vector<uint8_t>> composite_attributes) {
+    fbb_.AddOffset(8, composite_attributes);
+  }
+  void add_composite_attributes_format(CustomOptionsFormat composite_attributes_format) {
+    fbb_.AddElement<int8_t>(10, static_cast<int8_t>(composite_attributes_format), 0);
+  }
+  void add_version(int32_t version) {
+    fbb_.AddElement<int32_t>(12, version, 0);
+  }
+  explicit StableHLOCompositeOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  StableHLOCompositeOptionsBuilder &operator=(const StableHLOCompositeOptionsBuilder &);
+  flatbuffers::Offset<StableHLOCompositeOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<StableHLOCompositeOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<StableHLOCompositeOptions> CreateStableHLOCompositeOptions(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<flatbuffers::String> name = 0,
+    int32_t decomposition_subgraph_index = 0,
+    flatbuffers::Offset<flatbuffers::Vector<uint8_t>> composite_attributes = 0,
+    CustomOptionsFormat composite_attributes_format = CustomOptionsFormat_FLEXBUFFERS,
+    int32_t version = 0) {
+  StableHLOCompositeOptionsBuilder builder_(_fbb);
+  builder_.add_version(version);
+  builder_.add_composite_attributes(composite_attributes);
+  builder_.add_decomposition_subgraph_index(decomposition_subgraph_index);
+  builder_.add_name(name);
+  builder_.add_composite_attributes_format(composite_attributes_format);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<StableHLOCompositeOptions> CreateStableHLOCompositeOptions(flatbuffers::FlatBufferBuilder &_fbb, const StableHLOCompositeOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct StablehloShiftLeftOptionsT : public flatbuffers::NativeTable {
+  typedef StablehloShiftLeftOptions TableType;
+  StablehloShiftLeftOptionsT() {
+  }
+};
+
+struct StablehloShiftLeftOptions FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef StablehloShiftLeftOptionsT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return StablehloShiftLeftOptionsTypeTable();
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           verifier.EndTable();
+  }
+  StablehloShiftLeftOptionsT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(StablehloShiftLeftOptionsT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<StablehloShiftLeftOptions> Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloShiftLeftOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct StablehloShiftLeftOptionsBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  explicit StablehloShiftLeftOptionsBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  StablehloShiftLeftOptionsBuilder &operator=(const StablehloShiftLeftOptionsBuilder &);
+  flatbuffers::Offset<StablehloShiftLeftOptions> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<StablehloShiftLeftOptions>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<StablehloShiftLeftOptions> CreateStablehloShiftLeftOptions(
+    flatbuffers::FlatBufferBuilder &_fbb) {
+  StablehloShiftLeftOptionsBuilder builder_(_fbb);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<StablehloShiftLeftOptions> CreateStablehloShiftLeftOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloShiftLeftOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct OperatorT : public flatbuffers::NativeTable {
   typedef Operator TableType;
@@ -10533,9 +14471,16 @@ struct OperatorT : public flatbuffers::NativeTable {
   CustomOptionsFormat custom_options_format;
   std::vector<bool> mutating_variable_inputs;
   std::vector<int32_t> intermediates;
+  uint64_t large_custom_options_offset;
+  uint64_t large_custom_options_size;
+  BuiltinOptions2Union builtin_options_2;
+  int32_t debug_metadata_index;
   OperatorT()
       : opcode_index(0),
-        custom_options_format(CustomOptionsFormat_FLEXBUFFERS) {
+        custom_options_format(CustomOptionsFormat_FLEXBUFFERS),
+        large_custom_options_offset(0),
+        large_custom_options_size(0),
+        debug_metadata_index(-1) {
   }
 };
 
@@ -10899,6 +14844,45 @@ struct Operator FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const AssignVariableOptions *builtin_options_as_AssignVariableOptions() const {
     return builtin_options_type() == BuiltinOptions_AssignVariableOptions ? static_cast<const AssignVariableOptions *>(builtin_options()) : nullptr;
   }
+  const RandomOptions *builtin_options_as_RandomOptions() const {
+    return builtin_options_type() == BuiltinOptions_RandomOptions ? static_cast<const RandomOptions *>(builtin_options()) : nullptr;
+  }
+  const BucketizeOptions *builtin_options_as_BucketizeOptions() const {
+    return builtin_options_type() == BuiltinOptions_BucketizeOptions ? static_cast<const BucketizeOptions *>(builtin_options()) : nullptr;
+  }
+  const GeluOptions *builtin_options_as_GeluOptions() const {
+    return builtin_options_type() == BuiltinOptions_GeluOptions ? static_cast<const GeluOptions *>(builtin_options()) : nullptr;
+  }
+  const DynamicUpdateSliceOptions *builtin_options_as_DynamicUpdateSliceOptions() const {
+    return builtin_options_type() == BuiltinOptions_DynamicUpdateSliceOptions ? static_cast<const DynamicUpdateSliceOptions *>(builtin_options()) : nullptr;
+  }
+  const UnsortedSegmentProdOptions *builtin_options_as_UnsortedSegmentProdOptions() const {
+    return builtin_options_type() == BuiltinOptions_UnsortedSegmentProdOptions ? static_cast<const UnsortedSegmentProdOptions *>(builtin_options()) : nullptr;
+  }
+  const UnsortedSegmentMaxOptions *builtin_options_as_UnsortedSegmentMaxOptions() const {
+    return builtin_options_type() == BuiltinOptions_UnsortedSegmentMaxOptions ? static_cast<const UnsortedSegmentMaxOptions *>(builtin_options()) : nullptr;
+  }
+  const UnsortedSegmentMinOptions *builtin_options_as_UnsortedSegmentMinOptions() const {
+    return builtin_options_type() == BuiltinOptions_UnsortedSegmentMinOptions ? static_cast<const UnsortedSegmentMinOptions *>(builtin_options()) : nullptr;
+  }
+  const UnsortedSegmentSumOptions *builtin_options_as_UnsortedSegmentSumOptions() const {
+    return builtin_options_type() == BuiltinOptions_UnsortedSegmentSumOptions ? static_cast<const UnsortedSegmentSumOptions *>(builtin_options()) : nullptr;
+  }
+  const ATan2Options *builtin_options_as_ATan2Options() const {
+    return builtin_options_type() == BuiltinOptions_ATan2Options ? static_cast<const ATan2Options *>(builtin_options()) : nullptr;
+  }
+  const SignOptions *builtin_options_as_SignOptions() const {
+    return builtin_options_type() == BuiltinOptions_SignOptions ? static_cast<const SignOptions *>(builtin_options()) : nullptr;
+  }
+  const BitcastOptions *builtin_options_as_BitcastOptions() const {
+    return builtin_options_type() == BuiltinOptions_BitcastOptions ? static_cast<const BitcastOptions *>(builtin_options()) : nullptr;
+  }
+  const BitwiseXorOptions *builtin_options_as_BitwiseXorOptions() const {
+    return builtin_options_type() == BuiltinOptions_BitwiseXorOptions ? static_cast<const BitwiseXorOptions *>(builtin_options()) : nullptr;
+  }
+  const RightShiftOptions *builtin_options_as_RightShiftOptions() const {
+    return builtin_options_type() == BuiltinOptions_RightShiftOptions ? static_cast<const RightShiftOptions *>(builtin_options()) : nullptr;
+  }
   const flatbuffers::Vector<uint8_t> *custom_options() const {
     return GetPointer<const flatbuffers::Vector<uint8_t> *>(14);
   }
@@ -10910,6 +14894,91 @@ struct Operator FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   }
   const flatbuffers::Vector<int32_t> *intermediates() const {
     return GetPointer<const flatbuffers::Vector<int32_t> *>(20);
+  }
+  uint64_t large_custom_options_offset() const {
+    return GetField<uint64_t>(22, 0);
+  }
+  uint64_t large_custom_options_size() const {
+    return GetField<uint64_t>(24, 0);
+  }
+  BuiltinOptions2 builtin_options_2_type() const {
+    return static_cast<BuiltinOptions2>(GetField<uint8_t>(26, 0));
+  }
+  const void *builtin_options_2() const {
+    return GetPointer<const void *>(28);
+  }
+  template<typename T> const T *builtin_options_2_as() const;
+  const StablehloConcatenateOptions *builtin_options_2_as_StablehloConcatenateOptions() const {
+    return builtin_options_2_type() == BuiltinOptions2_StablehloConcatenateOptions ? static_cast<const StablehloConcatenateOptions *>(builtin_options_2()) : nullptr;
+  }
+  const StablehloBroadcastInDimOptions *builtin_options_2_as_StablehloBroadcastInDimOptions() const {
+    return builtin_options_2_type() == BuiltinOptions2_StablehloBroadcastInDimOptions ? static_cast<const StablehloBroadcastInDimOptions *>(builtin_options_2()) : nullptr;
+  }
+  const StablehloSliceOptions *builtin_options_2_as_StablehloSliceOptions() const {
+    return builtin_options_2_type() == BuiltinOptions2_StablehloSliceOptions ? static_cast<const StablehloSliceOptions *>(builtin_options_2()) : nullptr;
+  }
+  const StablehloConvolutionOptions *builtin_options_2_as_StablehloConvolutionOptions() const {
+    return builtin_options_2_type() == BuiltinOptions2_StablehloConvolutionOptions ? static_cast<const StablehloConvolutionOptions *>(builtin_options_2()) : nullptr;
+  }
+  const StablehloCustomCallOptions *builtin_options_2_as_StablehloCustomCallOptions() const {
+    return builtin_options_2_type() == BuiltinOptions2_StablehloCustomCallOptions ? static_cast<const StablehloCustomCallOptions *>(builtin_options_2()) : nullptr;
+  }
+  const StablehloReduceOptions *builtin_options_2_as_StablehloReduceOptions() const {
+    return builtin_options_2_type() == BuiltinOptions2_StablehloReduceOptions ? static_cast<const StablehloReduceOptions *>(builtin_options_2()) : nullptr;
+  }
+  const StablehloScatterOptions *builtin_options_2_as_StablehloScatterOptions() const {
+    return builtin_options_2_type() == BuiltinOptions2_StablehloScatterOptions ? static_cast<const StablehloScatterOptions *>(builtin_options_2()) : nullptr;
+  }
+  const StablehloCompareOptions *builtin_options_2_as_StablehloCompareOptions() const {
+    return builtin_options_2_type() == BuiltinOptions2_StablehloCompareOptions ? static_cast<const StablehloCompareOptions *>(builtin_options_2()) : nullptr;
+  }
+  const StablehloDynamicSliceOptions *builtin_options_2_as_StablehloDynamicSliceOptions() const {
+    return builtin_options_2_type() == BuiltinOptions2_StablehloDynamicSliceOptions ? static_cast<const StablehloDynamicSliceOptions *>(builtin_options_2()) : nullptr;
+  }
+  const StablehloPadOptions *builtin_options_2_as_StablehloPadOptions() const {
+    return builtin_options_2_type() == BuiltinOptions2_StablehloPadOptions ? static_cast<const StablehloPadOptions *>(builtin_options_2()) : nullptr;
+  }
+  const StablehloIotaOptions *builtin_options_2_as_StablehloIotaOptions() const {
+    return builtin_options_2_type() == BuiltinOptions2_StablehloIotaOptions ? static_cast<const StablehloIotaOptions *>(builtin_options_2()) : nullptr;
+  }
+  const StablehloDotGeneralOptions *builtin_options_2_as_StablehloDotGeneralOptions() const {
+    return builtin_options_2_type() == BuiltinOptions2_StablehloDotGeneralOptions ? static_cast<const StablehloDotGeneralOptions *>(builtin_options_2()) : nullptr;
+  }
+  const StablehloReduceWindowOptions *builtin_options_2_as_StablehloReduceWindowOptions() const {
+    return builtin_options_2_type() == BuiltinOptions2_StablehloReduceWindowOptions ? static_cast<const StablehloReduceWindowOptions *>(builtin_options_2()) : nullptr;
+  }
+  const StablehloSortOptions *builtin_options_2_as_StablehloSortOptions() const {
+    return builtin_options_2_type() == BuiltinOptions2_StablehloSortOptions ? static_cast<const StablehloSortOptions *>(builtin_options_2()) : nullptr;
+  }
+  const StablehloWhileOptions *builtin_options_2_as_StablehloWhileOptions() const {
+    return builtin_options_2_type() == BuiltinOptions2_StablehloWhileOptions ? static_cast<const StablehloWhileOptions *>(builtin_options_2()) : nullptr;
+  }
+  const StablehloGatherOptions *builtin_options_2_as_StablehloGatherOptions() const {
+    return builtin_options_2_type() == BuiltinOptions2_StablehloGatherOptions ? static_cast<const StablehloGatherOptions *>(builtin_options_2()) : nullptr;
+  }
+  const StablehloTransposeOptions *builtin_options_2_as_StablehloTransposeOptions() const {
+    return builtin_options_2_type() == BuiltinOptions2_StablehloTransposeOptions ? static_cast<const StablehloTransposeOptions *>(builtin_options_2()) : nullptr;
+  }
+  const DilateOptions *builtin_options_2_as_DilateOptions() const {
+    return builtin_options_2_type() == BuiltinOptions2_DilateOptions ? static_cast<const DilateOptions *>(builtin_options_2()) : nullptr;
+  }
+  const StablehloRngBitGeneratorOptions *builtin_options_2_as_StablehloRngBitGeneratorOptions() const {
+    return builtin_options_2_type() == BuiltinOptions2_StablehloRngBitGeneratorOptions ? static_cast<const StablehloRngBitGeneratorOptions *>(builtin_options_2()) : nullptr;
+  }
+  const ReduceWindowOptions *builtin_options_2_as_ReduceWindowOptions() const {
+    return builtin_options_2_type() == BuiltinOptions2_ReduceWindowOptions ? static_cast<const ReduceWindowOptions *>(builtin_options_2()) : nullptr;
+  }
+  const StableHLOCompositeOptions *builtin_options_2_as_StableHLOCompositeOptions() const {
+    return builtin_options_2_type() == BuiltinOptions2_StableHLOCompositeOptions ? static_cast<const StableHLOCompositeOptions *>(builtin_options_2()) : nullptr;
+  }
+  const StablehloShiftLeftOptions *builtin_options_2_as_StablehloShiftLeftOptions() const {
+    return builtin_options_2_type() == BuiltinOptions2_StablehloShiftLeftOptions ? static_cast<const StablehloShiftLeftOptions *>(builtin_options_2()) : nullptr;
+  }
+  const StablehloCaseOptions *builtin_options_2_as_StablehloCaseOptions() const {
+    return builtin_options_2_type() == BuiltinOptions2_StablehloCaseOptions ? static_cast<const StablehloCaseOptions *>(builtin_options_2()) : nullptr;
+  }
+  int32_t debug_metadata_index() const {
+    return GetField<int32_t>(30, -1);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
@@ -10928,6 +14997,12 @@ struct Operator FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            verifier.VerifyVector(mutating_variable_inputs()) &&
            VerifyOffset(verifier, 20) &&
            verifier.VerifyVector(intermediates()) &&
+           VerifyField<uint64_t>(verifier, 22) &&
+           VerifyField<uint64_t>(verifier, 24) &&
+           VerifyField<uint8_t>(verifier, 26) &&
+           VerifyOffset(verifier, 28) &&
+           VerifyBuiltinOptions2(verifier, builtin_options_2(), builtin_options_2_type()) &&
+           VerifyField<int32_t>(verifier, 30) &&
            verifier.EndTable();
   }
   OperatorT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -11387,6 +15462,150 @@ template<> inline const AssignVariableOptions *Operator::builtin_options_as<Assi
   return builtin_options_as_AssignVariableOptions();
 }
 
+template<> inline const RandomOptions *Operator::builtin_options_as<RandomOptions>() const {
+  return builtin_options_as_RandomOptions();
+}
+
+template<> inline const BucketizeOptions *Operator::builtin_options_as<BucketizeOptions>() const {
+  return builtin_options_as_BucketizeOptions();
+}
+
+template<> inline const GeluOptions *Operator::builtin_options_as<GeluOptions>() const {
+  return builtin_options_as_GeluOptions();
+}
+
+template<> inline const DynamicUpdateSliceOptions *Operator::builtin_options_as<DynamicUpdateSliceOptions>() const {
+  return builtin_options_as_DynamicUpdateSliceOptions();
+}
+
+template<> inline const UnsortedSegmentProdOptions *Operator::builtin_options_as<UnsortedSegmentProdOptions>() const {
+  return builtin_options_as_UnsortedSegmentProdOptions();
+}
+
+template<> inline const UnsortedSegmentMaxOptions *Operator::builtin_options_as<UnsortedSegmentMaxOptions>() const {
+  return builtin_options_as_UnsortedSegmentMaxOptions();
+}
+
+template<> inline const UnsortedSegmentMinOptions *Operator::builtin_options_as<UnsortedSegmentMinOptions>() const {
+  return builtin_options_as_UnsortedSegmentMinOptions();
+}
+
+template<> inline const UnsortedSegmentSumOptions *Operator::builtin_options_as<UnsortedSegmentSumOptions>() const {
+  return builtin_options_as_UnsortedSegmentSumOptions();
+}
+
+template<> inline const ATan2Options *Operator::builtin_options_as<ATan2Options>() const {
+  return builtin_options_as_ATan2Options();
+}
+
+template<> inline const SignOptions *Operator::builtin_options_as<SignOptions>() const {
+  return builtin_options_as_SignOptions();
+}
+
+template<> inline const BitcastOptions *Operator::builtin_options_as<BitcastOptions>() const {
+  return builtin_options_as_BitcastOptions();
+}
+
+template<> inline const BitwiseXorOptions *Operator::builtin_options_as<BitwiseXorOptions>() const {
+  return builtin_options_as_BitwiseXorOptions();
+}
+
+template<> inline const RightShiftOptions *Operator::builtin_options_as<RightShiftOptions>() const {
+  return builtin_options_as_RightShiftOptions();
+}
+
+template<> inline const StablehloConcatenateOptions *Operator::builtin_options_2_as<StablehloConcatenateOptions>() const {
+  return builtin_options_2_as_StablehloConcatenateOptions();
+}
+
+template<> inline const StablehloBroadcastInDimOptions *Operator::builtin_options_2_as<StablehloBroadcastInDimOptions>() const {
+  return builtin_options_2_as_StablehloBroadcastInDimOptions();
+}
+
+template<> inline const StablehloSliceOptions *Operator::builtin_options_2_as<StablehloSliceOptions>() const {
+  return builtin_options_2_as_StablehloSliceOptions();
+}
+
+template<> inline const StablehloConvolutionOptions *Operator::builtin_options_2_as<StablehloConvolutionOptions>() const {
+  return builtin_options_2_as_StablehloConvolutionOptions();
+}
+
+template<> inline const StablehloCustomCallOptions *Operator::builtin_options_2_as<StablehloCustomCallOptions>() const {
+  return builtin_options_2_as_StablehloCustomCallOptions();
+}
+
+template<> inline const StablehloReduceOptions *Operator::builtin_options_2_as<StablehloReduceOptions>() const {
+  return builtin_options_2_as_StablehloReduceOptions();
+}
+
+template<> inline const StablehloScatterOptions *Operator::builtin_options_2_as<StablehloScatterOptions>() const {
+  return builtin_options_2_as_StablehloScatterOptions();
+}
+
+template<> inline const StablehloCompareOptions *Operator::builtin_options_2_as<StablehloCompareOptions>() const {
+  return builtin_options_2_as_StablehloCompareOptions();
+}
+
+template<> inline const StablehloDynamicSliceOptions *Operator::builtin_options_2_as<StablehloDynamicSliceOptions>() const {
+  return builtin_options_2_as_StablehloDynamicSliceOptions();
+}
+
+template<> inline const StablehloPadOptions *Operator::builtin_options_2_as<StablehloPadOptions>() const {
+  return builtin_options_2_as_StablehloPadOptions();
+}
+
+template<> inline const StablehloIotaOptions *Operator::builtin_options_2_as<StablehloIotaOptions>() const {
+  return builtin_options_2_as_StablehloIotaOptions();
+}
+
+template<> inline const StablehloDotGeneralOptions *Operator::builtin_options_2_as<StablehloDotGeneralOptions>() const {
+  return builtin_options_2_as_StablehloDotGeneralOptions();
+}
+
+template<> inline const StablehloReduceWindowOptions *Operator::builtin_options_2_as<StablehloReduceWindowOptions>() const {
+  return builtin_options_2_as_StablehloReduceWindowOptions();
+}
+
+template<> inline const StablehloSortOptions *Operator::builtin_options_2_as<StablehloSortOptions>() const {
+  return builtin_options_2_as_StablehloSortOptions();
+}
+
+template<> inline const StablehloWhileOptions *Operator::builtin_options_2_as<StablehloWhileOptions>() const {
+  return builtin_options_2_as_StablehloWhileOptions();
+}
+
+template<> inline const StablehloGatherOptions *Operator::builtin_options_2_as<StablehloGatherOptions>() const {
+  return builtin_options_2_as_StablehloGatherOptions();
+}
+
+template<> inline const StablehloTransposeOptions *Operator::builtin_options_2_as<StablehloTransposeOptions>() const {
+  return builtin_options_2_as_StablehloTransposeOptions();
+}
+
+template<> inline const DilateOptions *Operator::builtin_options_2_as<DilateOptions>() const {
+  return builtin_options_2_as_DilateOptions();
+}
+
+template<> inline const StablehloRngBitGeneratorOptions *Operator::builtin_options_2_as<StablehloRngBitGeneratorOptions>() const {
+  return builtin_options_2_as_StablehloRngBitGeneratorOptions();
+}
+
+template<> inline const ReduceWindowOptions *Operator::builtin_options_2_as<ReduceWindowOptions>() const {
+  return builtin_options_2_as_ReduceWindowOptions();
+}
+
+template<> inline const StableHLOCompositeOptions *Operator::builtin_options_2_as<StableHLOCompositeOptions>() const {
+  return builtin_options_2_as_StableHLOCompositeOptions();
+}
+
+template<> inline const StablehloShiftLeftOptions *Operator::builtin_options_2_as<StablehloShiftLeftOptions>() const {
+  return builtin_options_2_as_StablehloShiftLeftOptions();
+}
+
+template<> inline const StablehloCaseOptions *Operator::builtin_options_2_as<StablehloCaseOptions>() const {
+  return builtin_options_2_as_StablehloCaseOptions();
+}
+
 struct OperatorBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
@@ -11417,6 +15636,21 @@ struct OperatorBuilder {
   void add_intermediates(flatbuffers::Offset<flatbuffers::Vector<int32_t>> intermediates) {
     fbb_.AddOffset(20, intermediates);
   }
+  void add_large_custom_options_offset(uint64_t large_custom_options_offset) {
+    fbb_.AddElement<uint64_t>(22, large_custom_options_offset, 0);
+  }
+  void add_large_custom_options_size(uint64_t large_custom_options_size) {
+    fbb_.AddElement<uint64_t>(24, large_custom_options_size, 0);
+  }
+  void add_builtin_options_2_type(BuiltinOptions2 builtin_options_2_type) {
+    fbb_.AddElement<uint8_t>(26, static_cast<uint8_t>(builtin_options_2_type), 0);
+  }
+  void add_builtin_options_2(flatbuffers::Offset<void> builtin_options_2) {
+    fbb_.AddOffset(28, builtin_options_2);
+  }
+  void add_debug_metadata_index(int32_t debug_metadata_index) {
+    fbb_.AddElement<int32_t>(30, debug_metadata_index, -1);
+  }
   explicit OperatorBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -11439,8 +15673,17 @@ inline flatbuffers::Offset<Operator> CreateOperator(
     flatbuffers::Offset<flatbuffers::Vector<uint8_t>> custom_options = 0,
     CustomOptionsFormat custom_options_format = CustomOptionsFormat_FLEXBUFFERS,
     flatbuffers::Offset<flatbuffers::Vector<uint8_t>> mutating_variable_inputs = 0,
-    flatbuffers::Offset<flatbuffers::Vector<int32_t>> intermediates = 0) {
+    flatbuffers::Offset<flatbuffers::Vector<int32_t>> intermediates = 0,
+    uint64_t large_custom_options_offset = 0,
+    uint64_t large_custom_options_size = 0,
+    BuiltinOptions2 builtin_options_2_type = BuiltinOptions2_NONE,
+    flatbuffers::Offset<void> builtin_options_2 = 0,
+    int32_t debug_metadata_index = -1) {
   OperatorBuilder builder_(_fbb);
+  builder_.add_large_custom_options_size(large_custom_options_size);
+  builder_.add_large_custom_options_offset(large_custom_options_offset);
+  builder_.add_debug_metadata_index(debug_metadata_index);
+  builder_.add_builtin_options_2(builtin_options_2);
   builder_.add_intermediates(intermediates);
   builder_.add_mutating_variable_inputs(mutating_variable_inputs);
   builder_.add_custom_options(custom_options);
@@ -11448,6 +15691,7 @@ inline flatbuffers::Offset<Operator> CreateOperator(
   builder_.add_outputs(outputs);
   builder_.add_inputs(inputs);
   builder_.add_opcode_index(opcode_index);
+  builder_.add_builtin_options_2_type(builtin_options_2_type);
   builder_.add_custom_options_format(custom_options_format);
   builder_.add_builtin_options_type(builtin_options_type);
   return builder_.Finish();
@@ -11462,7 +15706,9 @@ struct SubGraphT : public flatbuffers::NativeTable {
   std::vector<int32_t> outputs;
   std::vector<std::unique_ptr<OperatorT>> operators;
   std::string name;
-  SubGraphT() {
+  int32_t debug_metadata_index;
+  SubGraphT()
+      : debug_metadata_index(-1) {
   }
 };
 
@@ -11486,6 +15732,9 @@ struct SubGraph FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const flatbuffers::String *name() const {
     return GetPointer<const flatbuffers::String *>(12);
   }
+  int32_t debug_metadata_index() const {
+    return GetField<int32_t>(14, -1);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, 4) &&
@@ -11500,6 +15749,7 @@ struct SubGraph FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            verifier.VerifyVectorOfTables(operators()) &&
            VerifyOffset(verifier, 12) &&
            verifier.VerifyString(name()) &&
+           VerifyField<int32_t>(verifier, 14) &&
            verifier.EndTable();
   }
   SubGraphT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -11525,6 +15775,9 @@ struct SubGraphBuilder {
   void add_name(flatbuffers::Offset<flatbuffers::String> name) {
     fbb_.AddOffset(12, name);
   }
+  void add_debug_metadata_index(int32_t debug_metadata_index) {
+    fbb_.AddElement<int32_t>(14, debug_metadata_index, -1);
+  }
   explicit SubGraphBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -11543,8 +15796,10 @@ inline flatbuffers::Offset<SubGraph> CreateSubGraph(
     flatbuffers::Offset<flatbuffers::Vector<int32_t>> inputs = 0,
     flatbuffers::Offset<flatbuffers::Vector<int32_t>> outputs = 0,
     flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<Operator>>> operators = 0,
-    flatbuffers::Offset<flatbuffers::String> name = 0) {
+    flatbuffers::Offset<flatbuffers::String> name = 0,
+    int32_t debug_metadata_index = -1) {
   SubGraphBuilder builder_(_fbb);
+  builder_.add_debug_metadata_index(debug_metadata_index);
   builder_.add_name(name);
   builder_.add_operators(operators);
   builder_.add_outputs(outputs);
@@ -11558,7 +15813,11 @@ flatbuffers::Offset<SubGraph> CreateSubGraph(flatbuffers::FlatBufferBuilder &_fb
 struct BufferT : public flatbuffers::NativeTable {
   typedef Buffer TableType;
   std::vector<uint8_t> data;
-  BufferT() {
+  uint64_t offset;
+  uint64_t size;
+  BufferT()
+      : offset(0),
+        size(0) {
   }
 };
 
@@ -11570,10 +15829,18 @@ struct Buffer FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const flatbuffers::Vector<uint8_t> *data() const {
     return GetPointer<const flatbuffers::Vector<uint8_t> *>(4);
   }
+  uint64_t offset() const {
+    return GetField<uint64_t>(6, 0);
+  }
+  uint64_t size() const {
+    return GetField<uint64_t>(8, 0);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, 4) &&
            verifier.VerifyVector(data()) &&
+           VerifyField<uint64_t>(verifier, 6) &&
+           VerifyField<uint64_t>(verifier, 8) &&
            verifier.EndTable();
   }
   BufferT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -11586,6 +15853,12 @@ struct BufferBuilder {
   flatbuffers::uoffset_t start_;
   void add_data(flatbuffers::Offset<flatbuffers::Vector<uint8_t>> data) {
     fbb_.AddOffset(4, data);
+  }
+  void add_offset(uint64_t offset) {
+    fbb_.AddElement<uint64_t>(6, offset, 0);
+  }
+  void add_size(uint64_t size) {
+    fbb_.AddElement<uint64_t>(8, size, 0);
   }
   explicit BufferBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -11601,8 +15874,12 @@ struct BufferBuilder {
 
 inline flatbuffers::Offset<Buffer> CreateBuffer(
     flatbuffers::FlatBufferBuilder &_fbb,
-    flatbuffers::Offset<flatbuffers::Vector<uint8_t>> data = 0) {
+    flatbuffers::Offset<flatbuffers::Vector<uint8_t>> data = 0,
+    uint64_t offset = 0,
+    uint64_t size = 0) {
   BufferBuilder builder_(_fbb);
+  builder_.add_size(size);
+  builder_.add_offset(offset);
   builder_.add_data(data);
   return builder_.Finish();
 }
@@ -11743,8 +16020,7 @@ struct SignatureDefT : public flatbuffers::NativeTable {
   typedef SignatureDef TableType;
   std::vector<std::unique_ptr<TensorMapT>> inputs;
   std::vector<std::unique_ptr<TensorMapT>> outputs;
-  std::string method_name;
-  std::string key;
+  std::string signature_key;
   uint32_t subgraph_index;
   SignatureDefT()
       : subgraph_index(0) {
@@ -11762,11 +16038,8 @@ struct SignatureDef FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const flatbuffers::Vector<flatbuffers::Offset<TensorMap>> *outputs() const {
     return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<TensorMap>> *>(6);
   }
-  const flatbuffers::String *method_name() const {
+  const flatbuffers::String *signature_key() const {
     return GetPointer<const flatbuffers::String *>(8);
-  }
-  const flatbuffers::String *key() const {
-    return GetPointer<const flatbuffers::String *>(10);
   }
   uint32_t subgraph_index() const {
     return GetField<uint32_t>(12, 0);
@@ -11780,9 +16053,7 @@ struct SignatureDef FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            verifier.VerifyVector(outputs()) &&
            verifier.VerifyVectorOfTables(outputs()) &&
            VerifyOffset(verifier, 8) &&
-           verifier.VerifyString(method_name()) &&
-           VerifyOffset(verifier, 10) &&
-           verifier.VerifyString(key()) &&
+           verifier.VerifyString(signature_key()) &&
            VerifyField<uint32_t>(verifier, 12) &&
            verifier.EndTable();
   }
@@ -11800,11 +16071,8 @@ struct SignatureDefBuilder {
   void add_outputs(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<TensorMap>>> outputs) {
     fbb_.AddOffset(6, outputs);
   }
-  void add_method_name(flatbuffers::Offset<flatbuffers::String> method_name) {
-    fbb_.AddOffset(8, method_name);
-  }
-  void add_key(flatbuffers::Offset<flatbuffers::String> key) {
-    fbb_.AddOffset(10, key);
+  void add_signature_key(flatbuffers::Offset<flatbuffers::String> signature_key) {
+    fbb_.AddOffset(8, signature_key);
   }
   void add_subgraph_index(uint32_t subgraph_index) {
     fbb_.AddElement<uint32_t>(12, subgraph_index, 0);
@@ -11825,13 +16093,11 @@ inline flatbuffers::Offset<SignatureDef> CreateSignatureDef(
     flatbuffers::FlatBufferBuilder &_fbb,
     flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<TensorMap>>> inputs = 0,
     flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<TensorMap>>> outputs = 0,
-    flatbuffers::Offset<flatbuffers::String> method_name = 0,
-    flatbuffers::Offset<flatbuffers::String> key = 0,
+    flatbuffers::Offset<flatbuffers::String> signature_key = 0,
     uint32_t subgraph_index = 0) {
   SignatureDefBuilder builder_(_fbb);
   builder_.add_subgraph_index(subgraph_index);
-  builder_.add_key(key);
-  builder_.add_method_name(method_name);
+  builder_.add_signature_key(signature_key);
   builder_.add_outputs(outputs);
   builder_.add_inputs(inputs);
   return builder_.Finish();
@@ -11999,6 +16265,38 @@ inline flatbuffers::Offset<CustomQuantization> CreateCustomQuantization(flatbuff
   return tflite::CreateCustomQuantization(
       _fbb,
       _custom);
+}
+
+inline BlockwiseQuantizationT *BlockwiseQuantization::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new BlockwiseQuantizationT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void BlockwiseQuantization::UnPackTo(BlockwiseQuantizationT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = scales(); _o->scales = _e; };
+  { auto _e = zero_points(); _o->zero_points = _e; };
+  { auto _e = block_size(); _o->block_size = _e; };
+}
+
+inline flatbuffers::Offset<BlockwiseQuantization> BlockwiseQuantization::Pack(flatbuffers::FlatBufferBuilder &_fbb, const BlockwiseQuantizationT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateBlockwiseQuantization(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<BlockwiseQuantization> CreateBlockwiseQuantization(flatbuffers::FlatBufferBuilder &_fbb, const BlockwiseQuantizationT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const BlockwiseQuantizationT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _scales = _o->scales;
+  auto _zero_points = _o->zero_points;
+  auto _block_size = _o->block_size;
+  return tflite::CreateBlockwiseQuantization(
+      _fbb,
+      _scales,
+      _zero_points,
+      _block_size);
 }
 
 inline QuantizationParametersT *QuantizationParameters::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -12196,6 +16494,38 @@ inline flatbuffers::Offset<SparsityParameters> CreateSparsityParameters(flatbuff
       _dim_metadata);
 }
 
+inline VariantSubTypeT *VariantSubType::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new VariantSubTypeT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void VariantSubType::UnPackTo(VariantSubTypeT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = shape(); if (_e) { _o->shape.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->shape[_i] = _e->Get(_i); } } };
+  { auto _e = type(); _o->type = _e; };
+  { auto _e = has_rank(); _o->has_rank = _e; };
+}
+
+inline flatbuffers::Offset<VariantSubType> VariantSubType::Pack(flatbuffers::FlatBufferBuilder &_fbb, const VariantSubTypeT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateVariantSubType(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<VariantSubType> CreateVariantSubType(flatbuffers::FlatBufferBuilder &_fbb, const VariantSubTypeT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const VariantSubTypeT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _shape = _o->shape.size() ? _fbb.CreateVector(_o->shape) : 0;
+  auto _type = _o->type;
+  auto _has_rank = _o->has_rank;
+  return tflite::CreateVariantSubType(
+      _fbb,
+      _shape,
+      _type,
+      _has_rank);
+}
+
 inline TensorT *Tensor::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
   auto _o = new TensorT();
   UnPackTo(_o, _resolver);
@@ -12213,6 +16543,8 @@ inline void Tensor::UnPackTo(TensorT *_o, const flatbuffers::resolver_function_t
   { auto _e = is_variable(); _o->is_variable = _e; };
   { auto _e = sparsity(); if (_e) _o->sparsity = std::unique_ptr<SparsityParametersT>(_e->UnPack(_resolver)); };
   { auto _e = shape_signature(); if (_e) { _o->shape_signature.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->shape_signature[_i] = _e->Get(_i); } } };
+  { auto _e = has_rank(); _o->has_rank = _e; };
+  { auto _e = variant_tensors(); if (_e) { _o->variant_tensors.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->variant_tensors[_i] = std::unique_ptr<VariantSubTypeT>(_e->Get(_i)->UnPack(_resolver)); } } };
 }
 
 inline flatbuffers::Offset<Tensor> Tensor::Pack(flatbuffers::FlatBufferBuilder &_fbb, const TensorT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -12231,6 +16563,8 @@ inline flatbuffers::Offset<Tensor> CreateTensor(flatbuffers::FlatBufferBuilder &
   auto _is_variable = _o->is_variable;
   auto _sparsity = _o->sparsity ? CreateSparsityParameters(_fbb, _o->sparsity.get(), _rehasher) : 0;
   auto _shape_signature = _o->shape_signature.size() ? _fbb.CreateVector(_o->shape_signature) : 0;
+  auto _has_rank = _o->has_rank;
+  auto _variant_tensors = _o->variant_tensors.size() ? _fbb.CreateVector<flatbuffers::Offset<VariantSubType>> (_o->variant_tensors.size(), [](size_t i, _VectorArgs *__va) { return CreateVariantSubType(*__va->__fbb, __va->__o->variant_tensors[i].get(), __va->__rehasher); }, &_va ) : 0;
   return tflite::CreateTensor(
       _fbb,
       _shape,
@@ -12240,7 +16574,653 @@ inline flatbuffers::Offset<Tensor> CreateTensor(flatbuffers::FlatBufferBuilder &
       _quantization,
       _is_variable,
       _sparsity,
-      _shape_signature);
+      _shape_signature,
+      _has_rank,
+      _variant_tensors);
+}
+
+inline StablehloGatherOptionsT *StablehloGatherOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new StablehloGatherOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void StablehloGatherOptions::UnPackTo(StablehloGatherOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = offset_dims(); if (_e) { _o->offset_dims.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->offset_dims[_i] = _e->Get(_i); } } };
+  { auto _e = collapsed_slice_dims(); if (_e) { _o->collapsed_slice_dims.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->collapsed_slice_dims[_i] = _e->Get(_i); } } };
+  { auto _e = start_index_map(); if (_e) { _o->start_index_map.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->start_index_map[_i] = _e->Get(_i); } } };
+  { auto _e = index_vector_dim(); _o->index_vector_dim = _e; };
+  { auto _e = slice_sizes(); if (_e) { _o->slice_sizes.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->slice_sizes[_i] = _e->Get(_i); } } };
+  { auto _e = indices_are_sorted(); _o->indices_are_sorted = _e; };
+}
+
+inline flatbuffers::Offset<StablehloGatherOptions> StablehloGatherOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloGatherOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateStablehloGatherOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<StablehloGatherOptions> CreateStablehloGatherOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloGatherOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const StablehloGatherOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _offset_dims = _o->offset_dims.size() ? _fbb.CreateVector(_o->offset_dims) : 0;
+  auto _collapsed_slice_dims = _o->collapsed_slice_dims.size() ? _fbb.CreateVector(_o->collapsed_slice_dims) : 0;
+  auto _start_index_map = _o->start_index_map.size() ? _fbb.CreateVector(_o->start_index_map) : 0;
+  auto _index_vector_dim = _o->index_vector_dim;
+  auto _slice_sizes = _o->slice_sizes.size() ? _fbb.CreateVector(_o->slice_sizes) : 0;
+  auto _indices_are_sorted = _o->indices_are_sorted;
+  return tflite::CreateStablehloGatherOptions(
+      _fbb,
+      _offset_dims,
+      _collapsed_slice_dims,
+      _start_index_map,
+      _index_vector_dim,
+      _slice_sizes,
+      _indices_are_sorted);
+}
+
+inline StablehloTransposeOptionsT *StablehloTransposeOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new StablehloTransposeOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void StablehloTransposeOptions::UnPackTo(StablehloTransposeOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = permutation(); if (_e) { _o->permutation.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->permutation[_i] = _e->Get(_i); } } };
+}
+
+inline flatbuffers::Offset<StablehloTransposeOptions> StablehloTransposeOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloTransposeOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateStablehloTransposeOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<StablehloTransposeOptions> CreateStablehloTransposeOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloTransposeOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const StablehloTransposeOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _permutation = _o->permutation.size() ? _fbb.CreateVector(_o->permutation) : 0;
+  return tflite::CreateStablehloTransposeOptions(
+      _fbb,
+      _permutation);
+}
+
+inline StablehloDotGeneralOptionsT *StablehloDotGeneralOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new StablehloDotGeneralOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void StablehloDotGeneralOptions::UnPackTo(StablehloDotGeneralOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = lhs_batching_dimensions(); if (_e) { _o->lhs_batching_dimensions.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->lhs_batching_dimensions[_i] = _e->Get(_i); } } };
+  { auto _e = rhs_batching_dimensions(); if (_e) { _o->rhs_batching_dimensions.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->rhs_batching_dimensions[_i] = _e->Get(_i); } } };
+  { auto _e = lhs_contracting_dimensions(); if (_e) { _o->lhs_contracting_dimensions.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->lhs_contracting_dimensions[_i] = _e->Get(_i); } } };
+  { auto _e = rhs_contracting_dimensions(); if (_e) { _o->rhs_contracting_dimensions.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->rhs_contracting_dimensions[_i] = _e->Get(_i); } } };
+  { auto _e = precision_config(); if (_e) { _o->precision_config.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->precision_config[_i] = static_cast<StablehloPrecisionConfig>(_e->Get(_i)); } } };
+}
+
+inline flatbuffers::Offset<StablehloDotGeneralOptions> StablehloDotGeneralOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloDotGeneralOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateStablehloDotGeneralOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<StablehloDotGeneralOptions> CreateStablehloDotGeneralOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloDotGeneralOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const StablehloDotGeneralOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _lhs_batching_dimensions = _o->lhs_batching_dimensions.size() ? _fbb.CreateVector(_o->lhs_batching_dimensions) : 0;
+  auto _rhs_batching_dimensions = _o->rhs_batching_dimensions.size() ? _fbb.CreateVector(_o->rhs_batching_dimensions) : 0;
+  auto _lhs_contracting_dimensions = _o->lhs_contracting_dimensions.size() ? _fbb.CreateVector(_o->lhs_contracting_dimensions) : 0;
+  auto _rhs_contracting_dimensions = _o->rhs_contracting_dimensions.size() ? _fbb.CreateVector(_o->rhs_contracting_dimensions) : 0;
+  auto _precision_config = _o->precision_config.size() ? _fbb.CreateVectorScalarCast<uint32_t>(flatbuffers::data(_o->precision_config), _o->precision_config.size()) : 0;
+  return tflite::CreateStablehloDotGeneralOptions(
+      _fbb,
+      _lhs_batching_dimensions,
+      _rhs_batching_dimensions,
+      _lhs_contracting_dimensions,
+      _rhs_contracting_dimensions,
+      _precision_config);
+}
+
+inline StablehloReduceWindowOptionsT *StablehloReduceWindowOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new StablehloReduceWindowOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void StablehloReduceWindowOptions::UnPackTo(StablehloReduceWindowOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = window_dimensions(); if (_e) { _o->window_dimensions.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->window_dimensions[_i] = _e->Get(_i); } } };
+  { auto _e = window_strides(); if (_e) { _o->window_strides.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->window_strides[_i] = _e->Get(_i); } } };
+  { auto _e = base_dilations(); if (_e) { _o->base_dilations.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->base_dilations[_i] = _e->Get(_i); } } };
+  { auto _e = window_dilations(); if (_e) { _o->window_dilations.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->window_dilations[_i] = _e->Get(_i); } } };
+  { auto _e = padding(); if (_e) { _o->padding.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->padding[_i] = _e->Get(_i); } } };
+  { auto _e = body_subgraph_index(); _o->body_subgraph_index = _e; };
+}
+
+inline flatbuffers::Offset<StablehloReduceWindowOptions> StablehloReduceWindowOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloReduceWindowOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateStablehloReduceWindowOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<StablehloReduceWindowOptions> CreateStablehloReduceWindowOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloReduceWindowOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const StablehloReduceWindowOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _window_dimensions = _o->window_dimensions.size() ? _fbb.CreateVector(_o->window_dimensions) : 0;
+  auto _window_strides = _o->window_strides.size() ? _fbb.CreateVector(_o->window_strides) : 0;
+  auto _base_dilations = _o->base_dilations.size() ? _fbb.CreateVector(_o->base_dilations) : 0;
+  auto _window_dilations = _o->window_dilations.size() ? _fbb.CreateVector(_o->window_dilations) : 0;
+  auto _padding = _o->padding.size() ? _fbb.CreateVector(_o->padding) : 0;
+  auto _body_subgraph_index = _o->body_subgraph_index;
+  return tflite::CreateStablehloReduceWindowOptions(
+      _fbb,
+      _window_dimensions,
+      _window_strides,
+      _base_dilations,
+      _window_dilations,
+      _padding,
+      _body_subgraph_index);
+}
+
+inline StablehloWhileOptionsT *StablehloWhileOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new StablehloWhileOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void StablehloWhileOptions::UnPackTo(StablehloWhileOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = cond_subgraph_index(); _o->cond_subgraph_index = _e; };
+  { auto _e = body_subgraph_index(); _o->body_subgraph_index = _e; };
+}
+
+inline flatbuffers::Offset<StablehloWhileOptions> StablehloWhileOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloWhileOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateStablehloWhileOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<StablehloWhileOptions> CreateStablehloWhileOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloWhileOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const StablehloWhileOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _cond_subgraph_index = _o->cond_subgraph_index;
+  auto _body_subgraph_index = _o->body_subgraph_index;
+  return tflite::CreateStablehloWhileOptions(
+      _fbb,
+      _cond_subgraph_index,
+      _body_subgraph_index);
+}
+
+inline StablehloSortOptionsT *StablehloSortOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new StablehloSortOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void StablehloSortOptions::UnPackTo(StablehloSortOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = dimension(); _o->dimension = _e; };
+  { auto _e = is_stable(); _o->is_stable = _e; };
+  { auto _e = comparator_subgraph_index(); _o->comparator_subgraph_index = _e; };
+}
+
+inline flatbuffers::Offset<StablehloSortOptions> StablehloSortOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloSortOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateStablehloSortOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<StablehloSortOptions> CreateStablehloSortOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloSortOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const StablehloSortOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _dimension = _o->dimension;
+  auto _is_stable = _o->is_stable;
+  auto _comparator_subgraph_index = _o->comparator_subgraph_index;
+  return tflite::CreateStablehloSortOptions(
+      _fbb,
+      _dimension,
+      _is_stable,
+      _comparator_subgraph_index);
+}
+
+inline StablehloConcatenateOptionsT *StablehloConcatenateOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new StablehloConcatenateOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void StablehloConcatenateOptions::UnPackTo(StablehloConcatenateOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = dimension(); _o->dimension = _e; };
+}
+
+inline flatbuffers::Offset<StablehloConcatenateOptions> StablehloConcatenateOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloConcatenateOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateStablehloConcatenateOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<StablehloConcatenateOptions> CreateStablehloConcatenateOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloConcatenateOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const StablehloConcatenateOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _dimension = _o->dimension;
+  return tflite::CreateStablehloConcatenateOptions(
+      _fbb,
+      _dimension);
+}
+
+inline StablehloBroadcastInDimOptionsT *StablehloBroadcastInDimOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new StablehloBroadcastInDimOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void StablehloBroadcastInDimOptions::UnPackTo(StablehloBroadcastInDimOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = broadcast_dimensions(); if (_e) { _o->broadcast_dimensions.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->broadcast_dimensions[_i] = _e->Get(_i); } } };
+}
+
+inline flatbuffers::Offset<StablehloBroadcastInDimOptions> StablehloBroadcastInDimOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloBroadcastInDimOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateStablehloBroadcastInDimOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<StablehloBroadcastInDimOptions> CreateStablehloBroadcastInDimOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloBroadcastInDimOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const StablehloBroadcastInDimOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _broadcast_dimensions = _o->broadcast_dimensions.size() ? _fbb.CreateVector(_o->broadcast_dimensions) : 0;
+  return tflite::CreateStablehloBroadcastInDimOptions(
+      _fbb,
+      _broadcast_dimensions);
+}
+
+inline StablehloCompareOptionsT *StablehloCompareOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new StablehloCompareOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void StablehloCompareOptions::UnPackTo(StablehloCompareOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = comparison_direction(); _o->comparison_direction = _e; };
+  { auto _e = compare_type(); _o->compare_type = _e; };
+}
+
+inline flatbuffers::Offset<StablehloCompareOptions> StablehloCompareOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloCompareOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateStablehloCompareOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<StablehloCompareOptions> CreateStablehloCompareOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloCompareOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const StablehloCompareOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _comparison_direction = _o->comparison_direction;
+  auto _compare_type = _o->compare_type;
+  return tflite::CreateStablehloCompareOptions(
+      _fbb,
+      _comparison_direction,
+      _compare_type);
+}
+
+inline StablehloDynamicSliceOptionsT *StablehloDynamicSliceOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new StablehloDynamicSliceOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void StablehloDynamicSliceOptions::UnPackTo(StablehloDynamicSliceOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = slice_sizes(); if (_e) { _o->slice_sizes.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->slice_sizes[_i] = _e->Get(_i); } } };
+}
+
+inline flatbuffers::Offset<StablehloDynamicSliceOptions> StablehloDynamicSliceOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloDynamicSliceOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateStablehloDynamicSliceOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<StablehloDynamicSliceOptions> CreateStablehloDynamicSliceOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloDynamicSliceOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const StablehloDynamicSliceOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _slice_sizes = _o->slice_sizes.size() ? _fbb.CreateVector(_o->slice_sizes) : 0;
+  return tflite::CreateStablehloDynamicSliceOptions(
+      _fbb,
+      _slice_sizes);
+}
+
+inline StablehloPadOptionsT *StablehloPadOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new StablehloPadOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void StablehloPadOptions::UnPackTo(StablehloPadOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = edge_padding_low(); if (_e) { _o->edge_padding_low.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->edge_padding_low[_i] = _e->Get(_i); } } };
+  { auto _e = edge_padding_high(); if (_e) { _o->edge_padding_high.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->edge_padding_high[_i] = _e->Get(_i); } } };
+  { auto _e = interior_padding(); if (_e) { _o->interior_padding.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->interior_padding[_i] = _e->Get(_i); } } };
+}
+
+inline flatbuffers::Offset<StablehloPadOptions> StablehloPadOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloPadOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateStablehloPadOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<StablehloPadOptions> CreateStablehloPadOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloPadOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const StablehloPadOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _edge_padding_low = _o->edge_padding_low.size() ? _fbb.CreateVector(_o->edge_padding_low) : 0;
+  auto _edge_padding_high = _o->edge_padding_high.size() ? _fbb.CreateVector(_o->edge_padding_high) : 0;
+  auto _interior_padding = _o->interior_padding.size() ? _fbb.CreateVector(_o->interior_padding) : 0;
+  return tflite::CreateStablehloPadOptions(
+      _fbb,
+      _edge_padding_low,
+      _edge_padding_high,
+      _interior_padding);
+}
+
+inline StablehloIotaOptionsT *StablehloIotaOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new StablehloIotaOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void StablehloIotaOptions::UnPackTo(StablehloIotaOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = iota_dimension(); _o->iota_dimension = _e; };
+}
+
+inline flatbuffers::Offset<StablehloIotaOptions> StablehloIotaOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloIotaOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateStablehloIotaOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<StablehloIotaOptions> CreateStablehloIotaOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloIotaOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const StablehloIotaOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _iota_dimension = _o->iota_dimension;
+  return tflite::CreateStablehloIotaOptions(
+      _fbb,
+      _iota_dimension);
+}
+
+inline StablehloCustomCallOptionsT *StablehloCustomCallOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new StablehloCustomCallOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void StablehloCustomCallOptions::UnPackTo(StablehloCustomCallOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = call_target_name(); if (_e) _o->call_target_name = _e->str(); };
+  { auto _e = has_side_effect(); _o->has_side_effect = _e; };
+  { auto _e = backend_config(); if (_e) _o->backend_config = _e->str(); };
+  { auto _e = api_version(); _o->api_version = _e; };
+  { auto _e = called_computations(); if (_e) { _o->called_computations.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->called_computations[_i] = _e->Get(_i); } } };
+  { auto _e = custom_attributes(); if (_e) { _o->custom_attributes.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->custom_attributes[_i] = _e->Get(_i); } } };
+}
+
+inline flatbuffers::Offset<StablehloCustomCallOptions> StablehloCustomCallOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloCustomCallOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateStablehloCustomCallOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<StablehloCustomCallOptions> CreateStablehloCustomCallOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloCustomCallOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const StablehloCustomCallOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _call_target_name = _o->call_target_name.empty() ? 0 : _fbb.CreateString(_o->call_target_name);
+  auto _has_side_effect = _o->has_side_effect;
+  auto _backend_config = _o->backend_config.empty() ? 0 : _fbb.CreateString(_o->backend_config);
+  auto _api_version = _o->api_version;
+  auto _called_computations = _o->called_computations.size() ? _fbb.CreateVector(_o->called_computations) : 0;
+  auto _custom_attributes = _o->custom_attributes.size() ? _fbb.CreateVector(_o->custom_attributes) : 0;
+  return tflite::CreateStablehloCustomCallOptions(
+      _fbb,
+      _call_target_name,
+      _has_side_effect,
+      _backend_config,
+      _api_version,
+      _called_computations,
+      _custom_attributes);
+}
+
+inline StablehloReduceOptionsT *StablehloReduceOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new StablehloReduceOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void StablehloReduceOptions::UnPackTo(StablehloReduceOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = dimensions(); if (_e) { _o->dimensions.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->dimensions[_i] = _e->Get(_i); } } };
+  { auto _e = body_subgraph_index(); _o->body_subgraph_index = _e; };
+}
+
+inline flatbuffers::Offset<StablehloReduceOptions> StablehloReduceOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloReduceOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateStablehloReduceOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<StablehloReduceOptions> CreateStablehloReduceOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloReduceOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const StablehloReduceOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _dimensions = _o->dimensions.size() ? _fbb.CreateVector(_o->dimensions) : 0;
+  auto _body_subgraph_index = _o->body_subgraph_index;
+  return tflite::CreateStablehloReduceOptions(
+      _fbb,
+      _dimensions,
+      _body_subgraph_index);
+}
+
+inline StablehloSliceOptionsT *StablehloSliceOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new StablehloSliceOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void StablehloSliceOptions::UnPackTo(StablehloSliceOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = start_indices(); if (_e) { _o->start_indices.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->start_indices[_i] = _e->Get(_i); } } };
+  { auto _e = limit_indices(); if (_e) { _o->limit_indices.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->limit_indices[_i] = _e->Get(_i); } } };
+  { auto _e = strides(); if (_e) { _o->strides.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->strides[_i] = _e->Get(_i); } } };
+}
+
+inline flatbuffers::Offset<StablehloSliceOptions> StablehloSliceOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloSliceOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateStablehloSliceOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<StablehloSliceOptions> CreateStablehloSliceOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloSliceOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const StablehloSliceOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _start_indices = _o->start_indices.size() ? _fbb.CreateVector(_o->start_indices) : 0;
+  auto _limit_indices = _o->limit_indices.size() ? _fbb.CreateVector(_o->limit_indices) : 0;
+  auto _strides = _o->strides.size() ? _fbb.CreateVector(_o->strides) : 0;
+  return tflite::CreateStablehloSliceOptions(
+      _fbb,
+      _start_indices,
+      _limit_indices,
+      _strides);
+}
+
+inline StablehloConvolutionOptionsT *StablehloConvolutionOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new StablehloConvolutionOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void StablehloConvolutionOptions::UnPackTo(StablehloConvolutionOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = window_strides(); if (_e) { _o->window_strides.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->window_strides[_i] = _e->Get(_i); } } };
+  { auto _e = padding(); if (_e) { _o->padding.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->padding[_i] = _e->Get(_i); } } };
+  { auto _e = lhs_dilation(); if (_e) { _o->lhs_dilation.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->lhs_dilation[_i] = _e->Get(_i); } } };
+  { auto _e = rhs_dilation(); if (_e) { _o->rhs_dilation.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->rhs_dilation[_i] = _e->Get(_i); } } };
+  { auto _e = window_reversal(); if (_e) { _o->window_reversal.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->window_reversal[_i] = _e->Get(_i) != 0; } } };
+  { auto _e = input_batch_dimension(); _o->input_batch_dimension = _e; };
+  { auto _e = input_feature_dimension(); _o->input_feature_dimension = _e; };
+  { auto _e = input_spatial_dimensions(); if (_e) { _o->input_spatial_dimensions.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->input_spatial_dimensions[_i] = _e->Get(_i); } } };
+  { auto _e = kernel_input_feature_dimension(); _o->kernel_input_feature_dimension = _e; };
+  { auto _e = kernel_output_feature_dimension(); _o->kernel_output_feature_dimension = _e; };
+  { auto _e = kernel_spatial_dimensions(); if (_e) { _o->kernel_spatial_dimensions.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->kernel_spatial_dimensions[_i] = _e->Get(_i); } } };
+  { auto _e = output_batch_dimension(); _o->output_batch_dimension = _e; };
+  { auto _e = output_feature_dimension(); _o->output_feature_dimension = _e; };
+  { auto _e = output_spatial_dimensions(); if (_e) { _o->output_spatial_dimensions.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->output_spatial_dimensions[_i] = _e->Get(_i); } } };
+  { auto _e = feature_group_count(); _o->feature_group_count = _e; };
+  { auto _e = batch_group_count(); _o->batch_group_count = _e; };
+  { auto _e = precision_config(); if (_e) { _o->precision_config.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->precision_config[_i] = static_cast<StablehloPrecisionConfig>(_e->Get(_i)); } } };
+}
+
+inline flatbuffers::Offset<StablehloConvolutionOptions> StablehloConvolutionOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloConvolutionOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateStablehloConvolutionOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<StablehloConvolutionOptions> CreateStablehloConvolutionOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloConvolutionOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const StablehloConvolutionOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _window_strides = _o->window_strides.size() ? _fbb.CreateVector(_o->window_strides) : 0;
+  auto _padding = _o->padding.size() ? _fbb.CreateVector(_o->padding) : 0;
+  auto _lhs_dilation = _o->lhs_dilation.size() ? _fbb.CreateVector(_o->lhs_dilation) : 0;
+  auto _rhs_dilation = _o->rhs_dilation.size() ? _fbb.CreateVector(_o->rhs_dilation) : 0;
+  auto _window_reversal = _o->window_reversal.size() ? _fbb.CreateVector(_o->window_reversal) : 0;
+  auto _input_batch_dimension = _o->input_batch_dimension;
+  auto _input_feature_dimension = _o->input_feature_dimension;
+  auto _input_spatial_dimensions = _o->input_spatial_dimensions.size() ? _fbb.CreateVector(_o->input_spatial_dimensions) : 0;
+  auto _kernel_input_feature_dimension = _o->kernel_input_feature_dimension;
+  auto _kernel_output_feature_dimension = _o->kernel_output_feature_dimension;
+  auto _kernel_spatial_dimensions = _o->kernel_spatial_dimensions.size() ? _fbb.CreateVector(_o->kernel_spatial_dimensions) : 0;
+  auto _output_batch_dimension = _o->output_batch_dimension;
+  auto _output_feature_dimension = _o->output_feature_dimension;
+  auto _output_spatial_dimensions = _o->output_spatial_dimensions.size() ? _fbb.CreateVector(_o->output_spatial_dimensions) : 0;
+  auto _feature_group_count = _o->feature_group_count;
+  auto _batch_group_count = _o->batch_group_count;
+  auto _precision_config = _o->precision_config.size() ? _fbb.CreateVectorScalarCast<uint32_t>(flatbuffers::data(_o->precision_config), _o->precision_config.size()) : 0;
+  return tflite::CreateStablehloConvolutionOptions(
+      _fbb,
+      _window_strides,
+      _padding,
+      _lhs_dilation,
+      _rhs_dilation,
+      _window_reversal,
+      _input_batch_dimension,
+      _input_feature_dimension,
+      _input_spatial_dimensions,
+      _kernel_input_feature_dimension,
+      _kernel_output_feature_dimension,
+      _kernel_spatial_dimensions,
+      _output_batch_dimension,
+      _output_feature_dimension,
+      _output_spatial_dimensions,
+      _feature_group_count,
+      _batch_group_count,
+      _precision_config);
+}
+
+inline StablehloScatterOptionsT *StablehloScatterOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new StablehloScatterOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void StablehloScatterOptions::UnPackTo(StablehloScatterOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = indices_are_sorted(); _o->indices_are_sorted = _e; };
+  { auto _e = update_window_dims(); if (_e) { _o->update_window_dims.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->update_window_dims[_i] = _e->Get(_i); } } };
+  { auto _e = inserted_window_dims(); if (_e) { _o->inserted_window_dims.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->inserted_window_dims[_i] = _e->Get(_i); } } };
+  { auto _e = scatter_dims_to_operand_dims(); if (_e) { _o->scatter_dims_to_operand_dims.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->scatter_dims_to_operand_dims[_i] = _e->Get(_i); } } };
+  { auto _e = index_vector_dim(); _o->index_vector_dim = _e; };
+  { auto _e = unique_indices(); _o->unique_indices = _e; };
+  { auto _e = update_computation_subgraph_index(); _o->update_computation_subgraph_index = _e; };
+}
+
+inline flatbuffers::Offset<StablehloScatterOptions> StablehloScatterOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloScatterOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateStablehloScatterOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<StablehloScatterOptions> CreateStablehloScatterOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloScatterOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const StablehloScatterOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _indices_are_sorted = _o->indices_are_sorted;
+  auto _update_window_dims = _o->update_window_dims.size() ? _fbb.CreateVector(_o->update_window_dims) : 0;
+  auto _inserted_window_dims = _o->inserted_window_dims.size() ? _fbb.CreateVector(_o->inserted_window_dims) : 0;
+  auto _scatter_dims_to_operand_dims = _o->scatter_dims_to_operand_dims.size() ? _fbb.CreateVector(_o->scatter_dims_to_operand_dims) : 0;
+  auto _index_vector_dim = _o->index_vector_dim;
+  auto _unique_indices = _o->unique_indices;
+  auto _update_computation_subgraph_index = _o->update_computation_subgraph_index;
+  return tflite::CreateStablehloScatterOptions(
+      _fbb,
+      _indices_are_sorted,
+      _update_window_dims,
+      _inserted_window_dims,
+      _scatter_dims_to_operand_dims,
+      _index_vector_dim,
+      _unique_indices,
+      _update_computation_subgraph_index);
+}
+
+inline StablehloCaseOptionsT *StablehloCaseOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new StablehloCaseOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void StablehloCaseOptions::UnPackTo(StablehloCaseOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = branch_subgraph_indices(); if (_e) { _o->branch_subgraph_indices.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->branch_subgraph_indices[_i] = _e->Get(_i); } } };
+}
+
+inline flatbuffers::Offset<StablehloCaseOptions> StablehloCaseOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloCaseOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateStablehloCaseOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<StablehloCaseOptions> CreateStablehloCaseOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloCaseOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const StablehloCaseOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _branch_subgraph_indices = _o->branch_subgraph_indices.size() ? _fbb.CreateVector(_o->branch_subgraph_indices) : 0;
+  return tflite::CreateStablehloCaseOptions(
+      _fbb,
+      _branch_subgraph_indices);
+}
+
+inline StablehloRngBitGeneratorOptionsT *StablehloRngBitGeneratorOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new StablehloRngBitGeneratorOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void StablehloRngBitGeneratorOptions::UnPackTo(StablehloRngBitGeneratorOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = algorithm(); _o->algorithm = _e; };
+}
+
+inline flatbuffers::Offset<StablehloRngBitGeneratorOptions> StablehloRngBitGeneratorOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloRngBitGeneratorOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateStablehloRngBitGeneratorOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<StablehloRngBitGeneratorOptions> CreateStablehloRngBitGeneratorOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloRngBitGeneratorOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const StablehloRngBitGeneratorOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _algorithm = _o->algorithm;
+  return tflite::CreateStablehloRngBitGeneratorOptions(
+      _fbb,
+      _algorithm);
 }
 
 inline Conv2DOptionsT *Conv2DOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -12258,6 +17238,7 @@ inline void Conv2DOptions::UnPackTo(Conv2DOptionsT *_o, const flatbuffers::resol
   { auto _e = fused_activation_function(); _o->fused_activation_function = _e; };
   { auto _e = dilation_w_factor(); _o->dilation_w_factor = _e; };
   { auto _e = dilation_h_factor(); _o->dilation_h_factor = _e; };
+  { auto _e = quantized_bias_type(); _o->quantized_bias_type = _e; };
 }
 
 inline flatbuffers::Offset<Conv2DOptions> Conv2DOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const Conv2DOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -12274,6 +17255,7 @@ inline flatbuffers::Offset<Conv2DOptions> CreateConv2DOptions(flatbuffers::FlatB
   auto _fused_activation_function = _o->fused_activation_function;
   auto _dilation_w_factor = _o->dilation_w_factor;
   auto _dilation_h_factor = _o->dilation_h_factor;
+  auto _quantized_bias_type = _o->quantized_bias_type;
   return tflite::CreateConv2DOptions(
       _fbb,
       _padding,
@@ -12281,7 +17263,8 @@ inline flatbuffers::Offset<Conv2DOptions> CreateConv2DOptions(flatbuffers::FlatB
       _stride_h,
       _fused_activation_function,
       _dilation_w_factor,
-      _dilation_h_factor);
+      _dilation_h_factor,
+      _quantized_bias_type);
 }
 
 inline Conv3DOptionsT *Conv3DOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -12615,6 +17598,7 @@ inline void FullyConnectedOptions::UnPackTo(FullyConnectedOptionsT *_o, const fl
   { auto _e = weights_format(); _o->weights_format = _e; };
   { auto _e = keep_num_dims(); _o->keep_num_dims = _e; };
   { auto _e = asymmetric_quantize_inputs(); _o->asymmetric_quantize_inputs = _e; };
+  { auto _e = quantized_bias_type(); _o->quantized_bias_type = _e; };
 }
 
 inline flatbuffers::Offset<FullyConnectedOptions> FullyConnectedOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const FullyConnectedOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -12629,12 +17613,14 @@ inline flatbuffers::Offset<FullyConnectedOptions> CreateFullyConnectedOptions(fl
   auto _weights_format = _o->weights_format;
   auto _keep_num_dims = _o->keep_num_dims;
   auto _asymmetric_quantize_inputs = _o->asymmetric_quantize_inputs;
+  auto _quantized_bias_type = _o->quantized_bias_type;
   return tflite::CreateFullyConnectedOptions(
       _fbb,
       _fused_activation_function,
       _weights_format,
       _keep_num_dims,
-      _asymmetric_quantize_inputs);
+      _asymmetric_quantize_inputs,
+      _quantized_bias_type);
 }
 
 inline SoftmaxOptionsT *SoftmaxOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -12860,6 +17846,7 @@ inline void UnidirectionalSequenceLSTMOptions::UnPackTo(UnidirectionalSequenceLS
   { auto _e = proj_clip(); _o->proj_clip = _e; };
   { auto _e = time_major(); _o->time_major = _e; };
   { auto _e = asymmetric_quantize_inputs(); _o->asymmetric_quantize_inputs = _e; };
+  { auto _e = diagonal_recurrent_tensors(); _o->diagonal_recurrent_tensors = _e; };
 }
 
 inline flatbuffers::Offset<UnidirectionalSequenceLSTMOptions> UnidirectionalSequenceLSTMOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const UnidirectionalSequenceLSTMOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -12875,13 +17862,15 @@ inline flatbuffers::Offset<UnidirectionalSequenceLSTMOptions> CreateUnidirection
   auto _proj_clip = _o->proj_clip;
   auto _time_major = _o->time_major;
   auto _asymmetric_quantize_inputs = _o->asymmetric_quantize_inputs;
+  auto _diagonal_recurrent_tensors = _o->diagonal_recurrent_tensors;
   return tflite::CreateUnidirectionalSequenceLSTMOptions(
       _fbb,
       _fused_activation_function,
       _cell_clip,
       _proj_clip,
       _time_major,
-      _asymmetric_quantize_inputs);
+      _asymmetric_quantize_inputs,
+      _diagonal_recurrent_tensors);
 }
 
 inline BidirectionalSequenceLSTMOptionsT *BidirectionalSequenceLSTMOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -13531,6 +18520,7 @@ inline void StridedSliceOptions::UnPackTo(StridedSliceOptionsT *_o, const flatbu
   { auto _e = ellipsis_mask(); _o->ellipsis_mask = _e; };
   { auto _e = new_axis_mask(); _o->new_axis_mask = _e; };
   { auto _e = shrink_axis_mask(); _o->shrink_axis_mask = _e; };
+  { auto _e = offset(); _o->offset = _e; };
 }
 
 inline flatbuffers::Offset<StridedSliceOptions> StridedSliceOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const StridedSliceOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -13546,13 +18536,15 @@ inline flatbuffers::Offset<StridedSliceOptions> CreateStridedSliceOptions(flatbu
   auto _ellipsis_mask = _o->ellipsis_mask;
   auto _new_axis_mask = _o->new_axis_mask;
   auto _shrink_axis_mask = _o->shrink_axis_mask;
+  auto _offset = _o->offset;
   return tflite::CreateStridedSliceOptions(
       _fbb,
       _begin_mask,
       _end_mask,
       _ellipsis_mask,
       _new_axis_mask,
-      _shrink_axis_mask);
+      _shrink_axis_mask,
+      _offset);
 }
 
 inline LogSoftmaxOptionsT *LogSoftmaxOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -13901,6 +18893,8 @@ inline void TransposeConvOptions::UnPackTo(TransposeConvOptionsT *_o, const flat
   { auto _e = padding(); _o->padding = _e; };
   { auto _e = stride_w(); _o->stride_w = _e; };
   { auto _e = stride_h(); _o->stride_h = _e; };
+  { auto _e = fused_activation_function(); _o->fused_activation_function = _e; };
+  { auto _e = quantized_bias_type(); _o->quantized_bias_type = _e; };
 }
 
 inline flatbuffers::Offset<TransposeConvOptions> TransposeConvOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const TransposeConvOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -13914,11 +18908,15 @@ inline flatbuffers::Offset<TransposeConvOptions> CreateTransposeConvOptions(flat
   auto _padding = _o->padding;
   auto _stride_w = _o->stride_w;
   auto _stride_h = _o->stride_h;
+  auto _fused_activation_function = _o->fused_activation_function;
+  auto _quantized_bias_type = _o->quantized_bias_type;
   return tflite::CreateTransposeConvOptions(
       _fbb,
       _padding,
       _stride_w,
-      _stride_h);
+      _stride_h,
+      _fused_activation_function,
+      _quantized_bias_type);
 }
 
 inline ExpandDimsOptionsT *ExpandDimsOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -15256,6 +20254,366 @@ inline flatbuffers::Offset<AssignVariableOptions> CreateAssignVariableOptions(fl
       _fbb);
 }
 
+inline RandomOptionsT *RandomOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new RandomOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void RandomOptions::UnPackTo(RandomOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = seed(); _o->seed = _e; };
+  { auto _e = seed2(); _o->seed2 = _e; };
+}
+
+inline flatbuffers::Offset<RandomOptions> RandomOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const RandomOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateRandomOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<RandomOptions> CreateRandomOptions(flatbuffers::FlatBufferBuilder &_fbb, const RandomOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const RandomOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _seed = _o->seed;
+  auto _seed2 = _o->seed2;
+  return tflite::CreateRandomOptions(
+      _fbb,
+      _seed,
+      _seed2);
+}
+
+inline BucketizeOptionsT *BucketizeOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new BucketizeOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void BucketizeOptions::UnPackTo(BucketizeOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = boundaries(); if (_e) { _o->boundaries.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->boundaries[_i] = _e->Get(_i); } } };
+}
+
+inline flatbuffers::Offset<BucketizeOptions> BucketizeOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const BucketizeOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateBucketizeOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<BucketizeOptions> CreateBucketizeOptions(flatbuffers::FlatBufferBuilder &_fbb, const BucketizeOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const BucketizeOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _boundaries = _o->boundaries.size() ? _fbb.CreateVector(_o->boundaries) : 0;
+  return tflite::CreateBucketizeOptions(
+      _fbb,
+      _boundaries);
+}
+
+inline GeluOptionsT *GeluOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new GeluOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void GeluOptions::UnPackTo(GeluOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = approximate(); _o->approximate = _e; };
+}
+
+inline flatbuffers::Offset<GeluOptions> GeluOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const GeluOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateGeluOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<GeluOptions> CreateGeluOptions(flatbuffers::FlatBufferBuilder &_fbb, const GeluOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const GeluOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _approximate = _o->approximate;
+  return tflite::CreateGeluOptions(
+      _fbb,
+      _approximate);
+}
+
+inline DynamicUpdateSliceOptionsT *DynamicUpdateSliceOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new DynamicUpdateSliceOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void DynamicUpdateSliceOptions::UnPackTo(DynamicUpdateSliceOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+}
+
+inline flatbuffers::Offset<DynamicUpdateSliceOptions> DynamicUpdateSliceOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const DynamicUpdateSliceOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateDynamicUpdateSliceOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<DynamicUpdateSliceOptions> CreateDynamicUpdateSliceOptions(flatbuffers::FlatBufferBuilder &_fbb, const DynamicUpdateSliceOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const DynamicUpdateSliceOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  return tflite::CreateDynamicUpdateSliceOptions(
+      _fbb);
+}
+
+inline UnsortedSegmentProdOptionsT *UnsortedSegmentProdOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new UnsortedSegmentProdOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void UnsortedSegmentProdOptions::UnPackTo(UnsortedSegmentProdOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+}
+
+inline flatbuffers::Offset<UnsortedSegmentProdOptions> UnsortedSegmentProdOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const UnsortedSegmentProdOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateUnsortedSegmentProdOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<UnsortedSegmentProdOptions> CreateUnsortedSegmentProdOptions(flatbuffers::FlatBufferBuilder &_fbb, const UnsortedSegmentProdOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const UnsortedSegmentProdOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  return tflite::CreateUnsortedSegmentProdOptions(
+      _fbb);
+}
+
+inline UnsortedSegmentMaxOptionsT *UnsortedSegmentMaxOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new UnsortedSegmentMaxOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void UnsortedSegmentMaxOptions::UnPackTo(UnsortedSegmentMaxOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+}
+
+inline flatbuffers::Offset<UnsortedSegmentMaxOptions> UnsortedSegmentMaxOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const UnsortedSegmentMaxOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateUnsortedSegmentMaxOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<UnsortedSegmentMaxOptions> CreateUnsortedSegmentMaxOptions(flatbuffers::FlatBufferBuilder &_fbb, const UnsortedSegmentMaxOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const UnsortedSegmentMaxOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  return tflite::CreateUnsortedSegmentMaxOptions(
+      _fbb);
+}
+
+inline UnsortedSegmentSumOptionsT *UnsortedSegmentSumOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new UnsortedSegmentSumOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void UnsortedSegmentSumOptions::UnPackTo(UnsortedSegmentSumOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+}
+
+inline flatbuffers::Offset<UnsortedSegmentSumOptions> UnsortedSegmentSumOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const UnsortedSegmentSumOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateUnsortedSegmentSumOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<UnsortedSegmentSumOptions> CreateUnsortedSegmentSumOptions(flatbuffers::FlatBufferBuilder &_fbb, const UnsortedSegmentSumOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const UnsortedSegmentSumOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  return tflite::CreateUnsortedSegmentSumOptions(
+      _fbb);
+}
+
+inline ATan2OptionsT *ATan2Options::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new ATan2OptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void ATan2Options::UnPackTo(ATan2OptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+}
+
+inline flatbuffers::Offset<ATan2Options> ATan2Options::Pack(flatbuffers::FlatBufferBuilder &_fbb, const ATan2OptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateATan2Options(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<ATan2Options> CreateATan2Options(flatbuffers::FlatBufferBuilder &_fbb, const ATan2OptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const ATan2OptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  return tflite::CreateATan2Options(
+      _fbb);
+}
+
+inline UnsortedSegmentMinOptionsT *UnsortedSegmentMinOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new UnsortedSegmentMinOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void UnsortedSegmentMinOptions::UnPackTo(UnsortedSegmentMinOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+}
+
+inline flatbuffers::Offset<UnsortedSegmentMinOptions> UnsortedSegmentMinOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const UnsortedSegmentMinOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateUnsortedSegmentMinOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<UnsortedSegmentMinOptions> CreateUnsortedSegmentMinOptions(flatbuffers::FlatBufferBuilder &_fbb, const UnsortedSegmentMinOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const UnsortedSegmentMinOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  return tflite::CreateUnsortedSegmentMinOptions(
+      _fbb);
+}
+
+inline SignOptionsT *SignOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new SignOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void SignOptions::UnPackTo(SignOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+}
+
+inline flatbuffers::Offset<SignOptions> SignOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const SignOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateSignOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<SignOptions> CreateSignOptions(flatbuffers::FlatBufferBuilder &_fbb, const SignOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const SignOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  return tflite::CreateSignOptions(
+      _fbb);
+}
+
+inline BitcastOptionsT *BitcastOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new BitcastOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void BitcastOptions::UnPackTo(BitcastOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+}
+
+inline flatbuffers::Offset<BitcastOptions> BitcastOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const BitcastOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateBitcastOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<BitcastOptions> CreateBitcastOptions(flatbuffers::FlatBufferBuilder &_fbb, const BitcastOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const BitcastOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  return tflite::CreateBitcastOptions(
+      _fbb);
+}
+
+inline BitwiseXorOptionsT *BitwiseXorOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new BitwiseXorOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void BitwiseXorOptions::UnPackTo(BitwiseXorOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+}
+
+inline flatbuffers::Offset<BitwiseXorOptions> BitwiseXorOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const BitwiseXorOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateBitwiseXorOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<BitwiseXorOptions> CreateBitwiseXorOptions(flatbuffers::FlatBufferBuilder &_fbb, const BitwiseXorOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const BitwiseXorOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  return tflite::CreateBitwiseXorOptions(
+      _fbb);
+}
+
+inline RightShiftOptionsT *RightShiftOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new RightShiftOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void RightShiftOptions::UnPackTo(RightShiftOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+}
+
+inline flatbuffers::Offset<RightShiftOptions> RightShiftOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const RightShiftOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateRightShiftOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<RightShiftOptions> CreateRightShiftOptions(flatbuffers::FlatBufferBuilder &_fbb, const RightShiftOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const RightShiftOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  return tflite::CreateRightShiftOptions(
+      _fbb);
+}
+
+inline DilateOptionsT *DilateOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new DilateOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void DilateOptions::UnPackTo(DilateOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+}
+
+inline flatbuffers::Offset<DilateOptions> DilateOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const DilateOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateDilateOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<DilateOptions> CreateDilateOptions(flatbuffers::FlatBufferBuilder &_fbb, const DilateOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const DilateOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  return tflite::CreateDilateOptions(
+      _fbb);
+}
+
+inline ReduceWindowOptionsT *ReduceWindowOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new ReduceWindowOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void ReduceWindowOptions::UnPackTo(ReduceWindowOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = reduce_function(); _o->reduce_function = _e; };
+}
+
+inline flatbuffers::Offset<ReduceWindowOptions> ReduceWindowOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const ReduceWindowOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateReduceWindowOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<ReduceWindowOptions> CreateReduceWindowOptions(flatbuffers::FlatBufferBuilder &_fbb, const ReduceWindowOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const ReduceWindowOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _reduce_function = _o->reduce_function;
+  return tflite::CreateReduceWindowOptions(
+      _fbb,
+      _reduce_function);
+}
+
 inline OperatorCodeT *OperatorCode::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
   auto _o = new OperatorCodeT();
   UnPackTo(_o, _resolver);
@@ -15265,9 +20623,10 @@ inline OperatorCodeT *OperatorCode::UnPack(const flatbuffers::resolver_function_
 inline void OperatorCode::UnPackTo(OperatorCodeT *_o, const flatbuffers::resolver_function_t *_resolver) const {
   (void)_o;
   (void)_resolver;
-  { auto _e = builtin_code(); _o->builtin_code = _e; };
+  { auto _e = deprecated_builtin_code(); _o->deprecated_builtin_code = _e; };
   { auto _e = custom_code(); if (_e) _o->custom_code = _e->str(); };
   { auto _e = version(); _o->version = _e; };
+  { auto _e = builtin_code(); _o->builtin_code = _e; };
 }
 
 inline flatbuffers::Offset<OperatorCode> OperatorCode::Pack(flatbuffers::FlatBufferBuilder &_fbb, const OperatorCodeT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -15278,14 +20637,77 @@ inline flatbuffers::Offset<OperatorCode> CreateOperatorCode(flatbuffers::FlatBuf
   (void)_rehasher;
   (void)_o;
   struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const OperatorCodeT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
-  auto _builtin_code = _o->builtin_code;
+  auto _deprecated_builtin_code = _o->deprecated_builtin_code;
   auto _custom_code = _o->custom_code.empty() ? 0 : _fbb.CreateString(_o->custom_code);
   auto _version = _o->version;
+  auto _builtin_code = _o->builtin_code;
   return tflite::CreateOperatorCode(
       _fbb,
-      _builtin_code,
+      _deprecated_builtin_code,
       _custom_code,
+      _version,
+      _builtin_code);
+}
+
+inline StableHLOCompositeOptionsT *StableHLOCompositeOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new StableHLOCompositeOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void StableHLOCompositeOptions::UnPackTo(StableHLOCompositeOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = name(); if (_e) _o->name = _e->str(); };
+  { auto _e = decomposition_subgraph_index(); _o->decomposition_subgraph_index = _e; };
+  { auto _e = composite_attributes(); if (_e) { _o->composite_attributes.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->composite_attributes[_i] = _e->Get(_i); } } };
+  { auto _e = composite_attributes_format(); _o->composite_attributes_format = _e; };
+  { auto _e = version(); _o->version = _e; };
+}
+
+inline flatbuffers::Offset<StableHLOCompositeOptions> StableHLOCompositeOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const StableHLOCompositeOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateStableHLOCompositeOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<StableHLOCompositeOptions> CreateStableHLOCompositeOptions(flatbuffers::FlatBufferBuilder &_fbb, const StableHLOCompositeOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const StableHLOCompositeOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _name = _o->name.empty() ? 0 : _fbb.CreateString(_o->name);
+  auto _decomposition_subgraph_index = _o->decomposition_subgraph_index;
+  auto _composite_attributes = _o->composite_attributes.size() ? _fbb.CreateVector(_o->composite_attributes) : 0;
+  auto _composite_attributes_format = _o->composite_attributes_format;
+  auto _version = _o->version;
+  return tflite::CreateStableHLOCompositeOptions(
+      _fbb,
+      _name,
+      _decomposition_subgraph_index,
+      _composite_attributes,
+      _composite_attributes_format,
       _version);
+}
+
+inline StablehloShiftLeftOptionsT *StablehloShiftLeftOptions::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new StablehloShiftLeftOptionsT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void StablehloShiftLeftOptions::UnPackTo(StablehloShiftLeftOptionsT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+}
+
+inline flatbuffers::Offset<StablehloShiftLeftOptions> StablehloShiftLeftOptions::Pack(flatbuffers::FlatBufferBuilder &_fbb, const StablehloShiftLeftOptionsT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateStablehloShiftLeftOptions(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<StablehloShiftLeftOptions> CreateStablehloShiftLeftOptions(flatbuffers::FlatBufferBuilder &_fbb, const StablehloShiftLeftOptionsT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const StablehloShiftLeftOptionsT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  return tflite::CreateStablehloShiftLeftOptions(
+      _fbb);
 }
 
 inline OperatorT *Operator::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -15306,6 +20728,11 @@ inline void Operator::UnPackTo(OperatorT *_o, const flatbuffers::resolver_functi
   { auto _e = custom_options_format(); _o->custom_options_format = _e; };
   { auto _e = mutating_variable_inputs(); if (_e) { _o->mutating_variable_inputs.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->mutating_variable_inputs[_i] = _e->Get(_i) != 0; } } };
   { auto _e = intermediates(); if (_e) { _o->intermediates.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->intermediates[_i] = _e->Get(_i); } } };
+  { auto _e = large_custom_options_offset(); _o->large_custom_options_offset = _e; };
+  { auto _e = large_custom_options_size(); _o->large_custom_options_size = _e; };
+  { auto _e = builtin_options_2_type(); _o->builtin_options_2.type = _e; };
+  { auto _e = builtin_options_2(); if (_e) _o->builtin_options_2.value = BuiltinOptions2Union::UnPack(_e, builtin_options_2_type(), _resolver); };
+  { auto _e = debug_metadata_index(); _o->debug_metadata_index = _e; };
 }
 
 inline flatbuffers::Offset<Operator> Operator::Pack(flatbuffers::FlatBufferBuilder &_fbb, const OperatorT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -15325,6 +20752,11 @@ inline flatbuffers::Offset<Operator> CreateOperator(flatbuffers::FlatBufferBuild
   auto _custom_options_format = _o->custom_options_format;
   auto _mutating_variable_inputs = _o->mutating_variable_inputs.size() ? _fbb.CreateVector(_o->mutating_variable_inputs) : 0;
   auto _intermediates = _o->intermediates.size() ? _fbb.CreateVector(_o->intermediates) : 0;
+  auto _large_custom_options_offset = _o->large_custom_options_offset;
+  auto _large_custom_options_size = _o->large_custom_options_size;
+  auto _builtin_options_2_type = _o->builtin_options_2.type;
+  auto _builtin_options_2 = _o->builtin_options_2.Pack(_fbb);
+  auto _debug_metadata_index = _o->debug_metadata_index;
   return tflite::CreateOperator(
       _fbb,
       _opcode_index,
@@ -15335,7 +20767,12 @@ inline flatbuffers::Offset<Operator> CreateOperator(flatbuffers::FlatBufferBuild
       _custom_options,
       _custom_options_format,
       _mutating_variable_inputs,
-      _intermediates);
+      _intermediates,
+      _large_custom_options_offset,
+      _large_custom_options_size,
+      _builtin_options_2_type,
+      _builtin_options_2,
+      _debug_metadata_index);
 }
 
 inline SubGraphT *SubGraph::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -15352,6 +20789,7 @@ inline void SubGraph::UnPackTo(SubGraphT *_o, const flatbuffers::resolver_functi
   { auto _e = outputs(); if (_e) { _o->outputs.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->outputs[_i] = _e->Get(_i); } } };
   { auto _e = operators(); if (_e) { _o->operators.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->operators[_i] = std::unique_ptr<OperatorT>(_e->Get(_i)->UnPack(_resolver)); } } };
   { auto _e = name(); if (_e) _o->name = _e->str(); };
+  { auto _e = debug_metadata_index(); _o->debug_metadata_index = _e; };
 }
 
 inline flatbuffers::Offset<SubGraph> SubGraph::Pack(flatbuffers::FlatBufferBuilder &_fbb, const SubGraphT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -15367,13 +20805,15 @@ inline flatbuffers::Offset<SubGraph> CreateSubGraph(flatbuffers::FlatBufferBuild
   auto _outputs = _o->outputs.size() ? _fbb.CreateVector(_o->outputs) : 0;
   auto _operators = _o->operators.size() ? _fbb.CreateVector<flatbuffers::Offset<Operator>> (_o->operators.size(), [](size_t i, _VectorArgs *__va) { return CreateOperator(*__va->__fbb, __va->__o->operators[i].get(), __va->__rehasher); }, &_va ) : 0;
   auto _name = _o->name.empty() ? 0 : _fbb.CreateString(_o->name);
+  auto _debug_metadata_index = _o->debug_metadata_index;
   return tflite::CreateSubGraph(
       _fbb,
       _tensors,
       _inputs,
       _outputs,
       _operators,
-      _name);
+      _name,
+      _debug_metadata_index);
 }
 
 inline BufferT *Buffer::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -15386,6 +20826,8 @@ inline void Buffer::UnPackTo(BufferT *_o, const flatbuffers::resolver_function_t
   (void)_o;
   (void)_resolver;
   { auto _e = data(); if (_e) { _o->data.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->data[_i] = _e->Get(_i); } } };
+  { auto _e = offset(); _o->offset = _e; };
+  { auto _e = size(); _o->size = _e; };
 }
 
 inline flatbuffers::Offset<Buffer> Buffer::Pack(flatbuffers::FlatBufferBuilder &_fbb, const BufferT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -15397,9 +20839,13 @@ inline flatbuffers::Offset<Buffer> CreateBuffer(flatbuffers::FlatBufferBuilder &
   (void)_o;
   struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const BufferT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
   auto _data = _o->data.size() ? _fbb.CreateVector(_o->data) : 0;
+  auto _offset = _o->offset;
+  auto _size = _o->size;
   return tflite::CreateBuffer(
       _fbb,
-      _data);
+      _data,
+      _offset,
+      _size);
 }
 
 inline MetadataT *Metadata::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -15471,8 +20917,7 @@ inline void SignatureDef::UnPackTo(SignatureDefT *_o, const flatbuffers::resolve
   (void)_resolver;
   { auto _e = inputs(); if (_e) { _o->inputs.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->inputs[_i] = std::unique_ptr<TensorMapT>(_e->Get(_i)->UnPack(_resolver)); } } };
   { auto _e = outputs(); if (_e) { _o->outputs.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->outputs[_i] = std::unique_ptr<TensorMapT>(_e->Get(_i)->UnPack(_resolver)); } } };
-  { auto _e = method_name(); if (_e) _o->method_name = _e->str(); };
-  { auto _e = key(); if (_e) _o->key = _e->str(); };
+  { auto _e = signature_key(); if (_e) _o->signature_key = _e->str(); };
   { auto _e = subgraph_index(); _o->subgraph_index = _e; };
 }
 
@@ -15486,15 +20931,13 @@ inline flatbuffers::Offset<SignatureDef> CreateSignatureDef(flatbuffers::FlatBuf
   struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const SignatureDefT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
   auto _inputs = _o->inputs.size() ? _fbb.CreateVector<flatbuffers::Offset<TensorMap>> (_o->inputs.size(), [](size_t i, _VectorArgs *__va) { return CreateTensorMap(*__va->__fbb, __va->__o->inputs[i].get(), __va->__rehasher); }, &_va ) : 0;
   auto _outputs = _o->outputs.size() ? _fbb.CreateVector<flatbuffers::Offset<TensorMap>> (_o->outputs.size(), [](size_t i, _VectorArgs *__va) { return CreateTensorMap(*__va->__fbb, __va->__o->outputs[i].get(), __va->__rehasher); }, &_va ) : 0;
-  auto _method_name = _o->method_name.empty() ? 0 : _fbb.CreateString(_o->method_name);
-  auto _key = _o->key.empty() ? 0 : _fbb.CreateString(_o->key);
+  auto _signature_key = _o->signature_key.empty() ? 0 : _fbb.CreateString(_o->signature_key);
   auto _subgraph_index = _o->subgraph_index;
   return tflite::CreateSignatureDef(
       _fbb,
       _inputs,
       _outputs,
-      _method_name,
-      _key,
+      _signature_key,
       _subgraph_index);
 }
 
@@ -15554,6 +20997,10 @@ inline bool VerifyQuantizationDetails(flatbuffers::Verifier &verifier, const voi
       auto ptr = reinterpret_cast<const CustomQuantization *>(obj);
       return verifier.VerifyTable(ptr);
     }
+    case QuantizationDetails_BlockwiseQuantization: {
+      auto ptr = reinterpret_cast<const BlockwiseQuantization *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
     default: return false;
   }
 }
@@ -15576,6 +21023,10 @@ inline void *QuantizationDetailsUnion::UnPack(const void *obj, QuantizationDetai
       auto ptr = reinterpret_cast<const CustomQuantization *>(obj);
       return ptr->UnPack(resolver);
     }
+    case QuantizationDetails_BlockwiseQuantization: {
+      auto ptr = reinterpret_cast<const BlockwiseQuantization *>(obj);
+      return ptr->UnPack(resolver);
+    }
     default: return nullptr;
   }
 }
@@ -15585,6 +21036,10 @@ inline flatbuffers::Offset<void> QuantizationDetailsUnion::Pack(flatbuffers::Fla
     case QuantizationDetails_CustomQuantization: {
       auto ptr = reinterpret_cast<const CustomQuantizationT *>(value);
       return CreateCustomQuantization(_fbb, ptr, _rehasher).Union();
+    }
+    case QuantizationDetails_BlockwiseQuantization: {
+      auto ptr = reinterpret_cast<const BlockwiseQuantizationT *>(value);
+      return CreateBlockwiseQuantization(_fbb, ptr, _rehasher).Union();
     }
     default: return 0;
   }
@@ -15596,6 +21051,10 @@ inline QuantizationDetailsUnion::QuantizationDetailsUnion(const QuantizationDeta
       value = new CustomQuantizationT(*reinterpret_cast<CustomQuantizationT *>(u.value));
       break;
     }
+    case QuantizationDetails_BlockwiseQuantization: {
+      value = new BlockwiseQuantizationT(*reinterpret_cast<BlockwiseQuantizationT *>(u.value));
+      break;
+    }
     default:
       break;
   }
@@ -15605,6 +21064,11 @@ inline void QuantizationDetailsUnion::Reset() {
   switch (type) {
     case QuantizationDetails_CustomQuantization: {
       auto ptr = reinterpret_cast<CustomQuantizationT *>(value);
+      delete ptr;
+      break;
+    }
+    case QuantizationDetails_BlockwiseQuantization: {
+      auto ptr = reinterpret_cast<BlockwiseQuantizationT *>(value);
       delete ptr;
       break;
     }
@@ -16182,6 +21646,58 @@ inline bool VerifyBuiltinOptions(flatbuffers::Verifier &verifier, const void *ob
       auto ptr = reinterpret_cast<const AssignVariableOptions *>(obj);
       return verifier.VerifyTable(ptr);
     }
+    case BuiltinOptions_RandomOptions: {
+      auto ptr = reinterpret_cast<const RandomOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions_BucketizeOptions: {
+      auto ptr = reinterpret_cast<const BucketizeOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions_GeluOptions: {
+      auto ptr = reinterpret_cast<const GeluOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions_DynamicUpdateSliceOptions: {
+      auto ptr = reinterpret_cast<const DynamicUpdateSliceOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions_UnsortedSegmentProdOptions: {
+      auto ptr = reinterpret_cast<const UnsortedSegmentProdOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions_UnsortedSegmentMaxOptions: {
+      auto ptr = reinterpret_cast<const UnsortedSegmentMaxOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions_UnsortedSegmentMinOptions: {
+      auto ptr = reinterpret_cast<const UnsortedSegmentMinOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions_UnsortedSegmentSumOptions: {
+      auto ptr = reinterpret_cast<const UnsortedSegmentSumOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions_ATan2Options: {
+      auto ptr = reinterpret_cast<const ATan2Options *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions_SignOptions: {
+      auto ptr = reinterpret_cast<const SignOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions_BitcastOptions: {
+      auto ptr = reinterpret_cast<const BitcastOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions_BitwiseXorOptions: {
+      auto ptr = reinterpret_cast<const BitwiseXorOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions_RightShiftOptions: {
+      auto ptr = reinterpret_cast<const RightShiftOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
     default: return false;
   }
 }
@@ -16652,6 +22168,58 @@ inline void *BuiltinOptionsUnion::UnPack(const void *obj, BuiltinOptions type, c
       auto ptr = reinterpret_cast<const AssignVariableOptions *>(obj);
       return ptr->UnPack(resolver);
     }
+    case BuiltinOptions_RandomOptions: {
+      auto ptr = reinterpret_cast<const RandomOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions_BucketizeOptions: {
+      auto ptr = reinterpret_cast<const BucketizeOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions_GeluOptions: {
+      auto ptr = reinterpret_cast<const GeluOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions_DynamicUpdateSliceOptions: {
+      auto ptr = reinterpret_cast<const DynamicUpdateSliceOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions_UnsortedSegmentProdOptions: {
+      auto ptr = reinterpret_cast<const UnsortedSegmentProdOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions_UnsortedSegmentMaxOptions: {
+      auto ptr = reinterpret_cast<const UnsortedSegmentMaxOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions_UnsortedSegmentMinOptions: {
+      auto ptr = reinterpret_cast<const UnsortedSegmentMinOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions_UnsortedSegmentSumOptions: {
+      auto ptr = reinterpret_cast<const UnsortedSegmentSumOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions_ATan2Options: {
+      auto ptr = reinterpret_cast<const ATan2Options *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions_SignOptions: {
+      auto ptr = reinterpret_cast<const SignOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions_BitcastOptions: {
+      auto ptr = reinterpret_cast<const BitcastOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions_BitwiseXorOptions: {
+      auto ptr = reinterpret_cast<const BitwiseXorOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions_RightShiftOptions: {
+      auto ptr = reinterpret_cast<const RightShiftOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
     default: return nullptr;
   }
 }
@@ -17110,6 +22678,58 @@ inline flatbuffers::Offset<void> BuiltinOptionsUnion::Pack(flatbuffers::FlatBuff
       auto ptr = reinterpret_cast<const AssignVariableOptionsT *>(value);
       return CreateAssignVariableOptions(_fbb, ptr, _rehasher).Union();
     }
+    case BuiltinOptions_RandomOptions: {
+      auto ptr = reinterpret_cast<const RandomOptionsT *>(value);
+      return CreateRandomOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions_BucketizeOptions: {
+      auto ptr = reinterpret_cast<const BucketizeOptionsT *>(value);
+      return CreateBucketizeOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions_GeluOptions: {
+      auto ptr = reinterpret_cast<const GeluOptionsT *>(value);
+      return CreateGeluOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions_DynamicUpdateSliceOptions: {
+      auto ptr = reinterpret_cast<const DynamicUpdateSliceOptionsT *>(value);
+      return CreateDynamicUpdateSliceOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions_UnsortedSegmentProdOptions: {
+      auto ptr = reinterpret_cast<const UnsortedSegmentProdOptionsT *>(value);
+      return CreateUnsortedSegmentProdOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions_UnsortedSegmentMaxOptions: {
+      auto ptr = reinterpret_cast<const UnsortedSegmentMaxOptionsT *>(value);
+      return CreateUnsortedSegmentMaxOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions_UnsortedSegmentMinOptions: {
+      auto ptr = reinterpret_cast<const UnsortedSegmentMinOptionsT *>(value);
+      return CreateUnsortedSegmentMinOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions_UnsortedSegmentSumOptions: {
+      auto ptr = reinterpret_cast<const UnsortedSegmentSumOptionsT *>(value);
+      return CreateUnsortedSegmentSumOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions_ATan2Options: {
+      auto ptr = reinterpret_cast<const ATan2OptionsT *>(value);
+      return CreateATan2Options(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions_SignOptions: {
+      auto ptr = reinterpret_cast<const SignOptionsT *>(value);
+      return CreateSignOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions_BitcastOptions: {
+      auto ptr = reinterpret_cast<const BitcastOptionsT *>(value);
+      return CreateBitcastOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions_BitwiseXorOptions: {
+      auto ptr = reinterpret_cast<const BitwiseXorOptionsT *>(value);
+      return CreateBitwiseXorOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions_RightShiftOptions: {
+      auto ptr = reinterpret_cast<const RightShiftOptionsT *>(value);
+      return CreateRightShiftOptions(_fbb, ptr, _rehasher).Union();
+    }
     default: return 0;
   }
 }
@@ -17566,6 +23186,58 @@ inline BuiltinOptionsUnion::BuiltinOptionsUnion(const BuiltinOptionsUnion &u) FL
     }
     case BuiltinOptions_AssignVariableOptions: {
       value = new AssignVariableOptionsT(*reinterpret_cast<AssignVariableOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions_RandomOptions: {
+      value = new RandomOptionsT(*reinterpret_cast<RandomOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions_BucketizeOptions: {
+      value = new BucketizeOptionsT(*reinterpret_cast<BucketizeOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions_GeluOptions: {
+      value = new GeluOptionsT(*reinterpret_cast<GeluOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions_DynamicUpdateSliceOptions: {
+      value = new DynamicUpdateSliceOptionsT(*reinterpret_cast<DynamicUpdateSliceOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions_UnsortedSegmentProdOptions: {
+      value = new UnsortedSegmentProdOptionsT(*reinterpret_cast<UnsortedSegmentProdOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions_UnsortedSegmentMaxOptions: {
+      value = new UnsortedSegmentMaxOptionsT(*reinterpret_cast<UnsortedSegmentMaxOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions_UnsortedSegmentMinOptions: {
+      value = new UnsortedSegmentMinOptionsT(*reinterpret_cast<UnsortedSegmentMinOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions_UnsortedSegmentSumOptions: {
+      value = new UnsortedSegmentSumOptionsT(*reinterpret_cast<UnsortedSegmentSumOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions_ATan2Options: {
+      value = new ATan2OptionsT(*reinterpret_cast<ATan2OptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions_SignOptions: {
+      value = new SignOptionsT(*reinterpret_cast<SignOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions_BitcastOptions: {
+      value = new BitcastOptionsT(*reinterpret_cast<BitcastOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions_BitwiseXorOptions: {
+      value = new BitwiseXorOptionsT(*reinterpret_cast<BitwiseXorOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions_RightShiftOptions: {
+      value = new RightShiftOptionsT(*reinterpret_cast<RightShiftOptionsT *>(u.value));
       break;
     }
     default:
@@ -18140,14 +23812,613 @@ inline void BuiltinOptionsUnion::Reset() {
       delete ptr;
       break;
     }
+    case BuiltinOptions_RandomOptions: {
+      auto ptr = reinterpret_cast<RandomOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions_BucketizeOptions: {
+      auto ptr = reinterpret_cast<BucketizeOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions_GeluOptions: {
+      auto ptr = reinterpret_cast<GeluOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions_DynamicUpdateSliceOptions: {
+      auto ptr = reinterpret_cast<DynamicUpdateSliceOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions_UnsortedSegmentProdOptions: {
+      auto ptr = reinterpret_cast<UnsortedSegmentProdOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions_UnsortedSegmentMaxOptions: {
+      auto ptr = reinterpret_cast<UnsortedSegmentMaxOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions_UnsortedSegmentMinOptions: {
+      auto ptr = reinterpret_cast<UnsortedSegmentMinOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions_UnsortedSegmentSumOptions: {
+      auto ptr = reinterpret_cast<UnsortedSegmentSumOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions_ATan2Options: {
+      auto ptr = reinterpret_cast<ATan2OptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions_SignOptions: {
+      auto ptr = reinterpret_cast<SignOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions_BitcastOptions: {
+      auto ptr = reinterpret_cast<BitcastOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions_BitwiseXorOptions: {
+      auto ptr = reinterpret_cast<BitwiseXorOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions_RightShiftOptions: {
+      auto ptr = reinterpret_cast<RightShiftOptionsT *>(value);
+      delete ptr;
+      break;
+    }
     default: break;
   }
   value = nullptr;
   type = BuiltinOptions_NONE;
 }
 
+inline bool VerifyBuiltinOptions2(flatbuffers::Verifier &verifier, const void *obj, BuiltinOptions2 type) {
+  switch (type) {
+    case BuiltinOptions2_NONE: {
+      return true;
+    }
+    case BuiltinOptions2_StablehloConcatenateOptions: {
+      auto ptr = reinterpret_cast<const StablehloConcatenateOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions2_StablehloBroadcastInDimOptions: {
+      auto ptr = reinterpret_cast<const StablehloBroadcastInDimOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions2_StablehloSliceOptions: {
+      auto ptr = reinterpret_cast<const StablehloSliceOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions2_StablehloConvolutionOptions: {
+      auto ptr = reinterpret_cast<const StablehloConvolutionOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions2_StablehloCustomCallOptions: {
+      auto ptr = reinterpret_cast<const StablehloCustomCallOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions2_StablehloReduceOptions: {
+      auto ptr = reinterpret_cast<const StablehloReduceOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions2_StablehloScatterOptions: {
+      auto ptr = reinterpret_cast<const StablehloScatterOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions2_StablehloCompareOptions: {
+      auto ptr = reinterpret_cast<const StablehloCompareOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions2_StablehloDynamicSliceOptions: {
+      auto ptr = reinterpret_cast<const StablehloDynamicSliceOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions2_StablehloPadOptions: {
+      auto ptr = reinterpret_cast<const StablehloPadOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions2_StablehloIotaOptions: {
+      auto ptr = reinterpret_cast<const StablehloIotaOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions2_StablehloDotGeneralOptions: {
+      auto ptr = reinterpret_cast<const StablehloDotGeneralOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions2_StablehloReduceWindowOptions: {
+      auto ptr = reinterpret_cast<const StablehloReduceWindowOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions2_StablehloSortOptions: {
+      auto ptr = reinterpret_cast<const StablehloSortOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions2_StablehloWhileOptions: {
+      auto ptr = reinterpret_cast<const StablehloWhileOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions2_StablehloGatherOptions: {
+      auto ptr = reinterpret_cast<const StablehloGatherOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions2_StablehloTransposeOptions: {
+      auto ptr = reinterpret_cast<const StablehloTransposeOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions2_DilateOptions: {
+      auto ptr = reinterpret_cast<const DilateOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions2_StablehloRngBitGeneratorOptions: {
+      auto ptr = reinterpret_cast<const StablehloRngBitGeneratorOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions2_ReduceWindowOptions: {
+      auto ptr = reinterpret_cast<const ReduceWindowOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions2_StableHLOCompositeOptions: {
+      auto ptr = reinterpret_cast<const StableHLOCompositeOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions2_StablehloShiftLeftOptions: {
+      auto ptr = reinterpret_cast<const StablehloShiftLeftOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case BuiltinOptions2_StablehloCaseOptions: {
+      auto ptr = reinterpret_cast<const StablehloCaseOptions *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    default: return false;
+  }
+}
+
+inline bool VerifyBuiltinOptions2Vector(flatbuffers::Verifier &verifier, const flatbuffers::Vector<flatbuffers::Offset<void>> *values, const flatbuffers::Vector<uint8_t> *types) {
+  if (!values || !types) return !values && !types;
+  if (values->size() != types->size()) return false;
+  for (flatbuffers::uoffset_t i = 0; i < values->size(); ++i) {
+    if (!VerifyBuiltinOptions2(
+        verifier,  values->Get(i), types->GetEnum<BuiltinOptions2>(i))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+inline void *BuiltinOptions2Union::UnPack(const void *obj, BuiltinOptions2 type, const flatbuffers::resolver_function_t *resolver) {
+  switch (type) {
+    case BuiltinOptions2_StablehloConcatenateOptions: {
+      auto ptr = reinterpret_cast<const StablehloConcatenateOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions2_StablehloBroadcastInDimOptions: {
+      auto ptr = reinterpret_cast<const StablehloBroadcastInDimOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions2_StablehloSliceOptions: {
+      auto ptr = reinterpret_cast<const StablehloSliceOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions2_StablehloConvolutionOptions: {
+      auto ptr = reinterpret_cast<const StablehloConvolutionOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions2_StablehloCustomCallOptions: {
+      auto ptr = reinterpret_cast<const StablehloCustomCallOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions2_StablehloReduceOptions: {
+      auto ptr = reinterpret_cast<const StablehloReduceOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions2_StablehloScatterOptions: {
+      auto ptr = reinterpret_cast<const StablehloScatterOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions2_StablehloCompareOptions: {
+      auto ptr = reinterpret_cast<const StablehloCompareOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions2_StablehloDynamicSliceOptions: {
+      auto ptr = reinterpret_cast<const StablehloDynamicSliceOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions2_StablehloPadOptions: {
+      auto ptr = reinterpret_cast<const StablehloPadOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions2_StablehloIotaOptions: {
+      auto ptr = reinterpret_cast<const StablehloIotaOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions2_StablehloDotGeneralOptions: {
+      auto ptr = reinterpret_cast<const StablehloDotGeneralOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions2_StablehloReduceWindowOptions: {
+      auto ptr = reinterpret_cast<const StablehloReduceWindowOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions2_StablehloSortOptions: {
+      auto ptr = reinterpret_cast<const StablehloSortOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions2_StablehloWhileOptions: {
+      auto ptr = reinterpret_cast<const StablehloWhileOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions2_StablehloGatherOptions: {
+      auto ptr = reinterpret_cast<const StablehloGatherOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions2_StablehloTransposeOptions: {
+      auto ptr = reinterpret_cast<const StablehloTransposeOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions2_DilateOptions: {
+      auto ptr = reinterpret_cast<const DilateOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions2_StablehloRngBitGeneratorOptions: {
+      auto ptr = reinterpret_cast<const StablehloRngBitGeneratorOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions2_ReduceWindowOptions: {
+      auto ptr = reinterpret_cast<const ReduceWindowOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions2_StableHLOCompositeOptions: {
+      auto ptr = reinterpret_cast<const StableHLOCompositeOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions2_StablehloShiftLeftOptions: {
+      auto ptr = reinterpret_cast<const StablehloShiftLeftOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case BuiltinOptions2_StablehloCaseOptions: {
+      auto ptr = reinterpret_cast<const StablehloCaseOptions *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    default: return nullptr;
+  }
+}
+
+inline flatbuffers::Offset<void> BuiltinOptions2Union::Pack(flatbuffers::FlatBufferBuilder &_fbb, const flatbuffers::rehasher_function_t *_rehasher) const {
+  switch (type) {
+    case BuiltinOptions2_StablehloConcatenateOptions: {
+      auto ptr = reinterpret_cast<const StablehloConcatenateOptionsT *>(value);
+      return CreateStablehloConcatenateOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions2_StablehloBroadcastInDimOptions: {
+      auto ptr = reinterpret_cast<const StablehloBroadcastInDimOptionsT *>(value);
+      return CreateStablehloBroadcastInDimOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions2_StablehloSliceOptions: {
+      auto ptr = reinterpret_cast<const StablehloSliceOptionsT *>(value);
+      return CreateStablehloSliceOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions2_StablehloConvolutionOptions: {
+      auto ptr = reinterpret_cast<const StablehloConvolutionOptionsT *>(value);
+      return CreateStablehloConvolutionOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions2_StablehloCustomCallOptions: {
+      auto ptr = reinterpret_cast<const StablehloCustomCallOptionsT *>(value);
+      return CreateStablehloCustomCallOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions2_StablehloReduceOptions: {
+      auto ptr = reinterpret_cast<const StablehloReduceOptionsT *>(value);
+      return CreateStablehloReduceOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions2_StablehloScatterOptions: {
+      auto ptr = reinterpret_cast<const StablehloScatterOptionsT *>(value);
+      return CreateStablehloScatterOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions2_StablehloCompareOptions: {
+      auto ptr = reinterpret_cast<const StablehloCompareOptionsT *>(value);
+      return CreateStablehloCompareOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions2_StablehloDynamicSliceOptions: {
+      auto ptr = reinterpret_cast<const StablehloDynamicSliceOptionsT *>(value);
+      return CreateStablehloDynamicSliceOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions2_StablehloPadOptions: {
+      auto ptr = reinterpret_cast<const StablehloPadOptionsT *>(value);
+      return CreateStablehloPadOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions2_StablehloIotaOptions: {
+      auto ptr = reinterpret_cast<const StablehloIotaOptionsT *>(value);
+      return CreateStablehloIotaOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions2_StablehloDotGeneralOptions: {
+      auto ptr = reinterpret_cast<const StablehloDotGeneralOptionsT *>(value);
+      return CreateStablehloDotGeneralOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions2_StablehloReduceWindowOptions: {
+      auto ptr = reinterpret_cast<const StablehloReduceWindowOptionsT *>(value);
+      return CreateStablehloReduceWindowOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions2_StablehloSortOptions: {
+      auto ptr = reinterpret_cast<const StablehloSortOptionsT *>(value);
+      return CreateStablehloSortOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions2_StablehloWhileOptions: {
+      auto ptr = reinterpret_cast<const StablehloWhileOptionsT *>(value);
+      return CreateStablehloWhileOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions2_StablehloGatherOptions: {
+      auto ptr = reinterpret_cast<const StablehloGatherOptionsT *>(value);
+      return CreateStablehloGatherOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions2_StablehloTransposeOptions: {
+      auto ptr = reinterpret_cast<const StablehloTransposeOptionsT *>(value);
+      return CreateStablehloTransposeOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions2_DilateOptions: {
+      auto ptr = reinterpret_cast<const DilateOptionsT *>(value);
+      return CreateDilateOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions2_StablehloRngBitGeneratorOptions: {
+      auto ptr = reinterpret_cast<const StablehloRngBitGeneratorOptionsT *>(value);
+      return CreateStablehloRngBitGeneratorOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions2_ReduceWindowOptions: {
+      auto ptr = reinterpret_cast<const ReduceWindowOptionsT *>(value);
+      return CreateReduceWindowOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions2_StableHLOCompositeOptions: {
+      auto ptr = reinterpret_cast<const StableHLOCompositeOptionsT *>(value);
+      return CreateStableHLOCompositeOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions2_StablehloShiftLeftOptions: {
+      auto ptr = reinterpret_cast<const StablehloShiftLeftOptionsT *>(value);
+      return CreateStablehloShiftLeftOptions(_fbb, ptr, _rehasher).Union();
+    }
+    case BuiltinOptions2_StablehloCaseOptions: {
+      auto ptr = reinterpret_cast<const StablehloCaseOptionsT *>(value);
+      return CreateStablehloCaseOptions(_fbb, ptr, _rehasher).Union();
+    }
+    default: return 0;
+  }
+}
+
+inline BuiltinOptions2Union::BuiltinOptions2Union(const BuiltinOptions2Union &u) FLATBUFFERS_NOEXCEPT : type(u.type), value(nullptr) {
+  switch (type) {
+    case BuiltinOptions2_StablehloConcatenateOptions: {
+      value = new StablehloConcatenateOptionsT(*reinterpret_cast<StablehloConcatenateOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions2_StablehloBroadcastInDimOptions: {
+      value = new StablehloBroadcastInDimOptionsT(*reinterpret_cast<StablehloBroadcastInDimOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions2_StablehloSliceOptions: {
+      value = new StablehloSliceOptionsT(*reinterpret_cast<StablehloSliceOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions2_StablehloConvolutionOptions: {
+      value = new StablehloConvolutionOptionsT(*reinterpret_cast<StablehloConvolutionOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions2_StablehloCustomCallOptions: {
+      value = new StablehloCustomCallOptionsT(*reinterpret_cast<StablehloCustomCallOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions2_StablehloReduceOptions: {
+      value = new StablehloReduceOptionsT(*reinterpret_cast<StablehloReduceOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions2_StablehloScatterOptions: {
+      value = new StablehloScatterOptionsT(*reinterpret_cast<StablehloScatterOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions2_StablehloCompareOptions: {
+      value = new StablehloCompareOptionsT(*reinterpret_cast<StablehloCompareOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions2_StablehloDynamicSliceOptions: {
+      value = new StablehloDynamicSliceOptionsT(*reinterpret_cast<StablehloDynamicSliceOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions2_StablehloPadOptions: {
+      value = new StablehloPadOptionsT(*reinterpret_cast<StablehloPadOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions2_StablehloIotaOptions: {
+      value = new StablehloIotaOptionsT(*reinterpret_cast<StablehloIotaOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions2_StablehloDotGeneralOptions: {
+      value = new StablehloDotGeneralOptionsT(*reinterpret_cast<StablehloDotGeneralOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions2_StablehloReduceWindowOptions: {
+      value = new StablehloReduceWindowOptionsT(*reinterpret_cast<StablehloReduceWindowOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions2_StablehloSortOptions: {
+      value = new StablehloSortOptionsT(*reinterpret_cast<StablehloSortOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions2_StablehloWhileOptions: {
+      value = new StablehloWhileOptionsT(*reinterpret_cast<StablehloWhileOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions2_StablehloGatherOptions: {
+      value = new StablehloGatherOptionsT(*reinterpret_cast<StablehloGatherOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions2_StablehloTransposeOptions: {
+      value = new StablehloTransposeOptionsT(*reinterpret_cast<StablehloTransposeOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions2_DilateOptions: {
+      value = new DilateOptionsT(*reinterpret_cast<DilateOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions2_StablehloRngBitGeneratorOptions: {
+      value = new StablehloRngBitGeneratorOptionsT(*reinterpret_cast<StablehloRngBitGeneratorOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions2_ReduceWindowOptions: {
+      value = new ReduceWindowOptionsT(*reinterpret_cast<ReduceWindowOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions2_StableHLOCompositeOptions: {
+      value = new StableHLOCompositeOptionsT(*reinterpret_cast<StableHLOCompositeOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions2_StablehloShiftLeftOptions: {
+      value = new StablehloShiftLeftOptionsT(*reinterpret_cast<StablehloShiftLeftOptionsT *>(u.value));
+      break;
+    }
+    case BuiltinOptions2_StablehloCaseOptions: {
+      value = new StablehloCaseOptionsT(*reinterpret_cast<StablehloCaseOptionsT *>(u.value));
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+inline void BuiltinOptions2Union::Reset() {
+  switch (type) {
+    case BuiltinOptions2_StablehloConcatenateOptions: {
+      auto ptr = reinterpret_cast<StablehloConcatenateOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions2_StablehloBroadcastInDimOptions: {
+      auto ptr = reinterpret_cast<StablehloBroadcastInDimOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions2_StablehloSliceOptions: {
+      auto ptr = reinterpret_cast<StablehloSliceOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions2_StablehloConvolutionOptions: {
+      auto ptr = reinterpret_cast<StablehloConvolutionOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions2_StablehloCustomCallOptions: {
+      auto ptr = reinterpret_cast<StablehloCustomCallOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions2_StablehloReduceOptions: {
+      auto ptr = reinterpret_cast<StablehloReduceOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions2_StablehloScatterOptions: {
+      auto ptr = reinterpret_cast<StablehloScatterOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions2_StablehloCompareOptions: {
+      auto ptr = reinterpret_cast<StablehloCompareOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions2_StablehloDynamicSliceOptions: {
+      auto ptr = reinterpret_cast<StablehloDynamicSliceOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions2_StablehloPadOptions: {
+      auto ptr = reinterpret_cast<StablehloPadOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions2_StablehloIotaOptions: {
+      auto ptr = reinterpret_cast<StablehloIotaOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions2_StablehloDotGeneralOptions: {
+      auto ptr = reinterpret_cast<StablehloDotGeneralOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions2_StablehloReduceWindowOptions: {
+      auto ptr = reinterpret_cast<StablehloReduceWindowOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions2_StablehloSortOptions: {
+      auto ptr = reinterpret_cast<StablehloSortOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions2_StablehloWhileOptions: {
+      auto ptr = reinterpret_cast<StablehloWhileOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions2_StablehloGatherOptions: {
+      auto ptr = reinterpret_cast<StablehloGatherOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions2_StablehloTransposeOptions: {
+      auto ptr = reinterpret_cast<StablehloTransposeOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions2_DilateOptions: {
+      auto ptr = reinterpret_cast<DilateOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions2_StablehloRngBitGeneratorOptions: {
+      auto ptr = reinterpret_cast<StablehloRngBitGeneratorOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions2_ReduceWindowOptions: {
+      auto ptr = reinterpret_cast<ReduceWindowOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions2_StableHLOCompositeOptions: {
+      auto ptr = reinterpret_cast<StableHLOCompositeOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions2_StablehloShiftLeftOptions: {
+      auto ptr = reinterpret_cast<StablehloShiftLeftOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    case BuiltinOptions2_StablehloCaseOptions: {
+      auto ptr = reinterpret_cast<StablehloCaseOptionsT *>(value);
+      delete ptr;
+      break;
+    }
+    default: break;
+  }
+  value = nullptr;
+  type = BuiltinOptions2_NONE;
+}
+
 inline const flatbuffers::TypeTable *TensorTypeTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_CHAR, 0, 0 },
+    { flatbuffers::ET_CHAR, 0, 0 },
+    { flatbuffers::ET_CHAR, 0, 0 },
     { flatbuffers::ET_CHAR, 0, 0 },
     { flatbuffers::ET_CHAR, 0, 0 },
     { flatbuffers::ET_CHAR, 0, 0 },
@@ -18184,10 +24455,13 @@ inline const flatbuffers::TypeTable *TensorTypeTypeTable() {
     "UINT64",
     "RESOURCE",
     "VARIANT",
-    "UINT32"
+    "UINT32",
+    "UINT16",
+    "INT4",
+    "BFLOAT16"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_ENUM, 16, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_ENUM, 19, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
@@ -18195,17 +24469,20 @@ inline const flatbuffers::TypeTable *TensorTypeTypeTable() {
 inline const flatbuffers::TypeTable *QuantizationDetailsTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
     { flatbuffers::ET_SEQUENCE, 0, -1 },
-    { flatbuffers::ET_SEQUENCE, 0, 0 }
+    { flatbuffers::ET_SEQUENCE, 0, 0 },
+    { flatbuffers::ET_SEQUENCE, 0, 1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
-    CustomQuantizationTypeTable
+    CustomQuantizationTypeTable,
+    BlockwiseQuantizationTypeTable
   };
   static const char * const names[] = {
     "NONE",
-    "CustomQuantization"
+    "CustomQuantization",
+    "BlockwiseQuantization"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_UNION, 2, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_UNION, 3, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
@@ -18254,133 +24531,216 @@ inline const flatbuffers::TypeTable *SparseIndexVectorTypeTable() {
 
 inline const flatbuffers::TypeTable *BuiltinOperatorTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 }
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     BuiltinOperatorTypeTable
@@ -18512,10 +24872,93 @@ inline const flatbuffers::TypeTable *BuiltinOperatorTypeTable() {
     "SELECT_V2",
     "DENSIFY",
     "SEGMENT_SUM",
-    "BATCH_MATMUL"
+    "BATCH_MATMUL",
+    "PLACEHOLDER_FOR_GREATER_OP_CODES",
+    "CUMSUM",
+    "CALL_ONCE",
+    "BROADCAST_TO",
+    "RFFT2D",
+    "CONV_3D",
+    "IMAG",
+    "REAL",
+    "COMPLEX_ABS",
+    "HASHTABLE",
+    "HASHTABLE_FIND",
+    "HASHTABLE_IMPORT",
+    "HASHTABLE_SIZE",
+    "REDUCE_ALL",
+    "CONV_3D_TRANSPOSE",
+    "VAR_HANDLE",
+    "READ_VARIABLE",
+    "ASSIGN_VARIABLE",
+    "BROADCAST_ARGS",
+    "RANDOM_STANDARD_NORMAL",
+    "BUCKETIZE",
+    "RANDOM_UNIFORM",
+    "MULTINOMIAL",
+    "GELU",
+    "DYNAMIC_UPDATE_SLICE",
+    "RELU_0_TO_1",
+    "UNSORTED_SEGMENT_PROD",
+    "UNSORTED_SEGMENT_MAX",
+    "UNSORTED_SEGMENT_SUM",
+    "ATAN2",
+    "UNSORTED_SEGMENT_MIN",
+    "SIGN",
+    "BITCAST",
+    "BITWISE_XOR",
+    "RIGHT_SHIFT",
+    "STABLEHLO_LOGISTIC",
+    "STABLEHLO_ADD",
+    "STABLEHLO_DIVIDE",
+    "STABLEHLO_MULTIPLY",
+    "STABLEHLO_MAXIMUM",
+    "STABLEHLO_RESHAPE",
+    "STABLEHLO_CLAMP",
+    "STABLEHLO_CONCATENATE",
+    "STABLEHLO_BROADCAST_IN_DIM",
+    "STABLEHLO_CONVOLUTION",
+    "STABLEHLO_SLICE",
+    "STABLEHLO_CUSTOM_CALL",
+    "STABLEHLO_REDUCE",
+    "STABLEHLO_ABS",
+    "STABLEHLO_AND",
+    "STABLEHLO_COSINE",
+    "STABLEHLO_EXPONENTIAL",
+    "STABLEHLO_FLOOR",
+    "STABLEHLO_LOG",
+    "STABLEHLO_MINIMUM",
+    "STABLEHLO_NEGATE",
+    "STABLEHLO_OR",
+    "STABLEHLO_POWER",
+    "STABLEHLO_REMAINDER",
+    "STABLEHLO_RSQRT",
+    "STABLEHLO_SELECT",
+    "STABLEHLO_SUBTRACT",
+    "STABLEHLO_TANH",
+    "STABLEHLO_SCATTER",
+    "STABLEHLO_COMPARE",
+    "STABLEHLO_CONVERT",
+    "STABLEHLO_DYNAMIC_SLICE",
+    "STABLEHLO_DYNAMIC_UPDATE_SLICE",
+    "STABLEHLO_PAD",
+    "STABLEHLO_IOTA",
+    "STABLEHLO_DOT_GENERAL",
+    "STABLEHLO_REDUCE_WINDOW",
+    "STABLEHLO_SORT",
+    "STABLEHLO_WHILE",
+    "STABLEHLO_GATHER",
+    "STABLEHLO_TRANSPOSE",
+    "DILATE",
+    "STABLEHLO_RNG_BIT_GENERATOR",
+    "REDUCE_WINDOW",
+    "STABLEHLO_COMPOSITE",
+    "STABLEHLO_SHIFT_LEFT",
+    "STABLEHLO_CBRT",
+    "STABLEHLO_CASE"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_ENUM, 127, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_ENUM, 210, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
@@ -18635,7 +25078,20 @@ inline const flatbuffers::TypeTable *BuiltinOptionsTypeTable() {
     { flatbuffers::ET_SEQUENCE, 0, 109 },
     { flatbuffers::ET_SEQUENCE, 0, 110 },
     { flatbuffers::ET_SEQUENCE, 0, 111 },
-    { flatbuffers::ET_SEQUENCE, 0, 112 }
+    { flatbuffers::ET_SEQUENCE, 0, 112 },
+    { flatbuffers::ET_SEQUENCE, 0, 113 },
+    { flatbuffers::ET_SEQUENCE, 0, 114 },
+    { flatbuffers::ET_SEQUENCE, 0, 115 },
+    { flatbuffers::ET_SEQUENCE, 0, 116 },
+    { flatbuffers::ET_SEQUENCE, 0, 117 },
+    { flatbuffers::ET_SEQUENCE, 0, 118 },
+    { flatbuffers::ET_SEQUENCE, 0, 119 },
+    { flatbuffers::ET_SEQUENCE, 0, 120 },
+    { flatbuffers::ET_SEQUENCE, 0, 121 },
+    { flatbuffers::ET_SEQUENCE, 0, 122 },
+    { flatbuffers::ET_SEQUENCE, 0, 123 },
+    { flatbuffers::ET_SEQUENCE, 0, 124 },
+    { flatbuffers::ET_SEQUENCE, 0, 125 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     Conv2DOptionsTypeTable,
@@ -18750,7 +25206,20 @@ inline const flatbuffers::TypeTable *BuiltinOptionsTypeTable() {
     HashtableSizeOptionsTypeTable,
     VarHandleOptionsTypeTable,
     ReadVariableOptionsTypeTable,
-    AssignVariableOptionsTypeTable
+    AssignVariableOptionsTypeTable,
+    RandomOptionsTypeTable,
+    BucketizeOptionsTypeTable,
+    GeluOptionsTypeTable,
+    DynamicUpdateSliceOptionsTypeTable,
+    UnsortedSegmentProdOptionsTypeTable,
+    UnsortedSegmentMaxOptionsTypeTable,
+    UnsortedSegmentMinOptionsTypeTable,
+    UnsortedSegmentSumOptionsTypeTable,
+    ATan2OptionsTypeTable,
+    SignOptionsTypeTable,
+    BitcastOptionsTypeTable,
+    BitwiseXorOptionsTypeTable,
+    RightShiftOptionsTypeTable
   };
   static const char * const names[] = {
     "NONE",
@@ -18866,10 +25335,197 @@ inline const flatbuffers::TypeTable *BuiltinOptionsTypeTable() {
     "HashtableSizeOptions",
     "VarHandleOptions",
     "ReadVariableOptions",
-    "AssignVariableOptions"
+    "AssignVariableOptions",
+    "RandomOptions",
+    "BucketizeOptions",
+    "GeluOptions",
+    "DynamicUpdateSliceOptions",
+    "UnsortedSegmentProdOptions",
+    "UnsortedSegmentMaxOptions",
+    "UnsortedSegmentMinOptions",
+    "UnsortedSegmentSumOptions",
+    "ATan2Options",
+    "SignOptions",
+    "BitcastOptions",
+    "BitwiseXorOptions",
+    "RightShiftOptions"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_UNION, 114, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_UNION, 127, type_codes, type_refs, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *BuiltinOptions2TypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_SEQUENCE, 0, -1 },
+    { flatbuffers::ET_SEQUENCE, 0, 0 },
+    { flatbuffers::ET_SEQUENCE, 0, 1 },
+    { flatbuffers::ET_SEQUENCE, 0, 2 },
+    { flatbuffers::ET_SEQUENCE, 0, 3 },
+    { flatbuffers::ET_SEQUENCE, 0, 4 },
+    { flatbuffers::ET_SEQUENCE, 0, 5 },
+    { flatbuffers::ET_SEQUENCE, 0, 6 },
+    { flatbuffers::ET_SEQUENCE, 0, 7 },
+    { flatbuffers::ET_SEQUENCE, 0, 8 },
+    { flatbuffers::ET_SEQUENCE, 0, 9 },
+    { flatbuffers::ET_SEQUENCE, 0, 10 },
+    { flatbuffers::ET_SEQUENCE, 0, 11 },
+    { flatbuffers::ET_SEQUENCE, 0, 12 },
+    { flatbuffers::ET_SEQUENCE, 0, 13 },
+    { flatbuffers::ET_SEQUENCE, 0, 14 },
+    { flatbuffers::ET_SEQUENCE, 0, 15 },
+    { flatbuffers::ET_SEQUENCE, 0, 16 },
+    { flatbuffers::ET_SEQUENCE, 0, 17 },
+    { flatbuffers::ET_SEQUENCE, 0, 18 },
+    { flatbuffers::ET_SEQUENCE, 0, 19 },
+    { flatbuffers::ET_SEQUENCE, 0, 20 },
+    { flatbuffers::ET_SEQUENCE, 0, 21 },
+    { flatbuffers::ET_SEQUENCE, 0, 22 }
+  };
+  static const flatbuffers::TypeFunction type_refs[] = {
+    StablehloConcatenateOptionsTypeTable,
+    StablehloBroadcastInDimOptionsTypeTable,
+    StablehloSliceOptionsTypeTable,
+    StablehloConvolutionOptionsTypeTable,
+    StablehloCustomCallOptionsTypeTable,
+    StablehloReduceOptionsTypeTable,
+    StablehloScatterOptionsTypeTable,
+    StablehloCompareOptionsTypeTable,
+    StablehloDynamicSliceOptionsTypeTable,
+    StablehloPadOptionsTypeTable,
+    StablehloIotaOptionsTypeTable,
+    StablehloDotGeneralOptionsTypeTable,
+    StablehloReduceWindowOptionsTypeTable,
+    StablehloSortOptionsTypeTable,
+    StablehloWhileOptionsTypeTable,
+    StablehloGatherOptionsTypeTable,
+    StablehloTransposeOptionsTypeTable,
+    DilateOptionsTypeTable,
+    StablehloRngBitGeneratorOptionsTypeTable,
+    ReduceWindowOptionsTypeTable,
+    StableHLOCompositeOptionsTypeTable,
+    StablehloShiftLeftOptionsTypeTable,
+    StablehloCaseOptionsTypeTable
+  };
+  static const char * const names[] = {
+    "NONE",
+    "StablehloConcatenateOptions",
+    "StablehloBroadcastInDimOptions",
+    "StablehloSliceOptions",
+    "StablehloConvolutionOptions",
+    "StablehloCustomCallOptions",
+    "StablehloReduceOptions",
+    "StablehloScatterOptions",
+    "StablehloCompareOptions",
+    "StablehloDynamicSliceOptions",
+    "StablehloPadOptions",
+    "StablehloIotaOptions",
+    "StablehloDotGeneralOptions",
+    "StablehloReduceWindowOptions",
+    "StablehloSortOptions",
+    "StablehloWhileOptions",
+    "StablehloGatherOptions",
+    "StablehloTransposeOptions",
+    "DilateOptions",
+    "StablehloRngBitGeneratorOptions",
+    "ReduceWindowOptions",
+    "StableHLOCompositeOptions",
+    "StablehloShiftLeftOptions",
+    "StablehloCaseOptions"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_UNION, 24, type_codes, type_refs, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *StablehloPrecisionConfigTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_UINT, 0, 0 },
+    { flatbuffers::ET_UINT, 0, 0 },
+    { flatbuffers::ET_UINT, 0, 0 }
+  };
+  static const flatbuffers::TypeFunction type_refs[] = {
+    StablehloPrecisionConfigTypeTable
+  };
+  static const char * const names[] = {
+    "DEFAULT",
+    "HIGH",
+    "HIGHEST"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_ENUM, 3, type_codes, type_refs, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *StablehloComparisonDirectionTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_UINT, 0, 0 },
+    { flatbuffers::ET_UINT, 0, 0 },
+    { flatbuffers::ET_UINT, 0, 0 },
+    { flatbuffers::ET_UINT, 0, 0 },
+    { flatbuffers::ET_UINT, 0, 0 },
+    { flatbuffers::ET_UINT, 0, 0 }
+  };
+  static const flatbuffers::TypeFunction type_refs[] = {
+    StablehloComparisonDirectionTypeTable
+  };
+  static const char * const names[] = {
+    "STABLEHLO_COMPARISON_DIRECTION_EQ",
+    "STABLEHLO_COMPARISON_DIRECTION_NE",
+    "STABLEHLO_COMPARISON_DIRECTION_GE",
+    "STABLEHLO_COMPARISON_DIRECTION_GT",
+    "STABLEHLO_COMPARISON_DIRECTION_LE",
+    "STABLEHLO_COMPARISON_DIRECTION_LT"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_ENUM, 6, type_codes, type_refs, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *StablehloComparisonTypeTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_UINT, 0, 0 },
+    { flatbuffers::ET_UINT, 0, 0 },
+    { flatbuffers::ET_UINT, 0, 0 },
+    { flatbuffers::ET_UINT, 0, 0 },
+    { flatbuffers::ET_UINT, 0, 0 }
+  };
+  static const flatbuffers::TypeFunction type_refs[] = {
+    StablehloComparisonTypeTypeTable
+  };
+  static const char * const names[] = {
+    "STABLEHLO_COMPARISON_TYPE_NOTYPE",
+    "STABLEHLO_COMPARISON_TYPE_FLOAT",
+    "STABLEHLO_COMPARISON_TYPE_FLOAT_TOTAL_ORDER",
+    "STABLEHLO_COMPARISON_TYPE_SIGNED",
+    "STABLEHLO_COMPARISON_TYPE_UNSIGNED"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_ENUM, 5, type_codes, type_refs, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *RngAlgorithmTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_CHAR, 0, 0 },
+    { flatbuffers::ET_CHAR, 0, 0 },
+    { flatbuffers::ET_CHAR, 0, 0 }
+  };
+  static const flatbuffers::TypeFunction type_refs[] = {
+    RngAlgorithmTypeTable
+  };
+  static const char * const names[] = {
+    "DEFAULT",
+    "PHILOX",
+    "THREEFRY"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_ENUM, 3, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
@@ -19012,6 +25668,34 @@ inline const flatbuffers::TypeTable *MirrorPadModeTypeTable() {
   return &tt;
 }
 
+inline const flatbuffers::TypeTable *ReduceWindowFunctionTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 }
+  };
+  static const flatbuffers::TypeFunction type_refs[] = {
+    ReduceWindowFunctionTypeTable
+  };
+  static const char * const names[] = {
+    "UNSUPPORTED",
+    "ADD",
+    "MUL",
+    "MINIMUM",
+    "MAXIMUM",
+    "ALL",
+    "ANY"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_ENUM, 7, type_codes, type_refs, nullptr, names
+  };
+  return &tt;
+}
+
 inline const flatbuffers::TypeTable *CustomOptionsFormatTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
     { flatbuffers::ET_CHAR, 0, 0 }
@@ -19037,6 +25721,23 @@ inline const flatbuffers::TypeTable *CustomQuantizationTypeTable() {
   };
   static const flatbuffers::TypeTable tt = {
     flatbuffers::ST_TABLE, 1, type_codes, nullptr, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *BlockwiseQuantizationTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 }
+  };
+  static const char * const names[] = {
+    "scales",
+    "zero_points",
+    "block_size"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 3, type_codes, nullptr, nullptr, names
   };
   return &tt;
 }
@@ -19155,6 +25856,26 @@ inline const flatbuffers::TypeTable *SparsityParametersTypeTable() {
   return &tt;
 }
 
+inline const flatbuffers::TypeTable *VariantSubTypeTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_INT, 1, -1 },
+    { flatbuffers::ET_CHAR, 0, 0 },
+    { flatbuffers::ET_BOOL, 0, -1 }
+  };
+  static const flatbuffers::TypeFunction type_refs[] = {
+    TensorTypeTypeTable
+  };
+  static const char * const names[] = {
+    "shape",
+    "type",
+    "has_rank"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 3, type_codes, type_refs, nullptr, names
+  };
+  return &tt;
+}
+
 inline const flatbuffers::TypeTable *TensorTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
     { flatbuffers::ET_INT, 1, -1 },
@@ -19164,12 +25885,15 @@ inline const flatbuffers::TypeTable *TensorTypeTable() {
     { flatbuffers::ET_SEQUENCE, 0, 1 },
     { flatbuffers::ET_BOOL, 0, -1 },
     { flatbuffers::ET_SEQUENCE, 0, 2 },
-    { flatbuffers::ET_INT, 1, -1 }
+    { flatbuffers::ET_INT, 1, -1 },
+    { flatbuffers::ET_BOOL, 0, -1 },
+    { flatbuffers::ET_SEQUENCE, 1, 3 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     TensorTypeTypeTable,
     QuantizationParametersTypeTable,
-    SparsityParametersTypeTable
+    SparsityParametersTypeTable,
+    VariantSubTypeTypeTable
   };
   static const char * const names[] = {
     "shape",
@@ -19179,10 +25903,372 @@ inline const flatbuffers::TypeTable *TensorTypeTable() {
     "quantization",
     "is_variable",
     "sparsity",
-    "shape_signature"
+    "shape_signature",
+    "has_rank",
+    "variant_tensors"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 8, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 10, type_codes, type_refs, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *StablehloGatherOptionsTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_LONG, 1, -1 },
+    { flatbuffers::ET_LONG, 1, -1 },
+    { flatbuffers::ET_LONG, 1, -1 },
+    { flatbuffers::ET_LONG, 0, -1 },
+    { flatbuffers::ET_LONG, 1, -1 },
+    { flatbuffers::ET_BOOL, 0, -1 }
+  };
+  static const char * const names[] = {
+    "offset_dims",
+    "collapsed_slice_dims",
+    "start_index_map",
+    "index_vector_dim",
+    "slice_sizes",
+    "indices_are_sorted"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 6, type_codes, nullptr, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *StablehloTransposeOptionsTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_LONG, 1, -1 }
+  };
+  static const char * const names[] = {
+    "permutation"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 1, type_codes, nullptr, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *StablehloDotGeneralOptionsTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_LONG, 1, -1 },
+    { flatbuffers::ET_LONG, 1, -1 },
+    { flatbuffers::ET_LONG, 1, -1 },
+    { flatbuffers::ET_LONG, 1, -1 },
+    { flatbuffers::ET_UINT, 1, 0 }
+  };
+  static const flatbuffers::TypeFunction type_refs[] = {
+    StablehloPrecisionConfigTypeTable
+  };
+  static const char * const names[] = {
+    "lhs_batching_dimensions",
+    "rhs_batching_dimensions",
+    "lhs_contracting_dimensions",
+    "rhs_contracting_dimensions",
+    "precision_config"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 5, type_codes, type_refs, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *StablehloReduceWindowOptionsTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_LONG, 1, -1 },
+    { flatbuffers::ET_LONG, 1, -1 },
+    { flatbuffers::ET_LONG, 1, -1 },
+    { flatbuffers::ET_LONG, 1, -1 },
+    { flatbuffers::ET_LONG, 1, -1 },
+    { flatbuffers::ET_INT, 0, -1 }
+  };
+  static const char * const names[] = {
+    "window_dimensions",
+    "window_strides",
+    "base_dilations",
+    "window_dilations",
+    "padding",
+    "body_subgraph_index"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 6, type_codes, nullptr, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *StablehloWhileOptionsTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 }
+  };
+  static const char * const names[] = {
+    "cond_subgraph_index",
+    "body_subgraph_index"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 2, type_codes, nullptr, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *StablehloSortOptionsTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_LONG, 0, -1 },
+    { flatbuffers::ET_BOOL, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 }
+  };
+  static const char * const names[] = {
+    "dimension",
+    "is_stable",
+    "comparator_subgraph_index"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 3, type_codes, nullptr, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *StablehloConcatenateOptionsTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_LONG, 0, -1 }
+  };
+  static const char * const names[] = {
+    "dimension"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 1, type_codes, nullptr, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *StablehloBroadcastInDimOptionsTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_LONG, 1, -1 }
+  };
+  static const char * const names[] = {
+    "broadcast_dimensions"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 1, type_codes, nullptr, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *StablehloCompareOptionsTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_UINT, 0, 0 },
+    { flatbuffers::ET_UINT, 0, 1 }
+  };
+  static const flatbuffers::TypeFunction type_refs[] = {
+    StablehloComparisonDirectionTypeTable,
+    StablehloComparisonTypeTypeTable
+  };
+  static const char * const names[] = {
+    "comparison_direction",
+    "compare_type"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 2, type_codes, type_refs, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *StablehloDynamicSliceOptionsTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_LONG, 1, -1 }
+  };
+  static const char * const names[] = {
+    "slice_sizes"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 1, type_codes, nullptr, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *StablehloPadOptionsTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_LONG, 1, -1 },
+    { flatbuffers::ET_LONG, 1, -1 },
+    { flatbuffers::ET_LONG, 1, -1 }
+  };
+  static const char * const names[] = {
+    "edge_padding_low",
+    "edge_padding_high",
+    "interior_padding"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 3, type_codes, nullptr, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *StablehloIotaOptionsTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_LONG, 0, -1 }
+  };
+  static const char * const names[] = {
+    "iota_dimension"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 1, type_codes, nullptr, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *StablehloCustomCallOptionsTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_STRING, 0, -1 },
+    { flatbuffers::ET_BOOL, 0, -1 },
+    { flatbuffers::ET_STRING, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_INT, 1, -1 },
+    { flatbuffers::ET_UCHAR, 1, -1 }
+  };
+  static const char * const names[] = {
+    "call_target_name",
+    "has_side_effect",
+    "backend_config",
+    "api_version",
+    "called_computations",
+    "custom_attributes"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 6, type_codes, nullptr, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *StablehloReduceOptionsTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_LONG, 1, -1 },
+    { flatbuffers::ET_INT, 0, -1 }
+  };
+  static const char * const names[] = {
+    "dimensions",
+    "body_subgraph_index"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 2, type_codes, nullptr, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *StablehloSliceOptionsTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_LONG, 1, -1 },
+    { flatbuffers::ET_LONG, 1, -1 },
+    { flatbuffers::ET_LONG, 1, -1 }
+  };
+  static const char * const names[] = {
+    "start_indices",
+    "limit_indices",
+    "strides"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 3, type_codes, nullptr, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *StablehloConvolutionOptionsTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_LONG, 1, -1 },
+    { flatbuffers::ET_LONG, 1, -1 },
+    { flatbuffers::ET_LONG, 1, -1 },
+    { flatbuffers::ET_LONG, 1, -1 },
+    { flatbuffers::ET_BOOL, 1, -1 },
+    { flatbuffers::ET_LONG, 0, -1 },
+    { flatbuffers::ET_LONG, 0, -1 },
+    { flatbuffers::ET_LONG, 1, -1 },
+    { flatbuffers::ET_LONG, 0, -1 },
+    { flatbuffers::ET_LONG, 0, -1 },
+    { flatbuffers::ET_LONG, 1, -1 },
+    { flatbuffers::ET_LONG, 0, -1 },
+    { flatbuffers::ET_LONG, 0, -1 },
+    { flatbuffers::ET_LONG, 1, -1 },
+    { flatbuffers::ET_LONG, 0, -1 },
+    { flatbuffers::ET_LONG, 0, -1 },
+    { flatbuffers::ET_UINT, 1, 0 }
+  };
+  static const flatbuffers::TypeFunction type_refs[] = {
+    StablehloPrecisionConfigTypeTable
+  };
+  static const char * const names[] = {
+    "window_strides",
+    "padding",
+    "lhs_dilation",
+    "rhs_dilation",
+    "window_reversal",
+    "input_batch_dimension",
+    "input_feature_dimension",
+    "input_spatial_dimensions",
+    "kernel_input_feature_dimension",
+    "kernel_output_feature_dimension",
+    "kernel_spatial_dimensions",
+    "output_batch_dimension",
+    "output_feature_dimension",
+    "output_spatial_dimensions",
+    "feature_group_count",
+    "batch_group_count",
+    "precision_config"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 17, type_codes, type_refs, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *StablehloScatterOptionsTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_BOOL, 0, -1 },
+    { flatbuffers::ET_LONG, 1, -1 },
+    { flatbuffers::ET_LONG, 1, -1 },
+    { flatbuffers::ET_LONG, 1, -1 },
+    { flatbuffers::ET_LONG, 0, -1 },
+    { flatbuffers::ET_BOOL, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 }
+  };
+  static const char * const names[] = {
+    "indices_are_sorted",
+    "update_window_dims",
+    "inserted_window_dims",
+    "scatter_dims_to_operand_dims",
+    "index_vector_dim",
+    "unique_indices",
+    "update_computation_subgraph_index"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 7, type_codes, nullptr, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *StablehloCaseOptionsTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_INT, 1, -1 }
+  };
+  static const char * const names[] = {
+    "branch_subgraph_indices"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 1, type_codes, nullptr, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *StablehloRngBitGeneratorOptionsTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_CHAR, 0, 0 }
+  };
+  static const flatbuffers::TypeFunction type_refs[] = {
+    RngAlgorithmTypeTable
+  };
+  static const char * const names[] = {
+    "algorithm"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 1, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
@@ -19194,11 +26280,13 @@ inline const flatbuffers::TypeTable *Conv2DOptionsTypeTable() {
     { flatbuffers::ET_INT, 0, -1 },
     { flatbuffers::ET_CHAR, 0, 1 },
     { flatbuffers::ET_INT, 0, -1 },
-    { flatbuffers::ET_INT, 0, -1 }
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_CHAR, 0, 2 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     PaddingTypeTable,
-    ActivationFunctionTypeTypeTable
+    ActivationFunctionTypeTypeTable,
+    TensorTypeTypeTable
   };
   static const char * const names[] = {
     "padding",
@@ -19206,10 +26294,11 @@ inline const flatbuffers::TypeTable *Conv2DOptionsTypeTable() {
     "stride_h",
     "fused_activation_function",
     "dilation_w_factor",
-    "dilation_h_factor"
+    "dilation_h_factor",
+    "quantized_bias_type"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 6, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 7, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
@@ -19419,20 +26508,23 @@ inline const flatbuffers::TypeTable *FullyConnectedOptionsTypeTable() {
     { flatbuffers::ET_CHAR, 0, 0 },
     { flatbuffers::ET_CHAR, 0, 1 },
     { flatbuffers::ET_BOOL, 0, -1 },
-    { flatbuffers::ET_BOOL, 0, -1 }
+    { flatbuffers::ET_BOOL, 0, -1 },
+    { flatbuffers::ET_CHAR, 0, 2 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     ActivationFunctionTypeTypeTable,
-    FullyConnectedOptionsWeightsFormatTypeTable
+    FullyConnectedOptionsWeightsFormatTypeTable,
+    TensorTypeTypeTable
   };
   static const char * const names[] = {
     "fused_activation_function",
     "weights_format",
     "keep_num_dims",
-    "asymmetric_quantize_inputs"
+    "asymmetric_quantize_inputs",
+    "quantized_bias_type"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 4, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 5, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
@@ -19568,6 +26660,7 @@ inline const flatbuffers::TypeTable *UnidirectionalSequenceLSTMOptionsTypeTable(
     { flatbuffers::ET_FLOAT, 0, -1 },
     { flatbuffers::ET_FLOAT, 0, -1 },
     { flatbuffers::ET_BOOL, 0, -1 },
+    { flatbuffers::ET_BOOL, 0, -1 },
     { flatbuffers::ET_BOOL, 0, -1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
@@ -19578,10 +26671,11 @@ inline const flatbuffers::TypeTable *UnidirectionalSequenceLSTMOptionsTypeTable(
     "cell_clip",
     "proj_clip",
     "time_major",
-    "asymmetric_quantize_inputs"
+    "asymmetric_quantize_inputs",
+    "diagonal_recurrent_tensors"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 5, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 6, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
@@ -19894,17 +26988,19 @@ inline const flatbuffers::TypeTable *StridedSliceOptionsTypeTable() {
     { flatbuffers::ET_INT, 0, -1 },
     { flatbuffers::ET_INT, 0, -1 },
     { flatbuffers::ET_INT, 0, -1 },
-    { flatbuffers::ET_INT, 0, -1 }
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_BOOL, 0, -1 }
   };
   static const char * const names[] = {
     "begin_mask",
     "end_mask",
     "ellipsis_mask",
     "new_axis_mask",
-    "shrink_axis_mask"
+    "shrink_axis_mask",
+    "offset"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 5, type_codes, nullptr, nullptr, names
+    flatbuffers::ST_TABLE, 6, type_codes, nullptr, nullptr, names
   };
   return &tt;
 }
@@ -20040,18 +27136,24 @@ inline const flatbuffers::TypeTable *TransposeConvOptionsTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
     { flatbuffers::ET_CHAR, 0, 0 },
     { flatbuffers::ET_INT, 0, -1 },
-    { flatbuffers::ET_INT, 0, -1 }
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_CHAR, 0, 1 },
+    { flatbuffers::ET_CHAR, 0, 2 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
-    PaddingTypeTable
+    PaddingTypeTable,
+    ActivationFunctionTypeTypeTable,
+    TensorTypeTypeTable
   };
   static const char * const names[] = {
     "padding",
     "stride_w",
-    "stride_h"
+    "stride_h",
+    "fused_activation_function",
+    "quantized_bias_type"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 3, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 5, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
@@ -20576,22 +27678,189 @@ inline const flatbuffers::TypeTable *AssignVariableOptionsTypeTable() {
   return &tt;
 }
 
+inline const flatbuffers::TypeTable *RandomOptionsTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_LONG, 0, -1 },
+    { flatbuffers::ET_LONG, 0, -1 }
+  };
+  static const char * const names[] = {
+    "seed",
+    "seed2"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 2, type_codes, nullptr, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *BucketizeOptionsTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_FLOAT, 1, -1 }
+  };
+  static const char * const names[] = {
+    "boundaries"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 1, type_codes, nullptr, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *GeluOptionsTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_BOOL, 0, -1 }
+  };
+  static const char * const names[] = {
+    "approximate"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 1, type_codes, nullptr, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *DynamicUpdateSliceOptionsTypeTable() {
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 0, nullptr, nullptr, nullptr, nullptr
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *UnsortedSegmentProdOptionsTypeTable() {
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 0, nullptr, nullptr, nullptr, nullptr
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *UnsortedSegmentMaxOptionsTypeTable() {
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 0, nullptr, nullptr, nullptr, nullptr
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *UnsortedSegmentSumOptionsTypeTable() {
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 0, nullptr, nullptr, nullptr, nullptr
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *ATan2OptionsTypeTable() {
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 0, nullptr, nullptr, nullptr, nullptr
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *UnsortedSegmentMinOptionsTypeTable() {
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 0, nullptr, nullptr, nullptr, nullptr
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *SignOptionsTypeTable() {
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 0, nullptr, nullptr, nullptr, nullptr
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *BitcastOptionsTypeTable() {
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 0, nullptr, nullptr, nullptr, nullptr
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *BitwiseXorOptionsTypeTable() {
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 0, nullptr, nullptr, nullptr, nullptr
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *RightShiftOptionsTypeTable() {
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 0, nullptr, nullptr, nullptr, nullptr
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *DilateOptionsTypeTable() {
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 0, nullptr, nullptr, nullptr, nullptr
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *ReduceWindowOptionsTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_INT, 0, 0 }
+  };
+  static const flatbuffers::TypeFunction type_refs[] = {
+    ReduceWindowFunctionTypeTable
+  };
+  static const char * const names[] = {
+    "reduce_function"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 1, type_codes, type_refs, nullptr, names
+  };
+  return &tt;
+}
+
 inline const flatbuffers::TypeTable *OperatorCodeTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
-    { flatbuffers::ET_CHAR, 0, 0 },
+    { flatbuffers::ET_CHAR, 0, -1 },
     { flatbuffers::ET_STRING, 0, -1 },
-    { flatbuffers::ET_INT, 0, -1 }
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_INT, 0, 0 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     BuiltinOperatorTypeTable
   };
   static const char * const names[] = {
-    "builtin_code",
+    "deprecated_builtin_code",
     "custom_code",
+    "version",
+    "builtin_code"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 4, type_codes, type_refs, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *StableHLOCompositeOptionsTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_STRING, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_UCHAR, 1, -1 },
+    { flatbuffers::ET_CHAR, 0, 0 },
+    { flatbuffers::ET_INT, 0, -1 }
+  };
+  static const flatbuffers::TypeFunction type_refs[] = {
+    CustomOptionsFormatTypeTable
+  };
+  static const char * const names[] = {
+    "name",
+    "decomposition_subgraph_index",
+    "composite_attributes",
+    "composite_attributes_format",
     "version"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 3, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 5, type_codes, type_refs, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *StablehloShiftLeftOptionsTypeTable() {
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 0, nullptr, nullptr, nullptr, nullptr
   };
   return &tt;
 }
@@ -20606,11 +27875,17 @@ inline const flatbuffers::TypeTable *OperatorTypeTable() {
     { flatbuffers::ET_UCHAR, 1, -1 },
     { flatbuffers::ET_CHAR, 0, 1 },
     { flatbuffers::ET_BOOL, 1, -1 },
-    { flatbuffers::ET_INT, 1, -1 }
+    { flatbuffers::ET_INT, 1, -1 },
+    { flatbuffers::ET_ULONG, 0, -1 },
+    { flatbuffers::ET_ULONG, 0, -1 },
+    { flatbuffers::ET_UTYPE, 0, 2 },
+    { flatbuffers::ET_SEQUENCE, 0, 2 },
+    { flatbuffers::ET_INT, 0, -1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     BuiltinOptionsTypeTable,
-    CustomOptionsFormatTypeTable
+    CustomOptionsFormatTypeTable,
+    BuiltinOptions2TypeTable
   };
   static const char * const names[] = {
     "opcode_index",
@@ -20621,10 +27896,15 @@ inline const flatbuffers::TypeTable *OperatorTypeTable() {
     "custom_options",
     "custom_options_format",
     "mutating_variable_inputs",
-    "intermediates"
+    "intermediates",
+    "large_custom_options_offset",
+    "large_custom_options_size",
+    "builtin_options_2_type",
+    "builtin_options_2",
+    "debug_metadata_index"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 9, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 14, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
@@ -20635,7 +27915,8 @@ inline const flatbuffers::TypeTable *SubGraphTypeTable() {
     { flatbuffers::ET_INT, 1, -1 },
     { flatbuffers::ET_INT, 1, -1 },
     { flatbuffers::ET_SEQUENCE, 1, 1 },
-    { flatbuffers::ET_STRING, 0, -1 }
+    { flatbuffers::ET_STRING, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     TensorTypeTable,
@@ -20646,23 +27927,28 @@ inline const flatbuffers::TypeTable *SubGraphTypeTable() {
     "inputs",
     "outputs",
     "operators",
-    "name"
+    "name",
+    "debug_metadata_index"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 5, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 6, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
 
 inline const flatbuffers::TypeTable *BufferTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
-    { flatbuffers::ET_UCHAR, 1, -1 }
+    { flatbuffers::ET_UCHAR, 1, -1 },
+    { flatbuffers::ET_ULONG, 0, -1 },
+    { flatbuffers::ET_ULONG, 0, -1 }
   };
   static const char * const names[] = {
-    "data"
+    "data",
+    "offset",
+    "size"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 1, type_codes, nullptr, nullptr, names
+    flatbuffers::ST_TABLE, 3, type_codes, nullptr, nullptr, names
   };
   return &tt;
 }
@@ -20711,8 +27997,8 @@ inline const flatbuffers::TypeTable *SignatureDefTypeTable() {
   static const char * const names[] = {
     "inputs",
     "outputs",
-    "method_name",
-    "key",
+    "signature_key",
+    "deprecated_tag",
     "subgraph_index"
   };
   static const flatbuffers::TypeTable tt = {

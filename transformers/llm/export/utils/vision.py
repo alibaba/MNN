@@ -7,6 +7,7 @@ from typing import Tuple, Optional, Dict, Any
 
 from .transformers import VisionRotary, Decoder
 from .spinner import spinner_run
+from .torch_utils import onnx_export
 
 class Vision(torch.nn.Module):
     def __init__(self, visual, base):
@@ -103,16 +104,13 @@ class DeepSeekVL(Vision):
     def export(self, onnx_path):
         input_images = torch.randn((1, 3, self.image_size, self.image_size), dtype=torch.float32)
         onnx_model = f'{onnx_path}/visual.onnx'
-        torch.onnx.export(self, (input_images),
-                        onnx_model,
-                        input_names=['input_images'],
-                        output_names=['image_embeds'],
-                        dynamic_axes={
-                            "input_images": { 0: "size", 2: "height", 3: "width"},
-                        },
-                        do_constant_folding=True,
-                        verbose=False,
-                        opset_version=15)
+        onnx_export(self, (input_images),
+                    onnx_model,
+                    input_names=['input_images'],
+                    output_names=['image_embeds'],
+                    dynamic_axes={
+                        "input_images": { 0: "size", 2: "height", 3: "width"},
+                    })
         return onnx_model
     def forward(self, images):
         vit_embeds = self.aligner(self.vision_model(images))
@@ -183,16 +181,13 @@ class InternVLVision(Vision):
     def export(self, onnx_path):
         input_images = torch.randn((1, 3, self.image_size, self.image_size), dtype=torch.float32)
         onnx_model = f'{onnx_path}/visual.onnx'
-        torch.onnx.export(self, (input_images),
-                        onnx_model,
-                        input_names=['input_images'],
-                        output_names=['image_embeds'],
-                        dynamic_axes={
-                            "input_images": { 0: "size", 2: "height", 3: "width"},
-                        },
-                        do_constant_folding=True,
-                        verbose=False,
-                        opset_version=15)
+        onnx_export(self, (input_images),
+                    onnx_model,
+                    input_names=['input_images'],
+                    output_names=['image_embeds'],
+                    dynamic_axes={
+                        "input_images": { 0: "size", 2: "height", 3: "width"},
+                    })
         return onnx_model
     def forward(self, images):
         return self.extract_feature(images)
@@ -215,16 +210,13 @@ class QwenVision(Vision):
     def export(self, onnx_path):
         input_images = torch.randn((1, 3, self.image_size, self.image_size))
         onnx_model = f'{onnx_path}/visual.onnx'
-        torch.onnx.export(self, (input_images),
-                        onnx_model,
-                        input_names=['input_images'],
-                        output_names=['image_embeds'],
-                        dynamic_axes={
-                            "input_images": { 0: "size" },
-                        },
-                        do_constant_folding=True,
-                        verbose=False,
-                        opset_version=15)
+        onnx_export(self, (input_images),
+                    onnx_model,
+                    input_names=['input_images'],
+                    output_names=['image_embeds'],
+                    dynamic_axes={
+                        "input_images": { 0: "size" },
+                    })
         return onnx_model
 
     def forward(self, images):
@@ -497,18 +489,15 @@ class Qwen2Vision(Vision):
         posision_ids = torch.zeros([2, 900], dtype=torch.int32)
         attention_mask = torch.zeros([1, 900, 900], dtype=torch.float)
         onnx_model = f'{onnx_path}/visual.onnx'
-        torch.onnx.export(self, (patch, posision_ids, attention_mask),
-                        onnx_model,
-                        input_names=['patches', 'position_ids', 'attention_mask'],
-                        output_names=['image_embeds'],
-                        dynamic_axes={
-                            "patches": { 0: "size" },
-                            "position_ids": { 1: "size" },
-                            "attention_mask": { 1: "size", 2: "size" }
-                        },
-                        do_constant_folding=True,
-                        verbose=False,
-                        opset_version=15)
+        onnx_export(self, (patch, posision_ids, attention_mask),
+                    onnx_model,
+                    input_names=['patches', 'position_ids', 'attention_mask'],
+                    output_names=['image_embeds'],
+                    dynamic_axes={
+                        "patches": { 0: "size" },
+                        "position_ids": { 1: "size" },
+                        "attention_mask": { 1: "size", 2: "size" }
+                    })
         return onnx_model
 
 class Gemma3Vision(Vision):
@@ -546,16 +535,13 @@ class Gemma3Vision(Vision):
     def export(self, onnx_path):
         input_images = torch.randn((1, 3, self.image_size, self.image_size))
         onnx_model = f'{onnx_path}/visual.onnx'
-        torch.onnx.export(self, (input_images),
-                        onnx_model,
-                        input_names=['input_images'],
-                        output_names=['image_embeds'],
-                        dynamic_axes={
-                            "input_images": { 0: "size", 2: "height", 3: "width"},
-                        },
-                        do_constant_folding=True,
-                        verbose=False,
-                        opset_version=15)
+        onnx_export(self, (input_images),
+                    onnx_model,
+                    input_names=['input_images'],
+                    output_names=['image_embeds'],
+                    dynamic_axes={
+                        "input_images": { 0: "size", 2: "height", 3: "width"},
+                    })
         return onnx_model
 
     def embed(self, input_ids):
@@ -649,19 +635,16 @@ class Qwen2_5Vision(Qwen2Vision):
         attention_mask = torch.zeros([2, 1, 400, 400], dtype=torch.float)
         window_index = torch.arange(100, dtype=torch.int32)
         onnx_model = f'{onnx_path}/visual.onnx'
-        torch.onnx.export(self, (patch, posision_ids, attention_mask, window_index),
-                        onnx_model,
-                        input_names=['patches', 'position_ids', 'attention_mask', 'window_index'],
-                        output_names=['image_embeds'],
-                        dynamic_axes={
-                            "patches": { 0: "size" },
-                            "position_ids": { 1: "size" },
-                            "attention_mask": { 2: "size", 3: "size" },
-                            "window_index": { 0: "size" }
-                        },
-                        do_constant_folding=True,
-                        verbose=False,
-                        opset_version=15)
+        onnx_export(self, (patch, posision_ids, attention_mask, window_index),
+                    onnx_model,
+                    input_names=['patches', 'position_ids', 'attention_mask', 'window_index'],
+                    output_names=['image_embeds'],
+                    dynamic_axes={
+                        "patches": { 0: "size" },
+                        "position_ids": { 1: "size" },
+                        "attention_mask": { 2: "size", 3: "size" },
+                        "window_index": { 0: "size" }
+                    })
         return onnx_model
 
 class Qwen2_5OmniVision(Qwen2_5Vision):
@@ -849,20 +832,17 @@ class Qwen3Vision(Qwen2Vision):
         idx_tensor = torch.zeros([4, 256], dtype=torch.int32)
         weight_tensor = torch.randn([4, 256])
         onnx_model = f'{onnx_path}/visual.onnx'
-        torch.onnx.export(self, (patch, posision_ids, attention_mask, idx_tensor, weight_tensor),
-                        onnx_model,
-                        input_names=['patches', 'position_ids', 'attention_mask', 'idx_tensor', 'weight_tensor'],
-                        output_names=['image_embeds', 'deepstack_feature'],
-                        dynamic_axes={
-                            "patches": { 0: "size" },
-                            "position_ids": { 1: "size" },
-                            "attention_mask": { 1: "size", 2: "size" },
-                            "idx_tensor": { 1: "size" },
-                            "weight_tensor": { 1: "size" }
-                        },
-                        do_constant_folding=True,
-                        verbose=False,
-                        opset_version=15)
+        onnx_export(self, (patch, posision_ids, attention_mask, idx_tensor, weight_tensor),
+                    onnx_model,
+                    input_names=['patches', 'position_ids', 'attention_mask', 'idx_tensor', 'weight_tensor'],
+                    output_names=['image_embeds', 'deepstack_feature'],
+                    dynamic_axes={
+                        "patches": { 0: "size" },
+                        "position_ids": { 1: "size" },
+                        "attention_mask": { 1: "size", 2: "size" },
+                        "idx_tensor": { 1: "size" },
+                        "weight_tensor": { 1: "size" }
+                    })
         return onnx_model
 
 # SmolVLM & SmolVLM2
@@ -1046,16 +1026,13 @@ class Idefics3Vision(Vision):
     def export(self, onnx_path):
         pixel_values = torch.randn([1, 3, self.patch_size, self.patch_size])
         onnx_model = f'{onnx_path}/visual.onnx'
-        torch.onnx.export(self, (pixel_values),
-                        onnx_model,
-                        input_names=['pixel_values'],
-                        output_names=['image_embeds'],
-                        dynamic_axes={
-                            "pixel_values": { 0: "size" },
-                        },
-                        do_constant_folding=True,
-                        verbose=False,
-                        opset_version=15)
+        onnx_export(self, (pixel_values),
+                    onnx_model,
+                    input_names=['pixel_values'],
+                    output_names=['image_embeds'],
+                    dynamic_axes={
+                        "pixel_values": { 0: "size" },
+                    })
         return onnx_model
 
 # FastVLM
@@ -1402,17 +1379,14 @@ class MiniCPMVision(Vision):
         tgt_sizes = torch.tensor([[num_patches, num_patches]] * num_grids, dtype=torch.int32)
         position_ids = self.gen_position_ids(tgt_sizes, self.num_patches_per_side)
         onnx_model = f'{onnx_path}/visual.onnx'
-        torch.onnx.export(self, (pixel_values, position_ids, attention_mask, tgt_sizes),
-                        onnx_model,
-                        input_names=['pixel_values', 'position_ids', 'attention_mask', 'tgt_sizes'],
-                        output_names=['image_embeds'],
-                        dynamic_axes={
-                            "pixel_values": { 0: "num", 3: "size" },
-                            "position_ids": { 0: "num", 1: "size" },
-                            "attention_mask": { 0: "num", 1: "size" },
-                            "tgt_sizes": { 0: "num" }
-                        },
-                        do_constant_folding=True,
-                        verbose=False,
-                        opset_version=18)
+        onnx_export(self, (pixel_values, position_ids, attention_mask, tgt_sizes),
+                    onnx_model,
+                    input_names=['pixel_values', 'position_ids', 'attention_mask', 'tgt_sizes'],
+                    output_names=['image_embeds'],
+                    dynamic_axes={
+                        "pixel_values": { 0: "num", 3: "size" },
+                        "position_ids": { 0: "num", 1: "size" },
+                        "attention_mask": { 0: "num", 1: "size" },
+                        "tgt_sizes": { 0: "num" }
+                    })
         return onnx_model

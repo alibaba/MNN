@@ -40,7 +40,7 @@ void UnaryTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>&
                          const std::vector<std::unique_ptr<tflite::BufferT>>& tfliteModelBuffer,
                          const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, int quantizedModel){
     auto param = new MNN::UnaryOpT;
-    param->opType = _convert(tfliteOpSet[tfliteOp->opcode_index]->builtin_code);
+    param->opType = _convert(liteOpConverter::getOpCode(tfliteOpSet[tfliteOp->opcode_index].get()));
     dstOp->main.value = param;
 }
 

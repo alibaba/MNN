@@ -201,17 +201,7 @@ ErrorCode QNNConvDepthwise::onEncode(const std::vector<Tensor *> &inputs, const 
     }
     
     if (common->relu() || common->relu6()) {
-        Qnn_QuantizeParams_t quantize = DEFAULT_QUANTIZE_PARAMS;
-        Qnn_ScaleOffset_t tScaleOffsetEncoding;
-        auto quant = TensorUtils::getDescribe(outputs[0])->quantAttr.get();
-        if(quant != nullptr && TensorUtils::getDescribe(outputs[0])->applyQuant){
-            quantize.encodingDefinition = QNN_DEFINITION_DEFINED;
-            quantize.quantizationEncoding = QNN_QUANTIZATION_ENCODING_SCALE_OFFSET;
-            tScaleOffsetEncoding.scale = mBackend->getNativeTensor(outputs[0])->v1.quantizeParams.scaleOffsetEncoding.scale;
-            tScaleOffsetEncoding.offset = mBackend->getNativeTensor(outputs[0])->v1.quantizeParams.scaleOffsetEncoding.offset;
-            quantize.scaleOffsetEncoding = tScaleOffsetEncoding;
-        }
-        this->createStageTensor("ReluTensor", dataType, getNHWCShape(outputs[0]), quantize);
+        this->createStageTensor("ReluTensor", dataType, getNHWCShape(outputs[0]), outputs[0]);
     }
 }
 

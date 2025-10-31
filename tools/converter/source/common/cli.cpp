@@ -332,6 +332,10 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
       "Don't use While Module to Implement LSTM or GRU, use origin OP, if open it, LSTM and GRU can't be quantized or use other compress method",
       cxxopts::value<bool>()
      )
+    (
+     "splitBlockQuant",
+     "Split Block Quant Convolution"
+     )
     ;
 
     auto result = options.parse(argc, argv);
@@ -506,6 +510,9 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
     }
     if (result.count("authCode")) {
         modelPath.authCode = result["authCode"].as<std::string>();
+    }
+    if (result.count("splitBlockQuant")) {
+        modelPath.splitQuantBlock = true;
     }
     if (result.count("alignDenormalizedValue")) {
         modelPath.alignDenormalizedValue = result["alignDenormalizedValue"].as<int>();
@@ -741,6 +748,9 @@ bool Cli::convertModel(modelConfig& modelPath) {
             "FuseDupOp",
             "RemoveInvalidCast",
         };
+    }
+    if (modelPath.splitQuantBlock) {
+        expectedPass.emplace_back("SplitBlockQuantConvolution");
     }
     CommonKit::loadCompress(modelPath);
     if (needOptimize) {

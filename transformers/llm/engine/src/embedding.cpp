@@ -46,6 +46,11 @@ int Embedding::dim() const {
 }
 
 bool Embedding::load() {
+    if (mConfig->config_.document.HasMember("load_disk_embedding_only") && mConfig->config_.document["load_disk_embedding_only"].GetBool()) {
+        mDiskEmbedding.reset(new DiskEmbedding(mConfig));
+        return true;
+    }
+
     initRuntime();
     printf("load tokenizer\n");
     std::cout << mConfig->tokenizer_file() << std::endl;

@@ -41,7 +41,7 @@ public:
     Calibration(MNN::NetT* model, const uint8_t* modelBuffer, const int bufferSize, const std::string& configPath, std::string originalModelFile, std::string dstModelFile);
 
     void runQuantizeModel();
-    
+
     void dumpTensorScales(const std::string& modelFile);
     void ComputeUnaryBuffer(MNN::NetT* net);
     bool valid() const {
@@ -80,9 +80,13 @@ private:
     std::map<std::weak_ptr<MNN::Tensor::InsideDescribe::NativeInsideDescribe>, std::shared_ptr<TensorStatistic>, WeakPtrCompare> _featureInfo;
     std::map<std::weak_ptr<MNN::Tensor::InsideDescribe::NativeInsideDescribe>, std::shared_ptr<TensorStatistic>, WeakPtrCompare> _featureInfoOrigin;
     std::map<int, std::pair<std::weak_ptr<MNN::Tensor::InsideDescribe::NativeInsideDescribe>, const MNN::Tensor*>> _tensorMap;
-    
+
     // The scale results
     std::map<std::weak_ptr<MNN::Tensor::InsideDescribe::NativeInsideDescribe>, std::pair<float, int8_t>, WeakPtrCompare> _scales;
+
+    // {opName, {outputDes, inputDes}}
+    std::map<std::string, std::pair<std::weak_ptr<MNN::Tensor::InsideDescribe::NativeInsideDescribe>, std::vector<std::weak_ptr<MNN::Tensor::InsideDescribe::NativeInsideDescribe>>>> _rasterTensors;
+    std::map<std::string, std::pair<std::weak_ptr<MNN::Tensor::InsideDescribe::NativeInsideDescribe>, std::vector<std::weak_ptr<MNN::Tensor::InsideDescribe::NativeInsideDescribe>>>> _poolTensors;
 
     // keep mnn forward information
     std::vector<MNN::Tensor*> mInputTensors;

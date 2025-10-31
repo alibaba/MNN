@@ -40,7 +40,7 @@ bool DenseConvolutionTiledExecutor::initQuantizeResource(std::shared_ptr<Convolu
     int scaleSize = dequantCnt; // real size
     if (int8Info->asymmetric) {
         scaleSize = dequantCnt / 2;
-        
+
     }
     int blockNum = scaleSize / outputCount;
     scaleSize = blockNum * hU * hP; // pack size
@@ -304,10 +304,10 @@ ErrorCode ConvolutionTiledExecutorMultiInput::onResize(const std::vector<Tensor*
     if (!res) {
         return OUT_OF_MEMORY;
     }
-    if (inputs.size() > 2 && inputs[2]->elementSize() % hP == 0) {
+    if (inputs.size() > 2 && inputs[2]->elementSize() % function->pack == 0) {
         mInputs = {inputs[0], mTempWeight.get(), inputs[2]};
     } else {
-        auto hPackedSize = ALIMAX(hP, function->pack);
+        auto hPackedSize = function->pack;
         mTempBias.reset(Tensor::createDevice<float>({UP_DIV(outputCount, hPackedSize) * hPackedSize}));
         backend()->onAcquireBuffer(mTempBias.get(), Backend::DYNAMIC);
         mInputs = {inputs[0], mTempWeight.get(), mTempBias.get()};
@@ -469,7 +469,7 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
     auto output      = outputs[0];
     auto batch       = output->batch();
     int threadNumber = ((CPUBackend *)backend())->threadNumber();
-    
+
     int  LRoundup = ROUND_UP(L, lP);
     int  LRoundupC4 = UP_DIV(LRoundup, unit);
     auto outputChannel = output->channel();
@@ -523,7 +523,7 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
         info[3] = mIm2ColParameters.strideX;
         size_t shapeParameters[PARAMETERSIZE];
         size_t* parameters = shapeParameters;
-        parameters[0]          = eP * bytes;
+        parameters[0]          = eP * lP * bytes;
         parameters[1]          = blockSize;
         parameters[2]          = outputChannel;
         parameters[3]          = plane * unit * bytes;
@@ -651,7 +651,7 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
             info[2] = eP;
             info[3] = mIm2ColParameters.strideX;
             size_t parameters[PARAMETERSIZE];
-            parameters[0]          = eP * bytes;
+            parameters[0]          = eP * lP *  bytes;
             parameters[1]          = blockSize;
             parameters[2]          = outputChannel;
             parameters[3]          = plane * unit * bytes;
@@ -678,14 +678,6 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
                 if (number > 0) {
                     packA((float *)gemmBuffer, srcPtr, info, el);
                 }
-                /*
-                for (int kk=0; kk < mIm2ColParameters.kernelX *  mIm2ColParameters.kernelY; ++kk) {
-                    for (int xx=0; xx < ROUND_UP(input->channel(), lP) * eP; ++xx) {
-                        printf("%f ", ((__fp16*)gemmBuffer)[kk * ROUND_UP(input->channel(), lP) * eP + xx]);
-                        if (xx % (eP * lP) == (eP * lP -1)) printf("\n");
-                    }
-                }
-*/
                 int finishedL = 0;
                 int wquantStride = 0;
                 int8_t* _weightPtr = reinterpret_cast<int8_t*>(weightPtr);
@@ -702,7 +694,7 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
                         }
                         finishedL = blockSize * bk;
                         wquantStride = static_cast<int32_t>(blockSize * bk * hP * halfStride);
-                        
+
                         matmulUnit(_dstFloatPtr, (float*)(gemmBuffer + bytes * eP * finishedL), (float*)(_weightPtr + wquantStride), parameters, relufp32, exeBiasPtr, (float*)(dequantAlpha + bk * ocUp4 * bytes), (float*)(dequantBias + bk * ocUp4 * bytes));
                     }
                 } else {
@@ -714,7 +706,7 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
                         }
                         finishedL = blockSize * bk;
                         wquantStride = static_cast<int32_t>(blockSize * bk * hP * halfStride);
-                        
+
                         matmulRemain(_dstFloatPtr, (float*)(gemmBuffer + eP * bytes * finishedL), (float*)(_weightPtr + wquantStride), xC, parameters, relufp32, exeBiasPtr, (float*)(dequantAlpha + bk * ocUp4 * bytes), (float*)(dequantBias + bk * ocUp4 * bytes ));
                     }
                     // matmulRemain(_dstFloatPtr, (float*)gemmBuffer, (float*)weightPtr, xC, parameters, postParameters.data(), biasPtr, k, b);

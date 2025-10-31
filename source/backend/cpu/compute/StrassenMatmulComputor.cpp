@@ -80,7 +80,7 @@ ErrorCode StrassenMatrixComputor::_generateTrivalMatMul(int e, int l, int h, con
         std::make_pair([cStride, l, h, xCount, AT, BT, CT, COT, tileBufferBasic, unitNumber, bExtraStride, numberThread, eReal, eP, lP, active, matmulUnit, matmulRemain, this](int tId) {
             auto core = static_cast<CPUBackend*>(backend())->functions();
             size_t parameters[7];
-            parameters[0] = xCount * core->bytes;
+            parameters[0] = xCount * lP * core->bytes;
             parameters[1] = ROUND_UP(l, lP);
             parameters[2] = h;
             parameters[3] = cStride;
@@ -305,7 +305,7 @@ ErrorCode StrassenMatrixComputor::_generateMatMul(int e, int l, int h, const Mat
     CX.stackIndex = X.stackIndex;
     CX.offsetBytes = 0;
     CX.lineStrideBytes = eSub * core->bytes * core->pack;
-    
+
     MatrixInfo a11 = AT;
     MatrixInfo a12 = AT;
     a12.offsetBytes = AT.offsetBytes + AT.lineStrideBytes * lSubUnit;
@@ -313,7 +313,7 @@ ErrorCode StrassenMatrixComputor::_generateMatMul(int e, int l, int h, const Mat
     a21.offsetBytes = AT.offsetBytes + eSub * core->pack * core->bytes;
     MatrixInfo a22 = AT;
     a22.offsetBytes = AT.offsetBytes + eSub * core->pack * core->bytes + AT.lineStrideBytes * lSubUnit;
-    
+
     MatrixInfo b11 = BT;
     MatrixInfo b12 = BT;
     b12.offsetBytes = BT.offsetBytes + BT.lineStrideBytes * (hSub / hP);
@@ -321,7 +321,7 @@ ErrorCode StrassenMatrixComputor::_generateMatMul(int e, int l, int h, const Mat
     b21.offsetBytes = BT.offsetBytes + lSub * hP * mWeightBytes;
     MatrixInfo b22 = BT;
     b22.offsetBytes = BT.offsetBytes + BT.lineStrideBytes * (hSub / hP) + lSub * hP * mWeightBytes;
-    
+
     MatrixInfo c11 = CT;
     MatrixInfo c12 = CT;
     c12.offsetBytes = CT.offsetBytes + CT.lineStrideBytes * (hSub / core->pack);
@@ -533,7 +533,7 @@ ErrorCode StrassenMatrixComputor::onEncode(int e, int l, int h, int as, int bs, 
     b.stackIndex = 1;
     b.lineStrideBytes = bs * mWeightBytes;
     b.offsetBytes = 0;
-    
+
     c.stackIndex = 2;
     c.lineStrideBytes = cs * core->bytes;
     c.offsetBytes = 0;

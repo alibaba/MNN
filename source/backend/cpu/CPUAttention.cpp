@@ -418,7 +418,7 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                     int loop_e = seq_len / eP;
                     int remain = seq_len % eP;
                     auto qStride0 = ROUND_UP(mHeadDim, lP) * eP * bytes;
-                    size_t shapeParameters[7] = {(size_t)eP * bytes, ROUND_UP((size_t)mHeadDim, lP), (size_t)subKvSeqLen, (size_t)seq_len * mPack * bytes, 0, 0, 0};
+                    size_t shapeParameters[7] = {(size_t)eP * lP *  bytes, ROUND_UP((size_t)mHeadDim, lP), (size_t)subKvSeqLen, (size_t)seq_len * mPack * bytes, 0, 0, 0};
                     for (int ei = 0 ; ei < loop_e; ei++) {
                         QxK((float*)(qkPacked + (ei * eP * mPack) * bytes), (float*)(qReordered + ei * qStride0), (float*)keyPtr, shapeParameters, nullptr, nullptr, (float*)scale_addr, (float*)zero_point_addr);
                     }
@@ -449,7 +449,7 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                 }
                 // qk @ v
                 // TODO: update qkvPacked using diffScale
-                size_t shapeParameters[7] = {(size_t)eP * bytes, ROUND_UP((size_t)subKvSeqLen, lP), (size_t)mHeadDim, (size_t)seq_len * mPack * bytes, 0, 0, 0};
+                size_t shapeParameters[7] = {(size_t)eP * lP * bytes, ROUND_UP((size_t)subKvSeqLen, lP), (size_t)mHeadDim, (size_t)seq_len * mPack * bytes, 0, 0, 0};
                 size_t bExtraStride = (UP_DIV(max_len, lP) - UP_DIV(subKvSeqLen + i * mBlockKV, lP) + UP_DIV(i * mBlockKV, lP)) * hP * lP * bytes;
                 shapeParameters[5] = quant_value ? 0 : bExtraStride;
                 int loop_e = seq_len / eP;

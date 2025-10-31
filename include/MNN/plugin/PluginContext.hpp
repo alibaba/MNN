@@ -24,6 +24,10 @@ public:
     PluginContext() = delete;
     PluginContext(const std::vector<Tensor*>& inputs, // NOLINT
                   const std::vector<Tensor*>& outputs);
+    void reset(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+        inputs_ = inputs;
+        outputs_ = outputs;
+    }
 
     virtual ~PluginContext() = default;
 
@@ -51,8 +55,8 @@ public:
     const std::unordered_map<std::string, const Attribute*>& getAttrs() const;
 
 protected:
-    const std::vector<Tensor*>& inputs_;
-    const std::vector<Tensor*>& outputs_;
+    std::vector<Tensor*> inputs_;
+    std::vector<Tensor*> outputs_;
     std::unordered_map<std::string, const Attribute*> attrs_;
 };
 
@@ -130,7 +134,9 @@ inline void PluginContext::setAttrs( // NOLINT
 
 inline const Attribute* PluginContext::getAttr(const std::string& name) const {
     const auto& it = attrs_.find(name);
-    MNN_ASSERT(it != attrs_.end());
+    if (it == attrs_.end()) {
+        return nullptr;
+    }
     return it->second;
 }
 
