@@ -119,7 +119,7 @@
     <string name="modelers">魔乐</string>
     <string name="huggingface">HuggingFace</string>
     <string name="diffusion_mode_memory_saving">内存节省模式</string>
-    <string name="diffusion_mode_memory_engough">内存足够模式</string>
+    <string name="diffusion_mode_memory_enough">内存足够模式</string>
     <string name="diffusion_mode_memory_balance">内存平衡模式</string>
     <string name="diffusion_memory_mode">Diffusion内存模式</string>
     <string name="voice_model_management">语音模型管理</string>
