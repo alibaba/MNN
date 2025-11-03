@@ -54,6 +54,13 @@ ErrorCode SelfAttentionBufImpl::onResize(Backend *backend, const std::vector<Ten
     if(seq_len > 1024) {
         mQseqSplitNum = (seq_len >= 4096 && seq_len % 64 == 0) ? 8 : ((seq_len < 2048) ? 2 : 4);
     }
+    // splitPiecesSize need aligned to 32, make sure XgemmBatched globalsize be divisible by localsize
+    int splitPiecesSize = ROUND_UP(seq_len, tile_mn) / mQseqSplitNum;
+    while((splitPiecesSize % 32) != 0){
+        tile_mn *= 2;
+        splitPiecesSize = ROUND_UP(seq_len, tile_mn) / mQseqSplitNum;
+    }
+    
     int buffer_size = batch * mNumHead * ROUND_UP(mHeadDim, tile_k) * ROUND_UP(seq_len, tile_mn);
     int buffer_qk_size = batch * mNumHead * ROUND_UP(seq_len, tile_mn) * ROUND_UP(seq_len, tile_mn) / mQseqSplitNum;
     int buffer_v_size = batch * mNumHead * ROUND_UP(mHeadDim, tile_mn) * ROUND_UP(seq_len, tile_mn);

@@ -94,7 +94,6 @@ MetalBackend::MetalBackend(std::shared_ptr<EagerBufferAllocator> staticMem, cons
     }
     _commandBuffer = nil;
     _commandBuffer_net = nil;
-    _waiting = nil;
 }
 MetalBackend::~MetalBackend() {
     flushEncoder();
@@ -822,7 +821,7 @@ std::pair<id<MTLBuffer>, int> MetalBackend::getBuffer(const MNN::Tensor* tensor)
 void MetalBackend::commit() const {
     if (nil != _commandBuffer &&  _commandBuffer.status < MTLCommandBufferStatusCommitted) {
         [_commandBuffer commit];
-        _waiting = _commandBuffer;
+        mRuntime->_waiting = _commandBuffer;
         _commandBuffer = nil;
         if (!mSupportDeferEncode) {
             // In this case _commandBuffer should be the same as _commandBuffer_net
@@ -834,7 +833,7 @@ void MetalBackend::commit() const {
 void MetalBackend::commit_net() const {
     if (nil != _commandBuffer_net && _commandBuffer_net.status < MTLCommandBufferStatusCommitted) {
         [_commandBuffer_net commit];
-        _waiting = _commandBuffer_net;
+        mRuntime->_waiting = _commandBuffer_net;
         _commandBuffer_net = nil;
         if (!mSupportDeferEncode) {
             // In this case _commandBuffer should be the same as _commandBuffer_net
@@ -844,10 +843,10 @@ void MetalBackend::commit_net() const {
 }
 
 void MetalBackend::wait() const {
-    if (nil != _waiting) {
-        auto buffer = _waiting;
+    if (nil != mRuntime->_waiting) {
+        auto buffer = mRuntime->_waiting;
         if (buffer.status >= MTLCommandBufferStatusCompleted) {
-            _waiting = nil;
+            mRuntime->_waiting = nil;
             return;
         }
 
@@ -872,7 +871,7 @@ void MetalBackend::wait() const {
         }
 #endif
     }
-    _waiting = nil;
+    mRuntime->_waiting = nil;
 }
 
 id<MTLComputePipelineState> MetalBackend::makeComputePipelineWithSourceOption(const char* csource, const char* cname, MTLCompileOptions *options) const{

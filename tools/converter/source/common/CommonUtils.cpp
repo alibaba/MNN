@@ -3,11 +3,51 @@
 #include <google/protobuf/util/json_util.h>
 #include "CommonUtils.hpp"
 #include "core/MNNFileUtils.h"
+#include "core/Backend.hpp"
+#include <MNN/expr/ExecutorScope.hpp>
+
 using namespace std;
+void PostTreatContext::startOptimize() {
+    auto current = MNN::Express::ExecutorScope::Current();
+    current->setGlobalExecutorConfig(accelerateType, bnConfig, mode);
+}
+void PostTreatContext::endOptimize() {
+    auto current = MNN::Express::ExecutorScope::Current();
+    current->setGlobalExecutorConfig(MNN_FORWARD_CPU, bnConfig, 1);
+#ifdef DEBUG
+    FUNC_PRINT_ALL(current->getRuntime().first[accelerateType]->onGetMemoryInMB(), f);
+#endif
+    current->gc(MNN::Express::Executor::FULL);
+}
+
 void CommonKit::loadCompress(modelConfig& modelPath) {
     bool overwrite = false;
     bool readProto = false;
     modelPath.compressInfo = new PostTreatContext;
+    // Find best treat type
+    {
+        //TODO: Currently opencl and vulkan backend is not faster enough in Expr mode, need optimize
+        std::vector<MNNForwardType> types = {
+            MNN_FORWARD_METAL,
+            MNN_FORWARD_CUDA,
+//            MNN_FORWARD_OPENCL,
+//            MNN_FORWARD_VULKAN,
+        };
+        modelPath.compressInfo->bnConfig.precision = BackendConfig::Precision_High;
+        for (auto t : types) {
+            if (nullptr != MNNGetExtraRuntimeCreator(t)) {
+                modelPath.compressInfo->accelerateType = t;
+                break;
+            }
+        }
+        if (modelPath.compressInfo->accelerateType == MNN_FORWARD_METAL) {
+            modelPath.compressInfo->mode = 4;
+        } else if (modelPath.compressInfo->accelerateType == MNN_FORWARD_OPENCL || modelPath.compressInfo->accelerateType == MNN_FORWARD_VULKAN) {
+            modelPath.compressInfo->mode = 65;
+        } else if (modelPath.compressInfo->accelerateType == MNN_FORWARD_CPU) {
+            modelPath.compressInfo->mode = 4;
+        }
+    }
     do {
         auto compressFileName = modelPath.compressionParamsFile;
         if (compressFileName != "") {

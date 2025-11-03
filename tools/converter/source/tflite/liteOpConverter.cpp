@@ -7,6 +7,12 @@
 //
 
 #include "liteOpConverter.hpp"
+tflite::BuiltinOperator liteOpConverter:: getOpCode(tflite::OperatorCodeT* opcode) {
+    if (opcode->builtin_code <= 0) {
+        return (tflite::BuiltinOperator)opcode->deprecated_builtin_code;
+    }
+    return opcode->builtin_code;
+}
 
 liteOpConverterSuit* liteOpConverterSuit::_uniqueSuit = nullptr;
 

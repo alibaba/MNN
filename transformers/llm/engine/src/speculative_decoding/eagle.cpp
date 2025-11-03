@@ -37,13 +37,10 @@ void EagleGeneration::load(Module::Config module_config) {
     mEagleModules[1].reset(Module::load({"fc_hidden"}, {"hidden_states"}, mLlm->mConfig->eagle_fc().c_str(), mLlm->mRuntimeManager, &module_config));
 
     mD2t = Express::Variable::load(mLlm->mConfig->eagle_d2t().c_str())[0];
-    // int verify_length = mLlm->mDraftLength + 1;
-    // mHiddenStateIndex = mLlm->getOutputIndex("hidden_states");
 
     // init
-    mTopK = 1;
-    mDepth = 3;
-    mMaxDraftTokens = 4;
+    mTopK = mLlm->mConfig->eagle_topk();
+    mDepth = mLlm->mConfig->eagle_depth();
     mTreePosition = _Input({1, mTopK}, NCHW, halide_type_of<int>());
 }
 
@@ -157,7 +154,7 @@ EagleGeneration::DraftInfo EagleGeneration::topkGenerate(const std::vector<int>&
         auto indices = topKV[1]->readMap<int>();
         tokenTree.grow(indices, scores);
     }
-    auto output = tokenTree.finalize(sampleToken, mMaxDraftTokens - 1);
+    auto output = tokenTree.finalize(sampleToken, mLlm->mDraftLength);
 #if EAGLE_DEBUG
     {
         std::cout << tokenTree.toString([&](int token){

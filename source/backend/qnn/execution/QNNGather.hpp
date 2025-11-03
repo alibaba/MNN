@@ -13,10 +13,8 @@ public:
     virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
-    ErrorCode onEncodeNHWCScalar(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
-    ErrorCode onEncodeNHWCTensor(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
-    ErrorCode onEncodeNCHWScalar(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
-    ErrorCode onEncodeNCHWTensor(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
+    ErrorCode onEncodeScalar(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
+    ErrorCode onEncodeTensor(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
     void addNodeGather(const std::string & nodeNamePostfix, const Qnn_Tensor_t & input0, const Qnn_Tensor_t & input1, const Qnn_Param_t & paramAxis, const Qnn_Tensor_t & output);
     void addNodeReshape(const std::string & nodeNamePostfix, const Qnn_Tensor_t & input, const Qnn_Tensor_t & output);
 

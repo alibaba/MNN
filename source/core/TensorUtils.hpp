@@ -100,6 +100,7 @@ struct Tensor::InsideDescribe {
         int useCount = 0;
         Usage usage = NORMAL;
         std::vector<Region> regions;
+        bool overlap = false;
         halide_dimension_t dims[MNN_MAX_TENSOR_DIM];
         // TensorArray Attribute
         std::shared_ptr<TensorArrayAttr> tensorArrayAttr;

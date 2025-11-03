@@ -97,6 +97,9 @@ std::shared_ptr<DeconvolutionResource> CPUDeconvolution::makeResource(int srcCou
         MNN_ERROR("Alloc memory error for deconvolution\n");
         return nullptr;
     }
+    if (lP > 1) {
+        memset(res->mWeight->host<uint8_t>(), 0, res->mWeight->length(0) * res->mWeight->stride(0) * core->bytes);
+    }
     CPUConvolution::Resource::copyBias(res->mBias->host<float>(), convOp->main_as_Convolution2D()->bias()->data(), outputCount, backend);
     _transformWeight((uint8_t*)tempWeight, res->mWeight->host<uint8_t>(), outputCount, srcCount, fh, fw, (uint8_t*)cache.get(), core);
     return res;
@@ -147,6 +150,12 @@ CPUDeconvolution::~CPUDeconvolution() {
 ErrorCode CPUDeconvolution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     if (mDynamicWeight) {
         auto core = static_cast<CPUBackend*>(backend())->functions();
+
+        int eP, lP, hP;
+        core->MNNGetMatMulPackMode(&eP, &lP, &hP);
+        if (lP > 1) {
+            memset(mWeight->host<uint8_t>(), 0, mWeight->length(0) * mWeight->stride(0) * core->bytes);
+        }
         _transformWeight(inputs[1]->host<uint8_t>(), mWeight->host<uint8_t>(), mResource->mParam.outputCount, mResource->mParam.srcCount, mResource->mParam.fh, mResource->mParam.fw, mWeightTransformCache->host<uint8_t>(), core);
         ::memset(mBias->host<uint8_t>(), 0, mBias->length(0) * core->bytes);
         if (inputs.size() >= 3) {
@@ -229,7 +238,7 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
         // Limit threadNumber to avoid too large memory
         threadNumber = ALIMIN(threadNumber, 4);
     }
-    auto im2colOutputStride = input->channel() * eP * core->bytes;
+    auto im2colOutputStride = ROUND_UP(input->channel(), lP) * eP * core->bytes;
     mGemmInput = allocator->alloc(threadNumber * im2colOutputStride);
     auto gemmOutputStride = kernelCount * core->pack * eP * core->bytes;
     mGemmOutput = allocator->alloc(threadNumber * gemmOutputStride);
@@ -264,7 +273,7 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
                 continue;
             }
             size_t parameters[7];
-            parameters[0] = xCount * core->bytes;
+            parameters[0] = xCount * lP * core->bytes;
             parameters[1] = l;
             parameters[2] = h;
             parameters[3] = xCount * core->bytes * core->pack;
@@ -294,26 +303,26 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
                 auto dstZ = tempOutPtr + z * src_height * src_width * batch * unitBytes;
                 auto srcZ = colBufferPtr + kw * kh * xCount * z * unitBytes;
                 for (int x=0; x<xCount; ++x) {
-                    auto index = xStart + x;
-                    int b = index / (width * height);
-                    index = index % (width * height);
-                    int oy = index / width;
-                    int ox = index % width;
+                    auto indexE = xStart + x;
+                    int b = indexE / (width * height);
+                    indexE = indexE % (width * height);
+                    int oy = indexE / width;
+                    int ox = indexE % width;
                     int srcStartX = ox * strideX - padX;
                     int srcStartY = oy * strideY - padY;
-                    
+
                     int sfy = ALIMAX(0, (UP_DIV(-srcStartY, dilateY)));
                     int efy = ALIMIN(kh, UP_DIV(src_height - srcStartY, dilateY));
-                    
+
                     int sfx = ALIMAX(0, (UP_DIV(-srcStartX, dilateX)));
                     int efx = ALIMIN(kw, UP_DIV(src_width - srcStartX, dilateX));
-                    
+
                     auto dstStart = dstZ + b * src_width * src_height * unitBytes + srcStartX * unitBytes + srcStartY * src_width * unitBytes;
                     auto srcStart = srcZ + x * unitBytes;
                     if (sfy >= efy || sfx >= efx) {
                         continue;
                     }
-                    
+
                     for (int fy = sfy; fy < efy; ++fy) {
                         auto dstY = dstStart + fy * unitBytes * dilateY * src_width;
                         auto srcY = srcStart + fy * kw * xCount * unitBytes;

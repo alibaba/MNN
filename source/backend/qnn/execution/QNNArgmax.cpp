@@ -24,7 +24,6 @@ ErrorCode QNNArgmax::onEncode(const std::vector<Tensor *> &inputs, const std::ve
     }
 
     int axis = mOp->main_as_ArgMax()->axis();
-    axis = getNHWCAxis(axis, inputs[0]->dimensions(), TensorUtils::getDimType(inputs[0]));
 
     this->createParamScalar("axis", (uint32_t)axis);
 

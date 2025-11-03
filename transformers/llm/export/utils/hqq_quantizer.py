@@ -3,12 +3,12 @@ import numpy as np
 
 
 class HQQQuantizer:
-    def __init__(self, 
-                 weight, 
+    def __init__(self,
+                 weight,
                  bit,
-                 group_size,  
+                 group_size,
                  sym=False,
-                 compute_dtype: torch.dtype = torch.float32, 
+                 compute_dtype: torch.dtype = torch.float32,
                  device: torch.device = torch.device("cpu"),
                  quant_config: dict = None):
         self.weight = weight
@@ -17,16 +17,17 @@ class HQQQuantizer:
         self.sym = sym
         self.compute_dtype = compute_dtype
         self.device = device
-    
+
     def quant(self):
         self._quantize()
 
+    @torch.inference_mode()
     def _quantize(
         self,
         channel_wise: bool = True,
         axis: int = 1,
     ) -> tuple:
-        
+
         if self.group_size is not None:
             assert self.weight.numel() % self.group_size == 0, (
                 "group_size should be divisble by the total tensor dimensions. shape: "
@@ -57,7 +58,7 @@ class HQQQuantizer:
             max_v = 2**(self.bit-1) - 1    # 4bit: 7
             min_v = -2**(self.bit-1)       # 4bit: -8
             min_max = [min_v, max_v]       # [-8, 7]
-            
+
             max_abs = torch.max(torch.abs(_min), torch.abs(_max))
             scale = max_v / max_abs
             scale = torch.where(max_abs <= 1e-4, torch.full_like(scale, 1.0), scale)
@@ -67,14 +68,14 @@ class HQQQuantizer:
             max_v = round(2**self.bit - 1)  # 4bit: 15
             min_v = 0                       # 4bit: 0
             min_max = [min_v, max_v]        # [0, 15]
-            
+
             denom = (_max - _min)
             scale = (max_v / denom)
             scale = torch.where(denom.abs() <= 1e-4, torch.full_like(scale, 1.0), scale)
             scale = scale.clamp(max=2e4)
             zero = -_min * scale
             zero = torch.round(zero)
-    
+
         W_q, scale, zero = self._optimize_weights(
             W,
             scale,
@@ -106,7 +107,7 @@ class HQQQuantizer:
 
         self.W_q = W_q
         self.meta = meta
-    
+
     @torch.inference_mode()
     def _optimize_weights(
         self,
@@ -132,15 +133,19 @@ class HQQQuantizer:
             zero  = zero.to(dtype=dtype, device=self.device)
 
         best_error = torch.tensor(torch.inf, dtype=torch.float32, device=self.device)
+        W_q = torch.empty_like(W_f)
+        W_r = torch.empty_like(W_f)
+        W_e = torch.empty_like(W_f)
+        W_prime = torch.empty_like(W_f) if self.sym else None
         for i in range(iters):
             if not self.sym:
-                W_r, W_q, zero, scale = self._optimize_weights_proximal_legacy_step(W_f, scale, zero, min_max, beta, lp_norm, axis)
+                self._optimize_weights_proximal_legacy_step(W_f, scale, zero, min_max, beta, lp_norm, axis, W_q, W_r, W_e)
             else:
-                W_r, W_q, scale = self._optimize_weights_proximal_scale_only(W_f, scale, min_max, beta, lp_norm, axis)
+                self._optimize_weights_proximal_scale_only(W_f, scale, min_max, beta, lp_norm, axis, W_q, W_r, W_e, W_prime)
             current_error = torch.abs(W_f - W_r).mean().float()
-            if verbose: 
+            if verbose:
                 print(i, current_error.cpu())
-            
+
             if current_error < best_error:
                 best_error = current_error
             else:
@@ -159,40 +164,46 @@ class HQQQuantizer:
         else:
             W_q = torch.round(W * scale).clamp_(min_max[0], min_max[1])
         return W_q, scale, zero
-    
-    def _optimize_weights_proximal_legacy_step(self, W_f, scale, zero, min_max, beta, lp_norm, axis):
-        W_q = torch.round(W_f * scale + zero).clamp_(min_max[0], min_max[1])
-        W_r = (W_q - zero) / scale
-        W_e = self._shrink_lp_op(W_f - W_r, beta, lp_norm)
-        zero = torch.mean(W_q - (W_f - W_e) * scale, axis=axis, keepdim=True)
-        return W_r, W_q, zero, scale
-    
-    def _optimize_weights_proximal_scale_only(self, W_f, scale, min_max, beta, lp_norm, axis, eps=1e-8):
-        W_q = torch.round(W_f * scale).clamp_(min_max[0], min_max[1])
-        W_r = W_q / scale
-        W_e = self._shrink_lp_op(W_f - W_r, beta, lp_norm)
-        W_prime = W_f - W_e
-        # dot(W', W_q)
+
+    @torch.inference_mode()
+    def _optimize_weights_proximal_legacy_step(self, W_f, scale, zero, min_max, beta, lp_norm, axis, W_q, W_r, W_e):
+        torch.mul(W_f, scale, out=W_q)
+        torch.add(W_q, zero, out=W_q)
+        torch.round(W_q, out=W_q).clamp_(min_max[0], min_max[1])
+        torch.sub(W_q, zero, out=W_r)
+        torch.div(W_r, scale, out=W_r)
+        torch.sub(W_f, W_r, out=W_e)
+        self._shrink_lp_op(W_e, beta, lp_norm, out=W_e)
+        torch.sub(W_f, W_e, out=W_r)
+        torch.mul(W_r, scale, out=W_r)
+        torch.sub(W_q, W_r, out=W_r)
+        torch.mean(W_r, axis=axis, keepdim=True, out=zero)
+
+    @torch.inference_mode()
+    def _optimize_weights_proximal_scale_only(self, W_f, scale, min_max, beta, lp_norm, axis, W_q, W_r, W_e, W_prime, eps=1e-8):
+        torch.mul(W_f, scale, out=W_q)
+        torch.round(W_q, out=W_q).clamp_(min_max[0], min_max[1])
+        torch.div(W_q, scale, out=W_r)
+        torch.sub(W_f, W_r, out=W_e)
+        self._shrink_lp_op(W_e, beta, lp_norm, out=W_e)
+        torch.sub(W_f, W_e, out=W_prime)
         w_prime_dot_w_q = torch.sum(W_prime * W_q, axis=axis, keepdim=True)
-        # ||W_q||²
         w_q_norm_sq = torch.sum(W_q**2, axis=axis, keepdim=True)
-        new_scale = w_q_norm_sq / (w_prime_dot_w_q + eps)
-        return W_r, W_q, new_scale
-        # Shrinking operator
-    def _shrink_lp_op(self, x: torch.Tensor, beta: float, lp_norm: float) -> torch.Tensor:
-        if lp_norm == 1: 
+        torch.add(w_prime_dot_w_q, eps, out=w_prime_dot_w_q)
+        torch.div(w_q_norm_sq, w_prime_dot_w_q, out=scale)
+
+    # Shrinking operator
+    @torch.inference_mode()
+    def _shrink_lp_op(self, x: torch.Tensor, beta: float, lp_norm: float, out: torch.Tensor) -> torch.Tensor:
+        if lp_norm == 1:
             #torch.sign(x) * torch.nn.functional.relu(torch.abs(x) - 1.0 / beta)
-            out = torch.abs(x)
+            torch.abs(x, out=out)
             out.sub_(1.0 / beta).clamp_min_(0.0)
             out.mul_(torch.sign(x))
             return out
         else:
             #torch.sign(x) * torch.nn.functional.relu(torch.abs(x) - (1.0 / beta) * torch.pow(torch.abs(x), lp_norm - 1))
-            out = torch.abs(x)
+            torch.abs(x, out=out)
             out.sub_((1.0 / beta) * out.pow(lp_norm - 1)).clamp_min_(0.0)
             out.mul_(torch.sign(x))
             return out
-
-
-        
-        

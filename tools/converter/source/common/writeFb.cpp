@@ -12,7 +12,8 @@
 #include <set>
 #include <string>
 #include <sstream>
-
+//#define MNN_OPEN_TIME_TRACE
+#include <MNN/AutoTime.hpp>
 #include "MNN_generated.h"
 #include "core/MNNFileUtils.h"
 #include "logkit.h"
@@ -87,6 +88,7 @@ static bool _largeModel(const MNN::NetT* netT) {
     return false;
 }
 int postTreat(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config) {
+    AUTOTIME;
     std::string compressFileName = config.compressionParamsFile;
     auto& proto = config.compressInfo->proto;
     auto MNNModelFile = config.MNNModel;

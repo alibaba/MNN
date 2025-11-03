@@ -317,6 +317,12 @@ StaticModule::StaticModule(std::vector<int> inputs,
     auto& bnCache = scheduleInfo.pipelineInfo[0].first;
     // Create Backend for prearrange
     Session::createPipelineBackend(scheduleInfo.pipelineInfo[0], rt);
+    if (nullptr == bnCache.cache.first || nullptr == bnCache.cache.second) {
+        MNN_ERROR("[MNN:Express] Create Backend Error\n");
+        return;
+    }
+    bnCache.cache.first->pNPUModelDirPath = rtm->getInside()->mContent->mNpuDir;
+    bnCache.cache.second->pNPUModelDirPath = rtm->getInside()->mContent->mNpuDir;
     if (config.rearrange) {
         mResource->mBuffer = preRearrangeWeights(scheduleInfo, bnCache.cache.first.get(), bnCache.cache.second.get(), config.base);
     } else {

@@ -6,6 +6,7 @@ import torch
 import numpy as np
 
 from .torch_utils import quant as torch_quant
+from .torch_utils import onnx_export
 from tqdm import tqdm
 from .spinner import spinner_run
 from .gptq import GPTQ
@@ -162,14 +163,11 @@ class MNNConveter:
         expert_num = len(experts[0])
         dummy_expert = experts[0][0]
         onnx_model = f'{self.config.onnx_path}/expert.onnx'
-        torch.onnx.export(
+        onnx_export(
             dummy_expert, (hidden_states),
             onnx_model,
             input_names=['hidden_states'],
-            output_names=['hidden_states'],
-            do_constant_folding=True,
-            verbose=False,
-            opset_version=15)
+            output_names=['hidden_states'])
         mnn_model = f'{onnx_model}.mnn'
         mnn_json = f'{mnn_model}.json'
         self.onnx2mnn(onnx_model, mnn_model)
