@@ -36,7 +36,7 @@ public:
 
     static bool fileExist(const std::string& file);
     static void readClibrationFiles(std::vector<std::string>& images, const std::string& filePath, int *usedImageNum);
-    static void preprocessInput(MNN::CV::ImageProcess* pretreat, PreprocessConfig PreprocessConfig, 
+    static void preprocessInput(MNN::CV::ImageProcess* pretreat, PreprocessConfig PreprocessConfig,
                                 const std::string& filename, MNN::Tensor* input, InputType inputType, MNN::Express::VARP var);
     static void invertData(float* dst, const float* src, int size);
     static bool stringEndWith(std::string const &fullString, std::string const &ending);

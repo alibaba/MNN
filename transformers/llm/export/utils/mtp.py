@@ -7,6 +7,7 @@ from typing import Optional, List, Tuple
 from .transformers import Attention
 from utils.custom_op import FakeLinear
 from utils.spinner import spinner_run
+from .torch_utils import onnx_export
 
 class Mtp(torch.nn.Module):
     def __init__(self, mtp, base):
@@ -59,12 +60,12 @@ class Mtp(torch.nn.Module):
         logits_index = torch.tensor([-1], dtype=torch.int32)
         # export to onnx
         with torch.no_grad():
-            torch.onnx.export(
+            onnx_export(
                 self, (input_embed, hidden_states, attention_mask, position_ids, past_key_values, logits_index),
                 onnx_model,
                 input_names=[
                     'input_embed', 'hidden_states',
-                    'attention_mask', 'position_ids', 
+                    'attention_mask', 'position_ids',
                     'past_key_values', 'logits_index'
                 ],
                 output_names=['logits', 'presents'],
@@ -74,10 +75,7 @@ class Mtp(torch.nn.Module):
                     "attention_mask" : { 2: "seq_len", 3: "seq_len" },
                     "position_ids" : { 1: "seq_len" },
                     "past_key_values" : { 2: "history_len" }
-                    },
-                do_constant_folding=True,
-                verbose=False,
-                opset_version=15)
+                })
         return onnx_model
 
     def load(self):
@@ -158,10 +156,10 @@ class MimoMtp(Mtp):
 
         hidden_states = hidden_states[:, logits_index:, :]
         hidden_states = self.final_layernorm(hidden_states)
-        
+
         logits = self.lm_(hidden_states)
         return logits, present_key_value
-    
+
 class PoiQwenMtp(Mtp):
     def __init__(self, mtp, base):
         self.num_mtp_layers = 2

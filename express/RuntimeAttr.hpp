@@ -17,6 +17,7 @@ struct RuntimeAttr {
         bool mUserConfig;
         int mNumberThread;
         std::string mExternalFile;
+        std::string mNpuDir;
     };
     std::shared_ptr<Immutable> mContent;
     RuntimeInfo mRuntime;

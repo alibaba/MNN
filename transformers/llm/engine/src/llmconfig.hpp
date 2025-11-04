@@ -15,7 +15,7 @@
 #include <rapidjson/document.h>
 #include <rapidjson/writer.h>
 #include <rapidjson/stringbuffer.h>
-
+#include <MNN/MNNDefine.h>
 
 
 namespace MNN {
@@ -90,6 +90,7 @@ public:
         rapidjson::Document input_doc;
         input_doc.Parse(str);
         if (input_doc.HasParseError()) {
+            MNN_PRINT("Config Parse Error: %d\n", input_doc.GetParseError());
             return false;
         }
         // merge
@@ -574,7 +575,7 @@ public:
 
     // speculative draft length
     int draft_predict_length() const {
-        return config_.value("draft_predict_length", 4);
+        return config_.value("draft_predict_length", 3);
     }
     /**
      if speculative_type is set "lookahead",
@@ -634,6 +635,12 @@ public:
     }
     std::string eagle_d2t() const {
         return base_dir_ + config_.value("eagle_d2t", "eagle_d2t.mnn");
+    }
+    int eagle_depth() const {
+        return config_.value("eagle_depth", 3);
+    }
+    int eagle_topk() const {
+        return config_.value("eagle_topk", 1);
     }
     // speculative decoding config end >
 };

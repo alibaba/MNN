@@ -16,7 +16,7 @@ ErrorCode QNNUnary::onEncode(const std::vector<Tensor *> &inputs, const std::vec
     MNN_ASSERT(inputs.size() == 1 && outputs.size() == 1);
     if (UnaryOpOperation_SILU == mOp->main_as_UnaryOp()->opType()) {
         Qnn_DataType_t dataType = mBackend->getNativeTensor(inputs[0])->v1.dataType;
-        this->createStageTensor("Stage", dataType, getNHWCShape(inputs[0]));
+        this->createStageTensor("Stage", dataType, getNHWCShape(inputs[0]), outputs[0]);
         auto input = inputs[0];
         {
             mParams.clear();

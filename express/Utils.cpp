@@ -182,8 +182,9 @@ void* Executor::ComputeCache::mapOutput(int offset, Tensor* dest) {
         return nullptr;
     }
     Utils::allocMemoryForHostTensor(dest);
-    tensor->copyToHostTensor(dest);
-    MNN_ASSERT(nullptr != dest->host<void>());
+    if(nullptr != dest->host<void>()) {
+        tensor->copyToHostTensor(dest);
+    }
     return dest->host<void>();
 }
 

@@ -40,47 +40,24 @@ ErrorCode QNNGather::onEncode(const std::vector<Tensor *> &inputs, const std::ve
     }
 #endif
 
-    if(mOp->type() == OpType_GatherElements) {
-        if (mDimType == Tensor::DimensionType::CAFFE) {
-            if(mRawAxis == 1) {
-                mRawAxis = indices->dimensions() - 1;
-            } else if(mRawAxis == 2) {
-                mRawAxis = 1;
-            } else if(mRawAxis == 3) {
-                mRawAxis = 2;
-            } 
-        }  
-        return this->onEncodeNHWCTensor(inputs, outputs);
-    }
-
     // Goto branches.
-    if (mDimType == Tensor::DimensionType::TENSORFLOW && mFlagScalarIndices) {
-        return this->onEncodeNHWCScalar(inputs, outputs);
-    }
-
-    if (mDimType == Tensor::DimensionType::TENSORFLOW && !mFlagScalarIndices) {
-        return this->onEncodeNHWCTensor(inputs, outputs);
-    }
-
-    if (mDimType == Tensor::DimensionType::CAFFE && mFlagScalarIndices) {
-        return this->onEncodeNCHWScalar(inputs, outputs);
-    }
-
-    if (mDimType == Tensor::DimensionType::CAFFE && !mFlagScalarIndices) {
-        return this->onEncodeNCHWTensor(inputs, outputs);
+    if (mFlagScalarIndices) {
+        return this->onEncodeScalar(inputs, outputs);
+    }else{
+        return this->onEncodeTensor(inputs, outputs);
     }
 
     return NO_ERROR;
 }
 
-ErrorCode QNNGather::onEncodeNHWCScalar(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+ErrorCode QNNGather::onEncodeScalar(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     // Create resources.
     this->createParamScalar("axis", mRawAxis);
 
     std::vector<int> shapeStageOutput = inputs[0]->shape();
     shapeStageOutput[mRawAxis] = 1;
-
-    this->createStageTensor("stageOutput", mQnnDataType, shapeStageOutput);
+    
+    this->createStageTensor("stageOutput", mQnnDataType, shapeStageOutput, outputs[0]);
 
     // Add Nodes.
     this->addNodeGather("Gather",
@@ -96,7 +73,7 @@ ErrorCode QNNGather::onEncodeNHWCScalar(const std::vector<Tensor *> &inputs, con
     return NO_ERROR;
 }
 
-ErrorCode QNNGather::onEncodeNHWCTensor(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+ErrorCode QNNGather::onEncodeTensor(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     // Create resources.
     if(mOp->type() == OpType_GatherElements) {
         this->createParamScalar("axis", (uint32_t)mRawAxis);
@@ -109,92 +86,6 @@ ErrorCode QNNGather::onEncodeNHWCTensor(const std::vector<Tensor *> &inputs, con
                         *(mBackend->getNativeTensor(inputs[1])),
                         *(mParamScalarWrappers[0]->getNativeParam()),
                         *(mBackend->getNativeTensor(outputs[0])));
-
-    return NO_ERROR;
-}
-
-ErrorCode QNNGather::onEncodeNCHWScalar(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    // Create resources.
-    this->createParamScalar("axis", mRawAxis);
-
-    std::vector<int> shapeStageInput = inputs[0]->shape();
-    std::vector<int> shapeStageOutput0 = shapeStageInput; shapeStageOutput0[mRawAxis] = 1;
-    std::vector<int> shapeStageOutput1 = outputs[0]->shape();
-    this->createStageTensor("stageInput", mQnnDataType, shapeStageInput);
-    this->createStageTensor("stageOutput0", mQnnDataType, shapeStageOutput0);
-    this->createStageTensor("stageOutput1", mQnnDataType, shapeStageOutput1);
-
-    std::vector<uint32_t> permBeforeData(mInputDim, 0);
-    std::vector<uint32_t> permAfterData(mOutputDim, 0);
-    for (int i = 0; i < mInputDim; i++) {
-        permBeforeData[i] = getNHWCAxis(i, mInputDim, Tensor::DimensionType::CAFFE);
-    }
-    for (int j = 0; j < mOutputDim; j++) {
-        permAfterData[j] = getNCHWAxis(j, mOutputDim, Tensor::DimensionType::TENSORFLOW);
-    }
-    this->createParamTensor("perm", QNN_DATATYPE_UINT_32, {(uint32_t) mInputDim}, (void *) permBeforeData.data(), "before");
-    this->createParamTensor("perm", QNN_DATATYPE_UINT_32, {(uint32_t) mOutputDim}, (void *) permAfterData.data(), "after");
-
-    this->addNodeCommonPermute("PermuteBefore",
-                                *(mBackend->getNativeTensor(inputs[0])),
-                                *(mParamTensorWrappers[0]->getNativeParam()),
-                                *(mTempTensorWrappers[0]->getNativeTensor()));
-
-    this->addNodeGather("Gather",
-                        *(mTempTensorWrappers[0]->getNativeTensor()),
-                        *(mBackend->getNativeTensor(inputs[1])),
-                        *(mParamScalarWrappers[0]->getNativeParam()),
-                        *(mTempTensorWrappers[1]->getNativeTensor()));
-
-    this->addNodeReshape("Squeeze",
-                         *(mTempTensorWrappers[1]->getNativeTensor()),
-                         *(mTempTensorWrappers[2]->getNativeTensor()));
-
-    this->addNodeCommonPermute("PermuteAfter",
-                               *(mTempTensorWrappers[2]->getNativeTensor()),
-                               *(mParamTensorWrappers[1]->getNativeParam()),
-                               *(mBackend->getNativeTensor(outputs[0])));
-
-    return NO_ERROR;
-}
-
-ErrorCode QNNGather::onEncodeNCHWTensor(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    // Create resources.
-    this->createParamScalar("axis", mRawAxis);
-
-    std::vector<int> shapeStageInput = inputs[0]->shape();
-    std::vector<int> shapeStageOutput = outputs[0]->shape();
-    this->createStageTensor("stageInput", mQnnDataType, shapeStageInput);
-    this->createStageTensor("stageOutput", mQnnDataType, shapeStageOutput);
-
-    std::vector<uint32_t> permBeforeData(mInputDim, 0);
-    std::vector<uint32_t> permAfterData(mOutputDim, 0);
-    for (int i = 0; i < mInputDim; i++) {
-        permBeforeData[i] = getNHWCAxis(i, mInputDim, Tensor::DimensionType::CAFFE);
-    }
-    for (int j = 0; j < mOutputDim; j++) {
-        permAfterData[j] = getNCHWAxis(j, mOutputDim, Tensor::DimensionType::TENSORFLOW);
-    }
-
-    this->createParamTensor("perm", QNN_DATATYPE_UINT_32, {(uint32_t) mInputDim}, (void *) permBeforeData.data(), "before");
-    this->createParamTensor("perm", QNN_DATATYPE_UINT_32, {(uint32_t) mOutputDim}, (void *) permAfterData.data(), "after");
-
-    // Add Nodes.
-    this->addNodeCommonPermute("PermuteBefore",
-                               *(mBackend->getNativeTensor(inputs[0])),
-                               *(mParamTensorWrappers[0]->getNativeParam()),
-                               *(mTempTensorWrappers[0]->getNativeTensor()));
-
-    this->addNodeGather("Gather",
-                        *(mTempTensorWrappers[0]->getNativeTensor()),
-                        *(mBackend->getNativeTensor(inputs[1])),
-                        *(mParamScalarWrappers[0]->getNativeParam()),
-                        *(mTempTensorWrappers[1]->getNativeTensor()));
-
-    this->addNodeCommonPermute("PermuteAfter",
-                               *(mTempTensorWrappers[1]->getNativeTensor()),
-                               *(mParamTensorWrappers[1]->getNativeParam()),
-                               *(mBackend->getNativeTensor(outputs[0])));
 
     return NO_ERROR;
 }

@@ -188,6 +188,7 @@ protected:
     CoreFunctions* mCoreFunctions;
     CoreInt8Functions* mInt8CoreFunctions;
     const MatmulRelatedFunctions* mRelatedFunctions;
+    CPURuntime* mRuntime;
 private:
     mutable std::shared_ptr<WorkerThread> mInitWorkQueue;
     mutable int mThreadNumber = 1;
@@ -195,7 +196,6 @@ private:
     float mComputeI = 0.f;
 
     std::shared_ptr<CPURuntime::DynamicAllocator> mDmaInfo;
-    CPURuntime* mRuntime;
     BackendConfig::PrecisionMode mPrecisionMode;
     BackendConfig::MemoryMode mMemory;
     static std::map<OpType, CPUBackend::Creator*>* gCreator;

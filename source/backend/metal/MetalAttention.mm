@@ -114,7 +114,6 @@ void AttentionBufExecution::reallocKVCache() {
         return;
     }
     auto kv_seq_len = mMeta->previous + mMeta->add - mMeta->remove + mMeta->computeReverseSize();
-    
     auto mtbn = static_cast<MetalBackend *>(backend());
     int byte = 4;
     if(mtbn->useFp16InsteadFp32()) {
@@ -125,11 +124,12 @@ void AttentionBufExecution::reallocKVCache() {
     // latest length larger than maxLen
     if (kv_seq_len > mCache->mMaxLength) {
 
-        auto copy_len = mCache->mPastLength - mMeta->remove + mMeta->computeReverseSize();
+        // copy mPastLength including all remove/reverse to new buffer first
+        auto copy_len = mCache->mPastLength;
         bool needCopy = copy_len > 0;
         
-        size_t old_size = mKvNumHead * start * mHeadDim * byte;
-        size_t old_piece_size = start * byte;
+        size_t old_size = mKvNumHead * copy_len * mHeadDim * byte;
+        size_t old_piece_size = copy_len * byte;
         size_t old_piece_stride = mCache->mMaxLength * byte;
 
         mCache->mMaxLength = kv_seq_len + mExpandChunk;

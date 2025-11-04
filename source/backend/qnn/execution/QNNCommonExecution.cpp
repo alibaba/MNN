@@ -81,16 +81,25 @@ void QNNCommonExecution::createStaticFloatTensor(const std::string & name, Qnn_D
     return;
 }
 
-void QNNCommonExecution::createStageTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<int> & dimensions, Qnn_QuantizeParams_t quantize) {
+void QNNCommonExecution::createStageTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<int> & dimensions, const Tensor* tensor) {
     std::vector<uint32_t> vec(dimensions.size());
     for (int i = 0; i < dimensions.size(); i++) {
         vec[i] = (uint32_t)dimensions[i];
     }
-    this->createStageTensor(name, dataType, vec, quantize);
+    this->createStageTensor(name, dataType, vec, tensor);
     return;
 }
-void QNNCommonExecution::createStageTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<uint32_t> & dimensions, Qnn_QuantizeParams_t quantize) {
+void QNNCommonExecution::createStageTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<uint32_t> & dimensions, const Tensor* tensor) {
     std::string tensorName = mNodeName + "_" + name;
+    Qnn_QuantizeParams_t quantize = DEFAULT_QUANTIZE_PARAMS;
+    Qnn_ScaleOffset_t tScaleOffsetEncoding;
+    if(tensor != nullptr && TensorUtils::getDescribe(tensor)->applyQuant){
+        quantize.encodingDefinition = QNN_DEFINITION_DEFINED;
+        quantize.quantizationEncoding = QNN_QUANTIZATION_ENCODING_SCALE_OFFSET;
+        tScaleOffsetEncoding.scale = mBackend->getNativeTensor(tensor)->v1.quantizeParams.scaleOffsetEncoding.scale;
+        tScaleOffsetEncoding.offset = mBackend->getNativeTensor(tensor)->v1.quantizeParams.scaleOffsetEncoding.offset;
+        quantize.scaleOffsetEncoding = tScaleOffsetEncoding;
+    }
     std::shared_ptr<QNNTensorWrapper> tensorWrapper = QNNTensorWrapper::create(tensorName, QNN_TENSOR_TYPE_NATIVE, dataType, dimensions, quantize);
     mBackend->addStageTensorToGraph(tensorWrapper->getNativeTensor());
     mTempTensorWrappers.push_back(tensorWrapper);

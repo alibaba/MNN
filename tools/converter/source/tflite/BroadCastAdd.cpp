@@ -67,7 +67,11 @@ void AddTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>& t
         extraOpParam->attr[0]->key = "opType";
         extraOpParam->attr[0]->i = tflite::BuiltinOperator_ADD;
         extraOpParam->attr[1]->key = "activationType";
-        extraOpParam->attr[1]->i = addOption->fused_activation_function;
+        if (nullptr != addOption) {
+            extraOpParam->attr[1]->i = addOption->fused_activation_function;
+        } else {
+            extraOpParam->attr[1]->i = 0;
+        }
         dstOp->main.value = extraOpParam;
     }
 }

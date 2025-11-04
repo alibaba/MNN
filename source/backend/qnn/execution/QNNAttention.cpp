@@ -39,28 +39,78 @@ ErrorCode QNNAttention::onEncode(const std::vector<Tensor *> &inputs, const std:
     int kvHeadNum = inputs[1]->length(2);
     int seqLenKV = inputs[1]->length(1);
     float scale = 1.0 / sqrt(headDim);
-
     Qnn_DataType_t dataType = mBackend->getNativeTensor(inputs[0])->v1.dataType;
-    this->createStageTensor("ScaleQ", dataType, std::vector<int>({batch, headNum, headDim, seqLenQ})); // mTempTensorWrappers[0], stage Scale
-    this->createStageTensor("QK", dataType, std::vector<int>({batch, headNum, seqLenQ, seqLenKV})); // mTempTensorWrappers[1], stage QK
-    this->createStageTensor("Softmax", dataType, std::vector<int>({batch, headNum, seqLenQ, seqLenKV})); // mTempTensorWrappers[2], stage Softmax
-    this->createStageTensor("QKV", dataType, std::vector<int>({batch, headNum, seqLenQ, headDim})); // mTempTensorWrappers[3], stage QKV
-    this->createStageTensor("Transpose", dataType, std::vector<int>({batch, headNum, headDim, seqLenQ})); // mTempTensorWrappers[4], stage Transpose
+    this->createStageTensor("Query_perm", dataType, std::vector<int>({batch, headNum, headDim, seqLenQ})); // mTempTensorWrappers[0], stage query
+    this->createStageTensor("Key_perm", dataType, std::vector<int>({batch, kvHeadNum, headDim, seqLenKV})); // mTempTensorWrappers[1], stage key
+    this->createStageTensor("Value_perm", dataType, std::vector<int>({batch, kvHeadNum, headDim, seqLenKV})); // mTempTensorWrappers[2], stage value
+    this->createStageTensor("ScaleQ", dataType, std::vector<int>({batch, headNum, headDim, seqLenQ})); // mTempTensorWrappers[3], stage Scale
+    this->createStageTensor("QK", dataType, std::vector<int>({batch, headNum, seqLenQ, seqLenKV})); // mTempTensorWrappers[4], stage QK
+    this->createStageTensor("Softmax", dataType, std::vector<int>({batch, headNum, seqLenQ, seqLenKV})); // mTempTensorWrappers[5], stage Softmax
+    this->createStageTensor("QKV", dataType, std::vector<int>({batch, headNum, seqLenQ, headDim})); // mTempTensorWrappers[6], stage QKV
+    this->createStageTensor("Transpose", dataType, std::vector<int>({batch, seqLenQ, headNum, headDim})); // mTempTensorWrappers[7], stage Transpose
 
     size_t totalSize = batch * headNum * seqLenQ * headDim;
     std::vector<float> scaleVec(totalSize, scale);
     // mTempTensorWrappers[5], static coef
     this->createStaticFloatTensor("coef", dataType, std::vector<uint32_t>({(uint32_t)batch, (uint32_t)headNum, (uint32_t)headDim, (uint32_t)seqLenQ}), scaleVec.data());
 
-    std::vector<uint32_t> mapReal{0, 1, 3, 2};
-    this->createParamTensor("perm", QNN_DATATYPE_UINT_32, {(uint32_t) 4}, mapReal.data(), "output_trans"); // mParamTensorWrappers[0]
+    std::vector<uint32_t> mapReal{0, 2, 3, 1};
+    std::vector<uint32_t> mapOutputReal{0, 2, 1, 3};
+    this->createParamTensor("perm", QNN_DATATYPE_UINT_32, {(uint32_t) 4}, mapReal.data(), "input_query"); // mParamTensorWrappers[0]
+    this->createParamTensor("perm", QNN_DATATYPE_UINT_32, {(uint32_t) 4}, mapReal.data(), "input_key"); // mParamTensorWrappers[1]
+    this->createParamTensor("perm", QNN_DATATYPE_UINT_32, {(uint32_t) 4}, mapReal.data(), "input_value"); // mParamTensorWrappers[2]
+    this->createParamTensor("perm", QNN_DATATYPE_UINT_32, {(uint32_t) 4}, mapOutputReal.data(), "output_trans"); // mParamTensorWrappers[3]
+    
+    // transpose input
+    {
+        // transpose query
+        {
+            std::string name = mNodeName + "_Transpose_query";
+            mNodeType = "Transpose";
+            mParams.clear();
+            mInputs.clear();
+            mOutputs.clear();
+            mInputs.push_back(*(mBackend->getNativeTensor(inputs[0]))); // input0
+            mParams.push_back(*(mParamTensorWrappers[0]->getNativeParam())); // perm_query
+            mOutputs.push_back(*(mTempTensorWrappers[0]->getNativeTensor())); // stage query
+        
+            mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
+        }
+        // transpose key
+        {
+            std::string name = mNodeName + "_Transpose_key";
+            mNodeType = "Transpose";
+            mParams.clear();
+            mInputs.clear();
+            mOutputs.clear();
+            mInputs.push_back(*(mBackend->getNativeTensor(inputs[1]))); // input1
+            mParams.push_back(*(mParamTensorWrappers[1]->getNativeParam())); // perm_key
+            mOutputs.push_back(*(mTempTensorWrappers[1]->getNativeTensor())); // stage key
+        
+            mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
+        }
+        // transpose value
+        {
+            std::string name = mNodeName + "_Transpose_value";
+            mNodeType = "Transpose";
+            mParams.clear();
+            mInputs.clear();
+            mOutputs.clear();
+            mInputs.push_back(*(mBackend->getNativeTensor(inputs[2]))); // input2
+            mParams.push_back(*(mParamTensorWrappers[2]->getNativeParam())); // perm_value
+            mOutputs.push_back(*(mTempTensorWrappers[2]->getNativeTensor())); // stage value
+        
+            mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
+        }
+    }
+    
     // GQA
     bool isGQA = (headNum != kvHeadNum);
     int tensorNumGQA = 0;
     int group = headNum / kvHeadNum;
     if(isGQA) {
-        this->createStageTensor("RepeatedKey", dataType, std::vector<int>({batch, headNum, headDim, seqLenKV})); // mTempTensorWrappers[6], stage RepeatedKey
-        this->createStageTensor("RepeatedValue", dataType, std::vector<int>({batch, headNum, headDim, seqLenKV})); // mTempTensorWrappers[7], stage RepeatedValue
+        this->createStageTensor("RepeatedKey", dataType, std::vector<int>({batch, headNum, headDim, seqLenKV})); // mTempTensorWrappers[9], stage RepeatedKey
+        this->createStageTensor("RepeatedValue", dataType, std::vector<int>({batch, headNum, headDim, seqLenKV})); // mTempTensorWrappers[10], stage RepeatedValue
 
         #ifdef GQA_USE_GATHER
         // index: fill in Key and Value to shape of Query
@@ -83,15 +133,15 @@ ErrorCode QNNAttention::onEncode(const std::vector<Tensor *> &inputs, const std:
         for(int i = 0; i < splitIndex.size(); i++) {
             splitIndex[i] = i + 1;
         }
-        // mParamTensorWrappers[1]
+        // mParamTensorWrappers[4]
         this->createParamTensor("split_index", QNN_DATATYPE_UINT_32, {(uint32_t)kvHeadNum-1}, (void *)splitIndex.data(), "K_Split");
-        // mTempTensorWrappers[8] .. [7+kvHeadNum] stage SplitKV_Temp
+        // mTempTensorWrappers[11] .. [10+kvHeadNum] stage SplitKV_Temp
         for(int i = 0; i < kvHeadNum; i++) {
             this->createStageTensor("SplitK_Temp" + std::to_string(i), dataType, std::vector<int>({batch, 1, headDim, seqLenKV})); 
         }
-        // mParamTensorWrappers[2]
+        // mParamTensorWrappers[5]
         this->createParamTensor("split_index", QNN_DATATYPE_UINT_32, {(uint32_t)kvHeadNum-1}, (void *)splitIndex.data(), "V_Split");
-        // mTempTensorWrappers[8+kvHeadNum] .. [7+2*kvHeadNum] stage SplitKV_Temp
+        // mTempTensorWrappers[11+kvHeadNum] .. [10+2*kvHeadNum] stage SplitKV_Temp
         for(int i = 0; i < kvHeadNum; i++) {
             this->createStageTensor("SplitV_Temp" + std::to_string(i), dataType, std::vector<int>({batch, 1, headDim, seqLenKV})); 
         }
@@ -101,7 +151,7 @@ ErrorCode QNNAttention::onEncode(const std::vector<Tensor *> &inputs, const std:
         this->createParamScalar("axis", (uint32_t)1);
     }
     bool hasMask = (inputs.size() > 3);
-    int maskPosIndex = 6 + tensorNumGQA;
+    int maskPosIndex = 9 + tensorNumGQA;
     int scalarBaseIndex = isGQA ? 1 : 0;
     if(hasMask) {
         this->createStageTensor("tempMask", dataType, std::vector<int>({batch, 1, seqLenQ, seqLenKV})); // mTempTensorWrappers[maskPosIndex], stage Mask
@@ -115,16 +165,16 @@ ErrorCode QNNAttention::onEncode(const std::vector<Tensor *> &inputs, const std:
         mOutputs.clear();
         std::string name = mNodeName + "_Scale";
         mNodeType = "ElementWiseMultiply";
-        mInputs.push_back(*(mBackend->getNativeTensor(inputs[0]))); //Q
-        mInputs.push_back(*(mTempTensorWrappers[5]->getNativeTensor())); // coef
-        mOutputs.push_back(*(mTempTensorWrappers[0]->getNativeTensor())); // ScaleQ
+        mInputs.push_back(*(mTempTensorWrappers[0]->getNativeTensor())); //stage query
+        mInputs.push_back(*(mTempTensorWrappers[8]->getNativeTensor())); // coef
+        mOutputs.push_back(*(mTempTensorWrappers[3]->getNativeTensor())); // ScaleQ
 
         mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
     }
 
     // Q * K
     {
-        auto tempK = *(mBackend->getNativeTensor(inputs[1]));
+        auto tempK = *(mTempTensorWrappers[1]->getNativeTensor());
         if(isGQA) {
             #ifdef GQA_USE_GATHER
             mParams.clear();
@@ -133,10 +183,10 @@ ErrorCode QNNAttention::onEncode(const std::vector<Tensor *> &inputs, const std:
             std::string name = mNodeName + "_K_Repeat";
             mNodeType = "GatherElements";
 
-            mInputs.push_back(*(mBackend->getNativeTensor(inputs[1]))); // input1
-            mInputs.push_back(*(mTempTensorWrappers[8]->getNativeTensor())); // gather_index
+            mInputs.push_back(*(mTempTensorWrappers[1]->getNativeTensor())); // stage key
+            mInputs.push_back(*(mTempTensorWrappers[11]->getNativeTensor())); // gather_index
             mParams.push_back(*(mParamScalarWrappers[0]->getNativeParam())); // axis
-            mOutputs.push_back(*(mTempTensorWrappers[6]->getNativeTensor())); // stage RepeatedKey
+            mOutputs.push_back(*(mTempTensorWrappers[9]->getNativeTensor())); // stage RepeatedKey
 
             mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
             #else
@@ -147,11 +197,11 @@ ErrorCode QNNAttention::onEncode(const std::vector<Tensor *> &inputs, const std:
                 std::string name = mNodeName + "_K_Split";
                 mNodeType = "Split";
 
-                mInputs.push_back(*(mBackend->getNativeTensor(inputs[1]))); // input1
+                mInputs.push_back(*(mTempTensorWrappers[1]->getNativeTensor())); // stage key
                 mParams.push_back(*(mParamScalarWrappers[0]->getNativeParam())); // axis
-                mParams.push_back(*(mParamTensorWrappers[1]->getNativeParam())); // split_index
+                mParams.push_back(*(mParamTensorWrappers[4]->getNativeParam())); // split_index
                 for(int i = 0; i < kvHeadNum; i++) {
-                    mOutputs.push_back(*(mTempTensorWrappers[8+i]->getNativeTensor())); // stage TempKey
+                    mOutputs.push_back(*(mTempTensorWrappers[11+i]->getNativeTensor())); // stage TempKey
                 }
                 mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
             }
@@ -164,15 +214,15 @@ ErrorCode QNNAttention::onEncode(const std::vector<Tensor *> &inputs, const std:
 
                 for(int i = 0; i < kvHeadNum; i++) {
                     for(int j = 0; j < group; j++) {
-                        mInputs.push_back(*(mTempTensorWrappers[8+i]->getNativeTensor())); // stage TempKey
+                        mInputs.push_back(*(mTempTensorWrappers[11+i]->getNativeTensor())); // stage TempKey
                     }
                 }
                 mParams.push_back(*(mParamScalarWrappers[0]->getNativeParam())); // axis
-                mOutputs.push_back(*(mTempTensorWrappers[6]->getNativeTensor())); // stage TempKey
+                mOutputs.push_back(*(mTempTensorWrappers[9]->getNativeTensor())); // stage TempKey
                 mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
             }
             #endif
-            tempK = *(mTempTensorWrappers[6]->getNativeTensor());
+            tempK = *(mTempTensorWrappers[9]->getNativeTensor());
         }
         bool transpose0 = true;
         bool transpose1 = false;
@@ -184,16 +234,16 @@ ErrorCode QNNAttention::onEncode(const std::vector<Tensor *> &inputs, const std:
         mOutputs.clear();
         std::string name = mNodeName + "_MatMul_QK";
         mNodeType = "MatMul";
-        mInputs.push_back(*(mTempTensorWrappers[0]->getNativeTensor())); //ScaleQ
+        mInputs.push_back(*(mTempTensorWrappers[3]->getNativeTensor())); //ScaleQ
         mInputs.push_back(tempK); // input1
         mParams.push_back(*(mParamScalarWrappers[scalarBaseIndex + 0]->getNativeParam()));  // transpose0
         mParams.push_back(*(mParamScalarWrappers[scalarBaseIndex + 1]->getNativeParam()));  // transpose1
-        mOutputs.push_back(*(mTempTensorWrappers[1]->getNativeTensor())); // QK
+        mOutputs.push_back(*(mTempTensorWrappers[4]->getNativeTensor())); // QK
 
         mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
     }
 
-    auto softmax_in = *(mTempTensorWrappers[1]->getNativeTensor());
+    auto softmax_in = *(mTempTensorWrappers[4]->getNativeTensor());
 
     // mask 
     if(hasMask)
@@ -221,9 +271,9 @@ ErrorCode QNNAttention::onEncode(const std::vector<Tensor *> &inputs, const std:
             mOutputs.clear();
             std::string name = mNodeName + "_Mask_Add";
             mNodeType = "ElementWiseAdd";
-            mInputs.push_back(*(mTempTensorWrappers[1]->getNativeTensor())); // QK
+            mInputs.push_back(*(mTempTensorWrappers[4]->getNativeTensor())); // QK stage
             mInputs.push_back(*(mTempTensorWrappers[maskPosIndex]->getNativeTensor())); // stage tempMask
-            mOutputs.push_back(*(mTempTensorWrappers[maskPosIndex + 1]->getNativeTensor())); // 
+            mOutputs.push_back(*(mTempTensorWrappers[maskPosIndex + 1]->getNativeTensor())); //
 
             mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
         }
@@ -238,13 +288,13 @@ ErrorCode QNNAttention::onEncode(const std::vector<Tensor *> &inputs, const std:
         std::string name = mNodeName + "_Softmax";
         mNodeType = "Softmax";
         mInputs.push_back(softmax_in);
-        mOutputs.push_back(*(mTempTensorWrappers[2]->getNativeTensor()));// Stage Softmax
+        mOutputs.push_back(*(mTempTensorWrappers[5]->getNativeTensor()));// Stage Softmax
     
         mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
     }
     // QK * V
     {
-        auto tempV = *(mBackend->getNativeTensor(inputs[2]));
+        auto tempV = *(mTempTensorWrappers[2]->getNativeTensor());
         if(isGQA) {
             #ifdef GQA_USE_GATHER
             mParams.clear();
@@ -253,10 +303,10 @@ ErrorCode QNNAttention::onEncode(const std::vector<Tensor *> &inputs, const std:
             std::string name = mNodeName + "_V_Repeat";
             mNodeType = "GatherElements";
 
-            mInputs.push_back(*(mBackend->getNativeTensor(inputs[2]))); // input2
-            mInputs.push_back(*(mTempTensorWrappers[8]->getNativeTensor())); // gather_index
+            mInputs.push_back(*(mTempTensorWrappers[2]->getNativeTensor())); // stage value
+            mInputs.push_back(*(mTempTensorWrappers[11]->getNativeTensor())); // gather_index
             mParams.push_back(*(mParamScalarWrappers[0]->getNativeParam())); // axis
-            mOutputs.push_back(*(mTempTensorWrappers[7]->getNativeTensor())); // stage RepeatedValue
+            mOutputs.push_back(*(mTempTensorWrappers[10]->getNativeTensor())); // stage RepeatedValue
 
             mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
             #else
@@ -267,11 +317,11 @@ ErrorCode QNNAttention::onEncode(const std::vector<Tensor *> &inputs, const std:
                 std::string name = mNodeName + "_V_Split";
                 mNodeType = "Split";
 
-                mInputs.push_back(*(mBackend->getNativeTensor(inputs[2]))); // input2
+                mInputs.push_back(*(mTempTensorWrappers[2]->getNativeTensor())); // stage value
                 mParams.push_back(*(mParamScalarWrappers[0]->getNativeParam())); // axis
-                mParams.push_back(*(mParamTensorWrappers[2]->getNativeParam())); // split_index
+                mParams.push_back(*(mParamTensorWrappers[5]->getNativeParam())); // split_index
                 for(int i = 0; i < kvHeadNum; i++) {
-                    mOutputs.push_back(*(mTempTensorWrappers[8+kvHeadNum+i]->getNativeTensor())); // stage TempValue
+                    mOutputs.push_back(*(mTempTensorWrappers[11+kvHeadNum+i]->getNativeTensor())); // stage TempValue
                 }
                 mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
             }
@@ -284,15 +334,15 @@ ErrorCode QNNAttention::onEncode(const std::vector<Tensor *> &inputs, const std:
 
                 for(int i = 0; i < kvHeadNum; i++) {
                     for(int j = 0; j < group; j++) {
-                        mInputs.push_back(*(mTempTensorWrappers[8+kvHeadNum+i]->getNativeTensor())); // stage TempKey
+                        mInputs.push_back(*(mTempTensorWrappers[11+kvHeadNum+i]->getNativeTensor())); // stage TempKey
                     }
                 }
                 mParams.push_back(*(mParamScalarWrappers[0]->getNativeParam())); // axis
-                mOutputs.push_back(*(mTempTensorWrappers[7]->getNativeTensor())); // stage TempKey
+                mOutputs.push_back(*(mTempTensorWrappers[10]->getNativeTensor())); // stage TempKey
                 mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
             }
             #endif
-            tempV = *(mTempTensorWrappers[7]->getNativeTensor());
+            tempV = *(mTempTensorWrappers[10]->getNativeTensor());
         }
         bool transpose0 = false;
         bool transpose1 = true;
@@ -304,11 +354,11 @@ ErrorCode QNNAttention::onEncode(const std::vector<Tensor *> &inputs, const std:
         mOutputs.clear();
         std::string name = mNodeName + "_MatMul_QKV";
         mNodeType = "MatMul";
-        mInputs.push_back(*(mTempTensorWrappers[2]->getNativeTensor())); //Softmax
+        mInputs.push_back(*(mTempTensorWrappers[5]->getNativeTensor())); //Softmax
         mInputs.push_back(tempV); // input2
         mParams.push_back(*(mParamScalarWrappers[scalarBaseIndex + 2]->getNativeParam()));  // transpose0
         mParams.push_back(*(mParamScalarWrappers[scalarBaseIndex + 3]->getNativeParam()));  // transpose1
-        mOutputs.push_back(*(mTempTensorWrappers[3]->getNativeTensor())); // QKV
+        mOutputs.push_back(*(mTempTensorWrappers[6]->getNativeTensor())); // QKV
 
         mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
     }
@@ -320,9 +370,9 @@ ErrorCode QNNAttention::onEncode(const std::vector<Tensor *> &inputs, const std:
         mParams.clear();
         mInputs.clear();
         mOutputs.clear();
-        mInputs.push_back(*(mTempTensorWrappers[3]->getNativeTensor())); // QKV
-        mParams.push_back(*(mParamTensorWrappers[0]->getNativeParam())); // perm
-        mOutputs.push_back(*(mTempTensorWrappers[4]->getNativeTensor())); // Transpose
+        mInputs.push_back(*(mTempTensorWrappers[6]->getNativeTensor())); // QKV
+        mParams.push_back(*(mParamTensorWrappers[3]->getNativeParam())); // perm
+        mOutputs.push_back(*(mTempTensorWrappers[7]->getNativeTensor())); // Transpose
     
         mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
     }
@@ -334,7 +384,7 @@ ErrorCode QNNAttention::onEncode(const std::vector<Tensor *> &inputs, const std:
         std::string name = mNodeName + "_Reshape";
         mNodeType = "Reshape";
 
-        mInputs.push_back(*(mTempTensorWrappers[4]->getNativeTensor())); // Transpose
+        mInputs.push_back(*(mTempTensorWrappers[7]->getNativeTensor())); // Transpose
         mOutputs.push_back(*(mBackend->getNativeTensor(outputs[0])));
         mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
     }

@@ -109,7 +109,7 @@ private:
     std::vector<std::shared_ptr<MNN::Express::Module>> mEagleModules;
     std::shared_ptr<KVMeta> mEagleMeta;
     MNN::Express::VARP mD2t, mTreePosition;
-    int mTopK, mDepth, mMaxDraftTokens;
+    int mTopK, mDepth;
     int mEaglePastLen = 0, mEagleRemove = 0;
 };
 

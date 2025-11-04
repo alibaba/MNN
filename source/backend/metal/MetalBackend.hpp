@@ -83,6 +83,8 @@ public:
         return &mDynamic[index];
     }
     BufferAllocator* createDynamicAllocator(int index, bool secondResize) const;
+    mutable id<MTLCommandBuffer> _waiting = nil;
+
 private:
     MetalRuntime(void* context);
     void* mContext = nullptr;
@@ -247,7 +249,6 @@ private:
     id<MTLComputeCommandEncoder> encoder_net() const;
     mutable id<MTLCommandBuffer> _commandBuffer = nil;
     mutable id<MTLCommandBuffer> _commandBuffer_net = nil;
-    mutable id<MTLCommandBuffer> _waiting = nil;
     mutable std::queue<id<MTLBuffer>> mHoldBuffers;
 
     id<MTLCommandQueue> _commandQueue;

@@ -326,7 +326,7 @@ Backend* CPURuntime::onCreate(const BackendConfig* config, Backend* origin) cons
         auto core = MNNGetCoreFunctions();
         if (core->supportFp16arith && precision == BackendConfig::Precision_Low) {
             res = new Arm82Backend(this, memory);
-            if (hint().useArmSme2Cores && res->threadNumber() <= 2 && core->supportSME2 && res->functions()->sme2Int8MatmulRelatedFuncionsHp32.Int8GemmKernel) {
+            if (hint().useArmSme2Cores && core->supportSME2 && res->functions()->sme2Int8MatmulRelatedFuncionsHp32.Int8GemmKernel) {
                 res->mRelatedFunctions = &(res->functions()->sme2Int8MatmulRelatedFuncionsHp32);
             } else {
                 res->mRelatedFunctions = &(res->functions()->int8MatmulRelatedFunctions);
@@ -656,12 +656,6 @@ static OpType _getRealOpType(OpType opType) {
             return OpType_ConvInt8;
         case OpType_ConvolutionDepthwise:
             return OpType_DepthwiseConvInt8;
-        case OpType_Pooling:
-            return OpType_PoolInt8;
-
-        // case OpType_Eltwise:
-        //     // TODO: just support EltwiseAdd
-        //     return OpType_EltwiseInt8;
         default:
             return opType;
     }
@@ -674,6 +668,10 @@ void* CPUBackend::onMapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype
         return nullptr;
     }
     _resetDynamicMemory();
+    if (mRuntime->pCurrentStatus != NO_ERROR) {
+        // Out of memory
+        return nullptr;
+    }
     return srcTensor->host<void>();
 }
 
@@ -785,6 +783,10 @@ std::pair<int, int> CPUBackend::multiThreadDivide(int size) const {
 }
 void CPUBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const {
     _resetDynamicMemory();
+    if (mRuntime->pCurrentStatus != NO_ERROR) {
+        // Out of memory
+        return;
+    }
     auto& srcBuffer = srcTensor->buffer();
     auto& dstBuffer = dstTensor->buffer();
     if (srcBuffer.dimensions != dstBuffer.dimensions ) {
@@ -874,7 +876,7 @@ public:
             case OpType_Raster:
             {
                 for (auto input : inputs) {
-                    if (TensorUtils::getDescribe(input)->quantAttr.get() != TensorUtils::getDescribe(outputs[0])->quantAttr.get()) {
+                    if (TensorUtils::getDescribe(input)->quantAttr->scale != TensorUtils::getDescribe(outputs[0])->quantAttr->scale || TensorUtils::getDescribe(input)->quantAttr->zero != TensorUtils::getDescribe(outputs[0])->quantAttr->zero) {
                         return false;
                     }
                     if (TensorUtils::getDescribe(input)->quantAttr.get() && TensorUtils::getDescribe(outputs[0])->quantAttr.get() && (TensorUtils::getDescribe(input)->quantAttr.get()->scale == 0 || TensorUtils::getDescribe(outputs[0])->quantAttr.get()->scale == 0)) {
@@ -884,6 +886,9 @@ public:
                 return true;
             }
             case OpType_Pooling:
+                if (TensorUtils::getDescribe(inputs[0])->quantAttr->scale != TensorUtils::getDescribe(outputs[0])->quantAttr->scale || TensorUtils::getDescribe(inputs[0])->quantAttr->zero != TensorUtils::getDescribe(outputs[0])->quantAttr->zero) {
+                    return false;
+                }
                 if (op->main_as_Pool() && op->main_as_Pool()->type() == PoolType_MAXPOOL ) {
                     return true;
                 } else if (op->main_as_Pool() && op->main_as_Pool()->type() == PoolType_AVEPOOL) {

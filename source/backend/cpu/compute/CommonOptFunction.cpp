@@ -4135,8 +4135,7 @@ static void Sme2MNNPackForMatMul_B(float* destC, const float* sourceC, size_t h,
     }
 }
 static void Sme2MNNPackC4ForMatMul_A(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el) {
-    const int32_t infosme2[4] = {info[0], info[1], SME2_MATMUL_EP, info[3]};
-    MNNPackC4ForMatMul_A(destOrigin, sourceGroup, infosme2, el);
+    MNNPackC4ForMatMul_A(destOrigin, sourceGroup, info, el);
     return;
 }
 #endif

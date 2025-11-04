@@ -106,7 +106,7 @@ std::shared_ptr<Tensor> QNNTensorWrapper::getDataContainer() {
     return mDataContainer;
 }
 
-void * QNNTensorWrapper::alloc() {
+void * QNNTensorWrapper::alloc(Tensor::DimensionType dimType) {
     MNN_ASSERT(mIsAlloc == false); // Realloc is not allowed.
     MNN_ASSERT(mQnnTensor.v1.type == QNN_TENSOR_TYPE_APP_READ || mQnnTensor.v1.type == QNN_TENSOR_TYPE_APP_WRITE || mQnnTensor.v1.type == QNN_TENSOR_TYPE_STATIC);
 
@@ -152,7 +152,7 @@ void * QNNTensorWrapper::alloc() {
             break;
     }
 
-    mDataContainer.reset(Tensor::create(dims, halideType, nullptr, gQnnTensorDimType));
+    mDataContainer.reset(Tensor::create(dims, halideType, nullptr, dimType));
 
     mQnnTensor.v1.clientBuf.data = mDataContainer->host<void>();
     mQnnTensor.v1.clientBuf.dataSize = mDataContainer->usize();

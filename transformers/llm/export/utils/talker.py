@@ -5,6 +5,7 @@ from .model_mapper import ModelMapper
 from .transformers import Rotary, Embedding, Decoder
 from .token2wav import Qwen2_5OmniToken2Wav
 from .spinner import spinner_run
+from .torch_utils import onnx_export
 
 class Talker(torch.nn.Module):
     def __init__(self, talker, token2wav, base):
@@ -230,17 +231,14 @@ class Qwen2_5OmniTalker(Talker):
         attention_mask = self.get_attention_mask()
         past_key_values = torch.zeros([self.num_hidden_layers, 2, 1, 0, self.num_key_value_heads, self.head_dim])
         talker_onnx = f'{onnx_path}/talker.onnx'
-        torch.onnx.export(self, (inputs_embeds, attention_mask, posision_ids, past_key_values),
-                        talker_onnx,
-                        input_names=['inputs_embeds', 'attention_mask', 'position_ids', 'past_key_values'],
-                        output_names=['logits'],
-                        dynamic_axes={
-                            "inputs_embeds": { 1: "size" },
-                            "attention_mask": { 2: "size", 3: "size" },
-                            "position_ids": { 2: "size" },
-                            "past_key_values": { 3: "size" }
-                        },
-                        do_constant_folding=True,
-                        verbose=False,
-                        opset_version=15)
+        onnx_export(self, (inputs_embeds, attention_mask, posision_ids, past_key_values),
+                    talker_onnx,
+                    input_names=['inputs_embeds', 'attention_mask', 'position_ids', 'past_key_values'],
+                    output_names=['logits'],
+                    dynamic_axes={
+                        "inputs_embeds": { 1: "size" },
+                        "attention_mask": { 2: "size", 3: "size" },
+                        "position_ids": { 2: "size" },
+                        "past_key_values": { 3: "size" }
+                    })
         return talker_onnx

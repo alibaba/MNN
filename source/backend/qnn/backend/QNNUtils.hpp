@@ -118,10 +118,6 @@ extern const std::map<Qnn_DataType_t, uint32_t> gQnnTypeSize;
 
 extern std::string gParamMarker;
 
-int getNHWCAxis(const int axis, const int dim, const Tensor::DimensionType type);
-
-int getNCHWAxis(const int axis, const int dim, const Tensor::DimensionType type);
-
 std::vector<uint32_t> getNHWCShape(const Tensor * tensor);
 
 void printNHWCShape(const Tensor * tensor);

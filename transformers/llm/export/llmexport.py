@@ -12,6 +12,8 @@ os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION'] = 'python'
 
 import onnx
 import torch
+import transformers
+from packaging.version import Version
 from typing import Optional, List
 from transformers import AutoConfig, AutoModel, AutoModelForCausalLM, AutoTokenizer
 
@@ -23,6 +25,7 @@ from utils.awq_quantizer import AwqQuantizer
 from utils.smooth_quantizer import SmoothQuantizer
 from utils.model_mapper import ModelMapper
 from utils.transformers import Embedding, Rotary, Decoder, Lm
+from utils.torch_utils import onnx_export
 
 class LlmExporter(torch.nn.Module):
     '''
@@ -91,10 +94,16 @@ class LlmExporter(torch.nn.Module):
         config = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
         model_type = getattr(config, 'model_type', None)
         model_class = self.get_model_class(model_type)
-        kwargs = {
-            'torch_dtype': 'auto',
-            'trust_remote_code': True,
-        }
+        if Version(transformers.__version__) >= Version("4.56.0"):
+            kwargs = {
+                'dtype': 'auto',
+                'trust_remote_code': True,
+            }
+        else:
+            kwargs = {
+                'torch_dtype': 'auto',
+                'trust_remote_code': True,
+            }
         # special args
         if model_type == 'internvl_chat':
             kwargs.update({'use_flash_attn': False})
@@ -409,8 +418,9 @@ class LlmExporter(torch.nn.Module):
             self.talker.add_talker_embeds(talker_embeds)
 
         final_layernorm = hidden_states
+        logits_index_long = logits_index.to(torch.int64)
         if self.mtp is None:
-            hidden_states = hidden_states[:, logits_index:, :]
+            hidden_states = hidden_states[:, logits_index_long:, :]
             hidden_states = self.final_layernorm_(hidden_states)
             # default: set hidden_state before lm_head as output node
             final_layernorm = hidden_states
@@ -421,7 +431,7 @@ class LlmExporter(torch.nn.Module):
             hidden_states = self.final_layernorm_(hidden_states)
             if self.model_type == 'poi_qwen2_mtp':
                 final_layernorm = hidden_states # poi
-            hidden_states = hidden_states[:, logits_index:, :]
+            hidden_states = hidden_states[:, logits_index_long:, :]
         logits = self.lm(hidden_states)
         if presents[0].shape == presents[-1].shape and None not in presents:
             presents = torch.stack(presents)
@@ -686,6 +696,8 @@ class LlmExporter(torch.nn.Module):
 
     @spinner_run(f'export config to ')
     def export_config(self, mnn_config = False):
+        with open(f'{self.args.dst_path}/export_args.json', 'w', encoding='utf-8') as f:
+            json.dump(self.args.__dict__, f, ensure_ascii=False, indent=4)
         config_json = f'{self.args.dst_path}/llm_config.json'
         with open(config_json, 'w', encoding='utf-8') as f:
             json.dump(self.llm_config, f, ensure_ascii=False, indent=4)
@@ -823,31 +835,25 @@ class LlmExporter(torch.nn.Module):
         if self.model_type in ['qwen3_vl', 'qwen3_vl_moe']:
             # add deepstack_embeds input
             deepstack_embeds = torch.randn(3, 1, self.hidden_size)
-            torch.onnx.export(
+            onnx_export(
                 model, (input_ids, attention_mask, position_ids, past_key_values, logits_index, deepstack_embeds),
                 onnx_model,
                 input_names=[
                     'input_ids', 'attention_mask', 'position_ids', 'past_key_values', 'logits_index', 'deepstack_embeds'
                 ],
                 output_names=output_names,
-                dynamic_axes=self.model_dynamic_axes,
-                do_constant_folding=True,
-                verbose=False,
-                opset_version=15)
+                dynamic_axes=self.model_dynamic_axes)
             return onnx_model
 
         # export to onnx
-        torch.onnx.export(
+        onnx_export(
             model, (input_ids, attention_mask, position_ids, past_key_values, logits_index),
             onnx_model,
             input_names=[
                 'input_ids', 'attention_mask', 'position_ids', 'past_key_values', 'logits_index'
             ],
             output_names=output_names,
-            dynamic_axes=self.model_dynamic_axes,
-            do_constant_folding=True,
-            verbose=False,
-            opset_version=15)
+            dynamic_axes=self.model_dynamic_axes)
         return onnx_model
 
     def awq_quant(self):
@@ -856,7 +862,7 @@ class LlmExporter(torch.nn.Module):
         self.is_awq_quantized = True
 
     def smooth_quant(self):
-        self.smooth_quantizer = SmoothQuantizer(model = self, act_bit=self.args.act_bit)
+        self.smooth_quantizer = SmoothQuantizer(model = self, act_bit=self.args.act_bit, act_sym=self.args.act_sym)
         self.smooth_quantizer.quantize()
         self.is_smooth_quantized = True
 
@@ -1346,7 +1352,7 @@ class EmbeddingExporter(LlmExporter):
         inputs_embeds = inputs_embeds.reshape(3, 4, self.hidden_size)
         attention_mask = torch.zeros(3, 1, 1, 4, dtype=torch.float)
         onnx_model = f'{self.onnx_path}/{self.dst_name}.onnx'
-        torch.onnx.export(
+        onnx_export(
             model, (inputs_embeds, attention_mask, position_ids),
             onnx_model,
             input_names=[
@@ -1359,9 +1365,7 @@ class EmbeddingExporter(LlmExporter):
                 "input_ids" : { 0: "batch", 1: "seq_len" },
                 "position_ids" : { 1: "seq_len" },
                 "attention_mask" : { 0: "batch", 3: "seq_len" }
-            },
-            do_constant_folding=True,
-            opset_version=15)
+            })
         return onnx_model
 
     @spinner_run(f'export onnx model to ')
@@ -1376,7 +1380,7 @@ class EmbeddingExporter(LlmExporter):
         attention_mask = self.get_attention_mask()
         inputs_embeds = self.word_embed(input_ids)
         onnx_model = f'{self.onnx_path}/{self.dst_name}.onnx'
-        torch.onnx.export(
+        onnx_export(
             model, (inputs_embeds, attention_mask, position_ids),
             onnx_model,
             input_names=[
@@ -1385,9 +1389,7 @@ class EmbeddingExporter(LlmExporter):
                 'position_ids'
             ],
             output_names=['sentence_embeddings'],
-            dynamic_axes=self.model_dynamic_axes,
-            do_constant_folding=True,
-            opset_version=15)
+            dynamic_axes=self.model_dynamic_axes)
         return onnx_model
 
     def export(self, export_type):
@@ -1524,6 +1526,7 @@ def main():
     parser.add_argument('--calib_data', type=str, default=None, help='calibration data path, defaut is `None` mean not use calib data.')
     parser.add_argument('--act_bit', type=int, default=16, help='smooth quant act bit, 8 or 16, default is 16.')
     parser.add_argument('--embed_bit', type=int, default=16, choices=[16, 8, 4], help='embedding export bit precision, choices are 16 (bf16), 8 (int8), 4 (int4), default is 16.')
+    parser.add_argument('--act_sym', action='store_true', help='smooth quant act us sym or not, default asym.')
     args = parser.parse_args()
 
     model_path = args.path

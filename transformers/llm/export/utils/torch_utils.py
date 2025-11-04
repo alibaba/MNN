@@ -1,5 +1,6 @@
 import torch
 from utils.hqq_quantizer import HQQQuantizer
+from packaging.version import Version
 
 def repack_low_bits(x, iNeedBits, block_size):
     v = []
@@ -23,7 +24,7 @@ def repack_low_bits(x, iNeedBits, block_size):
         if iOffset % 8 == 0:
             index += iOffset // 8
             iOffset = 0
-    return torch.cat(v, axis=1) 
+    return torch.cat(v, axis=1)
 
 def quant(weight, quant_bit, quant_block, symmetric, awq, hqq):
 
@@ -44,7 +45,7 @@ def quant(weight, quant_bit, quant_block, symmetric, awq, hqq):
         block_size /= 2
     block_size = int(block_size)
     block_num = ic // block_size
-    
+
     offset = 1 << (quant_bit - 1)
     clip_max = offset - 1
 
@@ -70,7 +71,7 @@ def quant(weight, quant_bit, quant_block, symmetric, awq, hqq):
             q_weight = torch.round(weight / scale)
             q_weight = (torch.clamp(q_weight.flatten(), clip_min, clip_max) + offset).to(torch.uint8)
             alpha = scale.flatten()
-            
+
         else:
             clip_min = -offset
             max_val, _ = torch.max(weight, axis=-1, keepdims=True)
@@ -98,3 +99,22 @@ def quant(weight, quant_bit, quant_block, symmetric, awq, hqq):
     if q_weight.device is not torch.device('cpu'):
         return q_weight.cpu(), alpha.float().cpu()
     return q_weight, alpha.float()
+
+def onnx_export(model, inputs, onnx_model, input_names, output_names, dynamic_axes=None):
+    export_kwargs = {
+        'input_names': input_names,
+        'output_names': output_names,
+        'dynamic_axes': dynamic_axes,
+        'do_constant_folding': True,
+        'verbose': False,
+        'opset_version': 15
+    }
+
+    # Disable torch dynamo for ONNX export in PyTorch >= 2.4.0
+    if Version(torch.__version__) >= Version("2.4.0"):
+        export_kwargs['dynamo'] = False
+
+    torch.onnx.export(
+            model, inputs,
+            onnx_model,
+            **export_kwargs)

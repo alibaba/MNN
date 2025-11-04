@@ -7,9 +7,56 @@ import inspect
 from typing import Dict
 from tqdm import tqdm
 from collections import defaultdict
+#from datasets import load_from_disk
+import math
+
+logging.basicConfig(level=logging.ERROR)
+
+class ACIQ:
+    def __init__(self, size):
+        self.num_bits = size
+        # TODO: expose as cmd line parameters
+        self.stochastic = False
+        self.int_exp = False
+        self.enforce_true_zero = True #params['true_zero']
+        self.alpha_gaus = {2: 1.71, 3: 2.15, 4: 2.55, 5: 2.93, 6: 3.28, 7: 3.61, 8: 3.92}
+        self.alpha_laplace = {2: 2.83, 3: 3.89, 4: 5.03, 5: 6.2, 6: 7.41, 7: 8.64, 8: 9.89}
+        self.gaussian_const = (0.5 * 0.35) * (1 + (math.pi * math.log(4)) ** 0.5)
+    def alpha2DeltaOffset(self, alpha, max_value, min_value, mean):
+        max_range = max_value - min_value
+        if alpha <= 0 or alpha >= max_range / 2:
+            delta = max_range
+        else:
+            delta = 2 * alpha
+            min_value = max(min_value, mean - delta / 2)
+
+        return delta, min_value
+
+    def gemmlowpClippingQuantize(self, input):
+        min_value = input.min()
+        max_value = input.max()
+        mean = input.mean()
 
 
-logging.basicConfig(level=logging.ERROR) 
+        alpha = self.get_alpha_gaus(input)  # gaussian clipping
+
+        delta, min_value = self.alpha2DeltaOffset(alpha, max_value, min_value, mean)
+
+        return torch.stack([delta + min_value, min_value], 0)
+    def get_max_min(self, x):
+        if self.num_bits > 8:
+            return torch.stack([x.max(), x.min()], 0)
+        return self.gemmlowpClippingQuantize(x)
+    def get_alpha_gaus(self, tensor):
+        N = 1
+        for i in range(len(tensor.shape)):
+            N *= tensor.shape[i]
+        min_value = tensor.min()
+        max_value = tensor.max()
+
+        std = ((max_value - min_value) * self.gaussian_const) / ((2 * math.log(N)) ** 0.5)
+        return self.alpha_gaus[self.num_bits] * std
+
 
 class SmoothQuantizer:
     def __init__(
@@ -19,16 +66,17 @@ class SmoothQuantizer:
         max_calib_samples=128,
         max_calib_seq_len=512,
         alpha=0.5,
-        act_bit=8
+        act_bit=8,
+        act_sym=True
     ) -> None:
-    
+        self.act_sym = act_sym
         self.model = model
         self.tokenizer = model.tokenizer
         #self.w_bit = model.args.quant_bit
         self.act_bit = act_bit
         self.group_size = model.args.quant_block
         self.alpha = alpha
-        
+
         self.max_calib_samples = max_calib_samples
         self.max_calib_seq_len = max_calib_seq_len
         self.split = 'train'
@@ -36,6 +84,8 @@ class SmoothQuantizer:
         self.best_device = SmoothQuantizer.get_best_device()
 
         self.modules = self.model.blocks
+        self.act_quanter = ACIQ(act_bit)
+        self.moment = 0.99
         if "cpu" != self.best_device:
             for idx in range(len(self.modules)):
                 SmoothQuantizer.to_device(self.modules[idx], "cpu")
@@ -64,6 +114,7 @@ class SmoothQuantizer:
                 dataset = load_dataset("mit-han-lab/pile-val-backup", split="validation")
             elif data == "wikitext":
                 dataset = load_dataset('wikitext', 'wikitext-2-raw-v1', split=split)
+                #dataset = load_from_disk("./wikitest-2-raw-v1")
             else:
                 dataset = load_dataset(data, split=split)
             # dataset = dataset.shuffle(seed=42)
@@ -92,7 +143,7 @@ class SmoothQuantizer:
             return "cuda:0"
         else:
             return "cpu"
-        
+
     @staticmethod
     def clear_memory(weight=None):
         if weight is not None:
@@ -172,7 +223,7 @@ class SmoothQuantizer:
             if k in module_signature:
                 sanitized_kwargs[k] = v
         return sanitized_kwargs
-    
+
     @torch.no_grad()
     def _module_forward(
         self, x: torch.Tensor, module: torch.nn.Module, module_kwargs: Dict
@@ -225,9 +276,9 @@ class SmoothQuantizer:
                     if isinstance(mod, torch.nn.Linear):
                         full_name = f"{child_name}.{name}" if name else child_name
                         linears[full_name] = mod
-        
+
         return linears
-    
+
     @staticmethod
     @torch.no_grad()
     def smooth_ln_fcs(ln, fcs, act_scales, alpha=0.5):
@@ -265,7 +316,7 @@ class SmoothQuantizer:
 
         for fc in fcs:
             fc.weight.mul_(scales.view(1, -1))
-    
+
     @staticmethod
     def is_allowed_norms(op):
         if isinstance(op, torch.nn.LayerNorm):
@@ -275,7 +326,7 @@ class SmoothQuantizer:
         if "rmsnorm" in str(op.__class__).lower():
             return True
         return False
-    
+
     def _apply_scale(self, idx, module):
         attn_ln = module.input_layernorm
         qkv = [
@@ -283,7 +334,7 @@ class SmoothQuantizer:
                 module.self_attn.k_proj,
                 module.self_attn.v_proj,
             ]
-        
+
         qkv_input_scales = self.act_scales[idx]["self_attn.q_proj"]
         SmoothQuantizer.smooth_ln_fcs(attn_ln, qkv, qkv_input_scales, self.alpha)
 
@@ -297,20 +348,18 @@ class SmoothQuantizer:
         def stat_io_hook(m, x, y, name):
             if isinstance(x, tuple):
                 x = x[0]
+            max_min = self.act_quanter.get_max_min(x)
             if name not in self.act_dict[idx] or "input" not in self.act_dict[idx][name]:
-                self.act_dict[idx][name]["input"] = x.detach().abs().max().item()
+                self.act_dict[idx][name]["input"] = max_min
             else:
-                self.act_dict[idx][name]["input"] = max(
-                    self.act_dict[idx][name]["input"], x.detach().abs().max().item()
-                )
+                self.act_dict[idx][name]["input"] = max_min * (1-self.moment) + self.moment * self.act_dict[idx][name]["input"]
             if isinstance(y, tuple):
                 y = y[0]
+            max_min = self.act_quanter.get_max_min(y)
             if name not in self.act_dict[idx] or "output" not in self.act_dict[idx][name]:
-                self.act_dict[idx][name]["output"] = y.detach().abs().max().item()
+                self.act_dict[idx][name]["output"] = max_min
             else:
-                self.act_dict[idx][name]["output"] = max(
-                    self.act_dict[idx][name]["output"], y.detach().abs().max().item()
-                )
+                self.act_dict[idx][name]["output"] = max_min * (1-self.moment) + self.moment * self.act_dict[idx][name]["output"]
         handles = []
         for name in named_linears:
             handles.append(
@@ -326,15 +375,40 @@ class SmoothQuantizer:
 
     @torch.no_grad()
     def _extract_static_scales(self):
-        
+
         print("Extracting static scales...")
 
-        scale = 2 ** (self.act_bit - 1) - 1
+        def compute_scale_sym(max_min):
+            bit_scale = 2 ** (self.act_bit - 1) - 1
+            max_v = max_min.abs().max().item()
+            scale = max_v / bit_scale
+            zero = 0.0
+            return [scale, zero]
 
+        def compute_scale_zero_asym(max_min):
+            bit_scale = 2 ** (self.act_bit) - 1
+            max_v = max_min[0].item()
+            min_v = max_min[1].item()
+            # Assume has zeropoint
+            if max_v < 0.0:
+                max_v = 0.0
+            if min_v > 0.0:
+                min_v = 0.0
+            scale = 1.0
+            if max_v == min_v:
+                scale = 1.0
+            else:
+                scale = (max_v - min_v) / bit_scale
+            zero = round(-min_v / scale - 2 ** (self.act_bit - 1))
+            return [scale, zero]
+        if self.act_sym:
+            func = compute_scale_sym
+        else:
+            func = compute_scale_zero_asym
         for idx in range(len(self.modules)):
             for name, input_output in self.act_dict[idx].items():
-                self.act_dict[idx][name]['input'] = input_output['input'] / scale
-                self.act_dict[idx][name]['output'] = input_output['output'] / scale
+                self.act_dict[idx][name]['input'] = func(input_output['input'])
+                self.act_dict[idx][name]['output'] = func(input_output['output'])
 
     def quantize(self):
 
@@ -343,7 +417,7 @@ class SmoothQuantizer:
             if sample.numel() == 0:
                 continue
             self.module_kwargs, self.inps = self._get_first_input(sample)
-            
+
             for idx in range(len(self.modules)):
                 SmoothQuantizer.to_device(self.modules[idx], self.best_device)
 
@@ -367,7 +441,7 @@ class SmoothQuantizer:
             if sample.numel() == 0:
                 continue
             self.module_kwargs, self.inps = self._get_first_input(sample)
-            
+
             for idx in range(len(self.modules)):
                 SmoothQuantizer.to_device(self.modules[idx], self.best_device)
 
@@ -388,7 +462,7 @@ class SmoothQuantizer:
         for idx in range(len(self.modules)):
             SmoothQuantizer.to_device(self.modules[idx], "cpu")
 
-    
+
 
     def apply(self, base_path):
         mnn = json.load(open(base_path, 'rt'))
@@ -417,25 +491,27 @@ class SmoothQuantizer:
                     quant_info_dict[tensor_input_index] = {
                         'index': tensor_input_index,
                         'quantInfo': {
-                            'scale': self.act_dict[layer_idx][layer_name]['input'],
+                            'scale': self.act_dict[layer_idx][layer_name]['input'][0],
+                            'zero': self.act_dict[layer_idx][layer_name]['input'][1],
                             'min': min_val,
                             'max': max_val,
                             "type":data_type
                         }
                     }
-                
+
                 if tensor_output_index not in quant_info_dict:
                     quant_info_dict[tensor_output_index] = {
                         'index': tensor_output_index,
                         'quantInfo': {
-                            'scale': self.act_dict[layer_idx][layer_name]['output'],
+                            'scale': self.act_dict[layer_idx][layer_name]['output'][0],
+                            'zero': self.act_dict[layer_idx][layer_name]['output'][1],
                             'min': min_val,
                             'max': max_val,
                             "type":data_type
                         }
                     }
         mnn['extraTensorDescribe'] = list(quant_info_dict.values())
-        
+
         with open(base_path, 'w', encoding='utf-8') as f:
             json.dump(mnn, f, ensure_ascii=False, indent=4)
 
@@ -444,7 +520,7 @@ class SmoothQuantizer:
 
 
 
-                
+
 
 
 

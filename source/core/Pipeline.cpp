@@ -261,12 +261,32 @@ ErrorCode Pipeline::encode(bool supportDebug, bool permitCodegen) {
             for (const auto& cmdP : buffer.command) {
                 auto& cmd = *cmdP;
                 const auto type = cmd.op->type();
-                const auto output = cmd.outputs[0];
-                if (propagateOpTypes.find(type) != propagateOpTypes.end() && output->getType().code == halide_type_float) {
-                    for (auto t : cmd.inputs) {
-                        if (t->getType().code == halide_type_float) {
-                            insertPropagateMap(forwardMap, t, output);
-                            insertPropagateMap(backwardMap, output, t);
+                if (propagateOpTypes.find(type) == propagateOpTypes.end()) {
+                    continue;
+                }
+                std::vector<Tensor*> validInputs;
+                for (auto t : cmd.inputs) {
+                    if (t->getType().code == halide_type_float) {
+                        validInputs.emplace_back(t);
+                    }
+                }
+                std::vector<Tensor*> validOutputs;
+                for (auto t : cmd.outputs) {
+                    if (t->getType().code == halide_type_float) {
+                        validOutputs.emplace_back(t);
+                    }
+                }
+                if (validInputs.size() == 1) {
+                    for (auto t : validOutputs) {
+                        if (TensorUtils::getDescribe(t)->quantAttr.get() == nullptr) {
+                            insertPropagateMap(forwardMap, validInputs[0], t);
+                        }
+                    }
+                }
+                if (validOutputs.size() == 1) {
+                    for (auto t : validInputs) {
+                        if (TensorUtils::getDescribe(t)->quantAttr.get() == nullptr) {
+                            insertPropagateMap(backwardMap, validOutputs[0], t);
                         }
                     }
                 }
@@ -324,7 +344,7 @@ ErrorCode Pipeline::encode(bool supportDebug, bool permitCodegen) {
             return change;
         };
         for (int i = 0; i < 3 && (propagateScale(forwardMap, forwardStart) || propagateScale(backwardMap, backwardStart)); i++);
-        
+
         // Insert cast
         std::map<const Tensor*, Tensor*> cachedCastTensor;
         for (auto& info : mInfo.second) {
@@ -337,11 +357,9 @@ ErrorCode Pipeline::encode(bool supportDebug, bool permitCodegen) {
                 auto opType = cmd.op->type();
                 // Check if need use quant op
                 bool useQuant = false;
-                if (outputs.size() == 1) {
-                    // Quant: output and all input has quantAttr and op support
-                    if (TensorUtils::getDescribe(outputs[0])->quantAttr != nullptr) {
-                        useQuant = creator->onSetQuantInfo(cmd.op, inputs, outputs);
-                    }
+                // Quant: output and all input has quantAttr and op support
+                if (TensorUtils::getDescribe(outputs[0])->quantAttr != nullptr) {
+                    useQuant = creator->onSetQuantInfo(cmd.op, inputs, outputs);
                 }
                 auto makeCommand = [&cachedCastTensor, &info](CommandBuffer& cmdBuffer, Tensor* input, bool useQuant) {
                     if (cachedCastTensor.find(input) != cachedCastTensor.end()) {
@@ -958,7 +976,7 @@ ErrorCode Pipeline::_allocForTensor(int index, bool allocInput) {
 #endif
             // Alloc for Tensors
             auto curBackend = iter.execution->backend();
-            if (allocInput) {
+            if (allocInput && iter.execution->needAllocIO()) {
                 for (auto t : iter.workInputs) {
                     auto allocRes = _allocTensor(t, curBackend, mOutputStatic, index);
                     if (!allocRes) {
@@ -966,7 +984,7 @@ ErrorCode Pipeline::_allocForTensor(int index, bool allocInput) {
                     }
                 }
             }
-            {
+            if (iter.execution->needAllocIO()) {
                 for (auto t : iter.workOutputs) {
                     auto res = _allocTensor(t, curBackend, mOutputStatic, index);
                     if (!res) {

@@ -80,6 +80,8 @@ public:
     bool useCache() const;
     bool getUseFP16() const;
     void buildOutputDequant();
+    void buildInputCast(const Tensor *tensor);
+    void buildOutputCast();
     void pushReleaseFunc(std::function<void()> func){
         mReleaseFunc.push_back(func);
     }
@@ -114,6 +116,8 @@ private:
     mutable int mTensorCounter = 0;
     mutable std::vector<std::shared_ptr<QNNTensorWrapper>> mQNNTensorWrappers;
     mutable std::map<const Tensor::InsideDescribe::NativeInsideDescribe *, int> mTensorMap;
+    mutable std::map<const Tensor::InsideDescribe::NativeInsideDescribe *, std::pair<const Tensor*, std::shared_ptr<Tensor>>> mInputCastTensorMap;
+    mutable std::map<const Tensor::InsideDescribe::NativeInsideDescribe *, std::pair<const Tensor*, std::shared_ptr<Tensor>>> mOutputCastTensorMap;
     mutable std::map<const Tensor::InsideDescribe::NativeInsideDescribe *, std::pair<const Tensor*, std::shared_ptr<Tensor>>> mDeQuantOutputTensorMap;
     std::vector<int> mInputTensorIndexes;
     std::vector<int> mOutputTensorIndexes;

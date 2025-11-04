@@ -68,6 +68,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
     for (int i=2; i<input->dimensions(); ++i) {
         is *= input->length(i);
     }
+    int ic  = input->channel();
     int ic_4  = UP_DIV(input->channel(), 4);
     int ow  = is;
     int oh  = 1;
@@ -137,7 +138,8 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
         
         if (mDequantBits == 4 || mDequantBits == 8) {
             // TODO: define short_seq more accurately
-            int short_seq = 10;
+            int short_seq = 6;
+            
             if(mDequantBits == 4) {
                 baseKeys.emplace_back("conv1x1_wquant_4");
             } else if(mDequantBits == 8) {
@@ -161,6 +163,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                         area = UP_DIV(area, 2);
                         piece = 2;
                     }
+//                    MNN_PRINT("Conv1x1 Oc:%d Ic:%d\n", oc, ic_4*4);
                     std::string kernel_name = "conv1x1_gemv_g4m" + std::to_string(area) + "_wquant_sg";
                     keys.emplace_back(kernel_name);
                     auto pipeline = rt->findPipeline(keys);
@@ -231,6 +234,34 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                     }
                     mPipeline = pipeline;
                     mThreads = std::make_pair(MTLSizeMake(UP_DIV(area, 16), UP_DIV(oc, 32), 1), MTLSizeMake(32, 1, 1));
+                } else if(area < 16) {
+                    // TODO: define useMatrix more accurate
+                    bool useMatrix = area > 6 && oc > 2048 && ic*2 < oc;
+                    if(useMatrix) {
+                        auto keys = baseKeys;
+                        int oc_block = (oc > 4096) ? 32 : 16;
+                        std::string kernel_name = "conv1x1_gemm_8x" + std::to_string(oc_block) + "_wquant_sg";
+
+                        keys.emplace_back(kernel_name);
+                        auto pipeline = rt->findPipeline(keys);
+                        if (nil == pipeline) {
+                            pipeline = backend->makeComputePipelineWithSourceOption(gConv1x1W4SgMatrix, kernel_name.c_str(), option);
+                            rt->insertPipeline(keys, pipeline);
+                        }
+                        mPipeline = pipeline;
+                        mThreads = std::make_pair(MTLSizeMake(UP_DIV(area, 8), UP_DIV(oc, oc_block), 1), MTLSizeMake(32, 1, 1));
+                    } else {
+                        auto keys = baseKeys;
+                        std::string kernel_name = "conv1x1_gemv_g4m" + std::to_string(area) + "_wquant_sg";
+                        keys.emplace_back(kernel_name);
+                        auto pipeline = rt->findPipeline(keys);
+                        if (nil == pipeline) {
+                            pipeline = backend->makeComputePipelineWithSourceOption(gConv1x1W4SgReduce, kernel_name.c_str(), option);
+                            rt->insertPipeline(keys, pipeline);
+                        }
+                        mPipeline = pipeline;
+                        mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 4), 1, 1), MTLSizeMake(32, 1, 1));
+                    }
                 } else {
                     auto keys = baseKeys;
                     keys.emplace_back("conv1x1_gemm_16x16_wquant_sg");
