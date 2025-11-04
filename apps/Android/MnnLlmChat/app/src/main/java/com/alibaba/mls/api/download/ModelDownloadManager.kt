@@ -8,7 +8,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
-import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.alibaba.mls.api.ApplicationProvider
@@ -17,54 +16,113 @@ import com.alibaba.mls.api.download.ml.MLModelDownloader
 import com.alibaba.mls.api.download.ms.MsModelDownloader
 import com.alibaba.mls.api.source.ModelSources
 import com.alibaba.mnnllm.android.chat.model.ChatDataManager
+import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.modelmarket.ModelMarketItem
+import com.alibaba.mnnllm.android.modelmarket.ModelRepository
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig
+import com.alibaba.mnnllm.android.qnn.QnnModule
 import com.alibaba.mnnllm.android.utils.CurrentActivityTracker
 import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.utils.MmapUtils.clearMmapCache
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import timber.log.Timber
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.collections.set
 import kotlin.concurrent.Volatile
-import com.alibaba.mnnllm.android.modelmarket.ModelRepository
-import kotlinx.coroutines.runBlocking
 
-class LoggingDownloadListener : DownloadListener {
+/**
+ * Specialized listener for QNN library downloads that uses coroutines to wait for completion
+ */
+class QnnDownloadListener(
+    private val modelId: String,
+    private val completionChannel: Channel<DownloadResult>
+) : DownloadListener {
+    
     override fun onDownloadStart(modelId: String) {
-        Log.d(ModelDownloadManager.TAG, "onDownloadStart: $modelId")
+        Timber.tag(ModelDownloadManager.TAG).d("[QNNDownload] Download started: $modelId")
     }
 
     override fun onDownloadProgress(modelId: String, downloadInfo: DownloadInfo) {
-        Log.v(ModelDownloadManager.TAG, "onDownloadProgress: $modelId, progress: ${downloadInfo.progress}, state: ${downloadInfo.downloadState}, speed: ${downloadInfo.speedInfo} stage: ${downloadInfo.progressStage}")
+        Timber.tag(ModelDownloadManager.TAG).v("[QNNDownload] Progress: $modelId, progress: ${downloadInfo.progress}, state: ${downloadInfo.downloadState}")
     }
 
     override fun onDownloadFinished(modelId: String, path: String) {
-        Log.d(ModelDownloadManager.TAG, "onDownloadFinished: $modelId, path: $path")
+        Timber.tag(ModelDownloadManager.TAG).d("[QNNDownload] Download finished: $modelId, path: $path")
+        if (modelId == this.modelId) {
+            completionChannel.trySend(DownloadResult.Success(path))
+        }
     }
 
     override fun onDownloadFailed(modelId: String, e: Exception) {
-        Log.e(ModelDownloadManager.TAG, "onDownloadFailed: $modelId", e)
+        Timber.tag(ModelDownloadManager.TAG).e(e, "[QNNDownload] Download failed: $modelId")
+        if (modelId == this.modelId) {
+            completionChannel.trySend(DownloadResult.Failure(e))
+        }
     }
 
     override fun onDownloadPaused(modelId: String) {
-        Log.d(ModelDownloadManager.TAG, "onDownloadPaused: $modelId")
+        Timber.tag(ModelDownloadManager.TAG).d("[QNNDownload] Download paused: $modelId")
     }
 
     override fun onDownloadFileRemoved(modelId: String) {
-        Log.d(ModelDownloadManager.TAG, "onDownloadFileRemoved: $modelId")
+        Timber.tag(ModelDownloadManager.TAG).d("[QNNDownload] Download file removed: $modelId")
     }
 
     override fun onDownloadTotalSize(modelId: String, totalSize: Long) {
-        Log.d(ModelDownloadManager.TAG, "onDownloadTotalSize: $modelId, totalSize: $totalSize")
+        Timber.tag(ModelDownloadManager.TAG).d("[QNNDownload] Total size: $modelId, totalSize: $totalSize")
     }
 
     override fun onDownloadHasUpdate(modelId: String, downloadInfo: DownloadInfo) {
-        Log.d(ModelDownloadManager.TAG, "modelId:$modelId onDownloadTotalSize: $modelId, uploadTime: ${downloadInfo.remoteUpdateTime} downloadTime: ${downloadInfo.downloadedTime}")
+        Timber.tag(ModelDownloadManager.TAG).d("[QNNDownload] Has update: $modelId, uploadTime: ${downloadInfo.remoteUpdateTime} downloadTime: ${downloadInfo.downloadedTime}")
+    }
+}
+
+/**
+ * Result of QNN download operation
+ */
+sealed class DownloadResult {
+    data class Success(val path: String) : DownloadResult()
+    data class Failure(val exception: Exception) : DownloadResult()
+}
+
+class LoggingDownloadListener : DownloadListener {
+    override fun onDownloadStart(modelId: String) {
+        Timber.tag(ModelDownloadManager.TAG).d("onDownloadStart: $modelId")
+    }
+
+    override fun onDownloadProgress(modelId: String, downloadInfo: DownloadInfo) {
+        Timber.tag(ModelDownloadManager.TAG).v("onDownloadProgress: $modelId, progress: ${downloadInfo.progress}, state: ${downloadInfo.downloadState}, speed: ${downloadInfo.speedInfo} stage: ${downloadInfo.progressStage}")
+    }
+
+    override fun onDownloadFinished(modelId: String, path: String) {
+        Timber.tag(ModelDownloadManager.TAG).d("onDownloadFinished: $modelId, path: $path")
+    }
+
+    override fun onDownloadFailed(modelId: String, e: Exception) {
+        Timber.tag(ModelDownloadManager.TAG).e(e, "onDownloadFailed: $modelId")
+    }
+
+    override fun onDownloadPaused(modelId: String) {
+        Timber.tag(ModelDownloadManager.TAG).d("onDownloadPaused: $modelId")
+    }
+
+    override fun onDownloadFileRemoved(modelId: String) {
+        Timber.tag(ModelDownloadManager.TAG).d("onDownloadFileRemoved: $modelId")
+    }
+
+    override fun onDownloadTotalSize(modelId: String, totalSize: Long) {
+        Timber.tag(ModelDownloadManager.TAG).d("onDownloadTotalSize: $modelId, totalSize: $totalSize")
+    }
+
+    override fun onDownloadHasUpdate(modelId: String, downloadInfo: DownloadInfo) {
+        Timber.tag(ModelDownloadManager.TAG).d("modelId:$modelId onDownloadTotalSize: $modelId, uploadTime: ${downloadInfo.remoteUpdateTime} downloadTime: ${downloadInfo.downloadedTime}")
     }
 }
 
@@ -133,15 +191,15 @@ class ModelDownloadManager private constructor(context: Context) {
 
     fun addListener(listener: DownloadListener) {
         if (!listeners.contains(listener)) {
-            Log.d(TAG, "[addListener] Adding listener: ${listener.javaClass.name}")
+            Timber.tag(TAG).d("[addListener] Adding listener: ${listener.javaClass.name}")
             listeners.add(listener)
         } else {
-            Log.w(TAG, "[addListener] Listener already exists: ${listener.javaClass.name}")
+            Timber.tag(TAG).w("[addListener] Listener already exists: ${listener.javaClass.name}")
         }
     }
 
     fun removeListener(listener: DownloadListener) {
-        Log.d(TAG, "[removeListener] Removing listener: ${listener.javaClass.name}")
+        Timber.tag(TAG).d("[removeListener] Removing listener: ${listener.javaClass.name}")
         listeners.remove(listener)
     }
 
@@ -153,21 +211,9 @@ class ModelDownloadManager private constructor(context: Context) {
         }
     }
 
-    private fun getDownloaderForSource(source: ModelSources.ModelSourceType): ModelRepoDownloader {
-        return when (source) {
-            ModelSources.ModelSourceType.HUGGING_FACE -> hfDownloader
-            ModelSources.ModelSourceType.MODELERS -> mlDownloader
-            else -> msDownloader
-        }
-    }
-
-    fun getDownloadedFile(item: ModelMarketItem): File? {
-        return getDownloadedFile(item.modelId)
-    }
-
     fun getDownloadedFile(modelId: String): File? {
         val file = getDownloaderForSource(ModelUtils.getSource(modelId)!!).getDownloadPath(modelId)
-        Log.d(TAG, "getDownloadedFile: $modelId file: $file")
+        Timber.tag(TAG).d("getDownloadedFile: $modelId file: $file")
         if (file.exists()) {
             return file
         } else {
@@ -176,17 +222,89 @@ class ModelDownloadManager private constructor(context: Context) {
     }
 
     fun pauseDownload(modelId: String) {
-        Log.d(TAG, "pauseDownload: $modelId downloadInfo : ${getDownloadInfo(modelId)}")
+        Timber.tag(TAG).d("pauseDownload: $modelId downloadInfo : ${getDownloadInfo(modelId)}")
         if (getDownloadInfo(modelId).downloadState != DownloadState.DOWNLOADING) {
-            Log.w(TAG, "not downloading")
+            Timber.tag(TAG).w("not downloading")
             return
         }
         val source = ModelUtils.getSource(modelId)!!
         getDownloaderForSource(source).pause(modelId)
     }
 
+    suspend fun downloadQnnLibs(): Boolean {
+        if (!QnnModule.deviceSupported()) {
+            return false
+        }
+        
+        if (QnnModule.isQnnLibsDownloaded(appContext)) {
+            Timber.tag(TAG).d("[QNNDownload] QNN libs already downloaded")
+            return true
+        }
+        
+        Timber.tag(TAG).d("[QNNDownload] QNN libs not copied yet, starting prerequisite download")
+        return withContext(DownloadCoroutineManager.downloadDispatcher) {
+            try {
+                Timber.tag(TAG).d("[QNNDownload] Starting QNN ARM64 libraries download")
+                val libs = ModelRepository.getMarketDataSuspend().libs
+                // Find qnn_arm64_libs
+                val qnnLibsItem = libs.find { it.modelName.equals("qnn_arm64_libs", ignoreCase = true) }
+                if (qnnLibsItem == null) {
+                    Timber.tag(TAG).e("[QNNDownload] qnn_arm64_libs not found in libs list")
+                    return@withContext false
+                }
+
+                Timber.tag(TAG).d("[QNNDownload] Found qnn_arm64_libs item: ${qnnLibsItem.modelId}")
+
+                // Create completion channel and listener for this specific download
+                val completionChannel = Channel<DownloadResult>(Channel.CONFLATED)
+                val qnnListener = QnnDownloadListener(qnnLibsItem.modelId, completionChannel)
+                
+                // Add the listener temporarily
+                addListener(qnnListener)
+
+                try {
+                    // Start the download
+                    val downloader = getDownloaderForSource(qnnLibsItem.currentSource)
+                    downloader.download(qnnLibsItem.modelId)
+
+                    // Wait for download completion using the listener
+                    Timber.tag(TAG).d("[QNNDownload] Waiting for download completion...")
+                    val result = completionChannel.receive()
+                    
+                    when (result) {
+                        is DownloadResult.Success -> {
+                            Timber.tag(TAG).d("[QNNDownload] Download completed successfully: ${result.path}")
+                            
+                            // Get the downloaded file to verify
+                            val downloadedFile = getDownloadedFile(qnnLibsItem.modelId)
+                            if (downloadedFile == null || !downloadedFile.exists()) {
+                                Timber.tag(TAG).e("[QNNDownload] QNN libs downloaded file not found")
+                                return@withContext false
+                            }
+
+                            // Mark as downloaded with path
+                            QnnModule.markQnnLibsDownloaded(appContext, downloadedFile.absolutePath)
+                            Timber.tag(TAG).d("[QNNDownload] QNN libs marked as downloaded at ${downloadedFile.absolutePath}")
+                            return@withContext true
+                        }
+                        is DownloadResult.Failure -> {
+                            Timber.tag(TAG).e(result.exception, "[QNNDownload] QNN libs download failed")
+                            return@withContext false
+                        }
+                    }
+                } finally {
+                    // Always remove the temporary listener
+                    removeListener(qnnListener)
+                }
+            } catch (e: Exception) {
+                Timber.tag(TAG).e(e, "[QNNDownload] Error downloading QNN libs")
+                return@withContext false
+            }
+        }
+    }
+
     fun startDownload(item: ModelMarketItem) {
-        Log.d(TAG, "startDownload: $item currentSource: ${item.currentSource} currentRepoPath: ${item.currentRepoPath}")
+        Timber.tag(TAG).d("startDownload: $item currentSource: ${item.currentSource} currentRepoPath: ${item.currentRepoPath}")
         val modelName = item.modelName
         val repoPath = item.currentRepoPath
         val source = item.currentSource
@@ -194,7 +312,26 @@ class ModelDownloadManager private constructor(context: Context) {
             setDownloadFailed(item.modelId, Exception("currentRepoPath or currentSource is empty for $modelName"))
             return
         }
-        startDownload(item.modelId, source, modelName)
+        val isQnnModel = ModelTypeUtils.isQnnModel(item.tags)
+        val isDeviceSupportQnn = QnnModule.deviceSupported()
+        if (isQnnModel) {
+            Timber.tag(TAG).d("[QNNDownload] Model tagged as QNN: $modelName isDeviceSupportQnn: $isDeviceSupportQnn")
+        }
+        
+        if (isQnnModel && isDeviceSupportQnn) {
+            DownloadCoroutineManager.launchDownload {
+                try {
+                    // Handle QNN libs download
+                    val success = downloadQnnLibs()
+                    Timber.tag(TAG).d("[QNNDownload] QNN libs download ${if (success) "succeeded" else "failed"}")
+                } catch (e: Exception) {
+                    Timber.tag(TAG).e(e, "[QNNDownload] Error in QNN libs download")
+                }
+                startDownload(item.modelId, source, modelName)
+            }
+        } else {
+            startDownload(item.modelId, source, modelName)
+        }
     }
 
     fun startDownload(modelId: String) {
@@ -208,7 +345,7 @@ class ModelDownloadManager private constructor(context: Context) {
 
     private fun startDownload(modelId: String, source:String, modelName: String? = null) {
         val downloader = getDownloaderForSource(source)
-        Log.d(TAG, "startDownload: $modelId source: $source downloader: ${downloader.javaClass.name}")
+        Timber.tag(TAG).d("startDownload: $modelId source: $source downloader: ${downloader.javaClass.name}")
         listeners.forEach { it.onDownloadStart(modelId) }
         this.updateDownloadingProgress(modelId, "Preparing", null,
             getRealDownloadSize(modelId),
@@ -252,7 +389,7 @@ class ModelDownloadManager private constructor(context: Context) {
     }
 
     fun getDownloadInfo(modelId: String): DownloadInfo {
-        Log.d(TAG, "getDownloadInfo: $modelId totalSize: ${DownloadPersistentData.getDownloadSizeTotal(ApplicationProvider.get(), modelId)}" +
+        Timber.tag(TAG).d("getDownloadInfo: $modelId totalSize: ${DownloadPersistentData.getDownloadSizeTotal(ApplicationProvider.get(), modelId)}" +
                 " progress: ${getRealDownloadSize(modelId)}")
         if (!downloadInfoMap.containsKey(modelId)) {
             val downloadInfo = DownloadInfo()
@@ -278,7 +415,7 @@ class ModelDownloadManager private constructor(context: Context) {
             downloadInfoMap[modelId] = downloadInfo
             if (downloadInfo.totalSize < 100) {
                 val marketSize = DownloadPersistentData.getMarketSizeTotal(ApplicationProvider.get(), modelId)
-                Log.d(TAG, "getMarketSize for ${modelId} size: $marketSize")
+                Timber.tag(TAG).d("getMarketSize for ${modelId} size: $marketSize")
                 if (marketSize > 0) {
                     downloadInfo.totalSize = marketSize
                 }
@@ -300,7 +437,7 @@ class ModelDownloadManager private constructor(context: Context) {
             val source = splits[0]
             val downloader = getDownloaderForSource(source)
             val realFile = downloader.repoModelRealFile(modelId)
-            Log.d(TAG, "getRealDownloadSize realFile: ${realFile.absolutePath}")
+            Timber.tag(TAG).d("getRealDownloadSize realFile: ${realFile.absolutePath}")
             val fileSize = FileUtils.getFileSize(realFile)
             DownloadPersistentData.saveDownloadSizeSaved(ApplicationProvider.get(), modelId, fileSize)
             return FileUtils.getFileSize(realFile)
@@ -324,13 +461,12 @@ class ModelDownloadManager private constructor(context: Context) {
         // Record download history
         try {
             val modelType = runBlocking {
-                val modelRepository = ModelRepository(appContext)
-                modelRepository.getModelType(modelId)
+                ModelRepository.getModelTypeSuspend(modelId)
             }
             ChatDataManager.getInstance(appContext)
                 .recordDownloadHistory(modelId, path, modelType)
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to record download history for $modelId", e)
+            Timber.tag(TAG).w(e, "Failed to record download history for $modelId")
         }
         
         listeners.forEach { it.onDownloadFinished(modelId, path) }
@@ -366,7 +502,7 @@ class ModelDownloadManager private constructor(context: Context) {
                             REQUEST_CODE_POST_NOTIFICATIONS
                         )
                     } else {
-                        Log.w(TAG, "No current activity available to request permissions")
+                        Timber.tag(TAG).w("No current activity available to request permissions")
                         startForegroundService()
                     }
                 } else {
@@ -383,7 +519,7 @@ class ModelDownloadManager private constructor(context: Context) {
     private fun startForegroundService() {
         // Do not start foreground service in Google Play build
         if (disableForegroundService) {
-            Log.d(TAG, "startForegroundService: skipped - disableForegroundService is true")
+            Timber.tag(TAG).d("startForegroundService: skipped - disableForegroundService is true")
             return
         }
         
@@ -394,12 +530,12 @@ class ModelDownloadManager private constructor(context: Context) {
             foregroundServiceIntent.putExtra(DownloadForegroundService.EXTRA_DOWNLOAD_COUNT, count)
             foregroundServiceIntent.putExtra(DownloadForegroundService.EXTRA_MODEL_NAME, modelName)
             
-            Log.d(TAG, "startForegroundService: starting service with count=$count, modelName=$modelName")
+            Timber.tag(TAG).d("startForegroundService: starting service with count=$count, modelName=$modelName")
             ApplicationProvider.get().startForegroundService(foregroundServiceIntent)
             foregroundServiceStarted = true
-            Log.d(TAG, "startForegroundService: service started successfully")
+            Timber.tag(TAG).d("startForegroundService: service started successfully")
         } catch (e: Exception) {
-            Log.e(TAG, "start foreground service failed", e)
+            Timber.tag(TAG).e(e, "start foreground service failed")
             foregroundServiceStarted = false
         }
     }
@@ -420,7 +556,7 @@ class ModelDownloadManager private constructor(context: Context) {
     
     private fun updateNotification() {
         if (!foregroundServiceStarted || disableForegroundService) {
-            Log.d(TAG, "updateNotification: skipped - foregroundServiceStarted: $foregroundServiceStarted, disableForegroundService: $disableForegroundService")
+            Timber.tag(TAG).d("updateNotification: skipped - foregroundServiceStarted: $foregroundServiceStarted, disableForegroundService: $disableForegroundService")
             return
         }
         
@@ -428,11 +564,11 @@ class ModelDownloadManager private constructor(context: Context) {
             val count = activeDownloadCount.get()
             val modelName = getActiveDownloadModelName()
             
-            Log.d(TAG, "updateNotification: count=$count, modelName=$modelName")
+            Timber.tag(TAG).d("updateNotification: count=$count, modelName=$modelName")
             // Use the static method to update notification
             DownloadForegroundService.updateNotification(count, modelName)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to update notification", e)
+            Timber.tag(TAG).e(e, "Failed to update notification")
         }
     }
     
@@ -455,14 +591,14 @@ class ModelDownloadManager private constructor(context: Context) {
     }
 
     private fun setDownloadFailed(modelId: String, e: Exception) {
-        Log.e(TAG, "[setDownloadFailed] Setting failure for $modelId. Notifying ${listeners.size} listeners.", e)
+        Timber.tag(TAG).e(e, "[setDownloadFailed] Setting failure for $modelId. Notifying ${listeners.size} listeners.")
         val info = downloadInfoMap.getOrPut(modelId) { DownloadInfo() }
         info.downloadState = DownloadState.FAILED
         info.errorMessage = e.message
         info.errorException = e
         removeActiveDownload(modelId)
         listeners.forEach {
-            Log.d(TAG, "[setDownloadFailed] Notifying listener: ${it.javaClass.simpleName}")
+            Timber.tag(TAG).d("[setDownloadFailed] Notifying listener: ${it.javaClass.simpleName}")
             it.onDownloadFailed(modelId, e)
         }
     }
@@ -474,7 +610,7 @@ class ModelDownloadManager private constructor(context: Context) {
      * @param repoSize total repo size in bytes
      */
     private fun onRepoInfoReceived(modelId: String, lastModified: Long, repoSize: Long) {
-        Log.d(TAG, "[onRepoInfoReceived] modelId: $modelId, lastModified: $lastModified, repoSize: $repoSize")
+        Timber.tag(TAG).d("[onRepoInfoReceived] modelId: $modelId, lastModified: $lastModified, repoSize: $repoSize")
         
         // Update download info with repo size if not already set
         val downloadInfo = getDownloadInfo(modelId)
@@ -488,7 +624,7 @@ class ModelDownloadManager private constructor(context: Context) {
         if (lastModified > 0) {
             downloadInfo.remoteUpdateTime = lastModified
             if (downloadInfo.downloadedTime > 0) {
-                Log.d(TAG, "[onRepoInfoReceived] downloadedTime: ${downloadInfo.downloadedTime}, lastModified: $lastModified")
+                Timber.tag(TAG).d("[onRepoInfoReceived] downloadedTime: ${downloadInfo.downloadedTime}, lastModified: $lastModified")
             }
 
             if (downloadInfo.downloadedTime in 1..<lastModified) {
@@ -528,7 +664,7 @@ class ModelDownloadManager private constructor(context: Context) {
             DownloadPersistentData.saveDownloadSizeTotal(ApplicationProvider.get(), modelId, totalSize)
             calculateDownloadSpeed(downloadInfo, savedSize)
         }
-        Log.v(TAG, "[updateDownloadingProgress] Notifying ${listeners.size} listeners for $modelId stage: $stage")
+        Timber.tag(TAG).v("[updateDownloadingProgress] Notifying ${listeners.size} listeners for $modelId stage: $stage")
         listeners.forEach { it.onDownloadProgress(modelId, downloadInfo) }
         
         // Update notification with progress information
@@ -606,13 +742,13 @@ class ModelDownloadManager private constructor(context: Context) {
     }
 
     suspend fun checkForUpdate(modelId: String?) {
-        Log.d(TAG, "checkForUpdate: $modelId")
+        Timber.tag(TAG).v("checkForUpdate: $modelId")
         modelId?.let {
             if (!checkedForUpdateModelIds.containsKey(it)) {
                 checkedForUpdateModelIds[it] = true
                 getDownloaderForSource(ModelUtils.getSource(modelId)!!).checkUpdate(modelId)
             } else {
-                Log.d(TAG, "checkForUpdate: $modelId already checked, skipping")
+                Timber.tag(TAG).v("checkForUpdate: $modelId already checked, skipping")
             }
         }
     }
@@ -623,8 +759,10 @@ class ModelDownloadManager private constructor(context: Context) {
      */
     fun resetCheckedStatus(modelId: String) {
         checkedForUpdateModelIds.remove(modelId)
-        Log.d(TAG, "resetCheckedStatus: $modelId")
+        Timber.tag(TAG).d("resetCheckedStatus: $modelId")
     }
+
+
 
     companion object {
         @Volatile

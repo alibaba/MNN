@@ -1,0 +1,12 @@
+# Build directories
+build*/
+cmake-build-*/
+
+# Test outputs and logs
+*.log
+test_results.txt
+
+# CMake cache
+CMakeCache.txt
+CMakeFiles/
+CMakeUserPresets.json

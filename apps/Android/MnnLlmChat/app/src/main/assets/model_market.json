@@ -13,11 +13,13 @@
     },
     "quickFilterTags": [
         "Think",
+        "NPU",
         "Vision",
         "ImageGen",
         "Audio",
         "AudioGen",
-        "Code"
+        "Code",
+        "Video"
     ],
     "vendorOrder": [
         "Qwen",
@@ -1776,6 +1778,19 @@
                 "HuggingFace": "taobao-mnn/sherpa-mnn-streaming-zipformer-en-2023-02-21"
             },
             "file_size": 296187698
+        }
+    ],
+    "libs": [
+        {
+            "modelName": "qnn_arm64_libs",
+            "tags": [
+                "QNN"
+            ],
+            "sources": {
+                "ModelScope": "MNN/qnn_arm64_libs",
+                "Modelers": "MNN/qnn_arm64_libs",
+                "HuggingFace": "taobao-mnn/qnn_arm64_libs"
+            }
         }
     ]
 }

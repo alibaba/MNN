@@ -9,7 +9,7 @@ set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum macOS version" FORC
 
 option(BUILD_MNNCLI_TEST "Build MNNCLI test programs." OFF)
 
-# Configure OpenSSL static libraries BEFORE fetching httplib
+# Configure OpenSSL static libraries
 if(APPLE)
     set(OPENSSL_ROOT_DIR "/opt/homebrew/opt/openssl@3")
     set(OPENSSL_USE_STATIC_LIBS TRUE)
@@ -24,20 +24,8 @@ if(APPLE)
     message(STATUS "  Crypto: ${OPENSSL_CRYPTO_LIBRARY}")
 endif()
 
-# Fetch cpp-httplib (header-only library)
-include(FetchContent)
-
-# Disable optional httplib dependencies to avoid extra dynamic libraries
-set(HTTPLIB_USE_BROTLI_IF_AVAILABLE OFF CACHE BOOL "Disable Brotli support")
-set(HTTPLIB_USE_ZLIB_IF_AVAILABLE ON CACHE BOOL "Enable zlib support (system library)")
-set(HTTPLIB_REQUIRE_OPENSSL OFF CACHE BOOL "Don't require OpenSSL in httplib")
-
-FetchContent_Declare(
-    httplib
-    GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
-    GIT_TAG v0.18.2
-)
-FetchContent_MakeAvailable(httplib)
+# Use httplib from MNN transformers directory instead of fetching it
+# This ensures we use the same version (0.26.0) as the MNN library to avoid TLS mismatch
 
 # Set MNN paths (can be overridden via command line)
 set(MNN_BUILD_DIR "${CMAKE_CURRENT_LIST_DIR}/../../build_mnn_static" CACHE PATH "MNN build directory")
@@ -73,7 +61,7 @@ function(embed_file_as_c_array input_file output_file symbol_name)
 endfunction()
 
 # Generate embedded model_market.json data
-set(MODEL_MARKET_JSON_FILE "${CMAKE_CURRENT_LIST_DIR}/MnnLlmChat/app/src/main/assets/model_market.json")
+set(MODEL_MARKET_JSON_FILE "${CMAKE_CURRENT_LIST_DIR}/../../apps/Android/MnnLlmChat/app/src/main/assets/model_market.json")
 set(MODEL_MARKET_JSON_INC_FILE "${CMAKE_CURRENT_BINARY_DIR}/model_market_json_data.inc")
 
 if(EXISTS ${MODEL_MARKET_JSON_FILE})
@@ -90,6 +78,7 @@ set(MNNCLI_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/src/log_utils.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/model_file_downloader.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/file_utils.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/file_utils_config.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/llm_benchmark.cpp
     ${CMAKE_CURRENT_LIST_DIR}/../../transformers/llm/engine/app/llm_benchmark_common.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/hf_api_client.cpp
@@ -105,6 +94,26 @@ set(MNNCLI_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/src/model_download_manager.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/model_repository.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/model_market_data.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/model_name_utils.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/model_sources.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/cli_download_listener.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/cli_config_manager.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/llm_manager.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/model_manager.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/local_model_utils.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/cli_command_handler.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/cli_command_parser.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/cli_command_spec.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/handlers/run_command_handler.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/handlers/delete_command_handler.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/handlers/list_command_handler.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/handlers/search_command_handler.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/handlers/download_command_handler.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/handlers/model_info_command_handler.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/handlers/serve_command_handler.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/handlers/benchmark_command_handler.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/handlers/config_command_handler.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/handlers/info_command_handler.cpp
 )
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")
@@ -264,6 +273,7 @@ endif()
 # Include directories
 target_include_directories(mnncli PRIVATE
     ${MNN_SOURCE_DIR}/include/
+    ${MNN_SOURCE_DIR}/transformers/llm/engine/src/
     ${MNN_SOURCE_DIR}/transformers/llm/engine/include/
     ${MNN_SOURCE_DIR}/3rd_party/
     ${CMAKE_CURRENT_LIST_DIR}/include/
@@ -289,9 +299,8 @@ endif()
 # Link to pre-built MNN static library
 target_link_libraries(mnncli PRIVATE ${MNN_LIBRARY})
 
-# Link httplib and disable Brotli support
+# Disable Brotli support in httplib
 target_compile_definitions(mnncli PRIVATE CPPHTTPLIB_NO_BROTLI)
-target_link_libraries(mnncli PRIVATE httplib::httplib)
 
 # Link system libraries on macOS
 if(APPLE)

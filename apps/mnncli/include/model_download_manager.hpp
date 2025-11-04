@@ -9,43 +9,13 @@
 #include "hf_model_downloader.hpp"
 #include "ms_model_downloader.hpp"
 #include "ml_model_downloader.hpp"
+#include "model_sources.hpp"
 #include <memory>
 #include <unordered_map>
 #include <vector>
 #include <string>
 
 namespace mnncli {
-
-// Model source types
-enum class ModelSource {
-    HUGGING_FACE,
-    MODEL_SCOPE,
-    MODELERS,
-    UNKNOWN
-};
-
-// Model source utilities
-class ModelSources {
-public:
-    static constexpr const char* SOURCE_HUGGING_FACE = "HuggingFace";
-    static constexpr const char* SOURCE_MODEL_SCOPE = "ModelScope";
-    static constexpr const char* SOURCE_MODELERS = "Modelers";
-    
-    // Convert string to ModelSource
-    static ModelSource FromString(const std::string& source_str);
-    
-    // Convert ModelSource to string
-    static std::string ToString(ModelSource source);
-    
-    // Extract source from model ID
-    static ModelSource GetSource(const std::string& model_id);
-    
-    // Split model ID into source and path
-    static std::pair<std::string, std::string> SplitSource(const std::string& model_id);
-    
-    // Get model name from model ID
-    static std::string GetModelName(const std::string& model_id);
-};
 
 // Main download manager class
 class ModelDownloadManager : public DownloadListener {

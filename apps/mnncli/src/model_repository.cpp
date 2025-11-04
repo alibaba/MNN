@@ -5,6 +5,7 @@
 
 #include "model_repository.hpp"
 #include "model_market_data.hpp"
+#include "model_download_manager.hpp"
 #include "file_utils.hpp"
 #include "log_utils.hpp"
 #include <iostream>
@@ -30,7 +31,7 @@ bool CaseInsensitiveEquals(const std::string& str1, const std::string& str2) {
 
 // Static member initialization
 const std::vector<std::string> ModelRepository::kDefaultProviders = {
-    "HuggingFace", "ModelScope", "Modelers"
+    ModelSources::SOURCE_HUGGING_FACE, ModelSources::SOURCE_MODEL_SCOPE, ModelSources::SOURCE_MODELERS
 };
 
 ModelRepository::ModelRepository(const std::string& cache_root_path)
@@ -184,148 +185,149 @@ std::optional<ModelMarketData> ModelRepository::LoadFromAssets() {
 
             LOG_DEBUG_TAG("Successfully parsed embedded model market data", kTag);
         
-        // Parse JSON into ModelMarketData structure
-        ModelMarketData data;
-        
-        // Parse basic fields
-        if (jsonData.contains("version")) {
-            data.version = jsonData["version"];
-        }
-        
-        if (jsonData.contains("tagTranslations")) {
-            for (const auto& [key, value] : jsonData["tagTranslations"].items()) {
-                data.tagTranslations[key] = value;
+            // Parse JSON into ModelMarketData structure
+            ModelMarketData data;
+            
+            // Parse basic fields
+            if (jsonData.contains("version")) {
+                data.version = jsonData["version"];
             }
-        }
-        
-        if (jsonData.contains("quickFilterTags")) {
-            data.quickFilterTags = jsonData["quickFilterTags"].get<std::vector<std::string>>();
-        }
-        
-        if (jsonData.contains("vendorOrder")) {
-            data.vendorOrder = jsonData["vendorOrder"].get<std::vector<std::string>>();
-        }
-        
-        // Parse models
-        if (jsonData.contains("models")) {
-            for (const auto& modelJson : jsonData["models"]) {
-                ModelMarketItem item;
-                item.modelName = modelJson["modelName"];
-                
-                if (modelJson.contains("tags")) {
-                    item.tags = modelJson["tags"].get<std::vector<std::string>>();
+            
+            if (jsonData.contains("tagTranslations")) {
+                for (const auto& [key, value] : jsonData["tagTranslations"].items()) {
+                    data.tagTranslations[key] = value;
                 }
-                
-                if (modelJson.contains("categories")) {
-                    item.categories = modelJson["categories"].get<std::vector<std::string>>();
-                }
-                
-                if (modelJson.contains("sources")) {
-                    for (const auto& [key, value] : modelJson["sources"].items()) {
-                        item.sources[key] = value;
+            }
+            
+            if (jsonData.contains("quickFilterTags")) {
+                data.quickFilterTags = jsonData["quickFilterTags"].get<std::vector<std::string>>();
+            }
+            
+            if (jsonData.contains("vendorOrder")) {
+                data.vendorOrder = jsonData["vendorOrder"].get<std::vector<std::string>>();
+            }
+            
+            // Parse models
+            if (jsonData.contains("models")) {
+                for (const auto& modelJson : jsonData["models"]) {
+                    ModelMarketItem item;
+                    item.modelName = modelJson["modelName"];
+                    
+                    if (modelJson.contains("tags")) {
+                        item.tags = modelJson["tags"].get<std::vector<std::string>>();
                     }
-                }
-                
-                if (modelJson.contains("size_gb")) {
-                    item.size_gb = modelJson["size_gb"].get<double>();
-                }
-                
-                if (modelJson.contains("vendor")) {
-                    item.vendor = modelJson["vendor"];
-                }
-                
-                if (modelJson.contains("file_size")) {
-                    item.file_size = modelJson["file_size"].get<int64_t>();
-                }
-                
-                data.models.push_back(item);
-            }
-        }
-        
-        // Parse TTS models
-        if (jsonData.contains("tts_models")) {
-            for (const auto& modelJson : jsonData["tts_models"]) {
-                ModelMarketItem item;
-                item.modelName = modelJson["modelName"];
-                
-                if (modelJson.contains("tags")) {
-                    item.tags = modelJson["tags"].get<std::vector<std::string>>();
-                }
-                
-                if (modelJson.contains("categories")) {
-                    item.categories = modelJson["categories"].get<std::vector<std::string>>();
-                }
-                
-                if (modelJson.contains("sources")) {
-                    for (const auto& [key, value] : modelJson["sources"].items()) {
-                        item.sources[key] = value;
+                    
+                    if (modelJson.contains("categories")) {
+                        item.categories = modelJson["categories"].get<std::vector<std::string>>();
                     }
-                }
-                
-                if (modelJson.contains("size_gb")) {
-                    item.size_gb = modelJson["size_gb"].get<double>();
-                }
-                
-                if (modelJson.contains("vendor")) {
-                    item.vendor = modelJson["vendor"];
-                }
-                
-                if (modelJson.contains("file_size")) {
-                    item.file_size = modelJson["file_size"].get<int64_t>();
-                }
-                
-                data.ttsModels.push_back(item);
-            }
-        }
-        
-        // Parse ASR models
-        if (jsonData.contains("asr_models")) {
-            for (const auto& modelJson : jsonData["asr_models"]) {
-                ModelMarketItem item;
-                item.modelName = modelJson["modelName"];
-                
-                if (modelJson.contains("tags")) {
-                    item.tags = modelJson["tags"].get<std::vector<std::string>>();
-                }
-                
-                if (modelJson.contains("categories")) {
-                    item.categories = modelJson["categories"].get<std::vector<std::string>>();
-                }
-                
-                if (modelJson.contains("sources")) {
-                    for (const auto& [key, value] : modelJson["sources"].items()) {
-                        item.sources[key] = value;
+                    
+                    if (modelJson.contains("sources")) {
+                        for (const auto& [key, value] : modelJson["sources"].items()) {
+                            item.sources[key] = value;
+                        }
                     }
+                    
+                    if (modelJson.contains("size_gb")) {
+                        item.size_gb = modelJson["size_gb"].get<double>();
+                    }
+                    
+                    if (modelJson.contains("vendor")) {
+                        item.vendor = modelJson["vendor"];
+                    }
+                    
+                    if (modelJson.contains("file_size")) {
+                        item.file_size = modelJson["file_size"].get<int64_t>();
+                    }
+                    
+                    data.models.push_back(item);
                 }
-                
-                if (modelJson.contains("size_gb")) {
-                    item.size_gb = modelJson["size_gb"].get<double>();
-                }
-                
-                if (modelJson.contains("vendor")) {
-                    item.vendor = modelJson["vendor"];
-                }
-                
-                if (modelJson.contains("file_size")) {
-                    item.file_size = modelJson["file_size"].get<int64_t>();
-                }
-                
-                data.asrModels.push_back(item);
             }
-        }
-        
-        LOG_DEBUG_TAG("Successfully parsed model market data with " +
-                      std::to_string(data.models.size()) + " models, " +
-                      std::to_string(data.ttsModels.size()) + " TTS models, and " +
-                      std::to_string(data.asrModels.size()) + " ASR models", kTag);
+            
+            // Parse TTS models
+            if (jsonData.contains("tts_models")) {
+                for (const auto& modelJson : jsonData["tts_models"]) {
+                    ModelMarketItem item;
+                    item.modelName = modelJson["modelName"];
+                    
+                    if (modelJson.contains("tags")) {
+                        item.tags = modelJson["tags"].get<std::vector<std::string>>();
+                    }
+                    
+                    if (modelJson.contains("categories")) {
+                        item.categories = modelJson["categories"].get<std::vector<std::string>>();
+                    }
+                    
+                    if (modelJson.contains("sources")) {
+                        for (const auto& [key, value] : modelJson["sources"].items()) {
+                            item.sources[key] = value;
+                        }
+                    }
+                    
+                    if (modelJson.contains("size_gb")) {
+                        item.size_gb = modelJson["size_gb"].get<double>();
+                    }
+                    
+                    if (modelJson.contains("vendor")) {
+                        item.vendor = modelJson["vendor"];
+                    }
+                    
+                    if (modelJson.contains("file_size")) {
+                        item.file_size = modelJson["file_size"].get<int64_t>();
+                    }
+                    
+                    data.ttsModels.push_back(item);
+                }
+            }
+            
+            // Parse ASR models
+            if (jsonData.contains("asr_models")) {
+                for (const auto& modelJson : jsonData["asr_models"]) {
+                    ModelMarketItem item;
+                    item.modelName = modelJson["modelName"];
+                    
+                    if (modelJson.contains("tags")) {
+                        item.tags = modelJson["tags"].get<std::vector<std::string>>();
+                    }
+                    
+                    if (modelJson.contains("categories")) {
+                        item.categories = modelJson["categories"].get<std::vector<std::string>>();
+                    }
+                    
+                    if (modelJson.contains("sources")) {
+                        for (const auto& [key, value] : modelJson["sources"].items()) {
+                            item.sources[key] = value;
+                        }
+                    }
+                    
+                    if (modelJson.contains("size_gb")) {
+                        item.size_gb = modelJson["size_gb"].get<double>();
+                    }
+                    
+                    if (modelJson.contains("vendor")) {
+                        item.vendor = modelJson["vendor"];
+                    }
+                    
+                    if (modelJson.contains("file_size")) {
+                        item.file_size = modelJson["file_size"].get<int64_t>();
+                    }
+                    
+                    data.asrModels.push_back(item);
+                }
+            }
+            
+            LOG_DEBUG_TAG("Successfully parsed model market data with " +
+                          std::to_string(data.models.size()) + " models, " +
+                          std::to_string(data.ttsModels.size()) + " TTS models, and " +
+                          std::to_string(data.asrModels.size()) + " ASR models", kTag);
 
-        return data;
-
-    }
+            return data;
+        }
     } catch (const std::exception& e) {
         LOG_DEBUG_TAG("Failed to load from assets: " + std::string(e.what()), kTag);
         return std::nullopt;
     }
+    
+    return std::nullopt;
 }
 
 std::optional<ModelMarketItem> ModelRepository::FindModelByName(const std::string& modelName) {

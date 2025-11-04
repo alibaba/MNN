@@ -4,6 +4,9 @@
 //
 
 #include "model_repo_downloader.hpp"
+#include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <algorithm>
 #include <iostream>
 
@@ -131,6 +134,112 @@ std::string ModelRepoDownloader::ExtractFileName(const std::string& file_path) {
         return file_path.substr(last_slash + 1);
     }
     return file_path;
+}
+
+// --- Completion markers and manifest helpers ---
+static inline std::filesystem::path markersDir(const std::filesystem::path& model_folder) {
+    return model_folder / ".mnncli";
+}
+
+static inline std::filesystem::path downloadingMarker(const std::filesystem::path& model_folder) {
+    return markersDir(model_folder) / ".downloading";
+}
+
+static inline std::filesystem::path completeMarker(const std::filesystem::path& model_folder) {
+    return markersDir(model_folder) / ".complete";
+}
+
+static inline std::filesystem::path manifestPath(const std::filesystem::path& model_folder) {
+    return markersDir(model_folder) / "manifest.json";
+}
+
+bool ModelRepoDownloader::ValidateFilesBySize(
+    const std::filesystem::path& model_folder,
+    const std::vector<std::pair<std::string, int64_t>>& manifest_entries
+) const {
+    for (const auto& entry : manifest_entries) {
+        const auto& relative_path = entry.first;
+        int64_t expected_size = entry.second;
+        std::filesystem::path full_path = model_folder / relative_path;
+        if (!std::filesystem::exists(full_path)) {
+            return false;
+        }
+        std::error_code ec;
+        auto size = std::filesystem::file_size(full_path, ec);
+        if (ec || static_cast<int64_t>(size) != expected_size) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool ModelRepoDownloader::IsDownloadComplete(const std::filesystem::path& model_folder) const {
+    auto cm = completeMarker(model_folder);
+    if (!std::filesystem::exists(cm)) {
+        return false;
+    }
+    // If manifest exists, validate sizes
+    auto mp = manifestPath(model_folder);
+    if (std::filesystem::exists(mp)) {
+        std::ifstream in(mp);
+        if (!in.is_open()) return false;
+        // Minimal JSON parsing without dependency: expect lines of "path\t size"
+        // But since we have header-only json might not be present, use a simple TSV fallback format.
+        std::vector<std::pair<std::string, int64_t>> entries;
+        std::string line;
+        while (std::getline(in, line)) {
+            if (line.empty()) continue;
+            // format: path\t<tab>size
+            auto tab = line.find('\t');
+            if (tab == std::string::npos) continue;
+            std::string rel = line.substr(0, tab);
+            int64_t size = std::stoll(line.substr(tab + 1));
+            entries.emplace_back(rel, size);
+        }
+        in.close();
+        if (!entries.empty()) {
+            return ValidateFilesBySize(model_folder, entries);
+        }
+    }
+    return true;
+}
+
+void ModelRepoDownloader::MarkDownloading(const std::filesystem::path& model_folder) const {
+    std::error_code ec;
+    std::filesystem::create_directories(markersDir(model_folder), ec);
+    std::ofstream out(downloadingMarker(model_folder));
+    out << "1";
+}
+
+bool ModelRepoDownloader::MarkComplete(
+    const std::filesystem::path& model_folder,
+    const std::vector<std::pair<std::string, int64_t>>& manifest_entries
+) const {
+    std::error_code ec;
+    std::filesystem::create_directories(markersDir(model_folder), ec);
+    // Write a simple TSV manifest to avoid introducing a JSON dependency here
+    if (!manifest_entries.empty()) {
+        std::ofstream mf(manifestPath(model_folder));
+        if (!mf.is_open()) return false;
+        for (const auto& e : manifest_entries) {
+            mf << e.first << '\t' << e.second << '\n';
+        }
+        mf.close();
+    }
+    // Atomically create complete marker after manifest
+    std::ofstream cm(completeMarker(model_folder));
+    if (!cm.is_open()) return false;
+    cm << "1";
+    // Remove downloading marker if present
+    std::filesystem::remove(downloadingMarker(model_folder), ec);
+    return true;
+}
+
+void ModelRepoDownloader::ClearMarkers(const std::filesystem::path& model_folder) const {
+    std::error_code ec;
+    std::filesystem::remove(completeMarker(model_folder), ec);
+    std::filesystem::remove(downloadingMarker(model_folder), ec);
+    std::filesystem::remove(manifestPath(model_folder), ec);
 }
 
 } // namespace mnncli

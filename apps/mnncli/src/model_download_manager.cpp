@@ -5,65 +5,11 @@
 
 #include "model_download_manager.hpp"
 #include "log_utils.hpp"
-#include <iostream>
 #include <algorithm>
 #include <chrono>
-#include <thread>
 #include <cctype>
 
 namespace mnncli {
-
-// ModelSources implementation
-ModelSource ModelSources::FromString(const std::string& source_str) {
-    std::string lower = source_str;
-    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-    
-    if (lower == "huggingface" || lower == "hf") return ModelSource::HUGGING_FACE;
-    if (lower == "modelscope" || lower == "ms") return ModelSource::MODEL_SCOPE;
-    if (lower == "modelers" || lower == "ml") return ModelSource::MODELERS;
-    
-    return ModelSource::UNKNOWN;
-}
-
-std::string ModelSources::ToString(ModelSource source) {
-    switch (source) {
-        case ModelSource::HUGGING_FACE: return SOURCE_HUGGING_FACE;
-        case ModelSource::MODEL_SCOPE: return SOURCE_MODEL_SCOPE;
-        case ModelSource::MODELERS: return SOURCE_MODELERS;
-        default: return "Unknown";
-    }
-}
-
-ModelSource ModelSources::GetSource(const std::string& model_id) {
-    auto splits = SplitSource(model_id);
-    return FromString(splits.first);
-}
-
-std::pair<std::string, std::string> ModelSources::SplitSource(const std::string& model_id) {
-    size_t colon_pos = model_id.find(':');
-    if (colon_pos == std::string::npos) {
-        return {"", model_id};
-    }
-    
-    std::string source = model_id.substr(0, colon_pos);
-    std::string path = model_id.substr(colon_pos + 1);
-    return {source, path};
-}
-
-std::string ModelSources::GetModelName(const std::string& model_id) {
-    auto splits = SplitSource(model_id);
-    if (splits.second.empty()) {
-        return model_id;
-    }
-    
-    // Extract the last part of the path as model name
-    size_t last_slash = splits.second.find_last_of('/');
-    if (last_slash != std::string::npos) {
-        return splits.second.substr(last_slash + 1);
-    }
-    
-    return splits.second;
-}
 
 // ModelDownloadManager implementation
 ModelDownloadManager::ModelDownloadManager(const std::string& cache_root_path)
@@ -103,7 +49,7 @@ void ModelDownloadManager::StartDownload(const std::string& model_id) {
     auto splits = ModelSources::SplitSource(model_id);
     if (splits.first.empty()) {
         // Default to HuggingFace if no source specified
-        StartDownload(model_id, "HuggingFace");
+        StartDownload(model_id, ModelSources::SOURCE_HUGGING_FACE);
         return;
     }
     StartDownload(model_id, splits.first);
@@ -186,11 +132,20 @@ std::filesystem::path ModelDownloadManager::GetDownloadedFile(const std::string&
 }
 
 bool ModelDownloadManager::DeleteRepo(const std::string& model_id) {
+    LOG_DEBUG_TAG("ModelDownloadManager::DeleteRepo called with model_id = " + model_id, "ModelDownloadManager");
+    
     auto source = ModelSources::GetSource(model_id);
+    std::string source_str = ModelSources::ToString(source);
+    LOG_DEBUG_TAG("Extracted source: " + source_str, "ModelDownloadManager");
+    
     auto downloader = GetDownloaderForSource(source);
     if (downloader) {
-        return downloader->DeleteRepo(model_id);
+        LOG_DEBUG_TAG("Found downloader for source: " + source_str, "ModelDownloadManager");
+        bool result = downloader->DeleteRepo(model_id);
+        LOG_DEBUG_TAG("Downloader->DeleteRepo returned: " + std::string(result ? "true" : "false"), "ModelDownloadManager");
+        return result;
     }
+    LOG_DEBUG_TAG("No downloader found for source: " + source_str, "ModelDownloadManager");
     return false;
 }
 

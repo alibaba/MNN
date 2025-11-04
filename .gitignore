@@ -379,3 +379,5 @@ apps/mnncli/.cursorrules
 apps/mnncli/model_market_json_data.inc
 #kledi
 _deps
+#aicoding
+.cursor

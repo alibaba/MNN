@@ -93,11 +93,7 @@ private:
 
 private:
     // HTTP client for downloads
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
     httplib::SSLClient client_;
-#else
-    httplib::Client client_;
-#endif
     static constexpr int kConnectTimeoutSeconds = 30;
     static constexpr int kMaxRetry = 10;
     static constexpr int kBufferSize = 8192;

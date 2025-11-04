@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <functional>
 #include <unordered_map>
+#include <vector>
 
 namespace mnncli {
 
@@ -81,6 +82,20 @@ public:
     static std::string ExtractFileName(const std::string& file_path);
     
 protected:
+    // Completion markers and manifest helpers
+    // Markers and manifest are stored under model_folder/.mnncli/
+    bool IsDownloadComplete(const std::filesystem::path& model_folder) const;
+    void MarkDownloading(const std::filesystem::path& model_folder) const;
+    bool MarkComplete(
+        const std::filesystem::path& model_folder,
+        const std::vector<std::pair<std::string, int64_t>>& manifest_entries
+    ) const;
+    void ClearMarkers(const std::filesystem::path& model_folder) const;
+    bool ValidateFilesBySize(
+        const std::filesystem::path& model_folder,
+        const std::vector<std::pair<std::string, int64_t>>& manifest_entries
+    ) const;
+
     // Helper methods for subclasses
     void NotifyDownloadStart(const std::string& model_id);
     void NotifyDownloadProgress(const std::string& model_id, const std::string& stage, 
