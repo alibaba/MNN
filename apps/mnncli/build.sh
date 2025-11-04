@@ -37,7 +37,7 @@ echo -e "${YELLOW}Configuring MNN...${NC}"
 cmake -B "$MNN_BUILD_DIR" -S "$PROJECT_ROOT" \
     -DMNN_BUILD_LLM=ON \
     -DMNN_BUILD_SHARED_LIBS=OFF \
-    -DCMAKE_BUILD_TYPE=Debug \
+    -DCMAKE_BUILD_TYPE=Release \
     -DMNN_LOW_MEMORY=ON \
     -DMNN_CPU_WEIGHT_DEQUANT_GEMM=ON \
     -DMNN_SUPPORT_TRANSFORMER_FUSE=ON \
@@ -78,7 +78,7 @@ echo -e "${YELLOW}Configuring mnncli...${NC}"
 cmake -B "$MNNCLI_BUILD_DIR" -S "$SCRIPT_DIR" \
     -DMNN_BUILD_DIR="$MNN_BUILD_DIR" \
     -DMNN_SOURCE_DIR="$PROJECT_ROOT" \
-    -DCMAKE_BUILD_TYPE=Debug
+    -DCMAKE_BUILD_TYPE=Release
 
 echo -e "${YELLOW}Building mnncli...${NC}"
 if command -v nproc &> /dev/null; then
