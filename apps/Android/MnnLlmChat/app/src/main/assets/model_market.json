@@ -44,22 +44,6 @@
     ],
     "models": [
         {
-            "modelName": "SmolVLM2-256M-Video-Instruct-NPU",
-            "tags": [
-                "Vision",
-                "Video",
-                "QNN"
-            ],
-            "categories": [],
-            "sources": {
-                "HuggingFace": "taobao-mnn/SmolVLM2-256M-Video-Instruct-NPU",
-                "ModelScope": "MNN/SmolVLM2-256M-Video-Instruct-NPU",
-                "Modelers": "MNN/SmolVLM2-256M-Video-Instruct-NPU"
-            },
-            "size_gb": 0.256,
-            "vendor": "Smol"
-        },
-        {
             "modelName": "Qwen3-VL-4B-Thinking-MNN",
             "tags": [
                 "Vision",
