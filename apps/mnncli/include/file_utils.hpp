@@ -5,9 +5,9 @@
 
 #pragma once
 #include <string>
-#include <stdexcept>
 #include <vector>
 #include <filesystem>
+#include "mnncli_config.hpp"
 
 namespace fs = std::filesystem;
 
@@ -38,13 +38,12 @@ public:
 
     static std::string GetStorageFolderPath(const std::string& model_id);
 
-    static std::string GetBaseCacheDir();
-
-    static std::string GetModelPath(const std::string& model_id);
+    static std::string GetModelPath(const std::string& model_id, const mnncli::Config& config);
 
     static bool RemoveFileIfExists(const std::string& path);
     
     static std::string GetConfigPath(const std::string& model_id);
+    static std::string GetConfigPath(const std::string& model_id, const mnncli::Config& config);
 
     static bool Move(const fs::path& source, const fs::path& dest, std::string& error_info);
 

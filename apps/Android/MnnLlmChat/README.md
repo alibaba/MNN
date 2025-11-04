@@ -57,7 +57,7 @@ This is our full multimodal language model (LLM) Android app
 + build android app project and install
   ```shell
   cd ../../../apps/Android/MnnLlmChat
-  ./gradlew installDebug
+  ./installDebug.sh
   ```
 
 # Releases

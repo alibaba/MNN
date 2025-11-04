@@ -14,10 +14,15 @@ task downloadAndUnzipNativeLibs {
     doLast {
         println "-> Executing downloadAndUnzipNativeLibs task..."
         println "   Downloading from ${nativeLibsUrl}"
-        
+        println "   outputDir  ${outputDir}"
+        println "   downloadedZip  ${downloadedZip}"
+
         // Create output directory if it doesn't exist
         outputDir.mkdirs()
         
+        // Ensure build directory exists before downloading
+        downloadedZip.parentFile.mkdirs()
+
         ant.get(src: nativeLibsUrl, dest: downloadedZip)
 
         if (!downloadedZip.exists()) {

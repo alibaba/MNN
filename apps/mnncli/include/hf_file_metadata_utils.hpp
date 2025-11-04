@@ -21,13 +21,7 @@ public:
     
     // Get file metadata using custom HTTP client
     static HfFileMetadata GetFileMetadata(const std::string& url, 
-                                         std::shared_ptr<
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
-                                         httplib::SSLClient
-#else
-                                         httplib::Client
-#endif
-                                         > client,
+                                         std::shared_ptr<httplib::SSLClient> client,
                                          std::string& error_info);
     
 private:

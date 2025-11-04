@@ -584,4 +584,12 @@
     <string name="loading_models">加载模型中…</string>
     <string name="copying_builtin_models">首次安装，正在复制内置模型…</string>
     <string name="builtin">内置</string>
+    
+    <!-- QNN Libraries Download Strings -->
+    <string name="qnn_libs_download_title">下载QNN库</string>
+    <string name="qnn_libs_download_message">此QNN模型需要额外的库文件。现在下载吗？</string>
+    <string name="qnn_libs_downloading">正在下载QNN库…</string>
+    <string name="qnn_libs_download_failed">下载QNN库失败</string>
+    <string name="qnn_libs_load_failed">加载QNN库失败</string>
+    <string name="qnn_device_not_supported">检测到QNN模型但设备不支持QNN加速。请使用其他模型。</string>
 </resources>

@@ -15,6 +15,7 @@
 #include <cmath>
 #include "mnncli_config.hpp"
 #include "log_utils.hpp"
+#include "cli_config_manager.hpp"
 
 namespace mnncli {
 
@@ -68,19 +69,13 @@ std::vector<RepoItem> HfApiClient::SearchRepos(const std::string& keyword) {
 
 std::vector<RepoItem> HfApiClient::SearchReposInner(const std::string& keyword, std::string& error_info) {
     // Create HTTP client
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
     httplib::SSLClient cli(GetHost(), 443);
-#else
-    httplib::Client cli(GetHost(), 80);
-#endif
     
     // Configure SSL client with proper timeouts and settings
     cli.set_connection_timeout(30, 0);
     cli.set_read_timeout(30, 0);
     cli.set_write_timeout(30, 0);
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
     cli.enable_server_certificate_verification(false);
-#endif
     cli.set_keep_alive(true);
     
     httplib::Headers headers;
@@ -177,11 +172,7 @@ mnncli::RepoInfo HfApiClient::GetRepoInfo(
         // Parse host and path from the URL
         // Make the HTTPS request
         // Create HTTP client
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
         httplib::SSLClient cli(GetHost(), 443);
-#else
-        httplib::Client cli(GetHost(), 80);
-#endif
         
         // Configure SSL client with proper timeouts and settings
         cli.set_connection_timeout(30, 0);  // 30 seconds connection timeout
@@ -189,9 +180,7 @@ mnncli::RepoInfo HfApiClient::GetRepoInfo(
         cli.set_write_timeout(30, 0);       // 30 seconds write timeout
         
         // Enable server certificate verification (but allow self-signed for testing)
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
         cli.enable_server_certificate_verification(false);
-#endif
         
         // Set SSL context options
         cli.set_keep_alive(true);
@@ -240,14 +229,12 @@ mnncli::RepoInfo HfApiClient::GetRepoInfo(
                 LOG_ERROR(error_msg);
                 
                 // Check for SSL errors
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
                 auto ssl_error = cli.get_openssl_verify_result();
                 if (ssl_error != 0) {
                     LOG_ERROR("SSL verification failed: " + std::to_string(ssl_error));
                     error_info = "SSL verification failed";
                     return {};
                 }
-#endif
                 
                 // Check if it's a connection timeout or other network issue
                 LOG_DEBUG_TAG("   Possible causes:", "CONNECTIVITY");
@@ -260,15 +247,9 @@ mnncli::RepoInfo HfApiClient::GetRepoInfo(
                 // Try a simple connection test
                 LOG_DEBUG_TAG("   Testing basic connectivity...", "CONNECTIVITY");
                 // Create HTTP client
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
                 httplib::SSLClient test_cli(GetHost(), 443);
-#else
-                httplib::Client test_cli(GetHost(), 80);
-#endif
                 test_cli.set_connection_timeout(10, 0);
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
                 test_cli.enable_server_certificate_verification(false);
-#endif
                 auto test_res = test_cli.Get("/");
                 if (test_res) {
                     LOG_DEBUG_TAG("   Basic connectivity: OK (got response)", "CONNECTIVITY");
@@ -346,7 +327,8 @@ mnncli::RepoInfo HfApiClient::GetRepoInfo(
 }
 
 HfApiClient::HfApiClient() {
-    cache_path_ = FileUtils::GetBaseCacheDir();
+    auto& config_mgr = ConfigManager::GetInstance();
+    cache_path_ = config_mgr.GetBaseCacheDir();
     // 默认使用 huggingface.co，只有当设置了 HF_ENDPOINT 环境变量时才使用自定义端点
     if (const char* hf_endpoint  = std::getenv("HF_ENDPOINT")) {
         std::string path;
