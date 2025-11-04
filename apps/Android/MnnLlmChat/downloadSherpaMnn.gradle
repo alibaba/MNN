@@ -14,7 +14,9 @@ task downloadAndUnzipNativeLibs {
     doLast {
         println "-> Executing downloadAndUnzipNativeLibs task..."
         println "   Downloading from ${nativeLibsUrl}"
-        
+        println "   outputDir  ${outputDir}"
+        println "   downloadedZip  ${downloadedZip}"
+
         // Create output directory if it doesn't exist
         outputDir.mkdirs()
         
