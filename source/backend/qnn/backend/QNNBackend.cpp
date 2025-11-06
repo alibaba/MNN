@@ -772,10 +772,10 @@ public:
     bool compileModel(const std::string& path, size_t offset, size_t size, const std::vector<std::string>& allGraphName) {
         mPath = path;
         void* buffer = nullptr;
+        std::vector<char> bufferVec(size, 0);
         MMapReader reader;
         if (size > 0) {
-            std::vector<char> bufferVec(size, 0);
-            void * buffer = bufferVec.data();
+            buffer = bufferVec.data();
             std::unique_ptr<FileLoader> binaryFile(new FileLoader(path.c_str()));
             binaryFile->offset((int64_t)offset);
             binaryFile->read((char *)buffer, (int64_t)size);
