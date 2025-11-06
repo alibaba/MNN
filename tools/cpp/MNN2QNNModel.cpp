@@ -324,7 +324,6 @@ int main(int argc, const char* argv[]) {
         }
         std::vector<int> currInputShape;
         for (int i = 0; i < inputInfos.size(); i++) {
-            currInputShape.emplace_back(inputInfos[i].dim.size());
             for (int j = 0; j < inputInfos[i].dim.size(); j++) {
                 currInputShape.emplace_back(inputInfos[i].dim[j]);
             }
