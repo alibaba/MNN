@@ -168,7 +168,7 @@ class SmoothQuantizer:
         self.model.context_len = sample.numel() - 2
         self.model.token_len = 0
         inps = self.model.embedding(sample).to(self.best_device)
-        position_ids = self.model.get_position_ids()
+        position_ids = self.model.get_position_ids(sample)
         rotary_pos_emb = self.model.rotary(position_ids)
         attention_mask = self.model.get_attention_mask()
         layer_kwargs["rotary_pos_emb"] = rotary_pos_emb.to(self.best_device)
