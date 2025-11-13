@@ -14,7 +14,7 @@
 
     <string-array name="diffusion_memory_mode_entries">
         <item>@string/diffusion_mode_memory_saving</item>
-        <item>@string/diffusion_mode_memory_engough</item>
+        <item>@string/diffusion_mode_memory_enough</item>
         <item>@string/diffusion_mode_memory_balance</item>
     </string-array>
 

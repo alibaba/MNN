@@ -143,7 +143,7 @@ class MainSettingsFragment : PreferenceFragmentCompat() {
                 Log.d(TAG, "diffusionMemoryModePref updateSummary vale: $vale")
                 diffusionMemoryModePref.summary = when (vale) {
                     "0" -> getString(R.string.diffusion_mode_memory_saving)
-                    "1" -> getString(R.string.diffusion_mode_memory_engough)
+                    "1" -> getString(R.string.diffusion_mode_memory_enough)
                     else -> getString(R.string.diffusion_mode_memory_balance)
                 }
             }

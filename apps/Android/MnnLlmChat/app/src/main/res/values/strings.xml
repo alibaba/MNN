@@ -127,7 +127,7 @@
     <string name="modelers">Modelers</string>
     <string name="huggingface">HuggingFace</string>
     <string name="diffusion_mode_memory_saving">Memory Saving Mode</string>
-    <string name="diffusion_mode_memory_engough">Memory Engough Mode</string>
+    <string name="diffusion_mode_memory_enough">Memory Enough Mode</string>
     <string name="diffusion_mode_memory_balance">Memory Balance Mode</string>
     <string name="diffusion_memory_mode">Diffusion Memory Mode</string>
     <string name="voice_model_management">Voice Model Management</string>
