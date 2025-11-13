@@ -39,7 +39,7 @@ preBuild.dependsOn downloadAndUnzipNativeLibs
 
 android {
     namespace 'com.taobao.meta.avatar'
-    compileSdk 35
+    compileSdk 36
     ndkVersion '27.2.12479018'
 
     compileOptions {
@@ -83,14 +83,14 @@ android {
 }
 
 ext {
-    okdownload_version = '1.0.8-SNAPSHOT'
+    okdownload_version = '1.0.8'
 }
 
 dependencies {
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
-    implementation 'androidx.core:core-ktx:1.15.0'
-    implementation 'androidx.appcompat:appcompat:1.7.0'
-    implementation 'com.google.android.material:material:1.12.0'
+    implementation 'androidx.core:core-ktx:1.17.0'
+    implementation 'androidx.appcompat:appcompat:1.7.1'
+    implementation 'com.google.android.material:material:1.13.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.2.1'
     implementation 'com.github.squti:Android-Wave-Recorder:2.0.1'
     implementation 'com.github.ybq:Android-SpinKit:1.4.0'
@@ -99,9 +99,9 @@ dependencies {
     implementation 'com.squareup.retrofit2:retrofit:2.9.0'
     implementation 'com.squareup.okhttp3:logging-interceptor:4.9.3'
     implementation 'com.squareup.retrofit2:converter-scalars:2.9.0'
-    implementation "com.liulishuo.okdownload:okdownload:${okdownload_version}"
-    implementation "com.liulishuo.okdownload:sqlite:${okdownload_version}"
-    implementation "com.liulishuo.okdownload:okhttp:${okdownload_version}"
-    implementation "com.liulishuo.okdownload:filedownloader:${okdownload_version}"
-    implementation "com.liulishuo.okdownload:ktx:${okdownload_version}"
+    implementation "com.liulishuo.okdownload:okdownload:1.0.7"
+    implementation "com.liulishuo.okdownload:sqlite:1.0.7"
+    implementation "com.liulishuo.okdownload:okhttp:1.0.7"
+    implementation "com.liulishuo.okdownload:filedownloader:1.0.5" // Version corrected
+    implementation "com.liulishuo.okdownload:ktx:1.0.7"
 }
