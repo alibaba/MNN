@@ -15,6 +15,10 @@
 #include "backend/cpu/compute/CommonOptFunction.h"
 #include "backend/cpu/compute/ConvOpt.h"
 
+#ifdef MNN_KLEIDIAI_ENABLED
+#include "backend/cpu/KleidiAIConvolutionDepthwise.hpp"
+#endif //MNN_KLEIDIAI_ENABLED
+
 namespace MNN {
 CPUConvolutionDepthwise::FloatExecution::FloatExecution(const Convolution2DCommon* common, Backend* b,
                                                         const float* originWeight, size_t originWeightSize,
@@ -276,6 +280,23 @@ public:
         if (inputs.empty()) {
             return new CPUConvolutionDepthwise::FloatExecution(conv2d->common(), backend, originWeight, originWeightSize, originBias, originBiasSize);
         }
+#ifdef MNN_KLEIDIAI_ENABLED
+        auto bytes = static_cast<CPUBackend*>(backend)->functions()->bytes;
+        int kernel_height  = conv2d->common()->kernelY();
+        int kernel_width   = conv2d->common()->kernelX();
+        int strideY        = conv2d->common()->strideY();
+        int strideX        = conv2d->common()->strideX();
+        int dilateX        = conv2d->common()->dilateX();
+        int dilateY        = conv2d->common()->dilateY();
+        bool useKleidiAI = kernel_height ==3 && kernel_width ==3 && 
+                            strideY ==1 && strideX ==1 && 
+                            dilateX ==1 && dilateY ==1 &&
+                            bytes == 4;
+        useKleidiAI = backend->getRuntime()->hint().enableKleidiAI && useKleidiAI;
+        if(useKleidiAI) {
+            return new KleidiAIConvolutionDepthwise::KleidiAIDepthwiseExecution(conv2d->common(), backend, originWeight, originWeightSize, originBias, originBiasSize);
+        }
+#endif //MNN_KLEIDIAI_ENABLED
         return new CPUConvolutionDepthwise::FloatExecution(conv2d->common(), backend, originWeight, originWeightSize, originBias, originBiasSize);
     }
 };
