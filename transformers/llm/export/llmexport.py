@@ -410,7 +410,8 @@ class LlmExporter(torch.nn.Module):
             hidden_states, kv = self.blocks[i](hidden_states, rotary_pos_emb, layer_attention_mask, past_kv)
             presents[i] = kv
             if deepstack_embeds is not None and i in range(deepstack_embeds.shape[0]):
-                hidden_states += deepstack_embeds[i]
+                # use slicing to avoid complex slice and gather induced by direct indexing. (error on NPU).
+                hidden_states = hidden_states + deepstack_embeds[slice(i, i+1)].squeeze(0)
 
         talker_embeds = None
         if hasattr(self, 'talker') and self.talker is not None:
