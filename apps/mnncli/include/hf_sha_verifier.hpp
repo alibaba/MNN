@@ -7,10 +7,8 @@
 #include <string>
 #include <filesystem>
 #include <memory>
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
 #include <openssl/sha.h>
 #include <openssl/evp.h>
-#endif
 
 namespace fs = std::filesystem;
 

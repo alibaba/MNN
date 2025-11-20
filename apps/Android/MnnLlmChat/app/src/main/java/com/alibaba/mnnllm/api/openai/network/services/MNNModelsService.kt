@@ -11,6 +11,8 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
 import io.ktor.server.response.respond
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.first
 import timber.log.Timber
 
 /** * MNN modelservice * responsible forprocessmodelrelatedbusinesslogic*/
@@ -29,13 +31,9 @@ class MNNModelsService {
                 return
             }
             
-            val context = MnnLlmApplication.getAppContext()
-            val availableModels = runBlocking {
-                ModelListManager.loadAvailableModels(context)
-            }
-            
+            val availableModels = ModelListManager.getCurrentModels()
             //onlyreturncurrentcurrentlyusemodel
-            val currentModelWrapper = availableModels.find { 
+            val currentModelWrapper = availableModels?.find { 
                 it.modelItem.modelId == currentModelId 
             }
             

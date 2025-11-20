@@ -8,6 +8,8 @@ import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.modelist.ModelItemWrapper
 import com.alibaba.mnnllm.android.modelist.ModelListManager
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.first
 
 /**
  * Presenter for benchmark functionality
@@ -408,11 +410,14 @@ class BenchmarkPresenter(
         lifecycleScope.launch {
             try {
                 Log.d(TAG, "Loading available models...")
-                availableModels = model.loadAvailableModels(context).filterNot { ModelTypeUtils.isDiffusionModel(
-                    it.modelItem.modelName!!) }
+                Log.d(TAG, "Calling ModelListManager.initialize from BenchmarkPresenter", Throwable())
+                // Get current models or wait for them
+                val models = ModelListManager.getCurrentModels()?: emptyList()
+                availableModels = models.filterNot { ModelTypeUtils.isDiffusionModel(
+                    it.modelItem.modelName
+                ) }
                 Log.d(TAG, "Found ${availableModels.size} models")
                 view.updateModelSelector(availableModels)
-                
                 if (availableModels.isEmpty()) {
                     Log.e(TAG, "No models available")
                     stateMachine.transitionTo(BenchmarkState.ERROR, context.getString(R.string.no_models_available))

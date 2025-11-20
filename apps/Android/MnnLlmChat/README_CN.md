@@ -49,7 +49,7 @@
 + 构建 Android 应用项目并安装：
   ```shell
   cd ../../../apps/Android/MnnLlmChat
-  ./gradlew installDebug
+  ./installDebug.sh
   ```
 
 # Releases

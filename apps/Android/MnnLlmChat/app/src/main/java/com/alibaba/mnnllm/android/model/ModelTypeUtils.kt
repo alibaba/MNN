@@ -16,6 +16,18 @@ object ModelTypeUtils {
         return isAudioModel(modelName) || isVisualModel(modelName) || isDiffusionModel(modelName) || isOmni(modelName)
     }
 
+    fun isQnnModel(modelId: String): Boolean {
+        val normalizedId = modelId.lowercase(Locale.getDefault())
+        if (modelId.startsWith("local/") && normalizedId.contains("qnn")) {
+            return true
+        }
+        val tags = ModelListManager.getModelTags(modelId)
+        if (isQnnModel(tags)) {
+            return true
+        }
+        return false;
+    }
+
     fun isDiffusionModel(modelName: String): Boolean {
         return modelName.lowercase(Locale.getDefault()).contains("stable-diffusion")
     }
@@ -40,6 +52,10 @@ object ModelTypeUtils {
 
     fun isSupportThinkingSwitchByTags(extraTags: List<String>): Boolean {
         return extraTags.any { it.equals("ThinkingSwitch", ignoreCase = true) }
+    }
+
+    fun isQnnModel(tags: List<String>): Boolean {
+        return tags.any { it.equals("QNN", ignoreCase = true) }
     }
 
     fun supportAudioOutput(modelName: String): Boolean {

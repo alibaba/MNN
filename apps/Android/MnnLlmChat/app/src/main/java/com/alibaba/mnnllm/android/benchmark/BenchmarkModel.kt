@@ -3,7 +3,6 @@ package com.alibaba.mnnllm.android.benchmark
 import android.content.Context
 import android.util.Log
 import com.alibaba.mnnllm.android.modelist.ModelItemWrapper
-import com.alibaba.mnnllm.android.modelist.ModelListManager
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.sqrt
@@ -32,18 +31,6 @@ class BenchmarkModel {
         fun onBenchmarkModelError(errorCode: Int, message: String)
     }
 
-    /**
-     * Load available models from ModelListManager
-     */
-    suspend fun loadAvailableModels(context: Context): List<ModelItemWrapper> {
-        return try {
-            ModelListManager.loadAvailableModels(context)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to load models", e)
-            throw e
-        }
-    }
-    
     /**
      * Start benchmark test with given parameters
      */

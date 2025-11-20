@@ -245,11 +245,7 @@ bool MlModelDownloader::DownloadFile(const std::string& url, const std::filesyst
     }
     
     // Create HTTP client
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
     httplib::SSLClient client(host, 443);
-#else
-    httplib::Client client(host, 80);
-#endif
     httplib::Headers headers;
     headers.emplace("User-Agent", "MNN-CLI/1.0");
     headers.emplace("Accept", "*/*");

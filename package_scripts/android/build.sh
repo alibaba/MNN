@@ -46,7 +46,7 @@ ${CMAKEARGS}
 
 make -j8
 libc_32=`find $ANDROID_NDK -name "libc++_shared.so" | grep "arm-linux-androideabi/libc++_shared.so" | head -n 1`
-cp *.so source/jni/libmnncore.so tools/cv/libMNNOpenCV.so $libc_32 $PACKAGE_PATH/armeabi-v7a
+cp *.so source/jni/libmnncore.so tools/cv/libMNNOpenCV.so tools/audio/libMNNAudio.so $libc_32 $PACKAGE_PATH/armeabi-v7a
 popd
 
 # build android_64
@@ -73,5 +73,5 @@ ${CMAKEARGS}
 
 make -j8
 libc_64=`find $ANDROID_NDK -name "libc++_shared.so" | grep "aarch64-linux-android/libc++_shared.so" | head -n 1`
-cp *.so source/jni/libmnncore.so tools/cv/libMNNOpenCV.so $libc_64 $PACKAGE_PATH/arm64-v8a
+cp *.so source/jni/libmnncore.so tools/cv/libMNNOpenCV.so tools/audio/libMNNAudio.so $libc_64 $PACKAGE_PATH/arm64-v8a
 popd

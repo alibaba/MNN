@@ -4,15 +4,10 @@
 //
 
 #include "hf_model_downloader.hpp"
-#include "file_utils.hpp"
 #include "model_file_downloader.hpp"
 #include "log_utils.hpp"
 #include "user_interface.hpp"
 #include <iostream>
-#include <fstream>
-#include <algorithm>
-#include <thread>
-#include <chrono>
 
 namespace mnncli {
 
@@ -20,11 +15,7 @@ HfModelDownloader::HfModelDownloader(const std::string& cache_root_path)
     : ModelRepoDownloader(cache_root_path), hf_api_client_(nullptr) {
     
     // Create HTTP client for metadata requests
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
     metadata_client_ = std::make_shared<httplib::SSLClient>("huggingface.co");
-#else
-    metadata_client_ = std::make_shared<httplib::Client>("huggingface.co");
-#endif
     // Note: httplib doesn't have direct timeout settings like OkHttp, 
     // but we can handle this in the request logic
 }
@@ -81,27 +72,44 @@ void HfModelDownloader::Resume(const std::string& model_id) {
 }
 
 std::filesystem::path HfModelDownloader::GetDownloadPath(const std::string& model_id) {
-    // Simplified: return cache_root/owner/model (ModelScope style)
+    LOG_DEBUG_TAG("GetDownloadPath called with model_id = " + model_id, "HfModelDownloader");
+    
+    // Return cache_root/HuggingFace/owner/model
     auto hf_model_id = getHfModelId(model_id);  // Remove "hf:" prefix if present
-    return std::filesystem::path(cache_root_path_) / hf_model_id;
+    
+    LOG_DEBUG_TAG("After getHfModelId, hf_model_id = " + hf_model_id, "HfModelDownloader");
+    LOG_DEBUG_TAG("cache_root_path_ = " + cache_root_path_, "HfModelDownloader");
+    
+    auto path = std::filesystem::path(cache_root_path_) / "HuggingFace" / hf_model_id;
+    
+    LOG_DEBUG_TAG("Final path: " + path.string(), "HfModelDownloader");
+    
+    return path;
 }
 
 bool HfModelDownloader::DeleteRepo(const std::string& model_id) {
+    LOG_DEBUG_TAG("HfModelDownloader::DeleteRepo called with model_id = " + model_id, "HfModelDownloader");
+    
     // Simplified: delete model folder directly (ModelScope style)
     auto model_folder = GetDownloadPath(model_id);
     
+    LOG_DEBUG_TAG("Got download path: " + model_folder.string(), "HfModelDownloader");
     LOG_INFO("Removing model folder: " + model_folder.string());
     
     if (std::filesystem::exists(model_folder)) {
+        LOG_DEBUG_TAG("Model folder exists, attempting to delete: " + model_folder.string(), "HfModelDownloader");
         std::error_code ec;
         std::filesystem::remove_all(model_folder, ec);
         if (ec) {
             LOG_ERROR("Failed to remove model folder " + model_folder.string() + ": " + ec.message());
             return false;
         }
+        LOG_DEBUG_TAG("Successfully deleted model folder: " + model_folder.string(), "HfModelDownloader");
+        return true;
+    } else {
+        LOG_DEBUG_TAG("Model folder does not exist: " + model_folder.string(), "HfModelDownloader");
+        return false;
     }
-    
-    return true;
 }
 
 int64_t HfModelDownloader::GetRepoSize(const std::string& model_id) {
@@ -149,6 +157,7 @@ void HfModelDownloader::downloadHfRepo(const RepoInfo& repo_info) {
     LOG_DEBUG_TAG("  Model ID: " + repo_info.model_id, "HfModelDownloader");
     LOG_DEBUG_TAG("  SHA: " + repo_info.sha, "HfModelDownloader");
     LOG_DEBUG_TAG("  Revision: " + repo_info.revision, "HfModelDownloader");
+    LOG_DEBUG_TAG("  OriginalModelId: " + original_model_id_, "HfModelDownloader");
     LOG_DEBUG_TAG("  Siblings count: " + std::to_string(repo_info.siblings.size()), "HfModelDownloader");
     
     if (repo_info.siblings.empty()) {
@@ -164,11 +173,25 @@ void HfModelDownloader::downloadHfRepo(const RepoInfo& repo_info) {
         LOG_DEBUG_TAG("  - " + sibling, "HfModelDownloader");
     }
     
-    // Create download path - simplified to cache_root/owner/model (ModelScope style)
-    // repo_info.model_id is already in "owner/model" format
-    auto model_folder = std::filesystem::path(cache_root_path_) / repo_info.model_id;
+    // Create download path - use GetDownloadPath to get the correct path with provider prefix
+    auto model_folder = GetDownloadPath(repo_info.model_id);
     
     LOG_DEBUG_TAG("Model folder (direct storage): " + model_folder.string(), "HfModelDownloader");
+    
+    // If already complete, return early
+    if (IsDownloadComplete(model_folder)) {
+        LOG_DEBUG_TAG("HfModelDownloader: model already complete at " + model_folder.string(), "HfModelDownloader");
+        NotifyDownloadFinished(original_model_id_, GetDownloadPath(repo_info.model_id).string());
+        return;
+    }
+    // Ensure directory exists and mark downloading
+    std::error_code ec;
+    std::filesystem::create_directories(model_folder, ec);
+    if (ec) {
+        NotifyDownloadFailed(original_model_id_, "Failed to create directories: " + ec.message());
+        return;
+    }
+    MarkDownloading(model_folder);
     
     int64_t total_size = 0;
     int64_t downloaded_size = 0;
@@ -194,6 +217,7 @@ void HfModelDownloader::downloadHfRepo(const RepoInfo& repo_info) {
         
         std::string error_info;
         if (!downloadFile(task.fileMetadata.location, task.downloadPath, task.fileMetadata, task.relativePath, error_info)) {
+            ClearMarkers(model_folder);
             NotifyDownloadFailed(original_model_id_, "Failed to download file: " + error_info);
             return;
         }
@@ -204,6 +228,22 @@ void HfModelDownloader::downloadHfRepo(const RepoInfo& repo_info) {
                              downloaded_size, total_size);
     }
     
+    // Validate by size and mark completion
+    std::vector<std::pair<std::string, int64_t>> manifest_entries;
+    manifest_entries.reserve(task_list.size());
+    for (const auto& t : task_list) {
+        manifest_entries.emplace_back(t.relativePath, t.fileMetadata.size);
+    }
+    if (!ValidateFilesBySize(model_folder, manifest_entries)) {
+        ClearMarkers(model_folder);
+        NotifyDownloadFailed(original_model_id_, "Validation failed: file sizes do not match repo metadata");
+        return;
+    }
+    if (!MarkComplete(model_folder, manifest_entries)) {
+        ClearMarkers(model_folder);
+        NotifyDownloadFailed(original_model_id_, "Failed to finalize completion markers");
+        return;
+    }
     // Download completed - notify (no symlink needed with direct storage)
     auto model_path = GetDownloadPath(repo_info.model_id);
     LOG_DEBUG_TAG("Download completed at: " + model_path.string(), "HfModelDownloader");
@@ -366,16 +406,19 @@ std::shared_ptr<HfApiClient> HfModelDownloader::getHfApiClient() {
 }
 
 std::string HfModelDownloader::getHfModelId(const std::string& model_id) {
-    // Normalize prefixes to extract plain owner/repo
-    // Support both colon and slash styles, e.g.,
-    //   "HuggingFace:owner/repo", "hf:owner/repo",
-    //   "HuggingFace/owner/repo", "hf/owner/repo"
+    LOG_DEBUG_TAG("getHfModelId called with model_id = " + model_id, "HfModelDownloader");
+    
     if (model_id.rfind("HuggingFace/", 0) == 0) {
-        return model_id.substr(12);
+        std::string result = model_id.substr(12);
+        LOG_DEBUG_TAG("Stripping 'HuggingFace/' prefix, result = " + result, "HfModelDownloader");
+        return result;
     }
     if (!model_id.empty() && (model_id[0] == ':' || model_id[0] == '/')) {
-        return model_id.substr(1);
+        std::string result = model_id.substr(1);
+        LOG_DEBUG_TAG("Stripping leading ':' or '/', result = " + result, "HfModelDownloader");
+        return result;
     }
+    LOG_DEBUG_TAG("No prefix to strip, returning as is: " + model_id, "HfModelDownloader");
     return model_id;
 }
 
@@ -384,7 +427,6 @@ std::string HfModelDownloader::getCachePathRoot(const std::string& model_downloa
 }
 
 std::filesystem::path HfModelDownloader::getModelPath(const std::string& cache_root_path, const std::string& model_id) {
-    // Simplified: return cache_root/owner/model (ModelScope style)
     return std::filesystem::path(cache_root_path) / model_id;
 }
 

@@ -245,17 +245,11 @@ namespace mnncli
         // Create HTTP client for download
         // For pre-signed URLs (like AWS S3), DO NOT specify port explicitly to avoid 
         // Host header mismatch (e.g., "Host: example.com:443" vs "Host: example.com")
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
         httplib::SSLClient download_client(host);
-#else
-        httplib::Client download_client(host);
-#endif
         download_client.set_connection_timeout(kConnectTimeoutSeconds, 0);
         download_client.set_read_timeout(kConnectTimeoutSeconds, 0);
         download_client.set_write_timeout(kConnectTimeoutSeconds, 0);
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
         download_client.enable_server_certificate_verification(false);
-#endif
         // For pre-signed URLs, we need minimal headers - disable keep-alive to avoid Connection header
         download_client.set_keep_alive(false);
         // Set empty user agent to avoid automatic User-Agent header

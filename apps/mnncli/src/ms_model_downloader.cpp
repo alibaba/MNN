@@ -41,7 +41,7 @@ void MsModelDownloader::Resume(const std::string& model_id) {
 
 std::filesystem::path MsModelDownloader::GetDownloadPath(const std::string& model_id) {
     // Parse model_id in format "ModelScope/MNN/Hunyuan-7B-Instruct-MNN"
-    // Extract the repo path part and create modelscope/MNN/Hunyuan-7B-Instruct-MNN
+    // Extract the repo path part and create ModelScope/MNN/Hunyuan-7B-Instruct-MNN
     
     std::string repo_path;
     
@@ -129,17 +129,17 @@ bool MsModelDownloader::DownloadMsRepoInner(const std::string& model_id, const s
         LOG_DEBUG_TAG("downloadMsRepoInner", "MsModelDownloader");
     }
     
-    // Check if already downloaded
+    // Check if already downloaded via completion marker and optional validation
     auto model_folder = GetDownloadPath(model_id);
-    if (std::filesystem::exists(model_folder)) {
+    if (IsDownloadComplete(model_folder)) {
         if (mnncli::LogUtils::IsVerbose()) {
-            LOG_DEBUG_TAG("downloadMsRepoInner already exists at " + model_folder.string(), "MsModelDownloader");
+            LOG_DEBUG_TAG("downloadMsRepoInner already complete at " + model_folder.string(), "MsModelDownloader");
         }
         return true;
     }
     
     // Create direct storage folder structure 
-    // Use GetDownloadPath to get the correct path: modelscope/MNN/Hunyuan-7B-Instruct-MNN
+    // Use GetDownloadPath to get the correct path: ~/.cache/mnncli/ModelScope/MNN/Hunyuan-7B-Instruct-MNN
     auto direct_model_folder = GetDownloadPath(model_id);
     
     LOG_DEBUG_TAG("Model folder (direct storage): " + direct_model_folder.string(), "MsModelDownloader");
@@ -152,6 +152,9 @@ bool MsModelDownloader::DownloadMsRepoInner(const std::string& model_id, const s
         error_info = "Failed to create directories: " + ec.message();
         return false;
     }
+
+    // Mark as downloading (create .mnncli/.downloading)
+    MarkDownloading(direct_model_folder);
     
     // Collect download tasks
     int64_t total_size = 0;
@@ -210,6 +213,23 @@ bool MsModelDownloader::DownloadMsRepoInner(const std::string& model_id, const s
     }
     
     if (!has_error) {
+        // Validate by size and mark completion
+        std::vector<std::pair<std::string, int64_t>> manifest_entries;
+        manifest_entries.reserve(ms_repo_info.files.size());
+        for (const auto& f : ms_repo_info.files) {
+            if (f.type == "tree") continue;
+            manifest_entries.emplace_back(f.path, f.size);
+        }
+        if (!ValidateFilesBySize(direct_model_folder, manifest_entries)) {
+            error_info = "Validation failed: file sizes do not match repo metadata";
+            ClearMarkers(direct_model_folder);
+            return false;
+        }
+        if (!MarkComplete(direct_model_folder, manifest_entries)) {
+            error_info = "Failed to finalize completion markers";
+            ClearMarkers(direct_model_folder);
+            return false;
+        }
         // Download completed - notify (no symlink needed with direct storage)
         auto model_path = GetDownloadPath(model_id);
         LOG_DEBUG_TAG("Download completed at: " + model_path.string(), "MsModelDownloader");
@@ -221,6 +241,7 @@ bool MsModelDownloader::DownloadMsRepoInner(const std::string& model_id, const s
         if (mnncli::LogUtils::IsVerbose()) {
             LOG_DEBUG_TAG("❌ Download failed with errors", "MsModelDownloader");
         }
+        ClearMarkers(direct_model_folder);
         return false;
     }
 }
@@ -318,11 +339,7 @@ bool MsModelDownloader::DownloadFile(const std::string& url, const std::filesyst
     std::string final_path = path;
     
     // Create HTTP client for redirect check
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
     httplib::SSLClient redirect_client(host, 443);
-#else
-    httplib::Client redirect_client(host, 80);
-#endif
     httplib::Headers redirect_headers;
     redirect_headers.emplace("User-Agent", "MNN-CLI/1.0");
     redirect_headers.emplace("Accept", "*/*");
@@ -379,11 +396,7 @@ bool MsModelDownloader::DownloadFile(const std::string& url, const std::filesyst
     }
     
     // Create HTTP client for actual download
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
     httplib::SSLClient client(final_host, 443);
-#else
-    httplib::Client client(final_host, 80);
-#endif
     httplib::Headers headers;
     headers.emplace("User-Agent", "MNN-CLI/1.0");
     headers.emplace("Accept", "*/*");
@@ -547,7 +560,7 @@ bool MsModelDownloader::CheckUpdateWithError(const std::string& model_id, std::s
 }
 
 std::string MsModelDownloader::GetCachePathRoot(const std::string& model_download_path_root) {
-    return model_download_path_root + "/modelscope";
+    return model_download_path_root + "/ModelScope";
 }
 
 std::filesystem::path MsModelDownloader::GetModelPath(const std::string& models_download_path_root, const std::string& model_id) {

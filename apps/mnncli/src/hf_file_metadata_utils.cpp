@@ -35,32 +35,16 @@ std::string normalizeETag(const std::string& etag) {
 
 HfFileMetadata HfFileMetadataUtils::GetFileMetadata(const std::string& url, std::string& error_info) {
     // Create a default client if none provided
-    std::shared_ptr<
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
-        httplib::SSLClient
-#else
-        httplib::Client
-#endif
-    > default_client;
+    std::shared_ptr<httplib::SSLClient> default_client;
     
     if (!default_client) {
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
         default_client = std::make_shared<httplib::SSLClient>("huggingface.co");
-#else
-        default_client = std::make_shared<httplib::Client>("huggingface.co");
-#endif
     }
     return GetFileMetadata(url, default_client, error_info);
 }
 
 HfFileMetadata HfFileMetadataUtils::GetFileMetadata(const std::string& url, 
-                                                   std::shared_ptr<
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
-                                                   httplib::SSLClient
-#else
-                                                   httplib::Client
-#endif
-                                                   > client,
+                                                   std::shared_ptr<httplib::SSLClient> client,
                                                    std::string& error_info) {
     try {
         // Parse the URL to extract host and path
@@ -71,26 +55,12 @@ HfFileMetadata HfFileMetadataUtils::GetFileMetadata(const std::string& url,
         }
         
         // Create a local client if none provided
-        std::unique_ptr<
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
-            httplib::SSLClient
-#else
-            httplib::Client
-#endif
-        > local_client;
+        std::unique_ptr<httplib::SSLClient> local_client;
         
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
         httplib::SSLClient* client_ptr = client.get();
-#else
-        httplib::Client* client_ptr = client.get();
-#endif
         
         if (!client_ptr) {
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
             local_client = std::make_unique<httplib::SSLClient>(host, 443);
-#else
-            local_client = std::make_unique<httplib::Client>(host, 80);
-#endif
             client_ptr = local_client.get();
         }
         
@@ -170,20 +140,11 @@ HfFileMetadata HfFileMetadataUtils::GetFileMetadata(const std::string& url,
             LOG_DEBUG_TAG("[DEBUG] Following redirect to: " + final_location, "HfFileMetadataUtils");
             
             // Create new client for redirect
-            std::unique_ptr<httplib::Client> redirect_client;
             std::unique_ptr<httplib::SSLClient> redirect_ssl_client;
             
             if (final_location.find("https://") == 0) {
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
                 redirect_ssl_client = std::make_unique<httplib::SSLClient>(redirect_host, 443);
                 res = redirect_ssl_client->Head(redirect_path, headers);
-#else
-                LOG_DEBUG_TAG("[DEBUG] HTTPS redirect but SSL not supported", "HfFileMetadataUtils");
-                break;
-#endif
-            } else {
-                redirect_client = std::make_unique<httplib::Client>(redirect_host, 80);
-                res = redirect_client->Head(redirect_path, headers);
             }
             
             if (!res) {

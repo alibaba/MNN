@@ -6,6 +6,7 @@
 #pragma once
 
 #include "nlohmann/json.hpp"
+#include "model_download_manager.hpp"
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -99,7 +100,7 @@ private:
     // Constants
     static constexpr const char* kTag = "ModelRepository";
     static constexpr const char* kAssetsFileName = "model_market.json";
-    static constexpr const char* kDefaultDownloadProvider = "HuggingFace";
+    static constexpr const char* kDefaultDownloadProvider = ModelSources::SOURCE_HUGGING_FACE;
     
     // Default download providers (in order of preference)
     static const std::vector<std::string> kDefaultProviders;

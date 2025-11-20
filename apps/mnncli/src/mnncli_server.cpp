@@ -7,9 +7,6 @@
 #include "log_utils.hpp"
 #include <iostream>
 
-
-
-
 namespace mnncli {
 
 std::string GetCurrentTimeAsString() {
