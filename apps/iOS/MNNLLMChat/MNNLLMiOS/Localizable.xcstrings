@@ -95,6 +95,9 @@
         }
       }
     },
+    "Backend" : {
+
+    },
     "Batch File Test" : {
       "localizations" : {
         "zh-Hans" : {
@@ -248,6 +251,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "取消"
+          }
+        }
+      }
+    },
+    "Changes to backend, precision, or thread count require the model to reload." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "需改backend, precision或者thread count 需要重新加载模型才能生效。"
           }
         }
       }
@@ -566,6 +579,9 @@
         }
       }
     },
+    "Later" : {
+
+    },
     "Load External File" : {
       "localizations" : {
         "zh-Hans" : {
@@ -656,6 +672,9 @@
           }
         }
       }
+    },
+    "Model Reload Required" : {
+
     },
     "ModelLoadingFailText" : {
       "extractionState" : "manual",
@@ -841,6 +860,9 @@
         }
       }
     },
+    "Precision" : {
+
+    },
     "Prefill Speed" : {
       "localizations" : {
         "zh-Hans" : {
@@ -880,6 +902,9 @@
           }
         }
       }
+    },
+    "Reload Now" : {
+
     },
     "Reset" : {
       "localizations" : {
@@ -1539,6 +1564,9 @@
           }
         }
       }
+    },
+    "Threads" : {
+
     },
     "Tokens per second" : {
       "localizations" : {

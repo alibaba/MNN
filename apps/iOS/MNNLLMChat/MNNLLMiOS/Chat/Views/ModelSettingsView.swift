@@ -9,12 +9,16 @@ import SwiftUI
 
 struct ModelSettingsView: View {
     @Binding var showSettings: Bool
-    @State private var useMmap: Bool = false
     @ObservedObject var viewModel: LLMChatViewModel
     @State private var showAlert = false
+    @State private var showReloadAlert = false
     @State private var iterations: Int = 20
     @State private var seed: Int = -1
     @State private var useRandomSeed: Bool = true
+    @State private var backendType: String = "cpu"
+    @State private var precision: String = "low"
+    @State private var threadNum: Int = 4
+    @State private var requiresReload = false
 
     @State private var temperature: Double = 1.0
     @State private var topK: Double = 40
@@ -33,6 +37,9 @@ struct ModelSettingsView: View {
 
     @State private var penaltySampler: PenaltySamplerType = .greedy
 
+    private let backendOptions = ["cpu", "opencl"]
+    private let precisionOptions = ["low", "high"]
+
     var body: some View {
         NavigationView {
             Form {
@@ -45,6 +52,38 @@ struct ModelSettingsView: View {
                     Button("Clear mmap Cache") {
                         viewModel.cleanModelTmpFolder()
                         showAlert = true
+                    }
+
+                    Picker("Backend", selection: $backendType) {
+                        ForEach(backendOptions, id: \.self) { backend in
+                            Text(backend.uppercased()).tag(backend)
+                        }
+                    }
+                    .onChange(of: backendType) { _, newValue in
+                        requiresReload = true
+                        viewModel.modelConfigManager.updateBackendType(newValue)
+                    }
+
+                    Picker("Precision", selection: $precision) {
+                        ForEach(precisionOptions, id: \.self) { option in
+                            Text(option.capitalized).tag(option)
+                        }
+                    }
+                    .onChange(of: precision) { _, newValue in
+                        requiresReload = true
+                        viewModel.modelConfigManager.updatePrecision(newValue)
+                    }
+
+                    Stepper(value: $threadNum, in: 1 ... viewModel.modelConfigManager.maxThreads) {
+                        HStack {
+                            Text("Threads")
+                            Spacer()
+                            Text("\(threadNum)")
+                        }
+                    }
+                    .onChange(of: threadNum) { _, newValue in
+                        requiresReload = true
+                        viewModel.modelConfigManager.updateThreadNum(newValue)
                     }
                 } header: {
                     Text("Model Configuration")
@@ -230,7 +269,11 @@ struct ModelSettingsView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") {
-                        showSettings = false
+                        if requiresReload {
+                            showReloadAlert = true
+                        } else {
+                            showSettings = false
+                        }
                     }
                 }
             }
@@ -240,8 +283,24 @@ struct ModelSettingsView: View {
         } message: {
             Text(NSLocalizedString("Cache Cleared Successfully", comment: ""))
         }
+        .alert(NSLocalizedString("Model Reload Required", comment: ""), isPresented: $showReloadAlert) {
+            Button(NSLocalizedString("Reload Now", comment: "")) {
+                viewModel.reloadCurrentModel()
+                requiresReload = false
+                showSettings = false
+            }
+            Button(NSLocalizedString("Later", comment: ""), role: .cancel) {
+                showSettings = false
+            }
+        } message: {
+            Text(NSLocalizedString("Changes to backend, precision, or thread count require the model to reload.", comment: ""))
+        }
         .onAppear {
             selectedSampler = viewModel.modelConfigManager.readSamplerType()
+            backendType = viewModel.modelConfigManager.readBackendType()
+            precision = viewModel.modelConfigManager.readPrecision()
+            threadNum = viewModel.modelConfigManager.readThreadNum()
+            requiresReload = false
 
             if viewModel.isDiffusionModel {
                 iterations = viewModel.modelConfigManager.readIterations()
