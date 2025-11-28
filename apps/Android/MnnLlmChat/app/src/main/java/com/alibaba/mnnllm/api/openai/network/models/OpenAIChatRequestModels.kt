@@ -21,7 +21,7 @@ val json = Json {
 }
 
 // ========================
-// 请求结构
+//requeststructure
 // ========================
 
 @Serializable
@@ -36,7 +36,7 @@ data class OpenAIChatRequest(
 )
 
 // ========================
-// 消息角色与内容
+//messagerole andcontent
 // ========================
 
 @Serializable
@@ -53,7 +53,7 @@ data class OpenAIGenericMessage(
 ) : OpenAIMessage()
 
 // ========================
-// 消息内容（单文本 or 多模态）
+//messagecontent（singletext or multimodal）
 // ========================
 
 @Serializable
@@ -74,7 +74,7 @@ data class TextContent(val text: String) : MessageContent()
 data class MultiModalContent(val content: List<OpenAIMultiModalContent>) : MessageContent()
 
 // ========================
-// 多模态内容基类与实现
+//multimodalcontentbase classand implementation
 // ========================
 
 @Serializable
@@ -124,7 +124,7 @@ data class StandardImageUrl(
 )
 
 // ========================
-// 自定义消息内容序列化器
+//custommessagecontentserializer
 // ========================
 
 object MessageContentSerializer : KSerializer<MessageContent> {

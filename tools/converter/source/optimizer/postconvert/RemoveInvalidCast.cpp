@@ -71,6 +71,7 @@ public:
                 case MNN::OpType_Deconvolution:
                 case MNN::OpType_DeconvolutionDepthwise:
                 case MNN::OpType_Interp:
+                case MNN::OpType_LayerNorm:
                 case MNN::OpType_LSTM:
                 case MNN::OpType_LSTMBlockCell:
                 case MNN::OpType_GridSample:
@@ -164,6 +165,7 @@ public:
                 // Deform
                 case MNN::OpType_Broastcast:
                 case MNN::OpType_Concat:
+                case MNN::OpType_ConvertTensor:
                 case MNN::OpType_Crop:
                 case MNN::OpType_CropAndResize:
                 case MNN::OpType_Col2Im:

@@ -37,7 +37,7 @@ void ReductionTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::Operato
     }
   }
 #endif
-  switch(tfliteOpSet[tfliteOp->opcode_index]->builtin_code){
+  switch(liteOpConverter::getOpCode(tfliteOpSet[tfliteOp->opcode_index].get())){
     case tflite::BuiltinOperator_SUM:{
       param->operation=MNN::ReductionType_SUM;
       break;

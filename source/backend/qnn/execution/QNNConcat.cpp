@@ -10,6 +10,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 ErrorCode QNNConcat::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     mNodeType = "Concat";
@@ -26,7 +27,6 @@ ErrorCode QNNConcat::onEncode(const std::vector<Tensor *> &inputs, const std::ve
         axis = dim + axis;
     }
     MNN_ASSERT(axis >= 0 && axis < dim);
-    axis = getNHWCAxis(axis, dim, TensorUtils::getDimType(outputs[0]));
     this->createParamScalar("axis", (uint32_t)axis);
 
     this->addNodeCommon(inputs, outputs);
@@ -51,7 +51,7 @@ public:
 };
 
 REGISTER_QNN_OP_CREATOR(QNNConcatCreator, OpType_Concat)
-
+#endif
 } // end namespace QNN
 } // end namespace MNN
 

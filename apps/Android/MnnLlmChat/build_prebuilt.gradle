@@ -1,0 +1,187 @@
+// Prebuilt models download and configuration task
+// This file handles downloading builtin models and configuring them for the app
+
+// Apply split assets configuration
+apply from: rootProject.file('split_assets.gradle')
+
+task downloadAndUnzipBuiltinModels {
+    group = 'Pre-build'
+    description = 'Downloads and unzips builtin model files from CDN.'
+    
+    // Load model configurations from JSON file
+    def modelConfigFile = rootProject.file('model-config.json')
+    def modelUrls = [:]
+    
+    if (modelConfigFile.exists()) {
+        try {
+            def jsonSlurper = new groovy.json.JsonSlurper()
+            def modelConfig = jsonSlurper.parseText(modelConfigFile.text)
+            
+            if (modelConfig.models && modelConfig.models instanceof List) {
+                modelConfig.models.each { model ->
+                    if (model.name && model.url) {
+                        modelUrls[model.name] = model.url
+                        println "Found model configuration: ${model.name}"
+                    }
+                }
+            } else {
+                println "Invalid model configuration format in model-config.json"
+            }
+        } catch (Exception e) {
+            println "Error parsing model-config.json: ${e.message}"
+        }
+    } else {
+        println "model-config.json not found, skipping model download"
+    }
+    
+    // Skip task if no model URLs are defined
+    if (modelUrls.isEmpty()) {
+        println "No model configurations found, skipping download task"
+        return
+    }
+    
+    // Only configure task inputs/outputs if we have model URLs
+    if (!modelUrls.isEmpty()) {
+        def outputDir = file('src/main/assets/builtin_models')
+        def checkFiles = []
+        
+        modelUrls.each { modelName, url ->
+            def zipFileName = "${modelName}.zip"
+            def downloadedZip = new File(project.buildDir, zipFileName)
+            def modelDir = new File(outputDir, modelName)
+            def checkFile = new File(modelDir, 'llm.mnn')
+            
+            checkFiles.add(checkFile)
+            
+            inputs.property("url_${modelName}", url)
+            outputs.file(checkFile)
+        }
+        
+        doLast {
+            println "-> Executing downloadAndUnzipBuiltinModels task..."
+            
+            // Create output directory if it doesn't exist
+            outputDir.mkdirs()
+            
+            modelUrls.each { modelName, url ->
+                def zipFileName = "${modelName}.zip"
+                def downloadedZip = new File(project.buildDir, zipFileName)
+                def modelDir = new File(outputDir, modelName)
+                def checkFile = new File(modelDir, 'llm.mnn')
+                
+                // Skip if model already exists
+                if (checkFile.exists()) {
+                    println "   Model ${modelName} already exists, skipping..."
+                    return
+                }
+                
+                println "   Downloading ${modelName} from ${url}"
+                
+                try {
+                    ant.get(src: url, dest: downloadedZip)
+                    
+                    if (!downloadedZip.exists()) {
+                        throw new GradleException("Download failed: ${downloadedZip} not found.")
+                    }
+                    
+                    println "   Download complete for ${modelName}."
+                    println "   Unzipping ${downloadedZip.name} to ${modelDir}..."
+                    
+                    // Create model directory
+                    modelDir.mkdirs()
+                    
+                    copy {
+                        from(zipTree(downloadedZip))
+                        into(modelDir)
+                        eachFile { fileCopyDetails ->
+                            // Remove the top-level directory from the zip file
+                            def segments = fileCopyDetails.relativePath.segments
+                            if (segments.length > 1) {
+                                fileCopyDetails.relativePath = new org.gradle.api.file.RelativePath(true, segments[1..-1] as String[])
+                            }
+                        }
+                        includeEmptyDirs = true
+                    }
+                    
+                    println "   Unzip complete for ${modelName}."
+                    downloadedZip.delete()
+                    
+                } catch (Exception e) {
+                    println "   Warning: Failed to download ${modelName}: ${e.message}"
+                    // Continue with other models even if one fails
+                }
+            }
+            
+            println "-> downloadAndUnzipBuiltinModels task completed."
+        }
+        
+        onlyIf {
+            def allExist = checkFiles.every { it.exists() }
+            println "-> Checking if builtin models exist... [All exist: ${allExist}]"
+            return !allExist
+        }
+    }
+}
+
+// Task to copy model information to market_config.json files
+task copyModelInfoToMarketConfig {
+    group = 'Pre-build'
+    description = 'Copies model information to market_config.json files in each model directory.'
+    
+    def modelConfigFile = rootProject.file('model-config.json')
+    def outputDir = file('src/main/assets/builtin_models')
+    
+    // Only set inputs/outputs if the config file exists
+    if (modelConfigFile.exists()) {
+        inputs.file(modelConfigFile)
+        outputs.dir(outputDir)
+    }
+    
+    doLast {
+        if (!modelConfigFile.exists()) {
+            println "model-config.json not found, skipping model info copy"
+            return
+        }
+        
+        try {
+            def jsonSlurper = new groovy.json.JsonSlurper()
+            def modelConfig = jsonSlurper.parseText(modelConfigFile.text)
+            
+            if (modelConfig.models && modelConfig.models instanceof List) {
+                modelConfig.models.each { model ->
+                    if (model.name) {
+                        def modelDir = new File(outputDir, model.name)
+                        if (modelDir.exists()) {
+                            def marketConfigFile = new File(modelDir, 'market_config.json')
+                            
+                            // Create market config with model information
+                            def marketConfig = [
+                                modelName: model.modelName ?: model.name,
+                                vendor: model.vendor ?: "Unknown",
+                                size_gb: model.size_gb ?: 0,
+                                tags: model.tags ?: [],
+                                categories: model.categories ?: [],
+                                extra_tags: model.extra_tags ?: [],
+                                modelId: model.modelId ?: "Builtin/MNN/${model.name}",
+                                market_version: model.market_version ?: "1"
+                            ]
+                            
+                            def jsonBuilder = new groovy.json.JsonBuilder(marketConfig)
+                            marketConfigFile.text = jsonBuilder.toPrettyString()
+                            
+                            println "Copied model info to ${marketConfigFile.absolutePath}"
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            println "Error processing model configuration: ${e.message}"
+        }
+    }
+}
+
+// Ensure copy task runs after download
+copyModelInfoToMarketConfig.dependsOn downloadAndUnzipBuiltinModels
+
+// Ensure split task runs after model info copy
+splitLargeAssets.dependsOn copyModelInfoToMarketConfig

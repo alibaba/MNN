@@ -38,6 +38,7 @@
     
     <declare-styleable name="ModelAvatarView">
         <attr name="modelName" />
+        <attr name="compactMode" format="boolean" />
     </declare-styleable>
 
     <declare-styleable name="ProgressPieView">

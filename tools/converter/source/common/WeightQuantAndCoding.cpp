@@ -7,6 +7,7 @@
 //
 
 #include "CommonUtils.hpp"
+#include "HQQQuantizer.hpp"
 #include "core/CommonCompute.hpp"
 #include "core/IDSTEncoder.hpp"
 
@@ -39,6 +40,38 @@ static std::vector<float> findMinMax(const float *weights, const int count) {
     return {min, max};
 }
 
+static MNN::Quantization::HQQQuantizer::QuantizationResult _HQQQuant(const std::vector<float>& weights, int weightQuantBits, int weightQuantBlock, bool asymmetricQuantFlag) {
+    MNN::Quantization::HQQQuantizer::QuantizationConfig hqqConfig;
+    hqqConfig.bits = weightQuantBits;
+    hqqConfig.group_size = weightQuantBlock;
+    MNN::Quantization::HQQQuantizer hqq(hqqConfig);
+    auto res = hqq.quantize(weights);
+#if 0
+    auto dequantized_weights = hqq.dequantize(res);
+    // 计算量化误差
+    float mse = 0.0f;
+    float max_abs_error = 0.0f;
+
+    for (size_t i = 0; i < weights.size(); ++i) {
+        float error = weights[i] - dequantized_weights->readMap<float>()[i];
+        float abs_error = std::abs(error);
+
+        mse += error * error;
+        max_abs_error = std::max(max_abs_error, abs_error);
+    }
+
+    mse /= weights.size();
+    float rmse = std::sqrt(mse);
+
+    std::cout << "量化误差分析:" << std::endl;
+    std::cout << "  均方误差 (MSE): " << mse << std::endl;
+    std::cout << "  均方根误差 (RMSE): " << rmse << std::endl;
+    std::cout << "  最大绝对误差: " << max_abs_error << std::endl;
+#endif
+    return res;
+
+}
+
 void WeightQuantAndCoding(std::unique_ptr<MNN::OpT>& op, const modelConfig& config, const PostTreatContext* context) {
     const auto opType = op->type;
     // config.weightQuantBits only control weight quantization for float convolution
@@ -54,6 +87,7 @@ void WeightQuantAndCoding(std::unique_ptr<MNN::OpT>& op, const modelConfig& conf
     if (param->quanParameter.get() != nullptr) {
         return;
     }
+    bool useHqq = config.useHQQ;
     auto weightQuantBits = config.weightQuantBits;
     bool asymmetricQuantFlag = config.weightQuantAsymmetric;
     auto weightQuantBlock = config.weightQuantBlock;
@@ -72,6 +106,10 @@ void WeightQuantAndCoding(std::unique_ptr<MNN::OpT>& op, const modelConfig& conf
                 weightQuantBlock = weight.block_size();
             }
         }
+    }
+    if (useHqq) {
+        // HQQ must use asym
+        asymmetricQuantFlag = true;
     }
     if (nullptr != context->quantMutableInfo) {
         auto& proto = context->proto;
@@ -141,13 +179,17 @@ void WeightQuantAndCoding(std::unique_ptr<MNN::OpT>& op, const modelConfig& conf
     } else {
         // pass
     }
-
+    MNN::Quantization::HQQQuantizer::QuantizationResult hqqRes;
     switch (opType) {
         case MNN::OpType_Convolution:
         case MNN::OpType_ConvolutionDepthwise:
         case MNN::OpType_Deconvolution:
         case MNN::OpType_DeconvolutionDepthwise: {
             weightData = std::move(param->weight);
+            if (useHqq) {
+                hqqRes = _HQQQuant(weightData, bits, block_size, asymmetricQuantFlag);
+                break;
+            }
             if (asymmetricQuantFlag) {
                 scales.resize(oc * block_num * 2);
                 for (int k = 0; k < oc; k++) {
@@ -189,15 +231,24 @@ void WeightQuantAndCoding(std::unique_ptr<MNN::OpT>& op, const modelConfig& conf
         default:
             break;
     }
-
-    if (opType == MNN::OpType_ConvInt8 || opType == MNN::OpType_DepthwiseConvInt8) {
-        param->quanParameter = IDSTEncoder::encode(weightData.data(), scales, block_size, oc * block_num, false, param->symmetricQuan->weight.data(), int(clampMin), bits);
-        param->symmetricQuan->weight.clear();
-        param->quanParameter->alpha = {1.0f}; // fake scales
-    } else {
-        param->quanParameter = IDSTEncoder::encode(weightData.data(), scales, block_size, oc * block_num, asymmetricQuantFlag, nullptr, int(clampMin), bits, config.detectSparseSpeedUp);
+    if (useHqq) {
+        std::vector<float> mergeScale(hqqRes.SZ->getInfo()->size);
+        ::memcpy(mergeScale.data(), hqqRes.SZ->readMap<float>(), mergeScale.size() * sizeof(float));
+        param->quanParameter = IDSTEncoder::encode(nullptr, mergeScale, block_size, oc * block_num, true, hqqRes.QW->readMap<int8_t>(), int(clampMin), bits, false);
         param->weight.clear();
         std::vector<float> empty;
         param->weight.swap(empty);
+    } else {
+        if (opType == MNN::OpType_ConvInt8 || opType == MNN::OpType_DepthwiseConvInt8) {
+            param->quanParameter = IDSTEncoder::encode(weightData.data(), scales, block_size, oc * block_num, false, param->symmetricQuan->weight.data(), int(clampMin), bits);
+            param->symmetricQuan->weight.clear();
+            param->quanParameter->alpha = {1.0f}; // fake scales
+        } else {
+            param->quanParameter = IDSTEncoder::encode(weightData.data(), scales, block_size, oc * block_num, asymmetricQuantFlag, nullptr, int(clampMin), bits, config.detectSparseSpeedUp);
+            param->weight.clear();
+            std::vector<float> empty;
+            param->weight.swap(empty);
+        }
     }
+
 };

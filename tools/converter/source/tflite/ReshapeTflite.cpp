@@ -12,8 +12,6 @@
 DECLARE_OP_COVERTER(ReshapeTflite);
 
 MNN::OpType ReshapeTflite::opType(int quantizedModel) {
-    if (quantizedModel)
-        return MNN::OpType_QuantizedReshape;
     return MNN::OpType_Reshape;
 }
 MNN::OpParameter ReshapeTflite::type(int quantizedModel) {

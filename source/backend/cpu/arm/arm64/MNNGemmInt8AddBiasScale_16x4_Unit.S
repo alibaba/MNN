@@ -71,7 +71,7 @@
 
 asm_function MNNGemmInt8AddBiasScale_16x4_Unit
 
-/* 
+/*
 struct QuanPostTreatParameters {
     const float* scale;
     const float* biasFloat;
@@ -92,7 +92,7 @@ struct QuanPostTreatParameters {
 //void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
 //                                              size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realSize) {
 
-//Auto: x0: dst*, x1: src*, x2:weight*, x3: src_depth_quad, x4: dst_step, 
+//Auto: x0: dst*, x1: src*, x2:weight*, x3: src_depth_quad, x4: dst_step,
 // x5: dst_depth_quad, x6: post, x7: realSize
 
 //Load from post:
@@ -144,10 +144,10 @@ L4LoopDz:
     mov x8, x1
     mov x25, #0
     L4_BLOCKNUM:
-    
+
     ld1 {v0.16b, v1.16b, v2.16b, v3.16b}, [x2], #64
     ld1 {v4.16b, v5.16b, v6.16b, v7.16b}, [x1], #64
-    
+
     smull v8.8h, v0.8b, v4.8b
     smull v9.8h, v1.8b, v4.8b
     smull v10.8h, v2.8b, v4.8b
@@ -204,7 +204,7 @@ L4LoopDz:
         saddlp v31.4s, v15.8h
     L4InitializeEnd:
         beq ComputeSum
-    
+
     L4LoopSz:
         ld1 {v4.16b, v5.16b, v6.16b, v7.16b}, [x1], #64
         ld1 {v0.16b, v1.16b, v2.16b, v3.16b}, [x2], #64
@@ -304,8 +304,6 @@ L4LoopDz:
     MLA_WEIGHTZERO v6, v20, v21, 2
     MLA_WEIGHTZERO v7, v20, v21, 3
 
-    cbz x28, L4QuantUseInt8
-
     cbz x27, L4_ADD_DSTV
     ld1 {v20.4s}, [x27], #16 // input dequant bias
     ld1 {v21.4s}, [x28], #16 // weight kernel sum
@@ -330,6 +328,7 @@ L4LoopDz:
     b L4_BLOCKNUM
 
     L4_POST:
+    cbz x28, L4QuantUseInt8
     cbz x10, L4_RELU
     ld1 {v0.4s}, [x10], #16
     fadd v4.4s, v4.4s, v0.4s
@@ -404,7 +403,7 @@ L3LoopDz:
     smull v13.8h, v1.8b, v5.8b
     smull v14.8h, v2.8b, v5.8b
     smull v15.8h, v3.8b, v5.8b
-    
+
     smlal2 v8.8h, v0.16b, v4.16b
     smlal2 v9.8h, v1.16b, v4.16b
     smlal2 v10.8h, v2.16b, v4.16b
@@ -528,8 +527,6 @@ L3LoopDz:
     MLA_WEIGHTZERO v5, v20, v21, 1
     MLA_WEIGHTZERO v6, v20, v21, 2
 
-    cbz x28, L3QuantUseInt8
-
     cbz x27, L3_ADD_DSTV
     ld1 {v20.2s}, [x27], #8 // input dequant bias
     ld1 {v20.s}[2], [x27], #4
@@ -553,6 +550,7 @@ L3LoopDz:
     b L3_BLOCKNUM
 
     L3_POST:
+    cbz x28, L3QuantUseInt8
     cbz x10, L3_RELU
     ld1 {v0.4s}, [x10], #16
     fadd v4.4s, v4.4s, v0.4s
@@ -591,7 +589,7 @@ L3LoopDz:
     smax v2.8b, v31.8b, v2.8b
     smax v3.8b, v31.8b, v3.8b
 
-   
+
     st1 {v2.8b}, [x0], #8
     st1 {v3.s}[0], [x0], x4
 L3LoopCheck:
@@ -615,8 +613,8 @@ L2LoopDz:
     L2_BLOCKNUM:
     ld1 {v0.16b, v1.16b, v2.16b, v3.16b}, [x2], #64
     ld1 {v4.16b, v5.16b}, [x1], x24
-    
-    
+
+
     smull v8.8h, v0.8b, v4.8b
     smull v9.8h, v1.8b, v4.8b
     smull v10.8h, v2.8b, v4.8b
@@ -711,7 +709,6 @@ L2LoopDz:
     MLA_WEIGHTZERO v4, v20, v21, 0
     MLA_WEIGHTZERO v5, v20, v21, 1
 
-    cbz x28, L2QuantUseInt8
 
     cbz x27, L2_ADD_DSTV
     ld1 {v20.2s}, [x27], #8 // input dequant bias
@@ -733,6 +730,7 @@ L2LoopDz:
     b L2_BLOCKNUM
 
     L2_POST:
+    cbz x28, L2QuantUseInt8
     cbz x10, L2_RELU
     ld1 {v0.4s}, [x10], #16
     fadd v4.4s, v4.4s, v0.4s
@@ -764,7 +762,7 @@ L2LoopDz:
     smin v8.8b, v30.8b, v8.8b
     smax v9.8b, v31.8b, v9.8b
 
-    
+
     st1 {v2.8b}, [x0], x4
 L2LoopCheck:
     subs x5, x5, #1
@@ -788,7 +786,7 @@ L1LoopDz:
     dup v16.4s, wzr
     dup v17.4s, wzr
     ld1 {v4.16b}, [x1], #16
-    
+
     smull v8.8h, v0.8b, v4.8b
     dup v18.4s, wzr
     smull v9.8h, v1.8b, v4.8b
@@ -854,8 +852,6 @@ L1LoopDz:
     TILE1_MUL_OHE_SCALE:
     MLA_WEIGHTZERO v4, v20, v21, 0
 
-    cbz x28, L1QuantUseInt8
-
     cbz x27, L1_ADD_DSTV
     ld1 {v20.s}[0], [x27], #4 // input dequant bias
     ld1 {v21.4s}, [x28], #16 // weight kernel sum
@@ -874,6 +870,7 @@ L1LoopDz:
     b L1_BLOCKNUM
 
     L1_POST:
+    cbz x28, L1QuantUseInt8
     cbz x10, L1_RELU
     ld1 {v0.4s}, [x10], #16
     fadd v4.4s, v4.4s, v0.4s

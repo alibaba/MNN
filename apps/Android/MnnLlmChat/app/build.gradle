@@ -5,48 +5,18 @@ plugins {
 
 }
 
-task downloadAndUnzipNativeLibs {
-    group = 'Pre-build'
-    description = 'Downloads and unzips libsherpa-mnn-jni native library from CDN.'
-    def nativeLibsUrl = 'https://meta.alicdn.com/data/mnn/libs/libsherpa-mnn-jni-16k.zip'
-    def zipFileName = 'libsherpa-mnn-jni-16k.zip'
-    def outputDir = file('src/main/jniLibs/arm64-v8a')
-    def downloadedZip = new File(project.buildDir, zipFileName)
-    def checkFile = new File(outputDir, 'libsherpa-mnn-jni.so')
-    
-    inputs.property('url', nativeLibsUrl)
-    outputs.file(checkFile)
-    
-    doLast {
-        println "-> Executing downloadAndUnzipNativeLibs task..."
-        println "   Downloading from ${nativeLibsUrl}"
-        
-        // Create output directory if it doesn't exist
-        outputDir.mkdirs()
-        
-        ant.get(src: nativeLibsUrl, dest: downloadedZip)
+// Apply prebuilt models configuration
+apply from: '../build_prebuilt.gradle'
 
-        if (!downloadedZip.exists()) {
-            throw new GradleException("Download failed: ${downloadedZip} not found.")
-        }
-        println "   Download complete."
-        println "   Unzipping ${downloadedZip.name} to ${outputDir}..."
-        
-        copy {
-            from(zipTree(downloadedZip))
-            into(outputDir)
-        }
-        println "   Unzip complete."
-        downloadedZip.delete()
-    }
-    
-    onlyIf {
-        println "-> Checking if native libs exist... [Exists: ${checkFile.exists()}]"
-        return !checkFile.exists()
-    }
-}
+// Apply Sherpa MNN native library download configuration
+apply from: '../downloadSherpaMnn.gradle'
 
 preBuild.dependsOn downloadAndUnzipNativeLibs
+
+// Only add builtin model tasks when ADD_BUILTIN=true
+if (project.hasProperty('ADD_BUILTIN') && project.property('ADD_BUILTIN') == 'true') {
+    preBuild.dependsOn downloadAndUnzipBuiltinModels, copyModelInfoToMarketConfig
+}
 
 android {
     namespace 'com.alibaba.mnnllm.android'
@@ -54,14 +24,15 @@ android {
     ndkVersion "27.2.12479018"
     
     flavorDimensions "store"
-    
+    androidResources {
+        noCompress += ['weight', 'part1', 'part2', 'part3', 'part4', 'part5', 'part6', 'part7', 'part8', 'part9', 'part10', 'mnn', 'bin', 'jar', 'mdl', 'msc', 'mv', 'txt', 'json', 'md']
+    }
     defaultConfig {
         applicationId "com.alibaba.mnnllm.android"
         minSdk 26
         targetSdk 35
-        versionCode 701
-        versionName "0.7.1"
-
+        versionCode 750
+        versionName "0.7.5"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         externalNativeBuild {
             cmake {
@@ -114,7 +85,6 @@ android {
                     signingConfig signingConfigs.release
                 }
                 applicationIdSuffix ".release"
-                versionNameSuffix ".gp"
             }
         }
     }
@@ -127,6 +97,7 @@ android {
         googleplay {
             dimension "store"
             buildConfigField "boolean", "IS_GOOGLE_PLAY_BUILD", "true"
+            versionNameSuffix ".gp"
         }
     }
 
@@ -159,6 +130,10 @@ android {
                 'META-INF/LICENSE',
                 'META-INF/MANIFEST.MF'
         ])
+        // Exclude large model files from compression
+        jniLibs {
+            useLegacyPackaging = true
+        }
     }
 
     testOptions {
@@ -176,7 +151,6 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'com.google.android.material:material:1.12.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.2.1'
-    implementation 'com.github.techinessoverloaded:progress-dialog:1.5.1'
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
     implementation 'com.squareup.retrofit2:converter-gson:2.9.0'
     implementation 'com.google.code.gson:gson:2.10.1'
@@ -247,4 +221,5 @@ dependencies {
     testImplementation 'org.mockito:mockito-inline:5.2.0'
     testImplementation 'org.mockito.kotlin:mockito-kotlin:5.2.0'
     testImplementation "io.mockk:mockk:1.13.10"
+    testImplementation "org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2"
 }

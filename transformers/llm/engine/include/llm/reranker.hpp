@@ -49,6 +49,17 @@ public:
      * @return A vector of float scores, one for each document.
      */
     virtual std::vector<float> compute_scores(const std::string& query, const std::vector<std::string>& documents) = 0;
+
+    /**
+     * @brief Gets the underlying LLM instance for configuration purposes.
+     * @return A pointer to the LLM instance, or nullptr if not available.
+     */
+    Llm* get_llm() {
+        return mLlm.get();
+    }
+
+protected:
+    std::unique_ptr<Llm> mLlm;
 };
 
 
@@ -149,11 +160,14 @@ public:
         for (int i = 0; i < total_len; i++) {
             pos_ptr[i] = position_ids_[i];
         }
+
+        // clear history cache
+        mLlm->setKVCacheInfo(total_len, mLlm->getCurrentHistory());
         // forward
-        mLlm->setKVCacheInfo(total_len, 0);
         auto logits = mLlm->forwardRaw(input_embeds, attention_mask, position_ids)[0];
         auto logits_dim = logits->getInfo()->dim[2];
         auto logits_ptr = logits->readMap<float>();
+
         mLlm->reset();
         std::vector<float> scores;
         for (int i = 0; i < spans.size(); i++) {
@@ -169,14 +183,94 @@ public:
             float score = exp_true / (exp_true + exp_false);
             scores.push_back(score);
         }
+
         return scores;
     }
 
 private:
-    std::unique_ptr<Llm> mLlm;
     std::string mInstruct;
     int mTokenTrueId;
     int mTokenFalseId;
+};
+
+template <typename T>
+static inline VARP _var(std::vector<T> vec, const std::vector<int> &dims) {
+    return _Const(vec.data(), dims, NHWC, halide_type_of<T>());
+}
+
+class GteReranker : public RerankerBase {
+public:
+    /**
+     * @brief Constructor for Qwen3Reranker.
+     * @param config_path The path to the LLM configuration.
+     */
+    GteReranker(const std::string& config_path) {
+        initialize(config_path);
+    }
+
+    /**
+     * @brief Initializes the LLM and token IDs.
+     * @param config_path The path to the LLM configuration.
+     */
+    void initialize(const std::string& config_path) override {
+        mLlm.reset(Embedding::createEmbedding(config_path));
+    }
+
+    /**
+     * @brief Sets the instruction for the reranker.
+     * @param instruct The instruction string.
+     */
+    void setInstruct(const std::string& instruct) override {}
+
+    /**
+     * @brief Computes scores for a list of documents using the Qwen3 model.
+     * @param query The input query.
+     * @param documents A vector of document strings.
+     * @return A vector of float scores, one for each document.
+     */
+    std::vector<float> compute_scores(const std::string& query, const std::vector<std::string>& documents) override {
+        constexpr int pad_token_id = 1;
+        constexpr int eos_token_id = 2;
+        std::vector<int> query_ids {0, 6};
+        auto q_ids = mLlm->tokenizer_encode(query);
+        query_ids.insert(query_ids.end(), q_ids.begin(), q_ids.end());
+        query_ids.push_back(eos_token_id);
+        query_ids.push_back(eos_token_id);
+        std::vector<std::vector<int>> all_ids;
+        int max_len = 0;
+        for (const auto& doc : documents) {
+            auto doc_ids = mLlm->tokenizer_encode(doc);
+            std::vector<int> ids(query_ids);
+            ids.insert(ids.end(), doc_ids.begin(), doc_ids.end());
+            ids.push_back(eos_token_id);
+            max_len = std::max(max_len, (int)ids.size());
+            all_ids.push_back(std::move(ids));
+        }
+        const int batch = static_cast<int>(documents.size());
+        const int total_len = max_len * batch;
+        auto attention_mask = _Input({batch, 1, 1, max_len}, NCHW, halide_type_of<float>());
+        auto mask_ptr = attention_mask->writeMap<float>();
+        std::vector<int> input_ids(total_len);
+        int idx = 0;
+        for (auto& ids : all_ids) {
+            int i = 0;
+            for (; i < ids.size(); i++, idx++) {
+                input_ids[idx] = ids[i];
+                mask_ptr[idx] = 0.0;
+            }
+            for (; i < max_len; i++, idx++) {
+                input_ids[idx] = pad_token_id;
+                mask_ptr[idx] = std::numeric_limits<float>::lowest();
+            }
+        }
+        auto input_embeds = mLlm->embedding(input_ids);
+        input_embeds = _Reshape(input_embeds, _var<int>({batch, max_len, -1}, {3}));
+        auto position_ids = mLlm->gen_position_ids(max_len);
+        auto outputs = mLlm->forwardRaw(input_embeds, attention_mask, position_ids);
+        std::vector<float> scores(outputs[0]->readMap<float>(), outputs[0]->readMap<float>() + batch);
+        return scores;
+    }
+
 };
 
 }

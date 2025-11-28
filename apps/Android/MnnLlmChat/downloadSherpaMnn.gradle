@@ -1,0 +1,46 @@
+// Sherpa MNN native library download task
+task downloadAndUnzipNativeLibs {
+    group = 'Pre-build'
+    description = 'Downloads and unzips libsherpa-mnn-jni native library from CDN.'
+    def nativeLibsUrl = 'https://meta.alicdn.com/data/mnn/libs/libsherpa-mnn-jni-16k.zip'
+    def zipFileName = 'libsherpa-mnn-jni-16k.zip'
+    def outputDir = file('src/main/jniLibs/arm64-v8a')
+    def downloadedZip = new File(project.buildDir, zipFileName)
+    def checkFile = new File(outputDir, 'libsherpa-mnn-jni.so')
+    
+    inputs.property('url', nativeLibsUrl)
+    outputs.file(checkFile)
+    
+    doLast {
+        println "-> Executing downloadAndUnzipNativeLibs task..."
+        println "   Downloading from ${nativeLibsUrl}"
+        println "   outputDir  ${outputDir}"
+        println "   downloadedZip  ${downloadedZip}"
+
+        // Create output directory if it doesn't exist
+        outputDir.mkdirs()
+        
+        // Ensure build directory exists before downloading
+        downloadedZip.parentFile.mkdirs()
+
+        ant.get(src: nativeLibsUrl, dest: downloadedZip)
+
+        if (!downloadedZip.exists()) {
+            throw new GradleException("Download failed: ${downloadedZip} not found.")
+        }
+        println "   Download complete."
+        println "   Unzipping ${downloadedZip.name} to ${outputDir}..."
+        
+        copy {
+            from(zipTree(downloadedZip))
+            into(outputDir)
+        }
+        println "   Unzip complete."
+        downloadedZip.delete()
+    }
+    
+    onlyIf {
+        println "-> Checking if native libs exist... [Exists: ${checkFile.exists()}]"
+        return !checkFile.exists()
+    }
+}

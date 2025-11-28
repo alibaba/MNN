@@ -32,6 +32,7 @@ public:
     }
 
     friend class liteOpConverterSuit;
+    static tflite::BuiltinOperator getOpCode(tflite::OperatorCodeT* opcode);
 };
 
 class liteOpConverterSuit {

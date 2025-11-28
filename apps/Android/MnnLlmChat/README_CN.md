@@ -49,11 +49,27 @@
 + 构建 Android 应用项目并安装：
   ```shell
   cd ../../../apps/Android/MnnLlmChat
-  ./gradlew installDebug
+  ./installDebug.sh
   ```
 
 # Releases
 
+## Version 0.7.5
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_5.apk)
++ 新增 Qwen3-VL 支持（4B、8B、30B-A3B）
++ 支持 smolvlm-video 系列的视频输入
+
+## Version 0.7.3
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_3_1.apk)
++ 优化 API 服务
+
+## 版本 0.7.2
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_2.apk)
++ 问题修复：
+  + 修复通义千问思考/不思考开关有时不生效的问题。
++ 界面更新：
+  + 更新历史记录和性能测试界面。
+  
 ## 版本 0.7.1
 + [点击此处下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_1.apk)
 + 新增模型：

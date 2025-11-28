@@ -27,6 +27,15 @@ int main(int argc, const char* argv[]) {
         "北京是中国的首都",
         "在炎热的夏日里，沙滩上的游客们穿着泳装享受着海水的清凉。"
     };
+    #ifdef PRE_RUN_FUNCTION
+    for(int i = 0; i < 5; i++) {
+        auto t0 = std::chrono::high_resolution_clock::now();
+        auto scores = reranker->compute_scores(query, documents);
+        auto t1 = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+        std::cout << "Reranker compute time: " << duration << " ms" << std::endl;
+    }
+    #endif
     auto t0 = std::chrono::high_resolution_clock::now();
     auto scores = reranker->compute_scores(query, documents);
     auto t1 = std::chrono::high_resolution_clock::now();

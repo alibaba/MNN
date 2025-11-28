@@ -78,6 +78,7 @@ using RegularizationMethod = ParameterOptimizer::RegularizationMethod;
 
 #ifdef PYMNN_LLM_API
 #include "llm.h"
+#include "reranker.h"
 #endif
 
 #ifdef PYMNN_INTERNAL_SERVING
@@ -2768,6 +2769,18 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
     constexpr int llm_method_num = sizeof(PyMNNLLM_static_methods) / sizeof(PyMethodDef);
     for (int i = 0; i < llm_method_num; i++) {
         def_method(llm_module, &PyMNNLLM_static_methods[i]);
+    }
+    
+    // reranker type
+    if (PyType_Ready(&PyMNNReranker) < 0) {
+        PyErr_SetString(PyExc_Exception, "initMNN.llm: PyType_Ready PyMNNReranker failed");
+        ERROR_RETURN
+    }
+    PyModule_AddObject(llm_module, "Reranker", (PyObject *)PyType_FindTLSType(&PyMNNReranker));
+    // add methods of reranker
+    constexpr int reranker_method_num = sizeof(PyMNNReranker_static_methods) / sizeof(PyMethodDef);
+    for (int i = 0; i < reranker_method_num; i++) {
+        def_method(llm_module, &PyMNNReranker_static_methods[i]);
     }
 #endif
 

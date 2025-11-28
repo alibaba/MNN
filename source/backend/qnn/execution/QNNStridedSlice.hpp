@@ -13,6 +13,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 class QNNStridedSlice : public QNNCommonExecution {
 public:
@@ -26,7 +27,7 @@ private:
     Tensor::DimensionType mDimType;
     bool mIsSlice = false;
 };
-
+#endif
 } // end namespace QNN
 } // end namespace MNN
 

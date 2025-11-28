@@ -63,6 +63,7 @@
   - `llm_demo` 大语言模型推理示例程序
   - `diffusion_demo` 扩散模型示例程序
   - `llm_bench` 大语言模型测评工具
+  - `quantize_llm` 大语言模型feature map量化工具
 ## 测试工具
 - 相关编译选项
   - `MNN_BUILD_TOOLS` 是否编译测试工具
@@ -93,6 +94,7 @@
   - `fuseTest` 测试 GPU 自定义算子的功能，目前仅支持 Vulkan Buffer 模式
   - `GpuInterTest.out` 测试 GPU 内存输入的功能，目前仅支持 OpenCL Buffer 模式与 OpenGL texture 模式，编译时需打开 MNN_OPENCL 与 MNN_OPENGL
   - `LoRA` 将LorA权重添加到模型权重中
+  - `compilefornpu` 将Npu要运行的部分转换为Plugin算子
 ## Benchmark工具
 - 相关编译选项
   - `MNN_BUILD_BENCHMARK` 是否编译Benchmark工具

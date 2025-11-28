@@ -3,6 +3,7 @@
 package com.alibaba.mnnllm.android.utils
 
 import android.app.Activity
+import android.app.ActivityManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -16,6 +17,7 @@ import android.widget.Toast
 import com.alibaba.mnnllm.android.R
 
 object UiUtils {
+
     fun getWindowSize(context: Context?): Point {
         val activity = getActivity(context)
         val display = activity!!.windowManager.defaultDisplay
@@ -64,4 +66,11 @@ object UiUtils {
         Toast.makeText(context, R.string.copy_success, Toast.LENGTH_SHORT).show()
     }
 
+    /**
+     * 获取当前最上层的 Activity
+     * @return 最上层 Activity，如果无法获取则返回 null
+     */
+    fun getTopActivity(): Activity? {
+        return CurrentActivityTracker.currentActivity
+    }
 }

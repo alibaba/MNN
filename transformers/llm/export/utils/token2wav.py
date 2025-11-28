@@ -5,6 +5,7 @@ torch.set_printoptions(precision=4, sci_mode=False)
 from .model_mapper import ModelMapper
 from .transformers import Rotary, Embedding, Decoder, Attention
 from .spinner import spinner_run
+from .torch_utils import onnx_export
 
 class Token2Wav(torch.nn.Module):
     def __init__(self,token2wav, base):
@@ -436,16 +437,13 @@ class Qwen2_5OmniToken2Wav(Token2Wav):
         spk = torch.randn([1, 1, 192], dtype=torch.float32)
         code = torch.ones([1, 256], dtype=torch.int32)
         onnx_model = f'{onnx_path}/predit.onnx'
-        torch.onnx.export(self.dit.preprocess, (cond, spk, code),
-                        onnx_model,
-                        input_names=['cond', 'spk', 'code'],
-                        output_names=['code_embeds', 'rope', 'mask'],
-                        dynamic_axes={
-                            "code": { 1: "size" },
-                        },
-                        do_constant_folding=True,
-                        verbose=False,
-                        opset_version=15)
+        onnx_export(self.dit.preprocess, (cond, spk, code),
+                    onnx_model,
+                    input_names=['cond', 'spk', 'code'],
+                    output_names=['code_embeds', 'rope', 'mask'],
+                    dynamic_axes={
+                        "code": { 1: "size" },
+                    })
         return onnx_model
 
     @spinner_run(f'export token2wav.dit to ')
@@ -456,35 +454,29 @@ class Qwen2_5OmniToken2Wav(Token2Wav):
         mask = torch.ones([1, 1, 512, 512], dtype=torch.int32)
         time = torch.tensor([0.0])
         onnx_model = f'{onnx_path}/dit.onnx'
-        torch.onnx.export(self.dit, (x, code_embeds, rope, mask, time),
-                        onnx_model,
-                        input_names=['x', 'code_embeds', 'rope', 'mask', 'time'],
-                        output_names=['mel'],
-                        dynamic_axes={
-                            "x": { 1: "size" },
-                            "code_embeds": { 1: "size" },
-                            "rope": { 2: "size" },
-                            "mask": { 2: "size", 3: "size" },
-                        },
-                        do_constant_folding=True,
-                        verbose=False,
-                        opset_version=15)
+        onnx_export(self.dit, (x, code_embeds, rope, mask, time),
+                    onnx_model,
+                    input_names=['x', 'code_embeds', 'rope', 'mask', 'time'],
+                    output_names=['mel'],
+                    dynamic_axes={
+                        "x": { 1: "size" },
+                        "code_embeds": { 1: "size" },
+                        "rope": { 2: "size" },
+                        "mask": { 2: "size", 3: "size" },
+                    })
         return onnx_model
 
     @spinner_run(f'export token2wav.bigvgan to ')
     def export_bigvgan(self, onnx_path):
         generated_mel = torch.randn([1, 80, 512], dtype=torch.float32)
         onnx_model = f'{onnx_path}/bigvgan.onnx'
-        torch.onnx.export(self.bigvgan, (generated_mel),
-                        onnx_model,
-                        input_names=['generated_mel'],
-                        output_names=['waveform'],
-                        dynamic_axes={
-                            "generated_mel": { 2: "size" },
-                        },
-                        do_constant_folding=True,
-                        verbose=False,
-                        opset_version=15)
+        onnx_export(self.bigvgan, (generated_mel),
+                    onnx_model,
+                    input_names=['generated_mel'],
+                    output_names=['waveform'],
+                    dynamic_axes={
+                        "generated_mel": { 2: "size" },
+                    })
         return onnx_model
 
     def export(self, onnx_path):

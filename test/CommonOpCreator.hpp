@@ -35,7 +35,7 @@ static Express::VARP _HybridConv(const std::vector<float>& weight, const std::ve
     int kSize = kernelSize[0] * kernelSize[1] * channel[0] / group;
     int kNum = channel[1];
     int clampMin = -(1 << (nbits - 1));
-    int alphasize = alpha.size();
+    auto alphasize = alpha.size();
     if (async) {
         alphasize /= 2;
     }

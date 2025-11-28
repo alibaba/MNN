@@ -60,9 +60,6 @@ struct RuntimeHint {
     int mmapFileSize = 1024; // MB
     int useCachedMmap = 0;
 
-    // path of the NPU model directory
-    std::string npuModelDirPath;
-
     // op encoder number for once commit
     int encorderNumForCommit = 10;
     int initThreadNumber = 0;
@@ -264,6 +261,9 @@ public:
     void setMetaPtr(void* ptr) {
         mMetaPtr = ptr;
     }
+    // path of the NPU model directory
+    std::string pNPUModelDirPath = ".";
+
 private:
     const MNNForwardType mType;
     void* mMetaPtr;
@@ -409,6 +409,10 @@ public:
         return true;
     }
     virtual bool onGetDeviceInfo(const std::string& deviceKey, std::string& deviceValue) const {
+        return false;
+    }
+    
+    virtual bool onSetQuantInfo(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) const {
         return false;
     }
 protected:

@@ -10,6 +10,7 @@
 #define COMMMON_UTILS_HPP
 
 #include <MNN/MNNDefine.h>
+#include <MNN/expr/Module.hpp>
 #include "MNN_generated.h"
 #include "config.hpp"
 #include "MNN_compression.pb.h"
@@ -23,6 +24,12 @@ struct PostTreatContext {
     std::string subgraph;
     bool read = false;
     bool write = false;
+    std::map<std::string, std::shared_ptr<MNN::Express::Module>> cacheModules;
+    MNNForwardType accelerateType = MNN_FORWARD_CPU;
+    MNN::BackendConfig bnConfig;
+    int mode = 1;
+    void startOptimize();
+    void endOptimize();
 };
 
 void converToStaticModel(const MNN::Net* net, std::map<std::string,std::vector<int>>& inputConfig, std::string mnnFile);

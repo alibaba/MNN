@@ -8,6 +8,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 std::string QNNConvertor::OutputDir = "";
 std::string QNNTranslator::GraphNameSymbol = "";
@@ -17,7 +18,7 @@ const uint32_t QNNConvertor::CppBufferSize = 4096; // 4KB
 
 std::string GetLastDirName(const std::string& path) {
     if (path.empty()) {
-        MNN_ERROR("MNN_QNN: Invalid output dir for QNNConvertor.\n");
+        MNN_ERROR("MNN_QNN: Invalid output dir for QNNConvertor. original path: %s\n", path.c_str());
         return "";
     }
 
@@ -28,7 +29,7 @@ std::string GetLastDirName(const std::string& path) {
         result.pop_back();
     }
     if (result.empty()) {
-        MNN_ERROR("MNN_QNN: Invalid output dir for QNNConvertor.\n");
+        MNN_ERROR("MNN_QNN: Invalid output dir for QNNConvertor. result path: %s\n", result.c_str());
         return "";
     }
 
@@ -40,12 +41,12 @@ std::string GetLastDirName(const std::string& path) {
 
     // Check whether result is a legal cpp symbol.
     if (std::isdigit(result[0])) {
-        MNN_ERROR("MNN_QNN: Invalid cache path.\n");
+        MNN_ERROR("MNN_QNN: Invalid cache path. result path: %s\n", result.c_str());
         return "";
     }
     for (size_t i = 0; i < result.size(); ++i) {
         if (!(std::isalpha(result[i]) || std::isdigit(result[i]) || result[i] == '_')) {
-            MNN_ERROR("MNN_QNN: Invalid cache path.\n");
+            MNN_ERROR("MNN_QNN: Invalid cache path. result path: %s\n", result.c_str());
             return "";
         }
     }
@@ -736,6 +737,6 @@ std::vector<std::string> QNNTranslator::TranslateNodeOutputArray(const std::stri
 
     return result;
 }
-
+#endif
 } // end namespace MNN
 } // end namespace QNN

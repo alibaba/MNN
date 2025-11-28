@@ -25,7 +25,7 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^aarch64" OR ARCHS STREQUAL "arm64" OR AR
     if (MNN_LOW_MEMORY)
         target_compile_options(MNN_Arm82 PRIVATE -DMNN_LOW_MEMORY)
     endif()
-    
+
     if (MNN_CPU_WEIGHT_DEQUANT_GEMM)
         target_compile_options(MNN_Arm82 PRIVATE -DMNN_CPU_WEIGHT_DEQUANT_GEMM)
     endif()

@@ -70,7 +70,7 @@ static void _winograd(const DeconvolutionWithStride::ComputeUnit& unit, int thre
     el[2] = 0;
     el[3] = 0;
     size_t parameters[6];
-    parameters[0] = eP * sizeof(float);
+    parameters[0] = eP * lP * sizeof(float);
     parameters[1] = ROUND_UP(ic, lP);
     parameters[2] = oc;
     parameters[3] = eP * 4 * sizeof(float);
@@ -129,7 +129,7 @@ static void _gemmAndIm2col(const DeconvolutionWithStride::ComputeUnit& unit, int
     el[2] = 0;
     el[3] = 0;
     size_t parameters[6];
-    parameters[0] = eP * sizeof(float);
+    parameters[0] = eP * lP * sizeof(float);
     parameters[1] = ROUND_UP(ic, lP);
     parameters[2] = oc;
     parameters[3] = eP * 4 * sizeof(float);
@@ -272,7 +272,7 @@ void DeconvolutionWithStride::_extract(const Op* convOp) {
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
     ConvolutionCommon::getConvParameters(&quanCommon, backend(), convOp, &tempWeight, &tempWeightSize);
     srcCount = tempWeightSize / kx / ky / outputCount;
-    
+
     std::shared_ptr<Tensor> weightWrap(
         Tensor::create<float>(std::vector<int>{srcCount, outputCount, ky * kx}, (void*)tempWeight));
 

@@ -178,9 +178,7 @@ class GenerateResultProcessor {
 
     private fun formatAndSetGptOssThinkingContent(content: String) {
         if (content.isNotBlank()) {
-            thinkingStringBuilder.append("\n> ")
-            thinkingStringBuilder.append(content.replace("\n", "\n> "))
-            thinkingStringBuilder.append("\n")
+            thinkingStringBuilder.append(content)
         }
     }
 
@@ -223,7 +221,7 @@ class GenerateResultProcessor {
                 val text = buffer.substring(0, effectiveEndIndex)
 
                 if (text.isNotEmpty()) {
-                    thinkingStringBuilder.append(text.replace("\n", "\n> "))
+                    thinkingStringBuilder.append(text)
                     thinkHasContent = true
                 }
 
@@ -268,7 +266,7 @@ class GenerateResultProcessor {
                     // 3. Add the pending text and the current text to the thinking block.
                     val textToThink = pendingTextBuffer.toString() + textBefore
                     if (textToThink.isNotEmpty()) {
-                        thinkingStringBuilder.append(textToThink.replace("\n", "\n> "))
+                        thinkingStringBuilder.append(textToThink)
                         thinkHasContent = true
                     }
 
@@ -295,9 +293,6 @@ class GenerateResultProcessor {
             isThinking = true
             if (!hasThought) {
                 hasThought = true
-                thinkingStringBuilder.append("\n> ")
-            } else {
-                thinkingStringBuilder.append("\n> ") // Separator for subsequent thoughts
             }
         }
     }
@@ -320,11 +315,12 @@ class GenerateResultProcessor {
     fun getRawResult(): String = rawStringBuilder.toString()
 
     fun getThinkingContent(): String {
-        return if (currentFormat == StreamFormat.THINK_TAGS) {
+        val thinkingContent = if (currentFormat == StreamFormat.THINK_TAGS) {
             if (thinkHasContent) thinkingStringBuilder.toString() else ""
         } else {
             thinkingStringBuilder.toString()
         }
+        return if (thinkingContent.isNotBlank()) thinkingContent else ""
     }
 
     fun getNormalOutput(): String = normalStringBuilder.toString()

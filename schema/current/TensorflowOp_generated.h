@@ -592,11 +592,11 @@ inline const char *EnumNamePadValueMode(PadValueMode e) {
 
 struct BinaryOpT : public flatbuffers::NativeTable {
   typedef BinaryOp TableType;
-  int32_t opType;
+  BinaryOpOperation opType;
   DataType T;
   int32_t activationType;
   BinaryOpT()
-      : opType(0),
+      : opType(BinaryOpOperation_ADD),
         T(DataType_DT_FLOAT),
         activationType(0) {
   }
@@ -607,8 +607,8 @@ struct BinaryOp FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return BinaryOpTypeTable();
   }
-  int32_t opType() const {
-    return GetField<int32_t>(4, 0);
+  BinaryOpOperation opType() const {
+    return static_cast<BinaryOpOperation>(GetField<int32_t>(4, 0));
   }
   DataType T() const {
     return static_cast<DataType>(GetField<int32_t>(6, 1));
@@ -631,8 +631,8 @@ struct BinaryOp FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
 struct BinaryOpBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
-  void add_opType(int32_t opType) {
-    fbb_.AddElement<int32_t>(4, opType, 0);
+  void add_opType(BinaryOpOperation opType) {
+    fbb_.AddElement<int32_t>(4, static_cast<int32_t>(opType), 0);
   }
   void add_T(DataType T) {
     fbb_.AddElement<int32_t>(6, static_cast<int32_t>(T), 1);
@@ -654,7 +654,7 @@ struct BinaryOpBuilder {
 
 inline flatbuffers::Offset<BinaryOp> CreateBinaryOp(
     flatbuffers::FlatBufferBuilder &_fbb,
-    int32_t opType = 0,
+    BinaryOpOperation opType = BinaryOpOperation_ADD,
     DataType T = DataType_DT_FLOAT,
     int32_t activationType = 0) {
   BinaryOpBuilder builder_(_fbb);
@@ -4930,34 +4930,34 @@ inline flatbuffers::Offset<LSTMBlockCell> CreateLSTMBlockCell(flatbuffers::FlatB
 
 inline const flatbuffers::TypeTable *BinaryOpOperationTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_CHAR, 0, 0 }
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     BinaryOpOperationTypeTable
@@ -5175,11 +5175,12 @@ inline const flatbuffers::TypeTable *PadValueModeTypeTable() {
 
 inline const flatbuffers::TypeTable *BinaryOpTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
-    { flatbuffers::ET_INT, 0, -1 },
     { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 1 },
     { flatbuffers::ET_INT, 0, -1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
+    BinaryOpOperationTypeTable,
     DataTypeTypeTable
   };
   static const char * const names[] = {

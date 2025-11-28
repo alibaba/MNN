@@ -1,6 +1,7 @@
 import torch
 from .transformers import Decoder
 from .spinner import spinner_run
+from .torch_utils import onnx_export
 
 class Audio(torch.nn.Module):
     def __init__(self, audio, base):
@@ -156,16 +157,13 @@ class Qwen2Audio(Audio):
 
         model = self.float()
         onnx_model = f'{onnx_path}/audio.onnx'
-        torch.onnx.export(model, (input_features),
-                        onnx_model,
-                        input_names=['input_features'],
-                        output_names=['audio_embeds'],
-                        dynamic_axes={"input_features": {
-                            2: "size"
-                        }},
-                        do_constant_folding=True,
-                        verbose=False,
-                        opset_version=15)
+        onnx_export(model, (input_features),
+                    onnx_model,
+                    input_names=['input_features'],
+                    output_names=['audio_embeds'],
+                    dynamic_axes={"input_features": {
+                        2: "size"
+                    }})
         return onnx_model
 
 class AudioMlp(torch.nn.Module):
@@ -260,16 +258,13 @@ class Qwen2_5OmniAudio(Qwen2Audio):
         attention_mask = torch.randn([1, seq_len, seq_len])
         model = self.float()
         onnx_model = f'{onnx_path}/audio.onnx'
-        torch.onnx.export(model, (input_features, attention_mask),
-                        onnx_model,
-                        input_names=['input_features', 'attention_mask'],
-                        output_names=['audio_embeds'],
-                        dynamic_axes={"input_features": {
-                            0: "size"
-                        }, "attention_mask": {
-                            1: "size", 2: "size"
-                        }},
-                        do_constant_folding=True,
-                        verbose=False,
-                        opset_version=15)
+        onnx_export(model, (input_features, attention_mask),
+                    onnx_model,
+                    input_names=['input_features', 'attention_mask'],
+                    output_names=['audio_embeds'],
+                    dynamic_axes={"input_features": {
+                        0: "size"
+                    }, "attention_mask": {
+                        1: "size", 2: "size"
+                    }})
         return onnx_model

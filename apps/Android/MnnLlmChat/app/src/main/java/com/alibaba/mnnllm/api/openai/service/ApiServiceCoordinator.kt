@@ -10,9 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import timber.log.Timber
 
-/**
- * 统一调度管理器，负责协调通知栏服务和服务器的生命周期
- */
+/** * unifiedschedulingmanager,responsible for coordinatingnotificationbarserviceandservicelifecycle*/
 class ApiServiceCoordinator(private val context: Context) {
     private val TAG = this::class.java.simpleName
     private val networkServiceScope = CoroutineScope(Dispatchers.IO)
@@ -25,9 +23,7 @@ class ApiServiceCoordinator(private val context: Context) {
     private var _isServerRunning = false
     val isServerRunning: Boolean get() = _isServerRunning
 
-    /**
-     * 初始化协调器
-     */
+    /** * initializecoordinator*/
     fun initialize(): Boolean {
         return runCatching {
             if (_isInitialized) {
@@ -35,7 +31,7 @@ class ApiServiceCoordinator(private val context: Context) {
                 return true
             }
 
-            // 初始化通知管理器
+            //initializenotificationmanager
             notificationManager = ApiNotificationManager(context)
 
             _isInitialized = true
@@ -47,9 +43,7 @@ class ApiServiceCoordinator(private val context: Context) {
         }
     }
 
-    /**
-     * 启动服务器和通知
-     */
+    /** * startserviceandnotification*/
     fun startServer(): Boolean {
         if (!_isInitialized) {
             Timber.Forest.tag(TAG).w("Coordinator not initialized")
@@ -67,22 +61,23 @@ class ApiServiceCoordinator(private val context: Context) {
                 return false
             }
 
-            // 确保ServerEventManager状态正确初始化
-            // 如果之前被重置过，需要重新准备状态
+            //ensureServerEventManagerstate correctlyinitialize
+            //if previouslybeenreset,neededre-preparestate
             val serverEventManager = com.alibaba.mnnllm.api.openai.manager.ServerEventManager.getInstance()
             if (serverEventManager.getCurrentState() == com.alibaba.mnnllm.api.openai.manager.ServerEventManager.ServerState.STOPPED) {
                 Timber.Forest.tag(TAG).d("ServerEventManager is in STOPPED state, ready for new server")
             }
 
-            // 启动服务器
+            //startservice
             val app = OpenAIApplication(networkServiceScope, context)
             app.start()
             application = app
 
-            // 更新通知
+            //updatenotification
             notificationManager?.updateNotification(
                 context.getString(R.string.api_service_running),
-                context.getString(R.string.api_service_port, app.getPort())
+                "", //let NotificationManager usedefault IP addressdisplay
+                app.getPort()
             )
 
             _isServerRunning = true
@@ -98,19 +93,17 @@ class ApiServiceCoordinator(private val context: Context) {
         }
     }
 
-    /**
-     * 停止服务器和通知
-     */
+    /** * stop serverandnotification*/
     fun stopServer() {
         runCatching {
-            // 停止服务器
+            //stop server
             application?.stop()
             application = null
 
             com.alibaba.mnnllm.api.openai.manager.ServerEventManager.getInstance().resetRuntimeState()
             Timber.Forest.tag(TAG).d("ServerEventManager state reset after application is nullified.")
 
-            // 取消通知
+            //cancelnotification
             notificationManager?.cancelNotification()
 
             _isServerRunning = false
@@ -121,73 +114,60 @@ class ApiServiceCoordinator(private val context: Context) {
     }
 
     /**
-     * 更新通知内容
-     */
-    fun updateNotification(title: String, content: String) {
-        notificationManager?.updateNotification(title, content)
+     * updatenotificationcontent*/
+    fun updateNotification(title: String, content: String, port: Int = 8080) {
+        notificationManager?.updateNotification(title, content, port)
     }
 
-    /**
-     * 获取通知对象（用于前台服务）
-     */
+    /** * getnotificationobject（forforegroundservice）*/
     fun getNotification(
         title: String = context.getString(R.string.api_service_running),
-        content: String = context.getString(R.string.api_service_port, 8080)
-    ) = notificationManager?.buildNotification(title, content)
+        content: String = context.getString(R.string.api_service_port, 8080),
+        port: Int = 8080
+    ) = notificationManager?.buildNotification(title, content, port)
 
-    /**
-     * 获取服务器端口
-     */
+    /** * getserviceport*/
     fun getServerPort(): Int? = application?.getPort()
 
-    /**
-     * 检查服务器是否运行
-     */
+    /** * checkservicewhetherrunning*/
     fun checkServerStatus(): Boolean = application?.isRunning() ?: false
 
-    /**
-     * 检查服务器是否就绪
-     */
+    /** * checkservicewhetherready*/
     fun checkServerReady(): Boolean = application?.isReady() ?: false
 
-    /**
-     * 获取服务器状态
-     */
+    /** * getservicestate*/
     fun getServerState() = application?.getServerState()
 
-    /**
-     * 获取服务器信息
-     */
+    /** * getserviceinfo*/
     fun getServerInfo() = application?.getServerInfo()
 
     /**
-     * 清理资源
-     */
+     * cleanupresource*/
     fun cleanup() {
         runCatching {
             val appToStop = application
             if (appToStop != null) {
                 Timber.Forest.tag(TAG).i("Cleanup: Requesting server stop for application: $appToStop")
-                appToStop.stop() // 发出停止请求
+                appToStop.stop() //issuestoprequest
                 
                 Timber.Forest.tag(TAG).i("Cleanup: Waiting 5 seconds for server to stop gracefully...")
                 try {
-                    Thread.sleep(3000) // 增加等待时间到5秒
+                    Thread.sleep(3000) //increasewaittimeto 5 seconds
                 } catch (e: InterruptedException) {
                     Thread.currentThread().interrupt()
                     Timber.Forest.tag(TAG).w("Cleanup delay interrupted after server stop request.")
                 }
                 Timber.Forest.tag(TAG).i("Cleanup: Finished waiting. Proceeding with coordinator cleanup.")
-                application = null // 在等待之后置空
+                application = null //atwaitafter set to null
             }
 
-            // 确保即使 appToStop 为 null，也尝试重置状态和取消通知
+            //ensureeven if appToStop as null，alsotryresetstateandcancelnotification
             com.alibaba.mnnllm.api.openai.manager.ServerEventManager.getInstance().resetRuntimeState()
             Timber.Forest.tag(TAG).d("ServerEventManager state reset during cleanup.")
             notificationManager?.cancelNotification()
             
             Timber.Forest.tag(TAG).i("Cleanup: Cancelling networkServiceScope.")
-            networkServiceScope.cancel() // 最后取消作用域
+            networkServiceScope.cancel() //finallycancelscope
             notificationManager = null
             _isInitialized = false
             Timber.Forest.tag(TAG).i("Coordinator cleaned up")

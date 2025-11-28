@@ -21,6 +21,8 @@ import com.alibaba.mnnllm.android.model.Modality
 import com.alibaba.mnnllm.android.model.ModelVendors
 import com.alibaba.mnnllm.android.modelsettings.DropDownMenuHelper
 import com.alibaba.mnnllm.android.utils.Searchable
+import com.alibaba.mnnllm.android.utils.LargeModelConfirmationDialog
+import com.alibaba.mnnllm.android.modelist.ModelListManager
 
 class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
     
@@ -40,6 +42,7 @@ class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
     private val modelItemList: MutableList<ModelItemWrapper> = mutableListOf()
 
     private var modelListErrorText: TextView? = null
+    private var loadingMessageText: TextView? = null
 
     private var filterDownloaded = false
     private var filterQuery = ""
@@ -74,9 +77,7 @@ class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
         modelListErrorView = view.findViewById(R.id.model_list_failed_view)
         modelListEmptyView = view.findViewById(R.id.model_list_empty_view)
         modelListErrorText = modelListErrorView.findViewById(R.id.tv_error_text)
-        modelListErrorView.setOnClickListener {
-            modelListPresenter!!.load()
-        }
+        loadingMessageText = modelListLoadingView.findViewById(R.id.tv_loading_message)
         modelListRecyclerView.setLayoutManager(
             LinearLayoutManager(
                 context,
@@ -102,6 +103,13 @@ class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
         filterDownloaded = isFilterDownloaded(context)
         adapter!!.setFilter(filterQuery)
         adapter!!.filterDownloadState(filterDownloaded.toString())
+
+        // Show loading view initially to prevent flash of empty list
+        modelListLoadingView.visibility = View.VISIBLE
+        modelListRecyclerView.visibility = View.GONE
+        modelListErrorView.visibility = View.GONE
+        modelListEmptyView.visibility = View.GONE
+        
         modelListPresenter!!.onCreate()
         return view
     }
@@ -127,9 +135,6 @@ class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
                 PreferenceUtils.unpinModel(requireContext(), modelId)
                 Toast.makeText(requireContext(), getString(R.string.model_unpinned), Toast.LENGTH_SHORT).show()
             }
-            
-            // Refresh the list with smart scroll handling
-            modelListPresenter?.refreshList()
             
             // If we were at the top and unpinned an item, scroll back to top after update
             if (shouldScrollToTop) {
@@ -249,18 +254,13 @@ class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
             removeCustomToolbar()
         } else {
             setupCustomToolbar()
-            // Refresh the list to update sorting based on recent chats
-            modelListPresenter?.refreshList()
-            // Restore search state if there was an active search
             restoreSearchStateIfNeeded()
         }
     }
     
     override fun onResume() {
         super.onResume()
-        // Refresh the list when fragment resumes to update sorting
-        modelListPresenter?.refreshList()
-        // Also restore search state on resume (for initial load)
+
         restoreSearchStateIfNeeded()
     }
     
@@ -318,7 +318,34 @@ class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
         modelListRecyclerView.visibility = View.GONE
     }
 
+    override fun onBuiltinModelsCopyProgress(current: Int, total: Int, message: String) {
+        requireActivity().runOnUiThread {
+            loadingMessageText?.text = message
+        }
+    }
+
     override fun runModel(destPath:String?, modelId: String?) {
-        ChatRouter.startRun(requireContext(), modelId!!, destPath, null)
+        // Check if model is larger than 7GB before running
+        val modelItem = ModelListManager.getModelIdModelMap()[modelId]
+        val modelMarketItem = modelItem?.modelMarketItem
+        
+        if (modelMarketItem != null && modelMarketItem.sizeB > 10.0) {
+            // Show confirmation dialog for large models
+            LargeModelConfirmationDialog.show(
+                fragment = this,
+                modelName = modelMarketItem.modelName,
+                modelSize = modelMarketItem.sizeB,
+                onConfirm = {
+                    // User confirmed, proceed with running the model
+                    ChatRouter.startRun(requireContext(), modelId!!, destPath, null)
+                },
+                onCancel = {
+                    // User cancelled, do nothing
+                }
+            )
+        } else {
+            // Model is not large or size info not available, run directly
+            ChatRouter.startRun(requireContext(), modelId!!, destPath, null)
+        }
     }
 }

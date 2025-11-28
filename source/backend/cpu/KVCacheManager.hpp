@@ -39,7 +39,7 @@ public:
 private:
     Backend * mBackend;
     KVCacheConfig mConfig;
-    std::shared_ptr<Tensor> mPastKey;               // {numhead, [maxlen/hP, headdim, hP]} or {numhead, [maxlen/hP8, headdim/lP8, hP8, lP8]} 
+    std::shared_ptr<Tensor> mPastKey;               // {numhead, [maxlen/hP, headdim, hP]} or {numhead, [maxlen/hP8, headdim/lP8, hP8, lP8]}
     std::shared_ptr<Tensor> mPastValue;             // numhead, [headdim/hP, maxlen, hP]
     std::shared_ptr<Tensor> mKeyScale;              // {numhead, [maxlen/hP, hP]} or {numhead, [maxlen/hP8, hP8]}
     std::shared_ptr<Tensor> mKeyZeroPoint;          // {numhead, [maxlen/hP, hP]} or {numhead, [maxlen/hP8, hP8]}
@@ -65,10 +65,13 @@ private:
     void expandKVCacheInDisk(int oldMaxLength, int oldKeySize, int oldValueSize, int keySize, int valueSize);
     template <typename T> void pack_key(const Tensor* key, int seq_len, int kv_h);
     template <typename T> void pack_value(const Tensor* value, int seq_len, int kv_h);
+    template <typename T> void moveKV(int src, int dst, int size);
+    size_t keyIndex(int seq, int dim) const;
+    size_t valueIndex(int seq, int dim) const;
 public:
     KVCacheManager(Backend * backend, KVCacheConfig & kvConfig) {
         mBackend   = backend;
-        mConfig    = kvConfig; 
+        mConfig    = kvConfig;
     }
     ~KVCacheManager() {
         onClear();
@@ -158,7 +161,7 @@ public:
     void onAlloc(int kv_seq_len);
     void onRealloc(const KVMeta* meta);
     void onClear();
-    void onPushBack(const Tensor * key, const Tensor * value);
+    void onPushBack(const Tensor * key, const Tensor * value, int add);
     void onDequantValue(Tensor * dequantedValues);
 };
 

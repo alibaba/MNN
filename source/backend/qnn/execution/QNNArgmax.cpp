@@ -10,6 +10,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 ErrorCode QNNArgmax::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     if (mOp->type() == OpType_ArgMin) {
@@ -23,7 +24,6 @@ ErrorCode QNNArgmax::onEncode(const std::vector<Tensor *> &inputs, const std::ve
     }
 
     int axis = mOp->main_as_ArgMax()->axis();
-    axis = getNHWCAxis(axis, inputs[0]->dimensions(), TensorUtils::getDimType(inputs[0]));
 
     this->createParamScalar("axis", (uint32_t)axis);
 
@@ -43,6 +43,6 @@ public:
 
 REGISTER_QNN_OP_CREATOR(QNNArgmaxCreator, OpType_ArgMax)
 REGISTER_QNN_OP_CREATOR(QNNArgmaxCreator, OpType_ArgMin)
-
+#endif
 } // end namespace QNN
 } // end namespace MNN

@@ -223,6 +223,10 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
      cxxopts::value<int>()
      )
     (
+     "hqq",
+     "using hqq quant method to improve accuracy, default: false, if use hqq, weightQuantAsymmetric is set as true"
+     )
+    (
      "compressionParamsFile",
      "The path of the compression parameters that stores activation, "
      "weight scales and zero points for quantization or information "
@@ -327,6 +331,10 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
       "useOriginRNNImpl",
       "Don't use While Module to Implement LSTM or GRU, use origin OP, if open it, LSTM and GRU can't be quantized or use other compress method",
       cxxopts::value<bool>()
+     )
+    (
+     "splitBlockQuant",
+     "Split Block Quant Convolution"
      )
     ;
 
@@ -462,6 +470,9 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
     if (result.count("fp16")) {
         modelPath.saveHalfFloat = true;
     }
+    if (result.count("hqq")) {
+        modelPath.useHQQ = true;
+    }
     if (result.count("forTraining")) {
         modelPath.forTraining = true;
     }
@@ -473,6 +484,9 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
     }
     if (result.count("weightQuantBits")) {
         modelPath.weightQuantBits = result["weightQuantBits"].as<int>();
+        if (modelPath.useHQQ) {
+            MNN_PRINT("Use HQQ to quant weight\n");
+        }
     }
     if (result.count("weightQuantAsymmetric")) {
         modelPath.weightQuantAsymmetric = result["weightQuantAsymmetric"].as<bool>();
@@ -496,6 +510,9 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
     }
     if (result.count("authCode")) {
         modelPath.authCode = result["authCode"].as<std::string>();
+    }
+    if (result.count("splitBlockQuant")) {
+        modelPath.splitQuantBlock = true;
     }
     if (result.count("alignDenormalizedValue")) {
         modelPath.alignDenormalizedValue = result["alignDenormalizedValue"].as<int>();
@@ -728,14 +745,18 @@ bool Cli::convertModel(modelConfig& modelPath) {
     if (1 == modelPath.optimizeLevel && modelPath.model == modelConfig::MNN) {
         expectedPass = {
             "TranslateJsonOp",
-            "FuseDupOp"
+            "FuseDupOp",
+            "RemoveInvalidCast",
         };
+    }
+    if (modelPath.splitQuantBlock) {
+        expectedPass.emplace_back("SplitBlockQuantConvolution");
     }
     CommonKit::loadCompress(modelPath);
     if (needOptimize) {
         std::cout << "Start to Optimize the MNN Net..." << std::endl;
         std::unique_ptr<MNN::NetT> newNet = optimizeNet(netT, modelPath.forTraining, modelPath, expectedPass);
-        if (newNet->extraTensorDescribe.size()>0) {
+        if (newNet->extraTensorDescribe.size()>0 && expectedPass.empty()) {
             MNN_PRINT("MNN net has tensor quant info\n");
             computeUnaryBuffer(newNet.get());
         }

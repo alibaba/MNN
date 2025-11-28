@@ -31,7 +31,7 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
     private var _binding: FragmentApiSettingsSheetBinding? = null
     private val binding get() = _binding!!
 
-    // API设置配置
+    //API settings configuration
     private var currentPort: Int = 8080
     private var currentIpAddress: String = "127.0.0.1"
     private var corsEnabled: Boolean = false
@@ -72,7 +72,7 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
     }
 
     private fun loadSettings() {
-        // 使用ApiServerConfig加载设置
+        //Load settings using ApiServerConfig
         val context = requireContext()
 
         currentPort = ApiServerConfig.getPort(context)
@@ -82,7 +82,7 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
         authEnabled = ApiServerConfig.isAuthEnabled(context)
         apiKey = ApiServerConfig.getApiKey(context)
 
-        // 更新UI
+        //Update UI
         binding.editPort.setText(currentPort.toString())
         binding.editIpAddress.setText(currentIpAddress)
         binding.switchCors.isChecked = corsEnabled
@@ -100,7 +100,7 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
                 try {
                     currentPort = text.toString().toInt()
                 } catch (e: NumberFormatException) {
-                    // 忽略无效输入
+                    //Ignore invalid input
                 }
             }
         }
@@ -111,7 +111,7 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
             }
         }
 
-        // IP地址快速设置按钮
+        //IP address quick setup button
         binding.btnIpLocalhost.setOnClickListener {
             binding.editIpAddress.setText("127.0.0.1")
             currentIpAddress = "127.0.0.1"
@@ -177,7 +177,7 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
     private fun saveSettings() {
         val context = requireContext()
 
-        // 使用ApiServerConfig保存配置
+        //Save configuration using ApiServerConfig
         ApiServerConfig.saveConfig(
             context = context,
             port = currentPort,
@@ -188,19 +188,19 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
             apiKey = apiKey
         )
 
-        //注释掉但保留这两个Toast，可用于测试
+        //Commented out but keep these two Toasts, can be used for testing
         //  Toast.makeText(context, getString(R.string.api_settings_saved), Toast.LENGTH_SHORT).show()
 
-        // 如果API服务已启用，重启服务以应用新配置
+        //If API service is enabled, restart service to apply new configuration
         if (MainSettings.isApiServiceEnabled(context)) {
             if (ApiServiceManager.isApiServiceRunning()) {
-                //打印isApiServiceRunning的值
+                //Print isApiServiceRunning value
                 Timber.d("saveSettings中isApiServiceRunning: ${ApiServiceManager.isApiServiceRunning()}")
 
 
                 //  Toast.makeText(context, getString(R.string.restarting_api_service_new_config), Toast.LENGTH_SHORT).show()
 
-                // 延迟启动新服务，确保停止操作完成
+                //Delay starting new service to ensure stop operation completes
                 lifecycleScope.launch {
 
                     ServerEventManager.getInstance().resetRuntimeState()
@@ -210,15 +210,15 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
                 }
                 Toast.makeText(context, getString(R.string.api_settings_saved), Toast.LENGTH_SHORT).show()
 
-                //打印新配置，
+                //Print new configuration，
                 Timber.d("API服务已启用并New API settings: Port=$currentPort, IP=$currentIpAddress, CORS=$corsEnabled, Auth=$authEnabled")
 
             } else {
-                // 启动服务（使用新配置）
+                //Start service (using new configuration)
                 ApiServiceManager.startApiService(context)
                 Toast.makeText(context, getString(R.string.api_settings_saved), Toast.LENGTH_SHORT).show()
 
-                //打印新配置
+                //Print new configuration
                 Timber.d("API服务未启用并New API settings: Port=$currentPort, IP=$currentIpAddress, CORS=$corsEnabled, Auth=$authEnabled")
             }
         }
@@ -226,52 +226,49 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
 
     private fun resetToDefaults() {
         val context = requireContext()
-        ApiServerConfig.resetToDefault(context) // 将配置重置为默认值
+        ApiServerConfig.resetToDefault(context) //Reset configuration to default values
         Toast.makeText(context, getString(R.string.config_restored_default_processing_service), Toast.LENGTH_SHORT).show()
 
-        val serviceShouldRun = MainSettings.isApiServiceEnabled(context) // 检查服务是否本应运行
+        val serviceShouldRun = MainSettings.isApiServiceEnabled(context) //Check if service should be running
 
         if (ApiServiceManager.isApiServiceRunning()) {
-            // 如果服务正在运行，则先停止它
+            //If service is running, stop it first
             ApiServiceManager.stopApiService(context)
             lifecycleScope.launch {
-                kotlinx.coroutines.delay(2100) // 等待服务完全停止
-                //  ServerEventManager.getInstance().() // 重置状态管理器
+                kotlinx.coroutines.delay(2100) //Wait for service to stop completely
+                //ServerEventManager.getInstance().() // Reset state manager
                 if (serviceShouldRun) {
-                    // 如果服务之前是启用状态，则用新默认配置重启
+                    //If service was previously enabled, restart with new default configuration
                     Timber.d("ApiService is enabled, restarting with default settings.")
                     ApiServiceManager.startApiService(context)
                 } else {
                     Timber.d("ApiService is disabled, service stopped after resetting to defaults.")
                 }
-                loadSettings() // 在协程中更新UI，确保在服务操作后执行
+                loadSettings() //Update UI in coroutine, ensure execution after service operations
             }
         } else {
-            // 如果服务未运行
-            // ServerEventManager.getInstance().resetRuntimeState() // 也重置一下状态以防万一
+            //If service is not running
+            //ServerEventManager.getInstance().resetRuntimeState() // Also reset state just in case
             if (serviceShouldRun) {
-                // 如果服务之前是启用状态但未运行，则用新默认配置启动
+                //If service was previously enabled but not running, start with new default configuration
                 Timber.d("ApiService is enabled but was not running, starting with default settings.")
                 ApiServiceManager.startApiService(context)
             }
-            loadSettings() // 更新UI
+            loadSettings() //Update UI
         }
     }
 
-    /**
-     * 获取设备IP地址
-     * 优先获取WiFi IP地址，如果没有则获取移动数据IP地址
-     */
+    /** * getdeviceIPaddress * Prioritize getting WiFi IPaddress，if not availablethengetmobiledataIPaddress*/
     private fun getDeviceIpAddress(): String {
         try {
             val context = requireContext()
             val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
-            // 获取当前活动网络
+            //Get current active network
             val activeNetwork = connectivityManager.activeNetwork
             val networkCapabilities = connectivityManager.getNetworkCapabilities(activeNetwork)
 
-            // 优先获取WiFi IP
+            //Prioritize getting WiFi IP
             if (networkCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) {
                 val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
                 val wifiInfo = wifiManager.connectionInfo
@@ -288,7 +285,7 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
                 }
             }
 
-            // 如果WiFi不可用，尝试获取其他网络接口的IP
+            //If WiFi unavailable, try getting IP from other network interfaces
             val interfaces = NetworkInterface.getNetworkInterfaces()
             for (networkInterface in Collections.list(interfaces)) {
                 if (!networkInterface.isLoopback && networkInterface.isUp) {
@@ -304,7 +301,7 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
             e.printStackTrace()
         }
 
-        // 如果无法获取IP地址，返回0.0.0.0
+        //If unable to get IP address, return 0.0.0.0
         return "0.0.0.0"
     }
 

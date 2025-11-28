@@ -217,7 +217,7 @@ int main(int argc, const char* argv[]) {
 
     // Create Input
     int batchSize = argc - 3;
-    auto input = MNN::Express::_Input({batchSize, 3, width, height}, MNN::Express::NC4HW4);
+    auto input = MNN::Express::_Input({batchSize, 3, height, width}, MNN::Express::NC4HW4);
     for (int batch = 0; batch < batchSize; ++batch) {
         int size_w   = width;
         int size_h   = height;

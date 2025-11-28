@@ -350,7 +350,7 @@ VARP _ErfinvInt8(VARP x, float* scale, float* zero) {
         auto result = p * fx;
         float val = 0;
         if (fabsf(fabsf(fx) - 1) < 1e-8) {
-            val = std::numeric_limits<float>::infinity();
+            val = std::numeric_limits<float>::max();
         } else {
             val = result;
         }

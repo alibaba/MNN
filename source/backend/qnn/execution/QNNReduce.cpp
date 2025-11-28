@@ -10,6 +10,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 ErrorCode QNNReduce::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     MNN_ASSERT(inputs.size() == 2 || inputs.size() == 1);
@@ -38,14 +39,14 @@ ErrorCode QNNReduce::onEncode(const std::vector<Tensor *> &inputs, const std::ve
         int32_t * reduceAxes = inputs[1]->host<int32_t>();
         for (int i = 0; i < inputs[1]->elementSize(); ++i) {
             positiveAxis = (reduceAxes[i] < 0) ? (inputDim + reduceAxes[i]) : (reduceAxes[i]);
-            axesData.push_back((uint32_t) getNHWCAxis(positiveAxis, inputDim, inputDimType));
+            axesData.push_back((uint32_t) positiveAxis);
         }
     } else {
         MNN_ASSERT(param->dim() != nullptr);
         const int32_t * reduceAxes = param->dim()->data();
         for (int i = 0; i < param->dim()->size(); i++) {
             positiveAxis = (reduceAxes[i] < 0) ? (inputDim + reduceAxes[i]) : (reduceAxes[i]);
-            axesData.push_back((uint32_t) getNHWCAxis(positiveAxis, inputDim, inputDimType));
+            axesData.push_back((uint32_t) positiveAxis);
         }
     }
 
@@ -75,6 +76,6 @@ public:
 };
 
 REGISTER_QNN_OP_CREATOR(QNNReduceCreator, OpType_Reduction)
-
+#endif
 } // end namespace QNN
 } // end namespace MNN

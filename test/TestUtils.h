@@ -41,7 +41,7 @@ void dispatch(std::function<void(MNNForwardType)> payload, MNNForwardType backen
  @param threshold
  */
 template <typename T>
-bool checkVector(const T* result, const T* rightData, int size, T threshold){
+bool checkVector(const T* result, const T* rightData, size_t size, T threshold){
     MNN_ASSERT(result != nullptr);
     MNN_ASSERT(rightData != nullptr);
     MNN_ASSERT(size >= 0);

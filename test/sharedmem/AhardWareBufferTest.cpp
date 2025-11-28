@@ -21,7 +21,7 @@ using namespace MNN;
 using namespace MNN::Express;
 
 /*
-Ref from 
+Ref from
 https://android.googlesource.com/platform/external/libchrome/+/refs/tags/aml_res_331314010/base/android/android_hardware_buffer_compat.h
 */
 using PFAHardwareBuffer_allocate = int (*)(const AHardwareBuffer_Desc* desc,
@@ -182,7 +182,7 @@ static AHardwareBuffer* creatAHardwareBufferRGBA(int width, int height, void *da
     if(result != 0) {
         MNN_ERROR("alloc AHardwareBuffer failed   %d\n", result);
     }
-    
+
     if(nullptr != data){
         void* map = nullptr;
         ARect rect = { 0, 0, width, height };  // Define the region to lock
@@ -200,7 +200,7 @@ static AHardwareBuffer* creatAHardwareBufferRGBA(int width, int height, void *da
                 memcpy(dst, src, width * 4);
             }
         }
-        
+
         gFunction->Unlock(buffer, nullptr);
     }
     return buffer;
@@ -220,7 +220,7 @@ static AHardwareBuffer* creatAHardwareBufferYUV420(int width, int height, void *
     if(result != 0) {
         MNN_ERROR("alloc AHardwareBuffer failed   %d\n", result);
     }
-    
+
     if(nullptr != data){
         void* map = nullptr;
         ARect rect = { 0, 0, width, height };  // Define the region to lock
@@ -238,7 +238,7 @@ static AHardwareBuffer* creatAHardwareBufferYUV420(int width, int height, void *
                 memcpy(dst, src, width);
             }
         }
-        
+
         gFunction->Unlock(buffer, nullptr);
     }
     return buffer;
@@ -267,7 +267,7 @@ static void copyDataFromAHardWareBufferRGBA(AHardwareBuffer* buffer, int width, 
                 memcpy(dst, src, width * 4);
             }
         }
-        
+
         gFunction->Unlock(buffer, nullptr);
     }
 }
@@ -291,7 +291,7 @@ static void copyDataFromAHardWareBufferYUV420(AHardwareBuffer* buffer, int width
                 memcpy(dst, src, width);
             }
         }
-        
+
         gFunction->Unlock(buffer, nullptr);
     }
 }
@@ -351,12 +351,12 @@ public:
                 }
                 x->unMap();
             }
-            
+
             auto outputs = net->onForward({x});
             outputs[0] = _Convert(outputs[0], NC4HW4);
             auto refPtr = outputs[0]->readMap<float>();
             auto size = outputs[0]->getInfo()->size;
-            
+
             auto xShared = _Input({1, channel, height, width}, NCHW, halide_type_of<float>());
             auto inputAhardwareBuffer = creatAHardwareBufferRGBA(width, height, inputData);
             volatile uint64_t inputValue = (uint64_t)inputAhardwareBuffer;
@@ -372,7 +372,7 @@ public:
                     return false;
                 }
             }
-            
+
             // speed
             const auto time = 100;
             {
@@ -395,11 +395,11 @@ public:
                 float timeCost = _t.durationInUs() / 1000.0f / (float)time;
                 MNN_PRINT("shared memory copy [%d, %d, %d], Avg time: %f ms\n", channel, height, width, timeCost);
             }
-            
+
             ReleaseAHardWareBuffer(inputAhardwareBuffer);
             ReleaseAHardWareBuffer(outputAhardwareBuffer);
         }
-        
+
         // test yuvinput
         {
             int channel = 1;
@@ -420,11 +420,11 @@ public:
                 }
                 x->unMap();
             }
-            
+
             auto outputs = net->onForward({x});
             auto refPtr = outputs[0]->readMap<float>();
             auto size = outputs[0]->getInfo()->size;
-            
+
             auto xShared = _Input({1, channel, height, width}, NCHW, halide_type_of<float>());
             auto inputAhardwareBuffer = creatAHardwareBufferYUV420(width, height, inputData);
             volatile uint64_t inputValue = (uint64_t)inputAhardwareBuffer;
@@ -440,7 +440,7 @@ public:
                     return false;
                 }
             }
-            
+
             // speed
             const auto time = 100;
             {
@@ -463,7 +463,7 @@ public:
                 float timeCost = _t.durationInUs() / 1000.0f / (float)time;
                 MNN_PRINT("shared memory copy [%d, %d, %d], Avg time: %f ms\n", channel, height, width, timeCost);
             }
-            
+
             ReleaseAHardWareBuffer(inputAhardwareBuffer);
             ReleaseAHardWareBuffer(outputAhardwareBuffer);
         }

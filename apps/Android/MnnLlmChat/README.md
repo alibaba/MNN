@@ -57,10 +57,25 @@ This is our full multimodal language model (LLM) Android app
 + build android app project and install
   ```shell
   cd ../../../apps/Android/MnnLlmChat
-  ./gradlew installDebug
+  ./installDebug.sh
   ```
 
 # Releases
+
+## Version 0.7.5
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_5.apk)
++ Add Qwen3-VL support(4B,8B,30B-A3B)
++ Support video input for smolvlm-video series.
+
+## Version 0.7.3.1
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_3_1.apk)
++ Optimize ApiService
+## Version 0.7.2
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_2.apk)
++ Bugfix:
+  + qwen think/no_think switch sometimes not work.
++ UI Update:
+  + update ui for history and benchmark test screen.
 ## Version 0.7.1
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_1.apk)
 + add new models: 

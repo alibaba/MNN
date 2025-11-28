@@ -5,6 +5,7 @@ package com.alibaba.mnnllm.android.chat.chatlist
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.text.TextUtils
+import android.util.Log
 import android.view.MenuItem
 import android.view.MotionEvent
 import android.view.View
@@ -22,6 +23,7 @@ import com.alibaba.mnnllm.android.chat.ChatActivity
 import com.alibaba.mnnllm.android.chat.PromptUtils
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.chat.SelectTextActivity
+import com.alibaba.mnnllm.android.chat.chatlist.VideoPlayerComponent
 import com.alibaba.mnnllm.android.utils.ClipboardUtils
 import com.alibaba.mnnllm.android.utils.DeviceUtils
 import com.alibaba.mnnllm.android.utils.GithubUtils
@@ -56,6 +58,9 @@ object ChatViewHolders {
         val chatImage: ImageView =
             itemView.findViewById(R.id.tv_chat_image)
 
+        val chatVideo: com.alibaba.mnnllm.android.widgets.VideoPreviewView =
+            itemView.findViewById(R.id.tv_chat_video)
+
         val textDuration: TextView = itemView.findViewById(R.id.tv_chat_voice_duration)
 
         val iconPlayPause: ImageView =
@@ -66,6 +71,7 @@ object ChatViewHolders {
             iconPlayPause.setOnClickListener(this)
             viewText.setOnLongClickListener(this)
             audioLayout.setOnLongClickListener(this)
+            chatVideo.setOnClickListener(this)
         }
 
         @SuppressLint("DefaultLocale")
@@ -75,6 +81,7 @@ object ChatViewHolders {
             audioLayout.tag = data
             iconPlayPause.tag = data
             itemView.tag = data
+            chatVideo.tag = data
             viewText.text = data.text
             viewText.visibility =
                 if (TextUtils.isEmpty(data.text)) View.GONE else View.VISIBLE
@@ -85,14 +92,36 @@ object ChatViewHolders {
             if (imageUri != null) {
                 chatImage.setImageURI(imageUri)
             }
+
+            val videoUri = data.videoUri
+            Log.d("UserViewHolder", "Binding video data: videoUri=$videoUri")
+            chatVideo.visibility =
+                if (videoUri != null) View.VISIBLE else View.GONE
+            if (videoUri != null) {
+                // Set video thumbnail and play icon
+                Log.d("UserViewHolder", "Setting video URI and making visible")
+                chatVideo.setVideoUri(videoUri)
+                chatVideo.setPlayIconVisible(true)
+            }
             if (data.audioPlayComponent != null) {
                 data.audioPlayComponent!!.bindViewHolder(this)
             }
         }
 
         override fun onClick(v: View) {
-            val chatDataItem = v.tag as ChatDataItem
-            if (chatDataItem.audioUri != null) {
+            Log.d("UserViewHolder", "onClick called for view: ${v.id}")
+            val chatDataItem = v.tag as? ChatDataItem
+            if (chatDataItem == null) {
+                Log.e("UserViewHolder", "chatDataItem is null for view: ${v.id}")
+                return
+            }
+            
+            if (v.id == R.id.tv_chat_video && chatDataItem.videoUri != null) {
+                // Handle video click
+                Log.d("UserViewHolder", "Video clicked, videoUri: ${chatDataItem.videoUri}")
+                val videoPlayerComponent = VideoPlayerComponent(chatDataItem)
+                videoPlayerComponent.playVideo(v.context)
+            } else if (chatDataItem.audioUri != null) {
                 if (chatDataItem.audioPlayComponent == null) {
                     chatDataItem.audioPlayComponent = AudioPlayerComponent(chatDataItem)
                 }
@@ -142,6 +171,8 @@ object ChatViewHolders {
         RecyclerView.ViewHolder(view), View.OnClickListener, OnLongClickListener {
         private val viewText: TextView = view.findViewById(R.id.tv_chat_text)
         private val viewThinking: TextView = view.findViewById(R.id.tv_chat_thinking)
+        private val thinkingContainer: View = view.findViewById(R.id.ll_thinking_container)
+        private val thinkingMarker: View = view.findViewById(R.id.view_thinking_marker)
         private val benchmarkInfo: TextView = view.findViewById(R.id.tv_chat_benchmark)
         private val thinkingToggle: LinearLayout = view.findViewById(R.id.ll_thinking_toggle)
         private val textThinkingHeader:TextView = view.findViewById(R.id.tv_thinking_header)
@@ -299,12 +330,21 @@ object ChatViewHolders {
                 textThinkingHeader.resources.getString(R.string.r1_think_complete_template, (data.thinkingFinishedTime / 1000).toString())
             else textThinkingHeader.resources.getString(R.string.r1_thinking_message)
             if (showThinking && !TextUtils.isEmpty(data.thinkingText)) {
+                val thinkingText = data.thinkingText!!
+                thinkingContainer.visibility = View.VISIBLE
                 viewThinking.visibility = View.VISIBLE
-                markdown.setMarkdown(viewThinking, data.thinkingText!!)
+                // Legacy compatibility: if content starts with '>' assume preformatted blockquote
+                val isLegacyBlockQuote = thinkingText.trimStart().startsWith(">")
+                // Hide left marker if legacy content already has its own marker style
+                thinkingMarker.visibility = if (isLegacyBlockQuote) View.GONE else View.VISIBLE
+                markdown.setMarkdown(viewThinking, thinkingText)
                 ivThinkingHeader.setImageResource(R.drawable.ic_arrow_up)
             } else {
                 ivThinkingHeader.setImageResource(R.drawable.ic_arrow_down)
                 viewThinking.visibility = View.GONE
+                thinkingContainer.visibility = View.GONE
+                // Reset marker visible for next binds by default
+                thinkingMarker.visibility = View.VISIBLE
             }
         }
 

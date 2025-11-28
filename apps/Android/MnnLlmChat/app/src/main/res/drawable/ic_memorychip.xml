@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    
+    <!-- iOS SF Symbol memorychip style -->
+    <!-- Main chip body -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M7,6C5.9,6 5,6.9 5,8V16C5,17.1 5.9,18 7,18H17C18.1,18 19,17.1 19,16V8C19,6.9 18.1,6 17,6H7ZM17,16H7V8H17V16Z" />
+    
+    <!-- Memory slots -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M8,10H9V14H8V10Z" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M10.5,10H11.5V14H10.5V10Z" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M13,10H14V14H13V10Z" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M15.5,10H16V14H15.5V10Z" />
+    
+    <!-- Connection pins (left side) -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M3,9H5V10H3V9Z" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M3,11H5V12H3V11Z" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M3,13H5V14H3V13Z" />
+    
+    <!-- Connection pins (right side) -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M19,9H21V10H19V9Z" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M19,11H21V12H19V11Z" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M19,13H21V14H19V13Z" />
+    
+</vector>

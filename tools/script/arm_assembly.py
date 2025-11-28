@@ -97,7 +97,7 @@ class Assembly():
             opcode = ''.join(opcode)
             flag = ''.join(flag)
             return self.gen_inst(opcode, flag, Vm, Vn, Vd)
-    
+
     def udot(self, operand1, operand2, operand3):
         # UDOT <Vd>.<Ta>, <Vn>.<Tb>, <Vm>.<Tc>[offset]
         Vd, Ta = self.operand_spilt(operand1)
@@ -159,7 +159,7 @@ class Assembly():
         new_mov = f'mov {operand1} {operand2}'
         new_code = code[:code.find('mov')] + new_mov + ' // ' + code.strip(' ')
         return new_code
-    
+
     def smopa(self, instruction):
         """
         SMOPA <ZAda>.S, <Pn>/M, <Pm>/M, <Zn>.B, <Zm>.B 32bit 4-way
@@ -169,7 +169,7 @@ class Assembly():
             parts = instruction.replace(' ', '').split(',')
             if len(parts) != 5:
                 raise ValueError("smopa 指令格式错误")
-                
+
             zda = int(parts[0].split('za')[1].split('.')[0])
             pn = int(parts[1].split('p')[1].split('/')[0])
             pm = int(parts[2].split('p')[1].split('/')[0])
@@ -188,7 +188,7 @@ class Assembly():
                 raise ValueError("zm必须在0-31范围内")
             if not (0 <= zn <= 31):
                 raise ValueError("zn必须在0-31范围内")
-            
+
             # smopa za0.s, p3/m, p4/m, z0.b, z1.b
             is32Bit4way = (parts[0].split('za')[1].split('.')[1] == "s") and (parts[3].split('z')[1].split('.')[1] == 'b') and (zmDataType == 'b')
             # smopa za0.d, p3/m, p4/m, z0.h, z1.h
@@ -222,7 +222,7 @@ class Assembly():
 
         except Exception as e:
             raise ValueError(f"smopa 指令解析错误: {str(e)}")
-    
+
     def fmopa(self, instruction):
         '''
         FMOPA <ZAda>.S, <Pn>/M, <Pm>/M, <Zn>.S, <Zm>.S
@@ -262,7 +262,7 @@ class Assembly():
             binary = opcode + zmCode + pmCode + pnCode + znCode + fixCode + zaCode
             inst = '.inst ' + str(hex(int(binary, 2)))
             return inst
-                
+
         except Exception as e:
             raise ValueError(f"fmopa 指令解析错误: {str(e)}")
 
@@ -274,16 +274,16 @@ class Assembly():
             parts = instruction.replace(' ', '').split(',')
             if len(parts) != 3:
                 raise ValueError("luti4 指令格式错误")
-            
+
             # 解析目标寄存器
             zd = int(parts[0].split('z')[1].split('.')[0])
             T = parts[0].split('.')[1].split('.')[0][0]
             if T != 'b':
                 raise ValueError("Not implement yet\n")
-            
+
             # 解析查找表寄存器
             zt = int(parts[1].split('zt')[1])
-            
+
             # 解析源寄存器
             zn = int(parts[2].split('z')[1].split('[')[0])
             i2 = int(parts[2].split('z')[1].split('[')[1][0])
@@ -305,7 +305,7 @@ class Assembly():
 
     def ldr(self, instruction):
         '''
-        ldr zt0, [x8]
+        .inst 0xe11f8100  // ldr zt0, [x8]
         '''
         i0 = instruction.find('[')
         i1 = instruction.find(']')

@@ -31,6 +31,7 @@ do { \
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 class QNNCommonExecution : public Execution {
 public:
@@ -49,8 +50,8 @@ protected:
 
     void createStaticTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<uint32_t> & dimensions, const void * buffer, Qnn_QuantizeParams_t quantizeParam = DEFAULT_QUANTIZE_PARAMS);
     void createStaticFloatTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<uint32_t> & dimensions, const float * buffer, Qnn_QuantizeParams_t quantize = DEFAULT_QUANTIZE_PARAMS);
-    void createStageTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<int> & dimensions, Qnn_QuantizeParams_t quantize = DEFAULT_QUANTIZE_PARAMS);
-    void createStageTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<uint32_t> & dimensions, Qnn_QuantizeParams_t quantize = DEFAULT_QUANTIZE_PARAMS);
+    void createStageTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<int> & dimensions, const Tensor* tensor = nullptr);
+    void createStageTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<uint32_t> & dimensions, const Tensor* tensor = nullptr);
     void createParamTensor(const std::string & paramName, Qnn_DataType_t dataType, const std::vector<uint32_t> & dims, void * data, std::string postName = "");
     void createParamScalar(const std::string & name, bool data);
     void createParamScalar(const std::string & name, uint32_t data);
@@ -81,7 +82,7 @@ public:
     std::vector<std::shared_ptr<QNNParamTensorWrapper>> mParamTensorWrappers;
     std::vector<std::shared_ptr<QNNParamScalarWrapper>> mParamScalarWrappers;
 };
-
+#endif
 } // end namespace QNN
 } // end namespace MNN
 

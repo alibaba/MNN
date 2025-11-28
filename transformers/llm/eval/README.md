@@ -37,3 +37,24 @@
     pip install lm_eval
     python llm_eval.py -m /path/to/model/config.json -d "arc_challenge"
     ```
+
+### download_data.py
+  - **功能**
+    下载数据集，以便纯C++环境下的评测工具，如`ppl_eval`使用
+  - **参数**
+    - `-o`：目标目录
+    - `-d`：数据集名称
+  - **示例**
+    ```sh
+    python download_data.py -o wiki -d "wikitext/wikitext-2-raw-v1"
+    ```
+
+### `ppl_eval`
+  - **功能**
+    与`evaluate_perplexity.py`相似，计算ppl值，但支持纯C++环境使用
+  - **参数**
+    - config.json
+    - 数据集目录（`download_data.py`的目标目录）
+  - **示例**
+    ```sh
+    ./ppl_eval ../transformers/llm/export/model/config.json ../transformers/llm/eval/wiki

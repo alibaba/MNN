@@ -193,7 +193,7 @@ void CPUMatMul::execute(const float* APtr, const float* BPtr, float* CPtr, const
             auto hC4 = UP_DIV(mH, core->pack);
             auto TC = mTempC.ptr() + tId * eP * hC4 * core->pack * core->bytes;
             size_t parameters[6];
-            parameters[0] = eP * core->bytes;
+            parameters[0] = eP * lP * core->bytes;
             parameters[1] = lAlign;
             parameters[2] = mH;
             parameters[3] = eP * core->pack * core->bytes;
@@ -204,7 +204,7 @@ void CPUMatMul::execute(const float* APtr, const float* BPtr, float* CPtr, const
                 int xEnd = ALIMIN(xStart + eP, mE);
                 int xC = xEnd - xStart;
                 if (mTransposeA) {
-                    // l, e -> l/lp, xC|eP, lp
+                    // [l, e] -> [l/lp, eP, lp]
                     if (lP > 1) {
                         // TODO: Speed up it
                         if (mL % lP != 0) {
@@ -238,22 +238,9 @@ void CPUMatMul::execute(const float* APtr, const float* BPtr, float* CPtr, const
                         }
                     }
                 } else {
+                    // [e, l] -> [l/lP, eP, lP]
                     if (lP > 1) {
-                        // e, l -> l/lp, 1, xC|eP, lp
-                        int lC = mL / lP;
-                        int lR = mL % lP;
-                        for (int yy=0; yy<lC; ++yy) {
-                            for (int x=0; x<xC; ++x) {
-                                ::memcpy(TA + (yy * eP * lP + x * lP) * core->bytes, (uint8_t*)APtr + ((x+xStart)*mL+yy*lP)*core->bytes, lP * core->bytes);
-                            }
-                        }
-                        if (lR > 0) {
-                            int yy = lC;
-                            for (int x=0; x<xC; ++x) {
-                                ::memset(TA + (yy * eP * lP + x * lP) * core->bytes, 0, lP * core->bytes);
-                                ::memcpy(TA + (yy * eP * lP + x * lP) * core->bytes, (uint8_t*)APtr + ((x+xStart)*mL+yy*lP)*core->bytes, lR * core->bytes);
-                            }
-                        }
+                        MNNPackForMatMul_A((float*)TA, (float*)((uint8_t*)APtr + xStart * mL * core->bytes), xC, mL, eP, lP, core->bytes);
                     } else {
                         // e, l -> l, eP
                         int dims[] = {
@@ -294,6 +281,7 @@ void CPUMatMul::execute(const float* APtr, const float* BPtr, float* CPtr, const
                     auto dst = (uint8_t*)CPtr + xStart * core->bytes;
                     core->MNNUnpackCUnit((float*)dst, (const float*)TC, xC, mH, area);
                 }
+
             }
         };
         MNN_CONCURRENCY_END();

@@ -107,7 +107,7 @@ void TensorUtils::copyShape(const Tensor* source, Tensor* dest, bool copyFormat,
         auto srcDes = getDescribe(source);
         dstDes->regions = srcDes->regions;
         dstDes->quantAttr = srcDes->quantAttr;
-        dstDes->type = srcDes->type;
+        dstDes->applyQuant = srcDes->applyQuant;
         dest->buffer().type = source->getType();
     }
     adjustTensorForCompability(dest);

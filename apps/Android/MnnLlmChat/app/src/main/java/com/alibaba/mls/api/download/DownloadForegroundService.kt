@@ -7,6 +7,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
 import android.os.Build
 import android.os.IBinder
@@ -31,6 +32,9 @@ class DownloadForegroundService : Service() {
             getString(AppR.string.download_service_title), 
             NotificationManager.IMPORTANCE_LOW
         )
+        channel.enableLights(false)
+        channel.enableVibration(false)
+        channel.setSound(null, null)
         notificationManager.createNotificationChannel(channel)
     }
 
@@ -41,7 +45,7 @@ class DownloadForegroundService : Service() {
         
         val notification = createNotification()
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(SERVICE_ID, notification, FOREGROUND_SERVICE_TYPE_DATA_SYNC)
             } else {
                 startForeground(SERVICE_ID, notification)
@@ -84,6 +88,7 @@ class DownloadForegroundService : Service() {
             .setContentIntent(pendingIntent)
             .setAutoCancel(false)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
             .build()
     }
 

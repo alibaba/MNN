@@ -9,7 +9,7 @@ import com.alibaba.mls.api.download.DownloadState
 import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.mainsettings.MainSettings
-import com.alibaba.mnnllm.android.model.ModelUtils
+import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.utils.FileUtils
 import com.google.android.material.button.MaterialButton
 
@@ -60,8 +60,8 @@ class MarketHolderVoiceDelegate(
      */
     fun getVoiceModelType(modelMarketItem: ModelMarketItem): VoiceModelType {
         return when {
-            ModelUtils.isTtsModelByTags(modelMarketItem.tags) -> VoiceModelType.TTS
-            ModelUtils.isAsrModelByTags(modelMarketItem.tags) -> VoiceModelType.ASR
+            ModelTypeUtils.isTtsModelByTags(modelMarketItem.tags) -> VoiceModelType.TTS
+            ModelTypeUtils.isAsrModelByTags(modelMarketItem.tags) -> VoiceModelType.ASR
             else -> VoiceModelType.NONE
         }
     }
