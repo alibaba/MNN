@@ -12,6 +12,9 @@ class ModelConfigManager {
     private let modelPath: String
     private let configFileName = "config.json"
 
+    private let defaultBackendType = "cpu"
+    private let defaultPrecision = "low"
+    private let defaultThreadNum = 4
     private let defaultTfsZ: Double = 1.0
     private let defaultTypical: Double = 1.0
     private let defaultPenalty: Double = 0.0
@@ -26,25 +29,92 @@ class ModelConfigManager {
         URL(fileURLWithPath: modelPath).appendingPathComponent(configFileName)
     }
 
-    private func readValue<T>(_ key: String, defaultValue: T) -> T {
-        guard let data = try? Data(contentsOf: configFileURL),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else {
-            return defaultValue
-        }
-        return json[key] as? T ?? defaultValue
+    // MARK: - Config paths
+
+    /// Writable custom config stored under Documents/MNNConfigs/{modelName}/custom_config.json
+    private var customConfigURL: URL {
+        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let modelName = URL(fileURLWithPath: modelPath).lastPathComponent
+        let configDir = documentsPath
+            .appendingPathComponent("MNNConfigs")
+            .appendingPathComponent(modelName)
+
+        // Ensure directory exists
+        try? FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
+
+        return configDir.appendingPathComponent("custom_config.json")
     }
 
+    /// Reads a value from merged default (config.json) and custom (custom_config.json) configs.
+    private func readValue<T>(_ key: String, defaultValue: T) -> T {
+        var mergedConfig: [String: Any] = [:]
+
+        // 1. Read default config.json from model directory (bundle or local path)
+        if let data = try? Data(contentsOf: configFileURL),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            mergedConfig = json
+        }
+
+        // 2. Read custom_config.json from Documents and merge (override)
+        if FileManager.default.fileExists(atPath: customConfigURL.path),
+           let customData = try? Data(contentsOf: customConfigURL),
+           let customJson = try? JSONSerialization.jsonObject(with: customData) as? [String: Any] {
+            mergedConfig.merge(customJson) { _, new in new }
+        }
+
+        return mergedConfig[key] as? T ?? defaultValue
+    }
+
+    /// Updates only the writable custom_config.json with the provided key/value.
     private func updateValue<T>(_ key: String, value: T) {
         do {
-            let data = try Data(contentsOf: configFileURL)
-            var json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-            json[key] = value
-            let updatedData = try JSONSerialization.data(withJSONObject: json, options: .prettyPrinted)
-            try updatedData.write(to: configFileURL)
+            var customConfig: [String: Any] = [:]
+
+            if FileManager.default.fileExists(atPath: customConfigURL.path),
+               let data = try? Data(contentsOf: customConfigURL),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                customConfig = json
+            }
+
+            customConfig[key] = value
+
+            let updatedData = try JSONSerialization.data(withJSONObject: customConfig, options: .prettyPrinted)
+            try updatedData.write(to: customConfigURL)
         } catch {
-            print("Error updating \(key) in config.json: \(error.localizedDescription)")
+            print("Error updating \(key) in custom config: \(error.localizedDescription)")
         }
+    }
+
+    // MARK: - Backend / Precision / Threads
+
+    /// Maximum allowed threads based on current device CPU cores.
+    var maxThreads: Int {
+        max(1, ProcessInfo.processInfo.activeProcessorCount)
+    }
+
+    func readBackendType() -> String {
+        return readValue("backend_type", defaultValue: defaultBackendType)
+    }
+
+    func updateBackendType(_ value: String) {
+        updateValue("backend_type", value: value)
+    }
+
+    func readPrecision() -> String {
+        return readValue("precision", defaultValue: defaultPrecision)
+    }
+
+    func updatePrecision(_ value: String) {
+        updateValue("precision", value: value)
+    }
+
+    func readThreadNum() -> Int {
+        return readValue("thread_num", defaultValue: defaultThreadNum)
+    }
+
+    func updateThreadNum(_ value: Int) {
+        let clamped = max(1, min(maxThreads, value))
+        updateValue("thread_num", value: clamped)
     }
 
     // MARK: - UseMmap
@@ -170,17 +240,30 @@ class ModelConfigManager {
     // MARK: - Read all config string
 
     func readConfigAsJSONString() -> String? {
-        do {
-            let data = try Data(contentsOf: configFileURL)
-            if let jsonString = String(data: data, encoding: .utf8) {
-                print("Config JSON String: \(jsonString)") // debug
-                return jsonString
-            }
+        var mergedConfig: [String: Any] = [:]
 
-        } catch {
-            print("Error reading config file: \(error.localizedDescription)")
+        // Default config.json
+        if let data = try? Data(contentsOf: configFileURL),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            mergedConfig = json
         }
-        return nil
+
+        // Custom overrides
+        if FileManager.default.fileExists(atPath: customConfigURL.path),
+           let customData = try? Data(contentsOf: customConfigURL),
+           let customJson = try? JSONSerialization.jsonObject(with: customData) as? [String: Any] {
+            mergedConfig.merge(customJson) { _, new in new }
+        }
+
+        guard !mergedConfig.isEmpty,
+              let data = try? JSONSerialization.data(withJSONObject: mergedConfig, options: .prettyPrinted),
+              let jsonString = String(data: data, encoding: .utf8)
+        else {
+            return nil
+        }
+
+        print("Config JSON String: \(jsonString)") // debug
+        return jsonString
     }
 
     // MARK: - SamplerType
