@@ -81,7 +81,7 @@ class MainSettingsFragment : PreferenceFragmentCompat() {
         }
 
 
-        // 重置 API配置
+        //Reset API configuration
         val resetApiConfigPref = findPreference<Preference>("reset_api_config")
         resetApiConfigPref?.setOnPreferenceClickListener {
             MaterialAlertDialogBuilder(requireContext())
@@ -143,7 +143,7 @@ class MainSettingsFragment : PreferenceFragmentCompat() {
                 Log.d(TAG, "diffusionMemoryModePref updateSummary vale: $vale")
                 diffusionMemoryModePref.summary = when (vale) {
                     "0" -> getString(R.string.diffusion_mode_memory_saving)
-                    "1" -> getString(R.string.diffusion_mode_memory_engough)
+                    "1" -> getString(R.string.diffusion_mode_memory_enough)
                     else -> getString(R.string.diffusion_mode_memory_balance)
                 }
             }

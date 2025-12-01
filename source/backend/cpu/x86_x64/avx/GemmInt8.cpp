@@ -23,6 +23,11 @@ static inline void MNN__mm_storeu_si64(void* add, __m128i value) {
     _mm_storeu_ps(temp, _mm_castsi128_ps(value));
     ::memcpy(add, temp, sizeof(int64_t));
 }
+static inline int64_t mm256_extract_epi64_fallback(__m256i a, int index) {
+    union { __m256i v; int64_t x[4]; } u;
+    u.v = a;
+    return u.x[index & 3];
+}
 }  // namespace
 
 #define POSTTREAT(N) \
@@ -1532,7 +1537,7 @@ void _AVX_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const fl
         d0 = _mm256_packs_epi32(d0, _mm256_setzero_si256());
         d0 = _mm256_permute4x64_epi64(d0, 0xD8);
         auto x = _mm256_packus_epi16(d0, _mm256_setzero_si256());
-        *((int64_t*)dst + i) = _mm256_extract_epi64(x, 0);
+        *((int64_t*)dst + i) = mm256_extract_epi64_fallback(x, 0);
     }
 }
 

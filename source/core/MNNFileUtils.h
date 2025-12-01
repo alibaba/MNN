@@ -174,7 +174,7 @@ MNN_PUBLIC ErrorCode MNNSetFilePointer(file_t file, size_t offset);
 **  @warning    Make sure that the mapped size is no larger than the size of the file
 **              Especially when mapping a newly created file, whose size is 0
 */
-MNN_PUBLIC void * MNNMmapFile(file_t file, size_t size);
+MNN_PUBLIC void * MNNMmapFile(file_t file, size_t size, bool onlyRead = false);
 
 /*=============================================================================================
 **  @brief      Unmap a previously mapped memory space

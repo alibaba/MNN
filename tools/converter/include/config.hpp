@@ -42,6 +42,7 @@ public:
     int weightQuantBits = 0;// If weightQuantBits > 0, it means the bit
     bool weightQuantAsymmetric = true;
     int weightQuantBlock = -1;
+    bool useHQQ = false;
     // The path of the model compression file that stores the int8 calibration table
     // or sparse parameters.
     std::string compressionParamsFile = "";
@@ -73,6 +74,7 @@ public:
     int64_t externalOffset = 0;
     bool useOriginRNNImpl = false;
     PostTreatContext* compressInfo = nullptr;
+    bool splitQuantBlock = false;
 };
 
 #endif // CONFIG_HPP

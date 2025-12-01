@@ -298,21 +298,86 @@ static inline void transposeAndStore4x4(const float* srcRowPtrs[4], float* dstCo
     vst1q_f32(dstColBase + 3 * dstColStride, col3);
 }
 
+inline void smartCopy(void* dest, const void* src, size_t size) {
+    switch (size) {
+        case 1:
+            *(uint8_t*)dest = *(const uint8_t*)src;
+            break;
+        case 2:
+            *(uint16_t*)dest = *(const uint16_t*)src;
+            break;
+        case 4:
+            *(uint32_t*)dest = *(const uint32_t*)src;
+            break;
+        case 8:
+            *(uint64_t*)dest = *(const uint64_t*)src;
+            break;
+        default:
+            ::memcpy(dest, src, size);
+            break;
+    }
+}
 
-void packKvCache(float* dst, const float* src, size_t seqLen, size_t kvSeqLen, size_t eP) {
-    if (seqLen == 0 || kvSeqLen == 0) {
+void MNNPackForMatMul_A(float* dst, const float* src, size_t E, size_t L, size_t eP, size_t lP, size_t bytes) {
+    if (E == 0 || L == 0) {
         return;
     }
 
-    // source [seqLen, kvSeqLen]
-    // dest   [seqLen/eP, kvSeqLen, eP]
+    // source [E, L] <=> [E/eP, eP, L/lP, lP]
+    // dest   [E/eP, L/lP, eP, lP]
 
-    const int kTileS = 4; // Tiling size for seqLen dimension
-    const int kTileK = 4; // Tiling size for kvSeqLen dimension
-    const size_t dstSOuterStride = kvSeqLen * eP;
+    if (lP > 1) {
+        auto eU = UP_DIV(E, eP);
+        auto lU = UP_DIV(L, lP);
+        const size_t lC = L / lP;
+        const size_t lR = L % lP;
+        const size_t copySizeBytes = (size_t)lP * bytes;
+
+        const size_t srcStride0 = (size_t)L * bytes;
+        const size_t dstStride0 = (size_t)lU * eP * lP * bytes;
+        const size_t dstStride1 = eP * lP * bytes;
+        const size_t dstStride2 = lP * bytes;
+
+        for (int i = 0; i < eU; ++i) {
+            const size_t xC = ALIMIN(eP, E - i * eP);
+            const uint8_t* APtr = (uint8_t*)src + (i * eP) * srcStride0;
+            uint8_t* ADst = (uint8_t*)dst + i * dstStride0;
+
+            if (lC > 0) {
+                for (int x = 0; x < xC; ++x) {
+                    auto srcBase = APtr + x * srcStride0;
+                    auto destBase = ADst + x * dstStride2;
+
+                    for (int yy = 0; yy < lC; ++yy) {
+                        auto srcPtr = srcBase + (size_t)yy * copySizeBytes;
+                        auto destPtr = destBase + (size_t)yy * dstStride1;
+
+                        smartCopy(destPtr, srcPtr, copySizeBytes);
+                    }
+                }
+            }
+
+            if (lR > 0) {
+                const size_t remainderCopyBytes = (size_t)lR * bytes;
+
+                for (int x = 0; x < xC; ++x) {
+                    auto srcPtr = APtr + x * srcStride0 + lC * lP * bytes;
+                    auto destPtr = ADst + lC * dstStride1 + x * dstStride2;
+
+                    ::memcpy(destPtr, srcPtr, remainderCopyBytes);
+                    ::memset(destPtr + remainderCopyBytes, 0, copySizeBytes - remainderCopyBytes);
+                }
+            }
+        }
+        return;
+    }
+
+    const int kTileS = 4; // Tiling size for E dimension
+    const int kTileK = 4; // Tiling size for L dimension
+    const size_t dstSOuterStride = L * eP;
 
     int s = 0;
-    for (; s + kTileS <= seqLen; s += kTileS) {
+    for (; s + kTileS <= E; s += kTileS) {
         const int sOuter = s / eP;
         const int sInner = s % eP;
         if (sInner + kTileS > eP) {
@@ -321,13 +386,13 @@ void packKvCache(float* dst, const float* src, size_t seqLen, size_t kvSeqLen, s
 
         float* dstSBase = dst + sOuter * dstSOuterStride + sInner;
         const float* srcRowPtrs[kTileS];
-        srcRowPtrs[0] = src + (s + 0) * kvSeqLen;
-        srcRowPtrs[1] = src + (s + 1) * kvSeqLen;
-        srcRowPtrs[2] = src + (s + 2) * kvSeqLen;
-        srcRowPtrs[3] = src + (s + 3) * kvSeqLen;
+        srcRowPtrs[0] = src + (s + 0) * L;
+        srcRowPtrs[1] = src + (s + 1) * L;
+        srcRowPtrs[2] = src + (s + 2) * L;
+        srcRowPtrs[3] = src + (s + 3) * L;
 
         int k = 0;
-        for (; k + kTileK <= kvSeqLen; k += kTileK) {
+        for (; k + kTileK <= L; k += kTileK) {
             const float* currentSrcPtrs[kTileS];
             currentSrcPtrs[0] = srcRowPtrs[0] + k;
             currentSrcPtrs[1] = srcRowPtrs[1] + k;
@@ -337,7 +402,7 @@ void packKvCache(float* dst, const float* src, size_t seqLen, size_t kvSeqLen, s
             transposeAndStore4x4(currentSrcPtrs, dstKBase, eP);
         }
 
-        for (; k < kvSeqLen; ++k) {
+        for (; k < L; ++k) {
             float buffer[kTileS] = {
                 srcRowPtrs[0][k],
                 srcRowPtrs[1][k],
@@ -348,12 +413,12 @@ void packKvCache(float* dst, const float* src, size_t seqLen, size_t kvSeqLen, s
         }
     }
 
-    for (; s < seqLen; ++s) {
+    for (; s < E; ++s) {
         const int sOuter = s / eP;
         const int sInner = s % eP;
-        const float* srcRow = src + s * kvSeqLen;
+        const float* srcRow = src + s * L;
         float* dstSBase = dst + sOuter * dstSOuterStride + sInner;
-        for (int k = 0; k < kvSeqLen; ++k) {
+        for (int k = 0; k < L; ++k) {
             dstSBase[k * eP] = srcRow[k];
         }
     }

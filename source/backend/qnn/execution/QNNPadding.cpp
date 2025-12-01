@@ -10,6 +10,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 ErrorCode QNNPadding::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     MNN_ASSERT(inputs.size() == 2);
@@ -24,18 +25,11 @@ ErrorCode QNNPadding::onEncode(const std::vector<Tensor *> &inputs, const std::v
     auto size = padding->elementSize();
     auto dimensions = input->dimensions();
     MNN_ASSERT(size == (2 * dimensions));
-    Tensor::DimensionType dimType = input->getDimensionType();
-    std::vector<uint32_t> padAmountData(size, 0);
-    for (int i = 0; i < dimensions; ++i) {
-        int axis  = getNHWCAxis(i, dimensions, dimType);
-        padAmountData[2 * axis + 0] = (uint32_t) paddingDataSrc[2 * i + 0];
-        padAmountData[2 * axis + 1] = (uint32_t) paddingDataSrc[2 * i + 1];
-    }
 
     this->createParamScalar("scheme", (uint32_t) 0); // 0 means 'CONSTANT'
     mParams.push_back(*(mParamScalarWrappers.back()->getNativeParam()));
 
-    this->createParamTensor("pad_amount", QNN_DATATYPE_UINT_32, {(uint32_t)dimensions, 2}, (void *) padAmountData.data());
+    this->createParamTensor("pad_amount", QNN_DATATYPE_UINT_32, {(uint32_t)dimensions, 2}, (void *) paddingDataSrc);
     mParams.push_back(*(mParamTensorWrappers.back()->getNativeParam()));
 
     mInputs.push_back(*(mBackend->getNativeTensor(inputs[0])));
@@ -55,6 +49,6 @@ public:
 };
 
 REGISTER_QNN_OP_CREATOR(QNNPaddingCreator, OpType_Padding)
-
+#endif
 } // end namespace QNN
 } // end namespace MNN

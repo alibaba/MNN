@@ -2,6 +2,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 ErrorCode QNNBroadcastTo::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto input  = inputs[0];
@@ -11,7 +12,7 @@ ErrorCode QNNBroadcastTo::onEncode(const std::vector<Tensor *> &inputs, const st
     std::vector<uint32_t> multiplesData(inputDims, 0);
     for (int i = 0; i < inputDims; i++) {
         MNN_ASSERT((output->length(i) % input->length(i)) == 0);
-        multiplesData[getNHWCAxis(i, inputDims, TensorUtils::getDimType(input))] = output->length(i) / input->length(i);
+        multiplesData[i] = output->length(i) / input->length(i);
     }
 
     this->createParamTensor("multiples", QNN_DATATYPE_UINT_32, {(uint32_t)inputDims}, (void *) multiplesData.data());
@@ -53,6 +54,6 @@ public:
 };
 
 REGISTER_QNN_OP_CREATOR(QNNBroadcastToCreator, OpType_BroadcastTo)
-
+#endif
 } // end namespace QNN
 } // end namespace MNN

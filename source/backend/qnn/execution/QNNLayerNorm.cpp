@@ -10,6 +10,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 QNNLayerNorm::QNNLayerNorm(Backend *backend, const Op *op, Tensor * input) : QNNCommonExecution(backend, op) {
     auto param = mOp->main_as_LayerNorm();
@@ -27,7 +28,7 @@ QNNLayerNorm::QNNLayerNorm(Backend *backend, const Op *op, Tensor * input) : QNN
     uint32_t axesSize = param->axis()->size();
     const int * axesData = param->axis()->data();
     int rawAxis = (axesData[0] >= 0) ? axesData[0] : (mInputDim + axesData[0]);
-    mRealAxis = getNHWCAxis(rawAxis, mInputDim, mDimType);
+    mRealAxis = rawAxis;
 
     // set gamma and beta
     {
@@ -323,6 +324,6 @@ public:
 };
 
 REGISTER_QNN_OP_CREATOR(QNNLayerNormCreator, OpType_LayerNorm)
-
+#endif
 } // end namespace MNN
 } // end namespace QNN

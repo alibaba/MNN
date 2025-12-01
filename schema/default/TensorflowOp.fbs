@@ -1,7 +1,7 @@
 include "Tensor.fbs";
 namespace MNN;
 
-enum BinaryOpOperation : byte {
+enum BinaryOpOperation : int {
     ADD = 0,
     SUB = 1,
     MUL = 2,
@@ -33,7 +33,7 @@ enum BinaryOpOperation : byte {
 }
 
 table BinaryOp {
-    opType:int;
+    opType:BinaryOpOperation;
     T:DataType=DT_FLOAT;
     // 0 -> No Activation
     // 1 -> Relu

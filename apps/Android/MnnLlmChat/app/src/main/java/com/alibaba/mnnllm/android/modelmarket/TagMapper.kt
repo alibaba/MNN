@@ -4,9 +4,9 @@ object TagMapper {
     
     private var tagMap: Map<String, Tag> = emptyMap()
     
-    fun initializeFromData(modelMarketData: ModelMarketData) {
+    fun initializeFromConfig(config: ModelMarketConfig) {
         val mappings = mutableMapOf<String, Tag>()
-        modelMarketData.tagTranslations.forEach { (key, chineseTranslation) ->
+        config.tagTranslations.forEach { (key, chineseTranslation) ->
             mappings[chineseTranslation] = Tag(chineseTranslation, key)
             mappings[key] = Tag(chineseTranslation, key)
         }

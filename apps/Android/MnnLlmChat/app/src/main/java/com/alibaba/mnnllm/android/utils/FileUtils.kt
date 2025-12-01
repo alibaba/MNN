@@ -63,6 +63,10 @@ object FileUtils {
         return generateDestFilePathKindOf(context, sessionId, "image", "jpg")
     }
 
+    fun generateDestVideoFilePath(context: Context, sessionId: String): String {
+        return generateDestFilePathKindOf(context, sessionId, "video", "mp4")
+    }
+
     private fun generateDestFilePathKindOf(
         context: Context,
         sessionId: String,

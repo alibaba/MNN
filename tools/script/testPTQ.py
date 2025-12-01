@@ -11,6 +11,7 @@ def run_cmd(args):
     cmd = args[0]
     for i in range(1, len(args)):
         cmd += ' ' + args[i]
+    print(cmd)
     stdout = os.popen(cmd).read()
     return stdout
 

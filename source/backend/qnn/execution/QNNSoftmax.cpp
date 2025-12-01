@@ -10,6 +10,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 ErrorCode QNNSoftmax::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     this->createParamScalar("axis", (uint32_t) inputs[0]->dimensions() - 1);
@@ -51,8 +52,8 @@ ErrorCode QNNSoftmax::onEncodePermute(const std::vector<Tensor *> &inputs, const
     this->createParamTensor("perm", QNN_DATATYPE_UINT_32, {(uint32_t) dim}, (void *) permData.data(), "after"); // mParamTensorWrappers[1], permAfter
 
     Qnn_DataType_t qnnDataType = mBackend->getNativeTensor(inputs[0])->v1.dataType;
-    this->createStageTensor("stageInput", qnnDataType, shapeStageTensor); // mTempTensorWrappers[0], stage input
-    this->createStageTensor("stageOutput", qnnDataType, shapeStageTensor); // mTempTensorWrappers[1], stage output
+    this->createStageTensor("stageInput", qnnDataType, shapeStageTensor, inputs[0]); // mTempTensorWrappers[0], stage input
+    this->createStageTensor("stageOutput", qnnDataType, shapeStageTensor, outputs[0]); // mTempTensorWrappers[1], stage output
 
     // Add nodes.
     {
@@ -93,13 +94,12 @@ public:
         if (axis < 0) {
             axis = inputs[0]->dimensions() + axis;
         }
-        axis = getNHWCAxis(axis, inputs[0]->dimensions(), TensorUtils::getDimType(inputs[0]));
 
         return new QNNSoftmax(backend, op, axis);
     }
 };
 
 REGISTER_QNN_OP_CREATOR(QNNSoftmaxCreator, OpType_Softmax)
-
+#endif
 } // end namespace QNN
 } // end namespace MNN

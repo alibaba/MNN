@@ -112,6 +112,13 @@ public:
         return mValid;
     }
     /**
+     * @brief the execution's inputs and outputs should will alloc outside
+     * @return yes or not.
+     */
+    inline bool needAllocIO() const {
+        return mNeedAllocIO;
+    }
+    /**
      * @brief get backend.
      * @return backend.
      */
@@ -121,6 +128,7 @@ public:
 
 protected:
     bool mValid = true;
+    bool mNeedAllocIO = true;
 
 private:
     Backend *mBackEnd;

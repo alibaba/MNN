@@ -11,6 +11,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 ErrorCode QNNBinary::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     int dim0 = inputs[0]->dimensions();
@@ -23,8 +24,9 @@ ErrorCode QNNBinary::onEncode(const std::vector<Tensor *> &inputs, const std::ve
     if(dim0 != dim1 && minDim == 0) {
         return this->onEncodeScalarOptimize(inputs, outputs, fullIndex);
     }
-
-    if (dim0 != dim1 && TensorUtils::getDimType(inputs[0]) != gQnnTensorDimType) {
+    
+    if (dim0 != dim1 && TensorUtils::getDimType(inputs[0]) != TensorUtils::getDimType(inputs[1])) {
+        fullIndex = TensorUtils::getDimType(inputs[0]) != TensorUtils::getDimType(outputs[0]) ? 1 : 0;
         return this->onEncodeBroadcast(inputs, outputs, fullIndex);
     }
 
@@ -41,8 +43,8 @@ ErrorCode QNNBinary::onEncodeScalarOptimize(const std::vector<Tensor *> &inputs,
 
     std::vector<uint32_t> dim(inputs[fullIndex]->dimensions(), 1);
 
-    this->createStageTensor("stage_0", dataType, dim); // mTempTensorWrappers[0]
-    this->createStageTensor("stage_1", dataType, shape); // mTempTensorWrappers[1]
+    this->createStageTensor("stage_0", dataType, dim, inputs[fullIndex]); // mTempTensorWrappers[0]
+    this->createStageTensor("stage_1", dataType, shape, inputs[fullIndex]); // mTempTensorWrappers[1]
 
     this->createParamTensor("multiples", QNN_DATATYPE_UINT_32, {(uint32_t)shape.size()}, shape.data()); // mParamTensorWrappers[0]
 
@@ -93,50 +95,50 @@ ErrorCode QNNBinary::onEncodeBroadcast(const std::vector<Tensor *> &inputs, cons
     int idleIndex = 1 - fullIndex;
     int fullDim = inputs[fullIndex]->dimensions();
     int idleDim = inputs[idleIndex]->dimensions();
-    std::vector<uint32_t> idleNHWCShape = getNHWCShape(inputs[idleIndex]);
     int offset = fullDim - idleDim;
+    std::vector<uint32_t> idleShape = getNHWCShape(inputs[idleIndex]);
+    std::vector<uint32_t> permData(fullDim);
     Qnn_DataType_t dataType = mBackend->getNativeTensor(inputs[fullIndex])->v1.dataType;
-
-    std::vector<uint32_t> order(idleDim);
-    for (int i = 0; i < order.size(); i++) {
-        order[i] = (uint32_t) getNHWCAxis(getNCHWAxis(i, idleDim, Tensor::TENSORFLOW) + offset, fullDim, Tensor::CAFFE);
+    if(TensorUtils::getDescribe(inputs[idleIndex])->dimensionFormat == MNN_DATA_FORMAT_NCHW){
+        permData[0] = 0;
+        permData[fullDim - 1] = 1;
+        for(int i = 1; i < fullDim - 1; ++i){
+            permData[i] = i + 1;
+        }
+    } else{
+        permData[0] = 0;
+        permData[1] = fullDim - 1;
+        for(int i = 2; i < fullDim; ++i){
+            permData[i] = i - 1;
+        }
     }
-
-    std::vector<uint32_t> permData(idleDim);
-    for (int i = 0; i < idleDim; i++) {permData[i] = i;}
-    std::sort(permData.begin(), permData.end(), [&order](uint32_t a, uint32_t b) {return order[a] < order[b];});
-    this->createParamTensor("perm", QNN_DATATYPE_UINT_32, {(uint32_t) idleDim}, (void *) permData.data()); // mParamTensorWrappers[0]
-
-    std::vector<uint32_t> shapeStagePerm(idleDim);
-    for (int i = 0; i < idleDim; i++) {shapeStagePerm[i] = idleNHWCShape[permData[i]];}
-    this->createStageTensor("stage_perm", dataType, shapeStagePerm); // mTempTensorWrappers[0]
-
+    this->createParamTensor("perm", QNN_DATATYPE_UINT_32, {(uint32_t) fullDim}, (void *) permData.data()); // mParamTensorWrappers[0]
     std::vector<uint32_t> shapeStageReshape(fullDim, 1);
-    for (int i = 0; i < idleDim; i++) {shapeStageReshape[order[i]] = idleNHWCShape[i];}
-    this->createStageTensor("stage_reshape", dataType, shapeStageReshape); // mTempTensorWrappers[1]
-
-    // Permute.
-    this->addNodeCommonPermute("Permute",
-                               *(mBackend->getNativeTensor(inputs[idleIndex])),
-                               *(mParamTensorWrappers[0]->getNativeParam()),
-                               *(mTempTensorWrappers[0]->getNativeTensor()));
-
+    for (int i = 0; i < idleDim; i++) {shapeStageReshape[i + offset] = idleShape[i];}
+    this->createStageTensor("stage_reshape", dataType, shapeStageReshape, inputs[idleIndex]); // mTempTensorWrappers[0]
+    
+    std::vector<uint32_t> shapeStagePerm(fullDim);
+    for (int i = 0; i < fullDim; i++) {shapeStagePerm[i] = shapeStageReshape[permData[i]];}
+    this->createStageTensor("stage_perm", dataType, shapeStagePerm, inputs[idleIndex]); // mTempTensorWrappers[1]
     // Reshape.
     this->addNodeCommonReshape("Reshape",
+                               *(mBackend->getNativeTensor(inputs[idleIndex])),
+                               *(mTempTensorWrappers[0]->getNativeTensor()));
+    
+    // Permute.
+    this->addNodeCommonPermute("Permute",
                                *(mTempTensorWrappers[0]->getNativeTensor()),
+                               *(mParamTensorWrappers[0]->getNativeParam()),
                                *(mTempTensorWrappers[1]->getNativeTensor()));
-
     // Binary broadcast.
     {
         CLEAR_BEFORE_ADDING_NODE;
-
         mNodeType = mBinaryTypeName;
         mInputs.push_back(*(mBackend->getNativeTensor(inputs[fullIndex])));
         mInputs.push_back(*(mTempTensorWrappers[1]->getNativeTensor()));
         mOutputs.push_back(*(mBackend->getNativeTensor(outputs[0])));
         mBackend->addNodeToGraph(mOpConfigVersion, mNodeName.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
     }
-
     return NO_ERROR;
 }
 
@@ -205,6 +207,6 @@ public:
 
 REGISTER_QNN_OP_CREATOR(QNNBinaryCreator, OpType_BinaryOp)
 REGISTER_QNN_OP_CREATOR(QNNBinaryCreator, OpType_Eltwise)
-
+#endif
 } // end namespace QNN
 } // end namespace MNN

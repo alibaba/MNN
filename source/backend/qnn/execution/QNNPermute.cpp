@@ -2,6 +2,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 ErrorCode QNNPermute::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     Tensor * input = inputs[0];
@@ -36,31 +37,8 @@ ErrorCode QNNPermute::onEncode(const std::vector<Tensor *> &inputs, const std::v
         int index = axis->Get(i);
         mapRaw[i] = (uint32_t) index;
     }
-
-    // Case NHWC
-    if (inputDimType == Tensor::TENSORFLOW) {
-        this->createParamTensor("perm", QNN_DATATYPE_UINT_32, {(uint32_t) dim}, mapRaw.data());
-        this->addNodeCommon(inputs, outputs);
-        return NO_ERROR;
-    }
-
-    // Case NCHW
-    std::vector<uint32_t> mapBefore(dim, 0);
-    for (int i = 0; i < dim; i++) {
-        mapBefore[i] = getNCHWAxis(i, dim, Tensor::DimensionType::TENSORFLOW);
-    }
-
-    std::vector<uint32_t> mapReal(dim, 0);
-
-    for (int j = 0; j < dim; j++) {
-        int temp0 = getNCHWAxis(j, dim, Tensor::DimensionType::TENSORFLOW);
-        int temp1 = mapRaw[temp0];
-        int temp2 = getNHWCAxis(temp1, dim, Tensor::DimensionType::CAFFE);
-
-        mapReal[j] = (uint32_t) temp2;
-    }
-
-    this->createParamTensor("perm", QNN_DATATYPE_UINT_32, {(uint32_t) dim}, mapReal.data());
+    
+    this->createParamTensor("perm", QNN_DATATYPE_UINT_32, {(uint32_t) dim}, mapRaw.data());
     this->addNodeCommon(inputs, outputs);
     return NO_ERROR;
 }
@@ -80,6 +58,6 @@ public:
 };
 
 REGISTER_QNN_OP_CREATOR(QNNPermuteCreator, OpType_Permute)
-
+#endif
 } // end namespace QNN
 } // end namespace MNN

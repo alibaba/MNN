@@ -28,8 +28,24 @@ void SoftmaxTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT
                         const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, int quantizedModel) {
     DCHECK(tfliteOp->inputs.size() == 1) << "Tflite Softmax input ERROR!";
     const auto& tfliteSoftmaxOption = tfliteOp->builtin_options.AsSoftmaxOptions();
+    const int outputIndex    = tfliteOp->outputs[0];
+    const auto& outputTensor = tfliteTensors[outputIndex];
+    if (outputTensor->type == tflite::TensorType_INT8) {
+        quantizedModel = 2;
+        dstOp->type = MNN::OpType_Softmax;
+        dstOp->main.type = MNN::OpParameter_Axis;
+    } else if (outputTensor->type == tflite::TensorType_UINT8) {
+        quantizedModel = 1;
+        dstOp->type = MNN::OpType_QuantizedSoftmax;
+        dstOp->main.type = MNN::OpParameter_QuantizedSoftmax;
+    } else {
+        MNN_ASSERT(outputTensor->type == tflite::TensorType_FLOAT32);
+        quantizedModel = 0;
+        dstOp->type = MNN::OpType_Softmax;
+        dstOp->main.type = MNN::OpParameter_Axis;
+    }
 
-    if (quantizedModel) {
+    if (quantizedModel == 1) {
         auto softmaxParamQuan  = new MNN::QuantizedSoftmaxT();
         softmaxParamQuan->beta = tfliteSoftmaxOption->beta;
         // input

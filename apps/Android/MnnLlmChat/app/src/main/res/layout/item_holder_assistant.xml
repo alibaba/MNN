@@ -41,25 +41,41 @@
             app:tint="?colorOnSurfaceVariant" />
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/tv_chat_thinking"
-        android:layout_toEndOf="@id/ic_header"
-        android:layout_below="@id/ll_thinking_toggle"
+    <LinearLayout
+        android:id="@+id/ll_thinking_container"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:padding="@dimen/space10"
-        android:textAppearance="@style/Light"
-        android:textColor="?colorOnSurfaceVariant"
-        android:textSize="@dimen/h4"
+        android:layout_toEndOf="@id/ic_header"
+        android:layout_below="@id/ll_thinking_toggle"
+        android:orientation="horizontal"
+        tools:visibility="visible"
         android:visibility="gone"
-        tools:text="This is the thinking process..."
-        tools:visibility="visible" />
+        android:padding="@dimen/space10">
+
+        <View
+            android:id="@+id/view_thinking_marker"
+            android:layout_width="1dp"
+            android:layout_height="match_parent"
+            android:layout_marginTop="2dp"
+            android:layout_marginEnd="8dp"
+            android:background="?colorOutlineVariant" />
+
+        <TextView
+            android:id="@+id/tv_chat_thinking"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textAppearance="@style/Light"
+            android:textColor="?colorOnSurfaceVariant"
+            android:textSize="@dimen/h4"
+            tools:text="This is the thinking process..."
+            tools:visibility="visible" />
+    </LinearLayout>
 
     <TextView
         android:id="@+id/tv_chat_text"
         tools:text="this is the generated text"
         android:layout_toEndOf="@id/ic_header"
-        android:layout_below="@id/tv_chat_thinking"
+        android:layout_below="@id/ll_thinking_container"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:paddingStart="@dimen/space10"

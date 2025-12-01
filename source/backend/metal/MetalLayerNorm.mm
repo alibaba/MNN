@@ -44,7 +44,7 @@ std::shared_ptr<MetalLayerNorm::Resource> MetalLayerNorm::makeResource(Backend *
     if (layernorm->gamma() && layernorm->beta()) {
         gamma_size = layernorm->gamma()->size();
     }
-    if (layernorm->external() != nullptr) {
+    if (layernorm->external() != nullptr && layernorm->external()->size() >= 2) {
         auto externalInfo = layernorm->external()->data();
         auto externalSize = layernorm->external()->size();
         gamma_size = static_cast<int32_t>(externalInfo[1]) / sizeof(float);

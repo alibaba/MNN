@@ -6,6 +6,7 @@ import torch
 import numpy as np
 
 from .torch_utils import quant as torch_quant
+from .torch_utils import onnx_export
 from tqdm import tqdm
 from .spinner import spinner_run
 from .gptq import GPTQ
@@ -21,6 +22,7 @@ class MNNConveter:
         self.quant_bit = config.args.quant_bit
         self.lm_quant_bit = config.args.lm_quant_bit
         self.symmetric = config.args.sym
+        self.hqq = config.args.hqq
         self.mnn_weight_offset = 0
         if os.path.exists(config.args.mnnconvert):
             self.mnnconvert = config.args.mnnconvert
@@ -48,7 +50,7 @@ class MNNConveter:
             sys.argv = []
         finally:
             os.dup2(sfd, 1)
-            os.close(log_fd)
+            log_fp.close()
 
     @spinner_run(f'convert onnx model to ')
     def onnx2mnn(self, onnx_path, mnn_path, args = [], transformer_fuse = True, group_conv_native = False, weight_sym = False, save_external_data = True):
@@ -70,6 +72,8 @@ class MNNConveter:
             convert_args += ['--weightQuantAsymmetric=0']
         if save_external_data:
             convert_args += ['--saveExternalData']
+        if self.hqq:
+            convert_args += ['--hqq']
         convert_args += args
         self.convert(convert_args)
         return mnn_path
@@ -124,6 +128,8 @@ class MNNConveter:
                 quant_bit = self.quant_bit
             if quant_block is None:
                 quant_block = self.quant_block
+            if weight_sym is None:
+                weight_sym = self.symmetric
             if quant_bit == 16:
                 quant_args = ['--fp16']
             else:
@@ -157,14 +163,11 @@ class MNNConveter:
         expert_num = len(experts[0])
         dummy_expert = experts[0][0]
         onnx_model = f'{self.config.onnx_path}/expert.onnx'
-        torch.onnx.export(
+        onnx_export(
             dummy_expert, (hidden_states),
             onnx_model,
             input_names=['hidden_states'],
-            output_names=['hidden_states'],
-            do_constant_folding=True,
-            verbose=False,
-            opset_version=15)
+            output_names=['hidden_states'])
         mnn_model = f'{onnx_model}.mnn'
         mnn_json = f'{mnn_model}.json'
         self.onnx2mnn(onnx_model, mnn_model)
@@ -216,7 +219,7 @@ class MNNConveter:
         if os.path.exists(lora_json):
             os.remove(lora_json)
         return lora_model
-    
+
     @spinner_run(f'export smooth quant scale to ')
     def export_smooth_quant(self, mnn_json):
         self.config.smooth_quantizer.apply(mnn_json)

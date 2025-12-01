@@ -122,6 +122,9 @@ class DiffusionSession(
         savedHistory = history
     }
 
+    override fun updateThinking(thinking: Boolean) {
+    }
+
 
     private external fun initNative(
         configPath: String,

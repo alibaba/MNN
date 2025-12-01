@@ -104,18 +104,6 @@ static std::vector<std::shared_ptr<BufferStorage>> preRearrangeWeights( // NOLIN
                         tempOutput->setLength(1, conv2d->common()->outputCount());
                         tempOutput->setLength(2, oh);
                         tempOutput->setLength(3, ow);
-                        if (op->main_as_Convolution2D()->quanParameter()) {
-                            type = DataType_DT_INT8;
-                            int inputIdx = op->inputIndexes()->Get(0);
-                            auto& inputQuantAttr = TensorUtils::getDescribe(tempInput)->quantAttr;
-                            if (nullptr != inputQuantAttr.get()) {
-                                TensorUtils::getDescribe(tempInput)->type = DataType_DT_INT8;
-                            }
-                            auto& outputQuantAttr = TensorUtils::getDescribe(tempOutput)->quantAttr;
-                            if (nullptr != outputQuantAttr.get()) {
-                                TensorUtils::getDescribe(tempOutput)->type = DataType_DT_INT8;
-                            }
-                        }
                     }
                     std::shared_ptr<BufferStorage> tmpstorage;
                     exe.reset(OpCommonUtils::createExecutionWithExternal(backend, info.inputs, info.outputs, op, &loader, tmpstorage));
@@ -329,6 +317,12 @@ StaticModule::StaticModule(std::vector<int> inputs,
     auto& bnCache = scheduleInfo.pipelineInfo[0].first;
     // Create Backend for prearrange
     Session::createPipelineBackend(scheduleInfo.pipelineInfo[0], rt);
+    if (nullptr == bnCache.cache.first || nullptr == bnCache.cache.second) {
+        MNN_ERROR("[MNN:Express] Create Backend Error\n");
+        return;
+    }
+    bnCache.cache.first->pNPUModelDirPath = rtm->getInside()->mContent->mNpuDir;
+    bnCache.cache.second->pNPUModelDirPath = rtm->getInside()->mContent->mNpuDir;
     if (config.rearrange) {
         mResource->mBuffer = preRearrangeWeights(scheduleInfo, bnCache.cache.first.get(), bnCache.cache.second.get(), config.base);
     } else {
@@ -468,7 +462,7 @@ ErrorCode StaticModule::_resize(const std::vector<Express::VARP>& inputs) {
             } else {
                 needMalloc = TensorUtils::refTensorContent(mInputTensors[i], inputTensor);
             }
-            des->type = srcDes->type;
+            des->applyQuant = srcDes->applyQuant;
             des->dimensionFormat = srcDes->dimensionFormat;
             des->tensorArrayAttr = srcDes->tensorArrayAttr;
             mInputTensors[i]->buffer().type = inputTensor->buffer().type;

@@ -40,6 +40,8 @@ public:
 
     void SetAssistantPrompt(const std::string& assistant_prompt);
 
+    void updateConfig(const std::string& config_json);
+
     void enableAudioOutput(bool b);
 
     // 新增：API服务历史消息推理方法

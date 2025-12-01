@@ -10,6 +10,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 ErrorCode QNNQuant::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     this->createStageTensor("Cast", QNN_DATATYPE_FLOAT_32, getNHWCShape(outputs[0]));
@@ -76,6 +77,6 @@ public:
 
 REGISTER_QNN_OP_CREATOR(QNNQuantCreator, OpType_FloatToInt8)
 REGISTER_QNN_OP_CREATOR(QNNDeQuantCreator, OpType_Int8ToFloat)
-
+#endif
 } // end namespace QNN
 } // end namespace MNN

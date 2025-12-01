@@ -6,6 +6,7 @@
 //
 
 #include <memory>
+#include <unordered_map>
 #include "diskembedding.hpp"
 #include "half.hpp"
 
@@ -42,7 +43,15 @@ DiskEmbedding::DiskEmbedding(const std::shared_ptr<LlmConfig>& config, std::stri
         mWeightOffset     = tie_embeddings[0];
         mQuantBit         = tie_embeddings[3];
         mQuantBlock       = tie_embeddings[4];
-        mFile.reset(new FileLoader(config->llm_weight().c_str(), true));
+        if (mWeightOffset == 0) {
+            // embedding_int8/4.bin
+            if (fileName.empty()) {
+                fileName = config->embedding_file();
+            }
+        } else {
+            fileName = config->llm_weight();
+        }
+        mFile.reset(new FileLoader(fileName.c_str(), true));
         mTokenSize = mHiddenSize * mQuantBit / 8;
         // TODO: optimize dequant function
         if (mQuantBit != 16) {
@@ -85,11 +94,22 @@ DiskEmbedding::DiskEmbedding(const std::shared_ptr<LlmConfig>& config, std::stri
 }
 
 void DiskEmbedding::embedding(const std::vector<int>& input_ids, float* dst) {
+    std::unordered_map<int, int> cache_tokens;
+#define TRY_CACHE_TOKEN \
+    if (cache_tokens.find(token) != cache_tokens.end()) {\
+        int index = cache_tokens[token];\
+        memcpy(dst + i * mHiddenSize, dst + index * mHiddenSize, mHiddenSize * sizeof(float));\
+        continue;\
+    } else {\
+        cache_tokens.insert(std::make_pair(token, i));\
+    }
+
     if (mAlpha.get()) {
         // quant
         if (mAsymc) {
             for (size_t i = 0; i < input_ids.size(); i++) {
                 int token = input_ids[i];
+                TRY_CACHE_TOKEN;
                 seek_read(mWeight.get(), mTokenSize, mWeightOffset + token * mTokenSize);
                 auto dptr      = dst + i * mHiddenSize;
                 auto alpha_ptr = reinterpret_cast<float*>(mAlpha.get()) + token * mBlockNum * 2;
@@ -104,6 +124,7 @@ void DiskEmbedding::embedding(const std::vector<int>& input_ids, float* dst) {
         } else {
             for (size_t i = 0; i < input_ids.size(); i++) {
                 int token = input_ids[i];
+                TRY_CACHE_TOKEN;
                 seek_read(mWeight.get(), mTokenSize, mWeightOffset + token * mTokenSize);
                 auto dptr      = dst + i * mHiddenSize;
                 auto alpha_ptr = reinterpret_cast<float*>(mAlpha.get()) + token * mBlockNum;
@@ -121,7 +142,9 @@ void DiskEmbedding::embedding(const std::vector<int>& input_ids, float* dst) {
     if (mQuantBit == 16) {
         // FP16
         for (size_t i = 0; i < input_ids.size(); i++) {
-            seek_read(mWeight.get(), mTokenSize, mWeightOffset + input_ids[i] * mTokenSize);
+            int token = input_ids[i];
+            TRY_CACHE_TOKEN;
+            seek_read(mWeight.get(), mTokenSize, mWeightOffset + token * mTokenSize);
             auto src = (half_float::half*)mWeight.get();
             auto dst_ptr = reinterpret_cast<float*>(dst + i * mHiddenSize);
             for (int j = 0; j < mHiddenSize; j++) {
@@ -132,13 +155,16 @@ void DiskEmbedding::embedding(const std::vector<int>& input_ids, float* dst) {
     }
     // bf16
     for (size_t i = 0; i < input_ids.size(); i++) {
-        seek_read(mWeight.get(), mTokenSize, input_ids[i] * mTokenSize);
+        int token = input_ids[i];
+        TRY_CACHE_TOKEN;
+        seek_read(mWeight.get(), mTokenSize, token * mTokenSize);
         int16_t* dst_ptr = reinterpret_cast<int16_t*>(dst + i * mHiddenSize);
         for (int j = 0; j < mHiddenSize; j++) {
             dst_ptr[j * 2]     = 0;
             dst_ptr[j * 2 + 1] = reinterpret_cast<int16_t*>(mWeight.get())[j];
         }
     }
+#undef TRY_CACHE_TOKEN
 }
 
 }

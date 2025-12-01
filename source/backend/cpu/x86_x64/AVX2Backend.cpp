@@ -363,6 +363,9 @@ void AVX2Backend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor)
         return;
     }
     _resetDynamicMemory();
+    if (mRuntime->pCurrentStatus != NO_ERROR) {
+        return;
+    }
     if (getDataType(srcTensor) != getDataType(dstTensor)) {
         auto dimType = Tensor::CAFFE;
         switch (TensorUtils::getDescribe(srcTensor)->dimensionFormat) {

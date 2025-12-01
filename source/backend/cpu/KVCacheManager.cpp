@@ -264,7 +264,7 @@ void KVCacheManager::expandKVCacheInDisk(int oldMaxLength, int oldKeySize, int o
     } else if (mConfig.mQuantKey) {
         old_key.reset(Tensor::createDevice<int8_t>({mKvNumHead, UP_DIV(oldMaxLength, hP), UP_DIV(mHeadDim, lP), hP, lP}));
     } else {
-        old_key.reset(Tensor::createDevice<float>({mKvNumHead, UP_DIV(oldMaxLength, hP), UP_DIV(mHeadDim, lP), hP, lP}));  
+        old_key.reset(Tensor::createDevice<float>({mKvNumHead, UP_DIV(oldMaxLength, hP), UP_DIV(mHeadDim, lP), hP, lP}));
     }
     if (mConfig.mQuantValue) {
         old_value.reset(Tensor::createDevice<fp8_t>({mKvNumHead, UP_DIV(mHeadDim, hP), UP_DIV(oldMaxLength, lP), hP, lP}));
@@ -387,7 +387,7 @@ void KVCacheManager::onAlloc(int kv_seq_len) {
         } else {
             mPastValue.reset(Tensor::createDevice<float>({mKvNumHead, UP_DIV(mHeadDim, hP), UP_DIV(mMaxLength, lP), hP, lP}));
         }
-        mBackend->onAcquireBuffer(mPastKey.get(), Backend::STATIC); 
+        mBackend->onAcquireBuffer(mPastKey.get(), Backend::STATIC);
         mBackend->onAcquireBuffer(mPastValue.get(), Backend::STATIC);
         if (mHeadDim % lP) {
             memset(mPastKey->host<int8_t>(), 0, mPastKey->length(0) * mPastKey->stride(0) * mBytes);
@@ -486,6 +486,21 @@ void KVCacheManager::onRealloc(const KVMeta* meta) {
         mPastLength = start;
         return;
     }
+#if 1
+    auto dstIndex = start;
+    for (int n = 0; n < meta->n_reserve; ++n) {
+        auto begin = meta->reserve[2 * n];
+        auto size  = meta->reserve[2 * n + 1];
+        auto srcIndex = start + begin;
+        if (mBytes == 2) {
+            moveKV<FLOAT16_T>(srcIndex, dstIndex, size);
+        } else {
+            moveKV<float>(srcIndex, dstIndex, size);
+        }
+        dstIndex += size;
+    }
+    mPastLength = dstIndex;
+#else
     // Don't support not align reserve
     auto align = hP;
     auto dstStart = start;
@@ -503,7 +518,7 @@ void KVCacheManager::onRealloc(const KVMeta* meta) {
         }
         auto end = begin + start + size;
         auto endAlign = UP_DIV(end, align) * align;
-        
+
         auto sizeUnit = (endAlign - startAlign) / align;
         auto dstStartAlign = UP_DIV(dstStart, align) * align;
 
@@ -539,6 +554,7 @@ void KVCacheManager::onRealloc(const KVMeta* meta) {
         lastValidSrcEnd = begin + start + size;
     }
     mPastLength = dstStart;
+#endif
 }
 
 void KVCacheManager::onClear() {
@@ -551,7 +567,7 @@ void KVCacheManager::onClear() {
         } else {
             keySize = (size_t)mKvNumHead * UP_DIV(mMaxLength, hP) * ROUND_UP(mHeadDim, lP) * hP * mBytes;
         }
-        valueSize = (size_t)mKvNumHead * UP_DIV(mHeadDim, hP) * ROUND_UP(mMaxLength, lP) * hP * (mConfig.mQuantValue ? 1 : mBytes);    
+        valueSize = (size_t)mKvNumHead * UP_DIV(mHeadDim, hP) * ROUND_UP(mMaxLength, lP) * hP * (mConfig.mQuantValue ? 1 : mBytes);
         unmapKVCache(keySize, valueSize);
         removeKVCacheFile();
         mKVCacheInDisk = false;
@@ -663,9 +679,37 @@ void KVCacheManager::pack_value(const Tensor* value, int seq_len, int kv_h) { //
     }
 }
 
-void KVCacheManager::onPushBack(const Tensor * key, const Tensor * value) {
+size_t KVCacheManager::keyIndex(int seq, int dim) const {
+    return (seq / hP) * ROUND_UP(mHeadDim, lP) * hP +
+           (dim / lP) * hP * lP +
+           (seq % hP) * lP +
+           (dim % lP);
+}
+
+size_t KVCacheManager::valueIndex(int seq, int dim) const {
+    return (dim / hP) * ROUND_UP(mMaxLength, lP) * hP +
+           (seq / lP) * hP * lP +
+           (dim % hP) * lP +
+           (seq % lP);
+}
+
+template <typename T>
+void KVCacheManager::moveKV(int src, int dst, int size) {
+    for (int h = 0; h < mKvNumHead; ++h) {
+        auto kPtr = reinterpret_cast<T*>(addrOfKey(h));
+        auto vPtr = reinterpret_cast<T*>(addrOfValue(h));
+        for (int i = 0; i < size; i++) {
+            for (int j = 0; j < mHeadDim; j++) {
+                kPtr[keyIndex(dst + i, j)]   = kPtr[keyIndex(src + i, j)];
+                vPtr[valueIndex(dst + i, j)] = vPtr[valueIndex(src + i, j)];
+            }
+        }
+    }
+}
+
+void KVCacheManager::onPushBack(const Tensor * key, const Tensor * value, int add) {
     auto core = static_cast<CPUBackend*>(mBackend)->functions();
-    int seq_len = key->length(1);
+    int seq_len = add;
     int tileCount = UP_DIV(mKvNumHead, mThreadNum);
     std::function<void(int)> packKV = [=](int tid) {
         for (int kv_h = tid * tileCount; kv_h < (tid+1) * tileCount && kv_h < mKvNumHead; kv_h++) {

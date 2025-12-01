@@ -67,6 +67,7 @@ public:
         int precision = 0;
         int memory = 0;
         int power = 0;
+        int forwardType = 0;
     };
     Status pStaus;
 

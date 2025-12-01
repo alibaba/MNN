@@ -14,6 +14,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 class QNNSoftmax : public QNNCommonExecution {
 public:
@@ -23,7 +24,7 @@ private:
     ErrorCode onEncodePermute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
     int mAxis;
 };
-
+#endif
 } // end namespace QNN
 } // end namespace MNN
 

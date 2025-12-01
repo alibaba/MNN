@@ -5,6 +5,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 extern QnnHtpDevice_PerfInfrastructure_t gQnnConvertorPerfInfra;
 extern QnnHtpDevice_Infrastructure_t gQnnConvertorDeviceInfra;
@@ -212,6 +213,6 @@ QNN_SYSTEM_INTERFACE_VER_TYPE gQnnConvertorSystemInterface = {
     /*systemContextFree*/                QnnConvertorSystemContext_free,
     /*systemTensorGetMemoryFootprint*/   NULL,
 };
-
+#endif
 } // end namespace MNN
 } // end namespace QNN

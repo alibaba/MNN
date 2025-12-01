@@ -367,9 +367,6 @@ project/MNNLLMForiOS/MNN.framework
 MNN-iOS-CPU-GPU/Static/MNN.framework
 apps/iOS/MNNLLMChat/MNN.framework
 
-# model path
-model/
-
 # datasets
 datasets/*
 !datasets/*.sh
@@ -387,3 +384,9 @@ apps/iOS/MNNLLMChat/MNNLLMiOS/LocalModel/Qwen3-4B-MNN
 apps/iOS/MNNLLMChat/MNNLLMiOS/LocalModel/Qwen3-0.6B-MNN
 apps/iOS/MNNLLMChat/MNNLLMiOS/LocalModel/Qwen2.5-Omni-3B-MNN
 
+apps/mnncli/.cursorrules
+apps/mnncli/model_market_json_data.inc
+#kledi
+_deps
+#aicoding
+.cursor

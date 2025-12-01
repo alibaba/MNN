@@ -2,20 +2,27 @@ package com.alibaba.mnnllm.android.modelmarket
 
 import android.content.Context
 import android.util.Log
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.preference.PreferenceManager
 import com.alibaba.mls.api.download.DownloadPersistentData
 import com.alibaba.mnnllm.android.mainsettings.MainSettings
 import com.google.gson.Gson
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
-import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
-class ModelRepository(private val context: Context) {
+object ModelRepository {
 
+    private val context: Context by lazy { 
+        com.alibaba.mnnllm.android.MnnLlmApplication.getAppContext() 
+    }
+    
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -23,35 +30,68 @@ class ModelRepository(private val context: Context) {
         .build()
 
     private val gson = Gson()
-    private var cachedModelMarketData: ModelMarketData? = null
+    private var cachedModelMarketData: ModelMarketConfig? = null
     private var isNetworkRequestAttempted = false
     
-    companion object {
-        private const val TAG = "ModelRepository"
-        private const val NETWORK_URL = "https://meta.alicdn.com/data/mnn/apis/model_market.json"
-        private const val CACHE_FILE_NAME = "model_market_cache.json"
-        private const val CACHE_TIMESTAMP_KEY = "model_market_cache_timestamp"
-        private const val CACHE_VALID_DURATION = 1 * 60 * 60 * 1000L 
-        private const val KEY_ALLOW_NETWORK_MARKET_DATA = "debug_allow_network_market_data"
-        private fun isAllowNetwork(context: Context): Boolean {
-            return com.alibaba.mnnllm.android.utils.PreferenceUtils.getBoolean(context, KEY_ALLOW_NETWORK_MARKET_DATA, true)
-        }
-        private fun isNetworkDelayEnabled(context: Context): Boolean {
-            return com.alibaba.mnnllm.android.utils.PreferenceUtils.getBoolean(context, "debug_enable_network_delay", false)
-        }
+    // Flow state management
+    private val _marketDataFlow = MutableStateFlow<ModelMarketConfig?>(null)
+    private val _loadingStateFlow = MutableStateFlow(LoadingState.IDLE)
+    private val _errorFlow = MutableStateFlow<Throwable?>(null)
+    
+    val marketDataFlow: StateFlow<ModelMarketConfig?> = _marketDataFlow.asStateFlow()
+    val loadingStateFlow: StateFlow<LoadingState> = _loadingStateFlow.asStateFlow()
+    val errorFlow: StateFlow<Throwable?> = _errorFlow.asStateFlow()
+    
+    // ConcurrentHashMap cache for fast lookups
+    private val marketItemsCache = ConcurrentHashMap<String, ModelMarketItem>()
+    private val initializationMutex = Mutex()
+    
+    // Background refresh management
+    private var refreshJob: Job? = null
+    private val refreshScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    
+    enum class LoadingState {
+        IDLE,           // Not loading
+        LOADING_CACHE,  // Loading from cache/assets
+        LOADING_NETWORK, // Loading from network
+        LOADED,         // Successfully loaded
+        ERROR           // Error occurred
+    }
+    
+    
+    private const val TAG = "ModelRepository"
+    private const val NETWORK_URL = "https://meta.alicdn.com/data/mnn/apis/model_market.json"
+    private const val CACHE_FILE_NAME = "model_market_cache.json"
+    private const val CACHE_TIMESTAMP_KEY = "model_market_cache_timestamp"
+    private const val CACHE_VALID_DURATION = 1 * 60 * 60 * 1000L 
+    private const val KEY_ALLOW_NETWORK_MARKET_DATA = "debug_allow_network_market_data"
+    
+    private fun isAllowNetwork(context: Context): Boolean {
+        return com.alibaba.mnnllm.android.utils.PreferenceUtils.getBoolean(context, KEY_ALLOW_NETWORK_MARKET_DATA, true)
+    }
+    
+    private fun isNetworkDelayEnabled(context: Context): Boolean {
+        return com.alibaba.mnnllm.android.utils.PreferenceUtils.getBoolean(context, "debug_enable_network_delay", false)
     }
 
-    suspend fun getModelMarketData(): ModelMarketData? = withContext(Dispatchers.IO) {
+    fun getModelMarketDataV2(): ModelMarketConfig? {
+        return marketDataFlow.value
+    }
+
+    suspend fun getModelMarketData(): ModelMarketConfig? = withContext(Dispatchers.IO) {
         // If not allowed to use network, only use assets
         if (!isAllowNetwork(context)) {
             Log.d(TAG, "Debug: Using model_market.json from assets (network disabled by debug switch)")
             val assetsData = loadFromAssets()
-            cachedModelMarketData = assetsData
-            return@withContext assetsData
+            if (assetsData != null) {
+                val config = convertToConfig(assetsData)
+                cachedModelMarketData = config
+                return@withContext config
+            }
+            return@withContext null
         }
         // If we already have cached data and network request was attempted, return cached data
         if (cachedModelMarketData != null && isNetworkRequestAttempted) {
-            Log.d(TAG, "Returning cached model market data")
             return@withContext cachedModelMarketData
         }
 
@@ -61,52 +101,54 @@ class ModelRepository(private val context: Context) {
             
             // Try to get data from network first (only once per app lifecycle)
             if (!isNetworkRequestAttempted) {
-                Log.d(TAG, "Attempting to fetch model market data from network")
                 val networkData = fetchFromNetwork()
                 if (networkData != null) {
-                    Log.d(TAG, "Successfully fetched data from network")
-                    
                     // Compare versions
                     if (assetsData != null) {
                         val networkVersion = networkData.version ?: "0"
                         val assetsVersion = assetsData.version
-                        Log.d(TAG, "Network version: $networkVersion, Assets version: $assetsVersion")
                         
                         if (isVersionLower(networkVersion, assetsVersion)) {
-                            Log.d(TAG, "Network version is lower than assets version, using assets data")
-                            cachedModelMarketData = assetsData
-                            return@withContext assetsData
-                        } else {
-                            Log.d(TAG, "Network version is higher or equal, using network data")
+                            val config = convertToConfig(assetsData)
+                            cachedModelMarketData = config
+                            isNetworkRequestAttempted = true
+                            return@withContext config
                         }
                     }
                     
-                    cachedModelMarketData = networkData
+                    val config = convertToConfig(networkData)
+                    cachedModelMarketData = config
                     saveCacheToFile(networkData)
                     isNetworkRequestAttempted = true
-                    return@withContext networkData
+                    return@withContext config
                 }
                 isNetworkRequestAttempted = true
             }
 
             // If network failed, try to load from local cache
-            Log.d(TAG, "Network request failed or not attempted, trying local cache")
             val cacheData = loadFromCache()
             if (cacheData != null) {
-                Log.d(TAG, "Successfully loaded data from local cache")
-                cachedModelMarketData = cacheData
-                return@withContext cacheData
+                if (assetsData != null) {
+                    val cacheVersion = cacheData.version
+                    val assetsVersion = assetsData.version
+                    if (isVersionLower(cacheVersion, assetsVersion)) {
+                        val config = convertToConfig(assetsData)
+                        cachedModelMarketData = config
+                        return@withContext config
+                    }
+                }
+                val config = convertToConfig(cacheData)
+                cachedModelMarketData = config
+                return@withContext config
             }
 
             // If cache also failed, fallback to assets
-            Log.d(TAG, "Local cache not available, falling back to assets")
             if (assetsData != null) {
-                Log.d(TAG, "Successfully loaded data from assets")
-                cachedModelMarketData = assetsData
-                return@withContext assetsData
+                val config = convertToConfig(assetsData)
+                cachedModelMarketData = config
+                return@withContext config
             }
 
-            Log.e(TAG, "All data sources failed")
             null
         } catch (e: Exception) {
             Log.e(TAG, "Failed to get model market data", e)
@@ -117,12 +159,10 @@ class ModelRepository(private val context: Context) {
     private suspend fun fetchFromNetwork(): ModelMarketData? = withContext(Dispatchers.IO) {
         // If not allowed to use network, skip network and use assets
         if (!isAllowNetwork(context)) {
-            Log.d(TAG, "Debug: Skip network, use assets (network disabled by debug switch)")
             return@withContext null
         }
         // Debug: Check if network delay is enabled
         if (isNetworkDelayEnabled(context)) {
-            Log.d(TAG, "Debug: Simulating network delay (3 seconds)")
             kotlinx.coroutines.delay(3000)
         }
         try {
@@ -139,11 +179,8 @@ class ModelRepository(private val context: Context) {
                 val jsonString = response.body?.string()
                 if (!jsonString.isNullOrEmpty()) {
                     val data = gson.fromJson(jsonString, ModelMarketData::class.java)
-                    Log.d(TAG, "Successfully parsed network data: ${jsonString.take(100)}")
                     return@withContext data
                 }
-            } else {
-                Log.w(TAG, "Network request failed with code: ${response.code}")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Network request failed", e)
@@ -151,16 +188,46 @@ class ModelRepository(private val context: Context) {
         return@withContext null
     }
 
+    /**
+     * Force refresh market data from network and update cache.
+     * Will still prefer assets if network version is older than assets.
+     */
+    suspend fun refreshFromNetwork(): ModelMarketConfig? = withContext(Dispatchers.IO) {
+        try {
+            val assetsData = loadFromAssets()
+            val networkData = fetchFromNetwork()
+            if (networkData != null) {
+                if (assetsData != null) {
+                    val networkVersion = networkData.version ?: "0"
+                    val assetsVersion = assetsData.version
+                    if (isVersionLower(networkVersion, assetsVersion)) {
+                        val config = convertToConfig(assetsData)
+                        cachedModelMarketData = config
+                        isNetworkRequestAttempted = true
+                        return@withContext config
+                    }
+                }
+                val config = convertToConfig(networkData)
+                cachedModelMarketData = config
+                saveCacheToFile(networkData)
+                isNetworkRequestAttempted = true
+                return@withContext config
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "refreshFromNetwork failed", e)
+        }
+        return@withContext null
+    }
+
     private suspend fun loadFromCache(): ModelMarketData? = withContext(Dispatchers.IO) {
         // If not allowed to use network, skip cache and use assets
         if (!isAllowNetwork(context)) {
-            Log.d(TAG, "Debug: Skip cache, use assets (network disabled by debug switch)")
             return@withContext null
         }
+        
         try {
             val cacheFile = File(context.filesDir, CACHE_FILE_NAME)
             if (!cacheFile.exists()) {
-                Log.d(TAG, "Cache file does not exist")
                 return@withContext null
             }
 
@@ -168,33 +235,65 @@ class ModelRepository(private val context: Context) {
             val sharedPrefs = PreferenceManager.getDefaultSharedPreferences(context)
             val cacheTimestamp = sharedPrefs.getLong(CACHE_TIMESTAMP_KEY, 0)
             val currentTime = System.currentTimeMillis()
+            val age = currentTime - cacheTimestamp
             
-            if (currentTime - cacheTimestamp > CACHE_VALID_DURATION) {
-                Log.d(TAG, "Cache is expired, ignoring cache file")
+            if (age > CACHE_VALID_DURATION) {
                 return@withContext null
             }
 
             val jsonString = cacheFile.readText()
             val data = gson.fromJson(jsonString, ModelMarketData::class.java)
-            Log.d(TAG, "Successfully loaded data from cache")
             return@withContext data
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to load from cache", e)
+            Log.w(TAG, "Failed to load from cache: ${e.message}", e)
             return@withContext null
         }
     }
 
-    private suspend fun loadFromAssets(): ModelMarketData? = withContext(Dispatchers.IO) {
+    suspend fun loadFromAssets(): ModelMarketData? = withContext(Dispatchers.IO) {
         try {
             val inputStream = context.assets.open("model_market.json")
             val jsonString = inputStream.bufferedReader().use { it.readText() }
             val data = gson.fromJson(jsonString, ModelMarketData::class.java)
-            Log.d(TAG, "Successfully loaded data from assets")
             return@withContext data
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to load from assets", e)
+            Log.e(TAG, "Failed to load from assets: ${e.message}", e)
             return@withContext null
         }
+    }
+
+    /**
+     * Load data from local cache or assets (no network)
+     * Compares versions from all sources and returns the highest version
+     * When versions are equal, prefer: cache > assets
+     */
+    suspend fun loadCachedOrAssets(): ModelMarketConfig? = withContext(Dispatchers.IO) {
+        val cacheData = loadFromCache()
+        val assetsData = loadFromAssets()
+        
+        // If only one source available, return it after conversion
+        if (cacheData == null && assetsData != null) {
+            return@withContext convertToConfig(assetsData)
+        }
+        if (assetsData == null && cacheData != null) {
+            return@withContext convertToConfig(cacheData)
+        }
+        if (cacheData == null && assetsData == null) {
+            Log.e(TAG, "CRITICAL: Both cache and assets are NULL! No data available!")
+            return@withContext null
+        }
+        
+        // Both available, compare versions
+        val cacheVersion = cacheData!!.version
+        val assetsVersion = assetsData!!.version
+        
+        val selectedData = when {
+            isVersionLower(cacheVersion, assetsVersion) -> assetsData
+            isVersionLower(assetsVersion, cacheVersion) -> cacheData
+            else -> cacheData
+        }
+        
+        return@withContext convertToConfig(selectedData)
     }
 
     private suspend fun saveCacheToFile(data: ModelMarketData) = withContext(Dispatchers.IO) {
@@ -209,46 +308,15 @@ class ModelRepository(private val context: Context) {
                 .putLong(CACHE_TIMESTAMP_KEY, System.currentTimeMillis())
                 .apply()
             
-            Log.d(TAG, "Successfully saved data to cache")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save cache", e)
         }
     }
 
-    suspend fun getModels(): List<ModelMarketItem> = withContext(Dispatchers.IO) {
-        try {
-            val data = getModelMarketData()
-            val allItems = data?.models ?: emptyList()
-            processModels(allItems)
-        } catch (e: IOException) {
-            emptyList()
-        }
-    }
-
-    suspend fun getTtsModels(): List<ModelMarketItem> = withContext(Dispatchers.IO) {
-        try {
-            val data = getModelMarketData()
-            val allItems = data?.ttsModels ?: emptyList()
-            processModels(allItems)
-        } catch (e: IOException) {
-            emptyList()
-        }
-    }
-
-    suspend fun getAsrModels(): List<ModelMarketItem> = withContext(Dispatchers.IO) {
-        try {
-            val data = getModelMarketData()
-            val allItems = data?.asrModels ?: emptyList()
-            processModels(allItems)
-        } catch (e: IOException) {
-            emptyList()
-        }
-    }
 
     private suspend fun processModels(models: List<ModelMarketItem>): List<ModelMarketItem> = withContext(Dispatchers.IO) {
         val selectedSource = MainSettings.getDownloadProviderString(context)
         
-        Log.d(TAG, "Processing models with selected source: $selectedSource")
         
         return@withContext models.filter { 
             it.sources.containsKey(selectedSource) 
@@ -261,13 +329,34 @@ class ModelRepository(private val context: Context) {
             if (item.fileSize > 0) {
                 try {
                     DownloadPersistentData.saveMarketSizeTotalSuspend(context, item.modelId, item.fileSize)
-                    Log.d(TAG, "Saved market size for ${item.modelId}: ${item.fileSize}")
                 } catch (e: Exception) {
-                    Log.w(TAG, "Failed to save market size for ${item.modelId}", e)
+                    // Failed to save market size
                 }
             }
         }
     }
+
+    /**
+     * Convert ModelMarketData to ModelMarketConfig with processed models
+     */
+    private suspend fun convertToConfig(data: ModelMarketData): ModelMarketConfig = withContext(Dispatchers.IO) {
+        val llmModels = processModels(data.models)
+        val ttsModels = processModels(data.ttsModels ?: emptyList())
+        val asrModels = processModels(data.asrModels ?: emptyList())
+        val libs = processModels(data.libs ?: emptyList())
+        
+        ModelMarketConfig(
+            version = data.version,
+            tagTranslations = data.tagTranslations,
+            quickFilterTags = data.quickFilterTags,
+            vendorOrder = data.vendorOrder ?: emptyList(),
+            llmModels = llmModels,
+            ttsModels = ttsModels,
+            asrModels = asrModels,
+            libs = libs
+        )
+    }
+
 
     /**
      * Determine the model type
@@ -276,30 +365,34 @@ class ModelRepository(private val context: Context) {
      */
     suspend fun getModelType(modelId: String): String = withContext(Dispatchers.IO) {
         try {
-            val data = getModelMarketData()
-            val selectedSource = MainSettings.getDownloadProviderString(context)
+            val config = getModelMarketData()
             
-            data?.let { marketData ->
-                marketData.asrModels?.any { model ->
-                    model.currentSource = selectedSource
-                    model.currentRepoPath = model.sources[selectedSource] ?: ""
-                    model.modelId = "$selectedSource/${model.currentRepoPath}"
-                    Log.d(TAG, "process ASR model: ${model.modelId}")
-                    model.modelId == modelId
-                } == true && return@withContext "ASR"
+            config?.let { marketConfig ->
+                // Check if it's in ASR models
+                if (marketConfig.asrModels.any { it.modelId == modelId }) {
+                    return@withContext "ASR"
+                }
                 
-                marketData.ttsModels?.any { model ->
-                    model.currentSource = selectedSource
-                    model.currentRepoPath = model.sources[selectedSource] ?: ""
-                    model.modelId = "$selectedSource/${model.currentRepoPath}"
-                    Log.d(TAG, "process TTS model: ${model.modelId}")
-                    model.modelId == modelId
-                } == true && return@withContext "TTS"
+                // Check if it's in TTS models
+                if (marketConfig.ttsModels.any { it.modelId == modelId }) {
+                    return@withContext "TTS"
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to determine model type for $modelId", e)
         }
         return@withContext "LLM"
+    }
+
+    suspend fun getModelTypeSuspend(modelId: String): String {
+        return getMarketDataSuspend().let { config ->
+            when {
+                config.asrModels.find { it.modelId == modelId } != null -> "ASR"
+                config.ttsModels.find { it.modelId == modelId } != null -> "TTS"
+                config.libs.find { it.modelId == modelId } != null -> "LIB"
+                else -> "LLM"
+            }
+        }
     }
 
     /**
@@ -314,9 +407,202 @@ class ModelRepository(private val context: Context) {
             val v2 = version2.toInt()
             v1 < v2
         } catch (e: NumberFormatException) {
-            Log.w(TAG, "Failed to parse version numbers: $version1, $version2", e)
             // If parsing fails, treat as equal (use network data)
             false
         }
+    }
+    
+    /**
+     * Initialize the repository with immediate cache access and background network loading
+     * This method returns immediately with cached data, then updates with network data in background
+     */
+    suspend fun initialize(): ModelMarketConfig? = initializationMutex.withLock {
+        // Check if already initialized or initializing using LoadingState
+        val currentState = _loadingStateFlow.value
+        if (currentState != LoadingState.IDLE) {
+            return@withLock _marketDataFlow.value
+        }
+        
+        try {
+            // Step 1: Load from cache/assets immediately (fast)
+            _loadingStateFlow.value = LoadingState.LOADING_CACHE
+            val cachedConfig = loadCachedOrAssets()
+            
+            if (cachedConfig != null) {
+                _marketDataFlow.value = cachedConfig
+                cachedModelMarketData = cachedConfig
+                _loadingStateFlow.value = LoadingState.LOADED
+                // Build cache for immediate access
+                buildCacheFromData(cachedConfig)
+            }
+            // Step 2: Start background network refresh (non-blocking)
+            startBackgroundRefresh()
+            
+            return@withLock cachedConfig
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to initialize repository", e)
+            _errorFlow.value = e
+            _loadingStateFlow.value = LoadingState.ERROR
+            return@withLock null
+        }
+    }
+    
+    /**
+     * Start background network refresh
+     */
+    private fun startBackgroundRefresh() {
+        refreshJob?.cancel()
+        refreshJob = refreshScope.launch {
+            try {
+                _loadingStateFlow.value = LoadingState.LOADING_NETWORK
+                
+                val networkConfig = refreshFromNetwork()
+                
+                if (networkConfig != null) {
+                    _marketDataFlow.value = networkConfig
+                    cachedModelMarketData = networkConfig
+                    _loadingStateFlow.value = LoadingState.LOADED
+                    _errorFlow.value = null
+                    
+                    // Update cache
+                    buildCacheFromData(networkConfig)
+                } else {
+                    // Only set ERROR if we don't have any data yet
+                    if (_marketDataFlow.value == null) {
+                        _loadingStateFlow.value = LoadingState.ERROR
+                    }
+                }
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "Background network refresh error: ${e.message}", e)
+                _errorFlow.value = e
+                if (_marketDataFlow.value == null) {
+                    _loadingStateFlow.value = LoadingState.ERROR
+                }
+            }
+        }
+    }
+    
+    /**
+     * Build ConcurrentHashMap cache from market config for fast lookups
+     */
+    private suspend fun buildCacheFromData(config: ModelMarketConfig) = withContext(Dispatchers.IO) {
+        try {
+            // Cache all models directly from config
+            marketItemsCache.clear()
+            
+            // Add regular models
+            config.llmModels.forEach { marketItemsCache[it.modelId] = it }
+            
+            // Add TTS models
+            config.ttsModels.forEach { marketItemsCache[it.modelId] = it }
+            
+            // Add ASR models
+            config.asrModels.forEach { marketItemsCache[it.modelId] = it }
+            
+            // Add libs
+            config.libs.forEach { marketItemsCache[it.modelId] = it }
+            
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to build cache", e)
+        }
+    }
+    /**
+     * Get all cached models (immediate access, no IO)
+     */
+    fun getAllCachedModels(): List<ModelMarketItem> {
+        return marketItemsCache.values.toList()
+    }
+    
+    /**
+     * Check if repository is initialized
+     */
+    fun isInitialized(): Boolean {
+        return _loadingStateFlow.value != LoadingState.IDLE
+    }
+    
+    /**
+     * Force refresh from network
+     */
+    suspend fun forceRefresh() {
+        if (_loadingStateFlow.value == LoadingState.IDLE) {
+            initialize()
+            return
+        }
+        
+        startBackgroundRefresh()
+    }
+    
+    /**
+     * Subscribe to market data updates
+     * Automatically initializes the repository if not already initialized
+     * Returns a Flow that emits market data updates
+     * 
+     * IMPORTANT: This is a suspend function that waits for initialization to complete
+     * before returning the flow to avoid race conditions with .first()
+     */
+    suspend fun subscribeToMarketData(): Flow<ModelMarketConfig> {
+        refreshScope.launch {
+            initialize()
+        }
+        // Return a flow that filters out null values
+        return marketDataFlow.filterNotNull()
+    }
+
+    suspend fun getMarketDataSuspend(): ModelMarketConfig {
+        return subscribeToMarketData().first()
+    }
+
+    /**
+     * Subscribe to loading state changes
+     */
+    fun subscribeToLoadingState(): Flow<LoadingState> {
+        return loadingStateFlow
+    }
+    
+    /**
+     * Subscribe to error updates
+     */
+    fun subscribeToErrors(): Flow<Throwable?> {
+        return errorFlow
+    }
+    
+    /**
+     * Get current loading state
+     */
+    fun getCurrentLoadingState(): LoadingState {
+        return _loadingStateFlow.value
+    }
+    
+    /**
+     * Get tag translations from market data
+     * Returns translated tags if available, otherwise returns original tags
+     */
+    fun getTagTranslations(tags: List<String>): List<String> {
+        val translations = _marketDataFlow.value?.tagTranslations ?: emptyMap()
+        return tags.map { tag -> translations[tag] ?: tag }
+    }
+    
+    /**
+     * Clear all data and reset state
+     */
+    fun clear() {
+        refreshJob?.cancel()
+        marketItemsCache.clear()
+        _marketDataFlow.value = null
+        _loadingStateFlow.value = LoadingState.IDLE  // Reset to IDLE
+        _errorFlow.value = null
+        cachedModelMarketData = null
+        isNetworkRequestAttempted = false
+    }
+    
+    /**
+     * Cleanup resources
+     */
+    fun cleanup() {
+        refreshScope.cancel()
+        clear()
     }
 } 

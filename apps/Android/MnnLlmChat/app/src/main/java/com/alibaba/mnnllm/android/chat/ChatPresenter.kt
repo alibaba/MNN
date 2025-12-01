@@ -14,6 +14,7 @@ import com.alibaba.mnnllm.android.chat.model.ChatDataManager
 import com.alibaba.mnnllm.android.chat.chatlist.ChatViewHolders
 import com.alibaba.mnnllm.android.llm.GenerateProgressListener
 import com.alibaba.mnnllm.android.utils.FileUtils
+import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.model.ModelUtils
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -97,13 +98,13 @@ class ChatPresenter(
             Log.d(TAG, "createSession: no sessionId provided, starting new session")
         }
         
-        val configPath = if (ModelUtils.isDiffusionModel(modelName)) {
+        val configPath = if (ModelTypeUtils.isDiffusionModel(modelName)) {
             intent.getStringExtra("diffusionDir")
         } else {
             intent.getStringExtra("configFilePath")
         }
         
-        Log.d(TAG, "createSession: isDiffusion=${ModelUtils.isDiffusionModel(modelName)}, modelName=$modelName, configPath=$configPath")
+        Log.d(TAG, "createSession: isDiffusion=${ModelTypeUtils.isDiffusionModel(modelName)}, modelName=$modelName, configPath=$configPath")
         
         chatSession = chatService.createSession(
             modelId, modelName, sessionId, chatDataItemList, configPath, false
@@ -189,7 +190,7 @@ class ChatPresenter(
     private fun submitRequest(input: String, userData: ChatDataItem): HashMap<String, Any> {
         stopGenerating = false
         val benchMarkResult = try {
-            if (ModelUtils.isDiffusionModel(this.modelName)) {
+            if (ModelTypeUtils.isDiffusionModel(this.modelName)) {
                 submitDiffusionRequest(input)
             } else {
                 submitLlmRequest(input)

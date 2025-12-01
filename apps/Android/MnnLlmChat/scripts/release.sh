@@ -107,11 +107,15 @@ build_standard_debug() {
     
     ./gradlew assembleStandardDebug
     
-    # Copy APK to output directory
+    # Generate version-based filename (replace dots with underscores)
+    VERSION_FILENAME=$(echo "$VERSION_NAME" | sed 's/\./_/g')
+    APK_FILENAME="mnn_chat_${VERSION_FILENAME}.apk"
+    
+    # Copy APK to output directory with version-based name
     APK_PATH="$BUILD_DIR/outputs/apk/standard/debug/app-standard-debug.apk"
     if [[ -f "$APK_PATH" ]]; then
-        cp "$APK_PATH" "$CDN_UPLOAD_DIR/"
-        log_success "Standard debug APK built: $CDN_UPLOAD_DIR/app-standard-debug.apk"
+        cp "$APK_PATH" "$CDN_UPLOAD_DIR/$APK_FILENAME"
+        log_success "Standard debug APK built: $CDN_UPLOAD_DIR/$APK_FILENAME"
     else
         log_error "Standard debug APK not found at $APK_PATH"
         exit 1
@@ -171,13 +175,17 @@ upload_to_cdn() {
     # Configure ossutil
     ossutil config -e "$CDN_ENDPOINT" -i "$CDN_ACCESS_KEY" -k "$CDN_SECRET_KEY"
     
+    # Generate version-based filename for upload
+    VERSION_FILENAME=$(echo "$VERSION_NAME" | sed 's/\./_/g')
+    APK_FILENAME="mnn_chat_${VERSION_FILENAME}.apk"
+    
     # Upload APK to CDN
-    APK_FILE="$CDN_UPLOAD_DIR/app-standard-debug.apk"
+    APK_FILE="$CDN_UPLOAD_DIR/$APK_FILENAME"
     if [[ -f "$APK_FILE" ]]; then
-        ossutil cp "$APK_FILE" "oss://$CDN_BUCKET/releases/$VERSION_NAME/app-standard-debug-$VERSION_NAME-$BUILD_DATE.apk"
-        log_success "APK uploaded to CDN: oss://$CDN_BUCKET/releases/$VERSION_NAME/app-standard-debug-$VERSION_NAME-$BUILD_DATE.apk"
+        ossutil cp "$APK_FILE" "oss://$CDN_BUCKET/releases/$VERSION_NAME/$APK_FILENAME"
+        log_success "APK uploaded to CDN: oss://$CDN_BUCKET/releases/$VERSION_NAME/$APK_FILENAME"
     else
-        log_error "APK file not found for CDN upload"
+        log_error "APK file not found for CDN upload: $APK_FILE"
     fi
 }
 
@@ -237,6 +245,10 @@ EOF
 generate_release_notes() {
     log_info "Generating release notes..."
     
+    # Generate version-based filename for documentation
+    VERSION_FILENAME=$(echo "$VERSION_NAME" | sed 's/\./_/g')
+    APK_FILENAME="mnn_chat_${VERSION_FILENAME}.apk"
+    
     RELEASE_NOTES_FILE="$OUTPUT_DIR/release_notes.md"
     cat > "$RELEASE_NOTES_FILE" << EOF
 # Release Notes - $PROJECT_NAME v$VERSION_NAME
@@ -250,7 +262,7 @@ generate_release_notes() {
 ## Build Outputs
 
 ### Standard Flavor (Debug)
-- **APK**: \`app-standard-debug.apk\`
+- **APK**: \`$APK_FILENAME\`
 - **Purpose**: CDN distribution
 - **Location**: \`$CDN_UPLOAD_DIR/\`
 

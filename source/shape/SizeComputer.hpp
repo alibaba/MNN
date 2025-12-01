@@ -66,7 +66,7 @@ public:
     static float computeFlops(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                               const std::vector<Tensor*>& outputs);
 
-    static bool computeBroadCastDims(const MNN::Op* op, const std::vector<Tensor*>& inputs,
+    static bool computeBroadCastDims(const std::vector<Tensor*>& inputs,
                                      const std::vector<Tensor*>& outputs);
 
     static std::vector<int> needInputContent(const MNN::Op* op, int inputSize);

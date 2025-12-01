@@ -14,6 +14,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.first
 import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mnnllm.android.llm.ChatSession
 import com.alibaba.mnnllm.android.R
@@ -34,6 +36,7 @@ import com.alibaba.mnnllm.android.modelsettings.SettingsBottomSheetFragment
 import com.alibaba.mnnllm.api.openai.ui.ApiSettingsBottomSheetFragment
 import com.alibaba.mnnllm.api.openai.ui.ApiConsoleBottomSheetFragment
 import com.alibaba.mnnllm.android.utils.AudioPlayService
+import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
 import com.alibaba.mnnllm.api.openai.manager.ApiServiceManager
@@ -120,8 +123,8 @@ class ChatActivity : AppCompatActivity() {
     private fun setupView(modelId:String, modelName: String) {
         this.modelId = modelId
         this.modelName = modelName
-        isDiffusion = ModelUtils.isDiffusionModel(modelName)
-        isAudioModel = ModelUtils.isAudioModel(modelName)
+        isDiffusion = ModelTypeUtils.isDiffusionModel(modelName)
+        isAudioModel = ModelTypeUtils.isAudioModel(modelId)
         binding.modelSwitcher.text = modelName
         
         // Hide model switcher click functionality for diffusion models
@@ -166,11 +169,8 @@ class ChatActivity : AppCompatActivity() {
     private fun setupInputModule() {
         this.chatInputModule!!.apply {
             setOnThinkingModeChanged {isThinking ->
-                (chatSession as LlmSession).updateAssistantPrompt(if (isThinking) {
-                    "<|im_start|>assistant\n%s<|im_end|>\n"
-                } else {
-                    "<|im_start|>assistant\n<think>\n</think>%s<|im_end|>\n"
-                })
+                Log.d(TAG, "isThinking: $isThinking")
+                (chatSession as LlmSession).updateThinking(isThinking)
             }
             setOnAudioOutputModeChanged {
                 chatPresenter.setEnableAudioOutput(it)
@@ -326,6 +326,7 @@ class ChatActivity : AppCompatActivity() {
     }
 
     fun onLoadingChanged(loading: Boolean) {
+        isLoading = loading
         this.chatInputModule!!.onLoadingStatesChanged(loading)
         layoutModelLoading!!.visibility =
             if (loading) View.VISIBLE else View.GONE
@@ -339,7 +340,7 @@ class ChatActivity : AppCompatActivity() {
             }
             // Check API service settings and start service
             if (isApiServiceEnabled(this)) {
-                ApiServiceManager.startApiService(this)
+                ApiServiceManager.startApiService(this, modelId)
             }
         }
     }
@@ -359,7 +360,7 @@ class ChatActivity : AppCompatActivity() {
         // Voice chat is only available for non-diffusion models
         menu.findItem(R.id.start_voice_chat).isVisible = !isDiffusion
         // Real-time audio playback is only available for Omni models
-        val isOmniModel = ModelUtils.isOmni(modelName)
+        val isOmniModel = ModelTypeUtils.isOmni(modelName)
         menu.findItem(R.id.realtime_audio_playback).isVisible = false
         menu.findItem(R.id.realtime_audio_playback).isChecked = false
         return true
@@ -588,6 +589,27 @@ class ChatActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Handle generation stop request from voice chat or other components
+     * This method triggers the same stop logic as the UI stop button
+     */
+    fun onStopGenerationRequested() {
+        Log.d(TAG, "Stop generation requested from external component")
+        if (isGenerating) {
+            // Trigger the same stop logic as the UI stop button
+            chatPresenter.stopGenerate()
+            
+            // Update UI state immediately
+            setIsGenerating(false)
+            val recentItem = chatListComponent.recentItem
+            recentItem?.loading = false
+            
+            Log.d(TAG, "Generation stopped by external request")
+        } else {
+            Log.d(TAG, "No active generation to stop")
+        }
+    }
+
     val sessionDebugInfo: String
         get() = chatSession!!.debugInfo
 
@@ -698,10 +720,8 @@ class ChatActivity : AppCompatActivity() {
         }
         lifecycleScope.launch {
             val availableModels = getAvailableModels()
-
-            // Filter out diffusion models
             val modelFilter: (ModelItemWrapper) -> Boolean = { modelWrapper ->
-                !ModelUtils.isDiffusionModel(modelWrapper.displayName)
+                !ModelTypeUtils.isDiffusionModel(modelWrapper.displayName)
             }
 
             val selectModelFragment = SelectModelFragment.newInstance(availableModels, modelFilter, modelId)
@@ -713,8 +733,9 @@ class ChatActivity : AppCompatActivity() {
         
     }
     
-    private suspend fun getAvailableModels(): List<ModelItemWrapper> {
-        return ModelListManager.loadAvailableModels(this)
+    private fun getAvailableModels(): List<ModelItemWrapper> {
+        // Get current models or wait for them
+        return ModelListManager.getCurrentModels()?: emptyList()
     }
     
     private fun handleModelSelection(selectedModelWrapper: ModelItemWrapper) {
@@ -758,8 +779,8 @@ class ChatActivity : AppCompatActivity() {
     private fun updateModelInfo(selectedModelId: String, selectedModelName: String) {
         this.modelId = selectedModelId
         this.modelName = selectedModelName
-        isDiffusion = ModelUtils.isDiffusionModel(selectedModelName)
-        isAudioModel = ModelUtils.isAudioModel(selectedModelName)
+        isDiffusion = ModelTypeUtils.isDiffusionModel(selectedModelName)
+        isAudioModel = ModelTypeUtils.isAudioModel(selectedModelId)
         
         // Update model switcher text
         binding.modelSwitcher.text = selectedModelName

@@ -11,21 +11,15 @@ import java.io.File
 import java.security.MessageDigest
 import java.util.Base64
 
-/**
- * 图像缓存管理器，支持双重哈希机制：
- * 1. 字符串哈希（快速，1ms）- 直接对Base64字符串计算哈希
- * 2. 内容哈希（慢速，几十到几百ms）- 对解码后的图像数据计算哈希
- * 
- * 解决不同客户端Base64编码差异导致的缓存未命中问题
- */
+/** * imagecachemanager，supportdualhashmechanism： * 1. stringhash（fast，1ms）- directlytoBase64stringcalculatehash * 2. contenthash（slow，tens to hundredsms）- todecodingafterimagedatacalculatehash * * solvedifferentclientBase64encodingdifferencescaused bycachemississue*/
 class ImageCacheManager(private val context: Context) {
     
     @Serializable
     data class CacheEntry(
-        val stringHash: String,      // Base64字符串的哈希
-        val contentHash: String,     // 解码后内容的哈希
-        val filePath: String,        // 本地文件路径
-        val timestamp: Long          // 创建时间戳
+        val stringHash: String,      //Base64stringhash
+        val contentHash: String,     //after decodingcontenthash
+        val filePath: String,        //localfile path
+        val timestamp: Long          //creation timestamp
     )
     
     @Serializable
@@ -53,11 +47,7 @@ class ImageCacheManager(private val context: Context) {
         cleanupInvalidEntries()
     }
     
-    /**
-     * 处理Base64图像，使用双重哈希机制
-     * @param base64Data Base64编码的图像数据
-     * @return 本地文件路径，如果处理失败则返回null
-     */
+    /** * process Base64image,usedual hashmechanism * @param base64Data Base64 encodingimage data * @return localfile path,ifprocessfails thenreturn null*/
     suspend fun processBase64Image(base64Data: String): String? = withContext(Dispatchers.IO) {
         try {
             logDebug("开始处理Base64图像，数据长度: ${base64Data.length}")
@@ -67,20 +57,20 @@ class ImageCacheManager(private val context: Context) {
                 return@withContext null
             }
             
-            // 第一步：快速字符串哈希检查（约1ms）
+            //Step 1: faststringhash check (about 1ms)
             val startTime = System.currentTimeMillis()
             val stringHash = calculateSHA256(base64Data)
             val stringHashTime = System.currentTimeMillis() - startTime
             logDebug("计算字符串哈希: $stringHash (耗时: ${stringHashTime}ms)")
             
-            // 检查字符串哈希是否命中缓存
+            //checkstringhashwhetherhitcache
             val stringCacheHit = findByStringHash(stringHash)
             if (stringCacheHit != null && File(stringCacheHit.filePath).exists()) {
                 logDebug("字符串哈希命中缓存: ${stringCacheHit.filePath}")
                 return@withContext stringCacheHit.filePath
             }
             
-            // 第二步：解码图像数据（耗时较长）
+            //Step 2: decoding image data (time-consuming)
             val decodeStartTime = System.currentTimeMillis()
             val imageData = try {
                 Base64.getDecoder().decode(base64Data)
@@ -91,22 +81,22 @@ class ImageCacheManager(private val context: Context) {
             val decodeTime = System.currentTimeMillis() - decodeStartTime
             logDebug("Base64解码完成，数据大小: ${imageData.size} bytes (耗时: ${decodeTime}ms)")
             
-            // 第三步：计算内容哈希（基于解码后的数据）
+            //Step 3: calculatecontent hash (based on decodeddata)
             val contentHashStartTime = System.currentTimeMillis()
             val contentHash = calculateSHA256(imageData)
             val contentHashTime = System.currentTimeMillis() - contentHashStartTime
             logDebug("计算内容哈希: $contentHash (耗时: ${contentHashTime}ms)")
             
-            // 检查内容哈希是否命中缓存
+            //checkcontenthashwhetherhitcache
             val contentCacheHit = findByContentHash(contentHash)
             if (contentCacheHit != null && File(contentCacheHit.filePath).exists()) {
                 logDebug("内容哈希命中缓存: ${contentCacheHit.filePath}")
-                // 更新缓存索引，添加新的字符串哈希映射
+                //updatecacheindex，addnewstringhashmap
                 addStringHashMapping(stringHash, contentCacheHit)
                 return@withContext contentCacheHit.filePath
             }
             
-            // 第四步：保存新文件
+            //Step 4: save newfile
             val fileName = "img_${contentHash.substring(0, 8)}.jpg"
             val filePath = File(cacheDir, fileName).absolutePath
             
@@ -117,7 +107,7 @@ class ImageCacheManager(private val context: Context) {
             if (savedPath != null) {
                 logDebug("保存图像文件成功: $savedPath (耗时: ${saveTime}ms)")
                 
-                // 添加到缓存索引
+                //addtocacheindex
                 val newEntry = CacheEntry(
                     stringHash = stringHash,
                     contentHash = contentHash,
@@ -141,25 +131,19 @@ class ImageCacheManager(private val context: Context) {
         }
     }
     
-    /**
-     * 根据字符串哈希查找缓存条目
-     */
+    /** * according tostringhashfindcacheentry*/
     private fun findByStringHash(stringHash: String): CacheEntry? {
         return cacheIndex.entries.find { it.stringHash == stringHash }
     }
     
-    /**
-     * 根据内容哈希查找缓存条目
-     */
+    /** * according tocontenthashfindcacheentry*/
     private fun findByContentHash(contentHash: String): CacheEntry? {
         return cacheIndex.entries.find { it.contentHash == contentHash }
     }
     
-    /**
-     * 为已存在的缓存条目添加新的字符串哈希映射
-     */
+    /** * asexistingcacheentryaddnewstringhashmap*/
     private fun addStringHashMapping(stringHash: String, existingEntry: CacheEntry) {
-        // 检查是否已存在相同的字符串哈希
+        //check whetheralready existssame string hash
         if (findByStringHash(stringHash) == null) {
             val newEntry = existingEntry.copy(stringHash = stringHash)
             cacheIndex.entries.add(newEntry)
@@ -168,25 +152,21 @@ class ImageCacheManager(private val context: Context) {
         }
     }
     
-    /**
-     * 添加新的缓存条目
-     */
+    /** * addnewcacheentry*/
     private fun addCacheEntry(entry: CacheEntry) {
         cacheIndex.entries.add(entry)
         saveCacheIndex()
         logDebug("添加新缓存条目: ${entry.filePath}")
     }
     
-    /**
-     * 保存图像数据到文件
-     */
+    /** * saveimagedatatofile*/
     private suspend fun saveImageDataToFile(imageData: ByteArray, filePath: String): String? = 
         withContext(Dispatchers.IO) {
             val imageFile = File(filePath)
             try {
                 imageFile.writeBytes(imageData)
                 
-                // 验证图像文件有效性
+                //verificationimagefilevalidity
                 if (isValidImageFile(filePath)) {
                     filePath
                 } else {
@@ -201,9 +181,7 @@ class ImageCacheManager(private val context: Context) {
             }
         }
     
-    /**
-     * 验证图像文件有效性
-     */
+    /** * verificationimagefilevalidity*/
     private fun isValidImageFile(filePath: String): Boolean {
         return try {
             val options = BitmapFactory.Options()
@@ -216,9 +194,7 @@ class ImageCacheManager(private val context: Context) {
         }
     }
     
-    /**
-     * 计算字符串的SHA256哈希
-     */
+    /** * calculatestringSHA256hash*/
     private fun calculateSHA256(input: String): String {
         return try {
             val digest = MessageDigest.getInstance("SHA-256")
@@ -230,9 +206,7 @@ class ImageCacheManager(private val context: Context) {
         }
     }
     
-    /**
-     * 计算字节数组的SHA256哈希
-     */
+    /** * calculatebytearraySHA256hash*/
     private fun calculateSHA256(data: ByteArray): String {
         return try {
             val digest = MessageDigest.getInstance("SHA-256")
@@ -245,8 +219,7 @@ class ImageCacheManager(private val context: Context) {
     }
     
     /**
-     * 加载缓存索引
-     */
+     * loadcacheindex*/
     private fun loadCacheIndex() {
         try {
             if (indexFile.exists()) {
@@ -264,8 +237,7 @@ class ImageCacheManager(private val context: Context) {
     }
     
     /**
-     * 保存缓存索引
-     */
+     * savecacheindex*/
     private fun saveCacheIndex() {
         try {
             val jsonContent = json.encodeToString(CacheIndex.serializer(), cacheIndex)
@@ -276,9 +248,7 @@ class ImageCacheManager(private val context: Context) {
         }
     }
     
-    /**
-     * 清理无效的缓存条目（文件不存在的条目）
-     */
+    /** * cleanupinvalidcacheentry（filenon-existententry）*/
     private fun cleanupInvalidEntries() {
         val initialSize = cacheIndex.entries.size
         cacheIndex.entries.removeAll { entry ->
@@ -296,9 +266,7 @@ class ImageCacheManager(private val context: Context) {
         }
     }
     
-    /**
-     * 清理过期缓存
-     */
+    /** * cleanupexpiredcache*/
     fun cleanupExpiredCache(maxAgeMillis: Long = 24 * 60 * 60 * 1000L) {
         val currentTime = System.currentTimeMillis()
         val initialSize = cacheIndex.entries.size
@@ -322,9 +290,7 @@ class ImageCacheManager(private val context: Context) {
         }
     }
     
-    /**
-     * 获取缓存统计信息
-     */
+    /** * getcachestatisticsinfo*/
     fun getCacheStats(): String {
         val totalEntries = cacheIndex.entries.size
         val validFiles = cacheIndex.entries.count { File(it.filePath).exists() }

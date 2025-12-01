@@ -8,16 +8,14 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 /**
- * 测试工具类，提供Chat模块测试中常用的工具方法和测试数据
- */
+ * Test utility class providing common methods and test data for Chat module testing*/
 object ChatTestUtils {
 
     private var sessionCounter = 0
     private var modelCounter = 0
 
     /**
-     * 创建测试用的ChatDataItem
-     */
+     * Create test ChatDataItem*/
     fun createTestChatDataItem(
         type: Int = ChatViewHolders.USER,
         text: String = "Test message",
@@ -27,22 +25,19 @@ object ChatTestUtils {
     }
 
     /**
-     * 创建用户消息
-     */
+     * Create user message*/
     fun createUserMessage(text: String): ChatDataItem {
         return ChatDataItem("2024-01-01 10:00:00", ChatViewHolders.USER, text)
     }
 
     /**
-     * 创建助手消息
-     */
+     * Create assistant message*/
     fun createAssistantMessage(text: String): ChatDataItem {
         return ChatDataItem("2024-01-01 10:01:00", ChatViewHolders.ASSISTANT, text)
     }
 
     /**
-     * 创建带图片的消息
-     */
+     * Create message with image*/
     fun createImageMessage(
         text: String = "Check out this image",
         imageUri: Uri = Uri.parse("file:///test/image.jpg")
@@ -53,8 +48,7 @@ object ChatTestUtils {
     }
 
     /**
-     * 创建带音频的消息
-     */
+     * Create message with audio*/
     fun createAudioMessage(
         text: String = "Voice message",
         audioPath: String = "/test/audio.mp3",
@@ -64,8 +58,7 @@ object ChatTestUtils {
     }
 
     /**
-     * 创建测试用的聊天历史
-     */
+     * Create test chat history*/
     fun createTestChatHistory(): List<ChatDataItem> {
         return listOf(
             createUserMessage("Hello"),
@@ -76,8 +69,7 @@ object ChatTestUtils {
     }
 
     /**
-     * 创建测试用的生成结果
-     */
+     * Create test generation result*/
     fun createTestGenerateResult(response: String, benchmark: String): HashMap<String, Any> {
         return HashMap<String, Any>().apply {
             put("response", response)
@@ -88,38 +80,33 @@ object ChatTestUtils {
     }
 
     /**
-     * 创建测试用的会话ID
-     */
+     * Create test session ID*/
     fun createTestSessionId(): String {
         sessionCounter++
         return "test-session-$sessionCounter"
     }
 
     /**
-     * 创建测试用的模型ID
-     */
+     * Create test model ID*/
     fun createTestModelId(prefix: String): String {
         modelCounter++
         return "$prefix/test-model-$modelCounter"
     }
 
     /**
-     * 获取测试用的日期格式
-     */
+     * Get test date format*/
     fun getTestDateFormat(): SimpleDateFormat {
         return SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
     }
 
     /**
-     * 创建测试用的时间戳
-     */
+     * Create test timestamp*/
     fun createTestTimestamp(): Long {
         return System.currentTimeMillis()
     }
 
     /**
-     * 验证ChatDataItem的基本属性
-     */
+     * Validate basic properties of ChatDataItem*/
     fun assertChatDataItemValid(
         item: ChatDataItem,
         expectedType: Int,
@@ -134,8 +121,7 @@ object ChatTestUtils {
     }
 
     /**
-     * 验证生成结果的基本属性
-     */
+     * Validate basic properties of generation result*/
     fun assertGenerateResultValid(result: HashMap<String, Any>, expectedResponse: String) {
         assertEquals(expectedResponse, result["response"])
         assertNotNull(result["benchmark"])
@@ -144,36 +130,31 @@ object ChatTestUtils {
     }
 
     /**
-     * 创建测试用的URI
-     */
+     * Create test URI*/
     fun createTestUri(scheme: String = "file", path: String = "/test/file.txt"): Uri {
         return Uri.parse("$scheme://$path")
     }
 
     /**
-     * 创建测试用的音频文件路径
-     */
+     * Create test audio file path*/
     fun createTestAudioPath(): String {
         return "/test/audio_${System.currentTimeMillis()}.mp3"
     }
 
     /**
-     * 创建测试用的图片文件路径
-     */
+     * Create test image file path*/
     fun createTestImagePath(): String {
         return "/test/image_${System.currentTimeMillis()}.jpg"
     }
 
     /**
-     * 创建测试用的错误消息
-     */
+     * Create test error message*/
     fun createTestErrorMessage(message: String = "Test error"): Exception {
         return RuntimeException(message)
     }
 
     /**
-     * 验证错误处理
-     */
+     * Validate error handling*/
     fun assertErrorHandled(
         exception: Exception,
         expectedMessage: String
@@ -182,8 +163,7 @@ object ChatTestUtils {
     }
 
     /**
-     * 创建测试用的进度信息
-     */
+     * Create test progress info*/
     fun createTestProgressInfo(
         progress: String = "Generating...",
         percentage: Double = 0.5
@@ -196,8 +176,7 @@ object ChatTestUtils {
     }
 
     /**
-     * 验证进度信息
-     */
+     * Validate progress info*/
     fun assertProgressInfoValid(
         progressInfo: HashMap<String, Any>,
         expectedProgress: String
@@ -207,22 +186,19 @@ object ChatTestUtils {
     }
 
     /**
-     * 创建测试用的配置路径
-     */
+     * Create test config path*/
     fun createTestConfigPath(): String {
         return "/test/config_${System.currentTimeMillis()}"
     }
 
     /**
-     * 创建测试用的扩散模型路径
-     */
+     * Create test diffusion model path*/
     fun createTestDiffusionPath(): String {
         return "/test/diffusion_${System.currentTimeMillis()}"
     }
 
     /**
-     * 验证会话状态
-     */
+     * Validate session state*/
     fun assertSessionStateValid(
         sessionId: String?,
         expectedSessionId: String?
@@ -231,8 +207,7 @@ object ChatTestUtils {
     }
 
     /**
-     * 创建测试用的基准信息
-     */
+     * Create test benchmark info*/
     fun createTestBenchmarkInfo(
         generationTime: Double = 2.5,
         tokenCount: Int = 150,
@@ -247,8 +222,7 @@ object ChatTestUtils {
     }
 
     /**
-     * 验证基准信息
-     */
+     * Validate benchmark info*/
     fun assertBenchmarkInfoValid(
         benchmarkInfo: HashMap<String, Any>,
         expectedGenerationTime: Double

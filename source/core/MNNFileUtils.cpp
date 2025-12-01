@@ -267,7 +267,7 @@ ErrorCode MNNSetFilePointer(file_t file, size_t offset)
 #endif
 }
 
-void * MNNMmapFile(file_t file, size_t size)
+void * MNNMmapFile(file_t file, size_t size, bool onlyRead)
 {
     if (file == INVALID_FILE || MNNGetFileSize(file) < size) {
         return nullptr;
@@ -278,11 +278,19 @@ void * MNNMmapFile(file_t file, size_t size)
         MNN_ERROR("MNN: Mmap failed\n");
         return nullptr;
     }
-    void * addr = MapViewOfFile(hFileMapping, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, size);
+    auto mode = FILE_MAP_READ | FILE_MAP_WRITE;
+    if (onlyRead) {
+        mode = FILE_MAP_READ;
+    }
+    void * addr = MapViewOfFile(hFileMapping, mode, 0, 0, size);
     CloseHandle(hFileMapping);
     return addr;
 #else
-    void * addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, file, 0);
+    auto mode = PROT_READ | PROT_WRITE;
+    if (onlyRead) {
+        mode = PROT_READ;
+    }
+    void * addr = mmap(NULL, size, mode, MAP_SHARED, file, 0);
     if (addr == MAP_FAILED) {
         MNN_ERROR("MNN: Mmap failed\n");
         return nullptr;

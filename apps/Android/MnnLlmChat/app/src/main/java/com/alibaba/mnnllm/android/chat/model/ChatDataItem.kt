@@ -22,6 +22,9 @@ class ChatDataItem {
     var imageUri: Uri? = null
 
     @JvmField
+    var videoUri: Uri? = null
+
+    @JvmField
     var audioUri: Uri? = null
 
     @JvmField
@@ -61,6 +64,14 @@ class ChatDataItem {
             return null
         }
 
+    val videoPath: String?
+        get() {
+            if (this.videoUri != null && "file" == videoUri!!.scheme) {
+                return videoUri!!.path
+            }
+            return null
+        }
+
     var showThinking: Boolean = true
 
     var thinkingFinishedTime = -1L
@@ -85,6 +96,16 @@ class ChatDataItem {
             val result = ChatDataItem(timeString, ChatViewHolders.USER, text)
             result.audioUri = Uri.fromFile(File(audioPath))
             result.audioDuration = duration
+            return result
+        }
+
+        fun createVideoInputData(
+            timeString: String?,
+            text: String?,
+            videoPath: String
+        ): ChatDataItem {
+            val result = ChatDataItem(timeString, ChatViewHolders.USER, text)
+            result.videoUri = Uri.fromFile(File(videoPath))
             return result
         }
     }

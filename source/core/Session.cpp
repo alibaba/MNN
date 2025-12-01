@@ -110,7 +110,7 @@ void Session::ModeGroup::setHint(Interpreter::HintMode hint, int value) {
             runtimeHint.initThreadNumber = value;
             break;
         case Interpreter::CPU_SME2_INSTRUCTIONS:
-            runtimeHint.useArmSme2Cores = value;
+            runtimeHint.useArmSme2Cores = value > 0 ? true : false;
             break;
         case Interpreter::HintMode::CPU_ENABLE_KLEIDIAI:
             runtimeHint.enableKleidiAI = value > 0 ? true : false;
@@ -139,9 +139,6 @@ void Session::ModeGroup::setExternalPath(std::string path, int type) {
             break;
         case MNN::Interpreter::EXTERNAL_WEIGHT_DIR:
             runtimeHint.weightMemoryPath = path;
-            break;
-        case MNN::Interpreter::EXTERNAL_NPU_FILE_DIR:
-            runtimeHint.npuModelDirPath = path;
             break;
         default:
             break;
@@ -478,10 +475,11 @@ static void initTensors(std::vector<std::shared_ptr<Tensor>>& tensors,
             continue;
         }
         // Init all tensor except for const
-        if (tensors[i].get() == nullptr) {
-            tensors[i].reset(new Tensor);
-            TensorUtils::getDescribe(tensors[i].get())->index = i;
+        if (tensors[i].get() != nullptr) {
+            continue;
         }
+        tensors[i].reset(new Tensor);
+        TensorUtils::getDescribe(tensors[i].get())->index = i;
         auto srcDes = TensorUtils::getDescribe(tensorSrc[i].get());
         if (srcDes->quantAttr != nullptr) {
             TensorUtils::getDescribe(tensors[i].get())->quantAttr.reset(new QuantAttr);

@@ -17,6 +17,7 @@
 
 namespace MNN {
 namespace QNN {
+#ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 // Wrap 'Qnn_Tensor_t' for the convenience of memory management.
 class QNNTensorWrapper {
@@ -30,7 +31,7 @@ public:
     ~QNNTensorWrapper();
     Qnn_Tensor_t * getNativeTensor();
     const Qnn_Tensor_t * getNativeTensor() const;
-    void * alloc();
+    void * alloc(Tensor::DimensionType dimType = gQnnTensorDimType);
     std::shared_ptr<Tensor> getDataContainer();
     const std::vector<uint32_t> * getDimension();
 
@@ -76,7 +77,7 @@ private:
     std::string mName;
     Qnn_Param_t mQnnParam{};
 };
-
+#endif
 } // end namespace QNN
 } // end namespace MNN
 

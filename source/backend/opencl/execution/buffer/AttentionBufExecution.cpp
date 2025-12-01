@@ -158,8 +158,10 @@ void AttentionBufExecution::handleKVCache(const std::vector<Tensor *> &inputs, c
     MNN_ASSERT(inputs.size() >= 4);
     auto mask = inputs[3];
     auto mask_shape = mask->shape();
-    int mask_seqlen = mask_shape[2];
-    int maskKvlen  = mask_shape[3];
+    int dim = mask->dimensions();
+    MNN_ASSERT(dim >= 2);
+    int mask_seqlen = mask_shape[dim - 2];
+    int maskKvlen  = mask_shape[dim - 1];
     mKVCacheCLManager->setArgs(numHead, kvNumHead, headDim);
     mKVCacheCLManager->allocKVCache(mMeta);
     mKeyValueMaxlen = ROUND_UP(mKVCacheCLManager->maxLength(), 4);
@@ -218,8 +220,10 @@ ErrorCode AttentionBufExecution::UpdateArgs(const std::vector<Tensor *> &inputs,
     int group_size = numHead / kvNumHead;
     float scale = 1.0 / sqrt(headDim);
     auto mask_shape = mask->shape();
-    int mask_seqlen = mask_shape[2];
-    int maskKvlen  = mask_shape[3];
+    int dim = mask->dimensions();
+    MNN_ASSERT(dim >= 2);
+    int mask_seqlen = mask_shape[dim - 2];
+    int maskKvlen  = mask_shape[dim - 1];
     mPastKvSeqlen = mKVCacheCLManager->pastKvLength();
     mKvSeqlen = mKVCacheCLManager->pastKvLength() + seqlen;
     mKVCacheCLManager->addKvLength(seqlen);
@@ -230,8 +234,10 @@ ErrorCode AttentionBufExecution::UpdateArgs(const std::vector<Tensor *> &inputs,
         if(mHasMask) {
             auto mask = inputs[3];
             auto mask_shape = mask->shape();
-            maskQlen = mask_shape[2];
-            maskKvlen  = mask_shape[3];
+            int dim = mask->dimensions();
+            MNN_ASSERT(dim >= 2);
+            maskQlen = mask_shape[dim - 2];
+            maskKvlen  = mask_shape[dim - 1];
         }
         // key value static memory has been changed, need reset args
         if(mKeyValueMaxlen != ROUND_UP(mKVCacheCLManager->maxLength(), 4)){
@@ -485,6 +491,12 @@ ErrorCode AttentionBufExecution::longPrefillResize(const std::vector<Tensor *> &
     // elementSize larger than 32M
     if(useMemorySize > 32.0) {
         mQseqSplitNum = useMemorySize >= 256.0 ? 8 : ((useMemorySize < 128.0) ? 2 : 4);
+    }
+    // splitPiecesSize need aligned to 32, make sure XgemmBatched globalsize be divisible by localsize
+    int splitPiecesSize = ROUND_UP(seqlen, mAlignQ) / mQseqSplitNum;
+    while((splitPiecesSize % 32) != 0){
+        mAlignQ *= 2;
+        splitPiecesSize = ROUND_UP(seqlen, mAlignQ) / mQseqSplitNum;
     }
     
     mKernel_rearrange_vec.resize(1); mGwsRearrgVec.resize(1); mLwsRearrgVec.resize(1);
@@ -955,8 +967,10 @@ ErrorCode AttentionBufExecution::prefillResize(const std::vector<Tensor *> &inpu
     if(mHasMask) {
         auto mask = inputs[3];
         auto mask_shape = mask->shape();
-        maskQlen = mask_shape[2];
-        maskKvlen  = mask_shape[3];
+        int dim = mask->dimensions();
+        MNN_ASSERT(dim >= 2);
+        maskQlen = mask_shape[dim - 2];
+        maskKvlen  = mask_shape[dim - 1];
         if(mIsAddMask) {
             mTempMask.reset(Tensor::createDevice<float>({ROUND_UP(maskQlen, 4) * ROUND_UP(maskKvlen, 4) * batch}));
         } else {
@@ -1790,6 +1804,7 @@ AttentionBufExecution::AttentionBufExecution(const MNN::Op *op, Backend* backend
 }
 
 AttentionBufExecution::AttentionBufExecution(std::shared_ptr<KVCacheCLManager> manager, const MNN::Op *op, Backend *backend) : CommonExecution(backend, op), mKVCacheCLManager(manager) {
+    mNeedKvCache = mKVCacheCLManager.get()->getKVCache();
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
     auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("softmax_buf", "softmax_buf", {"-DSOFTMAX_LOCAL_SIZE=512"}, mOpenCLBackend->getPrecision());
     mMeta = (KVMeta*)(mOpenCLBackend->getMetaPtr());
