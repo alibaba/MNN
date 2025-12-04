@@ -20,6 +20,7 @@ class ModelConfigManager {
     private let defaultPenalty: Double = 0.0
     private let defaultNGram: Int = 8
     private let defaultNGramFactor: Double = 1.0
+    private let defaultMultimodalPromptHint: String = "You are provided a set of visual and/or audio inputs. Please analyze them carefully before responding."
 
     init(modelPath: String, modelName _: String = "") {
         self.modelPath = modelPath
@@ -125,6 +126,29 @@ class ModelConfigManager {
 
     func updateUseMmap(_ value: Bool) {
         updateValue("use_mmap", value: value)
+    }
+
+    // MARK: - Video Frames
+
+    func readVideoMaxFrames() -> Int {
+        return readValue("video_max_frames", defaultValue: 8)
+    }
+
+    func saveVideoMaxFrames(_ value: Int) {
+        let clamped: Int = max(1, min(32, value))
+        updateValue("video_max_frames", value: clamped)
+    }
+
+    // MARK: - Multimodal Prompt Hint
+
+    func readDefaultMultimodalPrompt() -> String {
+        return readValue("default_multimodal_prompt", defaultValue: defaultMultimodalPromptHint)
+    }
+
+    func saveDefaultMultimodalPrompt(_ value: String) {
+        let trimmed: String = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalValue: String = trimmed.isEmpty ? defaultMultimodalPromptHint : trimmed
+        updateValue("default_multimodal_prompt", value: finalValue)
     }
 
     // MARK: - Iterations

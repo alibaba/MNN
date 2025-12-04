@@ -7,6 +7,7 @@
 import AVFoundation
 import Combine
 import SwiftUI
+import UIKit
 
 import ExyteChat
 
@@ -311,6 +312,111 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
     func getLLMRespsonse(draft: DraftMessage) {
         Task {
             await llmState.setProcessing(true)
+            var content = draft.text
+            let medias = draft.medias
+            var imagePlaceholders: [String] = []
+            var videoPlaceholders: [String] = []
+            var imageDictionary: [String: UIImage] = [:]
+            var missingAttachments: [String] = []
+            var hasVideoInput = false
+
+            for (index, media) in medias.enumerated() {
+                switch media.type {
+                case .image:
+                    guard let url = await media.getURL() else { continue }
+                    let fileName = url.lastPathComponent
+
+                    if let processedUrl = FileOperationManager.shared.processImageFile(from: url, fileName: fileName),
+                       FileOperationManager.shared.fileExists(at: processedUrl),
+                       let image = UIImage(contentsOfFile: processedUrl.path) {
+                        let key = "img_\(index)"
+                        imageDictionary[key] = image
+                        imagePlaceholders.append("<img>\(key)</img>")
+                    } else {
+                        missingAttachments.append("图片 \(fileName) 无法读取，已跳过。")
+                    }
+                case .video:
+                    guard let url = await media.getURL() else { continue }
+                    let fileName = url.lastPathComponent
+                    guard let preparedURL = FileOperationManager.shared.prepareVideoFileURL(from: url, fileName: fileName) else {
+                        missingAttachments.append("视频 \(fileName) 复制失败，已跳过。")
+                        continue
+                    }
+                    guard FileOperationManager.shared.fileExists(at: preparedURL) else {
+                        missingAttachments.append("视频 \(fileName) 文件不存在或已被移除。")
+                        continue
+                    }
+                    videoPlaceholders.append("<video>\(preparedURL.path)</video>")
+                    hasVideoInput = true
+                default:
+                    continue
+                }
+            }
+
+            if !imagePlaceholders.isEmpty || !videoPlaceholders.isEmpty {
+                let mediaPrefix = (imagePlaceholders + videoPlaceholders).joined()
+                content = mediaPrefix + content
+            }
+
+            if let audio = draft.recording, let path = audio.url {
+                if FileOperationManager.shared.fileExists(at: path) {
+                    content = "<audio>\(path.path)</audio>" + content
+                } else {
+                    missingAttachments.append("音频文件已丢失，未能发送。")
+                }
+            }
+
+            if !missingAttachments.isEmpty {
+                let warningDraft = DraftMessage(
+                    text: missingAttachments.joined(separator: "\n"),
+                    thinkText: "",
+                    medias: [],
+                    recording: nil,
+                    replyMessage: nil,
+                    createdAt: Date()
+                )
+                do {
+                    try await self.send(draft: warningDraft, userType: .system)
+                } catch {
+                    print("Error sending missing attachment warning: \(error)")
+                }
+            }
+
+            let hasImageInput = !imageDictionary.isEmpty
+            let hasAudioInput = draft.recording != nil && FileOperationManager.shared.fileExists(at: draft.recording?.url)
+            let hasVisualInput = hasImageInput || hasVideoInput
+            let hasTextInput = !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+            if !hasTextInput && (hasVisualInput || hasAudioInput) {
+                let defaultPrompt = modelConfigManager.readDefaultMultimodalPrompt()
+                if !defaultPrompt.isEmpty {
+                    content = defaultPrompt + "\n" + content
+                }
+            }
+
+            if !hasVisualInput && !hasAudioInput && !hasTextInput {
+                await llmState.setProcessing(false)
+                let warningText = NSLocalizedString(
+                    "video.frameExtractionFailed",
+                    comment: "Warning shown when a pure video input cannot provide frames."
+                )
+                let warningDraft = DraftMessage(
+                    text: warningText,
+                    thinkText: "",
+                    useMarkdown: false,
+                    medias: [],
+                    recording: nil,
+                    replyMessage: nil,
+                    createdAt: Date()
+                )
+                do {
+                    try await self.send(draft: warningDraft, userType: .system)
+                } catch {
+                    print("Error sending warning message: \(error)")
+                }
+                return
+            }
+
             // First, send the empty message asynchronously
             let emptyMessage = DraftMessage(
                 text: "",
@@ -342,43 +448,78 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
                 }
             }
 
-            var content = draft.text
-            let medias = draft.medias
-
-            // MARK: Add image
-
-            for media in medias {
-                switch media.type {
-                case .image:
-                    guard let url = await media.getURL() else { continue }
-
-                    let fileName = url.lastPathComponent
-
-                    if let processedUrl = FileOperationManager.shared.processImageFile(from: url, fileName: fileName) {
-                        content = "<img>\(processedUrl.path)</img>" + content
-                    }
-                case .video:
-                    guard let url = await media.getURL() else { continue }
-
-                    let fileName = url.lastPathComponent
-
-                    if let processedUrl = FileOperationManager.shared.processVideoFile(from: url, fileName: fileName) {
-                        content = "<video>\(processedUrl.path)</video>" + content
-                    }
-                default:
-                    continue
-                }
-            }
-
-            if let audio = draft.recording, let path = audio.url {
-                //                if let wavFile = await convertACCToWAV(accFileUrl: path) {
-                content = "<audio>\(path.path)</audio>" + content
-                //                }
-            }
-
             let convertedContent = self.convertDeepSeekMutliChat(content: content)
-
-            await llmState.processContent(convertedContent, llm: self.llm, showPerformance: true) { [weak self] output in
+            
+//            await llmState.processContent(convertedContent, llm: self.llm, showPerformance: true) { [weak self] output in
+//                guard let self = self else { return }
+//                
+//                if output.contains("<eop>") {
+//                    Task {
+//                        await UIUpdateOptimizer.shared.forceFlush { [weak self] finalOutput in
+//                            guard let self = self else { return }
+//                            if !finalOutput.isEmpty {
+//                                Task {
+//                                    do {
+//                                        try await self.send(draft: DraftMessage(
+//                                            text: finalOutput,
+//                                            thinkText: "",
+//                                            medias: [],
+//                                            recording: nil,
+//                                            replyMessage: nil,
+//                                            createdAt: Date()
+//                                        ), userType: .assistant)
+//                                    } catch {
+//                                        print("Error sending final output message: \(error)")
+//                                    }
+//                                }
+//                            }
+//                        }
+//
+//                        await MainActor.run {
+//                            // Mark model output as complete
+//                            if let messageId = self.currentStreamingMessageId,
+//                               let stateManager = self.streamingStates[messageId]
+//                            {
+//                                stateManager.markOutputComplete()
+//                            }
+//                            // currentStreamingMessageId will be cleared when animation completes via callback
+//
+//                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+//                                NotificationCenter.default.post(name: .dismissKeyboard, object: nil)
+//                            }
+//                        }
+//                        await self.llmState.setProcessing(false)
+//                    }
+//                    return
+//                }
+//
+//                Task {
+//                    await UIUpdateOptimizer.shared.addUpdate(output) { [weak self] output in
+//                        guard let self = self else { return }
+//                        Task {
+//                            do {
+//                                try await self.send(draft: DraftMessage(
+//                                    text: output,
+//                                    thinkText: "",
+//                                    medias: [],
+//                                    recording: nil,
+//                                    replyMessage: nil,
+//                                    createdAt: Date()
+//                                ), userType: .assistant)
+//                            } catch {
+//                                print("Error sending streaming message: \(error)")
+//                            }
+//                        }
+//                    }
+//                }
+//            }
+            
+            await llmState.processMultimodalContent(
+                convertedContent,
+                images: imageDictionary,
+                llm: self.llm,
+                showPerformance: true
+            ) { [weak self] output in
                 guard let self = self else { return }
 
                 if output.contains("<eop>") {
@@ -463,7 +604,17 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
     func setModelConfig() {
         if let configStr = modelConfigManager.readConfigAsJSONString(), let llm = llm {
             llm.setConfigWithJSONString(configStr)
+            llm.setVideoMaxFrames(modelConfigManager.readVideoMaxFrames())
         }
+    }
+
+    func updateVideoMaxFrames(_ value: Int) {
+        modelConfigManager.saveVideoMaxFrames(value)
+        llm?.setVideoMaxFrames(value)
+    }
+
+    func updateDefaultMultimodalPrompt(_ prompt: String) {
+        modelConfigManager.saveDefaultMultimodalPrompt(prompt)
     }
 
     private func convertDeepSeekMutliChat(content: String) -> String {
