@@ -9,6 +9,12 @@
 #define LLMInferenceEngineWrapper_h
 
 #import <Foundation/Foundation.h>
+#if __has_include(<UIKit/UIKit.h>)
+#import <UIKit/UIKit.h>
+#elif __has_include(<AppKit/AppKit.h>)
+#import <AppKit/AppKit.h>
+#define UIImage NSImage
+#endif
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -107,6 +113,22 @@ typedef void (^BenchmarkCompleteCallback)(BenchmarkResult *result);
  * @param showPerformance Whether to output performance statistics after response completion
  */
 - (void)processInput:(NSString *)input withOutput:(OutputHandler)output showPerformance:(BOOL)showPerformance;
+
+/**
+ * Process multimodal input (text + images) using MNN's MultimodalPrompt API.
+ *
+ * @param promptTemplate Template string containing <img>placeholder</img> tags.
+ * @param images Dictionary mapping placeholder keys to UIImage objects.
+ * @param output Callback block receiving streaming output chunks.
+ * @param showPerformance Whether to show performance stats upon completion.
+ */
+- (void)processMultimodalInput:(NSString *)promptTemplate
+                        images:(NSDictionary<NSString *, UIImage *> *)images
+                    withOutput:(OutputHandler)output
+               showPerformance:(BOOL)showPerformance;
+
+/// Update maximum frames extracted for each video.
+- (void)setVideoMaxFrames:(NSInteger)frames;
 
 /**
  * Add chat prompts from an array of dictionaries to the conversation history
