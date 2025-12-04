@@ -116,7 +116,7 @@ extension DraftMessage {
             }
             .compactMap { media, thumb, full in
                 guard let thumb, let full else { return nil }
-                let processedFull = FileOperationManager.shared.processVideoFile(
+                let processedFull = FileOperationManager.shared.prepareVideoFileURL(
                     from: full,
                     fileName: full.lastPathComponent
                 ) ?? full

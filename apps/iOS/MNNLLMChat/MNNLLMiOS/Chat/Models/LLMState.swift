@@ -6,6 +6,7 @@
 //
 
 import ExyteChat
+import UIKit
 
 actor LLMState {
     private var isProcessing: Bool = false
@@ -20,6 +21,28 @@ actor LLMState {
 
     func processContent(_ content: String, llm: LLMInferenceEngineWrapper?, showPerformance _: Bool, completion: @escaping (String) -> Void) {
         llm?.processInput(content, withOutput: completion, showPerformance: true)
+    }
+
+    /// Processes multimodal (text + images) content using the MultimodalPrompt API.
+    /// - Parameters:
+    ///   - content: Prompt template containing <img>placeholder</img> tags.
+    ///   - images: Dictionary mapping placeholder keys to UIImage instances.
+    ///   - llm: Inference engine wrapper.
+    ///   - showPerformance: Whether to output performance statistics.
+    ///   - completion: Streaming output callback.
+    func processMultimodalContent(
+        _ content: String,
+        images: [String: UIImage],
+        llm: LLMInferenceEngineWrapper?,
+        showPerformance: Bool,
+        completion: @escaping (String) -> Void
+    ) {
+        llm?.processMultimodalInput(
+            content,
+            images: images,
+            withOutput: completion,
+            showPerformance: showPerformance
+        )
     }
 
     /// Processes a batch of prompts and returns their responses.
