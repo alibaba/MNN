@@ -21,6 +21,7 @@ class ModelConfigManager {
     private let defaultNGram: Int = 8
     private let defaultNGramFactor: Double = 1.0
     private let defaultMultimodalPromptHint: String = "You are provided a set of visual and/or audio inputs. Please analyze them carefully before responding."
+    private let defaultUseMultimodalPromptAPI: Bool = true
 
     init(modelPath: String, modelName _: String = "") {
         self.modelPath = modelPath
@@ -149,6 +150,14 @@ class ModelConfigManager {
         let trimmed: String = value.trimmingCharacters(in: .whitespacesAndNewlines)
         let finalValue: String = trimmed.isEmpty ? defaultMultimodalPromptHint : trimmed
         updateValue("default_multimodal_prompt", value: finalValue)
+    }
+
+    func readUseMultimodalPromptAPI() -> Bool {
+        return readValue("use_multimodal_prompt_api", defaultValue: defaultUseMultimodalPromptAPI)
+    }
+
+    func saveUseMultimodalPromptAPI(_ value: Bool) {
+        updateValue("use_multimodal_prompt_api", value: value)
     }
 
     // MARK: - Iterations
