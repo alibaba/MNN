@@ -1086,12 +1086,12 @@ bool remove_directory_safely(const std::string& path) {
         return;
     }
     
-//    if (!promptTemplate || promptTemplate.length == 0) {
-//        if (output) {
-//            output(@"Error: Prompt template is empty.");
-//        }
-//        return;
-//    }
+    if (!promptTemplate || promptTemplate.length == 0) {
+        if (output) {
+            output(@"Error: Prompt template is empty.");
+        }
+        // return;
+    }
     
     if (_isProcessing.load()) {
         if (output) {
@@ -1112,7 +1112,6 @@ bool remove_directory_safely(const std::string& path) {
         }
         
         @try {
-            auto inference_start_time = std::chrono::high_resolution_clock::now();
             
             OptimizedLlmStreamBuffer::CallBack callback = [output](const char* str, size_t len) {
                 if (output && str && len > 0) {

@@ -23,6 +23,7 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
     @Published var streamingStates: [String: StreamingMessageStateManager] = [:]
 
     @Published var useMmap: Bool = false
+    @Published var useMultimodalPromptAPI: Bool = true
 
     // MARK: - Think Mode Properties
 
@@ -75,6 +76,7 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
         modelConfigManager = ModelConfigManager(modelPath: modelInfo.localPath)
 
         useMmap = modelConfigManager.readUseMmap()
+        useMultimodalPromptAPI = modelConfigManager.readUseMultimodalPromptAPI()
 
         // Check if model supports thinking mode
         supportsThinkingMode = ModelUtils.isSupportThinkingSwitch(modelInfo.tags, modelName: modelInfo.modelName)
@@ -314,11 +316,13 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
             await llmState.setProcessing(true)
             var content = draft.text
             let medias = draft.medias
-            var imagePlaceholders: [String] = []
+            var multimodalImagePlaceholders: [String] = []
+            var legacyImagePlaceholders: [String] = []
             var videoPlaceholders: [String] = []
             var imageDictionary: [String: UIImage] = [:]
             var missingAttachments: [String] = []
             var hasVideoInput = false
+            let shouldUseMultimodalAPI = self.useMultimodalPromptAPI
 
             for (index, media) in medias.enumerated() {
                 switch media.type {
@@ -326,14 +330,22 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
                     guard let url = await media.getURL() else { continue }
                     let fileName = url.lastPathComponent
 
-                    if let processedUrl = FileOperationManager.shared.processImageFile(from: url, fileName: fileName),
-                       FileOperationManager.shared.fileExists(at: processedUrl),
-                       let image = UIImage(contentsOfFile: processedUrl.path) {
-                        let key = "img_\(index)"
-                        imageDictionary[key] = image
-                        imagePlaceholders.append("<img>\(key)</img>")
-                    } else {
+                    guard let processedUrl = FileOperationManager.shared.processImageFile(from: url, fileName: fileName),
+                          FileOperationManager.shared.fileExists(at: processedUrl) else {
                         missingAttachments.append("图片 \(fileName) 无法读取，已跳过。")
+                        continue
+                    }
+
+                    if shouldUseMultimodalAPI {
+                        let key = "img_\(index)"
+                        guard let image = UIImage(contentsOfFile: processedUrl.path) else {
+                            missingAttachments.append("图片 \(fileName) 转换失败，已跳过。")
+                            continue
+                        }
+                        imageDictionary[key] = image
+                        multimodalImagePlaceholders.append("<img>\(key)</img>")
+                    } else {
+                        legacyImagePlaceholders.append("<img>\(processedUrl.path)</img>")
                     }
                 case .video:
                     guard let url = await media.getURL() else { continue }
@@ -353,8 +365,9 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
                 }
             }
 
-            if !imagePlaceholders.isEmpty || !videoPlaceholders.isEmpty {
-                let mediaPrefix = (imagePlaceholders + videoPlaceholders).joined()
+            let selectedImagePlaceholders = shouldUseMultimodalAPI ? multimodalImagePlaceholders : legacyImagePlaceholders
+            if !selectedImagePlaceholders.isEmpty || !videoPlaceholders.isEmpty {
+                let mediaPrefix = (selectedImagePlaceholders + videoPlaceholders).joined()
                 content = mediaPrefix + content
             }
 
@@ -382,7 +395,7 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
                 }
             }
 
-            let hasImageInput = !imageDictionary.isEmpty
+            let hasImageInput = shouldUseMultimodalAPI ? !imageDictionary.isEmpty : !legacyImagePlaceholders.isEmpty
             let hasAudioInput = draft.recording != nil && FileOperationManager.shared.fileExists(at: draft.recording?.url)
             let hasVisualInput = hasImageInput || hasVideoInput
             let hasTextInput = !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -514,12 +527,7 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
 //                }
 //            }
             
-            await llmState.processMultimodalContent(
-                convertedContent,
-                images: imageDictionary,
-                llm: self.llm,
-                showPerformance: true
-            ) { [weak self] output in
+            let outputHandler: (String) -> Void = { [weak self] output in
                 guard let self = self else { return }
 
                 if output.contains("<eop>") {
@@ -581,6 +589,23 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
                         }
                     }
                 }
+            }
+
+            if shouldUseMultimodalAPI {
+                await llmState.processMultimodalContent(
+                    convertedContent,
+                    images: imageDictionary,
+                    llm: self.llm,
+                    showPerformance: true,
+                    completion: outputHandler
+                )
+            } else {
+                await llmState.processContent(
+                    convertedContent,
+                    llm: self.llm,
+                    showPerformance: true,
+                    completion: outputHandler
+                )
             }
         }
     }
@@ -646,6 +671,11 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
     /// Cleans the model temporary folder using FileOperationManager
     func cleanModelTmpFolder() {
         FileOperationManager.shared.cleanModelTempFolder(modelPath: modelInfo.localPath)
+    }
+
+    func updateUseMultimodalPromptAPI(_ value: Bool) {
+        useMultimodalPromptAPI = value
+        modelConfigManager.saveUseMultimodalPromptAPI(value)
     }
 
     /// Reloads the currently selected model to apply config changes that require recreation.
