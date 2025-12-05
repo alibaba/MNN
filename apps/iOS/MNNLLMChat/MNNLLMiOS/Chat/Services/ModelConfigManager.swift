@@ -21,7 +21,7 @@ class ModelConfigManager {
     private let defaultNGram: Int = 8
     private let defaultNGramFactor: Double = 1.0
     private let defaultMultimodalPromptHint: String = "You are provided a set of visual and/or audio inputs. Please analyze them carefully before responding."
-    private let defaultUseMultimodalPromptAPI: Bool = true
+    private let defaultUseMultimodalPromptAPI: Bool = false
 
     init(modelPath: String, modelName _: String = "") {
         self.modelPath = modelPath
