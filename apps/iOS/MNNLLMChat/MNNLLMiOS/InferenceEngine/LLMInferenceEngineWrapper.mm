@@ -520,6 +520,109 @@ static NSArray<UIImage *> *ExtractFramesFromVideoAtPath(NSString *videoPath, NSI
     return frames.count > 0 ? frames : nil;
 }
 
+static std::vector<std::string> ExtractVideoFramesToFilePaths(NSString *videoPath, NSInteger maxFrames) {
+    std::vector<std::string> filePaths;
+    if (!videoPath) {
+        return filePaths;
+    }
+    NSURL *url = [NSURL fileURLWithPath:videoPath];
+    AVURLAsset *asset = [AVURLAsset assetWithURL:url];
+    if (!asset) {
+        return filePaths;
+    }
+    NSError *error = nil;
+    NSArray<AVAssetTrack *> *tracks = [asset tracksWithMediaType:AVMediaTypeVideo];
+    if (tracks.count == 0) {
+        return filePaths;
+    }
+    CMTime durationTime = asset.duration;
+    Float64 duration = CMTimeGetSeconds(durationTime);
+    if (!isfinite(duration) || duration <= 0) {
+        return filePaths;
+    }
+    NSInteger frameCount = MAX(1, MIN(maxFrames, (NSInteger)ceil(duration)));
+    AVAssetImageGenerator *generator = [AVAssetImageGenerator assetImageGeneratorWithAsset:asset];
+    generator.appliesPreferredTrackTransform = YES;
+    generator.requestedTimeToleranceAfter = CMTimeMake(1, 30);
+    generator.requestedTimeToleranceBefore = CMTimeMake(1, 30);
+
+    NSString *tempDir = NSTemporaryDirectory();
+    NSString *baseName = [[videoPath lastPathComponent] stringByDeletingPathExtension];
+    if (baseName.length == 0) {
+        baseName = @"video";
+    }
+
+    for (NSInteger index = 0; index < frameCount; index++) {
+        Float64 seconds = MIN(duration - 0.001, (duration / frameCount) * index);
+        CMTime time = CMTimeMakeWithSeconds(seconds, durationTime.timescale == 0 ? 600 : durationTime.timescale);
+        CGImageRef cgImage = [generator copyCGImageAtTime:time actualTime:NULL error:&error];
+        if (!cgImage) {
+            if (error) {
+                NSLog(@"[LegacyVideo] Failed to extract frame %ld: %@", (long)index, error.localizedDescription);
+            }
+            continue;
+        }
+#if TARGET_OS_IPHONE
+        UIImage *image = [UIImage imageWithCGImage:cgImage];
+        NSData *data = UIImageJPEGRepresentation(image, 0.9);
+#else
+        NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithCGImage:cgImage];
+        NSData *data = [rep representationUsingType:NSBitmapImageFileTypeJPEG properties:@{NSImageCompressionFactor: @0.9}];
+#endif
+        CGImageRelease(cgImage);
+        if (!data) {
+            continue;
+        }
+
+        NSString *uuid = [[NSUUID UUID] UUIDString];
+        NSString *fileName = [NSString stringWithFormat:@"%@_frame_%ld_%@.jpg", baseName, (long)index, uuid];
+        NSString *filePath = [tempDir stringByAppendingPathComponent:fileName];
+
+        if ([data writeToFile:filePath atomically:YES]) {
+            filePaths.push_back([filePath UTF8String]);
+        } else {
+            NSLog(@"[LegacyVideo] Failed to write frame to %@", filePath);
+        }
+    }
+    return filePaths;
+}
+
+static std::string ProcessLegacyVideoPlaceholders(const std::string& prompt, int maxFrames) {
+    if (prompt.find("<video>") == std::string::npos) {
+        return prompt;
+    }
+    std::string processed = prompt;
+    auto videoKeys = ExtractVideoPlaceholders(prompt);
+    std::unordered_set<std::string> handled;
+    for (const auto& videoPath : videoKeys) {
+        if (handled.count(videoPath) > 0) {
+            continue;
+        }
+        handled.insert(videoPath);
+
+        NSString *nsVideoPath = [NSString stringWithUTF8String:videoPath.c_str()];
+        if (!nsVideoPath || ![[NSFileManager defaultManager] fileExistsAtPath:nsVideoPath]) {
+            NSLog(@"[LegacyVideo] Video file not found for placeholder %@", nsVideoPath ?: @"(null)");
+            ReplaceVideoPlaceholder(processed, videoPath, "");
+            continue;
+        }
+        auto framePaths = ExtractVideoFramesToFilePaths(nsVideoPath, maxFrames);
+        if (framePaths.empty()) {
+            NSLog(@"[LegacyVideo] No frames extracted for %@", nsVideoPath);
+            ReplaceVideoPlaceholder(processed, videoPath, "");
+            continue;
+        }
+
+        std::string replacement;
+        for (const auto& framePath : framePaths) {
+            replacement += "<img>" + framePath + "</img>";
+        }
+        NSLog(@"[LegacyVideo] Replaced %@ with %lu frame placeholders", nsVideoPath, (unsigned long)framePaths.size());
+        ReplaceVideoPlaceholder(processed, videoPath, replacement);
+    }
+    return processed;
+}
+
 @interface LLMInferenceEngineWrapper ()
 - (MNN::Express::VARP)convertUIImageToVARP:(UIImage *)image;
 @end
@@ -885,6 +988,10 @@ bool remove_directory_safely(const std::string& path) {
             output(@"Error: Input text is empty.");
         }
         return;
+    } else {
+        std::string legacyPrompt = [input UTF8String];
+        legacyPrompt = ProcessLegacyVideoPlaceholders(legacyPrompt, std::max(1, _videoMaxFrames.load()));
+        input = [NSString stringWithUTF8String:legacyPrompt.c_str()];
     }
     
     if (_isProcessing.load()) {
@@ -1355,6 +1462,7 @@ bool remove_directory_safely(const std::string& path) {
     
     size_t width = CGImageGetWidth(cgImage);
     size_t height = CGImageGetHeight(cgImage);
+    NSLog(@"[Multimodal] convertUIImageToVARP source size = %zux%zu", width, height);
     if (width == 0 || height == 0) {
         return MNN::Express::VARP();
     }
@@ -1381,6 +1489,16 @@ bool remove_directory_safely(const std::string& path) {
     CGContextDrawImage(context, CGRectMake(0, 0, width, height), cgImage);
     CGContextRelease(context);
     
+#if DEBUG
+    if (!rawData.empty()) {
+        uint8_t r = rawData[0];
+        uint8_t g = rawData[1];
+        uint8_t b = rawData[2];
+        uint8_t a = rawData.size() > 3 ? rawData[3] : 255;
+        NSLog(@"[Multimodal] Raw pixel RGBA = (%u,%u,%u,%u)", r, g, b, a);
+    }
+#endif
+
     auto varp = MNN::Express::_Input(
         {1, static_cast<int>(height), static_cast<int>(width), 3},
         MNN::Express::NHWC,
@@ -1401,6 +1519,11 @@ bool remove_directory_safely(const std::string& path) {
             ptr[pixelIndex + 2] = rawData[byteIndex + 2] / 255.0f;
         }
     }
+
+#if DEBUG
+    NSLog(@"[Multimodal] VARP first pixel floats (R,G,B)=(%.4f, %.4f, %.4f) for size %zux%zu",
+          ptr[0], ptr[1], ptr[2], width, height);
+#endif
     
     return varp;
 }
