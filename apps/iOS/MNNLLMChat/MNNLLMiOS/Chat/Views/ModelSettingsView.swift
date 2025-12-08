@@ -38,9 +38,12 @@ struct ModelSettingsView: View {
     @State private var penaltySampler: PenaltySamplerType = .greedy
     @State private var videoMaxFrames: Int = 8
     @State private var defaultMultimodalPrompt: String = ""
+    @State private var enableAudioOutput: Bool = false
+    @State private var talkerSpeaker: String = "default"
 
     private let backendOptions = ["cpu", "opencl"]
     private let precisionOptions = ["low", "high"]
+    private let talkerSpeakerOptions = ["Ethan", "Chelsie"]
 
     var body: some View {
         NavigationView {
@@ -124,6 +127,29 @@ struct ModelSettingsView: View {
                     }
                 } header: {
                     Text("Multimodal Inputs")
+                }
+
+                // Audio Output Settings (Omni)
+                if ModelUtils.supportAudioOutput(viewModel.modelInfo.modelName) {
+                    Section {
+                        Toggle("Enable Audio Output", isOn: $enableAudioOutput)
+                            .onChange(of: enableAudioOutput) { _, newValue in
+                                print("[AudioUI] Enable Audio Output changed to: \(newValue)")
+                                viewModel.updateEnableAudioOutput(newValue)
+                            }
+
+                        Picker("Talker Speaker", selection: $talkerSpeaker) {
+                            ForEach(talkerSpeakerOptions, id: \.self) { option in
+                                Text(option.capitalized).tag(option)
+                            }
+                        }
+                        .onChange(of: talkerSpeaker) { _, newValue in
+                            print("[AudioUI] Talker Speaker changed to: \(newValue)")
+                            viewModel.updateTalkerSpeaker(newValue)
+                        }
+                    } header: {
+                        Text("Audio Output (Omni)")
+                    }
                 }
 
                 // Diffusion Settings
@@ -356,6 +382,17 @@ struct ModelSettingsView: View {
             }
             videoMaxFrames = viewModel.modelConfigManager.readVideoMaxFrames()
             defaultMultimodalPrompt = viewModel.modelConfigManager.readDefaultMultimodalPrompt()
+            enableAudioOutput = viewModel.modelConfigManager.readEnableAudioOutput()
+            
+            // Validate talkerSpeaker value - if not in options, reset to default
+            let savedTalkerSpeaker = viewModel.modelConfigManager.readTalkerSpeaker()
+            if talkerSpeakerOptions.contains(savedTalkerSpeaker) {
+                talkerSpeaker = savedTalkerSpeaker
+            } else {
+                talkerSpeaker = "default"
+                // Update config with valid default value
+                viewModel.updateTalkerSpeaker("default")
+            }
 
             // Initialize mixed samplers
             let savedMixedSamplers = viewModel.modelConfigManager.readMixedSamplers()

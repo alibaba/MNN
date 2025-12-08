@@ -85,6 +85,16 @@
         }
       }
     },
+    "Audio Output (Omni)" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "语音输出(Omni)"
+          }
+        }
+      }
+    },
     "Audio Test" : {
       "localizations" : {
         "zh-Hans" : {
@@ -96,7 +106,14 @@
       }
     },
     "Backend" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "后端"
+          }
+        }
+      }
     },
     "Batch File Test" : {
       "localizations" : {
@@ -370,7 +387,14 @@
       }
     },
     "Default Multimodal Prompt" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "默认多模态提示词"
+          }
+        }
+      }
     },
     "Delete" : {
       "localizations" : {
@@ -425,6 +449,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "下载"
+          }
+        }
+      }
+    },
+    "Enable Audio Output" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "支持语音输出"
           }
         }
       }
@@ -677,7 +711,14 @@
       }
     },
     "Model Reload Required" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "模型需要重新加载"
+          }
+        }
+      }
     },
     "ModelLoadingFailText" : {
       "extractionState" : "manual",
@@ -747,7 +788,14 @@
       }
     },
     "Multimodal Inputs" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "多模态输入"
+          }
+        }
+      }
     },
     "My Model" : {
       "comment" : "我的模型标签",
@@ -1484,6 +1532,9 @@
         }
       }
     },
+    "Talker Speaker" : {
+
+    },
     "Tap to select a model for testing" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1647,7 +1698,14 @@
       }
     },
     "Use Multimodal Prompt API" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用新多模态API"
+          }
+        }
+      }
     },
     "User Guide" : {
       "extractionState" : "manual",
@@ -1661,10 +1719,25 @@
       }
     },
     "Video Frames" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "视频抽帧数"
+          }
+        }
+      }
     },
     "video.frameExtractionFailed" : {
-      "comment" : "Warning shown when a pure video input cannot provide frames."
+      "comment" : "Warning shown when a pure video input cannot provide frames.",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "视频抽帧失败"
+          }
+        }
+      }
     },
     "WelcomeSceneText" : {
       "localizations" : {

@@ -15,6 +15,7 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
     private var llm: LLMInferenceEngineWrapper?
     private var diffusion: DiffusionSession?
     private let llmState = LLMState()
+    private var audioPlaybackManager: AudioPlaybackManager?
 
     @Published var messages: [Message] = []
     @Published var isModelLoaded = false
@@ -96,6 +97,10 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
         llm = nil
         isProcessing = false
         diffusion = nil
+        
+        // Stop audio playback
+        audioPlaybackManager?.stop()
+        audioPlaybackManager = nil
 
         // Clean up streaming states
         clearAllStreamingStates()
@@ -154,6 +159,7 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
                     if success {
                         self?.setModelConfig()
                         self?.configureThinkingMode()
+                        self?.setupAudioOutput()
                     }
                 }
             }
@@ -640,6 +646,107 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
 
     func updateDefaultMultimodalPrompt(_ prompt: String) {
         modelConfigManager.saveDefaultMultimodalPrompt(prompt)
+    }
+
+    func updateEnableAudioOutput(_ enable: Bool) {
+        print("[AudioViewModel] updateEnableAudioOutput: \(enable)")
+        modelConfigManager.saveEnableAudioOutput(enable)
+        llm?.setEnableAudioOutput(enable)
+    }
+
+    func updateTalkerSpeaker(_ speaker: String) {
+        print("[AudioViewModel] updateTalkerSpeaker: \(speaker)")
+        modelConfigManager.saveTalkerSpeaker(speaker)
+        llm?.setTalkerSpeaker(speaker)
+    }
+    
+    private func setupAudioOutput() {
+        print("[AudioViewModel] setupAudioOutput called for model: \(modelInfo.modelName)")
+        
+        // Only setup audio for Omni models
+        guard ModelUtils.supportAudioOutput(modelInfo.modelName) else {
+            print("[AudioViewModel] Model does not support audio output, skipping setup")
+            return
+        }
+        
+        print("[AudioViewModel] Model supports audio output, initializing...")
+        
+        // Initialize audio playback manager
+        if audioPlaybackManager == nil {
+            print("[AudioViewModel] Creating AudioPlaybackManager")
+            audioPlaybackManager = AudioPlaybackManager()
+            audioPlaybackManager?.start()
+        } else {
+            print("[AudioViewModel] AudioPlaybackManager already exists")
+        }
+        
+        // Configure audio output settings
+        let enableAudio = modelConfigManager.readEnableAudioOutput()
+        let talkerSpeaker = modelConfigManager.readTalkerSpeaker()
+        
+        print("[AudioViewModel] Configuring audio: enable=\(enableAudio), speaker=\(talkerSpeaker)")
+        
+        llm?.setEnableAudioOutput(enableAudio)
+        llm?.setTalkerSpeaker(talkerSpeaker)
+        
+        // Set up audio waveform callback
+        var audioChunkCount = 0
+        var audioLastSeen = false
+        print("[AudioViewModel] Setting up audio waveform callback")
+        llm?.setAudioWaveformCallback { [weak self] data, size, isLastChunk in
+            guard let self = self else {
+                print("[AudioViewModel] Callback: self is nil, returning")
+                return false
+            }
+            
+            audioChunkCount += 1
+            audioLastSeen = isLastChunk
+            print("[AudioViewModel] chunk #\(audioChunkCount), size=\(size), isLastChunk=\(isLastChunk)")
+            
+            if isLastChunk {
+                print("[AudioViewModel] tail received at #\(audioChunkCount)")
+            }
+            
+            print("[AudioViewModel] Audio waveform callback: size=\(size), isLastChunk=\(isLastChunk)")
+            
+            // Convert C array to Swift array
+            let floatArray = Array(UnsafeBufferPointer(start: data, count: Int(size)))
+            
+            // Check for NaN or invalid values and filter them
+            let validArray = floatArray.map { value -> Float in
+                if value.isNaN || value.isInfinite {
+                    return 0.0
+                }
+                // Clamp to valid audio range [-1.0, 1.0]
+                return max(-1.0, min(1.0, value))
+            }
+            
+            // Check if we have any non-zero valid data
+            let hasValidData = validArray.contains { abs($0) > 0.0001 }
+            if !hasValidData && !isLastChunk {
+                print("[AudioViewModel] Warning: Audio chunk contains only zeros/NaN, skipping playback (size=\(size))")
+                // Don't skip if it's the last chunk, as it might be silence
+                return false
+            }
+            
+            // Log data statistics for debugging
+            if size > 0 {
+                let maxVal = validArray.max() ?? 0
+                let minVal = validArray.min() ?? 0
+                let avgVal = validArray.reduce(0, +) / Float(validArray.count)
+                print("[AudioViewModel] Audio data stats: min=\(minVal), max=\(maxVal), avg=\(avgVal), hasValid=\(hasValidData)")
+            }
+            
+            // Play audio chunk
+            DispatchQueue.main.async {
+                self.audioPlaybackManager?.playChunk(data: validArray, isLastChunk: isLastChunk)
+            }
+            
+            // Return false to continue, true to stop
+            return false
+        }
+        
+        print("[AudioViewModel] Audio output setup completed")
     }
 
     private func convertDeepSeekMutliChat(content: String) -> String {

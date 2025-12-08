@@ -150,6 +150,8 @@ class Llm {
     virtual void reset() = 0;
     virtual bool stoped() = 0;
     virtual int generate(int max_token_number = 0) = 0;
+    virtual void generateWavform() = 0;
+    virtual void setWavformCallback(std::function<bool(const float*, size_t, bool)> callback) = 0;
     struct LlmContext {
         int prompt_len;
         int gen_seq_len;
@@ -636,6 +638,9 @@ static std::string ProcessLegacyVideoPlaceholders(const std::string& prompt, int
     std::atomic<bool> _shouldStopBenchmark;
     std::atomic<bool> _shouldStopInference;
     std::atomic<int> _videoMaxFrames;
+    std::atomic<bool> _enableAudioOutput;
+    NSString *_talkerSpeaker;
+    BOOL (^_audioWaveformCallback)(const float *, size_t, BOOL);
     NSString *_modelPath;
 }
 
@@ -658,6 +663,9 @@ static std::string ProcessLegacyVideoPlaceholders(const std::string& prompt, int
         _shouldStopBenchmark = false;
         _shouldStopInference = false;
         _videoMaxFrames = 8;
+        _enableAudioOutput = false;
+        _talkerSpeaker = @"default";
+        _audioWaveformCallback = nil;
         
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
             // Resolve the model path using the new path resolution logic
@@ -680,7 +688,7 @@ static std::string ProcessLegacyVideoPlaceholders(const std::string& prompt, int
  * @param path The directory path to remove
  * @return true if successful, false otherwise
  */
-bool remove_directory_safely(const std::string& path) {
+bool removeDirectorySafely(const std::string& path) {
     @try {
         NSString *pathStr = [NSString stringWithUTF8String:path.c_str()];
         NSFileManager *fileManager = [NSFileManager defaultManager];
@@ -850,7 +858,7 @@ bool remove_directory_safely(const std::string& path) {
         std::string temp_directory_path = [tempDirPath UTF8String];
         
         // Clean up existing temp directory
-        if (!remove_directory_safely(temp_directory_path)) {
+        if (!removeDirectorySafely(temp_directory_path)) {
             NSLog(@"Warning: Failed to remove existing temp directory, continuing...");
         }
         
@@ -899,6 +907,7 @@ bool remove_directory_safely(const std::string& path) {
     }
     
     @try {
+        NSLog(@"[AudioWrapper] setConfigWithJSONString length=%lu content=%@", (unsigned long)[jsonStr length], jsonStr);
         // Validate JSON format
         NSError *error = nil;
         NSData *jsonData = [jsonStr dataUsingEncoding:NSUTF8StringEncoding];
@@ -1074,6 +1083,16 @@ bool remove_directory_safely(const std::string& path) {
                         prompt_debug += msg.first + ": " + msg.second + "\n";
                     }
                     NSLog(@"submitNative prompt_string_for_debug:\n%s\nmax_new_tokens_: %d", prompt_debug.c_str(), 999999);
+                    // dump_config may not be available in all builds of MNN; guard the call
+#if defined(MNN_LLM_HAS_DUMP_CONFIG)
+                    if (blockSelf->_llm) {
+                        auto cfg = blockSelf->_llm->dump_config();
+                        NSLog(@"[AudioWrapper] dump_config before inference (text): %s", cfg.c_str());
+                    }
+#else
+                    NSLog(@"[AudioWrapper] dump_config not available in this build (text)");
+#endif
+                    NSLog(@"[AudioWrapper] Inference start (text): enable_audio_output=%@, talker_speaker=%@", blockSelf->_enableAudioOutput.load() ? @"YES" : @"NO", blockSelf->_talkerSpeaker ?: @"(nil)");
                     
                     // Start inference with initial response processing
                     blockSelf->_llm->response(blockSelf->_history, &os, "<eop>", 1);
@@ -1092,6 +1111,17 @@ bool remove_directory_safely(const std::string& path) {
                         
                         // Small delay to allow UI updates and stop signal processing
                         // std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                    }
+                    
+                    // Generate waveform if audio output is enabled (similar to Android)
+                    if (!blockSelf->_shouldStopInference.load() && blockSelf->_enableAudioOutput.load()) {
+                        NSLog(@"[AudioWrapper] Text generation completed, generating waveform (enable_audio_output=YES)");
+                        blockSelf->_llm->generateWavform();
+                        NSLog(@"[AudioWrapper] generateWavform() called");
+                    } else {
+                        NSLog(@"[AudioWrapper] Skipping waveform generation: stop_requested=%@, enable_audio_output=%@",
+                              blockSelf->_shouldStopInference.load() ? @"YES" : @"NO",
+                              blockSelf->_enableAudioOutput.load() ? @"YES" : @"NO");
                     }
                     
                     // Send appropriate end signal based on stop reason
@@ -1267,15 +1297,10 @@ bool remove_directory_safely(const std::string& path) {
                     imagePart.height = static_cast<int>(info->dim[1]);
                     imagePart.width = static_cast<int>(info->dim[2]);
                 } else {
-#if TARGET_OS_IPHONE
                     CGFloat scale = image.scale;
-                    if (scale <= 0) { scale = 1.0; }
+                    if (scale <= 0) { scale = 0.6; }
                     imagePart.width = static_cast<int>(image.size.width * scale);
                     imagePart.height = static_cast<int>(image.size.height * scale);
-#else
-                    imagePart.width = static_cast<int>(image.size.width);
-                    imagePart.height = static_cast<int>(image.size.height);
-#endif
                 }
                 multimodal_input.images[key] = imagePart;
                 return true;
@@ -1365,6 +1390,16 @@ bool remove_directory_safely(const std::string& path) {
             
             blockSelf->_shouldStopInference = false;
             bool useMultimodal = !multimodal_input.images.empty();
+            // dump_config may not be available in all builds of MNN; guard the call
+#if defined(MNN_LLM_HAS_DUMP_CONFIG)
+            if (blockSelf->_llm) {
+                auto cfg = blockSelf->_llm->dump_config();
+                NSLog(@"[AudioWrapper] dump_config before inference (multimodal): %s", cfg.c_str());
+            }
+#else
+            NSLog(@"[AudioWrapper] dump_config not available in this build (multimodal)");
+#endif
+            NSLog(@"[AudioWrapper] Inference start (multimodal): enable_audio_output=%@, talker_speaker=%@", blockSelf->_enableAudioOutput.load() ? @"YES" : @"NO", blockSelf->_talkerSpeaker ?: @"(nil)");
             if (useMultimodal) {
                 blockSelf->_llm->response(multimodal_input, &os, "<eop>", 1);
             } else {
@@ -1379,6 +1414,17 @@ bool remove_directory_safely(const std::string& path) {
                    current_size < max_new_tokens) {
                 blockSelf->_llm->generate(1);
                 current_size++;
+            }
+            
+            // Generate waveform if audio output is enabled (similar to Android)
+            if (!blockSelf->_shouldStopInference.load() && blockSelf->_enableAudioOutput.load()) {
+                NSLog(@"[AudioWrapper] Multimodal text generation completed, generating waveform (enable_audio_output=YES)");
+                blockSelf->_llm->generateWavform();
+                NSLog(@"[AudioWrapper] generateWavform() called");
+            } else {
+                NSLog(@"[AudioWrapper] Skipping waveform generation: stop_requested=%@, enable_audio_output=%@",
+                      blockSelf->_shouldStopInference.load() ? @"YES" : @"NO",
+                      blockSelf->_enableAudioOutput.load() ? @"YES" : @"NO");
             }
             
             if (output) {
@@ -1443,6 +1489,96 @@ bool remove_directory_safely(const std::string& path) {
     int clamped = (int)std::max(1, std::min(64, (int)frames));
     _videoMaxFrames.store(clamped);
     NSLog(@"Updated video max frames to %d", clamped);
+}
+
+- (void)setEnableAudioOutput:(BOOL)enable {
+    NSLog(@"[AudioWrapper] setEnableAudioOutput: %@", enable ? @"YES" : @"NO");
+    _enableAudioOutput = enable;
+    if (_llm) {
+        // Update config with enable_audio_output
+        NSString *configStr = [NSString stringWithFormat:@"{\"enable_audio_output\":%s}", enable ? "true" : "false"];
+        std::string stdConfig = [configStr UTF8String];
+        NSLog(@"[AudioWrapper] Updating LLM config: %s", stdConfig.c_str());
+        _llm->set_config(stdConfig);
+    } else {
+        NSLog(@"[AudioWrapper] LLM not initialized, config will be applied when model loads");
+    }
+}
+
+- (void)setTalkerSpeaker:(NSString *)speaker {
+    NSLog(@"[AudioWrapper] setTalkerSpeaker: %@", speaker ?: @"(nil)");
+    _talkerSpeaker = [speaker copy];
+    if (_llm) {
+        // Update config with talker_speaker
+        NSString *escapedSpeaker = [speaker stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""];
+        NSString *configStr = [NSString stringWithFormat:@"{\"talker_speaker\":\"%@\"}", escapedSpeaker];
+        std::string stdConfig = [configStr UTF8String];
+        NSLog(@"[AudioWrapper] Updating LLM config: %s", stdConfig.c_str());
+        _llm->set_config(stdConfig);
+    } else {
+        NSLog(@"[AudioWrapper] LLM not initialized, config will be applied when model loads");
+    }
+}
+
+- (void)setAudioWaveformCallback:(BOOL (^)(const float *, size_t, BOOL))callback {
+    NSLog(@"[AudioWrapper] setAudioWaveformCallback: callback=%@, llm=%@", callback ? @"YES" : @"NO", _llm ? @"YES" : @"NO");
+    _audioWaveformCallback = [callback copy];
+    if (_llm && callback) {
+        NSLog(@"[AudioWrapper] Registering waveform callback with LLM");
+        static std::atomic<int> s_waveCallbackCount{0};
+        _llm->setWavformCallback([self](const float *ptr, size_t size, bool last_chunk) -> bool {
+            int cbId = ++s_waveCallbackCount;
+            if (!self->_enableAudioOutput.load()) {
+                NSLog(@"[AudioWrapper] Waveform callback #%d: audio output disabled, skipping (size=%zu)", cbId, size);
+                return false;
+            }
+            if (self->_shouldStopInference.load()) {
+                NSLog(@"[AudioWrapper] Waveform callback #%d: inference stopped, skipping (size=%zu)", cbId, size);
+                return false;
+            }
+            if (self->_audioWaveformCallback) {
+                // Check if data is valid
+                if (ptr == nullptr || size == 0) {
+                    NSLog(@"[AudioWrapper] Waveform callback #%d: invalid data (ptr=%p, size=%zu)", cbId, ptr, size);
+                    return false;
+                }
+                
+                // Log first few samples for debugging
+                if (size > 0) {
+                    float firstSample = ptr[0];
+                    bool hasNaN = false;
+                    bool hasInf = false;
+                    bool hasValid = false;
+                    
+                    // Check first 10 samples for data quality
+                    for (size_t i = 0; i < std::min(size, (size_t)10); i++) {
+                        if (std::isnan(ptr[i])) hasNaN = true;
+                        if (std::isinf(ptr[i])) hasInf = true;
+                        if (std::isfinite(ptr[i]) && std::abs(ptr[i]) > 0.0001f) hasValid = true;
+                    }
+                    
+                    NSLog(@"[AudioWrapper] Waveform callback #%d: forwarding to Swift (size=%zu, last_chunk=%s, first_sample=%.6f, hasNaN=%s, hasInf=%s, hasValid=%s)", 
+                          cbId, size, last_chunk ? "YES" : "NO", firstSample, 
+                          hasNaN ? "YES" : "NO", hasInf ? "YES" : "NO", hasValid ? "YES" : "NO");
+                }
+                
+                BOOL shouldStop = self->_audioWaveformCallback(ptr, size, last_chunk ? YES : NO);
+                if (last_chunk) {
+                    NSLog(@"[AudioWrapper] Waveform callback tail at #%d", cbId);
+                }
+                return shouldStop;
+            }
+            NSLog(@"[AudioWrapper] Waveform callback #%d: no Swift callback registered (size=%zu)", cbId, size);
+            return false;
+        });
+        NSLog(@"[AudioWrapper] Waveform callback registered successfully");
+    } else if (_llm && !callback) {
+        // Clear callback
+        NSLog(@"[AudioWrapper] Clearing waveform callback");
+        _llm->setWavformCallback(nullptr);
+    } else {
+        NSLog(@"[AudioWrapper] Cannot register callback: llm=%@, callback=%@", _llm ? @"YES" : @"NO", callback ? @"YES" : @"NO");
+    }
 }
 
 - (MNN::Express::VARP)convertUIImageToVARP:(UIImage *)image {
@@ -1762,7 +1898,6 @@ bool remove_directory_safely(const std::string& path) {
     NSLog(@"Chat history cleared");
 }
 
-// MARK: - Benchmark Implementation Following Android llm_session.cpp
 
 /**
  * Initialize benchmark result structure

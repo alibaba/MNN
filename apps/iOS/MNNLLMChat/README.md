@@ -83,6 +83,7 @@ Additionally, the app supports edge-side usage of DeepSeek with Think mode:
     -DLLM_SUPPORT_VISION=ON
     -DMNN_BUILD_OPENCV=ON
     -DMNN_IMGCODECS=ON
+    -DMNN_BUILD_LLM_OMNI=ON
     "
     ```
 
