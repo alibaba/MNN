@@ -95,10 +95,11 @@ struct ModelSettingsView: View {
                 }
 
                 Section {
-                    Toggle("Use Multimodal Prompt API", isOn: $viewModel.useMultimodalPromptAPI)
-                        .onChange(of: viewModel.useMultimodalPromptAPI) { _, newValue in
-                            viewModel.updateUseMultimodalPromptAPI(newValue)
-                        }
+                    // FIXME: Hidden The new Multimodal Prompt API
+                    // Toggle("Use Multimodal Prompt API", isOn: $viewModel.useMultimodalPromptAPI)
+                    //    .onChange(of: viewModel.useMultimodalPromptAPI) { _, newValue in
+                    //        viewModel.updateUseMultimodalPromptAPI(newValue)
+                    //    }
 
                     Stepper(value: $videoMaxFrames, in: 1 ... 32) {
                         HStack {

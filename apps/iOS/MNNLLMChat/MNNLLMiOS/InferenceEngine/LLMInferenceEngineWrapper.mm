@@ -231,7 +231,7 @@ using ChatMessage = std::pair<std::string, std::string>;
 
 
 /**
- * C++ Benchmark result structure following Android implementation
+ * C++ Benchmark result structure
  */
 struct BenchmarkResultCpp {
     bool success;
@@ -246,7 +246,7 @@ struct BenchmarkResultCpp {
 };
 
 /**
- * C++ Benchmark progress info structure following Android implementation
+ * C++ Benchmark progress info structure 
  */
 struct BenchmarkProgressInfoCpp {
     int progress;
@@ -271,7 +271,7 @@ struct BenchmarkProgressInfoCpp {
 // MARK: - C++ Benchmark Implementation
 
 /**
- * C++ Benchmark callback structure following Android implementation
+ * C++ Benchmark callback structure 
  */
 struct BenchmarkCallback {
     std::function<void(const BenchmarkProgressInfoCpp& progressInfo)> onProgress;
@@ -1113,7 +1113,6 @@ bool removeDirectorySafely(const std::string& path) {
                         // std::this_thread::sleep_for(std::chrono::milliseconds(1));
                     }
                     
-                    // Generate waveform if audio output is enabled (similar to Android)
                     if (!blockSelf->_shouldStopInference.load() && blockSelf->_enableAudioOutput.load()) {
                         NSLog(@"[AudioWrapper] Text generation completed, generating waveform (enable_audio_output=YES)");
                         blockSelf->_llm->generateWavform();
@@ -1416,7 +1415,6 @@ bool removeDirectorySafely(const std::string& path) {
                 current_size++;
             }
             
-            // Generate waveform if audio output is enabled (similar to Android)
             if (!blockSelf->_shouldStopInference.load() && blockSelf->_enableAudioOutput.load()) {
                 NSLog(@"[AudioWrapper] Multimodal text generation completed, generating waveform (enable_audio_output=YES)");
                 blockSelf->_llm->generateWavform();
@@ -1979,7 +1977,7 @@ bool removeDirectorySafely(const std::string& path) {
              startTime:(std::chrono::high_resolution_clock::time_point)start_time
                 result:(BenchmarkResultCpp&)result callback:(const BenchmarkCallback&)callback {
     
-    const int tok = 16; // Same token ID as used in Android llm_session.cpp
+    const int tok = 16;
     std::vector<int> tokens(nPrompt, tok);
     
     // Validate token vector
