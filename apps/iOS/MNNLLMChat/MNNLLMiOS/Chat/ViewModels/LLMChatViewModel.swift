@@ -468,71 +468,7 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
             }
 
             let convertedContent = self.convertDeepSeekMutliChat(content: content)
-            
-//            await llmState.processContent(convertedContent, llm: self.llm, showPerformance: true) { [weak self] output in
-//                guard let self = self else { return }
-//                
-//                if output.contains("<eop>") {
-//                    Task {
-//                        await UIUpdateOptimizer.shared.forceFlush { [weak self] finalOutput in
-//                            guard let self = self else { return }
-//                            if !finalOutput.isEmpty {
-//                                Task {
-//                                    do {
-//                                        try await self.send(draft: DraftMessage(
-//                                            text: finalOutput,
-//                                            thinkText: "",
-//                                            medias: [],
-//                                            recording: nil,
-//                                            replyMessage: nil,
-//                                            createdAt: Date()
-//                                        ), userType: .assistant)
-//                                    } catch {
-//                                        print("Error sending final output message: \(error)")
-//                                    }
-//                                }
-//                            }
-//                        }
-//
-//                        await MainActor.run {
-//                            // Mark model output as complete
-//                            if let messageId = self.currentStreamingMessageId,
-//                               let stateManager = self.streamingStates[messageId]
-//                            {
-//                                stateManager.markOutputComplete()
-//                            }
-//                            // currentStreamingMessageId will be cleared when animation completes via callback
-//
-//                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-//                                NotificationCenter.default.post(name: .dismissKeyboard, object: nil)
-//                            }
-//                        }
-//                        await self.llmState.setProcessing(false)
-//                    }
-//                    return
-//                }
-//
-//                Task {
-//                    await UIUpdateOptimizer.shared.addUpdate(output) { [weak self] output in
-//                        guard let self = self else { return }
-//                        Task {
-//                            do {
-//                                try await self.send(draft: DraftMessage(
-//                                    text: output,
-//                                    thinkText: "",
-//                                    medias: [],
-//                                    recording: nil,
-//                                    replyMessage: nil,
-//                                    createdAt: Date()
-//                                ), userType: .assistant)
-//                            } catch {
-//                                print("Error sending streaming message: \(error)")
-//                            }
-//                        }
-//                    }
-//                }
-//            }
-            
+
             let outputHandler: (String) -> Void = { [weak self] output in
                 guard let self = self else { return }
 
