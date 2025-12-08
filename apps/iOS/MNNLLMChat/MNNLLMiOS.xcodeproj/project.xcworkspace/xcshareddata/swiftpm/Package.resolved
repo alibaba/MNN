@@ -1,5 +1,5 @@
 {
-  "originHash" : "6cbdc980b39fbf9cbaeaf928394da4f35a6e9d8460a885e49f4fbef8a6f883bb",
+  "originHash" : "0c179c7a2109cc7883d4e3fe898744e97823490a58550a3ddb0b4ea67f2baf25",
   "pins" : [
     {
       "identity" : "activityindicatorview",
@@ -8,15 +8,6 @@
       "state" : {
         "revision" : "36140867802ae4a1d2b11490bcbbefe058001d14",
         "version" : "1.2.1"
-      }
-    },
-    {
-      "identity" : "chat",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/Yogayu/Chat.git",
-      "state" : {
-        "revision" : "b6a994af4c94585ab8e0d85eae7357581febbecd",
-        "version" : "1.0.4"
       }
     },
     {

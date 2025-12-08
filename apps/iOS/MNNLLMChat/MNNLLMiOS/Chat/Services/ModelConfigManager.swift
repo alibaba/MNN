@@ -160,6 +160,33 @@ class ModelConfigManager {
         updateValue("use_multimodal_prompt_api", value: value)
     }
 
+    // MARK: - Audio Output (Omni)
+
+    private let defaultEnableAudioOutput: Bool = false
+    private let defaultTalkerSpeaker: String = "default"
+
+    func readEnableAudioOutput() -> Bool {
+        let value = readValue("enable_audio_output", defaultValue: defaultEnableAudioOutput)
+        print("[AudioConfig] Read enable_audio_output: \(value)")
+        return value
+    }
+
+    func saveEnableAudioOutput(_ value: Bool) {
+        print("[AudioConfig] Save enable_audio_output: \(value)")
+        updateValue("enable_audio_output", value: value)
+    }
+
+    func readTalkerSpeaker() -> String {
+        let value = readValue("talker_speaker", defaultValue: defaultTalkerSpeaker)
+        print("[AudioConfig] Read talker_speaker: \(value)")
+        return value
+    }
+
+    func saveTalkerSpeaker(_ value: String) {
+        print("[AudioConfig] Save talker_speaker: \(value)")
+        updateValue("talker_speaker", value: value)
+    }
+
     // MARK: - Iterations
 
     func readIterations() -> Int {

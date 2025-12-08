@@ -130,6 +130,15 @@ typedef void (^BenchmarkCompleteCallback)(BenchmarkResult *result);
 /// Update maximum frames extracted for each video.
 - (void)setVideoMaxFrames:(NSInteger)frames;
 
+/// Set audio output enabled/disabled (for Omni models)
+- (void)setEnableAudioOutput:(BOOL)enable;
+
+/// Set talker speaker (for Omni models)
+- (void)setTalkerSpeaker:(NSString *)speaker;
+
+/// Set audio waveform callback for receiving PCM float data
+- (void)setAudioWaveformCallback:(BOOL (^)(const float *data, size_t size, BOOL isLastChunk))callback;
+
 /**
  * Add chat prompts from an array of dictionaries to the conversation history
  * 

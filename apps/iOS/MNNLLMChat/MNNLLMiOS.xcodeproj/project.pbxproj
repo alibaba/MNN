@@ -13,6 +13,7 @@
 		3E2F972F2E89158600E61F35 /* ExyteChat in Frameworks */ = {isa = PBXBuildFile; productRef = 3E00BB8D2E73C4E200D60A8D /* ExyteChat */; };
 		3E2F97302E89158600E61F35 /* ExyteChat in Frameworks */ = {isa = PBXBuildFile; productRef = 3E55AB222E839CFA003CB2E2 /* ExyteChat */; };
 		3E301C692D5C84730045E5E1 /* MNN.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3E301C682D5C84730045E5E1 /* MNN.framework */; };
+		3E440F0A2EE2DEDE00BB15FF /* AudioPlaybackManager.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 3E440F082EE2DEDE00BB15FF /* AudioPlaybackManager.swift */; };
 		3E55A66C2E828189003CB2E2 /* LocalModel in Resources */ = {isa = PBXBuildFile; fileRef = 3E55A66B2E828189003CB2E2 /* LocalModel */; };
 		3E94DFF12D37DBA900BE39A7 /* SQLite in Frameworks */ = {isa = PBXBuildFile; productRef = 3E94DFF02D37DBA900BE39A7 /* SQLite */; };
 		3EAB12362E7FD12300C4E5F6 /* MarkdownView in Frameworks */ = {isa = PBXBuildFile; productRef = 3EAB12352E7FD12300C4E5F6 /* MarkdownView */; };
@@ -141,6 +142,7 @@
 /* Begin PBXFileReference section */
 		26F235F884BD455DA4AFBEF5 /* BatchFileTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchFileTestView.swift; sourceTree = "<group>"; };
 		3E301C682D5C84730045E5E1 /* MNN.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = MNN.framework; sourceTree = "<group>"; };
+		3E440F082EE2DEDE00BB15FF /* AudioPlaybackManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlaybackManager.swift; sourceTree = "<group>"; };
 		3E55A66B2E828189003CB2E2 /* LocalModel */ = {isa = PBXFileReference; lastKnownFileType = folder; name = LocalModel; path = MNNLLMiOS/LocalModel; sourceTree = "<group>"; };
 		3E8591FE2D1D45070067B46F /* MNNLLMiOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MNNLLMiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		3ECE19BD2E9904C9001A4CDD /* BatchTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchTest.swift; sourceTree = "<group>"; };
@@ -290,6 +292,14 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		3E440F092EE2DEDE00BB15FF /* Audio */ = {
+			isa = PBXGroup;
+			children = (
+				3E440F082EE2DEDE00BB15FF /* AudioPlaybackManager.swift */,
+			);
+			path = Audio;
+			sourceTree = "<group>";
+		};
 		3E8591F52D1D45070067B46F = {
 			isa = PBXGroup;
 			children = (
@@ -389,6 +399,7 @@
 		4230C2422E7D4EB5001169DF /* Chat */ = {
 			isa = PBXGroup;
 			children = (
+				3E440F092EE2DEDE00BB15FF /* Audio */,
 				4230C22F2E7D4EB5001169DF /* Interactor */,
 				4230C2362E7D4EB5001169DF /* Models */,
 				4230C23A2E7D4EB5001169DF /* Services */,
@@ -941,6 +952,7 @@
 				4230C31F2E7D4EB5001169DF /* DownloadedButtonView.swift in MNNChat */,
 				4230C3202E7D4EB5001169DF /* DownloadingButtonView.swift in MNNChat */,
 				4230C3212E7D4EB5001169DF /* PendingDownloadButtonView.swift in MNNChat */,
+				3E440F0A2EE2DEDE00BB15FF /* AudioPlaybackManager.swift in MNNChat */,
 				4230C3222E7D4EB5001169DF /* TagChip.swift in MNNChat */,
 				4230C3232E7D4EB5001169DF /* TagsView.swift in MNNChat */,
 				4230C3242E7D4EB5001169DF /* CustomPopupMenu.swift in MNNChat */,
