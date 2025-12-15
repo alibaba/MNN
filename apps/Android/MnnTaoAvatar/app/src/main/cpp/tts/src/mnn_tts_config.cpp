@@ -34,6 +34,11 @@ MNNTTSConfig::MNNTTSConfig(const std::string &config_json_path)
     asset_folder_ = get_value_from_json<std::string>(raw_config_data_, "asset_folder");
     cache_folder_ = get_value_from_json<std::string>(raw_config_data_, "cache_folder");
     sample_rate_ = get_value_from_json<int>(raw_config_data_, "sample_rate");
+    precision_ = get_value_from_json<std::string>(raw_config_data_, "precision");
+    speaker_id_ = get_value_from_json<std::string>(raw_config_data_, "speaker_id");
+    iter_steps_ = get_value_from_json<int>(raw_config_data_, "iter_steps");
+    speed_ = get_value_from_json<float>(raw_config_data_, "speed");
+
   }
   catch (const std::runtime_error &e)
   {
