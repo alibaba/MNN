@@ -1,0 +1,48 @@
+name: CrossBuild
+
+on:
+  push:
+    branches: [ master ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ master ]
+  workflow_dispatch:    
+  release:
+    types: [ created ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [ i686, arm, aarch64, riscv64, powerpc, powerpc64, powerpc64le, s390x, sparc64, m68k, sh4, alpha ]
+
+    steps:
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+    - name: Install cross tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y sudo qemu-user gdb zstd dwarfdump {gcc,g++}-10-{i686,aarch64,riscv64,powerpc,powerpc64,powerpc64le,s390x,sparc64,m68k,sh4,alpha}-linux-gnu {gcc,g++}-10-arm-linux-gnueabihf
+        sudo ln -sf /usr/bin/arm-linux-gnueabihf-gcc-10 /usr/bin/arm-linux-gnu-gcc-10
+        sudo ln -sf /usr/bin/arm-linux-gnueabihf-g++-10 /usr/bin/arm-linux-gnu-g++-10
+        sudo ln -sf /usr/arm-linux-gnueabihf /usr/arm-linux-gnu
+
+    - name: Build
+      run: |
+        mkdir -p build
+        cd build
+        env CXX=/usr/bin/${{matrix.arch}}-linux-gnu-g++-10 CC=/usr/bin/${{matrix.arch}}-linux-gnu-gcc-10 cmake .. -DSPM_BUILD_TEST=ON -DSPM_ENABLE_SHARED=OFF -DCMAKE_FIND_ROOT_PATH=/usr/${{matrix.arch}}-linux-gnu -DSPM_CROSS_SYSTEM_PROCESSOR=${{matrix.arch}}
+        make -j$(nproc)
+
+    - name: Test on QEMU
+      if: matrix.arch != 'sparc64' && matrix.arch != 'm68k' && matrix.arch != 'sh4'
+      run: |
+        cd build
+        qemu_arch=`echo ${{matrix.arch}} | sed -e s/powerpc/ppc/ -e s/686/386/`
+        qemu-${qemu_arch} -L /usr/${{matrix.arch}}-linux-gnu src/spm_test

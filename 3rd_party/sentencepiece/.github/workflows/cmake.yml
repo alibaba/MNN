@@ -1,0 +1,77 @@
+name: CI for general build
+
+on:
+  push:
+    branches: [ master ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ master ]
+  workflow_dispatch:
+  release:
+    types: [ created ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ ubuntu-latest, macos-latest ]
+        arch: [ x64, arm64 ]
+        include:
+          - os: windows-latest
+            arch: Win32
+          - os: windows-latest
+            arch: x64
+          - os: windows-11-arm
+            arch: ARM64
+
+    runs-on: ${{ matrix.os }}
+
+    permissions:
+      contents: write # svenstaro/upload-release-action
+
+    steps:
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+    - name: Config for Windows
+      if: runner.os == 'Windows'
+      run: cmake -A ${{ matrix.arch }} -B build -DSPM_BUILD_TEST=ON -DSPM_ENABLE_SHARED=OFF -DCMAKE_INSTALL_PREFIX=build/root
+
+    - name: Config for Linux/MacOSX
+      if: runner.os != 'Windows'
+      run: cmake -B build -DSPM_BUILD_TEST=ON -DCMAKE_INSTALL_PREFIX=build/root
+      env:
+        CMAKE_OSX_ARCHITECTURES: arm64;x86_64
+
+    - name: Build
+      run: cmake --build build --config Release --target install --parallel 8
+
+    - name: Test
+      working-directory: build
+      run: ctest -C Release --output-on-failure
+
+    - name: Package
+      working-directory: build
+      run: cpack
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: artifacts-${{ matrix.os }}-${{ matrix.arch }}
+        path: ./build/*.7z
+        overwrite: true
+
+    - name: Upload Release Assets
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: svenstaro/upload-release-action@81c65b7cd4de9b2570615ce3aad67a41de5b1a13 # v2.11.2
+      with:
+        repo_token: ${{ secrets.GITHUB_TOKEN }}
+        file: ./build/*.7z
+        tag: ${{ github.ref }}
+        overwrite: true
+        prerelease: true
+        file_glob: true
+        body: "This is my release text"
