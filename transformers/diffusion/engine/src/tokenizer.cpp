@@ -313,7 +313,9 @@ void CLIPTokenizer::bpe(const std::wstring& token, const BPERanks& bpe_ranks, st
 }
 
 std::vector<int> CLIPTokenizer::encode(const std::string& text, int maxlen) {
-    std::regex re(R"(<\|startoftext\|>|<\|endoftext\|>|'s|'t|'re|'ve|'m|'ll|'d|[[:alpha:]]+|[[:digit:]]|[^[:space:][:alpha:][:digit:]]+)",
+    // Use static regex to avoid recompilation and potential stack/heap issues with repeated construction
+    // Also replaced POSIX classes with explicit ranges to avoid potential locale issues
+    static const std::regex re(R"(<\|startoftext\|>|<\|endoftext\|>|'s|'t|'re|'ve|'m|'ll|'d|[a-zA-Z]+|[0-9]|[^ \t\n\r\f\va-zA-Z0-9]+)",
                    std::regex::icase);
     std::string input = text;
     std::vector<std::wstring> result;

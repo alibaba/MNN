@@ -22,3 +22,6 @@ endif()
 
 add_executable(diffusion_demo ${CMAKE_CURRENT_LIST_DIR}/diffusion_demo.cpp)
 target_link_libraries(diffusion_demo  ${MNN_DEPS})
+
+add_executable(diffusion_sd35_demo ${CMAKE_CURRENT_LIST_DIR}/diffusion_sd35_demo.cpp)
+target_link_libraries(diffusion_sd35_demo  ${MNN_DEPS})
