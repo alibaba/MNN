@@ -1,9 +1,9 @@
-
 #include "mnn_tts_sdk.hpp"
 #include "piper/utf8.h"
-#include <mutex>
+#include "supertonic/mnn_supertonic_tts_impl.hpp"
 #include <codecvt> // For std::wstring_convert and std::codecvt_utf8
 #include <locale>
+#include <mutex>
 
 MNNTTSSDK::MNNTTSSDK(const std::string &config_folder)
 {
@@ -14,15 +14,23 @@ MNNTTSSDK::MNNTTSSDK(const std::string &config_folder)
   auto assset_folder = config_folder + "/" + config.asset_folder_;
   auto cache_folder = config_folder + "/" + config.cache_folder_;
   sample_rate_ = config.sample_rate_;
-
   if (model_type == "piper")
   {
-    impl_ = nullptr;
+	impl_ = nullptr;
 //            std::make_shared<MNNPiperTTSImpl>(assset_folder, model_path, cache_folder);
   }
   else if (model_type == "bertvits")
   {
-    impl_ = std::make_shared<MNNBertVits2TTSImpl>(assset_folder, model_path, cache_folder);
+	impl_ = std::make_shared<MNNBertVits2TTSImpl>(assset_folder, model_path, cache_folder);
+  }
+  else if (model_type == "supertonic")
+  {
+    auto model_dir = config_folder;
+    std::string precision = config.precision_;
+    std::string speaker_id = config.speaker_id_;
+    int iter_steps = config.iter_steps_;
+    float speed = config.speed_;
+    impl_ = std::make_shared<MNNSupertonicTTSImpl>(model_dir, precision, speaker_id, iter_steps, speed);
   }
   else
   {
@@ -35,7 +43,8 @@ std::tuple<int, Audio> MNNTTSSDK::Process(const std::string &text)
   return impl_->Process(text);
 }
 
-void MNNTTSSDK::WriteAudioToFile(const Audio &audio_data, const std::string &output_file_path)
+void MNNTTSSDK::WriteAudioToFile(const Audio &audio_data,
+                                 const std::string &output_file_path)
 {
   std::ofstream audioFile(output_file_path, std::ios::binary);
 
