@@ -66,6 +66,7 @@ bool AVX2Functions::init(int cpuFlags) {
 
     // For Packed Functions
     coreFunction->pack = 8;
+    coreFunction->tmacHp = 64;
     _AVX_ExtraInit(coreFunction);
     // Winograd
     _AVX_WinogradInit(coreFunction);
@@ -86,6 +87,7 @@ bool AVX2Functions::init(int cpuFlags) {
         || (cpuFlags & libyuv::kCpuHasAVX512VBMI2)
         ) {
         coreFunction->pack = 16;
+        coreFunction->tmacHp = 64;
         _AVX512_ReorderInit(coreFunction);
         _AVX512_ExtraInit(coreFunction);
         _AVX512_WinogradInit(coreFunction);

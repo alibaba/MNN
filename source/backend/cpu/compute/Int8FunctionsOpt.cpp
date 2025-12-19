@@ -30,6 +30,7 @@ void MNNMaxPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWi
 
 void MNNAvgPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx, ssize_t paddingx, ssize_t factor);
 void MNNReluWithSlopeChannelInt8(int8_t* dst, const int8_t* src, const float* slope, size_t planeNumber, size_t depthQuad, const QuanPrePostParameters *params, size_t pack);
+void MNNTMacCompute(float* dst, const int8_t* table, const float* inputSum, const TMacResource* res, const PlaneInfo* plane);
 #if defined(__aarch64__) // aarch32 sdot workaround
 void MNNGemmInt8AddBiasScale_ARMV82_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
                                         const QuanPostTreatParameters* post, size_t realDstCount);
@@ -186,7 +187,70 @@ static void _MNNPackC4Int8ForMatMul_ASparse(int8_t* destOrigin, int8_t const** s
 }
 
 #ifndef MNN_USE_NEON
+static void MNNTMacCompute(float* dst, const int8_t* table, const float* inputSum, const TMacResource* res, const PlaneInfo* plane) {
 
+    auto ocC4 = plane->ocDiv;
+    auto blC4 = res->mBlockSizeC4;
+    std::vector<float> csum(res->mHp);
+    std::vector<int> sum(res->mHp);
+    std::vector<int> bsum(res->mHp);
+    int halfhp = res->mHp / 2;
+    // Compute Dst: Loop up and sum
+    for (int oz=0; oz<ocC4; ++oz) {
+        auto dstZ = dst + oz * (res->mHp / 4) * plane->planeSize * 4;
+        auto biasPtrZ = (float*)(plane->mBiasPtr) + res->mHp * oz;
+        auto blockScaleZ = (const float*)plane->mWeightScalePtr + oz * res->mBlockNumber * 2 * res->mHp;
+        auto blockBiasZ = blockScaleZ + res->mHp;
+        for (int v=0; v<res->mHp; ++v) {
+            csum[v] = biasPtrZ[v];
+        }
+        for (int ib=0; ib<res->mBlockNumber; ++ib) {
+            auto inputSummer = inputSum[ib];
+            auto tableIB = table + (ib) * (blC4) * 16;
+            auto blockScale = blockScaleZ + ib * 2 * res->mHp;
+            auto blockBias  = blockBiasZ + ib * 2 * res->mHp;
+            for (int v=0; v<res->mHp; ++v) {
+                sum[v] = 0;
+            }
+            for (int b=0; b<res->mBits; ++b) {
+                for (int v=0; v<res->mHp; ++v) {
+                    bsum[v] = 0;
+                }
+                auto weight = plane->mWeightPtr + res->mWeightInt8->stride(0) * oz + res->mWeightInt8->stride(1) * ib + b * blC4 * res->mHp / 2;
+                for (int iz=0; iz<blC4; ++iz) {
+                    auto tablePtr = tableIB + iz * 16;
+                    auto weightZ = weight + iz * halfhp;
+                    for (int v=0; v<halfhp; ++v) {
+                        uint8_t s0 = weightZ[v] & 0x0f;
+                        uint8_t s1 = weightZ[v] >> 4;
+                        bsum[v] += (int)tablePtr[s0];
+                        bsum[v + halfhp] += (int)tablePtr[s1];
+                    }
+                }
+                for (int v=0; v<res->mHp; ++v) {
+                    sum[v] = sum[v] * 2 + bsum[v];
+                }
+            }
+            auto offset = plane->offset;
+            auto dequantscale = plane->dequantscale;
+
+            auto scale = (float*)blockScale;
+            auto bias = (float*)blockBias;
+            for (int v=0; v<res->mHp; ++v) {
+                csum[v] += ((float)sum[v]-offset) * dequantscale * scale[v] + inputSummer * bias[v];
+            }
+        }
+        for (int v=0; v<res->mHp; ++v) {
+            csum[v] = ALIMIN(plane->maxValue, ALIMAX(plane->minValue, csum[v]));
+        }
+        for (int v=0; v<res->mHp; ++v) {
+            auto dstv = dstZ + v % 4 + (v / 4) * plane->planeSize * 4;
+            dstv[0] = csum[v];
+        }
+    }
+}
+#endif
+#ifndef MNN_USE_NEON
 void MNNPackedSparseQuantMatMulEpx1(int8_t* C, const int8_t* A, const int8_t* B, const size_t* sparseQuantParam, const QuanPostTreatParameters* post, unsigned int* NNZMap, int* dataOffsetMap) {
 
     size_t eSize = sparseQuantParam[0];
@@ -2460,6 +2524,7 @@ void MNNCoreInt8FunctionInit() {
     // ReluWithSlopeChannel
     gCoreFunc->MNNReluWithSlopeChannelInt8 = MNNReluWithSlopeChannelInt8;
 #endif
+    gCoreFunc->MNNTMacCompute = MNNTMacCompute;
 
 #if defined(__aarch64__)
     if (core->supportSDot) {

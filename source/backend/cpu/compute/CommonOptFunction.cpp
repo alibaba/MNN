@@ -227,7 +227,7 @@ void MNNDynamicUpdateConvBiasScale(float* newbias, float* oldbias, float* weight
 #endif // LOW_MEMORY
 #endif // not __aarch64__
 
-static void MNNCountMaxMinValue(const float* source, float* minVal, float* maxVal, size_t size) {
+void MNNCountMaxMinValue(const float* source, float* minVal, float* maxVal, size_t size) {
 #ifndef MNN_USE_NEON
     int pack = 4;
     float max_ = source[0], min_ = source[0];
@@ -636,6 +636,55 @@ static void MNNAsyQuantInfo_FP32(float* scale, float* bias, float* qscale, float
 #endif
             }
         }
+    }
+}
+
+static void MNNTMacBuildTable(int8_t* destTable, int8_t* kernelSum, int8_t* source, size_t planeSize, size_t icC4, size_t pack, size_t blC4, size_t blockNum, size_t tableunit) {
+    auto bytes = 4;
+    auto srcX = source;
+    auto dstX = destTable;
+    // build table
+    for (int z=0; z<icC4; ++z) {
+        auto dstZ = dstX + z * tableunit * bytes * (pack / 4);
+        auto srcZ = srcX + z * planeSize * pack * bytes;
+        for (int i = 0; i < pack / 4; ++i) {
+            auto S = (float*)srcZ + i * 4;
+            auto D = (float*)dstZ + i * tableunit;
+            auto s3 = S[0];
+            auto s2 = S[1];
+            auto s1 = S[2];
+            auto s0 = S[3];
+            D[0] = 0.0f;
+            D[1] = s0;
+            D[2] = s1;
+            D[3] = s0 + s1;
+
+            D[4] = s2;
+            D[5] = s0 + s2;
+            D[6] = s1 + s2;
+            D[7] = s0 + s1 + s2;
+
+            D[8] = s3;
+            D[9] = s0 + s3;
+            D[10] = s1 + s3;
+            D[11] = s0 + s1 + s3;
+
+            D[12] = s2 + s3;
+            D[13] = s0 + s2 + s3;
+            D[14] = s1 + s2 + s3;
+            D[15] = s0 + s1 + s2 + s3;
+        }
+    }
+
+    // Compute Input Sum
+    auto dstF = reinterpret_cast<float*>(kernelSum);
+    for (int y=0; y<blockNum; ++y) {
+        float summer = 0.0f;
+        auto srcX = (float*)(destTable + y * blC4 * tableunit * bytes);
+        for (int z=0; z<blC4; ++z) {
+            summer += srcX[16 * z + 15];
+        }
+        dstF[y] = summer;
     }
 }
 #endif // MNN_LOW_MEMORY
@@ -4530,6 +4579,12 @@ void MNNCoreFunctionInit() {
         gCoreFunction->MNNSumWeightInt8 = MNNSumWeightInt8Arm86;
     }
 #endif
+    gCoreFunction->tmacHp = 32;
+#ifdef __arm__
+#ifndef __aarch64__
+    gCoreFunction->tmacHp = 16;
+#endif
+#endif
 #ifdef MNN_CPU_WEIGHT_DEQUANT_GEMM
     // Weight Dequant Gemm Kernels
     gCoreFunction->MNNPackedMatMul_int8 = MNNPackedMatMul_int8;
@@ -4552,6 +4607,8 @@ void MNNCoreFunctionInit() {
         gCoreFunction->MNNGeneralIm2Col = MNNGeneralIm2col_Fp32Arm86;
     }
 #endif
+    // TMac
+    gCoreFunction->MNNTMacBuildTable = MNNTMacBuildTable;
 #endif
 
 

@@ -1,34 +1,154 @@
+// Helper function to parse boolean properties supporting ON/OFF and true/false
+def getBooleanProperty(value) {
+    if (value instanceof Boolean) {
+        return value
+    }
+    String str = value.toString().toLowerCase()
+    return str == 'true' || str == 'on' || str == 'yes' || str == '1'
+}
+
+ext {
+    MTLPublishing = project.hasProperty('MTLDeployVersion')
+    update2MTLVersionFrom = { defVal ->
+        try{
+            if (MTLPublishing){
+                println "get mtl deploy version for ${getName()}:$MTLDeployVersion"
+                return MTLDeployVersion
+            }
+        }catch (Exception ignored){}
+        return defVal
+    }
+    artifactName = ''
+
+    // Build option controls
+    BUILD_LLM = project.hasProperty('BUILD_LLM') ? getBooleanProperty(project.BUILD_LLM) : false
+    BUILD_LLM_VISION = project.hasProperty('BUILD_LLM_VISION') ? getBooleanProperty(project.BUILD_LLM_VISION) : false
+    BUILD_LLM_DEMO = project.hasProperty('BUILD_LLM_DEMO') ? getBooleanProperty(project.BUILD_LLM_DEMO) : false
+    BUILD_QNN = project.hasProperty('BUILD_QNN') ? getBooleanProperty(project.BUILD_QNN) : false
+}
+
+//print build_llm
+println "BUILD_LLM: $BUILD_LLM"
+println "BUILD_LLM_VISION: $BUILD_LLM_VISION"
+println "BUILD_LLM_DEMO: $BUILD_LLM_DEMO"
+println "BUILD_QNN: $BUILD_QNN"
+
 
 buildscript {
     repositories {
         google()
-        jcenter()
+        mavenCentral()
         mavenLocal()
+        maven{
+            url "http://mvnrepo.alibaba-inc.com/mvn/repository"
+        }
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:3.2.1'
+        classpath 'com.android.tools.build:gradle:4.2.2'
     }
 }
 
 repositories {
     mavenLocal()
+    google()
+    maven{
+        url "http://mvnrepo.alibaba-inc.com/mvn/repository"
+    }
 }
 
 apply plugin: 'com.android.library'
+apply plugin: 'maven'
+apply plugin: 'maven-publish'
+
+group = 'com.taobao.android'
+artifactName = 'alinn'
+version = update2MTLVersionFrom('2.0.9.9-android-SNAPSHOT')
+description = 'MNN Framework'
 
 
 android {
-    compileSdkVersion 28
+    compileSdkVersion 34
+    ndkVersion "27.2.12479018"
+
+    archivesBaseName = artifactName
 
     defaultConfig {
-        minSdkVersion 14
-        targetSdkVersion 28
-        testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
+        minSdkVersion 21
+        targetSdkVersion 34
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         versionCode 1
         versionName version
         externalNativeBuild {
             cmake {
-                arguments "-DANDROID_ARM_NEON=TRUE", "-DANDROID_PLATFORM=android-21", "-DMNN_OPENCL=true", "-DANDROID_STL=c++_shared"
+                def cmakeArgs = [
+                    "-DANDROID_ARM_NEON=TRUE",
+                    "-DANDROID_PLATFORM=android-21",
+                    "-DMNN_ARM82=true",
+                    "-DMNN_OPENCL=true",
+                    "-DMNN_VULKAN=false",
+                    "-DMNN_WITH_PLUGIN=true",
+                    "-DMNN_INTERNAL=false",
+                    "-DANDROID_STL=c++_shared",
+                    "-DMNN_BUILD_OPENCV=true",
+                    "-DMNN_IMGPROC_COLOR=true",
+                    "-DMNN_IMGPROC_GEOMETRIC=true",
+                    "-DMNN_IMGPROC_DRAW=true",
+                    "-DMNN_IMGPROC_FILTER=true",
+                    "-DMNN_IMGPROC_MISCELLANEOUS=true",
+                    "-DMNN_IMGPROC_STRUCTRAL=true",
+                    "-DMNN_CALIB3D=true",
+                    "-DMNN_IMGPROC_HISTOGRAMS=true",
+                    "-DMNN_SUPPORT_DEPRECATED_OP=false",
+                    "-DMNN_LOW_MEMORY=true",
+                    "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON",
+                    "-DMNN_SME2=OFF"
+                ]
+
+                // Conditionally add LLM options
+                if (BUILD_LLM) {
+                    cmakeArgs.addAll([
+                        "-DMNN_BUILD_LLM=true",
+                        "-DMNN_SUPPORT_TRANSFORMER_FUSE=true",
+                        "-DMNN_LLM_BUILD_DEMO=${BUILD_LLM_DEMO}",
+                        "-DLLM_SUPPORT_HTTP_RESOURCE=false"
+                    ])
+                }
+
+                // Disable KleidaiAI for Android build to avoid SVE2 issues
+                cmakeArgs.add("-DMNN_KLEIDIAI=false")
+
+                // Conditionally add LLM Vision options
+                if (BUILD_LLM_VISION) {
+                    cmakeArgs.addAll([
+                        "-DLLM_SUPPORT_VISION=true",
+                        "-DMNN_IMGCODECS=true"
+                    ])
+                }
+
+                // Conditionally add QNN options
+                if (BUILD_QNN) {
+                    cmakeArgs.addAll([
+                        "-DMNN_QNN=ON",
+                        "-DMNN_QNN_ONLINE_FINALIZE=OFF",
+                        "-DMNN_WITH_PLUGIN=ON"
+                    ])
+
+                    // Pass QNN SDK root to CMake via property or environment, avoiding reliance on Gradle daemon env
+                    def qnnRoot = null
+                    if (project.hasProperty('QNN_SDK_ROOT')) {
+                        qnnRoot = project.property('QNN_SDK_ROOT')
+                    } else if (System.getenv('QNN_SDK_ROOT') != null) {
+                        qnnRoot = System.getenv('QNN_SDK_ROOT')
+                    }
+                    if (qnnRoot != null && qnnRoot.trim()) {
+                        cmakeArgs.add("-DQNN_SDK_ROOT=${qnnRoot}")
+                        println "Using QNN_SDK_ROOT from Gradle/CMake: ${qnnRoot}"
+                    } else {
+                        println "Warning: QNN_SDK_ROOT is not provided; CMake will fallback to ENV variable if available."
+                    }
+                }
+                arguments(*cmakeArgs)
+                // arguments "-DANDROID_ARM_NEON=TRUE", "-DANDROID_PLATFORM=android-21", "-DMNN_ARM82=true", "-DMNN_OPENCL=true", "-DMNN_VULKAN=false", "-DMNN_WITH_PLUGIN=true", "-DMNN_INTERNAL=false", "-DANDROID_STL=c++_shared", "-DMNN_BUILD_OPENCV=true", "-DMNN_IMGPROC_COLOR=true", "-DMNN_IMGPROC_GEOMETRIC=true", "-DMNN_IMGPROC_DRAW=true", "-DMNN_IMGPROC_FILTER=true", "-DMNN_IMGPROC_MISCELLANEOUS=true", "-DMNN_IMGPROC_STRUCTRAL=true", "-DMNN_CALIB3D=true", "-DMNN_IMGPROC_HISTOGRAMS=true", "-DMNN_SUPPORT_DEPRECATED_OP=false", "-DMNN_LOW_MEMORY=true"
                 abiFilters 'armeabi-v7a', 'arm64-v8a'
             }
         }
@@ -41,8 +161,71 @@ android {
 }
 
 apply from: "nativepub.gradle"
+apply from: "qnnprepare.gradle"
 
-task wrapper(type: Wrapper) {
-    gradleVersion = '4.1'
-    distributionUrl = 'http://mirrors.taobao.net/mirror/gradle/gradle-4.1-bin.zip'
+HashMap getAccount(){
+    HashMap accountMap = new HashMap()
+    def parsedSettingsXml
+    def settingsFile = '/home/admin/software/apache-maven-3.2.1/conf/settings.xml'
+    def  defaultSettingsFile = System.getProperty("user.home") + "/.m2/settings.xml"
+    println("defaultSettingsFile: " + defaultSettingsFile)
+    if(file(settingsFile).exists()||file(defaultSettingsFile).exists()){
+        if(file(settingsFile).exists()){
+            parsedSettingsXml = (new groovy.util.XmlParser()).parse(settingsFile)
+        }else if(file(defaultSettingsFile).exists()){
+            parsedSettingsXml = (new groovy.util.XmlParser()).parse(defaultSettingsFile)
+        }
+
+        parsedSettingsXml.servers[0].server.each{ server ->
+            if("releases" == server.id.text()){
+                accountMap.put("id",server.id.text())
+                accountMap.put("username",server.username.text())
+                accountMap.put("password",server.password.text())
+
+            }
+
+        }
+
+    }else{
+        accountMap.put("id","releases")
+        accountMap.put("username","admin")
+        accountMap.put("password","screct")
+    }
+    return accountMap
+
+}
+
+publishing {
+    publications {
+        maven(MavenPublication) {
+            artifactId project.artifactName
+            artifact "${project.buildDir}/outputs/aar/${artifactName}-release.aar"
+            pom.packaging "aar"
+        }
+    }
+
+    if(version.endsWith("-SNAPSHOT")){
+        repositories{
+            mavenLocal()
+            maven{
+                url "http://mvnrepo.alibaba-inc.com/nexus/content/repositories/snapshots"
+                credentials {
+                    username = "snapshotsAdmin"
+                    password = "123456"
+                }
+            }
+        }
+    } else {
+        def accountMap = getAccount()
+        repositories {
+            mavenLocal()
+            maven {
+                url "http://mvnrepo.alibaba-inc.com/nexus/content/repositories/releases"
+                credentials {
+                    username = accountMap.get("username")
+                    password = accountMap.get("password")
+                }
+            }
+        }
+    }
 }
