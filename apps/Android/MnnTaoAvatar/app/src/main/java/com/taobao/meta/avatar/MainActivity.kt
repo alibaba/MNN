@@ -360,7 +360,7 @@ class MainActivity : AppCompatActivity(),
     }
 
     private suspend fun loadTTSModel() {
-        ttsService!!.init(MHConfig.TTS_MODEL_DIR)
+        ttsService!!.init(MHConfig.TTS_MODEL_DIR, context = this)
     }
 
     private suspend fun loadA2BSModel() {
