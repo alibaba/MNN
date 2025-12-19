@@ -56,7 +56,7 @@ class LlmSession (
         Log.d(TAG, "MNN_DEBUG load begin modelId: $modelId")
         modelLoading = true
         isQnn = ModelTypeUtils.isQnnModel(modelId)
-
+        //useful f the file is very big, and has be put in asset folder,  most of the time, you do not need to care about this.
         checkAndMergeSplitFiles()
         var historyStringList: List<String>? = null
         val currentHistory = this.savedHistory
