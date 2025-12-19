@@ -44,10 +44,8 @@ list(APPEND MNN_CPP_TOOLS backendTest.out)
 add_executable(testModel.out ${CMAKE_CURRENT_LIST_DIR}/testModel.cpp)
 list(APPEND MNN_CPP_TOOLS testModel.out)
 
-if (NOT WIN32)
-add_executable(compilefornpu ${CMAKE_CURRENT_LIST_DIR}/compilefornpu.cpp)
+add_executable(compilefornpu ${CMAKE_CURRENT_LIST_DIR}/compilefornpu.cpp ${CMAKE_CURRENT_LIST_DIR}/../../3rd_party/flatbuffers/src/util.cpp)
 list(APPEND MNN_CPP_TOOLS compilefornpu)
-endif()
 
 
 if (MNN_QNN)

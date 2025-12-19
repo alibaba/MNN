@@ -26,6 +26,10 @@ private:
     MetalConvolution1x1(Backend *backend, const MNN::Op *op, std::shared_ptr<MNN::Tensor> weight, std::shared_ptr<MNN::Tensor> bias, std::shared_ptr<MNN::Tensor> dequantScale, int dequantBits, float scaleCoef);
     id<MTLComputePipelineState> mPipeline;
     std::pair<MTLSize, MTLSize> mThreads;
+    id<MTLComputePipelineState> mDequantPipeline;
+    std::pair<MTLSize, MTLSize> mDequantThreads;
+    bool mPreDequantWeight = false;
+    std::shared_ptr<Tensor> mTempWeight;
 };
 
 } // namespace MNN

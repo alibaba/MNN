@@ -254,8 +254,7 @@ public:
                     return new UnaryBufExecution("gelu(convert_float4(in))", op, backend);
                 case UnaryOpOperation_GELU_STANDARD:
                     return new UnaryBufExecution("(erf(convert_float4(in)*(float4)0.7071067932881648)+(float4)1.0)*convert_float4(in)*(float4)0.5", op, backend);
-
-		default:
+                default:
                     break;
             }
             return nullptr;

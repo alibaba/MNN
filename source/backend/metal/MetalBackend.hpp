@@ -42,6 +42,9 @@ public:
     bool supportSimdGroupMatrix() {
         return mSimdGroupMatrix;
     }
+    bool supportTensorOps() {
+        return mTensorOps;
+    }
     void setGpuMode(const int cl_mode_num);
     void setCommandQueue(id<MTLCommandQueue> queue, bool userSync);
     id<MTLCommandQueue> getCommandQueue() const {
@@ -109,6 +112,7 @@ private:
 private:
     bool mSimdGroupReduce;
     bool mSimdGroupMatrix;
+    bool mTensorOps;
 };
 
 
@@ -162,6 +166,7 @@ public:
     static void setTensor(const MNN::Tensor* tensor, id<MTLComputeCommandEncoder> encoder, int index);
     static void setMem(const MemChunk& chunk, id<MTLComputeCommandEncoder> encoder, int index);
     static uint8_t* getMemPtr(const MemChunk& chunk);
+    static void setBuffer(id<MTLBuffer> buffer, int offset, id<MTLComputeCommandEncoder> encoder, int index);
     static std::pair<id<MTLBuffer>, int> getBuffer(const MNN::Tensor* tensor);
     size_t getTensorSizeInBytes(const Tensor* tensor) const;
     virtual bool onSelectDynamicAllocator(int index, int maxIndex) override;
@@ -170,7 +175,7 @@ public:
     void returnConstBuffer(id<MTLBuffer> buffer) const;
     id<MTLComputePipelineState> makeComputePipelineWithSourceOption(const char* csource, const char* cname, MTLCompileOptions *options) const;
 public:
-    MetalBackend(std::shared_ptr<EagerBufferAllocator> staticMem, const MetalRuntime* runtime, bool usefp16AsFp32, BackendConfig::MemoryMode mode);
+    MetalBackend(const MetalRuntime* runtime, bool usefp16AsFp32, BackendConfig::MemoryMode mode);
     virtual ~MetalBackend();
     virtual Runtime* getRuntime() override {
         return (Runtime*)mRuntime;
@@ -214,7 +219,7 @@ public:
     
     BufferAllocator* getBufferPool() const;
     EagerBufferAllocator *getStaticBufferPool() const {
-        return mStaticBufferPool.get();
+        return mRuntime->mStaticAllocator.get();
     }
     id<MTLCommandBuffer> getCommandBufferForBufferCopy() const;
 
@@ -260,7 +265,6 @@ private:
     mutable id<MTLComputeCommandEncoder> mComputeEncoder = nil;
     std::shared_ptr<BufferAllocator> mBufferPool;
     std::shared_ptr<BufferAllocator> mBufferPoolShapeImmutable;
-    std::shared_ptr<EagerBufferAllocator> mStaticBufferPool;
 
 private:
     void _resetDynamicMemory() const;

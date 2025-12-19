@@ -69,7 +69,7 @@ struct SamplerInfo {
     uint4 size;//size[3] + totalSize
     uint4 extent;//dstStride[3]+dstOffset
 };
-kernel void main0(const device T *in [[buffer(0)]],
+kernel void mblit(const device T *in [[buffer(0)]],
                        device T *out [[buffer(1)]],
                        const device uint4* buf [[buffer(2)]],
                        uint3 tgid [[thread_position_in_grid]]) {
@@ -98,7 +98,7 @@ struct SamplerInfo {
     uint4 size;//size[3] + totalSize
     uint4 extent;//dstStride[3]+dstOffset
 };
-kernel void main0(const device T *in [[buffer(0)]],
+kernel void sblit(const device T *in [[buffer(0)]],
                        device T *out [[buffer(1)]],
                        constant SamplerInfo &info [[buffer(2)]],
                        uint3 gid [[thread_position_in_grid]]) {
@@ -119,7 +119,7 @@ struct SamplerInfo {
     uint4 size;//size[3] + totalSize
     uint4 extent;//dstStride[3]+dstOffset
 };
-kernel void main0(const device T *in [[buffer(0)]],
+kernel void mraster(const device T *in [[buffer(0)]],
                        device T *out [[buffer(1)]],
                        const device uint4* buf [[buffer(2)]],
                        uint3 tgid [[thread_position_in_grid]]) {
@@ -183,7 +183,7 @@ struct SamplerInfo {
     uint4 size;//size[3] + totalSize
     uint4 extent;//dstStride[3]+dstOffset
 };
-kernel void main0(const device T *in [[buffer(0)]],
+kernel void sraster(const device T *in [[buffer(0)]],
                        device T *out [[buffer(1)]],
                        const device uint4* buf [[buffer(2)]],
                        uint3 gid [[thread_position_in_grid]]) {
@@ -237,7 +237,7 @@ struct MemsetInfo {
     int4 value;
     uint4 size;
 };
-kernel void main0(device int4 *out   [[buffer(0)]],
+kernel void fill(device int4 *out   [[buffer(0)]],
                        constant MemsetInfo &info        [[buffer(1)]],
                        uint3 gid                 [[thread_position_in_grid]]) {
     if (gid.x < info.size.x) {
@@ -267,9 +267,9 @@ id<MTLComputePipelineState> MetalRaster::getBlitPipeline(int bytes, Backend* bac
             @"T" : @(unitName.c_str()),
         };
         if (multiRegion) {
-            pipeline = mtbn->makeComputePipelineWithSourceOption(gMultiBlitMetal, "main0", compileOptions);
+            pipeline = mtbn->makeComputePipelineWithSourceOption(gMultiBlitMetal, "mblit", compileOptions);
         } else {
-            pipeline = mtbn->makeComputePipelineWithSourceOption(gSingleBlitMetal, "main0", compileOptions);
+            pipeline = mtbn->makeComputePipelineWithSourceOption(gSingleBlitMetal, "sblit", compileOptions);
         }
         mtbn->runtime()->insertPipeline(keys, pipeline);
     }
@@ -325,7 +325,7 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &____inputs, const s
         };
         auto pipeline = mtbn->runtime()->findPipeline(keys);
         if (nil == pipeline) {
-            pipeline = mtbn->makeComputePipelineWithSourceOption(gFillInt4, "main0", nil);
+            pipeline = mtbn->makeComputePipelineWithSourceOption(gFillInt4, "fill", nil);
             mtbn->runtime()->insertPipeline(keys, pipeline);
         }
         mZeroPipeline = pipeline;
@@ -452,9 +452,9 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &____inputs, const s
                 @"T" : @(unitName.c_str()),
             };
             if(iter.second.size() == 1) {
-                pipeline = mtbn->makeComputePipelineWithSourceOption(gSingleRasterTemplate, "main0", options);
+                pipeline = mtbn->makeComputePipelineWithSourceOption(gSingleRasterTemplate, "sraster", options);
             } else {
-                pipeline = mtbn->makeComputePipelineWithSourceOption(gMultiRasterTemplate, "main0", options);
+                pipeline = mtbn->makeComputePipelineWithSourceOption(gMultiRasterTemplate, "mraster", options);
             }
             mtbn->runtime()->insertPipeline(keys, pipeline);
         }

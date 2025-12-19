@@ -87,7 +87,7 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_w4(int8_t* dst, const int8_t* src, const 
     int weight_step_Y = (GEMMINT8_AVX2_L * GEMMINT8_AVX2_H) / 2;
     int weight_step_Z = src_depth_quad * weight_step_Y + 2 * sizeof(float)* GEMMINT8_AVX2_H;
     const __m128i mask = _mm_set1_epi8(0xf);
-    
+
     auto srcKernelSumPtr = post->srcKernelSum;
     __m256 kernelSum0, kernelSum1, kernelSum2, kernelSum3;
     auto neg128_f   = _mm256_set1_ps(-128.f);
@@ -160,7 +160,7 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_w4(int8_t* dst, const int8_t* src, const 
                 auto D1 = D01;
                 auto D2 = D02;
                 auto D3 = D03;
-                auto scaleValue = _mm256_loadu_ps(scale_dz);         
+                auto scaleValue = _mm256_loadu_ps(scale_dz);
                 auto weightBiasValue = _mm256_loadu_ps((float*)weightBias_dz);
 
                 auto f0 = _mm256_cvtepi32_ps(D0);
@@ -380,12 +380,12 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_w4(int8_t* dst, const int8_t* src, const 
             }
         }
         return;
-    }    
+    }
     if (2 == realDst) {
         for (int dz = 0; dz < dst_depth_quad; ++dz) {
             auto dst_x           = dst + dz * dst_step_tmp;
             auto accum_x       = accumbuff;
-            
+
             for (int bk = 0; bk < blockNum; ++bk) {
                 // block's weight&scale&bias
                 const auto weight_dz = weight + dz * blockNum * weight_step_Z + bk *  weight_step_Z;
@@ -462,7 +462,7 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_w4(int8_t* dst, const int8_t* src, const 
                         auto biasValue       = _mm256_loadu_ps(bias_dz);
                         f0 = _mm256_add_ps(f0, biasValue);
                         f1 = _mm256_add_ps(f1, biasValue);
-                    } 
+                    }
                     if (post->fp32minmax) {
                         f0 = _mm256_min_ps(f0, fp32max);
                         f1 = _mm256_min_ps(f1, fp32max);
@@ -478,7 +478,7 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_w4(int8_t* dst, const int8_t* src, const 
             }
         }
         return;
-    }    
+    }
     if (1 == realDst) {
         for (int dz = 0; dz < dst_depth_quad; ++dz) {
             auto dst_x           = dst + dz * dst_step_tmp;
@@ -551,14 +551,14 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_w4(int8_t* dst, const int8_t* src, const 
                         f0 = _mm256_max_ps(f0, fp32min);
                     }
                     _mm256_storeu_ps(((float*)dst_x), f0);
-                    
+
                 } else {
                     _mm256_storeu_ps(((float*)accum_x) , f0);
                 }
             }
         }
         return;
-    }    
+    }
 
 }
 
@@ -588,7 +588,7 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, cons
 
     int weight_step_Y = (GEMMINT8_AVX2_L * GEMMINT8_AVX2_H);
     int weight_step_Z = src_depth_quad * weight_step_Y + 2 * sizeof(float) * GEMMINT8_AVX2_H;
-    
+
     auto srcKernelSumPtr = post->srcKernelSum;
     __m256 kernelSum0, kernelSum1, kernelSum2, kernelSum3;
     auto neg128_f   = _mm256_set1_ps(-128.f);
@@ -930,12 +930,12 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, cons
             }
         }
         return;
-    }    
+    }
     if (2 == realDst) {
         for (int dz = 0; dz < dst_depth_quad; ++dz) {
             auto dst_x           = dst + dz * dst_step_tmp;
             auto accum_x       = accumbuff;
-            
+
             for (int bk = 0; bk < blockNum; ++bk) {
                 // block's weight&scale&bias
                 const auto weight_dz = weight + dz * blockNum * weight_step_Z + bk *  weight_step_Z;
@@ -1032,7 +1032,7 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, cons
                             auto biasValue       = _mm256_loadu_ps(bias_dz);
                             f0 = _mm256_add_ps(f0, biasValue);
                             f1 = _mm256_add_ps(f1, biasValue);
-                        } 
+                        }
                         if (post->fp32minmax) {
                             f0 = _mm256_min_ps(f0, fp32max);
                             f1 = _mm256_min_ps(f1, fp32max);
@@ -1049,7 +1049,7 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, cons
             }
         }
         return;
-    }    
+    }
     if (1 == realDst) {
         for (int dz = 0; dz < dst_depth_quad; ++dz) {
             auto dst_x           = dst + dz * dst_step_tmp;
@@ -1134,7 +1134,7 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, cons
                             f0 = _mm256_max_ps(f0, fp32min);
                         }
                         _mm256_storeu_ps(((float*)dst_x), f0);
-                        
+
                     } else {
                         _mm256_storeu_ps(((float*)accum_x) , f0);
                     }
@@ -1142,7 +1142,7 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, cons
             }
         }
         return;
-    }    
+    }
 
 }
 void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit_Fast(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDst) {
@@ -1297,7 +1297,7 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit_Fast(int8_t* dst, const int8_t* src,
             // D2 = _mm256_add_epi32(D2, biasValue0);
 
             auto scaleValue = _mm256_loadu_ps(scale_dz);
-            
+
             auto f0 = _mm256_cvtepi32_ps(D0);
             auto f1 = _mm256_cvtepi32_ps(D1);
             auto f2 = _mm256_cvtepi32_ps(D2);
@@ -1332,7 +1332,7 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit_Fast(int8_t* dst, const int8_t* src,
             }
         }
         return;
-    }    
+    }
     if (2 == realDst) {
         for (int dz = 0; dz < dst_depth_quad; ++dz) {
             const auto weight_dz = weight + dz * weight_step_Z;
@@ -1386,7 +1386,7 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit_Fast(int8_t* dst, const int8_t* src,
             }
         }
         return;
-    }    
+    }
     if (1 == realDst) {
         for (int dz = 0; dz < dst_depth_quad; ++dz) {
             const auto weight_dz = weight + dz * weight_step_Z;
@@ -1493,7 +1493,7 @@ void _AVX_MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dstO, const int8_t* srcO,
         d1 = _mm256_cvtps_epi32(_mm256_round_ps(f1, 3));
         d0 = _mm256_add_epi32(d0, offset);
         d1 = _mm256_add_epi32(d1, offset);
-        
+
         d0 = _mm256_permute4x64_epi64(_mm256_packs_epi32(d0, d1), 0xD8);
         d0 = _mm256_min_epi16(d0, maxValue);
         d0 = _mm256_max_epi16(d0, minValue);
@@ -1532,7 +1532,8 @@ void _AVX_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const fl
         m0 = _mm256_blendv_ps(plus, minus, m0);
         f0 = _mm256_add_ps(f0, m0);
         // 3: _MM_FROUND_TO_ZERO
-        auto d0 = _mm256_cvtps_epi32(_mm256_round_ps(f0, 3));
+        auto r0 = _mm256_round_ps(f0, 3);
+        auto d0 = _mm256_cvtps_epi32(r0);
         d0 = _mm256_add_epi32(d0, offset);
         d0 = _mm256_packs_epi32(d0, _mm256_setzero_si256());
         d0 = _mm256_permute4x64_epi64(d0, 0xD8);

@@ -50,12 +50,12 @@ void _AVX_MNNConvRunForLineDepthwise(float* dst, const float* src, const float* 
 void _AVX_MNNAxByClampBroadcastUnit(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t height, const float* parameters);
 
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
-void _AVX_MNNFlashAttentionUpdateBlockOutput(float* dst, float* src, float* scale, float* normalizeScale, int depthQuad, int plane, int pack, int idx, int kvBlocks, int size, int bytes);
-#endif 
+void _AVX_MNNFlashAttentionUpdateBlockOutput(float* dst, float* src, float* scale, float* normalizeScale, int depthQuad, int plane, int pack, int idx, int kvBlocks, int size, int bytes, int seqStart);
+#endif
 }
 
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
-void _AVX_MNNFlashAttentionUpdateBlockOutput(float* dst, float* src, float* scale, float* normalizeScale, int depthQuad, int plane, int pack, int idx, int kvBlocks, int size, int bytes) {
+void _AVX_MNNFlashAttentionUpdateBlockOutput(float* dst, float* src, float* scale, float* normalizeScale, int depthQuad, int plane, int pack, int idx, int kvBlocks, int size, int bytes, int seqStart) {
     // source shape:                 [headDim/pack, seqLen, pack]
     // scale & normalizeScale shape: [seqLen]
     // dest shape:                   [headDim/pack, seqLen, pack]
@@ -63,7 +63,8 @@ void _AVX_MNNFlashAttentionUpdateBlockOutput(float* dst, float* src, float* scal
 
     if (idx > 0) {
         for (int j = 0; j < depthQuad; ++j) {
-            for (int i = 0; i < plane; ++i) {
+            int i = seqStart;
+            for (; i < plane; ++i) {
                 auto dataNew = Vec::load(src + j * stride0 + i * pack);
                 auto dataOld = Vec::load(dst + j * stride0 + i * pack);
                 auto s = Vec(scale[i]);

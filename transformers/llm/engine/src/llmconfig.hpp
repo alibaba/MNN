@@ -359,10 +359,6 @@ public:
         if (mllm) return mllm_config_.value("memory", "low");
         return config_.value("memory", "low");
     }
-
-    int kvcache_limit() const {
-        return config_.value("kvcache_limit", -1);
-    }
     // backend config end >
 
     // talker config start
@@ -452,6 +448,10 @@ public:
     }
     std::string tmp_path() const {
         return config_.value("tmp_path", "");
+    }
+
+    std::string prefix_cache_path() const {
+        return config_.value("prefix_cache_path", "prefixcache");
     }
 
     std::string system_prompt() const {

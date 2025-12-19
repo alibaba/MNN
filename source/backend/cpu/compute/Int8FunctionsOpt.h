@@ -24,13 +24,29 @@ typedef SSIZE_T ssize_t;
 #define GEMM_INT8_SRC_UNIT 16
 #ifndef MNN_USE_SSE
     #ifdef __aarch64__
-    #define GEMM_INT8_DST_XUNIT 4
+        #define GEMM_INT8_DST_XUNIT 4
     #else
-    #define GEMM_INT8_DST_XUNIT 2
-#endif
+        #define GEMM_INT8_DST_XUNIT 2
+    #endif
 #else
 #define GEMM_INT8_DST_XUNIT 4
 #endif
+
+/* CPU supports sdot */
+#define GEMM_INT8_UNIT_ARM82 8
+#define GEMM_INT8_SRC_UNIT_ARM82 4
+#define GEMM_INT8_DST_XUNIT_ARM82 12
+
+/* CPU supports i8mm */
+#define GEMM_INT8_UNIT_ARM86 8
+#define GEMM_INT8_SRC_UNIT_ARM86 8
+#define GEMM_INT8_DST_XUNIT_ARM86 10
+
+/* CPU supports sme2 */
+#define GEMM_INT8_UNIT_SME2 32
+#define GEMM_INT8_SRC_UNIT_SME2 4
+#define GEMM_INT8_DST_XUNIT_SME2 16
+#define GEMM_INT8_UNIT_SME2_128 128
 
 #ifdef __cplusplus
 extern "C" {
@@ -86,10 +102,8 @@ struct CoreInt8Functions {
     void(*Int8GemmKernelFast)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realCount);
     void(*MNNGetGemmUnit)(int* UNIT, int* SRC_UNIT, int* DST_XUNIT);
     void(*MNNPackC4Int8ForMatMul_A)(int8_t* destOrigin, int8_t const** sourceGroup, const int32_t* info, const int32_t* el);
-    void(*MNNGemmInt8AddBiasScale_Unit_FP16)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
-                                        const QuanPostTreatParameters* post, size_t realDstCount) = nullptr;
-    void(*MNNGemmInt8AddBiasScale_w4_Unit_FP16)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
-                                        const QuanPostTreatParameters* post, size_t realDstCount) = nullptr;
+    void(*MNNGemmInt8AddBiasScale_Unit_FP16)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDstCount) = nullptr;
+    void(*MNNGemmInt8AddBiasScale_w4_Unit_FP16)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDstCount) = nullptr;
     void(*Int8GemmKernel_W4)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
                                            const QuanPostTreatParameters* post, size_t realDstCount);
     // sparse

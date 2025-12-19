@@ -100,7 +100,6 @@ struct Tensor::InsideDescribe {
         int useCount = 0;
         Usage usage = NORMAL;
         std::vector<Region> regions;
-        bool overlap = false;
         halide_dimension_t dims[MNN_MAX_TENSOR_DIM];
         // TensorArray Attribute
         std::shared_ptr<TensorArrayAttr> tensorArrayAttr;
@@ -108,6 +107,7 @@ struct Tensor::InsideDescribe {
         std::shared_ptr<QuantAttr> quantAttr;
         bool applyQuant = false;
         bool isMutable = true;
+        bool overlap = false; // Only used by strideSliceWrite now
         int index = -1;
         int group = 0;
 		int channel_pack_num = 4;

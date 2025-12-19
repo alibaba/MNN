@@ -132,7 +132,7 @@ void ConvolutionTiledExecutor:: setIm2ColParameter(ConvolutionCommon::Im2ColPara
         const auto srcCountUnit = UP_DIV(input->channel(), SRC_UNIT);
         dstIm2ColParamter.kernelCountUnit = srcCountUnit * kernelCount;
         dstIm2ColParamter.ic = srcCountUnit * SRC_UNIT;
-        
+
         if (SRC_UNIT > pack) { // Carefully change it.
             dstIm2ColParamter.icup4 = ROUND_UP(input->channel(), pack);
         } else {
