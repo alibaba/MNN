@@ -24,6 +24,7 @@
 #include "sampler.hpp"
 #include "omni.hpp"
 #include "speculative_decoding/generate.hpp"
+#include "core/MNNFileUtils.h"
 
 // 0: no debug, 1: test op time, 2: print tensor info, 3: print tensor in output
 #define DEBUG_MODE 0
@@ -127,7 +128,9 @@ void Llm::setRuntimeHint(std::shared_ptr<Express::Executor::RuntimeManager> &rtg
 
     rtg->setHint(MNN::Interpreter::MEM_ALLOCATOR_TYPE, 0);
     rtg->setHint(MNN::Interpreter::QKV_QUANT_OPTIONS, mConfig->config_.value("quant_qkv", 8));
-    rtg->setHint(MNN::Interpreter::KVCACHE_SIZE_LIMIT, mConfig->kvcache_limit());
+    if (mConfig->reuse_kv() && mConfig->config_.value("quant_qkv", 8) == 10) {
+        rtg->setHint(MNN::Interpreter::QKV_QUANT_OPTIONS, 9);
+    }
     if (mConfig->use_cached_mmap()) {
         rtg->setHint(MNN::Interpreter::USE_CACHED_MMAP, 1);
     }
@@ -135,30 +138,22 @@ void Llm::setRuntimeHint(std::shared_ptr<Express::Executor::RuntimeManager> &rtg
     if (mConfig->kvcache_mmap()) {
         rtg->setExternalPath(tmpPath, MNN::Interpreter::EXTERNAL_PATH_KVCACHE_DIR);
     }
+    auto cachePath = mConfig->prefix_cache_path();
+    rtg->setExternalPath(cachePath, MNN::Interpreter::EXTERNAL_PATH_PREFIXCACHE_DIR);
     if (mConfig->use_mmap()) {
         rtg->setExternalPath(tmpPath, MNN::Interpreter::EXTERNAL_WEIGHT_DIR);
     }
     // set npu model dir
     rtg->setExternalPath(mConfig->npu_model_dir(), MNN::Interpreter::EXTERNAL_NPU_FILE_DIR);
-    auto dynamicOption = mConfig->dynamic_option();
-    if (mConfig->dynamic_option()) {
-        rtg->setHint(MNN::Interpreter::DYNAMIC_QUANT_OPTIONS, mConfig->dynamic_option());
-    }
-    if (mConfig->thread_num() > 7) { // if thread_num > 7, cpu dynamic quant use Arm86 kernels
-        rtg->setHint(MNN::Interpreter::CPU_SME2_INSTRUCTIONS, 0);
-    } else {
-        rtg->setHint(MNN::Interpreter::CPU_SME2_INSTRUCTIONS, 1);
+    rtg->setHint(MNN::Interpreter::DYNAMIC_QUANT_OPTIONS, mConfig->config_.value("dynamic_option", 0));
 
-    }
-    if (mConfig->config_.value("prefer_decode", false)) {
-        dynamicOption = dynamicOption % 8 + 8;
-        rtg->setHint(MNN::Interpreter::DYNAMIC_QUANT_OPTIONS, dynamicOption);
-    }
     rtg->setHintPtr(Interpreter::KVCACHE_INFO, mMeta.get());
     if (backend_type_convert(mConfig->backend_type()) != 0) { // not cpu
         std::string cacheFilePath = tmpPath.length() != 0 ? tmpPath : ".";
         rtg->setCache(cacheFilePath + "/mnn_cachefile.bin");
     }
+    rtg->setHint(MNN::Interpreter::CPU_SME2_NEON_DIVISION_RATIO, mConfig->config_.value("cpu_sme2_neon_division_ratio", 41));
+    rtg->setHint(MNN::Interpreter::CPU_SME_CORES, mConfig->config_.value("cpu_sme_core_num", 2));
 }
 
 void Llm::initRuntime() {
@@ -239,6 +234,26 @@ bool Llm::load() {
     // init module status
     // 1. load vocab
     mTokenizer.reset(Tokenizer::createTokenizer(mConfig->tokenizer_file()));
+    // 2. load context
+    {
+        std::ifstream contextFile(mConfig->context_file());
+        if (contextFile.is_open()) {
+            std::ostringstream contextStream;
+            contextStream << contextFile.rdbuf();
+            auto contextStr = contextStream.str();
+            // check valid json
+            rapidjson::Document contextDoc;
+            contextDoc.Parse(contextStr.c_str());
+            if (!contextDoc.HasParseError()) {
+                std::string config_json = R"({
+                    "jinja": {
+                        "context": )" + contextStr + R"(
+                    }
+                })";
+                mConfig->config_.merge(config_json.c_str());
+            }
+        }
+    }
     mDiskEmbedding.reset(new DiskEmbedding(mConfig));
     mPrompt.reset(Prompt::createPrompt(mContext, mConfig));
     mSampler.reset(Sampler::createSampler(mContext, mConfig));
@@ -716,23 +731,58 @@ std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_tokens
     if (max_tokens < 0) {
         max_tokens = mConfig->max_new_tokens();
     }
-    mContext->history_tokens.insert(mContext->history_tokens.end(), input_ids.begin(), input_ids.end()); // push to history_ids_
-    if (0 == mBlockSize || input_ids.size() <= mBlockSize) {
-        auto hidden_states = embedding(input_ids);
-        return generate(hidden_states, max_tokens);
-    }
-    int total_size = (int)input_ids.size();
-    int loop_size = UP_DIV(total_size, mBlockSize);
-    for (int i = 0; i < loop_size; i++) {
-        auto start = i * mBlockSize;
-        auto end = (i+1) * mBlockSize;
-        if (end >= total_size) {
-            end = total_size;
+
+    bool passExecute = false;
+    if(mPrefixCacheMode) {
+        mCallIndex++;
+
+        // first time execute generate function
+        if(mCallIndex == 1) {
+            passExecute = mIsPrefixFileExist;
+
+            if(!mIsPrefixFileExist) {
+                // save prefix kvcache file
+                mMeta->file_name = mPrefixCacheFileName;
+                mMeta->file_flag = KVMeta::PendingWrite; // write
+            } else {
+                // first time and cachefile exist, pass this time
+            }
+            mPrefixLength = input_ids.size();
         }
-        std::vector<int> chunk_ids(input_ids.begin() + start, input_ids.begin() + end);
-        auto input_embeds = embedding(chunk_ids);
-        generate(input_embeds, 0);
+        // second time execute generate function
+        else if(mCallIndex == 2) {
+            // second time and cachefile exist, load prefix file
+            if(mIsPrefixFileExist) {
+                mMeta->file_name = mPrefixCacheFileName;
+                mMeta->file_flag = KVMeta::PendingRead; // read
+                mMeta->seqlen_in_disk = mPrefixLength; // set_length
+            }
+        }
     }
+
+    mContext->history_tokens.insert(mContext->history_tokens.end(), input_ids.begin(), input_ids.end()); // push to history_ids_
+    if(!passExecute) {
+        if (0 == mBlockSize || input_ids.size() <= mBlockSize) {
+            auto hidden_states = embedding(input_ids);
+            return generate(hidden_states, max_tokens);
+        }
+        int total_size = (int)input_ids.size();
+        int loop_size = UP_DIV(total_size, mBlockSize);
+        for (int i = 0; i < loop_size; i++) {
+            auto start = i * mBlockSize;
+            auto end = (i+1) * mBlockSize;
+            if (end >= total_size) {
+                end = total_size;
+            }
+            std::vector<int> chunk_ids(input_ids.begin() + start, input_ids.begin() + end);
+            auto input_embeds = embedding(chunk_ids);
+            generate(input_embeds, 0);
+        }
+    } else {
+        // update states
+        updateContext((int)input_ids.size(), 0);
+    }
+
     generate(max_tokens);
     mContext->prompt_len = static_cast<int>(input_ids.size());
     return mContext->output_tokens;
@@ -770,6 +820,7 @@ std::vector<int> Llm::generate(MNN::Express::VARP input_embeds, int max_tokens) 
     }
     int seqLen = input_embeds->getInfo()->dim[mSeqLenIndex];
     mContext->prompt_len = seqLen;
+
     Timer _t;
     forwardVec(input_embeds);
     if(mGenerateParam->outputs.size() < 1) {
@@ -777,8 +828,23 @@ std::vector<int> Llm::generate(MNN::Express::VARP input_embeds, int max_tokens) 
     }
     updateContext(seqLen, 0);
     mContext->prefill_us += _t.durationInUs();
-
     MNN::Express::ExecutorScope::Current()->gc(); // after prefill
+
+    // prefix cache mode and response second time
+    if(mPrefixCacheMode && mCallIndex == 2) {
+        if(mIsPrefixFileExist) {
+            // when cachefile exist, after second time prefill, updata previous length
+            mMeta->previous += mMeta->seqlen_in_disk;
+        }
+        // recover meta status
+        mMeta->seqlen_in_disk = 0;
+        mMeta->file_name = "";
+        mMeta->file_flag = KVMeta::NoChange;
+        mMeta->layer_index = 0;
+        // recover normal mode
+        mPrefixCacheMode = false;
+    }
+
 
 #if DEBUG_MODE == 3
     {
@@ -824,6 +890,8 @@ void Llm::response(const std::string& user_content, std::ostream* os, const char
     if (mConfig->use_template()) {
         prompt = mPrompt->applyTemplate(user_content, true);
     }
+    std::cout << "user_content: " << user_content << std::endl;
+    std::cout << "prompt: " << prompt << std::endl;
     std::vector<int> input_ids = tokenizer_encode(prompt);
     response(input_ids, os, end_with, max_new_tokens);
 }
@@ -840,6 +908,7 @@ void Llm::response(const ChatMessages& chat_prompts, std::ostream* os, const cha
 Llm::Llm(std::shared_ptr<LlmConfig> config) : mConfig(config) {
     mContext.reset(new LlmContext);
     mMeta.reset(new KVMeta);
+    mMeta->layer_nums = mConfig->layer_nums();
     mGenerateParam.reset(new GenerationParams);
 }
 
@@ -887,6 +956,29 @@ int Llm::getOutputIndex(const std::string& name) const {
 }
 std::vector<Express::VARP> Llm::getOutputs() const {
     return mGenerateParam->outputs;
+}
+
+bool Llm::setPrefixCacheFile(const std::string& filename, int flag) {
+    mPrefixCacheFileName = filename;
+    mCallIndex = 0;
+    mPrefixCacheMode = true;
+
+
+    mIsPrefixFileExist = true;
+    // check kvcache, validate file existence
+    for(int i = 0; i < mConfig->layer_nums(); i++) {
+        auto k_file = MNNFilePathConcat(mConfig->prefix_cache_path(), mPrefixCacheFileName) + "_" + std::to_string(i) + "_sync.k";
+        if(!MNNFileExist(k_file.c_str())) {
+            mIsPrefixFileExist = false;
+            break;
+        }
+        auto v_file = MNNFilePathConcat(mConfig->prefix_cache_path(), mPrefixCacheFileName) + "_" + std::to_string(i) + "_sync.v";
+        if(!MNNFileExist(v_file.c_str())) {
+            mIsPrefixFileExist = false;
+            break;
+        }
+    }
+    return mIsPrefixFileExist;
 }
 
 bool Llm::reuse_kv() { return mConfig->reuse_kv(); }

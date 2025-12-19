@@ -160,7 +160,7 @@ static void _AVX512_MNNAsyQuantInfo(float* scale, float* bias, float* qscale, fl
             qscale[0] = 255.f / range;
             scale[0] = range / 255.f;
             qbias[0] = roundf(-minval * 255.f / range)- 128.f;
-            bias[0] = -qbias[0] * scale[0];
+            bias[0] = minval;
         }
         return;
     }
@@ -208,7 +208,7 @@ static void _AVX512_MNNAsyQuantInfo(float* scale, float* bias, float* qscale, fl
             _mm_storeu_ps(biasPtr, dequantBias4);
             _mm_storeu_ps(qscale + qind, quantScale4);
             _mm_storeu_ps(qbias + qind, quantBias4);
-            
+
             realDstCount -= DST_XUNIT;
             qind += DST_XUNIT;
             scalePtr += (blockNum * DST_XUNIT);
@@ -363,7 +363,7 @@ static void _AVX512_DynamicQuant(const float* src, int8_t* dst, const float* sca
                 dstPtr[1] = tmp[4 * 1];
                 dstPtr[2] = tmp[4 * 2];
                 dstPtr[3] = tmp[4 * 3];
-                
+
                 // next round
                 xcount--;
                 scalePtr += 1;
@@ -1064,8 +1064,130 @@ static void _AVX512_MNNAdjustOptimalSparseKernel(int& sparseBlockOC, MNN::CoreFu
     }
 }
 
+static void _AVX512_MNNSoftmax(float* softmaxDst, const float* softmaxSrc, float* runningMax, float* runningSum, float* updateScale, int outside, int reduceSize, int kvSeqOffset, int validOffset, int pack, bool mask) {
+    const int packUnit = 16;
+    int reduceSizeOuter = 1;
+    int reduceSizeInner = reduceSize;
+    int stride0         = packUnit;
+    if (pack > 1) {
+        reduceSizeOuter = UP_DIV(reduceSize, pack);
+        reduceSizeInner = pack;
+        stride0         = outside * reduceSizeInner;
+    }
+
+    float exprOffset[4] = {1.0f, 0.0f, 0.0f, 0.0f };
+    for (int k = 0; k < outside; ++k) {
+        exprOffset[3] = 0.f;
+        if (mask && kvSeqOffset > k + validOffset) {
+            if (updateScale){
+                updateScale[k] = 1;
+            }
+            for (int j = 0; j < reduceSizeOuter; ++j) {
+                auto destPtr = softmaxDst + j * stride0 + k * reduceSizeInner;
+                memset(destPtr, 0, reduceSizeInner * sizeof(float));
+            }
+            continue;
+        }
+
+        const int validReduceSize = mask ? ALIMIN(reduceSize, k + (validOffset + 1) - kvSeqOffset) : reduceSize;
+        const int remain = validReduceSize % packUnit;
+        const int sizeDiv = validReduceSize / packUnit;
+        const float floatLowest = std::numeric_limits<float>::lowest();
+
+        // 1. newMax
+        float oldMax = floatLowest;
+        if (runningMax) {
+            oldMax = runningMax[k];
+        }
+
+        __m512 maxVec = _mm512_set1_ps(floatLowest);
+        for (int j = 0; j < sizeDiv; ++j) {
+            auto srcPtr = softmaxSrc + j * stride0 + k * reduceSizeInner;
+            __m512 srcVec = _mm512_loadu_ps(srcPtr);
+            maxVec = _mm512_max_ps(maxVec, srcVec);
+        }
+        float newMax = _mm512_reduce_max_ps(maxVec);
+
+        if (remain > 0) {
+            auto srcPtr = softmaxSrc + sizeDiv * stride0 + k * reduceSizeInner;
+            for (int i = 0; i < remain; ++i) {
+                newMax = ALIMAX(newMax, srcPtr[i]);
+            }
+        }
+
+        const float finalMax = ALIMAX(oldMax, newMax);
+        const __m512 finalMaxVec = _mm512_set1_ps(finalMax);
+        exprOffset[2] = -finalMax;
+
+        // 2. exp(x - finalMax) and Sum
+        __m512 sumVec = _mm512_setzero_ps();
+        for (int j = 0; j < sizeDiv; ++j) {
+            auto idx = j * stride0 + k * reduceSizeInner;
+            auto srcPtr = softmaxSrc + idx;
+            auto dstPtr = softmaxDst + idx;
+
+            MNNExp(dstPtr, srcPtr, exprOffset, packUnit);
+        }
+
+        float sum = exprOffset[3];
+
+        if (remain > 0) {
+            auto idx = sizeDiv * stride0 + k * reduceSizeInner;
+            auto srcPtr = softmaxSrc + idx;
+            auto dstPtr = softmaxDst + idx;
+            for (int i = 0; i < remain; ++i) {
+                float val = expf(srcPtr[i] - finalMax);
+                sum += val;
+                dstPtr[i] = val;
+            }
+        }
+
+        // 3. Normalization or update state
+        if (runningMax != nullptr && runningSum != nullptr && updateScale != nullptr) {
+            float scaleForSum = expf(oldMax - finalMax);
+            runningSum[k] = runningSum[k] * scaleForSum + sum;
+            runningMax[k] = finalMax;
+            updateScale[k] = scaleForSum;
+        } else {
+            if (runningMax != nullptr && runningSum != nullptr) {
+                sum += runningSum[k] * expf(oldMax - finalMax);
+            }
+            float scale = 1.0f / (sum + 1e-20f);
+            __m512 scaleVec = _mm512_set1_ps(scale);
+
+            for (int j = 0; j < sizeDiv; ++j) {
+                auto pDest = softmaxDst + j * stride0 + k * reduceSizeInner;
+                __m512 data = _mm512_loadu_ps(pDest);
+                data = _mm512_mul_ps(data, scaleVec);
+                _mm512_storeu_ps(pDest, data);
+            }
+            if (remain > 0) {
+                auto pDest = softmaxDst + sizeDiv * stride0 + k * reduceSizeInner;
+                for (int i = 0; i < remain; ++i) {
+                    pDest[i] *= scale;
+                }
+            }
+        }
+
+        // 4. memset 0 for padding (逻辑不变)
+        if (pack > 1) {
+            if (validReduceSize % pack > 0) {
+                memset(softmaxDst + (UP_DIV(validReduceSize, pack) - 1) * stride0 + k * reduceSizeInner + (validReduceSize % pack), 0, (pack - (validReduceSize % pack)) * sizeof(float));
+            }
+            auto validOuter = UP_DIV(validReduceSize, pack);
+            auto allOuter = UP_DIV(reduceSize, pack);
+            for (int j = validOuter; j < allOuter; ++j) {
+                auto destPtr = softmaxDst + j * stride0 + k * reduceSizeInner;
+                memset(destPtr, 0, pack * sizeof(float));
+            }
+        } else {
+             memset(softmaxDst + k * reduceSizeInner + validReduceSize, 0, (reduceSize - validReduceSize) * sizeof(float));
+        }
+    }
+}
+
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
-void _AVX512_MNNFlashAttentionUpdateBlockOutput(float* dst, float* src, float* scale, float* normalizeScale, int depthQuad, int plane, int pack, int idx, int kvBlocks, int size, int bytes) {
+void _AVX512_MNNFlashAttentionUpdateBlockOutput(float* dst, float* src, float* scale, float* normalizeScale, int depthQuad, int plane, int pack, int idx, int kvBlocks, int size, int bytes, int seqStart) {
     // source shape:                 [headDim/pack, seqLen, pack]
     // scale & normalizeScale shape: [seqLen]
     // dest shape:                   [headDim/pack, seqLen, pack]
@@ -1073,7 +1195,8 @@ void _AVX512_MNNFlashAttentionUpdateBlockOutput(float* dst, float* src, float* s
 
     if (idx > 0) {
         for (int j = 0; j < depthQuad; ++j) {
-            for (int i = 0; i < plane; ++i) {
+            int i = seqStart;
+            for (; i < plane; ++i) {
                 auto dataNew = Vec::load(src + j * stride0 + i * pack);
                 auto dataOld = Vec::load(dst + j * stride0 + i * pack);
                 auto s = Vec(scale[i]);
@@ -1116,7 +1239,8 @@ void _AVX512_ExtraInit(void* functions) {
     coreFunction->MNNAsyQuantInfo = _AVX512_MNNAsyQuantInfo;
     coreFunction->MNNAsyQuantFunc = _AVX512_MNNAsyQuantFunc;
     coreFunction->MNNCountMaxMinValue = _AVX512_MNNCountMinMaxValue;
-    
+    coreFunction->MNNSoftmax = _AVX512_MNNSoftmax;
+
     coreFunction->MNNConvRunForLineDepthwise = _AVX512_MNNConvRunForLineDepthwise;
     coreFunction->MNNAxByClampBroadcastUnit = _AVX512_MNNAxByClampBroadcastUnit;
     coreFunction->MNNStrassenMergeCFunction = _AVX512_MNNStrassenMergeCFunction;
@@ -1134,7 +1258,7 @@ void _AVX512_ExtraInit(void* functions) {
     coreFunction->MNNGetSparseMatMulPackMode = _AVX512_MNNGetSparseMatMulPackMode;
     coreFunction->MNNAdjustOptimalSparseKernel = _AVX512_MNNAdjustOptimalSparseKernel;
 
-#ifdef MNN_SUPPORT_TRANSFORMER_FUSE 
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
     coreFunction->MNNFlashAttentionUpdateBlockOutput = _AVX512_MNNFlashAttentionUpdateBlockOutput;
 #endif
 }

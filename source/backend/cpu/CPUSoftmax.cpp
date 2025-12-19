@@ -76,7 +76,7 @@ int CPUSoftmax::_softmaxCommon(const uint8_t *srcData, uint8_t *dstData) {
             if (mTmpInput.ptr()) {
                 tempInput = (float*)(mTmpInput.ptr() + tId * outsideStride * sizeof(float));
             }
-            
+
             if (mTmpOutput.ptr()) {
                 tempOutput = (float*)(mTmpOutput.ptr() + tId * outsideStride * sizeof(float));
             }
@@ -200,7 +200,7 @@ int CPUSoftmax::_softmaxCommon(const uint8_t *srcData, uint8_t *dstData) {
             for (int v=0; v<mInside; ++v) {
                 //TODO: Fix x86 compute error and use the same function
 #ifdef MNN_USE_SSE
-                MNNSoftmax(workDst+v*mChannel, workSrc+v*mChannel, nullptr, nullptr, nullptr, 1, mChannel);
+                MNNSoftmax(workDst+v*mChannel, workSrc+v*mChannel, nullptr, nullptr, nullptr, 1, mChannel, 1, 1, 1, false);
 #else
                 ___MNNSoftmax(workDst+v*mChannel, workSrc+v*mChannel, mChannel, mulFunction);
 #endif
@@ -220,7 +220,7 @@ int CPUSoftmax::_softmaxCommon(const uint8_t *srcData, uint8_t *dstData) {
                     mInside
                 };
                 if (mLowOrInt8 == 2) {
-                    MNN_ASSERT(bytes == 2); 
+                    MNN_ASSERT(bytes == 2);
                     core->MNNFp32ToLowp((float*)tempOutput, (int16_t*)tempInput, outsideStride);
                     MNNTranspose16Bit((int16_t*)dstO, (int16_t*)(tempInput), dims);
                 } else if (mLowOrInt8 == 1) {
@@ -288,7 +288,7 @@ ErrorCode CPUSoftmax::onResize(const std::vector<Tensor *> &inputs, const std::v
         int threadNum = cpuBn->threadNumber();
         auto buf = cpuBn->getBufferAllocator();
         threadNum = ALIMIN(threadNum, outside);
-        
+
         mTmpInput = buf->alloc(threadNum * inside * channel * sizeof(float));
         if (mLowOrInt8 != 4) {
             mTmpOutput = buf->alloc(threadNum * inside * channel * sizeof(float));
@@ -350,7 +350,7 @@ public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
         return CPUSoftmax::create(op, backend);
-        
+
     }
 };
 

@@ -383,6 +383,7 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
     - dit_model: 当使用Omni模型时，dit_model的实际路径为`base_dir + dit_model`，默认为`base_dir + 'dit.mnn'`
     - bigvgan_model: 当使用Omni模型时，bigvgan_model的实际路径为`base_dir + bigvgan_model`，默认为`base_dir + 'bigvgan.mnn'`
     - spk_dict: 当使用Omni模型时，spk_dict的实际路径为`base_dir + spk_dict`，默认为`base_dir + 'spk_dict.txt'`
+    - context_file: 配置上下文信息文件路径，实际路径为`base_dir + context_file`，默认`base_dir + 'context.json'`，内容格式为json格式的上下文信息，包含：如tools，enable_thinking等信息。
 - 推理配置
   - max_new_tokens: 生成时最大token数，默认为`512`
   - reuse_kv: 多轮对话时是否复用之前对话的`kv cache`，默认为`false`.
@@ -403,12 +404,14 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
   - thread_num: CPU推理使用硬件线程数，默认为：`4`; OpenCL推理时使用`68`(不是传统意义的线程数，代表的是opencl buffer存储和tuning wide模式)
   - precision: 推理使用精度策略，默认为：`"low"`，尽量使用`fp16`
   - memory: 推理使用内存策略，默认为：`"low"`，开启运行时量化
-- 与CPU动态量化相关的配置
-  - dynamic_option: 推理时是否对feature map分blocksize/group进行量化。可选为：`0, 1, 2`，默认是`0`，含义如下：
+- 与CPU动态量化相关的配置，提升精度、性能
+  - dynamic_option: 推理时是否对feature map分blocksize/group进行量化。可选为：`0, 1, 2, 8, 9, 10`，默认是`0`，含义如下：
     - 0: feature map数据使用per channel量化
     - 1: feature map数据使用per tensor量化
     - 2: feature map数据用per block量化，blocksize等于权重量化时的blocksize，如果权重量化时没有使用per block量化，即使设置2，也不会对feature map做per block量化
-  - prefer_decode: 是否希望有更快的解码（Decode）速度。可选：`true, false`，默认`false`。注意：当prompt长度小于300时，`true`条件下的Prefill速度会显著慢于`false`条件下时的性能。当prompt长度高于300时，`true`条件下的Prefill速度和`false`条件基本持平，Decode速度大约会快20%. 如果你希望在各种情况下Prefill速度和Decode速度更加均衡，建议设置该选项为`false`.
+    - 8+n(n=0,1,2): 该选项是为了加速LLM 推理时Decode性能。但是当prompt长度小于300时，Prefill速度会显著变慢。当prompt长度高于300时，Prefill速度不会变慢。
+  - cpu_sme2_neon_division_ratio: 为了提高Arm SME后端多线程推理时性能，可根据模型、线程数定制化设置该参数。参数计算方式: Prefill阶段单个SME核和NEON核的工作量比例x:1，Decode阶段工作量比例y:1，
+                                  则参数设置为8*x+y，x和y均是不大于7的正整数。41、49和33是常见的参数设置. 可以通过观察单线程推理时，SME后端相较于NEON后端的加速比来决定该参数的取值。默认是`41`.
 - Sampler配置
   - sampler_type: 使用的sampler种类，目前支持`greedy`, `temperature`, `topK`, `topP`, `minP`, `tfs`, `typical`, `penalty`8种基本sampler，外加`mixed`(混合sampler，当选择`mixed`时，依次执行mixed_samplers中的sampler)。默认为`greedy`，但是建议使用`mixed`、`temperature`来增加输出多样性，或使用`penalty`来降低重复。
   - mixed_samplers: 当`sampler_type`为`mixed`时有效，默认为`["topK", "tfs", "typical", "topP", "min_p", "temperature"]`, 模型计算得到的logits会依次经过这些sampler采样。
@@ -473,6 +476,21 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
       "prompt_template": "<|im_start|>user\n%s<|im_end|>\n<|im_start|>assistant\n",
       "is_visual": false,
       "is_single": true
+  }
+  ```
+- `context.json`
+  ```json
+  {
+    "tools": [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_current_time",
+                "description": "获取当前时间"
+            }
+        }
+    ],
+    "enable_thinking": false
   }
   ```
 
@@ -552,6 +570,15 @@ options:
 ./llm_bench -m ./Qwen2.5-1.5B-Instruct/config.json,./Qwen2.5-0.5B-Instruct/config.json -a cpu,opencl,metal -c 1,2 -t 8,12 -p 16,32 -n 10,20 -pg 8,16 -mmp 0 -rep 4 -kv true -fp ./test_result
 ```
 
+#### 多Prompt场景下KVCache选择性复用
+rollback_demo提供了多Prompt场景下自行选择复用部分kvcache的示例代码。
+```bash
+./rollback_demo /path/to/model_dir/config.json /path/to/prompt.txt <cache_prefix_in_disk> <max_token_number>
+```
+其中，prompt.txt需要包含至少三组prompt。
+- cache_prefix_in_disk需要设置为0或1。
+- cache_prefix_in_disk 设置1表示：第一段Prompt是后续Prompt的公共前缀Prompt，第二、三段Prompt分别是基于第一段Prompt后续的文本内容。第一次启动会将前缀Prompt的KVCache缓存在磁盘文件中。第二次启动会跳过公共前缀Prompt的Prefill，直接在磁盘中加载，提升Prefill速度。。
+- cache_prefix_in_disk 设置0表示：在多段Prompt下，如何删除不需要的KVCache，仅保留关联性的KVCache示例。
 
 #### GPTQ权重
 需要使用GPTQ权重，可以在导出模型时，使用`--gptq_path PATH`来指定的路径，使用如下：

@@ -333,10 +333,10 @@ public:
                 reg.origin = write;
             }
             Tensor::InsideDescribe::Region region;
-            region.size[2] = (int)TensorUtils::getRawSize(input);
+            region.size[2] = input->elementSize();
             region.origin = input;
             outputDes->regions.insert(outputDes->regions.begin(), region);
-            outputDes->overlap = true;
+            outputDes->overlap = true; // should use 1 thread for cpu backend
         }
         return true;
     }

@@ -1,8 +1,6 @@
-import math
 import torch
 import torch.nn as nn
-import numpy as np
-from typing import Optional, List, Tuple
+from typing import Optional, Tuple
 
 from .transformers import Attention
 from utils.custom_op import FakeLinear
@@ -12,21 +10,18 @@ from .torch_utils import onnx_export
 class Mtp(torch.nn.Module):
     def __init__(self, mtp, base):
         super().__init__()
-        self.model_type = base.model_type
+        self.model_type = base.config.model_type
         self.mtp = mtp
         self.embed_ = base.embed
         self.lm_ = base.lm
+        self.rotary = base.rotary
 
-        self.config_ = base.config
+        self.config = base.config
         if not hasattr(base.config, 'head_dim'):
-            self.config_.head_dim = base.head_dim
-        self.config_.rotary = base.rotary
-        self.config_.model_type = base.model_type
-        self.config_.model_map = base.model_map
-        self.hidden_size = base.hidden_size
-        self.past_kv_shape = base.past_kv_shape
-        self.num_attention_heads = base.num_attention_heads
-        self.llm_config = base.llm_config
+            self.config.head_dim = base.head_dim
+        self.hidden_size = self.config.hidden_size
+        self.num_attention_heads = self.config.num_attention_heads
+        self.past_kv_shape = [self.config.num_hidden_layers, 2, 1, 0, self.config.num_key_value_heads, self.config.head_dim]
         self.load()
         self.unloaded_ops = {}
 
@@ -99,7 +94,7 @@ class MimoMtp(Mtp):
         self.post_attention_layernorm = getattr(self.mtp[0], 'post_attention_layernorm')
         self.mlp = getattr(self.mtp[0], 'mlp')
         self.final_layernorm = getattr(self.mtp[0], 'final_layernorm')
-        self.self_attn = Attention(self.self_attn, 0, self.config_)
+        self.self_attn = Attention(self.self_attn, 0, self.config, self.rotary, self.config.model_map)
 
     def unload_param(self):
         def build_faker(real, name):
@@ -137,7 +132,7 @@ class MimoMtp(Mtp):
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
 
-        rotary_pos_emb = self.config_.rotary(position_ids)
+        rotary_pos_emb = self.rotary(position_ids)
 
         # Self Attention
         hidden_states, present_key_value = self.self_attn(
@@ -189,7 +184,7 @@ class PoiQwenMtp(Mtp):
                 self.ori_attn = getattr(self.decode_layers[i], 'self_attn')
                 self.post_attention_layernorm.append(getattr(self.decode_layers[i], 'post_attention_layernorm'))
                 self.mlp.append(getattr(self.decode_layers[i], 'mlp'))
-                self.self_attn.append(Attention(self.ori_attn, i, self.config_))
+                self.self_attn.append(Attention(self.ori_attn, i, self.config))
 
     def unload_param(self):
         def build_faker(real, name):
@@ -221,7 +216,7 @@ class PoiQwenMtp(Mtp):
         # [1, -1, self.hidden_size]
         mtp_hidden_states = []
 
-        rotary_pos_emb = self.config_.rotary(position_ids)
+        rotary_pos_emb = self.rotary(position_ids)
         hidden_states = hidden_states.view(1, -1, self.hidden_size)
         hidden_states = hidden_states[:, 0 : input_embeds.size(0), :]
 

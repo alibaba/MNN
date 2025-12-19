@@ -36,7 +36,7 @@ void _AVX_MNNPackCUnit(float* dst, const float* src, size_t area, size_t depth, 
             auto r5 = _mm256_loadu_ps(s + 5 * srcAreaOffset);
             auto r6 = _mm256_loadu_ps(s + 6 * srcAreaOffset);
             auto r7 = _mm256_loadu_ps(s + 7 * srcAreaOffset);
-            
+
             TRANSPOSE_8x8;
 
             _mm256_storeu_ps(d + PACK_UNIT * 0, t0);
@@ -247,15 +247,15 @@ void _AVX_MNNPackCUnitTranspose(float* dst, const float* src, size_t area, size_
     }
 
 }
-void _AVX_MNNUnpackCUnitTranspose(float* dst, const float* src, size_t area, size_t depth, int* areaOffset) {
+void _AVX_MNNUnpackCUnitTranspose(float* dst, const float* src, size_t area, size_t depth, int* offset) {
     int c      = (int)depth;
     int cDiv4  = c / PACK_UNIT;
     int cAlign = cDiv4 * PACK_UNIT;
-    auto srcAreaOffset = areaOffset[0];
-    auto dstAreaOffset = areaOffset[1];
+    auto srcAreaOffset = offset[0];
+    auto dstDepthOffset = offset[1];
     for (int hi = 0; hi < area; ++hi) {
         const float* srcHeight = src + hi * PACK_UNIT;
-        float* dstHeight       = dst + hi * c;
+        float* dstHeight       = dst + hi * dstDepthOffset;
         for (int ci = 0; ci < cDiv4; ++ci) {
             _mm256_storeu_ps(dstHeight + PACK_UNIT * ci, _mm256_loadu_ps(srcHeight + PACK_UNIT * ci * srcAreaOffset));
         }
@@ -271,7 +271,7 @@ void _AVX_MNNUnpackCUnitTranspose(float* dst, const float* src, size_t area, siz
 
     for (int hi = 0; hi < area; ++hi) {
         const float* srcHeight = srcAlign + hi * PACK_UNIT;
-        float* dstHeight       = dstAlign + hi * c;
+        float* dstHeight       = dstAlign + hi * dstDepthOffset;
 
         for (int ci = 0; ci < cReamin; ++ci) {
             dstHeight[ci] = srcHeight[ci];

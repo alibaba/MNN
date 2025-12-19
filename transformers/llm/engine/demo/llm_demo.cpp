@@ -105,6 +105,7 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_
         if (prompt.substr(0, 1) == "#") {
             continue;
         }
+        
         if (max_token_number >= 0) {
             llm->response(prompt, &std::cout, nullptr, 0);
             while (!llm->stoped() && context->gen_seq_len < max_token_number) {

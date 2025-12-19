@@ -10,14 +10,14 @@ from .torch_utils import onnx_export
 class Talker(torch.nn.Module):
     def __init__(self, talker, token2wav, base):
         super().__init__()
-        self.model_type = base.model_type
+        self.model_type = base.config.model_type
         self.thinker_embed = base.embed
         self.args = base.args
         self.talker = talker.float()
         self.token2wav = Qwen2_5OmniToken2Wav(token2wav, base)
         self.config = base.config
-        self.hidden_size = base.hidden_size
-        self.llm_config = base.llm_config
+        self.hidden_size = base.config.hidden_size
+        self.llm_config = { 'has_talker': True }
         self.rope_ratio = 1.0
         self.quant_bit = 4
         if self.hidden_size <= 2048:
@@ -25,6 +25,9 @@ class Talker(torch.nn.Module):
             self.quant_bit = 8
         self.init_config()
         self.load()
+
+    def get_config(self):
+        return self.llm_config
 
     @staticmethod
     def get_talker(model_type):
@@ -36,7 +39,7 @@ class Talker(torch.nn.Module):
         return None
 
     def init_config(self):
-        self.llm_config['has_talker'] = True
+        pass
 
     def load(self):
         raise NotImplementedError
@@ -87,7 +90,7 @@ class OmniRotary(Rotary):
 class Qwen2_5OmniTalker(Talker):
     def __init__(self, talker, token2wav, base):
         super().__init__(talker, token2wav, base)
-        self.input_hidden_size = base.hidden_size
+        self.input_hidden_size = base.config.hidden_size
         self.seq_len = 0
         self.token_len = 0
         self.talker_embeds = []

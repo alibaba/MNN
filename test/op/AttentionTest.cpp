@@ -24,15 +24,24 @@ int HeadDim   = 128;
 const float diff_threshold = 0.001;
 const float diff_percent_threshold = 0.1;
 const int pastLength = 101;
-
-#define LOOP 30
+#define GENERATE_TOKENS 128
 struct KVMeta {
+    enum {
+        NoChange,
+        PendingWrite,
+        PendingRead
+    } file_operation;
     size_t block = 4096;
     size_t previous = 0;
     size_t remove = 0;
     int* reserve = nullptr;
     int n_reserve = 0;
     size_t add = 0;
+    std::string file_name = "";
+    int file_flag = NoChange;
+    int seqlen_in_disk = 0;
+    int layer_index = 0;
+    int layer_nums = 0;
     std::vector<int> reserveHost;
     void sync() {
         int revertNumber = 0;
@@ -48,7 +57,7 @@ struct KVMeta {
 };
 
 static KVMeta gMeta;
-static std::shared_ptr<Module> _makeAttentionModule() {
+static std::shared_ptr<Module> _makeAttentionModule(int quant_qkv = 8) {
     auto Q = _Input();
     auto K = _Input();
     auto V = _Input();
@@ -70,6 +79,7 @@ static std::shared_ptr<Module> _makeAttentionModule() {
     config.backendConfig = &bnConfig;
     std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
     rtmgr->setHintPtr(MNN::Interpreter::KVCACHE_INFO, &gMeta);
+    rtmgr->setHint(MNN::Interpreter::QKV_QUANT_OPTIONS, quant_qkv);
     std::shared_ptr<Module> m(Module::load({}, {}, (uint8_t*)buffer.data(), buffer.size(), rtmgr));
     return m;
 }
@@ -104,7 +114,7 @@ static VARP _computeAttentionExpr(VARP Q, VARP K, VARP V, VARP mask, KVCache cac
     if (mask->getInfo()->type.code == halide_type_int) {
         mask = (_Scalar<float>(1.0) - _Cast<float>(mask)) * _Scalar<float>(std::numeric_limits<float>::lowest());
     }
-    
+
     Q = _Reshape(Q, {batch, seqLength, kvNumHead,group, headDim});
     Q = _Transpose(Q, {0, 2, 3, 1, 4});
     K = _Reshape(K, {batch, seqLength, kvNumHead, 1, headDim});
@@ -151,7 +161,7 @@ static std::vector< std::vector< std::vector<float> > > generateRandTensor(int C
                 if (precision == 2) {
                     a[i][j][k] = ((i + j + k) % 10) * 0.002;
                 } else {
-                    a[i][j][k] = (float)rand() / (float)RAND_MAX * 10.0 * (rand() % 2 ? 1 : -1);
+                    a[i][j][k] = ((i + j + k) % 10) * 0.16 - 5.6;
                 }
             }
         }
@@ -190,7 +200,7 @@ VARP vector_to_var(std::vector< std::vector<int> > & a) {
     return var;
 }
 
-static std::vector< std::vector< std::vector<float> > > 
+static std::vector< std::vector< std::vector<float> > >
 computeAttention (
     std::vector< std::vector< std::vector<float> > > & query,
     std::vector< std::vector< std::vector<float> > > & key,
@@ -225,21 +235,13 @@ computeAttention (
                 auto diff = kv_seq_len - seq_len;
                 for (int i = 0; i < seq_len; i++) {
                     for (int j = 0; j < seq_len; j++) {
-                        if (mask[i][j] == 1) {
-                            qk[i][j+diff] *= scale;
-                        } else {
-                            qk[i][j+diff] = std::numeric_limits<float>::lowest();
-                        }
+                        qk[i][j+diff] = qk[i][j+diff] * scale + (1.f - mask[i][j]) * std::numeric_limits<float>::lowest();
                     }
                 }
             } else {
                 for (int i = 0; i < seq_len; i++) {
                     for (int j = 0; j < kv_seq_len; j++) {
-                        if (mask[i][j] == 1) {
-                            qk[i][j] *= scale;
-                        } else {
-                            qk[i][j] = std::numeric_limits<float>::lowest();
-                        }
+                        qk[i][j] = qk[i][j] * scale + (1.f - mask[i][j]) * std::numeric_limits<float>::lowest();
                     }
                 }
             }
@@ -291,7 +293,7 @@ class NaiveAttention {
         std::vector< std::vector< std::vector<float> > > onExecute (
             std::vector< std::vector< std::vector<float> > > & query,
             std::vector< std::vector< std::vector<float> > > & key,
-            std::vector< std::vector< std::vector<float> > > & value, 
+            std::vector< std::vector< std::vector<float> > > & value,
             std::vector< std::vector<int> > & mask,
             int seq_len )
         {
@@ -305,27 +307,34 @@ class NaiveAttention {
 };
 
 class AttentionTest : public MNNTestCase {
-    protected:
-        std::vector< std::vector< std::vector<float> > > query;
-        std::vector< std::vector< std::vector<float> > > key;
-        std::vector< std::vector< std::vector<float> > > value;
-        std::vector< std::vector<int> > mask;
-        std::vector< std::vector< std::vector<float> > > expected_result;
-        VARP Query, Key, Value, Mask, Output;
+protected:
+    std::vector< std::vector< std::vector<float> > > query;
+    std::vector< std::vector< std::vector<float> > > key;
+    std::vector< std::vector< std::vector<float> > > value;
+    std::vector< std::vector<int> > mask;
+    std::vector< std::vector< std::vector<float> > > expected_result;
+    VARP Query, Key, Value, Mask, Output;
+    VARP Query1, Key1, Value1, Mask1;
 public:
     AttentionTest() = default;
     virtual ~AttentionTest() = default;
-
-    void generateInput(int seq_len, int precision) {
+    void generateInput(int seq_len, int precision, bool genDecodeInput = false) {
         query = generateRandTensor(seq_len, NumHead, HeadDim, precision);
         key   = generateRandTensor(seq_len, KvNumHead, HeadDim, precision);
         value = generateRandTensor(seq_len, KvNumHead, HeadDim, precision);
         Query = vector_to_var(query);
         Key   = vector_to_var(key);
         Value = vector_to_var(value);
+        if (genDecodeInput) {
+            auto vecquery = generateRandTensor(1, NumHead, HeadDim, precision);
+            auto veckey   = generateRandTensor(1, KvNumHead, HeadDim, precision);
+            auto vecvalue = generateRandTensor(1, KvNumHead, HeadDim, precision);
+            Query1 = vector_to_var(vecquery);
+            Key1   = vector_to_var(veckey);
+            Value1 = vector_to_var(vecvalue);
+        }
     }
-
-    void generateMask(int seq_len, int kv_seq_len) {
+    void generateMask(int seq_len, int kv_seq_len, bool genDecodeInput = false) {
         mask.resize(seq_len);
         for (int i = 0; i < seq_len; i++) {
             mask[i].resize(kv_seq_len);
@@ -339,7 +348,16 @@ public:
         }
         Mask  = vector_to_var(mask);
         Mask = (_Scalar<float>(1.0) - _Cast<float>(Mask)) * _Scalar<float>(std::numeric_limits<float>::lowest());
-
+        if (genDecodeInput) {
+            std::vector<std::vector<int>> vecmask;
+            vecmask.resize(1);
+            vecmask[0].resize(gMeta.previous + 1);
+            for (int i = 0; i < gMeta.previous + 1; ++i) {
+                vecmask[0][i] = 1;
+            }
+            Mask1 = vector_to_var(vecmask);
+            Mask1 = (_Scalar<float>(1.0) - _Cast<float>(Mask1)) * _Scalar<float>(std::numeric_limits<float>::lowest());
+        }
     }
 
     bool compareResult(int seq_len) {
@@ -360,7 +378,7 @@ public:
         Output->unMap();
         return true;
     }
-    
+
     virtual bool run(int precision) {
         srand(2024);
         // unit test 1
@@ -437,7 +455,7 @@ public:
     }
 };
 
-class SpeedAttentionTest : public MNNTestCase {
+class SpeedAttentionTest : public AttentionTest {
     protected:
         std::vector< std::vector< std::vector<float> > > query;
         std::vector< std::vector< std::vector<float> > > key;
@@ -448,51 +466,42 @@ class SpeedAttentionTest : public MNNTestCase {
 public:
 SpeedAttentionTest() = default;
     virtual ~SpeedAttentionTest() = default;
-    
+
     virtual bool run(int precision) {
-        srand(2024);
-        int seq_len[] = {200, 400, 800, 1000, 2000};
-        // unit test 1
-        for (int n = 0; n < 5; ++n) {
-            auto rt = ExecutorScope::Current()->getRuntime();
-            MNN::KVMeta meta;
-            for (auto& iter : rt.first) {
-                iter.second->pMeta = &meta;
-            }
-            std::shared_ptr<NaiveAttention> naiveAttention(new NaiveAttention);
-            std::shared_ptr<MNN::OpT> attention(new MNN::OpT);
-            attention->type = MNN::OpType_Attention;
-            attention->main.type = MNN::OpParameter_AttentionParam;
-            attention->main.value = new MNN::AttentionParamT;
-            attention->main.AsAttentionParam()->kv_cache = true;
-            meta.add = seq_len[n];
-            VARP Query = _Input({1, seq_len[n], NumHead, HeadDim}, NCHW, halide_type_of<float>());
-            VARP Key = _Input({1, seq_len[n], KvNumHead, HeadDim}, NCHW, halide_type_of<float>());
-            VARP Value = _Input({1, seq_len[n], KvNumHead, HeadDim}, NCHW, halide_type_of<float>());
-            VARP Mask = _Input({1, 1, seq_len[n], seq_len[n]}, NCHW, halide_type_of<float>());
-            auto Output = Variable::create(Expr::create(attention.get(), {Query, Key, Value, Mask}));
-            {
-                Query.fix(VARP::INPUT);
-                Key.fix(VARP::INPUT);
-                Value.fix(VARP::INPUT);
-                Mask.fix(VARP::INPUT);
-                {
-                    Query->writeMap<float>();
-                    Key->writeMap<float>();
-                    Value->writeMap<float>();
-                    Mask->writeMap<float>();
-                    Output->readMap<float>();
+        std::vector<int> seqs = {4096};
+        std::shared_ptr<NaiveAttention> naiveAttention(new NaiveAttention);
+        std::shared_ptr<MNN::OpT> attention(new MNN::OpT);
+        attention->type = MNN::OpType_Attention;
+        attention->main.type = MNN::OpParameter_AttentionParam;
+        attention->main.value = new MNN::AttentionParamT;
+        attention->main.AsAttentionParam()->kv_cache = true;
+        /* 3 attention module */
+        std::vector<int> quantQKV = {8, 9, 10};
+        std::vector<std::string> testNames = {"float qkv", "quant qk", "quant qkv"};
+        for (int n = 0; n < seqs.size(); ++n) {
+            int seq_len = seqs[n];
+            MNN_PRINT(">>> seq_len=%d, decode_len=%d\n", seq_len, GENERATE_TOKENS);
+            generateInput(seqs[n], precision, true);
+            generateMask(seqs[n], seq_len, true);
+            for (int m = 0; m < testNames.size(); ++m) {
+                gMeta.previous = 0;
+                gMeta.add = seq_len;
+                auto _module = _makeAttentionModule(quantQKV[m]);
+                MNN::Timer t1;
+                for (int x = 0; x < 5; ++x) {
+                    Output = _module->onForward({Query, Key, Value, Mask})[0];
                 }
-                MNN::Timer _t;
-                for (int i = 0; i < LOOP; ++i) {
-                    Query->writeMap<float>();
-                    Key->writeMap<float>();
-                    Value->writeMap<float>();
-                    Mask->writeMap<float>();
-                    Output->readMap<float>();
+                auto time = (float)t1.durationInUs() / 1000.0f / 5.f;
+                MNN_PRINT("%s: prefill cost = %.2f\n", testNames[m].c_str(), time);
+                gMeta.sync();
+                MNN::Timer t2;
+                for (int x = 0; x < GENERATE_TOKENS; ++x) {
+                    gMeta.add = 1;
+                    auto output2 = _module->onForward({Query1, Key1, Value1, Mask1})[0];
+                    gMeta.sync();
                 }
-                auto time = (float)_t.durationInUs() / 1000.0f;
-                MNN_PRINT("seq_len = %d, avg time = %f\n", seq_len[n], time / LOOP);
+                time = (float)t2.durationInUs() / 1000.0f;
+                MNN_PRINT("%s: decode cost = %f\n", testNames[m].c_str(), time);
             }
         }
         return true;

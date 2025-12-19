@@ -13,7 +13,6 @@
 #include "shape/SizeComputer.hpp"
 #include "core/OpCommonUtils.hpp"
 #include "core/Schedule.hpp"
-#include "MNN_generated.h"
 #include "rapidjson/document.h"
 #include <rapidjson/prettywriter.h>
 

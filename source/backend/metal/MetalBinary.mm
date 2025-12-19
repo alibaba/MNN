@@ -90,7 +90,7 @@ static const char* gBinaryTemplate = R"metal(
 #include <metal_stdlib>
 #include <simd/simd.h>
 using namespace metal;
-kernel void main0(const device T0 *in0 [[buffer(0)]],
+kernel void binary(const device T0 *in0 [[buffer(0)]],
     const device T1 *in1 [[buffer(1)]], device T2 *out [[buffer(2)]], constant int4& s [[buffer(3)]], uint gid [[thread_position_in_grid]]) {
     if ((int)gid >= s.z) return;
     auto V0 = in0[s.x * int(gid)];
@@ -132,7 +132,7 @@ public:
                 @"T2" : T2,
                 @"CUSTOM" : custom,
             };
-            pipeline = mtbn->makeComputePipelineWithSourceOption(gBinaryTemplate, "main0", compileOptions);
+            pipeline = mtbn->makeComputePipelineWithSourceOption(gBinaryTemplate, "binary", compileOptions);
             mtbn->runtime()->insertPipeline(keys, pipeline);
         }
         if (nil == pipeline) {

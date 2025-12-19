@@ -11,6 +11,10 @@
 #import <MNN/MNNSharedContext.h>
 #define METAL_CONST_BUFFER_LIMIT 128
 #define METAL_SEPERATE_MAX_COUNT 2
+// overload of MTLGPUFamilyMetal3/MTLGPUFamilyMetal4 (not available in some environments)
+#define MTLGPUFamilyMetal3_MNN 5001
+#define MTLGPUFamilyMetal4_MNN 5002
+
 #if MNN_METAL_ENABLED
 #include <mutex>
 #import "backend/metal/MNNMetalContext.h"
@@ -72,14 +76,13 @@ void MetalBackend::addCreator(OpType t, Creator *c) {
     map->insert(std::make_pair(t, c));
 }
 
-MetalBackend::MetalBackend(std::shared_ptr<EagerBufferAllocator> staticMem, const MetalRuntime* runtime, bool usefp16AsFp32, BackendConfig::MemoryMode mode) : Backend(MNN_FORWARD_METAL),
+MetalBackend::MetalBackend(const MetalRuntime* runtime, bool usefp16AsFp32, BackendConfig::MemoryMode mode) : Backend(MNN_FORWARD_METAL),
     mEmptyMem(nil)
     {
     mRuntime = runtime;
     auto ctx = (__bridge MNNMetalContext *)runtime->context();
     mBufferPool.reset(runtime->createDynamicAllocator(0, false));
     mCurrentAllocator = mBufferPool.get();
-    mStaticBufferPool = staticMem;
     mUseFloatAsFp16 = usefp16AsFp32;
     mMemoryMode = mode;
     mIsIphone = ctx.isIphone;
@@ -182,8 +185,8 @@ Backend::MemObj* MetalBackend::onAcquire(const Tensor *_tensor, StorageType stor
     BufferAllocator* allocator = nullptr;
     switch (storageType) {
         case Backend::STATIC: {
-            buffer = mStaticBufferPool->alloc(size, false);
-            allocator = mStaticBufferPool.get();
+            buffer = mRuntime->mStaticAllocator->alloc(size, false);
+            allocator = mRuntime->mStaticAllocator.get();
         } break;
         case Backend::DYNAMIC: {
             buffer = mCurrentAllocator->alloc(size, false);
@@ -812,7 +815,9 @@ void MetalBackend::setMem(const MemChunk& chunk, id<MTLComputeCommandEncoder> en
 uint8_t* MetalBackend::getMemPtr(const MemChunk& chunk) {
     return (uint8_t*)((MetalRuntimeAllocator::MetalBufferAlloc *)chunk.first)->getBuffer().contents + chunk.second;
 }
-
+void MetalBackend::setBuffer(id<MTLBuffer> buffer, int offset, id<MTLComputeCommandEncoder> encoder, int index) {
+    [encoder setBuffer:buffer offset:offset atIndex:index];
+}
 std::pair<id<MTLBuffer>, int> MetalBackend::getBuffer(const MNN::Tensor* tensor) {
     return std::make_pair(((MetalRuntimeAllocator::MetalBufferAlloc *)tensor->deviceId())->getBuffer(), TensorUtils::getDescribe(tensor)->extra.offset);
 }
@@ -1002,8 +1007,23 @@ MetalRuntime::MetalRuntime(void* context) {
     auto ctx = (__bridge MNNMetalContext *)mContext;
     std::shared_ptr<EagerBufferAllocator::Allocator> allocator(new MetalRuntimeAllocator([ctx device]));
     mSimdGroupReduce = [[ctx device] supportsFamily:MTLGPUFamilyApple7];
-    mSimdGroupReduce |= [[ctx device] supportsFamily:MTLGPUFamilyMetal3];
+    mSimdGroupReduce |= [[ctx device] supportsFamily:(MTLGPUFamily)MTLGPUFamilyMetal3_MNN];
     mSimdGroupMatrix = [[ctx device] supportsFamily:MTLGPUFamilyApple7];
+    // Metal4 Support M1/A14 and later chips
+    mTensorOps = [[ctx device] supportsFamily:(MTLGPUFamily)MTLGPUFamilyMetal4_MNN];
+
+    // AI TensorCore device support from M5/A19
+    bool noAICoreDevice = [[[ctx device] name] containsString:@"M1"] || \
+                        [[[ctx device] name] containsString:@"M2"] || \
+                        [[[ctx device] name] containsString:@"M3"] || \
+                        [[[ctx device] name] containsString:@"M4"] || \
+                        [[[ctx device] name] containsString:@"A14"] || \
+                        [[[ctx device] name] containsString:@"A15"] || \
+                        [[[ctx device] name] containsString:@"A16"] || \
+                        [[[ctx device] name] containsString:@"A17"] || \
+                        [[[ctx device] name] containsString:@"A18"];
+    mTensorOps = mTensorOps && !noAICoreDevice;
+//    MNN_PRINT("Metal device name %s, open tensor: %d\n\n", [[[ctx device] name] UTF8String], mTensorOps);
     mStaticAllocator.reset(new EagerBufferAllocator(allocator));
     mDynamic.resize(METAL_SEPERATE_MAX_COUNT);
     for (auto& buf : mDynamic) {
@@ -1200,6 +1220,7 @@ public:
         auto mem = mOrigin->onAlloc(size, align);
         MNN_ASSERT(mem.second == 0);
         id<MTLBuffer> buffer = [mDevice newBufferWithBytesNoCopy:mem.first length:size options:MTLResourceStorageModeShared  deallocator:nil];
+
         auto wrap = new MetalRuntimeAllocator::MetalBufferAlloc(buffer);
         return MemChunk((void *)wrap, 0);
     }
@@ -1236,7 +1257,7 @@ Backend* MetalRuntime::onCreate(const BackendConfig* config, Backend* origin) co
         memory = config->memory;
     }
     bool useFp16AsFp32 = precision != BackendConfig::Precision_High;
-    auto backend = new MetalBackend(mStaticAllocator, this, useFp16AsFp32, memory);
+    auto backend = new MetalBackend(this, useFp16AsFp32, memory);
     backend->setMetaPtr(pMeta);
     return backend;
 }

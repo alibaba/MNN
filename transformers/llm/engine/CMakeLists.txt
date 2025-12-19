@@ -1,5 +1,7 @@
 option(BUILD_MLS "Build PC Commandline." OFF)
 option(LLM_USE_MINJA "Use minja to apply template" ON)
+option(MNN_LLM_BUILD_DEMO "Build LLM demo" ON)
+option(LLM_SUPPORT_HTTP_RESOURCE "Support HTTP resource download" ON)
 
 set(LLM_DEPS ${MNN_DEPS})
 if (MNN_BUILD_OPENCV)
@@ -53,8 +55,11 @@ if (MNN_BUILD_AUDIO)
     add_definitions(-DLLM_SUPPORT_AUDIO)
 endif()
 
-# Disable exceptions in httplib since MNN is compiled with -fno-exceptions
-target_compile_definitions(llm PRIVATE CPPHTTPLIB_NO_EXCEPTIONS)
+if (LLM_SUPPORT_HTTP_RESOURCE)
+    target_compile_definitions(llm PRIVATE LLM_SUPPORT_HTTP_RESOURCE)
+    # Disable exceptions in httplib since MNN is compiled with -fno-exceptions
+    target_compile_definitions(llm PRIVATE CPPHTTPLIB_NO_EXCEPTIONS)
+endif()
 
 IF(CMAKE_SYSTEM_NAME MATCHES "^Android" AND NOT MNN_BUILD_FOR_ANDROID_COMMAND)
 IF(NOT NATIVE_INCLUDE_OUTPUT)
@@ -71,15 +76,17 @@ INSTALL(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/include/ DESTINATION include FILES_M
 ENDIF()
 
 
-add_executable(llm_demo ${CMAKE_CURRENT_LIST_DIR}/demo/llm_demo.cpp)
-add_executable(embedding_demo ${CMAKE_CURRENT_LIST_DIR}/demo/embedding_demo.cpp)
-add_executable(reranker_demo ${CMAKE_CURRENT_LIST_DIR}/demo/reranker_demo.cpp)
-add_executable(rollback_demo ${CMAKE_CURRENT_LIST_DIR}/demo/rollback_demo.cpp)
-include(${CMAKE_CURRENT_LIST_DIR}/tools/CMakeLists.txt)
-target_link_libraries(llm_demo ${LLM_DEPS})
-target_link_libraries(embedding_demo ${LLM_DEPS})
-target_link_libraries(reranker_demo ${LLM_DEPS})
-target_link_libraries(rollback_demo ${LLM_DEPS})
+if(MNN_LLM_BUILD_DEMO)
+    add_executable(llm_demo ${CMAKE_CURRENT_LIST_DIR}/demo/llm_demo.cpp)
+    add_executable(embedding_demo ${CMAKE_CURRENT_LIST_DIR}/demo/embedding_demo.cpp)
+    add_executable(reranker_demo ${CMAKE_CURRENT_LIST_DIR}/demo/reranker_demo.cpp)
+    add_executable(rollback_demo ${CMAKE_CURRENT_LIST_DIR}/demo/rollback_demo.cpp)
+    include(${CMAKE_CURRENT_LIST_DIR}/tools/CMakeLists.txt)
+    target_link_libraries(llm_demo ${LLM_DEPS})
+    target_link_libraries(embedding_demo ${LLM_DEPS})
+    target_link_libraries(reranker_demo ${LLM_DEPS})
+    target_link_libraries(rollback_demo ${LLM_DEPS})
+endif()
 
 if (BUILD_MLS)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum macOS version" FORCE)

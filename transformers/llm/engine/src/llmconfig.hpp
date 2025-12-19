@@ -315,6 +315,10 @@ public:
     std::string audio_model() const {
         return base_dir_ + config_.value("audio_model", "audio.mnn");
     }
+
+    std::string context_file() const {
+        return base_dir_ + config_.value("context_file", "context.json");
+    }
     // model file config end >
 
     // < generate config start
@@ -358,10 +362,6 @@ public:
     std::string memory(bool mllm = false) const {
         if (mllm) return mllm_config_.value("memory", "low");
         return config_.value("memory", "low");
-    }
-
-    int kvcache_limit() const {
-        return config_.value("kvcache_limit", -1);
     }
     // backend config end >
 
@@ -452,6 +452,10 @@ public:
     }
     std::string tmp_path() const {
         return config_.value("tmp_path", "");
+    }
+
+    std::string prefix_cache_path() const {
+        return config_.value("prefix_cache_path", "prefixcache");
     }
 
     std::string system_prompt() const {
