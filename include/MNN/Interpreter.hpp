@@ -226,11 +226,14 @@ public:
         // Default is 50
         CPU_LITTLECORE_DECREASE_RATE = 6,
 
+        // qkvQuantOption % 8:
         // 0: Do not quantize
-        // 1: Only quantize key, use int8 asymmetric quantization 
-        // 2: Only quantize value, use fp8 quantization
-        // 3: quantize both key and value
-        // 4: quantize query, key and value, and use gemm int8 kernel to compute K*V
+        // 1: Q,K: Int8, V: Float
+        // 2: Q,K,V: Int8
+
+        // qkvQuantOption / 8:
+        // 0: don't use flash attention
+        // 1: use flash attention
         QKV_QUANT_OPTIONS = 7,
 
         // size limit of kvcache in memory (for a single layer)
@@ -255,7 +258,13 @@ public:
         CPU_SME2_INSTRUCTIONS = 15,
 
         // Enable KleidiAI
-        CPU_ENABLE_KLEIDIAI = 16
+        CPU_ENABLE_KLEIDIAI = 16,
+
+        // Set CPU SME2 NEON division ratio, default is 41
+        CPU_SME2_NEON_DIVISION_RATIO = 17,
+
+        // Set SME cores, default is 2, if supports sme
+        CPU_SME_CORES = 18
     };
 
     enum ExternalPathType {
@@ -271,6 +280,9 @@ public:
         // Path of the NPU Model directory
         EXTERNAL_NPU_FILE_DIR = 3,
 
+        // Path of the kvcache directory
+        EXTERNAL_PATH_PREFIXCACHE_DIR = 4,
+        
         // Other types ...
     };
 

@@ -63,6 +63,7 @@
   - `llm_demo` 大语言模型推理示例程序
   - `diffusion_demo` 扩散模型示例程序
   - `llm_bench` 大语言模型测评工具
+  - `rollback_demo` 大语言模型kvcache回调示例工具
   - `quantize_llm` 大语言模型feature map量化工具
 ## 测试工具
 - 相关编译选项

@@ -381,3 +381,6 @@ apps/mnncli/model_market_json_data.inc
 _deps
 #aicoding
 .cursor
+
+# llm model
+transformers/llm/export/model/

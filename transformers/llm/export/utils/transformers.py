@@ -28,13 +28,14 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
 class Attention(torch.nn.Module):
-    def __init__(self, attn, layer_id, config):
+    def __init__(self, attn, layer_id, config, rotary, mapper):
         super().__init__()
         self.export_fused_attn = False
         if config is None: return
         self.config = config
         self.fused_attn = FusedAttention(config.hidden_size, f'/layers.{layer_id}/self_attn/FusedAttention')
         self.layer_id = layer_id
+        self.rotary = rotary
         self.hidden_size = config.hidden_size
         self.head_dim = config.head_dim
         if isinstance(config.num_attention_heads, list):
@@ -45,9 +46,8 @@ class Attention(torch.nn.Module):
             self.num_heads = config.num_attention_heads
             self.num_key_value_heads = config.num_key_value_heads
         self.num_key_value_groups = self.num_heads // self.num_key_value_heads
-        self.rotary = config.rotary
 
-        ModelMapper.do_map(self, attn, config.model_map['attention'])
+        ModelMapper.do_map(self, attn, mapper['attention'])
 
         if hasattr(self, 'qkv_proj') and self.qkv_proj is not None:
             # split qkv linear to q, k, v
@@ -315,7 +315,7 @@ class Rotary(torch.nn.Module):
         if self.theta_sections is not None:
             return self.mrope_forward(position_ids)
         position_ids = position_ids.float().reshape(-1, 1)
-        idx_theta = position_ids * self.theta
+        idx_theta = position_ids * self.theta.to(position_ids.device)
         rotary_pos_emb = torch.stack([torch.cos(idx_theta), torch.sin(idx_theta)])
         if self.model_type == 'ernie4_5':
             rotary_pos_emb = torch.stack((rotary_pos_emb, rotary_pos_emb), dim=-1)
@@ -441,10 +441,10 @@ class Qwen3Expert(torch.nn.Module):
         return out
 
 class Mlp(torch.nn.Module):
-    def __init__(self, mlp, config, layer_id):
+    def __init__(self, mlp, mapper, layer_id):
         super().__init__()
         self.layer_id = layer_id
-        ModelMapper.do_map(self, mlp, config.model_map['mlp'])
+        ModelMapper.do_map(self, mlp, mapper['mlp'])
         self.is_moe = hasattr(self, 'experts')
         self.export_moe = False
         self.custom_moe = MoE(self.num_experts, self.top_k, layer_id)
@@ -571,18 +571,16 @@ class Mlp(torch.nn.Module):
         return final_hidden_states
 
 class Decoder(torch.nn.Module):
-    def __init__(self, decoder, layer_id, config):
+    def __init__(self, decoder, layer_id, config, rotary=None, mapper=None):
         super().__init__()
-        self.cross_decoder = False
-        ModelMapper.do_map(self, decoder, config.model_map['decoder'])
-        if 'mlp' in config.model_map:
-            self.mlp = Mlp(self.mlp, config, layer_id)
-        # mllama has cross_attn
-        if hasattr(self, 'cross_attn') and self.cross_attn is not None:
-            self.cross_decoder = True
-            self.self_attn = Attention(self.cross_attn, layer_id, config)
-        else:
-            self.self_attn = Attention(self.self_attn, layer_id, config)
+        if rotary is None:
+            rotary = config.rotary
+        if mapper is None:
+            mapper = config.model_map
+        ModelMapper.do_map(self, decoder, mapper['decoder'])
+        if 'mlp' in mapper:
+            self.mlp = Mlp(self.mlp, mapper, layer_id)
+        self.self_attn = Attention(self.self_attn, layer_id, config, rotary, mapper)
         self.hidden_size = config.hidden_size
         if hasattr(config, 'num_hidden_layers'):
             # minicpm

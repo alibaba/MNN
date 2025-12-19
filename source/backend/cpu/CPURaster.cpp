@@ -687,11 +687,17 @@ ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &____inputs, const st
     for (auto& iter : mTempInput) {
         tensorConvert(iter.first, iter.second, (int)bytes);
     }
-    if (mHasReduce || TensorUtils::getDescribe(output)->overlap) {
+    if (mHasReduce) {
         // Don't support reduce with multi thread now
         threadNum = 1;
     }
     if (!mUseThreads) {
+        threadNum = 1;
+    }
+    
+    // StrideSliceWrite should not use multi threads
+    auto outputDescribe = TensorUtils::getDescribe(output);
+    if (outputDescribe->overlap) {
         threadNum = 1;
     }
 

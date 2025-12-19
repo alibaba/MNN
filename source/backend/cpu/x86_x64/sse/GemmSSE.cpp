@@ -71,7 +71,7 @@ void _SSE_MNNPackedMatMulRemain_int8(float* C, const float* A, const float* B, s
 #ifdef MNN_LOW_MEMORY
 // Dynamic quant
 void _SSE_MNNAbsMaxFP32(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack) {
-    size_t srcStep = realSize * pack; 
+    size_t srcStep = realSize * pack;
     __m128 mask = _mm_set1_ps(-0.0f);
     if (pack == 4) { // input c4
         float tmp[4];
@@ -551,7 +551,7 @@ void _SSE_MNNAsyQuantInfo(float* scale, float* bias, float* qscale, float* qbias
             qscale[0] = 255.f / range;
             scale[0] = range / 255.f;
             qbias[0] = roundf(-minval * 255.f / range)- 128.f;
-            bias[0] = -qbias[0] * scale[0];
+            bias[0] = minval;
         }
         return;
     }
@@ -599,7 +599,7 @@ void _SSE_MNNAsyQuantInfo(float* scale, float* bias, float* qscale, float* qbias
             _mm_storeu_ps(biasPtr, dequantBias4);
             _mm_storeu_ps(qscale + qind, quantScale4);
             _mm_storeu_ps(qbias + qind, quantBias4);
-            
+
             realDstCount -= DST_XUNIT;
             qind += DST_XUNIT;
             scalePtr += (blockNum * DST_XUNIT);

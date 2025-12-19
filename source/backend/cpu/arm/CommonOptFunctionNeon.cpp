@@ -8,6 +8,317 @@ extern "C" {
 void MNNTranspose32Bit4x4(int32_t* dstO, const int32_t* srcO, int32_t* dim);
 void MNNTranspose16Bit8x8(int16_t* dstO, const int16_t* srcO, int32_t* dim);
 }
+
+static inline float vmaxvq_f32_compat(float32x4_t v) {
+    #if defined(__aarch64__)
+        return vmaxvq_f32(v);
+    #else
+        float32x2_t p = vpmax_f32(vget_low_f32(v), vget_high_f32(v));
+        p = vpmax_f32(p, p);
+        return vget_lane_f32(p, 0);
+    #endif
+    }
+
+    static inline float vminvq_f32_compat(float32x4_t v) {
+    #if defined(__aarch64__)
+        return vminvq_f32(v);
+    #else
+        float32x2_t step1 = vpmin_f32(vget_low_f32(v), vget_high_f32(v));
+        step1 = vpmin_f32(step1, step1);
+        return vget_lane_f32(step1, 0);
+    #endif
+    }
+
+    static inline float vaddvq_f32_compat(float32x4_t v) {
+    #if defined(__aarch64__)
+        return vaddvq_f32(v);
+    #else
+        float32x2_t p = vpadd_f32(vget_low_f32(v), vget_high_f32(v));
+        p = vpadd_f32(p, p);
+        return vget_lane_f32(p, 0);
+    #endif
+    }
+
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+#ifdef __aarch64__
+void MNNQuantAttentionKey(int8_t* dst, const float* source, float* sumKeyPtr, float* maxKeyPtr, int32_t* params) {
+    int32_t kvNumHead = params[0];
+    int32_t seqLen = params[1];
+    int32_t headDim = params[2];
+    int32_t blockNum = params[3];
+    int32_t eP = params[4];
+    int32_t lP = params[5];
+    int32_t hP = params[6];
+    int32_t pastLength = params[7];
+    int32_t kvHeadIdx = params[8];
+
+    auto blockHeadDim = UP_DIV(headDim, blockNum);
+    auto weightStride1 = ROUND_UP(blockHeadDim, lP) * hP;
+    auto weightStride2 = lP * hP;
+    auto packedWeightStride1 = weightStride1 + 2 * 4 * hP;
+
+    int8_t tempBuffer[8];
+
+    if (seqLen > 1) {
+        // get max
+        for (int s = 0; s < seqLen; ++s) {
+            const float* keySrc = source + s * kvNumHead * headDim + kvHeadIdx * headDim;
+            int d = 0;
+            for (; d <= headDim - 8; d += 8) {
+                float32x4_t max_vec0 = vld1q_f32(maxKeyPtr + d);
+                float32x4_t max_vec1 = vld1q_f32(maxKeyPtr + d + 4);
+                float32x4_t src_vec0 = vld1q_f32(keySrc + d);
+                float32x4_t src_vec1 = vld1q_f32(keySrc + d + 4);
+                max_vec0 = vmaxq_f32(max_vec0, src_vec0);
+                max_vec1 = vmaxq_f32(max_vec1, src_vec1);
+                vst1q_f32(maxKeyPtr + d, max_vec0);
+                vst1q_f32(maxKeyPtr + d + 4, max_vec1);
+            }
+            for (; d <= headDim - 4; d += 4) {
+                float32x4_t max_vec = vld1q_f32(maxKeyPtr + d);
+                float32x4_t src_vec = vld1q_f32(keySrc + d);
+                max_vec = vmaxq_f32(max_vec, src_vec);
+                vst1q_f32(maxKeyPtr + d, max_vec);
+            }
+            for (; d < headDim; ++d) {
+                maxKeyPtr[d] = ALIMAX(maxKeyPtr[d], keySrc[d]);
+            }
+        }
+    }
+
+    for (int s = 0; s < seqLen; s++) {
+        const float* keySrc = source + s * kvNumHead * headDim + kvHeadIdx * headDim;
+
+        float32x4_t min_vec = vdupq_n_f32(keySrc[0] - maxKeyPtr[0]);
+        float32x4_t max_vec = vdupq_n_f32(keySrc[0] - maxKeyPtr[0]);
+
+        int d = 0;
+        for (; d <= headDim - 4; d += 4) {
+            float32x4_t src_vec = vld1q_f32(keySrc + d);
+            float32x4_t max_key_vec = vld1q_f32(maxKeyPtr + d);
+            float32x4_t keydata_vec = vsubq_f32(src_vec, max_key_vec);
+
+            min_vec = vminq_f32(min_vec, keydata_vec);
+            max_vec = vmaxq_f32(max_vec, keydata_vec);
+        }
+        // Reduction
+        float minKey = vminvq_f32_compat(min_vec);
+        float maxKey = vmaxvq_f32_compat(max_vec);
+
+        // remain headDim
+        for (; d < headDim; ++d) {
+            auto keydata = keySrc[d] - maxKeyPtr[d];
+            minKey = ALIMIN(minKey, keydata);
+            maxKey = ALIMAX(maxKey, keydata);
+        }
+
+        int outIndex = (pastLength + s) / hP;
+        int inIndex  = (pastLength + s) % hP;
+
+        float range = maxKey - minKey;
+        float quantScaleVal = 0;
+        float biasVal = minKey + 128.0f * (range) / 255.0f;
+        if (range <= 1e-6f) {
+            quantScaleVal = 0.0f;
+        } else {
+            quantScaleVal = 255.0f / range;
+        }
+
+        for (int k = 0; k < blockNum; ++k) {
+            int8_t* weightDstBase = dst + outIndex * blockNum * packedWeightStride1 + k * packedWeightStride1;
+            float* scaleDst = (float*)(weightDstBase + weightStride1);
+            float* biasDst = scaleDst + hP;
+
+            scaleDst[inIndex] = range / 255.f;
+            biasDst[inIndex] = biasVal;
+
+            float32x4_t scaleVec = vdupq_n_f32(quantScaleVal);
+            float32x4_t negBiasVec = vdupq_n_f32(-minKey);
+            float32x4_t neg128Vec = vdupq_n_f32(-128.0f);
+
+            const float* currentKeyBlock = keySrc + k * blockHeadDim;
+            const float* currentMaxBlock = maxKeyPtr + k * blockHeadDim;
+
+            int32x4_t sumInt32_0 = vdupq_n_s32(0);
+            int32x4_t sumInt32_1 = vdupq_n_s32(0);
+            int headDimIdx = 0;
+            for (; headDimIdx <= blockHeadDim - 8; headDimIdx += 8) {
+                float32x4_t srcVec0 = vld1q_f32(currentKeyBlock + headDimIdx);
+                float32x4_t srcVec1 = vld1q_f32(currentKeyBlock + headDimIdx + 4);
+                float32x4_t maxVec0 = vld1q_f32(currentMaxBlock + headDimIdx);
+                float32x4_t maxVec1 = vld1q_f32(currentMaxBlock + headDimIdx + 4);
+
+                float32x4_t keyData0 = vsubq_f32(srcVec0, maxVec0);
+                float32x4_t keyData1 = vsubq_f32(srcVec1, maxVec1);
+
+                keyData0 = vaddq_f32(keyData0, negBiasVec);
+                keyData1 = vaddq_f32(keyData1, negBiasVec);
+
+                keyData0 = vmulq_f32(keyData0, scaleVec);
+                keyData1 = vmulq_f32(keyData1, scaleVec);
+
+                keyData0 = vaddq_f32(keyData0, neg128Vec);
+                keyData1 = vaddq_f32(keyData1, neg128Vec);
+
+                int32x4_t s32_0 = vcvtaq_s32_f32(keyData0);
+                int32x4_t s32_1 = vcvtaq_s32_f32(keyData1);
+
+                sumInt32_0 = vaddq_s32(sumInt32_0, s32_0);
+                sumInt32_1 = vaddq_s32(sumInt32_1, s32_1);
+
+                int16x4_t s16_0 = vmovn_s32(s32_0);
+                int16x4_t s16_1 = vmovn_s32(s32_1);
+
+                int16x8_t s16Combined = vcombine_s16(s16_0, s16_1);
+
+                int8x8_t s8Vec = vqmovn_s16(s16Combined);
+
+                if (lP == 8) {
+                    int i = headDimIdx / lP;
+                    int8_t* dstPtr = weightDstBase + i * weightStride2 + inIndex * lP;
+                    vst1_s8(dstPtr, s8Vec);
+                } else if (lP == 4) {
+                    vst1_s8(tempBuffer, s8Vec);
+                    int iLow = headDimIdx / lP;
+                    int iHigh = (headDimIdx + 4) / lP;
+
+                    int8_t* dstPtrLow = weightDstBase + iLow * weightStride2 + inIndex * lP;
+                    int8_t* dstPtrHigh = weightDstBase + iHigh * weightStride2 + inIndex * lP;
+
+                    std::memcpy(dstPtrLow, tempBuffer, 4);
+                    std::memcpy(dstPtrHigh, tempBuffer + 4, 4);
+                } else {
+                    vst1_s8(tempBuffer, s8Vec);
+                    for (int k = 0; k < 8; ++k) {
+                        int headDimCurr = headDimIdx + k;
+                        int i = headDimCurr / lP;
+                        int j = headDimCurr % lP;
+                        weightDstBase[i * weightStride2 + inIndex * lP + j] = tempBuffer[k];
+                    }
+                }
+            }
+
+            int32_t sumInt32 = vaddvq_s32(sumInt32_0) + vaddvq_s32(sumInt32_1);
+
+            // remain L
+            for (; headDimIdx < blockHeadDim; ++headDimIdx) {
+                int i = headDimIdx / lP;
+                int j = headDimIdx % lP;
+                float keyVal = currentKeyBlock[headDimIdx] - currentMaxBlock[headDimIdx];
+                float quant_val = (keyVal - minKey) * quantScaleVal - 128.0f;
+                int32_t rounded_val = static_cast<int32_t>(roundf(quant_val));
+                int8_t finalVal = static_cast<int8_t>(std::max(-128, std::min(127, rounded_val)));
+                weightDstBase[i * weightStride2 + inIndex * lP + j] = finalVal;
+                sumInt32 += finalVal;
+            }
+
+            // store sum
+            sumKeyPtr[outIndex * hP + inIndex] = (float)sumInt32 * range / 255.f + (minKey * blockHeadDim + 128.0f * range * blockHeadDim / 255.0f);
+        }
+    }
+}
+
+void MNNQuantAttentionValue(int8_t* dst, const float* source, float* valueSum, int32_t* params) {
+    // float   value src : [kvSeq,kvNumHead,headDim]
+    // int8_t  value dest: [updiv(maxLength,flashAttentionBlockKv), updiv(headDim,hp),updiv(flashAttentionBlockKv,lp),hp,lp]
+    // float   value sum: [updiv(maxLength,flashAttentionBlockKv), roundup(headDim,hp)]
+    int32_t kvNumHead = params[0];
+    int32_t seqLen = params[1];
+    int32_t headDim = params[2];
+    int32_t blockNum = params[3];
+    int32_t maxLength = params[4];
+
+    int32_t lP = params[5];
+    int32_t hP = params[6];
+    int32_t pastLength = params[7];
+    int32_t kvHeadIdx = params[8];
+
+    int32_t flashAttentionBlockKv = params[9];
+
+    auto blockKvseq = UP_DIV(seqLen + pastLength, blockNum);
+    auto weightStride2 = lP * hP;
+    auto weightStride1 = UP_DIV(flashAttentionBlockKv, lP) * weightStride2;
+
+    auto packedStride1 = (int)(weightStride1 + 2 * hP * sizeof(float));
+    auto packedStride0 = UP_DIV(headDim, hP) * packedStride1;
+
+    auto srcStride0 = kvNumHead * headDim;
+
+    auto sourceFp32 = (float*)source;
+
+    // quant scale & bias
+    if (pastLength == 0) {
+        for (int d = 0; d < headDim; ++d) {
+            float* scalePtr = (float*)(dst + (d / hP) * packedStride1 + weightStride1) + (d % hP);
+            float* biasPtr = scalePtr + hP;
+
+            // find min,max
+            float dMax = sourceFp32[d + kvHeadIdx * headDim];
+            float dMin = dMax;
+            for (int s = 0; s < seqLen; ++s) {
+                float data = sourceFp32[s * srcStride0 + d + kvHeadIdx * headDim];
+                dMax = ALIMAX(dMax, data);
+                dMin = ALIMIN(dMin, data);
+            }
+
+            // scale & bias
+            float range = dMax - dMin;
+            if (range < 1e-6) {
+                scalePtr[0] = 0.f;
+                biasPtr[0] = dMax;
+            } else {
+                float scale = range / 255.f;
+                float bias  = range / 255.f * 128.f + dMin;
+                scalePtr[0] = scale;
+                biasPtr[0] = bias;
+            }
+        }
+    }
+
+    // copy the scale&bias to each blockKv
+    //                                    pastLength == 0: First time prefill
+    // pastLength % flashAttentionBlockKv == 0: Open a new blockKv
+    if (pastLength == 0 || (pastLength % flashAttentionBlockKv) == 0) {
+        int32_t d0 = UP_DIV(maxLength, flashAttentionBlockKv);
+        int32_t d1 = UP_DIV(headDim, hP);
+        for (int k = 0; k < d0; ++k) {
+            for (int r = 0; r < d1; ++r) {
+                float* scalePtr = (float*)(dst + k * packedStride0 + r * packedStride1 + weightStride1);
+                float* biasPtr  = scalePtr + hP;
+                memcpy(scalePtr, dst + r * packedStride1 + weightStride1, hP * sizeof(float));
+                memcpy(biasPtr, dst + r * packedStride1 + weightStride1 + hP * sizeof(float), hP * sizeof(float));
+            }
+        }
+    }
+
+    // Quant fp16
+    for (int d = 0; d < headDim; ++d) {
+        // dst address
+        int idxBase = (d / hP) * packedStride1 + (d % hP) * lP;
+        int8_t*   dstBase = dst + idxBase;
+        float*  scaleBase = (float*)(dst + (d / hP) * packedStride1 + weightStride1) + (d % hP);
+        float*   biasBase = scaleBase + hP;
+        float*   sumBase = valueSum + (d / hP) * hP + (d % hP);
+
+        float qscale = scaleBase[0] < 1e-6 ? 0 : 1.0f / scaleBase[0];
+        float qbias = scaleBase[0] < 1e-6 ? 0 : (-biasBase[0] / scaleBase[0]);
+        // quant
+        for (int s = 0; s < seqLen; ++s) {
+            int kvSeqIndx = s + pastLength;
+            int idxInner = (kvSeqIndx / flashAttentionBlockKv) * packedStride0 + (kvSeqIndx % flashAttentionBlockKv) / lP * weightStride2 + (kvSeqIndx % flashAttentionBlockKv) % lP;
+            float xf = sourceFp32[s * srcStride0 + d + kvHeadIdx * headDim];
+            int8_t xq = ALIMAX(ALIMIN(127, static_cast<int32_t>(roundf(xf * qscale + qbias))), -128);
+            dstBase[idxInner] = xq;
+
+            // sum
+            int idxSum = (kvSeqIndx / flashAttentionBlockKv) * ROUND_UP(headDim, hP);
+            sumBase[idxSum] += ((float)xq * scaleBase[0] + biasBase[0]);
+        }
+    }
+}
+#endif // __aarch64__
+#endif // MNN_SUPPORT_TRANSFORMER_FUSE
+
 void MNNTranspose32Bit(int32_t* dstO, const int32_t* srcO, int32_t* dim) {
     int w = dim[0];
     int h = dim[1];
@@ -87,46 +398,35 @@ void MNNTranspose16Bit(int16_t* dstO, const int16_t* srcO, int32_t* dim) {
 #define EXP_APPROX_C0          vdupq_n_f32(1.0f)
 
 #ifndef __aarch64__
-static inline float32x4_t vrndaq_f32_compat(float32x4_t val) {
-    const float32x4_t v_zero = vdupq_n_f32(0.0f);
-
-    float32x4_t v_truncated = vcvtq_f32_s32(vcvtq_s32_f32(val));
-
-    uint32x4_t v_is_positive_frac = vcgtq_f32(val, v_truncated);
-    uint32x4_t v_is_negative_frac = vcltq_f32(val, v_truncated);
-
-    float32x4_t v_offset = vbslq_f32(v_is_positive_frac, vdupq_n_f32(1.0f), v_zero);
-    v_offset = vbslq_f32(v_is_negative_frac, vdupq_n_f32(-1.0f), v_offset);
-
-    return vaddq_f32(v_truncated, v_offset);
+static inline float32x4_t vrndaq_f32_compat(float32x4_t x) {
+    float32x4_t sign = vbslq_f32(vdupq_n_u32(0x80000000), x, vdupq_n_f32(0.0f));
+    return vcvtq_f32_s32(vcvtq_s32_f32(vaddq_f32(x, vbslq_f32(vcltq_f32(x, vdupq_n_f32(0.0f)), vdupq_n_f32(-0.5f), vdupq_n_f32(0.5f)))));
 }
-
 #endif
 
 static inline float32x4_t expApprox(float32x4_t x) {
     x = vminq_f32(vmaxq_f32(x, EXP_APPROX_MIN_INPUT), EXP_APPROX_MAX_INPUT);
-    
+
     float32x4_t k_float;
     float32x4_t r;
     float32x4_t exp_r;
-
 #if defined(__aarch64__)
-    // 1. x = k * ln(2) + r
     k_float = vrndaq_f32(vmulq_f32(x, EXP_APPROX_LN2_INV));
-    
+
     // r = x - k * ln(2)
     r = vfmsq_f32(x, k_float, EXP_APPROX_LN2);
 
-    // 2. c0 + r*(c1 + r*(c2 + r*(c3 + r*c4)))  (Horner's method)
-    exp_r = vfmaq_f32(EXP_APPROX_C3, EXP_APPROX_C4, r); // c3 + c4*r
-    exp_r = vfmaq_f32(EXP_APPROX_C2, exp_r, r);         // c2 + r*(...)
-    exp_r = vfmaq_f32(EXP_APPROX_C1, exp_r, r);         // c1 + r*(...)
-    exp_r = vfmaq_f32(EXP_APPROX_C0, exp_r, r);         // c0 + r*(...)
+    // P(r) = (c0 + c2*r^2 + c4*r^4) + r*(c1 + c3*r^2)
+    float32x4_t r2 = vmulq_f32(r, r);
+    float32x4_t p_odd = vfmaq_f32(EXP_APPROX_C1, EXP_APPROX_C3, r2);
 
+    float32x4_t p_even = vfmaq_f32(EXP_APPROX_C0, EXP_APPROX_C2, r2);
+    p_even = vfmaq_f32(p_even, EXP_APPROX_C4, vmulq_f32(r2, r2));
+    exp_r = vfmaq_f32(p_even, p_odd, r);
 #else
 
     k_float = vrndaq_f32_compat(vmulq_f32(x, EXP_APPROX_LN2_INV));
-    
+
 
     r = vsubq_f32(x, vmulq_f32(k_float, EXP_APPROX_LN2));
 
@@ -140,8 +440,7 @@ static inline float32x4_t expApprox(float32x4_t x) {
 
     int32x4_t k_int = vcvtq_s32_f32(k_float);
     int32x4_t k_shifted = vshlq_n_s32(k_int, 23);
-    float32x4_t result = vreinterpretq_f32_s32(vaddq_s32(vreinterpretq_s32_f32(exp_r), k_shifted));   
-    return result;
+    return vreinterpretq_f32_s32(vaddq_s32(vreinterpretq_s32_f32(exp_r), k_shifted));
 }
 
 void MNNExpC8(float* dst, const float* src, float* offset, const float* parameters, size_t countC8) {
@@ -195,7 +494,7 @@ void MNNExp(float* destPtr, const float* srcPtr, float* offset, size_t size) {
             srcPtr += 8;
             destPtr += 8;
             size -= 8;
-            
+
         }
         while (size >= 4) {
             float32x4_t srcVec0 = vld1q_f32(srcPtr);
@@ -242,7 +541,7 @@ void MNNExp(float* destPtr, const float* srcPtr, float* offset, size_t size) {
             srcPtr += 8;
             destPtr += 8;
             size -= 8;
-            
+
         }
         while (size >= 4) {
             float32x4_t srcVec0 = vld1q_f32(srcPtr);
@@ -424,99 +723,151 @@ void MNNPackForMatMul_A(float* dst, const float* src, size_t E, size_t L, size_t
     }
 }
 
-void MNNSoftmax(float* softmaxDst, float* input, float* runningMax, float* runningSum, float* updateScale, int outside, int reduceSize) {
+void MNNSoftmax(float* softmaxDst, const float* softmaxSrc, float* runningMax, float* runningSum, float* updateScale, int outside, int reduceSize, int kvSeqOffset, int validOffset, int pack, bool mask) {
+
+    // source shape: [reduceSizeOuter, outside, reduceSizeInner]
+    // for C4, [up_div(reduceSize,4), outside,4] => reduceSizeOuter=up_div(reduceSize,4), reduceSizeInner=4
+    // for C,  [outside, reduceSize]             => reduceSizeOuter=1, reduceSizeInner=reduceSize
+
+    const int packUnit = 4;
+    int reduceSizeOuter = 1;
+    int reduceSizeInner = reduceSize;
+    int stride0         = packUnit;
+    if (pack > 1) {
+        reduceSizeOuter = UP_DIV(reduceSize, pack);
+        reduceSizeInner = pack;
+        stride0         = outside * reduceSizeInner;
+    }
+
     for (int k = 0; k < outside; ++k) {
-        auto source = input + k * reduceSize;
-        auto dest = softmaxDst + k * reduceSize;
+        if (mask && kvSeqOffset > k + validOffset) {
+            if (updateScale){
+                updateScale[k] = 1;
+            }
+            for (int j = 0; j < reduceSizeOuter; ++j) {
+                int i = 0;
+                for (; i < reduceSizeInner; i += packUnit) {
+                    auto destPtr = softmaxDst + j * stride0 + k * reduceSizeInner + i;
+                    vst1q_f32(destPtr, vdupq_n_f32(0.0f));
+                }
+                if (i < reduceSizeInner) {
+                    memset(softmaxDst + j * stride0 + k * reduceSizeInner + i, 0, (reduceSizeInner - i) * sizeof(float));
+                }
+            }
+            continue;
+        }
 
-        // new max
-        auto srcPtr = source;
-        auto size = reduceSize;
-        float32x4_t maxVec0 = vdupq_n_f32(source[0]);
-        auto maxVec1 = maxVec0;
+        const int validReduceSize = mask ? ALIMIN(reduceSize, k + (validOffset + 1) - kvSeqOffset) : reduceSize;
+        const int remain = validReduceSize % packUnit;
+        const int sizeDiv = validReduceSize / packUnit;
 
-        float oldMax = source[0];
+        // 1. newMax
+        float oldMax = std::numeric_limits<float>::lowest();
         if (runningMax) {
             oldMax = runningMax[k];
         }
 
-        while (size >= 8) {
-            float32x4_t srcVec0 = vld1q_f32(srcPtr);
-            float32x4_t srcVec1 = vld1q_f32(srcPtr + 4);
+        float newMax = std::numeric_limits<float>::lowest();
 
-            maxVec0 = vmaxq_f32(maxVec0, srcVec0);
-            maxVec1 = vmaxq_f32(maxVec1, srcVec1);
-
-            srcPtr += 8;
-            size -= 8;
+        for (int j = 0; j < sizeDiv; ++j) {
+            auto srcPtr = softmaxSrc + j * stride0 + k * reduceSizeInner;
+            float32x4_t srcVec = vld1q_f32(srcPtr);
+            newMax = ALIMAX(newMax, vmaxvq_f32_compat(srcVec));
         }
 
-        while (size >= 4) {
-            float32x4_t srcVec0 = vld1q_f32(srcPtr);
-            maxVec0 = vmaxq_f32(maxVec0, srcVec0);
-            srcPtr += 4;
-            size -= 4;
+        if (remain > 0) {
+            auto srcPtr = softmaxSrc + sizeDiv * stride0  + k * reduceSizeInner;
+            for (int i = 0; i < remain; ++i) {
+                newMax = ALIMAX(newMax, srcPtr[i]);
+            }
         }
 
-        maxVec0 = vmaxq_f32(maxVec0, maxVec1);
-        float32x2_t maxP = vpmax_f32(vget_low_f32(maxVec0), vget_high_f32(maxVec0));
-        maxP = vpmax_f32(maxP, maxP);
-        auto newMax = vget_lane_f32(maxP, 0);
+        const float finalMax = ALIMAX(oldMax, newMax);
+        const float32x4_t finalMaxVec = vdupq_n_f32(finalMax);
 
-        while (size > 0) {
-            newMax = ALIMAX(newMax, srcPtr[0]);
-            srcPtr += 1;
-            size -= 1;
+        // 2. exp(x - finalMax)
+        float sum = 0.0f;
+        float32x4_t sumVec = vdupq_n_f32(0.0f);
+
+        for (int j = 0; j < sizeDiv; ++j) {
+            auto idx = j * stride0 + k * reduceSizeInner;
+            auto srcPtr = softmaxSrc + idx;
+            auto dstPtr = softmaxDst + idx;
+
+            float32x4_t srcVec = vld1q_f32(srcPtr);
+            // sub max
+            srcVec = vsubq_f32(srcVec, finalMaxVec);
+            // exp
+            srcVec = expApprox(srcVec);
+            // sum
+            sumVec = vaddq_f32(sumVec, srcVec);
+            // store
+            vst1q_f32(dstPtr, srcVec);
         }
 
-        newMax = ALIMAX(oldMax, newMax);
-        srcPtr = source;
-        auto destPtr = dest;
-        size = reduceSize;
+        if (remain > 0) {
+            auto idx = sizeDiv * stride0  + k * reduceSizeInner;
+            auto srcPtr = softmaxSrc + idx;
+            auto dstPtr = softmaxDst + idx;
 
-        float exprOffset[4] = {
-            1.0f,
-            0.0f,
-            0.0f,
-            0.0f
-        };
-        exprOffset[2] = -newMax;
+            float tempDst[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 
-        // expf(xi-newmax) & new sum
-        MNNExp(destPtr, srcPtr, exprOffset, size);
+            for(int i = 0; i < remain; ++i) {
+                float val = expf(srcPtr[i] - finalMax);
+                sum += val;
+                tempDst[i] = val;
+            }
+            vst1q_f32(dstPtr, vld1q_f32(tempDst));
+        }
 
+        sum += vaddvq_f32_compat(sumVec);
+
+        // 3.
         if (runningMax != nullptr && runningSum != nullptr && updateScale != nullptr) {
-            // update runningSum, runningMax, scale=expf(oldMax-newMax)
-            float newSum = exprOffset[3];
-            runningSum[k] = runningSum[k] * expf(oldMax - newMax) + newSum;
-            runningMax[k] = newMax;
-            updateScale[k] = expf(oldMax - newMax);
+            // update runningSum, runningMax, scale
+            float scaleForSum = expf(oldMax - finalMax);
+            runningSum[k] = runningSum[k] * scaleForSum + sum;
+            runningMax[k] = finalMax;
+            updateScale[k] = scaleForSum;
         } else {
-            // Normalize
-            float sum = exprOffset[3];
+            // Normalization
+            if (runningMax != nullptr && runningSum != nullptr) {
+                sum += runningSum[k] * expf(oldMax - finalMax);
+            }
             float scale = 1.0f / (sum + 1e-20f);
-            int count = reduceSize;
-            auto pDest = dest;
+            float32x4_t scale_vec = vdupq_n_f32(scale);
 
-            float32x4_t scaleVec = vdupq_n_f32(scale);
-            while (count >= 4) {
+            for (int j = 0; j < sizeDiv; ++j) {
+                auto pDest = softmaxDst + j * stride0 + k * reduceSizeInner;
                 float32x4_t data = vld1q_f32(pDest);
-                data = vmulq_f32(data, scaleVec);
+                data = vmulq_f32(data, scale_vec);
                 vst1q_f32(pDest, data);
-                
-                pDest += 4;
-                count -= 4;
             }
+            if (remain > 0) {
+                auto pDest = softmaxDst + sizeDiv * stride0 + k * reduceSizeInner;
+                for (int i = 0; i < remain; ++i) {
+                    pDest[i] = pDest[i] * scale;
+                }
+            }
+        }
 
-            while (count > 0) {
-                *pDest *= scale;
-                pDest++;
-                count--;
+        // 4. memset 0
+        if (pack > 1) {
+            if (validReduceSize % packUnit > 0) {
+                memset(softmaxDst + sizeDiv * stride0 + k * reduceSizeInner + (validReduceSize % packUnit), 0, (packUnit - (validReduceSize % packUnit)) * sizeof(float));
             }
+            auto validDiv4 = UP_DIV(validReduceSize, packUnit);
+            auto allDiv4 = UP_DIV(reduceSize, packUnit);
+            for (int j = validDiv4; j < allDiv4; ++j) {
+                auto destPtr = softmaxDst + j * stride0 + k * reduceSizeInner;
+                memset(destPtr, 0, packUnit * sizeof(float));
+            }
+        } else {
+            memset(softmaxDst + k * reduceSizeInner + validReduceSize, 0, (reduceSize - validReduceSize) * sizeof(float));
         }
     }
+    return;
 }
-
 
 #ifndef MNN_USE_NEON
 

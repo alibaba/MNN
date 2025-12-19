@@ -10,8 +10,7 @@
     "use_mmap":"false",
 
     "is_batch_quant": 1,
-    
+
     "reuse_kv": false,
-    "quant_kv": 0,
-    "kvcache_limit": -1
+    "quant_kv": 0
 }

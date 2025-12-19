@@ -108,7 +108,7 @@ ErrorCode CPUTensorConverter::convert(const void* inputRaw, void* outputRaw, MNN
         if (1 == inside) {
             int offset[2] = {
                 outside,
-                outside
+                channel
             };
             int step = UP_DIV(outside, numberThread);
             int start = tId * step;

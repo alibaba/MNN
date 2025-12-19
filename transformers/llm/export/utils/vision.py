@@ -16,16 +16,19 @@ class Vision(torch.nn.Module):
         self.quant_block = 128
         self.transformer_fuse = True
         self.group_conv_native = False
-        self.model_type = base.model_type
+        self.model_type = base.config.model_type
         self.visual = visual.eval()
         self.embed_ = base.embed
         self.tokenizer = base.tokenizer
-        self.config = base.config
-        self.hidden_size = base.hidden_size
-        self.llm_config = base.llm_config
+        self.config = base.config.origin_config
+        self.hidden_size = base.config.hidden_size
+        self.llm_config = { "is_visual": True }
         self.rope_ratio = 1.0
         self.init_config()
         self.load()
+
+    def get_config(self):
+        return self.llm_config
 
     @staticmethod
     def get_vision(model_type):
@@ -856,8 +859,8 @@ class Idefics3Vision(Vision):
         self.image_mean = np.array([0.5, 0.5, 0.5], dtype=np.float32)
         self.image_norm = np.array([0.5, 0.5, 0.5], dtype=np.float32)
         super().__init__(visual, base)
-        self.connector = base.model.model.connector.float()
         self.visual = self.visual.float()
+        self.connector = self.visual.connector.float()
         self.quant_bit = 8
         self.transformer_fuse = False
 

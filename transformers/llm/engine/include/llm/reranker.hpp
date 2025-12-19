@@ -37,6 +37,11 @@ public:
     virtual void initialize(const std::string& config_path) = 0;
 
     /**
+     * @brief Loads the reranker model after initialization.
+     */
+    virtual void load() = 0;
+
+    /**
      * @brief Sets the instruction for the reranker.
      * @param instruct The instruction string.
      */
@@ -71,15 +76,21 @@ public:
      */
     Qwen3Reranker(const std::string& config_path) {
         initialize(config_path);
-    }
+        }
 
     /**
-     * @brief Initializes the LLM and token IDs.
+     * @brief Initializes the LLM.
      * @param config_path The path to the LLM configuration.
      */
     void initialize(const std::string& config_path) override {
         mLlm.reset(Llm::createLLM(config_path));
         mLlm->set_config("{\"all_logits\":true}");
+    }
+
+    /**
+     * @brief Loads the LLM and initializes token IDs.
+     */
+    void load() override {
         mLlm->load();
         mTokenTrueId = mLlm->tokenizer_encode("yes")[0];
         mTokenFalseId = mLlm->tokenizer_encode("no")[0];
@@ -213,7 +224,14 @@ public:
      * @param config_path The path to the LLM configuration.
      */
     void initialize(const std::string& config_path) override {
-        mLlm.reset(Embedding::createEmbedding(config_path));
+        mLlm.reset(Embedding::createEmbedding(config_path, false));
+    }
+
+    /**
+     * @brief Loads the reranker model after initialization.
+     */
+    void load() override {
+        mLlm->load();
     }
 
     /**

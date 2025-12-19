@@ -46,7 +46,7 @@ void _AVX512_MNNPackCUnit(float* dst, const float* src, size_t area, size_t dept
             LOAD_CASE(15);
 #undef LOAD_CASE
             transpose16x16F(r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15);
-            
+
 #define SAVE_CASE(i) _mm512_storeu_ps(d + PACK_UNIT * i, r##i)
             SAVE_CASE(0);
             SAVE_CASE(1);
@@ -310,15 +310,15 @@ void _AVX512_MNNPackCUnitTranspose(float* dst, const float* src, size_t area, si
     }
 
 }
-void _AVX512_MNNUnpackCUnitTranspose(float* dst, const float* src, size_t area, size_t depth, int* areaOffset) {
+void _AVX512_MNNUnpackCUnitTranspose(float* dst, const float* src, size_t area, size_t depth, int* offset) {
     int c      = (int)depth;
     int cDiv4  = c / PACK_UNIT;
     int cAlign = cDiv4 * PACK_UNIT;
-    auto srcAreaOffset = areaOffset[0];
-    auto dstAreaOffset = areaOffset[1];
+    auto srcAreaOffset = offset[0];
+    auto dstDepthOffset = offset[1];
     for (int hi = 0; hi < area; ++hi) {
         const float* srcHeight = src + hi * PACK_UNIT;
-        float* dstHeight       = dst + hi * c;
+        float* dstHeight       = dst + hi * dstDepthOffset;
         for (int ci = 0; ci < cDiv4; ++ci) {
             _mm512_storeu_ps(dstHeight + PACK_UNIT * ci, _mm512_loadu_ps(srcHeight + PACK_UNIT * ci * srcAreaOffset));
         }
@@ -334,7 +334,7 @@ void _AVX512_MNNUnpackCUnitTranspose(float* dst, const float* src, size_t area, 
 
     for (int hi = 0; hi < area; ++hi) {
         const float* srcHeight = srcAlign + hi * PACK_UNIT;
-        float* dstHeight       = dstAlign + hi * c;
+        float* dstHeight       = dstAlign + hi * dstDepthOffset;
 
         for (int ci = 0; ci < cReamin; ++ci) {
             dstHeight[ci] = srcHeight[ci];

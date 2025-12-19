@@ -1339,6 +1339,7 @@ static void _getInfoApple(MNNCPUInfo* cpuinfo_isa) {
     }
     if (have_feature("hw.optional.arm.FEAT_SME2")) {
         cpuinfo_isa->sme2 = true;
+        cpuinfo_isa->smeCoreNumber = 2;
     }
 }
 #endif
@@ -1367,6 +1368,7 @@ static void _getInfoAux(MNNCPUInfo* cpuinfo_isa) {
     }
     if (isa_features2 & CPUINFO_ARM_LINUX_FEATURE2_SME2) {
         cpuinfo_isa->sme2 = true;
+        cpuinfo_isa->smeCoreNumber = 1;
     }
 }
 #endif

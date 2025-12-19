@@ -11,6 +11,7 @@
 #endif
 #include <regex>
 #include <algorithm>
+#include <random>
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
 #include "omni.hpp"
@@ -19,7 +20,9 @@
 #include "tokenizer.hpp"
 #include "diskembedding.hpp"
 #include "sampler.hpp"
+#ifdef LLM_SUPPORT_HTTP_RESOURCE
 #include "httplib.h"
+#endif
 #ifdef LLM_SUPPORT_VISION
 #include <cv/cv.hpp>
 #endif
@@ -759,6 +762,7 @@ std::vector<int> Omni::multimodeProcess(const std::string& mode, std::string inf
         // std::cout << "hw: " << mVisionHeight << ", " << mVisionWidth << std::endl;
         // std::cout << "file: " << file_info << std::endl;
     }
+#ifdef LLM_SUPPORT_HTTP_RESOURCE
     if (file_info.substr(0, 4) == "http") {
         std::regex url_regex(R"(^https?://([^/]+)(/.*))");
         std::smatch url_match_result;
@@ -784,6 +788,7 @@ std::vector<int> Omni::multimodeProcess(const std::string& mode, std::string inf
             std::cerr << "Failed to download file. Status code: " << (res ? res->status : 0) << std::endl;
         }
     }
+#endif
     if (mode == "img" && mConfig->is_visual()) {
         return visionProcess(file_info);
     }
