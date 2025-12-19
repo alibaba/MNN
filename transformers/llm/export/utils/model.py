@@ -117,8 +117,8 @@ class LlmModel(PreTrainedModel):
         ])
         model.lm = Lm(model.lm)
 
-        if 'gemma' in model_type:
-            model.scale_emb = model.embed.embedscale
+        if 'gemma' in model_type and hasattr(model.embed, 'embed_scale'):
+            model.scale_emb = model.embed.embed_scale
 
         # Multi-modal parts
         if model.visual is not None:
