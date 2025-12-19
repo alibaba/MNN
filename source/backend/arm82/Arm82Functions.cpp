@@ -443,15 +443,17 @@ void ARM82StrassenMerge(FLOAT16* c11, FLOAT16* c12, FLOAT16* c21, FLOAT16* c22, 
 }
 
 void MNNUnpackTransposeInt16C8(int16_t* dst, const int16_t* src, size_t area, size_t depth, int32_t* areaOffset) {
+    // [depth/8, srcAreaOffset, 8] -> [area, dstAreaOffset]
     int srcAreaOffset = areaOffset[0];
+    int dstAreaOffset = areaOffset[1];
     int c      = (int)depth;
-    int cDiv4  = c / 8;
-    int cAlign = cDiv4 * 8;
+    int cDiv8  = c / 8;
+    int cAlign = cDiv8 * 8;
     int areaDiv4 = area / 4;
     int areaAlign = areaDiv4 * 4;
 
     if (areaAlign > 0) {
-        for (int ci = 0; ci < cDiv4; ++ci) {
+        for (int ci = 0; ci < cDiv8; ++ci) {
             auto srcH = src + ci * 8 * srcAreaOffset;
             auto dstH = dst + ci * 8;
             for (int hi = 0; hi < areaAlign; hi+=4) {
@@ -460,10 +462,10 @@ void MNNUnpackTransposeInt16C8(int16_t* dst, const int16_t* src, size_t area, si
                 auto src2 = srcH + hi * 8 + 16;
                 auto src3 = srcH + hi * 8 + 24;
 
-                auto dst0 = dstH + hi * c;
-                auto dst1 = dstH + hi * c + c;
-                auto dst2 = dstH + hi * c + 2 * c;
-                auto dst3 = dstH + hi * c + 3 * c;
+                auto dst0 = dstH + hi * dstAreaOffset;
+                auto dst1 = dstH + hi * dstAreaOffset + dstAreaOffset;
+                auto dst2 = dstH + hi * dstAreaOffset + 2 * dstAreaOffset;
+                auto dst3 = dstH + hi * dstAreaOffset + 3 * dstAreaOffset;
                 vst1q_s16(dst0, vld1q_s16(src0));
                 vst1q_s16(dst1, vld1q_s16(src1));
                 vst1q_s16(dst2, vld1q_s16(src2));
@@ -472,12 +474,12 @@ void MNNUnpackTransposeInt16C8(int16_t* dst, const int16_t* src, size_t area, si
         }
     }
     if (areaAlign < area) {
-        for (int ci = 0; ci < cDiv4; ++ci) {
+        for (int ci = 0; ci < cDiv8; ++ci) {
             auto srcH = src + 8 * ci * srcAreaOffset;
             auto dstH = dst + ci * 8;
             for (int hi = areaAlign; hi < area; ++hi) {
                 auto src0 = srcH + hi * 8;
-                auto dst0 = dstH + hi * c;
+                auto dst0 = dstH + hi * dstAreaOffset;
                 vst1q_s16(dst0, vld1q_s16(src0));
             }
         }
@@ -492,7 +494,7 @@ void MNNUnpackTransposeInt16C8(int16_t* dst, const int16_t* src, size_t area, si
 
     for (int hi = 0; hi < area; ++hi) {
         auto srcHeight = srcAlign + hi * 8;
-        auto dstHeight = dstAlign + hi * c;
+        auto dstHeight = dstAlign + hi * dstAreaOffset;
 
         for (int ci = 0; ci < cReamin; ++ci) {
             dstHeight[ci] = srcHeight[ci];
@@ -934,495 +936,124 @@ static void _ArmBasicMNNPackC4ForMatMul_A_L8(int8_t* destOrigin, int8_t const** 
     }
 }
 
+inline void transpose_4x4_f32(float32x4_t& r0, float32x4_t& r1, float32x4_t& r2, float32x4_t& r3) {
+    // Stage 1: Transpose 2x2 blocks of float32 elements between pairs of adjacent rows.
+    float32x4x2_t temp0 = vtrnq_f32(r0, r1);
+    float32x4x2_t temp1 = vtrnq_f32(r2, r3);
+
+    // Intermediate state:
+    // temp0.val[0] = [A0, B0, A2, B2]
+    // temp0.val[1] = [A1, B1, A3, B3]
+    // temp1.val[0] = [C0, D0, C2, D2]
+    // temp1.val[1] = [C1, D1, C3, D3]
+
+    // Stage 2: Manually swap the 64-bit blocks to finalize the transpose.
+    // This correctly simulates the non-existent 64-bit transpose/zip.
+    float64x2_t i0_f64 = vreinterpretq_f64_f32(temp0.val[0]);
+    float64x2_t i1_f64 = vreinterpretq_f64_f32(temp0.val[1]);
+    float64x2_t i2_f64 = vreinterpretq_f64_f32(temp1.val[0]);
+    float64x2_t i3_f64 = vreinterpretq_f64_f32(temp1.val[1]);
+
+    // Combine the low 64 bits of i0 and i2 to form the first part of the result.
+    float32x4_t t0 = vreinterpretq_f32_f64(vcombine_f64(vget_low_f64(i0_f64), vget_low_f64(i2_f64)));
+    // Combine the low 64 bits of i1 and i3 for the second part.
+    float32x4_t t1 = vreinterpretq_f32_f64(vcombine_f64(vget_low_f64(i1_f64), vget_low_f64(i3_f64)));
+    // Combine the high 64 bits of i0 and i2 for the third part.
+    float32x4_t t2 = vreinterpretq_f32_f64(vcombine_f64(vget_high_f64(i0_f64), vget_high_f64(i2_f64)));
+    // Combine the high 64 bits of i1 and i3 for the final part.
+    float32x4_t t3 = vreinterpretq_f32_f64(vcombine_f64(vget_high_f64(i1_f64), vget_high_f64(i3_f64)));
+
+    r0 = t0;
+    r1 = t1;
+    r2 = t2;
+    r3 = t3;
+}
+
 static void Sme2MNNPackC4ForMatMul_A_FP16(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el) {
-    int LP = FP16_SME2_MATMUL_LP;
-    int pack = 8;
-    // LP >= pack
+    const int lP = FP16_SME2_MATMUL_LP;
+    const int pack = 8;
     int number = info[0];
     int eReal = info[1];
     int eDest = info[2];
     int offset = info[3];
-    for (int n=0; n<number; ++n) {
-        int eWork = el[4 * n + 0];
-        int lWork = el[4 * n + 1];
+
+    float32x4_t v0, v1, v2, v3, v4, v5, v6, v7;
+
+    for (int n = 0; n < number; ++n) {
+        int e = el[4 * n + 0];
+        int l = el[4 * n + 1];
         int eOffset = el[4 * n + 2];
         int lOffset = el[4 * n + 3];
-        auto sourceN = (FLOAT16*)(sourceGroup[n]);
-        auto destN = (FLOAT16*)destOrigin + lOffset * eDest + eOffset * LP;
 
-        auto srcStride0 = pack * offset;
-        auto dstStride0 = eDest * LP;
-        auto l = lWork;
-        while (l > 7) {
-            auto source = sourceN;
-            auto dest = destN;
-            l -= 8;
-            auto e = eWork;
-            if (e == eDest) {
-                auto s0 = vld1q_f32((float*)(source)); // 00112233
-                auto s1 = vld1q_f32((float*)(source + srcStride0));// 00112233
-                auto s2 = vld1q_f32((float*)(source + 2 * srcStride0));
-                auto s3 = vld1q_f32((float*)(source + 3 * srcStride0));
+        auto destBase = (FLOAT16*)destOrigin + lOffset * eDest + eOffset * lP;
+        auto sourceBase = (const FLOAT16*)(sourceGroup[n]);
 
-                auto s4 = vld1q_f32((float*)(source + 4 * srcStride0));
-                auto s5 = vld1q_f32((float*)(source + 5 * srcStride0));
-                auto s6 = vld1q_f32((float*)(source + 6 * srcStride0));
-                auto s7 = vld1q_f32((float*)(source + 7 * srcStride0));
+        const int eTile = 8;
+        const int lTile = 8;
 
-                auto s8 = vld1q_f32((float*)(source + 8 * srcStride0));
-                auto s9 = vld1q_f32((float*)(source + 9 * srcStride0));
-                auto s10 = vld1q_f32((float*)(source + 10 * srcStride0));
-                auto s11 = vld1q_f32((float*)(source + 11 * srcStride0));
+        const int eMain = e / eTile;
+        const int lMain = l / lTile;
 
-                auto s12 = vld1q_f32((float*)(source + 12 * srcStride0));
-                auto s13 = vld1q_f32((float*)(source + 13 * srcStride0));
-                auto s14 = vld1q_f32((float*)(source + 14 * srcStride0));
-                auto s15 = vld1q_f32((float*)(source + 15 * srcStride0));
+        const size_t srcRowStride = (size_t)pack * offset;
+        const size_t srcColBlockStride = (size_t)eReal * pack;
+        const size_t dstColBlockStride = (size_t)eDest * lP;
 
-                auto zip1s01 = vzip1q_f32(s0, s1); // 00001111
-                auto zip1s23 = vzip1q_f32(s2, s3); // 00001111
-                auto zip1s45 = vzip1q_f32(s4, s5); // 00001111
-                auto zip1s67 = vzip1q_f32(s6, s7); // 00001111
-                auto zip1s89 = vzip1q_f32(s8, s9); // 00001111
-                auto zip1s1011 = vzip1q_f32(s10, s11); // 00001111
-                auto zip1s1213 = vzip1q_f32(s12, s13); // 00001111
-                auto zip1s1415 = vzip1q_f32(s14, s15); // 00001111
+        for (int y0 = 0; y0 < eMain; ++y0) {
+            const int yBase = y0 * eTile;
+            for (int x0 = 0; x0 < lMain; ++x0) {
+                const int xBase = x0 * lTile;
 
-                auto zip2s01 = vzip2q_f32(s0, s1); // 22223333
-                auto zip2s23 = vzip2q_f32(s2, s3); // 22223333
-                auto zip2s45 = vzip2q_f32(s4, s5); // 22223333
-                auto zip2s67 = vzip2q_f32(s6, s7); // 22223333
-                auto zip2s89 = vzip2q_f32(s8, s9); // 22223333
-                auto zip2s1011 = vzip2q_f32(s10, s11); // 22223333
-                auto zip2s1213 = vzip2q_f32(s12, s13); // 22223333
-                auto zip2s1415 = vzip2q_f32(s14, s15); // 22223333
+                const auto srcBlockBase = sourceBase + yBase * srcRowStride + x0 * srcColBlockStride;
 
-                auto zip1s0123_01 = vzip1q_f64((float64x2_t)zip1s01, (float64x2_t)zip1s23); // 00000000
-                auto zip1s4567_01 = vzip1q_f64((float64x2_t)zip1s45, (float64x2_t)zip1s67);
-                auto zip1s891011_01 = vzip1q_f64((float64x2_t)zip1s89, (float64x2_t)zip1s1011);
-                auto zip1s12131415_01 = vzip1q_f64((float64x2_t)zip1s1213, (float64x2_t)zip1s1415);
+                v0 = vld1q_f32((const float*)(srcBlockBase + 0 * srcRowStride));
+                v1 = vld1q_f32((const float*)(srcBlockBase + 1 * srcRowStride));
+                v2 = vld1q_f32((const float*)(srcBlockBase + 2 * srcRowStride));
+                v3 = vld1q_f32((const float*)(srcBlockBase + 3 * srcRowStride));
+                v4 = vld1q_f32((const float*)(srcBlockBase + 4 * srcRowStride));
+                v5 = vld1q_f32((const float*)(srcBlockBase + 5 * srcRowStride));
+                v6 = vld1q_f32((const float *)(srcBlockBase + 6 * srcRowStride));
+                v7 = vld1q_f32((const float *)(srcBlockBase + 7 * srcRowStride));
 
-                auto zip2s0123_01 = vzip2q_f64((float64x2_t)zip1s01, (float64x2_t)zip1s23); // 11111111
-                auto zip2s4567_01 = vzip2q_f64((float64x2_t)zip1s45, (float64x2_t)zip1s67);
-                auto zip2s891011_01 = vzip2q_f64((float64x2_t)zip1s89, (float64x2_t)zip1s1011);
-                auto zip2s12131415_01 = vzip2q_f64((float64x2_t)zip1s1213, (float64x2_t)zip1s1415);
+                transpose_4x4_f32(v0, v1, v2, v3);
+                transpose_4x4_f32(v4, v5, v6, v7);
 
-                auto zip1s0123_23 = vzip1q_f64((float64x2_t)zip2s01, (float64x2_t)zip2s23); // 22222222
-                auto zip1s4567_23 = vzip1q_f64((float64x2_t)zip2s45, (float64x2_t)zip2s67);
-                auto zip1s891011_23 = vzip1q_f64((float64x2_t)zip2s89, (float64x2_t)zip2s1011);
-                auto zip1s12131415_23 = vzip1q_f64((float64x2_t)zip2s1213, (float64x2_t)zip2s1415);
+                float* addr0 = (float*)(destBase + yBase * lP + (xBase / lP) * dstColBlockStride);
+                float* addr1= (float*)(destBase + yBase * lP + (xBase / lP + 1) * dstColBlockStride);
+                float* addr2= (float*)(destBase + yBase * lP + (xBase / lP + 2) * dstColBlockStride);
+                float* addr3= (float*)(destBase + yBase * lP + (xBase / lP + 3) * dstColBlockStride);
 
-                auto zip2s0123_23 = vzip2q_f64((float64x2_t)zip2s01, (float64x2_t)zip2s23); // 33333333
-                auto zip2s4567_23 = vzip2q_f64((float64x2_t)zip2s45, (float64x2_t)zip2s67);
-                auto zip2s891011_23 = vzip2q_f64((float64x2_t)zip2s89, (float64x2_t)zip2s1011);
-                auto zip2s12131415_23 = vzip2q_f64((float64x2_t)zip2s1213, (float64x2_t)zip2s1415);
-
-                vst1q_f64((float64_t*)dest, zip1s0123_01);
-                vst1q_f64((float64_t*)(dest + 8), zip1s4567_01);
-                vst1q_f64((float64_t*)(dest + 16), zip1s891011_01);
-                vst1q_f64((float64_t*)(dest + 24), zip1s12131415_01);
-
-                vst1q_f64((float64_t*)(dest + dstStride0), zip2s0123_01);
-                vst1q_f64((float64_t*)(dest + dstStride0 + 8), zip2s4567_01);
-                vst1q_f64((float64_t*)(dest + dstStride0 + 16), zip2s891011_01);
-                vst1q_f64((float64_t*)(dest + dstStride0 + 24), zip2s12131415_01);
-
-                vst1q_f64((float64_t*)(dest + 2 * dstStride0), zip1s0123_23);
-                vst1q_f64((float64_t*)(dest + 2 * dstStride0 + 8), zip1s4567_23);
-                vst1q_f64((float64_t*)(dest + 2 * dstStride0 + 16), zip1s891011_23);
-                vst1q_f64((float64_t*)(dest + 2 * dstStride0 + 24), zip1s12131415_23);
-
-                vst1q_f64((float64_t*)(dest + 3 * dstStride0), zip2s0123_23);
-                vst1q_f64((float64_t*)(dest + 3 * dstStride0 + 8), zip2s4567_23);
-                vst1q_f64((float64_t*)(dest + 3 * dstStride0 + 16), zip2s891011_23);
-                vst1q_f64((float64_t*)(dest + 3 * dstStride0 + 24), zip2s12131415_23);
-
-                // dest += (4 * dstStride0);
-                // e -= eDest;
-                sourceN += (eReal * pack);
-                destN += (4 * dstStride0);
-                continue;
+                vst1q_f32(addr0, v0);
+                vst1q_f32(addr0 + 4, v4);
+                vst1q_f32(addr1, v1);
+                vst1q_f32(addr1 + 4, v5);
+                vst1q_f32(addr2, v2);
+                vst1q_f32(addr2 + 4, v6);
+                vst1q_f32(addr3, v3);
+                vst1q_f32(addr3 + 4, v7);
             }
-
-            if (e > 11) {
-                auto s0 = vld1q_f32((float*)(source)); // 00112233
-                auto s1 = vld1q_f32((float*)(source + srcStride0));// 00112233
-                auto s2 = vld1q_f32((float*)(source + 2 * srcStride0));
-                auto s3 = vld1q_f32((float*)(source + 3 * srcStride0));
-
-                auto s4 = vld1q_f32((float*)(source + 4 * srcStride0));
-                auto s5 = vld1q_f32((float*)(source + 5 * srcStride0));
-                auto s6 = vld1q_f32((float*)(source + 6 * srcStride0));
-                auto s7 = vld1q_f32((float*)(source + 7 * srcStride0));
-
-                auto s8 = vld1q_f32((float*)(source + 8 * srcStride0));
-                auto s9 = vld1q_f32((float*)(source + 9 * srcStride0));
-                auto s10 = vld1q_f32((float*)(source + 10 * srcStride0));
-                auto s11 = vld1q_f32((float*)(source + 11 * srcStride0));
-
-                auto zip1s01 = vzip1q_f32(s0, s1); // 00001111
-                auto zip1s23 = vzip1q_f32(s2, s3); // 00001111
-                auto zip1s45 = vzip1q_f32(s4, s5); // 00001111
-                auto zip1s67 = vzip1q_f32(s6, s7); // 00001111
-                auto zip1s89 = vzip1q_f32(s8, s9); // 00001111
-                auto zip1s1011 = vzip1q_f32(s10, s11); // 00001111
-
-                auto zip2s01 = vzip2q_f32(s0, s1); // 22223333
-                auto zip2s23 = vzip2q_f32(s2, s3); // 22223333
-                auto zip2s45 = vzip2q_f32(s4, s5); // 22223333
-                auto zip2s67 = vzip2q_f32(s6, s7); // 22223333
-                auto zip2s89 = vzip2q_f32(s8, s9); // 22223333
-                auto zip2s1011 = vzip2q_f32(s10, s11); // 22223333
-
-                auto zip1s0123_01 = vzip1q_f64((float64x2_t)zip1s01, (float64x2_t)zip1s23); // 00000000
-                auto zip1s4567_01 = vzip1q_f64((float64x2_t)zip1s45, (float64x2_t)zip1s67);
-                auto zip1s891011_01 = vzip1q_f64((float64x2_t)zip1s89, (float64x2_t)zip1s1011);
-
-                auto zip2s0123_01 = vzip2q_f64((float64x2_t)zip1s01, (float64x2_t)zip1s23); // 11111111
-                auto zip2s4567_01 = vzip2q_f64((float64x2_t)zip1s45, (float64x2_t)zip1s67);
-                auto zip2s891011_01 = vzip2q_f64((float64x2_t)zip1s89, (float64x2_t)zip1s1011);
-
-                auto zip1s0123_23 = vzip1q_f64((float64x2_t)zip2s01, (float64x2_t)zip2s23); // 22222222
-                auto zip1s4567_23 = vzip1q_f64((float64x2_t)zip2s45, (float64x2_t)zip2s67);
-                auto zip1s891011_23 = vzip1q_f64((float64x2_t)zip2s89, (float64x2_t)zip2s1011);
-
-                auto zip2s0123_23 = vzip2q_f64((float64x2_t)zip2s01, (float64x2_t)zip2s23); // 33333333
-                auto zip2s4567_23 = vzip2q_f64((float64x2_t)zip2s45, (float64x2_t)zip2s67);
-                auto zip2s891011_23 = vzip2q_f64((float64x2_t)zip2s89, (float64x2_t)zip2s1011);
-
-                vst1q_f64((float64_t*)dest, zip1s0123_01);
-                vst1q_f64((float64_t*)(dest + 8), zip1s4567_01);
-                vst1q_f64((float64_t*)(dest + 16), zip1s891011_01);
-
-                vst1q_f64((float64_t*)(dest + dstStride0), zip2s0123_01);
-                vst1q_f64((float64_t*)(dest + dstStride0 + 8), zip2s4567_01);
-                vst1q_f64((float64_t*)(dest + dstStride0 + 16), zip2s891011_01);
-
-                vst1q_f64((float64_t*)(dest + 2 * dstStride0), zip1s0123_23);
-                vst1q_f64((float64_t*)(dest + 2 * dstStride0 + 8), zip1s4567_23);
-                vst1q_f64((float64_t*)(dest + 2 * dstStride0 + 16), zip1s891011_23);
-
-                vst1q_f64((float64_t*)(dest + 3 * dstStride0), zip2s0123_23);
-                vst1q_f64((float64_t*)(dest + 3 * dstStride0 + 8), zip2s4567_23);
-                vst1q_f64((float64_t*)(dest + 3 * dstStride0 + 16), zip2s891011_23);
-
-                dest += 24;
-                e -= 12;
-                source += (12 * srcStride0);
-            }
-
-            if (e > 7) {
-                auto s0 = vld1q_f32((float*)(source)); // 00112233
-                auto s1 = vld1q_f32((float*)(source + srcStride0));// 00112233
-                auto s2 = vld1q_f32((float*)(source + 2 * srcStride0));
-                auto s3 = vld1q_f32((float*)(source + 3 * srcStride0));
-
-                auto s4 = vld1q_f32((float*)(source + 4 * srcStride0));
-                auto s5 = vld1q_f32((float*)(source + 5 * srcStride0));
-                auto s6 = vld1q_f32((float*)(source + 6 * srcStride0));
-                auto s7 = vld1q_f32((float*)(source + 7 * srcStride0));
-
-                auto zip1s01 = vzip1q_f32(s0, s1); // 00001111
-                auto zip1s23 = vzip1q_f32(s2, s3); // 00001111
-                auto zip1s45 = vzip1q_f32(s4, s5); // 00001111
-                auto zip1s67 = vzip1q_f32(s6, s7); // 00001111
-
-                auto zip2s01 = vzip2q_f32(s0, s1); // 22223333
-                auto zip2s23 = vzip2q_f32(s2, s3); // 22223333
-                auto zip2s45 = vzip2q_f32(s4, s5); // 22223333
-                auto zip2s67 = vzip2q_f32(s6, s7); // 22223333
-
-                auto zip1s0123_01 = vzip1q_f64((float64x2_t)zip1s01, (float64x2_t)zip1s23); // 00000000
-                auto zip1s4567_01 = vzip1q_f64((float64x2_t)zip1s45, (float64x2_t)zip1s67);
-
-                auto zip2s0123_01 = vzip2q_f64((float64x2_t)zip1s01, (float64x2_t)zip1s23); // 11111111
-                auto zip2s4567_01 = vzip2q_f64((float64x2_t)zip1s45, (float64x2_t)zip1s67);
-
-                auto zip1s0123_23 = vzip1q_f64((float64x2_t)zip2s01, (float64x2_t)zip2s23); // 22222222
-                auto zip1s4567_23 = vzip1q_f64((float64x2_t)zip2s45, (float64x2_t)zip2s67);
-
-                auto zip2s0123_23 = vzip2q_f64((float64x2_t)zip2s01, (float64x2_t)zip2s23); // 33333333
-                auto zip2s4567_23 = vzip2q_f64((float64x2_t)zip2s45, (float64x2_t)zip2s67);
-
-                vst1q_f64((float64_t*)dest, zip1s0123_01);
-                vst1q_f64((float64_t*)(dest + 8), zip1s4567_01);
-
-                vst1q_f64((float64_t*)(dest + dstStride0), zip2s0123_01);
-                vst1q_f64((float64_t*)(dest + dstStride0 + 8), zip2s4567_01);
-
-                vst1q_f64((float64_t*)(dest + 2 * dstStride0), zip1s0123_23);
-                vst1q_f64((float64_t*)(dest + 2 * dstStride0 + 8), zip1s4567_23);
-
-                vst1q_f64((float64_t*)(dest + 3 * dstStride0), zip2s0123_23);
-                vst1q_f64((float64_t*)(dest + 3 * dstStride0 + 8), zip2s4567_23);
-
-                dest += 16;
-                e -= 8;
-                source += (8 * srcStride0);
-            }
-
-            if (e > 3) {
-                auto s0 = vld1q_f32((float*)(source)); // 00112233
-                auto s1 = vld1q_f32((float*)(source + srcStride0));// 00112233
-                auto s2 = vld1q_f32((float*)(source + 2 * srcStride0));
-                auto s3 = vld1q_f32((float*)(source + 3 * srcStride0));
-
-                auto zip1s01 = vzip1q_f32(s0, s1); // 00001111
-                auto zip1s23 = vzip1q_f32(s2, s3); // 00001111
-
-                auto zip2s01 = vzip2q_f32(s0, s1); // 22223333
-                auto zip2s23 = vzip2q_f32(s2, s3); // 22223333
-
-                auto zip1s0123_01 = vzip1q_f64((float64x2_t)zip1s01, (float64x2_t)zip1s23); // 00000000
-
-                auto zip2s0123_01 = vzip2q_f64((float64x2_t)zip1s01, (float64x2_t)zip1s23); // 11111111
-
-                auto zip1s0123_23 = vzip1q_f64((float64x2_t)zip2s01, (float64x2_t)zip2s23); // 22222222
-
-                auto zip2s0123_23 = vzip2q_f64((float64x2_t)zip2s01, (float64x2_t)zip2s23); // 33333333
-
-                vst1q_f64((float64_t*)dest, zip1s0123_01);
-                vst1q_f64((float64_t*)(dest + dstStride0), zip2s0123_01);
-                vst1q_f64((float64_t*)(dest + 2 * dstStride0), zip1s0123_23);
-                vst1q_f64((float64_t*)(dest + 3 * dstStride0), zip2s0123_23);
-
-                dest += 8;
-                e -= 4;
-                source += (4 * srcStride0);
-            }
-            while (e > 0) {
-                auto s0 = vld1q_f32((float*)(source)); // 00112233
-
-                ((float*)dest)[0] = s0[0];
-                ((float*)(dest + dstStride0))[0] = s0[1];
-                ((float*)(dest + 2 * dstStride0))[0] = s0[2];
-                ((float*)(dest + 3 * dstStride0))[0] = s0[3];
-
-                dest += 2;
-                e -= 1;
-                source += srcStride0;
-            }
-            sourceN += (eReal * pack);
-            destN += (4 * dstStride0);
-        } // l>7
-
-        if (l > 3) {
-            auto source = sourceN;
-            auto dest = destN;
-            l -= 4;
-            auto e = eWork;
-            if (e == eDest) {
-                auto s0 = vld1_f32((float*)(source)); // 0011
-                auto s1 = vld1_f32((float*)(source + srcStride0));// 0011
-                auto s2 = vld1_f32((float*)(source + 2 * srcStride0));
-                auto s3 = vld1_f32((float*)(source + 3 * srcStride0));
-
-                auto s4 = vld1_f32((float*)(source + 4 * srcStride0));
-                auto s5 = vld1_f32((float*)(source + 5 * srcStride0));
-                auto s6 = vld1_f32((float*)(source + 6 * srcStride0));
-                auto s7 = vld1_f32((float*)(source + 7 * srcStride0));
-
-                auto s8 = vld1_f32((float*)(source + 8 * srcStride0));
-                auto s9 = vld1_f32((float*)(source + 9 * srcStride0));
-                auto s10 = vld1_f32((float*)(source + 10 * srcStride0));
-                auto s11 = vld1_f32((float*)(source + 11 * srcStride0));
-
-                auto s12 = vld1_f32((float*)(source + 12 * srcStride0));
-                auto s13 = vld1_f32((float*)(source + 13 * srcStride0));
-                auto s14 = vld1_f32((float*)(source + 14 * srcStride0));
-                auto s15 = vld1_f32((float*)(source + 15 * srcStride0));
-
-                auto zip1s01 = vzip1_f32(s0, s1); // 0000
-                auto zip1s23 = vzip1_f32(s2, s3); // 0000
-                auto zip1s45 = vzip1_f32(s4, s5); // 0000
-                auto zip1s67 = vzip1_f32(s6, s7); // 0000
-                auto zip1s89 = vzip1_f32(s8, s9); // 0000
-                auto zip1s1011 = vzip1_f32(s10, s11); // 0000
-                auto zip1s1213 = vzip1_f32(s12, s13); // 0000
-                auto zip1s1415 = vzip1_f32(s14, s15); // 0000
-
-                auto zip2s01 = vzip2_f32(s0, s1); // 1111
-                auto zip2s23 = vzip2_f32(s2, s3); // 1111
-                auto zip2s45 = vzip2_f32(s4, s5); // 1111
-                auto zip2s67 = vzip2_f32(s6, s7); // 1111
-                auto zip2s89 = vzip2_f32(s8, s9); // 1111
-                auto zip2s1011 = vzip2_f32(s10, s11); // 1111
-                auto zip2s1213 = vzip2_f32(s12, s13); // 1111
-                auto zip2s1415 = vzip2_f32(s14, s15); // 1111
-
-                vst1_f32((float32_t*)dest, zip1s01);
-                vst1_f32((float32_t*)(dest + 4), zip1s23);
-                vst1_f32((float32_t*)(dest + 8), zip1s45);
-                vst1_f32((float32_t*)(dest + 12), zip1s67);
-                vst1_f32((float32_t*)(dest + 16), zip1s89);
-                vst1_f32((float32_t*)(dest + 20), zip1s1011);
-                vst1_f32((float32_t*)(dest + 24), zip1s1213);
-                vst1_f32((float32_t*)(dest + 28), zip1s1415);
-
-                vst1_f32((float32_t*)(dest + dstStride0), zip2s01);
-                vst1_f32((float32_t*)(dest + dstStride0 + 4), zip2s23);
-                vst1_f32((float32_t*)(dest + dstStride0 + 8), zip2s45);
-                vst1_f32((float32_t*)(dest + dstStride0 + 12), zip2s67);
-                vst1_f32((float32_t*)(dest + dstStride0 + 16), zip2s89);
-                vst1_f32((float32_t*)(dest + dstStride0 + 20), zip2s1011);
-                vst1_f32((float32_t*)(dest + dstStride0 + 24), zip2s1213);
-                vst1_f32((float32_t*)(dest + dstStride0 + 28), zip2s1415);
-
-
-                dest += 32;
-                e -= eDest;
-            }
-
-            if (e > 11) {
-                auto s0 = vld1_f32((float*)(source)); // 0011
-                auto s1 = vld1_f32((float*)(source + srcStride0));// 0011
-                auto s2 = vld1_f32((float*)(source + 2 * srcStride0));
-                auto s3 = vld1_f32((float*)(source + 3 * srcStride0));
-
-                auto s4 = vld1_f32((float*)(source + 4 * srcStride0));
-                auto s5 = vld1_f32((float*)(source + 5 * srcStride0));
-                auto s6 = vld1_f32((float*)(source + 6 * srcStride0));
-                auto s7 = vld1_f32((float*)(source + 7 * srcStride0));
-
-                auto s8 = vld1_f32((float*)(source + 8 * srcStride0));
-                auto s9 = vld1_f32((float*)(source + 9 * srcStride0));
-                auto s10 = vld1_f32((float*)(source + 10 * srcStride0));
-                auto s11 = vld1_f32((float*)(source + 11 * srcStride0));
-
-                auto zip1s01 = vzip1_f32(s0, s1); // 0000
-                auto zip1s23 = vzip1_f32(s2, s3); // 0000
-                auto zip1s45 = vzip1_f32(s4, s5); // 0000
-                auto zip1s67 = vzip1_f32(s6, s7); // 0000
-                auto zip1s89 = vzip1_f32(s8, s9); // 0000
-                auto zip1s1011 = vzip1_f32(s10, s11); // 0000
-
-                auto zip2s01 = vzip2_f32(s0, s1); // 1111
-                auto zip2s23 = vzip2_f32(s2, s3); // 1111
-                auto zip2s45 = vzip2_f32(s4, s5); // 1111
-                auto zip2s67 = vzip2_f32(s6, s7); // 1111
-                auto zip2s89 = vzip2_f32(s8, s9); // 1111
-                auto zip2s1011 = vzip2_f32(s10, s11); // 1111
-
-                vst1_f32((float32_t*)dest, zip1s01);
-                vst1_f32((float32_t*)(dest + 4), zip1s23);
-                vst1_f32((float32_t*)(dest + 8), zip1s45);
-                vst1_f32((float32_t*)(dest + 12), zip1s67);
-                vst1_f32((float32_t*)(dest + 16), zip1s89);
-                vst1_f32((float32_t*)(dest + 20), zip1s1011);
-
-                vst1_f32((float32_t*)(dest + dstStride0), zip2s01);
-                vst1_f32((float32_t*)(dest + dstStride0 + 4), zip2s23);
-                vst1_f32((float32_t*)(dest + dstStride0 + 8), zip2s45);
-                vst1_f32((float32_t*)(dest + dstStride0 + 12), zip2s67);
-                vst1_f32((float32_t*)(dest + dstStride0 + 16), zip2s89);
-                vst1_f32((float32_t*)(dest + dstStride0 + 20), zip2s1011);
-
-                dest += 24;
-                e -= 12;
-                source += (12 * srcStride0);
-            }
-
-            if (e > 7) {
-                auto s0 = vld1_f32((float*)(source)); // 0011
-                auto s1 = vld1_f32((float*)(source + srcStride0));// 0011
-                auto s2 = vld1_f32((float*)(source + 2 * srcStride0));
-                auto s3 = vld1_f32((float*)(source + 3 * srcStride0));
-
-                auto s4 = vld1_f32((float*)(source + 4 * srcStride0));
-                auto s5 = vld1_f32((float*)(source + 5 * srcStride0));
-                auto s6 = vld1_f32((float*)(source + 6 * srcStride0));
-                auto s7 = vld1_f32((float*)(source + 7 * srcStride0));
-
-                auto zip1s01 = vzip1_f32(s0, s1); // 0000
-                auto zip1s23 = vzip1_f32(s2, s3); // 0000
-                auto zip1s45 = vzip1_f32(s4, s5); // 0000
-                auto zip1s67 = vzip1_f32(s6, s7); // 0000
-
-                auto zip2s01 = vzip2_f32(s0, s1); // 1111
-                auto zip2s23 = vzip2_f32(s2, s3); // 1111
-                auto zip2s45 = vzip2_f32(s4, s5); // 1111
-                auto zip2s67 = vzip2_f32(s6, s7); // 1111
-
-                vst1_f32((float32_t*)dest, zip1s01);
-                vst1_f32((float32_t*)(dest + 4), zip1s23);
-                vst1_f32((float32_t*)(dest + 8), zip1s45);
-                vst1_f32((float32_t*)(dest + 12), zip1s67);
-
-                vst1_f32((float32_t*)(dest + dstStride0), zip2s01);
-                vst1_f32((float32_t*)(dest + dstStride0 + 4), zip2s23);
-                vst1_f32((float32_t*)(dest + dstStride0 + 8), zip2s45);
-                vst1_f32((float32_t*)(dest + dstStride0 + 12), zip2s67);
-
-                dest += 16;
-                e -= 8;
-                source += (8 * srcStride0);
-            }
-
-            if (e > 3) {
-                auto s0 = vld1_f32((float*)(source)); // 0011
-                auto s1 = vld1_f32((float*)(source + srcStride0));// 0011
-                auto s2 = vld1_f32((float*)(source + 2 * srcStride0));
-                auto s3 = vld1_f32((float*)(source + 3 * srcStride0));
-
-                auto zip1s01 = vzip1_f32(s0, s1); // 0000
-                auto zip1s23 = vzip1_f32(s2, s3); // 0000
-
-                auto zip2s01 = vzip2_f32(s0, s1); // 1111
-                auto zip2s23 = vzip2_f32(s2, s3); // 1111
-
-                vst1_f32((float32_t*)dest, zip1s01);
-                vst1_f32((float32_t*)(dest + 4), zip1s23);
-
-                vst1_f32((float32_t*)(dest + dstStride0), zip2s01);
-                vst1_f32((float32_t*)(dest + dstStride0 + 4), zip2s23);
-
-                dest += 8;
-                e -= 4;
-                source += (4 * srcStride0);
-            }
-            if (e > 1) {
-                auto s0 = vld1_f32((float*)(source)); // 0011
-                auto s1 = vld1_f32((float*)(source + srcStride0));// 0011
-
-                auto zip1s01 = vzip1_f32(s0, s1); // 0000
-
-                auto zip2s01 = vzip2_f32(s0, s1); // 1111
-
-                vst1_f32((float32_t*)dest, zip1s01);
-
-                vst1_f32((float32_t*)(dest + dstStride0), zip2s01);
-
-                dest += 4;
-                e -= 2;
-                source += (2 * srcStride0);
-            }
-            if (e > 0) {
-                auto s0 = vld1_f32((float*)(source)); // 0011
-
-                ((float*)dest)[0] = s0[0];
-                ((float*)(dest + dstStride0))[0] = s0[1];
-            }
-            sourceN += 4;
-            destN += (2 * dstStride0);
         }
 
-        auto source = (FLOAT16*)(sourceGroup[n]);
-        auto dest = (FLOAT16*)destOrigin + lOffset * eDest + eOffset * LP;
-        if (l > 0) {
-            auto e = eWork;
-            auto lRemain = lWork - l;
-            // if e < eDest, packed A -> [LU, eDest, LP] eDest=eP
-            for (int y=0; y<e; ++y) {
-                auto yR = y % eDest;
-                for (int x=lRemain; x<lWork; ++x) {
-                    auto xR = x % pack;
-                    auto xC = x / pack;
-                    auto xOut = x / LP;
-                    auto xIn = x % LP;
-                    dest[xOut * eDest * LP + yR * LP + xIn] = source[xC * eReal * pack + y * pack * offset + xR];
-                }
+        const int eHandled = eMain * eTile;
+        const int lHandled = lMain * lTile;
+
+        // Process remaining rows
+        for (int y = eHandled; y < e; ++y) {
+            int yR = y % eDest;
+            for (int x = 0; x < l; ++x) {
+                int xR = x % pack;
+                int xC = x / pack;
+                destBase[(x / lP) * dstColBlockStride + yR * lP + (x % lP)] = sourceBase[xC * srcColBlockStride + y * srcRowStride + xR];
             }
-            l--;
+        }
+
+        // Process remaining columns for the already handled rows
+        for (int y = 0; y < eHandled; ++y) {
+            int yR = y % eDest;
+            for (int x = lHandled; x < l; ++x) {
+                int xR = x % pack;
+                int xC = x / pack;
+                destBase[(x / lP) * dstColBlockStride + yR * lP + (x % lP)] = sourceBase[xC * srcColBlockStride + y * srcRowStride + xR];
+            }
         }
     }
 }
@@ -1522,7 +1153,7 @@ static void MNNAttenPackAndScaleSingleHead(float* dst, const float* srcHeadBase,
     }
 }
 
-static void MNNFlashAttentionUpdateBlockOutput( float* dst, float* src, const float* scale, const float* normalizeScale, int depthQuad, int plane, int pack, int idx, int kvBlocks, int size, int bytes) {
+static void MNNFlashAttentionUpdateBlockOutput(float* dst, float* src, float* scale, float* normalizeScale, int depthQuad, int plane, int pack, int idx, int kvBlocks, int size, int bytes, int seqStart) {
     auto dstPtr = (float16_t*)dst;
     auto srcPtr = (float16_t*)src;
     const auto stride0 = plane * pack;
@@ -1532,9 +1163,9 @@ static void MNNFlashAttentionUpdateBlockOutput( float* dst, float* src, const fl
     } else {
         for (int j = 0; j < depthQuad; ++j) {
             const auto baseOffset = j * stride0;
-            int i = 0;
-            const int plane4 = plane - (plane % 4);
-            for (; i < plane4; i += 4) {
+            int i = seqStart;
+
+            for (; i + 4 < plane; i += 4) {
 
                 auto pdst0 = dstPtr + baseOffset + (i + 0) * pack;
                 auto psrc0 = srcPtr + baseOffset + (i + 0) * pack;
@@ -2149,6 +1780,392 @@ static void MNNAttenPackAndConvertFp32(float* dst, float* src, const int32_t* un
     }
 }
 
+static void MNNQuantAttentionKeyFP16(int8_t* dst, const float* source, float* sumKeyPtr, float* maxKeyPtr, int32_t* params) {
+    int32_t kvNumHead = params[0];
+    int32_t seqLen = params[1];
+    int32_t headDim = params[2];
+    int32_t blockNum = params[3];
+
+    int32_t lP = params[5];
+    int32_t hP = params[6];
+    int32_t pastLength = params[7];
+    int32_t kvHeadIdx = params[8];
+
+    auto blockHeadDim = UP_DIV(headDim, blockNum);
+    auto weightStride1 = ROUND_UP(blockHeadDim, lP) * hP;
+    auto weightStride2 = lP * hP;
+    auto packedWeightStride1 = weightStride1 + 2 * sizeof(float) * hP;
+
+    auto sourceFp16 = (FLOAT16*)source;
+    auto maxKeyFp16 = (FLOAT16*)maxKeyPtr;
+    int8_t tempBuffer[8];
+    float32x4_t neg128Vec = vdupq_n_f32(-128.0f);
+
+    // Get max: [1, headDim]
+    if (seqLen > 1) {
+        for (int s = 0; s < seqLen; ++s) {
+            const FLOAT16* keySrc = sourceFp16 + s * kvNumHead * headDim + kvHeadIdx * headDim;
+            int d = 0;
+            for (; d <= headDim - 16; d += 16) {
+                float16x8_t maxVec0 = vld1q_f16(maxKeyFp16 + d);
+                float16x8_t maxVec1 = vld1q_f16(maxKeyFp16 + d + 8);
+                float16x8_t srcVec0 = vld1q_f16(keySrc + d);
+                float16x8_t srcVec1 = vld1q_f16(keySrc + d + 8);
+                maxVec0 = vmaxq_f16(maxVec0, srcVec0);
+                maxVec1 = vmaxq_f16(maxVec1, srcVec1);
+                vst1q_f16(maxKeyFp16 + d, maxVec0);
+                vst1q_f16(maxKeyFp16 + d + 8, maxVec1);
+            }
+            for (; d <= headDim - 8; d += 8) {
+                float16x8_t maxVec = vld1q_f16(maxKeyFp16 + d);
+                float16x8_t srcVec = vld1q_f16(keySrc + d);
+                maxVec = vmaxq_f16(maxVec, srcVec);
+                vst1q_f16(maxKeyFp16 + d, maxVec);
+            }
+            for (; d < headDim; ++d) {
+                maxKeyFp16[d] = ALIMAX(maxKeyFp16[d], keySrc[d]);
+            }
+        }
+    }
+
+    // Quant fp16
+    for (int s = 0; s < seqLen; s++) {
+        const FLOAT16* keySrc = sourceFp16 + s * kvNumHead * headDim + kvHeadIdx * headDim;
+
+        float16x8_t minVec = vdupq_n_f16(keySrc[0]);
+        float16x8_t maxVec = vdupq_n_f16(keySrc[0]);
+
+        int d = 0;
+        for (; d <= headDim - 8; d += 8) {
+            float16x8_t srcVec = vld1q_f16(keySrc + d);
+            float16x8_t maxKeyVec = vld1q_f16(maxKeyFp16 + d);
+            float16x8_t keyDataF16 = vsubq_f16(srcVec, maxKeyVec);
+
+            minVec = vminq_f16(minVec, keyDataF16);
+            maxVec = vmaxq_f16(maxVec, keyDataF16);
+
+            float32x4_t keyDataF32Low = vcvt_f32_f16(vget_low_f16(keyDataF16));
+            float32x4_t keyDataF32High = vcvt_f32_f16(vget_high_f16(keyDataF16));
+        }
+
+        FLOAT16 minKey = vminvq_f16(minVec);
+        FLOAT16 maxKey = vmaxvq_f16(maxVec);
+
+        for (; d < headDim; ++d) {
+            auto keydata = keySrc[d] - maxKeyFp16[d];
+            minKey = ALIMIN(minKey, keydata);
+            maxKey = ALIMAX(maxKey, keydata);
+        }
+
+        int outIndex = (pastLength + s) / hP;
+        int inIndex  = (pastLength + s) % hP;
+
+        float range = (float)maxKey - (float)minKey;
+        float quantScaleVal = 0;
+        float biasVal = minKey + 128.0f * range / 255.0;
+        if (range <= 1e-6f) {
+            quantScaleVal = 0.f;
+        } else {
+            quantScaleVal = 255.0f / range;
+        }
+
+        for (int k = 0; k < blockNum; ++k) {
+            int8_t* weightDstBase = dst + outIndex * blockNum * packedWeightStride1 + k * packedWeightStride1;
+            float* scaleDst = (float*)(weightDstBase + weightStride1);
+            float* biasDst = scaleDst + hP;
+
+            scaleDst[inIndex] = range / 255.f;
+            biasDst[inIndex] = biasVal;
+
+            float32x4_t scaleVecFp32 = vdupq_n_f32(quantScaleVal);
+            float32x4_t negMinKeyVecF32 = vdupq_n_f32(-(float)minKey);
+
+            const FLOAT16* currentKeyBlock = keySrc + k * blockHeadDim;
+            const FLOAT16* currentMaxBlock = maxKeyFp16 + k * blockHeadDim;
+
+            int32x4_t sumInt32_0 = vdupq_n_s32(0);
+            int32x4_t sumInt32_1 = vdupq_n_s32(0);
+            int headDimIdx = 0;
+            for (; headDimIdx <= blockHeadDim - 8; headDimIdx += 8) {
+                float16x8_t srcVecFp16 = vld1q_f16(currentKeyBlock + headDimIdx);
+                float16x8_t maxVecFp16 = vld1q_f16(currentMaxBlock + headDimIdx);
+
+                float16x8_t keyDataF16 = vsubq_f16(srcVecFp16, maxVecFp16);
+
+                float32x4_t keyDataLowFp32 = vcvt_f32_f16(vget_low_f16(keyDataF16));
+                float32x4_t keyDataHighFp32 = vcvt_f32_f16(vget_high_f16(keyDataF16));
+
+                keyDataLowFp32 = vaddq_f32(keyDataLowFp32, negMinKeyVecF32);
+                keyDataHighFp32 = vaddq_f32(keyDataHighFp32, negMinKeyVecF32);
+
+                keyDataLowFp32 = vmulq_f32(keyDataLowFp32, scaleVecFp32);
+                keyDataHighFp32 = vmulq_f32(keyDataHighFp32, scaleVecFp32);
+
+                keyDataLowFp32 = vaddq_f32(keyDataLowFp32, neg128Vec);
+                keyDataHighFp32 = vaddq_f32(keyDataHighFp32, neg128Vec);
+
+                int32x4_t keyDataLowInt32 = vcvtaq_s32_f32(keyDataLowFp32);
+                int32x4_t keyDataHighInt32 = vcvtaq_s32_f32(keyDataHighFp32);
+
+                int16x4_t s16Low = vmovn_s32(keyDataLowInt32);
+                int16x4_t s16High = vmovn_s32(keyDataHighInt32);
+
+                int16x8_t s16Combined = vcombine_s16(s16Low, s16High);
+
+                // sum
+                sumInt32_0 = vaddq_s32(sumInt32_0, keyDataLowInt32);
+                sumInt32_1 = vaddq_s32(sumInt32_1, keyDataHighInt32);
+
+                int8x8_t s8Vec = vqmovn_s16(s16Combined);
+
+                if (lP == 8) {
+                    int i = headDimIdx / lP;
+                    int8_t* dstPtr = weightDstBase + i * weightStride2 + inIndex * lP;
+                    vst1_s8(dstPtr, s8Vec);
+                } else if (lP == 4) {
+                    vst1_s8(tempBuffer, s8Vec);
+                    int iLow = headDimIdx / lP;
+                    int iHigh = (headDimIdx + 4) / lP;
+
+                    int8_t* dstPtrLow = weightDstBase + iLow * weightStride2 + inIndex * lP;
+                    int8_t* dstPtrHigh = weightDstBase + iHigh * weightStride2 + inIndex * lP;
+
+                    std::memcpy(dstPtrLow, tempBuffer, 4);
+                    std::memcpy(dstPtrHigh, tempBuffer + 4, 4);
+                } else {
+                    vst1_s8(tempBuffer, s8Vec);
+                    for (int nk = 0; nk < 8; ++nk) {
+                        int headDimCurr = headDimIdx + nk;
+                        int i = headDimCurr / lP;
+                        int j = headDimCurr % lP;
+                        weightDstBase[i * weightStride2 + inIndex * lP + j] = tempBuffer[nk];
+                    }
+                }
+
+            }
+
+            int32_t sumInt32 = vaddvq_s32(sumInt32_0) + vaddvq_s32(sumInt32_1);
+
+            for (; headDimIdx < blockHeadDim; ++headDimIdx) {
+                int i = headDimIdx / lP;
+                int j = headDimIdx % lP;
+                float keyVal = (float)currentKeyBlock[headDimIdx] - (float)currentMaxBlock[headDimIdx];
+                float quantVal = (keyVal - minKey) * quantScaleVal - 128.0f;
+                int32_t roundedVal = static_cast<int32_t>(roundf(quantVal));
+                int8_t finalVal = static_cast<int8_t>(std::max(-128, std::min(127, roundedVal)));
+                weightDstBase[i * weightStride2 + inIndex * lP + j] = finalVal;
+                sumInt32 += finalVal;
+            }
+
+            // store sum
+            sumKeyPtr[outIndex * hP + inIndex] = sumInt32 * range / 255.f + (minKey * (float)(blockHeadDim) + 128.0f * range * (float)(blockHeadDim) / 255.0);
+        }
+    }
+}
+
+static void MNNQuantAttentionValueFP16(int8_t* dst, const float* source, float* valueSum, int32_t* params) {
+    // float   value src : [kvSeq,kvNumHead,headDim]
+    // int8_t  value dest: [updiv(maxLength,flashAttentionBlockKv), updiv(headDim,hp),updiv(flashAttentionBlockKv,lp),hp,lp]
+    // float   value sum: [updiv(maxLength,flashAttentionBlockKv), roundup(headDim,hp)]
+    int32_t kvNumHead = params[0];
+    int32_t seqLen = params[1];
+    int32_t headDim = params[2];
+    int32_t blockNum = params[3];
+    int32_t maxLength = params[4];
+
+    int32_t lP = params[5];
+    int32_t hP = params[6];
+    int32_t pastLength = params[7];
+    int32_t kvHeadIdx = params[8];
+
+    int32_t flashAttentionBlockKv = params[9];
+
+    auto blockKvseq = UP_DIV(seqLen + pastLength, blockNum);
+    auto weightStride2 = lP * hP;
+    auto weightStride1 = UP_DIV(flashAttentionBlockKv, lP) * weightStride2;
+
+    auto packedStride1 = (int)(weightStride1 + 2 * hP * sizeof(float));
+    auto packedStride0 = UP_DIV(headDim, hP) * packedStride1;
+
+    auto srcStride0 = kvNumHead * headDim;
+
+    auto sourceFp16 = (FLOAT16*)source;
+
+    // quant scale & bias
+    if (pastLength == 0) {
+        for (int d = 0; d < headDim; ++d) {
+            float* scalePtr = (float*)(dst + (d / hP) * packedStride1 + weightStride1) + (d % hP);
+            float* biasPtr = scalePtr + hP;
+
+            // find min,max
+            float dMax = sourceFp16[d + kvHeadIdx * headDim];
+            float dMin = dMax;
+            for (int s = 0; s < seqLen; ++s) {
+                float data = sourceFp16[s * srcStride0 + d + kvHeadIdx * headDim];
+                dMax = ALIMAX(dMax, data);
+                dMin = ALIMIN(dMin, data);
+            }
+
+            // scale & bias
+            float range = dMax - dMin;
+            if (range < 1e-6) {
+                scalePtr[0] = 0.f;
+                biasPtr[0] = dMax;
+            } else {
+                float scale = range / 255.f;
+                float bias  = range / 255.f * 128.f + dMin;
+                scalePtr[0] = scale;
+                biasPtr[0] = bias;
+            }
+        }
+    }
+
+    // copy the scale&bias to each blockKv
+    //                                    pastLength == 0: First time prefill
+    // (seqLen + pastLength) % flashAttentionBlockKv == 0: Open a new blockKv
+    if (pastLength == 0 || (pastLength % flashAttentionBlockKv) == 0) {
+        int32_t d0 = UP_DIV(maxLength, flashAttentionBlockKv);
+        int32_t d1 = UP_DIV(headDim, hP);
+        for (int k = 0; k < d0; ++k) {
+            for (int r = 0; r < d1; ++r) {
+                float* scalePtr = (float*)(dst + k * packedStride0 + r * packedStride1 + weightStride1);
+                float* biasPtr  = scalePtr + hP;
+                memcpy(scalePtr, dst + r * packedStride1 + weightStride1, hP * sizeof(float));
+                memcpy(biasPtr, dst + r * packedStride1 + weightStride1 + hP * sizeof(float), hP * sizeof(float));
+            }
+        }
+    }
+
+    std::vector<float> qScales(headDim);
+    std::vector<float> qBiases(headDim);
+    std::vector<float> deqScales(headDim);
+    std::vector<float> deqBiases(headDim);
+    int8_t tmpQ[8];
+
+    for (int d = 0; d < headDim; ++d) {
+        float* scaleBase = (float*)(dst + (d / hP) * packedStride1 + weightStride1) + (d % hP);
+        float* biasBase = scaleBase + hP;
+
+        float s_val = scaleBase[0];
+        float b_val = biasBase[0];
+
+        deqScales[d] = s_val;
+        deqBiases[d] = b_val;
+
+        bool is_small = s_val < 1e-6f;
+        qScales[d] = is_small ? 0.0f : (1.0f / s_val);
+        qBiases[d] = is_small ? 0.0f : (-b_val / s_val);
+    }
+
+    const __fp16* srcBasePtr = sourceFp16 + kvHeadIdx * headDim;
+
+    const int32_t sumStride = ROUND_UP(headDim, hP);
+
+    for (int s = 0; s < seqLen; ++s) {
+        int kvSeqIndx = s + pastLength;
+
+        int blkIdx = kvSeqIndx / flashAttentionBlockKv;
+        int blkRem = kvSeqIndx % flashAttentionBlockKv;
+
+        int idxInnerCommon = blkIdx * packedStride0 + (blkRem / lP) * weightStride2 + (blkRem % lP);
+
+        float* curSumRow = valueSum + blkIdx * sumStride;
+
+        const __fp16* srcRow = srcBasePtr + s * srcStride0;
+
+        int d = 0;
+        for (; d <= headDim - 8; d += 8) {
+            // --- Load Source ---
+            float16x8_t vSrc16 = vld1q_f16(srcRow + d);
+            float32x4_t vSrc0 = vcvt_f32_f16(vget_low_f16(vSrc16));
+            float32x4_t vSrc1 = vcvt_high_f32_f16(vSrc16);
+
+            // --- Load Quant Params ---
+            float32x4_t vQs0 = vld1q_f32(&qScales[d]);
+            float32x4_t vQb0 = vld1q_f32(&qBiases[d]);
+            float32x4_t vQs1 = vld1q_f32(&qScales[d + 4]);
+            float32x4_t vQb1 = vld1q_f32(&qBiases[d + 4]);
+
+            // --- Quantize: x * qs + qb ---
+            float32x4_t vRes0 = vaddq_f32(vmulq_f32(vSrc0, vQs0), vQb0);
+            float32x4_t vRes1 = vaddq_f32(vmulq_f32(vSrc1, vQs1), vQb1);
+
+            // --- Round & Saturate ---
+            int32x4_t vInt32_0 = vcvtaq_s32_f32(vRes0);
+            int32x4_t vInt32_1 = vcvtaq_s32_f32(vRes1);
+
+            int16x8_t vInt16 = vcombine_s16(vqmovn_s32(vInt32_0), vqmovn_s32(vInt32_1));
+            int8x8_t vInt8 = vqmovn_s16(vInt16); // Clamp to [-128, 127]
+
+            vst1_s8(tmpQ, vInt8);
+            for (int k = 0; k < 8; ++k) {
+                int cur_d = d + k;
+                int dstOffset = (cur_d / hP) * packedStride1 + idxInnerCommon + (cur_d % hP) * lP;
+                dst[dstOffset] = tmpQ[k];
+            }
+
+            int16x8_t vXq16 = vmovl_s8(vInt8);
+            float32x4_t vXqF0 = vcvtq_f32_s32(vmovl_s16(vget_low_s16(vXq16)));
+            float32x4_t vXqF1 = vcvtq_f32_s32(vmovl_s16(vget_high_s16(vXq16)));
+
+            float32x4_t vDs0 = vld1q_f32(&deqScales[d]);
+            float32x4_t vDb0 = vld1q_f32(&deqBiases[d]);
+            float32x4_t vDs1 = vld1q_f32(&deqScales[d + 4]);
+            float32x4_t vDb1 = vld1q_f32(&deqBiases[d + 4]);
+
+            // Dequant
+            float32x4_t vDeq0 = vaddq_f32(vmulq_f32(vXqF0, vDs0), vDb0);
+            float32x4_t vDeq1 = vaddq_f32(vmulq_f32(vXqF1, vDs1), vDb1);
+
+            float* sumPtr = curSumRow + d;
+            vst1q_f32(sumPtr, vaddq_f32(vld1q_f32(sumPtr), vDeq0));
+            vst1q_f32(sumPtr + 4, vaddq_f32(vld1q_f32(sumPtr + 4), vDeq1));
+        }
+
+        for (; d < headDim; ++d) {
+            float xf = (float)srcRow[d];
+
+            float val_f = xf * qScales[d] + qBiases[d];
+            int32_t val_i = (int32_t)roundf(val_f);
+            if (val_i > 127) val_i = 127;
+            if (val_i < -128) val_i = -128;
+            int8_t xq = (int8_t)val_i;
+
+            int dstOffset = (d / hP) * packedStride1 + idxInnerCommon + (d % hP) * lP;
+            dst[dstOffset] = xq;
+
+            curSumRow[d] += ((float)xq * deqScales[d] + deqBiases[d]);
+        }
+    }
+
+/*
+    // Quant fp16
+    for (int d = 0; d < headDim; ++d) {
+        // dst address
+        int idxBase = (d / hP) * packedStride1 + (d % hP) * lP;
+        int8_t*   dstBase = dst + idxBase;
+        float*  scaleBase = (float*)(dst + (d / hP) * packedStride1 + weightStride1) + (d % hP);
+        float*   biasBase = scaleBase + hP;
+        float*   sumBase = valueSum + (d / hP) * hP + (d % hP);
+
+        float qscale = scaleBase[0] < 1e-6 ? 0 : 1.0f / scaleBase[0];
+        float qbias = scaleBase[0] < 1e-6 ? 0 : (-biasBase[0] / scaleBase[0]);
+        // quant
+        for (int s = 0; s < seqLen; ++s) {
+            int kvSeqIndx = s + pastLength;
+            int idxInner = (kvSeqIndx / flashAttentionBlockKv) * packedStride0 + (kvSeqIndx % flashAttentionBlockKv) / lP * weightStride2 + (kvSeqIndx % flashAttentionBlockKv) % lP;
+            float xf = sourceFp16[s * srcStride0 + d + kvHeadIdx * headDim];
+            int8_t xq = ALIMAX(ALIMIN(127, static_cast<int32_t>(roundf(xf * qscale + qbias))), -128);
+            dstBase[idxInner] = xq;
+
+            // sum
+            int idxSum = (kvSeqIndx / flashAttentionBlockKv) * ROUND_UP(headDim, hP);
+            sumBase[idxSum] += ((float)xq * scaleBase[0] + biasBase[0]);
+        }
+    }
+        */
+}
+
 #endif // MNN_SUPPORT_TRANSFORMER_FUSE
 
 #ifdef MNN_LOW_MEMORY
@@ -2267,9 +2284,8 @@ static void MNNAsyQuantInfo_FP16(float* scale, float* bias, float* qscale, float
     // dequant scale/bias : [EU, blockNum, step]
     // quant scale/bias: [blockNum, plane]
     if (info[7] == 1) { // scale&bias:[1]
-        ARM82CountMinMaxValue(src, dstMin, dstMax, kernelsize * stride0);
-        float maxval = *(FLOAT16*)dstMax;
-        float minval = *(FLOAT16*)dstMin;
+        FLOAT16 maxval, minval;
+        ARM82CountMinMaxValue(src, (float*)(&minval), (float*)(&maxval) , kernelsize * stride0);
         if (info[8] == 1 && (maxval - minval) > 1e-7) {
             if (minval > 0.f) {
                 minval = 0.f;
@@ -2390,6 +2406,230 @@ static void MNNAsyQuantInfo_FP16(float* scale, float* bias, float* qscale, float
 
 #endif // MNN_LOW_MEMORY
 
+#define EXP_APPROX_MIN_INPUT vdupq_n_f32(-88.0f)
+#define EXP_APPROX_MAX_INPUT vdupq_n_f32(88.0f)
+#define EXP_APPROX_LN2         vdupq_n_f32(0.69314718056f)  // ln(2)
+#define EXP_APPROX_LN2_INV     vdupq_n_f32(1.44269504089f)   // 1/ln(2)
+// Fourth-order polynomial approximation coefficients of exp(r):
+// P(x) = c4*x^4 + c3*x^3 + c2*x^2 + c1*x + c0
+#define EXP_APPROX_C4          vdupq_n_f32(0.0416624f)
+#define EXP_APPROX_C3          vdupq_n_f32(0.166665f)
+#define EXP_APPROX_C2          vdupq_n_f32(0.500000f)
+#define EXP_APPROX_C1          vdupq_n_f32(1.0f)
+#define EXP_APPROX_C0          vdupq_n_f32(1.0f)
+
+#ifndef __aarch64__
+static inline float32x4_t vrndaq_f32_compat(float32x4_t x) {
+    float32x4_t sign = vbslq_f32(vdupq_n_u32(0x80000000), x, vdupq_n_f32(0.0f));
+    return vcvtq_f32_s32(vcvtq_s32_f32(vaddq_f32(x, vbslq_f32(vcltq_f32(x, vdupq_n_f32(0.0f)), vdupq_n_f32(-0.5f), vdupq_n_f32(0.5f)))));
+}
+#endif
+
+static inline float32x4_t expApprox(float32x4_t x) {
+    x = vminq_f32(vmaxq_f32(x, EXP_APPROX_MIN_INPUT), EXP_APPROX_MAX_INPUT);
+
+    float32x4_t k_float;
+    float32x4_t r;
+    float32x4_t exp_r;
+#if defined(__aarch64__)
+    k_float = vrndaq_f32(vmulq_f32(x, EXP_APPROX_LN2_INV));
+
+    // r = x - k * ln(2)
+    r = vfmsq_f32(x, k_float, EXP_APPROX_LN2);
+
+    // P(r) = (c0 + c2*r^2 + c4*r^4) + r*(c1 + c3*r^2)
+    float32x4_t r2 = vmulq_f32(r, r);
+    float32x4_t p_odd = vfmaq_f32(EXP_APPROX_C1, EXP_APPROX_C3, r2);
+
+    float32x4_t p_even = vfmaq_f32(EXP_APPROX_C0, EXP_APPROX_C2, r2);
+    p_even = vfmaq_f32(p_even, EXP_APPROX_C4, vmulq_f32(r2, r2));
+    exp_r = vfmaq_f32(p_even, p_odd, r);
+#else
+
+    k_float = vrndaq_f32_compat(vmulq_f32(x, EXP_APPROX_LN2_INV));
+
+
+    r = vsubq_f32(x, vmulq_f32(k_float, EXP_APPROX_LN2));
+
+    // 2. c0 + r*(c1 + r*(c2 + r*(c3 + r*c4)))
+    exp_r = vmlaq_f32(EXP_APPROX_C3, EXP_APPROX_C4, r); // c3 + c4*r
+    exp_r = vmlaq_f32(EXP_APPROX_C2, exp_r, r);         // c2 + r*(...)
+    exp_r = vmlaq_f32(EXP_APPROX_C1, exp_r, r);         // c1 + r*(...)
+    exp_r = vmlaq_f32(EXP_APPROX_C0, exp_r, r);         // c0 + r*(...)
+
+#endif
+
+    int32x4_t k_int = vcvtq_s32_f32(k_float);
+    int32x4_t k_shifted = vshlq_n_s32(k_int, 23);
+    return vreinterpretq_f32_s32(vaddq_s32(vreinterpretq_s32_f32(exp_r), k_shifted));
+}
+static void MNNSoftmaxFp16(float* dest, const float* source, float* runningMax, float* runningSum, float* updateScale, int outside, int reduceSize, int kvSeqOffset, int validOffset, int pack, bool mask) {
+    const int reduceSize_8 = UP_DIV(reduceSize, 8);
+    auto softmaxDst = (FLOAT16*)dest;
+    auto softmaxSrc = (FLOAT16*)source;
+
+    // source shape: [reduceSizeOuter, outside, reduceSizeInner]
+    // for C4, [up_div(reduceSize,4), outside,4] => reduceSizeOuter=up_div(reduceSize,4), reduceSizeInner=4
+    // for C,  [outside, reduceSize]             => reduceSizeOuter=1, reduceSizeInner=reduceSize
+
+    const int packUnit = 8;
+    int reduceSizeOuter = 1;
+    int reduceSizeInner = reduceSize;
+    int stride0         = packUnit;
+    if (pack > 1) {
+        reduceSizeOuter = UP_DIV(reduceSize, pack);
+        reduceSizeInner = pack;
+        stride0         = outside * reduceSizeInner;
+    }
+
+
+    for (int k = 0; k < outside; ++k) {
+        if (mask && kvSeqOffset > k + validOffset) {
+            if (updateScale){
+                updateScale[k] = 1;
+            }
+            for (int j = 0; j < reduceSizeOuter; ++j) {
+                int i = 0;
+                for (; i < reduceSizeInner; i += packUnit) {
+                    auto destPtr = softmaxDst + j * stride0 + k * reduceSizeInner + i;
+                    vst1q_f16(destPtr, vdupq_n_f16(0.0f));
+                }
+                if (i < reduceSizeInner) {
+                    memset(softmaxDst + j * stride0 + k * reduceSizeInner + i, 0, (reduceSizeInner - i) * sizeof(__fp16));
+                }
+            }
+            continue;
+        }
+
+        const int validReduceSize = mask ? ALIMIN(reduceSize, k + (validOffset + 1) - kvSeqOffset) : reduceSize;
+        const int remain = validReduceSize % packUnit;
+        const int sizeDiv = validReduceSize / packUnit;
+
+        // 1. newMax
+        float oldMax = -65504.0f;
+        if (runningMax) {
+            oldMax = runningMax[k];
+        }
+
+        auto newMaxVec = vdupq_n_f16(-65504.0f);
+
+        for (int j = 0; j < sizeDiv; ++j) {
+            auto srcPtr = softmaxSrc + j * stride0 + k * reduceSizeInner;
+            float16x8_t srcVec = vld1q_f16(srcPtr);
+            newMaxVec = vmaxq_f16(newMaxVec, srcVec);
+        }
+        float newMax = vmaxvq_f16(newMaxVec);
+
+        if (remain > 0) {
+            auto srcPtr = softmaxSrc + sizeDiv * stride0  + k * reduceSizeInner;
+            for (int i = 0; i < remain; ++i) {
+                newMax = ALIMAX(newMax, (float)srcPtr[i]);
+            }
+        }
+
+        const float finalMax = ALIMAX(oldMax, newMax);
+        const float32x4_t finalMaxVec = vdupq_n_f32(finalMax);
+
+        // 2. exp(x - finalMax)
+        float sum = 0.0f;
+        float32x4_t sumVec0 = vdupq_n_f32(0.0f);
+        float32x4_t sumVec1 = vdupq_n_f32(0.0f);
+
+        for (int j = 0; j < sizeDiv; ++j) {
+            auto idx = j * stride0 + k * reduceSizeInner;
+            auto srcPtr = softmaxSrc + idx;
+            auto dstPtr = softmaxDst + idx;
+
+            float16x8_t srcVec = vld1q_f16(srcPtr);
+
+            // F16 -> F32
+            float32x4_t srcLo = vcvt_f32_f16(vget_low_f16(srcVec));
+            float32x4_t srcHi = vcvt_f32_f16(vget_high_f16(srcVec));
+
+            // sub max
+            srcLo = vsubq_f32(srcLo, finalMaxVec);
+            srcHi = vsubq_f32(srcHi, finalMaxVec);
+
+            // exp
+            srcLo = expApprox(srcLo);
+            srcHi = expApprox(srcHi);
+
+            // sum
+            sumVec0 = vaddq_f32(sumVec0, srcLo);
+            sumVec1 = vaddq_f32(sumVec1, srcHi);
+
+            // F32 -> F16 and store
+            vst1q_f16(dstPtr, vcombine_f16(vcvt_f16_f32(srcLo), vcvt_f16_f32(srcHi)));
+        }
+
+        if (remain > 0) {
+            auto idx = sizeDiv * stride0  + k * reduceSizeInner;
+            auto srcPtr = softmaxSrc + idx;
+            auto dstPtr = softmaxDst + idx;
+
+            __fp16 tempDst[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+
+            for(int i = 0; i < remain; ++i) {
+                float val = expf((float)srcPtr[i] - finalMax);
+                sum += val;
+                tempDst[i] = (__fp16)val;
+            }
+            if (pack > 1) {
+                memcpy(dstPtr, tempDst, packUnit * sizeof(__fp16));
+            } else {
+                memcpy(dstPtr, tempDst, remain * sizeof(__fp16));
+            }
+        }
+
+        sum += vaddvq_f32(sumVec0) + vaddvq_f32(sumVec1);
+
+        // 3. update runningMax, runningSum, scale or normalize softmax results
+        if (runningMax != nullptr && runningSum != nullptr && updateScale != nullptr) {
+            // update runningSum, runningMax, scale
+            float scaleForSum = expf(oldMax - finalMax);
+            runningSum[k] = runningSum[k] * scaleForSum + sum;
+            runningMax[k] = finalMax;
+            updateScale[k] = scaleForSum;
+        } else {
+            // Normalize softmax results
+            if (runningMax != nullptr && runningSum != nullptr) {
+                sum += runningSum[k] * expf(oldMax - finalMax);
+            }
+            float scale = 1.0f / (sum + 1e-20f);
+            float16x8_t scale_vec = vdupq_n_f16((__fp16)scale);
+
+            for (int j = 0; j < sizeDiv; ++j) {
+                auto pDest = softmaxDst + j * stride0 + k * reduceSizeInner;
+                float16x8_t data = vld1q_f16(pDest);
+                data = vmulq_f16(data, scale_vec);
+                vst1q_f16(pDest, data);
+            }
+
+            if (remain > 0) {
+                auto pDest = softmaxDst + sizeDiv * stride0 + k * reduceSizeInner;
+                for (int i = 0; i < remain; ++i) {
+                    pDest[i] = (__fp16)((float)pDest[i] * scale);
+                }
+            }
+        }
+
+        // 4. memset invalid positions to zero
+        if (pack > 1) {
+            if (validReduceSize % packUnit > 0) {
+                memset(softmaxDst + sizeDiv * stride0 + k * reduceSizeInner + (validReduceSize % packUnit), 0, (packUnit - (validReduceSize % packUnit)) * sizeof(__fp16));
+            }
+            auto validDiv8 = UP_DIV(validReduceSize, packUnit);
+            auto allDiv8 = UP_DIV(reduceSize, packUnit);
+            for (int j = validDiv8; j < allDiv8; ++j) {
+                auto destPtr = softmaxDst + j * stride0 + k * reduceSizeInner;
+                memset(destPtr, 0, packUnit * sizeof(__fp16));
+            }
+        } else {
+            memset(softmaxDst + k * reduceSizeInner + validReduceSize, 0, (reduceSize - validReduceSize) * sizeof(__fp16));
+        }
+    }
+}
+
 static CoreFunctions* gInstance = nullptr;
 static CoreInt8Functions* gArm82CoreInt8Functions = nullptr;
 
@@ -2401,11 +2641,11 @@ bool Arm82Functions::init() {
     gArm82CoreInt8Functions = new CoreInt8Functions;
     *gArm82CoreInt8Functions = *MNNGetInt8CoreFunctions();
     gInstance->int8MatmulRelatedFunctions = origin->int8MatmulRelatedFunctions;
-    gInstance->sme2Int8MatmulRelatedFuncionsHp32 = origin->sme2Int8MatmulRelatedFuncionsHp32;
     {
         if (origin->supportSDot) {
             gArm82CoreInt8Functions->MNNPackC4Int8ForMatMul_A = _Arm82MNNPackC4ForMatMul_A<12, 4>;
-            gInstance->supportSDot = true;
+            gInstance->arm82MatmulRelatedFunctions = origin->arm82MatmulRelatedFunctions;
+            gInstance->arm82MatmulRelatedFunctions.MNNPackC4Int8ForMatMul_A = _Arm82MNNPackC4ForMatMul_A<12, 4>;
         }
         if (origin->supportI8mm) {
             gArm82CoreInt8Functions->MNNPackC4Int8ForMatMul_A = _ArmBasicMNNPackC4ForMatMul_A_L8<10, 8>;
@@ -2435,7 +2675,7 @@ bool Arm82Functions::init() {
     FUNC_PTR_ASSIGN(gInstance->MNNStrassenMergeCFunction, ARM82StrassenMerge);
     gInstance->MNNReorderWeightInt4 = origin->MNNReorderWeightInt4;
     gInstance->MNNSumWeightInt8 = origin->MNNSumWeightInt8;
-    gInstance->MNNSumWeightInt8SmeHp64 = origin->MNNSumWeightInt8SmeHp64;
+    gInstance->MNNSumWeightInt8SmeHp128 = origin->MNNSumWeightInt8SmeHp128;
     gInstance->penalty = 2.0f;
     FUNC_PTR_ASSIGN(gInstance->MNNScaleAndAddBias, MNNScaleAndAddBiasFP16);
     FUNC_PTR_ASSIGN(gInstance->MNNGridSampleComputeCord, MNNGridSampleComputeCordFP16);
@@ -2456,12 +2696,13 @@ bool Arm82Functions::init() {
     FUNC_PTR_ASSIGN(gInstance->MNNPackC4ForMatMul_A, Arm82MNNPackForMatMul_A);
     FUNC_PTR_ASSIGN(gInstance->MNNPackForMatMul_B, Arm82MNNPackForMatMul_B);
 
-    FUNC_PTR_ASSIGN(gInstance->MNNSoftmax, origin->MNNSoftmax);
+    FUNC_PTR_ASSIGN(gInstance->MNNSoftmax, MNNSoftmaxFp16);
 #if defined(__aarch64__)
     gInstance->supportFp16arith = origin->supportFp16arith;
     gInstance->supportSDot = origin->supportSDot;
     gInstance->supportI8mm = origin->supportI8mm;
     gInstance->supportSME2 = origin->supportSME2;
+    gInstance->smeCoreNumber = origin->smeCoreNumber;
 #ifdef MNN_CPU_WEIGHT_DEQUANT_GEMM
     // Weight Dequant Gemm Kernels
     FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMul_int8, MNNPackedMatMulFP16_int8);
@@ -2478,6 +2719,7 @@ bool Arm82Functions::init() {
 
     if (origin->supportSDot) {
         FUNC_PTR_ASSIGN(gInstance->MNNGeneralIm2Col, MNNGeneralIm2col_Arm82);
+        gInstance->arm82MatmulRelatedFunctions.MNNGeneralIm2Col = MNNGeneralIm2col_Arm82;
     }
     if (origin->supportI8mm) {
         FUNC_PTR_ASSIGN(gInstance->MNNGeneralIm2Col, MNNGeneralIm2col_Arm86);
@@ -2494,6 +2736,8 @@ bool Arm82Functions::init() {
     FUNC_PTR_ASSIGN(gInstance->MNNAttenPackAndConvertFp32, MNNAttenPackAndConvertFp32);
     FUNC_PTR_ASSIGN(gInstance->MNNAttenPackAndScaleSingleHead, MNNAttenPackAndScaleSingleHead);
     FUNC_PTR_ASSIGN(gInstance->MNNFlashAttentionUpdateBlockOutput, MNNFlashAttentionUpdateBlockOutput);
+    gInstance->MNNQuantAttentionKey = MNNQuantAttentionKeyFP16;
+    gInstance->MNNQuantAttentionValue = MNNQuantAttentionValueFP16;
 #endif // MNN_SUPPORT_TRANSFORMER_FUSE
 
     gInstance->MNNComputeMatMulForH_1 = _MNNComputeMatMulForH_1_FP16;
@@ -2520,11 +2764,11 @@ bool Arm82Functions::init() {
         gInstance->int8MatmulRelatedFunctions.MNNPackC4Int8ForMatMul_A = gArm82CoreInt8Functions->MNNPackC4Int8ForMatMul_A;
         gInstance->int8MatmulRelatedFunctions.MNNGeneralIm2Col = gInstance->MNNGeneralIm2Col;
     }
+
 #ifdef __aarch64__
 #ifdef MNN_SME2
         if (origin->supportSME2) {
             gArm82CoreInt8Functions->MNNPackC4Int8ForMatMul_A = _Arm82MNNPackC4ForMatMul_A<16, 4>;
-            gInstance->sme2Int8MatmulRelatedFuncionsHp32.MNNPackC4Int8ForMatMul_A = _Arm82MNNPackC4ForMatMul_A<16, 4>;
 
             FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMul, MNNPackedMatMulFP16_SME2);
             FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMulRemain, MNNPackedMatMulRemainFP16_SME2);
@@ -2534,11 +2778,15 @@ bool Arm82Functions::init() {
 
 #ifdef MNN_LOW_MEMORY
             FUNC_PTR_ASSIGN(gInstance->MNNGeneralIm2Col, MNNGeneralIm2col_Fp16Sme2);
-            gInstance->sme2Int8MatmulRelatedFuncionsHp32.MNNGeneralIm2Col = MNNGeneralIm2col_Fp16Sme2;
 #endif
         }
 #endif // MNN_SME2
 #endif // __aarch64__
+
+    // Update the function pointers in the int8MatmulRelatedFunctions struct.
+    gInstance->int8MatmulRelatedFunctions.MNNPackC4Int8ForMatMul_A = gArm82CoreInt8Functions->MNNPackC4Int8ForMatMul_A;
+    gInstance->int8MatmulRelatedFunctions.MNNGeneralIm2Col = gInstance->MNNGeneralIm2Col;
+
 
     return true;
 }

@@ -32,7 +32,7 @@ ldr x10, [x4, #16] // h
 
 ldr x7, [x4, #24] // cStride
 ldr x19, [x4, #40] // bExtraStride
-lsr x7, x7, #1    // cStride / sizeof(float16_t)
+
 lsl x21, x3, #1   // eSize * lP
 
 mov w12, #0
@@ -65,6 +65,10 @@ cbz x5, ESIZE
 .inst 0x052223bf  // dup z31.h, z29.h[0]
 
 ESIZE: // x3 <= eP
+cmp x3, #1
+beq E1
+
+lsr x7, x7, #1    // cStride / sizeof(float16_t)
 cmp x3, #16
 blt LoopOcDiv8
 
@@ -276,6 +280,185 @@ add x0, x0, x7, LSL #2
 beq End
 
 b LoopOcDiv8 // continue next ocDiv8
+
+E1:
+cmp x3, #1
+blt End
+
+E1LoopH:
+mov x8, x1 // A
+mov x21, x9 // LU
+
+.inst 0xc00800ff  // zero {za}
+mov w11, #0
+
+cbz x6, E1LoopL
+// bias
+lsl x4, x10, #3
+.inst 0x256447f1  // whilelt pn9.h, xzr, x4, vlx2 // oc to process, maximum is 64
+.inst 0xa04024c8  // ld1h {z8.h-z9.h}, pn9/z, [x6]
+.inst 0x04265046  // addvl x6, x6, #2
+
+.inst 0x6589a50c  // fcvt z12.s, p1/m, z8.h
+.inst 0x6489a50d  // fcvtlt z13.s, p1/m, z8.h
+.inst 0x6589a52e  // fcvt z14.s, p1/m, z9.h
+.inst 0x6489a52f  // fcvtlt z15.s, p1/m, z9.h
+
+.inst 0x05ad6194  // zip1 z20.s, z12.s, z13.s
+.inst 0x05ad6595  // zip2 z21.s, z12.s, z13.s
+.inst 0x05af61d6  // zip1 z22.s, z14.s, z15.s
+.inst 0x05af65d7  // zip2 z23.s, z14.s, z15.s
+.inst 0xc1a17e80  // fadd za.s[w11, 0, VGx4], {z20.s-z23.s}
+
+E1LoopL:
+.inst 0x8540c504  // ld1rw {z4.s}, p1/z, [x8]  // A
+.inst 0xa040a040  // ld1h {z0.h-z3.h}, pn8/z, [x2]  // B
+// [EP,LP] x [HP,LP] -> [EP,HP]
+.inst 0xc1347000  // fdot za.s[w11, 0, VGx4], {z0.h-z3.h}, z4.h
+
+subs x21, x21, #1
+add x8, x8, x22
+.inst 0x04225082  // addvl x2, x2, #4
+bne E1LoopL
+
+add x2, x2, x19 // bExtraStride
+
+E1_To_FP16:
+.inst 0xc0820000  // mova z0.s, p0/m, za0h.s[w12, 0]
+.inst 0xc0822001  // mova z1.s, p0/m, za0h.s[w13, 0]
+.inst 0xc0824002  // mova z2.s, p0/m, za0h.s[w14, 0]
+.inst 0xc0826003  // mova z3.s, p0/m, za0h.s[w15, 0]
+
+.inst 0xc120e010  // fcvt z16.h, {z0.s-z1.s}
+.inst 0xc120e051  // fcvt z17.h, {z2.s-z3.s}
+cbz x5, E1Store
+.inst 0xc17fc3d0  // fclamp {z16.h-z17.h}, z30.h, z31.h
+
+E1Store:
+cmp x10, #8
+bge E1StoreH64
+
+cmp x10, #1
+beq E1StoreH8
+
+cmp x10, #2
+beq E1StoreH16
+
+cmp x10, #3
+beq E1StoreH24
+
+cmp x10, #4
+beq E1StoreH32
+
+cmp x10, #5
+beq E1StoreH40
+
+cmp x10, #6
+beq E1StoreH48
+
+cmp x10, #7
+beq E1StoreH56
+
+E1StoreH64:
+add x21, x0, x7, LSL #1 // x0+2*x7
+add x11, x0, x7, LSL #2 // x0+4*x7
+add x20, x11, x7, LSL #1 // x20+6*x7
+.inst 0x05702212  // dup z18.q, z16.q[1]
+.inst 0x05b02213  // dup z19.q, z16.q[2]
+.inst 0x05f02214  // dup z20.q, z16.q[3]
+.inst 0x05702235  // dup z21.q, z17.q[1]
+.inst 0x05b02236  // dup z22.q, z17.q[2]
+.inst 0x05f02237  // dup z23.q, z17.q[3]
+.inst 0xe400f010  // st1b {z16.b}, p4, [x0]
+.inst 0xe4075012  // st1b {z18.b}, p4, [x0, x7]
+.inst 0xe400f2b3  // st1b {z19.b}, p4, [x21]
+.inst 0xe40752b4  // st1b {z20.b}, p4, [x21, x7]
+.inst 0xe400f171  // st1b {z17.b}, p4, [x11]
+.inst 0xe4075175  // st1b {z21.b}, p4, [x11, x7]
+.inst 0xe400f296  // st1b {z22.b}, p4, [x20]
+.inst 0xe4075297  // st1b {z23.b}, p4, [x20, x7]
+b E1H16_End
+
+E1StoreH56:
+add x21, x0, x7, LSL #1
+add x11, x0, x7, LSL #2
+add x20, x11, x7, LSL #1
+.inst 0x05702212  // dup z18.q, z16.q[1]
+.inst 0x05b02213  // dup z19.q, z16.q[2]
+.inst 0x05f02214  // dup z20.q, z16.q[3]
+.inst 0x05702235  // dup z21.q, z17.q[1]
+.inst 0x05b02236  // dup z22.q, z17.q[2]
+.inst 0xe400f010  // st1b {z16.b}, p4, [x0]
+.inst 0xe4075012  // st1b {z18.b}, p4, [x0, x7]
+.inst 0xe400f2b3  // st1b {z19.b}, p4, [x21]
+.inst 0xe40752b4  // st1b {z20.b}, p4, [x21, x7]
+.inst 0xe400f171  // st1b {z17.b}, p4, [x11]
+.inst 0xe4075175  // st1b {z21.b}, p4, [x11, x7]
+.inst 0xe400f296  // st1b {z22.b}, p4, [x20]
+b End
+
+E1StoreH48:
+add x21, x0, x7, LSL #1
+add x11, x0, x7, LSL #2
+.inst 0x05702212  // dup z18.q, z16.q[1]
+.inst 0x05b02213  // dup z19.q, z16.q[2]
+.inst 0x05f02214  // dup z20.q, z16.q[3]
+.inst 0x05702235  // dup z21.q, z17.q[1]
+.inst 0xe400f010  // st1b {z16.b}, p4, [x0]
+.inst 0xe4075012  // st1b {z18.b}, p4, [x0, x7]
+.inst 0xe400f2b3  // st1b {z19.b}, p4, [x21]
+.inst 0xe40752b4  // st1b {z20.b}, p4, [x21, x7]
+.inst 0xe400f171  // st1b {z17.b}, p4, [x11]
+.inst 0xe4075175  // st1b {z21.b}, p4, [x11, x7]
+b End
+
+E1StoreH40:
+add x21, x0, x7, LSL #1
+add x11, x0, x7, LSL #2
+.inst 0x05702212  // dup z18.q, z16.q[1]
+.inst 0x05b02213  // dup z19.q, z16.q[2]
+.inst 0x05f02214  // dup z20.q, z16.q[3]
+.inst 0xe400f010  // st1b {z16.b}, p4, [x0]
+.inst 0xe4075012  // st1b {z18.b}, p4, [x0, x7]
+.inst 0xe400f2b3  // st1b {z19.b}, p4, [x21]
+.inst 0xe40752b4  // st1b {z20.b}, p4, [x21, x7]
+.inst 0xe400f171  // st1b {z17.b}, p4, [x11]
+b End
+
+E1StoreH32:
+add x21, x0, x7, LSL #1
+.inst 0x05702212  // dup z18.q, z16.q[1]
+.inst 0x05b02213  // dup z19.q, z16.q[2]
+.inst 0x05f02214  // dup z20.q, z16.q[3]
+.inst 0xe400f010  // st1b {z16.b}, p4, [x0]
+.inst 0xe4075012  // st1b {z18.b}, p4, [x0, x7]
+.inst 0xe400f2b3  // st1b {z19.b}, p4, [x21]
+.inst 0xe40752b4  // st1b {z20.b}, p4, [x21, x7]
+b End
+
+E1StoreH24:
+add x21, x0, x7, LSL #1
+.inst 0x05702212  // dup z18.q, z16.q[1]
+.inst 0x05b02213  // dup z19.q, z16.q[2]
+.inst 0xe400f010  // st1b {z16.b}, p4, [x0]
+.inst 0xe4075012  // st1b {z18.b}, p4, [x0, x7]
+.inst 0xe400f2b3  // st1b {z19.b}, p4, [x21]
+b End
+
+E1StoreH16:
+.inst 0x05702212  // dup z18.q, z16.q[1]
+.inst 0xe400f010  // st1b {z16.b}, p4, [x0]
+.inst 0xe4075012  // st1b {z18.b}, p4, [x0, x7]
+b End
+
+E1StoreH8:
+.inst 0xe400f010  // st1b {z16.b}, p4, [x0]
+b End
+
+E1H16_End:
+subs x10, x10, #8
+add x0, x0, x7, LSL #3
+bne E1LoopH
 
 End:
 .inst 0xd503467f  // smstop

@@ -164,13 +164,12 @@ class SmoothQuantizer:
 
     def _get_first_input(self, sample):
         layer_kwargs = {}
-        self.model.seq_len = sample.numel()
-        self.model.context_len = sample.numel() - 2
-        self.model.token_len = 0
+        seq_len = sample.numel()
+        new_tokens = 0
         inps = self.model.embedding(sample).to(self.best_device)
-        position_ids = self.model.get_position_ids(sample)
+        position_ids = self.model.get_position_ids(seq_len, new_tokens, sample)
         rotary_pos_emb = self.model.rotary(position_ids)
-        attention_mask = self.model.get_attention_mask()
+        attention_mask = self.model.get_attention_mask(seq_len, new_tokens, )
         layer_kwargs["rotary_pos_emb"] = rotary_pos_emb.to(self.best_device)
         layer_kwargs["attention_mask"] = attention_mask.to(self.best_device)
         del sample

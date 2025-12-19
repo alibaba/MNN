@@ -86,12 +86,13 @@ mov x19, #32             // HP=32
 .inst 0x253617e7  // whilelt p7.b, xzr, x22   // eSize * LP int8 valid
 .inst 0x25b347f2  // whilelt pn10.s, xzr, x19, vlx2 // 32 float valid
 .inst 0x2558e3e2  // ptrue p2.h
-
-mov x25, 0       // inputBlockNum=1
-cbz x27, ESIZE
-mov x25, x22         // input block quant: realDstCount * sizeof(float)
+.inst 0x2518e084  // ptrue p4.b, #4                 // 4 int8_t valid
+.inst 0x2518e125  // ptrue p5.b, vl16               // 16 int8_t valid
+.inst 0x2558e3e6  // ptrue p6.h                     // all fp16 valid
 
 ESIZE:
+    cmp x7, #2
+    ble TILE_2
     mov x19, x13      // input kernel sum
     mov x21, x23     // input dequant scale
     mov x20, x27     // input dequant bias
@@ -156,8 +157,8 @@ bne LoopL
     .inst 0xa0404b80  // ld1w {z0.s, z1.s}, pn10/z, [x28]    // weight kernel sum
     .inst 0x80800442  // fmopa za2.s, p1/m, p0/m, z2.s, z0.s
     .inst 0x80810443  // fmopa za3.s, p1/m, p0/m, z2.s, z1.s
-    add x27, x27, x25
-    add x23, x23, x25
+    add x27, x27, x22
+    add x23, x23, x22
     .inst 0x043c505c  // addvl x28, x28, #2
 
     HP_DEQUANT:
@@ -190,7 +191,7 @@ bne LoopL
     .inst 0xc0080022  // zero {za1.s}
 
     // inputScale x weightScale -> [16,16]
-    .inst 0x809e07e1  // fmopa za1.s, p1/m, p0/m, z31.s, z30.s
+    .inst 0x809e67e1  // fmopa za1.s, p1/m, p3/m, z31.s, z30.s
     mov w8, #1
     mov w10, #3
     // extract scale from za1.s
@@ -318,6 +319,271 @@ bne LoopL
     mov x23, x21
     mov x27, x20
     b LoopH
+
+TILE_2:
+    cmp x7, #1
+    beq TILE_1
+    mov x19, x13      // input kernel sum
+    mov x21, x23      // input dequant scale
+    mov x20, x27      // input dequant bias
+    mov x15, #32      // 2 * pack(8) * sizeof(float16)
+    .inst 0x252f17e5  // whilelt p5.b, xzr, x15
+
+    .inst 0x84c0b9de  // ld1rh {z30.h}, p6/z, [x14]
+    .inst 0x84c1b9df  // ld1rh {z31.h}, p6/z, [x14, #2]
+
+
+LoopDz_TILE2:
+    .inst 0x25b8c01a  // mov z26.s, #0
+    .inst 0x25b8c01b  // mov z27.s, #0
+    .inst 0x25b8c01c  // mov z28.s, #0
+    .inst 0x25b8c01d  // mov z29.s, #0
+    mov w8, #0
+    mov x11, x1             // src
+    mov x15, x26            // blockid
+TILE2_BLOCKNUM:
+    mov x10, x3             // src_depth_quad
+
+.inst 0xc00800ff  // zero {za}
+
+    LoopSz_TILE2:
+        .inst 0xa4003d62  // ld1rqb {z2.b}, p7/z, [x11]       // src
+        .inst 0xa400ac40  // ld1b {z0.b}, p3/z, [x2]       // weight
+        // int4->int8
+        .inst 0xc08a4004  // luti4 {z4.b-z5.b}, zt0, z0[0]
+        // matmul
+        .inst 0xc15210a0  // sdot za.s[w8, 0, VGx2], {z4.b-z5.b}, z2.b[0]
+        .inst 0xc15214a4  // sdot za.s[w8, 4, VGx2], {z4.b-z5.b}, z2.b[1]
+        subs x10, x10, #1
+        add x11, x11, x22
+        .inst 0x04225022  // addvl x2, x2, #1
+
+    bne LoopSz_TILE2
+
+    sub x15, x15, #1
+    .inst 0xc0060808  // mova {z8.s-z9.s}, za.s[w8, 0, VGx2]
+    .inst 0xc006088a  // mova {z10.s-z11.s}, za.s[w8, 4, VGx2]
+    .inst 0xc132e108  // scvtf {z8.s-z11.s}, {z8.s-z11.s}
+
+    .inst 0xa0408040  // ld1b {z0.b-z3.b}, pn8/z, [x2]    // weight scale&bias
+    .inst 0xa4003da4  // ld1rqb {z4.b}, p7/z, [x13]    // input kernel sum
+    .inst 0xa4003ee5  // ld1rqb {z5.b}, p7/z, [x23]   // input kernel scale
+
+    .inst 0x64a52006  // fmul z6.s, z0.s, z5.s[0]  // e0
+    .inst 0x64a52027  // fmul z7.s, z1.s, z5.s[0]
+    .inst 0x64ad200c  // fmul z12.s, z0.s, z5.s[1]  // e1
+    .inst 0x64ad202d  // fmul z13.s, z1.s, z5.s[1]
+
+    .inst 0x64a4005a  // fmla z26.s, z2.s, z4.s[0]  // e0
+    .inst 0x64a4007b  // fmla z27.s, z3.s, z4.s[0]
+    .inst 0x64ac005c  // fmla z28.s, z2.s, z4.s[1]  // e1
+    .inst 0x64ac007d  // fmla z29.s, z3.s, z4.s[1]
+
+    .inst 0x65a60d1a  // fmla z26.s, p3/m, z8.s, z6.s
+    .inst 0x65a70d3b  // fmla z27.s, p3/m, z9.s, z7.s
+    .inst 0x65ac0d5c  // fmla z28.s, p3/m, z10.s, z12.s
+    .inst 0x65ad0d7d  // fmla z29.s, p3/m, z11.s, z13.s
+    .inst 0x04225082  // addvl x2, x2, #4
+    add x13, x13, x22
+
+    cbz x27, TILE2_ADD_DSTV
+    .inst 0xa4003f65  // ld1rqb {z5.b}, p7/z, [x27]   // input dequant bias
+    .inst 0xa0404b88  // ld1w {z8.s, z9.s}, pn10/z, [x28]    // weight kernel sum
+    .inst 0x64a5011a  // fmla z26.s, z8.s, z5.s[0]
+    .inst 0x64a5013b  // fmla z27.s, z9.s, z5.s[0]
+    .inst 0x64ad011c  // fmla z28.s, z8.s, z5.s[1]
+    .inst 0x64ad013d  // fmla z29.s, z9.s, z5.s[1]
+    add x27, x27, x22
+    add x23, x23, x22
+    .inst 0x043c505c  // addvl x28, x28, #2
+
+    TILE2_ADD_DSTV:
+    cbnz x15, TILE2_BLOCKNUM
+
+    TILE2_STORE:
+    lsl x15, x5, #3 // ocRemain
+    .inst 0x25af47f1  // whilelt pn9.s, xzr, x15, vlx2
+    .inst 0xa0404520  // ld1w {z0.s, z1.s}, pn9/z, [x9]   // bias
+    .inst 0x6580035a  // fadd z26.s, z26.s, z0.s
+    .inst 0x6581037b  // fadd z27.s, z27.s, z1.s
+    .inst 0x6580039c  // fadd z28.s, z28.s, z0.s
+    .inst 0x658103bd  // fadd z29.s, z29.s, z1.s
+    .inst 0x04295049  // addvl x9, x9, #2
+
+    .inst 0xc120e342  // fcvt z2.h, {z26.s-z27.s}
+    .inst 0xc120e383  // fcvt z3.h, {z28.s-z29.s}
+    .inst 0xc17fc3c2  // fclamp {z2.h-z3.h}, z30.h, z31.h
+    .inst 0xc123d440  // zip {z0.q, z1.q}, z2.q, z3.q
+
+    cmp x5, #4
+    bge TILE2_STORE32
+    cmp x5, #3
+    beq TILE2_STORE24
+    cmp x5, #2
+    beq TILE2_STORE16
+
+    .inst 0xe400f400  // st1b {z0.b}, p5, [x0]
+    b End
+
+    TILE2_STORE16:
+    add x11, x0, x4
+    .inst 0x0522cc02  // mov z2.b, p3/m, z0.b
+    .inst 0x05240002  // ext z2.b, z2.b, z0.b, #32
+    .inst 0xe400f400  // st1b {z0.b}, p5, [x0]
+    .inst 0xe400f562  // st1b {z2.b}, p5, [x11]
+    b End
+
+    TILE2_STORE24:
+    add x11, x0, x4
+    add x10, x0, x4, LSL #1
+    .inst 0x0522cc02  // mov z2.b, p3/m, z0.b
+    .inst 0x05240002  // ext z2.b, z2.b, z0.b, #32
+    .inst 0xe400f400  // st1b {z0.b}, p5, [x0]
+    .inst 0xe400f562  // st1b {z2.b}, p5, [x11]
+    .inst 0xe400f541  // st1b {z1.b}, p5, [x10]
+    b End
+
+    TILE2_STORE32:
+    add x11, x0, x4
+    add x10, x0, x4, LSL #1
+    add x13, x11, x4, LSL #1
+    .inst 0x0522cc02  // mov z2.b, p3/m, z0.b
+    .inst 0x0523cc23  // mov z3.b, p3/m, z1.b
+    .inst 0x05240002  // ext z2.b, z2.b, z0.b, #32
+    .inst 0x05240023  // ext z3.b, z3.b, z1.b, #32
+    .inst 0xe400f400  // st1b {z0.b}, p5, [x0]
+    .inst 0xe400f562  // st1b {z2.b}, p5, [x11]
+    .inst 0xe400f541  // st1b {z1.b}, p5, [x10]
+    .inst 0xe400f5a3  // st1b {z3.b}, p5, [x13]
+
+    TILE2_Dz_End:
+    subs x5, x5, #4
+    add x0, x0, x4, LSL #2
+    mov x13, x19
+    mov x23, x21
+    mov x27, x20
+    beq End
+    b LoopDz_TILE2
+
+TILE_1:
+    cmp x7, #1
+    blt End
+    mov x19, x13      // input kernel sum
+    mov x21, x23      // input dequant scale
+    mov x20, x27      // input dequant bias
+
+    .inst 0x84c0b9de  // ld1rh {z30.h}, p6/z, [x14]
+    .inst 0x84c1b9df  // ld1rh {z31.h}, p6/z, [x14, #2]
+
+
+LoopDz_TILE1:
+    .inst 0x25b8c01c  // mov z28.s, #0
+    .inst 0x25b8c01d  // mov z29.s, #0
+
+    mov w8, #0
+    mov x11, x1             // src
+    mov x15, x26            // blockid
+TILE1_BLOCKNUM:
+    mov x10, x3             // src_depth_quad
+
+.inst 0xc00800ff  // zero {za}
+
+    LoopSz_TILE_1:
+        .inst 0xa4003162  // ld1rqb {z2.b}, p4/z, [x11]       // src
+        .inst 0xa400ac40  // ld1b {z0.b}, p3/z, [x2]       // weight
+        // int4->int8
+        .inst 0xc08a4004  // luti4 {z4.b-z5.b}, zt0, z0[0]
+        // matmul
+        .inst 0xc15210a0  // sdot za.s[w8, 0, VGx2], {z4.b-z5.b}, z2.b[0]
+        subs x10, x10, #1
+        add x11, x11, x22
+        .inst 0x04225022  // addvl x2, x2, #1
+
+    bne LoopSz_TILE_1
+
+LoopSzEnd_TILE_1:
+    sub x15, x15, #1
+    .inst 0xc0060808  // mova {z8.s-z9.s}, za.s[w8, 0, VGx2]
+    .inst 0x6594a108  // scvtf z8.s, p0/m, z8.s
+    .inst 0x6594a129  // scvtf z9.s, p0/m, z9.s
+
+    .inst 0xa0408040  // ld1b {z0.b-z3.b}, pn8/z, [x2]    // weight scale&bias
+    .inst 0x8540c1a4  // ld1rw {z4.s}, p0/z, [x13]    // input kernel sum
+    .inst 0x8540c2e5  // ld1rw {z5.s}, p0/z, [x23]   // input kernel scale
+
+    .inst 0x65850800  // fmul z0.s, z0.s, z5.s
+    .inst 0x65850821  // fmul z1.s, z1.s, z5.s
+    .inst 0x64a4005c  // fmla z28.s, z2.s, z4.s[0]
+    .inst 0x64a4007d  // fmla z29.s, z3.s, z4.s[0]
+    .inst 0x65a0011c  // fmla z28.s, p0/m, z8.s, z0.s
+    .inst 0x65a1013d  // fmla z29.s, p0/m, z9.s, z1.s
+    .inst 0x04225082  // addvl x2, x2, #4
+    add x13, x13, x22
+
+    cbz x27, TILE1_ADD_DSTV
+    .inst 0x8540c365  // ld1rw {z5.s}, p0/z, [x27]   // input dequant bias
+    .inst 0xa0404b88  // ld1w {z8.s, z9.s}, pn10/z, [x28]    // weight kernel sum
+    .inst 0x64a5011c  // fmla z28.s, z8.s, z5.s[0]
+    .inst 0x64a5013d  // fmla z29.s, z9.s, z5.s[0]
+    add x27, x27, x22
+    add x23, x23, x22
+    .inst 0x043c505c  // addvl x28, x28, #2
+
+    TILE1_ADD_DSTV:
+    cbnz x15, TILE1_BLOCKNUM
+
+    TILE1_STORE:
+    lsl x15, x5, #3 // ocRemain
+    .inst 0x25af47f1  // whilelt pn9.s, xzr, x15, vlx2
+    .inst 0xa040453a  // ld1w {z26.s, z27.s}, pn9/z, [x9]   // bias
+    .inst 0x659a039c  // fadd z28.s, z28.s, z26.s
+    .inst 0x659b03bd  // fadd z29.s, z29.s, z27.s
+    .inst 0x04295049  // addvl x9, x9, #2
+    .inst 0xc120e382  // fcvt z2.h, {z28.s-z29.s}
+    .inst 0x647f27c2  // fclamp z2.h, z30.h, z31.h
+
+    cmp x5, #4
+    bge TILE1_STORE32
+    cmp x5, #3
+    beq TILE1_STORE24
+    cmp x5, #2
+    beq TILE1_STORE16
+
+    .inst 0xe400f402  // st1b {z2.b}, p5, [x0]
+    b End
+
+    TILE1_STORE16:
+    .inst 0x05702043  // dup z3.q, z2.q[1]
+    .inst 0xe400f402  // st1b {z2.b}, p5, [x0]
+    .inst 0xe4045403  // st1b {z3.b}, p5, [x0, x4]
+    b End
+
+    TILE1_STORE24:
+    add x11, x0, x4, LSL #1
+    .inst 0x05702043  // dup z3.q, z2.q[1]
+    .inst 0x05b02044  // dup z4.q, z2.q[2]
+    .inst 0xe400f402  // st1b {z2.b}, p5, [x0]
+    .inst 0xe4045403  // st1b {z3.b}, p5, [x0, x4]
+    .inst 0xe400f564  // st1b {z4.b}, p5, [x11]
+    b End
+
+    TILE1_STORE32:
+    subs x5, x5, #4
+    add x11, x0, x4, LSL #1
+    .inst 0x05702043  // dup z3.q, z2.q[1]
+    .inst 0x05b02044  // dup z4.q, z2.q[2]
+    .inst 0x05f02045  // dup z5.q, z2.q[3]
+    .inst 0xe400f402  // st1b {z2.b}, p5, [x0]
+    .inst 0xe4045403  // st1b {z3.b}, p5, [x0, x4]
+    .inst 0xe400f564  // st1b {z4.b}, p5, [x11]
+    .inst 0xe4045565  // st1b {z5.b}, p5, [x11, x4]
+
+    cbz x5, End
+    add x0, x0, x4, LSL #2
+    mov x13, x19
+    mov x23, x21
+    mov x27, x20
+    b LoopDz_TILE1
 
 End:
 .inst 0xd503467f  // smstop

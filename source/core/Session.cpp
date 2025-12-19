@@ -115,6 +115,12 @@ void Session::ModeGroup::setHint(Interpreter::HintMode hint, int value) {
         case Interpreter::HintMode::CPU_ENABLE_KLEIDIAI:
             runtimeHint.enableKleidiAI = value > 0 ? true : false;
             break;
+        case Interpreter::CPU_SME2_NEON_DIVISION_RATIO:
+            runtimeHint.divisionRatio = value;
+            break;
+        case Interpreter::CPU_SME_CORES:
+            runtimeHint.smeCores = value;
+            break;
         default:
             break;
     }
@@ -133,6 +139,9 @@ void Session::ModeGroup::setExternalPath(std::string path, int type) {
     switch (type) {
         case MNN::Interpreter::EXTERNAL_PATH_KVCACHE_DIR:
             runtimeHint.kvcacheDirPath = path;
+            break;
+        case MNN::Interpreter::EXTERNAL_PATH_PREFIXCACHE_DIR:
+            runtimeHint.prefixcacheDirPath = path;
             break;
         case MNN::Interpreter::EXTERNAL_FEATUREMAP_DIR:
             runtimeHint.midMemoryPath = path;

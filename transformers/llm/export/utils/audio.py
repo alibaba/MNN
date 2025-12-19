@@ -6,17 +6,20 @@ from .torch_utils import onnx_export
 class Audio(torch.nn.Module):
     def __init__(self, audio, base):
         super().__init__()
-        self.model_type = base.model_type
+        self.model_type = base.config.model_type
         self.audio = audio
         self.embed_ = base.embed
         self.tokenizer = base.tokenizer
-        self.config = base.config
-        self.hidden_size = base.hidden_size
-        self.llm_config = base.llm_config
+        self.config = base.config.origin_config
+        self.hidden_size = base.config.hidden_size
+        self.llm_config = { 'is_audio': True }
         self.rope_ratio = 1.0
         self.quant_bit = 16
         self.init_config()
         self.load()
+
+    def get_config(self):
+        return self.llm_config
 
     @staticmethod
     def get_audio(model_type):
@@ -29,7 +32,7 @@ class Audio(torch.nn.Module):
         return None
 
     def init_config(self):
-        self.llm_config['is_audio'] = True
+        pass
 
     def load(self):
         raise NotImplementedError

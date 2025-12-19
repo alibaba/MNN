@@ -268,15 +268,19 @@ void CPUMatMul::execute(const float* APtr, const float* BPtr, float* CPtr, const
                 } else {
                     core->MNNPackedMatMulRemain((float*)TC, (float*)TA, (float*)TB, xC, parameters, postPtr, biasPtr, nullptr, nullptr);
                 }
-                int area[] = {
-                    eP,
-                    mE
-                };
                 if (mTransposeC) {
+                    int offsets[] = {
+                        eP, // src area
+                        mH  // dst depth
+                    };
                     // hC4, e, 4 -> e, h
                     auto dst = (uint8_t*)CPtr + xStart * mH * core->bytes;
-                    core->MNNUnpackCUnitTranspose((float*)dst, (const float*)TC, xC, mH, area);
+                    core->MNNUnpackCUnitTranspose((float*)dst, (const float*)TC, xC, mH, offsets);
                 } else {
+                    int area[] = {
+                        eP,
+                        mE
+                    };
                     // hC4, e, 4 -> h, e
                     auto dst = (uint8_t*)CPtr + xStart * core->bytes;
                     core->MNNUnpackCUnit((float*)dst, (const float*)TC, xC, mH, area);

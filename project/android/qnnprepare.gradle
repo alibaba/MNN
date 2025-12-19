@@ -4,7 +4,7 @@
 // QNN configuration
 ext {
     // QNN download settings
-    QNN_LIBS_URL = 'http://meta.alicdn.com/data/mnn/libs/qnn_inc_libs.zip'
+    QNN_LIBS_URL = 'http://meta.alicdn.com/data/mnn/libs/qnn_inc_libs_2_37.zip'
 }
 
 def qnnZipName = 'qnn_inc_libs.zip'
@@ -67,28 +67,24 @@ task prepareQnnDeps {
 }
 
 def findQnnDirectory(File searchDir) {
-    // Look for directory containing both include and jniLibs (or lib) directories
-    def candidates = []
+    // Mirror the shell script's approach: find the 'include' directory
+    // anywhere in the hierarchy, then use its parent as the QNN root.
+    // This is more reliable than requiring both include and lib to be present
+    // at the same level.
+    
+    def foundIncludeDir = null
     
     searchDir.eachDirRecurse { dir ->
-        def hasInclude = new File(dir, 'include').exists()
-        def hasLibs = new File(dir, 'jniLibs').exists() || new File(dir, 'lib').exists()
-        
-        if (hasInclude && hasLibs) {
-            candidates.add(dir)
+        if (foundIncludeDir == null && dir.name == 'include') {
+            foundIncludeDir = dir
         }
     }
     
-    if (candidates.isEmpty()) {
-        // Fallback: look for directory that contains include
-        searchDir.eachDirRecurse { dir ->
-            if (new File(dir, 'include').exists()) {
-                candidates.add(dir)
-            }
-        }
+    if (foundIncludeDir != null) {
+        return foundIncludeDir.parentFile
     }
     
-    return candidates.isEmpty() ? null : candidates[0]
+    return null
 }
 
 def copyQnnFiles(File sourceDir) {

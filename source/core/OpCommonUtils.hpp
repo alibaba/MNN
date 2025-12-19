@@ -17,12 +17,22 @@ struct Op;
 struct CoreFunctions;
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 struct KVMeta {
+    enum {
+        NoChange,
+        PendingWrite,
+        PendingRead
+    } file_operation;
     size_t block = 4096;
     size_t previous = 0;
     size_t remove = 0;
     int* reserve = nullptr;
     int n_reserve = 0;
     size_t add = 0;
+    std::string file_name = "";
+    int file_flag = NoChange;
+    int seqlen_in_disk = 0;
+    int layer_index = 0;
+    int layer_nums = 0;
     int computeReverseSize() const {
         int sum = 0;
         for (int i=0; i<n_reserve; ++i) {

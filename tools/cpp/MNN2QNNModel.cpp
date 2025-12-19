@@ -255,7 +255,7 @@ int main(int argc, const char* argv[]) {
         }
 
         MNN::ScheduleConfig config;
-        config.type = MNN_FORWARD_NN;
+        config.type = MNN_CONVERT_QNN;
         std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
         rtmgr->setCache(curQnnModelDir.c_str());
         MNN::Express::Module::Config mConfig;

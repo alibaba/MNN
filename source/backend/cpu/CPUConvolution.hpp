@@ -66,7 +66,7 @@ public:
         std::vector<float> mReluThreshold;
         // relu or relu6
         bool mRelu;
-        int mActBits;  // quant bits
+        int mWeightBits;  // quant bits
 
         bool mUseConvQuan = true;
         bool mWeightAsymmetricQuant = true;

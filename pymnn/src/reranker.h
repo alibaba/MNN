@@ -54,6 +54,16 @@ static PyObject* PyMNNReranker_setInstruct(Reranker *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 
+static PyObject* PyMNNReranker_load(Reranker *self, PyObject *args) {
+    if (!self->reranker) {
+        PyErr_SetString(PyExc_RuntimeError, "Reranker not initialized");
+        Py_RETURN_NONE;
+    }
+    
+    self->reranker->load();
+    Py_RETURN_NONE;
+}
+
 static PyObject* PyMNNReranker_compute_scores(Reranker *self, PyObject *args) {
     if (!self->reranker) {
         PyErr_SetString(PyExc_RuntimeError, "Reranker not initialized");
@@ -118,6 +128,7 @@ static PyObject* PyMNNReranker_get_llm(Reranker *self, PyObject *args) {
 
 static PyMethodDef PyMNNReranker_methods[] = {
     {"set_instruct", (PyCFunction)PyMNNReranker_setInstruct, METH_VARARGS, "Set instruction for the reranker."},
+    {"load", (PyCFunction)PyMNNReranker_load, METH_VARARGS, "Load the reranker model."},
     {"compute_scores", (PyCFunction)PyMNNReranker_compute_scores, METH_VARARGS, "Compute scores for documents given a query."},
     {"get_llm", (PyCFunction)PyMNNReranker_get_llm, METH_VARARGS, "Get the underlying LLM instance for configuration."},
     {NULL}  /* Sentinel */

@@ -190,8 +190,10 @@ void CPUConvolution::MutableResourceInt8::updateInputOutputScale(std::vector<flo
             bias[i] = static_cast<int32_t>(biasData[i] / (mInputScale * weightScale)) - mResource->mInt8WeightKernelSum[i] * (mInputZeroPoint + offset) + outputZeroPointFused;
         }
     } else {
+        auto outputScale = mResource->mWeightBits == 4 ? 1.f : mOutputScale;
+        int32_t outputZero = mResource->mWeightBits == 4 ? 0 : mOutputZeroPoint;
         for (int i = 0; i < ocUp4; ++i) {
-            biasfloat[i] = (biasData[i] - mResource->mWeightKernelSum->host<float>()[i] * (mInputZeroPoint + offset) * mInputScale) / mOutputScale + mOutputZeroPoint;
+            biasfloat[i] = (biasData[i] - mResource->mWeightKernelSum->host<float>()[i] * (mInputZeroPoint + offset) * mInputScale) / outputScale + outputZero;
 
         }
     }
@@ -224,9 +226,9 @@ std::shared_ptr<CPUConvolution::ResourceInt8> CPUConvolution::makeResourceInt8(B
     auto scalePtr = resource->mOriginScale->host<float>();
     memset(scalePtr, 0, ocUpUnit * 2 * sizeof(float));
 
-    resource->mActBits = 8;
+    resource->mWeightBits = 8;
     if (convParam->symmetricQuan()) {
-        resource->mActBits = convParam->symmetricQuan()->nbits();
+        resource->mWeightBits = convParam->symmetricQuan()->nbits();
     }
     const int8_t* weightSrc = nullptr;
     int weightSize = 0;
