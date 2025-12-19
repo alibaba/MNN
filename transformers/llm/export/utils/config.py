@@ -65,6 +65,7 @@ class LlmConfig(PretrainedConfig):
             llm_config.attention_type = 'sliding'
         elif len(sliding_attn_layers) > 0:
             llm_config.attention_type = 'mix'
+            llm_config.sliding_attn_layers = sliding_attn_layers
         else:
             llm_config.attention_type = 'full'
 

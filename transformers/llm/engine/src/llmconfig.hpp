@@ -315,6 +315,10 @@ public:
     std::string audio_model() const {
         return base_dir_ + config_.value("audio_model", "audio.mnn");
     }
+
+    std::string context_file() const {
+        return base_dir_ + config_.value("context_file", "context.json");
+    }
     // model file config end >
 
     // < generate config start
