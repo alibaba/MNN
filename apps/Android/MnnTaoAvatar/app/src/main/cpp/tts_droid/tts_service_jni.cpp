@@ -31,19 +31,28 @@ Java_com_taobao_meta_avatar_tts_TtsService_nativeLoadResourcesFromFile(JNIEnv *e
                                                                        jlong nativePtr,
                                                                        jstring resourceDir,
                                                                        jstring modelName,
-                                                                       jstring cacheDir) {
+                                                                       jstring cacheDir,
+                                                                       jstring paramsJson) {  // 新增：JSON 参数字符串
     std::unique_lock<std::mutex> lock(gTTSMutex);
     auto ttsService = reinterpret_cast<TaoAvatar::TTSService *>(nativePtr);
     const char *resourceDirCStr = env->GetStringUTFChars(resourceDir, nullptr);
     const char *modelNameCStr = env->GetStringUTFChars(modelName, nullptr);
     const char *cacheDirCStr = env->GetStringUTFChars(cacheDir, nullptr);
+    const char *paramsJsonCStr = env->GetStringUTFChars(paramsJson, nullptr);
+    
     bool result = false;
     if (ttsService) {
-        result = ttsService->LoadTtsResources(resourceDirCStr, modelNameCStr, cacheDirCStr);
+        std::string paramsJsonStr = (paramsJsonCStr != nullptr) ? 
+                                    std::string(paramsJsonCStr) : "{}";
+        result = ttsService->LoadTtsResources(resourceDirCStr, modelNameCStr, 
+                                              cacheDirCStr, paramsJsonStr);
     }
-    env->ReleaseStringUTFChars(modelName, modelNameCStr);
+    
     env->ReleaseStringUTFChars(resourceDir, resourceDirCStr);
+    env->ReleaseStringUTFChars(modelName, modelNameCStr);
     env->ReleaseStringUTFChars(cacheDir, cacheDirCStr);
+    env->ReleaseStringUTFChars(paramsJson, paramsJsonCStr);
+    
     return result ? JNI_TRUE : JNI_FALSE;
 }
 
@@ -68,6 +77,19 @@ Java_com_taobao_meta_avatar_tts_TtsService_nativeSetCurrentIndex(JNIEnv *env, jo
                                                                  jint index) {
     auto tts_service = reinterpret_cast<TaoAvatar::TTSService *>(tts_service_native);
     tts_service->SetIndex(index);
+}
+
+JNIEXPORT void JNICALL
+Java_com_taobao_meta_avatar_tts_TtsService_nativeSetSpeakerId(JNIEnv *env, jobject thiz,
+                                                                jlong nativePtr,
+                                                                jstring speakerId) {
+    std::unique_lock<std::mutex> lock(gTTSMutex);
+    auto ttsService = reinterpret_cast<TaoAvatar::TTSService *>(nativePtr);
+    const char *speakerIdCStr = env->GetStringUTFChars(speakerId, nullptr);
+    if (ttsService) {
+        ttsService->SetSpeakerId(std::string(speakerIdCStr));
+    }
+    env->ReleaseStringUTFChars(speakerId, speakerIdCStr);
 }
 
 }

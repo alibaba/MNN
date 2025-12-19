@@ -122,7 +122,7 @@ class DebugModule {
         var ttsService:TtsService? = null
         if (DEBUG_DISABLE_SERVICE_AUTO_START) {
             ttsService = TtsService()
-            ttsService.init(MHConfig.TTS_MODEL_DIR)
+            ttsService.init(MHConfig.TTS_MODEL_DIR, context = activity)
             ttsService.waitForInitComplete()
         } else {
             ttsService = activity.getTtsService()
@@ -214,7 +214,7 @@ class DebugModule {
     }
 
     suspend fun testKokoroZhEn() {
-        ttsService.init(MHConfig.TTS_MODEL_DIR)
+        ttsService.init(MHConfig.TTS_MODEL_DIR, context = activity)
         ttsService.waitForInitComplete()
         val tts_path = "/data/local/tmp/kokoro-multi-lang-v1_0"
         val config = OfflineTtsConfig(

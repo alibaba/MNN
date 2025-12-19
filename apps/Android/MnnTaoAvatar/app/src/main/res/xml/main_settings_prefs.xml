@@ -1,7 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- TTS 设置分类 -->
+    <PreferenceCategory android:title="TTS Settings">
+        <ListPreference
+            android:key="tts_speaker_id"
+            android:title="@string/tts_voice_title"
+            android:summary="@string/tts_voice_summary"
+            android:entries="@array/tts_speaker_names"
+            android:entryValues="@array/tts_speaker_ids"
+            android:defaultValue="F1" />
+        
+<!--        <SeekBarPreference-->
+<!--            android:key="tts_speed"-->
+<!--            android:title="Speech Speed / 语速"-->
+<!--            android:summary="Adjust TTS speech speed"-->
+<!--            android:defaultValue="10"-->
+<!--            android:max="20"-->
+<!--            android:min="5"-->
+<!--            android:showSeekBarValue="true" />-->
+    </PreferenceCategory>
 
+    <!-- 现有设置 -->
     <EditTextPreference
         android:key="llm_prompt"
         android:title="@string/ll_prompt"

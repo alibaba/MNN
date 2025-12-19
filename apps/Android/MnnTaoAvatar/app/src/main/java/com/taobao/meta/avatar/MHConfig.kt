@@ -20,9 +20,12 @@ object MHConfig {
     val TTS_MODEL_DIR
         get() = "${BASE_DIR}/bert-vits2-MNN/"
 
+    val TTS_MODEL_DIR_EN
+        get() = "${BASE_DIR}/supertonic-tts-mnn/"
+
     val A2BS_MODEL_DIR
         get() = "${BASE_DIR}/UniTalker-MNN/"
-
+//    /data/data/com.taobao.meta.avatar/files/.mnnmodels/modelscope/supertonic-tts-mnn
     val LLM_MODEL_DIR
         get() = "${BASE_DIR}/Qwen2.5-1.5B-Instruct-MNN"
 
