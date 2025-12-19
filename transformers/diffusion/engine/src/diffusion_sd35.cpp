@@ -39,7 +39,7 @@ mModelPath(modelPath), mModelType(modelType), mBackendType(backendType), mMemory
     // Initialize tokenizers
     mTokenizer1.reset(new CLIPTokenizer);
     mTokenizer2.reset(new CLIPTokenizer);
-    // mTokenizer3 for T5 is not implemented yet
+    mTokenizer3.reset(new T5Tokenizer);
 }
 
 DiffusionSD35::~DiffusionSD35() {
@@ -125,7 +125,7 @@ bool DiffusionSD35::load() {
     // Load tokenizers
     mTokenizer1->load(mModelPath + "/tokenizer");
     mTokenizer2->load(mModelPath + "/tokenizer_2");
-    // mTokenizer3->load(mModelPath + "/tokenizer_3"); // Not implemented
+    mTokenizer3->load(mModelPath + "/tokenizer_3");
 
     // Resize fix
     for (auto& m : mModules) {
@@ -136,32 +136,67 @@ bool DiffusionSD35::load() {
 }
 
 std::pair<VARP, VARP> DiffusionSD35::encode_prompt(const std::string& prompt) {
+    auto run_encoder = [&](int module_index, VARP input_ids, const char* name) {
+        auto outputs = mModules[module_index]->onForward({input_ids});
+        std::vector<VARP> safe_outputs;
+        for (auto& out : outputs) {
+            auto info = out->getInfo();
+            const void* ptr = out->readMap<void>();
+            auto new_var = _Const(ptr, info->dim, info->order, info->type);
+            safe_outputs.push_back(new_var);
+        }
+        if (mMemoryMode != 1) {
+            mModules[module_index].reset();
+            MNN_PRINT("%s Module unloaded.\n", name);
+            MNN::Express::Executor::getGlobalExecutor()->gc(MNN::Express::Executor::FULL);
+        }
+        return safe_outputs;
+    };
+
     // 1. CLIP L
     auto ids1 = mTokenizer1->encode(prompt, mMaxTextLen);
     VARP input_ids1 = _Input({2, mMaxTextLen}, NCHW, halide_type_of<int>());
-    // Copy both uncond and cond ids
-    memcpy((void *)input_ids1->writeMap<int>(), ids1.data(), ids1.size() * sizeof(int));
+    int* inputs1_ptr = input_ids1->writeMap<int>();
+    memset(inputs1_ptr, 0, 2 * mMaxTextLen * sizeof(int));
+    if (ids1.size() > 0) {
+        size_t copy_size = std::min(ids1.size(), (size_t)(2 * mMaxTextLen));
+        memcpy(inputs1_ptr, ids1.data(), copy_size * sizeof(int));
+    }
     
-    auto out1 = mModules[0]->onForward({input_ids1});
+    auto out1 = run_encoder(0, input_ids1, "CLIP L");
     auto clip_l_hidden = out1[0]; // (2, 77, 768)
     auto clip_l_pooled = out1[1]; // (2, 768)
     
     // 2. CLIP G
     auto ids2 = mTokenizer2->encode(prompt, mMaxTextLen);
     VARP input_ids2 = _Input({2, mMaxTextLen}, NCHW, halide_type_of<int>());
-    memcpy((void *)input_ids2->writeMap<int>(), ids2.data(), ids2.size() * sizeof(int));
+    int* inputs2_ptr = input_ids2->writeMap<int>();
+    memset(inputs2_ptr, 0, 2 * mMaxTextLen * sizeof(int));
+    if (ids2.size() > 0) {
+        size_t copy_size = std::min(ids2.size(), (size_t)(2 * mMaxTextLen));
+        memcpy(inputs2_ptr, ids2.data(), copy_size * sizeof(int));
+    }
     
-    auto out2 = mModules[1]->onForward({input_ids2});
+    auto out2 = run_encoder(1, input_ids2, "CLIP G");
     auto clip_g_hidden = out2[0]; // (2, 77, 1280)
     auto clip_g_pooled = out2[1]; // (2, 1280)
     
     // 3. T5
     VARP t5_hidden;
     if (mModules[2]) {
-        // Placeholder for T5 tokenizer
-        // For now, we can't run T5 without tokenizer.
-        // We will use zeros.
-        t5_hidden = _Const(0.0f, {2, mMaxTextLenT5, 4096}, NCHW);
+        auto ids3 = mTokenizer3->encode(prompt, mMaxTextLenT5);
+        VARP input_ids3 = _Input({2, mMaxTextLenT5}, NCHW, halide_type_of<int>());
+        
+        // Uncond for T5 is empty string
+        auto ids3_uncond = mTokenizer3->encode("", mMaxTextLenT5);
+        
+        int* inputs3_ptr = input_ids3->writeMap<int>();
+        memset(inputs3_ptr, 0, 2 * mMaxTextLenT5 * sizeof(int)); 
+        memcpy(inputs3_ptr, ids3_uncond.data(), mMaxTextLenT5 * sizeof(int));
+        memcpy(inputs3_ptr + mMaxTextLenT5, ids3.data(), mMaxTextLenT5 * sizeof(int));
+        
+        auto out3 = run_encoder(2, input_ids3, "T5");
+        t5_hidden = out3[0];
     } else {
         t5_hidden = _Const(0.0f, {2, mMaxTextLenT5, 4096}, NCHW);
     }
@@ -212,7 +247,8 @@ VARP DiffusionSD35::vae_decoder(VARP latent) {
     auto outputs = mModules[4]->onForward({latent});
     auto image = outputs[0];
     
-    image = _Relu6(image * _Const(0.5) + _Const(0.5), 0, 1);
+    image = image * _Const(0.5f) + _Const(0.5f);
+    image = _Maximum(_Minimum(image, _Const(1.0f)), _Const(0.0f));
     image = _Squeeze(_Transpose(image, {0, 2, 3, 1}));
     image = _Cast(_Round(image * _Const(255.0)), halide_type_of<uint8_t>());
     image = cvtColor(image, COLOR_BGR2RGB);
@@ -222,10 +258,26 @@ VARP DiffusionSD35::vae_decoder(VARP latent) {
 bool DiffusionSD35::run(const std::string prompt, const std::string imagePath, int iterNum, int randomSeed, std::function<void(int)> progressCallback) {
     AUTOTIME;
 
+    auto unload_module = [&](int index, const char* name) {
+        if (mMemoryMode != 1) {
+            mModules[index].reset();
+            MNN_PRINT("%s Module unloaded.\n", name);
+            MNN::Express::Executor::getGlobalExecutor()->gc(MNN::Express::Executor::FULL);
+        }
+    };
+    
     mTimeSteps.resize(iterNum);
-    float step = 1000.0f / iterNum;
-    for(int i = 0; i < iterNum; i++) {
-        mTimeSteps[i] = 1000.0f - i * step;
+    if (iterNum == 1) {
+        mTimeSteps[0] = 1000.0f;
+    } else {
+        float shift = 3.0f;
+        float start = 1.0f;
+        float end = 1.0f / 1000.0f;
+        for(int i = 0; i < iterNum; i++) {
+            float t_linear = start + i * (end - start) / (iterNum - 1);
+            float t_shifted = (shift * t_linear) / (1.0f + (shift - 1.0f) * t_linear);
+            mTimeSteps[i] = t_shifted * 1000.0f;
+        }
     }
     
     // Encode prompt
@@ -233,11 +285,11 @@ bool DiffusionSD35::run(const std::string prompt, const std::string imagePath, i
     auto encoder_hidden_states = encoded.first;
     auto pooled_projections = encoded.second;
     
-    int height = 512;
-    int width = 512;
+    int height = 1024;
+    int width = 1024;
     int channels = 16;
-    int latents_height = height / 8; // VAE factor 8
-    int latents_width = width / 8;
+    int latents_height = 128;
+    int latents_width = 128;
     
     // Random noise
     int seed = randomSeed < 0 ? std::random_device()() : randomSeed;
@@ -256,7 +308,7 @@ bool DiffusionSD35::run(const std::string prompt, const std::string imagePath, i
     auto sample = mLatentVar;
     
     // Guidance scale for CFG
-    float guidance_scale = 7.0f; // Default for SD3
+    float guidance_scale = 5.0f; // Default for SD3
 
     for (int i = 0; i < iterNum; i++) {
         AUTOTIME;
@@ -281,12 +333,16 @@ bool DiffusionSD35::run(const std::string prompt, const std::string imagePath, i
             progressCallback((i + 1) * 100 / iterNum);
         }
     }
+
+    unload_module(3, "Transformer");
     
     auto image = vae_decoder(sample);
     bool res = imwrite(imagePath, image);
     if (res) {
         MNN_PRINT("SUCCESS! write generated image to %s\n", imagePath.c_str());
     }
+
+    unload_module(4, "VAE Decoder");
     
     return true;
 }

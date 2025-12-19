@@ -12,22 +12,23 @@
 using namespace MNN::DIFFUSION;
 
 int main(int argc, const char* argv[]) {
-    if (argc < 8) {
+    if (argc < 9) {
         MNN_PRINT("=====================================================================================================================\n");
-        MNN_PRINT("Usage: ./diffusion_sd35_demo <resource_path> <memory_mode> <backend_type> <iteration_num> <random_seed> <output_image_name> <prompt_text>\n");
+        MNN_PRINT("Usage: ./diffusion_sd35_demo <resource_path> <model_type> <memory_mode> <backend_type> <iteration_num> <random_seed> <output_image_name> <prompt_text>\n");
         MNN_PRINT("=====================================================================================================================\n");
         return 0;
     }
 
     auto resource_path = argv[1];
-    auto memory_mode = atoi(argv[2]);
-    auto backend_type = (MNNForwardType)atoi(argv[3]);
-    auto iteration_num = atoi(argv[4]);
-    auto random_seed = atoi(argv[5]);
-    auto img_name = argv[6];
+    // auto model_type = argv[2];
+    auto memory_mode = atoi(argv[3]);
+    auto backend_type = (MNNForwardType)atoi(argv[4]);
+    auto iteration_num = atoi(argv[5]);
+    auto random_seed = atoi(argv[6]);
+    auto img_name = argv[7];
 
     std::string input_text;
-    for (int i = 7; i < argc; ++i) {
+    for (int i = 8; i < argc; ++i) {
         input_text += argv[i];
         if (i < argc - 1) {
             input_text += " ";

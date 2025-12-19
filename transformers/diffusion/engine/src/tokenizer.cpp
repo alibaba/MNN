@@ -13,8 +13,51 @@
 #include "rapidjson/document.h"
 #include "rapidjson/filereadstream.h"
 #include "rapidjson/error/en.h"
+
+#include <sentencepiece_processor.h>
+
 namespace MNN {
 namespace DIFFUSION {
+
+T5Tokenizer::~T5Tokenizer() {
+    if (mProcessor) {
+        delete static_cast<sentencepiece::SentencePieceProcessor*>(mProcessor);
+    }
+}
+
+bool T5Tokenizer::load(const std::string& filePath) {
+    auto processor = new sentencepiece::SentencePieceProcessor();
+    const auto status = processor->Load(filePath + "/spiece.model");
+    if (!status.ok()) {
+        MNN_ERROR("Failed to load T5 tokenizer: %s\n", status.ToString().c_str());
+        delete processor;
+        return false;
+    }
+    mProcessor = processor;
+    return true;
+}
+
+std::vector<int> T5Tokenizer::encode(const std::string& sentence, int maxlen) {
+    if (!mProcessor) return {};
+    auto processor = static_cast<sentencepiece::SentencePieceProcessor*>(mProcessor);
+    std::vector<int> ids;
+    processor->Encode(sentence, &ids);
+    
+    // T5 usually appends EOS token (1)
+    ids.push_back(1);
+    
+    if (maxlen > 0) {
+        if (ids.size() > maxlen) {
+            ids.resize(maxlen);
+            ids[maxlen - 1] = 1; 
+        } else {
+            while (ids.size() < maxlen) {
+                ids.push_back(0);
+            }
+        }
+    }
+    return ids;
+}
     
 bool BertTokenizer::load(const std::string& dictPath) {
     std::ifstream dictFile(dictPath + "/vocab.txt");
@@ -120,9 +163,21 @@ std::vector<int> BertTokenizer::encode(const std::string& str, int maxlen) {
         }
     }
     
+    int max_token_limit = maxlen * 2 - 1; 
+
     for (auto token : tokens) {
-        for (auto id : word_piece(token)) {
+        std::vector<int> sub_tokens = word_piece(token);
+
+        bool out_of_bounds = false;
+        for (auto id : sub_tokens) {
+            if (idx >= max_token_limit) {
+                out_of_bounds = true;
+                break;
+            }
             ids[idx++] = id;
+        }
+        if (out_of_bounds) {
+            break;
         }
     }
     
@@ -344,7 +399,12 @@ std::vector<int> CLIPTokenizer::encode(const std::string& text, int maxlen) {
     // ids
     int idx = maxlen;
     ids[idx++] = mStartIdx;
+    int max_token_limit = maxlen * 2 - 1; 
+
     for (auto s : result) {
+        if (idx >= max_token_limit) {
+            break;
+        }
         ids[idx++] = mVocabs.at(s);
     }
     ids[idx++] = mEndIdx;

@@ -60,6 +60,17 @@ private:
     int mEndIdx = 49407;
 };
 
+class T5Tokenizer : public Tokenizer {
+public:
+    T5Tokenizer() = default;
+    virtual ~T5Tokenizer();
+    virtual bool load(const std::string& filePath) override;
+    virtual std::vector<int> encode(const std::string& sentence, int maxlen = 0) override;
+
+private:
+    void* mProcessor = nullptr;
+};
+
 }
 } // diffusion
 #endif

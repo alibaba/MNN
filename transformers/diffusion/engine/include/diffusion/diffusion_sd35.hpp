@@ -61,7 +61,7 @@ private:
     
     std::unique_ptr<Tokenizer> mTokenizer1;
     std::unique_ptr<Tokenizer> mTokenizer2;
-    // std::unique_ptr<Tokenizer> mTokenizer3; // T5 not supported yet
+    std::unique_ptr<Tokenizer> mTokenizer3;
 };
 
 }
