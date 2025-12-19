@@ -29,7 +29,7 @@ namespace
   bool is_emoji(char32_t cp)
   {
     if (cp >= 0x1F600 && cp <= 0x1F64F)
-      return true; // emoticons
+      return true; // emoticons 
     if (cp >= 0x1F300 && cp <= 0x1F5FF)
       return true; // symbols & pictographs
     if (cp >= 0x1F680 && cp <= 0x1F6FF)
@@ -295,23 +295,82 @@ MNNSupertonicTTSImpl::TextProcessor::encode(const std::string &text)
 // MNNSupertonicTTSImpl implementation
 MNNSupertonicTTSImpl::MNNSupertonicTTSImpl(
     const std::string &models_dir,
-    const std::string &precision_dir,
-    const std::string &speaker_id,
-    int iter_steps,
-    float speed)
-    : models_dir_(models_dir),
-      precision_dir_(precision_dir),
-      speaker_id_(speaker_id),
-      iter_steps_(iter_steps),
-      speed_(speed)
+    const std::map<std::string, std::string> &overrides)
+    : models_dir_(models_dir)
 {
+  PLOG(INFO, "Initializing Supertonic TTS with models_dir: " + models_dir_);
+
+  // Load config.json to get precision, speaker_id, iter_steps, speed
+  std::string config_json_path = models_dir_ + "/config.json";
+  json config_json;
+  
+  // Try to read config.json
+  std::ifstream config_json_file(config_json_path);
+  if (config_json_file.is_open()) {
+    try {
+      config_json_file >> config_json;
+      config_json_file.close();
+    } catch (const std::exception &e) {
+      PLOG(WARNING, "Failed to parse config.json: " + std::string(e.what()));
+    }
+  } else {
+    PLOG(WARNING, "config.json not found, using defaults");
+  }
+
+  // Get precision: from overrides, then config.json, then default
+  if (overrides.find("precision") != overrides.end() && !overrides.at("precision").empty()) {
+    precision_dir_ = overrides.at("precision");
+  } else if (config_json.contains("precision") && config_json["precision"].is_string()) {
+    precision_dir_ = config_json["precision"].get<std::string>();
+  } else {
+    precision_dir_ = "fp16"; // default
+  }
+
+  // Get speaker_id: from overrides, then config.json, then default
+  if (overrides.find("speaker_id") != overrides.end() && !overrides.at("speaker_id").empty()) {
+    speaker_id_ = overrides.at("speaker_id");
+  } else if (config_json.contains("speaker_id") && config_json["speaker_id"].is_string()) {
+    speaker_id_ = config_json["speaker_id"].get<std::string>();
+  } else {
+    speaker_id_ = "M1"; // default
+  }
+
+  // Get iter_steps: from overrides, then config.json, then default
+  if (overrides.find("iter_steps") != overrides.end() && !overrides.at("iter_steps").empty()) {
+    try {
+      iter_steps_ = std::stoi(overrides.at("iter_steps"));
+    } catch (const std::exception &e) {
+      PLOG(WARNING, "Failed to parse iter_steps from overrides, using default");
+      iter_steps_ = 10; // default
+    }
+  } else if (config_json.contains("iter_steps") && config_json["iter_steps"].is_number_integer()) {
+    iter_steps_ = config_json["iter_steps"].get<int>();
+  } else {
+    iter_steps_ = 10; // default
+  }
+
+  // Get speed: from overrides, then config.json, then default
+  if (overrides.find("speed") != overrides.end() && !overrides.at("speed").empty()) {
+    try {
+      speed_ = std::stof(overrides.at("speed"));
+    } catch (const std::exception &e) {
+      PLOG(WARNING, "Failed to parse speed from overrides, using default");
+      speed_ = 1.0f; // default
+    }
+  } else if (config_json.contains("speed") && config_json["speed"].is_number_float()) {
+    speed_ = config_json["speed"].get<float>();
+  } else {
+    speed_ = 1.0f; // default
+  }
 
   std::cout << "model_dir_" << models_dir_ << std::endl;
   std::cout << "precsion_dir: " << precision_dir_ << std::endl;
+  std::cout << "speaker_id: " << speaker_id_ << std::endl;
+  std::cout << "iter_steps: " << iter_steps_ << std::endl;
+  std::cout << "speed: " << speed_ << std::endl;
   std::cout << "cache_dir_: " << cache_dir_ << std::endl;
-  PLOG(INFO, "Initializing Supertonic TTS with models_dir: " + models_dir_);
 
-  // Load config
+  // Load tts.json config
   std::string config_path = models_dir_ + "/mnn_models/tts.json";
   std::ifstream config_file(config_path);
   if (!config_file.is_open())
@@ -482,11 +541,17 @@ std::tuple<int, Audio> MNNSupertonicTTSImpl::Process(const std::string &text)
   return synthesize(processed_text, voice_styles_[voice_name], steps, speed);
 }
 
-bool MNNSupertonicTTSImpl::save(const std::string &filename,
-                                const std::vector<float> &audio_data,
-                                int sample_rate)
+void MNNSupertonicTTSImpl::SetSpeakerId(const std::string &speaker_id)
 {
-  return writeWavFile(filename, audio_data, sample_rate);
+  // Validate speaker_id exists in voice_styles_
+  if (voice_styles_.find(speaker_id) == voice_styles_.end())
+  {
+    PLOG(ERROR, "Cannot set speaker_id to invalid value: " + speaker_id);
+    throw std::runtime_error("Invalid speaker_id: " + speaker_id);
+  }
+  
+  speaker_id_ = speaker_id;
+  PLOG(INFO, "Speaker ID changed to: " + speaker_id_);
 }
 
 std::tuple<int, Audio>

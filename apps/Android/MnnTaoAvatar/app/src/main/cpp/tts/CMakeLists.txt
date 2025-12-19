@@ -8,6 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(BUILD_BERTVITS2 "Build BertVit2 TTS " ON)
 option(BUILD_PIPER "Build PIPER TTS " OFF)
+option(BUILD_SUPERTONIC "Build Supertonic TTS " ON)
 
 include_directories(
 	${CMAKE_CURRENT_LIST_DIR}/include
@@ -24,6 +25,12 @@ if(BUILD_PIPER)
   include_directories(
   	${CMAKE_CURRENT_LIST_DIR}/include/piper
     ${CMAKE_CURRENT_LIST_DIR}/third_party/piper/espeak-ng/src/include/espeak-ng/
+  )
+endif()
+
+if(BUILD_SUPERTONIC)
+  include_directories(
+  	${CMAKE_CURRENT_LIST_DIR}/include/supertonic
   )
 endif()
 
@@ -55,9 +62,15 @@ set(PIPER_SOURCE_FILES
 )
 endif()
 
+if(BUILD_SUPERTONIC)
+set(SUPERTONIC_SOURCE_FILES
+  ${CMAKE_CURRENT_LIST_DIR}/src/supertonic/mnn_supertonic_tts_impl.cpp
+)
+endif()
+
 if(BUILD_PIPER)
   add_subdirectory(third_party/piper/espeak-ng)
 endif()
 
-add_library(${PROJECT_NAME} SHARED ${PIPER_SOURCE_FILES} ${BERTVITS2_SOURCE_FILES} ${SHARED_SOURCE_FILES})
+add_library(${PROJECT_NAME} SHARED ${PIPER_SOURCE_FILES} ${BERTVITS2_SOURCE_FILES} ${SUPERTONIC_SOURCE_FILES} ${SHARED_SOURCE_FILES})
 target_link_libraries(${PROJECT_NAME} log MNN )

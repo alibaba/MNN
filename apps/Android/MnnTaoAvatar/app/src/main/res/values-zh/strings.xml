@@ -33,4 +33,10 @@
     <string name="check_for_update_summary" />
     <string name="inference_by_mnn">由MNN提供本地推理服务</string>
     <string name="record_permission_denied">录音权限被拒绝，请开启</string>
+    <string name="tts_voice_title">音色</string>
+    <string name="tts_voice_summary">%s</string>
+    <string name="tts_speaker_male_1">男声1</string>
+    <string name="tts_speaker_male_2">男声2</string>
+    <string name="tts_speaker_female_1">女声1</string>
+    <string name="tts_speaker_female_2">女声2</string>
 </resources>

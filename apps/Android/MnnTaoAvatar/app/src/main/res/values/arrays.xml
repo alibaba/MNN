@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="tts_speaker_names">
+        <item>Male Voice 1</item>
+        <item>Male Voice 2</item>
+        <item>Female Voice 1</item>
+        <item>Female Voice 2</item>
+    </string-array>
+
+    <string-array name="tts_speaker_ids">
+        <item>M1</item>
+        <item>M2</item>
+        <item>F1</item>
+        <item>F2</item>
+    </string-array>
+</resources>
+

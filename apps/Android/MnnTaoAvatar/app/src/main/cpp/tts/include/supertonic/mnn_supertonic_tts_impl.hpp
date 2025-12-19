@@ -39,7 +39,8 @@ struct VoiceStyle
 class MNNSupertonicTTSImpl : public MNNTTSImplBase
 {
 public:
-  MNNSupertonicTTSImpl(const std::string &models_dir, const std::string &precision_dir, const std::string &speaker_id, int iter_steps, float speed);
+  MNNSupertonicTTSImpl(const std::string &models_dir, 
+                       const std::map<std::string, std::string> &overrides = {});
 
   // Core Synthesis Interface
   std::tuple<int, Audio> Process(const std::string &text);
@@ -48,9 +49,8 @@ public:
   std::tuple<int, Audio> synthesize(const std::string &text, const VoiceStyle &voice_styl, int steps,
                                     float speed);
 
-  // Save Audio
-  static bool save(const std::string &filename,
-                   const std::vector<float> &audio_data, int sample_rate);
+  // Set speaker ID dynamically (no restart required)
+  void SetSpeakerId(const std::string &speaker_id);
 
 private:
   // --- Configuration ---
