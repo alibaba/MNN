@@ -319,7 +319,7 @@ public:
     virtual bool run(int precision) {
         INTS strides = {1, 1}, dilate = {1, 1}, pad = {0, 0}, inputShape = {1, 17}; // {w, h}
         int batch[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14};
-        std::vector<int> blocks = {0, 64, 32};
+        std::vector<int> blocks = {0, 32, 64};
         std::vector<std::vector<int>> channels = {{320, 320}, {640, 200}, {128, 79}};
 
         std::vector<int> kernels = {1, 3};
@@ -350,7 +350,7 @@ public:
         INTS strides = {1, 1}, dilate = {1, 1}, pad = {0, 0}; // {w, h}
         int batch[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 21, 22, 23, 25, 26, 27, 28, 29, 30};
         std::vector<int> blocks = {0, 32, 128};
-        std::vector<std::vector<int>> channels = {{3, 7}, {4, 18}, {5, 22}, {12, 16}, {8, 8}, {8, 9}, {8, 16}, {7, 20}, {9, 24}, {2048, 54}, {1, 10}, {20, 153}, {9, 18}, {64, 28}, {1496, 11}, {10, 9}};
+        std::vector<std::vector<int>> channels = {{128, 2048}, {3, 7}, {4, 18}, {5, 22}, {12, 16}, {8, 8}, {8, 9}, {8, 16}, {7, 20}, {9, 24}, {2048, 54}, {1, 10}, {20, 153}, {9, 18}, {64, 28}, {1496, 11}, {10, 9}};
         std::vector<std::vector<int>> inputShapes = {{1, 1}};
         std::vector<std::vector<int>> kernels = {{1, 1}};
         std::vector<int> weightBits = {4, 8};
@@ -454,7 +454,49 @@ public:
 MNNTestSuiteRegister(PTQInt4Test, "op/int4Ptq");
 #endif
 
+class ConvInt8MixedKernelTest : public HybridConvSpeedTestCommon {
+public:
+    virtual bool run(int precision) {
+        INTS strides = {1, 1}, dilate = {1, 1}, pad = {0, 0}; // {w, h}
+        int batch[] = {1, 100};
+        std::vector<int> blocks = {0, 32, 128};
+        std::vector<std::vector<int>> channels = {{1536, 1536}, {1536, 256}, {1536, 8960}, {8960, 1536}, {1536, 151936}, {896, 896}, {896, 128}, {4864, 896}, {896, 151936}, {200, 138}, {92, 92}, {126, 126}, {120, 1300}};
+        for (int i = 0; i < 32; ++i) { // To test that every storage branch of 'Hp=128' is correct.
+            std::vector<int> channel = {256, 4 * (i + 1)};
+            channels.emplace_back(channel);
+        }
+        std::vector<std::vector<int>> inputShapes = {{1, 1}};
+        std::vector<std::vector<int>> kernels = {{1, 1}};
+        std::vector<int> weightBits = {4, 8};
+        int batchNum = sizeof(batch) / sizeof(int);
+        bool correct = true;
+        for (auto kernel: kernels) {
+            for (auto inputShape: inputShapes) {
+                for (auto block : blocks) {
+                    for (auto& bits : weightBits) {
+                        for (auto &channel: channels) {
+                            if (dilate[0] > inputShape[0] || dilate[0] * (kernel[0] - 1) + 1 > inputShape[0] || dilate[0] * (kernel[1] - 1) + 1 > inputShape[1])
+                                continue;
+                            if (block > 0 && channel[0] % block != 0)
+                                continue;
+                            for (int n = 0; n < batchNum; ++n) {
+                                auto res = testKernel("Low memory mixed kernel test:", inputShape, kernel, channel, pad, strides, dilate, batch[n], bits, precision, false, block);
+                                if (!res) {
+                                    MNN_ERROR("Error: low memory mixed kernel when bits=%d, n=%d, ic=%d, oc=%d, block=%d\n", bits, batch[n], channel[0], channel[1], block);
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return true;
+    }
+};
+
 MNNTestSuiteRegister(DenseConvInt8Test, "op/lowMemory/DenseConv");
 MNNTestSuiteRegister(HybridConvInt8Test, "op/lowMemory/HybridConv");
 MNNTestSuiteRegister(HybridConvSpeedInt8Test, "speed/HybridConv");
 MNNTestSuiteRegister(ConvInt8BlockQuantTest, "op/lowMemory/blockConv");
+MNNTestSuiteRegister(ConvInt8MixedKernelTest, "op/lowMemory/mixedKernel");

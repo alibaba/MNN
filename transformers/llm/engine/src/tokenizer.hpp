@@ -78,14 +78,14 @@ private:
         if (size<list.size()) { return size++; }
         else {
             list.resize(list.size()*2);
-            return size++; 
+            return size++;
         }
     }
     void insert(int nid, int token_id, std::string::const_iterator it, std::string::const_iterator end) {
         auto& node = list[nid];
-        if (it==end) { 
+        if (it==end) {
             if (node.id==-1) { node.id=token_id; }
-            return; 
+            return;
         }
         auto cid = node.children.find(*it);
         if (cid==node.children.end()) {
@@ -98,8 +98,8 @@ private:
     }
     int find(int nid, int current_matched, std::string::const_iterator current_it, std::string::const_iterator& it, const std::string::const_iterator& end) {
         const auto& node = list[nid];
-        if (node.id!=-1) { 
-            current_matched = node.id; 
+        if (node.id!=-1) {
+            current_matched = node.id;
             current_it = it;
         }
         auto cid = node.children.find(*it);
@@ -107,7 +107,7 @@ private:
             return find(cid->second, current_matched, current_it, ++it, end);
         } else {
             if (node.id!=-1) { return node.id; }
-            else { it = current_it; return current_matched;} 
+            else { it = current_it; return current_matched;}
         }
     }
 public:
@@ -142,12 +142,14 @@ public:
     std::vector<int> encode(const std::string& str);
     virtual std::string decode(int id) = 0;
 protected:
+    void cache_special_tokens();
     virtual void load_special(std::ifstream& file);
     virtual bool load_vocab(std::ifstream& file) = 0;
     virtual void encode(const std::string& str, std::vector<int>& ids) = 0;
     std::vector<int> special_tokens_;
     std::vector<int> stop_tokens_;
     std::vector<int> prefix_tokens_;
+    std::vector<std::pair<std::string, int>> special_tokens_cache_;
 private:
     std::string mTemplate;
 };
@@ -192,14 +194,14 @@ private:
     // pieces from model
     std::vector<SentencePiece> sentence_pieces_;
     // piece -> id map for normal pieces
-    std::unordered_map<std::string, int> pieces_;
+    std::unordered_map<string_view_, int> pieces_;
     // piece -> id map for control, unknown, and byte pieces
-    std::unordered_map<std::string, int> reserved_id_map_;
+    std::unordered_map<string_view_, int> reserved_id_map_;
 private:
     float get_score(int id) const;
     bool is_unused(int id) const;
     bool is_control(int id) const;
-    int piece_to_id(const std::string& w) const;
+    int piece_to_id(string_view_ w) const;
     std::string byte_to_piece(unsigned char c) const;
     EncodeResult bpe_encode(string_view_ str, float alpha = 0.f);
 };

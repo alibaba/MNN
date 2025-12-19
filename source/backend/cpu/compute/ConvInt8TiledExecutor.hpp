@@ -76,22 +76,32 @@ private:
     // for 4Bit Ptq model
     MemChunk mTempOutput;
     std::vector<int32_t> mDivides;
+    std::vector<int32_t> mDividesTmp;
+    std::vector<decltype(CoreInt8Functions::Int8GemmKernel)> mGemmKernels;
 
     int mGemmUnits[3];
     int mThreadNums;
     int mBlockNum = 1;
     int mInputBlockNum = 1;
     int mOcPerThread;
+    int mOcMain;
+    int mOcBranch = 0;
+    int mRatioPrefill;
+    int mRatioDecode;
+    int mSmeCores = 2;
+    int mOriginSmeWork = 0;
+    int mSizeInputBlockQuant;
     bool mSplitByOc;
     bool mUseBatchQuan;
     bool mIm2ColBasedInt8;
-    int mSizeInputBlockQuant;
     bool mToFuseInputbias2Bias;
     bool mOnlineReorderWeightSme = false;
 
     // for 4Bit Ptq model
     bool m4BitPtq = false;
+    bool mMixedKernel;
     MatmulRelatedFunctions mRelatedFunctions;
+    MatmulRelatedFunctions mArm82Functions;
 };
 
 } // namespace MNN

@@ -10,6 +10,10 @@
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 
 const char* gMatMulDivMask = R"metal(
+#ifdef USE_METAL_TENSOR_OPS
+#include <metal_tensor>
+#include <MetalPerformancePrimitives/MetalPerformancePrimitives.h>
+#endif
 #include <metal_stdlib>
 #include <simd/simd.h>
 using namespace metal;
@@ -23,16 +27,235 @@ struct Param {
     float scale;
     int max_kv_len;
     int batch;
+    int kv_align_len;
 };
+
+#if MNN_METAL_FLOAT16_STORAGE
+typedef simdgroup_half8x8 simdgroup_T8x8;
+#else
+typedef simdgroup_float8x8 simdgroup_T8x8;
+#endif
+
 #define SIMD_GROUP_WIDTH 32
 
-kernel void prefill_qk(const device T* input0 [[buffer(0)]],
-    device T* output [[buffer(1)]],
-    device T* past_key [[buffer(2)]],
+#ifdef USE_METAL_TENSOR_OPS
+kernel void prefill_qk_tensor(const device ftype4* input0 [[buffer(0)]],
+    device ftype* output [[buffer(1)]],
+    device ftype4* past_key [[buffer(2)]],
     constant int &seq_idx [[buffer(3)]],
     constant Param& param [[buffer(4)]],
 #ifdef ADD_MASK
-    const device T* mask [[buffer(5)]],
+    const device ftype* mask [[buffer(5)]],
+#elif defined(SET_MASK)
+    const device int* mask [[buffer(5)]],
+#endif
+    uint3 gid[[threadgroup_position_in_grid]],
+    uint tiitg[[thread_index_in_threadgroup]],
+    uint tiisg[[thread_index_in_simdgroup]],
+    uint sgitg[[simdgroup_index_in_threadgroup]]
+) {
+    /*
+     // Read:
+     ftype 0~1023   ---> input: [M32, K32]
+     ftype 1024~2047 ---> input: [N32, K32]
+     // Write:
+     float 0~1023 ---> input: [M32, N32]
+     */
+    threadgroup ftype sdata[2048] = {0.f};
+
+    const int K = 32, M = 32, N = 32; 
+    const int tb_offset = M * K;
+    auto tA = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata, dextents<int32_t, 2>(K, M));//[M, K]
+    auto tB = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata + tb_offset, dextents<int32_t, 2>(K, N));//[N, K]
+
+    mpp::tensor_ops::matmul2d<
+        mpp::tensor_ops::matmul2d_descriptor(M, N, K, false, true, false, mpp::tensor_ops::matmul2d_descriptor::mode::multiply_accumulate),
+        execution_simdgroups<4>> mmOps;
+
+    auto cT = mmOps.get_destination_cooperative_tensor<decltype(tA), decltype(tB), float>();
+
+    // A: [32, 4]
+    int ml = tiitg / 4;// 0~31
+    int kl = tiitg % 4;// 0~3
+
+    // B: [32, 4]
+    int nl = ml;
+
+    // C: [32, 4]
+    int mcl = ml;// 0~31
+    int ncl = kl;// 0~3
+
+    const int slq = gid.x; // q_seq_len/32 -> M/32
+    const int slk = gid.y; // k_seq_len/32 -> N/32
+    const int z = gid.z; // head_num * batch
+
+    /** Q:
+     threadgroup: [M32, K32] -> [M32, K4, K2, K4]
+     index : [ml, kl, K2, K4]
+     each thread: K8
+     layout: [B0, M, B1, K] -> [B0, M/32, M32, B1, K/32, K4, K2, K4]
+     index : [z/head_num, slq, ml, z%head_num, K/32, kl, K2, K4]
+     offset: ((z/head_num * q_seq_len + (slq * 32 + ml)) * head_num + z%head_num) * K/4 + (0 * 4 + kl) * 2 + 0
+     */
+    /** K:
+     threadgroup: [N32, K32] -> [M32, K4, K2, K4]
+     index : [nl, kl, K2, K4]
+     each thread: K8
+     layout: [N, B/G, K] -> [N/32, N32, B/G, K/32, K4, K2, K4]
+     index : [slk, nl, B/G, K/32, kl, K2, K4]
+     offset: ((slk * 32 + nl) * B/G + z/G) * K/4 + (0 * 4 + kl) * 2 + 0
+     */
+    /** output:
+     threadgroup: [M32, N32] -> [M32, N4, N8]
+     each thread: N8
+     layout: [B, M, N] -> [B, M/32, M32, N/32, N4, N8]
+     index : [z, slq, mcl, slk, ncl, N8]
+     offset: (z * q_seq_len + slq * 32 + mcl) * N + (slk * 4 + ncl) * 8 + 0
+     */
+
+    int group = param.group;
+    int q_seq_len = param.query_seq_len;
+    int q_seq_piece_len = param.q_seq_piece_len;
+    int k_seq_len = param.key_seq_len;
+    int head_num = param.head_num;
+    int head_dim = param.head_dim;
+
+    const int b = z / head_num;
+    const int hn = z % head_num;
+    int zin = hn / param.group;
+
+    int idx_slq = seq_idx * q_seq_piece_len + slq * 32 + ml < q_seq_len ? seq_idx * q_seq_piece_len + slq * 32 + ml : q_seq_len - 1;
+    int idx_slk = slk * 32 + nl < k_seq_len ? slk * 32 + nl : k_seq_len - 1;
+    // [mBatch, mSeqLen, mNumHead, mHeadDim]
+    auto A_offset = input0 + ((b * q_seq_len + idx_slq) * head_num + hn) * head_dim / 4 + (0 * 4 + kl) * 2 + 0;
+
+    // [mKvSeqLen, mBatch, mKvNumHead, mHeadDim]
+    auto B_offset = past_key + ((idx_slk * param.batch + b)* head_num / group + zin) * head_dim / 4 + (0 * 4 + kl) * 2 + 0;
+
+    for(int i = 0; i < head_dim/4; i += 8){
+        ((threadgroup ftype4*)sdata)[(ml * 4 + kl) * 2 + 0] = A_offset[i + 0];
+        ((threadgroup ftype4*)sdata)[(ml * 4 + kl) * 2 + 1] = A_offset[i + 1];
+
+        ((threadgroup ftype4*)sdata)[256 + (nl * 4 + kl) * 2 + 0] = B_offset[i + 0];
+        ((threadgroup ftype4*)sdata)[256 + (nl * 4 + kl) * 2 + 1] = B_offset[i + 1];
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        auto sA = tA.slice(0, 0);
+        auto sB = tB.slice(0, 0);
+
+        mmOps.run(sA, sB, cT);
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
+    auto tC = tensor<threadgroup float, dextents<int32_t, 2>, tensor_inline>((threadgroup float*)sdata, dextents<int32_t, 2>(N, M)); // [M , N]
+    cT.store(tC);
+
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    // [M32, N4, N8]
+    auto sindex_base = (mcl * 4 + ncl) * 8 + 0;
+
+    float Vscale = (float)param.scale;
+
+    int base_k_idx =  (slk * 4 + ncl) * 8 + 0;
+    auto xy_out = output + (z * q_seq_piece_len + slq * 32 + mcl) * k_seq_len + base_k_idx + 0;
+    if(slq * 32 + mcl < q_seq_piece_len &&  seq_idx * q_seq_piece_len + slq * 32 + mcl < q_seq_len) {
+        int ori_q_idx = seq_idx * q_seq_piece_len + slq * 32 + mcl;
+        if(base_k_idx + 0 < k_seq_len) {
+            auto out0 =  ((threadgroup float*)sdata)[sindex_base + 0] * Vscale;
+            #ifdef ADD_MASK
+                auto mask_val = (base_k_idx + 0) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (base_k_idx + 0) - k_seq_len + q_seq_len)] : 0.0;
+                out0 = mask_val + out0;
+            #elif defined(SET_MASK)
+                out0 = mask[(ori_q_idx * k_seq_len + (base_k_idx + 0))] == 0 ? -FLT_MAX : out0;
+            #endif
+            xy_out[0] = out0;
+        }
+        if(base_k_idx + 1 < k_seq_len) {
+            auto out0 =  ((threadgroup float*)sdata)[sindex_base + 1] * Vscale;
+            #ifdef ADD_MASK
+                auto mask_val = (base_k_idx + 1) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (base_k_idx + 1) - k_seq_len + q_seq_len)] : 0.0;
+                out0 = mask_val + out0;
+            #elif defined(SET_MASK)
+                out0 = mask[(ori_q_idx * k_seq_len + (base_k_idx + 1))] == 0 ? -FLT_MAX : out0;
+            #endif
+            xy_out[1] = out0;
+        }
+        if(base_k_idx + 2 < k_seq_len) {
+            auto out0 =  ((threadgroup float*)sdata)[sindex_base + 2] * Vscale;
+            #ifdef ADD_MASK
+                auto mask_val = (base_k_idx + 2) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (base_k_idx + 2) - k_seq_len + q_seq_len)] : 0.0;
+                out0 = mask_val + out0;
+            #elif defined(SET_MASK)
+                out0 = mask[(ori_q_idx * k_seq_len + (base_k_idx + 2))] == 0 ? -FLT_MAX : out0;
+            #endif
+            xy_out[2] = out0;
+        }
+        if(base_k_idx + 3 < k_seq_len) {
+            auto out0 =  ((threadgroup float*)sdata)[sindex_base + 3] * Vscale;
+            #ifdef ADD_MASK
+                auto mask_val = (base_k_idx + 3) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (base_k_idx + 3) - k_seq_len + q_seq_len)] : 0.0;
+                out0 = mask_val + out0;
+            #elif defined(SET_MASK)
+                out0 = mask[(ori_q_idx * k_seq_len + (base_k_idx + 3))] == 0 ? -FLT_MAX : out0;
+            #endif
+            xy_out[3] = out0;
+        }
+        if(base_k_idx + 4 < k_seq_len) {
+            auto out0 =  ((threadgroup float*)sdata)[sindex_base + 4] * Vscale;
+            #ifdef ADD_MASK
+                auto mask_val = (base_k_idx + 4) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (base_k_idx + 4) - k_seq_len + q_seq_len)] : 0.0;
+                out0 = mask_val + out0;
+            #elif defined(SET_MASK)
+                out0 = mask[(ori_q_idx * k_seq_len + (base_k_idx + 4))] == 0 ? -FLT_MAX : out0;
+            #endif
+            xy_out[4] = out0;
+        }
+        if(base_k_idx + 5 < k_seq_len) {
+            auto out0 =  ((threadgroup float*)sdata)[sindex_base + 5] * Vscale;
+            #ifdef ADD_MASK
+                auto mask_val = (base_k_idx + 5) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (base_k_idx + 5) - k_seq_len + q_seq_len)] : 0.0;
+                out0 = mask_val + out0;
+            #elif defined(SET_MASK)
+                out0 = mask[(ori_q_idx * k_seq_len + (base_k_idx + 5))] == 0 ? -FLT_MAX : out0;
+            #endif
+            xy_out[5] = out0;
+        }
+        if(base_k_idx + 6 < k_seq_len) {
+            auto out0 =  ((threadgroup float*)sdata)[sindex_base + 6] * Vscale;
+            #ifdef ADD_MASK
+                auto mask_val = (base_k_idx + 6) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (base_k_idx + 6) - k_seq_len + q_seq_len)] : 0.0;
+                out0 = mask_val + out0;
+            #elif defined(SET_MASK)
+                out0 = mask[(ori_q_idx * k_seq_len + (base_k_idx + 6))] == 0 ? -FLT_MAX : out0;
+            #endif
+            xy_out[6] = out0;
+        }
+        if(base_k_idx + 7 < k_seq_len) {
+            auto out0 =  ((threadgroup float*)sdata)[sindex_base + 7] * Vscale;
+            #ifdef ADD_MASK
+                auto mask_val = (base_k_idx + 7) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (base_k_idx + 7) - k_seq_len + q_seq_len)] : 0.0;
+                out0 = mask_val + out0;
+            #elif defined(SET_MASK)
+                out0 = mask[(ori_q_idx * k_seq_len + (base_k_idx + 7))] == 0 ? -FLT_MAX : out0;
+            #endif
+            xy_out[7] = out0;
+        }
+    }
+
+
+
+}
+#endif
+
+kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
+    device ftype* output [[buffer(1)]],
+    device ftype* past_key [[buffer(2)]],
+    constant int &seq_idx [[buffer(3)]],
+    constant Param& param [[buffer(4)]],
+#ifdef ADD_MASK
+    const device ftype* mask [[buffer(5)]],
 #elif defined(SET_MASK)
     const device int* mask [[buffer(5)]],
 #endif
@@ -45,6 +268,7 @@ kernel void prefill_qk(const device T* input0 [[buffer(0)]],
     uint3 gid[[thread_position_in_grid]]
 #endif
 ) {
+
 #ifdef SIMD_GROUP_MATRIX
 
     /*
@@ -52,15 +276,29 @@ kernel void prefill_qk(const device T* input0 [[buffer(0)]],
      ftype 0~127   ---> input: [M16, K8]
      ftype 128~255 ---> input: [K8, N16]
      // Write:
-     ftype 0~255 ---> input: [N2, M2, M8, N8]
+     float 0~255 ---> input: [N2, M2, M8, N8]
      */
-    
-    simdgroup_float8x8 sga[2];
-    simdgroup_float8x8 sgb[2];
+    threadgroup float sdata[256] = {0.f};
+
+#ifdef USE_METAL_TENSOR_OPS
+
+    const int K = 8, M = 16, N = 16; 
+    auto tA = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata, dextents<int32_t, 2>(K, M));//[M, K]
+    auto tB = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata + 128, dextents<int32_t, 2>(N, K));//[K, N]
+
+    mpp::tensor_ops::matmul2d<
+        mpp::tensor_ops::matmul2d_descriptor(M, N, K, false, false, false, mpp::tensor_ops::matmul2d_descriptor::mode::multiply_accumulate),
+        execution_simdgroups<1>> mmOps;
+
+    auto cT = mmOps.get_destination_cooperative_tensor<decltype(tA), decltype(tB), float>();
+#else
+    simdgroup_T8x8 sga[2];
+    simdgroup_T8x8 sgb[2];
     simdgroup_float8x8 sgd[4];
     for (int i = 0; i < 4; i++){
         sgd[i] = make_filled_simdgroup_matrix<float, 8>(0.f);
     }
+#endif
 
     int kl = tiitg % 2;// 0~1
     int rcl = tiitg / 2;// 0~15
@@ -102,55 +340,74 @@ kernel void prefill_qk(const device T* input0 [[buffer(0)]],
     const int hn = z % head_num;
     int zin = hn / param.group;
 
-    threadgroup float sdata[256] = {0.f};
-
     int idx_slq = seq_idx * q_seq_piece_len + slq * 16 + rcl < q_seq_len ? seq_idx * q_seq_piece_len + slq * 16 + rcl : q_seq_len - 1;
     int idx_slk = slk * 16 + rcl < k_seq_len ? slk * 16 + rcl : k_seq_len - 1;
     // [mBatch, mSeqLen, mNumHead, mHeadDim]
     auto A_offset = input0 + ((b * q_seq_len + idx_slq) * head_num + hn) * head_dim + (0 * 2 + kl) * 4 + 0;
+
     // [mKvSeqLen, mBatch, mKvNumHead, mHeadDim]
     auto B_offset = past_key + ((idx_slk * param.batch + b)* head_num / group + zin) * head_dim + 0 * 8 + kl * 4 + 0;
 
     for(int i = 0; i < head_dim; i += 8){
-        sdata[rcl * 8 + kl * 4 + 0] = A_offset[i + 0];
-        sdata[rcl * 8 + kl * 4 + 1] = A_offset[i + 1];
-        sdata[rcl * 8 + kl * 4 + 2] = A_offset[i + 2];
-        sdata[rcl * 8 + kl * 4 + 3] = A_offset[i + 3];
-        
-        sdata[128 + (kl * 4 + 0) * 16 + rcl] = B_offset[i + 0];
-        sdata[128 + (kl * 4 + 1) * 16 + rcl] = B_offset[i + 1];
-        sdata[128 + (kl * 4 + 2) * 16 + rcl] = B_offset[i + 2];
-        sdata[128 + (kl * 4 + 3) * 16 + rcl] = B_offset[i + 3];
+        ((threadgroup ftype*)sdata)[rcl * 8 + kl * 4 + 0] = A_offset[i + 0];
+        ((threadgroup ftype*)sdata)[rcl * 8 + kl * 4 + 1] = A_offset[i + 1];
+        ((threadgroup ftype*)sdata)[rcl * 8 + kl * 4 + 2] = A_offset[i + 2];
+        ((threadgroup ftype*)sdata)[rcl * 8 + kl * 4 + 3] = A_offset[i + 3];
+
+        ((threadgroup ftype*)sdata)[128 + (kl * 4 + 0) * 16 + rcl] = B_offset[i + 0];
+        ((threadgroup ftype*)sdata)[128 + (kl * 4 + 1) * 16 + rcl] = B_offset[i + 1];
+        ((threadgroup ftype*)sdata)[128 + (kl * 4 + 2) * 16 + rcl] = B_offset[i + 2];
+        ((threadgroup ftype*)sdata)[128 + (kl * 4 + 3) * 16 + rcl] = B_offset[i + 3];
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        simdgroup_load(sga[0], (const threadgroup float*)sdata, 8);
-        simdgroup_load(sga[1], ((const threadgroup float*)sdata) + 64, 8);
+#ifdef USE_METAL_TENSOR_OPS
+        auto sA = tA.slice(0, 0);
+        auto sB = tB.slice(0, 0);
+
+        mmOps.run(sA, sB, cT);
+#else
+        simdgroup_load(sga[0], (const threadgroup ftype*)sdata, 8);
+        simdgroup_load(sga[1], ((const threadgroup ftype*)sdata) + 64, 8);
         
-        simdgroup_load(sgb[0], ((const threadgroup float*)sdata) + 128, 16);
-        simdgroup_load(sgb[1], ((const threadgroup float*)sdata) + 136, 16);
+        simdgroup_load(sgb[0], ((const threadgroup ftype*)sdata) + 128, 16);
+        simdgroup_load(sgb[1], ((const threadgroup ftype*)sdata) + 136, 16);
         
         simdgroup_multiply_accumulate(sgd[0], sga[0], sgb[0], sgd[0]);
         simdgroup_multiply_accumulate(sgd[1], sga[1], sgb[0], sgd[1]);
         simdgroup_multiply_accumulate(sgd[2], sga[0], sgb[1], sgd[2]);
         simdgroup_multiply_accumulate(sgd[3], sga[1], sgb[1], sgd[3]);
+#endif
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
+#ifdef USE_METAL_TENSOR_OPS
+
+    auto tC = tensor<threadgroup float, dextents<int32_t, 2>, tensor_inline>((threadgroup float*)sdata, dextents<int32_t, 2>(N, M)); // [M , N]
+    cT.store(tC);
+#else
     simdgroup_store(sgd[0], (threadgroup float*)sdata, 8);
     simdgroup_store(sgd[1], (threadgroup float*)sdata + 64, 8);
     simdgroup_store(sgd[2], (threadgroup float*)sdata + 128, 8);
     simdgroup_store(sgd[3], (threadgroup float*)sdata + 192, 8);
-    
+#endif
+
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
+#ifdef USE_METAL_TENSOR_OPS
+    // [M16, N2, N8]
+    auto sindex_base = (rcl * 2 + kl) * 8 + 0;
+#else
     // [N2, M2, M8, N8]
+    auto sindex_base = (kl * 16 + rcl) * 8 + 0;
+#endif
+
     float Vscale = (float)param.scale;
 
     auto xy_out = output + (z * q_seq_piece_len + slq * 16 + rcl) * k_seq_len + slk * 16 + kl * 8 + 0;
     if(slq * 16 + rcl < q_seq_piece_len &&  seq_idx * q_seq_piece_len + slq * 16 + rcl < q_seq_len) {
         int ori_q_idx = seq_idx * q_seq_piece_len + slq * 16 + rcl;
         if(slk * 16 + kl * 8 + 0 < k_seq_len) {
-            auto out0 =  sdata[(kl * 16 + rcl) * 8 + 0] * Vscale;
+            auto out0 =  ((threadgroup float*)sdata)[sindex_base + 0] * Vscale;
             #ifdef ADD_MASK
                 auto mask_val = (slk * 16 + kl * 8 + 0) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (slk * 16 + kl * 8 + 0) - k_seq_len + q_seq_len)] : 0.0;
                 out0 = mask_val + out0;
@@ -160,7 +417,7 @@ kernel void prefill_qk(const device T* input0 [[buffer(0)]],
             xy_out[0] = out0;
         }
         if(slk * 16 + kl * 8 + 1 < k_seq_len) {
-            auto out0 =  sdata[(kl * 16 + rcl) * 8 + 1] * Vscale;
+            auto out0 =  ((threadgroup float*)sdata)[sindex_base + 1] * Vscale;
             #ifdef ADD_MASK
                 auto mask_val = (slk * 16 + kl * 8 + 1) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (slk * 16 + kl * 8 + 1) - k_seq_len + q_seq_len)] : 0.0;
                 out0 = mask_val + out0;
@@ -170,7 +427,7 @@ kernel void prefill_qk(const device T* input0 [[buffer(0)]],
             xy_out[1] = out0;
         }
         if(slk * 16 + kl * 8 + 2 < k_seq_len) {
-            auto out0 =  sdata[(kl * 16 + rcl) * 8 + 2] * Vscale;
+            auto out0 =  ((threadgroup float*)sdata)[sindex_base + 2] * Vscale;
             #ifdef ADD_MASK
                 auto mask_val = (slk * 16 + kl * 8 + 2) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (slk * 16 + kl * 8 + 2) - k_seq_len + q_seq_len)] : 0.0;
                 out0 = mask_val + out0;
@@ -180,7 +437,7 @@ kernel void prefill_qk(const device T* input0 [[buffer(0)]],
             xy_out[2] = out0;
         }
         if(slk * 16 + kl * 8 + 3 < k_seq_len) {
-            auto out0 =  sdata[(kl * 16 + rcl) * 8 + 3] * Vscale;
+            auto out0 =  ((threadgroup float*)sdata)[sindex_base + 3] * Vscale;
             #ifdef ADD_MASK
                 auto mask_val = (slk * 16 + kl * 8 + 3) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (slk * 16 + kl * 8 + 3) - k_seq_len + q_seq_len)] : 0.0;
                 out0 = mask_val + out0;
@@ -190,7 +447,7 @@ kernel void prefill_qk(const device T* input0 [[buffer(0)]],
             xy_out[3] = out0;
         }
         if(slk * 16 + kl * 8 + 4 < k_seq_len) {
-            auto out0 =  sdata[(kl * 16 + rcl) * 8 + 4] * Vscale;
+            auto out0 =  ((threadgroup float*)sdata)[sindex_base + 4] * Vscale;
             #ifdef ADD_MASK
                 auto mask_val = (slk * 16 + kl * 8 + 4) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (slk * 16 + kl * 8 + 4) - k_seq_len + q_seq_len)] : 0.0;
                 out0 = mask_val + out0;
@@ -200,7 +457,7 @@ kernel void prefill_qk(const device T* input0 [[buffer(0)]],
             xy_out[4] = out0;
         }
         if(slk * 16 + kl * 8 + 5 < k_seq_len) {
-            auto out0 =  sdata[(kl * 16 + rcl) * 8 + 5] * Vscale;
+            auto out0 =  ((threadgroup float*)sdata)[sindex_base + 5] * Vscale;
             #ifdef ADD_MASK
                 auto mask_val = (slk * 16 + kl * 8 + 5) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (slk * 16 + kl * 8 + 5) - k_seq_len + q_seq_len)] : 0.0;
                 out0 = mask_val + out0;
@@ -210,7 +467,7 @@ kernel void prefill_qk(const device T* input0 [[buffer(0)]],
             xy_out[5] = out0;
         }
         if(slk * 16 + kl * 8 + 6 < k_seq_len) {
-            auto out0 =  sdata[(kl * 16 + rcl) * 8 + 6] * Vscale;
+            auto out0 =  ((threadgroup float*)sdata)[sindex_base + 6] * Vscale;
             #ifdef ADD_MASK
                 auto mask_val = (slk * 16 + kl * 8 + 6) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (slk * 16 + kl * 8 + 6) - k_seq_len + q_seq_len)] : 0.0;
                 out0 = mask_val + out0;
@@ -220,7 +477,7 @@ kernel void prefill_qk(const device T* input0 [[buffer(0)]],
             xy_out[6] = out0;
         }
         if(slk * 16 + kl * 8 + 7 < k_seq_len) {
-            auto out0 =  sdata[(kl * 16 + rcl) * 8 + 7] * Vscale;
+            auto out0 =  ((threadgroup float*)sdata)[sindex_base + 7] * Vscale;
             #ifdef ADD_MASK
                 auto mask_val = (slk * 16 + kl * 8 + 7) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (slk * 16 + kl * 8 + 7) - k_seq_len + q_seq_len)] : 0.0;
                 out0 = mask_val + out0;
@@ -252,11 +509,11 @@ kernel void prefill_qk(const device T* input0 [[buffer(0)]],
     const int offset_head = y * head_dim;
     const int offset_head_kv = (hn / group) * head_dim;
     // [mBatch, mSeqLen, mNumHead, mHeadDim]
-    const device T* A_offset = input0 + (b * query_seq_len + q_idx) * offset + offset_head;
+    const device ftype* A_offset = input0 + (b * query_seq_len + q_idx) * offset + offset_head;
 
     float Vscale = (float)param.scale;
     // [mKvSeqLen, mBatch, mKvNumHead, mHeadDim]
-    device const T* B_offset = past_key + (z * param.batch + b) * offset / group + offset_head_kv;
+    device const ftype* B_offset = past_key + (z * param.batch + b) * offset / group + offset_head_kv;
     const int output_offset = y * param.q_seq_piece_len * key_seq_len;
     float out0 = 0.0;
     
@@ -274,18 +531,18 @@ kernel void prefill_qk(const device T* input0 [[buffer(0)]],
 #elif defined(SET_MASK)
     out0 = mask[((q_idx + 0) * key_seq_len + (z + 0))] == 0 ? -FLT_MAX : out0;
 #endif
-    output[output_offset + x * key_seq_len + z] = (T)out0;
+    output[output_offset + x * key_seq_len + z] = (ftype)out0;
 #endif
 }
 
-kernel void decode_qk(const device T* input0 [[buffer(0)]],
-    device T* output [[buffer(1)]],
-    device T* past_key [[buffer(2)]],
+kernel void decode_qk(const device ftype* input0 [[buffer(0)]],
+    device ftype* output [[buffer(1)]],
+    device ftype* past_key [[buffer(2)]],
     // decode actually not compute in block
     constant int &seq_idx [[buffer(3)]],
     constant Param& param [[buffer(4)]],
 #ifdef ADD_MASK
-    const device T* mask [[buffer(5)]],
+    const device ftype* mask [[buffer(5)]],
 #elif defined(SET_MASK)
     const device int* mask [[buffer(5)]],
 #endif
@@ -311,9 +568,9 @@ kernel void decode_qk(const device T* input0 [[buffer(0)]],
     const int offset_head_kv = kv_hn * head_dim;
 
     // [mBatch, mSeqLen, mNumHead, mHeadDim]
-    const device T* A_offset = input0 + (b * param.query_seq_len + x) * offset + offset_head;
+    const device ftype* A_offset = input0 + (b * param.query_seq_len + x) * offset + offset_head;
     // [mKvSeqLen, mBatch, mKvNumHead, mHeadDim]
-    device T* Pastkey_offset = past_key + (z * param.batch + b) * offset / group + offset_head_kv;
+    device ftype* Pastkey_offset = past_key + (z * param.batch + b) * offset / group + offset_head_kv;
     float Vscale = (float)param.scale;
 
 
@@ -332,9 +589,9 @@ kernel void decode_qk(const device T* input0 [[buffer(0)]],
     #else
     {
         for(int i = 0; i < head_dim/4; i++){
-            float4 B = float4(((const device T4*)Pastkey_offset)[i]);
+            float4 B = float4(((const device ftype4*)Pastkey_offset)[i]);
             for(int j = 0; j < group; j++) {
-                float4 A = float4(((const device T4*)(A_offset + head_dim * j))[i]);
+                float4 A = float4(((const device ftype4*)(A_offset + head_dim * j))[i]);
                 out[j] += dot(A, B);
             }
         }
@@ -352,7 +609,7 @@ kernel void decode_qk(const device T* input0 [[buffer(0)]],
         #elif SET_MASK
             out[j] = mask_val == 0 ? -FLT_MAX : out[j];
         #endif
-        output[((y * group + j) * param.query_seq_len + x) * key_seq_len + z] = (T)out[j];
+        output[((y * group + j) * param.query_seq_len + x) * key_seq_len + z] = (ftype)out[j];
     }
 }
 
@@ -371,10 +628,10 @@ struct Param {
 };
 // Key:   [batch, kv_seq_len, head_num / group * head_dim] -> [max_kv_len, batch, head_num / group * head_dim]
 // Value: [batch, kv_seq_len, head_num / group * head_dim] -> [batch, head_num / group * head_dim, max_kv_len]
-kernel void copy(const device T* input0 [[buffer(0)]],
-    const device T* input1 [[buffer(1)]],
-    device T* output0 [[buffer(2)]],
-    device T* output1 [[buffer(3)]],
+kernel void copy(const device ftype* input0 [[buffer(0)]],
+    const device ftype* input1 [[buffer(1)]],
+    device ftype* output0 [[buffer(2)]],
+    device ftype* output1 [[buffer(3)]],
     constant Param& param [[buffer(4)]],
     uint3 gid[[thread_position_in_grid]]
 ) {
@@ -394,7 +651,10 @@ kernel void copy(const device T* input0 [[buffer(0)]],
 )metal";
 
 const char* gMatMulQKV = R"metal(
-
+#ifdef USE_METAL_TENSOR_OPS
+#include <metal_tensor>
+#include <MetalPerformancePrimitives/MetalPerformancePrimitives.h>
+#endif
 #include <metal_stdlib>
 #include <simd/simd.h>
 using namespace metal;
@@ -408,11 +668,154 @@ struct Param {
     float scale;
     int max_kv_len;
     int batch;
+    int kv_align_len;
 };
+#if MNN_METAL_FLOAT16_STORAGE
+typedef simdgroup_half8x8 simdgroup_T8x8;
+#else
+typedef simdgroup_float8x8 simdgroup_T8x8;
+#endif
+
+#ifdef USE_METAL_TENSOR_OPS
+kernel void prefill_qkv_tensor(const device ftype* input0 [[buffer(0)]],
+    device ftype4* output [[buffer(1)]],
+    device ftype4* past_value [[buffer(2)]],
+    constant int &seq_idx [[buffer(3)]],
+    constant Param& param [[buffer(4)]],
+    uint3 gid[[threadgroup_position_in_grid]],
+    uint tiitg[[thread_index_in_threadgroup]],
+    uint tiisg[[thread_index_in_simdgroup]],
+    uint sgitg[[simdgroup_index_in_threadgroup]]
+) {
+    /*
+     // Read:
+     ftype 0~1023   ---> input: [M32, K32]
+     ftype 1024~2047 ---> input: [N32, K32]
+     // Write:
+     float 0~1023 ---> input: [M32, N32]
+     */
+
+    threadgroup ftype sdata[2048] = {0.f};
+
+    const int K = 32, M = 32, N = 32; 
+    const int tb_offset = M * K;
+    auto tA = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata, dextents<int32_t, 2>(K, M));//[M, K]
+    auto tB = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata + tb_offset, dextents<int32_t, 2>(K, N));//[N, K]
+
+    mpp::tensor_ops::matmul2d<
+        mpp::tensor_ops::matmul2d_descriptor(M, N, K, false, true, false, mpp::tensor_ops::matmul2d_descriptor::mode::multiply_accumulate),
+        execution_simdgroups<4>> mmOps;
+
+    auto cT = mmOps.get_destination_cooperative_tensor<decltype(tA), decltype(tB), float>();
+
+    // QK:[32, 4] 
+    int ml = tiitg / 4;// 0~31
+    int kl = tiitg % 4;// 0~3
+
+    // V: [32, 4]
+    int nl = ml;// 0~31
+    int kvl = kl;// 0~3
+
+    // QKV: [32, 4]
+    int mcl = ml;// 0~31
+    int ncl = kl;// 0~3
+
+    const int sl = gid.x; // q_seq_len/32 -> M/32
+    const int hm = gid.y; // head_dim/32 -> N/32
+    const int z = gid.z; // head_num * batch
+
+    /** QK:
+     threadgroup: [M32, K32] -> [M32, K4, K8]
+     index; [ml, kl, K8]
+     each thread: K8
+     layout: [B, M, K] -> [B, M/32, M32, K/32, K4, K8]
+     index : [z, sl, ml, K/32, kl, K2, K4]
+     offset: (z * M + sl * 32 + ml) * K + (0 * 4 + kl) * 8 + 0
+     */
+    /** V:
+     threadgroup: [N32, K32] -> [N32, K4, K8]
+     index; [nl, kvl, K8]
+     each thread: K8
+     layout: [B/G, N, K] -> [B/G, N/32, N32, K/32, K4, K8]
+     index : [zin, hm, nl, K/32, kvl, K2, K4]
+     offset: ((zin * head_dim + hm * 32 + nl) * param.max_kv_len/4 + (0 * 4 + kvl) * 2 + 0)
+     */
+    /** output:
+     threadgroup: [M32, N32] -> [M32, N4, N8]
+     index: [mcl, ncl, N8]
+     each thread: N8
+     layout: [B0, M, B1, N] -> [B0, M/32, M32, B1, N/32, N4, N8]
+     index : [B0, sl, mcl, B1, hm, ncl, N2, N4]
+     offset: ((b * q_seq_len + (sl * 32 + mcl)) * head_num + hn) * N/4 + (hm * 4 + ncl) * 2 + 0
+     */
+
+    int group = param.group;
+    int q_seq_len = param.query_seq_len;
+    int q_seq_piece_len = param.q_seq_piece_len;
+    int value_seq_len = param.key_seq_len;
+    int align_value_len = ((value_seq_len + param.kv_align_len - 1) / param.kv_align_len) * param.kv_align_len;
+
+    int head_num = param.head_num;
+    int head_dim = param.head_dim;
+    int b = z / head_num;
+    int hn = z % head_num;
+    int zin = b * (head_num / group) + hn / group;
+
+    int idx_qk_sl = sl * 32 + ml < q_seq_piece_len ? (sl * 32 + ml) : q_seq_piece_len - 1;
+
+    auto A_offset = input0 + (z * q_seq_piece_len + idx_qk_sl) * align_value_len + (0 * 4 + kl) * 8 + 0;
+    auto B_offset = past_value + (zin * head_dim + hm * 32 + nl) * param.max_kv_len / 4 + (0 * 4 + kvl) * 2 + 0;
+    
+
+    for(int i = 0; i < (value_seq_len+3)/4; i += 8){
+        ((threadgroup ftype*)sdata)[(ml * 4 + kl) * 8 + 0] = A_offset[4*i + 0];
+        ((threadgroup ftype*)sdata)[(ml * 4 + kl) * 8 + 1] = A_offset[4*i + 1];
+        ((threadgroup ftype*)sdata)[(ml * 4 + kl) * 8 + 2] = A_offset[4*i + 2];
+        ((threadgroup ftype*)sdata)[(ml * 4 + kl) * 8 + 3] = A_offset[4*i + 3];
+        ((threadgroup ftype*)sdata)[(ml * 4 + kl) * 8 + 4] = A_offset[4*i + 4];
+        ((threadgroup ftype*)sdata)[(ml * 4 + kl) * 8 + 5] = A_offset[4*i + 5];
+        ((threadgroup ftype*)sdata)[(ml * 4 + kl) * 8 + 6] = A_offset[4*i + 6];
+        ((threadgroup ftype*)sdata)[(ml * 4 + kl) * 8 + 7] = A_offset[4*i + 7];
+
+        ((threadgroup ftype4*)sdata)[256 + (nl * 4 + kvl) * 2 + 0] = B_offset[i + 0];
+        ((threadgroup ftype4*)sdata)[256 + (nl * 4 + kvl) * 2 + 1] = B_offset[i + 1];
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        auto sA = tA.slice(0, 0);
+        auto sB = tB.slice(0, 0);
+
+        mmOps.run(sA, sB, cT);
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
+    auto tC = tensor<threadgroup float, dextents<int32_t, 2>, tensor_inline>((threadgroup float*)sdata, dextents<int32_t, 2>(N, M)); // [M , N]
+    cT.store(tC);
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    
+    // [M32, N4, N2, n4]
+    auto sindex_base = (mcl * 4 + ncl) * 2 + 0;
+
+    // [M32, N4, N8]
+    // [mBatch, mSeqLen, mNumHead, mHeadDim]
+    auto xy_out = output + ((b * q_seq_len + seq_idx * q_seq_piece_len + sl * 32 + mcl) * head_num + hn) * head_dim/4 + (hm * 4 + ncl) * 2 + 0;
+    if(sl * 32 + mcl < q_seq_piece_len && seq_idx * q_seq_piece_len + sl * 32 + mcl < q_seq_len) {
+        if((hm * 4 + ncl) * 2 + 0 < head_dim/4) {
+            xy_out[0] =  ftype4(((threadgroup float4*)sdata)[sindex_base + 0]);
+        }
+        if((hm * 4 + ncl) * 2 + 1 < head_dim/4) {
+            xy_out[1] =  ftype4(((threadgroup float4*)sdata)[sindex_base + 1]);
+        }
+    }
+
+}
+#endif
+
 #define SIMD_GROUP_WIDTH 32
-kernel void prefill_qkv(const device T* input0 [[buffer(0)]],
-    device T* output [[buffer(1)]],
-    device T* past_value [[buffer(2)]],
+kernel void prefill_qkv(const device ftype* input0 [[buffer(0)]],
+    device ftype* output [[buffer(1)]],
+    device ftype* past_value [[buffer(2)]],
     constant int &seq_idx [[buffer(3)]],
     constant Param& param [[buffer(4)]],
 #ifdef SIMD_GROUP_MATRIX
@@ -432,19 +835,34 @@ kernel void prefill_qkv(const device T* input0 [[buffer(0)]],
      // Write:
      ftype 0~255 ---> input: [N2, M2, M8, N8]
      */
-    
-    simdgroup_float8x8 sga[2];
-    simdgroup_float8x8 sgb[2];
+
+    threadgroup float sdata[256] = {0.f};
+
+#ifdef USE_METAL_TENSOR_OPS
+
+    const int K = 8, M = 16, N = 16; 
+    auto tA = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata, dextents<int32_t, 2>(K, M));//[M, K]
+    auto tB = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata + 128, dextents<int32_t, 2>(N, K));//[K, N]
+
+    mpp::tensor_ops::matmul2d<
+        mpp::tensor_ops::matmul2d_descriptor(M, N, K, false, false, false, mpp::tensor_ops::matmul2d_descriptor::mode::multiply_accumulate),
+        execution_simdgroups<1>> mmOps;
+
+    auto cT = mmOps.get_destination_cooperative_tensor<decltype(tA), decltype(tB), float>();
+#else
+    simdgroup_T8x8 sga[2];
+    simdgroup_T8x8 sgb[2];
     simdgroup_float8x8 sgd[4];
     for (int i = 0; i < 4; i++){
         sgd[i] = make_filled_simdgroup_matrix<float, 8>(0.f);
     }
+#endif
 
-    int kl = tiitg % 2;// 0~1
     int rcl = tiitg / 2;// 0~15
+    int kl = tiitg % 2;// 0~1
 
-    int nl = tiitg % 4;// 0~3
-    int kcl = tiitg / 4;// 0~7
+    int nl = tiitg / 8;// 0~3
+    int kcl = tiitg % 8;// 0~7
 
     const int sl = gid.x; // q_seq_len/16 -> M/16
     const int hm = gid.y; // head_dim/16 -> N/16
@@ -476,81 +894,100 @@ kernel void prefill_qkv(const device T* input0 [[buffer(0)]],
     int q_seq_len = param.query_seq_len;
     int q_seq_piece_len = param.q_seq_piece_len;
     int value_seq_len = param.key_seq_len;
+    int align_value_len = ((value_seq_len + param.kv_align_len - 1) / param.kv_align_len) * param.kv_align_len;
     int head_num = param.head_num;
     int head_dim = param.head_dim;
     int b = z / head_num;
     int hn = z % head_num;
     int zin = b * (head_num / group) + hn / group;
 
-    threadgroup float sdata[256] = {0.f};
-
     int idx_qk_sl = sl * 16 + rcl < q_seq_piece_len ? (sl * 16 + rcl) : q_seq_piece_len - 1;
 
-    auto A_offset = input0 + (z * q_seq_piece_len + idx_qk_sl) * value_seq_len + (0 * 2 + kl) * 4 + 0;
+    auto A_offset = input0 + (z * q_seq_piece_len + idx_qk_sl) * align_value_len + (0 * 2 + kl) * 4 + 0;
     auto B_offset = past_value + (zin * head_dim + hm * 16 + nl * 4 + 0) * param.max_kv_len + (0 * 8 + kcl);
     
 
     for(int i = 0; i < value_seq_len; i += 8){
-        sdata[rcl * 8 + kl * 4 + 0] = (i + kl * 4 + 0 < value_seq_len) ? A_offset[i + 0] : 0.0;
-        sdata[rcl * 8 + kl * 4 + 1] = (i + kl * 4 + 1 < value_seq_len) ? A_offset[i + 1] : 0.0;
-        sdata[rcl * 8 + kl * 4 + 2] = (i + kl * 4 + 2 < value_seq_len) ? A_offset[i + 2] : 0.0;
-        sdata[rcl * 8 + kl * 4 + 3] = (i + kl * 4 + 3 < value_seq_len) ? A_offset[i + 3] : 0.0;
+        ((threadgroup ftype*)sdata)[rcl * 8 + kl * 4 + 0] = A_offset[i + 0];
+        ((threadgroup ftype*)sdata)[rcl * 8 + kl * 4 + 1] = A_offset[i + 1];
+        ((threadgroup ftype*)sdata)[rcl * 8 + kl * 4 + 2] = A_offset[i + 2];
+        ((threadgroup ftype*)sdata)[rcl * 8 + kl * 4 + 3] = A_offset[i + 3];
         
-        sdata[128 + kcl * 16 + nl * 4 + 0] = (i + kcl < value_seq_len && hm * 16 + nl * 4 + 0 < head_dim) ? B_offset[i + 0 * param.max_kv_len] : 0.0;
-        sdata[128 + kcl * 16 + nl * 4 + 1] = (i + kcl < value_seq_len && hm * 16 + nl * 4 + 1 < head_dim) ? B_offset[i + 1 * param.max_kv_len] : 0.0;
-        sdata[128 + kcl * 16 + nl * 4 + 2] = (i + kcl < value_seq_len && hm * 16 + nl * 4 + 2 < head_dim) ? B_offset[i + 2 * param.max_kv_len] : 0.0;
-        sdata[128 + kcl * 16 + nl * 4 + 3] = (i + kcl < value_seq_len && hm * 16 + nl * 4 + 3 < head_dim) ? B_offset[i + 3 * param.max_kv_len] : 0.0;
-
+        ((threadgroup ftype*)sdata)[128 + kcl * 16 + nl * 4 + 0] = B_offset[i + 0 * param.max_kv_len];
+        ((threadgroup ftype*)sdata)[128 + kcl * 16 + nl * 4 + 1] = B_offset[i + 1 * param.max_kv_len];
+        ((threadgroup ftype*)sdata)[128 + kcl * 16 + nl * 4 + 2] = B_offset[i + 2 * param.max_kv_len];
+        ((threadgroup ftype*)sdata)[128 + kcl * 16 + nl * 4 + 3] = B_offset[i + 3 * param.max_kv_len];
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        simdgroup_load(sga[0], (const threadgroup float*)sdata, 8);
-        simdgroup_load(sga[1], ((const threadgroup float*)sdata) + 64, 8);
+#ifdef USE_METAL_TENSOR_OPS
+        auto sA = tA.slice(0, 0);
+        auto sB = tB.slice(0, 0);
+
+        mmOps.run(sA, sB, cT);
+#else
+        simdgroup_load(sga[0], (const threadgroup ftype*)sdata, 8);
+        simdgroup_load(sga[1], ((const threadgroup ftype*)sdata) + 64, 8);
         
-        simdgroup_load(sgb[0], ((const threadgroup float*)sdata) + 128, 16);
-        simdgroup_load(sgb[1], ((const threadgroup float*)sdata) + 136, 16);
+        simdgroup_load(sgb[0], ((const threadgroup ftype*)sdata) + 128, 16);
+        simdgroup_load(sgb[1], ((const threadgroup ftype*)sdata) + 136, 16);
         
         simdgroup_multiply_accumulate(sgd[0], sga[0], sgb[0], sgd[0]);
         simdgroup_multiply_accumulate(sgd[1], sga[1], sgb[0], sgd[1]);
         simdgroup_multiply_accumulate(sgd[2], sga[0], sgb[1], sgd[2]);
         simdgroup_multiply_accumulate(sgd[3], sga[1], sgb[1], sgd[3]);
+#endif
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
+#ifdef USE_METAL_TENSOR_OPS
+
+    auto tC = tensor<threadgroup float, dextents<int32_t, 2>, tensor_inline>((threadgroup float*)sdata, dextents<int32_t, 2>(N, M)); // [M , N]
+    cT.store(tC);
+#else
     simdgroup_store(sgd[0], (threadgroup float*)sdata, 8);
     simdgroup_store(sgd[1], (threadgroup float*)sdata + 64, 8);
     simdgroup_store(sgd[2], (threadgroup float*)sdata + 128, 8);
     simdgroup_store(sgd[3], (threadgroup float*)sdata + 192, 8);
-    
+#endif
+
     threadgroup_barrier(mem_flags::mem_threadgroup);
+
+#ifdef USE_METAL_TENSOR_OPS
+    // [M16, N2, N8]
+    auto sindex_base = (rcl * 2 + kl) * 8 + 0;
+#else
+    // [N2, M2, M8, N8]
+    auto sindex_base = (kl * 16 + rcl) * 8 + 0;
+#endif
 
     // [N2, M2, M8, N8]
     // [mBatch, mSeqLen, mNumHead, mHeadDim]
     auto xy_out = output + ((b * q_seq_len + seq_idx * q_seq_piece_len + sl * 16 + rcl) * head_num + hn) * head_dim + hm * 16 + kl * 8 + 0;
     if(sl * 16 + rcl < q_seq_piece_len && seq_idx * q_seq_piece_len + sl * 16 + rcl < q_seq_len) {
         if(hm * 16 + kl * 8 + 0 < head_dim) {
-            xy_out[0] =  sdata[(kl * 16 + rcl) * 8 + 0];
+            xy_out[0] =  ((threadgroup float*)sdata)[sindex_base + 0];
         }
         if(hm * 16 + kl * 8 + 1 < head_dim) {
-            xy_out[1] =  sdata[(kl * 16 + rcl) * 8 + 1];
+            xy_out[1] =  ((threadgroup float*)sdata)[sindex_base + 1];
         }
         if(hm * 16 + kl * 8 + 2 < head_dim) {
-            xy_out[2] =  sdata[(kl * 16 + rcl) * 8 + 2];
+            xy_out[2] =  ((threadgroup float*)sdata)[sindex_base + 2];
         }
         if(hm * 16 + kl * 8 + 3 < head_dim) {
-            xy_out[3] =  sdata[(kl * 16 + rcl) * 8 + 3];
+            xy_out[3] =  ((threadgroup float*)sdata)[sindex_base + 3];
         }
         if(hm * 16 + kl * 8 + 4 < head_dim) {
-            xy_out[4] =  sdata[(kl * 16 + rcl) * 8 + 4];
+            xy_out[4] =  ((threadgroup float*)sdata)[sindex_base + 4];
         }
         if(hm * 16 + kl * 8 + 5 < head_dim) {
-            xy_out[5] =  sdata[(kl * 16 + rcl) * 8 + 5];
+            xy_out[5] =  ((threadgroup float*)sdata)[sindex_base + 5];
         }
         if(hm * 16 + kl * 8 + 6 < head_dim) {
-            xy_out[6] =  sdata[(kl * 16 + rcl) * 8 + 6];
+            xy_out[6] =  ((threadgroup float*)sdata)[sindex_base + 6];
         }
         if(hm * 16 + kl * 8 + 7 < head_dim) {
-            xy_out[7] =  sdata[(kl * 16 + rcl) * 8 + 7];
+            xy_out[7] =  ((threadgroup float*)sdata)[sindex_base + 7];
         }
     }
 
@@ -568,6 +1005,7 @@ kernel void prefill_qkv(const device T* input0 [[buffer(0)]],
     int value_seq_len = param.key_seq_len;
     int head_num = param.head_num;
     int head_dim = param.head_dim;
+    int align_value_len = ((value_seq_len + param.kv_align_len - 1) / param.kv_align_len) * param.kv_align_len;
 
     int b = y / head_num;
     int hn = y % head_num;
@@ -578,8 +1016,8 @@ kernel void prefill_qkv(const device T* input0 [[buffer(0)]],
     const int offset_head = yin * head_dim + z;
 
     // [mBatch, mNumHead, mSeqLen, mKvSeqLen]
-    device const T *A_offset = input0 + (y * q_seq_piece_len + x) * value_seq_len;
-    device const T *B_offset = past_value + offset_head * param.max_kv_len;
+    device const ftype *A_offset = input0 + (y * q_seq_piece_len + x) * align_value_len;
+    device const ftype *B_offset = past_value + offset_head * param.max_kv_len;
     float out = 0.0;
     
     for(int i = 0; i < value_seq_len; ++i){
@@ -592,9 +1030,9 @@ kernel void prefill_qkv(const device T* input0 [[buffer(0)]],
 #endif
 }
 
-kernel void decode_qkv(const device T* input0 [[buffer(0)]],
-    device T* output [[buffer(1)]],
-    device T* past_value [[buffer(2)]],
+kernel void decode_qkv(const device ftype* input0 [[buffer(0)]],
+    device ftype* output [[buffer(1)]],
+    device ftype* past_value [[buffer(2)]],
     // docode actually not compute in block
     constant int &seq_idx [[buffer(3)]],
     constant Param& param [[buffer(4)]],
@@ -621,11 +1059,12 @@ kernel void decode_qkv(const device T* input0 [[buffer(0)]],
 
     int yin = b * (head_num / group) + hn / group;
     int value_seq_len = param.key_seq_len;
+    int align_value_len = ((value_seq_len + param.kv_align_len - 1) / param.kv_align_len) * param.kv_align_len;
 
     const int offset_head = (yin * head_dim + z) * param.max_kv_len;
 
-    device const T *A_offset = input0 + (y * q_seq_len + x) * value_seq_len;
-    device T *Pastvalue_offset = past_value + offset_head;
+    device const ftype *A_offset = input0 + (y * q_seq_len + x) * align_value_len;
+    device ftype *Pastvalue_offset = past_value + offset_head;
     float out = 0;
     
 #ifdef SIMD_GROUP_REDUCE
@@ -638,7 +1077,7 @@ kernel void decode_qkv(const device T* input0 [[buffer(0)]],
     out = simd_sum(out);
     if(tiisg == 0) {
         // [mBatch, mSeqLen, mNumHead, mHeadDim]
-        output[((b * q_seq_len + x) * head_num + hn) * head_dim + z] = (T)out;
+        output[((b * q_seq_len + x) * head_num + hn) * head_dim + z] = (ftype)out;
     }
 #else
     for(int i = 0; i < value_seq_len; i++){
@@ -647,7 +1086,7 @@ kernel void decode_qkv(const device T* input0 [[buffer(0)]],
         
         out += A * B;
     }
-    output[((b * q_seq_len + x) * head_num + hn) * head_dim + z] = (T)out;
+    output[((b * q_seq_len + x) * head_num + hn) * head_dim + z] = (ftype)out;
 #endif
 }
 )metal";
@@ -659,7 +1098,7 @@ struct softmax_shape {
     int inside_size;
     int axis_length;
     int outside_size;
-    int flat_length;
+    int axis_align_length;
 };
 #define SIMD_GROUP_WIDTH 32
 
@@ -674,9 +1113,10 @@ kernel void softmax_plane_sg(const device ftype *in     [[buffer(0)]],
     // simdgroup compute axis data
     if ((int)gid.x >= s.inside_size || (int)gid.y >= s.outside_size) return;
     
-    auto axis_off = gid.y * s.axis_length * s.inside_size + gid.x;
-    auto axis_in  = in + axis_off;
-    auto axis_out = out + axis_off;
+    auto in_offset = gid.y * s.axis_length * s.inside_size + gid.x;
+    auto out_offset = gid.y * s.axis_align_length * s.inside_size + gid.x;
+    auto axis_in  = in + in_offset;
+    auto axis_out = out + out_offset;
     
     // get max
     float max1 = -FLT_MAX;
@@ -693,8 +1133,8 @@ kernel void softmax_plane_sg(const device ftype *in     [[buffer(0)]],
     sum1 = simd_sum(sum1);
 
     // output
-    for (int i = tiisg; i < s.axis_length; i+=SIMD_GROUP_WIDTH) {
-        axis_out[i * s.inside_size] = ftype(exp(float(axis_in[i * s.inside_size]) - float(max1)) / sum1);
+    for (int i = tiisg; i < s.axis_align_length; i+=SIMD_GROUP_WIDTH) {
+        axis_out[i * s.inside_size] = i >= s.axis_length ? ftype(0.0) : ftype(exp(float(axis_in[i * s.inside_size]) - float(max1)) / sum1);
     }
 }
 

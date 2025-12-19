@@ -3,7 +3,13 @@ option(MNN_QNN_CONVERT_MODE "Enable the Convert mode of the QNN backend." OFF)
 file(GLOB BACKEND_SRCS ${CMAKE_CURRENT_LIST_DIR}/backend/*.cpp)
 file(GLOB EXECUTION_SRCS ${CMAKE_CURRENT_LIST_DIR}/execution/*.cpp)
 set(MNN_QNN_SRCS ${BACKEND_SRCS} ${EXECUTION_SRCS})
-message(STATUS "QNN Root: $ENV{QNN_SDK_ROOT}")
+
+# Prefer CMake variable QNN_SDK_ROOT (passed via -DQNN_SDK_ROOT=...), fallback to environment
+set(_QNN_ROOT "$ENV{QNN_SDK_ROOT}")
+if (DEFINED QNN_SDK_ROOT AND NOT "${QNN_SDK_ROOT}" STREQUAL "")
+    set(_QNN_ROOT "${QNN_SDK_ROOT}")
+endif()
+message(STATUS "QNN Root: ${_QNN_ROOT}")
 
 if (MNN_QNN_CONVERT_MODE)
     file(GLOB CONVERTOR_SRCS ${CMAKE_CURRENT_LIST_DIR}/convertor/*.cpp)
@@ -26,4 +32,4 @@ endif()
 
 target_include_directories(MNN_QNN PRIVATE ${CMAKE_CURRENT_LIST_DIR}/backend/)
 target_include_directories(MNN_QNN PRIVATE ${CMAKE_CURRENT_LIST_DIR}/convertor/)
-target_include_directories(MNN_QNN PRIVATE $ENV{QNN_SDK_ROOT}/include/QNN/)
+target_include_directories(MNN_QNN PRIVATE ${_QNN_ROOT}/include/QNN/)

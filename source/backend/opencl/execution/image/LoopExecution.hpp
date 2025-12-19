@@ -15,63 +15,24 @@
 namespace MNN {
 namespace OpenCL {
 
-class LoopGatherExecution : public CommonExecution {
+class LoopExecution : public CommonExecution{
 public:
-    LoopGatherExecution(const LoopParam *loop, const MNN::Op *op, Backend *bn);
-    virtual ~LoopGatherExecution() = default;
+    LoopExecution(const LoopParam *loop, const MNN::Op *op, Backend *bn);
+    virtual ~LoopExecution() = default;
     virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    ErrorCode InitCommandOnEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
-
+    void ImageToBufferAllTensor();
+    void BufferToImageOutputTensor(const std::vector<Tensor *> &outputs);
+    ErrorCode InitCommandOnEncode();
+    ErrorCode LoopGather(int cmdIndex, int iter);
+    ErrorCode LoopBatchMatMul(int cmdIndex, int iter);
+    ErrorCode LoopBinary(int cmdIndex, int iter);
+    ErrorCode LoopCumsum();
+    ErrorCode FuseOutput(int iter, int* inputStride, int sizeZ, int sizeY, int SizeX, int n, int n_offset);
 private:
     const LoopParam *mLoop;
     std::vector<Tensor *> mTensors;
-    std::vector<cl::Buffer *> mTmpInitBuffers;
-    std::vector<cl::Buffer *> mTmpBuffers;
-    std::vector<cl::Buffer *> mOffsetBuffers;
-    int mStride_src[4];
-    int mStride_dst[4];
-    int mStep[2];
-    int mIter[2];
-    std::set<std::string> mBuildOptions;
-};
-
-class LoopBatchMatMulExecution : public CommonExecution {
-public:
-    LoopBatchMatMulExecution(const LoopParam *loop, const MNN::Op *op, Backend *bn);
-    virtual ~LoopBatchMatMulExecution() = default;
-    virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
-private:
-    const LoopParam *mLoop;
-    std::vector<Tensor *> mTensors;
-    std::vector<cl::Buffer*> mTmpBuffers;
-    std::vector<cl::Buffer*> mOffsetBuffers;
-    int mOffset[4];
-    int mStep[4];
-    int mIter[4];
-    bool mHasBias = false;
-    bool mTransposeA = false;
-    bool mTransposeB = false;
-    std::set<std::string> mBuildOptions;
-};
-
-class LoopBinaryExecution : public CommonExecution {
-public:
-    LoopBinaryExecution(const LoopParam *loop, const std::string &compute, const MNN::Op *op, Backend *bn);
-    virtual ~LoopBinaryExecution() = default;
-    virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    ErrorCode cumSumOnEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
-
-private:
-    int mOffset[4];
-    int mStep[4];
-    int mStride_src0[3];
-    int mStride_src1[3];
-    int mStride_dst[3];
-    const LoopParam *mLoop;
-    std::vector<Tensor *> mTensors;
-    std::set<std::string> mBuildOptions;
-    std::vector<cl::Buffer *> mTmpBuffers;
+    cl::Buffer* mFuseBuffer;
+    std::map<const Tensor*, cl::Buffer*> mTmpBuffers;
 };
 
 } // namespace OpenCL

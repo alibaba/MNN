@@ -22,7 +22,7 @@ class Eagle(torch.nn.Module):
         config_file_path = eagle_path + "/config.json"
         self.eagle_config = PretrainedConfig.from_json_file(config_file_path)
 
-        self.model_type = base.model_type
+        self.model_type = base.config.model_type
         self.eagle_path = eagle_path
 
         self.config = base.config
@@ -32,14 +32,12 @@ class Eagle(torch.nn.Module):
         self.rope_theta = 10000
         self.rope_ratio = 1.0
         self.head_dim = self.config.head_dim
-        self.config.model_type = base.model_type
-        self.config.model_map = base.model_map
-        self.hidden_size = base.hidden_size
+        self.hidden_size = self.config.hidden_size
         if self.eagle_config.hidden_size != self.hidden_size:
             raise RuntimeError(f'eagle_config hidden_size not equal: {self.eagle_config.hidden_size}, {self.hidden_size}!')
-        self.past_kv_shape = base.past_kv_shape
-        self.num_attention_heads = base.num_attention_heads
-        self.llm_config = base.llm_config
+        # self.past_kv_shape = base.past_kv_shape
+        self.num_attention_heads = self.config.num_attention_heads
+        self.past_kv_shape = [self.config.num_hidden_layers, 2, 1, 0, self.config.num_key_value_heads, self.config.head_dim]
 
         self.head_dim = self.config.head_dim
         self.num_key_value_heads = self.config.num_key_value_heads
@@ -67,7 +65,7 @@ class Eagle(torch.nn.Module):
         # midlayer.input_layernorm
         self.midlayer.input_layernorm = RMSNorm(self.hidden_size, eps=self.eagle_config.rms_norm_eps)
         # midlayer.self_attn
-        self.midlayer.self_attn = Attention(None, 0, self.config)
+        self.midlayer.self_attn = Attention(None, 0, self.config, base.rotary, self.config.model_map)
         self.midlayer.self_attn.q_proj = nn.Linear(self.hidden_size * 2, self.num_attention_heads * self.head_dim, bias=False)
         self.midlayer.self_attn.k_proj = nn.Linear(self.hidden_size * 2, self.num_key_value_heads * self.head_dim, bias=False)
         self.midlayer.self_attn.v_proj = nn.Linear(self.hidden_size * 2, self.num_key_value_heads * self.head_dim, bias=False)
@@ -122,7 +120,7 @@ class Eagle(torch.nn.Module):
         }
         if model_type in eagles:
             return eagles[model_type]
-        return None
+        return LlamaEagle
 
     @spinner_run(f'export onnx model to ')
     def export(self, onnx_path):

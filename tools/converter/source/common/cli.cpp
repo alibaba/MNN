@@ -470,8 +470,15 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
     if (result.count("fp16")) {
         modelPath.saveHalfFloat = true;
     }
+    if (result.count("weightQuantAsymmetric")) {
+        modelPath.weightQuantAsymmetric = result["weightQuantAsymmetric"].as<bool>();
+    }
     if (result.count("hqq")) {
-        modelPath.useHQQ = true;
+        if(modelPath.weightQuantAsymmetric) {
+            modelPath.useHQQ = true;
+        } else {
+            std::cout << "Warning, MNN Convert only support Hqq with weight asymmetric quant! Disable Hqq currently" <<  std::endl;
+        }
     }
     if (result.count("forTraining")) {
         modelPath.forTraining = true;
@@ -487,9 +494,6 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
         if (modelPath.useHQQ) {
             MNN_PRINT("Use HQQ to quant weight\n");
         }
-    }
-    if (result.count("weightQuantAsymmetric")) {
-        modelPath.weightQuantAsymmetric = result["weightQuantAsymmetric"].as<bool>();
     }
     if (result.count("weightQuantBlock")) {
         modelPath.weightQuantBlock = result["weightQuantBlock"].as<int>();

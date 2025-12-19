@@ -34,7 +34,7 @@ static bool compareOutput(VARP output, const std::string& directName, const std:
     }
 
     if (nullptr == info || nullptr == ptr) {
-        MNN_ERROR("TESTERROR name:%s, info:%p, ptr:%p. size:%d\n", name.c_str(), info, ptr, info->size);
+        MNN_ERROR("TESTERROR name:%s, info:%p, ptr:%p. size:%zu\n", name.c_str(), info, ptr, info->size);
         return false;
     }
 
@@ -93,6 +93,9 @@ static bool compareOutput(VARP output, const std::string& directName, const std:
 
 static inline std::vector<int> parseIntList(const std::string& str, char delim) {
     std::vector<int> result;
+    if (str.empty()) {
+        return result;
+    }
     std::ptrdiff_t p1 = 0, p2;
     while (1) {
         p2 = str.find(delim, p1);
@@ -135,7 +138,7 @@ int main(int argc, char *argv[]) {
             _initTensorStatic();
         }
     }
-    int repeatNumber = 1;
+    int repeatNumber = 2;
     bool shapeMutable = true;
     std::vector<VARP> inputs;
     std::vector<VARP> outputs;
@@ -251,12 +254,17 @@ int main(int argc, char *argv[]) {
     if (argc > 10) {
         enableKleidiAI = atoi(argv[10]) > 0 ? true : false;
     }
+    int mixedRatio = 17;
+    if (argc > 11) {
+        mixedRatio = atoi(argv[11]);
+    }
     MNN_PRINT("\n");
     FUNC_PRINT(precision);
     FUNC_PRINT(memory);
     FUNC_PRINT(power);
     FUNC_PRINT_ALL(cacheFileName, s);
     FUNC_PRINT(enableKleidiAI);
+    FUNC_PRINT(mixedRatio);
     // create session
     MNN::ScheduleConfig config;
     config.type      = type;
@@ -334,6 +342,8 @@ int main(int argc, char *argv[]) {
     if (runMask & 2048) {
         rtmgr->setExternalPath("tmp", Interpreter::EXTERNAL_FEATUREMAP_DIR);
     }
+    
+    rtmgr->setHint(Interpreter::CPU_SME2_NEON_DIVISION_RATIO, mixedRatio);
     // set npu model dir, npu model and mnn model in same path
     size_t pos = modelName.find_last_of("/\\");
     std::string modelPath;

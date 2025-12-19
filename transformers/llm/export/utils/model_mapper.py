@@ -55,10 +55,10 @@ class ModelMapper:
                 'num_key_value_heads': 'language_config.num_key_value_heads',
             },
             'model': {
-                'lm_': 'language_model.lm_head',
-                'embed_': 'language_model.model.embed_tokens',
-                'blocks_': 'language_model.model.layers',
-                'final_layernorm_': 'language_model.model.norm',
+                'lm': 'language_model.lm_head',
+                'embed': 'language_model.model.embed_tokens',
+                'blocks': 'language_model.model.layers',
+                'final_layernorm': 'language_model.model.norm',
                 'visual': 'vision_model'
             },
             'decoder': {
@@ -88,10 +88,10 @@ class ModelMapper:
                 'rope_scaling': 'thinker_config.text_config.rope_scaling'
             },
             'model': {
-                'lm_': 'thinker.lm_head',
-                'embed_': 'thinker.model.embed_tokens',
-                'blocks_': 'thinker.model.layers',
-                'final_layernorm_': 'thinker.model.norm',
+                'lm': 'thinker.lm_head',
+                'embed': 'thinker.model.embed_tokens',
+                'blocks': 'thinker.model.layers',
+                'final_layernorm': 'thinker.model.norm',
                 'visual': 'thinker.visual',
                 'audio': 'thinker.audio_tower',
                 'talker': 'talker',
@@ -111,10 +111,10 @@ class ModelMapper:
                 'rope_theta': 'rotary_emb_base',
             },
             'model': {
-                'lm_': 'lm_head',
-                'embed_': 'transformer.wte',
-                'blocks_': 'transformer.h',
-                'final_layernorm_': 'transformer.ln_f',
+                'lm': 'lm_head',
+                'embed': 'transformer.wte',
+                'blocks': 'transformer.h',
+                'final_layernorm': 'transformer.ln_f',
                 'visual': 'transformer.visual'
             },
             'decoder': {
@@ -221,10 +221,10 @@ class ModelMapper:
                 'num_hidden_layers': 'num_layers'
             },
             'model': {
-                'lm_': 'lm_head',
-                'embed_': 'transformer.word_embeddings',
-                'blocks_': 'transformer.layers',
-                'final_layernorm_': 'transformer.final_layernorm',
+                'lm': 'lm_head',
+                'embed': 'transformer.word_embeddings',
+                'blocks': 'transformer.layers',
+                'final_layernorm': 'transformer.final_layernorm',
             },
             'decoder': {
                 'self_attn': 'attention',
@@ -249,10 +249,10 @@ class ModelMapper:
                 'rope_ratio': 'rope_ratio'
             },
             'model': {
-                'lm_': 'transformer.output_layer',
-                'embed_': 'transformer.embedding.word_embeddings',
-                'blocks_': 'transformer.encoder.layers',
-                'final_layernorm_': 'transformer.encoder.final_layernorm',
+                'lm': 'transformer.output_layer',
+                'embed': 'transformer.embedding.word_embeddings',
+                'blocks': 'transformer.encoder.layers',
+                'final_layernorm': 'transformer.encoder.final_layernorm',
             },
             'decoder': {
                 'self_attn': 'self_attention',
@@ -276,10 +276,10 @@ class ModelMapper:
                 'rotary_dim': 'rotary_dim'
             },
             'model': {
-                'lm_': 'lm_head.linear',
-                'embed_': 'transformer.embd.wte',
-                'blocks_': 'transformer.h',
-                'final_layernorm_': 'lm_head.ln',
+                'lm': 'lm_head.linear',
+                'embed': 'transformer.embd.wte',
+                'blocks': 'transformer.h',
+                'final_layernorm': 'lm_head.ln',
             },
             'decoder': {
                 'self_attn': 'mixer',
@@ -304,10 +304,10 @@ class ModelMapper:
                 'num_key_value_heads': 'num_key_value_heads',
             },
             'model': {
-                'lm_': 'lm_head',
-                'embed_': 'model.embed_tokens',
-                'blocks_': 'model.layers',
-                'final_layernorm_': 'model.norm'
+                'lm': 'lm_head',
+                'embed': 'model.embed_tokens',
+                'blocks': 'model.layers',
+                'final_layernorm': 'model.norm'
             },
             'decoder': {
                 'self_attn': 'self_attn',
@@ -332,10 +332,10 @@ class ModelMapper:
                 'num_key_value_heads': 'llm_config.num_key_value_heads',
             },
             'model': {
-                'lm_': 'language_model.lm_head',
-                'embed_': 'language_model.model.embed_tokens',
-                'blocks_': 'language_model.model.layers',
-                'final_layernorm_': 'language_model.model.norm',
+                'lm': 'language_model.lm_head',
+                'embed': 'language_model.model.embed_tokens',
+                'blocks': 'language_model.model.layers',
+                'final_layernorm': 'language_model.model.norm',
                 'visual': 'vision_model'
             },
             'decoder': {
@@ -384,10 +384,10 @@ class ModelMapper:
                 'eoi_token_index': 'eoi_token_index', #'<end_of_image>'
             },
             'model': {
-                'lm_': 'language_model.lm_head',
-                'embed_': 'language_model.model.embed_tokens',
-                'blocks_': 'language_model.model.layers',
-                'final_layernorm_': 'language_model.model.norm',
+                'lm': 'language_model.lm_head',
+                'embed': 'language_model.model.embed_tokens',
+                'blocks': 'language_model.model.layers',
+                'final_layernorm': 'language_model.model.norm',
                 'vision_tower': 'vision_tower',
                 'visual': 'vision_tower.vision_model',
                 'multi_modal_projector': 'multi_modal_projector'
@@ -431,10 +431,10 @@ class ModelMapper:
                 'sliding_window': 'sliding_window'
             },
             'model': {
-                'lm_': 'lm_head',
-                'embed_': 'model.embed_tokens',
-                'blocks_': 'model.layers',
-                'final_layernorm_': 'model.norm',
+                'lm': 'lm_head',
+                'embed': 'model.embed_tokens',
+                'blocks': 'model.layers',
+                'final_layernorm': 'model.norm',
                 'rotary_emb': 'model.rotary_emb',
                 'rotary_emb_local': 'model.rotary_emb_local'
             },
@@ -467,10 +467,10 @@ class ModelMapper:
             'rope_theta': 'rope_freq_constant'
         }
         openelm_model = {
-            'lm_': 'lm_head',
-            'embed_': 'transformer.token_embeddings',
-            'blocks_': 'transformer.layers',
-            'final_layernorm_': 'transformer.norm'
+            'lm': 'lm_head',
+            'embed': 'transformer.token_embeddings',
+            'blocks': 'transformer.layers',
+            'final_layernorm': 'transformer.norm'
         }
         openelm_decoder = {
             'self_attn': 'attn',
@@ -503,11 +503,12 @@ class ModelMapper:
             'rope_scaling': 'text_config.rope_scaling'
         }
         idefics3_model = {
-            'lm_': 'lm_head',
-            'embed_': 'model.text_model.embed_tokens',
-            'blocks_': 'model.text_model.layers',
-            'final_layernorm_': 'model.text_model.norm',
-            'visual': 'model.vision_model'
+            'lm': 'lm_head',
+            'embed': 'model.text_model.embed_tokens',
+            'blocks': 'model.text_model.layers',
+            'final_layernorm': 'model.text_model.norm',
+            'visual': 'model.vision_model',
+            'visual.connector': 'model.connector'
         }
         idefics3_map = {
             'config': idefics3_config,
@@ -533,10 +534,10 @@ class ModelMapper:
         if TRANSFORMERS_VERSION <= '4.52.1':
             return
         qwen2vl_model = {
-            'lm_': 'lm_head',
-            'embed_': 'model.language_model.embed_tokens',
-            'blocks_': 'model.language_model.layers',
-            'final_layernorm_': 'model.language_model.norm',
+            'lm': 'lm_head',
+            'embed': 'model.language_model.embed_tokens',
+            'blocks': 'model.language_model.layers',
+            'final_layernorm': 'model.language_model.norm',
             'visual': 'model.visual'
         }
         qwen2vl_map = {
@@ -652,10 +653,10 @@ class ModelMapper:
         minicpmv_config = copy.deepcopy(self.default_config)
         minicpmv_config['scale_emb'] = 'scale_emb'
         minicpmv_model = {
-            'lm_': 'llm.lm_head',
-            'embed_': 'llm.model.embed_tokens',
-            'blocks_': 'llm.model.layers',
-            'final_layernorm_': 'llm.model.norm',
+            'lm': 'llm.lm_head',
+            'embed': 'llm.model.embed_tokens',
+            'blocks': 'llm.model.layers',
+            'final_layernorm': 'llm.model.norm',
             'visual': 'vpm',
             'resampler': 'resampler'
         }
@@ -684,10 +685,10 @@ class ModelMapper:
             'max_position_embeddings': 'max_position_embeddings'
         }
         self.default_model = {
-            'lm_': 'lm_head',
-            'embed_': 'model.embed_tokens',
-            'blocks_': 'model.layers',
-            'final_layernorm_': 'model.norm',
+            'lm': 'lm_head',
+            'embed': 'model.embed_tokens',
+            'blocks': 'model.layers',
+            'final_layernorm': 'model.norm',
             'visual': 'visual'
         }
         self.default_decoder = {
@@ -711,14 +712,35 @@ class ModelMapper:
         }
 
     @staticmethod
-    def do_map(dst, src, map):
-        for dst_attr, src_attr in map.items():
-            attributes = src_attr.split('.')
-            obj = src
-            for attr in attributes:
-                if hasattr(obj, attr):
-                    obj = getattr(obj, attr)
+    def do_map(dst, src, mapping):
+        # Sort mapping by key to ensure parents are set before children
+        # e.g., 'visual' is processed before 'visual.connector' for SmolVLM
+        for dst_path, src_path in sorted(mapping.items(), key=lambda x: x[0]):
+            # --- 1. Retrieve value from source ---
+            val = src
+            for attr in src_path.split('.'):
+                if hasattr(val, attr):
+                    val = getattr(val, attr)
                 else:
-                    obj = None
+                    val = None
                     break
-            setattr(dst, dst_attr, obj)
+
+            # --- 2. Navigate to destination parent node ---
+            dst_parts = dst_path.split('.')
+            target = dst
+
+            # Traverse to the second-to-last object
+            path_valid = True
+            for attr in dst_parts[:-1]:
+                if hasattr(target, attr):
+                    target = getattr(target, attr)
+                    if target is None:
+                        path_valid = False
+                        break
+                else:
+                    path_valid = False
+                    break
+
+            # --- 3. Set value ---
+            if path_valid and target:
+                setattr(target, dst_parts[-1], val)

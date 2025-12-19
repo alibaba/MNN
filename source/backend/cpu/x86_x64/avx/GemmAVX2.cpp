@@ -220,8 +220,8 @@ void _AVX_MNNAsyQuantInfo(float* scale, float* bias, float* qscale, float* qbias
         } else {
             qscale[0] = 255.f / range;
             scale[0] = range / 255.f;
-            qbias[0] = roundf(-minval * 255.f / range)- 128.f;
-            bias[0] = -qbias[0] * scale[0];
+            qbias[0] = -minval * 255.f / range- 128.f;
+            bias[0] = minval;
         }
         return;
     }
@@ -262,14 +262,14 @@ void _AVX_MNNAsyQuantInfo(float* scale, float* bias, float* qscale, float* qbias
 
             quantScale4 = _mm_blendv_ps(quantScale4, _0f, mask);
             dequantScale4 = _mm_blendv_ps(dequantScale4, _0f, mask);
-            quantBias4 = _mm_round_ps(_mm_blendv_ps(quantBias4, _0f, mask), 0);
+            quantBias4 = _mm_blendv_ps(quantBias4, _0f, mask);
             dequantBias4 = _mm_blendv_ps(dequantBias4, max4, mask);
 
             _mm_storeu_ps(scalePtr, dequantScale4);
             _mm_storeu_ps(biasPtr, dequantBias4);
             _mm_storeu_ps(qscale + qind, quantScale4);
             _mm_storeu_ps(qbias + qind, quantBias4);
-            
+
             realDstCount -= DST_XUNIT;
             qind += DST_XUNIT;
             scalePtr += (blockNum * DST_XUNIT);
@@ -382,7 +382,7 @@ void _AVX_MNNDynamicQuant(const float* src, int8_t* dst, const float* scale, siz
                 _mm256_storeu_si256((__m256i *)tmp, r0_8);
                 dstPtr[0] = tmp[0];
                 dstPtr[1] = tmp[4];
-                
+
                 // next round
                 xcount--;
                 scalePtr += 1;

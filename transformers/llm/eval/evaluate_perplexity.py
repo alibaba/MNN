@@ -2,15 +2,17 @@ import os
 import argparse
 from tqdm import tqdm
 import MNN.llm as mnnllm
-from datasets import load_dataset
+from datasets import load_dataset, load_from_disk
 import torch
 import copy
 
 def main(args):
     # load model
     model = mnnllm.create(args.mnn_path)
+    model.set_config({"quant_qkv": args.quant_qkv})
+    model.set_config({'all_logits': True})
     model.load()
-    model.set_config({'all_logits': True, 'use_template': False})
+
     model.generate_init()
 
     # load dataset
@@ -19,6 +21,7 @@ def main(args):
     dataset_dir = eval_dataset.split("/")[1]
 
     dataset = load_dataset(dataset_name, dataset_dir, split="test")
+    # dataset = load_from_disk("./wikitest-2-raw-v1")
     input_ids = model.tokenizer_encode("\n\n".join(dataset["text"]))
     stride = 512
     context_length = stride + stride // 2
@@ -64,6 +67,12 @@ if __name__ == "__main__":
     group = parser.add_argument_group(title="Evaluation options")
     group.add_argument(
         "-d", "--eval_dataset", type=str, default='wikitext/wikitext-2-raw-v1', help="Evaluation dataset, default is `wikitext/wikitext-2-raw-v1`."
+    )
+    group.add_argument(
+        "--quant-qkv",
+        type=int,
+        default=8,
+        help="Quantization bits for QKV, default is 8(not quant), if set 9, quant",
     )
 
     args = parser.parse_args()

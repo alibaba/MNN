@@ -13,7 +13,6 @@ class Token2Wav(torch.nn.Module):
         self.args = base.args
         self.token2wav = token2wav.float()
         self.config = base.config
-        self.llm_config = base.llm_config
         self.rope_ratio = 1.0
         self.quant_bit = 8
         self.load()
