@@ -69,6 +69,7 @@
    :name: transformers
 
    transformers/diffusion
+   transformers/diffusion_transformer
    transformers/llm
    transformers/models
 
