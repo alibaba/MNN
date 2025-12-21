@@ -3882,12 +3882,13 @@ void MNNVectorTop1Int32(int32_t* input, int32_t* maxValue, int32_t* maxIndex, si
 
 #endif
 
-void MNNComputeMatMulForE_1(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId) {
+void MNNComputeMatMulForE_1(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tIdL) {
     auto l = param->l;
     auto h = param->h;
     auto numberThread = param->numberThread;
     auto lC4 = l / 4;
     auto lR = lC4 * 4;
+    auto tId = (int)tIdL;
     if (param->BTranspose) {
         for (int y=tId; y<h; y+=numberThread) {
             Vec4 sumValue = Vec4(0.0f);
@@ -3909,15 +3910,20 @@ void MNNComputeMatMulForE_1(const float* A, const float* B, float* C, const floa
         auto hR = hC4 * 16;
         for (int y=tId; y<hC4; y+=numberThread) {
             auto bs = B + 16 * y;
-            Vec4 sumValue0 = Vec4(0.0f);
-            Vec4 sumValue1 = Vec4(0.0f);
-            Vec4 sumValue2 = Vec4(0.0f);
-            Vec4 sumValue3 = Vec4(0.0f);
+            Vec4 sumValue0;
+            Vec4 sumValue1;
+            Vec4 sumValue2;
+            Vec4 sumValue3;
             if (biasPtr != nullptr) {
                 sumValue0 = Vec4::load(biasPtr + 16 * y + 0);
                 sumValue1 = Vec4::load(biasPtr + 16 * y + 4);
                 sumValue2 = Vec4::load(biasPtr + 16 * y + 8);
                 sumValue3 = Vec4::load(biasPtr + 16 * y + 12);
+            } else {
+                sumValue0 = Vec4(0.0f);
+                sumValue1 = Vec4(0.0f);
+                sumValue2 = Vec4(0.0f);
+                sumValue3 = Vec4(0.0f);
             }
             auto srcY = A + y * l;
             for (int x=0; x<l; ++x) {
@@ -3932,7 +3938,50 @@ void MNNComputeMatMulForE_1(const float* A, const float* B, float* C, const floa
             Vec4::save(C + 16 * y + 8, sumValue2);
             Vec4::save(C + 16 * y + 12, sumValue3);
         }
-        for (int y=hR + tId; y<h; y+=numberThread) {
+        int hEnd = hR;
+        if ((h-hR) >= 8) {
+            if (0 == tId) {
+                auto bs = B + hEnd;
+                Vec4 sumValue0;
+                Vec4 sumValue1;
+                if (biasPtr != nullptr) {
+                    sumValue0 = Vec4::load(biasPtr + hEnd + 0);
+                    sumValue1 = Vec4::load(biasPtr + hEnd + 4);
+                } else {
+                    sumValue0 = Vec4(0.0f);
+                    sumValue1 = Vec4(0.0f);
+                }
+                auto srcY = A + hEnd * l;
+                for (int x=0; x<l; ++x) {
+                    auto a = Vec4(A[x]);
+                    sumValue0 = Vec4::fma(sumValue0, a, Vec4::load(bs + h * x));
+                    sumValue1 = Vec4::fma(sumValue1, a, Vec4::load(bs + h * x + 4));
+                }
+                Vec4::save(C + hEnd, sumValue0);
+                Vec4::save(C + hEnd + 4, sumValue1);
+            }
+            hEnd = hEnd + 8;
+        }
+        if ((h-hEnd) >= 4) {
+            if (0 == tId) {
+                auto bs = B + hEnd;
+                Vec4 sumValue0;
+                if (biasPtr != nullptr) {
+                    sumValue0 = Vec4::load(biasPtr + hEnd + 0);
+                } else {
+                    sumValue0 = Vec4(0.0f);
+                }
+                auto srcY = A + hEnd * l;
+                for (int x=0; x<l; ++x) {
+                    auto a = Vec4(A[x]);
+                    sumValue0 = Vec4::fma(sumValue0, a, Vec4::load(bs + h * x));
+                }
+                Vec4::save(C + hEnd, sumValue0);
+            }
+            hEnd = hEnd + 4;
+        }
+        hEnd = hEnd + tId;
+        for (int y=hEnd; y<h; y+=numberThread) {
             auto bs = B + y;
             float sumValue = 0.0f;
             if (biasPtr != nullptr) {
