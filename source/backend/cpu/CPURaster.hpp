@@ -24,7 +24,7 @@ public:
     
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    void executeFaster(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) const;
+    void executeFaster(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
     void tensorConvert(Tensor* input, Tensor* output, int bytes);
 private:
     std::map<Tensor*, Tensor*> mTempInput;
@@ -38,6 +38,7 @@ private:
     int32_t mZeroPoint = 0;
     bool mHasReduce = false;
     bool mUseThreads = false;
+    std::vector<std::pair<std::function<void(int)>, int>> mTasks;
 };
 }
 #endif
