@@ -4031,14 +4031,33 @@ void MNNComputeMatMulForH_1(const float* A, const float* B, float* C, const floa
     if (nullptr != biasPtr) {
         biasValue = *biasPtr;
     }
-    auto lC4 = l / 4;
-    auto lR = lC4 * 4;
+    auto lC4 = l / 16;
+    auto lRO = lC4 * 16;
     for (int y=tId; y<e; y+=numberThread) {
+        auto lR = lRO;
         Vec4 sumValue = Vec4(biasValue);
+        Vec4 sum1(0.0f);
+        Vec4 sum2(0.0f);
+        Vec4 sum3(0.0f);
         auto srcY = A + y * l;
         for (int x=0; x<lC4; ++x) {
-            sumValue = sumValue + Vec4::load(srcY + 4 * x) * Vec4::load(B + 4 * x);
+            sumValue = Vec::fma(sumValue, Vec4::load(srcY + 16 * x + 0), Vec4::load(B + 16 * x + 0));
+            sum1 = Vec::fma(sum1, Vec4::load(srcY + 16 * x + 4), Vec4::load(B + 16 * x + 4));
+            sum2 = Vec::fma(sum2, Vec4::load(srcY + 16 * x + 8), Vec4::load(B + 16 * x + 8));
+            sum3 = Vec::fma(sum3, Vec4::load(srcY + 16 * x + 12), Vec4::load(B + 16 * x + 12));
         }
+        if (l - lR >= 8) {
+            sumValue = Vec::fma(sumValue, Vec4::load(srcY + lR), Vec4::load(B + lR));
+            sum1 = Vec::fma(sum1, Vec4::load(srcY + lR + 4), Vec4::load(B + lR + 4));
+            lR += 8;
+        }
+        if (l - lR >= 4) {
+            sumValue = Vec::fma(sumValue, Vec4::load(srcY + lR), Vec4::load(B + lR));
+            lR += 4;
+        }
+        sum2 = sum2 + sum3;
+        sumValue = sumValue + sum1;
+        sumValue = sumValue + sum2;
         float sumSingle = sumValue[0] + sumValue[1] + sumValue[2] + sumValue[3];
         for (int x=lR; x<l; ++x) {
             sumSingle += srcY[x] * B[x];
