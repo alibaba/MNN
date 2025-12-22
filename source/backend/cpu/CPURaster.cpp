@@ -1081,7 +1081,15 @@ public:
                         auto stride2 = cmd->view()->GetAs<View>(2)->stride()->data();
                         auto blit1   = _selectUnitProc(bytes, stride1[2], 1);
                         auto blit2   = _selectUnitProc(bytes, stride2[2], 1);
-                        if (cmd->size()->data()[2] == 1 || (stride1[2] == 1 && stride2[2] == 1)) {
+                        if (cmd->size()->data()[2] == 1 || (stride1[2] <= 1 && stride2[2] <= 1 && (stride1[2] + stride1[1] != 0))) {
+                            // Support elementwise or one src broadcast
+                            int needBroadcastIndex = -1;
+                            if (0 == stride1[2]) {
+                                needBroadcastIndex = 0;
+                            }
+                            if (0 == stride2[2]) {
+                                needBroadcastIndex = 1;
+                            }
                             for (int z=0; z<cmd->size()->data()[0]; ++z) {
                                 auto src0Z = src0 + z * stride1[0] * bytes;
                                 auto src1Z = src1 + z * stride2[0] * bytes;
@@ -1090,7 +1098,7 @@ public:
                                     auto src0Y = src0Z + y * stride1[1] * bytes;
                                     auto src1Y = src1Z + y * stride2[1] * bytes;
                                     auto dstY = dstZ + y * stride0[1] * bytes;
-                                    proc(dstY, src0Y, src1Y, cmd->size()->data()[2], -1);
+                                    proc(dstY, src0Y, src1Y, cmd->size()->data()[2], needBroadcastIndex);
                                 }
                             }
                         } else {
