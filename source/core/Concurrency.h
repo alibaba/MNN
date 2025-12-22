@@ -12,6 +12,9 @@
 #define LAUNCH_MULTI_THREADS_WORKLOAD 1e+5
 
 #ifdef MNN_FORBIT_MULTI_THREADS
+#define MNN_CONCURRENCY_ENQUEUE(task) \
+for (int __iter__ = 0; __iter__ < task.second; __iter__++) {task.first(__iter__);}
+
 #define MNN_CONCURRENCY_BEGIN(__iter__, __num__) for (int __iter__ = 0; __iter__ < __num__; __iter__++) {
 #define MNN_CONCURRENCY_END() }
 
@@ -19,6 +22,8 @@
 #include "backend/cpu/ThreadPool.hpp"
 
 #define MNN_STRINGIFY(a) #a
+#define MNN_CONCURRENCY_ENQUEUE(task) ((CPUBackend*)backend())->enqueue(task)
+
 #define MNN_CONCURRENCY_BEGIN(__iter__, __num__)       \
     {                                                  \
         std::pair<std::function<void(int)>, int> task; \
@@ -28,8 +33,7 @@
     }                                                              \
     ;                                                              \
     auto cpuBn = (CPUBackend*)backend();                           \
-    auto thrPl = cpuBn->threadPool();                              \
-    thrPl->enqueue(std::move(task), cpuBn->taskIndex());           \
+    cpuBn->enqueue(task);           \
     }
 
 #else
@@ -37,6 +41,9 @@
 #if defined(__APPLE__)
 #include <dispatch/dispatch.h>
 #include <stddef.h>
+
+#define MNN_CONCURRENCY_ENQUEUE(task) \
+dispatch_apply(task.second, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^(size_t __iter__) {task.first(__iter__);});
 
 #define MNN_CONCURRENCY_BEGIN(__iter__, __num__) \
 dispatch_apply(__num__, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^(size_t __iter__) {
@@ -58,6 +65,8 @@ dispatch_apply(__num__, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 
 // Android
 #else
 #include <omp.h>
+#define MNN_CONCURRENCY_ENQUEUE(task) \
+_Pragma("omp parallel for") for (int __iter__ = 0; __iter__ < task.second; __iter__++) {task.first(__iter__);}
 
 #define MNN_STRINGIFY(a) #a
 #define MNN_CONCURRENCY_BEGIN(__iter__, __num__) \
