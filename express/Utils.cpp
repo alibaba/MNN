@@ -181,23 +181,6 @@ void* Executor::ComputeCache::mapOutput(int offset, Tensor* dest) {
     if (0 == tensor->usize()) {
         return nullptr;
     }
-    
-    bool hasNoExecution = false;
-    if (nullptr != tensor) {
-        auto backend = TensorUtils::getDescribeOrigin(tensor)->getBackend();
-        if (nullptr != backend) {
-            // Try to sync to check execution status
-            int syncResult = backend->onSync(Tensor::MAP_TENSOR_READ, false, tensor);
-            if (NO_EXECUTION == syncResult) {
-                hasNoExecution = true;
-            }
-        }
-    }
-    if (hasNoExecution) {
-        MNN_PRINT("\nWarning, Backend has stop execute, return nullptr for current varp\n");
-        return nullptr;
-    }
-    
     Utils::allocMemoryForHostTensor(dest);
     if(nullptr != dest->host<void>()) {
         tensor->copyToHostTensor(dest);

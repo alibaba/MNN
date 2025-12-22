@@ -184,7 +184,6 @@ public:
 
     static void setupTensorInfo(const Tensor* tensor, Tensor* wrapTensor, MNN_DATA_FORMAT mMidFormat);
     static Tensor::InsideDescribe::Region makeFullSlice(Tensor* input);
-    static void makeFullRef(Tensor* output, Tensor* input);
     static bool regionIsFull(Tensor* input);
     static bool isCopyRegion(const Tensor::InsideDescribe::Region& region);
     static bool isTransposeRegion(const Tensor::InsideDescribe::Region& region);

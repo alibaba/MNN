@@ -59,13 +59,6 @@ enum TuneType {
     // op encoder number for commit
     OP_ENCODER_NUMBER = 0,
 };
-enum class LlmStatus {
-    RUNNING = 0,
-    NORMAL_FINISHED = 1,
-    MAX_TOKENS_FINISHED = 2,
-    USER_CANCEL = 3,
-    INTERNAL_ERROR = 4,
-};
 enum class MatchStrictLevel : int;
 enum class NgramSelectRule : int;
 
@@ -91,8 +84,6 @@ struct LlmContext {
     std::vector<int> history_tokens;
     std::vector<int> output_tokens;
     std::string generate_str;
-    // llm status
-    LlmStatus status;
 };
 struct GenerationParams;
 class MNN_PUBLIC Llm {
