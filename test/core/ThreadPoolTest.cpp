@@ -26,11 +26,11 @@ public:
                 auto workIndex = threadPool->acquireWorkIndex();
                 FUNC_PRINT(workIndex);
                 threadPool->active();
-                ThreadPool::TASK task = std::make_pair([](int index) {
+                auto func = [](int index) {
                     FUNC_PRINT(index);
                     std::this_thread::yield();
-                }, 10);
-                threadPool->enqueue(&task, workIndex);
+                };
+                threadPool->enqueue(std::make_pair(std::move(func), 10), workIndex);
                 threadPool->deactive();
                 threadPool->releaseWorkIndex(workIndex);
             });

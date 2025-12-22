@@ -318,9 +318,9 @@ ErrorCode SparseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& input
     bufferAlloc->free(tempPtr);
     auto threadNumberFirst = std::min(threadNumber, tileCount);
     auto postParameters    = getPostParameters();
-    mFunction.second        = threadNumberFirst;
+    mFunction.first        = threadNumberFirst;
 
-    mFunction.first       = [=](int tId) {
+    mFunction.second       = [=](int tId) {
         auto gemmBuffer = mTempBufferTranspose.host<uint8_t>() + mTempBufferTranspose.stride(0) * tId;
         auto srcPtr     = (float const **)(tempPtr.ptr() + tId * kernelSize * maxLine * (4 * sizeof(int32_t) + sizeof(float *)));
         auto el         = (int32_t *)(srcPtr + kernelSize * maxLine);

@@ -176,9 +176,6 @@ public:
 #ifdef MNN_USE_THREAD_POOL
     inline int taskIndex() const {return mRuntime->mTaskIndex;}
     inline ThreadPool* threadPool() const {return mRuntime->mThreadPool;}
-    void enqueue(ThreadPool::TASK& task) const {
-        threadPool()->enqueue(&task, taskIndex());
-    }
 #endif
     static void initCreatorMap();
     static size_t getBytes(const Backend* backend, const Tensor* output);

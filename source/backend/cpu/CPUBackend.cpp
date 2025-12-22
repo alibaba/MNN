@@ -104,14 +104,15 @@ void CPURuntime::_bindCPUCore() const {
 #ifdef MNN_USE_THREAD_POOL
     if (nullptr != mThreadPool) {
         mThreadPool->active();
-        ThreadPool::TASK task = std::make_pair([&](int i) {
+        mThreadPool->enqueue(std::make_pair([&](int i) {
             MNNSetSchedAffinity(lockCPUIndexes[i].first, lockCPUIndexes[i].second);
-        }, mThreadNumber);
-        mThreadPool->enqueue(&task, mTaskIndex);
+            return 0;
+        }, mThreadNumber), mTaskIndex);
         mThreadPool->deactive();
     }
 #endif
 }
+
 void CPURuntime::_resetThreadPool() const {
     mThreadNumber = std::max(1, mThreadNumber);
     mThreadNumber = std::min(mThreadNumber, MAX_THREAD_NUMBER);
@@ -490,7 +491,6 @@ CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode p
             currentRate *= decreaseRate;
             totalComputeRate += currentRate * selectSize;
             mGroupWithComputeRate.emplace_back(std::make_pair(currentRate * selectSize, selectSize));
-            groupIndex--;
         }
         for (auto& g : mGroupWithComputeRate) {
             g.first = g.first / totalComputeRate;

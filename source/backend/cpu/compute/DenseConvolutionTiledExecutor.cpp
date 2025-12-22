@@ -501,14 +501,14 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
     bufferAlloc->free(tempPtr);
 
     auto postParameters    = getPostParameters();
-    mFunction.second        = threadNumber;
+    mFunction.first        = threadNumber;
 
     if (mConvPerfconfig.isParallelInner) {
         auto rt = static_cast<const CPURuntime*>(backend()->getRuntime());
         std::vector<int> ocC4ParralSize(threadNumber + 1);
         ocC4ParralSize[0] = 0;
         static_cast<CPUBackend *>(backend())->computeDivideSizes(oC4, ocC4ParralSize.data()+1);
-        mFunction.first = [=](int placeholder) {
+        mFunction.second = [=](int placeholder) {
         const float* biasPtr = bias ? bias->host<float>() : nullptr;
         auto gemmBuffer = mTempBufferTranspose.host<uint8_t>() + mTempBufferTranspose.stride(0) * 0;
         auto srcPtr     = (float const **)(tempPtr.ptr() + 0 * kernelSize * maxLine * (4 * sizeof(int32_t) + sizeof(float *)));
@@ -640,7 +640,7 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
 
         static_cast<CPUBackend *>(backend())->computeDivideSizes(tileCount, divides.data() + 1);
 
-        mFunction.first       = [=](int tId) {
+        mFunction.second       = [=](int tId) {
             const float* biasPtr = bias ? bias->host<float>() : nullptr;
             auto gemmBuffer = mTempBufferTranspose.host<uint8_t>() + mTempBufferTranspose.stride(0) * tId;
             auto srcPtr     = (float const **)(tempPtr.ptr() + tId * kernelSize * maxLine * (4 * sizeof(int32_t) + sizeof(float *)));
@@ -720,9 +720,12 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
 ErrorCode DenseConvolutionTiledImpl::onExecute(const std::vector<Tensor*>& inputs,
                                           const std::vector<Tensor*>& outputs) {
     if (mConvPerfconfig.isParallelInner) {
-        mFunction.first(0);
+        mFunction.second(0);
     } else {
-        MNN_CONCURRENCY_ENQUEUE(mFunction);
+        MNN_CONCURRENCY_BEGIN(tId, mFunction.first) {
+            mFunction.second((int)tId);
+        }
+        MNN_CONCURRENCY_END();
     }
 
     return NO_ERROR;

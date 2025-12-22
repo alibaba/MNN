@@ -113,22 +113,21 @@ ConvBufWinograd::ConvBufWinograd(const MNN::Op* op, Backend* backend) : CommonEx
         
         mResource->mBias.reset(Tensor::createDevice<float>({1, 1, 1, (int)ALIGN_UP4(mCo)}));
         mOpenCLBackend->onAcquireBuffer(mResource->mBias.get(), Backend::STATIC);
-        if(mOpenCLBackend->getRuntime()->hint().useCachedMmap <= 1){
-            cl::Buffer &bias_buffer = *(cl::Buffer *)mResource->mBias->buffer().device;
-            auto bias_ptr = queue.enqueueMapBuffer(bias_buffer, CL_TRUE, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &ret_code);
-            if(bias_ptr == nullptr || ret_code) {
-                MNN_ERROR("clBuffer map error!\n");
-            }
-            ::memset(bias_ptr, 0, buffer_size);
-            if(mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
-                for(int i=0; i<mCo; i++) {
-                    ((half_float::half *)bias_ptr)[i] = (half_float::half)conv2D->bias()->data()[i];
-                }
-            } else {
-                ::memcpy(bias_ptr, conv2D->bias()->data(), mCo*sizeof(float));
-            }
-            queue.enqueueUnmapMemObject(bias_buffer, bias_ptr);
+        cl::Buffer &bias_buffer = *(cl::Buffer *)mResource->mBias->buffer().device;
+
+        auto bias_ptr = queue.enqueueMapBuffer(bias_buffer, CL_TRUE, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &ret_code);
+        if(bias_ptr == nullptr || ret_code) {
+            MNN_ERROR("clBuffer map error!\n");
         }
+        ::memset(bias_ptr, 0, buffer_size);
+        if(mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
+            for(int i=0; i<mCo; i++) {
+                ((half_float::half *)bias_ptr)[i] = (half_float::half)conv2D->bias()->data()[i];
+            }
+        } else {
+            ::memcpy(bias_ptr, conv2D->bias()->data(), mCo*sizeof(float));
+        }
+        queue.enqueueUnmapMemObject(bias_buffer, bias_ptr);
 
 
         auto ocC16 = UP_DIV(mCo, 16);
@@ -156,22 +155,21 @@ ConvBufWinograd::ConvBufWinograd(const MNN::Op* op, Backend* backend) : CommonEx
 
         cl::Buffer& weightBuffer = *(cl::Buffer*)mResource->mWeight->buffer().device;
 
-        if(mOpenCLBackend->getRuntime()->hint().useCachedMmap <= 1){
-            auto weight_ptr = queue.enqueueMapBuffer(weightBuffer, CL_TRUE, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &ret_code);
-            if (weight_ptr != nullptr && ret_code == CL_SUCCESS) {
-                if (mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
-                    for (int i = 0; i < weightDest->elementSize(); i++) {
-                        ((half_float::half*)weight_ptr)[i] = (half_float::half)(weightDest->host<float>()[i]);
-                    }
-                } else {
-                    ::memcpy(weight_ptr, weightDest->host<float>(), buffer_size);
+        auto weight_ptr =
+            queue.enqueueMapBuffer(weightBuffer, CL_TRUE, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &ret_code);
+        if (weight_ptr != nullptr && ret_code == CL_SUCCESS) {
+            if (mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
+                for (int i = 0; i < weightDest->elementSize(); i++) {
+                    ((half_float::half*)weight_ptr)[i] = (half_float::half)(weightDest->host<float>()[i]);
                 }
             } else {
-                MNN_ERROR("Map error weightPtr == nullptr \n");
+                ::memcpy(weight_ptr, weightDest->host<float>(), buffer_size);
             }
-            
-            queue.enqueueUnmapMemObject(weightBuffer, weight_ptr);
+        } else {
+            MNN_ERROR("Map error weightPtr == nullptr \n");
         }
+
+        queue.enqueueUnmapMemObject(weightBuffer, weight_ptr);
     }else
 #endif /* MNN_SUPPORT_INTEL_SUBGROUP */    
     {
@@ -187,22 +185,21 @@ ConvBufWinograd::ConvBufWinograd(const MNN::Op* op, Backend* backend) : CommonEx
         
         mResource->mBias.reset(Tensor::createDevice<float>({1, 1, 1, (int)ALIGN_UP4(mCo)}));
         mOpenCLBackend->onAcquireBuffer(mResource->mBias.get(), Backend::STATIC);
-        if(mOpenCLBackend->getRuntime()->hint().useCachedMmap <= 1){
-            cl::Buffer &bias_buffer = *(cl::Buffer *)mResource->mBias->buffer().device;
-            auto bias_ptr = queue.enqueueMapBuffer(bias_buffer, CL_TRUE, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &ret_code);
-            if(bias_ptr == nullptr || ret_code) {
-                MNN_ERROR("clBuffer map error!\n");
-            }
-            ::memset(bias_ptr, 0, buffer_size);
-            if(mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
-                for(int i=0; i<mCo; i++) {
-                    ((half_float::half *)bias_ptr)[i] = (half_float::half)conv2D->bias()->data()[i];
-                }
-            } else {
-                ::memcpy(bias_ptr, conv2D->bias()->data(), mCo*sizeof(float));
-            }
-            queue.enqueueUnmapMemObject(bias_buffer, bias_ptr);
+        cl::Buffer &bias_buffer = *(cl::Buffer *)mResource->mBias->buffer().device;
+        
+        auto bias_ptr = queue.enqueueMapBuffer(bias_buffer, CL_TRUE, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &ret_code);
+        if(bias_ptr == nullptr || ret_code) {
+            MNN_ERROR("clBuffer map error!\n");
         }
+        ::memset(bias_ptr, 0, buffer_size);
+        if(mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
+            for(int i=0; i<mCo; i++) {
+                ((half_float::half *)bias_ptr)[i] = (half_float::half)conv2D->bias()->data()[i];
+            }
+        } else {
+            ::memcpy(bias_ptr, conv2D->bias()->data(), mCo*sizeof(float));
+        }
+        queue.enqueueUnmapMemObject(bias_buffer, bias_ptr);
         
         int unit       = UNIT;
         int kernelSize = kx;
@@ -226,21 +223,19 @@ ConvBufWinograd::ConvBufWinograd(const MNN::Op* op, Backend* backend) : CommonEx
         mResource->mWeight.reset(Tensor::createDevice<float>({alpha * alpha * ROUND_UP(mCo, mResource->mAlignN) * ROUND_UP(mCi, mResource->mAlignK)}));//NHWC
         mOpenCLBackend->onAcquireBuffer(mResource->mWeight.get(), Backend::STATIC);
         
-        if(mOpenCLBackend->getRuntime()->hint().useCachedMmap <= 1){
-            buffer_size = mCo * mCi * ky * kx * sizeof(float);
-            cl::Buffer& weightBufferCL = openCLBuffer(tmpFilterTensor.get());
-            
-            cl_int res;
-            auto ptrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(weightBufferCL, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &res);
-            if(ptrCL != nullptr && res == CL_SUCCESS) {
-                ::memcpy(ptrCL, filterDataPtr, buffer_size);
-            }else{
-                MNN_ERROR("Map weightBufferCL error:%d, ptrCL == nullptr \n", res);
-            }
-            mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(weightBufferCL, ptrCL);
-            
-            convertWeightFormat(weightBufferCL, mResource->mAlignK, mResource->mAlignN);
+        buffer_size = mCo * mCi * ky * kx * sizeof(float);
+        cl::Buffer& weightBufferCL = openCLBuffer(tmpFilterTensor.get());
+        
+        cl_int res;
+        auto ptrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(weightBufferCL, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &res);
+        if(ptrCL != nullptr && res == CL_SUCCESS) {
+            ::memcpy(ptrCL, filterDataPtr, buffer_size);
+        }else{
+            MNN_ERROR("Map weightBufferCL error:%d, ptrCL == nullptr \n", res);
         }
+        mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(weightBufferCL, ptrCL);
+        
+        convertWeightFormat(weightBufferCL, mResource->mAlignK, mResource->mAlignN);
     }
 }
 
