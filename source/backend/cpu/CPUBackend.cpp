@@ -491,6 +491,7 @@ CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode p
             currentRate *= decreaseRate;
             totalComputeRate += currentRate * selectSize;
             mGroupWithComputeRate.emplace_back(std::make_pair(currentRate * selectSize, selectSize));
+            groupIndex--;
         }
         for (auto& g : mGroupWithComputeRate) {
             g.first = g.first / totalComputeRate;
