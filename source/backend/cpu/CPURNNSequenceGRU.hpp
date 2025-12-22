@@ -11,6 +11,7 @@
 
 #include "core/Execution.hpp"
 #include "CPUMatMul.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
 namespace MNN {
 
 class CPURNNSequenceGRU : public Execution {
@@ -19,13 +20,20 @@ public:
     virtual ~CPURNNSequenceGRU();
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
+    struct RNNFuntions {
+        MNNBinaryExecute mulFunction;
+        MNNBinaryExecute addFunction;
+        MNNBinaryExecute subFunction;
+        MNNUnaryExecute tanhFunction;
+        MNNUnaryExecute sigmoidFunction;
+        int bytes;
+    };
 private:
     void runRNNStep(const uint8_t* input, const int inputLength, const bool linearBeforeReset,
-                           std::shared_ptr<Tensor>& hiddenState, const int numUnits, Tensor* gateWeight, Tensor* gateBias,
+                           uint8_t* hiddenStateInput, const int numUnits, Tensor* gateWeight, Tensor* gateBias,
                            Tensor* candidateWeight, Tensor* candidateBias, Tensor* recurrentBias,
                            std::shared_ptr<Tensor>& inputAndState, std::shared_ptr<Tensor>& gate,
-               std::shared_ptr<Tensor>& resetHt);
+               std::shared_ptr<Tensor>& resetHt, uint8_t* hiddenStateOutput);
     bool mKeepAllOutputs;
     bool mIsBidirectionalRNN;
     bool mlinearBeforeReset;
@@ -42,6 +50,7 @@ private:
     std::shared_ptr<CPUMatMul> mMatMulU2U;
     // For inputLength -> numUnit
     std::shared_ptr<CPUMatMul> mMatMulI2U;
+    RNNFuntions mRNNFunctions;
 };
 
 } // namespace MNN
