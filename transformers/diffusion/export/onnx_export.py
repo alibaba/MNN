@@ -84,7 +84,7 @@ def convert_models(model_path: str, output_path: str, opset: int, fp16: bool = F
     num_tokens = pipeline.text_encoder.config.max_position_embeddings
     text_hidden_size = pipeline.text_encoder.config.hidden_size
     text_input = pipeline.tokenizer(
-        ["A sample prompt", "A sample prompt"],
+        "A sample prompt",
         padding="max_length",
         max_length=pipeline.tokenizer.model_max_length,
         truncation=True,
@@ -97,7 +97,9 @@ def convert_models(model_path: str, output_path: str, opset: int, fp16: bool = F
         output_path=output_path / "text_encoder" / "model.onnx",
         ordered_input_names=["input_ids"],
         output_names=["last_hidden_state", "pooler_output"],
-        dynamic_axes=None,
+        dynamic_axes={
+            "input_ids": {0: "batch", 1: "sequence"},
+        },
         opset=opset,
     )
     del pipeline.text_encoder
@@ -115,9 +117,13 @@ def convert_models(model_path: str, output_path: str, opset: int, fp16: bool = F
             # False,
         ),
         output_path=unet_path,
-        ordered_input_names=["sample", "timestep", "encoder_hidden_states"],
+        ordered_input_names=["sample", "timestep", "encoder_hidden_states", "return_dict"],
         output_names=["out_sample"],  # has to be different from "sample" for correct tracing
-        dynamic_axes=None,
+        dynamic_axes={
+            "sample": {0: "batch", 1: "channels", 2: "height", 3: "width"},
+            "timestep": {0: "batch"},
+            "encoder_hidden_states": {0: "batch", 1: "sequence"},
+        },
         opset=opset,
         use_external_data_format=True,  # UNet is > 2GB, so the weights need to be split
     )
@@ -143,7 +149,7 @@ def convert_models(model_path: str, output_path: str, opset: int, fp16: bool = F
     vae_in_channels = vae_encoder.config.in_channels
     vae_sample_size = vae_encoder.config.sample_size
     # need to get the raw tensor output (sample) from the encoder
-    vae_encoder.forward = lambda sample, return_dict: vae_encoder.encode(sample, return_dict)[0].mode()
+    vae_encoder.forward = lambda sample, return_dict: vae_encoder.encode(sample, return_dict)[0].sample()
     onnx_export(
         vae_encoder,
         model_args=(
@@ -153,24 +159,30 @@ def convert_models(model_path: str, output_path: str, opset: int, fp16: bool = F
         output_path=output_path / "vae_encoder" / "model.onnx",
         ordered_input_names=["sample", "return_dict"],
         output_names=["latent_sample"],
-        dynamic_axes=None,
+        dynamic_axes={
+            "sample": {0: "batch", 1: "channels", 2: "height", 3: "width"},
+        },
         opset=opset,
     )
 
     # VAE DECODER
     vae_decoder = pipeline.vae
     vae_latent_channels = vae_decoder.config.latent_channels
+    vae_out_channels = vae_decoder.config.out_channels
     # forward only through the decoder part
-    vae_decoder.forward = lambda latent: vae_decoder.decode(latent, return_dict=False)[0]
+    vae_decoder.forward = vae_encoder.decode
     onnx_export(
         vae_decoder,
         model_args=(
             torch.randn(1, vae_latent_channels, unet_sample_size, unet_sample_size).to(device=device, dtype=dtype),
+            False,
         ),
         output_path=output_path / "vae_decoder" / "model.onnx",
-        ordered_input_names=["latent_sample"],
+        ordered_input_names=["latent_sample", "return_dict"],
         output_names=["sample"],
-        dynamic_axes=None,
+        dynamic_axes={
+            "latent_sample": {0: "batch", 1: "channels", 2: "height", 3: "width"},
+        },
         opset=opset,
     )
     del pipeline.vae

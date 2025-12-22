@@ -42,7 +42,8 @@ public:
                 return true;
             }
         }
-        TensorUtils::makeFullRef(output, input);
+        outputDes->regions = {TensorUtils::makeFullSlice(input)};
+        outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
         return true;
     }
 };
@@ -74,7 +75,10 @@ public:
                            Context& context, CommandBuffer& res) const override {
         auto input      = inputs[0];
         auto output     = outputs[0];
-        TensorUtils::makeFullRef(output, input);
+        auto inputDes   = TensorUtils::getDescribe(input);
+        auto outputDes  = TensorUtils::getDescribe(output);
+        outputDes->regions = {TensorUtils::makeFullSlice(input)};
+        outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
         return true;
     }
 };
@@ -90,7 +94,8 @@ class CopyGeometryComputer : public GeometryComputer {
                 outputDes->tensorArrayAttr = inputDes->tensorArrayAttr;
                 return true;
             }
-            TensorUtils::makeFullRef(output, input);
+            outputDes->regions = {TensorUtils::makeFullSlice(input)};
+            outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
         }
         return true;
     }
