@@ -372,7 +372,8 @@ struct Vec<float, 4> {
     using VecType = Vec<float, 4>;
     using VecTypeInt32 = Vec<int32_t, 4>;
     float32x4_t value;
-    Vec() = default;
+    Vec() {
+    }
     Vec(const float v) {
         value = vdupq_n_f32(v);
     }
