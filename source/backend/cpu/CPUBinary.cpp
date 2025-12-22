@@ -45,37 +45,6 @@ ErrorCode CPUBinary::onResize(const std::vector<Tensor*>& inputs, const std::vec
         mThreadNum = threads;
         mWorkDiv = UP_DIV(mTotalSize, threads);
     }
-    int inpBytes = inputs[0]->getType().bytes();
-    int outBytes = outputs[0]->getType().bytes();
-    if (halide_type_float == inputs[0]->getType().code) {
-        inpBytes = static_cast<CPUBackend*>(backend())->functions()->bytes;
-    }
-    if (halide_type_float == outputs[0]->getType().code) {
-        outBytes = static_cast<CPUBackend*>(backend())->functions()->bytes;
-    }
-    bool outputInt = outputs[0]->getType().code == halide_type_int;
-    mTask = std::make_pair([this, inpBytes, outBytes, outputInt](int tId) {
-        int start = tId * mWorkDiv;
-        int realSize = ALIMIN(mWorkDiv, mTotalSize - start);
-        if (realSize > 0) {
-            auto inp0 = mInput0Ptr + start * inpBytes;
-            auto inp1 = mInput1Ptr + start * inpBytes;
-            if (mNeedBroadcastIndex == 0) {
-                inp0 = mInput0Ptr;
-            } else if (mNeedBroadcastIndex == 1) {
-                inp1 = mInput1Ptr;
-            }
-            auto out = mOutputPtr + start * outBytes;
-            mProc(out, inp0, inp1, realSize, mNeedBroadcastIndex);
-            if(mActivationType == 1 && outputInt) {
-                for(int i=0; i<realSize; i++) {
-                    auto val = ((int32_t *)out)[i];
-                    auto res = val > 0 ? val : 0;
-                    ((int32_t *)out)[i] = res;
-                }
-            }
-        }
-    } , mThreadNum);
     return NO_ERROR;
 }
 
@@ -98,10 +67,31 @@ ErrorCode CPUBinary::onExecute(const std::vector<Tensor*>& inputs, const std::ve
         outBytes = static_cast<CPUBackend*>(backend())->functions()->bytes;
     }
     auto precision = static_cast<CPUBackend*>(backend())->precisionMode();
-    mInput0Ptr = input0Ptr;
-    mInput1Ptr = input1Ptr;
-    mOutputPtr = outputPtr;
-    MNN_CONCURRENCY_ENQUEUE(mTask);
+    
+    MNN_CONCURRENCY_BEGIN(tId, mThreadNum) {
+        int start = tId * mWorkDiv;
+        int realSize = ALIMIN(mWorkDiv, mTotalSize - start);
+        if (realSize > 0) {
+            auto inp0 = input0Ptr + start * inpBytes;
+            auto inp1 = input1Ptr + start * inpBytes;
+            if (mNeedBroadcastIndex == 0) {
+                inp0 = input0Ptr;
+            } else if (mNeedBroadcastIndex == 1) {
+                inp1 = input1Ptr;
+            }
+            auto out = outputPtr + start * outBytes;
+            mProc(out, inp0, inp1, realSize, mNeedBroadcastIndex);
+            if(mActivationType == 1 && output->getType().code == halide_type_int) {
+                for(int i=0; i<realSize; i++) {
+                    auto val = ((int32_t *)out)[i];
+                    auto res = val > 0 ? val : 0;
+                    ((int32_t *)out)[i] = res;
+                }
+            }
+        }
+    }
+    MNN_CONCURRENCY_END();
+    
     if(mActivationType == 1 && output->getType().code == halide_type_float) {
         mActivationExe->onExecute(outputs, outputs);
     }

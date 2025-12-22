@@ -9,7 +9,6 @@
 #include <MNN/expr/Module.hpp>
 #include <MNN/expr/ExprCreator.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
-#include <MNN/ErrorCode.hpp>
 #include "core/OpCommonUtils.hpp"
 #include "PipelineModule.hpp"
 #include "core/FileLoader.hpp"
@@ -18,7 +17,6 @@
 #include "Utils.hpp"
 #include "RuntimeAttr.hpp"
 #include "ModuleInside.hpp"
-#include "core/TensorUtils.hpp"
 #include <MNN/AutoTime.hpp>
 #ifdef MNN_INTERNAL_ENABLED
 #include "internal/auth/ModelAuth.hpp"
@@ -223,30 +221,6 @@ public:
             Executor::RuntimeExecuteWrap wrap(mInfo->runTimeManager->getInside()->mRuntime);
             outputs = mModule->onForward(inputs);
         }
-        
-        // Check execution status after forward
-        if (!outputs.empty()) {
-            bool hasNoExecution = false;
-            for (auto& v : outputs) {
-                auto t = Utils::getTensor(v);
-                if (nullptr != t) {
-                    auto backend = TensorUtils::getDescribeOrigin(t)->getBackend();
-                    if (nullptr != backend) {
-                        // Try to sync to check execution status
-                        int syncResult = backend->onSync(Tensor::MAP_TENSOR_READ, false, t);
-                        if (NO_EXECUTION == syncResult) {
-                            hasNoExecution = true;
-                            break;
-                        }
-                    }
-                }
-            }
-            if (hasNoExecution) {
-                MNN_PRINT("Warning, Backend has stop execute, return empty output vector varps\n");
-                outputs.clear();
-            }
-        }
-        
 #ifdef MNN_INTERNAL_ENABLED
         do {
             if (outputs.empty()) {

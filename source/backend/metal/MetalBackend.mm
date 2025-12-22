@@ -15,7 +15,6 @@
 #define MTLGPUFamilyMetal3_MNN 5001
 #define MTLGPUFamilyMetal4_MNN 5002
 
-#define CHECK_IOS_UI_STATUS
 #if MNN_METAL_ENABLED
 #include <mutex>
 #import "backend/metal/MNNMetalContext.h"
@@ -23,9 +22,6 @@
 #import "core/TensorUtils.hpp"
 #include "MetalCache_generated.h"
 #include "core/MNNFileUtils.h"
-#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
-#import <UIKit/UIKit.h>
-#endif
 int MNNMetalGetTensorContent(MNNMetalTensorContent* content, void* tensor) {
     if (nullptr == content || nullptr == tensor) {
         return 0;
@@ -780,9 +776,6 @@ void MetalBackend::onCopyBuffer(const Tensor *src, const Tensor *dst, id<MTLComp
     MNN_ASSERT(false); // should not be handled here
 }
 int MetalBackend::onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTensor) {
-    if (mRuntime->pExecutionStatus == NO_EXECUTION) {
-        return NO_EXECUTION;
-    }
     flushEncoder();
     auto ctx = (__bridge MNNMetalContext *)context();
     commit_net();
@@ -831,19 +824,6 @@ std::pair<id<MTLBuffer>, int> MetalBackend::getBuffer(const MNN::Tensor* tensor)
 
 
 void MetalBackend::commit() const {
-#ifdef CHECK_IOS_UI_STATUS
-#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
-    if ([UIApplication sharedApplication].applicationState == UIApplicationStateBackground || [UIApplication sharedApplication].applicationState == UIApplicationStateInactive) {
-        mRuntime->pExecutionStatus = NO_EXECUTION;
-        _commandBuffer = nil;
-        if (!mSupportDeferEncode) {
-            _commandBuffer_net = nil;
-        }
-        return;
-    }
-#endif
-#endif
-    mRuntime->pExecutionStatus = NO_ERROR;
     if (nil != _commandBuffer &&  _commandBuffer.status < MTLCommandBufferStatusCommitted) {
         [_commandBuffer commit];
         mRuntime->_waiting = _commandBuffer;
@@ -856,19 +836,6 @@ void MetalBackend::commit() const {
 }
 
 void MetalBackend::commit_net() const {
-#ifdef CHECK_IOS_UI_STATUS
-#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
-    if ([UIApplication sharedApplication].applicationState == UIApplicationStateBackground || [UIApplication sharedApplication].applicationState == UIApplicationStateInactive) {
-        mRuntime->pExecutionStatus = NO_EXECUTION;
-        _commandBuffer_net = nil;
-        if (!mSupportDeferEncode) {
-            _commandBuffer = nil;
-        }
-        return;
-    }
-#endif
-#endif
-    mRuntime->pExecutionStatus = NO_ERROR;
     if (nil != _commandBuffer_net && _commandBuffer_net.status < MTLCommandBufferStatusCommitted) {
         [_commandBuffer_net commit];
         mRuntime->_waiting = _commandBuffer_net;
