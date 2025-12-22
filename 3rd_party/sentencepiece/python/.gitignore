@@ -1,6 +1,0 @@
-/*.so
-/build
-/*.pickle
-/m*.model
-/m*.vocab
-/src/sentencepiece/package_data
