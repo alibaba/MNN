@@ -55,7 +55,7 @@ private:
     std::string mModelPath;
     DiffusionModelType mModelType;
     int mMaxTextLen = 77;
-    int mMaxTextLenT5 = 256; // T5 usually 256 or 512
+    int mMaxTextLenT5 = 256;
     int mMemoryMode;
     MNNForwardType mBackendType;
     
