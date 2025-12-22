@@ -32,6 +32,18 @@ bool TensorUtils::regionIsFull(Tensor* input) {
     return regionSize == size;
 }
 
+void TensorUtils::makeFullRef(Tensor* output, Tensor* input) {
+    auto des = TensorUtils::getDescribe(input);
+    auto outputDes = TensorUtils::getDescribe(output);
+    outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+    if (des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
+        outputDes->regions = des->regions;
+    } else {
+        outputDes->regions = {makeFullSlice(input)};
+    }
+}
+
+
 Tensor::InsideDescribe::Region TensorUtils::makeFullSlice(Tensor* input) {
     Tensor::InsideDescribe::Region totalSlice;
     totalSlice.src.offset = 0;
