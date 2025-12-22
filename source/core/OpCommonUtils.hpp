@@ -56,6 +56,7 @@ public:
     static bool supportDynamicInputMemory(MNNForwardType type);
     static void broastCastComputeDim(int* dims, int* stride, int* iStride0, int* iStride1, const Tensor* input0,
                                      const Tensor* input1, const Tensor* output);
+    static std::vector<std::tuple<int, int, int>> computeReduceDims(const std::vector<Tensor*>& inputs, const Op* op);
     static void unravelIndexHelper(int32_t* coordinate, const int32_t* mod, int size,
                                    int indice);
     static int computeStride(int32_t* strides, const int* shape, int length);
