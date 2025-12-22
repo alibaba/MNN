@@ -37,9 +37,8 @@ void CPUMatMul::_scheduleForVecE(int e, int l, int h) {
     param.BTranspose = mTransposeB;
     param.numberThread = numberThread;
     auto func = static_cast<CPUBackend*>(backend())->functions()->MNNComputeMatMulForE_1;
-    mPreFunctions.emplace_back(std::make_pair([param, func](
-                                                                             int tId, const float* A, const float* B, const float* biasPtr, float* C) {
-        func(A, B, C, biasPtr, &param, tId);
+    mPreFunctions.emplace_back(std::make_pair([param, func, this](int tId) {
+        func(mA, mB, mC, mBiasPtr, &param, tId);
     }, numberThread));
 }
 
@@ -54,9 +53,9 @@ void CPUMatMul::_scheduleForVec(int e, int l, int h) {
     auto func = static_cast<CPUBackend*>(backend())->functions()->MNNComputeMatMulForH_1;
     // TODD: Support e = 1
     MNN_ASSERT(h == 1);
-    mPreFunctions.emplace_back(std::make_pair([param, func](
-        int tId, const float* A, const float* B, const float* biasPtr, float* C) {
-        func(A, B, C, biasPtr, &param, tId);
+    mPreFunctions.emplace_back(std::make_pair([param, func, this](
+        int tId) {
+        func(mA, mB, mC, mBiasPtr, &param, tId);
     }, numberThread));
 }
 
@@ -100,8 +99,8 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
         return OUT_OF_MEMORY;
     }
 
-    mPreFunctions.emplace_back(std::make_pair([BTPtrAlloc, l, h, this, core] (int tId, const float* APtr, const float* BPtr, const float* Bias, float* C) {
-        core->MNNPackForMatMul_B((float*)BTPtrAlloc.ptr(), BPtr, h, 1, l, mTransposeB);
+    mPreFunctions.emplace_back(std::make_pair([BTPtrAlloc, l, h, this, core] (int tId) {
+        core->MNNPackForMatMul_B((float*)BTPtrAlloc.ptr(), mB, h, 1, l, mTransposeB);
     } , 1));
     bool useBias = false;
     MemChunk bdestAlloc;
@@ -120,9 +119,9 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
             }
             mTempBias = bdestAlloc;
             mPreFunctions.emplace_back(std::make_pair(
-                [biasLength, bdestAlloc, core](int tId, const float* APtr, const float* BPtr, const float* borigin, float* C) {
+                [biasLength, bdestAlloc, core, this](int tId) {
                 ::memset(bdestAlloc.ptr(), 0, UP_DIV(biasLength, core->pack) * core->bytes * core->pack);
-                ::memcpy(bdestAlloc.ptr(), borigin, biasLength * core->bytes);
+                ::memcpy(bdestAlloc.ptr(), mBiasPtr, biasLength * core->bytes);
             }, 1));
         } else {
             mUseBiasDirectly = true;
@@ -167,11 +166,12 @@ ErrorCode CPUMatMul::onExecute(const std::vector<Tensor*>& inputs, const std::ve
 }
 
 void CPUMatMul::execute(const float* APtr, const float* BPtr, float* CPtr, const float* biasPtr) {
+    mA = APtr;
+    mB = BPtr;
+    mC = CPtr;
+    mBiasPtr = biasPtr;
     for (auto& f : mPreFunctions) {
-        MNN_CONCURRENCY_BEGIN(tId, f.second) {
-            f.first(tId, APtr, BPtr, biasPtr, CPtr);
-        }
-        MNN_CONCURRENCY_END();
+        MNN_CONCURRENCY_ENQUEUE(f);
     }
     if (mE > 0) {
         auto core = static_cast<CPUBackend*>(backend())->functions();

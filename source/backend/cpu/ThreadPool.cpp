@@ -60,7 +60,7 @@ ThreadPool::ThreadPool(int numberThread) {
                 while (mActiveCount > 0) {
                     for (int i = 0; i < MNN_THREAD_POOL_MAX_TASKS; ++i) {
                         if (*mTasks[i].second[threadIndex]) {
-                            mTasks[i].first.first(threadIndex);
+                            mTasks[i].first->first(threadIndex);
                             { *mTasks[i].second[threadIndex] = false; }
                         }
                     }
@@ -118,16 +118,18 @@ void ThreadPool::deactive() {
     mActiveCount--;
 }
 
-void ThreadPool::enqueue(TASK&& task, int index) {
+void ThreadPool::enqueue(TASK* taskp, int index) {
+    auto& task = *taskp;
     if (1 >= task.second || 0 > index) {
         for (int i = 0; i < task.second; ++i) {
             task.first(i);
         }
         return;
     }
-    enqueueInternal(std::move(task), index);
+    enqueueInternal(taskp, index);
 }
-void ThreadPool::enqueueInternal(TASK&& task, int index) {
+void ThreadPool::enqueueInternal(TASK* taskp, int index) {
+    auto& task = *taskp;
     if (mActiveCount == 0) {
         for (int i = 0; i < task.second; ++i) {
             task.first(i);
@@ -135,24 +137,25 @@ void ThreadPool::enqueueInternal(TASK&& task, int index) {
         return;
     }
     int workSize = task.second;
+    TASK* tmpTask = nullptr;
     if (workSize > mNumberThread) {
-        mTasks[index].first = std::make_pair(
-            [workSize, &task, this](int tId) {
-                for (int v = tId; v < workSize; v += mNumberThread) {
-                    task.first(v);
-                }
-            },
-            mNumberThread);
+        tmpTask = new TASK;
+        *tmpTask = std::make_pair([workSize, &task, this](int tId) {
+            for (int v = tId; v < workSize; v += mNumberThread) {
+                task.first(v);
+            }
+        }, mNumberThread);
+        mTasks[index].first = tmpTask;
         workSize = mNumberThread;
     } else {
-        mTasks[index].first = std::move(task);
+        mTasks[index].first = taskp;
     }
     {
         for (int i = 1; i < workSize; ++i) {
             *mTasks[index].second[i] = true;
         }
     }
-    mTasks[index].first.first(0);
+    mTasks[index].first->first(0);
     bool complete = true;
     do {
         complete = true;
@@ -165,6 +168,9 @@ void ThreadPool::enqueueInternal(TASK&& task, int index) {
         std::this_thread::yield();
         // FUNC_PRINT(notComplete);
     } while (!complete);
+    if (nullptr != tmpTask) {
+        delete tmpTask;
+    }
 }
 } // namespace MNN
 #endif
