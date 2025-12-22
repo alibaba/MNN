@@ -20,7 +20,8 @@ https://huggingface.co/IDEA-CCNL/Taiyi-Stable-Diffusion-1B-Chinese-v0.1/tree/mai
 cd mnn_path/transformers/diffusion/export
 python onnx_export.py \
     --model_path hf_sd_load_path \
-    --output_path onnx_save_path
+    --output_path onnx_save_path \
+    --opset 18
 ```
 注意，上述脚本需要依赖torch/onnx/diffusers等库，可以安装conda环境：
 ```
