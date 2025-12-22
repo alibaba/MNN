@@ -135,21 +135,21 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_
     if (context->audio_input_s > 0.0f) {
         audio_speed = context->audio_input_s / audio_s;
     }
-    MNN_PRINT("\n#################################\n");
-    MNN_PRINT("prompt tokens num = %d\n", prompt_len);
-    MNN_PRINT("decode tokens num = %d\n", decode_len);
-    MNN_PRINT(" vision time = %.2f s\n", vision_s);
-    MNN_PRINT(" pixels_mp = %.2f MP\n", context->pixels_mp);
-    MNN_PRINT("  audio process time = %.2f s\n", audio_s);
-    MNN_PRINT("  audio input time = %.2f s\n", context->audio_input_s);
-    MNN_PRINT("prefill time = %.2f s\n", prefill_s);
-    MNN_PRINT(" decode time = %.2f s\n", decode_s);
-    MNN_PRINT(" sample time = %.2f s\n", sample_s);
-    MNN_PRINT("prefill speed = %.2f tok/s\n", prompt_len / prefill_s);
-    MNN_PRINT(" decode speed = %.2f tok/s\n", decode_len / decode_s);
-    MNN_PRINT(" vision speed = %.3f MP/s\n", vision_speed);
-    MNN_PRINT(" audio RTF = %.3f \n", audio_s / context->audio_input_s);
-    MNN_PRINT("##################################\n");
+    printf("\n#################################\n");
+    printf("prompt tokens num = %d\n", prompt_len);
+    printf("decode tokens num = %d\n", decode_len);
+    printf(" vision time = %.2f s\n", vision_s);
+    printf(" pixels_mp = %.2f MP\n", context->pixels_mp);
+    printf("  audio process time = %.2f s\n", audio_s);
+    printf("  audio input time = %.2f s\n", context->audio_input_s);
+    printf("prefill time = %.2f s\n", prefill_s);
+    printf(" decode time = %.2f s\n", decode_s);
+    printf(" sample time = %.2f s\n", sample_s);
+    printf("prefill speed = %.2f tok/s\n", prompt_len / prefill_s);
+    printf(" decode speed = %.2f tok/s\n", decode_len / decode_s);
+    printf(" vision speed = %.3f MP/s\n", vision_speed);
+    printf(" audio RTF = %.3f \n", audio_s / context->audio_input_s);
+    printf("##################################\n");
     return 0;
 }
 
@@ -165,12 +165,12 @@ static int ceval(Llm* llm, const std::vector<std::string>& lines, std::string fi
         prompt += "\nC. " + elements[4];
         prompt += "\nD. " + elements[5];
         prompt += "\n\n";
-        MNN_PRINT("%s", prompt.c_str());
-        MNN_PRINT("## 进度: %d / %lu\n", i, lines.size() - 1);
+        printf("%s", prompt.c_str());
+        printf("## 进度: %d / %lu\n", i, lines.size() - 1);
         std::ostringstream lineOs;
         llm->response(prompt.c_str(), &lineOs);
         auto line = lineOs.str();
-        MNN_PRINT("%s", line.c_str());
+        printf("%s", line.c_str());
         answers.push_back(line);
     }
     {

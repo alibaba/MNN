@@ -39,67 +39,54 @@ LayerNormBufExecution::LayerNormBufExecution(const std::vector<Tensor *> &inputs
         gammasize = layer_norm_param->external()->data()[1] / sizeof(float);
     }
         
-    auto staticMapAlloc = mOpenCLBackend->getStaticAllocatorMMap();
     if(mResource->has_gamma_beta_){
         {
             auto error = CL_SUCCESS;
             int size = gammasize;
-            if(mOpenCLBackend->getRuntime()->hint().useCachedMmap && staticMapAlloc != nullptr){
-                mResource->mGammaBuffer = staticMapAlloc.get()->allocBuffer(ALIGN_UP4(size) * bufferUnitSize);
-            }else{
-                mResource->mGammaBuffer.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, ALIGN_UP4(size) * bufferUnitSize));
-            }
-            if(mOpenCLBackend->getRuntime()->hint().useCachedMmap <= 1){
-                auto GammaPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(*(mResource->mGammaBuffer.get()), true, CL_MAP_WRITE, 0, ALIGN_UP4(size) * bufferUnitSize, nullptr, nullptr, &error);
-                const float* gamma_data = layer_norm_param->gamma()->data();
-                if(GammaPtrCL != nullptr && error == CL_SUCCESS){
-                    if(mOpenCLBackend->getPrecision() != BackendConfig::Precision_High){
-                        for (int i = 0; i < size; i++)
-                        {
-                            ((half_float::half*)GammaPtrCL)[i] = (half_float::half)(gamma_data[i]);
-                        }
-                        for(int i=size; i<ALIGN_UP4(size); i++) {
-                            ((half_float::half*)GammaPtrCL)[i] = (half_float::half)(0.0f);
-                        }
-                    }else{
-                        ::memset(GammaPtrCL, 0, ALIGN_UP4(size) * sizeof(float));
-                        ::memcpy(GammaPtrCL, gamma_data, size * sizeof(float));
+            mResource->mGammaBuffer.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, ALIGN_UP4(size) * bufferUnitSize));
+            auto GammaPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(*(mResource->mGammaBuffer.get()), true, CL_MAP_WRITE, 0, ALIGN_UP4(size) * bufferUnitSize, nullptr, nullptr, &error);
+            const float* gamma_data = layer_norm_param->gamma()->data();
+            if(GammaPtrCL != nullptr && error == CL_SUCCESS){
+                if(mOpenCLBackend->getPrecision() != BackendConfig::Precision_High){
+                    for (int i = 0; i < size; i++)
+                    {
+                        ((half_float::half*)GammaPtrCL)[i] = (half_float::half)(gamma_data[i]);
+                    }
+                    for(int i=size; i<ALIGN_UP4(size); i++) {
+                        ((half_float::half*)GammaPtrCL)[i] = (half_float::half)(0.0f);
                     }
                 }else{
-                    MNN_ERROR("Map error GammaPtrCL == nullptr \n");
+                    ::memset(GammaPtrCL, 0, ALIGN_UP4(size) * sizeof(float));
+                    ::memcpy(GammaPtrCL, gamma_data, size * sizeof(float));
                 }
-                mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(*mResource->mGammaBuffer.get(), GammaPtrCL);
+            }else{
+                MNN_ERROR("Map error GammaPtrCL == nullptr \n");
             }
+            mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(*mResource->mGammaBuffer.get(), GammaPtrCL);
         }
         {
             auto error = CL_SUCCESS;
             int size = gammasize;
-            if(mOpenCLBackend->getRuntime()->hint().useCachedMmap && staticMapAlloc != nullptr){
-                mResource->mBetaBuffer = staticMapAlloc.get()->allocBuffer(ALIGN_UP4(size) * bufferUnitSize);
-            }else{
-                mResource->mBetaBuffer.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, ALIGN_UP4(size) * bufferUnitSize));
-            }
-            if(mOpenCLBackend->getRuntime()->hint().useCachedMmap <= 1){
-                auto BetaPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(*(mResource->mBetaBuffer.get()), true, CL_MAP_WRITE, 0, ALIGN_UP4(size) * bufferUnitSize, nullptr, nullptr, &error);
-                const float* beta_data = layer_norm_param->beta()->data();
-                if(BetaPtrCL != nullptr && error == CL_SUCCESS){
-                    if(mOpenCLBackend->getPrecision() != BackendConfig::Precision_High){
-                        for (int i = 0; i < size; i++)
-                        {
-                            ((half_float::half*)BetaPtrCL)[i] = (half_float::half)(beta_data[i]);
-                        }
-                        for(int i=size; i<ALIGN_UP4(size); i++) {
-                            ((half_float::half*)BetaPtrCL)[i] = (half_float::half)(0.0f);
-                        }
-                    }else{
-                        ::memset(BetaPtrCL, 0, ALIGN_UP4(size) * sizeof(float));
-                        ::memcpy(BetaPtrCL, beta_data, size * sizeof(float));
+            mResource->mBetaBuffer.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, ALIGN_UP4(size) * bufferUnitSize));
+            auto BetaPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(*(mResource->mBetaBuffer.get()), true, CL_MAP_WRITE, 0, ALIGN_UP4(size) * bufferUnitSize, nullptr, nullptr, &error);
+            const float* beta_data = layer_norm_param->beta()->data();
+            if(BetaPtrCL != nullptr && error == CL_SUCCESS){
+                if(mOpenCLBackend->getPrecision() != BackendConfig::Precision_High){
+                    for (int i = 0; i < size; i++)
+                    {
+                        ((half_float::half*)BetaPtrCL)[i] = (half_float::half)(beta_data[i]);
+                    }
+                    for(int i=size; i<ALIGN_UP4(size); i++) {
+                        ((half_float::half*)BetaPtrCL)[i] = (half_float::half)(0.0f);
                     }
                 }else{
-                    MNN_ERROR("Map error BetaPtrCL == nullptr \n");
+                    ::memset(BetaPtrCL, 0, ALIGN_UP4(size) * sizeof(float));
+                    ::memcpy(BetaPtrCL, beta_data, size * sizeof(float));
                 }
-                mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(*mResource->mBetaBuffer.get(), BetaPtrCL);
+            }else{
+                MNN_ERROR("Map error BetaPtrCL == nullptr \n");
             }
+            mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(*mResource->mBetaBuffer.get(), BetaPtrCL);
         }
     }
 }

@@ -40,31 +40,32 @@ DeconvBufExecution::DeconvBufExecution(const std::vector<Tensor *> &inputs, cons
     int inputChannel  = weightSize / (kernelWidth * kernelHeight * outputChannel);
     std::vector<int> filterShape{outputChannel, inputChannel, kernelHeight, kernelWidth};
     std::vector<int> filterImageShape{(int)inputChannel, (int)UP_DIV(outputChannel, 4) * kernelWidth * kernelHeight};
+    std::vector<float> filterDataPtrTransformed;
+    filterDataPtrTransformed.resize(weightSize);
+    IOHW2OIHW<float, int>(filterDataPtr, filterDataPtrTransformed.data(), outputChannel, inputChannel, kernelHeight,
+                          kernelWidth);
+
+    std::shared_ptr<Tensor> filterBuffer(
+        Tensor::createDevice<float>({outputChannel, inputChannel, kernelHeight, kernelWidth}));
+        
+    size_t buffer_size = filterBuffer->elementSize() * sizeof(float);
+    cl::Buffer filterBufferCL(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR, buffer_size);
+    filterBuffer->buffer().device = (uint64_t)(&filterBufferCL);
+    cl_int error;
+    auto ptrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(filterBufferCL, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &error);
+    if(ptrCL != nullptr && error == CL_SUCCESS){
+        ::memcpy(ptrCL, filterDataPtrTransformed.data(), filterBuffer->size());
+    }else{
+        MNN_ERROR("Map error ptrCL == nullptr \n");
+    }
+    mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(filterBufferCL, ptrCL);
+
     mResource->mFilter.reset(Tensor::createDevice<float>({1, filterImageShape[1], 1, 4 * filterImageShape[0]}));
     mOpenCLBackend->onAcquireBuffer(mResource->mFilter.get(), Backend::STATIC);
-        
-    if (mOpenCLBackend->getRuntime()->hint().useCachedMmap <= 1){
-        std::vector<float> filterDataPtrTransformed;
-        filterDataPtrTransformed.resize(weightSize);
-        IOHW2OIHW<float, int>(filterDataPtr, filterDataPtrTransformed.data(), outputChannel, inputChannel, kernelHeight, kernelWidth);
-            
-        std::shared_ptr<Tensor> filterBuffer(Tensor::createDevice<float>({outputChannel, inputChannel, kernelHeight, kernelWidth}));
-            
-        size_t buffer_size = filterBuffer->elementSize() * sizeof(float);
-        cl::Buffer filterBufferCL(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR, buffer_size);
-        filterBuffer->buffer().device = (uint64_t)(&filterBufferCL);
-        cl_int error;
-        auto ptrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(filterBufferCL, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &error);
-        if(ptrCL != nullptr && error == CL_SUCCESS){
-            ::memcpy(ptrCL, filterDataPtrTransformed.data(), filterBuffer->size());
-        }else{
-            MNN_ERROR("Map error ptrCL == nullptr \n");
-        }
-        mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(filterBufferCL, ptrCL);
-        MNN::OpenCL::BufferConvertor bufferConvertor{mOpenCLBackend->getOpenCLRuntime()};
-        bool needTrans = true;
-        bufferConvertor.convertToNC4HW4Buffer(filterBuffer.get(), MNN::OpenCL::CONV2D_FILTER, mResource->mFilter.get(), mOpenCLBackend->getPrecision(), needTrans);
-    }
+    MNN::OpenCL::BufferConvertor bufferConvertor{mOpenCLBackend->getOpenCLRuntime()};
+    
+    bool needTrans = true;
+    bufferConvertor.convertToNC4HW4Buffer(filterBuffer.get(), MNN::OpenCL::CONV2D_FILTER, mResource->mFilter.get(), mOpenCLBackend->getPrecision(), needTrans);
     mResource->mBuildOptions.emplace("-DBIAS");
     if (conv2dCommonParams->relu() == true) {
         mResource->mBuildOptions.emplace("-DRELU");

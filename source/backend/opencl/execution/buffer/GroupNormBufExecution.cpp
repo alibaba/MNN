@@ -30,6 +30,29 @@ GroupNormBufExecution::GroupNormBufExecution(const MNN::Op* op, Backend* backend
         if (!status) {
             MNN_ERROR("Out of memory when gamma is acquired in GroupNorm.\n");
         }
+
+        cl::Buffer &gammaBuffer = openCLBuffer(mGammaTensor.get());
+        
+        cl_int res;
+        auto GammaPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
+            gammaBuffer, true, CL_MAP_WRITE, 0, ALIGN_UP4(size) * bufferUnitSize, nullptr, nullptr, &res);
+        if(GammaPtrCL != nullptr && res == CL_SUCCESS){
+            if(mOpenCLBackend->getPrecision() != BackendConfig::Precision_High){
+                for (int i = 0; i < size; i++) {
+                    ((half_float::half*)GammaPtrCL)[i] = (half_float::half)(group_norm_param->gamma()->data()[i]);
+                }
+                for(int i=size; i<ALIGN_UP4(size); i++) {
+                    ((half_float::half*)GammaPtrCL)[i] = (half_float::half)(0.0f);
+                }
+            }else{
+                ::memset(GammaPtrCL, 0, ALIGN_UP4(size) * sizeof(float));
+                ::memcpy(GammaPtrCL, group_norm_param->gamma()->data(), size * sizeof(float));
+            }
+        } else {
+            MNN_ERROR("GroupNorm Gamma map error:%d\n", res);
+        }
+
+        
         if (group_norm_param->beta()->size() != size) {
             MNN_ERROR("Size of gamma and beta are not match in GroupNorm.\n");
         }
@@ -38,48 +61,29 @@ GroupNormBufExecution::GroupNormBufExecution(const MNN::Op* op, Backend* backend
         if (!status) {
             MNN_ERROR("Out of memory when beta is acquired in GroupNorm.\n");
         }
-        
-        if (mOpenCLBackend->getRuntime()->hint().useCachedMmap <= 1){
-            cl_int res;
-            cl::Buffer &gammaBuffer = openCLBuffer(mGammaTensor.get());
-            auto GammaPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(gammaBuffer, true, CL_MAP_WRITE, 0, ALIGN_UP4(size) * bufferUnitSize, nullptr, nullptr, &res);
-            if(GammaPtrCL != nullptr && res == CL_SUCCESS){
-                if(mOpenCLBackend->getPrecision() != BackendConfig::Precision_High){
-                    for (int i = 0; i < size; i++) {
-                        ((half_float::half*)GammaPtrCL)[i] = (half_float::half)(group_norm_param->gamma()->data()[i]);
-                    }
-                    for(int i=size; i<ALIGN_UP4(size); i++) {
-                        ((half_float::half*)GammaPtrCL)[i] = (half_float::half)(0.0f);
-                    }
-                }else{
-                    ::memset(GammaPtrCL, 0, ALIGN_UP4(size) * sizeof(float));
-                    ::memcpy(GammaPtrCL, group_norm_param->gamma()->data(), size * sizeof(float));
+
+        cl::Buffer &betaBuffer = openCLBuffer(mBetaTensor.get());
+
+        auto BetaPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
+             betaBuffer, true, CL_MAP_WRITE, 0, ALIGN_UP4(size) * bufferUnitSize, nullptr, nullptr, &res);
+        if(BetaPtrCL != nullptr && res == CL_SUCCESS){
+            if(mOpenCLBackend->getPrecision() != BackendConfig::Precision_High){
+                for (int i = 0; i < size; i++) {
+                    ((half_float::half*)BetaPtrCL)[i] = (half_float::half)(group_norm_param->beta()->data()[i]);
                 }
-            } else {
-                MNN_ERROR("GroupNorm Gamma map error:%d\n", res);
-            }
-            
-            cl::Buffer &betaBuffer = openCLBuffer(mBetaTensor.get());
-            auto BetaPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(betaBuffer, true, CL_MAP_WRITE, 0, ALIGN_UP4(size) * bufferUnitSize, nullptr, nullptr, &res);
-            if(BetaPtrCL != nullptr && res == CL_SUCCESS){
-                if(mOpenCLBackend->getPrecision() != BackendConfig::Precision_High){
-                    for (int i = 0; i < size; i++) {
-                        ((half_float::half*)BetaPtrCL)[i] = (half_float::half)(group_norm_param->beta()->data()[i]);
-                    }
-                    for(int i=size; i<ALIGN_UP4(size); i++) {
-                        ((half_float::half*)BetaPtrCL)[i] = (half_float::half)(0.0f);
-                    }
-                }else{
-                    ::memset(BetaPtrCL, 0, ALIGN_UP4(size) * sizeof(float));
-                    ::memcpy(BetaPtrCL, group_norm_param->beta()->data(), size * sizeof(float));
+                for(int i=size; i<ALIGN_UP4(size); i++) {
+                    ((half_float::half*)BetaPtrCL)[i] = (half_float::half)(0.0f);
                 }
-            } else {
-                MNN_ERROR("GroupNorm Beta map error:%d\n", res);
+            }else{
+                ::memset(BetaPtrCL, 0, ALIGN_UP4(size) * sizeof(float));
+                ::memcpy(BetaPtrCL, group_norm_param->beta()->data(), size * sizeof(float));
             }
-            
-            mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(gammaBuffer, GammaPtrCL);
-            mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(betaBuffer, BetaPtrCL);
+        } else {
+            MNN_ERROR("GroupNorm Beta map error:%d\n", res);
         }
+	
+	mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(gammaBuffer, GammaPtrCL);
+        mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(betaBuffer, BetaPtrCL);
     }
 }
 

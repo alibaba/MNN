@@ -75,7 +75,11 @@ ErrorCode ConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs,
 
 ErrorCode ConvolutionTiledImpl::onExecute(const std::vector<Tensor*>& inputs,
                                           const std::vector<Tensor*>& outputs) {
-    MNN_CONCURRENCY_ENQUEUE(mFunction);
+
+    MNN_CONCURRENCY_BEGIN(tId, mFunction.first) {
+        mFunction.second((int)tId);
+    }
+    MNN_CONCURRENCY_END();
 
     return NO_ERROR;
 }

@@ -287,7 +287,7 @@ ErrorCode KleidiAIDenseConvolutionImpl::onResize(const std::vector<Tensor*>& inp
     backend()->onReleaseBuffer(&mTempBufferTranspose, Backend::DYNAMIC);
 
     auto postParameters = getPostParameters();
-    mFunction.second     = ((CPUBackend*)backend())->threadNumber();
+    mFunction.first     = ((CPUBackend*)backend())->threadNumber();
 
     auto padFull = ConvolutionCommon::convolutionPadFull(input, output, mCommon);
     ConvParams params{
@@ -306,7 +306,7 @@ ErrorCode KleidiAIDenseConvolutionImpl::onResize(const std::vector<Tensor*>& inp
     };
 
     int threadNum = static_cast<CPUBackend*>(backend())->threadNumber();
-    mFunction.first = [=](int tId) {
+    mFunction.second = [=](int tId) {
         // Convert NC4HW4 to NHWC
         auto inputShape = input->shape(); // TODO check for NC4HW4, should be the NCHW
         // CPUTensorConverter::convert(input, &mInputNHWC, core);
@@ -365,7 +365,7 @@ ErrorCode KleidiAIDenseConvolutionImpl::onResize(const std::vector<Tensor*>& inp
 
 ErrorCode KleidiAIDenseConvolutionImpl::onExecute(const std::vector<Tensor*>& inputs,
                                                   const std::vector<Tensor*>& outputs) {
-    mFunction.first(0);
+    mFunction.second(0);
     return NO_ERROR;
 }
 } // namespace MNN
