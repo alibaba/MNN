@@ -430,14 +430,6 @@ void* Tensor::map(MapType mtype, DimensionType dtype) {
         return mBuffer.host;
     }
 
-    if (mtype == Tensor::MAP_TENSOR_READ) {
-        int syncResult = bn->onSync(mtype, false, this);
-        if (NO_EXECUTION == syncResult) {
-            MNN_PRINT("Warning, Backend has stop execute, return nullptr for tensor map addr\n");
-            return nullptr;
-        }
-    }
-
     auto mapPtr = bn->onMapTensor(mtype, dtype, this);
     if(mapPtr != nullptr) {
         // Get mapPtr in specific backend

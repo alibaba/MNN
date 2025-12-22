@@ -477,9 +477,9 @@ std::shared_ptr<Command> GeometryComputerUtils::makeBinary(int type, Tensor* inp
     return cmdP;
 }
 
-std::shared_ptr<Command> GeometryComputerUtils::makeReduce(ReductionType type, Tensor* input0, Tensor* output, int axis) {
+std::shared_ptr<Command> GeometryComputerUtils::makeReduce(ReductionType type, Tensor* input0, Tensor* output) {
     flatbuffers::FlatBufferBuilder builder(DEFAULT_ALLOCATE_SIZE);
-    auto vec = builder.CreateVector(std::vector<int>{axis});
+    auto vec = builder.CreateVector(std::vector<int>{1});
     ReductionParamBuilder builder_(builder);
     builder_.add_operation(type);
     builder_.add_keepDims(true);
