@@ -25,7 +25,7 @@ public:
     int numberThread() const {
         return mNumberThread;
     }
-    void enqueue(TASK&& task, int index);
+    void enqueue(TASK* task, int index);
 
     void active();
     void deactive();
@@ -37,7 +37,7 @@ public:
     static void destroy();
 
 private:
-    void enqueueInternal(TASK&& task, int index);
+    void enqueueInternal(TASK* task, int index);
 
     ThreadPool(int numberThread = 0);
     ~ThreadPool();
@@ -46,7 +46,7 @@ private:
     std::vector<bool> mTaskAvailable;
     std::atomic<bool> mStop = {false};
 
-    std::vector<std::pair<TASK, std::vector<std::atomic_bool*>>> mTasks;
+    std::vector<std::pair<TASK*, std::vector<std::atomic_bool*>>> mTasks;
     std::condition_variable mCondition;
     std::mutex mQueueMutex;
 
