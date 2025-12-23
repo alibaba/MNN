@@ -813,12 +813,28 @@ void* Variable::readInternal(bool forShape) {
                 // The Varp will not be created as input, so we just need copy once
                 return inside->mHostTensor->host<void>();
             }
+            
             inside->mHostTensor = new Tensor;
             TensorUtils::copyShape(originTensor, inside->mHostTensor, true);
             inside->mHostTensor->buffer().type = originTensor->getType();
             inside->mHostTensor->buffer().host = (uint8_t*)MNNMemoryAllocAlign(inside->mHostTensor->size(), MNN_MEMORY_ALIGN_DEFAULT);
             TensorUtils::getDescribe(inside->mHostTensor)->memoryType = Tensor::InsideDescribe::MEMORY_HOST;
             originTensor->copyToHostTensor(inside->mHostTensor);
+            bool hasNoExecution = false;
+            if (nullptr != originTensor) {
+                auto backend = TensorUtils::getDescribeOrigin(originTensor)->getBackend();
+                if (nullptr != backend) {
+                    // Try to sync to check execution status
+                    int syncResult = backend->onSync(Tensor::MAP_TENSOR_READ, false, originTensor);
+                    if (NO_EXECUTION == syncResult) {
+                        hasNoExecution = true;
+                    }
+                }
+            }
+            if (hasNoExecution) {
+                MNN_PRINT("\nWarning, Backend has stop execute, return nullptr for current varp\n");
+                return nullptr;
+            }
             return inside->mHostTensor->host<void>();
         }
         return originTensor->buffer().host;

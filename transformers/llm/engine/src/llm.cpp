@@ -467,6 +467,7 @@ std::vector<Express::VARP> Llm::forwardRaw(Express::VARP hiddenState, Express::V
     std::vector<Express::VARP> outputs = selectModule->onForward(inputs);
 
     if (outputs.empty()) {
+        mContext->status = LlmStatus::INTERNAL_ERROR;
         return outputs;
     }
     if (!mAsync) {
@@ -592,6 +593,9 @@ std::vector<VARP> Llm::forwardVec(MNN::Express::VARP input_embeds) {
         auto attention_mask = gen_attention_mask(blockSize);
         auto position_ids = gen_position_ids(blockSize);
         logits = forwardRaw(embed, attention_mask, position_ids);
+        if(logits.empty()) {
+            return logits;
+        }
         updateContext(blockSize, 0);
     }
     bool hasPad = false;
@@ -623,6 +627,9 @@ std::vector<VARP> Llm::forwardVec(MNN::Express::VARP input_embeds) {
         auto attention_mask = gen_attention_mask(forwardSize);
         auto position_ids = gen_position_ids(forwardSize);
         logits = forwardRaw(input_embeds, attention_mask, position_ids);
+        if(logits.empty()) {
+            return logits;
+        }
     }
     updateContext(-blockSize * blockNumber, 0);
     if (hasPad) {
@@ -676,6 +683,7 @@ void Llm::generate_init(std::ostream* os, const char* end_with) {
     mContext->decode_us   = 0;
     mContext->current_token = -1;
     mContext->sample_us = 0;
+    mContext->status = LlmStatus::RUNNING;
     if (!mConfig->reuse_kv()) {
         mContext->all_seq_len = 0;
         mContext->history_tokens.clear();
@@ -824,6 +832,7 @@ std::vector<int> Llm::generate(MNN::Express::VARP input_embeds, int max_tokens) 
     Timer _t;
     forwardVec(input_embeds);
     if(mGenerateParam->outputs.size() < 1) {
+        mContext->status = LlmStatus::INTERNAL_ERROR;
         return {};
     }
     updateContext(seqLen, 0);
@@ -1132,7 +1141,14 @@ VARP Llm::gen_position_ids(int seq_len) {
 }
 
 bool Llm::is_stop(int token_id) {
-    return mTokenizer->is_stop(token_id);
+    if (mContext->status == LlmStatus::USER_CANCEL || mContext->status == LlmStatus::INTERNAL_ERROR) {
+        return true;
+    }
+    bool stop = mTokenizer->is_stop(token_id);
+    if (stop) {
+        mContext->status = LlmStatus::NORMAL_FINISHED;
+    }
+    return stop;
 }
 } // namespace Transformer
 } // namespace MNN
