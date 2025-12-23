@@ -43,6 +43,10 @@ public:
         if (progress >= 1.0) std::cout << std::endl;
     }
     
+    static void EndProgress() {
+        std::cout << std::endl;
+    }
+
     static void ShowError(const std::string& error, const std::string& suggestion = "") {
         std::cerr << "❌ Error: " << error << std::endl;
         if (!suggestion.empty()) {

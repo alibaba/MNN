@@ -1,3 +1,6 @@
+#include "model_sources.hpp"
+#include "file_utils.hpp"
+#include "dl_config.hpp"
 //
 //  benchmark_command_handler.cpp
 //
@@ -17,6 +20,7 @@
 #include <algorithm>
 
 namespace mnncli {
+using namespace mnn::downloader;
 
 std::string BenchmarkCommandHandler::CommandName() const {
     return "benchmark";

@@ -1,3 +1,6 @@
+#include "model_sources.hpp"
+#include "file_utils.hpp"
+#include "dl_config.hpp"
 //
 //  config_command_handler.cpp
 //
@@ -12,6 +15,7 @@
 #include <cctype>
 
 namespace mnncli {
+using namespace mnn::downloader;
 
 std::string ConfigCommandHandler::CommandName() const {
     return "config";

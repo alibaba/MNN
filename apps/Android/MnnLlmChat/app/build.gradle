@@ -164,6 +164,8 @@ dependencies {
     
     // MNN TTS Framework
     implementation project(':mnn_tts')
+    implementation project(':model_downloader')
+
 
     androidTestImplementation 'androidx.test.ext:junit:1.2.1'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.1'

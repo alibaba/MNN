@@ -6,7 +6,7 @@
 #pragma once
 #include "../../../transformers/llm/engine/include/llm/llm.hpp"
 #include "httplib.h"
-#include "nlohmann/json.hpp"
+#include "json.hpp"
 using nlohmann::json;
 using PromptItem = std::pair<std::string, std::string>;
 namespace mnncli {

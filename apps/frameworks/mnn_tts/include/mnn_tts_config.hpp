@@ -17,6 +17,13 @@ class MNNTTSConfig
 {
 public:
   explicit MNNTTSConfig(const std::string &config_file_path);
+  
+  // 支持参数覆盖的构造函数
+  MNNTTSConfig(const std::string &config_file_path, 
+               const std::map<std::string, std::string> &overrides);
+
+  // 应用参数覆盖
+  void applyOverrides(const std::map<std::string, std::string> &overrides);
 
   // 模板方法的实现必须放在头文件中或者在源文件中模板实例化
   template <typename T>

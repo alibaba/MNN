@@ -1,3 +1,6 @@
+#include "model_sources.hpp"
+#include "file_utils.hpp"
+#include "dl_config.hpp"
 //
 //  delete_command_handler.cpp
 //
@@ -10,6 +13,7 @@
 #include "model_manager.hpp"
 
 namespace mnncli {
+using namespace mnn::downloader;
 
 std::string DeleteCommandHandler::CommandName() const {
     return "delete";
