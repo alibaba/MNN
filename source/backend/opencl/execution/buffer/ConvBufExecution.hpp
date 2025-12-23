@@ -21,8 +21,8 @@ struct ConvBufResource {
     const Convolution2DCommon *mConv2dCommonParams;
     const Convolution2D *mConv2dParams;
     std::shared_ptr<cl::Buffer> mKernelBuffer;
-    std::shared_ptr<cl::Image2D> mKernelImage;
-    std::shared_ptr<Tensor> dequantScaleOffset;
+    std::shared_ptr<cl::Image> mKernelImage;
+    std::shared_ptr<cl::Buffer> mDequantScaleOffsetBuffer;
     std::shared_ptr<Tensor> mFilter;
     std::shared_ptr<Tensor> mBias;
     std::shared_ptr<Tensor> mSlope;
