@@ -1,3 +1,6 @@
+#include "model_sources.hpp"
+#include "file_utils.hpp"
+#include "dl_config.hpp"
 //
 //  model_info_command_handler.cpp
 //
@@ -10,6 +13,7 @@
 #include "model_manager.hpp"
 
 namespace mnncli {
+using namespace mnn::downloader;
 
 std::string ModelInfoCommandHandler::CommandName() const {
     return "model_info";

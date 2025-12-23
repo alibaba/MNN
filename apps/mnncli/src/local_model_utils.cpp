@@ -58,8 +58,13 @@ std::vector<std::string> LocalModelUtils::ListLocalModelsInner(const std::string
   
   // Get cache directory - use provided one for testing, or ConfigManager for production
   std::string expanded_cache_dir;
-  if (!cache_dir.empty()) {
-    expanded_cache_dir = cache_dir;
+  std::string local_cache_dir = cache_dir; 
+
+  if (local_cache_dir.length() > 0) {
+    if (local_cache_dir.back() == '/' || local_cache_dir.back() == '\\') {
+      local_cache_dir.pop_back();
+    }
+    expanded_cache_dir = local_cache_dir;
   } else {
     auto& config_mgr = ConfigManager::GetInstance();
     expanded_cache_dir = config_mgr.GetBaseCacheDir();
@@ -127,6 +132,11 @@ int LocalModelUtils::ListLocalModels() {
   std::vector<std::string> all_models;
   auto &config_mgr = ConfigManager::GetInstance();
   auto config = config_mgr.LoadConfig();
+
+  mnn::downloader::Config downloader_config;
+  downloader_config.cache_dir = config.cache_dir;
+  downloader_config.download_provider = config.download_provider;
+
   for (const auto& provider : kProviders) {
     auto models = ListLocalModelsInner(provider, config_mgr.GetBaseCacheDir());
     all_models.insert(all_models.end(), models.begin(), models.end());
@@ -134,7 +144,7 @@ int LocalModelUtils::ListLocalModels() {
   if (!all_models.empty()) {
     std::cout << "Local models:\n";
     for (const auto &name : all_models) {
-      std::cout << mnncli::ModelNameUtils::GetDisplayModelName(name, config)
+      std::cout << mnn::downloader::ModelNameUtils::GetDisplayModelName(name, downloader_config)
                 << "\n";
     }
   } else {
@@ -146,4 +156,3 @@ int LocalModelUtils::ListLocalModels() {
 }
 
 } // namespace mnncli
-

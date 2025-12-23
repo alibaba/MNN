@@ -26,6 +26,8 @@ namespace fs = std::filesystem;
 
 namespace mnncli {
 
+using namespace mnn::downloader;
+
 int ModelManager::SearchRemoteModels(const std::string &keyword, bool verbose,
                                      const std::string &cache_dir_override) {
   try {
@@ -45,7 +47,7 @@ int ModelManager::SearchRemoteModels(const std::string &keyword, bool verbose,
     // Get current download provider from config
     std::string current_provider = config.download_provider;
     if (current_provider.empty()) {
-      current_provider = ModelSources::SOURCE_HUGGING_FACE; // Default provider
+      current_provider = mnn::downloader::ModelSources::SOURCE_HUGGING_FACE; // Default provider
     }
 
     // Create ModelRepository instance
@@ -79,7 +81,7 @@ int ModelManager::SearchRemoteModels(const std::string &keyword, bool verbose,
       std::cout << "  • Change download provider: export "
                    "MNN_DOWNLOAD_PROVIDER=<provider>\n";
       std::cout
-          << "  • Available providers: " << ModelSources::SOURCE_HUGGING_FACE << ", " << ModelSources::SOURCE_MODEL_SCOPE << ", " << ModelSources::SOURCE_MODELERS << "\n";
+          << "  • Available providers: " << mnn::downloader::ModelSources::SOURCE_HUGGING_FACE << ", " << mnn::downloader::ModelSources::SOURCE_MODEL_SCOPE << ", " << mnn::downloader::ModelSources::SOURCE_MODELERS << "\n";
     } else {
       std::cout << "Found " << searchResults.size()
                 << " matching LLM model(s):\n\n";
@@ -103,10 +105,10 @@ int ModelManager::SearchRemoteModels(const std::string &keyword, bool verbose,
         // Format file size using existing LogUtils::FormatFileSize function
         std::string size_str;
         if (model.file_size > 0) {
-          size_str = mnncli::LogUtils::FormatFileSize(model.file_size);
+          size_str = mnn::downloader::LogUtils::FormatFileSize(model.file_size);
         } else if (model.size_gb > 0) {
           // Fallback to size_gb if file_size is not available
-          size_str = mnncli::LogUtils::FormatFileSize(
+          size_str = mnn::downloader::LogUtils::FormatFileSize(
               static_cast<int64_t>(model.size_gb * 1024 * 1024 * 1024));
         } else {
           size_str = "N/A";
@@ -196,27 +198,28 @@ int ModelManager::DownloadModel(const std::string &model_name, bool verbose,
     LOG_DEBUG_TAG("Cache directory: " + cache_dir, "ModelManager");
 
     // If no source specified in config, try to detect from model name
+    // If no source specified in config, try to detect from model name
     if (source.empty()) {
       if (model_name.find("hf:") == 0 || model_name.find("huggingface:") == 0) {
-        source = ModelSources::SOURCE_HUGGING_FACE;
+        source = mnn::downloader::ModelSources::SOURCE_HUGGING_FACE;
         model_id = model_name.substr(model_name.find(":") + 1);
       } else if (model_name.find("ms:") == 0 ||
                  model_name.find("modelscope:") == 0) {
-        source = ModelSources::SOURCE_MODEL_SCOPE;
+        source = mnn::downloader::ModelSources::SOURCE_MODEL_SCOPE;
         model_id = model_name.substr(model_name.find(":") + 1);
       } else if (model_name.find("ml:") == 0 ||
                  model_name.find("modelers:") == 0) {
-        source = ModelSources::SOURCE_MODELERS;
+        source = mnn::downloader::ModelSources::SOURCE_MODELERS;
         model_id = model_name.substr(model_name.find(":") + 1);
       } else {
         // Try to use ModelRepository to find the model
         try {
           auto &model_repo = mnncli::ModelRepository::GetInstance(cache_dir);
           model_repo.SetDownloadProvider(
-              ModelSources::SOURCE_HUGGING_FACE); // Default to HuggingFace
+              mnn::downloader::ModelSources::SOURCE_HUGGING_FACE); // Default to HuggingFace
 
           auto model_id_opt =
-              model_repo.GetModelIdForDownload(model_name, ModelSources::SOURCE_HUGGING_FACE);
+              model_repo.GetModelIdForDownload(model_name, mnn::downloader::ModelSources::SOURCE_HUGGING_FACE);
           if (model_id_opt) {
             model_id = *model_id_opt;
             source = ModelSources::SOURCE_HUGGING_FACE;
@@ -283,7 +286,7 @@ int ModelManager::DownloadModel(const std::string &model_name, bool verbose,
 
     // Check final status
     auto download_info = download_manager.GetDownloadInfo(model_id);
-    if (download_info.state == mnncli::DownloadState::COMPLETED) {
+    if (download_info.state == mnn::downloader::DownloadState::COMPLETED) {
       auto downloaded_file = download_manager.GetDownloadedFile(model_id);
       if (!downloaded_file.empty() &&
           std::filesystem::exists(downloaded_file)) {
@@ -292,7 +295,7 @@ int ModelManager::DownloadModel(const std::string &model_name, bool verbose,
                                         downloaded_file.string());
         return 0;
       }
-    } else if (download_info.state == mnncli::DownloadState::FAILED) {
+    } else if (download_info.state == mnn::downloader::DownloadState::FAILED) {
       mnncli::UserInterface::ShowError(
           "Download failed. Check the error messages above.");
       return 1;
@@ -330,10 +333,13 @@ int ModelManager::DeleteModel(const std::string &model_name) {
     
     // Get ModelDownloadManager instance
     auto &download_manager =
-        mnncli::ModelDownloadManager::GetInstance(cache_dir);
+        mnn::downloader::ModelDownloadManager::GetInstance(cache_dir);
 
     // Get full model_id using ModelNameUtils
-    std::string model_id = mnncli::ModelNameUtils::GetFullModelId(model_name, config);
+    mnn::downloader::Config downloader_config;
+    downloader_config.cache_dir = config.cache_dir;
+    downloader_config.download_provider = config.download_provider;
+    std::string model_id = mnn::downloader::ModelNameUtils::GetFullModelId(model_name, downloader_config);
     LOG_DEBUG_TAG("Model ID: " + model_id, "ModelManager");
     LOG_DEBUG_TAG("Calling ModelDownloadManager::DeleteRepo with model_id = " + model_id, "ModelManager");
     
@@ -369,7 +375,10 @@ int ModelManager::ShowModelInfo(const std::string &model_name, bool verbose) {
   try {
     auto &config_mgr = ConfigManager::GetInstance();
     auto config = config_mgr.LoadConfig();
-    std::string model_path = mnncli::FileUtils::GetModelPath(model_name, config);
+    mnn::downloader::Config downloader_config;
+    downloader_config.cache_dir = config.cache_dir;
+    downloader_config.download_provider = config.download_provider;
+    std::string model_path = mnn::downloader::FileUtils::GetModelPath(model_name, downloader_config);
 
     if (model_path.empty()) {
       mnncli::UserInterface::ShowError("Model not found: " + model_name);
@@ -403,7 +412,7 @@ int ModelManager::ShowModelInfo(const std::string &model_name, bool verbose) {
         }
       }
       std::cout << "💾 Total Size: "
-                << mnncli::LogUtils::FormatFileSize(total_size) << "\n";
+                << mnn::downloader::LogUtils::FormatFileSize(total_size) << "\n";
     } catch (const std::exception &e) {
       LOG_DEBUG_TAG("Failed to calculate directory size: " +
                         std::string(e.what()),
@@ -484,7 +493,7 @@ int ModelManager::ShowModelInfo(const std::string &model_name, bool verbose) {
           try {
             auto file_size = fs::file_size(file_path);
             std::cout << "  ✅ " << file << " ("
-                      << mnncli::LogUtils::FormatFileSize(file_size) << ")\n";
+                      << mnn::downloader::LogUtils::FormatFileSize(file_size) << ")\n";
           } catch (...) {
             std::cout << "  ✅ " << file << " (size unknown)\n";
           }

@@ -19,7 +19,5 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "MNNTTSDemo"
-include ':app'
 include ':mnn_tts'
-project(':app').projectDir = new File('./app')
 project(':mnn_tts').projectDir = new File('../../android') 

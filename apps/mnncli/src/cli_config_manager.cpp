@@ -12,11 +12,13 @@
 #include <cstdlib>
 #include <iostream>
 #include <algorithm>
-#include "nlohmann/json.hpp"
+#include "json.hpp"
 
 namespace fs = std::filesystem;
 
 namespace mnncli {
+
+using namespace mnn::downloader;
 
 ConfigManager& ConfigManager::GetInstance() {
     static ConfigManager instance;

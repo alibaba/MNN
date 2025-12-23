@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(BUILD_BERTVITS2 "Build BertVit2 TTS " ON)
 option(BUILD_PIPER "Build PIPER TTS " OFF)
+option(BUILD_SUPERTONIC "Build Supertonic TTS " ON)
 option(BUILD_ANDROID "Build for Android" OFF)
 
 if(ANDROID)
@@ -40,8 +41,14 @@ endif()
 
 if(BUILD_PIPER)
   include_directories(
-  	${CMAKE_CURRENT_LIST_DIR}/include/piper
+    ${CMAKE_CURRENT_LIST_DIR}/include/piper
     ${CMAKE_CURRENT_LIST_DIR}/third_party/piper/espeak-ng/src/include/espeak-ng/
+  )
+endif()
+
+if(BUILD_SUPERTONIC)
+  include_directories(
+    ${CMAKE_CURRENT_LIST_DIR}/include/supertonic
   )
 endif()
 
@@ -74,6 +81,12 @@ if(BUILD_PIPER)
   )
 endif()
 
+if(BUILD_SUPERTONIC)
+  set(SUPERTONIC_SOURCE_FILES
+    ${CMAKE_CURRENT_LIST_DIR}/src/supertonic/mnn_supertonic_tts_impl.cpp
+  )
+endif()
+
 if(BUILD_ANDROID)
   set(ANDROID_SOURCE_FILES
     ${CMAKE_CURRENT_LIST_DIR}/src/android/tts_service.cpp
@@ -85,11 +98,15 @@ if(BUILD_PIPER)
   add_subdirectory(third_party/piper/espeak-ng)
 endif()
 
-add_library(${PROJECT_NAME} SHARED ${PIPER_SOURCE_FILES} ${BERTVITS2_SOURCE_FILES} ${SHARED_SOURCE_FILES} ${ANDROID_SOURCE_FILES})
+add_library(${PROJECT_NAME} SHARED ${PIPER_SOURCE_FILES} ${BERTVITS2_SOURCE_FILES} ${SUPERTONIC_SOURCE_FILES} ${SHARED_SOURCE_FILES} ${ANDROID_SOURCE_FILES})
 
 # Add 16KB page size support for Android
 if(BUILD_ANDROID)
     target_link_options(${PROJECT_NAME} PRIVATE "-Wl,-z,max-page-size=16384")
 endif()
 
-target_link_libraries(${PROJECT_NAME} log MNN ) 
+if(BUILD_ANDROID)
+    target_link_libraries(${PROJECT_NAME} log MNN)
+else()
+    target_link_libraries(${PROJECT_NAME} MNN)
+endif() 

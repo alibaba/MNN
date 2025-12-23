@@ -1,3 +1,6 @@
+#include "model_sources.hpp"
+#include "file_utils.hpp"
+#include "dl_config.hpp"
 //
 //  info_command_handler.cpp
 //
@@ -11,6 +14,7 @@
 #include <MNN/AutoTime.hpp>
 
 namespace mnncli {
+using namespace mnn::downloader;
 
 std::string InfoCommandHandler::CommandName() const {
     return "info";

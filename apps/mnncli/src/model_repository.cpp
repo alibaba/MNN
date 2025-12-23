@@ -31,7 +31,7 @@ bool CaseInsensitiveEquals(const std::string& str1, const std::string& str2) {
 
 // Static member initialization
 const std::vector<std::string> ModelRepository::kDefaultProviders = {
-    ModelSources::SOURCE_HUGGING_FACE, ModelSources::SOURCE_MODEL_SCOPE, ModelSources::SOURCE_MODELERS
+    mnn::downloader::ModelSources::SOURCE_HUGGING_FACE, mnn::downloader::ModelSources::SOURCE_MODEL_SCOPE, mnn::downloader::ModelSources::SOURCE_MODELERS
 };
 
 ModelRepository::ModelRepository(const std::string& cache_root_path)
@@ -175,8 +175,8 @@ std::string ModelRepository::GetModelType(const std::string& modelId) {
 std::optional<ModelMarketData> ModelRepository::LoadFromAssets() {
     try {
         // First try to load from embedded data
-        const unsigned char* embeddedData = GetModelMarketJsonData();
-        unsigned int embeddedDataLen = GetModelMarketJsonDataLen();
+        const unsigned char* embeddedData = mnn::downloader::GetModelMarketJsonData();
+        unsigned int embeddedDataLen = mnn::downloader::GetModelMarketJsonDataLen();
 
         if (embeddedData != nullptr && embeddedDataLen > 0) {
             // Parse embedded JSON data

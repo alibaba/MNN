@@ -75,10 +75,12 @@ echo -e "${YELLOW}mnncli build directory: $MNNCLI_BUILD_DIR${NC}"
 mkdir -p "$MNNCLI_BUILD_DIR"
 
 echo -e "${YELLOW}Configuring mnncli...${NC}"
+SDK_PATH=$(xcrun --sdk macosx --show-sdk-path)
 cmake -B "$MNNCLI_BUILD_DIR" -S "$SCRIPT_DIR" \
     -DMNN_BUILD_DIR="$MNN_BUILD_DIR" \
     -DMNN_SOURCE_DIR="$PROJECT_ROOT" \
-    -DCMAKE_BUILD_TYPE=Release
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_OSX_SYSROOT="$SDK_PATH"
 
 echo -e "${YELLOW}Building mnncli...${NC}"
 if command -v nproc &> /dev/null; then
