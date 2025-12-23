@@ -151,6 +151,9 @@ void MtpGeneration::generate(GenerationParams& param) {
     int spl_count = 0;
 
     while (len < max_token) {
+        if(mContext->status == LlmStatus::USER_CANCEL) {
+            break;
+        }
         MNN::Timer _t;
         std::vector<int> drafts;
         drafts.push_back(mContext->current_token);
@@ -171,6 +174,12 @@ void MtpGeneration::generate(GenerationParams& param) {
             AUTOTIME;
             // do draft token parallel verify
             auto outputs = mLlm->forwardVec(drafts);
+            for (auto o : outputs) {
+                if(nullptr == o->readMap<float>()) {
+                    mContext->status = LlmStatus::INTERNAL_ERROR;
+                    break;
+                }
+            }
             if (outputs.size() < 2) {
                 break;
             }
@@ -237,6 +246,9 @@ void MtpGeneration::generate(GenerationParams& param) {
                 break;
             }
         }
+    }
+    if(len >= max_token) {
+        mContext->status = LlmStatus::MAX_TOKENS_FINISHED;
     }
 #ifdef DUMP_PROFILE_INFO
     // draft accept rate if adopt speculative decoding
