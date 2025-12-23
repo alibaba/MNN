@@ -5,6 +5,7 @@ make -j16
 adb push ./libllm.so /data/local/tmp/$DIR/libllm.so
 adb push ./llm_demo /data/local/tmp/$DIR/llm_demo
 adb push ./diffusion_demo /data/local/tmp/$DIR/diffusion_demo
+adb push ./diffusion_sd35_demo /data/local/tmp/$DIR/diffusion_sd35_demo
 adb push ./libMNN.so /data/local/tmp/$DIR/libMNN.so
 adb push ./libMNN_CL.so /data/local/tmp/$DIR/libMNN_CL.so
 adb push ./libMNN_Vulkan.so /data/local/tmp/$DIR/libMNN_Vulkan.so

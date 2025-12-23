@@ -81,6 +81,23 @@ bool DiffusionSD35::load() {
     
     // Load models
     mModules.resize(5);
+
+    // Load tokenizers
+    mTokenizer1->load(mModelPath + "/tokenizer");
+    mTokenizer2->load(mModelPath + "/tokenizer_2");
+    mTokenizer3->load(mModelPath + "/tokenizer_3");
+
+    return true;
+}
+
+bool DiffusionSD35::loadModule(int index) {
+    if (mModules[index]) return true;
+
+    MNN::Express::Executor::getGlobalExecutor()->gc(MNN::Express::Executor::FULL);
+    
+    Module::Config module_config;
+    module_config.shapeMutable = false;
+    
     std::vector<std::string> modelNames = {
         "text_encoder.mnn",
         "text_encoder_2.mnn",
@@ -88,50 +105,39 @@ bool DiffusionSD35::load() {
         "transformer.mnn",
         "vae_decoder.mnn"
     };
-
-    for(int i=0; i<5; ++i) {
-        std::string model_path = mModelPath + "/" + modelNames[i];
-        MNN_PRINT("Load %s\n", model_path.c_str());
-        
-        std::vector<std::string> inputs, outputs;
-        if (i == 0) { // text_encoder
-            inputs = {"input_ids"};
-            outputs = {"last_hidden_state", "text_embeds"};
-        } else if (i == 1) { // text_encoder_2
-            inputs = {"input_ids"};
-            outputs = {"last_hidden_state", "text_embeds"};
-        } else if (i == 2) { // text_encoder_3
-            inputs = {"input_ids"};
-            outputs = {"last_hidden_state"};
-        } else if (i == 3) { // transformer
-            inputs = {"hidden_states", "encoder_hidden_states", "pooled_projections", "timestep"};
-            outputs = {"out_hidden_states"};
-        } else if (i == 4) { // vae_decoder
-            inputs = {"latent_sample"};
-            outputs = {"sample"};
-        }
-        
-        mModules[i].reset(Module::load(inputs, outputs, model_path.c_str(), runtime_manager_, &module_config));
-        if (!mModules[i]) {
-            MNN_ERROR("Failed to load model %s\n", model_path.c_str());
-            if (i == 2) {
-                MNN_PRINT("Warning: T5 text encoder failed to load. Will use zeros.\n");
-            } else {
-                return false;
-            }
+    
+    std::string model_path = mModelPath + "/" + modelNames[index];
+    MNN_PRINT("Load %s\n", model_path.c_str());
+    
+    std::vector<std::string> inputs, outputs;
+    if (index == 0) { // text_encoder
+        inputs = {"input_ids"};
+        outputs = {"last_hidden_state", "text_embeds"};
+    } else if (index == 1) { // text_encoder_2
+        inputs = {"input_ids"};
+        outputs = {"last_hidden_state", "text_embeds"};
+    } else if (index == 2) { // text_encoder_3
+        inputs = {"input_ids"};
+        outputs = {"last_hidden_state"};
+    } else if (index == 3) { // transformer
+        inputs = {"hidden_states", "encoder_hidden_states", "pooled_projections", "timestep"};
+        outputs = {"out_hidden_states"};
+    } else if (index == 4) { // vae_decoder
+        inputs = {"latent_sample"};
+        outputs = {"sample"};
+    }
+    
+    mModules[index].reset(Module::load(inputs, outputs, model_path.c_str(), runtime_manager_, &module_config));
+    if (!mModules[index]) {
+        MNN_ERROR("Failed to load model %s\n", model_path.c_str());
+        if (index == 2) {
+            MNN_PRINT("Warning: T5 text encoder failed to load. Will use zeros.\n");
+        } else {
+            return false;
         }
     }
-
-    // Load tokenizers
-    mTokenizer1->load(mModelPath + "/tokenizer");
-    mTokenizer2->load(mModelPath + "/tokenizer_2");
-    mTokenizer3->load(mModelPath + "/tokenizer_3");
-
-    // Resize fix
-    for (auto& m : mModules) {
-        if(m) m->traceOrOptimize(MNN::Interpreter::Session_Resize_Fix);
-    }
-
+    
+    if(mModules[index]) mModules[index]->traceOrOptimize(MNN::Interpreter::Session_Resize_Fix);
     return true;
 }
 
@@ -154,6 +160,7 @@ std::pair<VARP, VARP> DiffusionSD35::encode_prompt(const std::string& prompt) {
     };
 
     // 1. CLIP L
+    loadModule(0);
     auto ids1 = mTokenizer1->encode(prompt, mMaxTextLen);
     VARP input_ids1 = _Input({2, mMaxTextLen}, NCHW, halide_type_of<int>());
     int* inputs1_ptr = input_ids1->writeMap<int>();
@@ -168,6 +175,7 @@ std::pair<VARP, VARP> DiffusionSD35::encode_prompt(const std::string& prompt) {
     auto clip_l_pooled = out1[1]; // (2, 768)
     
     // 2. CLIP G
+    loadModule(1);
     auto ids2 = mTokenizer2->encode(prompt, mMaxTextLen);
     VARP input_ids2 = _Input({2, mMaxTextLen}, NCHW, halide_type_of<int>());
     int* inputs2_ptr = input_ids2->writeMap<int>();
@@ -183,6 +191,7 @@ std::pair<VARP, VARP> DiffusionSD35::encode_prompt(const std::string& prompt) {
     
     // 3. T5
     VARP t5_hidden;
+    loadModule(2);
     if (mModules[2]) {
         auto ids3 = mTokenizer3->encode(prompt, mMaxTextLenT5);
         VARP input_ids3 = _Input({2, mMaxTextLenT5}, NCHW, halide_type_of<int>());
@@ -310,6 +319,7 @@ bool DiffusionSD35::run(const std::string prompt, const std::string imagePath, i
     // Guidance scale for CFG
     float guidance_scale = 5.0f; // Default for SD3
 
+    loadModule(3);
     for (int i = 0; i < iterNum; i++) {
         AUTOTIME;
         float t = mTimeSteps[i];
@@ -336,6 +346,7 @@ bool DiffusionSD35::run(const std::string prompt, const std::string imagePath, i
 
     unload_module(3, "Transformer");
     
+    loadModule(4);
     auto image = vae_decoder(sample);
     bool res = imwrite(imagePath, image);
     if (res) {

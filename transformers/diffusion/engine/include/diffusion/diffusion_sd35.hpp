@@ -38,6 +38,7 @@ private:
     VARP transformer(VARP hidden_states, VARP encoder_hidden_states, VARP pooled_projections, VARP timestep);
     VARP vae_decoder(VARP latent);
     VARP step_flow_match(VARP sample, VARP model_output, int index, int num_steps);
+    bool loadModule(int index);
 
 private:
     std::shared_ptr<Executor::RuntimeManager> runtime_manager_;
