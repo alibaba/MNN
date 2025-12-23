@@ -395,6 +395,7 @@ public:
     }
 
     mutable int pCurrentStatus = 0; // NO_ERROR
+    mutable int pExecutionStatus = 0; // NO_ERROR
 
     // TODO: Move to Backend
     void* pMeta = nullptr;

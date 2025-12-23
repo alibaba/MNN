@@ -328,9 +328,22 @@ void EagleGeneration::generate(GenerationParams& param) {
     std::vector<int> accpetLens;
     auto newTokens = 0, steps = 0;
     while (true) {
+        if(mContext->status == LlmStatus::USER_CANCEL) {
+            break;
+        }
         steps++;
         MNN::Timer _dt;
         auto decodingInfo = treeDecoding(draftInfo);
+        for (auto o : decodingInfo) {
+            if(nullptr == o->readMap<float>()) {
+                mContext->status = LlmStatus::INTERNAL_ERROR;
+                break;
+            }
+        }
+        if(decodingInfo.empty()) {
+            break;
+        }
+        
         treeDecodingTime += _dt.durationInUs();
         auto acceptInfo = evaluatePosterior(draftInfo, decodingInfo[0]);
         newTokens += acceptInfo.acceptTokens.size();
@@ -352,6 +365,9 @@ void EagleGeneration::generate(GenerationParams& param) {
         eagleGenerateTime += _gt.durationInUs();
     }
     mContext->decode_us += _t.durationInUs();
+    if(newTokens >= param.max_new_tokens) {
+        mContext->status = LlmStatus::MAX_TOKENS_FINISHED;
+    }
 #if EAGLE_DEBUG
     printf("\n### Tree Decoding Time: %f s, Eagle Generate Time: %f s\n", (float)treeDecodingTime / 1000000.0, (float)eagleGenerateTime / 1000000.0);
     printf("\n### Tree Decoding Avg Time: %f ms, steps: %d\n", (float)treeDecodingTime / 1000.0 / steps, steps);
