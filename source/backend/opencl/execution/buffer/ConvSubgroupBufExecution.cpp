@@ -111,7 +111,7 @@ ConvSubgroupBuf::ConvSubgroupBuf(const std::vector<Tensor *> &inputs, const std:
         int weightSize = 0;
         std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
         ConvolutionCommon::getConvParameters(&quanCommon, backend, op, &FilterDataPtr, &weightSize);
-        if (FilterDataPtr != nullptr) {
+        if (mOpenCLBackend->getRuntime()->hint().useCachedMmap <= 1 && FilterDataPtr != nullptr) {
             std::shared_ptr<Tensor> sourceWeight(
                 Tensor::create<float>(std::vector<int>{mResource->mOutputChannel, mResource->mInputChannel, mResource->mKernelWidth, mResource->mKernelHeight},
                                       (void *)FilterDataPtr, Tensor::CAFFE));
@@ -164,24 +164,25 @@ ConvSubgroupBuf::ConvSubgroupBuf(const std::vector<Tensor *> &inputs, const std:
         cl::Buffer &biasBuffer = openCLBuffer(mResource->mBias.get());
 
         cl_int res;
-        auto biasPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
-            biasBuffer, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &res);
-        if (biasPtrCL != nullptr && res == CL_SUCCESS) {
-            ::memset(biasPtrCL, 0, buffer_size);
-            if (nullptr != conv2dParams->bias()) {
-                const float *biasDataPtr = conv2dParams->bias()->data();
-                if (mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
-                    for (int i = 0; i < biasSize; i++) {
-                        ((half_float::half *)biasPtrCL)[i] = (half_float::half)(biasDataPtr[i]);
+        if (mOpenCLBackend->getRuntime()->hint().useCachedMmap <= 1){
+            auto biasPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(biasBuffer, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &res);
+            if (biasPtrCL != nullptr && res == CL_SUCCESS) {
+                ::memset(biasPtrCL, 0, buffer_size);
+                if (nullptr != conv2dParams->bias()) {
+                    const float *biasDataPtr = conv2dParams->bias()->data();
+                    if (mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
+                        for (int i = 0; i < biasSize; i++) {
+                            ((half_float::half *)biasPtrCL)[i] = (half_float::half)(biasDataPtr[i]);
+                        }
+                    } else {
+                        ::memcpy(biasPtrCL, biasDataPtr, biasSize * sizeof(float));
                     }
-                } else {
-                    ::memcpy(biasPtrCL, biasDataPtr, biasSize * sizeof(float));
                 }
+            } else {
+                MNN_ERROR("Map error biasPtrCL == nullptr \n");
             }
-        } else {
-            MNN_ERROR("Map error biasPtrCL == nullptr \n");
+            mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(biasBuffer, biasPtrCL);
         }
-        mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(biasBuffer, biasPtrCL);
     }
 
     if (mResource->mConv2dCommonParams->relu()) {

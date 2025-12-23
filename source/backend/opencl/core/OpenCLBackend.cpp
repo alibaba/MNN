@@ -17,6 +17,7 @@
 #include <thread>
 #include "core/Macro.h"
 #include "runtime/OpenCLTuneInfo.hpp"
+#include "core/MNNFileUtils.h"
 #ifdef  __ANDROID__
 #include <GLES2/gl2.h>
 #endif
@@ -66,6 +67,7 @@ CLRuntime::CLRuntime(const Backend::Info& info){
 CLRuntime::~CLRuntime() {
     mImagePool = nullptr;
     mBufferPool = nullptr;
+    mMmapPool = nullptr;
     mOpenCLRuntime = nullptr;
     delete mTunedInfo;
 }
@@ -215,7 +217,24 @@ Backend* CLRuntime::onCreate(const BackendConfig* config, Backend* origin) const
     if(precision > 2 || precision < 0){
         precision = BackendConfig::Precision_High;
     }
-    auto backend = new OpenCLBackend(precision, memory, mInfo.gpuMode, mImagePool, mBufferPool, this);
+    
+    if (hint().weightMemoryPath.size() > 0 && mMmapPool.get() == nullptr) {
+        // Only support set weightmap dir once
+        // forward_type, precision_type, memory_type, power_type
+        std::string prefix = "1_0_0_0_";
+        std::string posfix = "opencl.weight";
+        auto syncPath = prefix + "sync." + posfix;
+        bool autoRemove = true;
+        if (hint().useCachedMmap) {
+            autoRemove = false;
+            std::string fileName = MNNFilePathConcat(hint().weightMemoryPath, syncPath);
+            const_cast<RuntimeHint&>(hint()).useCachedMmap += MNNFileExist(fileName.c_str());
+        }
+        std::shared_ptr<OpenCLMmapAllocator> mmap;
+        mmap.reset(new OpenCLMmapAllocator(hint().weightMemoryPath.c_str(), prefix.c_str(), posfix.c_str(), autoRemove));
+        mMmapPool.reset(new MmapPool(mmap, mOpenCLRuntime->context(), mOpenCLRuntime->commandQueue(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, hint().useCachedMmap));
+    }
+    auto backend = new OpenCLBackend(precision, memory, mInfo.gpuMode, mImagePool, mBufferPool, mMmapPool, this);
     backend->setMetaPtr(pMeta);
     return backend;
 }
@@ -223,6 +242,9 @@ Backend* CLRuntime::onCreate(const BackendConfig* config, Backend* origin) const
 void CLRuntime::onGabageCollect(int level) {
     mImagePool->releaseFreeList();
     mBufferPool->releaseFreeList();
+    if(mMmapPool != nullptr){
+        mMmapPool->releaseFreeList();
+    }
 }
 
 float CLRuntime::onGetMemoryInMB() {
@@ -241,7 +263,7 @@ std::map<std::pair<OpType, GpuMemObject>, OpenCLBackend::Creator*>* gCreator() {
     return creators;
 };
 
-OpenCLBackend::OpenCLBackend(BackendConfig::PrecisionMode precision, BackendConfig::MemoryMode memory, int gpuMode, std::shared_ptr<ImagePool>imgPool, std::shared_ptr<BufferPool> bufPool, const CLRuntime *runtime)
+OpenCLBackend::OpenCLBackend(BackendConfig::PrecisionMode precision, BackendConfig::MemoryMode memory, int gpuMode, std::shared_ptr<ImagePool>imgPool, std::shared_ptr<BufferPool> bufPool, std::shared_ptr<MmapPool> mmapPool, const CLRuntime *runtime)
     : Backend(MNN_FORWARD_OPENCL) {
 
     mGpuMode = gpuMode;
@@ -264,6 +286,7 @@ OpenCLBackend::OpenCLBackend(BackendConfig::PrecisionMode precision, BackendConf
     setGpuMode(gpuMode);
     mStaticImagePool = imgPool;
     mStaticBufferPool = bufPool;
+    mStaticAllocatorMMap = mmapPool;
     if(mOpenCLRuntime.get()){
         if(mOpenCLRuntime->isCreateError() == true) {
             mIsCreateError = true;
@@ -332,6 +355,30 @@ public:
 private:
     cl::Buffer* mBuffer;
     BufferPool* mBufferPool;
+};
+
+class CLMemReleaseMmapBuffer : public Backend::MemObj {
+public:
+    CLMemReleaseMmapBuffer(cl::Buffer* bId, MmapPool* mmapPool) {
+        mBuffer = bId;
+        mMmapPool = mmapPool;
+    }
+    CLMemReleaseMmapBuffer(cl::Image* bId, MmapPool* mmapPool) {
+        mImage = bId;
+        mMmapPool = mmapPool;
+    }
+    virtual ~ CLMemReleaseMmapBuffer() {
+        if(mBuffer != nullptr){
+            mMmapPool->recycle(mBuffer);
+        }
+        if(mImage != nullptr){
+            mMmapPool->recycle(mImage);
+        }
+    }
+private:
+    cl::Buffer* mBuffer = nullptr;
+    cl::Image* mImage = nullptr;
+    MmapPool* mMmapPool = nullptr;
 };
 
 class CLMemReleaseImage : public Backend::MemObj {
@@ -422,10 +469,16 @@ Backend::MemObj* OpenCLBackend::onAcquire(const Tensor* nativeTensor, StorageTyp
             return new CLReleaseExecutionBuffer(node, mExecutionBufferPool.get());
         }
         MNN_ASSERT(storageType == STATIC);
-
-        auto buffer = mStaticBufferPool->alloc(size*typeSize);
-        ((Tensor*)nativeTensor)->buffer().device = (uint64_t)buffer; // fix
-        return new CLMemReleaseBuffer(buffer, mStaticBufferPool.get());
+        if(mCLRuntime->hint().useCachedMmap && mStaticAllocatorMMap.get() != nullptr)
+        {
+            auto buffer = mStaticAllocatorMMap->allocBuffer(size*typeSize).get();
+            ((Tensor*)nativeTensor)->buffer().device = (uint64_t)buffer; // fix
+            return new CLMemReleaseMmapBuffer(buffer, mStaticAllocatorMMap.get());
+        }else{
+            auto buffer = mStaticBufferPool->alloc(size*typeSize);
+            ((Tensor*)nativeTensor)->buffer().device = (uint64_t)buffer; // fix
+            return new CLMemReleaseBuffer(buffer, mStaticBufferPool.get());
+        }
     }
     else
     #endif /* MNN_OPENCL_BUFFER_CLOSED */
@@ -493,6 +546,9 @@ bool OpenCLBackend::onSelectDynamicAllocator(int index, int maxIndex) {
 bool OpenCLBackend::onClearBuffer() {
     mImagePool->clear();
     mBufferPool->clear();
+    if(mStaticAllocatorMMap.get() != nullptr){
+        mStaticAllocatorMMap.get()->sync();
+    }
     if(mMapMem.second != nullptr) {
     #ifdef MNN_OPENCL_SVM_ENABLE
         if(mUseSvm)
