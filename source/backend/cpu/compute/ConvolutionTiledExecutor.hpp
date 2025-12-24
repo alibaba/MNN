@@ -27,7 +27,7 @@ public:
 protected:
     Tensor mTempBufferTranspose;
     ConvolutionCommon::Im2ColParameter mIm2ColParameters;
-    std::pair<int, std::function<void(int)>> mFunction;
+    std::pair<std::function<void(int)>, int> mFunction;
     const CPUConvolution::Resource* mResource = nullptr;
 };
 
