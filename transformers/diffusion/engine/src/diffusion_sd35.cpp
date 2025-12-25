@@ -72,6 +72,9 @@ bool DiffusionSD35::load() {
     module_config.shapeMutable = false;
     runtime_manager_.reset(Executor::RuntimeManager::createRuntimeManager(config));
     
+    // Enable FlashAttention
+    runtime_manager_->setHint(Interpreter::QKV_QUANT_OPTIONS, 8);
+
     if (config.type == MNN_FORWARD_OPENCL) {
         const char* cacheFileName = ".tempcache_sd35";
         runtime_manager_->setCache(cacheFileName);
