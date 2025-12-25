@@ -217,6 +217,10 @@ public:
         if (nullptr == extra->attr()) {
             return nullptr;
         }
+        if(extra->type()->str() == "ExtraConvolution2DPrelu"){
+            return nullptr;
+        }
+
         return new VulkanFuse(extra, backend, (int)inputs.size(), (int)outputs.size());
     }
 };

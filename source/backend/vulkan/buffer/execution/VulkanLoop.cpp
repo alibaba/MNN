@@ -20,15 +20,21 @@ static void _setTensorStack(std::vector<Tensor*>& result, const std::vector<Tens
 
 class VulkanBatchMatMul : public VulkanBasicExecution {
 public:
-    VulkanBatchMatMul(const LoopParam* loop, Backend *bn) : VulkanBasicExecution(bn) {
+    VulkanBatchMatMul(const LoopParam* loop, Backend *bn, Tensor * tensor) : VulkanBasicExecution(bn) {
         mLoop = loop;
         auto vkbackend = static_cast<VulkanBackend*>(bn);
         mParam.reset(new VulkanBuffer(vkbackend->getMemoryPool(), false, sizeof(VulkanBatchMatMulInfo), nullptr, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT));
         
         auto cmd = loop->commands()->GetAs<RegionCommand>(0);
         mHasBias = cmd->indexes()->size() > 3;
+        bool useFP16 = tensor->getType().code == halide_type_float && vkbackend->useFP16();
+
+        std::string prefix = "glsl_matmulunit_";
+        std::string mid = mHasBias ? "HAS_BIAS_" : "";
+        std::string postfix = useFP16 ? "FP16_comp" : "comp";
+        std::vector<VkDescriptorType> desTypes;
         if (!mHasBias) {
-            mPipeline = vkbackend->getPipeline("glsl_matmulunit_comp", {
+            desTypes = {
                 VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                 VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                 VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -36,9 +42,9 @@ public:
                 VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                 VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                 VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-            });
+            };
         } else {
-            mPipeline = vkbackend->getPipeline("glsl_matmulunit_HAS_BIAS_comp", {
+            desTypes = {
                 VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                 VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                 VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -48,8 +54,9 @@ public:
                 VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                 VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                 VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-            });
+            };
         }
+        mPipeline = vkbackend->getPipeline(prefix + mid + postfix, desTypes);
         mDescribe.reset(mPipeline->createSet());
         mTensors.resize(mLoop->tensorNumber());
     }
@@ -124,7 +131,7 @@ struct BinaryBroadCastInfo {
 
 class VulkanBinaryBroadCast : public VulkanBasicExecution {
 public:
-    VulkanBinaryBroadCast(const LoopParam* loop, Backend *bn, bool isInt) : VulkanBasicExecution(bn) {
+    VulkanBinaryBroadCast(const LoopParam* loop, Backend *bn, bool isInt, Tensor * tensor) : VulkanBasicExecution(bn) {
         mLoop = loop;
         auto vkbackend = static_cast<VulkanBackend*>(bn);
         mParam.reset(new VulkanBuffer(vkbackend->getMemoryPool(), false, sizeof(BinaryBroadCastInfo), nullptr, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT));
@@ -132,7 +139,11 @@ public:
         if (isInt) {
             shaderName = "glsl_binary_blit_int_" + VulkanBinary::getMidName( mLoop->commands()->GetAs<RegionCommand>(0)->op()) + "_comp";
         } else {
-            shaderName = "glsl_binary_blit_" + VulkanBinary::getMidName( mLoop->commands()->GetAs<RegionCommand>(0)->op()) + "_comp";
+            shaderName = "glsl_binary_blit_" + VulkanBinary::getMidName( mLoop->commands()->GetAs<RegionCommand>(0)->op()) + "_";
+            if (tensor->getType().code == halide_type_float && vkbackend->useFP16()) {
+                shaderName += "FP16_";
+            }
+            shaderName += "comp";
         }
 
         mPipeline = vkbackend->getPipeline(shaderName, {
@@ -196,12 +207,18 @@ struct GatherInfo {
 
 class VulkanGather : public VulkanBasicExecution {
 public:
-    VulkanGather(const LoopParam* loop, Backend *bn) : VulkanBasicExecution(bn) {
+    VulkanGather(const LoopParam* loop, Backend *bn, Tensor * tensor) : VulkanBasicExecution(bn) {
         mLoop = loop;
         auto vkbackend = static_cast<VulkanBackend*>(bn);
         mParam.reset(new VulkanBuffer(vkbackend->getMemoryPool(), false, sizeof(GatherInfo), nullptr, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT));
         
-        mPipeline = vkbackend->getPipeline("glsl_blitregion_comp", {
+        std::string pKey = "glsl_blitregion_";
+        if (tensor->getType().code == halide_type_float && vkbackend->useFP16()) {
+            pKey += "FP16_";
+        }
+        pKey += "comp";
+
+        mPipeline = vkbackend->getPipeline(pKey, {
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -292,14 +309,14 @@ VulkanBasicExecution* VulkanLoop::create(const std::vector<Tensor*>& inputs, con
         auto cmd = loop->commands()->GetAs<RegionCommand>(0);
         auto subop = cmd->op();
         if (OpType_UnaryOp == subop->type() && nullptr == subop->main() && cmd->fuse() < 0) {
-            return new VulkanGather(loop, bn);
+            return new VulkanGather(loop, bn, inputs[0]);
         }
         if (OpType_MatMul == subop->type() && loop->parallel()) {
-            return new VulkanBatchMatMul(loop, bn);
+            return new VulkanBatchMatMul(loop, bn, inputs[0]);
         }
         if (OpType_BinaryOp == subop->type() && cmd->fuse() < 0 && 1 == loop->loopNumber()) {
             bool isInt = inputs[1]->getType().code == halide_type_int;
-            return new VulkanBinaryBroadCast(loop, bn, isInt);
+            return new VulkanBinaryBroadCast(loop, bn, isInt, inputs[0]);
         }
     }
     return nullptr;

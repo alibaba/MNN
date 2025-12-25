@@ -16,7 +16,7 @@ namespace MNN {
 
 class VulkanLayernorm : public VulkanBasicExecution {
 public:
-    VulkanLayernorm(const Op* op, Backend* bn);
+    VulkanLayernorm(const Op* op, Backend* bn, Tensor * tensor);
     virtual ~VulkanLayernorm();
     virtual ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                        const VulkanCommandPool::Buffer* cmdBuffer) override;
@@ -31,6 +31,7 @@ private:
     bool mHasScale = false;
     int mGroup = 0;
     int mAxisSize = 0;
+    bool mFP16{false};
 };
 
 } // namespace MNN

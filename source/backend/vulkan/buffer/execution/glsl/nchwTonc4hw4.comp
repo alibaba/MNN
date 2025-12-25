@@ -1,13 +1,10 @@
-#version 440 core
-layout(std430) buffer;
-
 layout(set=0, binding=0) readonly buffer sourceBuffer{
-    float data[];
+    FLOAT data[];
 } uInBuffer;
 
 
-layout(set=0, binding=1, std140) writeonly buffer destBuffer{
-    vec4 data[];
+layout(set=0, binding=1) writeonly buffer destBuffer{
+    FLOAT4 data[];
 }uOutBuffer;
 
 
@@ -35,7 +32,7 @@ void main()
         int lastZ = uConstant.size.y / 4;
         int cIndex = uConstant.size.y % 4;
 
-        vec4 color = vec4(0);
+        FLOAT4 color = FLOAT4(0.0);
         int z = zDiv4*4;
         int basicOffset = 0
             + batchIndex*uConstant.stride.x
@@ -49,23 +46,23 @@ void main()
             if(cIndex == 1)
             {
                 color.r = uInBuffer.data[basicOffset+0];
-                color.g = 0.0;
-                color.b = 0.0;
-                color.a = 0.0;
+                color.g = FLOAT(0.0);
+                color.b = FLOAT(0.0);
+                color.a = FLOAT(0.0);
             }
             else if(cIndex == 2)
             {
                 color.r = uInBuffer.data[basicOffset+0];
                 color.g = uInBuffer.data[basicOffset+1*uConstant.stride.y];
-                color.b = 0.0;
-                color.a = 0.0;
+                color.b = FLOAT(0.0);
+                color.a = FLOAT(0.0);
             }
             else
             {
                 color.r = uInBuffer.data[basicOffset+0];
                 color.g = uInBuffer.data[basicOffset+1*uConstant.stride.y];
                 color.b = uInBuffer.data[basicOffset+2*uConstant.stride.y];
-                color.a = 0.0;
+                color.a = FLOAT(0.0);
             }
         }
         else

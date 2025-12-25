@@ -1,14 +1,3 @@
-#version 440 core
-layout(std430) buffer;
-#ifdef FP16
-#extension GL_AMD_gpu_shader_half_float: enable
-#define FLOAT4 f16vec4
-#define MAT4 f16mat4
-#extension GL_AMD_gpu_shader_half_float: enable
-#else
-#define FLOAT4 vec4
-#define MAT4 mat4
-#endif
 layout(set=0, binding=0) writeonly buffer destBuffer{
     FLOAT4 data[];
 } uOutput;
@@ -17,13 +6,13 @@ layout(set=0, binding=1) readonly buffer sourceBuffer0{
     FLOAT4 data[];
 } uInput;
 
-
 layout(set=0, binding=2) uniform constBuffer {
     ivec4 inputSize;
     ivec4 outputSize;
     ivec2 pad;
     ivec2 kernelSize;
     ivec2 stride;
+    ivec2 count;
 } uConstant;
 
 layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
@@ -41,7 +30,10 @@ void main()
         ivec2 sfxy = max(ivec2(0), -spos);
         ivec2 efxy = min(uConstant.kernelSize, inputSizeXY-spos);
         ivec2 size = efxy-sfxy;
-        FLOAT4 frac = FLOAT4(1.0/float(size.x)/float(size.y));
+        FLOAT4 frac = FLOAT4(1.0/FLOAT(size.x)/FLOAT(size.y));
+        if (uConstant.count.x == 1) {
+            frac = FLOAT4(1.0/FLOAT(uConstant.kernelSize.x)/FLOAT(uConstant.kernelSize.y));
+        }
 
         for (int fy=sfxy.y; fy<efxy.y; ++fy)
         {

@@ -1,13 +1,10 @@
-#version 440 core
-layout(std430) buffer;
-
 layout(set=0, binding=0) writeonly buffer destBuffer{
-    float data[];
+    FLOAT data[];
 } uOutput;
 
 
 layout(set=0, binding=1) readonly buffer sourceBuffer{
-    vec4 data[];
+    FLOAT4 data[];
 }uInput;
 
 
@@ -35,7 +32,7 @@ void main()
         int lastZ = uConstant.size.y / 4;
         int cIndex = uConstant.size.y % 4;
 
-        vec4 color = vec4(0);
+        FLOAT4 color = FLOAT4(0);
         int z = zDiv4*4;
         int basicOffset = 0
             + batchIndex * uConstant.stride.x
