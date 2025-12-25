@@ -29,8 +29,15 @@ VulkanSoftmax::VulkanSoftmax(const Op* op, Backend* bn) : VulkanBasicExecution(b
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
     };
+    // Modified logic to support FP16
+    std::string shaderName = "glsl_softmaxHeight_NHWC_";
+    if (vkBn->useFP16()) {
+        shaderName += "FP16_";
+    }
+    shaderName += "comp";
+    
     mSoftmaxPipeline =
-        vkBn->getPipeline("glsl_softmaxHeight_NHWC_comp", types);
+        vkBn->getPipeline(shaderName, types);
     mDescriptorSet.reset(mSoftmaxPipeline->createSet());
 }
 

@@ -1,7 +1,5 @@
-#version 440 core
-layout(std430) buffer;
 layout(set=0, binding=0) writeonly buffer destBuffer{
-    float data[];
+    FLOAT data[];
 } uOutput;
 
 layout(set=0, binding=1) readonly buffer sourceBuffer0{
@@ -9,11 +7,11 @@ layout(set=0, binding=1) readonly buffer sourceBuffer0{
 } uSelect;
 
 layout(set=0, binding=2) readonly buffer sourceBuffer1{
-    float data[];
+    FLOAT data[];
 } uInput0;
 
 layout(set=0, binding=3) readonly buffer sourceBuffer2{
-    float data[];
+    FLOAT data[];
 } uInput1;
 
 layout(set = 0, binding = 4) uniform constBuffer {

@@ -1,7 +1,5 @@
-#version 440 core
-layout(std430) buffer;
 layout(set=0, binding=0) writeonly buffer destBuffer{
-    float data[];
+    FLOAT data[];
 } uOutput;
 
 layout(set=0, binding=1) readonly buffer sourceBuffer0{
@@ -9,10 +7,10 @@ layout(set=0, binding=1) readonly buffer sourceBuffer0{
 } uInput;
 
 layout(set=0, binding=2) readonly buffer sourceBuffer1{
-    float data[];
+    FLOAT data[];
 } uOn;
 layout(set=0, binding=3) readonly buffer sourceBuffer2{
-    float data[];
+    FLOAT data[];
 } uOff;
 
 layout(set=0, binding=4) uniform constBuffer{
@@ -30,9 +28,9 @@ void main()
         int depth = tmp % uConstant.size.y;
         int outside = tmp / uConstant.size.y;
 
-        float depthF = float(depth);
-        float indice = uInput.data[inside + outside * uConstant.size.z];
-        float value = (abs(indice - depthF) < 0.5) ? uOn.data[0] : uOff.data[0];
+        FLOAT depthF = FLOAT(depth);
+        FLOAT indice = FLOAT(uInput.data[inside + outside * uConstant.size.z]);
+        FLOAT value = (abs(indice - depthF) < FLOAT(0.5)) ? uOn.data[0] : uOff.data[0];
         uOutput.data[posTmp.x] = value;
     }
 }

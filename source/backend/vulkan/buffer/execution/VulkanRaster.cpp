@@ -73,7 +73,12 @@ void VulkanRaster::onEncodeFast(const Tensor* input, const Tensor* output, const
         cmdBuffer->barrierSource(dstTensor.first->buffer(), dstTensor.second, dstTensorSize, VulkanCommandPool::Buffer::WRITE_WRITE);
     }
     
-    auto blitPipeline = vkBn->getPipeline("glsl_blit_C4_comp", {
+    std::string pKey = "glsl_blit_C4_";
+    if (output->getType().code == halide_type_float && vkBn->useFP16()) {
+        pKey += "FP16_";
+    }
+    pKey += "comp";
+    auto blitPipeline = vkBn->getPipeline(pKey, {
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
@@ -152,17 +157,23 @@ ErrorCode VulkanRaster::onEncode(const std::vector<Tensor *> &____inputs, const 
             break;
         }
         const VulkanPipeline* convertPipeline = nullptr;
+        std::string pKey = "glsl_";
         int srcIndex;
         int dstIndex;
         if (des->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
-            convertPipeline = vkBn->getPipeline("glsl_nchwTonc4hw4_comp", nchwConvertTypes);
+            pKey += "nchwTonc4hw4_";
             srcIndex = 0;
             dstIndex = 1;
         } else {
-            convertPipeline = vkBn->getPipeline("glsl_nc4hw4Tonchw_comp", nchwConvertTypes);
+            pKey += "nc4hw4Tonchw_";
             srcIndex = 1;
             dstIndex = 0;
         }
+        if (output->getType().code == halide_type_float && vkBn->useFP16()) {
+            pKey += "FP16_";
+        }
+        pKey += "comp";
+        convertPipeline = vkBn->getPipeline(pKey, nchwConvertTypes);
         NCHWInfo dims;
         dims.size[0] = convertParameter.batch;
         dims.size[1] = convertParameter.channel;
@@ -197,7 +208,8 @@ ErrorCode VulkanRaster::onEncode(const std::vector<Tensor *> &____inputs, const 
 
     // Can't use fast mode, create temp buffer
     if (des->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
-        int bufferSize = sizeof(float);
+        int bufferSize = (output->getType().code == halide_type_float && vkBn->useFP16()) ? 
+                         sizeof(uint16_t) : sizeof(float);
         for (int i=0; i<output->dimensions(); ++i) {
             bufferSize *= output->length(i);
         }
@@ -216,7 +228,8 @@ ErrorCode VulkanRaster::onEncode(const std::vector<Tensor *> &____inputs, const 
             continue;
         }
         MNN_ASSERT(origin->deviceId() != 0);
-        int bufferSize = sizeof(float);
+        int bufferSize = (output->getType().code == halide_type_float && vkBn->useFP16()) ? 
+                         sizeof(uint16_t) : sizeof(float);
         for (int i=0; i<origin->dimensions(); ++i) {
             bufferSize *= origin->length(i);
         }
@@ -227,7 +240,12 @@ ErrorCode VulkanRaster::onEncode(const std::vector<Tensor *> &____inputs, const 
         mInputBuffers.insert(std::make_pair(origin, std::make_pair(temp, bufferSize)));
         NCHWInfo dims;
         writeNCHW(dims, origin);
-        auto convertPipeline = vkBn->getPipeline("glsl_nc4hw4Tonchw_comp", nchwConvertTypes);
+        std::string pKey = "glsl_nc4hw4Tonchw_";
+        if (output->getType().code == halide_type_float && vkBn->useFP16()) {
+            pKey += "FP16_";
+        }
+        pKey += "comp";
+        auto convertPipeline = vkBn->getPipeline(pKey, nchwConvertTypes);
         std::shared_ptr<VulkanLayout::DescriptorSet> describe(convertPipeline->createSet());
         std::shared_ptr<VulkanBuffer> uniform = vkRt->allocUniform(&dims, sizeof(dims));
         mExtraDescribes.emplace_back(describe);
@@ -245,7 +263,12 @@ ErrorCode VulkanRaster::onEncode(const std::vector<Tensor *> &____inputs, const 
         cmdBuffer->barrierSource(((VulkanBuffer*)(temp.first))->buffer(), temp.second, bufferSize);
     }
     // Blit
-    auto blitPipeline = vkBn->getPipeline("glsl_blit_comp", {
+    std::string pKeyBlit = "glsl_blit_";
+    if (output->getType().code == halide_type_float && vkBn->useFP16()) {
+        pKeyBlit += "FP16_";
+    }
+    pKeyBlit += "comp";
+    auto blitPipeline = vkBn->getPipeline(pKeyBlit, {
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
@@ -286,12 +309,17 @@ ErrorCode VulkanRaster::onEncode(const std::vector<Tensor *> &____inputs, const 
         vkCmdDispatch(cmdBuffer->get(), UP_DIV(total, 256), 1, 1);
     }
 
-    // Convert buffer to NC4HW4 image
+    // Convert buffer to NC4HW4
     if (nullptr != mOutputBuffer.first.first) {
         auto& info = mOutputBuffer;
         NCHWInfo dims;
         writeNCHW(dims, output);
-        auto convertPipeline = vkBn->getPipeline("glsl_nchwTonc4hw4_comp", nchwConvertTypes);
+        std::string pKey = "glsl_nchwTonc4hw4_";
+        if (output->getType().code == halide_type_float && vkBn->useFP16()) {
+            pKey += "FP16_";
+        }
+        pKey += "comp";
+        auto convertPipeline = vkBn->getPipeline(pKey, nchwConvertTypes);
         std::shared_ptr<VulkanLayout::DescriptorSet> describe(convertPipeline->createSet());
         std::shared_ptr<VulkanBuffer> uniform = vkRt->allocUniform(&dims, sizeof(dims));
         mExtraDescribes.emplace_back(describe);

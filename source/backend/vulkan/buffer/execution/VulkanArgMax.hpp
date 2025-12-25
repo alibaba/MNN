@@ -16,7 +16,7 @@
 namespace MNN {
 class VulkanArgMax : public VulkanBasicExecution {
 public:
-    VulkanArgMax(const Op* op, Backend* bn);
+    VulkanArgMax(const Op* op, Backend* bn, Tensor * input);
     virtual ~VulkanArgMax();
     virtual ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                        const VulkanCommandPool::Buffer* cmdBuffer) override;

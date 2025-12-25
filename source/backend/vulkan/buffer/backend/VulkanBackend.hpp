@@ -13,6 +13,25 @@
 #include <MNN/ErrorCode.hpp>
 #include "MNN_generated.h"
 #include "VulkanRuntime.hpp"
+
+#ifdef MNN_USE_ARMV82
+// FP32 <--> FP16 Function
+#include "backend/arm82/Arm82OptFunc.hpp"
+#define FLOAT_TO_HALF MNNQuantizeFP16
+#define HALF_TO_FLOAT MNNDequantizeFP16
+#else
+#include "half.hpp"
+#define FLOAT_TO_HALF _VKFloatToHalf
+#define HALF_TO_FLOAT _VKHalfToFloat
+#endif // MNN_USE_ARMV82
+
+#ifndef MNN_USE_ARMV82
+namespace MNN {
+    void _VKFloatToHalf(const float* src, int16_t* dst, size_t size);
+    void _VKHalfToFloat(const int16_t* src, float* dst, size_t size);
+}
+#endif
+
 namespace MNN {
 class VulkanBasicExecution;
 typedef std::tuple<VkBuffer, VkDeviceSize, VkDeviceSize> VULKAN_TENSOR;
@@ -106,6 +125,10 @@ public:
     }
 #endif
 
+    bool useFP16() const {
+        return mUseFP16;
+    }
+
 private:
     void _finish() const;
     void _requireHostBuffer(size_t size) const;
@@ -122,10 +145,11 @@ private:
     mutable std::vector<VkCommandBuffer> mCmdBuffers;
     mutable std::shared_ptr<VulkanFence> mFence;
 
-
     bool mDirect;
     const VulkanRuntime* mRuntime;
     bool mUseAutoTune = true;
+
+    bool mUseFP16{false};
 
 #ifdef ENABLE_VULKAN_TIME_PROFILE
     mutable std::vector<std::shared_ptr<VulkanQueryPool>> mQueryPools;

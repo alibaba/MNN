@@ -1,10 +1,7 @@
-#version 440 core
-layout(std430) buffer;
-
 #ifdef USE_INT
 #define DATA_TYPE int
 #else
-#define DATA_TYPE float
+#define DATA_TYPE FLOAT
 #endif
 layout(set=0, binding=0) writeonly buffer destBuffer{
     DATA_TYPE data[];

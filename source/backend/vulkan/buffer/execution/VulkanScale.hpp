@@ -15,7 +15,7 @@
 namespace MNN {
 class VulkanScale : public VulkanBasicExecution {
 public:
-    VulkanScale(const Op* op, Backend* bn);
+    VulkanScale(const Op* op, Backend* bn, Tensor * output);
     virtual ~VulkanScale();
     ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                        const VulkanCommandPool::Buffer* cmdBuffer) override;

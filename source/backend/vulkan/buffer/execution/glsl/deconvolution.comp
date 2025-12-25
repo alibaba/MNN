@@ -1,14 +1,3 @@
-#version 440 core
-layout(std430) buffer;
-#ifdef FP16
-#extension GL_AMD_gpu_shader_half_float: enable
-#define FLOAT4 f16vec4
-#define MAT4 f16mat4
-#extension GL_AMD_gpu_shader_half_float: enable
-#else
-#define FLOAT4 vec4
-#define MAT4 mat4
-#endif
 layout(set=0, binding=0) writeonly buffer destBuffer{
     FLOAT4 data[];
 }uOutput;
@@ -57,7 +46,7 @@ void main()
         int oz = pos.z / uConstant.outputSize.w;
         int sb = pos.z % uConstant.outputSize.w;
 
-        vec4 color = uBias.data[oz];
+        FLOAT4 color = uBias.data[oz];
         for (int fy=0; fy<uConstant.kernelSize.y; ++fy)
         {
             int sy = oxy.y - fy*uConstant.dilate.y;
@@ -78,14 +67,14 @@ void main()
                             + oz * uConstant.kernelSize.x * uConstant.kernelSize.y;
                         for (int fz=0; fz<uConstant.inputSize.z; ++fz)
                         {
-                            vec4 S = uInput.data[sBegin
+                            FLOAT4 S = uInput.data[sBegin
                              + fz * uConstant.inputSize.x * uConstant.inputSize.y * uConstant.inputSize.w
                             ];
                             int kOffst = 4 * (kBegin * uConstant.inputSize.z + fz);
-                            vec4 K0 = uKernel.data[kOffst + 0];
-                            vec4 K1 = uKernel.data[kOffst + 1];
-                            vec4 K2 = uKernel.data[kOffst + 2];
-                            vec4 K3 = uKernel.data[kOffst + 3];
+                            FLOAT4 K0 = uKernel.data[kOffst + 0];
+                            FLOAT4 K1 = uKernel.data[kOffst + 1];
+                            FLOAT4 K2 = uKernel.data[kOffst + 2];
+                            FLOAT4 K3 = uKernel.data[kOffst + 3];
                             color += K0 * S.x;
                             color += K1 * S.y;
                             color += K2 * S.z;
@@ -96,10 +85,10 @@ void main()
             }
         }
 #ifdef RELU
-        color = max(color, vec4(0));
+        color = max(color, FLOAT4(0));
 #endif
 #ifdef RELU6
-        color = clamp(color, vec4(0), vec4(6));
+        color = clamp(color, FLOAT4(0), FLOAT4(6));
 #endif
         uOutput.data[pos.x + pos.y * uConstant.outputSize.x + pos.z * uConstant.outputSize.x * uConstant.outputSize.y] = color;
     }

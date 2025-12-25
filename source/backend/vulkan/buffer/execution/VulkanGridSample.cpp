@@ -25,19 +25,22 @@ VulkanGridSample::VulkanGridSample(const Op* op, Backend* bn) : VulkanBasicExecu
 
     mAlignCorners = op->main_as_GridSample()->alignCorners();
 
-    std::string prefix;
+    std::string pKey = "glsl_";
     if (0 == op->main_as_GridSample()->mode()) { // SampleMode_BILINEAR
-        prefix = "glsl_gridSampleBilinear_";
+        pKey += "gridSampleBilinear_";
     } else {
-        prefix = "glsl_gridSampleNearest_";
+        pKey += "gridSampleNearest_";
     }
 
-    std::string padding_mode = "";
     if (0 == op->main_as_GridSample()->paddingMode()) { // BorderMode_ZEROS
-        padding_mode = "PAD_MODE_ZEROS_";
+        pKey += "PAD_MODE_ZEROS_";
     }
 
-    std::string posfix = "comp";
+    if (vulkanBn->useFP16()) {
+        pKey += "FP16_";
+    }
+
+    pKey += "comp";
 
     auto types = {
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -46,7 +49,7 @@ VulkanGridSample::VulkanGridSample(const Op* op, Backend* bn) : VulkanBasicExecu
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
     };
     
-    mGridSamplePipeline = vulkanBn->getPipeline(prefix + padding_mode + posfix, types);
+    mGridSamplePipeline = vulkanBn->getPipeline(pKey, types);
     mDescriptorSet.reset(mGridSamplePipeline->createSet());
 }
 
@@ -103,6 +106,7 @@ ErrorCode VulkanGridSample::onEncode(const std::vector<Tensor*>& inputs, const s
 class VulkanGridSampleCreator : public VulkanBackend::Creator {
 public:
     virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op, Backend* bn) const override {
+        MNN_ASSERT(outputs[0]->getType().code == halide_type_float);
         return new VulkanGridSample(op, bn);
     }
 };
