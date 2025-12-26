@@ -269,7 +269,7 @@ void AttentionBufExecution::handleKVAllocMemory() {
     if(mKVCache) {
         mKVCacheManager->setPastLength(mMeta != nullptr ? mMeta->previous : 0);
 
-        if (nullptr == mMeta || mMeta->previous == mMeta->remove) {
+        if (mMeta->previous == mMeta->remove) {
             mKVCacheManager->onClear();
             mKVCacheManager->onAlloc(mMeta, mSeqLen);
         } else {
@@ -360,6 +360,10 @@ ErrorCode AttentionBufExecution::onResize(const std::vector<Tensor *> &inputs, c
     return NO_ERROR;
 }
 void AttentionBufExecution::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
+    if(mKVCache) {
+        // if has kv_cache, default has mask
+        MNN_ASSERT(inputs.size() > 3);
+    }
     auto query = inputs[0];
     auto key = inputs[1];
     auto value = inputs[2];

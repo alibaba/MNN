@@ -219,10 +219,10 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     auto query = inputs[0];
     auto key   = inputs[1];
     auto value = inputs[2];
-    const int8_t* mask = nullptr;
+    const Tensor* mask = nullptr;
     int seqLen = query->length(1);
     if (inputs.size() > 3) {
-        mask = inputs[3]->host<int8_t>();
+        mask = inputs[3];
     }
     const Tensor* sinks = nullptr;
     if (inputs.size() > 4) {
@@ -592,11 +592,11 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                 {
                     if(mBytes == 2) {
                         if (!mQuantKey || sinksPtr != nullptr) {
-                            _maskQK<FLOAT16_T>((float*)qkPacked, &mScale, seqLen, subKvSeqLen, mPack, kvSeqLen, i * mBlockKV,sinksPtr, mask, mQuantKey);
+                            _maskQK<FLOAT16_T>((float*)qkPacked, &mScale, seqLen, subKvSeqLen, mPack, kvSeqLen, i * mBlockKV,sinksPtr, mask->host<int8_t>(), mQuantKey);
                         }
                     } else {
                         if (!mQuantKey || sinksPtr != nullptr) {
-                            _maskQK<float>((float*)qkPacked, &mScale, seqLen, subKvSeqLen, mPack, kvSeqLen, i * mBlockKV, sinksPtr, mask, mQuantKey);
+                            _maskQK<float>((float*)qkPacked, &mScale, seqLen, subKvSeqLen, mPack, kvSeqLen, i * mBlockKV, sinksPtr, mask->host<int8_t>(), mQuantKey);
                         }
                     }
                     bool useMask = (sinksPtr == nullptr);

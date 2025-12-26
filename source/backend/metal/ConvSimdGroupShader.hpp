@@ -1715,7 +1715,12 @@ kernel void conv1x1_gemm_32x64_split_k_sg(const device ftype4 *in            [[b
      */
     threadgroup FLOAT4 sdata[800] = {0.f};
 
-    INIT_SIMDGROUP_MATRIX(2, 4, 8);
+    simdgroup_half8x8 sga[2];
+    simdgroup_half8x8 sgb[4];
+    simdgroup_float8x8 sgd[8];
+    for (int i = 0; i < 8; i++){
+        sgd[i] = make_filled_simdgroup_matrix<FLOAT, 8>(0.f);
+    }
 
     int rx = gid.x;// M/32
     int uz = gid.y;// N/64
