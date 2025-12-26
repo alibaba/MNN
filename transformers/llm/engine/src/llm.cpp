@@ -230,6 +230,7 @@ void Llm::setSpeculativeConfig() {
 }
 
 bool Llm::load() {
+    Timer _t;
     initRuntime();
     // init module status
     // 1. load vocab
@@ -348,6 +349,7 @@ bool Llm::load() {
 
     // MTP model load
     mGenerationStrategy->load(module_config);
+    mContext->load_us += _t.durationInUs();
     return true;
 }
 
