@@ -919,6 +919,7 @@ id<MTLComputePipelineState> MetalBackend::makeComputePipelineWithSourceOption(co
     auto pipeline = [ctx pipelineWithSourceOption:source name:name options:options];
     if (nil == pipeline) {
         mRuntime->pCurrentStatus = NOT_SUPPORT;
+        MNN_ERROR("pipelineWithSourceOption error.\n");
     }
     return pipeline;
 }
