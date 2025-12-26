@@ -58,4 +58,3 @@
   - **示例**
     ```sh
     ./ppl_eval ../transformers/llm/export/model/config.json ../transformers/llm/eval/wiki
-    ```
