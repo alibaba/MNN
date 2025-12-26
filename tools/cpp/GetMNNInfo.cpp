@@ -12,13 +12,9 @@
 #include <MNN/expr/Module.hpp>
 #include <MNN/expr/ExprCreator.hpp>
 #include <MNN/AutoTime.hpp>
-#include "rapidjson/document.h"
-#include <string>
-#include <iostream>
 #include <fstream>
 #include <sstream>
 #include <cmath>
-#include <set>
 using namespace MNN::Express;
 using namespace MNN;
 static std::string _getDataType(const halide_type_t& type) {
@@ -78,12 +74,12 @@ int main(int argc, char *argv[]) {
     }
     std::string modelName = argv[1];
     std::vector<std::string> empty;
-    std::shared_ptr<Module> net(Module::load(empty, empty, argv[1]));
-    if (nullptr == net.get()) {
+    std::shared_ptr<Module> module(Module::load(empty, empty, argv[1]));
+    if (nullptr == module.get()) {
         MNN_ERROR("Load MNN from %s Failed\n", argv[1]);
         return 1;
     }
-    auto info = net->getInfo();
+    auto info = module->getInfo();
     MNN_ASSERT(info->inputNames.size() == info->inputs.size());
     MNN_PRINT("Model default dimensionFormat is %s\n", _getFormatString(info->defaultFormat).c_str());
     MNN_PRINT("Model Inputs:\n");
@@ -118,48 +114,6 @@ int main(int argc, char *argv[]) {
             MNN_PRINT("[Meta] %s : %s\n", iter.first.c_str(), iter.second.c_str());
         }
         MNN_PRINT("MetaData: End \n");
-    }
-    MNN_PRINT("Get Op info to op.txt\n");
-    std::set<std::string> originTypes;
-    {
-        MNN_PRINT("Appen op lists to op.txt\n");
-        std::ifstream is("op.txt");
-        if (!is.fail()) {
-            std::string tmp;
-            while (std::getline(is, tmp, '\n')) {
-                originTypes.insert(tmp);
-            }
-        }
-    }
-    MNN_PRINT("Origin Op: %d\n", originTypes.size());
-
-    // Load origin tyes
-    {
-        std::shared_ptr<MNN::Interpreter> bufferTmp(MNN::Interpreter::createFromFile(modelName.c_str()));
-        auto buffer = bufferTmp->getModelBuffer();
-        auto collect = [&](const flatbuffers::Vector<flatbuffers::Offset<Op>>* oplists) {
-            for (int i=0; i<oplists->size(); ++i) {
-                auto op = oplists->GetAs<Op>(i);
-                originTypes.insert(EnumNameOpType(op->type()));
-            }
-        };
-        auto net = GetNet(buffer.first);
-        collect(net->oplists());
-        if (nullptr != net->subgraphs()) {
-            for (int i=0; i<net->subgraphs()->size(); ++i) {
-                auto graph = net->subgraphs()->GetAs<SubGraphProto>(i);
-                collect(graph->nodes());
-            }
-        }
-    }
-    MNN_PRINT("Current Op: %d\n", originTypes.size());
-
-    {
-        MNN_PRINT("Appen op lists to op.txt\n");
-        std::ofstream os("op.txt");
-        for (auto& s : originTypes) {
-            os << s << std::endl;
-        }
     }
     return 0;
 }

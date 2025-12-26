@@ -165,7 +165,6 @@ public:
         outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
         for (int i=0; i<input->dimensions(); ++i) {
             if (input->length(i) == 0) {
-                // Empty Tensor
                 return true;
             }
         }
@@ -174,17 +173,9 @@ public:
         auto dimensions       = input->dimensions();
         std::vector<int> pads(dimensions);
         std::vector<int> padRights(dimensions);
-        bool allZero = true;
         for (int i = 0; i < dimensions; ++i) {
             pads[i] = paddingPtr[2 * i];
             padRights[i] = paddingPtr[2 * i + 1];
-            if (pads[i] > 0 || padRights[i] > 0) {
-                allZero = false;
-            }
-        }
-        if (allZero) {
-            TensorUtils::makeFullRef(output, inputs[0]);
-            return true;
         }
         auto param     = op->main_as_PadParam();
         std::vector<int> seperateInputDims;

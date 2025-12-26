@@ -72,9 +72,9 @@ static const RuntimeParameters runtimeParamsDefaults = {
     /* precision            */ { 2 },
     /* memory               */ { 2 },
     /* dynamicOption        */ { 0 },
+    /* quantAttention       */  { 0 },
     /* divisionRatioSme2Neon*/ { 41 },
-    /* smeCoreNum             */ { 2 },
-    /* quantAttention       */  { 0 }
+    /* smeCoreNum             */ { 2 }
 };
 
 
@@ -881,9 +881,6 @@ static Llm* buildLLM(const std::string& config_path, int backend, int memory, in
     llmPtr->set_config(R"({
         "async":false
     })");
-    // "Set reuse_kv=false for multiple test runs.
-    // Otherwise, mContext->history_tokens retains data after the first run, skewing true prefill performance metrics."
-    llmPtr->set_config(R"({"reuse_kv":false})");
     std::map<int, std::string> lever = {{0,"normal"}, {1, "high"}, {2, "low"}};
     std::map<int, std::string> backend_type = {{0, "cpu"}, {1, "metal"}, {3, "opencl"}};
     std::map<bool, std::string> mmap = {{true,"true"}, {false, "false"}};
@@ -980,7 +977,7 @@ int main(int argc, char ** argv) {
         auto executor = MNN::Express::Executor::newExecutor(MNN_FORWARD_CPU, backendConfig, 1);
         MNN::Express::ExecutorScope scope(executor);
 
-        auto llmPtr = buildLLM(instance.mCmdParam.model, instance.mCmdParam.backend, instance.mCmdParam.memory, instance.mCmdParam.precision, instance.mCmdParam.threads, instance.mCmdParam.power, instance.mCmdParam.dynamicOption, instance.mCmdParam.useMmap, instance.mCmdParam.divisionRatioSme2Neon, instance.mCmdParam.smeCoreNum, instance.mCmdParam.nPrompt, instance.mCmdParam.quantAttention);
+        auto llmPtr = buildLLM(instance.mCmdParam.model, instance.mCmdParam.backend, instance.mCmdParam.memory, instance.mCmdParam.precision, instance.mCmdParam.threads, instance.mCmdParam.power, instance.mCmdParam.dynamicOption, instance.mCmdParam.useMmap, instance.mCmdParam.quantAttention, instance.mCmdParam.divisionRatioSme2Neon, instance.mCmdParam.smeCoreNum, instance.mCmdParam.nPrompt);
         std::unique_ptr<Llm> llm(llmPtr);
         if (instance.mCmdParam.loadingTime == "true") {
             for (int k = 0; k < 3; ++k) {
