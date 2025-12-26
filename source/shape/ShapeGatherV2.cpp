@@ -24,7 +24,7 @@ class GatherV2Computer : public SizeComputer {
             auto axis_tensor = inputs[2];
             axis = axis_tensor->host<int32_t>()[0];
         }
-        if (op->main_type() == OpParameter_Axis && op->main_as_Axis()) {
+        if (op->main_type() == OpParameter_Axis) {
             axis = op->main_as_Axis()->axis();
         }
 
