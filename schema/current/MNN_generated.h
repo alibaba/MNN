@@ -2954,6 +2954,7 @@ flatbuffers::Offset<StringVec> CreateStringVec(flatbuffers::FlatBufferBuilder &_
 struct AttentionParamT : public flatbuffers::NativeTable {
   typedef AttentionParam TableType;
   bool kv_cache;
+  std::vector<std::unique_ptr<TensorQuantInfoT>> mhq_quant;
   AttentionParamT()
       : kv_cache(true) {
   }
@@ -2967,9 +2968,15 @@ struct AttentionParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   bool kv_cache() const {
     return GetField<uint8_t>(4, 1) != 0;
   }
+  const flatbuffers::Vector<flatbuffers::Offset<TensorQuantInfo>> *mhq_quant() const {
+    return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<TensorQuantInfo>> *>(6);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<uint8_t>(verifier, 4) &&
+           VerifyOffset(verifier, 6) &&
+           verifier.VerifyVector(mhq_quant()) &&
+           verifier.VerifyVectorOfTables(mhq_quant()) &&
            verifier.EndTable();
   }
   AttentionParamT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -2982,6 +2989,9 @@ struct AttentionParamBuilder {
   flatbuffers::uoffset_t start_;
   void add_kv_cache(bool kv_cache) {
     fbb_.AddElement<uint8_t>(4, static_cast<uint8_t>(kv_cache), 1);
+  }
+  void add_mhq_quant(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<TensorQuantInfo>>> mhq_quant) {
+    fbb_.AddOffset(6, mhq_quant);
   }
   explicit AttentionParamBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -2997,8 +3007,10 @@ struct AttentionParamBuilder {
 
 inline flatbuffers::Offset<AttentionParam> CreateAttentionParam(
     flatbuffers::FlatBufferBuilder &_fbb,
-    bool kv_cache = true) {
+    bool kv_cache = true,
+    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<TensorQuantInfo>>> mhq_quant = 0) {
   AttentionParamBuilder builder_(_fbb);
+  builder_.add_mhq_quant(mhq_quant);
   builder_.add_kv_cache(kv_cache);
   return builder_.Finish();
 }
@@ -5211,6 +5223,7 @@ inline void AttentionParam::UnPackTo(AttentionParamT *_o, const flatbuffers::res
   (void)_o;
   (void)_resolver;
   { auto _e = kv_cache(); _o->kv_cache = _e; };
+  { auto _e = mhq_quant(); if (_e) { _o->mhq_quant.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->mhq_quant[_i] = std::unique_ptr<TensorQuantInfoT>(_e->Get(_i)->UnPack(_resolver)); } } };
 }
 
 inline flatbuffers::Offset<AttentionParam> AttentionParam::Pack(flatbuffers::FlatBufferBuilder &_fbb, const AttentionParamT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -5222,9 +5235,11 @@ inline flatbuffers::Offset<AttentionParam> CreateAttentionParam(flatbuffers::Fla
   (void)_o;
   struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const AttentionParamT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
   auto _kv_cache = _o->kv_cache;
+  auto _mhq_quant = _o->mhq_quant.size() ? _fbb.CreateVector<flatbuffers::Offset<TensorQuantInfo>> (_o->mhq_quant.size(), [](size_t i, _VectorArgs *__va) { return CreateTensorQuantInfo(*__va->__fbb, __va->__o->mhq_quant[i].get(), __va->__rehasher); }, &_va ) : 0;
   return MNN::CreateAttentionParam(
       _fbb,
-      _kv_cache);
+      _kv_cache,
+      _mhq_quant);
 }
 
 inline FmhaV2ParamT *FmhaV2Param::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -7374,7 +7389,7 @@ inline OpParameterUnion::OpParameterUnion(const OpParameterUnion &u) FLATBUFFERS
       break;
     }
     case OpParameter_AttentionParam: {
-      value = new AttentionParamT(*reinterpret_cast<AttentionParamT *>(u.value));
+      FLATBUFFERS_ASSERT(false);  // AttentionParamT not copyable.
       break;
     }
     case OpParameter_StftParam: {
@@ -8687,13 +8702,18 @@ inline const flatbuffers::TypeTable *StringVecTypeTable() {
 
 inline const flatbuffers::TypeTable *AttentionParamTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
-    { flatbuffers::ET_BOOL, 0, -1 }
+    { flatbuffers::ET_BOOL, 0, -1 },
+    { flatbuffers::ET_SEQUENCE, 1, 0 }
+  };
+  static const flatbuffers::TypeFunction type_refs[] = {
+    TensorQuantInfoTypeTable
   };
   static const char * const names[] = {
-    "kv_cache"
+    "kv_cache",
+    "mhq_quant"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 1, type_codes, nullptr, nullptr, names
+    flatbuffers::ST_TABLE, 2, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

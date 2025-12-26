@@ -45,8 +45,8 @@ void MNNPackedMatMulRemainFP32_SME2(float* C, const float* A, const float* B, si
 #endif // __aarch64__
 
 
-void MNNQuantAttentionKey(int8_t* dst, const float* source, float* sumKey, float* maxKey, int32_t* params);
-void MNNQuantAttentionValue(int8_t* dst, const float* source, float* valueQuantInfo, int32_t* params);
+void MNNQuantAttentionKey(int8_t* dst, const float* source, float* sumKey, float* maxKey, int32_t* params, float* scaleBias);
+void MNNQuantAttentionValue(int8_t* dst, const float* source, float* valueQuantInfo, int32_t* params, float* scaleBias);
 
 void MNNFp32ToFp8(uint8_t* dst, const float* src, size_t size);
 void MNNFp8ToFp32(float* dst, const uint8_t* src, size_t size);
@@ -417,8 +417,8 @@ struct CoreFunctions {
     void(*MNNAttenPackAndScaleSingleHead)(float* dst, const float* srcHeadBase, size_t srcRowStride, const float* scale, const int32_t* units, size_t seqLen, size_t headDim);
     void(*MNNFlashAttentionUpdateBlockOutput)(float* dst, float* src, float* scale, float* normalizeScale, int depthQuad, int plane, int pack, int idx, int kvBlocks, int size, int bytes, int seqStart);
     void(*MNNSoftmax)(float* softmaxDst, const float* input, float* runningMax, float* runningSum, float* updateScale, int outside, int reduceSize, int kvSeqOffset, int validOffset, int pack, bool mask);
-    void(*MNNQuantAttentionKey)(int8_t* dst, const float* source, float* sumKey, float* maxKey, int32_t* params);
-    void(*MNNQuantAttentionValue)(int8_t* dst, const float* source, float* valueQuantInfo, int32_t* params);
+    void(*MNNQuantAttentionKey)(int8_t* dst, const float* source, float* sumKey, float* maxKey, int32_t* params, float* scaleBias);
+    void(*MNNQuantAttentionValue)(int8_t* dst, const float* source, float* valueQuantInfo, int32_t* params, float* scaleBias);
 
     MatmulRelatedFunctions int8MatmulRelatedFunctions;
     MatmulRelatedFunctions arm82MatmulRelatedFunctions;

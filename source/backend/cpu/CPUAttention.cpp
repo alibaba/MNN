@@ -57,7 +57,26 @@ static void _maskQK(float * qkPacked, const float* scale, size_t seqLen, size_t 
     }
 
 }
+#ifdef DEBUG
+#include <fstream>
 
+static void _dumpMask(const char* name, const float* source, int subKvSeqLen, int seqLen, int pack) {
+    std::ofstream os(name);
+    for (int j = 0; j < seqLen; ++j) {
+        for (int i=0; i<subKvSeqLen; ++i) {
+            int io = i / pack;
+            int ii = i % pack;
+            int index = io * seqLen * pack + ii + j * pack;
+            os << source[index];
+            if (i != subKvSeqLen - 1) {
+                os << "\t";
+            } else {
+                os << "\n";
+            }
+        }
+    }
+}
+#endif
 ErrorCode CPUAttention::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto gcore = static_cast<CPUBackend *>(backend())->functions();
     auto core = static_cast<CPUBackend*>(backend())->int8Functions();
@@ -66,11 +85,12 @@ ErrorCode CPUAttention::onResize(const std::vector<Tensor*>& inputs, const std::
     mPack  = gcore->pack;
     mBytes = gcore->bytes;
     int qkvQuantOptions = static_cast<CPUBackend *>(backend())->getRuntime()->hint().qkvQuantOption;
-    mUseFlashAttention = (qkvQuantOptions / 8 == 1);
+    bool insertMhqquant = mKVQuantParameter.get() != nullptr;
+    mUseFlashAttention = (qkvQuantOptions / 8 == 1) && (!insertMhqquant);
 
     // If slide window attention applied, quant key/value must be diabled
-    mQuantKey = inputs.size() < 5 && (qkvQuantOptions % 8 >= 1);
-    mQuantValue = inputs.size() < 5 && (qkvQuantOptions % 8 > 1) && mUseFlashAttention;
+    mQuantKey = (inputs.size() < 5 && (qkvQuantOptions % 8 >= 1)) || insertMhqquant;
+    mQuantValue = (inputs.size() < 5 && (qkvQuantOptions % 8 > 1) && mUseFlashAttention) || insertMhqquant;
     static_cast<CPUBackend*>(backend())->int8Functions()->MNNGetGemmUnit(&hP8, &lP8, &eP8);
 
     auto query = inputs[0];
@@ -81,6 +101,7 @@ ErrorCode CPUAttention::onResize(const std::vector<Tensor*>& inputs, const std::
     mHeadDim = query->length(3);
     mKvNumHead = key->length(2);
     mKVCacheManager->setAttenQuantKeyValue(mUseFlashAttention, mQuantKey, mQuantValue);
+    mKVCacheManager->setKVQuantParameter(mKVQuantParameter);
     mKVCacheManager->onResize(mKvNumHead, mHeadDim);
 
     // Common buffer allocated
@@ -332,7 +353,19 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
 
 
                     // compute the quant/dequant scale/bias
-                    gcore->MNNAsyQuantInfo(scalePtr, zeroPtr, quantScalePtr, quantZeroPtr, nullptr, nullptr, srcFloatPtr, info);
+                    if (mKVQuantParameter.get() == nullptr) {
+                        gcore->MNNAsyQuantInfo(scalePtr, zeroPtr, quantScalePtr, quantZeroPtr, nullptr, nullptr, srcFloatPtr, info);
+                    } else {
+                        scalePtr[0] = mKVQuantParameter->qScale;
+#ifdef MNN_USE_SSE
+                        // for sse will add 128 to quant value, remove 128 to fix it
+                        zeroPtr[0] = (-128.0f-mKVQuantParameter->qZero) * mKVQuantParameter->qScale;
+#else
+                        zeroPtr[0] = -mKVQuantParameter->qZero * mKVQuantParameter->qScale;
+#endif
+                        quantScalePtr[0] = 1.0f / mKVQuantParameter->qScale;
+                        quantZeroPtr[0] = mKVQuantParameter->qZero;
+                    }
                     scalePtr[0] *= mScale;
                     zeroPtr[0] *= mScale;
 
@@ -399,13 +432,25 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
         if (mQuantValue) {
             auto scalePtr = (float*)(mQKScale.ptr());
             auto zeroPtr = (float*)(mQKBias.ptr());
-            for (int k = 0; k < eP8; ++k) {
-                scalePtr[k] = 1.f / 255.f;
+            if (mKVQuantParameter != nullptr) {
+                for (int k = 0; k < eP8; ++k) {
+                    scalePtr[k] = mKVQuantParameter->qkScale;
 #ifdef MNN_USE_SSE
-                zeroPtr[k] =0;
+                    zeroPtr[k] = (-128.0f -mKVQuantParameter->qkZero) * mKVQuantParameter->qkScale;
 #else
-                zeroPtr[k] = 128.f / 255.f;
+                    zeroPtr[k] = -mKVQuantParameter->qkZero * mKVQuantParameter->qkScale;
 #endif
+                }
+            } else
+            {
+                for (int k = 0; k < eP8; ++k) {
+                    scalePtr[k] = 1.f / 255.f;
+#ifdef MNN_USE_SSE
+                    zeroPtr[k] =0;
+#else
+                    zeroPtr[k] = 128.f / 255.f;
+#endif
+                }
             }
         }
 
@@ -489,8 +534,12 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
         // use for V
         float const* srcPtr[1];
         // only used for quantized V
-        float vQuantScale[1] = {255.f};
-        float vQuantBias[1] = {-128.f};
+        float qkQuantScale[1] = {255.f};
+        float qkQuantZero[1] = {-128.f};
+        if (mKVQuantParameter != nullptr) {
+            qkQuantZero[0] = mKVQuantParameter->qkZero;
+            qkQuantScale[0] = 1.0f / mKVQuantParameter->qkScale;
+        }
         int32_t infoInt8V[5];
         infoInt8V[0] = 1;       // number
         infoInt8V[2] = static_cast<int32_t>(sumParams4QKxV.unitColBufferSize);
@@ -655,7 +704,7 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
 
 
                         for (int qi = 0; qi < UP_DIV(subKvSeqLen, mPack); ++qi) {
-                            mQuantFunc((float*)(qkPtr + qi * seqLen * mPack * mBytes), dstInt8Ptr + qi * eSize * mPack, eSize, vQuantScale, -128, 127, vQuantBias, 0);
+                            mQuantFunc((float*)(qkPtr + qi * seqLen * mPack * mBytes), dstInt8Ptr + qi * eSize * mPack, eSize, qkQuantScale, -128, 127, qkQuantZero, 0);
                         }
                         core->MNNPackC4Int8ForMatMul_A(qkReordered, (int8_t const **)srcPtr, infoInt8V, elInt8V);
                         // mSumQK
@@ -705,13 +754,14 @@ bool CPUAttention::onClone(Backend* bn, const Op* op, Execution** dst) {
     if (nullptr == dst) {
         return true;
     }
-    auto tmp = new CPUAttention(bn, mKVCache);
+    auto tmp = new CPUAttention(bn, mKVCache, mKVQuantParameter);
     tmp->mKVCacheManager = mKVCacheManager;
     *dst = tmp;
     return true;
 }
 
-CPUAttention::CPUAttention(Backend *backend, bool kv_cache) : Execution(backend), mKVCache(kv_cache) {
+CPUAttention::CPUAttention(Backend *backend, bool kv_cache, std::shared_ptr<KVQuantParameter> mhqscale) : Execution(backend), mKVCache(kv_cache) {
+    mKVQuantParameter = mhqscale;
     mMeta = (KVMeta*)(backend->getMetaPtr());
     mPackQ.reset(Tensor::createDevice<float>({1, 1, 1, 1}));
     mPackQKV.reset(Tensor::createDevice<float>({1, 1, 1, 1}));
@@ -741,7 +791,23 @@ public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
         auto param = op->main_as_AttentionParam();
-        return new CPUAttention(backend, param->kv_cache());
+        // TODO: Support static async quant for mhq
+        std::vector<float> mhqscale;
+        std::shared_ptr<KVQuantParameter> quantParam;
+        if (nullptr != param->mhq_quant() && param->mhq_quant()->size() > 0) {
+            MNN_ASSERT(param->mhq_quant()->size() == 4);
+            mhqscale.resize(param->mhq_quant()->size());
+            for (int i=0; i<mhqscale.size(); ++i) {
+                MNN_ASSERT(4 == mhqscale.size());
+                mhqscale[i] = param->mhq_quant()->GetAs<TensorQuantInfo>(i)->scale();
+            }
+            quantParam.reset(new KVQuantParameter);
+            quantParam->qScale = mhqscale[0];
+            quantParam->kScale = mhqscale[1];
+            quantParam->qkScale = mhqscale[2];
+            quantParam->vScale = mhqscale[3];
+        }
+        return new CPUAttention(backend, param->kv_cache(), quantParam);
     }
 };
 

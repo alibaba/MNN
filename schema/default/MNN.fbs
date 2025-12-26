@@ -229,6 +229,7 @@ table StringVec {
 
 table AttentionParam {
     kv_cache: bool = true;
+    mhq_quant:[TensorQuantInfo]; // qk_scale_q, qk_scale_k, sv_scale_s, sv_scale_v
 }
 
 table FmhaV2Param {
