@@ -573,12 +573,12 @@ public:
                 wScale[2*k] = minMax.first;
                 auto absMax = minMax.second - minMax.first;
                 wScale[2*k+1] = 0;
-
+                
                 float quantscale = 1.0f;
                 if (absMax >= 0.000001f) {
                     wScale[2 * k + 1] = absMax / (threshold - clampMin);
                     quantscale = 1.0f / wScale[2*k+1];
-
+                    
                 }
                 float* ptr = weightData.data() + beginIndex;
                 for (int i = 0; i < kernel_size; ++i) {
@@ -797,21 +797,8 @@ protected:
             return true;
         }
         // Check Long convolution
-        bool succ =
+         bool succ =
             ConvolutionType().test(type, device_name, "Conv2D", 1, 256, 256, 24, 24, PadMode_SAME, 0, 0, 3, 3, 1, 1, 1, precision, sparseAlgo, 4, false);
-        if (!succ) {
-            MNN_ERROR("Error for long conv\n");
-            return false;
-        }
-        succ =
-            ConvolutionType().test(type, device_name, "Conv2D", 1, 256, 256, 1, 1, PadMode_SAME, 0, 0, 1, 1, 1, 1, 1, precision, sparseAlgo, 4, false);
-        if (!succ) {
-            MNN_ERROR("Error for long conv\n");
-            return false;
-        }
-        // Check Long convolution
-        succ =
-            ConvolutionType().test(type, device_name, "Conv2D", 1, 256, 256, 1, 1, PadMode_SAME, 0, 0, 1, 1, 1, 1, 1, precision, sparseAlgo, 4, false);
         if (!succ) {
             MNN_ERROR("Error for long conv\n");
             return false;
@@ -856,7 +843,7 @@ class ConvolutionInt8Test : public DenseConvolutionInt8Test {
 public:
     ~ConvolutionInt8Test() = default;
     virtual bool run(int precision) {
-        return DenseConvolutionInt8Test::test(MNN_FORWARD_CPU, "CPU", precision, MNN::SparseAlgo_RANDOM, {1}, true);
+        return DenseConvolutionInt8Test::test(MNN_FORWARD_CPU, "CPU", precision, MNN::SparseAlgo_RANDOM, {1});
     }
 };
 

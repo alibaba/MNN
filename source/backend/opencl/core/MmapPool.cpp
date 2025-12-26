@@ -28,6 +28,7 @@ OpenCLMmapAllocator::OpenCLMmapAllocator(const char* dirName, const char* prefix
 
 std::string OpenCLMmapAllocator::onAlloc(size_t size) {
     MNN_ASSERT(size > 0);
+    MNN_ASSERT(!mSynced);
     std::string name = mPrefix + std::to_string(mAllocTimes) + "." + mPosfix;
     std::string fileName = MNNFilePathConcat(mFileName, name);
     file_t file;

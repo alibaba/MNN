@@ -47,6 +47,9 @@ public:
     const cl::Buffer * value() {
         return mPastValue.get();
     }
+    bool getKVCache(){
+        return mKVCache;
+    }
 
 private:
     bool mKVCache;

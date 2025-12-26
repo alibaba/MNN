@@ -1043,7 +1043,7 @@ class MobileCLIPVision(QwenVision):
     def __init__(self, visual, base):
         super().__init__(visual, base)
         self.visual = visual.float()
-        self.mm_projector = self.visual.mm_projector.float()
+        self.mm_projector = base.model.model.mm_projector.float()
         self.quant_bit = 8
         self.group_conv_native = False
 

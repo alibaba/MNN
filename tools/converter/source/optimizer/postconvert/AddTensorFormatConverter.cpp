@@ -530,70 +530,72 @@ public:
             iter++;
         }
 
-        if (originTensorType != MNN_DATA_FORMAT_NCHW) {
-            // For NHWC -> NC4HW4 op, should Reset axis map
-            const int axisMap[4] = {0, 2, 3, 1};
-            
-            for (auto& op : mNet->oplists) {
-                if (op->inputIndexes.empty()) {
-                    continue;
-                }
-                if (tensorFormats[op->outputIndexes[0]] != MNN_DATA_FORMAT_NC4HW4) {
-                    continue;
-                }
-                if (!ctx->first_run) {
-                    continue;
-                }
-                if (MNN::OpType_Input == op->type) {
-                    auto input        = op->main.AsInput();
-                    const int dimSize = input->dims.size();
-                    if (dimSize > 2) {
-                        const int channel = input->dims[dimSize - 1];
-                        for (int i = dimSize - 1; i > 1; --i) {
-                            input->dims[i] = input->dims[i - 1];
-                        }
-                        input->dims[1] = channel;
+        if (originTensorType == MNN_DATA_FORMAT_NCHW) {
+            return true;
+        }
+
+        // For NHWC -> NC4HW4 op, should Reset axis map
+        const int axisMap[4] = {0, 2, 3, 1};
+
+        for (auto& op : mNet->oplists) {
+            if (op->inputIndexes.empty()) {
+                continue;
+            }
+            if (tensorFormats[op->outputIndexes[0]] != MNN_DATA_FORMAT_NC4HW4) {
+                continue;
+            }
+            if (!ctx->first_run) {
+                continue;
+            }
+            if (MNN::OpType_Input == op->type) {
+                auto input        = op->main.AsInput();
+                const int dimSize = input->dims.size();
+                if (dimSize > 2) {
+                    const int channel = input->dims[dimSize - 1];
+                    for (int i = dimSize - 1; i > 1; --i) {
+                        input->dims[i] = input->dims[i - 1];
                     }
+                    input->dims[1] = channel;
                 }
-                if (MNN::OpType_Concat == op->type) {
-                    auto axis       = op->main.AsAxis();
-                    auto concatAxis = axis->axis;
-                    if (concatAxis < 0) {
-                        concatAxis = 4 + concatAxis;
-                    }
-                    DCHECK(concatAxis >= 0 && concatAxis <= 3) << "Concat axis ERROR!";
-                    axis->axis = axisMap[concatAxis];
+            }
+            if (MNN::OpType_Concat == op->type) {
+                auto axis       = op->main.AsAxis();
+                auto concatAxis = axis->axis;
+                if (concatAxis < 0) {
+                    concatAxis = 4 + concatAxis;
                 }
-                if (MNN::OpType_Permute == op->type) {
-                    auto permuteT = op->main.AsPermute();
-                    for (int i = 0; i < permuteT->dims.size(); ++i) {
-                        DCHECK(permuteT->dims[i] >= 0 && permuteT->dims[i] <= 3) << "Dim Error ==> " << op->name;
-                        permuteT->dims[i] = axisMap[permuteT->dims[i]];
-                    }
+                DCHECK(concatAxis >= 0 && concatAxis <= 3) << "Concat axis ERROR!";
+                axis->axis = axisMap[concatAxis];
+            }
+            if (MNN::OpType_Permute == op->type) {
+                auto permuteT = op->main.AsPermute();
+                for (int i = 0; i < permuteT->dims.size(); ++i) {
+                    DCHECK(permuteT->dims[i] >= 0 && permuteT->dims[i] <= 3) << "Dim Error ==> " << op->name;
+                    permuteT->dims[i] = axisMap[permuteT->dims[i]];
                 }
-                if (MNN::OpType_Slice == op->type) {
-                    auto slice     = op->main.AsSlice();
-                    auto sliceAxis = slice->axis;
-                    if (sliceAxis < 0) {
-                        sliceAxis = 4 + sliceAxis;
-                    }
-                    DCHECK(sliceAxis >= 0 && sliceAxis <= 3) << "Slice axis ERROR!";
-                    slice->axis = axisMap[sliceAxis];
+            }
+            if (MNN::OpType_Slice == op->type) {
+                auto slice     = op->main.AsSlice();
+                auto sliceAxis = slice->axis;
+                if (sliceAxis < 0) {
+                    sliceAxis = 4 + sliceAxis;
                 }
-                if (MNN::OpType_Reshape == op->type) {
-                    auto reshape   = op->main.AsReshape();
-                    auto originDim = reshape->dims;
-                    for (int i = 0; i < reshape->dims.size(); ++i) {
-                        CHECK(i >= 0 && i <= 3) << "Error";
-                        reshape->dims[axisMap[i]] = originDim[i];
-                    }
+                DCHECK(sliceAxis >= 0 && sliceAxis <= 3) << "Slice axis ERROR!";
+                slice->axis = axisMap[sliceAxis];
+            }
+            if (MNN::OpType_Reshape == op->type) {
+                auto reshape   = op->main.AsReshape();
+                auto originDim = reshape->dims;
+                for (int i = 0; i < reshape->dims.size(); ++i) {
+                    CHECK(i >= 0 && i <= 3) << "Error";
+                    reshape->dims[axisMap[i]] = originDim[i];
                 }
-                if (MNN::OpType_ArgMax == op->type || MNN::OpType_ArgMin == op->type) {
-                    auto param      = op->main.AsArgMax();
-                    auto originAxis = param->axis;
-                    DCHECK(originAxis >= 0 && originAxis <= 3) << "ArgMax / Argmin axis ERROR!";
-                    param->axis = axisMap[originAxis];
-                }
+            }
+            if (MNN::OpType_ArgMax == op->type || MNN::OpType_ArgMin == op->type) {
+                auto param      = op->main.AsArgMax();
+                auto originAxis = param->axis;
+                DCHECK(originAxis >= 0 && originAxis <= 3) << "ArgMax / Argmin axis ERROR!";
+                param->axis = axisMap[originAxis];
             }
         }
         // Add des for convert tensor

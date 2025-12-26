@@ -60,23 +60,29 @@ static bool compareOutput(VARP output, const std::string& directName, const std:
         MNN_PRINT("%d, ", info->dim[i]);
     }
     MNN_PRINT(")\n");
+    auto targetValue = _Input(info->dim, info->order, info->type);
+    auto targetPtr = targetValue->writeMap<float>();
     auto outputPtr = output->readMap<float>();
-    float diffAbsMaxV = 0.0f;
-    float absMaxV = 0.0f;
 #define MNN_IS_INF(x) (fabs(x) == INFINITY)
 #define MNN_IS_NAN(x) ((x) != (x))
     for (int i=0; i<info->size; ++i) {
         double targetValue;
         outputOrigin >> targetValue;
+        targetPtr[i] = targetValue;
+    }
+
+    for (int i=0; i<info->size; ++i) {
         if (MNN_IS_INF(outputPtr[i]) || MNN_IS_NAN(outputPtr[i])) {
             MNN_ERROR("TESTERROR %s value error:%f\n", name.c_str(), outputPtr[i]);
             return false;
         }
-        auto diff = fabsf((float)targetValue - outputPtr[i]);
-        absMaxV = fmaxf(absMaxV, targetValue);
-        diffAbsMaxV = fmaxf(diff, diffAbsMaxV);
     }
-
+    auto absMax = _ReduceMax(_Abs(targetValue), {});
+    absMax = _Maximum(absMax, _Scalar<float>(0.0001f));
+    auto diff = _Abs(targetValue - output);
+    auto diffAbsMax = _ReduceMax(diff);
+    auto absMaxV = absMax->readMap<float>()[0];
+    auto diffAbsMaxV = diffAbsMax->readMap<float>()[0];
     MNN_PRINT("For %s, max = %f, diffmax = %f, diff rate = %f\n", name.c_str(), absMaxV, diffAbsMaxV, diffAbsMaxV / fmaxf(absMaxV, 1e-6));
     if (absMaxV * 0.01f < diffAbsMaxV || MNN_IS_NAN(absMaxV)) {
         MNN_ERROR("TESTERROR %s value error : absMaxV:%f - DiffMax %f\n", name.c_str(), absMaxV, diffAbsMaxV);
