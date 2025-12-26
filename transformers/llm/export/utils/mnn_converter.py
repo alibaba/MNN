@@ -151,8 +151,6 @@ class MNNConverter:
                 self.apply_gptq(mnn_json)
             if self.args.lora_path is not None and self.args.lora_split:
                  self.export_lora(mnn_json)
-            if self.args.omni:
-                self.export_omni_quant(mnn_json)
             if self.args.smooth:
                 self.export_smooth_quant(mnn_json)
         return self.tie_embeddings_info
@@ -162,7 +160,7 @@ class MNNConverter:
         layers_num = len(experts)
         expert_num = len(experts[0])
         dummy_expert = experts[0][0]
-        onnx_model = f'{self.exporter.onnx_path}/expert.onnx'
+        onnx_model = f'{self.args.onnx_path}/expert.onnx'
         onnx_export(
             dummy_expert, (hidden_states),
             onnx_model,
@@ -226,16 +224,10 @@ class MNNConverter:
         self.json2mnn(mnn_json, self.mnn_model_path)
         return self.mnn_model_path
 
-    @spinner_run(f'export omni quant scale to ')
-    def export_omni_quant(self, mnn_json):
-        self.exporter.omni_quantizer.apply(mnn_json)
-        self.json2mnn(mnn_json, self.mnn_model_path)
-        return self.mnn_model_path
-
     @spinner_run(f'quant model weight to ', True)
     def rebuild(self, json_path):
         mnn_graph = json.load(open(json_path, 'rt'))
-        has_experts = hasattr(self.exporter, 'experts') and len(self.exporter.experts) > 0
+        has_experts = hasattr(self.args, 'experts') and len(self.exporter.experts) > 0
         if has_experts:
             subgraphs = self.get_experts_graphs(self.exporter.experts)
             mnn_graph['subgraphs'] = subgraphs
@@ -271,23 +263,6 @@ class MNNConverter:
         return self.mnn_weight_path
 
     def quant(self, weight, quant_bit, quant_block, symmetric):
-        if self.exporter.args.skip_weight:
-            # Skip expensive quantization when skip_weight is enabled
-            oc, ic = weight.shape
-            if quant_block == 0:
-                block_size = ic
-            else:
-                block_size = quant_block
-            block_num = ic // block_size
-            # alpha: oc * block_num (symmetric) or oc * block_num * 2 (asymmetric)
-            alpha_num = oc * block_num * (1 if symmetric else 2)
-            alpha = torch.zeros(alpha_num, dtype=torch.float32)
-            # q_weight: raw size is oc * ic, packed size depends on quant_bit
-            # bits < 8 packing logic matches repack_low_bits
-            q_weight_num = (oc * ic * quant_bit + 7) // 8
-            q_weight = torch.zeros(q_weight_num, dtype=torch.uint8)
-            return q_weight, alpha
-
         q_weight, alpha = torch_quant(weight, quant_bit, quant_block, symmetric, self.args.awq, self.args.hqq)
         return q_weight, alpha
 
@@ -317,39 +292,23 @@ class MNNConverter:
     def build_weight(self, linear, quant_bit, quant_block, symmetric):
         ic, oc = linear.in_features, linear.out_features
         if quant_bit == 16:
-            if self.exporter.args.skip_weight:
-                # Use a small dummy buffer and skip full weight loading/conversion
-                weight_len = (ic * oc * 2)
-                self.mnn_weight.seek(weight_len, 1)
-            else:
-                half_weight = linear.weight.data.flatten().half()
-                weight_len = self.write_weight(half_weight)
+            half_weight = linear.weight.data.flatten().half()
+            weight_len = self.write_weight(half_weight)
             alpha_len, q_min, shape_int32, header_len = 0, 0, False, 0
         else:
             q_min = 1
             assert(quant_bit in (1, 2, 4, 8))
             q_weight, alpha = self.quant(linear.weight.data, quant_bit, quant_block, symmetric)
             header_len, shape_int32 = self.write_header(ic, oc, quant_bit)
-
-            if self.exporter.args.skip_weight:
-                weight_len = len(q_weight) + header_len
-                self.mnn_weight.seek(len(q_weight), 1)
-                alpha_len = len(alpha) * 4
-                self.mnn_weight.seek(alpha_len, 1)
-            else:
-                weight_len = self.write_weight(q_weight) + header_len
-                alpha_len = self.write_weight(alpha)
-
+            weight_len = self.write_weight(q_weight) + header_len
+            alpha_len = self.write_weight(alpha)
         if linear.bias is not None:
-            bias_length = (oc * 4)
-            if self.exporter.args.skip_weight:
-                self.mnn_weight.seek(bias_length, 1)
-            else:
-                bias = linear.bias.data.flatten().float()
-                bias_length = self.write_weight(bias)
+            bias = linear.bias.data.flatten().float()
+            bias_length = self.write_weight(bias)
         else:
             bias_length = 0
-
+            # bias = np.zeros([oc], dtype=np.float32)
+            # bias_length = self.write_weight(bias)
         external = [self.mnn_weight_offset, weight_len, alpha_len, bias_length, 0]
         self.mnn_weight_offset += (weight_len + alpha_len + bias_length)
         return external, q_min, shape_int32, header_len
@@ -443,19 +402,18 @@ class MNNConverter:
 
         is_lm = 'lm_head' in name
         quant_bit = self.args.lm_quant_bit if is_lm else self.args.quant_bit
-        quant_block = self.args.lm_quant_block if is_lm else self.args.quant_block
-        block_size = ic if quant_block == 0 else quant_block
+        block_size = ic if self.args.quant_block == 0 else self.args.quant_block
         if is_lm and self.lm_weight is not None:
             external, q_min, shape_int32, header_len = self.lm_weight
         else:
-            external, q_min, shape_int32, header_len = self.build_weight(linear, quant_bit, quant_block, self.args.sym)
+            external, q_min, shape_int32, header_len = self.build_weight(linear, quant_bit, self.args.quant_block, self.args.sym)
         if is_lm and self.lm_weight is None:
             self.lm_weight = [external, q_min, shape_int32, header_len]
         if is_lm and self.args.tie_word_embeddings:
             weight_offset = external[0] + header_len
             alpha_offset = external[0] + external[1]
             alpha_size = external[2]
-            self.tie_embeddings_info = [weight_offset, alpha_offset, alpha_size, quant_bit, quant_block]
+            self.tie_embeddings_info = [weight_offset, alpha_offset, alpha_size, quant_bit, self.args.quant_block]
 
         origin_input = op['inputIndexes']
         origin_output = op['outputIndexes']

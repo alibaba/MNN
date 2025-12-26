@@ -123,11 +123,11 @@ ErrorCode SoftmaxBufExecution::onEncode(const std::vector<Tensor *> &inputs, con
         ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[1]);
         ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[2]);
         if(mNeedUnpackC4){
-            ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
-            ret |= unit.kernel->get().setArg(idx++, openCLBuffer(mTempTensor.get()));
+            ret |= unit.kernel->get().setArg(idx++, openCLImage(output));
+            ret |= unit.kernel->get().setArg(idx++, openCLImage(mTempTensor.get()));
         }else{
-            ret |= unit.kernel->get().setArg(idx++, openCLBuffer(input));
-            ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
+            ret |= unit.kernel->get().setArg(idx++, openCLImage(input));
+            ret |= unit.kernel->get().setArg(idx++, openCLImage(output));
         }
         if(inside == 1){
             ret |= unit.kernel->get().setArg(idx++, channel);

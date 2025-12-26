@@ -19,7 +19,6 @@ from utils.onnx_rebuilder import OnnxRebuilder
 from utils.mnn_converter import MNNConverter
 from utils.awq_quantizer import AwqQuantizer
 from utils.smooth_quantizer import SmoothQuantizer
-from utils.omni_quantizer import OmniQuantizer
 from utils.torch_utils import onnx_export
 
 class LlmExporter(torch.nn.Module):
@@ -41,8 +40,6 @@ class LlmExporter(torch.nn.Module):
             self.args.tokenizer_path = self.args.path
         if args.lm_quant_bit is None:
             self.args.lm_quant_bit = self.args.quant_bit
-        if args.lm_quant_block is None:
-            self.args.lm_quant_block = self.args.quant_block
         self.args.tie_word_embeddings = False
         # init export dst dir
         if not os.path.exists(self.args.dst_path):
@@ -95,15 +92,13 @@ class LlmExporter(torch.nn.Module):
         if self.config.sliding_window > 0:
             self.llm_config['sliding_window'] = self.config.sliding_window
         if hasattr(self.tokenizer, 'get_chat_template'):
-             chat_template = self.tokenizer.get_chat_template()
-             if chat_template is not None:
-                 self.llm_config['jinja'] = {
-                     'chat_template': chat_template
-                 }
-                 if self.tokenizer.bos_token:
-                     self.llm_config['jinja']['bos'] = self.tokenizer.bos_token
-                 if self.tokenizer.eos_token:
-                     self.llm_config['jinja']['eos'] = self.tokenizer.eos_token
+             self.llm_config['jinja'] = {
+                 'chat_template': self.tokenizer.get_chat_template()
+             }
+             if self.tokenizer.bos_token:
+                 self.llm_config['jinja']['bos'] = self.tokenizer.bos_token
+             if self.tokenizer.eos_token:
+                 self.llm_config['jinja']['eos'] = self.tokenizer.eos_token
 
         # tie word embeddings
         self.args.tie_word_embeddings = not self.args.seperate_embed and self.model.lm.lm.weight.equal(self.model.embed.embed.weight)
@@ -199,29 +194,6 @@ class LlmExporter(torch.nn.Module):
             tensor_data = self.model.embed.embed.weight.data
 
         format_bit = getattr(self.args, 'embed_bit', 16)
-        quant_block = getattr(self.args, 'quant_block', 64)
-        symmetric = getattr(self.args, 'sym', False)
-
-        if self.args.skip_weight:
-            format_name = f'int{format_bit}' if format_bit < 16 else 'bf16'
-            embedding_file = f'{self.args.dst_path}/embeddings_{format_name}.bin'
-            # Calculate expected size
-            if format_bit == 16:
-                file_size = tensor_data.numel() * 2
-            else:
-                oc, ic = tensor_data.shape
-                block_size = ic if quant_block == 0 else quant_block
-                block_num = ic // block_size
-                q_weight_size = (oc * ic * format_bit + 7) // 8
-                alpha_size = oc * block_num * (1 if symmetric else 2) * 4
-                file_size = q_weight_size + alpha_size
-                self.llm_config['tie_embeddings'] = [0, q_weight_size, alpha_size, format_bit, quant_block]
-
-            with open(embedding_file, 'wb') as f:
-                if file_size > 0:
-                    f.seek(file_size - 1)
-                    f.write(b'\0')
-            return embedding_file
 
         if format_bit == 16:
             # BF16 format
@@ -235,6 +207,8 @@ class LlmExporter(torch.nn.Module):
             # Quantized formats
             quant_bit = format_bit
             format_name = f'int{format_bit}'
+            quant_block = getattr(self.args, 'quant_block', 64)
+            symmetric = getattr(self.args, 'sym', False)
             awq = getattr(self.args, 'awq', False)
             hqq = getattr(self.args, 'hqq', False)
 
@@ -418,52 +392,8 @@ class LlmExporter(torch.nn.Module):
         self.awq_quantizer = AwqQuantizer(self.model)
         self.awq_quantizer.quantize()
 
-    def omni_quant(self):
-        default_samples = 128
-        total_lines = default_samples
-
-        if self.args.calib_data:
-            print(f"检测到 calib_data: {self.args.calib_data}，开始读取...")
-            self.model.args.calib_data = self.args.calib_data
-
-            if os.path.exists(self.args.calib_data):
-                with open(self.args.calib_data, 'r', encoding='utf-8') as f:
-                    # 统计总行数
-                    total_lines = sum(1 for _ in f)
-            else:
-                print(f"错误：找不到文件 {self.args.calib_data}")
-
-        calib_samples = min(total_lines, default_samples)
-
-        print(f"OmniQuant 将使用 {calib_samples} 个样本进行优化 (Epochs={getattr(self.args, 'omni_epochs', 20)})...")
-
-        self.omni_quantizer = OmniQuantizer(
-            model=self.model,
-            max_calib_samples=calib_samples,
-            act_bit=self.args.act_bit,
-            act_sym=self.args.act_sym,
-            generate_for_npu=self.args.generate_for_npu,
-
-            epochs=getattr(self.args, 'omni_epochs', 20),
-            lr=getattr(self.args, 'omni_lr', 5e-3),
-            wd=getattr(self.args, 'omni_wd', 1e-4)
-        )
-        self.omni_quantizer.quantize(self.args.generate_for_npu)
-
     def smooth_quant(self):
-        total_lines = 128
-        if self.args.calib_data:
-            print(f"检测到 calib_data: {self.args.calib_data}，开始读取...")
-            self.model.args.calib_data = self.args.calib_data
-
-            if os.path.exists(self.args.calib_data):
-                with open(self.args.calib_data, 'r', encoding='utf-8') as f:
-                    total_lines = sum(1 for _ in f)
-            else:
-                print(f"错误：找不到文件 {self.args.calib_data}")
-
-        calib_samples = min(total_lines, 128)
-        self.smooth_quantizer = SmoothQuantizer(model = self.model, max_calib_samples = calib_samples, act_bit=self.args.act_bit, act_sym=self.args.act_sym, generate_for_npu=self.args.generate_for_npu)
+        self.smooth_quantizer = SmoothQuantizer(model = self.model, act_bit=self.args.act_bit, act_sym=self.args.act_sym)
         self.smooth_quantizer.quantize()
 
     def export_vision(self):
@@ -525,13 +455,10 @@ class LlmExporter(torch.nn.Module):
             self.onnx_load_param(onnx_model)
 
     def export(self, export_type):
-        if not self.args.skip_weight:
-            if self.args.omni:
-                self.omni_quant()
-            if self.args.awq:
-                self.awq_quant()
-            if self.args.smooth:
-                self.smooth_quant()
+        if self.args.awq:
+            self.awq_quant()
+        if self.args.smooth:
+            self.smooth_quant()
         export_mnn = export_type == 'mnn'
         self.mnn_converter = MNNConverter(self) if export_mnn else None
         self.export_talker()
@@ -685,7 +612,6 @@ def export(path,
            quant_bit = 4,
            quant_block = 64,
            lm_quant_bit = None,
-           lm_quant_block = None,
            visual_quant_bit = None,
            visual_quant_block = None,
            visual_sym = False,
@@ -693,7 +619,6 @@ def export(path,
            ppl = False,
            awq = False,
            hqq = False,
-           omni = False,
            transformer_fuse = False,
            group_conv_native = False,
            sym = False,
@@ -717,12 +642,10 @@ def export(path,
         'visual_quant_block': visual_quant_block,
         'visual_sym': visual_sym,
         'lm_quant_bit': lm_quant_bit,
-        'lm_quant_block': lm_quant_block,
         'mnnconvert': mnnconvert,
         'ppl': ppl,
         'awq': awq,
         'hqq': hqq,
-        'omni': omni,
         'transformer_fuse': transformer_fuse,
         'group_conv_native': group_conv_native,
         'sym': sym,
@@ -748,43 +671,35 @@ def main():
                         help='type(`str`, *optional*):'
                         '\n\tThe pretrain llm model type.'
                         )
-    parser.add_argument('--tokenizer_path', type=str, default=None, help='tokenizer path, default is `None` mean using `--path` value.')
-    parser.add_argument('--eagle_path', type=str, default=None, help='eagle model path, default is `None`')
-    parser.add_argument('--lora_path', type=str, default=None, help='lora path, default is `None` mean not apply lora.')
-    parser.add_argument('--gptq_path', type=str, default=None, help='gptq path, default is `None` mean not apply gptq.')
-    parser.add_argument('--dst_path', type=str, default='./model', help='export onnx/mnn model to path, default is `./model`.')
+    parser.add_argument('--tokenizer_path', type=str, default=None, help='tokenizer path, defaut is `None` mean using `--path` value.')
+    parser.add_argument('--eagle_path', type=str, default=None, help='eagle model path, defaut is `None`')
+    parser.add_argument('--lora_path', type=str, default=None, help='lora path, defaut is `None` mean not apply lora.')
+    parser.add_argument('--gptq_path', type=str, default=None, help='gptq path, defaut is `None` mean not apply gptq.')
+    parser.add_argument('--dst_path', type=str, default='./model', help='export onnx/mnn model to path, defaut is `./model`.')
     parser.add_argument('--verbose', action='store_true', help='Whether or not to print verbose.')
     parser.add_argument('--test', type=str, help='test model inference with query `TEST`.')
     parser.add_argument('--export', type=str, default=None, help='export model to an onnx/mnn model.')
     parser.add_argument('--onnx_slim', action='store_true', help='Whether or not to use onnx-slim.')
     parser.add_argument('--quant_bit', type=int, default=4, help='mnn quant bit, 4 or 8, default is 4.')
-    parser.add_argument('--quant_block', type=int, default=64, help='mnn quant block, 0 mean channel-wise, default is 64.')
-    parser.add_argument('--visual_quant_bit', type=int, default=None, help='mnn visual quant bit, 4 or 8, default is setting in utils/vision.py by different vit model.')
+    parser.add_argument('--quant_block', type=int, default=64, help='mnn quant block, 0 mean channle-wise, default is 64.')
+    parser.add_argument('--visual_quant_bit', type=int, default=None, help='mnn viusal quant bit, 4 or 8, default is setting in utils/vision.py by different vit model.')
     parser.add_argument('--visual_quant_block', type=int, default=None, help='mnn quant block, default is setting in utils/vision.py by different vit model.')
     parser.add_argument('--lm_quant_bit', type=int, default=None, help='mnn lm_head quant bit, 4 or 8, default is `quant_bit`.')
-    parser.add_argument('--lm_quant_block', type=int, default=None, help='mnn lm_head quant block, 0 mean channle-wise, default is `quant_block`.')
     parser.add_argument('--mnnconvert', type=str, default='../../../build/MNNConvert', help='local mnnconvert path, if invalid, using pymnn.')
     parser.add_argument('--ppl', action='store_true', help='Whether or not to get all logits of input tokens.')
     parser.add_argument('--awq', action='store_true', help='Whether or not to use awq quant.')
     parser.add_argument('--hqq', action='store_true', help='Whether or not to use hqq quant.')
-    parser.add_argument('--omni', action='store_true', help='Whether or not to use omni quant.')
     parser.add_argument('--transformer_fuse', action='store_true', help='Whether or not to fuse vision transformer op.')
     parser.add_argument('--group_conv_native', action='store_true', help='Whether or not to keep native group_conv.')
     parser.add_argument('--smooth', action='store_true', help='Whether or not to use smooth quant.')
     parser.add_argument('--sym', action='store_true', help='Whether or not to using symmetric quant (without zeropoint), default is False.')
     parser.add_argument('--visual_sym', action='store_true', help='Whether or not to using symmetric quant (without zeropoint) for visual model, default is False.')
-    parser.add_argument('--seperate_embed', action='store_true', help='For lm and embed shared model, whether or not to sepearte embed to avoid quant, default is False, if True, embed weight will be seperate to embedding bf16.bin.')
+    parser.add_argument('--seperate_embed', action='store_true', help='For lm and embed shared model, whether or not to sepearte embed to avoid quant, default is False, if True, embed weight will be seperate to embeddingbf16.bin.')
     parser.add_argument('--lora_split', action='store_true', help='Whether or not export lora split, default is False.')
-    parser.add_argument('--calib_data', type=str, default=None, help='calibration data path, default is `None` mean not use calib data.')
+    parser.add_argument('--calib_data', type=str, default=None, help='calibration data path, defaut is `None` mean not use calib data.')
     parser.add_argument('--act_bit', type=int, default=16, help='smooth quant act bit, 8 or 16, default is 16.')
     parser.add_argument('--embed_bit', type=int, default=16, choices=[16, 8, 4], help='embedding export bit precision, choices are 16 (bf16), 8 (int8), 4 (int4), default is 16.')
     parser.add_argument('--act_sym', action='store_true', help='smooth quant act us sym or not, default asym.')
-    parser.add_argument('--generate_for_npu', action='store_true', help='Whether or not to generate model for NPU deployment, default is False.')
-    parser.add_argument('--skip_weight', action='store_true', help='Whether or not to skip loading model weights, useful for testing export flow.')
-    # omni quant
-    parser.add_argument('--omni_epochs', type=int, default=20, help='OmniQuant 优化的轮数')
-    parser.add_argument('--omni_lr', type=float, default=5e-3, help='OmniQuant 的学习率')
-    parser.add_argument('--omni_wd', type=float, default=1e-4, help='OmniQuant 的权重衰减')
     args = parser.parse_args()
 
     model_path = args.path

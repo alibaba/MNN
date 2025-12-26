@@ -82,75 +82,6 @@ ErrorCode QNNLayerNorm::onResize(const std::vector<Tensor *> &inputs, const std:
     return NO_ERROR;
 }
 
-void QNNLayerNorm::createGammaBeta(Qnn_DataType_t dataType){
-    if(dataType == QNN_DATATYPE_FLOAT_16 || dataType == QNN_DATATYPE_FLOAT_32){
-        this->createStaticFloatTensor("gamma", dataType, {(uint32_t) mGammaBetaSize}, mGammaData.data());                                      // mTempTensorWrappers[0], gamma
-        this->createStaticFloatTensor("beta", dataType, {(uint32_t) mGammaBetaSize}, mBetaData.data());                                        // mTempTensorWrappers[1], beta
-    }else{
-        float minGamma = MAXFLOAT;
-        float maxGamma = -MAXFLOAT;
-        float minBeta = MAXFLOAT;
-        float maxBeta = -MAXFLOAT;
-        float gammaScale, betaScale;
-        int gammaZeroPoint, betaZeroPoint;
-        float clampValue = (float)((1 << (16)) - 1);
-        for(int i = 0; i < mGammaBetaSize; ++i){
-            minGamma = std::min(minGamma, mGammaData[i]);
-            maxGamma = std::max(maxGamma, mGammaData[i]);
-        }
-        for(int i = 0; i < mGammaBetaSize; ++i){
-            minBeta = std::min(minBeta, mBetaData[i]);
-            maxBeta = std::max(maxBeta, mBetaData[i]);
-        }
-        
-        if(maxGamma - minGamma > 0.1f){
-            gammaScale = (maxGamma - minGamma) / clampValue;
-        }else{
-            gammaScale = 0.1f / clampValue;
-        }
-        gammaZeroPoint = (int)roundf(minGamma/gammaScale);
-
-        if(maxBeta - minBeta > 0.1f){
-            betaScale = (maxBeta - minBeta) / clampValue;
-        }else{
-            betaScale = 0.1f / clampValue;
-        }
-        betaZeroPoint = (int)roundf(minBeta/betaScale);
-        
-        {
-            Qnn_QuantizeParams_t quantize = DEFAULT_QUANTIZE_PARAMS;
-            Qnn_ScaleOffset_t tScaleOffsetEncoding;
-            quantize.encodingDefinition = QNN_DEFINITION_DEFINED;
-            quantize.quantizationEncoding = QNN_QUANTIZATION_ENCODING_SCALE_OFFSET;
-            tScaleOffsetEncoding.scale = gammaScale;
-            tScaleOffsetEncoding.offset = gammaZeroPoint;
-            quantize.scaleOffsetEncoding = tScaleOffsetEncoding;
-            
-            std::vector<uint16_t> gammaQuantData(mGammaBetaSize);
-            for(int i = 0; i < mGammaBetaSize; ++i){
-                gammaQuantData[i] = (uint16_t)roundf((mGammaData[i] - minGamma) / gammaScale);
-            }
-            this->createStaticTensor("gamma", QNN_DATATYPE_UFIXED_POINT_16, {(uint32_t) mGammaBetaSize}, gammaQuantData.data(), quantize);
-        }
-        
-        {
-            Qnn_QuantizeParams_t quantize = DEFAULT_QUANTIZE_PARAMS;
-            Qnn_ScaleOffset_t tScaleOffsetEncoding;
-            quantize.encodingDefinition = QNN_DEFINITION_DEFINED;
-            quantize.quantizationEncoding = QNN_QUANTIZATION_ENCODING_SCALE_OFFSET;
-            tScaleOffsetEncoding.scale = betaScale;
-            tScaleOffsetEncoding.offset = betaZeroPoint;
-            quantize.scaleOffsetEncoding = tScaleOffsetEncoding;
-            
-            std::vector<uint16_t> betaQuantData(mGammaBetaSize);
-            for(int i = 0; i < mGammaBetaSize; ++i){
-                betaQuantData[i] = (uint16_t)roundf((mBetaData[i] - minBeta) / betaScale);
-            }
-            this->createStaticTensor("beta", QNN_DATATYPE_UFIXED_POINT_16, {(uint32_t) mGammaBetaSize}, betaQuantData.data(), quantize);
-        }
-    }
-}
-
 ErrorCode QNNLayerNorm::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto input = inputs[0];
 
@@ -174,7 +105,8 @@ ErrorCode QNNLayerNorm::onEncode(const std::vector<Tensor *> &inputs, const std:
     }
     
     Qnn_DataType_t dataType = mBackend->getNativeTensor(inputs[0])->v1.dataType;
-    createGammaBeta(dataType);
+    this->createStaticFloatTensor("gamma", dataType, {(uint32_t) mGammaBetaSize}, mGammaData.data());                                      // mTempTensorWrappers[0], gamma
+    this->createStaticFloatTensor("beta", dataType, {(uint32_t) mGammaBetaSize}, mBetaData.data());                                        // mTempTensorWrappers[1], beta
 
     // Extra resources needed by Case Permute.
     bool needPermute = (mRealAxis == (mInputDim - 1)) ? false : true;

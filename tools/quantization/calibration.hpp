@@ -59,7 +59,6 @@ private:
     int _height = 1;
     int _channels;
     int _batch = 32;
-    bool _batchSetByUser = false;
     int _quant_bits = 8;
     bool _winogradOpt = false;
     Helper::PreprocessConfig _preprocessConfig;

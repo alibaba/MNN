@@ -57,7 +57,7 @@ struct KVMeta {
 };
 
 static KVMeta gMeta;
-static std::shared_ptr<Module> _makeAttentionModule(int attentionMode = 8) {
+static std::shared_ptr<Module> _makeAttentionModule(int quant_qkv = 8) {
     auto Q = _Input();
     auto K = _Input();
     auto V = _Input();
@@ -79,7 +79,7 @@ static std::shared_ptr<Module> _makeAttentionModule(int attentionMode = 8) {
     config.backendConfig = &bnConfig;
     std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
     rtmgr->setHintPtr(MNN::Interpreter::KVCACHE_INFO, &gMeta);
-    rtmgr->setHint(MNN::Interpreter::ATTENTION_OPTION, attentionMode);
+    rtmgr->setHint(MNN::Interpreter::QKV_QUANT_OPTIONS, quant_qkv);
     std::shared_ptr<Module> m(Module::load({}, {}, (uint8_t*)buffer.data(), buffer.size(), rtmgr));
     return m;
 }

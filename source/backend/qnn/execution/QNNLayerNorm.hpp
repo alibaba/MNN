@@ -22,7 +22,6 @@ public:
     virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 private:
     ErrorCode onEncodeNormWithPermute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
-    void createGammaBeta(Qnn_DataType_t dataType);
 private:
     Qnn_DataType_t mQnnDataType;
     int mInputDim;

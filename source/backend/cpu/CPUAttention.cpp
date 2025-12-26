@@ -65,12 +65,12 @@ ErrorCode CPUAttention::onResize(const std::vector<Tensor*>& inputs, const std::
     mThreadNum = ((CPUBackend *)backend())->threadNumber();
     mPack  = gcore->pack;
     mBytes = gcore->bytes;
-    int attentionOption = static_cast<CPUBackend *>(backend())->getRuntime()->hint().attentionOption;
-    mUseFlashAttention = (attentionOption / 8 == 1);
+    int qkvQuantOptions = static_cast<CPUBackend *>(backend())->getRuntime()->hint().qkvQuantOption;
+    mUseFlashAttention = (qkvQuantOptions / 8 == 1);
 
     // If slide window attention applied, quant key/value must be diabled
-    mQuantKey = inputs.size() < 5 && (attentionOption % 8 >= 1);
-    mQuantValue = inputs.size() < 5 && (attentionOption % 8 > 1) && mUseFlashAttention;
+    mQuantKey = inputs.size() < 5 && (qkvQuantOptions % 8 >= 1);
+    mQuantValue = inputs.size() < 5 && (qkvQuantOptions % 8 > 1) && mUseFlashAttention;
     static_cast<CPUBackend*>(backend())->int8Functions()->MNNGetGemmUnit(&hP8, &lP8, &eP8);
 
     auto query = inputs[0];
@@ -219,10 +219,10 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     auto query = inputs[0];
     auto key   = inputs[1];
     auto value = inputs[2];
-    const int8_t* mask = nullptr;
+    const Tensor* mask = nullptr;
     int seqLen = query->length(1);
     if (inputs.size() > 3) {
-        mask = inputs[3]->host<int8_t>();
+        mask = inputs[3];
     }
     const Tensor* sinks = nullptr;
     if (inputs.size() > 4) {
@@ -592,11 +592,11 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                 {
                     if(mBytes == 2) {
                         if (!mQuantKey || sinksPtr != nullptr) {
-                            _maskQK<FLOAT16_T>((float*)qkPacked, &mScale, seqLen, subKvSeqLen, mPack, kvSeqLen, i * mBlockKV,sinksPtr, mask, mQuantKey);
+                            _maskQK<FLOAT16_T>((float*)qkPacked, &mScale, seqLen, subKvSeqLen, mPack, kvSeqLen, i * mBlockKV,sinksPtr, mask->host<int8_t>(), mQuantKey);
                         }
                     } else {
                         if (!mQuantKey || sinksPtr != nullptr) {
-                            _maskQK<float>((float*)qkPacked, &mScale, seqLen, subKvSeqLen, mPack, kvSeqLen, i * mBlockKV, sinksPtr, mask, mQuantKey);
+                            _maskQK<float>((float*)qkPacked, &mScale, seqLen, subKvSeqLen, mPack, kvSeqLen, i * mBlockKV, sinksPtr, mask->host<int8_t>(), mQuantKey);
                         }
                     }
                     bool useMask = (sinksPtr == nullptr);
@@ -717,12 +717,12 @@ CPUAttention::CPUAttention(Backend *backend, bool kv_cache) : Execution(backend)
     mPackQKV.reset(Tensor::createDevice<float>({1, 1, 1, 1}));
     MNN::KVCacheManager::KVCacheConfig kvconfig;
 
-    // attentionOption % 8:
+    // qkvQuantOption % 8:
     // 0: Do not quantize
     // 1: Q,K: Int8, V: Float32
     // 2: Q,K,V: Int8
 
-    // attentionOption / 8:
+    // qkvQuantOption / 8:
     // 0: do not use flash attention
     // 1: use flash attention
     kvconfig.mKVCacheDir = static_cast<CPUBackend *>(backend)->getRuntime()->hint().kvcacheDirPath;

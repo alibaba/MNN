@@ -48,6 +48,11 @@ void MNNPackedMatMulRemainFP32_SME2(float* C, const float* A, const float* B, si
 void MNNQuantAttentionKey(int8_t* dst, const float* source, float* sumKey, float* maxKey, int32_t* params);
 void MNNQuantAttentionValue(int8_t* dst, const float* source, float* valueQuantInfo, int32_t* params);
 
+void MNNFp32ToFp8(uint8_t* dst, const float* src, size_t size);
+void MNNFp8ToFp32(float* dst, const uint8_t* src, size_t size);
+void MNNFp16ToFp8(uint8_t* dst, const uint16_t* src, size_t size);
+void MNNFp8ToFp16(uint16_t* dst, const uint8_t* src, size_t size);
+
 void MNNReluWithSlope(float* dst, const float* src, size_t sizeQuad, float slope);
 
 void MNNReluInt8(int8_t* dst, const int8_t* src, size_t size, ssize_t zeroPoint);
@@ -249,11 +254,17 @@ struct MatmulRelatedFunctions {
     void(*MNNGemmInt8AddBiasScale_w4_Unit_FP32_DecodeMax)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDstCount) = nullptr;
     void(*Int8GemmKernel_W4)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDstCount) = nullptr;
     void(*MNNSumByAxisLForMatmul_A)(float* dest, int8_t* source, const float* dequantScale, ssize_t realDstCount, SumByAxisParams sumParams) = nullptr;
-
+    
     int eP;
 };
 
 struct CoreFunctions {
+    // fp8
+    void (*MNNFp32ToFp8)(uint8_t* dst, const float* src, size_t size);
+    void (*MNNFp16ToFp8)(uint8_t* dst, const uint16_t* src, size_t size);
+    void (*MNNFp8ToFp32)(float* dst, const uint8_t* src, size_t size);
+    void (*MNNFp8ToFp16)(uint16_t* dst, const uint8_t* src, size_t size);
+
     // cpu feature
     bool supportFp16arith = false;
     bool supportSDot = false;
@@ -409,6 +420,8 @@ struct CoreFunctions {
     void(*MNNAccumulateSequenceNumber)(float* dst, const float* src, int size);
 
     // Attention
+    void(*MNNAttenUnpackAndConvertFp16)(float* dst, float* src, size_t depth, size_t planesize, int pack);
+    void(*MNNAttenPackAndConvertFp32)(float* dst, float* src, const int32_t* units, size_t depth, size_t planesize);
     void(*MNNAttenPackAndScaleSingleHead)(float* dst, const float* srcHeadBase, size_t srcRowStride, const float* scale, const int32_t* units, size_t seqLen, size_t headDim);
     void(*MNNFlashAttentionUpdateBlockOutput)(float* dst, float* src, float* scale, float* normalizeScale, int depthQuad, int plane, int pack, int idx, int kvBlocks, int size, int bytes, int seqStart);
     void(*MNNSoftmax)(float* softmaxDst, const float* input, float* runningMax, float* runningSum, float* updateScale, int outside, int reduceSize, int kvSeqOffset, int validOffset, int pack, bool mask);

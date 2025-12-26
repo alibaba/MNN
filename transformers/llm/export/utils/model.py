@@ -73,28 +73,10 @@ class LlmModel(PreTrainedModel):
         if model_type == 'internvl_chat':
             load_kwargs['use_flash_attn'] = False
 
-        # Check if skip_weight mode is enabled (load structure only, no weights)
-        skip_weight = args is not None and hasattr(args, 'skip_weight') and args.skip_weight
-
-        if skip_weight:
-            # Load model skeleton without weights using accelerate
-            from accelerate import init_empty_weights
-            with init_empty_weights():
-                original_config = AutoConfig.from_pretrained(pretrained_model_name_or_path, trust_remote_code=True)
-                # Try different methods to create model from config (some models don't have from_config)
-                if hasattr(model_class, 'from_config'):
-                    original_model = model_class.from_config(original_config, trust_remote_code=True)
-                elif hasattr(model_class, '_from_config'):
-                    original_model = model_class._from_config(original_config)
-                else:
-                    original_model = AutoModelForCausalLM.from_config(original_config, trust_remote_code=True)
-                original_model.to_empty(device="cpu")
-        else:
-            # Normal loading with weights
-            try:
-                original_model = model_class.from_pretrained(pretrained_model_name_or_path, **load_kwargs)
-            except Exception:
-                original_model = AutoModel.from_pretrained(pretrained_model_name_or_path, **load_kwargs)
+        try:
+            original_model = model_class.from_pretrained(pretrained_model_name_or_path, **load_kwargs)
+        except Exception:
+            original_model = AutoModel.from_pretrained(pretrained_model_name_or_path, **load_kwargs)
 
         # LoRA
         if args.lora_path is not None and not args.lora_split:
@@ -103,7 +85,12 @@ class LlmModel(PreTrainedModel):
             original_model = adapter.merge_and_unload(progressbar=True)
 
         original_model = original_model.eval()
+
         model = cls(config, args)
+
+        if model_type == 'qwen2_audio':
+            model.audio = original_model
+            original_model = original_model.language_model
 
         ModelMapper.do_map(model, original_model, config.model_map['model'])
 

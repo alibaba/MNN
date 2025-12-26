@@ -10,10 +10,10 @@ class LlmConfig(PretrainedConfig):
 
     def __init__(self, **kwargs):
         self.hidden_size = kwargs.pop("hidden_size", 0)
-        self.num_attention_heads = kwargs.pop("num_attention_heads", None)
-        self.num_hidden_layers = kwargs.pop("num_hidden_layers", None)
+        self.num_attention_heads = kwargs.pop("num_attention_heads", 0)
+        self.num_hidden_layers = kwargs.pop("num_hidden_layers", 0)
         self.num_key_value_heads = kwargs.pop("num_key_value_heads", self.num_attention_heads)
-        self.head_dim = kwargs.pop("head_dim", self.hidden_size // self.num_attention_heads if self.num_attention_heads else None)
+        self.head_dim = kwargs.pop("head_dim", self.hidden_size // self.num_attention_heads if self.num_attention_heads > 0 else 0)
         self.rope_theta = kwargs.pop("rope_theta", 10000.0)
         self.rope_ratio = kwargs.pop("rope_ratio", 1.0)
         self.sliding_window = kwargs.pop("sliding_window", 0)
@@ -48,7 +48,7 @@ class LlmConfig(PretrainedConfig):
         if llm_config.rope_ratio is None:
             llm_config.rope_ratio = 1.0
 
-        if llm_config.head_dim is None and llm_config.hidden_size and llm_config.num_attention_heads:
+        if llm_config.head_dim is None and llm_config.hidden_size > 0 and llm_config.num_attention_heads > 0:
             if isinstance(llm_config.num_attention_heads, list):
                 llm_config.head_dim = [llm_config.hidden_size // atten_head for atten_head in llm_config.num_attention_heads]
             else:
@@ -61,7 +61,7 @@ class LlmConfig(PretrainedConfig):
                 if llm_config.layer_types[i] == 'sliding_attention':
                     sliding_attn_layers.append(i)
 
-        if llm_config.num_hidden_layers and len(sliding_attn_layers) >= llm_config.num_hidden_layers:
+        if llm_config.num_hidden_layers > 0 and len(sliding_attn_layers) >= llm_config.num_hidden_layers:
             llm_config.attention_type = 'sliding'
         elif len(sliding_attn_layers) > 0:
             llm_config.attention_type = 'mix'

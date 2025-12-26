@@ -231,17 +231,15 @@ Execution* VulkanBackend::onCreate(const std::vector<Tensor*>& inputs, const std
         return nullptr;
     }
     auto originExecution = (VulkanBasicExecution*)iter->second->onCreate(inputs, outputs, op, this);
+#ifdef ENABLE_VULKAN_TIME_PROFILE
+    originExecution->setName(EnumNameOpType(op->type()));
+#endif
     if (nullptr == originExecution) {
 #ifdef MNN_OP_SUPPORT_LOG
         MNN_ERROR("Vulkan don't support for %s, type=%s, Special case\n", name.c_str(), EnumNameOpType(op->type()));
 #endif
         return nullptr;
     }
-
-#ifdef ENABLE_VULKAN_TIME_PROFILE
-    originExecution->setName(EnumNameOpType(op->type()));
-#endif
-
     if (mDirect) {
         return new VulkanBasicExecutionDirect(std::shared_ptr<VulkanBasicExecution>(originExecution));
     }

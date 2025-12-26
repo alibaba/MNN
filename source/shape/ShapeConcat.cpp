@@ -18,11 +18,7 @@ class ConcatSizeComputer : public SizeComputer {
         auto& ob      = outputs[0]->buffer();
         int basicAxis = 0;
         if (op->type() == OpType_Concat) {
-            if (op->main_as_Axis() != nullptr) {
-                basicAxis = op->main_as_Axis()->axis();
-            } else {
-                MNN_ERROR("Concat op axis is nullptr, set to 0 as default\n");
-            }
+            basicAxis = op->main_as_Axis()->axis();
         } else if (op->type() == OpType_QuantizedConcat) {
             basicAxis = op->main_as_QuantizedConcat()->axis();
         }

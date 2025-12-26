@@ -24,7 +24,7 @@ class Audio(torch.nn.Module):
     @staticmethod
     def get_audio(model_type):
         audio_models = {
-            'qwen2_audio_encoder': Qwen2Audio,
+            'qwen2_audio': Qwen2Audio,
             'qwen2_5_omni_audio_encoder': Qwen2_5OmniAudio,
         }
         if model_type in audio_models:
@@ -75,7 +75,7 @@ class Qwen2Audio(Audio):
 
     def load(self):
         # model
-        self.audio_tower = self.audio
+        self.audio_tower = self.audio.audio_tower
         self.multi_modal_projector = self.audio.multi_modal_projector
         # config
         self.llm_config['is_audio'] = True

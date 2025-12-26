@@ -69,7 +69,7 @@ static inline void to_lower_case(std::string& str) {
 }
 
 Tokenizer* Tokenizer::createTokenizer(const std::string& filename) {
-    // AUTOTIME;
+    AUTOTIME;
     Tokenizer* tokenizer = nullptr;
     // check file
     std::ifstream tok_file(filename);

@@ -37,7 +37,6 @@ static std::set<OpType> _getQuantPropagateOp(Runtime::CompilerType type) {
         propagateOpTypes.insert(OpType_Squeeze);
         propagateOpTypes.insert(OpType_Unpack);
         propagateOpTypes.insert(OpType_Unsqueeze);
-        propagateOpTypes.insert(OpType_GatherV2);
     }
     return propagateOpTypes;
 }

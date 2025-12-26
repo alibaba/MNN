@@ -127,15 +127,9 @@ void Llm::setRuntimeHint(std::shared_ptr<Express::Executor::RuntimeManager> &rtg
     rtg->setHint(MNN::Interpreter::INIT_THREAD_NUMBER, 4);
 
     rtg->setHint(MNN::Interpreter::MEM_ALLOCATOR_TYPE, 0);
-
-    /* 'quant_qkv' is deprecated, use 'attention_mode '*/
-    int legacyAttentionMode = mConfig->config_.value("quant_qkv", 8); // compatibility
-    int attentionMode = mConfig->config_.value("attention_mode", legacyAttentionMode); // try to read 'attention_mode'
-
-    // 3. 设置 Hint
-    rtg->setHint(MNN::Interpreter::ATTENTION_OPTION, attentionMode);
-    if (mConfig->reuse_kv() && attentionMode == 10) {
-        rtg->setHint(MNN::Interpreter::ATTENTION_OPTION, 9);
+    rtg->setHint(MNN::Interpreter::QKV_QUANT_OPTIONS, mConfig->config_.value("quant_qkv", 8));
+    if (mConfig->reuse_kv() && mConfig->config_.value("quant_qkv", 8) == 10) {
+        rtg->setHint(MNN::Interpreter::QKV_QUANT_OPTIONS, 9);
     }
     if (mConfig->use_cached_mmap()) {
         rtg->setHint(MNN::Interpreter::USE_CACHED_MMAP, 1);
@@ -907,6 +901,8 @@ void Llm::response(const std::string& user_content, std::ostream* os, const char
     if (mConfig->use_template()) {
         prompt = mPrompt->applyTemplate(user_content, true);
     }
+    std::cout << "user_content: " << user_content << std::endl;
+    std::cout << "prompt: " << prompt << std::endl;
     std::vector<int> input_ids = tokenizer_encode(prompt);
     response(input_ids, os, end_with, max_new_tokens);
 }

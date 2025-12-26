@@ -9,7 +9,7 @@ import copy
 def main(args):
     # load model
     model = mnnllm.create(args.mnn_path)
-    model.set_config({"attention_mode": args.attention_mode})
+    model.set_config({"quant_qkv": args.quant_qkv})
     model.set_config({'all_logits': True})
     model.load()
 
@@ -17,14 +17,11 @@ def main(args):
 
     # load dataset
     eval_dataset = args.eval_dataset
-    if os.path.exists(eval_dataset):
-        print("Loading dataset from disk: {}".format(eval_dataset))
-        dataset = load_from_disk(eval_dataset)
-    else:
-        dataset_name = eval_dataset.split("/")[0]
-        dataset_dir = eval_dataset.split("/")[1]
-        dataset = load_dataset(dataset_name, dataset_dir, split="test")
+    dataset_name = eval_dataset.split("/")[0]
+    dataset_dir = eval_dataset.split("/")[1]
 
+    dataset = load_dataset(dataset_name, dataset_dir, split="test")
+    # dataset = load_from_disk("./wikitest-2-raw-v1")
     input_ids = model.tokenizer_encode("\n\n".join(dataset["text"]))
     stride = 512
     context_length = stride + stride // 2

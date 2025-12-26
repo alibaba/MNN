@@ -83,16 +83,16 @@ options:
                         	- A string, the *model id* of a pretrained model like `THUDM/chatglm-6b`. [TODO]
                         	- A path to a *directory* clone from repo like `../chatglm-6b`.
   --type TYPE           type(`str`, *optional*):
-                        	The pretrained llm model type.
+                        	The pretrain llm model type.
   --lora_path LORA_PATH
-                        lora path, default is `None` mean not apply lora.
-  --dst_path DST_PATH   export onnx/mnn model to path, default is `./model`.
+                        lora path, defaut is `None` mean not apply lora.
+  --dst_path DST_PATH   export onnx/mnn model to path, defaut is `./model`.
   --test TEST           test model inference with query `TEST`.
   --export EXPORT       export model to an onnx/mnn model.
   --quant_bit QUANT_BIT
                         mnn quant bit, 4 or 8, default is 4.
   --quant_block QUANT_BLOCK
-                        mnn quant block, default is 0 mean channel-wise.
+                        mnn quant block, default is 0 mean channle-wise.
   --lm_quant_bit LM_QUANT_BIT
                         mnn lm_head quant bit, 4 or 8, default is `quant_bit`.
   --mnnconvert MNNCONVERT
@@ -204,14 +204,12 @@ The configuration file supports the following options:
 - Inference Configuration
   - max_new_tokens: Maximum number of tokens to generate. Defaults to `512`
   - reuse_kv: Whether to reuse the `kv cache` in multi-turn dialogues. Defaults to `false`
-  - quant_qkv: deprecated. Please use `attention_mode`."
-  - attention_mode: Determines whether query, key, and value in the CPU attention operator are quantized. Available options are 0, 1, 2, 8, 9, 10. The default is 8. The meanings are as follows:
-    - 0: Do not use Flash Attention at runtime. query, key, and value are not quantized.
-    - 1: Do not use Flash Attention at runtime. query and key use 8-bit asymmetric quantization; value is not quantized.
-    - 2: Do not use Flash Attention at runtime. query, key, and value all use 8-bit asymmetric quantization.
-    - 8: Use Flash Attention at runtime. query, key, and value are not quantized.
-    - 9: Use Flash Attention at runtime. query and key use 8-bit asymmetric quantization; value is not quantized.
-    - 10: Use Flash Attention at runtime. query, key, and value all use 8-bit asymmetric quantization.
+  - quant_qkv: Whether to quantize query, key, value in the CPU attention operator. Options: `0`, `1`, `2`, `3`, `4`. Defaults to 0:
+    - 0: Neither `key` nor `value` is quantized.
+    - 1: Use asymmetric 8-bit quantization for `key`.
+    - 2: Use `fp8` format to quantize value
+    - 3: Use asymmetric `8-bit` quantization for key and `fp8` for `value`.
+    - 4: Quantize both `key` and `value` while using asymmetric 8-bit quantization for `query` and `int8` matrix multiplication for `Q*K`.
   - use_mmap: Whether to use `mmap` to write weights to disk when memory is insufficient, avoiding overflow. Defaults to `false`. For mobile devices, it is recommended to set this to true.
   - kvcache_mmap: Whether to use `mmap` for KV Cache to write to disk when memory is insufficient, avoiding overflow. Defaults to `false`
   - tmp_path: Directory for disk caching when `mmap-related` features are enabled.
@@ -245,7 +243,7 @@ The configuration file supports the following options:
 - `config.json`
 
 
-
+  
 - `llm_config.json`
   ```json
   {

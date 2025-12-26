@@ -1582,6 +1582,204 @@ static void MNNAttenUnpackAndConvertFp16(float* dst, float* src, size_t depth, s
     }
 }
 
+static void MNNAttenPackAndConvertFp32LP1(float* dst, const float* src, const int32_t* units, size_t depth, size_t planesize) {
+    int32_t eP = units[0];
+    int32_t lP = units[1];
+
+    if (lP != 1) {
+        MNN_ERROR("This function only supports lP=1\n");
+        return;
+    }
+
+    auto dstStride1 = eP;
+    auto dstStride0 = planesize * dstStride1;
+
+    for (int i = 0; i < depth; ++i) {
+        size_t realsize = planesize;
+        const float* srcPtr = src + i * planesize;
+        FLOAT16* dstPtr = (FLOAT16*)dst + (i % eP) + (i / eP) * dstStride0;
+
+        while (realsize >= 16) {
+            float32x4_t s0_f32 = vld1q_f32(srcPtr);
+            float32x4_t s1_f32 = vld1q_f32(srcPtr + 4);
+            float32x4_t s2_f32 = vld1q_f32(srcPtr + 8);
+            float32x4_t s3_f32 = vld1q_f32(srcPtr + 12);
+
+            float16x4_t d0_f16 = vcvt_f16_f32(s0_f32);
+            float16x4_t d1_f16 = vcvt_f16_f32(s1_f32);
+            float16x4_t d2_f16 = vcvt_f16_f32(s2_f32);
+            float16x4_t d3_f16 = vcvt_f16_f32(s3_f32);
+
+            vst1_lane_f16(dstPtr,                  d0_f16, 0);
+            vst1_lane_f16(dstPtr + dstStride1,     d0_f16, 1);
+            vst1_lane_f16(dstPtr + 2 * dstStride1, d0_f16, 2);
+            vst1_lane_f16(dstPtr + 3 * dstStride1, d0_f16, 3);
+
+            vst1_lane_f16(dstPtr + 4 * dstStride1, d1_f16, 0);
+            vst1_lane_f16(dstPtr + 5 * dstStride1, d1_f16, 1);
+            vst1_lane_f16(dstPtr + 6 * dstStride1, d1_f16, 2);
+            vst1_lane_f16(dstPtr + 7 * dstStride1, d1_f16, 3);
+
+            vst1_lane_f16(dstPtr + 8 * dstStride1,  d2_f16, 0);
+            vst1_lane_f16(dstPtr + 9 * dstStride1,  d2_f16, 1);
+            vst1_lane_f16(dstPtr + 10 * dstStride1, d2_f16, 2);
+            vst1_lane_f16(dstPtr + 11 * dstStride1, d2_f16, 3);
+
+            vst1_lane_f16(dstPtr + 12 * dstStride1, d3_f16, 0);
+            vst1_lane_f16(dstPtr + 13 * dstStride1, d3_f16, 1);
+            vst1_lane_f16(dstPtr + 14 * dstStride1, d3_f16, 2);
+            vst1_lane_f16(dstPtr + 15 * dstStride1, d3_f16, 3);
+
+            srcPtr += 16;
+            dstPtr += 16 * dstStride1;
+            realsize -= 16;
+        }
+
+        if (realsize >= 8) {
+            float32x4_t s0_f32 = vld1q_f32(srcPtr);
+            float32x4_t s1_f32 = vld1q_f32(srcPtr + 4);
+
+            float16x4_t d0_f16 = vcvt_f16_f32(s0_f32);
+            float16x4_t d1_f16 = vcvt_f16_f32(s1_f32);
+
+            vst1_lane_f16(dstPtr,              d0_f16, 0);
+            vst1_lane_f16(dstPtr + dstStride1, d0_f16, 1);
+            vst1_lane_f16(dstPtr + 2 * dstStride1, d0_f16, 2);
+            vst1_lane_f16(dstPtr + 3 * dstStride1, d0_f16, 3);
+
+            vst1_lane_f16(dstPtr + 4 * dstStride1, d1_f16, 0);
+            vst1_lane_f16(dstPtr + 5 * dstStride1, d1_f16, 1);
+            vst1_lane_f16(dstPtr + 6 * dstStride1, d1_f16, 2);
+            vst1_lane_f16(dstPtr + 7 * dstStride1, d1_f16, 3);
+
+            srcPtr += 8;
+            dstPtr += 8 * dstStride1;
+            realsize -= 8;
+        }
+
+        if (realsize >= 4) {
+            float32x4_t s0_f32 = vld1q_f32(srcPtr);
+            float16x4_t d0_f16 = vcvt_f16_f32(s0_f32);
+
+            vst1_lane_f16(dstPtr,              d0_f16, 0);
+            vst1_lane_f16(dstPtr + dstStride1, d0_f16, 1);
+            vst1_lane_f16(dstPtr + 2 * dstStride1, d0_f16, 2);
+            vst1_lane_f16(dstPtr + 3 * dstStride1, d0_f16, 3);
+
+            srcPtr += 4;
+            dstPtr += 4 * dstStride1;
+            realsize -= 4;
+        }
+
+        for (; realsize > 0; --realsize) {
+            *dstPtr = (FLOAT16)(*srcPtr);
+            srcPtr++;
+            dstPtr += dstStride1;
+        }
+    }
+}
+
+static void MNNAttenPackAndConvertFp32(float* dst, float* src, const int32_t* units, size_t depth, size_t planesize) {
+    int32_t eP = units[0];
+    int32_t lP = units[1]; // Now lP=1 or 2
+
+    if (lP != 1 && lP != 2) {
+        MNN_ERROR("This function only supports lP=1 or 2\n");
+        return;
+    }
+
+    // src [depth, planesize] (float32)
+    // dst [depth/eP, planesize/lP, eP, lP] (float16)
+
+    if (lP == 1) {
+        MNNAttenPackAndConvertFp32LP1(dst, src, units, depth, planesize);
+        return;
+    }
+
+    auto dstStride1 = eP * lP;
+    auto dstStride0 = UP_DIV(planesize, lP) * dstStride1;
+
+    for (int i = 0; i < depth; ++i) {
+        size_t realsize = planesize;
+        const float* srcPtr = src + i * planesize;
+        FLOAT16* dstPtr = (FLOAT16*)dst + (i % eP) * lP + (i / eP) * dstStride0;
+
+        while (realsize >= 16) {
+            float32x4_t s0 = vld1q_f32(srcPtr);
+            float32x4_t s1 = vld1q_f32(srcPtr + 4);
+            float32x4_t s2 = vld1q_f32(srcPtr + 8);
+            float32x4_t s3 = vld1q_f32(srcPtr + 12);
+
+            float16x4_t h0 = vcvt_f16_f32(s0);
+            float16x4_t h1 = vcvt_f16_f32(s1);
+            float16x4_t h2 = vcvt_f16_f32(s2);
+            float16x4_t h3 = vcvt_f16_f32(s3);
+
+            vst1_lane_u32((uint32_t*)dstPtr, vreinterpret_u32_f16(h0), 0);
+            vst1_lane_u32((uint32_t*)(dstPtr + dstStride1), vreinterpret_u32_f16(h0), 1);
+
+            vst1_lane_u32((uint32_t*)(dstPtr + 2 * dstStride1), vreinterpret_u32_f16(h1), 0);
+            vst1_lane_u32((uint32_t*)(dstPtr + 3 * dstStride1), vreinterpret_u32_f16(h1), 1);
+
+            vst1_lane_u32((uint32_t*)(dstPtr + 4 * dstStride1), vreinterpret_u32_f16(h2), 0);
+            vst1_lane_u32((uint32_t*)(dstPtr + 5 * dstStride1), vreinterpret_u32_f16(h2), 1);
+
+            vst1_lane_u32((uint32_t*)(dstPtr + 6 * dstStride1), vreinterpret_u32_f16(h3), 0);
+            vst1_lane_u32((uint32_t*)(dstPtr + 7 * dstStride1), vreinterpret_u32_f16(h3), 1);
+
+            realsize -= 16;
+            srcPtr += 16;
+            dstPtr += 8 * dstStride1;
+        }
+
+        if (realsize >= 8) {
+            float32x4_t s0 = vld1q_f32(srcPtr);
+            float32x4_t s1 = vld1q_f32(srcPtr + 4);
+
+            float16x4_t h0 = vcvt_f16_f32(s0);
+            float16x4_t h1 = vcvt_f16_f32(s1);
+
+            vst1_lane_u32((uint32_t*)dstPtr, vreinterpret_u32_f16(h0), 0);
+            vst1_lane_u32((uint32_t*)(dstPtr + dstStride1), vreinterpret_u32_f16(h0), 1);
+
+            vst1_lane_u32((uint32_t*)(dstPtr + 2 * dstStride1), vreinterpret_u32_f16(h1), 0);
+            vst1_lane_u32((uint32_t*)(dstPtr + 3 * dstStride1), vreinterpret_u32_f16(h1), 1);
+
+            realsize -= 8;
+            srcPtr += 8;
+            dstPtr += 4 * dstStride1;
+        }
+
+        if (realsize >= 4) {
+            float32x4_t s0 = vld1q_f32(srcPtr);
+            float16x4_t h0 = vcvt_f16_f32(s0);
+
+            vst1_lane_u32((uint32_t*)dstPtr, vreinterpret_u32_f16(h0), 0);
+            vst1_lane_u32((uint32_t*)(dstPtr + dstStride1), vreinterpret_u32_f16(h0), 1);
+
+            realsize -= 4;
+            srcPtr += 4;
+            dstPtr += 2 * dstStride1;
+        }
+
+        if (realsize >= 2) {
+            float32x2_t s0 = vld1_f32(srcPtr);
+            float16x4_t h0 = vcvt_f16_f32(vcombine_f32(s0, s0));
+
+            vst1_lane_u32((uint32_t*)dstPtr, vreinterpret_u32_f16(h0), 0);
+
+            realsize -= 2;
+            srcPtr += 2;
+            dstPtr += dstStride1;
+        }
+
+        if (realsize > 0) {
+            dstPtr[0] = (FLOAT16)srcPtr[0];
+            dstPtr[1] = (FLOAT16)0.0f;
+        }
+    }
+}
+
 static void MNNQuantAttentionKeyFP16(int8_t* dst, const float* source, float* sumKeyPtr, float* maxKeyPtr, int32_t* params) {
     int32_t kvNumHead = params[0];
     int32_t seqLen = params[1];
@@ -2097,9 +2295,9 @@ static void MNNAsyQuantInfo_FP16(float* scale, float* bias, float* qscale, float
         }
         auto range = maxval - minval;
         if (range <= 1e-7) {
-            scale[0] = 1.f;
-            qscale[0] = 1.f;
-            qbias[0] = -maxval;
+            scale[0] = 0.f;
+            qscale[0] = 0.f;
+            qbias[0] = 0.f;
             bias[0] = maxval;
         } else {
             qscale[0] = 255.f / range;
@@ -2455,6 +2653,11 @@ bool Arm82Functions::init() {
         }
     }
 
+    FUNC_PTR_ASSIGN(gInstance->MNNFp32ToFp8, MNNFp32ToFp8);
+    FUNC_PTR_ASSIGN(gInstance->MNNFp16ToFp8, MNNFp16ToFp8);
+    FUNC_PTR_ASSIGN(gInstance->MNNFp8ToFp32, MNNFp8ToFp32);
+    FUNC_PTR_ASSIGN(gInstance->MNNFp8ToFp16, MNNFp8ToFp16);
+
     FUNC_PTR_ASSIGN(gInstance->MNNFp32ToLowp, MNNQuantizeFP16);
     FUNC_PTR_ASSIGN(gInstance->MNNLowpToFp32, MNNDequantizeFP16);
     gInstance->bytes = 2;
@@ -2529,6 +2732,8 @@ bool Arm82Functions::init() {
 
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
     // Attention
+    FUNC_PTR_ASSIGN(gInstance->MNNAttenUnpackAndConvertFp16, MNNAttenUnpackAndConvertFp16);
+    FUNC_PTR_ASSIGN(gInstance->MNNAttenPackAndConvertFp32, MNNAttenPackAndConvertFp32);
     FUNC_PTR_ASSIGN(gInstance->MNNAttenPackAndScaleSingleHead, MNNAttenPackAndScaleSingleHead);
     FUNC_PTR_ASSIGN(gInstance->MNNFlashAttentionUpdateBlockOutput, MNNFlashAttentionUpdateBlockOutput);
     gInstance->MNNQuantAttentionKey = MNNQuantAttentionKeyFP16;

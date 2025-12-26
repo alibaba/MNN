@@ -27,35 +27,9 @@ public:
             res->setName(expr->outputName(0));
             return res->expr().first;
         }
-        auto config = Global<modelConfig>::Get();
-        auto dimSize = slopeInfo->dim.size();
-        const int slopeSize = (int)slopeInfo->size;
-        bool needPermute = false;
-        std::vector<int> permuteDims;
-        int slopAxis = -1;
-        for (int i=0; i<dimSize; ++i) {
-            if (slopeInfo->dim[i] == slopeSize) {
-                slopAxis = i;
-                break;
-            }
-        }
-        auto input = inputs[0];
-        if (dimSize >= 2 && 1 != slopAxis) {
-            if (config->optimizeLevel < 2 || slopAxis == -1) {
-                auto k = _Select(_Less(inputs[0], _Scalar<float>(0)), slope, _Scalar<float>(1));
-                auto res = _Multiply(inputs[0], k);
-                res->setName(expr->outputName(0));
-                return res->expr().first;
-            }
-            needPermute = true;
-            permuteDims.resize(dimSize);
-            for (int i=0; i<dimSize; ++i) {
-                permuteDims[i] = i;
-            }
-            permuteDims[1] = slopAxis;
-            permuteDims[slopAxis] = 1;
-            input = _Transpose(input, permuteDims);
-        }
+
+        const int slopeSize = slopeInfo->size;
+
         std::unique_ptr<PReluT> preluParam(new PReluT);
 
         preluParam->slopeCount = slopeSize;
@@ -69,11 +43,7 @@ public:
         mergedOp->type       = OpType_PReLU;
         mergedOp->main.type  = OpParameter_PRelu;
         mergedOp->main.value = preluParam.release();
-        auto newExpr         = Expr::create(mergedOp.get(), {input});
-        if (needPermute) {
-            auto output = _Transpose(Variable::create(newExpr), permuteDims);
-            newExpr = output->expr().first;
-        }
+        auto newExpr         = Expr::create(mergedOp.get(), {inputs[0]});
         newExpr->setName(expr->name());
         return newExpr;
     }

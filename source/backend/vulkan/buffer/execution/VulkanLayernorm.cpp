@@ -17,6 +17,11 @@ struct Param {
     vec4 eps;
 };
 
+struct FP16Param {
+    ivec4 size;
+    f16vec4 eps;
+};
+
 VulkanLayernorm::VulkanLayernorm(const Op* op, Backend* backend, Tensor * tensor) : VulkanBasicExecution(backend) {
     auto layer_norm_param = op->main_as_LayerNorm();
     auto vkbackend = static_cast<VulkanBackend*>(backend);
@@ -121,15 +126,30 @@ ErrorCode VulkanLayernorm::onEncode(const std::vector<Tensor*>& inputs, const st
             inside *= inputs.at(0)->length(i);
         }
     }
-    auto param = reinterpret_cast<Param*>(mParam->map());
-    param->size[0] = inside;
-    param->size[1] = outside;
-    param->size[2] = 1;
-    param->size[3] = outside;
-    param->eps[0] = mEps;
-    param->eps[1] = 1.0f;
-    param->eps[2] = 1.0f;
-    param->eps[3] = 1.0f;
+    if (mFP16) {
+        auto param = reinterpret_cast<FP16Param*>(mParam->map());
+        param->size[0] = inside;
+        param->size[1] = outside;
+        param->size[2] = 1;
+        param->size[3] = outside;
+        int16_t eps;
+        FLOAT_TO_HALF(&mEps, &eps, 1);
+        auto epsPtr = reinterpret_cast<int16_t*>(&param->eps);
+        epsPtr[0] = eps;
+        epsPtr[1] = eps;
+        epsPtr[2] = eps;
+        epsPtr[3] = eps;
+    } else {
+        auto param = reinterpret_cast<Param*>(mParam->map());
+        param->size[0] = inside;
+        param->size[1] = outside;
+        param->size[2] = 1;
+        param->size[3] = outside;
+        param->eps[0] = mEps;
+        param->eps[1] = mEps;
+        param->eps[2] = mEps;
+        param->eps[3] = mEps;
+    }
     mParam->unmap();
     auto inputTensor = vkBn->getBuffer(inputs[0]);
     auto outputTensor = vkBn->getBuffer(outputs[0]);

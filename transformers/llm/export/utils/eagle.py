@@ -26,8 +26,8 @@ class Eagle(torch.nn.Module):
         self.eagle_path = eagle_path
 
         self.config = base.config
-        if hasattr(self.eagle_config, "head_dim"):
-            self.config.head_dim = self.eagle_config.head_dim
+        if not hasattr(base.config, 'head_dim'):
+            self.config.head_dim = base.head_dim
 
         self.rope_theta = 10000
         self.rope_ratio = 1.0

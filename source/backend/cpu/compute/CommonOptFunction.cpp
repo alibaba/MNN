@@ -529,9 +529,9 @@ static void MNNAsyQuantInfo_FP32(float* scale, float* bias, float* qscale, float
         }
         auto range = maxval - minval;
         if (range <= 1e-7) {
-            scale[0] = 1.f;
-            qscale[0] = 1.f;
-            qbias[0] = -maxval;
+            scale[0] = 0.f;
+            qscale[0] = 0.f;
+            qbias[0] = 0.f;
             bias[0] = maxval;
         } else {
             qscale[0] = 255.f / range;
@@ -629,7 +629,11 @@ static void MNNAsyQuantInfo_FP32(float* scale, float* bias, float* qscale, float
                 qscale[qind] = 255.f / (max_ - min_);
                 qbias[qind] = roundf(-min_ * 255.f / (max_ - min_)) - 128.0f;
                 scale[sind] = (max_ - min_) / 255.f;
+#ifndef MNN_USE_SSE
                 bias[sind] = min_ + (128.f / 255.f) * (max_ - min_);
+#else
+                bias[sind] = min_;
+#endif
             }
         }
     }
@@ -1348,35 +1352,15 @@ void MNNAccumulateSequenceNumber (float* dst, const float* src, int size) {
     float sum = 0.f;
     float tmp[4];
 #ifdef MNN_USE_NEON
-    int size16 = (size / 16);
     if (size >= 8) {
         auto sum4_1 = vdupq_n_f32(0.f);
         auto sum4_2 = vdupq_n_f32(0.f);
-        if (size >= 16) {
-            auto sum4_3 = vdupq_n_f32(0.f);
-            auto sum4_4 = vdupq_n_f32(0.f);
-            for (int v=0; v < size16; ++v) {
-                auto v4 = vld1q_f32(src);
-                auto u4 = vld1q_f32(src + 4);
-                auto p4 = vld1q_f32(src + 8);
-                auto q4 = vld1q_f32(src + 12);
-                sum4_1 = vaddq_f32(sum4_1, v4);
-                sum4_2 = vaddq_f32(sum4_2, u4);
-                sum4_3 = vaddq_f32(sum4_3, p4);
-                sum4_4 = vaddq_f32(sum4_4, q4);
-                src += 16;
-                i += 16;
-            }
-            sum4_1 = vaddq_f32(sum4_1, sum4_3);
-            sum4_2 = vaddq_f32(sum4_2, sum4_4);
-        }
-        if (size -i >= 8) {
+        for (; i < size8; i += 8) {
             auto v4 = vld1q_f32(src);
             auto u4 = vld1q_f32(src + 4);
             sum4_1 = vaddq_f32(sum4_1, v4);
             sum4_2 = vaddq_f32(sum4_2, u4);
             src += 8;
-            i += 8;
         }
         sum4_1 = vaddq_f32(sum4_1, sum4_2);
         sum = (sum4_1[0] + sum4_1[1]) + (sum4_1[2] + sum4_1[3]);
@@ -3280,161 +3264,11 @@ void MNNNorm(float *dst, const float *src, const float *gamma, const float *beta
     float mean = 0;
     if(false == RMSNorm){
         float sum = 0.f;
-        MNNAccumulateSequenceNumber(&sum, src, size);
+        for (int j = 0; j < size; ++j) {
+            sum += src[j];
+        }
         mean = sum / size;
     }
-#ifdef MNN_USE_NEON
-    const float32x4_t vmean = vdupq_n_f32(mean);
-    const float32x4_t veps  = vdupq_n_f32(epsilon);
-    float32x4_t vsqsum = vdupq_n_f32(0.0f);
-    float32x4_t vsqsum1 = vdupq_n_f32(0.0f);
-    float32x4_t vsqsum2 = vdupq_n_f32(0.0f);
-    float32x4_t vsqsum3 = vdupq_n_f32(0.0f);
-
-    int j = 0;
-    // compute square sub sum
-    for (; j + 15 < size; j += 16) {
-        float32x4_t v0 = vld1q_f32(&src[j + 0]);
-        float32x4_t v1 = vld1q_f32(&src[j + 4]);
-        float32x4_t v2 = vld1q_f32(&src[j + 8]);
-        float32x4_t v3 = vld1q_f32(&src[j + 12]);
-
-        v0 = vsubq_f32(v0, vmean);
-        v1 = vsubq_f32(v1, vmean);
-        v2 = vsubq_f32(v2, vmean);
-        v3 = vsubq_f32(v3, vmean);
-
-        vsqsum = vmlaq_f32(vsqsum, v0, v0);
-        vsqsum1 = vmlaq_f32(vsqsum1, v1, v1);
-        vsqsum2 = vmlaq_f32(vsqsum2, v2, v2);
-        vsqsum3 = vmlaq_f32(vsqsum3, v3, v3);
-    }
-    vsqsum = vaddq_f32(vsqsum, vsqsum1);
-    vsqsum2 = vaddq_f32(vsqsum2, vsqsum3);
-    vsqsum = vaddq_f32(vsqsum, vsqsum2);
-
-    // last 0~15
-    for (; j + 3 < size; j += 4) {
-        float32x4_t v = vld1q_f32(&src[j]);
-        v = vsubq_f32(v, vmean);
-        vsqsum = vmlaq_f32(vsqsum, v, v);
-    }
-
-#ifdef __aarch64__
-    float square_sum = vaddvq_f32(vsqsum);
-#else
-    float square_sum = vsqsum[0] + vsqsum[1] + vsqsum[2] + vsqsum[3];
-#endif
-
-    for (; j < size; ++j) {
-        float diff = src[j] - mean;
-        square_sum += diff * diff;
-    }
-
-#ifdef __aarch64__
-    auto vs = vadd_f32(vdiv_f32(vdup_n_f32(square_sum), vdup_n_f32(size)), vdup_n_f32(epsilon));
-    auto vecs = vdiv_f32(vdup_n_f32(1.0f), vsqrt_f32(vs));
-    float vars[2];
-    vst1_f32(vars, vecs);
-    float variable = vars[0];
-#else
-    float variance = square_sum / static_cast<float>(size);
-    float variable = 1.0f / std::sqrt(variance + epsilon);
-#endif
-
-    const float32x4_t vvar = vdupq_n_f32(variable);
-
-    // Normalize + scale
-    j = 0;
-    if (gamma && beta) {
-        const float32x4_t vzero = vdupq_n_f32(0.0f);
-        for (; j + 15 < size; j += 16) {
-            float32x4_t s0 = vld1q_f32(&src[j + 0]);
-            float32x4_t s1 = vld1q_f32(&src[j + 4]);
-            float32x4_t s2 = vld1q_f32(&src[j + 8]);
-            float32x4_t s3 = vld1q_f32(&src[j + 12]);
-
-            float32x4_t g0 = vld1q_f32(&gamma[j + 0]);
-            float32x4_t g1 = vld1q_f32(&gamma[j + 4]);
-            float32x4_t g2 = vld1q_f32(&gamma[j + 8]);
-            float32x4_t g3 = vld1q_f32(&gamma[j + 12]);
-
-            float32x4_t b0 = vld1q_f32(&beta[j + 0]);
-            float32x4_t b1 = vld1q_f32(&beta[j + 4]);
-            float32x4_t b2 = vld1q_f32(&beta[j + 8]);
-            float32x4_t b3 = vld1q_f32(&beta[j + 12]);
-
-            s0 = vsubq_f32(s0, vmean);
-            s1 = vsubq_f32(s1, vmean);
-            s2 = vsubq_f32(s2, vmean);
-            s3 = vsubq_f32(s3, vmean);
-
-            s0 = vmulq_f32(s0, vvar);
-            s1 = vmulq_f32(s1, vvar);
-            s2 = vmulq_f32(s2, vvar);
-            s3 = vmulq_f32(s3, vvar);
-
-            s0 = vmlaq_f32(b0, s0, g0);
-            s1 = vmlaq_f32(b1, s1, g1);
-            s2 = vmlaq_f32(b2, s2, g2);
-            s3 = vmlaq_f32(b3, s3, g3);
-
-            vst1q_f32(&dst[j + 0], s0);
-            vst1q_f32(&dst[j + 4], s1);
-            vst1q_f32(&dst[j + 8], s2);
-            vst1q_f32(&dst[j + 12], s3);
-        }
-
-        for (; j + 3 < size; j += 4) {
-            float32x4_t s = vld1q_f32(&src[j]);
-            float32x4_t g = vld1q_f32(&gamma[j]);
-            float32x4_t b = vld1q_f32(&beta[j]);
-
-            s = vsubq_f32(s, vmean);
-            s = vmulq_f32(s, vvar);
-            s = vmlaq_f32(b, s, g);
-
-            vst1q_f32(&dst[j], s);
-        }
-
-        for (; j < size; ++j) {
-            dst[j] = (src[j] - mean) * variable * gamma[j] + beta[j];
-        }
-    } else {
-        for (; j + 15 < size; j += 16) {
-            float32x4_t s0 = vld1q_f32(&src[j + 0]);
-            float32x4_t s1 = vld1q_f32(&src[j + 4]);
-            float32x4_t s2 = vld1q_f32(&src[j + 8]);
-            float32x4_t s3 = vld1q_f32(&src[j + 12]);
-
-            s0 = vsubq_f32(s0, vmean);
-            s1 = vsubq_f32(s1, vmean);
-            s2 = vsubq_f32(s2, vmean);
-            s3 = vsubq_f32(s3, vmean);
-
-            s0 = vmulq_f32(s0, vvar);
-            s1 = vmulq_f32(s1, vvar);
-            s2 = vmulq_f32(s2, vvar);
-            s3 = vmulq_f32(s3, vvar);
-
-            vst1q_f32(&dst[j + 0], s0);
-            vst1q_f32(&dst[j + 4], s1);
-            vst1q_f32(&dst[j + 8], s2);
-            vst1q_f32(&dst[j + 12], s3);
-        }
-
-        for (; j + 3 < size; j += 4) {
-            float32x4_t s = vld1q_f32(&src[j]);
-            s = vsubq_f32(s, vmean);
-            s = vmulq_f32(s, vvar);
-            vst1q_f32(&dst[j], s);
-        }
-
-        for (; j < size; ++j) {
-            dst[j] = (src[j] - mean) * variable;
-        }
-    }
-#else
     float square_sum = 0.f;
     for (int j = 0; j < size; ++j) {
         square_sum += (src[j] - mean) * (src[j] - mean);
@@ -3459,7 +3293,6 @@ void MNNNorm(float *dst, const float *src, const float *gamma, const float *beta
             dst[j] = (src[j] - mean) * variable;
         }
     }
-#endif
 }
 #endif
 
@@ -4471,6 +4304,82 @@ static void _MNNAdjustOptimalSparseKernel(int& sparseBlockOC, MNN::CoreFunctions
     }
 }
 
+// fp32 <--> fp8
+static const int FP32_EXP_BIAS = 127;
+static const int FP8_EXP_BIAS = 24;   // [0, 31] --> [-24, 7] --> [1 / 2^24, 2^7]
+void MNNFp32ToFp8(uint8_t* dst, const float* src, size_t size) {
+    for (int i = 0; i < size; i++) {
+        uint32_t rawData = *((uint32_t *)(&src[i]));
+        uint32_t sign = (rawData >> 31) & 1U;
+        uint32_t exp = (int)((rawData >> 23) & 0x0ffU);
+        uint32_t mant = (rawData >> 21) & 3U;
+        int realExp = (int)exp - FP32_EXP_BIAS;
+        realExp = ALIMAX(realExp,  0 - FP8_EXP_BIAS);
+        realExp = ALIMIN(realExp, 31 - FP8_EXP_BIAS);
+        exp = (uint32_t)(realExp + FP8_EXP_BIAS);
+        dst[i] = (int8_t)((sign << 7) | (exp << 2) | mant);
+    }
+}
+void MNNFp8ToFp32(float* dst, const uint8_t* src, size_t size) {
+    for (int i = 0; i < size; i++) {
+        uint32_t sign = (src[i] >> 7) & 1U;
+        uint32_t exp = (int)((src[i] >> 2) & 0x1fU);
+        uint32_t mant = (src[i] & 3U) << 21;
+        int realExp = (int)exp - FP8_EXP_BIAS;
+        exp = (uint32_t)(realExp + FP32_EXP_BIAS);
+        uint32_t rawData = (sign << 31) | (exp << 23) | mant;
+        dst[i] = *((float *)(&rawData));
+    }
+}
+// fp16 <--> fp8
+void MNNFp16ToFp8(uint8_t* dst, const uint16_t* src, size_t size) {
+#ifdef MNN_USE_NEON
+#ifdef __aarch64__
+    int loopN = size / 16;
+    for (int i = 0; i < loopN; i++) {
+        uint8x16_t v1 = vld1q_u8((uint8_t*)(src + i * 16));
+        uint8x16_t v2 = vld1q_u8((uint8_t*)(src + i * 16 + 8));
+        uint8x16_t res = vuzp2q_u8(v1, v2);
+        vst1q_u8(dst + i * 16, res);
+    }
+    for (int i = loopN * 16; i < size; i++) {
+        dst[i] = static_cast<int8_t>(src[i] >> 8);
+    }
+#else
+    int loopN = size / 8;
+    for (int i = 0; i < loopN; i++) {
+        uint16x8_t vec = vld1q_u16(src + i * 8);
+        uint8x8_t  res = vshrn_n_u16(vec, 8);
+        vst1_u8(dst + i * 8, res);
+    }
+    for (int i = loopN * 8; i < size; i++) {
+        dst[i] = static_cast<int8_t>(src[i] >> 8);
+    }
+#endif // ARM64
+#else
+    for (int i = 0; i < size; i++) {
+        dst[i] = static_cast<int8_t>(src[i] >> 8);
+    }
+#endif // USE_NEON
+}
+void MNNFp8ToFp16(uint16_t* dst, const uint8_t* src, size_t size) {
+#ifdef MNN_USE_NEON
+    int loopN = size / 8;
+    for (int i = 0; i < loopN; i++) {
+        uint8x8_t vec8x8 = vld1_u8(src + i * 8);
+        uint16x8_t vec16x8 = vshll_n_u8(vec8x8, 8);
+        vst1q_u16(dst + i * 8, vec16x8);
+    }
+    for (int i = loopN * 8; i < size; i++) {
+        dst[i] = static_cast<int16_t>(src[i]) << 8;
+    }
+#else
+    for (int i = 0; i < size; i++) {
+        dst[i] = static_cast<int16_t>(src[i]) << 8;
+    }
+#endif // USE_NEON
+}
+
 #ifdef MNN_LOW_MEMORY
 static void generalIm2col(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el, int LP, int pack) {
     // LP >= pack
@@ -4559,6 +4468,11 @@ static CoreFunctions* gCoreFunction = nullptr;
 
 void MNNCoreFunctionInit() {
     gCoreFunction = new CoreFunctions;
+    // fp8
+    gCoreFunction->MNNFp32ToFp8 = MNNFp32ToFp8;
+    gCoreFunction->MNNFp16ToFp8 = MNNFp16ToFp8;
+    gCoreFunction->MNNFp8ToFp32 = MNNFp8ToFp32;
+    gCoreFunction->MNNFp8ToFp16 = MNNFp8ToFp16;
 
     // MatMul
     gCoreFunction->MNNGetMatMulPackMode = MNNGetMatMulPackMode;
@@ -4567,10 +4481,8 @@ void MNNCoreFunctionInit() {
     gCoreFunction->MNNPackedMatMul = MNNPackedMatMul;
     gCoreFunction->MNNPackedMatMulRemain = MNNPackedMatMulRemain;
     gCoreFunction->MNNCountMaxMinValue = MNNCountMaxMinValue;
-#ifdef MNN_USE_SPARSE_COMPUTE
     gCoreFunction->MNNGetSparseMatMulPackMode = MNNGetSparseMatMulPackMode;
     gCoreFunction->MNNAdjustOptimalSparseKernel = _MNNAdjustOptimalSparseKernel;
-#endif
 
     gCoreFunction->MNNComputeMatMulForE_1 = MNNComputeMatMulForE_1;
     gCoreFunction->MNNComputeMatMulForH_1 = MNNComputeMatMulForH_1;

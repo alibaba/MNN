@@ -475,7 +475,6 @@ Calibration::Calibration(MNN::NetT* model, const uint8_t* modelBuffer, const int
     }
     if (picObj.HasMember("batch_size")) {
         _batch = picObj["batch_size"].GetInt();
-        _batchSetByUser = true;
     }
     if (picObj.HasMember("quant_bits")) {
         _quant_bits = picObj["quant_bits"].GetInt();
@@ -1280,12 +1279,6 @@ void Calibration::_quantizeModelEMA() {
         originFormat = originInfo->order;
         originDims = originInfo->dim;
         originType = originInfo->type;
-    }
-    if (!_batchSetByUser && !originDims.empty() && originDims[0] > 0) {
-        if (_batch != originDims[0]) {
-            DLOG(INFO) << "batch_size not set, use model batch: " << originDims[0];
-            _batch = originDims[0];
-        }
     }
     _module.reset(NN::extract(varInputs, varOutputs, true), Module::destroy);
     NN::turnQuantize(_module.get(), _quant_bits, NN::PerTensor, NN::MovingAverage, _winogradOpt);

@@ -94,15 +94,11 @@ class LlmTokenizer(PreTrainedTokenizer):
 
     def save_vocabulary(self, save_directory, **kwargs):
         file_path = os.path.join(save_directory, "tokenizer.txt")
+        # ... (rest of the save_vocabulary logic is unchanged)
         return (file_path,)
 
     def get_chat_template(self, chat_template = None, tools = None):
-        if chat_template is None and not getattr(self.tokenizer, 'chat_template', None):
-            return None
-        try:
-            return self.tokenizer.get_chat_template(chat_template, tools)
-        except ValueError:
-            return None
+        return self.tokenizer.get_chat_template(chat_template, tools)
 
     def export(self, save_directory, model_path=None, model_type=None):
         """

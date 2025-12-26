@@ -25,8 +25,7 @@ def spinner_run(text='Processing...', hide=False):
                 during = f'[{end-start:05.2f} s]'.replace('[0', '[ ')
                 padding = ' ' * (64 - len(spinner.text) - len(result))
                 spinner.text = f'{spinner.text}{YELLOW}{result}{RESET}{padding}{GREEN}{during}{RESET}'
-                spinner.ok(f"✅ Done")
-                print(RESET, end='')  # 确保颜色重置
+                spinner.ok("✅ Done")
                 return result
         return wrapper
     return decorator

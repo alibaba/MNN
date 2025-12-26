@@ -8,12 +8,9 @@
 #include <stdlib.h>
 #include <initializer_list>
 #include <rapidjson/document.h>
-#include <rapidjson/stringbuffer.h>
-#include <rapidjson/writer.h>
 #include <thread>
 #include <algorithm>
 #include <numeric>
-#include <memory>
 
 
 #define MNN_OPEN_TIME_TRACE
@@ -32,7 +29,7 @@ struct RuntimeParameters {
     std::vector<int>                 dynamicOption;
     std::vector<int>                 divisionRatioSme2Neon;
     std::vector<int>                 smeCoreNum;
-    std::vector<int>                 attentionOption;
+    std::vector<int>                 quantAttention;
 };
 
 struct TestParameters {
@@ -55,7 +52,7 @@ struct CommandParameters {
     int                 dynamicOption;
     int                 divisionRatioSme2Neon;
     int                 smeCoreNum;
-    int                 attentionOption;
+    int                 quantAttention;
 
     int                 nPrompt;
     int                 nGenerate;
@@ -75,9 +72,9 @@ static const RuntimeParameters runtimeParamsDefaults = {
     /* precision            */ { 2 },
     /* memory               */ { 2 },
     /* dynamicOption        */ { 0 },
+    /* quantAttention       */  { 0 },
     /* divisionRatioSme2Neon*/ { 41 },
-    /* smeCoreNum             */ { 2 },
-    /* attentionOption       */  { 0 }
+    /* smeCoreNum             */ { 2 }
 };
 
 
@@ -105,7 +102,7 @@ struct commandParametersInstance {
         mCmdParam.memory         = cmdParam.memory;
         mCmdParam.dynamicOption  = cmdParam.dynamicOption;
         mCmdParam.divisionRatioSme2Neon = cmdParam.divisionRatioSme2Neon;
-        mCmdParam.attentionOption = cmdParam.attentionOption;
+        mCmdParam.quantAttention = cmdParam.quantAttention;
 
         mCmdParam.nPrompt        = cmdParam.nPrompt;
         mCmdParam.nGenerate      = cmdParam.nGenerate;
@@ -127,7 +124,7 @@ struct commandParametersInstance {
         mCmdParam.precision == other.mCmdParam.precision &&
         mCmdParam.memory == other.mCmdParam.memory &&
         mCmdParam.dynamicOption == other.mCmdParam.dynamicOption &&
-        mCmdParam.attentionOption == other.mCmdParam.attentionOption &&
+        mCmdParam.quantAttention == other.mCmdParam.quantAttention &&
         mCmdParam.smeCoreNum == other.mCmdParam.smeCoreNum &&
         mCmdParam.divisionRatioSme2Neon == other.mCmdParam.divisionRatioSme2Neon;
     }
@@ -182,7 +179,7 @@ struct TestInstance {
     int                      dynamicOption;
     int                      divisionRatioSme2Neon;
     int                      smeCoreNum;
-    int                      attentionOption;
+    int                      quantAttention;
 
     TestInstance(const commandParametersInstance & instance) {
 
@@ -198,7 +195,7 @@ struct TestInstance {
         dynamicOption     = instance.mCmdParam.dynamicOption;
         divisionRatioSme2Neon = instance.mCmdParam.divisionRatioSme2Neon;
         smeCoreNum        = instance.mCmdParam.smeCoreNum;
-        attentionOption    = instance.mCmdParam.attentionOption;
+        quantAttention    = instance.mCmdParam.quantAttention;
     }
 
     std::vector<double> getTokensPerSecond(int n_tokens, std::vector<int64_t> cost_us) const {
@@ -317,9 +314,9 @@ struct markdownPrinter : public Printer {
         if (!(rp.divisionRatioSme2Neon.size() == 1 && rp.divisionRatioSme2Neon[0] == runtimeParamsDefaults.divisionRatioSme2Neon[0])) {
             fields.emplace_back("divisionRatioSme2Neon");
         }
-        for (auto x: rp.attentionOption) {
+        for (auto x: rp.quantAttention) {
             if (x != 0) {
-                fields.emplace_back("attentionOption");
+                fields.emplace_back("quantAttention");
                 break;
             }
             break;
@@ -421,12 +418,12 @@ struct markdownPrinter : public Printer {
             } else if (field == "smeCoreNum") {
                 snprintf(buf, sizeof(buf), "%d", t.smeCoreNum);
                 value = buf;
-            } else if (field == "attentionOption") {
-                snprintf(buf, sizeof(buf), "%d", t.attentionOption);
+            } else if (field == "quantAttention") {
+                snprintf(buf, sizeof(buf), "%d", t.quantAttention);
 //                value = buf;
-                if (t.attentionOption == 1) {
+                if (t.quantAttention == 1) {
                     value = "Int8 Q,K";
-                } else if (t.attentionOption == 2) {
+                } else if (t.quantAttention == 2) {
                     value = "Int8 Q,K,V";
                 } else {
 
@@ -446,164 +443,6 @@ struct markdownPrinter : public Printer {
             fprintf(fout, " %*s |", width, value.c_str());
         }
         fprintf(fout, "\n");
-    }
-};
-
-struct jsonAggregator : public Printer {
-    std::vector<TestInstance> instances;
-
-    void printHeader(const RuntimeParameters & rp, const TestParameters & tp) override {
-        // No header for JSON
-    }
-
-    void printPerformance(const TestInstance & t) override {
-        instances.push_back(t);
-    }
-
-    ~jsonAggregator() {
-        if (instances.empty() || !fout) return;
-
-        rapidjson::StringBuffer s;
-        rapidjson::Writer<rapidjson::StringBuffer> writer(s);
-
-        // Use the first instance for common config
-        const auto& t = instances[0];
-
-        writer.StartObject();
-        writer.Key("model");
-        writer.String(t.modelType.c_str());
-        writer.Key("modelSize");
-        writer.Double(t.modelSize / 1024.0 / 1024.0 / 1024.0); // GB
-        writer.Key("backend");
-        if (t.backend == 1) writer.String("METAL");
-        else if (t.backend == 3) writer.String("OPENCL");
-        else writer.String("CPU");
-
-        writer.Key("threads");
-        writer.Int(t.threads);
-        writer.Key("useMmap");
-        writer.Bool(t.useMmap);
-        writer.Key("precision");
-        writer.Int(t.precision);
-        writer.Key("memory");
-        writer.Int(t.memory);
-        writer.Key("power");
-        writer.Int(t.power);
-        writer.Key("attentionOption");
-        writer.Int(t.attentionOption);
-
-        // Store metrics as arrays to avoid duplicate keys
-        writer.Key("results");
-        writer.StartArray();
-
-        for (const auto& inst : instances) {
-            writer.StartObject();
-
-            // Case 1: Prefill (nPrompt > 0, nGenerate == 0)
-            if (inst.nPrompt > 0 && inst.nGenerate == 0) {
-                writer.Key("type");
-                writer.String("prefill");
-                writer.Key("prompt_len");
-                writer.Int(inst.nPrompt);
-
-                std::vector<double> speed;
-                if (!inst.prefillUs.empty()) {
-                    speed = inst.getTokensPerSecond(inst.nPrompt, inst.prefillUs);
-                } else if (!inst.samplesUs.empty()) {
-                    speed = inst.getTokensPerSecond(inst.nPrompt, inst.samplesUs);
-                }
-
-                if (!speed.empty()) {
-                    writer.Key("tps");
-                    writer.Double(inst.getAvgUs(speed));
-                    writer.Key("std");
-                    writer.Double(inst.getStdevUs(speed));
-                }
-            }
-            // Case 2: Decode (nGenerate > 0, nPrompt == 0)
-            else if (inst.nGenerate > 0 && inst.nPrompt == 0) {
-                writer.Key("type");
-                writer.String("decode");
-                writer.Key("generate_len");
-                writer.Int(inst.nGenerate);
-
-                std::vector<double> speed;
-                if (!inst.decodeUs.empty()) {
-                    speed = inst.getTokensPerSecond(inst.nGenerate, inst.decodeUs);
-                } else if (!inst.samplesUs.empty()) {
-                    speed = inst.getTokensPerSecond(inst.nGenerate, inst.samplesUs);
-                }
-
-                if (!speed.empty()) {
-                    writer.Key("tps");
-                    writer.Double(inst.getAvgUs(speed));
-                    writer.Key("std");
-                    writer.Double(inst.getStdevUs(speed));
-                }
-            }
-            // Case 3: Combined prefill+decode (demo mode)
-            else if (inst.nPrompt > 0 && inst.nGenerate > 0) {
-                writer.Key("type");
-                writer.String("prefill_and_decode");
-                writer.Key("prompt_len");
-                writer.Int(inst.nPrompt);
-                writer.Key("generate_len");
-                writer.Int(inst.nGenerate);
-
-                if (!inst.prefillUs.empty()) {
-                    auto prefill_speed = inst.getTokensPerSecond(inst.nPrompt, inst.prefillUs);
-                    writer.Key("prefill_tps");
-                    writer.Double(inst.getAvgUs(prefill_speed));
-                    writer.Key("prefill_std");
-                    writer.Double(inst.getStdevUs(prefill_speed));
-                }
-                if (!inst.decodeUs.empty()) {
-                    auto decode_speed = inst.getTokensPerSecond(inst.nGenerate, inst.decodeUs);
-                    writer.Key("decode_tps");
-                    writer.Double(inst.getAvgUs(decode_speed));
-                    writer.Key("decode_std");
-                    writer.Double(inst.getStdevUs(decode_speed));
-                }
-            }
-
-            // Loading time
-            if (!inst.loadingS.empty()) {
-                writer.Key("loading_time");
-                writer.Double(inst.getAvgUs(inst.loadingS));
-                writer.Key("loading_time_std");
-                writer.Double(inst.getStdevUs(inst.loadingS));
-            }
-
-            writer.EndObject();
-        }
-
-        writer.EndArray();
-        writer.EndObject();
-        fprintf(fout, "%s\n", s.GetString());
-    }
-};
-
-struct MultiPrinter : public Printer {
-    std::vector<std::unique_ptr<Printer>> printers;
-
-    void add(std::unique_ptr<Printer> p) {
-        printers.push_back(std::move(p));
-    }
-
-    void printHeader(const RuntimeParameters & rp, const TestParameters & tp) override {
-        for (auto& p : printers) {
-            p->printHeader(rp, tp);
-        }
-    }
-
-    void printPerformance(const TestInstance & t) override {
-        for (auto& p : printers) {
-            p->printPerformance(t);
-        }
-    }
-
-    ~MultiPrinter() {
-        // unique_ptr automatically handles deletion
     }
 };
 
@@ -656,7 +495,7 @@ static std::vector<commandParametersInstance> get_cmd_params_instances(const Run
     for (const auto & dyop : rp.dynamicOption)
     for (const auto &mratio: rp.divisionRatioSme2Neon)
     for (const auto &smeNum: rp.smeCoreNum)
-    for (const auto & quantAttn : rp.attentionOption)
+    for (const auto & quantAttn : rp.quantAttention)
         if (tp.kvCache == "true") { // MNN llm_demo test standard
             for (const auto & nPrompt : tp.nPrompt) {
                 if (nPrompt == 0) {
@@ -677,7 +516,7 @@ static std::vector<commandParametersInstance> get_cmd_params_instances(const Run
                     tmpParam.nGenerate = nGenerate;
                     tmpParam.useMmap = rp.useMmap;
                     tmpParam.dynamicOption = dyop;
-                    tmpParam.attentionOption = quantAttn;
+                    tmpParam.quantAttention = quantAttn;
                     tmpParam.nRepeat = tp.nRepeat[0];
                     tmpParam.kvCache = "true";
                     tmpParam.loadingTime = tp.loadTime;
@@ -703,7 +542,7 @@ static std::vector<commandParametersInstance> get_cmd_params_instances(const Run
                 tmpParam.precision = precision;
                 tmpParam.memory = memory;
                 tmpParam.dynamicOption = dyop;
-                tmpParam.attentionOption = quantAttn;
+                tmpParam.quantAttention = quantAttn;
                 tmpParam.nRepeat = tp.nRepeat[0];
                 tmpParam.kvCache = "false";
                 tmpParam.loadingTime = tp.loadTime;
@@ -724,7 +563,7 @@ static std::vector<commandParametersInstance> get_cmd_params_instances(const Run
                 tmpParam.precision = precision;
                 tmpParam.memory = memory;
                 tmpParam.dynamicOption = dyop;
-                tmpParam.attentionOption = quantAttn;
+                tmpParam.quantAttention = quantAttn;
                 tmpParam.nRepeat = tp.nRepeat[0];
                 tmpParam.kvCache = "false";
                 tmpParam.loadingTime = tp.loadTime;
@@ -748,7 +587,7 @@ static std::vector<commandParametersInstance> get_cmd_params_instances(const Run
                 tmpParam.precision = precision;
                 tmpParam.memory = memory;
                 tmpParam.dynamicOption = dyop;
-                tmpParam.attentionOption = quantAttn;
+                tmpParam.quantAttention = quantAttn;
                 tmpParam.nRepeat = tp.nRepeat[0];
                 tmpParam.kvCache = "false";
                 tmpParam.loadingTime = tp.loadTime;
@@ -806,12 +645,11 @@ static void printUsage(int /* argc */, char ** argv) {
     printf("  -load, --loading-time <true|false>        (default: %s)\n", "true");
     printf("  -dyo, --dynamicOption <n>                 (default: 0) | Note: if set 8, trades higher memory usage for better decoding performance\n");
     printf("  -mr, --mixedSme2NeonRatio <n>             (default: 41) | Note: This parameter is intended to optimize multi-threaded inference performance on backends that support Arm SME instructions. The optimal ratio may vary across different models; we recommend trying values such as 41, 49, 33.\n");
-    printf("  -qatten, --quant-attention <0|1>          (default: 0) | Note: if 1, quantize attention's key value to int8; default 0\n");
-    printf("  -j, --json <filename>                     (default: llm_bench.json) | Note: if set, output result to a JSON file\n");
+    printf("  -qatten, --quant-attention <0|1>           (default: 0) | Note: if 1, quantize attention's key value to int8; default 0\n");
 }
 
 
-static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimeParams, TestParameters & testParams, FILE** outfile, bool& helpInfo, bool& jsonMode, std::string& jsonFile) {
+static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimeParams, TestParameters & testParams, FILE** outfile, bool& helpInfo) {
     std::string       arg;
     bool              invalidParam = false;
     const std::string argPrefix    = "--";
@@ -975,12 +813,7 @@ static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimePa
                 break;
             }
             auto p = splitString<int>(argv[i], splitDelim);
-            runtimeParams.attentionOption.insert(runtimeParams.attentionOption.end(), p.begin(), p.end());
-        } else if (arg == "-j" || arg == "--json") {
-             jsonMode = true;
-             if (i + 1 < argc && argv[i+1][0] != '-') {
-                 jsonFile = argv[++i];
-             }
+            runtimeParams.quantAttention.insert(runtimeParams.quantAttention.end(), p.begin(), p.end());
         }
         else {
             invalidParam = true;
@@ -1032,8 +865,8 @@ static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimePa
     if (runtimeParams.smeCoreNum.empty()) {
         runtimeParams.smeCoreNum = runtimeParamsDefaults.smeCoreNum;
     }
-    if (runtimeParams.attentionOption.empty()) {
-        runtimeParams.attentionOption = runtimeParamsDefaults.attentionOption;
+    if (runtimeParams.quantAttention.empty()) {
+        runtimeParams.quantAttention = runtimeParamsDefaults.quantAttention;
     }
     if (testParams.nRepeat.empty()) {
         testParams.nRepeat = testParamsDefaults.nRepeat;
@@ -1043,14 +876,11 @@ static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimePa
 }
 
 
-static Llm* buildLLM(const std::string& config_path, int backend, int memory, int precision, int threads, int power, int dynamic_option, bool use_mmap, int divisionRatioSme2Neon, int smeCoreNum, int promptLen, int attention_mode) {
+static Llm* buildLLM(const std::string& config_path, int backend, int memory, int precision, int threads, int power, int dynamic_option, bool use_mmap, int divisionRatioSme2Neon, int smeCoreNum, int promptLen, int quant_attention) {
     auto llmPtr = Llm::createLLM(config_path);
     llmPtr->set_config(R"({
         "async":false
     })");
-    // "Set reuse_kv=false for multiple test runs.
-    // Otherwise, mContext->history_tokens retains data after the first run, skewing true prefill performance metrics."
-    llmPtr->set_config(R"({"reuse_kv":false})");
     std::map<int, std::string> lever = {{0,"normal"}, {1, "high"}, {2, "low"}};
     std::map<int, std::string> backend_type = {{0, "cpu"}, {1, "metal"}, {3, "opencl"}};
     std::map<bool, std::string> mmap = {{true,"true"}, {false, "false"}};
@@ -1087,9 +917,9 @@ static Llm* buildLLM(const std::string& config_path, int backend, int memory, in
         MNN_ERROR("dynamic_option for LLM config set error\n");
         return nullptr;
     }
-    setSuccess &= llmPtr->set_config("{\"attention_mode\":" + std::to_string(attention_mode + 8) + "}");
+    setSuccess &= llmPtr->set_config("{\"quant_qkv\":" + std::to_string(quant_attention + 8) + "}");
     if (!setSuccess) {
-        MNN_ERROR("attention_mode for LLM config set error\n");
+        MNN_ERROR("quant_qkv for LLM config set error\n");
         return nullptr;
     }
     setSuccess &= llmPtr->set_config("{\"use_mmap\":" + mmap[use_mmap] + "}");
@@ -1124,9 +954,7 @@ int main(int argc, char ** argv) {
     TestParameters testParams;
     FILE* outfile = stdout;
     bool helpInfo = false;
-    bool jsonMode = false;
-    std::string jsonFile = "llm_bench.json";
-    bool parseSuccess = parseCmdParams(argc, argv, runtimeParams, testParams, &outfile, helpInfo, jsonMode, jsonFile);
+    bool parseSuccess = parseCmdParams(argc, argv, runtimeParams, testParams, &outfile, helpInfo);
     if (!parseSuccess) {
         MNN_ERROR("Parse arguments error\n");
         return -1;
@@ -1135,29 +963,7 @@ int main(int argc, char ** argv) {
         return 0;
     }
     std::vector<commandParametersInstance> paramsInstances = get_cmd_params_instances(runtimeParams, testParams);
-
-    // Setup printers using smart pointers
-    std::unique_ptr<MultiPrinter> multiPrinter(new MultiPrinter());
-
-    // Always add markdown printer for stdout
-    std::unique_ptr<markdownPrinter> mdPrinter(new markdownPrinter());
-    mdPrinter->fout = outfile;
-    multiPrinter->add(std::move(mdPrinter));
-
-    // If json mode, add json printer for file output
-    if (jsonMode) {
-        FILE* fp = fopen(jsonFile.c_str(), "w");
-        if (fp) {
-            std::unique_ptr<jsonAggregator> jPrinter(new jsonAggregator());
-            jPrinter->fout = fp;
-            multiPrinter->add(std::move(jPrinter));
-        } else {
-            MNN_ERROR("Failed to open %s for writing\n", jsonFile.c_str());
-        }
-    }
-
-    std::unique_ptr<Printer> printer_ = std::move(multiPrinter);
-
+    std::unique_ptr<Printer> printer_(new markdownPrinter());
     bool printHeader = true;
 
     for (const auto & instance: paramsInstances) {
@@ -1171,7 +977,7 @@ int main(int argc, char ** argv) {
         auto executor = MNN::Express::Executor::newExecutor(MNN_FORWARD_CPU, backendConfig, 1);
         MNN::Express::ExecutorScope scope(executor);
 
-        auto llmPtr = buildLLM(instance.mCmdParam.model, instance.mCmdParam.backend, instance.mCmdParam.memory, instance.mCmdParam.precision, instance.mCmdParam.threads, instance.mCmdParam.power, instance.mCmdParam.dynamicOption, instance.mCmdParam.useMmap, instance.mCmdParam.divisionRatioSme2Neon, instance.mCmdParam.smeCoreNum, instance.mCmdParam.nPrompt, instance.mCmdParam.attentionOption);
+        auto llmPtr = buildLLM(instance.mCmdParam.model, instance.mCmdParam.backend, instance.mCmdParam.memory, instance.mCmdParam.precision, instance.mCmdParam.threads, instance.mCmdParam.power, instance.mCmdParam.dynamicOption, instance.mCmdParam.useMmap, instance.mCmdParam.quantAttention, instance.mCmdParam.divisionRatioSme2Neon, instance.mCmdParam.smeCoreNum, instance.mCmdParam.nPrompt);
         std::unique_ptr<Llm> llm(llmPtr);
         if (instance.mCmdParam.loadingTime == "true") {
             for (int k = 0; k < 3; ++k) {
@@ -1205,6 +1011,7 @@ int main(int argc, char ** argv) {
                 }
             }
             if (printHeader) {
+                printer_->fout = outfile;
                 printer_->printHeader(runtimeParams, testParams);
                 printHeader = false;
             }
@@ -1235,6 +1042,7 @@ int main(int argc, char ** argv) {
             }
 
             if (printHeader) {
+                printer_->fout = outfile;
                 printer_->printHeader(runtimeParams, testParams);
                 printHeader = false;
             }
@@ -1245,9 +1053,9 @@ int main(int argc, char ** argv) {
         }
     }
 
-    fprintf(stdout, "\n");
-    if (outfile != stdout) {
-        fclose(outfile);
+    fprintf(printer_->fout, "\n");
+    if (printer_->fout != stdout) {
+        fclose(printer_->fout);
     }
     return 0;
 }

@@ -232,7 +232,7 @@ static void doProfile(const QNN_INTERFACE_VER_TYPE& interface, const Qnn_Profile
 
             if (eventData.type) {
                 MNN_PRINT("Found EXECUTE event. Total time: %llu us. Querying sub-events...\n", (unsigned long long)eventData.value);
-
+                
                 uint32_t numSubEvents = 0;
                 const QnnProfile_EventId_t* subEvents = nullptr;
 
@@ -254,7 +254,7 @@ static void doProfile(const QNN_INTERFACE_VER_TYPE& interface, const Qnn_Profile
 
                         switch (subEventData.unit) {
                             case QNN_PROFILE_EVENTUNIT_MICROSEC:
-                                MNN_PRINT("Node: %-45s | Time: %10llu us (%.3f ms)\n",
+                                MNN_PRINT("Node: %-45s | Time: %10llu us (%.3f ms)\n", 
                                         nodeName, (unsigned long long)value, (double)value / 1000.0);
                                 break;
                             case QNN_PROFILE_EVENTUNIT_CYCLES:
@@ -318,7 +318,7 @@ static void doProfile(const QNN_INTERFACE_VER_TYPE& interface, const Qnn_Profile
                 }
             }
         }
-
+        
         if (!opCycleStats.empty()) {
             MNN_PRINT("\n--- QNN Operator-wise Performance Summary ---\n");
             MNN_PRINT("%-20s | %15s | %s\n", "Operator Type", "Total Cycles", "Percentage");
@@ -1166,7 +1166,7 @@ Backend::MemObj* QnnBackend::onAcquire(const Tensor* tensor, StorageType storage
     if (TensorUtils::getDescribe(tensor)->index >= 0) {
         tName = std::string("t") + std::to_string(TensorUtils::getDescribe(tensor)->index);
     }
-
+    
     bool isInput = TensorUtils::getDescribe(tensor)->usage==Tensor::InsideDescribe::Usage::INPUT;
     bool isOutput = TensorUtils::getDescribe(tensor)->usage==Tensor::InsideDescribe::Usage::OUTPUT;
     bool isConst = TensorUtils::getDescribe(tensor)->usage==Tensor::InsideDescribe::Usage::CONSTANT;
@@ -1223,7 +1223,7 @@ Backend::MemObj* QnnBackend::onAcquire(const Tensor* tensor, StorageType storage
             tQuantizeParams.encodingDefinition = QNN_DEFINITION_DEFINED;
             tQuantizeParams.quantizationEncoding = QNN_QUANTIZATION_ENCODING_SCALE_OFFSET;
             tScaleOffsetEncoding.scale = quant->scale;
-            tScaleOffsetEncoding.offset = quant->zero;
+            tScaleOffsetEncoding.offset = -32768;
             tDataType = QNN_DATATYPE_UFIXED_POINT_16;
             if (isOutput) {
                 tType = QNN_TENSOR_TYPE_NATIVE;
@@ -1232,7 +1232,7 @@ Backend::MemObj* QnnBackend::onAcquire(const Tensor* tensor, StorageType storage
     }
     tQuantizeParams.scaleOffsetEncoding = tScaleOffsetEncoding;
     Tensor::DimensionType tensorDimType = tensor->getDimensionType();
-
+    
     std::vector<int> tDims = tensor->shape();
     if(TensorUtils::getDescribe(tensor)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4){
         tensorDimType = gQnnTensorDimType;
@@ -1681,7 +1681,7 @@ void QnnRuntime::freeContext() const {
         CALL_QNN(mQnnInterface.contextFree(mQnnContextHandle, nullptr));
         mQnnContextHandle = nullptr;
         mBinaryBuffer.clear();
-    }
+    }    
 }
 
 std::pair<const void*, size_t> QnnRuntime::onGetCache() {
@@ -1747,7 +1747,7 @@ public:
     }
     static bool _supportQuant(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
         auto otype = op->type();
-        std::set<OpType> judgOneInputOpTypes = { OpType_Slice, OpType_StridedSlice, OpType_GatherV2, OpType_Reshape, OpType_Unsqueeze, OpType_Flatten, OpType_Squeeze};
+        std::set<OpType> judgOneInputOpTypes = { OpType_Slice, OpType_StridedSlice, OpType_GatherV2};
         if(judgOneInputOpTypes.find(otype) != judgOneInputOpTypes.end()){
             if (TensorUtils::getDescribe(inputs[0])->quantAttr == nullptr) {
                 return false;
@@ -1760,7 +1760,6 @@ public:
                 }
             }
         }
-        auto quantType = TensorUtils::getDescribe(inputs[0])->quantAttr->type;
         switch (otype) {
             case OpType_Convolution:
             case OpType_ConvolutionDepthwise:
@@ -1778,14 +1777,8 @@ public:
                 } else {
                     return false;
                 }
-            case OpType_LayerNorm:
-                if(quantType == DataType_DT_INT16){
-                    return true;
-                }else{
-                    //ToDo :support featuremap int8 quant
-                    return false;
-                }
             case OpType_Scale:
+            case OpType_LayerNorm:
             case OpType_Attention:
                 return false;
             default:

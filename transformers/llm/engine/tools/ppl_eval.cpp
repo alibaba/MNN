@@ -9,14 +9,11 @@
 #include "llm/llm.hpp"
 #include "llmconfig.hpp"
 using namespace MNN::Express;
-
-// #define PRINT_LOSS
-
 static MNN::Express::VARP _CrossEntropy(std::vector<MNN::Express::VARP> inputs, int ignore_index) {
     auto shape = _Shape(inputs[0], true), oneV = _Unsqueeze(_Scalar<int>(1), {0}), classes = _Slice(shape, oneV, oneV);
     auto mask = _OneHot(inputs[1], classes, _Scalar<float>(1), _Scalar<float>(0), 1);
     mask = mask * _Cast<float>(_Unsqueeze(_NotEqual(inputs[1], _Scalar<int>(ignore_index)), {1}));
-
+    
     auto log_prob = inputs[0];
     log_prob = _Log(_Softmax(inputs[0], 1));
     auto temp = log_prob;
@@ -27,15 +24,11 @@ static MNN::Express::VARP _CrossEntropy(std::vector<MNN::Express::VARP> inputs, 
 
 int main(int argc, const char* argv[]) {
     if (argc < 3) {
-        MNN_PRINT("Usage: ./ppl_eval model/config.json wiki_output max_length\n");
+        MNN_PRINT("Usage: ./ppl_eval model/config.json wiki_output\n");
         return 0;
     }
     auto llmPath = argv[1];
     auto textPath = argv[2];
-    int maxLength = -1;
-    if (argc >= 4) {
-        maxLength = std::stoi(argv[3]);
-    }
     FUNC_PRINT_ALL(llmPath, s);
     FUNC_PRINT_ALL(textPath, s);
     std::shared_ptr<MNN::Transformer::Llm> llm(MNN::Transformer::Llm::createLLM(llmPath));
@@ -86,12 +79,8 @@ int main(int argc, const char* argv[]) {
     FUNC_PRINT(contextLength);
     FUNC_PRINT(stride);
     auto seqLen = inputIds.size();
-    if (maxLength > 0) {
-        seqLen = maxLength;
-    }
-
     size_t prevEnd = 0;
-
+    
     float lossSum = 0.0f;
     int lossNumber = 0;
     for (size_t begin = 0; begin < seqLen; begin += stride) {
@@ -115,9 +104,7 @@ int main(int argc, const char* argv[]) {
         lossSum+=loss;
         lossNumber++;
         prevEnd = end;
-#ifdef PRINT_LOSS
         MNN_PRINT("Compute: %d/%d, loss=%f\n", begin, seqLen, loss);
-#endif
         if (end == seqLen) {
             break;
         }

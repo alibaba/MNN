@@ -159,8 +159,8 @@ void CPUConvolution::MutableResourceInt8::updateInputOutputScale(std::vector<flo
     if (inputScale != 0 && outputScale != 0) {
         mInputScale = inputScale;
         mOutputScale = outputScale;
-        mInputZeroPoint = inputZeroPoint;
-        mOutputZeroPoint = outputZeroPoint;
+        mInputZeroPoint = int8_t(inputZeroPoint);
+        mOutputZeroPoint = int8_t(outputZeroPoint);
     }
     if (mInputScale == 0 || mOutputScale == 0) {
         return;

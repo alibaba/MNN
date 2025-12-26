@@ -91,8 +91,8 @@ void Session::ModeGroup::setHint(Interpreter::HintMode hint, int value) {
         case Interpreter::HintMode::DYNAMIC_QUANT_OPTIONS:
             runtimeHint.dynamicQuantOption = value;
             break;
-        case Interpreter::HintMode::ATTENTION_OPTION:
-            runtimeHint.attentionOption = value;
+        case Interpreter::HintMode::QKV_QUANT_OPTIONS:
+            runtimeHint.qkvQuantOption = value;
             break;
         case Interpreter::HintMode::KVCACHE_SIZE_LIMIT:
             runtimeHint.kvcacheSizeLimit = value;

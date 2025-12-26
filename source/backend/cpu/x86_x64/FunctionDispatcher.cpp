@@ -24,7 +24,7 @@ struct FunctionGroup {
     int lP                                                                                       = 1;
     int hP                                                                                       = 4;
     void (*MNNExpC8)(float* dest, const float* source, float* offset, const float* parameters, size_t countC8) = _SSE_MNNExpC8;
-    void (*MNNSoftmax)(float* softmaxDst, const float* input, float* runningMax, float* runningSum, float* updateScale, int outside, int reduceSize, int kvSeqOffset, int validOffset, int pack, bool mask) = _SSE_MNNSoftmax;
+    void (*MNNSoftmax)(float* softmaxDst, const float* input, float* runningMax, float* runningSum, float* updateScale, int outside, int reduceSize, int kvSeqOffset, int validOffset, int pack, bool mask) = MNNSoftmax;
     void (*MNNReluInt8)(int8_t* dst, const int8_t* src, size_t size, ssize_t zeroPoint) = _SSE_MNNReluInt8;
     void (*MNNHardSwish)(float* dst, const float* src, size_t size) = _SSE_MNNHardSwish;
     void (*MNNGelu)(float* dst, const float* src, size_t size, float* parameters) = _SSE_MNNGelu;
@@ -65,8 +65,6 @@ void MNNFunctionInit() {
         coreFunction->MNNPackForMatMul_B    = _SSE_MNNPackForMatMul_B;
         // Dynamic Quant
         coreFunction->MNNCountMaxMinValue = _SSE_MNNCountMinMaxValue;
-
-        coreFunction->MNNSoftmax = _SSE_MNNSoftmax;
 
     }
 #ifdef MNN_USE_AVX

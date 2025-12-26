@@ -25,7 +25,7 @@ class ShapeBroadcastTo : public SizeComputer {
         output->buffer().dimensions = inputDims > shapeDims ? inputDims : shapeDims;
         const int dimension = output->dimensions();
         const int* shapeData        = shape->host<int>();
-        if (op->main() && op->main_as_Axis() && op->main_as_Axis()->axis()) {
+        if (op->main() && op->main_as_Axis()->axis()) {
             for (int i = 0; i < dimension; i++) {
                 output->setLength(i, shapeData[i]);
             }

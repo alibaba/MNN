@@ -1,7 +1,4 @@
 #include <riscv_vector.h>
-#if defined(__linux__) || defined(__QNXNTO__)
- #include <sys/types.h>
-#endif
 
 void MNNCubicLineC16(int8_t* dst, const float* A, const float* B, 
                      const float* C, const float* D, float* t, 

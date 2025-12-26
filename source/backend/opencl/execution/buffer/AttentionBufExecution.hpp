@@ -22,8 +22,8 @@ public:
     KVCacheCLManager(Backend *backend, bool kv_cache);
 
     ~KVCacheCLManager() = default;
-    void allocKVCache(const KVMeta* meta, int seqlen);
-    bool reallocKVCache(const KVMeta* meta, int seqlen, bool isExecute = true);
+    void allocKVCache(const KVMeta* meta);
+    bool reallocKVCache(const KVMeta* meta, bool isExecute = true);
     void setArgs(int numHead, int kvNumHead, int headDim){
         mNumHead = numHead;
         mKvNumHead = kvNumHead;
@@ -46,6 +46,9 @@ public:
     }
     const cl::Buffer * value() {
         return mPastValue.get();
+    }
+    bool getKVCache(){
+        return mKVCache;
     }
 
 private:

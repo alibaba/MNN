@@ -374,9 +374,6 @@ endif()
 IF(MNN_DEBUG_MEMORY)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")
-
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
-    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fsanitize=address")
 endif()
 
 set(MNN_DEPS "")
@@ -940,11 +937,6 @@ if (NOT MNN_BUILD_SHARED_LIBS)
 endif()
 list(APPEND MNN_TARGETS MNN)
 list(REMOVE_ITEM MNN_TARGETS MNN)
-
-# Cache MNN_DEPS and MNN_INCLUDES for external projects
-set(MNN_LIBS ${MNN_DEPS} CACHE INTERNAL "MNN targets")
-set(MNN_INCLUDE_DIRS ${MNN_INCLUDES} CACHE INTERNAL "MNN include directories")
-
 IF(MNN_BUILD_DEMO)
 include(${CMAKE_CURRENT_LIST_DIR}/demo/exec/CMakeLists.txt)
 ENDIF()
