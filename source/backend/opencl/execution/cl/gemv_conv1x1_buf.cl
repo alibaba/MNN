@@ -15,14 +15,14 @@ __constant sampler_t SAMPLER = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP |
     }
 
 #define UCHAR4_TO_CHAR8(b, scale, offset) \
-    wei.s0 = CONVERT_FLOAT((b.s0 >> 4) - 8); \
-    wei.s1 = CONVERT_FLOAT((b.s0 & 15) - 8); \
-    wei.s2 = CONVERT_FLOAT((b.s1 >> 4) - 8); \
-    wei.s3 = CONVERT_FLOAT((b.s1 & 15) - 8); \
-    wei.s4 = CONVERT_FLOAT((b.s2 >> 4) - 8); \
-    wei.s5 = CONVERT_FLOAT((b.s2 & 15) - 8); \
-    wei.s6 = CONVERT_FLOAT((b.s3 >> 4) - 8); \
-    wei.s7 = CONVERT_FLOAT((b.s3 & 15) - 8); \
+    wei.s0 = (COMPUTE_FLOAT)((b.s0 >> 4) - 8); \
+    wei.s1 = (COMPUTE_FLOAT)((b.s0 & 15) - 8); \
+    wei.s2 = (COMPUTE_FLOAT)((b.s1 >> 4) - 8); \
+    wei.s3 = (COMPUTE_FLOAT)((b.s1 & 15) - 8); \
+    wei.s4 = (COMPUTE_FLOAT)((b.s2 >> 4) - 8); \
+    wei.s5 = (COMPUTE_FLOAT)((b.s2 & 15) - 8); \
+    wei.s6 = (COMPUTE_FLOAT)((b.s3 >> 4) - 8); \
+    wei.s7 = (COMPUTE_FLOAT)((b.s3 & 15) - 8); \
     wei = wei * scale + offset;
 
 

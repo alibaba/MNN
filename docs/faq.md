@@ -83,7 +83,7 @@ MNN 一般以动态库形式使用，里面有大量自注册函数，如果需�
 
 - GCC: -Wl,--whole-archive MNN -Wl,--no-whole-archive
 - OSX(Xcode): -Wl,-force_load MNN
-- Window(Visual-Studio): /WHOLEARCHIVE:MNN
+- Window(Visio-Studio): /WHOLEARCHIVE:MNN
 
 
 ## 模型转换
@@ -317,25 +317,3 @@ GPU 后端调用 copy 的时间包含两个部分
 3. 重新编译`MNN`库文件， `Convert`等所有工具；
 4. 使用新的工具重新转换模型；
 5. 在端侧使用新模型和新的`MNN`库文件进行部署；
-
-### 如何裁剪MNN库体积
-1. 如果模型输入形状固定，且不包含控制流算子，可以在编译MNN时增加 -DMNN_BUILD_MINI=ON ，这样形状计算和几何计算
-2. 如果只希望MNN运行指定的一系列模型，可以按如下方式先获取算子列表，再根据算子列表裁剪MNN
-
-```
-# 产出 op.txt
-./GetMNNInfo x0.mnn 
-# 追加 op.txt
-./GetMNNInfo x1.mnn
-./GetMNNInfo x2.mnn
-......
-```
-
-```
-cd ${MNN_ROOT}
-python3 tools/script/prue_mnn_ops.py op.txt .
-# 执行完成后会发现 source/backend/cpu/CPUOPRegister.cpp , source/geometry/GeometryOPRegister.cpp 等注册函数被修改了，说明生效
-```
-
-- 如果 MNN 编译为静态库，裁剪方案不影响静态库大小，但可以减小最终集成体积
-- 如果需要编译模型转换工具等，不要启用裁剪方案。建议仅在交叉编译目标部署设备的二进制库时使用裁剪方案。

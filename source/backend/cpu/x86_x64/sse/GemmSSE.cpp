@@ -543,9 +543,9 @@ void _SSE_MNNAsyQuantInfo(float* scale, float* bias, float* qscale, float* qbias
         }
         auto range = maxval - minval;
         if (range <= 1e-7) {
-            scale[0] = 1.f;
-            qscale[0] = 1.f;
-            qbias[0] = -maxval;
+            scale[0] = 0.f;
+            qscale[0] = 0.f;
+            qbias[0] = 0.f;
             bias[0] = maxval;
         } else {
             qscale[0] = 255.f / range;

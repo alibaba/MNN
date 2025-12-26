@@ -901,6 +901,8 @@ void Llm::response(const std::string& user_content, std::ostream* os, const char
     if (mConfig->use_template()) {
         prompt = mPrompt->applyTemplate(user_content, true);
     }
+    std::cout << "user_content: " << user_content << std::endl;
+    std::cout << "prompt: " << prompt << std::endl;
     std::vector<int> input_ids = tokenizer_encode(prompt);
     response(input_ids, os, end_with, max_new_tokens);
 }

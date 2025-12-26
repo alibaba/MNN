@@ -2445,14 +2445,12 @@ void MNNCoreInt8FunctionInit() {
     gCoreFunc->MNNFloat2Int8 = MNNFloat2Int8;
     gCoreFunc->MNNInt8ScaleToFloat = MNNInt8ScaleToFloat;
 
-#ifdef MNN_USE_SPARSE_COMPUTE
     // sparse
     gCoreFunc->MNNGetSparseQuantMatMulPackMode = MNNGetSparseQuantMatMulPackMode;
     gCoreFunc->MNNPackForSparseQuantMatMul_B = MNNPackForSparseQuantMatMul_B;
     gCoreFunc->MNNPackedSparseQuantMatMulEpx1 = MNNPackedSparseQuantMatMulEpx1;
     gCoreFunc->MNNPackedSparseQuantMatMulEpx4 = MNNPackedSparseQuantMatMulEpx4;
     gCoreFunc->MNNPackC4Int8ForMatMul_ASparse = _MNNPackC4Int8ForMatMul_ASparse;
-#endif
 
     // pooling
     gCoreFunc->MNNAvgPoolInt8 = MNNAvgPoolInt8;
