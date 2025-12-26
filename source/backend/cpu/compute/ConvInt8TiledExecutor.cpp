@@ -705,7 +705,6 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
     mSmeCores = gcore->smeCoreNumber;
     auto inputBlockQuantOption = option % WEIGHT_ONLINE_REORDER;
     auto weightOnlineReorderOption = WEIGHT_ONLINE_REORDER & option;
-
     _getProportions(static_cast<CPUBackend*>(backend())->getRuntime()->hint().divisionRatio, mRatioPrefill, mRatioDecode);
 
     // feature map info
@@ -748,7 +747,14 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
             mUseBatchQuan = false;
         }
     }
-
+    {
+        auto des = TensorUtils::getDescribe(inputs[0]);
+        if (nullptr != des->quantAttr.get()) {
+            mHasInputQuantInfo = true;
+            mUseBatchQuan = false;
+            inputBlockQuantOption = 0;
+        }
+    }
     float weightBytes = mResourceInt8->mWeightBits == 4 ? 0.5 : 1;
     mBlockNum = mResourceInt8->mBlockNum;
 
@@ -1596,6 +1602,7 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
     // Declare variables used in dynamic quantization
     const int threads = static_cast<CPUBackend*>(backend())->threadNumber();
     int dropBranch = 0;
+    auto inputDes = TensorUtils::getDescribe(input);
 
 #ifdef MNN_LOW_MEMORY
     auto BatchAsyDynamicQuant = [&](uint8_t* floatPtr, int32_t& inputZero, uint8_t* inputDequantScale, int LDiv4, int eCount, int innerSide, int32_t availableThreads, int8_t* dstInt8, uint8_t* inputDequantBias, int tId) {
@@ -1625,7 +1632,13 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
             info[8] = 1;
         }
         // scale&bias:float32
-        gcore->MNNAsyQuantInfo(scalePtr, zeroPtr, qscale, qbias, (float*)minPtr, (float*)maxPtr, (float*)floatPtr, info);
+        if (mHasInputQuantInfo) {
+            scalePtr[0] = inputDes->quantAttr->scale;
+            qscale[0] = 1.0f / inputDes->quantAttr->scale;
+            qbias[0] = - qscale[0] * inputDes->quantAttr->zero;
+        } else {
+            gcore->MNNAsyQuantInfo(scalePtr, zeroPtr, qscale, qbias, (float*)minPtr, (float*)maxPtr, (float*)floatPtr, info);
+        }
 
         // quant: float->int8_t
         if (!mToFuseInputbias2Bias) {
