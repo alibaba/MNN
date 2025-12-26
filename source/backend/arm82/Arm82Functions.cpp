@@ -58,6 +58,7 @@ void MNNGeneralIm2col_Fp16Sme2(float* destOrigin, float const** sourceGroup, con
 void MNNLocalMinMaxFP16_Pack4(float* dstMin, float* dstMax, const float* source, size_t blockNum, size_t blockLU, size_t EP, size_t LP, size_t loadDstBuffer);
 void MNNLocalMinMaxFP16_Pack8(float* dstMin, float* dstMax, const float* source, size_t blockNum, size_t blockLU, size_t EP, size_t LP, size_t loadDstBuffer);
 #endif // MNN_LOW_MEMORY
+void MNNTMacComputeFP16(float* dst, const int8_t* table, const float* inputSum, const TMacResource* res, const PlaneInfo* plane);
 void CountMinMaxValue_FP16(float* source, float* minVal, float* maxVal, size_t sizeQuad);
 #ifdef MNN_SME2
 void MNNPackedMatMulRemainFP16_SME2(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
@@ -2404,6 +2405,56 @@ static void MNNAsyQuantInfo_FP16(float* scale, float* bias, float* qscale, float
 #endif
 }
 
+static void MNNTMacBuildTableFp16(int8_t* destTable, int8_t* kernelSum, int8_t* source, size_t planeSize, size_t icC4, size_t pack, size_t blC4, size_t blockNum, size_t tableunit) {
+    auto bytes = 2;
+    int featuremapBytes = 4;
+    auto srcX = source;
+    auto dstX = destTable;
+    // build table
+    for (int z=0; z<icC4; ++z) {
+        auto dstZ = dstX + z * tableunit * featuremapBytes * (pack / 4);
+        auto srcZ = srcX + z * planeSize * pack * bytes;
+        for (int i = 0; i < pack / 4; ++i) {
+            auto S = (FLOAT16*)srcZ + i * 4;
+            auto D = (float*)dstZ + i * tableunit;
+            auto s3 = S[0];
+            auto s2 = S[1];
+            auto s1 = S[2];
+            auto s0 = S[3];
+            D[0] = 0.0f;
+            D[1] = s0;
+            D[2] = s1;
+            D[3] = s0 + s1;
+
+            D[4] = s2;
+            D[5] = s0 + s2;
+            D[6] = s1 + s2;
+            D[7] = s0 + s1 + s2;
+
+            D[8] = s3;
+            D[9] = s0 + s3;
+            D[10] = s1 + s3;
+            D[11] = s0 + s1 + s3;
+
+            D[12] = s2 + s3;
+            D[13] = s0 + s2 + s3;
+            D[14] = s1 + s2 + s3;
+            D[15] = s0 + s1 + s2 + s3;
+        }
+    }
+
+    // Compute Input Sum
+    auto dstF = reinterpret_cast<float*>(kernelSum);
+    for (int y=0; y<blockNum; ++y) {
+        float summer = 0.0f;
+        auto srcX = (float*)(destTable + y * blC4 * tableunit * featuremapBytes);
+        for (int z=0; z<blC4; ++z) {
+            summer += srcX[16 * z + 15];
+        }
+        dstF[y] = summer;
+    }
+}
+
 #endif // MNN_LOW_MEMORY
 
 #define EXP_APPROX_MIN_INPUT vdupq_n_f32(-88.0f)
@@ -2652,6 +2703,7 @@ bool Arm82Functions::init() {
             gInstance->supportI8mm = true;
         }
     }
+    gArm82CoreInt8Functions->MNNTMacCompute = MNNTMacComputeFP16;
 
     FUNC_PTR_ASSIGN(gInstance->MNNFp32ToFp8, MNNFp32ToFp8);
     FUNC_PTR_ASSIGN(gInstance->MNNFp16ToFp8, MNNFp16ToFp8);
@@ -2664,6 +2716,7 @@ bool Arm82Functions::init() {
 
     // Packed
     gInstance->pack = 8;
+    gInstance->tmacHp = 32;
     FUNC_PTR_ASSIGN(gInstance->MNNPackCUnit, MNNPackC8FP16);
     FUNC_PTR_ASSIGN(gInstance->MNNUnpackCUnit, MNNUnPackC8FP16);
     FUNC_PTR_ASSIGN(gInstance->MNNPackCUnitTranspose, MNNPackTransposeInt16C8);
@@ -2724,6 +2777,8 @@ bool Arm82Functions::init() {
     if (origin->supportI8mm) {
         FUNC_PTR_ASSIGN(gInstance->MNNGeneralIm2Col, MNNGeneralIm2col_Arm86);
     }
+    // TMac
+    gInstance->MNNTMacBuildTable = MNNTMacBuildTableFp16;
 #endif // MNN_LOW_MEMORY
     FUNC_PTR_ASSIGN(gInstance->MNNCountMaxMinValue, ARM82CountMinMaxValue); // return one min&max
     FUNC_PTR_ASSIGN(gInstance->MNNSumByAxisLForMatmul_A, origin->MNNSumByAxisLForMatmul_A);

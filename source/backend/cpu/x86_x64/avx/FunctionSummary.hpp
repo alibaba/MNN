@@ -84,4 +84,5 @@ void _AVX_MNNNormInt8(int8_t* dst, const int8_t* src, const float* gamma, const 
 void _AVX_MNNGetSparseMatMulPackMode(int* eP, int *lP, int* hP);
 void _AVX_MNNPackedSparseMatMulEpx1EFMA(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, unsigned int* NNZMap, int* dataOffsetMap);
 void _AVX_MNNPackedSparseMatMulEpx4EFMA(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, unsigned int* NNZMap, int* dataOffsetMap);
+void _AVX_MNNTMacCompute(float* dst, const int8_t* table, const float* inputSum, const TMacResource* res, const PlaneInfo* plane);
 }
