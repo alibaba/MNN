@@ -226,12 +226,12 @@ std::tuple<float, float, float> _countTensor(MNN::Tensor* tensor) {
     float maxValue = (float)ptr[0];
     float avgValue = (float)ptr[0];
     float minValue = (float)ptr[0];
+    float sumDiv = 1.0f / (float)size;
     for (int i=1; i<size; ++i) {
         maxValue = fmaxf(maxValue, (float)ptr[i]);
         minValue = fminf(minValue, (float)ptr[i]);
-        avgValue += (float)ptr[i];
+        avgValue += (float)ptr[i] * sumDiv;
     }
-    avgValue = avgValue / size;
     return std::make_tuple(maxValue, minValue, avgValue);
 }
 

@@ -1636,12 +1636,12 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
         }
 
         if (mToFuseInputbias2Bias) { // Decode
-            inputZero = static_cast<int32_t>(roundf(qbias[0]));
+            inputZero = roundf(qbias[0]);
             auto updatedBiasPtr = (float*)(mBiasBufferFusedInputzero.ptr() + tId * ocUpHp * QUANT_INFO_BYTES);
             auto matmulBiasPtr = mResourceInt8->mOriginBias->host<float>();
             auto weightKernelSum = mResourceInt8->mWeightKernelSum->host<float>();
-            auto inputZeroF = -qbias[0] * scalePtr[0];
-            gcore->MNNDynamicUpdateConvBiasScale(updatedBiasPtr, matmulBiasPtr, weightKernelSum, &inputZeroF, UP_DIV(ocUpHp, 4));
+            auto zero_ = -inputZero * scalePtr[0];
+            gcore->MNNDynamicUpdateConvBiasScale(updatedBiasPtr, matmulBiasPtr, weightKernelSum, &zero_, UP_DIV(ocUpHp, 4));
             biasPtr = (uint8_t*)updatedBiasPtr;
             auto unitsize = mBatchQuantInfo->length(1) / (2 * QUANT_INFO_BYTES);
             auto inputScale = scalePtr[0];

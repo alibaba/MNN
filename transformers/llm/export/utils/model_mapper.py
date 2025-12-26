@@ -522,7 +522,6 @@ class ModelMapper:
     def regist_fastvlm(self):
         fastvlm_model = copy.deepcopy(self.default_model)
         fastvlm_model['visual'] = 'model.vision_tower'
-        fastvlm_model['visual.mm_projector'] = 'model.mm_projector'
         fastvlm_map = {
             'config': self.default_config,
             'model': fastvlm_model,

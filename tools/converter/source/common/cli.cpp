@@ -580,17 +580,17 @@ static void computeUnaryBuffer(MNN::NetT* net) {
             if (type == UnaryOpOperation_ABS || type == UnaryOpOperation_NEG || type == UnaryOpOperation_SIGN) {
                 continue;
             }
-
-            auto outputId = op->outputIndexes[0];
-            auto inputId = op->inputIndexes[0];
-            if (describes.find(outputId) == describes.end() || describes.find(inputId) == describes.end()) {
-                continue;
-            }
             op->main.AsUnaryOp()->tableInt8.resize(255);
             auto unaryParam = op->main.AsUnaryOp()->tableInt8.data();
+
+            auto outputId = op->outputIndexes[0];
+            if (describes.find(outputId) == describes.end()) {
+                continue;
+            }
             auto unaryDes = describes.find(outputId)->second;
             float outScale = unaryDes->quantInfo->scale;
             float outZero  = unaryDes->quantInfo->zero;
+            auto inputId = op->inputIndexes[0];
             if (describes.find(inputId) == describes.end()) {
                 auto iter = describes.find(outputId);
 

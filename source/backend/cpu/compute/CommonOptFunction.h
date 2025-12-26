@@ -259,6 +259,12 @@ struct MatmulRelatedFunctions {
 };
 
 struct CoreFunctions {
+    // fp8
+    void (*MNNFp32ToFp8)(uint8_t* dst, const float* src, size_t size);
+    void (*MNNFp16ToFp8)(uint8_t* dst, const uint16_t* src, size_t size);
+    void (*MNNFp8ToFp32)(float* dst, const uint8_t* src, size_t size);
+    void (*MNNFp8ToFp16)(uint16_t* dst, const uint8_t* src, size_t size);
+
     // cpu feature
     bool supportFp16arith = false;
     bool supportSDot = false;
@@ -414,6 +420,8 @@ struct CoreFunctions {
     void(*MNNAccumulateSequenceNumber)(float* dst, const float* src, int size);
 
     // Attention
+    void(*MNNAttenUnpackAndConvertFp16)(float* dst, float* src, size_t depth, size_t planesize, int pack);
+    void(*MNNAttenPackAndConvertFp32)(float* dst, float* src, const int32_t* units, size_t depth, size_t planesize);
     void(*MNNAttenPackAndScaleSingleHead)(float* dst, const float* srcHeadBase, size_t srcRowStride, const float* scale, const int32_t* units, size_t seqLen, size_t headDim);
     void(*MNNFlashAttentionUpdateBlockOutput)(float* dst, float* src, float* scale, float* normalizeScale, int depthQuad, int plane, int pack, int idx, int kvBlocks, int size, int bytes, int seqStart);
     void(*MNNSoftmax)(float* softmaxDst, const float* input, float* runningMax, float* runningSum, float* updateScale, int outside, int reduceSize, int kvSeqOffset, int validOffset, int pack, bool mask);

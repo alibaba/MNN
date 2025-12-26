@@ -9,7 +9,7 @@ const char* gemv_conv1x1_buf =
 "#define GLOBAL_SIZE_DIM_2 "" __private int global_size_dim0,__private int global_size_dim1,\n"
 "#define GLOBAL_SIZE_DIM_3 "" __private int global_size_dim0,__private int global_size_dim1,__private int global_size_dim2,\n"
 "#define UNIFORM_BOUNDRY_CHECK_2(index0, index1) "" if(index0 >= global_size_dim0 || index1 >= global_size_dim1) { "" return; "" }\n"
-"#define UCHAR4_TO_CHAR8(b, scale, offset) "" wei.s0 = CONVERT_FLOAT((b.s0 >> 4) - 8); "" wei.s1 = CONVERT_FLOAT((b.s0 & 15) - 8); "" wei.s2 = CONVERT_FLOAT((b.s1 >> 4) - 8); "" wei.s3 = CONVERT_FLOAT((b.s1 & 15) - 8); "" wei.s4 = CONVERT_FLOAT((b.s2 >> 4) - 8); "" wei.s5 = CONVERT_FLOAT((b.s2 & 15) - 8); "" wei.s6 = CONVERT_FLOAT((b.s3 >> 4) - 8); "" wei.s7 = CONVERT_FLOAT((b.s3 & 15) - 8); "" wei=wei*scale+offset;\n"
+"#define UCHAR4_TO_CHAR8(b, scale, offset) "" wei.s0 = (COMPUTE_FLOAT)((b.s0 >> 4) - 8); "" wei.s1 = (COMPUTE_FLOAT)((b.s0 & 15) - 8); "" wei.s2 = (COMPUTE_FLOAT)((b.s1 >> 4) - 8); "" wei.s3 = (COMPUTE_FLOAT)((b.s1 & 15) - 8); "" wei.s4 = (COMPUTE_FLOAT)((b.s2 >> 4) - 8); "" wei.s5 = (COMPUTE_FLOAT)((b.s2 & 15) - 8); "" wei.s6 = (COMPUTE_FLOAT)((b.s3 >> 4) - 8); "" wei.s7 = (COMPUTE_FLOAT)((b.s3 & 15) - 8); "" wei=wei*scale+offset;\n"
 "#if WGS >= 8\n"
 "__kernel void gemv_conv_c8_buf(GLOBAL_SIZE_DIM_3\n"
 " __global const FLOAT* input,\n"

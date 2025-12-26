@@ -88,7 +88,6 @@ bool checkVectorByRelativeError(const T* result, const T* rightData, const T* al
     for(int i = 0; i < size; ++i) {
         if (fabs(result[i] - rightData[i]) > reltiveError && fabs(result[i] - alterRightData[i]) > reltiveError) {
             std::cout << i << ": right: " << rightData[i] << " or " << alterRightData[i] << ", compute: " << result[i] << std::endl;
-            std::cout << "abs error is " << fabs(result[i] - rightData[i]) << ", but relative error is required: " << reltiveError << std::endl;
             return false;
         }
     }
