@@ -43,6 +43,7 @@ void MNNRGBAToBGRAFast(const unsigned char* source, unsigned char* dest, size_t 
 void MNNRGBAToBGRFast(const unsigned char* source, unsigned char* dest, size_t count);
 }
 
+#ifndef MNN_USE_RVV
 void MNNGRAYToC4(const unsigned char* source, unsigned char* dest, size_t count) {
     int sta = 0;
 #ifdef MNN_USE_NEON
@@ -549,6 +550,7 @@ void MNNNV21ToBGR(const unsigned char* source, unsigned char* dest, size_t count
         dst[3 * i + 2] = (uint8_t)R;
     }
 }
+#endif
 
 void MNNC1ToFloatC1(const unsigned char* source, float* dest, const float* mean, const float* normal, size_t count) {
 #ifdef MNN_USE_NEON
