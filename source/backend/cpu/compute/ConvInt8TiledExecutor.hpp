@@ -95,6 +95,7 @@ private:
     bool mUseBatchQuan;
     bool mIm2ColBasedInt8;
     bool mToFuseInputbias2Bias;
+    bool mHasInputQuantInfo = false;
     bool mOnlineReorderWeightSme = false;
 
     // for 4Bit Ptq model

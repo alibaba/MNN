@@ -1476,7 +1476,7 @@ static void MNNAttenPackAndScaleSingleHead(float* dst, const float* srcHeadBase,
 }
 
 #ifndef __aarch64__
-void MNNQuantAttentionKey(int8_t* dst, const float* source, float* sumKeyPtr, float* maxKeyPtr, int32_t* params) {
+void MNNQuantAttentionKey(int8_t* dst, const float* source, float* sumKeyPtr, float* maxKeyPtr, int32_t* params, float* scaleBias) {
     int32_t kvNumHead = params[0];
     int32_t seqLen = params[1];
     int32_t headDim = params[2];
@@ -1538,7 +1538,7 @@ void MNNQuantAttentionKey(int8_t* dst, const float* source, float* sumKeyPtr, fl
     }
 }
 
-void MNNQuantAttentionValue(int8_t* dst, const float* source, float* valueSum, int32_t* params) {
+void MNNQuantAttentionValue(int8_t* dst, const float* source, float* valueSum, int32_t* params, float* scaleBias) {
     // float   value src : [kvSeq,kvNumHead,headDim]
     // int8_t  value dest: [updiv(maxLength,flashAttentionBlockKv), updiv(headDim,hp),updiv(flashAttentionBlockKv,lp),hp,lp]
     // float   value sum: [updiv(maxLength,flashAttentionBlockKv), roundup(headDim,hp)]

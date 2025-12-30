@@ -1780,7 +1780,7 @@ static void MNNAttenPackAndConvertFp32(float* dst, float* src, const int32_t* un
     }
 }
 
-static void MNNQuantAttentionKeyFP16(int8_t* dst, const float* source, float* sumKeyPtr, float* maxKeyPtr, int32_t* params) {
+static void MNNQuantAttentionKeyFP16(int8_t* dst, const float* source, float* sumKeyPtr, float* maxKeyPtr, int32_t* params, float* scaleBias) {
     int32_t kvNumHead = params[0];
     int32_t seqLen = params[1];
     int32_t headDim = params[2];
@@ -1963,7 +1963,7 @@ static void MNNQuantAttentionKeyFP16(int8_t* dst, const float* source, float* su
     }
 }
 
-static void MNNQuantAttentionValueFP16(int8_t* dst, const float* source, float* valueSum, int32_t* params) {
+static void MNNQuantAttentionValueFP16(int8_t* dst, const float* source, float* valueSum, int32_t* params, float* scaleBias) {
     // float   value src : [kvSeq,kvNumHead,headDim]
     // int8_t  value dest: [updiv(maxLength,flashAttentionBlockKv), updiv(headDim,hp),updiv(flashAttentionBlockKv,lp),hp,lp]
     // float   value sum: [updiv(maxLength,flashAttentionBlockKv), roundup(headDim,hp)]
