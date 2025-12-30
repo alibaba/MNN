@@ -83,7 +83,7 @@ MNN 一般以动态库形式使用，里面有大量自注册函数，如果需�
 
 - GCC: -Wl,--whole-archive MNN -Wl,--no-whole-archive
 - OSX(Xcode): -Wl,-force_load MNN
-- Window(Visio-Studio): /WHOLEARCHIVE:MNN
+- Window(Visual-Studio): /WHOLEARCHIVE:MNN
 
 
 ## 模型转换
