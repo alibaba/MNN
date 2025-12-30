@@ -210,8 +210,8 @@ class ModelListAdapter(private val items: MutableList<ModelItemWrapper>) :
     private fun filterItemsSync() {
         val filtered = items.filter { modelWrapper ->
             val modelItem = modelWrapper.modelItem
-            val modelNameLowerCase = modelItem.modelName.lowercase(Locale.getDefault())
-            
+            val modelNameLowerCase = modelItem.modelName?.lowercase(Locale.getDefault()) ?: ""
+
             for ((key, value) in filterQueryMap) {
                 if (value.isEmpty()) {
                     continue
@@ -263,8 +263,8 @@ class ModelListAdapter(private val items: MutableList<ModelItemWrapper>) :
             val filtered = withContext(Dispatchers.Default) {
                 items.filter { modelWrapper ->
                     val modelItem = modelWrapper.modelItem
-                    val modelNameLowerCase = modelItem.modelName.lowercase(Locale.getDefault())
-                    
+                    val modelNameLowerCase = modelItem.modelName?.lowercase(Locale.getDefault()) ?: ""
+
                     for ((key, value) in filterQueryMap) {
                         if (value.isEmpty()) {
                             continue

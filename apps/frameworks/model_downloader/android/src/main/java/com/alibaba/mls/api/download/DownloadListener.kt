@@ -7,8 +7,8 @@ interface DownloadListener {
     fun onDownloadProgress(modelId: String, downloadInfo: DownloadInfo)
     fun onDownloadFinished(modelId: String, path: String)
     fun onDownloadFailed(modelId: String, e: Exception)
-    fun onDownloadPaused(modelId: String)
-    fun onDownloadFileRemoved(modelId: String)
-    fun onDownloadTotalSize(modelId: String, totalSize: Long)
-    fun onDownloadHasUpdate(modelId: String, downloadInfo: DownloadInfo)
+    fun onDownloadPaused(modelId: String) {}
+    fun onDownloadFileRemoved(modelId: String) {}
+    fun onDownloadTotalSize(modelId: String, totalSize: Long) {}
+    fun onDownloadHasUpdate(modelId: String, downloadInfo: DownloadInfo) {}
 }

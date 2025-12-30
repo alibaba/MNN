@@ -29,6 +29,7 @@ import com.alibaba.mnnllm.android.audio.AudioChunksPlayer
 import com.alibaba.mnnllm.android.utils.VoiceModelPathUtils
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
 import com.alibaba.mnnllm.android.BuildConfig
+import com.alibaba.mnnllm.android.modelist.ModelListManager
 import com.taobao.meta.avatar.tts.TtsService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -96,8 +97,11 @@ class DebugActivity : AppCompatActivity() {
         TestCase("asr", "ASR Test", R.layout.debug_test_asr),
         TestCase("tts", "TTS Test", R.layout.debug_test_tts),
         TestCase("video", "Video Decoder Test", R.layout.debug_test_video),
+        TestCase("scan", "Model Scan Test", R.layout.debug_test_scan),
         TestCase("settings", "Debug Settings", R.layout.debug_test_settings)
     )
+
+    private var scanModelButton: Button? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -165,7 +169,37 @@ class DebugActivity : AppCompatActivity() {
             "asr" -> initAsrViews(view)
             "tts" -> initTtsViews(view)
             "video" -> initVideoViews(view)
+            "scan" -> initScanViews(view)
             "settings" -> initSettingsViews(view)
+        }
+    }
+
+    private fun initScanViews(parentView: View) {
+        scanModelButton = parentView.findViewById(R.id.scanModelButton)
+        scanModelButton?.setOnClickListener {
+            startModelScanTest()
+        }
+    }
+
+    private fun startModelScanTest() {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                log("=== Calling ModelListManager.debugScanModels ===")
+                val result = ModelListManager.debugScanModels(this@DebugActivity)
+                
+                withContext(Dispatchers.Main) {
+                   logTextView.append(result)
+                   scrollView.post {
+                        scrollView.fullScroll(View.FOCUS_DOWN)
+                   }
+                }
+                
+                log("=== Scan Completed ===")
+                
+            } catch (e: Exception) {
+                log("Scan failed: ${e.message}")
+                Log.e(TAG, "Scan failed", e)
+            }
         }
     }
 

@@ -6,7 +6,7 @@ import android.util.Log
 import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mls.api.FileDownloadException
 import com.alibaba.mls.api.download.DownloadExecutor
-import com.alibaba.mls.api.hf.HfFileMetadata
+import com.alibaba.mls.api.HfFileMetadata
 import com.alibaba.mls.api.download.DownloadFileUtils.createSymlink
 import com.alibaba.mls.api.download.DownloadFileUtils.deleteDirectoryRecursively
 import com.alibaba.mls.api.download.DownloadFileUtils.getLastFileName
@@ -14,24 +14,35 @@ import com.alibaba.mls.api.download.DownloadFileUtils.getPointerPathParent
 import com.alibaba.mls.api.download.DownloadFileUtils.repoFolderName
 import com.alibaba.mls.api.download.DownloadPausedException
 import com.alibaba.mls.api.download.FileDownloadTask
-import com.alibaba.mls.api.download.ModelDownloadManager.Companion.TAG
 import com.alibaba.mls.api.download.ModelFileDownloader
 import com.alibaba.mls.api.download.ModelFileDownloader.FileDownloadListener
 import com.alibaba.mls.api.download.ModelRepoDownloader
 import com.alibaba.mls.api.ml.FileInfo
 import com.alibaba.mls.api.ml.MlApiClient
 import com.alibaba.mls.api.ml.MlRepoInfo
-import com.alibaba.mnnllm.android.model.ModelUtils
+import com.alibaba.mls.api.download.ModelIdUtils
 import com.alibaba.mls.api.download.DownloadCoroutineManager
 import kotlinx.coroutines.withContext
 import java.io.File
 import com.alibaba.mls.api.ml.MlRepoData
-import com.alibaba.mnnllm.android.utils.TimeUtils
+import com.alibaba.mls.api.download.TimeUtils
 
 
 class MLModelDownloader(override var callback: ModelRepoDownloadCallback?,
                         cacheRootPath: String
 ) : ModelRepoDownloader() {
+    companion object  {
+        private const val TAG = "MLModelDownloader"
+
+        fun getCachePathRoot(modelDownloadPathRoot:String): String {
+            return "$modelDownloadPathRoot/modelers"
+        }
+
+        fun getModelPath(modelsDownloadPathRoot: String, modelId: String): File {
+            return File(modelsDownloadPathRoot, getLastFileName(modelId))
+        }
+    }
+
     override var cacheRootPath: String = getCachePathRoot(cacheRootPath)
     private var mlApiClient: MlApiClient = MlApiClient()
     override fun setListener(callback: ModelRepoDownloadCallback?) {
@@ -48,7 +59,7 @@ class MLModelDownloader(override var callback: ModelRepoDownloadCallback?,
     private suspend fun fetchRepoInfo(modelId: String, calculateSize: Boolean = false): MlRepoInfo {
         return withContext(DownloadCoroutineManager.downloadDispatcher) {
             runCatching {
-                val modelersId = ModelUtils.getRepositoryPath(modelId)
+                val modelersId = ModelIdUtils.getRepositoryPath(modelId)
                 val split = modelersId.split("/".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
                 if (split.size != 2) {
                     throw FileDownloadException("Invalid model ID format for $modelId, expected format: owner/repo")
@@ -118,7 +129,7 @@ class MLModelDownloader(override var callback: ModelRepoDownloadCallback?,
     }
 
     override fun deleteRepo(modelId: String) {
-        val msModelId = ModelUtils.getRepositoryPath(modelId)
+        val msModelId = ModelIdUtils.getRepositoryPath(modelId)
         val msRepoFolderName = repoFolderName(msModelId, "model")
         val msStorageFolder = File(this.cacheRootPath, msRepoFolderName)
         Log.d(TAG, "removeStorageFolder: " + msStorageFolder.absolutePath)
@@ -156,7 +167,7 @@ class MLModelDownloader(override var callback: ModelRepoDownloadCallback?,
     }
 
     private suspend fun downloadRepo(modelId: String): MlRepoInfo? {
-        val modelersId = ModelUtils.getRepositoryPath(modelId)
+        val modelersId = ModelIdUtils.getRepositoryPath(modelId)
         Log.d(TAG, "downloadRepo: $modelersId")
         val split = modelersId.split("/".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
         if (split.size != 2) {
@@ -294,17 +305,6 @@ class MLModelDownloader(override var callback: ModelRepoDownloadCallback?,
             fileDownloadTasks.add(fileDownloadTask)
         }
         return fileDownloadTasks
-    }
-
-
-    companion object  {
-        fun getCachePathRoot(modelDownloadPathRoot:String): String {
-            return "$modelDownloadPathRoot/modelers"
-        }
-
-        fun getModelPath(modelsDownloadPathRoot: String, modelId: String): File {
-            return File(modelsDownloadPathRoot, getLastFileName(modelId))
-        }
     }
 
 }

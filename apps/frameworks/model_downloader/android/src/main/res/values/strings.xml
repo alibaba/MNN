@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="source_huggingface">HuggingFace</string>
+    <string name="source_modelers">Modelers</string>
+    <string name="source_modelscope">ModelScope</string>
+</resources>

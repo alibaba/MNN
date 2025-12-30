@@ -601,7 +601,7 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
      * Get display tags for model, similar to ModelItemHolder
      */
     private fun getDisplayTags(modelItem: ModelItem): List<String> {
-        return modelItem.getDisplayTags(requireContext()).take(3)
+        return com.alibaba.mnnllm.android.modelmarket.TagMapper.getDisplayTagList(modelItem.tags).take(3)
     }
 
     /**

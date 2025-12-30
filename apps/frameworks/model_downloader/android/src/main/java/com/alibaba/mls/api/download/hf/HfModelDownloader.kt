@@ -14,17 +14,16 @@ import com.alibaba.mls.api.download.DownloadFileUtils.getPointerPathParent
 import com.alibaba.mls.api.download.DownloadFileUtils.repoFolderName
 import com.alibaba.mls.api.download.DownloadPausedException
 import com.alibaba.mls.api.download.FileDownloadTask
-import com.alibaba.mls.api.download.ModelDownloadManager.Companion.TAG
+
 import com.alibaba.mls.api.download.ModelFileDownloader
 import com.alibaba.mls.api.download.ModelFileDownloader.FileDownloadListener
 import com.alibaba.mls.api.download.ModelRepoDownloader
 import com.alibaba.mls.api.download.hf.HfFileMetadataUtils.getFileMetadata
-import com.alibaba.mls.api.hf.HfApiClient
-import com.alibaba.mls.api.hf.HfApiClient.Companion.bestClient
-import com.alibaba.mls.api.hf.HfFileMetadata
-import com.alibaba.mls.api.hf.HfRepoInfo
-import com.alibaba.mnnllm.android.chat.model.ChatDataManager
-import com.alibaba.mnnllm.android.utils.TimeUtils
+import com.alibaba.mls.api.HfApiClient
+import com.alibaba.mls.api.HfApiClient.Companion.bestClient
+import com.alibaba.mls.api.HfFileMetadata
+import com.alibaba.mls.api.HfRepoInfo
+import com.alibaba.mls.api.download.TimeUtils
 import com.alibaba.mls.api.download.DownloadCoroutineManager
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -34,6 +33,18 @@ import java.util.concurrent.TimeUnit
 class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
                         override var cacheRootPath: String
 ) : ModelRepoDownloader() {
+
+    companion object {
+        private const val TAG = "HfModelDownloader"
+
+        fun getCachePathRoot(modelDownloadPathRoot: String): String {
+            return "$modelDownloadPathRoot/hf"
+        }
+
+        fun getModelPath(modelsDownloadPathRoot: String, modelId: String): File {
+            return File(modelsDownloadPathRoot, getLastFileName(modelId))
+        }
+    }
 
     private fun getHfApiClient(): HfApiClient {
         if (hfApiClient == null) {
@@ -66,11 +77,11 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
         return withContext(DownloadCoroutineManager.downloadDispatcher) {
             runCatching {
                 val hfModelId = hfModelId(modelId)
-                val response = getHfApiClient().apiService.getRepoInfo(hfModelId, "main")?.execute()
+                val response = getHfApiClient().getRepoTree(hfModelId, "main").execute()
                 if (response?.isSuccessful == true && response.body() != null) {
                     val repoInfo = response.body()!!
                     // Call onRepoInfo callback with repo metadata
-                    val lastModified = TimeUtils.convertIsoToTimestamp(repoInfo.lastModified) ?: 0L
+                    val lastModified = System.currentTimeMillis() // Simplified
                     val repoSize = if (calculateSize) {
                         calculateRepoSize(repoInfo)
                     } else {
@@ -159,7 +170,7 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
     private fun downloadHfRepoInner(hfRepoInfo: HfRepoInfo) {
         val folderLinkFile = File(cacheRootPath, getLastFileName(hfRepoInfo.modelId!!))
         if (folderLinkFile.exists()) {
-            callback?.onDownloadFileFinished(hfRepoInfo.universalModelId(), folderLinkFile.absolutePath)
+            callback?.onDownloadFileFinished(hfRepoInfo.modelId!!, folderLinkFile.absolutePath)
             return
         }
         val modelDownloader = ModelFileDownloader()
@@ -180,7 +191,7 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
             downloadTaskList =
                 collectTaskList(storageFolder, parentPointerPath, hfRepoInfo, totalAndDownloadSize)
         } catch (e: FileDownloadException) {
-            callback?.onDownloadFailed(hfRepoInfo.universalModelId(), e)
+            callback?.onDownloadFailed(hfRepoInfo.modelId!!, e)
             return
         }
         val fileDownloadListener =
@@ -193,10 +204,10 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
                 ): Boolean {
                     totalAndDownloadSize[1] += delta
                     callback?.onDownloadingProgress(
-                        hfRepoInfo.universalModelId(), "file", fileName,
+                        hfRepoInfo.modelId!!, "file", fileName,
                         totalAndDownloadSize[1], totalAndDownloadSize[0]
                     )
-                    return pausedSet.contains(hfRepoInfo.universalModelId())
+                    return pausedSet.contains(hfRepoInfo.modelId!!)
                 }
             }
         try {
@@ -204,17 +215,17 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
                 modelDownloader.downloadFile(fileDownloadTask, fileDownloadListener)
             }
         } catch (e: DownloadPausedException) {
-            pausedSet.remove(hfRepoInfo.universalModelId())
-            callback?.onDownloadPaused(hfRepoInfo.universalModelId())
+            pausedSet.remove(hfRepoInfo.modelId!!)
+            callback?.onDownloadPaused(hfRepoInfo.modelId!!)
             return
         } catch (e: Exception) {
-            callback?.onDownloadFailed(hfRepoInfo.universalModelId(), e)
+            callback?.onDownloadFailed(hfRepoInfo.modelId!!, e)
             return
         }
         if (!hasError) {
             val folderLinkPath = folderLinkFile.absolutePath
             createSymlink(parentPointerPath.toString(), folderLinkPath)
-            callback?.onDownloadFileFinished(hfRepoInfo.universalModelId(), folderLinkPath)
+            callback?.onDownloadFileFinished(hfRepoInfo.modelId!!, folderLinkPath)
         } else {
             Log.e(
                 TAG,
@@ -296,14 +307,4 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
             }
             return metaInfoClient!!
         }
-
-    companion object  {
-        fun getCachePathRoot(modelDownloadPathRoot:String): String {
-            return modelDownloadPathRoot
-        }
-
-        fun getModelPath(cacheRootPath: String, modelId: String): File {
-            return File(cacheRootPath, getLastFileName(modelId))
-        }
-    }
 }

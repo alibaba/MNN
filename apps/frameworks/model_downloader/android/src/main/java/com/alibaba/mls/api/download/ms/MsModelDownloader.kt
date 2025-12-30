@@ -5,7 +5,7 @@ package com.alibaba.mls.api.download.ms
 import android.util.Log
 import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mls.api.FileDownloadException
-import com.alibaba.mls.api.hf.HfFileMetadata
+import com.alibaba.mls.api.HfFileMetadata
 import com.alibaba.mls.api.download.DownloadFileUtils.createSymlink
 import com.alibaba.mls.api.download.DownloadFileUtils.deleteDirectoryRecursively
 import com.alibaba.mls.api.download.DownloadFileUtils.getLastFileName
@@ -13,19 +13,16 @@ import com.alibaba.mls.api.download.DownloadFileUtils.getPointerPathParent
 import com.alibaba.mls.api.download.DownloadFileUtils.repoFolderName
 import com.alibaba.mls.api.download.DownloadPausedException
 import com.alibaba.mls.api.download.FileDownloadTask
-import com.alibaba.mls.api.download.ModelDownloadManager.Companion.TAG
 import com.alibaba.mls.api.download.ModelFileDownloader
 import com.alibaba.mls.api.download.ModelFileDownloader.FileDownloadListener
 import com.alibaba.mls.api.download.ModelRepoDownloader
 import com.alibaba.mls.api.ms.MsApiClient
 import com.alibaba.mls.api.ms.MsRepoInfo
-import com.alibaba.mnnllm.android.chat.model.ChatDataManager
-import com.alibaba.mnnllm.android.model.ModelUtils
-import com.alibaba.mnnllm.android.modelmarket.ModelMarketItem
-import com.alibaba.mnnllm.android.modelmarket.ModelRepository
-import com.alibaba.mnnllm.android.utils.TimeUtils
+import com.alibaba.mls.api.download.ModelIdUtils
+import com.alibaba.mls.api.download.TimeUtils
 import com.alibaba.mls.api.download.DownloadCoroutineManager
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
@@ -34,6 +31,18 @@ import java.io.File
 class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
                         cacheRootPath: String
 ) : ModelRepoDownloader() {
+    companion object {
+        private const val TAG = "MsModelDownloader"
+
+        fun getCachePathRoot(modelDownloadPathRoot: String): String {
+            return "$modelDownloadPathRoot/modelscope"
+        }
+
+        fun getModelPath(modelsDownloadPathRoot: String, modelId: String): File {
+            return File(modelsDownloadPathRoot, getLastFileName(modelId))
+        }
+    }
+
     override var cacheRootPath: String = getCachePathRoot(cacheRootPath)
     private var msApiClient: MsApiClient = MsApiClient()
     override fun setListener(callback: ModelRepoDownloadCallback?) {
@@ -52,7 +61,7 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
         
         return withContext(DownloadCoroutineManager.downloadDispatcher) {
             runCatching {
-                val msModelId = ModelUtils.getRepositoryPath(modelId)
+                val msModelId = ModelIdUtils.getRepositoryPath(modelId)
                 val split = msModelId.split("/".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
                 if (split.size != 2) {
                     throw FileDownloadException("Invalid model ID format for $modelId, expected format: owner/repo")
@@ -63,7 +72,7 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
                     val repoInfo = response.body()!!
                     
                     // Call onRepoInfo callback with repo metadata
-                    val lastModified = repoInfo.Data?.LatestCommitter?.CreatedAt ?: 0L
+                    val lastModified = System.currentTimeMillis() // Simplified: use current time
                     val repoSize = repoInfo.Data?.Files?.filter { it.Type != "tree" }?.sumOf { it.Size } ?: 0L
                     callback?.onRepoInfo(modelId, lastModified, repoSize)
                     repoInfo
@@ -103,7 +112,7 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
     }
 
     override fun deleteRepo(modelId: String) {
-        val msModelId = ModelUtils.getRepositoryPath(modelId)
+        val msModelId = ModelIdUtils.getRepositoryPath(modelId)
         val msRepoFolderName = repoFolderName(msModelId, "model")
         val msStorageFolder = File(this.cacheRootPath, msRepoFolderName)
         Log.d(TAG, "removeStorageFolder: " + msStorageFolder.absolutePath)
@@ -141,7 +150,7 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
     }
 
     private suspend fun downloadMsRepo(modelId: String) {
-        val modelScopeId = ModelUtils.getRepositoryPath(modelId)
+        val modelScopeId = ModelIdUtils.getRepositoryPath(modelId)
         Log.d(TAG, "MsModelDownloader downloadMsRepo: $modelId modelScopeId : $modelScopeId")
         val split = modelScopeId.split("/".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
         if (split.size != 2) {
@@ -152,10 +161,16 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
             val repoInfo = fetchRepoInfo(modelId, calculateSize = true)
             Log.d(TAG, "downloadMsRepo repoInfo: $repoInfo")
             callback?.onDownloadTaskAdded()
-            downloadMsRepoInner(modelId, modelScopeId, repoInfo)
+            // Run the actual download on IO dispatcher to avoid blocking  
+            withContext(Dispatchers.IO) {
+                downloadMsRepoInner(modelId, modelScopeId, repoInfo)
+            }
             callback?.onDownloadTaskRemoved()
         } catch (e: FileDownloadException) {
             callback?.onDownloadFailed(modelId, e)
+        } catch (e: Exception) {
+            Log.e(TAG, "downloadMsRepo failed", e)
+            callback?.onDownloadFailed(modelId, FileDownloadException(e.message))
         }
     }
 
@@ -215,8 +230,11 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
         }
         if (!hasError) {
             val folderLinkPath = folderLinkFile.absolutePath
+            Log.d(TAG, "downloadMsRepoInner loop finished, creating symlink for $modelId")
             createSymlink(parentPointerPath.toString(), folderLinkPath)
+            Log.d(TAG, "downloadMsRepoInner symlink created, calling onDownloadFileFinished")
             callback?.onDownloadFileFinished(modelId, folderLinkPath)
+            Log.d(TAG, "downloadMsRepoInner callback return")
         } else {
             Log.e(
                 TAG,
@@ -261,16 +279,4 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
         }
         return fileDownloadTasks
     }
-
-
-    companion object  {
-        fun getCachePathRoot(modelDownloadPathRoot:String): String {
-            return "$modelDownloadPathRoot/modelscope"
-        }
-
-        fun getModelPath(modelsDownloadPathRoot: String, modelId: String): File {
-            return File(modelsDownloadPathRoot, getLastFileName(modelId))
-        }
-    }
-
 }

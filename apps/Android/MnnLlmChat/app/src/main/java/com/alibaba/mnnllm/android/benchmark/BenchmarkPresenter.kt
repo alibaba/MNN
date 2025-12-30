@@ -414,7 +414,7 @@ class BenchmarkPresenter(
                 // Get current models or wait for them
                 val models = ModelListManager.getCurrentModels()?: emptyList()
                 availableModels = models.filterNot { ModelTypeUtils.isDiffusionModel(
-                    it.modelItem.modelName
+                    it.modelItem.modelName ?: ""
                 ) }
                 Log.d(TAG, "Found ${availableModels.size} models")
                 view.updateModelSelector(availableModels)

@@ -85,13 +85,10 @@ object DownloadFileUtils {
     }
 
     fun createSymlink(target: String?, linkPath: String?) {
+        if (target == null || linkPath == null) return
         val targetPath = Paths.get(target)
         val link = Paths.get(linkPath)
-        try {
-            Files.createSymbolicLink(link, targetPath)
-        } catch (e: IOException) {
-            Log.e(TAG, "createSymlink error", e)
-        }
+        createSymlink(targetPath, link)
     }
     fun createSymlink(target: Path?, linkPath: Path?) {
         try {

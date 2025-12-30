@@ -4,7 +4,7 @@
 package com.alibaba.mls.api.download
 
 import com.alibaba.mls.api.download.DownloadFileUtils.repoFolderName
-import com.alibaba.mnnllm.android.model.ModelUtils
+import com.alibaba.mls.api.download.ModelIdUtils
 import java.io.File
 import java.util.Collections
 
@@ -17,7 +17,7 @@ abstract class ModelRepoDownloader {
     abstract fun download(modelId: String)
 
     fun repoModelRealFile(modelId: String):File {
-        return File(cacheRootPath, "${repoFolderName(ModelUtils.getRepositoryPath(modelId), "model")}/blobs")
+        return File(cacheRootPath, "${repoFolderName(ModelIdUtils.getRepositoryPath(modelId), "model")}/blobs")
     }
 
     abstract suspend fun checkUpdate(modelId: String)
