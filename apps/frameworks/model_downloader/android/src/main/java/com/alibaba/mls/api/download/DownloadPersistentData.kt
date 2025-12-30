@@ -9,14 +9,14 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.alibaba.mls.api.download.DownloadFileUtils.getLastFileName
-import com.alibaba.mnnllm.android.model.ModelUtils
+import com.alibaba.mls.api.download.ModelIdUtils
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
-import com.alibaba.mls.api.hf.HfFileMetadata
+import com.alibaba.mls.api.HfFileMetadata
 import java.io.File
 
 // Single DataStore instance for all download data
@@ -87,7 +87,7 @@ object DownloadPersistentData {
     }
     
     suspend fun saveDownloadSizeSavedSuspend(context: Context, modelId: String, saved: Long) {
-        val newModelId = ModelUtils.safeModelId(modelId)
+        val newModelId = ModelIdUtils.safeModelId(modelId)
         val key = createSizeSavedKey(newModelId)
         
         context.downloadDataStore.edit { preferences ->
@@ -100,7 +100,7 @@ object DownloadPersistentData {
     }
     
     suspend fun getDownloadSizeSavedSuspend(context: Context, modelId: String): Long {
-        val newModelId = ModelUtils.safeModelId(modelId)
+        val newModelId = ModelIdUtils.safeModelId(modelId)
         val key = createSizeSavedKey(newModelId)
         
         // First try to read from DataStore
@@ -121,7 +121,7 @@ object DownloadPersistentData {
     }
     
     suspend fun removeProgressSuspend(context: Context, modelId: String) {
-        val normalizedModelId = ModelUtils.safeModelId(modelId)
+        val normalizedModelId = ModelIdUtils.safeModelId(modelId)
         val sizeSavedKey = createSizeSavedKey(normalizedModelId)
         val downloadedTimeKey = createDownloadedTimeKey(normalizedModelId)
         
@@ -145,7 +145,7 @@ object DownloadPersistentData {
     }
     
     suspend fun saveMetaDataSuspend(context: Context, modelId: String, metaData: Map<String, HfFileMetadata>) {
-        val normalizedModelId = ModelUtils.safeModelId(modelId)
+        val normalizedModelId = ModelIdUtils.safeModelId(modelId)
         val key = createMetaDataKey(normalizedModelId)
         val json = Gson().toJson(metaData)
         
@@ -159,7 +159,7 @@ object DownloadPersistentData {
     }
     
     suspend fun getMetaDataSuspend(context: Context, modelId: String): Map<String, HfFileMetadata>? {
-        val normalizedModelId = ModelUtils.safeModelId(modelId)
+        val normalizedModelId = ModelIdUtils.safeModelId(modelId)
         val key = createMetaDataKey(normalizedModelId)
         
         // First try to read from DataStore
@@ -185,7 +185,7 @@ object DownloadPersistentData {
     }
     
     suspend fun saveDownloadedTimeSuspend(context: Context, modelId: String, downloadedTime: Long) {
-        val normalizedModelId = ModelUtils.safeModelId(modelId)
+        val normalizedModelId = ModelIdUtils.safeModelId(modelId)
         val key = createDownloadedTimeKey(normalizedModelId)
         
         context.downloadDataStore.edit { preferences ->
@@ -198,7 +198,7 @@ object DownloadPersistentData {
     }
     
     suspend fun getDownloadedTimeSuspend(context: Context, modelId: String): Long {
-        val normalizedModelId = ModelUtils.safeModelId(modelId)
+        val normalizedModelId = ModelIdUtils.safeModelId(modelId)
         val key = createDownloadedTimeKey(normalizedModelId)
         
         // Try to read from DataStore
@@ -214,7 +214,7 @@ object DownloadPersistentData {
     }
     
     suspend fun saveMarketSizeTotalSuspend(context: Context, modelId: String, total: Long) {
-        val normalizedModelId = ModelUtils.safeModelId(modelId)
+        val normalizedModelId = ModelIdUtils.safeModelId(modelId)
         val key = createSizeMarketTotalKey(normalizedModelId)
         
         context.downloadDataStore.edit { preferences ->
@@ -227,7 +227,7 @@ object DownloadPersistentData {
     }
     
     suspend fun getMarketSizeTotalSuspend(context: Context, modelId: String): Long {
-        val normalizedModelId = ModelUtils.safeModelId(modelId)
+        val normalizedModelId = ModelIdUtils.safeModelId(modelId)
         val key = createSizeMarketTotalKey(normalizedModelId)
         
         // Try to read from DataStore

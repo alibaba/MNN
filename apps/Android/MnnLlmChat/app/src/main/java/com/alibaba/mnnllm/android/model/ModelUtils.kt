@@ -23,10 +23,11 @@ object ModelUtils {
     fun getVendor(modelName: String):String {
         // First try to get vendor from ModelMarketItem
         val modelItem = ModelListManager.getModelIdModelMap()[modelName]
-        if (modelItem?.modelMarketItem?.vendor != null) {
-            return modelItem.modelMarketItem!!.vendor
+        val marketItem = modelItem?.modelMarketItem as? com.alibaba.mnnllm.android.modelmarket.ModelMarketItem
+        if (marketItem?.vendor != null) {
+            return marketItem.vendor
         }
-        
+
         // If not available from market item, use the existing logic
         val modelLower = modelName.lowercase(Locale.getDefault())
         if (modelLower.contains("deepseek")) {

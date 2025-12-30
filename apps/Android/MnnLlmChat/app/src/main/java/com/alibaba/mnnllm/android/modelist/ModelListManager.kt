@@ -160,9 +160,9 @@ object ModelListManager {
                     lastChatTime = wrapper.lastChatTime,
                     downloadTime = wrapper.downloadTime,
                     isLocal = wrapper.isLocal,
-                    modelName = wrapper.modelItem.modelMarketItem?.modelName,
+                    modelName = (wrapper.modelItem.modelMarketItem as? ModelMarketItem)?.modelName,
                     tags = wrapper.modelItem.getTags(),
-                    modelMarketItem = wrapper.modelItem.modelMarketItem // Cache the complete market item
+                    modelMarketItem = wrapper.modelItem.modelMarketItem as? ModelMarketItem // Cache the complete market item
                 )
             }
         }
@@ -177,6 +177,7 @@ object ModelListManager {
                         this.localPath = this@ModelItemCacheDTO.modelPath
                         this.modelMarketItem =
                             this@ModelItemCacheDTO.modelMarketItem // Use cached market item
+                        this.tags = this@ModelItemCacheDTO.tags ?: emptyList() 
                     }
                     Timber.d("toWrapper: Successfully reconstructed ModelItem for $modelId from cache (modelPath: $modelPath, hasMarketItem: ${item.modelMarketItem != null}, cachedModelId: ${this@ModelItemCacheDTO.modelId})")
                     item
@@ -748,6 +749,24 @@ object ModelListManager {
             // Use ModelMarketCache instead of IO operation
             modelItem.modelMarketItem =
                 ModelMarketCache.getModelFromCache(downloadedModel.modelId)
+
+            // Ensure modelName is set
+            if (modelItem.modelName.isNullOrEmpty()) {
+                val marketItem = modelItem.modelMarketItem as? com.alibaba.mnnllm.android.modelmarket.ModelMarketItem
+                if (marketItem?.modelName != null) {
+                    modelItem.modelName = marketItem.modelName
+                    // Properly copy tags for display
+                    modelItem.tags = marketItem.tags
+                } else {
+                    modelItem.modelName = ModelUtils.getModelName(downloadedModel.modelId)
+                }
+            } else {
+                // If modelName is already set, we still need to copy tags
+                val marketItem = modelItem.modelMarketItem as? com.alibaba.mnnllm.android.modelmarket.ModelMarketItem
+                if (marketItem != null) {
+                    modelItem.tags = marketItem.tags
+                }
+            }
             // Get file size from saved data instead of calculating
             val downloadSize = try {
                 val savedSize =
@@ -807,6 +826,22 @@ object ModelListManager {
             localModel.modelMarketItem =
                 ModelMarketCache.getModelFromCache(localModel.modelId!!)
 
+            // Copy tags from market item to model item
+            val marketItemForTags = localModel.modelMarketItem as? com.alibaba.mnnllm.android.modelmarket.ModelMarketItem
+            if (marketItemForTags != null) {
+                localModel.tags = marketItemForTags.tags
+            }
+
+            // Ensure modelName is set
+            if (localModel.modelName.isNullOrEmpty()) {
+                val marketItem = localModel.modelMarketItem as? com.alibaba.mnnllm.android.modelmarket.ModelMarketItem
+                if (marketItem?.modelName != null) {
+                    localModel.modelName = marketItem.modelName
+                } else {
+                    localModel.modelName = ModelUtils.getModelName(localModel.modelId)
+                }
+            }
+
             // Get local model size from saved data or calculate
             val localSize = try {
                 val savedSize =
@@ -846,17 +881,23 @@ object ModelListManager {
     }
 
     /**
-     * Scan models directory recursively (same logic as ModelListPresenter)
+     * Scan models directory recursively
      */
     private suspend fun scanModelsDirectory(
         directory: File,
         context: Context,
         chatDataManager: ChatDataManager,
-        downloadedModels: MutableList<ChatDataManager.DownloadedModelInfo>
+        downloadedModels: MutableList<ChatDataManager.DownloadedModelInfo>,
+        logger: StringBuilder? = null,
+        dryRun: Boolean = false
     ) {
+        val indent = if (logger != null) "  ".repeat(directory.absolutePath.split(File.separator).size - (context.filesDir.absolutePath.split(File.separator).size + 1)) else ""
+        logger?.append("${indent}Scanning Dir: ${directory.name}\n")
+        
         try {
             val files = directory.listFiles()
             if (files == null) {
+                logger?.append("${indent}[EMPTY/ACCESSIBLE?]\n")
                 return
             }
 
@@ -867,29 +908,51 @@ object ModelListManager {
 
             files.forEach { file ->
                 val isBuiltinModel = directory.name == "builtin"
+                
+                // Logic 1: Priority Recurse
+                // This must be checked BEFORE processing as a model to ensure we don't treat "modelscope" as a model and stop recursing
+                if (file.isDirectory && (file.name == "modelscope" || file.name == "modelers" || file.name == "builtin")) {
+                    logger?.append("${indent}[RECURSE CONTAINER] ${file.name}\n")
+                    scanModelsDirectory(file, context, chatDataManager, downloadedModels, logger, dryRun)
+                    return@forEach
+                }
+
+                // Logic 2: Allow both Symbolic Links AND Directories for downloaded models
                 val shouldProcessFile = if (isBuiltinModel) {
                     file.isDirectory
                 } else {
-                    Files.isSymbolicLink(file.toPath())
+                    Files.isSymbolicLink(file.toPath()) || file.isDirectory
                 }
 
+                var status = "[IGNORED]"
+                
                 if (shouldProcessFile) {
                     val modelPath = file.absolutePath
                     val modelId = createModelIdFromPath(context, modelPath)
+                    
                     if (modelId != null) {
-                        // Check if config path exists for this model first (fast check)
-                        val configPath = ModelUtils.getConfigPathForModel(modelId)
-                        if (configPath == null || !File(configPath).exists()) {
-                            return@forEach
+                        // Check if config path exists for this model
+                        // We strictly check the current directory, avoiding reliance on ModelDownloadManager
+                        // because we are in the process of discovering models that might be unknown to the system.
+                        val configFile = File(file, "config.json")
+                        val configExists = configFile.exists()
+                        val configPath = if (configExists) configFile.absolutePath else null
+                        
+                        if (configExists) {
+                             status = "[MODEL CANDIDATE] ID=$modelId"
+                             // Collect model info for batch processing
+                             modelIds.add(modelId)
+                             modelPaths[modelId] = modelPath
+                             modelTypes[modelId] = if (isBuiltinModel) "LLM" else "UNKNOWN"
+                        } else {
+                             status = "[SKIPPED] No Config ($configPath)"
                         }
-                        // Collect model info for batch processing
-                        modelIds.add(modelId)
-                        modelPaths[modelId] = modelPath
-                        modelTypes[modelId] = if (isBuiltinModel) "LLM" else "UNKNOWN"
+                    } else {
+                         status = "[SKIPPED] Invalid Model Path"
                     }
-                } else if (file.isDirectory && (file.name == "modelscope" || file.name == "modelers" || file.name == "builtin")) {
-                    scanModelsDirectory(file, context, chatDataManager, downloadedModels)
                 }
+                
+                logger?.append("${indent}- ${file.name} (Dir=${file.isDirectory}, Link=${Files.isSymbolicLink(file.toPath())}) -> $status\n")
             }
 
             // Batch process all collected models
@@ -901,65 +964,106 @@ object ModelListManager {
                         nonBuiltinModels.forEach { modelId ->
                             try {
                                 val modelType = chatDataManager.getDownloadModelType(modelId)
+                                logger?.append("${indent}  > Check DB Type for $modelId: $modelType\n")
                                 if (modelType != null) {
                                     modelTypes[modelId] = modelType
                                 }
                             } catch (e: Exception) {
+                                logger?.append("${indent}  > Error checking DB type for $modelId: ${e.message}\n")
                                 Timber.w(e, "Failed to get model type for $modelId")
                             }
                         }
                     }
                 }
 
-                // Filter out non-LLM models
-                val llmModels = modelIds.filter { modelTypes[it] == "LLM" }
+                // Filter out non-LLM models, but keep UNKNOWN so they can be fixed/added to DB later
+                val llmModels = modelIds.filter { modelTypes[it] == "LLM" || modelTypes[it] == "UNKNOWN" }
+                logger?.append("${indent}  > Filtering: ${modelIds.size} candidates -> ${llmModels.size} valid (Keep LLM + UNKNOWN)\n")
 
-                // Batch get download times and last chat times
-                val downloadTimes = mutableMapOf<String, Long>()
-                val lastChatTimes = mutableMapOf<String, Long>()
+                if (llmModels.isNotEmpty()) {
+                    // Batch get download times and last chat times
+                    val downloadTimes = mutableMapOf<String, Long>()
+                    val lastChatTimes = mutableMapOf<String, Long>()
 
-                withContext(Dispatchers.Main) {
-                    llmModels.forEach { modelId ->
-                        try {
-                            val downloadTime = chatDataManager.getDownloadTime(modelId)
-                            downloadTimes[modelId] = downloadTime
+                    withContext(Dispatchers.Main) {
+                        llmModels.forEach { modelId ->
+                            try {
+                                val downloadTime = chatDataManager.getDownloadTime(modelId)
+                                downloadTimes[modelId] = downloadTime
+                                logger?.append("${indent}  > DB Download Time for $modelId: $downloadTime\n")
 
-                            val lastChatTime = chatDataManager.getLastChatTime(modelId)
-                            lastChatTimes[modelId] = lastChatTime
+                                val lastChatTime = chatDataManager.getLastChatTime(modelId)
+                                lastChatTimes[modelId] = lastChatTime
+                                logger?.append("${indent}  > DB Last Chat Time for $modelId: $lastChatTime\n")
 
-                            // Record download history if needed
-                            if (downloadTime <= 0) {
-                                chatDataManager.recordDownloadHistory(
-                                    modelId,
-                                    modelPaths[modelId]!!,
-                                    "LLM"
-                                )
+                                // Record download history if needed
+                                if (downloadTime <= 0) {
+                                    logger?.append("${indent}  > [${if (dryRun) "DRY RUN" else "ACTION"}] Recording download history for $modelId\n")
+                                    if (!dryRun) {
+                                        chatDataManager.recordDownloadHistory(
+                                            modelId,
+                                            modelPaths[modelId]!!,
+                                            "LLM"
+                                        )
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                logger?.append("${indent}  > Error getting DB info for $modelId: ${e.message}\n")
+                                Timber.w(e, "Failed to get database info for $modelId")
                             }
-                        } catch (e: Exception) {
-                            Timber.w(e, "Failed to get database info for $modelId")
+                        }
+                    }
+
+                    // Create DownloadedModelInfo objects
+                    llmModels.forEach { modelId ->
+                        val modelPath = modelPaths[modelId]!!
+                        val file = File(modelPath)
+                        val downloadTime = downloadTimes[modelId] ?: file.lastModified()
+                        val lastChatTime = lastChatTimes[modelId] ?: 0L
+
+                        if (dryRun) {
+                             logger?.append("${indent}  > [DRY RUN] Would Add Model Output: $modelId\n")
+                        } else {
+                            downloadedModels.add(
+                                ChatDataManager.DownloadedModelInfo(
+                                    modelId, downloadTime, modelPath, lastChatTime
+                                )
+                            )
                         }
                     }
                 }
-
-                // Create DownloadedModelInfo objects
-                llmModels.forEach { modelId ->
-                    val modelPath = modelPaths[modelId]!!
-                    val file = File(modelPath)
-                    val downloadTime = downloadTimes[modelId] ?: file.lastModified()
-                    val lastChatTime = lastChatTimes[modelId] ?: 0L
-
-                    downloadedModels.add(
-                        ChatDataManager.DownloadedModelInfo(
-                            modelId, downloadTime, modelPath, lastChatTime
-                        )
-                    )
-                }
+            }
+        } catch (e: Exception) {
+            logger?.append("${indent}Scan Error: ${e.message}\n")
+            Timber.e(e, "Error occurred while scanning ${directory.absolutePath}")
+        }
+    }
+    
+    /**
+     * Debug method using the exact same logic as the real scan
+     */
+    suspend fun debugScanModels(context: Context): String {
+        val sb = StringBuilder()
+        sb.append("=== ModelListManager Debug Scan (Dry Run) ===\n")
+        try {
+            val directory = File(context.filesDir, ".mnnmodels")
+            sb.append("Root: ${directory.absolutePath}\n")
+            
+            if (!directory.exists()) {
+                sb.append("Root directory does not exist!\n")
+                return sb.toString()
             }
 
+            val chatDataManager = ChatDataManager.getInstance(context)
+            val dummyList = mutableListOf<ChatDataManager.DownloadedModelInfo>()
+            
+            scanModelsDirectory(directory, context, chatDataManager, dummyList, sb, dryRun = true)
+            
         } catch (e: Exception) {
-            Timber.e(e, "Error occurred while scanning ${directory.absolutePath}")
-            throw e
+            sb.append("Debug Scan Error: ${e.message}\n")
+            Timber.e(e, "Debug scan failed")
         }
+        return sb.toString()
     }
 
     /**

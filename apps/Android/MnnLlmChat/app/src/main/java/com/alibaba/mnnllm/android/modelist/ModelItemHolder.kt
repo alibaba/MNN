@@ -155,7 +155,7 @@ class ModelItemHolder(
     }
 
     private fun getDisplayTags(modelItem: ModelItem): List<String> {
-        return modelItem.getDisplayTags(itemView.context).take(3)
+        return com.alibaba.mnnllm.android.modelmarket.TagMapper.getDisplayTagList(modelItem.tags).take(3)
     }
 
     fun bind(modelWrapper: ModelItemWrapper) {
@@ -177,7 +177,7 @@ class ModelItemHolder(
         displayTimeInfo(modelWrapper)
         
         // Show pinned overlay
-        pinnedOverlay.visibility = if (modelWrapper.isPinned || true) View.VISIBLE else View.GONE
+        pinnedOverlay.visibility = if (modelWrapper.isPinned) View.VISIBLE else View.GONE
         
         // Handle update button visibility and status
         updateButtonAndStatus(modelWrapper)

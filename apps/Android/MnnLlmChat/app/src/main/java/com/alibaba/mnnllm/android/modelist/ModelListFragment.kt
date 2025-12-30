@@ -327,8 +327,8 @@ class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
     override fun runModel(destPath:String?, modelId: String?) {
         // Check if model is larger than 7GB before running
         val modelItem = ModelListManager.getModelIdModelMap()[modelId]
-        val modelMarketItem = modelItem?.modelMarketItem
-        
+        val modelMarketItem = (modelItem?.modelMarketItem as? com.alibaba.mnnllm.android.modelmarket.ModelMarketItem)
+
         if (modelMarketItem != null && modelMarketItem.sizeB > 10.0) {
             // Show confirmation dialog for large models
             LargeModelConfirmationDialog.show(
