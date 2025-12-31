@@ -167,9 +167,21 @@ object ModelListManager {
             }
         }
 
-        suspend fun toWrapper(context: Context): ModelItemWrapper? {
+        fun toWrapper(context: Context): ModelItemWrapper? {
             val modelItem = if (isLocal) {
-                ModelUtils.localModelList.find { it.modelId == modelId }
+                val localItem = LocalModelsProvider.getLocalModels().find { it.modelId == modelId }
+                if (localItem != null) {
+                    if (!tags.isNullOrEmpty()) {
+                        localItem.tags = tags
+                    }
+                    if (localItem.modelMarketItem == null && this.modelMarketItem != null) {
+                         localItem.modelMarketItem = this.modelMarketItem
+                    }
+                    if (!this.modelName.isNullOrEmpty()) {
+                        localItem.modelName = this.modelName
+                    }
+                }
+                localItem
             } else {
                 try {
                     val item = ModelItem().apply {
@@ -664,9 +676,26 @@ object ModelListManager {
             val downloadedModels = mutableListOf<ChatDataManager.DownloadedModelInfo>()
             val pinnedModels = PreferenceUtils.getPinnedModels(context)
 
+             // Add local models from LocalModelsProvider
+             val localModels = LocalModelsProvider.getLocalModels()
+             localModels.forEach { localModel ->
+                 if (localModel.modelId != null && localModel.localPath != null) {
+                     try {
+                         val wrapper = processLocalModelWrapper(localModel, pinnedModels, context)
+                         if (wrapper != null) {
+                             modelWrappers.add(wrapper)
+                         }
+                     } catch (e: Exception) {
+                         Timber.w(e, "Failed to process local model ${localModel.modelId}")
+                     }
+                 }
+             }
+
             // Initialize ModelMarketCache and wait for it to be ready using Flow
             try {
-                ModelMarketCache.observeModelMarketConfig(context).first()
+                kotlinx.coroutines.withTimeout(2000) {
+                    ModelMarketCache.observeModelMarketConfig(context).first()
+                }
             } catch (e: Exception) {
                 Timber.w(e, "Failed to initialize ModelMarketCache")
             }
@@ -690,19 +719,6 @@ object ModelListManager {
                 }
             }
 
-            // Add local models from ModelUtils.localModelList
-            ModelUtils.localModelList.forEach { localModel ->
-                if (localModel.modelId != null && localModel.localPath != null) {
-                    try {
-                        val wrapper = processLocalModelWrapper(localModel, pinnedModels, context)
-                        if (wrapper != null) {
-                            modelWrappers.add(wrapper)
-                        }
-                    } catch (e: Exception) {
-                        Timber.w(e, "Failed to process local model ${localModel.modelId}")
-                    }
-                }
-            }
             // Sort models: pinned as first priority, then recently used first, then by download time
             val sortedModels = modelWrappers.sortedWith(
                 compareByDescending<ModelItemWrapper> {
@@ -767,6 +783,16 @@ object ModelListManager {
                     modelItem.tags = marketItem.tags
                 }
             }
+
+            // JOIN_POINT: Add builtin tag logic here
+            // JOIN_POINT: Add builtin tag logic here
+            if (modelItem.isBuiltin || modelItem.modelId?.startsWith("Builtin/") == true) {
+                 val currentTags = modelItem.tags?.toMutableList() ?: mutableListOf()
+                 if (!currentTags.contains("builtin")) {
+                     currentTags.add(0, "builtin")
+                 }
+                 modelItem.tags = currentTags
+            }
             // Get file size from saved data instead of calculating
             val downloadSize = try {
                 val savedSize =
@@ -815,7 +841,9 @@ object ModelListManager {
         try {
             // Check if config path exists for this local model
             val configPath = ModelUtils.getConfigPathForModel(localModel)
+            android.util.Log.d("ModelListManager", "Processing local model: ${localModel.modelId}, configPath: $configPath")
             if (configPath == null || !File(configPath).exists()) {
+                android.util.Log.w("ModelListManager", "Skipping local model ${localModel.modelId} due to missing config: $configPath")
                 return@withContext null
             }
 
@@ -832,13 +860,21 @@ object ModelListManager {
                 localModel.tags = marketItemForTags.tags
             }
 
+            // JOIN_POINT: Add local tag logic here
+            val currentTags = localModel.tags?.toMutableList() ?: mutableListOf()
+            if (!currentTags.contains("local")) {
+                currentTags.add(0, "local")
+            }
+            localModel.tags = currentTags
+
             // Ensure modelName is set
             if (localModel.modelName.isNullOrEmpty()) {
                 val marketItem = localModel.modelMarketItem as? com.alibaba.mnnllm.android.modelmarket.ModelMarketItem
                 if (marketItem?.modelName != null) {
                     localModel.modelName = marketItem.modelName
                 } else {
-                    localModel.modelName = ModelUtils.getModelName(localModel.modelId)
+                     // Fallback to directory name
+                     localModel.modelName = ModelUtils.getModelName(localModel.modelId)
                 }
             }
 

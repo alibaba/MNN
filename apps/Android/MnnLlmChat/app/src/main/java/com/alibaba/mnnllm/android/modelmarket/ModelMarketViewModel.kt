@@ -15,6 +15,9 @@ import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.model.Modality
 import com.alibaba.mnnllm.android.modelmarket.ModelMarketCache
 import kotlinx.coroutines.launch
+import android.content.Intent
+import android.os.Build
+import com.alibaba.mls.api.download.DownloadForegroundService
 import java.util.Locale
 
 class ModelMarketViewModel(application: Application) : AndroidViewModel(application), DownloadListener {
@@ -98,19 +101,14 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
             }
         }
 
-        if (currentFilterState.downloadState == "true") {
-            Log.d(TAG, "Filtering for completed downloads. Total models before filter: ${filteredList.size}")
-            
-            // Debug: Print download states of all models
-            filteredList.forEach { wrapper ->
-                Log.d(TAG, "Model: ${wrapper.modelMarketItem.modelName}, downloadState: ${wrapper.downloadInfo.downloadState}, COMPLETED: ${DownloadState.COMPLETED}")
-            }
+        if (currentFilterState.downloadState != null) {
+            Log.d(TAG, "Filtering for download state: ${currentFilterState.downloadState}. Total models before filter: ${filteredList.size}")
             
             filteredList = filteredList.filter { wrapper ->
-                wrapper.downloadInfo.downloadState == DownloadState.COMPLETED
+                wrapper.downloadInfo.downloadState == currentFilterState.downloadState
             }
             
-            Log.d(TAG, "Models after completed filter: ${filteredList.size}")
+            Log.d(TAG, "Models after download state filter: ${filteredList.size}")
         }
 
         if (currentFilterState.source != null) {
@@ -185,6 +183,33 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
     fun applyFilters(filterState: FilterState) {
         currentFilterState = filterState
         applyCurrentFilters()
+    }
+
+    private fun updateServiceState() {
+        val downloadingItems = allModels.filter {
+            it.downloadInfo.downloadState == DownloadState.DOWNLOADING
+        }
+        val count = downloadingItems.size
+        val context = getApplication<Application>()
+        val intent = Intent(context, DownloadForegroundService::class.java)
+
+        if (count > 0) {
+            val name = downloadingItems.firstOrNull()?.modelMarketItem?.modelName
+            intent.putExtra(DownloadForegroundService.EXTRA_DOWNLOAD_COUNT, count)
+            intent.putExtra(DownloadForegroundService.EXTRA_MODEL_NAME, name)
+
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start download service", e)
+            }
+        } else {
+            context.stopService(intent)
+        }
     }
 
     fun startDownload(item: ModelMarketItem) {
@@ -278,6 +303,7 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
         mainHandler.post {
             allModels.find { it.modelMarketItem.modelId == modelId }?.let { updateDownloadInfo(modelId, downloadManager.getDownloadInfo(it.modelMarketItem.modelId)) }
             _itemUpdate.value = modelId
+            updateServiceState()
         }
     }
 
@@ -293,6 +319,7 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
             } else {
                 Log.e(TAG, "[onDownloadFailed] Could not find wrapper for modelId: $modelId")
             }
+            updateServiceState()
         }
     }
 
@@ -323,6 +350,10 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
                 // Just update progress without full refresh
                 _progressUpdate.value = Pair(modelId, downloadInfo)
             }
+            
+            if (progressStateChanged) {
+                 updateServiceState()
+            }
         }
     }
 
@@ -334,6 +365,7 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
                 // which subscribes to ModelRepository changes
             }
             _itemUpdate.value = modelId
+            updateServiceState()
         }
     }
 
@@ -341,6 +373,7 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
         mainHandler.post {
             allModels.find { it.modelMarketItem.modelId == modelId }?.let { updateDownloadInfo(modelId, downloadManager.getDownloadInfo(it.modelMarketItem.modelId)) }
             _itemUpdate.value = modelId
+            updateServiceState()
         }
     }
 
@@ -348,6 +381,7 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
         mainHandler.post {
             allModels.find { it.modelMarketItem.modelId == modelId }?.let { updateDownloadInfo(modelId, downloadManager.getDownloadInfo(it.modelMarketItem.modelId)) }
             _itemUpdate.value = modelId
+            updateServiceState()
         }
     }
 

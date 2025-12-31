@@ -103,6 +103,8 @@
     <string name="about">About</string>
     <string name="settings">Settings</string>
     <string name="current_version">Current Version:%1$s</string>
+    <string name="mnn_version">MNN Version</string>
+    <string name="mnn_version_summary">MNN Engine Version: %1$s</string>
     <string name="select_download_provider">Select Download Provider</string>
     <string name="settings_complete">it\'s recommended to remove unfinished tasks and redownload to prevent errors.</string>
     <string name="stop_download_tasks_when_chat">Stop downloads when chat</string>
@@ -276,11 +278,14 @@
     <string name="download_state">Download Status</string>
     <string name="all">All</string>
     <string name="others">Others</string>
+    <string name="not_downloaded">Not Downloaded</string>
     <string name="download_state_not_start">Download Unstarted</string>
     <string name="download_state_completed">Downloaded</string>
     <string name="download_state_downloading">Downloading</string>
     <string name="download_state_failed">Download Failed</string>
     <string name="download_state_paused">Download Paused</string>
+    <string name="download_state_cancelled">Cancelled</string>
+    <string name="download_state_preparing">Preparing</string>
     <string name="download_state_updating">Updating</string>
     <string name="no_models_found">No models available. Please download a model first.</string>
     <string name="no_filtered_models_title">No models match your filters</string>
@@ -386,9 +391,17 @@
     <string name="menu_pin_model">Pin to Top</string>
     <string name="menu_unpin_model">Unpin from Top</string>
     <string name="filter_section_model_tags">Model Tags</string>
-    <string name="filter_all">全部筛选</string>
+    <string name="filter_all">All Filters</string>
+    <string name="filter_section_download_status">Download Status</string>
+    <string name="filter_download_not_started">Not Started</string>
+    <string name="filter_download_downloading">Downloading</string>
+    <string name="filter_download_paused">Paused</string>
+    <string name="filter_download_completed">Completed</string>
+    <string name="filter_all_option">All</string>
+    <string name="filters_reset">Filters reset</string>
+    <string name="filters_applied">Filters applied</string>
     <string name="local">Local</string>
-    
+
     <!-- Voice Chat Download Strings -->
     <string name="voice_models_downloading_progress">Downloading voice models %1$d%% (%2$s)</string>
     <string name="voice_models_download_complete">Voice models download complete! Starting voice chat...</string>
@@ -448,6 +461,12 @@
     <!-- Structured Progress Strings -->
     <string name="benchmark_progress_detailed">Test %1$d/%2$d (PP=%3$d, TG=%4$d)\nRuntime: %5$.3fs, Prefill: %6$.3fs, Decode: %7$.3fs\nPrefill Speed: %8$.2f t/s, Decode Speed: %9$.2f t/s</string>
     <string name="benchmark_progress_simple">Test %1$d/%2$d (PP=%3$d, TG=%4$d)</string>
+
+    <!-- Backend Selection Strings -->
+    <string name="select_backend">Select Backend</string>
+    <string name="backend_cpu">CPU</string>
+    <string name="backend_opencl">OpenCL</string>
+    <string name="backend_label">Backend</string>
     
     <string name="api_service_channel_name">API Service Channel</string>
     <string name="request_added_to_queue">Request added to queue: requestId=%1$s, traceId=%2$s, queue size=%3$d, priority=%4$s</string>
@@ -517,7 +536,6 @@
     <string name="max_memory">Max Memory</string>
     <string name="please_download_model">Please download a model first</string>
     <string name="go_to_download">Go to download</string>
-    <string name="all_filter">All Filters</string>
     <string name="model_card">Model Card</string>
     <string name="menu">Menu</string>
     <string name="open_in_browser">Open in Browser</string>
@@ -538,6 +556,7 @@
     <!-- Debug Feature Strings -->
     <string name="debug_show_model_info">Show Model Info Menu</string>
     <string name="checking_repo_updates">Checking for repository updates...</string>
+    <string name="menu_show_model_info_title">Model Information</string>
     <string name="repo_update_check_result">Repository Update Check</string>
     <string name="allow_network_market_data">Allow network to fetch model market data</string>
     <string name="enable_network_delay">Enable network delay (3 seconds)</string>

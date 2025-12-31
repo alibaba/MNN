@@ -13,6 +13,7 @@ import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import com.alibaba.mls.api.source.ModelSources
 import com.alibaba.mnnllm.android.R
+import com.alibaba.mnnllm.android.MNN
 import com.alibaba.mnnllm.android.debug.DebugActivity
 import com.alibaba.mnnllm.android.update.UpdateChecker
 import com.alibaba.mnnllm.android.utils.AppUtils
@@ -77,6 +78,17 @@ class MainSettingsFragment : PreferenceFragmentCompat() {
                 }
                 debugClickHandler.postDelayed(updateCheckRunnable!!, 1000L)
                 true
+            }
+        }
+
+        // Setup MNN Version preference
+        val mnnVersionPref = findPreference<Preference>("mnn_version")
+        mnnVersionPref?.apply {
+            try {
+                val version = MNN.getVersion()
+                summary = getString(R.string.mnn_version_summary, version)
+            } catch (e: Exception) {
+                summary = "N/A"
             }
         }
 

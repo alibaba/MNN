@@ -42,6 +42,11 @@
         android:summary="Tap to check for updates" />
 
     <Preference
+        android:key="mnn_version"
+        android:title="@string/mnn_version"
+        android:selectable="false" />
+
+    <Preference
         android:key="debug_mode"
         android:title="@string/debug_mode"
         android:visible="false" />

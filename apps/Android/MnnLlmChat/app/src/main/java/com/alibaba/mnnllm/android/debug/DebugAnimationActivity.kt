@@ -3,6 +3,8 @@ package com.alibaba.mnnllm.android.debug
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.widget.Button
+import android.widget.RadioGroup
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.constraintlayout.motion.widget.MotionLayout
@@ -16,8 +18,20 @@ class DebugAnimationActivity : AppCompatActivity() {
 
     private lateinit var motionLayout: MotionLayout
     private lateinit var sourceSelectionProvider: SourceSelectionProvider
+    private lateinit var radioGroupDownloadStatus: RadioGroup
+    private lateinit var btnReset: Button
+    private lateinit var btnConfirm: Button
 
     private var selectedSourceProvider: SourceProvider? = null
+    private var selectedDownloadStatus: DownloadStatusFilter = DownloadStatusFilter.ALL
+
+    enum class DownloadStatusFilter {
+        ALL,
+        NOT_STARTED,
+        DOWNLOADING,
+        PAUSED,
+        COMPLETED
+    }
 
     private val sourceProviders = listOf(
         SourceProvider("HuggingFace", "hf"),
@@ -42,6 +56,54 @@ class DebugAnimationActivity : AppCompatActivity() {
         // Set default selection
         selectedSourceProvider = sourceProviders[1] // Default to Modelscope
         sourceSelectionProvider.setSelected(selectedSourceProvider!!.id)
+
+        // Initialize filter components
+        radioGroupDownloadStatus = findViewById(R.id.radio_group_download_status)
+        btnReset = findViewById(R.id.btn_reset)
+        btnConfirm = findViewById(R.id.btn_confirm)
+
+        setupFilterListeners()
+    }
+
+    private fun setupFilterListeners() {
+        // Handle radio button selection for download status
+        radioGroupDownloadStatus.setOnCheckedChangeListener { _, checkedId ->
+            selectedDownloadStatus = when (checkedId) {
+                R.id.radio_download_all -> DownloadStatusFilter.ALL
+                R.id.radio_download_not_started -> DownloadStatusFilter.NOT_STARTED
+                R.id.radio_download_downloading -> DownloadStatusFilter.DOWNLOADING
+                R.id.radio_download_paused -> DownloadStatusFilter.PAUSED
+                R.id.radio_download_completed -> DownloadStatusFilter.COMPLETED
+                else -> DownloadStatusFilter.ALL
+            }
+        }
+
+        // Handle reset button
+        btnReset.setOnClickListener {
+            resetFilters()
+        }
+
+        // Handle confirm button
+        btnConfirm.setOnClickListener {
+            applyFilters()
+        }
+    }
+
+    private fun resetFilters() {
+        selectedDownloadStatus = DownloadStatusFilter.ALL
+        radioGroupDownloadStatus.check(R.id.radio_download_all)
+        Toast.makeText(this, R.string.filters_reset, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun applyFilters() {
+        // TODO: Apply filters to the model list
+        // This will be implemented when connecting to ModelListFragment
+        Toast.makeText(this, getString(R.string.filters_applied), Toast.LENGTH_SHORT).show()
+
+        // Collapse the filter panel
+        Handler(Looper.getMainLooper()).postDelayed({
+            motionLayout.transitionToState(R.id.collapsed)
+        }, 300)
     }
 
     private fun handleProviderSelection(sourceProvider: SourceProvider) {

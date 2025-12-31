@@ -301,44 +301,38 @@ class ModelItemHolder(
                     settingsSheet.show(fragmentManager, SettingsBottomSheetFragment.TAG)
                 }
             } else if (item.itemId == R.id.menu_show_model_info) {
-                // Show model info with repo update check
+                // Show model info directly
                 val context = v.context
-                val progressDialog = androidx.appcompat.app.AlertDialog.Builder(context)
-                    .setTitle(R.string.repo_update_check_result)
-                    .setMessage(R.string.checking_repo_updates)
-                    .setCancelable(false)
-                    .create()
+                val info = StringBuilder()
                 
-                progressDialog.show()
+                info.append("Model Name: ${modelItem.modelName ?: modelItem.modelId}\n\n")
                 
-                // Check for repo updates first
-                com.alibaba.mnnllm.android.debug.DebugActivity.checkRepoUpdates(context) { hasUpdates, updateInfo ->
-                    progressDialog.dismiss()
-                    
-                    // Build model info
-                    val info = StringBuilder()
-                    info.append("Model: ${modelItem.modelName ?: modelItem.modelId}\n")
-                    val sizeInfo = currentModelWrapper?.let { getFormattedFileSize(it) } ?: "Unknown"
-                    info.append("Size: ${if (sizeInfo.isNotEmpty()) sizeInfo else "Unknown"}\n")
-                    if ((currentModelWrapper?.lastChatTime ?: 0) > 0) {
-                        val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
-                        info.append("Last Chat: ${dateFormat.format(Date(currentModelWrapper!!.lastChatTime))}\n")
-                    }
-                    if ((currentModelWrapper?.downloadTime ?: 0) > 0) {
-                        val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
-                        info.append("Downloaded: ${dateFormat.format(Date(currentModelWrapper!!.downloadTime))}\n")
-                    }
-                    
-                    // Add repo update info
-                    info.append("\n--- Repository Update Check ---\n")
-                    info.append(updateInfo ?: "No update information available")
-                    
-                    AlertDialog.Builder(context)
-                        .setTitle("Model Information")
-                        .setMessage(info.toString())
-                        .setPositiveButton(android.R.string.ok, null)
-                        .show()
+                // Show storage path
+                val storagePath = modelItem.localPath
+                info.append("Storage Location:\n$storagePath\n\n")
+                
+                // Show size
+                val sizeInfo = currentModelWrapper?.let { getFormattedFileSize(it) } ?: "Unknown"
+                info.append("Size: ${if (sizeInfo.isNotEmpty()) sizeInfo else "Unknown"}\n")
+                
+                // Show last chat time
+                if ((currentModelWrapper?.lastChatTime ?: 0) > 0) {
+                    val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+                    info.append("Last Chat Time: ${dateFormat.format(Date(currentModelWrapper!!.lastChatTime))}\n")
+                } else {
+                    info.append("Last Chat Time: Never\n")
                 }
+                
+                if ((currentModelWrapper?.downloadTime ?: 0) > 0) {
+                    val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+                    info.append("Downloaded Time: ${dateFormat.format(Date(currentModelWrapper!!.downloadTime))}\n")
+                }
+                
+                AlertDialog.Builder(context)
+                    .setTitle(R.string.menu_show_model_info_title)
+                    .setMessage(info.toString())
+                    .setPositiveButton(android.R.string.ok, null)
+                    .show()
             } else if (item.itemId == R.id.menu_update_model) {
                 // Handle update action
                 modelItemListener.onItemUpdate(modelItem)
@@ -351,23 +345,29 @@ class ModelItemHolder(
             true
         }
         
-        // Since all models are downloaded, simplify menu visibility
+        // Determine if model is deletable
+        // Deletable condition:
+        // 1. Must be a downloaded model (has download info) -> This excludes manually added local models
+        // 2. Must NOT be a builtin model -> This excludes builtin models
+        val isDownloaded = modelWrapper.downloadedModelInfo != null
+        val isBuiltin = modelItem.isBuiltin || modelItem.modelId?.startsWith("Builtin/") == true
+        val isDeletable = isDownloaded && !isBuiltin
+
         // Delete, settings, and model info are always available
-        popupMenu.menu.findItem(R.id.menu_delete_model).setVisible(!modelItem.isLocal)
+        popupMenu.menu.findItem(R.id.menu_delete_model).setVisible(isDeletable)
         popupMenu.menu.findItem(R.id.menu_settings).setVisible(true)
-        // Show model info menu item only if debug feature is enabled
-        val isDebugEnabled = com.alibaba.mnnllm.android.debug.DebugActivity.isShowModelInfoEnabled(v.context)
-        popupMenu.menu.findItem(R.id.menu_show_model_info).setVisible(isDebugEnabled)
+        // Show model info menu item always
+        popupMenu.menu.findItem(R.id.menu_show_model_info).setVisible(true)
         
         // Show update option only for remote models with updates
-        popupMenu.menu.findItem(R.id.menu_update_model).setVisible(!modelItem.isLocal && modelWrapper.hasUpdate)
+        popupMenu.menu.findItem(R.id.menu_update_model).setVisible(isDownloaded && modelWrapper.hasUpdate)
         
         // Download control items are not needed for downloaded models
         popupMenu.menu.findItem(R.id.menu_pause_download)?.setVisible(false)
         popupMenu.menu.findItem(R.id.menu_start_download)?.setVisible(false)
         
         // Model card should be visible for remote models
-        popupMenu.menu.findItem(R.id.menu_open_model_card).setVisible(false)
+        popupMenu.menu.findItem(R.id.menu_open_model_card)?.setVisible(false)
         
         popupMenu.show()
         return true

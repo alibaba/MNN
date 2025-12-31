@@ -5,6 +5,9 @@ package com.alibaba.mnnllm.android.debug
 
 import android.Manifest
 import android.content.Intent
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
@@ -74,6 +77,7 @@ class DebugActivity : AppCompatActivity() {
     private lateinit var testCaseSpinner: Spinner
     private lateinit var testCaseContainer: FrameLayout
     private lateinit var clearLogButton: Button
+    private lateinit var copyLogButton: Button
 
     // Test case views - will be initialized when layouts are loaded
     private var asrTestButton: Button? = null
@@ -119,6 +123,7 @@ class DebugActivity : AppCompatActivity() {
         testCaseSpinner = findViewById(R.id.testCaseSpinner)
         testCaseContainer = findViewById(R.id.testCaseContainer)
         clearLogButton = findViewById(R.id.clearLogButton)
+        copyLogButton = findViewById(R.id.copyLogButton)
         
         val titleTextView = findViewById<TextView>(R.id.titleTextView)
         val baseTitle = getString(R.string.debug_activity_title)
@@ -286,6 +291,9 @@ class DebugActivity : AppCompatActivity() {
         clearLogButton.setOnClickListener {
             clearLog()
         }
+        copyLogButton.setOnClickListener {
+            copyLog()
+        }
     }
 
     private fun loadDebugSettings() {
@@ -397,6 +405,13 @@ class DebugActivity : AppCompatActivity() {
     private fun clearLog() {
         logTextView.text = ""
         log("Log cleared")
+    }
+
+    private fun copyLog() {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = ClipData.newPlainText("Debug Log", logTextView.text)
+        clipboard.setPrimaryClip(clip)
+        Toast.makeText(this, R.string.log_copied_to_clipboard, Toast.LENGTH_SHORT).show()
     }
 
     private fun closeDebugMode() {

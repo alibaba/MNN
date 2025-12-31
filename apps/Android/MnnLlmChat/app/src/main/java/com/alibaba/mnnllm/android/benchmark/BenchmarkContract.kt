@@ -68,6 +68,7 @@ class BenchmarkContract {
         fun showUploadProgress(message: String)
         fun hideUploadProgress()
         fun showRankInfo(rank: Int, totalUsers: Int)
+        fun getSelectedBackend(): String
     }
     
     interface Presenter {
