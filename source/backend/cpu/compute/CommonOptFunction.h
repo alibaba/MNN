@@ -198,6 +198,7 @@ void MNNCopyC4Int16WithStride(const float* sourceF, float* destF, size_t srcStri
 void MNNInt8ToInt16(int16_t* dest, const int8_t* source, size_t count);
 
 void MNNPackForMatMul_A(float* dst, const float* src, size_t E, size_t L, size_t eP, size_t lP, size_t bytes);
+void MNNCountMaxMinValue(const float* source, float* minVal, float* maxVal, size_t size);
 
 struct SumByAxisParams {
     ssize_t kernelCountUnitDouble;
@@ -254,7 +255,7 @@ struct MatmulRelatedFunctions {
     void(*MNNGemmInt8AddBiasScale_w4_Unit_FP32_DecodeMax)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDstCount) = nullptr;
     void(*Int8GemmKernel_W4)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDstCount) = nullptr;
     void(*MNNSumByAxisLForMatmul_A)(float* dest, int8_t* source, const float* dequantScale, ssize_t realDstCount, SumByAxisParams sumParams) = nullptr;
-    
+
     int eP;
 };
 
@@ -430,6 +431,10 @@ struct CoreFunctions {
 
     MatmulRelatedFunctions int8MatmulRelatedFunctions;
     MatmulRelatedFunctions arm82MatmulRelatedFunctions;
+
+    // only low memory
+    void(*MNNTMacBuildTable)(int8_t* destTable, int8_t* kernelSum, int8_t* source, size_t planeSize, size_t icC4, size_t pack, size_t blC4, size_t blockNum, size_t tableunit);
+    int tmacHp;
 };
 void MNNCoreFunctionInit();
 CoreFunctions* MNNGetCoreFunctions();

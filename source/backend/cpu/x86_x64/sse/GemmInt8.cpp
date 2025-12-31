@@ -650,6 +650,181 @@ void _SSE_MNNInt8ToInt16(int16_t* dest, const int8_t* sourceO, size_t count) {
     }
 }
 
+void _SSE_MNNTMacCompute(float* dst, const int8_t* table, const float* inputSum, const TMacResource* res, const PlaneInfo* plane) {
+    // res->mHp=32
+    auto ocC4 = plane->ocDiv;
+    auto blC4 = res->mBlockSizeC4;
+    const auto mask = _mm_set1_epi8(0xf);
+    std::vector<int> bsum(res->mHp);
+    __m128 sum0, sum1, sum2, sum3, sum4, sum5, sum6, sum7;
+    int halfhp = res->mHp / 2;
+    const auto offset = _mm_set1_ps(plane->offset);
+    const auto offset128 = _mm_set1_ps(128.f * blC4);
+    __m128i zero = _mm_set1_epi32(0);
+    const auto dequantscale = _mm_set1_ps(plane->dequantscale);
+    const auto f = _mm_set1_ps(2.0f);
+    const auto minv = _mm_set1_ps(plane->minValue);
+    const auto maxv = _mm_set1_ps(plane->maxValue);
+    // Compute Dst: Loop up and sum
+    for (int oz=0; oz<ocC4; ++oz) {
+        auto dstZ = dst + oz * (res->mHp / 4) * plane->planeSize * 4;
+        auto biasPtrZ = (float*)(plane->mBiasPtr) + res->mHp * oz;
+        auto blockScaleZ = (const float*)plane->mWeightScalePtr + oz * res->mBlockNumber * 2 * res->mHp;
+        auto blockBiasZ = blockScaleZ + res->mHp;
+        auto csum0 = _mm_loadu_ps(biasPtrZ);
+        auto csum1 = _mm_loadu_ps(biasPtrZ + 4);
+        auto csum2 = _mm_loadu_ps(biasPtrZ + 8);
+        auto csum3 = _mm_loadu_ps(biasPtrZ + 12);
+        auto csum4 = _mm_loadu_ps(biasPtrZ + 16);
+        auto csum5 = _mm_loadu_ps(biasPtrZ + 20);
+        auto csum6 = _mm_loadu_ps(biasPtrZ + 24);
+        auto csum7 = _mm_loadu_ps(biasPtrZ + 28);
+        for (int ib=0; ib<res->mBlockNumber; ++ib) {
+            auto tableIB = table + (ib) * (blC4) * 16;
+            auto blockScale = blockScaleZ + ib * 2 * res->mHp;
+            auto blockBias  = blockBiasZ + ib * 2 * res->mHp;
+            auto scale0 = _mm_loadu_ps(blockScale);
+            auto scale1 = _mm_loadu_ps(blockScale + 4);
+            auto scale2 = _mm_loadu_ps(blockScale + 8);
+            auto scale3 = _mm_loadu_ps(blockScale + 12);
+            auto scale4 = _mm_loadu_ps(blockScale + 16);
+            auto scale5 = _mm_loadu_ps(blockScale + 20);
+            auto scale6 = _mm_loadu_ps(blockScale + 24);
+            auto scale7 = _mm_loadu_ps(blockScale + 28);
+            auto bias0 = _mm_loadu_ps(blockBias);
+            auto bias1 = _mm_loadu_ps(blockBias + 4);
+            auto bias2 = _mm_loadu_ps(blockBias + 8);
+            auto bias3 = _mm_loadu_ps(blockBias + 12);
+            auto bias4 = _mm_loadu_ps(blockBias + 16);
+            auto bias5 = _mm_loadu_ps(blockBias + 20);
+            auto bias6 = _mm_loadu_ps(blockBias + 24);
+            auto bias7 = _mm_loadu_ps(blockBias + 28);
+            sum0 = _mm_setzero_ps();
+            sum1 = _mm_setzero_ps();
+            sum2 = _mm_setzero_ps();
+            sum3 = _mm_setzero_ps();
+            sum4 = _mm_setzero_ps();
+            sum5 = _mm_setzero_ps();
+            sum6 = _mm_setzero_ps();
+            sum7 = _mm_setzero_ps();
+            auto inputSummer = _mm_load1_ps(inputSum + ib);
+            for (int b=0; b<res->mBits; ++b) {
+                for (int v=0; v<res->mHp; ++v) {
+                    bsum[v] = 0;
+                }
+
+                auto bsum0_int16 = _mm_setzero_si128();
+                auto bsum1_int16 = _mm_setzero_si128();
+                auto bsum2_int16 = _mm_setzero_si128();
+                auto bsum3_int16 = _mm_setzero_si128();
+                auto weight = plane->mWeightPtr + res->mWeightInt8->stride(0) * oz + res->mWeightInt8->stride(1) * ib + b * blC4 * res->mHp / 2;
+                for (int iz=0; iz<blC4; ++iz) {
+                    auto tablePtr = (uint8_t*)tableIB + iz * 16;
+                    auto srclut = _mm_loadu_si128(reinterpret_cast<__m128i*>(tablePtr));
+                    auto weightZ = weight + iz * halfhp;
+                    auto w0_int4 = _mm_loadu_si128(reinterpret_cast<const __m128i *>(weightZ));
+                    auto w1 = _mm_and_si128(mask, _mm_srli_epi16(w0_int4, 4));
+                    auto w0 = _mm_and_si128(mask, w0_int4);
+
+                    auto v0 = _mm_shuffle_epi8(srclut, w0);
+                    auto v1 = _mm_shuffle_epi8(srclut, w1);
+                    auto v00 = _mm_unpacklo_epi8(v0, zero);
+                    auto v01 = _mm_unpackhi_epi8(v0, zero);
+                    auto v10 = _mm_unpacklo_epi8(v1, zero);
+                    auto v11 = _mm_unpackhi_epi8(v1, zero);
+                    bsum0_int16 = _mm_add_epi16(bsum0_int16, v00);
+                    bsum1_int16 = _mm_add_epi16(bsum1_int16, v01);
+                    bsum2_int16 = _mm_add_epi16(bsum2_int16, v10);
+                    bsum3_int16 = _mm_add_epi16(bsum3_int16, v11);
+                }
+                auto bsum0 = _mm_cvtepi32_ps(_mm_unpacklo_epi16(bsum0_int16, zero));
+                auto bsum1 = _mm_cvtepi32_ps(_mm_unpackhi_epi16(bsum0_int16, zero));
+                auto bsum2 = _mm_cvtepi32_ps(_mm_unpacklo_epi16(bsum1_int16, zero));
+                auto bsum3 = _mm_cvtepi32_ps(_mm_unpackhi_epi16(bsum1_int16, zero));
+                auto bsum4 = _mm_cvtepi32_ps(_mm_unpacklo_epi16(bsum2_int16, zero));
+                auto bsum5 = _mm_cvtepi32_ps(_mm_unpackhi_epi16(bsum2_int16, zero));
+                auto bsum6 = _mm_cvtepi32_ps(_mm_unpacklo_epi16(bsum3_int16, zero));
+                auto bsum7 = _mm_cvtepi32_ps(_mm_unpackhi_epi16(bsum3_int16, zero));
+                sum0 = _mm_mul_ps(sum0, f);
+                sum1 = _mm_mul_ps(sum1, f);
+                sum2 = _mm_mul_ps(sum2, f);
+                sum3 = _mm_mul_ps(sum3, f);
+                sum4 = _mm_mul_ps(sum4, f);
+                sum5 = _mm_mul_ps(sum5, f);
+                sum6 = _mm_mul_ps(sum6, f);
+                sum7 = _mm_mul_ps(sum7, f);
+
+                bsum0 = _mm_sub_ps(bsum0, offset128);
+                bsum1 = _mm_sub_ps(bsum1, offset128);
+                bsum2 = _mm_sub_ps(bsum2, offset128);
+                bsum3 = _mm_sub_ps(bsum3, offset128);
+                bsum4 = _mm_sub_ps(bsum4, offset128);
+                bsum5 = _mm_sub_ps(bsum5, offset128);
+                bsum6 = _mm_sub_ps(bsum6, offset128);
+                bsum7 = _mm_sub_ps(bsum7, offset128);
+                sum0 = _mm_add_ps(sum0, bsum0);
+                sum1 = _mm_add_ps(sum1, bsum1);
+                sum2 = _mm_add_ps(sum2, bsum2);
+                sum3 = _mm_add_ps(sum3, bsum3);
+                sum4 = _mm_add_ps(sum4, bsum4);
+                sum5 = _mm_add_ps(sum5, bsum5);
+                sum6 = _mm_add_ps(sum6, bsum6);
+                sum7 = _mm_add_ps(sum7, bsum7);
+                
+            }
+            auto f0 = _mm_mul_ps(inputSummer, bias0);
+            auto f1 = _mm_mul_ps(inputSummer, bias1);
+            auto f2 = _mm_mul_ps(inputSummer, bias2);
+            auto f3 = _mm_mul_ps(inputSummer, bias3);
+            auto f4 = _mm_mul_ps(inputSummer, bias4);
+            auto f5 = _mm_mul_ps(inputSummer, bias5);
+            auto f6 = _mm_mul_ps(inputSummer, bias6);
+            auto f7 = _mm_mul_ps(inputSummer, bias7);
+            auto m0 = _mm_mul_ps(dequantscale, scale0);
+            auto m1 = _mm_mul_ps(dequantscale, scale1);
+            auto m2 = _mm_mul_ps(dequantscale, scale2);
+            auto m3 = _mm_mul_ps(dequantscale, scale3);
+            auto m4 = _mm_mul_ps(dequantscale, scale4);
+            auto m5 = _mm_mul_ps(dequantscale, scale5);
+            auto m6 = _mm_mul_ps(dequantscale, scale6);
+            auto m7 = _mm_mul_ps(dequantscale, scale7);
+            
+            m0 = _mm_mul_ps(m0, _mm_sub_ps(sum0, offset));
+            m1 = _mm_mul_ps(m1, _mm_sub_ps(sum1, offset));
+            m2 = _mm_mul_ps(m2, _mm_sub_ps(sum2, offset));
+            m3 = _mm_mul_ps(m3, _mm_sub_ps(sum3, offset));
+            m4 = _mm_mul_ps(m4, _mm_sub_ps(sum4, offset));
+            m5 = _mm_mul_ps(m5, _mm_sub_ps(sum5, offset));
+            m6 = _mm_mul_ps(m6, _mm_sub_ps(sum6, offset));
+            m7 = _mm_mul_ps(m7, _mm_sub_ps(sum7, offset));
+            csum0 = _mm_add_ps(csum0, _mm_add_ps(m0, f0));
+            csum1 = _mm_add_ps(csum1, _mm_add_ps(m1, f1));
+            csum2 = _mm_add_ps(csum2, _mm_add_ps(m2, f2));
+            csum3 = _mm_add_ps(csum3, _mm_add_ps(m3, f3));
+            csum4 = _mm_add_ps(csum4, _mm_add_ps(m4, f4));
+            csum5 = _mm_add_ps(csum5, _mm_add_ps(m5, f5));
+            csum6 = _mm_add_ps(csum6, _mm_add_ps(m6, f6));
+            csum7 = _mm_add_ps(csum7, _mm_add_ps(m7, f7));
+        }
+        csum0 = _mm_max_ps(minv, _mm_min_ps(maxv, csum0));
+        csum1 = _mm_max_ps(minv, _mm_min_ps(maxv, csum1));
+        csum2 = _mm_max_ps(minv, _mm_min_ps(maxv, csum2));
+        csum3 = _mm_max_ps(minv, _mm_min_ps(maxv, csum3));
+        csum4 = _mm_max_ps(minv, _mm_min_ps(maxv, csum4));
+        csum5 = _mm_max_ps(minv, _mm_min_ps(maxv, csum5));
+        csum6 = _mm_max_ps(minv, _mm_min_ps(maxv, csum6));
+        csum7 = _mm_max_ps(minv, _mm_min_ps(maxv, csum7));
+        _mm_storeu_ps(dstZ, csum0);
+        _mm_storeu_ps(dstZ + 4 * plane->planeSize, csum1);
+        _mm_storeu_ps(dstZ + 8 * plane->planeSize, csum2);
+        _mm_storeu_ps(dstZ + 12 * plane->planeSize, csum3);
+        _mm_storeu_ps(dstZ + 16 * plane->planeSize, csum4);
+        _mm_storeu_ps(dstZ + 20 * plane->planeSize, csum5);
+        _mm_storeu_ps(dstZ + 24 * plane->planeSize, csum6);
+        _mm_storeu_ps(dstZ + 28 * plane->planeSize, csum7);
+    }
+}
+
 void _SSE_MNNReluInt8(int8_t* dst, const int8_t* src, size_t size, ssize_t zeroPoint) {
     auto zero = _mm_set1_epi8(zeroPoint - 128);// uint8 128
     for (int i = 0; i < size; i+=16) {
