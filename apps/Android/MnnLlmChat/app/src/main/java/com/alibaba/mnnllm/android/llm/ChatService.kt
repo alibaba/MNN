@@ -58,14 +58,15 @@ class ChatService {
         modelDir: String?,
         sessionIdParam: String?,
         chatDataItemList: List<ChatDataItem>?,
-        supportOmni:Boolean
+        supportOmni:Boolean,
+        backendType: String? = null
     ): LlmSession {
         var sessionId:String = if (TextUtils.isEmpty(sessionIdParam)) {
             System.currentTimeMillis().toString()
         } else {
             sessionIdParam!!
         }
-        val session = LlmSession(modelId!!, sessionId, modelDir!!, chatDataItemList)
+        val session = LlmSession(modelId!!, sessionId, modelDir!!, chatDataItemList, backendType)
         session.supportOmni = supportOmni
         transformerSessionMap[sessionId] = session
         return session

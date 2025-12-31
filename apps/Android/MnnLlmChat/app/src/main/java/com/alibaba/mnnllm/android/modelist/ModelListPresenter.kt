@@ -125,6 +125,18 @@ class ModelListPresenter(private val context: Context, private val view: ModelLi
         }
     }
 
+    fun handlePinStateChange(isPinned: Boolean) {
+        Log.d(TAG, "handlePinStateChange: isPinned=$isPinned")
+        presenterScope.launch {
+            val reason = if (isPinned) {
+                ModelListManager.ChangeReason.MODEL_PINNED
+            } else {
+                ModelListManager.ChangeReason.MODEL_UNPINNED
+            }
+            ModelListManager.notifyModelListMayChange(reason)
+        }
+    }
+
     // DownloadListener implementation
     override fun onDownloadTotalSize(modelId: String, totalSize: Long) {
         // Not needed for model list

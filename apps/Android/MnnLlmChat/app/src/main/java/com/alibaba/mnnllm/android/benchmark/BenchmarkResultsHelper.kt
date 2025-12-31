@@ -22,7 +22,13 @@ object BenchmarkResultsHelper {
         val allDecodeSpeeds = mutableListOf<Double>()
         
         var totalTokensProcessed = 0
+        
+        // Add backend info
+        val backendId = testResults.firstOrNull()?.backend ?: 0
+        val backendName = if (backendId == 3) "OpenCL" else "CPU"
+        
         var configText = context.getString(R.string.benchmark_config) + "\n"
+        configText += context.getString(R.string.backend_label) + ": $backendName\n"
         
         var totalTimeSeconds = 0.0
         

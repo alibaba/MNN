@@ -647,6 +647,10 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
         _binding = null
     }
     
+    override fun getSelectedBackend(): String {
+        return if (_binding?.backendOpencl?.isChecked == true) "opencl" else "cpu"
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         presenter?.onDestroy()

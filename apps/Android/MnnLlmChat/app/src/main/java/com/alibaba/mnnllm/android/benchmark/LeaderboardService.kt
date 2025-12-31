@@ -34,7 +34,13 @@ class LeaderboardService {
         private const val DEFAULT_USER_ID = "anonymous"
     }
     
+
     private val httpClient = OkHttpClient.Builder()
+        .apply {
+            if (com.alibaba.mnnllm.android.BuildConfig.DEBUG) {
+                 addNetworkInterceptor(com.facebook.stetho.okhttp3.StethoInterceptor())
+            }
+        }
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)

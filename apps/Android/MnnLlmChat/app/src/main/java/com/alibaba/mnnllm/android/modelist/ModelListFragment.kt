@@ -121,13 +121,13 @@ class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
         try {
             // Check if we're at the top of the list before making changes
             val layoutManager = modelListRecyclerView.layoutManager as? LinearLayoutManager
-            val shouldScrollToTop = layoutManager?.let { 
+            val shouldScrollToTop = layoutManager?.let {
                 val firstVisiblePosition = it.findFirstVisibleItemPosition()
                 val firstCompletelyVisiblePosition = it.findFirstCompletelyVisibleItemPosition()
                 // Consider "at top" if first item is visible and we're unpinning (item will move down)
                 (firstVisiblePosition <= 2 || firstCompletelyVisiblePosition <= 1) && !isPinned
             } ?: false
-            
+
             if (isPinned) {
                 PreferenceUtils.pinModel(requireContext(), modelId)
                 Toast.makeText(requireContext(), getString(R.string.model_pinned), Toast.LENGTH_SHORT).show()
@@ -135,14 +135,17 @@ class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
                 PreferenceUtils.unpinModel(requireContext(), modelId)
                 Toast.makeText(requireContext(), getString(R.string.model_unpinned), Toast.LENGTH_SHORT).show()
             }
-            
+
+            // Notify presenter to refresh the list with new pin state
+            modelListPresenter?.handlePinStateChange(isPinned)
+
             // If we were at the top and unpinned an item, scroll back to top after update
             if (shouldScrollToTop) {
                 modelListRecyclerView.post {
                     modelListRecyclerView.scrollToPosition(0)
                 }
             }
-            
+
         } catch (e: Exception) {
             Log.e(TAG, "Failed to toggle pin state for model: $modelId", e)
             Toast.makeText(requireContext(), getString(R.string.pin_toggle_failed), Toast.LENGTH_SHORT).show()

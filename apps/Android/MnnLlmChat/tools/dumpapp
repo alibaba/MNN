@@ -1,0 +1,84 @@
+#!/usr/bin/env python3
+
+import sys
+import os
+import io
+
+from stetho_open import *
+
+def main():
+  # Manually parse out -p <process>, all other option handling occurs inside
+  # the hosting process.
+
+  # Connect to the process passed in via -p. If that is not supplied fallback
+  # the process defined in STETHO_PROCESS. If neither are defined use default.
+  process = os.environ.get('STETHO_PROCESS', 'com.alibaba.mnnllm.android')
+
+  args = sys.argv[1:]
+  if len(args) > 0 and (args[0] == '-p' or args[0] == '--process'):
+    if len(args) < 2:
+      sys.exit('Missing <process>')
+    else:
+      process = args[1]
+      args = args[2:]
+
+  # Connect to ANDROID_SERIAL if supplied, otherwise fallback to any
+  # transport.
+  device = os.environ.get('ANDROID_SERIAL')
+
+  # Connect on the overridden port if specified
+  port = get_adb_server_port()
+
+  try:
+    sock = stetho_open(device, process, port)
+
+    # Send dumpapp hello (DUMP + version=1)
+    sock.send(b'DUMP' + struct.pack('!l', 1))
+
+    enter_frame = b'!' + struct.pack('!l', len(args))
+    for arg in args:
+      argAsUTF8 = arg.encode('utf-8')
+      enter_frame += struct.pack(
+          '!H' + str(len(argAsUTF8)) + 's',
+          len(argAsUTF8),
+          argAsUTF8)
+    sock.send(enter_frame)
+
+    read_frames(sock)
+  except HumanReadableError as e:
+    sys.exit(e)
+  except BrokenPipeError as e:
+    sys.exit(0)
+  except KeyboardInterrupt:
+    sys.exit(1)
+
+def read_frames(sock):
+  while True:
+    # All frames have a single character code followed by a big-endian int
+    code = read_input(sock, 1, 'code')
+    n = struct.unpack('!l', read_input(sock, 4, 'int4'))[0]
+
+    if code == b'1':
+      if n > 0:
+        sys.stdout.buffer.write(read_input(sock, n, 'stdout blob'))
+        sys.stdout.buffer.flush()
+    elif code == b'2':
+      if n > 0:
+        sys.stderr.buffer.write(read_input(sock, n, 'stderr blob'))
+        sys.stderr.buffer.flush()
+    elif code == b'_':
+      if n > 0:
+        data = sys.stdin.buffer.read(n)
+        if len(data) == 0:
+          sock.send(b'-' + struct.pack('!l', -1))
+        else:
+          sock.send(b'-' + struct.pack('!l', len(data)) + data)
+    elif code == b'x':
+      sys.exit(n)
+    else:
+      if raise_on_eof:
+        raise IOError('Unexpected header: %s' % code)
+      break
+
+if __name__ == '__main__':
+  main()

@@ -50,9 +50,11 @@ class BenchmarkService {
         )
     }
 
-    suspend fun initializeModel(modelId: String, customConfigPath: String? = null): Boolean = withContext(Dispatchers.IO) {
+    private var currentBackendType: String = "cpu"
+
+    suspend fun initializeModel(modelId: String, customConfigPath: String? = null, backendType: String = "cpu"): Boolean = withContext(Dispatchers.IO) {
         try {
-            Log.d(TAG, "Initializing benchmark model: $modelId")
+            Log.d(TAG, "Initializing benchmark model: $modelId with backend: $backendType")
             
             val configPath = customConfigPath ?: ModelConfig.getDefaultConfigFile(modelId)
             
@@ -68,11 +70,13 @@ class BenchmarkService {
                 configPath,
                 "benchmark_session_${System.currentTimeMillis()}",
                 null,
-                false
+                false,
+                backendType
             ) as? LlmSession
 
             llmSession?.let { session ->
                 session.load()
+                currentBackendType = backendType
                 Log.d(TAG, "Benchmark model loaded successfully")
                 true
             } ?: false
@@ -81,6 +85,8 @@ class BenchmarkService {
             false
         }
     }
+
+    fun getCurrentBackendType(): String = currentBackendType
 
     // Create command parameter instances following llm_bench.cpp approach
     private fun getCmdParamsInstances(
