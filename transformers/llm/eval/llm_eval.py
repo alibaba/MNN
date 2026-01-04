@@ -26,6 +26,7 @@ class MNNLM(HFLM):
         self.model_type = "mnnllm"
         self.delta = None
         self.peft = None
+        self.softmax_dtype = torch.float32
 
     def tok_encode(
         self, string: str, left_truncate_len=None, add_special_tokens=None
@@ -42,21 +43,16 @@ class MNNLM(HFLM):
         lm_logits_list = []
         for ids in inps:
             ids_list = ids.tolist()
-            logits = self.model.forward(ids_list)
+            logits = self._model.forward(ids_list)
             npy_logits = copy.deepcopy(logits.read())
             torch_logits = torch.from_numpy(npy_logits)
             lm_logits_list.append(torch_logits)
         lm_logits = torch.concat(lm_logits_list, axis=0)
         return lm_logits
 
-def eval(model, dataset_task):
+def eval(model, tasks, limit=None):
     lm = MNNLM(pretrained=model)
-    results = simple_evaluate(model=lm, tasks=[dataset_task], batch_size=1, verbosity="ERROR")
-    # results = simple_evaluate(model=lm, tasks=["ceval-valid"], batch_size=1)
-    # results = simple_evaluate(model=lm, tasks=["hellaswag"], batch_size=1)
-    # results = simple_evaluate(model=lm, tasks=["arc_challenge"], batch_size=1)
-    # results = simple_evaluate(model=lm, tasks=["arc_challenge","hellaswag","piqa"], batch_size=1)
-    filtered_results = results.copy()
+    results = simple_evaluate(model=lm, tasks=tasks, batch_size=1, verbosity="ERROR", limit=limit)
     filtered_results = {key: value for key, value in results.items() if key == "results"}
     json_filtered_results = json.dumps(filtered_results, indent=4)
     print(json_filtered_results)
@@ -65,7 +61,9 @@ def eval(model, dataset_task):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='mnnllm eval', formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument('-m', type=str, default=None, required=True, help='path to mnn llm model config.')
-    parser.add_argument('-d', type=str, default='piqa', required=True, help='tasks to evaluate.')
+    parser.add_argument('-m', type=str, required=True, help='path to mnn llm model config.')
+    parser.add_argument('-d', type=str, default='arc_challenge,ceval-valid', help='tasks to evaluate, separated by comma.')
+    parser.add_argument('--limit', type=int, default=None, help='limit number of samples per task.')
     args = parser.parse_args()
-    eval(args.m, args.d)
+    tasks = [t.strip() for t in args.d.split(',')]
+    eval(args.m, tasks, args.limit)
