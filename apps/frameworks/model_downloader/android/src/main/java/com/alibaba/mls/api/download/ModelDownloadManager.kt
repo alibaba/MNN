@@ -144,7 +144,15 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
             val totalSize = DownloadPersistentData.getDownloadSizeTotal(ApplicationProvider.get(), modelId)
             DownloadInfo(downloadState = DownloadState.DOWNLOAD_SUCCESS, downlodaState = DownloadState.DOWNLOAD_SUCCESS, progress = 1.0, totalSize = totalSize)
         } else {
-            DownloadInfo(downloadState = DownloadState.NOT_START, downlodaState = DownloadState.NOT_START)
+            val totalSize = DownloadPersistentData.getDownloadSizeTotal(ApplicationProvider.get(), modelId)
+            if (totalSize > 0) {
+                 val savedSize = getRealDownloadSize(modelId)
+                 val progress = if (totalSize > 0) savedSize.toDouble() / totalSize else 0.0
+                 val state = if (savedSize > 0) DownloadState.PAUSED else DownloadState.NOT_START
+                 DownloadInfo(downloadState = state, downlodaState = state, progress = progress, totalSize = totalSize, savedSize = savedSize)
+            } else {
+                 DownloadInfo(downloadState = DownloadState.NOT_START, downlodaState = DownloadState.NOT_START)
+            }
         }
         // Cache the info so modifications are preserved
         downloadInfoMap[modelId] = info
@@ -273,6 +281,26 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
         
         downloadListeners.forEach { it.onDownloadHasUpdate(modelId, info) }
         downloadListeners.forEach { it.onDownloadTotalSize(modelId, repoSize) }
+    }
+
+    private fun getDownloader(modelId: String): ModelRepoDownloader {
+        return if (modelId.startsWith("HuggingFace/") || modelId.startsWith("Huggingface/")) {
+            hfDownloader
+        } else {
+             msDownloader
+        }
+    }
+
+    fun getRealDownloadSize(modelId: String): Long {
+         val savedSize = DownloadPersistentData.getDownloadSizeSaved(ApplicationProvider.get(), modelId)
+         if (savedSize > 0) return savedSize
+         
+         val downloader = getDownloader(modelId)
+         val realFile = downloader.repoModelRealFile(modelId)
+         if (realFile.exists()) {
+              return FileUtils.getFileSize(realFile)
+         }
+         return 0L
     }
 
     companion object {
