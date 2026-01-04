@@ -8,6 +8,7 @@ import android.speech.tts.TextToSpeechService
 import android.speech.tts.Voice
 import android.util.Log
 import com.taobao.meta.avatar.tts.TtsService
+import com.alibaba.mnn.tts.demo.SherpaTts
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -33,6 +34,7 @@ class MnnTtsService : TextToSpeechService() {
     private var synthesisJob: Job? = null
 
     private var ttsService: TtsService? = null
+    private var sherpaTts: SherpaTts? = null
     private var currentLanguage: String = "zh" // 默认中文（两字母代码，用于内部处理）
     private var currentLanguageOriginal: String = "zh" // 原始语言代码（可能三字母，用于返回给系统）
     private var currentCountry: String = "" // 当前国家代码
@@ -68,6 +70,7 @@ class MnnTtsService : TextToSpeechService() {
         serviceScope.cancel() // 取消所有协程
         try {
             ttsService?.destroy()
+            sherpaTts?.release()
         } catch (e: Exception) {
             Log.e(TAG, "Error destroying TTS service", e)
         }
@@ -99,37 +102,46 @@ class MnnTtsService : TextToSpeechService() {
                     if (!isActive) return@withLock
 
                     // 检查 TTS 引擎状态
-                    val tts = ttsService
-                    if (tts == null) {
+                    if (ttsService == null && sherpaTts == null) {
                         Log.e(TAG, "TTS service is null, attempting re-init")
                         initializeTtsService()
-                        if (ttsService == null) {
+                        if (ttsService == null && sherpaTts == null) {
                             callback.error()
                             return@withLock
                         }
                     }
 
-                    // 设置语言
-                    val reqLang = request.language ?: currentLanguage
-                    val langCode = if (reqLang.lowercase().contains("en")) "en" else "zh"
-                    ttsService?.setLanguage(langCode)
+                    var audioData: FloatArray? = null
+                    var audioShortData: ShortArray? = null
 
-                    // 等待 TTS 服务初始化完成（关键修复：确保模型已加载）
-                    val isReady = ttsService?.waitForInitComplete() ?: false
-                    if (!isReady) {
-                        Log.e(TAG, "TTS service not ready after waiting")
-                        callback.error()
-                        return@withLock
+                    if (sherpaTts != null) {
+                        val generated = sherpaTts?.process(text)
+                        audioData = generated?.samples
+                        if (generated?.sampleRate != null) {
+                            sampleRate = generated.sampleRate
+                        }
+                    } else {
+                        // 设置语言
+                        val reqLang = request.language ?: currentLanguage
+                        val langCode = if (reqLang.lowercase().contains("en")) "en" else "zh"
+                        ttsService?.setLanguage(langCode)
+
+                        // 等待 TTS 服务初始化完成（关键修复：确保模型已加载）
+                        val isReady = ttsService?.waitForInitComplete() ?: false
+                        if (!isReady) {
+                            Log.e(TAG, "TTS service not ready after waiting")
+                            callback.error()
+                            return@withLock
+                        }
+
+                        // 执行推理 (耗时操作)
+                        audioShortData = ttsService?.process(text, 0)
                     }
-
-                    // 执行推理 (耗时操作)
-                    // 注意：这里假设 tts.process 是同步阻塞的
-                    val audioData = ttsService?.process(text, 0)
 
                     // 再次检查取消状态
                     if (!isActive) return@withLock
 
-                    if (audioData == null || audioData.isEmpty()) {
+                    if ((audioData == null || audioData.isEmpty()) && (audioShortData == null || audioShortData.isEmpty())) {
                         Log.w(TAG, "Generated audio data is empty")
                         callback.error()
                         return@withLock
@@ -145,14 +157,22 @@ class MnnTtsService : TextToSpeechService() {
                         return@withLock
                     }
 
-                    // Step B: 格式转换 ShortArray -> ByteArray (Little Endian)
-                    val byteArray = ByteArray(audioData.size * 2)
-                    for (i in audioData.indices) {
-                        val sample = audioData[i].toInt()
-                        // 低8位
-                        byteArray[i * 2] = (sample and 0xFF).toByte()
-                        // 高8位
-                        byteArray[i * 2 + 1] = ((sample shr 8) and 0xFF).toByte()
+                    // Step B: 格式转换 -> ByteArray (Little Endian)
+                    val dataSize = audioData?.size ?: audioShortData!!.size
+                    val byteArray = ByteArray(dataSize * 2)
+
+                    if (audioData != null) {
+                        for (i in audioData.indices) {
+                            val s = (audioData[i] * 32767).toInt().coerceIn(-32768, 32767)
+                            byteArray[i * 2] = (s and 0xFF).toByte()
+                            byteArray[i * 2 + 1] = ((s shr 8) and 0xFF).toByte()
+                        }
+                    } else if (audioShortData != null) {
+                        for (i in audioShortData.indices) {
+                            val s = audioShortData[i].toInt()
+                            byteArray[i * 2] = (s and 0xFF).toByte()
+                            byteArray[i * 2 + 1] = ((s shr 8) and 0xFF).toByte()
+                        }
                     }
 
                     // Step C: 写入数据
@@ -354,22 +374,31 @@ private suspend fun initializeTtsService() {
         }
         
         // 避免重复初始化
-        if (ttsService != null) return
+        if (ttsService != null || sherpaTts != null) return
 
         try {
-            // 从 config.json 读取采样率
-            loadSampleRateFromConfig(path)
-            
-            val service = TtsService()
-            
-            // 2. 这里使用局部变量 path，它已经被智能转换为非空 String 了
-            val success = service.init(path) 
-            
-            if (success) {
-                ttsService = service
-                Log.i(TAG, "TTS Engine Initialized! Sample rate: $sampleRate Hz")
+            val isSherpa = File(path, "voices.bin").exists() || File(path, "model.mnn").exists()
+            if (isSherpa) {
+                 Log.i(TAG, "Initializing SherpaTts with $path")
+                 sherpaTts = SherpaTts()
+                 sherpaTts?.init(path)
+                 loadSampleRateFromConfig(path)
+                 Log.i(TAG, "SherpaTts initialized. Sample rate: $sampleRate Hz")
             } else {
-                Log.e(TAG, "TTS Engine Init Failed (return false)")
+                // 从 config.json 读取采样率
+                loadSampleRateFromConfig(path)
+                
+                val service = TtsService()
+                
+                // 2. 这里使用局部变量 path，它已经被智能转换为非空 String 了
+                val success = service.init(path) 
+                
+                if (success) {
+                    ttsService = service
+                    Log.i(TAG, "TTS Engine Initialized! Sample rate: $sampleRate Hz")
+                } else {
+                    Log.e(TAG, "TTS Engine Init Failed (return false)")
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "TTS Engine Init Exception", e)
@@ -411,6 +440,8 @@ private suspend fun initializeTtsService() {
             synthesisMutex.withLock {
                 ttsService?.destroy()
                 ttsService = null
+                sherpaTts?.release()
+                sherpaTts = null
                 modelPath = path
                 // 重新读取采样率并初始化服务
                 initializeTtsService()
