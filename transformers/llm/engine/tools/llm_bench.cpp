@@ -72,9 +72,9 @@ static const RuntimeParameters runtimeParamsDefaults = {
     /* precision            */ { 2 },
     /* memory               */ { 2 },
     /* dynamicOption        */ { 0 },
-    /* quantAttention       */  { 0 },
     /* divisionRatioSme2Neon*/ { 41 },
-    /* smeCoreNum             */ { 2 }
+    /* smeCoreNum             */ { 2 },
+    /* quantAttention       */  { 0 }
 };
 
 
