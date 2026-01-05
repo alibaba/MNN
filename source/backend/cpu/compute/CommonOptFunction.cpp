@@ -3264,11 +3264,155 @@ void MNNNorm(float *dst, const float *src, const float *gamma, const float *beta
     float mean = 0;
     if(false == RMSNorm){
         float sum = 0.f;
-        for (int j = 0; j < size; ++j) {
-            sum += src[j];
-        }
+        MNNAccumulateSequenceNumber(&sum, src, size);
         mean = sum / size;
     }
+#ifdef MNN_USE_NEON
+    const float32x4_t vmean = vdupq_n_f32(mean);
+    const float32x4_t veps  = vdupq_n_f32(epsilon);
+    float32x4_t vsqsum = vdupq_n_f32(0.0f);
+
+    int j = 0;
+    // compute square sub sum
+    for (; j + 15 < size; j += 16) {
+        float32x4_t v0 = vld1q_f32(&src[j + 0]);
+        float32x4_t v1 = vld1q_f32(&src[j + 4]);
+        float32x4_t v2 = vld1q_f32(&src[j + 8]);
+        float32x4_t v3 = vld1q_f32(&src[j + 12]);
+
+        v0 = vsubq_f32(v0, vmean);
+        v1 = vsubq_f32(v1, vmean);
+        v2 = vsubq_f32(v2, vmean);
+        v3 = vsubq_f32(v3, vmean);
+
+        vsqsum = vmlaq_f32(vsqsum, v0, v0);
+        vsqsum = vmlaq_f32(vsqsum, v1, v1);
+        vsqsum = vmlaq_f32(vsqsum, v2, v2);
+        vsqsum = vmlaq_f32(vsqsum, v3, v3);
+    }
+
+    // last 0~15
+    for (; j + 3 < size; j += 4) {
+        float32x4_t v = vld1q_f32(&src[j]);
+        v = vsubq_f32(v, vmean);
+        vsqsum = vmlaq_f32(vsqsum, v, v);
+    }
+
+#ifdef __aarch64__
+    float square_sum = vaddvq_f32(vsqsum);
+#else
+    float square_sum = vsqsum[0] + vsqsum[1] + vsqsum[2] + vsqsum[3];
+#endif
+
+    for (; j < size; ++j) {
+        float diff = src[j] - mean;
+        square_sum += diff * diff;
+    }
+
+#ifdef __aarch64__
+    auto vs = vadd_f32(vdiv_f32(vdup_n_f32(square_sum), vdup_n_f32(size)), vdup_n_f32(epsilon));
+    auto vecs = vdiv_f32(vdup_n_f32(1.0f), vsqrt_f32(vs));
+    float vars[2];
+    vst1_f32(vars, vecs);
+    float variable = vars[0];
+#else
+    float variance = square_sum / static_cast<float>(size);
+    float variable = 1.0f / std::sqrt(variance + epsilon);
+#endif
+
+    const float32x4_t vvar = vdupq_n_f32(variable);
+
+    // Normalize + scale
+    j = 0;
+    if (gamma && beta) {
+        const float32x4_t vzero = vdupq_n_f32(0.0f);
+        for (; j + 15 < size; j += 16) {
+            float32x4_t s0 = vld1q_f32(&src[j + 0]);
+            float32x4_t s1 = vld1q_f32(&src[j + 4]);
+            float32x4_t s2 = vld1q_f32(&src[j + 8]);
+            float32x4_t s3 = vld1q_f32(&src[j + 12]);
+
+            float32x4_t g0 = vld1q_f32(&gamma[j + 0]);
+            float32x4_t g1 = vld1q_f32(&gamma[j + 4]);
+            float32x4_t g2 = vld1q_f32(&gamma[j + 8]);
+            float32x4_t g3 = vld1q_f32(&gamma[j + 12]);
+
+            float32x4_t b0 = vld1q_f32(&beta[j + 0]);
+            float32x4_t b1 = vld1q_f32(&beta[j + 4]);
+            float32x4_t b2 = vld1q_f32(&beta[j + 8]);
+            float32x4_t b3 = vld1q_f32(&beta[j + 12]);
+
+            s0 = vsubq_f32(s0, vmean);
+            s1 = vsubq_f32(s1, vmean);
+            s2 = vsubq_f32(s2, vmean);
+            s3 = vsubq_f32(s3, vmean);
+
+            s0 = vmulq_f32(s0, vvar);
+            s1 = vmulq_f32(s1, vvar);
+            s2 = vmulq_f32(s2, vvar);
+            s3 = vmulq_f32(s3, vvar);
+
+            s0 = vmlaq_f32(b0, s0, g0);
+            s1 = vmlaq_f32(b1, s1, g1);
+            s2 = vmlaq_f32(b2, s2, g2);
+            s3 = vmlaq_f32(b3, s3, g3);
+
+            vst1q_f32(&dst[j + 0], s0);
+            vst1q_f32(&dst[j + 4], s1);
+            vst1q_f32(&dst[j + 8], s2);
+            vst1q_f32(&dst[j + 12], s3);
+        }
+
+        for (; j + 3 < size; j += 4) {
+            float32x4_t s = vld1q_f32(&src[j]);
+            float32x4_t g = vld1q_f32(&gamma[j]);
+            float32x4_t b = vld1q_f32(&beta[j]);
+
+            s = vsubq_f32(s, vmean);
+            s = vmulq_f32(s, vvar);
+            s = vmlaq_f32(b, s, g);
+
+            vst1q_f32(&dst[j], s);
+        }
+
+        for (; j < size; ++j) {
+            dst[j] = (src[j] - mean) * variable * gamma[j] + beta[j];
+        }
+    } else {
+        for (; j + 15 < size; j += 16) {
+            float32x4_t s0 = vld1q_f32(&src[j + 0]);
+            float32x4_t s1 = vld1q_f32(&src[j + 4]);
+            float32x4_t s2 = vld1q_f32(&src[j + 8]);
+            float32x4_t s3 = vld1q_f32(&src[j + 12]);
+
+            s0 = vsubq_f32(s0, vmean);
+            s1 = vsubq_f32(s1, vmean);
+            s2 = vsubq_f32(s2, vmean);
+            s3 = vsubq_f32(s3, vmean);
+
+            s0 = vmulq_f32(s0, vvar);
+            s1 = vmulq_f32(s1, vvar);
+            s2 = vmulq_f32(s2, vvar);
+            s3 = vmulq_f32(s3, vvar);
+
+            vst1q_f32(&dst[j + 0], s0);
+            vst1q_f32(&dst[j + 4], s1);
+            vst1q_f32(&dst[j + 8], s2);
+            vst1q_f32(&dst[j + 12], s3);
+        }
+
+        for (; j + 3 < size; j += 4) {
+            float32x4_t s = vld1q_f32(&src[j]);
+            s = vsubq_f32(s, vmean);
+            s = vmulq_f32(s, vvar);
+            vst1q_f32(&dst[j], s);
+        }
+
+        for (; j < size; ++j) {
+            dst[j] = (src[j] - mean) * variable;
+        }
+    }
+#else
     float square_sum = 0.f;
     for (int j = 0; j < size; ++j) {
         square_sum += (src[j] - mean) * (src[j] - mean);
@@ -3293,6 +3437,7 @@ void MNNNorm(float *dst, const float *src, const float *gamma, const float *beta
             dst[j] = (src[j] - mean) * variable;
         }
     }
+#endif
 }
 #endif
 
