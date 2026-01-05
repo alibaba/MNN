@@ -30,32 +30,115 @@
 namespace MNN {
 
 template <typename T>
-static void _maskQK(float * qkPacked, const float* scale, size_t seqLen, size_t subKvSeqLen, int pack, int maskStride, int kvoffset, const float* sinksPtr, const int8_t* maskPtr, bool quantKey) {
+static void _maskQK(float * qkPacked, const float* scale, size_t seqLen, size_t processedKvSeq, int pack, int kvSeqLen, int kvoffset, int padKvSeqLen, const float* sinksPtr, const Tensor* mask, bool quantKey, bool isLowerTriangular) {
+    /*
+     * FIGURE 1: mask->elementSize() == seqLen * maskStride
+     * Context: Cross Attention or Prefill stage (Full Context).
+     * Logic:   gapLen = 0. The mask tensor dimensions match the logical QK matrix exactly.
+     *          Direct access: mask[row * stride + col]
+     * Row\Col   0   1   2   3
+     *
+     *   0       0   X   X   X    (Can only see Col 0)
+     *
+     *   1       0   0   X   X    (Can see Col 0, 1)
+     *
+     *   2       0   0   0   X    (Can see Col 0, 1, 2)
+     *
+     *   3       0   0   0   0    (Fully visible)
+     *
+     * Legend:
+     *   '0' : Visible (Value = Scale * QK)
+     *   'X' : Masked  (Value = -inf)
+     */
+
+
+    /*
+     * FIGURE 2: mask->elementSize() != seqLen * maskStride
+     * Context: Self-Attention Inference (Decoding stage).
+     * Logic:   gapLen = maskStride - seqLen (Right Alignment).
+     *          The "Gap" represents History KV Cache, which is implicitly visible.
+     *          The Mask Tensor only covers the current sequence window.
+     *
+     * Example: maskStride (Total KV) = 6
+     *          seqLen (Current Q)    = 4
+     *          gapLen                = 6 - 4 = 2
+     *
+     * Structure:
+     *   - Cols [0, 1]: "Gap" / History region. Code logic: `if (col < gapLen) continue;`.
+     *                  No mask is added, so they remain Visible ('0').
+     *   - Cols [2-5]:  "Current" region. Code logic: `mask[col - gapLen]`.
+     *
+     * Row\Col   0   1   |   2   3   4   5
+     *          (Gap)    |   (Mask Tensor Region)
+     *
+     *   0       0   0   |   0   X   X   X    <-- Mask row 0 applies to Col 2~5
+     *                   |
+     *   1       0   0   |   0   0   X   X    <-- Mask row 1 applies to Col 2~5
+     *                   |
+     *   2       0   0   |   0   0   0   X    <-- Mask row 2 applies to Col 2~5
+     *                   |
+     *   3       0   0   |   0   0   0   0    <-- Mask row 3 applies to Col 2~5
+     *
+     * Legend:
+     *   '0' (Left)  : History KV, implicitly visible (code skips mask addition).
+     *   '0' (Right) : Current KV, visible according to Mask Tensor.
+     *   'X'         : Masked by Mask Tensor (-inf).
+     */
+
+    if (isLowerTriangular && quantKey) {
+        return;
+    }
+    constexpr float NEG_INF = -std::numeric_limits<float>::infinity();
     auto source = (T*)qkPacked;
-    if (quantKey == false) {
-        auto elementSize = seqLen * ROUND_UP(subKvSeqLen, pack);
-        for (int i = 0; i < elementSize; ++i) {
-            float data = source[i] * scale[0];
-            source[i] = data;
+    float scaleVal = scale[0];
+    int gapLen = (mask->elementSize() == (seqLen + padKvSeqLen) * (kvSeqLen + padKvSeqLen)) ? 0 : static_cast<int>(kvSeqLen - seqLen);
+
+    auto kvBlockCount = UP_DIV(processedKvSeq, pack);
+    auto qkSize = ROUND_UP(processedKvSeq, pack) * seqLen;
+
+    if (isLowerTriangular) {
+        for (int i = 0; i < qkSize; ++i) {
+            source[i] *= scaleVal;
         }
+        return;
     }
 
-    // mask: [seq, kvseq]
-    // data: [UP_DIV(kvseq, pack), seq, pack]
-    if (sinksPtr != nullptr) {
-        auto mask = (T*)maskPtr;
-        for (int i = 0; i < UP_DIV(subKvSeqLen, pack); ++i) {
-            for (int j = 0; j < seqLen; ++j) {
-                for (int k = 0; k < pack; ++k) {
-                    if (kvoffset + i * pack + k > maskStride - 1) {
-                        break;
-                    }
-                    source[i * seqLen * pack + j * pack + k] = source[i * seqLen * pack + j * pack + k] + mask[j * maskStride + kvoffset + i * pack + k];
+    if (mask == nullptr) {
+        return;
+    }
+
+    auto maskPtr = mask->host<T>();
+
+    // not lower triangular
+    auto maskCols = (mask->elementSize() == (seqLen + padKvSeqLen) * (kvSeqLen + padKvSeqLen)) ? kvSeqLen + padKvSeqLen : seqLen + padKvSeqLen;
+    for (int i = 0; i < kvBlockCount; ++i) {
+        T* blockDataPtr = source + (i * seqLen * pack);
+
+        for (int j = 0; j < seqLen; ++j) {
+            T* dataPtr = blockDataPtr + (j * pack);
+            const T* currentMaskRow = maskPtr + j * maskCols;
+
+            for (int k = 0; k < pack; ++k) {
+                float val = (float)dataPtr[k];
+                if (!quantKey) {
+                    val *= scaleVal;
+                    dataPtr[k] = (T)val;
                 }
+                int currentKvSeqIndx = kvoffset + i * pack + k; // kvoffset=i*mBlockKv
+
+                if (currentKvSeqIndx < gapLen) {
+                    continue;
+                }
+                if (currentKvSeqIndx - gapLen >= maskCols) {
+                    break;
+                }
+
+                val += (float)currentMaskRow[currentKvSeqIndx - gapLen];
+                dataPtr[k] = (T)val;
+
             }
         }
     }
-
 }
 
 ErrorCode CPUAttention::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
@@ -219,10 +302,10 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     auto query = inputs[0];
     auto key   = inputs[1];
     auto value = inputs[2];
-    const int8_t* mask = nullptr;
     int seqLen = query->length(1);
+    const Tensor* mask = nullptr;
     if (inputs.size() > 3) {
-        mask = inputs[3]->host<int8_t>();
+        mask = inputs[3];
     }
     const Tensor* sinks = nullptr;
     if (inputs.size() > 4) {
@@ -429,6 +512,22 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
         
         int  kvBlocks = UP_DIV(kvSeqLen, mBlockKV);
 
+        bool isLowerTriangular = (mask == nullptr);
+        if (mask != nullptr && mask->shape().empty()) {
+            if (mBytes == 2) {
+                auto maskPtr = mask->host<FLOAT16_T>();
+                if (maskPtr[0] < 1e-6) {
+                    isLowerTriangular = true;
+                }
+            } else {
+                auto maskPtr = mask->host<float>();
+                if (maskPtr[0] < 1e-6f) {
+                    isLowerTriangular = true;
+                }
+            }
+        }
+        bool useMaskInSoftmax = (isLowerTriangular && sinksPtr == nullptr);
+
         QuanPostTreatParameters gemmParam4QxK, gemmParam4QKxV; // used by int8 gemm, allocated per thread.
         SumByAxisParams sumParams4QxK, sumParams4QKxV = {};
         float* qSumAddr = nullptr;
@@ -562,7 +661,9 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                     for (int ei = 0 ; ei < loop_e; ei++) {
                         gcore->MNNPackedMatMul((float*)(qkPacked + (ei * eP * mPack) * mBytes), (float*)(qReordered + ei * qStride0), (float*)keyPtr, shapeParameters, nullptr, nullptr, nullptr, nullptr);
                     }
-                    gcore->MNNPackedMatMulRemain((float*)(qkPacked + (loop_e * eP * mPack) * mBytes), (float*)(qReordered + loop_e * qStride0), (float*)keyPtr, remain, shapeParameters, nullptr, nullptr, nullptr, nullptr);
+                    if (remain > 0) {
+                        gcore->MNNPackedMatMulRemain((float*)(qkPacked + (loop_e * eP * mPack) * mBytes), (float*)(qReordered + loop_e * qStride0), (float*)keyPtr, remain, shapeParameters, nullptr, nullptr, nullptr, nullptr);
+                    }
                 } else {
                     auto eRemain = seqLen;
                     auto srcInt8 = qReordered;
@@ -587,24 +688,20 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                         }
                     }
                 }
-                // 2. softmax scores
-                // qk: [kv_seq_len/mPack, seq_len, mPack] -> [seq_len/eP, kv_seq_len/lP, eP, lP]
+                // 2. softmax scores, softmax src/dst shape: [kv_seq_len/mPack, seq_len, mPack]
                 {
-                    if(mBytes == 2) {
-                        if (!mQuantKey || sinksPtr != nullptr) {
-                            _maskQK<FLOAT16_T>((float*)qkPacked, &mScale, seqLen, subKvSeqLen, mPack, kvSeqLen, i * mBlockKV,sinksPtr, mask, mQuantKey);
-                        }
-                    } else {
-                        if (!mQuantKey || sinksPtr != nullptr) {
-                            _maskQK<float>((float*)qkPacked, &mScale, seqLen, subKvSeqLen, mPack, kvSeqLen, i * mBlockKV, sinksPtr, mask, mQuantKey);
+                    if (mQuantKey == false || isLowerTriangular == false || sinksPtr != nullptr) {
+                        if (mBytes == 2) {
+                            _maskQK<FLOAT16_T>((float*)qkPacked, &mScale, seqLen, subKvSeqLen, mPack, kvSeqLen, i * mBlockKV, padSeqLength, sinksPtr, mask, mQuantKey, isLowerTriangular);
+                        } else {
+                            _maskQK<float>((float*)qkPacked, &mScale, seqLen, subKvSeqLen, mPack, kvSeqLen, i * mBlockKV, padSeqLength, sinksPtr, mask, mQuantKey, isLowerTriangular);
                         }
                     }
-                    bool useMask = (sinksPtr == nullptr);
-                    gcore->MNNSoftmax(qkSoftmax, (float*)qkPacked, runningMax, runningSum, diffScale, seqLen, subKvSeqLen, i * mBlockKV, kvValidOffset, mPack, useMask);
+                    gcore->MNNSoftmax(qkSoftmax, (float*)qkPacked, runningMax, runningSum, diffScale, seqLen, subKvSeqLen, i * mBlockKV, kvValidOffset, mPack, useMaskInSoftmax);
                 }
                 // 3. qk @ v
                 auto qkStride0 = ROUND_UP(subKvSeqLen, lP) * eP * mBytes;
-                auto rowStart = (i * mBlockKV < kvValidOffset)? 0 : (i * mBlockKV - kvValidOffset);
+                auto rowStart = (!isLowerTriangular || i * mBlockKV < kvValidOffset)? 0 : (i * mBlockKV - kvValidOffset);
 
                 if (mQuantValue == false) {
                     auto valuePtr = valueAddr + i * vstride0 * mBytes;
