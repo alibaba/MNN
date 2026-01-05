@@ -723,149 +723,336 @@ void MNNPackForMatMul_A(float* dst, const float* src, size_t E, size_t L, size_t
     }
 }
 
+
+void MNNSoftmaxFp32_Pack1(float* softmaxDst, const float* softmaxSrc, float* runningMax, float* runningSum, float* updateScale, int outside, int reduceSize, int kvSeqOffset, int validOffset, bool mask) {
+
+    for (int k = 0; k < outside; ++k) {
+        int currentValidSize = reduceSize;
+        bool isRowValid = true;
+
+        if (mask) {
+            if (kvSeqOffset > k + validOffset) {
+                isRowValid = false;
+                currentValidSize = 0;
+                if (updateScale) updateScale[k] = 1.0f;
+            } else {
+                currentValidSize = ALIMIN(reduceSize, k + (validOffset + 1) - kvSeqOffset);
+            }
+        }
+
+        float* dstRow = softmaxDst + k * reduceSize;
+
+        if (!isRowValid || currentValidSize == 0) {
+            memset(dstRow, 0, reduceSize * sizeof(float));
+            continue;
+        }
+
+        const float* srcRow = softmaxSrc + k * reduceSize;
+
+        // 1. Find max
+        float oldMax = std::numeric_limits<float>::lowest();
+        if (runningMax) oldMax = runningMax[k];
+
+        float32x4_t maxVec = vdupq_n_f32(std::numeric_limits<float>::lowest());
+
+        int i = 0;
+        // Unroll 4 vectors (16 floats) per iteration
+        for (; i <= currentValidSize - 16; i += 16) {
+            float32x4_t v0 = vld1q_f32(srcRow + i + 0);
+            float32x4_t v1 = vld1q_f32(srcRow + i + 4);
+            float32x4_t v2 = vld1q_f32(srcRow + i + 8);
+            float32x4_t v3 = vld1q_f32(srcRow + i + 12);
+
+            maxVec = vmaxq_f32(maxVec, v0);
+            maxVec = vmaxq_f32(maxVec, v1);
+            maxVec = vmaxq_f32(maxVec, v2);
+            maxVec = vmaxq_f32(maxVec, v3);
+        }
+        // Handle remaining blocks of 4
+        for (; i <= currentValidSize - 4; i += 4) {
+            maxVec = vmaxq_f32(maxVec, vld1q_f32(srcRow + i));
+        }
+
+        // Reduction
+        float newMax = vmaxvq_f32_compat(maxVec);
+
+        // Scalar Tail
+        for (; i < currentValidSize; ++i) {
+            newMax = ALIMAX(newMax, srcRow[i]);
+        }
+
+        float finalMax = ALIMAX(oldMax, newMax);
+        float32x4_t finalMaxVec = vdupq_n_f32(finalMax);
+
+        // 2. Exp & Sum & Store (4-way Unroll)
+        float sum = 0.0f;
+        float32x4_t sumVec = vdupq_n_f32(0.0f);
+
+        i = 0;
+        // Unroll 4 vectors (16 floats)
+        for (; i <= currentValidSize - 16; i += 16) {
+            float32x4_t v0 = vld1q_f32(srcRow + i + 0);
+            float32x4_t v1 = vld1q_f32(srcRow + i + 4);
+            float32x4_t v2 = vld1q_f32(srcRow + i + 8);
+            float32x4_t v3 = vld1q_f32(srcRow + i + 12);
+
+            // Sub Max
+            v0 = vsubq_f32(v0, finalMaxVec);
+            v1 = vsubq_f32(v1, finalMaxVec);
+            v2 = vsubq_f32(v2, finalMaxVec);
+            v3 = vsubq_f32(v3, finalMaxVec);
+
+            // Exp (Expensive operation, pipeline parallelism helps here)
+            v0 = expApprox(v0);
+            v1 = expApprox(v1);
+            v2 = expApprox(v2);
+            v3 = expApprox(v3);
+
+            // Accumulate Sum
+            sumVec = vaddq_f32(sumVec, v0);
+            sumVec = vaddq_f32(sumVec, v1);
+            sumVec = vaddq_f32(sumVec, v2);
+            sumVec = vaddq_f32(sumVec, v3);
+
+            // Store (Temporary exp values)
+            vst1q_f32(dstRow + i + 0, v0);
+            vst1q_f32(dstRow + i + 4, v1);
+            vst1q_f32(dstRow + i + 8, v2);
+            vst1q_f32(dstRow + i + 12, v3);
+        }
+
+        // Remaining blocks of 4
+        for (; i <= currentValidSize - 4; i += 4) {
+            float32x4_t v = vld1q_f32(srcRow + i);
+            v = vsubq_f32(v, finalMaxVec);
+            v = expApprox(v);
+            sumVec = vaddq_f32(sumVec, v);
+            vst1q_f32(dstRow + i, v);
+        }
+
+        // Scalar Tail
+        for (; i < currentValidSize; ++i) {
+            float val = expf(srcRow[i] - finalMax);
+            sum += val;
+            dstRow[i] = val;
+        }
+
+        sum += vaddvq_f32_compat(sumVec);
+
+        if (currentValidSize < reduceSize) {
+            memset(dstRow + currentValidSize, 0, (reduceSize - currentValidSize) * sizeof(float));
+        }
+
+        // 3. Update running max & sum or Normalize
+        if (runningMax && runningSum && updateScale) {
+            float scaleForSum = expf(oldMax - finalMax);
+            runningSum[k] = runningSum[k] * scaleForSum + sum;
+            runningMax[k] = finalMax;
+            updateScale[k] = scaleForSum;
+        } else {
+            if (runningMax && runningSum) {
+                sum += runningSum[k] * expf(oldMax - finalMax);
+            }
+            float scale = 1.0f / (sum + 1e-20f);
+            float32x4_t scaleVec = vdupq_n_f32(scale);
+
+            i = 0;
+            // Unroll 4 vectors
+            for (; i <= currentValidSize - 16; i += 16) {
+                float32x4_t v0 = vld1q_f32(dstRow + i + 0);
+                float32x4_t v1 = vld1q_f32(dstRow + i + 4);
+                float32x4_t v2 = vld1q_f32(dstRow + i + 8);
+                float32x4_t v3 = vld1q_f32(dstRow + i + 12);
+
+                vst1q_f32(dstRow + i + 0, vmulq_f32(v0, scaleVec));
+                vst1q_f32(dstRow + i + 4, vmulq_f32(v1, scaleVec));
+                vst1q_f32(dstRow + i + 8, vmulq_f32(v2, scaleVec));
+                vst1q_f32(dstRow + i + 12, vmulq_f32(v3, scaleVec));
+            }
+
+            for (; i <= currentValidSize - 4; i += 4) {
+                float32x4_t v = vld1q_f32(dstRow + i);
+                vst1q_f32(dstRow + i, vmulq_f32(v, scaleVec));
+            }
+
+            for (; i < currentValidSize; ++i) {
+                dstRow[i] *= scale;
+            }
+        }
+    }
+}
+
+void MNNSoftmaxFp32_Pack4(float* softmaxDst, const float* softmaxSrc, float* runningMax, float* runningSum, float* updateScale, int outside, int reduceSize, int kvSeqOffset, int validOffset, bool mask) {
+    const int packUnit = 4;
+    int reduceSizeOuter = UP_DIV(reduceSize, packUnit);
+    int stride0 = outside * packUnit;
+
+    for (int k = 0; k < outside; k += 4) {
+        int count = ALIMIN(4, outside - k);
+
+        int validTotalLen[4];
+        int fullBlocks[4];
+        int remain[4];
+        bool isRowValid[4];
+
+        for (int i = 0; i < count; ++i) {
+            int currentK = k + i;
+            if (mask && kvSeqOffset > currentK + validOffset) {
+                isRowValid[i] = false;
+                validTotalLen[i] = 0;
+                if (updateScale) updateScale[currentK] = 1.0f;
+            } else {
+                isRowValid[i] = true;
+                validTotalLen[i] = mask ? ALIMIN(reduceSize, currentK + (validOffset + 1) - kvSeqOffset) : reduceSize;
+            }
+
+            fullBlocks[i] = validTotalLen[i] / packUnit;
+            remain[i] = validTotalLen[i] % packUnit;
+        }
+
+        float currentMax[4];
+        float32x4_t vecMaxAccum[4];
+        float minVal = std::numeric_limits<float>::lowest();
+        float32x4_t minVec = vdupq_n_f32(minVal);
+
+        for (int i = 0; i < count; ++i) {
+            currentMax[i] = runningMax ? runningMax[k + i] : minVal;
+            vecMaxAccum[i] = minVec;
+        }
+
+        for (int j = 0; j < reduceSizeOuter; ++j) {
+            auto blockSrcBase = softmaxSrc + j * stride0 + k * packUnit;
+
+            for (int i = 0; i < count; ++i) {
+                if (!isRowValid[i]) continue;
+
+                if (j < fullBlocks[i]) {
+                    float32x4_t val = vld1q_f32(blockSrcBase + i * packUnit);
+                    vecMaxAccum[i] = vmaxq_f32(vecMaxAccum[i], val);
+                } else if (j == fullBlocks[i] && remain[i] > 0) {
+                    auto ptr = blockSrcBase + i * packUnit;
+                    for (int p = 0; p < remain[i]; ++p) {
+                        currentMax[i] = ALIMAX(currentMax[i], ptr[p]);
+                    }
+                }
+            }
+        }
+
+        // Finalize Max
+        float32x4_t finalMaxVec[4];
+        for (int i = 0; i < count; ++i) {
+            if (!isRowValid[i]) {
+                    finalMaxVec[i] = vdupq_n_f32(0.0f);
+                    continue;
+            }
+            float maxInVec = vmaxvq_f32_compat(vecMaxAccum[i]);
+            currentMax[i] = ALIMAX(currentMax[i], maxInVec);
+            finalMaxVec[i] = vdupq_n_f32(currentMax[i]);
+        }
+
+        float currentSum[4] = {0.0f};
+        float32x4_t vecSumAccum[4];
+        for (int i = 0; i < count; ++i) vecSumAccum[i] = vdupq_n_f32(0.0f);
+
+        for (int j = 0; j < reduceSizeOuter; ++j) {
+            auto blockSrcBase = softmaxSrc + j * stride0 + k * packUnit;
+            auto blockDstBase = softmaxDst + j * stride0 + k * packUnit;
+
+            for (int i = 0; i < count; ++i) {
+                if (!isRowValid[i]) {
+                    memset(blockDstBase + i * packUnit, 0, sizeof(float) * 4);
+                    continue;
+                }
+
+                auto dstPtr = blockDstBase + i * packUnit;
+
+                if (j < fullBlocks[i]) {
+                    auto srcPtr = blockSrcBase + i * packUnit;
+                    float32x4_t val = vld1q_f32(srcPtr);
+
+                    val = vsubq_f32(val, finalMaxVec[i]);
+
+                    val = expApprox(val);
+                    vecSumAccum[i] = vaddq_f32(vecSumAccum[i], val);
+                    vst1q_f32(dstPtr, val);
+
+                } else if (j == fullBlocks[i] && remain[i] > 0) {
+                    auto srcPtr = blockSrcBase + i * packUnit;
+                    for (int p = 0; p < remain[i]; ++p) {
+                        float val = expf(srcPtr[p] - currentMax[i]);
+                        currentSum[i] += val;
+                        dstPtr[p] = val;
+                    }
+                    memset(dstPtr + remain[i], 0, (packUnit - remain[i]) * sizeof(float));
+                } else {
+                    memset(dstPtr, 0, sizeof(float) * 4);
+                }
+            }
+        }
+
+        for (int i = 0; i < count; ++i) {
+            currentSum[i] += vaddvq_f32_compat(vecSumAccum[i]);
+        }
+
+        for (int i = 0; i < count; ++i) {
+            int currentK = k + i;
+            if (!isRowValid[i]) continue;
+
+            float scale;
+            if (runningMax && runningSum && updateScale) {
+                float oldMax = runningMax[currentK];
+                float scaleForSum = expf(oldMax - currentMax[i]);
+                runningSum[currentK] = runningSum[currentK] * scaleForSum + currentSum[i];
+                runningMax[currentK] = currentMax[i];
+                updateScale[currentK] = scaleForSum;
+                continue;
+            } else {
+                if (runningMax && runningSum) {
+                    currentSum[i] += runningSum[currentK] * expf(runningMax[currentK] - currentMax[i]);
+                }
+                scale = 1.0f / (currentSum[i] + 1e-20f);
+            }
+
+            float32x4_t scaleVec = vdupq_n_f32(scale);
+
+            // Normalize Pass
+            for (int j = 0; j < reduceSizeOuter; ++j) {
+                if (j > fullBlocks[i] || (j == fullBlocks[i] && remain[i] == 0)) {
+                    continue;
+                }
+
+                auto dstPtr = softmaxDst + j * stride0 + k * packUnit + i * packUnit;
+
+                if (j < fullBlocks[i]) {
+                    float32x4_t val = vld1q_f32(dstPtr);
+                    val = vmulq_f32(val, scaleVec);
+                    vst1q_f32(dstPtr, val);
+                } else {
+                    // Tail
+                    for (int p = 0; p < remain[i]; ++p) {
+                        dstPtr[p] *= scale;
+                    }
+                }
+            }
+        }
+    }
+}
+
 void MNNSoftmax(float* softmaxDst, const float* softmaxSrc, float* runningMax, float* runningSum, float* updateScale, int outside, int reduceSize, int kvSeqOffset, int validOffset, int pack, bool mask) {
 
     // source shape: [reduceSizeOuter, outside, reduceSizeInner]
     // for C4, [up_div(reduceSize,4), outside,4] => reduceSizeOuter=up_div(reduceSize,4), reduceSizeInner=4
     // for C,  [outside, reduceSize]             => reduceSizeOuter=1, reduceSizeInner=reduceSize
 
-    const int packUnit = 4;
-    int reduceSizeOuter = 1;
-    int reduceSizeInner = reduceSize;
-    int stride0         = packUnit;
-    if (pack > 1) {
-        reduceSizeOuter = UP_DIV(reduceSize, pack);
-        reduceSizeInner = pack;
-        stride0         = outside * reduceSizeInner;
+    if (pack == 4) {
+        MNNSoftmaxFp32_Pack4(softmaxDst, softmaxSrc, runningMax, runningSum, updateScale, outside, reduceSize, kvSeqOffset, validOffset, mask);
+        return;
     }
-
-    for (int k = 0; k < outside; ++k) {
-        if (mask && kvSeqOffset > k + validOffset) {
-            if (updateScale){
-                updateScale[k] = 1;
-            }
-            for (int j = 0; j < reduceSizeOuter; ++j) {
-                int i = 0;
-                for (; i < reduceSizeInner; i += packUnit) {
-                    auto destPtr = softmaxDst + j * stride0 + k * reduceSizeInner + i;
-                    vst1q_f32(destPtr, vdupq_n_f32(0.0f));
-                }
-                if (i < reduceSizeInner) {
-                    memset(softmaxDst + j * stride0 + k * reduceSizeInner + i, 0, (reduceSizeInner - i) * sizeof(float));
-                }
-            }
-            continue;
-        }
-
-        const int validReduceSize = mask ? ALIMIN(reduceSize, k + (validOffset + 1) - kvSeqOffset) : reduceSize;
-        const int remain = validReduceSize % packUnit;
-        const int sizeDiv = validReduceSize / packUnit;
-
-        // 1. newMax
-        float oldMax = std::numeric_limits<float>::lowest();
-        if (runningMax) {
-            oldMax = runningMax[k];
-        }
-
-        float newMax = std::numeric_limits<float>::lowest();
-
-        for (int j = 0; j < sizeDiv; ++j) {
-            auto srcPtr = softmaxSrc + j * stride0 + k * reduceSizeInner;
-            float32x4_t srcVec = vld1q_f32(srcPtr);
-            newMax = ALIMAX(newMax, vmaxvq_f32_compat(srcVec));
-        }
-
-        if (remain > 0) {
-            auto srcPtr = softmaxSrc + sizeDiv * stride0  + k * reduceSizeInner;
-            for (int i = 0; i < remain; ++i) {
-                newMax = ALIMAX(newMax, srcPtr[i]);
-            }
-        }
-
-        const float finalMax = ALIMAX(oldMax, newMax);
-        const float32x4_t finalMaxVec = vdupq_n_f32(finalMax);
-
-        // 2. exp(x - finalMax)
-        float sum = 0.0f;
-        float32x4_t sumVec = vdupq_n_f32(0.0f);
-
-        for (int j = 0; j < sizeDiv; ++j) {
-            auto idx = j * stride0 + k * reduceSizeInner;
-            auto srcPtr = softmaxSrc + idx;
-            auto dstPtr = softmaxDst + idx;
-
-            float32x4_t srcVec = vld1q_f32(srcPtr);
-            // sub max
-            srcVec = vsubq_f32(srcVec, finalMaxVec);
-            // exp
-            srcVec = expApprox(srcVec);
-            // sum
-            sumVec = vaddq_f32(sumVec, srcVec);
-            // store
-            vst1q_f32(dstPtr, srcVec);
-        }
-
-        if (remain > 0) {
-            auto idx = sizeDiv * stride0  + k * reduceSizeInner;
-            auto srcPtr = softmaxSrc + idx;
-            auto dstPtr = softmaxDst + idx;
-
-            float tempDst[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-
-            for(int i = 0; i < remain; ++i) {
-                float val = expf(srcPtr[i] - finalMax);
-                sum += val;
-                tempDst[i] = val;
-            }
-            vst1q_f32(dstPtr, vld1q_f32(tempDst));
-        }
-
-        sum += vaddvq_f32_compat(sumVec);
-
-        // 3.
-        if (runningMax != nullptr && runningSum != nullptr && updateScale != nullptr) {
-            // update runningSum, runningMax, scale
-            float scaleForSum = expf(oldMax - finalMax);
-            runningSum[k] = runningSum[k] * scaleForSum + sum;
-            runningMax[k] = finalMax;
-            updateScale[k] = scaleForSum;
-        } else {
-            // Normalization
-            if (runningMax != nullptr && runningSum != nullptr) {
-                sum += runningSum[k] * expf(oldMax - finalMax);
-            }
-            float scale = 1.0f / (sum + 1e-20f);
-            float32x4_t scale_vec = vdupq_n_f32(scale);
-
-            for (int j = 0; j < sizeDiv; ++j) {
-                auto pDest = softmaxDst + j * stride0 + k * reduceSizeInner;
-                float32x4_t data = vld1q_f32(pDest);
-                data = vmulq_f32(data, scale_vec);
-                vst1q_f32(pDest, data);
-            }
-            if (remain > 0) {
-                auto pDest = softmaxDst + sizeDiv * stride0 + k * reduceSizeInner;
-                for (int i = 0; i < remain; ++i) {
-                    pDest[i] = pDest[i] * scale;
-                }
-            }
-        }
-
-        // 4. memset 0
-        if (pack > 1) {
-            if (validReduceSize % packUnit > 0) {
-                memset(softmaxDst + sizeDiv * stride0 + k * reduceSizeInner + (validReduceSize % packUnit), 0, (packUnit - (validReduceSize % packUnit)) * sizeof(float));
-            }
-            auto validDiv4 = UP_DIV(validReduceSize, packUnit);
-            auto allDiv4 = UP_DIV(reduceSize, packUnit);
-            for (int j = validDiv4; j < allDiv4; ++j) {
-                auto destPtr = softmaxDst + j * stride0 + k * reduceSizeInner;
-                memset(destPtr, 0, packUnit * sizeof(float));
-            }
-        } else {
-            memset(softmaxDst + k * reduceSizeInner + validReduceSize, 0, (reduceSize - validReduceSize) * sizeof(float));
-        }
+    if (pack == 1) {
+        MNNSoftmaxFp32_Pack1(softmaxDst, softmaxSrc, runningMax, runningSum, updateScale, outside, reduceSize, kvSeqOffset, validOffset, mask);
+        return;
     }
+    MNN_ERROR("MNNSoftmax not support pack != 1 and pack != 4\n");
     return;
 }
 

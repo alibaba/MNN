@@ -77,6 +77,7 @@ static std::shared_ptr<Module> _makeAttentionModule(int attentionMode = 8) {
     bnConfig.precision = (MNN::BackendConfig::PrecisionMode)status.precision;
     bnConfig.power = (MNN::BackendConfig::PowerMode)status.power;
     config.backendConfig = &bnConfig;
+    config.numThread = 1;
     std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
     rtmgr->setHintPtr(MNN::Interpreter::KVCACHE_INFO, &gMeta);
     rtmgr->setHint(MNN::Interpreter::ATTENTION_OPTION, attentionMode);
@@ -334,6 +335,62 @@ public:
             Value1 = vector_to_var(vecvalue);
         }
     }
+    void generateChunkMask(int seq_len, int kv_seq_len, int chunk_size, bool genDecodeInput = false) {
+        // 防止除以0
+        if (chunk_size <= 0) chunk_size = 1;
+
+        mask.resize(seq_len);
+
+        // 计算历史长度 (Gap)，用于处理 KV 长度大于 Seq 长度的情况 (Right Alignment)
+        // j < gap 的部分通常被视为 History，默认可见
+        int gap = kv_seq_len - seq_len;
+
+        for (int i = 0; i < seq_len; i++) {
+            mask[i].resize(kv_seq_len);
+
+            // --- 核心逻辑对应 ---
+            // MNN Expr: auto N = _Divide(i, rankVar) * rankVar + rankVar;
+            // i 是当前行 (Query)，计算当前块的右边界 (不包含)
+            // 比如 rank=2, i=0, block_end_rel=2; i=2, block_end_rel=4
+            int block_end_rel = (i / chunk_size) * chunk_size + chunk_size;
+
+            for (int j = 0; j < kv_seq_len; j++) {
+                // 将 j 转换为相对于当前 seq_len 的坐标
+                int j_rel = j - gap;
+
+                if (j_rel < 0) {
+                    // 情况 1: j 在 Gap 区域 (历史 KV Cache)
+                    // 通常历史数据对当前所有 Token 都是可见的
+                    mask[i][j] = 1;
+                } else {
+                    // 情况 2: j 在当前处理的序列范围内
+                    // 对应 MNN Expr: _Less(j, N)
+                    if (j_rel < block_end_rel) {
+                        mask[i][j] = 1;
+                    } else {
+                        mask[i][j] = 0;
+                    }
+                }
+            }
+        }
+
+        // 转为 VARP 并处理成 -inf / 0.0 格式
+        Mask = vector_to_var(mask);
+        Mask = (_Scalar<float>(1.0) - _Cast<float>(Mask)) * _Scalar<float>(std::numeric_limits<float>::lowest());
+
+        // Decode Input 部分通常保持全 1 (即看清所有历史)，或者根据需求修改
+        if (genDecodeInput) {
+            std::vector<std::vector<int>> vecmask;
+            vecmask.resize(1);
+            vecmask[0].resize(gMeta.previous + 1);
+            for (int i = 0; i < gMeta.previous + 1; ++i) {
+                vecmask[0][i] = 1;
+            }
+            Mask1 = vector_to_var(vecmask);
+            Mask1 = (_Scalar<float>(1.0) - _Cast<float>(Mask1)) * _Scalar<float>(std::numeric_limits<float>::lowest());
+        }
+    }
+
     void generateMask(int seq_len, int kv_seq_len, bool genDecodeInput = false) {
         mask.resize(seq_len);
         for (int i = 0; i < seq_len; i++) {
@@ -346,18 +403,10 @@ public:
                 }
             }
         }
-        Mask  = vector_to_var(mask);
-        Mask = (_Scalar<float>(1.0) - _Cast<float>(Mask)) * _Scalar<float>(std::numeric_limits<float>::lowest());
-        if (genDecodeInput) {
-            std::vector<std::vector<int>> vecmask;
-            vecmask.resize(1);
-            vecmask[0].resize(gMeta.previous + 1);
-            for (int i = 0; i < gMeta.previous + 1; ++i) {
-                vecmask[0][i] = 1;
-            }
-            Mask1 = vector_to_var(vecmask);
-            Mask1 = (_Scalar<float>(1.0) - _Cast<float>(Mask1)) * _Scalar<float>(std::numeric_limits<float>::lowest());
-        }
+        Mask = _Input({}, NCHW, halide_type_of<float>());
+        Mask1 = _Input({}, NCHW, halide_type_of<float>());
+        Mask->writeMap<float>()[0] = 0.0f;
+        Mask1->writeMap<float>()[0] = 0.0f;
     }
 
     bool compareResult(int seq_len) {
@@ -400,7 +449,51 @@ public:
             KVCache kvCache;
             bool pass = compareResult(seq_len);
             if (!pass) {
-                printf("Error: Attention with kv_cache unit test failed!\n");
+                printf("Error: LowerTriangular Attention with kv_cache unit test failed!\n");
+                return false;
+            }
+
+            /* generate mask expr */
+            /* generate mask expr */
+            auto MaskExpr = vector_to_var(mask);
+            MaskExpr = (_Scalar<float>(1.0) - _Cast<float>(MaskExpr)) * _Scalar<float>(std::numeric_limits<float>::lowest());
+            Output = _computeAttentionExpr(Query, Key, Value, MaskExpr, kvCache);
+            pass = compareResult(seq_len);
+            if (!pass) {
+                FUNC_PRINT(1);
+                return false;
+            }
+            // naiveAttention with history is error, use expr to test
+            Output = _computeAttentionExpr(Query, Key, Value, MaskExpr, kvCache);
+            gMeta.add = seq_len;
+            auto output2 = attn->onForward({Query, Key, Value, Mask})[0];
+            gMeta.sync();
+            auto diff = _ReduceMax(output2 - Output)->readMap<float>()[0];
+            if (diff >= 0.01f) {                 FUNC_PRINT_ALL(diff, f);
+                return false;
+            }
+        }
+        // test2
+        {
+            std::shared_ptr<NaiveAttention> naiveAttention(new NaiveAttention);
+            std::shared_ptr<MNN::OpT> attention(new MNN::OpT);
+            attention->type = MNN::OpType_Attention;
+            attention->main.type = MNN::OpParameter_AttentionParam;
+            attention->main.value = new MNN::AttentionParamT;
+            attention->main.AsAttentionParam()->kv_cache = true;
+            int seq_len = 10;
+            generateInput(seq_len, precision);
+            generateChunkMask(seq_len, seq_len, 2);
+            expected_result = naiveAttention->onExecute(query, key, value, mask, seq_len);
+            auto attn = _makeAttentionModule();
+            gMeta.previous = 0;
+            gMeta.add = seq_len;
+            Output = attn->onForward({Query, Key, Value, Mask})[0];
+            gMeta.sync();
+            KVCache kvCache;
+            bool pass = compareResult(seq_len);
+            if (!pass) {
+                printf("Error: Not LowerTriangular Attention with kv_cache unit test failed!\n");
                 return false;
             }
             Output = _computeAttentionExpr(Query, Key, Value, Mask, kvCache);
@@ -420,7 +513,7 @@ public:
                 return false;
             }
         }
-        // unit test 2
+        // unit test 3
         {
             auto rtInfo = ExecutorScope::Current()->getRuntime().first;
             bool cpuInfer = true;

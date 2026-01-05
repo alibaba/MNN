@@ -2265,171 +2265,358 @@ static inline float32x4_t expApprox(float32x4_t x) {
     int32x4_t k_shifted = vshlq_n_s32(k_int, 23);
     return vreinterpretq_f32_s32(vaddq_s32(vreinterpretq_s32_f32(exp_r), k_shifted));
 }
-static void MNNSoftmaxFp16(float* dest, const float* source, float* runningMax, float* runningSum, float* updateScale, int outside, int reduceSize, int kvSeqOffset, int validOffset, int pack, bool mask) {
-    const int reduceSize_8 = UP_DIV(reduceSize, 8);
+static void MNNSoftmaxFp16_Pack8(float* dest, const float* source, float* runningMax, float* runningSum, float* updateScale, int outside, int reduceSize, int kvSeqOffset, int validOffset, int pack, bool mask) {
     auto softmaxDst = (FLOAT16*)dest;
     auto softmaxSrc = (FLOAT16*)source;
 
-    // source shape: [reduceSizeOuter, outside, reduceSizeInner]
-    // for C4, [up_div(reduceSize,4), outside,4] => reduceSizeOuter=up_div(reduceSize,4), reduceSizeInner=4
-    // for C,  [outside, reduceSize]             => reduceSizeOuter=1, reduceSizeInner=reduceSize
-
-    const int packUnit = 8;
-    int reduceSizeOuter = 1;
-    int reduceSizeInner = reduceSize;
-    int stride0         = packUnit;
-    if (pack > 1) {
-        reduceSizeOuter = UP_DIV(reduceSize, pack);
-        reduceSizeInner = pack;
-        stride0         = outside * reduceSizeInner;
+    if (pack != 8) {
+        MNN_ERROR("MNNSoftmaxFp16_Pack8 only support pack=8\n");
+        return;
     }
 
+    const int packUnit = 8;
+    int reduceSizeOuter = UP_DIV(reduceSize, packUnit);
+    int stride0 = outside * packUnit;
+
+    // Loop Tiling: Unroll K by 16
+    // 16 * 8 * 2 = 256 Bytes
+    for (int k = 0; k < outside; k += 16) {
+        int count = ALIMIN(16, outside - k);
+
+        int validLens[16];
+        bool isRowValid[16];
+
+        for (int i = 0; i < count; ++i) {
+            int currentK = k + i;
+            if (mask && kvSeqOffset > currentK + validOffset) {
+                isRowValid[i] = false;
+                validLens[i] = 0;
+                if (updateScale) updateScale[currentK] = 1.0f;
+            } else {
+                isRowValid[i] = true;
+                validLens[i] = mask ? ALIMIN(reduceSize, currentK + (validOffset + 1) - kvSeqOffset) : reduceSize;
+            }
+        }
+
+        float currentMax[16];
+        for (int i = 0; i < count; ++i) {
+            currentMax[i] = runningMax ? runningMax[k + i] : -65504.0f;
+        }
+
+        for (int j = 0; j < reduceSizeOuter; ++j) {
+            auto blockSrcBase = softmaxSrc + j * stride0 + k * packUnit;
+
+            for (int i = 0; i < count; ++i) {
+                if (!isRowValid[i]) continue;
+
+                int len = validLens[i];
+                int blockStart = j * packUnit;
+                if (blockStart >= len) continue;
+
+                auto srcPtr = blockSrcBase + i * packUnit;
+                int remain = len - blockStart;
+
+                if (remain >= packUnit) {
+                    float16x8_t val = vld1q_f16(srcPtr);
+                    float maxInVec = vmaxvq_f16(val);
+                    currentMax[i] = ALIMAX(currentMax[i], maxInVec);
+                } else {
+                    for (int p = 0; p < remain; ++p) {
+                        currentMax[i] = ALIMAX(currentMax[i], (float)srcPtr[p]);
+                    }
+                }
+            }
+        }
+
+        float currentSum[16] = {0.0f};
+        float32x4_t vecSum0[16]; // Low part accumulator
+        float32x4_t vecSum1[16]; // High part accumulator
+        float32x4_t finalMaxVec[16];
+
+        for (int i = 0; i < count; ++i) {
+            vecSum0[i] = vdupq_n_f32(0.0f);
+            vecSum1[i] = vdupq_n_f32(0.0f);
+            finalMaxVec[i] = vdupq_n_f32(currentMax[i]);
+        }
+
+        for (int j = 0; j < reduceSizeOuter; ++j) {
+            auto blockSrcBase = softmaxSrc + j * stride0 + k * packUnit;
+            auto blockDstBase = softmaxDst + j * stride0 + k * packUnit;
+
+            for (int i = 0; i < count; ++i) {
+                if (!isRowValid[i]) {
+                    memset(blockDstBase + i * packUnit, 0, packUnit * sizeof(__fp16));
+                    continue;
+                }
+
+                int len = validLens[i];
+                int blockStart = j * packUnit;
+                if (blockStart >= len) {
+                    memset(blockDstBase + i * packUnit, 0, packUnit * sizeof(__fp16));
+                    continue;
+                }
+
+                auto srcPtr = blockSrcBase + i * packUnit;
+                auto dstPtr = blockDstBase + i * packUnit;
+                int remain = len - blockStart;
+
+                if (remain >= packUnit) {
+                    float16x8_t srcVal = vld1q_f16(srcPtr);
+
+                    // F16 -> F32 expansion
+                    float32x4_t low = vcvt_f32_f16(vget_low_f16(srcVal));
+                    float32x4_t high = vcvt_f32_f16(vget_high_f16(srcVal));
+
+                    // Subtract Max
+                    low = vsubq_f32(low, finalMaxVec[i]);
+                    high = vsubq_f32(high, finalMaxVec[i]);
+
+                    // Exp
+                    low = expApprox(low);
+                    high = expApprox(high);
+
+                    // Accumulate Sum
+                    vecSum0[i] = vaddq_f32(vecSum0[i], low);
+                    vecSum1[i] = vaddq_f32(vecSum1[i], high);
+
+                    // Store Exp result temporarily
+                    vst1q_f16(dstPtr, vcombine_f16(vcvt_f16_f32(low), vcvt_f16_f32(high)));
+                } else {
+                    // Handle Tail
+                    for (int p = 0; p < remain; ++p) {
+                        float val = expf((float)srcPtr[p] - currentMax[i]);
+                        currentSum[i] += val;
+                        dstPtr[p] = (__fp16)val;
+                    }
+                    memset(dstPtr + remain, 0, (packUnit - remain) * sizeof(__fp16));
+                }
+            }
+        }
+
+        // Horizontal reduction for sums
+        for (int i = 0; i < count; ++i) {
+            currentSum[i] += vaddvq_f32(vecSum0[i]) + vaddvq_f32(vecSum1[i]);
+        }
+
+        for (int i = 0; i < count; ++i) {
+            int currentK = k + i;
+            if (!isRowValid[i]) continue;
+
+            float scale;
+            if (runningMax && runningSum && updateScale) {
+                // Incremental Softmax logic
+                float oldMax = runningMax[currentK];
+                float scaleForSum = expf(oldMax - currentMax[i]);
+                runningSum[currentK] = runningSum[currentK] * scaleForSum + currentSum[i];
+                runningMax[currentK] = currentMax[i];
+                updateScale[currentK] = scaleForSum;
+                continue;
+            } else {
+                // Standard Softmax logic
+                if (runningMax && runningSum) {
+                    currentSum[i] += runningSum[currentK] * expf(runningMax[currentK] - currentMax[i]);
+                }
+                scale = 1.0f / (currentSum[i] + 1e-20f);
+            }
+
+            float16x8_t scaleVec = vdupq_n_f16((__fp16)scale);
+
+            // Normalize Pass
+            for (int j = 0; j < reduceSizeOuter; ++j) {
+                int len = validLens[i];
+                int blockStart = j * packUnit;
+                if (blockStart >= len) break;
+
+                auto dstPtr = softmaxDst + j * stride0 + k * packUnit + i * packUnit;
+
+                if (len - blockStart >= packUnit) {
+                    float16x8_t val = vld1q_f16(dstPtr);
+                    val = vmulq_f16(val, scaleVec);
+                    vst1q_f16(dstPtr, val);
+                } else {
+                    int remain = len - blockStart;
+                    for (int p = 0; p < remain; ++p) {
+                        dstPtr[p] = (__fp16)((float)dstPtr[p] * scale);
+                    }
+                }
+            }
+        }
+    }
+}
+
+static void MNNSoftmaxFp16_Pack1(float* dest, const float* source, float* runningMax, float* runningSum, float* updateScale, int outside, int reduceSize, int kvSeqOffset, int validOffset, bool mask) {
+    auto softmaxDst = (FLOAT16*)dest;
+    auto softmaxSrc = (FLOAT16*)source;
 
     for (int k = 0; k < outside; ++k) {
-        if (mask && kvSeqOffset > k + validOffset) {
-            if (updateScale){
-                updateScale[k] = 1;
+        int currentValidSize = reduceSize;
+        bool isRowValid = true;
+
+        if (mask) {
+            if (kvSeqOffset > k + validOffset) {
+                isRowValid = false;
+                currentValidSize = 0;
+                if (updateScale) updateScale[k] = 1.0f;
+            } else {
+                currentValidSize = ALIMIN(reduceSize, k + (validOffset + 1) - kvSeqOffset);
             }
-            for (int j = 0; j < reduceSizeOuter; ++j) {
-                int i = 0;
-                for (; i < reduceSizeInner; i += packUnit) {
-                    auto destPtr = softmaxDst + j * stride0 + k * reduceSizeInner + i;
-                    vst1q_f16(destPtr, vdupq_n_f16(0.0f));
-                }
-                if (i < reduceSizeInner) {
-                    memset(softmaxDst + j * stride0 + k * reduceSizeInner + i, 0, (reduceSizeInner - i) * sizeof(__fp16));
-                }
-            }
+        }
+
+        if (!isRowValid || currentValidSize == 0) {
+            memset(softmaxDst + k * reduceSize, 0, reduceSize * sizeof(__fp16));
             continue;
         }
 
-        const int validReduceSize = mask ? ALIMIN(reduceSize, k + (validOffset + 1) - kvSeqOffset) : reduceSize;
-        const int remain = validReduceSize % packUnit;
-        const int sizeDiv = validReduceSize / packUnit;
+        auto srcRow = softmaxSrc + k * reduceSize;
+        auto dstRow = softmaxDst + k * reduceSize;
 
-        // 1. newMax
-        float oldMax = -65504.0f;
-        if (runningMax) {
-            oldMax = runningMax[k];
+        float oldMax = runningMax ? runningMax[k] : -65504.0f;
+        float16x8_t maxVec = vdupq_n_f16(-65504.0f);
+
+        // Unroll 4 (32 elements per loop)
+        int i = 0;
+        for (; i <= currentValidSize - 32; i += 32) {
+            float16x8_t v0 = vld1q_f16(srcRow + i + 0);
+            float16x8_t v1 = vld1q_f16(srcRow + i + 8);
+            float16x8_t v2 = vld1q_f16(srcRow + i + 16);
+            float16x8_t v3 = vld1q_f16(srcRow + i + 24);
+
+            maxVec = vmaxq_f16(maxVec, v0);
+            maxVec = vmaxq_f16(maxVec, v1);
+            maxVec = vmaxq_f16(maxVec, v2);
+            maxVec = vmaxq_f16(maxVec, v3);
+        }
+        // Handle remaining blocks of 8
+        for (; i <= currentValidSize - 8; i += 8) {
+            maxVec = vmaxq_f16(maxVec, vld1q_f16(srcRow + i));
         }
 
-        auto newMaxVec = vdupq_n_f16(-65504.0f);
+        // Horizontal Max reduction
+        float newMax = vmaxvq_f16(maxVec);
 
-        for (int j = 0; j < sizeDiv; ++j) {
-            auto srcPtr = softmaxSrc + j * stride0 + k * reduceSizeInner;
-            float16x8_t srcVec = vld1q_f16(srcPtr);
-            newMaxVec = vmaxq_f16(newMaxVec, srcVec);
-        }
-        float newMax = vmaxvq_f16(newMaxVec);
-
-        if (remain > 0) {
-            auto srcPtr = softmaxSrc + sizeDiv * stride0  + k * reduceSizeInner;
-            for (int i = 0; i < remain; ++i) {
-                newMax = ALIMAX(newMax, (float)srcPtr[i]);
-            }
+        // Handle remaining scalars (Tail)
+        for (; i < currentValidSize; ++i) {
+            newMax = ALIMAX(newMax, (float)srcRow[i]);
         }
 
-        const float finalMax = ALIMAX(oldMax, newMax);
-        const float32x4_t finalMaxVec = vdupq_n_f32(finalMax);
+        float finalMax = ALIMAX(oldMax, newMax);
+        float32x4_t finalMaxVec = vdupq_n_f32(finalMax);
 
-        // 2. exp(x - finalMax)
         float sum = 0.0f;
-        float32x4_t sumVec0 = vdupq_n_f32(0.0f);
-        float32x4_t sumVec1 = vdupq_n_f32(0.0f);
+        float32x4_t sumVec = vdupq_n_f32(0.0f);
 
-        for (int j = 0; j < sizeDiv; ++j) {
-            auto idx = j * stride0 + k * reduceSizeInner;
-            auto srcPtr = softmaxSrc + idx;
-            auto dstPtr = softmaxDst + idx;
+        i = 0;
+        // Unroll 2 (16 elements). Exp is heavy, unroll 4 might cause register spilling.
+        for (; i <= currentValidSize - 16; i += 16) {
+            float16x8_t v0 = vld1q_f16(srcRow + i);
+            float16x8_t v1 = vld1q_f16(srcRow + i + 8);
 
-            float16x8_t srcVec = vld1q_f16(srcPtr);
+            // Process v0
+            float32x4_t v0_lo = vcvt_f32_f16(vget_low_f16(v0));
+            float32x4_t v0_hi = vcvt_f32_f16(vget_high_f16(v0));
+            v0_lo = expApprox(vsubq_f32(v0_lo, finalMaxVec));
+            v0_hi = expApprox(vsubq_f32(v0_hi, finalMaxVec));
+            sumVec = vaddq_f32(sumVec, v0_lo);
+            sumVec = vaddq_f32(sumVec, v0_hi);
+            vst1q_f16(dstRow + i, vcombine_f16(vcvt_f16_f32(v0_lo), vcvt_f16_f32(v0_hi)));
 
-            // F16 -> F32
-            float32x4_t srcLo = vcvt_f32_f16(vget_low_f16(srcVec));
-            float32x4_t srcHi = vcvt_f32_f16(vget_high_f16(srcVec));
-
-            // sub max
-            srcLo = vsubq_f32(srcLo, finalMaxVec);
-            srcHi = vsubq_f32(srcHi, finalMaxVec);
-
-            // exp
-            srcLo = expApprox(srcLo);
-            srcHi = expApprox(srcHi);
-
-            // sum
-            sumVec0 = vaddq_f32(sumVec0, srcLo);
-            sumVec1 = vaddq_f32(sumVec1, srcHi);
-
-            // F32 -> F16 and store
-            vst1q_f16(dstPtr, vcombine_f16(vcvt_f16_f32(srcLo), vcvt_f16_f32(srcHi)));
+            // Process v1
+            float32x4_t v1_lo = vcvt_f32_f16(vget_low_f16(v1));
+            float32x4_t v1_hi = vcvt_f32_f16(vget_high_f16(v1));
+            v1_lo = expApprox(vsubq_f32(v1_lo, finalMaxVec));
+            v1_hi = expApprox(vsubq_f32(v1_hi, finalMaxVec));
+            sumVec = vaddq_f32(sumVec, v1_lo);
+            sumVec = vaddq_f32(sumVec, v1_hi);
+            vst1q_f16(dstRow + i + 8, vcombine_f16(vcvt_f16_f32(v1_lo), vcvt_f16_f32(v1_hi)));
         }
 
-        if (remain > 0) {
-            auto idx = sizeDiv * stride0  + k * reduceSizeInner;
-            auto srcPtr = softmaxSrc + idx;
-            auto dstPtr = softmaxDst + idx;
+        // Handle remaining blocks of 8
+        for (; i <= currentValidSize - 8; i += 8) {
+            float16x8_t v = vld1q_f16(srcRow + i);
+            float32x4_t v_lo = vcvt_f32_f16(vget_low_f16(v));
+            float32x4_t v_hi = vcvt_f32_f16(vget_high_f16(v));
 
-            __fp16 tempDst[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+            v_lo = expApprox(vsubq_f32(v_lo, finalMaxVec));
+            v_hi = expApprox(vsubq_f32(v_hi, finalMaxVec));
 
-            for(int i = 0; i < remain; ++i) {
-                float val = expf((float)srcPtr[i] - finalMax);
+            sumVec = vaddq_f32(sumVec, v_lo);
+            sumVec = vaddq_f32(sumVec, v_hi);
+
+            vst1q_f16(dstRow + i, vcombine_f16(vcvt_f16_f32(v_lo), vcvt_f16_f32(v_hi)));
+        }
+
+        // Handle Tail scalars
+        if (i < currentValidSize) {
+             __fp16 tempDst[8];
+            int remain = currentValidSize - i;
+            auto sPtr = srcRow + i;
+            for (int p = 0; p < remain; ++p) {
+                float val = expf((float)sPtr[p] - finalMax);
                 sum += val;
-                tempDst[i] = (__fp16)val;
+                tempDst[p] = (__fp16)val;
             }
-            if (pack > 1) {
-                memcpy(dstPtr, tempDst, packUnit * sizeof(__fp16));
-            } else {
-                memcpy(dstPtr, tempDst, remain * sizeof(__fp16));
-            }
+            memcpy(dstRow + i, tempDst, remain * sizeof(__fp16));
+            i += remain; // align i to currentValidSize
         }
 
-        sum += vaddvq_f32(sumVec0) + vaddvq_f32(sumVec1);
+        sum += vaddvq_f32(sumVec);
 
-        // 3. update runningMax, runningSum, scale or normalize softmax results
-        if (runningMax != nullptr && runningSum != nullptr && updateScale != nullptr) {
-            // update runningSum, runningMax, scale
+        // Fill remaining invalid part with 0
+        if (currentValidSize < reduceSize) {
+            memset(dstRow + currentValidSize, 0, (reduceSize - currentValidSize) * sizeof(__fp16));
+        }
+
+        if (runningMax && runningSum && updateScale) {
             float scaleForSum = expf(oldMax - finalMax);
             runningSum[k] = runningSum[k] * scaleForSum + sum;
             runningMax[k] = finalMax;
             updateScale[k] = scaleForSum;
         } else {
-            // Normalize softmax results
-            if (runningMax != nullptr && runningSum != nullptr) {
+            if (runningMax && runningSum) {
                 sum += runningSum[k] * expf(oldMax - finalMax);
             }
             float scale = 1.0f / (sum + 1e-20f);
-            float16x8_t scale_vec = vdupq_n_f16((__fp16)scale);
+            float16x8_t scaleVec = vdupq_n_f16((__fp16)scale);
 
-            for (int j = 0; j < sizeDiv; ++j) {
-                auto pDest = softmaxDst + j * stride0 + k * reduceSizeInner;
-                float16x8_t data = vld1q_f16(pDest);
-                data = vmulq_f16(data, scale_vec);
-                vst1q_f16(pDest, data);
-            }
+            // Unroll 4 (32 elements) for throughput
+            i = 0;
+            for (; i <= currentValidSize - 32; i += 32) {
+                float16x8_t v0 = vld1q_f16(dstRow + i);
+                float16x8_t v1 = vld1q_f16(dstRow + i + 8);
+                float16x8_t v2 = vld1q_f16(dstRow + i + 16);
+                float16x8_t v3 = vld1q_f16(dstRow + i + 24);
 
-            if (remain > 0) {
-                auto pDest = softmaxDst + sizeDiv * stride0 + k * reduceSizeInner;
-                for (int i = 0; i < remain; ++i) {
-                    pDest[i] = (__fp16)((float)pDest[i] * scale);
-                }
+                vst1q_f16(dstRow + i, vmulq_f16(v0, scaleVec));
+                vst1q_f16(dstRow + i + 8, vmulq_f16(v1, scaleVec));
+                vst1q_f16(dstRow + i + 16, vmulq_f16(v2, scaleVec));
+                vst1q_f16(dstRow + i + 24, vmulq_f16(v3, scaleVec));
             }
-        }
-
-        // 4. memset invalid positions to zero
-        if (pack > 1) {
-            if (validReduceSize % packUnit > 0) {
-                memset(softmaxDst + sizeDiv * stride0 + k * reduceSizeInner + (validReduceSize % packUnit), 0, (packUnit - (validReduceSize % packUnit)) * sizeof(__fp16));
+            for (; i <= currentValidSize - 8; i += 8) {
+                float16x8_t v = vld1q_f16(dstRow + i);
+                vst1q_f16(dstRow + i, vmulq_f16(v, scaleVec));
             }
-            auto validDiv8 = UP_DIV(validReduceSize, packUnit);
-            auto allDiv8 = UP_DIV(reduceSize, packUnit);
-            for (int j = validDiv8; j < allDiv8; ++j) {
-                auto destPtr = softmaxDst + j * stride0 + k * reduceSizeInner;
-                memset(destPtr, 0, packUnit * sizeof(__fp16));
+            for (; i < currentValidSize; ++i) {
+                dstRow[i] = (__fp16)((float)dstRow[i] * scale);
             }
-        } else {
-            memset(softmaxDst + k * reduceSizeInner + validReduceSize, 0, (reduceSize - validReduceSize) * sizeof(__fp16));
         }
     }
+}
+
+
+static void MNNSoftmaxFp16(float* dest, const float* source, float* runningMax, float* runningSum, float* updateScale, int outside, int reduceSize, int kvSeqOffset, int validOffset, int pack, bool mask) {
+    // source shape: [reduceSizeOuter, outside, reduceSizeInner]
+    // for C4, [up_div(reduceSize,8), outside,8] => reduceSizeOuter=up_div(reduceSize,8), reduceSizeInner=8
+    // for C,  [outside, reduceSize]             => reduceSizeOuter=1, reduceSizeInner=reduceSize
+    if (pack == 8) {
+        MNNSoftmaxFp16_Pack8(dest, source, runningMax, runningSum, updateScale, outside, reduceSize, kvSeqOffset, validOffset, pack, mask);
+        return;
+    }
+    if (pack == 1) {
+        MNNSoftmaxFp16_Pack1(dest, source, runningMax, runningSum, updateScale, outside, reduceSize, kvSeqOffset, validOffset, mask);
+        return;
+    }
+    MNN_ERROR("MNNSoftMaxFp16 not support pack!=8 and pack!=1\n");
+    return;
 }
 
 static CoreFunctions* gInstance = nullptr;
