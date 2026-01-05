@@ -30,7 +30,7 @@
 namespace MNN {
 
 template <typename T>
-static void _maskQK(float * qkPacked, const float* scale, size_t seqLen, size_t subKvSeqLen, int pack, int maskStride, int kvoffset, const float* sinksPtr, const int8_t* maskPtr, bool quantKey) {
+static void _maskQK(float * qkPacked, const float* scale, size_t seqLen, size_t subKvSeqLen, int pack, int maskStride, int kvoffset, const int8_t* maskPtr, bool quantKey) {
     auto source = (T*)qkPacked;
     if (quantKey == false) {
         auto elementSize = seqLen * ROUND_UP(subKvSeqLen, pack);
@@ -42,7 +42,7 @@ static void _maskQK(float * qkPacked, const float* scale, size_t seqLen, size_t 
 
     // mask: [seq, kvseq]
     // data: [UP_DIV(kvseq, pack), seq, pack]
-    if (sinksPtr != nullptr) {
+    if (maskPtr != nullptr) {
         auto mask = (T*)maskPtr;
         for (int i = 0; i < UP_DIV(subKvSeqLen, pack); ++i) {
             for (int j = 0; j < seqLen; ++j) {
@@ -591,15 +591,15 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                 // qk: [kv_seq_len/mPack, seq_len, mPack] -> [seq_len/eP, kv_seq_len/lP, eP, lP]
                 {
                     if(mBytes == 2) {
-                        if (!mQuantKey || sinksPtr != nullptr) {
-                            _maskQK<FLOAT16_T>((float*)qkPacked, &mScale, seqLen, subKvSeqLen, mPack, kvSeqLen, i * mBlockKV,sinksPtr, mask, mQuantKey);
+                        if (!mQuantKey || nullptr != mask) {
+                            _maskQK<FLOAT16_T>((float*)qkPacked, &mScale, seqLen, subKvSeqLen, mPack, kvSeqLen, i * mBlockKV, mask, mQuantKey);
                         }
                     } else {
-                        if (!mQuantKey || sinksPtr != nullptr) {
-                            _maskQK<float>((float*)qkPacked, &mScale, seqLen, subKvSeqLen, mPack, kvSeqLen, i * mBlockKV, sinksPtr, mask, mQuantKey);
+                        if (!mQuantKey || nullptr != mask) {
+                            _maskQK<float>((float*)qkPacked, &mScale, seqLen, subKvSeqLen, mPack, kvSeqLen, i * mBlockKV, mask, mQuantKey);
                         }
                     }
-                    bool useMask = (sinksPtr == nullptr);
+                    bool useMask = mask == nullptr; // Use Default Triangle Mask
                     gcore->MNNSoftmax(qkSoftmax, (float*)qkPacked, runningMax, runningSum, diffScale, seqLen, subKvSeqLen, i * mBlockKV, kvValidOffset, mPack, useMask);
                 }
                 // 3. qk @ v
