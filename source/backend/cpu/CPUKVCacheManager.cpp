@@ -360,7 +360,8 @@ void CPUKVCacheManager::onAlloc(KVMeta* meta, int seq_len) {
         return;
     }
 
-    int kv_seq_len = mMeta != nullptr ? (int)meta->add : seq_len;
+    // Do not use mMeta->add, because in VL models or Qnn case, mMeta->add is 0 or mMeta is nullptr.
+    int kv_seq_len = seq_len;
     mMaxLength = kv_seq_len + mConfig.mExpandChunk;
     if (mUseFlashAttention) {
         setFlashAttentionUpperKv(MNN_FLASH_ATTENTION_BLOCK_SIZE);
