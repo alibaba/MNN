@@ -259,12 +259,6 @@ struct MatmulRelatedFunctions {
 };
 
 struct CoreFunctions {
-    // fp8
-    void (*MNNFp32ToFp8)(uint8_t* dst, const float* src, size_t size);
-    void (*MNNFp16ToFp8)(uint8_t* dst, const uint16_t* src, size_t size);
-    void (*MNNFp8ToFp32)(float* dst, const uint8_t* src, size_t size);
-    void (*MNNFp8ToFp16)(uint16_t* dst, const uint8_t* src, size_t size);
-
     // cpu feature
     bool supportFp16arith = false;
     bool supportSDot = false;
