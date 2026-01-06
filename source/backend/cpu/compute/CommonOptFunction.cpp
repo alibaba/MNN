@@ -4626,8 +4626,10 @@ void MNNCoreFunctionInit() {
     gCoreFunction->MNNPackedMatMul = MNNPackedMatMul;
     gCoreFunction->MNNPackedMatMulRemain = MNNPackedMatMulRemain;
     gCoreFunction->MNNCountMaxMinValue = MNNCountMaxMinValue;
+#ifdef MNN_USE_SPARSE_COMPUTE
     gCoreFunction->MNNGetSparseMatMulPackMode = MNNGetSparseMatMulPackMode;
     gCoreFunction->MNNAdjustOptimalSparseKernel = _MNNAdjustOptimalSparseKernel;
+#endif
 
     gCoreFunction->MNNComputeMatMulForE_1 = MNNComputeMatMulForE_1;
     gCoreFunction->MNNComputeMatMulForH_1 = MNNComputeMatMulForH_1;
