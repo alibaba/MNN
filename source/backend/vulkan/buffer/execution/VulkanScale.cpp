@@ -16,7 +16,7 @@ struct gpuScaleParam {
     ivec4 imgSize;
 };
 
-VulkanScale::VulkanScale(const Op* op, Backend* bn) : VulkanBasicExecution(bn) {
+VulkanScale::VulkanScale(const Op* op, Backend* bn, Tensor * output) : VulkanBasicExecution(bn) {
     const auto scale   = op->main_as_Scale();
     const int channels = scale->scaleData()->size();
 
@@ -30,21 +30,40 @@ VulkanScale::VulkanScale(const Op* op, Backend* bn) : VulkanBasicExecution(bn) {
 
     auto extra = static_cast<VulkanBackend*>(bn);
 
-    mScalePipeline = extra->getPipeline("glsl_scale_comp", types);
+    bool useFP16 = output->getType().code == halide_type_float && extra->useFP16();
+
+    std::string pKey = "glsl_scale_";
+    if (useFP16) {
+        pKey += "FP16_";
+    }
+    pKey += "comp";
+
+    mScalePipeline = extra->getPipeline(pKey, types);
     mScaleParam    = extra->allocUniform();
     auto channelsAlign = ALIGN_UP4(channels);
-    mScaleBuffer   = std::make_shared<VulkanBuffer>(extra->getMemoryPool(), false, sizeof(float) * channelsAlign,
+    size_t bytes = useFP16 ? sizeof(uint16_t) : sizeof(float);
+    mScaleBuffer   = std::make_shared<VulkanBuffer>(extra->getMemoryPool(), false, bytes * channelsAlign,
                                                   nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    mBiasBuffer   = std::make_shared<VulkanBuffer>(extra->getMemoryPool(), false, sizeof(float) * channelsAlign,
+    mBiasBuffer   = std::make_shared<VulkanBuffer>(extra->getMemoryPool(), false, bytes * channelsAlign,
                                                   nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     {
-        auto ptr = (float*)mScaleBuffer->map();
-        ::memcpy(ptr, scale->scaleData()->data(), channels* sizeof(float));
+        auto ptr = mScaleBuffer->map();
+        ::memset(ptr, 0, bytes * channelsAlign);
+        if (!useFP16) {
+            ::memcpy(ptr, scale->scaleData()->data(), channels* sizeof(float));
+        } else {
+            FLOAT_TO_HALF(scale->scaleData()->data(), (int16_t *) ptr, channels);
+        }
         mScaleBuffer->unmap();
     }
     {
         auto ptr = (float*)mBiasBuffer->map();
-        ::memcpy(ptr, scale->biasData()->data(), channels* sizeof(float));
+        ::memset(ptr, 0, bytes * channelsAlign);
+        if (!useFP16) {
+            ::memcpy(ptr, scale->biasData()->data(), channels* sizeof(float));
+        } else {
+            FLOAT_TO_HALF(scale->biasData()->data(), (int16_t *) ptr, channels);
+        }
         mBiasBuffer->unmap();
     }
     mDescriptorSet.reset(mScalePipeline->createSet());
@@ -91,7 +110,7 @@ ErrorCode VulkanScale::onEncode(const std::vector<Tensor*>& inputs, const std::v
 class VulkanScaleCreator : public VulkanBackend::Creator {
 public:
     virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op, Backend* bn) const override {
-        return new VulkanScale(op, bn);
+        return new VulkanScale(op, bn, outputs[0]);
     }
 };
 

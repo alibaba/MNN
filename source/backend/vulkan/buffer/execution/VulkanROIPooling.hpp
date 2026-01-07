@@ -13,7 +13,7 @@
 namespace MNN {
 class VulkanROIPooling : public VulkanBasicExecution {
 public:
-    VulkanROIPooling(Backend* bn, const float SpatialScale);
+    VulkanROIPooling(Backend* bn, const float SpatialScale, Tensor * tensor);
     virtual ~VulkanROIPooling();
     ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                        const VulkanCommandPool::Buffer* cmdBuffer) override;

@@ -230,6 +230,7 @@ void Llm::setSpeculativeConfig() {
 }
 
 bool Llm::load() {
+    Timer _t;
     initRuntime();
     // init module status
     // 1. load vocab
@@ -348,6 +349,7 @@ bool Llm::load() {
 
     // MTP model load
     mGenerationStrategy->load(module_config);
+    mContext->load_us += _t.durationInUs();
     return true;
 }
 
@@ -467,6 +469,7 @@ std::vector<Express::VARP> Llm::forwardRaw(Express::VARP hiddenState, Express::V
     std::vector<Express::VARP> outputs = selectModule->onForward(inputs);
 
     if (outputs.empty()) {
+        mContext->status = LlmStatus::INTERNAL_ERROR;
         return outputs;
     }
     if (!mAsync) {
@@ -592,6 +595,9 @@ std::vector<VARP> Llm::forwardVec(MNN::Express::VARP input_embeds) {
         auto attention_mask = gen_attention_mask(blockSize);
         auto position_ids = gen_position_ids(blockSize);
         logits = forwardRaw(embed, attention_mask, position_ids);
+        if(logits.empty()) {
+            return logits;
+        }
         updateContext(blockSize, 0);
     }
     bool hasPad = false;
@@ -623,6 +629,9 @@ std::vector<VARP> Llm::forwardVec(MNN::Express::VARP input_embeds) {
         auto attention_mask = gen_attention_mask(forwardSize);
         auto position_ids = gen_position_ids(forwardSize);
         logits = forwardRaw(input_embeds, attention_mask, position_ids);
+        if(logits.empty()) {
+            return logits;
+        }
     }
     updateContext(-blockSize * blockNumber, 0);
     if (hasPad) {
@@ -676,6 +685,7 @@ void Llm::generate_init(std::ostream* os, const char* end_with) {
     mContext->decode_us   = 0;
     mContext->current_token = -1;
     mContext->sample_us = 0;
+    mContext->status = LlmStatus::RUNNING;
     if (!mConfig->reuse_kv()) {
         mContext->all_seq_len = 0;
         mContext->history_tokens.clear();
@@ -824,6 +834,7 @@ std::vector<int> Llm::generate(MNN::Express::VARP input_embeds, int max_tokens) 
     Timer _t;
     forwardVec(input_embeds);
     if(mGenerateParam->outputs.size() < 1) {
+        mContext->status = LlmStatus::INTERNAL_ERROR;
         return {};
     }
     updateContext(seqLen, 0);
@@ -890,8 +901,6 @@ void Llm::response(const std::string& user_content, std::ostream* os, const char
     if (mConfig->use_template()) {
         prompt = mPrompt->applyTemplate(user_content, true);
     }
-    std::cout << "user_content: " << user_content << std::endl;
-    std::cout << "prompt: " << prompt << std::endl;
     std::vector<int> input_ids = tokenizer_encode(prompt);
     response(input_ids, os, end_with, max_new_tokens);
 }
@@ -915,26 +924,7 @@ Llm::Llm(std::shared_ptr<LlmConfig> config) : mConfig(config) {
 Llm::~Llm() {
 #if DEBUG_MODE == 1
     if (nullptr != gTimeTraceInfo) {
-        float opSummer       = 0.0f;
-        float opFlopsSummber = 0.0f;
-        for (auto& iter : gTimeTraceInfo->mTypes) {
-            float summer      = 0.0f;
-            float summerflops = 0.0f;
-            for (auto& t : iter.second) {
-                for (auto& t0 : t.second) {
-                    summer += t0.first;
-                    summerflops += t0.second;
-                }
-            }
-            summer      = summer;
-            summerflops = summerflops;
-            MNN_PRINT("%s : %.7f, FLOP: %.7f, Speed: %.7f GFlops\n", iter.first.c_str(), summer, summerflops,
-                      summerflops / summer);
-            opSummer += summer;
-            opFlopsSummber += summerflops;
-        }
-        MNN_PRINT("OP Summer: %.7f, Flops: %.7f, Speed: %.7f GFlops\n", opSummer, opFlopsSummber,
-                  opFlopsSummber / opSummer);
+        gTimeTraceInfo->dump();
     }
 #endif
     mGenerateParam.reset();
@@ -1151,7 +1141,14 @@ VARP Llm::gen_position_ids(int seq_len) {
 }
 
 bool Llm::is_stop(int token_id) {
-    return mTokenizer->is_stop(token_id);
+    if (mContext->status == LlmStatus::USER_CANCEL || mContext->status == LlmStatus::INTERNAL_ERROR) {
+        return true;
+    }
+    bool stop = mTokenizer->is_stop(token_id);
+    if (stop) {
+        mContext->status = LlmStatus::NORMAL_FINISHED;
+    }
+    return stop;
 }
 } // namespace Transformer
 } // namespace MNN

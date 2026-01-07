@@ -1,4 +1,18 @@
 import _mnncengine.llm as _F
+from enum import IntEnum
+
+class LlmStatus(IntEnum):
+    RUNNING = 0
+    NORMAL_FINISHED = 1
+    MAX_TOKENS_FINISHED = 2
+    USER_CANCEL = 3
+    INTERNAL_ERROR = 4
+
+    def __str__(self):
+        return f"{self.__class__.__name__}.{self.name}"
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}.{self.name}"
 
 class Context:
     def __init__(self, llm_obj):
@@ -116,6 +130,7 @@ class Context:
     def output_tokens(self, value):
         self.update(output_tokens=value)
 
+
     @property
     def generate_str(self):
         return self._data.get('generate_str', '')
@@ -123,6 +138,17 @@ class Context:
     @generate_str.setter
     def generate_str(self, value):
         self.update(generate_str=value)
+
+    @property
+    def status(self):
+        return LlmStatus(self._data.get('status', 0))
+
+    @status.setter
+    def status(self, value):
+        if isinstance(value, LlmStatus):
+            self.update(status=int(value))
+        else:
+            self.update(status=int(value))
 
     def __repr__(self):
         return f"Context({self._data})"

@@ -1,15 +1,3 @@
-#version 440 core
-
-#ifdef FP16
-#extension GL_AMD_gpu_shader_half_float: enable
-#define FLOAT4 f16vec4
-#define MAT4 f16mat4
-#extension GL_AMD_gpu_shader_half_float: enable
-#else
-#define FLOAT4 vec4
-#define MAT4 mat4
-#endif
-layout(std430) buffer;
 layout(set=0, binding=0) writeonly buffer destBuffer{
     FLOAT4 data[];
 } uOutput;
@@ -54,7 +42,7 @@ void main()
         ivec2 sta = max(ivec2(0, 0), (UP_DIV(-s0, uConstant.dilate)));
         ivec2 end = min(uConstant.kernelSize, UP_DIV(uConstant.inputSize.xy - s0, uConstant.dilate));
         int fx, fy, fz;
-        vec4 color = uBias.data[oz];
+        FLOAT4 color = uBias.data[oz];
         for (fy=sta.y; fy<end.y; ++fy)
         {
             int sy = fy*uConstant.dilate.y + s0.y;
@@ -66,19 +54,19 @@ void main()
                     + oz * uConstant.inputSize.x * uConstant.inputSize.y * uConstant.outputSize.w
                     + ob * uConstant.inputSize.x * uConstant.inputSize.y
                     ;
-                vec4 inputValue = uInput.data[iPos];
+                FLOAT4 inputValue = uInput.data[iPos];
 
-                vec4 k = uKernel.data[fx+fy*uConstant.kernelSize.x + oz * uConstant.kernelSize.x * uConstant.kernelSize.y];
+                FLOAT4 k = uKernel.data[fx+fy*uConstant.kernelSize.x + oz * uConstant.kernelSize.x * uConstant.kernelSize.y];
 
                 color  += k*inputValue;
             }
         }
 
 #ifdef RELU
-        color = max(color, vec4(0));
+        color = max(color, FLOAT4(0));
 #endif
 #ifdef RELU6
-        color = clamp(color, vec4(0), vec4(6));
+        color = clamp(color, FLOAT4(0), FLOAT4(6));
 #endif
         int oPos = pos.x
             + pos.y * uConstant.outputSize.x

@@ -68,9 +68,11 @@ struct RuntimeHint {
 
     // whether to use Arm sme2 cores when threads>1
     bool useArmSme2Cores = true;
-
+#ifdef MNN_DEFAULT_USE_KLEIDIAI
+    bool enableKleidiAI = true;
+#else   
     bool enableKleidiAI = false;
-
+#endif
     // Use CPU Ids
     std::vector<int> cpuIds;
     
@@ -393,6 +395,7 @@ public:
     }
 
     mutable int pCurrentStatus = 0; // NO_ERROR
+    mutable int pExecutionStatus = 0; // NO_ERROR
 
     // TODO: Move to Backend
     void* pMeta = nullptr;

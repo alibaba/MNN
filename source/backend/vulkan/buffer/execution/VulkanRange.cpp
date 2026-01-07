@@ -28,7 +28,8 @@ VulkanRange::VulkanRange(halide_type_t type, Backend* backend) : VulkanBasicExec
     if (type.code == halide_type_int) {
         mPipeline = vkbackend->getPipeline("glsl_range_USE_INT_comp", types);
     } else {
-        mPipeline = vkbackend->getPipeline("glsl_range_comp", types);
+        std::string pKey = vkbackend->useFP16() ? "glsl_range_FP16_comp" : "glsl_range_comp";
+        mPipeline = vkbackend->getPipeline(pKey, types);
     }
     mDesSet.reset(mPipeline->createSet());
 }

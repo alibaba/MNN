@@ -35,27 +35,27 @@ ConvBufCommonExecution::ConvBufCommonExecution(const Convolution2D *conv2dParams
     mResource.reset(new ConvBufResource);
     mResource->mBias.reset(Tensor::createDevice<float>({1, 1, 1, ROUND_UP(biasSize, 32)}));
     backend->onAcquireBuffer(mResource->mBias.get(), Backend::STATIC);
-    cl::Buffer &biasBuffer = openCLBuffer(mResource->mBias.get());
-
-    cl_int res;
-    auto biasPtrCL = openclBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
-        biasBuffer, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &res);
-    if(biasPtrCL != nullptr && res == CL_SUCCESS){
-        ::memset(biasPtrCL, 0, buffer_size);
-        if (nullptr != conv2dParams->bias()) {
-            const float *biasDataPtr = conv2dParams->bias()->data();
-            if(openclBackend->getPrecision() != BackendConfig::Precision_High){
-                for(int i=0; i<biasSize; i++) {
-                    ((half_float::half*)biasPtrCL)[i] = (half_float::half)(biasDataPtr[i]);
+    if(openclBackend->getRuntime()->hint().useCachedMmap <= 1){
+        cl::Buffer &biasBuffer = openCLBuffer(mResource->mBias.get());
+        cl_int res;
+        auto biasPtrCL = openclBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(biasBuffer, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &res);
+        if(biasPtrCL != nullptr && res == CL_SUCCESS){
+            ::memset(biasPtrCL, 0, buffer_size);
+            if (nullptr != conv2dParams->bias()) {
+                const float *biasDataPtr = conv2dParams->bias()->data();
+                if(openclBackend->getPrecision() != BackendConfig::Precision_High){
+                    for(int i=0; i<biasSize; i++) {
+                        ((half_float::half*)biasPtrCL)[i] = (half_float::half)(biasDataPtr[i]);
+                    }
+                }else{
+                    ::memcpy(biasPtrCL, biasDataPtr, biasSize * sizeof(float));
                 }
-            }else{
-                ::memcpy(biasPtrCL, biasDataPtr, biasSize * sizeof(float));
             }
+        }else{
+            MNN_ERROR("Map error biasPtrCL == nullptr \n");
         }
-    }else{
-        MNN_ERROR("Map error biasPtrCL == nullptr \n");
+        openclBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(biasBuffer, biasPtrCL);
     }
-    openclBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(biasBuffer, biasPtrCL);
 }
 
 ConvBufCommonExecution::ConvBufCommonExecution(const Op *op, Backend *backend, bool isExtra) {
@@ -79,46 +79,48 @@ ConvBufCommonExecution::ConvBufCommonExecution(const Op *op, Backend *backend, b
     mResource.reset(new ConvBufResource);
     mResource->mBias.reset(Tensor::createDevice<float>({1, 1, 1, ROUND_UP(biasSize, 32)}));
     backend->onAcquireBuffer(mResource->mBias.get(), Backend::STATIC);
-    cl::Buffer &biasBuffer = openCLBuffer(mResource->mBias.get());
-    
-    auto biasPtrCL = openclBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(biasBuffer, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &res);
-    if(biasPtrCL != nullptr && res == CL_SUCCESS){
-        ::memset(biasPtrCL, 0, buffer_size);
-        if (nullptr != conv2dParams->bias()) {
-            const float *biasDataPtr = conv2dParams->bias()->data();
-            if(openclBackend->getPrecision() != BackendConfig::Precision_High){
-                for(int i=0; i<biasSize; i++) {
-                    ((half_float::half*)biasPtrCL)[i] = (half_float::half)(biasDataPtr[i]);
+    if(openclBackend->getRuntime()->hint().useCachedMmap <= 1){
+        cl::Buffer &biasBuffer = openCLBuffer(mResource->mBias.get());
+        auto biasPtrCL = openclBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(biasBuffer, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &res);
+        if(biasPtrCL != nullptr && res == CL_SUCCESS){
+            ::memset(biasPtrCL, 0, buffer_size);
+            if (nullptr != conv2dParams->bias()) {
+                const float *biasDataPtr = conv2dParams->bias()->data();
+                if(openclBackend->getPrecision() != BackendConfig::Precision_High){
+                    for(int i=0; i<biasSize; i++) {
+                        ((half_float::half*)biasPtrCL)[i] = (half_float::half)(biasDataPtr[i]);
+                    }
+                }else{
+                    ::memcpy(biasPtrCL, biasDataPtr, biasSize * sizeof(float));
                 }
-            }else{
-                ::memcpy(biasPtrCL, biasDataPtr, biasSize * sizeof(float));
             }
+        }else{
+            MNN_ERROR("Map error biasPtrCL == nullptr \n");
         }
-    }else{
-        MNN_ERROR("Map error biasPtrCL == nullptr \n");
+        openclBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(biasBuffer, biasPtrCL);
     }
     
-    openclBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(biasBuffer, biasPtrCL);
     if(isExtra){
         const PRelu* preluParam = flatbuffers::GetRoot<PRelu>(op->main_as_Extra()->attr()->GetAs<Attribute>(1)->tensor()->uint8s()->data());
         const float *slopeDataPtr = preluParam->slope()->data();
         mResource->mSlope.reset(Tensor::createDevice<float>({1, 1, 1, ROUND_UP(biasSize, 32)}));
         backend->onAcquireBuffer(mResource->mSlope.get(), Backend::STATIC);
-        cl::Buffer &slopeBuffer = openCLBuffer(mResource->mSlope.get());
-            
-        auto slopePtrCL = openclBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(slopeBuffer, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &res);
-        if(slopePtrCL != nullptr && res == CL_SUCCESS){
-            if(openclBackend->getPrecision() != BackendConfig::Precision_High){
-                for(int i=0; i<biasSize; i++) {
-                    ((half_float::half*)slopePtrCL)[i] = (half_float::half)(slopeDataPtr[i]);
+        if(openclBackend->getRuntime()->hint().useCachedMmap <= 1){
+            cl::Buffer &slopeBuffer = openCLBuffer(mResource->mSlope.get());
+            auto slopePtrCL = openclBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(slopeBuffer, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &res);
+            if(slopePtrCL != nullptr && res == CL_SUCCESS){
+                if(openclBackend->getPrecision() != BackendConfig::Precision_High){
+                    for(int i=0; i<biasSize; i++) {
+                        ((half_float::half*)slopePtrCL)[i] = (half_float::half)(slopeDataPtr[i]);
+                    }
+                }else{
+                    ::memcpy(slopePtrCL, slopeDataPtr, biasSize * sizeof(float));
                 }
             }else{
-                ::memcpy(slopePtrCL, slopeDataPtr, biasSize * sizeof(float));
+                MNN_ERROR("Map error slopePtrCL == nullptr \n");
             }
-        }else{
-            MNN_ERROR("Map error slopePtrCL == nullptr \n");
+            openclBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(slopeBuffer, slopePtrCL);
         }
-        openclBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(slopeBuffer, slopePtrCL);
     }
 }
 
@@ -221,74 +223,76 @@ ConvBufExecution::ConvBufExecution(const std::vector<Tensor *> &inputs, const st
     }
     if (mResource->mConv1x1Opt) {
         int buffer_size = ROUND_UP(mResource->mOutputChannel, mResource->mAlignN) * ROUND_UP(mResource->mInputChannel, mResource->mAlignK);
-        mResource->mFilter.reset(
-            Tensor::createDevice<float>({buffer_size}));
+        mResource->mFilter.reset(Tensor::createDevice<float>({buffer_size}));
         mOpenCLBackend->onAcquireBuffer(mResource->mFilter.get(), Backend::STATIC);
-
-        if (mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
-            buffer_size *= sizeof(half_float::half);
-        } else {
-            buffer_size *= sizeof(float);
-        }
-
-        cl::Buffer &filterBuffer = openCLBuffer(mResource->mFilter.get());
-        cl_int error;
-        auto ptrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
-                filterBuffer, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &error);
-        if(nullptr != ptrCL && error == CL_SUCCESS){
-            memset((void *)ptrCL, 0, buffer_size);
+        
+        if(mOpenCLBackend->getRuntime()->hint().useCachedMmap <= 1){
             if (mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
-                // [Ci, Co] ( [K, N] )
-                for (int o = 0; o < mResource->mOutputChannel; o++) {
-                    for (int i = 0; i < mResource->mInputChannel; i++) {
-                        ((half_float::half *)ptrCL)[i * ROUND_UP(mResource->mOutputChannel, mResource->mAlignN) + o] = (half_float::half)(mFilterDataPtr[o * mResource->mInputChannel + i]);
-                    }
-                }
+                buffer_size *= sizeof(half_float::half);
             } else {
-                for (int o = 0; o < mResource->mOutputChannel; o++) {
-                    for (int i = 0; i < mResource->mInputChannel; i++) {
-                        ((float *)ptrCL)[i * ROUND_UP(mResource->mOutputChannel, mResource->mAlignN) + o] = (mFilterDataPtr[o * mResource->mInputChannel + i]);
+                buffer_size *= sizeof(float);
+            }
+            cl::Buffer &filterBuffer = openCLBuffer(mResource->mFilter.get());
+            cl_int error;
+            auto ptrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
+                                                                                             filterBuffer, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &error);
+            if(nullptr != ptrCL && error == CL_SUCCESS){
+                memset((void *)ptrCL, 0, buffer_size);
+                if (mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
+                    // [Ci, Co] ( [K, N] )
+                    for (int o = 0; o < mResource->mOutputChannel; o++) {
+                        for (int i = 0; i < mResource->mInputChannel; i++) {
+                            ((half_float::half *)ptrCL)[i * ROUND_UP(mResource->mOutputChannel, mResource->mAlignN) + o] = (half_float::half)(mFilterDataPtr[o * mResource->mInputChannel + i]);
+                        }
+                    }
+                } else {
+                    for (int o = 0; o < mResource->mOutputChannel; o++) {
+                        for (int i = 0; i < mResource->mInputChannel; i++) {
+                            ((float *)ptrCL)[i * ROUND_UP(mResource->mOutputChannel, mResource->mAlignN) + o] = (mFilterDataPtr[o * mResource->mInputChannel + i]);
+                        }
                     }
                 }
+            }else{
+                MNN_ERROR("Map error filterPtrCL == nullptr \n");
             }
-        }else{
-            MNN_ERROR("Map error filterPtrCL == nullptr \n");
+            mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(filterBuffer, ptrCL);
         }
-        mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(filterBuffer, ptrCL);
 
     } else {
         mResource->mFilter.reset(
             Tensor::createDevice<float>({ROUND_UP(mResource->mOutputChannel, 4) * ROUND_UP(mResource->mInputChannel, 4) * mResource->mKernelWidth * mResource->mKernelHeight}));
         if (mFilterDataPtr != nullptr) {
             std::vector<int> filterImageShape{ROUND_UP(mResource->mInputChannel, 4), (UP_DIV(mResource->mOutputChannel, 4) * mResource->mKernelWidth * mResource->mKernelHeight)};
-            std::shared_ptr<Tensor> filterBuffer(
-                Tensor::createDevice<float>({mResource->mOutputChannel, ROUND_UP(mResource->mInputChannel, 4), mResource->mKernelWidth, mResource->mKernelHeight}));
-
-            int buffer_size = filterBuffer->elementSize() * sizeof(float);
-            cl::Buffer filterBufferCL(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size);
-            filterBuffer->buffer().device = (uint64_t)(&filterBufferCL);
-
-            cl_int res;
-            auto ptrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(filterBufferCL, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &res);
-            if(ptrCL != nullptr && res == CL_SUCCESS) {
-                ::memset(ptrCL, 0, buffer_size);
-                const int copy_size = mResource->mKernelWidth * mResource->mKernelHeight * sizeof(float);
-                for(int oc=0; oc<mResource->mOutputChannel; oc++) {
-                    for(int ic=0; ic<mResource->mInputChannel; ic++) {
-                        ::memcpy((float *)ptrCL + (oc * ROUND_UP(mResource->mInputChannel, 4) + ic) * mResource->mKernelWidth * mResource->mKernelHeight, mFilterDataPtr + (oc * mResource->mInputChannel + ic) * mResource->mKernelWidth * mResource->mKernelHeight, copy_size);
-                    }
-                }
-            }else{
-                MNN_ERROR("Map error ptrCL == nullptr \n");
-            }
-            mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(filterBufferCL, ptrCL);
-
             mResource->mFilter.reset(Tensor::createDevice<float>({filterImageShape[1] * 4 * filterImageShape[0]}));
             mOpenCLBackend->onAcquireBuffer(mResource->mFilter.get(), Backend::STATIC);
-            MNN::OpenCL::BufferConvertor bufferConvertor{mOpenCLBackend->getOpenCLRuntime()};
-
-            bool needTrans = true;
-            bufferConvertor.convertToNC4HW4Buffer(filterBuffer.get(), MNN::OpenCL::CONV2D_FILTER, mResource->mFilter.get(), mOpenCLBackend->getPrecision(), needTrans);
+            
+            if(mOpenCLBackend->getRuntime()->hint().useCachedMmap <= 1){
+                std::shared_ptr<Tensor> filterBuffer(Tensor::createDevice<float>({mResource->mOutputChannel, ROUND_UP(mResource->mInputChannel, 4), mResource->mKernelWidth, mResource->mKernelHeight}));
+                
+                int buffer_size = filterBuffer->elementSize() * sizeof(float);
+                cl::Buffer filterBufferCL(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size);
+                filterBuffer->buffer().device = (uint64_t)(&filterBufferCL);
+                
+                cl_int res;
+                auto ptrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(filterBufferCL, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &res);
+                if(ptrCL != nullptr && res == CL_SUCCESS) {
+                    ::memset(ptrCL, 0, buffer_size);
+                    const int copy_size = mResource->mKernelWidth * mResource->mKernelHeight * sizeof(float);
+                    for(int oc=0; oc<mResource->mOutputChannel; oc++) {
+                        for(int ic=0; ic<mResource->mInputChannel; ic++) {
+                            ::memcpy((float *)ptrCL + (oc * ROUND_UP(mResource->mInputChannel, 4) + ic) * mResource->mKernelWidth * mResource->mKernelHeight, mFilterDataPtr + (oc * mResource->mInputChannel + ic) * mResource->mKernelWidth * mResource->mKernelHeight, copy_size);
+                        }
+                    }
+                }else{
+                    MNN_ERROR("Map error ptrCL == nullptr \n");
+                }
+                mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(filterBufferCL, ptrCL);
+                
+                MNN::OpenCL::BufferConvertor bufferConvertor{mOpenCLBackend->getOpenCLRuntime()};
+                
+                bool needTrans = true;
+                bufferConvertor.convertToNC4HW4Buffer(filterBuffer.get(), MNN::OpenCL::CONV2D_FILTER, mResource->mFilter.get(), mOpenCLBackend->getPrecision(), needTrans);
+            }
         }
     }
 

@@ -14,6 +14,9 @@
 #include <cmath>
 #include <algorithm>
 #include "core/OpCommonUtils.hpp"
+#include "math/Vec.hpp"
+using Vec4 = MNN::Math::Vec<float, 4>;
+
 #define UNIT 4
 #define UNIT_DUP(value) \
     { (value), (value), (value), (value) }
@@ -131,26 +134,69 @@ protected:
             for (int oi = tId; oi < outside; oi+=numberThread) {
                 auto srcOutSide = src + oi * axisSize * inside;
                 auto dstOutSide = dst + oi * inside;
-                if (inside % 4 == 0) {
-                    ::memcpy(dstOutSide, srcOutSide, inside * sizeof(float));
-                    for (int a = 1; a < axisSize; ++a) {
-                        auto srcAxis = srcOutSide + a * inside;
-                        MNNMatrixAddCommon(dstOutSide, dstOutSide, srcAxis, inside, 0, 0, 0, 1);
+                if (inside == 1) {
+                    float summer = 0.0f;
+                    core->MNNAccumulateSequenceNumber(&summer, srcOutSide, axisSize);
+                    *dstOutSide = summer;
+                    continue;
+                }
+                auto insideC = inside / 32;
+                auto insideR = inside % 32;
+                for (int x=0; x<insideC; ++x) {
+                    auto srcX = srcOutSide + x * 32;
+                    auto dstX = dstOutSide + x * 32;
+                    Vec4 c0(0.0f);
+                    Vec4 c1(0.0f);
+                    Vec4 c2(0.0f);
+                    Vec4 c3(0.0f);
+                    Vec4 c4(0.0f);
+                    Vec4 c5(0.0f);
+                    Vec4 c6(0.0f);
+                    Vec4 c7(0.0f);
+                    for (int a = 0; a < axisSize; ++a) {
+                        auto srcAxis = srcX + a * inside;
+                        c0 = c0 + Vec4::load(srcAxis + 4 * 0);
+                        c1 = c1 + Vec4::load(srcAxis + 4 * 1);
+                        c2 = c2 + Vec4::load(srcAxis + 4 * 2);
+                        c3 = c3 + Vec4::load(srcAxis + 4 * 3);
+                        c4 = c4 + Vec4::load(srcAxis + 4 * 4);
+                        c5 = c5 + Vec4::load(srcAxis + 4 * 5);
+                        c6 = c6 + Vec4::load(srcAxis + 4 * 6);
+                        c7 = c7 + Vec4::load(srcAxis + 4 * 7);
                     }
-                } else {
-                    for (int ii = 0; ii < inside; ++ii) {
-                        auto srcInside = srcOutSide + ii;
-                        auto dstInside = dstOutSide + ii;
-                        float summer   = 0.0f;
-                        if (inside == 1) {
-                            core->MNNAccumulateSequenceNumber(&summer, srcInside, axisSize);
-                        } else {
-                            for (int a = 0; a < axisSize; ++a) {
-                                summer += srcInside[a * inside];
-                            }
+                    Vec4::save(dstX + 4 * 0, c0);
+                    Vec4::save(dstX + 4 * 1, c1);
+                    Vec4::save(dstX + 4 * 2, c2);
+                    Vec4::save(dstX + 4 * 3, c3);
+                    Vec4::save(dstX + 4 * 4, c4);
+                    Vec4::save(dstX + 4 * 5, c5);
+                    Vec4::save(dstX + 4 * 6, c6);
+                    Vec4::save(dstX + 4 * 7, c7);
+                }
+                auto remain = insideC * 32;
+                if (insideR >= 4) {
+                    auto insideC4 = insideR / 4;
+                    for (int x=0; x<insideC4; ++x) {
+                        Vec4 c0(0.0f);
+                        auto srcX = srcOutSide + x * 4 + remain;
+                        auto dstX = dstOutSide + x * 4 + remain;
+                        for (int a = 0; a < axisSize; ++a) {
+                            auto srcAxis = srcX + a * inside;
+                            c0 = c0 + Vec4::load(srcAxis + 4 * 0);
                         }
-                        *dstInside = summer;
+                        Vec4::save(dstX, c0);
                     }
+                    remain += insideC4 * 4;
+                }
+                for (int x=remain; x<inside; ++x) {
+                    auto srcX = srcOutSide + x;
+                    auto dstX = dstOutSide + x;
+                    float sum = 0.0f;
+                    for (int a = 0; a < axisSize; ++a) {
+                        auto srcAxis = srcX + a * inside;
+                        sum += srcAxis[0];
+                    }
+                    dstX[0] = sum;
                 }
             }
         }

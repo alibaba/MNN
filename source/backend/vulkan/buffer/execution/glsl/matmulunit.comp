@@ -1,6 +1,3 @@
-#version 440 core
-#define FLOAT float
-layout(std430) buffer;
 layout(set=0, binding=0) writeonly buffer d0{
     FLOAT data[];
 } uOutput;
@@ -63,7 +60,7 @@ void main()
             index.z = int(uBOffset.data[regionOutsideIndex]);
         }
         ivec4 offset = index * uConstant.step;
-        FLOAT value = 0.0;
+        FLOAT value = FLOAT(0.0);
         int aOffset = offset.y + uConstant.stride_a.w + X * uConstant.stride_a.x;
         int bOffset = offset.z + uConstant.stride_b.w + Y * uConstant.stride_b.z;
         for (int i=0; i<l; ++i) {

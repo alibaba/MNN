@@ -16,7 +16,7 @@ struct Param {
     ivec4 size;
 };
 
-VulkanSelect::VulkanSelect(const Op* op, Backend* backend) : VulkanBasicExecution(backend) {
+VulkanSelect::VulkanSelect(const Op* op, Backend* backend, Tensor * tensor) : VulkanBasicExecution(backend) {
     auto vkbackend = static_cast<VulkanBackend*>(backend);
     mParam         = std::make_shared<VulkanBuffer>(vkbackend->getMemoryPool(), false, sizeof(Param), nullptr,
                                             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
@@ -27,7 +27,12 @@ VulkanSelect::VulkanSelect(const Op* op, Backend* backend) : VulkanBasicExecutio
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
     };
-    mPipeline = vkbackend->getPipeline("glsl_select_comp", types);
+    std::string pKey = "glsl_select_";
+    if (tensor->getType().code == halide_type_float && vkbackend->useFP16()) {
+        pKey += "FP16_";
+    }
+    pKey += "comp";
+    mPipeline = vkbackend->getPipeline(pKey, types);
     mDesSet.reset(mPipeline->createSet());
 }
 
@@ -71,7 +76,7 @@ ErrorCode VulkanSelect::onEncode(const std::vector<Tensor*>& inputs, const std::
 class VulkanSelectCreator : public VulkanBackend::Creator {
 public:
     virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op, Backend* bn) const override {
-        return new VulkanSelect(op, bn);
+        return new VulkanSelect(op, bn, outputs[0]);
     }
 };
 

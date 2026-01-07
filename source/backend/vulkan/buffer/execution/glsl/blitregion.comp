@@ -1,14 +1,6 @@
-#version 440 core
-#ifdef C4
-#define FLOAT vec4
-#else
-#define FLOAT float
-#endif
-layout(std430) buffer;
 layout(set=0, binding=0) writeonly buffer sourceBuffer{
     FLOAT data[];
 } uOutput;
-
 
 layout(set=0, binding=1) readonly buffer s0{
     FLOAT data[];

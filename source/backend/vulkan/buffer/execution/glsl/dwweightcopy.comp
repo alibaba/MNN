@@ -1,12 +1,9 @@
-#version 440 core
-
-layout(std430) buffer;
 layout(set=0, binding=0) writeonly buffer destBuffer{
-    float data[];
+    FLOAT data[];
 } uOutput;
 
 layout(set=0, binding=1) readonly buffer sourceBuffer0{
-    float data[];
+    FLOAT data[];
 } uInput;
 
 layout(set=0, binding=2) readonly uniform constBuffer {

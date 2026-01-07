@@ -1,21 +1,13 @@
-#version 440 core
-
-#define OUTPUT_TYPE int
-#define FLOAT int
-
-#define FLOAT4 ivec4
-layout(std430) buffer;
 layout(set=0, binding=0) writeonly buffer sourceBuffer{
-    OUTPUT_TYPE data[];
+    int data[];
 } uOutput;
 
-
 layout(set=0, binding=1) readonly buffer destBuffer{
-    FLOAT data[];
+    int data[];
 } uInput0;
 
 layout(set=0, binding=2) readonly buffer destBuffer0{
-    FLOAT data[];
+    int data[];
 } uInput1;
 
 layout(set=0, binding=3) uniform constBuffer{
@@ -31,8 +23,8 @@ int computeVec4dot(ivec4 a, ivec4 b) {
     return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
 }
 
-ivec4 binary(ivec4 x0, ivec4 x1) {
-    ivec4 value;
+int binary(int x0, int x1) {
+    int value;
 #ifdef ADD
         value = x0 + x1;
 #endif
@@ -55,22 +47,22 @@ ivec4 binary(ivec4 x0, ivec4 x1) {
         value = (x0 - x1) * (x0 - x1);
 #endif
 #ifdef LESS
-        value = FLOAT4(lessThan(x0, x1));
+        value = int(x0 < x1);
 #endif
 #ifdef LESSEQUAL
-        value = FLOAT4(lessThanEqual(x0, x1));
+        value = int(x0 <= x1);
 #endif
 #ifdef GREATER
-        value = FLOAT4(greaterThan(x0, x1));
+        value = int(x0 > x1);
 #endif
 #ifdef GREATEREQUAL
-        value = FLOAT4(greaterThanEqual(x0, x1));
+        value = int(x0 >= x1);
 #endif
 #ifdef EQUAL
-        value = FLOAT4(equal(x0, x1));
+        value = int(x0 == x1);
 #endif
 #ifdef NOTEQUAL
-        value = FLOAT4(notEqual(x0, x1));
+        value = int(x0 != x1);
 #endif
 #ifdef VMOD
         value = x0 % x1;
@@ -93,6 +85,6 @@ void main()
         int s1 = computeVec4dot(uConstant.srcview1, pos);
         int d = computeVec4dot(uConstant.dstview, pos);
 
-        uOutput.data[d] = OUTPUT_TYPE(binary(FLOAT4(uInput0.data[s0]), FLOAT4(uInput1.data[s1])).x);
+        uOutput.data[d] = binary(uInput0.data[s0], uInput1.data[s1]);
     }
 }

@@ -101,4 +101,5 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_BUILD_LLM_OMNI        | 若构建基于MNN的llm库和demo，是否支持图像和音频输入功能，默认为`OFF` 。仅在MNN_BUILD_LLM 打开时生效。开启时 MNN_BUILD_OPENCV , MNN_IMGCODECS , MNN_BUILD_AUDIO 同时打开|
 | MNN_BUILD_DIFFUSION  | 是否构建基于MNN的diffusion demo，默认为`OFF` . 打开时MNN_BUILD_OPENCV , MNN_IMGCODECS, MNN_LOW_MEMORY, MNN_SUPPORT_TRANSFORMER_FUSE 同步开启|
 | MNN_KLEIDIAI         | 是否集成ARM的klediAI加速库，默认为`ON` |
+| MNN_KLEIDIAI_DEFAULT_ON | 是否默认使用KLEIDIAI的Kernel, 默认为`OFF` |
 | MNN_USE_RVV          | 是否启用RISC-V向量扩展支持，默认为`OFF` |

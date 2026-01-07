@@ -7,13 +7,15 @@ if len(sys.argv) < 2:
 
 config_path = sys.argv[1]
 # create model
-qwen = llm.create(config_path)
+model = llm.create(config_path)
 # load model
-qwen.load()
+model.load()
 
 # response stream
-out = qwen.response('你好', True)
-print(out)
+print('>>> Model Status: ', model.context.status)
+out = model.response('你好', True)
+print('>>> Model Status: ', model.context.status)
 
-out_ids = qwen.generate([151644, 872, 198, 108386, 151645, 198, 151644, 77091])
+# generate
+out_ids = model.generate([151644, 872, 198, 108386, 151645, 198, 151644, 77091])
 print(out_ids)

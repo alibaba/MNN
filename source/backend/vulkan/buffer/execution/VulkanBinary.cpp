@@ -104,17 +104,25 @@ std::string VulkanBinary::getMidName(const Op *op) {
     }
     return mid;
 }
-static std::string _getShaderName(const Op* op, bool isInt) {
-    std::string prefix = "glsl_binary_";
+static std::string _getShaderName(const Op* op, bool isInt, bool useFP16) {
+    std::string result = "glsl_binary_";
     if (isInt) {
-        prefix = "glsl_binary_int_";
+        result = "glsl_binary_int_";
     }
-    std::string posfix = "_comp";
+
     auto mid = VulkanBinary::getMidName(op);
     if (mid.empty()) {
         return mid;
     }
-    return prefix + mid + posfix;
+    result += mid;
+    result += "_";
+
+    if ((!isInt) && useFP16) {
+        result += "FP16_";
+    }
+    result += "comp";
+
+    return result;
 }
 
 VulkanBinary::VulkanBinary(const std::string& shaderName, Backend* bn, int activationType, int inputSize) : VulkanBasicExecution(bn) {
@@ -154,7 +162,11 @@ ErrorCode VulkanBinary::onEncode(const std::vector<Tensor*>& inputs, const std::
     auto input1Scalar = input1DataCount == 1;
     auto writeBinary = [&](const VULKAN_TENSOR& input0, const VULKAN_TENSOR& input1, const VULKAN_TENSOR& output, int index) {
         auto constBuffer = mConstBuffer[index];
-        auto total = std::get<1>(output) / 4 / sizeof(float);
+        int eleSize = sizeof(float);
+        if (vkBn->useFP16() && outputs[0]->getType().code == halide_type_float) {
+            eleSize = sizeof(int16_t);
+        }
+        auto total = std::get<1>(output) / 4 / eleSize;
         auto binaryOpParam = reinterpret_cast<ConstBuffer*>(constBuffer->map());
         ::memset(binaryOpParam, 0, sizeof(ConstBuffer));
         binaryOpParam->stride00[3] = total;
@@ -195,7 +207,7 @@ public:
     virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
                                 Backend* backend) const override {
         auto input0 = inputs[0];
-        auto shader = _getShaderName(op, input0->getType().code == halide_type_int);
+        auto shader = _getShaderName(op, input0->getType().code == halide_type_int, (static_cast<VulkanBackend *>(backend))->useFP16());
         if (shader.empty()) {
             return nullptr;
         }

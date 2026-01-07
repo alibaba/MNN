@@ -13,7 +13,7 @@
 namespace MNN {
 class VulkanOneHot : public VulkanBasicExecution {
 public:
-    VulkanOneHot(const Op* op, Backend* bn);
+    VulkanOneHot(const Op* op, Backend* bn, Tensor * tensor);
     virtual ~VulkanOneHot();
 
     virtual ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
