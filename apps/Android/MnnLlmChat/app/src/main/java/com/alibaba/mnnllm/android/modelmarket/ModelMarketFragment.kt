@@ -161,7 +161,7 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
         // Setup download state filter
         filterDownloadState.setOnClickListener {
             filterDownloadState.isSelected = !filterDownloadState.isSelected
-            val downloadState = if (filterDownloadState.isSelected) "true" else null
+            val downloadState = if (filterDownloadState.isSelected) DownloadState.COMPLETED else null
             updateFilterDownloadState(downloadState)
         }
         
@@ -250,7 +250,7 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
         updateQuickFilterButtonStates()
     }
     
-    private fun updateFilterDownloadState(downloadState: String?) {
+    private fun updateFilterDownloadState(downloadState: Int?) {
         currentFilterState = FilterState(
             tagKeys = currentFilterState.tagKeys,
             vendors = currentFilterState.vendors,
@@ -460,13 +460,12 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
         dialog.setAvailableTags(availableTags)
         dialog.setCurrentFilterState(currentFilterState)
         dialog.setOnConfirmListener { filterState ->
-            // Merge the dialog filter state with the current filter state from filter components
             currentFilterState = FilterState(
                 tagKeys = filterState.tagKeys,
                 vendors = filterState.vendors,
                 size = filterState.size,
                 modality = currentFilterState.modality,
-                downloadState = currentFilterState.downloadState,
+                downloadState = filterState.downloadState,
                 source = currentFilterState.source,
                 searchQuery = currentFilterState.searchQuery
             )
@@ -555,6 +554,16 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
             
             // Update download state selection
             filterDownloadState.isSelected = currentFilterState.downloadState != null
+            filterDownloadState.text = when (currentFilterState.downloadState) {
+                DownloadState.DOWNLOAD_SUCCESS -> getString(R.string.download_state_completed)
+                DownloadState.NOT_START -> getString(R.string.download_state_not_start)
+                DownloadState.DOWNLOADING -> getString(R.string.download_state_downloading)
+                DownloadState.DOWNLOAD_PAUSED -> getString(R.string.download_state_paused)
+                DownloadState.DOWNLOAD_FAILED -> getString(R.string.download_state_failed)
+                DownloadState.DOWNLOAD_CANCELLED -> getString(R.string.download_state_cancelled)
+                DownloadState.PREPARING -> getString(R.string.download_state_preparing)
+                else -> getString(R.string.download_state)
+            }
             
             // Update modality selection and text
             filterModality.isSelected = currentFilterState.modality != null

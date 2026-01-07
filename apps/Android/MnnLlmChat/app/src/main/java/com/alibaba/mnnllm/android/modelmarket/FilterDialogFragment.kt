@@ -6,6 +6,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import com.alibaba.mls.api.download.DownloadState
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.utils.BaseBottomSheetDialogFragment
 import com.google.android.material.chip.Chip
@@ -47,30 +48,34 @@ class FilterDialogFragment : BaseBottomSheetDialogFragment() {
         val tagsChipGroup = view.findViewById<ChipGroup>(R.id.tags_chip_group)
         val sizeChipGroup = view.findViewById<ChipGroup>(R.id.size_chip_group)
         val vendorChipGroup = view.findViewById<ChipGroup>(R.id.vendor_chip_group)
+        val downloadStateChipGroup = view.findViewById<ChipGroup>(R.id.download_state_chip_group)
         val confirmButton = view.findViewById<Button>(R.id.confirm_button)
         val clearButton = view.findViewById<Button>(R.id.clear_button)
         val doneButton = view.findViewById<Button>(R.id.settings_done)
 
         // Setup chip groups
-        setupTagChipGroup(tagsChipGroup, availableTags, true) // single selection for tags
+        setupTagChipGroup(tagsChipGroup, availableTags, true)
         setupStringChipGroup(sizeChipGroup, listOf("<1B", "1B-5B", "5B-15B", ">15B"), true)
-        setupStringChipGroup(vendorChipGroup, availableVendors, true) // single selection
+        setupStringChipGroup(vendorChipGroup, availableVendors, true)
+        setupDownloadStateChipGroup(downloadStateChipGroup)
 
         // Setup real-time filtering listeners first (after chips are created)
-        setupRealTimeFiltering(tagsChipGroup, sizeChipGroup, vendorChipGroup)
+        setupRealTimeFiltering(tagsChipGroup, sizeChipGroup, vendorChipGroup, downloadStateChipGroup)
 
         // Restore previous filter state (this will trigger listeners and update the list)
         currentFilterState?.let { filterState ->
             restoreTagSelections(tagsChipGroup, filterState.tagKeys)
             restoreStringSelections(sizeChipGroup, listOfNotNull(filterState.size))
             restoreStringSelections(vendorChipGroup, filterState.vendors)
+            restoreDownloadStateSelection(downloadStateChipGroup, filterState.downloadState)
         }
 
         confirmButton.setOnClickListener {
             val selectedTagKey = getSelectedTagKey(tagsChipGroup)
             val selectedSize = getSelectedChipsText(sizeChipGroup).firstOrNull()
             val selectedVendors = getSelectedChipsText(vendorChipGroup)
-            listener?.invoke(FilterState(selectedTagKey?.let { listOf(it) } ?: emptyList(), selectedVendors, selectedSize))
+            val downloadState = getDownloadStateValue(downloadStateChipGroup)
+            listener?.invoke(FilterState(selectedTagKey?.let { listOf(it) } ?: emptyList(), selectedVendors, selectedSize, downloadState = downloadState))
             dismiss()
         }
         doneButton.setOnClickListener {
@@ -80,8 +85,8 @@ class FilterDialogFragment : BaseBottomSheetDialogFragment() {
             tagsChipGroup.clearCheck()
             sizeChipGroup.clearCheck()
             vendorChipGroup.clearCheck()
-            // Manually trigger filter update after clearing
-            listener?.invoke(FilterState(emptyList(), emptyList(), null))
+            downloadStateChipGroup.clearCheck()
+            listener?.invoke(FilterState(emptyList(), emptyList(), null, downloadState = null))
         }
     }
 
@@ -102,6 +107,23 @@ class FilterDialogFragment : BaseBottomSheetDialogFragment() {
             val chip = LayoutInflater.from(requireContext())
                 .inflate(R.layout.chip_filter_item, chipGroup, false) as Chip
             chip.text = item
+            chipGroup.addView(chip)
+        }
+    }
+
+    private fun setupDownloadStateChipGroup(chipGroup: ChipGroup) {
+        chipGroup.isSingleSelection = true
+        val downloadStates = listOf(
+            DownloadState.DOWNLOAD_SUCCESS to getString(R.string.download_state_completed),
+            DownloadState.NOT_START to getString(R.string.download_state_not_start),
+            DownloadState.DOWNLOADING to getString(R.string.download_state_downloading)
+        )
+        
+        downloadStates.forEach { (stateValue, stateText) ->
+            val chip = LayoutInflater.from(requireContext())
+                .inflate(R.layout.chip_filter_item, chipGroup, false) as Chip
+            chip.text = stateText
+            chip.tag = stateValue
             chipGroup.addView(chip)
         }
     }
@@ -139,17 +161,18 @@ class FilterDialogFragment : BaseBottomSheetDialogFragment() {
     private fun setupRealTimeFiltering(
         tagsChipGroup: ChipGroup,
         sizeChipGroup: ChipGroup,
-        vendorChipGroup: ChipGroup
+        vendorChipGroup: ChipGroup,
+        downloadStateChipGroup: ChipGroup
     ) {
         val updateFilter: () -> Unit = {
             val selectedTagKey = getSelectedTagKey(tagsChipGroup)
             val selectedSize = getSelectedChipsText(sizeChipGroup).firstOrNull()
             val selectedVendors = getSelectedChipsText(vendorChipGroup)
-            Log.d("FilterDialogFragment", "Selected tag key: $selectedTagKey" + "Selected size: $selectedSize" + "Selected vendors: $selectedVendors")
-            listener?.invoke(FilterState(selectedTagKey?.let { listOf(it) } ?: emptyList(), selectedVendors, selectedSize))
+            val downloadState = getDownloadStateValue(downloadStateChipGroup)
+            Log.d("FilterDialogFragment", "Selected tag key: $selectedTagKey, Selected size: $selectedSize, Selected vendors: $selectedVendors, Download state: $downloadState")
+            listener?.invoke(FilterState(selectedTagKey?.let { listOf(it) } ?: emptyList(), selectedVendors, selectedSize, downloadState = downloadState))
         }
 
-        // Add listeners to all chip groups - using checkedChipIds change listener
         tagsChipGroup.setOnCheckedStateChangeListener { _, _ ->
             updateFilter()
         }
@@ -159,11 +182,14 @@ class FilterDialogFragment : BaseBottomSheetDialogFragment() {
         vendorChipGroup.setOnCheckedStateChangeListener { _, _ ->
             updateFilter()
         }
+        downloadStateChipGroup.setOnCheckedStateChangeListener { _, _ ->
+            updateFilter()
+        }
 
-        // Also add individual chip listeners as backup
         addChipListeners(tagsChipGroup, updateFilter)
         addChipListeners(sizeChipGroup, updateFilter)
         addChipListeners(vendorChipGroup, updateFilter)
+        addChipListeners(downloadStateChipGroup, updateFilter)
     }
 
     private fun addChipListeners(chipGroup: ChipGroup, updateFilter: () -> Unit) {
@@ -173,5 +199,23 @@ class FilterDialogFragment : BaseBottomSheetDialogFragment() {
                 updateFilter()
             }
         }
+    }
+
+    private fun restoreDownloadStateSelection(chipGroup: ChipGroup, downloadState: Int?) {
+        if (downloadState == null) return
+        for (i in 0 until chipGroup.childCount) {
+            val chip = chipGroup.getChildAt(i) as? Chip
+            chip?.let {
+                val chipStateValue = it.tag as? Int
+                it.isChecked = (chipStateValue == downloadState)
+            }
+        }
+    }
+
+    private fun getDownloadStateValue(chipGroup: ChipGroup): Int? {
+        val checkedChipId = chipGroup.checkedChipId
+        if (checkedChipId == -1) return null
+        val chip = chipGroup.findViewById<Chip>(checkedChipId)
+        return chip?.tag as? Int
     }
 }

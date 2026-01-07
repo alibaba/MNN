@@ -4,6 +4,7 @@
 package com.alibaba.mnnllm.android.main
 
 import android.widget.TextView
+import com.alibaba.mls.api.download.DownloadState
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.model.Modality
 import com.alibaba.mnnllm.android.modelsettings.DropDownMenuHelper
@@ -12,7 +13,7 @@ import com.alibaba.mnnllm.android.utils.PreferenceUtils
 
 class FilterComponent(private val activity: MainActivity) {
     private var vendorFilterListener: ((String?) -> Unit)? = null
-    private var downloadStateFilterListener: ((String) -> Unit)? = null
+    private var downloadStateFilterListener: ((Int?) -> Unit)? = null
     private var modalityFilterListener: ((String?) -> Unit)? = null
 
     private val textFilterDownloadState:TextView
@@ -76,7 +77,7 @@ class FilterComponent(private val activity: MainActivity) {
     private fun onFilterDownloadStateClick() {
         textFilterDownloadState.isSelected = !textFilterDownloadState.isSelected
         PreferenceUtils.setFilterDownloaded(activity, textFilterDownloadState.isSelected)
-        downloadStateFilterListener?.invoke(if (textFilterDownloadState.isSelected) "true" else "false")
+        downloadStateFilterListener?.invoke(if (textFilterDownloadState.isSelected) DownloadState.COMPLETED else null)
     }
 
     fun addVendorFilterListener(listener: (String?) -> Unit) {
@@ -87,7 +88,7 @@ class FilterComponent(private val activity: MainActivity) {
         this.modalityFilterListener = listener
     }
 
-    fun addDownloadFilterListener(listener: (String) -> Unit) {
+    fun addDownloadFilterListener(listener: (Int?) -> Unit) {
         this.downloadStateFilterListener = listener
     }
 }

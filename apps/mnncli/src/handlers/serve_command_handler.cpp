@@ -1,3 +1,6 @@
+#include "model_sources.hpp"
+#include "file_utils.hpp"
+#include "dl_config.hpp"
 //
 //  serve_command_handler.cpp
 //
@@ -20,6 +23,7 @@
 namespace fs = std::filesystem;
 
 namespace mnncli {
+using namespace mnn::downloader;
 
 std::string ServeCommandHandler::CommandName() const {
     return "serve";

@@ -103,7 +103,7 @@ class VoiceModelMarketViewModel(application: Application) : AndroidViewModel(app
 
     fun startDownload(item: ModelMarketItem) {
         Log.d(TAG, "Starting download for: ${item.modelId}")
-        downloadManager.startDownload(item)
+        downloadManager.startDownload(item.modelId)
     }
 
     fun pauseDownload(item: ModelMarketItem) {
@@ -114,13 +114,13 @@ class VoiceModelMarketViewModel(application: Application) : AndroidViewModel(app
     fun deleteModel(item: ModelMarketItem) {
         viewModelScope.launch {
             Log.d(TAG, "Deleting model: ${item.modelId}")
-            downloadManager.deleteModel(item)
+            downloadManager.deleteModel(item.modelId)
         }
     }
 
     fun updateModel(item: ModelMarketItem) {
         Log.d(TAG, "Starting update for: ${item.modelId}")
-        downloadManager.startDownload(item)
+        downloadManager.startDownload(item.modelId)
     }
 
     // DownloadListener implementation

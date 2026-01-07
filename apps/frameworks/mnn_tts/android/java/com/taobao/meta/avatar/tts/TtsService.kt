@@ -56,6 +56,10 @@ class TtsService {
         return nativeProcess(ttsServiceNative, text, id)
     }
 
+    fun setSpeakerId(speakerId: String) {
+        nativeSetSpeakerId(ttsServiceNative, speakerId)
+    }
+
     fun setLanguage(language: String) {
         if (currentLanguage != language) {
             currentLanguage = language
@@ -74,6 +78,7 @@ class TtsService {
                                                    resourceDir: String,
                                                    modelName:String,
                                                    mmapDir:String): Boolean
+    private external fun nativeSetSpeakerId(nativePtr: Long, speakerId: String)
     private external fun nativeProcess(nativePtr: Long, text: String, id: Int): ShortArray
 
     companion object {

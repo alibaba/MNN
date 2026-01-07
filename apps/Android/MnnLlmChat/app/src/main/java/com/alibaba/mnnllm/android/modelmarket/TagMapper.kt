@@ -14,6 +14,12 @@ object TagMapper {
     }
     
     fun getTag(stringTag: String): Tag {
+        if (stringTag.equals("local", ignoreCase = true)) {
+            return Tag("本地", "local")
+        }
+        if (stringTag.equals("builtin", ignoreCase = true)) {
+            return Tag("内置", "builtin")
+        }
         return tagMap[stringTag] ?: Tag(stringTag, stringTag) // Fallback for unmapped tags
     }
     

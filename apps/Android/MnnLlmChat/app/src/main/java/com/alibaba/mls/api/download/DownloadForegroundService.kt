@@ -1,6 +1,5 @@
 package com.alibaba.mls.api.download
 
-import android.R
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -8,7 +7,6 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
 import android.os.Build
 import android.os.IBinder
 import com.alibaba.mnnllm.android.R as AppR
@@ -28,8 +26,8 @@ class DownloadForegroundService : Service() {
 
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
-            CHANNEL_ID, 
-            getString(AppR.string.download_service_title), 
+            CHANNEL_ID,
+            getString(AppR.string.download_service_title),
             NotificationManager.IMPORTANCE_LOW
         )
         channel.enableLights(false)
@@ -38,15 +36,17 @@ class DownloadForegroundService : Service() {
         notificationManager.createNotificationChannel(channel)
     }
 
-    override fun onStartCommand(intent: Intent, flags: Int, startId: Int): Int {
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent == null) return START_NOT_STICKY
+        
         // Extract download count and model name from intent if available
-        currentDownloadCount = intent.getIntExtra(EXTRA_DOWNLOAD_COUNT, 1)
+        currentDownloadCount = intent.getIntExtra(EXTRA_DOWNLOAD_COUNT, 0)
         currentModelName = intent.getStringExtra(EXTRA_MODEL_NAME)
         
         val notification = createNotification()
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(SERVICE_ID, notification, FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+                startForeground(SERVICE_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
             } else {
                 startForeground(SERVICE_ID, notification)
             }
@@ -81,15 +81,17 @@ class DownloadForegroundService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        return Notification.Builder(this, CHANNEL_ID)
+        val builder = Notification.Builder(this, CHANNEL_ID)
             .setContentTitle(contentTitle)
             .setContentText(contentText)
-            .setSmallIcon(R.drawable.stat_sys_download)
+            // Use android system download icon if available, or a fallback
+            .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentIntent(pendingIntent)
             .setAutoCancel(false)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .build()
+            
+        return builder.build()
     }
 
     fun updateNotification(downloadCount: Int, modelName: String? = null) {
@@ -102,6 +104,7 @@ class DownloadForegroundService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         instance = null
+        stopForeground(true)
     }
 
     override fun onBind(intent: Intent): IBinder? {

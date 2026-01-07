@@ -8,6 +8,9 @@
 #include "log_utils.hpp"
 #include "user_interface.hpp"
 #include "model_repo_downloader.hpp"
+#include <iostream>
+
+using namespace mnn::downloader; // Use library namespace
 
 namespace mnncli {
 
@@ -17,35 +20,33 @@ void CLIDownloadListener::OnDownloadStart(const std::string& model_id) {
     }
 }
 
-void CLIDownloadListener::OnDownloadProgress(const std::string& model_id, const DownloadProgress& progress) {
+void CLIDownloadListener::OnDownloadProgress(const std::string& model_id, const mnn::downloader::DownloadProgress& progress) {
     if (model_id.empty() || progress.progress < 0) {
         return;
     }
     
     if (progress.total_size == 0) {
+        UserInterface::ShowProgress("Downloading " + model_id, progress.progress);
         return;
     }
     
     std::string file_name = progress.current_file.empty() ? "file" : progress.current_file;
-    file_name = ModelRepoDownloader::ExtractFileName(file_name);
-    std::string size_info = ModelRepoDownloader::FormatFileSizeInfo(
+    file_name = mnn::downloader::ModelRepoDownloader::ExtractFileName(file_name);
+    std::string size_info = mnn::downloader::ModelRepoDownloader::FormatFileSizeInfo(
         progress.saved_size, progress.total_size);
-    
+        
     std::string message = file_name + size_info;
     UserInterface::ShowProgress(message, progress.progress);
 }
 
 void CLIDownloadListener::OnDownloadFinished(const std::string& model_id, const std::string& path) {
-    UserInterface::ShowSuccess("Download completed: " + model_id);
-    UserInterface::ShowInfo("Model saved to: " + path);
+    UserInterface::EndProgress();
+    UserInterface::ShowInfo("Download finished: " + path);
 }
 
 void CLIDownloadListener::OnDownloadFailed(const std::string& model_id, const std::string& error) {
-    UserInterface::ShowError("Download failed: " + model_id + " - " + error);
-}
-
-void CLIDownloadListener::OnDownloadPaused(const std::string& model_id) {
-    UserInterface::ShowInfo("Download paused: " + model_id);
+    UserInterface::EndProgress();
+    UserInterface::ShowError("Download failed: " + error);
 }
 
 void CLIDownloadListener::OnDownloadTaskAdded() {
@@ -64,6 +65,10 @@ void CLIDownloadListener::OnRepoInfo(const std::string& model_id, int64_t last_m
 
 std::string CLIDownloadListener::GetClassTypeName() const {
     return "CLIDownloadListener";
+}
+
+void CLIDownloadListener::OnDownloadPaused(const std::string& message) {
+    // Not used in CLI
 }
 
 } // namespace mnncli
