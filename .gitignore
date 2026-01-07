@@ -393,3 +393,5 @@ _deps
 
 # llm model
 transformers/llm/export/model/
+apps/Android/.qoder/settings.json
+apps/Android/MnnLlmChatOld
