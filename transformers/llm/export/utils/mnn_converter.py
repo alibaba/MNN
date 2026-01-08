@@ -151,6 +151,8 @@ class MNNConverter:
                 self.apply_gptq(mnn_json)
             if self.args.lora_path is not None and self.args.lora_split:
                  self.export_lora(mnn_json)
+            if self.args.omni:
+                self.export_omni_quant(mnn_json)
             if self.args.smooth:
                 self.export_smooth_quant(mnn_json)
         return self.tie_embeddings_info
@@ -221,6 +223,12 @@ class MNNConverter:
     @spinner_run(f'export smooth quant scale to ')
     def export_smooth_quant(self, mnn_json):
         self.exporter.smooth_quantizer.apply(mnn_json)
+        self.json2mnn(mnn_json, self.mnn_model_path)
+        return self.mnn_model_path
+
+    @spinner_run(f'export omni quant scale to ')
+    def export_omni_quant(self, mnn_json):
+        self.exporter.omni_quantizer.apply(mnn_json)
         self.json2mnn(mnn_json, self.mnn_model_path)
         return self.mnn_model_path
 
