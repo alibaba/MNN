@@ -871,7 +871,7 @@ mkdir build_64 && cd build_64
 
 ```
 ANDROID_WORKING_DIR=/data/local/tmp/MNN/
-HEXAGON_ARCH=v75
+HEXAGON_ARCH=75
 adb push ${QNN_SDK_ROOT}/lib/aarch64-android/libQnnHtp.so ${ANDROID_WORKING_DIR}
 adb push ${QNN_SDK_ROOT}/lib/aarch64-android/libQnnHtpV${HEXAGON_ARCH}Stub.so ${ANDROID_WORKING_DIR}
 adb push ${QNN_SDK_ROOT}/lib/hexagon-v${HEXAGON_ARCH}/unsigned/libQnnHtpV${HEXAGON_ARCH}Skel.so ${ANDROID_WORKING_DIR}

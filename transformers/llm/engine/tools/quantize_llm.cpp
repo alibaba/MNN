@@ -10,27 +10,36 @@
 #include "core/IDSTEncoder.hpp"
 #include "core/ConvolutionCommon.hpp"
 
+#include <iostream>
+#include "core/MNNFileUtils.h"
+
 using namespace MNN;
 using namespace MNN::Transformer;
 
 
 class TensorRange {
 public:
-    TensorRange(float featureClampValue) : mFeatureClampValue(featureClampValue){
+    TensorRange(int featureMapBit, int tensorIndex, std::string tmpDir) : mFeatureMapBit(featureMapBit), mTensorIndex(tensorIndex){
+        mFeatureClampValue = (1 << mFeatureMapBit) - 1;
+        mRange.first = -std::numeric_limits<float>().lowest();
+        mRange.second = -mRange.first;
+
+        if (!tmpDir.empty() && tmpDir.back() != '/' && tmpDir.back() != '\\') {
+            tmpDir += '/';
+        }
+        mTmpPath = tmpDir + std::to_string(tensorIndex);
+        mVisited = false;
     }
     ~TensorRange() {
         // Do nothing
     }
 
     void updateRange(Tensor* t){
-        if (mUpdatedRangeFlags) {
-            return;
-        }
+        mVisited = true;
         auto mOriginTensor = t;
-        mUpdatedRangeFlags = true;
-        auto tmpTensor = mOriginTensor;
-        std::shared_ptr<Tensor> mHostTensor(new MNN::Tensor(mOriginTensor, MNN::Tensor::CAFFE));
-        bool res = mOriginTensor->copyToHostTensor(mHostTensor.get());
+        auto tmpTensor = t;
+        std::shared_ptr<Tensor> mHostTensor(new MNN::Tensor(t, MNN::Tensor::CAFFE));
+        bool res = t->copyToHostTensor(mHostTensor.get());
         if (res) {
             tmpTensor = mHostTensor.get();
         }
@@ -38,33 +47,58 @@ public:
         float* dataPtr = tmpTensor->host<float>();
         auto minValue = mRange.first;
         auto maxValue = mRange.second;
+
+        std::string indexStr = std::to_string(TensorUtils::getDescribe(t)->index);
+        std::ofstream outputOs(mTmpPath.c_str(), std::ios::app); // append data
+
         for (int i = 0; i < size; ++i) {
             minValue = std::min(minValue, dataPtr[i]);
             maxValue = std::max(maxValue, dataPtr[i]);
+            outputOs << dataPtr[i] << "\n";
         }
-        mRange.first = minValue;
-        mRange.second = maxValue;
-        mVisited = true;
     }
 
-    std::pair<float, int8_t> finishAndCompute(){
-        auto maxValue         = std::max(fabsf(mRange.second), fabsf(mRange.first));
-        mZeroPoint = 0;
-        mScale = maxValue / mFeatureClampValue;
-        
-        return std::make_pair(mScale, mZeroPoint);
+    std::pair<float, int32_t> finishAndCompute(int quantizedToUint, int index){
+        std::ifstream file(mTmpPath);
+        std::vector<float> tempBuffer;
+        float d_;
+        int size = 0;
+        while (file >> d_) {
+            tempBuffer.push_back(d_);
+            size++;
+        }
+
+        size_t minRank = static_cast<size_t>(size * 0);
+
+        size_t maxRank = static_cast<size_t>(size * 1);
+
+        if (maxRank >= size) maxRank = size - 1;
+        if (minRank >= size) minRank = size - 1;
+
+        std::nth_element(tempBuffer.begin(),
+                         tempBuffer.begin() + minRank,
+                         tempBuffer.end());
+        float clip_min = tempBuffer[minRank];
+
+        std::nth_element(tempBuffer.begin(),
+                         tempBuffer.begin() + maxRank,
+                         tempBuffer.end());
+        float clip_max = tempBuffer[maxRank];
+
+        mRange.first = ALIMIN(clip_min, mRange.first);
+        mRange.second = ALIMAX(clip_max, mRange.second);
+
+        mScale = (mRange.second - mRange.first) / mFeatureClampValue;
+        mBias = static_cast<int>(roundf(mRange.first * mFeatureClampValue / (mRange.second - mRange.first)));
+        if (quantizedToUint == 0) { // quantized to signed int
+            float lowerThred = (float)(1 << (mFeatureMapBit - 1));
+            mBias = static_cast<int>(roundf(-mRange.first * mFeatureClampValue / (mRange.second - mRange.first) - lowerThred));
+        }
+        return std::make_pair(mScale, mBias);
     }
-    
-    void resetUpdatedRangeFlags() {
-        mUpdatedRangeFlags = false;
-    }
-    
+
     bool visited() {
         return mVisited;
-    }
-
-    void setVisited(bool visited) {
-        mVisited = visited;
     }
 
 
@@ -73,41 +107,47 @@ private:
     std::pair<float, float> mRange;
     std::shared_ptr<MNN::Tensor> mHostTensor;
 
-    // the Tensor
-    bool mUpdatedRangeFlags = false;
-    bool mVisited = false;
     float mScale;
-    int8_t mZeroPoint = 0;
+    int32_t mBias = 0;
     float mFeatureClampValue = 127.0f;
+    int32_t mFeatureMapBit = 8;
+    int32_t mTensorIndex = -1;
+    std::string mTmpPath = "";
+    bool mVisited = false;
 };
-static void getFeature(std::map<int, std::shared_ptr<TensorRange>> &_featureInfo, Llm* llm, int bit){
-    float _featureClampValue = (float)((1 << (bit - 1)) - 1);
+static void getFeature(std::map<int, std::shared_ptr<TensorRange>> &_featureInfo, Llm* llm, int bit, std::string tmpDir){
     MNN::TensorCallBackWithInfo before = [&](const std::vector<MNN::Tensor*>& nTensors, const MNN::OperatorInfo* info) {
+        if (info->type() != "Convolution") {
+            return true;
+        }
         for (auto t : nTensors) {
             auto des = TensorUtils::getDescribe(t);
             if (TensorUtils::getDescribe(t)->index < 0) {
                 continue;
             }
             if (_featureInfo.find(TensorUtils::getDescribe(t)->index) == _featureInfo.end() && t->getType().code == halide_type_float && TensorUtils::getDescribe(t)->usage != Tensor::InsideDescribe::Usage::INPUT) {
-                _featureInfo[TensorUtils::getDescribe(t)->index] = std::shared_ptr<TensorRange>(new TensorRange(_featureClampValue));
+                _featureInfo[TensorUtils::getDescribe(t)->index] = std::shared_ptr<TensorRange>(new TensorRange(bit, TensorUtils::getDescribe(t)->index, tmpDir));
             }
         }
         return true;
     };
     MNN::TensorCallBackWithInfo after = [&](const std::vector<MNN::Tensor*>& nTensors,
                                             const MNN::OperatorInfo* info) {
+        if (info->type() != "Convolution") {
+            return true;
+        }
         for (auto t : nTensors) {
             auto des = TensorUtils::getDescribe(t);
             if (TensorUtils::getDescribe(t)->index < 0) {
                 continue;
             }
             if (_featureInfo.find(TensorUtils::getDescribe(t)->index) == _featureInfo.end() && t->getType().code == halide_type_float && TensorUtils::getDescribe(t)->usage != Tensor::InsideDescribe::Usage::OUTPUT) {
-                _featureInfo[TensorUtils::getDescribe(t)->index] = std::shared_ptr<TensorRange>(new TensorRange(_featureClampValue));
+                _featureInfo[TensorUtils::getDescribe(t)->index] = std::shared_ptr<TensorRange>(new TensorRange(bit, TensorUtils::getDescribe(t)->index, tmpDir));
             }
         }
         return true;
     };
-    
+
     Express::ExecutorScope::Current()->setCallBack(std::move(before), std::move(after));
     llm->tuning(OP_ENCODER_NUMBER, {1});
 }
@@ -120,12 +160,6 @@ static void _computeFeatureMapsRange(std::map<int, std::shared_ptr<TensorRange>>
         auto prompt = prompts[i];
         if (prompt.substr(0, 1) == "#") {
             continue;
-        }
-        for (auto& iter : _featureInfo) {
-            iter.second->setVisited(false);
-        }
-        for (auto& iter : _featureInfo) {
-            iter.second->resetUpdatedRangeFlags();
         }
         MNN::TensorCallBackWithInfo before = [&](const std::vector<MNN::Tensor*>& nTensors,
                                              const MNN::OperatorInfo* info) {
@@ -158,7 +192,7 @@ static void _computeFeatureMapsRange(std::map<int, std::shared_ptr<TensorRange>>
         };
         Express::ExecutorScope::Current()->setCallBack(std::move(before), std::move(after));
         if (max_token_number >= 0) {
-            llm->response(prompt, &std::cout, nullptr, 0);
+            llm->response(prompt, &std::cout, nullptr, max_token_number);
             while (!llm->stoped() && context->gen_seq_len < max_token_number) {
                 llm->generate(1);
             }
@@ -168,23 +202,22 @@ static void _computeFeatureMapsRange(std::map<int, std::shared_ptr<TensorRange>>
     }
 }
 
-static void computeFeatureScaleKL(std::map<int, std::pair<float, int8_t>> &_scales,
+static void computeFeatureScaleKL(std::map<int, std::pair<float, int32_t>> &_scales,
                                   std::map<int, std::shared_ptr<TensorRange>> &_featureInfo,
-                                  Llm* llm, const std::vector<std::string>& prompts, int max_token_number) {
+                                  Llm* llm, const std::vector<std::string>& prompts, int max_token_number, int quantizedToUint) {
     _computeFeatureMapsRange(_featureInfo, llm, prompts, max_token_number);
     _scales.clear();
     for (auto& iter : _featureInfo) {
-        _scales[iter.first] = iter.second->finishAndCompute();
+        _scales[iter.first] = iter.second->finishAndCompute(quantizedToUint, iter.first);
     }
 }
 
-static void _insertScale(MNN::NetT* _originalModel, std::map<int, std::pair<float, int8_t>> &_scales,
+static void _insertScale(MNN::NetT* _originalModel, std::map<int, std::pair<float, int32_t>> &_scales,
                          std::map<int, std::unique_ptr<MNN::TensorDescribeT>> &_tensorDescribes,
-                         std::map<int, std::pair<float, int8_t>> tensorDescribesHasScaleIndex,
+                         std::map<int, std::pair<float, int32_t>> tensorDescribesHasScaleIndex,
                           int featureBit, int weightBit, int blockSize) {
-    float _featureClampValue = (float)((1 << (featureBit - 1)) - 1);
+    float _featureClampValue = (float)((1 << (featureBit - 1)));
     auto type = MNN::DataType_DT_INT8;
-    auto _weightQuantizeMethod = "MAX_ABS";
     if(featureBit == 16){
         type = MNN::DataType_DT_INT16;
     }
@@ -192,7 +225,7 @@ static void _insertScale(MNN::NetT* _originalModel, std::map<int, std::pair<floa
                                               OpType_Interp, OpType_CropAndResize, OpType_ROIPooling};
     for (auto& op : _originalModel->oplists) {
         const auto opType = op->type;
-        
+
         if(propagateOpTypes.find(opType) != propagateOpTypes.end()){
             bool needErase = false;
             for(int id = 0; id < op->inputIndexes.size() && needErase == false; ++id){
@@ -226,14 +259,14 @@ static void _insertScale(MNN::NetT* _originalModel, std::map<int, std::pair<floa
     for (const auto iter :  _scales) {
         std::unique_ptr<MNN::TensorDescribeT> describe(new MNN::TensorDescribeT);
         auto index = iter.first;
-        
+
         describe->index = index;
         describe->quantInfo.reset(new MNN::TensorQuantInfoT);
         describe->quantInfo->scale = iter.second.first;
         describe->quantInfo->zero = iter.second.second;
         describe->quantInfo->type = type;
         describe->quantInfo->min = -1 * _featureClampValue;
-        describe->quantInfo->max = 1 * _featureClampValue;
+        describe->quantInfo->max = _featureClampValue - 1;
         auto dstiter = _tensorDescribes.find(index);
         if (dstiter == _tensorDescribes.end()) {
             _tensorDescribes.insert(std::make_pair(index, std::move(describe)));
@@ -245,23 +278,23 @@ static void _insertScale(MNN::NetT* _originalModel, std::map<int, std::pair<floa
 
 int main(int argc, char* argv[]) {
     if (argc < 4) {
-        std::cout << "Usage: " << argv[0] << " config.json <prompt.txt>" << " featureBit int" << " dstFile "<< std::endl;
+        std::cout << "Usage: " << argv[0] << " config.json <prompt.txt>" << " featureBit" << " dstFile " << "unsigned input" << "maxTokenForRange" << "tmpDirPath(deleted when finished)" << std::endl;
         return 0;
     }
     std::string prompt_file = argv[2];
     MNN::BackendConfig backendConfig;
     auto executor = MNN::Express::Executor::newExecutor(MNN_FORWARD_CPU, backendConfig, 1);
     MNN::Express::ExecutorScope s(executor);
-    
+
     std::string config_path = argv[1];
     std::cout << "config path is " << config_path << std::endl;
     std::unique_ptr<Llm> llm(Llm::createLLM(config_path));
     llm->set_config(R"({"tmp_path":"tmp"})");
     llm->set_config(R"({"enable_debug":true})");
-    
+
     //load llm model
     llm->load();
-    
+
     std::cout << "prompt file is " << prompt_file << std::endl;
     std::ifstream prompt_fs(prompt_file);
     std::vector<std::string> prompts;
@@ -279,18 +312,27 @@ int main(int argc, char* argv[]) {
     if (prompts.empty()) {
         return 0;
     }
-    
+
     int featureBit = std::atoi(argv[3]);
     int weightBit = 8;
     int blockSize = 1;
     std::string _destModelFile = argv[4];
+
+    int quantizedToUint = std::atoi(argv[5]);
     std::map<int, std::shared_ptr<TensorRange>> _featureInfo;
-    std::map<int, std::pair<float, int8_t>> _scales;
+    std::map<int, std::pair<float, int32_t>> _scales;
     std::map<int, std::unique_ptr<MNN::TensorDescribeT>> _tensorDescribes;
-    std::map<int, std::pair<float, int8_t>> tensorDescribesHasScaleIndex;
-    getFeature(_featureInfo, llm.get(), featureBit);
-    computeFeatureScaleKL(_scales, _featureInfo, llm.get(), prompts, 32);
-    
+    std::map<int, std::pair<float, int32_t>> tensorDescribesHasScaleIndex;
+
+    int maxNewTokensToComputeRange = std::atoi(argv[6]);
+    std::string tmpDir = argv[7];
+
+    std::remove(tmpDir.c_str());
+    MNNCreateDir(tmpDir.c_str());
+
+    getFeature(_featureInfo, llm.get(), featureBit, tmpDir);
+    computeFeatureScaleKL(_scales, _featureInfo, llm.get(), prompts, maxNewTokensToComputeRange, quantizedToUint);
+
     std::shared_ptr<LlmConfig> config(new LlmConfig(config_path));
     std::string llmModelPath = config->llm_model();
     std::unique_ptr<MNN::NetT> netT;
@@ -303,7 +345,7 @@ int main(int argc, char* argv[]) {
         tensorDescribesHasScaleIndex[iter->index] = {iter->quantInfo->scale, iter->quantInfo->zero};
     }
     _insertScale(netT.get(), _scales, _tensorDescribes, tensorDescribesHasScaleIndex, featureBit, weightBit, blockSize);
-    
+
     for (auto& iter : _tensorDescribes) {
         // 保留原来的feature scale量化参数
         if(tensorDescribesHasScaleIndex.find(iter.second->index) != tensorDescribesHasScaleIndex.end()){
