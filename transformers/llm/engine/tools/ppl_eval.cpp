@@ -9,6 +9,9 @@
 #include "llm/llm.hpp"
 #include "llmconfig.hpp"
 using namespace MNN::Express;
+
+// #define PRINT_LOSS
+
 static MNN::Express::VARP _CrossEntropy(std::vector<MNN::Express::VARP> inputs, int ignore_index) {
     auto shape = _Shape(inputs[0], true), oneV = _Unsqueeze(_Scalar<int>(1), {0}), classes = _Slice(shape, oneV, oneV);
     auto mask = _OneHot(inputs[1], classes, _Scalar<float>(1), _Scalar<float>(0), 1);
@@ -112,7 +115,9 @@ int main(int argc, const char* argv[]) {
         lossSum+=loss;
         lossNumber++;
         prevEnd = end;
+#ifdef PRINT_LOSS
         MNN_PRINT("Compute: %d/%d, loss=%f\n", begin, seqLen, loss);
+#endif
         if (end == seqLen) {
             break;
         }

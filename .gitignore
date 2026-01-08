@@ -395,3 +395,5 @@ _deps
 transformers/llm/export/model/
 apps/Android/.qoder/settings.json
 apps/Android/MnnLlmChatOld
+
+transformers/llm/export/tmp/
