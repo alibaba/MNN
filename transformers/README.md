@@ -83,16 +83,16 @@ options:
                         	- A string, the *model id* of a pretrained model like `THUDM/chatglm-6b`. [TODO]
                         	- A path to a *directory* clone from repo like `../chatglm-6b`.
   --type TYPE           type(`str`, *optional*):
-                        	The pretrain llm model type.
+                        	The pretrained llm model type.
   --lora_path LORA_PATH
-                        lora path, defaut is `None` mean not apply lora.
-  --dst_path DST_PATH   export onnx/mnn model to path, defaut is `./model`.
+                        lora path, default is `None` mean not apply lora.
+  --dst_path DST_PATH   export onnx/mnn model to path, default is `./model`.
   --test TEST           test model inference with query `TEST`.
   --export EXPORT       export model to an onnx/mnn model.
   --quant_bit QUANT_BIT
                         mnn quant bit, 4 or 8, default is 4.
   --quant_block QUANT_BLOCK
-                        mnn quant block, default is 0 mean channle-wise.
+                        mnn quant block, default is 0 mean channel-wise.
   --lm_quant_bit LM_QUANT_BIT
                         mnn lm_head quant bit, 4 or 8, default is `quant_bit`.
   --mnnconvert MNNCONVERT
