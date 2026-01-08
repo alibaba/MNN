@@ -157,6 +157,149 @@ static void _AVX512BasicMNNPackC4ForMatMul_A(int8_t* destOrigin, int8_t const** 
     }
 }
 
+static void _AVX512_MNNTMacCompute(float* dst, const int8_t* table, const float* inputSum, const TMacResource* res, const PlaneInfo* plane) {
+    // res->mHp=64
+    auto ocC4 = plane->ocDiv;
+    auto blC4 = res->mBlockSizeC4;
+    const auto mask = _mm256_set1_epi8(0xf);
+    __m512 sum0, sum1, sum2, sum3;
+    int halfhp = res->mHp / 2;
+    const auto offset = _mm512_set1_ps(plane->offset);
+    const auto offset128 = _mm512_set1_ps(128.f * blC4);
+    __m256i zero = _mm256_set1_epi32(0);
+    const auto dequantscale = _mm512_set1_ps(plane->dequantscale);
+    const auto f = _mm512_set1_ps(2.0f);
+    const auto minv = _mm512_set1_ps(plane->minValue);
+    const auto maxv = _mm512_set1_ps(plane->maxValue);
+    float tmp0[16], tmp1[16], tmp2[16], tmp3[16];
+    // Compute Dst: Loop up and sum
+    for (int oz=0; oz<ocC4; ++oz) {
+        auto dstZ = dst + oz * (res->mHp / 4) * plane->planeSize * 4;
+        auto biasPtrZ = (float*)(plane->mBiasPtr) + res->mHp * oz;
+        auto blockScaleZ = (const float*)plane->mWeightScalePtr + oz * res->mBlockNumber * 2 * res->mHp;
+        auto blockBiasZ = blockScaleZ + res->mHp;
+        auto csum0 = _mm512_loadu_ps(biasPtrZ);
+        auto csum1 = _mm512_loadu_ps(biasPtrZ + 16);
+        auto csum2 = _mm512_loadu_ps(biasPtrZ + 32);
+        auto csum3 = _mm512_loadu_ps(biasPtrZ + 48);
+        for (int ib=0; ib<res->mBlockNumber; ++ib) {
+            auto tableIB = table + (ib) * (blC4) * 16;
+            auto blockScale = blockScaleZ + ib * 2 * res->mHp;
+            auto blockBias  = blockBiasZ + ib * 2 * res->mHp;
+            auto scale0 = _mm512_loadu_ps(blockScale);
+            auto scale1 = _mm512_loadu_ps(blockScale + 16);
+            auto scale2 = _mm512_loadu_ps(blockScale + 32);
+            auto scale3 = _mm512_loadu_ps(blockScale + 48);
+            auto bias0 = _mm512_loadu_ps(blockBias);
+            auto bias1 = _mm512_loadu_ps(blockBias + 16);
+            auto bias2 = _mm512_loadu_ps(blockBias + 32);
+            auto bias3 = _mm512_loadu_ps(blockBias + 48);
+            sum0 = _mm512_setzero_ps();
+            sum1 = _mm512_setzero_ps();
+            sum2 = _mm512_setzero_ps();
+            sum3 = _mm512_setzero_ps();
+            auto inputSummer = _mm512_set1_ps(inputSum[ib]);
+            for (int b=0; b<res->mBits; ++b) {
+                auto bsum0_int16 = _mm256_setzero_si256();
+                auto bsum1_int16 = _mm256_setzero_si256();
+                auto bsum2_int16 = _mm256_setzero_si256();
+                auto bsum3_int16 = _mm256_setzero_si256();
+                auto weight = plane->mWeightPtr + res->mWeightInt8->stride(0) * oz + res->mWeightInt8->stride(1) * ib + b * blC4 * res->mHp / 2;
+                for (int iz=0; iz<blC4; ++iz) {
+                    auto tablePtr = (uint8_t*)tableIB + iz * 16;
+                    auto srclut = _mm_loadu_si128(reinterpret_cast<__m128i*>(tablePtr));
+                    auto weightZ = weight + iz * halfhp;
+                    auto w0_int4 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(weightZ));
+                    auto w1 = _mm256_and_si256(mask, _mm256_srli_epi16(w0_int4, 4));
+                    auto w0 = _mm256_and_si256(mask, w0_int4);
+
+                    __m256i lut = _mm256_set_m128i(srclut, srclut);
+                    __m256i v0 = _mm256_shuffle_epi8(lut, w0);
+                    __m256i v1 = _mm256_shuffle_epi8(lut, w1);
+                    auto v00 = _mm256_unpacklo_epi8(v0, zero); // 0,1,2,3,4,5,6,7,16,17,18,19,20,21,22,23
+                    auto v01 = _mm256_unpackhi_epi8(v0, zero); // 8,9,10,11,12,13,14,15,24,25,26,27,28,29,30,31
+                    auto v10 = _mm256_unpacklo_epi8(v1, zero); // 0,1,2,3,4,5,6,7,16,17,18,19,20,21,22,23
+                    auto v11 = _mm256_unpackhi_epi8(v1, zero); // 8,9,10,11,12,13,14,15,24,25,26,27,28,29,30,31
+                    bsum0_int16 = _mm256_add_epi16(bsum0_int16, v00);
+                    bsum1_int16 = _mm256_add_epi16(bsum1_int16, v01);
+                    bsum2_int16 = _mm256_add_epi16(bsum2_int16, v10);
+                    bsum3_int16 = _mm256_add_epi16(bsum3_int16, v11);
+                }
+                sum0 = _mm512_mul_ps(sum0, f);
+                sum1 = _mm512_mul_ps(sum1, f);
+                sum2 = _mm512_mul_ps(sum2, f);
+                sum3 = _mm512_mul_ps(sum3, f);
+                auto v0 = _mm256_unpacklo_epi16(bsum0_int16, zero); // 0,1,2,3,16,17,18,19
+                auto v1 = _mm256_unpackhi_epi16(bsum0_int16, zero); // 4,5,6,7,20,21,22,23
+                auto v2 = _mm256_unpacklo_epi16(bsum1_int16, zero); // 8,9,10,11,24,25,26,27
+                auto v3 = _mm256_unpackhi_epi16(bsum1_int16, zero); // 12,13,14,15,28,29,30,31
+                auto v4 = _mm256_unpacklo_epi16(bsum2_int16, zero); 
+                auto v5 = _mm256_unpackhi_epi16(bsum2_int16, zero);
+                auto v6 = _mm256_unpacklo_epi16(bsum3_int16, zero);
+                auto v7 = _mm256_unpackhi_epi16(bsum3_int16, zero);
+
+                auto v00 = _mm256_cvtepi32_ps(_mm256_set_m128i(_mm256_extracti128_si256(v1, 0), _mm256_extracti128_si256(v0, 0)));
+                auto v01 = _mm256_cvtepi32_ps(_mm256_set_m128i(_mm256_extracti128_si256(v3, 0), _mm256_extracti128_si256(v2, 0)));
+                auto v10 = _mm256_cvtepi32_ps(_mm256_set_m128i(_mm256_extracti128_si256(v5, 0), _mm256_extracti128_si256(v4, 0)));
+                auto v11 = _mm256_cvtepi32_ps(_mm256_set_m128i(_mm256_extracti128_si256(v7, 0), _mm256_extracti128_si256(v6, 0)));
+                auto v02 = _mm256_cvtepi32_ps(_mm256_set_m128i(_mm256_extracti128_si256(v1, 1), _mm256_extracti128_si256(v0, 1)));
+                auto v03 = _mm256_cvtepi32_ps(_mm256_set_m128i(_mm256_extracti128_si256(v3, 1), _mm256_extracti128_si256(v2, 1)));
+                auto v12 = _mm256_cvtepi32_ps(_mm256_set_m128i(_mm256_extracti128_si256(v5, 1), _mm256_extracti128_si256(v4, 1)));
+                auto v13 = _mm256_cvtepi32_ps(_mm256_set_m128i(_mm256_extracti128_si256(v7, 1), _mm256_extracti128_si256(v6, 1)));
+
+                _mm256_storeu_ps(tmp0, v00);
+                _mm256_storeu_ps(tmp0 + 8, v01);
+                _mm256_storeu_ps(tmp1, v02);
+                _mm256_storeu_ps(tmp1 + 8, v03);
+                _mm256_storeu_ps(tmp2, v10);
+                _mm256_storeu_ps(tmp2 + 8, v11);
+                _mm256_storeu_ps(tmp3, v12);
+                _mm256_storeu_ps(tmp3 + 8, v13);
+                
+                auto v0_ = _mm512_loadu_ps(tmp0);
+                auto v1_ = _mm512_loadu_ps(tmp1);
+                auto v2_ = _mm512_loadu_ps(tmp2);
+                auto v3_ = _mm512_loadu_ps(tmp3);
+                v0_ = _mm512_sub_ps(v0_, offset128);
+                v1_ = _mm512_sub_ps(v1_, offset128);
+                v2_ = _mm512_sub_ps(v2_, offset128);
+                v3_ = _mm512_sub_ps(v3_, offset128);
+
+                sum0 = _mm512_add_ps(sum0, v0_);
+                sum1 = _mm512_add_ps(sum1, v1_);
+                sum2 = _mm512_add_ps(sum2, v2_);
+                sum3 = _mm512_add_ps(sum3, v3_);
+                
+            }
+            auto f0 = _mm512_mul_ps(inputSummer, bias0);
+            auto f1 = _mm512_mul_ps(inputSummer, bias1);
+            auto f2 = _mm512_mul_ps(inputSummer, bias2);
+            auto f3 = _mm512_mul_ps(inputSummer, bias3);
+
+            auto m0 = _mm512_mul_ps(dequantscale, scale0);
+            auto m1 = _mm512_mul_ps(dequantscale, scale1);
+            auto m2 = _mm512_mul_ps(dequantscale, scale2);
+            auto m3 = _mm512_mul_ps(dequantscale, scale3);
+            
+            m0 = _mm512_mul_ps(m0, _mm512_sub_ps(sum0, offset));
+            m1 = _mm512_mul_ps(m1, _mm512_sub_ps(sum1, offset));
+            m2 = _mm512_mul_ps(m2, _mm512_sub_ps(sum2, offset));
+            m3 = _mm512_mul_ps(m3, _mm512_sub_ps(sum3, offset));
+            csum0 = _mm512_add_ps(csum0, _mm512_add_ps(m0, f0));
+            csum1 = _mm512_add_ps(csum1, _mm512_add_ps(m1, f1));
+            csum2 = _mm512_add_ps(csum2, _mm512_add_ps(m2, f2));
+            csum3 = _mm512_add_ps(csum3, _mm512_add_ps(m3, f3));
+        }
+        csum0 = _mm512_max_ps(minv, _mm512_min_ps(maxv, csum0));
+        csum1 = _mm512_max_ps(minv, _mm512_min_ps(maxv, csum1));
+        csum2 = _mm512_max_ps(minv, _mm512_min_ps(maxv, csum2));
+        csum3 = _mm512_max_ps(minv, _mm512_min_ps(maxv, csum3));
+        _mm512_storeu_ps(dstZ, csum0);
+        _mm512_storeu_ps(dstZ + 16 * plane->planeSize, csum1);
+        _mm512_storeu_ps(dstZ + 32 * plane->planeSize, csum2);
+        _mm512_storeu_ps(dstZ + 48 * plane->planeSize, csum3);
+    }
+}
 
 void _AVX512_MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dstO, const int8_t* srcO, const int8_t* weightO, const QuanPostTreatParameters* parameters, size_t width, size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, int8_t* idxOrder) {
     int pack = 16;
@@ -386,4 +529,6 @@ void _AVX512_MNNInt8FunctionInit(void* functions, bool supportVNNI) {
     // Int8 <-> Float
     gAVX2CoreInt8Functions->MNNFloat2Int8 = _AVX512_MNNFloat2Int8;
     gAVX2CoreInt8Functions->MNNInt8ScaleToFloat = _AVX512_MNNInt8ScaleToFloat;
+    // TMac
+    gAVX2CoreInt8Functions->MNNTMacCompute = _AVX512_MNNTMacCompute;
 }

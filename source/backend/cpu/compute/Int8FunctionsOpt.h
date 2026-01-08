@@ -51,7 +51,27 @@ typedef SSIZE_T ssize_t;
 #ifdef __cplusplus
 extern "C" {
 #endif
-
+struct PlaneInfo {
+    int planeSize;
+    float offset;
+    float dequantscale;
+    float minValue;
+    float maxValue;
+    int ocDiv;
+    const uint8_t* mWeightPtr;
+    const uint8_t* mWeightScalePtr;
+    const uint8_t* mBiasPtr;
+};
+struct TMacResource {
+    int mBits;
+    int mBlockSizeC4;
+    int mBlockNumber;
+    int mOutputCount;
+    int mHp;
+    std::shared_ptr<MNN::Tensor> mWeightInt8;
+    std::shared_ptr<MNN::Tensor> mOriginScale;
+    std::shared_ptr<MNN::Tensor> mOriginBias;
+};
 struct QuanPostTreatParameters {
     const float* scale;
     const float* biasFloat;
@@ -131,6 +151,7 @@ struct CoreInt8Functions {
     // Relu
     void (*MNNReluWithSlopeChannelInt8)(int8_t* dst, const int8_t* src, const float* slope, size_t planeNumber, size_t depthQuad, const QuanPrePostParameters *params, size_t pack);
 #endif
+    void (*MNNTMacCompute)(float* dst, const int8_t* table, const float* inputSum, const TMacResource* res, const PlaneInfo* plane);
 };
 void MNNCoreInt8FunctionInit();
 CoreInt8Functions* MNNGetInt8CoreFunctions();
