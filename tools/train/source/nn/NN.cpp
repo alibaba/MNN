@@ -9,7 +9,6 @@
 #include <MNN/expr/ExecutorScope.hpp>
 #include "NN.hpp"
 #include "Distributions.hpp"
-#include "module/ModuleInside.hpp"
 #include "module/PipelineModule.hpp"
 #include "module/WhileModule.hpp"
 #include "module/IfModule.hpp"
@@ -225,10 +224,10 @@ private:
         BatchNormModule* module(new BatchNormModule);
         module->mMomentum = mMomentum;
         module->mEps = mEps;
-        module->mScale = ctx->getOrClone(mScale);
-        module->mBias = ctx->getOrClone(mBias);
-        module->mRunningMean = ctx->getOrClone(mRunningMean);
-        module->mRunningVariance = ctx->getOrClone(mRunningVariance);
+        module->mScale = (mScale);
+        module->mBias = (mBias);
+        module->mRunningMean = (mRunningMean);
+        module->mRunningVariance = (mRunningVariance);
         module->mRunningMeanPos = mRunningMeanPos;
         module->mRunningVariancePos = mRunningVariancePos;
         module->mChannels = mChannels;
@@ -311,8 +310,8 @@ private:
     Module* clone(CloneContext* ctx) const override {
         ConvModule* module(new ConvModule);
         module->mParameter = mParameter;
-        module->mParameter.weight = ctx->getOrClone(mParameter.weight);
-        module->mParameter.bias = ctx->getOrClone(mParameter.bias);
+        module->mParameter.weight = (mParameter.weight);
+        module->mParameter.bias = (mParameter.bias);
         return this->cloneBaseTo(ctx, module);
     }
 
