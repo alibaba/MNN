@@ -21,7 +21,7 @@ namespace MNN {
 
 class CPUAttention : public Execution {
 public:
-    CPUAttention(Backend *backend, bool kv_cache);
+    CPUAttention(Backend *backend, bool kv_cache, std::shared_ptr<KVQuantParameter> mhqscale);
     virtual ~CPUAttention();
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
@@ -54,6 +54,7 @@ private:
 
     std::function<void(const float*, int8_t*, size_t, const float*, ssize_t, ssize_t, const float*, ssize_t)> mQuantFunc;
     decltype(CoreInt8Functions::Int8GemmKernel) mInt8GemmKernel;
+    std::shared_ptr<KVQuantParameter> mKVQuantParameter;
 };
 
 } // namespace MNN
