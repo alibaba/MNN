@@ -45,7 +45,7 @@ sed -i "s/\"thread_num\": 4/\"thread_num\": ${THREAD_NUM}/" ./model/config.json 
 
 # 5. Performance Test
 echo ">>> Running Performance Benchmark for Qwen3-0.6B..."
-./pymnn_build/llm_bench -m ./model/config.json -p 512 -n 128 -t ${THREAD_NUM} | tee llm_bench.log
+./pymnn_build/llm_bench -m ./model/config.json -p 512 -n 128 -t ${THREAD_NUM} -j | tee llm_bench.log
 
 # 6. PPL Test
 echo ">>> Running PPL Test for Qwen3-0.6B on wikitext2..."
@@ -95,13 +95,13 @@ CPU_CORES=$(nproc 2>/dev/null || echo 4)
 MEMORY_GB=$(awk '/MemTotal/ {printf "%.1f", $2/1024/1024}' /proc/meminfo 2>/dev/null || echo 8)
 
 # 提取 Prefill 速度和标准差
-PREFILL_TPS=$(grep "pp512" llm_bench.log | awk -F'|' '{print $9}' | awk '{print $1}')
-PREFILL_STD=$(grep "pp512" llm_bench.log | awk -F'±' '{print $2}' | awk '{print $1}')
+PREFILL_TPS=$(python3 -c "import json; data=json.load(open('llm_bench.json')); res=[x for x in data.get('results', []) if x.get('type') == 'prefill']; print(res[0].get('tps', 0) if res else 0)")
+PREFILL_STD=$(python3 -c "import json; data=json.load(open('llm_bench.json')); res=[x for x in data.get('results', []) if x.get('type') == 'prefill']; print(res[0].get('std', 0) if res else 0)")
 [ -z "$PREFILL_STD" ] && PREFILL_STD=0
 
 # 提取 Decode 速度和标准差
-DECODE_TPS=$(grep "tg128" llm_bench.log | awk -F'|' '{print $9}' | awk '{print $1}')
-DECODE_STD=$(grep "tg128" llm_bench.log | awk -F'±' '{print $2}' | awk '{print $1}')
+DECODE_TPS=$(python3 -c "import json; data=json.load(open('llm_bench.json')); res=[x for x in data.get('results', []) if x.get('type') == 'decode']; print(res[0].get('tps', 0) if res else 0)")
+DECODE_STD=$(python3 -c "import json; data=json.load(open('llm_bench.json')); res=[x for x in data.get('results', []) if x.get('type') == 'decode']; print(res[0].get('std', 0) if res else 0)")
 [ -z "$DECODE_STD" ] && DECODE_STD=0
 
 # 提取 PPL 数值
