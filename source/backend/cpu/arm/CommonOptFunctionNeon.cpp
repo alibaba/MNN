@@ -41,7 +41,7 @@ static inline float vmaxvq_f32_compat(float32x4_t v) {
 
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 #ifdef __aarch64__
-void MNNQuantAttentionKey(int8_t* dst, const float* source, float* sumKeyPtr, float* maxKeyPtr, int32_t* params) {
+void MNNQuantAttentionKey(int8_t* dst, const float* source, float* sumKeyPtr, float* maxKeyPtr, int32_t* params, float* scaleBias) {
     int32_t kvNumHead = params[0];
     int32_t seqLen = params[1];
     int32_t headDim = params[2];
@@ -59,7 +59,7 @@ void MNNQuantAttentionKey(int8_t* dst, const float* source, float* sumKeyPtr, fl
 
     int8_t tempBuffer[8];
 
-    if (seqLen > 1) {
+    if (seqLen > 1 && nullptr != scaleBias) {
         // get max
         for (int s = 0; s < seqLen; ++s) {
             const float* keySrc = source + s * kvNumHead * headDim + kvHeadIdx * headDim;
@@ -85,10 +85,98 @@ void MNNQuantAttentionKey(int8_t* dst, const float* source, float* sumKeyPtr, fl
             }
         }
     }
+    if (nullptr != scaleBias) {
+        for (int s = 0; s < seqLen; s++) {
+            float quantScaleVal = 1.0f / scaleBias[0];;
+            // FIXME: Support async
+            float biasVal = 0.0f;
+            float scaleDstVal = scaleBias[0];;
+            const float* keySrc = source + s * kvNumHead * headDim + kvHeadIdx * headDim;
+            int outIndex = (pastLength + s) / hP;
+            int inIndex  = (pastLength + s) % hP;
+            float32x4_t scaleVec = vdupq_n_f32(quantScaleVal);
+
+            for (int k = 0; k < blockNum; ++k) {
+                int8_t* weightDstBase = dst + outIndex * blockNum * packedWeightStride1 + k * packedWeightStride1;
+                float* scaleDst = (float*)(weightDstBase + weightStride1);
+                float* biasDst = scaleDst + hP;
+
+                scaleDst[inIndex] = scaleDstVal;
+                biasDst[inIndex] = biasVal;
+
+                const float* currentKeyBlock = keySrc + k * blockHeadDim;
+
+                int32x4_t sumInt32_0 = vdupq_n_s32(0);
+                int32x4_t sumInt32_1 = vdupq_n_s32(0);
+                int headDimIdx = 0;
+                for (; headDimIdx <= blockHeadDim - 8; headDimIdx += 8) {
+                    float32x4_t keyData0 = vld1q_f32(currentKeyBlock + headDimIdx);
+                    float32x4_t keyData1 = vld1q_f32(currentKeyBlock + headDimIdx + 4);
+
+                    keyData0 = vmulq_f32(keyData0, scaleVec);
+                    keyData1 = vmulq_f32(keyData1, scaleVec);
+
+                    int32x4_t s32_0 = vcvtaq_s32_f32(keyData0);
+                    int32x4_t s32_1 = vcvtaq_s32_f32(keyData1);
+
+                    sumInt32_0 = vaddq_s32(sumInt32_0, s32_0);
+                    sumInt32_1 = vaddq_s32(sumInt32_1, s32_1);
+
+                    int16x4_t s16_0 = vmovn_s32(s32_0);
+                    int16x4_t s16_1 = vmovn_s32(s32_1);
+
+                    int16x8_t s16Combined = vcombine_s16(s16_0, s16_1);
+
+                    int8x8_t s8Vec = vqmovn_s16(s16Combined);
+
+                    if (lP == 8) {
+                        int i = headDimIdx / lP;
+                        int8_t* dstPtr = weightDstBase + i * weightStride2 + inIndex * lP;
+                        vst1_s8(dstPtr, s8Vec);
+                    } else if (lP == 4) {
+                        vst1_s8(tempBuffer, s8Vec);
+                        int iLow = headDimIdx / lP;
+                        int iHigh = (headDimIdx + 4) / lP;
+
+                        int8_t* dstPtrLow = weightDstBase + iLow * weightStride2 + inIndex * lP;
+                        int8_t* dstPtrHigh = weightDstBase + iHigh * weightStride2 + inIndex * lP;
+
+                        std::memcpy(dstPtrLow, tempBuffer, 4);
+                        std::memcpy(dstPtrHigh, tempBuffer + 4, 4);
+                    } else {
+                        vst1_s8(tempBuffer, s8Vec);
+                        for (int k = 0; k < 8; ++k) {
+                            int headDimCurr = headDimIdx + k;
+                            int i = headDimCurr / lP;
+                            int j = headDimCurr % lP;
+                            weightDstBase[i * weightStride2 + inIndex * lP + j] = tempBuffer[k];
+                        }
+                    }
+                }
+
+                int32_t sumInt32 = vaddvq_s32(sumInt32_0) + vaddvq_s32(sumInt32_1);
+
+                // remain L
+                for (; headDimIdx < blockHeadDim; ++headDimIdx) {
+                    int i = headDimIdx / lP;
+                    int j = headDimIdx % lP;
+                    float quant_val = currentKeyBlock[headDimIdx] * quantScaleVal;
+                    int32_t rounded_val = static_cast<int32_t>(roundf(quant_val));
+                    int8_t finalVal = static_cast<int8_t>(std::max(-128, std::min(127, rounded_val)));
+                    weightDstBase[i * weightStride2 + inIndex * lP + j] = finalVal;
+                    sumInt32 += finalVal;
+                }
+                // store sum
+                sumKeyPtr[outIndex * hP + inIndex] = (float)sumInt32 * scaleDstVal + (biasVal * blockHeadDim);
+            }
+        }
+        return;
+    }
 
     for (int s = 0; s < seqLen; s++) {
         const float* keySrc = source + s * kvNumHead * headDim + kvHeadIdx * headDim;
-
+        int outIndex = (pastLength + s) / hP;
+        int inIndex  = (pastLength + s) % hP;
         float32x4_t min_vec = vdupq_n_f32(keySrc[0] - maxKeyPtr[0]);
         float32x4_t max_vec = vdupq_n_f32(keySrc[0] - maxKeyPtr[0]);
 
@@ -112,9 +200,6 @@ void MNNQuantAttentionKey(int8_t* dst, const float* source, float* sumKeyPtr, fl
             maxKey = ALIMAX(maxKey, keydata);
         }
 
-        int outIndex = (pastLength + s) / hP;
-        int inIndex  = (pastLength + s) % hP;
-
         float range = maxKey - minKey;
         float quantScaleVal = 0;
         float biasVal = minKey + 128.0f * (range) / 255.0f;
@@ -123,13 +208,15 @@ void MNNQuantAttentionKey(int8_t* dst, const float* source, float* sumKeyPtr, fl
         } else {
             quantScaleVal = 255.0f / range;
         }
+        float scaleDstVal = range / 255.0f;
+
 
         for (int k = 0; k < blockNum; ++k) {
             int8_t* weightDstBase = dst + outIndex * blockNum * packedWeightStride1 + k * packedWeightStride1;
             float* scaleDst = (float*)(weightDstBase + weightStride1);
             float* biasDst = scaleDst + hP;
 
-            scaleDst[inIndex] = range / 255.f;
+            scaleDst[inIndex] = scaleDstVal;
             biasDst[inIndex] = biasVal;
 
             float32x4_t scaleVec = vdupq_n_f32(quantScaleVal);
@@ -211,14 +298,13 @@ void MNNQuantAttentionKey(int8_t* dst, const float* source, float* sumKeyPtr, fl
                 weightDstBase[i * weightStride2 + inIndex * lP + j] = finalVal;
                 sumInt32 += finalVal;
             }
-
             // store sum
-            sumKeyPtr[outIndex * hP + inIndex] = (float)sumInt32 * range / 255.f + (minKey * blockHeadDim + 128.0f * range * blockHeadDim / 255.0f);
+            sumKeyPtr[outIndex * hP + inIndex] = (float)sumInt32 * scaleDstVal + (biasVal * blockHeadDim);
         }
     }
 }
 
-void MNNQuantAttentionValue(int8_t* dst, const float* source, float* valueSum, int32_t* params) {
+void MNNQuantAttentionValue(int8_t* dst, const float* source, float* valueSum, int32_t* params, float* scaleBias) {
     // float   value src : [kvSeq,kvNumHead,headDim]
     // int8_t  value dest: [updiv(maxLength,flashAttentionBlockKv), updiv(headDim,hp),updiv(flashAttentionBlockKv,lp),hp,lp]
     // float   value sum: [updiv(maxLength,flashAttentionBlockKv), roundup(headDim,hp)]
@@ -247,7 +333,7 @@ void MNNQuantAttentionValue(int8_t* dst, const float* source, float* valueSum, i
     auto sourceFp32 = (float*)source;
 
     // quant scale & bias
-    if (pastLength == 0) {
+    if (pastLength == 0 && nullptr == scaleBias) {
         for (int d = 0; d < headDim; ++d) {
             float* scalePtr = (float*)(dst + (d / hP) * packedStride1 + weightStride1) + (d % hP);
             float* biasPtr = scalePtr + hP;
@@ -272,6 +358,13 @@ void MNNQuantAttentionValue(int8_t* dst, const float* source, float* valueSum, i
                 scalePtr[0] = scale;
                 biasPtr[0] = bias;
             }
+        }
+    } else if (nullptr != scaleBias) {
+        for (int d = 0; d < headDim; ++d) {
+            float* scalePtr = (float*)(dst + (d / hP) * packedStride1 + weightStride1) + (d % hP);
+            float* biasPtr = scalePtr + hP;
+            scalePtr[0] = scaleBias[0];
+            biasPtr[0] = scaleBias[1];
         }
     }
 

@@ -17,7 +17,16 @@
 
 
 namespace MNN {
-
+struct KVQuantParameter {
+    float qScale;
+    float qZero = 0.0f;
+    float kScale;
+    float kZero = 0.0f;
+    float vScale;
+    float vZero = 0.0f;
+    float qkScale;
+    float qkZero = 0.0f;
+};
 class KVCacheManager : public NonCopyable{
 public:
     struct KVCacheConfig {

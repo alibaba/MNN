@@ -428,16 +428,17 @@ void CPUKVCacheManager::onAlloc(KVMeta* meta, int seq_len) {
     // scale, zero point and sum of key for quantization
     if (mQuantKey) { // quant K
         mKeySum.reset(Tensor::createDevice<int8_t>({mKvNumHead, ROUND_UP(mMaxLength, hP8) * QUANT_INFO_BYTES}));
-        mKeyMax.reset(Tensor::createDevice<int8_t>({mKvNumHead, mHeadDim * QUANT_INFO_BYTES}));
         mBackend->onAcquireBuffer(mKeySum.get(), Backend::STATIC);
-        mBackend->onAcquireBuffer(mKeyMax.get(), Backend::STATIC);
-
-        for (int ks = 0; ks < mKvNumHead * mHeadDim; ++ks) {
-            mKeyMax->host<float>()[ks] = std::numeric_limits<float>::lowest();
-        }
-        if (mBytes == 2) {
-            auto core = static_cast<CPUBackend*>(mBackend)->functions();
-            core->MNNFp32ToLowp(mKeyMax->host<float>(), (int16_t*)(mKeyMax->host<float>()), mKvNumHead * mHeadDim);
+        if (mKVQuantParamter == nullptr) {
+            mKeyMax.reset(Tensor::createDevice<int8_t>({mKvNumHead, mHeadDim * QUANT_INFO_BYTES}));
+            mBackend->onAcquireBuffer(mKeyMax.get(), Backend::STATIC);
+            for (int ks = 0; ks < mKvNumHead * mHeadDim; ++ks) {
+                mKeyMax->host<float>()[ks] = std::numeric_limits<float>::lowest();
+            }
+            if (mBytes == 2) {
+                auto core = static_cast<CPUBackend*>(mBackend)->functions();
+                core->MNNFp32ToLowp(mKeyMax->host<float>(), (int16_t*)(mKeyMax->host<float>()), mKvNumHead * mHeadDim);
+            }
         }
     }
     if (mQuantValue) {
@@ -676,16 +677,25 @@ template <typename T>
 void CPUKVCacheManager::ProcessKey(const Tensor* key, int seqLen, int kvHead) {
     if (mQuantKey) {  // [seqLen, headDim] -> [maxlen/hP8, blockNum, (headDim/blockNum)/lP8, hP8, lP8]
         int8_t * keyDst = reinterpret_cast<int8_t*>(addrOfKey(kvHead));
-        float * sumDst = reinterpret_cast<float*>(addrOfKeySum(kvHead));
+        float * sumDst = nullptr;
+        float* scaleBias = nullptr;
+        float scaleBiasValue[2];
+        T* keyMax = nullptr;
+        sumDst = reinterpret_cast<float*>(addrOfKeySum(kvHead));
+        if (mKVQuantParamter.get() != nullptr) {
+            scaleBias = scaleBiasValue;
+            scaleBiasValue[0] = mKVQuantParamter->kScale;
+            scaleBiasValue[1] = mKVQuantParamter->kZero;
+        } else {
+            keyMax = reinterpret_cast<T*>(addrOfKeyMax(kvHead));
+        }
 
         auto blockL = UP_DIV(mHeadDim, mConfig.mBlockNum);
         auto weightStride1 = ROUND_UP(blockL, lP8) * hP8;
         auto weightStride2 = lP8 * hP8;
         auto packedWeightStride1 = weightStride1 + 2 * QUANT_INFO_BYTES * hP8;
-
-        T* keyMax = reinterpret_cast<T*>(addrOfKeyMax(kvHead));
         int32_t params[] = {mKvNumHead, seqLen, mHeadDim, mConfig.mBlockNum, eP8, lP8, hP8, mPastLength, kvHead};
-        mQuantKeyFunc(keyDst, key->host<float>(), sumDst, (float*)keyMax, params);
+        mQuantKeyFunc(keyDst, key->host<float>(), sumDst, (float*)keyMax, params, scaleBias);
     }
     else { // target: [maxlen/hP, headdim/lP, hP, lP]
         T * key_dst = reinterpret_cast<T*>(addrOfKey(kvHead));
@@ -707,9 +717,16 @@ void CPUKVCacheManager::ProcessValue(const Tensor* value, int seqLen, int kvHead
     if (mQuantValue) {
         int8_t* valueDst = reinterpret_cast<int8_t*>(addrOfValue(kvHead));
         float* valueSum = reinterpret_cast<float*>(addrOfValueSum(kvHead));
+        float* scaleBias = nullptr;
+        float scaleBiasValue[2];
+        if (mKVQuantParamter.get() != nullptr) {
+            scaleBias = scaleBiasValue;
+            scaleBiasValue[0] = mKVQuantParamter->vScale;
+            scaleBiasValue[1] = mKVQuantParamter->vZero;
+        }
 
         int32_t params[] = {mKvNumHead, seqLen, mHeadDim, mConfig.mBlockNum, mMaxLength, lP8, hP8, mPastLength, kvHead, (int32_t)mFlashAttentionUpperKv};
-        mQuantValueFunc(valueDst, value->host<float>(), valueSum, params);
+        mQuantValueFunc(valueDst, value->host<float>(), valueSum, params, scaleBias);
     }
     else {
         // [mHeadDim/hP, mMaxLength/lP, hP, lP]
