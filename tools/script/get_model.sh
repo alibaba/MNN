@@ -16,7 +16,7 @@ download() {
 
   name=`basename $2`
   echo "downloading $name ..."
-  status=`curl $1 -s -w %{http_code} -o $2`
+  status=`curl --compressed $1 -s -w %{http_code} -o $2`
   if (( status == 200 )); then
     return 0
   else
