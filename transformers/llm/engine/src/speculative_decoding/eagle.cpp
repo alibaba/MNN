@@ -289,11 +289,7 @@ bool EagleGeneration::processTokens(const std::vector<int>& acceptTokens) {
         }
         if (nullptr != mContext->os) {
             auto tokenStr = mLlm->tokenizer_decode(token);
-            if (i == acceptTokens.size() - 1) {
-                *mContext->os << tokenStr << std::flush;
-            } else {
-                *mContext->os << "\033[1;32m" << tokenStr << "\033[0m" << std::flush;
-            }
+            *mContext->os << tokenStr << std::flush;
         }
     }
     return false;
