@@ -17,7 +17,7 @@ KVCacheCLManager::KVCacheCLManager(Backend *backend, bool kv_cahce) : mKVCache(k
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
 }
 
-void KVCacheCLManager::allocKVCache(const KVMeta* meta) {
+void KVCacheCLManager::allocKVCache(const KVMeta* meta, int seqlen) {
     if (!mKVCache) {
         return;
     }
@@ -25,14 +25,14 @@ void KVCacheCLManager::allocKVCache(const KVMeta* meta) {
     if(mOpenCLBackend->getPrecision() != BackendConfig::Precision_High){
         mByte = 2;
     }
-    reallocKVCache(meta, false);
+    reallocKVCache(meta, seqlen, false);
 }
 
-bool KVCacheCLManager::reallocKVCache(const KVMeta* meta, bool isExecute) {
+bool KVCacheCLManager::reallocKVCache(const KVMeta* meta, int seqlen, bool isExecute) {
     if (!mKVCache) {
         return false;
     }
-    int kvSeqlen = meta->previous + meta->add - meta->remove + meta->computeReverseSize();
+    int kvSeqlen = meta->previous + seqlen - meta->remove + meta->computeReverseSize();
     int start = mPastLength - meta->remove;
     cl_int res;
     
@@ -156,7 +156,7 @@ void AttentionBufExecution::handleKVCache(const std::vector<Tensor *> &inputs, c
         return;
     }
     mKVCacheCLManager->setArgs(numHead, kvNumHead, headDim);
-    mKVCacheCLManager->allocKVCache(mMeta);
+    mKVCacheCLManager->allocKVCache(mMeta, seqlen);
     mKeyValueMaxlen = ROUND_UP(mKVCacheCLManager->maxLength(), 4);
     mDecodeTmpMaxlen = mKeyValueMaxlen;
     mPastKvSeqlen = mKVCacheCLManager->pastKvLength();
@@ -1676,7 +1676,9 @@ ErrorCode AttentionBufExecution::onExecute(const std::vector<Tensor *> &inputs, 
     MNN_PRINT("start AttentionBufExecution onExecute !\n");
 #endif
     if(nullptr != mMeta){
-        mKVCacheCLManager->reallocKVCache(mMeta);
+        auto shape = inputs[0]->shape();
+        int seqlen = shape[1];
+        mKVCacheCLManager->reallocKVCache(mMeta, seqlen);
     }
     UpdateArgs(inputs, outputs);
 #ifdef ENABLE_OPENCL_TIME_PROFILER
