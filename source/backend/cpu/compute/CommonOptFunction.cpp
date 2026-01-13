@@ -1352,15 +1352,35 @@ void MNNAccumulateSequenceNumber (float* dst, const float* src, int size) {
     float sum = 0.f;
     float tmp[4];
 #ifdef MNN_USE_NEON
+    int size16 = (size / 16);
     if (size >= 8) {
         auto sum4_1 = vdupq_n_f32(0.f);
         auto sum4_2 = vdupq_n_f32(0.f);
-        for (; i < size8; i += 8) {
+        if (size >= 16) {
+            auto sum4_3 = vdupq_n_f32(0.f);
+            auto sum4_4 = vdupq_n_f32(0.f);
+            for (int v=0; v < size16; ++v) {
+                auto v4 = vld1q_f32(src);
+                auto u4 = vld1q_f32(src + 4);
+                auto p4 = vld1q_f32(src + 8);
+                auto q4 = vld1q_f32(src + 12);
+                sum4_1 = vaddq_f32(sum4_1, v4);
+                sum4_2 = vaddq_f32(sum4_2, u4);
+                sum4_3 = vaddq_f32(sum4_3, p4);
+                sum4_4 = vaddq_f32(sum4_4, q4);
+                src += 16;
+                i += 16;
+            }
+            sum4_1 = vaddq_f32(sum4_1, sum4_3);
+            sum4_2 = vaddq_f32(sum4_2, sum4_4);
+        }
+        if (size -i >= 8) {
             auto v4 = vld1q_f32(src);
             auto u4 = vld1q_f32(src + 4);
             sum4_1 = vaddq_f32(sum4_1, v4);
             sum4_2 = vaddq_f32(sum4_2, u4);
             src += 8;
+            i += 8;
         }
         sum4_1 = vaddq_f32(sum4_1, sum4_2);
         sum = (sum4_1[0] + sum4_1[1]) + (sum4_1[2] + sum4_1[3]);
@@ -3271,6 +3291,9 @@ void MNNNorm(float *dst, const float *src, const float *gamma, const float *beta
     const float32x4_t vmean = vdupq_n_f32(mean);
     const float32x4_t veps  = vdupq_n_f32(epsilon);
     float32x4_t vsqsum = vdupq_n_f32(0.0f);
+    float32x4_t vsqsum1 = vdupq_n_f32(0.0f);
+    float32x4_t vsqsum2 = vdupq_n_f32(0.0f);
+    float32x4_t vsqsum3 = vdupq_n_f32(0.0f);
 
     int j = 0;
     // compute square sub sum
@@ -3286,10 +3309,13 @@ void MNNNorm(float *dst, const float *src, const float *gamma, const float *beta
         v3 = vsubq_f32(v3, vmean);
 
         vsqsum = vmlaq_f32(vsqsum, v0, v0);
-        vsqsum = vmlaq_f32(vsqsum, v1, v1);
-        vsqsum = vmlaq_f32(vsqsum, v2, v2);
-        vsqsum = vmlaq_f32(vsqsum, v3, v3);
+        vsqsum1 = vmlaq_f32(vsqsum1, v1, v1);
+        vsqsum2 = vmlaq_f32(vsqsum2, v2, v2);
+        vsqsum3 = vmlaq_f32(vsqsum3, v3, v3);
     }
+    vsqsum = vaddq_f32(vsqsum, vsqsum1);
+    vsqsum2 = vaddq_f32(vsqsum2, vsqsum3);
+    vsqsum = vaddq_f32(vsqsum, vsqsum2);
 
     // last 0~15
     for (; j + 3 < size; j += 4) {
