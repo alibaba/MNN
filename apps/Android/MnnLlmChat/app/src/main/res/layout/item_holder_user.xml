@@ -9,17 +9,19 @@
     android:orientation="vertical"
     android:layout_marginStart="@dimen/spaceLR">
 
-    <ImageView
-        android:id="@+id/tv_chat_image"
-        android:layout_width="100dp"
-        android:layout_height="100dp"
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_chat_images"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
         android:layout_gravity="end"
         android:layout_marginBottom="@dimen/space10"
         android:visibility="gone"
-        tools:src="@drawable/ic_launcher"
         tools:visibility="visible"
-        android:scaleType="centerCrop"
-        tools:ignore="ContentDescription" />
+        android:orientation="horizontal"
+        app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
+        android:background="@drawable/bg_chat_user"
+        android:padding="4dp"
+        />
 
     <com.alibaba.mnnllm.android.widgets.VideoPreviewView
         android:id="@+id/tv_chat_video"

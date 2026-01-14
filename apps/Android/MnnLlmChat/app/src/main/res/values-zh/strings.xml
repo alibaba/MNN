@@ -199,6 +199,7 @@
     <string name="server_running_at_template">服务器运行在 %1$s:%2$d</string>
     <string name="close">关闭</string>
     <string name="back">返回</string>
+    <string name="share_image">分享图片</string>
     <string name="share_benchmark_result">分享基准测试结果</string>
     
     <string name="api_auth_enabled">启用API Key认证</string>

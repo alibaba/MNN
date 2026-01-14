@@ -55,7 +55,7 @@ private:
     
     // Download a single file
     bool DownloadFile(const std::string& url, const std::filesystem::path& destination_path, 
-                     int64_t expected_size, const std::string& file_name, std::string& error_info);
+                     int64_t expected_size, const std::string& file_name, const std::string& model_id, std::string& error_info);
     
     // Internal delete repo implementation
     bool DeleteRepoImpl(const std::string& model_id);

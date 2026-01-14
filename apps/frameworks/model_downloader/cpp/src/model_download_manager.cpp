@@ -352,6 +352,21 @@ void ModelDownloadManager::OnDownloadStart(const std::string& model_id) {
     }
 }
 
+void ModelDownloadManager::OnDownloadProgress(const std::string& model_id, const DownloadProgress& progress) {
+    // Update internal state
+    download_info_map_[model_id] = progress;
+    
+    // Calculate speed if we have saved size
+    if (progress.saved_size > 0) {
+        CalculateDownloadSpeed(model_id, progress.saved_size);
+    }
+    
+    // Forward to other listeners
+    for (auto listener : listeners_) {
+        listener->OnDownloadProgress(model_id, progress);
+    }
+}
+
 void ModelDownloadManager::OnDownloadFinished(const std::string& model_id, const std::string& path) {
     if (verbose_) {
         LOG_INFO("Download finished: " + model_id + " -> " + path);

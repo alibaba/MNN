@@ -8,6 +8,7 @@
 #include "log_utils.hpp"
 
 #include <iostream>
+#include <functional>
 
 namespace mnn::downloader {
 
@@ -353,30 +354,30 @@ bool HfModelDownloader::downloadFile(const std::string& url, const std::filesyst
     // Create a simple FileDownloadListener implementation
     class SimpleFileDownloadListener : public FileDownloadListener {
     public:
-        SimpleFileDownloadListener(std::string& error_info) : error_info_(error_info) {}
+        SimpleFileDownloadListener(std::string& error_info, std::function<void(const std::string&, int64_t, int64_t)> callback) 
+            : error_info_(error_info), callback_(callback) {}
         
         bool onDownloadDelta(const std::string* fileName, int64_t downloadedBytes, int64_t totalBytes, int64_t delta) override {
             // Use unified progress system with ModelScope style
             if (totalBytes > 0) {
-                float progress = static_cast<float>(downloadedBytes) / totalBytes;
-                std::string file_name = fileName ? *fileName : "file";
-                
-                // Use parent class utility methods for formatting
-                file_name = ModelRepoDownloader::ExtractFileName(file_name);
-                std::string size_info = ModelRepoDownloader::FormatFileSizeInfo(downloadedBytes, totalBytes);
-                
-                std::string message = file_name + size_info;
-                // UserInterface::ShowProgress(message, progress);
-                LOG_INFO(message);
+                std::string name = fileName ? *fileName : "file";
+                if (callback_) {
+                    callback_(name, downloadedBytes, totalBytes);
+                }
             }
             return false; // Don't pause
         }
         
     private:
         std::string& error_info_;
+        std::function<void(const std::string&, int64_t, int64_t)> callback_;
     };
     
-    SimpleFileDownloadListener listener(error_info);
+    auto progress_callback = [this, &file_name](const std::string& name, int64_t downloaded, int64_t total) {
+        this->NotifyDownloadProgress(this->original_model_id_, "file", file_name, downloaded, total);
+    };
+    
+    SimpleFileDownloadListener listener(error_info, progress_callback);
     
     try {
         LOG_DEBUG_TAG("downloadFile: Calling downloader.DownloadFile()", "HfModelDownloader");

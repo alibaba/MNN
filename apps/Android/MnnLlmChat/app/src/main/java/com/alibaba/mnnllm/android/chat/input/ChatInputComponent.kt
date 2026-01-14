@@ -231,19 +231,19 @@ class ChatInputComponent(
         }
         attachmentPickerModule = AttachmentPickerModule(chatActivity)
         attachmentPickerModule!!.setOnImagePickCallback(object : ImagePickCallback {
-            override fun onAttachmentPicked(imageUri: Uri?, audio: AttachmentType?) {
+            override fun onAttachmentPicked(imageUris: List<Uri>?, audio: AttachmentType?) {
                 imageMore.setVisibility(View.GONE)
                 updateVoiceButtonVisibility()
                 currentUserMessage = ChatDataItem(ChatViewHolders.USER)
                 when (audio) {
                     AttachmentType.Audio -> {
-                        currentUserMessage!!.audioUri = imageUri
+                        currentUserMessage!!.audioUri = imageUris?.firstOrNull()
                     }
                     AttachmentType.Video -> {
-                        currentUserMessage!!.videoUri = imageUri
+                        currentUserMessage!!.videoUri = imageUris?.firstOrNull()
                     }
                     else -> {
-                        currentUserMessage!!.imageUri = imageUri
+                        currentUserMessage!!.imageUris = imageUris
                     }
                 }
                 updateSenderButton()

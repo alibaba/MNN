@@ -151,20 +151,16 @@ bool MlModelDownloader::DownloadMlRepoInner(const std::string& model_id, const s
         
         std::cout << "Downloading file: " << file_path << " (" << it->size << " bytes)" << std::endl;
         
-        if (!DownloadFile(download_url, destination_path, it->size, file_path, error_info)) {
+        if (!DownloadFile(download_url, destination_path, it->size, file_path, model_id, error_info)) {
             has_error = true;
             break;
         }
         
         downloaded_size += it->size;
         
-        // Show progress
-        double progress = (static_cast<double>(downloaded_size) / total_size) * 100.0;
-        std::cout << "\rProgress: " << std::fixed << std::setprecision(1) << progress << "% (" 
-                  << (downloaded_size / (1024 * 1024)) << " MB / " << (total_size / (1024 * 1024)) << " MB)" << std::flush;
+        // Show progress using unified system
+        NotifyDownloadProgress(model_id, "file", file_path, downloaded_size, total_size);
     }
-    
-    std::cout << std::endl; // New line after progress
     
     if (!has_error) {
         // Create the main symlink
@@ -218,7 +214,7 @@ std::vector<std::pair<std::string, std::filesystem::path>> MlModelDownloader::Co
 }
 
 bool MlModelDownloader::DownloadFile(const std::string& url, const std::filesystem::path& destination_path, 
-                                    int64_t expected_size, const std::string& file_name, std::string& error_info) {
+                                    int64_t expected_size, const std::string& file_name, const std::string& model_id, std::string& error_info) {
     // Parse URL to get host and path
     size_t protocol_end = url.find("://");
     if (protocol_end == std::string::npos) {
@@ -278,9 +274,8 @@ bool MlModelDownloader::DownloadFile(const std::string& url, const std::filesyst
             
             // Show progress
             if (content_length > 0) {
-                double percentage = (static_cast<double>(downloaded) / content_length) * 100.0;
-                std::cout << "\rDownloading " << file_name << ": " << std::fixed << std::setprecision(1) 
-                          << percentage << "% (" << (downloaded / (1024 * 1024)) << " MB)" << std::flush;
+                // Use unified progress reporting
+                NotifyDownloadProgress(model_id, "file", file_name, downloaded, content_length);
             }
             return true;
         }
@@ -304,7 +299,6 @@ bool MlModelDownloader::DownloadFile(const std::string& url, const std::filesyst
         }
     }
     
-    std::cout << std::endl; // New line after progress
     std::cout << "Downloaded: " << file_name << " (" << (downloaded / (1024 * 1024)) << " MB)" << std::endl;
     
     return true;
@@ -381,6 +375,14 @@ std::string MlModelDownloader::GetCachePathRoot(const std::string& model_downloa
 
 std::filesystem::path MlModelDownloader::GetModelPath(const std::string& models_download_path_root, const std::string& model_id) {
     return std::filesystem::path(models_download_path_root) / FileUtils::GetFileName(model_id);
+}
+
+void MlModelDownloader::ShowProgressBar(double progress, int64_t downloaded_size, int64_t total_size) {
+    // Not used anymore with NotifyDownloadProgress
+}
+
+void MlModelDownloader::ShowFileDownloadProgress(const std::string& file_name, double percentage, int64_t downloaded_size, int64_t total_size) {
+    // Not used anymore with NotifyDownloadProgress
 }
 
 } // namespace mnn::downloader
