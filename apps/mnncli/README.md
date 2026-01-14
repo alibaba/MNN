@@ -68,5 +68,6 @@ The executable will be located at `build_mnncli/mnncli`.
 ## Notes
 
 - The tool requires macOS 13.0+ when building on Apple platforms
+- On Linux, ensure `libssl-dev` (or equivalent) is installed
 - Models are cached in the user's cache directory
 - The web server provides an OpenAI-compatible API interface

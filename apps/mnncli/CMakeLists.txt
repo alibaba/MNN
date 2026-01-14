@@ -23,6 +23,8 @@ if(APPLE)
     message(STATUS "  Include: ${OPENSSL_INCLUDE_DIR}")
     message(STATUS "  SSL: ${OPENSSL_SSL_LIBRARY}")
     message(STATUS "  Crypto: ${OPENSSL_CRYPTO_LIBRARY}")
+else()
+    find_package(OpenSSL REQUIRED)
 endif()
 
 # Use httplib from MNN transformers directory instead of fetching it
