@@ -90,7 +90,10 @@ void ModelRunner::InteractiveChat() {
     while (true) {
         std::cout << "👤 User: ";
         std::string input;
-        std::getline(std::cin, input);
+        if (!std::getline(std::cin, input)) {
+            std::cout << "\n";
+            break;
+        }
         
         if (input == "/exit") break;
         if (input == "/help") ShowChatHelp();
