@@ -142,6 +142,18 @@
              app:srcCompat="@drawable/ic_play"
              app:tint="?colorOnSurfaceVariant"/>
 
+         <ImageView
+             android:id="@+id/btn_share_image"
+             android:layout_width="32dp"
+             android:layout_height="32dp"
+             android:padding="4dp"
+             android:background="@drawable/ic_button_ripple"
+             android:clickable="true"
+             android:focusable="true"
+             android:visibility="gone"
+             app:srcCompat="@drawable/ic_share"
+             app:tint="?colorOnSurfaceVariant"/>
+
     </LinearLayout>
 
     <TextView

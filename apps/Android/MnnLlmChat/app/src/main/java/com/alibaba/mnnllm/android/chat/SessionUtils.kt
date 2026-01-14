@@ -11,7 +11,7 @@ object SessionUtils {
         if (userData.audioUri != null) {
             sessionName = "[Audio] $sessionName"
         }
-        if (userData.imageUri != null) {
+        if (!userData.imageUris.isNullOrEmpty()) {
             sessionName = "[Image] $sessionName"
         }
         if (userData.videoUri != null) {

@@ -16,10 +16,16 @@ object PromptUtils {
                     FileUtils.getAudioDuration(audioPath).toFloat()
             }
             input = String.format("<audio>%s</audio>%s", audioPath, userData.text)
-        } else if (userData.imageUri != null) {
-            val imagePath = FileUtils.getPathForUri(userData.imageUri!!)
-                ?: throw Exception("imagePath path is null")
-            input = String.format("<img>%s</img>%s", imagePath, userData.text)
+        } else if (!userData.imageUris.isNullOrEmpty()) {
+            val sb = StringBuilder()
+            for (uri in userData.imageUris!!) {
+                val imagePath = FileUtils.getPathForUri(uri)
+                    ?: throw Exception("imagePath path is null")
+                sb.append(String.format("<img>%s</img>", imagePath))
+            }
+            sb.append(userData.text ?: "")
+            input = sb.toString()
+            android.util.Log.d("PromptUtils", "Generated input with images: $input")
         } else if (userData.videoUri != null) {
             val videoPath = FileUtils.getPathForUri(userData.videoUri!!)
                 ?: throw Exception("videoPath path is null")

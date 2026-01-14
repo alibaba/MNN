@@ -56,6 +56,7 @@ public:
     
     // DownloadListener implementation
     void OnDownloadStart(const std::string& model_id);
+    void OnDownloadProgress(const std::string& model_id, const DownloadProgress& progress);
     void OnDownloadFinished(const std::string& model_id, const std::string& path);
     void OnDownloadFailed(const std::string& model_id, const std::string& error);
     void OnDownloadPaused(const std::string& model_id);

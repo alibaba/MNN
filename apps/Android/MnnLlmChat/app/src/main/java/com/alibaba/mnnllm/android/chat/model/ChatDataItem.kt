@@ -18,8 +18,14 @@ class ChatDataItem {
     var text: String? = null
     var type: Int
         private set
-    @JvmField
-    var imageUri: Uri? = null
+    @Deprecated("Use imageUris instead")
+    var imageUri: Uri?
+        get() = imageUris?.firstOrNull()
+        set(value) {
+            imageUris = if (value != null) listOf(value) else null
+        }
+
+    var imageUris: List<Uri>? = null
 
     @JvmField
     var videoUri: Uri? = null
@@ -81,6 +87,13 @@ class ChatDataItem {
     }
 
     companion object {
+        fun createImageInputData(timeString: String?, text: String?, imageUris: List<Uri>?): ChatDataItem {
+            val result = ChatDataItem(timeString, ChatViewHolders.USER, text)
+            result.imageUris = imageUris
+            return result
+        }
+
+        @Deprecated("Use createImageInputData with list")
         fun createImageInputData(timeString: String?, text: String?, imageUri: Uri?): ChatDataItem {
             val result = ChatDataItem(timeString, ChatViewHolders.USER, text)
             result.imageUri = imageUri

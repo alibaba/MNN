@@ -183,7 +183,6 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
     }
 
     // ModelRepoDownloadCallback implementation
-    // ModelRepoDownloadCallback implementation
     override fun onDownloadFailed(modelId: String, e: Exception) {
         val info = getOrCreateInfo(modelId)
         info.downloadState = DownloadState.FAILED
@@ -213,6 +212,7 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
         info.downloadState = DownloadState.DOWNLOAD_SUCCESS
         info.downlodaState = DownloadState.DOWNLOAD_SUCCESS
         info.progress = 1.0
+        info.hasUpdate = false
         
         // Save total size to persistent data for future retrievals
         if (info.totalSize > 0) {
@@ -277,9 +277,12 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
         val info = getOrCreateInfo(modelId)
         info.totalSize = repoSize
         info.remoteUpdateTime = lastModified
-        info.hasUpdate = true
         
-        downloadListeners.forEach { it.onDownloadHasUpdate(modelId, info) }
+        if (info.downloadState == DownloadState.DOWNLOAD_SUCCESS) {
+            info.hasUpdate = true
+            downloadListeners.forEach { it.onDownloadHasUpdate(modelId, info) }
+        }
+        
         downloadListeners.forEach { it.onDownloadTotalSize(modelId, repoSize) }
     }
 

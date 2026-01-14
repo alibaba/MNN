@@ -55,8 +55,8 @@ object ChatViewHolders {
             itemView.findViewById(R.id.layout_audio)
         val viewText: TextView = itemView.findViewById(R.id.tv_chat_text)
 
-        val chatImage: ImageView =
-            itemView.findViewById(R.id.tv_chat_image)
+        val chatImagesRecycler: RecyclerView =
+            itemView.findViewById(R.id.rv_chat_images)
 
         val chatVideo: com.alibaba.mnnllm.android.widgets.VideoPreviewView =
             itemView.findViewById(R.id.tv_chat_video)
@@ -86,11 +86,14 @@ object ChatViewHolders {
             viewText.visibility =
                 if (TextUtils.isEmpty(data.text)) View.GONE else View.VISIBLE
             textDuration.text = formatTime(data.audioDuration.toInt())
-            val imageUri = data.imageUri
-            chatImage.visibility =
-                if (imageUri != null) View.VISIBLE else View.GONE
-            if (imageUri != null) {
-                chatImage.setImageURI(imageUri)
+            
+            val imageUris = data.imageUris
+            chatImagesRecycler.visibility =
+                if (!imageUris.isNullOrEmpty()) View.VISIBLE else View.GONE
+            if (!imageUris.isNullOrEmpty()) {
+                Log.d("UserViewHolder", "Binding ${imageUris.size} images")
+                chatImagesRecycler.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(itemView.context, androidx.recyclerview.widget.LinearLayoutManager.HORIZONTAL, false)
+                chatImagesRecycler.adapter = ChatImageAdapter(imageUris)
             }
 
             val videoUri = data.videoUri
@@ -188,6 +191,7 @@ object ChatViewHolders {
         private val reportIssueButton: View = view.findViewById(R.id.btn_report_issue)
         private val toggleBenchmarkButton: View = view.findViewById(R.id.btn_toggle_benchmark)
         private val replayAudioButton: View = view.findViewById(R.id.btn_replay_audio)
+        private val shareImageButton: View = view.findViewById(R.id.btn_share_image)
 
         private val markdown = Markwon.create(itemView.context)
         var viewAssistantLoading: View =
@@ -248,6 +252,32 @@ object ChatViewHolders {
                 val chatDataItem = it.tag as ChatDataItem
                 replayAudio(chatDataItem)
             }
+            shareImageButton.setOnClickListener {
+                val chatDataItem = it.tag as ChatDataItem
+                shareImage(chatDataItem)
+            }
+        }
+
+        private fun shareImage(chatDataItem: ChatDataItem) {
+            val imageUri = chatDataItem.imageUri ?: return
+            val context = itemView.context
+            
+            val shareUri = if (imageUri.scheme == "file") {
+                androidx.core.content.FileProvider.getUriForFile(
+                    context,
+                    context.packageName + ".fileprovider",
+                    java.io.File(imageUri.path!!)
+                )
+            } else {
+                imageUri
+            }
+            
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "image/*"
+                putExtra(Intent.EXTRA_STREAM, shareUri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(shareIntent, context.getString(R.string.share_image)))
         }
 
         private fun  updatePointerDownLocation(v:View, event: MotionEvent) {
@@ -317,6 +347,7 @@ object ChatViewHolders {
             reportIssueButton.tag = data
             toggleBenchmarkButton.tag = data
             replayAudioButton.tag = data
+            shareImageButton.tag = data
         }
         
         private fun updateThinkingView(data: ChatDataItem, context: android.content.Context) {
@@ -400,6 +431,9 @@ object ChatViewHolders {
                     View.VISIBLE 
                 else 
                     View.GONE
+                
+                // Show/hide share button based on image availability
+                shareImageButton.visibility = if (data.imageUri != null) View.VISIBLE else View.GONE
             }
         }
         

@@ -191,7 +191,7 @@ bool MsModelDownloader::DownloadMsRepoInner(const std::string& model_id, const s
             LOG_DEBUG_TAG("Downloading file: " + file_path + " (" + std::to_string(it->size) + " bytes)", "MsModelDownloader");
         }
         
-        if (!DownloadFile(download_url, destination_path, it->size, file_path, error_info)) {
+        if (!DownloadFile(download_url, destination_path, it->size, file_path, model_id, error_info)) {
             has_error = true;
             break;
         }
@@ -294,7 +294,7 @@ std::vector<std::pair<std::string, std::filesystem::path>> MsModelDownloader::Co
 }
 
 bool MsModelDownloader::DownloadFile(const std::string& url, const std::filesystem::path& destination_path, 
-                                    int64_t expected_size, const std::string& file_name, std::string& error_info) {
+                                    int64_t expected_size, const std::string& file_name, const std::string& model_id, std::string& error_info) {
     // Check if file already exists and is complete
     if (std::filesystem::exists(destination_path)) {
         int64_t existing_size = std::filesystem::file_size(destination_path);
@@ -449,15 +449,8 @@ bool MsModelDownloader::DownloadFile(const std::string& url, const std::filesyst
             // Show progress using unified system with smart unit selection
             // Use expected_size (total file size) for progress calculation, not Content-Length
             if (expected_size > 0) {
-                float progress = static_cast<float>(downloaded) / expected_size;
-                
-                // Use parent class utility methods for formatting
-                std::string display_name = ModelRepoDownloader::ExtractFileName(file_name);
-                std::string size_info = ModelRepoDownloader::FormatFileSizeInfo(downloaded, expected_size);
-                
-                std::string message = display_name + size_info;
-                // mnn::downloader::UserInterface::ShowProgress(message, progress);
-            LOG_INFO(message);
+                // Notify progress instead of logging
+                NotifyDownloadProgress(model_id, "file", file_name, downloaded, expected_size);
             }
             return true;
         }
