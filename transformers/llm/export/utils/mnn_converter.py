@@ -410,18 +410,19 @@ class MNNConverter:
 
         is_lm = 'lm_head' in name
         quant_bit = self.args.lm_quant_bit if is_lm else self.args.quant_bit
-        block_size = ic if self.args.quant_block == 0 else self.args.quant_block
+        quant_block = self.args.lm_quant_block if is_lm else self.args.quant_block
+        block_size = ic if quant_block == 0 else quant_block
         if is_lm and self.lm_weight is not None:
             external, q_min, shape_int32, header_len = self.lm_weight
         else:
-            external, q_min, shape_int32, header_len = self.build_weight(linear, quant_bit, self.args.quant_block, self.args.sym)
+            external, q_min, shape_int32, header_len = self.build_weight(linear, quant_bit, quant_block, self.args.sym)
         if is_lm and self.lm_weight is None:
             self.lm_weight = [external, q_min, shape_int32, header_len]
         if is_lm and self.args.tie_word_embeddings:
             weight_offset = external[0] + header_len
             alpha_offset = external[0] + external[1]
             alpha_size = external[2]
-            self.tie_embeddings_info = [weight_offset, alpha_offset, alpha_size, quant_bit, self.args.quant_block]
+            self.tie_embeddings_info = [weight_offset, alpha_offset, alpha_size, quant_bit, quant_block]
 
         origin_input = op['inputIndexes']
         origin_output = op['outputIndexes']

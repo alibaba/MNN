@@ -9,7 +9,7 @@ import copy
 def main(args):
     # load model
     model = mnnllm.create(args.mnn_path)
-    model.set_config({"quant_qkv": args.quant_qkv})
+    model.set_config({"attention_mode": args.attention_mode})
     model.set_config({'all_logits': True})
     model.load()
 

@@ -32,7 +32,7 @@ struct RuntimeParameters {
     std::vector<int>                 dynamicOption;
     std::vector<int>                 divisionRatioSme2Neon;
     std::vector<int>                 smeCoreNum;
-    std::vector<int>                 quantAttention;
+    std::vector<int>                 attentionOption;
 };
 
 struct TestParameters {
@@ -55,7 +55,7 @@ struct CommandParameters {
     int                 dynamicOption;
     int                 divisionRatioSme2Neon;
     int                 smeCoreNum;
-    int                 quantAttention;
+    int                 attentionOption;
 
     int                 nPrompt;
     int                 nGenerate;
@@ -77,7 +77,7 @@ static const RuntimeParameters runtimeParamsDefaults = {
     /* dynamicOption        */ { 0 },
     /* divisionRatioSme2Neon*/ { 41 },
     /* smeCoreNum             */ { 2 },
-    /* quantAttention       */  { 0 }
+    /* attentionOption       */  { 0 }
 };
 
 
@@ -105,7 +105,7 @@ struct commandParametersInstance {
         mCmdParam.memory         = cmdParam.memory;
         mCmdParam.dynamicOption  = cmdParam.dynamicOption;
         mCmdParam.divisionRatioSme2Neon = cmdParam.divisionRatioSme2Neon;
-        mCmdParam.quantAttention = cmdParam.quantAttention;
+        mCmdParam.attentionOption = cmdParam.attentionOption;
 
         mCmdParam.nPrompt        = cmdParam.nPrompt;
         mCmdParam.nGenerate      = cmdParam.nGenerate;
@@ -127,7 +127,7 @@ struct commandParametersInstance {
         mCmdParam.precision == other.mCmdParam.precision &&
         mCmdParam.memory == other.mCmdParam.memory &&
         mCmdParam.dynamicOption == other.mCmdParam.dynamicOption &&
-        mCmdParam.quantAttention == other.mCmdParam.quantAttention &&
+        mCmdParam.attentionOption == other.mCmdParam.attentionOption &&
         mCmdParam.smeCoreNum == other.mCmdParam.smeCoreNum &&
         mCmdParam.divisionRatioSme2Neon == other.mCmdParam.divisionRatioSme2Neon;
     }
@@ -182,7 +182,7 @@ struct TestInstance {
     int                      dynamicOption;
     int                      divisionRatioSme2Neon;
     int                      smeCoreNum;
-    int                      quantAttention;
+    int                      attentionOption;
 
     TestInstance(const commandParametersInstance & instance) {
 
@@ -198,7 +198,7 @@ struct TestInstance {
         dynamicOption     = instance.mCmdParam.dynamicOption;
         divisionRatioSme2Neon = instance.mCmdParam.divisionRatioSme2Neon;
         smeCoreNum        = instance.mCmdParam.smeCoreNum;
-        quantAttention    = instance.mCmdParam.quantAttention;
+        attentionOption    = instance.mCmdParam.attentionOption;
     }
 
     std::vector<double> getTokensPerSecond(int n_tokens, std::vector<int64_t> cost_us) const {
@@ -317,9 +317,9 @@ struct markdownPrinter : public Printer {
         if (!(rp.divisionRatioSme2Neon.size() == 1 && rp.divisionRatioSme2Neon[0] == runtimeParamsDefaults.divisionRatioSme2Neon[0])) {
             fields.emplace_back("divisionRatioSme2Neon");
         }
-        for (auto x: rp.quantAttention) {
+        for (auto x: rp.attentionOption) {
             if (x != 0) {
-                fields.emplace_back("quantAttention");
+                fields.emplace_back("attentionOption");
                 break;
             }
             break;
@@ -421,12 +421,12 @@ struct markdownPrinter : public Printer {
             } else if (field == "smeCoreNum") {
                 snprintf(buf, sizeof(buf), "%d", t.smeCoreNum);
                 value = buf;
-            } else if (field == "quantAttention") {
-                snprintf(buf, sizeof(buf), "%d", t.quantAttention);
+            } else if (field == "attentionOption") {
+                snprintf(buf, sizeof(buf), "%d", t.attentionOption);
 //                value = buf;
-                if (t.quantAttention == 1) {
+                if (t.attentionOption == 1) {
                     value = "Int8 Q,K";
-                } else if (t.quantAttention == 2) {
+                } else if (t.attentionOption == 2) {
                     value = "Int8 Q,K,V";
                 } else {
 
@@ -489,8 +489,8 @@ struct jsonAggregator : public Printer {
         writer.Int(t.memory);
         writer.Key("power");
         writer.Int(t.power);
-        writer.Key("quantAttention");
-        writer.Int(t.quantAttention);
+        writer.Key("attentionOption");
+        writer.Int(t.attentionOption);
 
         // Store metrics as arrays to avoid duplicate keys
         writer.Key("results");
@@ -656,7 +656,7 @@ static std::vector<commandParametersInstance> get_cmd_params_instances(const Run
     for (const auto & dyop : rp.dynamicOption)
     for (const auto &mratio: rp.divisionRatioSme2Neon)
     for (const auto &smeNum: rp.smeCoreNum)
-    for (const auto & quantAttn : rp.quantAttention)
+    for (const auto & quantAttn : rp.attentionOption)
         if (tp.kvCache == "true") { // MNN llm_demo test standard
             for (const auto & nPrompt : tp.nPrompt) {
                 if (nPrompt == 0) {
@@ -677,7 +677,7 @@ static std::vector<commandParametersInstance> get_cmd_params_instances(const Run
                     tmpParam.nGenerate = nGenerate;
                     tmpParam.useMmap = rp.useMmap;
                     tmpParam.dynamicOption = dyop;
-                    tmpParam.quantAttention = quantAttn;
+                    tmpParam.attentionOption = quantAttn;
                     tmpParam.nRepeat = tp.nRepeat[0];
                     tmpParam.kvCache = "true";
                     tmpParam.loadingTime = tp.loadTime;
@@ -703,7 +703,7 @@ static std::vector<commandParametersInstance> get_cmd_params_instances(const Run
                 tmpParam.precision = precision;
                 tmpParam.memory = memory;
                 tmpParam.dynamicOption = dyop;
-                tmpParam.quantAttention = quantAttn;
+                tmpParam.attentionOption = quantAttn;
                 tmpParam.nRepeat = tp.nRepeat[0];
                 tmpParam.kvCache = "false";
                 tmpParam.loadingTime = tp.loadTime;
@@ -724,7 +724,7 @@ static std::vector<commandParametersInstance> get_cmd_params_instances(const Run
                 tmpParam.precision = precision;
                 tmpParam.memory = memory;
                 tmpParam.dynamicOption = dyop;
-                tmpParam.quantAttention = quantAttn;
+                tmpParam.attentionOption = quantAttn;
                 tmpParam.nRepeat = tp.nRepeat[0];
                 tmpParam.kvCache = "false";
                 tmpParam.loadingTime = tp.loadTime;
@@ -748,7 +748,7 @@ static std::vector<commandParametersInstance> get_cmd_params_instances(const Run
                 tmpParam.precision = precision;
                 tmpParam.memory = memory;
                 tmpParam.dynamicOption = dyop;
-                tmpParam.quantAttention = quantAttn;
+                tmpParam.attentionOption = quantAttn;
                 tmpParam.nRepeat = tp.nRepeat[0];
                 tmpParam.kvCache = "false";
                 tmpParam.loadingTime = tp.loadTime;
@@ -975,7 +975,7 @@ static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimePa
                 break;
             }
             auto p = splitString<int>(argv[i], splitDelim);
-            runtimeParams.quantAttention.insert(runtimeParams.quantAttention.end(), p.begin(), p.end());
+            runtimeParams.attentionOption.insert(runtimeParams.attentionOption.end(), p.begin(), p.end());
         } else if (arg == "-j" || arg == "--json") {
              jsonMode = true;
              if (i + 1 < argc && argv[i+1][0] != '-') {
@@ -1032,8 +1032,8 @@ static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimePa
     if (runtimeParams.smeCoreNum.empty()) {
         runtimeParams.smeCoreNum = runtimeParamsDefaults.smeCoreNum;
     }
-    if (runtimeParams.quantAttention.empty()) {
-        runtimeParams.quantAttention = runtimeParamsDefaults.quantAttention;
+    if (runtimeParams.attentionOption.empty()) {
+        runtimeParams.attentionOption = runtimeParamsDefaults.attentionOption;
     }
     if (testParams.nRepeat.empty()) {
         testParams.nRepeat = testParamsDefaults.nRepeat;
@@ -1043,7 +1043,7 @@ static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimePa
 }
 
 
-static Llm* buildLLM(const std::string& config_path, int backend, int memory, int precision, int threads, int power, int dynamic_option, bool use_mmap, int divisionRatioSme2Neon, int smeCoreNum, int promptLen, int quant_attention) {
+static Llm* buildLLM(const std::string& config_path, int backend, int memory, int precision, int threads, int power, int dynamic_option, bool use_mmap, int divisionRatioSme2Neon, int smeCoreNum, int promptLen, int attention_mode) {
     auto llmPtr = Llm::createLLM(config_path);
     llmPtr->set_config(R"({
         "async":false
@@ -1087,9 +1087,9 @@ static Llm* buildLLM(const std::string& config_path, int backend, int memory, in
         MNN_ERROR("dynamic_option for LLM config set error\n");
         return nullptr;
     }
-    setSuccess &= llmPtr->set_config("{\"quant_qkv\":" + std::to_string(quant_attention + 8) + "}");
+    setSuccess &= llmPtr->set_config("{\"attention_mode\":" + std::to_string(attention_mode + 8) + "}");
     if (!setSuccess) {
-        MNN_ERROR("quant_qkv for LLM config set error\n");
+        MNN_ERROR("attention_mode for LLM config set error\n");
         return nullptr;
     }
     setSuccess &= llmPtr->set_config("{\"use_mmap\":" + mmap[use_mmap] + "}");
@@ -1171,7 +1171,7 @@ int main(int argc, char ** argv) {
         auto executor = MNN::Express::Executor::newExecutor(MNN_FORWARD_CPU, backendConfig, 1);
         MNN::Express::ExecutorScope scope(executor);
 
-        auto llmPtr = buildLLM(instance.mCmdParam.model, instance.mCmdParam.backend, instance.mCmdParam.memory, instance.mCmdParam.precision, instance.mCmdParam.threads, instance.mCmdParam.power, instance.mCmdParam.dynamicOption, instance.mCmdParam.useMmap, instance.mCmdParam.divisionRatioSme2Neon, instance.mCmdParam.smeCoreNum, instance.mCmdParam.nPrompt, instance.mCmdParam.quantAttention);
+        auto llmPtr = buildLLM(instance.mCmdParam.model, instance.mCmdParam.backend, instance.mCmdParam.memory, instance.mCmdParam.precision, instance.mCmdParam.threads, instance.mCmdParam.power, instance.mCmdParam.dynamicOption, instance.mCmdParam.useMmap, instance.mCmdParam.divisionRatioSme2Neon, instance.mCmdParam.smeCoreNum, instance.mCmdParam.nPrompt, instance.mCmdParam.attentionOption);
         std::unique_ptr<Llm> llm(llmPtr);
         if (instance.mCmdParam.loadingTime == "true") {
             for (int k = 0; k < 3; ++k) {
