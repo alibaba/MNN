@@ -41,6 +41,8 @@ class LlmExporter(torch.nn.Module):
             self.args.tokenizer_path = self.args.path
         if args.lm_quant_bit is None:
             self.args.lm_quant_bit = self.args.quant_bit
+        if args.lm_quant_block is None:
+            self.args.lm_quant_block = self.args.quant_block
         self.args.tie_word_embeddings = False
         # init export dst dir
         if not os.path.exists(self.args.dst_path):
@@ -659,6 +661,7 @@ def export(path,
            quant_bit = 4,
            quant_block = 64,
            lm_quant_bit = None,
+           lm_quant_block = None,
            visual_quant_bit = None,
            visual_quant_block = None,
            visual_sym = False,
@@ -690,6 +693,7 @@ def export(path,
         'visual_quant_block': visual_quant_block,
         'visual_sym': visual_sym,
         'lm_quant_bit': lm_quant_bit,
+        'lm_quant_block': lm_quant_block,
         'mnnconvert': mnnconvert,
         'ppl': ppl,
         'awq': awq,
@@ -734,6 +738,7 @@ def main():
     parser.add_argument('--visual_quant_bit', type=int, default=None, help='mnn viusal quant bit, 4 or 8, default is setting in utils/vision.py by different vit model.')
     parser.add_argument('--visual_quant_block', type=int, default=None, help='mnn quant block, default is setting in utils/vision.py by different vit model.')
     parser.add_argument('--lm_quant_bit', type=int, default=None, help='mnn lm_head quant bit, 4 or 8, default is `quant_bit`.')
+    parser.add_argument('--lm_quant_block', type=int, default=None, help='mnn lm_head quant block, 0 mean channle-wise, default is `quant_block`.')
     parser.add_argument('--mnnconvert', type=str, default='../../../build/MNNConvert', help='local mnnconvert path, if invalid, using pymnn.')
     parser.add_argument('--ppl', action='store_true', help='Whether or not to get all logits of input tokens.')
     parser.add_argument('--awq', action='store_true', help='Whether or not to use awq quant.')

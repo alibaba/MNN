@@ -629,11 +629,7 @@ static void MNNAsyQuantInfo_FP32(float* scale, float* bias, float* qscale, float
                 qscale[qind] = 255.f / (max_ - min_);
                 qbias[qind] = roundf(-min_ * 255.f / (max_ - min_)) - 128.0f;
                 scale[sind] = (max_ - min_) / 255.f;
-#ifndef MNN_USE_SSE
                 bias[sind] = min_ + (128.f / 255.f) * (max_ - min_);
-#else
-                bias[sind] = min_;
-#endif
             }
         }
     }
