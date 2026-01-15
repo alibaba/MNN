@@ -28,6 +28,7 @@ class LlmSession (
     override var sessionId: String,
     private val configPath: String,
     var savedHistory: List<ChatDataItem>?,
+    var backendType: String? = null
 ): ChatSession{
     override var supportOmni: Boolean = false
     private var nativePtr: Long = 0
@@ -53,7 +54,7 @@ class LlmSession (
     }
 
     override fun load() {
-        Log.d(TAG, "MNN_DEBUG load begin modelId: $modelId")
+        Log.d(TAG, "MNN_DEBUG load begin modelId: $modelId backend: $backendType")
         modelLoading = true
         isQnn = ModelTypeUtils.isQnnModel(modelId)
         //useful f the file is very big, and has be put in asset folder,  most of the time, you do not need to care about this.
@@ -80,6 +81,10 @@ class LlmSession (
             put("keep_history", keepHistory)
         }
         val llmConfig = ModelConfig.loadMergedConfig(configPath, getExtraConfigFile(modelId))!!
+        // Override backend type from constructor only if not null
+        if (backendType != null) {
+            llmConfig.backendType = backendType
+        }
         if (isQnn) {
             llmConfig.visualModel = "visual_qnn_${QnnModule.modelMiddleName()}.mnn"
         }

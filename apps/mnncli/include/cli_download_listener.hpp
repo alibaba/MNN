@@ -13,13 +13,13 @@
 
 namespace mnncli {
 
-class CLIDownloadListener : public DownloadListener {
+class CLIDownloadListener : public mnn::downloader::DownloadListener {
 public:
     CLIDownloadListener() = default;
     ~CLIDownloadListener() override = default;
     
     void OnDownloadStart(const std::string& model_id) override;
-    void OnDownloadProgress(const std::string& model_id, const DownloadProgress& progress) override;
+    void OnDownloadProgress(const std::string& model_id, const mnn::downloader::DownloadProgress& progress) override;
     void OnDownloadFinished(const std::string& model_id, const std::string& path) override;
     void OnDownloadFailed(const std::string& model_id, const std::string& error) override;
     void OnDownloadPaused(const std::string& model_id) override;

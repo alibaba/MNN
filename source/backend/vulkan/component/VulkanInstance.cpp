@@ -12,6 +12,24 @@
 
 namespace MNN {
 VulkanInstance::VulkanInstance() : mOwner(true), mInstance(VK_NULL_HANDLE) {
+    uint32_t apiVersion = VK_API_VERSION_1_0;
+    PFN_vkEnumerateInstanceVersion enumerateInstanceVersion = nullptr;
+#ifdef MNN_USE_LIB_WRAPPER
+    if (vkGetInstanceProcAddr != nullptr) {
+        enumerateInstanceVersion = reinterpret_cast<PFN_vkEnumerateInstanceVersion>(
+            vkGetInstanceProcAddr(VK_NULL_HANDLE, "vkEnumerateInstanceVersion"));
+    }
+#else
+    enumerateInstanceVersion = reinterpret_cast<PFN_vkEnumerateInstanceVersion>(
+        vkGetInstanceProcAddr(VK_NULL_HANDLE, "vkEnumerateInstanceVersion"));
+#endif
+    if (enumerateInstanceVersion != nullptr) {
+        const auto res = enumerateInstanceVersion(&apiVersion);
+        if (res != VK_SUCCESS) {
+            apiVersion = VK_API_VERSION_1_0;
+        }
+    }
+
     VkApplicationInfo appInfo = {
         /* .sType              = */ VK_STRUCTURE_TYPE_APPLICATION_INFO,
         /* .pNext              = */ nullptr,
@@ -19,7 +37,7 @@ VulkanInstance::VulkanInstance() : mOwner(true), mInstance(VK_NULL_HANDLE) {
         /* .applicationVersion = */ VK_MAKE_VERSION(1, 0, 0),
         /* .pEngineName        = */ "Compute",
         /* .engineVersion      = */ VK_MAKE_VERSION(1, 0, 0),
-        /* .apiVersion         = */ VK_MAKE_VERSION(1, 0, 0),
+        /* .apiVersion         = */ apiVersion,
     };
 
     // Set instance extensions.

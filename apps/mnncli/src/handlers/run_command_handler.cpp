@@ -1,3 +1,6 @@
+#include "model_sources.hpp"
+#include "file_utils.hpp"
+#include "dl_config.hpp"
 //
 //  run_command_handler.cpp
 //
@@ -19,6 +22,7 @@
 namespace fs = std::filesystem;
 
 namespace mnncli {
+using namespace mnn::downloader;
 
 std::string RunCommandHandler::CommandName() const {
     return "run";

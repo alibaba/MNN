@@ -23,10 +23,11 @@ object ModelUtils {
     fun getVendor(modelName: String):String {
         // First try to get vendor from ModelMarketItem
         val modelItem = ModelListManager.getModelIdModelMap()[modelName]
-        if (modelItem?.modelMarketItem?.vendor != null) {
-            return modelItem.modelMarketItem!!.vendor
+        val marketItem = modelItem?.modelMarketItem as? com.alibaba.mnnllm.android.modelmarket.ModelMarketItem
+        if (marketItem?.vendor != null) {
+            return marketItem.vendor
         }
-        
+
         // If not available from market item, use the existing logic
         val modelLower = modelName.lowercase(Locale.getDefault())
         if (modelLower.contains("deepseek")) {
@@ -145,28 +146,7 @@ object ModelUtils {
         val totalDuration = metrics["total_timeus"] as Long * 1.0 / 1000000.0
         return String.format("Generate time: %.2f s", totalDuration)
     }
-    /**
-     * you can add ModelItem.fromLocalModel("Qwen-Omni-7B", "/data/local/tmp/omni_test/model")
-     * to load local models
-     */
-     val localModelList: MutableList<ModelItem> by lazy {
-        val result = mutableListOf<ModelItem>()
-        try {
-            val modelsDir = File("/data/local/tmp/mnn_models/")
-            if (modelsDir.exists() && modelsDir.isDirectory) {
-                modelsDir.listFiles()?.forEach { modelDir ->
-                    if (modelDir.isDirectory && File(modelDir, "config.json").exists()) {
-                        val modelPath = modelDir.absolutePath
-                        val modelId = "local/${modelPath}"
-                        result.add(ModelItem.fromLocalModel(modelId, modelPath))
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("ModelUtils", "Failed to load models from /data/local/tmp/mnn_models/", e)
-        }
-        result
-    }
+
 
     private fun isQwen3(modelName: String):Boolean {
         return modelName.lowercase(Locale.getDefault()).contains("qwen3")
@@ -234,8 +214,11 @@ object ModelUtils {
     }
 
     fun getConfigPathForModel(modelItem: ModelItem): String? {
-        val modelId = modelItem.modelId!!
-        val modelName = modelItem.modelName!!
+        val modelId = modelItem.modelId ?: return null
+        val modelName = modelItem.modelName ?: if (modelItem.isLocal) {
+             // Extract name from local path e.g. local//data/.../Name -> Name
+             modelId.substringAfterLast("/")
+        } else ""
 
         return if (ModelTypeUtils.isDiffusionModel(modelName)) {
             if (modelItem.isBuiltin) {
@@ -308,6 +291,7 @@ object ModelUtils {
             else -> null
         }
     }
+
 
     private const val TAG = "ModelUtils"
 }

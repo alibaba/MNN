@@ -82,7 +82,7 @@ public:
                 auto cmd = parser.Parse();
                 
                 // Set verbose logging
-                mnncli::LogUtils::SetVerbose(cmd.verbose);
+                mnn::downloader::LogUtils::SetVerbose(cmd.verbose);
                 
                 // Dispatch to handler
                 int result = dispatcher.Dispatch(cmd);
@@ -109,7 +109,7 @@ public:
             std::string arg = argv[i];
             if (arg == "-v" || arg == "--verbose") {
                 verbose_ = true;
-                mnncli::LogUtils::SetVerbose(true);
+                mnn::downloader::LogUtils::SetVerbose(true);
                 for (int j = i; j < argc - 1; j++) {
                     argv[j] = argv[j + 1];
                 }

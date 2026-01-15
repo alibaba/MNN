@@ -41,3 +41,34 @@ MNNTTSConfig::MNNTTSConfig(const std::string &config_json_path)
     throw std::runtime_error("Error in config file " + config_json_path + ": " + e.what());
   }
 }
+
+// 新增：支持参数覆盖的构造函数
+MNNTTSConfig::MNNTTSConfig(const std::string &config_file_path, 
+                           const std::map<std::string, std::string> &overrides)
+    : MNNTTSConfig(config_file_path)  // 委托给原构造函数
+{
+  // 应用参数覆盖
+  applyOverrides(overrides);
+}
+
+// 应用参数覆盖
+void MNNTTSConfig::applyOverrides(const std::map<std::string, std::string> &overrides) {
+  if (overrides.empty()) {
+    return;
+  }
+  
+  for (const auto& [key, value] : overrides) {
+    try {
+      if (key == "model_type") {
+        model_type_ = value;
+      } else if (key == "sample_rate") {
+        sample_rate_ = std::stoi(value);
+      }
+      // 可以继续添加其他参数的覆盖逻辑
+    } catch (const std::exception &e) {
+      // 忽略无法转换的参数，使用配置文件中的默认值
+      std::cerr << "Warning: Failed to override parameter '" << key 
+                << "' with value '" << value << "': " << e.what() << std::endl;
+    }
+  }
+}

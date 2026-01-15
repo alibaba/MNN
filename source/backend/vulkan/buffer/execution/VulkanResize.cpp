@@ -24,16 +24,22 @@ VulkanResize::VulkanResize(Backend* bn, float xScale, float yScale, int resizeTy
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
     };
     auto extra            = static_cast<VulkanBackend*>(bn);
+
+    std::string pKey = "glsl_";
     if (1 == resizeType) {
-        mVulkanResizePipeline = extra->getPipeline(
-                                                   "glsl_resizeNearest_comp", VulkanResizeTypes);
+        pKey += "resizeNearest_";
     } else if (2 == resizeType) {
-        mVulkanResizePipeline = extra->getPipeline(
-                                                   "glsl_resizeBilinear_comp", VulkanResizeTypes);
+        pKey += "resizeBilinear_";
     } else {
-        mVulkanResizePipeline = extra->getPipeline(
-                                                   "glsl_resizeNearest_NEAREST_ROUND_comp", VulkanResizeTypes);
+        pKey += "resizeNearest_NEAREST_ROUND_";
     }
+    if (extra->useFP16()) {
+        pKey += "FP16_";
+    }
+    pKey += "comp";
+
+    mVulkanResizePipeline = extra->getPipeline(pKey, VulkanResizeTypes);
+
     mParamBuffer.reset(
         new VulkanBuffer(extra->getMemoryPool(), false, sizeof(GpuParam), nullptr, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT));
     mDescriptorSet.reset(mVulkanResizePipeline->createSet());

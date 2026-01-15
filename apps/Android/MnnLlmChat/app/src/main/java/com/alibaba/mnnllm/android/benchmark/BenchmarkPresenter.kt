@@ -414,7 +414,7 @@ class BenchmarkPresenter(
                 // Get current models or wait for them
                 val models = ModelListManager.getCurrentModels()?: emptyList()
                 availableModels = models.filterNot { ModelTypeUtils.isDiffusionModel(
-                    it.modelItem.modelName
+                    it.modelItem.modelName ?: ""
                 ) }
                 Log.d(TAG, "Found ${availableModels.size} models")
                 view.updateModelSelector(availableModels)
@@ -456,6 +456,10 @@ class BenchmarkPresenter(
             return
         }
         
+        // Get selected backend
+        val backendType = view.getSelectedBackend()
+        Log.d(TAG, "Selected backend: $backendType")
+        
         Log.d(TAG, "Starting benchmark with model: ${modelWrapper.displayName}")
         
         // Transition to INITIALIZING state
@@ -465,11 +469,12 @@ class BenchmarkPresenter(
         
         lifecycleScope.launch {
             try {
-                // Initialize model if not already done
+                // Initialize model if not already done or backend changed
                 if (!model.isModelInitialized() || 
-                    model.getModelInfo() != modelWrapper.modelItem.modelId) {
+                    model.getModelInfo() != modelWrapper.modelItem.modelId ||
+                    model.getBackendType() != backendType) {
                     
-                    Log.d(TAG, "Model needs initialization")
+                    Log.d(TAG, "Model needs initialization or re-initialization (backend changed)")
                     
                     val configPath = if (modelWrapper.modelItem.isLocal && !modelWrapper.modelItem.localPath.isNullOrEmpty()) {
                         "${modelWrapper.modelItem.localPath}/config.json"
@@ -477,8 +482,8 @@ class BenchmarkPresenter(
                         null
                     }
                     
-                    Log.d(TAG, "Initializing model with config: $configPath")
-                    val initSuccess = model.initializeModel(modelWrapper.modelItem.modelId!!, configPath)
+                    Log.d(TAG, "Initializing model with config: $configPath, backend: $backendType")
+                    val initSuccess = model.initializeModel(modelWrapper.modelItem.modelId!!, configPath, backendType)
                     
                     if (!initSuccess) {
                         Log.e(TAG, "Model initialization failed")
@@ -620,7 +625,8 @@ class BenchmarkPresenter(
                                 updateUIForState(BenchmarkState.ERROR)
                             }
                         }
-                    }
+                    },
+                    backendType
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "Benchmark start failed", e)

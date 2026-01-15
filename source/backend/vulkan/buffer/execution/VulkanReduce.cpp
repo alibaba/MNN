@@ -79,36 +79,36 @@ ErrorCode VulkanReduce::onEncode(const std::vector<Tensor*>& inputs, const std::
     return NO_ERROR;
 }
 
-static std::string _getShaderName(const Op* op, bool isInt) {
-    std::string prefix = "glsl_reduce_";
+static std::string _getShaderName(const Op* op, bool isInt, bool useFP16) {
+    std::string result = "glsl_reduce_";
     if (isInt) {
-        prefix = "glsl_reduce_int_";
+        result += "int_";
     }
-    std::string posfix = "_comp";
-    std::string mid = "";
     switch (op->main_as_ReductionParam()->operation()) {
         case ReductionType_SUM:
-            mid = "SUM";
+            result += "SUM";
             break;
         case ReductionType_MEAN:
-            mid = "MEAN";
+            result += "MEAN";
             break;
         case ReductionType_MAXIMUM:
-            mid = "VMAX";
+            result += "VMAX";
             break;
         case ReductionType_MINIMUM:
-            mid = "VMIN";
+            result += "VMIN";
             break;
         case ReductionType_PROD:
-            mid = "PROD";
+            result += "PROD";
             break;
         default:
-            break;
+            return "";
     }
-    if (mid.empty()) {
-        return mid;
+    result += "_";
+    if (useFP16) {
+        result += "FP16_";
     }
-    return prefix + mid + posfix;
+    result += "comp";
+    return result;
 }
 class VulkanReduceCreator : public VulkanBackend::Creator {
 public:
@@ -116,7 +116,8 @@ public:
                                 Backend* backend) const override {
         auto input0 = inputs[0];
         bool isint = input0->getType().code == halide_type_int;
-        auto shader = _getShaderName(op, isint);
+        auto vkBn = static_cast<VulkanBackend*>(backend);
+        auto shader = _getShaderName(op, isint, vkBn->useFP16());
         if (shader.empty()) {
             return nullptr;
         }

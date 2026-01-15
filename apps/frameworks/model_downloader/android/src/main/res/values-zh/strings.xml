@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="source_huggingface">HuggingFace</string>
+    <string name="source_modelers">魔乐</string>
+    <string name="source_modelscope">魔搭</string>
+</resources>

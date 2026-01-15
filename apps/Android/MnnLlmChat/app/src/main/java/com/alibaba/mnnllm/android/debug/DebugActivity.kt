@@ -5,6 +5,9 @@ package com.alibaba.mnnllm.android.debug
 
 import android.Manifest
 import android.content.Intent
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
@@ -29,6 +32,7 @@ import com.alibaba.mnnllm.android.audio.AudioChunksPlayer
 import com.alibaba.mnnllm.android.utils.VoiceModelPathUtils
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
 import com.alibaba.mnnllm.android.BuildConfig
+import com.alibaba.mnnllm.android.modelist.ModelListManager
 import com.taobao.meta.avatar.tts.TtsService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -73,6 +77,7 @@ class DebugActivity : AppCompatActivity() {
     private lateinit var testCaseSpinner: Spinner
     private lateinit var testCaseContainer: FrameLayout
     private lateinit var clearLogButton: Button
+    private lateinit var copyLogButton: Button
 
     // Test case views - will be initialized when layouts are loaded
     private var asrTestButton: Button? = null
@@ -96,8 +101,11 @@ class DebugActivity : AppCompatActivity() {
         TestCase("asr", "ASR Test", R.layout.debug_test_asr),
         TestCase("tts", "TTS Test", R.layout.debug_test_tts),
         TestCase("video", "Video Decoder Test", R.layout.debug_test_video),
+        TestCase("scan", "Model Scan Test", R.layout.debug_test_scan),
         TestCase("settings", "Debug Settings", R.layout.debug_test_settings)
     )
+
+    private var scanModelButton: Button? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -115,6 +123,7 @@ class DebugActivity : AppCompatActivity() {
         testCaseSpinner = findViewById(R.id.testCaseSpinner)
         testCaseContainer = findViewById(R.id.testCaseContainer)
         clearLogButton = findViewById(R.id.clearLogButton)
+        copyLogButton = findViewById(R.id.copyLogButton)
         
         val titleTextView = findViewById<TextView>(R.id.titleTextView)
         val baseTitle = getString(R.string.debug_activity_title)
@@ -165,7 +174,37 @@ class DebugActivity : AppCompatActivity() {
             "asr" -> initAsrViews(view)
             "tts" -> initTtsViews(view)
             "video" -> initVideoViews(view)
+            "scan" -> initScanViews(view)
             "settings" -> initSettingsViews(view)
+        }
+    }
+
+    private fun initScanViews(parentView: View) {
+        scanModelButton = parentView.findViewById(R.id.scanModelButton)
+        scanModelButton?.setOnClickListener {
+            startModelScanTest()
+        }
+    }
+
+    private fun startModelScanTest() {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                log("=== Calling ModelListManager.debugScanModels ===")
+                val result = ModelListManager.debugScanModels(this@DebugActivity)
+                
+                withContext(Dispatchers.Main) {
+                   logTextView.append(result)
+                   scrollView.post {
+                        scrollView.fullScroll(View.FOCUS_DOWN)
+                   }
+                }
+                
+                log("=== Scan Completed ===")
+                
+            } catch (e: Exception) {
+                log("Scan failed: ${e.message}")
+                Log.e(TAG, "Scan failed", e)
+            }
         }
     }
 
@@ -251,6 +290,9 @@ class DebugActivity : AppCompatActivity() {
     private fun setupClickListeners() {
         clearLogButton.setOnClickListener {
             clearLog()
+        }
+        copyLogButton.setOnClickListener {
+            copyLog()
         }
     }
 
@@ -363,6 +405,13 @@ class DebugActivity : AppCompatActivity() {
     private fun clearLog() {
         logTextView.text = ""
         log("Log cleared")
+    }
+
+    private fun copyLog() {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = ClipData.newPlainText("Debug Log", logTextView.text)
+        clipboard.setPrimaryClip(clip)
+        Toast.makeText(this, R.string.log_copied_to_clipboard, Toast.LENGTH_SHORT).show()
     }
 
     private fun closeDebugMode() {

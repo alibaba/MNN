@@ -16,7 +16,7 @@ struct GpuParam {
     float spatialScale;
 };
 
-VulkanROIPooling::VulkanROIPooling(Backend* bn, const float SpatialScale)
+VulkanROIPooling::VulkanROIPooling(Backend* bn, const float SpatialScale, Tensor * tensor)
     : VulkanBasicExecution(bn), mSpatialScale(SpatialScale) {
     std::vector<VkDescriptorType> VulkanROIPoolingTypes{
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -25,8 +25,12 @@ VulkanROIPooling::VulkanROIPooling(Backend* bn, const float SpatialScale)
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
     };
     auto extra                = static_cast<VulkanBackend*>(bn);
-    mVulkanROIPoolingPipeline = extra->getPipeline(
-        "glsl_roipooling_comp", VulkanROIPoolingTypes);
+    std::string pKey = "glsl_roipooling_";
+    if (tensor->getType().code == halide_type_float && extra->useFP16()) {
+        pKey += "FP16_";
+    }
+    pKey += "comp";
+    mVulkanROIPoolingPipeline = extra->getPipeline(pKey, VulkanROIPoolingTypes);
     mParamBuffer = extra->allocUniform();
     mDescriptorSet.reset(mVulkanROIPoolingPipeline->createSet());
 }
@@ -75,7 +79,7 @@ public:
             // Don't support old op version
             return nullptr;
         }
-        return new VulkanROIPooling(bn, op->main_as_RoiParameters()->spatialScale());
+        return new VulkanROIPooling(bn, op->main_as_RoiParameters()->spatialScale(), outputs[0]);
     }
 };
 

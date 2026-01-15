@@ -26,6 +26,7 @@
 #endif
 //#define MNN_VULKAN_DUMP_MEMORY_USAGE
 
+
 namespace MNN {
 
 static std::map<OpType, VulkanBackend::Creator*>* gCreator = nullptr;
@@ -45,21 +46,62 @@ void _copy(const T0* src, T1* dst, size_t size) {
     }
 }
 
-static void _copyBufferToTensor(const Tensor* dest, const VulkanBuffer* source, size_t offset) {
+#ifndef MNN_USE_ARMV82
+
+void _VKFloatToHalf(const float* src, int16_t* dst, size_t size) {
+    for (size_t i = 0; i < size; i++) {
+        ((half_float::half *)dst)[i] = (half_float::half)(src[i]);
+    }
+    return;
+}
+
+void _VKHalfToFloat(const int16_t* src, float* dst, size_t size) {
+    const size_t batchSize = 8;
+    std::vector<half_float::half> halfBatch(batchSize);
+
+    for (size_t i = 0; i < size; i += batchSize) {
+        size_t currentBatchSize = std::min(batchSize, size - i);
+
+        ::memcpy(halfBatch.data(), &(src[i]), currentBatchSize * sizeof(int16_t));
+
+        for (size_t j = 0; j < currentBatchSize; ++j) {
+            dst[i + j] = static_cast<float>(halfBatch[j]);
+        }
+    }
+
+    return;
+}
+
+#endif
+
+static void _copyBufferToTensor(const Tensor* dest, const VulkanBuffer* source, size_t offset, bool half2float = false) {
     auto sourcePtr   = (const float*)source->map(offset);
-    ::memcpy(dest->host<float>(), sourcePtr, dest->usize());
+    if (half2float) {
+        auto dstPtr = dest->host<float>();
+        auto elementCount = static_cast<size_t>(dest->elementSize());
+        HALF_TO_FLOAT(reinterpret_cast<const int16_t*>(sourcePtr), dstPtr, elementCount);
+    } else {
+        ::memcpy(dest->host<float>(), sourcePtr, dest->usize());
+    }
     source->unmap();
 }
 
-static void _copyTensorToBuffer(const Tensor* source, const VulkanBuffer* dest, size_t offset) {
-    auto destPtr     = (float*)dest->map(offset);
-    ::memcpy(destPtr, source->host<float>(), source->usize());
+static void _copyTensorToBuffer(const Tensor* source, const VulkanBuffer* dest, size_t offset, bool float2half = false) {
+    auto destPtr = reinterpret_cast<uint8_t*>(dest->map(offset));
+    if (float2half) {
+        auto srcPtr = source->host<float>();
+        auto elementCount = static_cast<size_t>(source->elementSize());
+        FLOAT_TO_HALF(srcPtr, reinterpret_cast<int16_t*>(destPtr), elementCount);
+    } else {
+        ::memcpy(destPtr, source->host<float>(), source->usize());
+    }
     dest->unmap();
 }
 
 VulkanBackend::VulkanBackend(const VulkanRuntime* runtime, const Backend::Info& info) : Backend(MNN_FORWARD_VULKAN) {
     mRuntime = runtime;
     mDirect = Backend::Info::INDIRECT != info.mode;
+    mUseFP16 = (info.user->precision != BackendConfig::Precision_High && mRuntime->mDevice->getFP16Support());
     std::shared_ptr<BufferAllocator::Allocator> allocReal = BufferAllocator::Allocator::createRecurse(runtime->mBufferPool.get());
     mDynamicBufferPool.resize(2);
     mDynamicBufferPool[0].reset(new EagerBufferAllocator(allocReal, mRuntime->mDevice->proty().limits.nonCoherentAtomSize));
@@ -141,12 +183,14 @@ std::pair<const VulkanBuffer*, size_t> VulkanBackend::getTensorBuffer(const Tens
 }
 
 size_t VulkanBackend::getTensorSize(const Tensor* tensor) const {
-    auto elementSize = tensor->elementSize();
-    auto alignSize = UP_DIV(elementSize, 4) * 4 * sizeof(float);
-    return alignSize;
+    size_t alignElementSize = (size_t) UP_DIV(tensor->elementSize(), 4) * 4;
+    size_t bytes = ((tensor->getType().code == halide_type_float) && mUseFP16) ? sizeof(uint16_t) : sizeof(float);
+    size_t size = alignElementSize * bytes;
+    return size;
 }
 
 Backend::MemObj* VulkanBackend::onAcquire(const Tensor* tensor, StorageType storageType) {
+    MNN_ASSERT(tensor->getType().code == halide_type_float || tensor->getType().code == halide_type_int);
     //FUNC_PRINT_ALL(tensor, p);
     auto alignSize = getTensorSize(tensor);
     auto MTensor     = const_cast<Tensor*>(tensor);
@@ -206,15 +250,17 @@ Execution* VulkanBackend::onCreate(const std::vector<Tensor*>& inputs, const std
         return nullptr;
     }
     std::shared_ptr<VulkanBasicExecution> originExecution ((VulkanBasicExecution*)iter->second->onCreate(inputs, outputs, op, this));
-#ifdef ENABLE_VULKAN_TIME_PROFILE
-    originExecution->setName(EnumNameOpType(op->type()));
-#endif
     if (nullptr == originExecution) {
 #ifdef MNN_OP_SUPPORT_LOG
         MNN_ERROR("Vulkan don't support for %s, type=%s, Special case\n", name.c_str(), EnumNameOpType(op->type()));
 #endif
         return nullptr;
     }
+
+#ifdef ENABLE_VULKAN_TIME_PROFILE
+    originExecution->setName(EnumNameOpType(op->type()));
+#endif
+
     if (mDirect) {
         return new VulkanBasicExecutionDirect(originExecution);
     }
@@ -336,6 +382,14 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
     }
     MNN_PRINT("\n");
 #endif
+
+    auto calculateCpSize = [this] (const Tensor* tensor) -> size_t {
+            size_t eleSize = (size_t) tensor->elementSize();
+            return (tensor->getType().code == halide_type_float && this->mUseFP16) ?
+                (eleSize * sizeof(uint16_t)) :
+                (eleSize * sizeof(float));
+        };
+
     std::shared_ptr<Tensor> tempTensor;
     if (srcTensor->host<float>() != nullptr) {
         _finish();
@@ -348,13 +402,13 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
             MNNCPUCopyBuffer(srcTensor, tempTensor.get());
             srcTensor = tempTensor.get();
         }
-        auto eleSize = srcTensor->elementSize();
-        _requireHostBuffer(eleSize * sizeof(float));
-        _copyTensorToBuffer(srcTensor, mHostBuffer.get(), 0);
+        size_t cpSize = calculateCpSize(srcTensor);
+        _requireHostBuffer(cpSize);
+        _copyTensorToBuffer(srcTensor, mHostBuffer.get(), 0, srcTensor->getType().code == halide_type_float && mUseFP16);
         auto cmdbuffer = mCmdBufferForCopy;
         cmdbuffer->begin(0);
         VkBufferCopy bufferCopy;
-        bufferCopy.size = eleSize * sizeof(float);
+        bufferCopy.size = cpSize;
         bufferCopy.dstOffset = offset;
         bufferCopy.srcOffset = 0;
         vkCmdCopyBuffer(cmdbuffer->get(), mHostBuffer->buffer(), buffer->buffer(),
@@ -374,14 +428,14 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
             });
             dstTensor = tempTensor.get();
         }
-        auto eleSize = dstTensor->elementSize();
-        _requireHostBuffer(eleSize * sizeof(float));
+        size_t cpSize = calculateCpSize(dstTensor);
+        _requireHostBuffer(cpSize);
         auto buffer = reinterpret_cast<VulkanBuffer*>(srcTensor->deviceId());
         auto offset = TensorUtils::getDescribe(srcTensor)->extra.offset;
         auto cmdbuffer = mCmdBufferForCopy;
         cmdbuffer->begin(0);
         VkBufferCopy bufferCopy;
-        bufferCopy.size = eleSize * sizeof(float);
+        bufferCopy.size = cpSize;
         bufferCopy.dstOffset = 0;
         bufferCopy.srcOffset = offset;
         vkCmdCopyBuffer(cmdbuffer->get(), buffer->buffer(), mHostBuffer->buffer(),
@@ -389,16 +443,16 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
         cmdbuffer->end();
         pushCommand(cmdbuffer->get());
         _finish();
-        _copyBufferToTensor(dstTensor, mHostBuffer.get(), 0);
+        _copyBufferToTensor(dstTensor, mHostBuffer.get(), 0, dstTensor->getType().code == halide_type_float && mUseFP16);
     } else if (srcTensor->deviceId() != 0 && dstTensor->deviceId() != 0) {
         // gpu->gpu
         auto format = TensorUtils::getDescribe(dstTensor)->dimensionFormat;
-        // host->gpu
         MNN_ASSERT(format == TensorUtils::getDescribe(srcTensor)->dimensionFormat);
         std::shared_ptr<VulkanCommandPool::Buffer> buffer( mRuntime->mCmdPool->allocBuffer());
         buffer->begin(0);
         VkBufferCopy bufferCopy;
-        bufferCopy.size = srcTensor->elementSize() * sizeof(float);
+        size_t cpSize = calculateCpSize(srcTensor);
+        bufferCopy.size = cpSize;
         bufferCopy.dstOffset = TensorUtils::getDescribe(dstTensor)->extra.offset;
         bufferCopy.srcOffset = TensorUtils::getDescribe(srcTensor)->extra.offset;
         vkCmdCopyBuffer(buffer->get(), reinterpret_cast<VulkanBuffer*>(srcTensor->deviceId())->buffer(), reinterpret_cast<VulkanBuffer*>(dstTensor->deviceId())->buffer(),

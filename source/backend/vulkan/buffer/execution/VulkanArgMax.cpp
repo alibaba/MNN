@@ -16,7 +16,7 @@ struct ConstBuffer {
     ivec4 size;
 };
 
-VulkanArgMax::VulkanArgMax(const Op* op, Backend* bn) : VulkanBasicExecution(bn) {
+VulkanArgMax::VulkanArgMax(const Op* op, Backend* bn, Tensor * input) : VulkanBasicExecution(bn) {
     mAxis                   = op->main_as_ArgMax()->axis();
     auto vkBn = (VulkanBackend*)backend();
     mConstBuffer = vkBn->allocUniform();
@@ -25,14 +25,19 @@ VulkanArgMax::VulkanArgMax(const Op* op, Backend* bn) : VulkanBasicExecution(bn)
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
     };
-    if (op->type() == OpType_ArgMax) {
-        mArgmaxPipeline =
-            vkBn->getPipeline("glsl_argmax_comp", types);
-    } else {
-        MNN_ASSERT(op->type() == OpType_ArgMin);
-        mArgmaxPipeline =
-            vkBn->getPipeline("glsl_argmax_ARGMIN_comp", types);
+
+    std::string pKey = "glsl_argmax_";
+    MNN_ASSERT(op->type() == OpType_ArgMax || op->type() == OpType_ArgMin);
+    if (op->type() == OpType_ArgMin) {
+        pKey += "ARGMIN_";
     }
+    if (input->getType().code == halide_type_float && vkBn->useFP16()) {
+        pKey += "FP16_";
+    }
+    pKey += "comp";
+
+    mArgmaxPipeline = vkBn->getPipeline(pKey, types);
+
     mDescriptorSet.reset(mArgmaxPipeline->createSet());
 }
 
@@ -101,7 +106,7 @@ public:
             // Don't support legency version
             return nullptr;
         }
-        return new VulkanArgMax(op, backend);
+        return new VulkanArgMax(op, backend, inputs[0]);
     }
 };
 

@@ -33,6 +33,7 @@ ErrorCode VulkanInterp::onEncode(const std::vector<Tensor*>& inputs, const std::
 class VulkanInterpCreator : public VulkanBackend::Creator {
 public:
     virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op, Backend* bn) const override {
+        MNN_ASSERT(outputs[0]->getType().code == halide_type_float);
         return new VulkanInterp(op, bn);
     }
 };

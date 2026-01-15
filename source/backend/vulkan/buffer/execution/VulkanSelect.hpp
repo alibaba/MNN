@@ -16,7 +16,7 @@ namespace MNN {
 
 class VulkanSelect : public VulkanBasicExecution {
 public:
-    VulkanSelect(const Op* op, Backend* bn);
+    VulkanSelect(const Op* op, Backend* bn, Tensor * tensor);
     virtual ~VulkanSelect();
     virtual ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                        const VulkanCommandPool::Buffer* cmdBuffer) override;

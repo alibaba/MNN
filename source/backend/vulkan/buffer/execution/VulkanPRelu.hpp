@@ -17,7 +17,7 @@ namespace MNN {
 
 class VulkanPrelu : public VulkanBasicExecution {
 public:
-    VulkanPrelu(Backend* bn, const Op* op);
+    VulkanPrelu(Backend* bn, const Op* op, Tensor * tensor);
     virtual ~VulkanPrelu();
     ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                        const VulkanCommandPool::Buffer* cmdBuffer) override;

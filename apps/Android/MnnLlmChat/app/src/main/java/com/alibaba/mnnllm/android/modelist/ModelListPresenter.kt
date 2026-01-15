@@ -14,6 +14,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import com.alibaba.mls.api.download.DownloadListener
 import com.alibaba.mls.api.download.DownloadInfo
+import com.alibaba.mls.api.download.DownloadState
 
 class ModelListPresenter(private val context: Context, private val view: ModelListContract.View) :
     ModelItemListener, DownloadListener {
@@ -114,7 +115,14 @@ class ModelListPresenter(private val context: Context, private val view: ModelLi
     override fun onItemUpdate(modelItem: ModelItem) {
         // Start update download for the model
         modelItem.modelId?.let { modelId ->
-            ModelDownloadManager.getInstance(context).startDownload(modelId)
+            Log.d(TAG, "onItemUpdate: starting download for $modelId")
+            presenterScope.launch {
+                try {
+                    ModelDownloadManager.getInstance(context).startDownload(modelId)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to start download for $modelId", e)
+                }
+            }
         }
     }
 
@@ -122,6 +130,18 @@ class ModelListPresenter(private val context: Context, private val view: ModelLi
         Log.d(TAG, "refreshList: triggering model list refresh")
         presenterScope.launch {
             ModelListManager.notifyModelListMayChange(ModelListManager.ChangeReason.MANUAL_REFRESH)
+        }
+    }
+
+    fun handlePinStateChange(isPinned: Boolean) {
+        Log.d(TAG, "handlePinStateChange: isPinned=$isPinned")
+        presenterScope.launch {
+            val reason = if (isPinned) {
+                ModelListManager.ChangeReason.MODEL_PINNED
+            } else {
+                ModelListManager.ChangeReason.MODEL_UNPINNED
+            }
+            ModelListManager.notifyModelListMayChange(reason)
         }
     }
 
@@ -139,6 +159,7 @@ class ModelListPresenter(private val context: Context, private val view: ModelLi
     }
 
     override fun onDownloadStart(modelId: String) {
+        Log.d(TAG, "onDownloadStart: $modelId")
         mainHandler?.post {
             // Update UI when model starts updating
             modelListAdapter?.updateItem(modelId)
@@ -146,6 +167,12 @@ class ModelListPresenter(private val context: Context, private val view: ModelLi
     }
 
     override fun onDownloadProgress(modelId: String, downloadInfo: DownloadInfo) {
+        Log.d(TAG, "onDownloadProgress: $modelId state=${downloadInfo.downloadState} progress=${downloadInfo.progress}")
+        if (downloadInfo.downloadState == DownloadState.COMPLETED) {
+            Log.d(TAG, "onDownloadProgress: detected COMPLETED state for $modelId, manually triggering finish")
+            onDownloadFinished(modelId, "")
+            return
+        }
         mainHandler?.post {
             // Update progress for models that are being updated
             modelListAdapter?.updateProgress(modelId, downloadInfo)
@@ -153,10 +180,12 @@ class ModelListPresenter(private val context: Context, private val view: ModelLi
     }
 
     override fun onDownloadFailed(modelId: String, exception: Exception) {
+        Log.e(TAG, "onDownloadFailed: $modelId", exception)
         // Not needed for model list
     }
 
     override fun onDownloadFinished(modelId: String, path: String) {
+        Log.d(TAG, "onDownloadFinished: $modelId path=$path")
         // Download completed, notify manager to refresh
         presenterScope.launch {
             ModelListManager.notifyModelListMayChange(ModelListManager.ChangeReason.MODEL_DOWNLOADED)

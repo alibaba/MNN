@@ -151,6 +151,49 @@
                 </RelativeLayout>
                 </com.google.android.material.card.MaterialCardView>
 
+                <!-- Backend Selector -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/select_backend"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    android:textColor="?colorOnSurface"
+                    android:layout_marginTop="16dp"
+                    android:layout_marginBottom="8dp" />
+
+                <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/backend_selector_card"
+                    style="@style/Widget.Material3.CardView.Outlined"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:strokeColor="@color/accentColor"
+                    app:strokeWidth="0dp">
+
+                    <RadioGroup
+                        android:id="@+id/backend_selector_group"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:padding="8dp">
+
+                        <RadioButton
+                            android:id="@+id/backend_cpu"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="@string/backend_cpu"
+                            android:checked="true" />
+
+                        <RadioButton
+                            android:id="@+id/backend_opencl"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="@string/backend_opencl" />
+                    </RadioGroup>
+                </com.google.android.material.card.MaterialCardView>
+
                 <!-- Start/Stop Button (moved from bottom to here) -->
                 <LinearLayout
                     android:id="@+id/button_container"

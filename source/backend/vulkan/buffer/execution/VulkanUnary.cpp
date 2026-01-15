@@ -32,15 +32,20 @@ VulkanUnary::VulkanUnary(const std::string& midType, Backend* bn, bool isInt, fl
         mUnaryPipeline = vkbackend->getPipeline(midType, types);
     } else {
         if (!midType.empty()) {
-            auto prefix = "glsl_unary_";
+            std::string pKey = "glsl_unary_";
             if (isInt) {
-                prefix = "glsl_unary_int_";
+                pKey += "int_";
             }
-            std::string posfix = "_comp";
-            // get pipeline
-            mUnaryPipeline = vkbackend->getPipeline(prefix + midType + posfix, types);
+            pKey += midType;
+            pKey += "_";
+            if (!isInt && vkbackend->useFP16()) {
+                pKey += "FP16_";
+            }
+            pKey += "comp";
+            mUnaryPipeline = vkbackend->getPipeline(pKey, types);
         } else {
-            mUnaryPipeline = vkbackend->getPipeline("glsl_unary_comp", types);
+            std::string pKey = (vkbackend->useFP16() && !isInt) ? "glsl_unary_FP16_comp" : "glsl_unary_comp";
+            mUnaryPipeline = vkbackend->getPipeline(pKey, types);
         }
     }
     mDesSet.reset(mUnaryPipeline->createSet());
@@ -125,6 +130,7 @@ ErrorCode VulkanUnary::onEncode(const std::vector<Tensor*>& inputs, const std::v
 class VulkanUnaryCreator : public VulkanBackend::Creator {
 public:
     virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op, Backend* bn) const override {
+        auto vkBn = static_cast<VulkanBackend *>(bn);
         if (op->type() == OpType_ReLU6) {
             float minValue = 0.0f;
             float maxValue = 6.0f;
@@ -144,25 +150,31 @@ public:
             if (op->main_as_CastParam()->dstT() == MNN::DataType_DT_BOOL) {
                 return new VulkanUnary("glsl_cast_int_bool_comp", bn, false, 0.0f, 0.0f, true);
             }
-            if (inputs[0]->getType().code == halide_type_float) {
-                if (outputs[0]->getType().code == halide_type_float) {
-                    return new VulkanUnary("", bn, false);
-                }
-                if (outputs[0]->getType().code == halide_type_int) {
-                    return new VulkanUnary("glsl_cast_float_int_comp", bn, false, 0.0f, 0.0f, true);
-                }
-                return nullptr;
-            }
-            if (inputs[0]->getType().code == halide_type_int) {
-                if (outputs[0]->getType().code == halide_type_int) {
-                    return new VulkanUnary("", bn, false);
-                }
-                if (outputs[0]->getType().code == halide_type_float) {
-                    return new VulkanUnary("glsl_cast_float_int_REVERT_comp", bn, false, 0.0f, 0.0f, true);
+
+            auto srcCode = inputs[0]->getType().code;
+            auto dstCode = outputs[0]->getType().code;
+
+            if (srcCode == dstCode) {
+                if (srcCode == halide_type_float || srcCode == halide_type_int) {
+                    return new VulkanUnary("", bn, srcCode == halide_type_int);
                 }
                 return nullptr;
             }
-            return nullptr;
+
+            std::string pKey;
+            if (srcCode == halide_type_float && dstCode == halide_type_int) {
+                pKey = "glsl_cast_float_int_";
+            } else if (srcCode == halide_type_int && dstCode == halide_type_float) {
+                pKey = "glsl_cast_float_int_REVERT_";
+            } else {
+                return nullptr;
+            }
+
+            if (vkBn->useFP16()) {
+                pKey += "FP16_";
+            }
+            pKey += "comp";
+            return new VulkanUnary(pKey, bn, false, 0.0f, 0.0f, true);
         }
         auto midType = _getMidType(op);
         if (midType.empty()) {

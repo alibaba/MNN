@@ -11,7 +11,7 @@
     <string name="downloaded_update_available"> %1$s (Update Available)</string>
     <string name="local_click_to_chat"> %1$s %2$s</string>
     <string name="download_failed_click_retry">Download failed: %1$s, click to retry</string>
-    <string name="downloading_progress">%1$s | %2$s</string>"
+    <string name="downloading_progress">%1$s | %2$s</string>
     <string name="downloading_paused">Paused: %1$.2f%%</string>
     <string name="config_file_not_found">Model config file not found: %1$s</string>
     <string name="model_hello_prompt">Is there anything I can help you with?</string>
@@ -21,7 +21,7 @@
     <string name="start_download">Start Download</string>
     <string name="download_preparing">Download preparing</string>
     <string name="downloading_please_wait">Downloading please wait</string>
-    <string name="loading_failed_click_tor_retry">Loading failed: %1$s, click tor retry</string>
+    <string name="loading_failed_click_tor_retry">Loading failed: %1$s, click to retry</string>
     <string name="input_messages">Input messages here</string>
     <string name="send">send</string>
     <string name="raise_issue">Report an issue</string>
@@ -32,7 +32,7 @@
     <string name="history_cleard">history cleared</string>
     <string name="press_to_chat">Press To Talk</string>
     <string name="start_new_chat">Start New Conversation</string>
-    <string name="new_conversation_started">New converstaion started</string>
+    <string name="new_conversation_started">New conversation started</string>
     <string name="take_photo">Photo</string>
     <string name="choose_image">Image</string>
     <string name="select_audio">Audio(wav)</string>
@@ -103,6 +103,8 @@
     <string name="about">About</string>
     <string name="settings">Settings</string>
     <string name="current_version">Current Version:%1$s</string>
+    <string name="mnn_version">MNN Version</string>
+    <string name="mnn_version_summary">MNN Engine Version: %1$s</string>
     <string name="select_download_provider">Select Download Provider</string>
     <string name="settings_complete">it\'s recommended to remove unfinished tasks and redownload to prevent errors.</string>
     <string name="stop_download_tasks_when_chat">Stop downloads when chat</string>
@@ -205,6 +207,7 @@
     <string name="server_running_at_template">Server running at %1$s:%2$d</string>
     <string name="close">Close</string>
     <string name="back">Back</string>
+    <string name="share_image">Share Image</string>
     <string name="share_benchmark_result">Share Benchmark Result</string>
     
     <string name="api_auth_enabled">Enable API Key Authentication</string>
@@ -248,7 +251,7 @@
     <string name="regenerate">Regenerate</string>
     <string name="copy_audio_info">Copy Audio Info</string>
     <string name="report_crash">Report Crash</string>
-    <string name="model_not_found">Model not foud %1$s</string>
+    <string name="model_not_found">Model not found %1$s</string>
     <string name="out_audio">Output Audio</string>
     <string name="audio_output_confirm">Audio Output is very slow for now, Would you like to continue anyway?</string>
     <string name="confirm_delete_model_title">Confirm Deletion</string>
@@ -276,11 +279,14 @@
     <string name="download_state">Download Status</string>
     <string name="all">All</string>
     <string name="others">Others</string>
+    <string name="not_downloaded">Not Downloaded</string>
     <string name="download_state_not_start">Download Unstarted</string>
     <string name="download_state_completed">Downloaded</string>
     <string name="download_state_downloading">Downloading</string>
     <string name="download_state_failed">Download Failed</string>
     <string name="download_state_paused">Download Paused</string>
+    <string name="download_state_cancelled">Cancelled</string>
+    <string name="download_state_preparing">Preparing</string>
     <string name="download_state_updating">Updating</string>
     <string name="no_models_found">No models available. Please download a model first.</string>
     <string name="no_filtered_models_title">No models match your filters</string>
@@ -386,9 +392,17 @@
     <string name="menu_pin_model">Pin to Top</string>
     <string name="menu_unpin_model">Unpin from Top</string>
     <string name="filter_section_model_tags">Model Tags</string>
-    <string name="filter_all">全部筛选</string>
+    <string name="filter_all">All Filters</string>
+    <string name="filter_section_download_status">Download Status</string>
+    <string name="filter_download_not_started">Not Started</string>
+    <string name="filter_download_downloading">Downloading</string>
+    <string name="filter_download_paused">Paused</string>
+    <string name="filter_download_completed">Completed</string>
+    <string name="filter_all_option">All</string>
+    <string name="filters_reset">Filters reset</string>
+    <string name="filters_applied">Filters applied</string>
     <string name="local">Local</string>
-    
+
     <!-- Voice Chat Download Strings -->
     <string name="voice_models_downloading_progress">Downloading voice models %1$d%% (%2$s)</string>
     <string name="voice_models_download_complete">Voice models download complete! Starting voice chat...</string>
@@ -448,6 +462,12 @@
     <!-- Structured Progress Strings -->
     <string name="benchmark_progress_detailed">Test %1$d/%2$d (PP=%3$d, TG=%4$d)\nRuntime: %5$.3fs, Prefill: %6$.3fs, Decode: %7$.3fs\nPrefill Speed: %8$.2f t/s, Decode Speed: %9$.2f t/s</string>
     <string name="benchmark_progress_simple">Test %1$d/%2$d (PP=%3$d, TG=%4$d)</string>
+
+    <!-- Backend Selection Strings -->
+    <string name="select_backend">Select Backend</string>
+    <string name="backend_cpu">CPU</string>
+    <string name="backend_opencl">OpenCL</string>
+    <string name="backend_label">Backend</string>
     
     <string name="api_service_channel_name">API Service Channel</string>
     <string name="request_added_to_queue">Request added to queue: requestId=%1$s, traceId=%2$s, queue size=%3$d, priority=%4$s</string>
@@ -517,7 +537,6 @@
     <string name="max_memory">Max Memory</string>
     <string name="please_download_model">Please download a model first</string>
     <string name="go_to_download">Go to download</string>
-    <string name="all_filter">All Filters</string>
     <string name="model_card">Model Card</string>
     <string name="menu">Menu</string>
     <string name="open_in_browser">Open in Browser</string>
@@ -538,6 +557,7 @@
     <!-- Debug Feature Strings -->
     <string name="debug_show_model_info">Show Model Info Menu</string>
     <string name="checking_repo_updates">Checking for repository updates...</string>
+    <string name="menu_show_model_info_title">Model Information</string>
     <string name="repo_update_check_result">Repository Update Check</string>
     <string name="allow_network_market_data">Allow network to fetch model market data</string>
     <string name="enable_network_delay">Enable network delay (3 seconds)</string>

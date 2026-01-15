@@ -37,7 +37,8 @@ class BenchmarkModel {
     fun startBenchmark(
         context: Context,
         modelWrapper: ModelItemWrapper,
-        callback: BenchmarkModelCallback
+        callback: BenchmarkModelCallback,
+        backendType: String = "cpu"
     ) {
         val selectedModelId = modelWrapper.modelItem.modelId
         if (selectedModelId.isNullOrEmpty()) {
@@ -52,17 +53,20 @@ class BenchmarkModel {
         MemoryMonitor.start()
         
         try {
+            // Map backend string to MNN backend ID (0=CPU, 3=OpenCL)
+            val backendId = if (backendType.equals("opencl", ignoreCase = true)) 3 else 0
+            
             // Create runtime and test parameters following llm_bench.cpp defaults
             val runtimeParams = BenchmarkService.defaultRuntimeParams.copy(
-                backends = listOf(0), // CPU only for mobile
+                backends = listOf(backendId),
                 threads = listOf(4),
                 precision = listOf(2), // Low precision
                 memory = listOf(2) // Low memory
             )
             
             val testParams = BenchmarkService.defaultTestParams.copy(
-                nPrompt = listOf(),
-                nGenerate = listOf(),
+                nPrompt = emptyList<Int>(),
+                nGenerate = emptyList<Int>(),
                 nPrompGen = listOf(Pair(128, 128)),
                 nRepeat = listOf(3), // Reduced for mobile
                 kvCache = "false" // llama-bench style test
@@ -141,12 +145,19 @@ class BenchmarkModel {
     fun getModelInfo(): String? {
         return benchmarkService.getModelInfo()
     }
+
+    /**
+     * Get current backend type
+     */
+    fun getBackendType(): String {
+        return benchmarkService.getCurrentBackendType()
+    }
     
     /**
      * Initialize model for benchmark
      */
-    suspend fun initializeModel(modelId: String, configPath: String?): Boolean {
-        return benchmarkService.initializeModel(modelId, configPath)
+    suspend fun initializeModel(modelId: String, configPath: String?, backendType: String = "cpu"): Boolean {
+        return benchmarkService.initializeModel(modelId, configPath, backendType)
     }
     
     /**

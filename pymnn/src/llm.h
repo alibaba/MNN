@@ -174,7 +174,7 @@ static PyObject* PyMNNLLM_response(LLM *self, PyObject *args) {
 
     PyObject* content = nullptr;
     int stream = 0;
-    int max_new_tokens = 2048;
+    int max_new_tokens = -1;
 
     if (!PyArg_ParseTuple(args, "O|ii", &content, &stream, &max_new_tokens)) {
         MNN_PRINT("[MNNLLM] response: PyArg_ParseTuple failed\n");
@@ -368,6 +368,9 @@ static PyObject* PyMNNLLM_get_context(LLM *self, PyObject *args) {
 
     PyDict_SetItemString(dict, "generate_str", string2Object(context->generate_str));
 
+    // llm status
+    PyDict_SetItemString(dict, "status", PyLong_FromLong((int)context->status));
+
     return dict;
 }
 
@@ -427,6 +430,11 @@ static PyObject* PyMNNLLM_set_context(LLM *self, PyObject *args) {
     PyObject* generate_str = PyDict_GetItemString(dict, "generate_str");
     if (generate_str && PyUnicode_Check(generate_str)) {
         context->generate_str = object2String(generate_str);
+    }
+
+    PyObject* status = PyDict_GetItemString(dict, "status");
+    if (status && PyLong_Check(status)) {
+        context->status = (MNN::Transformer::LlmStatus)PyLong_AsLong(status);
     }
 
     Py_RETURN_NONE;

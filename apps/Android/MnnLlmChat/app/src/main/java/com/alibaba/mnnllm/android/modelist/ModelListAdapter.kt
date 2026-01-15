@@ -10,6 +10,8 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mls.api.ModelItem
 import com.alibaba.mls.api.download.DownloadInfo
+import com.alibaba.mls.api.download.DownloadState
+import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.model.Modality
 import com.alibaba.mnnllm.android.model.ModelUtils
@@ -210,8 +212,8 @@ class ModelListAdapter(private val items: MutableList<ModelItemWrapper>) :
     private fun filterItemsSync() {
         val filtered = items.filter { modelWrapper ->
             val modelItem = modelWrapper.modelItem
-            val modelNameLowerCase = modelItem.modelName.lowercase(Locale.getDefault())
-            
+            val modelNameLowerCase = modelItem.modelName?.lowercase(Locale.getDefault()) ?: ""
+
             for ((key, value) in filterQueryMap) {
                 if (value.isEmpty()) {
                     continue
@@ -263,8 +265,8 @@ class ModelListAdapter(private val items: MutableList<ModelItemWrapper>) :
             val filtered = withContext(Dispatchers.Default) {
                 items.filter { modelWrapper ->
                     val modelItem = modelWrapper.modelItem
-                    val modelNameLowerCase = modelItem.modelName.lowercase(Locale.getDefault())
-                    
+                    val modelNameLowerCase = modelItem.modelName?.lowercase(Locale.getDefault()) ?: ""
+
                     for ((key, value) in filterQueryMap) {
                         if (value.isEmpty()) {
                             continue
@@ -282,10 +284,25 @@ class ModelListAdapter(private val items: MutableList<ModelItemWrapper>) :
                                 }
                             }
                             "download" -> {
-                                // All models are downloaded, so this filter always passes
-                                if (value == "true") {
+                                // Filter by download status
+                                /*
+                                if (value == "ALL" || value.isEmpty()) {
                                     continue
                                 }
+
+                                val downloadInfo = modelWrapper.modelItem.downloadInfo
+                                val matchesFilter = when (value) {
+                                    "NOT_STARTED" -> downloadInfo == null || downloadInfo.downloadState == null
+                                    "DOWNLOADING" -> downloadInfo?.downloadState?.name == "DOWNLOADING"
+                                    "PAUSED" -> downloadInfo?.downloadState?.name == "PAUSED"
+                                    "COMPLETED" -> downloadInfo?.downloadState?.name == "COMPLETED" || downloadInfo?.downloadState?.name == "FINISHED"
+                                    else -> true
+                                }
+
+                                if (!matchesFilter) {
+                                    return@filter false
+                                }
+                                */
                             }
                             else -> {
                                 if (!modelNameLowerCase.contains(value.lowercase(Locale.getDefault()))) {

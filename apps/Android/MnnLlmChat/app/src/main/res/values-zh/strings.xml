@@ -95,6 +95,8 @@
     <string name="about">关于</string>
     <string name="settings">设置</string>
     <string name="current_version">当前版本:%1$s</string>
+    <string name="mnn_version">MNN 版本</string>
+    <string name="mnn_version_summary">MNN 引擎版本: %1$s</string>
     <string name="select_download_provider">选择下载提供商</string>
     <string name="settings_complete">强烈建议删除未完成任务重新下载，否则可能有数据不一致问题。</string>
     <string name="stop_download_tasks_when_chat">聊天时停止下载任务</string>
@@ -197,6 +199,7 @@
     <string name="server_running_at_template">服务器运行在 %1$s:%2$d</string>
     <string name="close">关闭</string>
     <string name="back">返回</string>
+    <string name="share_image">分享图片</string>
     <string name="share_benchmark_result">分享基准测试结果</string>
     
     <string name="api_auth_enabled">启用API Key认证</string>
@@ -374,8 +377,16 @@
     <string name="filter">筛选</string>
     <string name="filter_section_model_tags">模型标签</string>
     <string name="filter_all">全部筛选</string>
+    <string name="filter_section_download_status">下载状态</string>
+    <string name="filter_download_not_started">未开始</string>
+    <string name="filter_download_downloading">下载中</string>
+    <string name="filter_download_paused">暂停中</string>
+    <string name="filter_download_completed">已完成</string>
+    <string name="filter_all_option">全部</string>
+    <string name="filters_reset">筛选已重置</string>
+    <string name="filters_applied">筛选已应用</string>
     <string name="local">本地</string>
-    
+
     <!-- Voice Chat Download Strings -->
     <string name="voice_models_downloading_progress">正在下载语音模型 %1$d%% (%2$s)</string>
     <string name="voice_models_download_complete">语音模型下载完成！正在启动语音聊天...</string>
@@ -436,8 +447,14 @@
     <string name="benchmark_device_info">设备: %1$s</string>
     
     <!-- Structured Progress Strings -->
-    <string name="benchmark_progress_detailed">测试 %1$d/%2$d (PP=%3$d, TG=%4$d)\n运行时间: %5$.3fs, 预填充: %6$.3fs, 解码: %7$.3fs\n预填充速度: %8$.2f t/s, 解码速度: %9$.2f t/s</string>
+    <string name="benchmark_progress_detailed">测试 %1$d/%2$d (PP=%3$d, TG=%4$d)\n运行时间: %5$.3f秒, 预填充: %6$.3f秒, 解码: %7$.3f秒\n预填充速度: %8$.2f t/s, 解码速度: %9$.2f t/s</string>
     <string name="benchmark_progress_simple">测试 %1$d/%2$d (PP=%3$d, TG=%4$d)</string>
+
+    <!-- Backend Selection Strings -->
+    <string name="select_backend">选择后端</string>
+    <string name="backend_cpu">CPU</string>
+    <string name="backend_opencl">OpenCL</string>
+    <string name="backend_label">后端</string>
     
     <string name="api_service_channel_name">API服务通道</string>
     <string name="request_added_to_queue">请求已加入队列: requestId=%1$s, traceId=%2$s, 队列长度=%3$d, 优先级=%4$s</string>
@@ -514,7 +531,6 @@
     <string name="max_memory">最大内存</string>
     <string name="please_download_model">请先下载模型</string>
     <string name="go_to_download">去下载</string>
-    <string name="all_filter">全部筛选</string>
     <string name="model_card">模型卡片</string>
     <string name="menu">菜单</string>
     <string name="failed_to_open_url">无法打开链接</string>

@@ -34,16 +34,16 @@ struct RuntimeHint {
     int cpuDecreaseRate = 50;
     int dynamicQuantOption = 0;
 
-    // qkvQuantOption % 8:
+    // attentionOption % 8:
     // 0: Do not quantize
     // 1: Q,K: Int8, V: Float
     // 2: Q,K,V: Int8
 
-    // qkvQuantOption / 8:
+    // attentionOption / 8:
     // 0: don't use flash attention
     // 1: use flash attention
 
-    int qkvQuantOption = 8;
+    int attentionOption = 8;
 
     // the kvcache size limit of each layer
     // if the size of kvcache in memory exceeds the limit
@@ -56,7 +56,7 @@ struct RuntimeHint {
 
     // path of the kvcache directory
     std::string prefixcacheDirPath = "prefixcache";
-    
+
     std::string midMemoryPath;
     std::string weightMemoryPath;
     int mmapFileSize = 1024; // MB
@@ -68,12 +68,14 @@ struct RuntimeHint {
 
     // whether to use Arm sme2 cores when threads>1
     bool useArmSme2Cores = true;
-
+#ifdef MNN_DEFAULT_USE_KLEIDIAI
+    bool enableKleidiAI = true;
+#else
     bool enableKleidiAI = false;
-
+#endif
     // Use CPU Ids
     std::vector<int> cpuIds;
-    
+
     // Division ration between SME and NEON when runtime threads>=4
     // Default: 41, which means that in LLM inference,
     // during the Prefill stage the workload
@@ -393,6 +395,7 @@ public:
     }
 
     mutable int pCurrentStatus = 0; // NO_ERROR
+    mutable int pExecutionStatus = 0; // NO_ERROR
 
     // TODO: Move to Backend
     void* pMeta = nullptr;

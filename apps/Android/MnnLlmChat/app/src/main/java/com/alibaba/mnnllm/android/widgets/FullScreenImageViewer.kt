@@ -16,17 +16,30 @@ import kotlin.math.min
 
 object FullScreenImageViewer {
     fun showImagePopup(context: Context, imageUri: Uri?) {
+        if (imageUri == null) return
+        showImagePopup(context, listOf(imageUri), 0)
+    }
+
+    fun showImagePopup(context: Context, images: List<Uri>, initialIndex: Int) {
+        if (images.isEmpty()) return
+        
         val inflater = context.getSystemService(Context.LAYOUT_INFLATER_SERVICE) as LayoutInflater
         val popupView = inflater.inflate(R.layout.popup_image_dialog, null)
-        popupView.layoutParams = ViewGroup.LayoutParams(1000, 1000)
-        val dialog = Dialog(context, R.style.Theme_TransparentFullScreenDialog)
+        val dialog = Dialog(context, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
         dialog.setContentView(popupView)
-        val popupImageView = popupView.findViewById<ImageView>(R.id.popupImageView)
-        popupImageView.setImageURI(imageUri)
-        val size = UiUtils.getWindowSize(context)
-        val dimension = min(size.x.toDouble(), size.y.toDouble()).toInt()
-        popupImageView.layoutParams = FrameLayout.LayoutParams(dimension, dimension)
+        
+        val viewPager = popupView.findViewById<androidx.viewpager2.widget.ViewPager2>(R.id.viewPager)
+        val adapter = FullScreenImageAdapter(images) {
+            dialog.dismiss()
+        }
+        viewPager.adapter = adapter
+        viewPager.setCurrentItem(initialIndex, false)
+        
+        popupView.setOnClickListener {
+            dialog.dismiss()
+        }
+        
         dialog.show()
     }
 }

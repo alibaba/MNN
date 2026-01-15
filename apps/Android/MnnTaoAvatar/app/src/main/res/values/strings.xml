@@ -33,5 +33,11 @@
     <string name="check_for_update_summary" />
     <string name="inference_by_mnn">Inference Local by MNN</string>
     <string name="record_permission_denied">Record permission denied, please grant it</string>
+    <string name="tts_voice_title">Voice</string>
+    <string name="tts_voice_summary">%s</string>
+    <string name="tts_speaker_male_1">Male Voice 1</string>
+    <string name="tts_speaker_male_2">Male Voice 2</string>
+    <string name="tts_speaker_female_1">Female Voice 1</string>
+    <string name="tts_speaker_female_2">Female Voice 2</string>
 
 </resources>

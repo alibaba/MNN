@@ -60,29 +60,23 @@ static bool compareOutput(VARP output, const std::string& directName, const std:
         MNN_PRINT("%d, ", info->dim[i]);
     }
     MNN_PRINT(")\n");
-    auto targetValue = _Input(info->dim, info->order, info->type);
-    auto targetPtr = targetValue->writeMap<float>();
     auto outputPtr = output->readMap<float>();
+    float diffAbsMaxV = 0.0f;
+    float absMaxV = 0.0f;
 #define MNN_IS_INF(x) (fabs(x) == INFINITY)
 #define MNN_IS_NAN(x) ((x) != (x))
     for (int i=0; i<info->size; ++i) {
         double targetValue;
         outputOrigin >> targetValue;
-        targetPtr[i] = targetValue;
-    }
-
-    for (int i=0; i<info->size; ++i) {
         if (MNN_IS_INF(outputPtr[i]) || MNN_IS_NAN(outputPtr[i])) {
             MNN_ERROR("TESTERROR %s value error:%f\n", name.c_str(), outputPtr[i]);
             return false;
         }
+        auto diff = fabsf((float)targetValue - outputPtr[i]);
+        absMaxV = fmaxf(absMaxV, targetValue);
+        diffAbsMaxV = fmaxf(diff, diffAbsMaxV);
     }
-    auto absMax = _ReduceMax(_Abs(targetValue), {});
-    absMax = _Maximum(absMax, _Scalar<float>(0.0001f));
-    auto diff = _Abs(targetValue - output);
-    auto diffAbsMax = _ReduceMax(diff);
-    auto absMaxV = absMax->readMap<float>()[0];
-    auto diffAbsMaxV = diffAbsMax->readMap<float>()[0];
+
     MNN_PRINT("For %s, max = %f, diffmax = %f, diff rate = %f\n", name.c_str(), absMaxV, diffAbsMaxV, diffAbsMaxV / fmaxf(absMaxV, 1e-6));
     if (absMaxV * 0.01f < diffAbsMaxV || MNN_IS_NAN(absMaxV)) {
         MNN_ERROR("TESTERROR %s value error : absMaxV:%f - DiffMax %f\n", name.c_str(), absMaxV, diffAbsMaxV);
@@ -499,10 +493,13 @@ int main(int argc, char *argv[]) {
 
     if (runTime > 0) {
         int t = runTime;
-        std::vector<float> times(t, 0.0f);
         if (runMask & 4) {
             _initTimeTrace();
         }
+        float minTime = std::numeric_limits<float>::max();
+        float maxTime = 0.0f;
+        float sum    = 0.0f;
+
         for (int i = 0; i < t; ++i) {
             Timer _l;
             auto out = net->onForward(inputs);
@@ -510,41 +507,28 @@ int main(int argc, char *argv[]) {
             for (auto o : out) {
                 ((MNN::Tensor*)o->getTensor())->wait(MNN::Tensor::MAP_TENSOR_READ, true);
             }
-            times[i] = _l.durationInUs() / 1000.0f;
+            auto time = _l.durationInUs() / 1000.0f;
             if (freq > 0.0f) {
-                float remainMs = (1000.0f / freq) - times[i];
+                float remainMs = (1000.0f / freq) - time;
                 if (remainMs > 0.0f) {
                     std::this_thread::sleep_for(std::chrono::milliseconds((int)remainMs));
                 }
             }
-        }
-        if (nullptr != gTimeTraceInfo) {
-            float opSummer = 0.0f;
-            float opFlopsSummber = 0.0f;
-            for (auto& iter : gTimeTraceInfo->mTypes) {
-                float summer = 0.0f;
-                float summerflops = 0.0f;
-                for (auto& t : iter.second) {
-                    for (auto& t0 : t.second) {
-                        summer += t0.first;
-                        summerflops += t0.second;
-                    }
-                }
-                summer = summer / (float)t;
-                summerflops = summerflops / (float)t;
-                MNN_PRINT("%s : %.7f, FLOP: %.7f, Speed: %.7f GFlops\n", iter.first.c_str(), summer, summerflops, summerflops / summer);
-                opSummer += summer;
-                opFlopsSummber+= summerflops;
+            if (maxTime < time) {
+                maxTime = time;
             }
-            MNN_PRINT("OP Summer: %.7f, Flops: %.7f, Speed: %.7f GFlops\n", opSummer, opFlopsSummber, opFlopsSummber/opSummer);
-        }
-        auto minTime = std::min_element(times.begin(), times.end());
-        auto maxTime = std::max_element(times.begin(), times.end());
-        float sum    = 0.0f;
-        for (auto time : times) {
+            if (minTime > time) {
+                minTime = time;
+            }
             sum += time;
         }
-        MNN_PRINT("Avg= %f ms, min= %f ms, max= %f ms\n", sum / (float)t, *minTime, *maxTime);
+        if (nullptr != gTimeTraceInfo) {
+            MNN_PRINT("Per Op Trace: \n");
+            gTimeTraceInfo->dump(true);
+            MNN_PRINT("Per Type Trace: \n");
+            gTimeTraceInfo->dump(false);
+        }
+        MNN_PRINT("Avg= %f ms, min= %f ms, max= %f ms\n", sum / (float)t, minTime, maxTime);
     }
     rtmgr->updateCache();
     return 0;

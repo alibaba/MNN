@@ -67,6 +67,8 @@ int InitVulkanOnce(void) {
         reinterpret_cast<PFN_vkEnumeratePhysicalDevices>(MNN_DLSYM(libvulkan, "vkEnumeratePhysicalDevices"));
     vkGetPhysicalDeviceFeatures =
         reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures>(MNN_DLSYM(libvulkan, "vkGetPhysicalDeviceFeatures"));
+    vkGetPhysicalDeviceFeatures2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(MNN_DLSYM(libvulkan, "vkGetPhysicalDeviceFeatures2"));
+    vkGetPhysicalDeviceFeatures2KHR = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(MNN_DLSYM(libvulkan, "vkGetPhysicalDeviceFeatures2KHR"));
     vkGetPhysicalDeviceFormatProperties = reinterpret_cast<PFN_vkGetPhysicalDeviceFormatProperties>(
         MNN_DLSYM(libvulkan, "vkGetPhysicalDeviceFormatProperties"));
     vkGetPhysicalDeviceImageFormatProperties = reinterpret_cast<PFN_vkGetPhysicalDeviceImageFormatProperties>(
@@ -330,6 +332,8 @@ PFN_vkCreateInstance vkCreateInstance;
 PFN_vkDestroyInstance vkDestroyInstance;
 PFN_vkEnumeratePhysicalDevices vkEnumeratePhysicalDevices;
 PFN_vkGetPhysicalDeviceFeatures vkGetPhysicalDeviceFeatures;
+PFN_vkGetPhysicalDeviceFeatures2 vkGetPhysicalDeviceFeatures2;
+PFN_vkGetPhysicalDeviceFeatures2 vkGetPhysicalDeviceFeatures2KHR;
 PFN_vkGetPhysicalDeviceFormatProperties vkGetPhysicalDeviceFormatProperties;
 PFN_vkGetPhysicalDeviceImageFormatProperties vkGetPhysicalDeviceImageFormatProperties;
 PFN_vkGetPhysicalDeviceProperties vkGetPhysicalDeviceProperties;

@@ -16,8 +16,10 @@ VulkanMatMul::VulkanMatMul(bool transposeA, bool transposeB, Backend* bn, bool h
     auto vkbackend = static_cast<VulkanBackend*>(bn);
     mParam = vkbackend->allocUniform();
     mHasBias = hasBias;
+    std::string pKey = "glsl_matmulunit_";
+    std::vector<VkDescriptorType> types;
     if (!mHasBias) {
-        mPipeline = vkbackend->getPipeline("glsl_matmulunit_comp", {
+        types = {
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -25,9 +27,10 @@ VulkanMatMul::VulkanMatMul(bool transposeA, bool transposeB, Backend* bn, bool h
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-        });
+        };
     } else {
-        mPipeline = vkbackend->getPipeline("glsl_matmulunit_HAS_BIAS_comp", {
+        pKey += "HAS_BIAS_";
+        types = {
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -37,8 +40,13 @@ VulkanMatMul::VulkanMatMul(bool transposeA, bool transposeB, Backend* bn, bool h
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-        });
+        };
     }
+    if (vkbackend->useFP16()) {
+        pKey += "FP16_";
+    }
+    pKey += "comp";
+    mPipeline = vkbackend->getPipeline(pKey, types);
     mDescribe.reset(mPipeline->createSet());
 }
 VulkanMatMul::~ VulkanMatMul() {

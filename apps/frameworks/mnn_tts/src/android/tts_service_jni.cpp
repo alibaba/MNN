@@ -70,4 +70,16 @@ Java_com_taobao_meta_avatar_tts_TtsService_nativeSetCurrentIndex(JNIEnv *env, jo
     tts_service->SetIndex(index);
 }
 
+JNIEXPORT void JNICALL
+Java_com_taobao_meta_avatar_tts_TtsService_nativeSetSpeakerId(JNIEnv *env, jobject thiz,
+                                                                 jlong nativePtr,
+                                                                 jstring speakerId) {
+    auto ttsService = reinterpret_cast<TaoAvatar::TTSService *>(nativePtr);
+    const char *speakerIdCStr = env->GetStringUTFChars(speakerId, nullptr);
+    if (ttsService) {
+        ttsService->SetSpeakerId(speakerIdCStr);
+    }
+    env->ReleaseStringUTFChars(speakerId, speakerIdCStr);
+}
+
 }

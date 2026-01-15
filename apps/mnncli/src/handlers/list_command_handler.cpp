@@ -1,3 +1,6 @@
+#include "model_sources.hpp"
+#include "file_utils.hpp"
+#include "dl_config.hpp"
 //
 //  list_command_handler.cpp
 //
@@ -10,6 +13,7 @@
 #include "local_model_utils.hpp"
 
 namespace mnncli {
+using namespace mnn::downloader;
 
 std::string ListCommandHandler::CommandName() const {
     return "list";

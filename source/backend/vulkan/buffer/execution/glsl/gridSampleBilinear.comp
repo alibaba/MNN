@@ -1,16 +1,13 @@
-#version 450 core
-layout(std430) buffer;
-
 layout(set=0, binding=0) writeonly buffer destBuffer{
-    vec4 data[];
+    FLOAT4 data[];
 }uOutput;
 
 layout(set=0, binding=1) readonly buffer sourceBuffer0{
-    vec4 data[];
+    FLOAT4 data[];
 } uInput;
 
 layout(set=0, binding=2) readonly buffer sourceBuffer1{
-    float data[];
+    FLOAT data[];
 } uGrid;
 
 layout(set=0, binding=3) uniform gridSampleBuffer{
@@ -21,13 +18,13 @@ layout(set=0, binding=3) uniform gridSampleBuffer{
 
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
-vec4 LoadSample(int positionX, int positionY, int c, int n) {
-	vec4 value;
+FLOAT4 LoadSample(int positionX, int positionY, int c, int n) {
+	FLOAT4 value;
 	int width = uGridSampleParam.inShape.x;
 	int height = uGridSampleParam.inShape.y;
 #ifdef PAD_MODE_ZEROS
 	if (positionX < 0 || positionX >= width || positionY < 0 || positionY >= height) {
-		value = vec4(0.0);
+		value = FLOAT4(0.0);
 	} else {
 		value = uInput.data[0
 			+ positionX
@@ -70,35 +67,34 @@ void main()
 
 		// get position in grid
 		int gridPosition = n * outputShape.x * outputShape.y + y * outputShape.x + x;
-		float gridX = uGrid.data[2 * gridPosition + 0];
-		float gridY = uGrid.data[2 * gridPosition + 1];
+		FLOAT gridX = uGrid.data[2 * gridPosition + 0];
+		FLOAT gridY = uGrid.data[2 * gridPosition + 1];
 
 		// compute position of input
-		float a = float(uGridSampleParam.alignCorners);
-		float b = 1.0f - a;
-		float cordH = ((1 + gridY) * (inputShape.y - a) - b) * 0.5f;
-		float cordW = ((1 + gridX) * (inputShape.x - a) - b) * 0.5f;
-
+		FLOAT a = FLOAT(uGridSampleParam.alignCorners);
+		FLOAT b = FLOAT(1.0f) - a;
+        FLOAT cordH = ((FLOAT(1.0) + gridY) * (FLOAT(inputShape.y) - a) - b) * FLOAT(0.5);
+        FLOAT cordW = ((FLOAT(1.0) + gridX) * (FLOAT(inputShape.x) - a) - b) * FLOAT(0.5);
 		int w0_h = int(floor(cordH));
 		int w0_w = int(floor(cordW));
 		int w1_h = w0_h + 1;
 		int w1_w = w0_w + 1;
-		vec4 oneV = vec4(1.0);
+		FLOAT4 oneV = FLOAT4(1.0);
 
-		vec4 i00 = LoadSample(w0_w, w0_h, z, n);
-		vec4 i01 = LoadSample(w1_w, w0_h, z, n);
-		vec4 i10 = LoadSample(w0_w, w1_h, z, n);
-		vec4 i11 = LoadSample(w1_w, w1_h, z, n);
+		FLOAT4 i00 = LoadSample(w0_w, w0_h, z, n);
+		FLOAT4 i01 = LoadSample(w1_w, w0_h, z, n);
+		FLOAT4 i10 = LoadSample(w0_w, w1_h, z, n);
+		FLOAT4 i11 = LoadSample(w1_w, w1_h, z, n);
 
-		vec4 f0 = vec4(float(w1_w) - cordW);
-		vec4 f1 = oneV - f0;
-		vec4 h0 = vec4(float(w1_h) - cordH);
-		vec4 h1 = oneV - h0;
+		FLOAT4 f0 = FLOAT4(FLOAT(w1_w) - cordW);
+		FLOAT4 f1 = oneV - f0;
+		FLOAT4 h0 = FLOAT4(FLOAT(w1_h) - cordH);
+		FLOAT4 h1 = oneV - h0;
 		
-		vec4 i0 = i00 * f0 + i01 * f1;
-		vec4 i1 = i10 * f0 + i11 * f1;
+		FLOAT4 i0 = i00 * f0 + i01 * f1;
+		FLOAT4 i1 = i10 * f0 + i11 * f1;
 
-		vec4 value = i0 * h0 + i1 * h1;
+		FLOAT4 value = i0 * h0 + i1 * h1;
 		uOutput.data[0
 			+ x
 			+ y * outputShape.x

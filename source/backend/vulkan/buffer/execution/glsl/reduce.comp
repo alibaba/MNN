@@ -1,7 +1,3 @@
-#version 440 core
-#define FLOAT float
-
-layout(std430) buffer;
 layout(set=0, binding=0) writeonly buffer destBuffer{
     FLOAT data[];
 } uOutput;
@@ -35,9 +31,9 @@ void main()
     // x: index in outside, y: index in inside
     if(pos.y < uConst.w && pos.x < uConst.c && lid < uConst.h) {
         int basicOffset = pos.x * uConst.w * uConst.h + pos.y;
-        FLOAT res = uInput.data[basicOffset + lid * uConst.w];
+        float res = float(uInput.data[basicOffset + lid * uConst.w]);
         for(int i = lid+uConst.reduceAxis; i < uConst.h; i+=uConst.reduceAxis) {
-            FLOAT next = uInput.data[basicOffset + i * uConst.w];
+            float next = float(uInput.data[basicOffset + i * uConst.w]);
 #ifdef VMAX
             res = max(res, next);
 #endif
@@ -59,9 +55,9 @@ void main()
     barrier();
 
     if(pos.y < uConst.w && pos.x < uConst.c && lid == 0) {
-        FLOAT res = local_buffer[lidx * uConst.reduceAxis];
+        float res = local_buffer[lidx * uConst.reduceAxis];
         for (int t=1; t<uConst.reduceAxis && t < uConst.h; ++t) {
-            FLOAT next = local_buffer[t + lidx * uConst.reduceAxis];
+            float next = local_buffer[t + lidx * uConst.reduceAxis];
 #ifdef VMAX
             res = max(res, next);
 #endif
@@ -81,6 +77,6 @@ void main()
 #ifdef MEAN
         res = res * uConst.k;
 #endif
-        uOutput.data[posTmp.x] = res;
+        uOutput.data[posTmp.x] = FLOAT(res);
     }
 }

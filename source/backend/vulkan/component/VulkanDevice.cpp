@@ -8,6 +8,7 @@
 
 #include "backend/vulkan/component/VulkanDevice.hpp"
 #include <string.h>
+#include <algorithm>
 //#define MNN_VULKAN_PRINT_EXT
 namespace MNN {
 static uint32_t _getLocalMemorySize(const VkPhysicalDeviceMemoryProperties& memProty) {
@@ -48,16 +49,16 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance)
     MNN_ASSERT(nullptr != tmpGpus[0]);
     mPhysicalDevice = tmpGpus[0];
 
-    // Find a GFX queue family
+    // Check FP16.
+    checkFP16();
+
+    // Set queue.
     uint32_t queueFamilyCount = 1;
     uint32_t queueFamilyIndex = 0;
-
     mInstance->getPhysicalDeviceQueueFamilyProperties(mPhysicalDevice, queueFamilyCount, nullptr);
-
     MNN_ASSERT(queueFamilyCount);
     std::vector<VkQueueFamilyProperties> queueFamilyProperties(queueFamilyCount);
     mInstance->getPhysicalDeviceQueueFamilyProperties(mPhysicalDevice, queueFamilyCount, queueFamilyProperties.data());
-
     for (queueFamilyIndex = 0; queueFamilyIndex < queueFamilyCount; queueFamilyIndex++) {
         if (queueFamilyProperties[queueFamilyIndex].queueFlags & VK_QUEUE_COMPUTE_BIT) {
             break;
@@ -68,8 +69,6 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance)
     }
     MNN_ASSERT(queueFamilyIndex < queueFamilyCount);
     mQueueFamilyIndex = queueFamilyIndex;
-
-    // Create a logical device (vulkan device)
     float priorities[] = {
         1.0f,
     };
@@ -81,10 +80,6 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance)
         /* .queueCount       = */ 1,
         /* .pQueuePriorities = */ priorities,
     };
-    VkPhysicalDeviceFeatures mDeviceFeature;
-    ::memset(&mDeviceFeature, 0, sizeof(mDeviceFeature));
-    mDeviceFeature.shaderStorageImageWriteWithoutFormat = VK_TRUE;
-    //vkGetPhysicalDeviceFeatures(mPhysicalDevice, &mDeviceFeature);
 
     // Set device extensions.
     std::vector<const char*> deviceExtensions;
@@ -103,6 +98,39 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance)
         }
     }
 
+    // Set device features.
+    VkPhysicalDeviceFeatures deviceFeatures{};
+    deviceFeatures.shaderStorageImageWriteWithoutFormat = VK_TRUE;
+
+    VkPhysicalDeviceFeatures2 deviceFeatures2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+    deviceFeatures2.features = deviceFeatures;
+
+    void* pNextChain = nullptr;
+
+    // --- Configure FP16 ---
+    if (mFP16Info.supportFP16) {
+        if (mFP16Info.FP16FromExtension) {
+            deviceExtensions.push_back(VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME);
+            deviceExtensions.push_back(VK_KHR_16BIT_STORAGE_EXTENSION_NAME);
+
+            // Chain KHR structs
+            mFP16Info.enabledShaderFloat16Int8Features.pNext = pNextChain;
+            pNextChain = &mFP16Info.enabledShaderFloat16Int8Features;
+            
+            mFP16Info.enabled16BitStorageFeatures.pNext = pNextChain;
+            pNextChain = &mFP16Info.enabled16BitStorageFeatures;
+        } else {
+            // Chain Core structs
+            mFP16Info.enabledVulkan12Features.pNext = pNextChain;
+            pNextChain = &mFP16Info.enabledVulkan12Features;
+
+            mFP16Info.enabledVulkan11Features.pNext = pNextChain;
+            pNextChain = &mFP16Info.enabledVulkan11Features;
+        }
+    }
+    deviceFeatures2.pNext = pNextChain;
+
+    // Create Device. Get Queue.
     VkDeviceCreateInfo deviceCreateInfo{
         /* .sType                   = */ VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
         /* .pNext                   = */ nullptr,
@@ -113,18 +141,21 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance)
         /* .ppEnabledLayerNames     = */ nullptr,
         /* .enabledExtensionCount   = */ static_cast<uint32_t>(deviceExtensions.size()),
         /* .ppEnabledExtensionNames = */ deviceExtensions.data(),
-        /* .pEnabledFeatures        = */ &mDeviceFeature,
+        /* .pEnabledFeatures        = */ nullptr,
     };
+    deviceCreateInfo.pNext = &deviceFeatures2;
     mDevice = VK_NULL_HANDLE;
     CALL_VK(vkCreateDevice(mPhysicalDevice, &deviceCreateInfo, nullptr, &mDevice));
     if (VK_NULL_HANDLE == mDevice) {
         MNN_ERROR("Can't create vk device\n");
         return;
     }
+    getDeviceQueue(mQueueFamilyIndex, 0, mQueue);
+
+    // Query device properties.
     vkGetPhysicalDeviceProperties(mPhysicalDevice, &mDeviceProty);
     vkGetPhysicalDeviceMemoryProperties(mPhysicalDevice, &mMemoryProty);
     mLocalMemorySize = _getLocalMemorySize(mMemoryProty);
-    getDeviceQueue(mQueueFamilyIndex, 0, mQueue);
 
     // query subgroupSize
     {
@@ -575,6 +606,76 @@ const VkResult VulkanDevice::freeDescriptorSets(const VkDescriptorPool& descript
 const void VulkanDevice::destroyDescriptorPool(const VkDescriptorPool& descriptorPool,
                                                const VkAllocationCallbacks* allocator) const {
     vkDestroyDescriptorPool(mDevice, descriptorPool, allocator);
+}
+
+void VulkanDevice::checkFP16() {
+    mFP16Info.supportFP16 = false;
+    mFP16Info.FP16FromExtension = false;
+    mFP16Info.enabledVulkan11Features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
+    mFP16Info.enabledVulkan12Features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+    mFP16Info.enabledShaderFloat16Int8Features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES};
+    mFP16Info.enabled16BitStorageFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES};
+    
+    PFN_vkGetPhysicalDeviceFeatures2 getFeatures2 = vkGetPhysicalDeviceFeatures2;
+    if (!getFeatures2) {
+        getFeatures2 = vkGetPhysicalDeviceFeatures2KHR;
+    }
+    if (!getFeatures2) {
+        return;
+    }
+
+    // 1. Try Vulkan 1.2 Core approach
+    {
+        VkPhysicalDeviceVulkan11Features vk11 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
+        VkPhysicalDeviceVulkan12Features vk12 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+        vk12.pNext = &vk11;
+
+        VkPhysicalDeviceFeatures2 features2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+        features2.pNext = &vk12;
+        getFeatures2(mPhysicalDevice, &features2);
+
+        if (vk12.shaderFloat16 == VK_TRUE && vk11.storageBuffer16BitAccess == VK_TRUE) {
+            mFP16Info.supportFP16 = true;
+            mFP16Info.enabledVulkan12Features.shaderFloat16 = VK_TRUE;
+            mFP16Info.enabledVulkan11Features.storageBuffer16BitAccess = VK_TRUE;
+            return;
+        }
+    }
+
+    // 2. Try KHR Extension approach
+    {
+        uint32_t extCount = 0;
+        vkEnumerateDeviceExtensionProperties(mPhysicalDevice, nullptr, &extCount, nullptr);
+        std::vector<VkExtensionProperties> availableExts(extCount);
+        vkEnumerateDeviceExtensionProperties(mPhysicalDevice, nullptr, &extCount, availableExts.data());
+
+        auto hasExt = [&](const char* name) {
+            return std::any_of(availableExts.begin(), availableExts.end(),
+                               [&](const VkExtensionProperties& ext) {
+                                   return std::strcmp(ext.extensionName, name) == 0;
+                               });
+        };
+
+        if (!hasExt(VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME) || !hasExt(VK_KHR_16BIT_STORAGE_EXTENSION_NAME)) {
+            return;
+        }
+
+        VkPhysicalDeviceShaderFloat16Int8Features khrFloat16 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES};
+        VkPhysicalDevice16BitStorageFeatures khrStorage = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES};
+        khrFloat16.pNext = &khrStorage;
+
+        VkPhysicalDeviceFeatures2 features2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+        features2.pNext = &khrFloat16;
+        getFeatures2(mPhysicalDevice, &features2);
+
+        if (khrFloat16.shaderFloat16 == VK_TRUE && khrStorage.storageBuffer16BitAccess == VK_TRUE) {
+            mFP16Info.supportFP16 = true;
+            mFP16Info.FP16FromExtension = true;
+            mFP16Info.enabledShaderFloat16Int8Features.shaderFloat16 = VK_TRUE;
+            mFP16Info.enabled16BitStorageFeatures.storageBuffer16BitAccess = VK_TRUE;
+            return;
+        }
+    }
 }
 
 } // namespace MNN

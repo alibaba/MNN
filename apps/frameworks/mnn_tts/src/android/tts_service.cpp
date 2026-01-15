@@ -39,6 +39,12 @@ void TTSService::SetIndex(int index) {
     current_index_ = index;
 }
 
+void TTSService::SetSpeakerId(const std::string &speaker_id) {
+    if (tts_) {
+        tts_->SetSpeakerId(speaker_id);
+    }
+}
+
 std::vector<int16_t> TTSService::Process(const std::string &text, int id) {
     if (tts_ != nullptr && (!text.empty())) {
         auto audio = tts_->Process(text);

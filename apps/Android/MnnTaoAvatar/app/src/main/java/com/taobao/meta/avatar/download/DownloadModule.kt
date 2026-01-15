@@ -10,7 +10,8 @@ import com.alibaba.mls.api.download.RepoDownloadSate
 import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.utils.FileUtils.formatFileSize
 import com.taobao.meta.avatar.debug.DebugModule.Companion.DEBUG_USE_PRIVATE
-
+import java.util.Collections
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * responsible for downloading avatar resources from modelscope,huggingface, etc.
@@ -19,17 +20,18 @@ class DownloadModule(private val context: Activity) {
 
     //define the minimal repos to download
     private val reposToDownload = listOf(
-        "taobao-mnn/Qwen2.5-1.5B-Instruct-MNN",
-        "taobao-mnn/UniTalker-MNN",
-        "taobao-mnn/bert-vits2-MNN",
-        "taobao-mnn/TaoAvatar-NNR-MNN",
-        "taobao-mnn/sherpa-mnn-streaming-zipformer-bilingual-zh-en-2023-02-20",
-        "taobao-mnn/sherpa-mnn-streaming-zipformer-en-2023-02-21"
+        "ModelScope/MNN/Qwen2.5-1.5B-Instruct-MNN",
+        "ModelScope/MNN/UniTalker-MNN",
+        "ModelScope/MNN/bert-vits2-MNN",
+        "ModelScope/MNN/TaoAvatar-NNR-MNN",
+        "ModelScope/MNN/sherpa-mnn-streaming-zipformer-bilingual-zh-en-2023-02-20",
+        "ModelScope/MNN/sherpa-mnn-streaming-zipformer-en-2023-02-21",
+        "ModelScope/MNN/supertonic-tts-mnn"
     )
 
-    private val finishedSet = mutableSetOf<String>()
-    private val sizeMap = mutableMapOf<String, Long>()
-    private val savedMap = mutableMapOf<String, Long>()
+    private val finishedSet = Collections.synchronizedSet(mutableSetOf<String>())
+    private val sizeMap = ConcurrentHashMap<String, Long>()
+    private val savedMap = ConcurrentHashMap<String, Long>()
     private var downloadCallback: DownloadCallback? = null
     private var lastProgressTime: Long = 0
     private var downloadSpeedStr = "0Bps"
@@ -112,6 +114,10 @@ class DownloadModule(private val context: Activity) {
                 savedMap[it] = downloadInfo.totalSize
                 finishedSet.add(it)
             }
+        }
+        // Check immediate completion if all were already downloaded
+        if (finishedSet.size == reposToDownload.size) {
+             downloadCallback?.onDownloadComplete(true, null)
         }
     }
 

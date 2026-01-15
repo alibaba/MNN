@@ -1,11 +1,9 @@
-#version 440 core
-layout(std430) buffer;
 layout(set=0, binding=0) buffer destbuffer{
-    float data[];
+    FLOAT data[];
 }uOutput;
 
 layout(set=0, binding=1) readonly buffer sourceBuffer{
-    float data[];
+    FLOAT data[];
 }uInput;
 
 layout(set = 0, binding = 2) uniform constBuffer {
@@ -26,13 +24,13 @@ void main()
         int W = uConst.w;
         int H = uConst.h;
         int C = uConst.c;
-        float maxValue = uInput.data[pos.x * H * W + pos.y];
+        FLOAT maxValue = uInput.data[pos.x * H * W + pos.y];
         for(int i = 1; i < H; ++i)
         {
             int index = i * W + pos.x * H * W + pos.y;
             maxValue = max(maxValue, uInput.data[index]);
         }
-        float sum = 0.0;
+        FLOAT sum = FLOAT(0.0);
         for(int i = 0; i < H; ++i)
         {
             int index = i * W + pos.x * H * W + pos.y;

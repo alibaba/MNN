@@ -69,7 +69,7 @@ static inline void to_lower_case(std::string& str) {
 }
 
 Tokenizer* Tokenizer::createTokenizer(const std::string& filename) {
-    AUTOTIME;
+    // AUTOTIME;
     Tokenizer* tokenizer = nullptr;
     // check file
     std::ifstream tok_file(filename);
@@ -430,6 +430,9 @@ void Sentencepiece::encode(const std::string& str, std::vector<int>& ids) {
 }
 
 std::string Sentencepiece::decode(int id) {
+    if (id < 0 || id >= static_cast<int>(sentence_pieces_.size())) {
+        return "";
+    }
     auto piece = sentence_pieces_[id].piece;
     int pos = piece.find("▁");
     if (pos != -1) {
@@ -481,7 +484,7 @@ void Tiktoken::encode(const std::string& str, std::vector<int>& ids) {
 }
 
 std::string Tiktoken::decode(int id) {
-    if (id >= decoder_.size()) {
+    if (id < 0 || id >= static_cast<int>(decoder_.size())) {
         return "";
     }
     return decoder_[id];
@@ -503,7 +506,7 @@ bool BertTokenizer::load_vocab(std::ifstream& tok_file) {
 }
 
 std::string BertTokenizer::decode(int id) {
-    if (id >= decoder_.size()) {
+    if (id < 0 || id >= static_cast<int>(decoder_.size())) {
         return "";
     }
     return decoder_[id];
@@ -926,7 +929,7 @@ void HuggingfaceTokenizer::encode(const std::string& str, std::vector<int>& ids)
 
 std::string HuggingfaceTokenizer::decode(int id) {
     // printf("decode id = %d, %lu, %s#\n", id, decoder_.size(), decoder_.at(id).c_str());
-    if (id >= decoder_.size()) {
+    if (id < 0 || id >= static_cast<int>(decoder_.size())) {
         return "";
     }
     auto decode_utf8 = decoder_.at(id);
