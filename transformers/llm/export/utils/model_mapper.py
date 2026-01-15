@@ -293,33 +293,27 @@ class ModelMapper:
         }
         self.regist('phi-msft', phi_map)
 
-    def regist_phi3(self):
-        phi3_map = {
-            'config': {
-                'hidden_size': 'hidden_size',
-                'num_attention_heads': 'num_attention_heads',
-                'num_hidden_layers': 'num_hidden_layers',
-                'rope_theta': 'rope_theta',
-                'head_dim': 'head_dim',
-                'num_key_value_heads': 'num_key_value_heads',
-            },
+        phi2_map = {
+            'config': self.default_config,
             'model': {
                 'lm': 'lm_head',
                 'embed': 'model.embed_tokens',
                 'blocks': 'model.layers',
-                'final_layernorm': 'model.norm'
+                'final_layernorm': 'model.final_layernorm'
             },
             'decoder': {
                 'self_attn': 'self_attn',
                 'mlp': 'mlp',
-                'input_layernorm': 'input_layernorm',
-                'post_attention_layernorm': 'post_attention_layernorm'
+                'input_layernorm': 'input_layernorm'
             },
             'attention': {
-                'qkv_proj': 'qkv_proj',
+                'q_proj': 'q_proj',
+                'k_proj': 'k_proj',
+                'v_proj': 'v_proj',
+                'o_proj': 'dense'
             }
         }
-        # self.regist('phi3', phi3_map)
+        self.regist('phi', phi2_map)
 
     def regist_intervl(self):
         intervl_map = {
@@ -336,7 +330,9 @@ class ModelMapper:
                 'embed': 'language_model.model.embed_tokens',
                 'blocks': 'language_model.model.layers',
                 'final_layernorm': 'language_model.model.norm',
-                'visual': 'vision_model'
+                'visual': 'vision_model',
+                'visual.mlp1': 'mlp1',
+                'visual.select_layer': 'select_layer'
             },
             'decoder': {
                 'self_attn': 'self_attn',
@@ -531,6 +527,33 @@ class ModelMapper:
         }
         self.regist('llava_qwen2', fastvlm_map)
 
+    def regist_qwen2audio(self):
+        qwen2audio_config = {
+            'hidden_size': 'text_config.hidden_size',
+            'head_dim': 'text_config.head_dim',
+            'num_attention_heads': 'text_config.num_attention_heads',
+            'num_hidden_layers': 'text_config.num_hidden_layers',
+            'num_key_value_heads': 'text_config.num_key_value_heads',
+            'rope_theta': 'text_config.rope_theta',
+            'rope_scaling': 'text_config.rope_scaling',
+            'max_position_embeddings': 'text_config.max_position_embeddings'
+        }
+        qwen2audio_model = {
+            'lm': 'language_model.lm_head',
+            'embed': 'language_model.model.embed_tokens',
+            'blocks': 'language_model.model.layers',
+            'final_layernorm': 'language_model.model.norm',
+            'audio': 'audio_tower',
+            'audio.multi_modal_projector': 'multi_modal_projector'
+        }
+        qwen2audio_map = {
+            'config': qwen2audio_config,
+            'model': qwen2audio_model,
+            'decoder': self.default_decoder,
+            'attention': self.default_attention
+        }
+        self.regist('qwen2_audio', qwen2audio_map)
+
     def regist_qwenvl(self):
         if TRANSFORMERS_VERSION <= '4.52.1':
             return
@@ -572,7 +595,6 @@ class ModelMapper:
             'model': qwen2vl_model,
             'decoder': self.default_decoder,
             'attention': qwen3_attention
-
         }
         qwen3vlmoe_mlp = {
             'num_experts': 'num_experts',
@@ -653,13 +675,15 @@ class ModelMapper:
     def regist_minicpmv(self):
         minicpmv_config = copy.deepcopy(self.default_config)
         minicpmv_config['scale_emb'] = 'scale_emb'
+        minicpmv_config['patch_size'] = 'vision_config.patch_size'
+        minicpmv_config['image_size'] = 'vision_config.image_size'
         minicpmv_model = {
             'lm': 'llm.lm_head',
             'embed': 'llm.model.embed_tokens',
             'blocks': 'llm.model.layers',
             'final_layernorm': 'llm.model.norm',
             'visual': 'vpm',
-            'resampler': 'resampler'
+            'visual.resampler': 'resampler'
         }
         minicpmv_map = {
             'config': minicpmv_config,

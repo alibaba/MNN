@@ -95,13 +95,15 @@ class LlmExporter(torch.nn.Module):
         if self.config.sliding_window > 0:
             self.llm_config['sliding_window'] = self.config.sliding_window
         if hasattr(self.tokenizer, 'get_chat_template'):
-             self.llm_config['jinja'] = {
-                 'chat_template': self.tokenizer.get_chat_template()
-             }
-             if self.tokenizer.bos_token:
-                 self.llm_config['jinja']['bos'] = self.tokenizer.bos_token
-             if self.tokenizer.eos_token:
-                 self.llm_config['jinja']['eos'] = self.tokenizer.eos_token
+             chat_template = self.tokenizer.get_chat_template()
+             if chat_template is not None:
+                 self.llm_config['jinja'] = {
+                     'chat_template': chat_template
+                 }
+                 if self.tokenizer.bos_token:
+                     self.llm_config['jinja']['bos'] = self.tokenizer.bos_token
+                 if self.tokenizer.eos_token:
+                     self.llm_config['jinja']['eos'] = self.tokenizer.eos_token
 
         # tie word embeddings
         self.args.tie_word_embeddings = not self.args.seperate_embed and self.model.lm.lm.weight.equal(self.model.embed.embed.weight)
@@ -197,6 +199,29 @@ class LlmExporter(torch.nn.Module):
             tensor_data = self.model.embed.embed.weight.data
 
         format_bit = getattr(self.args, 'embed_bit', 16)
+        quant_block = getattr(self.args, 'quant_block', 64)
+        symmetric = getattr(self.args, 'sym', False)
+
+        if self.args.skip_weight:
+            format_name = f'int{format_bit}' if format_bit < 16 else 'bf16'
+            embedding_file = f'{self.args.dst_path}/embeddings_{format_name}.bin'
+            # Calculate expected size
+            if format_bit == 16:
+                file_size = tensor_data.numel() * 2
+            else:
+                oc, ic = tensor_data.shape
+                block_size = ic if quant_block == 0 else quant_block
+                block_num = ic // block_size
+                q_weight_size = (oc * ic * format_bit + 7) // 8
+                alpha_size = oc * block_num * (1 if symmetric else 2) * 4
+                file_size = q_weight_size + alpha_size
+                self.llm_config['tie_embeddings'] = [0, q_weight_size, alpha_size, format_bit, quant_block]
+
+            with open(embedding_file, 'wb') as f:
+                if file_size > 0:
+                    f.seek(file_size - 1)
+                    f.write(b'\0')
+            return embedding_file
 
         if format_bit == 16:
             # BF16 format
@@ -210,8 +235,6 @@ class LlmExporter(torch.nn.Module):
             # Quantized formats
             quant_bit = format_bit
             format_name = f'int{format_bit}'
-            quant_block = getattr(self.args, 'quant_block', 64)
-            symmetric = getattr(self.args, 'sym', False)
             awq = getattr(self.args, 'awq', False)
             hqq = getattr(self.args, 'hqq', False)
 
@@ -502,12 +525,13 @@ class LlmExporter(torch.nn.Module):
             self.onnx_load_param(onnx_model)
 
     def export(self, export_type):
-        if self.args.omni:
-            self.omni_quant()
-        if self.args.awq:
-            self.awq_quant()
-        if self.args.smooth:
-            self.smooth_quant()
+        if not self.args.skip_weight:
+            if self.args.omni:
+                self.omni_quant()
+            if self.args.awq:
+                self.awq_quant()
+            if self.args.smooth:
+                self.smooth_quant()
         export_mnn = export_type == 'mnn'
         self.mnn_converter = MNNConverter(self) if export_mnn else None
         self.export_talker()
@@ -756,7 +780,7 @@ def main():
     parser.add_argument('--embed_bit', type=int, default=16, choices=[16, 8, 4], help='embedding export bit precision, choices are 16 (bf16), 8 (int8), 4 (int4), default is 16.')
     parser.add_argument('--act_sym', action='store_true', help='smooth quant act us sym or not, default asym.')
     parser.add_argument('--generate_for_npu', action='store_true', help='Whether or not to generate model for NPU deployment, default is False.')
-
+    parser.add_argument('--skip_weight', action='store_true', help='Whether or not to skip loading model weights, useful for testing export flow.')
     # omni quant
     parser.add_argument('--omni_epochs', type=int, default=20, help='OmniQuant 优化的轮数')
     parser.add_argument('--omni_lr', type=float, default=5e-3, help='OmniQuant 的学习率')
