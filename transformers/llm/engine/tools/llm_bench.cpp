@@ -171,6 +171,7 @@ struct TestInstance {
     bool                     useMmap;
     int                      nPrompt;
     int                      nGenerate;
+    std::vector<int64_t>     nGenerates;
     std::vector<int64_t>     prefillUs;
     std::vector<int64_t>     decodeUs;
     std::vector<int64_t>     samplesUs;
@@ -204,6 +205,14 @@ struct TestInstance {
     std::vector<double> getTokensPerSecond(int n_tokens, std::vector<int64_t> cost_us) const {
         std::vector<double> ts;
         std::transform(cost_us.begin(), cost_us.end(), std::back_inserter(ts), [n_tokens](int64_t t) { return 1e6 * n_tokens / t; });
+        return ts;
+    }
+
+    std::vector<double> getTokensPerSecond(std::vector<int64_t> n_tokens, std::vector<int64_t> cost_us) const {
+        std::vector<double> ts(n_tokens.size());
+        for (int i = 0; i < n_tokens.size(); ++i) {
+            ts[i] = 1e6 * n_tokens[i] / cost_us[i];
+        }
         return ts;
     }
 
@@ -390,7 +399,7 @@ struct markdownPrinter : public Printer {
                 snprintf(buf, sizeof(buf), "%.2f ± %.2f", t.getAvgUs(spd), t.getStdevUs(spd));
                 value = buf;
             } else if (field == "speed(tok/s)") {
-                auto decode_speed = t.getTokensPerSecond(t.nGenerate, t.decodeUs);
+                auto decode_speed = t.getTokensPerSecond(t.nGenerates, t.decodeUs);
                 auto prefill_speed = t.getTokensPerSecond(t.nPrompt, t.prefillUs);
                 snprintf(buf, sizeof(buf), "%.2f ± %.2f<br>%.2f ± %.2f", t.getAvgUs(prefill_speed), t.getStdevUs(prefill_speed), t.getAvgUs(decode_speed), t.getStdevUs(decode_speed));
                 value = buf;
@@ -1202,6 +1211,11 @@ int main(int argc, char ** argv) {
                 if (i > 0) { // Exclude the first performance value.
                     t.prefillUs.push_back(prefillTime);
                     t.decodeUs.push_back(decodeTime);
+                    if (llm->stoped()) {
+                        t.nGenerates.push_back(context->gen_seq_len - 1);
+                    } else {
+                        t.nGenerates.push_back(context->gen_seq_len);
+                    }
                 }
             }
             if (printHeader) {
