@@ -13,8 +13,221 @@
 #include "rapidjson/document.h"
 #include "rapidjson/filereadstream.h"
 #include "rapidjson/error/en.h"
+
 namespace MNN {
 namespace DIFFUSION {
+
+static bool ReadVarint(const char*& ptr, const char* end, uint64_t& value) {
+    value = 0;
+    int shift = 0;
+    while (ptr < end) {
+        uint8_t byte = *ptr++;
+        value |= (uint64_t)(byte & 0x7F) << shift;
+        if ((byte & 0x80) == 0) return true;
+        shift += 7;
+    }
+    return false;
+}
+
+T5Tokenizer::~T5Tokenizer() {
+}
+
+void T5Tokenizer::Trie::insert(const std::string& key, int id) {
+    int node_idx = 0;
+    for (char c : key) {
+        if (list[node_idx].children.find(c) == list[node_idx].children.end()) {
+            if (size >= list.size()) {
+                list.resize(list.size() * 2);
+            }
+            list[node_idx].children[c] = size;
+            node_idx = size++;
+        } else {
+            node_idx = list[node_idx].children[c];
+        }
+    }
+    list[node_idx].id = id;
+}
+
+std::vector<std::pair<int, int>> T5Tokenizer::Trie::commonPrefixSearch(const std::string& str, int start) {
+    std::vector<std::pair<int, int>> results;
+    int node_idx = 0;
+    for (int i = start; i < str.length(); ++i) {
+        char c = str[i];
+        if (list[node_idx].children.find(c) == list[node_idx].children.end()) {
+            break;
+        }
+        node_idx = list[node_idx].children[c];
+        if (list[node_idx].id != -1) {
+            results.push_back({list[node_idx].id, i - start + 1});
+        }
+    }
+    return results;
+}
+
+bool T5Tokenizer::load(const std::string& filePath) {
+    std::string modelPath = filePath + "/spiece.model";
+    std::ifstream input(modelPath, std::ios::binary);
+    if (!input.is_open()) {
+        MNN_ERROR("Failed to open %s\n", modelPath.c_str());
+        return false;
+    }
+    
+    std::string content((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    const char* ptr = content.data();
+    const char* end = content.data() + content.size();
+    
+    mPieces.clear();
+    mTrie = Trie();
+    
+    while (ptr < end) {
+        uint64_t tag;
+        if (!ReadVarint(ptr, end, tag)) break;
+        int field_num = tag >> 3;
+        int wire_type = tag & 7;
+        
+        if (field_num == 1 && wire_type == 2) { // pieces
+            uint64_t len;
+            if (!ReadVarint(ptr, end, len)) break;
+            const char* msg_end = ptr + len;
+            
+            std::string piece;
+            float score = 0.0f;
+            int type = 1;
+            
+            while (ptr < msg_end) {
+                uint64_t sp_tag;
+                if (!ReadVarint(ptr, end, sp_tag)) break;
+                int sp_field = sp_tag >> 3;
+                int sp_wire = sp_tag & 7;
+                
+                if (sp_field == 1 && sp_wire == 2) { // piece
+                    uint64_t str_len;
+                    if (!ReadVarint(ptr, end, str_len)) break;
+                    piece = std::string(ptr, str_len);
+                    ptr += str_len;
+                } else if (sp_field == 2 && sp_wire == 5) { // score
+                    uint32_t val;
+                    memcpy(&val, ptr, 4);
+                    ptr += 4;
+                    memcpy(&score, &val, 4);
+                } else if (sp_field == 3 && sp_wire == 0) { // type
+                    uint64_t type_val;
+                    ReadVarint(ptr, end, type_val);
+                    type = (int)type_val;
+                } else {
+                    if (sp_wire == 0) { uint64_t tmp; ReadVarint(ptr, end, tmp); }
+                    else if (sp_wire == 1) ptr += 8;
+                    else if (sp_wire == 2) { uint64_t tmp; ReadVarint(ptr, end, tmp); ptr += tmp; }
+                    else if (sp_wire == 5) ptr += 4;
+                }
+            }
+            
+            mPieces.push_back({piece, score});
+            if (type == 1) { // NORMAL
+                mTrie.insert(piece, mPieces.size() - 1);
+            } else if (type == 3) { // CONTROL
+                mTrie.insert(piece, mPieces.size() - 1);
+            } else if (type == 2) { // UNKNOWN
+                mUnkId = mPieces.size() - 1;
+            }
+            
+        } else {
+            if (wire_type == 0) { uint64_t tmp; ReadVarint(ptr, end, tmp); }
+            else if (wire_type == 1) ptr += 8;
+            else if (wire_type == 2) { uint64_t tmp; ReadVarint(ptr, end, tmp); ptr += tmp; }
+            else if (wire_type == 5) ptr += 4;
+        }
+    }
+    
+    // Find EOS ID
+    for (int i = 0; i < mPieces.size(); ++i) {
+        if (mPieces[i].first == "</s>") {
+            mEosId = i;
+            break;
+        }
+    }
+    
+    return true;
+}
+
+std::vector<int> T5Tokenizer::encodeUnigram(const std::string& text) {
+    struct Node {
+        int id = -1;
+        float score = -1e9;
+        int prev_idx = -1;
+        int length = 0;
+    };
+    
+    std::vector<Node> lattice(text.length() + 1);
+    lattice[0].score = 0.0f;
+    
+    for (int i = 0; i < text.length(); ++i) {
+        if (lattice[i].score <= -1e9) continue;
+        
+        auto matches = mTrie.commonPrefixSearch(text, i);
+        
+        bool has_single = false;
+        for (auto& m : matches) {
+            int id = m.first;
+            int len = m.second;
+            if (len == 1) has_single = true;
+            
+            float score = lattice[i].score + mPieces[id].second;
+            if (score > lattice[i + len].score) {
+                lattice[i + len].score = score;
+                lattice[i + len].id = id;
+                lattice[i + len].prev_idx = i;
+                lattice[i + len].length = len;
+            }
+        }
+        
+        if (!has_single) {
+            float score = lattice[i].score - 10.0f;
+            if (score > lattice[i + 1].score) {
+                lattice[i + 1].score = score;
+                lattice[i + 1].id = mUnkId;
+                lattice[i + 1].prev_idx = i;
+                lattice[i + 1].length = 1;
+            }
+        }
+    }
+    
+    std::vector<int> ids;
+    int idx = text.length();
+    while (idx > 0) {
+        int id = lattice[idx].id;
+        if (id != -1) ids.push_back(id);
+        idx = lattice[idx].prev_idx;
+    }
+    std::reverse(ids.begin(), ids.end());
+    return ids;
+}
+
+std::vector<int> T5Tokenizer::encode(const std::string& sentence, int maxlen) {
+    std::string normalized;
+    for (char c : sentence) {
+        if (c == ' ') normalized += "\xe2\x96\x81";
+        else normalized += c;
+    }
+    if (normalized.empty() || normalized[0] != '\xe2\x96\x81') {
+        normalized = "\xe2\x96\x81" + normalized;
+    }
+    
+    std::vector<int> ids = encodeUnigram(normalized);
+    ids.push_back(mEosId); 
+    
+    if (maxlen > 0) {
+        if (ids.size() > maxlen) {
+            ids.resize(maxlen);
+            ids[maxlen - 1] = mEosId; 
+        } else {
+            while (ids.size() < maxlen) {
+                ids.push_back(0);
+            }
+        }
+    }
+    return ids;
+}
     
 bool BertTokenizer::load(const std::string& dictPath) {
     std::ifstream dictFile(dictPath + "/vocab.txt");
@@ -120,9 +333,21 @@ std::vector<int> BertTokenizer::encode(const std::string& str, int maxlen) {
         }
     }
     
+    int max_token_limit = maxlen * 2 - 1; 
+
     for (auto token : tokens) {
-        for (auto id : word_piece(token)) {
+        std::vector<int> sub_tokens = word_piece(token);
+
+        bool out_of_bounds = false;
+        for (auto id : sub_tokens) {
+            if (idx >= max_token_limit) {
+                out_of_bounds = true;
+                break;
+            }
             ids[idx++] = id;
+        }
+        if (out_of_bounds) {
+            break;
         }
     }
     
@@ -313,7 +538,9 @@ void CLIPTokenizer::bpe(const std::wstring& token, const BPERanks& bpe_ranks, st
 }
 
 std::vector<int> CLIPTokenizer::encode(const std::string& text, int maxlen) {
-    std::regex re(R"(<\|startoftext\|>|<\|endoftext\|>|'s|'t|'re|'ve|'m|'ll|'d|[[:alpha:]]+|[[:digit:]]|[^[:space:][:alpha:][:digit:]]+)",
+    // Use static regex to avoid recompilation and potential stack/heap issues with repeated construction
+    // Also replaced POSIX classes with explicit ranges to avoid potential locale issues
+    static const std::regex re(R"(<\|startoftext\|>|<\|endoftext\|>|'s|'t|'re|'ve|'m|'ll|'d|[a-zA-Z]+|[0-9]|[^ \t\n\r\f\va-zA-Z0-9]+)",
                    std::regex::icase);
     std::string input = text;
     std::vector<std::wstring> result;
@@ -342,7 +569,12 @@ std::vector<int> CLIPTokenizer::encode(const std::string& text, int maxlen) {
     // ids
     int idx = maxlen;
     ids[idx++] = mStartIdx;
+    int max_token_limit = maxlen * 2 - 1; 
+
     for (auto s : result) {
+        if (idx >= max_token_limit) {
+            break;
+        }
         ids[idx++] = mVocabs.at(s);
     }
     ids[idx++] = mEndIdx;
