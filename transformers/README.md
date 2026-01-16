@@ -202,6 +202,7 @@ The configuration file supports the following options:
   - `tokenizer_file`: Path to `tokenizer.txt`, resolved as `base_dir + tokenizer_file`. Defaults to `base_dir + 'tokenizer.txt'`.
   - `visual_model`:  If using a VL model, the path to the visual model is `base_dir + visual_model`. Defaults to `base_dir + 'visual.mnn'`.
 - Inference Configuration
+  - use_tmac: Performing inference for low-bit quantized Large Language Models (LLMs) based on the T-MAC scheme.
   - max_new_tokens: Maximum number of tokens to generate. Defaults to `512`
   - reuse_kv: Whether to reuse the `kv cache` in multi-turn dialogues. Defaults to `false`
   - quant_qkv: deprecated. Please use `attention_mode`."
