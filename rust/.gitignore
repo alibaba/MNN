@@ -1,0 +1,8 @@
+### Rust
+# Cargo build output
+target/
+
+# IDE
+.idea/
+.vscode/
+*.rs.bk

@@ -1,0 +1,33 @@
+[package]
+name = "mnn"
+version = "0.1.0"
+edition = "2021"
+authors = ["MNN Team"]
+description = "Rust bindings for MNN (Mobile Neural Network) LLM API"
+license = "Apache-2.0"
+repository = "https://github.com/alibaba/MNN"
+keywords = ["mnn", "llm", "inference", "neural-network"]
+categories = ["api-bindings", "science"]
+
+[lib]
+name = "mnn"
+path = "src/lib.rs"
+
+[[example]]
+name = "llm_example"
+path = "examples/llm_example.rs"
+
+[[example]]
+name = "qwen_inference"
+path = "examples/qwen_inference.rs"
+
+[[example]]
+name = "qwen_demo"
+path = "examples/qwen_demo.rs"
+
+[dependencies]
+libc = "0.2"
+thiserror = "1.0"
+
+[build-dependencies]
+cc = "1.0"
