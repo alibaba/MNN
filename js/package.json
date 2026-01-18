@@ -26,13 +26,14 @@
   },
   "dependencies": {
     "cmake-js": "^7.0.0",
+    "jimp": "^1.6.0",
     "node-addon-api": "^7.0.0",
     "node-gyp-build": "^4.6.0"
   },
   "devDependencies": {
-    "mocha": "^10.0.0",
+    "@types/node": "^20.0.0",
     "chai": "^4.3.0",
-    "@types/node": "^20.0.0"
+    "mocha": "^10.0.0"
   },
   "engines": {
     "node": ">=14.0.0"
