@@ -1,7 +1,6 @@
 use mnn::{Interpreter, ImageProcess, ImageProcessConfig, ImageFormat, FilterType, Tensor};
 use image::GenericImageView;
 use std::env;
-use std::path::Path;
 use std::time::Instant;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -107,11 +106,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Let's do manual post-process.
 
     // Wait for data to be ready (copy to host)
-    let mut host_output = Tensor::from_device(&output_tensor, true).expect("Failed to create host output tensor");
+    let host_output = Tensor::from_device(&output_tensor, true).expect("Failed to create host output tensor");
 
     let out_h = output_shape[2] as usize;
     let out_w = output_shape[3] as usize;
-    let channels = output_shape[1] as usize;
 
     let output_data = unsafe { host_output.data_as_slice::<f32>() };
 
