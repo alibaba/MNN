@@ -37,10 +37,16 @@
 pub mod error;
 pub mod ffi;
 pub mod llm;
+pub mod interpreter;
+pub mod tensor;
+pub mod image_process;
 
 // Re-export main types
 pub use error::{MnnError, Result};
 pub use llm::{Embedding, Llm, LlmContext};
+pub use interpreter::{Interpreter, Session};
+pub use tensor::Tensor;
+pub use image_process::{ImageProcess, ImageProcessConfig, ImageFormat, FilterType, WrapMode};
 
 use std::ffi::CStr;
 

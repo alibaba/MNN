@@ -17,6 +17,30 @@ pub struct MnnEmbedding {
     _private: [u8; 0],
 }
 
+/// Opaque handle to MNN Interpreter instance
+#[repr(C)]
+pub struct MnnInterpreter {
+    _private: [u8; 0],
+}
+
+/// Opaque handle to MNN Session instance
+#[repr(C)]
+pub struct MnnSession {
+    _private: [u8; 0],
+}
+
+/// Opaque handle to MNN Tensor instance
+#[repr(C)]
+pub struct MnnTensor {
+    _private: [u8; 0],
+}
+
+/// Opaque handle to MNN ImageProcess instance
+#[repr(C)]
+pub struct MnnImageProcess {
+    _private: [u8; 0],
+}
+
 /// LLM Context data structure
 #[repr(C)]
 #[derive(Debug, Clone, Default)]
@@ -33,6 +57,18 @@ pub struct MnnLlmContext {
     pub pixels_mp: f32,
     pub audio_input_s: f32,
     pub current_token: c_int,
+}
+
+/// Image Process Config
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct MnnImageProcessConfig {
+    pub mean: [f32; 3],
+    pub normal: [f32; 3],
+    pub source_format: c_int,
+    pub dest_format: c_int,
+    pub filter_type: c_int,
+    pub wrap: c_int,
 }
 
 pub type MnnLlmCallback = extern "C" fn(chunk: *const c_char, user_data: *mut c_void);
@@ -90,6 +126,73 @@ extern "C" {
         text: *const c_char,
         output: *mut f32,
     ) -> bool;
+
+    // Interpreter Functions
+    pub fn mnn_interpreter_create_from_file(file: *const c_char) -> *mut MnnInterpreter;
+    pub fn mnn_interpreter_destroy(interpreter: *mut MnnInterpreter);
+    pub fn mnn_interpreter_create_session(
+        interpreter: *mut MnnInterpreter,
+        num_threads: c_int,
+    ) -> *mut MnnSession;
+    pub fn mnn_interpreter_get_session_input(
+        interpreter: *mut MnnInterpreter,
+        session: *mut MnnSession,
+        name: *const c_char,
+    ) -> *mut MnnTensor;
+    pub fn mnn_interpreter_get_session_output(
+        interpreter: *mut MnnInterpreter,
+        session: *mut MnnSession,
+        name: *const c_char,
+    ) -> *mut MnnTensor;
+    pub fn mnn_interpreter_run_session(
+        interpreter: *mut MnnInterpreter,
+        session: *mut MnnSession,
+    ) -> c_int;
+    pub fn mnn_interpreter_resize_session(
+        interpreter: *mut MnnInterpreter,
+        session: *mut MnnSession,
+    );
+
+    // Tensor Functions
+    pub fn mnn_tensor_create(
+        shape: *const c_int,
+        dim_num: c_int,
+        type_: c_int,
+        data: *mut c_void,
+    ) -> *mut MnnTensor;
+    pub fn mnn_tensor_create_device(
+        shape: *const c_int,
+        dim_num: c_int,
+        type_: c_int,
+    ) -> *mut MnnTensor;
+    pub fn mnn_tensor_destroy(tensor: *mut MnnTensor);
+    pub fn mnn_tensor_get_shape(tensor: *mut MnnTensor, shape_ptr: *mut c_int, max_dim: c_int) -> c_int;
+    pub fn mnn_tensor_get_data(tensor: *mut MnnTensor) -> *mut c_void;
+    pub fn mnn_tensor_get_size(tensor: *mut MnnTensor) -> c_int;
+    pub fn mnn_tensor_copy_from_host(
+        tensor: *mut MnnTensor,
+        host_tensor: *const MnnTensor,
+    ) -> bool;
+    pub fn mnn_tensor_copy_to_host(
+        tensor: *const MnnTensor,
+        host_tensor: *mut MnnTensor,
+    ) -> bool;
+    pub fn mnn_tensor_create_host_from_device(
+        device_tensor: *const MnnTensor,
+        copy_data: bool,
+    ) -> *mut MnnTensor;
+
+    // ImageProcess Functions
+    pub fn mnn_image_process_create(config: *const MnnImageProcessConfig) -> *mut MnnImageProcess;
+    pub fn mnn_image_process_destroy(process: *mut MnnImageProcess);
+    pub fn mnn_image_process_convert(
+        process: *mut MnnImageProcess,
+        source: *const u8,
+        src_w: c_int,
+        src_h: c_int,
+        src_stride: c_int,
+        dest: *mut MnnTensor,
+    );
 
     // Utility Functions
     pub fn mnn_string_free(str: *mut c_char);
