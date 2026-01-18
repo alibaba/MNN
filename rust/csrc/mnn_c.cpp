@@ -3,6 +3,9 @@
 
 #include "mnn_c.h"
 #include "llm/llm.hpp"
+#include <MNN/Interpreter.hpp>
+#include <MNN/Tensor.hpp>
+#include <MNN/ImageProcess.hpp>
 #include <MNN/MNNDefine.h>
 #include <cstring>
 #include <sstream>
@@ -15,6 +18,23 @@ struct MnnLlm {
 
 struct MnnEmbedding {
     MNN::Transformer::Embedding* emb;
+};
+
+struct MnnInterpreter {
+    MNN::Interpreter* interp;
+};
+
+struct MnnSession {
+    MNN::Session* sess;
+};
+
+struct MnnTensor {
+    MNN::Tensor* tensor;
+    bool owned; // Whether this wrapper owns the tensor
+};
+
+struct MnnImageProcess {
+    MNN::CV::ImageProcess* process;
 };
 
 // Helper to duplicate a string for FFI
@@ -294,6 +314,212 @@ bool mnn_embedding_txt(MnnEmbedding* emb, const char* text, float* output) {
     
     std::copy(ptr, ptr + info->size, output);
     return true;
+}
+
+// ============================================================================
+// Interpreter Functions
+// ============================================================================
+
+MnnInterpreter* mnn_interpreter_create_from_file(const char* file) {
+    auto interp = MNN::Interpreter::createFromFile(file);
+    if (!interp) return nullptr;
+
+    MnnInterpreter* wrapper = new MnnInterpreter();
+    wrapper->interp = interp;
+    return wrapper;
+}
+
+void mnn_interpreter_destroy(MnnInterpreter* interpreter) {
+    if (interpreter) {
+        if (interpreter->interp) {
+            MNN::Interpreter::destroy(interpreter->interp);
+        }
+        delete interpreter;
+    }
+}
+
+MnnSession* mnn_interpreter_create_session(MnnInterpreter* interpreter, int num_threads) {
+    if (!interpreter || !interpreter->interp) return nullptr;
+
+    MNN::ScheduleConfig config;
+    config.type = MNN_FORWARD_CPU;
+    config.numThread = num_threads;
+
+    auto sess = interpreter->interp->createSession(config);
+    if (!sess) return nullptr;
+
+    MnnSession* wrapper = new MnnSession();
+    wrapper->sess = sess;
+    return wrapper;
+}
+
+MnnTensor* mnn_interpreter_get_session_input(MnnInterpreter* interpreter, MnnSession* session, const char* name) {
+    if (!interpreter || !interpreter->interp || !session) return nullptr;
+
+    auto tensor = interpreter->interp->getSessionInput(session->sess, name);
+    if (!tensor) return nullptr;
+
+    MnnTensor* wrapper = new MnnTensor();
+    wrapper->tensor = tensor;
+    wrapper->owned = false; // Owned by Session
+    return wrapper;
+}
+
+MnnTensor* mnn_interpreter_get_session_output(MnnInterpreter* interpreter, MnnSession* session, const char* name) {
+    if (!interpreter || !interpreter->interp || !session) return nullptr;
+
+    auto tensor = interpreter->interp->getSessionOutput(session->sess, name);
+    if (!tensor) return nullptr;
+
+    MnnTensor* wrapper = new MnnTensor();
+    wrapper->tensor = tensor;
+    wrapper->owned = false; // Owned by Session
+    return wrapper;
+}
+
+int mnn_interpreter_run_session(MnnInterpreter* interpreter, MnnSession* session) {
+    if (!interpreter || !interpreter->interp || !session) return -1;
+    return interpreter->interp->runSession(session->sess);
+}
+
+void mnn_interpreter_resize_session(MnnInterpreter* interpreter, MnnSession* session) {
+    if (interpreter && interpreter->interp && session) {
+        interpreter->interp->resizeSession(session->sess);
+    }
+}
+
+// ============================================================================
+// Tensor Functions
+// ============================================================================
+
+MnnTensor* mnn_tensor_create(const int* shape, int dim_num, int type, void* data) {
+    std::vector<int> dims;
+    if (shape && dim_num > 0) {
+        dims.assign(shape, shape + dim_num);
+    }
+
+    // Convert int type to halide_type_t (simplistic mapping, need robust solution)
+    // 0: float, 1: int, 2: uint8 (approx)
+    halide_type_t htype = halide_type_of<float>();
+    if (type == 1) htype = halide_type_of<int>();
+    if (type == 2) htype = halide_type_of<uint8_t>();
+
+    MNN::Tensor* t = MNN::Tensor::create(dims, htype, data, MNN::Tensor::CAFFE);
+    if (!t) return nullptr;
+
+    MnnTensor* wrapper = new MnnTensor();
+    wrapper->tensor = t;
+    wrapper->owned = true;
+    return wrapper;
+}
+
+MnnTensor* mnn_tensor_create_device(const int* shape, int dim_num, int type) {
+    std::vector<int> dims;
+    if (shape && dim_num > 0) {
+        dims.assign(shape, shape + dim_num);
+    }
+
+    halide_type_t htype = halide_type_of<float>();
+    if (type == 1) htype = halide_type_of<int>();
+    if (type == 2) htype = halide_type_of<uint8_t>();
+
+    MNN::Tensor* t = MNN::Tensor::createDevice(dims, htype, MNN::Tensor::CAFFE);
+    if (!t) return nullptr;
+
+    MnnTensor* wrapper = new MnnTensor();
+    wrapper->tensor = t;
+    wrapper->owned = true;
+    return wrapper;
+}
+
+void mnn_tensor_destroy(MnnTensor* tensor) {
+    if (tensor) {
+        if (tensor->owned && tensor->tensor) {
+            MNN::Tensor::destroy(tensor->tensor);
+        }
+        delete tensor;
+    }
+}
+
+int mnn_tensor_get_shape(MnnTensor* tensor, int* shape_ptr, int max_dim) {
+    if (!tensor || !tensor->tensor) return 0;
+    auto shape = tensor->tensor->shape();
+    int dims = std::min((int)shape.size(), max_dim);
+    if (shape_ptr) {
+        for (int i = 0; i < dims; ++i) {
+            shape_ptr[i] = shape[i];
+        }
+    }
+    return (int)shape.size();
+}
+
+void* mnn_tensor_get_data(MnnTensor* tensor) {
+    if (!tensor || !tensor->tensor) return nullptr;
+    return tensor->tensor->host<void>();
+}
+
+int mnn_tensor_get_size(MnnTensor* tensor) {
+    if (!tensor || !tensor->tensor) return 0;
+    return tensor->tensor->size();
+}
+
+bool mnn_tensor_copy_from_host(MnnTensor* tensor, const MnnTensor* host_tensor) {
+    if (!tensor || !tensor->tensor || !host_tensor || !host_tensor->tensor) return false;
+    return tensor->tensor->copyFromHostTensor(host_tensor->tensor);
+}
+
+bool mnn_tensor_copy_to_host(const MnnTensor* tensor, MnnTensor* host_tensor) {
+    if (!tensor || !tensor->tensor || !host_tensor || !host_tensor->tensor) return false;
+    return tensor->tensor->copyToHostTensor(host_tensor->tensor);
+}
+
+MnnTensor* mnn_tensor_create_host_from_device(const MnnTensor* device_tensor, bool copy_data) {
+    if (!device_tensor || !device_tensor->tensor) return nullptr;
+
+    auto t = MNN::Tensor::createHostTensorFromDevice(device_tensor->tensor, copy_data);
+    if (!t) return nullptr;
+
+    MnnTensor* wrapper = new MnnTensor();
+    wrapper->tensor = t;
+    wrapper->owned = true;
+    return wrapper;
+}
+
+// ============================================================================
+// ImageProcess Functions
+// ============================================================================
+
+MnnImageProcess* mnn_image_process_create(const MnnImageProcessConfig* config) {
+    if (!config) return nullptr;
+
+    MNN::CV::ImageProcess::Config cv_config;
+    std::memcpy(cv_config.mean, config->mean, 3 * sizeof(float));
+    std::memcpy(cv_config.normal, config->normal, 3 * sizeof(float));
+    cv_config.sourceFormat = (MNN::CV::ImageFormat)config->source_format;
+    cv_config.destFormat = (MNN::CV::ImageFormat)config->dest_format;
+    cv_config.filterType = (MNN::CV::Filter)config->filter_type;
+    cv_config.wrap = (MNN::CV::Wrap)config->wrap;
+
+    auto process = MNN::CV::ImageProcess::create(cv_config);
+    if (!process) return nullptr;
+
+    MnnImageProcess* wrapper = new MnnImageProcess();
+    wrapper->process = process;
+    return wrapper;
+}
+
+void mnn_image_process_destroy(MnnImageProcess* process) {
+    if (process) {
+        if (process->process) {
+            delete process->process;
+        }
+        delete process;
+    }
+}
+
+void mnn_image_process_convert(MnnImageProcess* process, const uint8_t* source, int src_w, int src_h, int src_stride, MnnTensor* dest) {
+    if (!process || !process->process || !source || !dest || !dest->tensor) return;
+    process->process->convert(source, src_w, src_h, src_stride, dest->tensor);
 }
 
 // ============================================================================

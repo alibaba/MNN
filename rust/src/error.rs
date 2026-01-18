@@ -36,6 +36,14 @@ pub enum MnnError {
     /// Null byte in string
     #[error("Null byte in string: {0}")]
     NullByte(#[from] std::ffi::NulError),
+
+    /// Initialization error
+    #[error("Initialization error: {0}")]
+    InitError(String),
+
+    /// Runtime error
+    #[error("Runtime error: {0}")]
+    RuntimeError(String),
 }
 
 /// Result type for MNN operations

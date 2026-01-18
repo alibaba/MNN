@@ -28,6 +28,7 @@ path = "examples/qwen_demo.rs"
 [dependencies]
 libc = "0.2"
 thiserror = "1.0"
+image = "0.24"
 
 [build-dependencies]
 cc = "1.0"
