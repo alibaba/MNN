@@ -46,7 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     config.source_format = ImageFormat::RGBA; // image crate usually loads as RGBA8 or RGB8
     config.dest_format = ImageFormat::RGB; // Model expects RGB
     config.filter_type = FilterType::Bilinear;
-    config.mean = [123.68, 116.779, 103.939];
+    config.mean = [0.0, 0.0, 0.0];
     config.normal = [1.0, 1.0, 1.0];
     config.wrap = mnn::WrapMode::ClampToEdge;
 
