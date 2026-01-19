@@ -80,6 +80,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Processing image to {}x{}...", target_width, target_height);
 
+    // Calculate affine transform matrix for resizing (dst -> src)
+    let sx = orig_width as f32 / target_width as f32;
+    let sy = orig_height as f32 / target_height as f32;
+    let matrix: [f32; 9] = [
+        sx, 0.0, 0.0,
+        0.0, sy, 0.0,
+        0.0, 0.0, 1.0,
+    ];
+    process.set_matrix(&matrix);
+
     // Use ImageProcess to convert/resize raw image data to input tensor
     // Note: ImageProcess::convert takes src stride. For RGBA, stride = width * 4.
     process.convert(raw_data, orig_width as i32, orig_height as i32, 0, &mut input_tensor);
