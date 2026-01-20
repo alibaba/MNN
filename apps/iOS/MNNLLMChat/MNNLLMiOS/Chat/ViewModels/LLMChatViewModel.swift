@@ -14,6 +14,7 @@ import ExyteChat
 final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
     private var llm: LLMInferenceEngineWrapper?
     private var diffusion: DiffusionSession?
+    private var sanaDiffusion: SanaDiffusionSession?
     private let llmState = LLMState()
     private var audioPlaybackManager: AudioPlaybackManager?
 
@@ -30,6 +31,14 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
 
     @Published var isThinkingModeEnabled: Bool = true
     @Published var supportsThinkingMode: Bool = false
+
+    // MARK: - Sana Diffusion Default Prompt
+
+    /// Default prompt for Sana Diffusion Ghibli style transfer
+    static let sanaDiffusionDefaultPrompt = "Convert to a Ghibli-style illustration: soft contrast, warm tones, slight linework, keep the scene consistent."
+
+    /// Default input text for the chat input field (used for Sana Diffusion default prompt)
+    @Published var defaultInputText: String = ""
 
     var chatInputUnavilable: Bool {
         if isModelLoaded == false || isProcessing == true {
@@ -64,7 +73,15 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
     let modelConfigManager: ModelConfigManager
 
     var isDiffusionModel: Bool {
-        return modelInfo.modelName.lowercased().contains("diffusion")
+        return modelInfo.modelName.lowercased().contains("stable-diffusion")
+    }
+
+    var isSanaDiffusionModel: Bool {
+        return ModelUtils.isSanaDiffusionModel(modelInfo.modelName)
+    }
+
+    var isAnyDiffusionModel: Bool {
+        return isDiffusionModel || isSanaDiffusionModel
     }
 
     init(modelInfo: ModelInfo, history: ChatHistory? = nil) {
@@ -101,6 +118,8 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
         // Stop audio playback
         audioPlaybackManager?.stop()
         audioPlaybackManager = nil
+
+        sanaDiffusion = nil
 
         // Clean up streaming states
         clearAllStreamingStates()
@@ -140,7 +159,21 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
             }
         }
 
-        if modelInfo.modelName.lowercased().contains("diffusion") {
+        if isSanaDiffusionModel {
+            // Load Sana Diffusion model for style transfer
+            sanaDiffusion = SanaDiffusionSession(modelPath: modelPath, completion: { [weak self] success in
+                Task { @MainActor in
+                    print("Sana Diffusion Model loaded: \(success)")
+                    self?.sendModelLoadStatus(success: success)
+                    self?.isModelLoaded = success
+
+                    // Set default prompt for Sana Diffusion
+                    if success {
+                        self?.defaultInputText = LLMChatViewModel.sanaDiffusionDefaultPrompt
+                    }
+                }
+            })
+        } else if isDiffusionModel {
             diffusion = DiffusionSession(modelPath: modelPath, completion: { [weak self] success in
                 Task { @MainActor in
                     print("Diffusion Model \(success)")
@@ -239,7 +272,9 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
                 recordModelUsage()
 
                 if isModelLoaded {
-                    if modelInfo.modelName.lowercased().contains("diffusion") {
+                    if isSanaDiffusionModel {
+                        getSanaDiffusionResponse(draft: draft)
+                    } else if isDiffusionModel {
                         getDiffusionResponse(draft: draft)
                     } else {
                         getLLMRespsonse(draft: draft)
@@ -314,6 +349,145 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
                                    }
                                }
                            })
+        }
+    }
+
+    // MARK: - Sana Diffusion Style Transfer
+
+    func getSanaDiffusionResponse(draft: DraftMessage) {
+        Task {
+            // 1. Check if we have an input image
+            guard !draft.medias.isEmpty else {
+                try? await self.send(
+                    draft: DraftMessage(
+                        text: NSLocalizedString("Please select an image for style transfer.", comment: ""),
+                        thinkText: "",
+                        medias: [],
+                        recording: nil,
+                        replyMessage: nil,
+                        createdAt: Date()
+                    ),
+                    userType: .system
+                )
+                return
+            }
+
+            // 2. Get the first image from medias
+            var inputImagePath: String?
+            for media in draft.medias {
+                guard media.type == .image, let url = await media.getURL() else {
+                    continue
+                }
+
+                let fileName = url.lastPathComponent
+                if let processedUrl = FileOperationManager.shared.processImageFile(from: url, fileName: fileName) {
+                    inputImagePath = processedUrl.path
+                    break
+                }
+            }
+
+            guard let inputPath = inputImagePath else {
+                try? await self.send(
+                    draft: DraftMessage(
+                        text: NSLocalizedString("Unsupported image format. Please use JPG/JPEG images for style transfer.", comment: ""),
+                        thinkText: "",
+                        medias: [],
+                        recording: nil,
+                        replyMessage: nil,
+                        createdAt: Date()
+                    ),
+                    userType: .system
+                )
+                return
+            }
+
+            // 3. Prepare output path
+            let outputPath = FileOperationManager.shared.generateTempImagePath().path
+
+            // 4. Get prompt (use default if empty)
+            let prompt = draft.text.isEmpty ? LLMChatViewModel.sanaDiffusionDefaultPrompt : draft.text
+            let cfgPrompt = SanaDiffusionSession.defaultCfgPrompt()
+
+            // 5. Get user-configured iteration count and seed value
+            let userIterations = self.modelConfigManager.readIterations()
+            let userSeed = self.modelConfigManager.readSeed()
+
+            // 6. Show initial status
+            try? await self.send(
+                draft: DraftMessage(
+                    text: NSLocalizedString("Starting style transfer...", comment: ""),
+                    thinkText: "",
+                    medias: [],
+                    recording: nil,
+                    replyMessage: nil,
+                    createdAt: Date()
+                ),
+                userType: .assistant
+            )
+
+            await MainActor.run {
+                self.isProcessing = true
+            }
+
+            // 7. Run style transfer
+            sanaDiffusion?.runStyleTransfer(
+                withInputImage: inputPath,
+                prompt: prompt,
+                cfgPrompt: cfgPrompt,
+                outputPath: outputPath,
+                iterations: Int32(userIterations),
+                seed: Int32(userSeed),
+                progressCallback: { [weak self] progress, stage in
+                    guard let self = self else { return }
+                    Task {
+                        try? await self.send(
+                            draft: DraftMessage(
+                                text: stage,
+                                thinkText: "",
+                                medias: [],
+                                recording: nil,
+                                replyMessage: nil,
+                                createdAt: Date()
+                            ),
+                            userType: .system
+                        )
+                    }
+                },
+                completion: { [weak self] success, error in
+                    guard let self = self else { return }
+                    Task { @MainActor in
+                        self.isProcessing = false
+
+                        if success {
+                            try? await self.send(
+                                draft: DraftMessage(
+                                    text: NSLocalizedString("Style transfer completed!", comment: ""),
+                                    thinkText: "",
+                                    medias: [],
+                                    recording: nil,
+                                    replyMessage: nil,
+                                    createdAt: Date()
+                                ),
+                                userType: .system
+                            )
+                            self.interactor.sendImage(imageURL: URL(fileURLWithPath: outputPath))
+                        } else {
+                            let errorMessage = error ?? NSLocalizedString("Style transfer failed.", comment: "")
+                            try? await self.send(
+                                draft: DraftMessage(
+                                    text: errorMessage,
+                                    thinkText: "",
+                                    medias: [],
+                                    recording: nil,
+                                    replyMessage: nil,
+                                    createdAt: Date()
+                                ),
+                                userType: .system
+                            )
+                        }
+                    }
+                }
+            )
         }
     }
 
@@ -761,6 +935,8 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
         llm?.cancelInference()
 
         llm = nil
+        diffusion = nil
+        sanaDiffusion = nil
 
         FileOperationManager.shared.cleanTempDirectories()
         if !useMmap {
