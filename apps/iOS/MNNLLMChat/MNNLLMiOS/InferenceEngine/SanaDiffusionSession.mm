@@ -45,6 +45,9 @@ using namespace CV;
     /// Path to the model directory.
     NSString *mModelPath;
     
+    /// Memory mode for Diffusion model (0 = default).
+    int mMemoryMode;
+    
     /// Flag indicating whether the model has been loaded.
     BOOL _isModelLoaded;
     
@@ -68,18 +71,31 @@ using namespace CV;
     self = [super init];
     if (self) {
         mModelPath = path;
+        mMemoryMode = 1;
         _isModelLoaded = NO;
         _isProcessing = NO;
         
-        // Load model asynchronously on background thread
+        // Load model asynchronously
+        // Note: LLM loading can be on background thread, but Diffusion (Metal) must be on main thread
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-            BOOL success = [self loadModel];
+            // Step 1: Load LLM on background thread (no Metal dependency)
+            BOOL llmSuccess = [self loadLLMModel];
+            if (!llmSuccess) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    self->_isModelLoaded = NO;
+                    if (completion) {
+                        completion(NO);
+                    }
+                });
+                return;
+            }
             
-            // Report result on main thread
+            // Step 2: Load Diffusion on main thread (Metal requires main thread for UIApplication access)
             dispatch_async(dispatch_get_main_queue(), ^{
-                self->_isModelLoaded = success;
+                BOOL diffusionSuccess = [self loadDiffusionModel];
+                self->_isModelLoaded = diffusionSuccess;
                 if (completion) {
-                    completion(success);
+                    completion(diffusionSuccess);
                 }
             });
         });
@@ -89,13 +105,13 @@ using namespace CV;
 
 #pragma mark - Model Loading
 
-/// Loads the LLM and Diffusion models from disk.
-/// @return YES if all models loaded successfully, NO otherwise.
-- (BOOL)loadModel {
+/// Loads the LLM model from disk. Can be called from background thread.
+/// @return YES if LLM loaded successfully, NO otherwise.
+- (BOOL)loadLLMModel {
     @try {
         NSLog(@"SanaDiffusionSession: Starting model loading from %@", mModelPath);
         
-        // Step 1: Load LLM for prompt processing
+        // Load LLM for prompt processing
         NSString *llmPath = [mModelPath stringByAppendingPathComponent:@"llm"];
         NSString *llmConfigPath = [llmPath stringByAppendingPathComponent:@"config.json"];
         NSLog(@"SanaDiffusionSession: Loading LLM from %@", llmConfigPath);
@@ -121,13 +137,27 @@ using namespace CV;
             return NO;
         }
         
-        // Step 2: Load Diffusion model with SANA_DIFFUSION type
+        NSLog(@"SanaDiffusionSession: LLM loading complete");
+        return YES;
+        
+    } @catch (NSException *exception) {
+        NSLog(@"SanaDiffusionSession: Exception during LLM loading: %@", exception.reason);
+        return NO;
+    }
+}
+
+/// Loads the Diffusion model from disk. Must be called from main thread (Metal requirement).
+/// @return YES if Diffusion loaded successfully, NO otherwise.
+- (BOOL)loadDiffusionModel {
+    @try {
+        // Load Diffusion model with SANA_DIFFUSION type
+        // Note: Must be on main thread because Metal backend calls [UIApplication applicationState]
         NSLog(@"SanaDiffusionSession: Loading Sana Diffusion model");
         Diffusion* rawDiffusion = Diffusion::createDiffusion(
             [mModelPath UTF8String],
             DiffusionModelType::SANA_DIFFUSION,
             MNNForwardType::MNN_FORWARD_METAL,
-            0  // Memory saving mode for iOS
+            mMemoryMode
         );
         
         if (!rawDiffusion) {
@@ -145,7 +175,7 @@ using namespace CV;
         return YES;
         
     } @catch (NSException *exception) {
-        NSLog(@"SanaDiffusionSession: Exception during model loading: %@", exception.reason);
+        NSLog(@"SanaDiffusionSession: Exception during Diffusion loading: %@", exception.reason);
         return NO;
     }
 }
@@ -330,7 +360,7 @@ using namespace CV;
             // Stage 1: Process prompt with LLM
             dispatch_async(dispatch_get_main_queue(), ^{
                 if (progressCallback) {
-                    progressCallback(5, @"Processing prompt with LLM...");
+                    progressCallback(5, @"Processing prompt...");
                 }
             });
             

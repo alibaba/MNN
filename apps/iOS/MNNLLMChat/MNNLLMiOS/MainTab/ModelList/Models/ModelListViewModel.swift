@@ -68,7 +68,7 @@ class ModelListViewModel: ObservableObject {
 
     // MARK: - Model Data Management
 
-    /// Load models from ModelIndex.json and Bundle root directory
+    /// Load models from Bundle root directory and LocalModel folder
     private func loadLocalModels() async -> [ModelInfo] {
         var localModels: [ModelInfo] = []
 
@@ -98,7 +98,6 @@ class ModelListViewModel: ObservableObject {
                 // Check if we have a complete model (at least config.json)
                 if foundModelFiles.contains("llm.mnn") {
                     // MARK: Config the Local Model here
-
                     let modelName = "Qwen3-0.6B-MNN-Built-In"
                     let localModel = ModelInfo(
                         modelName: modelName,
@@ -117,14 +116,14 @@ class ModelListViewModel: ObservableObject {
 
                     ModelStorageManager.shared.markModelAsDownloaded(modelName)
                 }
-            } else {
-                // Fallback: try to find LocalModel folder
-                let localModelPath = (resourcePath as NSString).appendingPathComponent("LocalModel")
-                var isDirectory: ObjCBool = false
+            }
+            
+            // Always check LocalModel folder for additional models (e.g., Sana Diffusion)
+            let localModelPath = (resourcePath as NSString).appendingPathComponent("LocalModel")
+            var isDirectory: ObjCBool = false
 
-                if fileManager.fileExists(atPath: localModelPath, isDirectory: &isDirectory), isDirectory.boolValue {
-                    await localModels.append(contentsOf: processLocalModelFolder(at: localModelPath))
-                }
+            if fileManager.fileExists(atPath: localModelPath, isDirectory: &isDirectory), isDirectory.boolValue {
+                localModels.append(contentsOf: await processLocalModelFolder(at: localModelPath))
             }
 
         } catch {
@@ -183,6 +182,22 @@ class ModelListViewModel: ObservableObject {
                     if fileManager.fileExists(atPath: itemPath, isDirectory: &isItemDirectory),
                        isItemDirectory.boolValue
                     {
+                        // Check if this is a Sana Diffusion model
+                        if ModelUtils.isSanaDiffusionModel(atPath: itemPath) {
+                            let modelName = item.contains("ghibli") ? "Sana-Ghibli-Style-Transfer" : "Sana-Diffusion-\(item)"
+                            let localModel = ModelInfo(
+                                modelName: modelName,
+                                tags: ["local", "bundled", "sana", "diffusion", "style-transfer"],
+                                categories: ["Local Models", "Diffusion"],
+                                vendor: "Local",
+                                sources: ["local": "local/\(item)"],
+                                isDownloaded: true
+                            )
+                            localModels.append(localModel)
+                            ModelStorageManager.shared.markModelAsDownloaded(modelName)
+                            continue
+                        }
+
                         let itemConfigPath = (itemPath as NSString).appendingPathComponent("config.json")
 
                         if fileManager.fileExists(atPath: itemConfigPath) {

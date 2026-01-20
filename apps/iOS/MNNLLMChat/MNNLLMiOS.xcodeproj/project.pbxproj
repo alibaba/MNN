@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		08329731E99C44DFA958144D /* BatchFileTestView.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 26F235F884BD455DA4AFBEF5 /* BatchFileTestView.swift */; };
 		3B98C65906634B47A0128961 /* ChatMenuView.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = CFB6BE595C064741BF59008B /* ChatMenuView.swift */; };
+		3E2B293C2F1F7C28006DE361 /* SanaDiffusionSession.mm in MNNChat */ = {isa = PBXBuildFile; fileRef = 3E2B293B2F1F7C28006DE361 /* SanaDiffusionSession.mm */; };
 		3E2F972E2E89158600E61F35 /* ExyteChat in Frameworks */ = {isa = PBXBuildFile; productRef = 3E5DD18F2E6FD56300F2AB7A /* ExyteChat */; };
 		3E2F972F2E89158600E61F35 /* ExyteChat in Frameworks */ = {isa = PBXBuildFile; productRef = 3E00BB8D2E73C4E200D60A8D /* ExyteChat */; };
 		3E2F97302E89158600E61F35 /* ExyteChat in Frameworks */ = {isa = PBXBuildFile; productRef = 3E55AB222E839CFA003CB2E2 /* ExyteChat */; };
@@ -141,6 +142,8 @@
 
 /* Begin PBXFileReference section */
 		26F235F884BD455DA4AFBEF5 /* BatchFileTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchFileTestView.swift; sourceTree = "<group>"; };
+		3E2B293A2F1F7C28006DE361 /* SanaDiffusionSession.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SanaDiffusionSession.h; sourceTree = "<group>"; };
+		3E2B293B2F1F7C28006DE361 /* SanaDiffusionSession.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = SanaDiffusionSession.mm; sourceTree = "<group>"; };
 		3E301C682D5C84730045E5E1 /* MNN.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = MNN.framework; sourceTree = "<group>"; };
 		3E440F082EE2DEDE00BB15FF /* AudioPlaybackManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlaybackManager.swift; sourceTree = "<group>"; };
 		3E55A66B2E828189003CB2E2 /* LocalModel */ = {isa = PBXFileReference; lastKnownFileType = folder; name = LocalModel; path = MNNLLMiOS/LocalModel; sourceTree = "<group>"; };
@@ -450,6 +453,8 @@
 		4230C2522E7D4EB5001169DF /* InferenceEngine */ = {
 			isa = PBXGroup;
 			children = (
+				3E2B293A2F1F7C28006DE361 /* SanaDiffusionSession.h */,
+				3E2B293B2F1F7C28006DE361 /* SanaDiffusionSession.mm */,
 				4230C24E2E7D4EB5001169DF /* DiffusionSession.h */,
 				4230C24F2E7D4EB5001169DF /* DiffusionSession.mm */,
 				4230C2502E7D4EB5001169DF /* LLMInferenceEngineWrapper.h */,
@@ -966,6 +971,7 @@
 				4230C32C2E7D4EB5001169DF /* ModelSourceManager.swift in MNNChat */,
 				4230C32D2E7D4EB5001169DF /* ModelStorageManager.swift in MNNChat */,
 				4230C32E2E7D4EB5001169DF /* TagTranslationManager.swift in MNNChat */,
+				3E2B293C2F1F7C28006DE361 /* SanaDiffusionSession.mm in MNNChat */,
 				4230C32F2E7D4EB5001169DF /* CommonToolbarView.swift in MNNChat */,
 				4230C3302E7D4EB5001169DF /* MainTabItem.swift in MNNChat */,
 				4230C3312E7D4EB5001169DF /* MainTabView.swift in MNNChat */,
