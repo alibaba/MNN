@@ -153,9 +153,19 @@ struct ModelSettingsView: View {
                     }
                 }
 
-                // Diffusion Settings
-                if viewModel.isDiffusionModel {
+                // Diffusion Settings (Stable Diffusion and Sana Diffusion)
+                if viewModel.isAnyDiffusionModel {
                     Section {
+                        // Model type indicator for Sana Diffusion
+                        if viewModel.isSanaDiffusionModel {
+                            HStack {
+                                Text("Model Type")
+                                Spacer()
+                                Text("Sana Style Transfer")
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+
                         Stepper(value: $iterations, in: 1 ... 100) {
                             HStack {
                                 Text("Iterations")
@@ -189,7 +199,7 @@ struct ModelSettingsView: View {
                             }
                         }
                     } header: {
-                        Text("Diffusion Settings")
+                        Text(viewModel.isSanaDiffusionModel ? "Style Transfer Settings" : "Diffusion Settings")
                     }
                 } else {
                     Section {
@@ -366,10 +376,15 @@ struct ModelSettingsView: View {
             threadNum = viewModel.modelConfigManager.readThreadNum()
             requiresReload = false
 
-            if viewModel.isDiffusionModel {
+            if viewModel.isAnyDiffusionModel {
                 iterations = viewModel.modelConfigManager.readIterations()
                 seed = viewModel.modelConfigManager.readSeed()
                 useRandomSeed = (seed < 0)
+                
+                // Set default iterations for Sana Diffusion (fewer iterations needed)
+                if viewModel.isSanaDiffusionModel && iterations == 20 {
+                    iterations = 5  // Sana uses fewer iterations by default
+                }
             } else {
                 temperature = viewModel.modelConfigManager.readTemperature()
                 topK = Double(viewModel.modelConfigManager.readTopK())

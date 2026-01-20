@@ -71,6 +71,36 @@ class ModelUtils {
         return modelName.lowercased().contains("stable-diffusion")
     }
 
+    /// Check if it's a Sana Diffusion model (style transfer)
+    /// - Parameter modelName: Model name
+    /// - Returns: Whether it's a Sana Diffusion model
+    static func isSanaDiffusionModel(_ modelName: String) -> Bool {
+        let lowercased = modelName.lowercased()
+        return lowercased.contains("sana") || lowercased.contains("ghibli")
+    }
+
+    /// Check if it's a Sana Diffusion model by checking the model directory structure
+    /// - Parameter path: Path to the model directory
+    /// - Returns: Whether the directory contains a Sana Diffusion model
+    static func isSanaDiffusionModel(atPath path: String) -> Bool {
+        let fm = FileManager.default
+        let llmPath = (path as NSString).appendingPathComponent("llm")
+        let connectorPath = (path as NSString).appendingPathComponent("connector.mnn")
+        let vaeEncoderPath = (path as NSString).appendingPathComponent("vae_encoder.mnn")
+        
+        // Sana Diffusion model requires llm/ subdirectory, connector.mnn, and vae_encoder.mnn
+        return fm.fileExists(atPath: llmPath) &&
+               fm.fileExists(atPath: connectorPath) &&
+               fm.fileExists(atPath: vaeEncoderPath)
+    }
+
+    /// Check if it's any type of diffusion model (Stable Diffusion or Sana)
+    /// - Parameter modelName: Model name
+    /// - Returns: Whether it's any diffusion model
+    static func isAnyDiffusionModel(_ modelName: String) -> Bool {
+        return isDiffusionModel(modelName) || isSanaDiffusionModel(modelName)
+    }
+
     /// Check if audio output is supported
     /// - Parameter modelName: Model name
     /// - Returns: Whether audio output is supported

@@ -48,14 +48,28 @@ final class FileOperationManager {
     /// Converts HEIC images to JPG format using AssetExtractor utility
     ///
     /// - Parameter url: The HEIC image URL to convert
-    /// - Returns: The converted JPG image URL, or original URL if not HEIC format
+    /// - Returns: The converted JPG image URL, or nil if conversion fails or format not supported
     private func convertHEICImage(from url: URL) -> URL? {
         var fileUrl = url
+        
+        // Convert HEIC to JPG if needed
         if fileUrl.isHEICImage() {
             if let convertedUrl = AssetExtractor.convertHEICToJPG(heicUrl: fileUrl) {
                 fileUrl = convertedUrl
+            } else {
+                // Return nil - HEIC conversion failed
+                print("Failed to convert HEIC to JPG")
+                return nil
             }
         }
+        
+        // Verify final format is JPG (MNN Diffusion only supports JPG)
+        let pathExtension = fileUrl.pathExtension.lowercased()
+        if pathExtension != "jpg" && pathExtension != "jpeg" {
+            print("Unsupported image format: \(pathExtension). Only JPG/JPEG is supported for Diffusion.")
+            return nil
+        }
+        
         return fileUrl
     }
 

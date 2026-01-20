@@ -50,6 +50,11 @@ struct LLMChatView: View {
         if ModelUtils.isVisualModel(viewModel.modelInfo.modelName) {
             return true
         }
+        
+        if viewModel.isSanaDiffusionModel {
+            return true
+        }
+            
         let tagMatches = viewModel.modelInfo.tags.contains { tag in
             tag.localizedCaseInsensitiveContains("image") || tag.localizedCaseInsensitiveContains("video")
         }
@@ -100,8 +105,14 @@ struct LLMChatView: View {
                 viewModel.sendToLLM(draft: draft)
             }
             .setStreamingMessageProvider(viewModel)
+            .setDefaultInputText($viewModel.defaultInputText)
             .setAvailableInput(
                 resolvedAvailableInput
+//                viewModel.isSanaDiffusionModel ? .textAndMedia :
+//                    self.title.lowercased().contains("omni") ? .full :
+//                    self.title.lowercased().contains("vl") ? .textAndMedia :
+//                    self.title.lowercased().contains("audio") ? .textAndAudio :
+//                    (self.title.isEmpty ? .textOnly : .textOnly)
             )
             .messageUseMarkdown(true)
             .setRecorderSettings(recorderSettings)

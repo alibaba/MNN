@@ -107,6 +107,11 @@ struct ModelInfo: Codable, Hashable {
                 // For flattened models, return the Bundle root path
                 // The model files are directly in the Bundle root directory
                 return bundlePath
+            } else if localSource.hasPrefix("local/") {
+                // LocalModel folder structure with actual folder name
+                let localModelPath = (bundlePath as NSString).appendingPathComponent("LocalModel")
+                let folderName = String(localSource.dropFirst("local/".count))
+                return (localModelPath as NSString).appendingPathComponent(folderName)
             } else {
                 // Original LocalModel folder structure
                 // Use the exact path from sources to ensure correct model folder mapping
@@ -237,50 +242,105 @@ struct ModelInfo: Codable, Hashable {
     }
 }
 
-// MARK: - Model Index Support
-
-/// Model index structure for reading ModelIndex.json
-struct ModelIndex: Codable {
-    let models: [ModelEntry]
-}
-
-/// Individual model entry in ModelIndex.json
-struct ModelEntry: Codable {
-    let id: String
-    let name: String
-    let folder: String
-    let tags: [String]
-    let description: String
-    let size: String
-    let type: String
-}
-
 // MARK: - ModelInfo Extensions for Local Model Support
 
 extension ModelInfo {
-    /// Get available local models from ModelIndex.json
+    /// Model type detected from folder structure
+    private enum LocalModelType {
+        case llm
+        case diffusion
+        case unknown
+    }
+
+    /// Get available local models by scanning the LocalModel directory
     static func getAvailableLocalModels() -> [ModelInfo] {
-        guard let indexPath = Bundle.main.path(forResource: "ModelIndex", ofType: "json", inDirectory: "LocalModel"),
-              let data = try? Data(contentsOf: URL(fileURLWithPath: indexPath)),
-              let index = try? JSONDecoder().decode(ModelIndex.self, from: data)
+        guard let bundlePath = Bundle.main.resourcePath else {
+            return []
+        }
+
+        let localModelPath = (bundlePath as NSString).appendingPathComponent("LocalModel")
+        let fileManager = FileManager.default
+
+        // Check if LocalModel directory exists
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: localModelPath, isDirectory: &isDirectory),
+              isDirectory.boolValue
         else {
             return []
         }
 
-        return index.models.compactMap { modelEntry in
-            let modelPath = "LocalModel/\(modelEntry.folder)"
-            guard Bundle.main.path(forResource: "config", ofType: "json", inDirectory: modelPath) != nil else {
+        // Get all subdirectories in LocalModel
+        guard let contents = try? fileManager.contentsOfDirectory(atPath: localModelPath) else {
+            return []
+        }
+
+        return contents.compactMap { folderName -> ModelInfo? in
+            // Skip hidden files and non-model files
+            if folderName.hasPrefix(".") || folderName.hasSuffix(".json") || folderName.hasSuffix(".txt") {
+                return nil
+            }
+
+            let modelFolderPath = (localModelPath as NSString).appendingPathComponent(folderName)
+
+            // Check if it's a directory
+            var isDir: ObjCBool = false
+            guard fileManager.fileExists(atPath: modelFolderPath, isDirectory: &isDir),
+                  isDir.boolValue
+            else {
+                return nil
+            }
+
+            // Detect model type and validate
+            let modelType = detectModelType(at: modelFolderPath, fileManager: fileManager)
+
+            guard modelType != .unknown else {
+                return nil
+            }
+
+            // Create ModelInfo based on model type
+            let tags: [String]
+            let categories: [String]
+
+            switch modelType {
+            case .llm:
+                tags = ["Build-In", "local"]
+                categories = ["Local Models"]
+            case .diffusion:
+                tags = ["Build-In", "Diffusion", "local"]
+                categories = ["Diffusion Models"]
+            case .unknown:
                 return nil
             }
 
             return ModelInfo(
-                modelName: modelEntry.name,
-                tags: modelEntry.tags + ["local"],
-                categories: ["Local Models"],
+                modelName: folderName,
+                tags: tags,
+                categories: categories,
                 vendor: "Local",
-                sources: ["local": "LocalModel/\(modelEntry.folder)"],
+                sources: ["local": "LocalModel/\(folderName)"],
                 isDownloaded: true
             )
         }
+    }
+
+    /// Detect the type of model based on folder contents
+    private static func detectModelType(at path: String, fileManager: FileManager) -> LocalModelType {
+        // Check for LLM model indicators
+        let configPath = (path as NSString).appendingPathComponent("config.json")
+        let llmConfigPath = (path as NSString).appendingPathComponent("llm_config.json")
+
+        if fileManager.fileExists(atPath: configPath) || fileManager.fileExists(atPath: llmConfigPath) {
+            return .llm
+        }
+
+        // Check for Diffusion model indicators
+        let transformerPath = (path as NSString).appendingPathComponent("transformer.mnn")
+        let vaeDecoderPath = (path as NSString).appendingPathComponent("vae_decoder.mnn")
+
+        if fileManager.fileExists(atPath: transformerPath) || fileManager.fileExists(atPath: vaeDecoderPath) {
+            return .diffusion
+        }
+
+        return .unknown
     }
 }
