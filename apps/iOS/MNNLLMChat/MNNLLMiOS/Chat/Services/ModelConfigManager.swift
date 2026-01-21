@@ -190,7 +190,8 @@ class ModelConfigManager {
     // MARK: - Iterations
 
     func readIterations() -> Int {
-        return readValue("iterations", defaultValue: 5)
+        return readValue("iterations", defaultValue: 10
+        )
     }
 
     func updateIterations(_ value: Int) {
