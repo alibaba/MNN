@@ -72,12 +72,18 @@ if __name__ == "__main__":
         "-d", "--eval_dataset", type=str, default='wikitext/wikitext-2-raw-v1', help="Evaluation dataset, default is `wikitext/wikitext-2-raw-v1`."
     )
     group.add_argument(
-        "--quant-qkv",
+        "--attention_mode",
         type=int,
         default=8,
-        help="Quantization bits for QKV, default is 8(not quant), if set 9, quant",
+        choices=[0, 1, 2, 8, 9, 10],
+        help="""Quantization option for query, key, value in CPU attention operator. Options: 0, 1, 2, 8, 9, 10. Default: 8.
+        0: No Flash Attention, no quantization for query, key, value;
+        1: No Flash Attention, 8-bit asymmetric quantization for query and key, no quantization for value;
+        2: No Flash Attention, 8-bit asymmetric quantization for query, key, and value;
+        8: Flash Attention enabled, no quantization for query, key, value;
+        9: Flash Attention enabled, 8-bit asymmetric quantization for query and key, no quantization for value;
+        10: Flash Attention enabled, 8-bit asymmetric quantization for query, key, and value.""",
     )
-
     args = parser.parse_args()
 
     main(args)
