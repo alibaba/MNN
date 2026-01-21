@@ -1476,7 +1476,7 @@ static void MNNAttenPackAndScaleSingleHead(float* dst, const float* srcHeadBase,
 }
 
 #ifndef __aarch64__
-void MNNQuantAttentionKey(int8_t* dst, const float* source, float* sumKeyPtr, float* maxKeyPtr, int32_t* params) {
+void MNNQuantAttentionKey(int8_t* dst, const float* source, float* sumKeyPtr, float* maxKeyPtr, int32_t* params, float* scaleBias) {
     int32_t kvNumHead = params[0];
     int32_t seqLen = params[1];
     int32_t headDim = params[2];
@@ -1492,7 +1492,7 @@ void MNNQuantAttentionKey(int8_t* dst, const float* source, float* sumKeyPtr, fl
     auto weightStride2 = lP * hP;
     auto packedWeightStride1 = weightStride1 + 2 * 4 * hP;
 
-    if (seqLen > 1) {
+    if (seqLen > 1 && nullptr == scaleBias)  {
         // get max
         for (int s = 0; s < seqLen; ++s) {
             const float* keySrc = source + s * kvNumHead * headDim + kvHeadIdx * headDim;
@@ -1501,7 +1501,41 @@ void MNNQuantAttentionKey(int8_t* dst, const float* source, float* sumKeyPtr, fl
             }
         }
     }
+    if (nullptr != scaleBias) {
+        for (int s = 0; s < seqLen; s++) {
+            const float* keySrc = source + s * kvNumHead * headDim + kvHeadIdx * headDim;
 
+            float quantScaleVal = 1.0f / scaleBias[0];;
+            // FIXME: Support async
+            float biasVal = 0.0f;
+            float scaleDstVal = scaleBias[0];;
+
+            int outIndex = (pastLength + s) / hP;
+            int inIndex  = (pastLength + s) % hP;
+
+            float sumKey = 0;
+            for (int k = 0; k < blockNum; ++k) {
+                int8_t* weightDst = dst + outIndex * blockNum * packedWeightStride1 + k * packedWeightStride1;
+                float* scaleDst = (float*)(weightDst + weightStride1);
+                float* biasDst = scaleDst + hP;
+                scaleDst[inIndex] = scaleDstVal;
+                biasDst[inIndex] = biasVal;
+
+                for (int d = 0; d < blockL; d++) {
+                    int i = d / lP;
+                    int j = d % lP;
+                    float quant_val = keySrc[d + k * blockL] * quantScaleVal;
+                    int32_t rounded_val = static_cast<int32_t>(roundf(quant_val));
+                    int8_t int8v = static_cast<int8_t>(std::max(-128, std::min(127, rounded_val)));
+
+                    weightDst[i * weightStride2 + inIndex * lP + j] = int8v;
+                    sumKey += (int8v * scaleDst[inIndex] + biasDst[inIndex]);
+                }
+            }
+            sumKeyPtr[outIndex * hP + inIndex] = sumKey;
+        }
+        return;
+    }
     for (int s = 0; s < seqLen; s++) {
         const float* keySrc = source + s * kvNumHead * headDim + kvHeadIdx * headDim;
         float minKey, maxKey;
@@ -1538,7 +1572,7 @@ void MNNQuantAttentionKey(int8_t* dst, const float* source, float* sumKeyPtr, fl
     }
 }
 
-void MNNQuantAttentionValue(int8_t* dst, const float* source, float* valueSum, int32_t* params) {
+void MNNQuantAttentionValue(int8_t* dst, const float* source, float* valueSum, int32_t* params, float* scaleBias) {
     // float   value src : [kvSeq,kvNumHead,headDim]
     // int8_t  value dest: [updiv(maxLength,flashAttentionBlockKv), updiv(headDim,hp),updiv(flashAttentionBlockKv,lp),hp,lp]
     // float   value sum: [updiv(maxLength,flashAttentionBlockKv), roundup(headDim,hp)]
@@ -1567,7 +1601,7 @@ void MNNQuantAttentionValue(int8_t* dst, const float* source, float* valueSum, i
     auto sourceFp32 = (float*)source;
 
     // quant scale & bias
-    if (pastLength == 0) {
+    if (pastLength == 0 && nullptr == scaleBias) {
         for (int d = 0; d < headDim; ++d) {
             float* scalePtr = (float*)(dst + (d / hP) * packedStride1 + weightStride1) + (d % hP);
             float* biasPtr = scalePtr + hP;
@@ -1592,6 +1626,13 @@ void MNNQuantAttentionValue(int8_t* dst, const float* source, float* valueSum, i
                 scalePtr[0] = scale;
                 biasPtr[0] = bias;
             }
+        }
+    } else if (nullptr != scaleBias) {
+        for (int d = 0; d < headDim; ++d) {
+            float* scalePtr = (float*)(dst + (d / hP) * packedStride1 + weightStride1) + (d % hP);
+            float* biasPtr = scalePtr + hP;
+            scalePtr[0] = scaleBias[0];
+            biasPtr[0] = scaleBias[1];
         }
     }
 
