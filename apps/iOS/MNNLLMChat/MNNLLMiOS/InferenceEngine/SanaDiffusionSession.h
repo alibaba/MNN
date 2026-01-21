@@ -49,7 +49,6 @@ typedef void (^SanaStyleTransferCompletion)(BOOL success, NSString * _Nullable e
 ///         if (success) {
 ///             [session runStyleTransferWithInputImage:@"/path/to/input.jpg"
 ///                                              prompt:@"Ghibli style"
-///                                           cfgPrompt:[SanaDiffusionSession defaultCfgPrompt]
 ///                                          outputPath:@"/path/to/output.jpg"
 ///                                          iterations:20
 ///                                                seed:-1
@@ -81,7 +80,6 @@ typedef void (^SanaStyleTransferCompletion)(BOOL success, NSString * _Nullable e
 ///
 /// @param inputImagePath Path to the input image file.
 /// @param prompt The style description prompt (e.g., "Convert to Ghibli style").
-/// @param cfgPrompt Classifier-free guidance prompt, typically "Generate an image."
 /// @param outputPath Destination path for the output image.
 /// @param iterations Number of diffusion iterations. Recommended range: 5-20.
 /// @param seed Random seed for reproducibility. Use -1 for random seed.
@@ -89,7 +87,6 @@ typedef void (^SanaStyleTransferCompletion)(BOOL success, NSString * _Nullable e
 /// @param completion Handler called when style transfer completes.
 - (void)runStyleTransferWithInputImage:(NSString *)inputImagePath
                                 prompt:(NSString *)prompt
-                             cfgPrompt:(NSString *)cfgPrompt
                             outputPath:(NSString *)outputPath
                             iterations:(int)iterations
                                   seed:(int)seed
@@ -102,13 +99,13 @@ typedef void (^SanaStyleTransferCompletion)(BOOL success, NSString * _Nullable e
 /// A Boolean value indicating whether a style transfer operation is in progress.
 @property (nonatomic, readonly) BOOL isProcessing;
 
-/// Returns the default classifier-free guidance prompt.
-/// @return The default CFG prompt string.
-+ (NSString *)defaultCfgPrompt;
-
 /// Returns the default Ghibli style prompt.
 /// @return The default Ghibli style transfer prompt string.
 + (NSString *)defaultGhibliPrompt;
+
+/// Returns the file path where benchmark results are saved.
+/// @return The absolute path to the benchmark JSON file in the Documents directory.
++ (NSString *)benchmarkFilePath;
 
 @end
 
