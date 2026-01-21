@@ -99,83 +99,11 @@ MetalBackend::MetalBackend(const MetalRuntime* runtime, bool usefp16AsFp32, Back
         _commandQueue = runtime->getCommandQueue();
         mSupportDeferEncode = false;
     }
-    if(((MetalRuntime *)mRuntime)->supportTensorOps()) {
-        mSupportTensorApi = true;
-        const char * src_tensor_f16 = "\n"
-            "#include <metal_stdlib> \n"
-            "#include <metal_tensor> \n"
-            "#include <MetalPerformancePrimitives/MetalPerformancePrimitives.h> \n"
-            " \n"
-            "using namespace metal; \n"
-            "using namespace mpp::tensor_ops; \n"
-            " \n"
-            "kernel void dummy_kernel( \n"
-            "    tensor<device  half, dextents<int32_t, 2>> A [[buffer(0)]], \n"
-            "    tensor<device  half, dextents<int32_t, 2>> B [[buffer(1)]], \n"
-            "    device float * C [[buffer(2)]], \n"
-            "    uint2 tgid [[threadgroup_position_in_grid]]) \n"
-            "{ \n"
-            "    auto tA = A.slice(0, (int)tgid.y); \n"
-            "    auto tB = B.slice((int)tgid.x, 0); \n"
-            " \n"
-            "    matmul2d< \n"
-            "        matmul2d_descriptor(8, 8, dynamic_extent), \n"
-            "        execution_simdgroups<4>> mm; \n"
-            " \n"
-            "    auto cT = mm.get_destination_cooperative_tensor<decltype(tA), decltype(tB), float>(); \n"
-            " \n"
-            "    auto sA = tA.slice(0, 0); \n"
-            "    auto sB = tB.slice(0, 0); \n"
-            "    mm.run(sB, sA, cT); \n"
-            " \n"
-            "    auto tC = tensor<device float, dextents<int32_t, 2>, tensor_inline>(C, dextents<int32_t, 2>(4, 4)); \n"
-            " \n"
-            "    cT.store(tC); \n"
-            "}";
-        
-        auto pipeline = makeComputePipelineWithSourceOption(src_tensor_f16, "dummy_kernel", nullptr);
-        if(pipeline == nullptr) {
-            MNN_PRINT("Metal4 Tensor api compile err, disable tensor api.\n");
-            mSupportTensorApi = false;
-        }
-    }
     _commandBuffer = nil;
     _commandBuffer_net = nil;
-    setUpGPUEnabledSwitch();
 }
 MetalBackend::~MetalBackend() {
     flushEncoder();
-    removeNotificationsObservers();
-}
-
-void MetalBackend::setUpGPUEnabledSwitch() {
-#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
-    __block UIApplicationState state;
-    if ([NSThread isMainThread]) {
-        state = [UIApplication sharedApplication].applicationState;
-    } else {
-        dispatch_semaphore_t latch = dispatch_semaphore_create(0);
-        dispatch_async(dispatch_get_main_queue(), ^{
-            state = [UIApplication sharedApplication].applicationState;
-            dispatch_semaphore_signal(latch);
-        });
-        dispatch_semaphore_wait(latch, DISPATCH_TIME_FOREVER);
-    }
-    mGPUEnabledSwitch.store(state == UIApplicationStateActive);
-    mForegroundObserver = [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationWillEnterForegroundNotification object:nil queue:nil usingBlock:^(NSNotification * _Nonnull notification) {
-        mGPUEnabledSwitch.store(true);
-    }];
-    mBackgroundObserver = [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidEnterBackgroundNotification object:nil queue:nil usingBlock:^(NSNotification * _Nonnull notification) {
-        mGPUEnabledSwitch.store(false);
-    }];
-#endif
-}
-
-void MetalBackend::removeNotificationsObservers() {
-#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
-    [[NSNotificationCenter defaultCenter] removeObserver:mForegroundObserver];
-    [[NSNotificationCenter defaultCenter] removeObserver:mBackgroundObserver];
-#endif
 }
 
 id<MTLComputeCommandEncoder> MetalBackend::encoder_net() const {
@@ -905,7 +833,7 @@ std::pair<id<MTLBuffer>, int> MetalBackend::getBuffer(const MNN::Tensor* tensor)
 void MetalBackend::commit() const {
 #ifdef CHECK_IOS_UI_STATUS
 #if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
-    if (!mGPUEnabledSwitch) {
+    if ([UIApplication sharedApplication].applicationState == UIApplicationStateBackground || [UIApplication sharedApplication].applicationState == UIApplicationStateInactive) {
         mRuntime->pExecutionStatus = NO_EXECUTION;
         _commandBuffer = nil;
         if (!mSupportDeferEncode) {
@@ -930,7 +858,7 @@ void MetalBackend::commit() const {
 void MetalBackend::commit_net() const {
 #ifdef CHECK_IOS_UI_STATUS
 #if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
-    if (!mGPUEnabledSwitch) {
+    if ([UIApplication sharedApplication].applicationState == UIApplicationStateBackground || [UIApplication sharedApplication].applicationState == UIApplicationStateInactive) {
         mRuntime->pExecutionStatus = NO_EXECUTION;
         _commandBuffer_net = nil;
         if (!mSupportDeferEncode) {
@@ -1116,7 +1044,6 @@ MetalRuntime::MetalRuntime(void* context) {
     mSimdGroupReduce |= [[ctx device] supportsFamily:(MTLGPUFamily)MTLGPUFamilyMetal3_MNN];
     mSimdGroupMatrix = [[ctx device] supportsFamily:MTLGPUFamilyApple7];
     // Metal4 Support M1/A14 and later chips
-#ifdef MNN_METAL_TENSOR
     mTensorOps = [[ctx device] supportsFamily:(MTLGPUFamily)MTLGPUFamilyMetal4_MNN];
 
     // AI TensorCore device support from M5/A19
@@ -1130,9 +1057,6 @@ MetalRuntime::MetalRuntime(void* context) {
                         [[[ctx device] name] containsString:@"A17"] || \
                         [[[ctx device] name] containsString:@"A18"];
     mTensorOps = mTensorOps && !noAICoreDevice;
-#else
-    mTensorOps = false;
-#endif
 //    MNN_PRINT("Metal device name %s, open tensor: %d\n\n", [[[ctx device] name] UTF8String], mTensorOps);
     mStaticAllocator.reset(new EagerBufferAllocator(allocator));
     mDynamic.resize(METAL_SEPERATE_MAX_COUNT);

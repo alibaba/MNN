@@ -39,7 +39,6 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_INTERNAL         | 是否构建MNN的一些内部功能，如：日志；默认为`OFF` |
 | MNN_JNI              | 是否构建MNN的JNI支持，默认为`OFF` |
 | MNN_METAL            | 是否构建`Metal`后端，默认为`OFF` |
-| MNN_METAL_TENSOR     | 是否启用`Metal Tensor`接口，该宏仅在`MNN_METAL=ON`时生效，默认为`ON` |
 | MNN_OPENCL           | 是否构建`OpenCL`后端，默认为`OFF` |
 | MNN_OPENGL           | 是否构建`OpenGL`后端，默认为`OFF` |
 | MNN_VULKAN           | 是否构建`Vulkan`后端，默认为`OFF` |
