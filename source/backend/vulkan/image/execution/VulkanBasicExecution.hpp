@@ -34,7 +34,7 @@ public:
         return mName;
     }
 protected:
-    std::string mName= "General_Execution";
+    std::string mName;
 #endif
 private:
     Backend* mBackend;
@@ -50,6 +50,9 @@ public:
 private:
     std::shared_ptr<VulkanBasicExecution> mEncoder;
     std::shared_ptr<VulkanCommandPool::Buffer> mCmdBuffer;
+#ifdef ENABLE_VULKAN_TIME_PROFILE
+    std::shared_ptr<VulkanQueryPool> mQueryPool;
+#endif
 };
 class VulkanBasicExecutionInDirect : public Execution {
 public:

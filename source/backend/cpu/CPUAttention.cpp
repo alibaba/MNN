@@ -121,7 +121,7 @@ ErrorCode CPUAttention::onResize(const std::vector<Tensor*>& inputs, const std::
         mQueryZeroPoint = bufferAlloc->alloc(mNumHead * seqLen * mBlockNum * QUANT_INFO_BYTES);
         mQueryQuantZero = bufferAlloc->alloc(mNumHead * seqLen * mBlockNum * QUANT_INFO_BYTES);
         mQueryQuantScale = bufferAlloc->alloc(mNumHead * seqLen * mBlockNum * QUANT_INFO_BYTES);
-        mQuantQuery = bufferAlloc->alloc(seqLen * mNumHead * UP_DIV(mHeadDim, gcore->pack) * gcore->pack);
+        mQuantQuery = bufferAlloc->alloc(seqLen * mNumHead * mHeadDim);
 
         if (mBlockNum > 1) {
             mAccumBuffer = bufferAlloc->alloc(eP8 * hP8 * mThreadNum * QUANT_INFO_BYTES);
@@ -426,11 +426,11 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
         auto runningSum = mRunningSum ? (float*)(mRunningSum->host<int8_t>() + tId * mRunningSum->stride(0)) : nullptr;
         auto diffScale = mExpfDiffMax ? (float*)(mExpfDiffMax->host<int8_t>() + tId * mExpfDiffMax->stride(0)) : nullptr;
         auto outputPacked = mTempOut ? mTempOut->host<int8_t>() + tId * mTempOut->stride(0) : qkvPacked;
-        
+
         int  kvBlocks = UP_DIV(kvSeqLen, mBlockKV);
 
         QuanPostTreatParameters gemmParam4QxK, gemmParam4QKxV; // used by int8 gemm, allocated per thread.
-        SumByAxisParams sumParams4QxK, sumParams4QKxV = {};
+        SumByAxisParams sumParams4QxK, sumParams4QKxV;
         float* qSumAddr = nullptr;
         float* qScale = nullptr;
         float* qBias = nullptr;

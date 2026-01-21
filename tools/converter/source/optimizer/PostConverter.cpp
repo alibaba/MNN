@@ -142,27 +142,23 @@ static bool _hasDupName(std::unique_ptr<MNN::NetT>& originNet) {
     return false;
 }
 void RunNetPass(const std::vector<std::string>& passes, std::unique_ptr<MNN::NetT>& originNet) {
-    auto config = Global<modelConfig>::Get();
-    bool dumpPass = config != nullptr && config->dumpPass;
     for (auto pass : passes) {
         auto convert = PostConverter::get(pass);
         if (nullptr == convert) {
             LOG(INFO) << "Can't find pass of " << pass << "\n";
             continue;
         }
+#ifdef DEBUG
         auto originSize = originNet->oplists.size();
         auto originDesSize = originNet->extraTensorDescribe.size();
+#endif
         bool valid = convert->onExecute(originNet);
-        if (dumpPass) {
-            auto newSize = originNet->oplists.size();
-            auto newDesSize = originNet->extraTensorDescribe.size();
-            if (originSize != newSize || originDesSize != newDesSize) {
-                MNN_PRINT("[DumpPass] PostConvert::%s: ops %zu -> %zu, tensors %zu -> %zu\n",
-                    pass.c_str(), originSize, newSize, originDesSize, newDesSize);
-            } else {
-                MNN_PRINT("[DumpPass] PostConvert::%s: no change\n", pass.c_str());
-            }
+#ifdef DEBUG
+        auto hasDup = _hasDupName(originNet);
+        if (originSize != originNet->oplists.size() || hasDup || originDesSize != originNet->extraTensorDescribe.size()) {
+            MNN_PRINT("%s: %d -> %d, dup: %d, des: %d -> %d\n", pass.c_str(), originSize, originNet->oplists.size(), hasDup, originDesSize, originNet->extraTensorDescribe.size());
         }
+#endif
         if (!valid) {
             LOG(INFO) << "Run " << pass << "Error\n";
         }
@@ -171,10 +167,6 @@ void RunNetPass(const std::vector<std::string>& passes, std::unique_ptr<MNN::Net
 
 std::unique_ptr<MNN::NetT> RunExtraPass(std::unique_ptr<MNN::NetT>& originNet,
                                         const std::unordered_map<std::string, VARP>& inputs) {
-    auto config = Global<modelConfig>::Get();
-    bool dumpPass = config != nullptr && config->dumpPass;
-    auto originOpCount = originNet->oplists.size();
-
     auto program = MNN::Express::Program::create(originNet.get(), true, true);
     program->input(inputs, true);
 
@@ -198,9 +190,6 @@ std::unique_ptr<MNN::NetT> RunExtraPass(std::unique_ptr<MNN::NetT>& originNet,
         default:
             break;
     }
-    if (dumpPass) {
-        MNN_PRINT("[DumpPass] Running ExtraPass: %s\n", pass.c_str());
-    }
     auto& merge = MNN::Express::TemplateMerge::getInstance(pass);
     merge.onExecute(program->outputs());
     originNet->oplists.clear();
@@ -211,26 +200,11 @@ std::unique_ptr<MNN::NetT> RunExtraPass(std::unique_ptr<MNN::NetT>& originNet,
     newNet->bizCode    = originNet->bizCode;
     newNet->outputName = originNet->outputName;
     program->save(newNet.get());
-
-    if (dumpPass) {
-        MNN_PRINT("[DumpPass] ExtraPass::%s: ops %zu -> %zu\n", pass.c_str(), originOpCount, newNet->oplists.size());
-    }
     return std::move(newNet);
 }
 
 std::unique_ptr<MNN::NetT> RunMergePass(std::unique_ptr<MNN::NetT>& originNet,
                                         const std::unordered_map<std::string, VARP>& inputs, PassPriority priority) {
-    auto config = Global<modelConfig>::Get();
-    bool dumpPass = config != nullptr && config->dumpPass;
-    auto originOpCount = originNet->oplists.size();
-
-    static const char* priorityNames[] = {"FRONT", "HIGH", "MIDDLE", "LOW", "FINAL"};
-    const char* priorityName = (priority >= 0 && priority <= 4) ? priorityNames[priority] : "UNKNOWN";
-
-    if (dumpPass) {
-        MNN_PRINT("[DumpPass] Running MergePass (priority=%s)\n", priorityName);
-    }
-
     auto program = MNN::Express::Program::create(originNet.get(), true, true);
     auto boundary = program->input(inputs, true);
 
@@ -253,11 +227,11 @@ std::unique_ptr<MNN::NetT> RunMergePass(std::unique_ptr<MNN::NetT>& originNet,
     newNet->bizCode    = originNet->bizCode;
     newNet->outputName = originNet->outputName;
     program->save(newNet.get());
-
-    if (dumpPass) {
-        MNN_PRINT("[DumpPass] MergePass (priority=%s): ops %zu -> %zu\n", priorityName, originOpCount, newNet->oplists.size());
+#ifdef DEBUG
+    if (originNet->extraTensorDescribe.size() != newNet->extraTensorDescribe.size()) {
+        MNN_PRINT("Merge: %d -> %d\n", originNet->extraTensorDescribe.size(), newNet->extraTensorDescribe.size());
     }
-
+#endif
     RunNetPass({"RemoveUnusefulOp"}, newNet);
     return std::move(newNet);
 }
@@ -291,7 +265,7 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
 
         // Remove Dup op
         "FuseDupOp",
-
+        
         // Remove Invalid Cast
         "RemoveInvalidCast",
 
@@ -303,7 +277,7 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
 
         // Turn Caffe's ShuffleChannel to compose op
         "TransformShuffleChannel",
-
+        
         "MoveUnaryOpBeforeReshape",
 
     };
@@ -312,7 +286,7 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
         while (iter != postConvertPass.end()) {
             if (*iter == "RemoveDropout") {
                 iter = postConvertPass.erase(iter);
-            }
+            } 
             else {
                 iter++;
             }
@@ -325,7 +299,7 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
         // Remove Invalid Cast
         "RemoveInvalidCast"
     };
-
+    
     std::unique_ptr<MNN::NetT> newNet;
     newNet = std::move(RunExtraPass(originNet, inputs));
     RunNetPass(midOptPass, newNet);
@@ -700,7 +674,7 @@ std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet, bo
         CompleteSubGraph(inputs, subgraph);
     }
     net = ctx.RunOptimize(net, empty);
-
+    
     fuseConstIntoSubgraph(net.get(), ctx.completed_subgraphs);
     for (auto* subgraph : ctx.completed_subgraphs) {
         net->subgraphs.emplace_back(subgraph);

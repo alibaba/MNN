@@ -13,10 +13,6 @@
 #include "VulkanBackend.hpp"
 
 namespace MNN {
-#ifdef ENABLE_VULKAN_TIME_PROFILE
-static constexpr const char* kVulkanTimeProfileDefaultExecutionName = "General_Execution";
-#endif
-
 class VulkanBasicExecution {
 public:
     VulkanBasicExecution(Backend *bn) : mBackend(bn) {
@@ -41,7 +37,7 @@ public:
         return mName;
     }
 protected:
-    std::string mName = kVulkanTimeProfileDefaultExecutionName;
+    std::string mName = "General_Execution";
 #endif
 private:
     Backend* mBackend;
@@ -62,11 +58,6 @@ public:
         if (nullptr == dstExe) {
             return false;
         }
-#ifdef ENABLE_VULKAN_TIME_PROFILE
-        if (dstExe->getName() == kVulkanTimeProfileDefaultExecutionName && nullptr != op) {
-            dstExe->setName(EnumNameOpType(op->type()));
-        }
-#endif
         std::shared_ptr<VulkanBasicExecution> dstExePtr(dstExe);
         *dst = new VulkanBasicExecutionDirect(dstExePtr);
         return true;
@@ -75,6 +66,9 @@ public:
 private:
     std::shared_ptr<VulkanBasicExecution> mEncoder;
     std::shared_ptr<VulkanCommandPool::Buffer> mCmdBuffer;
+#ifdef ENABLE_VULKAN_TIME_PROFILE
+    std::shared_ptr<VulkanQueryPool> mQueryPool;
+#endif
 };
 class VulkanBasicExecutionInDirect : public Execution {
 public:
@@ -93,11 +87,6 @@ public:
         if (nullptr == dstExe) {
             return false;
         }
-#ifdef ENABLE_VULKAN_TIME_PROFILE
-        if (dstExe->getName() == kVulkanTimeProfileDefaultExecutionName && nullptr != op) {
-            dstExe->setName(EnumNameOpType(op->type()));
-        }
-#endif
         std::shared_ptr<VulkanBasicExecution> dstExePtr(dstExe);
         *dst = new VulkanBasicExecutionInDirect(dstExePtr);
         return true;
