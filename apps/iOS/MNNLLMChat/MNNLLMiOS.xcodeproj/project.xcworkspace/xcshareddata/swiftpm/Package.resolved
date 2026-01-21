@@ -1,5 +1,5 @@
 {
-  "originHash" : "dfd5216ea2febcfff3b255c33ef9ad14ed3d9385658437d1653e0713311dc069",
+  "originHash" : "7e6a107bbe95b6f079f970326906e76be01a096d7dd763cc14f57a7217a6543f",
   "pins" : [
     {
       "identity" : "activityindicatorview",
@@ -15,8 +15,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Yogayu/Chat.git",
       "state" : {
-        "revision" : "b6a994af4c94585ab8e0d85eae7357581febbecd",
-        "version" : "1.0.4"
+        "revision" : "31d0191cbe9b567e43e60ca77fc8918c94f1a1c7",
+        "version" : "1.0.42"
       }
     },
     {
@@ -42,8 +42,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/nicklockwood/LRUCache",
       "state" : {
-        "revision" : "e0e9e039b33db8f2ef39b8e25607e38f46b13584",
-        "version" : "1.1.2"
+        "revision" : "cb5b2bd0da83ad29c0bec762d39f41c8ad0eaf3e",
+        "version" : "1.2.1"
       }
     },
     {
@@ -96,8 +96,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/swiftlang/swift-cmark",
       "state" : {
-        "revision" : "b97d09472e847a416629f026eceae0e2afcfad65",
-        "version" : "0.7.0"
+        "revision" : "5d9bdaa4228b381639fff09403e39a04926e2dbe",
+        "version" : "0.7.1"
       }
     },
     {
