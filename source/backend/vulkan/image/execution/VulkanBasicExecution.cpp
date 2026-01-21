@@ -20,6 +20,10 @@ VulkanBasicExecutionDirect::VulkanBasicExecutionDirect(std::shared_ptr<VulkanBas
 
 ErrorCode VulkanBasicExecutionDirect::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto extra = static_cast<VulkanBackend *>(backend());
+#ifdef ENABLE_VULKAN_TIME_PROFILE
+    extra->pushExecutionName(mEncoder->getName());
+    extra->pushQueryPool(mQueryPool);
+#endif
     extra->pushCommand(mCmdBuffer->get());
     return NO_ERROR;
 }
@@ -61,12 +65,11 @@ ErrorCode VulkanBasicExecutionDirect::onResize(const std::vector<Tensor *> &inpu
 
 #ifdef ENABLE_VULKAN_TIME_PROFILE
     auto vkBn = static_cast<VulkanBackend*>(backend());
-    ErrorCode code = NO_ERROR;
-    {
-        VulkanTimeProfileScope scope(vkBn->timeProfiler(), mCmdBuffer->get(), mEncoder->getName().c_str(),
-                                     VulkanTimeProfiler::Kind::Execution);
-        code = mEncoder->onEncode(inputs, outputs, mCmdBuffer.get());
-    }
+    mQueryPool.reset(new VulkanQueryPool(vkBn->device()));
+    mQueryPool->VulkanCmdResetQueryPool(mCmdBuffer.get()->get());
+    mQueryPool->VulkanCmdWriteTimestamp(mCmdBuffer.get()->get(), 0);
+    auto code = mEncoder->onEncode(inputs, outputs, mCmdBuffer.get());
+    mQueryPool->VulkanCmdWriteTimestamp(mCmdBuffer.get()->get(), 1);
 #else
     auto code = mEncoder->onEncode(inputs, outputs, mCmdBuffer.get());
 #endif
@@ -98,15 +101,7 @@ ErrorCode VulkanBasicExecutionInDirect::onResize(const std::vector<Tensor *> &in
     auto initCmdBuffer = static_cast<VulkanBackend*>(backend())->getInitCommandBuffer();
     _initLayout(inputs, outputs, initCmdBuffer);
     auto mCmdBuffer = extra->getSingleCommand();
-    auto vkBn = static_cast<VulkanBackend*>(backend());
-    ErrorCode code = NO_ERROR;
-#ifdef ENABLE_VULKAN_TIME_PROFILE
-    VulkanTimeProfileScope scope(vkBn->timeProfiler(), mCmdBuffer->get(), mEncoder->getName().c_str(),
-                                 VulkanTimeProfiler::Kind::Execution);
-    code = mEncoder->onEncode(inputs, outputs, mCmdBuffer.get());
-#else
-    code = mEncoder->onEncode(inputs, outputs, mCmdBuffer.get());
-#endif
+    auto code = mEncoder->onEncode(inputs, outputs, mCmdBuffer.get());
     _postTreat(outputs, mCmdBuffer.get());
     return code;
 }
