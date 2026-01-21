@@ -6,7 +6,11 @@ else()
 endif()
 
 if(MNN_GPU_TIME_PROFILE)
-    add_definitions(-DENABLE_VULKAN_TIME_PROFILE)
+    if(APPLE)
+        message(STATUS "Timeprofile feature for Vulkan backend is currently not supported on Apple systems.")
+    else()
+        add_definitions(-DENABLE_VULKAN_TIME_PROFILE)
+    endif()
 ENDIF()
 
 

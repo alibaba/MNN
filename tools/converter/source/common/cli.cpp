@@ -965,6 +965,7 @@ int Cli::testconvert(const std::string& defaultCacheFile, const std::string& dir
     }
     rtmgr->setHint(MNN::Interpreter::INIT_THREAD_NUMBER, 2);
 
+    rtmgr->setExternalFile("./convert_cache.mnn.weight");
     std::shared_ptr<MNN::Express::Module> net(MNN::Express::Module::load(inputNames, outputNames, defaultCacheFile.c_str(), rtmgr, &mConfig));
     std::shared_ptr<MNN::Express::Module> net2;
     net2.reset(MNN::Express::Module::clone(net.get()));
@@ -1003,6 +1004,14 @@ int Cli::testconvert(const std::string& defaultCacheFile, const std::string& dir
             inputs[i] = _Input(mInfo->inputs[i].dim, mInfo->inputs[i].order, mInfo->inputs[i].type);
         }
         auto info = inputs[i]->getInfo();
+        auto iter = inputInfo.find(inputNames[i]);
+        if (iter != inputInfo.end()) {
+            auto ptr = inputs[i]->writeMap<float>();
+            for (int v=0; v<mInfo->inputs[i].size; ++v) {
+                ptr[v] = iter->second;
+            }
+            continue;
+        }
         if (info->type == halide_type_of<float>()){
             auto ptr = inputs[i]->writeMap<float>();
             LOAD_DATA(float)
