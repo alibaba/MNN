@@ -9,10 +9,10 @@ class LlmStatus(IntEnum):
     INTERNAL_ERROR = 4
 
     def __str__(self):
-        return "{}.{}".format(self.__class__.__name__, self.name)
+        return f"{self.__class__.__name__}.{self.name}"
 
     def __repr__(self):
-        return "{}.{}".format(self.__class__.__name__, self.name)
+        return f"{self.__class__.__name__}.{self.name}"
 
 class Context:
     def __init__(self, llm_obj):
@@ -151,7 +151,7 @@ class Context:
             self.update(status=int(value))
 
     def __repr__(self):
-        return "Context({})".format(self._data)
+        return f"Context({self._data})"
 
 class Llm:
 

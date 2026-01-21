@@ -120,9 +120,6 @@ bool TemplateMerge::onExecute(const std::vector<VARP>& outputs, PassPriority pri
     if (mPriorities.size() <= priority) {
         return false;
     }
-    auto config = Global<modelConfig>::Get();
-    bool dumpPass = config != nullptr && config->dumpPass;
-
     bool hasChange = false;
     std::unordered_set<EXPRP> boundaryExpr;
     for (auto it : boundary) {
@@ -134,7 +131,6 @@ bool TemplateMerge::onExecute(const std::vector<VARP>& outputs, PassPriority pri
             auto& pass = mTemplates.at(pass_name);
             std::set<EXPRP> invalidVARP;
             auto execute = splitInBoundary(Variable::getExecuteOrder(outputs), boundary);
-            int changeCount = 0;
             for (int i=0; i<execute.size(); ++i) {
                 auto var = execute[i];
                 execute[i] = nullptr;
@@ -154,16 +150,13 @@ bool TemplateMerge::onExecute(const std::vector<VARP>& outputs, PassPriority pri
                         continue;
                     }
                     hasChange = true;
-                    changeCount++;
-                    if (dumpPass) {
-                        MNN_PRINT("[DumpPass]   Merge::%s changed node: %s\n", pass_name.c_str(), var->name().c_str());
-                    }
+// #define MNN_OPTIMIZE_DEBUG
+#ifdef MNN_OPTIMIZE_DEBUG
+                    MNN_ERROR("%s changed by %s\n", var->name().c_str(), pass_name.c_str());
+#endif
                 } else {
                     invalidVARP.insert(var);
                 }
-            }
-            if (dumpPass && changeCount > 0) {
-                MNN_PRINT("[DumpPass]   Merge::%s: %d nodes changed\n", pass_name.c_str(), changeCount);
             }
         }
         MNN::Express::ExecutorScope::Current()->gc();
