@@ -193,6 +193,10 @@ extern "C" {
         src_stride: c_int,
         dest: *mut MnnTensor,
     );
+    pub fn mnn_image_process_set_matrix(
+        process: *mut MnnImageProcess,
+        matrix: *const f32,
+    );
 
     // Utility Functions
     pub fn mnn_string_free(str: *mut c_char);

@@ -46,7 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     config.source_format = ImageFormat::RGBA; // image crate usually loads as RGBA8 or RGB8
     config.dest_format = ImageFormat::RGB; // Model expects RGB
     config.filter_type = FilterType::Bilinear;
-    config.mean = [123.68, 116.779, 103.939];
+    config.mean = [0.0, 0.0, 0.0];
     config.normal = [1.0, 1.0, 1.0];
     config.wrap = mnn::WrapMode::ClampToEdge;
 
@@ -79,6 +79,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut input_tensor = interpreter.get_session_input(&session, None).expect("Failed to get input tensor");
 
     println!("Processing image to {}x{}...", target_width, target_height);
+
+    // Calculate affine transform matrix for resizing (dst -> src)
+    let sx = orig_width as f32 / target_width as f32;
+    let sy = orig_height as f32 / target_height as f32;
+    let matrix: [f32; 9] = [
+        sx, 0.0, 0.0,
+        0.0, sy, 0.0,
+        0.0, 0.0, 1.0,
+    ];
+    process.set_matrix(&matrix);
 
     // Use ImageProcess to convert/resize raw image data to input tensor
     // Note: ImageProcess::convert takes src stride. For RGBA, stride = width * 4.

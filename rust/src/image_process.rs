@@ -101,6 +101,13 @@ impl ImageProcess {
             );
         }
     }
+
+    /// Set affine transform matrix (3x3)
+    pub fn set_matrix(&self, matrix: &[f32; 9]) {
+        unsafe {
+            ffi::mnn_image_process_set_matrix(self.ptr, matrix.as_ptr());
+        }
+    }
 }
 
 impl Drop for ImageProcess {

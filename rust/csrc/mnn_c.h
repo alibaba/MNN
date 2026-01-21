@@ -159,6 +159,7 @@ MnnTensor* mnn_tensor_create_host_from_device(const MnnTensor* device_tensor, bo
 MnnImageProcess* mnn_image_process_create(const MnnImageProcessConfig* config);
 void mnn_image_process_destroy(MnnImageProcess* process);
 void mnn_image_process_convert(MnnImageProcess* process, const uint8_t* source, int src_w, int src_h, int src_stride, MnnTensor* dest);
+void mnn_image_process_set_matrix(MnnImageProcess* process, const float* matrix);
 
 // ============================================================================
 // Utility Functions

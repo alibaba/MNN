@@ -522,6 +522,13 @@ void mnn_image_process_convert(MnnImageProcess* process, const uint8_t* source, 
     process->process->convert(source, src_w, src_h, src_stride, dest->tensor);
 }
 
+void mnn_image_process_set_matrix(MnnImageProcess* process, const float* matrix) {
+    if (!process || !process->process || !matrix) return;
+    MNN::CV::Matrix m;
+    m.set9(matrix);
+    process->process->setMatrix(m);
+}
+
 // ============================================================================
 // Utility Functions
 // ============================================================================
