@@ -673,73 +673,7 @@ class EmbeddingExporter(LlmExporter):
             except Exception as e:
                 print(f"remove onnx error: {e}")
 
-def export(path,
-           type = None,
-           tokenizer_path = None,
-           eagle_path = None,
-           lora_path = None,
-           gptq_path = None,
-           dst_path = './model',
-           export = 'onnx',
-           onnx_slim = False,
-           quant_bit = 4,
-           quant_block = 64,
-           lm_quant_bit = None,
-           lm_quant_block = None,
-           visual_quant_bit = None,
-           visual_quant_block = None,
-           visual_sym = False,
-           mnnconvert = None,
-           ppl = False,
-           awq = False,
-           hqq = False,
-           omni = False,
-           transformer_fuse = False,
-           group_conv_native = False,
-           sym = False,
-           seperate_embed = False,
-           lora_split = False,
-           embed_bit = 16):
-    args = argparse.Namespace()
-    for k, v in {
-        'path': path,
-        'type': type,
-        'tokenizer_path': tokenizer_path,
-        'eagle_path': eagle_path,
-        'lora_path': lora_path,
-        'gptq_path': gptq_path,
-        'dst_path': dst_path,
-        'export': export,
-        'onnx_slim': onnx_slim,
-        'quant_bit': quant_bit,
-        'quant_block': quant_block,
-        'visual_quant_bit': visual_quant_bit,
-        'visual_quant_block': visual_quant_block,
-        'visual_sym': visual_sym,
-        'lm_quant_bit': lm_quant_bit,
-        'lm_quant_block': lm_quant_block,
-        'mnnconvert': mnnconvert,
-        'ppl': ppl,
-        'awq': awq,
-        'hqq': hqq,
-        'omni': omni,
-        'transformer_fuse': transformer_fuse,
-        'group_conv_native': group_conv_native,
-        'sym': sym,
-        'seperate_embed': seperate_embed,
-        'lora_split': lora_split,
-        'embed_bit': embed_bit
-    }.items():
-        setattr(args, k, v)
-    if 'bge' in path:
-        llm_exporter = EmbeddingExporter(args)
-    else:
-        llm_exporter = LlmExporter(args)
-    # export
-    llm_exporter.export(export)
-
-def main():
-    parser = argparse.ArgumentParser(description='llm_exporter', formatter_class=argparse.RawTextHelpFormatter)
+def build_args(parser):
     parser.add_argument('--path', type=str, required=True,
                         help='path(`str` or `os.PathLike`):\nCan be either:'
                         '\n\t- A string, the *model id* of a pretrained model like `THUDM/chatglm-6b`. [TODO]'
@@ -779,12 +713,30 @@ def main():
     parser.add_argument('--act_bit', type=int, default=16, help='smooth quant act bit, 8 or 16, default is 16.')
     parser.add_argument('--embed_bit', type=int, default=16, choices=[16, 8, 4], help='embedding export bit precision, choices are 16 (bf16), 8 (int8), 4 (int4), default is 16.')
     parser.add_argument('--act_sym', action='store_true', help='smooth quant act us sym or not, default asym.')
+    parser.add_argument('--quant_config', type=str, default=None, help='path to the JSON file for op-wise quantization configuration.')
     parser.add_argument('--generate_for_npu', action='store_true', help='Whether or not to generate model for NPU deployment, default is False.')
     parser.add_argument('--skip_weight', action='store_true', help='Whether or not to skip loading model weights, useful for testing export flow.')
     # omni quant
     parser.add_argument('--omni_epochs', type=int, default=20, help='OmniQuant 优化的轮数')
     parser.add_argument('--omni_lr', type=float, default=5e-3, help='OmniQuant 的学习率')
     parser.add_argument('--omni_wd', type=float, default=1e-4, help='OmniQuant 的权重衰减')
+
+def export(path, **kwargs):
+    parser = argparse.ArgumentParser()
+    build_args(parser)
+    args = parser.parse_args(['--path', path])
+    for k, v in kwargs.items():
+        setattr(args, k, v)
+    if 'bge' in path:
+        llm_exporter = EmbeddingExporter(args)
+    else:
+        llm_exporter = LlmExporter(args)
+    # export
+    llm_exporter.export(args.export)
+
+def main():
+    parser = argparse.ArgumentParser(description='llm_exporter', formatter_class=argparse.RawTextHelpFormatter)
+    build_args(parser)
     args = parser.parse_args()
 
     model_path = args.path
