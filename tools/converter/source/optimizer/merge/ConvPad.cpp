@@ -2,7 +2,7 @@
 //  ConvPad.cpp
 //  MNNConverter
 //
-//  Created by MNN on 2019/09/16.
+//  Created by MNN on 2026/01/20.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
@@ -30,6 +30,10 @@ static auto gRegister = []() {
             return false;
         }
         if (inputExpr->get()->type() != OpType_Padding) {
+            return false;
+        }
+        auto padParam = inputExpr->get()->main_as_PadParam();
+        if (padParam && padParam->mode() != PadValueMode_CONSTANT) {
             return false;
         }
         auto padExpr = inputExpr;

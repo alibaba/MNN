@@ -444,11 +444,22 @@ class MNNConverter:
         is_lm = 'lm_head' in name
         quant_bit = self.args.lm_quant_bit if is_lm else self.args.quant_bit
         quant_block = self.args.lm_quant_block if is_lm else self.args.quant_block
+        quant_sym = self.args.sym
+
+        if self.args.quant_config is not None:
+            with open(self.args.quant_config, 'r') as f:
+                quant_config = json.load(f)
+            if name in quant_config:
+                op_config = quant_config[name]
+                quant_bit = op_config.get('bits', quant_bit)
+                quant_block = op_config.get('block_size', quant_block)
+                quant_sym = op_config.get('symmetric', quant_sym)
+
         block_size = ic if quant_block == 0 else quant_block
         if is_lm and self.lm_weight is not None:
             external, q_min, shape_int32, header_len = self.lm_weight
         else:
-            external, q_min, shape_int32, header_len = self.build_weight(linear, quant_bit, quant_block, self.args.sym)
+            external, q_min, shape_int32, header_len = self.build_weight(linear, quant_bit, quant_block, quant_sym)
         if is_lm and self.lm_weight is None:
             self.lm_weight = [external, q_min, shape_int32, header_len]
         if is_lm and self.args.tie_word_embeddings:
