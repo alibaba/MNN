@@ -16,6 +16,10 @@
 #include "VulkanTensor.hpp"
 #include "core/TensorUtils.hpp"
 
+#ifdef ENABLE_VULKAN_TIME_PROFILE
+#include "VulkanTimeProfiler.hpp"
+#endif
+
 namespace MNN {
 class VulkanImageConverter;
 class VulkanBasicExecution;
@@ -91,11 +95,8 @@ public:
 
     const VulkanDevice& device() const;
 #ifdef ENABLE_VULKAN_TIME_PROFILE
-    void pushQueryPool(std::shared_ptr<VulkanQueryPool> queryPool) {
-        mQueryPools.push_back(queryPool);
-    }
-    void pushExecutionName(std::string executionName) {
-        mExecutionNames.push_back(executionName);
+    VulkanTimeProfiler* timeProfiler() const {
+        return mTimeProfiler.get();
     }
 #endif
 
@@ -103,9 +104,6 @@ private:
     bool _supportImageSize(const Tensor* tensor);
     void _finish() const;
     void _allocHostBuffer(size_t size) const;
-#ifdef ENABLE_VULKAN_TIME_PROFILE
-    void printTimeProfile() const;
-#endif
 
     std::shared_ptr<VulkanCommandPool::Buffer> mCmdBuffer;
     std::shared_ptr<VulkanCommandPool::Buffer> mInitBuffer;
@@ -124,8 +122,7 @@ private:
     std::shared_ptr<VulkanMemoryPool> mDynamicMemoryPool;
 
 #ifdef ENABLE_VULKAN_TIME_PROFILE
-    mutable std::vector<std::shared_ptr<VulkanQueryPool>> mQueryPools;
-    mutable std::vector<std::string> mExecutionNames;
+    std::shared_ptr<VulkanTimeProfiler> mTimeProfiler;
 #endif
 };
 
