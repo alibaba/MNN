@@ -21,8 +21,6 @@
 
 #ifdef ENABLE_VULKAN_TIME_PROFILE
 #include <chrono>
-#include <unordered_map>
-#include <algorithm>
 #endif
 //#define MNN_VULKAN_DUMP_MEMORY_USAGE
 
@@ -109,6 +107,9 @@ VulkanBackend::VulkanBackend(const VulkanRuntime* runtime, const Backend::Info& 
 
     auto& dev              = device();
     mFence                 = std::make_shared<VulkanFence>(dev);
+#ifdef ENABLE_VULKAN_TIME_PROFILE
+    mTimeProfiler = std::make_shared<VulkanTimeProfiler>(dev);
+#endif
     if (!mDirect) {
         mCmdBuffer.reset(runtime->mCmdPool->allocBuffer());
     }
@@ -139,6 +140,11 @@ SharedPtr<VulkanPipeline> VulkanBackend::getPrivatePipeline(const std::string& k
 }
 
 void VulkanBackend::onResizeBegin() {
+#ifdef ENABLE_VULKAN_TIME_PROFILE
+    if (mTimeProfiler) {
+        mTimeProfiler->reset();
+    }
+#endif
     if (!mDirect) {
         mCmdBuffer->begin(0);
     }
@@ -280,10 +286,12 @@ void VulkanBackend::onExecuteEnd() const {
     _finish();
     auto endTime = std::chrono::high_resolution_clock::now();
     float totalTime = std::chrono::duration_cast<std::chrono::nanoseconds>(endTime - startTime).count() / (1e6f);
-    printTimeProfile();
-    MNN_PRINT("Total time calculated by CPU is %6.2f ms.\n", totalTime);
-    mQueryPools.clear();
-    mExecutionNames.clear();
+    if (mTimeProfiler) {
+        MNN_PRINT("\n=============== Vulkan Time Profiling (Begin) ===============\n");
+        mTimeProfiler->printTimeProfile();
+        MNN_PRINT("Total time calculated by CPU is %6.2f ms.\n", totalTime);
+        MNN_PRINT("\n================ Vulkan Time Profiling (End) ================\n");
+    }
 #else
     _finish();
 #endif
@@ -539,33 +547,5 @@ std::vector<uint32_t> VulkanBackend::autoTunePipeline(const VulkanPipeline* pipe
     pipeline->changePipeline(lws_prefer);
     return lws_prefer;
 }
-
-#ifdef ENABLE_VULKAN_TIME_PROFILE
-void VulkanBackend::printTimeProfile() const {
-    MNN_ASSERT(mQueryPools.size() == mExecutionNames.size());
-    float timeTotal = 0.0f;
-    std::unordered_map<std::string, float> timeTable;
-    MNN_PRINT("Vulkan Time Profiling:\n");
-    for (int i = 0; i < mQueryPools.size(); i++) {
-        float timeCurr = mQueryPools[i]->VulkanGetQueryPoolResults();
-        timeTable[mExecutionNames[i]] += timeCurr;
-        timeTotal += timeCurr;
-        MNN_PRINT("%-30s time is %4.2f ms.\n", mExecutionNames[i].c_str(), timeCurr);
-    }
-
-    std::vector<std::pair<std::string, float>> timeVectorForSort(timeTable.begin(), timeTable.end());
-    std::sort(timeVectorForSort.begin(), timeVectorForSort.end(), [](const std::pair<std::string, float>& a, const std::pair<std::string, float>& b) {
-        return a.second > b.second;
-    });
-
-    MNN_PRINT("\nSummary:\n");
-    for (int i = 0; i < timeVectorForSort.size(); i++) {
-        MNN_PRINT("%-30s time is %4.2f ms.\n", timeVectorForSort[i].first.c_str(), timeVectorForSort[i].second);
-    }
-
-    MNN_PRINT("\nTotal time summed up by commandBuffers is %6.2f ms\n", timeTotal);
-}
-#endif
-
 
 } // namespace MNN
