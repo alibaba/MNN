@@ -98,7 +98,7 @@ static void _copyTensorToBuffer(const Tensor* source, const VulkanBuffer* dest, 
 
 VulkanBackend::VulkanBackend(const VulkanRuntime* runtime, const Backend::Info& info) : Backend(MNN_FORWARD_VULKAN) {
     mRuntime = runtime;
-    mDirect = Backend::Info::INDIRECT != info.mode;
+    mDirect = (mRuntime->mGpuMode & MNNGpuMode::MNN_GPU_RECORD_BATCH) == 0;
     mUseFP16 = (info.user->precision != BackendConfig::Precision_High && mRuntime->mDevice->getFP16Support());
     std::shared_ptr<BufferAllocator::Allocator> allocReal = BufferAllocator::Allocator::createRecurse(runtime->mBufferPool.get());
     mDynamicBufferPool.resize(2);
