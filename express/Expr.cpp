@@ -237,7 +237,7 @@ EXPRP Expr::create(const OpT* op, std::vector<VARP> inputs, int outputSize) {
         return create(std::move(info), nullptr, VARP::INPUT);
     }
     if (OpType_Const == op->type || OpType_TrainableParam == op->type) {
-        if (!op->externalPath.empty()) {
+        if (!op->externalPath.empty() || (!op->main.AsBlob()->external.empty())) {
             flatbuffers::FlatBufferBuilder builder;
             auto offset = Op::Pack(builder, op);
             builder.Finish(offset);
