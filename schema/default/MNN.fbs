@@ -245,6 +245,11 @@ table StftParam {
     abs: bool = true;
 }
 
+table ShapeParam {
+    start: int;
+    end: int;
+}
+
 table WhileParam {
     // The name of condition subgraph.
     cond_graph: string;
@@ -421,7 +426,8 @@ union OpParameter {
     FmhaV2Param,
     FmhcaParam,
     AttentionParam,
-    StftParam
+    StftParam,
+    ShapeParam
 }
 
 table Op {
