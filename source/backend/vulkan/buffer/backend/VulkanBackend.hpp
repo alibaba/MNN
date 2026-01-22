@@ -14,6 +14,10 @@
 #include "MNN_generated.h"
 #include "VulkanRuntime.hpp"
 
+#ifdef ENABLE_VULKAN_TIME_PROFILE
+#include "VulkanTimeProfiler.hpp"
+#endif
+
 #ifdef MNN_USE_ARMV82
 // FP32 <--> FP16 Function
 #include "backend/arm82/Arm82OptFunc.hpp"
@@ -117,11 +121,8 @@ public:
 
     const VulkanDevice& device() const;
 #ifdef ENABLE_VULKAN_TIME_PROFILE
-    void pushQueryPool(std::shared_ptr<VulkanQueryPool> queryPool) {
-        mQueryPools.push_back(queryPool);
-    }
-    void pushExecutionName(std::string executionName) {
-        mExecutionNames.push_back(executionName);
+    VulkanTimeProfiler* timeProfiler() const {
+        return mTimeProfiler.get();
     }
 #endif
 
@@ -132,9 +133,6 @@ public:
 private:
     void _finish() const;
     void _requireHostBuffer(size_t size) const;
-#ifdef ENABLE_VULKAN_TIME_PROFILE
-    void printTimeProfile() const;
-#endif
     mutable std::shared_ptr<VulkanBuffer> mHostBuffer;
 
     std::shared_ptr<VulkanCommandPool::Buffer> mCmdBuffer;
@@ -152,8 +150,7 @@ private:
     bool mUseFP16{false};
 
 #ifdef ENABLE_VULKAN_TIME_PROFILE
-    mutable std::vector<std::shared_ptr<VulkanQueryPool>> mQueryPools;
-    mutable std::vector<std::string> mExecutionNames;
+    std::shared_ptr<VulkanTimeProfiler> mTimeProfiler;
 #endif
 };
 
