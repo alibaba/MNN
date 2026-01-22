@@ -277,7 +277,7 @@ using namespace CV;
                     }
                 }
                 [dimStr appendString:@"]"];
-                NSLog(@"SanaDiffusionSession: llmOutput shape: %@, size: %d, order: %d, type: %d",
+                NSLog(@"SanaDiffusionSession: llmOutput shape: %@, size: %zu, order: %d, type: %d",
                       dimStr,
                       llmOutputInfo->size,
                       (int)llmOutputInfo->order,

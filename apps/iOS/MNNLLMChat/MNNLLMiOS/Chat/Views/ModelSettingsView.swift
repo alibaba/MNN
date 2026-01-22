@@ -13,8 +13,8 @@ struct ModelSettingsView: View {
     @State private var showAlert = false
     @State private var showReloadAlert = false
     @State private var iterations: Int = 20
-    @State private var seed: Int = -1
-    @State private var useRandomSeed: Bool = true
+    @State private var seed: Int = 42
+    @State private var useRandomSeed: Bool = false
     @State private var backendType: String = "cpu"
     @State private var precision: String = "low"
     @State private var threadNum: Int = 4
@@ -342,6 +342,7 @@ struct ModelSettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") {
