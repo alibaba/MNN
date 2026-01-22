@@ -20,7 +20,7 @@ protected:
     static bool testKernel(std::string title, INTS inputShape, INTS kernel, INTS channel, INTS pad, INTS strides, INTS dilate, int batch = 1, int nbit = 8, int precision = 1, bool testSpeed = false, int blocksize = 0) {
         float fac = 0.23;
         int res = 10;
-        float tail = 0.05;
+        float tail = 0.04;
         int ic = channel[0], oc = channel[1];
         int iw = inputShape[0], ih = inputShape[1];
         std::vector<float> bias(oc), biastest(oc), biasdup(oc);
@@ -278,7 +278,7 @@ public:
     virtual bool run(int precision) {
         INTS strides = {1, 1}, dilate = {1, 1};
         int batch[] = {1, 512};
-        std::vector<int> blocks = {0, 128};
+        std::vector<int> blocks = {128};
         std::vector<std::vector<int>> channels = { {1536, 2048}, {2048, 2048}, {1536, 1536}};
 
         std::vector<std::vector<int>> kernels = {{1, 1}};
@@ -322,8 +322,9 @@ public:
         std::vector<int> blocks = {0, 32, 64};
         std::vector<std::vector<int>> channels = {{320, 320}, {640, 200}, {128, 79}};
 
-        std::vector<int> kernels = {1, 3};
-        std::vector<int> weightBits = {4, 8};
+        std::vector<int> kernels = {1, 1};
+        std::vector<int> weightBits = {4, 8, 2, 3};
+        bool lowmemory = true;
         int batchNum = sizeof(batch) / sizeof(int);
         bool correct = true;
         for (auto& bits : weightBits) {

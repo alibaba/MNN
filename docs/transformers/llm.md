@@ -385,6 +385,7 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
     - spk_dict: 当使用Omni模型时，spk_dict的实际路径为`base_dir + spk_dict`，默认为`base_dir + 'spk_dict.txt'`
     - context_file: 配置上下文信息文件路径，实际路径为`base_dir + context_file`，默认`base_dir + 'context.json'`，内容格式为json格式的上下文信息，包含：如tools，enable_thinking等信息。
 - 推理配置
+  - use_tmac: 基于TMac方案进行LLM模型推理，默认为`false`
   - max_new_tokens: 生成时最大token数，默认为`512`
   - reuse_kv: 多轮对话时是否复用之前对话的`kv cache`，默认为`false`.
   - quant_qkv: 选项废弃，请使用 `attention_mode`
