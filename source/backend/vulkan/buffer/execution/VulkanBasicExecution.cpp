@@ -18,10 +18,6 @@ VulkanBasicExecutionDirect::VulkanBasicExecutionDirect(std::shared_ptr<VulkanBas
 
 ErrorCode VulkanBasicExecutionDirect::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto extra = static_cast<VulkanBackend *>(backend());
-#ifdef ENABLE_VULKAN_TIME_PROFILE
-    extra->pushExecutionName(mEncoder->getName());
-    extra->pushQueryPool(mQueryPool);
-#endif
     extra->pushCommand(mCmdBuffer->get());
     return NO_ERROR;
 }
@@ -46,11 +42,12 @@ ErrorCode VulkanBasicExecutionDirect::onResize(const std::vector<Tensor *> &inpu
     }
 
 #ifdef ENABLE_VULKAN_TIME_PROFILE
-    mQueryPool.reset(new VulkanQueryPool(vkBn->device()));
-    mQueryPool->VulkanCmdResetQueryPool(mCmdBuffer.get()->get());
-    mQueryPool->VulkanCmdWriteTimestamp(mCmdBuffer.get()->get(), 0);
-    auto code = mEncoder->onEncode(inputs, outputs, mCmdBuffer.get());
-    mQueryPool->VulkanCmdWriteTimestamp(mCmdBuffer.get()->get(), 1);
+    ErrorCode code = NO_ERROR;
+    {
+        VulkanTimeProfileScope scope(vkBn->timeProfiler(), mCmdBuffer->get(), mEncoder->getName().c_str(),
+                                     VulkanTimeProfiler::Kind::Execution);
+        code = mEncoder->onEncode(inputs, outputs, mCmdBuffer.get());
+    }
 #else
     auto code = mEncoder->onEncode(inputs, outputs, mCmdBuffer.get());
 #endif
@@ -77,7 +74,14 @@ ErrorCode VulkanBasicExecutionInDirect::onResize(const std::vector<Tensor *> &in
         auto offset = des->extra.offset;
         mCmdBuffer->barrierSource(vkTensor->buffer(), offset, vkBn->getTensorSize(input));
     }
-    auto code = mEncoder->onEncode(inputs, outputs, mCmdBuffer.get());
+    ErrorCode code = NO_ERROR;
+#ifdef ENABLE_VULKAN_TIME_PROFILE
+    VulkanTimeProfileScope scope(vkBn->timeProfiler(), mCmdBuffer->get(), mEncoder->getName().c_str(),
+                                 VulkanTimeProfiler::Kind::Execution);
+    code = mEncoder->onEncode(inputs, outputs, mCmdBuffer.get());
+#else
+    code = mEncoder->onEncode(inputs, outputs, mCmdBuffer.get());
+#endif
     return code;
 }
 } // namespace MNN
