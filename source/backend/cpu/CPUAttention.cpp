@@ -426,11 +426,11 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
         auto runningSum = mRunningSum ? (float*)(mRunningSum->host<int8_t>() + tId * mRunningSum->stride(0)) : nullptr;
         auto diffScale = mExpfDiffMax ? (float*)(mExpfDiffMax->host<int8_t>() + tId * mExpfDiffMax->stride(0)) : nullptr;
         auto outputPacked = mTempOut ? mTempOut->host<int8_t>() + tId * mTempOut->stride(0) : qkvPacked;
-
+        
         int  kvBlocks = UP_DIV(kvSeqLen, mBlockKV);
 
         QuanPostTreatParameters gemmParam4QxK, gemmParam4QKxV; // used by int8 gemm, allocated per thread.
-        SumByAxisParams sumParams4QxK, sumParams4QKxV;
+        SumByAxisParams sumParams4QxK, sumParams4QKxV = {};
         float* qSumAddr = nullptr;
         float* qScale = nullptr;
         float* qBias = nullptr;
