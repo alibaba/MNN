@@ -336,6 +336,10 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
      "splitBlockQuant",
      "Split Block Quant Convolution"
      )
+    (
+     "dumpPass",
+     "Enable verbose output for each optimization pass, showing what changes each pass made (like LLVM's -debug-pass)"
+     )
     ;
 
     auto result = options.parse(argc, argv);
@@ -553,6 +557,9 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
     }
     if (result.count("useOriginRNNImpl")) {
         modelPath.useOriginRNNImpl = true;
+    }
+    if (result.count("dumpPass")) {
+        modelPath.dumpPass = true;
     }
     return true;
 }
