@@ -33,9 +33,9 @@ rm -rf tools
 cat __init__.py | sed '/from . import tools/d' > __init__.py.tmp
 mv __init__.py.tmp __init__.py
 
-rm -rf llm
-cat __init__.py | sed '/from . import llm/d' > __init__.py.tmp
-mv __init__.py.tmp __init__.py
+# rm -rf llm
+# cat __init__.py | sed '/from . import llm/d' > __init__.py.tmp
+# mv __init__.py.tmp __init__.py
 
 rm -rf audio
 cat __init__.py | sed '/from . import audio/d' > __init__.py.tmp
