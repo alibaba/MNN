@@ -1808,7 +1808,11 @@ bool AttentionBufExecution::onClone(Backend* bn, const Op* op, Execution** dst) 
     if (nullptr == dst) {
         return true;
     }
-    *dst = new AttentionBufExecution(mKVCacheCLManager, op, bn);
+    if (bn->getMetaPtr() == backend()->getMetaPtr()) {
+        *dst = new AttentionBufExecution(mKVCacheCLManager, op, bn);
+    } else {
+        *dst = new AttentionBufExecution(op, bn, true);
+    }
     return true;
 }
 
