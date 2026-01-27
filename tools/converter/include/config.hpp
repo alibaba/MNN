@@ -75,6 +75,8 @@ public:
     bool useOriginRNNImpl = false;
     PostTreatContext* compressInfo = nullptr;
     bool splitQuantBlock = false;
+    // Enable verbose output for each optimization pass (like LLVM's -debug-pass)
+    bool dumpPass = false;
 };
 
 #endif // CONFIG_HPP
