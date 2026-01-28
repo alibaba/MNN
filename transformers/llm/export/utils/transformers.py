@@ -312,7 +312,7 @@ class Rotary(torch.nn.Module):
             if 'mrope_section' in scaling_config:
                 self.mrope_section = scaling_config['mrope_section']
                 self.theta_sections = get_theta().unsqueeze(0).split(self.mrope_section, dim=-1)
-                self.use_interleaved_mrope = self.model_type == 'qwen3_vl'
+                self.use_interleaved_mrope = self.model_type in ['qwen3_vl', 'qwen3_vl_moe']
                 def apply_interleaved_mrope(freqs, mrope_section):
                     # mrope apply func from qwen3-vl
                     freqs_t = freqs[0]  # just overwrite the first dimension T
