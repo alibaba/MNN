@@ -322,7 +322,8 @@ class Rotary(torch.nn.Module):
                         freqs_t[..., idx] = freqs[dim, ..., idx]
                     return freqs_t
                 if self.use_interleaved_mrope:
-                    freq_idx = torch.arange(0, 3 * self.rotary_dim).reshape(3, 1, self.rotary_dim)
+                    half_rotary = self.rotary_dim // 2
+                    freq_idx = torch.arange(0, 3 * half_rotary).reshape(3, 1, half_rotary)
                     self.mrope_reindex = apply_interleaved_mrope(freq_idx, self.mrope_section).flatten()
 
     def forward(self, position_ids):
@@ -345,7 +346,7 @@ class Rotary(torch.nn.Module):
         position_ids = position_ids.float().unsqueeze(-1)
         if self.use_interleaved_mrope:
             idx_theta = position_ids * self.theta.to(position_ids.device)
-            idx_theta = idx_theta.transpose(1, 0).reshape(-1, 3 * self.rotary_dim)
+            idx_theta = idx_theta.transpose(1, 0).reshape(-1, 3 * self.rotary_dim // 2)
             idx_theta = idx_theta[:, self.mrope_reindex]
         else:
             idx_theta = torch.concat([
