@@ -381,7 +381,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
             keys.emplace_back("conv1x1_gemm_32x64_split_k_sg");
             
             NSMutableDictionary *dic = [baseDic mutableCopy];
-            if(rt->supportTensorOps()) {
+            if(backend->isSupportTensorApi() == true) {
                 [dic setValue:@"1" forKey:@"USE_METAL_TENSOR_OPS"];
                 keys.emplace_back("USE_METAL_TENSOR_OPS");
                 if(ic > oc && ic > 2048 && (ic / blockSize) % 64 == 0) {
