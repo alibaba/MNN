@@ -388,13 +388,18 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
   - max_new_tokens: 生成时最大token数，默认为`512`
   - reuse_kv: 多轮对话时是否复用之前对话的`kv cache`，默认为`false`.
   - quant_qkv: 选项废弃，请使用 `attention_mode`
-  - attention_mode: CPU attention 算子中`query, key, value`是否量化，可选为：`0, 1, 2, 8, 9, 10`，默认为`8`，含义如下：
-    - 0: 运行时不使用Flash Attention, query, key, value均不量化
-    - 1: 运行时不使用Flash Attention, query和key使用8bit非对称量化，value不量化
-    - 2: 运行时不使用Flash Attention, query, key, value均使用8bit非对称量化
-    - 8: 运行时使用Flash Attention, query, key, value均不量化
-    - 9: 运行时使用Flash Attention, query和key使用8bit非对称量化，value不量化
-    - 10: 运行时使用Flash Attention, query, key, value均使用8bit非对称量化
+  - attention_mode: 
+    - CPU attention 算子中`query, key, value`是否量化，可选为：`0, 1, 2, 8, 9, 10`，默认为`8`，含义如下：
+      - 0: 运行时不使用Flash Attention, query, key, value均不量化
+      - 1: 运行时不使用Flash Attention, query和key使用8bit非对称量化，value不量化
+      - 2: 运行时不使用Flash Attention, query, key, value均使用8bit非对称量化
+      - 8: 运行时使用Flash Attention, query, key, value均不量化
+      - 9: 运行时使用Flash Attention, query和key使用8bit非对称量化，value不量化
+      - 10: 运行时使用Flash Attention, query, key, value均使用8bit非对称量化
+    - GPU attention 算子中是否使用Flash Attention，可选为：`0, 8, 16`，默认为`8`，目前仅支持Metal后端，含义如下：
+      - 0: 运行时不使用Flash Attention, 朴素Attention实现，上下文较长时不推荐内存占用高
+      - 8: 运行时使用Flash Attention, 在算子层面分步实现，性能接近设为0，内存占用比设为0小
+      - 16: 运行时使用Flash Attention, 在算子层面单算子融合实现，内存占用最小，性能比设为8稍慢一些
   - use_mmap: 是否使用mmap方式，在内存不足时将权重写入磁盘，避免溢出，默认为false，手机上建议设成true
   - chunk: 限制每次最大处理的token数，高于此值将分块运行，以减少内存占用，eg: chunk: 128
   - chunk_limits: 限制每次处理的token数，不在此范围内将分拆或者补零处理，eg: chunk_limits: [128, 1] , 存在 chunk_limits 时，chunk 配置无效
