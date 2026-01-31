@@ -21,6 +21,7 @@ import com.alibaba.mnnllm.android.utils.PreferenceUtils
 import com.alibaba.mnnllm.api.openai.service.ApiServerConfig
 import com.alibaba.mnnllm.api.openai.manager.ApiServiceManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.alibaba.mnnllm.android.modelmarket.ModelRepository
 
 class MainSettingsFragment : PreferenceFragmentCompat() {
 
@@ -142,6 +143,15 @@ class MainSettingsFragment : PreferenceFragmentCompat() {
                 updateSummary(value?:defaultProvider)
                 onPreferenceChangeListener = Preference.OnPreferenceChangeListener { _, newValue ->
                     updateSummary(newValue.toString())
+                    // 同步更新 ModelSources 的下载源类型
+                    val sourceType = when (newValue.toString()) {
+                        ModelSources.sourceHuffingFace -> ModelSources.ModelSourceType.HUGGING_FACE
+                        ModelSources.sourceModelScope -> ModelSources.ModelSourceType.MODEL_SCOPE
+                        else -> ModelSources.ModelSourceType.MODELERS
+                    }
+                    ModelSources.setSourceType(sourceType)
+                    // 清除 ModelRepository 缓存以触发重新处理 modelId
+                    ModelRepository.clear()
                     Toast.makeText(context, R.string.settings_complete, Toast.LENGTH_LONG).show()
                     true
                 }

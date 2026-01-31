@@ -3,10 +3,6 @@
 package com.alibaba.mnnllm.android
 
 import android.app.Application
-import com.facebook.stetho.Stetho
-import com.facebook.stetho.dumpapp.DumperPlugin
-import com.alibaba.mnnllm.android.debug.ModelListDumperPlugin
-import com.alibaba.mnnllm.android.debug.LoggerDumperPlugin
 import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mnnllm.android.utils.CrashUtil
 import com.alibaba.mnnllm.android.utils.CurrentActivityTracker
@@ -34,18 +30,7 @@ class MnnLlmApplication : Application() {
         // Set context for ModelListManager (enables auto-initialization)
         ModelListManager.setContext(getInstance())
 
-        if (BuildConfig.DEBUG) {
-            val initializer = Stetho.newInitializerBuilder(this)
-                .enableDumpapp {
-                    Stetho.DefaultDumperPluginsBuilder(this)
-                        .provide(ModelListDumperPlugin())
-                        .provide(LoggerDumperPlugin())
-                        .finish()
-                }
-                .enableWebKitInspector(Stetho.defaultInspectorModulesProvider(this))
-                .build()
-            Stetho.initialize(initializer)
-        }
+        StethoInitializer.initialize(this)
     }
 
     companion object {

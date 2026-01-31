@@ -200,6 +200,13 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
         // No direct mapping
     }
 
+    override fun onDownloadPending(modelId: String) {
+        val info = getOrCreateInfo(modelId)
+        info.downloadState = DownloadState.PREPARING
+        info.progressStage = "Preparing"
+        downloadListeners.forEach { it.onDownloadStart(modelId) }
+    }
+
     override fun onDownloadPaused(modelId: String) {
         val info = getOrCreateInfo(modelId)
         info.downloadState = DownloadState.PAUSED

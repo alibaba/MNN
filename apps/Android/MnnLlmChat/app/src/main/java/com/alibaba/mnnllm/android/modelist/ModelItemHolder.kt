@@ -197,12 +197,28 @@ class ModelItemHolder(
         if (modelWrapper.hasUpdate) {
             btnUpdate.visibility = View.VISIBLE
             if (isUpdating) {
-                btnUpdate.text = btnUpdate.resources.getString(R.string.download_state_updating)
+                val downloadInfo = modelWrapper.modelItem.modelId?.let { modelDownloadManager.getDownloadInfo(it) }
+                val isPreparing = downloadInfo?.downloadState == DownloadState.PREPARING
+                
+                val statusText = if (isPreparing) {
+                     btnUpdate.resources.getString(R.string.download_pending)
+                } else {
+                     btnUpdate.resources.getString(R.string.download_state_updating)
+                }
+                
+                btnUpdate.text = statusText
                 btnUpdate.isEnabled = false
-                tvStatus.text = if (formattedSize.isNotEmpty()) {
-                    "${formattedSize} (${tvStatus.resources.getString(R.string.download_state_updating)})"
+                
+                val statusMsg = if (isPreparing) {
+                    tvStatus.resources.getString(R.string.download_preparing)
                 } else {
                     tvStatus.resources.getString(R.string.download_state_updating)
+                }
+                
+                tvStatus.text = if (formattedSize.isNotEmpty()) {
+                    "$formattedSize ($statusMsg)"
+                } else {
+                    statusMsg
                 }
             } else {
                 btnUpdate.text = btnUpdate.resources.getString(R.string.update)
@@ -233,7 +249,7 @@ class ModelItemHolder(
         
         modelWrapper.modelItem.modelId?.let { modelId ->
             val downloadInfo = modelDownloadManager.getDownloadInfo(modelId)
-            return downloadInfo.downloadState == DownloadState.DOWNLOADING
+            return downloadInfo.downloadState == DownloadState.DOWNLOADING || downloadInfo.downloadState == DownloadState.PREPARING
         }
         return false
     }
