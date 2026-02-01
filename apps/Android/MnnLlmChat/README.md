@@ -62,6 +62,13 @@ This is our full multimodal language model (LLM) Android app
 
 # Releases
 
+## Version 0.7.6
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_6.apk)
++ Bugfix:
+  + Fix huggingface download error
++ UI Update:
+  + Support multiple images input
+
 ## Version 0.7.5
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_5.apk)
 + Add Qwen3-VL support(4B,8B,30B-A3B)
