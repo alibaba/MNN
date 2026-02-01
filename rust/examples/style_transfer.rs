@@ -1,19 +1,29 @@
-use mnn::{Interpreter, ImageProcess, ImageProcessConfig, ImageFormat, FilterType, Tensor};
 use image::GenericImageView;
+use mnn::{FilterType, ImageFormat, ImageProcess, ImageProcessConfig, Interpreter, Tensor};
 use std::env;
 use std::time::Instant;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
-        println!("Usage: {} <model_path> <image_path> [output_path] [style_name]", args[0]);
-        println!("Example: {} style_transfer.mnn input.jpg output.jpg", args[0]);
+        println!(
+            "Usage: {} <model_path> <image_path> [output_path] [style_name]",
+            args[0]
+        );
+        println!(
+            "Example: {} style_transfer.mnn input.jpg output.jpg",
+            args[0]
+        );
         return Ok(());
     }
 
     let model_path = &args[1];
     let image_path = &args[2];
-    let output_path = if args.len() > 3 { &args[3] } else { "output.jpg" };
+    let output_path = if args.len() > 3 {
+        &args[3]
+    } else {
+        "output.jpg"
+    };
 
     // Load model
     println!("Loading model from {}...", model_path);
@@ -24,7 +34,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let session = interpreter.create_session(num_threads)?;
 
     // Get input tensor info
-    let input_tensor = interpreter.get_session_input(&session, None).expect("Failed to get input tensor");
+    let input_tensor = interpreter
+        .get_session_input(&session, None)
+        .expect("Failed to get input tensor");
     let input_shape = input_tensor.shape();
     println!("Model Input Shape: {:?}", input_shape);
 
@@ -42,13 +54,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Here we will just resize to the model input size for simplicity, or we can follow the JS logic.
     // The model input shape for style transfer is usually fixed (e.g. 1x3x224x224).
 
-    let mut config = ImageProcessConfig::default();
-    config.source_format = ImageFormat::RGBA; // image crate usually loads as RGBA8 or RGB8
-    config.dest_format = ImageFormat::RGB; // Model expects RGB
-    config.filter_type = FilterType::Bilinear;
-    config.mean = [0.0, 0.0, 0.0];
-    config.normal = [1.0, 1.0, 1.0];
-    config.wrap = mnn::WrapMode::ClampToEdge;
+    let config = ImageProcessConfig {
+        source_format: ImageFormat::RGBA,
+        dest_format: ImageFormat::RGB,
+        filter_type: FilterType::Bilinear,
+        mean: [0.0, 0.0, 0.0],
+        normal: [1.0, 1.0, 1.0],
+        wrap: mnn::WrapMode::ClampToEdge,
+    };
 
     let process = ImageProcess::new(&config)?;
 
@@ -73,26 +86,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let target_height = if input_height > 0 { input_height } else { 224 };
 
     if input_width <= 0 || input_height <= 0 {
-         interpreter.resize_session(&session); // Ensure session is ready
+        interpreter.resize_session(&session); // Ensure session is ready
     }
 
-    let mut input_tensor = interpreter.get_session_input(&session, None).expect("Failed to get input tensor");
+    let mut input_tensor = interpreter
+        .get_session_input(&session, None)
+        .expect("Failed to get input tensor");
 
     println!("Processing image to {}x{}...", target_width, target_height);
 
     // Calculate affine transform matrix for resizing (dst -> src)
     let sx = orig_width as f32 / target_width as f32;
     let sy = orig_height as f32 / target_height as f32;
-    let matrix: [f32; 9] = [
-        sx, 0.0, 0.0,
-        0.0, sy, 0.0,
-        0.0, 0.0, 1.0,
-    ];
+    let matrix: [f32; 9] = [sx, 0.0, 0.0, 0.0, sy, 0.0, 0.0, 0.0, 1.0];
     process.set_matrix(&matrix);
 
     // Use ImageProcess to convert/resize raw image data to input tensor
     // Note: ImageProcess::convert takes src stride. For RGBA, stride = width * 4.
-    process.convert(raw_data, orig_width as i32, orig_height as i32, 0, &mut input_tensor);
+    process.convert(
+        raw_data,
+        orig_width as i32,
+        orig_height as i32,
+        0,
+        &mut input_tensor,
+    );
 
     // Run inference
     println!("Running inference...");
@@ -102,13 +119,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Inference took: {:?}", duration);
 
     // Get output
-    let output_tensor = interpreter.get_session_output(&session, None).expect("Failed to get output tensor");
+    let output_tensor = interpreter
+        .get_session_output(&session, None)
+        .expect("Failed to get output tensor");
     let output_shape = output_tensor.shape();
     println!("Output Shape: {:?}", output_shape);
 
     // Helper to clamp values
     let clamp = |v: f32| -> u8 {
-        if v < 0.0 { 0 } else if v > 255.0 { 255 } else { v as u8 }
+        if v < 0.0 {
+            0
+        } else if v > 255.0 {
+            255
+        } else {
+            v as u8
+        }
     };
 
     // Post-process: Convert output tensor (NCHW float) to image (HWC uint8)
@@ -116,7 +141,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Let's do manual post-process.
 
     // Wait for data to be ready (copy to host)
-    let host_output = Tensor::from_device(&output_tensor, true).expect("Failed to create host output tensor");
+    let host_output =
+        Tensor::from_device(&output_tensor, true).expect("Failed to create host output tensor");
 
     let out_h = output_shape[2] as usize;
     let out_w = output_shape[3] as usize;
@@ -127,11 +153,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for y in 0..out_h {
         for x in 0..out_w {
-            let r = output_data[0 * out_h * out_w + y * out_w + x];
-            let g = output_data[1 * out_h * out_w + y * out_w + x];
+            // NCHW format: [batch, channel, height, width]
+            let r = output_data[y * out_w + x];
+            let g = output_data[out_h * out_w + y * out_w + x];
             let b = output_data[2 * out_h * out_w + y * out_w + x];
 
-            out_img.put_pixel(x as u32, y as u32, image::Rgb([clamp(r), clamp(g), clamp(b)]));
+            out_img.put_pixel(
+                x as u32,
+                y as u32,
+                image::Rgb([clamp(r), clamp(g), clamp(b)]),
+            );
         }
     }
 

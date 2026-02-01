@@ -29,6 +29,14 @@ pub enum MnnError {
     #[error("Null pointer returned from MNN")]
     NullPointer,
 
+    /// Tokenization failed
+    #[error("Tokenization failed with code: {code}")]
+    TokenizationError { code: i32 },
+
+    /// Buffer overflow
+    #[error("Buffer overflow: generated {actual} tokens, capacity {capacity}")]
+    BufferOverflow { actual: usize, capacity: usize },
+
     /// Invalid UTF-8 in string
     #[error("Invalid UTF-8 string: {0}")]
     InvalidUtf8(#[from] std::str::Utf8Error),

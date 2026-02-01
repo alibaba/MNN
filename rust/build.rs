@@ -5,9 +5,24 @@ use std::env;
 use std::path::PathBuf;
 
 fn main() {
-    let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-    let mnn_root = PathBuf::from(&manifest_dir).parent().unwrap().to_path_buf();
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
+
+    let mnn_root = PathBuf::from(&manifest_dir); // Create PathBuf first
+    let mnn_root = mnn_root
+        .parent()
+        .expect("Cannot find MNN root directory")
+        .to_path_buf(); // Convert to owned PathBuf
+
     let mnn_build_dir = mnn_root.join("build");
+
+    // Check if MNN build directory exists
+    if !mnn_build_dir.exists() {
+        panic!(
+            "MNN build directory not found at {:?}. \
+             Please build MNN first:\n  cd {:?} && cmake .. && make -j8",
+            mnn_build_dir, mnn_root
+        );
+    }
 
     // Print cargo instructions
     println!("cargo:rerun-if-changed=csrc/mnn_c.cpp");
@@ -37,10 +52,10 @@ fn main() {
         .flag("-DMNN_BUILD_LLM")
         .warnings(false)
         .opt_level(2);
-    
+
     // Platform-specific settings
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
-    
+
     match target_os.as_str() {
         "macos" => {
             build.flag("-stdlib=libc++");
@@ -53,27 +68,29 @@ fn main() {
         }
         _ => {}
     }
-    
+
     build.compile("mnn_c");
-    
+
     // Link with MNN library
     println!("cargo:rustc-link-search=native={}", mnn_build_dir.display());
-    
+
     match target_os.as_str() {
         "macos" => {
-            println!("cargo:rustc-link-lib=dylib=MNN");
+            println!("cargo:rustc-link-lib=static=MNN");
             println!("cargo:rustc-link-lib=c++");
+            println!("cargo:rustc-link-lib=framework=Metal");
+            println!("cargo:rustc-link-lib=framework=CoreGraphics");
+            println!("cargo:rustc-link-lib=framework=Foundation");
         }
         "linux" => {
-            println!("cargo:rustc-link-lib=dylib=MNN");
+            println!("cargo:rustc-link-lib=static=MNN");
             println!("cargo:rustc-link-lib=stdc++");
         }
         "windows" => {
             println!("cargo:rustc-link-lib=static=MNN");
         }
         _ => {
-            println!("cargo:rustc-link-lib=MNN");
+            println!("cargo:rustc-link-lib=static=MNN");
         }
     }
 }
-

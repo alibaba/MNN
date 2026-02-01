@@ -77,7 +77,9 @@ impl ImageProcess {
         unsafe {
             let ptr = ffi::mnn_image_process_create(&c_config);
             if ptr.is_null() {
-                Err(crate::error::MnnError::InitError("Failed to create ImageProcess".to_string()))
+                Err(crate::error::MnnError::InitError(
+                    "Failed to create ImageProcess".to_string(),
+                ))
             } else {
                 Ok(ImageProcess { ptr })
             }
@@ -97,7 +99,7 @@ impl ImageProcess {
                 width,
                 height,
                 stride,
-                dest.ptr
+                dest.ptr,
             );
         }
     }

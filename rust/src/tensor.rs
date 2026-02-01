@@ -12,13 +12,10 @@ impl Tensor {
     /// Create a new host tensor
     pub fn new(shape: &[i32], type_: i32, data: Option<&mut [u8]>) -> Self {
         unsafe {
-            let data_ptr = data.map(|d| d.as_mut_ptr() as *mut c_void).unwrap_or(std::ptr::null_mut());
-            let ptr = ffi::mnn_tensor_create(
-                shape.as_ptr(),
-                shape.len() as i32,
-                type_,
-                data_ptr,
-            );
+            let data_ptr = data
+                .map(|d| d.as_mut_ptr() as *mut c_void)
+                .unwrap_or(std::ptr::null_mut());
+            let ptr = ffi::mnn_tensor_create(shape.as_ptr(), shape.len() as i32, type_, data_ptr);
             Tensor { ptr }
         }
     }
@@ -26,11 +23,7 @@ impl Tensor {
     /// Create a new device tensor
     pub fn new_device(shape: &[i32], type_: i32) -> Self {
         unsafe {
-            let ptr = ffi::mnn_tensor_create_device(
-                shape.as_ptr(),
-                shape.len() as i32,
-                type_,
-            );
+            let ptr = ffi::mnn_tensor_create_device(shape.as_ptr(), shape.len() as i32, type_);
             Tensor { ptr }
         }
     }
@@ -62,6 +55,14 @@ impl Tensor {
     }
 
     /// Get data as slice (unsafe)
+    ///
+    /// # Safety
+    ///
+    /// Caller must ensure that:
+    /// - The tensor data is valid for reading
+    /// - The type `T` matches the actual data type in the tensor
+    /// - The tensor's size is a multiple of `std::mem::size_of::<T>()`
+    /// - The data is not mutated while the slice is in use
     pub unsafe fn data_as_slice<T>(&self) -> &[T] {
         let ptr = self.data() as *const T;
         let size = self.size() as usize / std::mem::size_of::<T>();
@@ -69,6 +70,14 @@ impl Tensor {
     }
 
     /// Get data as mutable slice (unsafe)
+    ///
+    /// # Safety
+    ///
+    /// Caller must ensure that:
+    /// - The tensor data is valid for reading and writing
+    /// - The type `T` matches the actual data type in the tensor
+    /// - The tensor's size is a multiple of `std::mem::size_of::<T>()`
+    /// - No other references to the data exist while the slice is in use
     pub unsafe fn data_as_mut_slice<T>(&mut self) -> &mut [T] {
         let ptr = self.data() as *mut T;
         let size = self.size() as usize / std::mem::size_of::<T>();

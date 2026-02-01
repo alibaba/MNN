@@ -87,9 +87,12 @@ impl Llm {
     pub fn create(config_path: &str) -> Result<Self> {
         let c_path = CString::new(config_path)?;
         let ptr = unsafe { ffi::mnn_llm_create(c_path.as_ptr()) };
-        
+
         NonNull::new(ptr)
-            .map(|inner| Self { inner, loaded: false })
+            .map(|inner| Self {
+                inner,
+                loaded: false,
+            })
             .ok_or(MnnError::CreateFailed)
     }
 
@@ -143,33 +146,34 @@ impl Llm {
     }
 
     /// Generate a response with streaming output via callback
-    /// 
+    ///
     /// # Arguments
     /// * `query` - The input query string
     /// * `callback` - Closure called with each chunk of text
-    pub fn response_stream_callback<F>(&self, query: &str, mut callback: F) -> Result<()> 
-    where F: FnMut(&str)
+    pub fn response_stream_callback<F>(&self, query: &str, mut callback: F) -> Result<()>
+    where
+        F: FnMut(&str),
     {
-         if !self.loaded {
+        if !self.loaded {
             return Err(MnnError::NotLoaded);
         }
-        
+
         let c_query = CString::new(query)?;
-        
+
         let user_data = &mut callback as *mut F as *mut libc::c_void;
-        
+
         let ptr = unsafe {
             ffi::mnn_llm_response_with_callback(
                 self.inner.as_ptr(),
                 c_query.as_ptr(),
                 Self::trampolin_callback::<F>,
                 user_data,
-                -1
+                -1,
             )
         };
-        
+
         if ptr.is_null() {
-             return Err(MnnError::NullPointer);
+            return Err(MnnError::NullPointer);
         }
         unsafe { ffi::mnn_string_free(ptr) };
         Ok(())
@@ -230,7 +234,11 @@ impl Llm {
     ///
     /// # Returns
     /// Vector of output token IDs
-    pub fn generate_with_options(&self, input_ids: &[i32], max_new_tokens: i32) -> Result<Vec<i32>> {
+    pub fn generate_with_options(
+        &self,
+        input_ids: &[i32],
+        max_new_tokens: i32,
+    ) -> Result<Vec<i32>> {
         if !self.loaded {
             return Err(MnnError::NotLoaded);
         }
@@ -305,7 +313,8 @@ impl Llm {
     /// The templated query string
     pub fn apply_chat_template(&self, query: &str) -> Result<String> {
         let c_query = CString::new(query)?;
-        let ptr = unsafe { ffi::mnn_llm_apply_chat_template(self.inner.as_ptr(), c_query.as_ptr()) };
+        let ptr =
+            unsafe { ffi::mnn_llm_apply_chat_template(self.inner.as_ptr(), c_query.as_ptr()) };
         if ptr.is_null() {
             return Err(MnnError::NullPointer);
         }
@@ -414,7 +423,7 @@ impl Embedding {
     pub fn create(config_path: &str) -> Result<Self> {
         let c_path = CString::new(config_path)?;
         let ptr = unsafe { ffi::mnn_embedding_create(c_path.as_ptr()) };
-        
+
         NonNull::new(ptr)
             .map(|inner| Self { inner })
             .ok_or(MnnError::CreateFailed)

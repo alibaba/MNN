@@ -34,7 +34,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("  cd rust");
         eprintln!("  ./download_model.sh");
         eprintln!("\nOr manually:");
-        eprintln!("  git clone https://www.modelscope.cn/MNN/Qwen3-0.6B-MNN.git ../models/qwen3-0.6b");
+        eprintln!(
+            "  git clone https://www.modelscope.cn/MNN/Qwen3-0.6B-MNN.git ../models/qwen3-0.6b"
+        );
         std::process::exit(1);
     }
 

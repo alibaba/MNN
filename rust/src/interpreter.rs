@@ -1,7 +1,7 @@
 //! Safe wrapper for MNN Interpreter and Session
 
 use crate::ffi;
-use crate::tensor::{Tensor, wrap_tensor};
+use crate::tensor::{wrap_tensor, Tensor};
 use std::ffi::CString;
 use std::path::Path;
 
@@ -18,9 +18,10 @@ pub struct Session {
 impl Interpreter {
     /// Create interpreter from model file
     pub fn create_from_file<P: AsRef<Path>>(path: P) -> crate::Result<Self> {
-        let path_str = path.as_ref().to_str().ok_or_else(|| {
-            crate::error::MnnError::InitError("Invalid path".to_string())
-        })?;
+        let path_str = path
+            .as_ref()
+            .to_str()
+            .ok_or_else(|| crate::error::MnnError::InitError("Invalid path".to_string()))?;
         let c_path = CString::new(path_str).map_err(|e| {
             crate::error::MnnError::InitError(format!("Invalid path string: {}", e))
         })?;
@@ -28,7 +29,9 @@ impl Interpreter {
         unsafe {
             let ptr = ffi::mnn_interpreter_create_from_file(c_path.as_ptr());
             if ptr.is_null() {
-                Err(crate::error::MnnError::InitError("Failed to create interpreter".to_string()))
+                Err(crate::error::MnnError::InitError(
+                    "Failed to create interpreter".to_string(),
+                ))
             } else {
                 Ok(Interpreter { ptr })
             }
@@ -40,7 +43,9 @@ impl Interpreter {
         unsafe {
             let ptr = ffi::mnn_interpreter_create_session(self.ptr, num_threads);
             if ptr.is_null() {
-                Err(crate::error::MnnError::RuntimeError("Failed to create session".to_string()))
+                Err(crate::error::MnnError::RuntimeError(
+                    "Failed to create session".to_string(),
+                ))
             } else {
                 Ok(Session { ptr })
             }
@@ -50,8 +55,11 @@ impl Interpreter {
     /// Get session input tensor
     pub fn get_session_input(&self, session: &Session, name: Option<&str>) -> Option<Tensor> {
         unsafe {
-            let c_name = name.map(|n| CString::new(n).ok()).flatten();
-            let name_ptr = c_name.as_ref().map(|c| c.as_ptr()).unwrap_or(std::ptr::null());
+            let c_name = name.and_then(|n| CString::new(n).ok());
+            let name_ptr = c_name
+                .as_ref()
+                .map(|c| c.as_ptr())
+                .unwrap_or(std::ptr::null());
 
             let ptr = ffi::mnn_interpreter_get_session_input(self.ptr, session.ptr, name_ptr);
             if ptr.is_null() {
@@ -65,8 +73,11 @@ impl Interpreter {
     /// Get session output tensor
     pub fn get_session_output(&self, session: &Session, name: Option<&str>) -> Option<Tensor> {
         unsafe {
-            let c_name = name.map(|n| CString::new(n).ok()).flatten();
-            let name_ptr = c_name.as_ref().map(|c| c.as_ptr()).unwrap_or(std::ptr::null());
+            let c_name = name.and_then(|n| CString::new(n).ok());
+            let name_ptr = c_name
+                .as_ref()
+                .map(|c| c.as_ptr())
+                .unwrap_or(std::ptr::null());
 
             let ptr = ffi::mnn_interpreter_get_session_output(self.ptr, session.ptr, name_ptr);
             if ptr.is_null() {
@@ -82,7 +93,10 @@ impl Interpreter {
         unsafe {
             let ret = ffi::mnn_interpreter_run_session(self.ptr, session.ptr);
             if ret != 0 {
-                Err(crate::error::MnnError::RuntimeError(format!("Session run failed with code: {}", ret)))
+                Err(crate::error::MnnError::RuntimeError(format!(
+                    "Session run failed with code: {}",
+                    ret
+                )))
             } else {
                 Ok(())
             }

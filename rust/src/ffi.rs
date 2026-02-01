@@ -3,7 +3,7 @@
 //! This module provides unsafe bindings to the C FFI wrapper.
 //! Users should prefer the safe wrappers in the `llm` module.
 
-use libc::{c_char, c_int, size_t, c_void};
+use libc::{c_char, c_int, c_void, size_t};
 
 /// Opaque handle to MNN LLM instance
 #[repr(C)]
@@ -121,11 +121,8 @@ extern "C" {
     pub fn mnn_embedding_create(config_path: *const c_char) -> *mut MnnEmbedding;
     pub fn mnn_embedding_destroy(emb: *mut MnnEmbedding);
     pub fn mnn_embedding_dim(emb: *mut MnnEmbedding) -> c_int;
-    pub fn mnn_embedding_txt(
-        emb: *mut MnnEmbedding,
-        text: *const c_char,
-        output: *mut f32,
-    ) -> bool;
+    pub fn mnn_embedding_txt(emb: *mut MnnEmbedding, text: *const c_char, output: *mut f32)
+        -> bool;
 
     // Interpreter Functions
     pub fn mnn_interpreter_create_from_file(file: *const c_char) -> *mut MnnInterpreter;
@@ -166,17 +163,16 @@ extern "C" {
         type_: c_int,
     ) -> *mut MnnTensor;
     pub fn mnn_tensor_destroy(tensor: *mut MnnTensor);
-    pub fn mnn_tensor_get_shape(tensor: *mut MnnTensor, shape_ptr: *mut c_int, max_dim: c_int) -> c_int;
+    pub fn mnn_tensor_get_shape(
+        tensor: *mut MnnTensor,
+        shape_ptr: *mut c_int,
+        max_dim: c_int,
+    ) -> c_int;
     pub fn mnn_tensor_get_data(tensor: *mut MnnTensor) -> *mut c_void;
     pub fn mnn_tensor_get_size(tensor: *mut MnnTensor) -> c_int;
-    pub fn mnn_tensor_copy_from_host(
-        tensor: *mut MnnTensor,
-        host_tensor: *const MnnTensor,
-    ) -> bool;
-    pub fn mnn_tensor_copy_to_host(
-        tensor: *const MnnTensor,
-        host_tensor: *mut MnnTensor,
-    ) -> bool;
+    pub fn mnn_tensor_copy_from_host(tensor: *mut MnnTensor, host_tensor: *const MnnTensor)
+        -> bool;
+    pub fn mnn_tensor_copy_to_host(tensor: *const MnnTensor, host_tensor: *mut MnnTensor) -> bool;
     pub fn mnn_tensor_create_host_from_device(
         device_tensor: *const MnnTensor,
         copy_data: bool,
@@ -193,10 +189,7 @@ extern "C" {
         src_stride: c_int,
         dest: *mut MnnTensor,
     );
-    pub fn mnn_image_process_set_matrix(
-        process: *mut MnnImageProcess,
-        matrix: *const f32,
-    );
+    pub fn mnn_image_process_set_matrix(process: *mut MnnImageProcess, matrix: *const f32);
 
     // Utility Functions
     pub fn mnn_string_free(str: *mut c_char);
