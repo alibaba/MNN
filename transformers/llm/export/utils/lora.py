@@ -101,7 +101,7 @@ class LoRA:
         # lora_B @ lora_A @ x -> lora_B @ (lora_A @ x)
         a_out = self.build_conv(input_index, f'{tag}_A', list(lora_a.shape), lora_a.flatten().tolist())
         b_out = self.build_conv(a_out, f'{tag}_B', list(lora_b.shape), lora_b.flatten().tolist())
-        n_out = self.build_binary(0, [outpt_index, b_out], f'{tag}_add')
+        n_out = self.build_binary('ADD', [outpt_index, b_out], f'{tag}_add')
         self.replace_input(outpt_index, n_out)
 
     def apply(self, base_path, out):
