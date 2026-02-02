@@ -20,5 +20,10 @@ else()
     add_library(diffusion OBJECT ${SRCS})
 endif()
 
-add_executable(diffusion_demo ${CMAKE_CURRENT_LIST_DIR}/diffusion_demo.cpp)
+add_executable(diffusion_demo 
+    ${CMAKE_CURRENT_LIST_DIR}/diffusion_demo.cpp
+)
 target_link_libraries(diffusion_demo  ${MNN_DEPS})
+
+add_executable(sana_diffusion_demo ${CMAKE_CURRENT_LIST_DIR}/sana_diffusion_demo.cpp)
+target_link_libraries(sana_diffusion_demo  ${MNN_DEPS})
