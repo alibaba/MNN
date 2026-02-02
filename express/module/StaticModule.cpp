@@ -149,13 +149,29 @@ static std::vector<std::shared_ptr<BufferStorage>> preRearrangeWeights( // NOLIN
                 break;
             }
             case MNN::OpType_LayerNorm: {
-                std::shared_ptr<BufferStorage> tmpstorage;
-                exe.reset(OpCommonUtils::createExecutionWithExternal(backend, info.inputs, info.outputs, op, &loader, tmpstorage));
-                if (exe.get() == nullptr) {
-                    exe.reset(OpCommonUtils::createExecutionWithExternal(backupBackend, info.inputs, info.outputs, op, &loader, tmpstorage));
+                if (!base_executions.empty() && op->name()) {
+                    auto iter = base_executions.find(op->name()->str());
+                    if (iter != base_executions.end()) {
+                        auto base_exe = iter->second.get();
+                        Execution* copyExecution = nullptr;
+                        base_exe->onClone(backend, op, &copyExecution);
+                        if (copyExecution == nullptr) {
+                            base_exe->onClone(backupBackend, op, &copyExecution);
+                        }
+                        if (copyExecution != nullptr && copyExecution->onClone(nullptr, op, nullptr)) {
+                            exe.reset(copyExecution);
+                        }
+                    }
                 }
-                if (nullptr == exe) {
-                    break;
+                if (exe == nullptr) {
+                    std::shared_ptr<BufferStorage> tmpstorage;
+                    exe.reset(OpCommonUtils::createExecutionWithExternal(backend, info.inputs, info.outputs, op, &loader, tmpstorage));
+                    if (exe.get() == nullptr) {
+                        exe.reset(OpCommonUtils::createExecutionWithExternal(backupBackend, info.inputs, info.outputs, op, &loader, tmpstorage));
+                    }
+                    if (nullptr == exe) {
+                        break;
+                    }
                 }
                 // The exe can't clone
                 if (!exe->onClone(nullptr, op, nullptr)) {
