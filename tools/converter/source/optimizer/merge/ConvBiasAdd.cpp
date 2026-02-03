@@ -68,7 +68,6 @@ static auto gRegister = []() {
             biasData[i] += biasPtr[i];
         }
         auto newExpr = Expr::create(convOp.get(), inputExpr->inputs());
-        newExpr->setName(expr->name());
         if (reshapeExpr) {
             auto convVar = Variable::create(newExpr);
             auto inputs = reshapeExpr->inputs();
@@ -80,6 +79,7 @@ static auto gRegister = []() {
             std::unique_ptr<OpT> reshapeOp(reshapeExpr->get()->UnPack());
             newExpr = Expr::create(reshapeOp.get(), newInputs);
         }
+        newExpr->setName(expr->name());
         Expr::replace(expr, newExpr);
         return true;
     };
