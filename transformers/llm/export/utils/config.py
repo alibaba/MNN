@@ -1,3 +1,5 @@
+import os
+import json
 from transformers import PretrainedConfig, AutoConfig
 from utils.model_mapper import ModelMapper
 from typing import Optional, List, Dict, Any, Union
@@ -24,8 +26,32 @@ class LlmConfig(PretrainedConfig):
         self.model_map = kwargs.pop("model_map", {})
         super().__init__(**kwargs)
 
+    @staticmethod
+    def _register_external_model(model_type: str):
+        EXTERNAL_MODEL_REGISTRY = {
+            'funaudiochat': ('funaudiochat.register', 'register_funaudiochat'),
+        }
+        if model_type in EXTERNAL_MODEL_REGISTRY:
+            module_path, func_name = EXTERNAL_MODEL_REGISTRY[model_type]
+            try:
+                import importlib
+                module = importlib.import_module(module_path)
+                getattr(module, func_name)()
+            except ImportError:
+                raise ImportError(
+                    f"{model_type} requires external package. "
+                    f"Please clone it from GitHub and set PYTHONPATH accordingly."
+                )
+
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, **kwargs):
+        config_path = os.path.join(pretrained_model_name_or_path, 'config.json')
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                raw_config = json.load(f)
+            model_type = raw_config.get('model_type')
+            cls._register_external_model(model_type)
+
         config = AutoConfig.from_pretrained(pretrained_model_name_or_path, trust_remote_code=True, **kwargs)
 
         model_type, model_map = ModelMapper().get_map(config)
