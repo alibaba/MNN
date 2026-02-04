@@ -48,6 +48,7 @@ class LlmModel(PreTrainedModel):
             'qwen2_audio': 'Qwen2AudioForConditionalGeneration',
             'smolvlm': 'AutoModelForImageTextToText',
             'idefics3': 'AutoModelForVision2Seq',
+            'funaudiochat': 'AutoModelForSeq2SeqLM',
         }
         if model_type is None or model_type not in MODEL_CLASS_MAPPING:
             return AutoModelForCausalLM
@@ -95,6 +96,8 @@ class LlmModel(PreTrainedModel):
                 original_model = model_class.from_pretrained(pretrained_model_name_or_path, **load_kwargs)
             except Exception:
                 original_model = AutoModel.from_pretrained(pretrained_model_name_or_path, **load_kwargs)
+
+        print(f"Loading model type: {model_type}\n{original_model}")
 
         # LoRA
         if args.lora_path is not None and not args.lora_split:
@@ -153,9 +156,9 @@ class LlmModel(PreTrainedModel):
         return model
 
     def embedding(self, input_ids):
-        if self.visual is not None and len(input_ids) > 1:
+        if self.visual is not None and input_ids.numel() > 1:
             return self.visual.embed(input_ids)
-        if self.audio is not None and len(input_ids) > 1:
+        if self.audio is not None and input_ids.numel() > 1:
             return self.audio.embed(input_ids)
         return self.embed(input_ids)
 

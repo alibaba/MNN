@@ -693,6 +693,42 @@ class ModelMapper:
         }
         self.regist('minicpmv', minicpmv_map)
 
+    def regist_funaudiochat(self):
+        funaudiochat_config = {
+            'hidden_size': 'text_config.hidden_size',
+            'head_dim': 'text_config.head_dim',
+            'num_attention_heads': 'text_config.num_attention_heads',
+            'num_hidden_layers': 'text_config.num_hidden_layers',
+            'num_key_value_heads': 'text_config.num_key_value_heads',
+            'rope_theta': 'text_config.rope_theta',
+            'rope_scaling': 'text_config.rope_scaling',
+            'max_position_embeddings': 'text_config.max_position_embeddings'
+        }
+        funaudiochat_model = {
+            'lm': 'language_model.lm_head',
+            'embed': 'language_model.model.embed_tokens',
+            'blocks': 'language_model.model.layers',
+            'final_layernorm': 'language_model.model.norm',
+            'audio': 'continuous_audio_tower',
+            'audio.audio_tower': 'audio_tower',
+            'audio.audio_invert_tower': 'audio_invert_tower'
+        }
+        qwen3_attention = {
+            'q_proj': 'q_proj',
+            'k_proj': 'k_proj',
+            'v_proj': 'v_proj',
+            'o_proj': 'o_proj',
+            'q_norm': 'q_norm',
+            'k_norm': 'k_norm'
+        }
+        funaudiochat_map = {
+            'config': funaudiochat_config,
+            'model': funaudiochat_model,
+            'decoder': self.default_decoder,
+            'attention': qwen3_attention
+        }
+        self.regist('funaudiochat', funaudiochat_map)
+
     def init_default_map(self):
         # default map is `LlamaForCausalLM`
         self.config_key = 'config'
