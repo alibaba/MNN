@@ -291,12 +291,22 @@ using namespace CV;
                 NSLog(@"SanaDiffusionSession: llmOutput info is NULL!");
             }
             
+            // Use new unified diffusion interface
+            // mode: "img2img" for style transfer (editing existing image)
+            // width/height: 512x512 as the VAE encoder/decoder operates at this resolution
+            // use_cfg: false - not using Classifier-Free Guidance (single prompt)
+            // cfg_scale: 4.5 - default value (ignored when use_cfg is false)
             bool success = self->mDiffusion->run(
                 llmOutput,
-                [inputImagePath UTF8String],
-                [outputPath UTF8String],
-                iterations,
-                seed,
+                "img2img",                       // mode: image editing
+                [inputImagePath UTF8String],     // input image path
+                [outputPath UTF8String],         // output image path
+                512,                             // width
+                512,                             // height
+                iterations,                      // iterNum
+                seed,                            // randomSeed
+                false,                           // use_cfg
+                4.5f,                            // cfg_scale
                 diffusionProgressCallback
             );
             
