@@ -7,6 +7,7 @@
 //
 
 #include "shape/SizeComputer.hpp"
+#include <limits>
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
 
@@ -24,12 +25,31 @@ class ShapeSizeComputer : public SizeComputer {
         outputs[0]->setType(DataType_DT_INT32);
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = op->defaultDimentionFormat();
         auto inputFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+        int inputDims = ib.dimensions;
         if (inputFormat == MNN_DATA_FORMAT_NC4HW4 && op->defaultDimentionFormat() == MNN_DATA_FORMAT_NHWC) {
             // For compability
-            ob.dim[0].extent = 4;
-        } else {
-            ob.dim[0].extent = ib.dimensions;
+            inputDims = 4;
         }
+
+        int start = 0;
+        int end = inputDims;
+        if (op->main_type() == OpParameter_ShapeParam) {
+            auto param = op->main_as_ShapeParam();
+            start = param->start();
+            if (start < 0) {
+                start += inputDims;
+            }
+            if (param->end() != std::numeric_limits<int>::max()) {
+                end = param->end();
+                if (end < 0) {
+                    end += inputDims;
+                }
+            }
+        }
+        if (start < 0) start = 0;
+        if (end > inputDims) end = inputDims;
+
+        ob.dim[0].extent = std::max(0, end - start);
         return true;
     }
 };
