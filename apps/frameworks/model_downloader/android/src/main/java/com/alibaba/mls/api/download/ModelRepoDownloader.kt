@@ -46,5 +46,6 @@ abstract class ModelRepoDownloader {
             saved: Long,
             total: Long)
         fun onRepoInfo(modelId: String, lastModified: Long, repoSize: Long)
+        fun onDownloadPending(modelId: String)
     }
 }

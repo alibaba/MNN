@@ -152,6 +152,15 @@ class MarketItemHolder(
                 btnDownloadAction.text = btnDownloadAction.resources.getString(R.string.download)
                 setButtonStyle()
                 updateStatusText(downloadInfo)
+
+            }
+
+            DownloadState.PREPARING -> {
+                btnDownloadAction.visibility = View.VISIBLE
+                voiceDelegate.hideCheckbox()
+                btnDownloadAction.text = btnDownloadAction.resources.getString(R.string.download_pending)
+                setButtonStyle()
+                tvStatus.text = tvStatus.resources.getString(R.string.download_preparing)
             }
             
             DownloadState.DOWNLOADING -> {
