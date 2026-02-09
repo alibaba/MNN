@@ -9,6 +9,7 @@
 #import "SanaDiffusionSession.h"
 
 #import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
 
 #include <MNN/diffusion/diffusion.hpp>
 #include <MNN/diffusion/sana_llm.hpp>
@@ -224,6 +225,12 @@ using namespace CV;
     // comment in initWithModelPath:completion: for details.
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         @try {
+            // Normalize image orientation if needed
+            NSString *normalizedInputPath = [self normalizeImageOrientation:inputImagePath];
+            if (!normalizedInputPath) {
+                normalizedInputPath = inputImagePath;
+            }
+
             // Record total start time
             NSDate *totalStartTime = [NSDate date];
             NSDate *llmStartTime = [NSDate date];
@@ -299,7 +306,7 @@ using namespace CV;
             bool success = self->mDiffusion->run(
                 llmOutput,
                 "img2img",                       // mode: image editing
-                [inputImagePath UTF8String],     // input image path
+                [normalizedInputPath UTF8String], // input image path
                 [outputPath UTF8String],         // output image path
                 512,                             // width
                 512,                             // height
@@ -316,6 +323,11 @@ using namespace CV;
             NSLog(@"SanaDiffusionSession: Diffusion time: %.2f ms", diffusionDuration);
             NSLog(@"SanaDiffusionSession: Total time: %.2f ms", totalDuration);
             
+            // Clean up temporary normalized image if it was created
+            if (![normalizedInputPath isEqualToString:inputImagePath]) {
+                [[NSFileManager defaultManager] removeItemAtPath:normalizedInputPath error:nil];
+            }
+
             // Save benchmark results to file
             [self saveBenchmarkResult:@{
                 @"timestamp": [NSDate date],
@@ -355,6 +367,48 @@ using namespace CV;
             });
         }
     });
+}
+
+#pragma mark - Image Orientation Normalization
+
+/// Normalizes the image orientation based on EXIF data.
+/// @param imagePath Path to the input image.
+/// @return Path to the normalized image, or nil if failed/not needed.
+- (NSString *)normalizeImageOrientation:(NSString *)imagePath {
+    UIImage *image = [UIImage imageWithContentsOfFile:imagePath];
+    if (!image) {
+        NSLog(@"SanaDiffusionSession: Failed to load image for normalization: %@", imagePath);
+        return nil;
+    }
+    
+    // Check if orientation is already Up
+    if (image.imageOrientation == UIImageOrientationUp) {
+        return imagePath;
+    }
+    
+    NSLog(@"SanaDiffusionSession: Normalizing image orientation from %ld", (long)image.imageOrientation);
+    
+    // Drawing into a context redraws the image with "Up" orientation
+    UIGraphicsBeginImageContextWithOptions(image.size, NO, image.scale);
+    [image drawInRect:CGRectMake(0, 0, image.size.width, image.size.height)];
+    UIImage *normalizedImage = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    
+    if (!normalizedImage) {
+        NSLog(@"SanaDiffusionSession: Failed to normalize image");
+        return nil;
+    }
+    
+    // Save normalized image to a temporary path
+    NSString *tempPath = [NSTemporaryDirectory() stringByAppendingPathComponent:[NSString stringWithFormat:@"normalized_%@", [imagePath lastPathComponent]]];
+    NSData *data = UIImageJPEGRepresentation(normalizedImage, 0.9);
+    if ([data writeToFile:tempPath atomically:YES]) {
+        NSLog(@"SanaDiffusionSession: Normalized image saved to %@", tempPath);
+        return tempPath;
+    } else {
+        NSLog(@"SanaDiffusionSession: Failed to save normalized image");
+        return nil;
+    }
 }
 
 #pragma mark - Benchmark
