@@ -20,8 +20,9 @@ std::vector<Express::VARP> MoEModule::onForward(const std::vector<Express::VARP>
     auto routingWeights = inputs[1];
     auto selectedExperts = inputs[2];
     auto selectedDim = selectedExperts->getInfo()->dim;
-    const int seqlen = selectedDim[1];
-    const int topK   = selectedDim[2];
+    int ranks = static_cast<int>(selectedDim.size());
+    const int seqlen = selectedDim[ranks - 2];
+    const int topK   = selectedDim[ranks - 1];
     MNN_ASSERT(topK == mTopK);
     auto selectedPtr = selectedExperts->readMap<int>();
     // decode

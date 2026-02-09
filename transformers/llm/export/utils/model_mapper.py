@@ -729,6 +729,61 @@ class ModelMapper:
         }
         self.regist('funaudiochat', funaudiochat_map)
 
+    def regist_qwen3_5(self):
+        qwen3_5_config = {
+            'hidden_size': 'text_config.hidden_size',
+            'head_dim': 'text_config.head_dim',
+            'num_attention_heads': 'text_config.num_attention_heads',
+            'num_hidden_layers': 'text_config.num_hidden_layers',
+            'num_key_value_heads': 'text_config.num_key_value_heads',
+            'rope_parameters': 'text_config.rope_parameters',
+            'max_position_embeddings': 'text_config.max_position_embeddings',
+            'rms_norm_eps': 'text_config.rms_norm_eps',
+            'linear_conv_kernel_dim': 'text_config.linear_conv_kernel_dim',
+            'linear_key_head_dim': 'text_config.linear_key_head_dim',
+            'linear_num_key_heads': 'text_config.linear_num_key_heads',
+            'linear_num_value_heads': 'text_config.linear_num_value_heads',
+            'linear_value_head_dim': 'text_config.linear_value_head_dim'
+        }
+        qwen3_5_model = {
+            'lm': 'lm_head',
+            'embed': 'model.language_model.embed_tokens',
+            'blocks': 'model.language_model.layers',
+            'final_layernorm': 'model.language_model.norm',
+            'visual': 'model.visual'
+        }
+        qwen3_5_linear_attention = {
+            'in_proj_qkv': 'in_proj_qkv',
+            'in_proj_z': 'in_proj_z',
+            'in_proj_b': 'in_proj_b',
+            'in_proj_a': 'in_proj_a',
+            'out_proj': 'out_proj',
+            'conv1d': 'conv1d',
+            'norm': 'norm',
+            'act': 'act',
+            'dt_bias': 'dt_bias',
+            'A_log': 'A_log'
+        }
+        qwen3_5_map = {
+            'config': qwen3_5_config,
+            'model': qwen3_5_model,
+            'decoder': self.default_decoder,
+            'attention': self.default_attention,
+            'linear_attention': qwen3_5_linear_attention
+        }
+        self.regist('qwen3_5', qwen3_5_map)
+        qwen3_5_moe_mlp = {
+            'num_experts': 'experts.num_experts',
+            'top_k': 'gate.top_k',
+            'gate': 'gate',
+            'experts': 'experts',
+            'shared_expert_gate': 'shared_expert_gate',
+            'shared_expert': 'shared_expert'
+        }
+        qwen3_5_moe_map = copy.deepcopy(qwen3_5_map)
+        qwen3_5_moe_map['mlp'] = qwen3_5_moe_mlp
+        self.regist('qwen3_5_moe', qwen3_5_moe_map)
+
     def init_default_map(self):
         # default map is `LlamaForCausalLM`
         self.config_key = 'config'
@@ -754,6 +809,7 @@ class ModelMapper:
         }
         self.default_decoder = {
             'self_attn': 'self_attn',
+            'linear_attn': 'linear_attn',
             'mlp': 'mlp',
             'input_layernorm': 'input_layernorm',
             'post_attention_layernorm': 'post_attention_layernorm'
@@ -763,7 +819,9 @@ class ModelMapper:
             'q_proj': 'q_proj',
             'k_proj': 'k_proj',
             'v_proj': 'v_proj',
-            'o_proj': 'o_proj'
+            'o_proj': 'o_proj',
+            'q_norm': 'q_norm',
+            'k_norm': 'k_norm'
         }
         self.default_map = {
             'config': self.default_config,

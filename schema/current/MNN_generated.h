@@ -27,6 +27,9 @@ struct StringVecT;
 struct AttentionParam;
 struct AttentionParamT;
 
+struct LinearAttentionParam;
+struct LinearAttentionParamT;
+
 struct FmhaV2Param;
 struct FmhaV2ParamT;
 
@@ -76,6 +79,8 @@ inline const flatbuffers::TypeTable *ExtraTypeTable();
 inline const flatbuffers::TypeTable *StringVecTypeTable();
 
 inline const flatbuffers::TypeTable *AttentionParamTypeTable();
+
+inline const flatbuffers::TypeTable *LinearAttentionParamTypeTable();
 
 inline const flatbuffers::TypeTable *FmhaV2ParamTypeTable();
 
@@ -278,6 +283,7 @@ enum OpType {
   OpType_SeqLen2Spatial = 302,
   OpType_SplitGeLU = 303,
   OpType_GroupNorm = 304,
+  OpType_LinearAttention = 305,
   OpType_Extra = 512,
   OpType_ConvInt8 = 513,
   OpType_Int8ToFloat = 514,
@@ -292,7 +298,7 @@ enum OpType {
   OpType_MAX = OpType_GridSample
 };
 
-inline const OpType (&EnumValuesOpType())[182] {
+inline const OpType (&EnumValuesOpType())[183] {
   static const OpType values[] = {
     OpType_AbsVal,
     OpType_QuantizedAdd,
@@ -466,6 +472,7 @@ inline const OpType (&EnumValuesOpType())[182] {
     OpType_SeqLen2Spatial,
     OpType_SplitGeLU,
     OpType_GroupNorm,
+    OpType_LinearAttention,
     OpType_Extra,
     OpType_ConvInt8,
     OpType_Int8ToFloat,
@@ -787,7 +794,7 @@ inline const char * const *EnumNamesOpType() {
     "SeqLen2Spatial",
     "SplitGeLU",
     "GroupNorm",
-    "",
+    "LinearAttention",
     "",
     "",
     "",
@@ -1199,11 +1206,12 @@ enum OpParameter {
   OpParameter_FmhcaParam = 97,
   OpParameter_AttentionParam = 98,
   OpParameter_StftParam = 99,
+  OpParameter_LinearAttentionParam = 100,
   OpParameter_MIN = OpParameter_NONE,
-  OpParameter_MAX = OpParameter_StftParam
+  OpParameter_MAX = OpParameter_LinearAttentionParam
 };
 
-inline const OpParameter (&EnumValuesOpParameter())[100] {
+inline const OpParameter (&EnumValuesOpParameter())[101] {
   static const OpParameter values[] = {
     OpParameter_NONE,
     OpParameter_QuantizedAdd,
@@ -1304,7 +1312,8 @@ inline const OpParameter (&EnumValuesOpParameter())[100] {
     OpParameter_FmhaV2Param,
     OpParameter_FmhcaParam,
     OpParameter_AttentionParam,
-    OpParameter_StftParam
+    OpParameter_StftParam,
+    OpParameter_LinearAttentionParam
   };
   return values;
 }
@@ -1411,13 +1420,14 @@ inline const char * const *EnumNamesOpParameter() {
     "FmhcaParam",
     "AttentionParam",
     "StftParam",
+    "LinearAttentionParam",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameOpParameter(OpParameter e) {
-  if (e < OpParameter_NONE || e > OpParameter_StftParam) return "";
+  if (e < OpParameter_NONE || e > OpParameter_LinearAttentionParam) return "";
   const size_t index = static_cast<int>(e);
   return EnumNamesOpParameter()[index];
 }
@@ -1820,6 +1830,10 @@ template<> struct OpParameterTraits<AttentionParam> {
 
 template<> struct OpParameterTraits<StftParam> {
   static const OpParameter enum_value = OpParameter_StftParam;
+};
+
+template<> struct OpParameterTraits<LinearAttentionParam> {
+  static const OpParameter enum_value = OpParameter_LinearAttentionParam;
 };
 
 struct OpParameterUnion {
@@ -2645,6 +2659,14 @@ struct OpParameterUnion {
     return type == OpParameter_StftParam ?
       reinterpret_cast<const StftParamT *>(value) : nullptr;
   }
+  LinearAttentionParamT *AsLinearAttentionParam() {
+    return type == OpParameter_LinearAttentionParam ?
+      reinterpret_cast<LinearAttentionParamT *>(value) : nullptr;
+  }
+  const LinearAttentionParamT *AsLinearAttentionParam() const {
+    return type == OpParameter_LinearAttentionParam ?
+      reinterpret_cast<const LinearAttentionParamT *>(value) : nullptr;
+  }
 };
 
 bool VerifyOpParameter(flatbuffers::Verifier &verifier, const void *obj, OpParameter type);
@@ -3004,6 +3026,115 @@ inline flatbuffers::Offset<AttentionParam> CreateAttentionParam(
 }
 
 flatbuffers::Offset<AttentionParam> CreateAttentionParam(flatbuffers::FlatBufferBuilder &_fbb, const AttentionParamT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct LinearAttentionParamT : public flatbuffers::NativeTable {
+  typedef LinearAttentionParam TableType;
+  std::string attn_type;
+  int32_t num_k_heads;
+  int32_t num_v_heads;
+  int32_t head_k_dim;
+  int32_t head_v_dim;
+  bool use_qk_l2norm;
+  LinearAttentionParamT()
+      : num_k_heads(0),
+        num_v_heads(0),
+        head_k_dim(0),
+        head_v_dim(0),
+        use_qk_l2norm(false) {
+  }
+};
+
+struct LinearAttentionParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef LinearAttentionParamT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return LinearAttentionParamTypeTable();
+  }
+  const flatbuffers::String *attn_type() const {
+    return GetPointer<const flatbuffers::String *>(4);
+  }
+  int32_t num_k_heads() const {
+    return GetField<int32_t>(6, 0);
+  }
+  int32_t num_v_heads() const {
+    return GetField<int32_t>(8, 0);
+  }
+  int32_t head_k_dim() const {
+    return GetField<int32_t>(10, 0);
+  }
+  int32_t head_v_dim() const {
+    return GetField<int32_t>(12, 0);
+  }
+  bool use_qk_l2norm() const {
+    return GetField<uint8_t>(14, 0) != 0;
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, 4) &&
+           verifier.VerifyString(attn_type()) &&
+           VerifyField<int32_t>(verifier, 6) &&
+           VerifyField<int32_t>(verifier, 8) &&
+           VerifyField<int32_t>(verifier, 10) &&
+           VerifyField<int32_t>(verifier, 12) &&
+           VerifyField<uint8_t>(verifier, 14) &&
+           verifier.EndTable();
+  }
+  LinearAttentionParamT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(LinearAttentionParamT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<LinearAttentionParam> Pack(flatbuffers::FlatBufferBuilder &_fbb, const LinearAttentionParamT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct LinearAttentionParamBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_attn_type(flatbuffers::Offset<flatbuffers::String> attn_type) {
+    fbb_.AddOffset(4, attn_type);
+  }
+  void add_num_k_heads(int32_t num_k_heads) {
+    fbb_.AddElement<int32_t>(6, num_k_heads, 0);
+  }
+  void add_num_v_heads(int32_t num_v_heads) {
+    fbb_.AddElement<int32_t>(8, num_v_heads, 0);
+  }
+  void add_head_k_dim(int32_t head_k_dim) {
+    fbb_.AddElement<int32_t>(10, head_k_dim, 0);
+  }
+  void add_head_v_dim(int32_t head_v_dim) {
+    fbb_.AddElement<int32_t>(12, head_v_dim, 0);
+  }
+  void add_use_qk_l2norm(bool use_qk_l2norm) {
+    fbb_.AddElement<uint8_t>(14, static_cast<uint8_t>(use_qk_l2norm), 0);
+  }
+  explicit LinearAttentionParamBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  LinearAttentionParamBuilder &operator=(const LinearAttentionParamBuilder &);
+  flatbuffers::Offset<LinearAttentionParam> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<LinearAttentionParam>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<LinearAttentionParam> CreateLinearAttentionParam(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<flatbuffers::String> attn_type = 0,
+    int32_t num_k_heads = 0,
+    int32_t num_v_heads = 0,
+    int32_t head_k_dim = 0,
+    int32_t head_v_dim = 0,
+    bool use_qk_l2norm = false) {
+  LinearAttentionParamBuilder builder_(_fbb);
+  builder_.add_head_v_dim(head_v_dim);
+  builder_.add_head_k_dim(head_k_dim);
+  builder_.add_num_v_heads(num_v_heads);
+  builder_.add_num_k_heads(num_k_heads);
+  builder_.add_attn_type(attn_type);
+  builder_.add_use_qk_l2norm(use_qk_l2norm);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<LinearAttentionParam> CreateLinearAttentionParam(flatbuffers::FlatBufferBuilder &_fbb, const LinearAttentionParamT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct FmhaV2ParamT : public flatbuffers::NativeTable {
   typedef FmhaV2Param TableType;
@@ -3971,6 +4102,9 @@ struct Op FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const StftParam *main_as_StftParam() const {
     return main_type() == OpParameter_StftParam ? static_cast<const StftParam *>(main()) : nullptr;
   }
+  const LinearAttentionParam *main_as_LinearAttentionParam() const {
+    return main_type() == OpParameter_LinearAttentionParam ? static_cast<const LinearAttentionParam *>(main()) : nullptr;
+  }
   const flatbuffers::String *name() const {
     return GetPointer<const flatbuffers::String *>(10);
   }
@@ -4402,6 +4536,10 @@ template<> inline const AttentionParam *Op::main_as<AttentionParam>() const {
 
 template<> inline const StftParam *Op::main_as<StftParam>() const {
   return main_as_StftParam();
+}
+
+template<> inline const LinearAttentionParam *Op::main_as<LinearAttentionParam>() const {
+  return main_as_LinearAttentionParam();
 }
 
 struct OpBuilder {
@@ -5225,6 +5363,47 @@ inline flatbuffers::Offset<AttentionParam> CreateAttentionParam(flatbuffers::Fla
   return MNN::CreateAttentionParam(
       _fbb,
       _kv_cache);
+}
+
+inline LinearAttentionParamT *LinearAttentionParam::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new LinearAttentionParamT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void LinearAttentionParam::UnPackTo(LinearAttentionParamT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = attn_type(); if (_e) _o->attn_type = _e->str(); };
+  { auto _e = num_k_heads(); _o->num_k_heads = _e; };
+  { auto _e = num_v_heads(); _o->num_v_heads = _e; };
+  { auto _e = head_k_dim(); _o->head_k_dim = _e; };
+  { auto _e = head_v_dim(); _o->head_v_dim = _e; };
+  { auto _e = use_qk_l2norm(); _o->use_qk_l2norm = _e; };
+}
+
+inline flatbuffers::Offset<LinearAttentionParam> LinearAttentionParam::Pack(flatbuffers::FlatBufferBuilder &_fbb, const LinearAttentionParamT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateLinearAttentionParam(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<LinearAttentionParam> CreateLinearAttentionParam(flatbuffers::FlatBufferBuilder &_fbb, const LinearAttentionParamT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const LinearAttentionParamT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _attn_type = _o->attn_type.empty() ? 0 : _fbb.CreateString(_o->attn_type);
+  auto _num_k_heads = _o->num_k_heads;
+  auto _num_v_heads = _o->num_v_heads;
+  auto _head_k_dim = _o->head_k_dim;
+  auto _head_v_dim = _o->head_v_dim;
+  auto _use_qk_l2norm = _o->use_qk_l2norm;
+  return MNN::CreateLinearAttentionParam(
+      _fbb,
+      _attn_type,
+      _num_k_heads,
+      _num_v_heads,
+      _head_k_dim,
+      _head_v_dim,
+      _use_qk_l2norm);
 }
 
 inline FmhaV2ParamT *FmhaV2Param::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -6163,6 +6342,10 @@ inline bool VerifyOpParameter(flatbuffers::Verifier &verifier, const void *obj, 
       auto ptr = reinterpret_cast<const StftParam *>(obj);
       return verifier.VerifyTable(ptr);
     }
+    case OpParameter_LinearAttentionParam: {
+      auto ptr = reinterpret_cast<const LinearAttentionParam *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
     default: return false;
   }
 }
@@ -6577,6 +6760,10 @@ inline void *OpParameterUnion::UnPack(const void *obj, OpParameter type, const f
       auto ptr = reinterpret_cast<const StftParam *>(obj);
       return ptr->UnPack(resolver);
     }
+    case OpParameter_LinearAttentionParam: {
+      auto ptr = reinterpret_cast<const LinearAttentionParam *>(obj);
+      return ptr->UnPack(resolver);
+    }
     default: return nullptr;
   }
 }
@@ -6979,6 +7166,10 @@ inline flatbuffers::Offset<void> OpParameterUnion::Pack(flatbuffers::FlatBufferB
       auto ptr = reinterpret_cast<const StftParamT *>(value);
       return CreateStftParam(_fbb, ptr, _rehasher).Union();
     }
+    case OpParameter_LinearAttentionParam: {
+      auto ptr = reinterpret_cast<const LinearAttentionParamT *>(value);
+      return CreateLinearAttentionParam(_fbb, ptr, _rehasher).Union();
+    }
     default: return 0;
   }
 }
@@ -7379,6 +7570,10 @@ inline OpParameterUnion::OpParameterUnion(const OpParameterUnion &u) FLATBUFFERS
     }
     case OpParameter_StftParam: {
       value = new StftParamT(*reinterpret_cast<StftParamT *>(u.value));
+      break;
+    }
+    case OpParameter_LinearAttentionParam: {
+      value = new LinearAttentionParamT(*reinterpret_cast<LinearAttentionParamT *>(u.value));
       break;
     }
     default:
@@ -7883,6 +8078,11 @@ inline void OpParameterUnion::Reset() {
       delete ptr;
       break;
     }
+    case OpParameter_LinearAttentionParam: {
+      auto ptr = reinterpret_cast<LinearAttentionParamT *>(value);
+      delete ptr;
+      break;
+    }
     default: break;
   }
   value = nullptr;
@@ -8072,12 +8272,13 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     OpTypeTypeTable
   };
-  static const int64_t values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 269, 299, 300, 301, 302, 303, 304, 512, 513, 514, 515, 517, 518, 600, 601, 603, 604 };
+  static const int64_t values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 269, 299, 300, 301, 302, 303, 304, 305, 512, 513, 514, 515, 517, 518, 600, 601, 603, 604 };
   static const char * const names[] = {
     "AbsVal",
     "QuantizedAdd",
@@ -8251,6 +8452,7 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "SeqLen2Spatial",
     "SplitGeLU",
     "GroupNorm",
+    "LinearAttention",
     "Extra",
     "ConvInt8",
     "Int8ToFloat",
@@ -8263,7 +8465,7 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "GridSample"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_ENUM, 182, type_codes, type_refs, values, names
+    flatbuffers::ST_ENUM, 183, type_codes, type_refs, values, names
   };
   return &tt;
 }
@@ -8369,7 +8571,8 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     { flatbuffers::ET_SEQUENCE, 0, 95 },
     { flatbuffers::ET_SEQUENCE, 0, 96 },
     { flatbuffers::ET_SEQUENCE, 0, 97 },
-    { flatbuffers::ET_SEQUENCE, 0, 98 }
+    { flatbuffers::ET_SEQUENCE, 0, 98 },
+    { flatbuffers::ET_SEQUENCE, 0, 99 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     QuantizedAddTypeTable,
@@ -8470,7 +8673,8 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     FmhaV2ParamTypeTable,
     FmhcaParamTypeTable,
     AttentionParamTypeTable,
-    StftParamTypeTable
+    StftParamTypeTable,
+    LinearAttentionParamTypeTable
   };
   static const char * const names[] = {
     "NONE",
@@ -8572,10 +8776,11 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     "FmhaV2Param",
     "FmhcaParam",
     "AttentionParam",
-    "StftParam"
+    "StftParam",
+    "LinearAttentionParam"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_UNION, 100, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_UNION, 101, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
@@ -8694,6 +8899,29 @@ inline const flatbuffers::TypeTable *AttentionParamTypeTable() {
   };
   static const flatbuffers::TypeTable tt = {
     flatbuffers::ST_TABLE, 1, type_codes, nullptr, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *LinearAttentionParamTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_STRING, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_BOOL, 0, -1 }
+  };
+  static const char * const names[] = {
+    "attn_type",
+    "num_k_heads",
+    "num_v_heads",
+    "head_k_dim",
+    "head_v_dim",
+    "use_qk_l2norm"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 6, type_codes, nullptr, nullptr, names
   };
   return &tt;
 }

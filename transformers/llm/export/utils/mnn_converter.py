@@ -249,6 +249,11 @@ class MNNConverter:
                     op['main']['gamma'] = np.frombuffer(f.read(external[1]), np.float32).tolist()
                     op['main']['beta'] = np.frombuffer(f.read(external[2]), np.float32).tolist()
                     del op['main']['external']
+                if op['type'] == 'Const' and 'external' in op['main']:
+                    external = op['main']['external']
+                    f.seek(external[0])
+                    op['main']['float32s'] = np.frombuffer(f.read(external[1]), np.float32).tolist()
+                    del op['main']['external']
         # Rebuild ops
         with open(self.mnn_weight_path, 'wb') as self.mnn_weight:
             for op in tqdm(mnn_graph['oplists'], 'Quant weights'):
@@ -330,7 +335,6 @@ class MNNConverter:
             assert(quant_bit in (1, 2, 4, 8))
             q_weight, alpha = self.quant(linear.weight.data, quant_bit, quant_block, symmetric)
             header_len, shape_int32 = self.write_header(ic, oc, quant_bit)
-
             if self.exporter.args.skip_weight:
                 weight_len = len(q_weight) + header_len
                 self.mnn_weight.seek(len(q_weight), 1)
@@ -371,6 +375,8 @@ class MNNConverter:
             return self.rebuild_linear(op, graph)
         if op_type == 'FusedAttention':
             return self.rebuild_attnention(op, graph)
+        if op_type == 'FusedLinearAttention':
+            return self.rebuild_linear_attnention(op, graph)
         if op_type == "LayerNorm":
             return self.rebuild_layernorm(op, graph)
         if op_type == 'MoE':
@@ -412,18 +418,70 @@ class MNNConverter:
         for attr in attrs:
             if attr['key'] == 'name':
                 name = attr['s']
+            elif attr['key'] == 'kv_cache':
+                kv_cache = attr['i']
         origin_input = op['inputIndexes']
         origin_output = op['outputIndexes']
         fused_attention = {
             "inputIndexes": origin_input,
             "main_type": "AttentionParam",
-            "main": { "kv_cache": True },
+            "main": { "kv_cache": bool(kv_cache) },
             "name": name,
             "outputIndexes": origin_output,
             "type": "Attention",
             "defaultDimentionFormat": "NHWC"
         }
         return [fused_attention]
+
+    def rebuild_linear_attnention(self, op, graph):
+        attrs = op['main']['attr']
+        num_k_heads = 0
+        num_v_heads = 0
+        head_k_dim = 0
+        head_v_dim = 0
+        attn_type = "gated_delta_rule"
+        use_qk_l2norm = False
+        name = ""
+
+        # Parse attributes from Custom Op
+        for attr in attrs:
+            if attr['key'] == 'name':
+                name = attr['s']
+            elif attr['key'] == 'num_k_heads':
+                num_k_heads = attr['i']
+            elif attr['key'] == 'num_v_heads':
+                num_v_heads = attr['i']
+            elif attr['key'] == 'head_k_dim':
+                head_k_dim = attr['i']
+            elif attr['key'] == 'head_v_dim':
+                head_v_dim = attr['i']
+            elif attr['key'] == 'attn_type':
+                attn_type = attr['s']
+            elif attr['key'] == 'use_qk_l2norm':
+                use_qk_l2norm = bool(attr['i'])
+
+        input_indexes = op['inputIndexes']
+        output_indexes = op['outputIndexes']
+
+        linear_attention_param = {
+            "attn_type": attn_type,
+            "num_k_heads": num_k_heads,
+            "num_v_heads": num_v_heads,
+            "head_k_dim": head_k_dim,
+            "head_v_dim": head_v_dim,
+            "use_qk_l2norm": use_qk_l2norm
+        }
+
+        fused_linear_attention = {
+            "inputIndexes": input_indexes,
+            "main_type": "LinearAttentionParam",
+            "main": linear_attention_param,
+            "name": name,
+            "outputIndexes": output_indexes,
+            "type": "LinearAttention",
+            "defaultDimentionFormat": "NHWC"
+        }
+        return [fused_linear_attention]
 
     def rebuild_linear(self, op, graph):
         attrs = op['main']['attr']

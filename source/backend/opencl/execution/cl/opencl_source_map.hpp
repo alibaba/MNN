@@ -27,6 +27,9 @@ extern const char* conv_2d_c1_subgroup_buf;
 #endif
 #endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
+extern const char* linear_attention_buf;
+#endif
+#ifndef MNN_OPENCL_BUFFER_CLOSED
 extern const char* matmul_local_buf;
 #endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
@@ -194,6 +197,9 @@ const std::map<std::string, const char*> OpenCLProgramMap =
 #endif
 #endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
+  { "linear_attention_buf", linear_attention_buf },
+#endif
+#ifndef MNN_OPENCL_BUFFER_CLOSED
   { "matmul_local_buf", matmul_local_buf },
 #endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
@@ -350,6 +356,7 @@ const std::map<std::string, std::string> OpenCLProgramMd5Map =
   { "gemv_conv1x1_buf", "c345830afdfa6154633950e4a7f9e60e" },
   { "raster", "0cf8ee1f7927d0027ce0f07ad564266e" },
   { "conv_2d_c1_subgroup_buf", "04a28a410c79fa6917827d16e189f322" },
+  { "linear_attention_buf", "c6995408c41a78eaaa748c4fd6e03e1a" },
   { "matmul_local_buf", "2497e20b734f5b77d021524648437b75" },
   { "conv_2d_int_buf", "6903dc7ca47d116549ac2b7c4bbf4587" },
   { "interp_buf", "2e5ff1b5184be705580ab6a221864a0c" },

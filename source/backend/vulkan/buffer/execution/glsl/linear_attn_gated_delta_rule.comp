@@ -1,0 +1,119 @@
+layout(set=0, binding=0) readonly buffer s0{
+    float data[];
+} uConvOut;
+
+layout(set=0, binding=1) readonly buffer s1{
+    float data[];
+} uGate;
+
+layout(set=0, binding=2) readonly buffer s2{
+    float data[];
+} uBeta;
+
+layout(set=0, binding=3) buffer s3{
+    float data[];
+} uRecurrentState;
+
+layout(set=0, binding=4) writeonly buffer s4{
+    float data[];
+} uAttnOut;
+
+layout(set=0, binding=5) readonly uniform constBuffer {
+    ivec4 size0; // batch, conv_dim, seq_len, num_k_heads
+    ivec4 size1; // num_v_heads, head_k_dim, head_v_dim, key_dim
+    ivec4 size2; // val_dim, gqa_factor, use_l2norm, total_heads
+    vec4 size3;  // q_scale, 0, 0, 0
+} uConstant;
+
+layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+void main()
+{
+    int gid = int(gl_GlobalInvocationID.x);
+    int total_heads = uConstant.size2.w;
+    if (gid >= total_heads) return;
+
+    int B = uConstant.size0.x;
+    int D = uConstant.size0.y;
+    int L = uConstant.size0.z;
+    int H = uConstant.size1.x;
+    int d_k = uConstant.size1.y;
+    int d_v = uConstant.size1.z;
+    int key_dim = uConstant.size1.w;
+    int gqa_factor = uConstant.size2.y;
+    int use_l2norm = uConstant.size2.z;
+    float q_scale = uConstant.size3.x;
+
+    int b = gid / H;
+    int h = gid % H;           // V-head index
+    int k_head = h / gqa_factor; // GQA: corresponding K-head
+
+    // State pointer offset: [B, H, d_k, d_v]
+    int stateOff = (b * H + h) * d_k * d_v;
+
+    // Process each timestep sequentially
+    for (int t = 0; t < L; ++t) {
+        // Step 2: Extract q_t, k_t, v_t from conv_out (transpose on the fly)
+        // conv_out layout: [B, D, L], access: conv_out[b*D*L + channel*L + t]
+        int convBase = b * D * L;
+
+        // We use loops with indexing instead of arrays (GLSL doesn't support dynamic arrays well)
+        // Step 3 + 4: Optional L2 norm and scale applied inline
+
+        // -- Compute L2 norms of q and k if needed --
+        float q_inv_norm = 1.0;
+        float k_inv_norm = 1.0;
+        if (use_l2norm != 0) {
+            float q_sum_sq = 0.0;
+            float k_sum_sq = 0.0;
+            for (int i = 0; i < d_k; ++i) {
+                float qv = uConvOut.data[convBase + (k_head * d_k + i) * L + t];
+                float kv = uConvOut.data[convBase + (key_dim + k_head * d_k + i) * L + t];
+                q_sum_sq += qv * qv;
+                k_sum_sq += kv * kv;
+            }
+            float eps = 1e-6;
+            q_inv_norm = 1.0 / sqrt(q_sum_sq + eps);
+            k_inv_norm = 1.0 / sqrt(k_sum_sq + eps);
+        }
+
+        // Step 5: Gated Delta Rule recurrence
+        float g_t = uGate.data[b * L * H + t * H + h];
+        float beta_t = uBeta.data[b * L * H + t * H + h];
+
+        // 5.1 Decay: S = S * exp(g_t)
+        float decay_val = exp(g_t);
+        for (int i = 0; i < d_k * d_v; ++i) {
+            uRecurrentState.data[stateOff + i] *= decay_val;
+        }
+
+        // 5.2 Read: v_pred[j] = sum_i(S[i,j] * k_t[i])
+        // 5.3 Delta: delta[j] = beta_t * (v_t[j] - v_pred[j])
+        // 5.4 Write: S[i,j] += k_t[i] * delta[j]
+        for (int j = 0; j < d_v; ++j) {
+            float v_pred_j = 0.0;
+            for (int i = 0; i < d_k; ++i) {
+                float k_val = uConvOut.data[convBase + (key_dim + k_head * d_k + i) * L + t] * k_inv_norm;
+                v_pred_j += uRecurrentState.data[stateOff + i * d_v + j] * k_val;
+            }
+            float v_val = uConvOut.data[convBase + (2 * key_dim + h * d_v + j) * L + t];
+            float delta_j = beta_t * (v_val - v_pred_j);
+
+            for (int i = 0; i < d_k; ++i) {
+                float k_val = uConvOut.data[convBase + (key_dim + k_head * d_k + i) * L + t] * k_inv_norm;
+                uRecurrentState.data[stateOff + i * d_v + j] += k_val * delta_j;
+            }
+        }
+
+        // 5.5 Query: o_t[j] = sum_i(S[i,j] * q_t[i])
+        int outOff = (b * L + t) * H * d_v + h * d_v;
+        for (int j = 0; j < d_v; ++j) {
+            float sum = 0.0;
+            for (int i = 0; i < d_k; ++i) {
+                float q_val = uConvOut.data[convBase + (k_head * d_k + i) * L + t] * q_inv_norm * q_scale;
+                sum += uRecurrentState.data[stateOff + i * d_v + j] * q_val;
+            }
+            uAttnOut.data[outOff + j] = sum;
+        }
+    } // end timestep
+}

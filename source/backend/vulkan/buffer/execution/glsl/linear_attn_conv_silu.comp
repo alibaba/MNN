@@ -1,0 +1,58 @@
+layout(set=0, binding=0) readonly buffer s0{
+    float data[];
+} uQKV;
+
+layout(set=0, binding=1) buffer s1{
+    float data[];
+} uConvState;
+
+layout(set=0, binding=2) readonly buffer s2{
+    float data[];
+} uConvWeight;
+
+layout(set=0, binding=3) writeonly buffer s3{
+    float data[];
+} uConvOut;
+
+layout(set=0, binding=4) readonly uniform constBuffer {
+    ivec4 size0; // batch, conv_dim, seq_len, kernel_size
+    ivec4 size1; // conv_state_size, total, 0, 0
+} uConstant;
+
+layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+void main()
+{
+    int gid = int(gl_GlobalInvocationID.x);
+    int total = uConstant.size1.y;
+    if (gid >= total) return;
+
+    int B = uConstant.size0.x;
+    int D = uConstant.size0.y;
+    int L = uConstant.size0.z;
+    int K = uConstant.size0.w;
+    int css = uConstant.size1.x; // conv_state_size = K - 1
+
+    int l = gid % L;
+    int bd = gid / L;
+    int b = bd / D;
+    int d = bd % D;
+
+    // Compute valid convolution for position l
+    // Padded input = [conv_state[b,d,:], qkv[b,d,:]]
+    float sum = 0.0;
+    for (int k = 0; k < K; ++k) {
+        int pos = l + k;
+        float input_val;
+        if (pos < css) {
+            input_val = uConvState.data[b * D * css + d * css + pos];
+        } else {
+            input_val = uQKV.data[b * D * L + d * L + (pos - css)];
+        }
+        sum += input_val * uConvWeight.data[d * K + k];
+    }
+
+    // SiLU activation: x * sigmoid(x)
+    float sigmoid_val = 1.0 / (1.0 + exp(-sum));
+    uConvOut.data[b * D * L + d * L + l] = sum * sigmoid_val;
+}

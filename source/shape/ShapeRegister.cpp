@@ -121,6 +121,7 @@ extern void ___SeqLen2SpatialSizeComputer__OpType_SeqLen2Spatial__();
 extern void ___FmhaV2SizeComputer__OpType_FmhaV2__();
 extern void ___FmhcaSizeComputer__OpType_Fmhca__();
 extern void ___AttentionSizeComputer__OpType_Attention__();
+extern void ___LinearAttentionSizeComputer__OpType_LinearAttention__();
 #endif
 void registerShapeOps() {
 ___ShapeSizeComputer__OpType_Shape__();
@@ -243,6 +244,7 @@ ___SeqLen2SpatialSizeComputer__OpType_SeqLen2Spatial__();
 ___FmhaV2SizeComputer__OpType_FmhaV2__();
 ___FmhcaSizeComputer__OpType_Fmhca__();
 ___AttentionSizeComputer__OpType_Attention__();
+___LinearAttentionSizeComputer__OpType_LinearAttention__();
 #endif
 }
 }

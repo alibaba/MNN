@@ -228,7 +228,7 @@ class Qwen2_5OmniAudio(Qwen2Audio):
         embed_pos = self.audio.positional_embedding.positional_embedding[:seq_len, :]
         hidden_states = inputs_embeds + embed_pos
         for block in self.blocks:
-            hidden_states = block(hidden_states, attention_mask=attention_mask)[0]
+            hidden_states = block(hidden_states, attention_mask=attention_mask)
         hidden_states = hidden_states.permute(0, 2, 1)
         hidden_states = self.audio.avg_pooler(hidden_states)
         hidden_states = hidden_states.permute(0, 2, 1)

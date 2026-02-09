@@ -1137,21 +1137,31 @@ VARP _UnravelIndex(VARP indices, VARP dims) {
 
 VARP _ScatterNd(VARP indices, VARP updates, VARP shape, int reducetion) {
     std::unique_ptr<OpT> op(new OpT);
-    op->main.type    = OpParameter_BinaryOp;
     op->type         = OpType_ScatterNd;
-    auto param       = new BinaryOpT;
-    param->opType    = (BinaryOpOperation)reducetion;
-    op->main.value   = param;
+    if (reducetion != -1) {
+        op->main.type    = OpParameter_BinaryOp;
+        auto param       = new BinaryOpT;
+        param->opType    = (BinaryOpOperation)reducetion;
+        op->main.value   = param;
+    } else {
+        op->main.type    = OpParameter_NONE;
+        op->main.value   = nullptr;
+    }
     return (Variable::create(Expr::create(std::move(op), {indices, updates, shape})));
 }
 
 VARP _ScatterNd(VARP indices, VARP updates, VARP shape, VARP input, int reducetion) {
     std::unique_ptr<OpT> op(new OpT);
-    op->main.type    = OpParameter_BinaryOp;
     op->type         = OpType_ScatterNd;
-    auto param       = new BinaryOpT;
-    param->opType    = (BinaryOpOperation)reducetion;
-    op->main.value   = param;
+    if (reducetion != -1) {
+        op->main.type    = OpParameter_BinaryOp;
+        auto param       = new BinaryOpT;
+        param->opType    = (BinaryOpOperation)reducetion;
+        op->main.value   = param;
+    } else {
+        op->main.type    = OpParameter_NONE;
+        op->main.value   = nullptr;
+    }
     return (Variable::create(Expr::create(std::move(op), {indices, updates, shape, input})));
 }
 VARP _ScatterNd(VARP indices, VARP updates, VARP shape) {
