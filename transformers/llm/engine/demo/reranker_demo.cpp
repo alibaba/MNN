@@ -19,6 +19,7 @@ int main(int argc, const char* argv[]) {
     std::string config_path = argv[1];
     std::cout << "config path is " << config_path << std::endl;
     std::unique_ptr<Qwen3Reranker> reranker(new Qwen3Reranker(config_path));
+    reranker->load();
     reranker->setInstruct("Given a web search query, retrieve relevant passages that answer the query");
     std::string query = "What is the capital of China?";
     std::vector<std::string> documents = {
