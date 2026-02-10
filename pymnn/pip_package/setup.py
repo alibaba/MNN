@@ -61,7 +61,7 @@ def report(*args):
     """ print information """
     print(*args)
 
-package_name = 'MNN'
+package_name = 'mnn'
 USE_INTERNAL = False
 USE_TRT      = False
 USE_CUDA     = False
