@@ -7,6 +7,7 @@
 //
 
 #include <math.h>
+#include <limits>
 #include "core/AutoStorage.h"
 #include "geometry/GeometryComputer.hpp"
 #include "geometry/GeometryComputerUtils.hpp"
@@ -28,15 +29,35 @@ public:
         auto& ib         = inputs[0]->buffer();
         auto outputData = outputs[0]->host<int>();
         auto inputFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+        std::vector<int> inputDims;
         if ((inputFormat == MNN_DATA_FORMAT_NC4HW4) && TensorUtils::getDescribe(outputs[0])->dimensionFormat == MNN_DATA_FORMAT_NHWC) {
-            outputData[0] = ib.dim[0].extent;
-            outputData[1] = ib.dim[2].extent;
-            outputData[2] = ib.dim[3].extent;
-            outputData[3] = ib.dim[1].extent;
+            inputDims = {ib.dim[0].extent, ib.dim[2].extent, ib.dim[3].extent, ib.dim[1].extent};
         } else {
             for (int i = 0; i < ib.dimensions; i++) {
-                outputData[i] = ib.dim[i].extent;
+                inputDims.push_back(ib.dim[i].extent);
             }
+        }
+
+        int start = 0;
+        int end = inputDims.size();
+        if (op->main_type() == OpParameter_ShapeParam) {
+            auto param = op->main_as_ShapeParam();
+            start = param->start();
+            if (start < 0) {
+                start += inputDims.size();
+            }
+            if (param->end() != std::numeric_limits<int>::max()) {
+                end = param->end();
+                if (end < 0) {
+                    end += inputDims.size();
+                }
+            }
+        }
+        if (start < 0) start = 0;
+        if (end > inputDims.size()) end = inputDims.size();
+
+        for (int i = start; i < end; i++) {
+            outputData[i - start] = inputDims[i];
         }
         return true;
     }
