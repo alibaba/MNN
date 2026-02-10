@@ -143,6 +143,7 @@ void MNNInt8FunctionInit() {
         core->Int8GemmKernel = _SSE_MNNGemmInt8AddBiasScale_16x4_Unit;
         core->Int8GemmKernelFast = _SSE_MNNGemmInt8AddBiasScale_16x4_Unit;
         core->ConvDepthwiseLineInt8 = _SSE_MNNLineDepthWiseInt8AddBiasScaleUnit;
+        core->MNNTMacCompute = _SSE_MNNTMacCompute;
 #ifdef MNN_LOW_MEMORY
         core->Int8GemmKernel_W4 = _SSE_MNNGemmInt8AddBiasScale_16x4_w4;
 #endif

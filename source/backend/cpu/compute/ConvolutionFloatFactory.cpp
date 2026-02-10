@@ -21,6 +21,7 @@
 #endif
 #include "core/Macro.h"
 #include "core/OpCommonUtils.hpp"
+#include "ConvTMac.hpp"
 #include "backend/cpu/OneDNNConvolution.hpp"
 #include "backend/cpu/compute/ConvInt8TiledExecutor.hpp"
 
@@ -153,6 +154,28 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
 #ifdef MNN_LOW_MEMORY
     if (lowMemory && nullptr != weightQuantInfo.get() && originWeightSize == 0) {
         if (cpuBackend->memoryMode() == BackendConfig::Memory_Low) {
+            auto option = cpuBackend->getRuntime()->hint().dynamicQuantOption;
+            if (option == 16 && fastWay && weightQuantInfo.get() != nullptr && weightQuantInfo->originBits <= 4 && op->main_as_Convolution2D()->common()->inputCount() % 4 == 0 && op->main_as_Convolution2D()->common()->outputCount() % 64 == 0) {
+                // If use T-mac, set dynamicQuantOption=8
+                // T-Mac algorithm requires weight bits<=4 to achieve higher performance
+                // requires input channel % 4 == 0 for packing every "four input data together", see core function: MNNTMacBuildTable
+                // requires output channel % 64 == 0 for CPU backends(Arm, x86_x64), set TMacResource.mHp=64 is highest for x86_x64 cpu backends.
+                auto oc = op->main_as_Convolution2D()->common()->outputCount();
+                int blocknum = 1;
+                if (weightQuantInfo->alpha.get()) {
+                    int scalesize = weightQuantInfo->alpha.size();
+                    if (weightQuantInfo->asymmetric) {
+                        scalesize /= 2;
+                    }
+                    blocknum = scalesize / oc;
+                }
+                int blc4 = op->main_as_Convolution2D()->common()->inputCount() / blocknum / 4;
+                // To achieve higher performance, accumuled summary saved as int16_t rather than int32_t,
+                // so ensure blc4 <= 256, which 256 = max(int16_t) / max(int8_t)
+                if (blc4 <= 256) {
+                    return ConvTMac::create(backend, op, weightQuantInfo);
+                }
+            }
             return new DenseConvInt8TiledExecutor(backend, op, weightQuantInfo, true);
         } else {
             return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
