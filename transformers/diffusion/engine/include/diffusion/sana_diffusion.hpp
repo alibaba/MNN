@@ -93,7 +93,7 @@ namespace MNN
             std::vector<float> mInitNoise;
             int mNumInferenceSteps = 20;
             int mNumTrainTimesteps = 1000;
-            const float aspectRatioThreshold = 1.5f;
+            const float aspectRatioThreshold = 1.0f;
         };
 
     } // namespace DIFFUSION
