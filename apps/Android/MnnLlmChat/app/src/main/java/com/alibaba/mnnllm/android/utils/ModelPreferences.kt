@@ -3,6 +3,7 @@
 package com.alibaba.mnnllm.android.utils
 
 import android.content.Context
+import com.alibaba.mnnllm.android.model.ModelUtils
 
 object ModelPreferences {
     const val TAG: String = "ModelPreferences"
@@ -20,10 +21,6 @@ object ModelPreferences {
     fun setString(context: Context, modelId: String, key: String?, value: String?) {
         context.getSharedPreferences(ModelUtils.safeModelId(modelId), Context.MODE_PRIVATE)
             .edit().putString(key, value).apply()
-    }
-
-    fun useMmap(context: Context, modelId: String): Boolean {
-        return getBoolean(context, modelId, KEY_USE_MMAP, false)
     }
 
     fun getBoolean(

@@ -8,7 +8,6 @@
 
 import UIKit
 import ExyteChat
-import ExyteMediaPicker
 
 final class LLMChatData {
     var assistant: LLMChatUser
@@ -25,13 +24,13 @@ final class LLMChatData {
         
         self.assistant = LLMChatUser(
             uid: "2",
-            name: modelInfo.name,
+            name: modelInfo.modelName,
             avatar: AssetExtractor.createLocalUrl(forImageNamed: icon, withExtension: "png")
         )
         
         self.system = LLMChatUser(
             uid: "0",
-            name: modelInfo.name,
+            name: modelInfo.modelName,
             avatar: AssetExtractor.createLocalUrl(forImageNamed: icon, withExtension: "png")
         )
     }

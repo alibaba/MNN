@@ -7,12 +7,12 @@
         android:icon="@drawable/baseline_search_24"
         app:actionViewClass="androidx.appcompat.widget.SearchView"
         app:showAsAction="ifRoom|collapseActionView" />
-    <item
-        android:id="@+id/action_filter_downloaded"
-        android:title="@string/show_only_downloaded"
-        android:checkable="true"
-        android:checked="false"
-        app:showAsAction="never" />
+<!--    <item-->
+<!--        android:id="@+id/action_filter_downloaded"-->
+<!--        android:title="@string/show_only_downloaded"-->
+<!--        android:checkable="true"-->
+<!--        android:checked="false"-->
+<!--        app:showAsAction="never" />-->
 
     <item
         android:id="@+id/action_github_issue"
@@ -22,16 +22,18 @@
     <item
         android:id="@+id/action_star_project"
         android:title="@string/star_project"
-        app:showAsAction="never" />
-
-    <item
-        android:id="@+id/action_resume_all_downloads"
-        android:title="@string/resume_all_downloads"
-        app:showAsAction="never" />
+        android:icon="@drawable/ic_u_star"
+        android:iconTint="@color/color_foreground"
+        app:showAsAction="always" />
 
     <item
         android:id="@+id/action_settings"
         android:title="@string/settings"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_report_crash"
+        android:title="@string/report_crash"
         app:showAsAction="never" />
 
 </menu>

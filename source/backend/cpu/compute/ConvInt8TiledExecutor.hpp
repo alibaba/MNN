@@ -14,7 +14,7 @@
 #include "CommonOptFunction.h"
 
 namespace MNN {
-typedef void (*weightSummerFuncion)(float* kernlesum, int8_t* source, size_t outside, size_t reduceAxis, size_t hP, size_t lP);
+typedef void (*weightSummerFuncion)(float* kernelsum, int8_t* source, size_t outside, size_t reduceAxis, size_t hP, size_t lP);
 class ConvInt8TiledExecutor : public CPUConvolution {
 public:
     // given weight+bias+scale, do post process
@@ -23,9 +23,9 @@ public:
     virtual ~ConvInt8TiledExecutor();
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
-    virtual void getPackParameter(int* Unit, int* SrcUnit, int* DestUnit, const CoreInt8Functions* core) = 0;
     static void packWeightAndQuantInfo(int8_t* dstbuffer, const int8_t* weight, const int8_t* quantInfo, int32_t* info, int infoBytes = 4);
     static void reorderWeight(uint8_t* dst, const uint8_t* src, int32_t* info, int32_t initval = 0, float* kernelsum = nullptr, weightSummerFuncion summerFunc = nullptr);
+    static void initializeConvInt8QuantInfo(std::shared_ptr<CPUConvolution::ResourceInt8>& resourceInt8, const Convolution2D* conv2D, std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon);
 
 protected:
     ConvolutionCommon::Im2ColParameter mIm2ColParamter;
@@ -37,8 +37,6 @@ protected:
     MemChunk mBlitInfo;
     std::pair<size_t, size_t> mBlitInfoStride;
     int mIm2ColCount;
-    bool mQuantFirst;
-    MemChunk mInputReorderBuffer;
 };
 
 //
@@ -52,14 +50,11 @@ protected:
 
 class DenseConvInt8TiledExecutor : public ConvInt8TiledExecutor {
 public:
-    // given weight+bias+scale, do post process
-    DenseConvInt8TiledExecutor(Backend* backend, const Op* op, std::shared_ptr<ResourceInt8> res); // ptq
-    DenseConvInt8TiledExecutor(Backend* backend, const Op* op, std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon); // dynamic quant
+    DenseConvInt8TiledExecutor(Backend* backend, const Op* op, std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon, bool isDynamicQuant); // dynamic quant
     virtual ~DenseConvInt8TiledExecutor();
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
-    void getPackParameter(int* Unit, int* SrcUnit, int* DestUnit, const CoreInt8Functions* core) override;
 private:
     DenseConvInt8TiledExecutor(Backend* backend, const Op* op, const DenseConvInt8TiledExecutor& exe);
 
@@ -71,18 +66,42 @@ private:
     std::shared_ptr<Tensor> mDynamicBias;
     std::shared_ptr<Tensor> mAccumBuffer;
     std::shared_ptr<Tensor> mBatchQuantInfo;
-    std::shared_ptr<Tensor> mTempMaxMinValueBuffer;
-    std::vector<uint8_t> mTempSrcSum;
+    MemChunk mTempMaxMinValueBuffer;
+    MemChunk mTempSrcSum;
+    MemChunk mQScaleZero;
+    MemChunk mReorderBuffer;
+    MemChunk mBiasBufferFusedInputzero;
+    MemChunk mWeight4Prefill;
+    MemChunk mWeightKernelSum4Prefill;
+    // for 4Bit Ptq model
+    MemChunk mTempOutput;
     std::vector<int32_t> mDivides;
+    std::vector<int32_t> mDividesTmp;
+    std::vector<decltype(CoreInt8Functions::Int8GemmKernel)> mGemmKernels;
 
+    int mGemmUnits[3];
     int mThreadNums;
     int mBlockNum = 1;
+    int mInputBlockNum = 1;
     int mOcPerThread;
+    int mOcMain;
+    int mOcBranch = 0;
+    int mRatioPrefill;
+    int mRatioDecode;
+    int mSmeCores = 2;
+    int mOriginSmeWork = 0;
+    int mSizeInputBlockQuant;
     bool mSplitByOc;
     bool mUseBatchQuan;
-#ifdef MNN_KLEIDIAI_ENABLED
-    KleidiAI::AccelType mAccelType = KleidiAI::AccelType::ACC_TYPE_NUMBER;
-#endif
+    bool mIm2ColBasedInt8;
+    bool mToFuseInputbias2Bias;
+    bool mOnlineReorderWeightSme = false;
+
+    // for 4Bit Ptq model
+    bool m4BitPtq = false;
+    bool mMixedKernel;
+    MatmulRelatedFunctions mRelatedFunctions;
+    MatmulRelatedFunctions mArm82Functions;
 };
 
 } // namespace MNN

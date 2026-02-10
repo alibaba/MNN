@@ -367,9 +367,24 @@ project/MNNLLMForiOS/MNN.framework
 MNN-iOS-CPU-GPU/Static/MNN.framework
 apps/iOS/MNNLLMChat/MNN.framework
 
-# model path
-model/
-
 # datasets
 datasets/*
 !datasets/*.sh
+
+# qnn 3rdParty
+source/backend/qnn/3rdParty/include
+project/android/.cxx
+pymnn/android/.cxx/
+apps/mnncli/.cursorrules
+apps/mnncli/model_market_json_data.inc
+#kledi
+_deps
+#aicoding
+.cursor
+
+# llm model
+transformers/llm/export/model/
+apps/Android/.qoder/settings.json
+apps/Android/MnnLlmChatOld
+
+transformers/llm/export/tmp/

@@ -84,7 +84,7 @@ void _train(std::shared_ptr<Module> origin, std::shared_ptr<Module> optmized, st
     int resizeHeight           = 224;
     int resizeWidth            = 224;
     std::vector<float> means = {127.5, 127.5, 127.5};
-    std::vector<float> scales = {1/127.5, 1/127.5, 1/127.5};
+    std::vector<float> scales = {1/127.5f, 1/127.5f, 1/127.5f};
     std::vector<float> cropFraction = {0.875, 0.875}; // center crop fraction for height and width
     bool centerOrRandomCrop = false; // true for random crop
     std::shared_ptr<ImageDataset::ImageConfig> datasetConfig(ImageDataset::ImageConfig::create(converImagesToFormat, resizeHeight, resizeWidth, scales, means, cropFraction, centerOrRandomCrop));

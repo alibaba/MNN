@@ -24,10 +24,12 @@ struct MNNCPUInfo {
     bool sme2;
     std::vector<CPUGroup> groups;
     int cpuNumber = 0;
+    int smeCoreNumber = 0;
 };
-
+using cpu_mask_t = unsigned long;
 int MNNSetSchedAffinity(const int* cpuIDs, int size);
 int MNNGetCurrentPid();
+cpu_mask_t MNNGetCPUMask(const std::vector<int>& cpuIds);
 const MNNCPUInfo* MNNGetCPUInfo();
 
 #endif /* CPUInfo_hpp */

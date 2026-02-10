@@ -87,7 +87,7 @@ ErrorCode Interp3DExecution::onEncode(const std::vector<Tensor *> &inputs, const
     MNN_CHECK_CL_SUCCESS(ret, "setArg Intep3DExecution");
 
     std::string name = "interp3D";
-    mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+    mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel(), "nearest").first;
     mOpenCLBackend->recordKernel3d(unit.kernel, mGWS, mLWS);
     unit.globalWorkSize = {mGWS[0], mGWS[1], mGWS[2]};
     unit.localWorkSize = {mLWS[0], mLWS[1], mLWS[2]};

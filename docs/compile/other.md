@@ -15,6 +15,15 @@
   - `MNNDump2Json` 模型转换为Json
   - `MNNRevert2Buffer` Json转换为模型
   - `OnnxClip` Onnx模型裁剪工具
+### MNN模型转为QNN模型工具
+- 相关编译选项
+  - `MNN_QNN_CONVERT_MODE` 在打开MNN_QNN宏前提下，是否编译成mnn模型转为QNN模型的功能库
+- 编译命令
+    ```bash
+    cmake .. -DMNN_QNN=ON -DMNN_QNN_CONVERT_MODE=ON
+    ```
+- 编译产物
+  - `MNN2QNNModel` 模型转换工具
 ## 训练框架
 - 相关编译选项
   - `MNN_BUILD_TRAIN` 是否编译训练框架
@@ -54,13 +63,15 @@
   - `llm_demo` 大语言模型推理示例程序
   - `diffusion_demo` 扩散模型示例程序
   - `llm_bench` 大语言模型测评工具
+  - `rollback_demo` 大语言模型kvcache回调示例工具
+  - `quantize_llm` 大语言模型feature map量化工具
 ## 测试工具
 - 相关编译选项
-  - `MNN_BUILD_TOOL` 是否编译测试工具
+  - `MNN_BUILD_TOOLS` 是否编译测试工具
 - 编译命令
     ```bash
     mkdir build && cd build
-    cmake .. -DMNN_BUILD_TOOL=ON
+    cmake .. -DMNN_BUILD_TOOLS=ON
     make -j4
     ```
 - 编译产物
@@ -84,6 +95,7 @@
   - `fuseTest` 测试 GPU 自定义算子的功能，目前仅支持 Vulkan Buffer 模式
   - `GpuInterTest.out` 测试 GPU 内存输入的功能，目前仅支持 OpenCL Buffer 模式与 OpenGL texture 模式，编译时需打开 MNN_OPENCL 与 MNN_OPENGL
   - `LoRA` 将LorA权重添加到模型权重中
+  - `compilefornpu` 将Npu要运行的部分转换为Plugin算子
 ## Benchmark工具
 - 相关编译选项
   - `MNN_BUILD_BENCHMARK` 是否编译Benchmark工具
@@ -171,6 +183,7 @@
   - `rasterDemo.out` Raster示例
   - `nluDemo.out` nlu模型示例
   - `mergeInplaceForCPU` 将模型中可以Inplace计算的算子改成Inplace计算，可以减少内存占用，但限定CPU后端运行
+  - `OpenCLProgramBuildTest.out` 测试OpenCL后端的Program在设备上是否能编译成功
 ## 单元测试
 - 相关编译选项
   - `MNN_BUILD_TEST` 是否编译MNN单元测试

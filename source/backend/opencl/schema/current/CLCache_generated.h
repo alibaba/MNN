@@ -23,9 +23,6 @@ struct AutotuningT;
 struct GemmInfo;
 struct GemmInfoT;
 
-struct PreParamInfo;
-struct PreParamInfoT;
-
 struct BackendInfo;
 struct BackendInfoT;
 
@@ -41,8 +38,6 @@ inline const flatbuffers::TypeTable *ShaderTypeTable();
 inline const flatbuffers::TypeTable *AutotuningTypeTable();
 
 inline const flatbuffers::TypeTable *GemmInfoTypeTable();
-
-inline const flatbuffers::TypeTable *PreParamInfoTypeTable();
 
 inline const flatbuffers::TypeTable *BackendInfoTypeTable();
 
@@ -197,6 +192,7 @@ struct ShaderT : public flatbuffers::NativeTable {
   std::string program;
   std::string kernel;
   std::string buildInfo;
+  std::string md5;
   ShaderT() {
   }
 };
@@ -218,6 +214,9 @@ struct Shader FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const flatbuffers::String *buildInfo() const {
     return GetPointer<const flatbuffers::String *>(10);
   }
+  const flatbuffers::String *md5() const {
+    return GetPointer<const flatbuffers::String *>(12);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, 4) &&
@@ -228,6 +227,8 @@ struct Shader FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            verifier.VerifyString(kernel()) &&
            VerifyOffset(verifier, 10) &&
            verifier.VerifyString(buildInfo()) &&
+           VerifyOffset(verifier, 12) &&
+           verifier.VerifyString(md5()) &&
            verifier.EndTable();
   }
   ShaderT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -250,6 +251,9 @@ struct ShaderBuilder {
   void add_buildInfo(flatbuffers::Offset<flatbuffers::String> buildInfo) {
     fbb_.AddOffset(10, buildInfo);
   }
+  void add_md5(flatbuffers::Offset<flatbuffers::String> md5) {
+    fbb_.AddOffset(12, md5);
+  }
   explicit ShaderBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -267,8 +271,10 @@ inline flatbuffers::Offset<Shader> CreateShader(
     flatbuffers::Offset<flatbuffers::Vector<int8_t>> buffer = 0,
     flatbuffers::Offset<flatbuffers::String> program = 0,
     flatbuffers::Offset<flatbuffers::String> kernel = 0,
-    flatbuffers::Offset<flatbuffers::String> buildInfo = 0) {
+    flatbuffers::Offset<flatbuffers::String> buildInfo = 0,
+    flatbuffers::Offset<flatbuffers::String> md5 = 0) {
   ShaderBuilder builder_(_fbb);
+  builder_.add_md5(md5);
   builder_.add_buildInfo(buildInfo);
   builder_.add_kernel(kernel);
   builder_.add_program(program);
@@ -284,6 +290,8 @@ struct AutotuningT : public flatbuffers::NativeTable {
   std::vector<uint32_t> gloablSize;
   std::vector<uint32_t> localSize;
   uint32_t timeCost;
+  std::string name;
+  std::string md5;
   AutotuningT()
       : timeCost(0) {
   }
@@ -306,6 +314,12 @@ struct Autotuning FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   uint32_t timeCost() const {
     return GetField<uint32_t>(10, 0);
   }
+  const flatbuffers::String *name() const {
+    return GetPointer<const flatbuffers::String *>(12);
+  }
+  const flatbuffers::String *md5() const {
+    return GetPointer<const flatbuffers::String *>(14);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, 4) &&
@@ -315,6 +329,10 @@ struct Autotuning FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            VerifyOffset(verifier, 8) &&
            verifier.VerifyVector(localSize()) &&
            VerifyField<uint32_t>(verifier, 10) &&
+           VerifyOffset(verifier, 12) &&
+           verifier.VerifyString(name()) &&
+           VerifyOffset(verifier, 14) &&
+           verifier.VerifyString(md5()) &&
            verifier.EndTable();
   }
   AutotuningT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -337,6 +355,12 @@ struct AutotuningBuilder {
   void add_timeCost(uint32_t timeCost) {
     fbb_.AddElement<uint32_t>(10, timeCost, 0);
   }
+  void add_name(flatbuffers::Offset<flatbuffers::String> name) {
+    fbb_.AddOffset(12, name);
+  }
+  void add_md5(flatbuffers::Offset<flatbuffers::String> md5) {
+    fbb_.AddOffset(14, md5);
+  }
   explicit AutotuningBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -354,8 +378,12 @@ inline flatbuffers::Offset<Autotuning> CreateAutotuning(
     flatbuffers::Offset<flatbuffers::String> key = 0,
     flatbuffers::Offset<flatbuffers::Vector<uint32_t>> gloablSize = 0,
     flatbuffers::Offset<flatbuffers::Vector<uint32_t>> localSize = 0,
-    uint32_t timeCost = 0) {
+    uint32_t timeCost = 0,
+    flatbuffers::Offset<flatbuffers::String> name = 0,
+    flatbuffers::Offset<flatbuffers::String> md5 = 0) {
   AutotuningBuilder builder_(_fbb);
+  builder_.add_md5(md5);
+  builder_.add_name(name);
   builder_.add_timeCost(timeCost);
   builder_.add_localSize(localSize);
   builder_.add_gloablSize(gloablSize);
@@ -369,6 +397,7 @@ struct GemmInfoT : public flatbuffers::NativeTable {
   typedef GemmInfo TableType;
   std::vector<uint32_t> gemmSize;
   std::vector<uint32_t> paramInfo;
+  std::string md5;
   GemmInfoT() {
   }
 };
@@ -384,12 +413,17 @@ struct GemmInfo FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const flatbuffers::Vector<uint32_t> *paramInfo() const {
     return GetPointer<const flatbuffers::Vector<uint32_t> *>(6);
   }
+  const flatbuffers::String *md5() const {
+    return GetPointer<const flatbuffers::String *>(8);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, 4) &&
            verifier.VerifyVector(gemmSize()) &&
            VerifyOffset(verifier, 6) &&
            verifier.VerifyVector(paramInfo()) &&
+           VerifyOffset(verifier, 8) &&
+           verifier.VerifyString(md5()) &&
            verifier.EndTable();
   }
   GemmInfoT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -406,6 +440,9 @@ struct GemmInfoBuilder {
   void add_paramInfo(flatbuffers::Offset<flatbuffers::Vector<uint32_t>> paramInfo) {
     fbb_.AddOffset(6, paramInfo);
   }
+  void add_md5(flatbuffers::Offset<flatbuffers::String> md5) {
+    fbb_.AddOffset(8, md5);
+  }
   explicit GemmInfoBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -421,8 +458,10 @@ struct GemmInfoBuilder {
 inline flatbuffers::Offset<GemmInfo> CreateGemmInfo(
     flatbuffers::FlatBufferBuilder &_fbb,
     flatbuffers::Offset<flatbuffers::Vector<uint32_t>> gemmSize = 0,
-    flatbuffers::Offset<flatbuffers::Vector<uint32_t>> paramInfo = 0) {
+    flatbuffers::Offset<flatbuffers::Vector<uint32_t>> paramInfo = 0,
+    flatbuffers::Offset<flatbuffers::String> md5 = 0) {
   GemmInfoBuilder builder_(_fbb);
+  builder_.add_md5(md5);
   builder_.add_paramInfo(paramInfo);
   builder_.add_gemmSize(gemmSize);
   return builder_.Finish();
@@ -430,79 +469,12 @@ inline flatbuffers::Offset<GemmInfo> CreateGemmInfo(
 
 flatbuffers::Offset<GemmInfo> CreateGemmInfo(flatbuffers::FlatBufferBuilder &_fbb, const GemmInfoT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
-struct PreParamInfoT : public flatbuffers::NativeTable {
-  typedef PreParamInfo TableType;
-  std::string preParamName;
-  uint32_t preParamData;
-  PreParamInfoT()
-      : preParamData(0) {
-  }
-};
-
-struct PreParamInfo FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
-  typedef PreParamInfoT NativeTableType;
-  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
-    return PreParamInfoTypeTable();
-  }
-  const flatbuffers::String *preParamName() const {
-    return GetPointer<const flatbuffers::String *>(4);
-  }
-  uint32_t preParamData() const {
-    return GetField<uint32_t>(6, 0);
-  }
-  bool Verify(flatbuffers::Verifier &verifier) const {
-    return VerifyTableStart(verifier) &&
-           VerifyOffset(verifier, 4) &&
-           verifier.VerifyString(preParamName()) &&
-           VerifyField<uint32_t>(verifier, 6) &&
-           verifier.EndTable();
-  }
-  PreParamInfoT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
-  void UnPackTo(PreParamInfoT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
-  static flatbuffers::Offset<PreParamInfo> Pack(flatbuffers::FlatBufferBuilder &_fbb, const PreParamInfoT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
-};
-
-struct PreParamInfoBuilder {
-  flatbuffers::FlatBufferBuilder &fbb_;
-  flatbuffers::uoffset_t start_;
-  void add_preParamName(flatbuffers::Offset<flatbuffers::String> preParamName) {
-    fbb_.AddOffset(4, preParamName);
-  }
-  void add_preParamData(uint32_t preParamData) {
-    fbb_.AddElement<uint32_t>(6, preParamData, 0);
-  }
-  explicit PreParamInfoBuilder(flatbuffers::FlatBufferBuilder &_fbb)
-        : fbb_(_fbb) {
-    start_ = fbb_.StartTable();
-  }
-  PreParamInfoBuilder &operator=(const PreParamInfoBuilder &);
-  flatbuffers::Offset<PreParamInfo> Finish() {
-    const auto end = fbb_.EndTable(start_);
-    auto o = flatbuffers::Offset<PreParamInfo>(end);
-    return o;
-  }
-};
-
-inline flatbuffers::Offset<PreParamInfo> CreatePreParamInfo(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    flatbuffers::Offset<flatbuffers::String> preParamName = 0,
-    uint32_t preParamData = 0) {
-  PreParamInfoBuilder builder_(_fbb);
-  builder_.add_preParamData(preParamData);
-  builder_.add_preParamName(preParamName);
-  return builder_.Finish();
-}
-
-flatbuffers::Offset<PreParamInfo> CreatePreParamInfo(flatbuffers::FlatBufferBuilder &_fbb, const PreParamInfoT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
-
 struct BackendInfoT : public flatbuffers::NativeTable {
   typedef BackendInfo TableType;
-  std::string mnnVersion;
   std::string deviceName;
   std::vector<std::unique_ptr<ShaderT>> programs;
   std::vector<std::unique_ptr<AutotuningT>> tunings;
   std::vector<std::unique_ptr<GemmInfoT>> gemm;
-  std::vector<std::unique_ptr<PreParamInfoT>> preParam;
   BackendInfoT() {
   }
 };
@@ -512,42 +484,31 @@ struct BackendInfo FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return BackendInfoTypeTable();
   }
-  const flatbuffers::String *mnnVersion() const {
+  const flatbuffers::String *deviceName() const {
     return GetPointer<const flatbuffers::String *>(4);
   }
-  const flatbuffers::String *deviceName() const {
-    return GetPointer<const flatbuffers::String *>(6);
-  }
   const flatbuffers::Vector<flatbuffers::Offset<Shader>> *programs() const {
-    return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<Shader>> *>(8);
+    return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<Shader>> *>(6);
   }
   const flatbuffers::Vector<flatbuffers::Offset<Autotuning>> *tunings() const {
-    return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<Autotuning>> *>(10);
+    return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<Autotuning>> *>(8);
   }
   const flatbuffers::Vector<flatbuffers::Offset<GemmInfo>> *gemm() const {
-    return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<GemmInfo>> *>(12);
-  }
-  const flatbuffers::Vector<flatbuffers::Offset<PreParamInfo>> *preParam() const {
-    return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<PreParamInfo>> *>(14);
+    return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<GemmInfo>> *>(10);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, 4) &&
-           verifier.VerifyString(mnnVersion()) &&
-           VerifyOffset(verifier, 6) &&
            verifier.VerifyString(deviceName()) &&
-           VerifyOffset(verifier, 8) &&
+           VerifyOffset(verifier, 6) &&
            verifier.VerifyVector(programs()) &&
            verifier.VerifyVectorOfTables(programs()) &&
-           VerifyOffset(verifier, 10) &&
+           VerifyOffset(verifier, 8) &&
            verifier.VerifyVector(tunings()) &&
            verifier.VerifyVectorOfTables(tunings()) &&
-           VerifyOffset(verifier, 12) &&
+           VerifyOffset(verifier, 10) &&
            verifier.VerifyVector(gemm()) &&
            verifier.VerifyVectorOfTables(gemm()) &&
-           VerifyOffset(verifier, 14) &&
-           verifier.VerifyVector(preParam()) &&
-           verifier.VerifyVectorOfTables(preParam()) &&
            verifier.EndTable();
   }
   BackendInfoT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -558,23 +519,17 @@ struct BackendInfo FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
 struct BackendInfoBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
-  void add_mnnVersion(flatbuffers::Offset<flatbuffers::String> mnnVersion) {
-    fbb_.AddOffset(4, mnnVersion);
-  }
   void add_deviceName(flatbuffers::Offset<flatbuffers::String> deviceName) {
-    fbb_.AddOffset(6, deviceName);
+    fbb_.AddOffset(4, deviceName);
   }
   void add_programs(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<Shader>>> programs) {
-    fbb_.AddOffset(8, programs);
+    fbb_.AddOffset(6, programs);
   }
   void add_tunings(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<Autotuning>>> tunings) {
-    fbb_.AddOffset(10, tunings);
+    fbb_.AddOffset(8, tunings);
   }
   void add_gemm(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<GemmInfo>>> gemm) {
-    fbb_.AddOffset(12, gemm);
-  }
-  void add_preParam(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<PreParamInfo>>> preParam) {
-    fbb_.AddOffset(14, preParam);
+    fbb_.AddOffset(10, gemm);
   }
   explicit BackendInfoBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -590,19 +545,15 @@ struct BackendInfoBuilder {
 
 inline flatbuffers::Offset<BackendInfo> CreateBackendInfo(
     flatbuffers::FlatBufferBuilder &_fbb,
-    flatbuffers::Offset<flatbuffers::String> mnnVersion = 0,
     flatbuffers::Offset<flatbuffers::String> deviceName = 0,
     flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<Shader>>> programs = 0,
     flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<Autotuning>>> tunings = 0,
-    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<GemmInfo>>> gemm = 0,
-    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<PreParamInfo>>> preParam = 0) {
+    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<GemmInfo>>> gemm = 0) {
   BackendInfoBuilder builder_(_fbb);
-  builder_.add_preParam(preParam);
   builder_.add_gemm(gemm);
   builder_.add_tunings(tunings);
   builder_.add_programs(programs);
   builder_.add_deviceName(deviceName);
-  builder_.add_mnnVersion(mnnVersion);
   return builder_.Finish();
 }
 
@@ -749,6 +700,7 @@ inline void Shader::UnPackTo(ShaderT *_o, const flatbuffers::resolver_function_t
   { auto _e = program(); if (_e) _o->program = _e->str(); };
   { auto _e = kernel(); if (_e) _o->kernel = _e->str(); };
   { auto _e = buildInfo(); if (_e) _o->buildInfo = _e->str(); };
+  { auto _e = md5(); if (_e) _o->md5 = _e->str(); };
 }
 
 inline flatbuffers::Offset<Shader> Shader::Pack(flatbuffers::FlatBufferBuilder &_fbb, const ShaderT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -763,12 +715,14 @@ inline flatbuffers::Offset<Shader> CreateShader(flatbuffers::FlatBufferBuilder &
   auto _program = _o->program.empty() ? 0 : _fbb.CreateString(_o->program);
   auto _kernel = _o->kernel.empty() ? 0 : _fbb.CreateString(_o->kernel);
   auto _buildInfo = _o->buildInfo.empty() ? 0 : _fbb.CreateString(_o->buildInfo);
+  auto _md5 = _o->md5.empty() ? 0 : _fbb.CreateString(_o->md5);
   return CLCache::CreateShader(
       _fbb,
       _buffer,
       _program,
       _kernel,
-      _buildInfo);
+      _buildInfo,
+      _md5);
 }
 
 inline AutotuningT *Autotuning::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -784,6 +738,8 @@ inline void Autotuning::UnPackTo(AutotuningT *_o, const flatbuffers::resolver_fu
   { auto _e = gloablSize(); if (_e) { _o->gloablSize.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->gloablSize[_i] = _e->Get(_i); } } };
   { auto _e = localSize(); if (_e) { _o->localSize.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->localSize[_i] = _e->Get(_i); } } };
   { auto _e = timeCost(); _o->timeCost = _e; };
+  { auto _e = name(); if (_e) _o->name = _e->str(); };
+  { auto _e = md5(); if (_e) _o->md5 = _e->str(); };
 }
 
 inline flatbuffers::Offset<Autotuning> Autotuning::Pack(flatbuffers::FlatBufferBuilder &_fbb, const AutotuningT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -798,12 +754,16 @@ inline flatbuffers::Offset<Autotuning> CreateAutotuning(flatbuffers::FlatBufferB
   auto _gloablSize = _o->gloablSize.size() ? _fbb.CreateVector(_o->gloablSize) : 0;
   auto _localSize = _o->localSize.size() ? _fbb.CreateVector(_o->localSize) : 0;
   auto _timeCost = _o->timeCost;
+  auto _name = _o->name.empty() ? 0 : _fbb.CreateString(_o->name);
+  auto _md5 = _o->md5.empty() ? 0 : _fbb.CreateString(_o->md5);
   return CLCache::CreateAutotuning(
       _fbb,
       _key,
       _gloablSize,
       _localSize,
-      _timeCost);
+      _timeCost,
+      _name,
+      _md5);
 }
 
 inline GemmInfoT *GemmInfo::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -817,6 +777,7 @@ inline void GemmInfo::UnPackTo(GemmInfoT *_o, const flatbuffers::resolver_functi
   (void)_resolver;
   { auto _e = gemmSize(); if (_e) { _o->gemmSize.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->gemmSize[_i] = _e->Get(_i); } } };
   { auto _e = paramInfo(); if (_e) { _o->paramInfo.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->paramInfo[_i] = _e->Get(_i); } } };
+  { auto _e = md5(); if (_e) _o->md5 = _e->str(); };
 }
 
 inline flatbuffers::Offset<GemmInfo> GemmInfo::Pack(flatbuffers::FlatBufferBuilder &_fbb, const GemmInfoT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -829,39 +790,12 @@ inline flatbuffers::Offset<GemmInfo> CreateGemmInfo(flatbuffers::FlatBufferBuild
   struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const GemmInfoT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
   auto _gemmSize = _o->gemmSize.size() ? _fbb.CreateVector(_o->gemmSize) : 0;
   auto _paramInfo = _o->paramInfo.size() ? _fbb.CreateVector(_o->paramInfo) : 0;
+  auto _md5 = _o->md5.empty() ? 0 : _fbb.CreateString(_o->md5);
   return CLCache::CreateGemmInfo(
       _fbb,
       _gemmSize,
-      _paramInfo);
-}
-
-inline PreParamInfoT *PreParamInfo::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
-  auto _o = new PreParamInfoT();
-  UnPackTo(_o, _resolver);
-  return _o;
-}
-
-inline void PreParamInfo::UnPackTo(PreParamInfoT *_o, const flatbuffers::resolver_function_t *_resolver) const {
-  (void)_o;
-  (void)_resolver;
-  { auto _e = preParamName(); if (_e) _o->preParamName = _e->str(); };
-  { auto _e = preParamData(); _o->preParamData = _e; };
-}
-
-inline flatbuffers::Offset<PreParamInfo> PreParamInfo::Pack(flatbuffers::FlatBufferBuilder &_fbb, const PreParamInfoT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
-  return CreatePreParamInfo(_fbb, _o, _rehasher);
-}
-
-inline flatbuffers::Offset<PreParamInfo> CreatePreParamInfo(flatbuffers::FlatBufferBuilder &_fbb, const PreParamInfoT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
-  (void)_rehasher;
-  (void)_o;
-  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const PreParamInfoT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
-  auto _preParamName = _o->preParamName.empty() ? 0 : _fbb.CreateString(_o->preParamName);
-  auto _preParamData = _o->preParamData;
-  return CLCache::CreatePreParamInfo(
-      _fbb,
-      _preParamName,
-      _preParamData);
+      _paramInfo,
+      _md5);
 }
 
 inline BackendInfoT *BackendInfo::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -873,12 +807,10 @@ inline BackendInfoT *BackendInfo::UnPack(const flatbuffers::resolver_function_t 
 inline void BackendInfo::UnPackTo(BackendInfoT *_o, const flatbuffers::resolver_function_t *_resolver) const {
   (void)_o;
   (void)_resolver;
-  { auto _e = mnnVersion(); if (_e) _o->mnnVersion = _e->str(); };
   { auto _e = deviceName(); if (_e) _o->deviceName = _e->str(); };
   { auto _e = programs(); if (_e) { _o->programs.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->programs[_i] = std::unique_ptr<ShaderT>(_e->Get(_i)->UnPack(_resolver)); } } };
   { auto _e = tunings(); if (_e) { _o->tunings.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->tunings[_i] = std::unique_ptr<AutotuningT>(_e->Get(_i)->UnPack(_resolver)); } } };
   { auto _e = gemm(); if (_e) { _o->gemm.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->gemm[_i] = std::unique_ptr<GemmInfoT>(_e->Get(_i)->UnPack(_resolver)); } } };
-  { auto _e = preParam(); if (_e) { _o->preParam.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->preParam[_i] = std::unique_ptr<PreParamInfoT>(_e->Get(_i)->UnPack(_resolver)); } } };
 }
 
 inline flatbuffers::Offset<BackendInfo> BackendInfo::Pack(flatbuffers::FlatBufferBuilder &_fbb, const BackendInfoT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -889,20 +821,16 @@ inline flatbuffers::Offset<BackendInfo> CreateBackendInfo(flatbuffers::FlatBuffe
   (void)_rehasher;
   (void)_o;
   struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const BackendInfoT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
-  auto _mnnVersion = _o->mnnVersion.empty() ? 0 : _fbb.CreateString(_o->mnnVersion);
   auto _deviceName = _o->deviceName.empty() ? 0 : _fbb.CreateString(_o->deviceName);
   auto _programs = _o->programs.size() ? _fbb.CreateVector<flatbuffers::Offset<Shader>> (_o->programs.size(), [](size_t i, _VectorArgs *__va) { return CreateShader(*__va->__fbb, __va->__o->programs[i].get(), __va->__rehasher); }, &_va ) : 0;
   auto _tunings = _o->tunings.size() ? _fbb.CreateVector<flatbuffers::Offset<Autotuning>> (_o->tunings.size(), [](size_t i, _VectorArgs *__va) { return CreateAutotuning(*__va->__fbb, __va->__o->tunings[i].get(), __va->__rehasher); }, &_va ) : 0;
   auto _gemm = _o->gemm.size() ? _fbb.CreateVector<flatbuffers::Offset<GemmInfo>> (_o->gemm.size(), [](size_t i, _VectorArgs *__va) { return CreateGemmInfo(*__va->__fbb, __va->__o->gemm[i].get(), __va->__rehasher); }, &_va ) : 0;
-  auto _preParam = _o->preParam.size() ? _fbb.CreateVector<flatbuffers::Offset<PreParamInfo>> (_o->preParam.size(), [](size_t i, _VectorArgs *__va) { return CreatePreParamInfo(*__va->__fbb, __va->__o->preParam[i].get(), __va->__rehasher); }, &_va ) : 0;
   return CLCache::CreateBackendInfo(
       _fbb,
-      _mnnVersion,
       _deviceName,
       _programs,
       _tunings,
-      _gemm,
-      _preParam);
+      _gemm);
 }
 
 inline CacheT *Cache::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -974,16 +902,18 @@ inline const flatbuffers::TypeTable *ShaderTypeTable() {
     { flatbuffers::ET_CHAR, 1, -1 },
     { flatbuffers::ET_STRING, 0, -1 },
     { flatbuffers::ET_STRING, 0, -1 },
+    { flatbuffers::ET_STRING, 0, -1 },
     { flatbuffers::ET_STRING, 0, -1 }
   };
   static const char * const names[] = {
     "buffer",
     "program",
     "kernel",
-    "buildInfo"
+    "buildInfo",
+    "md5"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 4, type_codes, nullptr, nullptr, names
+    flatbuffers::ST_TABLE, 5, type_codes, nullptr, nullptr, names
   };
   return &tt;
 }
@@ -993,16 +923,20 @@ inline const flatbuffers::TypeTable *AutotuningTypeTable() {
     { flatbuffers::ET_STRING, 0, -1 },
     { flatbuffers::ET_UINT, 1, -1 },
     { flatbuffers::ET_UINT, 1, -1 },
-    { flatbuffers::ET_UINT, 0, -1 }
+    { flatbuffers::ET_UINT, 0, -1 },
+    { flatbuffers::ET_STRING, 0, -1 },
+    { flatbuffers::ET_STRING, 0, -1 }
   };
   static const char * const names[] = {
     "key",
     "gloablSize",
     "localSize",
-    "timeCost"
+    "timeCost",
+    "name",
+    "md5"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 4, type_codes, nullptr, nullptr, names
+    flatbuffers::ST_TABLE, 6, type_codes, nullptr, nullptr, names
   };
   return &tt;
 }
@@ -1010,29 +944,16 @@ inline const flatbuffers::TypeTable *AutotuningTypeTable() {
 inline const flatbuffers::TypeTable *GemmInfoTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
     { flatbuffers::ET_UINT, 1, -1 },
-    { flatbuffers::ET_UINT, 1, -1 }
+    { flatbuffers::ET_UINT, 1, -1 },
+    { flatbuffers::ET_STRING, 0, -1 }
   };
   static const char * const names[] = {
     "gemmSize",
-    "paramInfo"
+    "paramInfo",
+    "md5"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 2, type_codes, nullptr, nullptr, names
-  };
-  return &tt;
-}
-
-inline const flatbuffers::TypeTable *PreParamInfoTypeTable() {
-  static const flatbuffers::TypeCode type_codes[] = {
-    { flatbuffers::ET_STRING, 0, -1 },
-    { flatbuffers::ET_UINT, 0, -1 }
-  };
-  static const char * const names[] = {
-    "preParamName",
-    "preParamData"
-  };
-  static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 2, type_codes, nullptr, nullptr, names
+    flatbuffers::ST_TABLE, 3, type_codes, nullptr, nullptr, names
   };
   return &tt;
 }
@@ -1040,28 +961,23 @@ inline const flatbuffers::TypeTable *PreParamInfoTypeTable() {
 inline const flatbuffers::TypeTable *BackendInfoTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
     { flatbuffers::ET_STRING, 0, -1 },
-    { flatbuffers::ET_STRING, 0, -1 },
     { flatbuffers::ET_SEQUENCE, 1, 0 },
     { flatbuffers::ET_SEQUENCE, 1, 1 },
-    { flatbuffers::ET_SEQUENCE, 1, 2 },
-    { flatbuffers::ET_SEQUENCE, 1, 3 }
+    { flatbuffers::ET_SEQUENCE, 1, 2 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     ShaderTypeTable,
     AutotuningTypeTable,
-    GemmInfoTypeTable,
-    PreParamInfoTypeTable
+    GemmInfoTypeTable
   };
   static const char * const names[] = {
-    "mnnVersion",
     "deviceName",
     "programs",
     "tunings",
-    "gemm",
-    "preParam"
+    "gemm"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 6, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 4, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

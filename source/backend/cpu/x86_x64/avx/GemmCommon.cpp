@@ -336,7 +336,8 @@ _mm256_storeu_ps(temp2 + 7 * 8, t7);\
     }
 }
 
-void _AVX_MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l, bool transpose) {
+void _AVX_MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t kernelsize, size_t ic, bool transpose) {
+    auto l = kernelsize * ic;
     int offset[2] = {
         (int)l,
         (int)l
@@ -348,10 +349,11 @@ void _AVX_MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t 
     MNNPackC4(dest, source, l, h, offset);
 }
 
-void _AVX_MNNPackForMatMul_B_EShort(float* dest, const float* source, size_t h, size_t l, bool transpose) {
+void _AVX_MNNPackForMatMul_B_EShort(float* dest, const float* source, size_t h, size_t kernelsize, size_t ic, bool transpose) {
     const int unit = 16;
     auto hP = h / unit;
     auto hR = hP * unit;
+    auto l = kernelsize * ic;
     if (hR != h) {
         ::memset(dest, 0, UP_DIV(h, unit)*unit*l*sizeof(float));
     }
@@ -418,7 +420,7 @@ void _AVX_MNNPackedSparseMatMul(float* C, const float* A, const float* B, unsign
     return;
 }
 
-void _AVX_MNNComputeScaleZeroScalar(float* source, float* min, float* max, size_t size) {
+void _AVX_MNNCountMinMaxValue(const float* source, float* min, float* max, size_t size) {
     int pack = 8;
     int sizeDiv8 = size / pack;
     __m256 minVal = _mm256_set1_ps(source[0]);

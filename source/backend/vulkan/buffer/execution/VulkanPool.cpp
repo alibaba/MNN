@@ -15,26 +15,30 @@ struct ConstBuffer {
     ivec2 pad;
     ivec2 kernelSize;
     ivec2 stride;
+    ivec2 count;
 };
 
-VulkanPool::VulkanPool(const Op* op, Backend* bn) : VulkanBasicExecution(bn) {
+VulkanPool::VulkanPool(const Op* op, Backend* bn, Tensor * tensor) : VulkanBasicExecution(bn) {
     mCommon    = op->main_as_Pool();
     auto extra = static_cast<VulkanBackend*>(bn);
 
+    std::string pKey;
+    auto poolType = mCommon->type();
+    MNN_ASSERT(poolType == PoolType_MAXPOOL || poolType == PoolType_AVEPOOL);
+    if (poolType == PoolType_MAXPOOL) {
+        pKey = "glsl_maxpool_";
+    }
+    if (poolType == PoolType_AVEPOOL) {
+        pKey = "glsl_avgpool_";
+    }
+    if (tensor->getType().code ==halide_type_float && extra->useFP16()) {
+        pKey += "FP16_";
+    }
+    pKey += "comp";
     std::vector<VkDescriptorType> types{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                                         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
-    switch (mCommon->type()) {
-        case PoolType_MAXPOOL:
-            mPoolPipeline =
-                extra->getPipeline("glsl_maxpool_comp", /*glsl_maxpool_comp, glsl_maxpool_comp_len,*/ types);
-            break;
-        case PoolType_AVEPOOL:
-            mPoolPipeline =
-                extra->getPipeline("glsl_avgpool_comp", /*glsl_avgpool_comp, glsl_avgpool_comp_len,*/ types);
-            break;
-        default:
-            break;
-    }
+
+    mPoolPipeline = extra->getPipeline(pKey, types);
     mConstBuffer = extra->allocUniform(nullptr, sizeof(ConstBuffer));
     mDescriptorSet.reset(mPoolPipeline->createSet());
 }
@@ -97,6 +101,18 @@ ErrorCode VulkanPool::onEncode(const std::vector<Tensor*>& inputs, const std::ve
         pool->stride[1]     = strideHeight;
         pool->kernelSize[0] = kernelWidth;
         pool->kernelSize[1] = kernelHeight;
+
+        auto countType = mCommon->countType();
+        if (countType == AvgPoolCountType_DEFAULT) {
+            if (mCommon->padType() == PoolPadType_CAFFE) {
+                countType = AvgPoolCountType_INCLUDE_PADDING;
+            } else {
+                countType = AvgPoolCountType_EXCLUDE_PADDING;
+            }
+        }
+        pool->count[0] = (countType == AvgPoolCountType_INCLUDE_PADDING) ? 1 : 0;
+        pool->count[1] = 0;
+
         mConstBuffer->unmap();
     }
 
@@ -117,7 +133,7 @@ class VulkanPoolCreator : public VulkanBackend::Creator {
 public:
     virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
                                 Backend* backend) const override {
-        return new VulkanPool(op, backend);
+        return new VulkanPool(op, backend, outputs[0]);
     }
 };
 

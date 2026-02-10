@@ -11,32 +11,9 @@
 
 #include <fstream>
 #include <iostream>
-
-#include "flatbuffers/idl.h"
-#include "flatbuffers/minireflect.h"
-#include "flatbuffers/util.h"
-
-// MNN fbs header
-#include "MNN_generated.h"
-// tflite fbs header
-#include "schema_generated.h"
 #include <MNN/MNNDefine.h>
-
-class TfliteModel {
-public:
-    TfliteModel() = delete;
-
-    TfliteModel(const std::string fileName);
-    ~TfliteModel();
-
-    void readModel();
-
-    inline std::unique_ptr<tflite::ModelT>& get();
-
-private:
-    const std::string _modelName;
-    std::unique_ptr<tflite::ModelT> _tfliteModel;
-};
+#include <memory>
+#include "MNN_generated.h"
 
 /**
  * @brief convert tflite model to MNN model
@@ -44,7 +21,8 @@ private:
  * @param bizCode(not used, always is MNN)
  * @param MNN net
  */
-MNN_PUBLIC int tflite2MNNNet(const std::string inputModel, const std::string bizCode,
+int tflite2MNNNet(const std::string inputModel, const std::string bizCode,
                   std::unique_ptr<MNN::NetT>& MNNNetT);
+bool dumpTflite2Json(const char* inputModel, const char* outputJson);
 
 #endif // LITECONVERTER_HPP

@@ -78,6 +78,7 @@ using RegularizationMethod = ParameterOptimizer::RegularizationMethod;
 
 #ifdef PYMNN_LLM_API
 #include "llm.h"
+#include "reranker.h"
 #endif
 
 #ifdef PYMNN_INTERNAL_SERVING
@@ -824,15 +825,37 @@ static PyObject* PyMNNInterpreter_setSessionMode(PyMNNInterpreter *self, PyObjec
 }
 static PyObject* PyMNNInterpreter_setSessionHint(PyMNNInterpreter *self, PyObject *args) {
     int type_val = 0;
-    int num_val = 0;
-    if (!PyArg_ParseTuple(args, "ii", &type_val, &num_val)) {
+    PyObject* num_val = nullptr;
+    if (!PyArg_ParseTuple(args, "iO", &type_val, &num_val)) {
         PyErr_SetString(PyExc_Exception,
-                        "PyMNNInterpreter_setSessionHint: Not interger input and interger input");
-        return NULL;
+                        "PyMNNInterpreter_setSessionHint: Not interger input and interger/list/tuple input");
+        return nullptr;
     }
 
     auto type = (MNN::Interpreter::HintMode)type_val;
-    self->interpreter->setSessionHint(type, num_val);
+    if (PyList_Check(num_val)) {
+        size_t size = PyList_Size(num_val);
+        int* list = new int[size];
+        for (int i = 0; i < size; i++) {
+            list[i] = static_cast<int>(PyLong_AsLong(PyList_GetItem(num_val, i)));
+        }
+        self->interpreter->setSessionHint(type, list, size);
+        delete[] list;
+    } else if (PyTuple_Check(num_val)) {
+        size_t size = PyTuple_Size(num_val);
+        int* list = new int[size];
+        for (int i = 0; i < size; i++) {
+            list[i] = static_cast<int>(PyLong_AsLong(PyTuple_GetItem(num_val, i)));
+        }
+        self->interpreter->setSessionHint(type, list, size);
+        delete[] list;
+    } else if (PyLong_Check(num_val)) {
+        self->interpreter->setSessionHint(type, static_cast<int>(PyLong_AsLong(num_val)));
+    } else {
+        PyErr_SetString(PyExc_Exception,
+                        "PyMNNInterpreter_setSessionHint: num_val must be a list, tuple or int");
+        return nullptr;
+    }
     Py_RETURN_NONE;
 }
 static PyObject* PyMNNInterpreter_runSession(PyMNNInterpreter *self, PyObject *args) {
@@ -1601,7 +1624,7 @@ static PyObject* PyMNNTensor_repr(PyObject *self) {
     auto content = PyMNNTensor_getShape((PyMNNTensor*)self, NULL);
 #endif
     auto reprfunc = PyObject_GetAttrString(content, "__repr__");
-    auto str = PyEval_CallObject(reprfunc, NULL);
+    auto str = PyObject_CallObject(reprfunc, NULL);
     Py_DECREF(content);
     Py_DECREF(reprfunc);
     return str;
@@ -2746,6 +2769,18 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
     constexpr int llm_method_num = sizeof(PyMNNLLM_static_methods) / sizeof(PyMethodDef);
     for (int i = 0; i < llm_method_num; i++) {
         def_method(llm_module, &PyMNNLLM_static_methods[i]);
+    }
+    
+    // reranker type
+    if (PyType_Ready(&PyMNNReranker) < 0) {
+        PyErr_SetString(PyExc_Exception, "initMNN.llm: PyType_Ready PyMNNReranker failed");
+        ERROR_RETURN
+    }
+    PyModule_AddObject(llm_module, "Reranker", (PyObject *)PyType_FindTLSType(&PyMNNReranker));
+    // add methods of reranker
+    constexpr int reranker_method_num = sizeof(PyMNNReranker_static_methods) / sizeof(PyMethodDef);
+    for (int i = 0; i < reranker_method_num; i++) {
+        def_method(llm_module, &PyMNNReranker_static_methods[i]);
     }
 #endif
 

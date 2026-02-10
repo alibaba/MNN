@@ -10,9 +10,26 @@
 #include "core/Execution.hpp"
 #include "MNN_generated.h"
 #include "Macro.h"
-#include <random>
 
 namespace MNN {
+bool OpCommonUtils::checkNet(const void* buffer, size_t length) {
+    // For mnn build mini, skip check buffer, it will reduce 100k size
+#ifndef MNN_SKIPBUILD_GEOMETRY
+    flatbuffers::Verifier verify((const uint8_t*)buffer, length);
+    if (false == VerifyNetBuffer(verify)) {
+        MNN_PRINT("Invalidate buffer to create MNN Module\n");
+        return false;
+    }
+    // Check Auto Inputs and Outputs
+    auto net = GetNet(buffer);
+    if (nullptr == net->oplists() || nullptr == net->tensorName()) {
+        MNN_ERROR("Invalid net, for null oplist or tensorName\n");
+        return false;
+    }
+#endif
+    return true;
+}
+
 Tensor::DimensionType OpCommonUtils::convertDimType(MNN_DATA_FORMAT dimensionFormat) {
     auto dimType = Tensor::CAFFE;
     switch (dimensionFormat) {
@@ -369,98 +386,7 @@ void OpCommonUtils::broastCastComputeDim(int* dims, int* stride, int* iStride0, 
         }
     }
 }
-std::vector<std::tuple<int, int, int>> OpCommonUtils::computeReduceDims(const std::vector<Tensor*>& inputs,
-                                                                        const Op* op) {
-    // Compute axises
-    std::vector<int> axises;
-    if (inputs.size() >= 2) {
-        auto size = inputs[1]->elementSize();
-        auto dims = inputs[1]->host<int32_t>();
-        for (int i = 0; i < size; ++i) {
-            axises.emplace_back(dims[i]);
-        }
-    } else {
-        auto reduct = op->main_as_ReductionParam();
-        if (nullptr != reduct->dim()) {
-            for (int i = 0; i < reduct->dim()->size(); ++i) {
-                axises.emplace_back(reduct->dim()->data()[i]);
-            }
-        }
-    }
-    auto totalSize = TensorUtils::getRawSize(inputs[0]);
-    if (axises.empty()) {
-        return {std::make_tuple(1, totalSize, 1)};
-    }
-    for (int i = 0; i < axises.size(); ++i) {
-        if (axises[i] < 0) {
-            axises[i] = inputs[0]->dimensions() + axises[i];
-            if (axises[i] < 0) {
-                return {std::make_tuple(1, totalSize, 1)};
-            }
-        }
-    }
-    // Cache for input's dims
-    std::vector<int> lengths(inputs[0]->dimensions());
-    for (int i = 0; i < lengths.size(); ++i) {
-        lengths[i] = inputs[0]->length(i);
-    }
-    std::vector<std::pair<int, int>> groupAxises;
-    {
-        // Merge adj axis
-        std::sort(axises.begin(), axises.end());
-        int lastAxis = axises[0];
-        int length   = 1;
-        int start    = axises[0];
-        for (int i = 1; i < axises.size(); ++i) {
-            // MNN_PRINT("%d - %d\n", axises[i], lastAxis);
-            if (axises[i] - lastAxis == 1) {
-                length++;
-            } else {
-                groupAxises.emplace_back(std::make_pair(start, length));
-                length = 1;
-                start  = axises[i];
-            }
-            lastAxis = axises[i];
-        }
-        groupAxises.emplace_back(std::make_pair(start, length));
-    }
 
-    // Compute inside-outside-axis
-    std::vector<std::tuple<int, int, int>> result;
-
-    for (int i = 0; i < groupAxises.size(); ++i) {
-        int outsideSize = 1;
-        int insideSize  = 1;
-        int axisSize    = 1;
-        auto start      = groupAxises[i].first;
-        auto length     = groupAxises[i].second;
-        if (start >= (int)lengths.size()) {
-            break;
-        }
-        for (int j = 0; j < start; ++j) {
-            outsideSize *= lengths[j];
-        }
-        for (int j = start; j < start + length; ++j) {
-            if (j >= (int)lengths.size()) {
-                break;
-            }
-            axisSize *= lengths[j];
-            lengths[j] = 1;
-        }
-        for (int j = start + length; j < lengths.size(); ++j) {
-            insideSize *= lengths[j];
-        }
-        if (1 == axisSize) {
-            continue;
-        }
-        result.emplace_back(std::make_tuple(outsideSize, axisSize, insideSize));
-    }
-    // FUNC_PRINT(result.size());
-    if (result.empty()) {
-        result.emplace_back(std::make_tuple(1, 1, totalSize));
-    }
-    return result;
-}
 void OpCommonUtils::unravelIndexHelper(int32_t* coordinate, const int32_t* mod, int size,
                                        int indice) {
     int value = indice;
@@ -589,6 +515,7 @@ bool OpCommonUtils::opCompabilityForLowp(const Op* op, int bytes) {
         case OpType_Attention:
         case OpType_LayerNorm:
         case OpType_Softmax:
+        case OpType_Plugin:
             return true;
         default:
             break;
@@ -614,36 +541,69 @@ static bool _RebuildExternalOp(FileLoader* external, const MNN::Op* origin, flat
         external = new FileLoader(origin->externalPath()->c_str());
         externalTmp = true;
     }
-    std::shared_ptr<MNN::OpT> op(origin->UnPack());
-    switch (op->main.type) {
+    flatbuffers::Offset<flatbuffers::String> externalPathFbb = 0;
+    flatbuffers::Offset<flatbuffers::String> opNameFbb = 0;
+    if (nullptr != origin->name()) {
+        opNameFbb = builder.CreateString(origin->name()->str());
+    }
+    flatbuffers::Offset<void> parameterMain;
+    switch (origin->main_type()) {
         case OpParameter_Scale:
         {
-            auto scale = op->main.AsScale();
-            int outputCount = static_cast<int>(scale->external[1] / sizeof(float));
-            scale->scaleData.resize(outputCount);
-            external->offset(scale->external[0]);
-            external->read((char*)scale->scaleData.data(), scale->external[1]);
-            if (scale->external.size() > 2) {
-                scale->biasData.resize(outputCount);
-                external->read((char*)scale->biasData.data(), scale->external[2]);
+            auto scale = origin->main_as_Scale();
+            auto externalInfo = scale->external()->data();
+            auto externalSize = scale->external()->size();
+            int outputCount = static_cast<int>(externalInfo[1] / sizeof(float));
+            std::vector<float> scaleData(outputCount);
+            external->offset(externalInfo[0]);
+            external->read((char*)scaleData.data(), externalInfo[1]);
+            auto scaleFbb = builder.CreateVector(scaleData);
+            flatbuffers::Offset<flatbuffers::Vector<float>> biasFbb = 0;
+            if (externalSize > 2) {
+                std::vector<float> biasData(outputCount);
+                external->read((char*)biasData.data(), externalInfo[2]);
+                biasFbb = builder.CreateVector(biasData);
             }
+            ScaleBuilder builder_(builder);
+            builder_.add_biasData(biasFbb);
+            builder_.add_scaleData(scaleFbb);
+            builder_.add_channels(scale->channels());
+            parameterMain = builder_.Finish().Union();
             break;
         }
         case OpParameter_LayerNorm:
         {
-            auto layer_norm_param = op->main.AsLayerNorm();
-            int32_t size = static_cast<int32_t>(layer_norm_param->external[1]);
-            layer_norm_param->gamma.resize(size / sizeof(float));
-            layer_norm_param->beta.resize(size / sizeof(float));
-            external->offset(layer_norm_param->external[0]);
-            external->read((char*)layer_norm_param->gamma.data(), layer_norm_param->external[1]);
-            external->read((char*)layer_norm_param->beta.data(), layer_norm_param->external[2]);
+            auto layer_norm_param = origin->main_as_LayerNorm();
+            auto externalInfo = layer_norm_param->external()->data();
+            auto externalSize = layer_norm_param->external()->size();
+            int32_t size = static_cast<int32_t>(externalInfo[1]);
+            std::vector<float> gamma(size / sizeof(float));
+            std::vector<float> beta(size / sizeof(float));
+            external->offset(externalInfo[0]);
+            external->read((char*)gamma.data(), externalInfo[1]);
+            external->read((char*)beta.data(), externalInfo[2]);
+            flatbuffers::Offset<flatbuffers::Vector<int>> axisFbb = 0;
+            if (nullptr != layer_norm_param->axis()) {
+                std::vector<int> axis(layer_norm_param->axis()->size());
+                ::memcpy(axis.data(), layer_norm_param->axis()->data(), layer_norm_param->axis()->size() * sizeof(int));
+                axisFbb = builder.CreateVector(axis);
+            }
+            auto gemmaFbb = builder.CreateVector(gamma);
+            auto betaFbb = builder.CreateVector(beta);
+            LayerNormBuilder builder_(builder);
+            builder_.add_group(layer_norm_param->group());
+            builder_.add_beta(betaFbb);
+            builder_.add_gamma(gemmaFbb);
+            builder_.add_epsilon(layer_norm_param->epsilon());
+            builder_.add_axis(axisFbb);
+            builder_.add_useRMSNorm(layer_norm_param->useRMSNorm());
+            parameterMain = builder_.Finish().Union();
             break;
         }
 
         case OpParameter_Convolution2D:
         {
-            auto param = op->main.AsConvolution2D();
+            std::unique_ptr<Convolution2DT> param( origin->main_as_Convolution2D()->UnPack());
             if (param->quanParameter) {
                 bool isSparse = param->sparseParameter.get() != nullptr;
                 bool isPTQ = param->quanParameter->scaleIn != 0;
@@ -657,7 +617,7 @@ static bool _RebuildExternalOp(FileLoader* external, const MNN::Op* origin, flat
                     external->read((char*)param->quanParameter->alpha.data(), param->external[2]);
                 } else {
                     // skip weight and dequant alpha for load speed
-                    op->externalPath = external->path();
+                    externalPathFbb = builder.CreateString(external->path());
                     external->offset(param->external[0] + param->external[1] + param->external[2]);
                 }
                 if (param->bias.empty() && param->external.size() > 3) {
@@ -678,11 +638,12 @@ static bool _RebuildExternalOp(FileLoader* external, const MNN::Op* origin, flat
                 // Create quanParameter, will load external weight in ConvolutionCommon::load
                 param->quanParameter.reset(new IDSTQuanT);
                 param->quanParameter->type = 8;
-                op->externalPath = external->path();
+                externalPathFbb = builder.CreateString(external->path());
                 param->bias.resize(param->external[2] / sizeof(float));
                 external->offset(param->external[0] + param->external[1]);
                 external->read((char*)param->bias.data(), param->external[2]);
             }
+            parameterMain = Convolution2D::Pack(builder, param.get()).Union();
             break;
         }
         default:
@@ -691,12 +652,18 @@ static bool _RebuildExternalOp(FileLoader* external, const MNN::Op* origin, flat
     if (externalTmp) {
         delete external;
     }
-    builder.Finish(Op::Pack(builder, op.get()));
+    OpBuilder builder_(builder);
+    builder_.add_name(opNameFbb);
+    builder_.add_externalPath(externalPathFbb);
+    builder_.add_main(parameterMain);
+    builder_.add_type(origin->type());
+    builder_.add_main_type(origin->main_type());
+    builder.Finish(builder_.Finish());
     return true;
 }
 Execution* OpCommonUtils::createExecutionWithExternal(Backend* backend, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                               const MNN::Op* op, FileLoader* externalFile, std::shared_ptr<BufferStorage>& tmpstore) {
-#ifdef MNN_BUILD_MINI
+#ifdef MNN_SKIPBUILD_GEOMETRY
     return backend->onCreate(inputs, outputs, op);
 #else
     bool hasExternal = false;

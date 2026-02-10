@@ -34,14 +34,16 @@ bool convertNC4HW4BufferBetweenNC16HW16Buffer(const Tensor *input, Tensor *outpu
 #endif
 
 bool convertBufferToBuffer(Tensor *input, Tensor *output, OpenCLRuntime *runtime, int input_precision, int output_precision, int backend_precison, bool toDevice, bool toHost, bool needWait = false, bool svmFlag = false);
+#ifdef  __ANDROID__
 bool convertBetweenAHDandCLmem(const Tensor *input, const Tensor *output, OpenCLRuntime *runtime, int precision, int memType, bool toDevice, bool toHost);
+#endif
                                        
 class BufferConvertor {
 public:
     explicit BufferConvertor(OpenCLRuntime *opencl_runtime) : mOpenCLRuntime(opencl_runtime) {
     }
     bool convertToNC4HW4Buffer(const Tensor *input, const OpenCLBufferFormat type, Tensor *output, int precision,
-                               bool needTrans, bool needWait = false, bool lowMemory = false, int quantBit = 0);
+                               bool needTrans, bool needWait = true, bool lowMemory = false, int quantBit = 0);
 
 private:
     OpenCLRuntime *mOpenCLRuntime;

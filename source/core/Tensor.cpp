@@ -350,7 +350,11 @@ void Tensor::print() const {
 
     // convert to host if needed
     auto printee = this;
-    bool device  = this->buffer().host == NULL && this->buffer().device != 0;
+    auto bnType = MNN_FORWARD_CPU;
+    if (nullptr != mDescribe->getBackend()) {
+        bnType = mDescribe->getBackend()->type();
+    }
+    bool device  = bnType != MNN_FORWARD_CPU;
     if (device) {
         printee = this->createHostTensorFromDevice(this, true);
     }
@@ -424,6 +428,14 @@ void* Tensor::map(MapType mtype, DimensionType dtype) {
     auto bn = nativeDescribe->getBackend();
     if (nullptr == bn) {
         return mBuffer.host;
+    }
+
+    if (mtype == Tensor::MAP_TENSOR_READ) {
+        int syncResult = bn->onSync(mtype, false, this);
+        if (NO_EXECUTION == syncResult) {
+            MNN_PRINT("Warning, Backend has stop execute, return nullptr for tensor map addr\n");
+            return nullptr;
+        }
     }
 
     auto mapPtr = bn->onMapTensor(mtype, dtype, this);

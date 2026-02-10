@@ -1,16 +1,25 @@
-option(LLM_SUPPORT_VISION "Llm model support vision input." OFF)
-option(LLM_SUPPORT_AUDIO "Llm model support audio input." OFF)
 option(BUILD_MLS "Build PC Commandline." OFF)
+option(LLM_USE_MINJA "Use minja to apply template" ON)
+option(MNN_LLM_BUILD_DEMO "Build LLM demo" ON)
+option(LLM_SUPPORT_HTTP_RESOURCE "Support HTTP resource download" ON)
 
 set(LLM_DEPS ${MNN_DEPS})
-if (LLM_SUPPORT_VISION AND MNN_BUILD_OPENCV)
+if (MNN_BUILD_OPENCV)
     add_definitions(-DLLM_SUPPORT_VISION)
-    list(APPEND LLM_DEPS MNNOpenCV)
+    if (MNN_SEP_BUILD)
+        list(APPEND LLM_DEPS MNNOpenCV)
+    endif()
     include_directories(${CMAKE_CURRENT_LIST_DIR}/../../../tools/cv/include/)
 endif()
 
-if (LLM_SUPPORT_AUDIO AND MNN_BUILD_AUDIO)
-    list(APPEND LLM_DEPS MNNAudio)
+if(MNN_IMGCODECS)
+    add_definitions(-DMNN_IMGCODECS)
+endif()
+
+if (MNN_BUILD_AUDIO)
+    if (MNN_SEP_BUILD)
+        list(APPEND LLM_DEPS MNNAudio)
+    endif()
     include_directories(${CMAKE_CURRENT_LIST_DIR}/../../../tools/audio/include/)
 endif()
 
@@ -18,7 +27,7 @@ endif()
 include_directories(${CMAKE_CURRENT_LIST_DIR}/include/)
 
 # source files
-FILE(GLOB SRCS ${CMAKE_CURRENT_LIST_DIR}/src/*.cpp)
+FILE(GLOB_RECURSE SRCS ${CMAKE_CURRENT_LIST_DIR}/src/*)
 
 if (MNN_SEP_BUILD)
     if (MNN_BUILD_SHARED_LIBS)
@@ -33,22 +42,51 @@ if (MNN_SEP_BUILD)
 else()
     add_library(llm OBJECT ${SRCS})
 endif()
+if (LLM_USE_MINJA)
+    target_compile_options(llm PRIVATE -DLLM_USE_MINJA)
+    add_executable(apply_template ${CMAKE_CURRENT_LIST_DIR}/demo/apply_template.cpp)
+    target_link_libraries(apply_template ${LLM_DEPS})
+endif()
 
-if (LLM_SUPPORT_VISION AND MNN_BUILD_OPENCV)
+if (MNN_BUILD_OPENCV)
     target_compile_definitions(llm PRIVATE LLM_SUPPORT_VISION)
 endif()
-if (LLM_SUPPORT_AUDIO AND MNN_BUILD_AUDIO)
-    target_compile_definitions(llm PRIVATE LLM_SUPPORT_AUDIO)
+if (MNN_BUILD_AUDIO)
+    add_definitions(-DLLM_SUPPORT_AUDIO)
 endif()
 
-add_executable(llm_demo ${CMAKE_CURRENT_LIST_DIR}/demo/llm_demo.cpp)
-add_executable(embedding_demo ${CMAKE_CURRENT_LIST_DIR}/demo/embedding_demo.cpp)
-add_executable(rollback_demo ${CMAKE_CURRENT_LIST_DIR}/demo/rollback_demo.cpp)
-add_executable(llm_bench ${CMAKE_CURRENT_LIST_DIR}/demo/llm_bench.cpp)
-target_link_libraries(llm_demo ${LLM_DEPS})
-target_link_libraries(embedding_demo ${LLM_DEPS})
-target_link_libraries(rollback_demo ${LLM_DEPS})
-target_link_libraries(llm_bench ${LLM_DEPS})
+if (LLM_SUPPORT_HTTP_RESOURCE)
+    target_compile_definitions(llm PRIVATE LLM_SUPPORT_HTTP_RESOURCE)
+    # Disable exceptions in httplib since MNN is compiled with -fno-exceptions
+    target_compile_definitions(llm PRIVATE CPPHTTPLIB_NO_EXCEPTIONS)
+endif()
+
+IF(CMAKE_SYSTEM_NAME MATCHES "^Android" AND NOT MNN_BUILD_FOR_ANDROID_COMMAND)
+IF(NOT NATIVE_INCLUDE_OUTPUT)
+  set(NATIVE_INCLUDE_OUTPUT ".")
+ENDIF()
+add_custom_command(
+  TARGET llm
+  POST_BUILD
+  COMMAND ${CMAKE_COMMAND}
+  ARGS -E copy_directory ${CMAKE_CURRENT_LIST_DIR}/include ${NATIVE_INCLUDE_OUTPUT}
+)
+ELSE()
+INSTALL(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/include/ DESTINATION include FILES_MATCHING PATTERN *.hpp)
+ENDIF()
+
+
+if(MNN_LLM_BUILD_DEMO)
+    add_executable(llm_demo ${CMAKE_CURRENT_LIST_DIR}/demo/llm_demo.cpp)
+    add_executable(embedding_demo ${CMAKE_CURRENT_LIST_DIR}/demo/embedding_demo.cpp)
+    add_executable(reranker_demo ${CMAKE_CURRENT_LIST_DIR}/demo/reranker_demo.cpp)
+    add_executable(rollback_demo ${CMAKE_CURRENT_LIST_DIR}/demo/rollback_demo.cpp)
+    include(${CMAKE_CURRENT_LIST_DIR}/tools/CMakeLists.txt)
+    target_link_libraries(llm_demo ${LLM_DEPS})
+    target_link_libraries(embedding_demo ${LLM_DEPS})
+    target_link_libraries(reranker_demo ${LLM_DEPS})
+    target_link_libraries(rollback_demo ${LLM_DEPS})
+endif()
 
 if (BUILD_MLS)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum macOS version" FORCE)
@@ -58,6 +96,7 @@ add_executable(mls
         ${CMAKE_CURRENT_LIST_DIR}/app/remote_model_downloader.cpp
         ${CMAKE_CURRENT_LIST_DIR}/app/file_utils.cpp
         ${CMAKE_CURRENT_LIST_DIR}/app/llm_benchmark.cpp
+        ${CMAKE_CURRENT_LIST_DIR}/app/llm_benchmark_common.cpp
         ${CMAKE_CURRENT_LIST_DIR}/app/hf_api_client.cpp
         ${CMAKE_CURRENT_LIST_DIR}/app/mls_server.cpp
 )

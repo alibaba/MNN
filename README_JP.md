@@ -9,10 +9,10 @@
 ## ニュース 🔥
 - [2025/01/23] フルマルチモーダル LLM Android アプリをリリースしました: [MNN-LLM-Android](./project/android/apps/MnnLlmApp/README.md)。テキストからテキスト、画像からテキスト、音声からテキスト、テキストから画像生成を含みます。
 <p align="center">
-  <img width="20%" alt="Icon"  src="./apps/Android/MnnLlmChat/assets/image_home.jpg" style="margin: 0 10px;">
-  <img width="20%" alt="Icon" src="./apps/Android/MnnLlmChat/assets/image_diffusion.jpg" style="margin: 0 10px;">
-  <img width="20%" alt="Icon" src="./apps/Android/MnnLlmChat/assets/image_sound.jpg" style="margin: 0 10px;">
-  <img width="20%" alt="Icon" src="./apps/Android/MnnLlmChat/assets/image_image.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon"  src="./apps/Android/MnnLlmChat/assets/image_home_new.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./apps/Android/MnnLlmChat/assets/image_diffusion_new.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./apps/Android/MnnLlmChat/assets/image_sound_new.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./apps/Android/MnnLlmChat/assets/image_image_new.jpg" style="margin: 0 10px;">
 </p>
 
 ## 紹介
@@ -85,18 +85,19 @@ MNNがサポートするアーキテクチャ/精度は以下の通りです：
 | アーキテクチャ / 精度 |  | 通常 | FP16 | BF16 | Int8 |
 | --- | --- | --- | --- | --- | --- |
 | CPU | ネイティブ | B | C | B | B |
-|  | x86/x64-SSE4.1 | A | B | B | A |
-|  | x86/x64-AVX2 | S | B | B | A |
-|  | x86/x64-AVX512 | S | B | B | S |
+|  | x86/x64-SSE4.1 | A | C | C | A |
+|  | x86/x64-AVX2 | S | C | C | A |
+|  | x86/x64-AVX512 | S | C | C | S |
 |  | ARMv7a | S | S (ARMv8.2) | S | S |
 |  | ARMv8 | S | S (ARMv8.2) | S(ARMv8.6) | S |
-| GPU | OpenCL | A | S | C | C |
-|  | Vulkan | A | A | C | C |
-|  | Metal | A | S | C | C |
+| GPU | OpenCL | A | S | C | S |
+|  | Vulkan | A | A | C | A |
+|  | Metal | A | S | C | S |
 |  | CUDA | A | S | C | C |
 | NPU | CoreML | B | B | C | C |
 |  | HIAI | B | C | C | B |
-|  | NNAPI | B | B | C | C |
+|  | NNAPI | B | B | C | B |
+|  | QNN | C | B | C | C |
 
 
 
@@ -116,13 +117,14 @@ MNN（テンソル計算エンジン）に基づいて、推論、トレーニ�
 
 Dingtalkディスカッショングループ：
 
-グループ＃1（満員）：23329087
+
+グループ＃4 ：160170007549
+
+グループ＃3 （満員）
 
 グループ＃2（満員）：23350225
 
-グループ＃3：QRコード：
-
-![MNN-3](doc/dingdingmnn3.png)
+グループ＃1（満員）：23329087
 
 ## 歴史的な論文
 

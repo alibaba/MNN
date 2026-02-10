@@ -34,12 +34,16 @@ struct RuntimeHint {
     int cpuDecreaseRate = 50;
     int dynamicQuantOption = 0;
 
+    // attentionOption % 8:
     // 0: Do not quantize
-    // 1: Only quantize key, use int8 asymmetric quantization
-    // 2: Only quantize value, use fp8 quantization
-    // 3: quantize both key and value
-    // 4: quantize query, key and value, and use gemm int8 kernel to compute K*V
-    int qkvQuantOption = 0;
+    // 1: Q,K: Int8, V: Float
+    // 2: Q,K,V: Int8
+
+    // attentionOption / 8:
+    // 0: don't use flash attention
+    // 1: use flash attention
+
+    int attentionOption = 8;
 
     // the kvcache size limit of each layer
     // if the size of kvcache in memory exceeds the limit
@@ -48,7 +52,10 @@ struct RuntimeHint {
     int kvcacheSizeLimit = -1;
 
     // path of the kvcache directory
-    std::string kvcacheDirPath = "/tmp";
+    std::string kvcacheDirPath = "";
+
+    // path of the kvcache directory
+    std::string prefixcacheDirPath = "prefixcache";
 
     std::string midMemoryPath;
     std::string weightMemoryPath;
@@ -58,6 +65,25 @@ struct RuntimeHint {
     // op encoder number for once commit
     int encorderNumForCommit = 10;
     int initThreadNumber = 0;
+
+    // whether to use Arm sme2 cores when threads>1
+    bool useArmSme2Cores = true;
+#ifdef MNN_DEFAULT_USE_KLEIDIAI
+    bool enableKleidiAI = true;
+#else
+    bool enableKleidiAI = false;
+#endif
+    // Use CPU Ids
+    std::vector<int> cpuIds;
+
+    // Division ration between SME and NEON when runtime threads>=4
+    // Default: 41, which means that in LLM inference,
+    // during the Prefill stage the workload
+    // per single SME core is six times that of NEON,
+    //while during the Decode stage it is the same (1×).
+    int divisionRatio = 41;
+
+    int smeCores = 2; // Number of SME cores of the backend, default is 2, if supports sme
 };
 /** abstract backend */
 class Backend : public NonCopyable {
@@ -107,7 +133,7 @@ public:
          - releases memory when `onClearBuffer` is called or when the backend is deleted.
          */
         DYNAMIC_SEPERATE,
-        
+
         DYNAMIC_IN_EXECUTION
     };
 
@@ -241,8 +267,19 @@ public:
         return 0;
     }
 
+public:
+    void* getMetaPtr() {
+        return mMetaPtr;
+    }
+    void setMetaPtr(void* ptr) {
+        mMetaPtr = ptr;
+    }
+    // path of the NPU model directory
+    std::string pNPUModelDirPath = ".";
+
 private:
     const MNNForwardType mType;
+    void* mMetaPtr;
 };
 
 /** Each backend belong to a runtime*/
@@ -300,6 +337,10 @@ public:
     virtual float onGetMemoryInMB() {
         return 0.0f;
     }
+    // For NPU backend don't support load from buffer , use onSetCachePath
+    virtual bool onSetCachePath(const char* path, int mode) {
+        return false;
+    }
 
     // If buffer is not nullptr, try copy cache, else delete cache
     virtual bool onSetCache(const void* buffer, size_t size) {
@@ -346,7 +387,15 @@ public:
     void setAsyncWork(std::future<int>&& future);
     MNN_PUBLIC void waitAsyncWork();
 
+    virtual void onConcurrencyBegin() const {
+        // Do nothing
+    }
+    virtual void onConcurrencyEnd() const {
+        // Do nothing
+    }
+
     mutable int pCurrentStatus = 0; // NO_ERROR
+    mutable int pExecutionStatus = 0; // NO_ERROR
 
     // TODO: Move to Backend
     void* pMeta = nullptr;
@@ -372,6 +421,13 @@ public:
     virtual bool onValid(Backend::Info& info) const {
         info.mode = Backend::Info::DIRECT;
         return true;
+    }
+    virtual bool onGetDeviceInfo(const std::string& deviceKey, std::string& deviceValue) const {
+        return false;
+    }
+
+    virtual bool onSetQuantInfo(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) const {
+        return false;
     }
 protected:
     /**

@@ -112,14 +112,17 @@ void SparseConvInt8TiledExecutor::getPackParameter(int* Unit, int* SrcUnit, int*
 }
 
 ErrorCode SparseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-
-    // Timer kernelTimer;
-
-    ConvInt8TiledExecutor::onResize(inputs, outputs);
-
     int eP, lP, hP;
     auto core = static_cast<CPUBackend*>(backend())->int8Functions();
     getPackParameter(&lP, &hP, &eP, core);
+    if (nullptr != mMutableResource) {
+        mMutableResource->updateInputOutputScale(TensorUtils::getQuantInfo(inputs[0]), TensorUtils::getQuantInfo(outputs[0]));
+    }
+    int32_t int8GemmUnit[3] = {hP, lP, eP};
+    CPUConvolution::onResize(inputs, outputs);
+    ConvolutionTiledExecutor::setIm2ColParameter(mIm2ColParamter, mCommon, inputs[0], outputs[0], mPadX, mPadY, static_cast<CPUBackend*>(backend())->functions(), static_cast<CPUBackend*>(backend())->int8Functions(), 0, int8GemmUnit);
+
+    
     int lSize = mIm2ColParamter.icDiv4 * mIm2ColParamter.packCUnit * mCommon->kernelX() * mCommon->kernelY();
     mIm2ColCount = 1;
     auto output = outputs[0];

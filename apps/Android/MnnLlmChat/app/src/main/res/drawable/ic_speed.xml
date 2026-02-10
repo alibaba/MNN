@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    
+    <!-- iOS SF Symbol speedometer style -->
+    <!-- Outer circle -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M12,2C6.48,2 2,6.48 2,12C2,17.52 6.48,22 12,22C17.52,22 22,17.52 22,12C22,6.48 17.52,2 12,2ZM12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20Z" />
+    
+    <!-- Speed scale marks -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M6.34,8.34L7.76,9.76" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M5,12L7,12" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M6.34,15.66L7.76,14.24" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M12,19L12,17" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M17.66,15.66L16.24,14.24" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M19,12L17,12" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M17.66,8.34L16.24,9.76" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M12,5L12,7" />
+    
+    <!-- Needle pointing to speed -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M12,8L13.5,12.5L12,12L10.5,12.5L12,8Z" />
+    
+    <!-- Center circle -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M12,10.5C12.8,10.5 13.5,11.2 13.5,12C13.5,12.8 12.8,13.5 12,13.5C11.2,13.5 10.5,12.8 10.5,12C10.5,11.2 11.2,10.5 12,10.5Z" />
+    
+</vector>

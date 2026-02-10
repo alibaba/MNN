@@ -181,14 +181,28 @@ void* Executor::ComputeCache::mapOutput(int offset, Tensor* dest) {
     if (0 == tensor->usize()) {
         return nullptr;
     }
+    
+    bool hasNoExecution = false;
+    if (nullptr != tensor) {
+        auto backend = TensorUtils::getDescribeOrigin(tensor)->getBackend();
+        if (nullptr != backend) {
+            // Try to sync to check execution status
+            int syncResult = backend->onSync(Tensor::MAP_TENSOR_READ, false, tensor);
+            if (NO_EXECUTION == syncResult) {
+                hasNoExecution = true;
+            }
+        }
+    }
+    if (hasNoExecution) {
+        MNN_PRINT("\nWarning, Backend has stop execute, return nullptr for current varp\n");
+        return nullptr;
+    }
+    
     Utils::allocMemoryForHostTensor(dest);
-    tensor->copyToHostTensor(dest);
-    MNN_ASSERT(nullptr != dest->host<void>());
+    if(nullptr != dest->host<void>()) {
+        tensor->copyToHostTensor(dest);
+    }
     return dest->host<void>();
-}
-
-void Executor::ComputeCache::setShapeDirty() {
-    mShapeDirty = true;
 }
 
 void Executor::ComputeCache::setContentDirty() {
@@ -202,21 +216,52 @@ Executor::ComputeCache::~ComputeCache() {
     FUNC_PRINT(gInstanceCount);
 #endif
 }
+Executor::RuntimeExecuteWrap::RuntimeExecuteWrap(const RuntimeInfo& info) : mRt(info) {
+    for (auto& iter : mRt.first) {
+        iter.second->onConcurrencyBegin();
+    }
+}
+Executor::RuntimeExecuteWrap::~RuntimeExecuteWrap() {
+    for (auto& iter : mRt.first) {
+        iter.second->onConcurrencyEnd();
+    }
+}
 ErrorCode Executor::ComputeCache::compute() {
     std::stack<ComputeCache*> dfsStack;
     std::set<ComputeCache*> visited;
     dfsStack.push(this);
-    ErrorCode code = NO_ERROR;
-    auto globalExecutor = ExecutorScope::Current();
-    auto debug = globalExecutor->getDebugTools();
+    auto hasUnvisitInput = [&] (ComputeCache* cache) {
+        for (auto c : cache->mInputs) {
+            if (visited.find(c.get()) == visited.end()) {
+                return true;
+            }
+        }
+        return false;
+    };
+    // Check need compute or not
     while (!dfsStack.empty()) {
-        //printf("stcak = %d\n", dfsStack.size());
         auto cache = dfsStack.top();
+        dfsStack.pop();
         for (auto& c : cache->mInputInside) {
             if (c->mContentDirty) {
                 return CALL_BACK_STOP;
             }
         }
+        if (hasUnvisitInput(cache)) {
+            for (auto c : cache->mInputs) {
+                dfsStack.push(c.get());
+            }
+        }
+    }
+    // Compute
+    visited.clear();
+    dfsStack.push(this);
+    ErrorCode code = NO_ERROR;
+    auto glo = ExecutorScope::Current();
+    RuntimeExecuteWrap wrap(glo->mRuntimeInfo);
+    auto debug = glo->getDebugTools();
+    while (!dfsStack.empty()) {
+        auto cache = dfsStack.top();
         if (cache->mShapeDirty) {
             auto code = cache->resize();
             if (NO_ERROR != code) {
@@ -229,15 +274,7 @@ ErrorCode Executor::ComputeCache::compute() {
             dfsStack.pop();
             continue;
         }
-        auto hasUnvisitInput = [&] () {
-            for (auto c : cache->mInputs) {
-                if (visited.find(c.get()) == visited.end()) {
-                    return true;
-                }
-            }
-            return false;
-        };
-        if (hasUnvisitInput()) {
+        if (hasUnvisitInput(cache)) {
             for (auto c : cache->mInputs) {
                 dfsStack.push(c.get());
             }
@@ -310,3 +347,5 @@ int Executor::ComputeCache::gInstanceCount = 0;
 
 } // namespace Express
 } // namespace MNN
+
+

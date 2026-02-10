@@ -51,7 +51,7 @@ static inline float4 gelu(float4 value) {
     return result;
 }
 
-kernel void main0(const device T *in [[buffer(0)]], \
+kernel void unary(const device T *in [[buffer(0)]], \
                             device T *out      [[buffer(1)]], \
                             device unary_shape& s   [[buffer(2)]], \
                             uint3 gid               [[thread_position_in_grid]]) { \
@@ -162,7 +162,7 @@ public:
                 @"T" : T,
                 @"FUNC" : kernel,
             };
-            pipeline = mtbn->makeComputePipelineWithSourceOption(gUnaryTemplate, "main0", compileOptions);
+            pipeline = mtbn->makeComputePipelineWithSourceOption(gUnaryTemplate, "unary", compileOptions);
             mtbn->runtime()->insertPipeline(keys, pipeline);
         }
         if (nil == pipeline) {

@@ -1,0 +1,200 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/colorSurface"
+    tools:context=".chat.voice.VoiceChatFragment">
+
+    <!-- Header with model name and close button -->
+    <com.google.android.material.appbar.AppBarLayout
+        android:id="@+id/app_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fitsSystemWindows="true">
+
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?actionBarSize"
+            app:navigationIcon="@drawable/ic_close"
+            app:titleCentered="true"
+            app:titleTextAppearance="?textAppearanceTitleMedium"
+            app:menu="@menu/voice_chat_menu"
+            tools:title="Qwen2.5-Omni-3B-MNN" />
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <!-- Main content area -->
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior">
+
+        <!-- Status indicator -->
+        <TextView
+            android:id="@+id/text_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_centerInParent="true"
+            android:textAppearance="?attr/textAppearanceHeadline5"
+            android:textColor="?attr/colorOnSurface"
+            tools:text="@string/voice_chat_idle" />
+
+        <!-- Conversation transcript area (initially hidden) -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rv_voice_transcript"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_above="@+id/text_status_layout"
+            android:layout_alignParentTop="true"
+            android:layout_marginHorizontal="16dp"
+            android:overScrollMode="never"
+            android:visibility="gone"
+            android:clipToPadding="false"
+            android:paddingBottom="8dp"
+            tools:listitem="@layout/item_voice_transcript"
+            tools:visibility="visible" />
+
+        <ImageView
+            android:id="@+id/button_end_call"
+            android:layout_width="70dp"
+            android:layout_height="70dp"
+            android:layout_alignParentBottom="true"
+            android:layout_marginBottom="30dp"
+            android:layout_centerHorizontal="true"
+            android:src="@drawable/end_call"/>
+        
+        <FrameLayout
+            android:id="@+id/text_status_layout"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_centerHorizontal="true"
+            android:layout_above="@id/button_end_call">
+            <TextView
+                android:id="@+id/tv_voice_chat_status"
+                android:text="@string/voice_chat_connecting"
+                android:visibility="visible"
+                android:layout_width="130dp"
+                android:gravity="center"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="20dp"
+                android:layout_marginTop="20dp"
+                android:textColor="?colorOnSurface"
+                android:textSize="18sp"
+                tools:visibility="visible" />
+        </FrameLayout>
+        <Space
+            android:id="@+id/buttonToggleText"
+            android:layout_width="1dp"
+            android:layout_height="1dp"/>
+
+        <!-- Control buttons -->
+<!--        <LinearLayout-->
+<!--            android:id="@+id/bottom_controls"-->
+<!--            android:layout_width="match_parent"-->
+<!--            android:layout_height="wrap_content"-->
+<!--            android:visibility="gone"-->
+<!--            android:layout_alignParentBottom="true"-->
+<!--            android:layout_marginBottom="48dp"-->
+<!--            android:gravity="center"-->
+<!--            android:orientation="horizontal">-->
+
+<!--            &lt;!&ndash; Mute button &ndash;&gt;-->
+<!--            <com.google.android.material.card.MaterialCardView-->
+<!--                android:id="@+id/card_mute"-->
+<!--                style="?attr/materialCardViewStyle"-->
+<!--                android:layout_width="72dp"-->
+<!--                android:layout_height="72dp"-->
+<!--                android:clickable="true"-->
+<!--                android:focusable="true"-->
+<!--                app:cardBackgroundColor="?attr/colorSurfaceContainer"-->
+<!--                app:cardCornerRadius="36dp"-->
+<!--                app:cardElevation="0dp">-->
+
+<!--                <ImageView-->
+<!--                    android:id="@+id/iv_mute"-->
+<!--                    android:layout_width="wrap_content"-->
+<!--                    android:layout_height="wrap_content"-->
+<!--                    android:layout_gravity="center"-->
+<!--                    android:src="@drawable/ic_audio"-->
+<!--                    app:tint="?attr/colorOnSurfaceVariant" />-->
+<!--            </com.google.android.material.card.MaterialCardView>-->
+
+<!--            &lt;!&ndash; Record/End call button &ndash;&gt;-->
+<!--            <com.google.android.material.card.MaterialCardView-->
+<!--                android:id="@+id/card_record"-->
+<!--                style="?attr/materialCardViewStyle"-->
+<!--                android:layout_width="80dp"-->
+<!--                android:layout_height="80dp"-->
+<!--                android:layout_marginStart="32dp"-->
+<!--                android:layout_marginEnd="32dp"-->
+<!--                android:clickable="true"-->
+<!--                android:focusable="true"-->
+<!--                app:cardBackgroundColor="@android:color/holo_red_dark"-->
+<!--                app:cardCornerRadius="24dp"-->
+<!--                app:cardElevation="0dp">-->
+
+<!--                <ImageView-->
+<!--                    android:id="@+id/iv_record"-->
+<!--                    android:layout_width="wrap_content"-->
+<!--                    android:layout_height="wrap_content"-->
+<!--                    android:layout_gravity="center"-->
+<!--                    android:src="@drawable/ic_stop_recording"-->
+<!--                    app:tint="@android:color/white" />-->
+<!--            </com.google.android.material.card.MaterialCardView>-->
+
+<!--            &lt;!&ndash; Speaker button &ndash;&gt;-->
+<!--            <com.google.android.material.card.MaterialCardView-->
+<!--                android:id="@+id/card_speaker"-->
+<!--                style="?attr/materialCardViewStyle"-->
+<!--                android:layout_width="72dp"-->
+<!--                android:layout_height="72dp"-->
+<!--                android:clickable="true"-->
+<!--                android:focusable="true"-->
+<!--                app:cardBackgroundColor="?attr/colorSurfaceContainer"-->
+<!--                app:cardCornerRadius="36dp"-->
+<!--                app:cardElevation="0dp">-->
+
+<!--                <ImageView-->
+<!--                    android:id="@+id/iv_speaker"-->
+<!--                    android:layout_width="wrap_content"-->
+<!--                    android:layout_height="wrap_content"-->
+<!--                    android:layout_gravity="center"-->
+<!--                    android:src="@drawable/ic_volume_up"-->
+<!--                    app:tint="?attr/colorOnSurfaceVariant" />-->
+<!--            </com.google.android.material.card.MaterialCardView>-->
+<!--        </LinearLayout>-->
+    </RelativeLayout>
+
+    <!-- Loading overlay -->
+    <RelativeLayout
+        android:id="@+id/layout_voice_loading"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#88000000"
+        android:visibility="gone"
+        tools:visibility="gone">
+
+        <com.github.ybq.android.spinkit.SpinKitView
+            android:id="@+id/voice_loading_spinner"
+            style="@style/SpinKitView.Large.FadingCircle"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_centerInParent="true"
+            app:SpinKit_Color="?colorPrimary" />
+
+        <TextView
+            android:id="@+id/tv_loading_message"
+            android:visibility="gone"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_below="@id/voice_loading_spinner"
+            android:layout_centerHorizontal="true"
+            android:layout_marginTop="16dp"
+            android:text="@string/voice_chat_connecting"
+            android:textAppearance="?textAppearanceBodyMedium"
+            android:textColor="@android:color/white" />
+    </RelativeLayout>
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

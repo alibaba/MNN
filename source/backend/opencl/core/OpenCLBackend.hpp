@@ -15,7 +15,9 @@
 
 #include <list>
 #include <vector>
+#include "core/BufferAllocator.hpp"
 #include "backend/opencl/core/BufferPool.hpp"
+#include "backend/opencl/core/MmapPool.hpp"
 #include "backend/opencl/core/ImageBufferConvertor.hpp"
 #include "backend/opencl/core/BufferConvertor.hpp"
 #include "backend/opencl/core/ImagePool.hpp"
@@ -62,28 +64,25 @@ public:
     void convertToDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, int precision, int backend_memtype, bool svmFlag = false, int memtype = MNN_FORWARD_CPU) const;
     void convertFromDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, int precision, int backend_memtype, bool svmFlag = false, int memtype = MNN_FORWARD_CPU) const;
     void copyBetweenDevice(const Tensor* srcTensor, const Tensor* dstTensor, int precision, int backend_memtype) const;
-    static void setGlobalCLRuntime(std::shared_ptr<OpenCLRuntime> runtime);
-    static std::shared_ptr<OpenCLRuntime> getGlobalCLRuntime();
 
 private:
     Backend::Info mInfo;
     std::shared_ptr<OpenCLRuntime> mOpenCLRuntime;
     std::shared_ptr<ImagePool> mImagePool;
     std::shared_ptr<BufferPool> mBufferPool;
+    mutable std::shared_ptr<MmapPool> mMmapPool;
     BackendConfig::PrecisionMode mPrecision;
     BackendConfig::MemoryMode mMemory;
     bool mCLRuntimeError = false;
 
     friend class OpenCLBackend;
     TuneInfo* mTunedInfo;
-    static std::weak_ptr<OpenCLRuntime> globalRuntime;
-    static std::mutex globalRuntimeLock;
 };
 
 
 class OpenCLBackend : public Backend {
 public:
-    OpenCLBackend(BackendConfig::PrecisionMode precision, BackendConfig::MemoryMode memory, int gpuMode, std::shared_ptr<ImagePool>imgPool, std::shared_ptr<BufferPool> bufPool, const CLRuntime *runtime);
+    OpenCLBackend(BackendConfig::PrecisionMode precision, BackendConfig::MemoryMode memory, int gpuMode, std::shared_ptr<ImagePool>imgPool, std::shared_ptr<BufferPool> bufPool, std::shared_ptr<MmapPool> mmapPool, const CLRuntime *runtime);
     ~OpenCLBackend();
 
     OpenCLRuntime *getOpenCLRuntime();
@@ -114,6 +113,10 @@ public:
     BufferPool *getBufferPool() const {
         return mBufferPool;
     }
+    
+    std::shared_ptr<MmapPool> getStaticAllocatorMMap() const {
+        return mStaticAllocatorMMap;
+    }
     virtual bool onSelectDynamicAllocator(int index, int maxIndex) override;
 
     BackendConfig::PrecisionMode getPrecision() const {
@@ -136,9 +139,6 @@ public:
     bool isUseRecordQueue(){
         return mUseRecordQueue;
     }
-    bool isDevideOpRecord(){
-        return mDevideOpRecord;
-    }
     CLTuneLevel getCLTuneLevel() {
         return mTuneLevel;
     }
@@ -151,6 +151,7 @@ public:
     bool isCreateError() const;
     virtual void* onMapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* srcTensor) override;
     virtual bool onUnmapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* dstTensor, void* mapPtr) override;
+    virtual const Runtime* getRuntime() override;
 
 private:
     void copyFromDevice(const Tensor* srcTensor, const Tensor* dstTensor) const;
@@ -169,6 +170,7 @@ private:
 
     ImagePool* mImagePool;
     BufferPool* mBufferPool;
+    std::shared_ptr<MmapPool> mStaticAllocatorMMap;
     std::shared_ptr<BufferExecutionPool> mExecutionBufferPool;
 
     std::shared_ptr<ImagePool> mImagePoolFirst;
@@ -184,9 +186,10 @@ private:
     bool mIsCreateError{false};
     mutable std::vector<RecordInfo> mRecordings;
     bool mUseRecordQueue = false;
-    bool mDevideOpRecord = false;
+    bool mDivideOpRecord = false;
     uint32_t mRecordNums = 0;
     uint32_t mUseRecordableQueueSize;
+    friend class setRecordClose;
 private:
 
     void* svmPtr = nullptr;
@@ -197,6 +200,25 @@ private:
     GpuMemObject mMemType = AUTO;
     CLTuneLevel mTuneLevel = Wide;
 
+};
+
+class setRecordClose{
+public:
+    setRecordClose(OpenCLBackend *bn){
+        backend = bn;
+        if(backend->mUseRecordQueue){
+            backend->mUseRecordQueue = false;
+            needRecover = true;
+        }
+    }
+    ~setRecordClose(){
+        if(needRecover){
+            backend->mUseRecordQueue = true;
+        }
+    }
+private:
+    bool needRecover = false;
+    OpenCLBackend* backend;
 };
 
 template <class T>

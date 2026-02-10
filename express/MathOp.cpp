@@ -1140,7 +1140,7 @@ VARP _ScatterNd(VARP indices, VARP updates, VARP shape, int reducetion) {
     op->main.type    = OpParameter_BinaryOp;
     op->type         = OpType_ScatterNd;
     auto param       = new BinaryOpT;
-    param->opType    = reducetion;
+    param->opType    = (BinaryOpOperation)reducetion;
     op->main.value   = param;
     return (Variable::create(Expr::create(std::move(op), {indices, updates, shape})));
 }
@@ -1150,7 +1150,7 @@ VARP _ScatterNd(VARP indices, VARP updates, VARP shape, VARP input, int reduceti
     op->main.type    = OpParameter_BinaryOp;
     op->type         = OpType_ScatterNd;
     auto param       = new BinaryOpT;
-    param->opType    = reducetion;
+    param->opType    = (BinaryOpOperation)reducetion;
     op->main.value   = param;
     return (Variable::create(Expr::create(std::move(op), {indices, updates, shape, input})));
 }
@@ -1167,7 +1167,7 @@ VARP _ScatterElements(VARP data, VARP indices, VARP updates, int reducetion) {
     op->main.type     = OpParameter_BinaryOp;
     op->type          = OpType_ScatterElements;
     auto param        = new BinaryOpT;
-    param->opType     = reducetion;
+    param->opType     = (BinaryOpOperation)reducetion;
     op->main.value    = param;
     return (Variable::create(Expr::create(std::move(op), {data, indices, updates})));
 }
@@ -1177,7 +1177,7 @@ VARP _ScatterElements(VARP data, VARP indices, VARP updates, VARP axis, int redu
     op->main.type     = OpParameter_BinaryOp;
     op->type          = OpType_ScatterElements;
     auto param        = new BinaryOpT;
-    param->opType     = reducetion;
+    param->opType     = (BinaryOpOperation)reducetion;
     op->main.value    = param;
     return (Variable::create(Expr::create(std::move(op), {data, indices, updates, axis})));
 }

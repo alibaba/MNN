@@ -15,6 +15,7 @@
 #include <mutex>
 #include <set>
 #include <MNN/MNNForwardType.h>
+
 namespace MNN {
 class Backend;
 class Execution;
@@ -26,6 +27,7 @@ struct ExecutorAttr;
 class MNN_PUBLIC Executor {
 public:
     class ComputeCache;
+    class RuntimeExecuteWrap;
     struct DebugTools;
     /**Internal Usage Begin*/
     struct Requirement {
@@ -125,8 +127,10 @@ public:
         friend class Executor;
         void setMode(Interpreter::SessionMode mode);
         void setHint(Interpreter::HintMode mode, int value);
+        void setHint(Interpreter::HintMode mode, int* value, size_t size);
         void setHintPtr(Interpreter::HintMode mode, void* value);
         bool getInfo(Interpreter::SessionInfoCode code, void* ptr);
+        static bool getDeviceInfo(const std::string& deviceKey, const MNNForwardType type, std::string& deviceValue);
         BackendConfig* getBnConfig();
         const RuntimeAttr* getInside() const {
             return mInside;
@@ -138,6 +142,11 @@ public:
         RuntimeManager();
     };
     static bool getComputeInfo(EXPRP expr, Interpreter::SessionInfoCode code, void* ptr);
+#ifndef MNN_REDUCE_SIZE
+    std::map<std::string, std::shared_ptr<SubGraph>>& subgraph() {
+        return mSubGraph;
+    };
+#endif
 private:
     std::shared_ptr<Runtime> _getOrCreateRuntime(MNNForwardType type, const BackendConfig* config, int numberThread, bool reset = true);
     Executor(std::shared_ptr<Runtime> backend, MNNForwardType type, int numberThread);
@@ -145,7 +154,9 @@ private:
 
     RuntimeInfo mRuntimeInfo;
     std::shared_ptr<DebugTools> mDebug;
+#ifndef MNN_REDUCE_SIZE
     std::map<std::string, std::shared_ptr<SubGraph>> mSubGraph;
+#endif
     uint32_t mLazyMode = 0;
     std::shared_ptr<ExecutorAttr> mAttr;
     std::mutex mMutex;

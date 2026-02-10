@@ -24,13 +24,29 @@ typedef SSIZE_T ssize_t;
 #define GEMM_INT8_SRC_UNIT 16
 #ifndef MNN_USE_SSE
     #ifdef __aarch64__
-    #define GEMM_INT8_DST_XUNIT 4
+        #define GEMM_INT8_DST_XUNIT 4
     #else
-    #define GEMM_INT8_DST_XUNIT 2
-#endif
+        #define GEMM_INT8_DST_XUNIT 2
+    #endif
 #else
 #define GEMM_INT8_DST_XUNIT 4
 #endif
+
+/* CPU supports sdot */
+#define GEMM_INT8_UNIT_ARM82 8
+#define GEMM_INT8_SRC_UNIT_ARM82 4
+#define GEMM_INT8_DST_XUNIT_ARM82 12
+
+/* CPU supports i8mm */
+#define GEMM_INT8_UNIT_ARM86 8
+#define GEMM_INT8_SRC_UNIT_ARM86 8
+#define GEMM_INT8_DST_XUNIT_ARM86 10
+
+/* CPU supports sme2 */
+#define GEMM_INT8_UNIT_SME2 32
+#define GEMM_INT8_SRC_UNIT_SME2 4
+#define GEMM_INT8_DST_XUNIT_SME2 16
+#define GEMM_INT8_UNIT_SME2_128 128
 
 #ifdef __cplusplus
 extern "C" {
@@ -45,13 +61,14 @@ struct QuanPostTreatParameters {
     float roundValuePos = 0.5f;
     float roundValueNeg = -0.5f;
     float* srcKernelSum;
-    float* weightQuanBias;
+    float* weightKernelSum;
     float* fp32minmax;
     ssize_t blockNum = 1;
     const int32_t* bias = nullptr;
-    const float* extraScale = nullptr;
-    const float* extraBias = nullptr;
+    const float* inputScale = nullptr;
+    const float* inputBias = nullptr;
     float* accumBuffer = nullptr;
+    int32_t* indices = nullptr;
 };
 struct QuanPrePostParameters{
     float* inputScale;
@@ -85,10 +102,8 @@ struct CoreInt8Functions {
     void(*Int8GemmKernelFast)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realCount);
     void(*MNNGetGemmUnit)(int* UNIT, int* SRC_UNIT, int* DST_XUNIT);
     void(*MNNPackC4Int8ForMatMul_A)(int8_t* destOrigin, int8_t const** sourceGroup, const int32_t* info, const int32_t* el);
-    void(*MNNGemmInt8AddBiasScale_Unit_FP16)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
-                                        const QuanPostTreatParameters* post, size_t realDstCount) = nullptr;
-    void(*MNNGemmInt8AddBiasScale_w4_Unit_FP16)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
-                                        const QuanPostTreatParameters* post, size_t realDstCount) = nullptr;
+    void(*MNNGemmInt8AddBiasScale_Unit_FP16)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDstCount) = nullptr;
+    void(*MNNGemmInt8AddBiasScale_w4_Unit_FP16)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDstCount) = nullptr;
     void(*Int8GemmKernel_W4)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
                                            const QuanPostTreatParameters* post, size_t realDstCount);
     // sparse
@@ -112,9 +127,10 @@ struct CoreInt8Functions {
     // Pooling
     void (*MNNMaxPoolInt8)(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx);
     void (*MNNAvgPoolInt8)(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx, ssize_t paddingx, ssize_t factor);
-    
+#ifdef MNN_SUPPORT_QUANT_EXTEND
     // Relu
     void (*MNNReluWithSlopeChannelInt8)(int8_t* dst, const int8_t* src, const float* slope, size_t planeNumber, size_t depthQuad, const QuanPrePostParameters *params, size_t pack);
+#endif
 };
 void MNNCoreInt8FunctionInit();
 CoreInt8Functions* MNNGetInt8CoreFunctions();

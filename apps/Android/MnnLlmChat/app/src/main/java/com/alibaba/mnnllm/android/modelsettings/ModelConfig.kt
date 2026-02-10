@@ -4,6 +4,9 @@
 package com.alibaba.mnnllm.android.modelsettings
 
 import android.util.Log
+import com.alibaba.mls.api.ApplicationProvider
+import com.alibaba.mls.api.download.ModelDownloadManager
+import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.utils.FileUtils
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
@@ -12,12 +15,21 @@ import com.google.gson.JsonParser
 import java.io.File
 import com.google.gson.annotations.SerializedName
 
+data class JinjaContext(
+    @SerializedName("enable_thinking") var enableThinking: Boolean = false
+)
+
+data class Jinja(
+    @SerializedName("context") var context: JinjaContext? = null
+)
+
 data class ModelConfig(
     @SerializedName("llm_model") var llmModel: String?,
     @SerializedName("llm_weight") var llmWeight: String?,
     @SerializedName("backend_type") var backendType: String?,
     @SerializedName("thread_num") var threadNum: Int?,
     @SerializedName("precision") var precision: String?,
+    @SerializedName("use_mmap") var useMmap: Boolean?,
     @SerializedName("memory") var memory: String?,
     @SerializedName("system_prompt") var systemPrompt: String?,
     @SerializedName("sampler_type") var samplerType: String?,
@@ -32,7 +44,10 @@ data class ModelConfig(
     @SerializedName("n_gram")var nGram:Int?,
     @SerializedName("ngram_factor")var nGramFactor:Float?,
     @SerializedName("max_new_tokens")var maxNewTokens:Int?,
-    @SerializedName("assistant_prompt_template")var assistantPromptTemplate:String?
+    @SerializedName("assistant_prompt_template")var assistantPromptTemplate:String?,
+    @SerializedName("penalty_sampler")var penaltySampler:String?,
+    @SerializedName("jinja") var jinja: Jinja?,
+    @SerializedName("visual_model") var visualModel: String?
     ) {
     fun deepCopy(): ModelConfig {
         return ModelConfig(
@@ -55,7 +70,13 @@ data class ModelConfig(
             nGram = this.nGram,
             nGramFactor = this.nGramFactor,
             maxNewTokens = this.maxNewTokens,
-            assistantPromptTemplate = this.assistantPromptTemplate
+            assistantPromptTemplate = this.assistantPromptTemplate,
+            penaltySampler = this.penaltySampler,
+            useMmap = this.useMmap,
+            jinja = this.jinja?.let {
+                Jinja(context = JinjaContext(enableThinking = it.context?.enableThinking == true))
+            },
+            visualModel = this.visualModel
         )
     }
 
@@ -70,14 +91,16 @@ data class ModelConfig(
                 this.typical == loadedConfig.typical &&
                 this.penalty == loadedConfig.penalty &&
                 this.nGram == loadedConfig.nGram &&
-                this.nGramFactor == loadedConfig.nGramFactor
+                this.nGramFactor == loadedConfig.nGramFactor &&
+                this.penaltySampler == loadedConfig.penaltySampler &&
+                this.visualModel == loadedConfig.visualModel
     }
 
     companion object {
 
         const val TAG = "ModelConfig"
 
-        fun loadConfig(filePath: String): ModelConfig? {
+        fun loadDefaultConfig(filePath: String): ModelConfig? {
             return try {
                 val file = File(filePath)
                 val json = file.readText()
@@ -88,7 +111,11 @@ data class ModelConfig(
             }
         }
 
-        fun loadConfig(originalFilePath: String, overrideFilePath: String): ModelConfig? {
+        fun loadConfig(modelId: String): ModelConfig? {
+            return loadMergedConfig(getDefaultConfigFile(modelId)!!, getExtraConfigFile(modelId))
+        }
+
+        fun loadMergedConfig(originalFilePath: String, overrideFilePath: String): ModelConfig? {
             return try {
                 val originalFile = File(originalFilePath)
                 val originalJson = JsonParser.parseString(originalFile.readText()).asJsonObject
@@ -105,6 +132,38 @@ data class ModelConfig(
             }
         }
 
+        fun getDefaultConfigFile(modelId:String):String? {
+            if (modelId.startsWith("local/")) {
+                val localPath = modelId.removePrefix("local/")
+                val configFilePath = File(localPath, "config.json")
+                if (configFilePath.exists()) {
+                    return configFilePath.absolutePath
+                }
+                return null
+            }
+            if (modelId.startsWith("Builtin/")) {
+                val modelName = modelId.removePrefix("Builtin/MNN/")
+                val builtinModelsDir = File(ApplicationProvider.get().filesDir, ".mnnmodels/builtin")
+                val modelDir = File(builtinModelsDir, modelName)
+                val configFilePath = File(modelDir, "config.json")
+                Log.d(TAG, "getDefaultConfigFile for builtin model $modelId: modelName=$modelName, builtinModelsDir=${builtinModelsDir.absolutePath}, modelDir=${modelDir.absolutePath}, configFilePath=${configFilePath.absolutePath}, exists=${configFilePath.exists()}")
+                if (configFilePath.exists()) {
+                    return configFilePath.absolutePath
+                }
+                return null
+            }
+            val configFileName = "config.json"
+            val destModelDir = ModelDownloadManager.getInstance(ApplicationProvider.get())
+                .getDownloadedFile(modelId)?.absolutePath
+            destModelDir?.let {
+                val configFilePath = File(destModelDir, configFileName)
+                if (configFilePath.exists()) {
+                    return configFilePath.absolutePath
+                }
+            }
+            return null
+        }
+
         private fun mergeJson(original: JsonObject, override: JsonObject) {
             for (key in override.keySet()) {
                 original.add(key, override.get(key))
@@ -112,7 +171,10 @@ data class ModelConfig(
         }
 
         fun toJson(): String {
-            return Gson().toJson(this)
+            return GsonBuilder()
+                .disableHtmlEscaping()
+                .create()
+                .toJson(this)
         }
 
         fun saveConfig(filePath: String, config: ModelConfig): Boolean {
@@ -120,7 +182,10 @@ data class ModelConfig(
                 Log.d(TAG, "file is : $filePath")
                 val file = File(filePath)
                 FileUtils.ensureParentDirectoriesExist(file)
-                val gson = GsonBuilder().setPrettyPrinting().create()
+                val gson = GsonBuilder()
+                    .setPrettyPrinting()
+                    .disableHtmlEscaping()
+                    .create()
                 val jsonString = gson.toJson(config)
                 file.writeText(jsonString)
                 true
@@ -130,75 +195,59 @@ data class ModelConfig(
             }
         }
 
-        fun saveConfigOld(filePath: String, config: ModelConfig): Boolean {
-            return try {
-                val file = File(filePath)
-                FileUtils.ensureParentDirectoriesExist(file)
-                val jsonObject = JsonObject()
-
-                if (config.llmModel != null) jsonObject.addProperty(
-                    "llm_model",
-                    config.llmModel
-                )
-                if (config.llmWeight != null) jsonObject.addProperty(
-                    "llm_weight",
-                    config.llmWeight
-                )
-                if (config.backendType != null) jsonObject.addProperty(
-                    "backend_type",
-                    config.backendType
-                )
-                if (config.maxNewTokens != null) jsonObject.addProperty("max_new_tokens", config.maxNewTokens)
-                if (config.threadNum != null) jsonObject.addProperty("threadNum", config.threadNum)
-                if (config.nGram != null) jsonObject.addProperty("n_gram", config.nGram)
-                if (config.precision!= null) jsonObject.addProperty(
-                    "precision",
-                    config.precision
-                )
-                if (config.memory!= null) jsonObject.addProperty("memory", config.memory)
-                if (config.systemPrompt!= null) jsonObject.addProperty(
-                    "system_prompt",
-                    config.systemPrompt
-                )
-                if (config.samplerType != null) jsonObject.addProperty(
-                    "sampler_type",
-                    config.samplerType
-                )
-                if (config.mixedSamplers != null && config.mixedSamplers!!.isNotEmpty()) jsonObject.add(
-                    "mixed_samplers",
-                    Gson().toJsonTree(config.mixedSamplers)
-                )
-                if (config.temperature != null) jsonObject.addProperty(
-                    "temperature",
-                    config.temperature
-                )
-                if (config.tfsZ != null) jsonObject.addProperty(
-                    "tfsZ",
-                    config.tfsZ
-                )
-                if (config.typical != null) jsonObject.addProperty(
-                    "typical",
-                    config.typical
-                )
-                if (config.penalty != null) jsonObject.addProperty(
-                    "penalty",
-                    config.penalty
-                )
-                if (config.nGramFactor != null) jsonObject.addProperty(
-                    "ngram_factor",
-                    config.nGramFactor
-                )
-                if (config.topP != null) jsonObject.addProperty("topP", config.topP)
-                if (config.topK != null) jsonObject.addProperty("topK", config.topK)
-                if (config.minP != null) jsonObject.addProperty("minP", config.minP)
-
-                file.writeText(Gson().toJson(jsonObject))
-                true
-            } catch (e: Exception) {
-                e.printStackTrace()
-                false
-            }
+        fun getExtraConfigFile(modelId: String):String {
+            return getModelConfigDir(modelId) + "/custom_config.json"
         }
+
+        fun getMarketConfigFile(modelId: String):String {
+            if (modelId.startsWith("local/")) {
+                val localPath = modelId.removePrefix("local/")
+                return File(localPath, "market_config.json").absolutePath
+            }
+            if (modelId.startsWith("Builtin/")) {
+                val modelName = modelId.removePrefix("Builtin/MNN/")
+                val builtinModelsDir = File(ApplicationProvider.get().filesDir, ".mnnmodels/builtin")
+                val modelDir = File(builtinModelsDir, modelName)
+                return File(modelDir, "market_config.json").absolutePath
+            }
+            return getModelConfigDir(modelId) + "/market_config.json"
+        }
+
+        fun getModelConfigDir(modelId: String): String {
+            val rootCacheDir =
+                ApplicationProvider.get().filesDir.toString() + "/configs/" + ModelUtils.safeModelId(
+                    modelId
+                )
+            return rootCacheDir
+        }
+
+        val defaultConfig:ModelConfig = ModelConfig (
+            llmModel = "",
+            llmWeight = "",
+            backendType = "",
+            threadNum = 4,
+            precision = "low",
+            memory = "",
+            systemPrompt = "You are a helpful assistant.",
+            samplerType = "",
+            mixedSamplers = mutableListOf("topK", "topP", "minP", "temperature"),
+            temperature = 0.6f,
+            topP = 0.95f,
+            topK = 20,
+            minP = 0.05f,
+            tfsZ = 1.0f,
+            typical = 0.95f,
+            penalty = 1.02f,
+            nGram = 8,
+            nGramFactor = 1.02f,
+            maxNewTokens = 2048,
+            assistantPromptTemplate = "",
+            penaltySampler = "greedy",
+            useMmap = false,
+            jinja = null,
+            visualModel = "visual.mnn"
+        )
+
     }
 }
 

@@ -17,7 +17,7 @@ struct Param {
     vec4 eps;
 };
 
-VulkanLayernorm::VulkanLayernorm(const Op* op, Backend* backend) : VulkanBasicExecution(backend) {
+VulkanLayernorm::VulkanLayernorm(const Op* op, Backend* backend, Tensor * tensor) : VulkanBasicExecution(backend) {
     auto layer_norm_param = op->main_as_LayerNorm();
     auto vkbackend = static_cast<VulkanBackend*>(backend);
     if (nullptr != layer_norm_param->axis()) {
@@ -28,51 +28,69 @@ VulkanLayernorm::VulkanLayernorm(const Op* op, Backend* backend) : VulkanBasicEx
     mParam = vkbackend->allocUniform();
     mEps = layer_norm_param->epsilon();
 
+    mFP16 = tensor->getType().code == halide_type_float && vkbackend->useFP16();
+
     if (layer_norm_param->gamma() && layer_norm_param->beta()) {
         mHasScale = true;
         int size = layer_norm_param->gamma()->size();
-        mGamma.reset(Tensor::createDevice<float>({size}));
-        auto status = backend->onAcquireBuffer(mGamma.get(), Backend::STATIC);
-        if (!status) {
-            MNN_ERROR("Out of memory when gamma is acquired in LayerNorm.\n");
+        auto prepareParam = [&](std::shared_ptr<Tensor>& paramTensor, const float* sourceData, const char* errorName) {
+            paramTensor.reset(Tensor::createDevice<float>({size}));
+            auto status = backend->onAcquireBuffer(paramTensor.get(), Backend::STATIC);
+            if (!status) {
+                MNN_ERROR("Out of memory when %s is acquired in LayerNorm.\n", errorName);
+                return false;
+            }
+            const void * paramData;
+            std::vector<int16_t> paramFP16;
+            if (mFP16) {
+                paramFP16.resize(size);
+                FLOAT_TO_HALF(sourceData, paramFP16.data(), size);
+                paramData = paramFP16.data();
+            } else {
+                paramData = (const void *) sourceData;
+            }
+            auto paramBuffer = vkbackend->getBuffer(paramTensor.get());
+            vkbackend->copyToGPUBuffer(paramData, std::get<0>(paramBuffer), std::get<1>(paramBuffer), std::get<2>(paramBuffer));
+            return true;
+        };
+
+        if (!prepareParam(mGamma, layer_norm_param->gamma()->data(), "gamma")) {
             return;
         }
-        const float* gamma_data = layer_norm_param->gamma()->data();
-        auto gammaBuffer = vkbackend->getBuffer(mGamma.get());
-        vkbackend->copyToGPUBuffer(gamma_data, std::get<0>(gammaBuffer), std::get<1>(gammaBuffer), std::get<2>(gammaBuffer));
 
         if (layer_norm_param->beta()->size() != size) {
             MNN_ERROR("Size of gamma and beta are not match in LayerNorm.\n");
             return;
         }
-        mBias.reset(Tensor::createDevice<float>({size}));
-        status = backend->onAcquireBuffer(mBias.get(), Backend::STATIC);
-        if (!status) {
-            MNN_ERROR("Out of memory when beta is acquired in LayerNorm.\n");
+
+        if (!prepareParam(mBias, layer_norm_param->beta()->data(), "beta")) {
             return;
         }
-        const float* beta_data = layer_norm_param->beta()->data();
-        auto betaBuffer = vkbackend->getBuffer(mBias.get());
-        vkbackend->copyToGPUBuffer(beta_data, std::get<0>(betaBuffer), std::get<1>(betaBuffer), std::get<2>(betaBuffer));
     }
 
+    std::string pKey = "glsl_norm_";
+    std::vector<VkDescriptorType> types;
     if (!mHasScale) {
-        auto types = {
+        types = {
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
         };
-        mPipeline = vkbackend->getPipeline("glsl_norm_comp", types);
     } else {
-        auto types = {
+        types = {
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         };
-        mPipeline = vkbackend->getPipeline("glsl_norm_LAYERNORM_SCALE_comp", types);
+        pKey += "LAYERNORM_SCALE_";
     }
+    if (mFP16) {
+        pKey += "FP16_";
+    }
+    pKey += "comp";
+    mPipeline = vkbackend->getPipeline(pKey, types);
     mDesSet.reset(mPipeline->createSet());
 }
 
@@ -109,9 +127,9 @@ ErrorCode VulkanLayernorm::onEncode(const std::vector<Tensor*>& inputs, const st
     param->size[2] = 1;
     param->size[3] = outside;
     param->eps[0] = mEps;
-    param->eps[1] = mEps;
-    param->eps[2] = mEps;
-    param->eps[3] = mEps;
+    param->eps[1] = 1.0f;
+    param->eps[2] = 1.0f;
+    param->eps[3] = 1.0f;
     mParam->unmap();
     auto inputTensor = vkBn->getBuffer(inputs[0]);
     auto outputTensor = vkBn->getBuffer(outputs[0]);
@@ -131,7 +149,7 @@ ErrorCode VulkanLayernorm::onEncode(const std::vector<Tensor*>& inputs, const st
 class VulkanLayernormCreator : public VulkanBackend::Creator {
 public:
     virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op, Backend* bn) const override {
-        return new VulkanLayernorm(op, bn);
+        return new VulkanLayernorm(op, bn, inputs[0]);
     }
 };
 

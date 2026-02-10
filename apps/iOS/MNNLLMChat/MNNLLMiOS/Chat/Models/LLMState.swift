@@ -6,7 +6,6 @@
 //
 
 import ExyteChat
-import ExyteMediaPicker
 
 actor LLMState {
     private var isProcessing: Bool = false
@@ -19,7 +18,7 @@ actor LLMState {
         return isProcessing
     }
     
-    func processContent(_ content: String, llm: LLMInferenceEngineWrapper?, completion: @escaping (String) -> Void) {
-        llm?.processInput(content, withOutput: completion)
+    func processContent(_ content: String, llm: LLMInferenceEngineWrapper?, showPerformance: Bool, completion: @escaping (String) -> Void) {
+        llm?.processInput(content, withOutput: completion, showPerformance: true)
     }
 }

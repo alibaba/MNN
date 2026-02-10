@@ -15,6 +15,7 @@ class LlmUploader:
         self.bits = args.bits
         self.name = args.name
         self.src = args.src
+        self.private = args.private
         if self.name is None:
             self.name = os.path.basename(self.model_dir)
         if self.src is None:
@@ -259,10 +260,13 @@ make -j
         from modelscope.hub.api import HubApi
         api = HubApi()
         api.login(self.ms_token)
-        api.push_model(
-            model_id=model_id,
-            model_dir=self.model_dir,
-            lfs_suffix=['*.mnn', '*.weight', "*.bin"]
+        try:
+            api.create_repo(repo_id=model_id, visibility='PRIVATE' if self.private else 'PUBLIC')
+        except:
+            pass
+        api.upload_folder(
+            repo_id=model_id,
+            folder_path=self.model_dir
         )
 
     def upload_huggingface(self):
@@ -273,7 +277,7 @@ make -j
         login(token=self.hf_token)
         api = HfApi()
         try:
-            api.create_repo(repo_id=model_id)
+            api.create_repo(repo_id=model_id, private=self.private)
         except:
             pass
         api.upload_folder(
@@ -290,7 +294,7 @@ make -j
         from openmind_hub import OmApi
         api = OmApi(token=self.me_token)
         try:
-            api.create_repo(repo_id=model_id)
+            api.create_repo(repo_id=model_id, private=self.private)
         except:
             pass
 
@@ -320,6 +324,7 @@ def main():
     parser.add_argument('--bits', type=int, default=4, help='quant bits, default is `4`.')
     parser.add_argument('--name', type=str, default=None, help='model name, default is path dir name.')
     parser.add_argument('--src', type=str, default=None, help='model src, default is model_name[:-4].')
+    parser.add_argument('--private', action='store_true', help='private model, default is False.')
 
     args = parser.parse_args()
     uploader = LlmUploader(args)

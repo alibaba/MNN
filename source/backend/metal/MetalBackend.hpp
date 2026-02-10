@@ -12,6 +12,7 @@
 #include "core/Backend.hpp"
 #include "core/BufferAllocator.hpp"
 #include "core/TensorUtils.hpp"
+#include <atomic>
 #include "MNN_generated.h"
 #include "MetalDefine.h"
 #include <MNN/ErrorCode.hpp>
@@ -41,6 +42,9 @@ public:
     }
     bool supportSimdGroupMatrix() {
         return mSimdGroupMatrix;
+    }
+    bool supportTensorOps() {
+        return mTensorOps;
     }
     void setGpuMode(const int cl_mode_num);
     void setCommandQueue(id<MTLCommandQueue> queue, bool userSync);
@@ -83,11 +87,15 @@ public:
         return &mDynamic[index];
     }
     BufferAllocator* createDynamicAllocator(int index, bool secondResize) const;
+    mutable id<MTLCommandBuffer> _waiting = nil;
+
 private:
     MetalRuntime(void* context);
     void* mContext = nullptr;
-    mutable std::shared_ptr<EagerBufferAllocator> mStatic;
-    mutable std::shared_ptr<EagerBufferAllocator> mStaticCache;
+    mutable std::shared_ptr<EagerBufferAllocator> mStaticAllocator;
+    mutable std::shared_ptr<EagerBufferAllocator> mStaticAllocatorRaw;
+    mutable std::shared_ptr<EagerBufferAllocator> mStaticAllocatorMMap;
+
     mutable std::vector<SingleBufferWithAllocator> mDynamic;
     MetalTuneLevel mTuneLevel = Wide;
     std::map<std::pair<std::string, std::vector<uint32_t>>, std::tuple<std::vector<uint32_t>, std::vector<uint32_t>, uint32_t>> mTunedThreadGroup;
@@ -105,6 +113,7 @@ private:
 private:
     bool mSimdGroupReduce;
     bool mSimdGroupMatrix;
+    bool mTensorOps;
 };
 
 
@@ -158,6 +167,7 @@ public:
     static void setTensor(const MNN::Tensor* tensor, id<MTLComputeCommandEncoder> encoder, int index);
     static void setMem(const MemChunk& chunk, id<MTLComputeCommandEncoder> encoder, int index);
     static uint8_t* getMemPtr(const MemChunk& chunk);
+    static void setBuffer(id<MTLBuffer> buffer, int offset, id<MTLComputeCommandEncoder> encoder, int index);
     static std::pair<id<MTLBuffer>, int> getBuffer(const MNN::Tensor* tensor);
     size_t getTensorSizeInBytes(const Tensor* tensor) const;
     virtual bool onSelectDynamicAllocator(int index, int maxIndex) override;
@@ -166,7 +176,7 @@ public:
     void returnConstBuffer(id<MTLBuffer> buffer) const;
     id<MTLComputePipelineState> makeComputePipelineWithSourceOption(const char* csource, const char* cname, MTLCompileOptions *options) const;
 public:
-    MetalBackend(std::shared_ptr<EagerBufferAllocator> staticMem, const MetalRuntime* runtime, bool usefp16AsFp32, BackendConfig::MemoryMode mode);
+    MetalBackend(const MetalRuntime* runtime, bool usefp16AsFp32, BackendConfig::MemoryMode mode);
     virtual ~MetalBackend();
     virtual Runtime* getRuntime() override {
         return (Runtime*)mRuntime;
@@ -210,7 +220,7 @@ public:
     
     BufferAllocator* getBufferPool() const;
     EagerBufferAllocator *getStaticBufferPool() const {
-        return mStaticBufferPool.get();
+        return mRuntime->mStaticAllocator.get();
     }
     id<MTLCommandBuffer> getCommandBufferForBufferCopy() const;
 
@@ -237,15 +247,18 @@ public:
     BackendConfig::MemoryMode getMemoryMode() const {
         return mMemoryMode;
     }
+    bool isSupportTensorApi() const {
+        return mSupportTensorApi;
+    }
 private:
     BackendConfig::MemoryMode mMemoryMode;
+    bool mSupportTensorApi = false;
 private:
     MetalRuntimeAllocator::MetalBufferAlloc mEmptyMem;
     id<MTLCommandBuffer> getCommandBufferForNet() const;
     id<MTLComputeCommandEncoder> encoder_net() const;
     mutable id<MTLCommandBuffer> _commandBuffer = nil;
     mutable id<MTLCommandBuffer> _commandBuffer_net = nil;
-    mutable id<MTLCommandBuffer> _waiting = nil;
     mutable std::queue<id<MTLBuffer>> mHoldBuffers;
 
     id<MTLCommandQueue> _commandQueue;
@@ -257,11 +270,15 @@ private:
     mutable id<MTLComputeCommandEncoder> mComputeEncoder = nil;
     std::shared_ptr<BufferAllocator> mBufferPool;
     std::shared_ptr<BufferAllocator> mBufferPoolShapeImmutable;
-    std::shared_ptr<EagerBufferAllocator> mStaticBufferPool;
+    std::atomic<bool> mGPUEnabledSwitch;
+    id<NSObject> mForegroundObserver;
+    id<NSObject> mBackgroundObserver;
 
 private:
     void _resetDynamicMemory() const;
     CopyPipeline _makeCopyInfo(const Tensor *src, const Tensor *dst, id<MTLBuffer> shape, int castType) const;
+    void setUpGPUEnabledSwitch();
+    void removeNotificationsObservers();
 
     mutable id<MTLBuffer> mHostBuffer = nullptr;
     // hostmask: 0: no host, 1: src is host, 2: dst is host
@@ -269,6 +286,7 @@ private:
     bool mUseFloatAsFp16;
     bool mIsIphone = false;
     BufferAllocator* mCurrentAllocator = nullptr;
+
 };
 
 

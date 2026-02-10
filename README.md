@@ -6,13 +6,33 @@
 [![日本語バージョン](https://img.shields.io/badge/Language-%E6%97%A5%E6%9C%AC%E8%AA%9E-green)](README_JP.md)
 [![MNN Homepage](https://img.shields.io/badge/Homepage-Visit-green)](http://www.mnn.zone)
 
+[![MNN Chat App](https://img.shields.io/badge/Apps-MNN_Chat-blue)](./apps/Android/MnnLlmChat/README.md)
+[![TaoAvatar](https://img.shields.io/badge/Apps-MNN_TaoAvatar-blue)](./apps/Android/Mnn3dAvatar/README.md)
+
+
 ## News 🔥
-- [2025/04/30] android app support qwen3 and dark mode [MnnLlmChat](./apps/Android/MnnLlmChat/README.md#version-040).
+- [2025/10/16] Support Qwen3-VL Series.
+- [2025/06/11] New App MNN TaoAvatar released, you can talk with 3DAvatar offline with LLM, ASR, TTS, A2BS and NNR models all run local on your device!! [MNN TaoAvatar](./apps/Android/Mnn3dAvatar/README.md)
+<p align="center">
+  <img width="20%" alt="Icon"  src="https://meta.alicdn.com/data/mnn/avatar/avatar_demo.gif" style="margin: 0 10px;">
+</p>
+
+- [2025/05/12] android app support qwen2.5 omni 3b and 7b [MNN Chat App](./apps/Android/MnnLlmChat/README.md#releases).
+<p align="center">
+  <img width="20%" alt="Icon"  src="./apps/Android/MnnLlmChat/assets/image_home_new.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./apps/Android/MnnLlmChat/assets/image_sound_new.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./apps/Android/MnnLlmChat/assets/image_image_new.jpg" style="margin: 0 10px;">
+</p>
+
+
+<details>
+<summary> History News </summary>
+
+- [2025/04/30] android app support qwen3 and dark mode [MNN Chat App](./apps/Android/MnnLlmChat/README.md#releases).
 <p align="center">
   <img width="20%" alt="Icon"  src="https://meta.alicdn.com/data/mnn/qwen_3.gif" style="margin: 0 10px;">
 </p>
-<details>
-<summary> History News </summary>
+
 - [2025/02/18] iOS multimodal LLM App is released [MNN LLM iOS](./apps/iOS/MNNLLMChat/README.md).
 <p align="center">
   <img width="20%" alt="Icon"  src="./apps/iOS/MNNLLMChat/assets/introduction.gif" style="margin: 0 10px;">
@@ -25,10 +45,10 @@
 
 - [2025/01/23] We released our full multimodal LLM Android App:[MNN-LLM-Android](./apps/Android/MnnLlmChat/README.md). including text-to-text, image-to-text, audio-to-text, and text-to-image generation.
 <p align="center">
-  <img width="20%" alt="Icon"  src="./apps/Android/MnnLlmChat/assets/image_home.jpg" style="margin: 0 10px;">
-  <img width="20%" alt="Icon" src="./apps/Android/MnnLlmChat/assets/image_diffusion.jpg" style="margin: 0 10px;">
-  <img width="20%" alt="Icon" src="./apps/Android/MnnLlmChat/assets/image_sound.jpg" style="margin: 0 10px;">
-  <img width="20%" alt="Icon" src="./apps/Android/MnnLlmChat/assets/image_image.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon"  src="./apps/Android/MnnLlmChat/assets/image_home_new.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./apps/Android/MnnLlmChat/assets/image_diffusion_new.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./apps/Android/MnnLlmChat/assets/image_sound_new.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./apps/Android/MnnLlmChat/assets/image_image_new.jpg" style="margin: 0 10px;">
 </p>
 </details>
 
@@ -103,9 +123,9 @@ The Architecture / Precision MNN supported is shown below:
 | Architecture / Precision |  | Normal | FP16 | BF16 | Int8 |
 | --- | --- | --- | --- | --- | --- |
 | CPU | Native | B | C | B | B |
-|  | x86/x64-SSE4.1 | A | B | B | A |
-|  | x86/x64-AVX2 | S | B | B | A |
-|  | x86/x64-AVX512 | S | B | B | S |
+|  | x86/x64-SSE4.1 | A | C | C | A |
+|  | x86/x64-AVX2 | S | C | C | A |
+|  | x86/x64-AVX512 | S | C | C | S |
 |  | ARMv7a | S | S (ARMv8.2) | S | S |
 |  | ARMv8 | S | S (ARMv8.2) | S(ARMv8.6) | S |
 | GPU | OpenCL | A | S | C | S |
@@ -115,6 +135,7 @@ The Architecture / Precision MNN supported is shown below:
 | NPU | CoreML | A | C | C | C |
 |  | HIAI | A | C | C | C |
 |  | NNAPI | B | B | C | B |
+|  | QNN | C | B | C | C |
 
 
 ## Tools
@@ -133,13 +154,13 @@ The group discussions are predominantly Chinese. But we welcome and will help En
 
 Dingtalk discussion groups:
 
-Group #1 (Full): 23329087
+Group #4 (Available): 160170007549
+
+Group #3 (Full)
 
 Group #2 (Full): 23350225
 
-Group #3: QR code:
-
-![MNN-3](doc/dingdingmnn3.png)
+Group #1 (Full): 23329087
 
 ## Historical Paper
 

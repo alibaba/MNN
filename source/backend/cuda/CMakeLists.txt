@@ -12,7 +12,7 @@ if(CUDA_FOUND)
         set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} --std=c++17") 
     endif()
     if(CMAKE_BUILD_TYPE MATCHES Debug)
-        set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -O0")
+        set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -O0 -g")
     else()
         set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -O3")
     endif()
@@ -29,7 +29,7 @@ if(CUDA_FOUND)
      set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -allow-unsupported-compiler")
     ENDIF()
     IF (${arch_count} EQUAL 1)
-        set(support_archs 60 61 62 70 72 75 80 86 89)
+        set(support_archs 60 61 62 70 72 75 80 86 87 89)
         list(FIND support_archs ${CUDA_ARCH_FLAGS_readable_code} list_index)
         IF (${list_index} EQUAL -1)
             message(FATAL_ERROR "Please add your own sm arch ${CUDA_ARCH_FLAGS_readable_code} to CmakeLists.txt!")
@@ -56,6 +56,11 @@ if(CUDA_FOUND)
         set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_80,code=sm_80")
         set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_86,code=sm_86")
         add_definitions(-DMNN_CUDA_ENABLE_SM80 -DMNN_CUDA_ENABLE_SM86)
+    ENDIF()
+
+    IF ((CUDA_VERSION VERSION_GREATER "11.4") OR (CUDA_VERSION VERSION_EQUAL "11.4"))
+        set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_87,code=sm_87")
+        add_definitions(-DMNN_CUDA_ENABLE_SM87)
     ENDIF()
 
     IF ((CUDA_VERSION VERSION_GREATER "12.2") OR (CUDA_VERSION VERSION_EQUAL "12.2"))
@@ -113,6 +118,35 @@ IF (MNN_LOW_MEMORY)
     add_definitions(-DMNN_LOW_MEMORY)
 ENDIF()
 
+
+include(FetchContent)
+
+if(MNN_SUPPORT_TRANSFORMER_FUSE)
+    set(CUTLASS_COMMIT_HASH "b995f933179c22d3fe0d871c3a53d11e4681950f")
+    set(CUTLASS_VERSION_NAME "v4.0.0")
+else()
+    set(CUTLASS_COMMIT_HASH "319a389f42b776fae5701afcb943fc03be5b5c25")
+    set(CUTLASS_VERSION_NAME "v2.9.0")
+endif()
+
+set(CUTLASS_SOURCE_DIR "${CMAKE_SOURCE_DIR}/3rd_party/cutlass/${CUTLASS_VERSION_NAME}")
+
+FetchContent_Declare(
+    cutlass
+    GIT_REPOSITORY    https://github.com/NVIDIA/cutlass.git
+    GIT_TAG           ${CUTLASS_COMMIT_HASH}
+    SOURCE_DIR        ${CUTLASS_SOURCE_DIR}
+)
+
+FetchContent_GetProperties(cutlass)
+if(NOT cutlass_POPULATED)
+    FetchContent_Populate(cutlass)
+    message(STATUS "Cloned cutlass commit ${CUTLASS_COMMIT_HASH} to ${CUTLASS_SOURCE_DIR}")
+endif()
+
+set(CUTLASS_SRC ${CUTLASS_SOURCE_DIR})
+
+
 file(GLOB_RECURSE MNN_CUDA_SRC ${CMAKE_CURRENT_LIST_DIR}/core/* ${CMAKE_CURRENT_SOURCE_DIR}/execution/*)
 if(NOT MNN_SUPPORT_TRANSFORMER_FUSE)
     file(GLOB_RECURSE MNN_CUDA_TRANSFORMER_FUSE_SRC ${CMAKE_CURRENT_SOURCE_DIR}/execution/plugin/*)
@@ -121,7 +155,9 @@ endif()
 
 if(NOT MNN_SUPPORT_RENDER)
     file(GLOB_RECURSE MNN_CUDA_RENDER_SRC ${CMAKE_CURRENT_SOURCE_DIR}/execution/render/*)
-    list(REMOVE_ITEM MNN_CUDA_SRC ${MNN_CUDA_RENDER_SRC})
+    if(MNN_CUDA_RENDER_SRC AND MNN_CUDA_SRC)
+        list(REMOVE_ITEM MNN_CUDA_SRC ${MNN_CUDA_RENDER_SRC})
+    endif()
 endif()
 
 if(NOT MNN_LOW_MEMORY)
@@ -149,20 +185,9 @@ else()
     add_library(MNN_CUDA OBJECT Register.cpp)
 endif()
 
-if(MNN_SUPPORT_TRANSFORMER_FUSE)
 include_directories(
     ${CMAKE_CURRENT_LIST_DIR}/
     ${CUDA_INCLUDE_DIRS}
     ${CMAKE_SOURCE_DIR}/include/
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../../3rd_party/cutlass/v3_4_0/include    
+    ${CUTLASS_SRC}/include
 )
-else()
-include_directories(
-    ${CMAKE_CURRENT_LIST_DIR}/
-    ${CUDA_INCLUDE_DIRS}
-    ${CMAKE_SOURCE_DIR}/include/
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../../3rd_party/cutlass/v2_9_0/include
-)
-endif()
-
-

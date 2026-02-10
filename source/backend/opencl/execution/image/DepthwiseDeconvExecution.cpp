@@ -110,12 +110,15 @@ ErrorCode DepthwiseDeconvExecution::onEncode(const std::vector<Tensor *> &inputs
     const int paddingHeight = pad.second;
     const int paddingWidth  = pad.first;
 
-    const int alignHeight = strideHeight - 1 - paddingHeight;
-    const int alignWidth  = strideWidth - 1 - paddingWidth;
-
     const int filterHeight = mResource->mConv2dCommonParams->kernelY();
     const int filterWidth  = mResource->mConv2dCommonParams->kernelX();
     const int kernelSize   = filterHeight * filterWidth;
+
+    const int transPadH  = filterHeight - 1 - pad.second;
+    const int transPadW  = filterWidth - 1 - pad.first;
+
+    const int alignHeight = strideHeight - 1 - transPadH;
+    const int alignWidth  = strideWidth - 1 - transPadW;
 
     mGWS        = {static_cast<uint32_t>(channelBlocks), static_cast<uint32_t>(outputWidth),
             static_cast<uint32_t>(outputHeight * outputBatch)};
@@ -127,7 +130,7 @@ ErrorCode DepthwiseDeconvExecution::onEncode(const std::vector<Tensor *> &inputs
     int inputImageShape[2]  = {inputHeight, inputWidth};
     int outputImageShape[2] = {outputHeight, outputWidth};
     int strideShape[2]      = {strideHeight, strideWidth};
-    int paddingShape[2]     = {paddingHeight, paddingWidth};
+    int paddingShape[2]     = {transPadH, transPadW};
     int alignShape[2]       = {alignHeight, alignWidth};
     int kernelShape[2]      = {filterHeight, filterWidth};
 
@@ -150,7 +153,7 @@ ErrorCode DepthwiseDeconvExecution::onEncode(const std::vector<Tensor *> &inputs
     unit.kernel->get().setArg(idx++, static_cast<int32_t>(channelBlocks));
     
     std::string name = "depthwiseDeconv";
-    mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name + info, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+    mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name + info, unit.kernel, mOpenCLBackend->getCLTuneLevel(), "depthwise_deconv2d").first;
     mOpenCLBackend->recordKernel3d(unit.kernel, mGWS, mLWS);
     unit.globalWorkSize = {mGWS[0], mGWS[1], mGWS[2]};
     unit.localWorkSize = {mLWS[0], mLWS[1], mLWS[2]};

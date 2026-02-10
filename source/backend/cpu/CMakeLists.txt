@@ -20,10 +20,6 @@ if(MNN_USE_SPARSE_COMPUTE)
   target_compile_options(MNNCPU PRIVATE -DMNN_USE_SPARSE_COMPUTE)
 endif()
 
-if(MNN_LOW_MEMORY)
-  target_compile_options(MNNCPU PRIVATE -DMNN_LOW_MEMORY)
-endif()
-
 if(MNN_CPU_WEIGHT_DEQUANT_GEMM)
   target_compile_options(MNNCPU PRIVATE -DMNN_CPU_WEIGHT_DEQUANT_GEMM)
 endif()
@@ -35,7 +31,9 @@ endif()
 
 # AArch32/64 Assemblies
 include(${CMAKE_CURRENT_LIST_DIR}/arm/CMakeLists.txt)
-
+if(MNN_USE_RVV)
+    include(${CMAKE_CURRENT_LIST_DIR}/riscv/CMakeLists.txt)
+endif()
 IF(NOT DEFINED IOS_ARCH)
     set(IOS_ARCH "")
 ENDIF()

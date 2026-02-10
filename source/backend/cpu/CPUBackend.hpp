@@ -17,18 +17,20 @@
 #include "core/BufferAllocator.hpp"
 #include "MNN_generated.h"
 
-#ifdef MNN_KLEIDIAI_ENABLED
-#include "arm/mnn_kleidiai.h"
+#ifdef MNN_USE_THREAD_POOL
+#include "ThreadPool.hpp"
 #endif
 
 namespace MNN {
 class WorkerThread;
+class CPUResizeCache;
 class CPURuntime : public Runtime {
 public:
     struct DynamicAllocator {
         std::shared_ptr<BufferAllocator> mDynamicAllocator;
         std::shared_ptr<BufferAllocator> mDynamicAllocatorBackup;
         BufferAllocator* mCurrentDynamicAllocator = nullptr;
+        std::vector<std::shared_ptr<CPUResizeCache>> mCacheGroup;
     };
     friend class CPUBackend;
     CPURuntime(const Backend::Info& info);
@@ -41,26 +43,27 @@ public:
     virtual CompilerType onGetCompilerType() const override {
         return Compiler_Loop;
     }
-    void onConcurrencyBegin() const;
-    void onConcurrencyEnd() const;
+    virtual void onConcurrencyBegin() const override;
+    virtual void onConcurrencyEnd() const override;
     virtual bool onCheckInfo(Backend::Info& info) const override;
 
-#ifdef MNN_USE_THREAD_POOL
-    inline bool multiThreadValid() const {
-        return mThreadOpen;
-    }
-#endif
     SingleBufferWithAllocator* buffer(int index) const;
     BufferAllocator* createDynamicBufferAlloctor(int index) const;
 
 private:
     void _bindCPUCore() const;
-    void _resetThreadPool();
+    void _resetThreadPool() const;
+    void _validateCpuIds() const;
     mutable std::shared_ptr<EagerBufferAllocator> mStaticAllocator;
-    int mThreadNumber;
+    mutable int mThreadNumber;
+    mutable std::vector<int> mCpuIds;
+    mutable unsigned long mCpuMask;
+#ifdef MNN_USE_THREAD_POOL
+    mutable ThreadPool* mThreadPool = nullptr;
+#endif
 #ifdef MNN_USE_THREAD_POOL
     mutable int mTaskIndex = -1;
-    mutable bool mThreadOpen = false;
+    mutable int mThreadOpen = 0;
 #endif
     BackendConfig::MemoryMode mMemory;
     BackendConfig::PowerMode mPower;
@@ -74,12 +77,13 @@ private:
     mutable std::vector<SingleBufferWithAllocator> mDynamic;
     mutable std::vector<SingleBufferWithAllocator> mDynamicMmap;
     mutable std::shared_ptr<DynamicAllocator> mSharedDmaInfo;
-    mutable std::shared_ptr<EagerBufferAllocator> mStaticAllocatorCache;
+    mutable std::shared_ptr<EagerBufferAllocator> mStaticAllocatorRaw;
+    mutable std::shared_ptr<EagerBufferAllocator> mStaticAllocatorMMap;
 };
 struct CoreFunctions;
 struct CoreInt8Functions;
+struct MatmulRelatedFunctions;
 
-class CPUResizeCache;
 class CPUMemObj : public Backend::MemObj {
 public:
     CPUMemObj(BufferAllocator* allocator, MemChunk chunk, int size) : mAllocator(allocator), mChunk(chunk), mSize(size) {}
@@ -101,7 +105,7 @@ private:
 };
 class CPUBackend : public Backend {
 public:
-    CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode precision, BackendConfig::MemoryMode memory, MNNForwardType type = MNN_FORWARD_CPU, size_t flags = 0, int initThreadNumber = 0);
+    CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode precision, BackendConfig::MemoryMode memory, MNNForwardType type = MNN_FORWARD_CPU, size_t flags = 0);
     virtual ~CPUBackend();
 
     // Return sizeDivide, scheduleNumber aligned memory
@@ -130,6 +134,10 @@ public:
     const CoreFunctions* functions() const {
         return mCoreFunctions;
     }
+    
+    const MatmulRelatedFunctions* int8GemmFunctions() const {
+        return mRelatedFunctions;
+    }
     // Return element size for Tensor, conside pack
     size_t getTensorSize(const Tensor* tensor, bool multiBytes = false) const;
     const CoreInt8Functions* int8Functions() const {
@@ -148,11 +156,6 @@ public:
     inline int threadNumber() const {
         return mThreadNumber;
     }
-#ifdef MNN_USE_THREAD_POOL
-    inline bool threadOpen() const {
-        return mRuntime->mThreadOpen;
-    }
-#endif
 
     BufferAllocator* getBufferAllocator(bool defer_allocator = true) const {
         return mDmaInfo->mCurrentDynamicAllocator;
@@ -172,9 +175,13 @@ public:
 
 #ifdef MNN_USE_THREAD_POOL
     inline int taskIndex() const {return mRuntime->mTaskIndex;}
+    inline ThreadPool* threadPool() const {return mRuntime->mThreadPool;}
+    void enqueue(ThreadPool::TASK& task) const {
+        threadPool()->enqueue(&task, taskIndex());
+    }
 #endif
     static void initCreatorMap();
-    static int getBytes(const Backend* backend, const Tensor* output);
+    static size_t getBytes(const Backend* backend, const Tensor* output);
     static DataType getDataType(const Tensor* tensor);
     friend class CPURuntime;
     void enqueueTask(std::function<int()>&& task);
@@ -183,20 +190,19 @@ protected:
     MemObj* allocBuffer(size_t size, Tensor* dest,  StorageType storageType);
     CoreFunctions* mCoreFunctions;
     CoreInt8Functions* mInt8CoreFunctions;
+    const MatmulRelatedFunctions* mRelatedFunctions;
+    CPURuntime* mRuntime;
 private:
     mutable std::shared_ptr<WorkerThread> mInitWorkQueue;
-    int mThreadNumber;
+    mutable int mThreadNumber = 1;
     std::vector<std::pair<float, int>> mGroupWithComputeRate;
     float mComputeI = 0.f;
 
     std::shared_ptr<CPURuntime::DynamicAllocator> mDmaInfo;
-    std::shared_ptr<EagerBufferAllocator> mStaticAllocator;
-    CPURuntime* mRuntime;
     BackendConfig::PrecisionMode mPrecisionMode;
     BackendConfig::MemoryMode mMemory;
     static std::map<OpType, CPUBackend::Creator*>* gCreator;
     CPUResizeCache* mCache;
-    std::vector<std::shared_ptr<CPUResizeCache>> mCacheGroup;
 };
 /** execution cast wrapper. insert tensor cast dynamic. */
 class CastWrapExecution : public Execution {

@@ -22,6 +22,7 @@
    :name: quick-start
 
    start/overall
+   start/python
    start/demo
 
 .. toctree::
@@ -80,6 +81,7 @@
    tools/test
    tools/benchmark
    tools/compress
+   tools/mnncompress
    tools/visual
    tools/python
 

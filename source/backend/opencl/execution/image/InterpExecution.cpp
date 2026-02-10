@@ -80,7 +80,11 @@ ErrorCode InterpExecution::onEncode(const std::vector<Tensor *> &inputs, const s
     MNN_CHECK_CL_SUCCESS(ret, "setArg InterpExecution");
 
     std::string name = "interp";
-    mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+    std::string programName = "interp";
+    if (mOp->main_as_Interp()->resizeType() == 1 || mOp->main_as_Interp()->resizeType() == 4) {
+        programName = "nearest";
+    }
+    mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel(), programName).first;
     mOpenCLBackend->recordKernel3d(unit.kernel, mGWS, mLWS);
     unit.globalWorkSize = {mGWS[0], mGWS[1], mGWS[2]};
     unit.localWorkSize = {mLWS[0], mLWS[1], mLWS[2]};

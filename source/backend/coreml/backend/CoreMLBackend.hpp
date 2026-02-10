@@ -107,7 +107,7 @@ namespace MNN {
         void setLayerOutputs(CoreML__Specification__NeuralNetworkLayer* layer, std::vector<std::string>&& outputs);
         void copyName(char** ptr, std::string&& name);
         int getInOutTensorInfo(std::string modelName);
-        int getBytes(const halide_type_t& type);
+        size_t getBytes(const halide_type_t& type);
 
         class Creator {
         public:

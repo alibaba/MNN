@@ -1,11 +1,9 @@
-#version 440 core
-layout(std430) buffer;
 layout(set=0, binding=0) buffer destbuffer{
     int data[];
 }uOutput;
 
 layout(set=0, binding=1) readonly buffer sourceBuffer{
-    float data[];
+    FLOAT data[];
 }uInput;
 
 layout(set = 0, binding = 2) uniform constBuffer {
@@ -13,7 +11,7 @@ layout(set = 0, binding = 2) uniform constBuffer {
 }uConst;
 
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
-shared float local_buffer[256];
+shared FLOAT local_buffer[256];
 shared int local_index[256];
 
 void main()
@@ -32,10 +30,10 @@ void main()
 
     if(y < uConst.size.z && lid < uConst.size.y) {
         int offset = y * H * W + x;
-        float maxValue = uInput.data[offset + lid * W];
+        FLOAT maxValue = uInput.data[offset + lid * W];
         int maxIndex = lid;
         for(int i = lid+uConst.size.w; i < uConst.size.y; i+=uConst.size.w) {
-            float value = uInput.data[offset + i * W];
+            FLOAT value = uInput.data[offset + i * W];
 #ifndef ARGMIN
             if (value > maxValue) {
                 maxValue = value;
@@ -53,10 +51,10 @@ void main()
     }
     barrier();
     if(y < uConst.size.z && lid == 0) {
-        float maxValue = local_buffer[lidx * uConst.size.w];
+        FLOAT maxValue = local_buffer[lidx * uConst.size.w];
         int maxIndex = local_index[lidx * uConst.size.w];
         for (int t=1; t<uConst.size.w && t < uConst.size.y; ++t) {
-            float next = local_buffer[t + lidx * uConst.size.w];
+            FLOAT next = local_buffer[t + lidx * uConst.size.w];
 #ifndef ARGMIN
             if (next > maxValue) {
                 maxValue = next;

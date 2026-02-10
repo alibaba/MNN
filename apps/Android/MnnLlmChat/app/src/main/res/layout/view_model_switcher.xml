@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:minHeight="30dp"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="8dp"
+    android:paddingEnd="4dp"
+    android:background="@null"
+    tools:parentTag="android.widget.LinearLayout">
+<!--    android:background="@drawable/bg_rounded_dropdown"-->
+
+
+    <TextView
+        android:id="@+id/tv_selected_model"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:maxWidth="150dp"
+        style="?textAppearanceTitleMedium"
+        android:singleLine="true"
+        android:layout_marginEnd="4dp"
+        android:ellipsize="end"
+        android:textColor="?colorOnSurface"
+        tools:text="MNN" />
+
+    <ImageView
+        android:id="@+id/iv_dropdown_arrow"
+        android:layout_width="20dp"
+        android:layout_height="20dp"
+        app:srcCompat="@drawable/ic_arrow_drop_down"
+        app:tint="?colorOnSurface"/>
+
+</LinearLayout>

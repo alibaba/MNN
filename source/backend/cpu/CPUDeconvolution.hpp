@@ -11,7 +11,6 @@
 
 #include "CPUConvolution.hpp"
 #include "compute/CommonOptFunction.h"
-#include "compute/StrassenMatmulComputor.hpp"
 #include "core/TensorUtils.hpp"
 namespace MNN {
 struct DeconvolutionResource {

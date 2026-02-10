@@ -17,7 +17,7 @@ namespace MNN {
 
 class MetalReduction : public MetalExecution {
 public:
-    MetalReduction(Backend *backend, const ReductionParam *reduction, halide_type_t type);
+    MetalReduction(Backend *backend, const ReductionParam *reduction);
     virtual ~MetalReduction() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual void onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) override;
@@ -27,6 +27,8 @@ private:
     id<MTLComputePipelineState> mPipeline;
     std::pair<MTLSize, MTLSize> mThreads;
     id<MTLBuffer> mConst;
+    bool mUseSimdReduce = false;
+    ReductionType mReduceType;
 };
 
 } // namespace MNN

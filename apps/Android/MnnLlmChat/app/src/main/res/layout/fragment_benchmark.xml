@@ -1,0 +1,856 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context=".benchmark.BenchmarkFragment">
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp"
+        tools:context=".benchmark.BenchmarkFragment">
+
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/model_selector_card"
+            style="@style/Widget.Material3.CardView.Outlined"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:strokeColor="#4D10b981"
+            android:background="@drawable/list_item_background_combined"
+            android:clickable="true"
+            tools:visibility="gone"
+            android:focusable="true">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="20dp">
+
+                <!-- Select Model Title -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/select_model_title"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    android:textColor="?colorOnSurface"
+                    android:layout_marginBottom="16dp" />
+
+                <!-- Model Selector Layout -->
+                <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/model_selector_layout_card"
+                    style="@style/Widget.Material3.CardView.Outlined"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:strokeColor="@color/accentColor"
+                    app:strokeWidth="0dp">
+                <RelativeLayout
+                    android:id="@+id/model_selector_layout"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_vertical"
+                    android:paddingTop="12dp"
+                    android:paddingBottom="12dp"
+                    android:layout_marginBottom="0dp">
+
+                    <com.alibaba.mnnllm.android.widgets.ModelAvatarView
+                        android:id="@+id/model_avatar"
+                        style="@style/Widget.Material3.CardView.Outlined"
+                        android:layout_width="48dp"
+                        android:layout_height="48dp"
+                        android:layout_centerVertical="true"
+                        android:layout_marginStart="12dp"
+                        android:layout_marginEnd="10dp"
+                        app:cardBackgroundColor="@android:color/transparent"
+                        app:cardCornerRadius="8dp"
+                        app:strokeColor="?colorOutlineVariant" />
+
+                    <TextView
+                        android:id="@+id/model_selector_title"
+                        style="?textAppearanceTitleSmall"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_alignTop="@+id/model_avatar"
+                        android:layout_toEndOf="@id/model_avatar"
+                        android:maxLines="1"
+                        android:text="@string/select_model_title"
+                        android:textColor="?colorOnSurface"
+                        tools:text="Qwen2.5-3B-Instruct" />
+
+                    <com.alibaba.mnnllm.android.widgets.TagsLayout
+                        android:id="@+id/model_tags_layout"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_below="@id/model_selector_title"
+                        android:layout_marginEnd="60dp"
+                        android:layout_toEndOf="@id/model_avatar"
+                        android:minHeight="24dp" />
+
+                    <ImageView
+                        android:id="@+id/model_folder_icon"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_below="@id/model_tags_layout"
+                        android:layout_marginEnd="4dp"
+                        android:layout_toEndOf="@id/model_avatar"
+                        android:src="@drawable/ic_u_folder"
+                        app:tint="?colorOnSurfaceVariant" />
+
+                    <TextView
+                        android:id="@+id/model_selector_status"
+                        style="?textAppearanceBodySmall"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_below="@id/model_tags_layout"
+                        android:layout_alignBaseline="@id/model_folder_icon"
+                        android:layout_marginTop="2dp"
+                        android:layout_toEndOf="@id/model_folder_icon"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:text="@string/click_to_select_model"
+                        android:textColor="?colorOnSurfaceVariant"
+                        tools:text="4.5GB" />
+
+                    <TextView
+                        android:id="@+id/model_time_info"
+                        style="?textAppearanceBodySmall"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_alignBottom="@id/model_selector_status"
+                        android:layout_alignParentEnd="true"
+                        android:layout_marginStart="14dp"
+                        android:layout_marginTop="2dp"
+                        android:layout_marginEnd="16dp"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:textColor="?colorOnSurfaceVariant"
+                        android:textSize="12sp"
+                        android:visibility="visible"
+                        tools:text="Last chat: 2024-01-15 10:30" />
+
+                    <AutoCompleteTextView
+                        android:id="@+id/model_selector_autocomplete"
+                        android:layout_width="0dp"
+                        android:layout_height="0dp"
+                        android:inputType="none"
+                        android:visibility="gone"
+                        tools:ignore="LabelFor" />
+
+                    <ImageView
+                        android:id="@+id/dropdown_arrow"
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:layout_alignParentEnd="true"
+                        android:layout_centerVertical="true"
+                        android:layout_marginEnd="16dp"
+                        android:src="@drawable/baseline_arrow_drop_down_24"
+                        app:tint="?colorOnSurfaceVariant" />
+                </RelativeLayout>
+                </com.google.android.material.card.MaterialCardView>
+
+                <!-- Backend Selector -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/select_backend"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    android:textColor="?colorOnSurface"
+                    android:layout_marginTop="16dp"
+                    android:layout_marginBottom="8dp" />
+
+                <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/backend_selector_card"
+                    style="@style/Widget.Material3.CardView.Outlined"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:strokeColor="@color/accentColor"
+                    app:strokeWidth="0dp">
+
+                    <RadioGroup
+                        android:id="@+id/backend_selector_group"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:padding="8dp">
+
+                        <RadioButton
+                            android:id="@+id/backend_cpu"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="@string/backend_cpu"
+                            android:checked="true" />
+
+                        <RadioButton
+                            android:id="@+id/backend_opencl"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="@string/backend_opencl" />
+                    </RadioGroup>
+                </com.google.android.material.card.MaterialCardView>
+
+                <!-- Start/Stop Button (moved from bottom to here) -->
+                <LinearLayout
+                    android:id="@+id/button_container"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:orientation="horizontal">
+
+                    <!-- Main test button with iOS-style layout -->
+                    <LinearLayout
+                        android:id="@+id/start_test_button_container"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:background="@drawable/benchmark_button_background_selector"
+                        android:paddingStart="24dp"
+                        android:paddingEnd="24dp"
+                        android:paddingTop="10dp"
+                        android:paddingBottom="10dp"
+                        android:gravity="center_vertical"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:minHeight="56dp">
+
+                        <!-- Icon container with circular background (like iOS) -->
+                        <FrameLayout
+                            android:id="@+id/icon_container"
+                            android:layout_width="32dp"
+                            android:layout_height="32dp"
+                            android:background="@drawable/benchmark_button_icon_background">
+
+                            <ImageView
+                                android:id="@+id/start_test_icon"
+                                android:layout_width="16dp"
+                                android:layout_height="16dp"
+                                android:layout_gravity="center"
+                                android:src="@drawable/ic_play_fill"
+                                app:tint="@color/white" />
+
+                            <ProgressBar
+                                android:id="@+id/start_test_progress"
+                                android:layout_width="20dp"
+                                android:layout_height="20dp"
+                                android:layout_gravity="center"
+                                android:indeterminateTint="?colorOnSurface"
+                                android:visibility="gone" />
+
+                        </FrameLayout>
+
+                        <!-- Text (centered like iOS) -->
+                        <TextView
+                            android:id="@+id/start_test_text"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:layout_marginStart="12dp"
+                            android:text="@string/start_test"
+                            android:textColor="@color/white"
+                            android:textSize="18sp"
+                            android:textStyle="bold"
+                            android:textAllCaps="false"
+                            android:gravity="center" />
+
+                        <!-- Arrow icon (like iOS, shown when not running) -->
+                        <ImageView
+                            android:id="@+id/start_test_arrow"
+                            android:layout_width="16dp"
+                            android:layout_height="16dp"
+                            android:layout_marginStart="8dp"
+                            android:src="@drawable/ic_arrow_right"
+                            app:tint="@color/white"
+                            android:alpha="0.8" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Progress Card -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/progress_card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:visibility="gone"
+            app:cardBackgroundColor="@color/benchmark_card_bg"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="0dp"
+            app:strokeColor="@color/benchmark_success"
+            app:strokeWidth="1dp"
+            tools:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="20dp">
+
+                <!-- Progress Header -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="20dp">
+
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <ImageView
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:src="@drawable/ic_chart_line_uptrend"
+                            android:background="@drawable/benchmark_icon_background"
+                            android:padding="8dp" />
+
+                        <LinearLayout
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:layout_marginStart="12dp">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/test_progress"
+                                android:textSize="18sp"
+                                android:textStyle="bold"
+                                android:textColor="?colorOnSurface" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/running_performance_tests"
+                                android:textSize="12sp"
+                                android:textColor="@color/benchmark_secondary"
+                                android:layout_marginTop="2dp" />
+
+                        </LinearLayout>
+
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="0dp"
+                        android:layout_height="1dp"
+                        android:layout_weight="1" />
+
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:gravity="end">
+
+                        <TextView
+                            android:id="@+id/progress_percentage"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="0%"
+                            android:textSize="20sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/benchmark_accent"
+                            android:layout_marginBottom="2dp" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/complete"
+                            android:textSize="12sp"
+                            android:textColor="@color/benchmark_secondary" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+                <!-- Progress Bar -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_marginBottom="20dp">
+
+                    <ProgressBar
+                        android:id="@+id/progress_bar"
+                        style="?android:attr/progressBarStyleHorizontal"
+                        android:layout_width="match_parent"
+                        android:layout_height="8dp"
+                        android:progressDrawable="@drawable/benchmark_progress_bar_background"
+                        android:max="100"
+                        android:progress="0" />
+
+                </LinearLayout>
+
+                <!-- Test Details -->
+                <LinearLayout
+                    android:id="@+id/test_details_container"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone"
+                    tools:visibility="visible">
+
+                    <!-- Test Iteration Info -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="12dp">
+
+                        <ImageView
+                            android:layout_width="12dp"
+                            android:layout_height="12dp"
+                            android:src="@drawable/ic_repeat"
+                            android:tint="@color/benchmark_accent" />
+
+                        <TextView
+                            android:id="@+id/test_iteration_info"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:layout_marginStart="8dp"
+                            android:text="Test 1 of 5"
+                            android:textSize="14sp"
+                            android:textStyle="bold"
+                            android:textColor="?colorOnSurface"
+                            tools:text="Test 1 of 5" />
+
+                        <TextView
+                            android:id="@+id/test_config_info"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="PP: 128 • TG: 256"
+                            android:textSize="12sp"
+                            android:textColor="@color/benchmark_accent"
+                            android:background="@drawable/benchmark_config_badge_background"
+                            android:paddingHorizontal="8dp"
+                            android:paddingVertical="4dp"
+                            tools:text="PP: 128 • TG: 256" />
+
+                    </LinearLayout>
+
+                    <!-- Performance Metrics -->
+                    <LinearLayout
+                        android:id="@+id/progress_performance_metrics_container"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:visibility="gone"
+                        android:orientation="vertical">
+
+                        <!-- Timing Metrics Row -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:layout_marginBottom="12dp">
+
+                            <com.alibaba.mnnllm.android.benchmark.PerformanceMetricView
+                                android:id="@+id/runtime_metric"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:layout_marginEnd="6dp" />
+
+                            <com.alibaba.mnnllm.android.benchmark.PerformanceMetricView
+                                android:id="@+id/prefill_time_metric"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:layout_marginStart="6dp"
+                                android:layout_marginEnd="6dp" />
+
+                            <com.alibaba.mnnllm.android.benchmark.PerformanceMetricView
+                                android:id="@+id/decode_time_metric"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:layout_marginStart="6dp" />
+
+                        </LinearLayout>
+
+                        <!-- Speed Metrics Row -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal">
+
+                            <com.alibaba.mnnllm.android.benchmark.PerformanceMetricView
+                                android:id="@+id/prefill_speed_metric_progress"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:layout_marginEnd="6dp" />
+
+                            <com.alibaba.mnnllm.android.benchmark.PerformanceMetricView
+                                android:id="@+id/decode_speed_metric_progress"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:layout_marginStart="6dp" />
+
+                            <View
+                                android:layout_width="0dp"
+                                android:layout_height="1dp"
+                                android:layout_weight="1" />
+
+                        </LinearLayout>
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Status Card -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/status_card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:visibility="gone"
+            app:cardBackgroundColor="@color/benchmark_card_bg"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="0dp"
+            app:strokeColor="@color/benchmark_warning"
+            app:strokeWidth="1dp"
+            tools:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:padding="20dp">
+
+                <ImageView
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:src="@drawable/ic_info_circle"
+                    android:background="@drawable/benchmark_icon_warning_background"
+                    android:padding="8dp" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:layout_marginStart="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/status_update"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:textColor="?colorOnSurface" />
+
+                    <TextView
+                        android:id="@+id/status_message"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Initializing benchmark test environment..."
+                        android:textSize="14sp"
+                        android:textColor="@color/benchmark_secondary"
+                        android:layout_marginTop="4dp"
+                        tools:text="Initializing benchmark test environment..." />
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+        </com.google.android.material.card.MaterialCardView>
+
+        <LinearLayout
+            android:id="@+id/result_layout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginBottom="24dp"
+            android:visibility="visible">
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/result_card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                app:cardCornerRadius="16dp"
+                app:cardBackgroundColor="@color/benchmark_card_bg"
+                app:strokeColor="#4D10b981"
+                app:strokeWidth="1dp"
+                tools:visibility="visible">
+
+                <androidx.constraintlayout.widget.ConstraintLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:padding="20dp"
+                    tools:visibility="visible">
+
+                    <LinearLayout
+                        android:id="@+id/results_header"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toTopOf="parent">
+
+                        <!-- Icon with circular background -->
+                        <FrameLayout
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/benchmark_results_icon_background">
+
+                            <ImageView
+                                android:layout_width="18dp"
+                                android:layout_height="18dp"
+                                android:layout_gravity="center"
+                                android:src="@drawable/ic_chart_bar_fill"
+                                app:tint="@color/benchmark_success" />
+
+                        </FrameLayout>
+
+                        <!-- Title and subtitle -->
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:layout_marginStart="12dp"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/benchmark_results_title"
+                                android:textColor="?colorOnSurface"
+                                android:textSize="18sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:text="@string/performance_analysis_complete"
+                                android:textColor="@color/benchmark_secondary"
+                                android:textSize="12sp" />
+
+                        </LinearLayout>
+
+                        <!-- Share Button (Like iOS) -->
+                        <LinearLayout
+                            android:id="@+id/share_button"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:gravity="center"
+                            android:padding="8dp"
+                            android:background="?attr/selectableItemBackgroundBorderless"
+                            android:clickable="true"
+                            android:focusable="true">
+
+                            <ImageView
+                                android:layout_width="24dp"
+                                android:layout_height="24dp"
+                                android:src="@drawable/ic_share"
+                                app:tint="@color/benchmark_success" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:text="@string/share"
+                                android:textColor="@color/benchmark_secondary"
+                                android:textSize="12sp" />
+
+                        </LinearLayout>
+
+                    </LinearLayout>
+
+                    <!-- Model and Device Info (Left-aligned like iOS) -->
+                    <TextView
+                        android:id="@+id/model_name"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:textColor="@color/benchmark_result_text_primary"
+                        android:textSize="18sp"
+                        android:textStyle="bold"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toBottomOf="@id/results_header"
+                        tools:text="InternVL2_5-1B-SFT-FULL-MNN" />
+
+                    <TextView
+                        android:id="@+id/deviceInfo"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:textColor="@color/benchmark_result_text_secondary"
+                        android:textSize="14sp"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toBottomOf="@id/model_name"
+                        tools:text="Pixel 7 Pro" />
+
+                    <!-- Benchmark Config Section (Above metrics like iOS) -->
+                    <TextView
+                        android:id="@+id/benchmark_config_title"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:text="@string/benchmark_config_title"
+                        android:textColor="@color/benchmark_result_text_primary"
+                        android:textSize="18sp"
+                        android:textStyle="bold"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toBottomOf="@id/deviceInfo" />
+
+                    <TextView
+                        android:id="@+id/benchmark_config_text"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:textColor="@color/benchmark_result_text_secondary"
+                        android:textSize="14sp"
+                        app:layout_constraintEnd_toEndOf="parent"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toBottomOf="@id/benchmark_config_title"
+                        tools:text="Backend: CPU, Threads: 4, Memory: Low, Precision: Low" />
+
+                    <!-- Performance Metrics Section -->
+                    <LinearLayout
+                        android:id="@+id/performance_metrics_container"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        tools:visibility="visible"
+                        android:orientation="vertical"
+                        app:layout_constraintEnd_toEndOf="parent"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toBottomOf="@id/benchmark_config_text">
+
+                        <!-- First Row: Prefill Speed and Decode Speed -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:layout_marginBottom="12dp">
+
+                            <com.alibaba.mnnllm.android.benchmark.PerformanceMetricView
+                                android:id="@+id/prefill_speed_metric"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:layout_marginEnd="6dp" />
+
+                            <com.alibaba.mnnllm.android.benchmark.PerformanceMetricView
+                                android:id="@+id/decode_speed_metric"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:layout_marginStart="6dp" />
+
+                        </LinearLayout>
+
+                        <!-- Second Row: Total Time and Peak Memory -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal">
+
+
+
+                            <com.alibaba.mnnllm.android.benchmark.PerformanceMetricView
+                                android:id="@+id/peak_memory_metric"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:layout_marginEnd="6dp" />
+                                
+                            <com.alibaba.mnnllm.android.benchmark.PerformanceMetricView
+                                android:id="@+id/total_tokens_metric"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:layout_marginStart="6dp" />
+                        </LinearLayout>
+
+                    </LinearLayout>
+
+                    <!-- Detailed Stats (Like iOS) -->
+                    <LinearLayout
+                        android:id="@+id/detailed_stats"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="24dp"
+                        android:orientation="vertical"
+                        android:padding="8dp"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toBottomOf="@id/performance_metrics_container">
+
+                        <!-- Completed time -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:layout_marginBottom="8dp">
+
+                            <TextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="@string/completed"
+                                android:textColor="@color/benchmark_secondary"
+                                android:textSize="12sp" />
+
+                            <TextView
+                                android:id="@+id/timestamp"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="2025/6/24 14:52:10"
+                                android:textColor="@color/benchmark_secondary"
+                                android:textSize="12sp" />
+
+                        </LinearLayout>
+
+                        <!-- Powered by MNN -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal">
+
+                            <TextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="@string/powered_by_mnn"
+                                android:textColor="@color/benchmark_secondary"
+                                android:textSize="12sp" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="https://github.com/alibaba/MNN"
+                                android:textColor="@color/benchmark_secondary"
+                                android:textSize="12sp" />
+
+                        </LinearLayout>
+
+                    </LinearLayout>
+                </androidx.constraintlayout.widget.ConstraintLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>

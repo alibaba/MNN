@@ -4,15 +4,24 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "^armv7" OR ARCHS MATCHES "^armv7(;armv7s)?")
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^aarch64" OR ARCHS STREQUAL "arm64")
     add_definitions(-DMNN_USE_NEON)
 endif()
+add_executable(MNNV2Basic.out ${CMAKE_CURRENT_LIST_DIR}/MNNV2Basic.cpp)
+list(APPEND MNN_CPP_TOOLS MNNV2Basic.out)
+
+if (NOT MNN_SKIPBUILD_GEOMETRY)
 add_executable(GetMNNInfo ${CMAKE_CURRENT_LIST_DIR}/GetMNNInfo.cpp)
 list(APPEND MNN_CPP_TOOLS GetMNNInfo)
 add_executable(ModuleBasic.out ${CMAKE_CURRENT_LIST_DIR}/ModuleBasic.cpp)
 list(APPEND MNN_CPP_TOOLS ModuleBasic.out)
+
 IF(CMAKE_SYSTEM_NAME MATCHES "^Android")
     add_executable(GpuInterTest.out ${CMAKE_CURRENT_LIST_DIR}/GpuInterTest.cpp )
     target_link_libraries(GpuInterTest.out android)
     list(APPEND MNN_CPP_TOOLS GpuInterTest.out)
 ENDIF()
+
+add_executable(OpenCLProgramBuildTest.out ${CMAKE_CURRENT_LIST_DIR}/OpenCLProgramBuildTest.cpp )
+list(APPEND MNN_CPP_TOOLS OpenCLProgramBuildTest.out)
+
 add_executable(SequenceModuleTest.out ${CMAKE_CURRENT_LIST_DIR}/SequenceModuleTest.cpp)
 list(APPEND MNN_CPP_TOOLS SequenceModuleTest.out)
 
@@ -22,8 +31,6 @@ list(APPEND MNN_CPP_TOOLS mergeInplaceForCPU)
 add_executable(modelCompare.out ${CMAKE_CURRENT_LIST_DIR}/modelCompare.cpp)
 list(APPEND MNN_CPP_TOOLS modelCompare.out)
 
-add_executable(MNNV2Basic.out ${CMAKE_CURRENT_LIST_DIR}/MNNV2Basic.cpp)
-list(APPEND MNN_CPP_TOOLS MNNV2Basic.out)
 if (MNN_USE_SSE)
     target_compile_options(MNNV2Basic.out PRIVATE -DMNN_USE_SSE)
 endif()
@@ -36,6 +43,15 @@ list(APPEND MNN_CPP_TOOLS backendTest.out)
 
 add_executable(testModel.out ${CMAKE_CURRENT_LIST_DIR}/testModel.cpp)
 list(APPEND MNN_CPP_TOOLS testModel.out)
+
+add_executable(compilefornpu ${CMAKE_CURRENT_LIST_DIR}/compilefornpu.cpp ${CMAKE_CURRENT_LIST_DIR}/../../3rd_party/flatbuffers/src/util.cpp)
+list(APPEND MNN_CPP_TOOLS compilefornpu)
+
+
+if (MNN_QNN)
+    add_executable(MNN2QNNModel ${CMAKE_CURRENT_LIST_DIR}/MNN2QNNModel.cpp)
+    list(APPEND MNN_CPP_TOOLS MNN2QNNModel)
+endif()
 
 add_executable(testModel_expr.out ${CMAKE_CURRENT_LIST_DIR}/testModel_expr.cpp)
 list(APPEND MNN_CPP_TOOLS testModel_expr.out)
@@ -58,6 +74,7 @@ list(APPEND MNN_CPP_TOOLS testTrain.out)
 add_executable(fuseTest ${CMAKE_CURRENT_LIST_DIR}/fuseTest.cpp)
 list(APPEND MNN_CPP_TOOLS fuseTest)
 
+endif()
 
 foreach(TARGET ${MNN_CPP_TOOLS})
     target_link_libraries(${TARGET} ${MNN_DEPS})

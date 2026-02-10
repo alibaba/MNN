@@ -1,0 +1,12 @@
+include LICENSE
+include README.md
+include CMakeLists.txt
+recursive-include c-api-examples *.*
+recursive-include sherpa-onnx *.*
+recursive-include cmake *.*
+prune */__pycache__
+prune android
+prune sherpa-onnx/java-api
+prune ios-swift
+prune ios-swiftui
+

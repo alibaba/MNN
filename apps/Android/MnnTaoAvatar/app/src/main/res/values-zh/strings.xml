@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MNN-TaoAvatar</string>
+    <string name="start">Start</string>
+    <string name="stop">Stop</string>
+    <string name="release_to_send">Release to Send, Slide up to cancel</string>
+    <string name="release_to_cancel">Release to cancel</string>
+    <string name="start_chat">与小淘对话</string>
+    <string name="connecting">连接中…</string>
+    <string name="listening">倾听中…</string>
+    <string name="click_to_stop">点击停止</string>
+    <string name="rotate_hint">滑动可以旋转 Avatar</string>
+    <string name="settings">设置</string>
+    <string name="usage_and_feedback">在 Github 上 Star MNN</string>
+    <string name="ll_prompt">Llm System Prompt</string>
+    <string name="current_version">当前版本:%1$s</string>
+    <string name="download_update_available">有新版本: (%1$s)</string>
+    <string name="download">下载</string>
+    <string name="wait_install_apk">请等待下载完成后安装</string>
+    <string name="version_info">版本信息</string>
+    <string name="check_for_update">检查更新</string>
+    <string name="get_update_info_failed">获取更新信息失败</string>
+    <string name="no_update">没有可用更新</string>
+    <string name="llm_prompt_default" >你是小淘，你是一个有用的人工智能助手。</string>
+    <string name="llm_welcome_text" >你好，我是小淘。</string>
+    <string name="download_model">下载资源</string>
+    <string name="download_progress">%1$s/%2$s 已下载\n下载速度:%3$s</string>
+    <string name="downloading">下载中…</string>
+    <string name="download_error">点击重试</string>
+    <string name="download_prepareing">下载准备中</string>
+    <string name="debug_model_size">本地大模型: Qwen2.5–1.5B\n模型大小:%1$s\nTTS 大小:%2$s\na2bs大小:%3$s\nASR大小:%4$s\nNNR大小:%5$s\n"</string>
+    <string name="show_debug_info">显示 Debug 信息</string>
+    <string name="check_for_update_summary" />
+    <string name="inference_by_mnn">由MNN提供本地推理服务</string>
+    <string name="record_permission_denied">录音权限被拒绝，请开启</string>
+    <string name="tts_voice_title">音色</string>
+    <string name="tts_voice_summary">%s</string>
+    <string name="tts_speaker_male_1">男声1</string>
+    <string name="tts_speaker_male_2">男声2</string>
+    <string name="tts_speaker_female_1">女声1</string>
+    <string name="tts_speaker_female_2">女声2</string>
+</resources>

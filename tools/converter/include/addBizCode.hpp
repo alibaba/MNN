@@ -11,7 +11,7 @@
 
 #include <MNN/MNNDefine.h>
 #include "MNN_generated.h"
-MNN_PUBLIC int addBizCode(const std::string modelFile, const std::string bizCode,
+int addBizCode(const std::string modelFile, const std::string bizCode,
                std::unique_ptr<MNN::NetT>& netT);
 
 #endif // ADDBIZCODE_HPP

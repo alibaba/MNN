@@ -8,6 +8,7 @@
 #include "backend/cpu/CPUBackend.hpp"
 #include "core/Concurrency.h"
 #include "backend/cpu/CPUPool.hpp"
+#include "backend/cpu/CPUPoolInt8.hpp"
 #include "compute/CommonOptFunction.h"
 #include "math/Vec.hpp"
 #include "core/TensorUtils.hpp"
@@ -35,7 +36,6 @@ public:
         int padWidth     = layer->padX();
         int padHeight    = layer->padY();
         auto core   = static_cast<CPUBackend*>(backend())->functions();
-        MNN_ASSERT(DataType_DT_INT8 != TensorUtils::getDescribe(inputs[0])->type);
         
         // edit const if global
         auto input       = inputs[0];
@@ -118,6 +118,13 @@ public:
                                 const MNN::Op *op, Backend *backend) const override {
         void* func = nullptr;
         bool returnRedice = false;
+        
+        bool useInt8Pool = false;
+        useInt8Pool = CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1;
+        useInt8Pool &= (CPUBackend::getDataType(outputs[0]) == DataType_DT_INT8 || outputs[0]->getType().bytes() == 1);
+        if (useInt8Pool) {
+            return new CPUPoolInt8(backend, op->main_as_Pool());
+        }
         if (inputs[0]->getType() == halide_type_of<int8_t>()) {
             if (op->main_as_Pool()->type() == PoolType_AVEPOOL) {
                 func = (void*)(poolingAvg<int8_t, Vec16, 4>);

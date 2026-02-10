@@ -1,0 +1,103 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+task downloadAndUnzipNativeLibs {
+    group = 'Pre-build'
+    description = 'Downloads and unzips native libraries from CDN.'
+    def nativeLibsUrl = 'https://meta.alicdn.com/data/mnn/avatar/native-libs-arm64-v8a.zip'
+    def zipFileName = 'avatar-native-libs-arm64-v8a.zip'
+    def outputDir = project.rootDir
+    def downloadedZip = new File(project.buildDir, zipFileName)
+    def checkFile = new File(outputDir, 'src/main/jniLibs/arm64-v8a/libsherpa-mnn-jni.so')
+    inputs.property('url', nativeLibsUrl)
+    outputs.file(checkFile)
+    doLast {
+        println "-> Executing downloadAndUnzipNativeLibs task..."
+        println "   Downloading from ${nativeLibsUrl}"
+        ant.get(src: nativeLibsUrl, dest: downloadedZip)
+
+        if (!downloadedZip.exists()) {
+            throw new GradleException("Download failed: ${downloadedZip} not found.")
+        }
+        println "   Download complete."
+        println "   Unzipping ${downloadedZip.name} to project root..."
+        copy {
+            from(zipTree(downloadedZip))
+            into(outputDir)
+        }
+        println "   Unzip complete."
+        downloadedZip.delete()
+    }
+    onlyIf {
+        println "-> Checking if native libs exist... [Exists: ${checkFile.exists()}]"
+        return !checkFile.exists()
+    }
+}
+preBuild.dependsOn downloadAndUnzipNativeLibs
+
+android {
+    namespace 'com.taobao.meta.avatar'
+    compileSdk 35
+    ndkVersion '27.2.12479018'
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    defaultConfig {
+        applicationId  "com.taobao.meta.avatar"
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName "0.0.2"
+
+        externalNativeBuild {
+            cmake {
+                abiFilters 'arm64-v8a'
+                arguments '-DANDROID_TOOLCHAIN=clang', '-DANDROID_STL=c++_shared'
+            }
+        }
+    }
+    externalNativeBuild {
+        cmake {
+            version '3.22.1'
+            path 'src/main/CMakeLists.txt'
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.debug
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    androidResources {
+        additionalParameters '--warn-manifest-validation'
+    }
+}
+
+ext {
+    okdownload_version = '1.0.8-SNAPSHOT'
+}
+
+dependencies {
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    implementation 'androidx.core:core-ktx:1.15.0'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'com.google.android.material:material:1.12.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.2.1'
+    implementation 'com.github.squti:Android-Wave-Recorder:2.0.1'
+    implementation 'com.github.ybq:Android-SpinKit:1.4.0'
+    implementation 'androidx.preference:preference-ktx:1.2.1'
+    implementation 'com.squareup.retrofit2:converter-gson:2.9.0'
+    implementation 'com.squareup.retrofit2:retrofit:2.9.0'
+    implementation 'com.squareup.okhttp3:logging-interceptor:4.9.3'
+    implementation 'com.squareup.retrofit2:converter-scalars:2.9.0'
+    implementation project(':model_downloader')
+}

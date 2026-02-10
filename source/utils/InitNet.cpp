@@ -153,6 +153,9 @@ bool initTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* net, 
                 quant->zero  =  des->quantInfo()->zero();
                 quant->min   =  des->quantInfo()->min();
                 quant->max   =  des->quantInfo()->max();
+                if (des->quantInfo()->type() != DataType_DT_INVALID) {
+                    quant->type = des->quantInfo()->type();
+                }
             }
         }
     }
@@ -328,15 +331,4 @@ void setInputOutputForOps(std::vector<std::shared_ptr<Tensor>>& allTensors, cons
     }
 }
 
-void initPipelineInfosFromNet(std::vector<Schedule::OpCacheInfo>& infos, const Net* net, std::vector<std::shared_ptr<Tensor>>& allTensors) {
-    std::vector<const Op*> ops;
-    for (int i = 0; i < net->oplists()->size(); i++) {
-        auto op = net->oplists()->GetAs<Op>(i);
-        if (needComputeOp(op)) {
-            ops.push_back(op);
-        }
-    }
-    initPipelineInfosFromOps(infos, ops, allTensors);
-    setInputOutputForOps(allTensors, ops);
-}
 } // namespace MNN

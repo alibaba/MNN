@@ -146,7 +146,7 @@ enum OpType {
   OpType_LRN = 37,
   OpType_LSTM = 38,
   OpType_MatMul = 39,
-  OpType_MVN = 40,
+  OpType_MoE = 40,
   OpType_NonMaxSuppression = 41,
   OpType_NonMaxSuppressionV2 = 42,
   OpType_Normalize = 43,
@@ -282,7 +282,6 @@ enum OpType {
   OpType_ConvInt8 = 513,
   OpType_Int8ToFloat = 514,
   OpType_DepthwiseConvInt8 = 515,
-  OpType_PoolInt8 = 516,
   OpType_FloatToInt8 = 517,
   OpType_EltwiseInt8 = 518,
   OpType_While = 600,
@@ -293,7 +292,7 @@ enum OpType {
   OpType_MAX = OpType_GridSample
 };
 
-inline const OpType (&EnumValuesOpType())[183] {
+inline const OpType (&EnumValuesOpType())[182] {
   static const OpType values[] = {
     OpType_AbsVal,
     OpType_QuantizedAdd,
@@ -335,7 +334,7 @@ inline const OpType (&EnumValuesOpType())[183] {
     OpType_LRN,
     OpType_LSTM,
     OpType_MatMul,
-    OpType_MVN,
+    OpType_MoE,
     OpType_NonMaxSuppression,
     OpType_NonMaxSuppressionV2,
     OpType_Normalize,
@@ -471,7 +470,6 @@ inline const OpType (&EnumValuesOpType())[183] {
     OpType_ConvInt8,
     OpType_Int8ToFloat,
     OpType_DepthwiseConvInt8,
-    OpType_PoolInt8,
     OpType_FloatToInt8,
     OpType_EltwiseInt8,
     OpType_While,
@@ -524,7 +522,7 @@ inline const char * const *EnumNamesOpType() {
     "LRN",
     "LSTM",
     "MatMul",
-    "MVN",
+    "MoE",
     "NonMaxSuppression",
     "NonMaxSuppressionV2",
     "Normalize",
@@ -1000,7 +998,7 @@ inline const char * const *EnumNamesOpType() {
     "ConvInt8",
     "Int8ToFloat",
     "DepthwiseConvInt8",
-    "PoolInt8",
+    "",
     "FloatToInt8",
     "EltwiseInt8",
     "",
@@ -2655,18 +2653,24 @@ bool VerifyOpParameterVector(flatbuffers::Verifier &verifier, const flatbuffers:
 enum ForwardType {
   ForwardType_CPU = 0,
   ForwardType_METAL = 1,
-  ForwardType_OPENCL = 2,
-  ForwardType_OPENGLES = 3,
-  ForwardType_VULKAN = 4,
+  ForwardType_CUDA = 2,
+  ForwardType_OPENCL = 3,
+  ForwardType_AUTO = 4,
+  ForwardType_NNAPI = 5,
+  ForwardType_OPENGLES = 6,
+  ForwardType_VULKAN = 7,
   ForwardType_MIN = ForwardType_CPU,
   ForwardType_MAX = ForwardType_VULKAN
 };
 
-inline const ForwardType (&EnumValuesForwardType())[5] {
+inline const ForwardType (&EnumValuesForwardType())[8] {
   static const ForwardType values[] = {
     ForwardType_CPU,
     ForwardType_METAL,
+    ForwardType_CUDA,
     ForwardType_OPENCL,
+    ForwardType_AUTO,
+    ForwardType_NNAPI,
     ForwardType_OPENGLES,
     ForwardType_VULKAN
   };
@@ -2677,7 +2681,10 @@ inline const char * const *EnumNamesForwardType() {
   static const char * const names[] = {
     "CPU",
     "METAL",
+    "CUDA",
     "OPENCL",
+    "AUTO",
+    "NNAPI",
     "OPENGLES",
     "VULKAN",
     nullptr
@@ -8065,13 +8072,12 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
-    { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     OpTypeTypeTable
   };
-  static const int64_t values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 269, 299, 300, 301, 302, 303, 304, 512, 513, 514, 515, 516, 517, 518, 600, 601, 603, 604 };
+  static const int64_t values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 269, 299, 300, 301, 302, 303, 304, 512, 513, 514, 515, 517, 518, 600, 601, 603, 604 };
   static const char * const names[] = {
     "AbsVal",
     "QuantizedAdd",
@@ -8113,7 +8119,7 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "LRN",
     "LSTM",
     "MatMul",
-    "MVN",
+    "MoE",
     "NonMaxSuppression",
     "NonMaxSuppressionV2",
     "Normalize",
@@ -8249,7 +8255,6 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "ConvInt8",
     "Int8ToFloat",
     "DepthwiseConvInt8",
-    "PoolInt8",
     "FloatToInt8",
     "EltwiseInt8",
     "While",
@@ -8258,7 +8263,7 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "GridSample"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_ENUM, 183, type_codes, type_refs, values, names
+    flatbuffers::ST_ENUM, 182, type_codes, type_refs, values, names
   };
   return &tt;
 }
@@ -8581,6 +8586,9 @@ inline const flatbuffers::TypeTable *ForwardTypeTypeTable() {
     { flatbuffers::ET_CHAR, 0, 0 },
     { flatbuffers::ET_CHAR, 0, 0 },
     { flatbuffers::ET_CHAR, 0, 0 },
+    { flatbuffers::ET_CHAR, 0, 0 },
+    { flatbuffers::ET_CHAR, 0, 0 },
+    { flatbuffers::ET_CHAR, 0, 0 },
     { flatbuffers::ET_CHAR, 0, 0 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
@@ -8589,12 +8597,15 @@ inline const flatbuffers::TypeTable *ForwardTypeTypeTable() {
   static const char * const names[] = {
     "CPU",
     "METAL",
+    "CUDA",
     "OPENCL",
+    "AUTO",
+    "NNAPI",
     "OPENGLES",
     "VULKAN"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_ENUM, 5, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_ENUM, 8, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

@@ -1,0 +1,1485 @@
+{
+  "tagTranslations": {
+    "Chat": "对话",
+    "TextGeneration": "文本生成",
+    "Multimodal": "多模态",
+    "ImageUnderstanding": "图片理解",
+    "VideoUnderstanding": "视频理解",
+    "AudioUnderstanding": "音频理解",
+    "CodeGeneration": "代码生成",
+    "Math": "数学",
+    "DocumentUnderstanding": "文档理解",
+    "TextToImage": "文生图",
+    "DeepThinking": "深度思考"
+  },
+  "quickFilterTags": ["ImageUnderstanding", "TextToImage", "AudioUnderstanding", "DeepThinking"],
+  "models": [
+    {
+      "modelName": "gemma-3-1b-it-qat-q4_0-gguf-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "recommended",
+        "qwen"
+      ],
+      "size_gb": 4,
+      "vendor": "Qwen",
+      "sources": {
+        "HuggingFace": "taobao-mnn/gemma-3-1b-it-qat-q4_0-gguf-MNN",
+         "ModelScope": "MNN/gemma-3-1b-it-qat-q4_0-gguf-MNN"
+        }
+    },
+    {
+      "modelName": "Qwen3-4B-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "recommended",
+        "qwen"
+      ],
+      "size_gb": 4,
+      "vendor": "Qwen",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Qwen3-4B-MNN",
+         "ModelScope": "MNN/Qwen3-4B-MNN"
+        }
+    },
+    {
+      "modelName": "Qwen3-0.6B-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration",
+        "DeepThinking"
+      ],
+      "categories": [
+        "recommended",
+        "qwen"
+      ],
+      "size_gb": 0.6,
+      "vendor": "Qwen",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Qwen3-0.6B-MNN",
+         "ModelScope": "MNN/Qwen3-0.6B-MNN",
+        "Modelers": "MNN/Qwen3-0.6B-MNN"
+      }
+    },
+    {
+      "modelName": "Qwen2.5-Omni-3B-MNN",
+      "tags": [
+        "Chat",
+        "Multimodal",
+        "TextGeneration"
+      ],
+      "categories": [
+        "recommended",
+        "qwen"
+      ],
+      "size_gb": 3,
+      "vendor": "Qwen",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Qwen2.5-Omni-3B-MNN",
+         "ModelScope": "MNN/Qwen2.5-Omni-3B-MNN",
+        "Modelers": "MNN/Qwen2.5-Omni-3B-MNN"
+      }
+    },
+    {
+      "modelName": "Qwen3-1.7B-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "recommended",
+        "qwen"
+      ],
+      "size_gb": 1.7,
+      "vendor": "Qwen",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Qwen3-1.7B-MNN",
+         "ModelScope": "MNN/Qwen3-1.7B-MNN",
+        "Modelers": "MNN/Qwen3-1.7B-MNN"
+      }
+    },
+    {
+      "modelName": "Qwen3-8B-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "recommended",
+        "qwen"
+      ],
+      "size_gb": 8,
+      "vendor": "Qwen",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Qwen3-8B-MNN",
+         "ModelScope": "MNN/Qwen3-8B-MNN",
+        "Modelers": "MNN/Qwen3-8B-MNN"
+      }
+    },
+    {
+      "modelName": "DeepSeek-R1-0528-Qwen3-8B-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "recommended",
+        "deepseek"
+      ],
+      "size_gb": 8,
+      "vendor": "DeepSeek",
+      "sources": {
+        "HuggingFace": "taobao-mnn/DeepSeek-R1-0528-Qwen3-8B-MNN",
+         "ModelScope": "MNN/DeepSeek-R1-0528-Qwen3-8B-MNN",
+        "Modelers": "MNN/DeepSeek-R1-0528-Qwen3-8B-MNN"
+      }
+    },
+    {
+      "modelName": "Qwen3-30B-A3B-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "recommended",
+        "qwen"
+      ],
+      "size_gb": 30,
+      "vendor": "Qwen",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Qwen3-30B-A3B-MNN",
+         "ModelScope": "MNN/Qwen3-30B-A3B-MNN",
+        "Modelers": "MNN/Qwen3-30B-A3B-MNN"
+      }
+    },
+    {
+      "modelName": "Qwen2.5-Omni-7B-MNN",
+      "tags": [
+        "Chat",
+        "Multimodal",
+        "TextGeneration"
+      ],
+      "categories": [
+        "recommended",
+        "qwen"
+      ],
+      "size_gb": 7,
+      "vendor": "Qwen",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Qwen2.5-Omni-7B-MNN",
+         "ModelScope": "MNN/Qwen2.5-Omni-7B-MNN",
+        "Modelers": "MNN/Qwen2.5-Omni-7B-MNN"
+      }
+    },
+    {
+      "modelName": "Qwen3-32B-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "recommended",
+        "qwen"
+      ],
+      "size_gb": 32,
+      "vendor": "Qwen",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Qwen3-32B-MNN",
+         "ModelScope": "MNN/Qwen3-32B-MNN",
+        "Modelers": "MNN/Qwen3-32B-MNN"
+      }
+    },
+    {
+      "modelName": "Qwen3-14B-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "recommended",
+        "qwen"
+      ],
+      "size_gb": 14,
+      "vendor": "Qwen",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Qwen3-14B-MNN",
+         "ModelScope": "MNN/Qwen3-14B-MNN",
+        "Modelers": "MNN/Qwen3-14B-MNN"
+      }
+    },
+    {
+      "modelName": "Qwen2.5-0.5B-Instruct-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "good",
+        "qwen"
+      ],
+      "size_gb": 0.5,
+      "vendor": "Qwen",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Qwen2.5-0.5B-Instruct-MNN",
+         "ModelScope": "MNN/Qwen2.5-0.5B-Instruct-MNN",
+        "Modelers": "MNN/Qwen2.5-0.5B-Instruct-MNN"
+      }
+    },
+    {
+      "modelName": "Qwen2.5-1.5B-Instruct-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "good",
+        "qwen"
+      ],
+      "size_gb": 1.5,
+      "vendor": "Qwen",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Qwen2.5-1.5B-Instruct-MNN",
+         "ModelScope": "MNN/Qwen2.5-1.5B-Instruct-MNN",
+        "Modelers": "MNN/Qwen2.5-1.5B-Instruct-MNN"
+      }
+    },
+    {
+      "modelName": "DeepSeek-R1-1.5B-Qwen-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "good",
+        "deepseek"
+      ],
+      "size_gb": 1.5,
+      "vendor": "DeepSeek",
+      "sources": {
+        "HuggingFace": "taobao-mnn/DeepSeek-R1-1.5B-Qwen-MNN",
+         "ModelScope": "MNN/DeepSeek-R1-1.5B-Qwen-MNN",
+        "Modelers": "MNN/DeepSeek-R1-1.5B-Qwen-MNN"
+      }
+    },
+    {
+      "modelName": "gemma-2-2b-it-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "good",
+        "gemma"
+      ],
+      "size_gb": 2,
+      "vendor": "Gemma",
+      "sources": {
+        "HuggingFace": "taobao-mnn/gemma-2-2b-it-MNN",
+         "ModelScope": "MNN/gemma-2-2b-it-MNN",
+        "Modelers": "MNN/gemma-2-2b-it-MNN"
+      }
+    },
+    {
+      "modelName": "Qwen2.5-7B-Instruct-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "good",
+        "qwen"
+      ],
+      "size_gb": 7,
+      "vendor": "Qwen",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Qwen2.5-7B-Instruct-MNN",
+         "ModelScope": "MNN/Qwen2.5-7B-Instruct-MNN",
+        "Modelers": "MNN/Qwen2.5-7B-Instruct-MNN"
+      }
+    },
+    {
+      "modelName": "Qwen2.5-3B-Instruct-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "good",
+        "qwen"
+      ],
+      "size_gb": 3,
+      "vendor": "Qwen",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Qwen2.5-3B-Instruct-MNN",
+         "ModelScope": "MNN/Qwen2.5-3B-Instruct-MNN",
+        "Modelers": "MNN/Qwen2.5-3B-Instruct-MNN"
+      }
+    },
+    {
+      "modelName": "DeepSeek-R1-7B-Qwen-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "deepseek"
+      ],
+      "size_gb": 7,
+      "vendor": "DeepSeek",
+      "sources": {
+        "HuggingFace": "taobao-mnn/DeepSeek-R1-7B-Qwen-MNN",
+         "ModelScope": "MNN/DeepSeek-R1-7B-Qwen-MNN",
+        "Modelers": "MNN/DeepSeek-R1-7B-Qwen-MNN"
+      }
+    },
+    {
+      "modelName": "deepseek-vl-7b-chat-MNN",
+      "tags": [
+        "Chat",
+        "Multimodal",
+        "ImageUnderstanding",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "deepseek"
+      ],
+      "size_gb": 7,
+      "vendor": "DeepSeek",
+      "sources": {
+        "HuggingFace": "taobao-mnn/deepseek-vl-7b-chat-MNN",
+         "ModelScope": "MNN/deepseek-vl-7b-chat-MNN",
+        "Modelers": "MNN/deepseek-vl-7b-chat-MNN"
+      }
+    },
+    {
+      "modelName": "deepseek-llm-7b-chat-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "deepseek"
+      ],
+      "size_gb": 7,
+      "vendor": "DeepSeek",
+      "sources": {
+        "HuggingFace": "taobao-mnn/deepseek-llm-7b-chat-MNN",
+         "ModelScope": "MNN/deepseek-llm-7b-chat-MNN",
+        "Modelers": "MNN/deepseek-llm-7b-chat-MNN"
+      }
+    },
+    {
+      "modelName": "Qwen2.5-VL-3B-Instruct-MNN",
+      "tags": [
+        "Chat",
+        "Multimodal",
+        "ImageUnderstanding",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "qwen"
+      ],
+      "size_gb": 3,
+      "vendor": "Qwen",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Qwen2.5-VL-3B-Instruct-MNN",
+         "ModelScope": "MNN/Qwen2.5-VL-3B-Instruct-MNN",
+        "Modelers": "MNN/Qwen2.5-VL-3B-Instruct-MNN"
+      }
+    },
+    {
+      "modelName": "SmolVLM2-500M-Video-Instruct-MNN",
+      "tags": [
+        "Chat",
+        "Multimodal",
+        "VideoUnderstanding",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "smol"
+      ],
+      "size_gb": 0.5,
+      "vendor": "Smol",
+      "sources": {
+        "HuggingFace": "taobao-mnn/SmolVLM2-500M-Video-Instruct-MNN",
+         "ModelScope": "MNN/SmolVLM2-500M-Video-Instruct-MNN",
+        "Modelers": "MNN/SmolVLM2-500M-Video-Instruct-MNN"
+      }
+    },
+    {
+      "modelName": "InternVL2_5-1B-MNN",
+      "tags": [
+        "Chat",
+        "Multimodal",
+        "ImageUnderstanding",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "internvl"
+      ],
+      "size_gb": 1,
+      "vendor": "InternLM",
+      "sources": {
+        "HuggingFace": "taobao-mnn/InternVL2_5-1B-MNN",
+         "ModelScope": "MNN/InternVL2_5-1B-MNN",
+        "Modelers": "MNN/InternVL2_5-1B-MNN"
+      }
+    },
+    {
+      "modelName": "Llama-3.2-3B-Instruct-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "llama"
+      ],
+      "size_gb": 3,
+      "vendor": "Llama",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Llama-3.2-3B-Instruct-MNN",
+         "ModelScope": "MNN/Llama-3.2-3B-Instruct-MNN",
+        "Modelers": "MNN/Llama-3.2-3B-Instruct-MNN"
+      }
+    },
+    {
+      "modelName": "SmolVLM2-2.2B-Instruct-MNN",
+      "tags": [
+        "Chat",
+        "Multimodal",
+        "ImageUnderstanding",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "smol"
+      ],
+      "size_gb": 2.2,
+      "vendor": "Smol",
+      "sources": {
+        "HuggingFace": "taobao-mnn/SmolVLM2-2.2B-Instruct-MNN",
+         "ModelScope": "MNN/SmolVLM2-2.2B-Instruct-MNN",
+        "Modelers": "MNN/SmolVLM2-2.2B-Instruct-MNN"
+      }
+    },
+    {
+      "modelName": "gemma-2-9b-it-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "gemma"
+      ],
+      "size_gb": 9,
+      "vendor": "Gemma",
+      "sources": {
+        "HuggingFace": "taobao-mnn/gemma-2-9b-it-MNN",
+         "ModelScope": "MNN/gemma-2-9b-it-MNN",
+        "Modelers": "MNN/gemma-2-9b-it-MNN"
+      }
+    },
+    {
+      "modelName": "SmolVLM2-256M-Video-Instruct-MNN",
+      "tags": [
+        "Chat",
+        "Multimodal",
+        "VideoUnderstanding",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "smol"
+      ],
+      "size_gb": 0.256,
+      "vendor": "Smol",
+      "sources": {
+        "HuggingFace": "taobao-mnn/SmolVLM2-256M-Video-Instruct-MNN",
+         "ModelScope": "MNN/SmolVLM2-256M-Video-Instruct-MNN",
+        "Modelers": "MNN/SmolVLM2-256M-Video-Instruct-MNN"
+      }
+    },
+    {
+      "modelName": "FastVLM-1.5B-Stage3-MNN",
+      "tags": [
+        "Chat",
+        "Multimodal",
+        "ImageUnderstanding",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "fastvlm"
+      ],
+      "size_gb": 1.5,
+      "vendor": "FastVLM",
+      "sources": {
+        "HuggingFace": "taobao-mnn/FastVLM-1.5B-Stage3-MNN",
+         "ModelScope": "MNN/FastVLM-1.5B-Stage3-MNN",
+        "Modelers": "MNN/FastVLM-1.5B-Stage3-MNN"
+      }
+    },
+    {
+      "modelName": "SmolVLM-500M-Instruct-MNN",
+      "tags": [
+        "Chat",
+        "Multimodal",
+        "ImageUnderstanding",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "smol"
+      ],
+      "size_gb": 0.5,
+      "vendor": "Smol",
+      "sources": {
+        "HuggingFace": "taobao-mnn/SmolVLM-500M-Instruct-MNN",
+         "ModelScope": "MNN/SmolVLM-500M-Instruct-MNN",
+        "Modelers": "MNN/SmolVLM-500M-Instruct-MNN"
+      }
+    },
+    {
+      "modelName": "Qwen-VL-Chat-MNN",
+      "tags": [
+        "Chat",
+        "Multimodal",
+        "ImageUnderstanding",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "qwen"
+      ],
+      "size_gb": null,
+      "vendor": "Qwen",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Qwen-VL-Chat-MNN",
+         "ModelScope": "MNN/Qwen-VL-Chat-MNN",
+        "Modelers": "MNN/Qwen-VL-Chat-MNN"
+      }
+    },
+    {
+      "modelName": "SmolLM2-360M-Instruct-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "smol"
+      ],
+      "size_gb": 0.36,
+      "vendor": "Smol",
+      "sources": {
+        "HuggingFace": "taobao-mnn/SmolLM2-360M-Instruct-MNN",
+         "ModelScope": "MNN/SmolLM2-360M-Instruct-MNN",
+        "Modelers": "MNN/SmolLM2-360M-Instruct-MNN"
+      }
+    },
+    {
+      "modelName": "SmolVLM-256M-Instruct-MNN",
+      "tags": [
+        "Chat",
+        "Multimodal",
+        "ImageUnderstanding",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "smol"
+      ],
+      "size_gb": 0.256,
+      "vendor": "Smol",
+      "sources": {
+        "HuggingFace": "taobao-mnn/SmolVLM-256M-Instruct-MNN",
+         "ModelScope": "MNN/SmolVLM-256M-Instruct-MNN",
+        "Modelers": "MNN/SmolVLM-256M-Instruct-MNN"
+      }
+    },
+    {
+      "modelName": "FastVLM-0.5B-Stage3-MNN",
+      "tags": [
+        "Chat",
+        "Multimodal",
+        "ImageUnderstanding",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "fastvlm"
+      ],
+      "size_gb": 0.5,
+      "vendor": "FastVLM",
+      "sources": {
+        "HuggingFace": "taobao-mnn/FastVLM-0.5B-Stage3-MNN",
+         "ModelScope": "MNN/FastVLM-0.5B-Stage3-MNN",
+        "Modelers": "MNN/FastVLM-0.5B-Stage3-MNN"
+      }
+    },
+    {
+      "modelName": "Yi-6B-Chat-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "yi"
+      ],
+      "size_gb": 6,
+      "vendor": "01.AI",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Yi-6B-Chat-MNN",
+         "ModelScope": "MNN/Yi-6B-Chat-MNN",
+        "Modelers": "MNN/Yi-6B-Chat-MNN"
+      }
+    },
+    {
+      "modelName": "SmolVLM-Instruct-MNN",
+      "tags": [
+        "Chat",
+        "Multimodal",
+        "ImageUnderstanding",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "smol"
+      ],
+      "size_gb": null,
+      "vendor": "Smol",
+      "sources": {
+        "HuggingFace": "taobao-mnn/SmolVLM-Instruct-MNN",
+         "ModelScope": "MNN/SmolVLM-Instruct-MNN",
+        "Modelers": "MNN/SmolVLM-Instruct-MNN"
+      }
+    },
+    {
+      "modelName": "MiMo-7B-RL-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "mimo"
+      ],
+      "size_gb": 7,
+      "vendor": "MiMo",
+      "sources": {
+        "HuggingFace": "taobao-mnn/MiMo-7B-RL-MNN",
+         "ModelScope": "MNN/MiMo-7B-RL-MNN",
+        "Modelers": "MNN/MiMo-7B-RL-MNN"
+      }
+    },
+    {
+      "modelName": "TinyLlama-1.1B-Chat-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "llama"
+      ],
+      "size_gb": 1.1,
+      "vendor": "Llama",
+      "sources": {
+        "HuggingFace": "taobao-mnn/TinyLlama-1.1B-Chat-MNN",
+         "ModelScope": "MNN/TinyLlama-1.1B-Chat-MNN",
+        "Modelers": "MNN/TinyLlama-1.1B-Chat-MNN"
+      }
+    },
+    {
+      "modelName": "internlm-chat-7b-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "internlm"
+      ],
+      "size_gb": 7,
+      "vendor": "InternLm",
+      "sources": {
+        "HuggingFace": "taobao-mnn/internlm-chat-7b-MNN",
+         "ModelScope": "MNN/internlm-chat-7b-MNN",
+        "Modelers": "MNN/internlm-chat-7b-MNN"
+      }
+    },
+    {
+      "modelName": "Qwen2.5-Math-7B-Instruct-MNN",
+      "tags": [
+        "Chat",
+        "Math",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "qwen"
+      ],
+      "size_gb": 7,
+      "vendor": "Qwen",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Qwen2.5-Math-7B-Instruct-MNN",
+         "ModelScope": "MNN/Qwen2.5-Math-7B-Instruct-MNN",
+        "Modelers": "MNN/Qwen2.5-Math-7B-Instruct-MNN"
+      }
+    },
+    {
+      "modelName": "Qwen2-VL-2B-Instruct-MNN",
+      "tags": [
+        "Chat",
+        "Multimodal",
+        "ImageUnderstanding",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "qwen"
+      ],
+      "size_gb": 2,
+      "vendor": "Qwen",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Qwen2-VL-2B-Instruct-MNN",
+         "ModelScope": "MNN/Qwen2-VL-2B-Instruct-MNN",
+        "Modelers": "MNN/Qwen2-VL-2B-Instruct-MNN"
+      }
+    },
+    {
+      "modelName": "FastVLM-0.5B-Stage2-MNN",
+      "tags": [
+        "Chat",
+        "Multimodal",
+        "ImageUnderstanding",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "fastvlm"
+      ],
+      "size_gb": 0.5,
+      "vendor": "FastVLM",
+      "sources": {
+        "HuggingFace": "taobao-mnn/FastVLM-0.5B-Stage2-MNN",
+         "ModelScope": "MNN/FastVLM-0.5B-Stage2-MNN",
+        "Modelers": "MNN/FastVLM-0.5B-Stage2-MNN"
+      }
+    },
+    {
+      "modelName": "Qwen2.5-VL-7B-Instruct-MNN",
+      "tags": [
+        "Chat",
+        "Multimodal",
+        "ImageUnderstanding",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "qwen"
+      ],
+      "size_gb": 7,
+      "vendor": "Qwen",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Qwen2.5-VL-7B-Instruct-MNN",
+         "ModelScope": "MNN/Qwen2.5-VL-7B-Instruct-MNN",
+        "Modelers": "MNN/Qwen2.5-VL-7B-Instruct-MNN"
+      }
+    },
+    {
+      "modelName": "FastVLM-1.5B-Stage2-MNN",
+      "tags": [
+        "Chat",
+        "Multimodal",
+        "ImageUnderstanding",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "fastvlm"
+      ],
+      "size_gb": 1.5,
+      "vendor": "FastVLM",
+      "sources": {
+        "HuggingFace": "taobao-mnn/FastVLM-1.5B-Stage2-MNN",
+         "ModelScope": "MNN/FastVLM-1.5B-Stage2-MNN",
+        "Modelers": "MNN/FastVLM-1.5B-Stage2-MNN"
+      }
+    },
+    {
+      "modelName": "DeepSeek-Prover-V2-7B-MNN",
+      "tags": [
+        "Chat",
+        "CodeGeneration",
+        "Math",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "deepseek"
+      ],
+      "size_gb": 7,
+      "vendor": "DeepSeek",
+      "sources": {
+        "HuggingFace": "taobao-mnn/DeepSeek-Prover-V2-7B-MNN",
+         "ModelScope": "MNN/DeepSeek-Prover-V2-7B-MNN",
+        "Modelers": "MNN/DeepSeek-Prover-V2-7B-MNN"
+      }
+    },
+    {
+      "modelName": "Baichuan2-7B-Chat-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "baichuan"
+      ],
+      "size_gb": 7,
+      "vendor": "Baichuan",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Baichuan2-7B-Chat-MNN",
+         "ModelScope": "MNN/Baichuan2-7B-Chat-MNN",
+        "Modelers": "MNN/Baichuan2-7B-Chat-MNN"
+      }
+    },
+    {
+      "modelName": "phi-2-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "phi"
+      ],
+      "size_gb": 2,
+      "vendor": "Phi",
+      "sources": {
+        "HuggingFace": "taobao-mnn/phi-2-MNN",
+         "ModelScope": "MNN/phi-2-MNN",
+        "Modelers": "MNN/phi-2-MNN"
+      }
+    },
+    {
+      "modelName": "MobileLLM-125M-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "mobilellm"
+      ],
+      "size_gb": 0.125,
+      "vendor": "MobileLLM",
+      "sources": {
+        "HuggingFace": "taobao-mnn/MobileLLM-125M-MNN",
+         "ModelScope": "MNN/MobileLLM-125M-MNN",
+        "Modelers": "MNN/MobileLLM-125M-MNN"
+      }
+    },
+    {
+      "modelName": "Llama-2-7b-chat-ms-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "llama"
+      ],
+      "size_gb": 7,
+      "vendor": "Llama",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Llama-2-7b-chat-ms-MNN",
+         "ModelScope": "MNN/Llama-2-7b-chat-ms-MNN",
+        "Modelers": "MNN/Llama-2-7b-chat-ms-MNN"
+      }
+    },
+    {
+      "modelName": "SmolLM2-135M-Instruct-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "smol"
+      ],
+      "size_gb": 0.135,
+      "vendor": "Smol",
+      "sources": {
+        "HuggingFace": "taobao-mnn/SmolLM2-135M-Instruct-MNN",
+         "ModelScope": "MNN/SmolLM2-135M-Instruct-MNN",
+        "Modelers": "MNN/SmolLM2-135M-Instruct-MNN"
+      }
+    },
+    {
+      "modelName": "Qwen-7B-Chat-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "qwen"
+      ],
+      "size_gb": 7,
+      "vendor": "Qwen",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Qwen-7B-Chat-MNN",
+         "ModelScope": "MNN/Qwen-7B-Chat-MNN",
+        "Modelers": "MNN/Qwen-7B-Chat-MNN"
+      }
+    },
+    {
+      "modelName": "Llama-3.2-1B-Instruct-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "llama"
+      ],
+      "size_gb": 1,
+      "vendor": "Llama",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Llama-3.2-1B-Instruct-MNN",
+         "ModelScope": "MNN/Llama-3.2-1B-Instruct-MNN",
+        "Modelers": "MNN/Llama-3.2-1B-Instruct-MNN"
+      }
+    },
+    {
+      "modelName": "glm-4-9b-chat-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "glm"
+      ],
+      "size_gb": 9,
+      "vendor": "THUDM",
+      "sources": {
+        "HuggingFace": "taobao-mnn/glm-4-9b-chat-MNN",
+         "ModelScope": "MNN/glm-4-9b-chat-MNN",
+        "Modelers": "MNN/glm-4-9b-chat-MNN"
+      }
+    },
+    {
+      "modelName": "Qwen2-Audio-7B-Instruct-MNN",
+      "tags": [
+        "Chat",
+        "AudioUnderstanding",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "qwen"
+      ],
+      "size_gb": 7,
+      "vendor": "Qwen",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Qwen2-Audio-7B-Instruct-MNN",
+         "ModelScope": "MNN/Qwen2-Audio-7B-Instruct-MNN",
+        "Modelers": "MNN/Qwen2-Audio-7B-Instruct-MNN"
+      }
+    },
+    {
+      "modelName": "gemma-7b-it-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "gemma"
+      ],
+      "size_gb": 7,
+      "vendor": "Gemma",
+      "sources": {
+        "HuggingFace": "taobao-mnn/gemma-7b-it-MNN",
+         "ModelScope": "MNN/gemma-7b-it-MNN",
+        "Modelers": "MNN/gemma-7b-it-MNN"
+      }
+    },
+    {
+      "modelName": "TinyLlama-1.1B-Chat-v1.0-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "llama"
+      ],
+      "size_gb": 1.1,
+      "vendor": "TinyLlama",
+      "sources": {
+        "HuggingFace": "taobao-mnn/TinyLlama-1.1B-Chat-v1.0-MNN",
+         "ModelScope": "MNN/TinyLlama-1.1B-Chat-v1.0-MNN",
+        "Modelers": "MNN/TinyLlama-1.1B-Chat-v1.0-MNN"
+      }
+    },
+    {
+      "modelName": "MobileLLM-1B-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "mobilellm"
+      ],
+      "size_gb": 1,
+      "vendor": "MobileLLM",
+      "sources": {
+        "HuggingFace": "taobao-mnn/MobileLLM-1B-MNN",
+         "ModelScope": "MNN/MobileLLM-1B-MNN",
+        "Modelers": "MNN/MobileLLM-1B-MNN"
+      }
+    },
+    {
+      "modelName": "Meta-Llama-3.1-8B-Instruct-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "llama"
+      ],
+      "size_gb": 8,
+      "vendor": "Llama",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Meta-Llama-3.1-8B-Instruct-MNN",
+         "ModelScope": "MNN/Meta-Llama-3.1-8B-Instruct-MNN",
+        "Modelers": "MNN/Meta-Llama-3.1-8B-Instruct-MNN"
+      }
+    },
+    {
+      "modelName": "Qwen2-1.5B-Instruct-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "qwen"
+      ],
+      "size_gb": 1.5,
+      "vendor": "Qwen",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Qwen2-1.5B-Instruct-MNN",
+         "ModelScope": "MNN/Qwen2-1.5B-Instruct-MNN",
+        "Modelers": "MNN/Qwen2-1.5B-Instruct-MNN"
+      }
+    },
+    {
+      "modelName": "chatglm3-6b-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "glm"
+      ],
+      "size_gb": 6,
+      "vendor": "THUDM",
+      "sources": {
+        "HuggingFace": "taobao-mnn/chatglm3-6b-MNN",
+         "ModelScope": "MNN/chatglm3-6b-MNN",
+        "Modelers": "MNN/chatglm3-6b-MNN"
+      }
+    },
+    {
+      "modelName": "MobileLLM-350M-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "mobilellm"
+      ],
+      "size_gb": 0.35,
+      "vendor": "MobileLLM",
+      "sources": {
+        "HuggingFace": "taobao-mnn/MobileLLM-350M-MNN",
+         "ModelScope": "MNN/MobileLLM-350M-MNN",
+        "Modelers": "MNN/MobileLLM-350M-MNN"
+      }
+    },
+    {
+      "modelName": "SmolLM2-1.7B-Instruct-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "smol"
+      ],
+      "size_gb": 1.7,
+      "vendor": "Smol",
+      "sources": {
+        "HuggingFace": "taobao-mnn/SmolLM2-1.7B-Instruct-MNN",
+         "ModelScope": "MNN/SmolLM2-1.7B-Instruct-MNN",
+        "Modelers": "MNN/SmolLM2-1.7B-Instruct-MNN"
+      }
+    },
+    {
+      "modelName": "Qwen2.5-Coder-7B-Instruct-MNN",
+      "tags": [
+        "Chat",
+        "CodeGeneration",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "qwen"
+      ],
+      "size_gb": 7,
+      "vendor": "Qwen",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Qwen2.5-Coder-7B-Instruct-MNN",
+         "ModelScope": "MNN/Qwen2.5-Coder-7B-Instruct-MNN",
+        "Modelers": "MNN/Qwen2.5-Coder-7B-Instruct-MNN"
+      }
+    },
+    {
+      "modelName": "Qwen2.5-Math-1.5B-Instruct-MNN",
+      "tags": [
+        "Chat",
+        "Math",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "qwen"
+      ],
+      "size_gb": 1.5,
+      "vendor": "Qwen",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Qwen2.5-Math-1.5B-Instruct-MNN",
+         "ModelScope": "MNN/Qwen2.5-Math-1.5B-Instruct-MNN",
+        "Modelers": "MNN/Qwen2.5-Math-1.5B-Instruct-MNN"
+      }
+    },
+    {
+      "modelName": "QwQ-32B-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "qwq"
+      ],
+      "size_gb": 32,
+      "vendor": "Qwen",
+      "sources": {
+        "HuggingFace": "taobao-mnn/QwQ-32B-MNN",
+         "ModelScope": "MNN/QwQ-32B-MNN",
+        "Modelers": "MNN/QwQ-32B-MNN"
+      }
+    },
+    {
+      "modelName": "Qwen2-0.5B-Instruct-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "qwen"
+      ],
+      "size_gb": 0.5,
+      "vendor": "Qwen",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Qwen2-0.5B-Instruct-MNN",
+         "ModelScope": "MNN/Qwen2-0.5B-Instruct-MNN",
+        "Modelers": "MNN/Qwen2-0.5B-Instruct-MNN"
+      }
+    },
+    {
+      "modelName": "Meta-Llama-3-8B-Instruct-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "llama"
+      ],
+      "size_gb": 8,
+      "vendor": "Llama",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Meta-Llama-3-8B-Instruct-MNN",
+         "ModelScope": "MNN/Meta-Llama-3-8B-Instruct-MNN",
+        "Modelers": "MNN/Meta-Llama-3-8B-Instruct-MNN"
+      }
+    },
+    {
+      "modelName": "Qwen2.5-Coder-1.5B-Instruct-MNN",
+      "tags": [
+        "Chat",
+        "CodeGeneration",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "qwen"
+      ],
+      "size_gb": 1.5,
+      "vendor": "Qwen",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Qwen2.5-Coder-1.5B-Instruct-MNN",
+         "ModelScope": "MNN/Qwen2.5-Coder-1.5B-Instruct-MNN",
+        "Modelers": "MNN/Qwen2.5-Coder-1.5B-Instruct-MNN"
+      }
+    },
+    {
+      "modelName": "MobileLLM-600M-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "mobilellm"
+      ],
+      "size_gb": 0.6,
+      "vendor": "MobileLLM",
+      "sources": {
+        "HuggingFace": "taobao-mnn/MobileLLM-600M-MNN",
+         "ModelScope": "MNN/MobileLLM-600M-MNN",
+        "Modelers": "MNN/MobileLLM-600M-MNN"
+      }
+    },
+    {
+      "modelName": "Qwen2-VL-7B-Instruct-MNN",
+      "tags": [
+        "Chat",
+        "Multimodal",
+        "ImageUnderstanding",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "qwen"
+      ],
+      "size_gb": 7,
+      "vendor": "Qwen",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Qwen2-VL-7B-Instruct-MNN",
+         "ModelScope": "MNN/Qwen2-VL-7B-Instruct-MNN",
+        "Modelers": "MNN/Qwen2-VL-7B-Instruct-MNN"
+      }
+    },
+    {
+      "modelName": "MiMo-7B-SFT-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "mimo"
+      ],
+      "size_gb": 7,
+      "vendor": "MiMo",
+      "sources": {
+        "HuggingFace": "taobao-mnn/MiMo-7B-SFT-MNN",
+         "ModelScope": "MNN/MiMo-7B-SFT-MNN",
+        "Modelers": "MNN/MiMo-7B-SFT-MNN"
+      }
+    },
+    {
+      "modelName": "MiMo-7B-RL-Zero-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "mimo"
+      ],
+      "size_gb": 7,
+      "vendor": "MiMo",
+      "sources": {
+        "HuggingFace": "taobao-mnn/MiMo-7B-RL-Zero-MNN",
+         "ModelScope": "MNN/MiMo-7B-RL-Zero-MNN",
+        "Modelers": "MNN/MiMo-7B-RL-Zero-MNN"
+      }
+    },
+    {
+      "modelName": "MiMo-7B-Base-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "mimo"
+      ],
+      "size_gb": 7,
+      "vendor": "MiMo",
+      "sources": {
+        "HuggingFace": "taobao-mnn/MiMo-7B-Base-MNN",
+         "ModelScope": "MNN/MiMo-7B-Base-MNN",
+        "Modelers": "MNN/MiMo-7B-Base-MNN"
+      }
+    },
+    {
+      "modelName": "Qwen2-7B-Instruct-MNN",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "qwen"
+      ],
+      "size_gb": 7,
+      "vendor": "Qwen",
+      "sources": {
+        "HuggingFace": "taobao-mnn/Qwen2-7B-Instruct-MNN",
+         "ModelScope": "MNN/Qwen2-7B-Instruct-MNN",
+        "Modelers": "MNN/Qwen2-7B-Instruct-MNN"
+      }
+    },
+    {
+      "modelName": "SmolDocling-256M-preview-MNN",
+      "tags": [
+        "Chat",
+        "DocumentUnderstanding",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "smol"
+      ],
+      "size_gb": 0.256,
+      "vendor": "Smol",
+      "sources": {
+        "HuggingFace": "taobao-mnn/SmolDocling-256M-preview-MNN",
+         "ModelScope": "MNN/SmolDocling-256M-preview-MNN",
+        "Modelers": "MNN/SmolDocling-256M-preview-MNN"
+      }
+    },
+    {
+      "modelName": "gemma-3-4b-it-q4_0-mnn",
+      "tags": [
+        "Chat",
+        "TextGeneration"
+      ],
+      "categories": [
+        "chat",
+        "gemma"
+      ],
+      "size_gb": 4,
+      "vendor": "Gemma",
+      "sources": {
+        "HuggingFace": "taobao-mnn/gemma-3-4b-it-q4_0-mnn",
+         "ModelScope": "MNN/gemma-3-4b-it-q4_0-mnn",
+        "Modelers": "MNN/gemma-3-4b-it-q4_0-mnn"
+      }
+    },
+    {
+      "modelName": "stable-diffusion-v1-5-mnn-opencl",
+      "tags": [
+        "TextToImage"
+      ],
+      "categories": [
+        "other",
+        "stable-diffusion"
+      ],
+      "size_gb": 1.5,
+      "vendor": "stability.ai",
+      "sources": {
+        "HuggingFace": "taobao-mnn/stable-diffusion-v1-5-mnn-opencl",
+         "ModelScope": "MNN/stable-diffusion-v1-5-mnn-opencl",
+        "Modelers": "MNN/stable-diffusion-v1-5-mnn-opencl"
+      }
+    }
+  ],
+  "tts_models": [
+    {
+      "modelName": "bert-vits2-MNN",
+      "tags": [
+        "TTS"
+      ],
+      "categories": [
+        "other",
+        "stable-diffusion"
+      ],
+      "size_gb": 1.5,
+      "vendor": "stability.ai",
+      "sources": {
+         "ModelScope": "MNN/bert-vits2-MNN"
+      }
+    }
+  ],
+  "asr_models": [
+    {
+      "modelName": "sherpa-mnn-streaming-zipformer-bilingual-zh-en-2023-02-20",
+      "tags": [
+        "ASR"
+      ],
+      "categories": [
+        "other",
+        "stable-diffusion"
+      ],
+      "size_gb": 1.5,
+      "vendor": "stability.ai",
+      "sources": {
+         "ModelScope": "MNN/sherpa-mnn-streaming-zipformer-bilingual-zh-en-2023-02-20"
+      }
+    },
+    {
+      "modelName": "sherpa-mnn-streaming-zipformer-en-2023-02-21",
+      "tags": [
+        "ASR"
+      ],
+      "categories": [
+        "other",
+        "stable-diffusion"
+      ],
+      "size_gb": 1.5,
+      "vendor": "stability.ai",
+      "sources": {
+         "ModelScope": "MNN/sherpa-mnn-streaming-zipformer-en-2023-02-21"
+      }
+    }
+  ],
+  "metadata": {
+    "version": "1.0.0",
+    "lastUpdated": "2025-01-03T00:00:00Z",
+    "schemaVersion": "2.0",
+    "totalModels": 11,
+    "supportedPlatforms": ["iOS", "Android"],
+    "minAppVersion": "1.0.0"
+  }
+}

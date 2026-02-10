@@ -1,25 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
-    <uses-permission android:name="android.permission.INTERNET"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"
-        tools:ignore="SelectedPhotoAccess" />
-    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
 
     <application
-        android:allowBackup="true"
-        android:icon="@drawable/ic_launcher"
-        android:label="@string/app_name"
-        android:roundIcon="@drawable/ic_launcher"
-        android:supportsRtl="true"
         android:name="com.alibaba.mnnllm.android.MnnLlmApplication"
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:supportsRtl="true"
         android:theme="@style/AppTheme"
         tools:targetApi="31">
-        <uses-native-library android:name="libOpenCL.so"
+        <uses-native-library
+            android:name="libOpenCL.so"
+            android:required="false" />
+        <uses-library
+            android:name="libcdsprpc.so"
             android:required="false"/>
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -30,29 +39,23 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
-        <receiver
-            android:name="com.alibaba.mnnllm.android.chat.DownloadReceiver"
-            android:exported="true" >
-            <intent-filter>
-                <action android:name="android.intent.action.DOWNLOAD_COMPLETE" />
-            </intent-filter>
-        </receiver>
-        <activity android:name="com.alibaba.mnnllm.android.chat.ChatActivity"
-            android:exported="true"
-            android:windowSoftInputMode="adjustResize"
+        <activity
+            android:name="com.alibaba.mnnllm.android.chat.ChatActivity"
             android:configChanges="orientation|screenSize"
-            >
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
 
-        <service android:name="com.alibaba.mls.api.download.DownlodForegroundService"
-            android:foregroundServiceType="dataSync"
-            />
+        <service
+            android:name="com.alibaba.mls.api.download.DownloadForegroundService"
+            android:foregroundServiceType="dataSync" />
 
-        <activity android:name=".chat.SelectTextActivity"
+        <activity
+            android:name=".chat.SelectTextActivity"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -60,19 +63,85 @@
             </intent-filter>
         </activity>
 
-        <activity android:name=".MainActivity"
-            android:exported="true"
-            android:configChanges="orientation|screenSize">
+        <activity
+            android:name=".widgets.FullScreenVideoPlayer"
+            android:exported="false"
+            android:theme="@style/AppTheme"
+            android:configChanges="orientation|screenSize" />
+
+        <activity
+            android:name=".main.MainActivity"
+            android:configChanges="orientation|screenSize"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
-        <activity android:name=".mainsettings.MainSettingsActivity"
+        <activity
+            android:name=".mainsettings.MainSettingsActivity"
+            android:configChanges="orientation|screenSize"
             android:exported="true"
-            android:label="@string/settings"
-            android:configChanges="orientation|screenSize">
+            android:label="@string/settings">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+<!--        <activity-->
+<!--            android:name=".modelsettings.SettingsActivity"-->
+<!--            android:exported="true">-->
+<!--            <intent-filter>-->
+<!--                <action android:name="android.intent.action.MAIN" />-->
+<!--                <category android:name="android.intent.category.DEFAULT" />-->
+<!--            </intent-filter>-->
+<!--        </activity>-->
+
+        <activity
+            android:name=".debug.DebugActivity"
+            android:exported="false"
+            android:label="@string/debug_activity_title"
+            android:theme="@style/AppTheme" />
+
+        <activity
+            android:name=".debug.VideoDecoderTestActivity"
+            android:exported="false"
+            android:label="@string/video_decoder_test_title"
+            android:theme="@style/AppTheme" />
+
+        <activity
+            android:name=".debug.DebugAnimationActivity"
+            android:exported="true"
+            android:theme="@style/AppTheme">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name="com.alibaba.mnnllm.api.openai.service.OpenAIService"
+            android:enabled="true"
+            android:exported="true"
+            android:foregroundServiceType="dataSync" >
+        </service>
+
+        <receiver
+            android:name="com.alibaba.mnnllm.api.openai.manager.ApiServiceActionReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.alibaba.mnnllm.api.openai.STOP_SERVICE" />
+                <action android:name="com.alibaba.mnnllm.api.openai.COPY_URL" />
+                <action android:name="com.alibaba.mnnllm.api.openai.TEST_PAGE" />
+            </intent-filter>
+        </receiver>
+
+        <activity android:name=".debug.WidgetTestActivity"
+            android:enabled="true"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -80,13 +149,9 @@
         </activity>
 
         <activity
-            android:exported="true"
-            android:name=".modelsettings.SettingsActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-        </activity>
+            android:name=".benchmark.CustomQRScannerActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.NoTitleBar.Fullscreen" />
 
     </application>
 

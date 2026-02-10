@@ -21,6 +21,7 @@
 #include "RuntimeAttr.hpp"
 
 #include <MNN/expr/ExecutorScope.hpp>
+#include "Utils.hpp"
 //#define MNN_POST_CONVERTER_DEBUG
 
 namespace MNN {
@@ -129,15 +130,39 @@ bool CompleteSubGraph(const std::unordered_map<std::string, VARP>& inputs, const
     return true;
 }
 
-
+static bool _hasDupName(std::unique_ptr<MNN::NetT>& originNet) {
+    std::set<std::string> names;
+    for (auto& tensorName : originNet->tensorName) {
+        if (names.find(tensorName) != names.end()) {
+            MNN_ERROR("Repeat name %s\n", tensorName.c_str());
+            return true;
+        }
+        names.insert(tensorName);
+    }
+    return false;
+}
 void RunNetPass(const std::vector<std::string>& passes, std::unique_ptr<MNN::NetT>& originNet) {
+    auto config = Global<modelConfig>::Get();
+    bool dumpPass = config != nullptr && config->dumpPass;
     for (auto pass : passes) {
         auto convert = PostConverter::get(pass);
         if (nullptr == convert) {
             LOG(INFO) << "Can't find pass of " << pass << "\n";
             continue;
         }
+        auto originSize = originNet->oplists.size();
+        auto originDesSize = originNet->extraTensorDescribe.size();
         bool valid = convert->onExecute(originNet);
+        if (dumpPass) {
+            auto newSize = originNet->oplists.size();
+            auto newDesSize = originNet->extraTensorDescribe.size();
+            if (originSize != newSize || originDesSize != newDesSize) {
+                MNN_PRINT("[DumpPass] PostConvert::%s: ops %zu -> %zu, tensors %zu -> %zu\n",
+                    pass.c_str(), originSize, newSize, originDesSize, newDesSize);
+            } else {
+                MNN_PRINT("[DumpPass] PostConvert::%s: no change\n", pass.c_str());
+            }
+        }
         if (!valid) {
             LOG(INFO) << "Run " << pass << "Error\n";
         }
@@ -146,6 +171,10 @@ void RunNetPass(const std::vector<std::string>& passes, std::unique_ptr<MNN::Net
 
 std::unique_ptr<MNN::NetT> RunExtraPass(std::unique_ptr<MNN::NetT>& originNet,
                                         const std::unordered_map<std::string, VARP>& inputs) {
+    auto config = Global<modelConfig>::Get();
+    bool dumpPass = config != nullptr && config->dumpPass;
+    auto originOpCount = originNet->oplists.size();
+
     auto program = MNN::Express::Program::create(originNet.get(), true, true);
     program->input(inputs, true);
 
@@ -169,6 +198,9 @@ std::unique_ptr<MNN::NetT> RunExtraPass(std::unique_ptr<MNN::NetT>& originNet,
         default:
             break;
     }
+    if (dumpPass) {
+        MNN_PRINT("[DumpPass] Running ExtraPass: %s\n", pass.c_str());
+    }
     auto& merge = MNN::Express::TemplateMerge::getInstance(pass);
     merge.onExecute(program->outputs());
     originNet->oplists.clear();
@@ -179,11 +211,26 @@ std::unique_ptr<MNN::NetT> RunExtraPass(std::unique_ptr<MNN::NetT>& originNet,
     newNet->bizCode    = originNet->bizCode;
     newNet->outputName = originNet->outputName;
     program->save(newNet.get());
+
+    if (dumpPass) {
+        MNN_PRINT("[DumpPass] ExtraPass::%s: ops %zu -> %zu\n", pass.c_str(), originOpCount, newNet->oplists.size());
+    }
     return std::move(newNet);
 }
 
 std::unique_ptr<MNN::NetT> RunMergePass(std::unique_ptr<MNN::NetT>& originNet,
                                         const std::unordered_map<std::string, VARP>& inputs, PassPriority priority) {
+    auto config = Global<modelConfig>::Get();
+    bool dumpPass = config != nullptr && config->dumpPass;
+    auto originOpCount = originNet->oplists.size();
+
+    static const char* priorityNames[] = {"FRONT", "HIGH", "MIDDLE", "LOW", "FINAL"};
+    const char* priorityName = (priority >= 0 && priority <= 4) ? priorityNames[priority] : "UNKNOWN";
+
+    if (dumpPass) {
+        MNN_PRINT("[DumpPass] Running MergePass (priority=%s)\n", priorityName);
+    }
+
     auto program = MNN::Express::Program::create(originNet.get(), true, true);
     auto boundary = program->input(inputs, true);
 
@@ -206,6 +253,10 @@ std::unique_ptr<MNN::NetT> RunMergePass(std::unique_ptr<MNN::NetT>& originNet,
     newNet->bizCode    = originNet->bizCode;
     newNet->outputName = originNet->outputName;
     program->save(newNet.get());
+
+    if (dumpPass) {
+        MNN_PRINT("[DumpPass] MergePass (priority=%s): ops %zu -> %zu\n", priorityName, originOpCount, newNet->oplists.size());
+    }
 
     RunNetPass({"RemoveUnusefulOp"}, newNet);
     return std::move(newNet);
@@ -240,7 +291,7 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
 
         // Remove Dup op
         "FuseDupOp",
-        
+
         // Remove Invalid Cast
         "RemoveInvalidCast",
 
@@ -252,7 +303,7 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
 
         // Turn Caffe's ShuffleChannel to compose op
         "TransformShuffleChannel",
-        
+
         "MoveUnaryOpBeforeReshape",
 
     };
@@ -261,7 +312,7 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
         while (iter != postConvertPass.end()) {
             if (*iter == "RemoveDropout") {
                 iter = postConvertPass.erase(iter);
-            } 
+            }
             else {
                 iter++;
             }
@@ -274,11 +325,7 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
         // Remove Invalid Cast
         "RemoveInvalidCast"
     };
-    std::vector<std::unique_ptr<TensorDescribeT>> tensorDescribe;
-    if (originNet->extraTensorDescribe.size() > 0) {
-        tensorDescribe = std::move(originNet->extraTensorDescribe);
-    }
-    
+
     std::unique_ptr<MNN::NetT> newNet;
     newNet = std::move(RunExtraPass(originNet, inputs));
     RunNetPass(midOptPass, newNet);
@@ -340,18 +387,9 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
     };
     RunNetPass(afterProgramConvert, newNet);
 
-    // Maybe eliminate the redundant quantize and dequantize ops, then remove
-    // the unuseful `Identity`.
-    newNet = std::move(RunMergePass(newNet, inputs, PASS_PRIORITY_LOW));
-
-    // Maybe eliminate the redundant tensor format ops, then remove the unuseful
-    // `Identity`.
     newNet = std::move(RunMergePass(newNet, inputs, PASS_PRIORITY_LOW));
     newNet = std::move(RunMergePass(newNet, inputs, PASS_PRIORITY_FINAL));
 
-    if (tensorDescribe.size() > 0) {
-        newNet->extraTensorDescribe = std::move(tensorDescribe);
-    }
     RunNetPass({"ReIndexTensor"}, newNet);
     RunNetPass({"ReIndexOnnxIfAlias"}, newNet);
 
@@ -591,6 +629,8 @@ bool fuseConstIntoSubgraph(MNN::NetT* net, const std::vector<MNN::SubGraphProtoT
 using namespace MNN;
 using namespace MNN::Express;
 std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet, bool forTraining, modelConfig& config, const std::vector<std::string>& expectPasses) {
+    BackendConfig bnConfig;
+    auto exe = ExecutorScope::Current();
     Global<modelConfig>::Reset(&config);
     if (!expectPasses.empty()) {
         RunNetPass(expectPasses, originNet);
@@ -660,10 +700,27 @@ std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet, bo
         CompleteSubGraph(inputs, subgraph);
     }
     net = ctx.RunOptimize(net, empty);
-    
+
     fuseConstIntoSubgraph(net.get(), ctx.completed_subgraphs);
     for (auto* subgraph : ctx.completed_subgraphs) {
         net->subgraphs.emplace_back(subgraph);
+    }
+    // Insert Extra graph for exe
+    std::set<std::string> existsSubGraphs;
+    for (auto& iter : net->subgraphs) {
+        existsSubGraphs.insert(iter->name);
+    }
+    auto originsubgraphs = std::move(net->subgraphs);
+    // TODO: Treat Depends
+    for (auto&& iter : exe->subgraph()) {
+        if (existsSubGraphs.find(iter.first) == existsSubGraphs.end()) {
+            MNN_PRINT("Insert Extra graph: %s\n", iter.first.c_str());
+            net->subgraphs.emplace_back(std::move(iter.second->info));
+        }
+    }
+    exe->subgraph().clear();
+    for (auto& iter : originsubgraphs) {
+        net->subgraphs.emplace_back(std::move(iter));
     }
     return std::move(net);
 }

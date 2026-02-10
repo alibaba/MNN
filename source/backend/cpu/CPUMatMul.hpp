@@ -11,8 +11,7 @@
 
 #include <functional>
 #include "core/Execution.hpp"
-#include "backend/cpu/compute/StrassenMatmulComputor.hpp"
-
+#include "CPUBackend.hpp"
 namespace MNN {
 
 class CPUMatMul : public Execution {
@@ -30,7 +29,7 @@ private:
     bool mTransposeB;
     bool mTransposeC;
     bool mSupportMultiThread = false;
-    std::vector<std::pair<std::function<void(int, const float*, const float*, const float*, float*)>, int>> mPreFunctions;
+    std::vector<std::pair<std::function<void(int)>, int>> mPreFunctions;
     bool mUseBiasDirectly = false;
     MemChunk mTempA;
     MemChunk mTempB;
@@ -41,6 +40,11 @@ private:
     int mL;
     int mH;
     std::vector<float> mPostParameters;
+    // For Execute Paramters
+    const float* mA = nullptr;
+    const float* mB = nullptr;
+    const float* mBiasPtr = nullptr;
+    float* mC = nullptr;
 
 };
 } // namespace MNN

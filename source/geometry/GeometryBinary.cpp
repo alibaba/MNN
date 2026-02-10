@@ -10,7 +10,9 @@
 #include "geometry/GeometryComputer.hpp"
 #include "geometry/GeometryComputerUtils.hpp"
 #include "shape/SizeComputer.hpp"
+#ifndef MNN_REDUCE_SIZE
 #define MNN_BINARY_LOOP_OPT
+#endif
 namespace MNN {
 class GeometryBinary : public GeometryComputer {
 public:

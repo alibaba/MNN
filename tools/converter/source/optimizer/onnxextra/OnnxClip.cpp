@@ -19,7 +19,7 @@ static EXPRP clipConvert(EXPRP expr, bool supportRelu6) {
     auto extraParam = op->main_as_Extra();
     // auto dataType = expr->outputInfo(0)->type.code;
     auto maxValue  = std::numeric_limits<T>().max();
-    auto minValue  = std::numeric_limits<T>().min();
+    auto minValue  = std::numeric_limits<T>().lowest();
     if (nullptr != extraParam->attr()) {
         const int attrSize = extraParam->attr()->size();
         for (int i = 0; i < attrSize; ++i) {
@@ -41,7 +41,7 @@ static EXPRP clipConvert(EXPRP expr, bool supportRelu6) {
             minValue = minPtr[0];
         }
     }
-    if (inputs.size() == 3 && !unknown_min_max) {
+    if (inputs.size() == 3 && !unknown_min_max && inputs[2].get() != nullptr) {
         auto maxPtr = inputs[2]->readMap<T>();
         if (nullptr == maxPtr) {
             unknown_min_max = true;

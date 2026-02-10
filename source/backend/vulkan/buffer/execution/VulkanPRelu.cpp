@@ -17,7 +17,7 @@ struct GpuReluParam {
 };
 
 //--------------------------Prelu--------------------------//
-VulkanPrelu::VulkanPrelu(Backend *bn, const Op *op) : VulkanBasicExecution(bn) {
+VulkanPrelu::VulkanPrelu(Backend *bn, const Op *op, Tensor * tensor) : VulkanBasicExecution(bn) {
     std::vector<VkDescriptorType> types{
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -25,16 +25,28 @@ VulkanPrelu::VulkanPrelu(Backend *bn, const Op *op) : VulkanBasicExecution(bn) {
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
     };
     auto vulkanBn    = static_cast<VulkanBackend *>(bn);
-    mPreluPipeline   = vulkanBn->getPipeline("glsl_preluWithChannel_comp",types);
+
+    bool useFP16 = tensor->getType().code == halide_type_float && vulkanBn->useFP16();
+    std::string pKey = "glsl_preluWithChannel_";
+    if (useFP16) {
+        pKey += "FP16_";
+    }
+    pKey += "comp";
+    mPreluPipeline = vulkanBn->getPipeline(pKey, types);
     const auto prelu = op->main_as_PRelu();
     mGpuPreluParam = vulkanBn->allocUniform();
     int count = ALIGN_UP4(prelu->slope()->size());
     {
+        int bytes = useFP16 ? sizeof(int16_t) : sizeof(float);
         std::shared_ptr<VulkanBuffer> slopeBuffer(new VulkanBuffer(
-            vulkanBn->getMemoryPool(), false, sizeof(float) * count, nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
+            vulkanBn->getMemoryPool(), false, bytes * count, nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
         auto slope = slopeBuffer->map();
-        ::memset(slope, 0, count * sizeof(float));
-        ::memcpy(slope, prelu->slope()->data(), prelu->slope()->size() * sizeof(float));
+        ::memset(slope, 0, count * bytes);
+        if (useFP16) {
+            FLOAT_TO_HALF(prelu->slope()->data(), (int16_t *)slope, prelu->slope()->size());
+        } else {
+            ::memcpy(slope, prelu->slope()->data(), prelu->slope()->size() * sizeof(float));
+        }
         slopeBuffer->unmap();
         mSlope = slopeBuffer;
     }
@@ -82,7 +94,7 @@ public:
         if (1 == op->main_as_PRelu()->slopeCount()) {
             return new VulkanUnary("RELU", bn, false, op->main_as_PRelu()->slope()->data()[0]);
         }
-        return new VulkanPrelu(bn, op);
+        return new VulkanPrelu(bn, op, outputs[0]);
     }
 };
 

@@ -32,51 +32,53 @@ DepthwiseConvSubgroupBufExecution::DepthwiseConvSubgroupBufExecution(const std::
         // create tensor for intel filter
         mResource->mFilter.reset(Tensor::createDevice<float>(std::vector<int>{1, UP_DIV(outputChannel, 16), kernelWidth * kernelHeight, 16}));
         auto res = mOpenCLBackend->onAcquireBuffer(mResource->mFilter.get(), Backend::STATIC);
-        cl_int ret_code;
-        if (!res) {
-            mValid = false;
-            return;
-        }
-        const float *filterDataPtr = nullptr;
-        int filterDataSize         = 0;
-        std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-        ConvolutionCommon::getConvParameters(&quanCommon, backend, op, &filterDataPtr, &filterDataSize);
-        if (filterDataPtr != nullptr) {
-            std::shared_ptr<Tensor> sourceWeight(Tensor::create<float>(
-                std::vector<int>{1, outputChannel, kernelWidth, kernelHeight},
-                                      (void *)filterDataPtr, Tensor::CAFFE));
-            std::shared_ptr<Tensor> destWeight(Tensor::create<float>(std::vector<int>{1, UP_DIV(outputChannel, 16), kernelWidth * kernelHeight, 16}));
-
-            transformWeight(destWeight.get(), sourceWeight.get());
-            auto weightDestSize = destWeight->size();
-
-            auto buffer_size = destWeight->elementSize();
-            if (mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
-                buffer_size *= sizeof(half_float::half);
-            } else {
-                buffer_size *= sizeof(float);
+        if (mOpenCLBackend->getRuntime()->hint().useCachedMmap <= 1){
+            cl_int ret_code;
+            if (!res) {
+                mValid = false;
+                return;
             }
-
-            cl::Buffer &weightBuffer = *(cl::Buffer *)mResource->mFilter->buffer().device;
-
-            auto runTime = mOpenCLBackend->getOpenCLRuntime();
-            auto queue   = runTime->commandQueue();
-
-            auto weight_ptr = queue.enqueueMapBuffer(weightBuffer, CL_TRUE, CL_MAP_WRITE, 0, buffer_size, nullptr,
-                                                     nullptr, &ret_code);
-            if (weight_ptr != nullptr && ret_code == CL_SUCCESS) {
+            const float *filterDataPtr = nullptr;
+            int filterDataSize         = 0;
+            std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
+            ConvolutionCommon::getConvParameters(&quanCommon, backend, op, &filterDataPtr, &filterDataSize);
+            if (filterDataPtr != nullptr) {
+                std::shared_ptr<Tensor> sourceWeight(Tensor::create<float>(
+                                                                           std::vector<int>{1, outputChannel, kernelWidth, kernelHeight},
+                                                                           (void *)filterDataPtr, Tensor::CAFFE));
+                std::shared_ptr<Tensor> destWeight(Tensor::create<float>(std::vector<int>{1, UP_DIV(outputChannel, 16), kernelWidth * kernelHeight, 16}));
+                
+                transformWeight(destWeight.get(), sourceWeight.get());
+                auto weightDestSize = destWeight->size();
+                
+                auto buffer_size = destWeight->elementSize();
                 if (mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
-                    for (int i = 0; i < destWeight->elementSize(); i++) {
-                        ((half_float::half *)weight_ptr)[i] = (half_float::half)(destWeight->host<float>()[i]);
+                    buffer_size *= sizeof(half_float::half);
+                } else {
+                    buffer_size *= sizeof(float);
+                }
+                
+                cl::Buffer &weightBuffer = *(cl::Buffer *)mResource->mFilter->buffer().device;
+                
+                auto runTime = mOpenCLBackend->getOpenCLRuntime();
+                auto queue   = runTime->commandQueue();
+                
+                auto weight_ptr = queue.enqueueMapBuffer(weightBuffer, CL_TRUE, CL_MAP_WRITE, 0, buffer_size, nullptr,
+                                                         nullptr, &ret_code);
+                if (weight_ptr != nullptr && ret_code == CL_SUCCESS) {
+                    if (mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
+                        for (int i = 0; i < destWeight->elementSize(); i++) {
+                            ((half_float::half *)weight_ptr)[i] = (half_float::half)(destWeight->host<float>()[i]);
+                        }
+                    } else {
+                        ::memcpy(weight_ptr, destWeight->host<float>(), buffer_size);
                     }
                 } else {
-                    ::memcpy(weight_ptr, destWeight->host<float>(), buffer_size);
+                    MNN_ERROR("Map error weightPtr == nullptr \n");
                 }
-            } else {
-                MNN_ERROR("Map error weightPtr == nullptr \n");
+                
+                queue.enqueueUnmapMemObject(weightBuffer, weight_ptr);
             }
-
-            queue.enqueueUnmapMemObject(weightBuffer, weight_ptr);
         }
     }
     {
@@ -91,26 +93,26 @@ DepthwiseConvSubgroupBufExecution::DepthwiseConvSubgroupBufExecution(const std::
         mResource->mBias.reset(Tensor::createDevice<float>({1, 1, 1, ROUND_UP(biasSize, 16)}));
         backend->onAcquireBuffer(mResource->mBias.get(), Backend::STATIC);
         cl::Buffer &biasBuffer = openCLBuffer(mResource->mBias.get());
-
-        cl_int res;
-        auto biasPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
-            biasBuffer, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &res);
-        if (biasPtrCL != nullptr && res == CL_SUCCESS) {
-            ::memset(biasPtrCL, 0, buffer_size);
-            if (nullptr != mResource->mConv2dParams->bias()) {
-                const float *biasDataPtr = mResource->mConv2dParams->bias()->data();
-                if (mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
-                    for (int i = 0; i < biasSize; i++) {
-                        ((half_float::half *)biasPtrCL)[i] = (half_float::half)(biasDataPtr[i]);
+        if (mOpenCLBackend->getRuntime()->hint().useCachedMmap <= 1){
+            cl_int res;
+            auto biasPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(biasBuffer, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &res);
+            if (biasPtrCL != nullptr && res == CL_SUCCESS) {
+                ::memset(biasPtrCL, 0, buffer_size);
+                if (nullptr != mResource->mConv2dParams->bias()) {
+                    const float *biasDataPtr = mResource->mConv2dParams->bias()->data();
+                    if (mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
+                        for (int i = 0; i < biasSize; i++) {
+                            ((half_float::half *)biasPtrCL)[i] = (half_float::half)(biasDataPtr[i]);
+                        }
+                    } else {
+                        ::memcpy(biasPtrCL, biasDataPtr, biasSize * sizeof(float));
                     }
-                } else {
-                    ::memcpy(biasPtrCL, biasDataPtr, biasSize * sizeof(float));
                 }
+            } else {
+                MNN_ERROR("Map error biasPtrCL == nullptr \n");
             }
-        } else {
-            MNN_ERROR("Map error biasPtrCL == nullptr \n");
+            mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(biasBuffer, biasPtrCL);
         }
-        mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(biasBuffer, biasPtrCL);
     }
 
     if (mResource->mConv2dCommonParams->relu() == true) {
@@ -243,7 +245,7 @@ ErrorCode DepthwiseConvSubgroupBufExecution::onEncode(const std::vector<Tensor *
         unit.kernel->get().setArg(idx++, static_cast<uint32_t>(trans_pad_x));
         unit.kernel->get().setArg(idx++, static_cast<uint32_t>(trans_pad_y));
 
-        mTranseLocalWorkSize = localWS3DDefault(mTranseGlobalWorkSize, mMaxWGS_S, mOpenCLBackend->getOpenCLRuntime(),"conv_transe_c4_c16", unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+        mTranseLocalWorkSize = localWS3DDefault(mTranseGlobalWorkSize, mMaxWGS_S, mOpenCLBackend->getOpenCLRuntime(),"conv_transe_c4_c16", unit.kernel, mOpenCLBackend->getCLTuneLevel(), "input_transe_buf").first;
         mOpenCLBackend->recordKernel3d(unit.kernel, mTranseGlobalWorkSize, mTranseLocalWorkSize);
         unit.globalWorkSize = {mTranseGlobalWorkSize[0], mTranseGlobalWorkSize[1], mTranseGlobalWorkSize[2]};
         unit.localWorkSize = {mTranseLocalWorkSize[0], mTranseLocalWorkSize[1], mTranseLocalWorkSize[2]};

@@ -119,7 +119,7 @@ public:
      */
     static Interpreter* createFromBuffer(const void* buffer, size_t size);
     ~Interpreter();
-    
+
     /**
      * @brief destroy Interpreter
      * @param model    given Interpreter to release.
@@ -153,18 +153,18 @@ public:
         Session_Backend_Auto = 9, // Auto Determine the Op type by MNN
 
         /** Determine static memory whether recyle in resizeSession or just cache the memory */
-        Session_Memory_Collect = 10, // Recycle static memory when session resize in case memory explosion 
+        Session_Memory_Collect = 10, // Recycle static memory when session resize in case memory explosion
         Session_Memory_Cache = 11, // Cache the static memory for next forward usage
 
         /** Determine whether use codegen function */
         Session_Codegen_Disable = 12, // Disable codegen in case extra build codegen cost
         Session_Codegen_Enable = 13, // Enable codegen
-        
+
         /** Dynamic Reisze Optimization */
         Session_Resize_Check = 14, // Open Trace for resize
         Session_Resize_Fix = 15, // Apply Resize Optimization
-        
-        /** Set for Module's traceOrOptimize API. 
+
+        /** Set for Module's traceOrOptimize API.
          Module_Forward_Seperate:
          when inputs is not empty , Module's onForward will only infer shape and alloc memory.
          when inputs is empty , Module's onForward will only runSession to compute content.
@@ -199,7 +199,7 @@ public:
      * If resize session generate new cache info, try to rewrite cache file.
      * If resize session do not generate any new cache info, just do nothing.
      * @param session    given session
-     * @param flag   Protected param, not used now 
+     * @param flag   Protected param, not used now
      */
 
     ErrorCode updateCacheFile(Session *session, int flag = 0);
@@ -216,8 +216,9 @@ public:
         // Geometry Compute option, default is 0xFFFF
         GEOMETRY_COMPUTE_MASK = 4,
 
-        // 0: Close dynamic quant; 
+        // default 0
         // 1: For general convolution, use one scale&zeropoint to quant.
+        // 2: use block-quant for input data.
         DYNAMIC_QUANT_OPTIONS = 5,
 
         // For Mobile CPU with big-litter core, set decrease rate to let MNN divide task differential by CPU's performance
@@ -225,12 +226,15 @@ public:
         // Default is 50
         CPU_LITTLECORE_DECREASE_RATE = 6,
 
+        // attentionOption % 8:
         // 0: Do not quantize
-        // 1: Only quantize key, use int8 asymmetric quantization 
-        // 2: Only quantize value, use fp8 quantization
-        // 3: quantize both key and value
-        // 4: quantize query, key and value, and use gemm int8 kernel to compute K*V
-        QKV_QUANT_OPTIONS = 7,
+        // 1: Q,K: Int8, V: Float
+        // 2: Q,K,V: Int8
+
+        // attentionOption / 8:
+        // 0: don't use flash attention
+        // 1: use flash attention
+        ATTENTION_OPTION = 7,
 
         // size limit of kvcache in memory (for a single layer)
         // if the size of kvcache exceeds the limit, it will be moved to disk
@@ -243,20 +247,41 @@ public:
         // mmap allocate file size, KB
         MMAP_FILE_SIZE = 11,
         USE_CACHED_MMAP = 12,
-        
+
         // Multi-Thread Load module, default is 0 (don't use other Thread)
-        INIT_THREAD_NUMBER = 13
+        INIT_THREAD_NUMBER = 13,
+
+        // Used CPU ids
+        CPU_CORE_IDS = 14,
+
+        // set CPU threads to use when supports Arm sme2
+        CPU_SME2_INSTRUCTIONS = 15,
+
+        // Enable KleidiAI
+        CPU_ENABLE_KLEIDIAI = 16,
+
+        // Set CPU SME2 NEON division ratio, default is 41
+        CPU_SME2_NEON_DIVISION_RATIO = 17,
+
+        // Set SME cores, default is 2, if supports sme
+        CPU_SME_CORES = 18
     };
 
     enum ExternalPathType {
         // Path of the kvcache directory
         EXTERNAL_PATH_KVCACHE_DIR = 0,
-        
+
         // Mid Buffer Cache File
         EXTERNAL_FEATUREMAP_DIR = 1,
 
         // Weight Buffer Cache File
         EXTERNAL_WEIGHT_DIR = 2,
+
+        // Path of the NPU Model directory
+        EXTERNAL_NPU_FILE_DIR = 3,
+
+        // Path of the kvcache directory
+        EXTERNAL_PATH_PREFIXCACHE_DIR = 4,
 
         // Other types ...
     };
@@ -270,20 +295,22 @@ public:
 
         // Use loop instead of raster + compute if possible
         GEOMETRCOMPUTEMASK_USELOOP = 1 << 2,
-        
+
         // Support Geometry Cache, if shape changed, will try recompute, and then run compute if failed
         GEOMETRCOMPUTEMASK_OPENCACHE = 1 << 3,
-        
+
         // Full option open mask, for example, if want to close useloop, can set mask as (GEOMETRCOMPUTEMASK_ALL - GEOMETRCOMPUTEMASK_USELOOP)
         GEOMETRCOMPUTEMASK_ALL = 0xFFFF,
     };
 
     /**
      * @brief The API shoud be called before create session.
-     * @param mode      Hint type
+     * @param hint      Hint type
      * @param value     Hint value
+     * @param size      Hint value size(when use a ptr)
      */
-    void setSessionHint(HintMode mode, int value);
+    void setSessionHint(HintMode hint, int value);
+    void setSessionHint(HintMode hint, int* value, size_t size);
 public:
     /**
      * @brief create runtimeInfo separately with schedule config.
@@ -342,7 +369,7 @@ public:
      */
     void resizeSession(Session* session, int needRelloc);
 
-    
+
     /**
      * @brief call this function if don't need resize or create session any more, it will save a few memory that equal
      * to the size of model buffer
@@ -432,7 +459,7 @@ public:
          RuntimeManager::getInfo: 0: no resize, 1: re-malloc, 2: resize
          */
         RESIZE_STATUS = 3,
-        
+
         /** Mode / NumberThread, int* */
         THREAD_NUMBER = 4,
 

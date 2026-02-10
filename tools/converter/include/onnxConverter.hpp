@@ -17,7 +17,7 @@
  * @param bizCode(not used, always is MNN)
  * @param MNN net
  */
-MNN_PUBLIC int onnx2MNNNet(const std::string inputModel, const std::string bizCode,
+int onnx2MNNNet(const std::string inputModel, const std::string bizCode,
                 std::unique_ptr<MNN::NetT>& netT, MNN::OpT* meta, std::vector<std::string>& inputNames);
 
 #endif // ONNXCONVERTER_HPP

@@ -49,8 +49,9 @@ __kernel void conv_transe_c4_c1(
                                w * output_x_pitch;
     
     FLOAT4 value = vload4(0, input + input_offset);
+    FLOAT *value_ptr = (FLOAT*)&value;
     for(int i = 0; i < 4 && cout + i < input_channel; ++i){
-        output[output_offset + i * output_f_pitch] = value[i];
+        output[output_offset + i * output_f_pitch] = value_ptr[i];
     }
 }
 

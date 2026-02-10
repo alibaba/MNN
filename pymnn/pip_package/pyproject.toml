@@ -13,7 +13,7 @@ archs = ["native"]
 build = "cp*-macosx_*"
 before-all = [
     "pushd pymnn/pip_package",
-    "python3 build_deps.py",
+    "python3 build_deps.py llm",
     "popd"
 ]
 repair-wheel-command = ""
@@ -23,7 +23,7 @@ build = "cp*-manylinux*"
 skip = "pp*"
 before-all = [
     "pushd pymnn/pip_package",
-    "python3 build_deps.py",
+    "python3 build_deps.py llm",
     "popd"
 ]
 archs = ["native"]
@@ -36,6 +36,6 @@ repair-wheel-command = [
 [tool.cibuildwheel.windows]
 before-all = [
     "cd pymnn/pip_package",
-    "python3 build_deps.py",
+    "python3 build_deps.py llm",
     "cd ../.."
 ]

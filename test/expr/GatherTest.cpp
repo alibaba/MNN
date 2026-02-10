@@ -14,12 +14,16 @@
 #include <MNN/expr/Module.hpp>
 #include "MNNTestSuite.h"
 #include "MNN_generated.h"
+#include "TestUtils.h"
 using namespace MNN;
 using namespace MNN::Express;
 
 class GatherExprTest : public MNNTestCase {
 public:
     virtual bool run(int precision) {
+        auto executor = cloneCurrentExecutor();
+        ExecutorScope scope(executor);
+
         std::unique_ptr<MNN::OpT> gatherOp(new MNN::OpT);
         gatherOp->type = MNN::OpType_GatherND;
         auto parameter = _Input({2, 2}, NHWC, halide_type_of<int32_t>());
@@ -224,7 +228,8 @@ public:
 class GatherNdReComputeTest : public MNNTestCase {
 public:
     virtual bool run(int precision) {
-        
+        auto executor = cloneCurrentExecutor();
+        ExecutorScope scope(executor);
         const float inpudata[]                  = {-1.0, -2.0, 3.0, 4.0};
         const int indices_data[]                = {0, 0, 1, 1};
         auto params                             = _Const(inpudata, {2, 2}, NHWC, halide_type_of<float>());

@@ -13,11 +13,16 @@ struct ConstBuffer {
     ivec4 inputSize;
 };
 
-VulkanOneHot::VulkanOneHot(const Op* op, Backend* bn) : VulkanBasicExecution(bn) {
+VulkanOneHot::VulkanOneHot(const Op* op, Backend* bn, Tensor * tensor) : VulkanBasicExecution(bn) {
     auto extra = static_cast<VulkanBackend*>(bn);
     mAxis = op->main_as_OneHotParam()->axis();
     mConstBuffer = extra->allocUniform();
-    mPipeline = extra->getPipeline("glsl_onehot_comp", {
+    std::string pKey = "glsl_onehot_";
+    if (tensor->getType().code == halide_type_float && extra->useFP16()) {
+        pKey += "FP16_";
+    }
+    pKey += "comp";
+    mPipeline = extra->getPipeline(pKey, {
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -88,7 +93,7 @@ class VulkanOneHotCreator : public VulkanBackend::Creator {
 public:
     virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
                                 Backend* backend) const override {
-        return new VulkanOneHot(op, backend);
+        return new VulkanOneHot(op, backend, outputs[0]);
     }
 };
 

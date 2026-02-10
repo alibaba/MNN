@@ -96,6 +96,8 @@ public:
         std::string bizCode;
         // MetaData
         std::map<std::string, std::string> metaData;
+        // uuid
+        std::string uuid;
     };
     const Info* getInfo() const;
     class CloneContext;

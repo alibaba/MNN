@@ -5,7 +5,7 @@ package com.alibaba.mnnllm.android.history
 import android.content.Context
 import android.util.Log
 import com.alibaba.mls.api.download.DownloadFileUtils
-import com.alibaba.mnnllm.android.chat.ChatDataManager
+import com.alibaba.mnnllm.android.chat.model.ChatDataManager
 import com.alibaba.mnnllm.android.utils.FileUtils.getSessionResourceBasePath
 import java.io.File
 

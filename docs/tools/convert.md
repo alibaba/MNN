@@ -85,6 +85,8 @@ Usage:
 
       --useGeluApproximation    在进行Gelu算子合并时，使用Gelu的近似算法，默认为1 ，也就是`true`
 
+      --useOriginRNNImpl    LSTM和GRU算子是否使用原始算子实现，默认关闭。若开启，性能可能提升，但无法进行LSTM/GRU的量化
+
 ```
 
 **说明1: 选项weightQuantBits，使用方式为 --weightQuantBits numBits，numBits可选2~8，此功能仅对conv/matmul/LSTM的float32权值进行量化，仅优化模型大小，加载模型后会解码为float32，量化位宽可选2~8，运行速度和float32模型一致。经内部测试8bit时精度基本无损，模型大小减小4倍。default: 0，即不进行权值量化。**
@@ -328,3 +330,72 @@ cat mobilenet_v1.json
 
 ## Python版
 我们提供了预编译的MNNConvert Python工具：[mnnconvert](python.html#mnnconvert)
+
+
+## MNN2QNNModel
+### 功能
+该工具针对特定的高通硬件架构，为原始的MNN模型生成MNN-QNN后端需要的替代模型以及QNN离线产物。目前，支持静态形状的模型以及有限输入形状组合的模型。
+### 运行环境要求
+该工具必须在 x86_64 架构的 Linux 系统上运行（部分QNN SDK中的离线工具必须在此环境中运行）。
+### 编译
+添加额外的CMAKE变量并编译：`-DMNN_QNN=ON -DMNN_QNN_CONVERT_MODE=ON -DMNN_WITH_PLUGIN=OFF -DMNN_BUILD_TOOLS=ON -DMNN_SUPPORT_TRANSFORMER_FUSE=ON`。
+### 用法说明
+该工具的用法如下
+
+```
+./MNN2QNNModel <qnnSDKPath> <socId> <hexagonArch> <srcMNNPath> <outputDir> [totalShapeNum] [inputShape1] [inputShape2] ...
+```
+
+参数配置说明如下：
+| 参数 | 说明 | 是否必须 |
+| :--- | :--- | :--- |
+| `<qnnSDKPath>` | QNN SDK 的根目录路径。 | 是 |
+| `<socId>` | 目标 SoC 的 ID。常用 ID 参考：8Gen2 -> `43`, 8Gen3 -> `57`, 8 Elite -> `69`。其他型号请参考高通官方文档。 | 是 |
+| `<hexagonArch>` | Hexagon架构版本。常用架构参考：8Gen2 -> `73`, 8Gen3 -> `75`, 8 Elite -> `79`。其他型号请参考高通官方文档。 | 是 |
+| `<srcMNNPath>` | 待转换的原始 MNN 模型文件路径（`.mnn` 文件）。 | 是 |
+| `<outputDir>` | 用于存放生成产物的目录。工具会在此目录下生成一个新的 `.mnn` 文件（替代模型）和一个 `.bin` 文件（QNN离线产物）。 | 是 |
+| `[totalShapeNum]` | 需要支持的动态输入形状的总数量。 | 否 |
+| `[inputShapeN]` | 具体的输入形状配置。根据 `totalShapeNum` 的数量，提供相应个数的形状描述。形状信息可以是以下两种格式之一：<br>1. **形状字符串**：例如 `1x3x512x512`。对于多输入模型，用下划线 `_` 分隔，例如 `1x3x512x512_1x256`。<br>2. **MNN 文件路径**：提供一个包含所需输入信息的 `.mnn` 文件路径。 | 否 |
+
+#### 示例
+假设 QNN SDK 路径为 /path/to/qnn/sdk，目标设备为 8Gen3 (socId=57, hexagonArch=75)，原始模型为 model.mnn，输出目录为 /path/to/output
+- 使用默认输入形状进行转换
+
+```
+./MNN2QNNModel /path/to/qnn/sdk 57 75 model.mnn /path/to/output
+```
+
+- 为单输入模型指定单种输入形状进行转换
+
+```
+./MNN2QNNModel /path/to/qnn/sdk 57 75 model.mnn /path/to/output 1 1x3x256x256
+```
+
+- 为单输入模型指定多种输入形状进行转换
+
+```
+./MNN2QNNModel /path/to/qnn/sdk 57 75 model.mnn /path/to/output 2 1x3x256x256 1x3x512x512
+```
+
+- 为多输入模型指定多种输入形状进行转换
+```
+./MNN2QNNModel /path/to/qnn/sdk 57 75 model.mnn /path/to/output 2 1x3x256x256_1x100 1x3x512x512_1x200
+```
+
+#### 产物
+工具执行成功后，会在指定的 `<outputDir>` 目录下生成两个文件。文件名由原始模型名、SoC ID 和 Hexagon 架构版本共同决定，格式为 `<原始模型名>_<socId>_<hexagonArch>.<suffix>`。
+
+- **替代模型**：一个 `.mnn` 文件。文件名格式为`<原始模型名>_<socId>_<hexagonArch>.mnn`。
+- **QNN离线产物**：一个 `.bin` 文件，QNN离线产物，包含了优化后的模型和权重。文件名格式为`<原始模型名>_<socId>_<hexagonArch>.bin`。
+
+例如，对于上述示例（原始模型为 `model.mnn`，socId=57，hexagonArch=75），产物将位于 `/path/to/output/` 目录下：
+```
+/path/to/output/
+├── model_57_75.mnn       # 替代模型
+└── model_57_75.bin       # QNN离线产物
+```
+
+关于如何使用这些产物，可进一步参考[QNN离线构图模式的使用说明](../inference/npu.md#离线构图模式推理常规模型)。
+
+## compilefornpu
+对于较复杂的模型，通过compilefornpu及对应的`npu_convert.py`分段转换为NPU，该工具目前仅在llm相关模型的转换中使用

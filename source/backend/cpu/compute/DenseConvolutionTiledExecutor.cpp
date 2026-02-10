@@ -24,7 +24,7 @@ namespace MNN {
 
 void DenseConvolutionTiledExecutor::initWeight(float *dest, const float *source, float* cache, int depth, int outputCount, int kernelSize, const CoreFunctions* function) {
     ConvolutionTiledExecutor::initWeight(source, cache, depth, outputCount, kernelSize, function);
-    function->MNNPackForMatMul_B(dest, cache, outputCount, kernelSize * depth, true);
+    function->MNNPackForMatMul_B(dest, cache, outputCount, kernelSize, depth, true);
 
 }
 bool DenseConvolutionTiledExecutor::initQuantizeResource(std::shared_ptr<ConvolutionCommon::Int8Common> int8Info, std::shared_ptr<CPUConvolution::Resource> resource, int hU, int hP, int lU, int lP, int outputCount, int srcChannel, int kernelSize, int bytes) {
@@ -40,7 +40,7 @@ bool DenseConvolutionTiledExecutor::initQuantizeResource(std::shared_ptr<Convolu
     int scaleSize = dequantCnt; // real size
     if (int8Info->asymmetric) {
         scaleSize = dequantCnt / 2;
-        
+
     }
     int blockNum = scaleSize / outputCount;
     scaleSize = blockNum * hU * hP; // pack size
@@ -177,7 +177,7 @@ DenseConvolutionTiledExecutor::DenseConvolutionTiledExecutor(const Convolution2D
     auto srcCount    = (int)originWeightSize / outputCount / common->kernelX() / common->kernelY();
     auto lSize = srcCount * common->kernelX() * common->kernelY();
     auto hU = UP_DIV(outputCount, hP);
-    auto lU = UP_DIV(lSize, lP);
+    auto lU = UP_DIV(srcCount, lP) * common->kernelX() * common->kernelY();
     if (useInt8Weight) {
         // Quantize weight to int8
         auto allocSuccess = DenseConvolutionTiledExecutor::initQuantizeResource(int8Info, mResource, hU, hP, lU, lP, outputCount, srcCount, common->kernelX() * common->kernelY(), bytes);
@@ -190,12 +190,12 @@ DenseConvolutionTiledExecutor::DenseConvolutionTiledExecutor(const Convolution2D
             bytes = core->matmulBytes;
         }
         mResource->mWeight.reset(Tensor::createDevice<uint8_t>(
-            {hU * lU * hP * lP * bytes}));
+            {hU * hP, lU * lP, bytes}));
         mValid = mValid && backend()->onAcquireBuffer(mResource->mWeight.get(), Backend::STATIC);
         if (!mValid) {
             return;
         }
-        std::shared_ptr<Tensor> cache(Tensor::createDevice<uint8_t>({outputCount * srcCount * common->kernelX() * common->kernelY() * (int)sizeof(float)})); // cache must be float
+        std::shared_ptr<Tensor> cache(Tensor::createDevice<uint8_t>({outputCount, srcCount * common->kernelX() * common->kernelY(), (int)sizeof(float)})); // cache must be float
         mValid = mValid && backend()->onAcquireBuffer(cache.get(), Backend::STATIC);
         if (!mValid) {
             return;
@@ -280,7 +280,7 @@ ErrorCode ConvolutionTiledExecutorMultiInput::onExecute(const std::vector<Tensor
             MNNTranspose32Bit((int32_t*)dO, (const int32_t*)sO, &dims[0]);
         }
     }
-    function->MNNPackForMatMul_B(mTempWeight->host<float>(), mTempWeightCache->host<float>(), outputCount, kernelSize * depth, true);
+    function->MNNPackForMatMul_B(mTempWeight->host<float>(), mTempWeightCache->host<float>(), outputCount, kernelSize, depth, true);
     return mProxy->onExecute(mInputs, outputs);
 }
 ErrorCode ConvolutionTiledExecutorMultiInput::onResize(const std::vector<Tensor*>& inputs,
@@ -292,7 +292,7 @@ ErrorCode ConvolutionTiledExecutorMultiInput::onResize(const std::vector<Tensor*
     function->MNNGetMatMulPackMode(&eP, &lP, &hP);
     auto kernelSize = depth * inputs[1]->stride(1);
     mTempWeight.reset(Tensor::createDevice<float>(
-        {UP_DIV(outputCount, hP), UP_DIV(kernelSize, lP), lP * hP}));
+        {UP_DIV(outputCount, hP), UP_DIV(depth, lP) * inputs[1]->stride(1), lP * hP}));
     if (function->bytes < 4) {
         mTempWeightCache.reset(Tensor::createDevice<int32_t>({2, outputCount * kernelSize}));
     } else {
@@ -307,7 +307,8 @@ ErrorCode ConvolutionTiledExecutorMultiInput::onResize(const std::vector<Tensor*
     if (inputs.size() > 2 && inputs[2]->elementSize() % function->pack == 0) {
         mInputs = {inputs[0], mTempWeight.get(), inputs[2]};
     } else {
-        mTempBias.reset(Tensor::createDevice<float>({UP_DIV(outputCount, function->pack) * function->pack}));
+        auto hPackedSize = function->pack;
+        mTempBias.reset(Tensor::createDevice<float>({UP_DIV(outputCount, hPackedSize) * hPackedSize}));
         backend()->onAcquireBuffer(mTempBias.get(), Backend::DYNAMIC);
         mInputs = {inputs[0], mTempWeight.get(), mTempBias.get()};
     }
@@ -445,7 +446,7 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
     const uint8_t* dequantBias = nullptr;
     auto ic       = input->channel();
     auto icC4     = UP_DIV(ic, unit);
-    auto L        = ic * mCommon->kernelY() * mCommon->kernelX();
+    auto L        = ROUND_UP(ic, lP) * mCommon->kernelY() * mCommon->kernelX();
     auto tileC    = std::max(unit, hP);
     int blockSize = L;
     int blockNum  = 1;
@@ -468,7 +469,7 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
     auto output      = outputs[0];
     auto batch       = output->batch();
     int threadNumber = ((CPUBackend *)backend())->threadNumber();
-    
+
     int  LRoundup = ROUND_UP(L, lP);
     int  LRoundupC4 = UP_DIV(LRoundup, unit);
     auto outputChannel = output->channel();
@@ -500,14 +501,14 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
     bufferAlloc->free(tempPtr);
 
     auto postParameters    = getPostParameters();
-    mFunction.first        = threadNumber;
+    mFunction.second        = threadNumber;
 
     if (mConvPerfconfig.isParallelInner) {
         auto rt = static_cast<const CPURuntime*>(backend()->getRuntime());
         std::vector<int> ocC4ParralSize(threadNumber + 1);
         ocC4ParralSize[0] = 0;
         static_cast<CPUBackend *>(backend())->computeDivideSizes(oC4, ocC4ParralSize.data()+1);
-        mFunction.second = [=](int placeholder) {
+        mFunction.first = [=](int placeholder) {
         const float* biasPtr = bias ? bias->host<float>() : nullptr;
         auto gemmBuffer = mTempBufferTranspose.host<uint8_t>() + mTempBufferTranspose.stride(0) * 0;
         auto srcPtr     = (float const **)(tempPtr.ptr() + 0 * kernelSize * maxLine * (4 * sizeof(int32_t) + sizeof(float *)));
@@ -522,7 +523,7 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
         info[3] = mIm2ColParameters.strideX;
         size_t shapeParameters[PARAMETERSIZE];
         size_t* parameters = shapeParameters;
-        parameters[0]          = eP * bytes;
+        parameters[0]          = eP * lP * bytes;
         parameters[1]          = blockSize;
         parameters[2]          = outputChannel;
         parameters[3]          = plane * unit * bytes;
@@ -639,7 +640,7 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
 
         static_cast<CPUBackend *>(backend())->computeDivideSizes(tileCount, divides.data() + 1);
 
-        mFunction.second       = [=](int tId) {
+        mFunction.first       = [=](int tId) {
             const float* biasPtr = bias ? bias->host<float>() : nullptr;
             auto gemmBuffer = mTempBufferTranspose.host<uint8_t>() + mTempBufferTranspose.stride(0) * tId;
             auto srcPtr     = (float const **)(tempPtr.ptr() + tId * kernelSize * maxLine * (4 * sizeof(int32_t) + sizeof(float *)));
@@ -650,7 +651,7 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
             info[2] = eP;
             info[3] = mIm2ColParameters.strideX;
             size_t parameters[PARAMETERSIZE];
-            parameters[0]          = eP * bytes;
+            parameters[0]          = eP * lP *  bytes;
             parameters[1]          = blockSize;
             parameters[2]          = outputChannel;
             parameters[3]          = plane * unit * bytes;
@@ -677,7 +678,6 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
                 if (number > 0) {
                     packA((float *)gemmBuffer, srcPtr, info, el);
                 }
-
                 int finishedL = 0;
                 int wquantStride = 0;
                 int8_t* _weightPtr = reinterpret_cast<int8_t*>(weightPtr);
@@ -694,7 +694,7 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
                         }
                         finishedL = blockSize * bk;
                         wquantStride = static_cast<int32_t>(blockSize * bk * hP * halfStride);
-                        
+
                         matmulUnit(_dstFloatPtr, (float*)(gemmBuffer + bytes * eP * finishedL), (float*)(_weightPtr + wquantStride), parameters, relufp32, exeBiasPtr, (float*)(dequantAlpha + bk * ocUp4 * bytes), (float*)(dequantBias + bk * ocUp4 * bytes));
                     }
                 } else {
@@ -706,7 +706,7 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
                         }
                         finishedL = blockSize * bk;
                         wquantStride = static_cast<int32_t>(blockSize * bk * hP * halfStride);
-                        
+
                         matmulRemain(_dstFloatPtr, (float*)(gemmBuffer + eP * bytes * finishedL), (float*)(_weightPtr + wquantStride), xC, parameters, relufp32, exeBiasPtr, (float*)(dequantAlpha + bk * ocUp4 * bytes), (float*)(dequantBias + bk * ocUp4 * bytes ));
                     }
                     // matmulRemain(_dstFloatPtr, (float*)gemmBuffer, (float*)weightPtr, xC, parameters, postParameters.data(), biasPtr, k, b);
@@ -720,12 +720,9 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
 ErrorCode DenseConvolutionTiledImpl::onExecute(const std::vector<Tensor*>& inputs,
                                           const std::vector<Tensor*>& outputs) {
     if (mConvPerfconfig.isParallelInner) {
-        mFunction.second(0);
+        mFunction.first(0);
     } else {
-        MNN_CONCURRENCY_BEGIN(tId, mFunction.first) {
-            mFunction.second((int)tId);
-        }
-        MNN_CONCURRENCY_END();
+        MNN_CONCURRENCY_ENQUEUE(mFunction);
     }
 
     return NO_ERROR;

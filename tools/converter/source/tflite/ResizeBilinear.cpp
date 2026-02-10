@@ -32,7 +32,7 @@ void ResizeBilinear::run(MNN::OpT *dstOp, const std::unique_ptr<tflite::Operator
     DCHECK(!quantizedModel);
     auto resizeParam         = new MNN::InterpT;
     const auto &scaleTensor  = tfliteTensors[tfliteOp->inputs[1]];
-    auto code = tfliteOpSet[tfliteOp->opcode_index]->builtin_code;
+    auto code = liteOpConverter::getOpCode(tfliteOpSet[tfliteOp->opcode_index].get());
     if (BuiltinOperator_RESIZE_NEAREST_NEIGHBOR == code) {
         const auto& nearest = tfliteOp->builtin_options.AsResizeNearestNeighborOptions();
         resizeParam->resizeType   = 1;

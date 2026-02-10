@@ -1,0 +1,263 @@
+<androidx.constraintlayout.motion.widget.MotionLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/motion_layout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#E0E0E0"
+    app:layoutDescription="@xml/main_scene"
+    tools:context=".debug.DebugAnimationActivity">
+
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/download_container"
+        android:layout_width="20dp"
+        android:layout_height="20dp"
+        app:cardCornerRadius="28dp"
+        app:layout_constraintBottom_toBottomOf="@id/card_bottom_bar_container"
+        app:layout_constraintStart_toStartOf="@id/card_bottom_bar_container"
+        android:layout_marginStart="30dp">
+
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent">
+            <View
+                android:id="@+id/space"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintLeft_toLeftOf="parent"
+                app:layout_constraintRight_toRightOf="parent"
+                android:layout_width="300dp"
+                android:layout_height="76dp"/>
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/recycler_view_providers"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:layout_constraintBottom_toTopOf="@id/space"
+                android:overScrollMode="never"/>
+            <TextView
+                android:id="@+id/title_select_provider"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:padding="16dp"
+                android:text="@string/select_download_provider_title"
+                android:textColor="@android:color/black"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                app:layout_constraintBottom_toTopOf="@id/recycler_view_providers"
+                 />
+            
+
+        </androidx.constraintlayout.widget.ConstraintLayout>
+
+    </com.google.android.material.card.MaterialCardView>
+
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/filter_container"
+        android:layout_width="30dp"
+        android:layout_height="30dp"
+        android:alpha="1.0"
+        app:cardCornerRadius="16dp"
+        app:cardBackgroundColor="?colorOnPrimary"
+        tools:alpha="1">
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/filter_all"
+                android:textColor="@color/black"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:gravity="center_horizontal"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="模型格式"
+                android:textStyle="bold"/>
+            <RadioGroup
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="8dp">
+                <RadioButton android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="全部"/>
+                <RadioButton android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="MNN"/>
+                <RadioButton android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="TFLite"/>
+            </RadioGroup>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="模型大小"
+                android:textStyle="bold"/>
+            <RadioGroup
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="8dp">
+                <RadioButton android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="全部"/>
+                <RadioButton android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="1B"/>
+                <RadioButton android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="3B"/>
+                <RadioButton android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="7B"/>
+            </RadioGroup>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/filter_section_download_status"
+                android:textStyle="bold"/>
+            <RadioGroup
+                android:id="@+id/radio_group_download_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="8dp">
+                <RadioButton
+                    android:id="@+id/radio_download_all"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/filter_all_option"
+                    android:checked="true"/>
+                <RadioButton
+                    android:id="@+id/radio_download_not_started"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/filter_download_not_started"/>
+                <RadioButton
+                    android:id="@+id/radio_download_downloading"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/filter_download_downloading"/>
+                <RadioButton
+                    android:id="@+id/radio_download_paused"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/filter_download_paused"/>
+                <RadioButton
+                    android:id="@+id/radio_download_completed"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/filter_download_completed"/>
+            </RadioGroup>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:orientation="horizontal">
+                <Button
+                    android:id="@+id/btn_reset"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="重置"/>
+                <Button
+                    android:id="@+id/btn_confirm"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp"
+                    android:layout_weight="1"
+                    android:text="确定"/>
+            </LinearLayout>
+            <Space
+                android:layout_width="1dp"
+                android:layout_height="76dp"/>
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <LinearLayout
+        android:id="@+id/card_bottom_bar_container"
+        android:layout_width="wrap_content"
+        android:layout_height="56dp"
+        android:gravity="center"
+        android:orientation="horizontal"
+        android:paddingStart="12dp"
+        android:background="@drawable/button_background_blue"
+        android:paddingEnd="12dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        android:layout_marginBottom="40dp">
+
+        <LinearLayout
+            android:id="@+id/click_area_download"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:orientation="horizontal"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:background="?attr/selectableItemBackground">
+            <ImageView
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:src="@drawable/ic_switch_source"
+                app:tint="@android:color/white" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="切换下载源"
+                android:textColor="@android:color/white"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <View
+            android:layout_width="1dp"
+            android:layout_height="24dp"
+            android:background="#80FFFFFF" />
+
+        <LinearLayout
+            android:id="@+id/click_area_filter"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:orientation="horizontal"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:background="?attr/selectableItemBackground">
+            <ImageView
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:src="@drawable/ic_filter"
+                app:tint="@android:color/white" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="筛选"
+                android:textColor="@android:color/white"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+    </LinearLayout>
+
+<!--    <com.google.android.material.card.MaterialCardView-->
+<!--        android:id="@+id/card_bottom_bar_container"-->
+<!--        android:layout_width="wrap_content"-->
+<!--        android:layout_height="wrap_content"-->
+<!--        app:cardElevation="1dp"-->
+<!--        app:cardCornerRadius="28dp"-->
+<!--        app:layout_constraintBottom_toBottomOf="parent"-->
+<!--        app:layout_constraintEnd_toEndOf="parent"-->
+<!--        app:layout_constraintStart_toStartOf="parent"-->
+<!--        app:cardBackgroundColor="?colorPrimary"-->
+<!--        android:layout_marginBottom="40dp">-->
+
+<!--    </com.google.android.material.card.MaterialCardView>-->
+
+</androidx.constraintlayout.motion.widget.MotionLayout> 

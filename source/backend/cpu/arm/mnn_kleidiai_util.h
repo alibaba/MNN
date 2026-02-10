@@ -38,6 +38,13 @@
 #include "kai_matmul_clamp_f16_f16p2vlx2_f16p2vlx2_2vlx2vl_sme2_mopa.h"
 #include "kai_matmul_clamp_f16_f16_f16p2vlx2b_1x16vl_sme2_dot.h"
 
+#include "kai_rhs_pack_nxk_qai4c32ps1s0nrx4_qau4c32s0s1_f32_f32_f32_neon.h"
+#include "kai_rhs_pack_nxk_qai4c32ps1s0nrx4_qau4c32s1s0_f32_f32_f32_neon.h"
+#include "kai_matmul_clamp_f32_qsi8d32p1vlx4_qai4c32p4vlx4_1vlx4vl_sme2_mopa.h"
+#include "kai_matmul_clamp_f32_qsi8d32p1x4_qai4c32p4vlx4_1x4vl_sme2_dot.h"
+#include "kai_matmul_clamp_f16_qsi8d32p1vlx4_qai4c32p4vlx4_1vlx4vl_sme2_mopa.h"
+#include "kai_matmul_clamp_f16_qsi8d32p1x4_qai4c32p4vlx4_1x4vl_sme2_dot.h"
+
 #include "kai_common.h"
 
 namespace MNN {
@@ -48,20 +55,8 @@ namespace MNN {
         uint8_t mRhsZeroPoint = 8;
     };
 
-    static void transferNCHWToNC4HW4(float* src, float* dst, size_t rowNum, size_t rowSize);
-    static void transferNCHWToNC4HW4(__fp16* src, __fp16* dst, size_t rowNum, size_t rowSize);
-    static void transferNC4HW4ToNCHW(float* src, float* dst, size_t rowNum, size_t rowSize);
-    static void transferNC4HW4ToNCHW(__fp16* src, __fp16* dst, size_t rowNum, size_t rowSize);
-
     /// Rhs pack functions for matmul_clamp_f32_qai8dxp_qsi4cxp.
     static void packQsi4cxps16s0Qs4cxs0s1(
-        size_t num_groups, size_t n, size_t k, size_t nr, size_t kr, size_t sr,
-        const uint8_t* rhs, const float* bias, const float* scale,
-        void* rhs_packed,
-        size_t extra_bytes,
-        const struct KleidiAIUtil::rhsPackParamCommon* paramsCommon);
-
-    static void packQsi4cxps16s0Qs4cx(
         size_t num_groups, size_t n, size_t k, size_t nr, size_t kr, size_t sr,
         const uint8_t* rhs, const float* bias, const float* scale,
         void* rhs_packed,

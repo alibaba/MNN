@@ -104,18 +104,6 @@ static std::vector<std::shared_ptr<BufferStorage>> preRearrangeWeights( // NOLIN
                         tempOutput->setLength(1, conv2d->common()->outputCount());
                         tempOutput->setLength(2, oh);
                         tempOutput->setLength(3, ow);
-                        if (op->main_as_Convolution2D()->quanParameter()) {
-                            type = DataType_DT_INT8;
-                            int inputIdx = op->inputIndexes()->Get(0);
-                            auto& inputQuantAttr = TensorUtils::getDescribe(tempInput)->quantAttr;
-                            if (nullptr != inputQuantAttr.get()) {
-                                TensorUtils::getDescribe(tempInput)->type = DataType_DT_INT8;
-                            }
-                            auto& outputQuantAttr = TensorUtils::getDescribe(tempOutput)->quantAttr;
-                            if (nullptr != outputQuantAttr.get()) {
-                                TensorUtils::getDescribe(tempOutput)->type = DataType_DT_INT8;
-                            }
-                        }
                     }
                     std::shared_ptr<BufferStorage> tmpstorage;
                     exe.reset(OpCommonUtils::createExecutionWithExternal(backend, info.inputs, info.outputs, op, &loader, tmpstorage));
@@ -161,13 +149,29 @@ static std::vector<std::shared_ptr<BufferStorage>> preRearrangeWeights( // NOLIN
                 break;
             }
             case MNN::OpType_LayerNorm: {
-                std::shared_ptr<BufferStorage> tmpstorage;
-                exe.reset(OpCommonUtils::createExecutionWithExternal(backend, info.inputs, info.outputs, op, &loader, tmpstorage));
-                if (exe.get() == nullptr) {
-                    exe.reset(OpCommonUtils::createExecutionWithExternal(backupBackend, info.inputs, info.outputs, op, &loader, tmpstorage));
+                if (!base_executions.empty() && op->name()) {
+                    auto iter = base_executions.find(op->name()->str());
+                    if (iter != base_executions.end()) {
+                        auto base_exe = iter->second.get();
+                        Execution* copyExecution = nullptr;
+                        base_exe->onClone(backend, op, &copyExecution);
+                        if (copyExecution == nullptr) {
+                            base_exe->onClone(backupBackend, op, &copyExecution);
+                        }
+                        if (copyExecution != nullptr && copyExecution->onClone(nullptr, op, nullptr)) {
+                            exe.reset(copyExecution);
+                        }
+                    }
                 }
-                if (nullptr == exe) {
-                    break;
+                if (exe == nullptr) {
+                    std::shared_ptr<BufferStorage> tmpstorage;
+                    exe.reset(OpCommonUtils::createExecutionWithExternal(backend, info.inputs, info.outputs, op, &loader, tmpstorage));
+                    if (exe.get() == nullptr) {
+                        exe.reset(OpCommonUtils::createExecutionWithExternal(backupBackend, info.inputs, info.outputs, op, &loader, tmpstorage));
+                    }
+                    if (nullptr == exe) {
+                        break;
+                    }
                 }
                 // The exe can't clone
                 if (!exe->onClone(nullptr, op, nullptr)) {
@@ -329,6 +333,12 @@ StaticModule::StaticModule(std::vector<int> inputs,
     auto& bnCache = scheduleInfo.pipelineInfo[0].first;
     // Create Backend for prearrange
     Session::createPipelineBackend(scheduleInfo.pipelineInfo[0], rt);
+    if (nullptr == bnCache.cache.first || nullptr == bnCache.cache.second) {
+        MNN_ERROR("[MNN:Express] Create Backend Error\n");
+        return;
+    }
+    bnCache.cache.first->pNPUModelDirPath = rtm->getInside()->mContent->mNpuDir;
+    bnCache.cache.second->pNPUModelDirPath = rtm->getInside()->mContent->mNpuDir;
     if (config.rearrange) {
         mResource->mBuffer = preRearrangeWeights(scheduleInfo, bnCache.cache.first.get(), bnCache.cache.second.get(), config.base);
     } else {
@@ -376,10 +386,10 @@ StaticModule::StaticModule(std::vector<int> inputs,
     }
     mResource->mOutputs = std::move(outputs);
 
-    bool needResize = scheduleInfo.validForResize && mResource->mModes.inputMode == Interpreter::Session_Input_Inside;
+    bool canResize = scheduleInfo.validForResize && mResource->mModes.inputMode == Interpreter::Session_Input_Inside;
     mSession.reset(new Session(std::move(scheduleInfo), mResource->mModes, std::move(rt)));
     resetInputOutputs();
-    if (needResize) {
+    if (canResize && (!config.rearrange)) {
         mSession->resize();
     }
 }
@@ -468,7 +478,7 @@ ErrorCode StaticModule::_resize(const std::vector<Express::VARP>& inputs) {
             } else {
                 needMalloc = TensorUtils::refTensorContent(mInputTensors[i], inputTensor);
             }
-            des->type = srcDes->type;
+            des->applyQuant = srcDes->applyQuant;
             des->dimensionFormat = srcDes->dimensionFormat;
             des->tensorArrayAttr = srcDes->tensorArrayAttr;
             mInputTensors[i]->buffer().type = inputTensor->buffer().type;
@@ -625,7 +635,7 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
     mSession->getInfo(Interpreter::FLOPS, &flops);
     glo->getDebugTools()->flops += flops;
 #endif
-    
+
     return outputs;
 }
 

@@ -7,7 +7,8 @@ class ModelListContract {
         fun onListAvailable()
         fun onLoading()
         fun onListLoadError(error: String?)
+        fun onBuiltinModelsCopyProgress(current: Int, total: Int, message: String)
         val adapter: ModelListAdapter?
-        fun runModel(absolutePath: String?, modelId: String?)
+        fun runModel(destPath:String?, modelId: String?)
     }
 }

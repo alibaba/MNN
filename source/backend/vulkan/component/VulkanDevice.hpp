@@ -178,9 +178,15 @@ public:
         return mSubgroupSize;
     }
 
+    bool getFP16Support() const {
+        return mFP16Info.supportFP16;
+    }
+
 private:
-    const VkResult enumerateDeviceExtensionProperties(const VkPhysicalDevice& dev,
-                                                      std::vector<VkExtensionProperties>& exts_props) const;
+    const VkResult enumerateDeviceExtensionProperties(const VkPhysicalDevice& dev, std::vector<VkExtensionProperties>& exts_props) const;
+
+    // Set mSupportFP16 and mFP16FromExtension
+    void checkFP16();
 
 private:
     bool mOwner;
@@ -193,6 +199,18 @@ private:
     VkPhysicalDeviceMemoryProperties mMemoryProty;
     uint32_t mSubgroupSize;
     uint32_t mLocalMemorySize = 0;
+
+// FP16 related
+private:
+struct FP16Info {
+    bool supportFP16{false};
+    bool FP16FromExtension{false};
+    VkPhysicalDeviceVulkan11Features enabledVulkan11Features{};
+    VkPhysicalDeviceVulkan12Features enabledVulkan12Features{};
+    VkPhysicalDeviceShaderFloat16Int8Features enabledShaderFloat16Int8Features{};
+    VkPhysicalDevice16BitStorageFeatures enabled16BitStorageFeatures{};
+};
+    FP16Info mFP16Info{};
 };
 } // namespace MNN
 #endif /* VulkanDevice_hpp */

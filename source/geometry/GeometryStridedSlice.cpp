@@ -20,6 +20,7 @@ public:
         auto output     = outputs[0];
         auto outputDes = TensorUtils::getDescribe(output);
         outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        outputDes->regions.clear();
         const int inputDim = input->buffer().dimensions;
         auto parameter = op->main_as_StridedSliceParam();
         int32_t beginMask = parameter->beginMask();
@@ -39,7 +40,7 @@ public:
 
         int32_t strideSize = begin->length(0);
         MNN_ASSERT(begin->buffer().dimensions == end->buffer().dimensions);
- 
+
         int32_t inputShape[MNN_MAX_TENSOR_DIM] = { 0 };
         int32_t begins[MNN_MAX_TENSOR_DIM] = { 0 };
         int32_t ends[MNN_MAX_TENSOR_DIM] = { 0 };
@@ -50,16 +51,19 @@ public:
         int32_t shrinkAxisMasks[MNN_MAX_TENSOR_DIM] = { 0 };
         int32_t newAxisMasks[MNN_MAX_TENSOR_DIM] = { 0 };
         int32_t inputStride[MNN_MAX_TENSOR_DIM];
-        
+
         {
             int stride = 1;
             for (int i = input->buffer().dimensions - 1; i >= 0; --i) {
                 inputShape[i]  = input->buffer().dim[i].extent;
                 inputStride[i] = stride;
                 stride *= inputShape[i];
+                if (inputShape[i] == 0) {
+                    return true;
+                }
             }
         }
-        
+
         for (int i = 0; i < inputDim; i++) {
             inputShape[i] = input->length(i);
         }
@@ -75,7 +79,7 @@ public:
         for (int i = 0; i < strideSize; i++) {
             newAxisMasks[i] = newAxisMask & (1 << i);
         }
-        
+
         // broadcast begin end stride axis param
         if (fromType == 1) {
 
@@ -94,7 +98,7 @@ public:
                 ends[i] = inputShape[i];
                 strides[i] = 1;
             }
-        
+
             for (int i = 0; i < strideSize; i++) {
                 auto temp_axis = i;
                 if(axis != nullptr) {
@@ -105,12 +109,12 @@ public:
                 if(step != nullptr) {
                     strides[temp_axis] = step->host<int>()[i];
                 }
-                
+
                 auto shape = inputShape[temp_axis];
                 auto temp_value = begin->host<int>()[i];
                 temp_value = temp_value < 0 ? (temp_value + shape) : temp_value;
                 begins[temp_axis] = temp_value;
-                
+
                 temp_value = end->host<int>()[i];
                 temp_value = temp_value < 0 ? (temp_value + shape) : temp_value;
                 ends[temp_axis] = temp_value;
@@ -185,7 +189,7 @@ public:
                 }
             }
         }
-        
+
         int32_t beginShape[MNN_MAX_TENSOR_DIM] = { 0 };
         int32_t endShape[MNN_MAX_TENSOR_DIM] = { 0 };
         int32_t stridedShape[MNN_MAX_TENSOR_DIM] = { 0 };
@@ -332,6 +336,7 @@ public:
             region.size[2] = input->elementSize();
             region.origin = input;
             outputDes->regions.insert(outputDes->regions.begin(), region);
+            outputDes->overlap = true; // should use 1 thread for cpu backend
         }
         return true;
     }

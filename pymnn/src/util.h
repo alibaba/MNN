@@ -398,6 +398,9 @@ static inline bool isPySequence(PyObject* obj) {
     // use isPySequence replace PySequence_Check
     return PyTuple_Check(obj) || PyList_Check(obj) || PyBytes_Check(obj);
 }
+static inline bool isPyDict(PyObject* obj) {
+    return PyDict_Check(obj);
+}
 static inline int PySequenceSize(PyObject* obj) {
     if (PyTuple_Check(obj)) return PyTuple_Size(obj);
     if (PyList_Check(obj)) return PyList_Size(obj);

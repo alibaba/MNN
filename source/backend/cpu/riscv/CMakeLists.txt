@@ -1,0 +1,17 @@
+IF(NOT DEFINED ARCHS)
+  set(ARCHS ${CMAKE_SYSTEM_PROCESSOR})
+ENDIF()
+
+FILE(GLOB MNN_RVV_SRC ${CMAKE_CURRENT_LIST_DIR}/rvv/*.cpp)
+
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "^riscv64" OR ARCHS STREQUAL "riscv64")
+    message(STATUS "Enabling RVV Optimizations")
+    add_library(MNNRVV OBJECT ${MNN_RVV_SRC})
+    target_include_directories(MNNRVV PRIVATE ${CMAKE_CURRENT_LIST_DIR}/rvv/)
+    list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNNRVV>)
+    list(APPEND MNN_TARGETS MNNRVV)
+    add_definitions(-DMNN_USE_RVV)
+    target_compile_options(MNNRVV PRIVATE -march=rv64gcv -mabi=lp64d)
+else()
+    message(WARNING "RVV optimizations are only supported on riscv64 architecture")
+endif()

@@ -10,30 +10,26 @@
 #include <math.h>
 #include "backend/cpu/CPUBackend.hpp"
 #include "backend/cpu/compute/ConvOpt.h"
-#include "backend/cpu/compute/CommonOptFunction.h"
 #include "core/TensorUtils.hpp"
 
 namespace MNN {
 
 // implement GRU cell function
 // Ref: tensorflow/python/ops/rnn_cell_impl.py
-void CPURNNSequenceGRU::runRNNStep(const uint8_t* input, const int inputLength, const bool linearBeforeReset,
-                       std::shared_ptr<Tensor>& hiddenState, const int numUnits, Tensor* gateWeight, Tensor* gateBias,
+void CPURNNSequenceGRU::runRNNStep(const uint8_t* input, const int inputLength, const bool linearBeforeReset, uint8_t* hiddenStateInput, const int numUnits, Tensor* gateWeight, Tensor* gateBias,
                        Tensor* candidateWeight, Tensor* candidateBias, Tensor* recurrentBias,
                        std::shared_ptr<Tensor>& inputAndState, std::shared_ptr<Tensor>& gate,
-                       std::shared_ptr<Tensor>& resetHt) {
-    auto bn = static_cast<CPUBackend*>(backend());
-    auto mulFunction = bn->functions()->MNNSelectBinaryFunctionForFloat(BinaryOpOperation_MUL);
-    auto addFunction = bn->functions()->MNNSelectBinaryFunctionForFloat(BinaryOpOperation_ADD);
-    auto subFunction = bn->functions()->MNNSelectBinaryFunctionForFloat(BinaryOpOperation_SUB);
-    auto tanhFunction = bn->functions()->MNNSelectUnaryFunctionForFloat(UnaryOpOperation_TANH, bn->precisionMode());
-    auto bytes = bn->functions()->bytes;
-    auto sigmoidFunc = bn->functions()->MNNSelectUnaryFunctionForFloat(UnaryOpOperation_SIGMOID, bn->precisionMode());
+                       std::shared_ptr<Tensor>& resetHt, uint8_t* hiddenStateOutput) {
     // gate is (z_t, r_t)
+    auto bytes = mRNNFunctions.bytes;
+    MNNBinaryExecute mulFunction = mRNNFunctions.mulFunction;
+    MNNBinaryExecute addFunction = mRNNFunctions.addFunction;
+    MNNBinaryExecute subFunction = mRNNFunctions.subFunction;
+    MNNUnaryExecute tanhFunction = mRNNFunctions.tanhFunction;
+    MNNUnaryExecute sigmoidFunction = mRNNFunctions.sigmoidFunction;
     auto inputAndStatePtr = inputAndState->host<uint8_t>();
-    auto hiddenStatePtr   = hiddenState->host<uint8_t>();
     ::memcpy(inputAndStatePtr, input, inputLength * bytes);
-    ::memcpy(inputAndStatePtr + inputLength * bytes, hiddenStatePtr, numUnits * bytes);
+    ::memcpy(inputAndStatePtr + inputLength * bytes, hiddenStateInput, numUnits * bytes);
     inputAndState->setLength(1, inputLength + numUnits);
 
     // // [x_t, h_t-1] * [W_zr, R_zr]: (1, inputLength + numUnits) X (inputLength + numUnits, 2 * numUnits)
@@ -42,9 +38,8 @@ void CPURNNSequenceGRU::runRNNStep(const uint8_t* input, const int inputLength, 
     recurrentBias->setLength(1, 2 * numUnits);
     addFunction(gate->host<float>(), gate->host<float>(), recurrentBias->host<float>(), 2*numUnits, -1);
     // (1, 2*numUnits)
-    const int gateSize = gate->elementSize();
     auto gatePtr       = gate->host<uint8_t>();
-    sigmoidFunc(gatePtr, gatePtr, gateSize);
+    sigmoidFunction(gatePtr, gatePtr, 2 * numUnits);
     // reset gate, // r_t is the second segment
     auto rtPtr = gatePtr + numUnits * bytes;
 
@@ -52,7 +47,7 @@ void CPURNNSequenceGRU::runRNNStep(const uint8_t* input, const int inputLength, 
         // calculate Rt (.) (Ht_1 * Rh + Rbh)
         auto recurrentHiddenBiasPtr = recurrentBias->host<uint8_t>() + 2 * numUnits * bytes;
         auto rhWeightPtr = candidateWeight->host<uint8_t>() + inputLength * numUnits * bytes;
-        mMatMulU2U->execute(hiddenState->host<float>(), (float*)rhWeightPtr, resetHt->host<float>(), (float*)recurrentHiddenBiasPtr);
+        mMatMulU2U->execute((float*)hiddenStateInput, (float*)rhWeightPtr, resetHt->host<float>(), (float*)recurrentHiddenBiasPtr);
         mulFunction(resetHt->host<float>(), rtPtr, resetHt->host<float>(), numUnits, -1);
 
         // calculate Xt * Wh
@@ -65,10 +60,10 @@ void CPURNNSequenceGRU::runRNNStep(const uint8_t* input, const int inputLength, 
         // r_t: (1, numUnits)
         auto resetGatePtr = inputAndStatePtr + inputLength * bytes;
         // h_t1(1, numUnits) = r_t(1, numUnits) * h_t-1_(1, numUnits)
-        mulFunction(resetGatePtr, rtPtr, hiddenStatePtr, numUnits, -1);
+        mulFunction(resetGatePtr, rtPtr, hiddenStateInput, numUnits, -1);
         // deal with recurrent bias and linear_before_reset parameter
         auto recurrentBiasAddedPtr = inputAndStatePtr + (inputLength + numUnits) * bytes;
-        auto recurrentHiddenBiasPtr = recurrentBias->host<float>() + 2 * numUnits * bytes;
+        auto recurrentHiddenBiasPtr = (float*)(recurrentBias->host<uint8_t>() + 2 * numUnits * bytes);
         addFunction(recurrentBiasAddedPtr, recurrentHiddenBiasPtr, candidateBias->host<float>(), numUnits, -1);
         mMatMulI2U->execute(inputAndState->host<float>(), candidateWeight->host<float>(),  resetHt->host<float>(), nullptr);
         // reuse r_t memory as h_t'
@@ -76,9 +71,9 @@ void CPURNNSequenceGRU::runRNNStep(const uint8_t* input, const int inputLength, 
     }
     // h = (1-g)*t+g*h = t + g*(h-t)
     tanhFunction(resetHt->host<float>(), rtPtr, numUnits);
-    subFunction(hiddenStatePtr, hiddenStatePtr, resetHt->host<float>(), numUnits, -1);
-    mulFunction(hiddenStatePtr, hiddenStatePtr, gatePtr, numUnits, -1);
-    addFunction(hiddenStatePtr, hiddenStatePtr, resetHt->host<float>(), numUnits, -1);
+    subFunction(hiddenStateOutput, hiddenStateInput, resetHt->host<float>(), numUnits, -1);
+    mulFunction(hiddenStateOutput, hiddenStateOutput, gatePtr, numUnits, -1);
+    addFunction(hiddenStateOutput, hiddenStateOutput, resetHt->host<float>(), numUnits, -1);
     inputAndState->setLength(1, inputLength + 2 * numUnits);
 }
 
@@ -143,6 +138,13 @@ ErrorCode CPURNNSequenceGRU::onResize(const std::vector<Tensor*>& inputs, const 
     backend()->onReleaseBuffer(mInputAndState.get(), Backend::DYNAMIC);
     backend()->onReleaseBuffer(mGate.get(), Backend::DYNAMIC);
     backend()->onReleaseBuffer(mResetHt.get(), Backend::DYNAMIC);
+    auto bn = static_cast<CPUBackend*>(backend());
+    mRNNFunctions.mulFunction = bn->functions()->MNNSelectBinaryFunctionForFloat(BinaryOpOperation_MUL);
+    mRNNFunctions.addFunction = bn->functions()->MNNSelectBinaryFunctionForFloat(BinaryOpOperation_ADD);
+    mRNNFunctions.subFunction = bn->functions()->MNNSelectBinaryFunctionForFloat(BinaryOpOperation_SUB);
+    mRNNFunctions.tanhFunction = bn->functions()->MNNSelectUnaryFunctionForFloat(UnaryOpOperation_TANH, bn->precisionMode());
+    mRNNFunctions.bytes = bn->functions()->bytes;
+    mRNNFunctions.sigmoidFunction = bn->functions()->MNNSelectUnaryFunctionForFloat(UnaryOpOperation_SIGMOID, bn->precisionMode());
 
     return NO_ERROR;
 }
@@ -183,27 +185,29 @@ ErrorCode CPURNNSequenceGRU::onExecute(const std::vector<Tensor*>& inputs, const
     const int inputCodeLength     = input->length(2);
     // MNN_PRINT("inputSequenceLength:%d, batchSize:%d, inputCodeLength:%d, mNumUnits:%d, hiddenStateDataSize:%d\n", inputSequenceLength, batchSize, inputCodeLength, mNumUnits, hiddenStateDataSize);
     for (int b = 0; b < batchSize; ++b) { // swap order
+        auto hiddenStateInput = hiddenStatePtr;
+        auto hiddenStateOutput = hiddenStatePtr;
         if (inputSize > 1 + forwardParamNumber * (mIsBidirectionalRNN + 1)) {
             auto source = inputs[inputSize - 1]->host<uint8_t>() + b * hiddenStateDataSize;
-            ::memcpy(hiddenStatePtr, source, hiddenStateDataSize);
+            hiddenStateInput = source;
         } else {
             ::memset(hiddenStatePtr, 0, hiddenStateDataSize);
         }
 
         for (int i = 0; i < inputSequenceLength; ++i) {
             const int inputOffset = i * SequenceStride + b * inputCodeLength;
-            runRNNStep(inputPtr + inputOffset * bytes, inputCodeLength, mlinearBeforeReset, mHiddenState, mNumUnits, fwGateWeight, fwGateBias,
-                       fwCandidateWeight, fwCandidateBias, fwRecurrentBias, mInputAndState, mGate, mResetHt);
-
             if (mKeepAllOutputs) {
-                ::memcpy(outputPtr + (i * output->stride(0) + b * mNumUnits) * bytes, hiddenStatePtr, hiddenStateDataSize);
+                hiddenStateOutput = outputPtr + (i * output->stride(0) + b * mNumUnits) * bytes;
             }
+            runRNNStep(inputPtr + inputOffset * bytes, inputCodeLength, mlinearBeforeReset, hiddenStateInput, mNumUnits, fwGateWeight, fwGateBias,
+                       fwCandidateWeight, fwCandidateBias, fwRecurrentBias, mInputAndState, mGate, mResetHt, hiddenStateOutput);
+
+            hiddenStateInput = hiddenStateOutput;
         }
         if ((mKeepAllOutputs && outputSize > 1) || !mKeepAllOutputs) {
-            ::memcpy(outputYhPtr, hiddenStatePtr, hiddenStateDataSize);
+            ::memcpy(outputYhPtr, hiddenStateOutput, hiddenStateDataSize);
             outputYhPtr += mNumUnits * bytes;
         }
-
     }
 
     // backward rnn
@@ -221,22 +225,24 @@ ErrorCode CPURNNSequenceGRU::onExecute(const std::vector<Tensor*>& inputs, const
         auto outputBw            = outputs[0];
         auto const outputBwPtr = outputBw->host<uint8_t>();
         for (int b = 0; b < batchSize; ++b) {
+            auto hiddenStateInput = hiddenStatePtr;
+            auto hiddenStateOutput = hiddenStatePtr;
 
             if (inputSize > 1 + forwardParamNumber * 2) {
                 auto source = inputs[inputSize - 1]->host<uint8_t>() + (batchSize + b) * hiddenStateDataSize;
-                ::memcpy(hiddenStatePtr, source, hiddenStateDataSize);
+                hiddenStateInput = source;
             } else {
                 ::memset(hiddenStatePtr, 0, hiddenStateDataSize);
             }
 
             for (int i = inputSequenceLength - 1; i >= 0; i--) {
                 const int inputOffset = i * SequenceStride + b * inputCodeLength;
-                runRNNStep(inputPtr + inputOffset * bytes, inputCodeLength, mlinearBeforeReset, mHiddenState, mNumUnits, bwGateWeight, bwGateBias,
-                           bwCandidateWeight, bwCandidateBias, bwRecurrentBias, mInputAndState, mGate, mResetHt);
                 if (mKeepAllOutputs) {
-                    ::memcpy(outputBwPtr + (i * outputBw->stride(0) + (batchSize + b) * mNumUnits) * bytes,
-                             hiddenStatePtr, hiddenStateDataSize);
+                    hiddenStateOutput = outputBwPtr + (i * outputBw->stride(0) + (batchSize + b) * mNumUnits) * bytes;
                 }
+                runRNNStep(inputPtr + inputOffset * bytes, inputCodeLength, mlinearBeforeReset, hiddenStateInput, mNumUnits, bwGateWeight, bwGateBias,
+                           bwCandidateWeight, bwCandidateBias, bwRecurrentBias, mInputAndState, mGate, mResetHt, hiddenStateOutput);
+                hiddenStateInput = hiddenStateOutput;
             }
             if ((mKeepAllOutputs && outputSize > 1) || !mKeepAllOutputs) {
                 ::memcpy(outputYhPtr, hiddenStatePtr, hiddenStateDataSize);

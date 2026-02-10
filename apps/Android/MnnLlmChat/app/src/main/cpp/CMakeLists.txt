@@ -11,44 +11,50 @@ cmake_minimum_required(VERSION 3.22.1)
 # build script scope).
 project("mnnllmapp")
 
-# Creates and names a library, sets it as either STATIC
-# or SHARED, and provides the relative paths to its source code.
-# You can define multiple libraries, and CMake builds them for you.
-# Gradle automatically packages shared libraries with your APK.
-#
-# In this top level CMakeLists.txt, ${CMAKE_PROJECT_NAME} is used to define
-# the target library name; in the sub-module's CMakeLists.txt, ${PROJECT_NAME}
-# is preferred for the same purpose.
-#
-# In order to load a library into your app from Java/Kotlin, you must call
-# System.loadLibrary() and pass the name of the library defined here;
-# for GameActivity/NativeActivity derived applications, the same library name must be
-# used in the AndroidManifest.xml file.
 add_library(${CMAKE_PROJECT_NAME} SHARED
         # List C/C++ source files with relative paths to this CMakeLists.txt.
         llm_mnn_jni.cpp
+        mnn_wrapper_jni.cpp
+        diffusion_jni.cpp
         diffusion_session.cpp
         llm_session.cpp
+        crash_util.cpp
+        processor.cpp
+        # Video processing files (moved to video/ directory)
+        video/video_decoder.cpp
+        video/byte_buffer_decoder.cpp
+        video/image_utils.cpp
+        video/video_processor.cpp
 )
+
+# Add 16KB page size support (required for Android 15+ devices)
+target_link_options(${CMAKE_PROJECT_NAME} PRIVATE "-Wl,-z,max-page-size=16384")
+
 #mnn
-#set (MNN_ROOT "/Users/songjinde/git/DAI/AliNNPrivate")
-set (MNN_ROOT "${CMAKE_SOURCE_DIR}/../../../../../../../")
-message(ERROR "MNN_ROOT: ${MNN_ROOT}")
-include_directories("${MNN_ROOT}/include/")
+set (MNN_SOURCE_ROOT "${CMAKE_SOURCE_DIR}/../../../../../../../")
+#set (MNN_SOURCE_ROOT "/Users/songjinde/git/DAI/AliNNPrivate")
+set (MNN_INSTALL_ROOT "${MNN_SOURCE_ROOT}/project/android/build_64")
+# set (MNN_INSTALL_ROOT "/Users/songjinde/MNN/project/android/build_64")
+
+#set (MNN_ROOT "${CMAKE_SOURCE_DIR}/../../../../../../../")
+message(INFO "MNN_SOURCE_ROOT: ${MNN_SOURCE_ROOT}")
+message(INFO "MNN_INSTALL_ROOT: ${MNN_INSTALL_ROOT}")
+
+include_directories("${MNN_SOURCE_ROOT}/include/")
 
 #diffusion
-include_directories("${MNN_ROOT}/transformers/diffusion/engine/include/")
+include_directories("${MNN_SOURCE_ROOT}/transformers/diffusion/engine/include/")
 
 #llm
-#include_directories("${MNN_ROOT}/transformers/llm/engine/include")
-include_directories("${CMAKE_SOURCE_DIR}/include")
+include_directories("${MNN_SOURCE_ROOT}/transformers/llm/engine/include")
+#include_directories("${CMAKE_SOURCE_DIR}/include")
 
 #audio
-
+include_directories("${MNN_SOURCE_ROOT}/tools/audio/include")
+include_directories("${MNN_SOURCE_ROOT}/3rd_party/")
 include_directories("${CMAKE_SOURCE_DIR}/third_party")
-
 # Add library paths
-set(LIB_PATH "${CMAKE_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}")
+set(LIB_PATH "${MNN_INSTALL_ROOT}/lib")
 
 # Link the shared library
 
@@ -84,10 +90,7 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
         android
         log
         MNN
-#        llm
-        #        mnn_Express
-#        mnn_cl
-#        mnn_audio
-#        mnn_cv
-#        diffusion
+        # MediaCodec libraries for hardware video decoding
+        mediandk
+
         )

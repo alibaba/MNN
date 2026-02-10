@@ -105,6 +105,7 @@ void ConvertUtils::broadcastto(Tensor* input, Tensor* output, bool forward) {
         reg.dst.stride[1] = multipler;
         reg.dst.stride[2] = 1;
         reg.origin = input;
+        return;
     }
     int32_t inputShape[MNN_MAX_TENSOR_DIM];
     int32_t outputShape[MNN_MAX_TENSOR_DIM];

@@ -1,0 +1,96 @@
+plugins {
+    id 'com.android.application' version '8.7.3'
+    id 'org.jetbrains.kotlin.android' version '1.9.22'
+}
+
+task downloadAndUnzipNativeLibs {
+    group = 'Pre-build'
+    description = 'Downloads and unzips native libraries from CDN.'
+    def nativeLibsUrl = 'https://meta.alicdn.com/data/mnn/avatar/native-libs-arm64-v8a.zip'
+    def zipFileName = 'avatar-native-libs-arm64-v8a.zip'
+    def outputDir = project.rootDir
+    def downloadedZip = new File(project.buildDir, zipFileName)
+    def checkFile = new File(outputDir, 'src/main/jniLibs/arm64-v8a/libsherpa-mnn-jni.so')
+    inputs.property('url', nativeLibsUrl)
+    outputs.file(checkFile)
+    doLast {
+        println "-> Executing downloadAndUnzipNativeLibs task..."
+        println "   Downloading from ${nativeLibsUrl}"
+        ant.get(src: nativeLibsUrl, dest: downloadedZip)
+
+        if (!downloadedZip.exists()) {
+            throw new GradleException("Download failed: ${downloadedZip} not found.")
+        }
+        println "   Download complete."
+        println "   Unzipping ${downloadedZip.name} to project root..."
+        copy {
+            from(zipTree(downloadedZip))
+            into(outputDir)
+        }
+        println "   Unzip complete."
+        downloadedZip.delete()
+    }
+    onlyIf {
+        println "-> Checking if native libs exist... [Exists: ${checkFile.exists()}]"
+        return !checkFile.exists()
+    }
+}
+preBuild.dependsOn downloadAndUnzipNativeLibs
+
+android {
+    namespace 'com.alibaba.mnn.tts.demo'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.alibaba.mnn.tts.demo"
+        minSdk 21
+        targetSdk 35
+        versionCode 1
+        versionName "1.0"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    
+    splits {
+        abi {
+            enable true
+            reset()
+            include 'arm64-v8a'
+            universalApk false
+        }
+    }
+    
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }    
+
+}
+
+dependencies {
+    implementation project(':mnn_tts')
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.10.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.7.0'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
+    implementation 'androidx.core:core-ktx:1.12.0'
+    implementation 'androidx.core:core-ktx:1.16.0'
+    implementation 'androidx.recyclerview:recyclerview:1.3.2'
+    implementation 'androidx.cardview:cardview:1.0.0'
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
+} 

@@ -113,8 +113,8 @@ ErrorCode ConvolutionPackFreeWinograd::onExecute(const std::vector<Tensor *> &in
     int tileCount = UP_DIV(totalCount, mConvPerfconfig.eTile);
 
     std::vector<size_t> parameters(7);
-    parameters[0] = eRemain * bytes;
-    parameters[1] = input->channel();
+    parameters[0] = eRemain * lPack * bytes;
+    parameters[1] = ROUND_UP(input->channel(), lPack);
     parameters[2] = output->channel();
     parameters[3] = ePack * pack * bytes;
     parameters[4] = 0;

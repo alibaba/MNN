@@ -108,7 +108,7 @@ ErrorCode CPUTensorConverter::convert(const void* inputRaw, void* outputRaw, MNN
         if (1 == inside) {
             int offset[2] = {
                 outside,
-                outside
+                channel
             };
             int step = UP_DIV(outside, numberThread);
             int start = tId * step;
@@ -273,7 +273,7 @@ static int _getBytes(const CoreFunctions* core, const Tensor* output) {
     if (output->getType().code == halide_type_float) {
         bytes = core->bytes;
     }
-    if (nullptr != quant && TensorUtils::getDescribe(output)->type == DataType_DT_INT8) {
+    if (nullptr != quant && TensorUtils::getDescribe(output)->applyQuant) {
         bytes = 1;
     }
     return bytes;

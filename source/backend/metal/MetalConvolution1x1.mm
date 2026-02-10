@@ -28,7 +28,10 @@ MetalConvolution1x1::MetalConvolution1x1(Backend *backend, const MNN::Op *op) : 
     bool ldInt8Weight = false;
     if(static_cast<MetalBackend*>(backend)->getMemoryMode() == BackendConfig::Memory_Low) {
         if (conv2D->quanParameter() && (conv2D->external() || conv2D->quanParameter()->buffer())) {
-            ldInt8Weight = true;
+            // quant type equal to 3 means fp16, fallback to float weight
+            if(conv2D->quanParameter()->type() != 3) {
+            	ldInt8Weight = true;
+            }
         }
     }
     loadWeight(op, ldInt8Weight);
@@ -65,6 +68,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
     for (int i=2; i<input->dimensions(); ++i) {
         is *= input->length(i);
     }
+    int ic  = input->channel();
     int ic_4  = UP_DIV(input->channel(), 4);
     int ow  = is;
     int oh  = 1;
@@ -96,34 +100,57 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
     param->block_size = blockSize;
     param->activation = mActivationType;
     param->scale_coef = mScaleCoef;
-
+    int area = ob * ow * oh;
     // basic marco info
+    std::string ftype = "float";
     std::string ftype2 = "float2";
     std::string ftype4 = "float4";
+    std::string ftype2x4 = "float2x4";
     std::string ftype4x4 = "float4x4";
     if (backend->useFp16InsteadFp32()) {
+        ftype = "half";
         ftype2 = "half2";
         ftype4 = "half4";
+        ftype2x4 = "half2x4";
         ftype4x4 = "half4x4";
     }
 
     MTLCompileOptions *option = [[MTLCompileOptions alloc] init];
-    auto dic = [NSMutableDictionary dictionaryWithCapacity:0];
-    [dic setValue:@(ftype2.c_str()) forKey:@"ftype2"];
-    [dic setValue:@(ftype4.c_str()) forKey:@"ftype4"];
-    [dic setValue:@(ftype4x4.c_str()) forKey:@"ftype4x4"];
-    [dic setValue:@"1" forKey:@"MNN_METAL_FLOAT32_COMPUTER"];;
-
-    if(mDequantBits == 4) {
-        [dic setValue:@"1" forKey:@"W_QUANT_4"];
-    } else if(mDequantBits == 8) {
-        [dic setValue:@"1" forKey:@"W_QUANT_8"];
+    auto baseDic = [NSMutableDictionary dictionaryWithCapacity:0];
+    [baseDic setValue:@(ftype.c_str()) forKey:@"ftype"];
+    [baseDic setValue:@(ftype2.c_str()) forKey:@"ftype2"];
+    [baseDic setValue:@(ftype4.c_str()) forKey:@"ftype4"];
+    [baseDic setValue:@(ftype2x4.c_str()) forKey:@"ftype2x4"];
+    [baseDic setValue:@(ftype4x4.c_str()) forKey:@"ftype4x4"];
+    [baseDic setValue:@"1" forKey:@"MNN_METAL_FLOAT32_COMPUTER"];
+    if (backend->useFp16InsteadFp32()) {
+        [baseDic setValue:@"1" forKey:@"MNN_METAL_FLOAT16_STORAGE"];
     }
-    option.preprocessorMacros = dic;
     std::vector<std::string> baseKeys = {ftype4, "MNN_METAL_FLOAT32_COMPUTER"};
 
     MetalRuntime* rt = (MetalRuntime *)backend->runtime();
-    if (mDequantScaleBias.get()) {
+    std::string basicShaderPrefix = gBasicConvPrefix;
+    
+    // if M is small, dequant weight in shader
+    // if device not support simdgroup matrix, only support dequant in shader
+    bool dequantInShader = (area < 128) || !(rt->supportSimdGroupMatrix());
+    mPreDequantWeight = false;
+    
+#ifdef MNN_LOW_MEMORY
+    if (mDequantScaleBias.get() && dequantInShader) {
+        //printf("inner dequant MNK: %d %d %d %d\n", area, oc, ic, blockSize);
+        
+        std::string sgmWqShader  = gConv1x1WqSgMatrix;
+        std::string sgrWqShader  = gConv1x1WqSgReduce;
+
+        NSMutableDictionary *dic = [baseDic mutableCopy];
+        if(mDequantBits == 4) {
+            [dic setValue:@"1" forKey:@"W_QUANT_4"];
+        } else if(mDequantBits == 8) {
+            [dic setValue:@"1" forKey:@"W_QUANT_8"];
+        }
+        option.preprocessorMacros = dic;
+        
         NSUInteger gid_x = UP_DIV(ow * oh, 4);
         NSUInteger gid_y = oc_4;
         NSUInteger gid_z = ob;
@@ -131,86 +158,147 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
         mPipeline = [context pipelineWithName:@"conv1x1_g1z4_w8" fp16:backend->useFp16InsteadFp32()];
         
         if (mDequantBits == 4 || mDequantBits == 8) {
+            // TODO: define short_seq more accurately
+            int short_seq = 6;
+            
             if(mDequantBits == 4) {
                 baseKeys.emplace_back("conv1x1_wquant_4");
             } else if(mDequantBits == 8) {
                 baseKeys.emplace_back("conv1x1_wquant_8");
             }
-            if(rt->supportSimdGroupReduce() && ob * ow * oh == 1) {
+            if(rt->supportSimdGroupReduce() && area <= short_seq) {
                 baseKeys.emplace_back("conv1x1_wquant_sg_reduce");
-
-                // unrool c for avoid memory exceed
-                if(oc > 16384 && oc_4 % 2 == 0) {
+                
+                std::string sgrWqStr = basicShaderPrefix + sgrWqShader;
+                if(area > 1) {
+                    auto keys = baseKeys;
+                    int piece = 1;
+                    // memory bound not so seriously, can add more thread to reduce computation in each thread
+                    float ratio = 1.0 * ic_4 / 2048.0 * oc / 2048.0;
+                    bool heavyMemory = ratio > 1.0;
+                    if(area > 5 && !heavyMemory) {
+                        if(area % 2 != 0) {
+                            keys.emplace_back("MNN_METAL_SRC_PROTECT");
+                            [dic setValue:@"1" forKey:@"MNN_METAL_SRC_PROTECT"];;
+                            option.preprocessorMacros = dic;
+                        }
+                        area = UP_DIV(area, 2);
+                        piece = 2;
+                    }
+//                    MNN_PRINT("Conv1x1 Oc:%d Ic:%d\n", oc, ic_4*4);
+                    std::string kernel_name = "conv1x1_gemv_g4m" + std::to_string(area) + "_wquant_sg";
+                    keys.emplace_back(kernel_name);
+                    auto pipeline = rt->findPipeline(keys);
+                    if (nil == pipeline) {
+                        pipeline = backend->makeComputePipelineWithSourceOption(sgrWqStr.c_str(), kernel_name.c_str(), option);
+                        rt->insertPipeline(keys, pipeline);
+                    }
+                    mPipeline = pipeline;
+                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 4), piece, 1), MTLSizeMake(32, 1, 1));
+                } else if(oc > 16384 && oc_4 % 2 == 0) {
+                    // unrool c for avoid memory exceed
                     auto keys = baseKeys;
                     keys.emplace_back("conv1x1_gemv_g16_wquant_sg");
                     auto pipeline = rt->findPipeline(keys);
                     if (nil == pipeline) {
-                        pipeline = backend->makeComputePipelineWithSourceOption(gConv1x1W4SgReduce, "conv1x1_gemv_g16_wquant_sg", option);
+                        pipeline = backend->makeComputePipelineWithSourceOption(sgrWqStr.c_str(), "conv1x1_gemv_g16_wquant_sg", option);
                         rt->insertPipeline(keys, pipeline);
                     }
                     mPipeline = pipeline;
-                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 16), 1, 1), MTLSizeMake(64, 1, 1));
+                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 16), area, 1), MTLSizeMake(64, 1, 1));
                 } else {
                     auto keys = baseKeys;
                     keys.emplace_back("conv1x1_gemv_g8_wquant_sg");
                     auto pipeline = rt->findPipeline(keys);
                     if (nil == pipeline) {
-                        pipeline = backend->makeComputePipelineWithSourceOption(gConv1x1W4SgReduce, "conv1x1_gemv_g8_wquant_sg", option);
+                        pipeline = backend->makeComputePipelineWithSourceOption(sgrWqStr.c_str(), "conv1x1_gemv_g8_wquant_sg", option);
                         rt->insertPipeline(keys, pipeline);
                     }
                     mPipeline = pipeline;
 //                    MNN_PRINT("g8  ic: %d oc: %d\n", input->channel(), oc);
-                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 8), 1, 1), MTLSizeMake(64, 1, 1));
+                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 8), area, 1), MTLSizeMake(64, 1, 1));
                 }
                 return NO_ERROR;
-            } else if(rt->supportSimdGroupMatrix()  && ob * ow * oh > 8 && oc > 8 && ic_4 % 8 == 0) {
+            } else if(rt->supportSimdGroupMatrix()  && area > short_seq && oc > 8 && ic_4 % 8 == 0) {
                 baseKeys.emplace_back("conv1x1_wquant_sg_matrix");
+
+                std::string sgmWqStr = basicShaderPrefix + sgmWqShader;
 
                 // Generally threadgroup memory >= 16KB
                 auto smem_size = [[context device] maxThreadgroupMemoryLength];
                 // choose different tile for different computation
-                if(ob * ow * oh >= 128 && oc >= 512 && ob * ow * oh * oc > 512 * 2048 && smem_size >= 8192) {
+                if(area >= 128 && oc >= 512 && area * oc > 512 * 2048 && smem_size >= 8192) {
                     auto keys = baseKeys;
-                    keys.emplace_back("conv1x1_gemm_32x64_wquant_sg");
+                    keys.emplace_back("conv1x1_gemm_32x64_wquant_split_k_sg");
                     auto pipeline = rt->findPipeline(keys);
                     if (nil == pipeline) {
-                        pipeline = backend->makeComputePipelineWithSourceOption(gConv1x1W4SgMatrix, "conv1x1_gemm_32x64_wquant_sg", option);
+                        pipeline = backend->makeComputePipelineWithSourceOption(sgmWqStr.c_str(), "conv1x1_gemm_32x64_wquant_split_k_sg", option);
                         rt->insertPipeline(keys, pipeline);
                     }
                     mPipeline = pipeline;
-                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(ob * ow * oh, 32), UP_DIV(oc, 64), 1), MTLSizeMake(128, 1, 1));
+                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(area, 32), UP_DIV(oc, 64), 1), MTLSizeMake(128, 1, 1));
                                         
-                } else if(ob * ow * oh >= 32 && ob * ow * oh * oc > 128 * 2048) {
+                } else if(area >= 32 && area * oc > 128 * 2048) {
                     auto keys = baseKeys;
                     keys.emplace_back("conv1x1_gemm_32x16_wquant_sg");
                     auto pipeline = rt->findPipeline(keys);
                     if (nil == pipeline) {
-                        pipeline = backend->makeComputePipelineWithSourceOption(gConv1x1W4SgMatrix, "conv1x1_gemm_32x16_wquant_sg", option);
+                        pipeline = backend->makeComputePipelineWithSourceOption(sgmWqStr.c_str(), "conv1x1_gemm_32x16_wquant_sg", option);
                         rt->insertPipeline(keys, pipeline);
                     }
                     mPipeline = pipeline;
-                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(ob * ow * oh, 32), UP_DIV(oc, 16), 1), MTLSizeMake(32, 1, 1));
-                } else if(oc > 512 && ob * ow * oh * oc > 128 * 2048) {
+                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(area, 32), UP_DIV(oc, 16), 1), MTLSizeMake(32, 1, 1));
+                } else if(oc > 512 && area * oc > 128 * 2048) {
                     auto keys = baseKeys;
                     keys.emplace_back("conv1x1_gemm_16x32_wquant_sg");
                     auto pipeline = rt->findPipeline(keys);
                     if (nil == pipeline) {
-                        pipeline = backend->makeComputePipelineWithSourceOption(gConv1x1W4SgMatrix, "conv1x1_gemm_16x32_wquant_sg", option);
+                        pipeline = backend->makeComputePipelineWithSourceOption(sgmWqStr.c_str(), "conv1x1_gemm_16x32_wquant_sg", option);
                         rt->insertPipeline(keys, pipeline);
                     }
                     mPipeline = pipeline;
-                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(ob * ow * oh, 16), UP_DIV(oc, 32), 1), MTLSizeMake(32, 1, 1));
+                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(area, 16), UP_DIV(oc, 32), 1), MTLSizeMake(32, 1, 1));
+                } else if(area < 16) {
+                    // TODO: define useMatrix more accurate
+                    bool useMatrix = area > 6 && oc > 2048 && ic*2 < oc;
+                    if(useMatrix) {
+                        auto keys = baseKeys;
+                        int oc_block = (oc > 4096) ? 32 : 16;
+                        std::string kernel_name = "conv1x1_gemm_8x" + std::to_string(oc_block) + "_wquant_sg";
+
+                        keys.emplace_back(kernel_name);
+                        auto pipeline = rt->findPipeline(keys);
+                        if (nil == pipeline) {
+                            pipeline = backend->makeComputePipelineWithSourceOption(sgmWqStr.c_str(), kernel_name.c_str(), option);
+                            rt->insertPipeline(keys, pipeline);
+                        }
+                        mPipeline = pipeline;
+                        mThreads = std::make_pair(MTLSizeMake(UP_DIV(area, 8), UP_DIV(oc, oc_block), 1), MTLSizeMake(32, 1, 1));
+                    } else {
+                        std::string sgrWqStr = basicShaderPrefix + sgrWqShader;
+
+                        auto keys = baseKeys;
+                        std::string kernel_name = "conv1x1_gemv_g4m" + std::to_string(area) + "_wquant_sg";
+                        keys.emplace_back(kernel_name);
+                        auto pipeline = rt->findPipeline(keys);
+                        if (nil == pipeline) {
+                            pipeline = backend->makeComputePipelineWithSourceOption(sgrWqStr.c_str(), kernel_name.c_str(), option);
+                            rt->insertPipeline(keys, pipeline);
+                        }
+                        mPipeline = pipeline;
+                        mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 4), 1, 1), MTLSizeMake(32, 1, 1));
+                    }
                 } else {
                     auto keys = baseKeys;
                     keys.emplace_back("conv1x1_gemm_16x16_wquant_sg");
                     auto pipeline = rt->findPipeline(keys);
                     if (nil == pipeline) {
-                        pipeline = backend->makeComputePipelineWithSourceOption(gConv1x1W4SgMatrix, "conv1x1_gemm_16x16_wquant_sg", option);
+                        pipeline = backend->makeComputePipelineWithSourceOption(sgmWqStr.c_str(), "conv1x1_gemm_16x16_wquant_sg", option);
                         rt->insertPipeline(keys, pipeline);
                     }
                     mPipeline = pipeline;
-//                                    MNN_PRINT("gemm M: %d N: %d\n", ob * ow * oh, oc);
-                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(ob * ow * oh, 16), UP_DIV(oc, 16), 1), MTLSizeMake(32, 1, 1));
+//                                    MNN_PRINT("gemm M: %d N: %d\n", area, oc);
+                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(area, 16), UP_DIV(oc, 16), 1), MTLSizeMake(32, 1, 1));
                 }
                 return NO_ERROR;
             } else if(mDequantBits == 4) {
@@ -246,46 +334,121 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
         mThreads = std::make_pair(std::get<0>(ret), std::get<1>(ret));
         return NO_ERROR;
     }
+#endif
+
+    std::string sgmWfpShader = gConv1x1WfpSgMatrix;
+    std::string sgrWfpShader = gConv1x1WfpSgReduce;
     
+    // Dequant using single shader
+    if (mDequantScaleBias.get()) {
+        baseKeys.emplace_back("conv1x1_dequant_weight_outter");
+        std::string sgmWfpStr = basicShaderPrefix + sgmWfpShader;
+        
+        mPreDequantWeight = true;
+        {
+            NSMutableDictionary *dic = [baseDic mutableCopy];
+            
+            if(mDequantBits == 4) {
+                [dic setValue:@"1" forKey:@"W_QUANT_4"];
+            } else if(mDequantBits == 8) {
+                [dic setValue:@"1" forKey:@"W_QUANT_8"];
+            }
+            if(ic % 16 != 0) {
+                [dic setValue:@"1" forKey:@"W_ALIGN_K16_PROTECT"];
+            }
+            option.preprocessorMacros = dic;
+            
+            int bytes = backend->useFp16InsteadFp32() ? 2 : 4;
+            // accquire space
+            mTempWeight.reset(Tensor::createDevice<uint8_t>(std::vector<int>{ROUND_UP(oc, 4) * ROUND_UP(ic, 16) * bytes}));
+            backend->onAcquireBuffer(mTempWeight.get(), Backend::DYNAMIC);
+            backend->onReleaseBuffer(mTempWeight.get(), Backend::DYNAMIC);
+            
+            auto keys = baseKeys;
+            keys.emplace_back("conv1x1_w_dequant");
+            auto pipeline = rt->findPipeline(keys);
+            if (nil == pipeline) {
+                pipeline = backend->makeComputePipelineWithSourceOption(sgmWfpStr.c_str(), "conv1x1_w_dequant", option);
+                rt->insertPipeline(keys, pipeline);
+            }
+            mDequantPipeline = pipeline;
+            
+            mDequantThreads = [context computeBestGroupAndLocal:pipeline threads:MTLSizeMake(UP_DIV(oc, 1),  UP_DIV(ic, 16), 1)];
+        }
+        
+        {
+            auto keys = baseKeys;
+            keys.emplace_back("conv1x1_gemm_32x64_split_k_sg");
+            
+            NSMutableDictionary *dic = [baseDic mutableCopy];
+            if(backend->isSupportTensorApi() == true) {
+                [dic setValue:@"1" forKey:@"USE_METAL_TENSOR_OPS"];
+                keys.emplace_back("USE_METAL_TENSOR_OPS");
+                if(ic > oc && ic > 2048 && (ic / blockSize) % 64 == 0) {
+                    [dic setValue:@"1" forKey:@"LOOP_K64"];
+                    keys.emplace_back("LOOP_K64");
+                }
+            }
+            option.preprocessorMacros = dic;
+
+            auto pipeline = rt->findPipeline(keys);
+            if (nil == pipeline) {
+                pipeline = backend->makeComputePipelineWithSourceOption(sgmWfpStr.c_str(), "conv1x1_gemm_32x64_split_k_sg", option);
+                rt->insertPipeline(keys, pipeline);
+            }
+            mPipeline = pipeline;
+            mThreads = std::make_pair(MTLSizeMake(UP_DIV(area, 32), UP_DIV(oc, 64), 1), MTLSizeMake(128, 1, 1));
+            //printf("out dequant MNK: %d %d %d %d\n", area, oc, ic, blockSize);
+        }
+            
+        return NO_ERROR;
+    }
+    
+    option.preprocessorMacros = baseDic;
+
     if(rt->supportSimdGroupMatrix()) {
+        std::string sgmWfpStr = basicShaderPrefix + sgmWfpShader;
+
         baseKeys.emplace_back("conv1x1_float_sg_matrix");
         // total computation not too small
-        if(ob * ow * oh >= 16 && ic_4 >= 4 && ic_4 % 2 == 0 && oc_4 >= 4 && ob * ow * oh * ic_4 * oc_4 >= 64 * 64 * 64) {
+        if(area >= 16 && ic_4 >= 4 && ic_4 % 2 == 0 && oc_4 >= 4 && area * ic_4 * oc_4 >= 64 * 64 * 64) {
             // Enough threads
-            if(ob * ow * oh * oc_4 / ic_4 >= 1024) {
+            if(area * oc_4 / ic_4 >= 1024) {
                 auto keys = baseKeys;
                 keys.emplace_back("conv1x1_gemm_32x16_sg");
                 auto pipeline = rt->findPipeline(keys);
                 if (nil == pipeline) {
-                    pipeline = backend->makeComputePipelineWithSourceOption(gConv1x1SgMatrix, "conv1x1_gemm_32x16_sg", option);
+                    pipeline = backend->makeComputePipelineWithSourceOption(sgmWfpStr.c_str(), "conv1x1_gemm_32x16_sg", option);
                     rt->insertPipeline(keys, pipeline);
                 }
                 mPipeline = pipeline;
-                mThreads = std::make_pair(MTLSizeMake(UP_DIV(ob * ow * oh, 32), UP_DIV(oc, 16), 1), MTLSizeMake(32, 1, 1));
+                mThreads = std::make_pair(MTLSizeMake(UP_DIV(area, 32), UP_DIV(oc, 16), 1), MTLSizeMake(32, 1, 1));
             } else {
                 auto keys = baseKeys;
                 keys.emplace_back("conv1x1_gemm_16x16_sg");
                 auto pipeline = rt->findPipeline(keys);
                 if (nil == pipeline) {
-                    pipeline = backend->makeComputePipelineWithSourceOption(gConv1x1SgMatrix, "conv1x1_gemm_16x16_sg", option);
+                    pipeline = backend->makeComputePipelineWithSourceOption(sgmWfpStr.c_str(), "conv1x1_gemm_16x16_sg", option);
                     rt->insertPipeline(keys, pipeline);
                 }
                 mPipeline = pipeline;
-                mThreads = std::make_pair(MTLSizeMake(UP_DIV(ob * ow * oh, 16), UP_DIV(oc, 16), 1), MTLSizeMake(32, 1, 1));
+                mThreads = std::make_pair(MTLSizeMake(UP_DIV(area, 16), UP_DIV(oc, 16), 1), MTLSizeMake(32, 1, 1));
             }
             return NO_ERROR;
         }
     }
     if(rt->supportSimdGroupReduce()) {
+        std::string sgrWfpStr = basicShaderPrefix + sgrWfpShader;
+
         baseKeys.emplace_back("conv1x1_float_sg_reduce");
         // do input_channel reduce
         auto magic_num = 4.0; // total threads pretty small and loop pretty large
-        if(ic_4 >= 32 && ic_4 % 2 == 0 && 1.0 * ob * ow * oh * oc_4 / ic_4 < magic_num) {
+        if(ic_4 >= 32 && ic_4 % 2 == 0 && 1.0 * area * oc_4 / ic_4 < magic_num) {
             auto keys = baseKeys;
             keys.emplace_back("conv1x1_z4_sg");
             auto pipeline = rt->findPipeline(keys);
             if (nil == pipeline) {
-                pipeline = backend->makeComputePipelineWithSourceOption(gConv1x1SgReduce, "conv1x1_z4_sg", option);
+                pipeline = backend->makeComputePipelineWithSourceOption(sgrWfpStr.c_str(), "conv1x1_z4_sg", option);
                 rt->insertPipeline(keys, pipeline);
             }
             mPipeline = pipeline;
@@ -376,17 +539,39 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
 void MetalConvolution1x1::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
     auto input = inputs[0];
     auto output = outputs[0];
-    [encoder setComputePipelineState:mPipeline];
-    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
-    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
-    [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
-    MetalBackend::setTensor(mWeight.get(), encoder, 3);
-    MetalBackend::setTensor(mBias.get(), encoder, 4);
-    if (mDequantScaleBias) {
-        MetalBackend::setTensor(mDequantScaleBias.get(), encoder, 5);
+    if(mPreDequantWeight) {
+        // pre dequant weight pipeline
+        {
+            [encoder setComputePipelineState:mDequantPipeline];
+            MetalBackend::setTensor(mWeight.get(), encoder, 0);
+            MetalBackend::setTensor(mTempWeight.get(), encoder, 1);
+            [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
+            MetalBackend::setTensor(mDequantScaleBias.get(), encoder, 3);
+            [encoder dispatchThreadgroups:mDequantThreads.first threadsPerThreadgroup:mDequantThreads.second];
+        }
+        // convolution pipeline
+        {
+            [encoder setComputePipelineState:mPipeline];
+            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
+            [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
+            [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
+            MetalBackend::setTensor(mTempWeight.get(), encoder, 3);
+            MetalBackend::setTensor(mBias.get(), encoder, 4);
+            MetalBackend::setTensor(mDequantScaleBias.get(), encoder, 5);
+            [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
+        }
+    } else {
+        [encoder setComputePipelineState:mPipeline];
+        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
+        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
+        [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
+        MetalBackend::setTensor(mWeight.get(), encoder, 3);
+        MetalBackend::setTensor(mBias.get(), encoder, 4);
+        if (mDequantScaleBias) {
+            MetalBackend::setTensor(mDequantScaleBias.get(), encoder, 5);
+        }
+        [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
     }
-    [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
-    
 #ifdef MNN_METAL_DEBUG_INFO
     if(!static_cast<MetalBackend*>(backend())->useFp16InsteadFp32()) {
         {

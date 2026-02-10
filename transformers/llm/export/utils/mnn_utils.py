@@ -43,17 +43,15 @@ def repack_low_bits(x, iNeedBits, block_size):
 class Block:
     def __init__(self):
         self.conv = []
-        self.attn_norm = None
-        self.ffn_norm = None
+        self.layernorm = []
 
 def load_mnn(filename):
     mnn = {}
     with open(filename) as f:
         mnn = json.load(f)
-    block = None
-    blockes = []
-    conv_index = 0
-    conv_order = ['attn_q', 'attn_k', 'attn_v', 'attn_output', 'ffn_gate', 'ffn_up', 'ffn_down']
+    conv_indexes = []
+    layernorm_indexes = []
+    blockops = []
     for op in mnn["oplists"]:
         if op['type'] == 'LayerNorm':
             if 'external' in op['main']:
@@ -62,33 +60,48 @@ def load_mnn(filename):
                 del op['main']['gamma']
             if 'beta' in op['main']:
                 del op['main']['beta']
-            if None != block:
-                # post layernorm
-                block.ffn_norm = op
-            else:
-                # start layernorm
-                block = Block()
-                block.attn_norm = op
-                conv_index = 0
+            layernorm_indexes.append(len(blockops))
+            blockops.append(op)
+            continue
         if op['type'] == 'Convolution':
-            block.conv.append(op)
-            conv_index += 1
-            if conv_index == 7:
-                # end block
-                blockes.append(block)
-                block = None
-
+            conv_indexes.append(len(blockops))
+            blockops.append(op)
+    block = None
+    blockes = []
+    conv_order = ['attn_q', 'attn_k', 'attn_v', 'attn_output', 'ffn_gate', 'ffn_up', 'ffn_down']
+    blockNumber = len(conv_indexes) // len(conv_order)
+    print("Layers number: ", blockNumber, ", conv number: ", len(conv_indexes), ", layernorm number:", len(layernorm_indexes))
+    block_layernorms = len(layernorm_indexes) // blockNumber
+    assert(len(layernorm_indexes) == block_layernorms * blockNumber + 1)
+    for i in range(0, blockNumber):
+        block = Block()
+        sta_conv = len(conv_order) * i
+        for j in range(0, len(conv_order)):
+            index = conv_indexes[sta_conv + j]
+            block.conv.append(blockops[index])
+        sta_layernorm = block_layernorms * i
+        for j in range(0, block_layernorms):
+            index = layernorm_indexes[sta_layernorm + j]
+            block.layernorm.append(blockops[index])
+        blockes.append(block)
     # Last layernorm and lm
-    output_norm = block.attn_norm
-    lm = block.conv[0]
+    output_norm = blockops[layernorm_indexes[len(layernorm_indexes)-1]]
+    lm = blockops[conv_indexes[len(conv_indexes)-1]]
     lm['name'] = 'output'
     opmap = {}
     opmap['output_norm'] = output_norm
     convs = []
     for i in range(0, len(blockes)):
         _block = blockes[i]
-        opmap['blk.%d' %i + '.attn_norm'] = _block.attn_norm
-        opmap['blk.%d' %i + '.ffn_norm'] = _block.ffn_norm
+        if len(_block.layernorm) == 2:
+            opmap['blk.%d' %i + '.attn_norm']= _block.layernorm[0]
+            opmap['blk.%d' %i + '.ffn_norm']= _block.layernorm[1]
+        elif len(_block.layernorm) == 6:
+            names = ['attn_norm', 'attn_q_norm', 'attn_k_norm', 'post_attention_norm',  'ffn_norm', 'post_ffw_norm']
+            for j in range(0, len(_block.layernorm)):
+                opmap['blk.%d' %i + '.%s' %names[j]]= _block.layernorm[j]
+        else:
+            assert(False)
         for j in range(0, 7):
             newname = 'blk.%d' %i + '.' + conv_order[j]
             _block.conv[j]['name'] = newname

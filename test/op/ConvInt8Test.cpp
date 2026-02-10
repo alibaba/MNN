@@ -309,7 +309,7 @@ public:
                     for (int i3 = 0; i3 < pxpy.size(); i3++) {
                         for (int i4 = 0; i4 < sxsy.size(); i4++) {
                             for (int i5 = 0; i5 < dxdy.size(); i5++) {
-                                for (int i6 = 3; i6 < iwih.size(); i6++) {
+                                for (int i6 = 0; i6 < iwih.size(); i6++) {
                                     auto res = testKernel(iwih[i6], kxky[i0], icoc[i1], pxpy[i3], sxsy[i4], dxdy[i5], 8, false, 1, batch[i2], MNN::SparseAlgo_RANDOM, 1, false);
                                     if (!res) {
                                         MNN_ERROR("kx=%d, ky=%d, iw=%d, ih=%d, overflow=false, bit=8, batch=%d, Conv info: sx=%d, sy=%d, dx=%d, dy=%d, px=%d, py=%d, ic=%d, oc=%d\n", 
@@ -562,7 +562,7 @@ public:
         yy = _FloatToInt8(yy, _Scalar<float>(1.0 / yScale), -127, 127, yZeroPoint);
         return yy;
     }
-    static bool testKernel(INTS inputShape, INTS kernel, INTS channel, INTS pads, INTS alphas, bool speed, std::string title, bool relu = true) {
+    static bool testKernel(INTS inputShape, INTS kernel, INTS channel, INTS pads, INTS alphas, bool speed, std::string title, bool relu = true, float threshold = 1) {
         int ic = channel[0], oc = channel[1], iw = inputShape[0], ih = inputShape[1], kx = kernel[0], ky = kernel[1], alpha2 = alphas[0] * alphas[1];
         for (int batchSize = 1; batchSize <= 3; ++batchSize) {
             VARP x = _Input({batchSize, ic, ih, iw}, NCHW);
@@ -617,7 +617,7 @@ public:
                 MNN_ERROR("[ConvInt8WinogradTestCommon] result is nullptr\n");
                 return false;
             }
-            if (!checkVector<int>(yPtr, yTargetPtr, yInfo->size, 1)) {
+            if (!checkVector<int>(yPtr, yTargetPtr, yInfo->size, threshold)) {
                 MNN_ERROR("[ConvInt8WinogradTestCommon] result error for batchSize = %d, oc=%d, oh=%d, ow=%d\n", batchSize, yInfo->dim[1], yInfo->dim[2], yInfo->dim[3]);
                 return false;
             }
@@ -653,8 +653,12 @@ class ConvInt8WinogradTest : public ConvInt8WinogradTestCommon {
         std::vector<std::string> titles = {
             "3x3", "2x3", "3x2", "2x2", "4x4", "1x7", "7x1"
         };
+        float threshold = 1;
+        if (precision == 2) { // fp16
+            threshold = 9;
+        }
         for (int i = 0; i < kernels.size(); ++i) {
-            auto res = testKernel(inputShape, kernels[i], channel, pad, {4, 4}, false, titles[i] + ",alpha=4");
+            auto res = testKernel(inputShape, kernels[i], channel, pad, {4, 4}, false, titles[i] + ",alpha=4", true, threshold);
             if (!res) {
                 MNN_ERROR("Error for test kernel %s for convint8 (winograd)\n", titles[i].c_str());
                 return false;

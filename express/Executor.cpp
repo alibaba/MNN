@@ -85,6 +85,7 @@ Executor::Executor(std::shared_ptr<Runtime> runtime, MNNForwardType type, int nu
     mRuntimeInfo.first.insert(std::make_pair(type, runtime));
     mAttr.reset(new ExecutorAttr);
     mAttr->firstType = type;
+    mAttr->numThread = numberThread;
     if (type == MNN_FORWARD_CPU) {
         mRuntimeInfo.second = runtime;
     } else {
@@ -230,7 +231,19 @@ void Executor::RuntimeManager::setHint(Interpreter::HintMode mode, int value) {
         iter.second->setRuntimeHint(mInside->mContent->modes.runtimeHint);
     }
 }
+void Executor::RuntimeManager::setHint(Interpreter::HintMode mode, int* value, size_t size) {
+    mInside->mContent->modes.setHint(mode, value, size);
+    auto current = ExecutorScope::Current();
+    auto rt = current->getRuntime();
+    for (auto& iter : rt.first) {
+        iter.second->setRuntimeHint(mInside->mContent->modes.runtimeHint);
+    }
+}
 void Executor::RuntimeManager::setExternalPath(std::string path, int type) {
+    if (type == MNN::Interpreter::EXTERNAL_NPU_FILE_DIR) {
+        mInside->mContent->mNpuDir = path;
+        return;
+    }
     mInside->mContent->modes.setExternalPath(path, type);
 }
 void Executor::RuntimeManager::setHintPtr(Interpreter::HintMode mode, void* value) {
@@ -268,6 +281,17 @@ bool Executor::RuntimeManager::getInfo(Interpreter::SessionInfoCode code, void* 
         default: {
             // Do nothing
         } break;
+    }
+    return false;
+}
+
+bool Executor::RuntimeManager::getDeviceInfo(const std::string& deviceKey, const MNNForwardType type, std::string& deviceValue) {
+    auto creator = MNNGetExtraRuntimeCreator(type);
+    if (creator != nullptr) {
+        auto res = creator->onGetDeviceInfo(deviceKey, deviceValue);
+        if(res) {
+            return true;
+        }
     }
     return false;
 }
@@ -327,6 +351,7 @@ void Executor::RuntimeManager::setCache(std::string cacheName) {
 
     mInside->mCache.reset(new Cache);
     mInside->mCache->cacheFile = cacheName;
+    mInside->mInfo->onSetCachePath(cacheName.c_str(), 0);
     if (nullptr == mInside->mCache->cacheFile.c_str()) {
         MNN_ERROR("Empty cacheFile\n");
         return;
@@ -512,8 +537,7 @@ void Executor::_makeCache(const std::vector<EXPRP>& expr, bool forceCPU) {
             if (TensorUtils::getDescribe(srcTensor)->quantAttr.get()) {
                 TensorUtils::getDescribe(tensor.get())->quantAttr.reset(new QuantAttr);
                 auto quant = TensorUtils::getDescribe(tensor.get())->quantAttr.get();
-                quant->scale = TensorUtils::getDescribe(srcTensor)->quantAttr.get()->scale;
-                quant->zero = TensorUtils::getDescribe(srcTensor)->quantAttr.get()->zero;
+                *quant = *(TensorUtils::getDescribe(srcTensor)->quantAttr);
             }
 
             TensorUtils::getDescribe(tensor.get())->index = (int)scheduleInfo.allTensors.size();
@@ -592,6 +616,7 @@ void Executor::dumpProfile() {
 }
 
 bool Executor::registerSubGraph(const std::string& submoduleName, VARPS outputs, VARPS inputs) {
+#ifndef MNN_REDUCE_SIZE
     if (mSubGraph.find(submoduleName) != mSubGraph.end()) {
         MNN_PRINT("Executor Error: Subgraph has exists: %s\n", submoduleName.c_str());
         return false;
@@ -638,15 +663,20 @@ bool Executor::registerSubGraph(const std::string& submoduleName, VARPS outputs,
     }
     graph->info = std::move(subInfo);
     mSubGraph.insert(std::make_pair(submoduleName, graph));
+#endif
     return true;
 }
 
 std::shared_ptr<Executor::SubGraph> Executor::findSubGraph(const std::string& submoduleName) {
+#ifndef MNN_REDUCE_SIZE
     auto iter = mSubGraph.find(submoduleName);
     if (iter == mSubGraph.end()) {
         return nullptr;
     }
     return iter->second;
+#else
+    return nullptr;
+#endif
 }
 void Executor::setLazyComputeMode(uint32_t mode) {
     mLazyMode = mode;

@@ -2,24 +2,51 @@
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 package com.alibaba.mnnllm.android.modelist
 
-import android.text.TextUtils
+import android.util.Log
 import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup
+import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mls.api.ModelItem
 import com.alibaba.mls.api.download.DownloadInfo
+import com.alibaba.mls.api.download.DownloadState
+import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.R
+import com.alibaba.mnnllm.android.model.Modality
+import com.alibaba.mnnllm.android.model.ModelUtils
+import kotlinx.coroutines.*
 import java.util.Locale
-import java.util.stream.Collectors
 
-class ModelListAdapter(private val items: MutableList<ModelItem>) :
+class ModelListAdapter(private val items: MutableList<ModelItemWrapper>) :
     RecyclerView.Adapter<RecyclerView.ViewHolder>() {
-    private var filteredItems: List<ModelItem>? = null
+    var initialized = false
+    private var isLoading = true  // Track loading state to prevent empty view flash
+    private var filteredItems: List<ModelItemWrapper> = items.toList()
     private var modelListListener: ModelItemListener? = null
-    private var modelItemDownloadStatesMap: Map<String, ModelItemDownloadState>? = null
+    
+    // Use HashMap for O(1) lookups instead of iterating through all holders
+    private val modelItemHoldersMap: MutableMap<String, ModelItemHolder> = HashMap()
     private val modelItemHolders: MutableSet<ModelItemHolder> = HashSet()
-    private var filterQuery: String? = null
-    private var filterDownloaded = false
+    
+    private var filterQuery: String = ""
+    private var filterQueryMap = mutableMapOf("query" to "", "vendor" to "", "modality" to "", "download" to "-1")
+    private var emptyView: View? = null
+    
+    // Coroutine scope for async filtering
+    private val adapterScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private var filterJob: Job? = null
+
+    // Pin toggle event callback
+    interface OnPinToggleListener {
+        fun onPinToggle(modelId: String, isPinned: Boolean)
+    }
+    
+    private var onPinToggleListener: OnPinToggleListener? = null
+    
+    fun setOnPinToggleListener(listener: OnPinToggleListener?) {
+        this.onPinToggleListener = listener
+    }
 
     fun setModelListListener(modelListListener: ModelItemListener?) {
         this.modelListListener = modelListListener
@@ -28,38 +55,111 @@ class ModelListAdapter(private val items: MutableList<ModelItem>) :
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
         val view =
             LayoutInflater.from(parent.context).inflate(R.layout.recycle_item_model, parent, false)
-        val holder = ModelItemHolder(view, modelListListener!!)
+        
+        // Create a wrapped listener to handle pin events
+        val wrappedListener = object : ModelItemListener {
+            override fun onItemClicked(modelItem: ModelItem) {
+                modelListListener?.onItemClicked(modelItem)
+            }
+            
+            override fun onItemLongClicked(modelItem: ModelItem): Boolean {
+                val modelWrapper = items.find { it.modelItem.modelId == modelItem.modelId }
+                if (modelWrapper != null) {
+                    val newPinState = !modelWrapper.isPinned
+                    onPinToggleListener?.onPinToggle(modelItem.modelId!!, newPinState)
+                    return true
+                }
+                return false
+            }
+            
+            override fun onItemDeleted(modelItem: ModelItem) {
+                modelListListener?.onItemDeleted(modelItem)
+            }
+            
+            override fun onItemUpdate(modelItem: ModelItem) {
+                modelListListener?.onItemUpdate(modelItem)
+            }
+        }
+        
+        val holder = ModelItemHolder(view, wrappedListener)
         modelItemHolders.add(holder)
         return holder
     }
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
-        (holder as ModelItemHolder).bind(
-            getItems()[position],
-            modelItemDownloadStatesMap!![getItems()[position].modelId]
-        )
+        val modelWrapper = getItems()[position]
+        val modelItemHolder = holder as ModelItemHolder
+        
+        // Register holder in map for fast lookups
+        modelItemHoldersMap[modelWrapper.modelItem.modelId!!] = modelItemHolder
+        
+        modelItemHolder.bind(modelWrapper)
     }
-
+    
+    override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int, payloads: MutableList<Any>) {
+        if (payloads.isNotEmpty()) {
+            val payload = payloads[0]
+            if (payload is DownloadInfo) {
+                // Handle progress update
+                val modelItemHolder = holder as ModelItemHolder
+                modelItemHolder.updateProgress(payload)
+            } else {
+                // Since all models are downloaded, we can do simpler updates
+                val modelWrapper = getItems()[position]
+                val modelItemHolder = holder as ModelItemHolder
+                modelItemHolder.bind(modelWrapper) // Just rebind with new data
+            }
+        } else {
+            super.onBindViewHolder(holder, position, payloads)
+        }
+    }
+    
+    override fun onViewRecycled(holder: RecyclerView.ViewHolder) {
+        super.onViewRecycled(holder)
+        // Remove from map when view is recycled
+        val modelWrapper = holder.itemView.tag as? ModelItemWrapper
+        modelWrapper?.modelItem?.modelId?.let { modelId ->
+            modelItemHoldersMap.remove(modelId)
+        }
+    }
 
     override fun getItemCount(): Int {
         return getItems().size
     }
 
-    fun updateItems(
-        hfModelItems: List<ModelItem>,
-        modelItemDownloadStatesMap: Map<String, ModelItemDownloadState>?
-    ) {
-        this.modelItemDownloadStatesMap = modelItemDownloadStatesMap
+    fun updateItems(modelWrappers: List<ModelItemWrapper>) {
+        val oldItems = getItems() // Get old items before update
+        
         items.clear()
-        items.addAll(hfModelItems)
-        filter(filterQuery!!, filterDownloaded)
+        items.addAll(modelWrappers)
+        initialized = true
+        isLoading = false  // Mark as no longer loading
+        
+        // If filters are active, apply them to update filteredItems
+        if (hasActiveFilters()) {
+            filterItemsSync()
+        }
+        
+        // Use DiffUtil for efficient updates
+        val newItems = getItems() // Get new items after update
+        val diffCallback = ModelWrapperDiffCallback(oldItems, newItems)
+        val diffResult = DiffUtil.calculateDiff(diffCallback)
+        diffResult.dispatchUpdatesTo(this)
+        checkIfEmpty()
+    }
+    
+    // Check if any filters are active
+    private fun hasActiveFilters(): Boolean {
+        return filterQueryMap.any { (key, value) -> 
+            value.isNotEmpty() && value != "-1"
+        }
     }
 
     fun updateItem(modelId: String) {
         val currentItems = getItems()
         var position = -1
         for (i in currentItems.indices) {
-            if (currentItems[i].modelId == modelId) {
+            if (currentItems[i].modelItem.modelId == modelId) {
                 position = i
                 break
             }
@@ -69,58 +169,283 @@ class ModelListAdapter(private val items: MutableList<ModelItem>) :
         }
     }
 
-    fun updateProgress(modelId: String?, downloadInfo: DownloadInfo) {
-        for (modelItemHolder in modelItemHolders) {
-            if (modelItemHolder.itemView.tag == null) {
-                continue
+    fun updateItemHasUpdate(modelId: String, hasUpdate: Boolean) {
+        // Find the item in the original items list and update it
+        for (i in items.indices) {
+            if (items[i].modelItem.modelId == modelId) {
+                items[i].hasUpdate = hasUpdate
+                break
             }
-            val tempModelId = (modelItemHolder.itemView.tag as ModelItem).modelId
-            if (TextUtils.equals(tempModelId, modelId)) {
-                modelItemHolder.updateProgress(downloadInfo)
+        }
+        
+        // Update the item in the view
+        updateItem(modelId)
+    }
+
+    /**
+     * Update progress for a specific model when it's being updated
+     */
+    fun updateProgress(modelId: String, downloadInfo: DownloadInfo) {
+        val currentItems = getItems()
+        var position = -1
+        for (i in currentItems.indices) {
+            if (currentItems[i].modelItem.modelId == modelId) {
+                position = i
+                break
             }
+        }
+        if (position >= 0) {
+            notifyItemChanged(position, downloadInfo)
         }
     }
 
-    private fun getItems(): List<ModelItem> {
-        return if (filteredItems != null) filteredItems!! else items
+    private fun getItems(): List<ModelItemWrapper> {
+        // If no filters are active, return all items directly
+        // This prevents showing empty list when filters haven't been applied yet
+        return if (hasActiveFilters()) {
+            filteredItems
+        } else {
+            items
+        }
     }
 
-    private fun filter(query: String, showDownloadedOnly: Boolean) {
-        val filtered = items.stream()
-            .filter { hfModelItem: ModelItem ->
-                if (showDownloadedOnly) {
-                    val modelItemState = modelItemDownloadStatesMap!![hfModelItem.modelId]
-                    if (modelItemState != null && modelItemState.downloadInfo!!.downlodaState != DownloadInfo.DownloadSate.COMPLETED) {
-                        return@filter false
+    private fun filterItemsSync() {
+        val filtered = items.filter { modelWrapper ->
+            val modelItem = modelWrapper.modelItem
+            val modelNameLowerCase = modelItem.modelName?.lowercase(Locale.getDefault()) ?: ""
+
+            for ((key, value) in filterQueryMap) {
+                if (value.isEmpty()) {
+                    continue
+                }
+                when (key) {
+                    "vendor" -> {
+                        val vendor = ModelUtils.getVendor(modelNameLowerCase)
+                        if (vendor != value) {
+                            return@filter false
+                        }
+                    }
+                    "modality" -> {
+                        if (!Modality.checkModality(modelItem.modelId!!.lowercase(), value)) {
+                            return@filter false
+                        }
+                    }
+                    "download" -> {
+                        // All models in this list are downloaded, so this filter is always true
+                        // We can remove this filter or keep it for compatibility
+                        if (value == "true") {
+                            // Show all items since they're all downloaded
+                            continue
+                        }
+                    }
+                    else -> {
+                        if (!modelNameLowerCase.contains(value.lowercase(Locale.getDefault()))) {
+                            return@filter false
+                        }
                     }
                 }
-                val modelName = hfModelItem.modelName!!.lowercase(Locale.getDefault())
-                modelName.contains(query.lowercase(Locale.getDefault())) ||
-                        hfModelItem.newTags.stream().anyMatch { tag: String ->
-                            tag.lowercase(Locale.getDefault()).contains(
-                                query.lowercase(
-                                    Locale.getDefault()
-                                )
-                            )
-                        }
             }
-            .collect(Collectors.toList())
-        if (filtered.size != items.size) {
-            this.filteredItems = filtered
-        } else {
-            this.filteredItems = null
+            true
         }
-        notifyDataSetChanged()
+        filteredItems = filtered
+    }
+
+    private fun filterItems() {
+        // Don't filter if adapter hasn't been initialized with data yet
+        if (!initialized) {
+            Log.d(TAG, "filterItems: skipping filter - adapter not yet initialized")
+            return
+        }
+        
+        // Cancel previous filter job
+        filterJob?.cancel()
+        
+        // Perform filtering asynchronously
+        filterJob = adapterScope.launch {
+            val filtered = withContext(Dispatchers.Default) {
+                items.filter { modelWrapper ->
+                    val modelItem = modelWrapper.modelItem
+                    val modelNameLowerCase = modelItem.modelName?.lowercase(Locale.getDefault()) ?: ""
+
+                    for ((key, value) in filterQueryMap) {
+                        if (value.isEmpty()) {
+                            continue
+                        }
+                        when (key) {
+                            "vendor" -> {
+                                val vendor = ModelUtils.getVendor(modelNameLowerCase)
+                                if (vendor != value) {
+                                    return@filter false
+                                }
+                            }
+                            "modality" -> {
+                                if (!Modality.checkModality(modelItem.modelId!!, value)) {
+                                    return@filter false
+                                }
+                            }
+                            "download" -> {
+                                // Filter by download status
+                                /*
+                                if (value == "ALL" || value.isEmpty()) {
+                                    continue
+                                }
+
+                                val downloadInfo = modelWrapper.modelItem.downloadInfo
+                                val matchesFilter = when (value) {
+                                    "NOT_STARTED" -> downloadInfo == null || downloadInfo.downloadState == null
+                                    "DOWNLOADING" -> downloadInfo?.downloadState?.name == "DOWNLOADING"
+                                    "PAUSED" -> downloadInfo?.downloadState?.name == "PAUSED"
+                                    "COMPLETED" -> downloadInfo?.downloadState?.name == "COMPLETED" || downloadInfo?.downloadState?.name == "FINISHED"
+                                    else -> true
+                                }
+
+                                if (!matchesFilter) {
+                                    return@filter false
+                                }
+                                */
+                            }
+                            else -> {
+                                if (!modelNameLowerCase.contains(value.lowercase(Locale.getDefault()))) {
+                                    return@filter false
+                                }
+                            }
+                        }
+                    }
+                    true
+                }
+            }
+            
+            // Back to main thread for UI updates
+            if (isActive) {
+                val oldFiltered = filteredItems
+                filteredItems = filtered
+                
+                val diffCallback = ModelWrapperDiffCallback(oldFiltered, filteredItems)
+                val diffResult = DiffUtil.calculateDiff(diffCallback)
+                diffResult.dispatchUpdatesTo(this@ModelListAdapter)
+                
+                checkIfEmpty()
+            }
+        }
     }
 
     fun unfilter() {
-        this.filteredItems = null
-        notifyDataSetChanged()
+        filterJob?.cancel()
+        
+        val oldItems = getItems()
+        
+        // Clear all filters
+        filterQueryMap.clear()
+        filterQueryMap["query"] = ""
+        filterQueryMap["vendor"] = ""
+        filterQueryMap["modality"] = ""
+        filterQueryMap["download"] = "-1"
+        filterQuery = ""
+        
+        // getItems() will now return all items since no filters are active
+        val newItems = getItems()
+        
+        val diffCallback = ModelWrapperDiffCallback(oldItems, newItems)
+        val diffResult = DiffUtil.calculateDiff(diffCallback)
+        diffResult.dispatchUpdatesTo(this)
+        checkIfEmpty()
     }
 
-    fun setFilter(filterQuery: String, filterDownloaded: Boolean) {
+    fun setFilter(filterQuery: String) {
         this.filterQuery = filterQuery
-        this.filterDownloaded = filterDownloaded
-        filter(filterQuery, filterDownloaded)
+        this.filterQueryMap["query"] = filterQuery
+        filterItems()
     }
+
+    fun filterVendor(vendorFilter: String) {
+        this.filterQueryMap["vendor"] = vendorFilter
+        filterItems()
+    }
+
+    fun filterModality(modality: String) {
+        this.filterQueryMap["modality"] = modality
+        filterItems()
+    }
+
+    fun filterDownloadState(downloadState: String) {
+        this.filterQueryMap["download"] = downloadState
+        filterItems()
+    }
+
+    fun setEmptyView(emptyView: View) {
+        this.emptyView = emptyView
+    }
+
+    private fun checkIfEmpty() {
+        if (!initialized || isLoading) {
+            return
+        }
+        if (emptyView != null) {
+            emptyView?.visibility = if (itemCount == 0) View.VISIBLE else View.GONE
+        }
+    }
+    
+    // Clean up coroutines when adapter is destroyed
+    fun onDestroy() {
+        adapterScope.cancel()
+        modelItemHoldersMap.clear()
+        modelItemHolders.clear()
+    }
+    
+    // DiffUtil callback for efficient list updates
+    private class ModelWrapperDiffCallback(
+        private val oldList: List<ModelItemWrapper>,
+        private val newList: List<ModelItemWrapper>
+    ) : DiffUtil.Callback() {
+        
+        override fun getOldListSize(): Int = oldList.size
+        
+        override fun getNewListSize(): Int = newList.size
+        
+        override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean {
+            return oldList[oldItemPosition].modelItem.modelId == newList[newItemPosition].modelItem.modelId
+        }
+        
+        override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean {
+            val oldWrapper = oldList[oldItemPosition]
+            val newWrapper = newList[newItemPosition]
+            val oldItem = oldWrapper.modelItem
+            val newItem = newWrapper.modelItem
+            
+            // Compare basic model properties including pin state
+            return oldItem.modelId == newItem.modelId &&
+                    oldItem.modelName == newItem.modelName &&
+                    oldItem.isLocal == newItem.isLocal &&
+                    oldItem.localPath == newItem.localPath &&
+                    oldWrapper.downloadSize == newWrapper.downloadSize &&
+                    oldWrapper.lastChatTime == newWrapper.lastChatTime &&
+                    oldWrapper.downloadTime == newWrapper.downloadTime &&
+                    oldWrapper.isPinned == newWrapper.isPinned // Include pin state comparison
+        }
+        
+        override fun getChangePayload(oldItemPosition: Int, newItemPosition: Int): Any? {
+            val oldWrapper = oldList[oldItemPosition]
+            val newWrapper = newList[newItemPosition]
+            val oldItem = oldWrapper.modelItem
+            val newItem = newWrapper.modelItem
+            
+            if (oldItem.modelId != newItem.modelId) {
+                return null // Different items, full rebind needed
+            }
+            
+            // Create payload for specific changes to enable smooth animations
+            return when {
+                oldItem.modelName != newItem.modelName -> null // Full rebind needed
+                oldWrapper.isPinned != newWrapper.isPinned -> "PIN_STATE_UPDATE"
+                oldWrapper.lastChatTime != newWrapper.lastChatTime -> "TIME_UPDATE"
+                oldWrapper.downloadSize != newWrapper.downloadSize -> "SIZE_UPDATE"
+                else -> "MINOR_UPDATE"
+            }
+        }
+    }
+
+    companion object {
+        const val TAG = "ModelListAdapter"
+    }
+
 }

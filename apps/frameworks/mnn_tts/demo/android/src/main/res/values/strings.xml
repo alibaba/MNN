@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MNN TTS Demo</string>
+    <string name="result_placeholder">Test result will appear here</string>
+    <string name="run_test">Run Test</string>
+    <string name="tts_engine_name">MNN TTS Engine</string>
+    <string name="tts_settings_title">MNN TTS Settings</string>
+</resources>

@@ -69,28 +69,30 @@ __kernel void raster_direct_buffer(
     
     int inputIndex = inputOffset + id * combineSrcOffset + z * inputStride0 + y * inputStride1 + x * inputStride2;
     int outputIndex = outputOffset + id * combineDstOffset + z * outputStride0 + y * outputStride1 + x * outputStride2;
+    int inputIndexReal = 0;
+    int outputIndexReal = 0;
 #if INPUT_FORMAT == MNN_DATA_FORMAT_NCHW
-    int inputIndexReal = inputIndex;
+    inputIndexReal = inputIndex;
 #elif INPUT_FORMAT == MNN_DATA_FORMAT_NHWC
-    int inputIndexReal = inputIndex;
+    inputIndexReal = inputIndex;
 #elif INPUT_FORMAT == MNN_DATA_FORMAT_NC4HW4
     int in_w = inputIndex % src_width; inputIndex /= src_width;
     int in_h = inputIndex % src_height; inputIndex /= src_height;
     int in_c = inputIndex % src_channel;
     int in_b = inputIndex / src_channel;
-    int inputIndexReal = (((in_b + (in_c / 4) * src_batch) * src_height + in_h) * src_width + in_w) * 4 + (in_c % 4);
+    inputIndexReal = (((in_b + (in_c / 4) * src_batch) * src_height + in_h) * src_width + in_w) * 4 + (in_c % 4);
 #endif
     
 #if OUTPUT_FORMAT == MNN_DATA_FORMAT_NCHW
-    int outputIndexReal = outputIndex;
+    outputIndexReal = outputIndex;
 #elif OUTPUT_FORMAT == MNN_DATA_FORMAT_NHWC
-    int outputIndexReal = outputIndex;
+    outputIndexReal = outputIndex;
 #elif OUTPUT_FORMAT == MNN_DATA_FORMAT_NC4HW4
     int out_w = outputIndex % dst_width; outputIndex /= dst_width;
     int out_h = outputIndex % dst_height; outputIndex /= dst_height;
     int out_c = outputIndex % dst_channel;
     int out_b = outputIndex / dst_channel;
-    int outputIndexReal = (((out_b + (out_c / 4) * dst_batch) * dst_height + out_h) * dst_width + out_w) * 4 + (out_c % 4);
+    outputIndexReal = (((out_b + (out_c / 4) * dst_batch) * dst_height + out_h) * dst_width + out_w) * 4 + (out_c % 4);
 #endif
     output[outputIndexReal] = (OUTPUT_TYPE)input[inputIndexReal];
 }

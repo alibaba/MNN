@@ -12,6 +12,7 @@
 #include <functional>
 #include "core/BufferAllocator.hpp"
 #include "core/Backend.hpp"
+#ifndef MNN_REDUCE_SIZE
 namespace MNN {
 /**
  Based on
@@ -21,7 +22,7 @@ namespace MNN {
  */
 class StrassenMatrixComputor {
 public:
-    StrassenMatrixComputor(Backend* bn, bool multithread, int maxDepth);
+    StrassenMatrixComputor(Backend* bn, int maxDepth);
     virtual ~StrassenMatrixComputor();
 
     /*
@@ -55,7 +56,6 @@ public:
     ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const std::vector<float>& postParameters = {}, int l = 0, int h = 0);
 
     ErrorCode onEncode(int e, int l, int h, int as, int bs, int cs, const MemChunk AT, const MemChunk BT, MemChunk CT, bool useBias, const MemChunk Bias = MemChunk(), const std::vector<float>& postParameters = {});
-    // ErrorCode onEncode(int e, int l, int h, int as, int bs, int cs, const uint8_t* AT, const uint8_t* BT, uint8_t* CT, bool useBias, const uint8_t* Bias = nullptr, const std::vector<float>& postParameters = {});
     
     void onExecute(const uint8_t* AT = nullptr, const uint8_t* BT = nullptr, const uint8_t* COT = nullptr, uint8_t* CT = nullptr);
 
@@ -77,7 +77,6 @@ private:
 
     std::vector<std::pair<std::function<void(int tId)>, int>> mFunctions;
     int mMaxDepth;
-    bool mSupportMultiThread;
 
     Backend* mBackend;
     
@@ -86,5 +85,5 @@ private:
     int mWeightBytes = 4;
 };
 } // namespace MNN
-
+#endif
 #endif /* StrassenMatmulComputor_hpp */

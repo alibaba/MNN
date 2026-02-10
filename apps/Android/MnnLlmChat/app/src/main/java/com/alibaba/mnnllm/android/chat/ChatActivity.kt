@@ -3,44 +3,47 @@
 package com.alibaba.mnnllm.android.chat
 
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
-import android.text.Editable
-import android.text.TextUtils
-import android.text.TextWatcher
 import android.util.Log
-import android.view.KeyEvent
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
-import android.view.WindowInsets
-import android.widget.EditText
-import android.widget.ImageView
-import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.widget.NestedScrollView
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
-import com.alibaba.mnnllm.android.ChatService
-import com.alibaba.mnnllm.android.ChatSession
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.first
+import com.alibaba.mls.api.ApplicationProvider
+import com.alibaba.mnnllm.android.llm.ChatSession
 import com.alibaba.mnnllm.android.R
-import com.alibaba.mnnllm.android.audio.AudioPlayer
-import com.alibaba.mnnllm.android.chat.AttachmentPickerModule.AttachmentType
-import com.alibaba.mnnllm.android.chat.AttachmentPickerModule.ImagePickCallback
-import com.alibaba.mnnllm.android.chat.GenerateResultProcessor.R1GenerateResultProcessor
-import com.alibaba.mnnllm.android.chat.VoiceRecordingModule.VoiceRecordingListener
-import com.alibaba.mnnllm.android.databinding.ActivityChatBinding
-import com.alibaba.mnnllm.android.modelsettings.SettingsBottomSheetFragment
-import com.alibaba.mnnllm.android.utils.AudioPlayService
+import com.alibaba.mnnllm.android.audio.AudioChunksPlayer
+import com.alibaba.mnnllm.android.benchmark.BenchmarkModule
+import com.alibaba.mnnllm.android.modelist.ModelListManager
+import com.alibaba.mnnllm.android.utils.WavFileWriter
 import com.alibaba.mnnllm.android.utils.FileUtils
-import com.alibaba.mnnllm.android.utils.KeyboardUtils
-import com.alibaba.mnnllm.android.utils.ModelPreferences
-import com.alibaba.mnnllm.android.utils.ModelUtils
-import com.alibaba.mnnllm.android.utils.Permissions.REQUEST_RECORD_AUDIO_PERMISSION
+import com.alibaba.mnnllm.android.chat.chatlist.ChatListComponent
+import com.alibaba.mnnllm.android.chat.chatlist.ChatViewHolders
+import com.alibaba.mnnllm.android.chat.input.ChatInputComponent
+import com.alibaba.mnnllm.android.chat.model.ChatDataItem
+import com.alibaba.mnnllm.android.databinding.ActivityChatBinding
+import com.alibaba.mnnllm.android.llm.AudioDataListener
+import com.alibaba.mnnllm.android.llm.LlmSession
+import com.alibaba.mnnllm.android.mainsettings.MainSettings.isApiServiceEnabled
+import com.alibaba.mnnllm.android.modelsettings.SettingsBottomSheetFragment
+import com.alibaba.mnnllm.api.openai.ui.ApiSettingsBottomSheetFragment
+import com.alibaba.mnnllm.api.openai.ui.ApiConsoleBottomSheetFragment
+import com.alibaba.mnnllm.android.utils.AudioPlayService
+import com.alibaba.mnnllm.android.model.ModelTypeUtils
+import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
-import com.google.android.material.bottomsheet.BottomSheetBehavior
+import com.alibaba.mnnllm.api.openai.manager.ApiServiceManager
+import com.alibaba.mnnllm.android.chat.voice.VoiceChatFragment
+import com.alibaba.mnnllm.android.chat.voice.VoiceModelsChecker
+import com.alibaba.mnnllm.android.chat.voice.VoiceModelMarketBottomSheet
+import com.alibaba.mnnllm.android.modelist.ModelItemWrapper
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filter
@@ -50,59 +53,47 @@ import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.util.Random
-import java.util.concurrent.Executors
-import java.util.concurrent.ScheduledExecutorService
-import kotlin.math.abs
 
+/**
+ * @description:
+ * lifecycle:
+ * setupView
+ * setupSession
+ * sessionLoaded
+ */
 class ChatActivity : AppCompatActivity() {
-    private val _isGenerating = MutableStateFlow(false)
-    private var isGenerating: Boolean
+    var isGenerating: Boolean
         get() = _isGenerating.value
         set(value) {
             _isGenerating.value = value
         }
-    private lateinit var recyclerView: RecyclerView
-    private var adapter: ChatRecyclerViewAdapter? = null
-    private lateinit var editUserMessage: EditText
-    private lateinit var buttonSend: ImageView
-
-    private lateinit var imageMore: ImageView
-    private var layoutModelLoading: View? = null
-
-    private var dateFormat: DateFormat? = null
-    private lateinit var chatSession: ChatSession
-
+    var dateFormat: DateFormat? = null
     var sessionId: String? = null
         private set
+    var isLoading = false
+    var isAudioModel = false
+    var isDiffusion = false
+    var chatSession: ChatSession? = null
 
-    var modelName: String? = null
-        private set
-    private var modelId: String? = null
-
-    private var chatExecutor: ScheduledExecutorService? = null
-
-    private var linearLayoutManager: LinearLayoutManager? = null
-
-    private var chatDataManager: ChatDataManager? = null
-
-    private var isUserScrolling = false
-
-    private var voiceRecordingModule: VoiceRecordingModule? = null
-
-    private var isAudioModel = false
-    private var attachmentPickerModule: AttachmentPickerModule? = null
-    private var buttonSwitchVoice: View? = null
-
+    private val _isGenerating = MutableStateFlow(false)
+    private var layoutModelLoading: View? = null
+    var modelName: String = ""
+    var modelId: String? = null
     private var currentUserMessage: ChatDataItem? = null
-
-    private var isLoading = false
     private var sessionName: String? = null
-    private var stopGenerating = false
-    private val CONFIG_SHOW_CUSTOM_TOOLBAR = false
     private lateinit var binding: ActivityChatBinding
-    private lateinit var bottomSheetBehavior: BottomSheetBehavior<NestedScrollView>
-    private var audioPlayer: AudioPlayer? = null
+    private var audioPlayer: AudioChunksPlayer? = null
+    private lateinit var chatPresenter: ChatPresenter
+    private var chatInputModule: ChatInputComponent? = null
+    lateinit var chatListComponent: ChatListComponent
+
+    // Real-time audio playback settings
+    private var isRealTimePlayback = true
+    private var wavFileWriter: WavFileWriter? = null
+    private var bufferedAudioFilePath: String? = null
+
+    private var benchmarkModule: BenchmarkModule = BenchmarkModule(activity = this)
+    private lateinit var voiceModelsChecker: VoiceModelsChecker
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -110,335 +101,248 @@ class ChatActivity : AppCompatActivity() {
         setContentView(binding.root)
         val toolbar = binding.toolbar
         setSupportActionBar(toolbar)
-        modelName = intent.getStringExtra("modelName")
-        modelId = intent.getStringExtra("modelId")
+
+        this.modelName = intent.getStringExtra("modelName")?:""
+        this.modelId = intent.getStringExtra("modelId")
+        if (this.modelName.isEmpty() || this.modelId.isNullOrEmpty()) {
+            finish()
+        }
+        dateFormat = SimpleDateFormat("hh:mm aa", Locale.getDefault())
         layoutModelLoading = findViewById(R.id.layout_model_loading)
+        updateActionBar()
+        binding.modelSwitcher.setOnClickListener {
+            if (!isDiffusion) {
+                showModelSelectionDialog()
+            }
+        }
+        setupView(this.modelId!!, this.modelName)
+        this.setupSession()
+        initializeVoiceModelsChecker()
+    }
+
+    private fun setupView(modelId:String, modelName: String) {
+        this.modelId = modelId
+        this.modelName = modelName
+        isDiffusion = ModelTypeUtils.isDiffusionModel(modelName)
+        isAudioModel = ModelTypeUtils.isAudioModel(modelId)
+        binding.modelSwitcher.text = modelName
+        
+        // Hide model switcher click functionality for diffusion models
+        val dropdownArrow = binding.modelSwitcher.findViewById<View>(R.id.iv_dropdown_arrow)
+        if (isDiffusion) {
+            binding.modelSwitcher.isClickable = false
+            binding.modelSwitcher.isFocusable = false
+            binding.modelSwitcher.background = null
+            dropdownArrow?.visibility = View.GONE
+        } else {
+            binding.modelSwitcher.isClickable = true
+            binding.modelSwitcher.isFocusable = true
+//            binding.modelSwitcher.setBackgroundResource(R.drawable.bg_rounded_dropdown)
+            dropdownArrow?.visibility = View.VISIBLE
+        }
+        
+        chatPresenter = ChatPresenter(this, modelName, modelId)
+        setChatPresenter(chatPresenter)
+        chatInputModule = ChatInputComponent(this, binding, modelId, modelName)
+        setupChatListComponent()
+        setupInputModule()
+        binding.modelSwitcher.text = modelName
+    }
+
+    private fun onSessionCreated() {
+        val history = chatSession!!.getHistory()
+        Log.d(TAG, "onSessionCreated: setting up UI with ${history?.size ?: 0} history items, isDiffusion=$isDiffusion")
+        chatListComponent.setup(modelName, history)
+    }
+
+    private fun setupChatListComponent() {
+        chatListComponent = ChatListComponent(this, this.dateFormat!!, binding)
+    }
+
+    private fun updateActionBar() {
         if (supportActionBar != null) {
             supportActionBar!!.setDisplayHomeAsUpEnabled(true)
-            supportActionBar!!.setDisplayShowTitleEnabled(!CONFIG_SHOW_CUSTOM_TOOLBAR)
-            supportActionBar!!.title = getString(R.string.app_name)
+            supportActionBar!!.setDisplayShowTitleEnabled(false)
         }
-        binding.btnToggleThinking.visibility = if (ModelUtils.isSupportThinkingSwitch(modelName!!)) {
-                binding.btnToggleThinking.isSelected = true
-                View.VISIBLE
-            } else  {
-                View.GONE
+    }
+
+    private fun setupInputModule() {
+        this.chatInputModule!!.apply {
+            setOnThinkingModeChanged {isThinking ->
+                Log.d(TAG, "isThinking: $isThinking")
+                (chatSession as LlmSession).updateThinking(isThinking)
             }
-        binding.btnToggleThinking.setOnClickListener {
-            binding.btnToggleThinking.isSelected = !binding.btnToggleThinking.isSelected
-            chatSession.updateAssistantPrompt(if (binding.btnToggleThinking.isSelected) {
-                "<|im_start|>assistant\n%s<|im_end|>\n"
-            } else {
-                "<|im_start|>assistant\n<think>\n</think>%s<|im_end|>\n"
-            })
-        }
-        chatExecutor = Executors.newScheduledThreadPool(1)
-        chatDataManager = ChatDataManager.getInstance(this)
-        this.setupSession()
-        dateFormat = SimpleDateFormat("hh:mm aa", Locale.getDefault())
-        this.setupRecyclerView()
-        setupEditText()
-        buttonSend = binding.btnSend
-        buttonSend.setEnabled(false)
-        buttonSend.setOnClickListener { handleSendClick() }
-        isAudioModel = ModelUtils.isAudioModel(modelName!!)
-        setupVoiceRecordingModule()
-        setupAttachmentPickerModule()
-        smoothScrollToBottom()
-        setupBottomSheetBehavior()
-    }
-
-    private fun setupBottomSheetBehavior() {
-        bottomSheetBehavior = BottomSheetBehavior.from(binding.bottomSheet)
-        bottomSheetBehavior.state = BottomSheetBehavior.STATE_HIDDEN
-    }
-
-    private fun handleSendClick() {
-        Log.d(
-            TAG,
-            "handleSendClick isGenerating : $isGenerating"
-        )
-        if (isGenerating) {
-            stopGenerating = true
-        } else {
-            sendUserMessage()
+            setOnAudioOutputModeChanged {
+                chatPresenter.setEnableAudioOutput(it)
+            }
+            setOnSendMessage{
+                lifecycleScope.launch {
+                    this@ChatActivity.handleSendMessage(it)
+                }
+            }
+            setOnStopGenerating{
+                chatPresenter.stopGenerate()
+            }
         }
     }
 
     private fun setupSession() {
-        val chatService = ChatService.provide()
-        sessionId = intent.getStringExtra("chatSessionId")
-        val chatDataItemList: List<ChatDataItem>?
-        if (!TextUtils.isEmpty(sessionId)) {
-            chatDataItemList = chatDataManager!!.getChatDataBySession(sessionId!!)
-            if (!chatDataItemList.isNullOrEmpty()) {
-                sessionName = chatDataItemList[0].text
-            }
-        } else {
-            chatDataItemList = null
-        }
-        if (ModelUtils.isDiffusionModel(modelName!!)) {
-            val diffusionDir = intent.getStringExtra("diffusionDir")
-            chatSession = chatService.createDiffusionSession(
-                modelId, diffusionDir,
-                sessionId, chatDataItemList
-            )
-        } else {
-            val configFilePath = intent.getStringExtra("configFilePath")
-            chatSession = chatService.createSession(
-                modelId, configFilePath, true,
-                sessionId, chatDataItemList,
-                ModelUtils.isOmni(modelName!!)
-            )
-
-        }
-        sessionId = chatSession.sessionId
-        chatSession.setKeepHistory(
-            !ModelUtils.isVisualModel(modelName!!) && !ModelUtils.isAudioModel(
-                modelName!!
-            )
-        )
+        chatSession = chatPresenter.createSession()
+        sessionId = chatSession!!.sessionId
+        onSessionCreated()
         Log.d(TAG, "current SessionId: $sessionId")
-        chatExecutor!!.submit {
-            Log.d(TAG, "chatSession loading")
-            setIsLoading(true)
-            chatSession.load()
-            if (chatSession.supportOmni) {
-                audioPlayer = AudioPlayer()
-                audioPlayer!!.start()
-                chatSession.setAudioDataListener(object : ChatSession.AudioDataListener {
-                    override fun onAudioData(data: FloatArray, isEnd: Boolean): Boolean {
-                        MainScope().launch {
-                            audioPlayer?.playChunk(data)
+        chatPresenter.load()
+    }
+
+    private fun setupOmni() {
+        audioPlayer = AudioChunksPlayer()
+        audioPlayer!!.sampleRate = 24000  // Use same sample rate as original AudioPlayer
+        audioPlayer!!.start()
+        
+        (chatSession as LlmSession).setAudioDataListener(object : AudioDataListener {
+            override fun onAudioData(data: FloatArray, isEnd: Boolean): Boolean {
+                this@ChatActivity.lifecycleScope.launch {
+                    if (isRealTimePlayback) {
+                        // Real-time playback mode: play immediately but also save for replay
+                        audioPlayer?.playChunk(data)
+                        
+                        // Also save audio data for potential replay
+                        saveAudioDataForReplay(data, isEnd)
+                        
+                        if (isEnd) {
+                            audioPlayer?.endChunk()
                         }
-                        return true
+                    } else {
+                        // Buffered playback mode: collect all chunks first
+                        handleBufferedAudioData(data, isEnd)
+                    }
+                }
+                return chatPresenter.stopGenerating
+            }
+        })
+    }
+
+    private suspend fun handleBufferedAudioData(data: FloatArray, isEnd: Boolean) {
+        // Initialize WAV writer if this is the first chunk
+        if (wavFileWriter == null) {
+            bufferedAudioFilePath = FileUtils.generateDestAudioFilePath(this, sessionId!!)
+            wavFileWriter = WavFileWriter(bufferedAudioFilePath!!, 24000, 1, 16)
+            Log.d(TAG, "Initialized WAV writer for buffered playback: $bufferedAudioFilePath")
+        }
+
+        // Add audio chunk to WAV writer
+        wavFileWriter?.addAudioChunk(data)
+
+        if (isEnd) {
+            // Write all chunks to WAV file and play
+            val success = wavFileWriter?.writeToFile() ?: false
+            if (success && bufferedAudioFilePath != null) {
+                Log.d(TAG, "WAV file written successfully, starting playback")
+                
+                // Update the current chat item with audio info
+                val currentItem = chatListComponent.recentItem
+                currentItem?.let { item ->
+                    item.hasOmniAudio = true
+                    item.audioUri = Uri.fromFile(java.io.File(bufferedAudioFilePath!!))
+                    chatListComponent.updateAssistantResponse(item)
+                }
+                
+                // Auto-play the audio file
+                playWavFile(bufferedAudioFilePath!!)
+            } else {
+                Log.e(TAG, "Failed to write WAV file")
+            }
+            
+            // Clean up
+            wavFileWriter?.clear()
+            wavFileWriter = null
+            bufferedAudioFilePath = null
+        }
+    }
+
+    private suspend fun saveAudioDataForReplay(data: FloatArray, isEnd: Boolean) {
+        // Initialize WAV writer for replay if this is the first chunk
+        if (wavFileWriter == null) {
+            bufferedAudioFilePath = FileUtils.generateDestAudioFilePath(this, sessionId!!)
+            wavFileWriter = WavFileWriter(bufferedAudioFilePath!!, 24000, 1, 16)
+            Log.d(TAG, "Initialized WAV writer for audio replay: $bufferedAudioFilePath")
+        }
+
+        // Add audio chunk to WAV writer
+        wavFileWriter?.addAudioChunk(data)
+
+        if (isEnd) {
+            // Write all chunks to WAV file for later replay
+            val success = wavFileWriter?.writeToFile() ?: false
+            if (success && bufferedAudioFilePath != null) {
+                Log.d(TAG, "Audio saved for replay: $bufferedAudioFilePath")
+                
+                // Update the current chat item with audio info  
+                val currentItem = chatListComponent.recentItem
+                currentItem?.let { item ->
+                    item.hasOmniAudio = true
+                    item.audioUri = Uri.fromFile(java.io.File(bufferedAudioFilePath!!))
+                    chatListComponent.updateAssistantResponse(item)
+                }
+            } else {
+                Log.e(TAG, "Failed to save audio for replay")
+            }
+            
+            // Clean up
+            wavFileWriter?.clear()
+            wavFileWriter = null
+            bufferedAudioFilePath = null
+        }
+    }
+
+    private suspend fun playWavFile(filePath: String) {
+        try {
+            Log.d(TAG, "playWavFile : $filePath")
+            // Reset audio player for file playback
+            audioPlayer?.reset()
+            withContext(Dispatchers.Main) {
+                val audioPlayService = AudioPlayService.instance
+                audioPlayService?.playAudio(filePath, object : AudioPlayService.AudioPlayerCallback {
+                    override fun onPlayStart() {
+                        Log.d(TAG, "Started playing buffered audio file")
+                    }
+
+                    override fun onPlayFinish() {
+                        Log.d(TAG, "Completed playing buffered audio file")
+                    }
+
+                    override fun onPlayError() {
+                        Log.e(TAG, "Error playing buffered audio file")
+                    }
+
+                    override fun onPlayProgress(progress: Float) {
+                        // Not needed for our use case
                     }
                 })
             }
-            setIsLoading(false)
-            Log.d(TAG, "chatSession loaded")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error playing WAV file: $filePath", e)
         }
     }
 
-    private fun setIsLoading(loading: Boolean) {
+    fun onLoadingChanged(loading: Boolean) {
         isLoading = loading
-        runOnUiThread {
-            if (!loading && voiceRecordingModule != null && ModelUtils.isAudioModel(modelName!!)) {
-                voiceRecordingModule!!.onEnabled()
+        this.chatInputModule!!.onLoadingStatesChanged(loading)
+        layoutModelLoading!!.visibility =
+            if (loading) View.VISIBLE else View.GONE
+        if (supportActionBar != null) {
+            supportActionBar!!.setDisplayHomeAsUpEnabled(true)
+            binding.modelSwitcher.text = modelName
+        }
+        if (!loading) {
+            if (chatSession!!.supportOmni) {
+                setupOmni()
             }
-            updateSenderButton()
-            layoutModelLoading!!.visibility =
-                if (loading) View.VISIBLE else View.GONE
-            if (supportActionBar != null) {
-                supportActionBar!!.setDisplayHomeAsUpEnabled(true)
-                if (CONFIG_SHOW_CUSTOM_TOOLBAR) {
-//                    toolbarTitle.visibility = View.VISIBLE
-//                    toolbarTitle.text =
-//                        if (loading) getString(R.string.model_loading) else getString(R.string.app_name)
-                } else {
-                    supportActionBar!!.subtitle =
-                    if (loading) getString(R.string.model_loading) else modelName
-                }
+            // Check API service settings and start service
+            if (isApiServiceEnabled(this)) {
+                ApiServiceManager.startApiService(this, modelId)
             }
         }
-    }
-
-    private fun setupRecyclerView() {
-        recyclerView = binding.recyclerView
-        recyclerView.setItemAnimator(null)
-        linearLayoutManager = LinearLayoutManager(this)
-        recyclerView.setLayoutManager(linearLayoutManager)
-        binding.layoutBottomContainer.addOnLayoutChangeListener { v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
-            val insets: WindowInsets? = v.rootWindowInsets
-            val bottomInset = insets!!.systemWindowInsetBottom
-            recyclerView.setPadding(recyclerView.paddingLeft, recyclerView.paddingTop, recyclerView.paddingRight,
-                bottomInset +  binding.layoutBottomContainer.height)
-            insets.consumeSystemWindowInsets()
-        }
-//        ViewCompat.setOnApplyWindowInsetsListener(recyclerView) { view, insets ->
-//            val bottomInset = insets.systemWindowInsetBottom
-//            view.setPadding(view.paddingLeft, view.paddingTop, view.paddingRight, bottomInset)
-//            insets.consumeSystemWindowInsets()
-//        }
-        adapter = ChatRecyclerViewAdapter(this, initData(), this.modelName!!)
-        recyclerView.setAdapter(adapter)
-        recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
-            override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
-                super.onScrollStateChanged(recyclerView, newState)
-            }
-
-            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
-                super.onScrolled(recyclerView, dx, dy)
-                if (abs(dy.toDouble()) > 0) {
-                    isUserScrolling = true
-                }
-            }
-
-            var isUserScrolling: Boolean = false
-        })
-    }
-
-    private fun setupEditText() {
-        editUserMessage = binding.etMessage
-        editUserMessage.setOnEditorActionListener { v: TextView?, actionId: Int, event: KeyEvent? ->
-            if ((event != null && event.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)) {
-                Log.d(
-                    TAG,
-                    "onEditorAction" + actionId + "  getAction: " + event.action + "code: " + event.keyCode
-                )
-                sendUserMessage()
-                return@setOnEditorActionListener true
-            }
-            false
-        }
-        editUserMessage.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence, start: Int, count: Int, after: Int) {
-            }
-
-            override fun onTextChanged(s: CharSequence, start: Int, before: Int, count: Int) {
-            }
-
-            override fun afterTextChanged(s: Editable) {
-                updateSenderButton()
-                updateVoiceButtonVisibility()
-            }
-        })
-    }
-
-    private fun initData(): MutableList<ChatDataItem> {
-        val data: MutableList<ChatDataItem> = ArrayList()
-        data.add(ChatDataItem(dateFormat!!.format(Date()), ChatViewHolders.HEADER, ""))
-        data.add(
-            ChatDataItem(
-                dateFormat!!.format(Date()), ChatViewHolders.ASSISTANT,
-                getString(
-                    if (ModelUtils.isDiffusionModel(modelName!!))
-                        R.string.model_hello_prompt_diffusion else
-                        R.string.model_hello_prompt,
-                    modelName
-                )
-            )
-        )
-        val savedHistory = chatSession.savedHistory
-        if (!savedHistory.isNullOrEmpty()) {
-            data.addAll(savedHistory)
-        }
-        return data
-    }
-
-    private fun setupAttachmentPickerModule() {
-        imageMore = findViewById(R.id.bt_plus)
-        buttonSwitchVoice = findViewById(R.id.bt_switch_audio)
-        if (!ModelUtils.isVisualModel(this.modelName!!) && !ModelUtils.isAudioModel(this.modelName!!)) {
-            imageMore.setVisibility(View.GONE)
-            return
-        }
-        attachmentPickerModule = AttachmentPickerModule(this)
-        attachmentPickerModule!!.setOnImagePickCallback(object : ImagePickCallback {
-            override fun onAttachmentPicked(imageUri: Uri?, audio: AttachmentType?) {
-                imageMore.setVisibility(View.GONE)
-                updateVoiceButtonVisibility()
-                currentUserMessage = ChatDataItem(ChatViewHolders.USER)
-                if (audio == AttachmentType.Audio) {
-                    currentUserMessage!!.audioUri = imageUri
-                } else {
-                    currentUserMessage!!.imageUri = imageUri
-                }
-                updateSenderButton()
-            }
-
-            override fun onAttachmentRemoved() {
-                currentUserMessage = null
-                imageMore.setVisibility(View.VISIBLE)
-                updateSenderButton()
-                updateVoiceButtonVisibility()
-            }
-
-            override fun onAttachmentLayoutShow() {
-                imageMore.setImageResource(R.drawable.ic_bottom)
-            }
-
-            override fun onAttachmentLayoutHide() {
-                imageMore.setImageResource(R.drawable.ic_plus)
-            }
-        })
-        imageMore.setOnClickListener {
-            if (voiceRecordingModule != null) {
-                voiceRecordingModule?.exitRecordingMode()
-            }
-            attachmentPickerModule!!.toggleAttachmentVisibility()
-        }
-    }
-
-    private fun updateVoiceButtonVisibility() {
-        if (!ModelUtils.isAudioModel(modelName!!)) {
-            return
-        }
-        var visible = true
-        if (!ModelUtils.isAudioModel(modelName!!)) {
-            visible = false
-        } else if (isGenerating) {
-            visible = false
-        } else if (currentUserMessage != null) {
-            visible = false
-        } else if (!TextUtils.isEmpty(editUserMessage.text.toString())) {
-            visible = false
-        }
-        buttonSwitchVoice!!.visibility =
-            if (visible) View.VISIBLE else View.GONE
-    }
-
-    private fun updateSenderButton() {
-        var enabled = true
-        if (isLoading) {
-            enabled = false
-        } else if (currentUserMessage == null && TextUtils.isEmpty(editUserMessage.text.toString())) {
-            enabled = false
-        }
-        if (isGenerating) {
-            enabled = true
-        }
-        buttonSend.isEnabled = enabled
-        buttonSend.setImageResource(if (!isGenerating) R.drawable.button_send else R.drawable.ic_stop)
-    }
-
-    private fun setupVoiceRecordingModule() {
-        voiceRecordingModule = VoiceRecordingModule(this)
-        voiceRecordingModule!!.setOnVoiceRecordingListener(object : VoiceRecordingListener {
-            override fun onEnterRecordingMode() {
-                binding.btnToggleThinking.visibility = View.GONE
-                editUserMessage.visibility = View.GONE
-                KeyboardUtils.hideKeyboard(editUserMessage)
-                if (attachmentPickerModule != null) {
-                    attachmentPickerModule!!.hideAttachmentLayout()
-                }
-                editUserMessage.visibility = View.GONE
-            }
-
-            override fun onLeaveRecordingMode() {
-                if (ModelUtils.isSupportThinkingSwitch(modelName!!)) {
-                    binding.btnToggleThinking.visibility = View.VISIBLE
-                }
-                binding.btnSend.visibility = View.VISIBLE
-                editUserMessage.visibility = View.VISIBLE
-                editUserMessage.requestFocus()
-                KeyboardUtils.showKeyboard(editUserMessage)
-            }
-
-            override fun onRecordSuccess(duration: Float, recordingFilePath: String?) {
-                val chatDataItem = ChatDataItem.createAudioInputData(
-                    dateFormat!!.format(Date()),
-                    "",
-                    recordingFilePath!!,
-                    duration
-                )
-                handleSendMessage(chatDataItem)
-            }
-
-            override fun onRecordCanceled() {
-            }
-        })
-        voiceRecordingModule!!.setup(isAudioModel)
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
@@ -451,102 +355,65 @@ class ChatActivity : AppCompatActivity() {
                     true
                 )
             )
-        menu.findItem(R.id.menu_item_use_mmap).setChecked(
-            ModelPreferences.getBoolean(
-                this,
-                modelId!!,
-                ModelPreferences.KEY_USE_MMAP,
-                false
-            )
-        )
-        menu.findItem(R.id.menu_item_backend).setChecked(
-            ModelPreferences.getBoolean(
-                this,
-                modelId!!,
-                ModelPreferences.KEY_BACKEND,
-                false
-            )
-        )
-
+        menu.findItem(R.id.menu_item_model_settings).isVisible = !isDiffusion
+        menu.findItem(R.id.menu_item_benchmark_test).isVisible = benchmarkModule.enabled
+        // Voice chat is only available for non-diffusion models
+        menu.findItem(R.id.start_voice_chat).isVisible = !isDiffusion
+        // Real-time audio playback is only available for Omni models
+        val isOmniModel = ModelTypeUtils.isOmni(modelName)
+        menu.findItem(R.id.realtime_audio_playback).isVisible = false
+        menu.findItem(R.id.realtime_audio_playback).isChecked = false
         return true
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         if (item.itemId == R.id.start_new_chat) {
             handleNewSession()
+        } else if (item.itemId == R.id.start_voice_chat) {
+            handleVoiceChatClick()
         } else if (item.itemId == R.id.show_performance_metrics) {
             item.setChecked(!item.isChecked)
-            PreferenceUtils.setBoolean(
-                this,
-                PreferenceUtils.KEY_SHOW_PERFORMACE_METRICS,
-                item.isChecked
-            )
-            adapter!!.notifyItemRangeChanged(0, adapter!!.itemCount)
+            chatListComponent.toggleShowPerformanceMetrics(item.isChecked)
+        } else if (item.itemId == R.id.realtime_audio_playback) {
+            item.setChecked(!item.isChecked)
+            setRealTimeAudioPlayback(item.isChecked)
         } else if (item.itemId == android.R.id.home) {
             finish()
-        } else if (item.itemId == R.id.menu_item_clear_mmap_cache) {
-            if (ModelPreferences.useMmap(this, modelId!!)) {
-                Toast.makeText(this, R.string.mmap_cacche_cleared, Toast.LENGTH_LONG).show()
-                chatSession.clearMmapCache()
-                recreate()
-            } else {
-                Toast.makeText(this, R.string.mmap_not_used, Toast.LENGTH_SHORT).show()
-            }
-        } else if (item.itemId == R.id.menu_item_use_mmap) {
-            item.setChecked(!item.isChecked)
-            Toast.makeText(this, R.string.reloading_session, Toast.LENGTH_LONG).show()
-            ModelPreferences.setBoolean(
-                this,
-                modelId!!,
-                ModelPreferences.KEY_USE_MMAP,
-                item.isChecked
-            )
-            recreate()
-        } else if (item.itemId == R.id.menu_item_backend) {
-            item.setChecked(!item.isChecked)
-            Toast.makeText(this, R.string.reloading_session, Toast.LENGTH_LONG).show()
-            ModelPreferences.setBoolean(this, modelId!!, ModelPreferences.KEY_BACKEND, item.isChecked)
-            recreate()
         } else if (item.itemId == R.id.menu_item_model_settings) {
-            val settingsSheet = SettingsBottomSheetFragment()
-            settingsSheet.setSession(chatSession)
-            settingsSheet.show(supportFragmentManager, SettingsBottomSheetFragment.TAG)
+            SettingsBottomSheetFragment().apply {
+                setModelId(modelId!!)
+                setConfigPath(intent.getStringExtra("configFilePath"))
+                setSession(chatSession as LlmSession)
+                addOnSettingsDoneListener{needRecreate->
+                    if (needRecreate) {
+                        recreate()
+                    }
+                }
+            }.show(supportFragmentManager, SettingsBottomSheetFragment.TAG)
+            return true
+        } else if (item.itemId == R.id.menu_item_benchmark_test) {
+            chatSession!!.setKeepHistory(false)
+            benchmarkModule.start(waitForLastCompleted = {
+                waitForGeneratingFinished()
+            }, handleSendMessage = { message ->
+                chatSession!!.reset()
+                return@start handleSendMessage(createUserMessage(message))
+            })
+        } else if (item.itemId == R.id.menu_item_api_settings) {
+            ApiSettingsBottomSheetFragment().show(supportFragmentManager, "ApiSettingsBottomSheetFragment")
+            return true
+        } else if (item.itemId == R.id.menu_item_api_console) {
+            ApiConsoleBottomSheetFragment.newInstance(this).show(supportFragmentManager, "ApiConsoleBottomSheetFragment")
             return true
         }
-
         return super.onOptionsItemSelected(item)
     }
 
-
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<String>,
-        grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-
-        if (requestCode == REQUEST_RECORD_AUDIO_PERMISSION) {
-            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                voiceRecordingModule!!.handlePermissionAllowed()
-            } else {
-                voiceRecordingModule!!.handlePermissionDenied()
-            }
-        }
-    }
-
-    private fun handleNewSession() {
-        if (!isGenerating) {
-            currentUserMessage = null
-            sessionId = chatSession.generateNewSession()
-            this.sessionName = null
-            chatExecutor!!.execute { chatSession.reset() }
-            chatDataManager!!.deleteAllChatData(sessionId!!)
-            if (adapter!!.reset()) {
-                Toast.makeText(this, R.string.new_conversation_started, Toast.LENGTH_LONG).show()
-            }
-        } else {
-            Toast.makeText(this, "Cannot Reset when generating", Toast.LENGTH_LONG).show()
-        }
+    private fun createUserMessage(text:String):ChatDataItem {
+        val userMessage = ChatDataItem(ChatViewHolders.USER)
+        userMessage.text = text
+        userMessage.time = dateFormat!!.format(Date())
+        return userMessage
     }
 
     private suspend fun waitForGeneratingFinished() {
@@ -557,195 +424,65 @@ class ChatActivity : AppCompatActivity() {
         }
     }
 
+
+
+    private fun handleNewSession() {
+        if (!isGenerating) {
+            currentUserMessage = null
+            if (chatListComponent.reset()) {
+                Toast.makeText(this, R.string.new_conversation_started, Toast.LENGTH_LONG).show()
+            }
+            this.sessionName = null
+            chatPresenter.reset{newSessionId ->
+                sessionId = newSessionId
+            }
+        } else {
+            Toast.makeText(this, "Cannot Create New Session when generating", Toast.LENGTH_LONG).show()
+        }
+    }
+
     private fun setIsGenerating(isGenerating: Boolean) {
         this.isGenerating = isGenerating
-        updateSenderButton()
-        updateVoiceButtonVisibility()
+        this.chatInputModule!!.setIsGenerating(isGenerating)
     }
 
     @Deprecated("This method has been deprecated in favor of using the Activity Result API\n      which brings increased type safety via an {@link ActivityResultContract} and the prebuilt\n      contracts for common intents available in\n      {@link androidx.activity.result.contract.ActivityResultContracts}, provides hooks for\n      testing, and allow receiving results in separate, testable classes independent from your\n      activity. Use\n      {@link #registerForActivityResult(ActivityResultContract, ActivityResultCallback)}\n      with the appropriate {@link ActivityResultContract} and handling the result in the\n      {@link ActivityResultCallback#onActivityResult(Object) callback}.")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (attachmentPickerModule != null && attachmentPickerModule!!.canHandleResult(requestCode)) {
-            attachmentPickerModule?.onActivityResult(requestCode, resultCode, data!!)
-        }
+        this.chatInputModule!!.handleResult(requestCode, resultCode, data)
     }
-
-    private fun smoothScrollToBottom() {
-        Log.d(TAG, "smoothScrollToBottom")
-        recyclerView.post {
-            val position = adapter!!.itemCount - 1
-            recyclerView.scrollToPosition(position)
-            recyclerView.post { recyclerView.scrollToPosition(position) }
-        }
-    }
-
-    private fun scrollToEnd() {
-        recyclerView.postDelayed({
-            val position = adapter!!.itemCount - 1
-            linearLayoutManager!!.scrollToPositionWithOffset(position, -9999)
-        }, 100)
-    }
-
-    private fun sendUserMessage() {
-        if (!buttonSend.isEnabled) {
-            return
-        }
-        val inputString = editUserMessage.text.toString().trim { it <= ' ' }
-        if (currentUserMessage == null) {
-            currentUserMessage = ChatDataItem(ChatViewHolders.USER)
-        }
-        currentUserMessage!!.text = inputString
-        currentUserMessage!!.time = dateFormat!!.format(Date())
-        handleSendMessage(currentUserMessage!!)
-        currentUserMessage = null
-    }
-
-    private fun createUserMessage(text:String):ChatDataItem {
-        val userMessage = ChatDataItem(ChatViewHolders.USER)
-        userMessage.text = text
-        userMessage.time = dateFormat!!.format(Date())
-        return userMessage
-    }
-
-    private fun handleSendMessage(userData: ChatDataItem) {
-        setIsGenerating(true)
-        editUserMessage.setText("")
-        adapter!!.addItem(userData)
-        addResponsePlaceholder()
-        val input: String
-        val hasSessionName = !TextUtils.isEmpty(this.sessionName)
-        var sessionName: String? = null
-        if (userData.audioUri != null) {
-            val audioPath = attachmentPickerModule!!.getPathForUri(userData.audioUri!!)
-            if (audioPath == null) {
-                Toast.makeText(this, "Audio file not found", Toast.LENGTH_LONG).show()
-                return
-            }
-            if (userData.audioDuration <= 0.1) {
-                userData.audioDuration =
-                    FileUtils.getAudioDuration(audioPath).toFloat()
-            }
-            input = String.format("<audio>%s</audio>%s", audioPath, userData.text)
-            if (!hasSessionName) {
-                sessionName = "[Audio]" + userData.text
-            }
-        } else if (userData.imageUri != null) {
-            val imagePath = attachmentPickerModule!!.getPathForUri(userData.imageUri!!)
-            if (imagePath == null) {
-                Toast.makeText(this, "image file not found", Toast.LENGTH_LONG).show()
-                return
-            }
-            input = String.format("<img>%s</img>%s", imagePath, userData.text)
-            if (!hasSessionName) {
-                sessionName = "[Image]" + userData.text
-            }
-        } else {
-            input = userData.text!!
-            if (!hasSessionName) {
-                sessionName = userData.text
+    
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        // Forward permission results to the attachment picker module
+        this.chatInputModule?.let { inputModule ->
+            if (inputModule is ChatInputComponent) {
+                inputModule.attachmentPickerModule?.onRequestPermissionsResult(requestCode, permissions, grantResults)
             }
         }
-        if (!hasSessionName) {
-            chatDataManager!!.addOrUpdateSession(sessionId!!, modelId)
-            this.sessionName =
-                if (sessionName!!.length > 100) sessionName.substring(0, 100) else sessionName
-            chatDataManager!!.updateSessionName(this.sessionId!!, this.sessionName)
-        }
-        if (ModelUtils.isDiffusionModel(this.modelName!!)) {
-            chatExecutor!!.execute { submitRequest(input) }
-        } else {
-            chatExecutor!!.execute { submitRequest(input) }
-        }
-        chatDataManager!!.addChatData(sessionId, userData)
-        if (attachmentPickerModule != null) {
-            attachmentPickerModule!!.clearInput()
-        }
-        smoothScrollToBottom()
-        KeyboardUtils.hideKeyboard(editUserMessage)
     }
 
-    private fun addResponsePlaceholder() {
-        val holderItem = ChatDataItem(dateFormat!!.format(Date()), ChatViewHolders.ASSISTANT, "")
-        holderItem.hasOmniAudio = chatSession.supportOmni
-        adapter!!.addItem(holderItem)
-        smoothScrollToBottom()
-    }
-
-    private fun submitRequest(input: String) {
-        isUserScrolling = false
-        stopGenerating = false
-        val chatDataItem = adapter!!.recentItem
-        val benchMarkResult: HashMap<String, Any>
-        if (ModelUtils.isDiffusionModel(this.modelName!!)) {
-            val diffusionDestPath = FileUtils.generateDestDiffusionFilePath(
-                this,
-                sessionId!!
-            )
-            chatDataItem!!.loading = true
-            benchMarkResult = chatSession.generateDiffusion(
-                input, diffusionDestPath, 20,
-                Random(System.currentTimeMillis()).nextInt(), object : ChatSession.GenerateProgressListener {
-                    override fun onProgress(progress: String?): Boolean {
-                        if ("100" == progress) {
-                            chatDataItem.text = getString(R.string.diffusion_generated_message)
-                            chatDataItem.imageUri = Uri.parse(diffusionDestPath)
-                        } else {
-                            chatDataItem.text = getString(R.string.diffusion_generate_progress, progress)
-                            chatDataItem.displayText = chatDataItem.text
-                        }
-                        runOnUiThread { updateAssistantResponse(chatDataItem) }
-                        return false
-                    }
-                }
-            )
-            chatDataItem.loading = false
-        } else {
-            chatDataItem!!.loading = true
-            val generateResultProcessor: GenerateResultProcessor =
-                R1GenerateResultProcessor(
-                    getString(R.string.r1_thinking_message),
-                    getString(R.string.r1_think_complete_template))
-            generateResultProcessor.generateBegin()
-            benchMarkResult = chatSession.generate(input, object: ChatSession.GenerateProgressListener {
-                override fun onProgress(progress: String?): Boolean {
-                    generateResultProcessor.process(progress)
-                    chatDataItem.displayText = generateResultProcessor.getDisplayResult()
-                    chatDataItem.text = generateResultProcessor.getRawResult()
-                    runOnUiThread { updateAssistantResponse(chatDataItem) }
-                    if (stopGenerating) {
-                        Log.d(TAG, "stopGenerating requested")
-                    }
-                    return stopGenerating
-                }
-            })
-            chatDataItem.loading = false
-        }
-        Log.d(TAG, "submitRequest benchMark: $benchMarkResult")
-        runOnUiThread {
-            chatDataItem.benchmarkInfo = ModelUtils.generateBenchMarkString(benchMarkResult)
-            updateAssistantResponse(chatDataItem)
-        }
-        chatDataManager!!.addChatData(sessionId, chatDataItem)
-        runOnUiThread {
-            setIsGenerating(false)
-        }
-    }
-
-    private fun updateAssistantResponse(chatDataItem: ChatDataItem) {
-        adapter!!.updateRecentItem(chatDataItem)
-        if (!isUserScrolling) {
-            scrollToEnd()
-        }
+    private suspend fun handleSendMessage(userData: ChatDataItem): HashMap<String, Any> {
+        return chatPresenter.sendMessage(userData)
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        stopGenerating = true
-        chatExecutor!!.submit {
-            chatSession.reset()
-            chatSession.release()
-            chatExecutor!!.shutdownNow()
+        audioPlayer?.destroy()
+        audioPlayer = null
+        
+        // Clean up WAV writer resources
+        wavFileWriter?.clear()
+        wavFileWriter = null
+        bufferedAudioFilePath = null
+        
+        chatPresenter.destroy()
+        MainScope().launch {
+            ApiServiceManager.stopApiService(ApplicationProvider.get())
         }
     }
 
@@ -753,11 +490,326 @@ class ChatActivity : AppCompatActivity() {
         super.onStop()
         AudioPlayService.instance!!.destroy()
     }
+    fun onGenerateStart(userData: ChatDataItem) {
+        chatListComponent.onStartSendMessage(userData)
+        setIsGenerating(true)
+        val recentItem = chatListComponent.recentItem
+        recentItem?.loading = true
+    }
+
+    /**
+     * Set real-time audio playback mode
+     * @param realTime true for real-time playback, false for buffered playback
+     */
+    fun setRealTimeAudioPlayback(realTime: Boolean) {
+        Log.d(TAG, "Setting real-time audio playback: $realTime")
+        isRealTimePlayback = realTime
+        
+        // Clean up existing WAV writer if switching modes
+        if (!realTime) {
+            wavFileWriter?.clear()
+            wavFileWriter = null
+            bufferedAudioFilePath = null
+        }
+    }
+
+    /**
+     * Get current real-time audio playback mode
+     */
+    fun isRealTimeAudioPlayback(): Boolean = isRealTimePlayback
+
+    fun onLlmGenerateProgress(progress: String?, generateResultProcessor:GenerateResultProcessor) {
+        val chatDataItem = chatListComponent.recentItem!!
+        chatDataItem.thinkingText = generateResultProcessor.getThinkingContent()
+        chatDataItem.displayText = generateResultProcessor.getNormalOutput()
+        chatDataItem.text = generateResultProcessor.getRawResult()
+        chatDataItem.thinkingFinishedTime = if (generateResultProcessor.thinkTime > 0) generateResultProcessor.thinkTime else -1
+        chatListComponent.updateAssistantResponse(chatDataItem)
+    }
+
+    fun onDiffusionGenerateProgress(progress: String?, diffusionDestPath: String?) {
+        val chatDataItem = chatListComponent.recentItem
+        if (chatDataItem == null) {
+            Log.e(TAG, "onDiffusionGenerateProgress: recentItem is null")
+            return
+        }
+        
+        try {
+            // Ensure the item has a proper timestamp if not set
+            if (chatDataItem.time.isNullOrEmpty()) {
+                chatDataItem.time = dateFormat?.format(java.util.Date())
+            }
+            
+            if ("100" == progress) {
+                chatDataItem.text = getString(R.string.diffusion_generated_message)
+                chatDataItem.displayText = chatDataItem.text
+                if (!diffusionDestPath.isNullOrEmpty()) {
+                    chatDataItem.imageUri = Uri.parse(diffusionDestPath)
+                } else {
+                    Log.w(TAG, "onDiffusionGenerateProgress: diffusionDestPath is null or empty")
+                }
+            } else {
+                chatDataItem.text = getString(R.string.diffusion_generate_progress, progress)
+                chatDataItem.displayText = chatDataItem.text
+            }
+            chatListComponent.updateAssistantResponse(chatDataItem)
+        } catch (e: Exception) {
+            Log.e(TAG, "onDiffusionGenerateProgress: Error updating progress", e)
+        }
+    }
+
+    fun onGenerateFinished(benchMarkResult: HashMap<String, Any>) {
+        setIsGenerating(false)
+        val recentItem = chatListComponent.recentItem!!
+        recentItem.loading = false
+        
+        // Handle error cases
+        if (benchMarkResult.containsKey("error") && benchMarkResult["error"] as Boolean) {
+            val errorMessage = benchMarkResult["message"] as? String ?: "generation_failed"
+            recentItem.text = errorMessage
+            recentItem.displayText = errorMessage
+            Log.e(TAG, "Generation failed: $errorMessage")
+        } else {
+            // Normal success case - set response if available
+            val response = benchMarkResult["response"] as? String
+            if (!response.isNullOrEmpty() && recentItem.text.isNullOrEmpty()) {
+                recentItem.text = response
+                recentItem.displayText = response
+            }
+        }
+        
+        recentItem.benchmarkInfo = ModelUtils.generateBenchMarkString(benchMarkResult)
+        chatListComponent.updateAssistantResponse(recentItem)
+        
+        // Always save to database, even for errors, to maintain conversation history
+        try {
+            chatPresenter.saveResponseToDatabase(recentItem)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save response to database", e)
+        }
+    }
+
+    /**
+     * Handle generation stop request from voice chat or other components
+     * This method triggers the same stop logic as the UI stop button
+     */
+    fun onStopGenerationRequested() {
+        Log.d(TAG, "Stop generation requested from external component")
+        if (isGenerating) {
+            // Trigger the same stop logic as the UI stop button
+            chatPresenter.stopGenerate()
+            
+            // Update UI state immediately
+            setIsGenerating(false)
+            val recentItem = chatListComponent.recentItem
+            recentItem?.loading = false
+            
+            Log.d(TAG, "Generation stopped by external request")
+        } else {
+            Log.d(TAG, "No active generation to stop")
+        }
+    }
 
     val sessionDebugInfo: String
-        get() = chatSession.debugInfo
+        get() = chatSession!!.debugInfo
+
+    private fun initializeVoiceModelsChecker() {
+        Log.d(TAG, "Initializing VoiceModelsChecker")
+        try {
+            voiceModelsChecker = VoiceModelsChecker(this)
+            Log.d(TAG, "VoiceModelsChecker initialized successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to initialize VoiceModelsChecker", e)
+        }
+    }
+
+    private fun handleVoiceChatClick() {
+        Log.d(TAG, "handleVoiceChatClick called")
+        
+        if (isGenerating) {
+            Toast.makeText(this, "Cannot start voice chat when generating", Toast.LENGTH_LONG).show()
+            return
+        }
+        
+        try {
+            // Check if voice chat models are ready
+            val isReady = voiceModelsChecker.isVoiceChatReady()
+            Log.d(TAG, "Voice models ready: $isReady")
+            
+            if (isReady) {
+                // All voice models are ready, start voice chat
+                Log.d(TAG, "Starting voice chat")
+                startVoiceChat()
+            } else {
+                // Models are not ready - show the voice model market to let user manage downloads
+                Log.d(TAG, "Models not ready, showing voice model market")
+                showVoiceModelMarket()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in handleVoiceChatClick", e)
+            Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+    
+    private fun showVoiceModelMarket() {
+        Log.d(TAG, "showVoiceModelMarket called")
+        try {
+            val message = getString(R.string.voice_chat_setup_message)
+            val bottomSheet = VoiceModelMarketBottomSheet.newInstance(message)
+            Log.d(TAG, "Created VoiceModelMarketBottomSheet: $bottomSheet")
+            
+            // Set callback to check if models are ready after bottom sheet is dismissed
+            bottomSheet.setOnDismissCallback {
+                Log.d(TAG, "VoiceModelMarketBottomSheet dismissed, checking if models are ready")
+                val isReady = voiceModelsChecker.isVoiceChatReady()
+                Log.d(TAG, "Voice models ready after dismissal: $isReady")
+                
+                if (isReady) {
+                    Log.d(TAG, "Starting voice chat after successful model setup")
+                    startVoiceChat()
+                } else {
+                    Log.d(TAG, "Voice models still not ready after dismissal")
+                    val status = voiceModelsChecker.getVoiceChatStatus()
+                    Log.d(TAG, "Voice chat status: $status")
+                }
+            }
+            
+            Log.d(TAG, "SupportFragmentManager: $supportFragmentManager")
+            bottomSheet.show(supportFragmentManager, VoiceModelMarketBottomSheet.TAG)
+            Log.d(TAG, "BottomSheet show() called successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error showing voice model market", e)
+            Toast.makeText(this, "Failed to show voice model market: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+    
+    private fun updateVoiceChatButtonState() {
+        // Update the voice chat button state in the options menu
+        invalidateOptionsMenu()
+    }
+    
+
+
+    fun startVoiceChat() {
+        // Start a new session for voice chat, similar to handleNewSession
+        if (!isGenerating) {
+            currentUserMessage = null
+            if (chatListComponent.reset()) {
+                Toast.makeText(this, R.string.new_conversation_started, Toast.LENGTH_LONG).show()
+            }
+            this.sessionName = null
+            chatPresenter.reset { newSessionId ->
+                sessionId = newSessionId
+                // Create voice chat fragment with the new session
+                val voiceChatFragment = VoiceChatFragment.newInstance(modelName, modelId!!, chatPresenter)
+                supportFragmentManager.beginTransaction()
+                    .replace(android.R.id.content, voiceChatFragment)
+                    .addToBackStack(VoiceChatFragment.TAG)
+                    .commit()
+            }
+        } else {
+            Toast.makeText(this, "Cannot start voice chat when generating", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    
+    private fun showModelSelectionDialog() {
+        if (isGenerating) {
+            Toast.makeText(this, "Please wait for current generation to complete before switching models", Toast.LENGTH_SHORT).show()
+            return
+        }
+        lifecycleScope.launch {
+            val availableModels = getAvailableModels()
+            val modelFilter: (ModelItemWrapper) -> Boolean = { modelWrapper ->
+                !ModelTypeUtils.isDiffusionModel(modelWrapper.displayName)
+            }
+
+            val selectModelFragment = SelectModelFragment.newInstance(availableModels, modelFilter, modelId)
+            selectModelFragment.setOnModelSelectedListener { selectedModelWrapper ->
+                handleModelSelection(selectedModelWrapper)
+            }
+            selectModelFragment.show(supportFragmentManager, SelectModelFragment.TAG)
+        }
+        
+    }
+    
+    private fun getAvailableModels(): List<ModelItemWrapper> {
+        // Get current models or wait for them
+        return ModelListManager.getCurrentModels()?: emptyList()
+    }
+    
+    private fun handleModelSelection(selectedModelWrapper: ModelItemWrapper) {
+        val selectedModelItem = selectedModelWrapper.modelItem
+        val selectedModelId = selectedModelItem.modelId
+        val selectedModelName = selectedModelWrapper.displayName
+        
+        if (selectedModelId == modelId) {
+            return
+        }
+        
+        if (isGenerating) {
+            Toast.makeText(this, "Please wait for current generation to complete before switching models", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val currentChatHistory = chatListComponent.getCurrentChatHistory()
+        
+        // Update model info without recreating components
+        updateModelInfo(selectedModelId!!, selectedModelName)
+        
+        chatPresenter.switchModel(
+            selectedModelItem,
+            currentChatHistory,
+            onSwitchComplete = { newSession ->
+                Toast.makeText(this, "Model switched to $selectedModelName", Toast.LENGTH_SHORT).show()
+            },
+            onSwitchError = { error ->
+                Log.e(TAG, "Error switching model", error)
+                Toast.makeText(this, "Failed to switch model: ${error.message}", Toast.LENGTH_LONG).show()
+            }, onSessionCreated = { newSession ->
+                chatSession = newSession
+                sessionId = newSession.sessionId
+                onSessionCreated()
+            }
+        )
+    }
+    
+    /**
+     * Update model information and refresh UI components without recreating them
+     */
+    private fun updateModelInfo(selectedModelId: String, selectedModelName: String) {
+        this.modelId = selectedModelId
+        this.modelName = selectedModelName
+        isDiffusion = ModelTypeUtils.isDiffusionModel(selectedModelName)
+        isAudioModel = ModelTypeUtils.isAudioModel(selectedModelId)
+        
+        // Update model switcher text
+        binding.modelSwitcher.text = selectedModelName
+        
+        // Update model switcher click functionality for diffusion models
+        val dropdownArrow = binding.modelSwitcher.findViewById<View>(R.id.iv_dropdown_arrow)
+        if (isDiffusion) {
+            binding.modelSwitcher.isClickable = false
+            binding.modelSwitcher.isFocusable = false
+            binding.modelSwitcher.background = null
+            dropdownArrow?.visibility = View.GONE
+        } else {
+            binding.modelSwitcher.isClickable = true
+            binding.modelSwitcher.isFocusable = true
+//            binding.modelSwitcher.setBackgroundResource(R.drawable.bg_rounded_dropdown)
+            dropdownArrow?.visibility = View.VISIBLE
+        }
+        chatInputModule?.updateModel(selectedModelId, selectedModelName)
+        chatListComponent.updateModel(selectedModelName)
+    }
 
     companion object {
         const val TAG: String = "ChatActivity"
+        private var _chatPresenter: ChatPresenter? = null
+        fun getChatPresenter(): ChatPresenter? {
+            return this._chatPresenter
+        }
+        fun setChatPresenter(chatPresenter: ChatPresenter?) {
+            _chatPresenter = chatPresenter
+        }
     }
 }

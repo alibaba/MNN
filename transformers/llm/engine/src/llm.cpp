@@ -8,227 +8,42 @@
 
 #include <fstream>
 #include <iostream>
-#include <regex>
 #include <sstream>
+#include <iomanip>
 #include <unordered_set>
 
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
-#include "core/FileLoader.hpp"
 #include "cpp/ExprDebug.hpp"
 #include "llm/llm.hpp"
+#include "kvmeta.hpp"
 #include "llmconfig.hpp"
-#include "tokenizer.hpp"
-#include "sampler.hpp"
 #include "prompt.hpp"
+#include "tokenizer.hpp"
+#include "diskembedding.hpp"
+#include "sampler.hpp"
+#include "omni.hpp"
+#include "speculative_decoding/generate.hpp"
+#include "core/MNNFileUtils.h"
+
 // 0: no debug, 1: test op time, 2: print tensor info, 3: print tensor in output
 #define DEBUG_MODE 0
 //#define DEBUG_IMAGE
 
-#include "httplib.h"
-#ifdef LLM_SUPPORT_VISION
-#include <cv/cv.hpp>
-#endif
-#ifdef LLM_SUPPORT_AUDIO
-#include <audio/audio.hpp>
-#endif
-
 namespace MNN {
 using namespace Express;
 namespace Transformer {
-struct KVMeta {
-    size_t block = 4096;
-    size_t previous = 0;
-    size_t remove = 0;
-    int* reserve = nullptr;
-    int n_reserve = 0;
-    size_t add = 0;
-    std::vector<int> reserveHost;
-    void sync() {
-        int revertNumber = 0;
-        for (int i=0; i<n_reserve; ++i) {
-            revertNumber += reserve[2*i+1];
-        }
-        previous = previous - remove + add + revertNumber;
-        n_reserve = 0;
-        reserve = nullptr;
-        remove = 0;
-        add = 0;
+
+void KVMeta::sync() {
+    int revertNumber = 0;
+    for (int i=0; i<n_reserve; ++i) {
+        revertNumber += reserve[2*i+1];
     }
-};
-typedef void (*DequantFunction)(const uint8_t*, float*, float, float, int);
-
-static void q41_dequant_ref(const uint8_t* src, float* dst, float scale, float zero, int size) {
-    for (int i = 0; i < size / 2; i++) {
-        int x          = src[i];
-        int x1         = x / 16;
-        int x2         = x % 16;
-        float w1       = x1 * scale + zero;
-        float w2       = x2 * scale + zero;
-        dst[2 * i]     = w1;
-        dst[2 * i + 1] = w2;
-    }
-}
-
-static void q81_dequant_ref(const uint8_t* src, float* dst, float scale, float zero, int size) {
-    for (int i = 0; i < size; i++) {
-        dst[i] = (src[i]) * scale + zero;
-    }
-}
-
-class DiskEmbedding {
-public:
-    explicit DiskEmbedding(const std::shared_ptr<LlmConfig>& config);
-    ~DiskEmbedding() {}
-    void embedding(const std::vector<int>& input_ids, float* ptr);
-
-private:
-    void seek_read(uint8_t* dst, size_t size, size_t offset);
-    std::unique_ptr<uint8_t[]> mAlpha  = nullptr;
-    std::unique_ptr<uint8_t[]> mWeight = nullptr;
-    std::unique_ptr<FileLoader> mFile;
-    DequantFunction mDequantFunc;
-    int mHiddenSize, mTokenSize;
-    float mOffset = 0.0f;
-    bool mAsymc = true;
-    int64_t mWeightOffset, mBlockNum, mQuantBlock, mQuantBit;
-};
-
-void DiskEmbedding::seek_read(uint8_t* dst, size_t size, size_t offset) {
-    mFile->offset(offset);
-    mFile->read((char*)dst, size);
-}
-
-DiskEmbedding::DiskEmbedding(const std::shared_ptr<LlmConfig>& config) {
-    auto tie_embeddings = config->tie_embeddings();
-    mHiddenSize        = config->hidden_size();
-    if (tie_embeddings.size() == 5) {
-        mWeightOffset     = tie_embeddings[0];
-        mQuantBit         = tie_embeddings[3];
-        mQuantBlock       = tie_embeddings[4];
-        mBlockNum         = mHiddenSize / mQuantBlock;
-        mTokenSize = mHiddenSize * mQuantBit / 8;
-        mFile.reset(new FileLoader(config->llm_weight().c_str(), true));
-        // TODO: optimize dequant function
-        mDequantFunc      = mQuantBit == 8 ? q81_dequant_ref : q41_dequant_ref;
-        auto a_offset   = tie_embeddings[1];
-        auto alpha_size = tie_embeddings[2];
-        size_t oc = (a_offset - mWeightOffset) / mHiddenSize * (8 / mQuantBit);
-        
-        mAlpha.reset(new uint8_t[alpha_size]);
-        seek_read(mAlpha.get(), alpha_size, a_offset);
-        mOffset = -(1 << (mQuantBit-1));
-        if (alpha_size == sizeof(float) * mBlockNum * oc) {
-            mAsymc = false;
-        } else {
-            MNN_ASSERT(alpha_size == 2 * sizeof(float) * mBlockNum * oc);
-            mAsymc = true;
-            auto alphaPtr = (float*)mAlpha.get();
-            for (int i=0; i<mBlockNum * oc; ++i) {
-                alphaPtr[2*i] = alphaPtr[2*i] + alphaPtr[2*i+1] * mOffset;
-            }
-        }
-    } else {
-        mTokenSize = mHiddenSize * sizeof(int16_t);
-        mFile.reset(new FileLoader(config->embedding_file().c_str(), true));
-    }
-    if(mFile == nullptr || (!mFile->valid())) {
-        MNN_ERROR("Failed to open embedding file!\n");
-    }
-    mWeight.reset(new uint8_t[mTokenSize]);
-}
-
-void DiskEmbedding::embedding(const std::vector<int>& input_ids, float* dst) {
-    if (mAlpha.get()) {
-        // quant
-        if (mAsymc) {
-            for (size_t i = 0; i < input_ids.size(); i++) {
-                int token = input_ids[i];
-                seek_read(mWeight.get(), mTokenSize, mWeightOffset + token * mTokenSize);
-                auto dptr      = dst + i * mHiddenSize;
-                auto alpha_ptr = reinterpret_cast<float*>(mAlpha.get()) + token * mBlockNum * 2;
-                for (int n = 0; n < mBlockNum; n++) {
-                    auto dst_ptr     = dptr + n * mQuantBlock;
-                    uint8_t* src_ptr = mWeight.get() + n * (mQuantBlock * mQuantBit / 8);
-                    float zero       = (alpha_ptr + n * 2)[0];
-                    float scale      = (alpha_ptr + n * 2)[1];
-                    mDequantFunc(src_ptr, dst_ptr, scale, zero, mQuantBlock);
-                }
-            }
-        } else {
-            for (size_t i = 0; i < input_ids.size(); i++) {
-                int token = input_ids[i];
-                seek_read(mWeight.get(), mTokenSize, mWeightOffset + token * mTokenSize);
-                auto dptr      = dst + i * mHiddenSize;
-                auto alpha_ptr = reinterpret_cast<float*>(mAlpha.get()) + token * mBlockNum;
-                for (int n = 0; n < mBlockNum; n++) {
-                    auto dst_ptr     = dptr + n * mQuantBlock;
-                    uint8_t* src_ptr = mWeight.get() + n * (mQuantBlock * mQuantBit / 8);
-                    float scale      = (alpha_ptr + n)[0];
-                    float zero       = mOffset * scale;
-                    mDequantFunc(src_ptr, dst_ptr, scale, zero, mQuantBlock);
-                }
-            }
-        }
-    } else {
-        // bf16
-        for (size_t i = 0; i < input_ids.size(); i++) {
-            seek_read(mWeight.get(), mTokenSize, input_ids[i] * mTokenSize);
-            int16_t* dst_ptr = reinterpret_cast<int16_t*>(dst + i * mHiddenSize);
-            for (int j = 0; j < mHiddenSize; j++) {
-                dst_ptr[j * 2]     = 0;
-                dst_ptr[j * 2 + 1] = reinterpret_cast<int16_t*>(mWeight.get())[j];
-            }
-        }
-    }
-}
-
-class Mllm : public Llm {
-public:
-    Mllm(std::shared_ptr<LlmConfig> config) : Llm(config) {
-        if (config->is_visual()) {
-            mVisionHeight = config->config_.value("image_size", mVisionHeight);
-            mVisionWidth  = mVisionHeight;
-            mVisionPad    = config->config_.value("image_pad", mVisionPad);
-            mVisionStart  = config->config_.value("vision_start", mVisionStart);
-            mVisionEnd    = config->config_.value("vision_end", mVisionEnd);
-            mVisionMean   = config->config_.value("image_mean", mVisionMean);
-            mVisionNorm   = config->config_.value("image_norm", mVisionNorm);
-            mVisionSizeUnit = config->config_.value("image_size_unit", mVisionSizeUnit);
-        }
-        if (config->is_audio()) {
-        }
-    }
-    ~Mllm() {
-        mMulModule.reset();
-    }
-    virtual void load() override;
-    virtual std::vector<int> tokenizer_encode(const std::string& query) override;
-    virtual Express::VARP embedding(const std::vector<int>& input_ids) override;
-
-private:
-    int mVisionHeight = 448, mVisionWidth = 448, mVisionStart = 151857,
-        mVisionEnd = 151858, mVisionPad = 151859, mAudioPad = 151646;
-    int mVisionSizeUnit = 1;
-    std::vector<float> mVisionMean{122.7709383, 116.7460125, 104.09373615};
-    std::vector<float> mVisionNorm{0.01459843, 0.01500777, 0.01422007};
-    std::vector<int> multimode_process(const std::string& mode, std::string info);
-    std::vector<int> vision_process(const std::string& file);
-    std::vector<int> audio_process(const std::string& file);
-    std::shared_ptr<Module> mMulModule;
-    std::vector<VARP> mMulEmbeddings;
-};
-
-// Llm start
-Llm* Llm::createLLM(const std::string& config_path) {
-    std::shared_ptr<LlmConfig> config(new LlmConfig(config_path));
-    Llm* llm = nullptr;
-    if (config->is_visual() || config->is_audio()) {
-        llm = new Mllm(config);
-    } else {
-        llm = new Llm(config);
-    }
-    return llm;
+    previous = previous - remove + add + revertNumber;
+    n_reserve = 0;
+    reserve = nullptr;
+    remove = 0;
+    add = 0;
 }
 
 static MNNForwardType backend_type_convert(const std::string& type_str) {
@@ -249,6 +64,25 @@ static MNNForwardType backend_type_convert(const std::string& type_str) {
     return MNN_FORWARD_AUTO;
 }
 
+template <typename T>
+static inline VARP _var(std::vector<T> vec, const std::vector<int> &dims) {
+    return _Const(vec.data(), dims, NHWC, halide_type_of<T>());
+}
+
+Llm* Llm::createLLM(const std::string& config_path) {
+    std::shared_ptr<LlmConfig> config(new LlmConfig(config_path));
+    Llm* llm = nullptr;
+    if (config->is_visual() || config->is_audio() || config->has_talker()) {
+        llm = new Omni(config);
+    } else {
+        llm = new Llm(config);
+    }
+    return llm;
+}
+void Llm::destroy(Llm* llm) {
+    delete llm;
+}
+
 std::string Llm::dump_config() {
     return mConfig->config_.dump();
 }
@@ -261,7 +95,71 @@ bool Llm::set_config(const std::string& content) {
     } else {
         mPrompt.reset(Prompt::createPrompt(mContext, mConfig));
     }
+    mAsync = mConfig->config_.document.HasMember("async") ? mConfig->config_.document["async"].GetBool() : true;
+    mValidBlockSize.clear();
+    mBlockSize = 0;
+    if (mConfig->config_.document.HasMember("chunk")) {
+        mBlockSize = mConfig->config_.document["chunk"].GetInt();
+    }
+    if (mConfig->config_.document.HasMember("chunk_limits")) {
+        auto& size_limit = mConfig->config_.document["chunk_limits"];
+        do {
+            if (!size_limit.IsArray()) {
+                MNN_ERROR("size_limit must be array, eg: [128, 1]\n");
+                break;
+            }
+            for (auto iter = size_limit.GetArray().begin(); iter != size_limit.GetArray().end(); iter++) {
+                mValidBlockSize.emplace_back(iter->GetInt());
+            }
+            if (mValidBlockSize.size() < 2) {
+                MNN_ERROR("size_limit must be array larger than 1, eg: [128, 1]\n");
+                mValidBlockSize.clear();
+                break;
+            }
+            std::sort(mValidBlockSize.begin(), mValidBlockSize.end());
+            mBlockSize = mValidBlockSize[mValidBlockSize.size()-1];
+        } while (false);
+    }
     return res;
+}
+
+void Llm::setRuntimeHint(std::shared_ptr<Express::Executor::RuntimeManager> &rtg) {
+    rtg->setHint(MNN::Interpreter::INIT_THREAD_NUMBER, 4);
+
+    rtg->setHint(MNN::Interpreter::MEM_ALLOCATOR_TYPE, 0);
+
+    /* 'quant_qkv' is deprecated, use 'attention_mode '*/
+    int legacyAttentionMode = mConfig->config_.value("quant_qkv", 8); // compatibility
+    int attentionMode = mConfig->config_.value("attention_mode", legacyAttentionMode); // try to read 'attention_mode'
+
+    // 3. 设置 Hint
+    rtg->setHint(MNN::Interpreter::ATTENTION_OPTION, attentionMode);
+    if (mConfig->reuse_kv() && attentionMode == 10) {
+        rtg->setHint(MNN::Interpreter::ATTENTION_OPTION, 9);
+    }
+    if (mConfig->use_cached_mmap()) {
+        rtg->setHint(MNN::Interpreter::USE_CACHED_MMAP, 1);
+    }
+    std::string tmpPath = mConfig->tmp_path();
+    if (mConfig->kvcache_mmap()) {
+        rtg->setExternalPath(tmpPath, MNN::Interpreter::EXTERNAL_PATH_KVCACHE_DIR);
+    }
+    auto cachePath = mConfig->prefix_cache_path();
+    rtg->setExternalPath(cachePath, MNN::Interpreter::EXTERNAL_PATH_PREFIXCACHE_DIR);
+    if (mConfig->use_mmap()) {
+        rtg->setExternalPath(tmpPath, MNN::Interpreter::EXTERNAL_WEIGHT_DIR);
+    }
+    // set npu model dir
+    rtg->setExternalPath(mConfig->npu_model_dir(), MNN::Interpreter::EXTERNAL_NPU_FILE_DIR);
+    rtg->setHint(MNN::Interpreter::DYNAMIC_QUANT_OPTIONS, mConfig->config_.value("dynamic_option", 0));
+
+    rtg->setHintPtr(Interpreter::KVCACHE_INFO, mMeta.get());
+    if (backend_type_convert(mConfig->backend_type()) != 0) { // not cpu
+        std::string cacheFilePath = tmpPath.length() != 0 ? tmpPath : ".";
+        rtg->setCache(cacheFilePath + "/mnn_cachefile.bin");
+    }
+    rtg->setHint(MNN::Interpreter::CPU_SME2_NEON_DIVISION_RATIO, mConfig->config_.value("cpu_sme2_neon_division_ratio", 41));
+    rtg->setHint(MNN::Interpreter::CPU_SME_CORES, mConfig->config_.value("cpu_sme_core_num", 2));
 }
 
 void Llm::initRuntime() {
@@ -291,23 +189,7 @@ void Llm::initRuntime() {
     config.backendConfig = &cpuBackendConfig;
 
     mRuntimeManager.reset(Executor::RuntimeManager::createRuntimeManager(config));
-    // Use 4 thread to load llm
-    mRuntimeManager->setHint(MNN::Interpreter::INIT_THREAD_NUMBER, 4);
-
-    mRuntimeManager->setHint(MNN::Interpreter::MEM_ALLOCATOR_TYPE, 0);
-    mRuntimeManager->setHint(MNN::Interpreter::QKV_QUANT_OPTIONS, mConfig->quant_qkv());
-    mRuntimeManager->setHint(MNN::Interpreter::KVCACHE_SIZE_LIMIT, mConfig->kvcache_limit());
-    if (mConfig->use_cached_mmap()) {
-        mRuntimeManager->setHint(MNN::Interpreter::USE_CACHED_MMAP, 1);
-    }
-    std::string tmpPath = mConfig->tmp_path();
-    if (mConfig->kvcache_mmap()) {
-        mRuntimeManager->setExternalPath(tmpPath, MNN::Interpreter::EXTERNAL_PATH_KVCACHE_DIR);
-    }
-    if (mConfig->use_mmap()) {
-        mRuntimeManager->setExternalPath(tmpPath, MNN::Interpreter::EXTERNAL_WEIGHT_DIR);
-    }
-    mRuntimeManager->setHintPtr(Interpreter::KVCACHE_INFO, mMeta.get());
+    setRuntimeHint(mRuntimeManager);
 
 #if DEBUG_MODE == 1
     mRuntimeManager->setMode(MNN::Interpreter::Session_Debug);
@@ -321,98 +203,180 @@ void Llm::initRuntime() {
     mRuntimeManager->setMode(MNN::Interpreter::Session_Debug);
     _initDebug();
 #endif
-    if (config.type != 0) { // not cpu
-        std::string cacheFilePath = tmpPath.length() != 0 ? tmpPath : ".";
-        mRuntimeManager->setCache(cacheFilePath + "/mnn_cachefile.bin");
+    // get linear input thresholds and max values
+    if (mConfig->config_.value("enable_debug", false)) {
+        mRuntimeManager->setMode(MNN::Interpreter::Session_Debug);
     }
 }
 
-template <typename T>
-static inline VARP _var(std::vector<T> vec, const std::vector<int> &dims) {
-    return _Const(vec.data(), dims, NHWC, halide_type_of<T>());
+static bool canSpecDecode(std::shared_ptr<Express::Module> module) {
+    bool canSpec = false;
+    auto info = module->getInfo();
+    // check from mnn model
+    for (int i=0; i<info->inputNames.size(); ++i) {
+        auto& varInfo = info->inputs[i];
+        if(info->inputNames[i] == "logits_index") {
+            if (varInfo.dim.size() > 0) {
+                canSpec = true;
+            }
+        }
+    }
+    return canSpec;
+}
+void Llm::setSpeculativeConfig() {
+    auto specultive_type = mConfig->speculative_type();
+    if(!specultive_type.empty()) {
+        if(!canSpecDecode(mModule)) {
+            mInSpec = false;
+            return;
+        }
+        mDraftLength = mConfig->draft_predict_length();
+        mInSpec = true;
+    }
 }
 
-void Llm::load() {
+bool Llm::load() {
+    Timer _t;
     initRuntime();
     // init module status
     // 1. load vocab
     mTokenizer.reset(Tokenizer::createTokenizer(mConfig->tokenizer_file()));
+    // 2. load context
+    {
+        std::ifstream contextFile(mConfig->context_file());
+        if (contextFile.is_open()) {
+            std::ostringstream contextStream;
+            contextStream << contextFile.rdbuf();
+            auto contextStr = contextStream.str();
+            // check valid json
+            rapidjson::Document contextDoc;
+            contextDoc.Parse(contextStr.c_str());
+            if (!contextDoc.HasParseError()) {
+                std::string config_json = R"({
+                    "jinja": {
+                        "context": )" + contextStr + R"(
+                    }
+                })";
+                mConfig->config_.merge(config_json.c_str());
+            }
+        }
+    }
     mDiskEmbedding.reset(new DiskEmbedding(mConfig));
     mPrompt.reset(Prompt::createPrompt(mContext, mConfig));
     mSampler.reset(Sampler::createSampler(mContext, mConfig));
     // 3. load model
     Module::Config module_config;
-    if (mConfig->backend_type() == "opencl" || mConfig->backend_type() == "vulkan") {
+    if (mConfig->backend_type() == "opencl" || mConfig->backend_type() == "vulkan" || mConfig->backend_type() == "npu") {
         module_config.shapeMutable = false;
     } else {
-        module_config.shapeMutable = false;
+        module_config.shapeMutable = true;
     }
     module_config.rearrange    = true;
     // using base module for lora module
     if (mBaseModule != nullptr) {
         module_config.base = mBaseModule;
     }
-    int layer_nums = mConfig->layer_nums();
     // load single model
-    mModules.resize(1);
     std::string model_path = mConfig->llm_model();
-    mRuntimeManager->setExternalFile(mConfig->llm_weight());
-    mModules[0].reset(Module::load({"input_ids", "attention_mask", "position_ids", "logits_index"},
-                                   {"logits"}, model_path.c_str(), mRuntimeManager, &module_config));
-    mDecodeModules.resize(mModules.size());
-    for (int v = 0; v < mModules.size(); ++v) {
-        mDecodeModules[v].reset(Module::clone(mModules[v].get()));
-    }
-    mPrefillModules = mModules;
-}
 
-size_t Llm::apply_lora(const std::string& lora_path) {
-    std::string model_path = mConfig->base_dir_ + "/" + lora_path;
-    Module::Config module_config;
-    module_config.shapeMutable = true;
-    module_config.rearrange    = true;
-    module_config.base         = mModules.begin()->get();
-    size_t lora_index          = mModules.size();
-    mRuntimeManager->setHint(MNN::Interpreter::USE_CACHED_MMAP, 0);
-    mModules.emplace_back(Module::load({"input_ids", "attention_mask", "position_ids"}, {"logits"},
-                                        model_path.c_str(), mRuntimeManager, &module_config));
-    select_module(lora_index);
-    return lora_index;
+    std::vector<std::string> inputNames {"input_ids", "attention_mask", "position_ids", "logits_index"};
+    std::vector<std::string> outputNames {"logits"};
+    if (mConfig->has_talker()) {
+        outputNames.emplace_back("talker_embeds");
+    }
+    bool needHiddenState = false;
+    if (mConfig->config_.document.HasMember("hidden_states")) {
+        needHiddenState = mConfig->config_.document["hidden_states"].GetBool();
+    }
+    if(mConfig->speculative_type() == "mtp") {
+        needHiddenState = true;
+    }
+    if (needHiddenState) {
+        outputNames.emplace_back("hidden_states");
+    }
+
+    mRuntimeManager->setExternalFile(mConfig->llm_weight());
+    if (mConfig->has_deepstack()) {
+        inputNames.emplace_back("deepstack_embeds");
+    }
+    mModule.reset(Module::load(inputNames, outputNames, model_path.c_str(), mRuntimeManager, &module_config));
+    mRuntimeManager->setExternalFile("");
+    if(nullptr == mModule) {
+        MNN_ERROR("[Error]: Load module failed, please check model.\n");
+        if(outputNames.size() > 1) {
+            MNN_ERROR("[Warning]: Set module multi outputs, please double check.\n");
+        }
+        return false;
+    }
+    // set speculative decoding params
+    setSpeculativeConfig();
+    // create generation strategy
+    mGenerationStrategy = GenerationStrategyFactory::create(this, mContext, mConfig, mInSpec);
+
+    int decode_type_num = 1;
+    int verify_length = 1;
+    if(mInSpec) {
+        // decode one token or mDraftLength token
+        decode_type_num = 2;
+        verify_length = mDraftLength + 1;
+        // speculative decode module
+        mModulePool[std::make_pair(verify_length, true)].reset(Module::clone(mModule.get()));
+    }
+
+    // autoregressive decode module
+    mModulePool[std::make_pair(1, false)].reset(Module::clone(mModule.get()));
+    // prefill module
+    mModulePool[std::make_pair(mPrefillKey, mConfig->all_logits())] = mModule;
+
+    // module input varp setting
+    logitsLastIdx = _var<int>({-1}, {1});
+    logitsAllIdx = _var<int>({0}, {1});
+    // index match with seq_len
+    mAttentionMaskVarVec.resize(decode_type_num);
+    mPositionIdsVarVec.resize(decode_type_num);
+    for(int i = 0; i < decode_type_num; i++) {
+        int index = 1;
+        if(i > 0) {
+            index = verify_length;
+        }
+        // attentiion mask var
+        {
+            // Mask: lower triangular
+            if (mConfig->backend_type() == "cpu") {
+                mAttentionMaskVarVec[i] = _Input({}, NCHW, halide_type_of<float>());
+                auto ptr = mAttentionMaskVarVec[i]->writeMap<float>();
+                ptr[0] = 0;
+            } else {
+                mAttentionMaskVarVec[i] = _Input({1, 1, index, index}, NCHW, halide_type_of<float>());
+                auto ptr = mAttentionMaskVarVec[i]->writeMap<float>();
+                for (int i = 0; i < index; i++) {
+                    for (int j = 0; j < index; j++) {
+                        ptr[index * i + j] = (j > i) * std::numeric_limits<float>::lowest();
+                    }
+                }
+            }
+        }
+
+        mPositionIdsVarVec[i] = _Input({index}, NCHW, halide_type_of<int>());
+    }
+
+    // MTP model load
+    mGenerationStrategy->load(module_config);
+    mContext->load_us += _t.durationInUs();
+    return true;
 }
 
 Llm* Llm::create_lora(const std::string& lora_path) {
     auto llm = new Llm(std::make_shared<LlmConfig>(*mConfig));
     llm->set_config("{\"llm_model\": \"" + lora_path + "\", \"use_mmap\": false, \"use_cached_mmap\": false}");
-    llm->mBaseModule = mModules.begin()->get();
-    llm->load();
+    llm->mBaseModule = mModule.get();
+    auto res = llm->load();
+    if (!res) {
+        MNN_ERROR("[MNN:LLM] Load Lora error\n");
+        delete llm;
+        return nullptr;
+    }
     return llm;
-}
-
-bool Llm::release_module(size_t index) {
-    if (index >= mModules.size()) {
-        return false;
-    }
-    if (mPrefillModules[0] == mModules[index]) {
-        select_module(0);
-    }
-    mModules[index].reset();
-    return true;
-}
-
-bool Llm::select_module(size_t index) {
-    if (index >= mModules.size()) {
-        return false;
-    }
-    if (mModules[index] == nullptr) {
-        return false;
-    }
-    if (mDecodeModules.empty()) {
-        mDecodeModules.resize(mModules.size());
-        mPrefillModules.resize(mModules.size());
-    }
-    mDecodeModules[0].reset(Module::clone(mModules[index].get()));
-    mPrefillModules[0] = mModules[index];
-    return true;
 }
 
 void Llm::tuning(TuneType type, std::vector<int> candidates) {
@@ -424,13 +388,27 @@ void Llm::tuning(TuneType type, std::vector<int> candidates) {
     if (mConfig->backend_type() == "opencl") {
         return;
     }
-    mCurrentModules     = mDecodeModules;
+    int decode_seq = 1;
+    // Set to decode mode
+    mContext->gen_seq_len = 1;
+    if(mInSpec) {
+        // start autoregressive decoding
+        std::vector<int> input_ids = {0};
+        auto logits = forwardVec(input_ids);
+        int verify_length = mDraftLength + 1;
+        decode_seq = verify_length;
+    }
     int64_t min_time     = INT64_MAX;
     int prefer_candidate = 10;
     for (auto& candidate : candidates) {
         mRuntimeManager->setHint(MNN::Interpreter::OP_ENCODER_NUMBER_FOR_COMMIT, candidate);
         Timer _t;
-        auto logits = forward({0});
+        std::vector<int> input_ids(decode_seq, 0);
+        auto outputs = forwardVec(input_ids);
+        if(outputs.empty()) {
+            return;
+        }
+        auto logits = outputs[0];
         if (nullptr == logits.get()) {
             return;
         }
@@ -452,68 +430,245 @@ void Llm::tuning(TuneType type, std::vector<int> candidates) {
 }
 
 void Llm::switchMode(Llm::Stage stage) {
-    switch (stage) {
-        case Prefill:
-            mCurrentModules = mPrefillModules;
-            break;
-        case Decode:
-            mCurrentModules = mDecodeModules;
-            break;
-        default:
-            break;
-    }
+    // do nothing, only reserve api
+    return;
 }
 
 void Llm::setKVCacheInfo(size_t add, size_t remove, int* reserve, int n_reserve) {
     if (remove > mMeta->previous) {
         remove = mMeta->previous;
     }
+
     mMeta->remove = remove;
     mMeta->reserve = reserve;
     mMeta->n_reserve = n_reserve;
     mMeta->add = add;
 }
 
-Express::VARP Llm::forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos) {
-    VARP logits;
-    auto logitsIndex = _var<int>({-1}, {1});
-    if (mConfig->all_logits()) {
-        logitsIndex = _var<int>({0}, {1});
+std::vector<Express::VARP> Llm::forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos, Express::VARPS extraArgs) {
+    Express::VARP logitsIndex;
+    bool inDecode = mContext->gen_seq_len > 0;
+    bool isAllLogists = mConfig->all_logits() ? true : (inDecode ? mInSpec : false);
+    auto seqLen = hiddenState->getInfo()->dim[mSeqLenIndex];
+    int seqLenKey = inDecode ? hiddenState->getInfo()->dim[mSeqLenIndex] : mPrefillKey;
+    isAllLogists = seqLenKey == 1 ? false : isAllLogists;
+    auto moduleKey = std::make_pair(seqLenKey, isAllLogists);
+    std::shared_ptr<Module> selectModule = mModule;
+    if (mValidBlockSize.empty()) {
+        if(mModulePool.find(moduleKey) == mModulePool.end()) {
+            MNN_PRINT("Warning: module need new clone, cloning now.\n");
+            mRuntimeManager->setHintPtr(Interpreter::KVCACHE_INFO, mMeta.get());
+            mModulePool[moduleKey].reset(Module::clone(mModule.get()));
+        }
+        selectModule = mModulePool[moduleKey];
     }
-    std::vector<Express::VARP> outputs;
-    outputs = mCurrentModules.back()->onForward({hiddenState, mask, inputPos, logitsIndex});
+
+    if (isAllLogists) {
+        logitsIndex = logitsAllIdx;
+    } else {
+        logitsIndex = logitsLastIdx;
+    }
+    if (mMeta->add != seqLen) {
+        // Has Pad, need all logits
+        logitsIndex = logitsAllIdx;
+    }
+
+    mGenerateParam->input_embeds = nullptr;
+    mGenerateParam->outputs.clear();
+    mGenerateParam->validLogitSize = 0;
+    mGenerateParam->validLogitStart = 0;
+    std::vector<Express::VARP> inputs {hiddenState, mask, inputPos, logitsIndex};
+    inputs.insert(inputs.end(), extraArgs.begin(), extraArgs.end());
+    std::vector<Express::VARP> outputs = selectModule->onForward(inputs);
+
     if (outputs.empty()) {
-        return nullptr;
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return outputs;
     }
-    logits = outputs[0];
+    if (!mAsync) {
+        ((MNN::Tensor*)(outputs[0]->getTensor()))->wait(Tensor::MAP_TENSOR_READ, true);
+    }
+    mGenerateParam->input_embeds = hiddenState;
+    mGenerateParam->outputs = outputs;
+
+#if DEBUG_MODE == 3
+    VARP logits = outputs[0];
+    if(logits->getInfo()->dim[1] < 10 && logits->getInfo()->dim[1] >= 1) {
+        for (int j = 0; j < logits->getInfo()->dim[1]; j++) {
+            {
+                int length = hiddenState->getInfo()->dim[2];
+                float total = 0.0;
+                float max_ = std::numeric_limits<float>::lowest();
+                float min_ = std::numeric_limits<float>::max();
+                for (int i = 0; i < length; i++) {
+                    int index = j * length + i;
+                    float temp = hiddenState->readMap<float>()[index];
+                    total += temp;
+                    max_ = fmax(max_, temp);
+                    min_ = fmin(min_, temp);
+                }
+                MNN_PRINT("\nhiddenState statistic value:%6f, %6f, %6f\n", total, max_, min_);
+            }
+
+            {
+                int length = mask->getInfo()->dim[3];
+                float total = 0.0;
+                float max_ = std::numeric_limits<float>::lowest();
+                float min_ = std::numeric_limits<float>::max();
+                for (int i = 0; i < length; i++) {
+                    int index = j * length + i;
+                    float temp = mask->readMap<float>()[index];
+                    total += (temp / length);
+                    max_ = fmax(max_, temp);
+                    min_ = fmin(min_, temp);
+                }
+                MNN_PRINT("mask statistic value:%6f, %6f, %6f\n", total, max_, min_);
+            }
+            MNN_PRINT("position statistic value:%d\n", inputPos->readMap<int>()[j]);
+            {
+                int length = logits->getInfo()->dim[2];
+                float total = 0.0;
+                float max_ = std::numeric_limits<float>::lowest();
+                float min_ = std::numeric_limits<float>::max();
+                for (int i = 0; i < length; i++) {
+                    int index = j * length + i;
+                    float temp = logits->readMap<float>()[index];
+                    total += temp;
+                    max_ = fmax(max_, temp);
+                    min_ = fmin(min_, temp);
+                }
+                auto ptr = logits->readMap<float>() + j * logits->getInfo()->dim[2];
+                //            MNN_PRINT("\noutput data value:%6f %6f %6f %6f %6f\n", ptr[0], ptr[length/5], ptr[length/10], ptr[length/20], ptr[length/100]);
+                MNN_PRINT("output statistic value:%6f, %6f, %6f\n", total, max_, min_);
+            }
+        }
+    }
+#endif
     mMeta->sync();
-    return logits;
+    return outputs;
 }
 
 VARP Llm::forward(const std::vector<int>& input_ids, bool is_prefill) {
-    int seq_len         = input_ids.size();
-    mMeta->add          = seq_len;
-    auto attention_mask = gen_attention_mask(seq_len);
-    auto position_ids = gen_position_ids(seq_len);
     auto hidden_states = embedding(input_ids);
-    auto logits = forwardRaw(hidden_states, attention_mask, position_ids);
-    mContext->all_seq_len += seq_len;
-    mContext->gen_seq_len++;
+    return forward(hidden_states);
+}
+VARP Llm::forward(MNN::Express::VARP input_embeds) {
+    int seq_len         = input_embeds->getInfo()->dim[mSeqLenIndex];
+    auto out = forwardVec(input_embeds);
+    if (out.empty()) {
+        return nullptr;
+    }
+    auto logits = out[0];
+    updateContext(seq_len, 1);
     return logits;
+}
+
+std::vector<VARP> Llm::forwardVec(const std::vector<int>& input_ids) {
+    auto input_embeds = embedding(input_ids);
+    auto outputs = forwardVec(input_embeds);
+    return outputs;
+}
+
+std::vector<VARP> Llm::forwardVec(MNN::Express::VARP input_embeds) {
+    int seq_len         = input_embeds->getInfo()->dim[mSeqLenIndex];
+    if (0 == mBlockSize) {
+        mMeta->add = seq_len;
+        auto attention_mask = gen_attention_mask(seq_len);
+        auto position_ids = gen_position_ids(seq_len);
+        auto res = forwardRaw(input_embeds, attention_mask, position_ids);
+        return res;
+    }
+    // For decode can't support seq_len <= mBlockSize
+    MNN_ASSERT(mContext->gen_seq_len <= 0 || seq_len <= mBlockSize);
+    auto blockNumber = seq_len / mBlockSize;
+    auto blockRemain = seq_len % mBlockSize;
+    std::vector<VARP> logits;
+    std::vector<VARP> embeddings;
+    auto blockSize = mBlockSize;
+    INTS sizeSplits;
+    if (0 < blockNumber) {
+        sizeSplits.resize(blockNumber);
+        for (int i=0; i<blockNumber; ++i) {
+            sizeSplits[i] = blockSize;
+        }
+        if (blockRemain > 0) {
+            sizeSplits.emplace_back(blockRemain);
+        }
+    }
+    if (sizeSplits.size() > 1) {
+        embeddings = MNN::Express::_Split(input_embeds, sizeSplits);
+    } else {
+        embeddings = {input_embeds};
+    }
+    int addSize = blockSize;
+    for (int i=0; i<blockNumber; ++i) {
+        logits.clear();
+        mMeta->add = blockSize;
+        auto embed = embeddings[i];
+        auto attention_mask = gen_attention_mask(blockSize);
+        auto position_ids = gen_position_ids(blockSize);
+        logits = forwardRaw(embed, attention_mask, position_ids);
+        if(logits.empty()) {
+            return logits;
+        }
+        updateContext(blockSize, 0);
+    }
+    bool hasPad = false;
+    if (blockRemain != 0) {
+        logits.clear();
+        mMeta->add = blockRemain;
+        addSize = blockRemain;
+        int forwardSize = blockRemain;
+        input_embeds = embeddings[embeddings.size()-1];
+        if (!mValidBlockSize.empty()) {
+            forwardSize = mValidBlockSize[mValidBlockSize.size()-1];
+            for (int j=mValidBlockSize.size()-2; j>=0; --j) {
+                if (mValidBlockSize[j] < blockRemain) {
+                    break;
+                }
+                forwardSize = mValidBlockSize[j];
+            }
+            if (blockRemain < forwardSize) {
+                // Pad
+                hasPad = true;
+                auto dim = input_embeds->getInfo()->dim;
+                dim[mSeqLenIndex] = forwardSize;
+                auto newEmbed = _Input(dim, NCHW);
+                ::memcpy(newEmbed->writeMap<void>(), input_embeds->readMap<void>(), input_embeds->getInfo()->size * sizeof(float));
+                ::memset(newEmbed->writeMap<float>() + input_embeds->getInfo()->size, 0, (newEmbed->getInfo()->size - input_embeds->getInfo()->size) * sizeof(float));
+                input_embeds = newEmbed;
+            }
+        }
+        auto attention_mask = gen_attention_mask(forwardSize);
+        auto position_ids = gen_position_ids(forwardSize);
+        logits = forwardRaw(input_embeds, attention_mask, position_ids);
+        if(logits.empty()) {
+            return logits;
+        }
+    }
+    updateContext(-blockSize * blockNumber, 0);
+    if (hasPad) {
+        auto logitSize = logits[0]->getInfo()->dim[2];
+        // encode
+        mGenerateParam->validLogitStart = ((int)addSize - 1) * logitSize;
+        mGenerateParam->validLogitSize = logitSize;
+    }
+
+    return logits;
+}
+
+void Llm::updateContext(int seq_len, int gen_len) {
+    mContext->all_seq_len += seq_len;
+    mContext->gen_seq_len += gen_len;
 }
 
 int Llm::sample(VARP logits, int offset, int size) {
     auto logitsShape = logits->getInfo()->dim;
-    if (logitsShape.size() == 3 && logitsShape[1] > 1) {
-        // get last logits
-        logits = _GatherV2(logits, _var<int>({logitsShape[1]-1}, {1}), _var<int>({1}, {1}));
-    }
     if (offset && size) {
+        MNN_ASSERT(logits->getInfo()->size >= offset + size);
         logits = _Const(logits->readMap<float>() + offset, {size}, NHWC, halide_type_of<float>());
     }
     auto token_id = mSampler->sample(logits);
-    mContext->history_tokens.push_back(token_id);
-    mContext->output_tokens.push_back(token_id);
     return token_id;
 }
 
@@ -521,6 +676,12 @@ void Llm::reset() {
     mContext->output_tokens.clear();
     mContext->history_tokens.clear();
     mContext->all_seq_len = 0;
+    mContext->gen_seq_len = 0;
+    mContext->vision_us = 0;
+    mContext->pixels_mp = 0.0f;
+    mContext->audio_us = 0;
+    mContext->audio_input_s = 0.0f;
+    mMeta->remove = mMeta->previous;
 }
 
 void Llm::generate_init(std::ostream* os, const char* end_with) {
@@ -535,14 +696,15 @@ void Llm::generate_init(std::ostream* os, const char* end_with) {
     mContext->gen_seq_len = 0;
     mContext->prefill_us  = 0;
     mContext->decode_us   = 0;
-    mContext->current_token = 0;
+    mContext->current_token = -1;
+    mContext->sample_us = 0;
+    mContext->status = LlmStatus::RUNNING;
     if (!mConfig->reuse_kv()) {
         mContext->all_seq_len = 0;
         mContext->history_tokens.clear();
         mMeta->remove = mMeta->previous;
     }
     mContext->output_tokens.clear();
-    mCurrentModules = mPrefillModules;
 }
 
 size_t Llm::getCurrentHistory() const {
@@ -560,12 +722,19 @@ void Llm::eraseHistory(size_t begin, size_t end) {
         MNN_ERROR("MNN-LLM: erase history hasn't been executed by response, override erase info\n");
     }
     mMeta->remove = mMeta->previous - begin;
+    int revertNumber = 0;
     if (end != mMeta->previous) {
         mMeta->reserveHost.resize(2);
         mMeta->reserve = mMeta->reserveHost.data();
         mMeta->n_reserve = 1;
         mMeta->reserve[0] = end - begin;
         mMeta->reserve[1] = mMeta->previous - end;
+        revertNumber = mMeta->reserve[1];
+    }
+    mContext->all_seq_len = mMeta->previous - mMeta->remove + revertNumber;
+    // FIXME: support history_tokens erease the tokens with correct position
+    if(revertNumber == 0 && mMeta->remove <  mContext->history_tokens.size()){
+        mContext->history_tokens.resize(mContext->history_tokens.size() - mMeta->remove);
     }
 }
 
@@ -574,61 +743,158 @@ bool Llm::stoped() {
 }
 
 void Llm::generate(int max_token) {
-    int len = 0;
-    while (len < max_token) {
-        MNN::Timer _t;
-        auto decodeStr = tokenizer_decode(mContext->current_token);
-        mContext->generate_str += decodeStr;
-        if (nullptr != mContext->os) {
-            *mContext->os << decodeStr;
-            *mContext->os << std::flush;
-        }
-        // mContext->history_tokens.push_back(mContext->current_token);
-        mMeta->remove = 0;
-        auto logits = forward({mContext->current_token});
-        len++;
-        if (nullptr == logits.get()) {
-            break;
-        }
-        if (logits->getInfo()->size == 0) {
-            break;
-        }
-        mContext->current_token = sample(logits);
-        mContext->decode_us += _t.durationInUs();
-        if (is_stop(mContext->current_token) && nullptr != mContext->os) {
-            *mContext->os << mContext->end_with << std::flush;
-            break;
-        }
+    if (is_stop(mContext->current_token)) {
+        return;
     }
+    mGenerateParam->max_new_tokens = max_token;
+    mGenerationStrategy->generate(*mGenerateParam);
 }
 
 std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_tokens) {
     if (max_tokens < 0) {
         max_tokens = mConfig->max_new_tokens();
     }
-    mContext->prompt_len = static_cast<int>(input_ids.size());
-    mContext->history_tokens.insert(mContext->history_tokens.end(), input_ids.begin(), input_ids.end()); // push to history_ids_
-    Timer _t;
-    mCurrentModules = mPrefillModules;
-    auto logits      = forward(input_ids);
-    if (nullptr == logits.get()) {
-        return {};
-    }
-    // logits compute sync for correct timer
-    logits->readMap<void>();
-    mContext->prefill_us = _t.durationInUs();
-    _t.reset();
-    mContext->current_token = sample(logits);
-    mContext->sample_us += _t.durationInUs();
-    logits = nullptr;
-    mCurrentModules = mDecodeModules;
-    generate(max_tokens - 1);
 
+    bool passExecute = false;
+    if(mPrefixCacheMode) {
+        mCallIndex++;
+
+        // first time execute generate function
+        if(mCallIndex == 1) {
+            passExecute = mIsPrefixFileExist;
+
+            if(!mIsPrefixFileExist) {
+                // save prefix kvcache file
+                mMeta->file_name = mPrefixCacheFileName;
+                mMeta->file_flag = KVMeta::PendingWrite; // write
+            } else {
+                // first time and cachefile exist, pass this time
+            }
+            mPrefixLength = input_ids.size();
+        }
+        // second time execute generate function
+        else if(mCallIndex == 2) {
+            // second time and cachefile exist, load prefix file
+            if(mIsPrefixFileExist) {
+                mMeta->file_name = mPrefixCacheFileName;
+                mMeta->file_flag = KVMeta::PendingRead; // read
+                mMeta->seqlen_in_disk = mPrefixLength; // set_length
+            }
+        }
+    }
+
+    mContext->history_tokens.insert(mContext->history_tokens.end(), input_ids.begin(), input_ids.end()); // push to history_ids_
+    if(!passExecute) {
+        if (0 == mBlockSize || input_ids.size() <= mBlockSize) {
+            auto hidden_states = embedding(input_ids);
+            return generate(hidden_states, max_tokens);
+        }
+        int total_size = (int)input_ids.size();
+        int loop_size = UP_DIV(total_size, mBlockSize);
+        for (int i = 0; i < loop_size; i++) {
+            auto start = i * mBlockSize;
+            auto end = (i+1) * mBlockSize;
+            if (end >= total_size) {
+                end = total_size;
+            }
+            std::vector<int> chunk_ids(input_ids.begin() + start, input_ids.begin() + end);
+            auto input_embeds = embedding(chunk_ids);
+            generate(input_embeds, 0);
+        }
+    } else {
+        // update states
+        updateContext((int)input_ids.size(), 0);
+    }
+
+    generate(max_tokens);
+    mContext->prompt_len = static_cast<int>(input_ids.size());
     return mContext->output_tokens;
+}
+
+std::string Llm::apply_chat_template(const std::string& user_content) const {
+    return mPrompt->applyTemplate(user_content, true);
+}
+
+std::string Llm::apply_chat_template(const ChatMessages& chat_prompts) const {
+    return mPrompt->applyTemplate(chat_prompts, true);
 }
 
 std::vector<int> Llm::tokenizer_encode(const std::string& user_content) {
     return mTokenizer->encode(user_content);
+}
+
+std::vector<int> Llm::tokenizer_encode(const MultimodalPrompt& multimodal_input) {
+    return mTokenizer->encode(multimodal_input.prompt_template);
+}
+
+void Llm::response(const MultimodalPrompt& multimodal_input,
+                   std::ostream* os, const char* end_with, int max_new_tokens) {
+    auto multimodal_input_copy = multimodal_input;
+    if (mConfig->use_template()) {
+        multimodal_input_copy.prompt_template = mPrompt->applyTemplate(multimodal_input_copy.prompt_template, true);
+    }
+    std::vector<int> input_ids = tokenizer_encode(multimodal_input_copy);
+    response(input_ids, os, end_with, max_new_tokens);
+}
+
+std::vector<int> Llm::generate(MNN::Express::VARP input_embeds, int max_tokens) {
+    if (max_tokens < 0) {
+        max_tokens = mConfig->max_new_tokens();
+    }
+    int seqLen = input_embeds->getInfo()->dim[mSeqLenIndex];
+    mContext->prompt_len = seqLen;
+
+    Timer _t;
+    forwardVec(input_embeds);
+    if(mGenerateParam->outputs.size() < 1) {
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return {};
+    }
+    updateContext(seqLen, 0);
+    mContext->prefill_us += _t.durationInUs();
+    MNN::Express::ExecutorScope::Current()->gc(); // after prefill
+
+    // prefix cache mode and response second time
+    if(mPrefixCacheMode && mCallIndex == 2) {
+        if(mIsPrefixFileExist) {
+            // when cachefile exist, after second time prefill, updata previous length
+            mMeta->previous += mMeta->seqlen_in_disk;
+        }
+        // recover meta status
+        mMeta->seqlen_in_disk = 0;
+        mMeta->file_name = "";
+        mMeta->file_flag = KVMeta::NoChange;
+        mMeta->layer_index = 0;
+        // recover normal mode
+        mPrefixCacheMode = false;
+    }
+
+
+#if DEBUG_MODE == 3
+    {
+        std::ofstream outFile("input_embeds.txt");
+        auto temp = input_embeds->readMap<float>();
+        for (size_t i = 0; i < input_embeds->getInfo()->size; ++i) {
+            outFile << temp[i] << " "; // 每个数字后加空格
+        }
+        outFile.close();
+    }
+    {
+        std::ofstream outFile("logits.txt");
+        auto temp = mGenerateParam->outputs[0]->readMap<float>();
+        for (size_t i = 0; i < mGenerateParam->outputs[0]->getInfo()->size; ++i) {
+            outFile << temp[i] << " "; // 每个数字后加空格
+        }
+        outFile.close();
+    }
+#endif
+
+    // call generation function
+    if (0 < max_tokens) {
+        mGenerateParam->max_new_tokens = max_tokens;
+        mGenerationStrategy->generate(*mGenerateParam);
+    }
+    return mContext->output_tokens;
 }
 
 void Llm::response(const std::vector<int>& input_ids, std::ostream* os, const char* end_with, int max_new_tokens) {
@@ -637,10 +903,16 @@ void Llm::response(const std::vector<int>& input_ids, std::ostream* os, const ch
     generate(input_ids, max_new_tokens);
 }
 
+void Llm::response(MNN::Express::VARP input_embeds, std::ostream* os, const char* end_with, int max_new_tokens) {
+    if (!end_with) { end_with = "\n"; }
+    generate_init(os, end_with);
+    generate(input_embeds, max_new_tokens);
+}
+
 void Llm::response(const std::string& user_content, std::ostream* os, const char* end_with, int max_new_tokens) {
     auto prompt = user_content;
     if (mConfig->use_template()) {
-        prompt = mPrompt->applyTemplate(user_content);
+        prompt = mPrompt->applyTemplate(user_content, true);
     }
     std::vector<int> input_ids = tokenizer_encode(prompt);
     response(input_ids, os, end_with, max_new_tokens);
@@ -658,48 +930,70 @@ void Llm::response(const ChatMessages& chat_prompts, std::ostream* os, const cha
 Llm::Llm(std::shared_ptr<LlmConfig> config) : mConfig(config) {
     mContext.reset(new LlmContext);
     mMeta.reset(new KVMeta);
+    mMeta->layer_nums = mConfig->layer_nums();
+    mGenerateParam.reset(new GenerationParams);
 }
 
 Llm::~Llm() {
 #if DEBUG_MODE == 1
     if (nullptr != gTimeTraceInfo) {
-        float opSummer       = 0.0f;
-        float opFlopsSummber = 0.0f;
-        for (auto& iter : gTimeTraceInfo->mTypes) {
-            float summer      = 0.0f;
-            float summerflops = 0.0f;
-            for (auto& t : iter.second) {
-                for (auto& t0 : t.second) {
-                    summer += t0.first;
-                    summerflops += t0.second;
-                }
-            }
-            summer      = summer;
-            summerflops = summerflops;
-            MNN_PRINT("%s : %.7f, FLOP: %.7f, Speed: %.7f GFlops\n", iter.first.c_str(), summer, summerflops,
-                      summerflops / summer);
-            opSummer += summer;
-            opFlopsSummber += summerflops;
-        }
-        MNN_PRINT("OP Summer: %.7f, Flops: %.7f, Speed: %.7f GFlops\n", opSummer, opFlopsSummber,
-                  opFlopsSummber / opSummer);
+        gTimeTraceInfo->dump();
     }
 #endif
-    mCurrentModules.clear();
-    mDecodeModules.clear();
-    mPrefillModules.clear();
-    mModules.clear();
+    mGenerateParam.reset();
+    mModule.reset();
     mRuntimeManager.reset();
     mProcessorRuntimeManager.reset();
+}
+int Llm::getOutputIndex(const std::string& name) const {
+    if (mModulePool.empty()) {
+        return -1;
+    }
+    auto info = mModulePool.begin()->second->getInfo();
+    for (int i=0; i<info->outputNames.size(); ++i) {
+        if (info->outputNames[i] == name) {
+            return i;
+        }
+    }
+    return -1;
+}
+std::vector<Express::VARP> Llm::getOutputs() const {
+    return mGenerateParam->outputs;
+}
+
+bool Llm::setPrefixCacheFile(const std::string& filename, int flag) {
+    mPrefixCacheFileName = filename;
+    mCallIndex = 0;
+    mPrefixCacheMode = true;
+
+
+    mIsPrefixFileExist = true;
+    // check kvcache, validate file existence
+    for(int i = 0; i < mConfig->layer_nums(); i++) {
+        auto k_file = MNNFilePathConcat(mConfig->prefix_cache_path(), mPrefixCacheFileName) + "_" + std::to_string(i) + "_sync.k";
+        if(!MNNFileExist(k_file.c_str())) {
+            mIsPrefixFileExist = false;
+            break;
+        }
+        auto v_file = MNNFilePathConcat(mConfig->prefix_cache_path(), mPrefixCacheFileName) + "_" + std::to_string(i) + "_sync.v";
+        if(!MNNFileExist(v_file.c_str())) {
+            mIsPrefixFileExist = false;
+            break;
+        }
+    }
+    return mIsPrefixFileExist;
 }
 
 bool Llm::reuse_kv() { return mConfig->reuse_kv(); }
 
-static inline bool needNewVar(VARP var, int axis, int seq_len) {
+static inline bool needNewVar(VARP var, int axis, int seq_len, int kv_seq_len = 0) {
     if (var == nullptr) {
         return true;
     }
     if (var->getInfo()->dim[axis] != seq_len) {
+        return true;
+    }
+    if (kv_seq_len != 0 && var->getInfo()->dim[axis + 1] != kv_seq_len) {
         return true;
     }
     return false;
@@ -709,6 +1003,7 @@ VARP Llm::embedding(const std::vector<int>& input_ids) {
     AUTOTIME;
     int hidden_size = mConfig->hidden_size();
     int seq_len = static_cast<int>(input_ids.size());
+
     VARP res = _Input({seq_len, 1, hidden_size}, NCHW);
     // disk embedding to save memory
     mDiskEmbedding->embedding(input_ids, res->writeMap<float>());
@@ -727,25 +1022,69 @@ std::string Llm::tokenizer_decode(int id) {
 
 VARP Llm::gen_attention_mask(int seq_len) {
     int kv_seq_len = mContext->all_seq_len + seq_len;
-    if (seq_len == 1) {
-        kv_seq_len = seq_len;
-    }
     if (mConfig->attention_mask() == "float") {
-        if (needNewVar(attentionMask, 2, seq_len)) {
-            attentionMask = _Input({1, 1, seq_len, kv_seq_len}, NCHW, halide_type_of<float>());
-        } else {
+        // full and sliding mix, using normal mask
+        if (mConfig->attention_type() == "mix") {
+            const int sliding_window = mConfig->sliding_window();
+            // mix attention mask
+            attentionMask = _Input({2, 1, 1, seq_len, kv_seq_len}, NCHW, halide_type_of<float>());
+            auto full_attn_ptr = attentionMask->writeMap<float>();
+            // full attn mask
+            for (int i = 0; i < seq_len; i++) {
+                const int query_pos = i + (kv_seq_len - seq_len);
+                for (int j = 0; j < kv_seq_len; j++) {
+                    if (j > query_pos) {
+                        full_attn_ptr[kv_seq_len * i + j] = std::numeric_limits<float>::lowest();
+                    } else {
+                        full_attn_ptr[kv_seq_len * i + j] = 0.0f;
+                    }
+                }
+            }
+            // sliding attn mask
+            auto sliding_attn_ptr = full_attn_ptr + seq_len * kv_seq_len;
+            const int query_pos_offset = kv_seq_len - seq_len;
+            for (int i = 0; i < seq_len; i++) {
+                const int query_pos = i + query_pos_offset;
+                for (int j = 0; j < kv_seq_len; j++) {
+                    const int key_pos = j;
+                    bool is_allowed = (key_pos <= query_pos) && (key_pos > query_pos - sliding_window);
+                    if (is_allowed) {
+                        sliding_attn_ptr[kv_seq_len * i + j] = 0.0f;
+                    } else {
+                        sliding_attn_ptr[kv_seq_len * i + j] = std::numeric_limits<float>::lowest();
+                    }
+                }
+            }
             return attentionMask;
         }
-        auto ptr = attentionMask->writeMap<float>();
-        for (int i = 0; i < seq_len; i++) {
-            for (int j = 0; j < kv_seq_len; j++) {
-                int row = i + mContext->all_seq_len;
-                ptr[kv_seq_len * i + j] = (j > row) * std::numeric_limits<float>::lowest();
+        // Use square mask just for new generation token, save memory of attention mask
+        kv_seq_len = seq_len;
+        if (mAttentionMaskVarVec.size() > 0) {
+            if(seq_len == 1) {
+                return mAttentionMaskVarVec[0];
+            }
+            if (mAttentionMaskVarVec.size() > 1 && seq_len == mDraftLength) {
+                return mAttentionMaskVarVec[1];
+            }
+        }
+
+        // Mask: lower triangular
+        if (mConfig->backend_type() == "cpu") { // Now only cpu supports using lower triangular to opt the attention performance
+            attentionMask = _Input({}, NCHW, halide_type_of<float>());
+            auto ptr = attentionMask->writeMap<float>();
+            ptr[0] = 0;
+        } else {
+            attentionMask = _Input({1, 1, seq_len, kv_seq_len}, NCHW, halide_type_of<float>());
+            auto ptr = attentionMask->writeMap<float>();
+            for (int i = 0; i < seq_len; i++) {
+                for (int j = 0; j < kv_seq_len; j++) {
+                    ptr[kv_seq_len * i + j] = (j > i) * std::numeric_limits<float>::lowest();
+                }
             }
         }
         return attentionMask;
     } else {
-        if (needNewVar(attentionMask, 2, seq_len)) {
+        if (needNewVar(attentionMask, 2, seq_len, kv_seq_len)) {
             attentionMask = _Input({1, 1, seq_len, kv_seq_len}, NCHW, halide_type_of<int>());
         } else {
             return attentionMask;
@@ -795,9 +1134,20 @@ VARP Llm::gen_position_ids(int seq_len) {
         return positionIds;
     } else {
         bool is_glm2 = mConfig->attention_mask() == "glm2";
-        if (needNewVar(positionIds, 0, seq_len)) {
-            positionIds = _Input({seq_len}, NCHW, halide_type_of<int>());
+        if (seq_len == 1) {
+            auto ptr = mPositionIdsVarVec[0]->writeMap<int>();
+            ptr[0] = is_glm2 ? mContext->gen_seq_len : mContext->all_seq_len;
+            return mPositionIdsVarVec[0];
         }
+        if(mPositionIdsVarVec.size() > 1 && seq_len == mDraftLength) {
+            auto ptr = mPositionIdsVarVec[1]->writeMap<int>();
+            for (int i = 0; i < seq_len; i++) {
+                ptr[i] = i + mContext->all_seq_len;
+            }
+            return mPositionIdsVarVec[1];
+        }
+
+        positionIds = _Input({seq_len}, NCHW, halide_type_of<int>());
         auto ptr = positionIds->writeMap<int>();
         if (seq_len == 1) {
             ptr[0] = is_glm2 ? mContext->gen_seq_len : mContext->all_seq_len;
@@ -811,395 +1161,14 @@ VARP Llm::gen_position_ids(int seq_len) {
 }
 
 bool Llm::is_stop(int token_id) {
-    return mTokenizer->is_stop(token_id);
+    if (mContext->status == LlmStatus::USER_CANCEL || mContext->status == LlmStatus::INTERNAL_ERROR) {
+        return true;
+    }
+    bool stop = mTokenizer->is_stop(token_id);
+    if (stop) {
+        mContext->status = LlmStatus::NORMAL_FINISHED;
+    }
+    return stop;
 }
-
-void Mllm::load() {
-    Llm::load();
-    if (mConfig->mllm_config_.empty()) {
-        mProcessorRuntimeManager = mRuntimeManager;
-    } else {
-        ScheduleConfig config;
-        BackendConfig cpuBackendConfig;
-        config.type      = backend_type_convert(mConfig->backend_type(true));;
-        config.numThread = mConfig->thread_num(true);
-        if(config.type == 3){
-            config.numThread |= 64;
-        }
-        if (mConfig->power(true) == "high") {
-            cpuBackendConfig.power = BackendConfig::Power_High;
-        } else if (mConfig->power(true) == "low") {
-            cpuBackendConfig.power = BackendConfig::Power_Low;
-        }
-        if (mConfig->memory(true) == "high") {
-            cpuBackendConfig.memory = BackendConfig::Memory_High;
-        } else if (mConfig->memory(true) == "low") {
-            cpuBackendConfig.memory = BackendConfig::Memory_Low;
-        }
-        if (mConfig->precision(true) == "high") {
-            cpuBackendConfig.precision = BackendConfig::Precision_High;
-        } else if (mConfig->precision(true) == "low") {
-            cpuBackendConfig.precision = BackendConfig::Precision_Low;
-        }
-        config.backendConfig = &cpuBackendConfig;
-        mProcessorRuntimeManager.reset(Executor::RuntimeManager::createRuntimeManager(config));
-        mProcessorRuntimeManager->setHint(Interpreter::INIT_THREAD_NUMBER, 4);
-        mProcessorRuntimeManager->setHint(MNN::Interpreter::MEM_ALLOCATOR_TYPE, 0);
-        mProcessorRuntimeManager->setHint(MNN::Interpreter::QKV_QUANT_OPTIONS, mConfig->quant_qkv());
-        mProcessorRuntimeManager->setHint(MNN::Interpreter::KVCACHE_SIZE_LIMIT, mConfig->kvcache_limit());
-        std::string tmpPath = mConfig->tmp_path();
-        if (mConfig->kvcache_mmap()) {
-            mProcessorRuntimeManager->setExternalPath(tmpPath, MNN::Interpreter::EXTERNAL_PATH_KVCACHE_DIR);
-        }
-        if (mConfig->use_mmap()) {
-            mProcessorRuntimeManager->setExternalPath(tmpPath, MNN::Interpreter::EXTERNAL_WEIGHT_DIR);
-        }
-    }
-    Module::Config module_config;
-    module_config.shapeMutable = true;
-    module_config.rearrange    = true;
-    if (mConfig->is_visual()) {
-        mProcessorRuntimeManager->setExternalFile(mConfig->visual_model() + ".weight");
-        mMulModule.reset(Module::load({}, {}, mConfig->visual_model().c_str(), mProcessorRuntimeManager, &module_config));
-    }
-    if (mConfig->is_audio()) {
-        mProcessorRuntimeManager->setExternalFile(mConfig->audio_model() + ".weight");
-        mMulModule.reset(Module::load({}, {}, mConfig->audio_model().c_str(), mProcessorRuntimeManager, &module_config));
-    }
-}
-
-std::vector<int> Mllm::vision_process(const std::string& file) {
-#ifdef LLM_SUPPORT_VISION
-    VARP image = MNN::CV::imread(file);
-    if (image == nullptr) {
-        MNN_PRINT("Mllm Can't open image: %s\n", file.c_str());
-        return std::vector<int>(0);
-    }
-    Timer _t;
-    VARP image_embedding;
-
-    if (mMulModule->getInfo()->inputNames[0] == "patches") {
-        // Qwen2-VL
-        mVisionHeight = round(mVisionHeight / 28.0) * 28;
-        mVisionWidth = round(mVisionWidth / 28.0) * 28;
-        image        = MNN::CV::resize(image, {mVisionHeight, mVisionWidth}, 0, 0,
-                                     MNN::CV::INTER_LINEAR, MNN::CV::COLOR_BGR2RGB,
-                                     mVisionMean, mVisionNorm);
-        image        = Express::_Unsqueeze(image, {0});
-        image        = Express::_Convert(image, NCHW);
-        auto patches = Express::_Concat({image, image}, 0);
-        auto patches_dim = patches->getInfo()->dim;
-        int temporal = patches_dim[0];
-        int channel  = patches_dim[1];
-        int height   = patches_dim[2];
-        int width    = patches_dim[3];
-        constexpr int temporal_patch_size = 2;
-        constexpr int patch_size = 14;
-        constexpr int merge_size = 2;
-        int grid_t = temporal / temporal_patch_size;
-        int grid_h = height / patch_size;
-        int grid_w = width / patch_size;
-        // build patches
-        patches = Express::_Reshape(patches, {
-            grid_t, temporal_patch_size,
-            channel,
-            grid_h / merge_size, merge_size, patch_size,
-            grid_w / merge_size, merge_size, patch_size,
-        });
-        patches = Express::_Permute(patches, {0, 3, 6, 4, 7, 2, 1, 5, 8});
-        patches = Express::_Reshape(patches, {
-            grid_t * grid_h * grid_w,
-            channel * temporal_patch_size * patch_size * patch_size
-        });
-        const int seq_len = grid_t * grid_h * grid_w;
-        // build position_ids
-        const int wblock_size = merge_size * merge_size;
-        const int hblock_size = wblock_size * grid_w / merge_size;
-        VARP position_ids = Express::_Input({2, seq_len}, NCHW, halide_type_of<int>());
-        auto hpos_ptr = position_ids->writeMap<int>();
-        auto wpos_ptr = hpos_ptr + seq_len;
-        for (int i = 0; i < grid_h; i++) {
-            int h_idx = i / merge_size, h_off = i % merge_size;
-            for (int j = 0; j < grid_w; j++) {
-                int w_idx = j / merge_size, w_off = j % merge_size;
-                int index = h_idx * hblock_size + w_idx * wblock_size + h_off * 2 + w_off;
-                hpos_ptr[index] = i;
-                wpos_ptr[index] = j;
-            }
-        }
-        // build attention_mask
-        VARP attention_mask = Express::_Input({1, seq_len, seq_len}, NCHW);
-        ::memset(attention_mask->writeMap<float>(), 0, seq_len * seq_len * sizeof(float));
-#ifdef DEBUG_IMAGE
-        patches.fix(MNN::Express::VARP::CONSTANT);
-        patches->setName("patches");
-        position_ids.fix(MNN::Express::VARP::CONSTANT);
-        position_ids->setName("position_ids");
-        attention_mask.fix(MNN::Express::VARP::CONSTANT);
-        attention_mask->setName("attention_mask");
-        MNN::Express::Variable::save({patches, position_ids, attention_mask}, "input.mnn");
-#endif
-        image_embedding = mMulModule->onForward({patches, position_ids, attention_mask})[0];
-#ifdef DEBUG_IMAGE
-        image_embedding->setName("image_embeds");
-        MNN::Express::Variable::save({image_embedding}, "output.mnn");
-#endif
-    } else {
-        mVisionHeight = UP_DIV(mVisionHeight, mVisionSizeUnit) * mVisionSizeUnit;
-        mVisionWidth = UP_DIV(mVisionWidth, mVisionSizeUnit) * mVisionSizeUnit;
-        image           = MNN::CV::resize(image, {mVisionHeight, mVisionWidth}, 0, 0,
-                                          MNN::CV::INTER_LINEAR, MNN::CV::COLOR_BGR2RGB,
-                                          mVisionMean, mVisionNorm);
-        image           = Express::_Unsqueeze(image, {0});
-        image           = Express::_Convert(image, NC4HW4);
-        image_embedding = mMulModule->forward(image);
-    }
-    mContext->vision_us = _t.durationInUs();
-    mMulEmbeddings.push_back(image_embedding);
-    int visual_len = image_embedding->getInfo()->dim[0];
-    std::vector<int> img_ids(visual_len, mVisionPad);
-    img_ids.insert(img_ids.begin(), mVisionStart);
-    img_ids.push_back(mVisionEnd);
-    return img_ids;
-#else
-    return std::vector<int>(0);
-#endif
-}
-
-std::vector<int> Mllm::audio_process(const std::string& file) {
-#ifdef LLM_SUPPORT_AUDIO
-    constexpr int sample_rate = 16000;
-    auto load_res        = MNN::AUDIO::load(file, sample_rate);
-    VARP waveform        = load_res.first;
-    if (waveform == nullptr) {
-        MNN_PRINT("Mllm Can't open audio: %s\n", file.c_str());
-        return std::vector<int>(0);
-    }
-    // int sample_rate      = load_res.second;
-    int wav_len          = waveform->getInfo()->dim[0];
-    int hop_length       = 160;
-    Timer _t;
-    auto input_features  = MNN::AUDIO::whisper_fbank(waveform);
-    auto audio_embedding = mMulModule->forward(input_features);
-    audio_embedding = _Permute(audio_embedding, {1, 0, 2});
-    mContext->audio_us = _t.durationInUs();
-    mMulEmbeddings.push_back(audio_embedding);
-    int embed_len = audio_embedding->getInfo()->dim[0];
-    std::vector<int> audio_ids(embed_len, mAudioPad);
-    return audio_ids;
-#else
-    return std::vector<int>(0);
-#endif
-}
-
-std::vector<int> Mllm::multimode_process(const std::string& mode, std::string info) {
-    auto file_info = info;
-    if (mode == "img") {
-        std::regex hw_regex(R"(<hw>(.*?)</hw>)");
-        std::sregex_iterator iter(info.begin(), info.end(), hw_regex);
-        std::sregex_iterator end;
-        file_info = "";
-
-        size_t currentPosition = 0;
-        if (iter != end) {
-            std::smatch match = *iter;
-            size_t matchPosition = match.position();
-            if (matchPosition > currentPosition) {
-                file_info.append(info.substr(currentPosition, matchPosition - currentPosition));
-            }
-
-            std::stringstream hw_ss(match.str(1));
-            char comma;
-            hw_ss >> mVisionHeight >> comma >> mVisionWidth;
-            currentPosition = matchPosition + match.length();
-        }
-        if (currentPosition < info.length()) {
-            file_info.append(info.substr(currentPosition));
-        }
-        // std::cout << "hw: " << mVisionHeight << ", " << mVisionWidth << std::endl;
-        // std::cout << "file: " << file_info << std::endl;
-    }
-    if (file_info.substr(0, 4) == "http") {
-        std::regex url_regex(R"(^https?://([^/]+)(/.*))");
-        std::smatch url_match_result;
-        std::string host, path;
-        if (std::regex_search(file_info, url_match_result, url_regex) && url_match_result.size() == 3) {
-            host = url_match_result[1].str();
-            path = url_match_result[2].str();
-        }
-        // std::cout << host << "#" << path << std::endl;
-        httplib::Client cli(host);
-        auto res  = cli.Get(path);
-        file_info = "downloaded_file";
-        if (res && res->status == 200) {
-            std::ofstream file(file_info, std::ios::binary);
-            if (file.is_open()) {
-                file.write(res->body.c_str(), res->body.size());
-                std::cout << "File has been downloaded successfully." << std::endl;
-                file.close();
-            } else {
-                std::cerr << "Unable to open file to write." << std::endl;
-            }
-        } else {
-            std::cerr << "Failed to download file. Status code: " << (res ? res->status : 0) << std::endl;
-        }
-    }
-    if (mode == "img" && mConfig->is_visual()) {
-        return vision_process(file_info);
-    }
-    if (mode == "audio" && mConfig->is_audio()) {
-        return audio_process(file_info);
-    }
-    return std::vector<int>(0);
-}
-
-std::vector<int> Mllm::tokenizer_encode(const std::string& prompt) {
-    // split query
-    std::regex multimode_regex("<(img|audio)>(.*?)</\\1>");
-    std::string::const_iterator searchStart(prompt.cbegin());
-    std::smatch match;
-    std::vector<std::string> img_infos;
-    std::vector<int> ids{};
-
-    while (std::regex_search(searchStart, prompt.cend(), match, multimode_regex)) {
-        // std::cout << "img match: " << match[1].str() << std::endl;
-        auto txt_ids = mTokenizer->encode(match.prefix().str());
-        ids.insert(ids.end(), txt_ids.begin(), txt_ids.end());
-        auto mul_ids = multimode_process(match[1].str(), match[2].str());
-        ids.insert(ids.end(), mul_ids.begin(), mul_ids.end());
-        searchStart = match.suffix().first;
-    }
-    if (searchStart != prompt.cend()) {
-        auto txt_ids = mTokenizer->encode(std::string(searchStart, prompt.cend()));
-        ids.insert(ids.end(), txt_ids.begin(), txt_ids.end());
-    }
-    return ids;
-}
-
-VARP Mllm::embedding(const std::vector<int>& input_ids) {
-    if (input_ids.size() == 1) {
-        return Llm::embedding(input_ids);
-    }
-    std::vector<VARP> embeddings;
-    int mul_idx = 0;
-    std::vector<int> cur_txt_ids;
-    bool in_audio = false;
-    for (int i = 0; i < input_ids.size(); i++) {
-        int id = input_ids[i];
-        // audio
-        if (in_audio) {
-            if (id == mAudioPad) {
-                continue;
-            } else {
-                cur_txt_ids.clear();
-                in_audio = false;
-            }
-        } else if (id == mAudioPad) {
-            auto txt_embedding = Llm::embedding(cur_txt_ids);
-            auto mul_embedding = mMulEmbeddings[mul_idx++];
-            embeddings.push_back(txt_embedding);
-            embeddings.push_back(mul_embedding);
-            in_audio = true;
-        }
-        // vision
-        if (id == mVisionPad) {
-            continue;
-        }
-        cur_txt_ids.push_back(id);
-        if (id == mVisionStart) {
-            auto txt_embedding = Llm::embedding(cur_txt_ids);
-            auto mul_embedding = mMulEmbeddings[mul_idx++];
-            embeddings.push_back(txt_embedding);
-            embeddings.push_back(mul_embedding);
-        } else if (id == mVisionEnd) {
-            cur_txt_ids.clear();
-            cur_txt_ids.push_back(id);
-        }
-    }
-    mMulEmbeddings.clear();
-    if (!cur_txt_ids.empty()) {
-        auto txt_embedding = Llm::embedding(cur_txt_ids);
-        embeddings.push_back(txt_embedding);
-    }
-    auto embedding = Express::_Concat(embeddings, 0);
-    return embedding;
-}
-// Llm end
-
-// Embedding start
-float Embedding::dist(VARP var0, VARP var1) {
-    auto distVar = _Sqrt(_ReduceSum(_Square(var0 - var1)));
-    auto dist    = distVar->readMap<float>()[0];
-    return dist;
-}
-
-Embedding* Embedding::createEmbedding(const std::string& config_path, bool load) {
-    std::shared_ptr<LlmConfig> config(new LlmConfig(config_path));
-    Embedding* embedding = new Embedding(config);
-    if (load) {
-        embedding->load();
-    }
-    return embedding;
-}
-
-Embedding::Embedding(std::shared_ptr<LlmConfig> config) : Llm(config) {
-}
-
-int Embedding::dim() const {
-    return mConfig->hidden_size();
-}
-
-void Embedding::load() {
-    initRuntime();
-    printf("load tokenizer\n");
-    std::cout << mConfig->tokenizer_file() << std::endl;
-    // 1. load vocab
-    mTokenizer.reset(Tokenizer::createTokenizer(mConfig->tokenizer_file()));
-    printf("load tokenizer Done\n");
-    mDiskEmbedding.reset(new DiskEmbedding(mConfig));
-    // 2. load model
-    Module::Config module_config;
-    module_config.shapeMutable = true;
-    module_config.rearrange    = true;
-    auto model_path            = mConfig->llm_model();
-    MNN_PRINT("load %s ... ", model_path.c_str());
-    mModules.resize(1);
-    mModules[0].reset(Module::load({"input_ids", "attention_mask", "position_ids"}, {"sentence_embeddings"},
-                                   model_path.c_str(), mRuntimeManager, &module_config));
-    MNN_PRINT("Done!\n");
-}
-
-VARP Embedding::ids_embedding(const std::vector<int>& ids) {
-    int prompt_len           = ids.size();
-    auto inputs_ids          = embedding(ids);
-    auto attention_mask      = gen_attention_mask(prompt_len);
-    auto position_ids        = gen_position_ids(prompt_len);
-    auto outputs             = mModules[0]->onForward({inputs_ids, attention_mask, position_ids});
-    auto sentence_embeddings = outputs[0];
-    return sentence_embeddings;
-}
-
-VARP Embedding::txt_embedding(const std::string& txt) {
-    return ids_embedding(tokenizer_encode(txt));
-}
-
-VARP Embedding::gen_attention_mask(int seq_len) {
-    auto attention_mask = _Input({1, 1, 1, seq_len}, NCHW, halide_type_of<int>());
-    auto ptr            = attention_mask->writeMap<int>();
-    for (int i = 0; i < seq_len; i++) {
-        ptr[i] = 1;
-    }
-    return attention_mask;
-}
-
-VARP Embedding::gen_position_ids(int seq_len) {
-    auto position_ids = _Input({1, seq_len}, NCHW, halide_type_of<int>());
-    auto ptr          = position_ids->writeMap<int>();
-    for (int i = 0; i < seq_len; i++) {
-        ptr[i] = i;
-    }
-    return position_ids;
-}
-// Embedding end
 } // namespace Transformer
 } // namespace MNN

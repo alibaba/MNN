@@ -1,13 +1,19 @@
 # MNN Chat Android App
 [中文版本](./README_CN.md)
+
+[Download](#releases)  [下载](./README_CN.md#releases)
+
+[GooglePlay](https://play.google.com/store/apps/details?id=com.alibaba.mnnllm.android.release)
+
+[iOS App](../../iOS/MNNLLMChat/README.md)
+
 ## Introduction
 This is our full multimodal language model (LLM) Android app
-
 <p align="center">
-  <img width="20%" alt="Icon"  src="./assets/image_home.jpg" style="margin: 0 10px;">
-  <img width="20%" alt="Icon" src="./assets/image_diffusion.jpg" style="margin: 0 10px;">
-  <img width="20%" alt="Icon" src="./assets/image_sound.jpg" style="margin: 0 10px;">
-  <img width="20%" alt="Icon" src="./assets/image_image.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon"  src="./assets/image_home_new.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./assets/image_diffusion_new.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./assets/image_sound_new.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./assets/image_image_new.jpg" style="margin: 0 10px;">
 </p>
 
 
@@ -16,9 +22,6 @@ This is our full multimodal language model (LLM) Android app
 + **Multimodal Support:** Enables functionality across diverse tasks, including text-to-text, image-to-text, audio-to-text, and text-to-image generation (via diffusion models).
 
 + **CPU Inference Optimization:** MNN-LLM demonstrates exceptional performance in CPU benchmarking in Android, achieving prefill speed improvements of 8.6x over llama.cpp and 20.5x over fastllm, with decoding speeds that are 2.3x and 8.9x faster, respectively. the following is a comparison between llama.cpp and MNN-LLM on Android inferencing qwen-7b.
-<p align="center">
-  <img width="60%"   src="./assets/compare.gif" style="margin: 0 10px;">
-</p>
 
 + **Broad Model Compatibility:** Supports multiple leading model providers, such as Qwen, Gemma, Llama (including TinyLlama and MobileLLM), Baichuan, Yi, DeepSeek, InternLM, Phi, ReaderLM, and Smolm.
 
@@ -47,20 +50,101 @@ This is our full multimodal language model (LLM) Android app
   cd project/android
   mkdir build_64
   cd build_64
-  ../build_64.sh "-DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_ARM82=true -DMNN_USE_LOGCAT=true -DMNN_OPENCL=true -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true -DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true -DMNN_BUILD_DIFFUSION=ON -DMNN_SEP_BUILD=OFF"
+  ../build_64.sh "-DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_ARM82=true -DMNN_USE_LOGCAT=true -DMNN_OPENCL=true -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true -DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true -DMNN_BUILD_DIFFUSION=ON -DMNN_SEP_BUILD=OFF -DCMAKE_SHARED_LINKER_FLAGS='-Wl,-z,max-page-size=16384' -DCMAKE_INSTALL_PREFIX=."
+  make install
   ```
-+ copy to llm android app project
-  ```shell
-  mkdir -p ../../../apps/Android/MnnLlmChat/app/src/main/jniLibs/arm64-v8a
-  find . -name "*.so" -exec cp {} ../../../apps/Android/MnnLlmChat/app/src/main/jniLibs/arm64-v8a \;
-  ```
+
 + build android app project and install
   ```shell
   cd ../../../apps/Android/MnnLlmChat
-  ./gradlew installDebug
+  ./installDebug.sh
   ```
 
 # Releases
+
+## Version 0.7.5
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_5.apk)
++ Add Qwen3-VL support(4B,8B,30B-A3B)
++ Support video input for smolvlm-video series.
+
+## Version 0.7.3.1
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_3_1.apk)
++ Optimize ApiService
+## Version 0.7.2
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_2.apk)
++ Bugfix:
+  + qwen think/no_think switch sometimes not work.
++ UI Update:
+  + update ui for history and benchmark test screen.
+## Version 0.7.1
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_1.apk)
++ add new models: 
+  + [MiniCPM-V-4](https://huggingface.co/openbmb/MiniCPM-V-4): GPT-4V Level MLLM for Single Image, Multi Image and Video on Your Phone
+  + [WebSailor-3B](https://huggingface.co/Alibaba-NLP/WebSailor-3B): a complete post-training methodology designed to teach LLM agents sophisticated reasoning for complex web navigation and information-seeking tasks.
+  + [Lingshu-7B](https://huggingface.co/lingshu-medical-mllm/Lingshu-7B):Multimodal Large Language Models for Medical Domain
++ bugfix:  
+ + Crash when choose images.
+
+## Version 0.7.0
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_0.apk)
++ add new models: gpt-oss-20b
++ bugfix: cannot delete models downloaded from huggingface
+## Version 0.6.8
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_6_8.apk)
++ add new models:  SmolLM3-3B、gemma-3-1b 
++ support penalty sampler in mixed sampler mode.
++ can switch models in chat screen.
++ can update models when the remote models changed.
++ fix download source for huggingface.
++ Support  Realtime voice call with ASR and TTS
+## Version 0.5.1.2
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_5_1_2.apk)
++ fix huggingface download error
++ fix showing wrong download state when not download start.
+
+## Version 0.5.1.1
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_5_1_1.apk)
++ Upgrade MNN engine to v3.2.0
++ fix some bugs
+## Version 0.5.1
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_5_1.apk)
++ Support DeepSeek-R1-0528-Qwen3
++ fix some bugs:
+  + first install use ModelScope if system language chinese
+  + do not show dialog if not forceCheckUpdate
+  + show model size of local model
+## Version 0.5.0
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_5_0.apk)
++ Support Qwen3-30B-A3B
++ Support new vision models SmoVLM and FastVLM
++ Support Local models(by adb push)
++ add some advanced settings: precision, thread num
++ UI updates:
+  + support filter models by Local, Modality, and Vendors
+  + support hide thinking process
+
+## Version 0.4.4.1
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_4_4_1.apk)
++ Fix Modlers download error
++ fix Select Text not work bug
+
+## Version 0.4.4
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_4_4.apk)
++ Add support for Qwen Omni 3B and 7B, enable audio output switch
++ Show size of models in modellist
+
+## Version 0.4.3
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_4_3.apk)
++ Support Xiaomi Mimo UI
++ Added support for Qwen Omni
++ hide attachments on send
++ Benchmarks: show total decode & prefill time
++ support copying user messages
++ Fixed download crashes on certain devices
++ Added support for reporting crash logs
++ Enabled multi-turn conversation support for multimodal models
++ Refactor Download Module,Chat Activity
+
 ## Version 0.4.0
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_d_0_4_0.apk)
 + Now compatible with the Qwen3 model, with a toggle for Deep Thinking mode

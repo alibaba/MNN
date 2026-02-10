@@ -15,7 +15,7 @@
 #include <rapidjson/document.h>
 #include <rapidjson/writer.h>
 #include <rapidjson/stringbuffer.h>
-
+#include <MNN/MNNDefine.h>
 
 
 namespace MNN {
@@ -90,6 +90,7 @@ public:
         rapidjson::Document input_doc;
         input_doc.Parse(str);
         if (input_doc.HasParseError()) {
+            MNN_PRINT("Config Parse Error: %d\n", input_doc.GetParseError());
             return false;
         }
         // merge
@@ -101,7 +102,7 @@ public:
         rapidjson::Value& source = source_.document;
         rapidjson::Value& destination = this->document;
         rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
-        
+
         for (auto it = source.MemberBegin(); it != source.MemberEnd(); ++it) {
             const char* key = it->name.GetString();
             rapidjson::Value newKey(key, allocator);
@@ -109,7 +110,7 @@ public:
             newValue.CopyFrom(it->value, allocator);
             destination.AddMember(newKey, newValue, allocator);
         }
-        
+
         // clear source content
         source.SetNull();
         return true;
@@ -307,8 +308,16 @@ public:
         return base_dir_ + config_.value("visual_model", "visual.mnn");
     }
 
+    std::string npu_model_dir() const {
+        return base_dir_ + config_.value("npu_model_dir", "");
+    }
+
     std::string audio_model() const {
         return base_dir_ + config_.value("audio_model", "audio.mnn");
+    }
+
+    std::string context_file() const {
+        return base_dir_ + config_.value("context_file", "context.json");
     }
     // model file config end >
 
@@ -354,15 +363,55 @@ public:
         if (mllm) return mllm_config_.value("memory", "low");
         return config_.value("memory", "low");
     }
-
-    int quant_qkv() const {
-        return config_.value("quant_qkv", 0);
-    }
-
-    int kvcache_limit() const {
-        return config_.value("kvcache_limit", -1);
-    }
     // backend config end >
+
+    // talker config start
+    std::string talker_model() const {
+        return base_dir_ + config_.value("talker_model", "talker.mnn");
+    }
+
+    std::string talker_weight() const {
+        return base_dir_ + config_.value("talker_weight", "talker.mnn.weight");
+    }
+
+    std::string talker_embedding_file() const {
+        return base_dir_ + config_.value("talker_embedding_file", "talker_embeddings_bf16.bin");
+    }
+
+    std::string predit_model() const {
+        return base_dir_ + config_.value("predit_model", "predit.mnn");
+    }
+
+    std::string dit_model() const {
+        return base_dir_ + config_.value("dit_model", "dit.mnn");
+    }
+
+    std::string bigvgan_model() const {
+        return base_dir_ + config_.value("bigvgan_model", "bigvgan.mnn");
+    }
+
+    std::string spk_dict() const {
+        return base_dir_ + config_.value("spk_dict", "spk_dict.mnn");
+    }
+
+    int talker_max_new_tokens() const {
+        return config_.value("talker_max_new_tokens", 2048);
+    }
+
+    std::string talker_speaker() const {
+        // Chelsie or Ethan
+        return config_.value("talker_speaker", "Chelsie");
+    }
+
+    int dit_steps() const {
+        return config_.value("dit_steps", 5);
+    }
+
+    int dit_solver() const {
+        // 1: OED, 4: RungeKutta4ODE
+        return config_.value("dit_solver", 1);
+    }
+    // talker config end
 
     // < llm model config start
     bool is_single() const {
@@ -377,6 +426,14 @@ public:
         return config_.value("is_audio", false);
     }
 
+    bool has_talker() const {
+        return config_.value("has_talker", false);
+    }
+
+    bool has_deepstack() const {
+        return config_.value("has_deepstack", false);
+    }
+
     bool use_template() const {
         return config_.value("use_template", true);
     }
@@ -387,11 +444,18 @@ public:
     bool use_cached_mmap() const {
         return config_.value("use_cached_mmap", true);
     }
+    int dynamic_option() const {
+        return config_.value("dynamic_option", 0);
+    }
     bool kvcache_mmap() const {
         return config_.value("kvcache_mmap", false);
     }
     std::string tmp_path() const {
         return config_.value("tmp_path", "");
+    }
+
+    std::string prefix_cache_path() const {
+        return config_.value("prefix_cache_path", "prefixcache");
     }
 
     std::string system_prompt() const {
@@ -413,6 +477,15 @@ public:
     std::string attention_mask() const {
         return config_.value("attention_mask", "int");
     }
+
+    std::string attention_type() const {
+        return config_.value("attention_type", "full");
+    }
+
+    int sliding_window() const {
+        return config_.value("sliding_window", 0);
+    }
+
     bool attention_fused() const {
         return config_.value("attention_fused", true);
     }
@@ -493,6 +566,87 @@ public:
         return config_.value("penalty_sampler", "greedy");
     }
     // sampler config end >
+
+    // < speculative decoding config start
+
+    /**
+     speculative decoding algrithm.
+     optional: "lookahead"、 ”mtp“、 "draftmodel", "eagle"
+     */
+    std::string speculative_type() const {
+        return config_.value("speculative_type", "");
+    }
+
+    // speculative draft length
+    int draft_predict_length() const {
+        return config_.value("draft_predict_length", 3);
+    }
+    /**
+     if speculative_type is set "lookahead",
+     purpose: :draft filter and adopt strictness,
+     optional: "low" "medium" "high"
+     */
+    // ========= lookahead config start ===============
+    std::string draft_match_strictness() const {
+        return config_.value("draft_match_strictness", "low");
+    }
+    /**
+     if speculative_type is set "lookahead",
+     purpose: deal if have several draft matchs, how to select one?
+     optional 0: "freqxlen" -> draft frequency multiply draft length as metrics, the higher the better
+     optional 1: "fcfs" -> first come fiirst serve,  just select the first match draft
+     */
+    std::string draft_selection_rule() const {
+        return config_.value("draft_selection_rule", "freqxlen");
+    }
+    /**
+     if speculative_type is set "lookahead",
+     purpose:  lookup prompt, how long history token should match
+     */
+    int ngram_match_maxlen() const {
+        return config_.value("ngram_match_maxlen", 4);
+    }
+    /**
+     if speculative_type is set "lookahead",
+     if user have prior knowledge base file, please set path
+     */
+    std::string lookup_file() const {
+        return base_dir_ + config_.value("lookup_file", "lookup_file.txt");
+    }
+    /**
+     if speculative_type is set "lookahead",
+     whether should  add decode token to ngram
+     */
+    bool ngram_update() const {
+        return config_.value("ngram_update", false);
+    }
+    // ========= lookahead config start ===============
+
+    /**
+     if speculative_type is set "draftmodel", please set draft model path
+     */
+    std::string draft_model() const {
+        return base_dir_ + config_.value("draft_model", "");
+    }
+    std::string mtp_model() const {
+        return base_dir_ + config_.value("mtp_model", "mtp.mnn");
+    }
+    std::string eagle_model() const {
+        return base_dir_ + config_.value("eagle_model", "eagle.mnn");
+    }
+    std::string eagle_fc() const {
+        return base_dir_ + config_.value("eagle_fc", "eagle_fc.mnn");
+    }
+    std::string eagle_d2t() const {
+        return base_dir_ + config_.value("eagle_d2t", "eagle_d2t.mnn");
+    }
+    int eagle_depth() const {
+        return config_.value("eagle_depth", 3);
+    }
+    int eagle_topk() const {
+        return config_.value("eagle_topk", 1);
+    }
+    // speculative decoding config end >
 };
 } // Transformer
 } // MNN

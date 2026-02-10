@@ -10,16 +10,16 @@
 #include <core/Macro.h>
 #include <core/TensorUtils.hpp>
 #include <stdlib.h>
-#include <mutex>
 #include <MNN/AutoTime.hpp>
 
 extern bool isAvailable();
 namespace MNN {
     void registerCoreMLOps();
     static inline std::map<OpType, CoreMLBackend::Creator*>* getCreatorMap() {
-        static std::once_flag of;
         static std::map<OpType, CoreMLBackend::Creator*>* ret = nullptr;
-        std::call_once(of, [&]() { ret = new std::map<OpType, CoreMLBackend::Creator*>; });
+        if (nullptr == ret) {
+            ret = new std::map<OpType, CoreMLBackend::Creator*>;
+        }
         return ret;
     }
 
@@ -133,11 +133,11 @@ namespace MNN {
     void CoreMLBackend::onResizeBegin() {
         mCoreMLLayerPtrs.clear();
     }
-    int CoreMLBackend::getBytes(const halide_type_t& type) {
+    size_t CoreMLBackend::getBytes(const halide_type_t& type) {
         if (type.code == halide_type_float && mPrecision == BackendConfig::Precision_Low) {
             return 1;
         }
-        return type.bytes();
+        return static_cast<size_t>(type.bytes());
     }
 
     ErrorCode CoreMLBackend::onResizeEnd() {

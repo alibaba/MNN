@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:id="@+id/modelListTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Available TTS Models:"
+        android:textSize="18sp"
+        android:textStyle="bold" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/modelRecyclerView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="16dp"
+        android:minHeight="100dp" />
+
+    <EditText
+        android:id="@+id/textInput"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Enter text to speak"
+        android:minHeight="100dp"
+        android:gravity="top"
+        android:inputType="textMultiLine" />
+
+    <RadioGroup
+        android:id="@+id/languageGroup"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="16dp">
+
+        <RadioButton
+            android:id="@+id/englishRadio"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="English"
+            android:checked="true" />
+
+        <RadioButton
+            android:id="@+id/chineseRadio"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Chinese"
+            android:layout_marginStart="16dp" />
+
+    </RadioGroup>
+
+    <Button
+        android:id="@+id/speakButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Speak"
+        android:enabled="false"
+        android:layout_marginTop="16dp" />
+
+</LinearLayout> 

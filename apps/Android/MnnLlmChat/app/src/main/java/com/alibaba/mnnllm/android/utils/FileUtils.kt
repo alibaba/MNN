@@ -2,18 +2,26 @@
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 package com.alibaba.mnnllm.android.utils
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.util.Log
 import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mls.api.download.DownloadFileUtils
+import com.alibaba.mnnllm.android.model.ModelUtils
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
+import java.nio.file.FileVisitOption
+import java.nio.file.FileVisitResult
 import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.SimpleFileVisitor
+import java.nio.file.attribute.BasicFileAttributes
+import java.util.EnumSet
 
 object FileUtils {
     const val TAG: String = "FileUtils"
@@ -53,6 +61,10 @@ object FileUtils {
 
     fun generateDestImageFilePath(context: Context, sessionId: String): String {
         return generateDestFilePathKindOf(context, sessionId, "image", "jpg")
+    }
+
+    fun generateDestVideoFilePath(context: Context, sessionId: String): String {
+        return generateDestFilePathKindOf(context, sessionId, "video", "mp4")
     }
 
     private fun generateDestFilePathKindOf(
@@ -133,29 +145,61 @@ object FileUtils {
         }
     }
 
-    fun getMmapDir(modelId: String, isModelScope: Boolean): String {
-        var rootCacheDir =
-            ApplicationProvider.get().filesDir.toString() + "/tmps/" + ModelUtils.safeModelId(
-                modelId
-            )
-        if (isModelScope) {
-            rootCacheDir = "$rootCacheDir/modelscope"
+    fun getPathForUri(uri: Uri): String? {
+        if ("file" == uri.scheme) {
+            return uri.path
         }
-        return rootCacheDir
+        return null
     }
 
-    fun getModelConfigDir(modelId: String): String {
-        val rootCacheDir =
-            ApplicationProvider.get().filesDir.toString() + "/configs/" + ModelUtils.safeModelId(
-                modelId
-            )
-        return rootCacheDir
+    @SuppressLint("DefaultLocale")
+    fun formatFileSize(size: Long): String {
+        val kb = 1024L
+        val mb = kb * 1024L
+        val gb = mb * 1024L
+
+        return when {
+            size >= gb -> String.format("%.2f GB", size.toFloat() / gb)
+            size >= mb -> String.format("%.2f MB", size.toFloat() / mb)
+            size >= kb -> String.format("%.2f KB", size.toFloat() / kb)
+            else -> "$size B"
+        }
     }
 
-    @JvmStatic
-    fun clearMmapCache(modelId: String) {
-        DownloadFileUtils.deleteDirectoryRecursively(File(getMmapDir(modelId, true)))
-        DownloadFileUtils.deleteDirectoryRecursively(File(getMmapDir(modelId, false)))
+    fun getFileSizeString(file: File?): String {
+        val size = getFileSize(file)
+        return formatFileSize(size)
+    }
+
+    fun getFileSize(file: File?): Long {
+        if (file == null || !file.exists()) {
+            return 0L
+        }
+
+        return try {
+            if (file.isFile) {
+                file.length()
+            } else {
+                var size = 0L
+                file.listFiles()?.forEach { child ->
+                    size += if (child.isFile) {
+                        child.length()
+                    } else {
+                        getFileSize(child)
+                    }
+
+                }
+                size
+            }
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Failed to get size for ${file.path}: ${e.message}")
+            0L
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to get size for ${file.path}", e)
+            0L
+        }
     }
 }
+
+
 

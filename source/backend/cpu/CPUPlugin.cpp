@@ -32,8 +32,12 @@ public:
         MNN_CHECK(nullptr != kernel_.get(), // NOLINT
                   "CPU compute kernel has not been registered for plugin op.");
         kernel_->init(ctx_.get());
+        mNeedAllocIO = kernel_->needAllocIO();
     }
     virtual ~CPUPlugin() = default;
+
+    virtual ErrorCode onResize(const std::vector<Tensor*>& inputs, // NOLINT
+        const std::vector<Tensor*>& outputs) override;
 
     virtual ErrorCode onExecute(const std::vector<Tensor*>& inputs, // NOLINT
                                 const std::vector<Tensor*>& outputs) override;
@@ -42,17 +46,22 @@ private:
     std::unique_ptr<plugin::CPUKernelContext> ctx_;
     std::shared_ptr<plugin::CPUComputeKernel> kernel_;
 };
+ErrorCode CPUPlugin::onResize(const std::vector<Tensor*>& inputs,
+                               const std::vector<Tensor*>& outputs) {
+    ctx_->reset(inputs, outputs);
+    auto success = kernel_->resize(ctx_.get());
+    if (!success) {
+        return OUT_OF_MEMORY;
+    }
+    return NO_ERROR;
+}
 
 ErrorCode CPUPlugin::onExecute(const std::vector<Tensor*>& inputs, // NOLINT
                                const std::vector<Tensor*>& outputs) {
-    // Setup new context with inputs and outputs.
-    plugin::CPUKernelContext ctx( // NOLINT
-        ctx_->op_type(), ctx_->backend(), inputs, outputs);
-    ctx.setAttrs(ctx_->getAttrs());
-    if (kernel_->compute(&ctx)) {
+    if (kernel_->compute(ctx_.get())) {
         return NO_ERROR;
     } else {
-        MNN_ERROR("Plugin kernel compute failed with false returned.");
+        MNN_ERROR("Plugin kernel compute failed with false returned.\n");
         return INVALID_VALUE;
     }
 }
@@ -73,7 +82,7 @@ public:
 
         const std::string& op_type = plugin_param->type()->str();
         std::unique_ptr<plugin::CPUKernelContext> ctx( // NOLINT
-            new plugin::CPUKernelContext(op_type, backend, inputs, outputs));
+            new plugin::CPUKernelContext(op_type, backend, inputs, outputs, static_cast<CPUBackend *>(backend)->pNPUModelDirPath));
 
         for (const Attribute* attr : *(plugin_param->attr())) {
             ctx->setAttr(attr->key()->str(), attr);

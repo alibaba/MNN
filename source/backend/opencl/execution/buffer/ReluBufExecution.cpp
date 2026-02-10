@@ -31,24 +31,25 @@ ReluBufExecution::ReluBufExecution(const std::vector<Tensor *> &inputs, const MN
     mOpenCLBackend->onAcquireBuffer(mPreluParam.get(), Backend::STATIC);
     cl::Buffer &preluBuffer = openCLBuffer(mPreluParam.get());
     cl_int error;
-    auto preluDataPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
-        preluBuffer, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &error);
-    if(preluDataPtrCL != nullptr && error == CL_SUCCESS){
-        if (mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
-            for(int i=0; i<preluSize; i++) {
-                ((half_float::half*)preluDataPtrCL)[i] = (half_float::half)(preluDataPtr[i]);
-            }
-            for(int i=preluSize; i<ALIGN_UP4(preluSize); i++) {
-                ((half_float::half*)preluDataPtrCL)[i] = (half_float::half)(0.0f);
+    if (mOpenCLBackend->getRuntime()->hint().useCachedMmap <= 1){
+        auto preluDataPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(preluBuffer, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &error);
+        if(preluDataPtrCL != nullptr && error == CL_SUCCESS){
+            if (mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
+                for(int i=0; i<preluSize; i++) {
+                    ((half_float::half*)preluDataPtrCL)[i] = (half_float::half)(preluDataPtr[i]);
+                }
+                for(int i=preluSize; i<ALIGN_UP4(preluSize); i++) {
+                    ((half_float::half*)preluDataPtrCL)[i] = (half_float::half)(0.0f);
+                }
+            }else{
+                ::memset(preluDataPtrCL, 0, buffer_size);
+                ::memcpy(preluDataPtrCL, preluDataPtr, preluSize * sizeof(float));
             }
         }else{
-            ::memset(preluDataPtrCL, 0, buffer_size);
-            ::memcpy(preluDataPtrCL, preluDataPtr, preluSize * sizeof(float));
+            MNN_ERROR("Map error preluDataPtrCL == nullptr \n");
         }
-    }else{
-        MNN_ERROR("Map error preluDataPtrCL == nullptr \n");
+        mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(preluBuffer, preluDataPtrCL);
     }
-    mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(preluBuffer, preluDataPtrCL);
 }
 
 ReluBufExecution::~ReluBufExecution() {
@@ -89,7 +90,7 @@ ErrorCode ReluBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
     MNN_CHECK_CL_SUCCESS(ret, "setArg ReluBufExecution");
 
     std::string name = "prelu_buf";
-    localSize = localWS2DDefault(globalSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, mUnits[0].kernel, mOpenCLBackend->getCLTuneLevel()).first;
+    localSize = localWS2DDefault(globalSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, mUnits[0].kernel, mOpenCLBackend->getCLTuneLevel(), "binary_buf").first;
     
     mUnits[0].globalWorkSize = {globalSize[0], globalSize[1]};
     mUnits[0].localWorkSize  = {localSize[0], localSize[1]};
@@ -192,7 +193,7 @@ ErrorCode ReluBufExecution::SubgrouponResize(const std::vector<Tensor *> &inputs
         ret |= mUnits[0].kernel->get().setArg(index++, static_cast<uint32_t>(outputpad.right));
         MNN_CHECK_CL_SUCCESS(ret, "setArg ReluBufExecution SubGroup C4");
 
-        lws = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, mUnits[0].kernel, mOpenCLBackend->getCLTuneLevel()).first;
+        lws = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, mUnits[0].kernel, mOpenCLBackend->getCLTuneLevel(), "binary_subgroup_buf").first;
         mUnits[0].localWorkSize = {lws[0], lws[1], lws[2]};
     } else {
         gws = {(uint32_t)UP_DIV(nhwc[2], 4) * nhwc[1], (uint32_t)ROUND_UP(nhwc[3], 16),

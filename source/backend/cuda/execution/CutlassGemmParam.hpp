@@ -2,7 +2,7 @@
 #define CutlassGemmParam_hpp
 
 #include "cutlass/epilogue/thread/linear_combination_relu.h"
-#include "cutlass/epilogue/thread/linear_combination_relu6.h"
+#include "cutlass_lib/linear_combination_relu6.h"
 #include "cutlass/gemm/device/gemm.h"
 #include "cutlass/gemm/device/gemm_array.h"
 #include "cutlass/gemm/device/gemm_batched.h"

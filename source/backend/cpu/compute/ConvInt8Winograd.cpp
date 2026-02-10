@@ -18,6 +18,7 @@
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif
+#ifndef MNN_REDUCE_SIZE
 
 namespace MNN {
 
@@ -518,6 +519,7 @@ ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *>
         auto weight    = mWinoResource->weight->host<int8_t>();
         std::vector<float> xkernelSum(DST_XUNIT, 0);
         std::vector<float> wKernelSum(dc_4 * pack, 0);
+        std::vector<float> fakeInputScale(DST_XUNIT, 1.f);
         std::vector<float> reluThred = {-std::numeric_limits<float>().max(), std::numeric_limits<float>().max()};
         
         auto tFunction = [&](int tId) {
@@ -526,9 +528,9 @@ ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *>
             QuanPostTreatParameters quanParam;
             quanParam.useInt8 = 0;
             quanParam.srcKernelSum = xkernelSum.data();
-            quanParam.weightQuanBias = wKernelSum.data();
+            quanParam.weightKernelSum = wKernelSum.data();
             quanParam.fp32minmax = reluThred.data();
-            quanParam.extraScale = nullptr;
+            quanParam.inputScale = nullptr;
 
             for (int tIndex = (int)tId; tIndex < tileCount; tIndex += threadNumber) {
                 int xIndex  = (int)tIndex * DST_XUNIT;
@@ -559,7 +561,7 @@ ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *>
                     
                     quanParam.biasFloat = (mWinoResource->offsets->host<float>() + i * mWinoResource->offsets->stride(0));
                     quanParam.scale = mWinoResource->scales->host<float>() + i * dc_4 * pack;
-                    quanParam.extraScale = nullptr;
+                    quanParam.inputScale = fakeInputScale.data();
                     quanParam.bias = nullptr;
                     quanParam.blockNum = 1;
                     gemmFunc((int8_t*)_dstFloatPtr, _srcInt8Ptr, _weightInt8Ptr, mTempInputBuffer->length(2), xC * pack * sizeof(float), dc_4, &quanParam, DST_XUNIT);
@@ -657,3 +659,4 @@ bool ConvInt8Winograd::mustUse(const Convolution2D *convOp) {
 }
 
 } /* MNN */
+#endif

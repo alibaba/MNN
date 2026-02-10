@@ -24,7 +24,7 @@ struct FunctionGroup {
     int lP                                                                                       = 1;
     int hP                                                                                       = 4;
     void (*MNNExpC8)(float* dest, const float* source, float* offset, const float* parameters, size_t countC8) = _SSE_MNNExpC8;
-    void (*MNNSoftmax)(float* dest, const float* source, size_t size) = _SSE_MNNSoftmax;
+    void (*MNNSoftmax)(float* softmaxDst, const float* input, float* runningMax, float* runningSum, float* updateScale, int outside, int reduceSize, int kvSeqOffset, int validOffset, int pack, bool mask) = _SSE_MNNSoftmax;
     void (*MNNReluInt8)(int8_t* dst, const int8_t* src, size_t size, ssize_t zeroPoint) = _SSE_MNNReluInt8;
     void (*MNNHardSwish)(float* dst, const float* src, size_t size) = _SSE_MNNHardSwish;
     void (*MNNGelu)(float* dst, const float* src, size_t size, float* parameters) = _SSE_MNNGelu;
@@ -58,11 +58,16 @@ void MNNFunctionInit() {
 #ifdef MNN_LOW_MEMORY
         coreFunction->MNNAbsMax = _SSE_MNNAbsMaxFP32;
         coreFunction->MNNDynamicQuant = _SSE_MNNDynamicQuant;
+        coreFunction->MNNAsyQuantInfo = _SSE_MNNAsyQuantInfo;
+        coreFunction->MNNAsyQuantFunc = _SSE_MNNAsyQuantFunc;
 #endif
         coreFunction->MNNPackC4ForMatMul_A  = _SSE_MNNPackC4ForMatMul_A;
         coreFunction->MNNPackForMatMul_B    = _SSE_MNNPackForMatMul_B;
         // Dynamic Quant
-        coreFunction->MNNCountMaxMinValue = _SSE_MNNComputeScaleZeroScalar;
+        coreFunction->MNNCountMaxMinValue = _SSE_MNNCountMinMaxValue;
+
+        coreFunction->MNNSoftmax = _SSE_MNNSoftmax;
+
     }
 #ifdef MNN_USE_AVX
     if (cpuFlags & libyuv::kCpuHasAVX2) {
@@ -112,7 +117,7 @@ void MNNMaxPoolInt8_(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputW
         for (int y = 0; y < kernely; ++y) {
             for (int x = 0; x < kernelx; ++x) {
                 const int8_t* inputPtr = srcPtr + pack* (x + inputWidth* y);
-                for (int idx = 0; idx < pack; ++idx) {   
+                for (int idx = 0; idx < pack; ++idx) {
                     results[idx] = std::max(results[idx], *(inputPtr + idx));
                 }
             }
@@ -129,6 +134,7 @@ void MNNMaxPoolInt8_(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputW
 void MNNInt8FunctionInit() {
     auto cpuFlags = libyuv::InitCpuFlags();
     auto core = MNN::MNNGetInt8CoreFunctions();
+    auto gcore = MNN::MNNGetCoreFunctions();
     core->MNNAvgPoolInt8 = MNNAvgPoolUint8;
     core->MNNMaxPoolInt8 = MNNMaxPoolInt8_;
     if (cpuFlags & libyuv::kCpuHasSSE41) {
@@ -140,6 +146,13 @@ void MNNInt8FunctionInit() {
 #ifdef MNN_LOW_MEMORY
         core->Int8GemmKernel_W4 = _SSE_MNNGemmInt8AddBiasScale_16x4_w4;
 #endif
+    }
+    {
+        gcore->int8MatmulRelatedFunctions.Int8GemmKernel = core->Int8GemmKernel;
+        gcore->int8MatmulRelatedFunctions.Int8GemmKernelFast = core->Int8GemmKernelFast;
+        gcore->int8MatmulRelatedFunctions.Int8GemmKernel_W4 = core->Int8GemmKernel_W4;
+        gcore->int8MatmulRelatedFunctions.MNNGetGemmUnit = core->MNNGetGemmUnit;
+        gcore->int8MatmulRelatedFunctions.MNNPackC4Int8ForMatMul_A = core->MNNPackC4Int8ForMatMul_A;
     }
 }
 
@@ -195,8 +208,8 @@ void MNNInt8ToInt16(int16_t* dest, const int8_t* source, size_t count) {
     _SSE_MNNInt8ToInt16(dest, source, count);
 }
 
-void MNNSoftmax(float* dest, const float* source, size_t size) {
-    gFunc.MNNSoftmax(dest, source, size);
+void MNNSoftmax(float* softmaxDst, const float* input, float* runningMax, float* runningSum, float* updateScale, int outside, int reduceSize, int kvSeqOffset, int validOffset, int pack, bool mask) {
+    gFunc.MNNSoftmax(softmaxDst, input, runningMax, runningSum, updateScale, outside, reduceSize, kvSeqOffset, validOffset, pack, mask);
 }
 
 void MNNNorm(float* dest, const float* source, const float *gamma, const float *beta, float epsilon, size_t size, bool RMSNorm) {

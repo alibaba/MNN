@@ -1,0 +1,109 @@
+package com.alibaba.mnnllm.android.chat.voice
+
+import android.app.Activity
+import android.media.AudioManager
+import com.alibaba.mnnllm.android.chat.ChatPresenter
+import com.alibaba.mnnllm.android.chat.GenerateResultProcessor
+import com.alibaba.mnnllm.android.llm.ChatSession
+import io.mockk.*
+import kotlinx.coroutines.*
+import org.junit.After
+import org.junit.Assert.*
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [28])
+class VoiceChatPresenterTest {
+    private lateinit var presenter: VoiceChatPresenter
+    private lateinit var mockActivity: Activity
+    private lateinit var mockView: VoiceChatView
+    private lateinit var mockChatPresenter: ChatPresenter
+    private lateinit var testScope: CoroutineScope
+    private lateinit var mockAudioManager: AudioManager
+
+    @Before
+    fun setUp() {
+        mockActivity = mockk(relaxed = true)
+        mockView = mockk(relaxed = true)
+        mockChatPresenter = mockk(relaxed = true)
+        testScope = CoroutineScope(Dispatchers.Unconfined + SupervisorJob())
+        mockAudioManager = mockk(relaxed = true)
+        every { mockActivity.getSystemService(Activity.AUDIO_SERVICE) } returns mockAudioManager
+        presenter = VoiceChatPresenter(mockActivity, mockView, mockChatPresenter, testScope)
+    }
+
+    @After
+    fun tearDown() {
+        testScope.cancel()
+    }
+
+    @Test
+    fun `test initial state`() {
+        assertEquals(VoiceChatPresenterState.INITIALIZING, presenter.getCurrentStatus())
+    }
+
+    @Test
+    fun `test start and stop lifecycle`() {
+        every { mockChatPresenter.addGenerateListener(any()) } just Runs
+        every { mockChatPresenter.removeGenerateListener(any()) } just Runs
+        presenter.start()
+        //Status will change to LISTENING after startup (async, need to wait)
+        runBlocking { delay(100) }
+        presenter.stop()
+        //After stopping, isStopped should be true, status no longer changes
+        assertTrue(presenter.getCurrentStatus() == VoiceChatPresenterState.INITIALIZING ||
+                   presenter.getCurrentStatus() == VoiceChatPresenterState.LISTENING)
+        verify { mockChatPresenter.addGenerateListener(presenter) }
+        verify { mockChatPresenter.removeGenerateListener(presenter) }
+    }
+
+    @Test
+    fun `test toggle speaker`() {
+        presenter.toggleSpeaker(true)
+        verify { mockAudioManager.isSpeakerphoneOn = true }
+        presenter.toggleSpeaker(false)
+        verify { mockAudioManager.isSpeakerphoneOn = false }
+    }
+
+    @Test
+    fun `test stopGeneration triggers state and view`() {
+        every { mockChatPresenter.stopGenerate() } just Runs
+        every { mockView.updateStatus(any()) } just Runs
+        presenter.stopGeneration()
+        runBlocking { delay(400) }
+        verify { mockView.updateStatus(VoiceChatState.STOPPING) }
+        verify { mockView.updateStatus(VoiceChatState.LISTENING) }
+    }
+
+    @Test
+    fun `test onLlmGenerateProgress triggers task channel`() {
+        val processor = mockk<GenerateResultProcessor>(relaxed = true)
+        every { mockView.addTranscript(any()) } just Runs
+        every { mockView.updateLastTranscript(any()) } just Runs
+        presenter.onLlmGenerateProgress("hello", processor)
+        runBlocking { delay(100) }
+        //As long as there's no exception, the process is reachable
+    }
+
+    @Test
+    fun `test onGenerateFinished triggers final chunk`() {
+        every { mockView.updateStatus(any()) } just Runs
+        presenter.onGenerateFinished(hashMapOf("response" to "ok"))
+        runBlocking { delay(100) }
+        //As long as there's no exception, the process is reachable
+    }
+
+    @Test
+    fun `test error handling in speakGreetingMessage`() {
+        //Simulate activity.getString throwing exception
+        every { mockActivity.getString(any()) } throws RuntimeException("test error")
+        every { mockView.updateStatus(any()) } just Runs
+        presenter.start()
+        runBlocking { delay(200) }
+        //As long as there's no crash, exceptions are handled
+    }
+} 

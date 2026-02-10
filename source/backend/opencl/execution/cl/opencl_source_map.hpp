@@ -16,7 +16,6 @@ extern const char* range_buf;
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 extern const char* self_attention_buf;
 #endif
-extern const char* performance;
 extern const char* winogradTransformSource2_3_1;
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 extern const char* gemv_conv1x1_buf;
@@ -90,6 +89,7 @@ extern const char* buffer_convert_quant;
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 extern const char* gemm_buf;
 #endif
+extern const char* conv_2d_int;
 extern const char* copy_buffer_to_image2d;
 extern const char* loop;
 #ifndef MNN_OPENCL_BUFFER_CLOSED
@@ -124,6 +124,7 @@ extern const char* pooling;
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 extern const char* conv_2d_buf;
 #endif
+extern const char* gemm_int;
 extern const char* buffer_to_image;
 extern const char* winogradTransformDest2_3_1;
 #ifndef MNN_OPENCL_BUFFER_CLOSED
@@ -131,9 +132,6 @@ extern const char* layernorm_buf;
 #endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 extern const char* softmax_buf;
-#endif
-#ifndef MNN_OPENCL_BUFFER_CLOSED
-extern const char* gather_buf;
 #endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP
@@ -158,9 +156,6 @@ extern const char* buffer_convert_buf;
 #endif
 extern const char* matmul;
 extern const char* binary;
-#ifndef MNN_OPENCL_BUFFER_CLOSED
-extern const char* loop_buf;
-#endif
 extern const char* roi_pooling;
 extern const char* depthwise_conv2d;
 extern const char* layernorm;
@@ -188,7 +183,6 @@ const std::map<std::string, const char*> OpenCLProgramMap =
 #ifndef MNN_OPENCL_BUFFER_CLOSED
   { "self_attention_buf", self_attention_buf },
 #endif
-  { "performance", performance },
   { "winogradTransformSource2_3_1", winogradTransformSource2_3_1 },
 #ifndef MNN_OPENCL_BUFFER_CLOSED
   { "gemv_conv1x1_buf", gemv_conv1x1_buf },
@@ -262,6 +256,7 @@ const std::map<std::string, const char*> OpenCLProgramMap =
 #ifndef MNN_OPENCL_BUFFER_CLOSED
   { "gemm_buf", gemm_buf },
 #endif
+  { "conv_2d_int", conv_2d_int },
   { "copy_buffer_to_image2d", copy_buffer_to_image2d },
   { "loop", loop },
 #ifndef MNN_OPENCL_BUFFER_CLOSED
@@ -296,6 +291,7 @@ const std::map<std::string, const char*> OpenCLProgramMap =
 #ifndef MNN_OPENCL_BUFFER_CLOSED
   { "conv_2d_buf", conv_2d_buf },
 #endif
+  { "gemm_int", gemm_int },
   { "buffer_to_image", buffer_to_image },
   { "winogradTransformDest2_3_1", winogradTransformDest2_3_1 },
 #ifndef MNN_OPENCL_BUFFER_CLOSED
@@ -303,9 +299,6 @@ const std::map<std::string, const char*> OpenCLProgramMap =
 #endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
   { "softmax_buf", softmax_buf },
-#endif
-#ifndef MNN_OPENCL_BUFFER_CLOSED
-  { "gather_buf", gather_buf },
 #endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP
@@ -330,9 +323,6 @@ const std::map<std::string, const char*> OpenCLProgramMap =
 #endif
   { "matmul", matmul },
   { "binary", binary },
-#ifndef MNN_OPENCL_BUFFER_CLOSED
-  { "loop_buf", loop_buf },
-#endif
   { "roi_pooling", roi_pooling },
   { "depthwise_conv2d", depthwise_conv2d },
   { "layernorm", layernorm },
@@ -346,3 +336,77 @@ const std::map<std::string, const char*> OpenCLProgramMap =
   { "reduction", reduction },
 };
 }
+const std::map<std::string, std::string> OpenCLProgramMd5Map = 
+ { 
+  { "conv_2d", "0048eb0c6a571925e6f3e1bd1d314d09" },
+  { "deconv_2d", "287f563ddb48cfa1f282f50ce1bb34c2" },
+  { "unary", "e122f5aca36a2e46e4b6d180c0754a34" },
+  { "grid_sample_buf", "8b4bd3d6f9154b6dc6fafac3fce1c11e" },
+  { "interp", "e549db5550b01a0bf984151d306cab9a" },
+  { "select", "34f95349775e0610d5e6d16ae0047797" },
+  { "range_buf", "427ab3d6f9ad0cafd08a0b08264df779" },
+  { "self_attention_buf", "653a99a0693d9173084de43e577f9cfd" },
+  { "winogradTransformSource2_3_1", "5cae94a94c822b4b6f82e238ab518f4a" },
+  { "gemv_conv1x1_buf", "c345830afdfa6154633950e4a7f9e60e" },
+  { "raster", "0cf8ee1f7927d0027ce0f07ad564266e" },
+  { "conv_2d_c1_subgroup_buf", "04a28a410c79fa6917827d16e189f322" },
+  { "matmul_local_buf", "2497e20b734f5b77d021524648437b75" },
+  { "conv_2d_int_buf", "6903dc7ca47d116549ac2b7c4bbf4587" },
+  { "interp_buf", "2e5ff1b5184be705580ab6a221864a0c" },
+  { "scale", "95773334e603db663c594945a064b9cc" },
+  { "softmax", "aaa633bb6dd2c40f4379d09d754b5adc" },
+  { "binary_buf", "6c5ee786c70aa485d9b49368517296e3" },
+  { "raster_buf", "7e9c4013c436cc929c8e1b4d69cf1bd4" },
+  { "binary_subgroup_buf", "8444f988543cd4a4d9b124442f02f999" },
+  { "depthwise_conv2d_subgroup_buf", "3e37457e72b7e629655aa04bd03e559e" },
+  { "nearest", "e8b2081c5e50ae6d370989f816cda543" },
+  { "pooling_subgroup_buf", "9c935c0caabe2ee20822fcfd7722472e" },
+  { "pooling_buf", "806c95095431e361be2af7f4e9eae65e" },
+  { "winogradTransformSource2_5_1", "f0ee12556faf4fe0222e2a4e64c53c5c" },
+  { "unary_buf", "bfa4bab8f0cf486ae77eb27193f03b9a" },
+  { "depthwise_conv2d_buf", "d1c201a09afccebe794d50027acabdc1" },
+  { "glmem_convert", "ee4866b2d889824e48d58fa3a78795d4" },
+  { "winogradTransform_buf", "efa5fda527fce5820ba48b90a4707fa7" },
+  { "winogradTransform_subgroup_buf", "904f2a0f1a062378418c6c90133ed5e0" },
+  { "splitgelu_buf", "86d5b31ea14330d2b99273e4e868bd35" },
+  { "select_buf", "1516b3f3c52ba8e8a0a5cd7f03ea86f2" },
+  { "grid_sample", "0e08897ea35a57c04b834b2a83be8383" },
+  { "buffer_convert_quant", "ce4ac18b78e746f7ed338f35e5237dbd" },
+  { "gemm_buf", "b030b6eacaf65a54e8eabee2755f892a" },
+  { "conv_2d_int", "985925b9f24d85fa38df2df9b01fafc5" },
+  { "copy_buffer_to_image2d", "a72ed287711f9bb78a2cfa9726a1fa92" },
+  { "loop", "4849a55cd99f0ebab72a10527455341f" },
+  { "argmax_buf", "ae4a1ae3461b2758609022ac7569b11b" },
+  { "buffer_convert_subgroup_buf", "d968b717e537464a7fa08e742c9a0319" },
+  { "attention_buf", "7d05b22865927ca19dae5762ba6f1df9" },
+  { "groupnorm_buf", "7f4b041b77ba98165ab624d94444f327" },
+  { "unary_subgroup_buf", "31e3768f899da6da45084f617b13c282" },
+  { "gemm", "5729018147348682e02762ed5ec14d0c" },
+  { "depthwise_deconv2d", "810f69205dede9b38e4858aad621fa71" },
+  { "range", "97feaf25d837a325382c162ad77ae0ca" },
+  { "scale_buf", "9176b8e86fd4d326e7fa14640ce13b48" },
+  { "matmul_buf", "b66faece7f0591d49c289e5227d9f680" },
+  { "pooling", "900d1388836badea36a7e06ad7763b0d" },
+  { "conv_2d_buf", "2faa0378ab0d702419a92ecc2073851a" },
+  { "gemm_int", "41770c2a12943f8fbdbfe259889ddf2d" },
+  { "buffer_to_image", "bad95040692206db84b5a1bcc0b6f248" },
+  { "winogradTransformDest2_3_1", "f2aaa52d652565e70a44868d4f6028e9" },
+  { "layernorm_buf", "5f6b88b29da72f51bdc85064b5663bb2" },
+  { "softmax_buf", "12052d403f3fa0cdfea2559296e88e6c" },
+  { "conv_2d_c16_subgroup_buf", "81f9027f323b6890d08d49dab10a15e4" },
+  { "input_transe_buf", "c80482cd531add8582edc242bcbfa947" },
+  { "reduction_buf", "c16506adcebf7760a1a3c96ce0d386ee" },
+  { "strassen_binary_buf", "1ec57b4f87beb05457f6ef00de593d9d" },
+  { "matmul_params_buf", "34fba2156345dcdb8fb07a4081a92fd1" },
+  { "cast", "129055345fd1d576eb398635c81701ab" },
+  { "buffer_convert_buf", "e633544642a1a9a61755c913cfe77017" },
+  { "matmul", "a3e51ece4be2eb0f28266718b313c24e" },
+  { "binary", "5683a6a6fd24660f0d05a70938fa6a62" },
+  { "roi_pooling", "ba4a81b7ec7058d14afb377c18674a76" },
+  { "depthwise_conv2d", "a23dd590e0bdcdd60987e8bab5ed529f" },
+  { "layernorm", "bd457b4bd4f3c57818bc17e073b09e74" },
+  { "gemm_conv1x1_buf", "5f8fd2f6e8278a2e003825a001b733ac" },
+  { "winogradTransformDest2_5_1", "4f3d0d6b3e0ee7f0bff97acfbbdf653f" },
+  { "cast_buf", "f39e5c1ca2fa4b39eac2af1c7934ba85" },
+  { "reduction", "222cc3d09d2d5f2e0db4679a17aa8628" },
+};

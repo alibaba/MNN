@@ -372,7 +372,7 @@ __kernel void rearrange_k(GLOBAL_SIZE_3_DIMS
     vstore4((FLOAT4)(key_vec0.s3, key_vec1.s3, key_vec2.s3, key_vec3.s3), 0, past_key + output_offset + max_len + max_len + max_len);
 #else
     FLOAT4 key_vec = vload4(0, key + (b * kv_head_num + z) * head_dim + y4);
-    const int output_offset = ((b * kv_head_num + z) * head_dim + y4) * max_len + past_len - 1;
+    const int output_offset = ((b * kv_head_num + z) * head_dim + y4) * max_len + past_len;
     past_key[output_offset] = key_vec.s0;
     past_key[output_offset + max_len] = key_vec.s1;
     past_key[output_offset + max_len + max_len] = key_vec.s2;
@@ -413,9 +413,77 @@ __kernel void rearrange_v(GLOBAL_SIZE_3_DIMS
     vstore4(value_vec3, 0, past_value + output_offset + head_dim + head_dim + head_dim);
 #else
     FLOAT4 value_vec = vload4(0, value + (b * kv_head_num + z) * head_dim + x4);
-    const int output_offset = ((b * kv_head_num + z) * max_len + past_len - 1) * head_dim + x4;
+    const int output_offset = ((b * kv_head_num + z) * max_len + past_len) * head_dim + x4;
     vstore4(value_vec, 0, past_value + output_offset);
 #endif
+}
+
+__kernel void rearrange_mask_shortprefill(GLOBAL_SIZE_3_DIMS
+                                #ifdef ADD_MASK
+                                __global const FLOAT* mask,
+                                __global FLOAT* maskout,
+                                #else
+                                __global const int* mask, // [1 1 query_seq_len mask_key_seq_len4]
+                                __global int* maskout, // [1 1 mask_key_seq_len4 query_seq_len4]
+                                #endif
+                                __private const int query_seq_len,
+                                __private const int mask_key_seq_len){
+    const int x = get_global_id(0); // query_seq_len4
+    const int y = get_global_id(1); // mask_key_seq_len4
+    const int z = get_global_id(2); // batch
+    DEAL_NON_UNIFORM_DIM3(x, y, z);
+    
+    const int x4 = x << 2;
+    const int y4 = y << 2;
+    float4 mask_tmp0, mask_tmp1, mask_tmp2, mask_tmp3;
+    float4 mask0, mask1, mask2, mask3;
+    int mask_offset = x4 * mask_key_seq_len + y4;
+    if(x4 + 3 < query_seq_len && y4 + 3 < mask_key_seq_len){
+        mask_tmp0 = convert_float4(vload4(0, mask + mask_offset)); mask_offset += mask_key_seq_len;
+        mask_tmp1 = convert_float4(vload4(0, mask + mask_offset)); mask_offset += mask_key_seq_len;
+        mask_tmp2 = convert_float4(vload4(0, mask + mask_offset)); mask_offset += mask_key_seq_len;
+        mask_tmp3 = convert_float4(vload4(0, mask + mask_offset));
+    } else{
+        if(y4 + 3 < mask_key_seq_len){
+            mask_tmp0 = convert_float4(vload4(0, mask + mask_offset)); mask_offset += mask_key_seq_len;
+            mask_tmp1 = (x4 + 1 >= query_seq_len) ? (float4)0 : convert_float4(vload4(0, mask + mask_offset)); mask_offset += mask_key_seq_len;
+            mask_tmp2 = (x4 + 2 >= query_seq_len) ? (float4)0 : convert_float4(vload4(0, mask + mask_offset)); mask_offset += mask_key_seq_len;
+            mask_tmp3 = (x4 + 3 >= query_seq_len) ? (float4)0 : convert_float4(vload4(0, mask + mask_offset));
+        } else if(y4 + 1 == mask_key_seq_len){
+            mask_tmp0 = (float4)(mask[mask_offset], 0, 0, 0); mask_offset += mask_key_seq_len;
+            mask_tmp1 = (x4 + 1 >= query_seq_len) ? (float4)0 : (float4)(mask[mask_offset], 0, 0, 0); mask_offset += mask_key_seq_len;
+            mask_tmp2 = (x4 + 2 >= query_seq_len) ? (float4)0 : (float4)(mask[mask_offset], 0, 0, 0); mask_offset += mask_key_seq_len;
+            mask_tmp3 = (x4 + 3 >= query_seq_len) ? (float4)0 : (float4)(mask[mask_offset], 0, 0, 0);
+        }else if(y4 + 2 == mask_key_seq_len){
+            mask_tmp0 = (float4)(mask[mask_offset], mask[mask_offset + 1], 0, 0); mask_offset += mask_key_seq_len;
+            mask_tmp1 = (x4 + 1 >= query_seq_len) ? (float4)0 : (float4)(mask[mask_offset], mask[mask_offset + 1], 0, 0); mask_offset += mask_key_seq_len;
+            mask_tmp2 = (x4 + 2 >= query_seq_len) ? (float4)0 : (float4)(mask[mask_offset], mask[mask_offset + 1], 0, 0); mask_offset += mask_key_seq_len;
+            mask_tmp3 = (x4 + 3 >= query_seq_len) ? (float4)0 : (float4)(mask[mask_offset], mask[mask_offset + 1], 0, 0);
+        }else if(y4 + 3 == mask_key_seq_len){
+            mask_tmp0 = (float4)(mask[mask_offset], mask[mask_offset + 1], mask[mask_offset + 2], 0); mask_offset += mask_key_seq_len;
+            mask_tmp1 = (x4 + 1 >= query_seq_len) ? (float4)0 : (float4)(mask[mask_offset], mask[mask_offset + 1], mask[mask_offset + 2], 0); mask_offset += mask_key_seq_len;
+            mask_tmp2 = (x4 + 2 >= query_seq_len) ? (float4)0 : (float4)(mask[mask_offset], mask[mask_offset + 1], mask[mask_offset + 2], 0); mask_offset += mask_key_seq_len;
+            mask_tmp3 = (x4 + 3 >= query_seq_len) ? (float4)0 : (float4)(mask[mask_offset], mask[mask_offset + 1], mask[mask_offset + 2], 0);
+        }
+    }
+    mask0 = (float4)(mask_tmp0.s0, mask_tmp1.s0, mask_tmp2.s0, mask_tmp3.s0);
+    mask1 = (float4)(mask_tmp0.s1, mask_tmp1.s1, mask_tmp2.s1, mask_tmp3.s1);
+    mask2 = (float4)(mask_tmp0.s2, mask_tmp1.s2, mask_tmp2.s2, mask_tmp3.s2);
+    mask3 = (float4)(mask_tmp0.s3, mask_tmp1.s3, mask_tmp2.s3, mask_tmp3.s3);
+    
+    int query_seq_len4 = ((query_seq_len + 3) / 4) * 4;
+    int output_offset = y4 * query_seq_len4 + x4;
+    #ifdef ADD_MASK
+    vstore4(CONVERT_FLOAT4(mask0), 0, maskout + output_offset);
+    vstore4(CONVERT_FLOAT4(mask1), 0, maskout + output_offset + query_seq_len4);
+    vstore4(CONVERT_FLOAT4(mask2), 0, maskout + output_offset + query_seq_len4 + query_seq_len4);
+    vstore4(CONVERT_FLOAT4(mask3), 0, maskout + output_offset + query_seq_len4 + query_seq_len4 + query_seq_len4);
+    #else
+    vstore4(convert_int4(mask0), 0, maskout + output_offset);
+    vstore4(convert_int4(mask1), 0, maskout + output_offset + query_seq_len4);
+    vstore4(convert_int4(mask2), 0, maskout + output_offset + query_seq_len4 + query_seq_len4);
+    vstore4(convert_int4(mask3), 0, maskout + output_offset + query_seq_len4 + query_seq_len4 + query_seq_len4);
+    #endif
 }
 
 __kernel void matmul_qk_div_mask_prefill(GLOBAL_SIZE_3_DIMS
@@ -424,11 +492,12 @@ __kernel void matmul_qk_div_mask_prefill(GLOBAL_SIZE_3_DIMS
                               #ifdef ADD_MASK
                               __global const FLOAT* mask,
                               #elif defined(SET_MASK)
-                              __global const int* mask, // [1 1 query_seq_len key_seq_len]
+                              __global const int* mask, // [1 1 query_seq_len mask_key_seq_len]
                               #endif
                               __global FLOAT *qk, // [batch head_num kv_seq_length query_seq_len_4]
                               __private const float scale,
                               __private const int query_seq_len,
+                              __private const int mask_key_seq_len,
                               __private const int key_seq_len,
                               __private const int max_len,
                               __private const int head_num,
@@ -485,15 +554,13 @@ __kernel void matmul_qk_div_mask_prefill(GLOBAL_SIZE_3_DIMS
     out3 *= (float4)scale;
     {
         #if defined(ADD_MASK) || defined(SET_MASK)
-        int mask_offset = x4 * key_seq_len + y4;
-        float4 mask_tmp0 = convert_float4(vload4(0, mask + mask_offset)); mask_offset += key_seq_len;
-        float4 mask_tmp1 = (x4 + 1 >= query_seq_len) ? (float4)0 : convert_float4(vload4(0, mask + mask_offset)); mask_offset += key_seq_len;
-        float4 mask_tmp2 = (x4 + 2 >= query_seq_len) ? (float4)0 : convert_float4(vload4(0, mask + mask_offset)); mask_offset += key_seq_len;
-        float4 mask_tmp3 = (x4 + 3 >= query_seq_len) ? (float4)0 : convert_float4(vload4(0, mask + mask_offset));
-        float4 mask0 = (float4)(mask_tmp0.s0, mask_tmp1.s0, mask_tmp2.s0, mask_tmp3.s0);
-        float4 mask1 = (float4)(mask_tmp0.s1, mask_tmp1.s1, mask_tmp2.s1, mask_tmp3.s1);
-        float4 mask2 = (float4)(mask_tmp0.s2, mask_tmp1.s2, mask_tmp2.s2, mask_tmp3.s2);
-        float4 mask3 = (float4)(mask_tmp0.s3, mask_tmp1.s3, mask_tmp2.s3, mask_tmp3.s3);
+        int query_seq_len4 = ((query_seq_len + 3) / 4) * 4;
+        int mask_clp = y4 + mask_key_seq_len - key_seq_len;
+        int mask_offset = mask_clp * query_seq_len4 + x4;
+        float4 mask0 = mask_clp >= 0 && mask_clp < mask_key_seq_len ? convert_float4(vload4(0, mask + mask_offset)) : 0; mask_offset += query_seq_len4;
+        float4 mask1 = mask_clp + 1 >= 0 && mask_clp + 1 < mask_key_seq_len? convert_float4(vload4(0, mask + mask_offset)) : 0; mask_offset += query_seq_len4;
+        float4 mask2 = mask_clp + 2 >= 0 && mask_clp + 2 < mask_key_seq_len? convert_float4(vload4(0, mask + mask_offset)) : 0; mask_offset += query_seq_len4;
+        float4 mask3 = mask_clp + 3 >= 0 && mask_clp + 3 < mask_key_seq_len? convert_float4(vload4(0, mask + mask_offset)) : 0;
         #endif
         
         #ifdef ADD_MASK

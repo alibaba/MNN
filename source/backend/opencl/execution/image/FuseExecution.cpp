@@ -7,6 +7,7 @@
 //
 
 #include "backend/opencl/execution/image/FuseExecution.hpp"
+#include "backend/opencl/execution/image/ConvExecution.hpp"
 #include "core/Macro.h"
 #include "backend/opencl/core/OpenCLRunningUtils.hpp"
 
@@ -62,7 +63,7 @@ ErrorCode FuseExecution::onEncode(const std::vector<Tensor *> &inputs, const std
     ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[2]);
     MNN_CHECK_CL_SUCCESS(ret, "setArg FuseExecution");
 
-    mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), mKernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+    mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), mKernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel(), "Fuse").first;
     mOpenCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
     unit.localWorkSize = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};
@@ -73,6 +74,10 @@ class FuseCreator : public OpenCLBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
+        auto param = op->main_as_Extra();
+        if(param->type()->str() == "ExtraConvolution2DPrelu"){
+            return new ConvExecution(inputs, outputs, op, backend, true);
+        }
         return new FuseExecution(inputs, backend, op);
     }
 };

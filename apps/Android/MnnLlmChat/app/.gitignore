@@ -1,1 +1,5 @@
 /build
+
+# Native libraries (downloaded at build time)
+src/main/jniLibs/arm64-v8a/libsherpa-mnn-jni.so
+src/main/jniLibs/arm64-v8a/libsherpa-mnn-jni.zip

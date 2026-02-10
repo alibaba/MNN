@@ -1,0 +1,35 @@
+# Release Configuration Example
+# Copy this file to release.config and fill in your actual values
+
+# Signing Configuration (Required for Google Play releases)
+# Path to your keystore file
+KEYSTORE_FILE=/path/to/your/keystore.jks
+
+# Keystore password
+KEYSTORE_PASSWORD=your_keystore_password
+
+# Key alias
+KEY_ALIAS=your_key_alias
+
+# Key password
+KEY_PASSWORD=your_key_password
+
+# CDN Configuration (Required for CDN uploads)
+# Aliyun OSS endpoint (e.g., https://oss-cn-hangzhou.aliyuncs.com)
+CDN_ENDPOINT=https://oss-cn-hangzhou.aliyuncs.com
+
+# Aliyun OSS access key ID
+CDN_ACCESS_KEY=your_access_key_id
+
+# Aliyun OSS access key secret
+CDN_SECRET_KEY=your_access_key_secret
+
+# Aliyun OSS bucket name
+CDN_BUCKET=your_bucket_name
+
+# Google Play Configuration (Required for Google Play uploads)
+# Path to Google Play service account JSON file
+GOOGLE_PLAY_SERVICE_ACCOUNT=/path/to/your/service-account.json
+
+# Google Play package name (should match your app's package name)
+GOOGLE_PLAY_PACKAGE_NAME=com.alibaba.mnnllm.android.googleplay 

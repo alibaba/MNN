@@ -130,7 +130,7 @@ ErrorCode RasterExecution::onEncode(const std::vector<Tensor *> &____inputs, con
                 MNN_PRINT("setArg err %d\n", (int)ret);
             }
             std::string name = "rasterImage";
-            const std::vector<uint32_t> lws = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+            const std::vector<uint32_t> lws = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel(), "raster").first;
             
             unit.localWorkSize = {lws[0], lws[1], lws[2]};
             
@@ -196,7 +196,7 @@ ErrorCode RasterExecution::onEncode(const std::vector<Tensor *> &____inputs, con
         uint32_t mMaxWorkGroupSize      = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
         
         std::string kernelName = "raster_buffer_set_zero";
-        std::vector<uint32_t> lws = localWS2DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+        std::vector<uint32_t> lws = localWS2DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel(), "raster").first;
 
         unit.localWorkSize = {lws[0], lws[1]};
         unit.globalWorkSize = {ROUND_UP(gws[0], std::max((uint32_t)1, lws[0])),
@@ -243,7 +243,7 @@ ErrorCode RasterExecution::onEncode(const std::vector<Tensor *> &____inputs, con
         uint32_t mMaxWorkGroupSize      = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
         
         std::string kernelName = "raster_image_to_buffer";
-        std::vector<uint32_t> lws = localWS2DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+        std::vector<uint32_t> lws = localWS2DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel(), "buffer_to_image").first;
 
         unit.localWorkSize = {lws[0], lws[1]};
         unit.globalWorkSize = {ROUND_UP(gws[0], std::max((uint32_t)1, lws[0])),
@@ -295,7 +295,7 @@ ErrorCode RasterExecution::onEncode(const std::vector<Tensor *> &____inputs, con
         }
         
         std::string name = "rasterBuffer";
-        const std::vector<uint32_t> lws = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+        const std::vector<uint32_t> lws = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel(), "raster").first;
         
         unit.localWorkSize = {lws[0], lws[1], lws[2]};
         
@@ -339,7 +339,7 @@ ErrorCode RasterExecution::onEncode(const std::vector<Tensor *> &____inputs, con
             }
             
             std::string name = "rasterBuffer";
-            const std::vector<uint32_t> lws = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+            const std::vector<uint32_t> lws = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel(), "raster").first;
             
             unit.localWorkSize = {lws[0], lws[1], lws[2]};
             
@@ -385,7 +385,7 @@ ErrorCode RasterExecution::onEncode(const std::vector<Tensor *> &____inputs, con
         uint32_t mMaxWorkGroupSize      = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
         
         std::string kernelName = "raster_buffer_to_image";
-        std::vector<uint32_t> lws = localWS2DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+        std::vector<uint32_t> lws = localWS2DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel(), "buffer_to_image").first;
 
         unit.localWorkSize = {lws[0], lws[1]};
         unit.globalWorkSize = {ROUND_UP(gws[0], std::max((uint32_t)1, lws[0])),

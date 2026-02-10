@@ -117,7 +117,7 @@ static inline uint64_t getTimeInUs() {
 }
 
 std::vector<float> doBench(Model& model, int loop, int warmup = 10, int forward = MNN_FORWARD_CPU, bool only_inference = true,
-                           int numberThread = 4, int precision = 2, float sparsity = 0.0f, int sparseBlockOC = 1, bool testQuantModel=false) {
+                           int numberThread = 4, int precision = 2, float sparsity = 0.0f, int sparseBlockOC = 1, bool testQuantModel=false, bool enableKleidiAI=false) {
     auto revertor = std::unique_ptr<Revert>(new Revert(model.model_file.c_str()));
     if (testQuantModel) {
         revertor->initialize(0, sparseBlockOC, false, true);
@@ -130,6 +130,7 @@ std::vector<float> doBench(Model& model, int loop, int warmup = 10, int forward 
     auto net = std::shared_ptr<MNN::Interpreter>(MNN::Interpreter::createFromBuffer(modelBuffer, bufferSize), MNN::Interpreter::destroy);
     revertor.reset();
     net->setSessionMode(MNN::Interpreter::Session_Release);
+    net->setSessionHint(MNN::Interpreter::HintMode::CPU_ENABLE_KLEIDIAI, enableKleidiAI);
     MNN::ScheduleConfig config;
     config.numThread = numberThread;
     config.type      = static_cast<MNNForwardType>(forward);
@@ -392,8 +393,9 @@ int main(int argc, const char* argv[]) {
     int precision = 2;
     float sparsity = 0.0f;
     int sparseBlockOC = 1;
+    bool enableKleidiAI = false;
     if (argc <= 2) {
-        std::cout << "Usage: " << argv[0] << " models_folder [loop_count] [warmup] [forwardtype] [numberThread] [precision] [weightSparsity] [testQuantizedModel]" << std::endl;
+        std::cout << "Usage: " << argv[0] << " models_folder [loop_count] [warmup] [forwardtype] [numberThread] [precision] [weightSparsity] [testQuantizedModel] [enableKleidiAI]" << std::endl;
         return 1;
     }
     if (argc >= 3) {
@@ -420,8 +422,11 @@ int main(int argc, const char* argv[]) {
     if(argc >= 10) {
         testQuantizedModel = atoi(argv[9]);
     }
+    if (argc >= 11) {
+        enableKleidiAI = atoi(argv[10]) > 0 ? true : false;
+    }
 
-    std::cout << "Forward type: " << forwardType(forward) << " thread=" << numberThread << " precision=" <<precision << " sparsity=" <<sparsity << " sparseBlockOC=" << sparseBlockOC << " testQuantizedModel=" << testQuantizedModel << std::endl;
+    std::cout << "Forward type: " << forwardType(forward) << " thread=" << numberThread << " precision=" <<precision << " sparsity=" <<sparsity << " sparseBlockOC=" << sparseBlockOC << " testQuantizedModel=" << testQuantizedModel << " enableKleidiAI=" << enableKleidiAI << std::endl;
     std::vector<Model> models = findModelFiles(argv[1]);
 
     std::cout << "--------> Benchmarking... loop = " << argv[2] << ", warmup = " << warmup << std::endl;
@@ -441,10 +446,10 @@ int main(int argc, const char* argv[]) {
     }
 
     for (auto& m : models) {
-        std::vector<float> costs = doBench(m, loop, warmup, forward, false, numberThread, precision, sparsity, sparseBlockOC, false);
+        std::vector<float> costs = doBench(m, loop, warmup, forward, false, numberThread, precision, sparsity, sparseBlockOC, false, enableKleidiAI);
         displayStats(m.name.c_str(), costs, false);
         if (testQuantizedModel) {
-            costs = doBench(m, loop, warmup, forward, false, numberThread, precision, sparsity, sparseBlockOC, true);
+            costs = doBench(m, loop, warmup, forward, false, numberThread, precision, sparsity, sparseBlockOC, true, enableKleidiAI);
             displayStats(m.name, costs, 1);
         }
     }

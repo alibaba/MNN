@@ -460,7 +460,7 @@ void GeometryComputerUtils::makeRaster(const CommandBuffer& srcBuffer, CommandBu
 std::shared_ptr<Command> GeometryComputerUtils::makeBinary(int type, Tensor* input0, Tensor* input1, Tensor* output) {
     flatbuffers::FlatBufferBuilder builder(DEFAULT_ALLOCATE_SIZE);
     BinaryOpBuilder builder_(builder);
-    builder_.add_opType(type);
+    builder_.add_opType((BinaryOpOperation)type);
     auto mainOffset = builder_.Finish().Union();
     OpBuilder opB(builder);
     opB.add_type(OpType_BinaryOp);
@@ -477,9 +477,9 @@ std::shared_ptr<Command> GeometryComputerUtils::makeBinary(int type, Tensor* inp
     return cmdP;
 }
 
-std::shared_ptr<Command> GeometryComputerUtils::makeReduce(ReductionType type, Tensor* input0, Tensor* output) {
+std::shared_ptr<Command> GeometryComputerUtils::makeReduce(ReductionType type, Tensor* input0, Tensor* output, int axis) {
     flatbuffers::FlatBufferBuilder builder(DEFAULT_ALLOCATE_SIZE);
-    auto vec = builder.CreateVector(std::vector<int>{1});
+    auto vec = builder.CreateVector(std::vector<int>{axis});
     ReductionParamBuilder builder_(builder);
     builder_.add_operation(type);
     builder_.add_keepDims(true);

@@ -13,6 +13,7 @@ class MomentsComputer : public SizeComputer {
 public:
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
+#ifdef MNN_SUPPORT_DEPRECATED_OP
         MNN_ASSERT(1 == inputs.size());
         MNN_ASSERT(2 == outputs.size());
 
@@ -52,7 +53,7 @@ public:
         }
         TensorUtils::getDescribe(mean)->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
         TensorUtils::getDescribe(variance)->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
-
+#endif
         return true;
     }
 };

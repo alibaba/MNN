@@ -53,13 +53,16 @@ bool AVX2Functions::init(int cpuFlags) {
 #ifdef MNN_LOW_MEMORY
     coreFunction->MNNAbsMax = _AVX_MNNAbsMaxFP32;
     coreFunction->MNNDynamicQuant = _AVX_MNNDynamicQuant;
+    coreFunction->MNNAsyQuantFunc = _AVX_MNNAsyQuantFunc;
+    coreFunction->MNNAsyQuantInfo = _AVX_MNNAsyQuantInfo;
 #endif
     coreFunction->MNNPackC4ForMatMul_A  = _AVX_MNNPackC4ForMatMul_A;
     coreFunction->MNNPackForMatMul_B    = _AVX_MNNPackForMatMul_B;
     coreFunction->MNNComputeMatMulForE_1 = _AVX_MNNComputeMatMulForE_1;
     coreFunction->MNNComputeMatMulForH_1 = _AVX_MNNComputeMatMulForH_1;
     // Dynamic Quant
-    coreFunction->MNNCountMaxMinValue = _AVX_MNNComputeScaleZeroScalar;
+    coreFunction->MNNCountMaxMinValue = _AVX_MNNCountMinMaxValue;
+    coreFunction->MNNSoftmax = _AVX_MNNSoftmax;
 
     // For Packed Functions
     coreFunction->pack = 8;
@@ -102,6 +105,14 @@ bool AVX2Functions::init(int cpuFlags) {
             sizeof(MNN::CoreFunctions::MNNPackedMatMulKernel) * AVX512_INPUT_TILE_MAX);
     }
 #endif
+    {
+        coreFunction->int8MatmulRelatedFunctions.Int8GemmKernel = gAVX2CoreInt8Functions->Int8GemmKernel;
+        coreFunction->int8MatmulRelatedFunctions.Int8GemmKernelFast = gAVX2CoreInt8Functions->Int8GemmKernelFast;
+        coreFunction->int8MatmulRelatedFunctions.Int8GemmKernel_W4 = gAVX2CoreInt8Functions->Int8GemmKernel_W4;
+        coreFunction->int8MatmulRelatedFunctions.MNNGetGemmUnit = gAVX2CoreInt8Functions->MNNGetGemmUnit;
+        coreFunction->int8MatmulRelatedFunctions.MNNPackC4Int8ForMatMul_A = gAVX2CoreInt8Functions->MNNPackC4Int8ForMatMul_A;
+        coreFunction->int8MatmulRelatedFunctions.eP = 4;
+    }
     return true;
 }
 #endif

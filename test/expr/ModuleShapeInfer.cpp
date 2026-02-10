@@ -2,6 +2,7 @@
 #include <MNN/expr/ExprCreator.hpp>
 #include <MNN/expr/Module.hpp>
 #include "MNNTestSuite.h"
+#include "TestUtils.h"
 using namespace MNN;
 using namespace MNN::Express;
 
@@ -15,6 +16,8 @@ public:
         return summer;
     }
     virtual bool run(int precision) {
+        auto executor = cloneCurrentExecutor();
+        ExecutorScope scope(executor);
         std::vector<VARP> empty;
         // Make Net
         auto x = _Input({1, 3, 2, 2}, NCHW, halide_type_of<float>());
@@ -105,4 +108,56 @@ public:
         return true;
     }
 };
+
+class VariableSaveLoad: public MNNTestCase { // Verify the order of load is the same as the order of save
+public:
+    virtual bool run(int precision) {
+        std::vector<MNN::Express::VARP> vars;
+        std::vector<int32_t> contents(4);
+        std::string file = "file.txt";
+        contents[0] = 0;
+        contents[1] = 1;
+        contents[2] = 2;
+        contents[3] = 3;
+
+        for (auto number: contents) {
+            auto var = MNN::Express::_Const(&number, {1}, MNN::Express::NHWC, halide_type_of<int32_t>());
+            if (var->getInfo() == nullptr) {
+                MNN_PRINT("error\n");
+                return false;
+            }
+            vars.emplace_back(var);
+        }
+
+        MNN::Express::Variable::save(vars, file.c_str());
+
+        auto readVars = MNN::Express::Variable::load(file.c_str());
+        std::vector<int32_t> readContents;
+        for (auto var_: readVars) {
+            auto var_ptr = var_->getInfo();
+            if (var_ptr == nullptr) {
+                MNN_PRINT("error\n");
+                return false;
+            }
+            readContents.push_back(var_->readMap<int32_t>()[0]);
+        }
+        for (int i = 0; i < 4; ++i) {
+            if (readContents[i] != contents[i]) {
+                MNN_PRINT("error %d: read %d, expect %d\n", i, readContents[i], contents[i]);
+                return false;
+            }
+        }
+
+        int result = std::remove(file.c_str());
+        if (result == 0) {
+            MNN_PRINT("delete file success\n");
+            return true;
+        } else {
+            MNN_PRINT("delete file failed\n");
+            return false;
+        }
+        return true;
+    }
+};
 MNNTestSuiteRegister(ModuleShapeInfer, "expr/ModuleShapeInfer");
+MNNTestSuiteRegister(VariableSaveLoad, "variable/saveLoad");

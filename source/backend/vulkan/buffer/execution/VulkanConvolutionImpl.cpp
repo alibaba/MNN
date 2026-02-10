@@ -38,18 +38,33 @@ public:
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                                                 VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
-        auto macro = getPostTreatMacro(convOption);
-        mSlideWindow = vkBn->getPipeline("glsl_convolution_" + macro + "comp", convTypes);
+        std::string pKey = "glsl_convolution_";
+        pKey += getPostTreatMacro(convOption);
+        if (vkBn->useFP16()) {
+            pKey += "FP16_";
+        }
+        pKey += "comp";
+        mSlideWindow = vkBn->getPipeline(pKey, convTypes);
         mConvSet.reset(mSlideWindow->createSet());
         auto common = convOption;
         auto extra = vkBn;
-        mBias = std::make_shared<VulkanBuffer>(extra->getMemoryPool(), false, sizeof(float) * ALIGN_UP4(common->outputCount()));
-        auto bias = mBias->map();
-        ::memset(bias, 0, ALIGN_UP4(common->outputCount()) * sizeof(float));
-        if (nullptr != biasPtr) {
-            ::memcpy(bias, biasPtr, common->outputCount() * sizeof(float));
+        {
+            size_t elementSize = sizeof(float);
+            if (vkBn->useFP16()) {
+                elementSize = sizeof(int16_t);
+            }
+            mBias = std::make_shared<VulkanBuffer>(extra->getMemoryPool(), false, elementSize * ALIGN_UP4(common->outputCount()));
+            auto bias = mBias->map();
+            ::memset(bias, 0, ALIGN_UP4(common->outputCount()) * elementSize);
+            if (nullptr != biasPtr) {
+                if (vkBn->useFP16()) {
+                    FLOAT_TO_HALF(biasPtr, (int16_t*)bias, common->outputCount());
+                } else {
+                    ::memcpy(bias, biasPtr, common->outputCount() * sizeof(float));
+                }
+            }
+            mBias->unmap();
         }
-        mBias->unmap();
         int ciC4 = UP_DIV(ci, 4);
         int coC4 = UP_DIV(co, 4);
         int kernelSize = common->kernelY() * common->kernelX();
@@ -92,15 +107,27 @@ public:
             if (!res) {
                 return;
             }
-            std::shared_ptr<Tensor> sourceWeight(Tensor::createDevice<float>({ci * co * kernelSize}));
-            res = vkBn->onAcquireBuffer(sourceWeight.get(), Backend::STATIC);
-            if (!res) {
-                return;
+            std::shared_ptr<Tensor> sourceWeight;
+            std::shared_ptr<VulkanBuffer> sourceBuffer;
+            int totalWeightSize = ci * co * kernelSize;
+            sourceWeight.reset(Tensor::createDevice<float>({totalWeightSize}));
+            if (vkBn->useFP16()) {
+                sourceBuffer = vkBn->createHostBuffer(totalWeightSize * sizeof(int16_t));
+                if (nullptr == sourceBuffer.get()) {
+                    return;
+                }
+                FLOAT_TO_HALF(weightPtr, (int16_t*)sourceBuffer->map(), totalWeightSize);
+            } else {
+                sourceBuffer = vkBn->createHostBuffer(totalWeightSize * sizeof(float));
+                if (nullptr == sourceBuffer.get()) {
+                    return;
+                }
+                ::memcpy(sourceBuffer->map(), weightPtr, totalWeightSize * sizeof(float));
             }
-            {
-                auto vkTensor = extra->getBuffer(sourceWeight.get());
-                extra->copyToGPUBuffer(weightPtr, std::get<0>(vkTensor), sourceWeight->size(), std::get<2>(vkTensor));
-            }
+            sourceBuffer->unmap();
+            sourceWeight->buffer().device = (uint64_t)(sourceBuffer.get());
+            TensorUtils::getDescribe(sourceWeight.get())->extra.offset = 0;
+
             std::shared_ptr<VulkanCommandPool::Buffer> prearrangeCmd( vkBn->getPool().allocBuffer());
             for (auto& reg : des->regions) {
                 reg.origin = sourceWeight.get();

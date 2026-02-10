@@ -29,6 +29,9 @@ __kernel void pooling(GLOBAL_SIZE_3_DIMS __read_only image2d_t input,
     const int input_width_start   = mad24(output_width_idx, stride_shape.y, -pad_shape.y);
     const int input_channel_start = mul24(output_channel_idx, input_shape.y);
 
+    #ifdef RETURN_REDICE
+    int4 redice = (int4)0;
+    #endif
 #ifdef POOL_AVG
     FLOAT4 output_result = 0;
     for (int height = 0; height < kernel_shape.x; height++) {
@@ -58,9 +61,6 @@ __kernel void pooling(GLOBAL_SIZE_3_DIMS __read_only image2d_t input,
     output_result = output_result * block_float_req;
 #else
     FLOAT4 output_result = (FLOAT4)(-FLT_MAX);
-    #if RETURN_REDICE
-    int4 redice = (int4)0;
-    #endif
     for (int height = 0; height < kernel_shape.x; height++) {
         int input_height_idx = input_height_start + height;
         input_height_idx =
@@ -73,7 +73,7 @@ __kernel void pooling(GLOBAL_SIZE_3_DIMS __read_only image2d_t input,
 
                 if (input_width_idx != -1) {
                     FLOAT4 input_data = RI_F(input, SAMPLER, (int2)(input_width_idx, input_height_idx));
-                    #if RETURN_REDICE
+                    #ifdef RETURN_REDICE
                     redice = input_data > output_result ? (int4)((input_height_start + height) * input_shape.y + input_width_start + width) : redice;
                     #endif
                     output_result         = fmax(output_result, input_data);
@@ -85,12 +85,12 @@ __kernel void pooling(GLOBAL_SIZE_3_DIMS __read_only image2d_t input,
 
     const int output_channel_width_idx = mad24(output_channel_idx, output_width, output_width_idx);
     WI_F(output, (int2)(output_channel_width_idx, output_batch_height_idx), output_result);
-    #if RETURN_REDICE
+    #ifdef RETURN_REDICE
     WI_F(rediceOutput, (int2)(output_channel_width_idx, output_batch_height_idx), CONVERT_FLOAT4(redice));
     #endif
 }
 
-#ifdef LOCAL_SIZE
+#if LOCAL_SIZE > 1
 __kernel void global_pooling(GLOBAL_SIZE_3_DIMS __read_only image2d_t input,
                             __private const int2 input_shape, __private const int output_height, __private const int2 pad_shape,
                             __private const int2 stride_shape,
@@ -105,10 +105,10 @@ __kernel void global_pooling(GLOBAL_SIZE_3_DIMS __read_only image2d_t input,
     FLOAT4 output_result = 0;
 #else
     FLOAT4 output_result = (FLOAT4)(-FLT_MAX);
-#if RETURN_REDICE
+#endif
+#ifdef RETURN_REDICE
     int4 redice = (int4)0;
     int4 local rediceId[LOCAL_SIZE];
-#endif
 #endif
 
     FLOAT4 local sum_mnn[LOCAL_SIZE];
@@ -122,14 +122,14 @@ __kernel void global_pooling(GLOBAL_SIZE_3_DIMS __read_only image2d_t input,
         output_result += in;
 #else
         output_result = fmax(output_result, in);
-#if RETURN_REDICE
+#ifdef RETURN_REDICE
         redice = in > output_result ? (int4)(i) : redice;
 #endif
 #endif
     }
     
     sum_mnn[local_id] = output_result;
-#if RETURN_REDICE
+#ifdef RETURN_REDICE
     rediceId[local_id] = redice;
 #endif
     barrier(CLK_LOCAL_MEM_FENCE);
@@ -139,7 +139,7 @@ __kernel void global_pooling(GLOBAL_SIZE_3_DIMS __read_only image2d_t input,
             sum_mnn[local_id] = sum_mnn[local_id] + sum_mnn[local_id + i];
 #else
         {
-#if RETURN_REDICE
+#ifdef RETURN_REDICE
             rediceId[local_id] = sum_mnn[local_id] > sum_mnn[local_id + i] ? rediceId[local_id] : rediceId[local_id + i];
 #endif
             sum_mnn[local_id] = fmax(sum_mnn[local_id], sum_mnn[local_id + i]);
@@ -153,7 +153,7 @@ __kernel void global_pooling(GLOBAL_SIZE_3_DIMS __read_only image2d_t input,
 #endif
 
     WI_F(output, (int2)(output_channel_idx, output_batch_idx), output_result);
-    #if RETURN_REDICE
+    #ifdef RETURN_REDICE
     redice = rediceId[0];
     WI_F(rediceOutput, (int2)(output_channel_idx, output_batch_idx), CONVERT_FLOAT4(redice));
     #endif

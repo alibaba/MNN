@@ -21,8 +21,10 @@ final class LLMChatInteractor: ChatInteractorProtocol {
     var chatData: LLMChatData
     var modelInfo: ModelInfo
     var historyMessages: [HistoryMessage]?
+    var isThinkingModeEnabled: Bool = true
     
     private let processor = ThinkResultProcessor(thinkingPrefix: "<think>", completePrefix: "</think>")
+    
     private lazy var chatState = CurrentValueSubject<[LLMChatMessage], Never>(generateStartMessages(historyMessages: historyMessages))
     private lazy var sharedState = chatState.share()
 
@@ -48,6 +50,7 @@ final class LLMChatInteractor: ChatInteractorProtocol {
         self.modelInfo = modelInfo
         self.chatData = LLMChatData(modelInfo: modelInfo)
         self.historyMessages = historyMessages
+        print("yxy:: LLMChatInteractor init")
     }
     
     deinit {
@@ -63,7 +66,7 @@ final class LLMChatInteractor: ChatInteractorProtocol {
         }
         
         Task {
-            var status: Message.Status = .sending
+            let status: Message.Status = .sending
             
             var sender: LLMChatUser
             switch userType {
@@ -74,12 +77,14 @@ final class LLMChatInteractor: ChatInteractorProtocol {
             case .system:
                 sender = chatData.system
             }
-            var message: LLMChatMessage = await draftMessage.toLLMChatMessage(
+            let message: LLMChatMessage = await draftMessage.toLLMChatMessage(
                 id: UUID().uuidString,
                 user: sender,
                 status: status)
             
             DispatchQueue.main.async { [weak self] in
+                
+//                PerformanceMonitor.shared.recordUIUpdate()
                 
                 switch userType {
                 case .user, .system:
@@ -98,17 +103,23 @@ final class LLMChatInteractor: ChatInteractorProtocol {
                 case .assistant:
                     
                     var updateLastMsg = self?.chatState.value[(self?.chatState.value.count ?? 1) - 1]
-                    
-                    if let isDeepSeek = self?.modelInfo.name.lowercased().contains("deepseek"), isDeepSeek == true,
+
+                    if let tags = self?.modelInfo.tags, self?.isThinkingModeEnabled == true,
+                        (tags.contains(where: { $0.localizedCaseInsensitiveContains("Think") }) || tags.contains(where: { $0.localizedCaseInsensitiveContains("思考") })),
                         let text = self?.processor.process(progress: message.text) {
-                        updateLastMsg?.text = text
-                    } else {
-                        updateLastMsg?.text += message.text
-                    }
-                    
-                    message.text = self?.chatState.value[(self?.chatState.value.count ?? 1) - 1].text ?? ""
-                    
-                    self?.chatState.value[(self?.chatState.value.count ?? 1) - 1] = updateLastMsg ?? message
+                                updateLastMsg?.text = text
+                        } else {
+                            if let currentText = updateLastMsg?.text {
+                                updateLastMsg?.text = currentText + message.text
+                            } else {
+                                updateLastMsg?.text = message.text
+                            }
+                        }
+                        
+                        if let updatedMsg = updateLastMsg {
+                            self?.chatState.value[(self?.chatState.value.count ?? 1) - 1] = updatedMsg
+                        }
+//                    }
                 }
             }
         }
@@ -126,12 +137,6 @@ final class LLMChatInteractor: ChatInteractorProtocol {
     }
 
     func connect() {
-        Timer.publish(every: 2, on: .main, in: .default)
-            .autoconnect()
-            .sink { [weak self] _ in
-                self?.updateSendingStatuses()
-            }
-            .store(in: &subscriptions)
     }
 
     func disconnect() {
@@ -160,18 +165,5 @@ private extension LLMChatInteractor {
     
     func generateStartMessages(historyMessages: [HistoryMessage]? = nil) -> [LLMChatMessage] {
         return chatData.greatingMessage(historyMessages: historyMessages)
-    }
-
-    func updateSendingStatuses() {
-        let updated = chatState.value.map {
-            var message = $0
-            if message.status == .sending {
-                message.status = .sent
-            } else if message.status == .sent {
-                message.status = .read
-            }
-            return message
-        }
-        chatState.value = updated
     }
 }

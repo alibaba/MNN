@@ -123,11 +123,11 @@ ErrorCode SoftmaxBufExecution::onEncode(const std::vector<Tensor *> &inputs, con
         ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[1]);
         ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[2]);
         if(mNeedUnpackC4){
-            ret |= unit.kernel->get().setArg(idx++, openCLImage(output));
-            ret |= unit.kernel->get().setArg(idx++, openCLImage(mTempTensor.get()));
+            ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
+            ret |= unit.kernel->get().setArg(idx++, openCLBuffer(mTempTensor.get()));
         }else{
-            ret |= unit.kernel->get().setArg(idx++, openCLImage(input));
-            ret |= unit.kernel->get().setArg(idx++, openCLImage(output));
+            ret |= unit.kernel->get().setArg(idx++, openCLBuffer(input));
+            ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
         }
         if(inside == 1){
             ret |= unit.kernel->get().setArg(idx++, channel);
@@ -140,7 +140,11 @@ ErrorCode SoftmaxBufExecution::onEncode(const std::vector<Tensor *> &inputs, con
         }
         MNN_CHECK_CL_SUCCESS(ret, "setArg SoftmaxBufExecution");
         if(localSize == 1){
-            mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "softmax_buf", unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+            std::string programName = "softmax_buf";
+            if(inside == 1){
+                programName = "self_attention_buf";
+            }
+            mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "softmax_buf", unit.kernel, mOpenCLBackend->getCLTuneLevel(), programName).first;
         }
         
         mOpenCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);

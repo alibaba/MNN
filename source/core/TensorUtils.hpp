@@ -19,16 +19,6 @@
 #undef CONSTANT
 #endif // CONSTANT
 
-#ifdef MNN_KLEIDIAI_ENABLED
-#include "../backend/cpu/arm/mnn_kleidiai.h"
-/**
- * Set Convolution's input/output tensor format:
- * 1: format will be NCHW, skip pack/unpack functions.
- * 0: format will be NC4HW4, need pack/unpack functions to fit kleidiAI ukernel.
- **/
-#define KAI_CONV_NCHW_IN_OUT 1
-#endif
-
 namespace MNN {
 struct TensorArrayAttr {
     // array size is dynamic or not
@@ -45,6 +35,7 @@ struct QuantAttr {
     float zero = 0.0f;
     float min  = -127.0f;
     float max  = 127.0f;
+    DataType type = DataType_DT_INT8;
 };
 struct Tensor::InsideDescribe {
     struct View {
@@ -114,9 +105,9 @@ struct Tensor::InsideDescribe {
         std::shared_ptr<TensorArrayAttr> tensorArrayAttr;
         // Tensor Quant Attribute
         std::shared_ptr<QuantAttr> quantAttr;
-        // Only valid when quantAttr is not nullptr
-        DataType type = DataType_DT_FLOAT;
+        bool applyQuant = false;
         bool isMutable = true;
+        bool overlap = false; // Only used by strideSliceWrite now
         int index = -1;
         int group = 0;
 		int channel_pack_num = 4;
@@ -193,6 +184,7 @@ public:
 
     static void setupTensorInfo(const Tensor* tensor, Tensor* wrapTensor, MNN_DATA_FORMAT mMidFormat);
     static Tensor::InsideDescribe::Region makeFullSlice(Tensor* input);
+    static void makeFullRef(Tensor* output, Tensor* input);
     static bool regionIsFull(Tensor* input);
     static bool isCopyRegion(const Tensor::InsideDescribe::Region& region);
     static bool isTransposeRegion(const Tensor::InsideDescribe::Region& region);

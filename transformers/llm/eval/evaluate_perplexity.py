@@ -2,23 +2,29 @@ import os
 import argparse
 from tqdm import tqdm
 import MNN.llm as mnnllm
-from datasets import load_dataset
+from datasets import load_dataset, load_from_disk
 import torch
 import copy
 
 def main(args):
     # load model
     model = mnnllm.create(args.mnn_path)
+    model.set_config({"attention_mode": args.attention_mode})
+    model.set_config({'all_logits': True})
     model.load()
-    model.set_config({'all_logits': True, 'use_template': False})
-    # model.set_config("")
+
+    model.generate_init()
 
     # load dataset
     eval_dataset = args.eval_dataset
-    dataset_name = eval_dataset.split("/")[0]
-    dataset_dir = eval_dataset.split("/")[1]
+    if os.path.exists(eval_dataset):
+        print("Loading dataset from disk: {}".format(eval_dataset))
+        dataset = load_from_disk(eval_dataset)
+    else:
+        dataset_name = eval_dataset.split("/")[0]
+        dataset_dir = eval_dataset.split("/")[1]
+        dataset = load_dataset(dataset_name, dataset_dir, split="test")
 
-    dataset = load_dataset(dataset_name, dataset_dir, split="test")
     input_ids = model.tokenizer_encode("\n\n".join(dataset["text"]))
     stride = 512
     context_length = stride + stride // 2
@@ -31,6 +37,7 @@ def main(args):
     for begin_loc in tqdm(range(0, seq_len, stride)):
         end_loc = min(begin_loc + context_length, seq_len)
         chunk_ids = input_ids[begin_loc:end_loc]
+        model.reset()
         logits = model.forward(chunk_ids)
         npy_logits = copy.deepcopy(logits.read())
         logits = torch.from_numpy(npy_logits).squeeze(0)
@@ -64,7 +71,19 @@ if __name__ == "__main__":
     group.add_argument(
         "-d", "--eval_dataset", type=str, default='wikitext/wikitext-2-raw-v1', help="Evaluation dataset, default is `wikitext/wikitext-2-raw-v1`."
     )
-
+    group.add_argument(
+        "--attention_mode",
+        type=int,
+        default=8,
+        choices=[0, 1, 2, 8, 9, 10],
+        help="""Quantization option for query, key, value in CPU attention operator. Options: 0, 1, 2, 8, 9, 10. Default: 8.
+        0: No Flash Attention, no quantization for query, key, value;
+        1: No Flash Attention, 8-bit asymmetric quantization for query and key, no quantization for value;
+        2: No Flash Attention, 8-bit asymmetric quantization for query, key, and value;
+        8: Flash Attention enabled, no quantization for query, key, value;
+        9: Flash Attention enabled, 8-bit asymmetric quantization for query and key, no quantization for value;
+        10: Flash Attention enabled, 8-bit asymmetric quantization for query, key, and value.""",
+    )
     args = parser.parse_args()
 
     main(args)

@@ -92,7 +92,7 @@ public:
         int threads_num = runtime->threads_num();
         auto input = inputs[0]->deviceId();
         auto output = outputs[0]->deviceId();
-        if (TensorUtils::getDescribe(outputs[0])->quantAttr != nullptr && TensorUtils::getDescribe(outputs[0])->type == DataType_DT_INT8) {
+        if (TensorUtils::getDescribe(outputs[0])->quantAttr != nullptr && TensorUtils::getDescribe(outputs[0])->applyQuant) {
             auto inInfo = TensorUtils::getQuantInfo(inputs[0]);
             auto outInfo = TensorUtils::getQuantInfo(outputs[0]);
             if (inInfo != outInfo) {

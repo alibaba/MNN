@@ -1,0 +1,631 @@
+//
+// Created by ruoyi.sjd on 2024/12/25.
+// Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
+//
+
+#pragma once
+#include "../../../transformers/llm/engine/include/llm/llm.hpp"
+#include "httplib.h"
+#include "json.hpp"
+using nlohmann::json;
+using PromptItem = std::pair<std::string, std::string>;
+namespace mnncli {
+class LlmStreamBuffer : public std::streambuf {
+public:
+  using CallBack = std::function<void(const char* str, size_t len)>;
+  explicit LlmStreamBuffer(CallBack callback) : callback_(std::move(callback)) {}
+  ~LlmStreamBuffer() override = default;
+protected:
+  virtual std::streamsize xsputn(const char* s, std::streamsize n) override {
+    if (callback_) {
+      callback_(s, n);
+    }
+    return n;
+  }
+
+private:
+  CallBack callback_{};
+};
+
+class Utf8StreamProcessor {
+  public:
+    Utf8StreamProcessor(std::function<void(const std::string&)> callback)
+            : callback(callback) {}
+
+    void processStream(const char* str, size_t len) {
+      utf8Buffer.append(str, len);
+
+      size_t i = 0;
+      std::string completeChars;
+      while (i < utf8Buffer.size()) {
+        int length = utf8CharLength(static_cast<unsigned char>(utf8Buffer[i]));
+        if (length == 0 || i + length > utf8Buffer.size()) {
+          break;
+        }
+        completeChars.append(utf8Buffer, i, length);
+        i += length;
+      }
+      utf8Buffer = utf8Buffer.substr(i);
+      if (!completeChars.empty()) {
+        callback(completeChars);
+      }
+    }
+    int utf8CharLength(unsigned char byte) {
+      if ((byte & 0x80) == 0) return 1;     
+      if ((byte & 0xE0) == 0xC0) return 2;
+      if ((byte & 0xF0) == 0xE0) return 3;
+      if ((byte & 0xF8) == 0xF0) return 4;
+      return 0;
+    }
+  private:
+    std::string utf8Buffer;
+    std::function<void(const std::string&)> callback;
+  };
+class MnncliServer {
+  public:
+    const char* html_content = R"""(
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>MNN Frontend</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      margin: 0;
+      padding: 1rem;
+      background-color: #f5f5f5;
+      min-height: 100vh;
+    }
+    
+    .container {
+      max-width: 100%;
+      margin: 0 auto;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+    
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 1.5rem 1rem;
+      text-align: center;
+    }
+    
+    .header h1 {
+      margin: 0 0 0.5rem 0;
+      font-size: 1.5rem;
+      font-weight: 600;
+    }
+    
+    .header p {
+      margin: 0;
+      font-size: 0.9rem;
+      opacity: 0.9;
+    }
+    
+    .model-selector {
+      padding: 1rem;
+      background-color: #f8f9fa;
+      border-bottom: 1px solid #e9ecef;
+    }
+    
+    .model-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    
+    .model-row label {
+      font-weight: 500;
+      color: #495057;
+      font-size: 0.9rem;
+    }
+    
+    #model-select {
+      flex: 1;
+      min-width: 200px;
+      padding: 0.5rem;
+      border: 1px solid #ced4da;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      background: white;
+    }
+    
+    #model-select:disabled {
+      background-color: #f8f9fa;
+      color: #6c757d;
+      cursor: not-allowed;
+      opacity: 0.7;
+    }
+    
+    .model-notice {
+      margin-top: 0.5rem;
+      padding: 0.5rem;
+      background-color: #fff3cd;
+      border: 1px solid #ffeaa7;
+      border-radius: 6px;
+      text-align: center;
+    }
+    
+    .button {
+      padding: 0.5rem 1rem;
+      font-size: 0.9rem;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: all 0.2s ease;
+    }
+    
+    .button-primary {
+      background-color: #007bff;
+      color: white;
+    }
+    
+    .button-primary:hover {
+      background-color: #0056b3;
+    }
+    
+    .button-secondary {
+      background-color: #6c757d;
+      color: white;
+    }
+    
+    .button-secondary:hover {
+      background-color: #545b62;
+    }
+    
+    #chat-container {
+      height: 400px;
+      overflow-y: auto;
+      padding: 1rem;
+      background: white;
+    }
+    
+    .message {
+      margin-bottom: 1rem;
+      padding: 0.75rem;
+      border-radius: 8px;
+      max-width: 85%;
+      word-wrap: break-word;
+    }
+    
+    .user {
+      background-color: #e3f2fd;
+      margin-left: auto;
+      text-align: right;
+    }
+    
+    .assistant {
+      background-color: #f1f3f4;
+      margin-right: auto;
+    }
+    
+    .message strong {
+      display: block;
+      margin-bottom: 0.25rem;
+      font-size: 0.8rem;
+      opacity: 0.7;
+    }
+    
+    .input-area {
+      padding: 1rem;
+      background-color: #f8f9fa;
+      border-top: 1px solid #e9ecef;
+    }
+    
+    .input-row {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+    
+    #user-input {
+      flex: 1;
+      padding: 0.75rem;
+      border: 1px solid #ced4da;
+      border-radius: 6px;
+      font-size: 1rem;
+      background: white;
+    }
+    
+    .button-group {
+      display: flex;
+      gap: 0.5rem;
+    }
+    
+    .status {
+      padding: 0.5rem;
+      background-color: #e8f4fd;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      color: #495057;
+      text-align: center;
+    }
+    
+    /* 移动端优化 */
+    @media (max-width: 768px) {
+      body {
+        padding: 0.5rem;
+      }
+      
+      .header {
+        padding: 1rem;
+      }
+      
+      .header h1 {
+        font-size: 1.25rem;
+      }
+      
+      .header p {
+        font-size: 0.8rem;
+      }
+      
+      .model-row {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      
+      #model-select {
+        min-width: auto;
+        width: 100%;
+      }
+      
+      .button-group {
+        width: 100%;
+      }
+      
+      .button-group .button {
+        flex: 1;
+      }
+      
+      #chat-container {
+        height: 300px;
+        padding: 0.75rem;
+      }
+      
+      .message {
+        max-width: 95%;
+        font-size: 0.9rem;
+      }
+      
+      .input-row {
+        flex-direction: column;
+      }
+      
+      #user-input {
+        margin-bottom: 0.5rem;
+      }
+    }
+    
+    /* 滚动条样式 */
+    #chat-container::-webkit-scrollbar {
+      width: 6px;
+    }
+    
+    #chat-container::-webkit-scrollbar-track {
+      background: #f1f1f1;
+    }
+    
+    #chat-container::-webkit-scrollbar-thumb {
+      background: #c1c1c1;
+      border-radius: 3px;
+    }
+    
+    #chat-container::-webkit-scrollbar-thumb:hover {
+      background: #a8a8a8;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Chat with MNN</h1>
+      <p>MNN-LLM's server API is OpenAI API compatible. You can use other frameworks like OpenWebUI or LobeChat.</p>
+    </div>
+    
+    <div class="model-selector">
+      <div class="model-row">
+        <label for="model-select">Current Model:</label>
+        <select id="model-select" disabled>
+          <option value="unknown">Loading models...</option>
+        </select>
+        <button class="button button-secondary" onclick="showModelSwitchAlert()">Switch Model</button>
+      </div>
+      <div class="model-notice">
+        <small style="color: #6c757d;">⚠️ Model switching is temporarily not supported. Please change models in the app.</small>
+      </div>
+    </div>
+
+    <div id="chat-container"></div>
+
+    <div class="input-area">
+      <div class="input-row">
+        <input
+          type="text"
+          id="user-input"
+          placeholder="Type your message here..."
+          onkeydown="if(event.key==='Enter'){ sendMessage(); }"
+        />
+      </div>
+      <div class="button-group">
+        <button id="send-btn" class="button button-primary" onclick="sendMessage()">Send</button>
+        <button id="reset-btn" class="button button-secondary" onclick="resetChat()">Reset</button>
+      </div>
+      <div class="status" id="status">Ready to chat</div>
+    </div>
+  </div>
+
+  <script>
+    // 从URL参数中获取token
+    function getTokenFromUrl() {
+      const urlParams = new URLSearchParams(window.location.search);
+      return urlParams.get('token') || "no";
+    }
+    
+    const OPENAI_API_KEY = getTokenFromUrl();  // 从URL参数获取token，如果没有则使用"no"
+    let currentModel = "unknown";
+    let availableModels = [];
+    let messages = [
+      { role: "system", content: "You are a helpful assistant." },
+    ];
+
+    // Load available models on page load
+    window.onload = function() {
+      refreshModels();
+    };
+
+    // 显示模型切换提醒
+    function showModelSwitchAlert() {
+      alert("Model switching is temporarily not supported.\n\nTo change models, please:\n1. Close this web page\n2. Restart the MNN Chat app\n3. Select a different model from the model list");
+    }
+
+    async function refreshModels() {
+      try {
+        updateStatus("Loading current model...");
+        const response = await fetch("/v1/models", {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${OPENAI_API_KEY}`,
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(`Error: ${response.status} - ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        availableModels = data.data || [];
+        
+        const modelSelect = document.getElementById("model-select");
+        modelSelect.innerHTML = "";
+        
+        if (availableModels.length === 0) {
+          modelSelect.innerHTML = '<option value="unknown">No models available</option>';
+          updateStatus("No models available");
+        } else {
+          // 只显示第一个模型（当前使用的模型）
+          const currentModelData = availableModels[0];
+          const option = document.createElement("option");
+          option.value = currentModelData.id;
+          option.textContent = extractModelSuffix(currentModelData.id);
+          modelSelect.appendChild(option);
+          
+          currentModel = currentModelData.id;
+          modelSelect.value = currentModel;
+          updateStatus(`Current model: ${extractModelSuffix(currentModel)}`);
+        }
+      } catch (error) {
+        console.error("Failed to load models:", error);
+        updateStatus(`Error loading models: ${error.message}`);
+        document.getElementById("model-select").innerHTML = '<option value="unknown">Error loading models</option>';
+      }
+    }
+
+    // 提取模型名称后缀的函数
+    function extractModelSuffix(modelId) {
+      if (!modelId) return "unknown";
+      
+      // 移除常见的前缀
+      let suffix = modelId;
+      
+      // 移除 ModelScope/MNN/ 前缀
+      if (suffix.startsWith("ModelScope/MNN/")) {
+        suffix = suffix.substring("ModelScope/MNN/".length);
+      }
+      
+      // 移除其他常见前缀
+      const prefixes = [
+        "ModelScope/",
+        "HuggingFace/",
+        "MNN/",
+        "modelscope/",
+        "huggingface/"
+      ];
+      
+      for (const prefix of prefixes) {
+        if (suffix.startsWith(prefix)) {
+          suffix = suffix.substring(prefix.length);
+          break;
+        }
+      }
+      
+      return suffix || modelId;
+    }
+
+    // Model selection change is disabled - no event listener needed
+
+    function updateStatus(message) {
+      document.getElementById("status").textContent = message;
+    }
+
+    async function resetChat() {
+      document.getElementById("user-input").value = "";
+      document.getElementById("chat-container").innerHTML = "";
+      messages = [
+        { role: "system", content: "You are a helpful assistant." },
+      ];
+      updateStatus("Chat reset");
+
+      try {
+        await fetch("/reset", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${OPENAI_API_KEY}`,
+          },
+          body: JSON.stringify({ reset: true }),
+        });
+      } catch (error) {
+        console.error("Reset failed:", error);
+      }
+    }
+
+    async function sendMessage() {
+      const userInput = document.getElementById("user-input").value.trim();
+      if (!userInput) return;
+
+      if (currentModel === "unknown") {
+        updateStatus("Please select a model first");
+        return;
+      }
+
+      // Display user message
+      displayMessage(userInput, "user");
+      document.getElementById("user-input").value = "";
+      updateStatus("Sending message...");
+
+      messages.push({ role: "user", content: userInput });
+
+      try {
+        // We set "stream": true to indicate we want SSE streaming from our server
+        const payload = {
+          model: currentModel,
+          messages: messages,
+          max_tokens: 100,
+          temperature: 0.7,
+          stream: true,
+        };
+
+        const response = await fetch("/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${OPENAI_API_KEY}`,
+            Accept: "text/event-stream",
+          },
+          body: JSON.stringify(payload),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Error: ${response.status} - ${response.statusText}`);
+        }
+
+        // Prepare to stream the response
+        await handleStream(response);
+
+      } catch (error) {
+        displayMessage(`Error: ${error.message}`, "assistant");
+        updateStatus(`Error: ${error.message}`);
+      }
+    }
+
+    async function handleStream(response) {
+      // We'll accumulate tokens into this variable
+      let assistantMessage = "";
+
+      // Create a DOM element for the assistant's streaming message
+      const chatContainer = document.getElementById("chat-container");
+      const messageElem = document.createElement("div");
+      messageElem.classList.add("message", "assistant");
+      messageElem.innerHTML = `<strong class="assistant">Assistant:</strong> <span></span>`;
+      chatContainer.appendChild(messageElem);
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+      const messageTextSpan = messageElem.querySelector("span");
+
+      updateStatus("Receiving response...");
+
+      // Read the response body as a stream
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) {
+            break;
+          }
+
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split("\n");
+          for (let line of lines) {
+            if (!line || !line.startsWith("data: ")) {
+              continue;
+            }
+            const jsonStr = line.substring("data: ".length).trim();
+            if (jsonStr === "[DONE]") {
+              messages.push({ role: "assistant", content: assistantMessage });
+              updateStatus(`Response complete (${extractModelSuffix(currentModel)})`);
+              return;
+            }
+
+            try {
+              const parsed = JSON.parse(jsonStr);
+              if (parsed.choices && parsed.choices.length > 0) {
+                const deltaContent = parsed.choices[0].delta.content;
+                if (deltaContent) {
+                  assistantMessage += deltaContent;
+                  // Update the DOM text
+                  messageTextSpan.textContent = assistantMessage;
+                  chatContainer.scrollTop = chatContainer.scrollHeight;
+                }
+              }
+            } catch (e) {
+              console.error("Could not parse SSE line:", e, line);
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    }
+
+    function displayMessage(text, sender) {
+      const chatContainer = document.getElementById("chat-container");
+      const messageElem = document.createElement("div");
+      messageElem.classList.add("message", sender);
+
+      if (sender === "user") {
+        messageElem.innerHTML = `<strong class="user">User:</strong> ${text}`;
+      } else {
+        messageElem.innerHTML = `<strong class="assistant">Assistant:</strong> ${text}`;
+      }
+
+      chatContainer.appendChild(messageElem);
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+  </script>
+</body>
+</html>
+    )""";
+    void Start(MNN::Transformer::Llm* llm, bool is_r1, const std::string& host = "127.0.0.1", int port = 8000);
+    bool is_r1_{false};
+private:
+  void Answer(MNN::Transformer::Llm* llm, const json &messages, std::function<void(const std::string&)> on_result);
+  void AnswerStreaming(MNN::Transformer::Llm* llm,
+                     const json& messages,
+                     std::function<void(const std::string&, bool end)> on_partial);
+    std::mutex llm_mutex_;
+
+};
+}

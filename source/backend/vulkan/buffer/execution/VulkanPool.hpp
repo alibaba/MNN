@@ -13,7 +13,7 @@
 namespace MNN {
 class VulkanPool : public VulkanBasicExecution {
 public:
-    VulkanPool(const Op* op, Backend* bn);
+    VulkanPool(const Op* op, Backend* bn, Tensor * tensor);
     virtual ~VulkanPool();
 
     ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,

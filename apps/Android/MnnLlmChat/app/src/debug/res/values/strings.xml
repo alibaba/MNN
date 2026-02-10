@@ -1,0 +1,51 @@
+<resources>
+    <string name="app_name">MNN Chat</string>
+    
+    <!-- ASR Test Strings -->
+    <string name="asr_test_title">ASR Test</string>
+    <string name="asr_test_description">Test Automatic Speech Recognition functionality</string>
+    <string name="start_asr_test">Start ASR Test</string>
+    
+    <!-- TTS Test Strings -->
+    <string name="tts_test_title">TTS Test</string>
+    <string name="tts_test_description">Test Text-to-Speech functionality</string>
+    <string name="start_tts_test">Start TTS Test</string>
+    <string name="tts_test_input_hint">Enter text to convert to speech...</string>
+    <string name="tts_test_button">Process TTS</string>
+    
+    <!-- Debug Settings Strings -->
+    <string name="debug_settings_title">Debug Settings</string>
+    <string name="debug_settings_description">Configure debug mode settings and preferences</string>
+    <string name="debug_show_model_info">Show Model Info Menu</string>
+    <string name="allow_network_market_data">Allow Network for Model Market</string>
+    <string name="enable_network_delay">Enable Network Delay Simulation</string>
+    
+    <!-- Video Decoder Test Strings -->
+    <string name="video_decoder_test_title">Video Decoder Test</string>
+    <string name="video_decoder_test_description">Test video decoding functionality</string>
+    <string name="start_video_decoder_test">Start Video Decoder Test</string>
+    <string name="process_video_file">Process Video File</string>
+    
+    <!-- Debug Activity Strings -->
+    <string name="debug_activity_title">Debug Mode</string>
+    <string name="debug_activity_description">Debug and test various app functionalities</string>
+    <string name="test_items">Test Items</string>
+    <string name="debug_log">Debug Log</string>
+    <string name="clear_log">Clear Log</string>
+    
+    <!-- Video Decoder Test Activity Strings -->
+    <string name="video_file_selection">Video File Selection</string>
+    <string name="select_video_file">Select Video File</string>
+    <string name="no_video_selected">No video file selected</string>
+    <string name="long_press_to_clear_video">Long press to clear selection</string>
+    <string name="decoder_configuration">Decoder Configuration</string>
+    <string name="max_frames">Max Frames</string>
+    <string name="sample_interval">Sample Interval</string>
+    <string name="max_buffer_count">Max Buffer Count</string>
+    <string name="control_buttons">Control Buttons</string>
+    <string name="start_decode">Start Decode</string>
+    <string name="stop_decode">Stop Decode</string>
+    <string name="decode_results">Decode Results</string>
+    <string name="no_results_yet">No results yet</string>
+    <string name="decode_log">Decode Log</string>
+</resources> 

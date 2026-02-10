@@ -19,7 +19,9 @@ class FuseAttention {
 public:
     FuseAttention();
 private:
-    VARP query, key, value, mask;
+    VARP query, key, value, mask, sinks;
+    bool kvcache;
+    bool has_sinks;
 };
 
 static EXPRP is_gqa(EXPRP& x) {
@@ -54,7 +56,7 @@ FuseAttention::FuseAttention() {
             return false;
         }
 
-        EXPRP x, y;
+        EXPRP x, y, z;
         // softmax @ v
         auto matmul = expr->inputs().at(0)->expr().first;
         if (!helpers::IsMatMul(matmul)) {
@@ -67,23 +69,49 @@ FuseAttention::FuseAttention() {
             return false;
         }
         // concat
-        y = y->inputs().at(0)->expr().first;
-        if (!helpers::IsConcat(y)) {
-            return false;
+        z = y->inputs().at(0)->expr().first;
+        if (helpers::IsConcat(z)) {
+            kvcache = true;
+            value = z->inputs().at(1);
+        } else {
+            kvcache = false;
+            value = y->inputs().at(0);
         }
-        // value
-        value = y->inputs().at(1);
 
-        // softmax
         x = matmul->inputs().at(0)->expr().first;
+        // sinks post
+        if (helpers::IsSlice(x)) {
+            x = x->inputs().at(0)->expr().first;
+            if (helpers::IsCast(x)) {
+                x = x->inputs().at(0)->expr().first;
+            }
+        }
+        // softmax
         if (helpers::IsCast(x)) {
             x = x->inputs().at(0)->expr().first;
         }
         if (!helpers::IsSoftmax(x)) {
             return false;
         }
-        // mask
         x = x->inputs().at(0)->expr().first;
+        // sinks pre
+        if (helpers::IsBinarySub(x)) {
+            x = x->inputs().at(0)->expr().first;
+            if (helpers::IsConcat(x)) {
+                y = x->inputs().at(1)->expr().first;
+                x = x->inputs().at(0)->expr().first;
+                if (helpers::IsCast(y)) {
+                    y = y->inputs().at(0)->expr().first;
+                }
+                if (helpers::IsBroadcastTo(y)) {
+                    has_sinks = true;
+                    sinks = y->inputs().at(0);
+                }
+            }
+        } else {
+            has_sinks = false;
+        }
+        // mask
         if (helpers::IsSelect(x)) {
             mask = x->inputs().at(0);
             x = x->inputs().at(1)->expr().first;
@@ -107,7 +135,7 @@ FuseAttention::FuseAttention() {
             return false;
         }
         // transpose
-        auto z = x->inputs().at(0)->expr().first;
+        z = x->inputs().at(0)->expr().first;
         if (!helpers::IsTranspose(z)) {
             return false;
         }
@@ -119,6 +147,10 @@ FuseAttention::FuseAttention() {
         y = is_gqa(y);
         if (!helpers::IsTranspose(y)) {
             return false;
+        }
+        if (!kvcache) {
+            key = y->inputs().at(0);
+            return true;
         }
         // concat
         y = y->inputs().at(0)->expr().first;
@@ -138,16 +170,22 @@ FuseAttention::FuseAttention() {
             return false;
         }
         if (expr->name().size() > 0) {
-            MNN_PRINT("Fuse Attention as %s\n", expr->name().c_str());
+            MNN_PRINT("Fuse Attention as %s [kvcache: %d, has_sinks: %d]\n", expr->name().c_str(), kvcache, has_sinks);
         }
 
         std::unique_ptr<OpT> attention(new OpT);
         attention->name       = "Attention" + expr->name();
         attention->type       = OpType_Attention;
         attention->main.type  = OpParameter_AttentionParam;
-        attention->main.value = new AttentionParamT;
+        auto param            = new AttentionParamT;
+        param->kv_cache       = kvcache;
+        attention->main.value = param;
 
-        auto attention_expr = Variable::create(Expr::create(attention.get(), {query, key, value, mask}, 1));
+        VARPS inputs = {query, key, value, mask};
+        if (has_sinks) {
+            inputs.push_back(sinks);
+        }
+        auto attention_expr = Variable::create(Expr::create(attention.get(), inputs, 1));
 
         attention_expr->setName(expr->name());
         Expr::replace(expr, attention_expr->expr().first);

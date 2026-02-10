@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:paddingTop="16dp"
+    android:paddingBottom="16dp"
+    android:background="@drawable/performance_metric_background">
+
+    <!-- Icon with circular background -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="50dp"
+        android:layout_marginBottom="12dp">
+
+        <FrameLayout
+            android:id="@+id/icon_background"
+            android:layout_width="50dp"
+            android:layout_gravity="center"
+            android:layout_height="50dp" >
+            <ImageView
+                android:id="@+id/metric_icon"
+                android:layout_width="25dp"
+                android:layout_height="25dp"
+                android:scaleType="fitCenter"
+                tools:src="@drawable/ic_speed"
+                android:layout_gravity="center"
+                tools:tint="@color/benchmark_gradient_start" />
+        </FrameLayout>
+
+    </FrameLayout>
+
+    <!-- Title and Subtitle -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:layout_marginBottom="8dp">
+
+        <TextView
+            android:id="@+id/metric_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:textColor="?android:textColorPrimary"
+            android:gravity="center"
+            tools:text="Prefill Speed" />
+
+        <TextView
+            android:id="@+id/metric_subtitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="10sp"
+            android:textColor="?android:textColorSecondary"
+            android:gravity="center"
+            android:layout_marginTop="2dp"
+            tools:text="Prompt Processing" />
+
+    </LinearLayout>
+
+    <!-- Value and Standard Deviation -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:layout_gravity="center">
+
+        <TextView
+            android:id="@+id/metric_value"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="17sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:maxLines="2"
+            android:lineSpacingMultiplier="1.1"
+            tools:text="121.3 t/s"
+            tools:textColor="@color/benchmark_gradient_start" />
+
+        <TextView
+            android:id="@+id/metric_std_dev"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:textStyle="normal"
+            android:gravity="center"
+            android:layout_marginStart="1dp"
+            android:visibility="gone"
+            tools:text="±3.88"
+            tools:textColor="@color/benchmark_gradient_start"
+            tools:visibility="visible" />
+
+    </LinearLayout>
+
+</LinearLayout>
