@@ -348,13 +348,18 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
         {
             NSMutableDictionary *dic = [baseDic mutableCopy];
             
+            auto keys = baseKeys;
+            keys.emplace_back("conv1x1_w_dequant");
             if(mDequantBits == 4) {
                 [dic setValue:@"1" forKey:@"W_QUANT_4"];
+                keys.emplace_back("W_QUANT_4");
             } else if(mDequantBits == 8) {
                 [dic setValue:@"1" forKey:@"W_QUANT_8"];
+                keys.emplace_back("W_QUANT_8");
             }
             if(ic % 16 != 0) {
                 [dic setValue:@"1" forKey:@"W_ALIGN_K16_PROTECT"];
+                keys.emplace_back("W_ALIGN_K16_PROTECT");
             }
             option.preprocessorMacros = dic;
             
@@ -364,8 +369,6 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
             backend->onAcquireBuffer(mTempWeight.get(), Backend::DYNAMIC);
             backend->onReleaseBuffer(mTempWeight.get(), Backend::DYNAMIC);
             
-            auto keys = baseKeys;
-            keys.emplace_back("conv1x1_w_dequant");
             auto pipeline = rt->findPipeline(keys);
             if (nil == pipeline) {
                 pipeline = backend->makeComputePipelineWithSourceOption(sgmWfpStr.c_str(), "conv1x1_w_dequant", option);
@@ -381,6 +384,10 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
             keys.emplace_back("conv1x1_gemm_32x64_split_k_sg");
             
             NSMutableDictionary *dic = [baseDic mutableCopy];
+            if (ic_4 % 8 != 0) {
+                [dic setValue:@"1" forKey:@"MNN_METAL_SRC_PROTECT"];
+                keys.emplace_back("MNN_METAL_SRC_PROTECT");
+            }
             if(backend->isSupportTensorApi() == true) {
                 [dic setValue:@"1" forKey:@"USE_METAL_TENSOR_OPS"];
                 keys.emplace_back("USE_METAL_TENSOR_OPS");
