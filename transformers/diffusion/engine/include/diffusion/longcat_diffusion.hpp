@@ -34,15 +34,11 @@ private:
     VARP text_encoder_llm(const std::string& prompt, VARP preprocessedImage);
     VARP unet(VARP text_embeddings, int iterNum, int randomSeed, float cfgScale, std::function<void(int)> progressCallback);
     VARP vae_decoder(VARP latent);
-    VARP applyEulerUpdate(VARP sample, VARP noise_pred, float dt);
     VARP unpackLatentsGPU(VARP packed, int B, int C, int H, int W);
     void getCFGSigmaRange(float& sigmaLow, float& sigmaHigh) const;
 
 private:
     int mMaxTextLen = 128;
-    int mTrainTimestepsNum = 1000;
-    float mFlowShift = 3.0f;
-    bool mUseDynamicShifting = false;
     int mLatentC = 16;
     int mLatentH = 128;
     int mLatentW = 128;

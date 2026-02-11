@@ -121,6 +121,7 @@ typedef enum {
     SANA_DIFFUSION = 2,
     STABLE_DIFFUSION_ZIMAGE = 3,
     LONGCAT_IMAGE_EDIT = 4,
+    FLUX2_KLEIN_DIFFUSION = 5,
     DIFFUSION_MODEL_USER
 } DiffusionModelType;
 
@@ -178,6 +179,11 @@ using UNetPreprocessFunc = std::function<VARP(VARP)>;
 class MNN_PUBLIC Diffusion {
 public:
     Diffusion(std::string modelPath, DiffusionModelType modelType, MNNForwardType backendType, int memoryMode);
+    // Extended constructor: initializes all common member variables so subclasses don't repeat the assignments.
+    Diffusion(std::string modelPath, DiffusionModelType modelType, MNNForwardType backendType, int memoryMode,
+              int imageWidth, int imageHeight, bool textEncoderOnCPU, bool vaeOnCPU,
+              DiffusionGpuMemoryMode gpuMemoryMode, DiffusionPrecisionMode precisionMode,
+              DiffusionCFGMode cfgMode, int numThreads);
     virtual ~Diffusion();
     
     // Factory methods
@@ -208,14 +214,33 @@ public:
     static VARP rgbToBgr(VARP rgbImage);
     static VARP hwcToNchw(VARP hwcImage, bool normalize = false);
     static VARP nchwToHwc(VARP nchwImage, bool denormalize = false);
+    // Convert NCHW float [-1,1] VAE output -> HWC uint8 BGR image (shared by all subclasses)
+    static VARP nchwFloatToHwcBGR(VARP nchwFloat);
     
     // Latent packing/unpacking for Flux-like models
     static void packLatents(const float* src, float* dst, int B, int C, int H, int W, int seqOffset = 0);
     static void unpackLatents(const float* src, float* dst, int B, int C, int H, int W, int seqLen);
 
 protected:
+    // Shared runtime initialization: ScheduleConfig + BackendConfig + CPU fallback runtime.
+    // Returns false on failure. Subclasses call this at the start of load().
+    // gpuBufferMode: true = force BUFFER for OpenCL (ZImage/LongCat style)
+    // attentionHint: if >0, sets Interpreter::ATTENTION_OPTION hint (e.g. 8 for flash attention)
+    bool initRuntimeManagers(bool gpuBufferMode = true, int attentionHint = 0);
+
+    // Load scheduler config from scheduler_config.json (tries scheduler/ subdir first).
+    // Populates mTrainTimestepsNum, mFlowShift, mUseDynamicShifting.
+    // Subclasses may read additional fields after calling this.
+    void loadSchedulerConfig();
+
+    // Euler update: sample + dt * noise_pred  (same for ZImage, LongCat, Flux2Klein)
+    static VARP applyEulerUpdate(VARP sample, VARP noisePred, float dt);
+
+    // Fill dst[0..size) with Philox-RNG normal samples using the given seed.
+    static void generateLatentNoise(float* dst, int size, int seed);
     std::shared_ptr<Executor::RuntimeManager> runtime_manager_;
-    std::shared_ptr<Executor::RuntimeManager> runtime_manager_cpu_;
+    std::shared_ptr<Executor::RuntimeManager> runtime_manager_cpu_;     // TE on CPU
+    std::shared_ptr<Executor::RuntimeManager> runtime_manager_vae_cpu_; // VAE on CPU
     std::vector<std::shared_ptr<Module>> mModules;
     
     std::string mModelPath;
@@ -235,6 +260,11 @@ protected:
     
     int mImageWidth = 0;
     int mImageHeight = 0;
+
+    // FlowMatch scheduler params (shared by ZImage, LongCat, Flux2Klein)
+    int   mTrainTimestepsNum  = 1000;
+    float mFlowShift          = 3.0f;
+    bool  mUseDynamicShifting = false;
 };
 
 }

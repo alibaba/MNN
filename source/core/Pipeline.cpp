@@ -1012,6 +1012,43 @@ ErrorCode Pipeline::_allocForTensor(int index, bool allocInput) {
 #endif
             // Alloc for Tensors
             auto curBackend = iter.execution->backend();
+            // Before allocating large output tensors, force-release any large tensors
+            // (>1GB) with useCount=0 that still hold GPU memory. This prevents multiple
+            // 6.78GB fp32 attention score tensors from coexisting when the second
+            // release of a useCount=2 tensor happens after the next block's alloc.
+            if (iter.execution->needAllocIO()) {
+                bool hasLargeOutput = false;
+                for (auto t : iter.workOutputs) {
+                    size_t tb = 1;
+                    for (int i = 0; i < t->dimensions(); i++) tb *= (size_t)t->length(i);
+                    tb *= t->getType().bytes();
+                    if (tb > 1024UL * 1024 * 1024) { hasLargeOutput = true; break; }
+                }
+                if (hasLargeOutput) {
+                    for (auto& scanInfo : mInfo.second) {
+                        if (scanInfo.type == Schedule::CONSTANT) continue;
+                        for (auto& scanCmdP : scanInfo.executeBuffer.command) {
+                            for (auto st : scanCmdP->workOutputs) {
+                                auto sdes = TensorUtils::getDescribe(st);
+                                // Force-release large tensors with useCount<=1:
+                                // useCount=0: already done, useCount=1: last user hasn't run yet
+                                // but we know it will be released soon. Safe to reclaim now
+                                // since the buffer will be re-allocated when needed.
+                                if (sdes->useCount > 1) continue;
+                                if (sdes->usage != Tensor::InsideDescribe::NORMAL) continue;
+                                auto sdesO = TensorUtils::getDescribeOrigin(st);
+                                if (sdesO->mem.get() == nullptr) continue;
+                                size_t tb = 1;
+                                for (int i = 0; i < st->dimensions(); i++) tb *= (size_t)st->length(i);
+                                tb *= st->getType().bytes();
+                                if (tb > 1024UL * 1024 * 1024) {
+                                    sdesO->mem = nullptr;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             if (allocInput && iter.execution->needAllocIO()) {
                 for (auto t : iter.workInputs) {
                     auto allocRes = _allocTensor(t, curBackend, mOutputStatic, index);

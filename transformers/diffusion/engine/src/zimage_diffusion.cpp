@@ -8,14 +8,8 @@
 //
 #include <random>
 #include <fstream>
-#include <chrono>
 #include <algorithm>
 #include <cmath>
-#include <cstdlib>
-#include <sstream>
-#include <iostream>
-#include <iomanip>
-#include <limits>
 #include "diffusion/zimage_diffusion.hpp"
 #include "diffusion/diffusion_config.hpp"
 #include "tokenizer.hpp"
@@ -105,45 +99,12 @@ ZImageDiffusion::ZImageDiffusion(std::string modelPath, DiffusionModelType model
                                  int imageWidth, int imageHeight, bool textEncoderOnCPU, bool vaeOnCPU,
                                  DiffusionGpuMemoryMode gpuMemoryMode, DiffusionPrecisionMode precisionMode,
                                  DiffusionCFGMode cfgMode, int numThreads)
-    : Diffusion(modelPath, modelType, backendType, memoryMode) {
-    mTextEncoderOnCPU = textEncoderOnCPU;
-    mVaeOnCPU = vaeOnCPU;
-    mGpuMemoryMode = gpuMemoryMode;
-    mPrecisionMode = precisionMode;
-    mCFGMode = cfgMode;
-    mNumThreads = numThreads;
-    mImageWidth = imageWidth;
-    mImageHeight = imageHeight;
-    
+    : Diffusion(modelPath, modelType, backendType, memoryMode,
+                imageWidth, imageHeight, textEncoderOnCPU, vaeOnCPU,
+                gpuMemoryMode, precisionMode, cfgMode, numThreads) {
     mMaxTextLen = 128;
-    mTrainTimestepsNum = 1000;
-    mFlowShift = 3.0f;
-    mUseDynamicShifting = false;
-    
-    // Load scheduler config if available
-    std::string schedPath1 = mModelPath + "/scheduler/scheduler_config.json";
-    std::string schedPath2 = mModelPath + "/scheduler_config.json";
-    std::string schedPath;
-    std::ifstream sfile;
-    sfile.open(schedPath1.c_str());
-    if (sfile.good()) { schedPath = schedPath1; }
-    else { sfile.close(); sfile.open(schedPath2.c_str()); if (sfile.good()) schedPath = schedPath2; }
-    if (!schedPath.empty()) {
-        std::ostringstream oss;
-        oss << sfile.rdbuf();
-        sfile.close();
-        rapidjson::Document doc;
-        doc.Parse(oss.str().c_str());
-        if (!doc.HasParseError() && doc.IsObject()) {
-            if (doc.HasMember("num_train_timesteps") && doc["num_train_timesteps"].IsInt())
-                mTrainTimestepsNum = doc["num_train_timesteps"].GetInt();
-            if (doc.HasMember("shift") && (doc["shift"].IsFloat() || doc["shift"].IsDouble()))
-                mFlowShift = static_cast<float>(doc["shift"].GetDouble());
-            if (doc.HasMember("use_dynamic_shifting") && doc["use_dynamic_shifting"].IsBool())
-                mUseDynamicShifting = doc["use_dynamic_shifting"].GetBool();
-        }
-    }
-    
+    loadSchedulerConfig();
+
     // Set latent dimensions
     mLatentC = 16;
     if (mImageWidth > 0 && mImageHeight > 0) {
@@ -165,74 +126,11 @@ ZImageDiffusion::~ZImageDiffusion() {
 
 bool ZImageDiffusion::load() {
     AUTOTIME;
-    ScheduleConfig config;
-    BackendConfig backendConfig;
-    config.type = mBackendType;
-    if (config.type == MNN_FORWARD_CPU) {
-        config.numThread = mNumThreads;
-    } else if (config.type == MNN_FORWARD_OPENCL) {
-        int gpuMode = MNN_GPU_TUNING_FAST;
-        if (mGpuMemoryMode == GPU_MEMORY_BUFFER) gpuMode |= MNN_GPU_MEMORY_BUFFER;
-        else if (mGpuMemoryMode == GPU_MEMORY_IMAGE) gpuMode |= MNN_GPU_MEMORY_IMAGE;
-        else gpuMode |= MNN_GPU_MEMORY_BUFFER;  // AUTO: BUFFER mode for ZImage
-        config.mode = gpuMode;
-    } else {
-        config.numThread = 1;
-    }
-    backendConfig.memory = BackendConfig::Memory_Low;
-    
-    if (mPrecisionMode == PRECISION_LOW) backendConfig.precision = BackendConfig::Precision_Low;
-    else if (mPrecisionMode == PRECISION_NORMAL) backendConfig.precision = BackendConfig::Precision_Normal;
-    else if (mPrecisionMode == PRECISION_HIGH) backendConfig.precision = BackendConfig::Precision_High;
-    else {
-        // AUTO: ZImage requires FP32 for GPU (-inf handling in attention mask)
-        if (config.type == MNN_FORWARD_OPENCL || config.type == MNN_FORWARD_VULKAN) {
-            backendConfig.precision = BackendConfig::Precision_High;  // FP32
-        } else {
-            backendConfig.precision = BackendConfig::Precision_Normal;  // FP32 for CPU
-        }
-    }
-    config.backendConfig = &backendConfig;
-    
-    auto exe = ExecutorScope::Current();
-    exe->lazyEval = false;
-    exe->setGlobalExecutorConfig(config.type, backendConfig, config.numThread);
-    
+    if (!initRuntimeManagers(/*gpuBufferMode=*/true)) return false;
+
     Module::Config module_config;
     module_config.shapeMutable = true;
-    // module_config.rearrange = true;  // not set in old version
-    runtime_manager_.reset(Executor::RuntimeManager::createRuntimeManager(config));
-    if (runtime_manager_ == nullptr) {
-        MNN_ERROR("ZImage: Failed to create runtime manager\n");
-        return false;
-    }
-    
-    if (config.type == MNN_FORWARD_OPENCL) {
-        const char* cacheFileName = ".tempcache";
-        runtime_manager_->setCache(cacheFileName);
-    }
-    if (mMemoryMode == 0) {
-        runtime_manager_->setHint(Interpreter::WINOGRAD_MEMORY_LEVEL, 0);
-    } else if (mMemoryMode == 2) {
-        runtime_manager_->setHint(Interpreter::WINOGRAD_MEMORY_LEVEL, 1);
-    }
-    if (config.type == MNN_FORWARD_CPU) {
-        runtime_manager_->setHint(Interpreter::DYNAMIC_QUANT_OPTIONS, 0);
-    }
-    
-    // CPU runtime for text encoder (avoid OpenCL buffer size limit)
-    if (mTextEncoderOnCPU && (config.type == MNN_FORWARD_OPENCL || config.type == MNN_FORWARD_VULKAN)) {
-        ScheduleConfig cpuConfig;
-        cpuConfig.type = MNN_FORWARD_CPU;
-        cpuConfig.numThread = mNumThreads;
-        BackendConfig cpuBackendConfig;
-        cpuBackendConfig.memory = BackendConfig::Memory_Low;
-        cpuBackendConfig.precision = BackendConfig::Precision_Normal;
-        cpuConfig.backendConfig = &cpuBackendConfig;
-        runtime_manager_cpu_.reset(Executor::RuntimeManager::createRuntimeManager(cpuConfig));
-        runtime_manager_cpu_->setHint(Interpreter::DYNAMIC_QUANT_OPTIONS, 0);
-    }
-    
+
     // Create input variables
     mLatentVar = _Input({1, mLatentC, mLatentH, mLatentW}, NCHW, halide_type_of<float>());
     mPromptVar = _Input({1, mMaxTextLen}, NCHW, halide_type_of<int>());
@@ -265,7 +163,8 @@ bool ZImageDiffusion::load() {
     {
         std::string model_path = diff_config.vae_decoder_model();
         MNN_PRINT("Load %s\n", model_path.c_str());
-        mModules[2].reset(Module::load({"latent_sample"}, {"sample"}, model_path.c_str(), runtime_manager_, &module_config));
+        auto& vae_runtime = runtime_manager_vae_cpu_ ? runtime_manager_vae_cpu_ : runtime_manager_;
+        mModules[2].reset(Module::load({"latent_sample"}, {"sample"}, model_path.c_str(), vae_runtime, &module_config));
     }
     
     // Load tokenizer
@@ -286,8 +185,6 @@ bool ZImageDiffusion::load() {
         mModules[i]->traceOrOptimize(MNN::Interpreter::Session_Resize_Fix);
     }
     
-    // UNet preprocessing: pass-through (ZImage outputs [B, C, H, W] directly)
-    mUNetPreprocess = [](VARP unet_output) -> VARP { return unet_output; };
     mSchedulerType = SCHEDULER_EULER;
     
     return true;
@@ -295,18 +192,37 @@ bool ZImageDiffusion::load() {
 
 VARP ZImageDiffusion::text_encoder(const std::vector<int>& ids) {
     AUTOTIME;
-    int expected = mMaxTextLen * 2;
     memcpy((void*)mPromptVar->writeMap<int8_t>(), ids.data(), mMaxTextLen * sizeof(int));
     memcpy((void*)mAttentionMaskVar->writeMap<int8_t>(), ids.data() + mMaxTextLen, mMaxTextLen * sizeof(int));
     
     auto outputs = mModules[0]->onForward({mPromptVar, mAttentionMaskVar});
-    auto output = outputs[0];  // keep original [B, L, D] layout for UNet
-    output.fix(VARP::CONSTANT);
-    return output;
-}
-
-VARP ZImageDiffusion::applyEulerUpdate(VARP sample, VARP noise_pred, float dt) {
-    return sample + _Scalar(dt) * noise_pred;
+    auto fullOutput = outputs[0];  // [1, mMaxTextLen, D]
+    fullOutput.fix(VARP::CONSTANT);
+    
+    // Apply attention mask: keep valid tokens, zero-pad the rest back to mMaxTextLen
+    // Python: cap_feats = hidden[i][prompt_masks[i]]  (slice valid)
+    //         cap_np = np.pad(cap_np, ((0, pad_len), (0, 0)), mode="constant", constant_values=0)  (pad back)
+    // UNet model is exported with fixed seq_len=128, must receive [1, 128, D]
+    const int* maskData = ids.data() + mMaxTextLen;
+    int validLen = 0;
+    for (int i = 0; i < mMaxTextLen; ++i) if (maskData[i]) validLen++;
+    if (validLen == 0) validLen = mMaxTextLen;  // fallback
+    MNN_PRINT("[ZImage] text_encoder: validLen=%d/%d\n", validLen, mMaxTextLen);
+    
+    if (validLen == mMaxTextLen) {
+        return fullOutput;  // no padding needed, return as-is
+    }
+    
+    // Zero-pad: copy valid tokens, zero-fill the rest → output is still [1, mMaxTextLen, D]
+    auto info = fullOutput->getInfo();
+    int D = info->dim[2];
+    auto padded = _Input({1, mMaxTextLen, D}, NCHW, halide_type_of<float>());
+    const float* src = fullOutput->readMap<float>();
+    float* dst = padded->writeMap<float>();
+    memcpy(dst, src, validLen * D * sizeof(float));
+    memset(dst + validLen * D, 0, (mMaxTextLen - validLen) * D * sizeof(float));
+    padded.fix(VARP::CONSTANT);
+    return padded;
 }
 
 VARP ZImageDiffusion::unet(VARP text_embeddings, int iterNum, int randomSeed, float cfgScale, std::function<void(int)> progressCallback) {
@@ -315,17 +231,9 @@ VARP ZImageDiffusion::unet(VARP text_embeddings, int iterNum, int randomSeed, fl
     }
     
     int latentSize = mLatentC * mLatentH * mLatentW;
-    if ((int)mInitNoise.size() != latentSize) {
-        mInitNoise.resize(latentSize);
-    }
-    
-    // Generate random noise using Philox RNG (aligned with PyTorch)
+    mInitNoise.resize(latentSize);
     int seed = randomSeed < 0 ? std::random_device()() : randomSeed;
-    PhiloxRNG rng(seed);
-    for (int i = 0; i < latentSize; i++) {
-        mInitNoise[i] = rng.randn();
-    }
-    
+    generateLatentNoise(mInitNoise.data(), latentSize, seed);
     memcpy((void*)mLatentVar->writeMap<float>(), mInitNoise.data(), latentSize * sizeof(float));
     
     // Create a separate buffer for plms to allow in-place updates
@@ -336,7 +244,7 @@ VARP ZImageDiffusion::unet(VARP text_embeddings, int iterNum, int randomSeed, fl
     auto floatVar = _Input({1}, NCHW, halide_type_of<float>());
     auto ptr = floatVar->writeMap<float>();
     
-    for (int i = 0; i < (int)mTimeSteps.size(); i++) {
+    for (int i = 0; i < (int)mSigmas.size() - 1; i++) {
         AUTOTIME;
         
         float sigma = mSigmas[i];
@@ -370,16 +278,11 @@ VARP ZImageDiffusion::unet(VARP text_embeddings, int iterNum, int randomSeed, fl
             noise_pred = _Scalar(cfgScale) * noise_pred;
         }
         
-        // Layer 1: Preprocess (pass-through for ZImage)
-        auto noise_pred_standard = mUNetPreprocess(noise_pred);
-        
-        // Layer 2: Euler update
-        auto updated = applyEulerUpdate(plms, noise_pred_standard, dt);
+        // Euler update
+        auto updated = Diffusion::applyEulerUpdate(plms, noise_pred, dt);
         plms->input(updated);
         
-        // Cleanup
         noise_pred = nullptr;
-        noise_pred_standard = nullptr;
         
         if (mBackendType == MNN_FORWARD_OPENCL && (i + 1) % 2 == 0) {
             MNN::Express::ExecutorScope::Current()->gc(MNN::Express::Executor::PART);
@@ -394,24 +297,15 @@ VARP ZImageDiffusion::unet(VARP text_embeddings, int iterNum, int randomSeed, fl
 }
 
 VARP ZImageDiffusion::vae_decoder(VARP latent) {
-    if (mMemoryMode != 1) {
-        mModules[1].reset();  // Unload UNet
-    }
-    
-    // Z-image uses standard SD VAE scaling
-    latent = latent * _Const(1 / 0.18215);
-    
+    if (mMemoryMode != 1) mModules[1].reset();
+
+    // Z-image VAE: latents = (latents / scaling_factor) + shift_factor
+    // scaling_factor=0.3611, shift_factor=0.1159 (from vae/config.json)
+    latent = latent * _Const(1.0f / 0.3611f) + _Const(0.1159f);
+
     AUTOTIME;
     auto outputs = mModules[2]->onForward({latent});
-    auto output = _Convert(outputs[0], NCHW);
-    
-    auto image = output;
-    image = _Relu6(image * _Const(0.5) + _Const(0.5), 0, 1);
-    image = _Squeeze(_Transpose(image, {0, 2, 3, 1}));
-    image = _Cast(_Round(image * _Const(255.0)), halide_type_of<uint8_t>());
-    image = cvtColor(image, COLOR_BGR2RGB);
-    image.fix(VARP::CONSTANT);
-    return image;
+    return nchwFloatToHwcBGR(_Convert(outputs[0], NCHW));
 }
 
 bool ZImageDiffusion::run(const std::string prompt, const std::string imagePath, int iterNum, int randomSeed, std::function<void(int)> progressCallback) {
@@ -425,10 +319,12 @@ bool ZImageDiffusion::run(const std::string prompt, const std::string outputPath
     if (iterNum < 1) { iterNum = 10; MNN_PRINT("Set iterations to 10\n"); }
     
     // Build FlowMatch Euler sigma schedule
+    // Use dynamic shifting (exponential time_shift) to match Python ZImagePipeline:
+    //   calculate_shift(image_seq_len) -> mu -> time_shift_exponential(mu, 1.0, t)
+    // image_seq_len = (latentH/2) * (latentW/2) = number of 2x2 patches in latent space
     FlowMatchEulerScheduler scheduler(mTrainTimestepsNum, mFlowShift, mUseDynamicShifting);
-    mSigmas = scheduler.get_sigmas(iterNum);
-    mTimeSteps.resize(iterNum);
-    for (int i = 0; i < iterNum; ++i) mTimeSteps[i] = i;
+    int imageSeqLen = (mLatentH / 2) * (mLatentW / 2);
+    mSigmas = scheduler.get_sigmas_dynamic(iterNum, imageSeqLen);
     
     // Apply chat template for ZImage tokenizer
     std::string promptForTokenizer = std::string("<|im_start|>user\n") + prompt +

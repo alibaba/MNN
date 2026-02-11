@@ -8,14 +8,8 @@
 //
 #include <random>
 #include <fstream>
-#include <chrono>
 #include <algorithm>
 #include <cmath>
-#include <cstdlib>
-#include <sstream>
-#include <iostream>
-#include <iomanip>
-#include <limits>
 #include "diffusion/longcat_diffusion.hpp"
 #include "diffusion/diffusion_config.hpp"
 #include "tokenizer.hpp"
@@ -50,44 +44,11 @@ LongCatDiffusion::LongCatDiffusion(std::string modelPath, DiffusionModelType mod
                                    int imageWidth, int imageHeight, bool textEncoderOnCPU, bool vaeOnCPU,
                                    DiffusionGpuMemoryMode gpuMemoryMode, DiffusionPrecisionMode precisionMode,
                                    DiffusionCFGMode cfgMode, int numThreads)
-    : Diffusion(modelPath, modelType, backendType, memoryMode) {
-    mTextEncoderOnCPU = textEncoderOnCPU;
-    mVaeOnCPU = vaeOnCPU;
-    mGpuMemoryMode = gpuMemoryMode;
-    mPrecisionMode = precisionMode;
-    mCFGMode = cfgMode;
-    mNumThreads = numThreads;
-    mImageWidth = imageWidth;
-    mImageHeight = imageHeight;
-    
+    : Diffusion(modelPath, modelType, backendType, memoryMode,
+                imageWidth, imageHeight, textEncoderOnCPU, vaeOnCPU,
+                gpuMemoryMode, precisionMode, cfgMode, numThreads) {
     mMaxTextLen = 128;
-    mTrainTimestepsNum = 1000;
-    mFlowShift = 3.0f;
-    mUseDynamicShifting = false;
-    
-    // Load scheduler config
-    std::string schedPath1 = mModelPath + "/scheduler/scheduler_config.json";
-    std::string schedPath2 = mModelPath + "/scheduler_config.json";
-    std::string schedPath;
-    std::ifstream sfile;
-    sfile.open(schedPath1.c_str());
-    if (sfile.good()) { schedPath = schedPath1; }
-    else { sfile.close(); sfile.open(schedPath2.c_str()); if (sfile.good()) schedPath = schedPath2; }
-    if (!schedPath.empty()) {
-        std::ostringstream oss;
-        oss << sfile.rdbuf();
-        sfile.close();
-        rapidjson::Document doc;
-        doc.Parse(oss.str().c_str());
-        if (!doc.HasParseError() && doc.IsObject()) {
-            if (doc.HasMember("num_train_timesteps") && doc["num_train_timesteps"].IsInt())
-                mTrainTimestepsNum = doc["num_train_timesteps"].GetInt();
-            if (doc.HasMember("shift") && (doc["shift"].IsFloat() || doc["shift"].IsDouble()))
-                mFlowShift = static_cast<float>(doc["shift"].GetDouble());
-            if (doc.HasMember("use_dynamic_shifting") && doc["use_dynamic_shifting"].IsBool())
-                mUseDynamicShifting = doc["use_dynamic_shifting"].GetBool();
-        }
-    }
+    loadSchedulerConfig();
     
     // Load main config.json for LongCat-specific settings
     {
@@ -142,6 +103,7 @@ LongCatDiffusion::LongCatDiffusion(std::string modelPath, DiffusionModelType mod
     MNN_PRINT("[LongCat] latent=(1,%d,%d,%d), image=%dx%d\n", mLatentC, mLatentH, mLatentW, mImageWidth, mImageHeight);
 }
 
+
 LongCatDiffusion::~LongCatDiffusion() {
 #ifdef MNN_BUILD_LLM
     if (mLlm) {
@@ -153,74 +115,11 @@ LongCatDiffusion::~LongCatDiffusion() {
 
 bool LongCatDiffusion::load() {
     AUTOTIME;
-    ScheduleConfig config;
-    BackendConfig backendConfig;
-    config.type = mBackendType;
-    if (config.type == MNN_FORWARD_CPU) {
-        config.numThread = mNumThreads;
-    } else if (config.type == MNN_FORWARD_OPENCL) {
-        int gpuMode = MNN_GPU_TUNING_FAST;
-        if (mGpuMemoryMode == GPU_MEMORY_BUFFER) gpuMode |= MNN_GPU_MEMORY_BUFFER;
-        else if (mGpuMemoryMode == GPU_MEMORY_IMAGE) gpuMode |= MNN_GPU_MEMORY_IMAGE;
-        else gpuMode |= MNN_GPU_MEMORY_BUFFER;  // AUTO: BUFFER mode for LongCat
-        config.mode = gpuMode;
-    } else {
-        config.numThread = 1;
-    }
-    backendConfig.memory = BackendConfig::Memory_Low;
-    
-    if (mPrecisionMode == PRECISION_LOW) backendConfig.precision = BackendConfig::Precision_Low;
-    else if (mPrecisionMode == PRECISION_NORMAL) backendConfig.precision = BackendConfig::Precision_Normal;
-    else if (mPrecisionMode == PRECISION_HIGH) backendConfig.precision = BackendConfig::Precision_High;
-    else {
-        // AUTO: LongCat requires FP32 for GPU (-inf handling in attention mask)
-        if (config.type == MNN_FORWARD_OPENCL || config.type == MNN_FORWARD_VULKAN) {
-            backendConfig.precision = BackendConfig::Precision_High;  // FP32
-        } else {
-            backendConfig.precision = BackendConfig::Precision_Normal;  // FP32 for CPU
-        }
-    }
-    config.backendConfig = &backendConfig;
-    
-    auto exe = ExecutorScope::Current();
-    exe->lazyEval = false;
-    exe->setGlobalExecutorConfig(config.type, backendConfig, config.numThread);
-    
+    if (!initRuntimeManagers(/*gpuBufferMode=*/true)) return false;
+
     Module::Config module_config;
     module_config.shapeMutable = true;
-    // module_config.rearrange = true;  // not set in old version
-    runtime_manager_.reset(Executor::RuntimeManager::createRuntimeManager(config));
-    if (runtime_manager_ == nullptr) {
-        MNN_ERROR("LongCat: Failed to create runtime manager\n");
-        return false;
-    }
-    
-    if (config.type == MNN_FORWARD_OPENCL) {
-        const char* cacheFileName = ".tempcache";
-        runtime_manager_->setCache(cacheFileName);
-    }
-    if (mMemoryMode == 0) {
-        runtime_manager_->setHint(Interpreter::WINOGRAD_MEMORY_LEVEL, 0);
-    } else if (mMemoryMode == 2) {
-        runtime_manager_->setHint(Interpreter::WINOGRAD_MEMORY_LEVEL, 1);
-    }
-    if (config.type == MNN_FORWARD_CPU) {
-        runtime_manager_->setHint(Interpreter::DYNAMIC_QUANT_OPTIONS, 0);
-    }
-    
-    // CPU runtime for text encoder (avoid OpenCL buffer size limit)
-    if (mTextEncoderOnCPU && (config.type == MNN_FORWARD_OPENCL || config.type == MNN_FORWARD_VULKAN)) {
-        ScheduleConfig cpuConfig;
-        cpuConfig.type = MNN_FORWARD_CPU;
-        cpuConfig.numThread = mNumThreads;
-        BackendConfig cpuBackendConfig;
-        cpuBackendConfig.memory = BackendConfig::Memory_Low;
-        cpuBackendConfig.precision = BackendConfig::Precision_Normal;
-        cpuConfig.backendConfig = &cpuBackendConfig;
-        runtime_manager_cpu_.reset(Executor::RuntimeManager::createRuntimeManager(cpuConfig));
-        runtime_manager_cpu_->setHint(Interpreter::DYNAMIC_QUANT_OPTIONS, 0);
-    }
-    
+
     // Create input variables
     mLatentVar = _Input({1, mLatentC, mLatentH, mLatentW}, NCHW, halide_type_of<float>());
     mPromptVar = _Input({1, mMaxTextLen}, NCHW, halide_type_of<int>());
@@ -250,13 +149,15 @@ bool LongCatDiffusion::load() {
     {
         std::string model_path = diff_config.vae_decoder_model();
         MNN_PRINT("Load %s\n", model_path.c_str());
-        mModules[2].reset(Module::load({"latent_sample"}, {"sample"}, model_path.c_str(), runtime_manager_, &module_config));
+        auto& vae_runtime = runtime_manager_vae_cpu_ ? runtime_manager_vae_cpu_ : runtime_manager_;
+        mModules[2].reset(Module::load({"latent_sample"}, {"sample"}, model_path.c_str(), vae_runtime, &module_config));
     }
     // Load VAE encoder
     {
         std::string model_path = diff_config.vae_encoder_model();
         MNN_PRINT("Load %s\n", model_path.c_str());
-        mModules[3].reset(Module::load({"sample"}, {"latent_sample"}, model_path.c_str(), runtime_manager_, &module_config));
+        auto& vae_runtime = runtime_manager_vae_cpu_ ? runtime_manager_vae_cpu_ : runtime_manager_;
+        mModules[3].reset(Module::load({"sample"}, {"latent_sample"}, model_path.c_str(), vae_runtime, &module_config));
     }
     
     // Resize fix (skip UNet due to dynamic shapes)
@@ -312,10 +213,6 @@ void LongCatDiffusion::getCFGSigmaRange(float& sigmaLow, float& sigmaHigh) const
         case CFG_MODE_MINIMAL: sigmaLow = 0.25f; sigmaHigh = 0.5f; break;
         default:               sigmaLow = 0.1f; sigmaHigh = 0.8f; break;
     }
-}
-
-VARP LongCatDiffusion::applyEulerUpdate(VARP sample, VARP noise_pred, float dt) {
-    return sample + _Scalar(dt) * noise_pred;
 }
 
 #ifdef MNN_BUILD_LLM
@@ -462,11 +359,10 @@ VARP LongCatDiffusion::text_encoder_llm(const std::string& prompt, VARP preproce
     auto indicesVar = _Const(indices.data(), {outputSeqLen}, NCHW, halide_type_of<int>());
     auto sliced = _GatherV2(hiddenStates, indicesVar, _Scalar<int>(1));
     
-    // Pad to target sequence length
     auto slicedInfo = sliced->getInfo();
     int currentLen = slicedInfo->dim[1];
     int targetLen = isT2IMode ? cfg.tokenizerMaxLength : cfg.targetSeqLen;
-    
+
     if (currentLen < targetLen) {
         int padLen = targetLen - currentLen;
         MNN_PRINT("[LongCat] %s: Padding %d -> %d (+%d zeros)\n",
@@ -475,7 +371,7 @@ VARP LongCatDiffusion::text_encoder_llm(const std::string& prompt, VARP preproce
         auto padding = _Fill(_Const(padShape.data(), {3}, NCHW, halide_type_of<int>()), _Scalar<float>(0.0f));
         sliced = _Concat({sliced, padding}, 1);
     }
-    
+
     sliced.fix(VARP::CONSTANT);
     
     auto finalInfo = sliced->getInfo();
@@ -504,13 +400,9 @@ VARP LongCatDiffusion::unet(VARP text_embeddings, int iterNum, int randomSeed, f
     }
 #endif
     int latentSize = mLatentC * mLatentH * mLatentW;
-    if ((int)mInitNoise.size() != latentSize) mInitNoise.resize(latentSize);
-    
-    // Generate random noise using Philox RNG (aligned with PyTorch)
+    mInitNoise.resize(latentSize);
     int seed = randomSeed < 0 ? std::random_device()() : randomSeed;
-    PhiloxRNG rng(seed);
-    for (int i = 0; i < latentSize; i++) mInitNoise[i] = rng.randn();
-    
+    generateLatentNoise(mInitNoise.data(), latentSize, seed);
     memcpy((void*)mLatentVar->writeMap<float>(), mInitNoise.data(), latentSize * sizeof(float));
     
     // For LongCat: pack noise latents and optionally image latents
@@ -581,7 +473,7 @@ VARP LongCatDiffusion::unet(VARP text_embeddings, int iterNum, int randomSeed, f
     auto floatVar = _Input({1}, NCHW, halide_type_of<float>());
     auto ptr = floatVar->writeMap<float>();
     
-    for (int i = 0; i < (int)mTimeSteps.size(); i++) {
+    for (int i = 0; i < (int)mSigmas.size() - 1; i++) {
         AUTOTIME;
         
         float sigma = mSigmas[i];
@@ -615,27 +507,25 @@ VARP LongCatDiffusion::unet(VARP text_embeddings, int iterNum, int randomSeed, f
             std::vector<VARP> unet_inputs_cond = {sample_input, mTimestepVar, text_embeddings, mTxtIdsVar, mImgIdsVar};
             auto outputs_cond = mModules[1]->onForward(unet_inputs_cond);
             if (outputs_cond.empty()) { MNN_PRINT("[LongCat UNet] ERROR: cond outputs empty!\n"); return nullptr; }
-            auto output_cond = _Convert(outputs_cond[0], NCHW);
+            auto output_cond = outputs_cond[0];
             
             // Unconditional pass
             std::vector<VARP> unet_inputs_uncond = {sample_input, mTimestepVar, zero_embeddings, mTxtIdsVar, mImgIdsVar};
             auto outputs_uncond = mModules[1]->onForward(unet_inputs_uncond);
             if (outputs_uncond.empty()) { MNN_PRINT("[LongCat UNet] ERROR: uncond outputs empty!\n"); return nullptr; }
-            auto output_uncond = _Convert(outputs_uncond[0], NCHW);
+            auto output_uncond = outputs_uncond[0];
             
             noise_pred = output_uncond + _Scalar(cfgScale) * (output_cond - output_uncond);
         } else {
             std::vector<VARP> unet_inputs = {sample_input, mTimestepVar, text_embeddings, mTxtIdsVar, mImgIdsVar};
             auto outputs = mModules[1]->onForward(unet_inputs);
             if (outputs.empty()) { MNN_PRINT("[LongCat UNet] ERROR: outputs empty!\n"); return nullptr; }
-            noise_pred = _Convert(outputs[0], NCHW);
+            noise_pred = outputs[0];  // [1, seq, 64] - keep NLC format for slice+unpack
         }
         
-        // Layer 1: Preprocess (GPU slice + unpack for LongCat)
+        // Preprocess (GPU slice + unpack) then Euler update
         auto noise_pred_standard = mUNetPreprocess(noise_pred);
-        
-        // Layer 2: Euler update
-        auto updated = applyEulerUpdate(plms, noise_pred_standard, dt);
+        auto updated = Diffusion::applyEulerUpdate(plms, noise_pred_standard, dt);
         plms->input(updated);
         
         noise_pred = nullptr;
@@ -655,24 +545,13 @@ VARP LongCatDiffusion::unet(VARP text_embeddings, int iterNum, int randomSeed, f
 
 VARP LongCatDiffusion::vae_decoder(VARP latent) {
     if (mMemoryMode != 1) mModules[1].reset();
-    
-    // LongCat VAE scaling
-    float scalingFactor = 0.3611f;
-    float shiftFactor = 0.1159f;
-    latent = latent / _Const(scalingFactor) + _Const(shiftFactor);
-    
+
+    // LongCat VAE scaling: latents = latents / scaling_factor + shift_factor
+    latent = latent / _Const(0.3611f) + _Const(0.1159f);
+
     AUTOTIME;
     auto outputs = mModules[2]->onForward({latent});
-    auto output = _Convert(outputs[0], NCHW);
-    
-    auto image = output;
-    image = _Relu6(image * _Const(0.5) + _Const(0.5), 0, 1);
-    image = _Squeeze(_Transpose(image, {0, 2, 3, 1}));
-    image = _Cast(_Round(image * _Const(255.0)), halide_type_of<uint8_t>());
-    image = cvtColor(image, COLOR_BGR2RGB);
-    image.fix(VARP::CONSTANT);
-    MNN_PRINT("[LongCat] VAE decoder output ready\n");
-    return image;
+    return nchwFloatToHwcBGR(_Convert(outputs[0], NCHW));
 }
 
 bool LongCatDiffusion::run(const std::string prompt, const std::string imagePath, int iterNum, int randomSeed, std::function<void(int)> progressCallback) {
@@ -713,10 +592,14 @@ bool LongCatDiffusion::run(const std::string prompt, const std::string outputPat
     if (iterNum < 1) iterNum = 10;
     
     FlowMatchEulerScheduler scheduler(mTrainTimestepsNum, mFlowShift, mUseDynamicShifting);
-    mSigmas = scheduler.get_sigmas(iterNum);
-    mTimeSteps.resize(iterNum);
-    for (int i = 0; i < iterNum; ++i) mTimeSteps[i] = i;
-    
+    int imageSeqLen = (mLatentH / 2) * (mLatentW / 2);
+    if (mUseDynamicShifting) {
+        mSigmas = scheduler.get_sigmas_dynamic(iterNum, imageSeqLen);
+    } else {
+        mSigmas = scheduler.get_sigmas(iterNum);
+    }
+    MNN_PRINT("[LongCat] Sigma schedule (imageSeqLen=%d): [%.4f, %.4f, ..., %.4f]\n",
+              imageSeqLen, mSigmas[0], mSigmas.size()>1 ? mSigmas[1] : 0.f, mSigmas[iterNum-1]);
     auto text_embeddings = text_encoder_llm(prompt, vaePreprocessedImage);
     if (!text_embeddings.get()) { MNN_PRINT("Error: LLM text encoder failed\n"); return false; }
     

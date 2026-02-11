@@ -37,7 +37,7 @@ int main(int argc, const char* argv[]) {
         MNN_PRINT("\n");
         MNN_PRINT("Required parameters:\n");
         MNN_PRINT("  resource_path    : Path to model directory\n");
-        MNN_PRINT("  model_type       : 0=SD1.5, 1=Taiyi, 2=Sana, 3=ZImage, 4=LongCat\n");
+        MNN_PRINT("  model_type       : 0=SD1.5, 1=Taiyi, 2=Sana, 3=ZImage, 4=LongCat, 5=Flux2Klein\n");
         MNN_PRINT("  memory_mode      : 0=low(load/unload on demand), 1=high(keep all in memory), 2=balance\n");
         MNN_PRINT("  backend_type     : 0=CPU, 3=OpenCL, 7=Vulkan, etc.\n");
         MNN_PRINT("  iteration_num    : Numbe of diffusion steps (e.g., 20, 50)\n");
@@ -213,6 +213,8 @@ int main(int argc, const char* argv[]) {
         MNN_PRINT("Model type is ZImage diffusion model\n");
     } else if (model_type == LONGCAT_IMAGE_EDIT) {
         MNN_PRINT("Model type is LongCat Image Edit diffusion model\n");
+    } else if (model_type == FLUX2_KLEIN_DIFFUSION) {
+        MNN_PRINT("Model type is FLUX.2-Klein-4B diffusion model (Qwen3-4B + DiT)\n");
     } else {
         MNN_PRINT("Error: Model type %d not supported, please check\n", (int)model_type);
         return 0;
