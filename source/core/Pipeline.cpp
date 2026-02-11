@@ -566,6 +566,20 @@ static ErrorCode _createExecutions(Schedule::PipelineInfo& mInfo, const std::str
             }
             if (nullptr == iter.execution) {
                 // Try Backup
+                static int sStrictNoCpuOp = -1;
+                if (sStrictNoCpuOp < 0) {
+                    const char* v = ::getenv("MNN_STRICT_OPENCL_NO_CPU_OP");
+                    sStrictNoCpuOp = (v && v[0] && v[0] != '0') ? 1 : 0;
+                }
+                if (sStrictNoCpuOp == 1) {
+                    // Do not allow fallback to backup backend for ops. This keeps compute ops on OpenCL.
+                    if (mInfo.first.reportError) {
+                        const char* opname = (iter.op && iter.op->name()) ? iter.op->name()->c_str() : "";
+                        MNN_ERROR("[MNN][STRICT] OpenCL has no execution for op type=%d name=%s; CPU fallback disabled\n", iter.op->type(), opname);
+                    }
+                    return NOT_SUPPORT;
+                }
+
                 iter.execution.reset(OpCommonUtils::createExecutionWithExternal(mBackupBackend.get(), iter.inputs, iter.outputs, iter.op, &loader, tmpStorage));
                 if (nullptr == iter.execution) {
                     if (mInfo.first.reportError) {
@@ -577,6 +591,22 @@ static ErrorCode _createExecutions(Schedule::PipelineInfo& mInfo, const std::str
             if (nullptr != tmpStorage.get()) {
                 extraStorage.emplace_back(tmpStorage);
             }
+            // Strict mode: ensure compute ops are executed on OpenCL backend (no CPU fallback).
+            static int sStrictNoCpuOp2 = -1;
+            if (sStrictNoCpuOp2 < 0) {
+                const char* v = ::getenv("MNN_STRICT_OPENCL_NO_CPU_OP");
+                sStrictNoCpuOp2 = (v && v[0] && v[0] != '0') ? 1 : 0;
+            }
+            if (sStrictNoCpuOp2 == 1) {
+                auto b = iter.execution->backend();
+                if (b && b->type() != MNN_FORWARD_OPENCL) {
+                    const char* opname = (iter.op && iter.op->name()) ? iter.op->name()->c_str() : "";
+                    MNN_ERROR("[MNN][STRICT] Op execution is not OpenCL (backend=%d) for op type=%d name=%s\n",
+                              (int)b->type(), (int)iter.op->type(), opname);
+                    return NOT_SUPPORT;
+                }
+            }
+
             // invalid means memory alloc failed
             if (!iter.execution->valid()) {
                 iter.execution = nullptr;

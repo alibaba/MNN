@@ -55,9 +55,16 @@ CLRuntime::CLRuntime(const Backend::Info& info){
     }
     
     mOpenCLRuntime.reset(new OpenCLRuntime(platform_size, platform_id, device_id, context_ptr, hint()));
-    
-    //Whether runtimeError
+
+    // Whether runtimeError
     mCLRuntimeError = mOpenCLRuntime->isCreateError();
+    if (mCLRuntimeError) {
+        MNN_PRINT("[MNN][OpenCL] OpenCLRuntime create error (platform_size=%d platform_id=%d device_id=%d context_ptr=%p)\n",
+                  platform_size, platform_id, device_id, context_ptr);
+    } else {
+        MNN_PRINT("[MNN][OpenCL] OpenCLRuntime created (platform_size=%d platform_id=%d device_id=%d context_ptr=%p)\n",
+                  platform_size, platform_id, device_id, context_ptr);
+    }
     mTunedInfo = new TuneInfo;
     
     mImagePool.reset(new ImagePool(mOpenCLRuntime->context()));
@@ -1265,9 +1272,11 @@ class CLRuntimeCreator : public RuntimeCreator {
     #endif
         auto rt = new CLRuntime(info);
         if(rt->isCLRuntimeError() == true) {
+            MNN_PRINT("[MNN][OpenCL] CLRuntime creation failed (isCLRuntimeError=1).\n");
             delete rt;
             return nullptr;
         }
+        MNN_PRINT("[MNN][OpenCL] CLRuntime creation OK.\n");
         return rt;
     }
     virtual bool onValid(Backend::Info& info) const {

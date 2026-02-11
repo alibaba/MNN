@@ -1,0 +1,148 @@
+diff --git a/source/backend/opencl/core/OpenCLBackend.cpp b/source/backend/opencl/core/OpenCLBackend.cpp
+index 52c6635..3b081be 100644
+--- a/source/backend/opencl/core/OpenCLBackend.cpp
++++ b/source/backend/opencl/core/OpenCLBackend.cpp
+@@ -55,9 +55,16 @@ CLRuntime::CLRuntime(const Backend::Info& info){
+     }
+     
+     mOpenCLRuntime.reset(new OpenCLRuntime(platform_size, platform_id, device_id, context_ptr, hint()));
+-    
+-    //Whether runtimeError
++
++    // Whether runtimeError
+     mCLRuntimeError = mOpenCLRuntime->isCreateError();
++    if (mCLRuntimeError) {
++        MNN_PRINT("[MNN][OpenCL] OpenCLRuntime create error (platform_size=%d platform_id=%d device_id=%d context_ptr=%p)\n",
++                  platform_size, platform_id, device_id, context_ptr);
++    } else {
++        MNN_PRINT("[MNN][OpenCL] OpenCLRuntime created (platform_size=%d platform_id=%d device_id=%d context_ptr=%p)\n",
++                  platform_size, platform_id, device_id, context_ptr);
++    }
+     mTunedInfo = new TuneInfo;
+     
+     mImagePool.reset(new ImagePool(mOpenCLRuntime->context()));
+@@ -1265,9 +1272,11 @@ class CLRuntimeCreator : public RuntimeCreator {
+     #endif
+         auto rt = new CLRuntime(info);
+         if(rt->isCLRuntimeError() == true) {
++            MNN_PRINT("[MNN][OpenCL] CLRuntime creation failed (isCLRuntimeError=1).\n");
+             delete rt;
+             return nullptr;
+         }
++        MNN_PRINT("[MNN][OpenCL] CLRuntime creation OK.\n");
+         return rt;
+     }
+     virtual bool onValid(Backend::Info& info) const {
+diff --git a/source/backend/opencl/core/runtime/OpenCLRuntime.cpp b/source/backend/opencl/core/runtime/OpenCLRuntime.cpp
+index 6eca2cf..b2cd983 100644
+--- a/source/backend/opencl/core/runtime/OpenCLRuntime.cpp
++++ b/source/backend/opencl/core/runtime/OpenCLRuntime.cpp
+@@ -68,7 +68,17 @@ OpenCLRuntime::OpenCLRuntime(int platformSize, int platformId, int deviceId, voi
+         cl::Platform::setDefault(platforms[platformId]);
+         std::vector<cl::Device> gpuDevices;
+ 
++        // Prefer GPU devices, but for PoCL (CPU OpenCL) we may have only CPU devices.
+         res = platforms[platformId].getDevices(CL_DEVICE_TYPE_GPU, &gpuDevices);
++        if ((res != CL_SUCCESS || gpuDevices.empty())) {
++            std::vector<cl::Device> allDevices;
++            cl_int res2 = platforms[platformId].getDevices(CL_DEVICE_TYPE_ALL, &allDevices);
++            MNN_CHECK_CL_SUCCESS(res2, "getDevices(ALL)");
++            if (res2 == CL_SUCCESS && !allDevices.empty()) {
++                gpuDevices = std::move(allDevices);
++                res = CL_SUCCESS;
++            }
++        }
+         if(1 <= gpuDevices.size() && res == CL_SUCCESS) {
+             if(deviceId >= gpuDevices.size() || deviceId < 0) {
+                 deviceId = 0;
+diff --git a/source/core/Backend.cpp b/source/core/Backend.cpp
+index f5140b3..309d409 100644
+--- a/source/core/Backend.cpp
++++ b/source/core/Backend.cpp
+@@ -87,19 +87,38 @@ const RuntimeCreator* MNNGetExtraRuntimeCreator(MNNForwardType type) {
+     registerBackend();
+ 
+     auto& gExtraCreator = GetExtraCreator();
++
++    // Optional strict mode: disallow creating CPU runtime/creator when running OpenCL-only.
++    // This is used to ensure actual computation doesn't silently fall back to CPU.
++    // Allowed host-side tensor copies may still happen outside runtime creation.
++    static int sStrictNoCpu = -1;
++    if (sStrictNoCpu < 0) {
++        const char* v = ::getenv("MNN_STRICT_NO_CPU_RUNTIME");
++        sStrictNoCpu = (v && v[0] && v[0] != '0') ? 1 : 0;
++    }
++    if (sStrictNoCpu == 1 && type == MNN_FORWARD_CPU) {
++        MNN_PRINT("[MNN][STRICT] CPU runtime creation is disabled (MNN_STRICT_NO_CPU_RUNTIME=1).\n");
++        return nullptr;
++    }
++
+     auto iter           = gExtraCreator.find(type);
+     if (iter == gExtraCreator.end()) {
++        MNN_PRINT("[MNN] RuntimeCreator not found for type=%d\n", (int)type);
+         return nullptr;
+     }
++    // needCheck == false
+     if (!iter->second.second) {
++        MNN_PRINT("[MNN] RuntimeCreator found for type=%d (needCheck=0)\n", (int)type);
+         return iter->second.first;
+     }
+     Backend::Info info;
+     info.type = type;
+     std::shared_ptr<Runtime> bn(iter->second.first->onCreate(info));
+     if (nullptr != bn.get()) {
++        MNN_PRINT("[MNN] RuntimeCreator validated for type=%d (onCreate ok)\n", (int)type);
+         return iter->second.first;
+     }
++    MNN_PRINT("[MNN] RuntimeCreator present but validation failed for type=%d (onCreate returned null)\n", (int)type);
+     return nullptr;
+ }
+ 
+diff --git a/source/core/Pipeline.cpp b/source/core/Pipeline.cpp
+index cae9600..b002892 100644
+--- a/source/core/Pipeline.cpp
++++ b/source/core/Pipeline.cpp
+@@ -566,6 +566,20 @@ static ErrorCode _createExecutions(Schedule::PipelineInfo& mInfo, const std::str
+             }
+             if (nullptr == iter.execution) {
+                 // Try Backup
++                static int sStrictNoCpuOp = -1;
++                if (sStrictNoCpuOp < 0) {
++                    const char* v = ::getenv("MNN_STRICT_OPENCL_NO_CPU_OP");
++                    sStrictNoCpuOp = (v && v[0] && v[0] != '0') ? 1 : 0;
++                }
++                if (sStrictNoCpuOp == 1) {
++                    // Do not allow fallback to backup backend for ops. This keeps compute ops on OpenCL.
++                    if (mInfo.first.reportError) {
++                        const char* opname = (iter.op && iter.op->name()) ? iter.op->name()->c_str() : "";
++                        MNN_ERROR("[MNN][STRICT] OpenCL has no execution for op type=%d name=%s; CPU fallback disabled\n", iter.op->type(), opname);
++                    }
++                    return NOT_SUPPORT;
++                }
++
+                 iter.execution.reset(OpCommonUtils::createExecutionWithExternal(mBackupBackend.get(), iter.inputs, iter.outputs, iter.op, &loader, tmpStorage));
+                 if (nullptr == iter.execution) {
+                     if (mInfo.first.reportError) {
+@@ -577,6 +591,22 @@ static ErrorCode _createExecutions(Schedule::PipelineInfo& mInfo, const std::str
+             if (nullptr != tmpStorage.get()) {
+                 extraStorage.emplace_back(tmpStorage);
+             }
++            // Strict mode: ensure compute ops are executed on OpenCL backend (no CPU fallback).
++            static int sStrictNoCpuOp2 = -1;
++            if (sStrictNoCpuOp2 < 0) {
++                const char* v = ::getenv("MNN_STRICT_OPENCL_NO_CPU_OP");
++                sStrictNoCpuOp2 = (v && v[0] && v[0] != '0') ? 1 : 0;
++            }
++            if (sStrictNoCpuOp2 == 1) {
++                auto b = iter.execution->backend();
++                if (b && b->type() != MNN_FORWARD_OPENCL) {
++                    const char* opname = (iter.op && iter.op->name()) ? iter.op->name()->c_str() : "";
++                    MNN_ERROR("[MNN][STRICT] Op execution is not OpenCL (backend=%d) for op type=%d name=%s\n",
++                              (int)b->type(), (int)iter.op->type(), opname);
++                    return NOT_SUPPORT;
++                }
++            }
++
+             // invalid means memory alloc failed
+             if (!iter.execution->valid()) {
+                 iter.execution = nullptr;

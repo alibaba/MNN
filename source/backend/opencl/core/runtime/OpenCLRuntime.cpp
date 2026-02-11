@@ -68,7 +68,17 @@ OpenCLRuntime::OpenCLRuntime(int platformSize, int platformId, int deviceId, voi
         cl::Platform::setDefault(platforms[platformId]);
         std::vector<cl::Device> gpuDevices;
 
+        // Prefer GPU devices, but for PoCL (CPU OpenCL) we may have only CPU devices.
         res = platforms[platformId].getDevices(CL_DEVICE_TYPE_GPU, &gpuDevices);
+        if ((res != CL_SUCCESS || gpuDevices.empty())) {
+            std::vector<cl::Device> allDevices;
+            cl_int res2 = platforms[platformId].getDevices(CL_DEVICE_TYPE_ALL, &allDevices);
+            MNN_CHECK_CL_SUCCESS(res2, "getDevices(ALL)");
+            if (res2 == CL_SUCCESS && !allDevices.empty()) {
+                gpuDevices = std::move(allDevices);
+                res = CL_SUCCESS;
+            }
+        }
         if(1 <= gpuDevices.size() && res == CL_SUCCESS) {
             if(deviceId >= gpuDevices.size() || deviceId < 0) {
                 deviceId = 0;

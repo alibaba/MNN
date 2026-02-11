@@ -87,19 +87,38 @@ const RuntimeCreator* MNNGetExtraRuntimeCreator(MNNForwardType type) {
     registerBackend();
 
     auto& gExtraCreator = GetExtraCreator();
-    auto iter           = gExtraCreator.find(type);
-    if (iter == gExtraCreator.end()) {
+
+    // Optional strict mode: disallow creating CPU runtime/creator when running OpenCL-only.
+    // This is used to ensure actual computation doesn't silently fall back to CPU.
+    // Allowed host-side tensor copies may still happen outside runtime creation.
+    static int sStrictNoCpu = -1;
+    if (sStrictNoCpu < 0) {
+        const char* v = ::getenv("MNN_STRICT_NO_CPU_RUNTIME");
+        sStrictNoCpu = (v && v[0] && v[0] != '0') ? 1 : 0;
+    }
+    if (sStrictNoCpu == 1 && type == MNN_FORWARD_CPU) {
+        MNN_PRINT("[MNN][STRICT] CPU runtime creation is disabled (MNN_STRICT_NO_CPU_RUNTIME=1).\n");
         return nullptr;
     }
+
+    auto iter           = gExtraCreator.find(type);
+    if (iter == gExtraCreator.end()) {
+        MNN_PRINT("[MNN] RuntimeCreator not found for type=%d\n", (int)type);
+        return nullptr;
+    }
+    // needCheck == false
     if (!iter->second.second) {
+        MNN_PRINT("[MNN] RuntimeCreator found for type=%d (needCheck=0)\n", (int)type);
         return iter->second.first;
     }
     Backend::Info info;
     info.type = type;
     std::shared_ptr<Runtime> bn(iter->second.first->onCreate(info));
     if (nullptr != bn.get()) {
+        MNN_PRINT("[MNN] RuntimeCreator validated for type=%d (onCreate ok)\n", (int)type);
         return iter->second.first;
     }
+    MNN_PRINT("[MNN] RuntimeCreator present but validation failed for type=%d (onCreate returned null)\n", (int)type);
     return nullptr;
 }
 
