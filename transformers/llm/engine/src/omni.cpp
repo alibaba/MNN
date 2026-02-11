@@ -321,8 +321,10 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
     constexpr int merge_size = 2;
     const int align_size = patch_size * merge_size;
     // Qwen2-VL / Qwen2.5-VL / Qwen3-VL
-    mVisionHeight = round(mVisionHeight / (float)align_size) * align_size;
-    mVisionWidth = round(mVisionWidth / (float)align_size) * align_size;
+    // Use floor instead of round to match Python's smart_resize behavior (downscale)
+    // Python: 1024 -> 980 (70x70 grid), C++ was: 1024 -> 1036 (74x74 grid)
+    mVisionHeight = floor(mVisionHeight / (float)align_size) * align_size;
+    mVisionWidth = floor(mVisionWidth / (float)align_size) * align_size;
     image = MNN::CV::resize(image, {mVisionWidth, mVisionHeight}, 0, 0,
                             MNN::CV::INTER_LINEAR, MNN::CV::COLOR_BGR2RGB,
                             mVisionMean, mVisionNorm);
@@ -414,9 +416,8 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
         auto attention_mask_ptr = attention_mask->writeMap<float>();
         ::memset(attention_mask_ptr, 0, seq_len * seq_len * sizeof(float));
         attention_mask_ptr = attention_mask_ptr + seq_len * seq_len;
-        for (int i = 0; i < seq_len * seq_len; i++) {
-            attention_mask_ptr[i] = std::numeric_limits<float>::lowest();
-        }
+        // Use std::fill instead of loop for better performance
+        std::fill(attention_mask_ptr, attention_mask_ptr + seq_len * seq_len, std::numeric_limits<float>::lowest());
         for (size_t i = 1; i < cu_window_seqlens.size(); ++i) {
             for (int j = cu_window_seqlens[i - 1]; j < cu_window_seqlens[i]; ++j) {
                 for (int k = cu_window_seqlens[i - 1]; k < cu_window_seqlens[i]; ++k) {
@@ -795,7 +796,9 @@ std::vector<int> Omni::visionProcess(const std::string& file) {
 std::vector<int> Omni::visionProcess(VARP image) {
 #ifdef LLM_SUPPORT_VISION
     if (image == nullptr) {
-        MNN_PRINT("Omni Can't open image\n");
+        return std::vector<int>(0);
+    }
+    if (mVisionModule == nullptr) {
         return std::vector<int>(0);
     }
     Timer _t;
@@ -1026,7 +1029,6 @@ void Omni::addPositionIds(int t, int h, int w) {
 
 std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input) {
     std::string prompt = multimodal_input.prompt_template;
-    // MNN_PRINT("tokenizer_encode(MultimodalPrompt) prompt: %s", prompt.c_str());
     std::regex multimode_regex("<(img|audio)>(.*?)</\\1>");
     std::string::const_iterator searchStart(prompt.cbegin());
     std::smatch match;
@@ -1042,7 +1044,6 @@ std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input
         std::vector<int> mul_ids;
         if (mode == "img") {
             mul_ids = processImageContent(content, multimodal_input.images);
-            // MNN_PRINT("tokenizer_encode(MultimodalPrompt) image mul_ids size: %lu", mul_ids.size());
         } else if (mode == "audio") {
             mul_ids = processAudioContent(content, multimodal_input.audios);
             // MNN_PRINT("tokenizer_encode(MultimodalPrompt) audio mul_ids size: %lu", mul_ids.size());
@@ -1072,10 +1073,9 @@ std::vector<int> Omni::processImageContent(const std::string& content, const std
             mVisionHeight = it->second.height;
             mVisionWidth = it->second.width;
         }
-        // MNN_PRINT("processImageContent: using placeholder '%s' with size %dx%d", content.c_str(), mVisionWidth, mVisionHeight);
-        return visionProcess(it->second.image_data);
+        auto result = visionProcess(it->second.image_data);
+        return result;
     }
-    // MNN_PRINT("processImageContent: treating '%s' as file path or URL", content.c_str());
     return multimodeProcess("img", content);
 }
 
