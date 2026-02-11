@@ -46,6 +46,15 @@ ErrorCode QNNCommonExecution::onExecute(const std::vector<Tensor *> &inputs, con
 }
 
 void QNNCommonExecution::setNodeName(const Op * op, const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    if (nullptr != op->name()) {
+        mNodeName = op->name()->str();
+        for (int i=0; i<mNodeName.size(); ++i) {
+            if (mNodeName[i] == '.' || mNodeName[i] == '/') {
+                mNodeName[i] = '_';
+            }
+        }
+        return;
+    }
     std::string nodeNameBase = MNN::EnumNameOpType(mOp->type());
     nodeNameBase += "_";
     std::string inputTag = "I_";
@@ -65,31 +74,30 @@ void QNNCommonExecution::setNodeName(const Op * op, const std::vector<Tensor *> 
     mNodeName = nodeNameBase + inputTag + outputTag;
 }
 
-void QNNCommonExecution::createStaticTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<uint32_t> & dimensions, const void * buffer, Qnn_QuantizeParams_t quantizeParam) {
+std::shared_ptr<QNNTensorWrapper> QNNCommonExecution::createStaticTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<uint32_t> & dimensions, const void * buffer, Qnn_QuantizeParams_t quantizeParam) {
     std::string tensorName = mNodeName + "_" + name;
     std::shared_ptr<QNNTensorWrapper> tensorWrapper = QNNTensorWrapper::createStaticTensor(tensorName, dataType, dimensions, buffer, quantizeParam);
-    mBackend->addStaticTensorToGraph(tensorWrapper->getNativeTensor());
+    mBackend->addTensor(tensorWrapper->getNativeTensor());
     mTempTensorWrappers.push_back(tensorWrapper);
-    return;
+    return tensorWrapper;
 }
 
-void QNNCommonExecution::createStaticFloatTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<uint32_t> & dimensions, const float * buffer, Qnn_QuantizeParams_t quantize) {
+std::shared_ptr<QNNTensorWrapper> QNNCommonExecution::createStaticFloatTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<uint32_t> & dimensions, const float * buffer, Qnn_QuantizeParams_t quantize) {
     std::string tensorName = mNodeName + "_" + name;
     std::shared_ptr<QNNTensorWrapper> tensorWrapper = QNNTensorWrapper::createStaticFloatTensor(tensorName, dataType, dimensions, buffer, quantize);
-    mBackend->addStaticTensorToGraph(tensorWrapper->getNativeTensor());
+    mBackend->addTensor(tensorWrapper->getNativeTensor());
     mTempTensorWrappers.push_back(tensorWrapper);
-    return;
+    return tensorWrapper;
 }
 
-void QNNCommonExecution::createStageTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<int> & dimensions, const Tensor* tensor) {
+std::shared_ptr<QNNTensorWrapper> QNNCommonExecution::createStageTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<int> & dimensions, const Tensor* tensor) {
     std::vector<uint32_t> vec(dimensions.size());
     for (int i = 0; i < dimensions.size(); i++) {
         vec[i] = (uint32_t)dimensions[i];
     }
-    this->createStageTensor(name, dataType, vec, tensor);
-    return;
+    return this->createStageTensor(name, dataType, vec, tensor);
 }
-void QNNCommonExecution::createStageTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<uint32_t> & dimensions, const Tensor* tensor) {
+std::shared_ptr<QNNTensorWrapper> QNNCommonExecution::createStageTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<uint32_t> & dimensions, const Tensor* tensor) {
     std::string tensorName = mNodeName + "_" + name;
     Qnn_QuantizeParams_t quantize = DEFAULT_QUANTIZE_PARAMS;
     Qnn_ScaleOffset_t tScaleOffsetEncoding;
@@ -101,12 +109,12 @@ void QNNCommonExecution::createStageTensor(const std::string & name, Qnn_DataTyp
         quantize.scaleOffsetEncoding = tScaleOffsetEncoding;
     }
     std::shared_ptr<QNNTensorWrapper> tensorWrapper = QNNTensorWrapper::create(tensorName, QNN_TENSOR_TYPE_NATIVE, dataType, dimensions, quantize);
-    mBackend->addStageTensorToGraph(tensorWrapper->getNativeTensor());
+    mBackend->addTensor(tensorWrapper->getNativeTensor());
     mTempTensorWrappers.push_back(tensorWrapper);
-    return;
+    return tensorWrapper;
 }
 
-void QNNCommonExecution::createParamTensor(const std::string & paramName, Qnn_DataType_t dataType, const std::vector<uint32_t> & dims, void * data, std::string postName) {
+std::shared_ptr<QNNParamTensorWrapper> QNNCommonExecution::createParamTensor(const std::string & paramName, Qnn_DataType_t dataType, const std::vector<uint32_t> & dims, void * data, std::string postName) {
     MNN_ASSERT(!mNodeName.empty());
     std::string tensorName;
     if (postName.empty()) {
@@ -119,32 +127,32 @@ void QNNCommonExecution::createParamTensor(const std::string & paramName, Qnn_Da
     void * dst = result->alloc();
     ::memcpy(dst, data, result->getNativeTensor()->v1.clientBuf.dataSize);
 
-    mBackend->addStaticTensorToGraph(result->getNativeTensor());
+    mBackend->addTensor(result->getNativeTensor());
 
     mParamTensorWrappers.push_back(result);
 
-    return;
+    return mParamTensorWrappers.back();
 }
 
-void QNNCommonExecution::createParamScalar(const std::string & name, bool data) {
+std::shared_ptr<QNNParamScalarWrapper> QNNCommonExecution::createParamScalar(const std::string & name, bool data) {
     mParamScalarWrappers.push_back(QNNParamScalarWrapper::create(name, data));
-    return;
+    return mParamScalarWrappers.back();
 }
 
-void QNNCommonExecution::createParamScalar(const std::string & name, uint32_t data) {
+std::shared_ptr<QNNParamScalarWrapper> QNNCommonExecution::createParamScalar(const std::string & name, uint32_t data) {
     mParamScalarWrappers.push_back(QNNParamScalarWrapper::create(name, data));
-    return;
+    return mParamScalarWrappers.back();
 }
 
-void QNNCommonExecution::createParamScalar(const std::string & name, int data) {
+std::shared_ptr<QNNParamScalarWrapper> QNNCommonExecution::createParamScalar(const std::string & name, int data) {
     mParamScalarWrappers.push_back(QNNParamScalarWrapper::create(name, data));
-    return;
+    return mParamScalarWrappers.back();
 }
 
 
-void QNNCommonExecution::createParamScalar(const std::string & name, float data) {
+std::shared_ptr<QNNParamScalarWrapper> QNNCommonExecution::createParamScalar(const std::string & name, float data) {
     mParamScalarWrappers.push_back(QNNParamScalarWrapper::create(name, data));
-    return;
+    return mParamScalarWrappers.back();
 }
 
 void QNNCommonExecution::addNodeCommon(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {

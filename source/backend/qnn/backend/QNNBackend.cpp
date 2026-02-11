@@ -12,7 +12,6 @@
 // #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 #include "core/FileLoader.hpp"
-
 // #define QNN_PROFILE_OP
 // #define QNN_PROFILE_SUMMARIZE
 // #define QNN_VERBOSE
@@ -23,6 +22,7 @@
 #endif
 
 namespace MNN {
+static std::string gExtraIoPrefix = "_mnn";
 namespace QNN {
 struct QnnContext {
     QNN_INTERFACE_VER_TYPE interface{};
@@ -349,6 +349,8 @@ static void doProfile(const QNN_INTERFACE_VER_TYPE& interface, const Qnn_Profile
 #include "MNN/plugin/PluginContext.hpp"
 #include "MNN/plugin/PluginKernel.hpp"
 #include "shape/SizeComputer.hpp"
+#include "flatbuffers/flexbuffers.h"
+#include "core/OpCommonUtils.hpp"
 
 namespace MNN {
 namespace plugin {
@@ -366,10 +368,13 @@ static bool computeIndex(PluginContext* ctx, int & index) {
         return false;
     }
     int dimSum = 0;
+    // MNN_PRINT("All Inputs Begin\n");
     for (int i = 0; i < inputs.size(); i++) {
+        // inputs[i]->printShape();
         auto inputDim = inputs[i]->dimensions();
         dimSum += inputDim;
     }
+    // MNN_PRINT("All Inputs End\n");
     if (0 == dimSum) {
         // Scalar
         index = 0;
@@ -840,8 +845,33 @@ public:
 
         return true;
     }
-
-    void invokModel(const std::vector<std::pair<const MNN::Tensor *, std::string>>& inputs, std::vector<std::pair<const MNN::Tensor *, std::string>>& outputs, int shapeIndex) {
+    Qnn_Tensor_t* _findInput(const std::string& name, int index) {
+        GraphInfo* graph = mGraphsInfo[index];
+        for (int j=0; j<graph->numInputTensors; ++j) {
+            auto& dstT = graph->inputTensors[j];
+            #ifdef QNN_VERBOSE
+            MNN_PRINT("input name: %s %s\n", inputs[i].second.c_str(), dstT.v1.name);
+            #endif
+            if (name == dstT.v1.name) {
+                return &dstT;
+            }
+        }
+        return nullptr;
+    }
+    Qnn_Tensor_t* _findOutput(const std::string& name, int index) {
+        GraphInfo* graph = mGraphsInfo[index];
+        for (int j=0; j<graph->numOutputTensors; ++j) {
+            auto& dstT = graph->outputTensors[j];
+            #ifdef QNN_VERBOSE
+            MNN_PRINT("input name: %s %s\n", inputs[i].second.c_str(), dstT.v1.name);
+            #endif
+            if (name == dstT.v1.name) {
+                return &dstT;
+            }
+        }
+        return nullptr;
+    }
+    void setupAddress(const std::vector<std::pair<const MNN::Tensor *, std::string>>& inputs, std::vector<std::pair<const MNN::Tensor *, std::string>>& outputs, int shapeIndex) {
         GraphInfo* graph = mGraphsInfo[shapeIndex];
         Qnn_GraphHandle_t qnnGraphHandle = mQnnGraphHandleVec[shapeIndex];
 
@@ -862,7 +892,7 @@ public:
                 }
             }
             if (!find) {
-                FUNC_PRINT(i);
+                MNN_ERROR("%s, can't find %d input: %s\n", mPath.c_str(), i, inputs[i].second.c_str());
             }
         }
         for (int i=0; i<outputs.size(); ++i) {
@@ -881,9 +911,41 @@ public:
                 }
             }
             if (!find) {
-                FUNC_PRINT(i);
+                MNN_ERROR("%s, can't find %d output: %s\n", mPath.c_str(), i, outputs[i].second.c_str());
             }
         }
+    }
+    void setupState(std::pair<void*, uint32_t> mask, std::vector<std::pair<void*, uint32_t>> statesInputs, std::vector<std::pair<void*, uint32_t>> statesOutput, int index) {
+        auto maskTensor = _findInput(gExtraIoPrefix + "_mask", index);
+        if (nullptr == maskTensor) {
+            MNN_ERROR("Can't find mask from qnn model\n");
+            return;
+        }
+        maskTensor->v1.clientBuf.data = mask.first;
+        maskTensor->v1.clientBuf.dataSize = mask.second;
+        for (int i=0; i<statesInputs.size(); ++i) {
+            auto t = _findInput(gExtraIoPrefix + "_i" + std::to_string(i), index);
+            if (nullptr == t) {
+                MNN_ERROR("Can't find %d input tensor of state\n", i);
+                continue;
+            }
+            t->v1.clientBuf.data = statesInputs[i].first;
+            t->v1.clientBuf.dataSize = statesInputs[i].second;
+        }
+        for (int i=0; i<statesOutput.size(); ++i) {
+            auto t = _findOutput(gExtraIoPrefix + "_o" + std::to_string(i), index);
+            if (nullptr == t) {
+                MNN_ERROR("Can't find %d output tensor of state\n", i);
+                continue;
+            }
+            t->v1.clientBuf.data = statesOutput[i].first;
+            t->v1.clientBuf.dataSize = statesOutput[i].second;
+        }
+    }
+
+    void invokModel(int shapeIndex) {
+        GraphInfo* graph = mGraphsInfo[shapeIndex];
+        Qnn_GraphHandle_t qnnGraphHandle = mQnnGraphHandleVec[shapeIndex];
         CALL_QNN(QNN::gContext.interface.graphExecute(qnnGraphHandle, graph->inputTensors, graph->numInputTensors, \
             graph->outputTensors, graph->numOutputTensors, mQnnProfileHandle, nullptr));
         MNN::QNN::doProfile(QNN::gContext.interface, mQnnProfileHandle);
@@ -898,6 +960,36 @@ private:
     std::vector<std::shared_ptr<MNN::Tensor>> mRealInputs;
     std::vector<std::shared_ptr<MNN::Tensor>> mRealOutputs;
     int mShapeIndex;
+
+    struct StateTensor {
+        std::vector<__fp16> data;
+        int inside;
+        int outside;
+        std::vector<std::vector<__fp16>> update;
+    };
+    std::vector<StateTensor> mStateInput;
+    int mStateCurrent = 0;
+    int mStateMaxSize = 0;
+    std::vector<int> mSeqLen;
+    std::vector<__fp16> mMask;
+    const float mMinValue = -32700.0f;
+    void _loadState(int stateNumber, std::vector<int> seqLen) {
+        if (stateNumber == 0) {
+            return;
+        }
+        mMask.resize(mStateMaxSize);
+        for (int i=0; i<mStateMaxSize; ++i) {
+            mMask[i] = mMinValue;
+        }
+        for (int i=0; i<mStateInput.size(); ++i) {
+            mStateInput[i].data.resize(mStateMaxSize * mStateInput[i].inside * mStateInput[i].outside);
+            mStateInput[i].update.resize(seqLen.size());
+            for (int j=0; j<seqLen.size(); ++j) {
+                mStateInput[i].update[j].resize(mStateInput[i].inside * mStateInput[i].outside * seqLen[j]);
+            }
+        }
+    }
+
 public:
     ~ PluginExecuteRaw() {
         mRealInputs.clear();
@@ -908,6 +1000,67 @@ public:
         if (QNN::gContext.deviceHandle == nullptr){
             QNN::createQnnContext();
         }
+        auto seqLen = ctx->getAttr("seq_len");
+        if (nullptr != seqLen && nullptr != seqLen->list()) {
+            mSeqLen.resize(seqLen->list()->i()->size());
+            ::memcpy(mSeqLen.data(), seqLen->list()->i()->data(), mSeqLen.size() * sizeof(int));
+            for (int i=0; i<mSeqLen.size(); ++i) {
+                FUNC_PRINT(mSeqLen[i]);
+            }
+        }
+        auto state = ctx->getAttr("state");
+        int stateNumber = 0;
+        if (nullptr != state) {
+            int axis = 0;
+            auto ref = flexbuffers::GetRoot(state->tensor()->uint8s()->data(), state->tensor()->uint8s()->size());
+            auto refMap = ref.AsMap();
+            auto keys = refMap.Keys();
+            std::vector<std::vector<int>> stateShape;
+            for (int i=0; i<keys.size(); ++i) {
+                auto key = keys[i].AsKey();
+                if (std::string(key) == "number") {
+                    stateNumber = refMap.Values()[i].AsInt32();
+                    continue;
+                }
+                if (std::string(key) == "max_length") {
+                    mStateMaxSize = refMap.Values()[i].AsInt32();
+                    continue;
+                }
+                if (std::string(key) == "axis") {
+                    axis = refMap.Values()[i].AsInt32();
+                    continue;
+                }
+                if (std::string(key) == "shape") {
+                    auto shapeVectors = refMap.Values()[i].AsVector();
+                    for (int u=0; u<shapeVectors.size(); ++u) {
+                        auto shapeV = shapeVectors[u].AsVector();
+                        std::vector<int> shapes;
+                        for (int v=0; v<shapeV.size(); ++v) {
+                            shapes.emplace_back(shapeV[v].AsInt32());
+                        }
+                        stateShape.emplace_back(shapes);
+                    }
+                    continue;
+                }
+            }
+            mStateInput.resize(stateShape.size());
+            for (int i=0; i<stateShape.size(); ++i) {
+                auto& shape = stateShape[i];
+                auto& input = mStateInput[i];
+                input.outside = 1;
+                for (int j=0; j<axis; ++j) {
+                    input.outside *= shape[j];
+                }
+                auto axisLength = shape[axis];
+                MNN_ASSERT(1 == axisLength);
+                input.inside = 1;
+                for (int j=axis+1; j<shape.size(); ++j) {
+                    input.inside *= shape[j];
+                }
+            }
+        }
+        FUNC_PRINT(stateNumber);
+        _loadState(stateNumber, mSeqLen);
         auto path = MNNFilePathConcat(ctx->dir_path(), ctx->getAttr("path")->s()->str());
 
         std::vector<std::string> allGraphName;
@@ -981,42 +1134,28 @@ public:
             mOutputs[i].second = outputs->s()->GetAsString(i)->str();
             mOutputs[i].first = mRealOutputs[i].get();
         }
+        mRawExecutor->setupAddress(mInputs, mOutputs, mShapeIndex);
+        if (mStateMaxSize > 0) {
+            std::vector<std::pair<void*, uint32_t>> states(mStateInput.size());
+            for (int i=0; i<mStateInput.size(); ++i) {
+                states[i].first = mStateInput[i].data.data();
+                states[i].second = mStateInput[i].data.size() * sizeof(__fp16);
+            }
+            std::vector<std::pair<void*, uint32_t>> statesOutput(mStateInput.size());
+            for (int i=0; i<mStateInput.size(); ++i) {
+                statesOutput[i].first = mStateInput[i].update[mShapeIndex].data();
+                statesOutput[i].second = mStateInput[i].update[mShapeIndex].size() * sizeof(__fp16);
+            }
 
+            mRawExecutor->setupState(std::make_pair(mMask.data(), mMask.size() * sizeof(__fp16)), states, statesOutput, mShapeIndex);
+        }
         return true;
     }
 
     bool compute(CPUKernelContext* ctx) override {
         AUTOTIME;
-        int shapeIndex = 0;
-        if (!(shape_inference::computeIndex(ctx, shapeIndex))) {
-            MNN_ERROR("MNN_QNN: Failed to execute Plugin Op.\n");
-            return false;
-        }
+        int shapeIndex = mShapeIndex;
         std::string graphName = ctx->getAttr("allGraphName")->list()->s()->GetAsString(shapeIndex)->str();
-
-        // compute and alloc real in-time inputs and outputs tensor
-        {
-            auto inputs = ctx->getAttr("inputs")->list();
-            auto inputTensor = ctx->inputs();
-            MNN_ASSERT(inputs->s()->size() == inputTensor.size());
-            mInputs.resize(inputs->s()->size());
-            mRealInputs.resize(inputTensor.size());
-            for (int i=0; i<inputs->s()->size(); ++i) {
-                mRealInputs[i].reset(new Tensor(inputTensor[i], Tensor::CAFFE));
-                mInputs[i].second = inputs->s()->GetAsString(i)->str();
-                mInputs[i].first = mRealInputs[i].get();
-            }
-            auto outputs = ctx->getAttr("outputs")->list();
-            auto outputTensor = ctx->outputs();
-            mOutputs.resize(outputs->s()->size());
-            MNN_ASSERT(outputs->s()->size() == outputTensor.size());
-            mRealOutputs.resize(outputTensor.size());
-            for (int i=0; i<outputs->s()->size(); ++i) {
-                mRealOutputs[i].reset(new Tensor(outputTensor[i], Tensor::CAFFE));
-                mOutputs[i].second = outputs->s()->GetAsString(i)->str();
-                mOutputs[i].first = mRealOutputs[i].get();
-            }
-        }
 
         #ifdef QNN_VERBOSE
         MNN_PRINT("Graph name:%s, %d\n", graphName.c_str(), shapeIndex);
@@ -1027,11 +1166,40 @@ public:
         for (int i=0; i<mInputs.size(); ++i) {
             ctx->backend()->onCopyBuffer(inputTensor[i], mRealInputs[i].get());
         }
-        mRawExecutor->invokModel(mInputs, mOutputs, mShapeIndex);
+        // If has remove, remove invalid state
+        auto meta = (KVMeta*)(ctx->backend()->getMetaPtr());
+        if (nullptr != meta && mStateInput.size() > 0) {
+            if (meta->remove > 0) {
+                mStateCurrent-= meta->remove;
+                for (int i=0; i<meta->remove; ++i) {
+                    mMask[i+mStateCurrent] = mMinValue;
+                }
+            }
+        }
+        mRawExecutor->invokModel(shapeIndex);
         for (int i=0; i<mOutputs.size(); ++i) {
             ctx->backend()->onCopyBuffer(mRealOutputs[i].get(), outputTensor[i]);
         }
-
+        // Update State
+        if (nullptr != meta && mStateInput.size() > 0) {
+            for (int i=0; i<meta->add; ++i) {
+                mMask[i+mStateCurrent] = 0.0f;
+            }
+            // Temply use StateOutputs[0] size to compute seq_len
+            int bytes = 2;
+            int seqLen = mSeqLen[mShapeIndex];
+            for (int i=0; i<mStateInput.size(); ++i) {
+                auto& input = mStateInput[i];
+                for (int y=0; y<input.outside; ++y) {
+                    auto dstOffset = y * input.inside * mStateMaxSize + mStateCurrent * input.inside;
+                    auto srcOffset = y * input.inside * seqLen;
+                    auto dst = (uint8_t*)input.data.data() + dstOffset * bytes;
+                    auto src = (uint8_t*)input.update[mShapeIndex].data() + srcOffset * bytes;
+                    ::memcpy(dst, src, meta->add * input.inside * bytes);
+                }
+            }
+            mStateCurrent += meta->add;
+        }
         return true;
     }
 };
@@ -1127,6 +1295,9 @@ void QnnBackend::onExecuteBegin() const {
 
 void QnnBackend::startProfile() const{
     MNN::QNN::doProfile(mRuntime->mQnnInterface, mQnnProfileHandle);
+}
+const Runtime* QnnBackend::getRuntime() {
+    return mRuntime;
 }
 
 void QnnBackend::onExecuteEnd() const {
@@ -1527,14 +1698,8 @@ int QnnBackend::getTensorIdx(const Tensor * tensor) const {
     return idx;
 }
 
-void QnnBackend::addStaticTensorToGraph(Qnn_Tensor_t * staticTensor) {
-    MNN_ASSERT(staticTensor->v1.type == QNN_TENSOR_TYPE_STATIC);
+void QnnBackend::addTensor(Qnn_Tensor_t * staticTensor) {
     CALL_QNN(mRuntime->mQnnInterface.tensorCreateGraphTensor(mQnnGraphHandle, staticTensor));
-}
-
-void QnnBackend::addStageTensorToGraph(Qnn_Tensor_t * stageTensor) {
-    MNN_ASSERT(stageTensor->v1.type == QNN_TENSOR_TYPE_NATIVE);
-    CALL_QNN(mRuntime->mQnnInterface.tensorCreateGraphTensor(mQnnGraphHandle, stageTensor));
 }
 
 Qnn_Tensor_t * QnnBackend::getNativeTensor(const Tensor * tensor) {
@@ -1547,6 +1712,31 @@ std::shared_ptr<QNNTensorWrapper> QnnBackend::getTensorWrapper(const Tensor * te
     auto iter = mTensorMap.find(tensorKey);
     MNN_ASSERT(iter != mTensorMap.end());
     return mQNNTensorWrappers[iter->second];
+}
+Qnn_Tensor_t* QnnBackend::getMaskTensor(int maxKVSize) {
+    if (mMaskTensor.get() == nullptr) {
+        std::vector<int> dimensions = {1, 1, 1, maxKVSize};
+        std::shared_ptr<QNNTensorWrapper> tensorWrapper = QNNTensorWrapper::create(gExtraIoPrefix + "_mask", QNN_TENSOR_TYPE_APP_WRITE, QNN_DATATYPE_FLOAT_16, dimensions);
+        mMaskTensor = tensorWrapper;
+        CALL_QNN(mRuntime->mQnnInterface.tensorCreateGraphTensor(mQnnGraphHandle, mMaskTensor->getNativeTensor()));
+    }
+    return mMaskTensor->getNativeTensor();
+}
+
+Qnn_Tensor_t* QnnBackend::addExtraInput(Tensor* tensor) {
+    auto qnntensor = QNNTensorWrapper::create("", QNN_TENSOR_TYPE_APP_WRITE, QNN_DATATYPE_FLOAT_16, tensor->shape());
+    qnntensor->setName(gExtraIoPrefix+"_i" + std::to_string(mExtraInputs.size()));
+    mExtraInputs.emplace_back(qnntensor);
+    CALL_QNN(mRuntime->mQnnInterface.tensorCreateGraphTensor(mQnnGraphHandle, qnntensor->getNativeTensor()));
+
+    return qnntensor->getNativeTensor();
+}
+Qnn_Tensor_t* QnnBackend::addExtraOutput(Tensor* tensor) {
+    auto qnntensor = QNNTensorWrapper::create("", QNN_TENSOR_TYPE_APP_READ, QNN_DATATYPE_FLOAT_16, tensor->shape());
+    qnntensor->setName(gExtraIoPrefix+"_o" + std::to_string(mExtraOutputs.size()));
+    mExtraOutputs.emplace_back(qnntensor);
+    CALL_QNN(mRuntime->mQnnInterface.tensorCreateGraphTensor(mQnnGraphHandle, qnntensor->getNativeTensor()));
+    return qnntensor->getNativeTensor();
 }
 
 bool QnnBackend::getUseFP16() const {
@@ -1765,6 +1955,9 @@ public:
             case OpType_Convolution:
             case OpType_ConvolutionDepthwise:
                 if (inputs.size() > 1) {
+                    return false;
+                }
+                if (TensorUtils::getDescribe(outputs[0])->quantAttr == nullptr) {
                     return false;
                 }
                 if (op->main_as_Convolution2D() && op->main_as_Convolution2D()->weight() != nullptr) {

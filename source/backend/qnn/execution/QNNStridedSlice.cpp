@@ -24,6 +24,16 @@ ErrorCode QNNStridedSlice::onEncode(const std::vector<Tensor *> &inputs, const s
     auto inputTensor = inputs[0];
     mInputDim = inputTensor->dimensions();
     mDimType = inputTensor->getDimensionType();
+    auto inputShape = inputTensor->shape();
+    if (TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+        // Turn to nhwc
+        for (int index = 2; index < mInputDim; ++index) {
+            inputShape[index - 1] = inputTensor->length(index);
+        }
+        if (mInputDim >= 2) {
+            inputShape[mInputDim-1] = inputTensor->length(1);
+        }
+    }
 
     if(mIsSlice) {
         auto param = mOp->main_as_Slice();
@@ -43,17 +53,25 @@ ErrorCode QNNStridedSlice::onEncode(const std::vector<Tensor *> &inputs, const s
         } else {
             slice_num = static_cast<int64_t>(outputs.size());
         }
-        auto shape = inputs[0]->shape();
+        auto shape = inputShape;
         #ifdef QNN_VERBOSE
         MNN_PRINT("slice:%d %d %d %d, axis:%d, slice_num:%d output_num:%d, dim:%d\n", shape[0], shape[1], shape[2], shape[3], axis, slice_num, outputs.size(), mInputDim);
         #endif
         int realAxis = axis;
+        if (TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+            if (axis > 1) {
+                realAxis = axis - 1;
+            } else if (axis == 1) {
+                realAxis = mInputDim - 1;
+            }
+        }
+
         int slice_size = inputs[0]->length(axis) / slice_num;
         for(int index = 0; index < slice_num; index++) {
             std::vector<int> rangeData(mInputDim * 3, 0);
             for (int i = 0; i < mInputDim; i++) {
                 rangeData[3 * i + 0] = 0;
-                rangeData[3 * i + 1] = inputs[0]->length(i);
+                rangeData[3 * i + 1] = shape[i];
                 rangeData[3 * i + 2] = 1;
             }
             rangeData[3 * realAxis + 0] = index * slice_size;
@@ -73,6 +91,10 @@ ErrorCode QNNStridedSlice::onEncode(const std::vector<Tensor *> &inputs, const s
             mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
         }
         return NO_ERROR;
+    }
+    if (TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+        MNN_ERROR("[QNN] Don't Support NC4HW4 stridedslice now\n");
+        return NOT_SUPPORT;
     }
 
     auto param = mOp->main_as_StridedSliceParam();
