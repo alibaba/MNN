@@ -140,6 +140,21 @@ final class LLMChatInteractor: ChatInteractorProtocol {
         }
     }
 
+    /// Replaces the text of the last message in the chat (e.g. for in-place progress updates).
+    /// Uses DispatchQueue.main for immediate, synchronous-like updates without Task scheduling delay.
+    func updateLastMessage(text: String) {
+        let update = { [weak self] in
+            guard let self = self, !self.chatState.value.isEmpty else { return }
+            let lastIndex = self.chatState.value.count - 1
+            self.chatState.value[lastIndex].text = text
+        }
+        if Thread.isMainThread {
+            update()
+        } else {
+            DispatchQueue.main.async(execute: update)
+        }
+    }
+
     func connect() {}
 
     func disconnect() {
