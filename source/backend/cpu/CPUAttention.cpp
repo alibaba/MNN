@@ -803,7 +803,9 @@ bool CPUAttention::onClone(Backend* bn, const Op* op, Execution** dst) {
         return true;
     }
     auto tmp = new CPUAttention(bn, mKVCache);
-    tmp->mKVCacheManager = mKVCacheManager;
+    if (bn->getMetaPtr() == mMeta) {
+        tmp->mKVCacheManager = mKVCacheManager;
+    }
     *dst = tmp;
     return true;
 }
