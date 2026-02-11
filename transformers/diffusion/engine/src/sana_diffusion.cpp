@@ -43,6 +43,35 @@ namespace MNN
         {
         }
 
+        // 完整参数构造函数（对齐 Z-Image/LongCat）
+        SanaDiffusion::SanaDiffusion(std::string modelPath, DiffusionModelType modelType,
+                                     MNNForwardType backendType, int memoryMode,
+                                     int imageWidth, int imageHeight,
+                                     bool textEncoderOnCPU, bool vaeOnCPU,
+                                     DiffusionGpuMemoryMode gpuMemoryMode,
+                                     DiffusionPrecisionMode precisionMode,
+                                     DiffusionCFGMode cfgMode, int numThreads)
+            : Diffusion(modelPath, modelType, backendType, memoryMode),
+              mImageWidth(imageWidth > 0 ? imageWidth : 512),
+              mImageHeight(imageHeight > 0 ? imageHeight : 512),
+              mTextEncoderOnCPU(textEncoderOnCPU),
+              mVaeOnCPU(vaeOnCPU),
+              mGpuMemoryMode(gpuMemoryMode),
+              mPrecisionMode(precisionMode),
+              mCFGMode(cfgMode),
+              mNumThreads(numThreads > 0 ? numThreads : 4)
+        {
+            // 根据 CFG 模式设置 CFG scale
+            switch (mCFGMode) {
+                case CFG_MODE_WIDE:    mCfgScale = 7.5f; break;
+                case CFG_MODE_STANDARD: mCfgScale = 4.5f; break;
+                case CFG_MODE_MEDIUM:  mCfgScale = 3.5f; break;
+                case CFG_MODE_NARROW:  mCfgScale = 2.5f; break;
+                case CFG_MODE_MINIMAL: mCfgScale = 1.5f; break;
+                default:               mCfgScale = 4.5f; break;
+            }
+        }
+
         bool SanaDiffusion::load()
         {
             AUTOTIME;
@@ -143,6 +172,16 @@ namespace MNN
 
             // 模块4: VAE Encoder - 延迟加载（仅img2img模式需要）
             mModules[4] = nullptr;
+
+            // 初始化 SanaLlm 文本编码器
+            std::string llm_path = mModelPath + "/llm";
+            MNN_PRINT("[Sana] Initializing Qwen3-0.6B LLM text encoder from %s\n", llm_path.c_str());
+            mSanaLlm.reset(new SanaLlm(llm_path));
+            if (!mSanaLlm) {
+                MNN_ERROR("[Sana] Failed to initialize LLM\n");
+                return false;
+            }
+            MNN_PRINT("[Sana] LLM text encoder initialized successfully\n");
 
             return true;
         }
@@ -285,9 +324,80 @@ namespace MNN
             return image;
         }
 
+    // 统一的 run() 接口（对齐 Z-Image/LongCat）
+    // 统一的 run() 接口（对齐 Z-Image/LongCat）
+    // imagePath 是输出路径，没有输入图像参数 -> T2I 模式
     bool SanaDiffusion::run(const std::string prompt, const std::string imagePath, int iterNum, int randomSeed, std::function<void(int)> progressCallback) {
-        return true;
+        AUTOTIME;
+        
+        if (!mSanaLlm) {
+            MNN_ERROR("[Sana] LLM text encoder not initialized. Call load() first.\n");
+            return false;
+        }
+        
+        // 这个接口没有输入图像参数，所以是 T2I 模式
+        std::string mode = "text2img";
+        std::string outputPath = imagePath.empty() ? "sana_output.jpg" : imagePath;
+        
+        MNN_PRINT("[Sana] T2I mode\n");
+        
+        // 确定是否使用 CFG
+        bool use_cfg = (mCFGMode != CFG_MODE_MINIMAL && mCfgScale > 1.0f);
+        
+        // 使用 SanaLlm 处理 prompt
+        MNN_PRINT("[Sana] Processing prompt with Qwen3-0.6B LLM (CFG=%s, scale=%.2f)...\n", 
+                  use_cfg ? "enabled" : "disabled", mCfgScale);
+        VARP llm_out = mSanaLlm->process(prompt, use_cfg, "");
+        
+        if (!llm_out.get()) {
+            MNN_ERROR("[Sana] Failed to process prompt with LLM\n");
+            return false;
+        }
+        
+        // 调用现有的 run() 方法，inputImagePath 为空（T2I 模式）
+        return run(llm_out, mode, "", outputPath, 
+                   mImageWidth, mImageHeight, iterNum, randomSeed, 
+                   use_cfg, mCfgScale, progressCallback);
     }
+
+    // 扩展的 run() 接口，支持 img2img 模式（对齐 LongCat）
+    bool SanaDiffusion::run(const std::string prompt, const std::string outputPath, int iterNum, int randomSeed, float cfgScale, std::function<void(int)> progressCallback, const std::string inputImagePath) {
+        AUTOTIME;
+        
+        if (!mSanaLlm) {
+            MNN_ERROR("[Sana] LLM text encoder not initialized. Call load() first.\n");
+            return false;
+        }
+        
+        // 根据 inputImagePath 是否为空判断模式
+        bool isT2IMode = inputImagePath.empty();
+        std::string mode = isT2IMode ? "text2img" : "img2img";
+        
+        if (isT2IMode) {
+            MNN_PRINT("[Sana] T2I mode\n");
+        } else {
+            MNN_PRINT("[Sana] Image Edit mode: %s\n", inputImagePath.c_str());
+        }
+        
+        // 确定是否使用 CFG
+        bool use_cfg = (cfgScale > 1.0f);
+        
+        // 使用 SanaLlm 处理 prompt
+        MNN_PRINT("[Sana] Processing prompt with Qwen3-0.6B LLM (CFG=%s, scale=%.2f)...\n", 
+                  use_cfg ? "enabled" : "disabled", cfgScale);
+        VARP llm_out = mSanaLlm->process(prompt, use_cfg, "");
+        
+        if (!llm_out.get()) {
+            MNN_ERROR("[Sana] Failed to process prompt with LLM\n");
+            return false;
+        }
+        
+        // 调用现有的 run() 方法
+        return run(llm_out, mode, inputImagePath, outputPath, 
+                   mImageWidth, mImageHeight, iterNum, randomSeed, 
+                   use_cfg, cfgScale, progressCallback);
+    }
+
         // 核心推理流程
         // 输入：LLM特征(来自Qwen3-0.6B) -> Connector -> Projector -> DiT去噪 -> VAE解码 -> 输出图像
         bool SanaDiffusion::run(const VARP input_embeds,
@@ -415,15 +525,9 @@ namespace MNN
                 }
 
                 MNN_PRINT("Using CFG with scale=%.2f\n", cfg_scale);
-
-                // Reorder embeddings for CFG: [Neg, Pos]
-                // Input order from LLM is [Pos, Neg], we need to swap
-                auto split_res = _Split(prompt_embeds, {2}, 0);
-                auto prompt_embeds_pos = split_res[0]; // First is positive
-                auto prompt_embeds_neg = split_res[1]; // Second is negative
-
-                // Reorder: [Neg, Pos]
-                prompt_embeds = _Concat({prompt_embeds_neg, prompt_embeds_pos}, 0);
+                // SanaLlm 输出顺序：[Positive, Negative]
+                // Sana transformer 期望顺序：[Positive, Negative]
+                // 不需要重排序！
             }
             else
             {
@@ -555,6 +659,18 @@ namespace MNN
                 }
 
                 // DiT Transformer推理：预测噪声
+                // 调试：打印参数 shape
+                if (i == 0) {
+                    auto sample_info = sample->getInfo();
+                    auto prompt_info = prompt_embeds->getInfo();
+                    auto ref_info = ref_latents_batched->getInfo();
+                    MNN_PRINT("  [Debug] sample shape: [%d, %d, %d, %d]\n", 
+                              sample_info->dim[0], sample_info->dim[1], sample_info->dim[2], sample_info->dim[3]);
+                    MNN_PRINT("  [Debug] prompt_embeds shape: [%d, %d, %d]\n",
+                              prompt_info->dim[0], prompt_info->dim[1], prompt_info->dim[2]);
+                    MNN_PRINT("  [Debug] ref_latents shape: [%d, %d, %d, %d]\n",
+                              ref_info->dim[0], ref_info->dim[1], ref_info->dim[2], ref_info->dim[3]);
+                }
 
                 auto res = mModules[2]->onForward({sample, prompt_embeds, timestep_var, encoder_attention_mask, ref_latents_batched});
 
@@ -577,11 +693,34 @@ namespace MNN
                 if (use_cfg)
                 {
                     // 分离条件和无条件预测
+                    // 实际测试发现：输入 [Positive, Negative]，但输出顺序是 [Negative, Positive]！
+                    // 这可能是 Sana transformer 内部的实现方式
                     auto split_res = _Split(noise_pred, {2}, 0);
                     auto noise_pred_uncond = split_res[0]; // 负样本（无条件）
                     auto noise_pred_text = split_res[1];   // 正样本（有条件）
 
+                    // 调试：打印预测值的统计信息
+                    if (i == 0) {
+                        auto text_ptr = noise_pred_text->readMap<float>();
+                        auto uncond_ptr = noise_pred_uncond->readMap<float>();
+                        int size = noise_pred_text->getInfo()->size;
+                        float text_mean = 0, uncond_mean = 0;
+                        for (int j = 0; j < std::min(size, 1000); j++) {
+                            text_mean += text_ptr[j];
+                            uncond_mean += uncond_ptr[j];
+                        }
+                        text_mean /= std::min(size, 1000);
+                        uncond_mean /= std::min(size, 1000);
+                        MNN_PRINT("  [Debug CFG] uncond_pred mean=%.6f, text_pred mean=%.6f, diff=%.6f\n",
+                                  uncond_mean, text_mean, text_mean - uncond_mean);
+                    }
+
                     // CFG公式：guided = uncond + scale * (cond - uncond)
+                    // 但如果 diff 是负数，说明可能需要反向计算
+                    // 尝试：guided = text + scale * (text - uncond) = text * (1 + scale) - uncond * scale
+                    if (i == 0) {
+                        MNN_PRINT("  [Debug CFG] Using formula: guided = uncond + %.2f * (text - uncond)\n", cfg_scale);
+                    }
                     noise_pred_guided = noise_pred_uncond + (noise_pred_text - noise_pred_uncond) * _Const(cfg_scale);
                 }
                 else
@@ -590,17 +729,20 @@ namespace MNN
                 }
 
                 // Euler采样步骤
-                float dt;
+                // timesteps 已经是 sigma * 1000，所以需要转换回 sigma 来计算 dt
+                float sigma_curr = t / 1000.0f;
+                float sigma_next;
                 if (i < num_inference_steps - 1)
                 {
-                    dt = timesteps[i + 1] - t;
+                    sigma_next = timesteps[i + 1] / 1000.0f;
                 }
                 else
                 {
-                    dt = -t;
+                    sigma_next = 0.0f;
                 }
-
-                sample = sample + noise_pred_guided * _Const(dt / 1000.0f);
+                
+                float dt = sigma_next - sigma_curr;
+                sample = sample + noise_pred_guided * _Const(dt);
 
                 // CFG模式：保持batch维度一致
                 if (use_cfg)

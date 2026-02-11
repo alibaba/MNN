@@ -9,6 +9,14 @@
 #include "backend/opencl/core/BufferPool.hpp"
 namespace MNN {
 namespace OpenCL {
+
+// Minimum threshold to preserve large reusable buffers during partial release.
+// Buffers >= max(requested_size, kMinKeepThreshold) are kept for reuse across
+// diffusion steps (e.g., 6.78GB fp32 attention score tensors). This avoids
+// repeated allocate/free overhead for large temporary buffers while still
+// allowing GC to reclaim them via releaseFreeList() or the second-pass fallback.
+static const size_t kMinKeepThreshold = 256UL * 1024 * 1024; // 256MB
+
 cl::Buffer* BufferPool::alloc(size_t size, bool separate) {
     if (!separate) {
         auto iter = mFreeList.lower_bound(size);
@@ -24,8 +32,47 @@ cl::Buffer* BufferPool::alloc(size_t size, bool separate) {
     node->size = size;
     node->buffer.reset(new cl::Buffer(mContext, mFlag, size, NULL, &ret));
     if (nullptr == node->buffer.get() || ret != CL_SUCCESS) {
-        MNN_ERROR("Alloc Buffer %lu error, code:%d \n", size, ret);
-        return nullptr;
+        // Allocation failed: two-pass recovery to balance performance and success rate.
+        //
+        // Pass 1: Partial release — free buffers smaller than the dynamic threshold
+        // max(requested_size, kMinKeepThreshold). Large buffers (e.g., 6.78GB attention
+        // score tensors used by diffusion models) are kept for reuse across steps because
+        // re-allocating them is expensive. Small buffers are unlikely to satisfy the
+        // current request and are cheap to re-allocate later.
+        // Note: mFreeList = keepList triggers destruction of released nodes, which
+        // decrements shared_ptr refcounts and frees the underlying cl::Buffer objects.
+        if (!mFreeList.empty()) {
+            size_t keepThreshold = std::max(size, kMinKeepThreshold);
+            std::multimap<size_t, std::shared_ptr<OpenCLBufferNode>> keepList;
+            for(auto mf : mFreeList){
+                if (mf.first >= keepThreshold) {
+                    keepList.insert(mf);
+                    continue;
+                }
+                auto iter = mAllBuffer.find(mf.second->buffer.get());
+                if (iter != mAllBuffer.end()) {
+                    mAllBuffer.erase(iter);
+                }
+            }
+            mFreeList = keepList;
+            ret = CL_SUCCESS;
+            node->buffer.reset(new cl::Buffer(mContext, mFlag, size, NULL, &ret));
+        }
+        // Pass 2: Full release — if partial release was insufficient, free everything
+        // including large buffers. This ensures we never get stuck in OOM when the
+        // request is larger than all free buffers combined.
+        if (nullptr == node->buffer.get() || ret != CL_SUCCESS) {
+            if (!mFreeList.empty()) {
+                releaseFreeList();
+                ret = CL_SUCCESS;
+                node->buffer.reset(new cl::Buffer(mContext, mFlag, size, NULL, &ret));
+            }
+        }
+        if (nullptr == node->buffer.get() || ret != CL_SUCCESS) {
+            MNN_ERROR("Alloc buffer %zu MB failed, code:%d\n", size/(1024*1024), ret);
+            mTotalSize -= size;
+            return nullptr;
+        }
     }
     mAllBuffer.insert(std::make_pair(node->buffer.get(), node));
     return node->buffer.get();

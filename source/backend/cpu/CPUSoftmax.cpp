@@ -311,6 +311,10 @@ ErrorCode CPUSoftmax::onExecute(const std::vector<Tensor *> &inputs, const std::
     auto outputTensor       = outputs[0];
     const auto inputDataPtr = inputTensor->host<float>();
     auto outputDataPtr      = outputTensor->host<float>();
+    if (inputDataPtr == nullptr || outputDataPtr == nullptr) {
+        MNN_ERROR("CPUSoftmax: null input/output pointer (OOM for large tensor?)\n");
+        return OUT_OF_MEMORY;
+    }
     const int batch         = inputTensor->batch();
     const auto dims         = inputTensor->buffer().dimensions;
 
