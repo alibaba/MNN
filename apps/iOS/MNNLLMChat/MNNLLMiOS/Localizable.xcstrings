@@ -483,6 +483,17 @@
         }
       }
     },
+    "Failed to load image." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "加载图片失败。"
+          }
+        }
+      }
+    },
     "filter.byTag" : {
       "localizations" : {
         "en" : {
@@ -568,6 +579,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "帮助"
+          }
+        }
+      }
+    },
+    "Image saved to Photos." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图片已保存到相册。"
           }
         }
       }
@@ -936,6 +958,17 @@
         }
       }
     },
+    "Photo library access denied. Please enable it in Settings." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "相册访问被拒绝，请在设置中开启权限。"
+          }
+        }
+      }
+    },
     "Please select an image for style transfer." : {
       "localizations" : {
         "zh-Hans" : {
@@ -1110,6 +1143,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sana 风格转换"
+          }
+        }
+      }
+    },
+    "Save to Photos" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存到相册"
           }
         }
       }
@@ -1440,10 +1484,16 @@
     },
     "Style transfer completed!" : {
       "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "completed!"
+          }
+        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "风格转换完成！"
+            "value" : "转化完成"
           }
         }
       }
@@ -1453,7 +1503,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "风格转换失败。"
+            "value" : "风格转换失败"
           }
         }
       }
@@ -1813,6 +1863,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "总时间"
+          }
+        }
+      }
+    },
+    "Total time:" : {
+      "comment" : "Sana diffusion total time label",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "总耗时:"
           }
         }
       }
