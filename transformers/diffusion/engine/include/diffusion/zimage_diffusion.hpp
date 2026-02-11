@@ -8,6 +8,7 @@
 #define MNN_ZIMAGE_DIFFUSION_HPP
 
 #include "diffusion.hpp"
+#include "diffusion_config.hpp"
 #include <memory>
 
 namespace MNN {
@@ -35,13 +36,9 @@ private:
     VARP text_encoder(const std::vector<int>& ids);
     VARP unet(VARP text_embeddings, int iterNum, int randomSeed, float cfgScale, std::function<void(int)> progressCallback);
     VARP vae_decoder(VARP latent);
-    VARP applyEulerUpdate(VARP sample, VARP noise_pred, float dt);
 
 private:
     int mMaxTextLen = 128;
-    int mTrainTimestepsNum = 1000;
-    float mFlowShift = 3.0f;
-    bool mUseDynamicShifting = false;
     int mLatentC = 16;
     int mLatentH = 128;
     int mLatentW = 128;
@@ -54,6 +51,7 @@ private:
     
     UNetPreprocessFunc mUNetPreprocess;
     SchedulerType mSchedulerType = SCHEDULER_EULER;
+    std::unique_ptr<DiffusionConfig> mDiffConfig;
 };
 
 } // namespace DIFFUSION
