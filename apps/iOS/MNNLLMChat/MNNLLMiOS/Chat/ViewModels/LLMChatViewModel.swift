@@ -461,8 +461,7 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
                         if success {
                             let completionText = NSLocalizedString("Style transfer completed!", comment: "")
                             self.interactor.updateLastMessage(text: completionText)
-                            self.interactor.sendImage(imageURL: URL(fileURLWithPath: outputPath))
-
+                            
                             // Send total time as a separate message after the image
                             let totalTimeSec = totalTimeMs / 1000.0
                             let timeText = String(format: "%.1f", totalTimeSec)
@@ -472,6 +471,8 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
                             } catch {
                                 print("Error sending time message: \(error)")
                             }
+                            
+                            self.interactor.sendImage(imageURL: URL(fileURLWithPath: outputPath))
                             
                         } else {
                             let errorMessage = error ?? NSLocalizedString("Style transfer failed.", comment: "")
