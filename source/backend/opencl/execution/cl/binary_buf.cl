@@ -15,7 +15,8 @@ __kernel void binary_buf(__private int global_dim0, __private int global_dim1,
         if(offset + 3 >= size){
             int remain = size - offset;
             #ifdef INT_COMPUTE_MOD
-            int4 in0, in1;
+            int4 in0 = (int4)(0, 0, 0, 0);
+            int4 in1 = (int4)(0, 0, 0, 0);
             int* in0_ptr = (int*)&in0;
             int* in1_ptr = (int*)&in1;
             
@@ -42,7 +43,8 @@ __kernel void binary_buf(__private int global_dim0, __private int global_dim1,
                 output[offset + i] = (OUTPUT_TYPE)out_ptr[i];
             }
             #else
-            float4 in0, in1;
+            float4 in0 = (float4)(0.0f, 0.0f, 0.0f, 0.0f);
+            float4 in1 = (float4)(0.0f, 0.0f, 0.0f, 0.0f);
             float* in0_ptr = (float*)&in0;
             float* in1_ptr = (float*)&in1;
             
@@ -60,10 +62,14 @@ __kernel void binary_buf(__private int global_dim0, __private int global_dim1,
                 #endif
             }
             float4 out = OPERATOR;
-            if(activationType == 1) {
-                out = fmax(out, (float4)0);
-            }
             float* out_ptr = (float*)&out;
+            // Note: Apply activation per-element to work around NVIDIA OpenCL compiler bug
+            // where fmax() on float4 in PACK_LEAVE branch causes NaN with float4 pointer operations
+            if(activationType == 1) {
+                for(int j = 0; j < remain; ++j){
+                    if(out_ptr[j] < 0.0f) out_ptr[j] = 0.0f;
+                }
+            }
             for(int i = 0; i < remain; ++i){
                 output[offset + i] = (OUTPUT_TYPE)out_ptr[i];
             }

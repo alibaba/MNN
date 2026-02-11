@@ -19,6 +19,41 @@
 // TODO: Find better way for debug
 //#define MNN_OP_SEPERATE
 //#define MNN_PIPELINE_DEBUG
+
+// Uncomment to enable NaN/Inf checking after each op execution (for debugging OpenCL precision issues)
+//#define MNN_DEBUG_NAN_CHECK
+
+#ifdef MNN_DEBUG_NAN_CHECK
+#include <cmath>
+static bool checkTensorNaN(const Tensor* tensor, int opIndex, const char* opName) {
+    if (tensor == nullptr) return false;
+    std::unique_ptr<Tensor> hostTensor(Tensor::createHostTensorFromDevice(tensor, true));
+    if (hostTensor == nullptr || hostTensor->host<float>() == nullptr) return false;
+    
+    size_t size = hostTensor->elementSize();
+    float* data = hostTensor->host<float>();
+    bool hasNaN = false, hasInf = false;
+    float minVal = data[0], maxVal = data[0];
+    double sum = 0;
+    size_t checkSize = size < 50000 ? size : 50000;
+    for (size_t j = 0; j < checkSize; ++j) {
+        if (std::isnan(data[j])) hasNaN = true;
+        if (std::isinf(data[j])) hasInf = true;
+        if (!std::isnan(data[j]) && !std::isinf(data[j])) {
+            if (data[j] < minVal) minVal = data[j];
+            if (data[j] > maxVal) maxVal = data[j];
+            sum += data[j];
+        }
+    }
+    
+    if (hasNaN || hasInf) {
+        MNN_PRINT("[NaN_CHECK] Op[%d] %s: hasNaN=%d, hasInf=%d, min=%.6f, max=%.6f, mean=%.6f, size=%zu\n",
+                  opIndex, opName, hasNaN, hasInf, minVal, maxVal, (float)(sum/checkSize), size);
+        return true;
+    }
+    return false;
+}
+#endif
 namespace MNN {
 static std::set<OpType> _getQuantPropagateOp(Runtime::CompilerType type) {
     std::set<OpType> propagateOpTypes = { OpType_Raster, OpType_ReLU, OpType_ReLU6, OpType_Pooling,
@@ -1167,6 +1202,61 @@ ErrorCode Pipeline::execute() {
                 _exitExecute();
                 return code;
             }
+#ifdef MNN_DEBUG_NAN_CHECK
+            // Check outputs for NaN after each op execution
+            static int globalOpIndex = 0;
+            static bool foundFirstNaN = false;
+            static int modelExecutionCount = 0;
+            
+            if (cmdIndex == 0 && &info == &mInfo.second.front()) {
+                modelExecutionCount++;
+                globalOpIndex = 0;
+                foundFirstNaN = false;
+                MNN_PRINT("[NaN_DEBUG] ========== MODEL EXECUTION #%d START ==========\n", modelExecutionCount);
+            }
+            
+            const char* opName = cmd.op->name() ? cmd.op->name()->c_str() : "unknown";
+            
+            for (auto output : cmd.workOutputs) {
+                if (output != nullptr) {
+                    std::unique_ptr<Tensor> hostTensor(Tensor::createHostTensorFromDevice(output, true));
+                    if (hostTensor != nullptr && hostTensor->host<float>() != nullptr) {
+                        size_t sz = hostTensor->elementSize();
+                        float* h = hostTensor->host<float>();
+                        bool hasNaN = false, hasInf = false;
+                        float mn = h[0], mx = h[0];
+                        size_t checkSize = sz < 50000 ? sz : 50000;
+                        for (size_t j = 0; j < checkSize; ++j) {
+                            if (std::isnan(h[j])) hasNaN = true;
+                            if (std::isinf(h[j])) hasInf = true;
+                            if (!std::isnan(h[j]) && !std::isinf(h[j])) {
+                                if (h[j] < mn) mn = h[j];
+                                if (h[j] > mx) mx = h[j];
+                            }
+                        }
+                        
+                        if ((hasNaN || hasInf) && !foundFirstNaN) {
+                            foundFirstNaN = true;
+                            MNN_PRINT("[NaN_FOUND] Model#%d Op[%d] %s (type=%s): FIRST NaN/Inf! size=%zu, hasNaN=%d, hasInf=%d\n",
+                                      modelExecutionCount, globalOpIndex, opName, EnumNameOpType(cmd.op->type()), sz, hasNaN ? 1 : 0, hasInf ? 1 : 0);
+                            for (int ii = 0; ii < (int)cmd.workInputs.size(); ++ii) {
+                                auto input = cmd.workInputs[ii];
+                                if (input != nullptr) {
+                                    checkTensorNaN(input, globalOpIndex, opName);
+                                }
+                            }
+                        }
+                        
+                        if (globalOpIndex < 30 || hasNaN) {
+                            MNN_PRINT("[M%d_Op%d] %s (type=%s): size=%d, min=%.4f, max=%.4f, NaN=%d, Inf=%d\n", 
+                                      modelExecutionCount, globalOpIndex, opName, EnumNameOpType(cmd.op->type()), 
+                                      (int)sz, mn, mx, hasNaN ? 1 : 0, hasInf ? 1 : 0);
+                        }
+                    }
+                }
+            }
+            globalOpIndex++;
+#endif
         }
     }
     _exitExecute();

@@ -33,7 +33,12 @@ if (MNN_SEP_BUILD)
     if (MNN_BUILD_SHARED_LIBS)
         # compile dynamic so, support Linux/Mac
         add_library(llm SHARED ${SRCS})
-        set_target_properties(llm PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS TRUE)
+        set_target_properties(llm PROPERTIES 
+            WINDOWS_EXPORT_ALL_SYMBOLS TRUE
+            CXX_VISIBILITY_PRESET default
+            C_VISIBILITY_PRESET default
+            VISIBILITY_INLINES_HIDDEN OFF
+        )
         target_link_libraries(llm ${LLM_DEPS})
     else()
         add_library(llm STATIC ${SRCS})
