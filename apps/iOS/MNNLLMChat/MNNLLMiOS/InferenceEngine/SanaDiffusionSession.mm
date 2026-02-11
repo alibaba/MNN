@@ -205,14 +205,14 @@ using namespace CV;
     // Validate model state
     if (!_isModelLoaded) {
         if (completion) {
-            completion(NO, @"Model not loaded");
+            completion(NO, @"Model not loaded", 0);
         }
         return;
     }
     
     if (_isProcessing) {
         if (completion) {
-            completion(NO, @"Already processing");
+            completion(NO, @"Already processing", 0);
         }
         return;
     }
@@ -252,7 +252,7 @@ using namespace CV;
                 dispatch_async(dispatch_get_main_queue(), ^{
                     self->_isProcessing = NO;
                     if (completion) {
-                        completion(NO, @"LLM processing failed");
+                        completion(NO, @"LLM processing failed", 0);
                     }
                 });
                 return;
@@ -267,13 +267,34 @@ using namespace CV;
             // Stage 2: Run diffusion pipeline with LLM embeddings
             NSDate *diffusionStartTime = [NSDate date];
             
+            // The pre-built MNN.framework's SanaDiffusion::run() does not invoke the
+            // C++ progressCallback during denoising. Work around this by using a
+            // dispatch timer on the main queue that fires while run() blocks the
+            // background thread, giving the user periodic progress updates.
+            __block int timerProgress = 15;
+            int progressPerTick = MAX(1, 80 / iterations);  // 80% span / iterations
+            
+            dispatch_source_t progressTimer = dispatch_source_create(
+                DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+            // Fire every 2 seconds (roughly matches per-step duration)
+            dispatch_source_set_timer(progressTimer,
+                dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC),
+                2 * NSEC_PER_SEC, 0.5 * NSEC_PER_SEC);
+            dispatch_source_set_event_handler(progressTimer, ^{
+                timerProgress += progressPerTick;
+                if (timerProgress > 90) timerProgress = 90;  // cap before completion
+                if (progressCallback) {
+                    progressCallback(timerProgress, @"Running diffusion...");
+                }
+            });
+            dispatch_resume(progressTimer);
+            
+            // Also keep the C++ callback in case a future framework rebuild enables it
             auto diffusionProgressCallback = [progressCallback](int step) {
                 dispatch_async(dispatch_get_main_queue(), ^{
                     if (progressCallback) {
-                        // Map diffusion progress (0-100) to overall range (15-95)
                         int progress = 15 + (step * 80 / 100);
-                        NSString *stage = [NSString stringWithFormat:@"Diffusion step %d%%", step];
-                        progressCallback(progress, stage);
+                        progressCallback(progress, @"Running diffusion...");
                     }
                 });
             };
@@ -299,10 +320,6 @@ using namespace CV;
             }
             
             // Use new unified diffusion interface
-            // mode: "img2img" for style transfer (editing existing image)
-            // width/height: 512x512 as the VAE encoder/decoder operates at this resolution
-            // use_cfg: false - not using Classifier-Free Guidance (single prompt)
-            // cfg_scale: 4.5 - default value (ignored when use_cfg is false)
             bool success = self->mDiffusion->run(
                 llmOutput,
                 "img2img",                       // mode: image editing
@@ -316,6 +333,10 @@ using namespace CV;
                 4.5f,                            // cfg_scale
                 diffusionProgressCallback
             );
+            
+            // Cancel the progress timer now that run() has returned
+            dispatch_source_cancel(progressTimer);
+            
             
             NSTimeInterval diffusionDuration = [[NSDate date] timeIntervalSinceDate:diffusionStartTime] * 1000;
             NSTimeInterval totalDuration = [[NSDate date] timeIntervalSinceDate:totalStartTime] * 1000;
@@ -345,15 +366,16 @@ using namespace CV;
             dispatch_async(dispatch_get_main_queue(), ^{
                 self->_isProcessing = NO;
                 
-                if (progressCallback) {
-                    progressCallback(100, success ? @"Complete!" : @"Failed");
-                }
+                // Note: Do NOT call progressCallback(100) here.
+                // The completion handler sets the final message directly,
+                // so calling progressCallback would cause a brief flash of
+                // an inconsistent message before completion replaces it.
                 
                 if (completion) {
                     if (success) {
-                        completion(YES, nil);
+                        completion(YES, nil, totalDuration);
                     } else {
-                        completion(NO, @"Diffusion processing failed");
+                        completion(NO, @"Diffusion processing failed", totalDuration);
                     }
                 }
             });
@@ -362,7 +384,7 @@ using namespace CV;
             dispatch_async(dispatch_get_main_queue(), ^{
                 self->_isProcessing = NO;
                 if (completion) {
-                    completion(NO, [NSString stringWithFormat:@"Exception: %@", exception.reason]);
+                    completion(NO, [NSString stringWithFormat:@"Exception: %@", exception.reason], 0);
                 }
             });
         }

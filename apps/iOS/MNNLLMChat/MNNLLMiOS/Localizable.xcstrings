@@ -541,6 +541,17 @@
         }
       }
     },
+    "Generating image..." : {
+      "comment" : "Sana diffusion progress stage",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "生成图片中..."
+          }
+        }
+      }
+    },
     "Generation rate" : {
       "localizations" : {
         "zh-Hans" : {
@@ -617,7 +628,14 @@
       }
     },
     "Later" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "稍后"
+          }
+        }
+      }
     },
     "Load External File" : {
       "localizations" : {
@@ -721,7 +739,14 @@
       }
     },
     "Model Type" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "模型类型"
+          }
+        }
+      }
     },
     "ModelLoadingFailText" : {
       "extractionState" : "manual",
@@ -892,7 +917,14 @@
       }
     },
     "Penalty Sampler" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Penalty Sampler"
+          }
+        }
+      }
     },
     "Performance analysis complete" : {
       "localizations" : {
@@ -905,23 +937,50 @@
       }
     },
     "Please select an image for style transfer." : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请选择一张图片进行风格转换。"
+          }
+        }
+      }
     },
     "Powered By MNN" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "由 MNN 驱动"
+          }
+        }
+      }
     },
     "PP: %lld • TG: %lld" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
-            "state" : "new",
+            "state" : "translated",
+            "value" : "PP: %1$lld • TG: %2$lld"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
             "value" : "PP: %1$lld • TG: %2$lld"
           }
         }
       }
     },
     "Precision" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "精度"
+          }
+        }
+      }
     },
     "Prefill Speed" : {
       "localizations" : {
@@ -929,6 +988,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "预填充速度"
+          }
+        }
+      }
+    },
+    "Processing prompt..." : {
+      "comment" : "Sana diffusion progress stage",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "处理提示词中..."
           }
         }
       }
@@ -964,7 +1034,14 @@
       }
     },
     "Reload Now" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "立即重载"
+          }
+        }
+      }
     },
     "Reset" : {
       "localizations" : {
@@ -986,6 +1063,17 @@
         }
       }
     },
+    "Running diffusion..." : {
+      "comment" : "Sana diffusion progress stage",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "扩散推理中..."
+          }
+        }
+      }
+    },
     "Running performance tests" : {
       "localizations" : {
         "zh-Hans" : {
@@ -997,7 +1085,14 @@
       }
     },
     "Sampler Type" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sampler 类型"
+          }
+        }
+      }
     },
     "Sampling Strategy" : {
       "localizations" : {
@@ -1010,7 +1105,14 @@
       }
     },
     "Sana Style Transfer" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sana 风格转换"
+          }
+        }
+      }
     },
     "Search models..." : {
       "localizations" : {
@@ -1072,7 +1174,7 @@
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "取消"
           }
         }
@@ -1296,7 +1398,14 @@
       }
     },
     "Starting style transfer..." : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在开始风格转换..."
+          }
+        }
+      }
     },
     "Status Update" : {
       "localizations" : {
@@ -1330,13 +1439,34 @@
       }
     },
     "Style transfer completed!" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "风格转换完成！"
+          }
+        }
+      }
     },
     "Style transfer failed." : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "风格转换失败。"
+          }
+        }
+      }
     },
     "Style Transfer Settings" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "风格转换设置"
+          }
+        }
+      }
     },
     "Success" : {
       "comment" : "Alert title for cache cleared",
@@ -1554,7 +1684,14 @@
       }
     },
     "Talker Speaker" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "语音音色"
+          }
+        }
+      }
     },
     "Tap to select a model for testing" : {
       "localizations" : {
@@ -1570,8 +1707,14 @@
       "localizations" : {
         "en" : {
           "stringUnit" : {
-            "state" : "new",
+            "state" : "translated",
             "value" : "Test %1$lld of %2$lld"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "测试 %1$lld / %2$lld"
           }
         }
       }
@@ -1644,7 +1787,14 @@
       }
     },
     "Threads" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "线程数"
+          }
+        }
+      }
     },
     "Tokens per second" : {
       "localizations" : {
@@ -1679,7 +1829,14 @@
       }
     },
     "Unsupported image format. Please use JPG/JPEG images for style transfer." : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不支持的图片格式，请使用 JPG/JPEG 格式的图片进行风格转换。"
+          }
+        }
+      }
     },
     "Use HuggingFace to download" : {
       "localizations" : {
@@ -1756,6 +1913,12 @@
     "video.frameExtractionFailed" : {
       "comment" : "Warning shown when a pure video input cannot provide frames.",
       "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Video frame extraction failed"
+          }
+        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
