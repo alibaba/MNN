@@ -36,6 +36,7 @@
 #define MNN_SANA_DIFFUSION_HPP
 
 #include "diffusion.hpp"
+#include "sana_llm.hpp"
 
 namespace MNN
 {
@@ -45,13 +46,28 @@ namespace MNN
         class MNN_PUBLIC SanaDiffusion : public Diffusion
         {
         public:
+            // 基础构造函数（向后兼容）
             SanaDiffusion(std::string modelPath, DiffusionModelType modelType, MNNForwardType backendType, int memoryMode);
+            
+            // 完整参数构造函数（对齐 Z-Image/LongCat）
+            SanaDiffusion(std::string modelPath, DiffusionModelType modelType, 
+                         MNNForwardType backendType, int memoryMode,
+                         int imageWidth, int imageHeight,
+                         bool textEncoderOnCPU, bool vaeOnCPU,
+                         DiffusionGpuMemoryMode gpuMemoryMode,
+                         DiffusionPrecisionMode precisionMode,
+                         DiffusionCFGMode cfgMode, int numThreads);
+            
             virtual ~SanaDiffusion() = default;
 
             // 加载所有模型组件
             virtual bool load() override;
 
+            // 统一的 run() 接口（对齐 Z-Image/LongCat）
             virtual bool run(const std::string prompt, const std::string imagePath, int iterNum, int randomSeed, std::function<void(int)> progressCallback) override;
+            
+            // 扩展的 run() 接口，支持 img2img 模式
+            virtual bool run(const std::string prompt, const std::string outputPath, int iterNum, int randomSeed, float cfgScale, std::function<void(int)> progressCallback, const std::string inputImagePath = "") override;
 
             // 统一的生成接口
             // 参数说明：
@@ -90,6 +106,20 @@ namespace MNN
             VARP load_and_process_image(const std::string &imagePath, int &orig_width, int &orig_height, int &pad_left, int &pad_top);
 
         private:
+            // 内部 LLM 文本编码器
+            std::unique_ptr<SanaLlm> mSanaLlm;
+            
+            // 配置参数
+            int mImageWidth = 512;
+            int mImageHeight = 512;
+            bool mTextEncoderOnCPU = false;
+            bool mVaeOnCPU = false;
+            DiffusionGpuMemoryMode mGpuMemoryMode = GPU_MEMORY_AUTO;
+            DiffusionPrecisionMode mPrecisionMode = PRECISION_AUTO;
+            DiffusionCFGMode mCFGMode = CFG_MODE_AUTO;
+            int mNumThreads = 4;
+            float mCfgScale = 4.5f;
+            
             std::vector<float> mInitNoise;
             int mNumInferenceSteps = 20;
             int mNumTrainTimesteps = 1000;

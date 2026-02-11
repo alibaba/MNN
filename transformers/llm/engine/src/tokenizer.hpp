@@ -15,6 +15,7 @@
 #include <iostream>
 // #include <string_view>
 #include <cstring>
+#include <MNN/MNNDefine.h>
 class string_view_ {
 public:
     string_view_() : data_(nullptr), size_(0) {}
@@ -136,10 +137,10 @@ public:
     };
     Tokenizer() = default;
     virtual ~Tokenizer() = default;
-    static Tokenizer* createTokenizer(const std::string& filename);
+    MNN_PUBLIC static Tokenizer* createTokenizer(const std::string& filename);
     bool is_stop(int token);
     bool is_special(int token);
-    std::vector<int> encode(const std::string& str);
+    MNN_PUBLIC std::vector<int> encode(const std::string& str);
     virtual std::string decode(int id) = 0;
 protected:
     void cache_special_tokens();

@@ -562,6 +562,8 @@ class Qwen2_5Vision(Qwen2Vision):
         self.merge_unit = self.merge_size * self.merge_size
         self.window_size = visual.window_size
         self.fullatt_block_indexes = visual.fullatt_block_indexes
+        # Qwen2.5-VL uses window attention + full attention, which is incompatible with transformerFuse
+        self.transformer_fuse = False
 
     def get_window_index(self, grid_thw):
         window_index: list = []

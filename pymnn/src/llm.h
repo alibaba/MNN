@@ -56,6 +56,27 @@ static PyObject* PyMNNLLM_forward(LLM *self, PyObject *args) {
     return (PyObject *)logits;
 }
 
+static PyObject* PyMNNLLM_forward_all(LLM *self, PyObject *args) {
+    if (self->is_embedding) {
+        Py_RETURN_NONE;
+    }
+    PyObject *input_ids = nullptr;
+
+    if (!PyArg_ParseTuple(args, "O", &input_ids) && isInts(input_ids)) {
+        Py_RETURN_NONE;
+    }
+    auto outputs = self->llm->forwardVec(toInts(input_ids));
+    
+    // Return a list of all outputs (logits, hidden_states, etc.)
+    PyObject* result = PyList_New(outputs.size());
+    for (size_t i = 0; i < outputs.size(); i++) {
+        auto var = getVar();
+        *(var->var) = outputs[i];
+        PyList_SetItem(result, i, (PyObject*)var);
+    }
+    return result;
+}
+
 static PyObject* PyMNNLLM_generate(LLM *self, PyObject *args) {
     if (self->is_embedding) {
         Py_RETURN_NONE;
@@ -499,6 +520,7 @@ static PyObject* PyMNNLLM_enable_collection_mode(LLM *self, PyObject *args) {
 static PyMethodDef PyMNNLLM_methods[] = {
     {"load", (PyCFunction)PyMNNLLM_load, METH_VARARGS, "load model."},
     {"forward", (PyCFunction)PyMNNLLM_forward, METH_VARARGS, "forward `logits` by `input_ids`."},
+    {"forward_all", (PyCFunction)PyMNNLLM_forward_all, METH_VARARGS, "forward all outputs (logits, hidden_states) by `input_ids`."},
     {"generate", (PyCFunction)PyMNNLLM_generate, METH_VARARGS, "generate `output_ids` by `input_ids`."},
     {"response", (PyCFunction)PyMNNLLM_response, METH_VARARGS, "response `query` - supports both text and multimodal input."},
     {"get_current_history", (PyCFunction)PyMNNLLM_getCurrentHistory, METH_VARARGS, "Get Current History."},

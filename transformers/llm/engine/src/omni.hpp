@@ -32,7 +32,12 @@ public:
         if (mW.empty()) {
             return 0;
         }
-        return back() + 1;
+        // PyTorch uses max(T, H, W) + 1 as the next position
+        // This is important for mrope where T, H, W can have different values
+        int maxVal = mT.back();
+        maxVal = std::max(maxVal, mH.back());
+        maxVal = std::max(maxVal, mW.back());
+        return maxVal + 1;
     }
     void push_back(int t, int h, int w) {
         mT.push_back(t);

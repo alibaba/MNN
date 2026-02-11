@@ -298,7 +298,13 @@ ErrorCode BinaryBufExecution::onEncode(const std::vector<Tensor *> &inputs, cons
     MNN_CHECK_CL_SUCCESS(ret, "setArg BinaryBufExecution");
 
     std::string name = "binary_buf";
-    mLocalWorkSize = {(uint32_t)16, (uint32_t)1};
+    // Fix: localWorkSize must evenly divide globalWorkSize, otherwise use NullRange (0,0)
+    // When globalWorkSize < 16, set localWorkSize to 0 to let OpenCL runtime choose
+    if (mGlobalWorkSize[0] >= 16 && mGlobalWorkSize[0] % 16 == 0) {
+        mLocalWorkSize = {(uint32_t)16, (uint32_t)1};
+    } else {
+        mLocalWorkSize = {(uint32_t)0, (uint32_t)0};  // Let OpenCL runtime choose
+    }
     
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
     unit.localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1]};
