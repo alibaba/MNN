@@ -417,6 +417,7 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
                 draft: DraftMessage(
                     text: "\(initialStage) (0%)",
                     thinkText: "",
+                    useMarkdown: false,
                     medias: [],
                     recording: nil,
                     replyMessage: nil,
@@ -458,11 +459,20 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
                         self.isProcessing = false
 
                         if success {
-                            let totalTimeSec = totalTimeMs / 1000.0
-                            let timeText = String(format: "%.1f", totalTimeSec)
-                            let completionText = NSLocalizedString("Style transfer completed!", comment: "") + "\(timeText)s"
+                            let completionText = NSLocalizedString("Style transfer completed!", comment: "")
                             self.interactor.updateLastMessage(text: completionText)
                             self.interactor.sendImage(imageURL: URL(fileURLWithPath: outputPath))
+
+                            // Send total time as a separate message after the image
+                            let totalTimeSec = totalTimeMs / 1000.0
+                            let timeText = String(format: "%.1f", totalTimeSec)
+                            let timeMessage = NSLocalizedString("Total time:", comment: "Sana diffusion total time label") + " \(timeText)s"
+                            do {
+                                try await self.send(draft: DraftMessage(text: timeMessage, thinkText: "", useMarkdown: false, medias: [], recording: nil, replyMessage: nil, createdAt: Date()), userType: .system)
+                            } catch {
+                                print("Error sending time message: \(error)")
+                            }
+                            
                         } else {
                             let errorMessage = error ?? NSLocalizedString("Style transfer failed.", comment: "")
                             self.interactor.updateLastMessage(text: errorMessage)
