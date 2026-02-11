@@ -2,21 +2,28 @@
 #include <fstream>
 #include <chrono>
 #include <array>
+#include <sstream>
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <MNN/expr/ExecutorScope.hpp>
+#include <rapidjson/document.h>
 #include "diffusion/diffusion.hpp"
 #include "diffusion/stable_diffusion.hpp"
 #include "diffusion/sana_diffusion.hpp"
+#include "tokenizer.hpp"
+#include "scheduler.hpp"
 
 // Forward declarations for our custom subclasses
 namespace MNN { namespace DIFFUSION {
 class ZImageDiffusion;
 class LongCatDiffusion;
+class Flux2KleinDiffusion;
 }}
 
 #include "diffusion/zimage_diffusion.hpp"
 #include "diffusion/longcat_diffusion.hpp"
+#include "diffusion/flux2_klein_diffusion.hpp"
 
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
@@ -37,14 +44,9 @@ namespace DIFFUSION {
 
 // Helper function for progress display
 void display_progress(int cur, int total){
-    putchar('\r');
-    MNN_PRINT("[");
-    for (int i = 0; i < cur; i++) putchar('#');
-    for (int i = 0; i < total - cur; i++) putchar('-');
-    MNN_PRINT("]");
-    fprintf(stdout, "  [%3d%%]", cur * 100 / total);
-    if (cur == total) putchar('\n');
-    fflush(stdout);
+    // Use MNN_PRINT for Android logcat compatibility (no \r for logcat)
+    int percent = cur * 100 / total;
+    MNN_PRINT("[Progress] %d/%d (%d%%)\n", cur, total, percent);
 }
 
 // PhiloxRNG is now defined in diffusion.hpp header
@@ -53,6 +55,17 @@ void display_progress(int cur, int total){
 
 Diffusion::Diffusion(std::string modelPath, DiffusionModelType modelType, MNNForwardType backendType, int memoryMode) :
 mModelPath(modelPath), mModelType(modelType), mBackendType(backendType), mMemoryMode(memoryMode) {
+}
+
+Diffusion::Diffusion(std::string modelPath, DiffusionModelType modelType, MNNForwardType backendType, int memoryMode,
+                     int imageWidth, int imageHeight, bool textEncoderOnCPU, bool vaeOnCPU,
+                     DiffusionGpuMemoryMode gpuMemoryMode, DiffusionPrecisionMode precisionMode,
+                     DiffusionCFGMode cfgMode, int numThreads)
+    : mModelPath(modelPath), mModelType(modelType), mBackendType(backendType), mMemoryMode(memoryMode),
+      mImageWidth(imageWidth), mImageHeight(imageHeight),
+      mTextEncoderOnCPU(textEncoderOnCPU), mVaeOnCPU(vaeOnCPU),
+      mGpuMemoryMode(gpuMemoryMode), mPrecisionMode(precisionMode),
+      mCFGMode(cfgMode), mNumThreads(numThreads) {
 }
 
 Diffusion::~Diffusion() {
@@ -67,6 +80,95 @@ bool Diffusion::run(const std::string prompt, const std::string outputPath, int 
     return run(prompt, outputPath, iterNum, randomSeed, progressCallback);
 }
 
+// ===== Shared Protected Helpers =====
+
+void Diffusion::loadSchedulerConfig() {
+    mSchedulerConfig.loadFromFile(mModelPath);
+}
+
+bool Diffusion::initRuntimeManagers(bool gpuBufferMode, int attentionHint) {
+    ScheduleConfig config;
+    BackendConfig backendConfig;
+    config.type = mBackendType;
+    if (config.type == MNN_FORWARD_CPU) {
+        config.numThread = mNumThreads;
+    } else if (config.type == MNN_FORWARD_OPENCL) {
+        int gpuMode = MNN_GPU_TUNING_FAST;
+        if (mGpuMemoryMode == GPU_MEMORY_BUFFER) gpuMode |= MNN_GPU_MEMORY_BUFFER;
+        else if (mGpuMemoryMode == GPU_MEMORY_IMAGE) gpuMode |= MNN_GPU_MEMORY_IMAGE;
+        else if (gpuBufferMode) gpuMode |= MNN_GPU_MEMORY_BUFFER;
+        config.mode = gpuMode;
+    } else {
+        config.numThread = 1;
+    }
+    backendConfig.memory = BackendConfig::Memory_Low;
+    if (mPrecisionMode == PRECISION_LOW)         backendConfig.precision = BackendConfig::Precision_Low;
+    else if (mPrecisionMode == PRECISION_NORMAL) backendConfig.precision = BackendConfig::Precision_Normal;
+    else if (mPrecisionMode == PRECISION_HIGH)   backendConfig.precision = BackendConfig::Precision_High;
+    else {
+        // AUTO: require FP32 on GPU for -inf attention mask handling
+        if (config.type == MNN_FORWARD_OPENCL || config.type == MNN_FORWARD_VULKAN)
+            backendConfig.precision = BackendConfig::Precision_High;
+        else
+            backendConfig.precision = BackendConfig::Precision_Normal;
+    }
+    config.backendConfig = &backendConfig;
+
+    auto exe = ExecutorScope::Current();
+    exe->lazyEval = false;
+    exe->setGlobalExecutorConfig(config.type, backendConfig, config.numThread);
+
+    runtime_manager_.reset(Executor::RuntimeManager::createRuntimeManager(config));
+    if (runtime_manager_ == nullptr) {
+        MNN_ERROR("Diffusion: Failed to create runtime manager\n");
+        return false;
+    }
+    if (config.type == MNN_FORWARD_OPENCL) {
+        runtime_manager_->setCache(".tempcache");
+    }
+    if (mMemoryMode == 0)      runtime_manager_->setHint(Interpreter::WINOGRAD_MEMORY_LEVEL, 0);
+    else if (mMemoryMode == 2) runtime_manager_->setHint(Interpreter::WINOGRAD_MEMORY_LEVEL, 1);
+    if (config.type == MNN_FORWARD_CPU)
+        runtime_manager_->setHint(Interpreter::DYNAMIC_QUANT_OPTIONS, 0);
+    if (attentionHint > 0)
+        runtime_manager_->setHint(Interpreter::ATTENTION_OPTION, attentionHint);
+
+    // CPU fallback runtime for text encoder on GPU backends
+    if (mTextEncoderOnCPU && (config.type == MNN_FORWARD_OPENCL || config.type == MNN_FORWARD_VULKAN)) {
+        ScheduleConfig cpuConfig;
+        cpuConfig.type = MNN_FORWARD_CPU;
+        cpuConfig.numThread = mNumThreads;
+        BackendConfig cpuBC;
+        cpuBC.memory    = BackendConfig::Memory_Low;
+        cpuBC.precision = BackendConfig::Precision_Normal;
+        cpuConfig.backendConfig = &cpuBC;
+        runtime_manager_cpu_.reset(Executor::RuntimeManager::createRuntimeManager(cpuConfig));
+        runtime_manager_cpu_->setHint(Interpreter::DYNAMIC_QUANT_OPTIONS, 0);
+    }
+    // CPU fallback runtime for VAE on GPU backends
+    if (mVaeOnCPU && (config.type == MNN_FORWARD_OPENCL || config.type == MNN_FORWARD_VULKAN)) {
+        ScheduleConfig cpuConfig;
+        cpuConfig.type = MNN_FORWARD_CPU;
+        cpuConfig.numThread = mNumThreads;
+        BackendConfig cpuBC;
+        cpuBC.memory    = BackendConfig::Memory_Low;
+        cpuBC.precision = BackendConfig::Precision_Normal;
+        cpuConfig.backendConfig = &cpuBC;
+        runtime_manager_vae_cpu_.reset(Executor::RuntimeManager::createRuntimeManager(cpuConfig));
+        runtime_manager_vae_cpu_->setHint(Interpreter::DYNAMIC_QUANT_OPTIONS, 0);
+    }
+    return true;
+}
+
+VARP Diffusion::applyEulerUpdate(VARP sample, VARP noisePred, float dt) {
+    return sample + _Scalar(dt) * noisePred;
+}
+
+void Diffusion::generateLatentNoise(float* dst, int size, int seed) {
+    PhiloxRNG rng(seed);
+    for (int i = 0; i < size; ++i) dst[i] = rng.randn();
+}
+
 // ===== Factory Methods =====
 
 Diffusion* Diffusion::createDiffusion(std::string modelPath, DiffusionModelType modelType, MNNForwardType backendType, int memoryMode) {
@@ -76,6 +178,8 @@ Diffusion* Diffusion::createDiffusion(std::string modelPath, DiffusionModelType 
         return new ZImageDiffusion(modelPath, modelType, backendType, memoryMode, 0, 0, true, false, GPU_MEMORY_AUTO, PRECISION_AUTO, CFG_MODE_AUTO, 4);
     } else if (modelType == LONGCAT_IMAGE_EDIT) {
         return new LongCatDiffusion(modelPath, modelType, backendType, memoryMode, 0, 0, true, false, GPU_MEMORY_AUTO, PRECISION_AUTO, CFG_MODE_AUTO, 4);
+    } else if (modelType == FLUX2_KLEIN_DIFFUSION) {
+        return new Flux2KleinDiffusion(modelPath, modelType, backendType, memoryMode, 0, 0, true, false, GPU_MEMORY_AUTO, PRECISION_AUTO, CFG_MODE_AUTO, 4);
     } else {
         return new StableDiffusion(modelPath, modelType, backendType, memoryMode);
     }
@@ -86,14 +190,24 @@ Diffusion* Diffusion::createDiffusion(std::string modelPath, DiffusionModelType 
         return new ZImageDiffusion(modelPath, modelType, backendType, memoryMode, imageWidth, imageHeight, textEncoderOnCPU, vaeOnCPU, gpuMemoryMode, precisionMode, cfgMode, numThreads);
     } else if (modelType == LONGCAT_IMAGE_EDIT) {
         return new LongCatDiffusion(modelPath, modelType, backendType, memoryMode, imageWidth, imageHeight, textEncoderOnCPU, vaeOnCPU, gpuMemoryMode, precisionMode, cfgMode, numThreads);
+    } else if (modelType == FLUX2_KLEIN_DIFFUSION) {
+        return new Flux2KleinDiffusion(modelPath, modelType, backendType, memoryMode, imageWidth, imageHeight, textEncoderOnCPU, vaeOnCPU, gpuMemoryMode, precisionMode, cfgMode, numThreads);
     } else if (modelType == SANA_DIFFUSION) {
         return new SanaDiffusion(modelPath, modelType, backendType, memoryMode, imageWidth, imageHeight, textEncoderOnCPU, vaeOnCPU, gpuMemoryMode, precisionMode, cfgMode, numThreads);
     } else {
         return new StableDiffusion(modelPath, modelType, backendType, memoryMode);
     }
 }
-
 // ===== Image Processing Utility Functions =====
+
+VARP Diffusion::nchwFloatToHwcBGR(VARP nchwFloat) {
+    auto img = _Relu6(nchwFloat * _Const(0.5f) + _Const(0.5f), 0.f, 1.f);
+    img = _Squeeze(_Transpose(img, {0, 2, 3, 1}));
+    img = _Cast(_Round(img * _Const(255.f)), halide_type_of<uint8_t>());
+    img = cvtColor(img, COLOR_BGR2RGB);
+    img.fix(VARP::CONSTANT);
+    return img;
+}
 
 VARP Diffusion::resizeAndCenterCrop(VARP image, int targetW, int targetH) {
     auto info = image->getInfo();

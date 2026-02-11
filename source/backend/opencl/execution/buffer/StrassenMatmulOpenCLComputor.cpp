@@ -228,6 +228,10 @@ ErrorCode StrassenMatrixComputor::_generateMatMul(int e, int l, int h, const Mat
 
     bool isAligned = (e % 32 == 0 && l % 4 == 0 && h % 32 == 0);
     bool enoughComputation = (e >= 512 && l >= 512 && h >= 512) && (1.0 * e / 1024 * l / 1024 * h / 1024 >= 4.0);
+    // Disable Strassen for very large matrices: output [e,h] > 256MB fp16 causes kernel failures
+    // e.g. FFN [8192,3072,9216] in 1024 edit mode -> e*h*2 = 8192*9216*2 = 144MB, but sub-matrices
+    // accumulate and exceed GPU limits. Cap at e*h <= 128M elements.
+    if ((int64_t)e * h > 128 * 1024 * 1024) enoughComputation = false;
     
     if (currentDepth >= mMaxDepth || !isAligned || !enoughComputation) {// not align or not enough computation
         Unit unit;
