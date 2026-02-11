@@ -153,6 +153,150 @@
                             android:gravity="top"
                             android:minLines="3" />
                     </com.google.android.material.textfield.TextInputLayout>
+
+                    <TextView
+                        android:id="@+id/id_label_diffusion_steps"
+                        style="@style/SettingsRowLabel"
+                        android:layout_width="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:layout_marginTop="16dp"
+                        android:layout_weight="1"
+                        android:visibility="gone"
+                        android:text="Diffusion Steps" />
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/input_layout_diffusion_steps"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_margin="8dp"
+                        android:hint="Diffusion Steps"
+                        android:visibility="gone">
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/editDiffusionSteps"
+                            android:layout_width="match_parent"
+                            android:inputType="number"
+                            android:layout_height="wrap_content" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <TextView
+                        android:id="@+id/id_label_image_width"
+                        style="@style/SettingsRowLabel"
+                        android:layout_width="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:layout_marginTop="16dp"
+                        android:layout_weight="1"
+                        android:visibility="gone"
+                        android:text="Image Width" />
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/input_layout_image_width"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_margin="8dp"
+                        android:hint="Image Width"
+                        android:visibility="gone">
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/editImageWidth"
+                            android:layout_width="match_parent"
+                            android:inputType="number"
+                            android:layout_height="wrap_content" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <TextView
+                        android:id="@+id/id_label_image_height"
+                        style="@style/SettingsRowLabel"
+                        android:layout_width="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:layout_marginTop="16dp"
+                        android:layout_weight="1"
+                        android:visibility="gone"
+                        android:text="Image Height" />
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/input_layout_image_height"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_margin="8dp"
+                        android:hint="Image Height"
+                        android:visibility="gone">
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/editImageHeight"
+                            android:layout_width="match_parent"
+                            android:inputType="number"
+                            android:layout_height="wrap_content" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <TextView
+                        android:id="@+id/id_label_diffusion_seed"
+                        style="@style/SettingsRowLabel"
+                        android:layout_width="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:layout_marginTop="16dp"
+                        android:layout_weight="1"
+                        android:visibility="gone"
+                        android:text="Seed" />
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/input_layout_diffusion_seed"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_margin="8dp"
+                        android:hint="Seed (-1 for random)"
+                        android:visibility="gone">
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/editDiffusionSeed"
+                            android:layout_width="match_parent"
+                            android:inputType="numberSigned"
+                            android:layout_height="wrap_content" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <TextView
+                        android:id="@+id/id_label_cfg_prompt"
+                        style="@style/SettingsRowLabel"
+                        android:layout_width="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:layout_marginTop="16dp"
+                        android:layout_weight="1"
+                        android:visibility="gone"
+                        android:text="CFG Prompt" />
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/input_layout_cfg_prompt"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_margin="8dp"
+                        android:hint="CFG Prompt"
+                        android:visibility="gone">
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/editCfgPrompt"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                    
+                     <TextView
+                        android:id="@+id/id_label_grid_size"
+                        style="@style/SettingsRowLabel"
+                        android:layout_width="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:layout_marginTop="16dp"
+                        android:layout_weight="1"
+                        android:visibility="gone"
+                        android:text="Grid Size" />
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/input_layout_grid_size"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_margin="8dp"
+                        android:hint="Grid Size"
+                        android:visibility="gone">
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/editGridSize"
+                            android:layout_width="match_parent"
+                            android:inputType="number"
+                            android:layout_height="wrap_content" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
                     <com.alibaba.mnnllm.android.modelsettings.DropDownLineView
                         android:id="@+id/dropdown_sampler_type"
                         android:layout_width="match_parent"
@@ -309,15 +453,25 @@
                     android:layout_height="wrap_content"
                     android:orientation="vertical">
 
-                    <com.alibaba.mnnllm.android.modelsettings.SettingsItemView
+                    <com.alibaba.mnnllm.android.modelsettings.DropDownLineView
+                        android:id="@+id/dropdownDiffusionMemoryMode"
+                        android:layout_width="match_parent"
+                        android:clickable="true"
+                        android:layout_height="wrap_content"
+                        app:labelText="@string/diffusion_memory_mode"
+                        app:valueText="0"
+                        style="@style/SettingsRowContainer"
+                        app:icon="@drawable/baseline_arrow_drop_down_24"
+                        android:visibility="gone"/>
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
                         android:id="@+id/mmapSettingsItem"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        app:checked="false"
+                        android:text="@string/use_mmap"
                         android:paddingLeft="8dp"
                         android:paddingRight="8dp"
-                        style="@style/SettingsRowContainer"
-                        app:itemText="@string/use_mmap"/>
+                        style="@style/SettingsRowContainer"/>
 
                     <TextView
                         android:id="@+id/buttonClearMmapCache"

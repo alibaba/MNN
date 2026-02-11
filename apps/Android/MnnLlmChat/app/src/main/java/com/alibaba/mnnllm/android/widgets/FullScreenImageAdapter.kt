@@ -7,10 +7,12 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mnnllm.android.R
+import com.alibaba.mnnllm.android.utils.ImageUtils
 
 class FullScreenImageAdapter(
     private val images: List<Uri>,
-    private val onClick: () -> Unit
+    private val onClick: () -> Unit,
+    private val showShareOption: Boolean = true
 ) : RecyclerView.Adapter<FullScreenImageAdapter.ViewHolder>() {
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -32,6 +34,11 @@ class FullScreenImageAdapter(
             imageView.setImageURI(uri)
             imageView.setOnClickListener {
                 onClick()
+            }
+            imageView.setOnLongClickListener {
+                it.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                ImageUtils.showImageMenu(itemView.context, uri, showShareOption)
+                true
             }
         }
     }

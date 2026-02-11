@@ -39,26 +39,32 @@ class ResponseHandler {
         traceId: String
     ) {
         val responseMetadata = createResponseMetadata()
-        var isFinished = false
-
+        
         call.respond(SSEServerContent(call) {
             //set heartbeenat
             heartbeat {
                 period = HEARTBEAT_PERIOD_SECONDS.seconds
                 event = ServerSentEvent(comments = "keep-alive")
             }
-            
-            launch {
+
+            // Use an unlimited channel to decouple generation (producer) from network sending (consumer).
+            // This avoids using runBlocking inside the coroutine and allows the generator to run at full speed
+            // without being blocked by network latency, unless we run out of memory (unlikely for text).
+            val channel = kotlinx.coroutines.channels.Channel<ServerSentEvent>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+
+            // Producer Coroutine: Runs the LLM inference on IO thread
+            launch(kotlinx.coroutines.Dispatchers.IO) {
+                var isFinished = false
                 try {
                     val llmSession = getLlmSession()
                     if (llmSession != null) {
-                        //processstreaminggenerate
+                        // Process streaming generation
                         val result = llmSession.submitFullHistory(history, object : GenerateProgressListener {
                             override fun onProgress(progress: String?): Boolean {
                                 return try {
                                     when {
                                         progress != null -> {
-                                            //sendprogresstoken
+                                            // Send progress token
                                             logger.logStreamDelta(traceId, progress)
                                             val json = chatResponseFormatter.createDeltaResponse(
                                                 responseMetadata.responseId,
@@ -66,76 +72,50 @@ class ResponseHandler {
                                                 progress,
                                                 false
                                             )
-                                            runBlocking {
-                                                send(ServerSentEvent(data = json))
+                                            // Send to channel non-blocking
+                                            val sendResult = channel.trySend(ServerSentEvent(data = json))
+                                            
+                                            // If channel is closed (consumer failed/disconnected), stop generation
+                                            if (sendResult.isClosed) {
+                                                logger.logWarning(traceId, "Channel closed, stopping generation")
+                                                true
+                                            } else {
+                                                false // Continue generation
                                             }
-                                            false //continuegenerate
                                         }
                                         else -> {
-                                            //generatecomplete，butnotatheresendcompletesignal
-                                            //completion signalwillat submitFullHistoryreturn then send
+                                            // Generation complete (callback signal)
                                             isFinished = true
                                             logger.logStreamEnd(traceId)
                                             false
                                         }
                                     }
                                 } catch (e: Exception) {
-                                    //checkwhetherasconnectcloseexception
-                                    val isConnectionClosed = e is io.ktor.utils.io.ClosedWriteChannelException ||
-                                            e.cause is io.ktor.utils.io.ClosedWriteChannelException ||
-                                            e.cause is io.ktor.util.cio.ChannelWriteException ||
-                                            e.message?.contains("Cannot write to channel") == true ||
-                                            e.message?.contains("ClosedChannelException") == true
-                                    
-                                    if (isConnectionClosed) {
-                                        logger.logWarning(traceId, "客户端连接已断开，停止生成", e)
-                                    } else {
-                                        logger.logError(traceId, e, "发送SSE事件时出错")
-                                    }
-                                    true //cancelgenerate
+                                    logger.logError(traceId, e, "Error in onProgress")
+                                    true // Stop generation
                                 }
                             }
                         })
                         
-                        //generation completethen sendfinalchunk (containingusagestatisticsinfo)
+                        // Generation complete, send final chunk with usage
                         if (isFinished) {
-                            try {
-                                val usage = chatResponseFormatter.createUsageFromMetrics(result)
-                                val finalJson = chatResponseFormatter.createDeltaResponse(
-                                    responseMetadata.responseId,
-                                    responseMetadata.created,
-                                    "",
-                                    true,
-                                    usage = usage
-                                )
-                                send(ServerSentEvent(data = finalJson))
-                                
-                                //send[DONE]marker
-                                delay(DONE_DELAY_MS)
-                                try {
-                                    send(ServerSentEvent(data = "[DONE]"))
-                                } catch (e: Exception) {
-                                    logger.logWarning(traceId, "连接已关闭，无法发送[DONE]标记", e)
-                                }
-                            } catch (e: Exception) {
-                                //checkwhetherasconnectcloseexception
-                                val isConnectionClosed = e is io.ktor.utils.io.ClosedWriteChannelException ||
-                                        e.cause is io.ktor.utils.io.ClosedWriteChannelException ||
-                                        e.cause is io.ktor.util.cio.ChannelWriteException ||
-                                        e.message?.contains("Cannot write to channel") == true ||
-                                        e.message?.contains("ClosedChannelException") == true
-                                
-                                if (isConnectionClosed) {
-                                    logger.logWarning(traceId, "客户端连接已断开，跳过最终响应发送", e)
-                                } else {
-                                    logger.logError(traceId, e, "发送最终响应时出错")
-                                }
-                            }
-                            close()
+                            val usage = chatResponseFormatter.createUsageFromMetrics(result)
+                            val finalJson = chatResponseFormatter.createDeltaResponse(
+                                responseMetadata.responseId,
+                                responseMetadata.created,
+                                "",
+                                true,
+                                usage = usage
+                            )
+                            channel.send(ServerSentEvent(data = finalJson))
+                            
+                            // Send [DONE] marker
+                            delay(DONE_DELAY_MS)
+                            channel.send(ServerSentEvent(data = "[DONE]"))
                         }
                         logger.logInferenceComplete(traceId)
                     } else {
-                        //processLLMsessionerror
+                        // Process LLM session error
                         logger.logLlmSessionError(traceId)
                         val errorJson = chatResponseFormatter.createDeltaResponse(
                             responseMetadata.responseId,
@@ -143,56 +123,51 @@ class ResponseHandler {
                             "LlmSession not available",
                             true
                         )
-                        send(ServerSentEvent(data = errorJson))
-                        close()
+                        channel.send(ServerSentEvent(data = errorJson))
                     }
                 } catch (e: Exception) {
-                    //checkwhetherasconnectcloseexception
-                    val isConnectionClosed = e is io.ktor.utils.io.ClosedWriteChannelException ||
-                            e.cause is io.ktor.utils.io.ClosedWriteChannelException ||
-                            e.cause is io.ktor.util.cio.ChannelWriteException ||
-                            e.message?.contains("Cannot write to channel") == true ||
-                            e.message?.contains("ClosedChannelException") == true
-                    
-                    if (isConnectionClosed) {
-                        logger.logWarning(traceId, "客户端连接已断开，停止处理", e)
-                    } else {
-                        logger.logError(traceId, e, "生成文本时出错")
-                    }
-                    
-                    if (!isFinished) {
-                        try {
-                            val finalJson = chatResponseFormatter.createDeltaResponse(
-                                responseMetadata.responseId,
-                                responseMetadata.created,
-                                "",
-                                true
-                            )
-                            send(ServerSentEvent(data = finalJson))
-                            
-                            delay(DONE_DELAY_MS)
-                            try {
-                                send(ServerSentEvent(data = "[DONE]"))
-                            } catch (doneException: Exception) {
-                                logger.logWarning(traceId, "连接已关闭，无法发送[DONE]标记", doneException)
-                            }
-                        } catch (closeException: Exception) {
-                            //checkwhetherasconnectcloseexception
-                            val isCloseConnectionClosed = closeException is io.ktor.utils.io.ClosedWriteChannelException ||
-                                    closeException.cause is io.ktor.utils.io.ClosedWriteChannelException ||
-                                    closeException.cause is io.ktor.util.cio.ChannelWriteException ||
-                                    closeException.message?.contains("Cannot write to channel") == true ||
-                                    closeException.message?.contains("ClosedChannelException") == true
-                            
-                            if (isCloseConnectionClosed) {
-                                logger.logWarning(traceId, "客户端连接已断开，跳过错误结束发送", closeException)
-                            } else {
-                                logger.logError(traceId, closeException, "发送错误结束时出错")
-                            }
-                        }
-                        close()
-                    }
+                     logger.logError(traceId, e, "Error during generation")
+                     if (!isFinished) {
+                         // Try to send error finish if possible
+                         try {
+                             val finalJson = chatResponseFormatter.createDeltaResponse(
+                                 responseMetadata.responseId,
+                                 responseMetadata.created,
+                                 "",
+                                 true
+                             )
+                             channel.send(ServerSentEvent(data = finalJson))
+                             delay(DONE_DELAY_MS)
+                             channel.send(ServerSentEvent(data = "[DONE]"))
+                         } catch (ignore: Exception) {}
+                     }
+                } finally {
+                    channel.close()
                 }
+            }
+
+            // Consumer: Read from channel and send via SSE
+            // This runs in the context of the SSEServerContent (Netty thread usually)
+            try {
+                for (event in channel) {
+                    send(event)
+                }
+            } catch (e: Exception) {
+                // Check if it's a connection closed exception
+                val isConnectionClosed = e is io.ktor.utils.io.ClosedWriteChannelException ||
+                        e.cause is io.ktor.utils.io.ClosedWriteChannelException ||
+                        e.cause is io.ktor.util.cio.ChannelWriteException ||
+                        e.message?.contains("Cannot write to channel") == true ||
+                        e.message?.contains("ClosedChannelException") == true
+                
+                if (isConnectionClosed) {
+                    logger.logWarning(traceId, "Client connection closed during send", e)
+                } else {
+                    logger.logError(traceId, e, "Error sending SSE event")
+                }
+                // Closing the consumer will cancel the producer (since it's a child job if structured concurrency holds, 
+                // but we launched producer with launch(Dispatchers.IO) inside this scope, so yes).
+                // Just in case, the channel close in producer's finally block handles cleanup.
             }
         })
     }

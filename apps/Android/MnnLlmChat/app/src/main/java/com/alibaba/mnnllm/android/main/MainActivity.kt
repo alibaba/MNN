@@ -34,6 +34,7 @@ import com.alibaba.mnnllm.android.history.ChatHistoryFragment
 import com.alibaba.mnnllm.android.mainsettings.MainSettingsActivity
 import com.alibaba.mnnllm.android.modelist.ModelListFragment
 import com.alibaba.mnnllm.android.modelmarket.ModelMarketFragment
+import com.alibaba.mnnllm.android.modelmarket.ModelRepository
 import com.alibaba.mnnllm.android.update.UpdateChecker
 import com.alibaba.mnnllm.android.utils.CrashUtil
 import com.alibaba.mnnllm.android.utils.GithubUtils
@@ -291,6 +292,15 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
         val fragment = SelectSourceFragment.newInstance(availableSources, displayNames, currentProvider)
         fragment.setOnSourceSelectedListener { selectedSource ->
             MainSettings.setDownloadProvider(this, selectedSource)
+            // 同步更新 ModelSources 的下载源类型
+            val sourceType = when (selectedSource) {
+                ModelSources.sourceHuffingFace -> ModelSources.ModelSourceType.HUGGING_FACE
+                ModelSources.sourceModelScope -> ModelSources.ModelSourceType.MODEL_SCOPE
+                else -> ModelSources.ModelSourceType.MODELERS
+            }
+            ModelSources.setSourceType(sourceType)
+            // 清除 ModelRepository 缓存以触发重新处理 modelId
+            ModelRepository.clear()
             // Set title to display name
             val idx = ModelSources.sourceList.indexOf(selectedSource)
             val displayName = if (idx != -1) getString(ModelSources.sourceDisPlayList[idx]) else selectedSource
@@ -342,6 +352,10 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // 初始化下载源设置，同步到 ModelSources
+        val provider = MainSettings.getDownloadProvider(this)
+        ModelSources.setSourceType(provider)
         
         // Check privacy policy agreement first
         checkPrivacyPolicyAgreement()

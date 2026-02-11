@@ -56,7 +56,6 @@ class MnnImageProcessor(private val context: Context) {
         } else if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
             //networkURL
             logDebug("Processing network image URL: $imageUrl")
-            //TODO: implementationnetworkimagedownloadandcachelogic
             //temporarily returnoriginal URLor aplaceholder,ordownload it
             downloadAndProcessNetworkImage(imageUrl)
         } else if (File(imageUrl).exists()) {
@@ -99,7 +98,7 @@ class MnnImageProcessor(private val context: Context) {
                 }
 
                 val fileName =
-                    "img_" + hash.substring(0, 8) + "." + getFileExtensionFromUrl(urlString)
+                    "img_" + hash.take(8) + "." + getFileExtensionFromUrl(urlString)
                 val filePath = File(cacheDir, fileName).absolutePath
                 logDebug("Creating image file from URL: $filePath")
 
@@ -167,7 +166,7 @@ class MnnImageProcessor(private val context: Context) {
                 val decodeTime = System.currentTimeMillis() - decodeStart
                 logDebug("Decoded Base64 data. Raw bytes: ${imageData.size} (took ${decodeTime}ms)")
 
-                val fileName = "img_" + hash.substring(0, 8) + ".jpg" // Assume jpg for base64
+                val fileName = "img_" + hash.take(8) + ".jpg" // Assume jpg for base64
                 val filePath = File(cacheDir, fileName).absolutePath
                 logDebug("Generating cache file path. Directory: $cacheDir, File name: $fileName")
 

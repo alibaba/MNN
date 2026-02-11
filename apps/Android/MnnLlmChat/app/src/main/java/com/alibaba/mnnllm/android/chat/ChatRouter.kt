@@ -7,6 +7,7 @@ import android.app.Dialog
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import java.io.File
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.TextView
@@ -27,7 +28,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 
 /**
  * Progress dialog that can update download progress in real-time
@@ -299,7 +299,10 @@ object ChatRouter {
         val intent = Intent(context, ChatActivity::class.java)
         intent.putExtra("chatSessionId", sessionId)
         if (isDiffusion) {
-            intent.putExtra("diffusionDir", configFilePath)
+            // For diffusion models, pass the directory path, not the config file path
+            val diffusionDir = File(configFilePath).parent ?: configFilePath
+            Log.d(TAG, "diffusionDir: $diffusionDir")
+            intent.putExtra("diffusionDir", diffusionDir)
         } else {
             intent.putExtra("configFilePath", configFilePath)
         }

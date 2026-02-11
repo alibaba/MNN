@@ -16,6 +16,7 @@
     <string name="config_file_not_found">Model config file not found: %1$s</string>
     <string name="model_hello_prompt">Is there anything I can help you with?</string>
     <string name="model_hello_prompt_diffusion">Please input prompt\nI can generate an image for you</string>
+    <string name="model_hello_prompt_sana">Please upload a face image to convert to anime</string>
     <string name="delete_model">Delete Model</string>
     <string name="pause_download">Pause Download</string>
     <string name="start_download">Start Download</string>
@@ -23,6 +24,7 @@
     <string name="downloading_please_wait">Downloading please wait</string>
     <string name="loading_failed_click_tor_retry">Loading failed: %1$s, click to retry</string>
     <string name="input_messages">Input messages here</string>
+    <string name="input_face_image_hint">Please upload a face image</string>
     <string name="send">send</string>
     <string name="raise_issue">Report an issue</string>
     <string name="star_project">Star in Github </string>
@@ -616,4 +618,7 @@
     <string name="qnn_libs_download_failed">Failed to download QNN libraries</string>
     <string name="qnn_libs_load_failed">Failed to load QNN libraries</string>
     <string name="qnn_device_not_supported">QNN model detected but device does not support QNN acceleration. Please use a different model.</string>
+    <string name="save_image">Save Image</string>
+    <string name="image_saved_to_gallery">Image saved to gallery</string>
+    <string name="failed_to_save_image">Failed to save image</string>
 </resources>

@@ -42,13 +42,14 @@ fun Application.configureRouting() {
         
         //queuestateroute - notneedauthentication
         queueRoutes()
+        
+        // /v1/models - allowpublicaccess,convenientfortestpageandclientdiscovery
+        modelsRoutes()
 
         authenticate("auth-bearer") {
             //atheredefineneedauthenticationroute
             // /v1/chat/completions
             chatRoutes()
-            // /v1/models
-            modelsRoutes()
         }
     }
 

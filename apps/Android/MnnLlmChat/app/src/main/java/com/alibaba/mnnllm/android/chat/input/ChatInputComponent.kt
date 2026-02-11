@@ -86,6 +86,9 @@ class ChatInputComponent(
         
         // Update voice button visibility
         updateVoiceButtonVisibility()
+
+        // Update input hint based on current model capability.
+        updateInputHint()
     }
 
     private fun setupToggleAudioOutput() {
@@ -156,6 +159,7 @@ class ChatInputComponent(
 
     private fun setupEditText() {
         editUserMessage = binding.etMessage
+        updateInputHint()
         editUserMessage.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence, start: Int, count: Int, after: Int) {
             }
@@ -168,6 +172,15 @@ class ChatInputComponent(
                 updateVoiceButtonVisibility()
             }
         })
+    }
+
+    private fun updateInputHint() {
+        val hintRes = if (ModelTypeUtils.requiresFaceImageInput(currentModelId)) {
+            R.string.input_face_image_hint
+        } else {
+            R.string.input_messages
+        }
+        editUserMessage.hint = chatActivity.getString(hintRes)
     }
 
     fun updateSenderButton() {

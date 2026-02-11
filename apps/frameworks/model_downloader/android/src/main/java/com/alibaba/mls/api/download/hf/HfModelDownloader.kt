@@ -23,6 +23,7 @@ import com.alibaba.mls.api.HfApiClient
 import com.alibaba.mls.api.HfApiClient.Companion.bestClient
 import com.alibaba.mls.api.HfFileMetadata
 import com.alibaba.mls.api.HfRepoInfo
+import com.alibaba.mls.api.HfTreeItem
 import com.alibaba.mls.api.download.TimeUtils
 import com.alibaba.mls.api.download.DownloadCoroutineManager
 import kotlinx.coroutines.withContext
@@ -77,13 +78,35 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
         return withContext(DownloadCoroutineManager.downloadDispatcher) {
             runCatching {
                 val hfModelId = hfModelId(modelId)
+                // Add Authorization header if token is available (future improvement)
                 val response = getHfApiClient().getRepoTree(hfModelId, "main").execute()
                 if (response?.isSuccessful == true && response.body() != null) {
-                    val repoInfo = response.body()!!
+                    val treeItems: List<HfTreeItem> = response.body()!!
+                    // Build HfRepoInfo from tree items
+                    val repoInfo = HfRepoInfo()
+                    repoInfo.modelId = modelId
+                    repoInfo.sha = if (treeItems.isNotEmpty()) treeItems[0].oid ?: "main" else "main"
+                    
+                    // Add file items as siblings (filter only files, not directories)
+                    for (item in treeItems) {
+                        if (item.type == "file" && item.path != null) {
+                            val sibling = HfRepoInfo.SiblingItem()
+                            sibling.rfilename = item.path
+                            repoInfo.addSibling(sibling)
+                        }
+                    }
+
                     // Call onRepoInfo callback with repo metadata
                     val lastModified = System.currentTimeMillis() // Simplified
                     val repoSize = if (calculateSize) {
-                        calculateRepoSize(repoInfo)
+                        // Calculate size from tree items directly
+                        var totalSize = 0L
+                        for (item in treeItems) {
+                            if (item.type == "file") {
+                                totalSize += item.getActualSize()
+                            }
+                        }
+                        totalSize
                     } else {
                         0L // Will be calculated separately when needed
                     }
@@ -119,6 +142,7 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
     override fun download(modelId: String) {
         DownloadCoroutineManager.launchDownload {
             try {
+                callback?.onDownloadPending(modelId)
                 val repoInfo = fetchRepoInfo(modelId)
                 downloadHfRepo(repoInfo)
             } catch (e: FileDownloadException) {
@@ -147,9 +171,21 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
     override suspend fun getRepoSize(modelId: String): Long {
         return withContext(DownloadCoroutineManager.downloadDispatcher) {
             runCatching {
-                val repoInfo = fetchRepoInfo(modelId, calculateSize = true)
-                // Size was already calculated in fetchRepoInfo, but we can also calculate it directly
-                calculateRepoSize(repoInfo)
+                val hfModelId = hfModelId(modelId)
+                val client = getHfApiClient()
+                val response = client.getRepoTree(hfModelId, "main").execute()
+                if (response?.isSuccessful == true && response.body() != null) {
+                    val treeItems: List<HfTreeItem> = response.body()!!
+                    var totalSize = 0L
+                    for (item in treeItems) {
+                        if (item.type == "file") {
+                            totalSize += item.getActualSize()
+                        }
+                    }
+                    totalSize
+                } else {
+                    0L
+                }
             }.getOrElse { exception ->
                 Log.e(TAG, "Failed to get repo size for $modelId", exception)
                 // Try to get file_size from saved market data as fallback
@@ -273,7 +309,7 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
         val list: MutableList<HfFileMetadata?> = ArrayList()
         for (subFile in hfRepoInfo.getSiblings()) {
             val url =
-                "https://" + getHfApiClient().host + "/" + hfRepoInfo.modelId + "/resolve/main/" + subFile.rfilename
+                "https://" + getHfApiClient().host + "/" + hfModelId(hfRepoInfo.modelId!!) + "/resolve/main/" + subFile.rfilename
             val metaData = getFileMetadata(metaInfoHttpClient, url)
             list.add(metaData)
         }

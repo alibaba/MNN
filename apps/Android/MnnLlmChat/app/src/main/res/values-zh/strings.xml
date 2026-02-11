@@ -14,6 +14,7 @@
     <string name="config_file_not_found">模型配置文件不存在：%1$s</string>
     <string name="model_hello_prompt">有什么需要帮忙的么？</string>
     <string name="model_hello_prompt_diffusion">请输入提示词\n我可以生成图片哦</string>
+    <string name="model_hello_prompt_sana">请输入人脸图片，可以转为动漫图片</string>
     <string name="delete_model">删除模型</string>
     <string name="pause_download">暂停下载</string>
     <string name="downloading_paused">已暂停: %1$.2f%%</string>
@@ -22,6 +23,7 @@
     <string name="downloading_please_wait">文件下载中，请稍等</string>
     <string name="loading_failed_click_tor_retry">加载失败: %1$s, 点击重试</string>
     <string name="input_messages">输入信息</string>
+    <string name="input_face_image_hint">请输入人脸图片</string>
     <string name="send">发送</string>
     <string name="raise_issue">反馈 issue </string>
     <string name="star_project">在 Github 上 Star</string>
@@ -608,4 +610,7 @@
     <string name="qnn_libs_download_failed">下载QNN库失败</string>
     <string name="qnn_libs_load_failed">加载QNN库失败</string>
     <string name="qnn_device_not_supported">检测到QNN模型但设备不支持QNN加速。请使用其他模型。</string>
+    <string name="save_image">保存图片</string>
+    <string name="image_saved_to_gallery">图片已保存到相册</string>
+    <string name="failed_to_save_image">保存图片失败</string>
 </resources>

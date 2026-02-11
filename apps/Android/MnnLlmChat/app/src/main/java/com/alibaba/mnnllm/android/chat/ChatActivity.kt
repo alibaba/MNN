@@ -33,6 +33,7 @@ import com.alibaba.mnnllm.android.llm.AudioDataListener
 import com.alibaba.mnnllm.android.llm.LlmSession
 import com.alibaba.mnnllm.android.mainsettings.MainSettings.isApiServiceEnabled
 import com.alibaba.mnnllm.android.modelsettings.SettingsBottomSheetFragment
+import com.alibaba.mnnllm.android.modelsettings.DiffusionSettingsBottomSheetFragment
 import com.alibaba.mnnllm.api.openai.ui.ApiSettingsBottomSheetFragment
 import com.alibaba.mnnllm.api.openai.ui.ApiConsoleBottomSheetFragment
 import com.alibaba.mnnllm.android.utils.AudioPlayService
@@ -355,7 +356,7 @@ class ChatActivity : AppCompatActivity() {
                     true
                 )
             )
-        menu.findItem(R.id.menu_item_model_settings).isVisible = !isDiffusion
+        menu.findItem(R.id.menu_item_model_settings).isVisible = true
         menu.findItem(R.id.menu_item_benchmark_test).isVisible = benchmarkModule.enabled
         // Voice chat is only available for non-diffusion models
         menu.findItem(R.id.start_voice_chat).isVisible = !isDiffusion
@@ -380,16 +381,30 @@ class ChatActivity : AppCompatActivity() {
         } else if (item.itemId == android.R.id.home) {
             finish()
         } else if (item.itemId == R.id.menu_item_model_settings) {
-            SettingsBottomSheetFragment().apply {
-                setModelId(modelId!!)
-                setConfigPath(intent.getStringExtra("configFilePath"))
-                setSession(chatSession as LlmSession)
-                addOnSettingsDoneListener{needRecreate->
-                    if (needRecreate) {
-                        recreate()
+            val session = chatSession
+            if (session is LlmSession) {
+                SettingsBottomSheetFragment().apply {
+                    setModelId(modelId!!)
+                    setConfigPath(intent.getStringExtra("configFilePath"))
+                    setSession(session)
+                    addOnSettingsDoneListener{needRecreate->
+                        if (needRecreate) {
+                            recreate()
+                        }
                     }
-                }
-            }.show(supportFragmentManager, SettingsBottomSheetFragment.TAG)
+                }.show(supportFragmentManager, SettingsBottomSheetFragment.TAG)
+            } else {
+                // For Sana and other diffusion models
+                DiffusionSettingsBottomSheetFragment().apply {
+                    setModelId(modelId!!)
+                    setConfigPath(intent.getStringExtra("configFilePath"))
+                    addOnSettingsDoneListener{needRecreate->
+                        if (needRecreate) {
+                            recreate()
+                        }
+                    }
+                }.show(supportFragmentManager, DiffusionSettingsBottomSheetFragment.TAG)
+            }
             return true
         } else if (item.itemId == R.id.menu_item_benchmark_test) {
             chatSession!!.setKeepHistory(false)
@@ -544,7 +559,8 @@ class ChatActivity : AppCompatActivity() {
                 chatDataItem.text = getString(R.string.diffusion_generated_message)
                 chatDataItem.displayText = chatDataItem.text
                 if (!diffusionDestPath.isNullOrEmpty()) {
-                    chatDataItem.imageUri = Uri.parse(diffusionDestPath)
+                    chatDataItem.imageUri = Uri.fromFile(java.io.File(diffusionDestPath))
+                    Log.d(TAG, "onDiffusionGenerateProgress: Set imageUri to ${chatDataItem.imageUri}")
                 } else {
                     Log.w(TAG, "onDiffusionGenerateProgress: diffusionDestPath is null or empty")
                 }
