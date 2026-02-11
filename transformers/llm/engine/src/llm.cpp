@@ -531,6 +531,25 @@ std::vector<Express::VARP> Llm::forwardRaw(Express::VARP hiddenState, Express::V
             return outputs;
         }
     }
+    // Save hidden_states to file for LongCat text encoder
+    if (mConfig->config_.value("hidden_states", false)) {
+        int hsIndex = mConfig->has_talker() ? 2 : 1;
+        if (outputs.size() > hsIndex) {
+            auto hs = outputs[hsIndex];
+            auto info = hs->getInfo();
+            auto ptr = hs->readMap<float>();
+            FILE* fp = fopen("/tmp/mnn_hidden_states.bin", "wb");
+            if (fp) {
+                int ndim = static_cast<int>(info->dim.size());
+                fwrite(&ndim, sizeof(int), 1, fp);
+                for (int d = 0; d < ndim; ++d) {
+                    fwrite(&info->dim[d], sizeof(int), 1, fp);
+                }
+                fwrite(ptr, sizeof(float), info->size, fp);
+                fclose(fp);
+            }
+        }
+    }
     if (!mAsync) {
         ((MNN::Tensor*)(outputs[0]->getTensor()))->wait(Tensor::MAP_TENSOR_READ, true);
     }
