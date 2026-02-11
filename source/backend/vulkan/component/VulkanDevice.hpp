@@ -183,10 +183,11 @@ public:
     }
 
 private:
-    const VkResult enumerateDeviceExtensionProperties(const VkPhysicalDevice& dev, std::vector<VkExtensionProperties>& exts_props) const;
+    // Set mFP16Info
+    void checkFP16(const std::vector<VkExtensionProperties>& availableExts);
+    // Set mCoopMatInfo
+    void checkCoopMat(const std::vector<VkExtensionProperties>& availableExts);
 
-    // Set mSupportFP16 and mFP16FromExtension
-    void checkFP16();
 
 private:
     bool mOwner;
@@ -211,6 +212,23 @@ struct FP16Info {
     VkPhysicalDevice16BitStorageFeatures enabled16BitStorageFeatures{};
 };
     FP16Info mFP16Info{};
+
+// CoopMat related
+public:
+    struct CoopMatInfo {
+        bool supportCoopMat{false};
+        VkPhysicalDeviceCooperativeMatrixFeaturesKHR enabledCoopMatFeatures{};
+        std::vector<std::vector<uint32_t>> fp32CoopMatShape;
+        std::vector<std::vector<uint32_t>> fp16CoopMatShape;
+        std::vector<uint32_t> selectedFP32CoopMatShape; // {M, N, K}
+        std::vector<uint32_t> selectedFP16CoopMatShape; // {M, N, K}
+    };
+private:
+    CoopMatInfo mCoopMatInfo{};
+public:
+    CoopMatInfo getCoopMatInfo() const {
+        return mCoopMatInfo;
+    }
 };
 } // namespace MNN
 #endif /* VulkanDevice_hpp */

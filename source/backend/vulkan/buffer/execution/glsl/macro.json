@@ -337,5 +337,20 @@
     },
     "roipooling.comp": {
         "useFP16": true
+    },
+    "C4_to_COOP.comp": {
+        "useFP16": true
+    },
+    "COOP_to_C4.comp": {
+        "useFP16": true
+    },
+    "matmul_coop.comp": {
+        "useFP16": true
+    },
+    "int4_weight_to_coop.comp": {
+        "useFP16": true
+    },
+    "int8_weight_to_coop.comp": {
+        "useFP16": true
     }
 }

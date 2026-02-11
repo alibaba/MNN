@@ -1,0 +1,83 @@
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_EXT_shader_8bit_storage : require
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+layout(constant_id = 3) const uint COOP_K = 16;
+layout(constant_id = 4) const uint COOP_N = 64;
+
+layout(binding = 0) readonly buffer QBuffer {
+    int8_t Q[];
+};
+layout(binding = 1) readonly buffer ScaleBuffer {
+    FLOAT Scale[]; 
+};
+layout(binding = 2) readonly buffer OffsetBuffer {
+    FLOAT Offset[]; 
+};
+layout(binding = 3) writeonly buffer DstBuffer {
+    FLOAT4 Dst[];
+};
+
+layout(push_constant) uniform PushConsts {
+    uint K;         // Original K
+    uint N;         // Original N
+    uint padK;      // Padded K (multiple of COOP_K)
+    uint padN;      // Padded N (multiple of COOP_N)
+    uint blockSize; // Block size along K for per-block quant
+} pc;
+
+void main() {
+    uint tileN = gl_WorkGroupID.x;
+    uint tileK = gl_WorkGroupID.y;
+    uint tid = gl_LocalInvocationID.x;
+    uint groupSize = gl_WorkGroupSize.x;
+
+    uint tilesN = pc.padN / COOP_N;
+    uint dstTileOffsetVec = (tileK * tilesN + tileN) * ((COOP_K * COOP_N) / 4);
+
+    uint totalVec = (COOP_K * COOP_N) / 4;
+    uint blocksPerRow = (pc.K + pc.blockSize - 1) / pc.blockSize;
+
+    for (uint idx = tid; idx < totalVec; idx += groupSize) {
+        uint elemIdx = idx * 4;
+        uint kInTile = elemIdx / COOP_N;
+        uint nInTile = elemIdx % COOP_N; 
+        
+        uint gk = tileK * COOP_K + kInTile;
+        uint gn = tileN * COOP_N + nInTile;
+
+        FLOAT4 res = FLOAT4(0.0);
+
+        if (gk < pc.K) {
+            uint rowBlockIdx = gk / pc.blockSize;
+            uint linearIdx = gk * pc.N + gn;
+            uint baseBlockIdx = rowBlockIdx * pc.N + gn;
+
+            // Element 0
+            if (gn < pc.N) {
+                FLOAT qVal = FLOAT(Q[linearIdx]);
+                res.x = qVal * Scale[baseBlockIdx] + Offset[baseBlockIdx];
+            }
+            // Element 1
+            if (gn + 1 < pc.N) {
+                uint blockIdx = baseBlockIdx + 1;
+                FLOAT qVal = FLOAT(Q[linearIdx + 1]);
+                res.y = qVal * Scale[blockIdx] + Offset[blockIdx];
+            }
+            // Element 2
+            if (gn + 2 < pc.N) {
+                uint blockIdx = baseBlockIdx + 2;
+                FLOAT qVal = FLOAT(Q[linearIdx + 2]);
+                res.z = qVal * Scale[blockIdx] + Offset[blockIdx];
+            }
+            // Element 3
+            if (gn + 3 < pc.N) {
+                uint blockIdx = baseBlockIdx + 3;
+                FLOAT qVal = FLOAT(Q[linearIdx + 3]);
+                res.w = qVal * Scale[blockIdx] + Offset[blockIdx];
+            }
+        }
+        Dst[dstTileOffsetVec + idx] = res;
+    }
+}

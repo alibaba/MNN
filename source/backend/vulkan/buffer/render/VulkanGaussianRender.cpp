@@ -306,9 +306,9 @@ VulkanRadixSort::VulkanRadixSort(Backend* bn, int needBit) : mBackend(bn), mNeed
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
         };
         if (extra->device().getLocalMemorySize() > 0) {
-            mContent->cumsum = extra->getPipelineFactory()->getPipeline("glsl_cumsum_comp", types, spc, true);
+            mContent->cumsum = extra->getPipelineFactory()->getPipeline("glsl_cumsum_comp", types, spc, {}, true);
         } else {
-            mContent->cumsum = extra->getPipelineFactory()->getPipeline("glsl_cumsum_single_comp", types, spc, true);
+            mContent->cumsum = extra->getPipelineFactory()->getPipeline("glsl_cumsum_single_comp", types, spc, {}, true);
         }
     }
     {
@@ -320,7 +320,7 @@ VulkanRadixSort::VulkanRadixSort(Backend* bn, int needBit) : mBackend(bn), mNeed
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
         };
-        mContent->radixsort_reorder = extra->getPipelineFactory()->getPipeline("glsl_radixsort_reorder_comp", types, spc, true);
+        mContent->radixsort_reorder = extra->getPipelineFactory()->getPipeline("glsl_radixsort_reorder_comp", types, spc, {}, true);
     }
     {
         std::vector<uint32_t> spc = {(uint32_t)mLocalSize, 1, 1, (uint32_t)(1<<mPerSortBit), (uint32_t)mLocalSize};
@@ -330,7 +330,7 @@ VulkanRadixSort::VulkanRadixSort(Backend* bn, int needBit) : mBackend(bn), mNeed
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
         };
-        mContent->radixsort_histogram = extra->getPipelineFactory()->getPipeline("glsl_radixsort_histogram_comp", types, spc, true);
+        mContent->radixsort_histogram = extra->getPipelineFactory()->getPipeline("glsl_radixsort_histogram_comp", types, spc, {}, true);
     }
 }
 VulkanRadixSort:: ~VulkanRadixSort() {

@@ -168,6 +168,8 @@ mMaps.insert(std::make_pair("glsl_unary_CLAMP_FP16_comp", std::make_pair(glsl_un
 mMaps.insert(std::make_pair("glsl_unary_HARDSWISH_FP16_comp", std::make_pair(glsl_unary_HARDSWISH_FP16_comp,glsl_unary_HARDSWISH_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_unary_GELU_FP16_comp", std::make_pair(glsl_unary_GELU_FP16_comp,glsl_unary_GELU_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_unary_SILU_FP16_comp", std::make_pair(glsl_unary_SILU_FP16_comp,glsl_unary_SILU_FP16_comp_len)));
+mMaps.insert(std::make_pair("glsl_int4_weight_to_coop_comp", std::make_pair(glsl_int4_weight_to_coop_comp,glsl_int4_weight_to_coop_comp_len)));
+mMaps.insert(std::make_pair("glsl_int4_weight_to_coop_FP16_comp", std::make_pair(glsl_int4_weight_to_coop_FP16_comp,glsl_int4_weight_to_coop_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_softmaxHeight_NHWC_comp", std::make_pair(glsl_softmaxHeight_NHWC_comp,glsl_softmaxHeight_NHWC_comp_len)));
 mMaps.insert(std::make_pair("glsl_softmaxHeight_NHWC_FP16_comp", std::make_pair(glsl_softmaxHeight_NHWC_FP16_comp,glsl_softmaxHeight_NHWC_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_resizeNearest_comp", std::make_pair(glsl_resizeNearest_comp,glsl_resizeNearest_comp_len)));
@@ -193,6 +195,8 @@ mMaps.insert(std::make_pair("glsl_nchwTonc4hw4_comp", std::make_pair(glsl_nchwTo
 mMaps.insert(std::make_pair("glsl_nchwTonc4hw4_FP16_comp", std::make_pair(glsl_nchwTonc4hw4_FP16_comp,glsl_nchwTonc4hw4_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_nc4hw4Tonchw_comp", std::make_pair(glsl_nc4hw4Tonchw_comp,glsl_nc4hw4Tonchw_comp_len)));
 mMaps.insert(std::make_pair("glsl_nc4hw4Tonchw_FP16_comp", std::make_pair(glsl_nc4hw4Tonchw_FP16_comp,glsl_nc4hw4Tonchw_FP16_comp_len)));
+mMaps.insert(std::make_pair("glsl_C4_to_COOP_comp", std::make_pair(glsl_C4_to_COOP_comp,glsl_C4_to_COOP_comp_len)));
+mMaps.insert(std::make_pair("glsl_C4_to_COOP_FP16_comp", std::make_pair(glsl_C4_to_COOP_FP16_comp,glsl_C4_to_COOP_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_matmulunit_comp", std::make_pair(glsl_matmulunit_comp,glsl_matmulunit_comp_len)));
 mMaps.insert(std::make_pair("glsl_matmulunit_FP16_comp", std::make_pair(glsl_matmulunit_FP16_comp,glsl_matmulunit_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_blitregion_comp", std::make_pair(glsl_blitregion_comp,glsl_blitregion_comp_len)));
@@ -217,6 +221,8 @@ mMaps.insert(std::make_pair("glsl_convolutionint8_RELU6_comp", std::make_pair(gl
 mMaps.insert(std::make_pair("glsl_convolutionint8_FP16_comp", std::make_pair(glsl_convolutionint8_FP16_comp,glsl_convolutionint8_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_convolutionint8_RELU_FP16_comp", std::make_pair(glsl_convolutionint8_RELU_FP16_comp,glsl_convolutionint8_RELU_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_convolutionint8_RELU6_FP16_comp", std::make_pair(glsl_convolutionint8_RELU6_FP16_comp,glsl_convolutionint8_RELU6_FP16_comp_len)));
+mMaps.insert(std::make_pair("glsl_COOP_to_C4_comp", std::make_pair(glsl_COOP_to_C4_comp,glsl_COOP_to_C4_comp_len)));
+mMaps.insert(std::make_pair("glsl_COOP_to_C4_FP16_comp", std::make_pair(glsl_COOP_to_C4_FP16_comp,glsl_COOP_to_C4_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_onehot_comp", std::make_pair(glsl_onehot_comp,glsl_onehot_comp_len)));
 mMaps.insert(std::make_pair("glsl_onehot_FP16_comp", std::make_pair(glsl_onehot_FP16_comp,glsl_onehot_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_binary_blit_comp", std::make_pair(glsl_binary_blit_comp,glsl_binary_blit_comp_len)));
@@ -262,6 +268,8 @@ mMaps.insert(std::make_pair("glsl_unary_int_ABS_comp", std::make_pair(glsl_unary
 mMaps.insert(std::make_pair("glsl_unary_int_NEG_comp", std::make_pair(glsl_unary_int_NEG_comp,glsl_unary_int_NEG_comp_len)));
 mMaps.insert(std::make_pair("glsl_unary_int_SQUARE_comp", std::make_pair(glsl_unary_int_SQUARE_comp,glsl_unary_int_SQUARE_comp_len)));
 mMaps.insert(std::make_pair("glsl_unary_int_SIGN_comp", std::make_pair(glsl_unary_int_SIGN_comp,glsl_unary_int_SIGN_comp_len)));
+mMaps.insert(std::make_pair("glsl_matmul_coop_comp", std::make_pair(glsl_matmul_coop_comp,glsl_matmul_coop_comp_len)));
+mMaps.insert(std::make_pair("glsl_matmul_coop_FP16_comp", std::make_pair(glsl_matmul_coop_FP16_comp,glsl_matmul_coop_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_deconvolutionDepthwise_comp", std::make_pair(glsl_deconvolutionDepthwise_comp,glsl_deconvolutionDepthwise_comp_len)));
 mMaps.insert(std::make_pair("glsl_deconvolutionDepthwise_RELU_comp", std::make_pair(glsl_deconvolutionDepthwise_RELU_comp,glsl_deconvolutionDepthwise_RELU_comp_len)));
 mMaps.insert(std::make_pair("glsl_deconvolutionDepthwise_RELU6_comp", std::make_pair(glsl_deconvolutionDepthwise_RELU6_comp,glsl_deconvolutionDepthwise_RELU6_comp_len)));
@@ -282,6 +290,8 @@ mMaps.insert(std::make_pair("glsl_argmax_comp", std::make_pair(glsl_argmax_comp,
 mMaps.insert(std::make_pair("glsl_argmax_ARGMIN_comp", std::make_pair(glsl_argmax_ARGMIN_comp,glsl_argmax_ARGMIN_comp_len)));
 mMaps.insert(std::make_pair("glsl_argmax_FP16_comp", std::make_pair(glsl_argmax_FP16_comp,glsl_argmax_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_argmax_ARGMIN_FP16_comp", std::make_pair(glsl_argmax_ARGMIN_FP16_comp,glsl_argmax_ARGMIN_FP16_comp_len)));
+mMaps.insert(std::make_pair("glsl_int8_weight_to_coop_comp", std::make_pair(glsl_int8_weight_to_coop_comp,glsl_int8_weight_to_coop_comp_len)));
+mMaps.insert(std::make_pair("glsl_int8_weight_to_coop_FP16_comp", std::make_pair(glsl_int8_weight_to_coop_FP16_comp,glsl_int8_weight_to_coop_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_binary_blit_int_comp", std::make_pair(glsl_binary_blit_int_comp,glsl_binary_blit_int_comp_len)));
 mMaps.insert(std::make_pair("glsl_binary_blit_int_ADD_comp", std::make_pair(glsl_binary_blit_int_ADD_comp,glsl_binary_blit_int_ADD_comp_len)));
 mMaps.insert(std::make_pair("glsl_binary_blit_int_SUB_comp", std::make_pair(glsl_binary_blit_int_SUB_comp,glsl_binary_blit_int_SUB_comp_len)));

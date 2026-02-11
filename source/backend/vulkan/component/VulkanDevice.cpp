@@ -30,6 +30,13 @@ static uint32_t _getLocalMemorySize(const VkPhysicalDeviceMemoryProperties& memP
     return localMemorySize;
 #endif
 }
+
+static bool _hasExtension(const std::vector<VkExtensionProperties>& exts, const char* name) {
+    return std::any_of(exts.begin(), exts.end(), [&](const VkExtensionProperties& ext) {
+        return std::strcmp(ext.extensionName, name) == 0;
+    });
+}
+
 VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance)
     : mOwner(true),
       mInstance(instance),
@@ -48,9 +55,6 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance)
     CALL_VK(mInstance->enumeratePhysicalDevices(gpuCount, tmpGpus.data()));
     MNN_ASSERT(nullptr != tmpGpus[0]);
     mPhysicalDevice = tmpGpus[0];
-
-    // Check FP16.
-    checkFP16();
 
     // Set queue.
     uint32_t queueFamilyCount = 1;
@@ -81,33 +85,33 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance)
         /* .pQueuePriorities = */ priorities,
     };
 
-    // Set device extensions.
-    std::vector<const char*> deviceExtensions;
-    std::vector<const char*> deviceExtensionsToCheck = {
-        "VK_KHR_portability_subset"
-    };
-    uint32_t availableDeviceExtensionCount = 0;
-    CALL_VK(vkEnumerateDeviceExtensionProperties(mPhysicalDevice, nullptr, &availableDeviceExtensionCount, nullptr));
-    std::vector<VkExtensionProperties> availableDeviceExtensions(availableDeviceExtensionCount);
-    CALL_VK(vkEnumerateDeviceExtensionProperties(mPhysicalDevice, nullptr, &availableDeviceExtensionCount, availableDeviceExtensions.data()));
-    for (uint32_t i = 0; i < availableDeviceExtensionCount; i++) {
-        for (uint32_t j = 0; j < deviceExtensionsToCheck.size(); j++) {
-            if (strcmp(availableDeviceExtensions[i].extensionName, deviceExtensionsToCheck[j]) == 0) {
-                deviceExtensions.push_back(deviceExtensionsToCheck[j]);
-            }
-        }
-    }
-
     // Set device features.
     VkPhysicalDeviceFeatures deviceFeatures{};
     deviceFeatures.shaderStorageImageWriteWithoutFormat = VK_TRUE;
-
+    
     VkPhysicalDeviceFeatures2 deviceFeatures2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
     deviceFeatures2.features = deviceFeatures;
 
     void* pNextChain = nullptr;
 
-    // --- Configure FP16 ---
+    // Set device extensions.
+    std::vector<const char*> deviceExtensions;
+    std::vector<VkExtensionProperties> availableDeviceExtensions;
+    {
+        uint32_t extCount = 0;
+        CALL_VK(vkEnumerateDeviceExtensionProperties(mPhysicalDevice, nullptr, &extCount, nullptr));
+        availableDeviceExtensions.resize(extCount);
+        CALL_VK(vkEnumerateDeviceExtensionProperties(mPhysicalDevice, nullptr, &extCount, availableDeviceExtensions.data()));
+    }
+
+    // Configure VK_KHR_portability_subset
+    const char * portabilityExtName = "VK_KHR_portability_subset";
+    if (_hasExtension(availableDeviceExtensions, portabilityExtName)) {
+        deviceExtensions.push_back(portabilityExtName);
+    }
+
+    // Configure FP16
+    checkFP16(availableDeviceExtensions);
     if (mFP16Info.supportFP16) {
         if (mFP16Info.FP16FromExtension) {
             deviceExtensions.push_back(VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME);
@@ -128,6 +132,15 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance)
             pNextChain = &mFP16Info.enabledVulkan11Features;
         }
     }
+
+    // Configure coopMat
+    checkCoopMat(availableDeviceExtensions);
+    if (mCoopMatInfo.supportCoopMat) {
+        deviceExtensions.push_back(VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME);
+        mCoopMatInfo.enabledCoopMatFeatures.pNext = pNextChain;
+        pNextChain = &mCoopMatInfo.enabledCoopMatFeatures;
+    }
+
     deviceFeatures2.pNext = pNextChain;
 
     // Create Device. Get Queue.
@@ -354,25 +367,6 @@ const VkResult VulkanDevice::resetFences(const uint32_t fenceCount, const VkFenc
 }
 const VkResult VulkanDevice::resetFence(const VkFence& fence) const {
     return resetFences(1, &fence);
-}
-const VkResult VulkanDevice::enumerateDeviceExtensionProperties(const VkPhysicalDevice& dev,
-                                                                std::vector<VkExtensionProperties>& exts_props) const {
-    uint32_t propertyCount = 0;
-    VkResult result        = VK_SUCCESS;
-
-    do {
-        result = vkEnumerateDeviceExtensionProperties(dev, nullptr, &propertyCount, nullptr);
-        if ((VK_SUCCESS == result) && propertyCount) {
-            std::vector<VkExtensionProperties> props(propertyCount);
-            result = vkEnumerateDeviceExtensionProperties(dev, nullptr, &propertyCount,
-                                                          reinterpret_cast<VkExtensionProperties*>(props.data()));
-            if ((VK_SUCCESS == result) && propertyCount) {
-                exts_props.insert(exts_props.end(), props.begin(), props.end());
-            }
-        }
-    } while (VK_INCOMPLETE == result);
-
-    return result;
 }
 
 const VkResult VulkanDevice::createSemaphore(VkSemaphore& semaphore, const VkAllocationCallbacks* allocator) const {
@@ -608,7 +602,7 @@ const void VulkanDevice::destroyDescriptorPool(const VkDescriptorPool& descripto
     vkDestroyDescriptorPool(mDevice, descriptorPool, allocator);
 }
 
-void VulkanDevice::checkFP16() {
+void VulkanDevice::checkFP16(const std::vector<VkExtensionProperties>& availableExts) {
     mFP16Info.supportFP16 = false;
     mFP16Info.FP16FromExtension = false;
     mFP16Info.enabledVulkan11Features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
@@ -644,19 +638,8 @@ void VulkanDevice::checkFP16() {
 
     // 2. Try KHR Extension approach
     {
-        uint32_t extCount = 0;
-        vkEnumerateDeviceExtensionProperties(mPhysicalDevice, nullptr, &extCount, nullptr);
-        std::vector<VkExtensionProperties> availableExts(extCount);
-        vkEnumerateDeviceExtensionProperties(mPhysicalDevice, nullptr, &extCount, availableExts.data());
-
-        auto hasExt = [&](const char* name) {
-            return std::any_of(availableExts.begin(), availableExts.end(),
-                               [&](const VkExtensionProperties& ext) {
-                                   return std::strcmp(ext.extensionName, name) == 0;
-                               });
-        };
-
-        if (!hasExt(VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME) || !hasExt(VK_KHR_16BIT_STORAGE_EXTENSION_NAME)) {
+        if (!_hasExtension(availableExts, VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME) ||
+            !_hasExtension(availableExts, VK_KHR_16BIT_STORAGE_EXTENSION_NAME)) {
             return;
         }
 
@@ -676,6 +659,82 @@ void VulkanDevice::checkFP16() {
             return;
         }
     }
+}
+
+void VulkanDevice::checkCoopMat(const std::vector<VkExtensionProperties>& availableExts) {
+    mCoopMatInfo.supportCoopMat = false;
+    mCoopMatInfo.enabledCoopMatFeatures = {};
+    mCoopMatInfo.enabledCoopMatFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_FEATURES_KHR;
+    mCoopMatInfo.fp32CoopMatShape.clear();
+    mCoopMatInfo.fp16CoopMatShape.clear();
+    mCoopMatInfo.selectedFP32CoopMatShape.clear();
+    mCoopMatInfo.selectedFP16CoopMatShape.clear();
+
+    PFN_vkGetPhysicalDeviceFeatures2 getFeatures2 = vkGetPhysicalDeviceFeatures2;
+    if (!getFeatures2) {
+        getFeatures2 = vkGetPhysicalDeviceFeatures2KHR;
+    }
+    if (!getFeatures2) {
+        return;
+    }
+
+    if (!_hasExtension(availableExts, VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME)) {
+        return;
+    }
+
+    // 2. Check Feature
+    VkPhysicalDeviceFeatures2 features2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+    features2.pNext = &mCoopMatInfo.enabledCoopMatFeatures;
+    
+    getFeatures2(mPhysicalDevice, &features2);
+
+    if (mCoopMatInfo.enabledCoopMatFeatures.cooperativeMatrix != VK_TRUE) return;
+
+    // 3. Query Properties (Shapes)
+    VkInstance instance = mInstance->get();
+    auto fpGetCoopMat = reinterpret_cast<PFN_vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR>(
+            vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR"));
+
+    if (!fpGetCoopMat) return;
+
+    uint32_t propCount = 0;
+    if (fpGetCoopMat(mPhysicalDevice, &propCount, nullptr) != VK_SUCCESS || propCount == 0) return;
+
+    std::vector<VkCooperativeMatrixPropertiesKHR> props(propCount);
+    for (auto& p : props) {
+        p.sType = VK_STRUCTURE_TYPE_COOPERATIVE_MATRIX_PROPERTIES_KHR;
+        p.pNext = nullptr;
+    }
+    fpGetCoopMat(mPhysicalDevice, &propCount, props.data());
+
+    uint32_t maxFP16Size = 0;
+    uint32_t maxFP32Size = 0;
+
+    for (const auto & p : props) {
+        if (p.scope != VK_SCOPE_SUBGROUP_KHR || p.saturatingAccumulation != VK_FALSE) continue;
+
+        bool isFP16 = (p.AType == VK_COMPONENT_TYPE_FLOAT16_KHR && p.BType == VK_COMPONENT_TYPE_FLOAT16_KHR && p.CType == VK_COMPONENT_TYPE_FLOAT16_KHR && p.ResultType == VK_COMPONENT_TYPE_FLOAT16_KHR);
+        bool isFP32 = (p.AType == VK_COMPONENT_TYPE_FLOAT32_KHR && p.BType == VK_COMPONENT_TYPE_FLOAT32_KHR && p.CType == VK_COMPONENT_TYPE_FLOAT32_KHR && p.ResultType == VK_COMPONENT_TYPE_FLOAT32_KHR);
+
+        uint32_t size = p.MSize * p.NSize * p.KSize;
+
+        if (isFP16) {
+            mCoopMatInfo.fp16CoopMatShape.push_back({p.MSize, p.NSize, p.KSize});
+            if (size > maxFP16Size) {
+                maxFP16Size = size;
+                mCoopMatInfo.selectedFP16CoopMatShape = {p.MSize, p.NSize, p.KSize};
+            }
+        }
+        if (isFP32) {
+            mCoopMatInfo.fp32CoopMatShape.push_back({p.MSize, p.NSize, p.KSize});
+            if (size > maxFP32Size) {
+                maxFP32Size = size;
+                mCoopMatInfo.selectedFP32CoopMatShape = {p.MSize, p.NSize, p.KSize};
+            }
+        }
+    }
+
+    mCoopMatInfo.supportCoopMat = true;
 }
 
 } // namespace MNN

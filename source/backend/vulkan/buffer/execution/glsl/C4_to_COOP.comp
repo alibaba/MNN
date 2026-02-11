@@ -1,0 +1,69 @@
+layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
+
+layout(constant_id = 3) const uint TILE_M = 64;
+layout(constant_id = 4) const uint TILE_K = 16;
+
+// Input: A_c4 [K/4, M, 4]
+layout(binding = 0) readonly buffer SrcBuffer {
+    FLOAT Src[];
+};
+
+// Output: A_coop [M_pad/TILE_M, K_pad/TILE_K, TILE_M, TILE_K] (Block-Linear)
+layout(binding = 1) writeonly buffer DstBuffer {
+    FLOAT Dst[];
+};
+
+layout(binding = 2) uniform constBuffer {
+    uint M;
+    uint K;
+    uint padM;
+    uint padK;
+} uConst;
+
+shared FLOAT smem[TILE_M * TILE_K];
+
+void main() {
+    uint tileID_K = gl_WorkGroupID.x;
+    uint tileID_M = gl_WorkGroupID.y;
+    uint tid = gl_LocalInvocationID.x;
+    uint groupSize = gl_WorkGroupSize.x;
+
+    uint global_m_start = tileID_M * TILE_M;
+    uint base_global_k = tileID_K * TILE_K;
+
+    uint num_blocks_k = TILE_K / 4;
+
+    for (uint c = 0; c < num_blocks_k; ++c) {
+        uint k_out = (base_global_k >> 2) + c;
+        uint src_base = k_out * (uConst.M * 4) + (global_m_start * 4);
+        
+        uint elements_in_chunk = TILE_M * 4;
+
+        for (uint i = tid; i < elements_in_chunk; i += groupSize) {
+            uint m_in_tile = i >> 2; // i / 4
+            uint k_in = i & 3;       // i % 4
+            
+            uint global_m = global_m_start + m_in_tile;
+            uint current_k = base_global_k + c * 4 + k_in;
+            
+            FLOAT val = FLOAT(0.0);
+            
+            if (global_m < uConst.M && current_k < uConst.K) {
+                val = Src[src_base + i];
+            }
+
+            uint smem_idx = m_in_tile * TILE_K + (c * 4) + k_in;
+            smem[smem_idx] = val;
+        }
+    }
+
+    barrier();
+
+    uint tiles_per_row = uConst.padK / TILE_K;
+    uint dst_tile_offset = (tileID_M * tiles_per_row + tileID_K) * (TILE_M * TILE_K);
+    
+    uint total_elements = TILE_M * TILE_K;
+    for (uint i = tid; i < total_elements; i += groupSize) {
+        Dst[dst_tile_offset + i] = smem[i];
+    }
+}

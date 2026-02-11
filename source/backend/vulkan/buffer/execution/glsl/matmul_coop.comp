@@ -1,0 +1,66 @@
+#extension GL_KHR_cooperative_matrix : require
+#extension GL_KHR_memory_scope_semantics : require
+
+layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
+
+// A is Packed: (M/COOP_M) x (K/COOP_K) tiles of COOP_M x COOP_K
+layout(binding = 0) readonly buffer MatrixA {
+    FLOAT A[];
+};
+
+// B is Packed: (K/COOP_K) x (N/COOP_N) tiles of COOP_K x COOP_N
+layout(binding = 1) readonly buffer MatrixB {
+    FLOAT B[];
+};
+
+// Bias is Linear: (N)
+layout(binding = 2) readonly buffer BiasBuffer {
+    FLOAT Bias[];
+};
+
+// Output C is Linear (Row-Major) for this stage
+layout(binding = 3) writeonly buffer MatrixC {
+    FLOAT C[];
+};
+
+layout(binding = 4) uniform constBuffer {
+    uint M; // Padded M
+    uint N; // Padded N
+    uint K; // Padded K
+    uint pad;
+} uConst;
+
+layout(constant_id = 3) const uint COOP_M = 64;
+layout(constant_id = 4) const uint COOP_N = 64;
+layout(constant_id = 5) const uint COOP_K = 16;
+
+void main() {
+    uint wgRow = gl_WorkGroupID.y;
+    uint wgCol = gl_WorkGroupID.x;
+    
+    coopmat<FLOAT, gl_ScopeSubgroup, COOP_M, COOP_K, gl_MatrixUseA> matA;
+    coopmat<FLOAT, gl_ScopeSubgroup, COOP_K, COOP_N, gl_MatrixUseB> matB;
+    coopmat<FLOAT, gl_ScopeSubgroup, COOP_M, COOP_N, gl_MatrixUseAccumulator> matC;
+    
+    uint biasOffset = wgCol * COOP_N;
+
+    coopMatLoad(matC, Bias, biasOffset, 0, gl_CooperativeMatrixLayoutRowMajor);
+    
+    uint tilesK = uConst.K / COOP_K;
+    uint tilesN = uConst.N / COOP_N;
+    
+    for (uint t = 0; t < tilesK; ++t) {
+        uint tileIdxA = wgRow * tilesK + t;
+        uint offsetA = tileIdxA * (COOP_M * COOP_K);
+        coopMatLoad(matA, A, offsetA, COOP_K, gl_CooperativeMatrixLayoutRowMajor);
+        
+        uint tileIdxB = t * tilesN + wgCol;
+        uint offsetB = tileIdxB * (COOP_K * COOP_N);
+        coopMatLoad(matB, B, offsetB, COOP_N, gl_CooperativeMatrixLayoutRowMajor);
+        
+        matC = coopMatMulAdd(matA, matB, matC);
+    }
+    
+    uint offsetC = (wgRow * COOP_M) * uConst.N + (wgCol * COOP_N);
+    coopMatStore(matC, C, offsetC, uConst.N, gl_CooperativeMatrixLayoutRowMajor);
+}
