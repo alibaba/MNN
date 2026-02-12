@@ -307,9 +307,24 @@ class Rotary(torch.nn.Module):
                 self.theta = get_theta() / torch.tensor(short_factor, dtype=torch.float32)
 
             # mrope for multimode
+            self.use_interleaved_mrope = False
+            self.mrope_reindex = None
             if 'mrope_section' in scaling_config:
                 self.mrope_section = scaling_config['mrope_section']
                 self.theta_sections = get_theta().unsqueeze(0).split(self.mrope_section, dim=-1)
+                self.use_interleaved_mrope = self.model_type in ['qwen3_vl', 'qwen3_vl_moe'] or scaling_config.get('mrope_interleaved', False)
+                def apply_interleaved_mrope(freqs, mrope_section):
+                    # mrope apply func from qwen3-vl
+                    freqs_t = freqs[0]  # just overwrite the first dimension T
+                    for dim, offset in enumerate((1, 2), start=1):  # H, W
+                        length = mrope_section[dim] * 3
+                        idx = slice(offset, length, 3)
+                        freqs_t[..., idx] = freqs[dim, ..., idx]
+                    return freqs_t
+                if self.use_interleaved_mrope:
+                    half_rotary = self.rotary_dim // 2
+                    freq_idx = torch.arange(0, 3 * half_rotary).reshape(3, 1, half_rotary)
+                    self.mrope_reindex = apply_interleaved_mrope(freq_idx, self.mrope_section).flatten()
 
     def forward(self, position_ids):
         if self.theta_sections is not None:
@@ -329,11 +344,16 @@ class Rotary(torch.nn.Module):
 
     def mrope_forward(self, position_ids):
         position_ids = position_ids.float().unsqueeze(-1)
-        idx_theta = torch.concat([
-            position_ids[0] * self.theta_sections[0],
-            position_ids[1] * self.theta_sections[1],
-            position_ids[2] * self.theta_sections[2]
-        ], dim=-1)
+        if self.use_interleaved_mrope:
+            idx_theta = position_ids * self.theta.to(position_ids.device)
+            idx_theta = idx_theta.transpose(1, 0).reshape(-1, 3 * self.rotary_dim // 2)
+            idx_theta = idx_theta[:, self.mrope_reindex]
+        else:
+            idx_theta = torch.concat([
+                position_ids[0] * self.theta_sections[0],
+                position_ids[1] * self.theta_sections[1],
+                position_ids[2] * self.theta_sections[2]
+            ], dim=-1)
         rotary_pos_emb = torch.stack([torch.cos(idx_theta), torch.sin(idx_theta)])
         rotary_pos_emb = torch.cat((rotary_pos_emb, rotary_pos_emb), dim=-1)
         rotary_pos_emb = rotary_pos_emb.unsqueeze(2).unsqueeze(1)
