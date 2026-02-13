@@ -219,14 +219,10 @@ class DownloadDumperPlugin : DumperPlugin {
         val context = MnnLlmApplication.getAppContext()
         val downloadManager = ModelDownloadManager.getInstance(context)
         
-        val downloadedFile = downloadManager.getDownloadedFile(modelId)
-        if (downloadedFile == null || !downloadedFile.exists()) {
-            writer.println("Model not found: $modelId")
-            return
-        }
-
+        val before = downloadManager.getDownloadInfo(modelId)
         downloadManager.deleteModel(modelId)
-        writer.println("Deleted model: $modelId")
+        writer.println("Delete requested for: $modelId")
+        writer.println("  Previous state: ${before.downloadState}")
     }
 
     private fun handlePause(writer: PrintStream, args: List<String>) {

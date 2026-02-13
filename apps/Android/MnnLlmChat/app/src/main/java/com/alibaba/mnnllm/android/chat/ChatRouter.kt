@@ -119,6 +119,11 @@ class ProgressDialog(
 
 object ChatRouter {
 
+    internal fun resolveDiffusionDir(configFilePath: String): String {
+        val path = File(configFilePath)
+        return if (path.isDirectory) configFilePath else (path.parent ?: configFilePath)
+    }
+
     fun startRun(context: Context, modelIdParam: String, destModelDir:String?, sessionId: String?) {
         Log.d(TAG, "startRun modelIdParam: $modelIdParam destModelDir: $destModelDir sessionId: $sessionId")
         val isDiffusion = ModelTypeUtils.isDiffusionModel(modelIdParam)
@@ -300,7 +305,7 @@ object ChatRouter {
         intent.putExtra("chatSessionId", sessionId)
         if (isDiffusion) {
             // For diffusion models, pass the directory path, not the config file path
-            val diffusionDir = File(configFilePath).parent ?: configFilePath
+            val diffusionDir = resolveDiffusionDir(configFilePath)
             Log.d(TAG, "diffusionDir: $diffusionDir")
             intent.putExtra("diffusionDir", diffusionDir)
         } else {

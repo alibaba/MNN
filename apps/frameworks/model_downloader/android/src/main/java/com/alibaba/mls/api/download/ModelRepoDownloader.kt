@@ -26,6 +26,10 @@ abstract class ModelRepoDownloader {
         pausedSet.add(modelId)
     }
 
+    fun clearPause(modelId: String) {
+        pausedSet.remove(modelId)
+    }
+
     fun isDownloaded(modelId: String): Boolean {
         return getDownloadPath(modelId).exists()
     }

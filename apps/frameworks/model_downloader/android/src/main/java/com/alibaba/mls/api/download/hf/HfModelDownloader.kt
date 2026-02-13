@@ -317,16 +317,25 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
     }
 
     override fun deleteRepo(modelId: String) {
-        val hfModelId = hfModelId(modelId)
-        val repoFolderName = repoFolderName(hfModelId, "model")
-        val hfStorageFolder = File(cacheRootPath, repoFolderName)
-        Log.d(TAG, "removeStorageFolder: " + hfStorageFolder.absolutePath)
-        if (hfStorageFolder.exists()) {
-            val result = deleteDirectoryRecursively(hfStorageFolder)
+        // Historical versions used different repo folder naming:
+        // 1) full modelId (e.g. models--HuggingFace--taobao-mnn--MiniMind2-MNN)
+        // 2) source-stripped repo path (e.g. models--taobao-mnn--MiniMind2-MNN)
+        val candidateFolders = listOf(
+            File(cacheRootPath, repoFolderName(modelId, "model")),
+            File(cacheRootPath, repoFolderName(hfModelId(modelId), "model"))
+        ).distinctBy { it.absolutePath }
+
+        candidateFolders.forEach { folder ->
+            Log.d(TAG, "removeStorageFolder: ${folder.absolutePath}")
+            if (!folder.exists()) {
+                return@forEach
+            }
+            val result = deleteDirectoryRecursively(folder)
             if (!result) {
-                Log.e(TAG, "remove storageFolder" + hfStorageFolder.absolutePath + " failed")
+                Log.e(TAG, "remove storageFolder ${folder.absolutePath} failed")
             }
         }
+
         val hfLinkFolder = this.getDownloadPath(modelId)
         Log.d(TAG, "removeHfLinkFolder: " + hfLinkFolder.absolutePath)
         hfLinkFolder.delete()

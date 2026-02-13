@@ -137,6 +137,7 @@ android {
     }
 
     testOptions {
+        unitTests.includeAndroidResources = true
         unitTests.all {
             jvmArgs '--add-opens', 'java.base/java.lang=ALL-UNNAMED'
         }

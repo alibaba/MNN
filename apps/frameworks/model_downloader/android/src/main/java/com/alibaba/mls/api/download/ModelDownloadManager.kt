@@ -61,6 +61,10 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
     }
 
     fun startDownload(modelId: String) {
+        // Clear stale pause flags (e.g. after deleteModel on an idle task).
+        hfDownloader.clearPause(modelId)
+        msDownloader.clearPause(modelId)
+
         // Immediately trigger preparing state to update UI
         val info = getOrCreateInfo(modelId)
         info.downloadState = DownloadState.PREPARING
@@ -98,8 +102,15 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
     }
 
     fun deleteModel(modelId: String) {
-        val file = getDownloadedFile(modelId)
-        file?.deleteRecursively()
+        // Stop ongoing transfer first to avoid progress callbacks restoring stale state.
+        pauseDownload(modelId)
+
+        // Delete both link folder and repo storage folder via downloader-specific cleanup.
+        getDownloader(modelId).deleteRepo(modelId)
+
+        // Clear persisted and in-memory progress so subsequent getDownloadInfo() resets.
+        DownloadPersistentData.removeProgress(ApplicationProvider.get(), modelId)
+        downloadInfoMap.remove(modelId)
         downloadListeners.forEach { it.onDownloadFileRemoved(modelId) }
     }
 
@@ -173,13 +184,19 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
     }
 
     fun getDownloadedFile(modelId: String): File? {
-        val hfPath = hfDownloader.getDownloadPath(modelId)
-        if (hfPath.exists()) return hfPath
-
-        val msPath = msDownloader.getDownloadPath(modelId)
-        if (msPath.exists()) return msPath
-
-        return null
+        return when {
+            modelId.startsWith("HuggingFace/") || modelId.startsWith("Huggingface/") -> {
+                hfDownloader.getDownloadPath(modelId).takeIf { it.exists() }
+            }
+            modelId.startsWith("ModelScope/") -> {
+                msDownloader.getDownloadPath(modelId).takeIf { it.exists() }
+            }
+            else -> {
+                // Keep backward compatibility for unscoped ids.
+                hfDownloader.getDownloadPath(modelId).takeIf { it.exists() }
+                    ?: msDownloader.getDownloadPath(modelId).takeIf { it.exists() }
+            }
+        }
     }
 
     // ModelRepoDownloadCallback implementation
