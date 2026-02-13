@@ -36,7 +36,7 @@ class HfApiClient(val host: String) {
     }
 
     // Get repo file tree
-    fun getRepoTree(repoId: String, revision: String = "main"): Call<HfRepoInfo> {
+    fun getRepoTree(repoId: String, revision: String = "main"): Call<List<HfTreeItem>> {
         return apiService.getRepoTree(repoId, revision)
     }
 
@@ -45,6 +45,6 @@ class HfApiClient(val host: String) {
         const val HOST_CN = "hf-mirror.com"
 
         val bestClient: HfApiClient?
-            get() = HfApiClient(HOST_CN)  // Default to CN mirror for better connectivity
+            get() = HfApiClient(HOST_DEFAULT)  // Use huggingface.co directly
     }
 }
