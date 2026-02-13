@@ -135,62 +135,6 @@
             "file_size": 3049996164
         },
         {
-            "modelName": "OpenELM-1_1B-Instruct-MNN",
-            "tags": [],
-            "categories": [
-                "chat"
-            ],
-            "sources": {
-                "HuggingFace": "taobao-mnn/OpenELM-1_1B-Instruct-MNN",
-                "ModelScope": "MNN/OpenELM-1_1B-Instruct-MNN"
-            },
-            "size_gb": 0.7,
-            "vendor": "Apple",
-            "file_size": 745537851
-        },
-        {
-            "modelName": "OpenELM-270M-Instruct-MNN",
-            "tags": [],
-            "categories": [
-                "chat"
-            ],
-            "sources": {
-                "HuggingFace": "taobao-mnn/OpenELM-270M-Instruct-MNN",
-                "ModelScope": "MNN/OpenELM-270M-Instruct-MNN"
-            },
-            "size_gb": 0.2,
-            "vendor": "Apple",
-            "file_size": 238155968
-        },
-        {
-            "modelName": "OpenELM-3B-Instruct-MNN",
-            "tags": [],
-            "categories": [
-                "chat"
-            ],
-            "sources": {
-                "HuggingFace": "taobao-mnn/OpenELM-3B-Instruct-MNN",
-                "ModelScope": "MNN/OpenELM-3B-Instruct-MNN"
-            },
-            "size_gb": 3.2,
-            "vendor": "Apple",
-            "file_size": 3434569790
-        },
-        {
-            "modelName": "OpenELM-450M-Instruct-MNN",
-            "tags": [],
-            "categories": [
-                "chat"
-            ],
-            "sources": {
-                "HuggingFace": "taobao-mnn/OpenELM-450M-Instruct-MNN",
-                "ModelScope": "MNN/OpenELM-450M-Instruct-MNN"
-            },
-            "size_gb": 0.3,
-            "vendor": "Apple",
-            "file_size": 359996898
-        },
-        {
             "modelName": "QwQ-32B-Preview-MNN",
             "tags": [
                 "Think"
@@ -205,76 +149,6 @@
             "size_gb": 18.2,
             "vendor": "Qwen",
             "file_size": 19581135302
-        },
-        {
-            "modelName": "Qwen-1_8B-Chat-MNN",
-            "tags": [],
-            "categories": [
-                "qwen"
-            ],
-            "sources": {
-                "HuggingFace": "taobao-mnn/Qwen-1_8B-Chat-MNN",
-                "ModelScope": "MNN/Qwen-1_8B-Chat-MNN"
-            },
-            "size_gb": 1.4,
-            "vendor": "Qwen",
-            "file_size": 1490850598
-        },
-        {
-            "modelName": "Qwen1.5-0.5B-Chat-MNN",
-            "tags": [],
-            "categories": [
-                "qwen"
-            ],
-            "sources": {
-                "HuggingFace": "taobao-mnn/Qwen1.5-0.5B-Chat-MNN",
-                "ModelScope": "MNN/Qwen1.5-0.5B-Chat-MNN"
-            },
-            "size_gb": 0.5,
-            "vendor": "Qwen",
-            "file_size": 580710079
-        },
-        {
-            "modelName": "Qwen1.5-1.8B-Chat-MNN",
-            "tags": [],
-            "categories": [
-                "qwen"
-            ],
-            "sources": {
-                "HuggingFace": "taobao-mnn/Qwen1.5-1.8B-Chat-MNN",
-                "ModelScope": "MNN/Qwen1.5-1.8B-Chat-MNN"
-            },
-            "size_gb": 1.4,
-            "vendor": "Qwen",
-            "file_size": 1492435785
-        },
-        {
-            "modelName": "Qwen1.5-4B-Chat-MNN",
-            "tags": [],
-            "categories": [
-                "qwen"
-            ],
-            "sources": {
-                "HuggingFace": "taobao-mnn/Qwen1.5-4B-Chat-MNN",
-                "ModelScope": "MNN/Qwen1.5-4B-Chat-MNN"
-            },
-            "size_gb": 2.6,
-            "vendor": "Qwen",
-            "file_size": 2801626038
-        },
-        {
-            "modelName": "Qwen1.5-7B-Chat-MNN",
-            "tags": [],
-            "categories": [
-                "qwen"
-            ],
-            "sources": {
-                "HuggingFace": "taobao-mnn/Qwen1.5-7B-Chat-MNN",
-                "ModelScope": "MNN/Qwen1.5-7B-Chat-MNN"
-            },
-            "size_gb": 4.9,
-            "vendor": "Qwen",
-            "file_size": 5261560192
         },
         {
             "modelName": "Qwen3-4B-Instruct-2507-Eagle3",
@@ -1232,7 +1106,7 @@
             ],
             "sources": {
                 "HuggingFace": "taobao-mnn/Hunyuan-4B-Instruct-MNN",
-                "ModelScope": "MNN/Hun.yuan-4B-Instruct-MNN",
+                "ModelScope": "MNN/Hunyuan-4B-Instruct-MNN",
                 "Modelers": "MNN/Hunyuan-4B-Instruct-MNN"
             },
             "size_gb": 7.0,

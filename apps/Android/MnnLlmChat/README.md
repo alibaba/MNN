@@ -62,6 +62,13 @@ This is our full multimodal language model (LLM) Android app
 
 # Releases
 
+## Version 0.7.7
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_7.apk)
++ Bugfix:
+  + Fix download deletion failure issue
++ New feature:
+  + Support Sana image edit model
+
 ## Version 0.7.6
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_6.apk)
 + Bugfix:

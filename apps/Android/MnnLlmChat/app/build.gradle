@@ -31,8 +31,8 @@ android {
         applicationId "com.alibaba.mnnllm.android"
         minSdk 26
         targetSdk 35
-        versionCode 751
-        versionName "0.7.6"
+        versionCode 752
+        versionName "0.7.7"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         externalNativeBuild {
             cmake {

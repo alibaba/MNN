@@ -144,7 +144,7 @@ class ChatPresenter(
     }
 
     private fun submitDiffusionRequest(input: String, userData: ChatDataItem): HashMap<String, Any> {
-        val prompt = input.ifEmpty { "A cyberpunk cat in neon lights" }
+        val prompt = resolveDiffusionPrompt(input, modelId)
         val diffusionDestPath = FileUtils.generateDestDiffusionFilePath(
             chatActivity,
             sessionId!!
@@ -442,6 +442,14 @@ class ChatPresenter(
 
     companion object {
         private const val TAG: String = "ChatPresenter"
+        internal fun resolveDiffusionPrompt(input: String, modelId: String): String {
+            if (input.isNotBlank()) return input
+            return if (ModelTypeUtils.requiresFaceImageInput(modelId)) {
+                DEFAULT_SANA_PROMPT
+            } else {
+                "A cyberpunk cat in neon lights"
+            }
+        }
     }
 
     interface GenerateListener {

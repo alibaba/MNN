@@ -15,6 +15,7 @@ import android.widget.EditText
 import android.widget.ImageView
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.chat.ChatActivity
+import com.alibaba.mnnllm.android.chat.DEFAULT_SANA_PROMPT
 import com.alibaba.mnnllm.android.chat.input.AttachmentPickerModule.AttachmentType
 import com.alibaba.mnnllm.android.chat.input.AttachmentPickerModule.ImagePickCallback
 import com.alibaba.mnnllm.android.chat.ChatActivity.Companion.TAG
@@ -89,6 +90,12 @@ class ChatInputComponent(
 
         // Update input hint based on current model capability.
         updateInputHint()
+        editUserMessage.setText(
+            resolveInputTextForModel(
+                editUserMessage.text?.toString().orEmpty(),
+                ModelTypeUtils.requiresFaceImageInput(currentModelId)
+            )
+        )
     }
 
     private fun setupToggleAudioOutput() {
@@ -160,6 +167,12 @@ class ChatInputComponent(
     private fun setupEditText() {
         editUserMessage = binding.etMessage
         updateInputHint()
+        editUserMessage.setText(
+            resolveInputTextForModel(
+                editUserMessage.text?.toString().orEmpty(),
+                ModelTypeUtils.requiresFaceImageInput(currentModelId)
+            )
+        )
         editUserMessage.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence, start: Int, count: Int, after: Int) {
             }
@@ -184,15 +197,13 @@ class ChatInputComponent(
     }
 
     fun updateSenderButton() {
-        var enabled = true
-        if (chatActivity.isLoading) {
-            enabled = false
-        } else if (currentUserMessage == null && TextUtils.isEmpty(editUserMessage.text.toString())) {
-            enabled = false
-        }
-        if (chatActivity.isGenerating) {
-            enabled = true
-        }
+        val enabled = shouldEnableSendButton(
+            isLoading = chatActivity.isLoading,
+            isGenerating = chatActivity.isGenerating,
+            hasAttachment = currentUserMessage != null,
+            inputText = editUserMessage.text.toString(),
+            requiresFaceImage = ModelTypeUtils.requiresFaceImageInput(currentModelId)
+        )
         buttonSend.isEnabled = enabled
         buttonSend.setImageResource(if (!chatActivity.isGenerating) R.drawable.button_send else R.drawable.ic_stop)
     }
@@ -374,6 +385,29 @@ class ChatInputComponent(
 
     fun setOnStopGenerating(onStopGenerating: () -> Unit) {
         this.onStopGenerating = onStopGenerating
+    }
+
+    companion object {
+        internal fun shouldEnableSendButton(
+            isLoading: Boolean,
+            isGenerating: Boolean,
+            hasAttachment: Boolean,
+            inputText: String,
+            requiresFaceImage: Boolean
+        ): Boolean {
+            if (isGenerating) return true
+            if (isLoading) return false
+            if (requiresFaceImage) return hasAttachment
+            return hasAttachment || inputText.isNotBlank()
+        }
+
+        internal fun resolveInputTextForModel(
+            inputText: String,
+            requiresFaceImage: Boolean
+        ): String {
+            if (!requiresFaceImage) return inputText
+            return if (inputText.isBlank()) DEFAULT_SANA_PROMPT else inputText
+        }
     }
 
 }
