@@ -80,6 +80,12 @@
     <string name="debug_mode_control">Debug Mode Control</string>
     <string name="close_debug_mode_title">Close Debug Mode</string>
     <string name="close_debug_mode_message">Are you sure you want to close debug mode? This will hide the debug mode option from settings until you activate it again by clicking the version info 5 times.</string>
+    <string name="debug_test_crashlytics_non_fatal">Test Crashlytics (Non-fatal)</string>
+    <string name="debug_test_crashlytics_fatal">Test Crashlytics (Fatal Crash)</string>
+    <string name="debug_test_crashlytics_non_fatal_sent">Crashlytics non-fatal event sent</string>
+    <string name="debug_test_crashlytics_fatal_confirm_title">Trigger fatal crash test</string>
+    <string name="debug_test_crashlytics_fatal_confirm_message">This will crash the app immediately for Crashlytics verification. Continue?</string>
+    <string name="debug_test_crashlytics_fatal_confirm_action">Crash now</string>
     <string name="use_model_scope_download">Use modelscope to download</string>
     <string name="clear_mmap_cache">Clear mmap cache</string>
     <string name="use_mmap">Use mmap</string>

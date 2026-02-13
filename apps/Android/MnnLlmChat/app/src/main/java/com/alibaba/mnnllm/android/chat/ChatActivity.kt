@@ -45,6 +45,7 @@ import com.alibaba.mnnllm.android.chat.voice.VoiceChatFragment
 import com.alibaba.mnnllm.android.chat.voice.VoiceModelsChecker
 import com.alibaba.mnnllm.android.chat.voice.VoiceModelMarketBottomSheet
 import com.alibaba.mnnllm.android.modelist.ModelItemWrapper
+import com.alibaba.mnnllm.android.utils.CrashReportContext
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filter
@@ -108,6 +109,7 @@ class ChatActivity : AppCompatActivity() {
         if (this.modelName.isEmpty() || this.modelId.isNullOrEmpty()) {
             finish()
         }
+        CrashReportContext.setCurrentModel(this.modelId, intent.getStringExtra("chatSessionId"))
         dateFormat = SimpleDateFormat("hh:mm aa", Locale.getDefault())
         layoutModelLoading = findViewById(R.id.layout_model_loading)
         updateActionBar()
@@ -190,6 +192,7 @@ class ChatActivity : AppCompatActivity() {
     private fun setupSession() {
         chatSession = chatPresenter.createSession()
         sessionId = chatSession!!.sessionId
+        CrashReportContext.setCurrentModel(modelId, sessionId)
         onSessionCreated()
         Log.d(TAG, "current SessionId: $sessionId")
         chatPresenter.load()
@@ -450,6 +453,7 @@ class ChatActivity : AppCompatActivity() {
             this.sessionName = null
             chatPresenter.reset{newSessionId ->
                 sessionId = newSessionId
+                CrashReportContext.setCurrentModel(modelId, sessionId)
             }
         } else {
             Toast.makeText(this, "Cannot Create New Session when generating", Toast.LENGTH_LONG).show()
@@ -716,6 +720,7 @@ class ChatActivity : AppCompatActivity() {
             this.sessionName = null
             chatPresenter.reset { newSessionId ->
                 sessionId = newSessionId
+                CrashReportContext.setCurrentModel(modelId, sessionId)
                 // Create voice chat fragment with the new session
                 val voiceChatFragment = VoiceChatFragment.newInstance(modelName, modelId!!, chatPresenter)
                 supportFragmentManager.beginTransaction()
@@ -784,6 +789,7 @@ class ChatActivity : AppCompatActivity() {
             }, onSessionCreated = { newSession ->
                 chatSession = newSession
                 sessionId = newSession.sessionId
+                CrashReportContext.setCurrentModel(modelId, sessionId)
                 onSessionCreated()
             }
         )
@@ -795,6 +801,7 @@ class ChatActivity : AppCompatActivity() {
     private fun updateModelInfo(selectedModelId: String, selectedModelName: String) {
         this.modelId = selectedModelId
         this.modelName = selectedModelName
+        CrashReportContext.setCurrentModel(this.modelId, sessionId)
         isDiffusion = ModelTypeUtils.isDiffusionModel(selectedModelName)
         isAudioModel = ModelTypeUtils.isAudioModel(selectedModelId)
         

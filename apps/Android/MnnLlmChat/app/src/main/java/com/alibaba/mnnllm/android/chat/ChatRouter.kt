@@ -22,6 +22,7 @@ import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.modelmarket.ModelRepository
 import com.alibaba.mnnllm.android.qnn.QnnModule
+import com.alibaba.mnnllm.android.utils.CrashReportContext
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.progressindicator.CircularProgressIndicator
 import kotlinx.coroutines.Dispatchers
@@ -137,6 +138,7 @@ object ChatRouter {
             Toast.makeText(context, context.getString(R.string.model_not_found, modelIdParam), Toast.LENGTH_LONG).show()
             return
         }
+        CrashReportContext.setCurrentModel(modelId, sessionId)
         
         // Check if this is a QNN model and handle QNN library download
         if (ModelTypeUtils.isQnnModel(modelId)) {
