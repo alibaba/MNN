@@ -9,19 +9,19 @@ import SwiftUI
 
 struct SearchBar: View {
     @Binding var text: String
-    
+
     var body: some View {
         HStack {
             Image(systemName: "magnifyingglass")
                 .foregroundColor(.gray)
                 .padding(.horizontal, 10)
-            
+
             TextField("Search models...", text: $text)
                 .font(.system(size: 12, weight: .regular))
                 .textFieldStyle(RoundedBorderTextFieldStyle())
                 .autocapitalization(.none)
                 .disableAutocorrection(true)
-            
+
             if !text.isEmpty {
                 Button(action: {
                     text = ""

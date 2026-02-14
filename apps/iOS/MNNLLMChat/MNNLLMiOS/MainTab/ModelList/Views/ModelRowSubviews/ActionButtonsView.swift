@@ -16,7 +16,7 @@ struct ActionButtonsView: View {
     let formattedSize: String
     let onDownload: () -> Void
     @Binding var showDeleteAlert: Bool
-    
+
     var body: some View {
         VStack(alignment: .center, spacing: 4) {
             if model.isDownloaded {

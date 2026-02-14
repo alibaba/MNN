@@ -8,18 +8,16 @@
 import SwiftUI
 
 struct SettingsView: View {
-    
     private var sourceManager = ModelSourceManager.shared
     @State private var selectedLanguage = ""
     @State private var selectedSource = ModelSourceManager.shared.selectedSource
     @State private var showLanguageAlert = false
-    
+
     private let languageOptions = LanguageManager.shared.languageOptions
-    
+
     var body: some View {
         List {
             Section(header: Text("settings.section.application")) {
-                
                 Picker("settings.picker.downloadSource", selection: $selectedSource) {
                     ForEach(ModelSource.allCases, id: \.self) { source in
                         Text(source.rawValue).tag(source)
@@ -28,7 +26,7 @@ struct SettingsView: View {
                 .onChange(of: selectedSource) { _, newValue in
                     sourceManager.updateSelectedSource(newValue)
                 }
-                
+
                 Picker("settings.picker.language", selection: $selectedLanguage) {
                     ForEach(languageOptions.keys.sorted(), id: \.self) { key in
                         Text(languageOptions[key] ?? "").tag(key)
@@ -40,7 +38,7 @@ struct SettingsView: View {
                     }
                 }
             }
-            
+
             Section(header: Text("settings.section.about")) {
                 Button(action: {
                     if let url = URL(string: "https://github.com/alibaba/MNN") {
@@ -56,7 +54,7 @@ struct SettingsView: View {
                     }
                     .foregroundColor(.primary)
                 }
-                
+
                 Button(action: {
                     if let url = URL(string: "https://github.com/alibaba/MNN") {
                         UIApplication.shared.open(url)

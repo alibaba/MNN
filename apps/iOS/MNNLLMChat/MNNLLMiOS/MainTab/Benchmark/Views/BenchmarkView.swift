@@ -11,7 +11,7 @@ import SwiftUI
 /// Features include model selection, progress tracking, and results visualization.
 struct BenchmarkView: View {
     @StateObject private var viewModel = BenchmarkViewModel()
-    
+
     var body: some View {
         ZStack {
             ScrollView {
@@ -20,7 +20,7 @@ struct BenchmarkView: View {
                     ModelSelectionCard(
                         viewModel: viewModel
                     )
-                    
+
                     // Progress Section
                     if viewModel.showProgressBar {
                         ProgressCard(progress: viewModel.currentProgress)
@@ -29,13 +29,13 @@ struct BenchmarkView: View {
                                 removal: .opacity
                             ))
                     }
-                    
+
                     // Status Section
                     if !viewModel.statusMessage.isEmpty {
                         StatusCard(statusMessage: viewModel.statusMessage)
                             .transition(.slide)
                     }
-                    
+
                     // Results Section
                     if viewModel.showResults, let results = viewModel.benchmarkResults {
                         ResultsCard(results: results)
@@ -44,7 +44,6 @@ struct BenchmarkView: View {
                                 removal: .opacity
                             ))
                     }
-                    
                     Spacer(minLength: 20)
                 }
                 .padding(.horizontal, 20)
@@ -55,7 +54,7 @@ struct BenchmarkView: View {
             Button(String(localized: "Yes"), role: .destructive) {
                 viewModel.onStopBenchmarkTapped()
             }
-            Button(String(localized: "No"), role: .cancel) { }
+            Button(String(localized: "No"), role: .cancel) {}
         } message: {
             Text(String(localized: "Are you sure you want to stop the benchmark test?"))
         }
@@ -66,6 +65,5 @@ struct BenchmarkView: View {
         } message: {
             Text(viewModel.errorMessage)
         }
-
     }
 }

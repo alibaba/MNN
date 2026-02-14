@@ -10,7 +10,7 @@ import SwiftUI
 struct CommonToolbarView: ToolbarContent {
     @Binding var showHistory: Bool
     @Binding var showHistoryButton: Bool
-    
+
     var body: some ToolbarContent {
         ToolbarItem(placement: .navigationBarLeading) {
             if showHistoryButton {
@@ -26,7 +26,7 @@ struct CommonToolbarView: ToolbarContent {
                 }
             }
         }
-        
+
         ToolbarItem(placement: .navigationBarTrailing) {
             Button(action: {
                 if let url = URL(string: "https://github.com/alibaba/MNN") {

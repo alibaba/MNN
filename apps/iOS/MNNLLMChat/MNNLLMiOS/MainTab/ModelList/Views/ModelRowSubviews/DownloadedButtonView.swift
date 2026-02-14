@@ -9,14 +9,14 @@ import SwiftUI
 
 struct DownloadedButtonView: View {
     @Binding var showDeleteAlert: Bool
-    
+
     var body: some View {
         Button(action: { showDeleteAlert = true }) {
             VStack(spacing: 2) {
                 Image(systemName: "trash")
                     .font(.system(size: 16))
                     .foregroundColor(.primary.opacity(0.8))
-                
+
                 Text(LocalizedStringKey("button.downloaded"))
                     .font(.caption2)
                     .foregroundColor(.secondary)

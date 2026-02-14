@@ -13,7 +13,7 @@ protocol ChatInteractorProtocol {
     var senders: [LLMChatUser] { get }
     var otherSenders: [LLMChatUser] { get }
 
-    func send(draftMessage: ExyteChat.DraftMessage, userType: UserType)
+    func send(draftMessage: ExyteChat.DraftMessage, userType: UserType) async throws
 
     func connect()
     func disconnect()

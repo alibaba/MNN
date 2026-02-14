@@ -11,9 +11,9 @@ public enum ModelSource: String, CaseIterable, Identifiable {
     case modelScope = "ModelScope"
     case huggingFace = "HuggingFace"
     case modeler = "Modelers"
-    
+
     public var id: Self { self }
-    
+
     var description: String {
         switch self {
         case .modelScope:
@@ -24,4 +24,4 @@ public enum ModelSource: String, CaseIterable, Identifiable {
             return NSLocalizedString("Use HuggingFace to download", comment: "")
         }
     }
-} 
+}

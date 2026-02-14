@@ -9,6 +9,12 @@
 #define LLMInferenceEngineWrapper_h
 
 #import <Foundation/Foundation.h>
+#if __has_include(<UIKit/UIKit.h>)
+#import <UIKit/UIKit.h>
+#elif __has_include(<AppKit/AppKit.h>)
+#import <AppKit/AppKit.h>
+#define UIImage NSImage
+#endif
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -107,6 +113,31 @@ typedef void (^BenchmarkCompleteCallback)(BenchmarkResult *result);
  * @param showPerformance Whether to output performance statistics after response completion
  */
 - (void)processInput:(NSString *)input withOutput:(OutputHandler)output showPerformance:(BOOL)showPerformance;
+
+/**
+ * Process multimodal input (text + images) using MNN's MultimodalPrompt API.
+ *
+ * @param promptTemplate Template string containing <img>placeholder</img> tags.
+ * @param images Dictionary mapping placeholder keys to UIImage objects.
+ * @param output Callback block receiving streaming output chunks.
+ * @param showPerformance Whether to show performance stats upon completion.
+ */
+- (void)processMultimodalInput:(NSString *)promptTemplate
+                        images:(NSDictionary<NSString *, UIImage *> *)images
+                    withOutput:(OutputHandler)output
+               showPerformance:(BOOL)showPerformance;
+
+/// Update maximum frames extracted for each video.
+- (void)setVideoMaxFrames:(NSInteger)frames;
+
+/// Set audio output enabled/disabled (for Omni models)
+- (void)setEnableAudioOutput:(BOOL)enable;
+
+/// Set talker speaker (for Omni models)
+- (void)setTalkerSpeaker:(NSString *)speaker;
+
+/// Set audio waveform callback for receiving PCM float data
+- (void)setAudioWaveformCallback:(BOOL (^)(const float *data, size_t size, BOOL isLastChunk))callback;
 
 /**
  * Add chat prompts from an array of dictionaries to the conversation history
@@ -208,6 +239,19 @@ typedef void (^BenchmarkCompleteCallback)(BenchmarkResult *result);
  * @return YES if benchmark is running
  */
 - (BOOL)isBenchmarkRunning;
+
+/**
+ * Process multiple prompts in a single batch and return their responses.
+ *
+ * This method runs each prompt independently, clears the chat history per prompt,
+ * and collects the generated outputs without streaming UI callbacks.
+ *
+ * @param prompts An array of input prompt strings to process
+ * @param completion Completion block called on the main thread with an array of
+ *                   response strings in the same order as the input prompts
+ */
+- (void)processBatchPrompts:(NSArray<NSString *> *)prompts
+                 completion:(void (^)(NSArray<NSString *> *responses))completion;
 
 @end
 

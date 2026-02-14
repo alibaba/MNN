@@ -17,7 +17,7 @@ struct RuntimeParameters {
     let precision: [Int]
     let memory: [Int]
     let dynamicOption: [Int]
-    
+
     static let `default` = RuntimeParameters(
         backends: [0], // CPU
         threads: [4],

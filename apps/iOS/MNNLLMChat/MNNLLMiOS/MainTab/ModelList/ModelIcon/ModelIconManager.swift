@@ -8,16 +8,15 @@
 import Foundation
 
 class ModelIconManager {
-    
     static let shared = ModelIconManager()
-    
+
     private init() {}
-    
+
     func getModelImage(with modelName: String?) -> String? {
         guard let modelName = modelName?.lowercased() else {
             return nil
         }
-        
+
         if modelName.contains("qwen") || modelName.contains("qwq") {
             return ModelIcon.qwen.imageName
         } else if modelName.contains("llama") || modelName.contains("mobilellm") {
@@ -41,7 +40,7 @@ class ModelIconManager {
         } else if modelName.contains("gemma") {
             return ModelIcon.gemma.imageName
         }
-        
+
         return ModelIcon.defaultMNN.imageName
     }
 }
