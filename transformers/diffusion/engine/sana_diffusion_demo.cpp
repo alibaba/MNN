@@ -11,6 +11,7 @@
 //
 
 #include <iostream>
+#include <chrono>
 #include "diffusion/diffusion.hpp"
 #include "diffusion/sana_llm.hpp"
 #define MNN_OPEN_TIME_TRACE
@@ -19,6 +20,24 @@
 
 using namespace MNN::DIFFUSION;
 using namespace MNN::Express;
+
+// 计时辅助类
+class BenchTimer {
+public:
+    BenchTimer() : start_(std::chrono::high_resolution_clock::now()) {}
+    
+    double elapsed_ms() const {
+        auto end = std::chrono::high_resolution_clock::now();
+        return std::chrono::duration<double, std::milli>(end - start_).count();
+    }
+    
+    void reset() {
+        start_ = std::chrono::high_resolution_clock::now();
+    }
+    
+private:
+    std::chrono::high_resolution_clock::time_point start_;
+};
 
 int main(int argc, const char* argv[]) {
     if (argc < 3) {
@@ -91,13 +110,20 @@ int main(int argc, const char* argv[]) {
     }
     MNN_PRINT("==============================\n\n");
 
+    BenchTimer total_timer;
+    BenchTimer step_timer;
+
     // ========== 步骤1: 初始化Qwen3-0.6B LLM ==========
     MNN_PRINT("[1/4] 初始化Qwen3-0.6B LLM（文本编码器）...\n");
+    step_timer.reset();
     std::string llm_path = resource_path + "/llm/";
     SanaLlm sana_llm(llm_path);
+    printf("[TIMER] Load LLM: %.2f ms\n", step_timer.elapsed_ms());
+    fflush(stdout);
     
     // ========== 步骤2: 初始化Diffusion模型 ==========
     MNN_PRINT("[2/4] 初始化Diffusion模型（Connector + Projector + DiT + VAE）...\n");
+    step_timer.reset();
     std::unique_ptr<Diffusion> diffusion(Diffusion::createDiffusion(
         resource_path, 
         SANA_DIFFUSION, 
@@ -105,9 +131,12 @@ int main(int argc, const char* argv[]) {
         memory_mode
     ));
     diffusion->load();
+    printf("[TIMER] Init Diffusion: %.2f ms\n", step_timer.elapsed_ms());
+    fflush(stdout);
     
     // ========== 步骤3: LLM处理文本 ==========
     MNN_PRINT("[3/4] LLM处理文本prompt...\n");
+    step_timer.reset();
     VARP llm_out;
     
     if (use_cfg) {
@@ -124,11 +153,15 @@ int main(int argc, const char* argv[]) {
         MNN_ERROR("LLM处理失败\n");
         return -1;
     }
+    printf("[TIMER] LLM Inference: %.2f ms\n", step_timer.elapsed_ms());
+    fflush(stdout);
     
     // ========== 步骤4: Diffusion生成图像 ==========
     MNN_PRINT("[4/4] Diffusion生成图像...\n");
+    step_timer.reset();
     auto progress = [](int p) {
-        std::cout << "  生成进度: " << p << "%\r" << std::flush;
+        MNN_PRINT("  生成进度: %d\r", p);
+        fflush(stdout);
     };
 
     bool success = diffusion->run(
@@ -144,6 +177,9 @@ int main(int argc, const char* argv[]) {
         cfg_scale,         // CFG强度
         progress           // 进度回调
     );
+    printf("[TIMER] Diffusion Inference: %.2f ms\n", step_timer.elapsed_ms());
+    printf("[TIMER] Total: %.2f ms\n", total_timer.elapsed_ms());
+    fflush(stdout);
     
     if (success) {
         MNN_PRINT("\n\n========== 生成完成 ==========\n");

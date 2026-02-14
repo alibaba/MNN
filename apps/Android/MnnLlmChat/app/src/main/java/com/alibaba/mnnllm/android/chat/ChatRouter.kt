@@ -7,6 +7,7 @@ import android.app.Dialog
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import java.io.File
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.TextView
@@ -21,13 +22,13 @@ import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.modelmarket.ModelRepository
 import com.alibaba.mnnllm.android.qnn.QnnModule
+import com.alibaba.mnnllm.android.utils.CrashReportContext
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.progressindicator.CircularProgressIndicator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 
 /**
  * Progress dialog that can update download progress in real-time
@@ -119,6 +120,11 @@ class ProgressDialog(
 
 object ChatRouter {
 
+    internal fun resolveDiffusionDir(configFilePath: String): String {
+        val path = File(configFilePath)
+        return if (path.isDirectory) configFilePath else (path.parent ?: configFilePath)
+    }
+
     fun startRun(context: Context, modelIdParam: String, destModelDir:String?, sessionId: String?) {
         Log.d(TAG, "startRun modelIdParam: $modelIdParam destModelDir: $destModelDir sessionId: $sessionId")
         val isDiffusion = ModelTypeUtils.isDiffusionModel(modelIdParam)
@@ -132,6 +138,7 @@ object ChatRouter {
             Toast.makeText(context, context.getString(R.string.model_not_found, modelIdParam), Toast.LENGTH_LONG).show()
             return
         }
+        CrashReportContext.setCurrentModel(modelId, sessionId)
         
         // Check if this is a QNN model and handle QNN library download
         if (ModelTypeUtils.isQnnModel(modelId)) {
@@ -299,7 +306,10 @@ object ChatRouter {
         val intent = Intent(context, ChatActivity::class.java)
         intent.putExtra("chatSessionId", sessionId)
         if (isDiffusion) {
-            intent.putExtra("diffusionDir", configFilePath)
+            // For diffusion models, pass the directory path, not the config file path
+            val diffusionDir = resolveDiffusionDir(configFilePath)
+            Log.d(TAG, "diffusionDir: $diffusionDir")
+            intent.putExtra("diffusionDir", diffusionDir)
         } else {
             intent.putExtra("configFilePath", configFilePath)
         }
