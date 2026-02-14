@@ -11,10 +11,13 @@ import android.widget.Toast
 import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
+import androidx.preference.SwitchPreferenceCompat
 import com.alibaba.mls.api.source.ModelSources
+import com.alibaba.mnnllm.android.MnnLlmApplication
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.MNN
 import com.alibaba.mnnllm.android.debug.DebugActivity
+import com.alibaba.mnnllm.android.privacy.PrivacyPolicyManager
 import com.alibaba.mnnllm.android.update.UpdateChecker
 import com.alibaba.mnnllm.android.utils.AppUtils
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
@@ -114,6 +117,34 @@ class MainSettingsFragment : PreferenceFragmentCompat() {
                 .setNegativeButton(android.R.string.cancel, null)
                 .show()
             true
+        }
+
+        val crashDiagnosticsPref = findPreference<SwitchPreferenceCompat>("crash_diagnostics_enabled")
+        crashDiagnosticsPref?.apply {
+            val privacyManager = PrivacyPolicyManager.getInstance(requireContext())
+            isChecked = privacyManager.isCrashReportingConsented()
+            setOnPreferenceChangeListener { preference, newValue ->
+                val enabled = newValue as Boolean
+                if (enabled) {
+                    privacyManager.setUserConsent(consented = true)
+                    (requireActivity().application as? MnnLlmApplication)?.applyCrashReportingConsent()
+                    Toast.makeText(requireContext(), getString(R.string.privacy_policy_consent_enabled), Toast.LENGTH_LONG).show()
+                    true
+                } else {
+                    MaterialAlertDialogBuilder(requireContext())
+                        .setTitle(R.string.crash_diagnostics_disable_title)
+                        .setMessage(R.string.crash_diagnostics_disable_confirm_message)
+                        .setPositiveButton(R.string.crash_diagnostics_disable_confirm_action) { _, _ ->
+                            privacyManager.setUserConsent(consented = false)
+                            (requireActivity().application as? MnnLlmApplication)?.applyCrashReportingConsent()
+                            (preference as SwitchPreferenceCompat).isChecked = false
+                            Toast.makeText(requireContext(), getString(R.string.privacy_policy_consent_disabled), Toast.LENGTH_LONG).show()
+                        }
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .show()
+                    false
+                }
+            }
         }
 
         

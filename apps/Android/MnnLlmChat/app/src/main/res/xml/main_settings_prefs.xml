@@ -19,6 +19,12 @@
         android:summary="@string/enable_api_service_summary"
         android:defaultValue="false" />
 
+    <SwitchPreferenceCompat
+        android:key="crash_diagnostics_enabled"
+        android:title="@string/crash_diagnostics_enabled_title"
+        android:summary="@string/crash_diagnostics_enabled_summary"
+        android:defaultValue="true" />
+
     <Preference
         android:key="reset_api_config"
         android:title="@string/reset_api_config"

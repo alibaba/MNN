@@ -44,6 +44,10 @@ CDN_BUCKET="${CDN_BUCKET:-}"
 # Google Play configuration
 GOOGLE_PLAY_SERVICE_ACCOUNT="${GOOGLE_PLAY_SERVICE_ACCOUNT:-}"
 GOOGLE_PLAY_PACKAGE_NAME="${GOOGLE_PLAY_PACKAGE_NAME:-com.alibaba.mnnllm.android.googleplay}"
+ENABLE_FIREBASE="${ENABLE_FIREBASE:-true}"
+
+STANDARD_GRADLE_ARGS=()
+GOOGLEPLAY_GRADLE_ARGS=()
 
 # Functions
 log_info() {
@@ -60,6 +64,10 @@ log_warning() {
 
 log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
+}
+
+has_google_services_config() {
+    [[ -f "app/google-services.json" ]] || [[ -f "app/src/googleplay/google-services.json" ]] || [[ -f "app/src/standard/google-services.json" ]]
 }
 
 check_requirements() {
@@ -92,6 +100,17 @@ check_requirements() {
     else
         SKIP_GOOGLE_PLAY_UPLOAD=false
     fi
+
+    if [[ "$ENABLE_FIREBASE" == "true" ]]; then
+        if has_google_services_config; then
+            GOOGLEPLAY_GRADLE_ARGS+=("-PENABLE_FIREBASE=true")
+            log_info "Firebase enabled for Google Play bundle build."
+        else
+            log_warning "ENABLE_FIREBASE=true but no google-services.json found. Building without Firebase."
+        fi
+    else
+        log_info "Firebase disabled by configuration for local release build."
+    fi
     
     log_success "Requirements check completed"
 }
@@ -107,7 +126,7 @@ clean_build() {
 build_standard_debug() {
     log_info "Building standard flavor debug version..."
     
-    ./gradlew assembleStandardDebug
+    ./gradlew "${STANDARD_GRADLE_ARGS[@]}" assembleStandardDebug
     
     # Generate version-based filename (replace dots with underscores)
     VERSION_FILENAME=$(echo "$VERSION_NAME" | sed 's/\./_/g')
@@ -126,7 +145,7 @@ build_standard_debug() {
 
 build_googleplay_release_bundle() {
     log_info "Building Google Play flavor release AAB..."
-    ./gradlew bundleGoogleplayRelease
+    ./gradlew "${GOOGLEPLAY_GRADLE_ARGS[@]}" bundleGoogleplayRelease
     
     # Copy AAB to output directory
     AAB_PATH="$BUILD_DIR/outputs/bundle/googleplayRelease/app-googleplay-release.aab"

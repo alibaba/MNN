@@ -12,6 +12,8 @@ import timber.log.Timber
 import android.content.Context
 import com.jaredrummler.android.device.DeviceName
 import com.alibaba.mnnllm.android.modelist.ModelListManager
+import com.alibaba.mnnllm.android.privacy.PrivacyPolicyManager
+import com.google.firebase.crashlytics.FirebaseCrashlytics
 
 class MnnLlmApplication : Application() {
     
@@ -26,6 +28,8 @@ class MnnLlmApplication : Application() {
         // Initialize CurrentActivityTracker
         CurrentActivityTracker.initialize(this)
 
+        applyCrashReportingConsent()
+
         // Initialize Timber logging based on configuration
         TimberConfig.initialize(this)
         
@@ -33,6 +37,19 @@ class MnnLlmApplication : Application() {
         ModelListManager.setContext(getInstance())
 
         StethoInitializer.initialize(this)
+    }
+
+    fun applyCrashReportingConsent() {
+        if (!BuildConfig.ENABLE_FIREBASE) {
+            return
+        }
+        val consented = PrivacyPolicyManager.getInstance(this).isCrashReportingConsented()
+        try {
+            FirebaseCrashlytics.getInstance().setCrashlyticsCollectionEnabled(consented)
+            FirebaseCrashlytics.getInstance().setCustomKey("user_crash_reporting_consent", consented)
+        } catch (t: Throwable) {
+            Timber.w(t, "Failed to apply Crashlytics consent state")
+        }
     }
 
     companion object {

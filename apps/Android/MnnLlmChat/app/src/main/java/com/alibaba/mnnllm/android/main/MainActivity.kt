@@ -36,6 +36,7 @@ import com.alibaba.mnnllm.android.modelist.ModelListFragment
 import com.alibaba.mnnllm.android.modelmarket.ModelMarketFragment
 import com.alibaba.mnnllm.android.modelmarket.ModelRepository
 import com.alibaba.mnnllm.android.update.UpdateChecker
+import com.alibaba.mnnllm.android.utils.AnalyticsTracker
 import com.alibaba.mnnllm.android.utils.CrashUtil
 import com.alibaba.mnnllm.android.utils.GithubUtils
 import com.alibaba.mnnllm.android.utils.RouterUtils.startActivity
@@ -47,7 +48,10 @@ import com.google.android.material.appbar.AppBarLayout
 import com.google.android.material.appbar.MaterialToolbar
 import com.alibaba.mnnllm.android.chat.SelectSourceFragment
 import android.content.Intent
+import com.alibaba.mnnllm.android.MnnLlmApplication
+import com.alibaba.mnnllm.android.BuildConfig
 import com.alibaba.mnnllm.android.qnn.QnnModule
+import com.alibaba.mnnllm.android.privacy.CrashConsentGate
 import com.alibaba.mnnllm.android.privacy.PrivacyPolicyManager
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
@@ -333,6 +337,7 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
             BottomTabBar.Tab.LOCAL_MODELS -> {
                 updateMainTitleSwitcherMode(false)
                 mainTitleSwitcher.text = getString(R.string.nav_name_chats)
+                AnalyticsTracker.logPageView(this, "local_models")
             }
             BottomTabBar.Tab.MODEL_MARKET -> {
                 updateMainTitleSwitcherMode(true)
@@ -340,10 +345,12 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
                 val idx = ModelSources.sourceList.indexOf(currentProvider)
                 val displayName = if (idx != -1) getString(ModelSources.sourceDisPlayList[idx]) else currentProvider
                 mainTitleSwitcher.text = displayName
+                AnalyticsTracker.logPageView(this, "model_market")
             }
             BottomTabBar.Tab.BENCHMARK -> {
                 updateMainTitleSwitcherMode(false)
                 mainTitleSwitcher.text = getString(R.string.benchmark)
+                AnalyticsTracker.logPageView(this, "benchmark")
             }
         }
         updateExpandableFabLayout(newTab)
@@ -412,6 +419,8 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
         
         // Handle intent extras for navigation from notification
         handleIntentExtras(intent)
+
+        AnalyticsTracker.logAppOpen(this)
     }
     
     private fun handleIntentExtras(intent: Intent?) {
@@ -500,8 +509,8 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
         }
         
         val privacyManager = PrivacyPolicyManager.getInstance(this)
-        
-        if (!privacyManager.hasUserAgreed()) {
+
+        if (CrashConsentGate.shouldShowConsentDialog(BuildConfig.ENABLE_FIREBASE, privacyManager.hasUserMadeChoice())) {
             showPrivacyPolicyDialog()
         }
     }
@@ -512,17 +521,18 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
     private fun showPrivacyPolicyDialog() {
         val dialog = PrivacyPolicyDialogFragment.newInstance(
             onAgree = {
-                // User agreed to privacy policy
                 val privacyManager = PrivacyPolicyManager.getInstance(this)
-                privacyManager.setUserAgreed(true)
-                Log.d(TAG, "User agreed to privacy policy")
+                privacyManager.setUserConsent(consented = true)
+                (application as? MnnLlmApplication)?.applyCrashReportingConsent()
+                Toast.makeText(this, getString(R.string.privacy_policy_consent_enabled), Toast.LENGTH_LONG).show()
+                Log.d(TAG, "User enabled crash reporting")
             },
             onDisagree = {
-                // User disagreed to privacy policy
-                Toast.makeText(this, getString(R.string.privacy_policy_exit_message), Toast.LENGTH_LONG).show()
-                Log.d(TAG, "User disagreed to privacy policy")
-                // Exit the application
-                finishAffinity()
+                val privacyManager = PrivacyPolicyManager.getInstance(this)
+                privacyManager.setUserConsent(consented = false)
+                (application as? MnnLlmApplication)?.applyCrashReportingConsent()
+                Toast.makeText(this, getString(R.string.privacy_policy_consent_disabled), Toast.LENGTH_LONG).show()
+                Log.d(TAG, "User disabled crash reporting")
             }
         )
         

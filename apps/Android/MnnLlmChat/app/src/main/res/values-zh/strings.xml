@@ -598,13 +598,20 @@
     <string name="continue_open">继续打开</string>
     
     <!-- Privacy Policy Strings -->
-    <string name="privacy_policy_title">隐私政策协议</string>
-    <string name="privacy_policy_content">欢迎使用MNN Chat！在使用我们的应用程序之前，请阅读并同意我们的隐私政策。\n\n我们致力于保护您的隐私和个人信息。本应用程序可能会收集和处理某些数据，以便为您提供更好的服务。\n\n通过使用本应用程序，您同意：\n• 允许应用程序收集功能所需的必要数据\n• 了解您的数据可能在您的设备上进行本地处理\n• 接受我们的服务条款和隐私实践\n\n如果您不同意这些条款，请不要使用本应用程序。\n\n有关我们隐私实践的更多详细信息，请通过我们的官方渠道联系我们。</string>
-    <string name="privacy_policy_agree">我已阅读并同意隐私政策</string>
-    <string name="privacy_policy_agree_button">同意并继续</string>
-    <string name="privacy_policy_disagree">不同意</string>
+    <string name="privacy_policy_title">崩溃数据采集确认</string>
+    <string name="privacy_policy_content">为了提升应用稳定性，MNN Chat 可通过 Firebase Crashlytics 采集崩溃与诊断数据。\n\n这些数据仅用于定位和修复崩溃、提升稳定性以及加快版本迭代。\n\n你可以自主选择是否开启：\n• 同意：允许上传崩溃和诊断数据\n• 不同意：不上传任何崩溃数据\n\n你的选择不会影响应用核心功能使用。</string>
+    <string name="privacy_policy_agree">我已了解并同意采集崩溃数据用于稳定性改进</string>
+    <string name="privacy_policy_agree_button">同意并开启</string>
+    <string name="privacy_policy_disagree">不同意并继续使用</string>
     <string name="privacy_policy_required">您必须同意隐私政策才能使用本应用程序</string>
     <string name="privacy_policy_exit_message">您选择不同意隐私政策。应用程序现在将退出。</string>
+    <string name="privacy_policy_consent_enabled">已开启崩溃上报，仅采集崩溃/诊断数据。</string>
+    <string name="privacy_policy_consent_disabled">已关闭崩溃上报，不会上传崩溃数据。</string>
+    <string name="crash_diagnostics_enabled_title">崩溃与诊断数据</string>
+    <string name="crash_diagnostics_enabled_summary">仅采集必要的崩溃与诊断数据用于稳定性改进。</string>
+    <string name="crash_diagnostics_disable_title">确认关闭崩溃诊断？</string>
+    <string name="crash_diagnostics_disable_confirm_message">我们只会收集必要的诊断数据用于稳定性改进，确认关闭吗？</string>
+    <string name="crash_diagnostics_disable_confirm_action">确认关闭</string>
     <string name="loading_models">加载模型中…</string>
     <string name="copying_builtin_models">首次安装，正在复制内置模型…</string>
     <string name="builtin">内置</string>
