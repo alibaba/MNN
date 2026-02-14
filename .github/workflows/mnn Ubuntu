@@ -1,0 +1,116 @@
+name: Build MNN (Ubuntu 24.04 + CUDA 12.2)
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - '.github/workflows/build-mnn.yml'
+  workflow_dispatch:   # 允许手动触发
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          repository: alibaba/MNN   # 直接构建官方 MNN 仓库
+          ref: master                # 可指定 tag 或分支
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake git \
+            libprotobuf-dev protobuf-compiler \
+            libopencv-dev \
+            libvulkan-dev libgl1-mesa-dev libegl1-mesa-dev \
+            ocl-icd-opencl-dev clinfo \
+            wget ca-certificates
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Set up CUDA 12.2
+        id: cuda
+        uses: Jimver/cuda-toolkit@v0.2.25
+        with:
+          cuda: '12.2.0'
+          use-github-cache: false
+          use-local-cache: false
+          log-file-suffix: 'cuda12.2.txt'
+
+      - name: Verify CUDA and Python
+        run: |
+          nvcc --version
+          python --version
+          pip --version
+
+      - name: Configure CMake
+        run: |
+          mkdir -p build
+          cd build
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install \
+            -DMNN_BUILD_SHARED_LIBS=ON \
+            -DMNN_USE_SYSTEM_LIB=ON \
+            -DMNN_CUDA=ON \
+            -DMNN_OPENCL=ON \
+            -DMNN_VULKAN=ON \
+            -DMNN_OPENGL=OFF \
+            -DMNN_TENSORRT=OFF \
+            -DMNN_BUILD_CONVERTER=ON \
+            -DMNN_BUILD_TRAIN=OFF \
+            -DMNN_BUILD_DEMO=OFF \
+            -DMNN_BUILD_BENCHMARK=OFF \
+            -DMNN_BUILD_QUANTOOLS=ON \
+            -DMNN_PYTHON=ON \
+            -DPYTHON_EXECUTABLE=$(which python)
+
+      - name: Build MNN
+        run: |
+          cd build
+          make -j$(nproc)
+
+      - name: Install MNN (local)
+        run: |
+          cd build
+          make install
+
+      - name: Build Python wheel
+        run: |
+          cd pymnn
+          pip install numpy pybind11
+          MNN_BUILD_SHARED_LIBS=ON python setup.py bdist_wheel
+          mkdir -p ${{ github.workspace }}/dist
+          cp dist/*.whl ${{ github.workspace }}/dist/
+
+      - name: Prepare artifacts
+        run: |
+          mkdir -p ${{ github.workspace }}/artifact
+          # 复制安装好的库和头文件
+          cp -r ${{ github.workspace }}/install/* ${{ github.workspace }}/artifact/
+          # 复制 Python wheel
+          cp ${{ github.workspace }}/dist/*.whl ${{ github.workspace }}/artifact/
+          # 复制转换工具（可选）
+          cp ${{ github.workspace }}/build/MNNConvert ${{ github.workspace }}/artifact/ 2>/dev/null || true
+          # 生成清单文件
+          cd ${{ github.workspace }}/artifact
+          echo "Build info:" > BUILD_INFO.txt
+          echo "Date: $(date)" >> BUILD_INFO.txt
+          echo "CUDA: 12.2" >> BUILD_INFO.txt
+          echo "Python: 3.11" >> BUILD_INFO.txt
+          echo "MNN commit: $(git rev-parse --short HEAD)" >> BUILD_INFO.txt
+          ls -lh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mnn-ubuntu24-cuda12.2-python3.11
+          path: ${{ github.workspace }}/artifact/
+          retention-days: 90
