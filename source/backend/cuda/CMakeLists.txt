@@ -20,6 +20,10 @@ if(CUDA_FOUND)
         set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -Xcompiler /FS")
     endif ()
 
+    
+    if(MSVC AND MNN_SUPPORT_TRANSFORMER_FUSE)
+        set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -Xcompiler /Zc:__cplusplus")
+    endif()
     include(${CMAKE_CURRENT_SOURCE_DIR}/SelectCudaComputeArch.cmake)
     CUDA_SELECT_NVCC_ARCH_FLAGS(CUDA_ARCH_FLAGS ${CUDA_ARCHS})
 
