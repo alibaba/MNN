@@ -457,6 +457,9 @@ public:
     std::string tmp_path() const {
         return config_.value("tmp_path", "");
     }
+    bool use_tmac() const {
+        return config_.value("use_tmac", false);
+    }
 
     std::string prefix_cache_path() const {
         return config_.value("prefix_cache_path", "prefixcache");

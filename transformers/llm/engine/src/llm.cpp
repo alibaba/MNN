@@ -140,6 +140,9 @@ void Llm::setRuntimeHint(std::shared_ptr<Express::Executor::RuntimeManager> &rtg
     if (mConfig->use_cached_mmap()) {
         rtg->setHint(MNN::Interpreter::USE_CACHED_MMAP, 1);
     }
+    if (mConfig->use_tmac()) {
+        mRuntimeManager->setHint(MNN::Interpreter::DYNAMIC_QUANT_OPTIONS, 16);
+    }
     std::string tmpPath = mConfig->tmp_path();
     if (mConfig->kvcache_mmap()) {
         rtg->setExternalPath(tmpPath, MNN::Interpreter::EXTERNAL_PATH_KVCACHE_DIR);
