@@ -100,7 +100,10 @@ public:
         std::string uuid;
     };
     const Info* getInfo() const;
-    class CloneContext;
+    class CloneContext {
+    public:
+        std::shared_ptr<Executor::RuntimeManager> pRuntimeManager;
+    };
     virtual Module* clone(CloneContext* ctx) const {
         return nullptr;
     }

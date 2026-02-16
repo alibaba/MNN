@@ -13,7 +13,6 @@
 #include "Utils.hpp"
 #include "core/WrapExecution.hpp"
 #include "core/MNNMemoryUtils.h"
-#include "ModuleInside.hpp"
 #include "RuntimeAttr.hpp"
 #include "core/TensorUtils.hpp"
 #include "core/FileLoader.hpp"
