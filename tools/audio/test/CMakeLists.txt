@@ -15,7 +15,7 @@ enable_testing()
 
 if (PYMNN_AUDIO_API)
 add_executable(audio_test audio_test.cpp)
-target_link_libraries(audio_test MNNAudio gtest_main)
+target_link_libraries(audio_test MNN gtest_main)
 endif()
 
 include(GoogleTest)
