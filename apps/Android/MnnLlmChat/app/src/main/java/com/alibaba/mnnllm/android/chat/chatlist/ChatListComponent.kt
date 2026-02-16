@@ -125,7 +125,9 @@ class ChatListComponent(private val context: Context,
     private fun updateEmptyViewContent() {
         modelName?.let { name ->
             emptyModelAvatarView.setModelName(name)
-            emptyMessageTextView.text = if (ModelTypeUtils.isDiffusionModel(name))  {
+            emptyMessageTextView.text = if (ModelTypeUtils.isSanaModel(name)) {
+                context.getString(R.string.model_hello_prompt_sana)
+            } else if (ModelTypeUtils.isDiffusionModel(name))  {
                 context.getString(R.string.model_hello_prompt_diffusion)
             } else {
                 context.getString(R.string.model_hello_prompt)

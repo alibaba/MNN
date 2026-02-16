@@ -25,6 +25,20 @@
         android:gravity="center"
         android:layout_marginBottom="24dp" />
 
+    <Button
+        android:id="@+id/homeCrashlyticsNonFatalButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/debug_test_crashlytics_non_fatal"
+        android:layout_marginBottom="8dp" />
+
+    <Button
+        android:id="@+id/homeCrashlyticsFatalButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/debug_test_crashlytics_fatal"
+        android:layout_marginBottom="16dp" />
+
     <!-- Test Case Selection Section -->
     <TextView
         android:layout_width="match_parent"

@@ -51,8 +51,21 @@
   cd ../../../apps/Android/MnnLlmChat
   ./installDebug.sh
   ```
-
 # Releases
+
+## Version 0.7.7
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_7.apk)
++ 问题修复：
+  + 修复下载删除失败问题
++ 新功能：
+  + 支持 Sana 图像编辑模型
+
+## Version 0.7.6
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_6.apk)
++ 问题修复：
+  + 修复 huggingface 下载错误
++ 界面更新：
+  + 支持多图输入
 
 ## Version 0.7.5
 + 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_5.apk)

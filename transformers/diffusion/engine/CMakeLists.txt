@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.10)
 # source files
 FILE(GLOB SRCS ${CMAKE_CURRENT_LIST_DIR}/src/*.cpp)
 include_directories(${CMAKE_SOURCE_DIR}/tools/cv/include/)
-
+include_directories(${CMAKE_SOURCE_DIR}/transformers/llm/engine/include/)
 include_directories(${CMAKE_CURRENT_LIST_DIR}/include/)
 
 if (MNN_SEP_BUILD)
@@ -26,4 +26,4 @@ add_executable(diffusion_demo
 target_link_libraries(diffusion_demo  ${MNN_DEPS})
 
 add_executable(sana_diffusion_demo ${CMAKE_CURRENT_LIST_DIR}/sana_diffusion_demo.cpp)
-target_link_libraries(sana_diffusion_demo  ${MNN_DEPS})
+target_link_libraries(sana_diffusion_demo llm ${MNN_DEPS})

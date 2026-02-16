@@ -8,6 +8,7 @@ import com.alibaba.mnnllm.android.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import timber.log.Timber
 
 /** * unifiedschedulingmanager,responsible for coordinatingnotificationbarserviceandservicelifecycle*/
@@ -146,31 +147,36 @@ class ApiServiceCoordinator(private val context: Context) {
     fun cleanup() {
         runCatching {
             val appToStop = application
-            if (appToStop != null) {
-                Timber.Forest.tag(TAG).i("Cleanup: Requesting server stop for application: $appToStop")
-                appToStop.stop() //issuestoprequest
-                
-                Timber.Forest.tag(TAG).i("Cleanup: Waiting 5 seconds for server to stop gracefully...")
-                try {
-                    Thread.sleep(3000) //increasewaittimeto 5 seconds
-                } catch (e: InterruptedException) {
-                    Thread.currentThread().interrupt()
-                    Timber.Forest.tag(TAG).w("Cleanup delay interrupted after server stop request.")
-                }
-                Timber.Forest.tag(TAG).i("Cleanup: Finished waiting. Proceeding with coordinator cleanup.")
-                application = null //atwaitafter set to null
-            }
-
+            application = null
+            
             //ensureeven if appToStop as null，alsotryresetstateandcancelnotification
             com.alibaba.mnnllm.api.openai.manager.ServerEventManager.getInstance().resetRuntimeState()
             Timber.Forest.tag(TAG).d("ServerEventManager state reset during cleanup.")
             notificationManager?.cancelNotification()
-            
-            Timber.Forest.tag(TAG).i("Cleanup: Cancelling networkServiceScope.")
-            networkServiceScope.cancel() //finallycancelscope
             notificationManager = null
             _isInitialized = false
-            Timber.Forest.tag(TAG).i("Coordinator cleaned up")
+            _isServerRunning = false
+
+            if (appToStop != null) {
+                Timber.Forest.tag(TAG).i("Cleanup: Requesting async server stop for application")
+                // Launch cleanup on the same scope to ensure it lives long enough to stop gracefully
+                networkServiceScope.launch {
+                    try {
+                        appToStop.stopInternal()
+                        Timber.Forest.tag(TAG).i("Cleanup: Server stopped gracefully")
+                    } catch (e: Exception) {
+                        Timber.Forest.tag(TAG).e(e, "Cleanup: Error during async server stop")
+                    } finally {
+                        Timber.Forest.tag(TAG).i("Cleanup: Cancelling networkServiceScope")
+                        networkServiceScope.cancel()
+                    }
+                }
+            } else {
+                Timber.Forest.tag(TAG).i("Cleanup: No application running, cancelling networkServiceScope immediately")
+                networkServiceScope.cancel()
+            }
+            
+            Timber.Forest.tag(TAG).i("Coordinator cleanup logic executed")
         }.onFailure { e ->
             Timber.Forest.tag(TAG).e(e, "Error during cleanup: ${e.message}")
         }

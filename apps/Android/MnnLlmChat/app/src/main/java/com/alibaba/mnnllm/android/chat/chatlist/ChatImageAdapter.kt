@@ -7,6 +7,7 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mnnllm.android.R
+import com.alibaba.mnnllm.android.utils.ImageUtils
 import com.alibaba.mnnllm.android.widgets.FullScreenImageViewer
 
 class ChatImageAdapter(private val images: List<Uri>) : RecyclerView.Adapter<ChatImageAdapter.ViewHolder>() {
@@ -29,7 +30,12 @@ class ChatImageAdapter(private val images: List<Uri>) : RecyclerView.Adapter<Cha
         fun bind(uri: Uri) {
             imageView.setImageURI(uri)
             imageView.setOnClickListener {
-                FullScreenImageViewer.showImagePopup(itemView.context, images, adapterPosition)
+                FullScreenImageViewer.showImagePopup(itemView.context, images, adapterPosition, false)
+            }
+            imageView.setOnLongClickListener {
+                it.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                ImageUtils.showImageMenu(itemView.context, uri, false)
+                true
             }
         }
     }

@@ -67,7 +67,8 @@ Java_com_alibaba_mnnllm_android_llm_DiffusionSession_submitDiffusionNative(JNIEn
                    random_seed,
                    [env, progress_listener, onProgressMethod](int progress) {
                        if (progress_listener && onProgressMethod) {
-                           jstring javaString =  env->NewStringUTF(std::to_string(progress).c_str());
+                           std::string progress_str = std::to_string(progress);
+                           jstring javaString = env->NewStringUTF(progress_str.c_str());
                            env->CallBooleanMethod(progress_listener, onProgressMethod,  javaString);
                            env->DeleteLocalRef(javaString);
                        }

@@ -3,6 +3,7 @@ package com.alibaba.mls.api.download
 import android.content.Context
 import org.robolectric.RuntimeEnvironment
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -38,7 +39,7 @@ class ModelDownloadManagerTest {
         // getRealDownloadSize calls getDownloadSizeSaved first. If it returns < 0, then checks file.
         // So if we saveDownloadSizeSaved, getRealDownloadSize should return it without checking file.
         
-        val manager = ModelDownloadManager.getInstance(context)
+        val manager = ModelDownloadManager(context)
         
         // Act: Get download info
         // Note: The first call might cache it, so we want to verify the initial fetch logic.
@@ -57,5 +58,72 @@ class ModelDownloadManagerTest {
         
         assertEquals("Should be PAUSED in fixed implementation", DownloadState.PAUSED, info.downloadState)
         assertEquals("Progress should be 0.5", 0.5, info.progress, 0.001)
+    }
+
+    @Test
+    fun testDeleteModel_ClearsIncompleteProgressState() {
+        val context = RuntimeEnvironment.getApplication()
+        ApplicationProvider.set(context)
+
+        val modelId = "Test/DeleteIncompleteModel"
+        DownloadPersistentData.saveDownloadSizeTotal(context, modelId, 1000L)
+        DownloadPersistentData.saveDownloadSizeSaved(context, modelId, 200L)
+
+        val manager = ModelDownloadManager(context)
+        val beforeDelete = manager.getDownloadInfo(modelId)
+        assertEquals(DownloadState.PAUSED, beforeDelete.downloadState)
+
+        manager.deleteModel(modelId)
+
+        val afterDelete = manager.getDownloadInfo(modelId)
+        assertEquals("deleteModel should reset incomplete model to NOT_START", DownloadState.NOT_START, afterDelete.downloadState)
+        assertEquals("deleteModel should clear saved size", 0L, afterDelete.savedSize)
+        assertEquals("deleteModel should clear progress", 0.0, afterDelete.progress, 0.0)
+        assertEquals("deleteModel should keep total size for pre-download UI display", 1000L, afterDelete.totalSize)
+    }
+
+    @Test
+    fun testGetDownloadedFile_shouldNotReturnOtherSourcePath() {
+        val context = RuntimeEnvironment.getApplication()
+        ApplicationProvider.set(context)
+
+        val hfModelId = "HuggingFace/taobao-mnn/MiniMind2-MNN"
+        val msModelId = "ModelScope/MNN/MiniMind2-MNN"
+
+        val hfLink = File(context.filesDir, ".mnnmodels/huggingface/MiniMind2-MNN")
+        hfLink.parentFile?.mkdirs()
+        hfLink.mkdirs()
+
+        val manager = ModelDownloadManager(context)
+        val msDownloadedFile = manager.getDownloadedFile(msModelId)
+
+        assertNull(
+            "ModelScope query should not return HuggingFace link path with same tail name",
+            msDownloadedFile
+        )
+
+        // cleanup
+        hfLink.deleteRecursively()
+    }
+
+    @Test
+    fun testDeleteModel_shouldRemoveHfStorageFolderUsingFullModelIdNaming() {
+        val context = RuntimeEnvironment.getApplication()
+        ApplicationProvider.set(context)
+
+        val modelId = "HuggingFace/taobao-mnn/MiniMind2-MNN"
+        val hfStorage = File(
+            context.filesDir,
+            ".mnnmodels/models--HuggingFace--taobao-mnn--MiniMind2-MNN/blobs"
+        )
+        val hfLink = File(context.filesDir, ".mnnmodels/MiniMind2-MNN")
+        hfStorage.mkdirs()
+        hfLink.mkdirs()
+
+        val manager = ModelDownloadManager(context)
+        manager.deleteModel(modelId)
+
+        assertTrue("HF storage folder should be removed by deleteModel", !hfStorage.parentFile!!.exists())
+        assertTrue("HF link folder should be removed by deleteModel", !hfLink.exists())
     }
 }

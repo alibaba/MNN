@@ -60,6 +60,7 @@ namespace MNN
             else if (config.type == MNN_FORWARD_OPENCL)
             {
                 config.mode = MNN_GPU_MEMORY_BUFFER | MNN_GPU_TUNING_FAST;
+                backendConfig.precision = BackendConfig::Precision_High;  // 使用高精度避免 NaN
             }
             else if (config.type == MNN_FORWARD_METAL)
             {
@@ -158,12 +159,46 @@ namespace MNN
             auto outputs = mModules[3]->onForward({latent});
             auto output = _Convert(outputs[0], NCHW);
 
+            // 等待 GPU 计算完成并同步到 CPU
+            ((MNN::Tensor *)(output->getTensor()))->wait(Tensor::MAP_TENSOR_READ, true);
+
+            // Debug: 检查输出维度
+            auto output_info = output->getInfo();
+            if (output_info) {
+                MNN_PRINT("VAE decoder output shape: [");
+                for (int i = 0; i < output_info->dim.size(); i++) {
+                    MNN_PRINT("%d%s", output_info->dim[i], i < output_info->dim.size() - 1 ? ", " : "");
+                }
+                MNN_PRINT("]\n");
+            }
+
             // 后处理：归一化到[0,1]并转换为uint8图像
             auto image = output;
             image = _Minimum(_Maximum(image * _Const(0.5f) + _Const(0.5f), _Const(0.0f)), _Const(1.0f));
             image = _Squeeze(_Transpose(image, {0, 2, 3, 1}));
+
+            // Debug: 检查转换后的维度
+            auto image_info = image->getInfo();
+            if (image_info) {
+                MNN_PRINT("After transpose+squeeze shape: [");
+                for (int i = 0; i < image_info->dim.size(); i++) {
+                    MNN_PRINT("%d%s", image_info->dim[i], i < image_info->dim.size() - 1 ? ", " : "");
+                }
+                MNN_PRINT("], type: %s\n", image_info->type.code == halide_type_uint ? "uint8" : "other");
+            }
+
             image = _Cast(_Round(image * _Const(255.0f)), halide_type_of<uint8_t>());
             image = cvtColor(image, COLOR_BGR2RGB);
+
+            // Debug: 检查最终图像维度
+            auto final_info = image->getInfo();
+            if (final_info) {
+                MNN_PRINT("Final image shape: [");
+                for (int i = 0; i < final_info->dim.size(); i++) {
+                    MNN_PRINT("%d%s", final_info->dim[i], i < final_info->dim.size() - 1 ? ", " : "");
+                }
+                MNN_PRINT("]\n");
+            }
 
             return image;
         }
@@ -302,6 +337,10 @@ namespace MNN
                                 float cfg_scale,
                                 std::function<void(int)> progressCallback)
         {
+            MNN_PRINT("DEBUG: Entered SanaDiffusion::run\n");
+            MNN_PRINT("DEBUG: input_embeds is %s\n", (input_embeds.get() == nullptr) ? "NULL" : "VALID");
+            MNN_PRINT("DEBUG: mode=%s, inputImagePath=%s, outputImagePath=%s\n", mode.c_str(), inputImagePath.c_str(), outputImagePath.c_str());
+            MNN_PRINT("DEBUG: width=%d, height=%d, iterNum=%d, randomSeed=%d, use_cfg=%d, cfg_scale=%.2f\n", width, height, iterNum, randomSeed, use_cfg, cfg_scale);
             AUTOTIME;
 
             // 验证分辨率（必须是32的倍数，因为VAE scale factor是32）
@@ -343,6 +382,7 @@ namespace MNN
                 // 当前实现假设输入图像会被resize到目标分辨率
 
                 MNN_PRINT("Running VAE Encoder...\n");
+                if (progressCallback) progressCallback(5);
                 ref_latents = vae_encoder(pixel_values);
 
                 if (ref_latents.get() == nullptr)
@@ -372,6 +412,7 @@ namespace MNN
 
             // Connector: 初步转换LLM特征
             MNN_PRINT("Running Connector...\n");
+            if (progressCallback) progressCallback(10);
             auto connector_res = mModules[0]->onForward({llm_out});
             auto connector_out = connector_res[0];
 
@@ -383,6 +424,7 @@ namespace MNN
 
             // Projector: 投影到Diffusion特征空间
             MNN_PRINT("Running Projector...\n");
+            if (progressCallback) progressCallback(15);
             auto projector_res = mModules[1]->onForward({connector_out});
             auto prompt_embeds = projector_res[0];
 
@@ -544,7 +586,11 @@ namespace MNN
 
                 double t = timesteps[i];
 
+                char progress_msg[256];
+                snprintf(progress_msg, sizeof(progress_msg), "Denoising step %d/%d (t=%.2f)...", i + 1, num_inference_steps, t);
                 MNN_PRINT("Step %d/%d: t=%f\n", i + 1, num_inference_steps, t);
+                int progress_percent = 20 + (i + 1) * 70 / num_inference_steps;
+                if (progressCallback) progressCallback(progress_percent);
 
                 // Timestep：根据batch_size调整
                 VARP timestep_var = _Input({mask_batch}, NCHW, halide_type_of<float>());
@@ -631,6 +677,7 @@ namespace MNN
 
             // ========== 步骤7: VAE解码 ==========
             MNN_PRINT("Running VAE Decoder...\n");
+            if (progressCallback) progressCallback(95);
             VARP image = vae_decoder(final_latents);
             image.fix(VARP::CONSTANT);
 

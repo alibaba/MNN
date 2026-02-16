@@ -2,8 +2,8 @@
 
 # Release script for MnnLlmChat
 # This script builds and publishes:
-# 1. Standard flavor debug version for CDN upload
-# 2. Google Play flavor release APK/AAB for Google Play Store
+# 1. Standard flavor debug APK for CDN upload
+# 2. Google Play flavor release AAB for Google Play Store
 
 set -e
 
@@ -19,6 +19,7 @@ PROJECT_NAME="MnnLlmChat"
 VERSION_NAME=$(grep "versionName" app/build.gradle | head -1 | sed 's/.*versionName "\(.*\)"/\1/')
 VERSION_CODE=$(grep "versionCode" app/build.gradle | head -1 | sed 's/.*versionCode \([0-9]*\)/\1/')
 BUILD_DATE=$(date +"%Y%m%d_%H%M%S")
+RELEASE_HIGHLIGHTS="${RELEASE_HIGHLIGHTS:-Fix download deletion failure bug|Support Sana image edit model}"
 
 # Directories
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -43,6 +44,10 @@ CDN_BUCKET="${CDN_BUCKET:-}"
 # Google Play configuration
 GOOGLE_PLAY_SERVICE_ACCOUNT="${GOOGLE_PLAY_SERVICE_ACCOUNT:-}"
 GOOGLE_PLAY_PACKAGE_NAME="${GOOGLE_PLAY_PACKAGE_NAME:-com.alibaba.mnnllm.android.googleplay}"
+ENABLE_FIREBASE="${ENABLE_FIREBASE:-true}"
+
+STANDARD_GRADLE_ARGS=()
+GOOGLEPLAY_GRADLE_ARGS=()
 
 # Functions
 log_info() {
@@ -59,6 +64,10 @@ log_warning() {
 
 log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
+}
+
+has_google_services_config() {
+    [[ -f "app/google-services.json" ]] || [[ -f "app/src/googleplay/google-services.json" ]] || [[ -f "app/src/standard/google-services.json" ]]
 }
 
 check_requirements() {
@@ -83,12 +92,24 @@ check_requirements() {
         exit 1
     fi
     
-    # Check signing configuration for Google Play
+    # Check signing configuration for Google Play upload.
+    # Build of Google Play AAB can still proceed without signing env vars.
     if [[ -z "$KEYSTORE_FILE" || -z "$KEYSTORE_PASSWORD" || -z "$KEY_ALIAS" || -z "$KEY_PASSWORD" ]]; then
-        log_warning "Signing configuration not found. Google Play release will be skipped."
-        SKIP_GOOGLE_PLAY=true
+        log_warning "Signing configuration not found. Google Play upload will be skipped."
+        SKIP_GOOGLE_PLAY_UPLOAD=true
     else
-        SKIP_GOOGLE_PLAY=false
+        SKIP_GOOGLE_PLAY_UPLOAD=false
+    fi
+
+    if [[ "$ENABLE_FIREBASE" == "true" ]]; then
+        if has_google_services_config; then
+            GOOGLEPLAY_GRADLE_ARGS+=("-PENABLE_FIREBASE=true")
+            log_info "Firebase enabled for Google Play bundle build."
+        else
+            log_warning "ENABLE_FIREBASE=true but no google-services.json found. Building without Firebase."
+        fi
+    else
+        log_info "Firebase disabled by configuration for local release build."
     fi
     
     log_success "Requirements check completed"
@@ -105,7 +126,7 @@ clean_build() {
 build_standard_debug() {
     log_info "Building standard flavor debug version..."
     
-    ./gradlew assembleStandardDebug
+    ./gradlew "${STANDARD_GRADLE_ARGS[@]}" assembleStandardDebug
     
     # Generate version-based filename (replace dots with underscores)
     VERSION_FILENAME=$(echo "$VERSION_NAME" | sed 's/\./_/g')
@@ -122,30 +143,9 @@ build_standard_debug() {
     fi
 }
 
-build_googleplay_release() {
-    if [[ "$SKIP_GOOGLE_PLAY" == "true" ]]; then
-        log_warning "Skipping Google Play release build due to missing signing configuration"
-        return
-    fi
-    
-    log_info "Building Google Play flavor release version..."
-    
-    # Build the release APK
-    ./gradlew assembleGoogleplayRelease
-    
-    # Copy APK to output directory
-    APK_PATH="$BUILD_DIR/outputs/apk/googleplay/release/app-googleplay-release.apk"
-    if [[ -f "$APK_PATH" ]]; then
-        cp "$APK_PATH" "$GOOGLE_PLAY_DIR/"
-        log_success "Google Play release APK built: $GOOGLE_PLAY_DIR/app-googleplay-release.apk"
-    else
-        log_error "Google Play release APK not found at $APK_PATH"
-        exit 1
-    fi
-    
-    # Also try to build AAB if possible
+build_googleplay_release_bundle() {
     log_info "Building Google Play flavor release AAB..."
-    ./gradlew bundleGoogleplayRelease
+    ./gradlew "${GOOGLEPLAY_GRADLE_ARGS[@]}" bundleGoogleplayRelease
     
     # Copy AAB to output directory
     AAB_PATH="$BUILD_DIR/outputs/bundle/googleplayRelease/app-googleplay-release.aab"
@@ -190,7 +190,7 @@ upload_to_cdn() {
 }
 
 upload_to_google_play() {
-    if [[ "$SKIP_GOOGLE_PLAY" == "true" ]]; then
+    if [[ "$SKIP_GOOGLE_PLAY_UPLOAD" == "true" ]]; then
         log_warning "Skipping Google Play upload due to missing signing configuration"
         return
     fi
@@ -226,8 +226,7 @@ platform :android do
   lane :upload do
     upload_to_play_store(
       track: 'internal',
-      aab: '../release_outputs/googleplay/app-googleplay-release.aab',
-      apk: '../release_outputs/googleplay/app-googleplay-release.apk'
+      aab: '../release_outputs/googleplay/app-googleplay-release.aab'
     )
   end
 end
@@ -267,7 +266,6 @@ generate_release_notes() {
 - **Location**: \`$CDN_UPLOAD_DIR/\`
 
 ### Google Play Flavor (Release)
-- **APK**: \`app-googleplay-release.apk\`
 - **AAB**: \`app-googleplay-release.aab\`
 - **Purpose**: Google Play Store distribution
 - **Location**: \`$GOOGLE_PLAY_DIR/\`
@@ -281,9 +279,16 @@ generate_release_notes() {
 ## Notes
 - Standard flavor includes debug features and is suitable for testing
 - Google Play flavor is optimized for production and follows Google Play guidelines
-- Both builds include native libraries and are signed appropriately
+- Local Google Play AAB build can run without signing env vars; store upload still requires signing + service account
 
 EOF
+
+    echo "" >> "$RELEASE_NOTES_FILE"
+    echo "## Release Highlights" >> "$RELEASE_NOTES_FILE"
+    IFS='|' read -r -a highlight_items <<< "$RELEASE_HIGHLIGHTS"
+    for item in "${highlight_items[@]}"; do
+        echo "- $item" >> "$RELEASE_NOTES_FILE"
+    done
     
     log_success "Release notes generated: $RELEASE_NOTES_FILE"
 }
@@ -300,8 +305,8 @@ main() {
     # Build standard debug version
     build_standard_debug
     
-    # Build Google Play release version
-    build_googleplay_release
+    # Build Google Play release AAB
+    build_googleplay_release_bundle
     
     # Upload to CDN
     upload_to_cdn
