@@ -40,17 +40,17 @@ import SwiftUI
 /// - flushInterval: Time interval in seconds between automatic flushes (default: 0.03s / 30ms)
 actor UIUpdateOptimizer {
     static let shared = UIUpdateOptimizer()
-    
+
     private var pendingUpdates: [String] = []
-    private var lastFlushTime: Date = Date()
+    private var lastFlushTime: Date = .init()
     private var flushTask: Task<Void, Never>?
-    
+
     // Configuration constants
-    private let batchSize: Int = 5          // Batch size threshold for immediate flush
+    private let batchSize: Int = 5 // Batch size threshold for immediate flush
     private let flushInterval: TimeInterval = 0.5
-    
+
     private init() {}
-    
+
     /// Adds a content update to the pending queue
     ///
     /// Updates are either flushed immediately if batch size or time threshold is reached,
@@ -61,11 +61,11 @@ actor UIUpdateOptimizer {
     ///   - completion: Callback executed with the batched content when flushed
     func addUpdate(_ content: String, completion: @escaping (String) -> Void) {
         pendingUpdates.append(content)
-        
+
         // Determine if immediate flush is needed based on batch size or time interval
         let shouldFlushImmediately = pendingUpdates.count >= batchSize ||
-                                   Date().timeIntervalSince(lastFlushTime) >= flushInterval
-        
+            Date().timeIntervalSince(lastFlushTime) >= flushInterval
+
         if shouldFlushImmediately {
             flushUpdates(completion: completion)
         } else {
@@ -73,7 +73,7 @@ actor UIUpdateOptimizer {
             scheduleFlush(completion: completion)
         }
     }
-    
+
     /// Schedules a delayed flush operation
     ///
     /// Cancels any existing scheduled flush and creates a new one to avoid
@@ -83,16 +83,16 @@ actor UIUpdateOptimizer {
     private func scheduleFlush(completion: @escaping (String) -> Void) {
         // Cancel previous scheduled flush to avoid redundant operations
         flushTask?.cancel()
-        
+
         flushTask = Task {
             try? await Task.sleep(nanoseconds: UInt64(flushInterval * 1_000_000_000))
-            
+
             if !Task.isCancelled && !pendingUpdates.isEmpty {
                 flushUpdates(completion: completion)
             }
         }
     }
-    
+
     /// Flushes all pending updates immediately
     ///
     /// Combines all pending updates into a single string and executes the completion
@@ -101,16 +101,16 @@ actor UIUpdateOptimizer {
     /// - Parameter completion: Callback executed with the combined content
     private func flushUpdates(completion: @escaping (String) -> Void) {
         guard !pendingUpdates.isEmpty else { return }
-        
+
         let batchedContent = pendingUpdates.joined()
         pendingUpdates.removeAll()
         lastFlushTime = Date()
-        
+
         Task { @MainActor in
             completion(batchedContent)
         }
     }
-    
+
     /// Forces immediate flush of any remaining pending updates
     ///
     /// This method should be called when you need to ensure all pending updates

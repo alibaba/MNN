@@ -10,6 +10,12 @@
     "%lld" : {
 
     },
+    "%lld items" : {
+
+    },
+    "%lld results" : {
+
+    },
     "%lld%%" : {
 
     },
@@ -69,11 +75,52 @@
       }
     },
     "Audio Message" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "语音信息"
+          }
+        }
+      }
+    },
+    "Audio Output (Omni)" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "语音输出(Omni)"
+          }
+        }
+      }
+    },
+    "Audio Test" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "语音测试集"
+          }
+        }
+      }
+    },
+    "Backend" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "后端"
+          }
+        }
+      }
+    },
+    "Batch File Test" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "批量文件测试"
           }
         }
       }
@@ -225,6 +272,16 @@
         }
       }
     },
+    "Changes to backend, precision, or thread count require the model to reload." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "需改backend, precision或者thread count 需要重新加载模型才能生效。"
+          }
+        }
+      }
+    },
     "ChatHistroyTitle" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -238,6 +295,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "对话历史"
+          }
+        }
+      }
+    },
+    "Choose the type of batch test to run" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择需要批量测试的类型"
           }
         }
       }
@@ -319,6 +386,16 @@
         }
       }
     },
+    "Default Multimodal Prompt" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "默认多模态提示词"
+          }
+        }
+      }
+    },
     "Delete" : {
       "localizations" : {
         "zh-Hans" : {
@@ -376,12 +453,43 @@
         }
       }
     },
+    "Enable Audio Output" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "支持语音输出"
+          }
+        }
+      }
+    },
     "Error" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "错误"
+          }
+        }
+      }
+    },
+    "Export Format:" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "导出格式："
+          }
+        }
+      }
+    },
+    "Failed to load image." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "加载图片失败。"
           }
         }
       }
@@ -434,6 +542,27 @@
         }
       }
     },
+    "Format" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "格式"
+          }
+        }
+      }
+    },
+    "Generating image..." : {
+      "comment" : "Sana diffusion progress stage",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "生成图片中..."
+          }
+        }
+      }
+    },
     "Generation rate" : {
       "localizations" : {
         "zh-Hans" : {
@@ -453,6 +582,30 @@
           }
         }
       }
+    },
+    "Image saved to Photos." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图片已保存到相册。"
+          }
+        }
+      }
+    },
+    "Image Test" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图片测试集"
+          }
+        }
+      }
+    },
+    "Item %lld" : {
+
     },
     "Iterations" : {
       "localizations" : {
@@ -492,6 +645,46 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "简体中文"
+          }
+        }
+      }
+    },
+    "Later" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "稍后"
+          }
+        }
+      }
+    },
+    "Load External File" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "加载外部测试集"
+          }
+        }
+      }
+    },
+    "Load Local Tests" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "加载内置测试集"
+          }
+        }
+      }
+    },
+    "Load Test Files" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "加载测试文件"
           }
         }
       }
@@ -537,7 +730,14 @@
       }
     },
     "Model is loading..." : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "加载模型中…..."
+          }
+        }
+      }
     },
     "Model Market" : {
       "comment" : "模型市场标签",
@@ -546,6 +746,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "模型市场"
+          }
+        }
+      }
+    },
+    "Model Reload Required" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "模型需要重新加载"
+          }
+        }
+      }
+    },
+    "Model Type" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "模型类型"
           }
         }
       }
@@ -617,6 +837,16 @@
         }
       }
     },
+    "Multimodal Inputs" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "多模态输入"
+          }
+        }
+      }
+    },
     "My Model" : {
       "comment" : "我的模型标签",
       "localizations" : {
@@ -668,6 +898,26 @@
         }
       }
     },
+    "No results available" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有结果"
+          }
+        }
+      }
+    },
+    "No test items loaded" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有已加载测试集"
+          }
+        }
+      }
+    },
     "OK" : {
       "localizations" : {
         "zh-Hans" : {
@@ -689,7 +939,14 @@
       }
     },
     "Penalty Sampler" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Penalty Sampler"
+          }
+        }
+      }
     },
     "Performance analysis complete" : {
       "localizations" : {
@@ -701,15 +958,59 @@
         }
       }
     },
+    "Photo library access denied. Please enable it in Settings." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "相册访问被拒绝，请在设置中开启权限。"
+          }
+        }
+      }
+    },
+    "Please select an image for style transfer." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请选择一张图片进行风格转换。"
+          }
+        }
+      }
+    },
     "Powered By MNN" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "由 MNN 驱动"
+          }
+        }
+      }
     },
     "PP: %lld • TG: %lld" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
-            "state" : "new",
+            "state" : "translated",
             "value" : "PP: %1$lld • TG: %2$lld"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PP: %1$lld • TG: %2$lld"
+          }
+        }
+      }
+    },
+    "Precision" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "精度"
           }
         }
       }
@@ -720,6 +1021,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "预填充速度"
+          }
+        }
+      }
+    },
+    "Processing prompt..." : {
+      "comment" : "Sana diffusion progress stage",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "处理提示词中..."
           }
         }
       }
@@ -754,6 +1066,47 @@
         }
       }
     },
+    "Reload Now" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "立即重载"
+          }
+        }
+      }
+    },
+    "Reset" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重置"
+          }
+        }
+      }
+    },
+    "Results" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "结果"
+          }
+        }
+      }
+    },
+    "Running diffusion..." : {
+      "comment" : "Sana diffusion progress stage",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "扩散推理中..."
+          }
+        }
+      }
+    },
     "Running performance tests" : {
       "localizations" : {
         "zh-Hans" : {
@@ -765,7 +1118,14 @@
       }
     },
     "Sampler Type" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sampler 类型"
+          }
+        }
+      }
     },
     "Sampling Strategy" : {
       "localizations" : {
@@ -773,6 +1133,27 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "参数策略"
+          }
+        }
+      }
+    },
+    "Sana Style Transfer" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sana 风格转换"
+          }
+        }
+      }
+    },
+    "Save to Photos" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存到相册"
           }
         }
       }
@@ -807,6 +1188,16 @@
         }
       }
     },
+    "Select Test Type" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择测试类型"
+          }
+        }
+      }
+    },
     "Settings" : {
       "localizations" : {
         "zh-Hans" : {
@@ -827,7 +1218,7 @@
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "取消"
           }
         }
@@ -1009,6 +1400,26 @@
         }
       }
     },
+    "Share Results" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "分享结果"
+          }
+        }
+      }
+    },
+    "Start Batch Test" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开始批量测试"
+          }
+        }
+      }
+    },
     "Start benchmark after selecting your model" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1026,6 +1437,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "开始测试"
+          }
+        }
+      }
+    },
+    "Starting style transfer..." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在开始风格转换..."
           }
         }
       }
@@ -1057,6 +1478,42 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "停止测试"
+          }
+        }
+      }
+    },
+    "Style transfer completed!" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "completed!"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "转化完成"
+          }
+        }
+      }
+    },
+    "Style transfer failed." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "风格转换失败"
+          }
+        }
+      }
+    },
+    "Style Transfer Settings" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "风格转换设置"
           }
         }
       }
@@ -1276,6 +1733,16 @@
         }
       }
     },
+    "Talker Speaker" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "语音音色"
+          }
+        }
+      }
+    },
     "Tap to select a model for testing" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1290,8 +1757,34 @@
       "localizations" : {
         "en" : {
           "stringUnit" : {
-            "state" : "new",
+            "state" : "translated",
             "value" : "Test %1$lld of %2$lld"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "测试 %1$lld / %2$lld"
+          }
+        }
+      }
+    },
+    "Test Controls" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "测试控制"
+          }
+        }
+      }
+    },
+    "Test Items" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "测试集合"
           }
         }
       }
@@ -1302,6 +1795,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "测试进展"
+          }
+        }
+      }
+    },
+    "Testing, please wait..." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "数据集测试中，请耐心等待……"
+          }
+        }
+      }
+    },
+    "Text Test" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文本测试"
           }
         }
       }
@@ -1319,6 +1832,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "这是一个本地大型模型应用程序，对您的设备性能有一定要求。\n建议根据设备的内存选择不同尺寸的模型。\n\n对于 iPhone 设备，模型推荐如下：\n- 对于拥有8GB内存的设备，建议选择最大到8B的模型（例如，iPhone 16 Pro）。\n- 对于拥有6GB内存的设备，建议选择最大到3B的模型（例如，iPhone 15 Pro）。\n- 对于拥有4GB内存的设备，建议选择最大到1B或更小的模型（例如，iPhone 13）。\n\n选择过大的模型可能会导致内存不足和崩溃。"
+          }
+        }
+      }
+    },
+    "Threads" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "线程数"
           }
         }
       }
@@ -1344,6 +1867,17 @@
         }
       }
     },
+    "Total time:" : {
+      "comment" : "Sana diffusion total time label",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "总耗时:"
+          }
+        }
+      }
+    },
     "Total Tokens" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1351,6 +1885,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "总令牌数"
+          }
+        }
+      }
+    },
+    "Unsupported image format. Please use JPG/JPEG images for style transfer." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不支持的图片格式，请使用 JPG/JPEG 格式的图片进行风格转换。"
           }
         }
       }
@@ -1395,6 +1939,17 @@
         }
       }
     },
+    "Use Multimodal Prompt API" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用新多模态API"
+          }
+        }
+      }
+    },
     "User Guide" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1402,6 +1957,33 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "用户指南"
+          }
+        }
+      }
+    },
+    "Video Frames" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "视频抽帧数"
+          }
+        }
+      }
+    },
+    "video.frameExtractionFailed" : {
+      "comment" : "Warning shown when a pure video input cannot provide frames.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Video frame extraction failed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "视频抽帧失败"
           }
         }
       }

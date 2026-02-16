@@ -13,7 +13,7 @@ struct BenchmarkResult {
     let testInstance: TestInstance
     let success: Bool
     let errorMessage: String?
-    
+
     init(testInstance: TestInstance, success: Bool, errorMessage: String? = nil) {
         self.testInstance = testInstance
         self.success = success

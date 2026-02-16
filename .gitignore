@@ -375,6 +375,7 @@ datasets/*
 source/backend/qnn/3rdParty/include
 project/android/.cxx
 pymnn/android/.cxx/
+pymnn/android/.cxx/abi_configuration_5u53tc49.jsonz
 apps/mnncli/.cursorrules
 apps/mnncli/model_market_json_data.inc
 #kledi
@@ -388,3 +389,10 @@ apps/Android/.qoder/settings.json
 apps/Android/MnnLlmChatOld
 
 transformers/llm/export/tmp/
+
+# iOS
+apps/iOS/MNNLLMChat/Chat/
+apps/iOS/MNNLLMChat/swift-transformers/
+apps/iOS/MNNLLMChat/MNNLLMiOS/LocalModel/Qwen3-4B-MNN
+apps/iOS/MNNLLMChat/MNNLLMiOS/LocalModel/Qwen3-0.6B-MNN
+apps/iOS/MNNLLMChat/MNNLLMiOS/LocalModel/Qwen2.5-Omni-3B-MNN

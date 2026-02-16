@@ -11,14 +11,14 @@ import SwiftUI
 /// Displays test progress with detailed metrics and visual indicators.
 struct ProgressCard: View {
     let progress: BenchmarkProgress?
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             if let progress = progress {
                 VStack(alignment: .leading, spacing: 16) {
                     progressHeader(progress)
                     progressBar(progress)
-                    
+
                     if progress.progressType == .runningTest && progress.totalIterations > 0 {
                         testDetails(progress)
                     }
@@ -37,9 +37,9 @@ struct ProgressCard: View {
                 )
         )
     }
-    
+
     // MARK: - Private Views
-    
+
     private func progressHeader(_ progress: BenchmarkProgress) -> some View {
         HStack {
             HStack(spacing: 12) {
@@ -53,46 +53,46 @@ struct ProgressCard: View {
                             )
                         )
                         .frame(width: 40, height: 40)
-                    
+
                     Image(systemName: "chart.line.uptrend.xyaxis")
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(.benchmarkAccent)
                 }
-                
+
                 VStack(alignment: .leading, spacing: 2) {
                     Text(String(localized: "Test Progress"))
                         .font(.title3)
                         .fontWeight(.semibold)
                         .foregroundColor(.primary)
-                    
+
                     Text(String(localized: "Running performance tests"))
                         .font(.caption)
                         .foregroundColor(.benchmarkSecondary)
                 }
             }
-            
+
             Spacer()
-            
+
             VStack(alignment: .trailing, spacing: 2) {
                 Text("\(progress.progress)%")
                     .font(.title2)
                     .fontWeight(.bold)
                     .foregroundColor(.benchmarkAccent)
-                
+
                 Text(String(localized: "Complete"))
                     .font(.caption)
                     .foregroundColor(.benchmarkSecondary)
             }
         }
     }
-    
+
     private func progressBar(_ progress: BenchmarkProgress) -> some View {
         VStack(spacing: 8) {
             ZStack(alignment: .leading) {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(Color.gray.opacity(0.2))
                     .frame(height: 8)
-                
+
                 RoundedRectangle(cornerRadius: 8)
                     .fill(
                         LinearGradient(
@@ -106,7 +106,7 @@ struct ProgressCard: View {
             }
         }
     }
-    
+
     private func testDetails(_ progress: BenchmarkProgress) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             // Test iteration info
@@ -114,14 +114,14 @@ struct ProgressCard: View {
                 Image(systemName: "repeat")
                     .font(.caption)
                     .foregroundColor(.benchmarkAccent)
-                
+
                 Text("Test \(progress.currentIteration) of \(progress.totalIterations)")
                     .font(.subheadline)
                     .fontWeight(.medium)
                     .foregroundColor(.primary)
-                
+
                 Spacer()
-                
+
                 Text("PP: \(progress.nPrompt) • TG: \(progress.nGenerate)")
                     .font(.caption)
                     .foregroundColor(.benchmarkSecondary)
@@ -132,7 +132,7 @@ struct ProgressCard: View {
                             .fill(Color.benchmarkAccent.opacity(0.1))
                     )
             }
-            
+
             // Real-time performance metrics
             if progress.runTimeSeconds > 0 {
                 VStack(spacing: 12) {
@@ -142,7 +142,7 @@ struct ProgressCard: View {
                         MetricCard(title: "Prefill", value: String(format: "%.3fs", progress.prefillTimeSeconds), icon: "arrow.up.circle")
                         MetricCard(title: "Decode", value: String(format: "%.3fs", progress.decodeTimeSeconds), icon: "arrow.down.circle")
                     }
-                    
+
                     // Speed metrics
                     HStack(spacing: 12) {
                         MetricCard(title: "Prefill Speed", value: String(format: "%.2f t/s", progress.prefillSpeed), icon: "speedometer")
@@ -153,7 +153,7 @@ struct ProgressCard: View {
             }
         }
     }
-    
+
     private var fallbackProgress: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(String(localized: "Progress"))

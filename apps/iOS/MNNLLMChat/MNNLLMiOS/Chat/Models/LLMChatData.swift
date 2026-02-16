@@ -2,43 +2,43 @@
 //  LLMChatData.swift
 //  MNNLLMiOS
 //  Modified from ExyteChat's Chat Example
-// 
+//
 //  Created by 游薪渝(揽清) on 2025/1/10.
 //
 
-import UIKit
 import ExyteChat
+import UIKit
 
 final class LLMChatData {
     var assistant: LLMChatUser
     var system: LLMChatUser
-    
+
     let user = LLMChatUser(
         uid: "1",
         name: "user",
         avatar: AssetExtractor.createLocalUrl(forImageNamed: "mnn_icon", withExtension: "png")
     )
-    
+
     init(modelInfo: ModelInfo) {
         let icon = ModelIconManager.shared.getModelImage(with: modelInfo.localPath) ?? "mnn_icon"
-        
-        self.assistant = LLMChatUser(
+
+        assistant = LLMChatUser(
             uid: "2",
             name: modelInfo.modelName,
             avatar: AssetExtractor.createLocalUrl(forImageNamed: icon, withExtension: "png")
         )
-        
-        self.system = LLMChatUser(
+
+        system = LLMChatUser(
             uid: "0",
             name: modelInfo.modelName,
             avatar: AssetExtractor.createLocalUrl(forImageNamed: icon, withExtension: "png")
         )
     }
-    
+
     func greatingMessage(historyMessages: [HistoryMessage]?) -> [LLMChatMessage] {
         let sender = system
         let date = Date()
-        
+
         var allHistoryMessages: [LLMChatMessage] = []
         if let msgs = historyMessages {
             for msg in msgs {
@@ -46,7 +46,7 @@ final class LLMChatData {
                 if msg.isUser == true {
                     sender = user
                 }
-                
+
                 allHistoryMessages.append(
                     LLMChatMessage(uid: UUID().uuidString,
                                    sender: sender,
@@ -59,13 +59,13 @@ final class LLMChatData {
             }
             return allHistoryMessages
         }
-        
-        
+
         return [LLMChatMessage(
             uid: UUID().uuidString,
             sender: sender,
             createdAt: date,
             status: sender.isCurrentUser ? .read : nil,
+            useMarkdown: false,
             text: NSLocalizedString("WelcomeSceneText", comment: "") + sender.name + "!",
             images: [],
             videos: [],

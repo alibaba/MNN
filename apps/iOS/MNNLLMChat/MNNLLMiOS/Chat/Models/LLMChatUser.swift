@@ -5,8 +5,8 @@
 //  Created by 游薪渝(揽清) on 2025/1/15.
 //
 
-import SwiftUI
 import ExyteChat
+import SwiftUI
 
 struct LLMChatUser: Equatable {
     let uid: String

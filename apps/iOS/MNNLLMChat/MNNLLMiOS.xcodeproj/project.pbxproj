@@ -3,119 +3,316 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 77;
+	objectVersion = 63;
 	objects = {
 
 /* Begin PBXBuildFile section */
+		08329731E99C44DFA958144D /* BatchFileTestView.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 26F235F884BD455DA4AFBEF5 /* BatchFileTestView.swift */; };
+		3B98C65906634B47A0128961 /* ChatMenuView.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = CFB6BE595C064741BF59008B /* ChatMenuView.swift */; };
+		3E2B293C2F1F7C28006DE361 /* SanaDiffusionSession.mm in MNNChat */ = {isa = PBXBuildFile; fileRef = 3E2B293B2F1F7C28006DE361 /* SanaDiffusionSession.mm */; };
+		3E2F972E2E89158600E61F35 /* ExyteChat in Frameworks */ = {isa = PBXBuildFile; productRef = 3E5DD18F2E6FD56300F2AB7A /* ExyteChat */; };
+		3E2F972F2E89158600E61F35 /* ExyteChat in Frameworks */ = {isa = PBXBuildFile; productRef = 3E00BB8D2E73C4E200D60A8D /* ExyteChat */; };
+		3E2F97302E89158600E61F35 /* ExyteChat in Frameworks */ = {isa = PBXBuildFile; productRef = 3E55AB222E839CFA003CB2E2 /* ExyteChat */; };
 		3E301C692D5C84730045E5E1 /* MNN.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3E301C682D5C84730045E5E1 /* MNN.framework */; };
-		3E6301D42E6A8A470004EC63 /* ExyteChat in Frameworks */ = {isa = PBXBuildFile; productRef = 3E6301D32E6A8A470004EC63 /* ExyteChat */; };
+		3E440F0A2EE2DEDE00BB15FF /* AudioPlaybackManager.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 3E440F082EE2DEDE00BB15FF /* AudioPlaybackManager.swift */; };
+		3E55A66C2E828189003CB2E2 /* LocalModel in Resources */ = {isa = PBXBuildFile; fileRef = 3E55A66B2E828189003CB2E2 /* LocalModel */; };
 		3E94DFF12D37DBA900BE39A7 /* SQLite in Frameworks */ = {isa = PBXBuildFile; productRef = 3E94DFF02D37DBA900BE39A7 /* SQLite */; };
+		3EAB12362E7FD12300C4E5F6 /* MarkdownView in Frameworks */ = {isa = PBXBuildFile; productRef = 3EAB12352E7FD12300C4E5F6 /* MarkdownView */; };
 		3EC8DF872E4DCF5800861131 /* Transformers in Frameworks */ = {isa = PBXBuildFile; productRef = 3EC8DF862E4DCF5800861131 /* Transformers */; };
-		3EDA70222E605BE700B17E48 /* ExyteChat in Frameworks */ = {isa = PBXBuildFile; productRef = 3EDA70212E605BE700B17E48 /* ExyteChat */; };
+		3ECAC6062F3C62570003C496 /* ExyteChat in Frameworks */ = {isa = PBXBuildFile; productRef = 3ECAC6052F3C62570003C496 /* ExyteChat */; };
+		3ECAC6092F3C74370003C496 /* ExyteChat in Frameworks */ = {isa = PBXBuildFile; productRef = 3ECAC6082F3C74370003C496 /* ExyteChat */; };
+		3ECE19BE2E9904C9001A4CDD /* BatchTest.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 3ECE19BD2E9904C9001A4CDD /* BatchTest.swift */; };
+		3ECE19C32E99FED6001A4CDD /* LocalBatchTest in Resources */ = {isa = PBXBuildFile; fileRef = 3ECE19C22E99FED6001A4CDD /* LocalBatchTest */; };
+		3ECE19C52E9CE17B001A4CDD /* DocumentPicker.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 3ECE19C42E9CE17B001A4CDD /* DocumentPicker.swift */; };
+		3ECE19C72E9CE1BD001A4CDD /* TextFileActivityItemSource.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 3ECE19C62E9CE1BD001A4CDD /* TextFileActivityItemSource.swift */; };
+		3ECE19C92E9CE1F0001A4CDD /* BatchFileTestService.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 3ECE19C82E9CE1F0001A4CDD /* BatchFileTestService.swift */; };
+		3EEAB30B2E8BD5550039DF50 /* BatchFileTestViewModel.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 3EEAB30A2E8BD5550039DF50 /* BatchFileTestViewModel.swift */; };
+		4230C2D22E7D4EB5001169DF /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4230C2A22E7D4EB5001169DF /* Preview Assets.xcassets */; };
+		4230C2DB2E7D4EB5001169DF /* mock.json in Resources */ = {isa = PBXBuildFile; fileRef = 4230C2AD2E7D4EB5001169DF /* mock.json */; };
+		4230C2DC2E7D4EB5001169DF /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4230C2CA2E7D4EB5001169DF /* Assets.xcassets */; };
+		4230C2DE2E7D4EB5001169DF /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 4230C2CC2E7D4EB5001169DF /* Localizable.xcstrings */; };
+		4230C2DF2E7D4EB5001169DF /* ChatInteractorProtocol.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C22C2E7D4EB5001169DF /* ChatInteractorProtocol.swift */; };
+		4230C2E02E7D4EB5001169DF /* LLMChatInteractor.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C22D2E7D4EB5001169DF /* LLMChatInteractor.swift */; };
+		4230C2E12E7D4EB5001169DF /* ThinkResultProcessor.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C22E2E7D4EB5001169DF /* ThinkResultProcessor.swift */; };
+		4230C2E22E7D4EB5001169DF /* LLMChatData.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2302E7D4EB5001169DF /* LLMChatData.swift */; };
+		4230C2E32E7D4EB5001169DF /* LLMChatImage.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2312E7D4EB5001169DF /* LLMChatImage.swift */; };
+		4230C2E42E7D4EB5001169DF /* LLMChatMessage.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2322E7D4EB5001169DF /* LLMChatMessage.swift */; };
+		4230C2E52E7D4EB5001169DF /* LLMChatUser.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2332E7D4EB5001169DF /* LLMChatUser.swift */; };
+		4230C2E62E7D4EB5001169DF /* LLMChatVideo.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2342E7D4EB5001169DF /* LLMChatVideo.swift */; };
+		4230C2E72E7D4EB5001169DF /* LLMState.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2352E7D4EB5001169DF /* LLMState.swift */; };
+		4230C2E82E7D4EB5001169DF /* ModelConfigManager.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2372E7D4EB5001169DF /* ModelConfigManager.swift */; };
+		4230C2E92E7D4EB5001169DF /* PerformanceMonitor.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2382E7D4EB5001169DF /* PerformanceMonitor.swift */; };
+		4230C2EA2E7D4EB5001169DF /* UIUpdateOptimizer.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2392E7D4EB5001169DF /* UIUpdateOptimizer.swift */; };
+		4230C2EB2E7D4EB5001169DF /* LLMChatViewModel.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C23B2E7D4EB5001169DF /* LLMChatViewModel.swift */; };
+		4230C2EC2E7D4EB5001169DF /* LLMChatView.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C23D2E7D4EB5001169DF /* LLMChatView.swift */; };
+		4230C2ED2E7D4EB5001169DF /* MixedSamplersView.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C23E2E7D4EB5001169DF /* MixedSamplersView.swift */; };
+		4230C2EE2E7D4EB5001169DF /* ModelSettingsView.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C23F2E7D4EB5001169DF /* ModelSettingsView.swift */; };
+		4230C2EF2E7D4EB5001169DF /* ParameterSliderView.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2402E7D4EB5001169DF /* ParameterSliderView.swift */; };
+		4230C2F02E7D4EB5001169DF /* ChatHistory.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2432E7D4EB5001169DF /* ChatHistory.swift */; };
+		4230C2F12E7D4EB5001169DF /* ChatHistoryDatabase.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2452E7D4EB5001169DF /* ChatHistoryDatabase.swift */; };
+		4230C2F22E7D4EB5001169DF /* ChatHistoryFileManager.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2462E7D4EB5001169DF /* ChatHistoryFileManager.swift */; };
+		4230C2F32E7D4EB5001169DF /* ChatHistoryManager.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2472E7D4EB5001169DF /* ChatHistoryManager.swift */; };
+		4230C2F42E7D4EB5001169DF /* ChatHistoryItemView.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2492E7D4EB5001169DF /* ChatHistoryItemView.swift */; };
+		4230C2F52E7D4EB5001169DF /* ModelIconView.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C24A2E7D4EB5001169DF /* ModelIconView.swift */; };
+		4230C2F62E7D4EB5001169DF /* SideMenuView.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C24B2E7D4EB5001169DF /* SideMenuView.swift */; };
+		4230C2F72E7D4EB5001169DF /* DiffusionSession.mm in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C24F2E7D4EB5001169DF /* DiffusionSession.mm */; };
+		4230C2F82E7D4EB5001169DF /* LLMInferenceEngineWrapper.mm in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2512E7D4EB5001169DF /* LLMInferenceEngineWrapper.mm */; };
+		4230C2F92E7D4EB5001169DF /* BenchmarkResultsHelper.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2552E7D4EB5001169DF /* BenchmarkResultsHelper.swift */; };
+		4230C2FA2E7D4EB5001169DF /* BenchmarkErrorCode.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2572E7D4EB5001169DF /* BenchmarkErrorCode.swift */; };
+		4230C2FB2E7D4EB5001169DF /* BenchmarkProgress.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2582E7D4EB5001169DF /* BenchmarkProgress.swift */; };
+		4230C2FC2E7D4EB5001169DF /* BenchmarkResult.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2592E7D4EB5001169DF /* BenchmarkResult.swift */; };
+		4230C2FD2E7D4EB5001169DF /* BenchmarkResults.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C25A2E7D4EB5001169DF /* BenchmarkResults.swift */; };
+		4230C2FE2E7D4EB5001169DF /* BenchmarkStatistics.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C25B2E7D4EB5001169DF /* BenchmarkStatistics.swift */; };
+		4230C2FF2E7D4EB5001169DF /* DeviceInfoHelper.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C25C2E7D4EB5001169DF /* DeviceInfoHelper.swift */; };
+		4230C3002E7D4EB5001169DF /* ModelItem.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C25D2E7D4EB5001169DF /* ModelItem.swift */; };
+		4230C3012E7D4EB5001169DF /* ModelListManager.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C25E2E7D4EB5001169DF /* ModelListManager.swift */; };
+		4230C3022E7D4EB5001169DF /* ProgressType.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C25F2E7D4EB5001169DF /* ProgressType.swift */; };
+		4230C3032E7D4EB5001169DF /* RuntimeParameters.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2602E7D4EB5001169DF /* RuntimeParameters.swift */; };
+		4230C3042E7D4EB5001169DF /* SpeedStatistics.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2612E7D4EB5001169DF /* SpeedStatistics.swift */; };
+		4230C3052E7D4EB5001169DF /* TestInstance.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2622E7D4EB5001169DF /* TestInstance.swift */; };
+		4230C3062E7D4EB5001169DF /* TestParameters.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2632E7D4EB5001169DF /* TestParameters.swift */; };
+		4230C3072E7D4EB5001169DF /* BenchmarkService.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2652E7D4EB5001169DF /* BenchmarkService.swift */; };
+		4230C3082E7D4EB5001169DF /* BenchmarkViewModel.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2672E7D4EB5001169DF /* BenchmarkViewModel.swift */; };
+		4230C3092E7D4EB5001169DF /* MetricCard.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2692E7D4EB5001169DF /* MetricCard.swift */; };
+		4230C30A2E7D4EB5001169DF /* ModelSelectionCard.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C26A2E7D4EB5001169DF /* ModelSelectionCard.swift */; };
+		4230C30B2E7D4EB5001169DF /* PerformanceMetricView.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C26B2E7D4EB5001169DF /* PerformanceMetricView.swift */; };
+		4230C30C2E7D4EB5001169DF /* ProgressCard.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C26C2E7D4EB5001169DF /* ProgressCard.swift */; };
+		4230C30D2E7D4EB5001169DF /* ResultsCard.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C26D2E7D4EB5001169DF /* ResultsCard.swift */; };
+		4230C30E2E7D4EB5001169DF /* StatusCard.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C26E2E7D4EB5001169DF /* StatusCard.swift */; };
+		4230C30F2E7D4EB5001169DF /* BenchmarkView.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2702E7D4EB5001169DF /* BenchmarkView.swift */; };
+		4230C3102E7D4EB5001169DF /* LocalModelListView.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2732E7D4EB5001169DF /* LocalModelListView.swift */; };
+		4230C3112E7D4EB5001169DF /* LocalModelRowView.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2742E7D4EB5001169DF /* LocalModelRowView.swift */; };
+		4230C3122E7D4EB5001169DF /* ModelIcon.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2772E7D4EB5001169DF /* ModelIcon.swift */; };
+		4230C3132E7D4EB5001169DF /* ModelIconManager.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2782E7D4EB5001169DF /* ModelIconManager.swift */; };
+		4230C3142E7D4EB5001169DF /* ModelInfo.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C27A2E7D4EB5001169DF /* ModelInfo.swift */; };
+		4230C3152E7D4EB5001169DF /* ModelListViewModel.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C27B2E7D4EB5001169DF /* ModelListViewModel.swift */; };
+		4230C3162E7D4EB5001169DF /* TBDataResponse.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C27C2E7D4EB5001169DF /* TBDataResponse.swift */; };
+		4230C3172E7D4EB5001169DF /* FilterButton.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C27E2E7D4EB5001169DF /* FilterButton.swift */; };
+		4230C3182E7D4EB5001169DF /* FilterMenuView.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C27F2E7D4EB5001169DF /* FilterMenuView.swift */; };
+		4230C3192E7D4EB5001169DF /* FilterOptionRow.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2802E7D4EB5001169DF /* FilterOptionRow.swift */; };
+		4230C31A2E7D4EB5001169DF /* FilterTagChip.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2812E7D4EB5001169DF /* FilterTagChip.swift */; };
+		4230C31B2E7D4EB5001169DF /* QuickFilterTags.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2822E7D4EB5001169DF /* QuickFilterTags.swift */; };
+		4230C31C2E7D4EB5001169DF /* SourceSelector.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2832E7D4EB5001169DF /* SourceSelector.swift */; };
+		4230C31D2E7D4EB5001169DF /* ToolbarView.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2842E7D4EB5001169DF /* ToolbarView.swift */; };
+		4230C31E2E7D4EB5001169DF /* ActionButtonsView.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2862E7D4EB5001169DF /* ActionButtonsView.swift */; };
+		4230C31F2E7D4EB5001169DF /* DownloadedButtonView.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2872E7D4EB5001169DF /* DownloadedButtonView.swift */; };
+		4230C3202E7D4EB5001169DF /* DownloadingButtonView.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2882E7D4EB5001169DF /* DownloadingButtonView.swift */; };
+		4230C3212E7D4EB5001169DF /* PendingDownloadButtonView.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2892E7D4EB5001169DF /* PendingDownloadButtonView.swift */; };
+		4230C3222E7D4EB5001169DF /* TagChip.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C28A2E7D4EB5001169DF /* TagChip.swift */; };
+		4230C3232E7D4EB5001169DF /* TagsView.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C28B2E7D4EB5001169DF /* TagsView.swift */; };
+		4230C3242E7D4EB5001169DF /* CustomPopupMenu.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C28D2E7D4EB5001169DF /* CustomPopupMenu.swift */; };
+		4230C3252E7D4EB5001169DF /* HelpView.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C28E2E7D4EB5001169DF /* HelpView.swift */; };
+		4230C3262E7D4EB5001169DF /* ModelListView.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C28F2E7D4EB5001169DF /* ModelListView.swift */; };
+		4230C3272E7D4EB5001169DF /* ModelRowView.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2902E7D4EB5001169DF /* ModelRowView.swift */; };
+		4230C3282E7D4EB5001169DF /* SearchBar.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2912E7D4EB5001169DF /* SearchBar.swift */; };
+		4230C3292E7D4EB5001169DF /* SwipeActionsView.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2922E7D4EB5001169DF /* SwipeActionsView.swift */; };
+		4230C32A2E7D4EB5001169DF /* WebView.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2932E7D4EB5001169DF /* WebView.swift */; };
+		4230C32B2E7D4EB5001169DF /* ModelSource.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2962E7D4EB5001169DF /* ModelSource.swift */; };
+		4230C32C2E7D4EB5001169DF /* ModelSourceManager.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2972E7D4EB5001169DF /* ModelSourceManager.swift */; };
+		4230C32D2E7D4EB5001169DF /* ModelStorageManager.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2992E7D4EB5001169DF /* ModelStorageManager.swift */; };
+		4230C32E2E7D4EB5001169DF /* TagTranslationManager.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C29B2E7D4EB5001169DF /* TagTranslationManager.swift */; };
+		4230C32F2E7D4EB5001169DF /* CommonToolbarView.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C29E2E7D4EB5001169DF /* CommonToolbarView.swift */; };
+		4230C3302E7D4EB5001169DF /* MainTabItem.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C29F2E7D4EB5001169DF /* MainTabItem.swift */; };
+		4230C3312E7D4EB5001169DF /* MainTabView.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2A02E7D4EB5001169DF /* MainTabView.swift */; };
+		4230C3322E7D4EB5001169DF /* AsyncSemaphore.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2AF2E7D4EB5001169DF /* AsyncSemaphore.swift */; };
+		4230C3332E7D4EB5001169DF /* DynamicConcurrencyManager.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2B02E7D4EB5001169DF /* DynamicConcurrencyManager.swift */; };
+		4230C3342E7D4EB5001169DF /* ModelClient.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2B12E7D4EB5001169DF /* ModelClient.swift */; };
+		4230C3352E7D4EB5001169DF /* ModelDownloadConfiguration.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2B22E7D4EB5001169DF /* ModelDownloadConfiguration.swift */; };
+		4230C3362E7D4EB5001169DF /* ModelDownloadLogger.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2B32E7D4EB5001169DF /* ModelDownloadLogger.swift */; };
+		4230C3372E7D4EB5001169DF /* ModelDownloadManager.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2B42E7D4EB5001169DF /* ModelDownloadManager.swift */; };
+		4230C3382E7D4EB5001169DF /* ModelDownloadManagerProtocol.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2B52E7D4EB5001169DF /* ModelDownloadManagerProtocol.swift */; };
+		4230C3392E7D4EB5001169DF /* ModelDownloadStorage.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2B62E7D4EB5001169DF /* ModelDownloadStorage.swift */; };
+		4230C33A2E7D4EB5001169DF /* ModelScopeDownloadManager.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2B72E7D4EB5001169DF /* ModelScopeDownloadManager.swift */; };
+		4230C33B2E7D4EB5001169DF /* ModelScopeModels.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2B82E7D4EB5001169DF /* ModelScopeModels.swift */; };
+		4230C33C2E7D4EB5001169DF /* ModelScopeUtilities.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2B92E7D4EB5001169DF /* ModelScopeUtilities.swift */; };
+		4230C33D2E7D4EB5001169DF /* AssetExtractor.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2BB2E7D4EB5001169DF /* AssetExtractor.swift */; };
+		4230C33E2E7D4EB5001169DF /* Attachment+Extension.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2BC2E7D4EB5001169DF /* Attachment+Extension.swift */; };
+		4230C33F2E7D4EB5001169DF /* Color+Extension.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2BD2E7D4EB5001169DF /* Color+Extension.swift */; };
+		4230C3402E7D4EB5001169DF /* FileOperationManager.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2BE2E7D4EB5001169DF /* FileOperationManager.swift */; };
+		4230C3412E7D4EB5001169DF /* LanguageManager.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2BF2E7D4EB5001169DF /* LanguageManager.swift */; };
+		4230C3422E7D4EB5001169DF /* ModelUtils.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2C02E7D4EB5001169DF /* ModelUtils.swift */; };
+		4230C3432E7D4EB5001169DF /* NotificationNames.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2C12E7D4EB5001169DF /* NotificationNames.swift */; };
+		4230C3442E7D4EB5001169DF /* String+Extension.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2C22E7D4EB5001169DF /* String+Extension.swift */; };
+		4230C3452E7D4EB5001169DF /* URL+Extension.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2C32E7D4EB5001169DF /* URL+Extension.swift */; };
+		4230C3462E7D4EB5001169DF /* Util.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2C42E7D4EB5001169DF /* Util.swift */; };
+		4230C3472E7D4EB5001169DF /* SettingsView.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2C72E7D4EB5001169DF /* SettingsView.swift */; };
+		4230C3482E7D4EB5001169DF /* MNNLLMiOSApp.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C2CF2E7D4EB5001169DF /* MNNLLMiOSApp.swift */; };
+		4230C3492E7D4EB5001169DF /* DiffusionSession.h in MNNChat */ = {isa = PBXBuildFile; fileRef = 4230C24E2E7D4EB5001169DF /* DiffusionSession.h */; };
+		BC9657CD7C014E29ACBDDD99 /* FileTestModels.swift in MNNChat */ = {isa = PBXBuildFile; fileRef = BB36A9DF7CC54A66BCE04843 /* FileTestModels.swift */; };
 /* End PBXBuildFile section */
 
-/* Begin PBXContainerItemProxy section */
-		3E8592102D1D45090067B46F /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 3E8591F62D1D45070067B46F /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 3E8591FD2D1D45070067B46F;
-			remoteInfo = MNNLLMiOS;
-		};
-		3E85921A2D1D45090067B46F /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 3E8591F62D1D45070067B46F /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 3E8591FD2D1D45070067B46F;
-			remoteInfo = MNNLLMiOS;
-		};
-/* End PBXContainerItemProxy section */
-
 /* Begin PBXFileReference section */
+		26F235F884BD455DA4AFBEF5 /* BatchFileTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchFileTestView.swift; sourceTree = "<group>"; };
+		3E2B293A2F1F7C28006DE361 /* SanaDiffusionSession.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SanaDiffusionSession.h; sourceTree = "<group>"; };
+		3E2B293B2F1F7C28006DE361 /* SanaDiffusionSession.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = SanaDiffusionSession.mm; sourceTree = "<group>"; };
 		3E301C682D5C84730045E5E1 /* MNN.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = MNN.framework; sourceTree = "<group>"; };
+		3E440F082EE2DEDE00BB15FF /* AudioPlaybackManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlaybackManager.swift; sourceTree = "<group>"; };
+		3E55A66B2E828189003CB2E2 /* LocalModel */ = {isa = PBXFileReference; lastKnownFileType = folder; name = LocalModel; path = MNNLLMiOS/LocalModel; sourceTree = "<group>"; };
 		3E8591FE2D1D45070067B46F /* MNNLLMiOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MNNLLMiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		3E85920F2D1D45080067B46F /* MNNLLMiOSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MNNLLMiOSTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		3E8592192D1D45090067B46F /* MNNLLMiOSUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MNNLLMiOSUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		3ECE19BD2E9904C9001A4CDD /* BatchTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchTest.swift; sourceTree = "<group>"; };
+		3ECE19C22E99FED6001A4CDD /* LocalBatchTest */ = {isa = PBXFileReference; lastKnownFileType = folder; name = LocalBatchTest; path = MNNLLMiOS/LocalBatchTest; sourceTree = "<group>"; };
+		3ECE19C42E9CE17B001A4CDD /* DocumentPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentPicker.swift; sourceTree = "<group>"; };
+		3ECE19C62E9CE1BD001A4CDD /* TextFileActivityItemSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextFileActivityItemSource.swift; sourceTree = "<group>"; };
+		3ECE19C82E9CE1F0001A4CDD /* BatchFileTestService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchFileTestService.swift; sourceTree = "<group>"; };
+		3EEAB30A2E8BD5550039DF50 /* BatchFileTestViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchFileTestViewModel.swift; sourceTree = "<group>"; };
+		4230C22C2E7D4EB5001169DF /* ChatInteractorProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatInteractorProtocol.swift; sourceTree = "<group>"; };
+		4230C22D2E7D4EB5001169DF /* LLMChatInteractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMChatInteractor.swift; sourceTree = "<group>"; };
+		4230C22E2E7D4EB5001169DF /* ThinkResultProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThinkResultProcessor.swift; sourceTree = "<group>"; };
+		4230C2302E7D4EB5001169DF /* LLMChatData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMChatData.swift; sourceTree = "<group>"; };
+		4230C2312E7D4EB5001169DF /* LLMChatImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMChatImage.swift; sourceTree = "<group>"; };
+		4230C2322E7D4EB5001169DF /* LLMChatMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMChatMessage.swift; sourceTree = "<group>"; };
+		4230C2332E7D4EB5001169DF /* LLMChatUser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMChatUser.swift; sourceTree = "<group>"; };
+		4230C2342E7D4EB5001169DF /* LLMChatVideo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMChatVideo.swift; sourceTree = "<group>"; };
+		4230C2352E7D4EB5001169DF /* LLMState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMState.swift; sourceTree = "<group>"; };
+		4230C2372E7D4EB5001169DF /* ModelConfigManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelConfigManager.swift; sourceTree = "<group>"; };
+		4230C2382E7D4EB5001169DF /* PerformanceMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceMonitor.swift; sourceTree = "<group>"; };
+		4230C2392E7D4EB5001169DF /* UIUpdateOptimizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIUpdateOptimizer.swift; sourceTree = "<group>"; };
+		4230C23B2E7D4EB5001169DF /* LLMChatViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMChatViewModel.swift; sourceTree = "<group>"; };
+		4230C23D2E7D4EB5001169DF /* LLMChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMChatView.swift; sourceTree = "<group>"; };
+		4230C23E2E7D4EB5001169DF /* MixedSamplersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MixedSamplersView.swift; sourceTree = "<group>"; };
+		4230C23F2E7D4EB5001169DF /* ModelSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelSettingsView.swift; sourceTree = "<group>"; };
+		4230C2402E7D4EB5001169DF /* ParameterSliderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParameterSliderView.swift; sourceTree = "<group>"; };
+		4230C2432E7D4EB5001169DF /* ChatHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatHistory.swift; sourceTree = "<group>"; };
+		4230C2452E7D4EB5001169DF /* ChatHistoryDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatHistoryDatabase.swift; sourceTree = "<group>"; };
+		4230C2462E7D4EB5001169DF /* ChatHistoryFileManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatHistoryFileManager.swift; sourceTree = "<group>"; };
+		4230C2472E7D4EB5001169DF /* ChatHistoryManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatHistoryManager.swift; sourceTree = "<group>"; };
+		4230C2492E7D4EB5001169DF /* ChatHistoryItemView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatHistoryItemView.swift; sourceTree = "<group>"; };
+		4230C24A2E7D4EB5001169DF /* ModelIconView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelIconView.swift; sourceTree = "<group>"; };
+		4230C24B2E7D4EB5001169DF /* SideMenuView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SideMenuView.swift; sourceTree = "<group>"; };
+		4230C24E2E7D4EB5001169DF /* DiffusionSession.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DiffusionSession.h; sourceTree = "<group>"; };
+		4230C24F2E7D4EB5001169DF /* DiffusionSession.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = DiffusionSession.mm; sourceTree = "<group>"; };
+		4230C2502E7D4EB5001169DF /* LLMInferenceEngineWrapper.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LLMInferenceEngineWrapper.h; sourceTree = "<group>"; };
+		4230C2512E7D4EB5001169DF /* LLMInferenceEngineWrapper.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = LLMInferenceEngineWrapper.mm; sourceTree = "<group>"; };
+		4230C2552E7D4EB5001169DF /* BenchmarkResultsHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkResultsHelper.swift; sourceTree = "<group>"; };
+		4230C2572E7D4EB5001169DF /* BenchmarkErrorCode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkErrorCode.swift; sourceTree = "<group>"; };
+		4230C2582E7D4EB5001169DF /* BenchmarkProgress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkProgress.swift; sourceTree = "<group>"; };
+		4230C2592E7D4EB5001169DF /* BenchmarkResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkResult.swift; sourceTree = "<group>"; };
+		4230C25A2E7D4EB5001169DF /* BenchmarkResults.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkResults.swift; sourceTree = "<group>"; };
+		4230C25B2E7D4EB5001169DF /* BenchmarkStatistics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkStatistics.swift; sourceTree = "<group>"; };
+		4230C25C2E7D4EB5001169DF /* DeviceInfoHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceInfoHelper.swift; sourceTree = "<group>"; };
+		4230C25D2E7D4EB5001169DF /* ModelItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelItem.swift; sourceTree = "<group>"; };
+		4230C25E2E7D4EB5001169DF /* ModelListManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelListManager.swift; sourceTree = "<group>"; };
+		4230C25F2E7D4EB5001169DF /* ProgressType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressType.swift; sourceTree = "<group>"; };
+		4230C2602E7D4EB5001169DF /* RuntimeParameters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeParameters.swift; sourceTree = "<group>"; };
+		4230C2612E7D4EB5001169DF /* SpeedStatistics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedStatistics.swift; sourceTree = "<group>"; };
+		4230C2622E7D4EB5001169DF /* TestInstance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestInstance.swift; sourceTree = "<group>"; };
+		4230C2632E7D4EB5001169DF /* TestParameters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestParameters.swift; sourceTree = "<group>"; };
+		4230C2652E7D4EB5001169DF /* BenchmarkService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkService.swift; sourceTree = "<group>"; };
+		4230C2672E7D4EB5001169DF /* BenchmarkViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkViewModel.swift; sourceTree = "<group>"; };
+		4230C2692E7D4EB5001169DF /* MetricCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricCard.swift; sourceTree = "<group>"; };
+		4230C26A2E7D4EB5001169DF /* ModelSelectionCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelSelectionCard.swift; sourceTree = "<group>"; };
+		4230C26B2E7D4EB5001169DF /* PerformanceMetricView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceMetricView.swift; sourceTree = "<group>"; };
+		4230C26C2E7D4EB5001169DF /* ProgressCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressCard.swift; sourceTree = "<group>"; };
+		4230C26D2E7D4EB5001169DF /* ResultsCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsCard.swift; sourceTree = "<group>"; };
+		4230C26E2E7D4EB5001169DF /* StatusCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusCard.swift; sourceTree = "<group>"; };
+		4230C2702E7D4EB5001169DF /* BenchmarkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkView.swift; sourceTree = "<group>"; };
+		4230C2732E7D4EB5001169DF /* LocalModelListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalModelListView.swift; sourceTree = "<group>"; };
+		4230C2742E7D4EB5001169DF /* LocalModelRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalModelRowView.swift; sourceTree = "<group>"; };
+		4230C2772E7D4EB5001169DF /* ModelIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelIcon.swift; sourceTree = "<group>"; };
+		4230C2782E7D4EB5001169DF /* ModelIconManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelIconManager.swift; sourceTree = "<group>"; };
+		4230C27A2E7D4EB5001169DF /* ModelInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelInfo.swift; sourceTree = "<group>"; };
+		4230C27B2E7D4EB5001169DF /* ModelListViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelListViewModel.swift; sourceTree = "<group>"; };
+		4230C27C2E7D4EB5001169DF /* TBDataResponse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBDataResponse.swift; sourceTree = "<group>"; };
+		4230C27E2E7D4EB5001169DF /* FilterButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterButton.swift; sourceTree = "<group>"; };
+		4230C27F2E7D4EB5001169DF /* FilterMenuView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterMenuView.swift; sourceTree = "<group>"; };
+		4230C2802E7D4EB5001169DF /* FilterOptionRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterOptionRow.swift; sourceTree = "<group>"; };
+		4230C2812E7D4EB5001169DF /* FilterTagChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterTagChip.swift; sourceTree = "<group>"; };
+		4230C2822E7D4EB5001169DF /* QuickFilterTags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickFilterTags.swift; sourceTree = "<group>"; };
+		4230C2832E7D4EB5001169DF /* SourceSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceSelector.swift; sourceTree = "<group>"; };
+		4230C2842E7D4EB5001169DF /* ToolbarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolbarView.swift; sourceTree = "<group>"; };
+		4230C2862E7D4EB5001169DF /* ActionButtonsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionButtonsView.swift; sourceTree = "<group>"; };
+		4230C2872E7D4EB5001169DF /* DownloadedButtonView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadedButtonView.swift; sourceTree = "<group>"; };
+		4230C2882E7D4EB5001169DF /* DownloadingButtonView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadingButtonView.swift; sourceTree = "<group>"; };
+		4230C2892E7D4EB5001169DF /* PendingDownloadButtonView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingDownloadButtonView.swift; sourceTree = "<group>"; };
+		4230C28A2E7D4EB5001169DF /* TagChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagChip.swift; sourceTree = "<group>"; };
+		4230C28B2E7D4EB5001169DF /* TagsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagsView.swift; sourceTree = "<group>"; };
+		4230C28D2E7D4EB5001169DF /* CustomPopupMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomPopupMenu.swift; sourceTree = "<group>"; };
+		4230C28E2E7D4EB5001169DF /* HelpView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpView.swift; sourceTree = "<group>"; };
+		4230C28F2E7D4EB5001169DF /* ModelListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelListView.swift; sourceTree = "<group>"; };
+		4230C2902E7D4EB5001169DF /* ModelRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelRowView.swift; sourceTree = "<group>"; };
+		4230C2912E7D4EB5001169DF /* SearchBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchBar.swift; sourceTree = "<group>"; };
+		4230C2922E7D4EB5001169DF /* SwipeActionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwipeActionsView.swift; sourceTree = "<group>"; };
+		4230C2932E7D4EB5001169DF /* WebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebView.swift; sourceTree = "<group>"; };
+		4230C2962E7D4EB5001169DF /* ModelSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelSource.swift; sourceTree = "<group>"; };
+		4230C2972E7D4EB5001169DF /* ModelSourceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelSourceManager.swift; sourceTree = "<group>"; };
+		4230C2992E7D4EB5001169DF /* ModelStorageManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelStorageManager.swift; sourceTree = "<group>"; };
+		4230C29B2E7D4EB5001169DF /* TagTranslationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagTranslationManager.swift; sourceTree = "<group>"; };
+		4230C29E2E7D4EB5001169DF /* CommonToolbarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommonToolbarView.swift; sourceTree = "<group>"; };
+		4230C29F2E7D4EB5001169DF /* MainTabItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabItem.swift; sourceTree = "<group>"; };
+		4230C2A02E7D4EB5001169DF /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
+		4230C2A22E7D4EB5001169DF /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
+		4230C2AD2E7D4EB5001169DF /* mock.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = mock.json; sourceTree = "<group>"; };
+		4230C2AF2E7D4EB5001169DF /* AsyncSemaphore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AsyncSemaphore.swift; sourceTree = "<group>"; };
+		4230C2B02E7D4EB5001169DF /* DynamicConcurrencyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DynamicConcurrencyManager.swift; sourceTree = "<group>"; };
+		4230C2B12E7D4EB5001169DF /* ModelClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelClient.swift; sourceTree = "<group>"; };
+		4230C2B22E7D4EB5001169DF /* ModelDownloadConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelDownloadConfiguration.swift; sourceTree = "<group>"; };
+		4230C2B32E7D4EB5001169DF /* ModelDownloadLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelDownloadLogger.swift; sourceTree = "<group>"; };
+		4230C2B42E7D4EB5001169DF /* ModelDownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelDownloadManager.swift; sourceTree = "<group>"; };
+		4230C2B52E7D4EB5001169DF /* ModelDownloadManagerProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelDownloadManagerProtocol.swift; sourceTree = "<group>"; };
+		4230C2B62E7D4EB5001169DF /* ModelDownloadStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelDownloadStorage.swift; sourceTree = "<group>"; };
+		4230C2B72E7D4EB5001169DF /* ModelScopeDownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelScopeDownloadManager.swift; sourceTree = "<group>"; };
+		4230C2B82E7D4EB5001169DF /* ModelScopeModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelScopeModels.swift; sourceTree = "<group>"; };
+		4230C2B92E7D4EB5001169DF /* ModelScopeUtilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelScopeUtilities.swift; sourceTree = "<group>"; };
+		4230C2BB2E7D4EB5001169DF /* AssetExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetExtractor.swift; sourceTree = "<group>"; };
+		4230C2BC2E7D4EB5001169DF /* Attachment+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Attachment+Extension.swift"; sourceTree = "<group>"; };
+		4230C2BD2E7D4EB5001169DF /* Color+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Color+Extension.swift"; sourceTree = "<group>"; };
+		4230C2BE2E7D4EB5001169DF /* FileOperationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileOperationManager.swift; sourceTree = "<group>"; };
+		4230C2BF2E7D4EB5001169DF /* LanguageManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageManager.swift; sourceTree = "<group>"; };
+		4230C2C02E7D4EB5001169DF /* ModelUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelUtils.swift; sourceTree = "<group>"; };
+		4230C2C12E7D4EB5001169DF /* NotificationNames.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationNames.swift; sourceTree = "<group>"; };
+		4230C2C22E7D4EB5001169DF /* String+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "String+Extension.swift"; sourceTree = "<group>"; };
+		4230C2C32E7D4EB5001169DF /* URL+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "URL+Extension.swift"; sourceTree = "<group>"; };
+		4230C2C42E7D4EB5001169DF /* Util.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Util.swift; sourceTree = "<group>"; };
+		4230C2C72E7D4EB5001169DF /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		4230C2CA2E7D4EB5001169DF /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		4230C2CB2E7D4EB5001169DF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		4230C2CC2E7D4EB5001169DF /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		4230C2CD2E7D4EB5001169DF /* MNNLLMiOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MNNLLMiOS.entitlements; sourceTree = "<group>"; };
+		4230C2CE2E7D4EB5001169DF /* MNNLLMiOS-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "MNNLLMiOS-Bridging-Header.h"; sourceTree = "<group>"; };
+		4230C2CF2E7D4EB5001169DF /* MNNLLMiOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MNNLLMiOSApp.swift; sourceTree = "<group>"; };
+		4230C34A2E7D4EC0001169DF /* MNNLLMiOSUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MNNLLMiOSUITests.swift; sourceTree = "<group>"; };
+		4230C34B2E7D4EC0001169DF /* MNNLLMiOSUITestsLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MNNLLMiOSUITestsLaunchTests.swift; sourceTree = "<group>"; };
+		4230C34F2E7D4EC0001169DF /* MNNLLMiOSTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MNNLLMiOSTests.swift; sourceTree = "<group>"; };
+		BB36A9DF7CC54A66BCE04843 /* FileTestModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileTestModels.swift; sourceTree = "<group>"; };
+		CFB6BE595C064741BF59008B /* ChatMenuView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMenuView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
-
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		3E94DF342D30CCFA00BE39A7 /* Exceptions for "MNNLLMiOS" folder in "MNNLLMiOS" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Info.plist,
-			);
-			target = 3E8591FD2D1D45070067B46F /* MNNLLMiOS */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
-
-/* Begin PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
-		3E94E00F2D40DED600BE39A7 /* Exceptions for "MNNLLMiOS" folder in "Compile Sources" phase from "MNNLLMiOS" target */ = {
-			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
-			buildPhase = 3E8591FA2D1D45070067B46F /* Sources */;
-			membershipExceptions = (
-				InferenceEngine/DiffusionSession.h,
-			);
-		};
-/* End PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
-
-/* Begin PBXFileSystemSynchronizedRootGroup section */
-		3E8592122D1D45090067B46F /* MNNLLMiOSTests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = MNNLLMiOSTests;
-			sourceTree = "<group>";
-		};
-		3E85921C2D1D45090067B46F /* MNNLLMiOSUITests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = MNNLLMiOSUITests;
-			sourceTree = "<group>";
-		};
-		3E94DF1F2D30CCF900BE39A7 /* MNNLLMiOS */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				3E94DF342D30CCFA00BE39A7 /* Exceptions for "MNNLLMiOS" folder in "MNNLLMiOS" target */,
-				3E94E00F2D40DED600BE39A7 /* Exceptions for "MNNLLMiOS" folder in "Compile Sources" phase from "MNNLLMiOS" target */,
-			);
-			path = MNNLLMiOS;
-			sourceTree = "<group>";
-		};
-/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		3E8591FB2D1D45070067B46F /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				3EDA70222E605BE700B17E48 /* ExyteChat in Frameworks */,
+				3ECAC6062F3C62570003C496 /* ExyteChat in Frameworks */,
+				3E2F97302E89158600E61F35 /* ExyteChat in Frameworks */,
+				3E2F972F2E89158600E61F35 /* ExyteChat in Frameworks */,
+				3E2F972E2E89158600E61F35 /* ExyteChat in Frameworks */,
 				3E301C692D5C84730045E5E1 /* MNN.framework in Frameworks */,
-				3E6301D42E6A8A470004EC63 /* ExyteChat in Frameworks */,
+				3ECAC6092F3C74370003C496 /* ExyteChat in Frameworks */,
+				3EAB12362E7FD12300C4E5F6 /* MarkdownView in Frameworks */,
 				3E94DFF12D37DBA900BE39A7 /* SQLite in Frameworks */,
 				3EC8DF872E4DCF5800861131 /* Transformers in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		3E85920C2D1D45080067B46F /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		3E8592162D1D45090067B46F /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		3E440F092EE2DEDE00BB15FF /* Audio */ = {
+			isa = PBXGroup;
+			children = (
+				3E440F082EE2DEDE00BB15FF /* AudioPlaybackManager.swift */,
+			);
+			path = Audio;
+			sourceTree = "<group>";
+		};
 		3E8591F52D1D45070067B46F = {
 			isa = PBXGroup;
 			children = (
-				3E94DF1F2D30CCF900BE39A7 /* MNNLLMiOS */,
-				3E8592122D1D45090067B46F /* MNNLLMiOSTests */,
-				3E85921C2D1D45090067B46F /* MNNLLMiOSUITests */,
+				3ECE19C22E99FED6001A4CDD /* LocalBatchTest */,
+				3E55A66B2E828189003CB2E2 /* LocalModel */,
+				4230C2D02E7D4EB5001169DF /* MNNLLMiOS */,
+				4230C3502E7D4EC0001169DF /* MNNLLMiOSTests */,
+				4230C34C2E7D4EC0001169DF /* MNNLLMiOSUITests */,
 				3EAD33842D2BDDC300021CF7 /* Frameworks */,
 				3E8591FF2D1D45070067B46F /* Products */,
 			);
@@ -125,8 +322,6 @@
 			isa = PBXGroup;
 			children = (
 				3E8591FE2D1D45070067B46F /* MNNLLMiOS.app */,
-				3E85920F2D1D45080067B46F /* MNNLLMiOSTests.xctest */,
-				3E8592192D1D45090067B46F /* MNNLLMiOSUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -139,6 +334,468 @@
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
+		3ECE19BC2E9904B2001A4CDD /* BatchTestModels */ = {
+			isa = PBXGroup;
+			children = (
+				3ECE19BD2E9904C9001A4CDD /* BatchTest.swift */,
+			);
+			path = BatchTestModels;
+			sourceTree = "<group>";
+		};
+		4230C22F2E7D4EB5001169DF /* Interactor */ = {
+			isa = PBXGroup;
+			children = (
+				4230C22C2E7D4EB5001169DF /* ChatInteractorProtocol.swift */,
+				4230C22D2E7D4EB5001169DF /* LLMChatInteractor.swift */,
+				4230C22E2E7D4EB5001169DF /* ThinkResultProcessor.swift */,
+			);
+			path = Interactor;
+			sourceTree = "<group>";
+		};
+		4230C2362E7D4EB5001169DF /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				3ECE19BC2E9904B2001A4CDD /* BatchTestModels */,
+				4230C2302E7D4EB5001169DF /* LLMChatData.swift */,
+				4230C2312E7D4EB5001169DF /* LLMChatImage.swift */,
+				4230C2322E7D4EB5001169DF /* LLMChatMessage.swift */,
+				4230C2332E7D4EB5001169DF /* LLMChatUser.swift */,
+				4230C2342E7D4EB5001169DF /* LLMChatVideo.swift */,
+				4230C2352E7D4EB5001169DF /* LLMState.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		4230C23A2E7D4EB5001169DF /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				4230C2372E7D4EB5001169DF /* ModelConfigManager.swift */,
+				4230C2382E7D4EB5001169DF /* PerformanceMonitor.swift */,
+				4230C2392E7D4EB5001169DF /* UIUpdateOptimizer.swift */,
+				3ECE19C42E9CE17B001A4CDD /* DocumentPicker.swift */,
+				3ECE19C62E9CE1BD001A4CDD /* TextFileActivityItemSource.swift */,
+				3ECE19C82E9CE1F0001A4CDD /* BatchFileTestService.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		4230C23C2E7D4EB5001169DF /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				4230C23B2E7D4EB5001169DF /* LLMChatViewModel.swift */,
+				3EEAB30A2E8BD5550039DF50 /* BatchFileTestViewModel.swift */,
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		4230C2412E7D4EB5001169DF /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				26F235F884BD455DA4AFBEF5 /* BatchFileTestView.swift */,
+				CFB6BE595C064741BF59008B /* ChatMenuView.swift */,
+				4230C23D2E7D4EB5001169DF /* LLMChatView.swift */,
+				4230C23E2E7D4EB5001169DF /* MixedSamplersView.swift */,
+				4230C23F2E7D4EB5001169DF /* ModelSettingsView.swift */,
+				4230C2402E7D4EB5001169DF /* ParameterSliderView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		4230C2422E7D4EB5001169DF /* Chat */ = {
+			isa = PBXGroup;
+			children = (
+				3E440F092EE2DEDE00BB15FF /* Audio */,
+				4230C22F2E7D4EB5001169DF /* Interactor */,
+				4230C2362E7D4EB5001169DF /* Models */,
+				4230C23A2E7D4EB5001169DF /* Services */,
+				4230C23C2E7D4EB5001169DF /* ViewModels */,
+				4230C2412E7D4EB5001169DF /* Views */,
+			);
+			path = Chat;
+			sourceTree = "<group>";
+		};
+		4230C2442E7D4EB5001169DF /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				4230C2432E7D4EB5001169DF /* ChatHistory.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		4230C2482E7D4EB5001169DF /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				4230C2452E7D4EB5001169DF /* ChatHistoryDatabase.swift */,
+				4230C2462E7D4EB5001169DF /* ChatHistoryFileManager.swift */,
+				4230C2472E7D4EB5001169DF /* ChatHistoryManager.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		4230C24C2E7D4EB5001169DF /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				4230C2492E7D4EB5001169DF /* ChatHistoryItemView.swift */,
+				4230C24A2E7D4EB5001169DF /* ModelIconView.swift */,
+				4230C24B2E7D4EB5001169DF /* SideMenuView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		4230C24D2E7D4EB5001169DF /* ChatHistory */ = {
+			isa = PBXGroup;
+			children = (
+				4230C2442E7D4EB5001169DF /* Models */,
+				4230C2482E7D4EB5001169DF /* Services */,
+				4230C24C2E7D4EB5001169DF /* Views */,
+			);
+			path = ChatHistory;
+			sourceTree = "<group>";
+		};
+		4230C2522E7D4EB5001169DF /* InferenceEngine */ = {
+			isa = PBXGroup;
+			children = (
+				3E2B293A2F1F7C28006DE361 /* SanaDiffusionSession.h */,
+				3E2B293B2F1F7C28006DE361 /* SanaDiffusionSession.mm */,
+				4230C24E2E7D4EB5001169DF /* DiffusionSession.h */,
+				4230C24F2E7D4EB5001169DF /* DiffusionSession.mm */,
+				4230C2502E7D4EB5001169DF /* LLMInferenceEngineWrapper.h */,
+				4230C2512E7D4EB5001169DF /* LLMInferenceEngineWrapper.mm */,
+			);
+			path = InferenceEngine;
+			sourceTree = "<group>";
+		};
+		4230C2562E7D4EB5001169DF /* Helpers */ = {
+			isa = PBXGroup;
+			children = (
+				4230C2552E7D4EB5001169DF /* BenchmarkResultsHelper.swift */,
+			);
+			path = Helpers;
+			sourceTree = "<group>";
+		};
+		4230C2642E7D4EB5001169DF /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				4230C2572E7D4EB5001169DF /* BenchmarkErrorCode.swift */,
+				4230C2582E7D4EB5001169DF /* BenchmarkProgress.swift */,
+				4230C2592E7D4EB5001169DF /* BenchmarkResult.swift */,
+				4230C25A2E7D4EB5001169DF /* BenchmarkResults.swift */,
+				4230C25B2E7D4EB5001169DF /* BenchmarkStatistics.swift */,
+				4230C25C2E7D4EB5001169DF /* DeviceInfoHelper.swift */,
+				BB36A9DF7CC54A66BCE04843 /* FileTestModels.swift */,
+				4230C25D2E7D4EB5001169DF /* ModelItem.swift */,
+				4230C25E2E7D4EB5001169DF /* ModelListManager.swift */,
+				4230C25F2E7D4EB5001169DF /* ProgressType.swift */,
+				4230C2602E7D4EB5001169DF /* RuntimeParameters.swift */,
+				4230C2612E7D4EB5001169DF /* SpeedStatistics.swift */,
+				4230C2622E7D4EB5001169DF /* TestInstance.swift */,
+				4230C2632E7D4EB5001169DF /* TestParameters.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		4230C2662E7D4EB5001169DF /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				4230C2652E7D4EB5001169DF /* BenchmarkService.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		4230C2682E7D4EB5001169DF /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				4230C2672E7D4EB5001169DF /* BenchmarkViewModel.swift */,
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		4230C26F2E7D4EB5001169DF /* BenchmarkSubViews */ = {
+			isa = PBXGroup;
+			children = (
+				4230C2692E7D4EB5001169DF /* MetricCard.swift */,
+				4230C26A2E7D4EB5001169DF /* ModelSelectionCard.swift */,
+				4230C26B2E7D4EB5001169DF /* PerformanceMetricView.swift */,
+				4230C26C2E7D4EB5001169DF /* ProgressCard.swift */,
+				4230C26D2E7D4EB5001169DF /* ResultsCard.swift */,
+				4230C26E2E7D4EB5001169DF /* StatusCard.swift */,
+			);
+			path = BenchmarkSubViews;
+			sourceTree = "<group>";
+		};
+		4230C2712E7D4EB5001169DF /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				4230C26F2E7D4EB5001169DF /* BenchmarkSubViews */,
+				4230C2702E7D4EB5001169DF /* BenchmarkView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		4230C2722E7D4EB5001169DF /* Benchmark */ = {
+			isa = PBXGroup;
+			children = (
+				4230C2562E7D4EB5001169DF /* Helpers */,
+				4230C2642E7D4EB5001169DF /* Models */,
+				4230C2662E7D4EB5001169DF /* Services */,
+				4230C2682E7D4EB5001169DF /* ViewModels */,
+				4230C2712E7D4EB5001169DF /* Views */,
+			);
+			path = Benchmark;
+			sourceTree = "<group>";
+		};
+		4230C2752E7D4EB5001169DF /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				4230C2732E7D4EB5001169DF /* LocalModelListView.swift */,
+				4230C2742E7D4EB5001169DF /* LocalModelRowView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		4230C2762E7D4EB5001169DF /* LocalModelList */ = {
+			isa = PBXGroup;
+			children = (
+				4230C2752E7D4EB5001169DF /* Views */,
+			);
+			path = LocalModelList;
+			sourceTree = "<group>";
+		};
+		4230C2792E7D4EB5001169DF /* ModelIcon */ = {
+			isa = PBXGroup;
+			children = (
+				4230C2772E7D4EB5001169DF /* ModelIcon.swift */,
+				4230C2782E7D4EB5001169DF /* ModelIconManager.swift */,
+			);
+			path = ModelIcon;
+			sourceTree = "<group>";
+		};
+		4230C27D2E7D4EB5001169DF /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				4230C27A2E7D4EB5001169DF /* ModelInfo.swift */,
+				4230C27B2E7D4EB5001169DF /* ModelListViewModel.swift */,
+				4230C27C2E7D4EB5001169DF /* TBDataResponse.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		4230C2852E7D4EB5001169DF /* ModelListSubviews */ = {
+			isa = PBXGroup;
+			children = (
+				4230C27E2E7D4EB5001169DF /* FilterButton.swift */,
+				4230C27F2E7D4EB5001169DF /* FilterMenuView.swift */,
+				4230C2802E7D4EB5001169DF /* FilterOptionRow.swift */,
+				4230C2812E7D4EB5001169DF /* FilterTagChip.swift */,
+				4230C2822E7D4EB5001169DF /* QuickFilterTags.swift */,
+				4230C2832E7D4EB5001169DF /* SourceSelector.swift */,
+				4230C2842E7D4EB5001169DF /* ToolbarView.swift */,
+			);
+			path = ModelListSubviews;
+			sourceTree = "<group>";
+		};
+		4230C28C2E7D4EB5001169DF /* ModelRowSubviews */ = {
+			isa = PBXGroup;
+			children = (
+				4230C2862E7D4EB5001169DF /* ActionButtonsView.swift */,
+				4230C2872E7D4EB5001169DF /* DownloadedButtonView.swift */,
+				4230C2882E7D4EB5001169DF /* DownloadingButtonView.swift */,
+				4230C2892E7D4EB5001169DF /* PendingDownloadButtonView.swift */,
+				4230C28A2E7D4EB5001169DF /* TagChip.swift */,
+				4230C28B2E7D4EB5001169DF /* TagsView.swift */,
+			);
+			path = ModelRowSubviews;
+			sourceTree = "<group>";
+		};
+		4230C2942E7D4EB5001169DF /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				4230C2852E7D4EB5001169DF /* ModelListSubviews */,
+				4230C28C2E7D4EB5001169DF /* ModelRowSubviews */,
+				4230C28D2E7D4EB5001169DF /* CustomPopupMenu.swift */,
+				4230C28E2E7D4EB5001169DF /* HelpView.swift */,
+				4230C28F2E7D4EB5001169DF /* ModelListView.swift */,
+				4230C2902E7D4EB5001169DF /* ModelRowView.swift */,
+				4230C2912E7D4EB5001169DF /* SearchBar.swift */,
+				4230C2922E7D4EB5001169DF /* SwipeActionsView.swift */,
+				4230C2932E7D4EB5001169DF /* WebView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		4230C2952E7D4EB5001169DF /* ModelList */ = {
+			isa = PBXGroup;
+			children = (
+				4230C2792E7D4EB5001169DF /* ModelIcon */,
+				4230C27D2E7D4EB5001169DF /* Models */,
+				4230C2942E7D4EB5001169DF /* Views */,
+			);
+			path = ModelList;
+			sourceTree = "<group>";
+		};
+		4230C2982E7D4EB5001169DF /* Source */ = {
+			isa = PBXGroup;
+			children = (
+				4230C2962E7D4EB5001169DF /* ModelSource.swift */,
+				4230C2972E7D4EB5001169DF /* ModelSourceManager.swift */,
+			);
+			path = Source;
+			sourceTree = "<group>";
+		};
+		4230C29A2E7D4EB5001169DF /* Storage */ = {
+			isa = PBXGroup;
+			children = (
+				4230C2992E7D4EB5001169DF /* ModelStorageManager.swift */,
+			);
+			path = Storage;
+			sourceTree = "<group>";
+		};
+		4230C29C2E7D4EB5001169DF /* TagTranslation */ = {
+			isa = PBXGroup;
+			children = (
+				4230C29B2E7D4EB5001169DF /* TagTranslationManager.swift */,
+			);
+			path = TagTranslation;
+			sourceTree = "<group>";
+		};
+		4230C29D2E7D4EB5001169DF /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				4230C2982E7D4EB5001169DF /* Source */,
+				4230C29A2E7D4EB5001169DF /* Storage */,
+				4230C29C2E7D4EB5001169DF /* TagTranslation */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		4230C2A12E7D4EB5001169DF /* MainTab */ = {
+			isa = PBXGroup;
+			children = (
+				4230C2722E7D4EB5001169DF /* Benchmark */,
+				4230C2762E7D4EB5001169DF /* LocalModelList */,
+				4230C2952E7D4EB5001169DF /* ModelList */,
+				4230C29D2E7D4EB5001169DF /* Services */,
+				4230C29E2E7D4EB5001169DF /* CommonToolbarView.swift */,
+				4230C29F2E7D4EB5001169DF /* MainTabItem.swift */,
+				4230C2A02E7D4EB5001169DF /* MainTabView.swift */,
+			);
+			path = MainTab;
+			sourceTree = "<group>";
+		};
+		4230C2A32E7D4EB5001169DF /* Preview Content */ = {
+			isa = PBXGroup;
+			children = (
+				4230C2A22E7D4EB5001169DF /* Preview Assets.xcassets */,
+			);
+			path = "Preview Content";
+			sourceTree = "<group>";
+		};
+		4230C2AE2E7D4EB5001169DF /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				4230C2AD2E7D4EB5001169DF /* mock.json */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		4230C2BA2E7D4EB5001169DF /* ModelDownloader */ = {
+			isa = PBXGroup;
+			children = (
+				4230C2AF2E7D4EB5001169DF /* AsyncSemaphore.swift */,
+				4230C2B02E7D4EB5001169DF /* DynamicConcurrencyManager.swift */,
+				4230C2B12E7D4EB5001169DF /* ModelClient.swift */,
+				4230C2B22E7D4EB5001169DF /* ModelDownloadConfiguration.swift */,
+				4230C2B32E7D4EB5001169DF /* ModelDownloadLogger.swift */,
+				4230C2B42E7D4EB5001169DF /* ModelDownloadManager.swift */,
+				4230C2B52E7D4EB5001169DF /* ModelDownloadManagerProtocol.swift */,
+				4230C2B62E7D4EB5001169DF /* ModelDownloadStorage.swift */,
+				4230C2B72E7D4EB5001169DF /* ModelScopeDownloadManager.swift */,
+				4230C2B82E7D4EB5001169DF /* ModelScopeModels.swift */,
+				4230C2B92E7D4EB5001169DF /* ModelScopeUtilities.swift */,
+			);
+			path = ModelDownloader;
+			sourceTree = "<group>";
+		};
+		4230C2C52E7D4EB5001169DF /* Util */ = {
+			isa = PBXGroup;
+			children = (
+				4230C2BB2E7D4EB5001169DF /* AssetExtractor.swift */,
+				4230C2BC2E7D4EB5001169DF /* Attachment+Extension.swift */,
+				4230C2BD2E7D4EB5001169DF /* Color+Extension.swift */,
+				4230C2BE2E7D4EB5001169DF /* FileOperationManager.swift */,
+				4230C2BF2E7D4EB5001169DF /* LanguageManager.swift */,
+				4230C2C02E7D4EB5001169DF /* ModelUtils.swift */,
+				4230C2C12E7D4EB5001169DF /* NotificationNames.swift */,
+				4230C2C22E7D4EB5001169DF /* String+Extension.swift */,
+				4230C2C32E7D4EB5001169DF /* URL+Extension.swift */,
+				4230C2C42E7D4EB5001169DF /* Util.swift */,
+			);
+			path = Util;
+			sourceTree = "<group>";
+		};
+		4230C2C62E7D4EB5001169DF /* Service */ = {
+			isa = PBXGroup;
+			children = (
+				4230C2BA2E7D4EB5001169DF /* ModelDownloader */,
+				4230C2C52E7D4EB5001169DF /* Util */,
+			);
+			path = Service;
+			sourceTree = "<group>";
+		};
+		4230C2C82E7D4EB5001169DF /* View */ = {
+			isa = PBXGroup;
+			children = (
+				4230C2C72E7D4EB5001169DF /* SettingsView.swift */,
+			);
+			path = View;
+			sourceTree = "<group>";
+		};
+		4230C2C92E7D4EB5001169DF /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				4230C2C82E7D4EB5001169DF /* View */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		4230C2D02E7D4EB5001169DF /* MNNLLMiOS */ = {
+			isa = PBXGroup;
+			children = (
+				4230C2422E7D4EB5001169DF /* Chat */,
+				4230C24D2E7D4EB5001169DF /* ChatHistory */,
+				4230C2522E7D4EB5001169DF /* InferenceEngine */,
+				4230C2A12E7D4EB5001169DF /* MainTab */,
+				4230C2A32E7D4EB5001169DF /* Preview Content */,
+				4230C2AE2E7D4EB5001169DF /* Resources */,
+				4230C2C62E7D4EB5001169DF /* Service */,
+				4230C2C92E7D4EB5001169DF /* Settings */,
+				4230C2CA2E7D4EB5001169DF /* Assets.xcassets */,
+				4230C2CB2E7D4EB5001169DF /* Info.plist */,
+				4230C2CC2E7D4EB5001169DF /* Localizable.xcstrings */,
+				4230C2CD2E7D4EB5001169DF /* MNNLLMiOS.entitlements */,
+				4230C2CE2E7D4EB5001169DF /* MNNLLMiOS-Bridging-Header.h */,
+				4230C2CF2E7D4EB5001169DF /* MNNLLMiOSApp.swift */,
+			);
+			path = MNNLLMiOS;
+			sourceTree = "<group>";
+		};
+		4230C34C2E7D4EC0001169DF /* MNNLLMiOSUITests */ = {
+			isa = PBXGroup;
+			children = (
+				4230C34A2E7D4EC0001169DF /* MNNLLMiOSUITests.swift */,
+				4230C34B2E7D4EC0001169DF /* MNNLLMiOSUITestsLaunchTests.swift */,
+			);
+			path = MNNLLMiOSUITests;
+			sourceTree = "<group>";
+		};
+		4230C3502E7D4EC0001169DF /* MNNLLMiOSTests */ = {
+			isa = PBXGroup;
+			children = (
+				4230C34F2E7D4EC0001169DF /* MNNLLMiOSTests.swift */,
+			);
+			path = MNNLLMiOSTests;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -146,7 +803,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 3E8592232D1D45090067B46F /* Build configuration list for PBXNativeTarget "MNNLLMiOS" */;
 			buildPhases = (
-				3E8591FA2D1D45070067B46F /* Sources */,
+				3E8591FA2D1D45070067B46F /* MNNChat */,
 				3E8591FB2D1D45070067B46F /* Frameworks */,
 				3E8591FC2D1D45070067B46F /* Resources */,
 			);
@@ -154,65 +811,19 @@
 			);
 			dependencies = (
 			);
-			fileSystemSynchronizedGroups = (
-				3E94DF1F2D30CCF900BE39A7 /* MNNLLMiOS */,
-			);
 			name = MNNLLMiOS;
 			packageProductDependencies = (
 				3E94DFF02D37DBA900BE39A7 /* SQLite */,
 				3EC8DF862E4DCF5800861131 /* Transformers */,
-				3EDA70212E605BE700B17E48 /* ExyteChat */,
-				3E6301D32E6A8A470004EC63 /* ExyteChat */,
+				3E5DD18F2E6FD56300F2AB7A /* ExyteChat */,
+				3E00BB8D2E73C4E200D60A8D /* ExyteChat */,
+				3E55AB222E839CFA003CB2E2 /* ExyteChat */,
+				3ECAC6052F3C62570003C496 /* ExyteChat */,
+				3ECAC6082F3C74370003C496 /* ExyteChat */,
 			);
 			productName = MNNLLMiOS;
 			productReference = 3E8591FE2D1D45070067B46F /* MNNLLMiOS.app */;
 			productType = "com.apple.product-type.application";
-		};
-		3E85920E2D1D45080067B46F /* MNNLLMiOSTests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 3E8592262D1D45090067B46F /* Build configuration list for PBXNativeTarget "MNNLLMiOSTests" */;
-			buildPhases = (
-				3E85920B2D1D45080067B46F /* Sources */,
-				3E85920C2D1D45080067B46F /* Frameworks */,
-				3E85920D2D1D45080067B46F /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				3E8592112D1D45090067B46F /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				3E8592122D1D45090067B46F /* MNNLLMiOSTests */,
-			);
-			name = MNNLLMiOSTests;
-			packageProductDependencies = (
-			);
-			productName = MNNLLMiOSTests;
-			productReference = 3E85920F2D1D45080067B46F /* MNNLLMiOSTests.xctest */;
-			productType = "com.apple.product-type.bundle.unit-test";
-		};
-		3E8592182D1D45090067B46F /* MNNLLMiOSUITests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 3E8592292D1D45090067B46F /* Build configuration list for PBXNativeTarget "MNNLLMiOSUITests" */;
-			buildPhases = (
-				3E8592152D1D45090067B46F /* Sources */,
-				3E8592162D1D45090067B46F /* Frameworks */,
-				3E8592172D1D45090067B46F /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				3E85921B2D1D45090067B46F /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				3E85921C2D1D45090067B46F /* MNNLLMiOSUITests */,
-			);
-			name = MNNLLMiOSUITests;
-			packageProductDependencies = (
-			);
-			productName = MNNLLMiOSUITests;
-			productReference = 3E8592192D1D45090067B46F /* MNNLLMiOSUITests.xctest */;
-			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
 
@@ -227,17 +838,10 @@
 					3E8591FD2D1D45070067B46F = {
 						CreatedOnToolsVersion = 16.2;
 					};
-					3E85920E2D1D45080067B46F = {
-						CreatedOnToolsVersion = 16.2;
-						TestTargetID = 3E8591FD2D1D45070067B46F;
-					};
-					3E8592182D1D45090067B46F = {
-						CreatedOnToolsVersion = 16.2;
-						TestTargetID = 3E8591FD2D1D45070067B46F;
-					};
 				};
 			};
 			buildConfigurationList = 3E8591F92D1D45070067B46F /* Build configuration list for PBXProject "MNNLLMiOS" */;
+			compatibilityVersion = "Xcode 15.3";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -250,16 +854,14 @@
 			packageReferences = (
 				3E94DF8A2D37D8FF00BE39A7 /* XCRemoteSwiftPackageReference "SQLite" */,
 				3EC8DF832E4DCF4A00861131 /* XCRemoteSwiftPackageReference "swift-transformers" */,
-				3E6301D22E6A8A470004EC63 /* XCRemoteSwiftPackageReference "Chat" */,
+				3EAB12342E7FD12300C4E5F6 /* XCRemoteSwiftPackageReference "MarkdownView" */,
+				3ECAC6072F3C74370003C496 /* XCRemoteSwiftPackageReference "Chat" */,
 			);
-			preferredProjectObjectVersion = 77;
 			productRefGroup = 3E8591FF2D1D45070067B46F /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
 				3E8591FD2D1D45070067B46F /* MNNLLMiOS */,
-				3E85920E2D1D45080067B46F /* MNNLLMiOSTests */,
-				3E8592182D1D45090067B46F /* MNNLLMiOSUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -269,61 +871,144 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		3E85920D2D1D45080067B46F /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		3E8592172D1D45090067B46F /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
+				3ECE19C32E99FED6001A4CDD /* LocalBatchTest in Resources */,
+				3E55A66C2E828189003CB2E2 /* LocalModel in Resources */,
+				4230C2D22E7D4EB5001169DF /* Preview Assets.xcassets in Resources */,
+				4230C2DB2E7D4EB5001169DF /* mock.json in Resources */,
+				4230C2DC2E7D4EB5001169DF /* Assets.xcassets in Resources */,
+				4230C2DE2E7D4EB5001169DF /* Localizable.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		3E8591FA2D1D45070067B46F /* Sources */ = {
+		3E8591FA2D1D45070067B46F /* MNNChat */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4230C2DF2E7D4EB5001169DF /* ChatInteractorProtocol.swift in MNNChat */,
+				4230C2E02E7D4EB5001169DF /* LLMChatInteractor.swift in MNNChat */,
+				4230C2E12E7D4EB5001169DF /* ThinkResultProcessor.swift in MNNChat */,
+				4230C2E22E7D4EB5001169DF /* LLMChatData.swift in MNNChat */,
+				4230C2E32E7D4EB5001169DF /* LLMChatImage.swift in MNNChat */,
+				4230C2E42E7D4EB5001169DF /* LLMChatMessage.swift in MNNChat */,
+				3ECE19C72E9CE1BD001A4CDD /* TextFileActivityItemSource.swift in MNNChat */,
+				4230C2E52E7D4EB5001169DF /* LLMChatUser.swift in MNNChat */,
+				4230C2E62E7D4EB5001169DF /* LLMChatVideo.swift in MNNChat */,
+				4230C2E72E7D4EB5001169DF /* LLMState.swift in MNNChat */,
+				4230C2E82E7D4EB5001169DF /* ModelConfigManager.swift in MNNChat */,
+				4230C2E92E7D4EB5001169DF /* PerformanceMonitor.swift in MNNChat */,
+				4230C2EA2E7D4EB5001169DF /* UIUpdateOptimizer.swift in MNNChat */,
+				4230C2EB2E7D4EB5001169DF /* LLMChatViewModel.swift in MNNChat */,
+				4230C2EC2E7D4EB5001169DF /* LLMChatView.swift in MNNChat */,
+				4230C2ED2E7D4EB5001169DF /* MixedSamplersView.swift in MNNChat */,
+				4230C2EE2E7D4EB5001169DF /* ModelSettingsView.swift in MNNChat */,
+				4230C2EF2E7D4EB5001169DF /* ParameterSliderView.swift in MNNChat */,
+				4230C2F02E7D4EB5001169DF /* ChatHistory.swift in MNNChat */,
+				4230C2F12E7D4EB5001169DF /* ChatHistoryDatabase.swift in MNNChat */,
+				4230C2F22E7D4EB5001169DF /* ChatHistoryFileManager.swift in MNNChat */,
+				3ECE19C52E9CE17B001A4CDD /* DocumentPicker.swift in MNNChat */,
+				4230C2F32E7D4EB5001169DF /* ChatHistoryManager.swift in MNNChat */,
+				4230C2F42E7D4EB5001169DF /* ChatHistoryItemView.swift in MNNChat */,
+				4230C2F52E7D4EB5001169DF /* ModelIconView.swift in MNNChat */,
+				4230C2F62E7D4EB5001169DF /* SideMenuView.swift in MNNChat */,
+				4230C2F72E7D4EB5001169DF /* DiffusionSession.mm in MNNChat */,
+				4230C2F82E7D4EB5001169DF /* LLMInferenceEngineWrapper.mm in MNNChat */,
+				4230C2F92E7D4EB5001169DF /* BenchmarkResultsHelper.swift in MNNChat */,
+				4230C2FA2E7D4EB5001169DF /* BenchmarkErrorCode.swift in MNNChat */,
+				4230C2FB2E7D4EB5001169DF /* BenchmarkProgress.swift in MNNChat */,
+				4230C2FC2E7D4EB5001169DF /* BenchmarkResult.swift in MNNChat */,
+				4230C2FD2E7D4EB5001169DF /* BenchmarkResults.swift in MNNChat */,
+				4230C2FE2E7D4EB5001169DF /* BenchmarkStatistics.swift in MNNChat */,
+				4230C2FF2E7D4EB5001169DF /* DeviceInfoHelper.swift in MNNChat */,
+				BC9657CD7C014E29ACBDDD99 /* FileTestModels.swift in MNNChat */,
+				4230C3002E7D4EB5001169DF /* ModelItem.swift in MNNChat */,
+				4230C3012E7D4EB5001169DF /* ModelListManager.swift in MNNChat */,
+				4230C3022E7D4EB5001169DF /* ProgressType.swift in MNNChat */,
+				3EEAB30B2E8BD5550039DF50 /* BatchFileTestViewModel.swift in MNNChat */,
+				4230C3032E7D4EB5001169DF /* RuntimeParameters.swift in MNNChat */,
+				4230C3042E7D4EB5001169DF /* SpeedStatistics.swift in MNNChat */,
+				4230C3052E7D4EB5001169DF /* TestInstance.swift in MNNChat */,
+				4230C3062E7D4EB5001169DF /* TestParameters.swift in MNNChat */,
+				4230C3072E7D4EB5001169DF /* BenchmarkService.swift in MNNChat */,
+				4230C3082E7D4EB5001169DF /* BenchmarkViewModel.swift in MNNChat */,
+				4230C3092E7D4EB5001169DF /* MetricCard.swift in MNNChat */,
+				4230C30A2E7D4EB5001169DF /* ModelSelectionCard.swift in MNNChat */,
+				4230C30B2E7D4EB5001169DF /* PerformanceMetricView.swift in MNNChat */,
+				4230C30C2E7D4EB5001169DF /* ProgressCard.swift in MNNChat */,
+				4230C30D2E7D4EB5001169DF /* ResultsCard.swift in MNNChat */,
+				4230C30E2E7D4EB5001169DF /* StatusCard.swift in MNNChat */,
+				4230C30F2E7D4EB5001169DF /* BenchmarkView.swift in MNNChat */,
+				4230C3102E7D4EB5001169DF /* LocalModelListView.swift in MNNChat */,
+				4230C3112E7D4EB5001169DF /* LocalModelRowView.swift in MNNChat */,
+				4230C3122E7D4EB5001169DF /* ModelIcon.swift in MNNChat */,
+				4230C3132E7D4EB5001169DF /* ModelIconManager.swift in MNNChat */,
+				4230C3142E7D4EB5001169DF /* ModelInfo.swift in MNNChat */,
+				4230C3152E7D4EB5001169DF /* ModelListViewModel.swift in MNNChat */,
+				4230C3162E7D4EB5001169DF /* TBDataResponse.swift in MNNChat */,
+				4230C3172E7D4EB5001169DF /* FilterButton.swift in MNNChat */,
+				4230C3182E7D4EB5001169DF /* FilterMenuView.swift in MNNChat */,
+				4230C3192E7D4EB5001169DF /* FilterOptionRow.swift in MNNChat */,
+				4230C31A2E7D4EB5001169DF /* FilterTagChip.swift in MNNChat */,
+				4230C31B2E7D4EB5001169DF /* QuickFilterTags.swift in MNNChat */,
+				3ECE19BE2E9904C9001A4CDD /* BatchTest.swift in MNNChat */,
+				4230C31C2E7D4EB5001169DF /* SourceSelector.swift in MNNChat */,
+				4230C31D2E7D4EB5001169DF /* ToolbarView.swift in MNNChat */,
+				4230C31E2E7D4EB5001169DF /* ActionButtonsView.swift in MNNChat */,
+				4230C3492E7D4EB5001169DF /* DiffusionSession.h in MNNChat */,
+				4230C31F2E7D4EB5001169DF /* DownloadedButtonView.swift in MNNChat */,
+				4230C3202E7D4EB5001169DF /* DownloadingButtonView.swift in MNNChat */,
+				4230C3212E7D4EB5001169DF /* PendingDownloadButtonView.swift in MNNChat */,
+				3E440F0A2EE2DEDE00BB15FF /* AudioPlaybackManager.swift in MNNChat */,
+				4230C3222E7D4EB5001169DF /* TagChip.swift in MNNChat */,
+				4230C3232E7D4EB5001169DF /* TagsView.swift in MNNChat */,
+				4230C3242E7D4EB5001169DF /* CustomPopupMenu.swift in MNNChat */,
+				4230C3252E7D4EB5001169DF /* HelpView.swift in MNNChat */,
+				4230C3262E7D4EB5001169DF /* ModelListView.swift in MNNChat */,
+				4230C3272E7D4EB5001169DF /* ModelRowView.swift in MNNChat */,
+				4230C3282E7D4EB5001169DF /* SearchBar.swift in MNNChat */,
+				4230C3292E7D4EB5001169DF /* SwipeActionsView.swift in MNNChat */,
+				4230C32A2E7D4EB5001169DF /* WebView.swift in MNNChat */,
+				4230C32B2E7D4EB5001169DF /* ModelSource.swift in MNNChat */,
+				4230C32C2E7D4EB5001169DF /* ModelSourceManager.swift in MNNChat */,
+				4230C32D2E7D4EB5001169DF /* ModelStorageManager.swift in MNNChat */,
+				4230C32E2E7D4EB5001169DF /* TagTranslationManager.swift in MNNChat */,
+				3E2B293C2F1F7C28006DE361 /* SanaDiffusionSession.mm in MNNChat */,
+				4230C32F2E7D4EB5001169DF /* CommonToolbarView.swift in MNNChat */,
+				4230C3302E7D4EB5001169DF /* MainTabItem.swift in MNNChat */,
+				4230C3312E7D4EB5001169DF /* MainTabView.swift in MNNChat */,
+				4230C3322E7D4EB5001169DF /* AsyncSemaphore.swift in MNNChat */,
+				4230C3332E7D4EB5001169DF /* DynamicConcurrencyManager.swift in MNNChat */,
+				4230C3342E7D4EB5001169DF /* ModelClient.swift in MNNChat */,
+				4230C3352E7D4EB5001169DF /* ModelDownloadConfiguration.swift in MNNChat */,
+				4230C3362E7D4EB5001169DF /* ModelDownloadLogger.swift in MNNChat */,
+				4230C3372E7D4EB5001169DF /* ModelDownloadManager.swift in MNNChat */,
+				4230C3382E7D4EB5001169DF /* ModelDownloadManagerProtocol.swift in MNNChat */,
+				4230C3392E7D4EB5001169DF /* ModelDownloadStorage.swift in MNNChat */,
+				4230C33A2E7D4EB5001169DF /* ModelScopeDownloadManager.swift in MNNChat */,
+				4230C33B2E7D4EB5001169DF /* ModelScopeModels.swift in MNNChat */,
+				4230C33C2E7D4EB5001169DF /* ModelScopeUtilities.swift in MNNChat */,
+				4230C33D2E7D4EB5001169DF /* AssetExtractor.swift in MNNChat */,
+				4230C33E2E7D4EB5001169DF /* Attachment+Extension.swift in MNNChat */,
+				4230C33F2E7D4EB5001169DF /* Color+Extension.swift in MNNChat */,
+				4230C3402E7D4EB5001169DF /* FileOperationManager.swift in MNNChat */,
+				4230C3412E7D4EB5001169DF /* LanguageManager.swift in MNNChat */,
+				4230C3422E7D4EB5001169DF /* ModelUtils.swift in MNNChat */,
+				3ECE19C92E9CE1F0001A4CDD /* BatchFileTestService.swift in MNNChat */,
+				4230C3432E7D4EB5001169DF /* NotificationNames.swift in MNNChat */,
+				4230C3442E7D4EB5001169DF /* String+Extension.swift in MNNChat */,
+				4230C3452E7D4EB5001169DF /* URL+Extension.swift in MNNChat */,
+				4230C3462E7D4EB5001169DF /* Util.swift in MNNChat */,
+				4230C3472E7D4EB5001169DF /* SettingsView.swift in MNNChat */,
+				4230C3482E7D4EB5001169DF /* MNNLLMiOSApp.swift in MNNChat */,
+				08329731E99C44DFA958144D /* BatchFileTestView.swift in MNNChat */,
+				3B98C65906634B47A0128961 /* ChatMenuView.swift in MNNChat */,
 			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		3E85920B2D1D45080067B46F /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		3E8592152D1D45090067B46F /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
+			name = MNNChat;
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
-
-/* Begin PBXTargetDependency section */
-		3E8592112D1D45090067B46F /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 3E8591FD2D1D45070067B46F /* MNNLLMiOS */;
-			targetProxy = 3E8592102D1D45090067B46F /* PBXContainerItemProxy */;
-		};
-		3E85921B2D1D45090067B46F /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 3E8591FD2D1D45070067B46F /* MNNLLMiOS */;
-			targetProxy = 3E85921A2D1D45090067B46F /* PBXContainerItemProxy */;
-		};
-/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		3E8592212D1D45090067B46F /* Debug */ = {
@@ -474,6 +1159,7 @@
 				INFOPLIST_KEY_NSDocumentsFolderUsageDescription = "This app needs to access your documents to save downloaded models";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "This app needs to access your local network to download models";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "We need use your mico to input voice";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "We need access your photo library to save images";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "We need access your photo library to select image";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -488,7 +1174,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnnchat;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -530,6 +1216,7 @@
 				INFOPLIST_KEY_NSDocumentsFolderUsageDescription = "This app needs to access your documents to save downloaded models";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "This app needs to access your local network to download models";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "We need use your mico to input voice";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "We need access your photo library to save images";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "We need access your photo library to select image";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -544,8 +1231,8 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14;
-				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnnchat;
 				MARKETING_VERSION = 1.0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnnchat;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = auto;
@@ -556,97 +1243,6 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2,7";
 				XROS_DEPLOYMENT_TARGET = 2;
-			};
-			name = Release;
-		};
-		3E8592272D1D45090067B46F /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 6QW92DF7RL;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSCameraUsageDescription = "";
-				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
-				MACOSX_DEPLOYMENT_TARGET = 15.2;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.yxy.MNNLLMiOSTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,7";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MNNLLMiOS.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/MNNLLMiOS";
-				XROS_DEPLOYMENT_TARGET = 2.2;
-			};
-			name = Debug;
-		};
-		3E8592282D1D45090067B46F /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 6QW92DF7RL;
-				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
-				MACOSX_DEPLOYMENT_TARGET = 15.2;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.yxy.MNNLLMiOSTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,7";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MNNLLMiOS.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/MNNLLMiOS";
-				XROS_DEPLOYMENT_TARGET = 2.2;
-			};
-			name = Release;
-		};
-		3E85922A2D1D45090067B46F /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 6QW92DF7RL;
-				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
-				MACOSX_DEPLOYMENT_TARGET = 15.2;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.yxy.MNNLLMiOSUITests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,7";
-				TEST_TARGET_NAME = MNNLLMiOS;
-				XROS_DEPLOYMENT_TARGET = 2.2;
-			};
-			name = Debug;
-		};
-		3E85922B2D1D45090067B46F /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 6QW92DF7RL;
-				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
-				MACOSX_DEPLOYMENT_TARGET = 15.2;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.yxy.MNNLLMiOSUITests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,7";
-				TEST_TARGET_NAME = MNNLLMiOS;
-				XROS_DEPLOYMENT_TARGET = 2.2;
 			};
 			name = Release;
 		};
@@ -671,41 +1267,23 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		3E8592262D1D45090067B46F /* Build configuration list for PBXNativeTarget "MNNLLMiOSTests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				3E8592272D1D45090067B46F /* Debug */,
-				3E8592282D1D45090067B46F /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		3E8592292D1D45090067B46F /* Build configuration list for PBXNativeTarget "MNNLLMiOSUITests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				3E85922A2D1D45090067B46F /* Debug */,
-				3E85922B2D1D45090067B46F /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		3E6301D22E6A8A470004EC63 /* XCRemoteSwiftPackageReference "Chat" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/Yogayu/Chat.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.0.1;
-			};
-		};
 		3E94DF8A2D37D8FF00BE39A7 /* XCRemoteSwiftPackageReference "SQLite" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/stephencelis/SQLite.swift";
 			requirement = {
 				kind = upToNextMajorVersion;
 				minimumVersion = 0.15.3;
+			};
+		};
+		3EAB12342E7FD12300C4E5F6 /* XCRemoteSwiftPackageReference "MarkdownView" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Yogayu/MarkdownView";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 3.4.0;
 			};
 		};
 		3EC8DF832E4DCF4A00861131 /* XCRemoteSwiftPackageReference "swift-transformers" */ = {
@@ -716,12 +1294,27 @@
 				minimumVersion = 0.1.22;
 			};
 		};
+		3ECAC6072F3C74370003C496 /* XCRemoteSwiftPackageReference "Chat" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Yogayu/Chat.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.43;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		3E6301D32E6A8A470004EC63 /* ExyteChat */ = {
+		3E00BB8D2E73C4E200D60A8D /* ExyteChat */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 3E6301D22E6A8A470004EC63 /* XCRemoteSwiftPackageReference "Chat" */;
+			productName = ExyteChat;
+		};
+		3E55AB222E839CFA003CB2E2 /* ExyteChat */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ExyteChat;
+		};
+		3E5DD18F2E6FD56300F2AB7A /* ExyteChat */ = {
+			isa = XCSwiftPackageProductDependency;
 			productName = ExyteChat;
 		};
 		3E94DFF02D37DBA900BE39A7 /* SQLite */ = {
@@ -729,13 +1322,23 @@
 			package = 3E94DF8A2D37D8FF00BE39A7 /* XCRemoteSwiftPackageReference "SQLite" */;
 			productName = SQLite;
 		};
+		3EAB12352E7FD12300C4E5F6 /* MarkdownView */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3EAB12342E7FD12300C4E5F6 /* XCRemoteSwiftPackageReference "MarkdownView" */;
+			productName = MarkdownView;
+		};
 		3EC8DF862E4DCF5800861131 /* Transformers */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 3EC8DF832E4DCF4A00861131 /* XCRemoteSwiftPackageReference "swift-transformers" */;
 			productName = Transformers;
 		};
-		3EDA70212E605BE700B17E48 /* ExyteChat */ = {
+		3ECAC6052F3C62570003C496 /* ExyteChat */ = {
 			isa = XCSwiftPackageProductDependency;
+			productName = ExyteChat;
+		};
+		3ECAC6082F3C74370003C496 /* ExyteChat */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3ECAC6072F3C74370003C496 /* XCRemoteSwiftPackageReference "Chat" */;
 			productName = ExyteChat;
 		};
 /* End XCSwiftPackageProductDependency section */

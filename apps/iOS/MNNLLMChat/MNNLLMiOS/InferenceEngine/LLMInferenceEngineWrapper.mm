@@ -72,76 +72,112 @@
 #include <chrono>
 #include <fstream>
 #include <iomanip>
+#include <regex>
+#include <unordered_set>
+#include <map>
+#include <initializer_list>
 #include <vector>
 #include <utility>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <errno.h>
-#include "MNN/expr/ExecutorScope.hpp"
+// #include "MNN/expr/ExecutorScope.hpp" // Removed - file not found
 
+#import <TargetConditionals.h>
 #import <Foundation/Foundation.h>
+#import <AVFoundation/AVFoundation.h>
+
+#if defined(__has_include)
+#if __has_include(<MNN/expr/Expr.hpp>)
+#include <MNN/expr/Expr.hpp>
+#else
+namespace MNN {
+namespace Express {
+enum DimensionType { NHWC };
+struct DummyVariable {
+    struct Info { std::vector<int> dim; };
+    Info info;
+    template<typename T>
+    T* writeMap() { return nullptr; }
+    template<typename T>
+    T* writeMap() const { return nullptr; }
+    Info* getInfo() { return &info; }
+    const Info* getInfo() const { return &info; }
+};
+class VARP {
+public:
+    DummyVariable storage;
+    DummyVariable* operator->() { return &storage; }
+    const DummyVariable* operator->() const { return &storage; }
+    DummyVariable* get() { return &storage; }
+    const DummyVariable* get() const { return &storage; }
+    void reset() {}
+    explicit operator bool() const { return false; }
+};
+inline VARP _Input(std::initializer_list<int>, DimensionType, int) { return VARP(); }
+}
+}
+template<typename T>
+int halide_type_of() { return 0; }
+#endif
+#endif
+#if __has_include(<UIKit/UIKit.h>)
+#import <UIKit/UIKit.h>
+#elif __has_include(<AppKit/AppKit.h>)
+#import <AppKit/AppKit.h>
+#define UIImage NSImage
+#endif
 #import "LLMInferenceEngineWrapper.h"
 
-// Conditional include for MNN headers
-#ifdef __has_include
-  #if __has_include(<MNN/llm/llm.hpp>)
-    #include <MNN/llm/llm.hpp>
-    using namespace MNN::Transformer;
-  #else
-    // Fallback declarations when MNN headers are not available
-    namespace MNN {
-        namespace Transformer {
-            class Llm {
-             public:
-                 static Llm* createLLM(const std::string& config_path);
-                 virtual void set_config(const std::string& config) = 0;
-                 virtual void load() = 0;
-                 virtual void response(const std::string& input_str, std::ostream* os = nullptr, const char* end_with = nullptr) = 0;
-                 virtual void response(const std::vector<std::pair<std::string, std::string>>& history, std::ostream* os = nullptr, const char* end_with = nullptr, int max_new_tokens = 999999) = 0;
-                 virtual void response(const std::vector<int>& tokens, std::ostream* os = nullptr, const char* end_with = nullptr, int max_new_tokens = 999999) = 0;
-                 virtual void reset() = 0;
-                 virtual bool stopped() = 0;
-                 virtual int generate(int max_token_number = 0) = 0;
-                 struct LlmContext {
-                     int prompt_len;
-                     int gen_seq_len;
-                     int64_t prefill_us;
-                     int64_t decode_us;
-                 };
-                 virtual LlmContext* getContext() = 0;
-                 virtual ~Llm() = default;
-             };
-        }
-    }
-    using namespace MNN::Transformer;
-  #endif
+#if defined(__has_include) && __has_include(<MNN/llm/llm.hpp>)
+#include <MNN/llm/llm.hpp>
+using namespace MNN::Transformer;
 #else
-  // Fallback for older compilers
-  namespace MNN {
-      namespace Transformer {
-          class Llm {
-           public:
-               static Llm* createLLM(const std::string& config_path);
-               virtual void set_config(const std::string& config) = 0;
-               virtual void load() = 0;
-               virtual void response(const std::string& input_str, std::ostream* os = nullptr, const char* end_with = nullptr) = 0;
-               virtual void response(const std::vector<std::pair<std::string, std::string>>& history, std::ostream* os = nullptr, const char* end_with = nullptr, int max_new_tokens = 512) = 0;
-               virtual void response(const std::vector<int>& tokens, std::ostream* os = nullptr, const char* end_with = nullptr, int max_new_tokens = 512) = 0;
-               virtual void reset() = 0;
-               virtual bool stopped() = 0;
-               virtual int generate(int max_token_number = 0) = 0;
-               struct LlmContext {
-                   int prompt_len;
-                   int gen_seq_len;
-                   int64_t prefill_us;
-                   int64_t decode_us;
-               };
-               virtual LlmContext* getContext() = 0;
-               virtual ~Llm() = default;
-           };
-      }
-  }
-  using namespace MNN::Transformer;
+namespace MNN {
+namespace Transformer {
+struct PromptImagePart;
+struct PromptAudioPart;
+struct MultimodalPrompt;
+class Llm {
+ public:
+    static Llm* createLLM(const std::string& config_path);
+    virtual void set_config(const std::string& config) = 0;
+    virtual void load() = 0;
+    virtual void response(const std::string& input_str, std::ostream* os = nullptr, const char* end_with = nullptr) = 0;
+    virtual void response(const std::vector<std::pair<std::string, std::string>>& history, std::ostream* os = nullptr, const char* end_with = nullptr, int max_new_tokens = 999999) = 0;
+    virtual void response(const MultimodalPrompt& prompt, std::ostream* os = nullptr, const char* end_with = nullptr, int max_new_tokens = 999999) = 0;
+    virtual void response(const std::vector<int>& tokens, std::ostream* os = nullptr, const char* end_with = nullptr, int max_new_tokens = 999999) = 0;
+    virtual void reset() = 0;
+    virtual bool stoped() = 0;
+    virtual int generate(int max_token_number = 0) = 0;
+    virtual void generateWavform() = 0;
+    virtual void setWavformCallback(std::function<bool(const float*, size_t, bool)> callback) = 0;
+    struct LlmContext {
+        int prompt_len;
+        int gen_seq_len;
+        int64_t prefill_us;
+        int64_t decode_us;
+    };
+    virtual LlmContext* getContext() = 0;
+    virtual ~Llm() = default;
+};
+struct PromptImagePart {
+    MNN::Express::VARP image_data;
+    int width = 0;
+    int height = 0;
+};
+struct PromptAudioPart {
+    std::string file_path;
+    MNN::Express::VARP waveform;
+};
+struct MultimodalPrompt {
+    std::string prompt_template;
+    std::map<std::string, PromptImagePart> images;
+    std::map<std::string, PromptAudioPart> audios;
+};
+}
+}
+using namespace MNN::Transformer;
 #endif
 
 using ChatMessage = std::pair<std::string, std::string>;
@@ -195,7 +231,7 @@ using ChatMessage = std::pair<std::string, std::string>;
 
 
 /**
- * C++ Benchmark result structure following Android implementation
+ * C++ Benchmark result structure
  */
 struct BenchmarkResultCpp {
     bool success;
@@ -210,7 +246,7 @@ struct BenchmarkResultCpp {
 };
 
 /**
- * C++ Benchmark progress info structure following Android implementation
+ * C++ Benchmark progress info structure 
  */
 struct BenchmarkProgressInfoCpp {
     int progress;
@@ -235,7 +271,7 @@ struct BenchmarkProgressInfoCpp {
 // MARK: - C++ Benchmark Implementation
 
 /**
- * C++ Benchmark callback structure following Android implementation
+ * C++ Benchmark callback structure 
  */
 struct BenchmarkCallback {
     std::function<void(const BenchmarkProgressInfoCpp& progressInfo)> onProgress;
@@ -352,6 +388,247 @@ private:
     std::string buffer_; // Buffer for accumulating output
 };
 
+static std::vector<std::string> ExtractImagePlaceholders(const std::string& prompt) {
+    std::vector<std::string> keys;
+    try {
+        std::regex img_regex("<img>([^<]+)</img>");
+        auto begin = std::sregex_iterator(prompt.begin(), prompt.end(), img_regex);
+        auto end = std::sregex_iterator();
+        for (auto it = begin; it != end; ++it) {
+            if ((*it).size() > 1) {
+                keys.push_back((*it)[1].str());
+            }
+        }
+    } catch (const std::exception& e) {
+        NSLog(@"Regex error while extracting image placeholders: %s", e.what());
+    }
+    return keys;
+}
+
+static void RemoveImagePlaceholder(std::string& prompt, const std::string& key) {
+    if (key.empty()) { return; }
+    const std::string tag = "<img>" + key + "</img>";
+    size_t pos = 0;
+    while ((pos = prompt.find(tag, pos)) != std::string::npos) {
+        prompt.erase(pos, tag.size());
+    }
+}
+
+static std::vector<std::string> ExtractAudioPlaceholders(const std::string& prompt) {
+    std::vector<std::string> keys;
+    try {
+        std::regex audio_regex("<audio>([^<]+)</audio>");
+        auto begin = std::sregex_iterator(prompt.begin(), prompt.end(), audio_regex);
+        auto end = std::sregex_iterator();
+        for (auto it = begin; it != end; ++it) {
+            if ((*it).size() > 1) {
+                keys.push_back((*it)[1].str());
+            }
+        }
+    } catch (const std::exception& e) {
+        NSLog(@"Regex error while extracting audio placeholders: %s", e.what());
+    }
+    return keys;
+}
+
+static void RemoveAudioPlaceholder(std::string& prompt, const std::string& key) {
+    if (key.empty()) { return; }
+    const std::string tag = "<audio>" + key + "</audio>";
+    size_t pos = 0;
+    while ((pos = prompt.find(tag, pos)) != std::string::npos) {
+        prompt.erase(pos, tag.size());
+    }
+}
+
+static std::vector<std::string> ExtractVideoPlaceholders(const std::string& prompt) {
+    std::vector<std::string> keys;
+    try {
+        std::regex video_regex("<video>([^<]+)</video>");
+        auto begin = std::sregex_iterator(prompt.begin(), prompt.end(), video_regex);
+        auto end = std::sregex_iterator();
+        for (auto it = begin; it != end; ++it) {
+            if ((*it).size() > 1) {
+                keys.push_back((*it)[1].str());
+            }
+        }
+    } catch (const std::exception& e) {
+        NSLog(@"Regex error while extracting video placeholders: %s", e.what());
+    }
+    return keys;
+}
+
+static void ReplaceVideoPlaceholder(std::string& prompt, const std::string& key, const std::string& replacement) {
+    if (key.empty()) { return; }
+    const std::string tag = "<video>" + key + "</video>";
+    size_t pos = 0;
+    while ((pos = prompt.find(tag, pos)) != std::string::npos) {
+        prompt.replace(pos, tag.size(), replacement);
+        pos += replacement.size();
+    }
+}
+
+static UIImage *LoadUIImageFromPath(const std::string& path) {
+    NSString *nsPath = [NSString stringWithUTF8String:path.c_str()];
+    if (!nsPath || nsPath.length == 0) {
+        return nil;
+    }
+    if (![[NSFileManager defaultManager] fileExistsAtPath:nsPath]) {
+        return nil;
+    }
+#if TARGET_OS_IPHONE
+    return [UIImage imageWithContentsOfFile:nsPath];
+#else
+    return [[NSImage alloc] initWithContentsOfFile:nsPath];
+#endif
+}
+
+static NSArray<UIImage *> *ExtractFramesFromVideoAtPath(NSString *videoPath, NSInteger maxFrames) {
+    if (!videoPath) { return nil; }
+    NSURL *url = [NSURL fileURLWithPath:videoPath];
+    AVURLAsset *asset = [AVURLAsset assetWithURL:url];
+    if (!asset) { return nil; }
+    NSError *error = nil;
+    if ([asset tracksWithMediaType:AVMediaTypeVideo].count == 0) {
+        return nil;
+    }
+    AVAssetImageGenerator *generator = [AVAssetImageGenerator assetImageGeneratorWithAsset:asset];
+    generator.appliesPreferredTrackTransform = YES;
+    generator.requestedTimeToleranceAfter = CMTimeMake(1, 30);
+    generator.requestedTimeToleranceBefore = CMTimeMake(1, 30);
+
+    CMTime durationTime = asset.duration;
+    Float64 duration = CMTimeGetSeconds(durationTime);
+    if (!isfinite(duration) || duration <= 0) {
+        return nil;
+    }
+
+    NSInteger frameCount = MAX(1, MIN(maxFrames, (NSInteger)ceil(duration)));
+    NSMutableArray<UIImage *> *frames = [NSMutableArray arrayWithCapacity:frameCount];
+    for (NSInteger index = 0; index < frameCount; index++) {
+        Float64 seconds = MIN(duration - 0.001, (duration / frameCount) * index);
+        CMTime time = CMTimeMakeWithSeconds(seconds, durationTime.timescale == 0 ? 600 : durationTime.timescale);
+        CGImageRef cgImage = [generator copyCGImageAtTime:time actualTime:NULL error:&error];
+        if (cgImage) {
+#if TARGET_OS_IPHONE
+            UIImage *image = [UIImage imageWithCGImage:cgImage];
+#else
+            NSSize size = NSMakeSize(CGImageGetWidth(cgImage), CGImageGetHeight(cgImage));
+            UIImage *image = [[NSImage alloc] initWithCGImage:cgImage size:size];
+#endif
+            [frames addObject:image];
+            CGImageRelease(cgImage);
+        }
+    }
+    return frames.count > 0 ? frames : nil;
+}
+
+static std::vector<std::string> ExtractVideoFramesToFilePaths(NSString *videoPath, NSInteger maxFrames) {
+    std::vector<std::string> filePaths;
+    if (!videoPath) {
+        return filePaths;
+    }
+    NSURL *url = [NSURL fileURLWithPath:videoPath];
+    AVURLAsset *asset = [AVURLAsset assetWithURL:url];
+    if (!asset) {
+        return filePaths;
+    }
+    NSError *error = nil;
+    NSArray<AVAssetTrack *> *tracks = [asset tracksWithMediaType:AVMediaTypeVideo];
+    if (tracks.count == 0) {
+        return filePaths;
+    }
+    CMTime durationTime = asset.duration;
+    Float64 duration = CMTimeGetSeconds(durationTime);
+    if (!isfinite(duration) || duration <= 0) {
+        return filePaths;
+    }
+    NSInteger frameCount = MAX(1, MIN(maxFrames, (NSInteger)ceil(duration)));
+    AVAssetImageGenerator *generator = [AVAssetImageGenerator assetImageGeneratorWithAsset:asset];
+    generator.appliesPreferredTrackTransform = YES;
+    generator.requestedTimeToleranceAfter = CMTimeMake(1, 30);
+    generator.requestedTimeToleranceBefore = CMTimeMake(1, 30);
+
+    NSString *tempDir = NSTemporaryDirectory();
+    NSString *baseName = [[videoPath lastPathComponent] stringByDeletingPathExtension];
+    if (baseName.length == 0) {
+        baseName = @"video";
+    }
+
+    for (NSInteger index = 0; index < frameCount; index++) {
+        Float64 seconds = MIN(duration - 0.001, (duration / frameCount) * index);
+        CMTime time = CMTimeMakeWithSeconds(seconds, durationTime.timescale == 0 ? 600 : durationTime.timescale);
+        CGImageRef cgImage = [generator copyCGImageAtTime:time actualTime:NULL error:&error];
+        if (!cgImage) {
+            if (error) {
+                NSLog(@"[LegacyVideo] Failed to extract frame %ld: %@", (long)index, error.localizedDescription);
+            }
+            continue;
+        }
+#if TARGET_OS_IPHONE
+        UIImage *image = [UIImage imageWithCGImage:cgImage];
+        NSData *data = UIImageJPEGRepresentation(image, 0.9);
+#else
+        NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithCGImage:cgImage];
+        NSData *data = [rep representationUsingType:NSBitmapImageFileTypeJPEG properties:@{NSImageCompressionFactor: @0.9}];
+#endif
+        CGImageRelease(cgImage);
+        if (!data) {
+            continue;
+        }
+
+        NSString *uuid = [[NSUUID UUID] UUIDString];
+        NSString *fileName = [NSString stringWithFormat:@"%@_frame_%ld_%@.jpg", baseName, (long)index, uuid];
+        NSString *filePath = [tempDir stringByAppendingPathComponent:fileName];
+
+        if ([data writeToFile:filePath atomically:YES]) {
+            filePaths.push_back([filePath UTF8String]);
+        } else {
+            NSLog(@"[LegacyVideo] Failed to write frame to %@", filePath);
+        }
+    }
+    return filePaths;
+}
+
+static std::string ProcessLegacyVideoPlaceholders(const std::string& prompt, int maxFrames) {
+    if (prompt.find("<video>") == std::string::npos) {
+        return prompt;
+    }
+    std::string processed = prompt;
+    auto videoKeys = ExtractVideoPlaceholders(prompt);
+    std::unordered_set<std::string> handled;
+    for (const auto& videoPath : videoKeys) {
+        if (handled.count(videoPath) > 0) {
+            continue;
+        }
+        handled.insert(videoPath);
+
+        NSString *nsVideoPath = [NSString stringWithUTF8String:videoPath.c_str()];
+        if (!nsVideoPath || ![[NSFileManager defaultManager] fileExistsAtPath:nsVideoPath]) {
+            NSLog(@"[LegacyVideo] Video file not found for placeholder %@", nsVideoPath ?: @"(null)");
+            ReplaceVideoPlaceholder(processed, videoPath, "");
+            continue;
+        }
+        auto framePaths = ExtractVideoFramesToFilePaths(nsVideoPath, maxFrames);
+        if (framePaths.empty()) {
+            NSLog(@"[LegacyVideo] No frames extracted for %@", nsVideoPath);
+            ReplaceVideoPlaceholder(processed, videoPath, "");
+            continue;
+        }
+
+        std::string replacement;
+        for (const auto& framePath : framePaths) {
+            replacement += "<img>" + framePath + "</img>";
+        }
+        NSLog(@"[LegacyVideo] Replaced %@ with %lu frame placeholders", nsVideoPath, (unsigned long)framePaths.size());
+        ReplaceVideoPlaceholder(processed, videoPath, replacement);
+    }
+    return processed;
+}
+
+@interface LLMInferenceEngineWrapper ()
+- (MNN::Express::VARP)convertUIImageToVARP:(UIImage *)image;
+@end
+
 @implementation LLMInferenceEngineWrapper {
     std::shared_ptr<MNN::Transformer::Llm> _llm;
     std::vector<ChatMessage> _history;
@@ -360,6 +637,10 @@ private:
     std::atomic<bool> _isBenchmarkRunning;
     std::atomic<bool> _shouldStopBenchmark;
     std::atomic<bool> _shouldStopInference;
+    std::atomic<int> _videoMaxFrames;
+    std::atomic<bool> _enableAudioOutput;
+    NSString *_talkerSpeaker;
+    BOOL (^_audioWaveformCallback)(const float *, size_t, BOOL);
     NSString *_modelPath;
 }
 
@@ -381,9 +662,15 @@ private:
         _isBenchmarkRunning = false;
         _shouldStopBenchmark = false;
         _shouldStopInference = false;
+        _videoMaxFrames = 8;
+        _enableAudioOutput = false;
+        _talkerSpeaker = @"default";
+        _audioWaveformCallback = nil;
         
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
-            BOOL success = [self loadModelFromPath:modelPath];
+            // Resolve the model path using the new path resolution logic
+            NSString *resolvedPath = [self resolveModelPath:modelPath];
+            BOOL success = [self loadModelFromPath:resolvedPath];
             
             dispatch_async(dispatch_get_main_queue(), ^{
                 if (completion) {
@@ -401,7 +688,7 @@ private:
  * @param path The directory path to remove
  * @return true if successful, false otherwise
  */
-bool remove_directory_safely(const std::string& path) {
+bool removeDirectorySafely(const std::string& path) {
     @try {
         NSString *pathStr = [NSString stringWithUTF8String:path.c_str()];
         NSFileManager *fileManager = [NSFileManager defaultManager];
@@ -420,6 +707,29 @@ bool remove_directory_safely(const std::string& path) {
         NSLog(@"Exception removing directory %s: %@", path.c_str(), exception.reason);
         return false;
     }
+}
+
+/**
+ * Resolves model path for new ModelIndex.json structure
+ *
+ * @param modelPath The original model path from ModelInfo
+ * @return Resolved absolute path to the model directory
+ */
+- (NSString *)resolveModelPath:(NSString *)modelPath {
+    // Check if this is a new ModelIndex.json structure path
+    if ([modelPath hasPrefix:@"LocalModel/"]) {
+        NSString *bundlePath = [[NSBundle mainBundle] resourcePath];
+        return [bundlePath stringByAppendingPathComponent:modelPath];
+    }
+    
+    // Check if this is a bundle_root path (legacy flattened structure)
+    if ([modelPath hasPrefix:@"bundle_root/"]) {
+        NSString *bundlePath = [[NSBundle mainBundle] resourcePath];
+        return bundlePath;
+    }
+    
+    // For absolute paths or other formats, return as-is
+    return modelPath;
 }
 
 /**
@@ -530,10 +840,6 @@ bool remove_directory_safely(const std::string& path) {
             return NO;
         }
         
-        MNN::BackendConfig backendConfig;
-        auto executor = MNN::Express::Executor::newExecutor(MNN_FORWARD_CPU, backendConfig, 1);
-        MNN::Express::ExecutorScope s(executor);
-        
         // Get memory mapping setting with default fallback
         BOOL useMmap = configDict[@"use_mmap"] == nil ? YES : [configDict[@"use_mmap"] boolValue];
         
@@ -552,7 +858,7 @@ bool remove_directory_safely(const std::string& path) {
         std::string temp_directory_path = [tempDirPath UTF8String];
         
         // Clean up existing temp directory
-        if (!remove_directory_safely(temp_directory_path)) {
+        if (!removeDirectorySafely(temp_directory_path)) {
             NSLog(@"Warning: Failed to remove existing temp directory, continuing...");
         }
         
@@ -601,6 +907,7 @@ bool remove_directory_safely(const std::string& path) {
     }
     
     @try {
+        NSLog(@"[AudioWrapper] setConfigWithJSONString length=%lu content=%@", (unsigned long)[jsonStr length], jsonStr);
         // Validate JSON format
         NSError *error = nil;
         NSData *jsonData = [jsonStr dataUsingEncoding:NSUTF8StringEncoding];
@@ -690,6 +997,10 @@ bool remove_directory_safely(const std::string& path) {
             output(@"Error: Input text is empty.");
         }
         return;
+    } else {
+        std::string legacyPrompt = [input UTF8String];
+        legacyPrompt = ProcessLegacyVideoPlaceholders(legacyPrompt, std::max(1, _videoMaxFrames.load()));
+        input = [NSString stringWithUTF8String:legacyPrompt.c_str()];
     }
     
     if (_isProcessing.load()) {
@@ -772,6 +1083,16 @@ bool remove_directory_safely(const std::string& path) {
                         prompt_debug += msg.first + ": " + msg.second + "\n";
                     }
                     NSLog(@"submitNative prompt_string_for_debug:\n%s\nmax_new_tokens_: %d", prompt_debug.c_str(), 999999);
+                    // dump_config may not be available in all builds of MNN; guard the call
+#if defined(MNN_LLM_HAS_DUMP_CONFIG)
+                    if (blockSelf->_llm) {
+                        auto cfg = blockSelf->_llm->dump_config();
+                        NSLog(@"[AudioWrapper] dump_config before inference (text): %s", cfg.c_str());
+                    }
+#else
+                    NSLog(@"[AudioWrapper] dump_config not available in this build (text)");
+#endif
+                    NSLog(@"[AudioWrapper] Inference start (text): enable_audio_output=%@, talker_speaker=%@", blockSelf->_enableAudioOutput.load() ? @"YES" : @"NO", blockSelf->_talkerSpeaker ?: @"(nil)");
                     
                     // Start inference with initial response processing
                     blockSelf->_llm->response(blockSelf->_history, &os, "<eop>", 1);
@@ -792,11 +1113,21 @@ bool remove_directory_safely(const std::string& path) {
                         // std::this_thread::sleep_for(std::chrono::milliseconds(1));
                     }
                     
+                    if (!blockSelf->_shouldStopInference.load() && blockSelf->_enableAudioOutput.load()) {
+                        NSLog(@"[AudioWrapper] Text generation completed, generating waveform (enable_audio_output=YES)");
+                        blockSelf->_llm->generateWavform();
+                        NSLog(@"[AudioWrapper] generateWavform() called");
+                    } else {
+                        NSLog(@"[AudioWrapper] Skipping waveform generation: stop_requested=%@, enable_audio_output=%@",
+                              blockSelf->_shouldStopInference.load() ? @"YES" : @"NO",
+                              blockSelf->_enableAudioOutput.load() ? @"YES" : @"NO");
+                    }
+                    
                     // Send appropriate end signal based on stop reason
                     if (output) {
                         dispatch_async(dispatch_get_main_queue(), ^{
                             if (blockSelf->_shouldStopInference.load()) {
-                                output(@"<stopped>");
+                                output(@"<stoped>");
                             } else {
                                 output(@"<eop>");
                             }
@@ -878,6 +1209,457 @@ bool remove_directory_safely(const std::string& path) {
             blockSelf->_isProcessing = false;
         }
     });
+}
+
+- (void)processMultimodalInput:(NSString *)promptTemplate
+                        images:(NSDictionary<NSString *, UIImage *> *)images
+                    withOutput:(OutputHandler)output
+               showPerformance:(BOOL)showPerformance {
+    if (!_llm) {
+        if (output) {
+            output(@"Error: Model not loaded. Please initialize the model first.");
+        }
+        return;
+    }
+    
+    if (!promptTemplate || promptTemplate.length == 0) {
+        if (output) {
+            output(@"Error: Prompt template is empty.");
+        }
+        // return;
+    }
+    
+    if (_isProcessing.load()) {
+        if (output) {
+            output(@"Error: Another inference is already in progress.");
+        }
+        return;
+    }
+    
+    auto* context = _llm->getContext();
+    
+    _isProcessing = true;
+    LLMInferenceEngineWrapper *blockSelf = self;
+    NSDictionary<NSString *, UIImage *> *imageDict = images ?: @{};
+    
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
+        if (!blockSelf || !blockSelf->_llm) {
+            return;
+        }
+        
+        @try {
+            
+            OptimizedLlmStreamBuffer::CallBack callback = [output](const char* str, size_t len) {
+                if (output && str && len > 0) {
+                    @autoreleasepool {
+                        NSString *nsOutput = [[NSString alloc] initWithBytes:str
+                                                                        length:len
+                                                                      encoding:NSUTF8StringEncoding];
+                        if (nsOutput) {
+                            dispatch_async(dispatch_get_main_queue(), ^{
+                                output(nsOutput);
+                            });
+                        }
+                    }
+                }
+            };
+            
+            OptimizedLlmStreamBuffer streambuf(callback);
+            std::ostream os(&streambuf);
+            
+            std::string original_prompt = promptTemplate ? [promptTemplate UTF8String] : "";
+            std::string sanitized_prompt = original_prompt;
+            MNN::Transformer::MultimodalPrompt multimodal_input;
+            std::vector<MNN::Express::VARP> retainedImageVars;
+            retainedImageVars.reserve(imageDict.count);
+
+            auto addImageForKey = [&](const std::string& key, UIImage *image, bool removeOnFailure) {
+                if (!image) {
+                    if (removeOnFailure) {
+                        RemoveImagePlaceholder(sanitized_prompt, key);
+                    }
+                    return false;
+                }
+                auto varp = [blockSelf convertUIImageToVARP:image];
+                if (!varp.get()) {
+                    if (removeOnFailure) {
+                        RemoveImagePlaceholder(sanitized_prompt, key);
+                    }
+                    NSLog(@"Warning: Failed to convert image for key %@", [NSString stringWithUTF8String:key.c_str()]);
+                    return false;
+                }
+                retainedImageVars.push_back(varp);
+                MNN::Transformer::PromptImagePart imagePart;
+                imagePart.image_data = varp;
+                auto info = varp->getInfo();
+                if (info && info->dim.size() >= 3) {
+                    imagePart.height = static_cast<int>(info->dim[1]);
+                    imagePart.width = static_cast<int>(info->dim[2]);
+                } else {
+                    CGFloat scale = image.scale;
+                    if (scale <= 0) { scale = 0.6; }
+                    imagePart.width = static_cast<int>(image.size.width * scale);
+                    imagePart.height = static_cast<int>(image.size.height * scale);
+                }
+                multimodal_input.images[key] = imagePart;
+                return true;
+            };
+
+            auto placeholderKeys = ExtractImagePlaceholders(original_prompt);
+            std::unordered_set<std::string> processedKeys;
+            for (const auto& key : placeholderKeys) {
+                if (processedKeys.count(key) > 0) {
+                    continue;
+                }
+                processedKeys.insert(key);
+
+                NSString *nsKey = [NSString stringWithUTF8String:key.c_str()];
+                UIImage *image = imageDict[nsKey];
+                if (!image) {
+                    image = LoadUIImageFromPath(key);
+                    if (!image) {
+                        NSLog(@"[Multimodal] Image not found for key %@", nsKey ?: @"(null)");
+                    }
+                }
+                if (!addImageForKey(key, image, true)) {
+                    NSLog(@"Warning: Missing image for placeholder %@", nsKey ?: @"(null)");
+                } else {
+                    NSLog(@"[Multimodal] Attached image placeholder %@", nsKey ?: @"(null)");
+                }
+            }
+
+            auto videoKeys = ExtractVideoPlaceholders(original_prompt);
+            int autoImageIndex = 0;
+            for (const auto& videoPath : videoKeys) {
+                NSString *nsVideoPath = [NSString stringWithUTF8String:videoPath.c_str()];
+                if (!nsVideoPath) {
+                    ReplaceVideoPlaceholder(sanitized_prompt, videoPath, "");
+                    continue;
+                }
+                int maxFrames = std::max(1, _videoMaxFrames.load());
+                NSArray<UIImage *> *frames = ExtractFramesFromVideoAtPath(nsVideoPath, maxFrames);
+                if (!frames || frames.count == 0) {
+                    NSLog(@"Warning: Failed to extract frames for video %@", nsVideoPath);
+                    ReplaceVideoPlaceholder(sanitized_prompt, videoPath, "");
+                    continue;
+                }
+                NSLog(@"[Multimodal] Extracted %lu frames for %@", (unsigned long)frames.count, nsVideoPath);
+
+                std::string replacement;
+                for (UIImage *frame in frames) {
+                    std::string autoKey = "video_auto_" + std::to_string(autoImageIndex++);
+                    if (addImageForKey(autoKey, frame, false)) {
+                        replacement += "<img>" + autoKey + "</img>";
+                        NSLog(@"[Multimodal] Added video frame placeholder %s", autoKey.c_str());
+                    }
+                }
+                ReplaceVideoPlaceholder(sanitized_prompt, videoPath, replacement);
+            }
+
+            auto audioKeys = ExtractAudioPlaceholders(original_prompt);
+            std::unordered_set<std::string> processedAudioKeys;
+            for (const auto& key : audioKeys) {
+                if (key.empty() || processedAudioKeys.count(key) > 0) {
+                    continue;
+                }
+                processedAudioKeys.insert(key);
+
+                NSString *nsPath = [NSString stringWithUTF8String:key.c_str()];
+                if (![[NSFileManager defaultManager] fileExistsAtPath:nsPath]) {
+                    NSLog(@"Warning: Audio file not found for placeholder %@", nsPath);
+                    RemoveAudioPlaceholder(sanitized_prompt, key);
+                    continue;
+                }
+                NSLog(@"[Multimodal] Attached audio placeholder %@", nsPath);
+
+                MNN::Transformer::PromptAudioPart audioPart;
+                audioPart.file_path = key;
+                multimodal_input.audios[key] = audioPart;
+            }
+            
+            if (sanitized_prompt.empty() && multimodal_input.images.empty() && multimodal_input.audios.empty()) {
+                sanitized_prompt = " ";
+            }
+            multimodal_input.prompt_template = sanitized_prompt;
+            
+            {
+                std::lock_guard<std::mutex> lock(blockSelf->_historyMutex);
+                blockSelf->_history.emplace_back(ChatMessage("user", sanitized_prompt));
+            }
+            
+            blockSelf->_shouldStopInference = false;
+            bool useMultimodal = !multimodal_input.images.empty();
+            // dump_config may not be available in all builds of MNN; guard the call
+#if defined(MNN_LLM_HAS_DUMP_CONFIG)
+            if (blockSelf->_llm) {
+                auto cfg = blockSelf->_llm->dump_config();
+                NSLog(@"[AudioWrapper] dump_config before inference (multimodal): %s", cfg.c_str());
+            }
+#else
+            NSLog(@"[AudioWrapper] dump_config not available in this build (multimodal)");
+#endif
+            NSLog(@"[AudioWrapper] Inference start (multimodal): enable_audio_output=%@, talker_speaker=%@", blockSelf->_enableAudioOutput.load() ? @"YES" : @"NO", blockSelf->_talkerSpeaker ?: @"(nil)");
+            if (useMultimodal) {
+                blockSelf->_llm->response(multimodal_input, &os, "<eop>", 1);
+            } else {
+                blockSelf->_llm->response(blockSelf->_history, &os, "<eop>", 1);
+            }
+            
+            int current_size = 1;
+            const int max_new_tokens = 999999;
+            
+            while (!blockSelf->_shouldStopInference.load() &&
+                   !blockSelf->_llm->stoped() &&
+                   current_size < max_new_tokens) {
+                blockSelf->_llm->generate(1);
+                current_size++;
+            }
+            
+            if (!blockSelf->_shouldStopInference.load() && blockSelf->_enableAudioOutput.load()) {
+                NSLog(@"[AudioWrapper] Multimodal text generation completed, generating waveform (enable_audio_output=YES)");
+                blockSelf->_llm->generateWavform();
+                NSLog(@"[AudioWrapper] generateWavform() called");
+            } else {
+                NSLog(@"[AudioWrapper] Skipping waveform generation: stop_requested=%@, enable_audio_output=%@",
+                      blockSelf->_shouldStopInference.load() ? @"YES" : @"NO",
+                      blockSelf->_enableAudioOutput.load() ? @"YES" : @"NO");
+            }
+            
+            if (output) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    if (blockSelf->_shouldStopInference.load()) {
+                        output(@"<stoped>");
+                    } else {
+                        output(@"<eop>");
+                    }
+                });
+            }
+            
+            if (showPerformance && context) {
+                auto inference_end_time = std::chrono::high_resolution_clock::now();
+                (void)inference_end_time;
+                
+                int prompt_len = context->prompt_len;
+                int decode_len = context->gen_seq_len;
+                int64_t prefill_time = context->prefill_us;
+                int64_t decode_time = context->decode_us;
+                
+                float prefill_s = static_cast<float>(prefill_time) / 1e6f;
+                float decode_s = static_cast<float>(decode_time) / 1e6f;
+                
+                float prefill_speed = (prefill_s > 0.001f) ?
+                    static_cast<float>(prompt_len) / prefill_s : 0.0f;
+                float decode_speed = (decode_s > 0.001f) ?
+                    static_cast<float>(decode_len) / decode_s : 0.0f;
+                
+                std::ostringstream performance_output;
+                performance_output << "\n\nPrefill: " << std::fixed << std::setprecision(2) << prefill_s << "s, "
+                                   << prompt_len << " tokens, " << std::setprecision(2) << prefill_speed << " tokens/s\n"
+                                   << "Decode: " << std::fixed << std::setprecision(2) << decode_s << "s, "
+                                   << decode_len << " tokens, " << std::setprecision(2) << decode_speed << " tokens/s\n";
+                
+                std::string perf_str = performance_output.str();
+                if (output) {
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        NSString *perfOutput = [NSString stringWithUTF8String:perf_str.c_str()];
+                        if (perfOutput) {
+                            output(perfOutput);
+                        }
+                    });
+                }
+            }
+        }
+        @catch (NSException *exception) {
+            NSLog(@"Exception during multimodal inference: %@", exception.reason);
+            if (output) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    output([NSString stringWithFormat:@"Error: Inference failed - %@", exception.reason]);
+                });
+            }
+        }
+        @finally {
+            blockSelf->_isProcessing = false;
+        }
+    });
+}
+
+- (void)setVideoMaxFrames:(NSInteger)frames {
+    int clamped = (int)std::max(1, std::min(64, (int)frames));
+    _videoMaxFrames.store(clamped);
+    NSLog(@"Updated video max frames to %d", clamped);
+}
+
+- (void)setEnableAudioOutput:(BOOL)enable {
+    NSLog(@"[AudioWrapper] setEnableAudioOutput: %@", enable ? @"YES" : @"NO");
+    _enableAudioOutput = enable;
+    if (_llm) {
+        // Update config with enable_audio_output
+        NSString *configStr = [NSString stringWithFormat:@"{\"enable_audio_output\":%s}", enable ? "true" : "false"];
+        std::string stdConfig = [configStr UTF8String];
+        NSLog(@"[AudioWrapper] Updating LLM config: %s", stdConfig.c_str());
+        _llm->set_config(stdConfig);
+    } else {
+        NSLog(@"[AudioWrapper] LLM not initialized, config will be applied when model loads");
+    }
+}
+
+- (void)setTalkerSpeaker:(NSString *)speaker {
+    NSLog(@"[AudioWrapper] setTalkerSpeaker: %@", speaker ?: @"(nil)");
+    _talkerSpeaker = [speaker copy];
+    if (_llm) {
+        // Update config with talker_speaker
+        NSString *escapedSpeaker = [speaker stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""];
+        NSString *configStr = [NSString stringWithFormat:@"{\"talker_speaker\":\"%@\"}", escapedSpeaker];
+        std::string stdConfig = [configStr UTF8String];
+        NSLog(@"[AudioWrapper] Updating LLM config: %s", stdConfig.c_str());
+        _llm->set_config(stdConfig);
+    } else {
+        NSLog(@"[AudioWrapper] LLM not initialized, config will be applied when model loads");
+    }
+}
+
+- (void)setAudioWaveformCallback:(BOOL (^)(const float *, size_t, BOOL))callback {
+    NSLog(@"[AudioWrapper] setAudioWaveformCallback: callback=%@, llm=%@", callback ? @"YES" : @"NO", _llm ? @"YES" : @"NO");
+    _audioWaveformCallback = [callback copy];
+    if (_llm && callback) {
+        NSLog(@"[AudioWrapper] Registering waveform callback with LLM");
+        static std::atomic<int> s_waveCallbackCount{0};
+        _llm->setWavformCallback([self](const float *ptr, size_t size, bool last_chunk) -> bool {
+            int cbId = ++s_waveCallbackCount;
+            if (!self->_enableAudioOutput.load()) {
+                NSLog(@"[AudioWrapper] Waveform callback #%d: audio output disabled, skipping (size=%zu)", cbId, size);
+                return false;
+            }
+            if (self->_shouldStopInference.load()) {
+                NSLog(@"[AudioWrapper] Waveform callback #%d: inference stopped, skipping (size=%zu)", cbId, size);
+                return false;
+            }
+            if (self->_audioWaveformCallback) {
+                // Check if data is valid
+                if (ptr == nullptr || size == 0) {
+                    NSLog(@"[AudioWrapper] Waveform callback #%d: invalid data (ptr=%p, size=%zu)", cbId, ptr, size);
+                    return false;
+                }
+                
+                // Log first few samples for debugging
+                if (size > 0) {
+                    float firstSample = ptr[0];
+                    bool hasNaN = false;
+                    bool hasInf = false;
+                    bool hasValid = false;
+                    
+                    // Check first 10 samples for data quality
+                    for (size_t i = 0; i < std::min(size, (size_t)10); i++) {
+                        if (std::isnan(ptr[i])) hasNaN = true;
+                        if (std::isinf(ptr[i])) hasInf = true;
+                        if (std::isfinite(ptr[i]) && std::abs(ptr[i]) > 0.0001f) hasValid = true;
+                    }
+                    
+                    NSLog(@"[AudioWrapper] Waveform callback #%d: forwarding to Swift (size=%zu, last_chunk=%s, first_sample=%.6f, hasNaN=%s, hasInf=%s, hasValid=%s)", 
+                          cbId, size, last_chunk ? "YES" : "NO", firstSample, 
+                          hasNaN ? "YES" : "NO", hasInf ? "YES" : "NO", hasValid ? "YES" : "NO");
+                }
+                
+                BOOL shouldStop = self->_audioWaveformCallback(ptr, size, last_chunk ? YES : NO);
+                if (last_chunk) {
+                    NSLog(@"[AudioWrapper] Waveform callback tail at #%d", cbId);
+                }
+                return shouldStop;
+            }
+            NSLog(@"[AudioWrapper] Waveform callback #%d: no Swift callback registered (size=%zu)", cbId, size);
+            return false;
+        });
+        NSLog(@"[AudioWrapper] Waveform callback registered successfully");
+    } else if (_llm && !callback) {
+        // Clear callback
+        NSLog(@"[AudioWrapper] Clearing waveform callback");
+        _llm->setWavformCallback(nullptr);
+    } else {
+        NSLog(@"[AudioWrapper] Cannot register callback: llm=%@, callback=%@", _llm ? @"YES" : @"NO", callback ? @"YES" : @"NO");
+    }
+}
+
+- (MNN::Express::VARP)convertUIImageToVARP:(UIImage *)image {
+    if (!image) {
+        return MNN::Express::VARP();
+    }
+    
+#if TARGET_OS_IPHONE
+    CGImageRef cgImage = image.CGImage;
+#else
+    NSRect proposedRect = NSMakeRect(0, 0, image.size.width, image.size.height);
+    CGImageRef cgImage = [image CGImageForProposedRect:&proposedRect context:nil hints:nil];
+#endif
+    if (!cgImage) {
+        return MNN::Express::VARP();
+    }
+    
+    size_t width = CGImageGetWidth(cgImage);
+    size_t height = CGImageGetHeight(cgImage);
+    NSLog(@"[Multimodal] convertUIImageToVARP source size = %zux%zu", width, height);
+    if (width == 0 || height == 0) {
+        return MNN::Express::VARP();
+    }
+    
+    size_t bytesPerRow = width * 4;
+    std::vector<uint8_t> rawData(height * bytesPerRow);
+    
+    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+    CGContextRef context = CGBitmapContextCreate(
+        rawData.data(),
+        width,
+        height,
+        8,
+        bytesPerRow,
+        colorSpace,
+        kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big
+    );
+    CGColorSpaceRelease(colorSpace);
+    
+    if (!context) {
+        return MNN::Express::VARP();
+    }
+    
+    CGContextDrawImage(context, CGRectMake(0, 0, width, height), cgImage);
+    CGContextRelease(context);
+    
+#if DEBUG
+    if (!rawData.empty()) {
+        uint8_t r = rawData[0];
+        uint8_t g = rawData[1];
+        uint8_t b = rawData[2];
+        uint8_t a = rawData.size() > 3 ? rawData[3] : 255;
+        NSLog(@"[Multimodal] Raw pixel RGBA = (%u,%u,%u,%u)", r, g, b, a);
+    }
+#endif
+
+    auto varp = MNN::Express::_Input(
+        {1, static_cast<int>(height), static_cast<int>(width), 3},
+        MNN::Express::NHWC,
+        halide_type_of<float>()
+    );
+    
+    auto ptr = varp->writeMap<float>();
+    if (!ptr) {
+        return MNN::Express::VARP();
+    }
+    
+    for (size_t y = 0; y < height; ++y) {
+        for (size_t x = 0; x < width; ++x) {
+            size_t byteIndex = y * bytesPerRow + x * 4;
+            size_t pixelIndex = (y * width + x) * 3;
+            ptr[pixelIndex + 0] = rawData[byteIndex + 0] / 255.0f;
+            ptr[pixelIndex + 1] = rawData[byteIndex + 1] / 255.0f;
+            ptr[pixelIndex + 2] = rawData[byteIndex + 2] / 255.0f;
+        }
+    }
+
+#if DEBUG
+    NSLog(@"[Multimodal] VARP first pixel floats (R,G,B)=(%.4f, %.4f, %.4f) for size %zux%zu",
+          ptr[0], ptr[1], ptr[2], width, height);
+#endif
+    
+    return varp;
 }
 
 /**
@@ -990,6 +1772,9 @@ bool remove_directory_safely(const std::string& path) {
     
     _llm.reset();
     NSLog(@"LLMInferenceEngineWrapper deallocation complete");
+#if !__has_feature(objc_arc)
+    [super dealloc];
+#endif
 }
 
 
@@ -1111,7 +1896,6 @@ bool remove_directory_safely(const std::string& path) {
     NSLog(@"Chat history cleared");
 }
 
-// MARK: - Benchmark Implementation Following Android llm_session.cpp
 
 /**
  * Initialize benchmark result structure
@@ -1193,7 +1977,7 @@ bool remove_directory_safely(const std::string& path) {
              startTime:(std::chrono::high_resolution_clock::time_point)start_time
                 result:(BenchmarkResultCpp&)result callback:(const BenchmarkCallback&)callback {
     
-    const int tok = 16; // Same token ID as used in Android llm_session.cpp
+    const int tok = 16;
     std::vector<int> tokens(nPrompt, tok);
     
     // Validate token vector
@@ -1593,6 +2377,119 @@ bool remove_directory_safely(const std::string& path) {
  */
 - (BOOL)isBenchmarkRunning {
     return _isBenchmarkRunning.load();
+}
+
+/**
+ * Process multiple prompts in a single batch and return their responses.
+ * This method executes each prompt sequentially using the underlying LLM engine,
+ * collects generated output without streaming to UI, and returns them in order.
+ *
+ * @param prompts Array of NSString prompts
+ * @param completion Completion block called on main thread with responses
+ */
+- (void)processBatchPrompts:(NSArray<NSString *> *)prompts
+                 completion:(void (^)(NSArray<NSString *> *responses))completion {
+    if (!_llm) {
+        if (completion) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                completion(@[]);
+            });
+        }
+        return;
+    }
+    if (!prompts || prompts.count == 0) {
+        if (completion) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                completion(@[]);
+            });
+        }
+        return;
+    }
+
+    // Prevent concurrent inference while batch is running
+    if (_isProcessing.load()) {
+        if (completion) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                completion(@[]);
+            });
+        }
+        return;
+    }
+
+    _isProcessing = true;
+
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
+        NSMutableArray<NSString *> *results = [[NSMutableArray alloc] initWithCapacity:prompts.count];
+        @try {
+            for (NSString *prompt in prompts) {
+                if (!prompt || prompt.length == 0) {
+                    [results addObject:@""]; // Keep position
+                    continue;
+                }
+
+                // Prepare stream buffer to accumulate output
+                std::string accumulator;
+                OptimizedLlmStreamBuffer::CallBack cb = [&accumulator](const char* str, size_t len) {
+                    if (str && len > 0) {
+                        accumulator.append(str, len);
+                    }
+                };
+                OptimizedLlmStreamBuffer streambuf(cb);
+                std::ostream os(&streambuf);
+
+                // Reset stop flag
+                self->_shouldStopInference = false;
+
+                // Clear and set history for this prompt
+                {
+                    std::lock_guard<std::mutex> lock(self->_historyMutex);
+                    self->_history.clear();
+                    self->_history.emplace_back(ChatMessage("user", [prompt UTF8String]));
+                }
+
+                // Perform response generation similar to streaming method but without UI callbacks
+                @try {
+                    self->_llm->response(self->_history, &os, "<eop>", 1);
+
+                    int current_size = 1;
+                    const int max_new_tokens = 999999;
+                    while (!self->_shouldStopInference.load() && !self->_llm->stoped() && current_size < max_new_tokens) {
+                        self->_llm->generate(1);
+                        current_size++;
+                    }
+                } @catch (NSException *e) {
+                    NSLog(@"Exception during batch response generation: %@", e.reason);
+                }
+
+                // Convert accumulated C++ string to NSString
+                NSString *nsOut = [NSString stringWithUTF8String:accumulator.c_str()];
+                if (!nsOut) {
+                    nsOut = @"";
+                }
+                // Strip trailing <eop> marker if present
+                if ([nsOut hasSuffix:@"<eop>"]) {
+                    nsOut = [nsOut stringByReplacingOccurrencesOfString:@"<eop>" withString:@"" options:0 range:NSMakeRange(nsOut.length - 5, 5)];
+                }
+                [results addObject:nsOut];
+
+                // Reset context/history between prompts
+                {
+                    std::lock_guard<std::mutex> lock(self->_historyMutex);
+                    self->_history.clear();
+                }
+            }
+        } @catch (NSException *exception) {
+            NSLog(@"Batch processing exception: %@", exception.reason);
+        }
+        @finally {
+            self->_isProcessing = false;
+            if (completion) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    completion([results copy]);
+                });
+            }
+        }
+    });
 }
 
 @end
