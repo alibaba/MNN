@@ -1730,7 +1730,7 @@
         {
             "modelName": "bert-vits2-MNN",
             "tags": [
-                "TTS"
+                "TTS", "English and Chinese"
             ],
             "categories": [],
             "size_gb": 1.5,
@@ -1740,6 +1740,20 @@
                 "HuggingFace": "taobao-mnn/bert-vits2-MNN"
             },
             "file_size": 1392023806
+        },
+        {
+            "modelName": "supertonic-tts-mnn",
+            "tags": [
+                "TTS", "English"
+            ],
+            "categories": [],
+            "size_gb": 0.43,
+            "sources": {
+                "ModelScope": "MNN/supertonic-tts-mnn",
+                "Modelers": "MNN/supertonic-tts-mnn",
+                "HuggingFace": "taobao-mnn/supertonic-tts-mnn"
+            },
+            "file_size": 464403825
         }
     ],
     "asr_models": [
