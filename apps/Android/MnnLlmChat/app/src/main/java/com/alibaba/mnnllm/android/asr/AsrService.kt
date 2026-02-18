@@ -10,6 +10,8 @@ import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.media.audiofx.AcousticEchoCanceler // Import Audio Effects for clean audio capture
+import android.media.audiofx.NoiseSuppressor
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import com.alibaba.mnnllm.android.debug.DebugActivity
@@ -46,14 +48,19 @@ class AsrService(
     private var recognizer: OnlineRecognizer? = null
     private var audioRecord: AudioRecord? = null
     private var recordingThread: Thread? = null
-    private val audioSource = MediaRecorder.AudioSource.MIC
+    // Use VOICE_COMMUNICATION to enable hardware-level Acoustic Echo Cancellation (AEC)
+    private val audioSource = MediaRecorder.AudioSource.VOICE_COMMUNICATION
     private val sampleRateInHz = 16000
     private val channelConfig = AudioFormat.CHANNEL_IN_MONO
     private val audioFormat = AudioFormat.ENCODING_PCM_16BIT
     private val isRecording = AtomicBoolean(false)
     @Volatile
     private var isLoaded = false
+    
+    // Callback for final result (Endpoint detected)
     var onRecognizeText: ((String) -> Unit)? = null
+    // Callback triggered immediately when speech is detected (Partial result available)
+    var onSpeechDetected: (() -> Unit)? = null
 
     private val acceptTimeNs = AtomicLong(0)
     private val decodeTimeNs = AtomicLong(0)
@@ -107,6 +114,25 @@ class AsrService(
         val numBytes = AudioRecord.getMinBufferSize(sampleRateInHz, channelConfig, audioFormat)
         Log.i(TAG, "buffer size in milliseconds: ${numBytes * 1000.0f / sampleRateInHz}")
         audioRecord = AudioRecord(audioSource, sampleRateInHz, channelConfig, audioFormat, numBytes * 2)
+        
+        // Initialize and enable Acoustic Echo Canceler (AEC) if supported by the device
+        if (AcousticEchoCanceler.isAvailable()) {
+            val echoCanceler = AcousticEchoCanceler.create(audioRecord!!.audioSessionId)
+            echoCanceler.enabled = true
+            Log.i(TAG, "AcousticEchoCanceler enabled")
+        } else {
+            Log.w(TAG, "AcousticEchoCanceler not available")
+        }
+
+        // Initialize and enable Noise Suppressor (NS) to reduce background noise
+        if (NoiseSuppressor.isAvailable()) {
+            val noiseSuppressor = NoiseSuppressor.create(audioRecord!!.audioSessionId)
+            noiseSuppressor.enabled = true
+            Log.i(TAG, "NoiseSuppressor enabled")
+        } else {
+             Log.w(TAG, "NoiseSuppressor not available")
+        }
+        
         return true
     }
 
@@ -140,6 +166,10 @@ class AsrService(
 
                 val isEndpoint = recognizer!!.isEndpoint(stream)
                 var text = recognizer!!.getResult(stream).text
+                // Check if any speech is detected in the current stream to trigger early interruption
+                if (text.isNotBlank()) {
+                    onSpeechDetected?.invoke()
+                }
 
                 if (isEndpoint && recognizer!!.config.modelConfig.paraformer.encoder.isNotEmpty()) {
                     val tailPaddings = FloatArray((0.8 * sampleRateInHz).toInt())
