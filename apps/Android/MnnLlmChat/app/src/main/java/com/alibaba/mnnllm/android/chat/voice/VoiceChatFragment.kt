@@ -16,6 +16,8 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.LinearSmoothScroller
+import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.chat.ChatActivity
 import com.alibaba.mnnllm.android.chat.ChatPresenter
@@ -221,14 +223,29 @@ class VoiceChatFragment : Fragment(), VoiceChatView {
         
         updateViewVisibility()
         transcriptAdapter.addTranscript(transcript)
-        binding.rvVoiceTranscript.scrollToPosition(transcriptAdapter.itemCount - 1)
+        scrollToBottom()
     }
 
     override fun updateLastTranscript(text: String) {
         if (_binding == null) return // Guard against null binding
         
         transcriptAdapter.updateLastTranscript(text)
-        binding.rvVoiceTranscript.scrollToPosition(transcriptAdapter.itemCount - 1)
+        scrollToBottom()
+    }
+
+    private fun scrollToBottom() {
+        val rv = binding.rvVoiceTranscript
+        val lastPos = transcriptAdapter.itemCount - 1
+        if (lastPos < 0) return
+        // Use SNAP_TO_END so the bottom of the last item aligns with the bottom of the viewport
+        val smoothScroller = object : LinearSmoothScroller(rv.context) {
+            override fun getVerticalSnapPreference(): Int = SNAP_TO_END
+            override fun calculateTimeForScrolling(dx: Int): Int {
+                return 200
+            }
+        }
+        smoothScroller.targetPosition = lastPos
+        rv.layoutManager?.startSmoothScroll(smoothScroller)
     }
 
     override fun showError(message: String) {
