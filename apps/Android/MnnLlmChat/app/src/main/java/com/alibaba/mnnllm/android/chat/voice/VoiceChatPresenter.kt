@@ -71,6 +71,8 @@ class VoiceChatPresenter(
     private var isStoppingGeneration = false
     private var isGenerationFinished = false
     
+    private var isMuted = false // Flag to track manual mute state
+
     // Interruption support
     private var currentGenerationId = 0L // Tracks the ID of the current valid generation session
     @Volatile private var isInterrupted = false // Thread-safe flag to signal interruption immediately
@@ -202,6 +204,11 @@ class VoiceChatPresenter(
                 // Reset interruption flag as we are starting processing
                 isInterrupted = false
                 
+                // Auto-mute if enabled: Mute mic while AI is generating/speaking to prevent self-triggering on devices with poor AEC
+                if (isAutoMuteForEchoCancelMode) {
+                    muteMicrophone(true)
+                }
+
                 currentStatus = VoiceChatPresenterState.GENERATING_TEXT
                 withContext(Dispatchers.Main) {
                     view.addTranscript(Transcript(isUser = true, text = task.text))
@@ -222,6 +229,12 @@ class VoiceChatPresenter(
                 isProcessingLlm = false
                 isSpeaking = false
                 isThinking = false
+
+                // Auto-unmute if enabled: Re-enable mic after AI finishes speaking
+                if (isAutoMuteForEchoCancelMode) {
+                    muteMicrophone(false)
+                }
+
                 currentStatus = VoiceChatPresenterState.LISTENING
                 withContext(Dispatchers.Main) {
                     view.updateStatus(VoiceChatState.LISTENING)
@@ -245,6 +258,10 @@ class VoiceChatPresenter(
         // Register this presenter as an additional listener to ChatPresenter
         chatPresenter.addGenerateListener(this)
         
+        // Sync initial UI state: Update buttons to reflect current mute/mode preferences
+        view.updateEchoCancelMode(isAutoMuteForEchoCancelMode)
+        view.updateMuteButtonState(isMuted)
+
         initTts()
         startAsr()
     }
@@ -593,6 +610,12 @@ class VoiceChatPresenter(
                 }
                 // Reset audio player and restart recording
                 audioPlayer?.reset()
+
+                // Auto-unmute if enabled: Ensure mic is open when user manually stops generation
+                if (isAutoMuteForEchoCancelMode) {
+                    muteMicrophone(false)
+                }
+
                 kotlinx.coroutines.delay(200)
                 isStoppingGeneration = false
                 isInterrupted = false // Reset interruption flag
@@ -601,6 +624,34 @@ class VoiceChatPresenter(
         }
     }
     
+    private var isAutoMuteForEchoCancelMode = false // Flag for software-based echo cancellation (Auto-Mute)
+
+    // Toggle the manual mute state of the microphone
+    fun toggleMute() {
+        muteMicrophone(!isMuted)
+    }
+
+    // Toggle between Hardware AEC and Auto-Mute (Software fallback) mode
+    fun toggleEchoCancelMode() {
+        isAutoMuteForEchoCancelMode = !isAutoMuteForEchoCancelMode
+        lifecycleScope.launch(Dispatchers.Main) {
+            view.updateEchoCancelMode(isAutoMuteForEchoCancelMode)
+        }
+        Log.d(TAG, "Auto-mic toggled: $isAutoMuteForEchoCancelMode")
+    }
+
+    // Internal helper to set mute state on ASR service and update UI
+    fun muteMicrophone(muted: Boolean) {
+        if (isMuted != muted) {
+            isMuted = muted
+            asrService?.setMuted(muted)
+            Log.d(TAG, "Microphone mute state changed to: $muted")
+            lifecycleScope.launch(Dispatchers.Main) {
+                view.updateMuteButtonState(muted)
+            }
+        }
+    }
+
     /**
      * Recreate ASR and TTS services with new models
      * This method should be called when the default voice models have changed
@@ -633,6 +684,9 @@ class VoiceChatPresenter(
                 initTts()
                 startAsr()
                 
+                // Restore mute state after recreating services (e.g. model switch)
+                asrService?.setMuted(isMuted)
+
                 Log.d(TAG, "Voice services recreated successfully")
             } catch (e: Exception) {
                 Log.e(TAG, "Error recreating voice services", e)
@@ -697,4 +751,6 @@ interface VoiceChatView {
     fun showError(message: String)
     fun stopGeneration()
     fun showGreetingMessage()
-} 
+    fun updateMuteButtonState(isMuted: Boolean)
+    fun updateEchoCancelMode(isAutoMuteForEchoCancelMode: Boolean)
+}

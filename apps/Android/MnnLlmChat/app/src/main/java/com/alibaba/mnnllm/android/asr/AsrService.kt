@@ -136,6 +136,14 @@ class AsrService(
         return true
     }
 
+    private val isMuted = AtomicBoolean(false) // Atomic flag to safely control mute state across threads
+
+    // Set the mute state. If true, recorded audio will be silenced.
+    fun setMuted(muted: Boolean) {
+        isMuted.set(muted)
+        Log.i(TAG, "Microphone muted: $muted")
+    }
+
     private fun processSamples() {
         Log.i(TAG, "processing samples")
         val stream = recognizer!!.createStream("")
@@ -146,6 +154,10 @@ class AsrService(
         while (isRecording.get() && audioRecord != null) {
             val ret = audioRecord!!.read(buffer, 0, buffer.size)
             if (ret > 0) {
+                // If muted, replace the buffer content with zeros (silence) to prevent ASR from processing audio
+                if (isMuted.get()) {
+                    buffer.fill(0)
+                }
                 chunkCount.incrementAndGet()
                 val samples = FloatArray(ret) { i -> buffer[i] / 32768.0f }
                 utteranceAudioTimeSec += ret.toDouble() / sampleRateInHz

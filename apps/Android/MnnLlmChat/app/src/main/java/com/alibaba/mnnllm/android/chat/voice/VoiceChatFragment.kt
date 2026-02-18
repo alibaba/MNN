@@ -17,12 +17,11 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.LinearSmoothScroller
-import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mnnllm.android.R
-import com.alibaba.mnnllm.android.chat.ChatActivity
 import com.alibaba.mnnllm.android.chat.ChatPresenter
 import com.alibaba.mnnllm.android.databinding.FragmentVoiceChatBinding
 import com.alibaba.mnnllm.android.utils.KeyboardUtils
+import androidx.core.graphics.toColorInt
 
 class VoiceChatFragment : Fragment(), VoiceChatView {
     
@@ -129,6 +128,57 @@ class VoiceChatFragment : Fragment(), VoiceChatView {
         binding.tvVoiceChatStatus.setOnClickListener {
             presenter?.stopGeneration()
         }
+
+        // Listener for manual mute button toggle
+        binding.buttonMute.setOnClickListener {
+            presenter?.toggleMute()
+        }
+
+        // Listener to toggle between Hardware AEC and Auto-Mute mode
+        binding.buttonEchoCancelMode.setOnClickListener {
+            presenter?.toggleEchoCancelMode()
+        }
+    }
+    
+    // Helper to create the styled text for mic mode display
+    // Highlights the selected mode and dims/strikethroughs the unselected one
+    private fun getMicModeSpannable(selectedText: String, unselectedText: String): android.text.SpannableString {
+        val fullText = "$selectedText $unselectedText"
+        val spannable = android.text.SpannableString(fullText)
+        
+        // Style selected text (Normal size, Bold, White)
+        val selectedEnd = selectedText.length
+        spannable.setSpan(
+            android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
+            0, selectedEnd,
+            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        spannable.setSpan(
+            android.text.style.ForegroundColorSpan(android.graphics.Color.WHITE),
+            0, selectedEnd,
+            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        // Style unselected text (Smaller, Strikethrough, Gray)
+        val unselectedStart = selectedEnd + 1 // +1 for space
+        val unselectedEnd = fullText.length
+        spannable.setSpan(
+            android.text.style.RelativeSizeSpan(0.6f),
+            unselectedStart, unselectedEnd,
+            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        // Use custom span for thicker strikethrough (2dp)
+        val density = resources.displayMetrics.density
+        spannable.setSpan(
+            ThickStrikethroughSpan(1 * density),
+            unselectedStart, unselectedEnd,
+            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        spannable.setSpan(
+            android.text.style.ForegroundColorSpan("#30FFFFFF".toColorInt()),
+            unselectedStart, unselectedEnd,
+            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        return spannable
     }
     
     private fun setupRecyclerView() {
@@ -319,5 +369,46 @@ class VoiceChatFragment : Fragment(), VoiceChatView {
         binding.rvVoiceTranscript.scrollToPosition(transcriptAdapter.itemCount - 1)
         
         Log.d(TAG, "Greeting message shown: $greetingMessage")
+    }
+
+    // Update mute button icon based on state
+    override fun updateMuteButtonState(isMuted: Boolean) {
+        if (_binding == null) return
+        binding.buttonMute.setImageResource(
+            if (isMuted) R.drawable.ic_mic_off else R.drawable.ic_mic_on
+        )
+    }
+
+    // Update the echo cancellation mode text display
+    override fun updateEchoCancelMode(isAutoMuteForEchoCancelMode: Boolean) {
+        if (_binding == null) return
+        val hardwareText = getString(R.string.mic_mode_hardware)
+        val autoMuteText = getString(R.string.mic_mode_auto_mute)
+        val spannable = if (isAutoMuteForEchoCancelMode) {
+            getMicModeSpannable(autoMuteText, hardwareText)
+        } else {
+            getMicModeSpannable(hardwareText, autoMuteText)
+        }
+        binding.tvMicModeStatus.text = spannable
+    }
+
+    // Inner class for custom strikethrough logic (thicker line)
+    class ThickStrikethroughSpan(private val thickness: Float) : android.text.style.ReplacementSpan() {
+        override fun getSize(paint: android.graphics.Paint, text: CharSequence, start: Int, end: Int, fm: android.graphics.Paint.FontMetricsInt?): Int {
+            return paint.measureText(text, start, end).toInt()
+        }
+
+        override fun draw(canvas: android.graphics.Canvas, text: CharSequence, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: android.graphics.Paint) {
+            canvas.drawText(text, start, end, x, y.toFloat(), paint)
+            
+            val originalStrokeWidth = paint.strokeWidth
+            paint.strokeWidth = thickness
+            
+            // Draw line through center of text body
+            val lineY = y + (paint.ascent() + paint.descent()) / 2f
+            canvas.drawLine(x, lineY, x + paint.measureText(text, start, end), lineY, paint)
+            
+            paint.strokeWidth = originalStrokeWidth
+        }
     }
 } 

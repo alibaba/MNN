@@ -375,6 +375,9 @@
     <string name="voice_chat_permission_required">Voice chat requires microphone permission</string>
     <string name="voice_chat_session_ended">Voice chat session ended</string>
     <string name="voice_chat_connecting">Connecting...</string>
+    <string name="mic_mode_hardware">Hardware</string>
+    <string name="mic_mode_auto_mute">Auto-Mute</string>
+    <string name="echo_cancellation_mode">Echo Cancellation Mode</string>
     <string name="initializing">Initializing</string>
     <string name="voice_chat_stop">Stop</string>
     <string name="voice_chat_stopping">Stopping...</string>
