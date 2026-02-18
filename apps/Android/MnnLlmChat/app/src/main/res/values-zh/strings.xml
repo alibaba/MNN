@@ -366,6 +366,9 @@
     <string name="voice_chat_permission_required">语音聊天需要麦克风权限</string>
     <string name="voice_chat_session_ended">语音聊天会话已结束</string>
     <string name="voice_chat_connecting">正在连接...</string>
+    <string name="mic_mode_hardware">硬件</string>
+    <string name="mic_mode_auto_mute">自动静音</string>
+    <string name="echo_cancellation_mode">回音消除模式</string>
     <string name="initializing">正在初始化</string>
     <string name="voice_chat_stop">停止</string>
     <string name="voice_chat_stopping">正在停止...</string>
