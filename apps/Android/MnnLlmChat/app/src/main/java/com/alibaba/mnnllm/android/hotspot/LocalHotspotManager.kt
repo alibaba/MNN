@@ -86,13 +86,15 @@ class LocalHotspotManager(context: Context) {
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 val config = reservation.softApConfiguration
-                ssid = config.ssid
+                @Suppress("DEPRECATION")
+                ssid = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    config.wifiSsid?.toString()?.trim('"')
+                } else {
+                    config.ssid
+                }
                 passphrase = config.passphrase
             } else {
-                @Suppress("DEPRECATION")
-                val config = reservation.wifiConfiguration
-                ssid = config?.ssid?.trim('"')
-                passphrase = config?.preSharedKey?.trim('"')
+                throw UnsupportedOperationException("API 30+ is required to access hotspot configuration")
             }
 
             if (ssid == null || passphrase == null) {

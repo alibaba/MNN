@@ -1,8 +1,11 @@
 package com.alibaba.mnnllm.android.hotspot
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -13,6 +16,8 @@ import android.widget.Button
 import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.alibaba.mnnllm.android.R
@@ -45,6 +50,20 @@ class ChatServerFragment : Fragment() {
     private var serverManager: ChatServerManager? = null
     private var hotspotJob: kotlinx.coroutines.Job? = null
 
+    // Must be registered before onStart; property initialisation satisfies that requirement.
+    private val permissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+            if (grants.values.all { it }) {
+                pickModelAndStart()
+            } else {
+                Toast.makeText(
+                    requireContext(),
+                    R.string.chat_server_permission_denied,
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -65,7 +84,7 @@ class ChatServerFragment : Fragment() {
         webView = view.findViewById(R.id.webview_chat)
         btnOpenBrowser = view.findViewById(R.id.btn_open_browser)
 
-        btnStart.setOnClickListener { pickModelAndStart() }
+        btnStart.setOnClickListener { checkAndRequestHotspotPermissions() }
         btnStop.setOnClickListener { stopServer() }
         btnOpenBrowser.setOnClickListener {
             val url = tvUrl.text.toString()
@@ -76,6 +95,32 @@ class ChatServerFragment : Fragment() {
 
         setupWebView()
         updateUi()
+    }
+
+    // ── Permissions ────────────────────────────────────────────────────────────
+
+    /**
+     * Checks for the permission required by [WifiManager.startLocalOnlyHotspot]:
+     *  - API 33+: NEARBY_WIFI_DEVICES
+     *  - API 26–32: ACCESS_FINE_LOCATION
+     *
+     * Proceeds to [pickModelAndStart] immediately when already granted, otherwise
+     * triggers the system permission dialog via [permissionLauncher].
+     */
+    private fun checkAndRequestHotspotPermissions() {
+        val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
+        } else {
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+        val missing = required.filter {
+            ContextCompat.checkSelfPermission(requireContext(), it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isEmpty()) {
+            pickModelAndStart()
+        } else {
+            permissionLauncher.launch(missing.toTypedArray())
+        }
     }
 
     // ── WebView ────────────────────────────────────────────────────────────────
@@ -111,9 +156,16 @@ class ChatServerFragment : Fragment() {
                 .setTitle(R.string.chat_server_pick_model)
                 .setItems(names) { _, idx ->
                     val wrapper = models[idx]
-                    val configPath = ModelUtils.getConfigPathForModel(wrapper.modelItem.modelId)
+                    val modelId = wrapper.modelItem.modelId ?: ""
+
+                    if (modelId.isEmpty()) {
+                        Toast.makeText(requireContext(), requireContext().getString(R.string.model_not_found, ""), Toast.LENGTH_LONG).show()
+                        return@setItems
+                    }
+
+                    val configPath = ModelUtils.getConfigPathForModel(modelId)
                     if (configPath != null) {
-                        startServer(wrapper.modelItem.modelId, configPath)
+                        startServer(modelId, configPath)
                     } else {
                         Toast.makeText(requireContext(), R.string.config_file_not_found, Toast.LENGTH_LONG).show()
                     }
@@ -224,4 +276,3 @@ class ChatServerFragment : Fragment() {
         webView.destroy()
     }
 }
-

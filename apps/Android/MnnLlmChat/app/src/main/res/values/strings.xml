@@ -630,4 +630,5 @@
     <string name="chat_server_pick_model">Select translation model</string>
     <string name="chat_server_no_models">No downloaded models found. Download a model first.</string>
     <string name="chat_server_hotspot_failed">Hotspot failed: %1$s</string>
+	<string name="chat_server_permission_denied">Nearby Wi-Fi Devices permission is required to start a local hotspot.</string>
 </resources>
