@@ -616,4 +616,18 @@
     <string name="qnn_libs_download_failed">Failed to download QNN libraries</string>
     <string name="qnn_libs_load_failed">Failed to load QNN libraries</string>
     <string name="qnn_device_not_supported">QNN model detected but device does not support QNN acceleration. Please use a different model.</string>
+
+    <!-- Interpreted Chat Server -->
+    <string name="nav_chat_server">IM Chat</string>
+    <string name="chat_server_idle">Tap Start to host an interpreted chat session.\nOther devices can join via Wi-Fi QR code.</string>
+    <string name="chat_server_starting">Starting hotspot and server…</string>
+    <string name="chat_server_running">Server running. Scan the QR codes below.</string>
+    <string name="chat_server_start">Start Interpreted Chat</string>
+    <string name="chat_server_stop">Stop Server</string>
+    <string name="chat_server_open_browser">Open in default browser</string>
+    <string name="chat_server_qr_wifi">1. Join Wi-Fi</string>
+    <string name="chat_server_qr_url">2. Open Chat</string>
+    <string name="chat_server_pick_model">Select translation model</string>
+    <string name="chat_server_no_models">No downloaded models found. Download a model first.</string>
+    <string name="chat_server_hotspot_failed">Hotspot failed: %1$s</string>
 </resources>

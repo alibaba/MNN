@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Chat</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f0f2f5;color:#1a1a2e;height:100dvh;overflow:hidden;display:flex;flex-direction:column}
+.screen{display:none;flex-direction:column;height:100dvh;overflow-y:auto}
+.screen.active{display:flex}
+/* Language screen */
+#screen-lang{align-items:center;justify-content:center;gap:16px;padding:24px;background:#f0f2f5}
+.lang-title{font-size:1.4em;font-weight:700;text-align:center;margin-bottom:8px}
+.lang-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;width:100%;max-width:400px}
+.lang-btn{padding:14px 8px;border:2px solid #dde;border-radius:12px;background:#fff;font-size:1em;cursor:pointer;transition:all .15s;text-align:center}
+.lang-btn:active,.lang-btn.sel{border-color:#4252b6;background:#e8eaff;font-weight:700}
+.lang-other{grid-column:span 2}
+.lang-other input{width:100%;padding:10px;border:2px solid #dde;border-radius:10px;font-size:1em;background:#fff}
+.btn-primary{padding:14px 28px;background:#4252b6;color:#fff;border:none;border-radius:12px;font-size:1em;font-weight:600;cursor:pointer;width:100%;max-width:400px}
+.btn-primary:active{background:#3341a0}
+/* Setup screen */
+#screen-setup{align-items:center;justify-content:flex-start;padding:32px 24px;gap:18px;background:#f0f2f5}
+.setup-section{width:100%;max-width:400px;display:flex;flex-direction:column;gap:8px}
+.setup-label{font-size:.95em;font-weight:600;color:#444}
+.setup-input{padding:12px 14px;border:2px solid #dde;border-radius:12px;font-size:1em;background:#fff;width:100%}
+.avatar-row{display:flex;align-items:center;gap:14px}
+.avatar-preview{width:64px;height:64px;border-radius:50%;background:#dde;object-fit:cover;display:flex;align-items:center;justify-content:center;font-size:1.8em;overflow:hidden;flex-shrink:0}
+.avatar-preview img{width:100%;height:100%;object-fit:cover}
+.btn-secondary{padding:10px 18px;background:#fff;color:#4252b6;border:2px solid #4252b6;border-radius:10px;font-size:.95em;font-weight:600;cursor:pointer}
+/* Chat screen */
+#screen-chat{display:none;flex-direction:column;height:100dvh}
+#screen-chat.active{display:flex}
+.chat-header{display:flex;align-items:center;padding:12px 16px;background:#fff;border-bottom:1px solid #eee;gap:10px;flex-shrink:0;position:sticky;top:0;z-index:10}
+.chat-header h1{font-size:1.05em;font-weight:700;flex:1}
+.header-users{font-size:.85em;color:#666;cursor:pointer;padding:4px 8px;border-radius:8px}
+.header-users:active{background:#f0f2f5}
+.btn-icon{background:none;border:none;cursor:pointer;padding:6px;border-radius:8px;font-size:1.2em;display:flex;align-items:center}
+.btn-icon:active{background:#f0f2f5}
+/* Connection banner */
+.conn-banner{display:none;background:#f0ad4e;color:#fff;text-align:center;padding:8px;font-size:.9em;font-weight:600}
+.conn-banner.lost{display:block}
+.conn-banner.ok{background:#5cb85c;display:block}
+/* Message list */
+#msg-list{flex:1;overflow-y:auto;padding:12px 10px;display:flex;flex-direction:column;gap:6px;scroll-behavior:smooth}
+/* Message bubbles */
+.msg-wrap{display:flex;flex-direction:column;max-width:80%;gap:2px}
+.msg-wrap.me{align-self:flex-end;align-items:flex-end}
+.msg-wrap.other{align-self:flex-start;align-items:flex-start}
+.msg-username{font-size:.78em;color:#888;padding:0 4px}
+.msg-bubble{padding:10px 14px;border-radius:18px;font-size:.97em;line-height:1.45;cursor:pointer;position:relative;word-break:break-word}
+.msg-wrap.me .msg-bubble{background:#4252b6;color:#fff;border-bottom-right-radius:4px}
+.msg-wrap.other .msg-bubble{background:#fff;color:#1a1a2e;border-bottom-left-radius:4px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.msg-time{font-size:.72em;color:#aaa;padding:0 4px}
+.msg-translation{font-size:.88em;color:#777;padding:2px 4px 0}
+.msg-translating{font-style:italic;color:#aaa}
+.msg-wrap.me .msg-translation{color:rgba(255,255,255,.75);text-align:right}
+.msg-reply{font-size:.82em;background:rgba(0,0,0,.06);border-left:3px solid #4252b6;padding:4px 8px;border-radius:6px;margin-bottom:4px;cursor:pointer;max-width:100%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.msg-wrap.me .msg-reply{background:rgba(255,255,255,.15);border-color:rgba(255,255,255,.6)}
+/* Reply preview bar */
+#reply-bar{display:none;background:#fff;border-top:1px solid #eee;padding:8px 14px;flex-direction:row;align-items:center;gap:10px;flex-shrink:0}
+#reply-bar.active{display:flex}
+#reply-preview{flex:1;font-size:.9em;color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Input area */
+.input-area{display:flex;align-items:flex-end;gap:8px;padding:10px 12px;background:#fff;border-top:1px solid #eee;flex-shrink:0}
+#msg-input{flex:1;padding:10px 14px;border:2px solid #e0e3f0;border-radius:24px;font-size:1em;resize:none;max-height:120px;min-height:44px;background:#f8f9fe;outline:none;line-height:1.4}
+#msg-input:focus{border-color:#4252b6}
+#send-btn{background:#4252b6;border:none;border-radius:50%;width:44px;height:44px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;color:#fff;font-size:1.3em}
+#send-btn:active{background:#3341a0}
+/* Context menu */
+#ctx-menu{display:none;position:fixed;background:#fff;border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,.18);min-width:210px;z-index:1000;overflow:hidden}
+#ctx-menu.open{display:block}
+.ctx-item{padding:13px 20px;font-size:.97em;cursor:pointer;border-bottom:1px solid #f0f2f5}
+.ctx-item:last-child{border-bottom:none}
+.ctx-item:active{background:#f0f2f5}
+.ctx-item.danger{color:#d9534f}
+/* Users panel */
+#users-panel{display:none;position:fixed;top:0;right:0;bottom:0;width:min(260px,80vw);background:#fff;box-shadow:-4px 0 24px rgba(0,0,0,.12);z-index:900;flex-direction:column;padding:20px 0}
+#users-panel.open{display:flex}
+.users-title{font-size:1.05em;font-weight:700;padding:0 18px 12px;border-bottom:1px solid #eee}
+.user-item{display:flex;align-items:center;gap:12px;padding:12px 18px}
+.user-avatar-sm{width:36px;height:36px;border-radius:50%;background:#dde;flex-shrink:0;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:1.1em}
+.user-avatar-sm img{width:100%;height:100%;object-fit:cover}
+.user-info-sm{flex:1;min-width:0}
+.user-name-sm{font-weight:600;font-size:.95em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.user-lang-sm{font-size:.8em;color:#888}
+/* Overlay */
+#overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:800}
+#overlay.open{display:block}
+</style>
+</head>
+<body>
+
+<!-- ─── Screen 1: Language ─────────────────────────────────────────────────── -->
+<div id="screen-lang" class="screen active">
+  <div class="lang-title" id="txt-lang-title">Select your language</div>
+  <div class="lang-grid" id="lang-grid">
+    <button class="lang-btn" data-lang="en">🇺🇸 English</button>
+    <button class="lang-btn" data-lang="ko">🇰🇷 한국어</button>
+    <button class="lang-btn" data-lang="ja">🇯🇵 日本語</button>
+    <button class="lang-btn" data-lang="zh">🇨🇳 中文</button>
+    <button class="lang-btn" data-lang="es">🇪🇸 Español</button>
+    <button class="lang-btn" data-lang="fr">🇫🇷 Français</button>
+    <button class="lang-btn" data-lang="de">🇩🇪 Deutsch</button>
+    <button class="lang-btn" data-lang="pt">🇵🇹 Português</button>
+    <button class="lang-btn" data-lang="ar">🇸🇦 العربية</button>
+    <button class="lang-btn" data-lang="hi">🇮🇳 हिन्दी</button>
+    <div class="lang-btn lang-other" style="display:flex;align-items:center;gap:8px">
+      <span>✏️</span>
+      <input id="lang-custom" type="text" placeholder="Other language code (e.g. ru)" style="border:none;outline:none;flex:1;font-size:.95em">
+    </div>
+  </div>
+  <button class="btn-primary" id="btn-lang-next">Next →</button>
+</div>
+
+<!-- ─── Screen 2: Setup ───────────────────────────────────────────────────── -->
+<div id="screen-setup" class="screen">
+  <div style="font-size:1.5em;font-weight:800;text-align:center;margin-bottom:4px">💬</div>
+  <div class="setup-section">
+    <div class="setup-label" id="txt-setup-username">Choose a username</div>
+    <input class="setup-input" id="username-input" type="text" maxlength="32" autocomplete="off" autocorrect="off" spellcheck="false">
+  </div>
+  <div class="setup-section">
+    <div class="setup-label" id="txt-setup-avatar">Profile picture (optional)</div>
+    <div class="avatar-row">
+      <div class="avatar-preview" id="avatar-preview">🙂</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn-secondary" id="btn-choose-photo">📷 <span id="txt-choose-photo">Choose photo</span></button>
+        <input type="file" id="file-input" accept="image/*" style="display:none">
+      </div>
+    </div>
+  </div>
+  <button class="btn-primary" id="btn-join" style="margin-top:8px">🚀 <span id="txt-btn-join">Join chat</span></button>
+</div>
+
+<!-- ─── Screen 3: Chat ────────────────────────────────────────────────────── -->
+<div id="screen-chat" class="screen">
+  <div class="chat-header">
+    <h1>💬 Chat</h1>
+    <span class="header-users" id="header-users-btn" onclick="toggleUsersPanel()">👥 1</span>
+    <button class="btn-icon" id="btn-export" title="Export" onclick="exportChat()">💾</button>
+  </div>
+  <div class="conn-banner" id="conn-banner"></div>
+  <div id="msg-list"></div>
+  <div id="reply-bar">
+    <span id="reply-preview"></span>
+    <button class="btn-icon" onclick="cancelReply()">✕</button>
+  </div>
+  <div class="input-area">
+    <textarea id="msg-input" rows="1" placeholder="Type a message…"></textarea>
+    <button id="send-btn" onclick="sendMessage()">➤</button>
+  </div>
+</div>
+
+<!-- ─── Overlays ──────────────────────────────────────────────────────────── -->
+<div id="overlay" onclick="closeAll()"></div>
+
+<div id="ctx-menu">
+  <div class="ctx-item" id="ctx-reply" onclick="ctxReply()">↩ Reply</div>
+  <div class="ctx-item" id="ctx-view-original" onclick="ctxViewOriginal()" style="display:none">🔤 View original</div>
+  <div class="ctx-item" id="ctx-view-translation" onclick="ctxViewTranslation()" style="display:none">🌐 View translation</div>
+  <div class="ctx-item" id="ctx-retranslate" onclick="ctxRetranslate()" style="display:none">🔄 Retranslate with more context</div>
+  <div class="ctx-item" id="ctx-prev-translation" onclick="ctxViewPrev()" style="display:none">🕒 View previous translation</div>
+</div>
+
+<div id="users-panel">
+  <div class="users-title" id="txt-connected-users">Connected users</div>
+  <div id="users-list"></div>
+</div>
+
+<script>
+// ─── Constants / state ──────────────────────────────────────────────────────
+const UI = {};          // localised UI strings (set by applyUiLang)
+let myUserId = localStorage.getItem('userId') || genId();
+let myLanguage = 'en';
+let myUsername = '';
+let myAvatarBase64 = null;
+let replyToId = null;
+let replyToText = null;
+let replyToUsername = null;
+let ctxMessageId = null;
+let ctxShowingOriginal = false; // per-message toggle state
+const messageShowOriginal = {};  // msgId → true if user is viewing original
+const messages = {};    // id → {id, userId, username, text, timestamp, replyToId, replyToText, replyToUsername}
+const translations = {};// "msgId:lang" → {text, retranslationCount, previousVersions, isPending}
+const users = {};       // id → {id, username, language, avatarBase64}
+let es = null;
+let reconnectTimer = null;
+let reconnecting = false;
+
+localStorage.setItem('userId', myUserId);
+
+// ─── Hard-coded UI translations ─────────────────────────────────────────────
+const BUILTIN_UI = {
+  en: {
+    lang_title:"Select your language",setup_username:"Choose a username",
+    setup_username_hint:"Enter your name",setup_avatar:"Profile picture (optional)",
+    btn_choose_photo:"Choose photo",btn_skip:"Skip",btn_join:"Join chat",
+    chat_placeholder:"Type a message…",btn_send:"Send",btn_export:"Export chat",
+    translating:"Translating…",retranslating:"Retranslating…",
+    ctx_view_original:"View original",ctx_view_translation:"View translation",
+    ctx_retranslate:"Retranslate with more context",ctx_prev_translation:"View previous translation",
+    ctx_reply:"Reply",ctx_cancel_reply:"Cancel reply",connected_users:"Connected users",
+    connection_lost:"Connection lost. Reconnecting…",connection_restored:"Connected",
+    you:"You",server_host:"Host",welcome:"Welcome to the chat!",no_messages:"No messages yet.",
+  },
+  ko: {
+    lang_title:"언어를 선택하세요",setup_username:"사용자 이름 선택",
+    setup_username_hint:"이름을 입력하세요",setup_avatar:"프로필 사진 (선택)",
+    btn_choose_photo:"사진 선택",btn_skip:"건너뛰기",btn_join:"채팅 참여",
+    chat_placeholder:"메시지를 입력하세요…",btn_send:"전송",btn_export:"채팅 내보내기",
+    translating:"번역 중…",retranslating:"재번역 중…",
+    ctx_view_original:"원문 보기",ctx_view_translation:"번역 보기",
+    ctx_retranslate:"더 많은 맥락으로 재번역",ctx_prev_translation:"이전 번역 보기",
+    ctx_reply:"답장",ctx_cancel_reply:"답장 취소",connected_users:"접속자",
+    connection_lost:"연결 끊김. 재연결 중…",connection_restored:"연결됨",
+    you:"나",server_host:"호스트",welcome:"채팅에 오신 것을 환영합니다!",no_messages:"아직 메시지가 없습니다.",
+  },
+  ja: {
+    lang_title:"言語を選択してください",setup_username:"ユーザー名を入力",
+    setup_username_hint:"名前を入力してください",setup_avatar:"プロフィール画像（任意）",
+    btn_choose_photo:"写真を選ぶ",btn_skip:"スキップ",btn_join:"チャットに参加",
+    chat_placeholder:"メッセージを入力…",btn_send:"送信",btn_export:"チャットをエクスポート",
+    translating:"翻訳中…",retranslating:"再翻訳中…",
+    ctx_view_original:"原文を見る",ctx_view_translation:"翻訳を見る",
+    ctx_retranslate:"より多くの文脈で再翻訳",ctx_prev_translation:"前の翻訳を見る",
+    ctx_reply:"返信",ctx_cancel_reply:"返信をキャンセル",connected_users:"接続ユーザー",
+    connection_lost:"接続が切れました。再接続中…",connection_restored:"接続済み",
+    you:"あなた",server_host:"ホスト",welcome:"チャットへようこそ！",no_messages:"まだメッセージはありません。",
+  },
+};
+
+function t(key) { return UI[key] || BUILTIN_UI.en[key] || key; }
+
+function applyUiLang(lang) {
+  myLanguage = lang;
+  const src = BUILTIN_UI[lang] || BUILTIN_UI.en;
+  Object.assign(UI, src);
+  document.getElementById('txt-lang-title').textContent = t('lang_title');
+  document.getElementById('txt-setup-username').textContent = t('setup_username');
+  const uhi = document.getElementById('username-input');
+  if(uhi) uhi.placeholder = t('setup_username_hint');
+  document.getElementById('txt-setup-avatar').textContent = t('setup_avatar');
+  document.getElementById('txt-choose-photo').textContent = t('btn_choose_photo');
+  document.getElementById('txt-btn-join').textContent = t('btn_join');
+  const mi = document.getElementById('msg-input');
+  if(mi) mi.placeholder = t('chat_placeholder');
+  document.getElementById('txt-connected-users').textContent = t('connected_users');  document.getElementById('ctx-reply').textContent = '↩ ' + t('ctx_reply');
+  document.getElementById('ctx-view-original').textContent = '🔤 ' + t('ctx_view_original');
+  document.getElementById('ctx-view-translation').textContent = '🌐 ' + t('ctx_view_translation');
+  document.getElementById('ctx-retranslate').textContent = '🔄 ' + t('ctx_retranslate');
+  document.getElementById('ctx-prev-translation').textContent = '🕒 ' + t('ctx_prev_translation');
+}
+
+function genId() { return Math.random().toString(36).slice(2)+Date.now().toString(36); }
+
+// ─── Language screen ─────────────────────────────────────────────────────────
+(function initLangScreen(){
+  // Auto-detect
+  const detected = (navigator.language||'en').split('-')[0].toLowerCase();
+  document.querySelectorAll('.lang-btn[data-lang]').forEach(b=>{
+    if(b.dataset.lang===detected) b.classList.add('sel');
+    b.addEventListener('click',()=>{
+      document.querySelectorAll('.lang-btn').forEach(x=>x.classList.remove('sel'));
+      b.classList.add('sel');
+      document.getElementById('lang-custom').value='';
+    });
+  });
+  if(BUILTIN_UI[detected]) applyUiLang(detected);
+
+  document.getElementById('btn-lang-next').addEventListener('click',()=>{
+    const custom = document.getElementById('lang-custom').value.trim().toLowerCase();
+    const sel = document.querySelector('.lang-btn.sel');
+    const lang = custom || (sel && sel.dataset.lang) || detected || 'en';
+    applyUiLang(lang);
+    showScreen('screen-setup');
+    // If not builtin, request server translation when we join
+  });
+})();
+
+// ─── Setup screen ────────────────────────────────────────────────────────────
+document.getElementById('file-input').addEventListener('change', e=>{
+  const f = e.target.files[0];
+  if(!f) return;
+  const r = new FileReader();
+  r.onload = ev=>{
+    myAvatarBase64 = ev.target.result;
+    const prev = document.getElementById('avatar-preview');
+    prev.innerHTML = `<img src="${myAvatarBase64}" alt="">`;
+  };
+  r.readAsDataURL(f);
+});
+document.getElementById('btn-choose-photo').addEventListener('click',()=>{
+  document.getElementById('file-input').click();
+});
+document.getElementById('btn-join').addEventListener('click',joinChat);
+document.getElementById('username-input').addEventListener('keydown', e=>{
+  if(e.key==='Enter'){e.preventDefault();joinChat();}
+});
+
+function joinChat(){
+  const name = document.getElementById('username-input').value.trim();
+  if(!name){document.getElementById('username-input').focus();return;}
+  myUsername = name;
+  showScreen('screen-chat');
+  connectSSE();
+  postApi('/api/join',{userId:myUserId,username:myUsername,language:myLanguage,avatar:myAvatarBase64});
+}
+
+// ─── SSE connection ───────────────────────────────────────────────────────────
+function connectSSE(){
+  if(es){es.close();es=null;}
+  clearTimeout(reconnectTimer);
+  es = new EventSource('/api/events?userId='+encodeURIComponent(myUserId));
+  es.onopen = ()=>{
+    reconnecting=false;
+    showBanner('ok',t('connection_restored'));
+    setTimeout(()=>hideBanner(),2500);
+  };
+  es.onmessage = e=>{
+    try{ handleEvent(JSON.parse(e.data)); }catch(ex){}
+  };
+  es.onerror = ()=>{
+    es.close(); es=null;
+    if(!reconnecting){
+      reconnecting=true;
+      showBanner('lost',t('connection_lost'));
+    }
+    reconnectTimer = setTimeout(connectSSE, 3000);
+  };
+}
+
+function handleEvent(ev){
+  switch(ev.type){
+    case 'init':
+      (ev.data.users||[]).forEach(u=>{ users[u.id]=u; });
+      (ev.data.messages||[]).forEach(m=>{ messages[m.id]=m; });
+      (ev.data.translations||[]).forEach(tr=>{ translations[trKey(tr.messageId,tr.language)]=tr; });
+      renderAllMessages();
+      updateUserList();
+      break;
+    case 'message':
+      messages[ev.data.id]=ev.data;
+      appendMessage(ev.data);
+      break;
+    case 'translation':
+      translations[trKey(ev.data.messageId,ev.data.language)]=ev.data;
+      updateMessageTranslation(ev.data.messageId);
+      break;
+    case 'translation_pending':
+      const k=trKey(ev.data.messageId,ev.data.language);
+      if(!translations[k]) translations[k]={messageId:ev.data.messageId,language:ev.data.language,text:'',isPending:true};
+      updateMessageTranslation(ev.data.messageId);
+      break;
+    case 'user_joined': case 'user_updated':
+      users[ev.data.id]=ev.data;
+      updateUserList();
+      break;
+    case 'user_left':
+      delete users[ev.data.userId];
+      updateUserList();
+      break;
+    case 'ui_translations':
+      if(ev.data.language===myLanguage){
+        Object.assign(UI,ev.data.translations);
+        applyUiLang(myLanguage);
+      }
+      break;
+  }
+}
+
+function trKey(msgId,lang){ return msgId+':'+lang; }
+
+// ─── Rendering ───────────────────────────────────────────────────────────────
+function renderAllMessages(){
+  const list = document.getElementById('msg-list');
+  list.innerHTML='';
+  Object.values(messages).sort((a,b)=>a.timestamp-b.timestamp).forEach(appendMessage);
+}
+
+function appendMessage(msg){
+  const list = document.getElementById('msg-list');
+  if(document.getElementById('msg-'+msg.id)) return; // already rendered
+  const isMe = msg.userId===myUserId;
+  const wrap = document.createElement('div');
+  wrap.className='msg-wrap '+(isMe?'me':'other');
+  wrap.id='msg-'+msg.id;
+  wrap.dataset.msgId=msg.id;
+
+  if(!isMe){
+    const uname=document.createElement('div');
+    uname.className='msg-username';
+    uname.textContent=msg.username;
+    wrap.appendChild(uname);
+  }
+  if(msg.replyToId){
+    const rb=document.createElement('div');
+    rb.className='msg-reply';
+    rb.textContent=(msg.replyToUsername?msg.replyToUsername+': ':'')+msg.replyToText;
+    rb.onclick=()=>scrollToMessage(msg.replyToId);
+    wrap.appendChild(rb);
+  }
+  const bubble=document.createElement('div');
+  bubble.className='msg-bubble';
+  bubble.textContent=msg.text;
+  bubble.addEventListener('click',()=>{ if(ctxOpen){closeCtxMenu();} });
+  bubble.addEventListener('contextmenu',e=>{e.preventDefault();openCtxMenu(e,msg.id);});
+  bubble.addEventListener('touchstart', makeLongPress(()=>openCtxMenu({clientX:bubble.getBoundingClientRect().left,clientY:bubble.getBoundingClientRect().top},msg.id)),{passive:true});
+  wrap.appendChild(bubble);
+
+  const tr=document.createElement('div');
+  tr.className='msg-translation';
+  tr.id='tr-'+msg.id;
+  wrap.appendChild(tr);
+
+  const ts=document.createElement('div');
+  ts.className='msg-time';
+  ts.textContent=fmtTime(msg.timestamp);
+  wrap.appendChild(ts);
+
+  list.appendChild(wrap);
+  updateMessageTranslation(msg.id);
+  scrollBottom();
+}
+
+function updateMessageTranslation(msgId){
+  const el=document.getElementById('tr-'+msgId);
+  if(!el) return;
+  const msg=messages[msgId];
+  if(!msg) return;
+  const srcLang = users[msg.userId]?.language||'en';
+  if(srcLang===myLanguage){
+    el.textContent=''; return;
+  }
+  const tr=translations[trKey(msgId,myLanguage)];
+  const showOrig = messageShowOriginal[msgId];
+  if(showOrig){
+    el.className='msg-translation';
+    el.textContent='['+t('ctx_view_original')+': '+msg.text+']';
+  } else if(!tr){
+    el.className='msg-translation msg-translating';
+    el.textContent=t('translating');
+  } else if(tr.isPending){
+    el.className='msg-translation msg-translating';
+    el.textContent=tr.retranslationCount>0?t('retranslating'):t('translating');
+  } else if(tr.text){
+    el.className='msg-translation';
+    el.textContent=tr.text;
+  }
+}
+
+function updateUserList(){
+  const list=document.getElementById('users-list');
+  list.innerHTML='';
+  const btn=document.getElementById('header-users-btn');
+  btn.textContent='👥 '+Object.keys(users).length;
+  Object.values(users).forEach(u=>{
+    const item=document.createElement('div');
+    item.className='user-item';
+    const av=document.createElement('div');
+    av.className='user-avatar-sm';
+    if(u.avatarBase64){av.innerHTML=`<img src="${u.avatarBase64}" alt="">`;}
+    else{av.textContent=u.username?u.username[0].toUpperCase():'?';}
+    const info=document.createElement('div');
+    info.className='user-info-sm';
+    const nm=document.createElement('div');
+    nm.className='user-name-sm';
+    nm.textContent=u.username+(u.id===myUserId?' ('+t('you')+')':'');
+    const lg=document.createElement('div');
+    lg.className='user-lang-sm';
+    lg.textContent=u.language;
+    info.append(nm,lg);
+    item.append(av,info);
+    list.appendChild(item);
+  });
+}
+
+function scrollBottom(){
+  const list=document.getElementById('msg-list');
+  list.scrollTop=list.scrollHeight;
+}
+
+function scrollToMessage(id){
+  const el=document.getElementById('msg-'+id);
+  if(el){el.scrollIntoView({behavior:'smooth',block:'center'});}
+  closeAll();
+}
+
+// ─── Context menu ─────────────────────────────────────────────────────────────
+let ctxOpen=false;
+window.ctxOpen=false;
+
+function openCtxMenu(e,msgId){
+  ctxMessageId=msgId;
+  const msg=messages[msgId];
+  if(!msg) return;
+  const srcLang=users[msg.userId]?.language||'en';
+  const tr=translations[trKey(msgId,myLanguage)];
+  const hasTr=tr&&tr.text&&!tr.isPending;
+  const hasPrev=hasTr&&tr.previousVersions&&tr.previousVersions.length>0;
+  const isDiff=srcLang!==myLanguage;
+
+  document.getElementById('ctx-view-original').style.display=isDiff?'':'none';
+  document.getElementById('ctx-view-translation').style.display=(isDiff&&messageShowOriginal[msgId])?'':'none';
+  document.getElementById('ctx-retranslate').style.display=isDiff?'':'none';
+  document.getElementById('ctx-prev-translation').style.display=hasPrev?'':'none';
+
+  const menu=document.getElementById('ctx-menu');
+  menu.style.left=Math.min(e.clientX,window.innerWidth-220)+'px';
+  menu.style.top=Math.min(e.clientY,window.innerHeight-200)+'px';
+  menu.classList.add('open');
+  document.getElementById('overlay').classList.add('open');
+  ctxOpen=true;window.ctxOpen=true;
+}
+
+function closeCtxMenu(){
+  document.getElementById('ctx-menu').classList.remove('open');
+  ctxOpen=false;window.ctxOpen=false;
+}
+
+function closeAll(){
+  closeCtxMenu();
+  document.getElementById('users-panel').classList.remove('open');
+  document.getElementById('overlay').classList.remove('open');
+}
+
+function ctxReply(){
+  const msg=messages[ctxMessageId];
+  if(!msg) return closeCtxMenu();
+  replyToId=msg.id;
+  replyToText=msg.text;
+  replyToUsername=msg.username;
+  const bar=document.getElementById('reply-bar');
+  bar.classList.add('active');
+  document.getElementById('reply-preview').textContent=msg.username+': '+msg.text;
+  document.getElementById('msg-input').focus();
+  closeCtxMenu();
+}
+
+function cancelReply(){
+  replyToId=null;replyToText=null;replyToUsername=null;
+  document.getElementById('reply-bar').classList.remove('active');
+}
+
+function ctxViewOriginal(){
+  messageShowOriginal[ctxMessageId]=true;
+  updateMessageTranslation(ctxMessageId);
+  closeCtxMenu();
+}
+
+function ctxViewTranslation(){
+  delete messageShowOriginal[ctxMessageId];
+  updateMessageTranslation(ctxMessageId);
+  closeCtxMenu();
+}
+
+function ctxRetranslate(){
+  const tr=translations[trKey(ctxMessageId,myLanguage)];
+  const count=(tr?.retranslationCount||0)+1;
+  postApi('/api/retranslate',{messageId:ctxMessageId,language:myLanguage,contextCount:count});
+  closeCtxMenu();
+}
+
+function ctxViewPrev(){
+  const tr=translations[trKey(ctxMessageId,myLanguage)];
+  if(tr?.previousVersions?.length>0){
+    alert(tr.previousVersions.join('\n\n---\n'));
+  }
+  closeCtxMenu();
+}
+
+// ─── Sending messages ─────────────────────────────────────────────────────────
+async function sendMessage(){
+  const input=document.getElementById('msg-input');
+  const text=input.value.trim();
+  if(!text) return;
+  input.value='';
+  input.style.height='';
+  await postApi('/api/message',{userId:myUserId,text,replyToId,replyToText,replyToUsername});
+  cancelReply();
+}
+
+document.getElementById('msg-input').addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage();}
+});
+document.getElementById('msg-input').addEventListener('input',e=>{
+  e.target.style.height='';
+  e.target.style.height=Math.min(e.target.scrollHeight,120)+'px';
+});
+
+// ─── Users panel ──────────────────────────────────────────────────────────────
+function toggleUsersPanel(){
+  const panel=document.getElementById('users-panel');
+  const ov=document.getElementById('overlay');
+  const isOpen=panel.classList.contains('open');
+  panel.classList.toggle('open',!isOpen);
+  ov.classList.toggle('open',!isOpen);
+}
+
+// ─── Export chat ──────────────────────────────────────────────────────────────
+function exportChat(){
+  const lines=['=== Chat Export ===',''];
+  Object.values(messages).sort((a,b)=>a.timestamp-b.timestamp).forEach(msg=>{
+    const time=new Date(msg.timestamp).toLocaleString();
+    lines.push(`[${time}] ${msg.username}: ${msg.text}`);
+    const tr=translations[trKey(msg.id,myLanguage)];
+    if(tr&&tr.text) lines.push(`  → (${myLanguage}) ${tr.text}`);
+  });
+  const blob=new Blob([lines.join('\n')],{type:'text/plain'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='chat-export-'+new Date().toISOString().slice(0,10)+'.txt';
+  a.click();
+}
+
+// ─── Connection banner ─────────────────────────────────────────────────────────
+function showBanner(state,msg){
+  const b=document.getElementById('conn-banner');
+  b.textContent=msg;
+  b.className='conn-banner '+state;
+}
+function hideBanner(){
+  document.getElementById('conn-banner').className='conn-banner';
+}
+
+// ─── Utilities ─────────────────────────────────────────────────────────────────
+async function postApi(path,body){
+  try{
+    return await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  }catch(e){console.error('POST',path,e);}
+}
+
+function fmtTime(ts){
+  const d=new Date(ts);
+  return d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0');
+}
+
+function showScreen(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+function makeLongPress(cb,ms=600){
+  let timer=null;
+  return e=>{
+    timer=setTimeout(()=>{timer=null;cb();},ms);
+    const cancel=()=>{clearTimeout(timer);document.removeEventListener('touchend',cancel);document.removeEventListener('touchmove',cancel);};
+    document.addEventListener('touchend',cancel,{once:true});
+    document.addEventListener('touchmove',cancel,{once:true});
+  };
+}
+</script>
+</body>
+</html>

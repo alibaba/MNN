@@ -1,0 +1,227 @@
+package com.alibaba.mnnllm.android.hotspot
+
+import android.content.Intent
+import android.graphics.Bitmap
+import android.net.Uri
+import android.os.Bundle
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.widget.Button
+import android.widget.ImageView
+import android.widget.TextView
+import android.widget.Toast
+import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
+import com.alibaba.mnnllm.android.R
+import com.alibaba.mnnllm.android.modelist.ModelListManager
+import com.alibaba.mnnllm.android.model.ModelUtils
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+class ChatServerFragment : Fragment() {
+
+    private lateinit var statusCard: View
+    private lateinit var runningCard: View
+    private lateinit var tvStatus: TextView
+    private lateinit var btnStart: Button
+    private lateinit var btnStop: Button
+    private lateinit var ivWifiQr: ImageView
+    private lateinit var ivUrlQr: ImageView
+    private lateinit var tvUrl: TextView
+    private lateinit var tvUsers: TextView
+    private lateinit var webView: WebView
+    private lateinit var btnOpenBrowser: Button
+
+    private var hotspotManager: LocalHotspotManager? = null
+    private var serverManager: ChatServerManager? = null
+    private var hotspotJob: kotlinx.coroutines.Job? = null
+
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?,
+    ): View = inflater.inflate(R.layout.fragment_chat_server, container, false)
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        statusCard = view.findViewById(R.id.card_status)
+        runningCard = view.findViewById(R.id.card_running)
+        tvStatus = view.findViewById(R.id.tv_status)
+        btnStart = view.findViewById(R.id.btn_start_server)
+        btnStop = view.findViewById(R.id.btn_stop_server)
+        ivWifiQr = view.findViewById(R.id.iv_wifi_qr)
+        ivUrlQr = view.findViewById(R.id.iv_url_qr)
+        tvUrl = view.findViewById(R.id.tv_chat_url)
+        tvUsers = view.findViewById(R.id.tv_users)
+        webView = view.findViewById(R.id.webview_chat)
+        btnOpenBrowser = view.findViewById(R.id.btn_open_browser)
+
+        btnStart.setOnClickListener { pickModelAndStart() }
+        btnStop.setOnClickListener { stopServer() }
+        btnOpenBrowser.setOnClickListener {
+            val url = tvUrl.text.toString()
+            if (url.isNotEmpty()) {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            }
+        }
+
+        setupWebView()
+        updateUi()
+    }
+
+    // ── WebView ────────────────────────────────────────────────────────────────
+
+    private fun setupWebView() {
+        webView.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+        }
+        webView.webViewClient = WebViewClient()
+    }
+
+    // ── Start / stop ───────────────────────────────────────────────────────────
+
+    private fun pickModelAndStart() {
+        lifecycleScope.launch {
+            val models = withContext(Dispatchers.IO) {
+                val state = ModelListManager.observeModelList()
+                    .filterIsInstance<ModelListManager.ModelListState.Success>()
+                    .first()
+                state.models.filter { it.downloadedModelInfo != null || it.isLocal }
+            }
+
+            if (!isAdded) return@launch
+
+            if (models.isEmpty()) {
+                Toast.makeText(requireContext(), R.string.chat_server_no_models, Toast.LENGTH_LONG).show()
+                return@launch
+            }
+
+            val names = models.map { it.displayName }.toTypedArray()
+            MaterialAlertDialogBuilder(requireContext())
+                .setTitle(R.string.chat_server_pick_model)
+                .setItems(names) { _, idx ->
+                    val wrapper = models[idx]
+                    val configPath = ModelUtils.getConfigPathForModel(wrapper.modelItem.modelId)
+                    if (configPath != null) {
+                        startServer(wrapper.modelItem.modelId, configPath)
+                    } else {
+                        Toast.makeText(requireContext(), R.string.config_file_not_found, Toast.LENGTH_LONG).show()
+                    }
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
+    }
+
+    private fun startServer(modelId: String, configPath: String) {
+        tvStatus.setText(R.string.chat_server_starting)
+        btnStart.isEnabled = false
+
+        serverManager = ChatServerManager.create(requireContext())
+        serverManager!!.start(modelId, configPath)
+
+        hotspotManager = LocalHotspotManager(requireContext())
+        hotspotJob = lifecycleScope.launch(Dispatchers.IO) {
+            hotspotManager!!.hotspotInfoFlow()
+                .catch { e ->
+                    withContext(Dispatchers.Main) {
+                        if (isAdded) {
+                            tvStatus.text = getString(R.string.chat_server_hotspot_failed, e.message)
+                            btnStart.isEnabled = true
+                        }
+                    }
+                }
+                .collect { result ->
+                    result.onSuccess { info ->
+                        val connInfo = HotspotConnectionInfo(
+                            ssid = info.ssid,
+                            password = info.passphrase,
+                            gatewayIp = info.gatewayIp,
+                            port = CHAT_SERVER_PORT,
+                        )
+                        val wifiQr = withContext(Dispatchers.Default) {
+                            QrCodeGenerator.generate(connInfo.wifiQrContent)
+                        }
+                        val urlQr = withContext(Dispatchers.Default) {
+                            QrCodeGenerator.generate(connInfo.urlQrContent)
+                        }
+                        withContext(Dispatchers.Main) {
+                            if (isAdded) showRunningState(connInfo, wifiQr, urlQr)
+                        }
+                    }
+                    result.onFailure { e ->
+                        withContext(Dispatchers.Main) {
+                            if (isAdded) {
+                                tvStatus.text = getString(R.string.chat_server_hotspot_failed, e.message)
+                                btnStart.isEnabled = true
+                            }
+                        }
+                    }
+                }
+        }
+    }
+
+    private fun stopServer() {
+        hotspotJob?.cancel()
+        hotspotJob = null
+        serverManager?.stop()
+        serverManager = null
+        hotspotManager = null
+        if (isAdded) showStoppedState()
+    }
+
+    // ── UI helpers ─────────────────────────────────────────────────────────────
+
+    private fun showRunningState(info: HotspotConnectionInfo, wifiQr: Bitmap?, urlQr: Bitmap?) {
+        tvStatus.setText(R.string.chat_server_running)
+        statusCard.visibility = View.GONE
+        runningCard.visibility = View.VISIBLE
+        ivWifiQr.setImageBitmap(wifiQr)
+        ivUrlQr.setImageBitmap(urlQr)
+        tvUrl.text = info.urlQrContent
+        webView.loadUrl(info.urlQrContent)
+        updateUserCount()
+    }
+
+    private fun showStoppedState() {
+        statusCard.visibility = View.VISIBLE
+        runningCard.visibility = View.GONE
+        btnStart.isEnabled = true
+        tvStatus.setText(R.string.chat_server_idle)
+        ivWifiQr.setImageBitmap(null)
+        ivUrlQr.setImageBitmap(null)
+        tvUrl.text = ""
+        webView.loadUrl("about:blank")
+    }
+
+    private fun updateUi() {
+        if (serverManager?.isRunning() == true) {
+            statusCard.visibility = View.GONE
+            runningCard.visibility = View.VISIBLE
+            updateUserCount()
+        } else {
+            showStoppedState()
+        }
+    }
+
+    private fun updateUserCount() {
+        val count = serverManager?.getConnectedUserCount() ?: 0
+        tvUsers.text = resources.getQuantityString(R.plurals.chat_server_user_count, count, count)
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        webView.destroy()
+    }
+}
+

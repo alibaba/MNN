@@ -1,0 +1,182 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.core.widget.NestedScrollView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true"
+    android:background="?colorSurface">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:gravity="center_horizontal">
+
+        <!-- Status card (idle / starting / error) -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/card_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            app:cardElevation="2dp"
+            app:cardCornerRadius="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="24dp"
+                android:gravity="center">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="💬"
+                    android:textSize="48sp"
+                    android:layout_marginBottom="12dp"/>
+
+                <TextView
+                    android:id="@+id/tv_status"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/chat_server_idle"
+                    android:textSize="16sp"
+                    android:textColor="?colorOnSurface"
+                    android:gravity="center"
+                    android:layout_marginBottom="20dp"/>
+
+                <Button
+                    android:id="@+id/btn_start_server"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:text="@string/chat_server_start"
+                    android:textAllCaps="false"/>
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Running card -->
+        <LinearLayout
+            android:id="@+id/card_running"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <!-- QR codes row -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center"
+                android:layout_marginBottom="8dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="8dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/chat_server_qr_wifi"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        android:layout_marginBottom="6dp"/>
+
+                    <ImageView
+                        android:id="@+id/iv_wifi_qr"
+                        android:layout_width="140dp"
+                        android:layout_height="140dp"
+                        android:scaleType="fitCenter"/>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="8dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/chat_server_qr_url"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        android:layout_marginBottom="6dp"/>
+
+                    <ImageView
+                        android:id="@+id/iv_url_qr"
+                        android:layout_width="140dp"
+                        android:layout_height="140dp"
+                        android:scaleType="fitCenter"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- URL text -->
+            <TextView
+                android:id="@+id/tv_chat_url"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="13sp"
+                android:gravity="center"
+                android:paddingTop="4dp"
+                android:paddingBottom="4dp"
+                android:textColor="?colorPrimary"
+                android:textIsSelectable="true"/>
+
+            <!-- User count -->
+            <TextView
+                android:id="@+id/tv_users"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="13sp"
+                android:gravity="center"
+                android:paddingBottom="8dp"
+                android:textColor="?colorOnSurfaceVariant"/>
+
+            <!-- Stop server button -->
+            <Button
+                android:id="@+id/btn_stop_server"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:text="@string/chat_server_stop"
+                android:textAllCaps="false"
+                android:layout_marginBottom="12dp"
+                style="@style/Widget.Material3.Button.OutlinedButton"/>
+
+            <!-- Open in browser button -->
+            <Button
+                android:id="@+id/btn_open_browser"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:text="@string/chat_server_open_browser"
+                android:textAllCaps="false"
+                android:layout_marginBottom="12dp"
+                style="@style/Widget.Material3.Button.TextButton"/>
+
+            <!-- In-app chat WebView -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                app:cardElevation="2dp"
+                app:cardCornerRadius="12dp">
+
+                <WebView
+                    android:id="@+id/webview_chat"
+                    android:layout_width="match_parent"
+                    android:layout_height="480dp"/>
+            </com.google.android.material.card.MaterialCardView>
+
+        </LinearLayout>
+
+    </LinearLayout>
+</androidx.core.widget.NestedScrollView>
