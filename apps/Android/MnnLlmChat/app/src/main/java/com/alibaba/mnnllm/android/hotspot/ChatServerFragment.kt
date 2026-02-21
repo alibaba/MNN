@@ -240,8 +240,7 @@ class ChatServerFragment : Fragment() {
         ivWifiQr.setImageBitmap(wifiQr)
         ivUrlQr.setImageBitmap(urlQr)
         tvUrl.text = info.urlQrContent
-        // The host joins via the default browser (open-browser button), not the hidden WebView,
-        // to avoid the in-app WebView SSE connection stressing the server.
+        webView.loadUrl(info.urlQrContent)
         observeConnectedCount()
     }
 
