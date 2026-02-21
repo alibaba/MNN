@@ -43,6 +43,11 @@ CLRuntime::CLRuntime(const Backend::Info& info){
             context_ptr = (((MNNDeviceContext*)info.user->sharedContext)->contextPtr);
         }
     }
+    // Allow overriding device selection via environment variable
+    const char* envDeviceId = getenv("MNN_OPENCL_DEVICE_ID");
+    if (envDeviceId != nullptr) {
+        device_id = atoi(envDeviceId);
+    }
 
     if (nullptr != mInfo.user) {
         mPrecision = mInfo.user->precision;
@@ -61,7 +66,7 @@ CLRuntime::CLRuntime(const Backend::Info& info){
     mTunedInfo = new TuneInfo;
     
     mImagePool.reset(new ImagePool(mOpenCLRuntime->context()));
-    mBufferPool.reset(new BufferPool(mOpenCLRuntime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR));
+    mBufferPool.reset(new BufferPool(mOpenCLRuntime->context(), CL_MEM_READ_WRITE));
 }
 
 CLRuntime::~CLRuntime() {
@@ -293,8 +298,8 @@ OpenCLBackend::OpenCLBackend(BackendConfig::PrecisionMode precision, BackendConf
         }
 
         mImagePoolFirst.reset(new ImagePool(mOpenCLRuntime->context()));
-        mBufferPoolFirst.reset(new BufferPool(mOpenCLRuntime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR));
-        mExecutionBufferPool.reset(new BufferExecutionPool(mOpenCLRuntime->context(), mOpenCLRuntime->commandQueue(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR));
+        mBufferPoolFirst.reset(new BufferPool(mOpenCLRuntime->context(), CL_MEM_READ_WRITE));
+        mExecutionBufferPool.reset(new BufferExecutionPool(mOpenCLRuntime->context(), mOpenCLRuntime->commandQueue(), CL_MEM_READ_WRITE));
         mImagePool = mImagePoolFirst.get();
         mBufferPool = mBufferPoolFirst.get();
     }
@@ -397,7 +402,10 @@ private:
 
 float OpenCLBackend::getBytes(const Tensor* tensor) {
     float bytes = (float)tensor->getType().bytes();
-    if (mPrecision != BackendConfig::Precision_High) {// Fp16
+    // For OpenCL buffer mode, always use fp16 size for float tensors unless Precision_High.
+    // This prevents OOM when large attention score tensors (e.g. [1,24,8704,8704]=6.78GB fp32)
+    // are allocated for 1024 edit mode. Kernels still run in fp32 when precision is Normal.
+    if (mPrecision != BackendConfig::Precision_High) {// Fp16 buffer size
         if (halide_type_float == tensor->getType().code) {
             bytes = 2.0;
         }
@@ -453,6 +461,10 @@ Backend::MemObj* OpenCLBackend::onAcquire(const Tensor* nativeTensor, StorageTyp
         #endif
         // Align when int4 memory
         size = ROUND_UP(size, 2);
+        if ((size_t)(size * typeSize) > 50 * 1024 * 1024) {
+            MNN_PRINT("[OCL] large tensor NHWC=[%d,%d,%d,%d] typeSize=%.1f size=%zu MB\n",
+                      N, H, W, C, typeSize, (size_t)(size*typeSize)/(1024*1024));
+        }
         if (storageType == DYNAMIC_SEPERATE) {
             auto buffer = mBufferPool->alloc(size*typeSize, true);
             ((Tensor*)nativeTensor)->buffer().device = (uint64_t)buffer;
@@ -531,7 +543,7 @@ bool OpenCLBackend::onSelectDynamicAllocator(int index, int maxIndex) {
     }
     if (maxIndex > 1 && mImagePoolSecond.get() == nullptr) {
         mImagePoolSecond.reset(new ImagePool(mOpenCLRuntime->context()));
-        mBufferPoolSecond.reset(new BufferPool(mOpenCLRuntime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR));
+        mBufferPoolSecond.reset(new BufferPool(mOpenCLRuntime->context(), CL_MEM_READ_WRITE));
     }
     if (index == 0) {
         mImagePool = mImagePoolFirst.get();
