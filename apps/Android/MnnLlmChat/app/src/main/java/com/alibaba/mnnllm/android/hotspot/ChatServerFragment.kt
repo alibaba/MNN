@@ -26,7 +26,6 @@ import com.alibaba.mnnllm.android.model.ModelUtils
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -241,8 +240,9 @@ class ChatServerFragment : Fragment() {
         ivWifiQr.setImageBitmap(wifiQr)
         ivUrlQr.setImageBitmap(urlQr)
         tvUrl.text = info.urlQrContent
-        webView.loadUrl(info.urlQrContent)
-        updateUserCount()
+        // The host joins via the default browser (open-browser button), not the hidden WebView,
+        // to avoid the in-app WebView SSE connection stressing the server.
+        observeConnectedCount()
     }
 
     private fun showStoppedState() {
@@ -260,9 +260,22 @@ class ChatServerFragment : Fragment() {
         if (serverManager?.isRunning() == true) {
             statusCard.visibility = View.GONE
             runningCard.visibility = View.VISIBLE
-            updateUserCount()
+            observeConnectedCount()
         } else {
             showStoppedState()
+        }
+    }
+
+    private fun observeConnectedCount() {
+        val mgr = serverManager ?: return
+        lifecycleScope.launch {
+            mgr.connectedCountFlow.collect { count ->
+                if (isAdded) {
+                    tvUsers.text = resources.getQuantityString(
+                        R.plurals.chat_server_user_count, count, count
+                    )
+                }
+            }
         }
     }
 

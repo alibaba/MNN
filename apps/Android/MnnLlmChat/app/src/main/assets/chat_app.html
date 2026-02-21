@@ -302,7 +302,11 @@ function joinChat(){
   const name = document.getElementById('username-input').value.trim();
   if(!name){document.getElementById('username-input').focus();return;}
   myUsername = name;
+  // Add ourselves to the local users map immediately so we appear in the
+  // user list without waiting for the SSE user_joined echo (race-condition fix).
+  users[myUserId] = {id:myUserId, username:myUsername, language:myLanguage, avatarBase64:myAvatarBase64};
   showScreen('screen-chat');
+  updateUserList();
   connectSSE();
   postApi('/api/join',{userId:myUserId,username:myUsername,language:myLanguage,avatar:myAvatarBase64});
 }

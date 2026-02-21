@@ -95,7 +95,7 @@ class TranslationManager(
             session.generate(prompt, emptyMap(), object : GenerateProgressListener {
                 override fun onProgress(progress: String?): Boolean {
                     if (progress != null) result.append(progress)
-                    return true
+                    return false  // false = continue generating; true = stop
                 }
             })
         } catch (e: Exception) {
@@ -143,7 +143,7 @@ $uiStrings"""
             session.generate(prompt, emptyMap(), object : GenerateProgressListener {
                 override fun onProgress(progress: String?): Boolean {
                     if (progress != null) result.append(progress)
-                    return true
+                    return false  // false = continue generating; true = stop
                 }
             })
         } catch (e: Exception) {

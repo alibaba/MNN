@@ -31,6 +31,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.buffer
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -56,9 +61,17 @@ class ChatServerManager private constructor(private val context: Context) {
     private val translations = ConcurrentHashMap<String, MessageTranslation>() // "msgId:lang" → translation
     private val uiTranslations = ConcurrentHashMap<String, Map<String, String>>() // lang → key→value
     private val connectedIds = ConcurrentHashMap.newKeySet<String>()   // currently connected SSE users
+    private val _connectedCountFlow = MutableStateFlow(0)
+    val connectedCountFlow: StateFlow<Int> = _connectedCountFlow.asStateFlow()
 
     // ── Broadcast ──────────────────────────────────────────────────────────────
-    private val eventFlow = MutableSharedFlow<String>(replay = 0, extraBufferCapacity = 256)
+    // DROP_OLDEST ensures a single slow/stuck subscriber (e.g. an in-app WebView with
+    // a stalled connection) can never block broadcasts to all other healthy SSE clients.
+    private val eventFlow = MutableSharedFlow<String>(
+        replay = 0,
+        extraBufferCapacity = 256,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
 
     // ── Coroutine scope ────────────────────────────────────────────────────────
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -106,6 +119,7 @@ class ChatServerManager private constructor(private val context: Context) {
         translations.clear()
         uiTranslations.clear()
         connectedIds.clear()
+        _connectedCountFlow.value = 0
         instance = null
         Log.i(TAG, "Chat server stopped")
     }
@@ -226,6 +240,7 @@ class ChatServerManager private constructor(private val context: Context) {
                 return@sse
             }
             connectedIds.add(userId)
+            _connectedCountFlow.value = connectedIds.size
             try {
                 // Send current state to this new client
                 val initPayload = gson.toJson(mapOf(
@@ -237,14 +252,20 @@ class ChatServerManager private constructor(private val context: Context) {
                 ))
                 send(ServerSentEvent(data = initPayload))
 
-                // Broadcast subsequent events
+                // Broadcast subsequent events; swallow individual send errors so
+                // one broken connection cannot cancel another client's SSE stream.
                 eventFlow.collect { json ->
-                    send(ServerSentEvent(data = json))
+                    try {
+                        send(ServerSentEvent(data = json))
+                    } catch (e: Exception) {
+                        Log.w(TAG, "SSE send failed for $userId, dropping event", e)
+                    }
                 }
             } finally {
                 connectedIds.remove(userId)
-                val user = users[userId]
-                if (user != null) {
+                _connectedCountFlow.value = connectedIds.size
+                // Only broadcast user_left if this client actually completed /api/join
+                if (users.containsKey(userId)) {
                     broadcast("user_left", mapOf("userId" to userId))
                 }
             }
