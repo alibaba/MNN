@@ -15,10 +15,11 @@ public:
     void Run(const std::string& prompt, const std::string& image_path,
              int iter_num,
              int random_seed, const std::function<void(int)>& progressCallback);
+    ~DiffusionSession();
 private:
-    bool loaded_{false};
+    bool loaded_{ false };
     std::string resource_path_;
     int memory_mode_;
-    std::unique_ptr<Diffusion> diffusion_{nullptr};
+    Diffusion* diffusion_{ nullptr };
 };
 }
