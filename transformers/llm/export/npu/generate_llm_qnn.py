@@ -22,6 +22,7 @@ def seperate(args):
         ],
         "testdir":[
         ],
+        "KVCACHE_SIZE_LIMIT":args.max_history_token,
         "cache":"qnn"
     }
     config['testdir'].append(os.path.join("testdir", '1'))
@@ -107,6 +108,9 @@ def main():
                         )
     parser.add_argument('--chunk_size', type=int, default=128,
                         help='chunk_size for npu'
+                        )
+    parser.add_argument('--max_history_token', type=int, default=0,
+                        help='max history token, default is 0, which mean no limit for history token number'
                         )
     args = parser.parse_args()
     convert(args)

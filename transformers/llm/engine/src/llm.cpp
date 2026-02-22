@@ -342,11 +342,11 @@ bool Llm::load() {
         // attentiion mask var
         {
             // Mask: lower triangular
-            if (mConfig->backend_type() == "cpu") {
-                mAttentionMaskVarVec[i] = _Input({}, NCHW, halide_type_of<float>());
-                auto ptr = mAttentionMaskVarVec[i]->writeMap<float>();
-                ptr[0] = 0;
-            } else {
+           if (mConfig->backend_type() == "cpu" && mValidBlockSize.empty()) {
+               mAttentionMaskVarVec[i] = _Input({}, NCHW, halide_type_of<float>());
+               auto ptr = mAttentionMaskVarVec[i]->writeMap<float>();
+               ptr[0] = 0;
+           } else {
                 mAttentionMaskVarVec[i] = _Input({1, 1, index, index}, NCHW, halide_type_of<float>());
                 auto ptr = mAttentionMaskVarVec[i]->writeMap<float>();
                 for (int i = 0; i < index; i++) {
@@ -354,13 +354,13 @@ bool Llm::load() {
                         ptr[index * i + j] = (j > i) * std::numeric_limits<float>::lowest();
                     }
                 }
-            }
+           }
         }
 
         if (mConfig->is_mrope()) {
             mPositionIdsVarVec[i] = _Input({3, index}, NCHW, halide_type_of<int>());
         } else {
-            mPositionIdsVarVec[i] = _Input({index}, NCHW, halide_type_of<int>());
+            mPositionIdsVarVec[i] = _Input({1, index}, NCHW, halide_type_of<int>());
         }
     }
 
@@ -1076,11 +1076,11 @@ VARP Llm::gen_attention_mask(int seq_len) {
         }
 
         // Mask: lower triangular
-        if (mConfig->backend_type() == "cpu") { // Now only cpu supports using lower triangular to opt the attention performance
-            attentionMask = _Input({}, NCHW, halide_type_of<float>());
-            auto ptr = attentionMask->writeMap<float>();
-            ptr[0] = 0;
-        } else {
+       if (mConfig->backend_type() == "cpu" && mValidBlockSize.empty()) { // Now only cpu supports using lower triangular to opt the attention performance
+           attentionMask = _Input({}, NCHW, halide_type_of<float>());
+           auto ptr = attentionMask->writeMap<float>();
+           ptr[0] = 0;
+       } else {
             attentionMask = _Input({1, 1, seq_len, kv_seq_len}, NCHW, halide_type_of<float>());
             auto ptr = attentionMask->writeMap<float>();
             for (int i = 0; i < seq_len; i++) {
@@ -1088,7 +1088,7 @@ VARP Llm::gen_attention_mask(int seq_len) {
                     ptr[kv_seq_len * i + j] = (j > i) * std::numeric_limits<float>::lowest();
                 }
             }
-        }
+       }
         return attentionMask;
     } else {
         if (needNewVar(attentionMask, 2, seq_len, kv_seq_len)) {
