@@ -1,0 +1,1112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Chat</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f0f2f5;color:#1a1a2e;height:100dvh;overflow:hidden;display:flex;flex-direction:column}
+.screen{display:none;flex-direction:column;height:100dvh;overflow-y:auto}
+.screen.active{display:flex}
+/* Language screen */
+#screen-lang{align-items:center;justify-content:center;gap:16px;padding:24px;background:#f0f2f5}
+.lang-title{font-size:1.4em;font-weight:700;text-align:center;margin-bottom:8px}
+.lang-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;width:100%;max-width:400px}
+.lang-btn{padding:14px 8px;border:2px solid #dde;border-radius:12px;background:#fff;font-size:1em;cursor:pointer;transition:all .15s;text-align:center}
+.lang-btn:active,.lang-btn.sel{border-color:#4252b6;background:#e8eaff;font-weight:700}
+.lang-other{grid-column:span 2}
+.lang-other input{width:100%;padding:10px;border:2px solid #dde;border-radius:10px;font-size:1em;background:#fff}
+.btn-primary{padding:14px 28px;background:#4252b6;color:#fff;border:none;border-radius:12px;font-size:1em;font-weight:600;cursor:pointer;width:100%;max-width:400px}
+.btn-primary:active{background:#3341a0}
+/* Setup screen */
+#screen-setup{align-items:center;justify-content:flex-start;padding:32px 24px;gap:18px;background:#f0f2f5}
+.setup-section{width:100%;max-width:400px;display:flex;flex-direction:column;gap:8px}
+.setup-label{font-size:.95em;font-weight:600;color:#444}
+.setup-input{padding:12px 14px;border:2px solid #dde;border-radius:12px;font-size:1em;background:#fff;width:100%}
+.avatar-row{display:flex;align-items:center;gap:14px}
+.avatar-preview{width:64px;height:64px;border-radius:50%;background:#dde;object-fit:cover;display:flex;align-items:center;justify-content:center;font-size:1.8em;overflow:hidden;flex-shrink:0}
+.avatar-preview img{width:100%;height:100%;object-fit:cover}
+.btn-secondary{padding:10px 18px;background:#fff;color:#4252b6;border:2px solid #4252b6;border-radius:10px;font-size:.95em;font-weight:600;cursor:pointer}
+/* Loading screen */
+#screen-loading{align-items:center;justify-content:center;gap:12px;background:#f0f2f5}
+.loading-spinner{width:40px;height:40px;border:4px solid #dde;border-top-color:#4252b6;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-text{font-size:1em;color:#666}
+/* Chat screen */
+#screen-chat{display:none;flex-direction:column;height:100dvh}
+#screen-chat.active{display:flex}
+.chat-header{display:flex;align-items:center;padding:12px 16px;background:#fff;border-bottom:1px solid #eee;gap:10px;flex-shrink:0;position:sticky;top:0;z-index:10}
+.chat-header h1{font-size:1.05em;font-weight:700;flex:1}
+.header-users{font-size:.85em;color:#666;cursor:pointer;padding:4px 8px;border-radius:8px}
+.header-users:active{background:#f0f2f5}
+.btn-icon{background:none;border:none;cursor:pointer;padding:6px;border-radius:8px;font-size:1.2em;display:flex;align-items:center}
+.btn-icon:active{background:#f0f2f5}
+/* Connection banner */
+.conn-banner{display:none;background:#f0ad4e;color:#fff;text-align:center;padding:8px;font-size:.9em;font-weight:600}
+.conn-banner.lost{display:block}
+.conn-banner.ok{background:#5cb85c;display:block}
+/* Message list */
+#msg-list{flex:1;overflow-y:auto;padding:12px 10px;display:flex;flex-direction:column;gap:6px;scroll-behavior:smooth}
+/* Message bubbles */
+.msg-wrap{display:flex;flex-direction:column;max-width:80%;gap:2px}
+.msg-wrap.me{align-self:flex-end;align-items:flex-end}
+.msg-wrap.other{align-self:flex-start;align-items:flex-start}
+.msg-username{font-size:.78em;color:#888;padding:0 4px}
+.msg-bubble{padding:10px 14px;border-radius:18px;font-size:.97em;line-height:1.45;cursor:pointer;position:relative;word-break:break-word}
+.msg-wrap.me .msg-bubble{background:#4252b6;color:#fff;border-bottom-right-radius:4px}
+.msg-wrap.other .msg-bubble{background:#fff;color:#1a1a2e;border-bottom-left-radius:4px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.msg-time{font-size:.72em;color:#aaa;padding:0 4px}
+.msg-translation{font-size:.88em;color:#777;padding:2px 4px 0}
+.msg-translating{font-style:italic;color:#aaa}
+.msg-wrap.me .msg-translation{color:rgba(255,255,255,.75);text-align:right}
+.msg-reply{font-size:.82em;background:rgba(0,0,0,.06);border-left:3px solid #4252b6;padding:4px 8px;border-radius:6px;margin-bottom:4px;cursor:pointer;max-width:100%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.msg-wrap.me .msg-reply{background:rgba(255,255,255,.15);border-color:rgba(255,255,255,.6)}
+/* Reply preview bar */
+#reply-bar{display:none;background:#fff;border-top:1px solid #eee;padding:8px 14px;flex-direction:row;align-items:center;gap:10px;flex-shrink:0}
+#reply-bar.active{display:flex}
+#reply-preview{flex:1;font-size:.9em;color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Input area */
+.input-area{display:flex;align-items:flex-end;gap:8px;padding:10px 12px;background:#fff;border-top:1px solid #eee;flex-shrink:0}
+#msg-input{flex:1;padding:10px 14px;border:2px solid #e0e3f0;border-radius:24px;font-size:1em;resize:none;max-height:120px;min-height:44px;background:#f8f9fe;outline:none;line-height:1.4}
+#msg-input:focus{border-color:#4252b6}
+#send-btn{background:#4252b6;border:none;border-radius:50%;width:44px;height:44px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;color:#fff;font-size:1.3em}
+#send-btn:active{background:#3341a0}
+/* Context menu */
+#ctx-menu{display:none;position:fixed;background:#fff;border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,.18);min-width:210px;z-index:1000;overflow:hidden}
+#ctx-menu.open{display:block}
+.ctx-item{padding:13px 20px;font-size:.97em;cursor:pointer;border-bottom:1px solid #f0f2f5}
+.ctx-item:last-child{border-bottom:none}
+.ctx-item:active{background:#f0f2f5}
+.ctx-item.danger{color:#d9534f}
+/* Users panel */
+#users-panel{display:none;position:fixed;top:0;right:0;bottom:0;width:min(260px,80vw);background:#fff;box-shadow:-4px 0 24px rgba(0,0,0,.12);z-index:900;flex-direction:column;padding:20px 0}
+#users-panel.open{display:flex}
+.users-title{font-size:1.05em;font-weight:700;padding:0 18px 12px;border-bottom:1px solid #eee}
+.user-item{display:flex;align-items:center;gap:12px;padding:12px 18px}
+.user-avatar-sm{width:36px;height:36px;border-radius:50%;background:#dde;flex-shrink:0;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:1.1em}
+.user-avatar-sm img{width:100%;height:100%;object-fit:cover}
+.user-info-sm{flex:1;min-width:0}
+.user-name-sm{font-weight:600;font-size:.95em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.user-lang-sm{font-size:.8em;color:#888}
+/* Overlay */
+#overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:800}
+#overlay.open{display:block}
+</style>
+</head>
+<body>
+
+<!-- server will inject builtin English UI strings here -->
+<!--__INJECT_BUILTIN_UI__-->
+
+<!-- ─── Screen 0: Loading (shown briefly during auto-login check) ─────────── -->
+<div id="screen-loading" class="screen active">
+  <div class="loading-spinner"></div>
+  <div class="loading-text">Loading…</div>
+</div>
+
+<!-- ─── Screen 1: Language ─────────────────────────────────────────────────── -->
+<div id="screen-lang" class="screen">
+  <div class="lang-title" id="txt-lang-title">Select your language</div>
+  <div class="lang-grid" id="lang-grid">
+    <button class="lang-btn" data-lang="en">🇺🇸 English</button>
+    <button class="lang-btn" data-lang="ko">🇰🇷 한국어</button>
+    <button class="lang-btn" data-lang="ja">🇯🇵 日本語</button>
+    <button class="lang-btn" data-lang="zh">🇨🇳 中文</button>
+    <button class="lang-btn" data-lang="es">🇪🇸 Español</button>
+    <button class="lang-btn" data-lang="fr">🇫🇷 Français</button>
+    <button class="lang-btn" data-lang="de">🇩🇪 Deutsch</button>
+    <button class="lang-btn" data-lang="pt">🇵🇹 Português</button>
+    <button class="lang-btn" data-lang="ar">🇸🇦 العربية</button>
+    <button class="lang-btn" data-lang="hi">🇮🇳 हिन्दी</button>
+    <div class="lang-btn lang-other" style="display:flex;align-items:center;gap:8px">
+      <span>✏️</span>
+      <input id="lang-custom" type="text" placeholder="Other language code (e.g. ru)" style="border:none;outline:none;flex:1;font-size:.95em">
+    </div>
+  </div>
+  <button class="btn-primary" id="btn-lang-next">Next →</button>
+</div>
+
+<!-- ─── Screen 2: Setup ───────────────────────────────────────────────────── -->
+<div id="screen-setup" class="screen">
+  <div id="ui-translating-banner" style="width:100%;max-width:400px;text-align:center;font-size:.9em;color:#888;font-style:italic;min-height:1.4em;display:none"></div>
+  <div style="font-size:1.5em;font-weight:800;text-align:center;margin-bottom:4px">💬</div>
+  <div class="setup-section">
+    <div class="setup-label" id="txt-setup-username">Choose a username</div>
+    <input class="setup-input" id="username-input" type="text" maxlength="32" autocomplete="off" autocorrect="off" spellcheck="false">
+  </div>
+  <div class="setup-section">
+    <div class="setup-label" id="txt-setup-avatar">Profile picture (optional)</div>
+    <div class="avatar-row">
+      <div class="avatar-preview" id="avatar-preview">🙂</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn-secondary" id="btn-choose-photo">📷 <span id="txt-choose-photo">Choose photo</span></button>
+        <input type="file" id="file-input" accept="image/*" style="display:none">
+      </div>
+    </div>
+  </div>
+  <button class="btn-primary" id="btn-join" style="margin-top:8px">🚀 <span id="txt-btn-join">Join chat</span></button>
+</div>
+
+<!-- ─── Screen 3: Chat ────────────────────────────────────────────────────── -->
+<div id="screen-chat" class="screen">
+  <div class="chat-header">
+    <h1 id="txt-chat-title">💬 Chat</h1>
+    <span class="header-users" id="header-users-btn" onclick="toggleUsersPanel()">👥 1</span>
+    <button class="btn-icon" id="btn-export" title="Export" onclick="exportChat()">💾</button>
+  </div>
+  <div class="conn-banner" id="conn-banner"></div>
+  <div id="msg-list"></div>
+  <div id="reply-bar">
+    <span id="reply-preview"></span>
+    <button class="btn-icon" onclick="cancelReply()">✕</button>
+  </div>
+  <div class="input-area">
+    <textarea id="msg-input" rows="1" placeholder="Type a message…"></textarea>
+    <button id="send-btn" onclick="sendMessage()">➤</button>
+  </div>
+</div>
+
+<!-- ─── Overlays ──────────────────────────────────────────────────────────── -->
+<div id="overlay" onclick="closeAll()"></div>
+
+<div id="ctx-menu">
+  <div class="ctx-item" id="ctx-reply" onclick="ctxReply()">↩ Reply</div>
+  <div class="ctx-item" id="ctx-copy" onclick="ctxCopy()">📋 Copy message</div>
+  <div class="ctx-item" id="ctx-view-original" onclick="ctxViewOriginal()" style="display:none">🔤 View original</div>
+  <div class="ctx-item" id="ctx-view-translation" onclick="ctxViewTranslation()" style="display:none">🌐 View translation</div>
+  <div class="ctx-item" id="ctx-retranslate" onclick="ctxRetranslate()" style="display:none">🔄 Retranslate with more context</div>
+  <div class="ctx-item" id="ctx-prev-translation" onclick="ctxViewPrev()" style="display:none">🕒 View previous translation</div>
+</div>
+
+<div id="users-panel">
+  <div class="users-title" id="txt-connected-users">Connected users</div>
+  <div id="users-list"></div>
+</div>
+
+<script>
+// ─── Constants / state ──────────────────────────────────────────────────────
+const UI = {};          // localised UI strings (set by applyUiLang)
+let myUserId = localStorage.getItem('userId') || genId();
+let myLanguage = 'en';
+let myUsername = '';
+let myAvatarBase64 = null;
+let replyToId = null;
+let replyToText = null;
+let replyToUsername = null;
+let ctxMessageId = null;
+const messageShowOriginal = {};   // msgId → true if user is viewing original in bubble
+const messageShowPrevious = {};   // msgId → true if user asked to view previous translation in bubble
+const messages = {};    // id → {id, userId, username, text, timestamp, replyToId, replyToText, replyToUsername}
+const translations = {};// "msgId:lang" → {text, retranslationCount, previousVersions, isPending}
+const users = {};       // id → {id, username, language, avatarBase64}
+let es = null;
+let reconnectTimer = null;
+let reconnecting = false;
+
+localStorage.setItem('userId', myUserId);
+
+// ─── All UI translations (mutable container for builtin + server-provided UIs) ─────────────
+// All hard-coded languages are injected by the Kotlin server into window.__BUILTIN_UI_STRINGS__.
+let uiStrings = Object.assign(
+  { en: {}, ko: {}, ja: {} },
+  window.__BUILTIN_UI_STRINGS__ || {}
+);
+
+// Rapidly cycle three visible language-related UI texts through as many pre-translated values as possible, from most to least common language.
+const _rotatingLangTitles = [
+  "Select your language",
+  "选择你的语言",
+  "अपनी भाषा चुनें",
+  "Selecione seu idioma",
+  "Выберите язык",
+  "اختر لغتك",
+  "Choisissez votre langue",
+  "Wähle deine Sprache",
+  "अपनी भाषा निवडा",
+  "আপনার ভাষা নির্বাচন করুন",
+  "Selecciona tu idioma",
+  "Pilih bahasamu",
+  "Chọn ngôn ngữ của bạn",
+  "ภาษาของคุณ เลือก",
+  "언어를 선택하세요",
+  "言語を選択してください",
+  "Seçin dilinizi",
+  "ਆਪਣੀ ਭਾਸ਼ਾ ਚੁਣੋ",
+  "உங்கள் மொழியை தேர்ந்தெடுக்கவும்",
+  "Chagua lugha yako",
+  "Scegli la tua lingua",
+  "Kies je taal",
+  "Piliin ang iyong wika",
+  "Виберіть мову",
+  "زبان خود را انتخاب کنید",
+  "اپنی زبان منتخب کریں",
+  "Velg språket ditt",
+  "Vælg dit sprog",
+  "Välj ditt språk",
+  "Valitse kielesi",
+  "Válassz nyelvet",
+  "Wybierz język",
+  "Vyberte svůj jazyk",
+  "Vyberte svoj jazyk",
+  "Izaberite jezik",
+  "Επιλέξτε τη γλώσσα σας",
+  "შეარჩიეთ თქვენი ენა",
+  "Dilni tanlang",
+  "Тілді таңдаңыз",
+  "የቋንቋ ምርጫ",
+  "בחר את השפה שלך",
+  "ເລືອກພາສາຂອງທ່ານ",
+  "ဘာသာစကားကိုရွေးချယ်ပါ",
+  "សូមជ្រើសរើសភាសារបស់អ្នក",
+  "ඔබේ භාෂාව තෝරන්න",
+  "ཁྱེད་ཀྱི་སྐད་ཡིག་འདེམས།",
+];
+
+const _rotatingOtherPlaceholders = [
+  "Other language code (e.g. ru)",
+  "其他语言代码（例如：ru）",
+  "अन्य भाषा कोड (जैसे ru)",
+  "Outro código de idioma (ex: ru)",
+  "Другой код языка (напр. ru)",
+  "رمز لغة أخرى (مثلاً ru)",
+  "Autre code de langue (ex. ru)",
+  "Anderer Sprachcode (z. B. ru)",
+  "इतर भाषा कोड (उदा. ru)",
+  "অন্য ভাষার কোড (যেমন ru)",
+  "Otro código de idioma (p. ej. ru)",
+  "Kode bahasa lain (mis. ru)",
+  "Mã ngôn ngữ khác (vd. ru)",
+  "รหัสภาษาอื่น (เช่น ru)",
+  "다른 언어 코드 (예: ru)",
+  "別の言語コード (例: ru)",
+  "Diğer dil kodu (örn. ru)",
+  "ਹੋਰ ਭਾਸ਼ਾ ਕੋਡ (ਜਿਵੇਂ ru)",
+  "மற்ற மொழி குறியீடு (எ.கா. ru)",
+  "Msimbo mwingine wa lugha (mf. ru)",
+  "Altro codice lingua (es. ru)",
+  "Andere taalcode (bijv. ru)",
+  "Iba pang code ng wika (hal. ru)",
+  "Інший код мови (напр. ru)",
+  "کد زبان دیگر (مثلاً ru)",
+  "دوسرا زبان کوڈ (مثلاً ru)",
+  "Annen språkkode (f.eks. ru)",
+  "Anden sprogkode (f.eks. ru)",
+  "Annan språkkod (t.ex. ru)",
+  "Muu kielikoodi (esim. ru)",
+  "Más nyelvkód (pl. ru)",
+  "Inny kod języka (np. ru)",
+  "Jiný kód jazyka (např. ru)",
+  "Iný kód jazyka (napr. ru)",
+  "Drugi kod jezika (npr. ru)",
+  "Άλλος κωδικός γλώσσας (π.χ. ru)",
+  "სხვა ენის კოდი (მაგ. ru)",
+  "Boshqa til kodi (masalan ru)",
+  "Басқа тіл коды (мысалы ru)",
+  "ሌላ የቋንቋ ኮድ (ለምሳሌ ru)",
+  "קוד שפה אחר (למשל ru)",
+  "ລະຫັດພາສາອື່ນ (ຕົວຢ່າງ ru)",
+  "အခြားဘာသာစကားကုဒ် (ဥပမာ ru)",
+  "កូដភាសាផ្សេងទៀត (ឧ. ru)",
+  "වෙනත් භාෂා කේතය (උදා. ru)",
+  "གཞན་སྐད་ཡིག་ཨང་རྟགས། (དཔེར་ན་ ru)",
+];
+
+const _rotatingNextButtons = [
+  "Next →",
+  "下一步 →",
+  "अगला →",
+  "Próximo →",
+  "Далее →",
+  "التالي →",
+  "Suivant →",
+  "Weiter →",
+  "पुढे →",
+  "পরবর্তী →",
+  "Siguiente →",
+  "Selanjutnya →",
+  "Tiếp theo →",
+  "ถัดไป →",
+  "다음 →",
+  "次へ →",
+  "İleri →",
+  "ਅਗਲਾ →",
+  "அடுத்து →",
+  "Inayofuata →",
+  "Avanti →",
+  "Volgende →",
+  "Susunod →",
+  "Далі →",
+  "بعدی →",
+  "اگلا →",
+  "Neste →",
+  "Næste →",
+  "Nästa →",
+  "Seuraava →",
+  "Következő →",
+  "Dalej →",
+  "Další →",
+  "Ďalší →",
+  "Sledeće →",
+  "Επόμενο →",
+  "შემდეგი →",
+  "Keyingi →",
+  "Келесі →",
+  "ቀጣይ →",
+  "הבא →",
+  "ຕໍ່ໄປ →",
+  "ဆက်သွားရန် →",
+  "បន្ទាប់ →",
+  "ඊළඟ →",
+  "མུ་མཐུད། →",
+];
+
+let _rotIdx = 0;
+function startUiCycler(intervalMs = 650) {
+  setInterval(() => {
+    _rotIdx = (_rotIdx + 1) % _rotatingLangTitles.length;
+    const title = document.getElementById('txt-lang-title');
+    const custom = document.getElementById('lang-custom');
+    const next = document.getElementById('btn-lang-next');
+    if (title) title.textContent = _rotatingLangTitles[_rotIdx];
+    if (custom) custom.placeholder = _rotatingOtherPlaceholders[_rotIdx];
+    if (next) next.textContent = _rotatingNextButtons[_rotIdx];
+  }, intervalMs);
+}
+
+const _translatingUIByLang = {
+  en: "Translating UI…", zh: "翻译界面中…", hi: "UI का अनुवाद हो रहा है…",
+  pt: "Traduzindo a interface…", ru: "Перевод интерфейса…", ar: "جارٍ ترجمة الواجهة…",
+  fr: "Traduction de l'interface…", de: "Benutzeroberfläche wird übersetzt…",
+  mr: "UI भाषांतरित होत आहे…", bn: "UI অনুবাদ হচ্ছে…", es: "Traduciendo la interfaz…",
+  id: "Menerjemahkan antarmuka…", vi: "Đang dịch giao diện…", th: "กำลังแปล UI…",
+  ko: "UI 번역 중…", ja: "UIを翻訳しています…", tr: "Arayüz çevriliyor…",
+  pa: "ਯੂਆਈ ਅਨੁਵਾਦ ਹੋ ਰਿਹਾ ਹੈ…", ta: "UI மொழிபெயர்க்கப்படுகிறது…",
+  sw: "Kutafsiri kiolesura…", it: "Traduzione dell'interfaccia…", nl: "Interface vertalen…",
+  fil: "Isinasalin ang UI…", uk: "Перекладаємо інтерфейс…", fa: "در حال ترجمه رابط…",
+  ur: "UI ترجمہ ہو رہا ہے…", no: "Oversetter grensesnitt…", da: "Oversætter brugerflade…",
+  sv: "Översätter gränssnitt…", fi: "Käännetään käyttöliittymää…",
+  hu: "Felhasználói felület fordítása…", pl: "Tłumaczenie interfejsu…",
+  cs: "Překlad rozhraní…", sk: "Prekladanie rozhrania…", sr: "Prevođenje sučelja…",
+  el: "Μετάφραση διεπαφής…", ka: "ინტერფეისის თარგმნა…", uz: "Interfeys tarjima qilinmoqda…",
+  kk: "Интерфейс аударылуда…", am: "በይነገጽ በመተርጎም ላይ…", he: "ממשק מתורגם…",
+  lo: "ກໍາລັງແປ UI…", my: "UI ဘာသာပြန်နေသည်…", km: "UI កំពុងបកប្រែ…",
+  si: "UI පරිවර්තනය වෙමින්…", bo: "UI བོད་སྐད་དུ་བསྒྱུར་བཞིན་པ…",
+};
+
+function t(key) { return UI[key] || (uiStrings.en && uiStrings.en[key]) || key; }
+
+function applyUiLang(lang) {
+  myLanguage = lang;
+  const src = (uiStrings[lang] || uiStrings.en);
+  if (src) {
+    Object.keys(src).forEach(k=>{
+      // preserve any existing UI value that came from server (not equal to builtin en)
+      const enVal = uiStrings.en && uiStrings.en[k];
+      if (UI[k] === undefined || UI[k] === enVal) {
+        UI[k] = src[k];
+      }
+    });
+  }
+  document.getElementById('txt-lang-title').textContent = t('lang_title');
+  // chat title (in header)
+  const chatTitleEl = document.getElementById('txt-chat-title');
+  if (chatTitleEl) chatTitleEl.textContent = '💬 ' + t('chat_title');
+  document.getElementById('txt-setup-username').textContent = t('setup_username');
+  const uhi = document.getElementById('username-input');
+  if(uhi) uhi.placeholder = t('setup_username_hint');
+  document.getElementById('txt-setup-avatar').textContent = t('setup_avatar');
+  document.getElementById('txt-choose-photo').textContent = t('btn_choose_photo');
+  document.getElementById('txt-btn-join').textContent = t('btn_join');
+  // lang-custom placeholder + next button text
+  const lc = document.getElementById('lang-custom');
+  if (lc) lc.placeholder = t('lang_other_placeholder') || lc.placeholder;
+  const btnNext = document.getElementById('btn-lang-next');
+  if (btnNext) btnNext.textContent = t('btn_next') || btnNext.textContent;
+  const mi = document.getElementById('msg-input');
+  if(mi) mi.placeholder = t('chat_placeholder');
+  document.getElementById('txt-connected-users').textContent = t('connected_users');
+  document.getElementById('ctx-reply').textContent = '↩ ' + t('ctx_reply');
+  // copy menu item
+  const copyEl = document.getElementById('ctx-copy');
+  if (copyEl) copyEl.textContent = '📋 ' + t('ctx_copy_message');
+  document.getElementById('ctx-view-original').textContent = '🔤 ' + t('ctx_view_original');
+  document.getElementById('ctx-view-translation').textContent = '🌐 ' + t('ctx_view_translation');
+  document.getElementById('ctx-retranslate').textContent = '🔄 ' + t('ctx_retranslate');
+  document.getElementById('ctx-prev-translation').textContent = '🕒 ' + t('ctx_prev_translation');
+  hideUiTranslatingBanner(); // hide once real translation is applied
+}
+
+function genId() { return Math.random().toString(36).slice(2)+Date.now().toString(36); }
+
+// ─── Startup session check ───────────────────────────────────────────────────
+// Two distinct cases are handled here, both resulting in either auto-joining
+// the chat (skipping setup) or falling through to the normal language screen.
+//
+// Case 1 — localhost (127.0.0.1 / WebView or any browser on the host device):
+//   localStorage is siloed per browser, so we cannot rely on a stored userId.
+//   Instead we ask the server for the well-known fixed host userId via
+//   GET /api/host-user-id, unconditionally adopt it, and skip setup if the
+//   server already has a ChatUser for that id.
+//
+// Case 2 — remote device, same browser, new tab:
+//   localStorage IS shared across tabs in the same browser, so myUserId is
+//   already the correct value from the earlier tab.  We ask the server whether
+//   it knows this userId via GET /api/session/:userId.  If yes, skip setup.
+//   If no (genuinely new visitor), go through normal setup.
+(async function checkStartupSession() {
+  showScreen('screen-loading');
+
+  const isLocalhost = ['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname);
+
+  try {
+    if (isLocalhost) {
+      // ── Case 1: host device ──────────────────────────────────────────────
+      const res = await fetch('/api/host-user-id');
+      if (!res.ok) throw new Error('host-user-id fetch failed: ' + res.status);
+      const data = await res.json();
+
+      // Unconditionally adopt the server-assigned host userId, overwriting
+      // whatever random id this browser might have had in localStorage.
+      myUserId = data.hostUserId;
+      localStorage.setItem('userId', myUserId);
+
+      if (data.user) {
+        autoLogin(data.user);
+      } else {
+        // Host hasn't joined yet in any browser — show setup with fixed userId.
+        initLangScreen();
+      }
+    } else {
+      // ── Case 2: remote device, possibly a new tab in same browser ────────
+      const res = await fetch('/api/session/' + encodeURIComponent(myUserId));
+      if (res.ok) {
+        autoLogin(await res.json());
+      } else {
+        // Genuinely new visitor — go through normal setup.
+        initLangScreen();
+      }
+    }
+  } catch (e) {
+    console.warn('Startup session check failed, proceeding to setup:', e);
+    initLangScreen();
+  }
+})();
+
+// Shared helper: restore state from a known ChatUser and jump straight to chat.
+function autoLogin(user) {
+  myUsername      = user.username;
+  myLanguage      = user.language || 'en';
+  myAvatarBase64  = user.avatarBase64 || null;
+  users[myUserId] = user;
+  applyUiLangSilent(myLanguage);
+  showScreen('screen-chat');
+  connectSSE();
+  fetchHistory().catch(e => console.error('fetchHistory (auto-login) failed', e));
+}
+
+// applyUiLang without switching screens (used during auto-login).
+function applyUiLangSilent(lang) {
+  myLanguage = lang;
+  const src = (uiStrings[lang] || uiStrings.en);
+  if (src) {
+    Object.keys(src).forEach(k=>{
+      const enVal = uiStrings.en && uiStrings.en[k];
+      if (UI[k] === undefined || UI[k] === enVal) {
+        UI[k] = src[k];
+      }
+    });
+  }
+  // Update elements that exist in the chat screen too.
+  const mi = document.getElementById('msg-input');
+  if (mi) mi.placeholder = t('chat_placeholder');
+  document.getElementById('txt-connected-users').textContent = t('connected_users');
+  document.getElementById('ctx-reply').textContent = '↩ ' + t('ctx_reply');
+  const copyEl = document.getElementById('ctx-copy');
+  if (copyEl) copyEl.textContent = '📋 ' + t('ctx_copy_message');
+  document.getElementById('ctx-view-original').textContent = '🔤 ' + t('ctx_view_original');
+  document.getElementById('ctx-view-translation').textContent = '🌐 ' + t('ctx_view_translation');
+  document.getElementById('ctx-retranslate').textContent = '🔄 ' + t('ctx_retranslate');
+  document.getElementById('ctx-prev-translation').textContent = '🕒 ' + t('ctx_prev_translation');
+  document.getElementById('txt-chat-title').textContent = '💬 ' + t('chat_title');
+}
+
+// ─── Language screen ─────────────────────────────────────────────────────────
+function initLangScreen() {
+  // Auto-detect browser language.
+  const detected = (navigator.language || 'en').split('-')[0].toLowerCase();
+  document.querySelectorAll('.lang-btn[data-lang]').forEach(b => {
+    if (b.dataset.lang === detected) b.classList.add('sel');
+    b.addEventListener('click', () => {
+      document.querySelectorAll('.lang-btn').forEach(x => x.classList.remove('sel'));
+      b.classList.add('sel');
+      document.getElementById('lang-custom').value = '';
+    });
+  });
+  if (uiStrings[detected]) applyUiLang(detected);
+
+  document.getElementById('btn-lang-next').addEventListener('click', async () => {
+    const custom = document.getElementById('lang-custom').value.trim().toLowerCase();
+    const sel = document.querySelector('.lang-btn.sel');
+    const lang = custom || (sel && sel.dataset.lang) || detected || 'en';
+    applyUiLang(lang);
+    showScreen('screen-setup');
+    connectSSE(); // Ensure translation arrives on this screen when it's ready
+
+    // Trigger UI translation immediately for non-builtin languages
+    const builtinLangs = new Set(['en', 'ko', 'ja']);
+    if (!builtinLangs.has(lang)) {
+      showUiTranslatingBanner();
+      try {
+        const res = await postApi('/api/request-ui-translation', { language: lang });
+        if (res && res.ok) {
+          const json = await res.json();
+          if (json.translations && typeof json.translations === 'object') {
+            uiStrings[lang] = Object.assign(uiStrings[lang] || {}, json.translations);
+            applyUiLang(lang);
+          }
+        }
+      } catch (e) {
+        console.warn('request-ui-translation failed', e);
+      }
+    }
+  });
+
+  showScreen('screen-lang');
+  // start the small UI cycler so the language prompt / placeholder / next button rotate
+  startUiCycler(700);
+}
+
+function showUiTranslatingBanner() {
+  const el = document.getElementById('ui-translating-banner');
+  if (!el) return;
+  el.textContent = _translatingUIByLang[myLanguage] || _translatingUIByLang.en;
+  el.style.display = '';
+}
+
+function hideUiTranslatingBanner() {
+  const el = document.getElementById('ui-translating-banner');
+  if (el) el.style.display = 'none';
+}
+
+// ─── Setup screen ────────────────────────────────────────────────────────────
+document.getElementById('file-input').addEventListener('change', e=>{
+  const f = e.target.files[0];
+  if(!f) return;
+  const r = new FileReader();
+  r.onload = ev=>{
+    myAvatarBase64 = ev.target.result;
+    const prev = document.getElementById('avatar-preview');
+    prev.innerHTML = `<img src="${myAvatarBase64}" alt="">`;
+  };
+  r.readAsDataURL(f);
+});
+document.getElementById('btn-choose-photo').addEventListener('click',()=>{
+  document.getElementById('file-input').click();
+});
+document.getElementById('btn-join').addEventListener('click',joinChat);
+document.getElementById('username-input').addEventListener('keydown', e=>{
+  if(e.key==='Enter'){e.preventDefault();joinChat();}
+});
+
+async function joinChat(){
+  const name = document.getElementById('username-input').value.trim();
+  if(!name){document.getElementById('username-input').focus();return;}
+  myUsername = name;
+  // Add ourselves to the local users map immediately so we appear in the
+  // user list without waiting for the SSE user_joined echo (race-condition fix).
+  users[myUserId] = {id:myUserId, username:myUsername, language:myLanguage, avatarBase64:myAvatarBase64};
+  showScreen('screen-chat');
+  updateUserList();
+
+  await postApi('/api/join',{userId:myUserId,username:myUsername,language:myLanguage,avatar:myAvatarBase64});
+
+  // Explicitly request history (works even if SSE 'init' is missed).
+  fetchHistory().catch(e=>console.error('fetchHistory after join failed', e));
+}
+
+// ─── SSE connection ───────────────────────────────────────────────────────────
+function connectSSE(){
+  if(es){es.close();es=null;}
+  clearTimeout(reconnectTimer);
+  es = new EventSource('/api/events?userId='+encodeURIComponent(myUserId));
+  es.onopen = ()=>{
+    const wasReconnecting = reconnecting;
+    reconnecting=false;
+    showBanner('ok',t('connection_restored'));
+    setTimeout(()=>hideBanner(),2500);
+    if(wasReconnecting){
+      fetchHistory().catch(e=>console.error('fetchHistory on reopen failed', e));
+    }
+  };
+  es.onmessage = e=>{
+    try{ handleEvent(JSON.parse(e.data)); }catch(ex){}
+  };
+  es.onerror = ()=>{
+    es.close(); es=null;
+    if(!reconnecting){
+      reconnecting=true;
+      showBanner('lost',t('connection_lost'));
+    }
+    reconnectTimer = setTimeout(connectSSE, 3000);
+  };
+}
+
+function handleEvent(ev){
+  switch(ev.type){
+    case 'init':
+      (ev.users||[]).forEach(u=>{ users[u.id]=u; });
+      // Clear local messages and translations and replace with server-provided state
+      // to avoid duplication or stale entries.
+      Object.keys(messages).forEach(k=>delete messages[k]);
+      Object.keys(translations).forEach(k=>delete translations[k]);
+      (ev.messages||[]).forEach(m=>{ messages[m.id]=m; });
+      (ev.translations||[]).forEach(tr=>{ translations[trKey(tr.messageId,tr.language)]=tr; });
+      if (ev.uiTranslations) {
+        const cached = ev.uiTranslations[myLanguage];
+        if (cached) {
+          uiStrings[myLanguage] = Object.assign(uiStrings[myLanguage] || {}, cached);
+          applyUiLang(myLanguage);
+        }
+      }
+      renderAllMessages();
+      updateUserList();
+      break;
+    case 'message':
+      messages[ev.data.id]=ev.data;
+      appendMessage(ev.data);
+      break;
+    case 'translation':
+      translations[trKey(ev.data.messageId,ev.data.language)]=ev.data;
+      updateMessageTranslation(ev.data.messageId);
+      break;
+    case 'translation_pending':
+      const k=trKey(ev.data.messageId,ev.data.language);
+      if(!translations[k]) translations[k]={messageId:ev.data.messageId,language:ev.data.language,text:'',isPending:true};
+      else translations[k].isPending = true;
+      updateMessageTranslation(ev.data.messageId);
+      break;
+    case 'user_joined': case 'user_updated':
+      users[ev.data.id]=ev.data;
+      updateUserList();
+      break;
+    case 'user_left':
+      delete users[ev.data.userId];
+      updateUserList();
+      break;
+    case 'ui_translations':
+      if(ev.data.language===myLanguage){
+        uiStrings[ev.data.language] = Object.assign(uiStrings[ev.data.language] || {}, ev.data.translations);
+        applyUiLang(myLanguage);
+      }
+      break;
+  }
+}
+
+function trKey(msgId,lang){ return msgId+':'+lang; }
+
+// ─── Fetch explicit history (safe fallback) ──────────────────────────────────
+async function fetchHistory(){
+  try {
+    const r = await fetch('/api/history');
+    if(!r.ok) return;
+    const j = await r.json();
+    // Replace messages and translations atomically on the client side.
+    Object.keys(messages).forEach(k=>delete messages[k]);
+    (j.messages || []).forEach(m => { messages[m.id] = m; });
+
+    Object.keys(translations).forEach(k=>delete translations[k]);
+    (j.translations || []).forEach(tr => { translations[tr.messageId+':'+tr.language] = tr; });
+
+    // Refresh user list from server-side source of truth.
+    try {
+      const ru = await fetch('/api/users');
+      if(ru.ok){
+        const us = await ru.json();
+        Object.keys(users).forEach(k=>delete users[k]);
+        (us || []).forEach(u => { users[u.id] = u; });
+      }
+    } catch(_) {}
+
+    renderAllMessages();
+    updateUserList();
+  } catch (e) {
+    console.error('fetchHistory error', e);
+  }
+}
+
+// ─── Rendering ───────────────────────────────────────────────────────────────
+function renderAllMessages(){
+  const list = document.getElementById('msg-list');
+  list.innerHTML='';
+  Object.values(messages).sort((a,b)=>a.timestamp-b.timestamp).forEach(appendMessage);
+}
+
+// Centralized logic for "what text should this bubble display?"
+function getBubbleDisplay(msgId) {
+  const msg = messages[msgId];
+  if (!msg) return { text: '', origin: 'none' };
+
+  const srcLang = users[msg.userId]?.language || 'en';
+  const tr = translations[trKey(msgId, myLanguage)];
+  const showOrig = !!messageShowOriginal[msgId];
+  const showPrev = !!messageShowPrevious[msgId];
+
+  // If source language matches user's language -> always show original
+  if (srcLang === myLanguage) {
+    return { text: msg.text, origin: 'original' };
+  }
+
+  // Translation pending or missing -> show original but mark pending
+  if (!tr || tr.isPending) {
+    return { text: msg.text, origin: 'pending' };
+  }
+
+  // User explicitly asked to view original
+  if (showOrig) {
+    return { text: msg.text, origin: 'original' };
+  }
+
+  // User asked to view a previous translation version
+  if (showPrev && tr.previousVersions && tr.previousVersions.length > 0) {
+    const prev = tr.previousVersions[tr.previousVersions.length - 1];
+    return { text: prev, origin: 'previous' };
+  }
+
+  // Best-effort: use current translation if available
+  if (tr.text) {
+    return { text: tr.text, origin: 'translation' };
+  }
+
+  // Fallback to original
+  return { text: msg.text, origin: 'original' };
+}
+
+function appendMessage(msg){
+  const list = document.getElementById('msg-list');
+  if(document.getElementById('msg-'+msg.id)) return; // already rendered
+  const isMe = msg.userId===myUserId;
+  const wrap = document.createElement('div');
+  wrap.className='msg-wrap '+(isMe?'me':'other');
+  wrap.id='msg-'+msg.id;
+  wrap.dataset.msgId=msg.id;
+
+  if(!isMe){
+    const uname=document.createElement('div');
+    uname.className='msg-username';
+    uname.textContent=msg.username;
+    wrap.appendChild(uname);
+  }
+  if(msg.replyToId){
+    const rb=document.createElement('div');
+    rb.className='msg-reply';
+    rb.textContent=(msg.replyToUsername?msg.replyToUsername+': ':'')+msg.replyToText;
+    rb.onclick=()=>scrollToMessage(msg.replyToId);
+    wrap.appendChild(rb);
+  }
+  const bubble=document.createElement('div');
+  bubble.className='msg-bubble';
+  bubble.id = 'bubble-'+msg.id;
+  bubble.addEventListener('click',()=>{ if(ctxOpen){closeCtxMenu();} });
+  bubble.addEventListener('contextmenu',e=>{e.preventDefault();openCtxMenu(e,msg.id);});
+  bubble.addEventListener('touchstart', makeLongPress(()=>openCtxMenu({clientX:bubble.getBoundingClientRect().left,clientY:bubble.getBoundingClientRect().top},msg.id)),{passive:true});
+  wrap.appendChild(bubble);
+
+  const statusEl=document.createElement('div');
+  statusEl.className='msg-translation';
+  statusEl.id='statusEl-'+msg.id;
+  wrap.appendChild(statusEl);
+
+  const ts=document.createElement('div');
+  ts.className='msg-time';
+  ts.textContent=fmtTime(msg.timestamp);
+  wrap.appendChild(ts);
+
+  list.appendChild(wrap);
+  updateMessageTranslation(msg.id);
+  scrollBottom();
+}
+
+function updateMessageTranslation(msgId){
+  const statusEl=document.getElementById('statusEl-'+msgId);
+  const bubble=document.getElementById('bubble-'+msgId);
+  if(!bubble || !statusEl) return;
+  const msg=messages[msgId];
+  if(!msg) return;
+
+  const disp = getBubbleDisplay(msgId);
+  bubble.textContent = disp.text;
+
+  if (disp.origin === 'pending') {
+    const tr = translations[trKey(msgId, myLanguage)];
+    statusEl.className = 'msg-translation msg-translating';
+    statusEl.textContent = (tr && tr.retranslationCount > 0) ? t('retranslating') : t('translating');
+    return;
+  }
+
+  // All other states: clear status
+  statusEl.textContent = '';
+  statusEl.className = 'msg-translation';
+}
+function updateUserList(){
+  const list=document.getElementById('users-list');
+  list.innerHTML='';
+  const btn=document.getElementById('header-users-btn');
+  btn.textContent='👥 '+Object.keys(users).length;
+  Object.values(users).forEach(u=>{
+    const item=document.createElement('div');
+    item.className='user-item';
+    const av=document.createElement('div');
+    av.className='user-avatar-sm';
+    if(u.avatarBase64){av.innerHTML=`<img src="${u.avatarBase64}" alt="">`;}
+    else{av.textContent=u.username?u.username[0].toUpperCase():'?';}
+    const info=document.createElement('div');
+    info.className='user-info-sm';
+    const nm=document.createElement('div');
+    nm.className='user-name-sm';
+    nm.textContent=u.username+(u.id===myUserId?' ('+t('you')+')':'');
+    const lg=document.createElement('div');
+    lg.className='user-lang-sm';
+    lg.textContent=u.language;
+    info.append(nm,lg);
+    item.append(av,info);
+    list.appendChild(item);
+  });
+}
+
+function scrollBottom(){
+  const list=document.getElementById('msg-list');
+  list.scrollTop=list.scrollHeight;
+}
+
+function scrollToMessage(id){
+  const el=document.getElementById('msg-'+id);
+  if(el){el.scrollIntoView({behavior:'smooth',block:'center'});}
+  closeAll();
+}
+
+// ─── Context menu ─────────────────────────────────────────────────────────────
+let ctxOpen=false;
+window.ctxOpen=false;
+
+function openCtxMenu(e,msgId){
+  ctxMessageId=msgId;
+  const msg=messages[msgId];
+  if(!msg) return;
+  const srcLang=users[msg.userId]?.language||'en';
+  const tr=translations[trKey(msgId,myLanguage)];
+  const hasTr=tr&&tr.text&&!tr.isPending;
+  const hasPrev=hasTr&&tr.previousVersions&&tr.previousVersions.length>0;
+  const isDiff=srcLang!==myLanguage;
+
+  document.getElementById('ctx-view-original').style.display=isDiff?'':'none';
+  document.getElementById('ctx-view-translation').style.display=(isDiff&&messageShowOriginal[msgId])?'':'none';
+  document.getElementById('ctx-retranslate').style.display=isDiff?'':'none';
+
+  const isViewingPrev = !!messageShowPrevious[msgId];
+  const prevItem = document.getElementById('ctx-prev-translation');
+  if (hasPrev) {
+    prevItem.style.display = '';
+    if (isViewingPrev) {
+      prevItem.textContent = '🕒 ' + t('ctx_view_latest');
+    } else {
+      prevItem.textContent = '🕒 ' + t('ctx_prev_translation');
+    }
+  } else {
+    prevItem.style.display = 'none';
+  }
+
+  const menu=document.getElementById('ctx-menu');
+  menu.style.left=Math.min(e.clientX,window.innerWidth-220)+'px';
+  menu.style.top=Math.min(e.clientY,window.innerHeight-200)+'px';
+  menu.classList.add('open');
+  document.getElementById('overlay').classList.add('open');
+  ctxOpen=true;window.ctxOpen=true;
+}
+
+function closeCtxMenu(){
+  document.getElementById('ctx-menu').classList.remove('open');
+  if (!document.getElementById('users-panel').classList.contains('open')) document.getElementById('overlay').classList.remove('open');
+  ctxOpen=false;window.ctxOpen=false;
+}
+
+function closeAll(){
+  closeCtxMenu();
+  document.getElementById('users-panel').classList.remove('open');
+  document.getElementById('overlay').classList.remove('open');
+}
+
+function ctxReply(){
+  const msg=messages[ctxMessageId];
+  if(!msg) return closeCtxMenu();
+  replyToId=msg.id;
+  replyToText=msg.text;
+  replyToUsername=msg.username;
+  const bar=document.getElementById('reply-bar');
+  bar.classList.add('active');
+
+  // Not the currently displayed text; just show the latest translation.
+  const tr = translations[trKey(msg.id, myLanguage)];
+  const displayText = (tr && tr.text && !tr.isPending) ? tr.text : msg.text;
+  document.getElementById('reply-preview').textContent = msg.username + ': ' + displayText;
+
+  document.getElementById('msg-input').focus();
+  closeCtxMenu();
+}
+
+function cancelReply(){
+  replyToId=null;replyToText=null;replyToUsername=null;
+  document.getElementById('reply-bar').classList.remove('active');
+}
+
+function ctxViewOriginal(){
+  messageShowOriginal[ctxMessageId]=true;
+  delete messageShowPrevious[ctxMessageId];
+  updateMessageTranslation(ctxMessageId);
+  closeCtxMenu();
+}
+
+function ctxViewTranslation(){
+  delete messageShowOriginal[ctxMessageId];
+  delete messageShowPrevious[ctxMessageId];
+  updateMessageTranslation(ctxMessageId);
+  closeCtxMenu();
+}
+
+function ctxRetranslate(){
+  const tr=translations[trKey(ctxMessageId,myLanguage)];
+  const count=(tr?.retranslationCount||0)+1;
+  postApi('/api/retranslate',{messageId:ctxMessageId,language:myLanguage,contextCount:count});
+  closeCtxMenu();
+}
+
+function ctxViewPrev() {
+  const tr = translations[trKey(ctxMessageId, myLanguage)];
+  if (tr?.previousVersions?.length > 0) {
+    if (messageShowPrevious[ctxMessageId]) {
+      // Already viewing previous → switch back to latest
+      delete messageShowPrevious[ctxMessageId];
+      delete messageShowOriginal[ctxMessageId];
+    } else {
+      messageShowPrevious[ctxMessageId] = true;
+      delete messageShowOriginal[ctxMessageId];
+    }
+    updateMessageTranslation(ctxMessageId);
+  }
+  closeCtxMenu();
+}
+
+// Copy the currently displayed text for the context message to the clipboard.
+function ctxCopy(){
+  const msg = messages[ctxMessageId];
+  if(!msg) return closeCtxMenu();
+
+  const disp = getBubbleDisplay(msg.id);
+  const textToCopy = disp.text || msg.text;
+
+  // Copy to clipboard with fallback
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(textToCopy).catch(()=>{ /* ignore */ });
+  } else {
+    // legacy fallback
+    const ta = document.createElement('textarea');
+    ta.value = textToCopy;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try { document.execCommand('copy'); } catch(e) { /* ignore */ }
+    document.body.removeChild(ta);
+  }
+
+  closeCtxMenu();
+}
+
+// ─── Sending messages ─────────────────────────────────────────────────────────
+async function sendMessage(){
+  const input=document.getElementById('msg-input');
+  const text=input.value.trim();
+  if(!text) return;
+  input.value='';
+  input.style.height='';
+  await postApi('/api/message',{userId:myUserId,text,replyToId,replyToText,replyToUsername});
+  cancelReply();
+}
+
+document.getElementById('msg-input').addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage();}
+});
+document.getElementById('msg-input').addEventListener('input',e=>{
+  e.target.style.height='';
+  e.target.style.height=Math.min(e.target.scrollHeight,120)+'px';
+});
+
+// ─── Users panel ──────────────────────────────────────────────────────────────
+function toggleUsersPanel(){
+  const panel=document.getElementById('users-panel');
+  const ov=document.getElementById('overlay');
+  const isOpen=panel.classList.contains('open');
+  panel.classList.toggle('open',!isOpen);
+  if (isOpen || !document.getElementById('ctx-menu').classList.contains('open')) ov.classList.toggle('open', !isOpen);
+}
+
+// ─── Export chat ──────────────────────────────────────────────────────────────
+function exportChat(){
+  const lines=['=== Chat Export ===',''];
+  Object.values(messages).sort((a,b)=>a.timestamp-b.timestamp).forEach(msg=>{
+    const time=new Date(msg.timestamp).toLocaleString();
+    lines.push(`[${time}] ${msg.username}: ${msg.text}`);
+    const tr=translations[trKey(msg.id,myLanguage)];
+    if(tr&&tr.text) lines.push(`  → (${myLanguage}) ${tr.text}`);
+  });
+  const content = lines.join('\n');
+  if(window.AndroidExport && typeof window.AndroidExport.exportText === 'function'){
+    try { window.AndroidExport.exportText(content); return; } catch(e) {}
+  }
+  const blob=new Blob([content],{type:'text/plain'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='chat-export-'+new Date().toISOString().slice(0,10)+'.txt';
+  a.click();
+}
+
+// ─── Connection banner ─────────────────────────────────────────────────────────
+function showBanner(state,msg){
+  const b=document.getElementById('conn-banner');
+  b.textContent=msg;
+  b.className='conn-banner '+state;
+}
+function hideBanner(){
+  document.getElementById('conn-banner').className='conn-banner';
+}
+
+// ─── Utilities ─────────────────────────────────────────────────────────────────
+async function postApi(path,body){
+  try{
+    return await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  }catch(e){console.error('POST',path,e);}
+}
+
+function fmtTime(ts){
+  const d=new Date(ts);
+  return d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0');
+}
+
+function showScreen(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+function makeLongPress(cb,ms=600){
+  let timer=null;
+  return e=>{
+    timer=setTimeout(()=>{timer=null;cb();},ms);
+    const cancel=()=>{clearTimeout(timer);document.removeEventListener('touchend',cancel);document.removeEventListener('touchmove',cancel);};
+    document.addEventListener('touchend',cancel,{once:true});
+    document.addEventListener('touchmove',cancel,{once:true});
+  };
+}
+</script>
+</body>
+</html>

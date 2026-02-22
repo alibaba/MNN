@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <plurals name="chat_server_user_count">
+        <item quantity="one">%d user connected</item>
+        <item quantity="other">%d users connected</item>
+    </plurals>
+</resources>

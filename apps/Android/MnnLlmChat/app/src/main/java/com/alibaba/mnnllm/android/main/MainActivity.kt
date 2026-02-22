@@ -335,6 +335,10 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
                 updateMainTitleSwitcherMode(false)
                 mainTitleSwitcher.text = getString(R.string.benchmark)
             }
+            BottomTabBar.Tab.CHAT_SERVER -> {
+                updateMainTitleSwitcherMode(false)
+                mainTitleSwitcher.text = getString(R.string.nav_chat_server)
+            }
         }
         updateExpandableFabLayout(newTab)
         invalidateOptionsMenu()

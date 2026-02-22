@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    This app hosts an HTTP chat server on the local Wi-Fi hotspot (plain HTTP, no HTTPS).
+    Cleartext traffic must be permitted for the WebView to load the in-app chat page and
+    for client devices to reach the server over the local-only hotspot network.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system"/>
+        </trust-anchors>
+    </base-config>
+</network-security-config>

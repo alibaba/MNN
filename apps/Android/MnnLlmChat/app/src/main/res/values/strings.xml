@@ -616,4 +616,154 @@
     <string name="qnn_libs_download_failed">Failed to download QNN libraries</string>
     <string name="qnn_libs_load_failed">Failed to load QNN libraries</string>
     <string name="qnn_device_not_supported">QNN model detected but device does not support QNN acceleration. Please use a different model.</string>
+
+    <!-- Interpreted Chat Server -->
+    <string name="nav_chat_server">Interpret</string>
+    <string name="chat_server_idle">Tap Start to host an interpreted chat session.\nOther devices can join via Wi-Fi QR code.\nChat is auto-translated into all languages by your phone. No internet required.</string>
+    <string name="chat_server_starting">Starting hotspot and server…</string>
+    <string name="chat_server_running">Server running. Scan the QR codes below.</string>
+    <string name="chat_server_start">Start Interpreted Chat</string>
+    <string name="chat_server_stop">Stop Server</string>
+    <string name="chat_server_open_browser">Open in default browser</string>
+    <string name="chat_server_pick_model">Select translation model</string>
+    <string name="chat_server_no_models">No downloaded models found. Download a model first.</string>
+    <string name="chat_server_hotspot_failed">Hotspot failed: %1$s</string>
+	<string name="chat_server_permission_denied">Nearby Wi-Fi Devices permission is required to start a local hotspot.</string>
+	<string name="chat_server_notification_text">Listening on port %1$d</string>
+
+    <!-- =====================================================================
+         Multilingual cycling labels for ChatServerFragment QR codes.
+         ===================================================================== -->
+
+    <!-- English (shown every 5th slot, 2× duration) -->
+    <string name="chat_server_qr_wifi">1. Connect to this phone</string>
+    <string name="chat_server_qr_url">2. Chat with me</string>
+
+    <!-- All translations are stored as string-arrays so the cycling helper
+         can load them without reflection.  Order matches LANGUAGE_ORDER in
+         HotspotLabelCycler.kt. -->
+
+    <!-- QR-1: "1. Connect to this phone"
+         Context: scanning this QR joins a Wi-Fi hotspot hosted by this device. -->
+    <string-array name="qr_wifi_labels">
+        <!-- 0  English      --> <item>1. Connect to this phone</item>
+        <!-- 1  Mandarin     --> <item>1. 连接到此手机</item>
+        <!-- 2  Hindi        --> <item>1. इस फ़ोन से कनेक्ट करें</item>
+        <!-- 3  Portuguese   --> <item>1. Conectar a este telemóvel</item>
+        <!-- 4  Russian      --> <item>1. Подключитесь к этому телефону</item>
+        <!-- 5  English      --> <item>1. Connect to this phone</item>
+        <!-- 6  Arabic       --> <item>١. اتصل بهذا الهاتف</item>
+        <!-- 7  French       --> <item>1. Connectez-vous à ce téléphone</item>
+        <!-- 8  German       --> <item>1. Mit diesem Handy verbinden</item>
+        <!-- 9  Marathi      --> <item>1. या फोनशी कनेक्ट करा</item>
+        <!-- 10 English      --> <item>1. Connect to this phone</item>
+        <!-- 11 Bengali      --> <item>1. এই ফোনে সংযুক্ত হন</item>
+        <!-- 12 Spanish      --> <item>1. Conectarse a este móvil</item>
+        <!-- 13 Indonesian   --> <item>1. Sambung ke ponsel ini</item>
+        <!-- 14 Vietnamese   --> <item>1. Kết nối với điện thoại này</item>
+        <!-- 15 English      --> <item>1. Connect to this phone</item>
+        <!-- 16 Thai         --> <item>1. เชื่อมต่อกับโทรศัพท์นี้</item>
+        <!-- 17 Korean       --> <item>1. 이 폰에 연결하세요</item>
+        <!-- 18 Japanese     --> <item>1. このスマホに接続する</item>
+        <!-- 19 Turkish      --> <item>1. Bu telefona bağlanın</item>
+        <!-- 20 English      --> <item>1. Connect to this phone</item>
+        <!-- 21 Punjabi      --> <item>1. ਇਸ ਫ਼ੋਨ ਨਾਲ ਜੁੜੋ</item>
+        <!-- 22 Tamil        --> <item>1. இந்த போனில் இணையுங்கள்</item>
+        <!-- 23 Swahili      --> <item>1. Unganisha na simu hii</item>
+        <!-- 24 Italian      --> <item>1. Connettiti a questo telefono</item>
+        <!-- 25 English      --> <item>1. Connect to this phone</item>
+        <!-- 26 Dutch        --> <item>1. Verbind met deze telefoon</item>
+        <!-- 27 Filipino     --> <item>1. Kumonekta sa teleponong ito</item>
+        <!-- 28 Ukrainian    --> <item>1. Підключіться до цього телефону</item>
+        <!-- 29 Persian      --> <item>1. به این گوشی وصل شوید</item>
+        <!-- 30 English      --> <item>1. Connect to this phone</item>
+        <!-- 31 Urdu         --> <item>1. اس فون سے جڑیں</item>
+        <!-- 32 Norwegian    --> <item>1. Koble til denne telefonen</item>
+        <!-- 33 Danish       --> <item>1. Forbind til denne telefon</item>
+        <!-- 34 Swedish      --> <item>1. Anslut till den här telefonen</item>
+        <!-- 35 English      --> <item>1. Connect to this phone</item>
+        <!-- 36 Finnish      --> <item>1. Yhdistä tähän puhelimeen</item>
+        <!-- 37 Hungarian    --> <item>1. Csatlakozz ehhez a telefonhoz</item>
+        <!-- 38 Polish       --> <item>1. Połącz się z tym telefonem</item>
+        <!-- 39 Czech        --> <item>1. Připojte se k tomuto telefonu</item>
+        <!-- 40 English      --> <item>1. Connect to this phone</item>
+        <!-- 41 Slovak       --> <item>1. Pripojte sa k tomuto telefónu</item>
+        <!-- 42 Serbian      --> <item>1. Povežite se s ovim telefonom</item>
+        <!-- 43 Greek        --> <item>1. Σύνδεση σε αυτό το τηλέφωνο</item>
+        <!-- 44 Georgian     --> <item>1. დაუკავშირდით ამ ტელეფონს</item>
+        <!-- 45 English      --> <item>1. Connect to this phone</item>
+        <!-- 46 Uzbek        --> <item>1. Bu telefonga ulanish</item>
+        <!-- 47 Kazakh       --> <item>1. Осы телефонға қосылыңыз</item>
+        <!-- 48 Amharic      --> <item>1. ወደዚህ ስልክ ይገናኙ</item>
+        <!-- 49 Hebrew       --> <item>1. התחבר לטלפון זה</item>
+        <!-- 50 English      --> <item>1. Connect to this phone</item>
+        <!-- 51 Lao          --> <item>1. ເຊື່ອມຕໍ່ກັບໂທລະສັບນີ້</item>
+        <!-- 52 Burmese      --> <item>1. ဤဖုန်းသို့ ချိတ်ဆက်ပါ</item>
+        <!-- 53 Khmer        --> <item>1. ភ្ជាប់ទៅទូរស័ព្ទនេះ</item>
+        <!-- 54 Sinhala      --> <item>1. මෙම දුරකථනයට සම්බන්ධ වන්න</item>
+        <!-- 55 English      --> <item>1. Connect to this phone</item>
+        <!-- 56 Tibetan      --> <item>1. ཁྱེད་ཀྱིས་འདིར་ལག་ཁྱེར་ལ་སྦྲེལ་བ་བྱོས།</item>
+    </string-array>
+
+    <!-- QR-2: "2. Chat with me"
+         Context: scanning this QR opens a browser-based AI chat room on this device. -->
+    <string-array name="qr_url_labels">
+        <!-- 0  English      --> <item>2. Chat with me</item>
+        <!-- 1  Mandarin     --> <item>2. 和我聊天</item>
+        <!-- 2  Hindi        --> <item>2. मुझसे चैट करें</item>
+        <!-- 3  Portuguese   --> <item>2. Converse comigo</item>
+        <!-- 4  Russian      --> <item>2. Напишите мне</item>
+        <!-- 5  English      --> <item>2. Chat with me</item>
+        <!-- 6  Arabic       --> <item>٢. تحدث معي</item>
+        <!-- 7  French       --> <item>2. Discutez avec moi</item>
+        <!-- 8  German       --> <item>2. Chatte mit mir</item>
+        <!-- 9  Marathi      --> <item>2. माझ्याशी गप्पा करा</item>
+        <!-- 10 English      --> <item>2. Chat with me</item>
+        <!-- 11 Bengali      --> <item>2. আমার সাথে কথা বলুন</item>
+        <!-- 12 Spanish      --> <item>2. Chatea conmigo</item>
+        <!-- 13 Indonesian   --> <item>2. Chat dengan saya</item>
+        <!-- 14 Vietnamese   --> <item>2. Trò chuyện với tôi</item>
+        <!-- 15 English      --> <item>2. Chat with me</item>
+        <!-- 16 Thai         --> <item>2. แชทกับฉัน</item>
+        <!-- 17 Korean       --> <item>2. 저와 채팅하세요</item>
+        <!-- 18 Japanese     --> <item>2. 私とチャットする</item>
+        <!-- 19 Turkish      --> <item>2. Benimle sohbet et</item>
+        <!-- 20 English      --> <item>2. Chat with me</item>
+        <!-- 21 Punjabi      --> <item>2. ਮੇਰੇ ਨਾਲ ਚੈਟ ਕਰੋ</item>
+        <!-- 22 Tamil        --> <item>2. என்னிடம் அரட்டையடிங்கள்</item>
+        <!-- 23 Swahili      --> <item>2. Zungumza nami</item>
+        <!-- 24 Italian      --> <item>2. Chatta con me</item>
+        <!-- 25 English      --> <item>2. Chat with me</item>
+        <!-- 26 Dutch        --> <item>2. Chat met mij</item>
+        <!-- 27 Filipino     --> <item>2. Makipag-chat sa akin</item>
+        <!-- 28 Ukrainian    --> <item>2. Поспілкуйтеся зі мною</item>
+        <!-- 29 Persian      --> <item>2. با من چت کنید</item>
+        <!-- 30 English      --> <item>2. Chat with me</item>
+        <!-- 31 Urdu         --> <item>2. مجھ سے چیٹ کریں</item>
+        <!-- 32 Norwegian    --> <item>2. Chat med meg</item>
+        <!-- 33 Danish       --> <item>2. Chat med mig</item>
+        <!-- 34 Swedish      --> <item>2. Chatta med mig</item>
+        <!-- 35 English      --> <item>2. Chat with me</item>
+        <!-- 36 Finnish      --> <item>2. Juttele kanssani</item>
+        <!-- 37 Hungarian    --> <item>2. Chatelj velem</item>
+        <!-- 38 Polish       --> <item>2. Porozmawiaj ze mną</item>
+        <!-- 39 Czech        --> <item>2. Chatujte se mnou</item>
+        <!-- 40 English      --> <item>2. Chat with me</item>
+        <!-- 41 Slovak       --> <item>2. Chatujte so mnou</item>
+        <!-- 42 Serbian      --> <item>2. Razgovarajte sa mnom</item>
+        <!-- 43 Greek        --> <item>2. Μιλήστε μαζί μου</item>
+        <!-- 44 Georgian     --> <item>2. ესაუბრეთ მე</item>
+        <!-- 45 English      --> <item>2. Chat with me</item>
+        <!-- 46 Uzbek        --> <item>2. Men bilan suhbatlashing</item>
+        <!-- 47 Kazakh       --> <item>2. Мен мен сөйлесіңіз</item>
+        <!-- 48 Amharic      --> <item>2. ከእኔ ጋር ይነጋገሩ</item>
+        <!-- 49 Hebrew       --> <item>2. שוחח איתי</item>
+        <!-- 50 English      --> <item>2. Chat with me</item>
+        <!-- 51 Lao          --> <item>2. ສົນທະນາກັບຂ້ອຍ</item>
+        <!-- 52 Burmese      --> <item>2. ကျွန်တော်နဲ့ chat လုပ်ပါ</item>
+        <!-- 53 Khmer        --> <item>2. និយាយជាមួយខ្ញុំ</item>
+        <!-- 54 Sinhala      --> <item>2. මා සමඟ කතාබස් කරන්න</item>
+        <!-- 55 English      --> <item>2. Chat with me</item>
+        <!-- 56 Tibetan      --> <item>2. ང་དང་གླེང་མོལ་གནང་།</item>
+    </string-array>
 </resources>

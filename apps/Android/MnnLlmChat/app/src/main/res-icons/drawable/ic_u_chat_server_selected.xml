@@ -1,0 +1,18 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:viewportWidth="960"
+    android:viewportHeight="960"
+    android:width="24dp"
+    android:height="24dp">
+    <group
+        android:translateX="0"
+        android:translateY="960">
+        <!-- Chat bubble filled -->
+        <path
+            android:pathData="M212.31 -180Q182 -180 161 -201q-21 -21 -21 -51.31v-455.38Q140 -738 161 -759q21 -21 51.31 -21h535.38Q778 -780 799 -759q21 21 21 51.31v455.38Q820 -222 799 -201q-21 21 -51.31 21H340L180 -20l32.31 -160Z"
+            android:fillColor="#4252B6" />
+        <!-- Translation lines (white) -->
+        <path
+            android:pathData="M280 -480h180v-50H280Zm0 120h400v-50H280Zm0 120h400v-50H280Z"
+            android:fillColor="#FFFFFF" />
+    </group>
+</vector>
