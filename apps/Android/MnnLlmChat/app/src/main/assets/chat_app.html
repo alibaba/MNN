@@ -28,6 +28,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .avatar-preview{width:64px;height:64px;border-radius:50%;background:#dde;object-fit:cover;display:flex;align-items:center;justify-content:center;font-size:1.8em;overflow:hidden;flex-shrink:0}
 .avatar-preview img{width:100%;height:100%;object-fit:cover}
 .btn-secondary{padding:10px 18px;background:#fff;color:#4252b6;border:2px solid #4252b6;border-radius:10px;font-size:.95em;font-weight:600;cursor:pointer}
+/* Loading screen */
+#screen-loading{align-items:center;justify-content:center;gap:12px;background:#f0f2f5}
+.loading-spinner{width:40px;height:40px;border:4px solid #dde;border-top-color:#4252b6;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-text{font-size:1em;color:#666}
 /* Chat screen */
 #screen-chat{display:none;flex-direction:column;height:100dvh}
 #screen-chat.active{display:flex}
@@ -91,8 +96,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 </head>
 <body>
 
+<!-- server will inject builtin English UI strings here -->
+<!--__INJECT_BUILTIN_UI__-->
+
+<!-- ─── Screen 0: Loading (shown briefly during auto-login check) ─────────── -->
+<div id="screen-loading" class="screen active">
+  <div class="loading-spinner"></div>
+  <div class="loading-text">Loading…</div>
+</div>
+
 <!-- ─── Screen 1: Language ─────────────────────────────────────────────────── -->
-<div id="screen-lang" class="screen active">
+<div id="screen-lang" class="screen">
   <div class="lang-title" id="txt-lang-title">Select your language</div>
   <div class="lang-grid" id="lang-grid">
     <button class="lang-btn" data-lang="en">🇺🇸 English</button>
@@ -115,6 +129,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 
 <!-- ─── Screen 2: Setup ───────────────────────────────────────────────────── -->
 <div id="screen-setup" class="screen">
+  <div id="ui-translating-banner" style="width:100%;max-width:400px;text-align:center;font-size:.9em;color:#888;font-style:italic;min-height:1.4em;display:none"></div>
   <div style="font-size:1.5em;font-weight:800;text-align:center;margin-bottom:4px">💬</div>
   <div class="setup-section">
     <div class="setup-label" id="txt-setup-username">Choose a username</div>
@@ -136,7 +151,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 <!-- ─── Screen 3: Chat ────────────────────────────────────────────────────── -->
 <div id="screen-chat" class="screen">
   <div class="chat-header">
-    <h1>💬 Chat</h1>
+    <h1 id="txt-chat-title">💬 Chat</h1>
     <span class="header-users" id="header-users-btn" onclick="toggleUsersPanel()">👥 1</span>
     <button class="btn-icon" id="btn-export" title="Export" onclick="exportChat()">💾</button>
   </div>
@@ -157,6 +172,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 
 <div id="ctx-menu">
   <div class="ctx-item" id="ctx-reply" onclick="ctxReply()">↩ Reply</div>
+  <div class="ctx-item" id="ctx-copy" onclick="ctxCopy()">📋 Copy message</div>
   <div class="ctx-item" id="ctx-view-original" onclick="ctxViewOriginal()" style="display:none">🔤 View original</div>
   <div class="ctx-item" id="ctx-view-translation" onclick="ctxViewTranslation()" style="display:none">🌐 View translation</div>
   <div class="ctx-item" id="ctx-retranslate" onclick="ctxRetranslate()" style="display:none">🔄 Retranslate with more context</div>
@@ -179,8 +195,8 @@ let replyToId = null;
 let replyToText = null;
 let replyToUsername = null;
 let ctxMessageId = null;
-let ctxShowingOriginal = false; // per-message toggle state
-const messageShowOriginal = {};  // msgId → true if user is viewing original
+const messageShowOriginal = {};   // msgId → true if user is viewing original in bubble
+const messageShowPrevious = {};   // msgId → true if user asked to view previous translation in bubble
 const messages = {};    // id → {id, userId, username, text, timestamp, replyToId, replyToText, replyToUsername}
 const translations = {};// "msgId:lang" → {text, retranslationCount, previousVersions, isPending}
 const users = {};       // id → {id, username, language, avatarBase64}
@@ -190,93 +206,388 @@ let reconnecting = false;
 
 localStorage.setItem('userId', myUserId);
 
-// ─── Hard-coded UI translations ─────────────────────────────────────────────
-const BUILTIN_UI = {
-  en: {
-    lang_title:"Select your language",setup_username:"Choose a username",
-    setup_username_hint:"Enter your name",setup_avatar:"Profile picture (optional)",
-    btn_choose_photo:"Choose photo",btn_skip:"Skip",btn_join:"Join chat",
-    chat_placeholder:"Type a message…",btn_send:"Send",btn_export:"Export chat",
-    translating:"Translating…",retranslating:"Retranslating…",
-    ctx_view_original:"View original",ctx_view_translation:"View translation",
-    ctx_retranslate:"Retranslate with more context",ctx_prev_translation:"View previous translation",
-    ctx_reply:"Reply",ctx_cancel_reply:"Cancel reply",connected_users:"Connected users",
-    connection_lost:"Connection lost. Reconnecting…",connection_restored:"Connected",
-    you:"You",server_host:"Host",welcome:"Welcome to the chat!",no_messages:"No messages yet.",
-  },
-  ko: {
-    lang_title:"언어를 선택하세요",setup_username:"사용자 이름 선택",
-    setup_username_hint:"이름을 입력하세요",setup_avatar:"프로필 사진 (선택)",
-    btn_choose_photo:"사진 선택",btn_skip:"건너뛰기",btn_join:"채팅 참여",
-    chat_placeholder:"메시지를 입력하세요…",btn_send:"전송",btn_export:"채팅 내보내기",
-    translating:"번역 중…",retranslating:"재번역 중…",
-    ctx_view_original:"원문 보기",ctx_view_translation:"번역 보기",
-    ctx_retranslate:"더 많은 맥락으로 재번역",ctx_prev_translation:"이전 번역 보기",
-    ctx_reply:"답장",ctx_cancel_reply:"답장 취소",connected_users:"접속자",
-    connection_lost:"연결 끊김. 재연결 중…",connection_restored:"연결됨",
-    you:"나",server_host:"호스트",welcome:"채팅에 오신 것을 환영합니다!",no_messages:"아직 메시지가 없습니다.",
-  },
-  ja: {
-    lang_title:"言語を選択してください",setup_username:"ユーザー名を入力",
-    setup_username_hint:"名前を入力してください",setup_avatar:"プロフィール画像（任意）",
-    btn_choose_photo:"写真を選ぶ",btn_skip:"スキップ",btn_join:"チャットに参加",
-    chat_placeholder:"メッセージを入力…",btn_send:"送信",btn_export:"チャットをエクスポート",
-    translating:"翻訳中…",retranslating:"再翻訳中…",
-    ctx_view_original:"原文を見る",ctx_view_translation:"翻訳を見る",
-    ctx_retranslate:"より多くの文脈で再翻訳",ctx_prev_translation:"前の翻訳を見る",
-    ctx_reply:"返信",ctx_cancel_reply:"返信をキャンセル",connected_users:"接続ユーザー",
-    connection_lost:"接続が切れました。再接続中…",connection_restored:"接続済み",
-    you:"あなた",server_host:"ホスト",welcome:"チャットへようこそ！",no_messages:"まだメッセージはありません。",
-  },
+// ─── All UI translations (mutable container for builtin + server-provided UIs) ─────────────
+// All hard-coded languages are injected by the Kotlin server into window.__BUILTIN_UI_STRINGS__.
+let uiStrings = Object.assign(
+  { en: {}, ko: {}, ja: {} },
+  window.__BUILTIN_UI_STRINGS__ || {}
+);
+
+// Rapidly cycle three visible language-related UI texts through as many pre-translated values as possible, from most to least common language.
+const _rotatingLangTitles = [
+  "Select your language",
+  "选择你的语言",
+  "अपनी भाषा चुनें",
+  "Selecione seu idioma",
+  "Выберите язык",
+  "اختر لغتك",
+  "Choisissez votre langue",
+  "Wähle deine Sprache",
+  "अपनी भाषा निवडा",
+  "আপনার ভাষা নির্বাচন করুন",
+  "Selecciona tu idioma",
+  "Pilih bahasamu",
+  "Chọn ngôn ngữ của bạn",
+  "ภาษาของคุณ เลือก",
+  "언어를 선택하세요",
+  "言語を選択してください",
+  "Seçin dilinizi",
+  "ਆਪਣੀ ਭਾਸ਼ਾ ਚੁਣੋ",
+  "உங்கள் மொழியை தேர்ந்தெடுக்கவும்",
+  "Chagua lugha yako",
+  "Scegli la tua lingua",
+  "Kies je taal",
+  "Piliin ang iyong wika",
+  "Виберіть мову",
+  "زبان خود را انتخاب کنید",
+  "اپنی زبان منتخب کریں",
+  "Velg språket ditt",
+  "Vælg dit sprog",
+  "Välj ditt språk",
+  "Valitse kielesi",
+  "Válassz nyelvet",
+  "Wybierz język",
+  "Vyberte svůj jazyk",
+  "Vyberte svoj jazyk",
+  "Izaberite jezik",
+  "Επιλέξτε τη γλώσσα σας",
+  "შეარჩიეთ თქვენი ენა",
+  "Dilni tanlang",
+  "Тілді таңдаңыз",
+  "የቋንቋ ምርጫ",
+  "בחר את השפה שלך",
+  "ເລືອກພາສາຂອງທ່ານ",
+  "ဘာသာစကားကိုရွေးချယ်ပါ",
+  "សូមជ្រើសរើសភាសារបស់អ្នក",
+  "ඔබේ භාෂාව තෝරන්න",
+  "ཁྱེད་ཀྱི་སྐད་ཡིག་འདེམས།",
+];
+
+const _rotatingOtherPlaceholders = [
+  "Other language code (e.g. ru)",
+  "其他语言代码（例如：ru）",
+  "अन्य भाषा कोड (जैसे ru)",
+  "Outro código de idioma (ex: ru)",
+  "Другой код языка (напр. ru)",
+  "رمز لغة أخرى (مثلاً ru)",
+  "Autre code de langue (ex. ru)",
+  "Anderer Sprachcode (z. B. ru)",
+  "इतर भाषा कोड (उदा. ru)",
+  "অন্য ভাষার কোড (যেমন ru)",
+  "Otro código de idioma (p. ej. ru)",
+  "Kode bahasa lain (mis. ru)",
+  "Mã ngôn ngữ khác (vd. ru)",
+  "รหัสภาษาอื่น (เช่น ru)",
+  "다른 언어 코드 (예: ru)",
+  "別の言語コード (例: ru)",
+  "Diğer dil kodu (örn. ru)",
+  "ਹੋਰ ਭਾਸ਼ਾ ਕੋਡ (ਜਿਵੇਂ ru)",
+  "மற்ற மொழி குறியீடு (எ.கா. ru)",
+  "Msimbo mwingine wa lugha (mf. ru)",
+  "Altro codice lingua (es. ru)",
+  "Andere taalcode (bijv. ru)",
+  "Iba pang code ng wika (hal. ru)",
+  "Інший код мови (напр. ru)",
+  "کد زبان دیگر (مثلاً ru)",
+  "دوسرا زبان کوڈ (مثلاً ru)",
+  "Annen språkkode (f.eks. ru)",
+  "Anden sprogkode (f.eks. ru)",
+  "Annan språkkod (t.ex. ru)",
+  "Muu kielikoodi (esim. ru)",
+  "Más nyelvkód (pl. ru)",
+  "Inny kod języka (np. ru)",
+  "Jiný kód jazyka (např. ru)",
+  "Iný kód jazyka (napr. ru)",
+  "Drugi kod jezika (npr. ru)",
+  "Άλλος κωδικός γλώσσας (π.χ. ru)",
+  "სხვა ენის კოდი (მაგ. ru)",
+  "Boshqa til kodi (masalan ru)",
+  "Басқа тіл коды (мысалы ru)",
+  "ሌላ የቋንቋ ኮድ (ለምሳሌ ru)",
+  "קוד שפה אחר (למשל ru)",
+  "ລະຫັດພາສາອື່ນ (ຕົວຢ່າງ ru)",
+  "အခြားဘာသာစကားကုဒ် (ဥပမာ ru)",
+  "កូដភាសាផ្សេងទៀត (ឧ. ru)",
+  "වෙනත් භාෂා කේතය (උදා. ru)",
+  "གཞན་སྐད་ཡིག་ཨང་རྟགས། (དཔེར་ན་ ru)",
+];
+
+const _rotatingNextButtons = [
+  "Next →",
+  "下一步 →",
+  "अगला →",
+  "Próximo →",
+  "Далее →",
+  "التالي →",
+  "Suivant →",
+  "Weiter →",
+  "पुढे →",
+  "পরবর্তী →",
+  "Siguiente →",
+  "Selanjutnya →",
+  "Tiếp theo →",
+  "ถัดไป →",
+  "다음 →",
+  "次へ →",
+  "İleri →",
+  "ਅਗਲਾ →",
+  "அடுத்து →",
+  "Inayofuata →",
+  "Avanti →",
+  "Volgende →",
+  "Susunod →",
+  "Далі →",
+  "بعدی →",
+  "اگلا →",
+  "Neste →",
+  "Næste →",
+  "Nästa →",
+  "Seuraava →",
+  "Következő →",
+  "Dalej →",
+  "Další →",
+  "Ďalší →",
+  "Sledeće →",
+  "Επόμενο →",
+  "შემდეგი →",
+  "Keyingi →",
+  "Келесі →",
+  "ቀጣይ →",
+  "הבא →",
+  "ຕໍ່ໄປ →",
+  "ဆက်သွားရန် →",
+  "បន្ទាប់ →",
+  "ඊළඟ →",
+  "མུ་མཐུད། →",
+];
+
+let _rotIdx = 0;
+function startUiCycler(intervalMs = 650) {
+  setInterval(() => {
+    _rotIdx = (_rotIdx + 1) % _rotatingLangTitles.length;
+    const title = document.getElementById('txt-lang-title');
+    const custom = document.getElementById('lang-custom');
+    const next = document.getElementById('btn-lang-next');
+    if (title) title.textContent = _rotatingLangTitles[_rotIdx];
+    if (custom) custom.placeholder = _rotatingOtherPlaceholders[_rotIdx];
+    if (next) next.textContent = _rotatingNextButtons[_rotIdx];
+  }, intervalMs);
+}
+
+const _translatingUIByLang = {
+  en: "Translating UI…", zh: "翻译界面中…", hi: "UI का अनुवाद हो रहा है…",
+  pt: "Traduzindo a interface…", ru: "Перевод интерфейса…", ar: "جارٍ ترجمة الواجهة…",
+  fr: "Traduction de l'interface…", de: "Benutzeroberfläche wird übersetzt…",
+  mr: "UI भाषांतरित होत आहे…", bn: "UI অনুবাদ হচ্ছে…", es: "Traduciendo la interfaz…",
+  id: "Menerjemahkan antarmuka…", vi: "Đang dịch giao diện…", th: "กำลังแปล UI…",
+  ko: "UI 번역 중…", ja: "UIを翻訳しています…", tr: "Arayüz çevriliyor…",
+  pa: "ਯੂਆਈ ਅਨੁਵਾਦ ਹੋ ਰਿਹਾ ਹੈ…", ta: "UI மொழிபெயர்க்கப்படுகிறது…",
+  sw: "Kutafsiri kiolesura…", it: "Traduzione dell'interfaccia…", nl: "Interface vertalen…",
+  fil: "Isinasalin ang UI…", uk: "Перекладаємо інтерфейс…", fa: "در حال ترجمه رابط…",
+  ur: "UI ترجمہ ہو رہا ہے…", no: "Oversetter grensesnitt…", da: "Oversætter brugerflade…",
+  sv: "Översätter gränssnitt…", fi: "Käännetään käyttöliittymää…",
+  hu: "Felhasználói felület fordítása…", pl: "Tłumaczenie interfejsu…",
+  cs: "Překlad rozhraní…", sk: "Prekladanie rozhrania…", sr: "Prevođenje sučelja…",
+  el: "Μετάφραση διεπαφής…", ka: "ინტერფეისის თარგმნა…", uz: "Interfeys tarjima qilinmoqda…",
+  kk: "Интерфейс аударылуда…", am: "በይነገጽ በመተርጎም ላይ…", he: "ממשק מתורגם…",
+  lo: "ກໍາລັງແປ UI…", my: "UI ဘာသာပြန်နေသည်…", km: "UI កំពុងបកប្រែ…",
+  si: "UI පරිවර්තනය වෙමින්…", bo: "UI བོད་སྐད་དུ་བསྒྱུར་བཞིན་པ…",
 };
 
-function t(key) { return UI[key] || BUILTIN_UI.en[key] || key; }
+function t(key) { return UI[key] || (uiStrings.en && uiStrings.en[key]) || key; }
 
 function applyUiLang(lang) {
   myLanguage = lang;
-  const src = BUILTIN_UI[lang] || BUILTIN_UI.en;
-  Object.assign(UI, src);
+  const src = (uiStrings[lang] || uiStrings.en);
+  if (src) {
+    Object.keys(src).forEach(k=>{
+      // preserve any existing UI value that came from server (not equal to builtin en)
+      const enVal = uiStrings.en && uiStrings.en[k];
+      if (UI[k] === undefined || UI[k] === enVal) {
+        UI[k] = src[k];
+      }
+    });
+  }
   document.getElementById('txt-lang-title').textContent = t('lang_title');
+  // chat title (in header)
+  const chatTitleEl = document.getElementById('txt-chat-title');
+  if (chatTitleEl) chatTitleEl.textContent = '💬 ' + t('chat_title');
   document.getElementById('txt-setup-username').textContent = t('setup_username');
   const uhi = document.getElementById('username-input');
   if(uhi) uhi.placeholder = t('setup_username_hint');
   document.getElementById('txt-setup-avatar').textContent = t('setup_avatar');
   document.getElementById('txt-choose-photo').textContent = t('btn_choose_photo');
   document.getElementById('txt-btn-join').textContent = t('btn_join');
+  // lang-custom placeholder + next button text
+  const lc = document.getElementById('lang-custom');
+  if (lc) lc.placeholder = t('lang_other_placeholder') || lc.placeholder;
+  const btnNext = document.getElementById('btn-lang-next');
+  if (btnNext) btnNext.textContent = t('btn_next') || btnNext.textContent;
   const mi = document.getElementById('msg-input');
   if(mi) mi.placeholder = t('chat_placeholder');
-  document.getElementById('txt-connected-users').textContent = t('connected_users');  document.getElementById('ctx-reply').textContent = '↩ ' + t('ctx_reply');
+  document.getElementById('txt-connected-users').textContent = t('connected_users');
+  document.getElementById('ctx-reply').textContent = '↩ ' + t('ctx_reply');
+  // copy menu item
+  const copyEl = document.getElementById('ctx-copy');
+  if (copyEl) copyEl.textContent = '📋 ' + t('ctx_copy_message');
   document.getElementById('ctx-view-original').textContent = '🔤 ' + t('ctx_view_original');
   document.getElementById('ctx-view-translation').textContent = '🌐 ' + t('ctx_view_translation');
   document.getElementById('ctx-retranslate').textContent = '🔄 ' + t('ctx_retranslate');
   document.getElementById('ctx-prev-translation').textContent = '🕒 ' + t('ctx_prev_translation');
+  hideUiTranslatingBanner(); // hide once real translation is applied
 }
 
 function genId() { return Math.random().toString(36).slice(2)+Date.now().toString(36); }
 
+// ─── Startup session check ───────────────────────────────────────────────────
+// Two distinct cases are handled here, both resulting in either auto-joining
+// the chat (skipping setup) or falling through to the normal language screen.
+//
+// Case 1 — localhost (127.0.0.1 / WebView or any browser on the host device):
+//   localStorage is siloed per browser, so we cannot rely on a stored userId.
+//   Instead we ask the server for the well-known fixed host userId via
+//   GET /api/host-user-id, unconditionally adopt it, and skip setup if the
+//   server already has a ChatUser for that id.
+//
+// Case 2 — remote device, same browser, new tab:
+//   localStorage IS shared across tabs in the same browser, so myUserId is
+//   already the correct value from the earlier tab.  We ask the server whether
+//   it knows this userId via GET /api/session/:userId.  If yes, skip setup.
+//   If no (genuinely new visitor), go through normal setup.
+(async function checkStartupSession() {
+  showScreen('screen-loading');
+
+  const isLocalhost = ['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname);
+
+  try {
+    if (isLocalhost) {
+      // ── Case 1: host device ──────────────────────────────────────────────
+      const res = await fetch('/api/host-user-id');
+      if (!res.ok) throw new Error('host-user-id fetch failed: ' + res.status);
+      const data = await res.json();
+
+      // Unconditionally adopt the server-assigned host userId, overwriting
+      // whatever random id this browser might have had in localStorage.
+      myUserId = data.hostUserId;
+      localStorage.setItem('userId', myUserId);
+
+      if (data.user) {
+        autoLogin(data.user);
+      } else {
+        // Host hasn't joined yet in any browser — show setup with fixed userId.
+        initLangScreen();
+      }
+    } else {
+      // ── Case 2: remote device, possibly a new tab in same browser ────────
+      const res = await fetch('/api/session/' + encodeURIComponent(myUserId));
+      if (res.ok) {
+        autoLogin(await res.json());
+      } else {
+        // Genuinely new visitor — go through normal setup.
+        initLangScreen();
+      }
+    }
+  } catch (e) {
+    console.warn('Startup session check failed, proceeding to setup:', e);
+    initLangScreen();
+  }
+})();
+
+// Shared helper: restore state from a known ChatUser and jump straight to chat.
+function autoLogin(user) {
+  myUsername      = user.username;
+  myLanguage      = user.language || 'en';
+  myAvatarBase64  = user.avatarBase64 || null;
+  users[myUserId] = user;
+  applyUiLangSilent(myLanguage);
+  showScreen('screen-chat');
+  connectSSE();
+  fetchHistory().catch(e => console.error('fetchHistory (auto-login) failed', e));
+}
+
+// applyUiLang without switching screens (used during auto-login).
+function applyUiLangSilent(lang) {
+  myLanguage = lang;
+  const src = (uiStrings[lang] || uiStrings.en);
+  if (src) {
+    Object.keys(src).forEach(k=>{
+      const enVal = uiStrings.en && uiStrings.en[k];
+      if (UI[k] === undefined || UI[k] === enVal) {
+        UI[k] = src[k];
+      }
+    });
+  }
+  // Update elements that exist in the chat screen too.
+  const mi = document.getElementById('msg-input');
+  if (mi) mi.placeholder = t('chat_placeholder');
+  document.getElementById('txt-connected-users').textContent = t('connected_users');
+  document.getElementById('ctx-reply').textContent = '↩ ' + t('ctx_reply');
+  const copyEl = document.getElementById('ctx-copy');
+  if (copyEl) copyEl.textContent = '📋 ' + t('ctx_copy_message');
+  document.getElementById('ctx-view-original').textContent = '🔤 ' + t('ctx_view_original');
+  document.getElementById('ctx-view-translation').textContent = '🌐 ' + t('ctx_view_translation');
+  document.getElementById('ctx-retranslate').textContent = '🔄 ' + t('ctx_retranslate');
+  document.getElementById('ctx-prev-translation').textContent = '🕒 ' + t('ctx_prev_translation');
+  document.getElementById('txt-chat-title').textContent = '💬 ' + t('chat_title');
+}
+
 // ─── Language screen ─────────────────────────────────────────────────────────
-(function initLangScreen(){
-  // Auto-detect
-  const detected = (navigator.language||'en').split('-')[0].toLowerCase();
-  document.querySelectorAll('.lang-btn[data-lang]').forEach(b=>{
-    if(b.dataset.lang===detected) b.classList.add('sel');
-    b.addEventListener('click',()=>{
-      document.querySelectorAll('.lang-btn').forEach(x=>x.classList.remove('sel'));
+function initLangScreen() {
+  // Auto-detect browser language.
+  const detected = (navigator.language || 'en').split('-')[0].toLowerCase();
+  document.querySelectorAll('.lang-btn[data-lang]').forEach(b => {
+    if (b.dataset.lang === detected) b.classList.add('sel');
+    b.addEventListener('click', () => {
+      document.querySelectorAll('.lang-btn').forEach(x => x.classList.remove('sel'));
       b.classList.add('sel');
-      document.getElementById('lang-custom').value='';
+      document.getElementById('lang-custom').value = '';
     });
   });
-  if(BUILTIN_UI[detected]) applyUiLang(detected);
+  if (uiStrings[detected]) applyUiLang(detected);
 
-  document.getElementById('btn-lang-next').addEventListener('click',()=>{
+  document.getElementById('btn-lang-next').addEventListener('click', async () => {
     const custom = document.getElementById('lang-custom').value.trim().toLowerCase();
     const sel = document.querySelector('.lang-btn.sel');
     const lang = custom || (sel && sel.dataset.lang) || detected || 'en';
     applyUiLang(lang);
     showScreen('screen-setup');
-    // If not builtin, request server translation when we join
+    connectSSE(); // Ensure translation arrives on this screen when it's ready
+
+    // Trigger UI translation immediately for non-builtin languages
+    const builtinLangs = new Set(['en', 'ko', 'ja']);
+    if (!builtinLangs.has(lang)) {
+      showUiTranslatingBanner();
+      try {
+        const res = await postApi('/api/request-ui-translation', { language: lang });
+        if (res && res.ok) {
+          const json = await res.json();
+          if (json.translations && typeof json.translations === 'object') {
+            uiStrings[lang] = Object.assign(uiStrings[lang] || {}, json.translations);
+            applyUiLang(lang);
+          }
+        }
+      } catch (e) {
+        console.warn('request-ui-translation failed', e);
+      }
+    }
   });
-})();
+
+  showScreen('screen-lang');
+  // start the small UI cycler so the language prompt / placeholder / next button rotate
+  startUiCycler(700);
+}
+
+function showUiTranslatingBanner() {
+  const el = document.getElementById('ui-translating-banner');
+  if (!el) return;
+  el.textContent = _translatingUIByLang[myLanguage] || _translatingUIByLang.en;
+  el.style.display = '';
+}
+
+function hideUiTranslatingBanner() {
+  const el = document.getElementById('ui-translating-banner');
+  if (el) el.style.display = 'none';
+}
 
 // ─── Setup screen ────────────────────────────────────────────────────────────
 document.getElementById('file-input').addEventListener('change', e=>{
@@ -298,7 +609,7 @@ document.getElementById('username-input').addEventListener('keydown', e=>{
   if(e.key==='Enter'){e.preventDefault();joinChat();}
 });
 
-function joinChat(){
+async function joinChat(){
   const name = document.getElementById('username-input').value.trim();
   if(!name){document.getElementById('username-input').focus();return;}
   myUsername = name;
@@ -307,8 +618,11 @@ function joinChat(){
   users[myUserId] = {id:myUserId, username:myUsername, language:myLanguage, avatarBase64:myAvatarBase64};
   showScreen('screen-chat');
   updateUserList();
-  connectSSE();
-  postApi('/api/join',{userId:myUserId,username:myUsername,language:myLanguage,avatar:myAvatarBase64});
+
+  await postApi('/api/join',{userId:myUserId,username:myUsername,language:myLanguage,avatar:myAvatarBase64});
+
+  // Explicitly request history (works even if SSE 'init' is missed).
+  fetchHistory().catch(e=>console.error('fetchHistory after join failed', e));
 }
 
 // ─── SSE connection ───────────────────────────────────────────────────────────
@@ -317,9 +631,13 @@ function connectSSE(){
   clearTimeout(reconnectTimer);
   es = new EventSource('/api/events?userId='+encodeURIComponent(myUserId));
   es.onopen = ()=>{
+    const wasReconnecting = reconnecting;
     reconnecting=false;
     showBanner('ok',t('connection_restored'));
     setTimeout(()=>hideBanner(),2500);
+    if(wasReconnecting){
+      fetchHistory().catch(e=>console.error('fetchHistory on reopen failed', e));
+    }
   };
   es.onmessage = e=>{
     try{ handleEvent(JSON.parse(e.data)); }catch(ex){}
@@ -337,9 +655,20 @@ function connectSSE(){
 function handleEvent(ev){
   switch(ev.type){
     case 'init':
-      (ev.data.users||[]).forEach(u=>{ users[u.id]=u; });
-      (ev.data.messages||[]).forEach(m=>{ messages[m.id]=m; });
-      (ev.data.translations||[]).forEach(tr=>{ translations[trKey(tr.messageId,tr.language)]=tr; });
+      (ev.users||[]).forEach(u=>{ users[u.id]=u; });
+      // Clear local messages and translations and replace with server-provided state
+      // to avoid duplication or stale entries.
+      Object.keys(messages).forEach(k=>delete messages[k]);
+      Object.keys(translations).forEach(k=>delete translations[k]);
+      (ev.messages||[]).forEach(m=>{ messages[m.id]=m; });
+      (ev.translations||[]).forEach(tr=>{ translations[trKey(tr.messageId,tr.language)]=tr; });
+      if (ev.uiTranslations) {
+        const cached = ev.uiTranslations[myLanguage];
+        if (cached) {
+          uiStrings[myLanguage] = Object.assign(uiStrings[myLanguage] || {}, cached);
+          applyUiLang(myLanguage);
+        }
+      }
       renderAllMessages();
       updateUserList();
       break;
@@ -354,6 +683,7 @@ function handleEvent(ev){
     case 'translation_pending':
       const k=trKey(ev.data.messageId,ev.data.language);
       if(!translations[k]) translations[k]={messageId:ev.data.messageId,language:ev.data.language,text:'',isPending:true};
+      else translations[k].isPending = true;
       updateMessageTranslation(ev.data.messageId);
       break;
     case 'user_joined': case 'user_updated':
@@ -366,7 +696,7 @@ function handleEvent(ev){
       break;
     case 'ui_translations':
       if(ev.data.language===myLanguage){
-        Object.assign(UI,ev.data.translations);
+        uiStrings[ev.data.language] = Object.assign(uiStrings[ev.data.language] || {}, ev.data.translations);
         applyUiLang(myLanguage);
       }
       break;
@@ -375,11 +705,81 @@ function handleEvent(ev){
 
 function trKey(msgId,lang){ return msgId+':'+lang; }
 
+// ─── Fetch explicit history (safe fallback) ──────────────────────────────────
+async function fetchHistory(){
+  try {
+    const r = await fetch('/api/history');
+    if(!r.ok) return;
+    const j = await r.json();
+    // Replace messages and translations atomically on the client side.
+    Object.keys(messages).forEach(k=>delete messages[k]);
+    (j.messages || []).forEach(m => { messages[m.id] = m; });
+
+    Object.keys(translations).forEach(k=>delete translations[k]);
+    (j.translations || []).forEach(tr => { translations[tr.messageId+':'+tr.language] = tr; });
+
+    // Refresh user list from server-side source of truth.
+    try {
+      const ru = await fetch('/api/users');
+      if(ru.ok){
+        const us = await ru.json();
+        Object.keys(users).forEach(k=>delete users[k]);
+        (us || []).forEach(u => { users[u.id] = u; });
+      }
+    } catch(_) {}
+
+    renderAllMessages();
+    updateUserList();
+  } catch (e) {
+    console.error('fetchHistory error', e);
+  }
+}
+
 // ─── Rendering ───────────────────────────────────────────────────────────────
 function renderAllMessages(){
   const list = document.getElementById('msg-list');
   list.innerHTML='';
   Object.values(messages).sort((a,b)=>a.timestamp-b.timestamp).forEach(appendMessage);
+}
+
+// Centralized logic for "what text should this bubble display?"
+function getBubbleDisplay(msgId) {
+  const msg = messages[msgId];
+  if (!msg) return { text: '', origin: 'none' };
+
+  const srcLang = users[msg.userId]?.language || 'en';
+  const tr = translations[trKey(msgId, myLanguage)];
+  const showOrig = !!messageShowOriginal[msgId];
+  const showPrev = !!messageShowPrevious[msgId];
+
+  // If source language matches user's language -> always show original
+  if (srcLang === myLanguage) {
+    return { text: msg.text, origin: 'original' };
+  }
+
+  // Translation pending or missing -> show original but mark pending
+  if (!tr || tr.isPending) {
+    return { text: msg.text, origin: 'pending' };
+  }
+
+  // User explicitly asked to view original
+  if (showOrig) {
+    return { text: msg.text, origin: 'original' };
+  }
+
+  // User asked to view a previous translation version
+  if (showPrev && tr.previousVersions && tr.previousVersions.length > 0) {
+    const prev = tr.previousVersions[tr.previousVersions.length - 1];
+    return { text: prev, origin: 'previous' };
+  }
+
+  // Best-effort: use current translation if available
+  if (tr.text) {
+    return { text: tr.text, origin: 'translation' };
+  }
+
+  // Fallback to original
+  return { text: msg.text, origin: 'original' };
 }
 
 function appendMessage(msg){
@@ -406,16 +806,16 @@ function appendMessage(msg){
   }
   const bubble=document.createElement('div');
   bubble.className='msg-bubble';
-  bubble.textContent=msg.text;
+  bubble.id = 'bubble-'+msg.id;
   bubble.addEventListener('click',()=>{ if(ctxOpen){closeCtxMenu();} });
   bubble.addEventListener('contextmenu',e=>{e.preventDefault();openCtxMenu(e,msg.id);});
   bubble.addEventListener('touchstart', makeLongPress(()=>openCtxMenu({clientX:bubble.getBoundingClientRect().left,clientY:bubble.getBoundingClientRect().top},msg.id)),{passive:true});
   wrap.appendChild(bubble);
 
-  const tr=document.createElement('div');
-  tr.className='msg-translation';
-  tr.id='tr-'+msg.id;
-  wrap.appendChild(tr);
+  const statusEl=document.createElement('div');
+  statusEl.className='msg-translation';
+  statusEl.id='statusEl-'+msg.id;
+  wrap.appendChild(statusEl);
 
   const ts=document.createElement('div');
   ts.className='msg-time';
@@ -428,31 +828,26 @@ function appendMessage(msg){
 }
 
 function updateMessageTranslation(msgId){
-  const el=document.getElementById('tr-'+msgId);
-  if(!el) return;
+  const statusEl=document.getElementById('statusEl-'+msgId);
+  const bubble=document.getElementById('bubble-'+msgId);
+  if(!bubble || !statusEl) return;
   const msg=messages[msgId];
   if(!msg) return;
-  const srcLang = users[msg.userId]?.language||'en';
-  if(srcLang===myLanguage){
-    el.textContent=''; return;
-  }
-  const tr=translations[trKey(msgId,myLanguage)];
-  const showOrig = messageShowOriginal[msgId];
-  if(showOrig){
-    el.className='msg-translation';
-    el.textContent='['+t('ctx_view_original')+': '+msg.text+']';
-  } else if(!tr){
-    el.className='msg-translation msg-translating';
-    el.textContent=t('translating');
-  } else if(tr.isPending){
-    el.className='msg-translation msg-translating';
-    el.textContent=tr.retranslationCount>0?t('retranslating'):t('translating');
-  } else if(tr.text){
-    el.className='msg-translation';
-    el.textContent=tr.text;
-  }
-}
 
+  const disp = getBubbleDisplay(msgId);
+  bubble.textContent = disp.text;
+
+  if (disp.origin === 'pending') {
+    const tr = translations[trKey(msgId, myLanguage)];
+    statusEl.className = 'msg-translation msg-translating';
+    statusEl.textContent = (tr && tr.retranslationCount > 0) ? t('retranslating') : t('translating');
+    return;
+  }
+
+  // All other states: clear status
+  statusEl.textContent = '';
+  statusEl.className = 'msg-translation';
+}
 function updateUserList(){
   const list=document.getElementById('users-list');
   list.innerHTML='';
@@ -507,7 +902,19 @@ function openCtxMenu(e,msgId){
   document.getElementById('ctx-view-original').style.display=isDiff?'':'none';
   document.getElementById('ctx-view-translation').style.display=(isDiff&&messageShowOriginal[msgId])?'':'none';
   document.getElementById('ctx-retranslate').style.display=isDiff?'':'none';
-  document.getElementById('ctx-prev-translation').style.display=hasPrev?'':'none';
+
+  const isViewingPrev = !!messageShowPrevious[msgId];
+  const prevItem = document.getElementById('ctx-prev-translation');
+  if (hasPrev) {
+    prevItem.style.display = '';
+    if (isViewingPrev) {
+      prevItem.textContent = '🕒 ' + t('ctx_view_latest');
+    } else {
+      prevItem.textContent = '🕒 ' + t('ctx_prev_translation');
+    }
+  } else {
+    prevItem.style.display = 'none';
+  }
 
   const menu=document.getElementById('ctx-menu');
   menu.style.left=Math.min(e.clientX,window.innerWidth-220)+'px';
@@ -519,6 +926,7 @@ function openCtxMenu(e,msgId){
 
 function closeCtxMenu(){
   document.getElementById('ctx-menu').classList.remove('open');
+  if (!document.getElementById('users-panel').classList.contains('open')) document.getElementById('overlay').classList.remove('open');
   ctxOpen=false;window.ctxOpen=false;
 }
 
@@ -536,7 +944,12 @@ function ctxReply(){
   replyToUsername=msg.username;
   const bar=document.getElementById('reply-bar');
   bar.classList.add('active');
-  document.getElementById('reply-preview').textContent=msg.username+': '+msg.text;
+
+  // Not the currently displayed text; just show the latest translation.
+  const tr = translations[trKey(msg.id, myLanguage)];
+  const displayText = (tr && tr.text && !tr.isPending) ? tr.text : msg.text;
+  document.getElementById('reply-preview').textContent = msg.username + ': ' + displayText;
+
   document.getElementById('msg-input').focus();
   closeCtxMenu();
 }
@@ -548,12 +961,14 @@ function cancelReply(){
 
 function ctxViewOriginal(){
   messageShowOriginal[ctxMessageId]=true;
+  delete messageShowPrevious[ctxMessageId];
   updateMessageTranslation(ctxMessageId);
   closeCtxMenu();
 }
 
 function ctxViewTranslation(){
   delete messageShowOriginal[ctxMessageId];
+  delete messageShowPrevious[ctxMessageId];
   updateMessageTranslation(ctxMessageId);
   closeCtxMenu();
 }
@@ -565,11 +980,46 @@ function ctxRetranslate(){
   closeCtxMenu();
 }
 
-function ctxViewPrev(){
-  const tr=translations[trKey(ctxMessageId,myLanguage)];
-  if(tr?.previousVersions?.length>0){
-    alert(tr.previousVersions.join('\n\n---\n'));
+function ctxViewPrev() {
+  const tr = translations[trKey(ctxMessageId, myLanguage)];
+  if (tr?.previousVersions?.length > 0) {
+    if (messageShowPrevious[ctxMessageId]) {
+      // Already viewing previous → switch back to latest
+      delete messageShowPrevious[ctxMessageId];
+      delete messageShowOriginal[ctxMessageId];
+    } else {
+      messageShowPrevious[ctxMessageId] = true;
+      delete messageShowOriginal[ctxMessageId];
+    }
+    updateMessageTranslation(ctxMessageId);
   }
+  closeCtxMenu();
+}
+
+// Copy the currently displayed text for the context message to the clipboard.
+function ctxCopy(){
+  const msg = messages[ctxMessageId];
+  if(!msg) return closeCtxMenu();
+
+  const disp = getBubbleDisplay(msg.id);
+  const textToCopy = disp.text || msg.text;
+
+  // Copy to clipboard with fallback
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(textToCopy).catch(()=>{ /* ignore */ });
+  } else {
+    // legacy fallback
+    const ta = document.createElement('textarea');
+    ta.value = textToCopy;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try { document.execCommand('copy'); } catch(e) { /* ignore */ }
+    document.body.removeChild(ta);
+  }
+
   closeCtxMenu();
 }
 
@@ -598,7 +1048,7 @@ function toggleUsersPanel(){
   const ov=document.getElementById('overlay');
   const isOpen=panel.classList.contains('open');
   panel.classList.toggle('open',!isOpen);
-  ov.classList.toggle('open',!isOpen);
+  if (isOpen || !document.getElementById('ctx-menu').classList.contains('open')) ov.classList.toggle('open', !isOpen);
 }
 
 // ─── Export chat ──────────────────────────────────────────────────────────────
@@ -610,7 +1060,11 @@ function exportChat(){
     const tr=translations[trKey(msg.id,myLanguage)];
     if(tr&&tr.text) lines.push(`  → (${myLanguage}) ${tr.text}`);
   });
-  const blob=new Blob([lines.join('\n')],{type:'text/plain'});
+  const content = lines.join('\n');
+  if(window.AndroidExport && typeof window.AndroidExport.exportText === 'function'){
+    try { window.AndroidExport.exportText(content); return; } catch(e) {}
+  }
+  const blob=new Blob([content],{type:'text/plain'});
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
   a.download='chat-export-'+new Date().toISOString().slice(0,10)+'.txt';

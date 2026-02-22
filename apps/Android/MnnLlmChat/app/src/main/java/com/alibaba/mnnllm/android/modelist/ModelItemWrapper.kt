@@ -18,7 +18,7 @@ data class ModelItemWrapper(
     var hasUpdate: Boolean = false
 ) {
     val displayName: String
-        get() = modelItem.modelName ?: ""
+        get() = modelItem.modelName ?: modelItem.modelId ?: ""
 
     val isLocal: Boolean
         get() = modelItem.isLocal

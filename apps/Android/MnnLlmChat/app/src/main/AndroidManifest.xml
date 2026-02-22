@@ -57,8 +57,12 @@
         <service
             android:name="com.alibaba.mls.api.download.DownloadForegroundService"
             android:foregroundServiceType="dataSync" />
+		<service
+			android:name=".hotspot.ChatServerService"
+			android:foregroundServiceType="dataSync"
+			android:exported="false" />
 
-        <activity
+		<activity
             android:name=".chat.SelectTextActivity"
             android:exported="false">
             <intent-filter>

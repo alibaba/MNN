@@ -34,15 +34,26 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 private const val TAG = "ChatServerManager"
 const val CHAT_SERVER_PORT = 8765
+
+/**
+ * The fixed userId used for every client connecting from the loopback address
+ * (127.0.0.1 / localhost).  Because the Android WebView and the default browser
+ * have completely separate localStorage, we cannot rely on a stored userId to
+ * identify the host across different browser contexts.  Instead, the client
+ * always uses this well-known constant when it detects it is on 127.0.0.1, and
+ * the server returns this value from [GET /api/host-user-id] so the client never
+ * needs it hard-coded.
+ */
+const val HOST_USER_ID = "host"
 
 /**
  * Manages the Ktor-based interpreted chat server.
@@ -52,6 +63,15 @@ const val CHAT_SERVER_PORT = 8765
  *   2. The server listens on [CHAT_SERVER_PORT] from all interfaces (0.0.0.0).
  *   3. Clients connect via the hotspot IP printed in [HotspotConnectionInfo.urlQrContent].
  *   4. Call [stop] to shut everything down.
+ *
+ * Multi-tab / multi-browser support for the host device:
+ *   Any client reaching the server via 127.0.0.1 is the device owner.  Rather
+ *   than relying on localStorage (which is siloed per browser), the client asks
+ *   GET /api/host-user-id to learn the fixed userId it should use, and the server
+ *   always treats that userId as a single logical user regardless of how many
+ *   tabs or browsers are open.  We track a per-userId SSE connection reference
+ *   count so that closing one tab does NOT broadcast user_left until ALL
+ *   connections for that userId drop.
  */
 class ChatServerManager private constructor(private val context: Context) {
 
@@ -61,9 +81,23 @@ class ChatServerManager private constructor(private val context: Context) {
     private val messages = mutableListOf<ChatMessage>()                // in arrival order
     private val translations = ConcurrentHashMap<String, MessageTranslation>() // "msgId:lang" → translation
     private val uiTranslations = ConcurrentHashMap<String, Map<String, String>>() // lang → key→value
-    private val connectedIds = ConcurrentHashMap.newKeySet<String>()   // currently connected SSE users
+
+    /**
+     * Tracks how many active SSE connections exist per userId.
+     * A user is considered "connected" as long as this count is > 0.
+     * We use AtomicInteger so increment/decrement are thread-safe without locking the map.
+     */
+    private val connectedTabCounts = ConcurrentHashMap<String, AtomicInteger>()
+
     private val _connectedCountFlow = MutableStateFlow(0)
     val connectedCountFlow: StateFlow<Int> = _connectedCountFlow.asStateFlow()
+
+    // ── Exposed inference debug flow (single flow instance the UI can reliably collect) ──
+    private val _inferenceDebugFlow = MutableStateFlow(InferenceDebugState())
+    val inferenceDebugFlow: StateFlow<InferenceDebugState> = _inferenceDebugFlow.asStateFlow()
+
+    // debug collector job that mirrors TranslationManager.debugFlow -> _inferenceDebugFlow
+    private var debugCollectorJob: kotlinx.coroutines.Job? = null
 
     // ── Broadcast ──────────────────────────────────────────────────────────────
     // DROP_OLDEST ensures a single slow/stuck subscriber (e.g. an in-app WebView with
@@ -86,7 +120,19 @@ class ChatServerManager private constructor(private val context: Context) {
     // ── HTML asset ────────────────────────────────────────────────────────────
     private val chatHtml: String by lazy {
         try {
-            context.assets.open("chat_app.html").bufferedReader().readText()
+            var html = context.assets.open("chat_app.html").bufferedReader().readText()
+            // Inject the Kotlin-side hard-coded UI strings so the client doesn't have to duplicate them.
+            // The HTML contains a marker <!--__INJECT_BUILTIN_UI__--> which we replace with an object assignment.
+            try {
+                val enJson = gson.toJson(TranslationManager.UI_STRINGS_EN)
+                val koJson = gson.toJson(TranslationManager.UI_STRINGS_KO)
+                val jaJson = gson.toJson(TranslationManager.UI_STRINGS_JA)
+                val injection = "<script>window.__BUILTIN_UI_STRINGS__ = { en: $enJson, ko: $koJson, ja: $jaJson };</script>"
+                html = html.replace("<!--__INJECT_BUILTIN_UI__-->", injection)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to inject builtin UI strings into HTML", e)
+            }
+            html
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load chat_app.html from assets", e)
             "<h1>Chat app not found</h1>"
@@ -97,6 +143,7 @@ class ChatServerManager private constructor(private val context: Context) {
 
     fun start(modelId: String, configPath: String) {
         if (server != null) return
+        loadUiTranslationsCache()
         initLlmSession(modelId, configPath)
         server = embeddedServer(Netty, host = "0.0.0.0", port = CHAT_SERVER_PORT) {
             configureKtor()
@@ -109,6 +156,12 @@ class ChatServerManager private constructor(private val context: Context) {
     fun stop() {
         translationManager?.stop()
         translationManager = null
+
+        // stop mirroring and reset debug state
+        debugCollectorJob?.cancel()
+        debugCollectorJob = null
+        _inferenceDebugFlow.value = InferenceDebugState()
+
         server?.stop(gracePeriodMillis = 500, timeoutMillis = 2000)
         server = null
         llmSession?.release()
@@ -119,7 +172,7 @@ class ChatServerManager private constructor(private val context: Context) {
         synchronized(messages) { messages.clear() }
         translations.clear()
         uiTranslations.clear()
-        connectedIds.clear()
+        connectedTabCounts.clear()
         _connectedCountFlow.value = 0
         instance = null
         Log.i(TAG, "Chat server stopped")
@@ -141,9 +194,37 @@ class ChatServerManager private constructor(private val context: Context) {
         }
     }
 
-    fun getConnectedUserCount(): Int = connectedIds.size
+    /** Number of distinct users with at least one active SSE connection. */
+    fun getConnectedUserCount(): Int = connectedTabCounts.count { it.value.get() > 0 }
 
     // ── Private helpers ────────────────────────────────────────────────────────
+
+    /**
+     * Increments the tab count for [userId] and returns the new count.
+     * Also refreshes [_connectedCountFlow] to reflect the distinct-user count.
+     */
+    private fun onTabConnected(userId: String): Int {
+        val count = connectedTabCounts.getOrPut(userId) { AtomicInteger(0) }.incrementAndGet()
+        _connectedCountFlow.value = getConnectedUserCount()
+        Log.d(TAG, "Tab connected for $userId → $count active tabs")
+        return count
+    }
+
+    /**
+     * Decrements the tab count for [userId] and returns the new count.
+     * Removes the entry entirely when it reaches zero.
+     * Also refreshes [_connectedCountFlow].
+     */
+    private fun onTabDisconnected(userId: String): Int {
+        val counter = connectedTabCounts[userId] ?: return 0
+        val count = counter.decrementAndGet()
+        if (count <= 0) {
+            connectedTabCounts.remove(userId)
+        }
+        _connectedCountFlow.value = getConnectedUserCount()
+        Log.d(TAG, "Tab disconnected for $userId → $count active tabs remaining")
+        return maxOf(count, 0)
+    }
 
     private fun initLlmSession(modelId: String, configPath: String) {
         chatService = ChatService()
@@ -171,12 +252,46 @@ class ChatServerManager private constructor(private val context: Context) {
                     },
                     onUiTranslationReady = { requestId, lang, map ->
                         uiTranslations[lang] = map
+                        saveUiTranslationsCache()   // persist immediately
                         broadcast("ui_translations", mapOf("requestId" to requestId, "language" to lang, "translations" to map))
                     },
                 )
+
+                // Mirror the TranslationManager's debug flow into the manager's single _inferenceDebugFlow
+                debugCollectorJob?.cancel()
+                debugCollectorJob = scope.launch {
+                    translationManager!!.debugFlow.collect { state ->
+                        _inferenceDebugFlow.value = state
+                    }
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to load LLM session", e)
             }
+        }
+    }
+
+    private val uiTranslationsCacheFile: File by lazy {
+        File(context.filesDir, "ui_translations_cache.json")
+    }
+
+    private fun loadUiTranslationsCache() {
+        try {
+            if (uiTranslationsCacheFile.exists()) {
+                val type = object : com.google.gson.reflect.TypeToken<Map<String, Map<String, String>>>() {}.type
+                val cached: Map<String, Map<String, String>> = gson.fromJson(uiTranslationsCacheFile.readText(), type)
+                uiTranslations.putAll(cached)
+                Log.i(TAG, "Loaded UI translation cache: ${cached.keys}")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to load UI translations cache", e)
+        }
+    }
+
+    private fun saveUiTranslationsCache() {
+        try {
+            uiTranslationsCacheFile.writeText(gson.toJson(uiTranslations))
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to save UI translations cache", e)
         }
     }
 
@@ -204,6 +319,7 @@ class ChatServerManager private constructor(private val context: Context) {
             translationManager?.enqueue(
                 TranslationTask.MessageTranslationTask(
                     messageId = message.id,
+                    oldLanguage = sourceLanguage,
                     language = lang,
                     sequenceNumber = message.timestamp,
                 )
@@ -234,41 +350,97 @@ class ChatServerManager private constructor(private val context: Context) {
             call.respondText(chatHtml, ContentType.Text.Html)
         }
 
+        // ── Host identity ────────────────────────────────────────────────────
+        // Returns the fixed host userId and the current host ChatUser (if they
+        // have already joined), so that any client on 127.0.0.1 — regardless of
+        // which browser or WebView it is running in — can adopt the same identity.
+        // Response shape: { "hostUserId": "host", "user": <ChatUser|null> }
+        get("/api/host-user-id") {
+            val user = users[HOST_USER_ID]
+            call.respondText(
+                gson.toJson(mapOf("hostUserId" to HOST_USER_ID, "user" to user)),
+                ContentType.Application.Json,
+            )
+        }
+
+        // ── Session check ────────────────────────────────────────────────────
+        // Used by remote clients opening a second tab in the same browser.
+        // localStorage is shared across same-browser tabs, so myUserId will
+        // already match a known user if they joined in an earlier tab.
+        // Returns the stored ChatUser (200) or 404 if userId is unknown.
+        get("/api/session/{userId}") {
+            val userId = call.parameters["userId"]
+            val user = userId?.let { users[it] }
+            if (user != null) {
+                call.respondText(gson.toJson(user), ContentType.Application.Json)
+            } else {
+                call.respond(HttpStatusCode.NotFound)
+            }
+        }
+
         // ── SSE endpoint ────────────────────────────────────────────────────
         sse("/api/events") {
             val userId = call.request.queryParameters["userId"] ?: run {
                 send(ServerSentEvent(data = gson.toJson(mapOf("type" to "error", "message" to "userId required"))))
                 return@sse
             }
-            connectedIds.add(userId)
-            _connectedCountFlow.value = connectedIds.size
+
+            // Increment tab count; first tab for this user marks them as "online".
+            val tabCount = onTabConnected(userId)
+            Log.d(TAG, "SSE opened for $userId (tab #$tabCount)")
+
             try {
-                // Send current state to this new client
+                // Send current state to this new tab.
                 val initPayload = gson.toJson(mapOf(
                     "type" to "init",
                     "userId" to userId,
                     "users" to users.values.toList(),
                     "messages" to synchronized(messages) { messages.toList() },
                     "translations" to translations.values.toList(),
+                    "uiTranslations" to uiTranslations,
                 ))
                 send(ServerSentEvent(data = initPayload))
 
                 // Broadcast subsequent events; swallow individual send errors so
                 // one broken connection cannot cancel another client's SSE stream.
+                // Don't catch InterruptedException, which indicates that user isn't connected anymore.
                 eventFlow.collect { json ->
-                    try {
-                        send(ServerSentEvent(data = json))
-                    } catch (e: Exception) {
-                        Log.w(TAG, "SSE send failed for $userId, dropping event", e)
-                    }
+                    send(ServerSentEvent(data = json))
                 }
             } finally {
-                connectedIds.remove(userId)
-                _connectedCountFlow.value = connectedIds.size
-                // Only broadcast user_left if this client actually completed /api/join
-                if (users.containsKey(userId)) {
+                // Only broadcast user_left when the LAST tab for this user closes.
+                val remaining = onTabDisconnected(userId)
+                if (remaining == 0 && users.containsKey(userId)) {
                     broadcast("user_left", mapOf("userId" to userId))
+                    Log.d(TAG, "All tabs closed for $userId → broadcasting user_left")
                 }
+            }
+        }
+
+        // ── Get UI translation early for joining user who already picked their language ──────────────────────────────────────────────
+        post("/api/request-ui-translation") {
+            try {
+                val body = gson.fromJson(call.receiveText(), Map::class.java)
+                val language = body["language"] as? String ?: return@post call.respond(HttpStatusCode.BadRequest)
+                if (!setOf("en", "ko", "ja").contains(language)) {
+                    val cached = uiTranslations[language]
+                    if (cached != null) {
+                        // Already cached — will be sent via SSE init when user connects
+                        call.respondText(
+                            gson.toJson(mapOf("status" to "cached", "translations" to cached)),
+                            ContentType.Application.Json,
+                        )
+                    } else {
+                        val requestId = java.util.UUID.randomUUID().toString()
+                        translationManager?.enqueue(TranslationTask.UiTranslationTask(language, requestId))
+                        call.respond(HttpStatusCode.OK, mapOf("status" to "queued"))
+                    }
+                } else {
+                    call.respond(HttpStatusCode.OK, mapOf("status" to "builtin"))
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "request-ui-translation error", e)
+                call.respond(HttpStatusCode.InternalServerError)
             }
         }
 
@@ -301,6 +473,7 @@ class ChatServerManager private constructor(private val context: Context) {
                             translationManager?.enqueue(
                                 TranslationTask.HistoryTranslationTask(
                                     messageId = msg.id,
+                                    oldLanguage = sourceLanguage,
                                     language = language,
                                     reverseOrder = idx.toLong(),
                                 )
@@ -311,10 +484,21 @@ class ChatServerManager private constructor(private val context: Context) {
                     broadcast("user_updated", user)
                 }
 
-                // Queue UI translation if language is not hard-coded and not cached
-                if (!setOf("en", "ko", "ja").contains(language) && !uiTranslations.containsKey(language)) {
-                    val requestId = java.util.UUID.randomUUID().toString()
-                    translationManager?.enqueue(TranslationTask.UiTranslationTask(language, requestId))
+                // Belt-and-suspenders: if UI translation is already cached for this language,
+                // broadcast it directly to the joining user so they don't miss it due to
+                // SSE/join timing races.
+                if (!setOf("en", "ko", "ja").contains(language)) {
+                    val cached = uiTranslations[language]
+                    if (cached != null) {
+                        broadcast("ui_translations", mapOf(
+                            "requestId" to "cached",
+                            "language" to language,
+                            "translations" to cached,
+                        ))
+                    } else {
+                        val requestId = java.util.UUID.randomUUID().toString()
+                        translationManager?.enqueue(TranslationTask.UiTranslationTask(language, requestId))
+                    }
                 }
 
                 call.respond(HttpStatusCode.OK, mapOf("ok" to true))
@@ -387,10 +571,15 @@ class ChatServerManager private constructor(private val context: Context) {
                 val existing = translations["$messageId:$language"]
                 val previousTranslation = existing?.text?.takeIf { it.isNotEmpty() }
 
+                // Determine original/source language for the message to set oldLanguage
+                val msgObj = synchronized(messages) { messages.find { it.id == messageId } }
+                val sourceLanguage = msgObj?.let { users[it.userId]?.language } ?: "en"
+
                 markPendingTranslation(messageId, language)
                 translationManager?.enqueue(
                     TranslationTask.MessageTranslationTask(
                         messageId = messageId,
+                        oldLanguage = sourceLanguage,
                         language = language,
                         contextCount = contextCount,
                         previousTranslation = previousTranslation,
@@ -403,7 +592,7 @@ class ChatServerManager private constructor(private val context: Context) {
             }
         }
 
-        // ── Serve avatar data-URI ────────────────────────────────────────────
+        // ── Serve avatar data-URI ───────────────────────────────────────────
         get("/api/avatar/{userId}") {
             val userId = call.parameters["userId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
             val avatarData = users[userId]?.avatarBase64
@@ -419,6 +608,8 @@ class ChatServerManager private constructor(private val context: Context) {
         @Volatile
         var instance: ChatServerManager? = null
             private set
+
+        private val _idleDebugFlow = MutableStateFlow(InferenceDebugState())
 
         fun create(context: Context): ChatServerManager {
             val mgr = ChatServerManager(context.applicationContext)

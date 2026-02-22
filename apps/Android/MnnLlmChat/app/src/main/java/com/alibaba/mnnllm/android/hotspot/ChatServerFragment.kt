@@ -7,6 +7,8 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.IBinder
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -44,10 +46,20 @@ class ChatServerFragment : Fragment() {
     private lateinit var tvUsers: TextView
     private lateinit var webView: WebView
     private lateinit var btnOpenBrowser: Button
+    private lateinit var tvDebugPrompt: TextView
+    private lateinit var tvDebugOutput: TextView
+    private lateinit var debugPanel: View
+    private lateinit var debugScroll: View
+    private lateinit var tvQrWifiLabel: LabelCyclerView
+    private lateinit var tvQrUrlLabel: LabelCyclerView
 
     private var hotspotManager: LocalHotspotManager? = null
     private var serverManager: ChatServerManager? = null
     private var hotspotJob: kotlinx.coroutines.Job? = null
+    private var inferenceDebugJob: kotlinx.coroutines.Job? = null
+
+    // Local loopback URL used for WebView / "open in browser"
+    private var localLoopbackUrl: String? = null
 
     // Must be registered before onStart; property initialisation satisfies that requirement.
     private val permissionLauncher =
@@ -62,6 +74,20 @@ class ChatServerFragment : Fragment() {
                 ).show()
             }
         }
+
+    // ── Service binding ────────────────────────────────────────────────────────
+    private val serviceConnection = object : android.content.ServiceConnection {
+        override fun onServiceConnected(name: android.content.ComponentName, service: IBinder) {
+            serverManager = (service as ChatServerService.LocalBinder).getManager()
+            updateUi()
+        }
+        override fun onServiceDisconnected(name: android.content.ComponentName) {
+            serverManager = null
+        }
+    }
+    private var serviceBound = false
+
+    private val exportBridge = WebExportBridge(this) // For export
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -82,11 +108,24 @@ class ChatServerFragment : Fragment() {
         tvUsers = view.findViewById(R.id.tv_users)
         webView = view.findViewById(R.id.webview_chat)
         btnOpenBrowser = view.findViewById(R.id.btn_open_browser)
+        debugPanel = view.findViewById(R.id.debug_panel)
+        tvDebugPrompt = view.findViewById(R.id.tv_debug_prompt)
+        tvDebugOutput = view.findViewById(R.id.tv_debug_output)
+        tvQrWifiLabel = view.findViewById(R.id.tv_qr_wifi_label)
+        tvQrUrlLabel  = view.findViewById(R.id.tv_qr_url_label)
+
+        debugScroll = view.findViewById(R.id.debug_scroll)
+        debugScroll.isNestedScrollingEnabled = true
+        debugScroll.setOnTouchListener { v, event ->
+            v.parent.requestDisallowInterceptTouchEvent(true)
+            false
+        }
 
         btnStart.setOnClickListener { checkAndRequestHotspotPermissions() }
         btnStop.setOnClickListener { stopServer() }
         btnOpenBrowser.setOnClickListener {
-            val url = tvUrl.text.toString()
+            // Open the loopback URL in the default browser when available.
+            val url = localLoopbackUrl ?: tvUrl.text.toString()
             if (url.isNotEmpty()) {
                 startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
             }
@@ -128,8 +167,12 @@ class ChatServerFragment : Fragment() {
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
+            allowFileAccess = true
+            allowContentAccess = true
         }
         webView.webViewClient = WebViewClient()
+        // Expose the native bridge to JS as "AndroidExport"
+        webView.addJavascriptInterface(exportBridge, "AndroidExport")
     }
 
     // ── Start / stop ───────────────────────────────────────────────────────────
@@ -177,9 +220,16 @@ class ChatServerFragment : Fragment() {
     private fun startServer(modelId: String, configPath: String) {
         tvStatus.setText(R.string.chat_server_starting)
         btnStart.isEnabled = false
+        setBottomNavVisible(false)
 
-        serverManager = ChatServerManager.create(requireContext())
-        serverManager!!.start(modelId, configPath)
+        val intent = Intent(requireContext(), ChatServerService::class.java).apply {
+            action = ChatServerService.ACTION_START
+            putExtra(ChatServerService.EXTRA_MODEL_ID, modelId)
+            putExtra(ChatServerService.EXTRA_CONFIG_PATH, configPath)
+        }
+        androidx.core.content.ContextCompat.startForegroundService(requireContext(), intent)
+        requireContext().bindService(intent, serviceConnection, android.content.Context.BIND_AUTO_CREATE)
+        serviceBound = true
 
         hotspotManager = LocalHotspotManager(requireContext())
         hotspotJob = lifecycleScope.launch(Dispatchers.IO) {
@@ -200,12 +250,8 @@ class ChatServerFragment : Fragment() {
                             gatewayIp = info.gatewayIp,
                             port = CHAT_SERVER_PORT,
                         )
-                        val wifiQr = withContext(Dispatchers.Default) {
-                            QrCodeGenerator.generate(connInfo.wifiQrContent)
-                        }
-                        val urlQr = withContext(Dispatchers.Default) {
-                            QrCodeGenerator.generate(connInfo.urlQrContent)
-                        }
+                        val wifiQr = withContext(Dispatchers.Default) { QrCodeGenerator.generate(connInfo.wifiQrContent) }
+                        val urlQr  = withContext(Dispatchers.Default) { QrCodeGenerator.generate(connInfo.urlQrContent) }
                         withContext(Dispatchers.Main) {
                             if (isAdded) showRunningState(connInfo, wifiQr, urlQr)
                         }
@@ -225,10 +271,32 @@ class ChatServerFragment : Fragment() {
     private fun stopServer() {
         hotspotJob?.cancel()
         hotspotJob = null
-        serverManager?.stop()
-        serverManager = null
         hotspotManager = null
+        if (serviceBound) {
+            requireContext().unbindService(serviceConnection)
+            serviceBound = false
+        }
+        requireContext().startService(
+            Intent(requireContext(), ChatServerService::class.java).apply {
+                action = ChatServerService.ACTION_STOP
+            }
+        )
+        serverManager = null
+        setBottomNavVisible(true)
         if (isAdded) showStoppedState()
+    }
+
+    /** Show or hide MainActivity's bottom navigation bar. */
+    private fun setBottomNavVisible(visible: Boolean) { //TODO: don't use reflection for this, hahaha... but I guess it's okay for now because I'd rather not edit Alibaba's code directly if I can help it.
+        val activity = activity ?: return
+        try {
+            val field = activity.javaClass.getDeclaredField("bottomNav")
+            field.isAccessible = true
+            val nav = field.get(activity) as? android.view.View ?: return
+            nav.visibility = if (visible) android.view.View.VISIBLE else android.view.View.GONE
+        } catch (e: Exception) {
+            // bottomNav field not found or not accessible - ignore
+        }
     }
 
     // ── UI helpers ─────────────────────────────────────────────────────────────
@@ -239,9 +307,19 @@ class ChatServerFragment : Fragment() {
         runningCard.visibility = View.VISIBLE
         ivWifiQr.setImageBitmap(wifiQr)
         ivUrlQr.setImageBitmap(urlQr)
+
+        // Keep QR and displayed URL as-is (these point to the hotspot IP).
         tvUrl.text = info.urlQrContent
-        webView.loadUrl(info.urlQrContent)
+        tvQrWifiLabel.setEntries(HotspotLabelCycler.buildWifiEntries(requireContext()))
+        tvQrUrlLabel.setEntries(HotspotLabelCycler.buildUrlEntries(requireContext()))
+
+        // Use loopback for the WebView and the "open in browser" action.
+        // Keep port from the hotspot connection info.
+        localLoopbackUrl = "http://127.0.0.1:${info.port}/"
+        webView.loadUrl(localLoopbackUrl!!)
+
         observeConnectedCount()
+        observeInferenceDebug()
     }
 
     private fun showStoppedState() {
@@ -252,7 +330,12 @@ class ChatServerFragment : Fragment() {
         ivWifiQr.setImageBitmap(null)
         ivUrlQr.setImageBitmap(null)
         tvUrl.text = ""
+        tvQrWifiLabel.setEntries(emptyList())
+        tvQrUrlLabel.setEntries(emptyList())
+        // Clear loopback URL when stopped so the browser button falls back to the displayed QR URL (if any).
+        localLoopbackUrl = null
         webView.loadUrl("about:blank")
+        debugPanel.visibility = View.GONE
     }
 
     private fun updateUi() {
@@ -283,8 +366,25 @@ class ChatServerFragment : Fragment() {
         tvUsers.text = resources.getQuantityString(R.plurals.chat_server_user_count, count, count)
     }
 
+    private fun observeInferenceDebug() {
+        if (inferenceDebugJob?.isActive == true) return   // already collecting
+        val mgr = serverManager ?: return
+        inferenceDebugJob = lifecycleScope.launch {
+            mgr.inferenceDebugFlow.collect { state ->
+                if (!isAdded) return@collect
+                debugPanel.visibility = View.VISIBLE
+                tvDebugPrompt.text = state.prompt
+                tvDebugOutput.text = state.partialOutput
+            }
+        }
+    }
+
     override fun onDestroyView() {
         super.onDestroyView()
+        if (serviceBound) {
+            requireContext().unbindService(serviceConnection)
+            serviceBound = false
+        }
         webView.destroy()
     }
 }

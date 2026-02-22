@@ -53,6 +53,7 @@ sealed class TranslationTask(val priority: Int) : Comparable<TranslationTask> {
 
     data class MessageTranslationTask(
         val messageId: String,
+        val oldLanguage: String,
         val language: String,
         val contextCount: Int = 0,
         val previousTranslation: String? = null,
@@ -63,6 +64,7 @@ sealed class TranslationTask(val priority: Int) : Comparable<TranslationTask> {
 
     data class HistoryTranslationTask(
         val messageId: String,
+        val oldLanguage: String,
         val language: String,
         val reverseOrder: Long,             // largest value = newest, so higher priority
     ) : TranslationTask(3) {

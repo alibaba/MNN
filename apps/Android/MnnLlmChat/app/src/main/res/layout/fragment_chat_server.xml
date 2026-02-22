@@ -65,41 +65,47 @@
             android:orientation="vertical"
             android:visibility="gone">
 
-            <!-- QR 1: Join the Wi-Fi hotspot -->
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/chat_server_qr_wifi"
-                android:textSize="14sp"
-                android:textStyle="bold"
-                android:layout_gravity="center_horizontal"
-                android:layout_marginBottom="6dp"/>
+			<!-- QR 1: Join the Wi-Fi hotspot -->
+			<com.alibaba.mnnllm.android.hotspot.LabelCyclerView
+				android:id="@+id/tv_qr_wifi_label"
+				android:layout_width="match_parent"
+				android:layout_height="40dp"
+				android:gravity="center"
+				android:textSize="17sp"
+				android:textStyle="bold"
+				android:singleLine="true"
+				android:ellipsize="none"
+				android:layout_marginBottom="6dp"/>
 
-            <ImageView
-                android:id="@+id/iv_wifi_qr"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:adjustViewBounds="true"
-                android:scaleType="fitCenter"
-                android:layout_marginBottom="16dp"/>
+			<ImageView
+				android:id="@+id/iv_wifi_qr"
+				android:layout_width="match_parent"
+				android:layout_height="wrap_content"
+				android:adjustViewBounds="true"
+				android:scaleType="fitCenter"
+				android:maxHeight="180dp"
+				android:layout_marginBottom="16dp"/>
 
-            <!-- QR 2: Open the chat URL -->
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/chat_server_qr_url"
-                android:textSize="14sp"
-                android:textStyle="bold"
-                android:layout_gravity="center_horizontal"
-                android:layout_marginBottom="6dp"/>
+			<!-- QR 2: Open the chat URL -->
+			<com.alibaba.mnnllm.android.hotspot.LabelCyclerView
+				android:id="@+id/tv_qr_url_label"
+				android:layout_width="match_parent"
+				android:layout_height="40dp"
+				android:gravity="center"
+				android:textSize="17sp"
+				android:textStyle="bold"
+				android:singleLine="true"
+				android:ellipsize="none"
+				android:layout_marginBottom="6dp"/>
 
-            <ImageView
-                android:id="@+id/iv_url_qr"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:adjustViewBounds="true"
-                android:scaleType="fitCenter"
-                android:layout_marginBottom="12dp"/>
+			<ImageView
+				android:id="@+id/iv_url_qr"
+				android:layout_width="match_parent"
+				android:layout_height="wrap_content"
+				android:adjustViewBounds="true"
+				android:scaleType="fitCenter"
+				android:maxHeight="180dp"
+				android:layout_marginBottom="12dp"/>
 
             <!-- URL text -->
             <TextView
@@ -157,6 +163,82 @@
                     android:layout_height="520dp"/>
             </com.google.android.material.card.MaterialCardView>
 
+			<!-- ═══════════════════════════════════════════════════════════════════════
+             Debug panel – paste this block after btn_open_browser inside card_running
+             ═══════════════════════════════════════════════════════════════════════ -->
+			<LinearLayout
+				android:id="@+id/debug_panel"
+				android:layout_width="match_parent"
+				android:layout_height="400dp"
+				android:orientation="vertical"
+				android:visibility="gone"
+				android:background="?attr/colorSurface"
+				android:layout_marginTop="8dp">
+
+				<!-- Label row -->
+				<TextView
+					android:layout_width="match_parent"
+					android:layout_height="wrap_content"
+					android:text="⚙ LLM Debug"
+					android:textAppearance="?attr/textAppearanceLabelSmall"
+					android:paddingHorizontal="8dp"
+					android:paddingTop="4dp"
+					android:paddingBottom="2dp" />
+
+				<!-- Scrollable content -->
+				<androidx.core.widget.NestedScrollView
+					android:id="@+id/debug_scroll"
+					android:layout_width="match_parent"
+					android:layout_height="0dp"
+					android:layout_weight="1"
+					android:fillViewport="true"
+					android:padding="8dp">
+
+					<LinearLayout
+						android:layout_width="match_parent"
+						android:layout_height="wrap_content"
+						android:orientation="vertical">
+
+						<!-- Prompt section -->
+						<TextView
+							android:layout_width="match_parent"
+							android:layout_height="wrap_content"
+							android:text="Prompt:"
+							android:textAppearance="?attr/textAppearanceLabelSmall"
+							android:textStyle="bold"
+							android:paddingBottom="2dp" />
+
+						<TextView
+							android:id="@+id/tv_debug_prompt"
+							android:layout_width="match_parent"
+							android:layout_height="wrap_content"
+							android:fontFamily="monospace"
+							android:textSize="11sp"
+							android:textIsSelectable="true"
+							android:background="@android:color/transparent"
+							android:paddingBottom="8dp" />
+
+						<!-- Output section -->
+						<TextView
+							android:layout_width="match_parent"
+							android:layout_height="wrap_content"
+							android:text="Output:"
+							android:textAppearance="?attr/textAppearanceLabelSmall"
+							android:textStyle="bold"
+							android:paddingBottom="2dp" />
+
+						<TextView
+							android:id="@+id/tv_debug_output"
+							android:layout_width="match_parent"
+							android:layout_height="wrap_content"
+							android:fontFamily="monospace"
+							android:textSize="11sp"
+							android:textIsSelectable="true"
+							android:background="@android:color/transparent" />
+
+					</LinearLayout>
+				</androidx.core.widget.NestedScrollView>
+			</LinearLayout>
         </LinearLayout>
 
     </LinearLayout>
