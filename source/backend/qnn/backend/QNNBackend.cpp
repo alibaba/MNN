@@ -351,9 +351,67 @@ static void doProfile(const QNN_INTERFACE_VER_TYPE& interface, const Qnn_Profile
 #include "shape/SizeComputer.hpp"
 #include "flatbuffers/flexbuffers.h"
 #include "core/OpCommonUtils.hpp"
+#include "dsprpc_interface.h"
 
 namespace MNN {
 namespace plugin {
+
+class RPCBuffer {
+public:
+    void* mPtr = nullptr;
+    size_t mSize;
+    int mFd;
+    bool mReg = false;
+    Qnn_MemHandle_t mHandle;
+    ~ RPCBuffer() {
+        rpcmem_free(mPtr);
+    }
+    static RPCBuffer* alloc(size_t size) {
+        void * data = rpcmem_alloc(RPCMEM_HEAP_ID_SYSTEM, RPCMEM_FLAG_UNCACHED, size);
+        if (nullptr == data) {
+            FUNC_PRINT(1);
+            return nullptr;
+        }
+        auto fd = rpcmem_to_fd(data);
+        if (fd == -1) {
+            FUNC_PRINT(1);
+            rpcmem_free(data);
+            return nullptr;
+        }
+        return new RPCBuffer(data, fd, size);
+    }
+    bool setToTensor(Qnn_Tensor_t* tensor, QNN_INTERFACE_VER_TYPE* interface, Qnn_ContextHandle_t context) {
+        if (!mReg) {
+            Qnn_MemDescriptor_t memDescriptor = {
+                {QNN_TENSOR_GET_RANK(tensor), QNN_TENSOR_GET_DIMENSIONS(tensor), nullptr},
+                QNN_TENSOR_GET_DATA_TYPE(tensor),
+                QNN_MEM_TYPE_ION,
+                {{-1}}};
+            int curFd = mFd;
+            memDescriptor.ionInfo.fd = curFd;
+            QNN_TENSOR_SET_MEM_TYPE(tensor, QNN_TENSORMEMTYPE_MEMHANDLE);
+            QNN_TENSOR_SET_MEM_HANDLE(tensor, nullptr);
+
+            mHandle = QNN_TENSOR_GET_MEM_HANDLE(tensor);
+            auto res = interface->memRegister(context, &memDescriptor, 1, &(mHandle));
+            if (res != QNN_SUCCESS) {
+                const char* tname = QNN_TENSOR_GET_NAME(tensor);
+                MNN_ERROR("memRegister fail %s (ctx=%p fd=%d), error: %llu\n", tname, context, curFd, res);
+                return false;
+            }
+            mReg = true;
+        }
+        QNN_TENSOR_SET_MEM_TYPE(tensor, QNN_TENSORMEMTYPE_MEMHANDLE);
+        QNN_TENSOR_SET_MEM_HANDLE(tensor, mHandle);
+        return true;
+    }
+private:
+    RPCBuffer(void* ptr, int fd, size_t size) {
+        mPtr = ptr;
+        mFd = fd;
+        mSize = size;
+    }
+};
 
 namespace shape_inference {
 class PluginShapeRaw : public InferShapeKernel {
@@ -915,22 +973,20 @@ public:
             }
         }
     }
-    void setupState(std::pair<void*, uint32_t> mask, std::vector<std::pair<void*, uint32_t>> statesInputs, std::vector<std::pair<void*, uint32_t>> statesOutput, int index) {
+    void setupState(RPCBuffer* mask, std::vector<RPCBuffer*> statesInputs, std::vector<RPCBuffer*> statesOutput, int index) {
         auto maskTensor = _findInput(gExtraIoPrefix + "_mask", index);
         if (nullptr == maskTensor) {
             MNN_ERROR("Can't find mask from qnn model\n");
             return;
         }
-        maskTensor->v1.clientBuf.data = mask.first;
-        maskTensor->v1.clientBuf.dataSize = mask.second;
+        mask->setToTensor(maskTensor, &QNN::gContext.interface, mQnnContextHandle);
         for (int i=0; i<statesInputs.size(); ++i) {
             auto t = _findInput(gExtraIoPrefix + "_i" + std::to_string(i), index);
             if (nullptr == t) {
                 MNN_ERROR("Can't find %d input tensor of state\n", i);
                 continue;
             }
-            t->v1.clientBuf.data = statesInputs[i].first;
-            t->v1.clientBuf.dataSize = statesInputs[i].second;
+            statesInputs[i]->setToTensor(t, &QNN::gContext.interface, mQnnContextHandle);
         }
         for (int i=0; i<statesOutput.size(); ++i) {
             auto t = _findOutput(gExtraIoPrefix + "_o" + std::to_string(i), index);
@@ -938,8 +994,7 @@ public:
                 MNN_ERROR("Can't find %d output tensor of state\n", i);
                 continue;
             }
-            t->v1.clientBuf.data = statesOutput[i].first;
-            t->v1.clientBuf.dataSize = statesOutput[i].second;
+            statesOutput[i]->setToTensor(t, &QNN::gContext.interface, mQnnContextHandle);
         }
     }
 
@@ -962,30 +1017,31 @@ private:
     int mShapeIndex;
 
     struct StateTensor {
-        std::vector<__fp16> data;
+        std::shared_ptr<RPCBuffer> data;
         int inside;
         int outside;
-        std::vector<std::vector<__fp16>> update;
+        std::vector<std::shared_ptr<RPCBuffer>> update;
     };
     std::vector<StateTensor> mStateInput;
     int mStateCurrent = 0;
     int mStateMaxSize = 0;
     std::vector<int> mSeqLen;
-    std::vector<__fp16> mMask;
+    std::shared_ptr<RPCBuffer> mMask;
     const float mMinValue = -32700.0f;
     void _loadState(int stateNumber, std::vector<int> seqLen) {
         if (stateNumber == 0) {
             return;
         }
-        mMask.resize(mStateMaxSize);
+        mMask.reset(RPCBuffer::alloc(mStateMaxSize * sizeof(__fp16)));
+        auto maskPtr = (__fp16*)mMask->mPtr;
         for (int i=0; i<mStateMaxSize; ++i) {
-            mMask[i] = mMinValue;
+            maskPtr[i] = mMinValue;
         }
         for (int i=0; i<mStateInput.size(); ++i) {
-            mStateInput[i].data.resize(mStateMaxSize * mStateInput[i].inside * mStateInput[i].outside);
+            mStateInput[i].data.reset(RPCBuffer::alloc(mStateMaxSize * mStateInput[i].inside * mStateInput[i].outside * sizeof(__fp16)));
             mStateInput[i].update.resize(seqLen.size());
             for (int j=0; j<seqLen.size(); ++j) {
-                mStateInput[i].update[j].resize(mStateInput[i].inside * mStateInput[i].outside * seqLen[j]);
+                mStateInput[i].update[j].reset(RPCBuffer::alloc(mStateInput[i].inside * mStateInput[i].outside * seqLen[j] * sizeof(__fp16)));
             }
         }
     }
@@ -1136,18 +1192,16 @@ public:
         }
         mRawExecutor->setupAddress(mInputs, mOutputs, mShapeIndex);
         if (mStateMaxSize > 0) {
-            std::vector<std::pair<void*, uint32_t>> states(mStateInput.size());
+            std::vector<RPCBuffer*> states(mStateInput.size());
             for (int i=0; i<mStateInput.size(); ++i) {
-                states[i].first = mStateInput[i].data.data();
-                states[i].second = mStateInput[i].data.size() * sizeof(__fp16);
+                states[i] = mStateInput[i].data.get();
             }
-            std::vector<std::pair<void*, uint32_t>> statesOutput(mStateInput.size());
+            std::vector<RPCBuffer*> statesOutput(mStateInput.size());
             for (int i=0; i<mStateInput.size(); ++i) {
-                statesOutput[i].first = mStateInput[i].update[mShapeIndex].data();
-                statesOutput[i].second = mStateInput[i].update[mShapeIndex].size() * sizeof(__fp16);
+                statesOutput[i] = mStateInput[i].update[mShapeIndex].get();
             }
 
-            mRawExecutor->setupState(std::make_pair(mMask.data(), mMask.size() * sizeof(__fp16)), states, statesOutput, mShapeIndex);
+            mRawExecutor->setupState(mMask.get(), states, statesOutput, mShapeIndex);
         }
         return true;
     }
@@ -1169,10 +1223,11 @@ public:
         // If has remove, remove invalid state
         auto meta = (KVMeta*)(ctx->backend()->getMetaPtr());
         if (nullptr != meta && mStateInput.size() > 0) {
+            auto maskPtr = (__fp16*)mMask->mPtr;
             if (meta->remove > 0) {
                 mStateCurrent-= meta->remove;
                 for (int i=0; i<meta->remove; ++i) {
-                    mMask[i+mStateCurrent] = mMinValue;
+                    maskPtr[i+mStateCurrent] = mMinValue;
                 }
             }
         }
@@ -1182,8 +1237,9 @@ public:
         }
         // Update State
         if (nullptr != meta && mStateInput.size() > 0) {
+            auto maskPtr = (__fp16*)mMask->mPtr;
             for (int i=0; i<meta->add; ++i) {
-                mMask[i+mStateCurrent] = 0.0f;
+                maskPtr[i+mStateCurrent] = 0.0f;
             }
             // Temply use StateOutputs[0] size to compute seq_len
             int bytes = 2;
@@ -1193,8 +1249,8 @@ public:
                 for (int y=0; y<input.outside; ++y) {
                     auto dstOffset = y * input.inside * mStateMaxSize + mStateCurrent * input.inside;
                     auto srcOffset = y * input.inside * seqLen;
-                    auto dst = (uint8_t*)input.data.data() + dstOffset * bytes;
-                    auto src = (uint8_t*)input.update[mShapeIndex].data() + srcOffset * bytes;
+                    auto dst = (uint8_t*)input.data->mPtr + dstOffset * bytes;
+                    auto src = (uint8_t*)input.update[mShapeIndex]->mPtr + srcOffset * bytes;
                     ::memcpy(dst, src, meta->add * input.inside * bytes);
                 }
             }
@@ -1726,6 +1782,7 @@ Qnn_Tensor_t* QnnBackend::getMaskTensor(int maxKVSize) {
 Qnn_Tensor_t* QnnBackend::addExtraInput(Tensor* tensor) {
     auto qnntensor = QNNTensorWrapper::create("", QNN_TENSOR_TYPE_APP_WRITE, QNN_DATATYPE_FLOAT_16, tensor->shape());
     qnntensor->setName(gExtraIoPrefix+"_i" + std::to_string(mExtraInputs.size()));
+    qnntensor->getNativeTensor()->v1.memType = QNN_TENSORMEMTYPE_MEMHANDLE;
     mExtraInputs.emplace_back(qnntensor);
     CALL_QNN(mRuntime->mQnnInterface.tensorCreateGraphTensor(mQnnGraphHandle, qnntensor->getNativeTensor()));
 
@@ -1734,6 +1791,7 @@ Qnn_Tensor_t* QnnBackend::addExtraInput(Tensor* tensor) {
 Qnn_Tensor_t* QnnBackend::addExtraOutput(Tensor* tensor) {
     auto qnntensor = QNNTensorWrapper::create("", QNN_TENSOR_TYPE_APP_READ, QNN_DATATYPE_FLOAT_16, tensor->shape());
     qnntensor->setName(gExtraIoPrefix+"_o" + std::to_string(mExtraOutputs.size()));
+    qnntensor->getNativeTensor()->v1.memType = QNN_TENSORMEMTYPE_MEMHANDLE;
     mExtraOutputs.emplace_back(qnntensor);
     CALL_QNN(mRuntime->mQnnInterface.tensorCreateGraphTensor(mQnnGraphHandle, qnntensor->getNativeTensor()));
     return qnntensor->getNativeTensor();
@@ -2028,6 +2086,7 @@ void registerQNNRuntimeCreator() {
 #endif
 
 #ifdef MNN_WITH_PLUGIN
+    rpcmem_init();
     plugin::InferShapeKernelRegister::add("QNN", []() { // NOLINT
         return new plugin::shape_inference::PluginShapeRaw;               // NOLINT
     });
