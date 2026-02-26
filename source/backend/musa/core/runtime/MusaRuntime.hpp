@@ -116,7 +116,7 @@ public:
 
     int selectDeviceMaxFreeMemory();
     
-    size_t getMemoryUsage(const Tensor* tensor) const;
+    size_t getMemoryUsage(size_t size_in_bytes) const;
 
 private:
     musaDeviceProp mProp;

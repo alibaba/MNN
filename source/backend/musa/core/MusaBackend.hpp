@@ -19,8 +19,17 @@
 #include "core/ConvolutionCommon.hpp"
 #include "core/BufferAllocator.hpp"
 #include "backend/cpu/CPUResizeCache.hpp"
+
 #define MNN_USER_SET_DEVICE
 #include "MNN/MNNSharedContext.h"
+
+// Pack numbers for GPU operations
+#ifndef PACK_NUMBER
+#define PACK_NUMBER 4
+#endif
+#ifndef INT8_PACK_NUMBER
+#define INT8_PACK_NUMBER 16
+#endif
 
 namespace MNN {
 namespace MUSA {
