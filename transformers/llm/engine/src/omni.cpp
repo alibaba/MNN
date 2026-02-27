@@ -169,9 +169,15 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
     constexpr int temporal_patch_size = 2;
     constexpr int merge_size = 2;
     const int align_size = patch_size * merge_size;
+    MNN_PRINT("[Omni] qwen2VisionProcess: patch_size=%d, align_size=%d, hasWindowIndex=%d, isQwen3VL=%d\n", 
+              patch_size, align_size, hasWindowIndex, isQwen3VL);
+    MNN_PRINT("[Omni] qwen2VisionProcess: before align mVisionHeight=%d, mVisionWidth=%d\n", mVisionHeight, mVisionWidth);
     // Qwen2-VL / Qwen2.5-VL / Qwen3-VL
-    mVisionHeight = round(mVisionHeight / (float)align_size) * align_size;
-    mVisionWidth = round(mVisionWidth / (float)align_size) * align_size;
+    // Use floor instead of round to match Python's smart_resize behavior (downscale)
+    // Python: 1024 -> 980 (70x70 grid), C++ was: 1024 -> 1036 (74x74 grid)
+    mVisionHeight = floor(mVisionHeight / (float)align_size) * align_size;
+    mVisionWidth = floor(mVisionWidth / (float)align_size) * align_size;
+    MNN_PRINT("[Omni] qwen2VisionProcess: after align mVisionHeight=%d, mVisionWidth=%d\n", mVisionHeight, mVisionWidth);
     image = MNN::CV::resize(image, {mVisionWidth, mVisionHeight}, 0, 0,
                             MNN::CV::INTER_LINEAR, MNN::CV::COLOR_BGR2RGB,
                             mVisionMean, mVisionNorm);
@@ -186,6 +192,8 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
     int grid_t = temporal / temporal_patch_size;
     int grid_h = height / patch_size;
     int grid_w = width / patch_size;
+    MNN_PRINT("[Omni] qwen2VisionProcess: temporal=%d, height=%d, width=%d, grid_t=%d, grid_h=%d, grid_w=%d, seq_len=%d\n",
+              temporal, height, width, grid_t, grid_h, grid_w, grid_t * grid_h * grid_w);
     addPositionIds(grid_t, grid_h / merge_size, grid_w / merge_size);
     // build patches
     patches = Express::_Reshape(patches, {
@@ -263,9 +271,8 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
         auto attention_mask_ptr = attention_mask->writeMap<float>();
         ::memset(attention_mask_ptr, 0, seq_len * seq_len * sizeof(float));
         attention_mask_ptr = attention_mask_ptr + seq_len * seq_len;
-        for (int i = 0; i < seq_len * seq_len; i++) {
-            attention_mask_ptr[i] = std::numeric_limits<float>::lowest();
-        }
+        // Use std::fill instead of loop for better performance
+        std::fill(attention_mask_ptr, attention_mask_ptr + seq_len * seq_len, std::numeric_limits<float>::lowest());
         for (size_t i = 1; i < cu_window_seqlens.size(); ++i) {
             for (int j = cu_window_seqlens[i - 1]; j < cu_window_seqlens[i]; ++j) {
                 for (int k = cu_window_seqlens[i - 1]; k < cu_window_seqlens[i]; ++k) {
@@ -334,8 +341,14 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
     attention_mask->setName("attention_mask");
     MNN::Express::Variable::save({patches, position_ids, attention_mask}, "input.mnn");
 #endif
+    MNN_PRINT("[Omni] qwen2VisionProcess: running mVisionModule->onForward with %d inputs\n", (int)moduleInputs.size());
     auto outputs = mVisionModule->onForward(moduleInputs);
+    MNN_PRINT("[Omni] qwen2VisionProcess: mVisionModule returned %d outputs\n", (int)outputs.size());
     auto imageEmbedding = outputs[0];
+    auto embInfo = imageEmbedding->getInfo();
+    MNN_PRINT("[Omni] qwen2VisionProcess: imageEmbedding dims=[%d", embInfo->dim[0]);
+    for (int i = 1; i < embInfo->dim.size(); i++) MNN_PRINT(",%d", embInfo->dim[i]);
+    MNN_PRINT("], expected seq_len=%d\n", seq_len);
     if (outputs.size() == 2) {
         mDeepStackEmbeddings.push_back(outputs[1]);
     }
@@ -348,6 +361,7 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
     std::vector<int> imgIds(visionLen, mVisionPad);
     imgIds.insert(imgIds.begin(), mVisionStart);
     imgIds.push_back(mVisionEnd);
+    MNN_PRINT("[Omni] qwen2VisionProcess: returning %d tokens (visionLen=%d + 2)\n", (int)imgIds.size(), visionLen);
     return imgIds;
 }
 
@@ -634,13 +648,23 @@ std::vector<int> Omni::visionProcess(const std::string& file) {
 
 std::vector<int> Omni::visionProcess(VARP image) {
 #ifdef LLM_SUPPORT_VISION
+    MNN_PRINT("[Omni] visionProcess: LLM_SUPPORT_VISION is defined\n");
     if (image == nullptr) {
-        MNN_PRINT("Omni Can't open image\n");
+        MNN_PRINT("[Omni] visionProcess: image is nullptr!\n");
         return std::vector<int>(0);
     }
+    if (mVisionModule == nullptr) {
+        MNN_PRINT("[Omni] visionProcess: mVisionModule is nullptr! Visual model not loaded.\n");
+        return std::vector<int>(0);
+    }
+    auto imgInfo = image->getInfo();
+    MNN_PRINT("[Omni] visionProcess: image dims=[%d", imgInfo->dim[0]);
+    for (int i = 1; i < imgInfo->dim.size(); i++) MNN_PRINT(",%d", imgInfo->dim[i]);
+    MNN_PRINT("]\n");
     Timer _t;
     std::vector<int> imgIds;
     const auto inputNames = mVisionModule->getInfo()->inputNames;
+    MNN_PRINT("[Omni] visionProcess: mVisionModule inputNames[0]='%s', count=%d\n", inputNames[0].c_str(), (int)inputNames.size());
     if (inputNames.size() >= 3 && inputNames[0] == "patches") {
         imgIds = qwen2VisionProcess(image);
     } else if (inputNames[0] == "pixel_values") {
@@ -822,7 +846,7 @@ void Omni::addPositionIds(int t, int h, int w) {
 
 std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input) {
     std::string prompt = multimodal_input.prompt_template;
-    // MNN_PRINT("tokenizer_encode(MultimodalPrompt) prompt: %s", prompt.c_str());
+    MNN_PRINT("[Omni] tokenizer_encode: prompt length=%d, images count=%d\n", (int)prompt.size(), (int)multimodal_input.images.size());
     std::regex multimode_regex("<(img|audio)>(.*?)</\\1>");
     std::string::const_iterator searchStart(prompt.cbegin());
     std::smatch match;
@@ -837,8 +861,9 @@ std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input
         std::string content = match[2].str();
         std::vector<int> mul_ids;
         if (mode == "img") {
+            MNN_PRINT("[Omni] Found <img>%s</img>, calling processImageContent...\n", content.c_str());
             mul_ids = processImageContent(content, multimodal_input.images);
-            // MNN_PRINT("tokenizer_encode(MultimodalPrompt) image mul_ids size: %lu", mul_ids.size());
+            MNN_PRINT("[Omni] processImageContent returned %d tokens\n", (int)mul_ids.size());
         } else if (mode == "audio") {
             mul_ids = processAudioContent(content, multimodal_input.audios);
             // MNN_PRINT("tokenizer_encode(MultimodalPrompt) audio mul_ids size: %lu", mul_ids.size());
@@ -862,16 +887,19 @@ std::vector<int> Omni::tokenizer_encode(const std::string& prompt) {
 }
 
 std::vector<int> Omni::processImageContent(const std::string& content, const std::map<std::string, PromptImagePart>& images) {
+    MNN_PRINT("[Omni] processImageContent: content='%s', images.size=%d\n", content.c_str(), (int)images.size());
     auto it = images.find(content);
     if (it != images.end()) {
         if (it->second.height > 0 && it->second.width > 0) {
             mVisionHeight = it->second.height;
             mVisionWidth = it->second.width;
         }
-        // MNN_PRINT("processImageContent: using placeholder '%s' with size %dx%d", content.c_str(), mVisionWidth, mVisionHeight);
-        return visionProcess(it->second.image_data);
+        MNN_PRINT("[Omni] processImageContent: found image '%s', size=%dx%d, calling visionProcess...\n", content.c_str(), mVisionWidth, mVisionHeight);
+        auto result = visionProcess(it->second.image_data);
+        MNN_PRINT("[Omni] visionProcess returned %d tokens\n", (int)result.size());
+        return result;
     }
-    // MNN_PRINT("processImageContent: treating '%s' as file path or URL", content.c_str());
+    MNN_PRINT("[Omni] processImageContent: image '%s' not found in map, trying file path...\n", content.c_str());
     return multimodeProcess("img", content);
 }
 

@@ -33,10 +33,21 @@ class SliceTfComputer : public SizeComputer {
         output->buffer().type       = input->buffer().type;
         int dim                     = 0;
         auto sizePtr = size_tensor->host<int32_t>();
+        auto beginPtr = begin_tensor->host<int32_t>();
+        // For GPU backend where host data is not available, use conservative estimate (full input size)
+        if (nullptr == sizePtr || nullptr == beginPtr) {
+            for (int i = 0; i < input->buffer().dimensions; i++) {
+                output->buffer().dim[i].extent = input->buffer().dim[i].extent;
+            }
+            for (int i=0; i<outputs.size(); ++i) {
+                TensorUtils::getDescribe(outputs[i])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+            }
+            return true;
+        }
         for (int i = 0; i < input->buffer().dimensions; i++) {
             dim = sizePtr[i];
             if (dim == -1 ) {
-                auto begin = begin_tensor->host<int32_t>()[i];
+                auto begin = beginPtr[i];
                 if (begin < 0) {
                     begin += input->length(i);
                 }
