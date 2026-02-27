@@ -28,7 +28,7 @@ private:
     std::unique_ptr<uint8_t[]> mWeight = nullptr;
     std::unique_ptr<FileLoader> mFile;
     DequantFunction mDequantFunc;
-    int mHiddenSize, mTokenSize;
+    size_t mHiddenSize, mTokenSize;
     float mOffset = 0.0f;
     bool mAsymc = true;
     int64_t mWeightOffset = 0;

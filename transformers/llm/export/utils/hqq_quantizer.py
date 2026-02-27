@@ -2,6 +2,50 @@ import torch
 import numpy as np
 
 
+def get_available_memory(device):
+    """Get available GPU memory in bytes."""
+    if device.type == 'cuda':
+        torch.cuda.synchronize()
+        free, total = torch.cuda.mem_get_info()
+        return free
+    else:
+        # return a default number: 16 GB
+        return 16 * 1024 * 1024 * 1024
+
+
+def estimate_hqq_memory(num_elements, compute_dtype=torch.float32, symmetric=False):
+    """
+    Estimate the memory needed for HQQ quantization optimization.
+
+    The optimization process creates multiple temporary tensors:
+    - W_f: copy of weights in compute_dtype
+    - W_q: quantized weights
+    - W_r: reconstructed weights
+    - W_e: error tensor
+    - W_prime: additional tensor for symmetric quantization
+    - Additional temporary tensors in _shrink_lp_op
+
+    Returns estimated memory in bytes.
+    """
+    dtype_size = 4 if compute_dtype == torch.float32 else 2
+
+    # Main working tensors
+    num_tensors = 4 if not symmetric else 5
+    main_memory = num_elements * dtype_size * num_tensors
+
+    # Temporary tensors during _shrink_lp_op (can create 2-3 additional tensors)
+    temp_memory = num_elements * dtype_size * 3
+
+    # Scale and zero tensors (smaller, proportional to num_groups)
+    # Assuming group_size = 64, num_groups = num_elements / 64
+    scale_zero_memory = (num_elements // 64) * dtype_size * 2
+
+    # Add 20% safety margin for PyTorch memory allocator overhead
+    total_memory = (main_memory + temp_memory + scale_zero_memory) * 1.2
+
+    return int(total_memory)
+
+
 class HQQQuantizer:
     def __init__(self,
                  weight,
@@ -10,16 +54,95 @@ class HQQQuantizer:
                  sym=False,
                  compute_dtype: torch.dtype = torch.float32,
                  device: torch.device = torch.device("cpu"),
-                 quant_config: dict = None):
+                 quant_config: dict = None,
+                 auto_chunk: bool = True,
+                 memory_safety_factor: float = 0.7):
         self.weight = weight
         self.bit = bit
         self.group_size = group_size
         self.sym = sym
         self.compute_dtype = compute_dtype
         self.device = device
+        self.auto_chunk = auto_chunk
+        self.memory_safety_factor = memory_safety_factor
 
     def quant(self):
-        self._quantize()
+        if self.auto_chunk and self.device.type in ('cuda', 'mps'):
+            self._quantize_chunked()
+        else:
+            self._quantize()
+
+    def _quantize_chunked(self):
+        """Quantize with automatic chunking to avoid OOM."""
+        num_elements = self.weight.numel()
+        estimated_memory = estimate_hqq_memory(num_elements, self.compute_dtype, self.sym)
+        available_memory = get_available_memory(self.device)
+        safe_memory = available_memory * self.memory_safety_factor
+
+        if estimated_memory <= safe_memory:
+            # No chunking needed
+            self._quantize()
+            return
+
+        # Calculate number of chunks needed
+        num_chunks = int(np.ceil(estimated_memory / safe_memory))
+        original_shape = self.weight.shape
+
+        # Split along the first dimension (output channels)
+        chunk_size = max(1, original_shape[0] // num_chunks)
+        num_chunks = (original_shape[0] + chunk_size - 1) // chunk_size
+
+        # Collect results
+        W_q_list = []
+        scale_list = []
+        zero_list = []
+
+        for i in range(num_chunks):
+            start_idx = i * chunk_size
+            end_idx = min((i + 1) * chunk_size, original_shape[0])
+            chunk_weight = self.weight[start_idx:end_idx].contiguous()
+
+            # Quantize this chunk
+            chunk_quantizer = HQQQuantizer(
+                chunk_weight,
+                self.bit,
+                self.group_size,
+                self.sym,
+                self.compute_dtype,
+                self.device,
+                auto_chunk=False  # Disable recursive chunking
+            )
+            chunk_quantizer._quantize()
+
+            W_q_list.append(chunk_quantizer.W_q)
+            scale_list.append(chunk_quantizer.meta['scale'])
+            if not self.sym:
+                zero_list.append(chunk_quantizer.meta['zero'])
+
+            # Clean up chunk memory
+            del chunk_weight, chunk_quantizer
+            if self.device.type == 'cuda':
+                torch.cuda.empty_cache()
+            elif self.device.type == 'mps':
+                torch.mps.empty_cache()
+
+        # Concatenate results
+        self.W_q = torch.cat(W_q_list, dim=0)
+        self.meta = {
+            "nbits": self.bit,
+            "group_size": self.group_size,
+            "shape": original_shape,
+            "scale": torch.cat(scale_list, dim=0),
+            "zero": torch.cat(zero_list, dim=0) if not self.sym else None,
+            "axis": 1,
+        }
+
+        # Clean up
+        del W_q_list, scale_list, zero_list
+        if self.device.type == 'cuda':
+            torch.cuda.empty_cache()
+        elif self.device.type == 'mps':
+            torch.mps.empty_cache()
 
     @torch.inference_mode()
     def _quantize(
@@ -202,8 +325,13 @@ class HQQQuantizer:
             out.mul_(torch.sign(x))
             return out
         else:
-            #torch.sign(x) * torch.nn.functional.relu(torch.abs(x) - (1.0 / beta) * torch.pow(torch.abs(x), lp_norm - 1))
+            # Original formula: sign(x) * relu(|x| - (1/beta) * |x|^(lp_norm-1))
+            # Note: This formula inherently requires a temporary tensor for lp_norm != 1
+            # because we need both |x| and |x|^(lp_norm-1) simultaneously
             torch.abs(x, out=out)
-            out.sub_((1.0 / beta) * out.pow(lp_norm - 1)).clamp_min_(0.0)
+            temp = out.pow(lp_norm - 1)
+            temp.mul_(1.0 / beta)
+            out.sub_(temp).clamp_min_(0.0)
             out.mul_(torch.sign(x))
+            del temp
             return out

@@ -881,8 +881,8 @@ class Mlp(torch.nn.Module):
             self.norm_topk_prob = True
             # refacte experts to qwen3_experts
             original_experts = self.experts
-            hidden_size = original_experts.hidden_dim
-            expert_dim = original_experts.intermediate_dim
+            hidden_size = getattr(original_experts, 'hidden_dim', getattr(original_experts, 'hidden_size'))
+            expert_dim = getattr(original_experts, 'intermediate_dim', getattr(original_experts, 'intermediate_size'))
             act_fn = original_experts.act_fn
             new_experts_list = torch.nn.ModuleList()
             for i in range(self.num_experts):
