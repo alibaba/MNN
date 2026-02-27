@@ -28,12 +28,18 @@ class UnSqueezeSizeComputer : public SizeComputer {
         auto& ob = outputs[0]->buffer();
         auto& ib  = inputs[0]->buffer();
         ob.dimensions = ib.dimensions + squeezeDimSize;
+        if (ob.dimensions > MNN_MAX_TENSOR_DIM || ob.dimensions < 0) {
+            return false;
+        }
         uint32_t mask[MNN_MAX_TENSOR_DIM];
         ::memset(mask, 0, sizeof(mask));
         for (int i = 0; i < squeezeDimSize; i++) {
             int axis = squeezeDim[i];
             if (axis < 0) {
                 axis += ob.dimensions;
+            }
+            if (axis < 0 || axis >= ob.dimensions) {
+                return false;
             }
             mask[axis] = 1;
         }
@@ -74,6 +80,9 @@ class SqueezeSizeComputer : public SizeComputer {
             if (axis < 0) {
                 axis += ib.dimensions;
             }
+            if (axis < 0 || axis >= ib.dimensions) {
+                return false;
+            }
             if (1 != ib.dim[axis].extent) {
                 MNN_ERROR("Cannot Squeeze dim[%d], 1 is expected, %d is got. input shape:", axis, ib.dim[axis].extent);
                 inputs[0]->printShape();
@@ -85,16 +94,18 @@ class SqueezeSizeComputer : public SizeComputer {
             for (int i = 0; i < ib.dimensions; ++i) {
                 if (ib.dim[i].extent == 1) {
                     mask[i] = 1;
-                    ++squeezeDimSize;
                 }
             }
         }
-        // in = Tensor(shape=())
-        // out = Squeeze(in) should also returns a tensor with shape=(), but
-        // the `squeezeDimSize` and `ib.dimensions` are all 0.
-        MNN_ASSERT(squeezeDimSize <= ib.dimensions);
+        // Count actual unique squeezed dimensions from mask
+        int actualSqueeze = 0;
+        for (int i = 0; i < ib.dimensions; i++) {
+            if (mask[i]) {
+                actualSqueeze++;
+            }
+        }
 
-        ob.dimensions = ib.dimensions - squeezeDimSize;
+        ob.dimensions = ib.dimensions - actualSqueeze;
         int oDim      = 0;
         for (int i = 0; i < ib.dimensions; i++) {
             if (mask[i] == 0) {

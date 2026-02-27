@@ -33,11 +33,21 @@ public:
             blockData = blockShape->int32s()->data();
             paddingData = paddings->int32s()->data();
         }
+        // Validate blockSize does not exceed spatial dimensions
+        auto format = TensorUtils::getDescribe(input)->dimensionFormat;
+        int spatialStart = (MNN_DATA_FORMAT_NHWC != format) ? 2 : 1;
+        if (blockSize + spatialStart > input->buffer().dimensions) {
+            return false;
+        }
+        for (int i = 0; i < blockSize; ++i) {
+            if (blockData[i] <= 0) {
+                return false;
+            }
+        }
         int batch             = input->batch();
         for (int i = 0; i < blockSize; ++i) {
             batch *= blockData[i];
         }
-        auto format = TensorUtils::getDescribe(input)->dimensionFormat;
         output->buffer().type = input->buffer().type;
         output->buffer().dimensions = input->buffer().dimensions;
         output->setLength(0, batch);

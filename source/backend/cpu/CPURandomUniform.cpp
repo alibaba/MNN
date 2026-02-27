@@ -20,20 +20,72 @@ ErrorCode CPURandomUniform::onExecute(const std::vector<Tensor*>& inputs, const 
     MNN_ASSERT(outputs.size() == 1);
     auto output = outputs[0];
     int size = output->elementSize();
+    if (size <= 0) {
+        return NO_ERROR;
+    }
     auto parameter = mOp->main_as_RandomUniform();
-    auto outputPtr = output->host<float>();
-    std::uniform_real_distribution<float> distribution(parameter->low(),parameter->high());
+    float low = parameter->low();
+    float high = parameter->high();
+    if (low >= high) {
+        MNN_ERROR("RandomUniform requires low < high, got low=%f, high=%f\n", low, high);
+        return INPUT_DATA_ERROR;
+    }
+    auto dtype = output->getType();
+    std::uniform_real_distribution<float> distribution(low, high);
     int seed = parameter->seed();
     int seed1 = parameter->seed2();
-    if (seed || seed1) {
-        std::mt19937 generator(seed || seed1);
-        for (int i = 0; i < size; i++) {
-            outputPtr[i] = distribution(generator);
+    if (dtype.code == halide_type_float) {
+        auto outputPtr = output->host<float>();
+        if (seed || seed1) {
+            std::mt19937 generator(seed || seed1);
+            for (int i = 0; i < size; i++) {
+                outputPtr[i] = distribution(generator);
+            }
+        } else {
+            std::default_random_engine generator;
+            for (int i = 0; i < size; i++) {
+                outputPtr[i] = distribution(generator);
+            }
+        }
+    } else if (dtype.code == halide_type_int && dtype.bits == 32) {
+        auto outputPtr = output->host<int32_t>();
+        if (seed || seed1) {
+            std::mt19937 generator(seed || seed1);
+            for (int i = 0; i < size; i++) {
+                outputPtr[i] = static_cast<int32_t>(distribution(generator));
+            }
+        } else {
+            std::default_random_engine generator;
+            for (int i = 0; i < size; i++) {
+                outputPtr[i] = static_cast<int32_t>(distribution(generator));
+            }
+        }
+    } else if (dtype.code == halide_type_uint && dtype.bits == 8) {
+        auto outputPtr = output->host<uint8_t>();
+        if (seed || seed1) {
+            std::mt19937 generator(seed || seed1);
+            for (int i = 0; i < size; i++) {
+                outputPtr[i] = static_cast<uint8_t>(distribution(generator));
+            }
+        } else {
+            std::default_random_engine generator;
+            for (int i = 0; i < size; i++) {
+                outputPtr[i] = static_cast<uint8_t>(distribution(generator));
+            }
         }
     } else {
-        std::default_random_engine generator;
-        for (int i = 0; i < size; i++) {
-            outputPtr[i] = distribution(generator);
+        // Fallback: treat as float (original behavior)
+        auto outputPtr = output->host<float>();
+        if (seed || seed1) {
+            std::mt19937 generator(seed || seed1);
+            for (int i = 0; i < size; i++) {
+                outputPtr[i] = distribution(generator);
+            }
+        } else {
+            std::default_random_engine generator;
+            for (int i = 0; i < size; i++) {
+                outputPtr[i] = distribution(generator);
+            }
         }
     }
     return NO_ERROR;

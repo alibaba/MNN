@@ -17,17 +17,36 @@ class SpaceToDepthSizeComputer : public SizeComputer {
                                 const std::vector<Tensor*>& outputs) const override {
         MNN_ASSERT(inputs.size() == 1);
         MNN_ASSERT(outputs.size() == 1);
-        MNN_ASSERT(inputs[0]->buffer().dimensions == 4);
+        if (inputs[0]->buffer().dimensions != 4) {
+            MNN_ERROR("SpaceToDepth requires 4D input, got %d dimensions\n", inputs[0]->buffer().dimensions);
+            return false;
+        }
 
         const int blockSize = op->main_as_DepthSpaceParam()->blockSize();
-        MNN_ASSERT(blockSize >= 1);
+        if (blockSize <= 0) {
+            return false;
+        }
 
         auto& ib = inputs[0]->buffer();
         auto& ob = outputs[0]->buffer();
 
+        auto format = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+        if (MNN_DATA_FORMAT_NHWC == format) {
+            if (ib.dim[1].extent % blockSize != 0 || ib.dim[2].extent % blockSize != 0) {
+                MNN_ERROR("SpaceToDepth: H(%d) and W(%d) must be divisible by blockSize(%d)\n",
+                          ib.dim[1].extent, ib.dim[2].extent, blockSize);
+                return false;
+            }
+        } else {
+            if (ib.dim[2].extent % blockSize != 0 || ib.dim[3].extent % blockSize != 0) {
+                MNN_ERROR("SpaceToDepth: H(%d) and W(%d) must be divisible by blockSize(%d)\n",
+                          ib.dim[2].extent, ib.dim[3].extent, blockSize);
+                return false;
+            }
+        }
+
         ob.dimensions = ib.dimensions;
         ob.type = ib.type;
-        auto format = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         ob.dim[0].extent = ib.dim[0].extent;
         if (MNN_DATA_FORMAT_NHWC == format) {
             ob.dim[1].extent = ib.dim[1].extent / blockSize;

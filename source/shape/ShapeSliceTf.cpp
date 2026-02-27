@@ -33,16 +33,22 @@ class SliceTfComputer : public SizeComputer {
         output->buffer().type       = input->buffer().type;
         int dim                     = 0;
         auto sizePtr = size_tensor->host<int32_t>();
+        auto beginPtr = begin_tensor->host<int32_t>();
         for (int i = 0; i < input->buffer().dimensions; i++) {
             dim = sizePtr[i];
+            auto begin = beginPtr[i];
+            if (begin < 0) {
+                begin += input->length(i);
+            }
+            if (begin < 0 || begin > input->length(i)) {
+                return false;
+            }
             if (dim == -1 ) {
-                auto begin = begin_tensor->host<int32_t>()[i];
-                if (begin < 0) {
-                    begin += input->length(i);
-                }
                 dim = input->buffer().dim[i].extent - begin;
             }
-            MNN_ASSERT(dim <= input->length(i));
+            if (dim < 0 || begin + dim > input->length(i)) {
+                return false;
+            }
             output->buffer().dim[i].extent = dim;
         }
         for (int i=0; i<outputs.size(); ++i) {
