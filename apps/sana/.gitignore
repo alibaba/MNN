@@ -1,0 +1,20 @@
+# 模型和数据文件
+*.zip
+*.bin
+*.mnn
+*.onnx
+
+# 输出图片
+*.jpg
+*.jpeg
+*.png
+sana_output_*/
+
+# 日志和临时文件
+*.log
+demo_config*.json
+.DS_Store
+
+# Benchmark 结果
+sana_benchmark_final/
+benchmark_results/

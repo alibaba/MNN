@@ -12,6 +12,7 @@ class PrivacyPolicyManager private constructor(context: Context) {
     companion object {
         private const val PREFS_NAME = "privacy_policy_prefs"
         private const val KEY_AGREED = "privacy_policy_agreed"
+        private const val KEY_CRASH_REPORTING_CONSENT = "crash_reporting_consent"
         private const val KEY_AGREEMENT_VERSION = "privacy_policy_version"
         
         // Current version of privacy policy - increment this when policy changes
@@ -28,24 +29,44 @@ class PrivacyPolicyManager private constructor(context: Context) {
     }
     
     /**
-     * Check if user has agreed to the current version of privacy policy
+     * Check if user has made a privacy choice for current policy version.
+     */
+    fun hasUserMadeChoice(): Boolean {
+        val choiceVersion = prefs.getInt(KEY_AGREEMENT_VERSION, 0)
+        return choiceVersion >= CURRENT_POLICY_VERSION
+    }
+
+    /**
+     * Backward-compatible API: agreed means choice made and consented to reporting.
      */
     fun hasUserAgreed(): Boolean {
-        val agreedVersion = prefs.getInt(KEY_AGREEMENT_VERSION, 0)
-        return prefs.getBoolean(KEY_AGREED, false) && agreedVersion >= CURRENT_POLICY_VERSION
+        return hasUserMadeChoice() && isCrashReportingConsented()
     }
     
     /**
-     * Mark that user has agreed to privacy policy
+     * Persist user decision for crash data reporting.
      */
-    fun setUserAgreed(agreed: Boolean) {
+    fun setUserConsent(consented: Boolean) {
         prefs.edit().apply {
-            putBoolean(KEY_AGREED, agreed)
-            if (agreed) {
-                putInt(KEY_AGREEMENT_VERSION, CURRENT_POLICY_VERSION)
-            }
+            putBoolean(KEY_AGREED, consented)
+            putBoolean(KEY_CRASH_REPORTING_CONSENT, consented)
+            putInt(KEY_AGREEMENT_VERSION, CURRENT_POLICY_VERSION)
             apply()
         }
+    }
+
+    /**
+     * Backward-compatible API: treat old agreement as reporting consent.
+     */
+    fun setUserAgreed(agreed: Boolean) {
+        setUserConsent(agreed)
+    }
+
+    fun isCrashReportingConsented(): Boolean {
+        if (!hasUserMadeChoice()) {
+            return true
+        }
+        return prefs.getBoolean(KEY_CRASH_REPORTING_CONSENT, prefs.getBoolean(KEY_AGREED, false))
     }
     
     /**
@@ -66,7 +87,7 @@ class PrivacyPolicyManager private constructor(context: Context) {
      * Check if user needs to re-agree due to policy version change
      */
     fun needsReAgreement(): Boolean {
-        return getUserAgreedVersion() < CURRENT_POLICY_VERSION
+        return !hasUserMadeChoice()
     }
     
     /**

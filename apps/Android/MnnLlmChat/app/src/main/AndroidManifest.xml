@@ -24,6 +24,9 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme"
         tools:targetApi="31">
+        <meta-data
+            android:name="firebase_crashlytics_collection_enabled"
+            android:value="false" />
         <uses-native-library
             android:name="libOpenCL.so"
             android:required="false" />
