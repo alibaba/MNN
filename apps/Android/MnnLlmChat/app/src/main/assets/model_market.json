@@ -1,5 +1,5 @@
 {
-    "version": "11",
+    "version": "12",
     "tagTranslations": {
         "Vision": "图像理解",
         "Video": "视频理解",
@@ -43,6 +43,24 @@
         "Lingshu"
     ],
     "models": [
+        {
+            "modelName": "Qwen3.5-4B-MNN",
+            "tags": [
+                "Think"
+            ],
+            "categories": [
+                "recommended",
+                "qwen"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/Qwen3.5-4B-MNN",
+                "ModelScope": "MNN/Qwen3.5-4B-MNN",
+                "Modelers": "MNN/Qwen3.5-4B-MNN"
+            },
+            "size_gb": 4.0,
+            "vendor": "Qwen",
+            "file_size":2845945477
+        },
         {
             "modelName": "MNN-Sana-Edit-V2",
             "tags": [
@@ -1202,6 +1220,7 @@
             "vendor": "Qwen",
             "file_size": 2713766604
         },
+
         {
             "modelName": "Qwen3-0.6B-MNN",
             "tags": [
