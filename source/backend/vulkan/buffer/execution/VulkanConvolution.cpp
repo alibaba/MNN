@@ -10,6 +10,7 @@
 #include "core/Macro.h"
 #include "VulkanConvolutionImpl.hpp"
 #include "core/ConvolutionCommon.hpp"
+#include "VulkanConv1x1Coop.hpp"
 namespace MNN {
 int VulkanConvolutionCommon::gImage2ColLocal = 256;
 std::string VulkanConvolutionCommon::getPostTreatMacro(const Convolution2DCommon* common) {
@@ -520,6 +521,20 @@ public:
             auto convCommonParam = op->main_as_Convolution2D()->common();
             const int group      = convCommonParam->group();
             if (1 == group) {
+                auto coopMatInfo = extra->getDevice().getCoopMatInfo();
+                bool is1x1 = common->kernelX() == 1 && common->kernelY() == 1 && 
+                             common->strideX() == 1 && common->strideY() == 1 &&
+                             inputs[0]->width() == outputs[0]->width() && inputs[0]->height() == outputs[0]->height();
+                bool singleInput = (inputs.size() == 1);
+                uint32_t subgroupSize = extra->getDevice().getSubgroupSize();
+                if (coopMatInfo.supportCoopMat && is1x1 && singleInput && extra->gpuType() == VulkanRuntime::ADRENO && subgroupSize > 0) {
+                    if (useInt8Conv) {
+                        auto coopWeightFloat = ConvolutionCommon::load(op, backend, true);
+                        const float* coopSource = coopWeightFloat->weightFloat.get();
+                        return new VulkanConv1x1Coop(extra, convCommonParam, coopSource, biasPtr, srcCount, outputCount, coopMatInfo, quanWeight, coopWeightFloat);
+                    }
+                    return new VulkanConv1x1Coop(extra, convCommonParam, source, biasPtr, srcCount, outputCount, coopMatInfo);
+                }
                 if (useInt8Conv) {
                     bool useFP16 = extra->useFP16();
                     auto res = VulkanConvolutionSlideWindowsInt8::makeResource(quanWeight, biasPtr, convCommonParam, extra, srcCount, outputCount, useFP16);

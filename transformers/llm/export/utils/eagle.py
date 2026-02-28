@@ -224,7 +224,6 @@ class LlamaEagle(Eagle):
             rotary_pos_emb=rotary_pos_emb,
             attention_mask=attention_mask,
             past_key_value=past_key_values,
-            cross_attention_states=None,
         )
 
         hidden_states = residual + hidden_states

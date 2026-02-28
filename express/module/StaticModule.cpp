@@ -133,7 +133,9 @@ static std::vector<std::shared_ptr<BufferStorage>> preRearrangeWeights( // NOLIN
                 }
                 break;
             }
-            case MNN::OpType_Attention: {
+            case MNN::OpType_Attention:
+            case MNN::OpType_LinearAttention:
+            {
                 exe.reset(backend->onCreate({}, {}, op));
                 if (exe.get() == nullptr) {
                     exe.reset(backupBackend->onCreate({}, {}, op));

@@ -426,6 +426,10 @@ public:
         return config_.value("is_audio", false);
     }
 
+    bool is_mrope() const {
+        return config_.value("is_mrope", false);
+    }
+
     bool has_talker() const {
         return config_.value("has_talker", false);
     }

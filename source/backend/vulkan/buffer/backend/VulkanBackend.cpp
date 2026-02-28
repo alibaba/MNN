@@ -131,12 +131,13 @@ void VulkanBackend::pushCommand(VkCommandBuffer buffer) const {
 }
 
 const VulkanPipeline* VulkanBackend::getPipeline(const std::string& key, const std::vector<VkDescriptorType>& types,
-                                                 const std::vector<uint32_t>& localSize) const {
-    return mRuntime->mPipelineFactory->getPipeline(key, types, localSize);
+                                                 const std::vector<uint32_t>& localSize,
+                                                 const std::vector<uint32_t>& specConstants) const {
+    return mRuntime->mPipelineFactory->getPipeline(key, types, localSize, specConstants);
 }
 
-SharedPtr<VulkanPipeline> VulkanBackend::getPrivatePipeline(const std::string& key, const std::vector<VkDescriptorType>& types) {
-    return mRuntime->mPipelineFactory->getPrivatePipeline(key, types);
+SharedPtr<VulkanPipeline> VulkanBackend::getPrivatePipeline(const std::string& key, const std::vector<VkDescriptorType>& types, const std::vector<uint32_t>& specConstants) {
+    return mRuntime->mPipelineFactory->getPrivatePipeline(key, types, specConstants);
 }
 
 void VulkanBackend::onResizeBegin() {

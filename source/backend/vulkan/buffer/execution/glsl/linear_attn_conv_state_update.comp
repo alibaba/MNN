@@ -1,0 +1,42 @@
+layout(set=0, binding=0) readonly buffer s0{
+    float data[];
+} uQKV;
+
+layout(set=0, binding=1) buffer s1{
+    float data[];
+} uConvState;
+
+layout(set=0, binding=2) readonly uniform constBuffer {
+    ivec4 size0; // batch, conv_dim, seq_len, conv_state_size
+    ivec4 size1; // total, 0, 0, 0
+} uConstant;
+
+layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+void main()
+{
+    int gid = int(gl_GlobalInvocationID.x);
+    int total = uConstant.size1.x;
+    if (gid >= total) return;
+
+    int B = uConstant.size0.x;
+    int D = uConstant.size0.y;
+    int L = uConstant.size0.z;
+    int css = uConstant.size0.w;
+
+    int i = gid % css;
+    int bd = gid / css;
+    int b = bd / D;
+    int d = bd % D;
+
+    // new_state[i] = padded[L + i], padded = cat(old_state[css], qkv[L])
+    int pos = L + i;
+    float val;
+    if (pos < css) {
+        val = uConvState.data[b * D * css + d * css + pos];
+    } else {
+        val = uQKV.data[b * D * L + d * L + (pos - css)];
+    }
+    // Write to conv_state. Since L >= 1, (L+i) > i always, no read-write conflict.
+    uConvState.data[b * D * css + d * css + i] = val;
+}

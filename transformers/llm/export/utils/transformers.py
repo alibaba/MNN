@@ -1,9 +1,10 @@
 import math
 import torch
+import torch.nn.functional as F
 from typing import Optional, Tuple
 
 from .model_mapper import ModelMapper
-from .custom_op import FusedAttention, MoE
+from .custom_op import FusedAttention, MoE, FusedLinearAttention
 
 class Embedding(torch.nn.Module):
     def __init__(self, embed, config):
@@ -20,6 +21,25 @@ class Embedding(torch.nn.Module):
         inputs_embeds = self.embed(input_ids).view(-1, 1, self.hidden_size)
         return inputs_embeds
 
+class RMSNorm(torch.nn.Module):
+    def __init__(self, hidden_size, eps=1e-6):
+        """
+        LlamaRMSNorm is equivalent to T5LayerNorm
+        """
+        super().__init__()
+        self.weight = torch.nn.Parameter(torch.ones(hidden_size))
+        self.variance_epsilon = eps
+
+    def forward(self, hidden_states, gate=None):
+        input_dtype = hidden_states.dtype
+        hidden_states = hidden_states.to(torch.float32)
+        variance = hidden_states.pow(2).mean(-1, keepdim=True)
+        hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
+        hidden_states = self.weight * hidden_states.to(input_dtype)
+        if gate is not None:
+            hidden_states = hidden_states * F.silu(gate.to(torch.float32))
+        return hidden_states.to(input_dtype)
+
 def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     batch, num_key_value_heads, slen, head_dim = hidden_states.shape
     if n_rep == 1:
@@ -33,7 +53,7 @@ class Attention(torch.nn.Module):
         self.export_fused_attn = False
         if config is None: return
         self.config = config
-        self.fused_attn = FusedAttention(config.hidden_size, f'/layers.{layer_id}/self_attn/FusedAttention')
+        self.kv_cache = True
         self.layer_id = layer_id
         self.rotary = rotary
         self.hidden_size = config.hidden_size
@@ -46,6 +66,7 @@ class Attention(torch.nn.Module):
             self.num_heads = config.num_attention_heads
             self.num_key_value_heads = config.num_key_value_heads
         self.num_key_value_groups = self.num_heads // self.num_key_value_heads
+        self.fused_attn = FusedAttention(self.num_heads * self.head_dim, self.kv_cache, f'/layers.{layer_id}/self_attn/FusedAttention')
 
         ModelMapper.do_map(self, attn, mapper['attention'])
 
@@ -96,19 +117,23 @@ class Attention(torch.nn.Module):
             self.k_proj.bias.requires_grad = False
             self.v_proj.bias.requires_grad = False
 
+        self.past_key_value = None
 
     def forward(
         self,
         hidden_states: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
-        past_key_value: Optional[Tuple[torch.Tensor]] = None,
         rotary_pos_emb: Optional[torch.Tensor] = None,
-        cross_attention_states: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         bsz, q_len, _ = hidden_states.size()
         query_states = self.q_proj(hidden_states)
-        if cross_attention_states is not None:
-            hidden_states = cross_attention_states
+        if self.q_proj.out_features == 2 * self.num_heads * self.head_dim:
+            reshaped = query_states.view(bsz, q_len, self.num_heads, self.head_dim * 2)
+            query_states, gate = torch.split(reshaped, self.head_dim, dim=-1)
+            gate = gate.reshape(bsz, q_len, -1)
+        else:
+            gate = None
+
         key_states = self.k_proj(hidden_states)
         value_states = self.v_proj(hidden_states)
         query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim)
@@ -116,13 +141,13 @@ class Attention(torch.nn.Module):
         value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim)
         # openelm model has qk_norm
         if hasattr(self, 'q_norm') and self.q_norm is not None and \
-           hasattr(self, 'k_norm') and self.k_norm is not None :
+           hasattr(self, 'k_norm') and self.k_norm is not None:
             query_states = self.q_norm(query_states)
             key_states = self.k_norm(key_states)
 
         kv_seq_len = key_states.shape[1]
-        if past_key_value is not None:
-            kv_seq_len += past_key_value[0].shape[1]
+        if self.past_key_value is not None:
+            kv_seq_len += self.past_key_value[0].shape[1]
         # rope
         if self.rotary is not None:
             cos, sin = rotary_pos_emb[0], rotary_pos_emb[1]
@@ -134,18 +159,20 @@ class Attention(torch.nn.Module):
             query_states = self.qk_norm(query_states)
             key_states = self.qk_norm(key_states)
 
-        if self.export_fused_attn:
+        if self.export_fused_attn and torch.onnx.is_in_onnx_export():
             attn_output = self.fused_attn(query_states, key_states, value_states, attention_mask)
+            if gate is not None:
+                attn_output = attn_output * torch.sigmoid(gate)
             attn_output = self.o_proj(attn_output)
-            return attn_output, past_key_value
+            return attn_output
 
         # kv cache
-        if past_key_value is not None:
-            past_key, past_value = past_key_value[0], past_key_value[1]
+        if self.past_key_value is not None:
+            past_key, past_value = self.past_key_value[0], self.past_key_value[1]
             key_states = torch.cat((past_key, key_states), dim=1)
             value_states = torch.cat((past_value, value_states), dim=1)
 
-        past_key_value = torch.stack((key_states, value_states))
+        self.past_key_value = torch.stack((key_states, value_states))
         query_states = query_states.transpose(1, 2)
         key_states = key_states.permute([0, 2, 3, 1])
         value_states = value_states.transpose(1, 2)
@@ -166,18 +193,380 @@ class Attention(torch.nn.Module):
             sinks = self.sinks.reshape(1, -1, 1, 1).to(torch.float32).expand(query_states.shape[0], -1, query_states.shape[-2], -1)
             combined_logits = torch.cat([attn_weights, sinks], dim=-1)
             combined_logits = combined_logits - combined_logits.max(dim=-1, keepdim=True).values
-            probs = torch.nn.functional.softmax(combined_logits, dim=-1, dtype=torch.float32).to(query_states.dtype)
+            probs = F.softmax(combined_logits, dim=-1, dtype=torch.float32).to(query_states.dtype)
             attn_weights = probs[..., :-1]  # we drop the sink here
         else:
             # upcast softmax to fp32
-            attn_weights = torch.nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
+            attn_weights = F.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
+
         # attn_weights @ value_states
         attn_output = torch.matmul(attn_weights, value_states)
 
         attn_output = attn_output.transpose(1, 2).contiguous()
         attn_output = attn_output.reshape(bsz, q_len, -1)
+
+        if gate is not None:
+            attn_output = attn_output * torch.sigmoid(gate)
         attn_output = self.o_proj(attn_output)
-        return attn_output, past_key_value
+        return attn_output
+
+def l2norm(x: torch.FloatTensor, dim: int = -1, eps: float = 1e-6):
+    """This function is intended to align with the l2norm implementation in the FLA library."""
+    inv_norm = torch.rsqrt((x * x).sum(dim=dim, keepdim=True) + eps)
+    return x * inv_norm
+
+def torch_chunk_gated_delta_rule(
+    query,
+    key,
+    value,
+    g,
+    beta,
+    chunk_size=64,
+    initial_state=None,
+    output_final_state=False,
+    use_qk_l2norm_in_kernel=False,
+):
+    initial_dtype = query.dtype
+    if use_qk_l2norm_in_kernel:
+        query = l2norm(query, dim=-1, eps=1e-6)
+        key = l2norm(key, dim=-1, eps=1e-6)
+    query, key, value, beta, g = [
+        x.transpose(1, 2).contiguous().to(torch.float32) for x in (query, key, value, beta, g)
+    ]
+
+    batch_size, num_heads, sequence_length, k_head_dim = key.shape
+    v_head_dim = value.shape[-1]
+    pad_size = (chunk_size - sequence_length % chunk_size) % chunk_size
+    query = F.pad(query, (0, 0, 0, pad_size))
+    key = F.pad(key, (0, 0, 0, pad_size))
+    value = F.pad(value, (0, 0, 0, pad_size))
+    beta = F.pad(beta, (0, pad_size))
+    g = F.pad(g, (0, pad_size))
+    total_sequence_length = sequence_length + pad_size
+    scale = 1 / (query.shape[-1] ** 0.5)
+    query = query * scale
+
+    v_beta = value * beta.unsqueeze(-1)
+    k_beta = key * beta.unsqueeze(-1)
+    # reshape to chunks
+    query, key, value, k_beta, v_beta = [
+        x.reshape(x.shape[0], x.shape[1], -1, chunk_size, x.shape[-1]) for x in (query, key, value, k_beta, v_beta)
+    ]
+    g = g.reshape(g.shape[0], g.shape[1], -1, chunk_size)
+    mask = torch.triu(torch.ones(chunk_size, chunk_size, dtype=torch.bool, device=query.device), diagonal=0)
+
+    # chunk decay
+    g = g.cumsum(dim=-1)
+    decay_mask = ((g.unsqueeze(-1) - g.unsqueeze(-2)).tril().exp().float()).tril()
+    attn = -((k_beta @ key.transpose(-1, -2)) * decay_mask).masked_fill(mask, 0)
+    for i in range(1, chunk_size):
+        row = attn[..., i, :i].clone()
+        sub = attn[..., :i, :i].clone()
+        attn[..., i, :i] = row + (row.unsqueeze(-1) * sub).sum(-2)
+    attn = attn + torch.eye(chunk_size, dtype=attn.dtype, device=attn.device)
+    value = attn @ v_beta
+    k_cumdecay = attn @ (k_beta * g.exp().unsqueeze(-1))
+    last_recurrent_state = (
+        torch.zeros(batch_size, num_heads, k_head_dim, v_head_dim).to(value)
+        if initial_state is None
+        else initial_state.to(value)
+    )
+    core_attn_out = torch.zeros_like(value)
+    mask = torch.triu(torch.ones(chunk_size, chunk_size, dtype=torch.bool, device=query.device), diagonal=1)
+
+    # for each chunk
+    for i in range(0, total_sequence_length // chunk_size):
+        q_i, k_i, v_i = query[:, :, i], key[:, :, i], value[:, :, i]
+        attn = (q_i @ k_i.transpose(-1, -2) * decay_mask[:, :, i]).masked_fill_(mask, 0)
+        v_prime = (k_cumdecay[:, :, i]) @ last_recurrent_state
+        v_new = v_i - v_prime
+        attn_inter = (q_i * g[:, :, i, :, None].exp()) @ last_recurrent_state
+        core_attn_out[:, :, i] = attn_inter + attn @ v_new
+        last_recurrent_state = (
+            last_recurrent_state * g[:, :, i, -1, None, None].exp()
+            + (k_i * (g[:, :, i, -1, None] - g[:, :, i]).exp()[..., None]).transpose(-1, -2) @ v_new
+        )
+
+    if not output_final_state:
+        last_recurrent_state = None
+    core_attn_out = core_attn_out.reshape(core_attn_out.shape[0], core_attn_out.shape[1], -1, core_attn_out.shape[-1])
+    core_attn_out = core_attn_out[:, :, :sequence_length]
+    core_attn_out = core_attn_out.transpose(1, 2).contiguous().to(initial_dtype)
+    return core_attn_out, last_recurrent_state
+
+
+def torch_recurrent_gated_delta_rule(
+    query, key, value, g, beta, initial_state, output_final_state, use_qk_l2norm_in_kernel=False
+):
+    initial_dtype = query.dtype
+    if use_qk_l2norm_in_kernel:
+        query = l2norm(query, dim=-1, eps=1e-6)
+        key = l2norm(key, dim=-1, eps=1e-6)
+    query, key, value, beta, g = [
+        x.transpose(1, 2).contiguous().to(torch.float32) for x in (query, key, value, beta, g)
+    ]
+
+    batch_size, num_heads, sequence_length, k_head_dim = key.shape
+    v_head_dim = value.shape[-1]
+    scale = 1 / (query.shape[-1] ** 0.5)
+    query = query * scale
+
+    core_attn_out = torch.zeros(batch_size, num_heads, sequence_length, v_head_dim).to(value)
+    last_recurrent_state = (
+        torch.zeros(batch_size, num_heads, k_head_dim, v_head_dim).to(value)
+        if initial_state is None
+        else initial_state.to(value)
+    )
+
+    for i in range(sequence_length):
+        q_t = query[:, :, i]
+        k_t = key[:, :, i]
+        v_t = value[:, :, i]
+        g_t = g[:, :, i].exp().unsqueeze(-1).unsqueeze(-1)
+        beta_t = beta[:, :, i].unsqueeze(-1)
+
+        last_recurrent_state = last_recurrent_state * g_t
+        kv_mem = (last_recurrent_state * k_t.unsqueeze(-1)).sum(dim=-2)
+        delta = (v_t - kv_mem) * beta_t
+        last_recurrent_state = last_recurrent_state + k_t.unsqueeze(-1) * delta.unsqueeze(-2)
+        core_attn_out[:, :, i] = (last_recurrent_state * q_t.unsqueeze(-1)).sum(dim=-2)
+
+    if not output_final_state:
+        last_recurrent_state = None
+    core_attn_out = core_attn_out.transpose(1, 2).contiguous().to(initial_dtype)
+    return core_attn_out, last_recurrent_state
+
+
+def torch_gated_delta_rule(
+    query,       # [B, L, H, K]   query vectors
+    key,         # [B, L, H, K]   key vectors
+    value,       # [B, L, H, V]   value vectors
+    g,           # [B, L, H]      log-space decay (negative values)
+    beta,        # [B, L, H]      learning rate for delta update
+    initial_state=None,           # [B, H, K, V]  initial recurrent state
+    output_final_state=False,
+    use_qk_l2norm_in_kernel=False,
+):
+    """
+    Non-chunk implementation of Gated Delta Rule (Linear Attention).
+    Mathematically equivalent to torch_chunk_gated_delta_rule.
+
+    Maintains a key-value memory (state S) of shape [K, V] per head,
+    updated at each timestep using the Delta Learning Rule with gating.
+
+    Per-step formula (for each head independently):
+    ─────────────────────────────────────────────────
+        S_t  = S_{t-1} * exp(g_t)              # 1. decay old memory
+        v_pred = S_t^T @ k_t                   # 2. predict value for current key
+        delta  = beta_t * (v_t - v_pred)       # 3. prediction error * learning rate
+        S_t    = S_t + k_t @ delta^T           # 4. update memory (outer product)
+        o_t    = S_t^T @ (q_t / sqrt(d_k))     # 5. query the memory
+    ─────────────────────────────────────────────────
+
+    Shapes:
+        S:     [B, H, K, V]   recurrent state (key-value memory)
+        k_t:   [B, H, K]      key at timestep t
+        v_t:   [B, H, V]      value at timestep t
+        q_t:   [B, H, K]      query at timestep t
+        g_t:   [B, H]         log-decay scalar per head
+        beta_t:[B, H]         learning rate scalar per head
+        o_t:   [B, H, V]      output at timestep t
+    """
+    initial_dtype = query.dtype
+
+    # Optional: L2 normalize Q, K before computation
+    if use_qk_l2norm_in_kernel:
+        query = l2norm(query, dim=-1, eps=1e-6)
+        key = l2norm(key, dim=-1, eps=1e-6)
+
+    # [B, L, H, D] -> [B, H, L, D], all in float32
+    query, key, value, beta, g = [
+        x.transpose(1, 2).contiguous().to(torch.float32)
+        for x in (query, key, value, beta, g)
+    ]
+
+    B, H, L, K = key.shape
+    V = value.shape[-1]
+
+    # Scale query: q = q / sqrt(d_k)
+    query = query * (K ** -0.5)
+
+    # Initialize recurrent state S: [B, H, K, V]
+    if initial_state is None:
+        S = torch.zeros(B, H, K, V, device=query.device, dtype=torch.float32)
+    else:
+        S = initial_state.to(torch.float32)
+
+    outputs = []
+
+    for t in range(L):
+        q_t = query[:, :, t]       # [B, H, K]
+        k_t = key[:, :, t]         # [B, H, K]
+        v_t = value[:, :, t]       # [B, H, V]
+        g_t = g[:, :, t]           # [B, H]
+        beta_t = beta[:, :, t]     # [B, H]
+
+        # ── Step 1: Decay ──
+        # S = S * exp(g_t),  g_t < 0 so this shrinks old memory
+        S = S * g_t[:, :, None, None].exp()
+
+        # ── Step 2: Read (predict value for current key) ──
+        # v_pred = S^T @ k_t : [B, H, K, V]^T @ [B, H, K, 1] -> [B, H, V]
+        v_pred = (S.transpose(-1, -2) @ k_t.unsqueeze(-1)).squeeze(-1)
+
+        # ── Step 3: Delta (prediction error * learning rate) ──
+        # delta = beta_t * (v_t - v_pred) : [B, H, V]
+        delta = beta_t[:, :, None] * (v_t - v_pred)
+
+        # ── Step 4: Write (update memory with outer product) ──
+        # S += k_t @ delta^T : [B, H, K, 1] @ [B, H, 1, V] -> [B, H, K, V]
+        S = S + k_t.unsqueeze(-1) @ delta.unsqueeze(-2)
+
+        # ── Step 5: Query (read output from updated memory) ──
+        # o_t = S^T @ q_t : [B, H, K, V]^T @ [B, H, K, 1] -> [B, H, V]
+        o_t = (S.transpose(-1, -2) @ q_t.unsqueeze(-1)).squeeze(-1)
+
+        outputs.append(o_t)
+
+    # Stack: list of [B, H, V] -> [B, H, L, V]
+    core_attn_out = torch.stack(outputs, dim=2)
+
+    if not output_final_state:
+        S = None
+
+    # [B, H, L, V] -> [B, L, H, V], restore original dtype
+    core_attn_out = core_attn_out.transpose(1, 2).contiguous().to(initial_dtype)
+    return core_attn_out, S
+
+
+class LinearAttention(torch.nn.Module):
+    def __init__(self, attn, layer_id, config, rotary, mapper):
+        super().__init__()
+        self.layer_id = layer_id
+        self.config = config
+        self.hidden_size = config.hidden_size
+        self.head_dim = config.head_dim
+
+        self.conv_kernel_size = config.linear_conv_kernel_dim
+        self.conv_state_size = self.conv_kernel_size - 1
+        self.head_k_dim = config.linear_key_head_dim
+        self.head_v_dim = config.linear_value_head_dim
+        self.num_k_heads = config.linear_num_key_heads
+        self.num_v_heads = config.linear_num_value_heads
+
+        self.key_dim = self.head_k_dim * self.num_k_heads
+        self.value_dim = self.head_v_dim * self.num_v_heads
+        self.conv_dim = self.key_dim * 2 + self.value_dim
+
+        ModelMapper.do_map(self, attn, mapper['linear_attention'])
+
+        original_norm = self.norm
+        self.norm = RMSNorm(self.head_v_dim, eps=config.rms_norm_eps)
+        self.norm.weight.data = original_norm.weight.data
+
+        self.fused_attn = FusedLinearAttention(
+            name=f'/layers.{layer_id}/self_attn/FusedLinearAttention',
+            attn_type="gated_delta_rule",
+            num_k_heads=self.num_k_heads,
+            num_v_heads=self.num_v_heads,
+            head_k_dim=self.head_k_dim,
+            head_v_dim=self.head_v_dim,
+            use_qk_l2norm=True
+        )
+        self.conv_state = None
+        self.rnn_state = None
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        batch_size, seq_len, _ = hidden_states.shape
+
+        # 1. Linear Projections
+        # mixed_qkv: [B, L, 2*key_dim + value_dim]
+        mixed_qkv = self.in_proj_qkv(hidden_states)
+        # Transpose for Conv1d: [B, Dim, L]
+        mixed_qkv = mixed_qkv.transpose(1, 2)
+
+        # Gate, Beta, Z projections
+        z = self.in_proj_z(hidden_states) # [B, L, value_dim]
+        b = self.in_proj_b(hidden_states) # [B, L, num_v_heads]
+        a = self.in_proj_a(hidden_states) # [B, L, num_v_heads]
+
+        # 2. Pre-compute gates
+        beta = torch.sigmoid(b)
+        gate = -self.A_log.float().exp() * F.softplus(a.float() + self.dt_bias)
+
+        if torch.onnx.is_in_onnx_export():
+            attn_out = self.fused_attn(mixed_qkv, gate, beta, self.conv1d.weight.data.detach())
+            attn_out = attn_out.reshape(-1, self.head_v_dim)
+            z = z.reshape(-1, self.head_v_dim)
+            attn_out = self.norm(attn_out, z)
+            attn_out = attn_out.view(batch_size, seq_len, -1)
+            output = self.out_proj(attn_out)
+            return output
+
+        # === Normal path: full computation for testing ===
+        # 3. State Management (Conv State & Recurrent State)
+        if self.conv_state is not None:
+            conv_state = self.conv_state
+            conv_input = torch.cat([conv_state, mixed_qkv], dim=-1)
+            mixed_qkv = F.silu(F.conv1d(conv_input, self.conv1d.weight, self.conv1d.bias, padding=0, groups=self.conv_dim))
+            new_conv_state = conv_input[:, :, -self.conv_state_size:]
+        else:
+            new_conv_state = F.pad(mixed_qkv, (self.conv_state_size - mixed_qkv.shape[-1], 0))
+            mixed_qkv = F.silu(self.conv1d(mixed_qkv)[:, :, :seq_len])
+
+        # 4. Split Q, K, V
+        mixed_qkv = mixed_qkv.transpose(1, 2)
+        query, key, value = torch.split(
+            mixed_qkv,
+            [self.key_dim, self.key_dim, self.value_dim],
+            dim=-1
+        )
+        query = query.view(batch_size, seq_len, self.num_k_heads, self.head_k_dim)
+        key = key.view(batch_size, seq_len, self.num_k_heads, self.head_k_dim)
+        value = value.view(batch_size, seq_len, self.num_v_heads, self.head_v_dim)
+
+        # 5. GQA Expansion
+        if self.num_v_heads > self.num_k_heads:
+            factor = self.num_v_heads // self.num_k_heads
+            query = query.repeat_interleave(factor, dim=2)
+            key = key.repeat_interleave(factor, dim=2)
+
+        # 6. Gated Delta Rule
+        if self.rnn_state is None:
+            attn_out, last_recurrent_state = torch_gated_delta_rule(
+                query, key, value,
+                g=gate, beta=beta,
+                initial_state=None,
+                output_final_state=True,
+                use_qk_l2norm_in_kernel=True,
+            )
+        else:
+            recurrent_state = self.rnn_state
+            attn_out, last_recurrent_state = torch_recurrent_gated_delta_rule(
+                query, key, value,
+                g=gate, beta=beta,
+                initial_state=recurrent_state,
+                output_final_state=True,
+                use_qk_l2norm_in_kernel=True,
+            )
+
+        # 7. Post-process
+        attn_out = attn_out.reshape(-1, self.head_v_dim)
+        z = z.reshape(-1, self.head_v_dim)
+        attn_out = self.norm(attn_out, z)
+        attn_out = attn_out.view(batch_size, seq_len, -1)
+        output = self.out_proj(attn_out)
+
+        # Update internal state
+        self.conv_state = new_conv_state
+        self.rnn_state = last_recurrent_state
+
+        return output
+
 
 def rotate_half(x):
     x1 = x[..., : x.shape[-1] // 2]
@@ -257,17 +646,29 @@ class Rotary(torch.nn.Module):
         if config is None: return
         self.rope_theta = config.rope_theta
         self.rope_ratio = config.rope_ratio
-        self.rope_theta *= self.rope_ratio
+        if self.rope_ratio is not None:
+            self.rope_theta *= self.rope_ratio
         self.rotary_dim = config.head_dim
         self.model_type = config.model_type
         if hasattr(config, 'rotary_dim'):
             self.rotary_dim = config.rotary_dim
         if self.model_type == 'chatglm':
             self.rotary_dim = config.head_dim // 2
+
+        # Qwen3.5
+        if hasattr(config, 'rope_parameters') and config.rope_parameters is not None:
+            if 'rope_theta' in config.rope_parameters:
+                self.rope_theta = config.rope_parameters['rope_theta']
+            if 'partial_rotary_factor' in config.rope_parameters:
+                self.partial_rotary_factor = config.rope_parameters['partial_rotary_factor']
+                self.rotary_dim = int(self.rotary_dim * self.partial_rotary_factor)
+            config.rope_scaling = config.rope_parameters
+
         self.mrope_section = None
         self.theta_sections = None
         self.attention_scaling = 1.0
         self.is_scaled = False
+        self.mrope_interleaved = False
 
         def get_theta():
             return 1.0 / (self.rope_theta ** (torch.arange(0, self.rotary_dim, 2, dtype=torch.float32) / self.rotary_dim))
@@ -308,11 +709,27 @@ class Rotary(torch.nn.Module):
 
             # mrope for multimode
             if 'mrope_section' in scaling_config:
+                self.mrope_interleaved = scaling_config.get('mrope_interleaved', False)
                 self.mrope_section = scaling_config['mrope_section']
-                self.theta_sections = get_theta().unsqueeze(0).split(self.mrope_section, dim=-1)
+                self.theta = get_theta().unsqueeze(0)
+                self.theta_sections = self.theta.split(self.mrope_section, dim=-1)
+                def apply_interleaved_mrope(freqs, mrope_section):
+                    # mrope apply func from qwen3-vl
+                    freqs_t = freqs[0]  # just overwrite the first dimension T
+                    for dim, offset in enumerate((1, 2), start=1):  # H, W
+                        length = mrope_section[dim] * 3
+                        idx = slice(offset, length, 3)
+                        freqs_t[..., idx] = freqs[dim, ..., idx]
+                    return freqs_t
+                if self.mrope_interleaved:
+                    half_rotary = self.rotary_dim // 2
+                    freq_idx = torch.arange(0, 3 * half_rotary).reshape(3, 1, half_rotary)
+                    self.mrope_reindex = apply_interleaved_mrope(freq_idx, self.mrope_section).flatten()
+
+        self.is_mrope = self.theta_sections is not None or self.mrope_interleaved
 
     def forward(self, position_ids):
-        if self.theta_sections is not None:
+        if self.is_mrope:
             return self.mrope_forward(position_ids)
         position_ids = position_ids.float().reshape(-1, 1)
         idx_theta = position_ids * self.theta.to(position_ids.device)
@@ -329,11 +746,16 @@ class Rotary(torch.nn.Module):
 
     def mrope_forward(self, position_ids):
         position_ids = position_ids.float().unsqueeze(-1)
-        idx_theta = torch.concat([
-            position_ids[0] * self.theta_sections[0],
-            position_ids[1] * self.theta_sections[1],
-            position_ids[2] * self.theta_sections[2]
-        ], dim=-1)
+        if self.mrope_interleaved:
+            idx_theta = position_ids * self.theta.to(position_ids.device)
+            idx_theta = idx_theta.transpose(1, 0).reshape(-1, 3 * self.rotary_dim // 2)
+            idx_theta = idx_theta[:, self.mrope_reindex]
+        else:
+            idx_theta = torch.concat([
+                position_ids[0] * self.theta_sections[0],
+                position_ids[1] * self.theta_sections[1],
+                position_ids[2] * self.theta_sections[2]
+            ], dim=-1)
         rotary_pos_emb = torch.stack([torch.cos(idx_theta), torch.sin(idx_theta)])
         rotary_pos_emb = torch.cat((rotary_pos_emb, rotary_pos_emb), dim=-1)
         rotary_pos_emb = rotary_pos_emb.unsqueeze(2).unsqueeze(1)
@@ -344,7 +766,7 @@ class Rotary(torch.nn.Module):
             return self.chatglm_rotary_pos(x, cos, sin)
         if self.model_type == 'chatglm2':
             return self.chatglm2_rotary_pos(x, cos, sin)
-        if self.model_type == 'phi-msft':
+        if self.model_type in ['phi-msft', 'qwen3_5', 'qwen3_5_moe']:
             return self.phi_rotary_pos(x, cos, sin)
         if self.model_type == 'ernie4_5':
             return self.ernie_rotary_pos(x, cos, sin)
@@ -404,6 +826,10 @@ class VisionRotary(Rotary):
         rotary_pos_emb = rotary_pos_emb.unsqueeze(2).unsqueeze(1)
         return rotary_pos_emb
 
+    def apply_rotary_pos(self, x, cos, sin):
+        x = (x * cos) + (rotate_half(x) * sin)
+        return x
+
 class GptOssExpert(torch.nn.Module):
     def __init__(self, hidden_size, expert_dim):
         super().__init__()
@@ -451,20 +877,25 @@ class Mlp(torch.nn.Module):
         if isinstance(self.experts, torch.nn.ModuleList):
             self.moe_type = 'qwen3_moe'
         else:
-            self.moe_type = 'qwen3_vl_moe'
+            self.moe_type = 'qwen3_5_moe'
             self.norm_topk_prob = True
             # refacte experts to qwen3_experts
             original_experts = self.experts
-            hidden_size = original_experts.hidden_size
-            expert_dim = original_experts.expert_dim
+            hidden_size = original_experts.hidden_dim
+            expert_dim = original_experts.intermediate_dim
             act_fn = original_experts.act_fn
             new_experts_list = torch.nn.ModuleList()
             for i in range(self.num_experts):
                 expert_mlp = Qwen3Expert(hidden_size, expert_dim, act_fn)
-                expert_mlp.gate_up_proj_linear.weight.data = original_experts.gate_up_proj.data[i].transpose(0, 1)
-                expert_mlp.down_proj_linear.weight.data = original_experts.down_proj.data[i].transpose(0, 1)
+                expert_mlp.gate_up_proj_linear.weight.data = original_experts.gate_up_proj.data[i]
+                expert_mlp.down_proj_linear.weight.data = original_experts.down_proj.data[i]
                 new_experts_list.append(expert_mlp)
             self.experts = new_experts_list
+
+            if not isinstance(self.gate, torch.nn.Linear):
+                gate = torch.nn.Linear(hidden_size, self.num_experts, bias=False)
+                gate.weight.data = self.gate.weight.data
+                self.gate = gate
 
         if hasattr(self, 'router'):
             self.moe_type = 'gpt_oss'
@@ -494,14 +925,19 @@ class Mlp(torch.nn.Module):
         # MoE Mlp
         batch_size, sequence_length, hidden_dim = hidden_states.shape
         hidden_states = hidden_states.view(-1, hidden_dim)
-        # router_logits: (batch * sequence_length, n_experts)
-        router_logits = self.gate(hidden_states)
+        if hasattr(self, 'shared_expert'):
+            shared_expert_output = F.sigmoid(self.shared_expert_gate(hidden_states)) * self.shared_expert(hidden_states)
+            shared_expert_output = shared_expert_output.reshape(batch_size, sequence_length, hidden_dim)
+        else:
+            shared_expert_output = None
 
         if self.moe_type == 'gpt_oss':
+            router_logits = self.gate(hidden_states)
             routing_weights, selected_experts = torch.topk(router_logits, self.top_k, dim=-1)
-            routing_weights = torch.nn.functional.softmax(routing_weights, dim=-1, dtype=torch.float).to(hidden_states.dtype)
+            routing_weights = F.softmax(routing_weights, dim=-1, dtype=torch.float).to(hidden_states.dtype)
         else:
-            routing_weights = torch.nn.functional.softmax(router_logits, dim=-1, dtype=torch.float)
+            router_logits = self.gate(hidden_states)
+            routing_weights = F.softmax(router_logits, dim=-1, dtype=torch.float)
             routing_weights, selected_experts = torch.topk(routing_weights, self.top_k, dim=-1)
             if self.norm_topk_prob:  # only diff with mixtral sparse moe block!
                 routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
@@ -509,7 +945,10 @@ class Mlp(torch.nn.Module):
             routing_weights = routing_weights.to(hidden_states.dtype)
 
         if self.export_moe:
-            return self.custom_moe(hidden_states, routing_weights, selected_experts)
+            expert_output = self.custom_moe(hidden_states, routing_weights, selected_experts)
+            if shared_expert_output is not None:
+                expert_output = expert_output + shared_expert_output
+            return expert_output
 
         final_hidden_states = torch.zeros(
             (batch_size * sequence_length, hidden_dim), dtype=hidden_states.dtype, device=hidden_states.device
@@ -551,12 +990,14 @@ class Mlp(torch.nn.Module):
 
         # One hot encode the selected experts to create an expert mask
         # this will be used to easily index which expert is going to be sollicitated
-        expert_mask = torch.nn.functional.one_hot(selected_experts, num_classes=self.num_experts).permute(2, 1, 0)
-
+        expert_mask = F.one_hot(selected_experts, num_classes=self.num_experts).permute(2, 1, 0)
+        expert_hit = torch.greater(expert_mask.sum(dim=(-1, -2)), 0).nonzero()
         # Loop over all available experts in the model and perform the computation on each expert
-        for expert_idx in range(self.num_experts):
-            expert_layer = self.experts[expert_idx]
+        # for expert_idx in range(self.num_experts):
+        for expert_idx in expert_hit:
+            expert_idx = expert_idx[0]
             idx, top_x = torch.where(expert_mask[expert_idx])
+            expert_layer = self.experts[expert_idx]
 
             # Index the correct hidden states and compute the expert hidden state for
             # the current expert. We need to make sure to multiply the output hidden
@@ -566,7 +1007,10 @@ class Mlp(torch.nn.Module):
             # However `index_add_` only support torch tensors for indexing so we'll use
             # the `top_x` tensor here.
             final_hidden_states.index_add_(0, top_x, current_hidden_states.to(hidden_states.dtype))
+
         final_hidden_states = final_hidden_states.reshape(batch_size, sequence_length, hidden_dim)
+        if shared_expert_output is not None:
+            final_hidden_states = final_hidden_states + shared_expert_output
 
         return final_hidden_states
 
@@ -580,7 +1024,14 @@ class Decoder(torch.nn.Module):
         ModelMapper.do_map(self, decoder, mapper['decoder'])
         if 'mlp' in mapper:
             self.mlp = Mlp(self.mlp, mapper, layer_id)
-        self.self_attn = Attention(self.self_attn, layer_id, config, rotary, mapper)
+
+        self.layer_type = 'full_attention'
+        if hasattr(self, 'self_attn') and self.self_attn is not None:
+            self.self_attn = Attention(self.self_attn, layer_id, config, rotary, mapper)
+        if hasattr(self, 'linear_attn') and self.linear_attn is not None:
+            self.self_attn = LinearAttention(self.linear_attn, layer_id, config, rotary, mapper)
+            self.layer_type = 'linear_attention'
+
         self.hidden_size = config.hidden_size
         if hasattr(config, 'num_hidden_layers'):
             # minicpm
@@ -593,22 +1044,25 @@ class Decoder(torch.nn.Module):
         hidden_states: torch.Tensor,
         rotary_pos_emb: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
-        past_key_value: Optional[Tuple[torch.Tensor]] = None,
-        cross_attention_states: Optional[torch.Tensor] = None,
-        cross_attention_mask: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
         hidden_states = hidden_states.view(1, -1, self.hidden_size)
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
         norm_hidden_states = hidden_states
-        # Self Attention
-        hidden_states, present_key_value = self.self_attn(
-            hidden_states=hidden_states,
-            rotary_pos_emb=rotary_pos_emb,
-            attention_mask=attention_mask,
-            past_key_value=past_key_value,
-            cross_attention_states=cross_attention_states,
-        )
+
+        # Self Attention or Linear Attention
+        if self.layer_type == 'full_attention':
+            hidden_states = self.self_attn(
+                hidden_states=hidden_states,
+                rotary_pos_emb=rotary_pos_emb,
+                attention_mask=attention_mask,
+            )
+        elif self.layer_type == 'linear_attention':
+            hidden_states = self.self_attn(
+                hidden_states=hidden_states,
+                attention_mask=attention_mask,
+            )
+
         # Fully Connected
         if not hasattr(self, 'post_attention_layernorm'):
             # phi
@@ -629,13 +1083,6 @@ class Decoder(torch.nn.Module):
             hidden_states = self.mlp(hidden_states)
             hidden_states = self.post_feedforward_layernorm(hidden_states)
             hidden_states = residual + hidden_states
-        elif cross_attention_mask is not None and self.cross_decoder:
-            hidden_states = residual + self.cross_attn_attn_gate.tanh() * hidden_states
-            residual = hidden_states
-            hidden_states = self.post_attention_layernorm(hidden_states)
-            hidden_states = self.mlp(hidden_states)
-            hidden_states = cross_attention_mask * hidden_states
-            hidden_states = residual + self.cross_attn_mlp_gate.tanh() * hidden_states
         elif hasattr(self, 'scale_depth'):
             # minicpm
             hidden_states = residual + hidden_states * (self.scale_depth / math.sqrt(self.num_hidden_layers))
@@ -651,7 +1098,7 @@ class Decoder(torch.nn.Module):
             hidden_states = self.mlp(hidden_states)
             hidden_states = residual + hidden_states
 
-        return hidden_states, present_key_value
+        return hidden_states
 
 class Lm(torch.nn.Module):
     def __init__(self, lm_):
@@ -661,19 +1108,3 @@ class Lm(torch.nn.Module):
     def forward(self, hidden_states):
         m_logits = self.lm(hidden_states)
         return m_logits
-
-class RMSNorm(torch.nn.Module):
-    def __init__(self, hidden_size, eps=1e-6):
-        """
-        LlamaRMSNorm is equivalent to T5LayerNorm
-        """
-        super().__init__()
-        self.weight = torch.nn.Parameter(torch.ones(hidden_size))
-        self.variance_epsilon = eps
-
-    def forward(self, hidden_states):
-        input_dtype = hidden_states.dtype
-        hidden_states = hidden_states.to(torch.float32)
-        variance = hidden_states.pow(2).mean(-1, keepdim=True)
-        hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
-        return self.weight * hidden_states.to(input_dtype)

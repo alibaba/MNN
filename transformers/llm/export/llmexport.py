@@ -72,17 +72,10 @@ class LlmExporter(torch.nn.Module):
                     visit_module(child)
             visit_module(self.model)
 
-        # some export info
-        if isinstance(self.config.num_attention_heads, list):
-            self.past_kv_shape = [self.config.num_hidden_layers, 2, 1, 0, self.config.num_key_value_heads[0], self.config.head_dim]
-        else:
-            self.past_kv_shape = [self.config.num_hidden_layers, 2, 1, 0, self.config.num_key_value_heads, self.config.head_dim]
-
         self.model_dynamic_axes = {
             "input_ids" : { 0: "seq_len" },
             "attention_mask" : { 2: "seq_len", 3: "seq_len" },
             "position_ids" : { 1: "seq_len" },
-            "past_key_values" : { 3: "history_len" }
         }
 
         self.llm_config = {
@@ -90,6 +83,7 @@ class LlmExporter(torch.nn.Module):
             'hidden_size' : self.config.hidden_size,
             'attention_mask': 'float', # Will be determined by model later
             'attention_type': self.config.attention_type,
+            'is_mrope': self.model.rotary.is_mrope
         }
         self.llm_config.update(self.model.get_config())
         if self.config.sliding_window > 0:
@@ -125,6 +119,8 @@ class LlmExporter(torch.nn.Module):
             {"role": "user", "content": query}
         ]
         prompt = self.tokenizer.apply_chat_template(messages)
+        if query not in prompt:
+            prompt = query
 
         # Use model's tokenizer methods for encoding
         if self.model.visual is not None:
@@ -136,7 +132,6 @@ class LlmExporter(torch.nn.Module):
 
         seq_len = input_ids.numel()
         new_tokens = 0
-        past_key_values = [None for i in range(self.config.num_hidden_layers)]
 
         while new_tokens < self.max_new_tokens:
             attention_mask = self.model.get_attention_mask(seq_len, new_tokens)
@@ -144,11 +139,10 @@ class LlmExporter(torch.nn.Module):
             input_embeds = self.model.embedding(input_ids)
             deepstack_embeds = self.model.visual.deepstacks() if self.model.visual is not None else None
 
-            logits, _, past_key_values, _ = self.model.forward(
+            logits, _, _ = self.model.forward(
                 input_ids=input_embeds,
                 attention_mask=attention_mask,
                 position_ids=position_ids,
-                past_key_values=past_key_values,
                 logits_index=torch.tensor([-1], dtype=torch.int32),
                 deepstack_embeds=deepstack_embeds
             )
@@ -339,8 +333,8 @@ class LlmExporter(torch.nn.Module):
         with torch.no_grad():
             for i in range(len(self.model.blocks)):
                 # different kv cache shape in different layers
-                if isinstance(self.config.num_attention_heads, list):
-                    self.model.blocks[i].self_attn.export_fused_attn = True
+                # if isinstance(self.config.num_attention_heads, list):
+                self.model.blocks[i].self_attn.export_fused_attn = True
                 is_moe = hasattr(self.model.blocks[i].mlp, 'is_moe') and self.model.blocks[i].mlp.is_moe
                 if is_moe:
                     self.model.blocks[i].mlp.export_moe = True
@@ -350,6 +344,10 @@ class LlmExporter(torch.nn.Module):
                 for name, child in self.model.blocks[i].mlp.named_children():
                     if isinstance(child, torch.nn.Linear):
                         setattr(self.model.blocks[i].mlp, name, build_faker(child, f'/layers.{i}/mlp/{name}/Linear'))
+                    if name == 'shared_expert':
+                        for name, child in self.model.blocks[i].mlp.shared_expert.named_children():
+                            if isinstance(child, torch.nn.Linear):
+                                setattr(self.model.blocks[i].mlp.shared_expert, name, build_faker(child, f'/layers.{i}/mlp/shared_expert/{name}/Linear'))
                     if is_moe and isinstance(child, torch.nn.ModuleList): # experts
                         self.experts.append(child)
                         for j in range(len(child)):
@@ -382,22 +380,21 @@ class LlmExporter(torch.nn.Module):
         onnx_model = f'{self.onnx_path}/{self.dst_name}.onnx'
         # For export onnx, don't need image or audio's embedding
         input_ids = model.embedding(input_ids)
-        past_key_values = torch.zeros(self.past_kv_shape)
         logits_index = torch.tensor([-1], dtype=torch.int32)
         if hasattr(model, 'talker') and model.talker is not None:
-            output_names = ['logits', 'hidden_states', 'presents', 'talker_embeds']
+            output_names = ['logits', 'hidden_states', 'talker_embeds']
         else:
-            output_names = ['logits', 'hidden_states', 'presents']
+            output_names = ['logits', 'hidden_states']
 
         # Qwen3-VL
         if self.model_type in ['qwen3_vl', 'qwen3_vl_moe']:
             # add deepstack_embeds input
             deepstack_embeds = torch.randn(3, 1, self.config.hidden_size)
             onnx_export(
-                model, (input_ids, attention_mask, position_ids, past_key_values, logits_index, deepstack_embeds),
+                model, (input_ids, attention_mask, position_ids, logits_index, deepstack_embeds),
                 onnx_model,
                 input_names=[
-                    'input_ids', 'attention_mask', 'position_ids', 'past_key_values', 'logits_index', 'deepstack_embeds'
+                    'input_ids', 'attention_mask', 'position_ids', 'logits_index', 'deepstack_embeds'
                 ],
                 output_names=output_names,
                 dynamic_axes=self.model_dynamic_axes)
@@ -405,10 +402,10 @@ class LlmExporter(torch.nn.Module):
 
         # export to onnx
         onnx_export(
-            model, (input_ids, attention_mask, position_ids, past_key_values, logits_index),
+            model, (input_ids, attention_mask, position_ids, logits_index),
             onnx_model,
             input_names=[
-                'input_ids', 'attention_mask', 'position_ids', 'past_key_values', 'logits_index'
+                'input_ids', 'attention_mask', 'position_ids', 'logits_index'
             ],
             output_names=output_names,
             dynamic_axes=self.model_dynamic_axes)

@@ -1,0 +1,65 @@
+layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
+
+layout(constant_id = 3) const uint ACTIVATION = 0;
+
+layout(binding = 0) readonly buffer SrcBuffer { FLOAT4 SrcVec4[]; };
+layout(binding = 1) writeonly buffer DstBuffer { FLOAT4 DstVec4[]; };
+
+layout(binding = 2) uniform constBuffer {
+    uint M;
+    uint N;
+    uint padM;
+    uint padN;
+} uConst;
+
+shared FLOAT4 smem[32][33];
+
+void main() {
+    uint tileN_out = gl_WorkGroupID.x * 32;
+    uint tileM     = gl_WorkGroupID.y * 32;
+
+    uint flat_tid = gl_LocalInvocationIndex; 
+    uint total_threads = gl_WorkGroupSize.x * gl_WorkGroupSize.y * gl_WorkGroupSize.z;
+
+    uint loop_count = 1024 / total_threads; 
+
+    uint padN_vec4 = uConst.padN / 4;
+
+    for (uint i = 0; i < loop_count; ++i) {
+        uint tile_linear_idx = flat_tid + i * total_threads;
+
+        uint local_m = tile_linear_idx / 32; // Row
+        uint local_n = tile_linear_idx % 32; // Col
+
+        uint global_m = tileM + local_m;
+        uint global_n_out = tileN_out + local_n;
+
+        FLOAT4 val = FLOAT4(0.0);
+        if (global_m < uConst.M && (global_n_out * 4) < uConst.N) {
+            val = SrcVec4[global_m * padN_vec4 + global_n_out];
+        }
+        smem[local_m][local_n] = val;
+    }
+
+    barrier();
+
+    for (uint i = 0; i < loop_count; ++i) {
+        uint tile_linear_idx = flat_tid + i * total_threads;
+
+        uint local_n = tile_linear_idx / 32; // High bit -> N_out col
+        uint local_m = tile_linear_idx % 32; // Low bit  -> M row
+
+        uint global_n_out = tileN_out + local_n;
+        uint global_m = tileM + local_m;
+
+        if (global_n_out * 4 < uConst.N && global_m < uConst.M) {
+            FLOAT4 val = smem[local_m][local_n];
+            if (ACTIVATION == 1) {
+                val = max(val, FLOAT4(0.0));
+            } else if (ACTIVATION == 2) {
+                val = clamp(val, FLOAT4(0.0), FLOAT4(6.0));
+            }
+            DstVec4[global_n_out * uConst.M + global_m] = val;
+        }
+    }
+}

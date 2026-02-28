@@ -62,8 +62,9 @@ public:
 
     const VulkanPipelineFactory* getPipelineFactory() const;
     const VulkanPipeline* getPipeline(const std::string& key, const std::vector<VkDescriptorType>& types,
-                                      const std::vector<uint32_t>& localSize = std::vector<uint32_t>()) const;
-    SharedPtr<VulkanPipeline> getPrivatePipeline(const std::string& key, const std::vector<VkDescriptorType>& types);
+                                      const std::vector<uint32_t>& localSize = std::vector<uint32_t>(),
+                                      const std::vector<uint32_t>& specConstants = std::vector<uint32_t>()) const;
+    SharedPtr<VulkanPipeline> getPrivatePipeline(const std::string& key, const std::vector<VkDescriptorType>& types, const std::vector<uint32_t>& specConstants = std::vector<uint32_t>());
 
     const VulkanCommandPool& getPool() const {
         return (* mRuntime->mCmdPool);
@@ -71,6 +72,10 @@ public:
     const VulkanMemoryPool& getMemoryPool() const {
         return (* mRuntime->mMemoryPool);
     }
+    const VulkanDevice& getDevice() const {
+        return (* mRuntime->mDevice);
+    }
+
     BufferAllocator* getDynamicMemoryPool() const {
         return mCurrentDynamicBufferPool;
     }

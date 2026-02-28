@@ -40,6 +40,8 @@ class LlmModel(PreTrainedModel):
     def get_model_class(model_type: str):
         # Same as in LlmExporter
         MODEL_CLASS_MAPPING = {
+            'qwen3_5': 'Qwen3_5ForConditionalGeneration',
+            'qwen3_5_moe': 'Qwen3_5MoeForConditionalGeneration',
             'qwen3_vl': 'Qwen3VLForConditionalGeneration',
             'qwen3_vl_moe': 'Qwen3VLMoeForConditionalGeneration',
             'qwen2_5_omni': 'Qwen2_5OmniForConditionalGeneration',
@@ -97,7 +99,7 @@ class LlmModel(PreTrainedModel):
             except Exception:
                 original_model = AutoModel.from_pretrained(pretrained_model_name_or_path, **load_kwargs)
 
-        print(f"Loading model type: {model_type}\n{original_model}")
+        # print(f"Loading model type: {model_type}\n{original_model}")
 
         # LoRA
         if args.lora_path is not None and not args.lora_split:
@@ -166,14 +168,14 @@ class LlmModel(PreTrainedModel):
                 input_ids: torch.Tensor,
                 attention_mask: torch.Tensor,
                 position_ids: torch.Tensor,
-                past_key_values: Optional[List[torch.Tensor]] = None,
                 logits_index: torch.Tensor = torch.tensor([-1], dtype=torch.int32),
                 deepstack_embeds: torch.Tensor = None
                 ):
         hidden_states = input_ids # llm forward without embedding
+
         if self.scale_emb is not None:
             hidden_states = hidden_states * self.scale_emb
-        presents = [None for i in range(len(self.blocks))]
+
         eagle_hidden_states = []
         rotary_pos_emb = self.rotary(position_ids)
         if self.args and self.args.test and rotary_pos_emb.dtype != hidden_states.dtype:
@@ -184,8 +186,6 @@ class LlmModel(PreTrainedModel):
             if self.args and self.args.eagle_path and (i == len(self.blocks)-3 or i == len(self.blocks)//2 or i==2):
                 eagle_hidden_states.append(hidden_states)
 
-            past_kv = past_key_values[i] if past_key_values is not None and past_key_values[i] is not None else None
-
             # sliding or full attn mask
             if self.config.attention_type == 'mix':
                 is_sliding = i in self.config.sliding_attn_layers
@@ -193,8 +193,7 @@ class LlmModel(PreTrainedModel):
             else:
                 layer_attention_mask = attention_mask
 
-            hidden_states, kv = self.blocks[i](hidden_states, rotary_pos_emb, layer_attention_mask, past_kv)
-            presents[i] = kv
+            hidden_states = self.blocks[i](hidden_states, rotary_pos_emb, layer_attention_mask)
             if deepstack_embeds is not None and i in range(deepstack_embeds.shape[0]):
                 hidden_states += deepstack_embeds[i]
 
@@ -219,13 +218,11 @@ class LlmModel(PreTrainedModel):
                 final_layernorm = hidden_states # poi
             hidden_states = hidden_states[:, logits_index_long:, :]
         logits = self.lm(hidden_states)
-        if presents[0] is not None and presents[0].shape == presents[-1].shape and None not in presents:
-            presents = torch.stack(presents)
 
         if self.args and self.args.eagle_path is not None:
             final_layernorm = torch.cat(eagle_hidden_states, dim=-1)
 
-        return logits, final_layernorm, presents, talker_embeds
+        return logits, final_layernorm, talker_embeds
 
     def get_attention_mask(self, seq_len: int, new_tokens: int = 0):
         if self.config.model_type == 'chatglm':
@@ -266,8 +263,15 @@ class LlmModel(PreTrainedModel):
         if self.config.model_type == 'chatglm':
             return self.chatglm_position_ids(seq_len, new_tokens)
         if new_tokens:
-            return torch.tensor([[seq_len - 1]], dtype=torch.int)
-        return torch.arange(seq_len, dtype=torch.int).unsqueeze(0)
+            position_ids = torch.tensor([seq_len - 1], dtype=torch.int)
+        else:
+            position_ids = torch.arange(seq_len, dtype=torch.int)
+
+        if self.rotary.is_mrope:
+            position_ids = torch.stack([position_ids] * 3)
+        else:
+            position_ids = position_ids.unsqueeze(0)
+        return position_ids
 
     def chatglm_attention_mask(self, seq_len, is_decode):
         if is_decode:
@@ -382,7 +386,7 @@ class EmbeddingModel(LlmModel):
         hidden_states = inputs_embeds
         rotary_pos_emb = self.rotary(position_ids)
         for i in range(len(self.blocks)):
-            hidden_states, _ = self.blocks[i](hidden_states, rotary_pos_emb, attention_mask, None)
+            hidden_states = self.blocks[i](hidden_states, rotary_pos_emb, attention_mask)
         last_hidden_states = hidden_states[:, -1, :]
         last_hidden_states = self.final_layernorm(last_hidden_states)
         return last_hidden_states

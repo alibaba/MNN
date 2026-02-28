@@ -84,9 +84,35 @@ class AttentionSizeComputer : public SizeComputer {
 };
 
 
+class LinearAttentionSizeComputer : public SizeComputer {
+    virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
+                               const std::vector<Tensor*>& outputs) const override {
+        auto input = inputs[0];
+        auto output = outputs[0];
+        auto param = op->main_as_LinearAttentionParam();
+
+        int batch = input->length(0);
+        int seq_len = input->length(2);
+        int num_v_heads = param->num_v_heads();
+        int head_v_dim = param->head_v_dim();
+
+        // Output: [Batch, SeqLen, NumVHeads, HeadVDim]
+        output->buffer().dimensions = 4;
+        output->buffer().dim[0].extent = batch;
+        output->buffer().dim[1].extent = seq_len;
+        output->buffer().dim[2].extent = num_v_heads;
+        output->buffer().dim[3].extent = head_v_dim;
+
+        output->buffer().type = input->buffer().type;
+        TensorUtils::getDescribe(output)->dimensionFormat = TensorUtils::getDescribe(input)->dimensionFormat;
+        return true;
+    }
+};
+
 REGISTER_SHAPE_INPUTS_TRANSFORMER_FUSE(FmhaV2SizeComputer, OpType_FmhaV2);
 REGISTER_SHAPE_INPUTS_TRANSFORMER_FUSE(FmhcaSizeComputer, OpType_Fmhca);
 REGISTER_SHAPE_INPUTS_TRANSFORMER_FUSE(AttentionSizeComputer, OpType_Attention);
+REGISTER_SHAPE_INPUTS_TRANSFORMER_FUSE(LinearAttentionSizeComputer, OpType_LinearAttention);
 #endif
 
 } // namespace MNN

@@ -194,6 +194,7 @@ enum OpType : int {
     SeqLen2Spatial = 302,
     SplitGeLU = 303,
     GroupNorm = 304,
+    LinearAttention = 305,
 
     Extra = 512,
     // quantization
@@ -229,6 +230,15 @@ table StringVec {
 
 table AttentionParam {
     kv_cache: bool = true;
+}
+
+table LinearAttentionParam {
+    attn_type: string;
+    num_k_heads: int;
+    num_v_heads: int;
+    head_k_dim: int;
+    head_v_dim: int;
+    use_qk_l2norm: bool;
 }
 
 table FmhaV2Param {
@@ -421,7 +431,8 @@ union OpParameter {
     FmhaV2Param,
     FmhcaParam,
     AttentionParam,
-    StftParam
+    StftParam,
+    LinearAttentionParam
 }
 
 table Op {
