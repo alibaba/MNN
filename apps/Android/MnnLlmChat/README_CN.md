@@ -53,6 +53,11 @@
   ```
 # Releases
 
+## Version 0.7.8
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_8.apk)
++ 新增：
+  + 稳定性改进
+
 ## Version 0.7.7
 + 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_7.apk)
 + 问题修复：
