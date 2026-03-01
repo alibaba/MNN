@@ -10,12 +10,12 @@
 mls::DiffusionSession::DiffusionSession(std::string resource_path, int memory_mode):
                                         resource_path_(std::move(resource_path)),
                                         memory_mode_(memory_mode){
-    this->diffusion_= std::make_unique<Diffusion>(
+    this->diffusion_.reset(Diffusion::createDiffusion(
             resource_path_,
                           DiffusionModelType::STABLE_DIFFUSION_1_5,
                           MNNForwardType::MNN_FORWARD_OPENCL,
             memory_mode
-            );
+            ));
     MNN_DEBUG("diffusion session init resource_path_: %s memory_mode: %d ", resource_path_.c_str(), memory_mode);
     this->diffusion_->load();
     loaded_ = true;

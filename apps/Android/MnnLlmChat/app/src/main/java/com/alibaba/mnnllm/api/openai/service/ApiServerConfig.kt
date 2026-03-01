@@ -27,8 +27,8 @@ object ApiServerConfig {
 
     /** * generaterandomAPI Key * 8-digitdigitlettersymbolcomposite*/
     private fun generateRandomApiKey(): String {
-        val chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*"
-        return (1..8)
+        val chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+        return (1..16) // Increased length to 16 for better security now that charset is smaller
             .map { chars.random() }
             .joinToString("")
     }

@@ -84,6 +84,20 @@
         android:text="@string/close_debug_mode"
         android:layout_marginBottom="16dp" />
 
+    <Button
+        android:id="@+id/testCrashlyticsNonFatalButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/debug_test_crashlytics_non_fatal"
+        android:layout_marginBottom="12dp" />
+
+    <Button
+        android:id="@+id/testCrashlyticsFatalButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/debug_test_crashlytics_fatal"
+        android:layout_marginBottom="16dp" />
+
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

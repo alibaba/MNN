@@ -23,6 +23,7 @@ object CurrentActivityTracker : Application.ActivityLifecycleCallbacks {
     
     override fun onActivityResumed(activity: Activity) {
         currentActivityRef = WeakReference(activity)
+        CrashReportContext.setCurrentActivity(activity.javaClass.simpleName)
     }
     
     override fun onActivityPaused(activity: Activity) {}
@@ -35,6 +36,7 @@ object CurrentActivityTracker : Application.ActivityLifecycleCallbacks {
         //Clean up destroyed Activity references
         if (currentActivityRef?.get() == activity) {
             currentActivityRef = null
+            CrashReportContext.setCurrentActivity(null)
         }
     }
-} 
+}

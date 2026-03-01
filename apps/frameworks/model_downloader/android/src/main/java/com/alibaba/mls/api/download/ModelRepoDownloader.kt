@@ -26,6 +26,10 @@ abstract class ModelRepoDownloader {
         pausedSet.add(modelId)
     }
 
+    fun clearPause(modelId: String) {
+        pausedSet.remove(modelId)
+    }
+
     fun isDownloaded(modelId: String): Boolean {
         return getDownloadPath(modelId).exists()
     }
@@ -46,5 +50,6 @@ abstract class ModelRepoDownloader {
             saved: Long,
             total: Long)
         fun onRepoInfo(modelId: String, lastModified: Long, repoSize: Long)
+        fun onDownloadPending(modelId: String)
     }
 }
