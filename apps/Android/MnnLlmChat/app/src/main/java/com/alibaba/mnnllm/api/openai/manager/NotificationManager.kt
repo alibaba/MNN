@@ -62,15 +62,17 @@ class ApiNotificationManager(private val context: Context) {
         port: Int = 8080
     ): Notification {
         val title = contentTitle ?: context.getString(com.alibaba.mnnllm.android.R.string.api_service_running)
-        val ipAddress = ApiServerConfig.getIpAddress(context)
-        val url = "http://$ipAddress:$port"
+        var ipAddress = ApiServerConfig.getIpAddress(context)
+        // If listening on all interfaces (0.0.0.0), use localhost for the notification link
+        val displayIp = if (ipAddress == "0.0.0.0") "127.0.0.1" else ipAddress
+        val url = "http://$displayIp:$port"
         val text = if (contentText.isNullOrBlank()) {
             context.getString(com.alibaba.mnnllm.android.R.string.api_service_running_on, ipAddress, port)
         } else {
             contentText
         }
         
-        Timber.tag("ApiNotificationManager").i("Building notification - Config IP: $ipAddress, Port: $port, Text: $text")
+        Timber.tag("ApiNotificationManager").i("Building notification - Config IP: $ipAddress, Display IP: $displayIp, Port: $port, Text: $text")
         
         //createstopservice PendingIntent
         val stopIntent = Intent(ApiServiceActionReceiver.ACTION_STOP_SERVICE).apply {

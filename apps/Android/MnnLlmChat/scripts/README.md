@@ -5,6 +5,7 @@ This directory contains scripts for building and releasing the MnnLlmChat Androi
 ## Files
 
 - `release.sh` - Main release script for building and publishing the app
+- `bump_version.sh` - Version bump helper for `versionName` and `versionCode`
 - `release.config.example` - Example configuration file
 - `setup_release.sh` - Setup script to help configure the release environment
 - `test_build.sh` - Test script to verify build commands work correctly
@@ -17,18 +18,23 @@ This directory contains scripts for building and releasing the MnnLlmChat Androi
    ./scripts/setup_release.sh
    ```
 
-2. **Edit the configuration**:
+2. **Bump app version**:
+   ```bash
+   ./scripts/bump_version.sh 0.7.7 752
+   ```
+
+3. **Edit the configuration**:
    ```bash
    # Edit the configuration file with your actual values
    nano scripts/release.config
    ```
 
-3. **Test the build commands**:
+4. **Test the build commands**:
    ```bash
    ./scripts/test_build.sh
    ```
 
-4. **Run the release process**:
+5. **Run the release process**:
    ```bash
    source scripts/release.config
    ./scripts/release.sh
@@ -36,13 +42,13 @@ This directory contains scripts for building and releasing the MnnLlmChat Androi
 
 ## Release Script Usage
 
-The `release.sh` script automates the process of building and publishing both the standard flavor debug version (for CDN) and the Google Play flavor release version (for Google Play Store).
+The `release.sh` script automates building the standard flavor debug APK (for CDN) and the Google Play flavor release AAB (for Google Play Store).
 
 ### Prerequisites
 
 1. **Java 11 or higher** - Required for building Android projects
 2. **Gradle Wrapper** - Should be present in the project root
-3. **Signing Configuration** - Required for Google Play releases
+3. **Signing Configuration** - Required for Google Play upload
 4. **CDN Configuration** - Required for CDN uploads
 5. **Google Play Configuration** - Required for Google Play uploads
 
@@ -77,9 +83,9 @@ From the project root directory:
 1. **Requirements Check**: Verifies Java version, Gradle wrapper, and configuration
 2. **Clean Build**: Removes previous builds and creates output directories
 3. **Build Standard Debug**: Builds the standard flavor debug APK for CDN distribution
-4. **Build Google Play Release**: Builds the Google Play flavor release APK/AAB for Google Play Store
+4. **Build Google Play Release**: Builds the Google Play flavor release AAB for Google Play Store
 5. **Upload to CDN**: Uploads the standard debug APK to Aliyun OSS CDN
-6. **Upload to Google Play**: Uploads the Google Play release APK/AAB to Google Play Store
+6. **Upload to Google Play**: Uploads the Google Play release AAB to Google Play Store
 7. **Generate Release Notes**: Creates release notes with build information
 
 ### Output Structure
@@ -89,7 +95,6 @@ release_outputs/
 ├── cdn/
 │   └── app-standard-debug.apk
 ├── googleplay/
-│   ├── app-googleplay-release.apk
 │   └── app-googleplay-release.aab
 └── release_notes.md
 ```
@@ -120,7 +125,7 @@ The script uses the following environment variables (can be set in `release.conf
 
 1. **Java Version Error**: Ensure Java 11 or higher is installed and in PATH
 2. **Gradle Wrapper Missing**: Run `gradle wrapper` to generate the wrapper
-3. **Signing Configuration Missing**: Set up signing configuration for Google Play releases
+3. **Signing Configuration Missing**: Google Play AAB build still works locally; upload is skipped
 4. **CDN Upload Failed**: Verify Aliyun OSS credentials and bucket permissions
 5. **Google Play Upload Failed**: Verify service account permissions and package name
 
@@ -131,9 +136,6 @@ If the script fails, you can run individual steps manually:
 ```bash
 # Build standard debug
 ./gradlew assembleStandardDebug
-
-# Build Google Play release
-./gradlew assembleGoogleplayRelease
 
 # Build Google Play bundle
 ./gradlew bundleGoogleplayRelease

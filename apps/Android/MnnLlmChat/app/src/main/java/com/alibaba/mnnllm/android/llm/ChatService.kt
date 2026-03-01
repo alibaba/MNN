@@ -34,7 +34,9 @@ class ChatService {
             sessionIdParam!!
         }
         
-        val session = if (ModelTypeUtils.isDiffusionModel(modelName)) {
+        val session = if (ModelTypeUtils.isSanaModel(modelName)) {
+            SanaSession(modelId, sessionId, configPath!!, historyList)
+        } else if (ModelTypeUtils.isDiffusionModel(modelName)) {
             DiffusionSession(sessionId, configPath!!, historyList)
         } else {
             val llmSession = LlmSession(modelId, sessionId, configPath!!, historyList)

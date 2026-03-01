@@ -47,7 +47,14 @@ data class ModelConfig(
     @SerializedName("assistant_prompt_template")var assistantPromptTemplate:String?,
     @SerializedName("penalty_sampler")var penaltySampler:String?,
     @SerializedName("jinja") var jinja: Jinja?,
-    @SerializedName("visual_model") var visualModel: String?
+    @SerializedName("visual_model") var visualModel: String?,
+    @SerializedName("diffusion_memory_mode") var diffusionMemoryMode: String?,
+    @SerializedName("diffusion_steps") var diffusionSteps: Int?,
+    @SerializedName("image_width") var imageWidth: Int?,
+    @SerializedName("image_height") var imageHeight: Int?,
+    @SerializedName("diffusion_seed") var diffusionSeed: Long?,
+    @SerializedName("cfg_prompt") var cfgPrompt: String?,
+    @SerializedName("grid_size") var gridSize: Int?
     ) {
     fun deepCopy(): ModelConfig {
         return ModelConfig(
@@ -76,7 +83,14 @@ data class ModelConfig(
             jinja = this.jinja?.let {
                 Jinja(context = JinjaContext(enableThinking = it.context?.enableThinking == true))
             },
-            visualModel = this.visualModel
+            visualModel = this.visualModel,
+            diffusionMemoryMode = this.diffusionMemoryMode,
+            diffusionSteps = this.diffusionSteps,
+            imageWidth = this.imageWidth,
+            imageHeight = this.imageHeight,
+            diffusionSeed = this.diffusionSeed,
+            cfgPrompt = this.cfgPrompt,
+            gridSize = this.gridSize
         )
     }
 
@@ -93,7 +107,14 @@ data class ModelConfig(
                 this.nGram == loadedConfig.nGram &&
                 this.nGramFactor == loadedConfig.nGramFactor &&
                 this.penaltySampler == loadedConfig.penaltySampler &&
-                this.visualModel == loadedConfig.visualModel
+                this.visualModel == loadedConfig.visualModel &&
+                this.diffusionMemoryMode == loadedConfig.diffusionMemoryMode &&
+                this.diffusionSteps == loadedConfig.diffusionSteps &&
+                this.imageWidth == loadedConfig.imageWidth &&
+                this.imageHeight == loadedConfig.imageHeight &&
+                this.diffusionSeed == loadedConfig.diffusionSeed &&
+                this.cfgPrompt == loadedConfig.cfgPrompt &&
+                this.gridSize == loadedConfig.gridSize
     }
 
     companion object {
@@ -245,7 +266,14 @@ data class ModelConfig(
             penaltySampler = "greedy",
             useMmap = false,
             jinja = null,
-            visualModel = "visual.mnn"
+            visualModel = "visual.mnn",
+            diffusionMemoryMode = "0",
+            diffusionSteps = 20,
+            imageWidth = 512,
+            imageHeight = 512,
+            diffusionSeed = 42L,
+            cfgPrompt = "Generate high quality image",
+            gridSize = 1
         )
 
     }

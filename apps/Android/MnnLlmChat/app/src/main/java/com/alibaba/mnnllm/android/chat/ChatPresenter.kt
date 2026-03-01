@@ -16,6 +16,7 @@ import com.alibaba.mnnllm.android.llm.GenerateProgressListener
 import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.model.ModelUtils
+import com.alibaba.mnnllm.android.modelsettings.ModelConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -142,17 +143,33 @@ class ChatPresenter(
         }
     }
 
-    private fun submitDiffusionRequest(prompt:String): HashMap<String, Any> {
+    private fun submitDiffusionRequest(input: String, userData: ChatDataItem): HashMap<String, Any> {
+        val prompt = resolveDiffusionPrompt(input, modelId)
         val diffusionDestPath = FileUtils.generateDestDiffusionFilePath(
             chatActivity,
             sessionId!!
         )
+        val imageInputPath = userData.imageUris?.firstOrNull()?.let { 
+            FileUtils.getPathForUri(it)
+        } ?: ""
+
+        val config = ModelConfig.loadConfig(modelId)
+        val steps = config?.diffusionSteps ?: ModelConfig.defaultConfig.diffusionSteps ?: 20
+        val seed = if (config?.diffusionSeed != null && config.diffusionSeed!! != -1L) {
+            config.diffusionSeed!!.toInt()
+        } else {
+            Random(System.currentTimeMillis()).nextInt()
+        }
+        val cfgPrompt = config?.cfgPrompt ?: "Generate high quality image"
+        
         return chatSession.generate(
             prompt,
             mapOf(
                 "output" to diffusionDestPath,
-                "iterNum" to 20,
-                "randomSeed" to Random(System.currentTimeMillis()).nextInt()
+                "imageInput" to imageInputPath,
+                "iterNum" to steps,
+                "randomSeed" to seed,
+                "cfgPrompt" to cfgPrompt
             )
             , object : GenerateProgressListener {
                 override fun onProgress(progress: String?): Boolean {
@@ -191,7 +208,7 @@ class ChatPresenter(
         stopGenerating = false
         val benchMarkResult = try {
             if (ModelTypeUtils.isDiffusionModel(this.modelName)) {
-                submitDiffusionRequest(input)
+                submitDiffusionRequest(input, userData)
             } else {
                 submitLlmRequest(input)
             }
@@ -425,6 +442,14 @@ class ChatPresenter(
 
     companion object {
         private const val TAG: String = "ChatPresenter"
+        internal fun resolveDiffusionPrompt(input: String, modelId: String): String {
+            if (input.isNotBlank()) return input
+            return if (ModelTypeUtils.requiresFaceImageInput(modelId)) {
+                DEFAULT_SANA_PROMPT
+            } else {
+                "A cyberpunk cat in neon lights"
+            }
+        }
     }
 
     interface GenerateListener {
