@@ -14,7 +14,7 @@ class ModelSources {
 
     val remoteSourceType: ModelSourceType
         get() {
-            return ModelSourceType.MODEL_SCOPE
+            return currentSourceType
         }
 
     private object InstanceHolder {
@@ -31,6 +31,17 @@ class ModelSources {
 
     companion object {
         private var mockConfig: ModelSourceConfig? = null
+
+        @Volatile
+        private var currentSourceType: ModelSourceType = ModelSourceType.MODEL_SCOPE
+
+        /**
+         * 设置当前下载源类型
+         */
+        @JvmStatic
+        fun setSourceType(type: ModelSourceType) {
+            currentSourceType = type
+        }
 
         const val sourceHuffingFace = "HuggingFace"
         const val sourceModelers = "Modelers"

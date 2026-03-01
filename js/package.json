@@ -1,0 +1,41 @@
+{
+  "name": "@alibaba/mnn",
+  "version": "0.1.0",
+  "description": "JavaScript bindings for MNN (Mobile Neural Network)",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "scripts": {
+    "install": "cmake-js compile",
+    "test": "mocha test/**/*.test.js",
+    "build": "cmake-js compile",
+    "rebuild": "cmake-js rebuild"
+  },
+  "keywords": [
+    "mnn",
+    "deep-learning",
+    "neural-network",
+    "inference",
+    "machine-learning",
+    "alibaba"
+  ],
+  "author": "Alibaba MNN Team",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/alibaba/MNN.git"
+  },
+  "dependencies": {
+    "cmake-js": "^7.0.0",
+    "jimp": "^1.6.0",
+    "node-addon-api": "^7.0.0",
+    "node-gyp-build": "^4.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "chai": "^4.3.0",
+    "mocha": "^10.0.0"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}

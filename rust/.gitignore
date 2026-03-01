@@ -1,0 +1,15 @@
+### Rust
+# Cargo build output
+target/
+
+# IDE
+.idea/
+.vscode/
+*.rs.ier
+*.rs.bk
+
+# MNN Models and Images
+*.mnn
+*.onnx
+*.jpg
+*.png

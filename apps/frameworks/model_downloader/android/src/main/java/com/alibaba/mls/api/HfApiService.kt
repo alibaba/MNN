@@ -11,11 +11,14 @@ import retrofit2.http.Query
  * Minimal HuggingFace API service for the framework
  */
 interface HfApiService {
+    /**
+     * Get the file tree of a model repository.
+     * Returns an array of HfTreeItem objects representing files and directories.
+     */
     @GET("/api/models/{repoId}/tree/{revision}")
     fun getRepoTree(
         @Path("repoId", encoded = true) repoId: String,
         @Path("revision") revision: String,
-        @Query("recursive") recursive: Boolean = true,
-        @Query("expand") expand: Boolean = true
-    ): Call<HfRepoInfo>
+        @Query("recursive") recursive: Boolean = true
+    ): Call<List<HfTreeItem>>
 }
