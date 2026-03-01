@@ -62,6 +62,11 @@ This is our full multimodal language model (LLM) Android app
 
 # Releases
 
+## Version 0.8.0
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_8_0.apk)
++ New feature:
+  + Support Qwen3.5
+
 ## Version 0.7.8
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_8.apk)
 + New:

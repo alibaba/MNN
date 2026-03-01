@@ -16,8 +16,26 @@ NC='\033[0m' # No Color
 
 # Configuration
 PROJECT_NAME="MnnLlmChat"
-VERSION_NAME=$(grep "versionName" app/build.gradle | head -1 | sed 's/.*versionName "\(.*\)"/\1/')
-VERSION_CODE=$(grep "versionCode" app/build.gradle | head -1 | sed 's/.*versionCode \([0-9]*\)/\1/')
+VERSION_NAME=$(awk '
+    /defaultConfig[[:space:]]*\{/ { in_default=1; next }
+    in_default && /versionName[[:space:]]*"/ {
+        match($0, /versionName[[:space:]]*"[^"]+"/)
+        print substr($0, RSTART + 13, RLENGTH - 14)
+        exit
+    }
+    in_default && /\}/ { in_default=0 }
+' app/build.gradle)
+VERSION_CODE=$(awk '
+    /defaultConfig[[:space:]]*\{/ { in_default=1; next }
+    in_default && /versionCode[[:space:]]*[0-9]+/ {
+        match($0, /versionCode[[:space:]]*[0-9]+/)
+        value=substr($0, RSTART, RLENGTH)
+        sub(/versionCode[[:space:]]*/, "", value)
+        print value
+        exit
+    }
+    in_default && /\}/ { in_default=0 }
+' app/build.gradle)
 BUILD_DATE=$(date +"%Y%m%d_%H%M%S")
 RELEASE_HIGHLIGHTS="${RELEASE_HIGHLIGHTS:-Fix download deletion failure bug|Support Sana image edit model}"
 

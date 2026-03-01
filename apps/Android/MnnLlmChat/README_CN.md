@@ -53,6 +53,11 @@
   ```
 # Releases
 
+## Version 0.8.0
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_8_0.apk)
++ 新功能：
+  + 支持 Qwen3.5
+
 ## Version 0.7.8
 + 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_8.apk)
 + 新增：
