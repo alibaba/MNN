@@ -149,7 +149,6 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
 
                     // Configure thinking mode after model is loaded
                     if success {
-                        self?.setModelConfig()
                         self?.configureThinkingMode()
                     }
                 }
@@ -495,13 +494,6 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
     /// Cleans the model temporary folder using FileOperationManager
     func cleanModelTmpFolder() {
         FileOperationManager.shared.cleanModelTempFolder(modelPath: modelInfo.localPath)
-    }
-
-    /// Reloads the currently selected model to apply config changes that require recreation.
-    func reloadCurrentModel() {
-        llm?.cancelInference()
-        llm = nil
-        setupLLM(modelPath: modelInfo.localPath)
     }
 
     func onStart() {
