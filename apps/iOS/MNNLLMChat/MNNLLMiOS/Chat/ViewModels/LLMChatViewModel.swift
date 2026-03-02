@@ -124,7 +124,6 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
             self.send(draft: DraftMessage(
                 text: NSLocalizedString("ModelLoadingText", comment: ""),
                 thinkText: "",
-                useMarkdown: false,
                 medias: [],
                 recording: nil,
                 replyMessage: nil,
@@ -177,7 +176,6 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
         send(draft: DraftMessage(
             text: loadResult,
             thinkText: "",
-            useMarkdown: false,
             medias: [],
             recording: nil,
             replyMessage: nil,
