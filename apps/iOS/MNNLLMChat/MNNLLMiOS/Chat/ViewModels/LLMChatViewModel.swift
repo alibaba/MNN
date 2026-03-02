@@ -406,6 +406,7 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
 
             // 4. Get prompt (use default if empty)
             let prompt = draft.text.isEmpty ? LLMChatViewModel.sanaDiffusionDefaultPrompt : draft.text
+            let cfgPrompt = SanaDiffusionSession.defaultCfgPrompt()
 
             // 5. Get user-configured iteration count and seed value
             let userIterations = self.modelConfigManager.readIterations()
@@ -432,6 +433,7 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
             sanaDiffusion?.runStyleTransfer(
                 withInputImage: inputPath,
                 prompt: prompt,
+                cfgPrompt: cfgPrompt,
                 outputPath: outputPath,
                 iterations: Int32(userIterations),
                 seed: Int32(userSeed),
