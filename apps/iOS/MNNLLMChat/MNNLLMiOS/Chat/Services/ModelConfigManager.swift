@@ -7,7 +7,6 @@
 
 import Foundation
 
-
 class ModelConfigManager {
     private let modelPath: String
     private let configFileName = "config.json"

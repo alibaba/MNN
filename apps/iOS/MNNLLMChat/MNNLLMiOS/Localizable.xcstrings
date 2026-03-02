@@ -79,12 +79,6 @@
         }
       }
     },
-    "Batch File Test" : {
-
-    },
-    "Batch File Testing" : {
-
-    },
     "Benchmark" : {
       "comment" : "基准测试标签",
       "localizations" : {
@@ -393,9 +387,6 @@
         }
       }
     },
-    "File Selection" : {
-
-    },
     "filter.byTag" : {
       "localizations" : {
         "en" : {
@@ -443,9 +434,6 @@
           }
         }
       }
-    },
-    "Format" : {
-
     },
     "Generation rate" : {
       "localizations" : {
@@ -509,9 +497,6 @@
         }
       }
     },
-    "Loaded Test Items (%lld)" : {
-
-    },
     "Loading models..." : {
       "localizations" : {
         "zh-Hans" : {
@@ -553,14 +538,7 @@
       }
     },
     "Model is loading..." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "加载模型中…..."
-          }
-        }
-      }
+
     },
     "Model Market" : {
       "comment" : "模型市场标签",
@@ -777,12 +755,6 @@
         }
       }
     },
-    "Reset" : {
-
-    },
-    "Result %lld" : {
-
-    },
     "Running performance tests" : {
       "localizations" : {
         "zh-Hans" : {
@@ -826,9 +798,6 @@
         }
       }
     },
-    "Select a file containing test prompts and run batch tests against the LLM model." : {
-
-    },
     "Select Model" : {
       "localizations" : {
         "zh-Hans" : {
@@ -838,9 +807,6 @@
           }
         }
       }
-    },
-    "Select Test File" : {
-
     },
     "Settings" : {
       "localizations" : {
@@ -1044,9 +1010,6 @@
         }
       }
     },
-    "Share Results" : {
-
-    },
     "Start benchmark after selecting your model" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1109,9 +1072,6 @@
           }
         }
       }
-    },
-    "Supported formats: .txt, .json, .jsonl" : {
-
     },
     "tag.audioUnderstanding" : {
       "extractionState" : "stale",
@@ -1327,9 +1287,6 @@
         }
       }
     },
-    "Test %lld" : {
-
-    },
     "Test %lld of %lld" : {
       "localizations" : {
         "en" : {
@@ -1349,12 +1306,6 @@
           }
         }
       }
-    },
-    "Test Results (%lld)" : {
-
-    },
-    "Testing in Progress..." : {
-
     },
     "This is a local large model application that requires certain performance from your device.\nIt is recommended to choose different model sizes based on your device's memory. \n\nThe model recommendations for iPhone are as follows:\n- For 8GB of RAM, models up to 8B are recommended (e.g., iPhone 16 Pro).\n- For 6GB of RAM, models up to 3B are recommended (e.g., iPhone 15 Pro).\n- For 4GB of RAM, models up to 1B or smaller are recommended (e.g., iPhone 13).\n\nChoosing a model that is too large may cause insufficient memory and crashes." : {
       "extractionState" : "stale",
@@ -1481,9 +1432,6 @@
           }
         }
       }
-    },
-    "批量文件测试" : {
-
     },
     "搜索模型..." : {
       "localizations" : {

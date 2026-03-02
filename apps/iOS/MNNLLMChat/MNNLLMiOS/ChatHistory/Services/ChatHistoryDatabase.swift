@@ -155,22 +155,8 @@ class ChatHistoryDatabase {
 
     // For backward compatibility
     func saveChat(historyId: String, modelId: String, modelName _: String, messages: [Message]) {
-        let modelInfo = createFallbackModelInfo(for: modelId)
+        let modelInfo = ModelInfo(modelId: modelId, isDownloaded: true)
         saveChat(historyId: historyId, modelInfo: modelInfo, messages: messages)
-    }
-
-    /// Create fallback ModelInfo that correctly identifies local models
-    private func createFallbackModelInfo(for modelId: String) -> ModelInfo {
-        // Check if this modelId corresponds to a local model
-        let localModels = ModelInfo.getAvailableLocalModels()
-
-        // Try to find matching local model by name or id
-        if let localModel = localModels.first(where: { $0.modelName == modelId || $0.id.contains(modelId) }) {
-            return localModel
-        }
-
-        // Fallback to downloaded model
-        return ModelInfo(modelId: modelId, isDownloaded: true)
     }
 
     func getAllHistory() -> [ChatHistory] {
@@ -192,17 +178,17 @@ class ChatHistoryDatabase {
                             // print("Successfully decoded ModelInfo from JSON for history: \(history[id])")
                         } catch {
                             // print("Failed to decode ModelInfo from JSON, using fallback: \(error)")
-                            modelInfoObj = createFallbackModelInfo(for: history[modelId])
+                            modelInfoObj = ModelInfo(modelId: history[modelId], isDownloaded: true)
                         }
                     } else {
                         // For backward compatibility
                         // print("No modelInfo data found, using fallback for history: \(history[id])")
-                        modelInfoObj = createFallbackModelInfo(for: history[modelId])
+                        modelInfoObj = ModelInfo(modelId: history[modelId], isDownloaded: true)
                     }
                 } catch {
                     // For backward compatibility
                     // print("ModelInfo column not found, using fallback for history: \(history[id])")
-                    modelInfoObj = createFallbackModelInfo(for: history[modelId])
+                    modelInfoObj = ModelInfo(modelId: history[modelId], isDownloaded: true)
                 }
 
                 let chatHistory = ChatHistory(
@@ -223,7 +209,7 @@ class ChatHistoryDatabase {
     }
 
     private func validateAndFixImagePaths(_ messages: [HistoryMessage], historyId: String) -> [HistoryMessage] {
-        messages.map { message in
+        return messages.map { message in
             var updatedMessage = message
 
             if let images = message.images {
