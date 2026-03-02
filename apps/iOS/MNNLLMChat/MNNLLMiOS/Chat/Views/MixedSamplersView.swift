@@ -1,5 +1,5 @@
 //
-//  MixedSamplersView.swift
+//  LLMChatView.swift
 //  MNNLLMiOS
 //
 //  Created by 游薪渝(揽清) on 2025/3/24.
@@ -11,7 +11,7 @@ struct MixedSamplersView: View {
     @Binding var selectedSamplers: Set<String>
     @Binding var samplersOrder: [String]
     let onUpdate: () -> Void
-
+    
     @Binding var temperature: Double
     @Binding var topK: Double
     @Binding var topP: Double
@@ -19,6 +19,7 @@ struct MixedSamplersView: View {
     @Binding var tfsZ: Double
     @Binding var typical: Double
     @Binding var penalty: Double
+    
 
     let onUpdateTemperature: (Double) -> Void
     let onUpdateTopK: (Int) -> Void
@@ -27,23 +28,24 @@ struct MixedSamplersView: View {
     let onUpdateTfsZ: (Double) -> Void
     let onUpdateTypical: (Double) -> Void
     let onUpdatePenalty: (Double) -> Void
-
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Configure mixed samplers:")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
-
+            
             List {
                 ForEach(samplersOrder, id: \.self) { sampler in
                     VStack {
                         HStack {
+                            
                             switch sampler {
                             case "temperature":
                                 ParameterSliderView(
                                     title: "Temperature",
                                     value: $temperature,
-                                    range: 0.0 ... 2.0,
+                                    range: 0.0...2.0,
                                     format: "%.2f",
                                     intValue: false,
                                     onChanged: onUpdateTemperature
@@ -53,7 +55,7 @@ struct MixedSamplersView: View {
                                 ParameterSliderView(
                                     title: "Top K",
                                     value: $topK,
-                                    range: 1 ... 100,
+                                    range: 1...100,
                                     format: "%.0f",
                                     intValue: true,
                                     onChanged: { onUpdateTopK(Int($0)) }
@@ -63,7 +65,7 @@ struct MixedSamplersView: View {
                                 ParameterSliderView(
                                     title: "Top P",
                                     value: $topP,
-                                    range: 0.0 ... 1.0,
+                                    range: 0.0...1.0,
                                     format: "%.2f",
                                     intValue: false,
                                     onChanged: onUpdateTopP
@@ -73,7 +75,7 @@ struct MixedSamplersView: View {
                                 ParameterSliderView(
                                     title: "Min P",
                                     value: $minP,
-                                    range: 0.05 ... 0.3,
+                                    range: 0.05...0.3,
                                     format: "%.2f",
                                     intValue: false,
                                     onChanged: onUpdateMinP
@@ -83,7 +85,7 @@ struct MixedSamplersView: View {
                                 ParameterSliderView(
                                     title: "TFS-Z",
                                     value: $tfsZ,
-                                    range: 0.9 ... 0.99,
+                                    range: 0.9...0.99,
                                     format: "%.2f",
                                     intValue: false,
                                     onChanged: onUpdateTfsZ
@@ -93,7 +95,7 @@ struct MixedSamplersView: View {
                                 ParameterSliderView(
                                     title: "Typical",
                                     value: $typical,
-                                    range: 0.8 ... 0.95,
+                                    range: 0.8...0.95,
                                     format: "%.2f",
                                     intValue: false,
                                     onChanged: onUpdateTypical
@@ -103,7 +105,7 @@ struct MixedSamplersView: View {
                                 ParameterSliderView(
                                     title: "Penalty",
                                     value: $penalty,
-                                    range: 0.0 ... 0.5,
+                                    range: 0.0...0.5,
                                     format: "%.2f",
                                     intValue: false,
                                     onChanged: onUpdatePenalty
@@ -112,8 +114,8 @@ struct MixedSamplersView: View {
                             default:
                                 EmptyView()
                             }
-
-                            // Toggle switch
+                            
+                            // 开关
                             Toggle("", isOn: Binding(
                                 get: { selectedSamplers.contains(sampler) },
                                 set: { isSelected in
@@ -138,4 +140,4 @@ struct MixedSamplersView: View {
             .environment(\.editMode, .constant(.active))
         }
     }
-}
+} 

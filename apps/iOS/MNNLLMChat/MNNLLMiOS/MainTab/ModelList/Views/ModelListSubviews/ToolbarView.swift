@@ -17,7 +17,7 @@ struct ToolbarView: View {
     let quickFilterTags: [String]
     @Binding var showFilterMenu: Bool
     let onSourceChange: (ModelSource) -> Void
-
+    
     var body: some View {
         VStack(spacing: 12) {
             HStack {
@@ -26,15 +26,15 @@ struct ToolbarView: View {
                     showSourceMenu: $showSourceMenu,
                     onSourceChange: onSourceChange
                 )
-
-                // Quick filter tags
+                
+                // 快捷筛选标签
                 QuickFilterTags(
                     tags: quickFilterTags,
                     selectedTags: $selectedTags
                 )
-
+                
                 Spacer()
-
+                
                 FilterButton(
                     showFilterMenu: $showFilterMenu,
                     selectedTags: $selectedTags,

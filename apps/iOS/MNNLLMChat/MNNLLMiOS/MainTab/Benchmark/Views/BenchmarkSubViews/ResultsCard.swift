@@ -11,7 +11,7 @@ import SwiftUI
 /// Shows comprehensive benchmark results with performance metrics and statistics.
 struct ResultsCard: View {
     let results: BenchmarkResults
-
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             resultsHeader
@@ -29,19 +29,20 @@ struct ResultsCard: View {
                 )
         )
     }
-
+    
     // MARK: - Private Views
-
+    
     private var infoHeader: some View {
+        
         let statistics = BenchmarkResultsHelper.shared.processTestResults(results.testResults, totalTimeSeconds: results.totalTimeSeconds)
-
+        
         return VStack(alignment: .leading, spacing: 8) {
             Text(results.modelDisplayName)
                 .font(.headline)
             Text(BenchmarkResultsHelper.shared.getDeviceInfo())
                 .font(.subheadline)
                 .foregroundColor(.secondary)
-
+        
             Text(String(localized: "Benchmark Config"))
                 .font(.headline)
             Text(statistics.configText)
@@ -51,7 +52,7 @@ struct ResultsCard: View {
                 .foregroundColor(.secondary)
         }
     }
-
+    
     private var resultsHeader: some View {
         HStack {
             HStack(spacing: 12) {
@@ -65,26 +66,26 @@ struct ResultsCard: View {
                             )
                         )
                         .frame(width: 40, height: 40)
-
+                    
                     Image(systemName: "chart.bar.fill")
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(.benchmarkSuccess)
                 }
-
+                
                 VStack(alignment: .leading, spacing: 2) {
                     Text(String(localized: "Benchmark Results"))
                         .font(.title3)
                         .fontWeight(.semibold)
                         .foregroundColor(.primary)
-
+                    
                     Text(String(localized: "Performance analysis complete"))
                         .font(.caption)
                         .foregroundColor(.benchmarkSecondary)
                 }
             }
-
+            
             Spacer()
-
+            
             Button(action: {
                 shareResults()
             }) {
@@ -92,7 +93,7 @@ struct ResultsCard: View {
                     Image(systemName: "square.and.arrow.up")
                         .font(.title2)
                         .foregroundColor(.benchmarkSuccess)
-
+                    
                     Text(String(localized: "Share"))
                         .font(.caption)
                         .foregroundColor(.benchmarkSecondary)
@@ -102,9 +103,10 @@ struct ResultsCard: View {
         }
     }
 
+    
     private var performanceMetrics: some View {
         let statistics = BenchmarkResultsHelper.shared.processTestResults(results.testResults, totalTimeSeconds: results.totalTimeSeconds)
-
+        
         return VStack(spacing: 16) {
             HStack(spacing: 12) {
                 if let prefillStats = statistics.prefillStats {
@@ -124,7 +126,7 @@ struct ResultsCard: View {
                         color: .benchmarkGradientStart
                     )
                 }
-
+                
                 if let decodeStats = statistics.decodeStats {
                     PerformanceMetricView(
                         icon: "gauge",
@@ -143,14 +145,14 @@ struct ResultsCard: View {
                     )
                 }
             }
-
+            
             HStack(spacing: 12) {
                 let totalMemoryKb = BenchmarkResultsHelper.shared.getTotalSystemMemoryKb()
                 let memoryInfo = BenchmarkResultsHelper.shared.formatMemoryUsage(
                     maxMemoryKb: results.maxMemoryKb,
                     totalKb: totalMemoryKb
                 )
-
+                
                 PerformanceMetricView(
                     icon: "memorychip",
                     title: String(localized: "Memory Usage"),
@@ -158,7 +160,7 @@ struct ResultsCard: View {
                     subtitle: String(localized: "Peak memory"),
                     color: .benchmarkWarning
                 )
-
+                
                 PerformanceMetricView(
                     icon: "clock",
                     title: String(localized: "Total Time"),
@@ -169,24 +171,24 @@ struct ResultsCard: View {
             }
         }
     }
-
+    
     private var detailedStats: some View {
         return VStack(alignment: .leading, spacing: 12) {
             VStack(spacing: 8) {
                 HStack {
                     Text(String(localized: "Completed"))
-                        .font(.caption)
-                        .foregroundColor(.benchmarkSecondary)
+                    .font(.caption)
+                    .foregroundColor(.benchmarkSecondary)
                     Spacer()
                     Text(results.timestamp)
                         .font(.caption)
                         .foregroundColor(.benchmarkSecondary)
                 }
-
+                
                 HStack {
                     Text(String(localized: "Powered By MNN"))
-                        .font(.caption)
-                        .foregroundColor(.benchmarkSecondary)
+                    .font(.caption)
+                    .foregroundColor(.benchmarkSecondary)
                     Spacer()
                     Text(verbatim: "https://github.com/alibaba/MNN")
                         .font(.caption)
@@ -196,9 +198,9 @@ struct ResultsCard: View {
             .padding(.vertical, 8)
         }
     }
-
+    
     // MARK: - Helper Functions
-
+    
     /// Formats byte count into human-readable string
     private func formatBytes(_ bytes: Int64) -> String {
         let formatter = ByteCountFormatter()
@@ -206,10 +208,10 @@ struct ResultsCard: View {
         formatter.countStyle = .file
         return formatter.string(fromByteCount: bytes)
     }
-
+    
     /// Initiates sharing of benchmark results through system share sheet
     private func shareResults() {
-        let viewToRender = body.frame(width: 390) // Adjust width as needed
+        let viewToRender = self.body.frame(width: 390) // Adjust width as needed
         if let image = viewToRender.snapshot() {
             presentShareSheet(activityItems: [image, formatResultsForSharing()])
         } else {
@@ -222,8 +224,8 @@ struct ResultsCard: View {
 
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
            let window = windowScene.windows.first,
-           let rootViewController = window.rootViewController
-        {
+           let rootViewController = window.rootViewController {
+
             if let popover = activityViewController.popoverPresentationController {
                 popover.sourceView = window
                 popover.sourceRect = CGRect(x: window.bounds.midX, y: window.bounds.midY, width: 0, height: 0)
@@ -233,46 +235,46 @@ struct ResultsCard: View {
             rootViewController.present(activityViewController, animated: true)
         }
     }
-
+    
     /// Formats benchmark results into shareable text format with performance metrics and hashtags
     private func formatResultsForSharing() -> String {
         let statistics = BenchmarkResultsHelper.shared.processTestResults(results.testResults, totalTimeSeconds: results.totalTimeSeconds)
         let deviceInfo = BenchmarkResultsHelper.shared.getDeviceInfo()
-
+        
         var shareText = """
         📱 MNN LLM Benchmark Results
-
+        
         🤖 Model: \(results.modelDisplayName)
         📱 \(deviceInfo)
         📅 Completed: \(results.timestamp)
-
+        
         📊 Configuration:
         \(statistics.configText)
-
+        
         ⚡️ Performance Results:
         """
-
+        
         if let prefillStats = statistics.prefillStats {
             shareText += "\n🔄 Prompt Processing: \(BenchmarkResultsHelper.shared.formatSpeedStatisticsLine(prefillStats))"
         }
-
+        
         if let decodeStats = statistics.decodeStats {
             shareText += "\n⚡️ Token Generation: \(BenchmarkResultsHelper.shared.formatSpeedStatisticsLine(decodeStats))"
         }
-
+        
         let totalMemoryKb = BenchmarkResultsHelper.shared.getTotalSystemMemoryKb()
         let memoryInfo = BenchmarkResultsHelper.shared.formatMemoryUsage(
             maxMemoryKb: results.maxMemoryKb,
             totalKb: totalMemoryKb
         )
         shareText += "\n💾 Peak Memory: \(memoryInfo.valueText) (\(memoryInfo.labelText))"
-
+        
         shareText += "\n\n📈 Summary:"
         shareText += "\n• Total Tokens Processed: \(statistics.totalTokensProcessed)"
         shareText += "\n• Number of Tests: \(statistics.totalTests)"
-
+        
         shareText += "\n\n#MNNLLMBenchmark #AIPerformance #MobileAI"
-
+        
         return shareText
     }
 }
@@ -298,7 +300,7 @@ extension View {
     ResultsCard(
         results: BenchmarkResults(
             modelDisplayName: "Qwen2.5-1.5B-Instruct",
-            maxMemoryKb: 1_200_000, // 1.2 GB in KB
+            maxMemoryKb: 1200000, // 1.2 GB in KB
             testResults: [],
             timestamp: "2025-01-21 14:30:25"
         )

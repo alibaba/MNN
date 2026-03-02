@@ -10,9 +10,9 @@ import UniformTypeIdentifiers
 
 extension URL {
     func isHEICImage() -> Bool {
-        let fileExtension = pathExtension.lowercased()
+        let fileExtension = self.pathExtension.lowercased()
         let utType = UTType(filenameExtension: fileExtension)
-
+        
         return utType == .heif || utType == .heic
     }
 }

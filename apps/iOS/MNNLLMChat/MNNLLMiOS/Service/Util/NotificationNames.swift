@@ -8,9 +8,10 @@
 import Foundation
 
 extension Notification.Name {
+    
     static let dismissKeyboard = Notification.Name("dismissKeyboard")
-
+    
     static let messageSent = Notification.Name("messageSent")
-
+    
     static let onScrollToBottom = Notification.Name("onScrollToBottom")
 }
