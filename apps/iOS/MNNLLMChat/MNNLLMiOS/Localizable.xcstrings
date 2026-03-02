@@ -369,9 +369,6 @@
         }
       }
     },
-    "Default Multimodal Prompt" : {
-
-    },
     "Delete" : {
       "localizations" : {
         "zh-Hans" : {
@@ -745,9 +742,6 @@
           }
         }
       }
-    },
-    "Multimodal Inputs" : {
-
     },
     "My Model" : {
       "comment" : "我的模型标签",
@@ -1646,9 +1640,6 @@
         }
       }
     },
-    "Use Multimodal Prompt API" : {
-
-    },
     "User Guide" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1659,12 +1650,6 @@
           }
         }
       }
-    },
-    "Video Frames" : {
-
-    },
-    "video.frameExtractionFailed" : {
-      "comment" : "Warning shown when a pure video input cannot provide frames."
     },
     "WelcomeSceneText" : {
       "localizations" : {
