@@ -41,9 +41,7 @@ struct ModelSettingsView: View {
     @State private var enableAudioOutput: Bool = false
     @State private var talkerSpeaker: String = "default"
 
-    // iOS supported backends: CPU, Metal (GPU), NPU (CoreML/Neural Engine)
-    // Note: "npu" maps to MNN_FORWARD_NN which uses CoreML on iOS
-    private let backendOptions = ["cpu", "metal", "npu"]
+    private let backendOptions = ["cpu", "opencl"]
     private let precisionOptions = ["low", "high"]
     private let talkerSpeakerOptions = ["Ethan", "Chelsie"]
 
