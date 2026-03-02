@@ -411,25 +411,23 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
             let userIterations = self.modelConfigManager.readIterations()
             let userSeed = self.modelConfigManager.readSeed()
 
-            // 6. Show initial status (one system message; we will update it in place for progress)
-            let initialStage = NSLocalizedString("Starting style transfer...", comment: "")
+            // 6. Show initial status
             try? await self.send(
                 draft: DraftMessage(
-                    text: "\(initialStage) (0%)",
+                    text: NSLocalizedString("Starting style transfer...", comment: ""),
                     thinkText: "",
                     medias: [],
                     recording: nil,
                     replyMessage: nil,
                     createdAt: Date()
                 ),
-                userType: .system
+                userType: .assistant
             )
 
             await MainActor.run {
                 self.isProcessing = true
             }
 
-            var lastProgress: Int32 = 0
             // 7. Run style transfer
             sanaDiffusion?.runStyleTransfer(
                 withInputImage: inputPath,
@@ -437,35 +435,53 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
                 outputPath: outputPath,
                 iterations: Int32(userIterations),
                 seed: Int32(userSeed),
-                progressCallback: { [weak self] progress, _ in
+                progressCallback: { [weak self] progress, stage in
                     guard let self = self else { return }
-                    if progress >= 100 || progress - lastProgress >= 5 {
-                        lastProgress = progress
-                        let stageText: String
-                        if progress <= 10 {
-                            stageText = NSLocalizedString("Processing prompt...", comment: "Sana diffusion progress stage")
-                        } else if progress >= 95 {
-                            stageText = NSLocalizedString("Generating image...", comment: "Sana diffusion progress stage")
-                        } else {
-                            stageText = NSLocalizedString("Running diffusion...", comment: "Sana diffusion progress stage")
-                        }
-                        self.interactor.updateLastMessage(text: "\(stageText) (\(progress)%)")
+                    Task {
+                        try? await self.send(
+                            draft: DraftMessage(
+                                text: stage,
+                                thinkText: "",
+                                medias: [],
+                                recording: nil,
+                                replyMessage: nil,
+                                createdAt: Date()
+                            ),
+                            userType: .system
+                        )
                     }
                 },
-                completion: { [weak self] success, error, totalTimeMs in
+                completion: { [weak self] success, error in
                     guard let self = self else { return }
                     Task { @MainActor in
                         self.isProcessing = false
 
                         if success {
-                            let totalTimeSec = totalTimeMs / 1000.0
-                            let timeText = String(format: "%.1f", totalTimeSec)
-                            let completionText = NSLocalizedString("Style transfer completed!", comment: "") + "\(timeText)s"
-                            self.interactor.updateLastMessage(text: completionText)
+                            try? await self.send(
+                                draft: DraftMessage(
+                                    text: NSLocalizedString("Style transfer completed!", comment: ""),
+                                    thinkText: "",
+                                    medias: [],
+                                    recording: nil,
+                                    replyMessage: nil,
+                                    createdAt: Date()
+                                ),
+                                userType: .system
+                            )
                             self.interactor.sendImage(imageURL: URL(fileURLWithPath: outputPath))
                         } else {
                             let errorMessage = error ?? NSLocalizedString("Style transfer failed.", comment: "")
-                            self.interactor.updateLastMessage(text: errorMessage)
+                            try? await self.send(
+                                draft: DraftMessage(
+                                    text: errorMessage,
+                                    thinkText: "",
+                                    medias: [],
+                                    recording: nil,
+                                    replyMessage: nil,
+                                    createdAt: Date()
+                                ),
+                                userType: .system
+                            )
                         }
                     }
                 }

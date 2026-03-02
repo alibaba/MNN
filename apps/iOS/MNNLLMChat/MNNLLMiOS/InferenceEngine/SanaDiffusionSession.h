@@ -25,8 +25,7 @@ typedef void (^SanaProgressHandler)(int progress, NSString * _Nonnull stage);
 /// Completion handler called when style transfer finishes.
 /// @param success YES if transfer completed successfully, NO otherwise.
 /// @param error Error message if transfer failed, nil on success.
-/// @param totalTimeMs Total processing time in milliseconds (0 if failed before timing).
-typedef void (^SanaStyleTransferCompletion)(BOOL success, NSString * _Nullable error, double totalTimeMs);
+typedef void (^SanaStyleTransferCompletion)(BOOL success, NSString * _Nullable error);
 
 /// A session object that manages Sana Diffusion style transfer operations.
 ///
