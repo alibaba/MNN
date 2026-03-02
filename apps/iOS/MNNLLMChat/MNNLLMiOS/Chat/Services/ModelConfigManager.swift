@@ -201,7 +201,7 @@ class ModelConfigManager {
     // MARK: - Seed
 
     func readSeed() -> Int {
-        return readValue("seed", defaultValue: 42)
+        return readValue("seed", defaultValue: -1)
     }
 
     func updateSeed(_ value: Int) {
