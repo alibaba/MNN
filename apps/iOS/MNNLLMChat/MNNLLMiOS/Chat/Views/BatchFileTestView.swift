@@ -54,73 +54,11 @@ class TextFileActivityItemSource: NSObject, UIActivityItemSource {
 
 /// SwiftUI wrapper for UIActivityViewController
 /// Presents the system share sheet for sharing content
-/// Document picker for selecting files from the system
-/// Provides a SwiftUI wrapper around UIDocumentPickerViewController
-struct DocumentPicker: UIViewControllerRepresentable {
-    let onDocumentPicked: (Result<[URL], Error>) -> Void
-
-    /// Creates the document picker view controller
-    /// - Parameter context: The representable context
-    /// - Returns: Configured UIDocumentPickerViewController
-    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        // Support for .txt, .json, and .jsonl files
-        let supportedTypes: [UTType] = [
-            .text,
-            .json,
-            UTType(filenameExtension: "jsonl") ?? .plainText
-        ]
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: supportedTypes, asCopy: true)
-        picker.delegate = context.coordinator
-        picker.allowsMultipleSelection = false
-        return picker
-    }
-
-    /// Updates the document picker view controller
-    /// - Parameters:
-    ///   - uiViewController: The document picker view controller
-    ///   - context: The representable context
-    func updateUIViewController(_: UIDocumentPickerViewController, context _: Context) {
-        // No updates needed
-    }
-
-    /// Creates the coordinator for handling delegate callbacks
-    /// - Returns: DocumentPickerCoordinator instance
-    func makeCoordinator() -> DocumentPickerCoordinator {
-        DocumentPickerCoordinator(onDocumentPicked: onDocumentPicked)
-    }
-}
-
-/// Coordinator for handling document picker delegate methods
-/// Manages the communication between UIDocumentPickerViewController and SwiftUI
-class DocumentPickerCoordinator: NSObject, UIDocumentPickerDelegate {
-    let onDocumentPicked: (Result<[URL], Error>) -> Void
-
-    /// Initializes the coordinator with a completion handler
-    /// - Parameter onDocumentPicked: Callback for when documents are selected
-    init(onDocumentPicked: @escaping (Result<[URL], Error>) -> Void) {
-        self.onDocumentPicked = onDocumentPicked
-    }
-
-    /// Called when documents are successfully picked
-    /// - Parameter controller: The document picker controller
-    func documentPicker(_: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-        onDocumentPicked(.success(urls))
-    }
-
-    /// Called when document picking is cancelled
-    /// - Parameter controller: The document picker controller
-    func documentPickerWasCancelled(_: UIDocumentPickerViewController) {
-        // User cancelled, no action needed
-    }
-}
-
-/// Share sheet for sharing content with other apps
-/// Provides a SwiftUI wrapper around UIActivityViewController
 struct ShareSheet: UIViewControllerRepresentable {
     let activityItems: [Any]
     let onDismiss: () -> Void
 
-    /// Creates the activity view controller
+    /// Creates the UIActivityViewController
     /// - Parameter context: The representable context
     /// - Returns: Configured UIActivityViewController
     func makeUIViewController(context _: Context) -> UIActivityViewController {
@@ -131,306 +69,283 @@ struct ShareSheet: UIViewControllerRepresentable {
         return controller
     }
 
-    /// Updates the activity view controller
+    /// Updates the view controller (no-op for this implementation)
     /// - Parameters:
-    ///   - uiViewController: The activity view controller
+    ///   - uiViewController: The view controller to update
     ///   - context: The representable context
     func updateUIViewController(_: UIActivityViewController, context _: Context) {
         // No updates needed
     }
 }
 
-/// View for batch file testing functionality
-/// Provides UI for loading test files, running batch tests, and sharing results
+/// Main view for batch file testing functionality
+/// Provides UI for file selection, test execution, and result sharing
 struct BatchFileTestView: View {
-    // MARK: - Properties
+    // MARK: - Environment and State
 
-    /// ViewModel for managing batch test operations
+    /// Reference to the chat view model for LLM operations
+    @ObservedObject var chatViewModel: LLMChatViewModel
+
+    /// View model for batch file testing operations
     @StateObject private var viewModel: BatchFileTestViewModel
 
-    /// Current scene phase for managing share sheet presentation
+    /// Current scene phase for controlling share sheet presentation
     @Environment(\.scenePhase) private var scenePhase
 
-    /// Presentation state for document picker
-    @State private var showingDocumentPicker = false
-
-    /// Presentation state for test type selection
-    @State private var showingTestTypeSelection = false
+    /// Controls the visibility of the file importer
+    @State private var showFileImporter = false
 
     // MARK: - Initialization
 
     /// Initializes the view with a chat view model
     /// - Parameter chatViewModel: The LLM chat view model for processing requests
     init(chatViewModel: LLMChatViewModel) {
+        self.chatViewModel = chatViewModel
         _viewModel = StateObject(wrappedValue: BatchFileTestViewModel(chatViewModel: chatViewModel))
     }
 
-    // MARK: - Body
+    // MARK: - View Body
 
     var body: some View {
         NavigationView {
-            VStack(spacing: 20) {
-                // File Loading Section
-                fileLoadingSection
-
-                // Test Items Display
-                testItemsSection
-
-                // Test Controls
-                testControlsSection
-
-                // Results Section
-                resultsSection
-
-                Spacer()
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Header section
+                    headerSection
+                    
+                    // File selection section
+                    fileSelectionSection
+                    
+                    // Test items display
+                    testItemsSection
+                    
+                    // Control buttons
+                    controlButtonsSection
+                    
+                    // Progress indicator
+                    if viewModel.isTesting {
+                        progressSection
+                    }
+                    
+                    // Results section
+                    if !viewModel.testResults.isEmpty {
+                        resultsSection
+                    }
+                    
+                    Spacer()
+                }
             }
             .padding()
             .navigationTitle("Batch File Test")
             .navigationBarTitleDisplayMode(.inline)
-            .sheet(isPresented: $showingDocumentPicker) {
-                DocumentPicker { result in
-                    handleFileSelection(result)
-                }
-            }
-            .sheet(isPresented: $viewModel.showingShareSheet, onDismiss: viewModel.onShareSheetDismiss) {
-                if let shareURL = viewModel.shareFileURL {
-                    ShareSheet(activityItems: [shareURL], onDismiss: viewModel.onShareSheetDismiss)
-                }
-            }
-            .alert("Error", isPresented: $viewModel.showingError) {
-                Button("OK") {}
-            } message: {
-                Text(viewModel.errorMessage)
-            }
-            .actionSheet(isPresented: $showingTestTypeSelection) {
-                ActionSheet(
-                    title: Text("Select Test Type"),
-                    message: Text("Choose the type of batch test to run"),
-                    buttons: [
-                        .default(Text("Text Test")) {
-                            viewModel.loadLocalBatchTest(for: .text)
-                        },
-                        .default(Text("Image Test")) {
-                            viewModel.loadLocalBatchTest(for: .image)
-                        },
-                        .default(Text("Audio Test")) {
-                            viewModel.loadLocalBatchTest(for: .audio)
-                        },
-                        .cancel(),
-                    ]
-                )
+        }
+        .fileImporter(
+            isPresented: $showFileImporter,
+            allowedContentTypes: [.plainText, .json, .data],
+            allowsMultipleSelection: false
+        ) { result in
+            viewModel.handleFileSelection(result)
+        }
+        .sheet(isPresented: $viewModel.showingShareSheet, onDismiss: {
+            viewModel.onShareSheetDismiss()
+        }) {
+            if let fileURL = viewModel.shareFileURL {
+                ShareSheet(activityItems: [fileURL], onDismiss: {
+                    viewModel.onShareSheetDismiss()
+                })
             }
         }
-        .onChange(of: scenePhase) { newPhase in
+        .alert("Error", isPresented: $viewModel.showingError) {
+            Button("OK") {}
+        } message: {
+            Text(viewModel.errorMessage)
+        }
+        .onChange(of: scenePhase) { oldPhase, newPhase in
             viewModel.handleScenePhaseChange(newPhase)
         }
     }
 
     // MARK: - View Components
 
-    /// File loading section with options for local and external files
-    private var fileLoadingSection: some View {
+    /// Header section with title and description
+    private var headerSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Batch File Testing")
+                .font(.title2)
+                .fontWeight(.bold)
+
+            Text("Select a file containing test prompts and run batch tests against the LLM model.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// File selection section
+    private var fileSelectionSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Load Test Files")
+            Text("File Selection")
                 .font(.headline)
 
-            HStack {
-                Button("Load Local Tests") {
-                    showingTestTypeSelection = true
+            Button(action: {
+                showFileImporter = true
+            }) {
+                HStack {
+                    Image(systemName: "doc.badge.plus")
+                    Text("Select Test File")
                 }
-                .buttonStyle(.bordered)
-                
-                Spacer()
-                
-                Button("Load External File") {
-                    showingDocumentPicker = true
-                }
-                .buttonStyle(.bordered)
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(viewModel.isTesting ? Color.gray : Color.blue)
+                .foregroundColor(.white)
+                .cornerRadius(8)
             }
+            .disabled(viewModel.isTesting)
+
+            Text("Supported formats: .txt, .json, .jsonl")
+                .font(.caption)
+                .foregroundColor(.secondary)
         }
-        .padding()
-        .background(Color(.systemGray6))
-        .cornerRadius(10)
-        .frame(maxWidth: .infinity)
     }
 
     /// Test items display section
     private var testItemsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Test Items")
-                    .font(.headline)
-
-                Spacer()
-
-                Text("\(viewModel.testItems.count) items")
-                    .foregroundColor(.secondary)
-            }
-
+        Group {
             if !viewModel.testItems.isEmpty {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 8) {
-                        ForEach(Array(viewModel.testItems.enumerated()), id: \.offset) { index, item in
-                            testItemRow(item: item, index: index)
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Loaded Test Items (\(viewModel.testItems.count))")
+                        .font(.headline)
+
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 8) {
+                            ForEach(Array(viewModel.testItems.enumerated()), id: \.offset) { index, item in
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Test \(index + 1)")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+
+                                    Text(item.prompt)
+                                        .font(.body)
+                                        .padding(8)
+                                        .background(Color.gray.opacity(0.1))
+                                        .cornerRadius(6)
+                                }
+                            }
                         }
                     }
+                    .frame(maxHeight: 200)
                 }
-                .frame(maxHeight: 400)
-            } else {
-                Text("No test items loaded")
-                    .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding()
             }
         }
-        .padding()
-        .background(Color(.systemGray6))
-        .cornerRadius(10)
     }
 
-    /// Individual test item row
-    private func testItemRow(item: BatchTestItem, index: Int) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text("Item \(index + 1)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                Spacer()
-
-                // Test type indicator
-                Text(item.testType.displayName)
-                    .font(.caption)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(testTypeColor(item.testType))
-                    .foregroundColor(.white)
-                    .cornerRadius(4)
-            }
-
-            Text(item.prompt)
-                .font(.caption)
-                .lineLimit(2)
-                .foregroundColor(.primary)
-        }
-        .padding(8)
-        .background(Color(.systemBackground))
-        .cornerRadius(6)
-    }
-
-    /// Returns color for test type indicator
-    private func testTypeColor(_ testType: BatchTestType) -> Color {
-        switch testType {
-        case .text:
-            return .blue
-        case .image:
-            return .orange
-        case .audio:
-            return .green
-        }
-    }
-
-    /// Test controls section
-    private var testControlsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Test Controls")
-                .font(.headline)
-
-            if viewModel.isTesting {
-                VStack(spacing: 8) {
-                    ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle())
-
-                    Text("Testing, please wait...")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            } else {
-                HStack(spacing: 12) {
-                    Button("Start Batch Test") {
-                        viewModel.startBatchTest()
+    /// Control buttons section
+    private var controlButtonsSection: some View {
+        Group {
+            if !viewModel.testItems.isEmpty {
+                HStack(spacing: 16) {
+                    // Start/Stop button
+                    Button(action: {
+                        if viewModel.isTesting {
+                            viewModel.stopBatchTest()
+                        } else {
+                            viewModel.startBatchTest()
+                        }
+                    }) {
+                        HStack {
+                            Image(systemName: viewModel.isTesting ? "stop.fill" : "play.fill")
+                            Text(viewModel.isTesting ? "Stop Test" : "Start Test")
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(viewModel.isTesting ? Color.red : Color.green)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
                     }
-                    .buttonStyle(.borderedProminent)
                     .disabled(viewModel.testItems.isEmpty)
 
-                    Spacer()
-                    
-                    Button("Reset") {
+                    // Reset button
+                    Button(action: {
                         viewModel.reset()
+                    }) {
+                        HStack {
+                            Image(systemName: "arrow.clockwise")
+                            Text("Reset")
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.orange)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
                     }
-                    .buttonStyle(.bordered)
                 }
             }
         }
+    }
+
+    /// Progress indicator section
+    private var progressSection: some View {
+        VStack(spacing: 8) {
+            Text("Testing in Progress...")
+                .font(.headline)
+        }
         .padding()
-        .frame(maxWidth: .infinity)
-        .background(Color(.systemGray6))
-        .cornerRadius(10)
+        .background(Color.blue.opacity(0.1))
+        .cornerRadius(8)
     }
 
     /// Results section
     private var resultsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Results")
+                Text("Test Results (\(viewModel.testResults.count))")
                     .font(.headline)
 
                 Spacer()
 
-                if !viewModel.testResults.isEmpty {
-                    Text("\(viewModel.testResults.count) results")
-                        .foregroundColor(.secondary)
-                }
-            }
-
-            if !viewModel.testResults.isEmpty {
-                VStack(spacing: 8) {
-                    // Format selection
-                    Text("Export Format:")
-                        .font(.caption)
-
-                    Picker("Format", selection: $viewModel.selectedFormat) {
-                        ForEach(BatchTestFileFormat.allCases, id: \.self) { format in
-                            Text(format.displayName).tag(format)
-                        }
-                    }
-                    .pickerStyle(SegmentedPickerStyle())
-                    
-                    HStack {
-                        Button("Share Results") {
-                            viewModel.generateResultsFile(scenePhase: scenePhase)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        Spacer()
+                // Format picker
+                Picker("Format", selection: $viewModel.selectedFormat) {
+                    ForEach(BatchTestFileFormat.allCases, id: \.self) { format in
+                        Text(format.displayName).tag(format)
                     }
                 }
-            } else {
-                Text("No results available")
-                    .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding()
+                .pickerStyle(MenuPickerStyle())
             }
-        }
-        .padding()
-        .background(Color(.systemGray6))
-        .cornerRadius(10)
-    }
 
-    // MARK: - Helper Methods
+            // Share button
+            Button(action: {
+                viewModel.generateResultsFile(scenePhase: scenePhase)
+            }) {
+                HStack {
+                    Image(systemName: "square.and.arrow.up")
+                    Text("Share Results")
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(Color.blue)
+                .foregroundColor(.white)
+                .cornerRadius(8)
+            }
 
-    /// Handles file selection from document picker
-    /// - Parameter result: Result from document picker
-    private func handleFileSelection(_ result: Result<[URL], Error>) {
-        switch result {
-        case let .success(urls):
-            guard let selectedURL = urls.first else { return }
-            
-            // Pass the URL directly to ViewModel for proper permission handling
-            viewModel.loadTestFile(from: selectedURL)
+            // Results preview
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    ForEach(Array(viewModel.testResults.enumerated()), id: \.offset) { index, result in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Result \(index + 1)")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
 
-        case let .failure(error):
-            viewModel.errorMessage = "File selection failed: \(error.localizedDescription)"
-            viewModel.showingError = true
+                            Text(result)
+                                .font(.body)
+                                .padding(8)
+                                .background(Color.green.opacity(0.1))
+                                .cornerRadius(6)
+                        }
+                    }
+                }
+            }
+            .frame(maxHeight: 200)
         }
     }
 }
