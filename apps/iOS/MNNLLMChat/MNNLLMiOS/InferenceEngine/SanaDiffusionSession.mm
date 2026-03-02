@@ -67,11 +67,10 @@ using namespace CV;
         _isModelLoaded = NO;
         _isProcessing = NO;
         
-        // Load model asynchronously on background thread
-        // Threading strategy: All model loading and inference on background thread
-        // to keep UI responsive. Accept UIApplication warning for better UX.
+        // Load model asynchronously
+        // Note: LLM loading can be on background thread, but Diffusion (Metal) must be on main thread
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-            // Step 1: Load LLM on background thread
+            // Step 1: Load LLM on background thread (no Metal dependency)
             BOOL llmSuccess = [self loadLLMModel];
             if (!llmSuccess) {
                 dispatch_async(dispatch_get_main_queue(), ^{
@@ -83,10 +82,9 @@ using namespace CV;
                 return;
             }
             
-            // Step 2: Load Diffusion on background thread
-            BOOL diffusionSuccess = [self loadDiffusionModel];
-            
+            // Step 2: Load Diffusion on main thread (Metal requires main thread for UIApplication access)
             dispatch_async(dispatch_get_main_queue(), ^{
+                BOOL diffusionSuccess = [self loadDiffusionModel];
                 self->_isModelLoaded = diffusionSuccess;
                 if (completion) {
                     completion(diffusionSuccess);
@@ -218,10 +216,7 @@ using namespace CV;
     
     _isProcessing = YES;
     
-    // Process on background thread to keep UI responsive.
-    // Note: This will trigger "[UIApplication applicationState] must be used from main thread only"
-    // warning from MNN Metal backend. This is expected and acceptable - see threading strategy
-    // comment in initWithModelPath:completion: for details.
+    // Process on background thread
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         @try {
             // Record total start time
