@@ -51,15 +51,15 @@ import UIKit
 /// - Slow operation threshold: 16ms (1 frame time)
 class PerformanceMonitor {
     static let shared = PerformanceMonitor()
-    
-    private var lastUpdateTime: Date = Date()
+
+    private var lastUpdateTime: Date = .init()
     private var updateCount: Int = 0
     private var frameDropCount: Int = 0
     private let targetFPS: Double = 60.0
     private let frameThreshold: TimeInterval = 1.0 / 60.0 * 1.5 // Allow 1.5x normal frame time
-    
+
     private init() {}
-    
+
     /// Records a UI update event and monitors performance metrics
     ///
     /// Call this method whenever you perform UI updates to track performance.
@@ -68,29 +68,29 @@ class PerformanceMonitor {
     func recordUIUpdate() {
         let currentTime = Date()
         let timeDiff = currentTime.timeIntervalSince(lastUpdateTime)
-        
+
         updateCount += 1
-        
+
         // Detect frame drops
         if timeDiff > frameThreshold {
             frameDropCount += 1
             print("⚠️ UI Update Lag detected: \(timeDiff * 1000)ms (expected: \(frameThreshold * 1000)ms)")
         }
-        
+
         // Report statistics every second
         if timeDiff >= 1.0 {
             let actualFPS = Double(updateCount) / timeDiff
             let dropRate = Double(frameDropCount) / Double(updateCount) * 100
-            
+
             print("📊 Performance Stats - FPS: \(String(format: "%.1f", actualFPS)), Drop Rate: \(String(format: "%.1f", dropRate))%")
-            
+
             // Reset counters for next measurement cycle
             updateCount = 0
             frameDropCount = 0
             lastUpdateTime = currentTime
         }
     }
-    
+
     /// Measures execution time for a specific operation
     ///
     /// Wraps any operation and measures its execution time. Operations taking
@@ -105,11 +105,11 @@ class PerformanceMonitor {
         let startTime = CFAbsoluteTimeGetCurrent()
         let result = try block()
         let executionTime = CFAbsoluteTimeGetCurrent() - startTime
-        
+
         if executionTime > 0.016 { // Over 16ms (1 frame time)
             print("⏱️ Slow Operation: \(operation) took \(String(format: "%.3f", executionTime * 1000))ms")
         }
-        
+
         return result
     }
 }

@@ -8,7 +8,7 @@ import SwiftUI
 
 struct ModelIconView: View {
     let modelId: String
-    
+
     var body: some View {
         if let iconName = ModelIconManager.shared.getModelImage(with: modelId) {
             Image(iconName)
@@ -20,4 +20,4 @@ struct ModelIconView: View {
                 .scaledToFit()
         }
     }
-} 
+}

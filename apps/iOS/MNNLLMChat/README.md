@@ -21,14 +21,22 @@ It operates fully offline with high privacy. Once the models are downloaded to t
     - Model search: support keyword search and tag search
 3. **Benchmark Testing**
     - Support automated benchmark testing, outputting Prefill speed, Decode Speed, and Memory Usage information
+    - Support batch testing for text, image, and audio inputs
 4. **Multimodal Chat**: Supports full Markdown format output
     - Text-to-text
-    - Audio-to-text
+    - Audio-to-text (supports audio output for Omni models)
     - Image-to-text: images can be captured or selected from gallery
+    - Video-to-text: supports video input processing
+    - Sana Diffusion: supports image style transfer (e.g., Ghibli style)
 5. **Model Configuration**
     - Support configuring mmap
     - Support configuring sampling strategy
     - Support configuring diffusion settings
+    - Support configuring backend type (CPU/Metal)
+    - Support configuring precision (low/normal/high)
+    - Support configuring thread count
+    - Support configuring multimodal prompt API
+    - Support configuring audio output for Omni models
 6. **Chat History**
     - Support model conversation history list, restore historical conversation scenarios
 
@@ -83,6 +91,7 @@ Additionally, the app supports edge-side usage of DeepSeek with Think mode:
     -DLLM_SUPPORT_VISION=ON
     -DMNN_BUILD_OPENCV=ON
     -DMNN_IMGCODECS=ON
+    -DMNN_BUILD_LLM_OMNI=ON
     "
     ```
 
@@ -131,15 +140,8 @@ For local debugging, simply drag the model files to the LocalModel folder and ru
 
     <img width="400" alt="image" src="./assets/copyLocalModel.png" />
 
-2. After downloading, drag all the files from the model folder into the project's LocalModel folder:
-
-    <img width="300" alt="image" src="./assets/copyLocalModel2.png" />
-
-3. Ensure that the above files are included in the Copy Bundle Resources section:
-
-    <img width="400" alt="image" src="./assets/copyLocalMode3.png" />
-
-4. Configure the Model:
+2. Drag the downloaded model folder into the project's LocalModel folder.
+3. For root directory models, you can configure them:
 
 Go to ModelListViewModel.swift for configuration, such as whether to support thinking mode:
 
@@ -166,6 +168,17 @@ ModelStorageManager.shared.markModelAsDownloaded(modelName)
 The app will automatically detect and load models from the LocalModel folder without requiring additional configuration.
 
 ## Release Notes
+
+### Version 0.5
+
+- Added Sana Diffusion support for image style transfer (e.g., Ghibli style)
+- Added audio output support for Omni models
+- Added video input support for multimodal conversations
+- Added multimodal prompt API configuration
+- Added backend type configuration (CPU/Metal)
+- Added precision configuration (low/normal/high)
+- Added thread count configuration
+- Added batch testing support for text, image, and audio inputs
 
 ### Version 0.4
 

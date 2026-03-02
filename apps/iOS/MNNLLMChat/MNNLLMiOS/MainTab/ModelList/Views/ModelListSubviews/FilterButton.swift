@@ -12,7 +12,7 @@ struct FilterButton: View {
     @Binding var selectedTags: Set<String>
     @Binding var selectedCategories: Set<String>
     @Binding var selectedVendors: Set<String>
-    
+
     var body: some View {
         Button(action: {
             showFilterMenu.toggle()

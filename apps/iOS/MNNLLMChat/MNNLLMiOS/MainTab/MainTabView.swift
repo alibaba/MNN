@@ -8,34 +8,31 @@
 import SwiftUI
 
 struct MainTabView: View {
-    
     @State private var histories: [ChatHistory] = []
     @State private var showHistory = false
     @State private var showHistoryButton = true
     @State private var selectedHistory: ChatHistory? = nil
-    
+
     @State private var showSettings = false
-    
+
     @State private var navigateToSettings = false
     @State private var navigateToChat = false
-    
+
     @State private var selectedTab: Int = 0
     @State private var hasConfiguredAppearance = false
-    
+
     @StateObject private var modelListViewModel = ModelListViewModel()
-    
-    
+
     private var titles: [String] {
         [
             NSLocalizedString("My Model", comment: "我的模型标签"),
             NSLocalizedString("Model Market", comment: "模型市场标签"),
-            NSLocalizedString("Benchmark", comment: "基准测试标签")
+            NSLocalizedString("Benchmark", comment: "基准测试标签"),
         ]
     }
-    
+
     var body: some View {
         ZStack {
-            
             TabView(selection: $selectedTab) {
                 createTabContent(
                     content: LocalModelListView(viewModel: modelListViewModel),
@@ -43,14 +40,14 @@ struct MainTabView: View {
                     icon: "home",
                     tag: 0
                 )
-                
+
                 createTabContent(
                     content: ModelListView(viewModel: modelListViewModel),
                     title: titles[1],
                     icon: "market",
                     tag: 1
                 )
-                
+
                 createTabContent(
                     content: BenchmarkView(),
                     title: titles[2],
@@ -63,34 +60,34 @@ struct MainTabView: View {
                 loadHistoriesIfNeeded()
             }
             .tint(.black)
-            
+
             // Overlay for dimming the background when history is shown
             if showHistory {
                 Color.black.opacity(0.5)
-                .edgesIgnoringSafeArea(.all)
-                .onTapGesture {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        showHistory = false
+                    .edgesIgnoringSafeArea(.all)
+                    .onTapGesture {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showHistory = false
+                        }
                     }
-                }
             }
-            
+
             // Side menu for displaying chat history
-            SideMenuView(isOpen: $showHistory, 
-                        selectedHistory: $selectedHistory, 
-                        histories: $histories,
-                        navigateToMainSettings: $navigateToSettings)
-                        .edgesIgnoringSafeArea(.all)
+            SideMenuView(isOpen: $showHistory,
+                         selectedHistory: $selectedHistory,
+                         histories: $histories,
+                         navigateToMainSettings: $navigateToSettings)
+                .edgesIgnoringSafeArea(.all)
         }
-        .onChange(of: showHistory) { oldValue, newValue in
+        .onChange(of: showHistory) { _, newValue in
             handleHistoryToggle(newValue)
         }
-        .onChange(of: modelListViewModel.selectedModel) { oldValue, newValue in
+        .onChange(of: modelListViewModel.selectedModel) { _, newValue in
             if newValue != nil {
                 navigateToChat = true
             }
         }
-        .onChange(of: selectedHistory) { oldValue, newValue in
+        .onChange(of: selectedHistory) { _, newValue in
             if newValue != nil {
                 navigateToChat = true
             }
@@ -105,7 +102,7 @@ struct MainTabView: View {
     }
 
     // MARK: - View Builders
-    
+
     /// Destination view for chat, either from a new model or a history item.
     @ViewBuilder
     private var chatDestination: some View {
@@ -123,7 +120,7 @@ struct MainTabView: View {
     }
 
     // MARK: - Private Methods
-    
+
     /// Creates a reusable tab content with navigation and common configurations.
     @ViewBuilder
     private func createTabContent<Content: View>(
@@ -166,28 +163,28 @@ struct MainTabView: View {
         }
         .tag(tag)
     }
-    
+
     /// Configures UI appearance only once to prevent memory issues.
     private func setupAppearanceOnce() {
         guard !hasConfiguredAppearance else { return }
         hasConfiguredAppearance = true
-        
+
         setupNavigationBarAppearance()
         setupTabBarAppearance()
     }
-    
+
     /// Loads chat histories if not already loaded.
     private func loadHistoriesIfNeeded() {
         if histories.isEmpty {
             histories = ChatHistoryManager.shared.getAllHistory()
         }
     }
-    
+
     /// Refreshes the histories array.
     private func refreshHistories() {
         histories = ChatHistoryManager.shared.getAllHistory()
     }
-    
+
     /// Handles history toggle with proper memory management.
     private func handleHistoryToggle(_ isShowing: Bool) {
         if isShowing {
@@ -201,26 +198,26 @@ struct MainTabView: View {
             }
         }
     }
-    
+
     /// Configures the appearance of the navigation bar.
     private func setupNavigationBarAppearance() {
         let appearance = UINavigationBarAppearance()
         appearance.configureWithOpaqueBackground()
         appearance.backgroundColor = .white
         appearance.shadowColor = .clear
-        
+
         UINavigationBar.appearance().standardAppearance = appearance
         UINavigationBar.appearance().compactAppearance = appearance
         UINavigationBar.appearance().scrollEdgeAppearance = appearance
     }
-    
+
     /// Configures the appearance of the tab bar.
     private func setupTabBarAppearance() {
         let appearance = UITabBarAppearance()
         appearance.configureWithOpaqueBackground()
-        
+
         let selectedColor = UIColor(Color.primaryPurple)
-        
+
         appearance.stackedLayoutAppearance.selected.iconColor = selectedColor
         appearance.stackedLayoutAppearance.selected.titleTextAttributes = [.foregroundColor: selectedColor]
 

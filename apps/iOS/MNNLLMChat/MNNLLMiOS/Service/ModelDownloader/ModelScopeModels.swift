@@ -1,5 +1,5 @@
 //
-//  ModelClient.swift
+//  ModelScopeModels.swift
 //  MNNLLMiOS
 //
 //  Created by 游薪渝(揽清) on 2025/2/20.
@@ -22,7 +22,7 @@ public struct ModelFile: Codable, Sendable {
     public let path: String
     public let size: Int
     public let revision: String
-    
+
     enum CodingKeys: String, CodingKey {
         case type = "Type"
         case name = "Name"
@@ -35,7 +35,7 @@ public struct ModelFile: Codable, Sendable {
 struct ModelResponse: Codable, Sendable {
     let code: Int
     let data: ModelData
-    
+
     enum CodingKeys: String, CodingKey {
         case code = "Code"
         case data = "Data"
@@ -44,7 +44,7 @@ struct ModelResponse: Codable, Sendable {
 
 struct ModelData: Codable, Sendable {
     let files: [ModelFile]
-    
+
     enum CodingKeys: String, CodingKey {
         case files = "Files"
     }
