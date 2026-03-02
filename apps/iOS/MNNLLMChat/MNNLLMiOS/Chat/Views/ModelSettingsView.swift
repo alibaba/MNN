@@ -36,8 +36,6 @@ struct ModelSettingsView: View {
     @State private var mixedSamplersOrder: [String] = []
 
     @State private var penaltySampler: PenaltySamplerType = .greedy
-    @State private var videoMaxFrames: Int = 8
-    @State private var defaultMultimodalPrompt: String = ""
 
     private let backendOptions = ["cpu", "opencl"]
     private let precisionOptions = ["low", "high"]
@@ -89,36 +87,6 @@ struct ModelSettingsView: View {
                     }
                 } header: {
                     Text("Model Configuration")
-                }
-
-                Section {
-                    Stepper(value: $videoMaxFrames, in: 1 ... 32) {
-                        HStack {
-                            Text("Video Frames")
-                            Spacer()
-                            Text("\(videoMaxFrames)")
-                        }
-                    }
-                    .onChange(of: videoMaxFrames) { _, newValue in
-                        viewModel.updateVideoMaxFrames(newValue)
-                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Default Multimodal Prompt")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                        TextEditor(text: $defaultMultimodalPrompt)
-                            .frame(minHeight: 80)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.secondary.opacity(0.3))
-                            )
-                            .onChange(of: defaultMultimodalPrompt) { _, newValue in
-                                viewModel.updateDefaultMultimodalPrompt(newValue)
-                            }
-                    }
-                } header: {
-                    Text("Multimodal Inputs")
                 }
 
                 // Diffusion Settings
@@ -349,8 +317,6 @@ struct ModelSettingsView: View {
                 nGram = Double(viewModel.modelConfigManager.readNGram())
                 nGramFactor = viewModel.modelConfigManager.readNGramFactor()
             }
-            videoMaxFrames = viewModel.modelConfigManager.readVideoMaxFrames()
-            defaultMultimodalPrompt = viewModel.modelConfigManager.readDefaultMultimodalPrompt()
 
             // Initialize mixed samplers
             let savedMixedSamplers = viewModel.modelConfigManager.readMixedSamplers()
@@ -362,8 +328,6 @@ struct ModelSettingsView: View {
         }
         .onDisappear {
             viewModel.setModelConfig()
-            viewModel.updateVideoMaxFrames(videoMaxFrames)
-            viewModel.updateDefaultMultimodalPrompt(defaultMultimodalPrompt)
         }
     }
 
