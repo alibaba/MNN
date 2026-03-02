@@ -720,9 +720,6 @@
         }
       }
     },
-    "Model Type" : {
-
-    },
     "ModelLoadingFailText" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -904,9 +901,6 @@
         }
       }
     },
-    "Please select an image for style transfer." : {
-
-    },
     "Powered By MNN" : {
 
     },
@@ -1008,9 +1002,6 @@
           }
         }
       }
-    },
-    "Sana Style Transfer" : {
-
     },
     "Search models..." : {
       "localizations" : {
@@ -1295,9 +1286,6 @@
         }
       }
     },
-    "Starting style transfer..." : {
-
-    },
     "Status Update" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1328,15 +1316,6 @@
           }
         }
       }
-    },
-    "Style transfer completed!" : {
-
-    },
-    "Style transfer failed." : {
-
-    },
-    "Style Transfer Settings" : {
-
     },
     "Success" : {
       "comment" : "Alert title for cache cleared",
@@ -1678,9 +1657,6 @@
         }
       }
     },
-    "Unsupported image format. Please use JPG/JPEG images for style transfer." : {
-
-    },
     "Use HuggingFace to download" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1722,7 +1698,6 @@
       }
     },
     "Use Multimodal Prompt API" : {
-      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
