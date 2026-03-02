@@ -121,19 +121,15 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
     func setupLLM(modelPath: String) {
         Task { @MainActor in
             self.isModelLoaded = false
-            do {
-                try await self.send(draft: DraftMessage(
-                    text: NSLocalizedString("ModelLoadingText", comment: ""),
-                    thinkText: "",
-                    useMarkdown: false,
-                    medias: [],
-                    recording: nil,
-                    replyMessage: nil,
-                    createdAt: Date()
-                ), userType: .system)
-            } catch {
-                print("Error sending model loading status: \(error)")
-            }
+            self.send(draft: DraftMessage(
+                text: NSLocalizedString("ModelLoadingText", comment: ""),
+                thinkText: "",
+                useMarkdown: false,
+                medias: [],
+                recording: nil,
+                replyMessage: nil,
+                createdAt: Date()
+            ), userType: .system)
         }
 
         if modelInfo.modelName.lowercased().contains("diffusion") {
@@ -178,21 +174,15 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
         let modelLoadFailText = NSLocalizedString("ModelLoadingFailText", comment: "")
         let loadResult = success ? modelLoadSuccessText : modelLoadFailText
 
-        Task {
-            do {
-                try await send(draft: DraftMessage(
-                    text: loadResult,
-                    thinkText: "",
-                    useMarkdown: false,
-                    medias: [],
-                    recording: nil,
-                    replyMessage: nil,
-                    createdAt: Date()
-                ), userType: .system)
-            } catch {
-                print("Error sending model load status: \(error)")
-            }
-        }
+        send(draft: DraftMessage(
+            text: loadResult,
+            thinkText: "",
+            useMarkdown: false,
+            medias: [],
+            recording: nil,
+            replyMessage: nil,
+            createdAt: Date()
+        ), userType: .system)
     }
 
     private func processHistoryMessages() {
@@ -220,54 +210,24 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
         llm?.addPrompts(from: nsArray)
     }
 
-    /// Sends a draft message to the LLM for processing
-    /// - Parameter draft: The draft message to send
     func sendToLLM(draft: DraftMessage) {
         NotificationCenter.default.post(name: .dismissKeyboard, object: nil)
 
-        Task {
-            do {
-                // Update Message UI and wait for completion
-                try await send(draft: draft, userType: .user)
+        send(draft: draft, userType: .user)
 
-                recordModelUsage()
+        recordModelUsage()
 
-                if isModelLoaded {
-                    if modelInfo.modelName.lowercased().contains("diffusion") {
-                        getDiffusionResponse(draft: draft)
-                    } else {
-                        getLLMRespsonse(draft: draft)
-                    }
-                }
-            } catch {
-                print("Error sending message to LLM: \(error)")
-                // Send error message to user
-                Task {
-                    do {
-                        try await send(draft: DraftMessage(
-                            text: "Error: Failed to send message. Please try again.",
-                            thinkText: "",
-                            useMarkdown: false,
-                            medias: [],
-                            recording: nil,
-                            replyMessage: nil,
-                            createdAt: Date()
-                        ), userType: .system)
-                    } catch {
-                        print("Failed to send error message: \(error)")
-                    }
-                }
+        if isModelLoaded {
+            if modelInfo.modelName.lowercased().contains("diffusion") {
+                getDiffusionResponse(draft: draft)
+            } else {
+                getLLMRespsonse(draft: draft)
             }
         }
     }
 
-    /// Sends a draft message to the chat interactor asynchronously
-    /// - Parameters:
-    ///   - draft: The draft message to send
-    ///   - userType: The type of user sending the message
-    /// - Throws: Any error that occurs during message sending
-    func send(draft: DraftMessage, userType: UserType) async throws {
-        try await interactor.send(draftMessage: draft, userType: userType)
+    func send(draft: DraftMessage, userType: UserType) {
+        interactor.send(draftMessage: draft, userType: userType)
     }
 
     func getDiffusionResponse(draft: DraftMessage) {
@@ -276,7 +236,7 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
 
             var lastProcess: Int32 = 0
 
-            try await self.send(draft: DraftMessage(text: "Start Generating Image...", thinkText: "", medias: [], recording: nil, replyMessage: nil, createdAt: Date()), userType: .assistant)
+            self.send(draft: DraftMessage(text: "Start Generating Image...", thinkText: "", medias: [], recording: nil, replyMessage: nil, createdAt: Date()), userType: .assistant)
 
             // Get user-configured iteration count and seed value
             let userIterations = self.modelConfigManager.readIterations()
@@ -289,23 +249,11 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
                            progressCallback: { [weak self] progress in
                                guard let self = self else { return }
                                if progress == 100 {
-                                   Task {
-                                       do {
-                                           try await self.send(draft: DraftMessage(text: "Image generated successfully!", thinkText: "", medias: [], recording: nil, replyMessage: nil, createdAt: Date()), userType: .system)
-                                       } catch {
-                                           print("Error sending image generation success message: \(error)")
-                                       }
-                                   }
+                                   self.send(draft: DraftMessage(text: "Image generated successfully!", thinkText: "", medias: [], recording: nil, replyMessage: nil, createdAt: Date()), userType: .system)
                                    self.interactor.sendImage(imageURL: URL(fileURLWithPath: tempImagePath))
                                } else if (progress - lastProcess) > 20 {
                                    lastProcess = progress
-                                   Task {
-                                       do {
-                                           try await self.send(draft: DraftMessage(text: "Generating Image \(progress)%", thinkText: "", medias: [], recording: nil, replyMessage: nil, createdAt: Date()), userType: .system)
-                                       } catch {
-                                           print("Error sending image generation progress message: \(error)")
-                                       }
-                                   }
+                                   self.send(draft: DraftMessage(text: "Generating Image \(progress)%", thinkText: "", medias: [], recording: nil, replyMessage: nil, createdAt: Date()), userType: .system)
                                }
                            })
         }
@@ -314,27 +262,17 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
     func getLLMRespsonse(draft: DraftMessage) {
         Task {
             await llmState.setProcessing(true)
-            // First, send the empty message asynchronously
-            let emptyMessage = DraftMessage(
-                text: "",
-                thinkText: "",
-                medias: [],
-                recording: nil,
-                replyMessage: nil,
-                createdAt: Date()
-            )
-
-            do {
-                try await self.send(draft: emptyMessage, userType: .assistant)
-            } catch {
-                print("Error sending empty message: \(error)")
-                await llmState.setProcessing(false)
-                return
-            }
-
-            // Then update UI state on main actor
             await MainActor.run {
                 self.isProcessing = true
+                let emptyMessage = DraftMessage(
+                    text: "",
+                    thinkText: "",
+                    medias: [],
+                    recording: nil,
+                    replyMessage: nil,
+                    createdAt: Date()
+                )
+                self.send(draft: emptyMessage, userType: .assistant)
                 if let lastMessage = self.messages.last {
                     self.currentStreamingMessageId = lastMessage.id
 
@@ -378,20 +316,14 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
                         await UIUpdateOptimizer.shared.forceFlush { [weak self] finalOutput in
                             guard let self = self else { return }
                             if !finalOutput.isEmpty {
-                                Task {
-                                    do {
-                                        try await self.send(draft: DraftMessage(
-                                            text: finalOutput,
-                                            thinkText: "",
-                                            medias: [],
-                                            recording: nil,
-                                            replyMessage: nil,
-                                            createdAt: Date()
-                                        ), userType: .assistant)
-                                    } catch {
-                                        print("Error sending final output message: \(error)")
-                                    }
-                                }
+                                self.send(draft: DraftMessage(
+                                    text: finalOutput,
+                                    thinkText: "",
+                                    medias: [],
+                                    recording: nil,
+                                    replyMessage: nil,
+                                    createdAt: Date()
+                                ), userType: .assistant)
                             }
                         }
 
@@ -416,20 +348,14 @@ final class LLMChatViewModel: ObservableObject, StreamingMessageProvider {
                 Task {
                     await UIUpdateOptimizer.shared.addUpdate(output) { [weak self] output in
                         guard let self = self else { return }
-                        Task {
-                            do {
-                                try await self.send(draft: DraftMessage(
-                                    text: output,
-                                    thinkText: "",
-                                    medias: [],
-                                    recording: nil,
-                                    replyMessage: nil,
-                                    createdAt: Date()
-                                ), userType: .assistant)
-                            } catch {
-                                print("Error sending streaming message: \(error)")
-                            }
-                        }
+                        self.send(draft: DraftMessage(
+                            text: output,
+                            thinkText: "",
+                            medias: [],
+                            recording: nil,
+                            replyMessage: nil,
+                            createdAt: Date()
+                        ), userType: .assistant)
                     }
                 }
             }
