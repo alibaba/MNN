@@ -10,14 +10,15 @@
 
 #import <Foundation/Foundation.h>
 
+#include <MNN/llm/llm.hpp>
 #include <MNN/diffusion/diffusion.hpp>
-#include <MNN/diffusion/sana_llm.hpp>
 #include <MNN/expr/Module.hpp>
 #include <MNN/expr/ExprCreator.hpp>
 #include <MNN/expr/Executor.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
 #include <MNN/Interpreter.hpp>
 #include <MNN/AutoTime.hpp>
+//#include <cv/cv.hpp>
 
 #include <random>
 #include <algorithm>
@@ -32,8 +33,11 @@ using namespace CV;
 #pragma mark - Private Interface
 
 @implementation SanaDiffusionSession {
-    /// SanaLlm instance for processing text prompts to embeddings (from sana_llm.hpp).
-    std::unique_ptr<SanaLlm> mSanaLlm;
+    /// LLM instance for processing text prompts to embeddings.
+    std::unique_ptr<Llm> mLlm;
+    
+    /// Meta query vectors loaded from the model.
+    std::vector<VARP> mMetaQueries;
     
     /// Diffusion model instance using SANA_DIFFUSION type.
     std::shared_ptr<Diffusion> mDiffusion;
@@ -97,27 +101,43 @@ using namespace CV;
 
 #pragma mark - Model Loading
 
-/// Loads the SanaLlm model from disk using sana_llm.hpp. Can be called from background thread.
-/// @return YES if SanaLlm loaded successfully, NO otherwise.
+/// Loads the LLM model from disk. Can be called from background thread.
+/// @return YES if LLM loaded successfully, NO otherwise.
 - (BOOL)loadLLMModel {
     @try {
-        NSLog(@"SanaDiffusionSession: Starting SanaLlm loading from %@", mModelPath);
+        NSLog(@"SanaDiffusionSession: Starting model loading from %@", mModelPath);
         
-        // Load SanaLlm using sana_llm.hpp - it handles LLM and meta_queries loading internally
+        // Load LLM for prompt processing
         NSString *llmPath = [mModelPath stringByAppendingPathComponent:@"llm"];
-        NSLog(@"SanaDiffusionSession: Loading SanaLlm from %@", llmPath);
+        NSString *llmConfigPath = [llmPath stringByAppendingPathComponent:@"config.json"];
+        NSLog(@"SanaDiffusionSession: Loading LLM from %@", llmConfigPath);
         
-        mSanaLlm = std::make_unique<SanaLlm>([llmPath UTF8String]);
-        if (!mSanaLlm) {
-            NSLog(@"SanaDiffusionSession: Failed to create SanaLlm");
+        mLlm.reset(Llm::createLLM([llmConfigPath UTF8String]));
+        if (!mLlm) {
+            NSLog(@"SanaDiffusionSession: Failed to create LLM");
             return NO;
         }
         
-        NSLog(@"SanaDiffusionSession: SanaLlm loading complete");
+        // Enable hidden states output for embedding extraction
+        mLlm->set_config("{\"hidden_states\":true}");
+        mLlm->load();
+        
+        // Load meta queries for LLM prompt formatting
+        NSString *metaPath = [llmPath stringByAppendingPathComponent:@"meta_queries.mnn"];
+        NSLog(@"SanaDiffusionSession: Loading meta queries from %@", metaPath);
+        mMetaQueries = Variable::load([metaPath UTF8String]);
+        if (!mMetaQueries.empty()) {
+            mMetaQueries[0].fix(VARP::CONSTANT);
+        } else {
+            NSLog(@"SanaDiffusionSession: Failed to load meta_queries.mnn");
+            return NO;
+        }
+        
+        NSLog(@"SanaDiffusionSession: LLM loading complete");
         return YES;
         
     } @catch (NSException *exception) {
-        NSLog(@"SanaDiffusionSession: Exception during SanaLlm loading: %@", exception.reason);
+        NSLog(@"SanaDiffusionSession: Exception during LLM loading: %@", exception.reason);
         return NO;
     }
 }
@@ -158,31 +178,97 @@ using namespace CV;
 
 #pragma mark - LLM Processing
 
-/// Processes a single text prompt through SanaLlm to generate embeddings for diffusion.
-/// Uses sana_llm.hpp's SanaLlm::process() method directly.
+/// Processes a single text prompt through the LLM to generate embeddings for diffusion.
+/// Based on sana_llm.hpp implementation - processes batch=1.
 ///
 /// @param prompt The text prompt to process.
 /// @return VARP containing the processed embeddings [1, 256, hidden_size], or nullptr on failure.
 - (VARP)processSinglePrompt:(NSString *)prompt {
-    if (!mSanaLlm) {
-        NSLog(@"SanaDiffusionSession: ERROR - mSanaLlm is not initialized!");
+    if (mMetaQueries.empty()) {
+        NSLog(@"SanaDiffusionSession: ERROR - mMetaQueries is empty!");
         return nullptr;
     }
     
-    NSLog(@"SanaDiffusionSession: Processing prompt via SanaLlm: %@", prompt);
+    // Define prompt formatting templates (same as sana_llm.hpp)
+    std::string img_start_token = "<|vision_bos|>";
+    std::string instruction_fmt = "<|im_start|>user\n{input}<|im_end|>\n<|im_start|>assistant\n";
+    std::string generator_fmt = "Generate an image: {input}";
     
-    // Use SanaLlm::process() directly - it handles all the formatting, tokenization, and LLM forward
-    VARP result = mSanaLlm->process([prompt UTF8String]);
+    // Format the prompt
+    auto format_prompt = [&](const std::string& input) {
+        std::string text = generator_fmt;
+        std::string placeholder = "{input}";
+        size_t pos = text.find(placeholder);
+        if (pos != std::string::npos) {
+            text.replace(pos, placeholder.length(), input);
+        }
+        std::string full = instruction_fmt;
+        pos = full.find(placeholder);
+        if (pos != std::string::npos) {
+            full.replace(pos, placeholder.length(), text);
+        }
+        return full + img_start_token;
+    };
     
-    if (result.get() == nullptr) {
-        NSLog(@"SanaDiffusionSession: ERROR - SanaLlm::process() returned nullptr");
-        return nullptr;
+    std::string formatted_prompt = format_prompt([prompt UTF8String]);
+    
+    // Tokenize
+    auto input_ids = mLlm->tokenizer_encode(formatted_prompt);
+    int seq_len = static_cast<int>(input_ids.size());
+    int batch = 1;
+    
+    NSLog(@"SanaDiffusionSession: processSinglePrompt - seq_len=%d", seq_len);
+    
+    // Generate embeddings from token IDs
+    auto inputs_embeds = mLlm->embedding(input_ids);
+    inputs_embeds = _Reshape(inputs_embeds, {batch, seq_len, -1});
+    
+    // Prepare meta queries [256, hidden_size] -> [1, 256, hidden_size]
+    int num_queries = 256;
+    auto meta_queries = mMetaQueries[0];
+    auto meta_queries_batch = _Unsqueeze(meta_queries, {0}); // [1, 256, H]
+    
+    // Concatenate on sequence dimension: [1, seq_len, H] + [1, 256, H] -> [1, seq_len+256, H]
+    auto full_embeds = _Concat({inputs_embeds, meta_queries_batch}, 1);
+    
+    int total_len = seq_len + num_queries;
+    
+    // Build causal attention mask [1, 1, total_len, total_len]
+    std::vector<int> mask_data(total_len * total_len, 0);
+    for (int i = 0; i < total_len; ++i) {
+        for (int j = 0; j <= i; ++j) {
+            mask_data[i * total_len + j] = 1;
+        }
     }
+    auto attention_mask = _Const(mask_data.data(), {batch, 1, total_len, total_len}, NCHW, halide_type_of<int>());
+    
+    // Build position IDs [1, total_len]
+    std::vector<int> pos_ids(total_len);
+    for (int i = 0; i < total_len; ++i) {
+        pos_ids[i] = i;
+    }
+    auto position_ids = _Const(pos_ids.data(), {batch, total_len}, NCHW, halide_type_of<int>());
+    
+    // Reset LLM state before forward
+    mLlm->reset();
+    
+    // Forward through LLM
+    auto outputs = mLlm->forwardRaw(full_embeds, attention_mask, position_ids);
+    int hiddenStateIndex = mLlm->getOutputIndex("hidden_states");
+    hiddenStateIndex = hiddenStateIndex == -1 ? static_cast<int>(outputs.size()) - 1 : hiddenStateIndex;
+    
+    auto output = outputs[hiddenStateIndex];
+    output = _Reshape(output, {batch, -1, output->getInfo()->dim[2]});
+    
+    // Extract last 256 tokens (the query embeddings)
+    auto splits = _Split(output, {total_len - num_queries, num_queries}, 1);
+    
+    auto result = splits[1]; // [1, 256, hidden_size]
     
     // Debug output
     auto resultInfo = result->getInfo();
     if (resultInfo) {
-        NSLog(@"SanaDiffusionSession: SanaLlm output shape: [%d, %d, %d]",
+        NSLog(@"SanaDiffusionSession: processSinglePrompt output shape: [%d, %d, %d]",
               resultInfo->dim[0], resultInfo->dim[1], resultInfo->dim[2]);
     }
     
@@ -407,7 +493,8 @@ using namespace CV;
 #pragma mark - Memory Management
 
 - (void)dealloc {
-    mSanaLlm.reset();
+    mLlm.reset();
+    mMetaQueries.clear();
     mDiffusion.reset();
     NSLog(@"SanaDiffusionSession deallocated");
 }
