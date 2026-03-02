@@ -39,46 +39,6 @@ struct LLMChatView: View {
                                                     sampleRate: 44100, numberOfChannels: 2,
                                                     linearPCMBitDepth: 16)
 
-    private var supportsAudioInput: Bool {
-        if ModelUtils.isAudioModel(viewModel.modelInfo.modelName) {
-            return true
-        }
-        return viewModel.modelInfo.tags.contains { $0.localizedCaseInsensitiveContains("audio") }
-    }
-
-    private var supportsVisualInput: Bool {
-        if ModelUtils.isVisualModel(viewModel.modelInfo.modelName) {
-            return true
-        }
-        let tagMatches = viewModel.modelInfo.tags.contains { tag in
-            tag.localizedCaseInsensitiveContains("image") || tag.localizedCaseInsensitiveContains("video")
-        }
-        let categoryMatches = (viewModel.modelInfo.categories ?? []).contains { category in
-            category.localizedCaseInsensitiveContains("image") || category.localizedCaseInsensitiveContains("video")
-        }
-        return tagMatches || categoryMatches
-    }
-
-    private var supportsVideoInput: Bool {
-        guard supportsVisualInput else { return false }
-        let nameContainsVideo = viewModel.modelInfo.modelName.localizedCaseInsensitiveContains("video")
-        let tagsContainVideo = viewModel.modelInfo.tags.contains { $0.localizedCaseInsensitiveContains("video") }
-        let categoriesContainVideo = (viewModel.modelInfo.categories ?? []).contains { $0.localizedCaseInsensitiveContains("video") }
-        return nameContainsVideo || tagsContainVideo || categoriesContainVideo || ModelUtils.isOmni(viewModel.modelInfo.modelName)
-    }
-
-    private var resolvedAvailableInput: AvailableInputType {
-        if supportsAudioInput && supportsVisualInput {
-            return .full
-        } else if supportsAudioInput {
-            return .textAndAudio
-        } else if supportsVisualInput {
-            return .textAndMedia
-        } else {
-            return .textOnly
-        }
-    }
-
     // MARK: - Initialization
 
     /// Initializes the chat view with model information and optional history
@@ -101,7 +61,10 @@ struct LLMChatView: View {
             }
             .setStreamingMessageProvider(viewModel)
             .setAvailableInput(
-                resolvedAvailableInput
+                self.title.lowercased().contains("omni") ? .full :
+                    self.title.lowercased().contains("vl") ? .textAndMedia :
+                    self.title.lowercased().contains("audio") ? .textAndAudio :
+                    (self.title.isEmpty ? .textOnly : .textOnly)
             )
             .messageUseMarkdown(true)
             .setRecorderSettings(recorderSettings)
@@ -113,7 +76,7 @@ struct LLMChatView: View {
                 }
             )
             .setMediaPickerSelectionParameters(
-                MediaPickerParameters(mediaType: supportsVideoInput ? .photoAndVideo : .photo,
+                MediaPickerParameters(mediaType: .photo,
                                       selectionLimit: 1,
                                       showFullscreenPreview: false)
             )
