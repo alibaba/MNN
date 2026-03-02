@@ -83,8 +83,7 @@ class BenchmarkService: ObservableObject {
     /// Checks if the model is properly initialized and ready for benchmarking
     /// - Returns: True if model is ready, false otherwise
     func isModelInitialized() -> Bool {
-        return llmEngine?.isModelReady() == true
-        // return llmEngine != nil && llmEngine!.isModelReady()
+        return llmEngine != nil && llmEngine!.isModelReady()
     }
     
     /// Initializes a model for benchmark testing
