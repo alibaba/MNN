@@ -2,10 +2,10 @@ package com.alibaba.mnnllm.android.modelmarket
 
 import android.content.Context
 import android.util.Log
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.preference.PreferenceManager
 import com.alibaba.mls.api.download.DownloadPersistentData
 import com.alibaba.mnnllm.android.mainsettings.MainSettings
+import com.alibaba.mnnllm.android.utils.AppUtils
 import com.google.gson.Gson
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -60,11 +60,13 @@ object ModelRepository {
     
     
     private const val TAG = "ModelRepository"
-    private const val NETWORK_URL = "https://meta.alicdn.com/data/mnn/apis/model_market.json"
+    private const val NETWORK_URL_PROD = "https://meta.alicdn.com/data/mnn/apis/model_market.json"
+    private const val NETWORK_URL_DEV = "https://meta.alicdn.com/data/mnn/apis/model_market_dev.json"
     private const val CACHE_FILE_NAME = "model_market_cache.json"
     private const val CACHE_TIMESTAMP_KEY = "model_market_cache_timestamp"
     private const val CACHE_VALID_DURATION = 1 * 60 * 60 * 1000L 
     private const val KEY_ALLOW_NETWORK_MARKET_DATA = "debug_allow_network_market_data"
+    private const val KEY_MARKET_ENV = "debug_market_data_environment"
     
     private fun isAllowNetwork(context: Context): Boolean {
         return com.alibaba.mnnllm.android.utils.PreferenceUtils.getBoolean(context, KEY_ALLOW_NETWORK_MARKET_DATA, true)
@@ -72,6 +74,24 @@ object ModelRepository {
     
     private fun isNetworkDelayEnabled(context: Context): Boolean {
         return com.alibaba.mnnllm.android.utils.PreferenceUtils.getBoolean(context, "debug_enable_network_delay", false)
+    }
+
+    fun getMarketEnvironment(context: Context): String {
+        val env = com.alibaba.mnnllm.android.utils.PreferenceUtils.getString(context, KEY_MARKET_ENV, "prod")
+        return if (env.equals("dev", ignoreCase = true)) "dev" else "prod"
+    }
+
+    fun setMarketEnvironment(context: Context, environment: String) {
+        val oldEnv = getMarketEnvironment(context)
+        val normalized = if (environment.equals("dev", ignoreCase = true)) "dev" else "prod"
+        com.alibaba.mnnllm.android.utils.PreferenceUtils.setString(context, KEY_MARKET_ENV, normalized)
+        // Switching endpoint should trigger a fresh network attempt next time.
+        isNetworkRequestAttempted = false
+        Log.i(TAG, "Market environment switched: $oldEnv -> $normalized, url=${getMarketNetworkUrl(context)}")
+    }
+
+    fun getMarketNetworkUrl(context: Context): String {
+        return if (getMarketEnvironment(context) == "dev") NETWORK_URL_DEV else NETWORK_URL_PROD
     }
 
     fun getModelMarketDataV2(): ModelMarketConfig? {
@@ -92,6 +112,10 @@ object ModelRepository {
         }
         // If we already have cached data and network request was attempted, return cached data
         if (cachedModelMarketData != null && isNetworkRequestAttempted) {
+            Log.i(
+                TAG,
+                "getModelMarketData hit in-memory cache: version=${cachedModelMarketData?.version}, env=${getMarketEnvironment(context)}, url=${getMarketNetworkUrl(context)}"
+            )
             return@withContext cachedModelMarketData
         }
 
@@ -120,6 +144,10 @@ object ModelRepository {
                     cachedModelMarketData = config
                     saveCacheToFile(networkData)
                     isNetworkRequestAttempted = true
+                    Log.i(
+                        TAG,
+                        "getModelMarketData loaded from network: version=${networkData.version}, env=${getMarketEnvironment(context)}, url=${getMarketNetworkUrl(context)}"
+                    )
                     return@withContext config
                 }
                 isNetworkRequestAttempted = true
@@ -139,6 +167,10 @@ object ModelRepository {
                 }
                 val config = convertToConfig(cacheData)
                 cachedModelMarketData = config
+                Log.i(
+                    TAG,
+                    "getModelMarketData loaded from disk cache: version=${cacheData.version}, env=${getMarketEnvironment(context)}, url=${getMarketNetworkUrl(context)}"
+                )
                 return@withContext config
             }
 
@@ -146,6 +178,10 @@ object ModelRepository {
             if (assetsData != null) {
                 val config = convertToConfig(assetsData)
                 cachedModelMarketData = config
+                Log.i(
+                    TAG,
+                    "getModelMarketData fallback to assets: version=${assetsData.version}, env=${getMarketEnvironment(context)}, url=${getMarketNetworkUrl(context)}"
+                )
                 return@withContext config
             }
 
@@ -166,8 +202,9 @@ object ModelRepository {
             kotlinx.coroutines.delay(3000)
         }
         try {
+            val requestUrl = getMarketNetworkUrl(context)
             val request = Request.Builder()
-                .url(NETWORK_URL)
+                .url(requestUrl)
                 .addHeader("Cache-Control", "no-cache, no-store, must-revalidate")
                 .addHeader("Pragma", "no-cache")
                 .addHeader("Expires", "0")
@@ -179,6 +216,7 @@ object ModelRepository {
                 val jsonString = response.body?.string()
                 if (!jsonString.isNullOrEmpty()) {
                     val data = gson.fromJson(jsonString, ModelMarketData::class.java)
+                    Log.i(TAG, "fetchFromNetwork success: url=$requestUrl, version=${data.version}")
                     return@withContext data
                 }
             }
@@ -211,6 +249,10 @@ object ModelRepository {
                 cachedModelMarketData = config
                 saveCacheToFile(networkData)
                 isNetworkRequestAttempted = true
+                Log.i(
+                    TAG,
+                    "refreshFromNetwork applied network data: version=${networkData.version}, env=${getMarketEnvironment(context)}, url=${getMarketNetworkUrl(context)}"
+                )
                 return@withContext config
             }
         } catch (e: Exception) {
@@ -292,6 +334,11 @@ object ModelRepository {
             isVersionLower(assetsVersion, cacheVersion) -> cacheData
             else -> cacheData
         }
+        val selectedSource = if (selectedData === cacheData) "cache" else "assets"
+        Log.i(
+            TAG,
+            "loadCachedOrAssets selected=$selectedSource cacheVersion=$cacheVersion assetsVersion=$assetsVersion env=${getMarketEnvironment(context)}"
+        )
         
         return@withContext convertToConfig(selectedData)
     }
@@ -316,10 +363,20 @@ object ModelRepository {
 
     private suspend fun processModels(models: List<ModelMarketItem>): List<ModelMarketItem> = withContext(Dispatchers.IO) {
         val selectedSource = MainSettings.getDownloadProviderString(context)
-        
-        
-        return@withContext models.filter { 
-            it.sources.containsKey(selectedSource) 
+
+        val currentAppVersion = AppUtils.getAppVersionName(context)
+        return@withContext models.filter {
+            if (!it.sources.containsKey(selectedSource)) {
+                return@filter false
+            }
+            if (!isAppVersionSupported(currentAppVersion, it.minAppVersion)) {
+                Log.i(
+                    TAG,
+                    "filter model by min_app_version: model=${it.modelName}, appVersion=$currentAppVersion, minAppVersion=${it.minAppVersion}"
+                )
+                return@filter false
+            }
+            true
         }.onEach { item ->
             item.currentSource = selectedSource
             item.currentRepoPath = item.sources[selectedSource]!!
@@ -402,14 +459,34 @@ object ModelRepository {
      * @return true if version1 is lower than version2
      */
     private fun isVersionLower(version1: String, version2: String): Boolean {
-        return try {
-            val v1 = version1.toInt()
-            val v2 = version2.toInt()
-            v1 < v2
-        } catch (e: NumberFormatException) {
-            // If parsing fails, treat as equal (use network data)
-            false
+        return compareVersions(version1, version2) < 0
+    }
+
+    internal fun normalizeVersionForComparison(version: String?): String {
+        if (version.isNullOrBlank()) return "0"
+        val match = Regex("""\d+(?:\.\d+)*""").find(version.trim())?.value ?: return "0"
+        return match
+    }
+
+    internal fun compareVersions(version1: String?, version2: String?): Int {
+        val normalizedV1 = normalizeVersionForComparison(version1)
+        val normalizedV2 = normalizeVersionForComparison(version2)
+        val parts1 = normalizedV1.split('.')
+        val parts2 = normalizedV2.split('.')
+        val maxLength = maxOf(parts1.size, parts2.size)
+        for (index in 0 until maxLength) {
+            val segment1 = parts1.getOrNull(index)?.toLongOrNull() ?: 0L
+            val segment2 = parts2.getOrNull(index)?.toLongOrNull() ?: 0L
+            if (segment1 != segment2) {
+                return if (segment1 > segment2) 1 else -1
+            }
         }
+        return 0
+    }
+
+    internal fun isAppVersionSupported(appVersion: String, minAppVersion: String?): Boolean {
+        if (minAppVersion.isNullOrBlank()) return true
+        return compareVersions(appVersion, minAppVersion) >= 0
     }
     
     /**
@@ -420,10 +497,12 @@ object ModelRepository {
         // Check if already initialized or initializing using LoadingState
         val currentState = _loadingStateFlow.value
         if (currentState != LoadingState.IDLE) {
+            Log.i(TAG, "initialize skipped: currentState=$currentState")
             return@withLock _marketDataFlow.value
         }
         
         try {
+            Log.i(TAG, "initialize started: env=${getMarketEnvironment(context)}, url=${getMarketNetworkUrl(context)}")
             // Step 1: Load from cache/assets immediately (fast)
             _loadingStateFlow.value = LoadingState.LOADING_CACHE
             val cachedConfig = loadCachedOrAssets()
@@ -434,6 +513,8 @@ object ModelRepository {
                 _loadingStateFlow.value = LoadingState.LOADED
                 // Build cache for immediate access
                 buildCacheFromData(cachedConfig)
+                val modelCount = cachedConfig.llmModels.size + cachedConfig.ttsModels.size + cachedConfig.asrModels.size + cachedConfig.libs.size
+                Log.i(TAG, "initialize cache/assets ready: version=${cachedConfig.version}, modelCount=$modelCount")
             }
             // Step 2: Start background network refresh (non-blocking)
             startBackgroundRefresh()
@@ -456,6 +537,7 @@ object ModelRepository {
         refreshJob = refreshScope.launch {
             try {
                 _loadingStateFlow.value = LoadingState.LOADING_NETWORK
+                Log.i(TAG, "background refresh started: env=${getMarketEnvironment(context)}, url=${getMarketNetworkUrl(context)}")
                 
                 val networkConfig = refreshFromNetwork()
                 
@@ -467,10 +549,14 @@ object ModelRepository {
                     
                     // Update cache
                     buildCacheFromData(networkConfig)
+                    val modelCount = networkConfig.llmModels.size + networkConfig.ttsModels.size + networkConfig.asrModels.size + networkConfig.libs.size
+                    Log.i(TAG, "background refresh applied: version=${networkConfig.version}, modelCount=$modelCount")
                 } else {
                     // Only set ERROR if we don't have any data yet
                     if (_marketDataFlow.value == null) {
                         _loadingStateFlow.value = LoadingState.ERROR
+                    } else {
+                        Log.i(TAG, "background refresh skipped update: keep existing version=${_marketDataFlow.value?.version}")
                     }
                 }
                 

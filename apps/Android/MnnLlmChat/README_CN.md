@@ -53,6 +53,11 @@
   ```
 # Releases
 
+## Version 0.8.0.1
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_8_0_1.apk)
++ 问题修复：
+  + 修复 Qwen3.5 的 benchmark 崩溃问题
+
 ## Version 0.8.0
 + 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_8_0.apk)
 + 新功能：

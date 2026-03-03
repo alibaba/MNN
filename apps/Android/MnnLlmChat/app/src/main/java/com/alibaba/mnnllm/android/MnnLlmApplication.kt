@@ -4,6 +4,7 @@ package com.alibaba.mnnllm.android
 
 import android.app.Application
 import com.alibaba.mls.api.ApplicationProvider
+import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.update.UpdateChecker
 import com.alibaba.mnnllm.android.utils.CrashUtil
 import com.alibaba.mnnllm.android.utils.CurrentActivityTracker
@@ -35,6 +36,7 @@ class MnnLlmApplication : Application() {
         
         // Set context for ModelListManager (enables auto-initialization)
         ModelListManager.setContext(getInstance())
+        ModelDownloadManager.getInstance(this).setProgressCallbackIntervalMs(500L)
 
         StethoInitializer.initialize(this)
     }

@@ -49,14 +49,14 @@ class ModelSources {
 
         val sourceList = listOf(
             sourceHuffingFace,
-            sourceModelers,
-            sourceModelScope
+            sourceModelScope,
+            sourceModelers
         )
 
         val sourceDisPlayList = listOf(
             R.string.source_huggingface,
-            R.string.source_modelers,
-            R.string.source_modelscope
+            R.string.source_modelscope,
+            R.string.source_modelers
         )
 
         @JvmStatic

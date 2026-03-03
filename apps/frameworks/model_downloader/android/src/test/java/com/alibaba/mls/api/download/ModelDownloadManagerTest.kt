@@ -18,6 +18,60 @@ import com.alibaba.mls.api.ApplicationProvider
 class ModelDownloadManagerTest {
 
     @Test
+    fun testProgressCallbackThrottle_ShouldLimitFrequentDownloadingCallbacks() {
+        val context = RuntimeEnvironment.getApplication()
+        ApplicationProvider.set(context)
+
+        val manager = ModelDownloadManager(context)
+        manager.setProgressCallbackIntervalMs(1000L)
+
+        var progressCallbackCount = 0
+        val listener = object : DownloadListener {
+            override fun onDownloadStart(modelId: String) = Unit
+            override fun onDownloadProgress(modelId: String, downloadInfo: DownloadInfo) {
+                progressCallbackCount++
+            }
+            override fun onDownloadFinished(modelId: String, path: String) = Unit
+            override fun onDownloadFailed(modelId: String, e: Exception) = Unit
+        }
+        manager.addListener(listener)
+
+        val modelId = "ModelScope/MNN/ThrottleTestModel"
+        manager.onDownloadingProgress(modelId, "file", "a.bin", 10L, 100L)
+        manager.onDownloadingProgress(modelId, "file", "a.bin", 20L, 100L)
+        manager.onDownloadingProgress(modelId, "file", "a.bin", 30L, 100L)
+
+        assertEquals("Frequent DOWNLOADING callbacks should be throttled", 1, progressCallbackCount)
+    }
+
+    @Test
+    fun testProgressCallbackThrottle_ShouldBypassThrottleWhenStageChanges() {
+        val context = RuntimeEnvironment.getApplication()
+        ApplicationProvider.set(context)
+
+        val manager = ModelDownloadManager(context)
+        manager.setProgressCallbackIntervalMs(1000L)
+
+        var progressCallbackCount = 0
+        val listener = object : DownloadListener {
+            override fun onDownloadStart(modelId: String) = Unit
+            override fun onDownloadProgress(modelId: String, downloadInfo: DownloadInfo) {
+                progressCallbackCount++
+            }
+            override fun onDownloadFinished(modelId: String, path: String) = Unit
+            override fun onDownloadFailed(modelId: String, e: Exception) = Unit
+        }
+        manager.addListener(listener)
+
+        val modelId = "ModelScope/MNN/ThrottleStageTestModel"
+        manager.onDownloadingProgress(modelId, "file", "a.bin", 10L, 100L)
+        manager.onDownloadingProgress(modelId, "file", "a.bin", 20L, 100L)
+        manager.onDownloadingProgress(modelId, "verify", "a.bin", 20L, 100L)
+
+        assertEquals("Stage changes should force progress callback dispatch", 2, progressCallbackCount)
+    }
+
+    @Test
     fun testGetDownloadInfo_ReturnsNotStart_WhenPartialDownloadExists_ButNotInMemory() {
         val context = RuntimeEnvironment.getApplication()
         ApplicationProvider.set(context)
