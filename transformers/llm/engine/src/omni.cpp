@@ -1001,9 +1001,12 @@ VARP Omni::gen_position_ids(int seq_len) {
         }
     } else {
         for (int i = 0; i < seq_len; i++) {
-            ptr[i] = mPositionIds.mT[i] + mContext->all_seq_len;
-            ptr[i + seq_len] = mPositionIds.mH[i] + mContext->all_seq_len;
-            ptr[i + seq_len * 2] = mPositionIds.mW[i] + mContext->all_seq_len;
+            int mT_val = i < mPositionIds.mT.size() ? mPositionIds.mT[i] : i;
+            int mH_val = i < mPositionIds.mH.size() ? mPositionIds.mH[i] : i;
+            int mW_val = i < mPositionIds.mW.size() ? mPositionIds.mW[i] : i;
+            ptr[i] = mT_val + mContext->all_seq_len;
+            ptr[i + seq_len] = mH_val + mContext->all_seq_len;
+            ptr[i + seq_len * 2] = mW_val + mContext->all_seq_len;
         }
         if (mTalker) {
             mTalker->setPostionIds(mPositionIds);
