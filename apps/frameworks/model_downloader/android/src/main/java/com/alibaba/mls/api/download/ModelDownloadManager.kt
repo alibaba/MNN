@@ -60,10 +60,21 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
         this.downloadListener = listener
     }
 
+    /**
+     * Set minimum interval (ms) between DOWNLOADING progress callbacks for the same model/stage.
+     * Set 0 to disable throttling.
+     */
+    fun setProgressCallbackIntervalMs(intervalMs: Long) {
+        progressCallbackIntervalMs = intervalMs.coerceAtLeast(0L)
+    }
+
+    fun getProgressCallbackIntervalMs(): Long = progressCallbackIntervalMs
+
     fun startDownload(modelId: String) {
         // Clear stale pause flags (e.g. after deleteModel on an idle task).
         hfDownloader.clearPause(modelId)
         msDownloader.clearPause(modelId)
+        progressDispatchTrackers.remove(modelId)
 
         // Immediately trigger preparing state to update UI
         val info = getOrCreateInfo(modelId)
@@ -104,6 +115,7 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
     fun deleteModel(modelId: String) {
         // Stop ongoing transfer first to avoid progress callbacks restoring stale state.
         pauseDownload(modelId)
+        progressDispatchTrackers.remove(modelId)
 
         // Delete both link folder and repo storage folder via downloader-specific cleanup.
         getDownloader(modelId).deleteRepo(modelId)
@@ -201,6 +213,7 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
 
     // ModelRepoDownloadCallback implementation
     override fun onDownloadFailed(modelId: String, e: Exception) {
+        progressDispatchTrackers.remove(modelId)
         val info = getOrCreateInfo(modelId)
         info.downloadState = DownloadState.FAILED
         info.downlodaState = DownloadState.FAILED
@@ -218,6 +231,7 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
     }
 
     override fun onDownloadPending(modelId: String) {
+        progressDispatchTrackers.remove(modelId)
         val info = getOrCreateInfo(modelId)
         info.downloadState = DownloadState.PREPARING
         info.progressStage = "Preparing"
@@ -225,6 +239,7 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
     }
 
     override fun onDownloadPaused(modelId: String) {
+        progressDispatchTrackers.remove(modelId)
         val info = getOrCreateInfo(modelId)
         info.downloadState = DownloadState.PAUSED
         info.downlodaState = DownloadState.PAUSED
@@ -232,6 +247,7 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
     }
 
     override fun onDownloadFileFinished(modelId: String, absolutePath: String) {
+        progressDispatchTrackers.remove(modelId)
         val info = getOrCreateInfo(modelId)
         info.downloadState = DownloadState.DOWNLOAD_SUCCESS
         info.downlodaState = DownloadState.DOWNLOAD_SUCCESS
@@ -249,6 +265,8 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
     // Speed tracking helper
     private data class SpeedTracker(var lastTime: Long = 0, var lastSaved: Long = 0)
     private val speedTrackers = java.util.concurrent.ConcurrentHashMap<String, SpeedTracker>()
+    private data class ProgressDispatchTracker(var lastDispatchTime: Long = 0L, var lastStage: String = "")
+    private val progressDispatchTrackers = java.util.concurrent.ConcurrentHashMap<String, ProgressDispatchTracker>()
 
     override fun onDownloadingProgress(
         modelId: String,
@@ -289,7 +307,15 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
         info.progressStage = stage
         info.lastProgressUpdateTime = currentTime
         
-        downloadListeners.forEach { it.onDownloadProgress(modelId, info) }
+        val dispatchTracker = progressDispatchTrackers.getOrPut(modelId) { ProgressDispatchTracker() }
+        val intervalMs = progressCallbackIntervalMs
+        val stageChanged = dispatchTracker.lastStage != stage
+        val intervalPassed = intervalMs <= 0 || currentTime - dispatchTracker.lastDispatchTime >= intervalMs
+        if (stageChanged || intervalPassed) {
+            downloadListeners.forEach { it.onDownloadProgress(modelId, info) }
+            dispatchTracker.lastDispatchTime = currentTime
+            dispatchTracker.lastStage = stage
+        }
         
         // Also trigger onDownloadStart if it's the first progress update (simplified)
         if (saved == 0L) {
@@ -332,6 +358,8 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
 
     companion object {
         const val REQUEST_CODE_POST_NOTIFICATIONS = 1001  // Stub constant for foreground service notifications
+        @Volatile
+        private var progressCallbackIntervalMs: Long = 0L
 
         @Volatile
         private var instance: ModelDownloadManager? = null

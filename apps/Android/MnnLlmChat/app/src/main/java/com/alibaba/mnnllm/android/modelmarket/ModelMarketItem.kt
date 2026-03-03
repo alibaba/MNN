@@ -10,6 +10,7 @@ data class ModelMarketItem(
     val tags: List<String>, // Raw tags from JSON, will be converted to Tag objects
     val categories: List<String>,
     val sources: Map<String, String>,
+    @SerializedName("min_app_version") val minAppVersion: String? = null,
     val description: String? = null,
     @SerializedName("file_size") val fileSize: Long = 0L, // File size in bytes from model_market.json
     @SerializedName("extra_tags") val extraTags: List<String> = emptyList(), // Extra tags not shown to users

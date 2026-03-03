@@ -2,6 +2,7 @@ package com.alibaba.mnnllm.android.modelist
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.os.Build
 import com.alibaba.mls.api.ModelItem
 import com.alibaba.mls.api.download.DownloadPersistentData
 import com.alibaba.mnnllm.android.chat.model.ChatDataManager
@@ -18,6 +19,7 @@ import com.google.gson.annotations.SerializedName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,7 +27,9 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -36,12 +40,14 @@ import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.File
 import java.nio.file.Files
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 @SuppressLint("StaticFieldLeak")
 object ModelListManager {
     // Application scope for automatic initialization
     private val applicationScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val marketSyncScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private const val TAG = "ModelListManager"
     private const val CACHE_FILE_NAME = "model_list_cache.json"
     private const val CACHE_VERSION = 2
@@ -73,6 +79,8 @@ object ModelListManager {
     private var isInitialized = false
     private var isInitializing = false
     private lateinit var context: Context
+    private var marketDataSyncJob: Job? = null
+    private var lastSyncedMarketDataKey: String? = null
 
     // Data classes for Flow state management
     sealed class ModelListState {
@@ -98,6 +106,7 @@ object ModelListManager {
         MODEL_PINNED,
         MODEL_UNPINNED,
         MANUAL_REFRESH,
+        MARKET_DATA_UPDATED,
         INITIALIZATION
     }
 
@@ -265,6 +274,7 @@ object ModelListManager {
             try {
                 this.context = context
                 cacheFile = File(context.cacheDir, CACHE_FILE_NAME)
+                startMarketDataSyncIfNeeded()
 
                 // Handle builtin models before loading
                 copyBuiltinModelsIfNeeded(context)
@@ -459,7 +469,18 @@ object ModelListManager {
      */
     fun getExtraTags(modelId: String): List<String> {
         val modelItem = modelIdModelMap[modelId]
-        return modelItem?.getExtraTags() ?: emptyList()
+        if (modelItem == null) {
+            return emptyList()
+        }
+
+        // Prefer framework-provided extra tags when available.
+        val frameworkExtraTags = modelItem.getExtraTags()
+        if (frameworkExtraTags.isNotEmpty()) {
+            return frameworkExtraTags
+        }
+
+        // Fallback for local/legacy ModelItem implementations where getExtraTags() returns empty.
+        return (modelItem.modelMarketItem as? ModelMarketItem)?.extraTags ?: emptyList()
     }
 
     /**
@@ -642,7 +663,9 @@ object ModelListManager {
         cached.zip(fresh).forEach { (c, f) ->
             if (c.isPinned != f.isPinned ||
                 c.downloadSize != f.downloadSize ||
-                c.lastChatTime != f.lastChatTime
+                c.lastChatTime != f.lastChatTime ||
+                c.modelItem.modelName != f.modelItem.modelName ||
+                c.modelItem.getTags() != f.modelItem.getTags()
             ) {
                 Timber.d("Model properties changed for ${c.modelItem.modelId}")
                 return true
@@ -735,10 +758,10 @@ object ModelListManager {
             )
             
             // Clear and cache modelId model to a map
-            modelIdModelMap.clear()
-            sortedModels.forEach {
-                modelIdModelMap[it.modelItem.modelId!!] = it.modelItem
-            }
+                modelIdModelMap.clear()
+                sortedModels.forEach {
+                    modelIdModelMap[it.modelItem.modelId!!] = it.modelItem
+                }
 
             return sortedModels
         } catch (e: Exception) {
@@ -762,25 +785,18 @@ object ModelListManager {
                 downloadedModel.modelId,
                 downloadedModel.modelPath
             )
-            // Use ModelMarketCache instead of IO operation
-            modelItem.modelMarketItem =
-                ModelMarketCache.getModelFromCache(downloadedModel.modelId)
+            val marketItem = resolveMarketItemForModel(modelItem.modelId!!, modelItem.modelName)
+            if (marketItem != null) {
+                modelItem.modelMarketItem = marketItem
+                modelItem.tags = marketItem.tags
+            }
 
             // Ensure modelName is set
             if (modelItem.modelName.isNullOrEmpty()) {
-                val marketItem = modelItem.modelMarketItem as? com.alibaba.mnnllm.android.modelmarket.ModelMarketItem
                 if (marketItem?.modelName != null) {
                     modelItem.modelName = marketItem.modelName
-                    // Properly copy tags for display
-                    modelItem.tags = marketItem.tags
                 } else {
                     modelItem.modelName = ModelUtils.getModelName(downloadedModel.modelId)
-                }
-            } else {
-                // If modelName is already set, we still need to copy tags
-                val marketItem = modelItem.modelMarketItem as? com.alibaba.mnnllm.android.modelmarket.ModelMarketItem
-                if (marketItem != null) {
-                    modelItem.tags = marketItem.tags
                 }
             }
 
@@ -850,15 +866,12 @@ object ModelListManager {
             // Load market tags for local model
 //            localModel.loadMarketTags(context)
 
-            // Use ModelMarketCache instead of IO operation
-            localModel.modelMarketItem =
-                ModelMarketCache.getModelFromCache(localModel.modelId!!)
-
-            // Copy tags from market item to model item
-            val marketItemForTags = localModel.modelMarketItem as? com.alibaba.mnnllm.android.modelmarket.ModelMarketItem
-            if (marketItemForTags != null) {
-                localModel.tags = marketItemForTags.tags
+            val marketItem = resolveMarketItemForModel(localModel.modelId!!, localModel.modelName)
+            if (marketItem != null) {
+                localModel.modelMarketItem = marketItem
+                localModel.tags = marketItem.tags
             }
+
 
             // JOIN_POINT: Add local tag logic here
             val currentTags = localModel.tags?.toMutableList() ?: mutableListOf()
@@ -869,7 +882,6 @@ object ModelListManager {
 
             // Ensure modelName is set
             if (localModel.modelName.isNullOrEmpty()) {
-                val marketItem = localModel.modelMarketItem as? com.alibaba.mnnllm.android.modelmarket.ModelMarketItem
                 if (marketItem?.modelName != null) {
                     localModel.modelName = marketItem.modelName
                 } else {
@@ -1100,6 +1112,90 @@ object ModelListManager {
             Timber.e(e, "Debug scan failed")
         }
         return sb.toString()
+    }
+
+    private fun startMarketDataSyncIfNeeded() {
+        if (Build.FINGERPRINT.contains("robolectric", ignoreCase = true)) {
+            return
+        }
+        if (marketDataSyncJob != null) {
+            return
+        }
+        marketDataSyncJob = marketSyncScope.launch {
+            ModelRepository.marketDataFlow
+                .filterNotNull()
+                .collect { marketData ->
+                    val currentSyncKey = buildMarketSyncKey(marketData.version)
+                    if (!isInitialized || isInitializing) {
+                        Timber.d(
+                            "Market data changed while model list not ready: ${lastSyncedMarketDataKey} -> $currentSyncKey"
+                        )
+                        return@collect
+                    }
+                    if (currentSyncKey == lastSyncedMarketDataKey) {
+                        return@collect
+                    }
+                    val previousSyncKey = lastSyncedMarketDataKey
+                    lastSyncedMarketDataKey = currentSyncKey
+                    try {
+                        Timber.d("Market data changed: $previousSyncKey -> $currentSyncKey, refreshing model list")
+                        notifyModelListMayChange(ChangeReason.MARKET_DATA_UPDATED)
+                    } catch (e: Exception) {
+                        Timber.w(e, "Failed to refresh model list for market version change")
+                    }
+                }
+        }
+    }
+
+    private fun buildMarketSyncKey(version: String): String {
+        val env = if (::context.isInitialized) {
+            ModelRepository.getMarketEnvironment(context)
+        } else {
+            "unknown"
+        }
+        return "$env:$version"
+    }
+
+    private suspend fun resolveMarketItemForModel(
+        modelId: String,
+        modelNameHint: String?
+    ): ModelMarketItem? {
+        val exact = ModelMarketCache.getModelFromCache(modelId)
+        if (exact != null) {
+            return exact
+        }
+
+        val allMarketItems = ModelMarketCache.getAllCachedModels().values
+        if (allMarketItems.isEmpty()) {
+            return null
+        }
+
+        val expectedSuffix = normalizeKey(modelId.substringAfterLast('/'))
+        if (expectedSuffix.isNotEmpty()) {
+            val bySuffix = allMarketItems.firstOrNull {
+                normalizeKey(it.modelId.substringAfterLast('/')) == expectedSuffix
+            }
+            if (bySuffix != null) {
+                return bySuffix
+            }
+        }
+
+        val expectedName = normalizeKey(modelNameHint ?: ModelUtils.getModelName(modelId))
+        if (expectedName.isNotEmpty()) {
+            return allMarketItems.firstOrNull { normalizeKey(it.modelName) == expectedName }
+        }
+
+        return null
+    }
+
+    private fun normalizeKey(value: String?): String {
+        return value
+            ?.trim()
+            ?.lowercase(Locale.ROOT)
+            ?.replace("_", "")
+            ?.replace("-", "")
+            ?.replace(" ", "")
+            ?: ""
     }
 
     /**
