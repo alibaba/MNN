@@ -172,6 +172,12 @@ class OmniQuantizer:
                 sanitized_kwargs[k] = v
         return sanitized_kwargs
 
+    @staticmethod
+    def _clear_block_kv_cache(block):
+        """Clear KV cache on the block's attention so each calibration sample is independent."""
+        if hasattr(block, "self_attn") and hasattr(block.self_attn, "past_key_value"):
+            block.self_attn.past_key_value = None
+
     def _safe_forward(self, x, module, module_kwargs):
         try:
             target_dtype = next(module.parameters()).dtype
@@ -524,6 +530,7 @@ class OmniQuantizer:
             # Single forward pass: collect hooks AND compute outputs
             with torch.no_grad():
                 for inp, kw in layer_inputs:
+                    self._clear_block_kv_cache(block)
                     inp_gpu = inp.to(self.best_device)
 
                     # Reuse sanitized keys, only update tensor values
@@ -661,12 +668,17 @@ class OmniQuantizer:
                 batch_items = calib_inputs[batch_start:batch_end]
 
                 for inp, kw in batch_items:
+                    # 每个 calibration 样本独立处理，避免上一样本的 KV cache 导致 attn_weights 与 attention_mask 维度不一致
+                    self._clear_block_kv_cache(block)
                     inp_gpu = inp.to(self.best_device)
                     kw_gpu = {k: (v.to(self.best_device) if isinstance(v, torch.Tensor) else v) for k, v in kw.items()}
 
+                    # 第一次 forward：收集激活 scale
                     self._get_all_static_scales_safe(idx, block, target_ops, inp_gpu, kw_gpu)
 
                     sanitized_kw = self._sanitize_kwargs(kw_gpu, block)
+                    # 第二次 forward 前再次清空：_get_all_static_scales_safe 内部已执行过一次 forward 并写入了 past_key_value，若不清空会导致本次 forward 中 key 被拼接、维度 256 vs 128 报错
+                    self._clear_block_kv_cache(block)
                     with torch.no_grad():
                         out = self._safe_forward(inp_gpu, block, sanitized_kw)
 
