@@ -73,6 +73,7 @@ Omni::Omni(std::shared_ptr<LlmConfig> config) : Llm(config) {
 }
 
 bool Omni::load() {
+    MNN::Express::ExecutorScope s(mExecutor);
     auto res = Llm::load();
     if (!res) {
         return false;
@@ -141,6 +142,7 @@ bool Omni::load() {
 
 #ifdef LLM_SUPPORT_VISION
 std::vector<int> Omni::defaultVisionProcess(VARP image) {
+    MNN::Express::ExecutorScope s(mExecutor);
     mVisionHeight = UP_DIV(mVisionHeight, mVisionSizeUnit) * mVisionSizeUnit;
     mVisionWidth  = UP_DIV(mVisionWidth, mVisionSizeUnit) * mVisionSizeUnit;
     image = MNN::CV::resize(image, {mVisionWidth, mVisionHeight}, 0, 0,
@@ -162,6 +164,7 @@ std::vector<int> Omni::defaultVisionProcess(VARP image) {
 
 std::vector<int> Omni::qwen2VisionProcess(VARP image) {
     AUTOTIME;
+    MNN::Express::ExecutorScope s(mExecutor);
     const auto inputNames = mVisionModule->getInfo()->inputNames;
     bool hasWindowIndex = inputNames.size() == 4 && inputNames[3] == "window_index";
     bool isQwen3VL = inputNames.size() == 5 && inputNames[3] == "idx_tensor";
@@ -352,6 +355,7 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
 }
 
 std::vector<int> Omni::smolvlmVisionProcess(VARP image) {
+    MNN::Express::ExecutorScope s(mExecutor);
     // SmolVLM
     constexpr int visionLen = 64;
     bool splitImage = mVisionHeight > mVisionSizeUnit || mVisionWidth > mVisionSizeUnit;
@@ -500,6 +504,7 @@ std::vector<std::pair<int, int>> minicpmBestSize(std::pair<int, int> original_si
 }
 
 std::vector<int> Omni::minicpmVisionProcess(VARP image) {
+    MNN::Express::ExecutorScope s(mExecutor);
     constexpr int visionLen = 64, patchesPerSide = 70;
     const int patchSize = mVisionSizeUnit;
     auto bestSize = minicpmBestSize(std::make_pair(mVisionHeight, mVisionWidth), patchSize);
@@ -664,6 +669,7 @@ std::vector<int> Omni::visionProcess(VARP image) {
 
 std::vector<int> Omni::audioProcess(const std::string& file) {
 #ifdef LLM_SUPPORT_AUDIO
+    MNN::Express::ExecutorScope s(mExecutor);
     constexpr int sample_rate = 16000;
     auto load_res        = MNN::AUDIO::load(file, sample_rate);
     VARP waveform        = load_res.first;
@@ -680,6 +686,7 @@ std::vector<int> Omni::audioProcess(const std::string& file) {
 
 std::vector<int> Omni::audioProcess(MNN::Express::VARP waveform) {
 #ifdef LLM_SUPPORT_AUDIO
+    MNN::Express::ExecutorScope s(mExecutor);
     if (waveform == nullptr) {
         MNN_PRINT("Omni Can't process audio: waveform is null\n");
         return std::vector<int>(0);
@@ -736,6 +743,7 @@ std::vector<int> Omni::audioProcess(MNN::Express::VARP waveform) {
 }
 
 std::vector<int> Omni::multimodeProcess(const std::string& mode, std::string info) {
+    MNN::Express::ExecutorScope s(mExecutor);
     auto file_info = info;
     if (mode == "img") {
         std::regex hw_regex(R"(<hw>(.*?)</hw>)");
@@ -893,6 +901,7 @@ std::vector<int> Omni::processAudioContent(const std::string& content, const std
 }
 
 VARP Omni::embedding(const std::vector<int>& input_ids) {
+    MNN::Express::ExecutorScope s(mExecutor);
     if (input_ids.size() == 1) {
         if (mConfig->has_deepstack() && mExtraArgs.size() == 1) {
             mExtraArgs[0] = Express::_Fill(_var<int>({3, 1, 1}, {3}), _Scalar<float>(0.0));
@@ -982,6 +991,7 @@ static inline bool needNewVar(VARP var, int axis, int seq_len) {
 }
 
 VARP Omni::gen_position_ids(int seq_len) {
+    MNN::Express::ExecutorScope s(mExecutor);
     auto positionIdsDims = mModule->getInfo()->inputs[2].dim;
     if (positionIdsDims[0] == 1) {
         return Llm::gen_position_ids(seq_len);
@@ -1022,6 +1032,7 @@ VARP Omni::gen_position_ids(int seq_len) {
 }
 
 std::vector<Express::VARP> Omni::forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos, Express::VARPS extraArgs) {
+    MNN::Express::ExecutorScope s(mExecutor);
     extraArgs.insert(extraArgs.end(), mExtraArgs.begin(), mExtraArgs.end());
     auto outputs = Llm::forwardRaw(hiddenState, mask, inputPos, extraArgs);
     if (mTalker && outputs.size() > 1) {
@@ -1031,6 +1042,7 @@ std::vector<Express::VARP> Omni::forwardRaw(Express::VARP hiddenState, Express::
 }
 
 void Omni::response(const std::vector<int>& input_ids, std::ostream* os, const char* end_with, int max_new_tokens) {
+    MNN::Express::ExecutorScope s(mExecutor);
     if (!end_with) { end_with = "\n"; }
     generate_init(os, end_with);
     if (mTalker) {
@@ -1077,6 +1089,7 @@ void Omni::generateWavform() {
 }
 
 bool Talker::load() {
+    MNN::Express::ExecutorScope s(mExecutor);
     initRuntime();
     mSeqLenIndex = 1;
     set_config("{\"sampler_type\": \"mixed\", \"temperature\": 0.9, \"topK\": 40, \"topP\": 0.8, \"penalty\": 1.05}");
@@ -1149,6 +1162,7 @@ Express::VARP Talker::embedding(const std::vector<int>& input_ids) {
 }
 
 Express::VARP Talker::gen_position_ids(int seq_len) {
+    MNN::Express::ExecutorScope s(mExecutor);
     // mrope
     if (needNewVar(positionIds, 2, seq_len)) {
         positionIds = _Input({3, 1, seq_len}, NCHW, halide_type_of<int>());
@@ -1173,6 +1187,7 @@ void Talker::setWavformCallback(const std::function<bool(const float*, size_t, b
 }
 
 VARP Talker::ditForward(const int codec_size, const int* codec_tokens, const float* initial_noise) {
+    MNN::Express::ExecutorScope s(mExecutor);
     auto code = _Const(codec_tokens, {1, codec_size}, NCHW, halide_type_of<int>());
     const int max_duration = codec_size * 2;
     auto outputs = mPreDit->onForward({mCond, mSpk, code});
@@ -1226,11 +1241,13 @@ VARP Talker::ditForward(const int codec_size, const int* codec_tokens, const flo
 }
 
 VARP Talker::bigvganForward(VARP mel) {
+    MNN::Express::ExecutorScope s(mExecutor);
     auto waveform = mBigvgan->forward(mel);
     return waveform;
 }
 
 void Talker::token2wav(bool talker_done) {
+    MNN::Express::ExecutorScope s(mExecutor);
     int codec_size = mContext->gen_seq_len - dit_start_index;
     int chunk_size = dit_left_padding + dit_chunk_size + dit_right_padding;
     bool last_chunk = talker_done && (codec_size <= chunk_size);
@@ -1271,12 +1288,14 @@ void Talker::token2wav(bool talker_done) {
 }
 
 VARP Talker::token2wav(const std::vector<int>& codec_tokens) {
+    MNN::Express::ExecutorScope s(mExecutor);
     auto generated_mel = ditForward(codec_tokens.size(), codec_tokens.data());
     auto waveform = bigvganForward(generated_mel);
     return waveform;
 }
 
 int Talker::sample(Express::VARP logits, int offset, int size) {
+    MNN::Express::ExecutorScope s(mExecutor);
     int token = Llm::sample(logits, offset, size);
     if (mStreamWithDecode) {
         token2wav();
@@ -1285,6 +1304,7 @@ int Talker::sample(Express::VARP logits, int offset, int size) {
 }
 
 void Talker::generate() {
+    MNN::Express::ExecutorScope s(mExecutor);
     if (!doGenerate()) { return; }
     mTalkerEmbeds.push_back(mTextEos);
     auto input_embeds = _Concat({mTalkerEmbeds[0], mTextBos + mCodecPad, mTalkerEmbeds[1] + mCodecBos}, 1);
