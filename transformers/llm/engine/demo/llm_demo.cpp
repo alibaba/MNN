@@ -105,7 +105,7 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_
         if (prompt.substr(0, 1) == "#") {
             continue;
         }
-        
+
         if (max_token_number >= 0) {
             llm->response(prompt, &std::cout, nullptr, 0);
             while (!llm->stoped() && context->gen_seq_len < max_token_number) {
@@ -255,10 +255,6 @@ int main(int argc, const char* argv[]) {
         std::cout << "Usage: " << argv[0] << " config.json <prompt.txt>" << std::endl;
         return 0;
     }
-    MNN::BackendConfig backendConfig;
-    auto executor = MNN::Express::Executor::newExecutor(MNN_FORWARD_CPU, backendConfig, 1);
-    MNN::Express::ExecutorScope s(executor);
-
     std::string config_path = argv[1];
     std::cout << "config path is " << config_path << std::endl;
     std::unique_ptr<Llm> llm(Llm::createLLM(config_path));

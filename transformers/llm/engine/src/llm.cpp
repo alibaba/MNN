@@ -583,7 +583,6 @@ std::vector<VARP> Llm::forwardVec(MNN::Express::VARP input_embeds) {
         return res;
     }
     // For decode can't support seq_len <= mBlockSize
-    MNN_ASSERT(mContext->gen_seq_len <= 0 || seq_len <= mBlockSize);
     auto blockNumber = seq_len / mBlockSize;
     auto blockRemain = seq_len % mBlockSize;
     std::vector<VARP> logits;
