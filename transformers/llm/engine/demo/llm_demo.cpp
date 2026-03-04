@@ -255,9 +255,6 @@ int main(int argc, const char* argv[]) {
         std::cout << "Usage: " << argv[0] << " config.json <prompt.txt>" << std::endl;
         return 0;
     }
-    MNN::BackendConfig backendConfig;
-    auto executor = MNN::Express::Executor::newExecutor(MNN_FORWARD_CPU, backendConfig, 1);
-    MNN::Express::ExecutorScope s(executor);
 
     std::string config_path = argv[1];
     std::cout << "config path is " << config_path << std::endl;
