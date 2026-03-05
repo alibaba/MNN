@@ -1,6 +1,7 @@
 package com.alibaba.mnnllm.api.openai.service
 
 import android.content.Context
+import com.alibaba.mnnllm.android.llm.LlmSession
 import com.alibaba.mnnllm.api.openai.di.ServiceLocator
 import com.alibaba.mnnllm.api.openai.manager.ApiNotificationManager
 import com.alibaba.mnnllm.api.openai.network.application.OpenAIApplication
@@ -45,14 +46,43 @@ class ApiServiceCoordinator(private val context: Context) {
     }
 
     /** * startserviceandnotification*/
-    fun startServer(): Boolean {
+    fun startServer(modelId: String? = null): Boolean {
         if (!_isInitialized) {
             Timber.Forest.tag(TAG).w("Coordinator not initialized")
             return false
         }
 
+        if (application != null && _isServerRunning) {
+            if (!modelId.isNullOrBlank()) {
+                val switchedSession = ensureRuntimeSessionForModel(modelId)
+                if (switchedSession == null) {
+                    notificationManager?.updateNotification(
+                        context.getString(R.string.api_service_not_started),
+                        context.getString(R.string.no_active_session)
+                    )
+                    return false
+                }
+                Timber.Forest.tag(TAG).i("Runtime session ensured while server running, modelId=%s", modelId)
+            }
+            return true
+        }
+
         return runCatching {
-            val session = ServiceLocator.getChatSessionProvider().getLlmSession()
+            val runtimeSession = if (!modelId.isNullOrBlank()) {
+                val session = ensureRuntimeSessionForModel(modelId)
+                if (session == null) {
+                    notificationManager?.updateNotification(
+                        context.getString(R.string.api_service_not_started),
+                        context.getString(R.string.no_active_session)
+                    )
+                    return false
+                }
+                session
+            } else {
+                ServiceLocator.getLlmRuntimeController().getActiveSession()
+            }
+
+            val session = runtimeSession ?: ServiceLocator.getChatSessionProvider().getLlmSession()
             if (session == null) {
                 Timber.Forest.tag(TAG).w("No active LlmSession found")
                 notificationManager?.updateNotification(
@@ -92,6 +122,19 @@ class ApiServiceCoordinator(private val context: Context) {
             )
             false
         }
+    }
+
+    private fun ensureRuntimeSessionForModel(modelId: String): LlmSession? {
+        val ensureResult = ServiceLocator.getLlmRuntimeController().ensureSession(modelId)
+        if (!ensureResult.success || ensureResult.session == null) {
+            Timber.Forest.tag(TAG).w(
+                "Failed to ensure runtime session for modelId=%s, reason=%s",
+                modelId,
+                ensureResult.reason ?: "unknown"
+            )
+            return null
+        }
+        return ensureResult.session
     }
 
     /** * stop serverandnotification*/
