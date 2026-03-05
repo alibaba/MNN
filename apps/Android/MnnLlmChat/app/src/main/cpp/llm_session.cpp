@@ -105,9 +105,6 @@ LlmSession::LlmSession(std::string model_path, json config, json extra_config, s
 void LlmSession::Load() {
     std::string root_cache_dir_str = extra_config_["mmap_dir"];
     bool use_mmap = !extra_config_["mmap_dir"].get<std::string>().empty();
-    MNN::BackendConfig backendConfig;
-    auto executor = MNN::Express::Executor::newExecutor(MNN_FORWARD_CPU, backendConfig, 1);
-    MNN::Express::ExecutorScope s(executor);
     llm_ = Llm::createLLM(model_path_);
     json config = config_;
     config["use_mmap"] = use_mmap;
