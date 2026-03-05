@@ -53,6 +53,12 @@
   ```
 # Releases
 
+## Version 0.8.1
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_8_1.apk)
++ 更新亮点：
+  + 支持 Qwen3.5 切换思考模式。
+  + 提高 API 稳定性，兼容 Anthropic 协议。
+
 ## Version 0.8.0.1
 + 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_8_0_1.apk)
 + 问题修复：
