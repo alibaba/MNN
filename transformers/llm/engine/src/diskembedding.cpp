@@ -64,7 +64,7 @@ DiskEmbedding::DiskEmbedding(const std::shared_ptr<LlmConfig>& config, std::stri
             mDequantFunc      = mQuantBit == 8 ? q81_dequant_ref : q41_dequant_ref;
             auto a_offset   = tie_embeddings[1];
             auto alpha_size = tie_embeddings[2];
-            size_t oc = (a_offset - mWeightOffset) / mHiddenSize * (8 / mQuantBit);
+            size_t oc = (a_offset - mWeightOffset) * (8 / mQuantBit) / mHiddenSize;
 
             mAlpha.reset(new uint8_t[alpha_size]);
             seek_read(mAlpha.get(), alpha_size, a_offset);
