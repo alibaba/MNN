@@ -14,6 +14,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.io.PrintStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
@@ -24,6 +27,7 @@ import java.util.concurrent.TimeUnit
  *   dumpapp download source                     - Get current download source
  *   dumpapp download source set <SOURCE>        - Set download source (HuggingFace/ModelScope/Modelers)
  *   dumpapp download test <modelId>             - Test download a model
+ *   dumpapp download check-update <modelId>     - Check whether remote model has updates
  *   dumpapp download status <modelId>           - Get download status of a model
  *   dumpapp download delete <modelId>           - Delete a downloaded model
  *   dumpapp download pause <modelId>            - Pause a download
@@ -48,6 +52,7 @@ class DownloadDumperPlugin : DumperPlugin {
         when (command) {
             "source" -> handleSource(writer, args.drop(1))
             "test" -> handleTest(writer, args.drop(1))
+            "check-update" -> handleCheckUpdate(writer, args.drop(1))
             "status" -> handleStatus(writer, args.drop(1))
             "delete" -> handleDelete(writer, args.drop(1))
             "pause" -> handlePause(writer, args.drop(1))
@@ -209,6 +214,72 @@ class DownloadDumperPlugin : DumperPlugin {
         writer.println("  Has Update: ${info.hasUpdate}")
     }
 
+    private fun handleCheckUpdate(writer: PrintStream, args: List<String>) {
+        if (args.isEmpty()) {
+            writer.println("Usage: dumpapp download check-update <modelId>")
+            return
+        }
+
+        val modelId = args[0]
+        val context = MnnLlmApplication.getAppContext()
+        val downloadManager = ModelDownloadManager.getInstance(context)
+
+        val modelIdToCheck = modelId
+        val latch = CountDownLatch(1)
+        var callbackReceived = false
+
+        val checkListener = object : DownloadListener {
+            override fun onDownloadStart(modelId: String) = Unit
+            override fun onDownloadProgress(modelId: String, downloadInfo: DownloadInfo) = Unit
+            override fun onDownloadFinished(modelId: String, path: String) = Unit
+            override fun onDownloadFailed(modelId: String, e: Exception) {
+                if (modelId != modelIdToCheck) return
+                writer.println("[FAILED] Update check failed: ${e.message}")
+                callbackReceived = true
+                latch.countDown()
+            }
+
+            override fun onDownloadTotalSize(modelId: String, totalSize: Long) {
+                if (modelId != modelIdToCheck) return
+                callbackReceived = true
+                latch.countDown()
+            }
+
+            override fun onDownloadHasUpdate(modelId: String, downloadInfo: DownloadInfo) {
+                if (modelId != modelIdToCheck) return
+                writer.println("[UPDATE] Update available for: $modelId")
+                callbackReceived = true
+                latch.countDown()
+            }
+        }
+
+        downloadManager.addListener(checkListener)
+        try {
+            writer.println("Checking remote update for: $modelIdToCheck")
+            downloadManager.checkForUpdate(modelIdToCheck)
+
+            val finished = latch.await(20, TimeUnit.SECONDS)
+            val info = downloadManager.getDownloadInfo(modelIdToCheck)
+            val remoteUpdateTime = if (info.remoteUpdateTime > 0) {
+                SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+                    .format(Date(info.remoteUpdateTime))
+            } else {
+                "N/A"
+            }
+
+            if (!finished || !callbackReceived) {
+                writer.println("[TIMEOUT] No callback within 20s")
+            }
+
+            writer.println("Update Check Result:")
+            writer.println("  Has Update: ${info.hasUpdate}")
+            writer.println("  Remote Update Time: $remoteUpdateTime")
+            writer.println("  Total Size: ${info.totalSize / (1024 * 1024)}MB")
+        } finally {
+            downloadManager.removeListener(checkListener)
+        }
+    }
+
     private fun handleDelete(writer: PrintStream, args: List<String>) {
         if (args.isEmpty()) {
             writer.println("Usage: dumpapp download delete <modelId>")
@@ -248,6 +319,7 @@ class DownloadDumperPlugin : DumperPlugin {
         writer.println("    SOURCE: HuggingFace (hf), ModelScope (ms), Modelers (ml)")
         writer.println()
         writer.println("  test <modelId>              - Test download a model")
+        writer.println("  check-update <modelId>      - Check remote update status")
         writer.println("  status <modelId>            - Get download status")
         writer.println("  delete <modelId>            - Delete downloaded model")
         writer.println("  pause <modelId>             - Pause active download")
@@ -255,6 +327,7 @@ class DownloadDumperPlugin : DumperPlugin {
         writer.println("Examples:")
         writer.println("  dumpapp download source")
         writer.println("  dumpapp download source set hf")
+        writer.println("  dumpapp download check-update ModelScope/MNN/Qwen2.5-0.5B-MNN")
         writer.println("  dumpapp download test HuggingFace/taobao-mnn/Qwen2.5-0.5B-MNN")
         writer.println("  dumpapp download status HuggingFace/taobao-mnn/Qwen2.5-0.5B-MNN")
     }

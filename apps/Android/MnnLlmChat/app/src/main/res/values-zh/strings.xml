@@ -102,6 +102,8 @@
     <string name="show_only_downloaded">只显示已下载模型</string>
     <string name="about">关于</string>
     <string name="settings">设置</string>
+    <string name="config_info">配置信息</string>
+    <string name="copy_config">复制配置</string>
     <string name="current_version">当前版本:%1$s</string>
     <string name="mnn_version">MNN 版本</string>
     <string name="mnn_version_summary">MNN 引擎版本: %1$s</string>

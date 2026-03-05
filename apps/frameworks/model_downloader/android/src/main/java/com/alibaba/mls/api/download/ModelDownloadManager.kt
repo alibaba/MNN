@@ -243,6 +243,7 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
         val info = getOrCreateInfo(modelId)
         info.downloadState = DownloadState.PAUSED
         info.downlodaState = DownloadState.PAUSED
+        persistProgressIfNeeded(modelId, info.progressStage, info.savedSize, info.totalSize, force = true)
         downloadListeners.forEach { it.onDownloadPaused(modelId) }
     }
 
@@ -253,11 +254,16 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
         info.downlodaState = DownloadState.DOWNLOAD_SUCCESS
         info.progress = 1.0
         info.hasUpdate = false
+        DownloadPersistentData.saveDownloadedTime(ApplicationProvider.get(), modelId, System.currentTimeMillis())
         
         // Save total size to persistent data for future retrievals
         if (info.totalSize > 0) {
             DownloadPersistentData.saveDownloadSizeTotal(ApplicationProvider.get(), modelId, info.totalSize)
         }
+        if (info.savedSize > 0) {
+            DownloadPersistentData.saveDownloadSizeSaved(ApplicationProvider.get(), modelId, info.savedSize)
+        }
+        persistTrackers.remove(modelId)
 
         downloadListeners.forEach { it.onDownloadFinished(modelId, absolutePath) }
     }
@@ -267,6 +273,32 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
     private val speedTrackers = java.util.concurrent.ConcurrentHashMap<String, SpeedTracker>()
     private data class ProgressDispatchTracker(var lastDispatchTime: Long = 0L, var lastStage: String = "")
     private val progressDispatchTrackers = java.util.concurrent.ConcurrentHashMap<String, ProgressDispatchTracker>()
+    private data class PersistTracker(
+        var lastPersistTimeMs: Long = 0L,
+        var lastPersistSavedBytes: Long = 0L,
+        var lastPersistStage: String = ""
+    )
+    private val persistTrackers = java.util.concurrent.ConcurrentHashMap<String, PersistTracker>()
+
+    private fun persistProgressIfNeeded(modelId: String, stage: String, saved: Long, total: Long, force: Boolean = false) {
+        if (saved <= 0 && total <= 0 && !force) return
+        val now = System.currentTimeMillis()
+        val tracker = persistTrackers.getOrPut(modelId) { PersistTracker() }
+        val intervalElapsed = now - tracker.lastPersistTimeMs >= PERSIST_INTERVAL_MS
+        val bytesAdvanced = saved - tracker.lastPersistSavedBytes >= PERSIST_MIN_DELTA_BYTES
+        val stageChanged = tracker.lastPersistStage != stage
+        if (force || intervalElapsed || bytesAdvanced || stageChanged) {
+            if (total > 0) {
+                DownloadPersistentData.saveDownloadSizeTotal(ApplicationProvider.get(), modelId, total)
+            }
+            if (saved > 0) {
+                DownloadPersistentData.saveDownloadSizeSaved(ApplicationProvider.get(), modelId, saved)
+            }
+            tracker.lastPersistTimeMs = now
+            tracker.lastPersistSavedBytes = saved
+            tracker.lastPersistStage = stage
+        }
+    }
 
     override fun onDownloadingProgress(
         modelId: String,
@@ -303,6 +335,7 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
         if (total > 0) {
             info.totalSize = total
         }
+        persistProgressIfNeeded(modelId, stage, saved, total, force = false)
         info.currentFile = currentFile
         info.progressStage = stage
         info.lastProgressUpdateTime = currentTime
@@ -325,12 +358,28 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
 
     override fun onRepoInfo(modelId: String, lastModified: Long, repoSize: Long) {
         val info = getOrCreateInfo(modelId)
+        val localKnownTotalSize = if (info.totalSize > 0L) {
+            info.totalSize
+        } else {
+            DownloadPersistentData.getDownloadSizeTotal(ApplicationProvider.get(), modelId)
+        }
         info.totalSize = repoSize
+        if (repoSize > 0) {
+            DownloadPersistentData.saveDownloadSizeTotal(ApplicationProvider.get(), modelId, repoSize)
+        }
         info.remoteUpdateTime = lastModified
         
         if (info.downloadState == DownloadState.DOWNLOAD_SUCCESS) {
-            info.hasUpdate = true
-            downloadListeners.forEach { it.onDownloadHasUpdate(modelId, info) }
+            val localDownloadedTime = getLocalDownloadedTime(modelId)
+            val hasUpdate = when {
+                lastModified > 0L && localDownloadedTime > 0L -> lastModified > localDownloadedTime
+                lastModified <= 0L && localKnownTotalSize > 0L && repoSize > 0L -> localKnownTotalSize != repoSize
+                else -> false
+            }
+            info.hasUpdate = hasUpdate
+            if (hasUpdate) {
+                downloadListeners.forEach { it.onDownloadHasUpdate(modelId, info) }
+            }
         }
         
         downloadListeners.forEach { it.onDownloadTotalSize(modelId, repoSize) }
@@ -356,8 +405,18 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
          return 0L
     }
 
+    private fun getLocalDownloadedTime(modelId: String): Long {
+        val persisted = DownloadPersistentData.getDownloadedTime(ApplicationProvider.get(), modelId)
+        if (persisted > 0L) return persisted
+
+        val downloadPath = getDownloader(modelId).getDownloadPath(modelId)
+        return if (downloadPath.exists()) downloadPath.lastModified() else 0L
+    }
+
     companion object {
         const val REQUEST_CODE_POST_NOTIFICATIONS = 1001  // Stub constant for foreground service notifications
+        private const val PERSIST_INTERVAL_MS = 1000L
+        private const val PERSIST_MIN_DELTA_BYTES = 1024L * 1024L
         @Volatile
         private var progressCallbackIntervalMs: Long = 0L
 

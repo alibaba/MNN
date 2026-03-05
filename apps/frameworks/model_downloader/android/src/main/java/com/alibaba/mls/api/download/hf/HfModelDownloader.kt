@@ -97,7 +97,9 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
                     }
 
                     // Call onRepoInfo callback with repo metadata
-                    val lastModified = System.currentTimeMillis() // Simplified
+                    // HF tree API response used here does not provide stable repo modified timestamp.
+                    // Use 0 to indicate "unknown" and let upper layer fallback to size/signature checks.
+                    val lastModified = 0L
                     val repoSize = if (calculateSize) {
                         // Calculate size from tree items directly
                         var totalSize = 0L

@@ -129,10 +129,9 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
         val threadNum = currentConfig.threadNum ?: defaultConfig.threadNum!!
         binding.etThreadNum.setText(threadNum.toString())
         binding.etThreadNum.addTextChangedListener { text ->
-            if (text.isNullOrEmpty()) {
-                return@addTextChangedListener
+            parseIntInput(text)?.let {
+                currentConfig.threadNum = it
             }
-            currentConfig.threadNum = text.toString().toInt()
         }
 
         // Backend
@@ -150,10 +149,9 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
 
     private fun setupMaxTokenListener() {
         binding.editMaxNewTokens.addTextChangedListener { text ->
-            if (text.isNullOrEmpty()) {
-                return@addTextChangedListener
+            parseIntInput(text)?.let {
+                currentConfig.maxNewTokens = it
             }
-            currentConfig.maxNewTokens = text.toString().toInt()
         }
     }
 

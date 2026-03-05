@@ -206,6 +206,12 @@ class ModelListManagerTest {
         assertTrue(resultTags.contains("local"))
     }
 
+    @Test(timeout = 1000)
+    fun `getModelTags should return quickly when manager has no success state`() {
+        val tags = ModelListManager.getModelTags("not-in-cache")
+        assertTrue(tags.isEmpty())
+    }
+
     // ========== Model Type Detection Tests ==========
 
     @Test

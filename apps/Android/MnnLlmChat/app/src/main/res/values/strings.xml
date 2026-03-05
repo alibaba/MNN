@@ -110,6 +110,8 @@
     <string name="show_only_downloaded">Show downloaded only</string>
     <string name="about">About</string>
     <string name="settings">Settings</string>
+    <string name="config_info">Config Info</string>
+    <string name="copy_config">Copy Config</string>
     <string name="current_version">Current Version:%1$s</string>
     <string name="mnn_version">MNN Version</string>
     <string name="mnn_version_summary">MNN Engine Version: %1$s</string>

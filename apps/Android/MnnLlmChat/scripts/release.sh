@@ -121,8 +121,9 @@ check_requirements() {
 
     if [[ "$ENABLE_FIREBASE" == "true" ]]; then
         if has_google_services_config; then
+            STANDARD_GRADLE_ARGS+=("-PENABLE_FIREBASE=true")
             GOOGLEPLAY_GRADLE_ARGS+=("-PENABLE_FIREBASE=true")
-            log_info "Firebase enabled for Google Play bundle build."
+            log_info "Firebase enabled for standardDebug and Google Play bundle builds."
         else
             log_warning "ENABLE_FIREBASE=true but no google-services.json found. Building without Firebase."
         fi

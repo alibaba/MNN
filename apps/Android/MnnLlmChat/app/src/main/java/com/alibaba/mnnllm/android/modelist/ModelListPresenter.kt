@@ -58,7 +58,7 @@ class ModelListPresenter(private val context: Context, private val view: ModelLi
                 presenterScope.launch {
                     try {
                         for (modelWrapper in sortedWrappers) {
-                            if (!modelWrapper.modelItem.isLocal) {
+                            if (shouldCheckForUpdate(modelWrapper.modelItem.modelId)) {
                                 ModelDownloadManager.getInstance(context)
                                     .checkForUpdate(modelWrapper.modelItem.modelId)
                             }
@@ -213,5 +213,13 @@ class ModelListPresenter(private val context: Context, private val view: ModelLi
 
     companion object {
         const val TAG: String = "ModelListPresenter"
+
+        internal fun shouldCheckForUpdate(modelId: String?): Boolean {
+            if (modelId.isNullOrBlank()) return false
+            return modelId.startsWith("ModelScope/") ||
+                modelId.startsWith("HuggingFace/") ||
+                modelId.startsWith("Huggingface/") ||
+                modelId.startsWith("Modelers/")
+        }
     }
 }

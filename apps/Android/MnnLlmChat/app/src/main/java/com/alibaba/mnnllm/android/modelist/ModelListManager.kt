@@ -33,7 +33,6 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -80,6 +79,7 @@ object ModelListManager {
     private var isInitializing = false
     private lateinit var context: Context
     private var marketDataSyncJob: Job? = null
+    private var tagWarmupJob: Job? = null
     private var lastSyncedMarketDataKey: String? = null
 
     // Data classes for Flow state management
@@ -444,23 +444,39 @@ object ModelListManager {
         if (modelItem != null) {
             return modelItem.getTags()
         }
-        
-        // If not in memory, wait for first successful state
-        return try {
-            val successState: ModelListState.Success = runBlocking {
-                modelListState
-                    .filterIsInstance<ModelListState.Success>()
-                    .first()
+
+        // Never block callers (especially UI thread). Use current state snapshot only.
+        val successState = modelListState.value as? ModelListState.Success ?: return emptyList()
+        val wrapper = successState.models.find { it.modelItem.modelId == modelId }
+        if (wrapper != null) {
+            return wrapper.modelItem.getTags()
+        }
+
+        // Compensation: asynchronously warm up model list data for subsequent reads.
+        scheduleTagWarmup(modelId)
+        return emptyList()
+    }
+
+    private fun scheduleTagWarmup(modelId: String) {
+        val runningJob = tagWarmupJob
+        if (runningJob != null && runningJob.isActive) {
+            return
+        }
+        tagWarmupJob = applicationScope.launch {
+            try {
+                if (!::context.isInitialized) {
+                    return@launch
+                }
+                if (!isInitialized && !isInitializing) {
+                    initialize(context)
+                    return@launch
+                }
+                if (modelListState.value !is ModelListState.Success) {
+                    refreshModelList()
+                }
+            } catch (e: Exception) {
+                Timber.w(e, "scheduleTagWarmup failed for modelId=$modelId")
             }
-            
-            // Find the model in the success state
-            val wrapper: ModelItemWrapper? = successState.models.find { wrapper: ModelItemWrapper -> 
-                wrapper.modelItem.modelId == modelId 
-            }
-            wrapper?.modelItem?.getTags() ?: emptyList()
-        } catch (e: Exception) {
-            Timber.w(e, "Failed to get model tags for $modelId")
-            emptyList()
         }
     }
 

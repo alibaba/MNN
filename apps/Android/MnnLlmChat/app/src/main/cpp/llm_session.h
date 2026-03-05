@@ -53,6 +53,8 @@ public:
 
     void clearHistory(int numToKeep = 1);
 
+    std::string dumpConfig() const;
+
     // Add getter method for underlying Llm object for benchmarking purposes
     Llm* getLlm() const { return llm_; }
     

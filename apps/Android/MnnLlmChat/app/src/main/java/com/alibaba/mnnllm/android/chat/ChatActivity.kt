@@ -46,6 +46,7 @@ import com.alibaba.mnnllm.android.chat.voice.VoiceModelsChecker
 import com.alibaba.mnnllm.android.chat.voice.VoiceModelMarketBottomSheet
 import com.alibaba.mnnllm.android.modelist.ModelItemWrapper
 import com.alibaba.mnnllm.android.utils.CrashReportContext
+import com.alibaba.mnnllm.android.utils.ConfigInfoDialog
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filter
@@ -423,6 +424,9 @@ class ChatActivity : AppCompatActivity() {
         } else if (item.itemId == R.id.menu_item_api_console) {
             ApiConsoleBottomSheetFragment.newInstance(this).show(supportFragmentManager, "ApiConsoleBottomSheetFragment")
             return true
+        } else if (item.itemId == R.id.menu_item_config_info) {
+            showConfigInfo()
+            return true
         }
         return super.onOptionsItemSelected(item)
     }
@@ -632,6 +636,16 @@ class ChatActivity : AppCompatActivity() {
 
     val sessionDebugInfo: String
         get() = chatSession!!.debugInfo
+
+    private fun showConfigInfo() {
+        val session = chatSession
+        if (session is LlmSession) {
+            val configJson = session.dumpConfig()
+            ConfigInfoDialog.show(this, configJson)
+        } else {
+            Toast.makeText(this, "Config info not available for this model type", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     private fun initializeVoiceModelsChecker() {
         Log.d(TAG, "Initializing VoiceModelsChecker")
