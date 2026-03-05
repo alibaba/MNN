@@ -6,6 +6,7 @@ SMOKE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ARTIFACT_DIR="${ARTIFACT_DIR:-$SMOKE_DIR/artifacts}"
 mkdir -p "$ARTIFACT_DIR"
 STEP_WATCH_TIMEOUT_SEC="${STEP_WATCH_TIMEOUT_SEC:-1800}"
+RUN_API_UIAUTOMATOR_TEST="${RUN_API_UIAUTOMATOR_TEST:-false}"
 
 step_status() {
   local k="$1"
@@ -71,16 +72,27 @@ run_step_with_watch "STEP4" "[STEP 4] Qwen3.5 download pause/resume/delete regre
   "$SCRIPT_DIR/04_regress_qwen35_download_ops.sh" \
   "$ARTIFACT_DIR/qwen35_download/summary.txt"
 
-run_step_with_watch "STEP5" "[STEP 5] Generate single-page HTML report" \
+run_step_with_watch "STEP5" "[STEP 5] API compatibility regression via dumpapp (no-code)" \
+  "$SCRIPT_DIR/08_regress_api_dumpapp.sh" \
+  "$ARTIFACT_DIR/api_dumpapp/summary.txt"
+
+if [ "$RUN_API_UIAUTOMATOR_TEST" = "true" ]; then
+  run_step_with_watch "STEP6" "[STEP 6] API settings UiAutomator regression (code-based)" \
+    "$SCRIPT_DIR/09_regress_api_uiautomator.sh" \
+    "$ARTIFACT_DIR/api_uiautomator/summary.txt"
+fi
+
+run_step_with_watch "STEP7" "[STEP 7] Generate single-page HTML report" \
   "$SCRIPT_DIR/07_generate_report.sh" \
   "$ARTIFACT_DIR/report.html" \
   300
 
 {
   echo "EXTENDED_PRIORITY_REGRESSION=${overall}"
-  echo "COVERAGE=text_input,image_input_entry,benchmark_multi_case,download_pause_resume_delete"
+  echo "COVERAGE=text_input,image_input_entry,benchmark_multi_case,download_pause_resume_delete,api_dumpapp,api_uiautomator_optional"
   echo "ARTIFACT_ROOT=$ARTIFACT_DIR"
   echo "REPORT_HTML=$ARTIFACT_DIR/report.html"
+  echo "RUN_API_UIAUTOMATOR_TEST=$RUN_API_UIAUTOMATOR_TEST"
 } >"$ARTIFACT_DIR/extended_priority_summary.txt"
 
 cat "$ARTIFACT_DIR/extended_priority_summary.txt"

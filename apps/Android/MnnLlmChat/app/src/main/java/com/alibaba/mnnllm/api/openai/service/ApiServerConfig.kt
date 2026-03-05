@@ -16,6 +16,7 @@ object ApiServerConfig {
     private const val KEY_CORS_ORIGINS = "cors_origins"
     private const val KEY_AUTH_ENABLED = "auth_enabled"
     private const val KEY_API_KEY = "api_key"
+    private const val KEY_USE_HTTPS_URL = "use_https_url"
     private const val KEY_CONFIG_INITIALIZED = "config_initialized"
 
     //defaultconfigvalue
@@ -24,11 +25,12 @@ object ApiServerConfig {
     private const val DEFAULT_CORS_ENABLED = false
     private const val DEFAULT_CORS_ORIGINS = ""
     private const val DEFAULT_AUTH_ENABLED = true
+    private const val DEFAULT_USE_HTTPS_URL = false
 
     /** * generaterandomAPI Key * 8-digitdigitlettersymbolcomposite*/
     private fun generateRandomApiKey(): String {
         val chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-        return (1..16) // Increased length to 16 for better security now that charset is smaller
+        return (1..16)
             .map { chars.random() }
             .joinToString("")
     }
@@ -73,13 +75,16 @@ object ApiServerConfig {
         return getPreferences(context).getBoolean(KEY_AUTH_ENABLED, DEFAULT_AUTH_ENABLED)
     }
 
+    fun useHttpsUrl(context: Context): Boolean {
+        return getPreferences(context).getBoolean(KEY_USE_HTTPS_URL, DEFAULT_USE_HTTPS_URL)
+    }
+
     /**
      * getAPIkey*/
     fun getApiKey(context: Context): String {
         val prefs = getPreferences(context)
         val apiKey = prefs.getString(KEY_API_KEY, "")
 
-        // if API Key is empty, indicating config possibly not initialized, force initialize
         if (apiKey.isNullOrBlank()) {
             initializeConfig(context)
             return prefs.getString(KEY_API_KEY, "") ?: ""
@@ -97,20 +102,22 @@ object ApiServerConfig {
         corsEnabled: Boolean,
         corsOrigins: String,
         authEnabled: Boolean,
-        apiKey: String
+        apiKey: String,
+        useHttpsUrl: Boolean
     ) {
         val prefs = getPreferences(context)
         prefs.edit().apply {
-         putInt(KEY_PORT, port)
-         putString(KEY_IP_ADDRESS, ipAddress)
-         putBoolean(KEY_CORS_ENABLED, corsEnabled)
-         putString(KEY_CORS_ORIGINS, corsOrigins)
-         putBoolean(KEY_AUTH_ENABLED, authEnabled)
-         putString(KEY_API_KEY, apiKey)
-         putBoolean(KEY_CONFIG_INITIALIZED, true)
+            putInt(KEY_PORT, port)
+            putString(KEY_IP_ADDRESS, ipAddress)
+            putBoolean(KEY_CORS_ENABLED, corsEnabled)
+            putString(KEY_CORS_ORIGINS, corsOrigins)
+            putBoolean(KEY_AUTH_ENABLED, authEnabled)
+            putString(KEY_API_KEY, apiKey)
+            putBoolean(KEY_USE_HTTPS_URL, useHttpsUrl)
+            putBoolean(KEY_CONFIG_INITIALIZED, true)
         }.apply()
 
-        Timber.Forest.tag(TAG).i("Config saved: port=$port, ip=$ipAddress, cors=$corsEnabled, auth=$authEnabled")
+        Timber.Forest.tag(TAG).i("Config saved: port=$port, ip=$ipAddress, cors=$corsEnabled, auth=$authEnabled, useHttpsUrl=$useHttpsUrl")
     }
 
     /** * resetasdefaultconfig*/
@@ -137,6 +144,7 @@ object ApiServerConfig {
             putString(KEY_CORS_ORIGINS, DEFAULT_CORS_ORIGINS)
             putBoolean(KEY_AUTH_ENABLED, DEFAULT_AUTH_ENABLED)
             putString(KEY_API_KEY, defaultApiKey)
+            putBoolean(KEY_USE_HTTPS_URL, DEFAULT_USE_HTTPS_URL)
             putBoolean(KEY_CONFIG_INITIALIZED, true)
         }.apply()
 
@@ -149,7 +157,8 @@ object ApiServerConfig {
         val ipAddress = getIpAddress(context)
         val corsEnabled = isCorsEnabled(context)
         val authEnabled = isAuthEnabled(context)
+        val httpsUrl = useHttpsUrl(context)
 
-        Timber.Forest.tag(TAG).i("Current config - Port: $port, IP: $ipAddress, CORS: $corsEnabled, Auth: $authEnabled")
+        Timber.Forest.tag(TAG).i("Current config - Port: $port, IP: $ipAddress, CORS: $corsEnabled, Auth: $authEnabled, HTTPS URL: $httpsUrl")
     }
 }

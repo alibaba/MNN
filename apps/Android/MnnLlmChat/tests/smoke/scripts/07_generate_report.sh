@@ -11,6 +11,8 @@ aab_summary="$ARTIFACT_DIR/aab_release/smoke_summary.txt"
 dl_summary="$ARTIFACT_DIR/qwen35_download/summary.txt"
 chat_summary="$ARTIFACT_DIR/chat_io/summary.txt"
 bench_summary="$ARTIFACT_DIR/qwen35_benchmark/summary.txt"
+api_dump_summary="$ARTIFACT_DIR/api_dumpapp/summary.txt"
+api_ui_summary="$ARTIFACT_DIR/api_uiautomator/summary.txt"
 bench_cpu64_log="$ARTIFACT_DIR/qwen35_benchmark/case_cpu_64_64.log"
 bench_cpu128_log="$ARTIFACT_DIR/qwen35_benchmark/case_cpu_128_128.log"
 bench_opencl_log="$ARTIFACT_DIR/qwen35_benchmark/case_opencl_64_64.log"
@@ -80,6 +82,8 @@ dl_status="$(status_from_file "$dl_summary")"
 chat_status="$(status_from_file "$chat_summary")"
 
 bench_status="$(summary_value QWEN35_BENCHMARK FAIL)"
+api_dump_status="$(status_from_file "$api_dump_summary")"
+api_ui_status="$(status_from_file "$api_ui_summary")"
 ui_project="$(summary_value UI_PROJECT MISSING)"
 dumpapp_project="$(summary_value DUMPAPP_PROJECT MISSING)"
 cpu_project="$(summary_value CPU_PROJECT MISSING)"
@@ -138,6 +142,8 @@ cat >"$REPORT_PATH" <<EOF_HTML
         <tr><td>Qwen3.5 download ops</td><td class="$( [ "$dl_status" = PASS ] && echo ok || echo bad )">${dl_status}</td><td>qwen35_download/summary.txt</td></tr>
         <tr><td>Qwen3.5 chat text/image entry</td><td class="$( [ "$chat_status" = PASS ] && echo ok || echo bad )">${chat_status}</td><td>chat_io/summary.txt</td></tr>
         <tr><td>Qwen3.5 benchmark overall</td><td class="$( [ "$bench_status" = PASS ] && echo ok || echo bad )">${bench_status}</td><td>qwen35_benchmark/summary.txt</td></tr>
+        <tr><td>API dumpapp compatibility</td><td class="$( [ "$api_dump_status" = PASS ] && echo ok || echo bad )">${api_dump_status}</td><td>api_dumpapp/summary.txt</td></tr>
+        <tr><td>API UiAutomator compatibility</td><td class="$( [ "$api_ui_status" = PASS ] && echo ok || echo bad )">${api_ui_status}</td><td>api_uiautomator/summary.txt</td></tr>
       </table>
     </div>
 

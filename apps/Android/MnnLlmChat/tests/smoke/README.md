@@ -29,6 +29,8 @@ Key scripts:
 - `scripts/04_regress_qwen35_download_ops.sh`: Qwen3.5 download/pause/resume/delete regression
 - `scripts/05_regress_qwen35_benchmark.sh`: Qwen3.5 benchmark regression (UI + dumpapp, CPU/OpenCL split)
 - `scripts/06_regress_chat_text_image.sh`: chat text + image-entry regression
+- `scripts/08_regress_api_dumpapp.sh`: API compatibility regression via dumpapp + curl (no-code)
+- `scripts/09_regress_api_uiautomator.sh`: API settings UiAutomator instrumentation test (code-based)
 - `scripts/07_generate_report.sh`: generates single-page `artifacts/report.html`
 
 ## Quick Start
@@ -60,6 +62,7 @@ Optional env vars:
 - `BUNDLETOOL_JAR`: default `/tmp/bundletool-all-1.17.1.jar`
 - `UNINSTALL_CONFLICTING`: default `true`, uninstall package before install
 - `BUILD_KIND`: `standard_debug` or `aab_release` (default: `aab_release`)
+- `RUN_API_UIAUTOMATOR_TEST`: `true` to run step `09_regress_api_uiautomator.sh` in extended pipeline (default: `false`)
 
 ## Runtime Process
 
@@ -73,7 +76,10 @@ Typical end-to-end execution order:
 6. Qwen3.5 benchmark regression:
    - UI project (CPU/OpenCL cases)
    - dumpapp project (CPU/OpenCL cases)
-7. Report generation to `artifacts/report.html`
+7. API compatibility regression:
+   - dumpapp no-code path (`/v1/models`, `/v1/messages` auth gates)
+   - optional UiAutomator code path (API settings switch interaction)
+8. Report generation to `artifacts/report.html`
 
 ## Key Implementation Logic
 

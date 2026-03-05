@@ -72,6 +72,8 @@
     <string name="r1_thinking_message">Thinking…</string>
     <string name="r1_think_complete_template">Has thought for %1$s seconds</string>
     <string name="copy_text">Copy</string>
+    <string name="copy_config">Copy Config</string>
+    <string name="config_info">Config Info</string>
     <string name="select_text">Select text</string>
     <string name="copy_success">Copy success</string>
     <string name="debug_message_copied">debug message copied, please report issue in github</string>
@@ -110,8 +112,6 @@
     <string name="show_only_downloaded">Show downloaded only</string>
     <string name="about">About</string>
     <string name="settings">Settings</string>
-    <string name="config_info">Config Info</string>
-    <string name="copy_config">Copy Config</string>
     <string name="current_version">Current Version:%1$s</string>
     <string name="mnn_version">MNN Version</string>
     <string name="mnn_version_summary">MNN Engine Version: %1$s</string>
@@ -149,9 +149,14 @@
     <string name="api_settings">API Settings</string>
     <string name="api_settings_title">API Service Settings</string>
     <string name="api_console">API Console</string>
+    
     <string name="api_console_title">API Service Console</string>
+    
     <string name="api_port">Port</string>
+    
     <string name="api_bind_ip">Bind IP Address</string>
+    
+    <string name="use_https_url">Use HTTPS URL for clients</string>
     <string name="api_cors_enabled">Enable CORS</string>
     <string name="api_cors_origins">Allowed Origins</string>
     
