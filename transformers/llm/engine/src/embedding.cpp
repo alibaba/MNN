@@ -46,6 +46,7 @@ int Embedding::dim() const {
 }
 
 bool Embedding::load() {
+    MNN::Express::ExecutorScope s(mExecutor);
     if (mConfig->config_.document.HasMember("load_disk_embedding_only") && mConfig->config_.document["load_disk_embedding_only"].GetBool()) {
         mDiskEmbedding.reset(new DiskEmbedding(mConfig));
         return true;
@@ -79,6 +80,7 @@ bool Embedding::load() {
 }
 
 std::vector<Express::VARP> Embedding::forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos, Express::VARPS extraArgs) {
+    MNN::Express::ExecutorScope s(mExecutor);
     return mModule->onForward({hiddenState, mask, inputPos});
 }
 

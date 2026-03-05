@@ -1291,7 +1291,7 @@ kernel void conv1x1_w_dequant(
     FLOAT dequant_bias = FLOAT(((const device ftype *)dequantScale)[((idx_n4 * cst.block_size + bi) * 2 + 1) * 4 + idx_nl]) / (FLOAT)cst.scale_coef;
 
     auto xy_wi = wi + (idx_n4 * cst.input_slice + idx_k4) * 4 + idx_nl;// [N/4, K/4, N4, K4]
-    auto xy_wf = wf + ((idx_n4 * (cst.input_slice/4) + idx_k16) * 4 + idx_nl) * 4;// [N/4, K/4, N4, K4]
+    auto xy_wf = wf + ((idx_n4 * ((cst.input_slice+3)/4) + idx_k16) * 4 + idx_nl) * 4;// [N/4, K/4, N4, K4]
 
     #ifdef W_QUANT_4
     for(int k = 0; k < 4; k++) {
@@ -1440,7 +1440,7 @@ kernel void conv1x1_gemm_32x64_split_k_sg(const device ftype4 *in            [[b
     int idx_wk16 = (0 * 2 + kwl) * 2 + 0;
 
     int idx_n4 = (uz * 16 + no) < cst.output_slice ? (uz * 16 + no) : (cst.output_slice - 1);
-    auto xy_wt = wt +  (idx_n4 * (cst.input_slice/4) + idx_wk16) * 4 + nl;// [N/4, K/16, N4, K4, K4]
+    auto xy_wt = wt +  (idx_n4 * ((cst.input_slice+3)/4) + idx_wk16) * 4 + nl;// [N/4, K/16, N4, K4, K4]
     
     int idx_sa = (ml * 4 + 0) * 16 + kl; // [M8, M4, K16] x [K4]
     int idx_sb = 512 + ((no * 4 + nl) * 2 + kwl) * 8 + 0; // [N16 N4, K2, K8] x [K4]
@@ -1594,7 +1594,7 @@ kernel void conv1x1_gemm_32x64_split_k_sg(const device ftype4 *in            [[b
     int idx_wk16 = 0 * 2 + kwl;
 
     int idx_n4 = (uz * 16 + no) < cst.output_slice ? (uz * 16 + no) : (cst.output_slice - 1);
-    auto xy_wt = wt +  (idx_n4 * (cst.input_slice/4) + idx_wk16) * 4 + nl;// [N/4, K/16, N4, K4, K4]
+    auto xy_wt = wt +  (idx_n4 * ((cst.input_slice+3)/4) + idx_wk16) * 4 + nl;// [N/4, K/16, N4, K4, K4]
     
     int idx_sa = (ml * 2 + 0) * 8 + kl; // [M16, M2, K8] x [K4]
     int idx_sb = 256 + ((no * 4 + nl) * 2 + kwl) * 4 + 0; // [N16 N4, K2, K4] x [K4]
@@ -1659,8 +1659,18 @@ kernel void conv1x1_gemm_32x64_split_k_sg(const device ftype4 *in            [[b
                 ((threadgroup ftype4*)sdata)[idx_sb + i]  = ftype4(w_dequant[i]); // K4K4
             }
             
+            #ifdef MNN_METAL_SRC_PROTECT
+            if (idx_k4 + z < cst.input_slice) {
+                ((threadgroup ftype4*)sdata)[idx_sa]     = (ftype4)*(xy_in0);
+                ((threadgroup ftype4*)sdata)[idx_sa + 8] = (ftype4)*(xy_in1);
+            } else {
+                ((threadgroup ftype4*)sdata)[idx_sa]     = (ftype4)(0);
+                ((threadgroup ftype4*)sdata)[idx_sa + 8] = (ftype4)(0);
+            }
+            #else
             ((threadgroup ftype4*)sdata)[idx_sa]     = (ftype4)*(xy_in0);
             ((threadgroup ftype4*)sdata)[idx_sa + 8] = (ftype4)*(xy_in1);
+            #endif
 
             threadgroup_barrier(mem_flags::mem_threadgroup);
             
@@ -1769,7 +1779,7 @@ kernel void conv1x1_gemm_32x64_split_k_sg(const device ftype4 *in            [[b
     int idx_wk16 = 0 * 2 + kwl;
 
     int idx_n4 = (uz * 16 + no) < cst.output_slice ? (uz * 16 + no) : (cst.output_slice - 1);
-    auto xy_wt = wt +  (idx_n4 * (cst.input_slice/4) + idx_wk16) * 4 + nl;// [N/4, K/16, N4, K4, K4]
+    auto xy_wt = wt +  (idx_n4 * ((cst.input_slice+3)/4) + idx_wk16) * 4 + nl;// [N/4, K/16, N4, K4, K4]
     
     int idx_sa = (ko * 32 + ml * 2 + 0) * 2 + kl;
     int idx_sb = 1024 + (kwl * 16 + 0) * 64 + no * 4 + nl;
@@ -1836,8 +1846,18 @@ kernel void conv1x1_gemm_32x64_split_k_sg(const device ftype4 *in            [[b
                 ((threadgroup ftype*)sdata)[idx_sb + 64*i]  = ftype(w_dequant[i/4][i%4]); // K4K4
             }
             
+            #ifdef MNN_METAL_SRC_PROTECT
+            if (idx_k4 + z < cst.input_slice) {
+                ((threadgroup ftype4*)sdata)[idx_sa]     = (ftype4)*(xy_in0);
+                ((threadgroup ftype4*)sdata)[idx_sa + 2] = (ftype4)*(xy_in1);
+            } else {
+                ((threadgroup ftype4*)sdata)[idx_sa]     = (ftype4)(0);
+                ((threadgroup ftype4*)sdata)[idx_sa + 2] = (ftype4)(0);
+            }
+            #else
             ((threadgroup ftype4*)sdata)[idx_sa]     = (ftype4)*(xy_in0);
-            ((threadgroup ftype4*)sdata)[idx_sa + 2] = (ftype4)*(xy_in1);
+            ((threadgroup ftype4*)sdata)[idx_sa + 2] = (ftype4)*(xy_in1); 
+            #endif
 
             threadgroup_barrier(mem_flags::mem_threadgroup);
             

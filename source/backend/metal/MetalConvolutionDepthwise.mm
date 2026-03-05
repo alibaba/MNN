@@ -17,6 +17,10 @@ MetalConvolutionDepthwise::MetalConvolutionDepthwise(Backend *backend, const MNN
     : MetalConvolutionCommon(backend, op, nullptr) {
     loadWeight(op);
 }
+MetalConvolutionDepthwise::MetalConvolutionDepthwise(Backend *backend, const MNN::Op *op, std::shared_ptr<MNN::Tensor> weight,
+                          std::shared_ptr<MNN::Tensor> bias) : MetalConvolutionCommon(backend, op, bias) {
+    mWeight = weight;
+}
 
 ErrorCode MetalConvolutionDepthwise::onResize(const std::vector<Tensor *> &inputs,
                                               const std::vector<Tensor *> &outputs) {
@@ -114,6 +118,15 @@ static void weightInBlock(int group, int kh, int kw, const FType *src, uint8_t* 
             }
         }
     }
+}
+
+bool MetalConvolutionDepthwise::onClone(Backend* bn, const Op* op, Execution** dst) {
+    if (nullptr == dst) {
+        return true;
+    }
+    auto exe = new MetalConvolutionDepthwise(bn, op, mWeight, mBias);
+    *dst = exe;
+    return true;
 }
 
 std::shared_ptr<MNN::Tensor> MetalConvolutionDepthwise::weightTransform(int group, int oc, int ic, int kh, int kw, const float *src, bool int8Weight, bool int4Weight, id<MTLBuffer> srcGpuBuffer) {

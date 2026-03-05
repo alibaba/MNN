@@ -5,10 +5,12 @@ package com.alibaba.mnnllm.android.utils
 import android.content.Context
 import android.view.LayoutInflater
 import android.widget.Button
+import android.widget.TextView
 import android.widget.Toast
 import com.alibaba.mnnllm.android.R
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.yuyh.jsonviewer.library.JsonRecyclerView
+import org.json.JSONObject
+import org.json.JSONArray
 import timber.log.Timber
 
 object ConfigInfoDialog {
@@ -17,15 +19,17 @@ object ConfigInfoDialog {
         builder.setTitle(R.string.config_info)
 
         val dialogView = LayoutInflater.from(context).inflate(R.layout.dialog_config_viewer, null)
-        val recyclerView = dialogView.findViewById<JsonRecyclerView>(R.id.rv_json)
+        val textView = dialogView.findViewById<TextView>(R.id.tv_json)
         val copyButton = dialogView.findViewById<Button>(R.id.btn_copy)
 
-        try {
-            recyclerView.bindJson(jsonContent)
+        val formattedJson = try {
+            formatJson(jsonContent)
         } catch (e: Exception) {
-            Timber.e(e, "Failed to parse JSON config")
-            recyclerView.bindJson("{\"error\": \"Failed to parse config\"}")
+            Timber.e(e, "Failed to format JSON config")
+            jsonContent
         }
+        
+        textView.text = formattedJson
 
         copyButton.setOnClickListener {
             ClipboardUtils.copyToClipboard(context, jsonContent)
@@ -35,5 +39,20 @@ object ConfigInfoDialog {
         builder.setView(dialogView)
         builder.setPositiveButton(android.R.string.ok) { dialog, _ -> dialog.dismiss() }
         builder.create().show()
+    }
+
+    private fun formatJson(jsonString: String): String {
+        return try {
+            val trimmed = jsonString.trim()
+            if (trimmed.startsWith("{")) {
+                JSONObject(trimmed).toString(2)
+            } else if (trimmed.startsWith("[")) {
+                JSONArray(trimmed).toString(2)
+            } else {
+                jsonString
+            }
+        } catch (e: Exception) {
+            jsonString
+        }
     }
 }
