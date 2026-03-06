@@ -66,7 +66,7 @@ internal class BenchmarkDumperPlugin(
         }
         writer.println("Available models (${models.size}):")
         for (model in models) {
-            writer.println("  ${model.modelId}  [${if (model.isLocal) "local" else "remote"}]")
+            writer.println("  ${model.modelId}  [${if (model.isLocal) "downloaded" else "not_downloaded"}]")
         }
     }
 

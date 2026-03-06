@@ -2,10 +2,13 @@ package com.alibaba.mnnllm.api.openai.network.auth
 
 import android.content.Context
 import com.alibaba.mnnllm.api.openai.service.ApiServerConfig
+import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
+import io.ktor.server.response.header
 import io.ktor.server.response.respond
+import io.ktor.server.response.respondText
 
 object ApiAuthUtils {
     fun isAuthorized(call: ApplicationCall, context: Context): Boolean {
@@ -23,15 +26,11 @@ object ApiAuthUtils {
     }
 
     suspend fun respondUnauthorized(call: ApplicationCall) {
-        call.respond(
-            HttpStatusCode.Unauthorized,
-            mapOf(
-                "type" to "error",
-                "error" to mapOf(
-                    "type" to "authentication_error",
-                    "message" to "Invalid API key"
-                )
-            )
+        call.response.header(HttpHeaders.WWWAuthenticate, "Bearer")
+        call.respondText(
+            text = """{"error":{"type":"authentication_error","message":"Invalid API key"}}""",
+            contentType = ContentType.Application.Json,
+            status = HttpStatusCode.Unauthorized
         )
     }
 }

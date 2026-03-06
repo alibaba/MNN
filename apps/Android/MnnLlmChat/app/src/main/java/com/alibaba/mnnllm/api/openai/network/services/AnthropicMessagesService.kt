@@ -79,23 +79,43 @@ class AnthropicMessagesService {
         traceId: String
     ) {
         try {
+            val llmSession = getLlmSession()
+            if (llmSession == null) {
+                logger.logInfo(traceId, "No active LLM session available")
+                call.respond(
+                    HttpStatusCode.ServiceUnavailable,
+                    mapOf<String, Any>(
+                        "error" to mapOf<String, String>(
+                            "type" to "api_error",
+                            "message" to "No active LLM session available. Please ensure a model is loaded."
+                        )
+                    )
+                )
+                return
+            }
+
             val openAiRequest = AnthropicAdapter.toOpenAIRequest(request)
             val unifiedHistory = messageTransformer.convertToUnifiedMnnHistory(
                 openAiRequest.messages,
                 imageProcessor,
-                getLlmSession()
+                llmSession
             )
 
             if (request.stream == true) {
-                handleStreamResponse(call, unifiedHistory, request.model ?: "mnn-local", traceId)
+                handleStreamResponse(call, unifiedHistory, request.model ?: "mnn-local", traceId, llmSession)
             } else {
-                handleNonStreamResponse(call, unifiedHistory, request.model ?: "mnn-local")
+                handleNonStreamResponse(call, unifiedHistory, request.model ?: "mnn-local", llmSession)
             }
         } catch (e: Exception) {
             logger.logError(traceId, e, "Anthropic generation failed")
             call.respond(
                 HttpStatusCode.InternalServerError,
-                mapOf("error" to mapOf("message" to "Internal server error", "trace_id" to traceId))
+                mapOf<String, Any>(
+                    "error" to mapOf<String, String>(
+                        "type" to "api_error",
+                        "message" to (e.message ?: "Internal server error")
+                    )
+                )
             )
         }
     }
@@ -103,10 +123,11 @@ class AnthropicMessagesService {
     private suspend fun handleNonStreamResponse(
         call: ApplicationCall,
         history: List<android.util.Pair<String, String>>,
-        model: String
+        model: String,
+        llmSession: LlmSession
     ) {
         val fullResponse = StringBuilder()
-        val result = getLlmSession().submitFullHistory(history, object : GenerateProgressListener {
+        val result = llmSession.submitFullHistory(history, object : GenerateProgressListener {
             override fun onProgress(progress: String?): Boolean {
                 progress?.let { fullResponse.append(it) }
                 return false
@@ -128,7 +149,8 @@ class AnthropicMessagesService {
         call: ApplicationCall,
         history: List<android.util.Pair<String, String>>,
         model: String,
-        traceId: String
+        traceId: String,
+        llmSession: LlmSession
     ) {
         val responseId = "msg_${System.currentTimeMillis()}"
 
@@ -146,7 +168,7 @@ class AnthropicMessagesService {
 
             launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
-                    metrics = getLlmSession().submitFullHistory(history, object : GenerateProgressListener {
+                    metrics = llmSession.submitFullHistory(history, object : GenerateProgressListener {
                         override fun onProgress(progress: String?): Boolean {
                             if (progress == null) {
                                 return false
@@ -185,8 +207,7 @@ class AnthropicMessagesService {
         return AnthropicUsage(input_tokens = promptTokens, output_tokens = outputTokens)
     }
 
-    private fun getLlmSession(): LlmSession {
+    private fun getLlmSession(): LlmSession? {
         return chatSessionProvider.getLlmSession()
-            ?: throw IllegalStateException("No active LLM session available")
     }
 }

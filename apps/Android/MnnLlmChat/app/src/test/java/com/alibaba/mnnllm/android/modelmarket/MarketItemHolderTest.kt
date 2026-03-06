@@ -8,6 +8,7 @@ import androidx.appcompat.widget.PopupMenu
 import com.alibaba.mls.api.download.DownloadInfo
 import com.alibaba.mls.api.download.DownloadState
 import com.alibaba.mnnllm.android.R
+import com.alibaba.mnnllm.android.modelsettings.DiffusionSettingsBottomSheetFragment
 import com.alibaba.mnnllm.android.utils.DialogUtils
 import io.mockk.every
 import io.mockk.mockk
@@ -58,6 +59,38 @@ class MarketItemHolderTest {
         } finally {
             unmockkObject(DialogUtils)
         }
+    }
+
+    @Test
+    fun diffusionModel_settings_shouldOpenDiffusionSettingsSheet() {
+        val activity = Robolectric.buildActivity(AppCompatActivity::class.java).setup().get()
+        activity.setTheme(R.style.AppTheme)
+        val context = activity
+        val itemView = LayoutInflater.from(context)
+            .inflate(R.layout.recycle_item_market, FrameLayout(context), false)
+
+        val listener = mockk<ModelMarketItemListener>(relaxed = true)
+        val holder = MarketItemHolder(itemView, listener)
+        val diffusionItem = ModelMarketItem(
+            modelName = "stable-diffusion-v1-5",
+            vendor = "TestVendor",
+            sizeB = 1.0,
+            tags = emptyList(),
+            categories = emptyList(),
+            sources = mapOf("ModelScope" to "Test/Repo"),
+            modelId = "ModelScope/MNN/stable-diffusion-v1-5"
+        )
+
+        val method = MarketItemHolder::class.java.getDeclaredMethod(
+            "handleSettingsMenu",
+            ModelMarketItem::class.java
+        )
+        method.isAccessible = true
+        method.invoke(holder, diffusionItem)
+
+        activity.supportFragmentManager.executePendingTransactions()
+        val fragment = activity.supportFragmentManager.findFragmentByTag(DiffusionSettingsBottomSheetFragment.TAG)
+        assertTrue(fragment != null)
     }
 
     private fun clickMenuItem(popupMenu: PopupMenu, itemId: Int) {

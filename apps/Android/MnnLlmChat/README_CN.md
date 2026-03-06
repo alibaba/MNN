@@ -53,6 +53,17 @@
   ```
 # Releases
 
+## Version 0.8.1.2
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/apks/mnn_chat_0_8_1_2.apk)
++ 问题修复：
+  + 修复已知问题并提升整体稳定性。
+
+## Version 0.8.1.1
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_8_1_1.apk)
++ 问题修复：
+  + 修复若干已知问题并提升整体稳定性。
+  + 提升模型切换与聊天流程的可靠性。
+
 ## Version 0.8.1
 + 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_8_1.apk)
 + 更新亮点：

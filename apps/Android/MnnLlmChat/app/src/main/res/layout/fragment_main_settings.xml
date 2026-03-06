@@ -49,10 +49,26 @@
                     style="@style/SettingsRowContainer"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
                     app:icon="@drawable/baseline_arrow_drop_down_24"
                     app:labelText="@string/select_download_provider" />
+
+                <com.google.android.material.divider.MaterialDivider
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp"
+                    android:layout_marginEnd="16dp" />
+
+                <com.alibaba.mnnllm.android.modelsettings.DropDownLineView
+                    android:id="@+id/dropdown_diffusion_memory_mode"
+                    style="@style/SettingsRowContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    app:icon="@drawable/baseline_arrow_drop_down_24"
+                    app:labelText="@string/diffusion_memory_mode" />
 
                 <com.google.android.material.divider.MaterialDivider
                     android:layout_width="match_parent"
@@ -129,12 +145,30 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical">
 
+                <com.alibaba.mnnllm.android.modelsettings.SettingsItemView
+                    android:id="@+id/item_crash_diagnostics"
+                    style="@style/SettingsRowContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
+                    app:itemText="@string/crash_diagnostics_enabled_title" />
+
+                <com.google.android.material.divider.MaterialDivider
+                    android:id="@+id/divider_debug"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp"
+                    android:layout_marginEnd="16dp"
+                    android:visibility="gone" />
+
                 <TextView
-                    android:id="@+id/btn_check_update"
+                    android:id="@+id/btn_debug_mode"
                     style="@style/SettingsRowClickable"
                     android:paddingStart="16dp"
                     android:paddingEnd="16dp"
-                    android:text="@string/check_for_update" />
+                    android:text="@string/debug_mode"
+                    android:visibility="gone" />
 
                 <com.google.android.material.divider.MaterialDivider
                     android:layout_width="match_parent"
@@ -164,20 +198,17 @@
                 </LinearLayout>
 
                 <com.google.android.material.divider.MaterialDivider
-                    android:id="@+id/divider_debug"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="16dp"
-                    android:layout_marginEnd="16dp"
-                    android:visibility="gone" />
+                    android:layout_marginEnd="16dp" />
 
                 <TextView
-                    android:id="@+id/btn_debug_mode"
+                    android:id="@+id/btn_check_update"
                     style="@style/SettingsRowClickable"
                     android:paddingStart="16dp"
                     android:paddingEnd="16dp"
-                    android:text="@string/debug_mode"
-                    android:visibility="gone" />
+                    android:text="@string/check_for_update" />
 
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>

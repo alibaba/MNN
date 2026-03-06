@@ -17,6 +17,7 @@ import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.databinding.FragmentSettingsSheetBinding
 import com.alibaba.mnnllm.android.databinding.SettingsRowSliderSwitchBinding
 import com.alibaba.mnnllm.android.llm.LlmSession
+import com.alibaba.mnnllm.android.modelist.ModelListManager
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig.Companion.defaultConfig
 import com.alibaba.mnnllm.android.utils.MmapUtils
 import java.util.Locale
@@ -142,9 +143,53 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
             backendOptions,
             itemToString = { it.toString() },
             onDropdownItemSelected = { _, item ->
-                currentConfig.backendType = item.toString()
+                val selectedBackend = item.toString()
+                if (!selectedBackend.equals("opencl", ignoreCase = true)) {
+                    currentConfig.backendType = selectedBackend
+                    return@setDropDownItems
+                }
+
+                val previousBackend = currentConfig.backendType
+                    ?.takeIf { it.isNotBlank() }
+                    ?: "cpu"
+                if (selectedBackend.equals(previousBackend, ignoreCase = true)) {
+                    currentConfig.backendType = selectedBackend
+                    return@setDropDownItems
+                }
+
+                if (!shouldWarnWhenSelectingOpenCl()) {
+                    currentConfig.backendType = selectedBackend
+                    return@setDropDownItems
+                }
+
+                showOpenClWarningDialog(
+                    onProceed = {
+                        currentConfig.backendType = selectedBackend
+                        binding.dropdownBackend.setCurrentItem(selectedBackend)
+                    },
+                    onCancel = {
+                        currentConfig.backendType = previousBackend
+                        binding.dropdownBackend.setCurrentItem(previousBackend)
+                    }
+                )
             },
         )
+    }
+
+    private fun shouldWarnWhenSelectingOpenCl(): Boolean {
+        if (modelId.isBlank()) {
+            return false
+        }
+        val mergedExtraTags = linkedSetOf<String>()
+        mergedExtraTags.addAll(ModelListManager.getExtraTags(modelId))
+        val wrapperTags = ModelListManager.getCurrentModels()
+            ?.firstOrNull { it.modelItem.modelId == modelId }
+            ?.modelItem
+            ?.getExtraTags()
+            .orEmpty()
+        mergedExtraTags.addAll(wrapperTags)
+        mergedExtraTags.addAll(modelItem?.getExtraTags().orEmpty())
+        return shouldWarnOpenClByExtraTags(mergedExtraTags.toList())
     }
 
     private fun setupMaxTokenListener() {

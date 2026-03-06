@@ -32,6 +32,7 @@ class DiffusionSession(
             configPath,
             Gson().toJson(configMap)
         )
+        Log.d(TAG, "DiffusionSession load nativePtr=$nativePtr configPath=$configPath")
         if (releaseRequested) {
             release()
         }
@@ -44,17 +45,28 @@ class DiffusionSession(
     ): HashMap<String, Any> {
         synchronized(this) {
             Log.d(TAG, "MNN_DEBUG submit$prompt")
+            if (nativePtr == 0L) {
+                Log.e(TAG, "Diffusion nativePtr is 0, cannot generate")
+                return hashMapOf<String, Any>(
+                    "error" to true,
+                    "message" to "Native diffusion session not initialized"
+                )
+            }
             generating = true
             val output = params["output"] as String
             val iterNum = params["iterNum"] as Int
             val randomSeed = params["randomSeed"] as Int
-            val result = submitDiffusionNative(
+            val nativeResult = submitDiffusionNative(
                 nativePtr,
                 prompt,
                 output,
                 iterNum,
                 randomSeed,
                 progressListener
+            )
+            val result: HashMap<String, Any> = nativeResult ?: hashMapOf<String, Any>(
+                "error" to true,
+                "message" to "Native diffusion returned null"
             )
             generating = false
             if (releaseRequested) {
@@ -81,7 +93,7 @@ class DiffusionSession(
         iterNum: Int,
         randomSeed: Int,
         progressListener: GenerateProgressListener
-    ): HashMap<String, Any>
+    ): HashMap<String, Any>?
 
     private fun generateNewSessionId(): String {
         this.sessionId = System.currentTimeMillis().toString()

@@ -24,6 +24,23 @@ namespace fs = std::filesystem;
 
 namespace mnncli {
 using namespace mnn::downloader;
+namespace {
+bool TryParseThinkingOption(const std::string& value, bool& thinking_enabled) {
+    std::string lower = value;
+    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    if (lower == "1" || lower == "true" || lower == "on" || lower == "yes" || lower == "enable" || lower == "enabled") {
+        thinking_enabled = true;
+        return true;
+    }
+    if (lower == "0" || lower == "false" || lower == "off" || lower == "no" || lower == "disable" || lower == "disabled") {
+        thinking_enabled = false;
+        return true;
+    }
+    return false;
+}
+} // namespace
 
 std::string ServeCommandHandler::CommandName() const {
     return "serve";
@@ -38,11 +55,21 @@ int ServeCommandHandler::Handle(const ParsedCommand& cmd) {
     std::string config_path;
     std::string host;
     int port = -1;
+    bool has_thinking_override = false;
+    bool thinking_enabled = true;
 
     // Extract options
     host = CommandParser::GetOption(cmd, "host", "");
     auto port_str = CommandParser::GetOption(cmd, "port", "");
     config_path = CommandParser::GetOption(cmd, "config", "");
+    auto thinking_value = CommandParser::GetOption(cmd, "thinking", "");
+    has_thinking_override = !thinking_value.empty();
+    if (has_thinking_override && !TryParseThinkingOption(thinking_value, thinking_enabled)) {
+        UserInterface::ShowError("Invalid thinking option value",
+                                 "Use --thinking true|false (also supports 1|0, on|off, yes|no)");
+        std::cout << MakeUsage(mnncli::GetSpec("serve")) << "\n";
+        return 1;
+    }
 
     // Determine model name (if provided as positional)
     if (!cmd.arguments.empty()) {
@@ -101,6 +128,12 @@ int ServeCommandHandler::Handle(const ParsedCommand& cmd) {
 
     // Create and load model
     auto llm = LLMManager::CreateLLM(config_path, true);
+    if (has_thinking_override) {
+        std::string thinking_cfg = std::string("{\"jinja\":{\"context\":{\"enable_thinking\":") +
+                                   (thinking_enabled ? "true" : "false") + "}}}";
+        llm->set_config(thinking_cfg);
+        LOG_INFO("Applied thinking mode override: " + std::string(thinking_enabled ? "enabled" : "disabled"));
+    }
 
     // Determine if this is an R1 model (affects prompt formatting)
     auto lower_path = config_path;

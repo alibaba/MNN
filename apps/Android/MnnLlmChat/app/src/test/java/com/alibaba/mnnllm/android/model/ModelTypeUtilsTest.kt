@@ -18,4 +18,16 @@ class ModelTypeUtilsTest {
     fun `requiresFaceImageInput returns false for non sana model`() {
         assertFalse(ModelTypeUtils.requiresFaceImageInput("qwen2.5-7b-instruct"))
     }
+
+    @Test
+    fun `isOpenClWarningByExtraTags returns true when opencl warning tag exists`() {
+        assertTrue(ModelTypeUtils.isOpenClWarningByExtraTags(listOf("opencl_warning")))
+        assertTrue(ModelTypeUtils.isOpenClWarningByExtraTags(listOf("OpenCLWarning")))
+    }
+
+    @Test
+    fun `isOpenClWarningByExtraTags returns false when tag does not exist`() {
+        assertFalse(ModelTypeUtils.isOpenClWarningByExtraTags(listOf("ThinkingSwitch")))
+    }
+
 }

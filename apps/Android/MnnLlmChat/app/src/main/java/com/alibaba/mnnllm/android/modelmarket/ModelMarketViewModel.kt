@@ -13,7 +13,10 @@ import com.alibaba.mls.api.download.DownloadListener
 import com.alibaba.mls.api.download.DownloadState
 import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.model.Modality
+import com.alibaba.mnnllm.android.model.ModelTypeUtils
+import com.alibaba.mnnllm.android.chat.model.ChatDataManager
 import com.alibaba.mnnllm.android.modelmarket.ModelMarketCache
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import android.content.Intent
 import android.os.Build
@@ -358,6 +361,7 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     override fun onDownloadFinished(modelId: String, path: String) {
+        recordDiffusionModelTypeIfNeeded(modelId, path)
         mainHandler.post {
             allModels.find { it.modelMarketItem.modelId == modelId }?.let {
                 updateDownloadInfo(modelId, downloadManager.getDownloadInfo(it.modelMarketItem.modelId))
@@ -366,6 +370,32 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
             }
             _itemUpdate.value = modelId
             updateServiceState()
+        }
+    }
+
+    private fun recordDiffusionModelTypeIfNeeded(modelId: String, path: String) {
+        if (!ModelTypeUtils.isDiffusionModel(modelId)) {
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val resolvedPath = if (path.isNotBlank()) {
+                    path
+                } else {
+                    downloadManager.getDownloadedFile(modelId)?.absolutePath.orEmpty()
+                }
+                if (resolvedPath.isBlank()) {
+                    Log.w(TAG, "Skip recording diffusion type for $modelId: empty model path")
+                    return@launch
+                }
+                ChatDataManager.getInstance(getApplication()).recordDownloadHistory(
+                    modelId,
+                    resolvedPath,
+                    "DIFFUSION"
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to record diffusion type for $modelId", e)
+            }
         }
     }
 

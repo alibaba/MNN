@@ -63,6 +63,13 @@ object ModelTypeUtils {
         return extraTags.any { it.equals("ThinkingSwitch", ignoreCase = true) }
     }
 
+    fun isOpenClWarningByExtraTags(extraTags: List<String>): Boolean {
+        return extraTags.any {
+            it.equals("opencl_warning", ignoreCase = true) ||
+                it.equals("OpenCLWarning", ignoreCase = true)
+        }
+    }
+
     fun isQnnModel(tags: List<String>): Boolean {
         return tags.any { it.equals("QNN", ignoreCase = true) }
     }

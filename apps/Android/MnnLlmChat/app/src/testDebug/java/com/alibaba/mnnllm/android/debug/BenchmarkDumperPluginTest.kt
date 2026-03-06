@@ -122,8 +122,8 @@ class BenchmarkDumperPluginTest {
         val output = out.toString()
         assertTrue(output.contains("Qwen3___5-0___8B-MNN"))
         assertTrue(output.contains("Qwen2.5-1.5B-MNN"))
-        assertTrue(output.contains("[local]"))
-        assertTrue(output.contains("[remote]"))
+        assertTrue(output.contains("[downloaded]"))
+        assertTrue(output.contains("[not_downloaded]"))
     }
 
     @Test

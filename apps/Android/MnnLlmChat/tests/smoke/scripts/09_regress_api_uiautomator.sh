@@ -8,13 +8,13 @@ ARTIFACT_DIR="${ARTIFACT_DIR:-$SMOKE_DIR/artifacts}"
 OUT_DIR="$ARTIFACT_DIR/api_uiautomator"
 mkdir -p "$OUT_DIR"
 
-DEVICE_ID="${DEVICE_ID:-$(adb devices | awk 'NR>1 && $2==\"device\" {print $1; exit}')}"
+DEVICE_ID="${DEVICE_ID:-$(adb devices | awk 'NR>1 && $2=="device" {print $1; exit}')}"
 if [ -z "${DEVICE_ID:-}" ]; then
   echo "No adb device found." >&2
   exit 1
 fi
 
-TEST_CLASS="com.alibaba.mnnllm.android.api.ApiSettingsUiAutomatorTest"
+TEST_CLASS="${API_UIAUTOMATOR_TEST_CLASS:-com.alibaba.mnnllm.android.api.ApiSettingsUiAutomatorTest}"
 INSTRUMENTATION="com.alibaba.mnnllm.android.test/androidx.test.runner.AndroidJUnitRunner"
 LOG_FILE="$OUT_DIR/instrumentation.log"
 SUMMARY_FILE="$OUT_DIR/summary.txt"

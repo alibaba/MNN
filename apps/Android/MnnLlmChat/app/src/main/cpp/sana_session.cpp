@@ -56,9 +56,7 @@ bool SanaSession::Run(const std::string& prompt,
     }
     MNN_DEBUG("SanaSession::Run LLM process() returned, llm_out=%p", llm_out.get());
 
-    // Free the wrapper immediately
-    sana_llm_.reset();
-    MNN_DEBUG("SanaSession::Run [Step 1] LLM Finished and Released.");
+    MNN_DEBUG("SanaSession::Run [Step 1] LLM Finished.");
 
     if (llm_out.get() == nullptr) {
         MNN_ERROR("SanaSession::Run LLM process failed (returned null).");
@@ -91,6 +89,10 @@ bool SanaSession::Run(const std::string& prompt,
     MNN_DEBUG("SanaSession::Run diffusion_->run() completed, success=%d", success);
 
     if (!success) {
+        // Ensure feature tensor is released before diffusion teardown.
+        llm_out = nullptr;
+        sana_llm_.reset();
+        diffusion_.reset();
         MNN_ERROR("SanaSession::Run Diffusion::run() failed.");
         return false;
     }
@@ -102,6 +104,9 @@ bool SanaSession::Run(const std::string& prompt,
     // But since we need to run LLM next time, we'd have to free it anyway. 
     // Might as well free it now to be safe.)
     MNN_DEBUG("SanaSession::Run [Step 2] Diffusion Finished. Cleaning up...");
+    // Release feature tensor first; its destructor can touch diffusion-owned graph state.
+    llm_out = nullptr;
+    sana_llm_.reset();
     diffusion_.reset();
 
     MNN_DEBUG("SanaSession::Run completed successfully");

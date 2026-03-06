@@ -5,6 +5,7 @@ import android.util.Log
 import com.alibaba.mnnllm.android.llm.ChatService
 import com.alibaba.mnnllm.android.llm.LlmSession
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig
+import com.alibaba.mnnllm.android.utils.CrashReportContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -54,11 +55,22 @@ class BenchmarkService {
 
     suspend fun initializeModel(modelId: String, customConfigPath: String? = null, backendType: String = "cpu"): Boolean = withContext(Dispatchers.IO) {
         try {
+            CrashReportContext.setBenchmarkState("initialize_model_start")
+            CrashReportContext.setCurrentModel(modelId, "benchmark_session")
+            CrashReportContext.setBenchmarkContext(
+                modelId = modelId,
+                backend = backendType,
+                nPrompt = 0,
+                nGenerate = 0,
+                nRepeat = 1,
+                kvCache = "false"
+            )
             Log.d(TAG, "Initializing benchmark model: $modelId with backend: $backendType")
             
             val configPath = customConfigPath ?: ModelConfig.getDefaultConfigFile(modelId)
             
             if (configPath.isNullOrEmpty()) {
+                CrashReportContext.setBenchmarkState("initialize_model_config_missing")
                 Log.e(TAG, "Config path not found for model: $modelId")
                 return@withContext false
             }
@@ -77,10 +89,12 @@ class BenchmarkService {
             llmSession?.let { session ->
                 session.load()
                 currentBackendType = backendType
+                CrashReportContext.setBenchmarkState("model_loaded")
                 Log.d(TAG, "Benchmark model loaded successfully")
                 true
             } ?: false
         } catch (e: Exception) {
+            CrashReportContext.setBenchmarkState("initialize_model_failed")
             Log.e(TAG, "Failed to initialize benchmark model", e)
             false
         }
@@ -208,6 +222,16 @@ class BenchmarkService {
 
         isRunning = true
         shouldStop = false
+        CrashReportContext.setBenchmarkState("run_start")
+        CrashReportContext.setCurrentModel(modelId, "benchmark_session")
+        CrashReportContext.setBenchmarkContext(
+            modelId = modelId,
+            backend = currentBackendType,
+            nPrompt = 0,
+            nGenerate = 0,
+            nRepeat = testParams.nRepeat.firstOrNull() ?: 1,
+            kvCache = testParams.kvCache
+        )
         Log.d(TAG, "Starting benchmark with official llm_bench.cpp approach")
 
         CoroutineScope(Dispatchers.IO).launch {
@@ -227,6 +251,15 @@ class BenchmarkService {
                         return@launch
                     }
                     try {
+                        CrashReportContext.setBenchmarkState("running_instance")
+                        CrashReportContext.setBenchmarkContext(
+                            modelId = modelId,
+                            backend = currentBackendType,
+                            nPrompt = instance.nPrompt,
+                            nGenerate = instance.nGenerate,
+                            nRepeat = instance.nRepeat,
+                            kvCache = instance.kvCache
+                        )
                         // Create TestInstance following llm_bench.cpp structure
                         val testInstance = TestInstance(
                             modelConfigFile = instance.model,
@@ -302,12 +335,14 @@ class BenchmarkService {
 
                         // Return result for this instance
                         if (result.success) {
+                            CrashReportContext.setBenchmarkState("instance_completed")
                             CoroutineScope(Dispatchers.Main).launch {
                                 callback.onComplete(result)
                             }
                         }
                         
                     } catch (e: Exception) {
+                        CrashReportContext.setBenchmarkState("instance_failed")
                         Log.e(TAG, "Error running test instance", e)
                         CoroutineScope(Dispatchers.Main).launch {
                             callback.onBenchmarkError(BenchmarkErrorCode.TEST_INSTANCE_FAILED,"Test instance failed: ${e.message}")
@@ -316,9 +351,11 @@ class BenchmarkService {
                 }
                 
                 isRunning = false
+                CrashReportContext.setBenchmarkState("run_completed")
                 
             } catch (e: Exception) {
                 isRunning = false
+                CrashReportContext.setBenchmarkState("run_failed")
                 Log.e(TAG, "Benchmark execution failed", e)
                 CoroutineScope(Dispatchers.Main).launch {
                     callback.onBenchmarkError(BenchmarkErrorCode.BENCHMARK_FAILED_UNKOWN, "Benchmark failed: ${e.message}")
@@ -331,6 +368,7 @@ class BenchmarkService {
         isRunning = false
         llmSession?.release()
         llmSession = null
+        CrashReportContext.setBenchmarkState("released")
         Log.d(TAG, "Benchmark service released")
     }
 
@@ -341,6 +379,7 @@ class BenchmarkService {
     fun stopBenchmark() {
         Log.d(TAG, "benchmark stop request by the user")
         shouldStop = true
+        CrashReportContext.setBenchmarkState("stop_requested")
     }
 
     fun isBenchmarkRunning(): Boolean = isRunning

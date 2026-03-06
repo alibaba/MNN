@@ -87,11 +87,14 @@ class ChatPresenter(
         val intent = chatActivity.intent
         val chatService = ChatService.provide()
         sessionId = chatActivity.intent.getStringExtra("chatSessionId")
+        Log.d(TAG, "createSession: received chatSessionId from intent: $sessionId")
         val chatDataItemList: List<ChatDataItem>?
         if (!TextUtils.isEmpty(sessionId)) {
             chatDataItemList = chatDataManager!!.getChatDataBySession(sessionId!!)
+            Log.d(TAG, "createSession: queried database, got ${chatDataItemList.size} items for sessionId=$sessionId")
             if (chatDataItemList.isNotEmpty()) {
                 sessionName = chatDataItemList[0].text
+                Log.d(TAG, "createSession: first item text (sessionName): $sessionName")
             }
             Log.d(TAG, "createSession: loaded ${chatDataItemList.size} history items for sessionId=$sessionId")
         } else {
@@ -135,8 +138,10 @@ class ChatPresenter(
 
     fun reset(onResetSuccess: (newSessionId: String) -> Unit) {
         presenterScope.launch {
-            chatDataManager!!.deleteAllChatData(sessionId!!)
+            // Don't delete chat data - preserve history for the old session
+            // Just reset the session to get a new sessionId
             sessionId = chatSession.reset()
+            sessionName = null  // Clear session name for the new session
             chatActivity.lifecycleScope.launch {
                 onResetSuccess(sessionId!!)
             }

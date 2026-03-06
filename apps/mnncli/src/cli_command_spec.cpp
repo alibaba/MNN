@@ -17,7 +17,8 @@ namespace {
         {
             {"config", 'c', ArgKind::Value, false, "Specify custom config file path"},
             {"prompt", 'p', ArgKind::Value, false, "Provide prompt text directly"},
-            {"file", 'f', ArgKind::Value, false, "Read prompts from file"}
+            {"file", 'f', ArgKind::Value, false, "Read prompts from file"},
+            {"thinking", 't', ArgKind::Value, false, "Override thinking mode: true/false"}
         },
         0, 1,  // 0-1 positional args (model_name)
         "Run model inference"
@@ -63,7 +64,8 @@ namespace {
         {
             {"config", 'c', ArgKind::Value, false, "Specify custom config file path"},
             {"port",   'p', ArgKind::Value, false, "Port number (default: 8000)"},
-            {"host",   'H', ArgKind::Value, false, "Host address (default: 127.0.0.1)"}
+            {"host",   'H', ArgKind::Value, false, "Host address (default: 127.0.0.1)"},
+            {"thinking", 't', ArgKind::Value, false, "Override thinking mode: true/false"}
         },
         0, 1,  // 0-1 positional args (model_name)
         "Start a model serving server"
