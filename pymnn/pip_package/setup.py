@@ -61,7 +61,7 @@ def report(*args):
     """ print information """
     print(*args)
 
-package_name = 'MNN'
+package_name = 'mnn'
 USE_INTERNAL = False
 USE_TRT      = False
 USE_CUDA     = False
@@ -91,20 +91,20 @@ print ("USE_VULKAN:", USE_VULKAN)
 print ("USE_RENDER:", USE_RENDER)
 
 if os.path.isdir('../../schema/private'):
-    package_name += '_Internal'
+    package_name += '_internal'
 else:
     USE_INTERNAL = False
 
 if USE_TRT:
-    package_name += '_TRT'
+    package_name += '_trt'
 if USE_CUDA:
-    package_name += '_CUDA'
+    package_name += '_cuda'
 if USE_VULKAN:
-    package_name += '_VULKAN'
+    package_name += '_vulkan'
 if USE_OPENCL:
-    package_name += '_OPENCL'
+    package_name += '_opencl'
 if USE_RENDER:
-    package_name += '_RENDER'
+    package_name += '_render'
 
 print ('Building with python wheel with package name ', package_name)
 

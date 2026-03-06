@@ -39,7 +39,7 @@ jobs:
       run: python -m pip install pipx
 
     - name: Build wheels
-      uses: pypa/cibuildwheel@v2.16.5
+      uses: pypa/cibuildwheel@v2.22.0
       env:
         CIBW_ARCHS_MACOS: ${{ matrix.arch }}
         CIBW_ARCHS_LINUX: ${{ matrix.arch }}
@@ -69,6 +69,7 @@ jobs:
   publish_wheels:
     permissions:
       contents: none
+      id-token: write
     name: Upload
     needs: [build_wheels]
     runs-on: ubuntu-latest
@@ -86,5 +87,4 @@ jobs:
 
     - uses: pypa/gh-action-pypi-publish@release/v1
       with:
-        password: ${{ secrets.PYPI_API_TOKEN }}
         skip_existing: true
