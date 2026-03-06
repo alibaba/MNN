@@ -3,6 +3,7 @@ package com.alibaba.mls.api.download
 import android.content.Context
 import org.robolectric.RuntimeEnvironment
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -179,5 +180,102 @@ class ModelDownloadManagerTest {
 
         assertTrue("HF storage folder should be removed by deleteModel", !hfStorage.parentFile!!.exists())
         assertTrue("HF link folder should be removed by deleteModel", !hfLink.exists())
+    }
+
+    @Test
+    fun testPausedDownload_shouldRestorePausedStateAfterManagerRecreate() {
+        val context = RuntimeEnvironment.getApplication()
+        ApplicationProvider.set(context)
+
+        val modelId = "ModelScope/MNN/ResumeAfterRestart"
+        val manager = ModelDownloadManager(context)
+
+        // Simulate an in-progress download then pause.
+        manager.onDownloadingProgress(modelId, "file", "a.bin", 200L, 1000L)
+        manager.onDownloadPaused(modelId)
+
+        // Simulate app restart by recreating manager (in-memory cache cleared).
+        val recreated = ModelDownloadManager(context)
+        val info = recreated.getDownloadInfo(modelId)
+
+        assertEquals("Paused download should be restored after restart", DownloadState.PAUSED, info.downloadState)
+        assertEquals("Saved size should be restored after restart", 200L, info.savedSize)
+        assertEquals("Total size should be restored after restart", 1000L, info.totalSize)
+        assertEquals("Progress should be restored after restart", 0.2, info.progress, 0.001)
+    }
+
+    @Test
+    fun testOnRepoInfo_shouldNotMarkUpdate_whenRemoteOlderThanLocalDownloadTime() {
+        val context = RuntimeEnvironment.getApplication()
+        ApplicationProvider.set(context)
+
+        val modelId = "ModelScope/MNN/Fun-Audio-Chat-8B-MNN"
+        val manager = ModelDownloadManager(context)
+        manager.onDownloadFileFinished(modelId, "/tmp/fake")
+
+        val localDownloadedTime = 1_777_513_918_172L // 2026-03-03
+        val remoteLastModified = 1_770_000_000_000L // older than local
+        DownloadPersistentData.saveDownloadedTime(context, modelId, localDownloadedTime)
+
+        manager.onRepoInfo(modelId, remoteLastModified, 6_400_000_000L)
+
+        val info = manager.getDownloadInfo(modelId)
+        assertFalse("Remote older than local download time should not be marked as update", info.hasUpdate)
+    }
+
+    @Test
+    fun testOnRepoInfo_shouldMarkUpdate_whenRemoteNewerThanLocalDownloadTime() {
+        val context = RuntimeEnvironment.getApplication()
+        ApplicationProvider.set(context)
+
+        val modelId = "ModelScope/MNN/Qwen3.5-0.8B-MNN"
+        val manager = ModelDownloadManager(context)
+        manager.onDownloadFileFinished(modelId, "/tmp/fake")
+
+        val localDownloadedTime = 1_770_000_000_000L
+        val remoteLastModified = 1_777_513_918_172L // newer than local
+        DownloadPersistentData.saveDownloadedTime(context, modelId, localDownloadedTime)
+
+        manager.onRepoInfo(modelId, remoteLastModified, 547_000_000L)
+
+        val info = manager.getDownloadInfo(modelId)
+        assertTrue("Remote newer than local download time should be marked as update", info.hasUpdate)
+    }
+
+    @Test
+    fun testOnRepoInfo_shouldNotMarkUpdate_whenRemoteTimeUnknownAndSizeUnchanged() {
+        val context = RuntimeEnvironment.getApplication()
+        ApplicationProvider.set(context)
+
+        val modelId = "ModelScope/MNN/UnknownTimeNoChange"
+        val manager = ModelDownloadManager(context)
+        manager.onDownloadFileFinished(modelId, "/tmp/fake")
+
+        val localTotalSize = 1_000_000L
+        DownloadPersistentData.saveDownloadSizeTotal(context, modelId, localTotalSize)
+        DownloadPersistentData.saveDownloadedTime(context, modelId, 0L)
+
+        manager.onRepoInfo(modelId, 0L, localTotalSize)
+
+        val info = manager.getDownloadInfo(modelId)
+        assertFalse("Unknown remote time with unchanged size should not be marked as update", info.hasUpdate)
+    }
+
+    @Test
+    fun testOnRepoInfo_shouldMarkUpdate_whenRemoteTimeUnknownAndSizeChanged() {
+        val context = RuntimeEnvironment.getApplication()
+        ApplicationProvider.set(context)
+
+        val modelId = "ModelScope/MNN/UnknownTimeSizeChanged"
+        val manager = ModelDownloadManager(context)
+        manager.onDownloadFileFinished(modelId, "/tmp/fake")
+
+        DownloadPersistentData.saveDownloadSizeTotal(context, modelId, 1_000_000L)
+        DownloadPersistentData.saveDownloadedTime(context, modelId, 0L)
+
+        manager.onRepoInfo(modelId, 0L, 1_100_000L)
+
+        val info = manager.getDownloadInfo(modelId)
+        assertTrue("Unknown remote time with changed size should be marked as update", info.hasUpdate)
     }
 }

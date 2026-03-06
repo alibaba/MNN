@@ -4,10 +4,8 @@ package com.alibaba.mnnllm.android.update
 
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.app.AlertDialog
 import android.app.DownloadManager
 import android.content.Context
-import android.content.DialogInterface
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
@@ -221,17 +219,17 @@ class UpdateChecker(private val context: Context) {
         updateMessageZh: String, downloadUrl: String
     ) {
         PreferenceUtils.setLong(context, "download_last_show_time", System.currentTimeMillis())
-        AlertDialog.Builder(context)
+        MaterialAlertDialogBuilder(context)
             .setTitle(context.getString(R.string.download_update_available, latestVersion))
             .setMessage(if (DeviceUtils.isChinese && !TextUtils.isEmpty(updateMessageZh)) updateMessageZh else updateMessage)
-            .setPositiveButton(R.string.download) { dialog: DialogInterface, which: Int ->
+            .setPositiveButton(R.string.download) { dialog, _ ->
                 dialog.dismiss()
                 downloadApk(context, downloadUrl)
             }
             .setCancelable(false)
             .setNegativeButton(
                 android.R.string.cancel
-            ) { dialog: DialogInterface, which: Int -> dialog.dismiss() }
+            ) { dialog, _ -> dialog.dismiss() }
             .show()
     }
 

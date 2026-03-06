@@ -1,5 +1,5 @@
 {
-    "version": "20",
+    "version": "21",
     "tagTranslations": {
         "Vision": "图像理解",
         "Video": "视频理解",
@@ -50,6 +50,7 @@
                 "Vision"
             ],
             "extra_tags": [
+                "opencl_warning",
                 "ThinkingSwitch"
             ],
             "categories": [
@@ -64,7 +65,7 @@
             "min_app_version": "0.8.0.1",
             "size_gb": 2.0,
             "vendor": "Qwen",
-            "file_size": 1386692710
+            "file_size": 1386694140
         },
         {
             "modelName": "Qwen3.5-0.8B-MNN",
@@ -73,6 +74,7 @@
                 "Vision"
             ],
             "extra_tags": [
+                "opencl_warning",
                 "ThinkingSwitch"
             ],
             "categories": [
@@ -86,7 +88,7 @@
             },
             "size_gb": 0.8,
             "vendor": "Qwen",
-            "file_size": 547646878
+            "file_size": 547648308
         },
         {
             "modelName": "Qwen3.5-4B-MNN",
@@ -95,6 +97,7 @@
                 "Vision"
             ],
             "extra_tags": [
+                "opencl_warning",
                 "ThinkingSwitch"
             ],
             "categories": [
@@ -108,7 +111,54 @@
             },
             "size_gb": 4.0,
             "vendor": "Qwen",
-            "file_size": 2845945477
+            "file_size": 2845946907
+        },
+        {
+            "modelName": "Qwen3.5-35B-A3B-MNN",
+            "tags": [
+                "Think",
+                "Vision"
+            ],
+            "extra_tags": [
+                "opencl_warning",
+                "ThinkingSwitch"
+            ],
+            "categories": [
+                "recommended",
+                "qwen"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/Qwen3.5-35B-A3B-MNN",
+                "ModelScope": "MNN/Qwen3.5-35B-A3B-MNN",
+                "Modelers": "MNN/Qwen3.5-35B-A3B-MNN"
+            },
+            "size_gb": 2.0,
+            "vendor": "Qwen",
+            "file_size": 22797088046
+        },
+        {
+            "modelName": "Qwen3.5-9B-MNN",
+            "tags": [
+                "Think",
+                "Vision"
+            ],
+            "extra_tags": [
+                "opencl_warning",
+                "ThinkingSwitch"
+            ],
+            "categories": [
+                "recommended",
+                "qwen"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/Qwen3.5-9B-MNN",
+                "ModelScope": "MNN/Qwen3.5-9B-MNN",
+                "Modelers": "MNN/Qwen3.5-9B-MNN"
+            },
+            "min_app_version": "0.8.0.1",
+            "size_gb": 2.0,
+            "vendor": "Qwen",
+            "file_size": 7274875830
         },
         {
             "modelName": "MNN-Sana-Edit-V2",
@@ -158,20 +208,6 @@
             "file_size": 4958284491
         },
         {
-            "modelName": "Meta-Llama-3.1-8B-Instruct-Eagle3-MNN",
-            "tags": [],
-            "categories": [
-                "eagle"
-            ],
-            "sources": {
-                "HuggingFace": "taobao-mnn/Meta-Llama-3.1-8B-Instruct-Eagle3-MNN",
-                "ModelScope": "MNN/Meta-Llama-3.1-8B-Instruct-Eagle3-MNN"
-            },
-            "size_gb": 4.9,
-            "vendor": "Llama",
-            "file_size": 5289910242
-        },
-        {
             "modelName": "MiniMind2-MNN",
             "tags": [],
             "categories": [
@@ -218,36 +254,6 @@
             "file_size": 19581135302
         },
         {
-            "modelName": "Qwen3-4B-Instruct-2507-Eagle3",
-            "tags": [],
-            "categories": [
-                "qwen",
-                "eagle"
-            ],
-            "sources": {
-                "HuggingFace": "taobao-mnn/Qwen3-4B-Instruct-2507-Eagle3",
-                "ModelScope": "MNN/Qwen3-4B-Instruct-2507-Eagle3"
-            },
-            "size_gb": 0.4,
-            "vendor": "Qwen",
-            "file_size": 436907811
-        },
-        {
-            "modelName": "Qwen3-4B-Instruct-2507-Eagle3-MNN",
-            "tags": [],
-            "categories": [
-                "qwen",
-                "eagle"
-            ],
-            "sources": {
-                "HuggingFace": "taobao-mnn/Qwen3-4B-Instruct-2507-Eagle3-MNN",
-                "ModelScope": "MNN/Qwen3-4B-Instruct-2507-Eagle3-MNN"
-            },
-            "size_gb": 2.7,
-            "vendor": "Qwen",
-            "file_size": 2851891719
-        },
-        {
             "modelName": "Qwen3-4B-SafeRL-MNN",
             "tags": [],
             "categories": [
@@ -260,57 +266,6 @@
             "size_gb": 2.5,
             "vendor": "Qwen",
             "file_size": 2714986204
-        },
-        {
-            "modelName": "Qwen3-4B-Thinking-2507-Eagle",
-            "tags": [
-                "Think"
-            ],
-            "categories": [
-                "qwen",
-                "eagle"
-            ],
-            "sources": {
-                "HuggingFace": "taobao-mnn/Qwen3-4B-Thinking-2507-Eagle",
-                "ModelScope": "MNN/Qwen3-4B-Thinking-2507-Eagle"
-            },
-            "size_gb": 0.4,
-            "vendor": "Qwen",
-            "file_size": 436907644
-        },
-        {
-            "modelName": "Qwen3-VL-2B-Instruct-Eagle3",
-            "tags": [
-                "Vision"
-            ],
-            "categories": [
-                "qwen",
-                "eagle"
-            ],
-            "sources": {
-                "HuggingFace": "taobao-mnn/Qwen3-VL-2B-Instruct-Eagle3",
-                "ModelScope": "MNN/Qwen3-VL-2B-Instruct-Eagle3"
-            },
-            "size_gb": 0.3,
-            "vendor": "Qwen",
-            "file_size": 274113015
-        },
-        {
-            "modelName": "Qwen3-VL-2B-Instruct-Eagle3-MNN",
-            "tags": [
-                "Vision"
-            ],
-            "categories": [
-                "qwen",
-                "eagle"
-            ],
-            "sources": {
-                "HuggingFace": "taobao-mnn/Qwen3-VL-2B-Instruct-Eagle3-MNN",
-                "ModelScope": "MNN/Qwen3-VL-2B-Instruct-Eagle3-MNN"
-            },
-            "size_gb": 1.5,
-            "vendor": "Qwen",
-            "file_size": 1561198405
         },
         {
             "modelName": "Qwen3-VL-2B-Instruct-MNN",
@@ -327,42 +282,6 @@
             "size_gb": 1.4,
             "vendor": "Qwen",
             "file_size": 1475228382
-        },
-        {
-            "modelName": "Qwen3-VL-2B-Thinking-Eagle3",
-            "tags": [
-                "Vision",
-                "Think"
-            ],
-            "categories": [
-                "qwen",
-                "eagle"
-            ],
-            "sources": {
-                "HuggingFace": "taobao-mnn/Qwen3-VL-2B-Thinking-Eagle3",
-                "ModelScope": "MNN/Qwen3-VL-2B-Thinking-Eagle3"
-            },
-            "size_gb": 0.3,
-            "vendor": "Qwen",
-            "file_size": 274112925
-        },
-        {
-            "modelName": "Qwen3-VL-2B-Thinking-Eagle3-MNN",
-            "tags": [
-                "Vision",
-                "Think"
-            ],
-            "categories": [
-                "qwen",
-                "eagle"
-            ],
-            "sources": {
-                "HuggingFace": "taobao-mnn/Qwen3-VL-2B-Thinking-Eagle3-MNN",
-                "ModelScope": "MNN/Qwen3-VL-2B-Thinking-Eagle3-MNN"
-            },
-            "size_gb": 1.5,
-            "vendor": "Qwen",
-            "file_size": 1561198318
         },
         {
             "modelName": "Qwen3-VL-2B-Thinking-MNN",
@@ -413,75 +332,6 @@
             "size_gb": 19.4,
             "vendor": "Qwen",
             "file_size": 20825698772
-        },
-        {
-            "modelName": "Qwen3-VL-4B-Instruct-Eagle3",
-            "tags": [
-                "Vision"
-            ],
-            "categories": [
-                "qwen",
-                "eagle"
-            ],
-            "sources": {
-                "HuggingFace": "taobao-mnn/Qwen3-VL-4B-Instruct-Eagle3",
-                "ModelScope": "MNN/Qwen3-VL-4B-Instruct-Eagle3"
-            },
-            "size_gb": 0.4,
-            "vendor": "Qwen",
-            "file_size": 436908458
-        },
-        {
-            "modelName": "Qwen3-VL-4B-Instruct-Eagle3-MNN",
-            "tags": [
-                "Vision"
-            ],
-            "categories": [
-                "qwen",
-                "eagle"
-            ],
-            "sources": {
-                "HuggingFace": "taobao-mnn/Qwen3-VL-4B-Instruct-Eagle3-MNN",
-                "ModelScope": "MNN/Qwen3-VL-4B-Instruct-Eagle3-MNN"
-            },
-            "size_gb": 2.9,
-            "vendor": "Qwen",
-            "file_size": 3095370921
-        },
-        {
-            "modelName": "Qwen3-VL-4B-Thinking-Eagle3",
-            "tags": [
-                "Vision",
-                "Think"
-            ],
-            "categories": [
-                "qwen",
-                "eagle"
-            ],
-            "sources": {
-                "HuggingFace": "taobao-mnn/Qwen3-VL-4B-Thinking-Eagle3",
-                "ModelScope": "MNN/Qwen3-VL-4B-Thinking-Eagle3"
-            },
-            "size_gb": 0.4,
-            "vendor": "Qwen",
-            "file_size": 436908266
-        },
-        {
-            "modelName": "Qwen3-VL-8B-Instruct-Eagle3",
-            "tags": [
-                "Vision"
-            ],
-            "categories": [
-                "qwen",
-                "eagle"
-            ],
-            "sources": {
-                "HuggingFace": "taobao-mnn/Qwen3-VL-8B-Instruct-Eagle3",
-                "ModelScope": "MNN/Qwen3-VL-8B-Instruct-Eagle3"
-            },
-            "size_gb": 0.7,
-            "vendor": "Qwen",
-            "file_size": 799465728
         },
         {
             "modelName": "Qwen3Guard-Gen-0.6B-MNN",
@@ -708,6 +558,20 @@
             "size_gb": 0.3,
             "vendor": "Gemma",
             "file_size": 308727585
+        },
+        {
+            "modelName": "gte_sentence-embedding_multilingual-base-MNN",
+            "tags": [],
+            "categories": [
+                "chat"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/gte_sentence-embedding_multilingual-base-MNN",
+                "ModelScope": "MNN/gte_sentence-embedding_multilingual-base-MNN"
+            },
+            "size_gb": 0.4,
+            "vendor": "Other",
+            "file_size": 452241196
         },
         {
             "modelName": "Qwen3-VL-4B-Thinking-MNN",

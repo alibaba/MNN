@@ -7,11 +7,14 @@ import android.os.Handler
 import android.util.Log
 import com.alibaba.mls.api.ModelItem
 import com.alibaba.mls.api.download.ModelDownloadManager
+import com.alibaba.mnnllm.android.chat.model.ChatDataManager
+import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.withContext
 import com.alibaba.mls.api.download.DownloadListener
 import com.alibaba.mls.api.download.DownloadInfo
 import com.alibaba.mls.api.download.DownloadState
@@ -58,7 +61,7 @@ class ModelListPresenter(private val context: Context, private val view: ModelLi
                 presenterScope.launch {
                     try {
                         for (modelWrapper in sortedWrappers) {
-                            if (!modelWrapper.modelItem.isLocal) {
+                            if (shouldCheckForUpdate(modelWrapper.modelItem.modelId)) {
                                 ModelDownloadManager.getInstance(context)
                                     .checkForUpdate(modelWrapper.modelItem.modelId)
                             }
@@ -188,7 +191,34 @@ class ModelListPresenter(private val context: Context, private val view: ModelLi
         Log.d(TAG, "onDownloadFinished: $modelId path=$path")
         // Download completed, notify manager to refresh
         presenterScope.launch {
+            recordDiffusionModelTypeIfNeeded(modelId, path)
             ModelListManager.notifyModelListMayChange(ModelListManager.ChangeReason.MODEL_DOWNLOADED)
+        }
+    }
+
+    private suspend fun recordDiffusionModelTypeIfNeeded(modelId: String, path: String) {
+        if (!ModelTypeUtils.isDiffusionModel(modelId)) {
+            return
+        }
+        withContext(Dispatchers.IO) {
+            try {
+                val resolvedPath = if (path.isNotBlank()) {
+                    path
+                } else {
+                    ModelDownloadManager.getInstance(context).getDownloadedFile(modelId)?.absolutePath.orEmpty()
+                }
+                if (resolvedPath.isBlank()) {
+                    Log.w(TAG, "Skip recording diffusion type for $modelId: empty model path")
+                    return@withContext
+                }
+                ChatDataManager.getInstance(context).recordDownloadHistory(
+                    modelId,
+                    resolvedPath,
+                    "DIFFUSION"
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to record diffusion type for $modelId", e)
+            }
         }
     }
 
@@ -213,5 +243,13 @@ class ModelListPresenter(private val context: Context, private val view: ModelLi
 
     companion object {
         const val TAG: String = "ModelListPresenter"
+
+        internal fun shouldCheckForUpdate(modelId: String?): Boolean {
+            if (modelId.isNullOrBlank()) return false
+            return modelId.startsWith("ModelScope/") ||
+                modelId.startsWith("HuggingFace/") ||
+                modelId.startsWith("Huggingface/") ||
+                modelId.startsWith("Modelers/")
+        }
     }
 }

@@ -19,6 +19,8 @@
 #include "video/video_processor.h"
 #endif
 
+void ReportLlmSetConfigToFirebase(const std::string& stage, const std::string& config_json);
+
 namespace mls {
 
 std::string trimLeadingWhitespace(const std::string& str) {
@@ -103,9 +105,6 @@ LlmSession::LlmSession(std::string model_path, json config, json extra_config, s
 void LlmSession::Load() {
     std::string root_cache_dir_str = extra_config_["mmap_dir"];
     bool use_mmap = !extra_config_["mmap_dir"].get<std::string>().empty();
-    MNN::BackendConfig backendConfig;
-    auto executor = MNN::Express::Executor::newExecutor(MNN_FORWARD_CPU, backendConfig, 1);
-    MNN::Express::ExecutorScope s(executor);
     llm_ = Llm::createLLM(model_path_);
     json config = config_;
     config["use_mmap"] = use_mmap;
@@ -120,6 +119,7 @@ void LlmSession::Load() {
     current_config_ = config;
     auto config_str = config.dump();
     MNN_DEBUG("extra_config: %s", config_str.c_str());
+    ReportLlmSetConfigToFirebase("load", config_str);
     llm_->set_config(config_str);
     MNN_DEBUG("dumped config: %s", llm_->dump_config().c_str());
     llm_->load();
@@ -263,7 +263,9 @@ void LlmSession::setSystemPrompt(std::string system_prompt) {
 void LlmSession::SetAssistantPrompt(const std::string& assistant_prompt) {
     current_config_["assistant_prompt_template"] = assistant_prompt;
     if (llm_) {
-        llm_->set_config(current_config_.dump());
+        auto config_str = current_config_.dump();
+        ReportLlmSetConfigToFirebase("set_assistant_prompt", config_str);
+        llm_->set_config(config_str);
     }
     MNN_DEBUG("dumped config: %s", llm_->dump_config().c_str());
 }
@@ -279,7 +281,9 @@ void LlmSession::updateConfig(const std::string& config_json) {
         current_config_[key] = value;
     }
     if (llm_) {
-        llm_->set_config(current_config_.dump());
+        auto config_str = current_config_.dump();
+        ReportLlmSetConfigToFirebase("update_config", config_str);
+        llm_->set_config(config_str);
         MNN_DEBUG("Updated config applied: %s", current_config_.dump().c_str());
     } else {
         MNN_DEBUG("LLM not initialized yet, config saved for later: %s", current_config_.dump().c_str());
@@ -388,6 +392,13 @@ void LlmSession::clearHistory(int numToKeep) {
 
 std::string LlmSession::getSystemPrompt() const {
     return system_prompt_;
+}
+
+std::string LlmSession::dumpConfig() const {
+    if (llm_ != nullptr) {
+        return llm_->dump_config();
+    }
+    return "{}";
 }
 
 // Pure C++ benchmark implementation following llm_bench.cpp exactly

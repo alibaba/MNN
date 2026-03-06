@@ -11,6 +11,12 @@ aab_summary="$ARTIFACT_DIR/aab_release/smoke_summary.txt"
 dl_summary="$ARTIFACT_DIR/qwen35_download/summary.txt"
 chat_summary="$ARTIFACT_DIR/chat_io/summary.txt"
 bench_summary="$ARTIFACT_DIR/qwen35_benchmark/summary.txt"
+bench_noui_summary="$ARTIFACT_DIR/qwen35_benchmark/noui_summary.txt"
+bench_ui_summary="$ARTIFACT_DIR/qwen35_benchmark/ui_summary.txt"
+api_dump_summary="$ARTIFACT_DIR/api_dumpapp/summary.txt"
+api_ui_summary="$ARTIFACT_DIR/api_uiautomator/summary.txt"
+sana_diff_dump_summary="$ARTIFACT_DIR/sana_diffusion_dumpapp/summary.txt"
+sana_diff_ui_summary="$ARTIFACT_DIR/sana_diffusion_ui/summary.txt"
 bench_cpu64_log="$ARTIFACT_DIR/qwen35_benchmark/case_cpu_64_64.log"
 bench_cpu128_log="$ARTIFACT_DIR/qwen35_benchmark/case_cpu_128_128.log"
 bench_opencl_log="$ARTIFACT_DIR/qwen35_benchmark/case_opencl_64_64.log"
@@ -37,6 +43,23 @@ summary_value() {
   fi
   local v
   v="$(rg -m1 "^${key}=" "$bench_summary" | cut -d= -f2- || true)"
+  if [ -z "$v" ]; then
+    echo "$fallback"
+  else
+    echo "$v"
+  fi
+}
+
+summary_value_from() {
+  local file="$1"
+  local key="$2"
+  local fallback="${3:-MISSING}"
+  if [ ! -f "$file" ]; then
+    echo "$fallback"
+    return
+  fi
+  local v
+  v="$(rg -m1 "^${key}=" "$file" | cut -d= -f2- || true)"
   if [ -z "$v" ]; then
     echo "$fallback"
   else
@@ -74,16 +97,75 @@ inline_log_tail() {
   fi
 }
 
+synthesize_benchmark_summary_if_needed() {
+  if [ -f "$bench_summary" ]; then
+    return
+  fi
+  if [ ! -f "$bench_noui_summary" ] || [ ! -f "$bench_ui_summary" ]; then
+    return
+  fi
+
+  local ui_project dump_project ui_cpu ui_opencl dump_cpu64 dump_cpu128 dump_opencl active_model
+  ui_project="$(rg -m1 '^UI_PROJECT=' "$bench_ui_summary" | cut -d= -f2- || echo FAIL)"
+  dump_project="$(rg -m1 '^DUMPAPP_PROJECT=' "$bench_noui_summary" | cut -d= -f2- || echo FAIL)"
+  ui_cpu="$(rg -m1 '^UI_CPU_CASE=' "$bench_ui_summary" | cut -d= -f2- || echo FAIL)"
+  ui_opencl="$(rg -m1 '^UI_OPENCL_CASE=' "$bench_ui_summary" | cut -d= -f2- || echo FAIL)"
+  dump_cpu64="$(rg -m1 '^DUMP_CPU64_CASE=' "$bench_noui_summary" | cut -d= -f2- || echo FAIL)"
+  dump_cpu128="$(rg -m1 '^DUMP_CPU128_CASE=' "$bench_noui_summary" | cut -d= -f2- || echo FAIL)"
+  dump_opencl="$(rg -m1 '^DUMP_OPENCL_CASE=' "$bench_noui_summary" | cut -d= -f2- || echo FAIL)"
+  active_model="$(rg -m1 '^ACTIVE_MODEL_ID=' "$bench_noui_summary" | cut -d= -f2- || echo unknown)"
+
+  local cpu_project opencl_project overall
+  cpu_project="FAIL"
+  opencl_project="FAIL"
+  overall="FAIL"
+
+  if [ "$ui_cpu" = "PASS" ] && [ "$dump_cpu64" = "PASS" ] && [ "$dump_cpu128" = "PASS" ]; then
+    cpu_project="PASS"
+  fi
+  if [ "$ui_opencl" = "PASS" ] && [ "$dump_opencl" = "PASS" ]; then
+    opencl_project="PASS"
+  fi
+  if [ "$ui_project" = "PASS" ] && [ "$dump_project" = "PASS" ]; then
+    overall="PASS"
+  fi
+
+  {
+    echo "QWEN35_BENCHMARK=$overall"
+    echo "UI_PROJECT=$ui_project"
+    echo "DUMPAPP_PROJECT=$dump_project"
+    echo "CPU_PROJECT=$cpu_project"
+    echo "OPENCL_PROJECT=$opencl_project"
+    echo "UI_CPU_CASE=$ui_cpu"
+    echo "UI_OPENCL_CASE=$ui_opencl"
+    echo "DUMP_CPU64_CASE=$dump_cpu64"
+    echo "DUMP_CPU128_CASE=$dump_cpu128"
+    echo "DUMP_OPENCL_CASE=$dump_opencl"
+    echo "SCREENSHOTS=$ARTIFACT_DIR/qwen35_benchmark/shots"
+    echo "UI_ACTION_LOG=$ARTIFACT_DIR/qwen35_benchmark/ui_actions.log"
+    echo "ACTIVE_MODEL_ID=$active_model"
+  } >"$bench_summary"
+}
+
+synthesize_benchmark_summary_if_needed
+
 std_status="$(status_from_file "$std_summary")"
 aab_status="$(status_from_file "$aab_summary")"
 dl_status="$(status_from_file "$dl_summary")"
 chat_status="$(status_from_file "$chat_summary")"
 
 bench_status="$(summary_value QWEN35_BENCHMARK FAIL)"
+api_dump_status="$(status_from_file "$api_dump_summary")"
+api_ui_status="$(status_from_file "$api_ui_summary")"
+sana_diff_dump_status="$(status_from_file "$sana_diff_dump_summary")"
+sana_diff_ui_status="$(status_from_file "$sana_diff_ui_summary")"
 ui_project="$(summary_value UI_PROJECT MISSING)"
 dumpapp_project="$(summary_value DUMPAPP_PROJECT MISSING)"
 cpu_project="$(summary_value CPU_PROJECT MISSING)"
 opencl_project="$(summary_value OPENCL_PROJECT MISSING)"
+thinking_config_switch="$(summary_value_from "$api_dump_summary" THINKING_CONFIG_SWITCH MISSING)"
+thinking_response_switch="$(summary_value_from "$api_dump_summary" THINKING_RESPONSE_SWITCH MISSING)"
+thinking_mode_regression="$(summary_value_from "$api_dump_summary" THINKING_MODE_REGRESSION MISSING)"
 
 cpu64_prefill="$(extract_metric "$bench_cpu64_log" "Prefill")"
 cpu64_decode="$(extract_metric "$bench_cpu64_log" "Decode")"
@@ -138,6 +220,20 @@ cat >"$REPORT_PATH" <<EOF_HTML
         <tr><td>Qwen3.5 download ops</td><td class="$( [ "$dl_status" = PASS ] && echo ok || echo bad )">${dl_status}</td><td>qwen35_download/summary.txt</td></tr>
         <tr><td>Qwen3.5 chat text/image entry</td><td class="$( [ "$chat_status" = PASS ] && echo ok || echo bad )">${chat_status}</td><td>chat_io/summary.txt</td></tr>
         <tr><td>Qwen3.5 benchmark overall</td><td class="$( [ "$bench_status" = PASS ] && echo ok || echo bad )">${bench_status}</td><td>qwen35_benchmark/summary.txt</td></tr>
+        <tr><td>API dumpapp compatibility</td><td class="$( [ "$api_dump_status" = PASS ] && echo ok || echo bad )">${api_dump_status}</td><td>api_dumpapp/summary.txt</td></tr>
+        <tr><td>API dumpapp thinking regression</td><td class="$( [ "$thinking_mode_regression" = PASS ] && echo ok || echo bad )">${thinking_mode_regression}</td><td>api_dumpapp/summary.txt</td></tr>
+        <tr><td>API UiAutomator compatibility</td><td class="$( [ "$api_ui_status" = PASS ] && echo ok || echo bad )">${api_ui_status}</td><td>api_uiautomator/summary.txt</td></tr>
+        <tr><td>Sana+Diffusion dumpapp regression</td><td class="$( [ "$sana_diff_dump_status" = PASS ] && echo ok || echo bad )">${sana_diff_dump_status}</td><td>sana_diffusion_dumpapp/summary.txt</td></tr>
+        <tr><td>Sana+Diffusion UiAutomator regression</td><td class="$( [ "$sana_diff_ui_status" = PASS ] && echo ok || echo bad )">${sana_diff_ui_status}</td><td>sana_diffusion_ui/summary.txt</td></tr>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Thinking Mode</h2>
+      <table>
+        <tr><th>Check</th><th>Status</th></tr>
+        <tr><td>Config switch (on/off)</td><td class="$( [ "$thinking_config_switch" = PASS ] && echo ok || echo bad )">${thinking_config_switch}</td></tr>
+        <tr><td>Response tag differential</td><td class="$( [ "$thinking_response_switch" = PASS ] && echo ok || echo bad )">${thinking_response_switch}</td></tr>
       </table>
     </div>
 

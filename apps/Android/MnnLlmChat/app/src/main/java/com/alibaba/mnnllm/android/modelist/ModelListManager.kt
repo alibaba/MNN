@@ -33,7 +33,6 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -52,6 +51,9 @@ object ModelListManager {
     private const val CACHE_FILE_NAME = "model_list_cache.json"
     private const val CACHE_VERSION = 2
     private const val MAX_CACHE_AGE_DAYS = 9999L
+    private const val MODEL_TYPE_LLM = "LLM"
+    private const val MODEL_TYPE_UNKNOWN = "UNKNOWN"
+    private const val MODEL_TYPE_DIFFUSION = "DIFFUSION"
 
     // Gson instance for serialization
     private val gson = Gson()
@@ -80,6 +82,7 @@ object ModelListManager {
     private var isInitializing = false
     private lateinit var context: Context
     private var marketDataSyncJob: Job? = null
+    private var tagWarmupJob: Job? = null
     private var lastSyncedMarketDataKey: String? = null
 
     // Data classes for Flow state management
@@ -444,23 +447,39 @@ object ModelListManager {
         if (modelItem != null) {
             return modelItem.getTags()
         }
-        
-        // If not in memory, wait for first successful state
-        return try {
-            val successState: ModelListState.Success = runBlocking {
-                modelListState
-                    .filterIsInstance<ModelListState.Success>()
-                    .first()
+
+        // Never block callers (especially UI thread). Use current state snapshot only.
+        val successState = modelListState.value as? ModelListState.Success ?: return emptyList()
+        val wrapper = successState.models.find { it.modelItem.modelId == modelId }
+        if (wrapper != null) {
+            return wrapper.modelItem.getTags()
+        }
+
+        // Compensation: asynchronously warm up model list data for subsequent reads.
+        scheduleTagWarmup(modelId)
+        return emptyList()
+    }
+
+    private fun scheduleTagWarmup(modelId: String) {
+        val runningJob = tagWarmupJob
+        if (runningJob != null && runningJob.isActive) {
+            return
+        }
+        tagWarmupJob = applicationScope.launch {
+            try {
+                if (!::context.isInitialized) {
+                    return@launch
+                }
+                if (!isInitialized && !isInitializing) {
+                    initialize(context)
+                    return@launch
+                }
+                if (modelListState.value !is ModelListState.Success) {
+                    refreshModelList()
+                }
+            } catch (e: Exception) {
+                Timber.w(e, "scheduleTagWarmup failed for modelId=$modelId")
             }
-            
-            // Find the model in the success state
-            val wrapper: ModelItemWrapper? = successState.models.find { wrapper: ModelItemWrapper -> 
-                wrapper.modelItem.modelId == modelId 
-            }
-            wrapper?.modelItem?.getTags() ?: emptyList()
-        } catch (e: Exception) {
-            Timber.w(e, "Failed to get model tags for $modelId")
-            emptyList()
         }
     }
 
@@ -622,12 +641,13 @@ object ModelListManager {
                     null
                 }
             }
+            val filteredModels = filterPrimaryListModels(models)
 
-            if (models.isEmpty() && cache.models.isNotEmpty()) {
+            if (filteredModels.isEmpty() && cache.models.isNotEmpty()) {
                 return@withContext null
             }
 
-            models
+            filteredModels
         } catch (e: Exception) {
             Timber.w(e, "Failed to load model list from disk cache")
             // Delete corrupted cache
@@ -742,8 +762,10 @@ object ModelListManager {
                 }
             }
 
+            val filteredModels = filterPrimaryListModels(modelWrappers)
+
             // Sort models: pinned as first priority, then recently used first, then by download time
-            val sortedModels = modelWrappers.sortedWith(
+            val sortedModels = filteredModels.sortedWith(
                 compareByDescending<ModelItemWrapper> {
                     if (it.isPinned) 1 else 0
                 }.thenByDescending {
@@ -951,12 +973,20 @@ object ModelListManager {
 
             // Collect all model IDs first to batch database queries
             val modelIds = mutableListOf<String>()
+            val missingConfigModelIds = mutableListOf<String>()
             val modelPaths = mutableMapOf<String, String>()
             val modelTypes = mutableMapOf<String, String>()
 
             files.forEach { file ->
                 val isBuiltinModel = directory.name == "builtin"
                 
+                // Logic 0: Skip HuggingFace cache directories (format: models--{org}--{repo})
+                // These are HuggingFace Hub cache container directories, not actual models
+                if (file.isDirectory && file.name.startsWith("models--")) {
+                    logger?.append("${indent}[SKIP HF CACHE] ${file.name}\n")
+                    return@forEach
+                }
+
                 // Logic 1: Priority Recurse
                 // This must be checked BEFORE processing as a model to ensure we don't treat "modelscope" as a model and stop recursing
                 if (file.isDirectory && (file.name == "modelscope" || file.name == "modelers" || file.name == "builtin")) {
@@ -991,9 +1021,16 @@ object ModelListManager {
                              // Collect model info for batch processing
                              modelIds.add(modelId)
                              modelPaths[modelId] = modelPath
-                             modelTypes[modelId] = if (isBuiltinModel) "LLM" else "UNKNOWN"
+                             modelTypes[modelId] = if (isBuiltinModel) MODEL_TYPE_LLM else MODEL_TYPE_UNKNOWN
                         } else {
-                             status = "[SKIPPED] No Config ($configPath)"
+                             if (isBuiltinModel) {
+                                 status = "[SKIPPED] No Config ($configPath)"
+                             } else {
+                                 // For downloaded models, allow DB marker based fallback (e.g. diffusion models).
+                                 status = "[PENDING TYPE CHECK] ID=$modelId No Config"
+                                 missingConfigModelIds.add(modelId)
+                                 modelPaths[modelId] = modelPath
+                             }
                         }
                     } else {
                          status = "[SKIPPED] Invalid Model Path"
@@ -1004,9 +1041,9 @@ object ModelListManager {
             }
 
             // Batch process all collected models
-            if (modelIds.isNotEmpty()) {
+            if (modelIds.isNotEmpty() || missingConfigModelIds.isNotEmpty()) {
                 // Get model types for non-builtin models
-                val nonBuiltinModels = modelIds.filter { modelTypes[it] == "UNKNOWN" }
+                val nonBuiltinModels = modelIds.filter { modelTypes[it] == MODEL_TYPE_UNKNOWN }
                 if (nonBuiltinModels.isNotEmpty()) {
                     withContext(Dispatchers.Main) {
                         nonBuiltinModels.forEach { modelId ->
@@ -1024,9 +1061,39 @@ object ModelListManager {
                     }
                 }
 
-                // Filter out non-LLM models, but keep UNKNOWN so they can be fixed/added to DB later
-                val llmModels = modelIds.filter { modelTypes[it] == "LLM" || modelTypes[it] == "UNKNOWN" }
-                logger?.append("${indent}  > Filtering: ${modelIds.size} candidates -> ${llmModels.size} valid (Keep LLM + UNKNOWN)\n")
+                // For missing-config directories, include only diffusion models.
+                if (missingConfigModelIds.isNotEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        missingConfigModelIds.forEach { modelId ->
+                            try {
+                                val modelType = chatDataManager.getDownloadModelType(modelId)
+                                logger?.append("${indent}  > Check Missing-Config DB Type for $modelId: $modelType\n")
+                                if (shouldIncludeMissingConfigModelForScan(modelId, modelType)) {
+                                    modelIds.add(modelId)
+                                    modelTypes[modelId] = resolveModelTypeForDownloadHistory(modelId, modelType)
+                                    logger?.append("${indent}    -> Included missing-config model: $modelId (type=${modelTypes[modelId]})\n")
+                                } else {
+                                    logger?.append("${indent}    -> Skipped missing-config model: $modelId\n")
+                                }
+                            } catch (e: Exception) {
+                                logger?.append("${indent}  > Error checking missing-config type for $modelId: ${e.message}\n")
+                                Timber.w(e, "Failed to check missing-config type for $modelId")
+                            }
+                        }
+                    }
+                }
+
+                // Keep LLM and DIFFUSION. Keep UNKNOWN only when it doesn't look like a voice-only model.
+                val llmModels = modelIds.filter { modelId ->
+                    val modelType = modelTypes[modelId]
+                    when {
+                        modelType.equals(MODEL_TYPE_LLM, ignoreCase = true) -> true
+                        modelType.equals(MODEL_TYPE_DIFFUSION, ignoreCase = true) -> true
+                        modelType.equals(MODEL_TYPE_UNKNOWN, ignoreCase = true) -> !isLikelyVoiceModel(modelId)
+                        else -> false
+                    }
+                }
+                logger?.append("${indent}  > Filtering: ${modelIds.size} candidates -> ${llmModels.size} valid (LLM + DIFFUSION + UNKNOWN(non-voice))\n")
 
                 if (llmModels.isNotEmpty()) {
                     // Batch get download times and last chat times
@@ -1046,12 +1113,13 @@ object ModelListManager {
 
                                 // Record download history if needed
                                 if (downloadTime <= 0) {
-                                    logger?.append("${indent}  > [${if (dryRun) "DRY RUN" else "ACTION"}] Recording download history for $modelId\n")
+                                    val modelTypeForHistory = resolveModelTypeForDownloadHistory(modelId, modelTypes[modelId])
+                                    logger?.append("${indent}  > [${if (dryRun) "DRY RUN" else "ACTION"}] Recording download history for $modelId type=$modelTypeForHistory\n")
                                     if (!dryRun) {
                                         chatDataManager.recordDownloadHistory(
                                             modelId,
                                             modelPaths[modelId]!!,
-                                            "LLM"
+                                            modelTypeForHistory
                                         )
                                     }
                                 }
@@ -1196,6 +1264,77 @@ object ModelListManager {
             ?.replace("-", "")
             ?.replace(" ", "")
             ?: ""
+    }
+
+    private fun filterPrimaryListModels(models: List<ModelItemWrapper>): List<ModelItemWrapper> {
+        if (models.isEmpty()) {
+            return models
+        }
+        val filtered = models.filterNot { wrapper ->
+            shouldExcludeFromPrimaryList(wrapper.modelItem)
+        }
+        if (filtered.size != models.size) {
+            val removedIds = models.asSequence()
+                .mapNotNull { it.modelItem.modelId }
+                .filter { modelId -> filtered.none { it.modelItem.modelId == modelId } }
+                .toList()
+            Timber.d("Filtered out non-LLM models from primary list: $removedIds")
+        }
+        return filtered
+    }
+
+    private fun shouldExcludeFromPrimaryList(modelItem: ModelItem): Boolean {
+        val modelId = modelItem.modelId ?: return false
+        val tags = modelItem.getTags()
+        if (ModelTypeUtils.isAsrModelByTags(tags) || ModelTypeUtils.isTtsModelByTags(tags)) {
+            return true
+        }
+
+        // Keep local debug/dev models visible by default. Only explicit ASR/TTS tags can hide them.
+        if (modelId.startsWith("local/")) {
+            return false
+        }
+
+        val modelName = modelItem.modelName ?: ModelUtils.getModelName(modelId).orEmpty()
+        if (ModelTypeUtils.isTtsModel(modelName) || ModelTypeUtils.isTtsModel(modelId)) {
+            return true
+        }
+
+        return isLikelyVoiceModel(modelId) || isLikelyVoiceModel(modelName)
+    }
+
+    private fun isLikelyVoiceModel(value: String?): Boolean {
+        if (value.isNullOrBlank()) {
+            return false
+        }
+        val normalized = value.lowercase(Locale.ROOT)
+        return normalized.contains("tts") ||
+            normalized.contains("asr") ||
+            normalized.contains("bert-vits") ||
+            normalized.contains("sherpa") ||
+            normalized.contains("whisper") ||
+            normalized.contains("zipformer")
+    }
+
+    internal fun shouldIncludeMissingConfigModelForScan(
+        modelId: String,
+        modelType: String?
+    ): Boolean {
+        if (modelType.equals(MODEL_TYPE_DIFFUSION, ignoreCase = true)) {
+            return true
+        }
+        return modelType == null && ModelTypeUtils.isDiffusionModel(modelId)
+    }
+
+    internal fun resolveModelTypeForDownloadHistory(
+        modelId: String,
+        modelType: String?
+    ): String {
+        if (modelType.equals(MODEL_TYPE_DIFFUSION, ignoreCase = true) ||
+            ModelTypeUtils.isDiffusionModel(modelId)) {
+            return MODEL_TYPE_DIFFUSION
+        }
+        return MODEL_TYPE_LLM
     }
 
     /**

@@ -206,6 +206,12 @@ class ModelListManagerTest {
         assertTrue(resultTags.contains("local"))
     }
 
+    @Test(timeout = 1000)
+    fun `getModelTags should return quickly when manager has no success state`() {
+        val tags = ModelListManager.getModelTags("not-in-cache")
+        assertTrue(tags.isEmpty())
+    }
+
     // ========== Model Type Detection Tests ==========
 
     @Test
@@ -262,6 +268,80 @@ class ModelListManagerTest {
 
         // Then
         assertFalse(result)
+    }
+
+    @Test
+    fun `initialize should exclude local tts and asr models from list`() = runTest {
+        // Given
+        val llmModel = ModelItem().apply {
+            this.modelId = "local-llm-model"
+            this.tags = listOf("Think")
+            this.localPath = tempDir.absolutePath
+        }
+        val ttsModel = ModelItem().apply {
+            this.modelId = "local-tts-model"
+            this.tags = listOf("TTS")
+            this.localPath = tempDir.absolutePath
+        }
+        val asrModel = ModelItem().apply {
+            this.modelId = "local-asr-model"
+            this.tags = listOf("ASR")
+            this.localPath = tempDir.absolutePath
+        }
+
+        try {
+            val isLocalField = ModelItem::class.java.getDeclaredField("isLocal")
+            isLocalField.isAccessible = true
+            isLocalField.setBoolean(llmModel, true)
+            isLocalField.setBoolean(ttsModel, true)
+            isLocalField.setBoolean(asrModel, true)
+        } catch (e: Exception) {
+            println("Could not set isLocal: ${e.message}")
+        }
+
+        every { LocalModelsProvider.getLocalModels() } returns mutableListOf(llmModel, ttsModel, asrModel)
+
+        // When
+        ModelListManager.initialize(context)
+        val models = ModelListManager.observeModels().firstOrNull()
+
+        // Then
+        assertNotNull("Models should not be null", models)
+        val modelIds = models!!.mapNotNull { it.modelItem.modelId }
+        assertTrue("LLM model should be present", modelIds.contains("local-llm-model"))
+        assertFalse("TTS model should be excluded", modelIds.contains("local-tts-model"))
+        assertFalse("ASR model should be excluded", modelIds.contains("local-asr-model"))
+    }
+
+    @Test
+    fun `initialize should keep local tmp models visible when tags are not asr or tts`() = runTest {
+        // Given
+        val localTmpModel = ModelItem().apply {
+            this.modelId = "local//data/local/tmp/mnn_models/custom-asr-like-name"
+            this.tags = emptyList()
+            this.localPath = tempDir.absolutePath
+        }
+        try {
+            val isLocalField = ModelItem::class.java.getDeclaredField("isLocal")
+            isLocalField.isAccessible = true
+            isLocalField.setBoolean(localTmpModel, true)
+        } catch (e: Exception) {
+            println("Could not set isLocal: ${e.message}")
+        }
+
+        every { LocalModelsProvider.getLocalModels() } returns mutableListOf(localTmpModel)
+
+        // When
+        ModelListManager.initialize(context)
+        val models = ModelListManager.observeModels().firstOrNull()
+
+        // Then
+        assertNotNull("Models should not be null", models)
+        val modelIds = models!!.mapNotNull { it.modelItem.modelId }
+        assertTrue(
+            "Local /data/local/tmp/mnn_models model should be visible",
+            modelIds.contains("local//data/local/tmp/mnn_models/custom-asr-like-name")
+        )
     }
 
     @Test
@@ -1235,6 +1315,51 @@ class ModelListManagerTest {
 
         // Then
         assertTrue("Should detect lastChatTime change", result)
+    }
+
+    @Test
+    fun `shouldIncludeMissingConfigModelForScan should include diffusion models from DB marker`() {
+        val include = ModelListManager.shouldIncludeMissingConfigModelForScan(
+            modelId = "ModelScope/MNN/any-model",
+            modelType = "DIFFUSION"
+        )
+        assertTrue("Diffusion DB marker should include model without config", include)
+    }
+
+    @Test
+    fun `shouldIncludeMissingConfigModelForScan should include diffusion models by id fallback`() {
+        val include = ModelListManager.shouldIncludeMissingConfigModelForScan(
+            modelId = "ModelScope/MNN/stable-diffusion-1.5",
+            modelType = null
+        )
+        assertTrue("Diffusion model id should include model without config", include)
+    }
+
+    @Test
+    fun `shouldIncludeMissingConfigModelForScan should exclude non diffusion models without marker`() {
+        val include = ModelListManager.shouldIncludeMissingConfigModelForScan(
+            modelId = "ModelScope/MNN/qwen3-8b-instruct",
+            modelType = null
+        )
+        assertFalse("Non-diffusion model without marker should be excluded", include)
+    }
+
+    @Test
+    fun `resolveModelTypeForDownloadHistory should keep diffusion type`() {
+        val type = ModelListManager.resolveModelTypeForDownloadHistory(
+            modelId = "ModelScope/MNN/sana-1.6B",
+            modelType = "UNKNOWN"
+        )
+        assertEquals("DIFFUSION", type)
+    }
+
+    @Test
+    fun `resolveModelTypeForDownloadHistory should default non diffusion to llm`() {
+        val type = ModelListManager.resolveModelTypeForDownloadHistory(
+            modelId = "ModelScope/MNN/qwen3-8b-instruct",
+            modelType = "UNKNOWN"
+        )
+        assertEquals("LLM", type)
     }
 
     @Test

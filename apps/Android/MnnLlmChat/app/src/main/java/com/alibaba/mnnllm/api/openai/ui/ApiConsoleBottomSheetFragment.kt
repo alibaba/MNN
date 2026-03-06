@@ -19,6 +19,7 @@ import com.alibaba.mnnllm.android.databinding.FragmentApiConsoleSheetBinding
 import com.alibaba.mnnllm.android.mainsettings.MainSettings
 import com.alibaba.mnnllm.api.openai.service.ApiServerConfig
 import com.alibaba.mnnllm.api.openai.manager.ServerEventManager
+import com.alibaba.mnnllm.api.openai.manager.ApiServiceManager
 import com.alibaba.mnnllm.api.openai.network.logging.LogCollector
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
@@ -171,7 +172,7 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
                 // Use actual running server info, otherwise use configured info
                 val displayHost = if (serverInfo.host.isNotEmpty()) serverInfo.host else configuredHost
                 val displayPort = if (serverInfo.port > 0) serverInfo.port else configuredPort
-                val endpointUrl = "http://${displayHost}:${displayPort}/v1/chat/completions"
+                val endpointUrl = "${ApiServiceManager.getApiServiceBaseUrl(context)}/v1/chat/completions"
                 binding.textApiEndpoint.text = endpointUrl
                 binding.textApiEndpoint.visibility = View.VISIBLE
                 binding.labelApiEndpoint.visibility = View.VISIBLE

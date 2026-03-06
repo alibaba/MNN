@@ -11,10 +11,9 @@ import android.content.pm.ServiceInfo
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
-import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
 import com.alibaba.mnnllm.android.chat.ChatActivity
-import com.alibaba.mnnllm.api.openai.service.ApiServiceCoordinator
+import com.alibaba.mnnllm.api.openai.di.ServiceLocator
 import com.alibaba.mnnllm.api.openai.manager.ApiNotificationManager
 import com.alibaba.mnnllm.api.openai.manager.CurrentModelManager
 import timber.log.Timber
@@ -142,17 +141,15 @@ class OpenAIService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         isServiceRunning = true
-        
-        //getpass modelId
-        intent?.getStringExtra("modelId")?.let { modelId ->
-            currentModelId = modelId
-            CurrentModelManager.setCurrentModelId(modelId)
-            Timber.tag(TAG).i("Service started with modelId: $modelId")
+
+        val previousModelId = currentModelId
+        val requestedModelId = intent?.getStringExtra("modelId")
+        if (!requestedModelId.isNullOrBlank()) {
+            currentModelId = requestedModelId
+            CurrentModelManager.setCurrentModelId(requestedModelId)
+            Timber.tag(TAG).i("Service started with modelId: $requestedModelId")
         }
 
-        // Attempt to start the server immediately
-        coordinator.startServer()
-        
         val notification = coordinator.getNotification()
         if (notification != null) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -160,6 +157,14 @@ class OpenAIService : Service() {
             } else {
                 startForeground(ApiNotificationManager.NOTIFICATION_ID, notification)
             }
+        }
+
+        val startModelId = if (!requestedModelId.isNullOrBlank()) requestedModelId else currentModelId
+        val startSuccess = coordinator.startServer(startModelId)
+        if (!startSuccess && !requestedModelId.isNullOrBlank()) {
+            currentModelId = previousModelId
+            syncCurrentModelManager(previousModelId)
+            Timber.tag(TAG).w("Failed to switch service runtime model, rolled back to previous modelId: $previousModelId")
         }
         return START_NOT_STICKY
     }
@@ -207,6 +212,7 @@ class OpenAIService : Service() {
         
         //clearglobalmodelID
         CurrentModelManager.clearCurrentModelId()
+        ServiceLocator.getLlmRuntimeController().releaseSession()
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -226,7 +232,7 @@ class OpenAIService : Service() {
 
 
     fun initializeWithSession() {
-        val success = coordinator.startServer()
+        val success = coordinator.startServer(currentModelId)
         if (!success) {
             Timber.tag(TAG).w("Failed to start server through coordinator")
         }
@@ -241,4 +247,12 @@ class OpenAIService : Service() {
     fun isServerRunning(): Boolean = coordinator.isServerRunning
     
     fun getCurrentModelId(): String? = currentModelId
+
+    private fun syncCurrentModelManager(modelId: String?) {
+        if (modelId.isNullOrBlank()) {
+            CurrentModelManager.clearCurrentModelId()
+        } else {
+            CurrentModelManager.setCurrentModelId(modelId)
+        }
+    }
 }

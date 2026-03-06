@@ -325,6 +325,16 @@ class LlmSession (
 
     private external fun getSystemPromptNative(llmPtr: Long): String?
 
+    private external fun dumpConfigNative(llmPtr: Long): String
+
+    fun dumpConfig(): String {
+        return if (nativePtr != 0L) {
+            dumpConfigNative(nativePtr)
+        } else {
+            "{}"
+        }
+    }
+
     // Helper function to get current memory usage in MB
     private fun getCurrentMemoryUsageMB(context: Context): Long {
         val runtime = Runtime.getRuntime()

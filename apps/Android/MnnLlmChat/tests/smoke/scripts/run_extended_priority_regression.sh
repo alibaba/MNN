@@ -6,6 +6,8 @@ SMOKE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ARTIFACT_DIR="${ARTIFACT_DIR:-$SMOKE_DIR/artifacts}"
 mkdir -p "$ARTIFACT_DIR"
 STEP_WATCH_TIMEOUT_SEC="${STEP_WATCH_TIMEOUT_SEC:-1800}"
+RUN_API_UIAUTOMATOR_TEST="${RUN_API_UIAUTOMATOR_TEST:-false}"
+RUN_SANA_DIFFUSION_REGRESSION="${RUN_SANA_DIFFUSION_REGRESSION:-false}"
 
 step_status() {
   local k="$1"
@@ -59,28 +61,54 @@ run_step_with_watch "STEP1" "[STEP 1] Baseline install/launch smoke (standardDeb
   "$SCRIPT_DIR/run_priority_regression.sh" \
   "$ARTIFACT_DIR/priority_regression_summary.txt"
 
-run_step_with_watch "STEP2" "[STEP 2] Qwen3.5 benchmark multi-case regression" \
-  "$SCRIPT_DIR/05_regress_qwen35_benchmark.sh" \
-  "$ARTIFACT_DIR/qwen35_benchmark/summary.txt"
+run_step_with_watch "STEP2" "[STEP 2] Qwen3.5 benchmark no-UI regression (dumpapp first)" \
+  "$SCRIPT_DIR/noui/05_regress_qwen35_benchmark_noui.sh" \
+  "$ARTIFACT_DIR/qwen35_benchmark/noui_summary.txt"
 
-run_step_with_watch "STEP3" "[STEP 3] Chat text/image input entry regression" \
+run_step_with_watch "STEP3" "[STEP 3] API compatibility regression via dumpapp (no-code)" \
+  "$SCRIPT_DIR/noui/08_regress_api_dumpapp.sh" \
+  "$ARTIFACT_DIR/api_dumpapp/summary.txt"
+
+run_step_with_watch "STEP4" "[STEP 4] Qwen3.5 benchmark UI regression" \
+  "$SCRIPT_DIR/05_regress_qwen35_benchmark_ui.sh" \
+  "$ARTIFACT_DIR/qwen35_benchmark/ui_summary.txt"
+
+run_step_with_watch "STEP5" "[STEP 5] Chat text/image input entry regression" \
   "$SCRIPT_DIR/06_regress_chat_text_image.sh" \
   "$ARTIFACT_DIR/chat_io/summary.txt"
 
-run_step_with_watch "STEP4" "[STEP 4] Qwen3.5 download pause/resume/delete regression" \
+run_step_with_watch "STEP6" "[STEP 6] Qwen3.5 download pause/resume/delete regression" \
   "$SCRIPT_DIR/04_regress_qwen35_download_ops.sh" \
   "$ARTIFACT_DIR/qwen35_download/summary.txt"
 
-run_step_with_watch "STEP5" "[STEP 5] Generate single-page HTML report" \
+if [ "$RUN_API_UIAUTOMATOR_TEST" = "true" ]; then
+  run_step_with_watch "STEP7" "[STEP 7] API settings UiAutomator regression (code-based)" \
+    "$SCRIPT_DIR/09_regress_api_uiautomator.sh" \
+    "$ARTIFACT_DIR/api_uiautomator/summary.txt"
+fi
+
+if [ "$RUN_SANA_DIFFUSION_REGRESSION" = "true" ]; then
+  run_step_with_watch "STEP8" "[STEP 8] Sana+Diffusion no-UI dumpapp regression" \
+    "$SCRIPT_DIR/noui/10_regress_sana_diffusion_dumpapp.sh" \
+    "$ARTIFACT_DIR/sana_diffusion_dumpapp/summary.txt"
+
+  run_step_with_watch "STEP9" "[STEP 9] Sana+Diffusion UiAutomator regression" \
+    "$SCRIPT_DIR/11_regress_sana_diffusion_uiautomator.sh" \
+    "$ARTIFACT_DIR/sana_diffusion_ui/summary.txt"
+fi
+
+run_step_with_watch "STEP10" "[STEP 10] Generate single-page HTML report" \
   "$SCRIPT_DIR/07_generate_report.sh" \
   "$ARTIFACT_DIR/report.html" \
   300
 
 {
   echo "EXTENDED_PRIORITY_REGRESSION=${overall}"
-  echo "COVERAGE=text_input,image_input_entry,benchmark_multi_case,download_pause_resume_delete"
+  echo "COVERAGE=benchmark_noui,api_dumpapp,benchmark_ui,text_input,image_input_entry,download_pause_resume_delete,api_uiautomator_optional,sana_diffusion_dumpapp_optional,sana_diffusion_uiautomator_optional"
   echo "ARTIFACT_ROOT=$ARTIFACT_DIR"
   echo "REPORT_HTML=$ARTIFACT_DIR/report.html"
+  echo "RUN_API_UIAUTOMATOR_TEST=$RUN_API_UIAUTOMATOR_TEST"
+  echo "RUN_SANA_DIFFUSION_REGRESSION=$RUN_SANA_DIFFUSION_REGRESSION"
 } >"$ARTIFACT_DIR/extended_priority_summary.txt"
 
 cat "$ARTIFACT_DIR/extended_priority_summary.txt"

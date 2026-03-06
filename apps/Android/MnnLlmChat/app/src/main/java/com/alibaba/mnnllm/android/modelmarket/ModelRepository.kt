@@ -363,9 +363,10 @@ object ModelRepository {
 
     private suspend fun processModels(models: List<ModelMarketItem>): List<ModelMarketItem> = withContext(Dispatchers.IO) {
         val selectedSource = MainSettings.getDownloadProviderString(context)
-
         val currentAppVersion = AppUtils.getAppVersionName(context)
-        return@withContext models.filter {
+        
+        
+        return@withContext models.filter { 
             if (!it.sources.containsKey(selectedSource)) {
                 return@filter false
             }

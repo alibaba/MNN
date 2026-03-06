@@ -62,6 +62,23 @@ This is our full multimodal language model (LLM) Android app
 
 # Releases
 
+## Version 0.8.1.2
++ Click here to [download](https://meta.alicdn.com/data/mnn/apks/mnn_chat_0_8_1_2.apk)
++ Bugfix:
+  + Fix known issues and improve overall stability.
+
+## Version 0.8.1.1
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_8_1_1.apk)
++ Bugfix:
+  + Fix several known issues and improve overall stability.
+  + Improve reliability for model switching and chat flow.
+
+## Version 0.8.1
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_8_1.apk)
++ Highlights:
+  + Support switching thinking mode for Qwen3.5.
+  + Improve API stability and compatibility with the Anthropic protocol.
+
 ## Version 0.8.0.1
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_8_0_1.apk)
 + Bugfix:

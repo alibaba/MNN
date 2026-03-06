@@ -276,8 +276,18 @@ object ChatViewHolders {
                     updateThinkingView(data, itemView.context)
                 }
                 if (data.displayText != null) {
-                    markdown.setMarkdown(viewText, data.displayText!!)
+                    if (AssistantTextRenderPolicy.usePlainText(data)) {
+                        viewText.text = data.displayText
+                    } else {
+                        markdown.setMarkdown(viewText, data.displayText!!)
+                    }
                 }
+                imageGenerated.visibility =
+                    if (data.imageUri != null) View.VISIBLE else View.GONE
+                if (data.imageUri != null) {
+                    imageGenerated.setImageURI(data.imageUri)
+                }
+                shareImageButton.visibility = if (data.imageUri != null) View.VISIBLE else View.GONE
                 return
             }
 
@@ -285,22 +295,18 @@ object ChatViewHolders {
             if (TextUtils.isEmpty(data.displayText)) {
                 viewText.visibility = View.GONE
             } else {
-                markdown.setMarkdown(viewText, data.displayText!!)
+                if (AssistantTextRenderPolicy.usePlainText(data)) {
+                    viewText.text = data.displayText
+                } else {
+                    markdown.setMarkdown(viewText, data.displayText!!)
+                }
                 viewText.visibility = View.VISIBLE
             }
 
-            if (data.hasOmniAudio) {
-                viewAssistantLoading.visibility = if (data.loading) {
-                    View.VISIBLE
-                } else {
-                    View.GONE
-                }
+            viewAssistantLoading.visibility = if (AssistantLoadingVisibilityDecider.shouldShow(data)) {
+                View.VISIBLE
             } else {
-                viewAssistantLoading.visibility = if (!TextUtils.isEmpty(data.displayText) || !TextUtils.isEmpty(data.thinkingText)) {
-                  View.GONE
-                } else {
-                    View.VISIBLE
-                }
+                View.GONE
             }
             val showMetrics = PreferenceUtils.getBoolean(
                 itemView.context,

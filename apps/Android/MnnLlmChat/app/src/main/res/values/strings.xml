@@ -56,6 +56,8 @@
     <string name="history_delete_success">History Delete Success</string>
     <string name="diffusion_generated_message">Here\'s the generated image</string>
     <string name="diffusion_generate_progress">Image Generate progress: %1$s%%</string>
+    <string name="diffusion_wait_hint_no_progress">Image generation takes about 1 minute. Please wait patiently...</string>
+    <string name="diffusion_opencl_wait_hint">Image generation takes about 1 minute. Please wait patiently...\nProgress: %1$s%%</string>
     <string name="no_history">No history, please select model in the model list and chat</string>
     <string name="recording_permission_denied">Please allow permission to record audio</string>
     <string name="camera_permission_denied">Camera permission is required to take photos</string>
@@ -72,6 +74,8 @@
     <string name="r1_thinking_message">Thinking…</string>
     <string name="r1_think_complete_template">Has thought for %1$s seconds</string>
     <string name="copy_text">Copy</string>
+    <string name="copy_config">Copy Config</string>
+    <string name="config_info">Config Info</string>
     <string name="select_text">Select text</string>
     <string name="copy_success">Copy success</string>
     <string name="debug_message_copied">debug message copied, please report issue in github</string>
@@ -111,6 +115,7 @@
     <string name="about">About</string>
     <string name="settings">Settings</string>
     <string name="current_version">Current Version:%1$s</string>
+    <string name="current_version_check_update">Current Version:%1$s (Tap to check updates)</string>
     <string name="mnn_version">MNN Version</string>
     <string name="mnn_version_summary">MNN Engine Version: %1$s</string>
     <string name="select_download_provider">Select Download Provider</string>
@@ -147,9 +152,14 @@
     <string name="api_settings">API Settings</string>
     <string name="api_settings_title">API Service Settings</string>
     <string name="api_console">API Console</string>
+    
     <string name="api_console_title">API Service Console</string>
+    
     <string name="api_port">Port</string>
+    
     <string name="api_bind_ip">Bind IP Address</string>
+    
+    <string name="use_https_url">Use HTTPS URL for clients</string>
     <string name="api_cors_enabled">Enable CORS</string>
     <string name="api_cors_origins">Allowed Origins</string>
     
@@ -476,6 +486,10 @@
     <string name="backend_cpu">CPU</string>
     <string name="backend_opencl">OpenCL</string>
     <string name="backend_label">Backend</string>
+    <string name="opencl_warning_title">OpenCL Notice</string>
+    <string name="opencl_warning_message">OpenCL is not supported for the current model. Other models may support it.</string>
+    <string name="opencl_warning_use">Use Anyway</string>
+    <string name="opencl_warning_use_countdown">Use Anyway (%1$ds)</string>
     
     <string name="api_service_channel_name">API Service Channel</string>
     <string name="request_added_to_queue">Request added to queue: requestId=%1$s, traceId=%2$s, queue size=%3$d, priority=%4$s</string>

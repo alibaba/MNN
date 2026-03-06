@@ -5,6 +5,7 @@ package com.alibaba.mnnllm.android.modelsettings
 
 import android.app.Dialog
 import android.os.Bundle
+import android.util.Log
 import android.view.View
 import android.widget.FrameLayout
 import com.alibaba.mnnllm.android.utils.BaseBottomSheetDialogFragment
@@ -24,6 +25,19 @@ abstract class BaseSettingsBottomSheetFragment : BaseBottomSheetDialogFragment()
     protected val configPath: String? get() = _configPath
     protected var needRecreateActivity = false
     protected var onSettingsDoneListener: ((Boolean) -> Unit)? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        val savedModelId = savedInstanceState?.getString(KEY_MODEL_ID)
+        val argModelId = arguments?.getString(KEY_MODEL_ID)
+        _modelId = savedModelId ?: argModelId ?: _modelId
+
+        _configPath = if (savedInstanceState?.containsKey(KEY_CONFIG_PATH) == true) {
+            savedInstanceState.getString(KEY_CONFIG_PATH)
+        } else {
+            arguments?.getString(KEY_CONFIG_PATH) ?: _configPath
+        }
+    }
 
     override fun onStart() {
         super.onStart()
@@ -47,19 +61,26 @@ abstract class BaseSettingsBottomSheetFragment : BaseBottomSheetDialogFragment()
         setupActionButtons()
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString(KEY_MODEL_ID, _modelId)
+        outState.putString(KEY_CONFIG_PATH, _configPath)
+    }
+
     /**
      * Load settings from config files
      */
     protected open fun loadSettings() {
-        val defaultConfigFile = if (_configPath.isNullOrEmpty()) {
-            ModelConfig.getDefaultConfigFile(_modelId)
+        val defaultConfigFile = resolveConfigFilePath(_modelId, _configPath, ModelConfig::getDefaultConfigFile)
+        loadedConfig = if (defaultConfigFile.isNullOrBlank()) {
+            Log.w(TAG, "Missing config path for modelId=$_modelId, fallback to default config")
+            ModelConfig.defaultConfig.deepCopy()
         } else {
-            _configPath
+            ModelConfig.loadMergedConfig(
+                defaultConfigFile,
+                ModelConfig.getExtraConfigFile(_modelId)
+            ) ?: ModelConfig.defaultConfig.deepCopy()
         }
-        loadedConfig = ModelConfig.loadMergedConfig(
-            defaultConfigFile!!,
-            ModelConfig.getExtraConfigFile(_modelId)
-        ) ?: ModelConfig.defaultConfig
         currentConfig = loadedConfig.deepCopy()
     }
 
@@ -87,13 +108,45 @@ abstract class BaseSettingsBottomSheetFragment : BaseBottomSheetDialogFragment()
 
     fun setModelId(modelId: String) {
         this._modelId = modelId
+        if (!isAdded) {
+            val args = (arguments ?: Bundle()).apply {
+                putString(KEY_MODEL_ID, modelId)
+            }
+            arguments = args
+        }
     }
 
     fun setConfigPath(configPath: String?) {
         this._configPath = configPath
+        if (!isAdded) {
+            val args = (arguments ?: Bundle()).apply {
+                putString(KEY_CONFIG_PATH, configPath)
+            }
+            arguments = args
+        }
     }
 
     fun addOnSettingsDoneListener(listener: (Boolean) -> Unit) {
         onSettingsDoneListener = listener
+    }
+
+    companion object {
+        private const val TAG = "BaseSettingsBottomSheet"
+        private const val KEY_MODEL_ID = "settings_model_id"
+        private const val KEY_CONFIG_PATH = "settings_config_path"
+
+        internal fun resolveConfigFilePath(
+            modelId: String,
+            configPath: String?,
+            defaultConfigProvider: (String) -> String?
+        ): String? {
+            if (!configPath.isNullOrBlank()) {
+                return configPath
+            }
+            if (modelId.isBlank()) {
+                return null
+            }
+            return defaultConfigProvider(modelId)
+        }
     }
 }

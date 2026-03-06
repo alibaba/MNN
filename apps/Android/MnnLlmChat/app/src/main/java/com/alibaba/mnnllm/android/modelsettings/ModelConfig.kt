@@ -133,7 +133,12 @@ data class ModelConfig(
         }
 
         fun loadConfig(modelId: String): ModelConfig? {
-            return loadMergedConfig(getDefaultConfigFile(modelId)!!, getExtraConfigFile(modelId))
+            val defaultConfigFile = getDefaultConfigFile(modelId)
+            if (defaultConfigFile.isNullOrEmpty()) {
+                Log.w(TAG, "loadConfig: default config not found for modelId=$modelId")
+                return null
+            }
+            return loadMergedConfig(defaultConfigFile, getExtraConfigFile(modelId))
         }
 
         fun loadMergedConfig(originalFilePath: String, overrideFilePath: String): ModelConfig? {
@@ -278,4 +283,3 @@ data class ModelConfig(
 
     }
 }
-

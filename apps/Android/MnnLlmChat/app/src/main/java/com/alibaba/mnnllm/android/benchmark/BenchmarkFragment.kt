@@ -25,6 +25,7 @@ import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.modelist.ModelItemWrapper
 import com.alibaba.mnnllm.android.utils.FileUtils
+import com.alibaba.mnnllm.android.utils.BaseBottomSheetDialogFragment
 import java.io.File
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
@@ -63,7 +64,15 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
     private fun setupClickListeners() {
         binding.startTestButtonContainer.setOnClickListener {
             Log.d(TAG, "Start test button clicked, current text: ${binding.startTestText.text}")
-            presenter?.onStartBenchmarkClicked()
+            if (shouldConfirmOpenClBeforeBenchmark()) {
+                BaseBottomSheetDialogFragment.showOpenClWarningDialog(
+                    context = requireContext(),
+                    scope = viewLifecycleOwner.lifecycleScope,
+                    onProceed = { presenter?.onStartBenchmarkClicked() }
+                )
+            } else {
+                presenter?.onStartBenchmarkClicked()
+            }
         }
 
         // Share button click handler
@@ -655,4 +664,34 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
         super.onDestroy()
         presenter?.onDestroy()
     }
+
+    private fun shouldConfirmOpenClBeforeBenchmark(): Boolean {
+        val currentState = getCurrentState() ?: return false
+        val isStartingAction = currentState == BenchmarkState.READY || currentState == BenchmarkState.COMPLETED
+        if (!isStartingAction) {
+            return false
+        }
+        if (!_binding?.backendOpencl?.isChecked.orFalse()) {
+            return false
+        }
+        selectedModelWrapper?.modelItem ?: return false
+        val extraTags = getSelectedModelExtraTags()
+        return ModelTypeUtils.isOpenClWarningByExtraTags(extraTags)
+    }
+
+    private fun getSelectedModelExtraTags(): List<String> {
+        val modelItem = selectedModelWrapper?.modelItem ?: return emptyList()
+        val mergedExtraTags = linkedSetOf<String>()
+        val modelId = modelItem.modelId
+        if (!modelId.isNullOrBlank()) {
+            val tags = ModelListManager.getExtraTags(modelId)
+            if (tags.isNotEmpty()) {
+                mergedExtraTags.addAll(tags)
+            }
+        }
+        mergedExtraTags.addAll(modelItem.getExtraTags())
+        return mergedExtraTags.toList()
+    }
+
+    private fun Boolean?.orFalse(): Boolean = this ?: false
 }

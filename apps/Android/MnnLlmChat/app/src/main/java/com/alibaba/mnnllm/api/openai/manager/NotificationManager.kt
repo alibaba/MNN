@@ -8,6 +8,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
+import com.alibaba.mnnllm.api.openai.network.compat.EndpointUrlBuilder
 import com.alibaba.mnnllm.api.openai.service.ApiServerConfig
 import timber.log.Timber
 
@@ -65,7 +66,7 @@ class ApiNotificationManager(private val context: Context) {
         var ipAddress = ApiServerConfig.getIpAddress(context)
         // If listening on all interfaces (0.0.0.0), use localhost for the notification link
         val displayIp = if (ipAddress == "0.0.0.0") "127.0.0.1" else ipAddress
-        val url = "http://$displayIp:$port"
+        val url = EndpointUrlBuilder.buildBaseUrl(displayIp, port, ApiServerConfig.useHttpsUrl(context))
         val text = if (contentText.isNullOrBlank()) {
             context.getString(com.alibaba.mnnllm.android.R.string.api_service_running_on, ipAddress, port)
         } else {

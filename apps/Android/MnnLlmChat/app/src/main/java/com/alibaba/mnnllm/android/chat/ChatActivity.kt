@@ -46,6 +46,7 @@ import com.alibaba.mnnllm.android.chat.voice.VoiceModelsChecker
 import com.alibaba.mnnllm.android.chat.voice.VoiceModelMarketBottomSheet
 import com.alibaba.mnnllm.android.modelist.ModelItemWrapper
 import com.alibaba.mnnllm.android.utils.CrashReportContext
+import com.alibaba.mnnllm.android.utils.ConfigInfoDialog
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filter
@@ -83,6 +84,9 @@ class ChatActivity : AppCompatActivity() {
     var modelId: String? = null
     private var currentUserMessage: ChatDataItem? = null
     private var sessionName: String? = null
+    private var useDiffusionWaitHint: Boolean = false
+    private var hasMeaningfulDiffusionProgress: Boolean = false
+    private var showDiffusionPercentWhenZero: Boolean = false
     private lateinit var binding: ActivityChatBinding
     private var audioPlayer: AudioChunksPlayer? = null
     private lateinit var chatPresenter: ChatPresenter
@@ -423,6 +427,9 @@ class ChatActivity : AppCompatActivity() {
         } else if (item.itemId == R.id.menu_item_api_console) {
             ApiConsoleBottomSheetFragment.newInstance(this).show(supportFragmentManager, "ApiConsoleBottomSheetFragment")
             return true
+        } else if (item.itemId == R.id.menu_item_config_info) {
+            showConfigInfo()
+            return true
         }
         return super.onOptionsItemSelected(item)
     }
@@ -514,6 +521,16 @@ class ChatActivity : AppCompatActivity() {
         setIsGenerating(true)
         val recentItem = chatListComponent.recentItem
         recentItem?.loading = true
+        recentItem?.forceShowLoadingWithText = false
+        useDiffusionWaitHint = DiffusionWaitHintPolicy.shouldShowWaitHint(modelName)
+        hasMeaningfulDiffusionProgress = false
+        showDiffusionPercentWhenZero = ModelTypeUtils.isSanaModel(modelName)
+        if (useDiffusionWaitHint && recentItem != null) {
+            recentItem.text = getString(R.string.diffusion_wait_hint_no_progress)
+            recentItem.displayText = recentItem.text
+            recentItem.forceShowLoadingWithText = true
+            chatListComponent.updateAssistantResponse(recentItem)
+        }
     }
 
     /**
@@ -562,6 +579,7 @@ class ChatActivity : AppCompatActivity() {
             if ("100" == progress) {
                 chatDataItem.text = getString(R.string.diffusion_generated_message)
                 chatDataItem.displayText = chatDataItem.text
+                chatDataItem.forceShowLoadingWithText = false
                 if (!diffusionDestPath.isNullOrEmpty()) {
                     chatDataItem.imageUri = Uri.fromFile(java.io.File(diffusionDestPath))
                     Log.d(TAG, "onDiffusionGenerateProgress: Set imageUri to ${chatDataItem.imageUri}")
@@ -569,8 +587,22 @@ class ChatActivity : AppCompatActivity() {
                     Log.w(TAG, "onDiffusionGenerateProgress: diffusionDestPath is null or empty")
                 }
             } else {
-                chatDataItem.text = getString(R.string.diffusion_generate_progress, progress)
+                val numericProgress = progress?.toIntOrNull()
+                if (DiffusionProgressHintPolicy.isMeaningfulProgress(progress)) {
+                    hasMeaningfulDiffusionProgress = true
+                }
+                chatDataItem.text = if (useDiffusionWaitHint) {
+                    val shouldShowPercent = hasMeaningfulDiffusionProgress || (showDiffusionPercentWhenZero && numericProgress != null)
+                    if (shouldShowPercent) {
+                        getString(R.string.diffusion_opencl_wait_hint, (numericProgress ?: 0).toString())
+                    } else {
+                        getString(R.string.diffusion_wait_hint_no_progress)
+                    }
+                } else {
+                    getString(R.string.diffusion_generate_progress, progress ?: "0")
+                }
                 chatDataItem.displayText = chatDataItem.text
+                chatDataItem.forceShowLoadingWithText = useDiffusionWaitHint
             }
             chatListComponent.updateAssistantResponse(chatDataItem)
         } catch (e: Exception) {
@@ -582,6 +614,10 @@ class ChatActivity : AppCompatActivity() {
         setIsGenerating(false)
         val recentItem = chatListComponent.recentItem!!
         recentItem.loading = false
+        recentItem.forceShowLoadingWithText = false
+        useDiffusionWaitHint = false
+        hasMeaningfulDiffusionProgress = false
+        showDiffusionPercentWhenZero = false
         
         // Handle error cases
         if (benchMarkResult.containsKey("error") && benchMarkResult["error"] as Boolean) {
@@ -623,6 +659,10 @@ class ChatActivity : AppCompatActivity() {
             setIsGenerating(false)
             val recentItem = chatListComponent.recentItem
             recentItem?.loading = false
+            recentItem?.forceShowLoadingWithText = false
+            useDiffusionWaitHint = false
+            hasMeaningfulDiffusionProgress = false
+            showDiffusionPercentWhenZero = false
             
             Log.d(TAG, "Generation stopped by external request")
         } else {
@@ -632,6 +672,16 @@ class ChatActivity : AppCompatActivity() {
 
     val sessionDebugInfo: String
         get() = chatSession!!.debugInfo
+
+    private fun showConfigInfo() {
+        val session = chatSession
+        if (session is LlmSession) {
+            val configJson = session.dumpConfig()
+            ConfigInfoDialog.show(this, configJson)
+        } else {
+            Toast.makeText(this, "Config info not available for this model type", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     private fun initializeVoiceModelsChecker() {
         Log.d(TAG, "Initializing VoiceModelsChecker")
