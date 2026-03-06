@@ -255,6 +255,13 @@ table StftParam {
     abs: bool = true;
 }
 
+table ShapeParam {
+    hasStart: bool = false;
+    start: int = 0;
+    hasEnd: bool = false;
+    end: int = 0;
+}
+
 table WhileParam {
     // The name of condition subgraph.
     cond_graph: string;
@@ -432,7 +439,8 @@ union OpParameter {
     FmhcaParam,
     AttentionParam,
     StftParam,
-    LinearAttentionParam
+    LinearAttentionParam,
+    ShapeParam
 }
 
 table Op {

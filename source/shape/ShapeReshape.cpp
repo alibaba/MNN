@@ -99,22 +99,41 @@ public:
             // For the model convert from tensorflow, the format is NHWC, otherwise NCHW
             fromTf          = TensorUtils::getDescribe(inputShape)->dimensionFormat == MNN_DATA_FORMAT_NHWC;
             dimSize         = inputShape->elementSize();
-            auto dim = inputShape->host<int32_t>();
             auto dimType = MNN_DATA_FORMAT_NHWC;
             if (OpParameter_Reshape == mainType) {
                 dimType = op->main_as_Reshape()->dimType();
             }
-            if ((inputFormat == MNN_DATA_FORMAT_NC4HW4) && dimType == MNN_DATA_FORMAT_NHWC) {
-                //NCHW / NC4HW4
-                //NHWC -> NCHW
-                shapes[0] = dim[0];
-                shapes[1] = dim[3];
-                shapes[2] = dim[1];
-                shapes[3] = dim[2];
-            } else {
-                for (int i = 0; i < dimSize; ++i) {
-                    shapes[i] = dim[i];
+            if (inputShape->buffer().type == halide_type_of<int32_t>()) {
+                auto dim = inputShape->host<int32_t>();
+                if ((inputFormat == MNN_DATA_FORMAT_NC4HW4) && dimType == MNN_DATA_FORMAT_NHWC) {
+                    //NCHW / NC4HW4
+                    //NHWC -> NCHW
+                    shapes[0] = dim[0];
+                    shapes[1] = dim[3];
+                    shapes[2] = dim[1];
+                    shapes[3] = dim[2];
+                } else {
+                    for (int i = 0; i < dimSize; ++i) {
+                        shapes[i] = dim[i];
+                    }
                 }
+            } else if (inputShape->buffer().type == halide_type_of<int64_t>()) {
+                auto dim = inputShape->host<int64_t>();
+                if ((inputFormat == MNN_DATA_FORMAT_NC4HW4) && dimType == MNN_DATA_FORMAT_NHWC) {
+                    //NCHW / NC4HW4
+                    //NHWC -> NCHW
+                    shapes[0] = (int)dim[0];
+                    shapes[1] = (int)dim[3];
+                    shapes[2] = (int)dim[1];
+                    shapes[3] = (int)dim[2];
+                } else {
+                    for (int i = 0; i < dimSize; ++i) {
+                        shapes[i] = (int)dim[i];
+                    }
+                }
+            } else {
+                MNN_ERROR("Invalid reshape shape type: code=%d bits=%d\n", inputShape->buffer().type.code, inputShape->buffer().type.bits);
+                return false;
             }
         }
         output->buffer().dimensions = dimSize;
