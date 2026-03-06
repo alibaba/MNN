@@ -332,21 +332,11 @@ int main(int argc, char* argv[]) {
     auto session        = mnnNet->createSession(netConfig);
 
     auto input = mnnNet->getSessionInput(session, nullptr);
-    Tensor::DimensionType inputFormat = input->getDimensionType();
-    std::vector<int> desiredShape;
 
-    if (inputFormat == MNN::Tensor::CAFFE) {
-        desiredShape = { 1, 3, targetHeight, targetWidth };
+    if (input->elementSize() <= 4) {
+        mnnNet->resizeTensor(input, {1, 3, targetHeight, targetWidth});
+        mnnNet->resizeSession(session);
     }
-    else if (inputFormat == MNN::Tensor::TENSORFLOW) {
-        desiredShape = { 1, targetHeight, targetWidth, 3 };
-    }
-    else {
-        desiredShape = { 1, targetHeight, targetWidth, 3 };
-    }
-
-    mnnNet->resizeTensor(input, desiredShape);
-    mnnNet->resizeSession(session);
 
     // preprocess input image
     {
@@ -392,23 +382,16 @@ int main(int argc, char* argv[]) {
         mnnNet->runSession(session);
     }
 
-    auto output = mnnNet->getSessionInput(session, nullptr);
-    Tensor::DimensionType outputFormat = output->getDimensionType();
-
     // get output
     auto offsets         = mnnNet->getSessionOutput(session, OFFSET_NODE_NAME);
     auto displacementFwd = mnnNet->getSessionOutput(session, DISPLACE_FWD_NODE_NAME);
     auto displacementBwd = mnnNet->getSessionOutput(session, DISPLACE_BWD_NODE_NAME);
     auto heatmaps        = mnnNet->getSessionOutput(session, HEATMAPS);
 
-    Tensor::DimensionType offsetsFormat = offsets->getDimensionType();
-    Tensor::DimensionType heatmapsFormat = heatmaps->getDimensionType();
-
-    Tensor offsetsHost(offsets, offsetsFormat); 
-    Tensor displacementFwdHost(displacementFwd, offsetsFormat);
-    Tensor displacementBwdHost(displacementBwd, offsetsFormat);
-    Tensor heatmapsHost(heatmaps, heatmapsFormat);
-
+    Tensor offsetsHost(offsets, Tensor::CAFFE);
+    Tensor displacementFwdHost(displacementFwd, Tensor::CAFFE);
+    Tensor displacementBwdHost(displacementBwd, Tensor::CAFFE);
+    Tensor heatmapsHost(heatmaps, Tensor::CAFFE);
 
     offsets->copyToHostTensor(&offsetsHost);
     displacementFwd->copyToHostTensor(&displacementFwdHost);
