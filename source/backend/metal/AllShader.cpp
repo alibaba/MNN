@@ -1095,27 +1095,6 @@ const char* shader_MetalMatMul_metal =
 " }\n"
 "}\n"
 ;
-const char* shader_MetalScale_metal = 
-"struct scale_shape {\n"
-" int size;\n"
-" int steps;\n"
-" int batch;\n"
-" int offset;\n"
-"};\n"
-"kernel void scale_ca(const device M4 *in [[buffer(0)]],\n"
-" device M4 *out [[buffer(1)]],\n"
-" constant scale_shape &s [[buffer(2)]],\n"
-" const device float4 *scalesbias[[buffer(3)]],\n"
-" uint2 gid [[thread_position_in_grid]]) {\n"
-" if ((int)gid.x >= s.size || (int)gid.y >= s.steps*s.batch) return;\n"
-" int z=gid.y/s.batch;\n"
-" int offset=s.offset;\n"
-" float4 scale=scalesbias[z];\n"
-" float4 bias=scalesbias[z+offset];\n"
-" out[int(gid.y)*s.size+int(gid.x)] =\n"
-" (M4)((float4)in[int(gid.y)*s.size+int(gid.x)]*scale+bias);\n"
-"}\n"
-;
 const char* shader_MetalDeconvolution_metal = 
 "struct deconv_constants {\n"
 " int input_width;\n"
