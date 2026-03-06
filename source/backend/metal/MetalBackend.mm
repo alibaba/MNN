@@ -93,11 +93,9 @@ MetalBackend::MetalBackend(const MetalRuntime* runtime, bool usefp16AsFp32, Back
     if (runtime->getCommandQueue() == nil) {
         // one command queue can create only a few command buffer, so let each backend own a command queue
         _commandQueue = [[ctx device] newCommandQueue];
-        mSupportDeferEncode = true;
     } else {
         // otherwise forbid defer encode optimize
         _commandQueue = runtime->getCommandQueue();
-        mSupportDeferEncode = false;
     }
     if(((MetalRuntime *)mRuntime)->supportTensorOps()) {
         mSupportTensorApi = true;
@@ -140,7 +138,6 @@ MetalBackend::MetalBackend(const MetalRuntime* runtime, bool usefp16AsFp32, Back
         }
     }
     _commandBuffer = nil;
-    _commandBuffer_net = nil;
     setUpGPUEnabledSwitch();
 }
 MetalBackend::~MetalBackend() {
@@ -308,7 +305,6 @@ Execution *MetalBackend::onCreate(const std::vector<Tensor *> &inputs, const std
 
     auto iter = map->find(op->type());
     if (iter == map->end()) {
-        mSupportDeferEncode = false;
         if (nullptr != op->name()) {
             MNN_PRINT("Don't support type [%s], %s\n", EnumNameOpType(op->type()), op->name()->c_str());
         } else {
@@ -320,7 +316,6 @@ Execution *MetalBackend::onCreate(const std::vector<Tensor *> &inputs, const std
 
     auto exe = iter->second->onCreate(inputs, op, this, outputs);
     if (NULL == exe) {
-        mSupportDeferEncode = false;
         MNN_PRINT("The Creator Don't support type [%s], %s\n", MNN::EnumNameOpType(op->type()), op->name() ? op->name()->c_str() : "");
         return NULL;
     }
@@ -608,7 +603,6 @@ kernel void main0(const device IType *in [[buffer(0)]], device OType *out [[buff
 void MetalBackend::onResizeBegin() {    
     // Abort last inference task if needed
     flushEncoder();
-    _commandBuffer_net = nil;
     _commandBuffer = nil;
     wait();
     mCurrentAllocator->reset();
@@ -867,22 +861,11 @@ int MetalBackend::onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTen
 id<MTLCommandBuffer> MetalBackend::getCommandBufferForBufferCopy() const {
     if (nil == _commandBuffer) {
         _commandBuffer = [_commandQueue commandBuffer];
-        if (!mSupportDeferEncode) {
-            // In this case _commandBuffer should be the same as _commandBuffer_net
-            _commandBuffer_net = _commandBuffer;
-        }
     }
     return _commandBuffer;
 }
 id<MTLCommandBuffer> MetalBackend::getCommandBufferForNet() const {
-    if (nil == _commandBuffer_net) {
-        _commandBuffer_net = [_commandQueue commandBuffer];
-        if (!mSupportDeferEncode) {
-            // In this case _commandBuffer should be the same as _commandBuffer_net
-            _commandBuffer = _commandBuffer_net;
-        }
-    }
-    return _commandBuffer_net;
+    return getCommandBufferForBufferCopy();
 }
 
 void MetalBackend::setTensor(const MNN::Tensor* tensor, id<MTLComputeCommandEncoder> encoder, int index) {
@@ -908,9 +891,6 @@ void MetalBackend::commit() const {
     if (!mGPUEnabledSwitch) {
         mRuntime->pExecutionStatus = NO_EXECUTION;
         _commandBuffer = nil;
-        if (!mSupportDeferEncode) {
-            _commandBuffer_net = nil;
-        }
         return;
     }
 #endif
@@ -920,36 +900,11 @@ void MetalBackend::commit() const {
         [_commandBuffer commit];
         mRuntime->_waiting = _commandBuffer;
         _commandBuffer = nil;
-        if (!mSupportDeferEncode) {
-            // In this case _commandBuffer should be the same as _commandBuffer_net
-            _commandBuffer_net = nil;
-        }
     }
 }
 
 void MetalBackend::commit_net() const {
-#ifdef CHECK_IOS_UI_STATUS
-#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
-    if (!mGPUEnabledSwitch) {
-        mRuntime->pExecutionStatus = NO_EXECUTION;
-        _commandBuffer_net = nil;
-        if (!mSupportDeferEncode) {
-            _commandBuffer = nil;
-        }
-        return;
-    }
-#endif
-#endif
-    mRuntime->pExecutionStatus = NO_ERROR;
-    if (nil != _commandBuffer_net && _commandBuffer_net.status < MTLCommandBufferStatusCommitted) {
-        [_commandBuffer_net commit];
-        mRuntime->_waiting = _commandBuffer_net;
-        _commandBuffer_net = nil;
-        if (!mSupportDeferEncode) {
-            // In this case _commandBuffer should be the same as _commandBuffer_net
-            _commandBuffer = nil;
-        }
-    }
+    commit();
 }
 
 void MetalBackend::wait() const {

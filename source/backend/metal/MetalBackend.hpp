@@ -258,14 +258,12 @@ private:
     id<MTLCommandBuffer> getCommandBufferForNet() const;
     id<MTLComputeCommandEncoder> encoder_net() const;
     mutable id<MTLCommandBuffer> _commandBuffer = nil;
-    mutable id<MTLCommandBuffer> _commandBuffer_net = nil;
     mutable std::queue<id<MTLBuffer>> mHoldBuffers;
 
     id<MTLCommandQueue> _commandQueue;
 
     const MetalRuntime* mRuntime;
     mutable NSUInteger mEncoderCount = 0;
-    mutable bool mSupportDeferEncode = true;
 
     mutable id<MTLComputeCommandEncoder> mComputeEncoder = nil;
     std::shared_ptr<BufferAllocator> mBufferPool;
