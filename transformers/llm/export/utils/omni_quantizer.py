@@ -172,6 +172,11 @@ class OmniQuantizer:
                 sanitized_kwargs[k] = v
         return sanitized_kwargs
 
+    def _clear_block_kv_cache(self, block):
+        """Clear KV cache on the block's attention so each calibration sample is independent."""
+        if hasattr(block, "self_attn") and hasattr(block.self_attn, "past_key_value"):
+            block.self_attn.past_key_value = None
+
     def _safe_forward(self, x, module, module_kwargs):
         try:
             target_dtype = next(module.parameters()).dtype
@@ -524,6 +529,8 @@ class OmniQuantizer:
             # Single forward pass: collect hooks AND compute outputs
             with torch.no_grad():
                 for inp, kw in layer_inputs:
+                    # Clear KV cache so each sample is processed independently (no past_key_value from previous iteration)
+                    self._clear_block_kv_cache(block)
                     inp_gpu = inp.to(self.best_device)
 
                     # Reuse sanitized keys, only update tensor values
@@ -661,12 +668,17 @@ class OmniQuantizer:
                 batch_items = calib_inputs[batch_start:batch_end]
 
                 for inp, kw in batch_items:
+                    # Process each calibration sample independently to avoid KV cache from the previous sample causing dimension mismatch between attn_weights and attention_mask
+                    self._clear_block_kv_cache(block)
                     inp_gpu = inp.to(self.best_device)
                     kw_gpu = {k: (v.to(self.best_device) if isinstance(v, torch.Tensor) else v) for k, v in kw.items()}
 
+                    # First forward: collect activation scales
                     self._get_all_static_scales_safe(idx, block, target_ops, inp_gpu, kw_gpu)
 
                     sanitized_kw = self._sanitize_kwargs(kw_gpu, block)
+                    # Clear again before the second forward: _get_all_static_scales_safe has already run one forward and written past_key_value; if not cleared, key concatenation in this forward would cause dimension error (256 vs 128)
+                    self._clear_block_kv_cache(block)
                     with torch.no_grad():
                         out = self._safe_forward(inp_gpu, block, sanitized_kw)
 
