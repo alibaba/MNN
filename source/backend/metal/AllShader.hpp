@@ -8,7 +8,6 @@ extern const char* shader_MetalSoftmax_metal;
 extern const char* shader_MetalLayerNorm_metal;
 extern const char* shader_MetalConvolutionWinograd_metal;
 extern const char* shader_MetalMatMul_metal;
-extern const char* shader_MetalScale_metal;
 extern const char* shader_MetalDeconvolution_metal;
 extern const char* shader_MetalPooling_metal;
 extern const char* shader_MetalROIPooling_metal;

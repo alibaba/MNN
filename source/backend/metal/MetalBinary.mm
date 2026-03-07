@@ -14,12 +14,12 @@
 #if MNN_METAL_ENABLED
 namespace MNN {
 
-MetalBinary::MetalBinary(Backend *backend, id<MTLComputePipelineState> pipeline, int activationType) : MetalExecution(backend) {
+MetalBinary::MetalBinary(Backend *backend, id<MTLComputePipelineState> pipeline, id<MTLComputePipelineState> plane) : MetalExecution(backend) {
     auto mtbn = static_cast<MetalBackend *>(backend);
     auto context = (__bridge MNNMetalContext *)mtbn->context();
     mConstBuffer             = [context newDeviceBuffer:4 * sizeof(int) access:CPUWriteOnly];
     mPipeline = pipeline;
-    mActivationType = activationType;
+    mPlanePipeline = plane;
 }
 ErrorCode MetalBinary::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto backend = static_cast<MetalBackend *>(this->backend());
@@ -27,19 +27,24 @@ ErrorCode MetalBinary::onResize(const std::vector<Tensor *> &inputs, const std::
     auto input0 = inputs[0], input1 = inputs[1], output = outputs[0];
     const int input0_data_count = TensorUtils::getRawSize(input0);
     const int input1_data_count = TensorUtils::getRawSize(input1);
+    mUsePlane = false;
 
     int outdatacount = output->elementSize();
     ((int *)mConstBuffer.contents)[0] = input0_data_count == 1 ? 0 : 1;
     ((int *)mConstBuffer.contents)[1] = input1_data_count == 1 ? 0 : 1;
     ((int *)mConstBuffer.contents)[2] = outdatacount;
-    ((int *)mConstBuffer.contents)[3] = mActivationType;
+    mUsePlane = input0_data_count != 1 && input1_data_count != 1;
     mThreads = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake(outdatacount, 1, 1)];
     return NO_ERROR;
 }
 
 void MetalBinary::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
     auto input0 = inputs[0], input1 = inputs[1], output = outputs[0];
-    [encoder setComputePipelineState:mPipeline];
+    if (mUsePlane) {
+        [encoder setComputePipelineState:mPlanePipeline];
+    } else {
+        [encoder setComputePipelineState:mPipeline];
+    }
     MetalBackend::setTensor(input0, encoder, 0);
     MetalBackend::setTensor(input1, encoder, 1);
     MetalBackend::setTensor(output, encoder, 2);
@@ -93,12 +98,17 @@ using namespace metal;
 kernel void binary(const device T0 *in0 [[buffer(0)]],
     const device T1 *in1 [[buffer(1)]], device T2 *out [[buffer(2)]], constant int4& s [[buffer(3)]], uint gid [[thread_position_in_grid]]) {
     if ((int)gid >= s.z) return;
+#ifdef SAME_SIZE
+    auto V0 = in0[int(gid)];
+    auto V1 = in1[int(gid)];
+#else
     auto V0 = in0[s.x * int(gid)];
     auto V1 = in1[s.y * int(gid)];
+#endif
     auto val = CUSTOM;
-    if(s.w == 1) {
-        val = (val < (T2)0 ? (T2)0 : val);
-    }
+#ifdef RELU
+    val = (val < (T2)0 ? (T2)0 : val);
+#endif
     out[int(gid)] = val;
 }
 )metal";
@@ -111,6 +121,8 @@ public:
         NSString* T2 = MetalCast::getScalarType(outputs[0]->getType(), mtbn->useFp16InsteadFp32());
         NSString* T0 = MetalCast::getScalarType(inputs[0]->getType(), mtbn->useFp16InsteadFp32());
         NSString* T1 = MetalCast::getScalarType(inputs[1]->getType(), mtbn->useFp16InsteadFp32());
+        MTLCompileOptions *compileOptions = [[MTLCompileOptions alloc] init];
+        auto dic = [NSMutableDictionary dictionaryWithCapacity:0];
         std::vector<std::string> keys = {
             std::string([T0 UTF8String]),
             std::string([T1 UTF8String]),
@@ -118,28 +130,39 @@ public:
             std::to_string(binaryop->opType()),
             "binary"
         };
+        [dic setValue:T0 forKey:@"T0"];
+        [dic setValue:T1 forKey:@"T1"];
+        [dic setValue:T2 forKey:@"T2"];
+        if (binaryop->activationType() == 1) {
+            keys.emplace_back("RELU");
+            [dic setValue:@"1" forKey:@"RELU"];
+        }
         auto pipeline = mtbn->runtime()->findPipeline(keys);
+        auto plane = pipeline;
         if (nil == pipeline) {
-            MTLCompileOptions *compileOptions = [[MTLCompileOptions alloc] init];
             NSString* custom = MetalBinary::convert(binaryop->opType(), inputs[0]->getType().code == halide_type_float);
             if (nil == custom) {
                 MNN_ERROR("Metal Don't support binary - %d \n", binaryop->opType());
                 return nullptr;
             }
-            compileOptions.preprocessorMacros = @{
-                @"T0" : T0,
-                @"T1" : T1,
-                @"T2" : T2,
-                @"CUSTOM" : custom,
-            };
+            [dic setValue:custom forKey:@"CUSTOM"];
+            compileOptions.preprocessorMacros = dic;
             pipeline = mtbn->makeComputePipelineWithSourceOption(gBinaryTemplate, "binary", compileOptions);
             mtbn->runtime()->insertPipeline(keys, pipeline);
+            keys.emplace_back("PLANE");
+            [dic setValue:@"1" forKey:@"SAME_SIZE"];
+            compileOptions.preprocessorMacros = dic;
+            plane = mtbn->makeComputePipelineWithSourceOption(gBinaryTemplate, "binary", compileOptions);
+            mtbn->runtime()->insertPipeline(keys, plane);
+        } else {
+            keys.emplace_back("PLANE");
+            plane = mtbn->runtime()->findPipeline(keys);
         }
         if (nil == pipeline) {
             MNN_ERROR("Make Binary shader error\n");
             return nullptr;
         }
-        return new MetalBinary(backend, pipeline, binaryop->activationType());
+        return new MetalBinary(backend, pipeline, plane);
     }
 };
 REGISTER_METAL_OP_CREATOR(MetalBinaryCreator, OpType_BinaryOp);

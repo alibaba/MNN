@@ -16,7 +16,7 @@ namespace MNN {
 
 class MetalBinary : public MetalExecution {
 public:
-    MetalBinary(Backend *backend, id<MTLComputePipelineState> pipeline, int activationType);
+    MetalBinary(Backend *backend, id<MTLComputePipelineState> pipeline, id<MTLComputePipelineState> planePipeline);
     virtual ~MetalBinary() = default;
     virtual void onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) override;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
@@ -25,8 +25,9 @@ public:
 private:
     id<MTLBuffer> mConstBuffer;
     id<MTLComputePipelineState> mPipeline;
+    id<MTLComputePipelineState> mPlanePipeline;
     std::pair<MTLSize, MTLSize> mThreads;
-    int mActivationType = 0;
+    bool mUsePlane;
 };
 
 } // namespace MNN

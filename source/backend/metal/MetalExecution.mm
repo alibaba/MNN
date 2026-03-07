@@ -18,15 +18,12 @@ MetalExecution::MetalExecution(Backend *backend) : Execution(backend) {
 ErrorCode MetalExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto backend = static_cast<MetalBackend *>(this->backend());
 
-    auto func = [=](){
-        auto encoder           = backend->encoder_for_net();
-        this->onEncode(inputs, outputs, encoder);
-        if(backend->isCmdBufferCommit()) {
-            backend->flushEncoder();
-            backend->commit_net();
-        }
-    };
-    func();
+    auto encoder           = backend->encoder_for_net();
+    this->onEncode(inputs, outputs, encoder);
+    if(backend->isCmdBufferCommit()) {
+        backend->flushEncoder();
+        backend->commit_net();
+    }
 
     return NO_ERROR;
 }

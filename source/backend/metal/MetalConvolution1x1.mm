@@ -216,7 +216,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                     }
                     mPipeline = pipeline;
 //                    MNN_PRINT("g8  ic: %d oc: %d\n", input->channel(), oc);
-                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 8), area, 1), MTLSizeMake(64, 1, 1));
+                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 8), area, 1), MTLSizeMake(128, 1, 1));
                 }
                 return NO_ERROR;
             } else if(rt->supportSimdGroupMatrix()  && area > short_seq && oc > 8 && ic_4 % 8 == 0) {
