@@ -39,6 +39,9 @@ struct FmhcaParamT;
 struct StftParam;
 struct StftParamT;
 
+struct ShapeParam;
+struct ShapeParamT;
+
 struct WhileParam;
 struct WhileParamT;
 
@@ -87,6 +90,8 @@ inline const flatbuffers::TypeTable *FmhaV2ParamTypeTable();
 inline const flatbuffers::TypeTable *FmhcaParamTypeTable();
 
 inline const flatbuffers::TypeTable *StftParamTypeTable();
+
+inline const flatbuffers::TypeTable *ShapeParamTypeTable();
 
 inline const flatbuffers::TypeTable *WhileParamTypeTable();
 
@@ -1207,11 +1212,12 @@ enum OpParameter {
   OpParameter_AttentionParam = 98,
   OpParameter_StftParam = 99,
   OpParameter_LinearAttentionParam = 100,
+  OpParameter_ShapeParam = 101,
   OpParameter_MIN = OpParameter_NONE,
-  OpParameter_MAX = OpParameter_LinearAttentionParam
+  OpParameter_MAX = OpParameter_ShapeParam
 };
 
-inline const OpParameter (&EnumValuesOpParameter())[101] {
+inline const OpParameter (&EnumValuesOpParameter())[102] {
   static const OpParameter values[] = {
     OpParameter_NONE,
     OpParameter_QuantizedAdd,
@@ -1313,7 +1319,8 @@ inline const OpParameter (&EnumValuesOpParameter())[101] {
     OpParameter_FmhcaParam,
     OpParameter_AttentionParam,
     OpParameter_StftParam,
-    OpParameter_LinearAttentionParam
+    OpParameter_LinearAttentionParam,
+    OpParameter_ShapeParam
   };
   return values;
 }
@@ -1421,6 +1428,7 @@ inline const char * const *EnumNamesOpParameter() {
     "AttentionParam",
     "StftParam",
     "LinearAttentionParam",
+    "ShapeParam",
     nullptr
   };
   return names;
@@ -1658,6 +1666,10 @@ template<> struct OpParameterTraits<Reshape> {
 
 template<> struct OpParameterTraits<Resize> {
   static const OpParameter enum_value = OpParameter_Resize;
+};
+
+template<> struct OpParameterTraits<ShapeParam> {
+  static const OpParameter enum_value = OpParameter_ShapeParam;
 };
 
 template<> struct OpParameterTraits<RoiParameters> {
@@ -2314,6 +2326,14 @@ struct OpParameterUnion {
   const ResizeT *AsResize() const {
     return type == OpParameter_Resize ?
       reinterpret_cast<const ResizeT *>(value) : nullptr;
+  }
+  ShapeParamT *AsShapeParam() {
+    return type == OpParameter_ShapeParam ?
+      reinterpret_cast<ShapeParamT *>(value) : nullptr;
+  }
+  const ShapeParamT *AsShapeParam() const {
+    return type == OpParameter_ShapeParam ?
+      reinterpret_cast<const ShapeParamT *>(value) : nullptr;
   }
   RoiParametersT *AsRoiParameters() {
     return type == OpParameter_RoiParameters ?
@@ -3320,6 +3340,93 @@ inline flatbuffers::Offset<StftParam> CreateStftParam(
 
 flatbuffers::Offset<StftParam> CreateStftParam(flatbuffers::FlatBufferBuilder &_fbb, const StftParamT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
+struct ShapeParamT : public flatbuffers::NativeTable {
+  typedef ShapeParam TableType;
+  bool hasStart;
+  int32_t start;
+  bool hasEnd;
+  int32_t end;
+  ShapeParamT()
+      : hasStart(false),
+        start(0),
+        hasEnd(false),
+        end(0) {
+  }
+};
+
+struct ShapeParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef ShapeParamT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return ShapeParamTypeTable();
+  }
+  bool hasStart() const {
+    return GetField<uint8_t>(4, 0) != 0;
+  }
+  int32_t start() const {
+    return GetField<int32_t>(6, 0);
+  }
+  bool hasEnd() const {
+    return GetField<uint8_t>(8, 0) != 0;
+  }
+  int32_t end() const {
+    return GetField<int32_t>(10, 0);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<uint8_t>(verifier, 4) &&
+           VerifyField<int32_t>(verifier, 6) &&
+           VerifyField<uint8_t>(verifier, 8) &&
+           VerifyField<int32_t>(verifier, 10) &&
+           verifier.EndTable();
+  }
+  ShapeParamT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(ShapeParamT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<ShapeParam> Pack(flatbuffers::FlatBufferBuilder &_fbb, const ShapeParamT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct ShapeParamBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_hasStart(bool hasStart) {
+    fbb_.AddElement<uint8_t>(4, static_cast<uint8_t>(hasStart), 0);
+  }
+  void add_start(int32_t start) {
+    fbb_.AddElement<int32_t>(6, start, 0);
+  }
+  void add_hasEnd(bool hasEnd) {
+    fbb_.AddElement<uint8_t>(8, static_cast<uint8_t>(hasEnd), 0);
+  }
+  void add_end(int32_t end) {
+    fbb_.AddElement<int32_t>(10, end, 0);
+  }
+  explicit ShapeParamBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ShapeParamBuilder &operator=(const ShapeParamBuilder &);
+  flatbuffers::Offset<ShapeParam> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<ShapeParam>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<ShapeParam> CreateShapeParam(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    bool hasStart = false,
+    int32_t start = 0,
+    bool hasEnd = false,
+    int32_t end = 0) {
+  ShapeParamBuilder builder_(_fbb);
+  builder_.add_end(end);
+  builder_.add_start(start);
+  builder_.add_hasEnd(hasEnd);
+  builder_.add_hasStart(hasStart);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<ShapeParam> CreateShapeParam(flatbuffers::FlatBufferBuilder &_fbb, const ShapeParamT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
 struct WhileParamT : public flatbuffers::NativeTable {
   typedef WhileParam TableType;
   std::string cond_graph;
@@ -3973,6 +4080,9 @@ struct Op FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const Resize *main_as_Resize() const {
     return main_type() == OpParameter_Resize ? static_cast<const Resize *>(main()) : nullptr;
   }
+  const ShapeParam *main_as_ShapeParam() const {
+    return main_type() == OpParameter_ShapeParam ? static_cast<const ShapeParam *>(main()) : nullptr;
+  }
   const RoiParameters *main_as_RoiParameters() const {
     return main_type() == OpParameter_RoiParameters ? static_cast<const RoiParameters *>(main()) : nullptr;
   }
@@ -4364,6 +4474,10 @@ template<> inline const Reshape *Op::main_as<Reshape>() const {
 
 template<> inline const Resize *Op::main_as<Resize>() const {
   return main_as_Resize();
+}
+
+template<> inline const ShapeParam *Op::main_as<ShapeParam>() const {
+  return main_as_ShapeParam();
 }
 
 template<> inline const RoiParameters *Op::main_as<RoiParameters>() const {
@@ -5490,6 +5604,41 @@ inline flatbuffers::Offset<StftParam> CreateStftParam(flatbuffers::FlatBufferBui
       _abs);
 }
 
+inline ShapeParamT *ShapeParam::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new ShapeParamT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void ShapeParam::UnPackTo(ShapeParamT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = hasStart(); _o->hasStart = _e; };
+  { auto _e = start(); _o->start = _e; };
+  { auto _e = hasEnd(); _o->hasEnd = _e; };
+  { auto _e = end(); _o->end = _e; };
+}
+
+inline flatbuffers::Offset<ShapeParam> ShapeParam::Pack(flatbuffers::FlatBufferBuilder &_fbb, const ShapeParamT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateShapeParam(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<ShapeParam> CreateShapeParam(flatbuffers::FlatBufferBuilder &_fbb, const ShapeParamT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const ShapeParamT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _hasStart = _o->hasStart;
+  auto _start = _o->start;
+  auto _hasEnd = _o->hasEnd;
+  auto _end = _o->end;
+  return MNN::CreateShapeParam(
+      _fbb,
+      _hasStart,
+      _start,
+      _hasEnd,
+      _end);
+}
+
 inline WhileParamT *WhileParam::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
   auto _o = new WhileParamT();
   UnPackTo(_o, _resolver);
@@ -6170,6 +6319,10 @@ inline bool VerifyOpParameter(flatbuffers::Verifier &verifier, const void *obj, 
       auto ptr = reinterpret_cast<const Resize *>(obj);
       return verifier.VerifyTable(ptr);
     }
+    case OpParameter_ShapeParam: {
+      auto ptr = reinterpret_cast<const ShapeParam *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
     case OpParameter_RoiParameters: {
       auto ptr = reinterpret_cast<const RoiParameters *>(obj);
       return verifier.VerifyTable(ptr);
@@ -6588,6 +6741,10 @@ inline void *OpParameterUnion::UnPack(const void *obj, OpParameter type, const f
       auto ptr = reinterpret_cast<const Resize *>(obj);
       return ptr->UnPack(resolver);
     }
+    case OpParameter_ShapeParam: {
+      auto ptr = reinterpret_cast<const ShapeParam *>(obj);
+      return ptr->UnPack(resolver);
+    }
     case OpParameter_RoiParameters: {
       auto ptr = reinterpret_cast<const RoiParameters *>(obj);
       return ptr->UnPack(resolver);
@@ -6994,6 +7151,10 @@ inline flatbuffers::Offset<void> OpParameterUnion::Pack(flatbuffers::FlatBufferB
       auto ptr = reinterpret_cast<const ResizeT *>(value);
       return CreateResize(_fbb, ptr, _rehasher).Union();
     }
+    case OpParameter_ShapeParam: {
+      auto ptr = reinterpret_cast<const ShapeParamT *>(value);
+      return CreateShapeParam(_fbb, ptr, _rehasher).Union();
+    }
     case OpParameter_RoiParameters: {
       auto ptr = reinterpret_cast<const RoiParametersT *>(value);
       return CreateRoiParameters(_fbb, ptr, _rehasher).Union();
@@ -7398,6 +7559,10 @@ inline OpParameterUnion::OpParameterUnion(const OpParameterUnion &u) FLATBUFFERS
     }
     case OpParameter_Resize: {
       value = new ResizeT(*reinterpret_cast<ResizeT *>(u.value));
+      break;
+    }
+    case OpParameter_ShapeParam: {
+      value = new ShapeParamT(*reinterpret_cast<ShapeParamT *>(u.value));
       break;
     }
     case OpParameter_RoiParameters: {
@@ -7860,6 +8025,11 @@ inline void OpParameterUnion::Reset() {
     }
     case OpParameter_Resize: {
       auto ptr = reinterpret_cast<ResizeT *>(value);
+      delete ptr;
+      break;
+    }
+    case OpParameter_ShapeParam: {
+      auto ptr = reinterpret_cast<ShapeParamT *>(value);
       delete ptr;
       break;
     }
@@ -8572,7 +8742,8 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     { flatbuffers::ET_SEQUENCE, 0, 96 },
     { flatbuffers::ET_SEQUENCE, 0, 97 },
     { flatbuffers::ET_SEQUENCE, 0, 98 },
-    { flatbuffers::ET_SEQUENCE, 0, 99 }
+    { flatbuffers::ET_SEQUENCE, 0, 99 },
+    { flatbuffers::ET_SEQUENCE, 0, 100 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     QuantizedAddTypeTable,
@@ -8674,7 +8845,8 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     FmhcaParamTypeTable,
     AttentionParamTypeTable,
     StftParamTypeTable,
-    LinearAttentionParamTypeTable
+    LinearAttentionParamTypeTable,
+    ShapeParamTypeTable
   };
   static const char * const names[] = {
     "NONE",
@@ -8777,10 +8949,11 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     "FmhcaParam",
     "AttentionParam",
     "StftParam",
-    "LinearAttentionParam"
+    "LinearAttentionParam",
+    "ShapeParam"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_UNION, 101, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_UNION, 102, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
@@ -8965,6 +9138,25 @@ inline const flatbuffers::TypeTable *StftParamTypeTable() {
   };
   static const flatbuffers::TypeTable tt = {
     flatbuffers::ST_TABLE, 3, type_codes, nullptr, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *ShapeParamTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_BOOL, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_BOOL, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 }
+  };
+  static const char * const names[] = {
+    "hasStart",
+    "start",
+    "hasEnd",
+    "end"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 4, type_codes, nullptr, nullptr, names
   };
   return &tt;
 }

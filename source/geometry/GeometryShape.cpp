@@ -6,13 +6,37 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <algorithm>
 #include <math.h>
+#include <utility>
 #include "core/AutoStorage.h"
 #include "geometry/GeometryComputer.hpp"
 #include "geometry/GeometryComputerUtils.hpp"
 #include "backend/cpu/compute/CommonOptFunction.h"
 
 namespace MNN {
+static std::pair<int, int> _resolveShapeRange(const Op* op, int rank) {
+    int start = 0;
+    int end = rank;
+    if (auto param = op->main_as_ShapeParam()) {
+        if (param->hasStart()) {
+            start = param->start();
+            if (start < 0) {
+                start += rank;
+            }
+        }
+        if (param->hasEnd()) {
+            end = param->end();
+            if (end < 0) {
+                end += rank;
+            }
+        }
+    }
+    start = std::max(0, std::min(start, rank));
+    end = std::max(start, std::min(end, rank));
+    return std::make_pair(start, end);
+}
+
 class GeometryShape : public GeometryComputer {
 public:
     virtual bool onCompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
@@ -28,15 +52,22 @@ public:
         auto& ib         = inputs[0]->buffer();
         auto outputData = outputs[0]->host<int>();
         auto inputFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+        int shapeData[MNN_MAX_TENSOR_DIM];
+        int rank = ib.dimensions;
         if ((inputFormat == MNN_DATA_FORMAT_NC4HW4) && TensorUtils::getDescribe(outputs[0])->dimensionFormat == MNN_DATA_FORMAT_NHWC) {
-            outputData[0] = ib.dim[0].extent;
-            outputData[1] = ib.dim[2].extent;
-            outputData[2] = ib.dim[3].extent;
-            outputData[3] = ib.dim[1].extent;
+            rank = 4;
+            shapeData[0] = ib.dim[0].extent;
+            shapeData[1] = ib.dim[2].extent;
+            shapeData[2] = ib.dim[3].extent;
+            shapeData[3] = ib.dim[1].extent;
         } else {
             for (int i = 0; i < ib.dimensions; i++) {
-                outputData[i] = ib.dim[i].extent;
+                shapeData[i] = ib.dim[i].extent;
             }
+        }
+        auto range = _resolveShapeRange(op, rank);
+        for (int i = range.first; i < range.second; ++i) {
+            outputData[i - range.first] = shapeData[i];
         }
         return true;
     }

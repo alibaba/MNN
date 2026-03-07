@@ -790,16 +790,14 @@ bool Cli::convertModel(modelConfig& modelPath) {
 }
 
 static bool compareOutput(MNN::Express::VARP output, const std::string& directName, const std::string& name, MNN::Express::Dimensionformat dataFormat, int order, float maxError) {
+    if (output == nullptr) {
+        MNN_ERROR("TESTERROR name:%s, output is null.\n", name.c_str());
+        return false;
+    }
     auto info = output->getInfo();
-    auto ptr = output->readMap<float>();
     if (info && info->size <= 0) {
         MNN_PRINT("skip checking value for zero content tensor %s\n", name.c_str());
         return true;
-    }
-
-    if (nullptr == info || nullptr == ptr) {
-        MNN_ERROR("TESTERROR name:%s, info:%p, ptr:%p.\n", name.c_str(), info, ptr);
-        return false;
     }
     std::ifstream outputOrigin;
     // First find key
@@ -818,6 +816,10 @@ static bool compareOutput(MNN::Express::VARP output, const std::string& directNa
         MNN_PRINT("Skip check %s\n", name.c_str());
         return true;
     }
+    if (nullptr == info) {
+        MNN_ERROR("TESTERROR name:%s, info is null.\n", name.c_str());
+        return false;
+    }
     if (info->order == MNN::Express::NC4HW4 && info->dim.size() > 1) {
         output = _Convert(output, dataFormat);
         info = output->getInfo();
@@ -825,6 +827,11 @@ static bool compareOutput(MNN::Express::VARP output, const std::string& directNa
     if (info->type.code != halide_type_float) {
         output = MNN::Express::_Cast<float>(output);
         info = output->getInfo();
+    }
+    auto ptr = output->readMap<float>();
+    if (nullptr == info || nullptr == ptr) {
+        MNN_ERROR("TESTERROR name:%s, info:%p, ptr:%p.\n", name.c_str(), info, ptr);
+        return false;
     }
     MNN_PRINT("%s: (", name.c_str());
     for (int i=0; i<info->dim.size(); ++i) {
@@ -1026,7 +1033,12 @@ int Cli::testconvert(const std::string& defaultCacheFile, const std::string& dir
     bool modelError = false;
     // Module Branch
     auto outputs = net->onForward(inputs);
-    for (int i=0; i<outputNames.size(); ++i) {
+    if (outputs.size() != outputNames.size()) {
+        modelError = true;
+        MNN_ERROR("TESTERROR output size mismatch: module returns %zu outputs, test expects %zu.\n", outputs.size(), outputNames.size());
+    }
+    auto compareSize = (int)std::min(outputs.size(), outputNames.size());
+    for (int i=0; i<compareSize; ++i) {
         auto name = outputNames[i];
         auto v = outputs[i];
         auto info = v->getInfo();
@@ -1043,7 +1055,7 @@ int Cli::testconvert(const std::string& defaultCacheFile, const std::string& dir
         outputs[i] = v;
     }
 
-    for (int i=0; i<outputNames.size(); ++i) {
+    for (int i=0; i<compareSize; ++i) {
         auto output = outputs[i];
         bool success = compareOutput(output, directName, outputNames[i], mInfo->defaultFormat, i, maxErrorRate);
         if (!success) {
@@ -1054,7 +1066,7 @@ int Cli::testconvert(const std::string& defaultCacheFile, const std::string& dir
 
     if (modelError) {
         MNN_ERROR("Save mnn result to  .error director\n");
-        for (int i=0; i<outputNames.size(); ++i) {
+        for (int i=0; i<compareSize; ++i) {
             auto v = outputs[i];
             auto name = outputNames[i];
             auto info = v->getInfo();
