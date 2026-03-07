@@ -1,7 +1,7 @@
 option(MNN_QNN_CONVERT_MODE "Enable the Convert mode of the QNN backend." OFF)
 
-file(GLOB BACKEND_SRCS ${CMAKE_CURRENT_LIST_DIR}/backend/*.cpp)
-file(GLOB EXECUTION_SRCS ${CMAKE_CURRENT_LIST_DIR}/execution/*.cpp)
+file(GLOB BACKEND_SRCS ${CMAKE_CURRENT_LIST_DIR}/backend/*)
+file(GLOB EXECUTION_SRCS ${CMAKE_CURRENT_LIST_DIR}/execution/*)
 set(MNN_QNN_SRCS ${BACKEND_SRCS} ${EXECUTION_SRCS})
 
 # Prefer CMake variable QNN_SDK_ROOT (passed via -DQNN_SDK_ROOT=...), fallback to environment
