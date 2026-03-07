@@ -175,9 +175,9 @@ class ModelMapper:
             'k_norm': 'k_norm'
         }
         qwen3_mlp = {
-            'num_experts': 'num_experts',
-            'top_k': 'top_k',
-            'norm_topk_prob': 'norm_topk_prob',
+            'num_experts': 'experts.num_experts',
+            'top_k': 'gate.top_k',
+            'norm_topk_prob': 'gate.norm_topk_prob',
             'gate': 'gate',
             'experts': 'experts'
         }
@@ -597,8 +597,8 @@ class ModelMapper:
             'attention': qwen3_attention
         }
         qwen3vlmoe_mlp = {
-            'num_experts': 'num_experts',
-            'top_k': 'top_k',
+            'num_experts': 'experts.num_experts',
+            'top_k': 'gate.top_k',
             'gate': 'gate',
             'experts': 'experts'
         }
