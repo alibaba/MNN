@@ -900,12 +900,20 @@ int main(int argc, const char* argv[]) {
             for (auto iter = testdir.Begin(); iter != testdir.End(); iter++) {
                 std::string dirname = iter->GetString();
                 auto subinputs = MNN::Express::Variable::load((dirname + "/input.mnn").c_str());
+                if (subinputs.empty()) {
+                    MNN_ERROR("Failed to load test inputs from %s/input.mnn\n", dirname.c_str());
+                    return 1;
+                }
                 inputs.emplace_back(subinputs);
                 inputNames.clear();
                 for (int i=0; i<subinputs.size(); ++i) {
                     inputNames.emplace_back(subinputs[i]->name());
                 }
                 auto outputs = MNN::Express::Variable::load((dirname + "/output.mnn").c_str());
+                if (outputs.empty()) {
+                    MNN_ERROR("Failed to load test outputs from %s/output.mnn\n", dirname.c_str());
+                    return 1;
+                }
                 outputNames.clear();
                 for (int i=0; i<outputs.size(); ++i) {
                     outputNames.emplace_back(outputs[i]->name());
@@ -915,6 +923,10 @@ int main(int argc, const char* argv[]) {
     }
     if (outputNames.empty()) {
         std::shared_ptr<MNN::Express::Module> m(MNN::Express::Module::load(inputNames, outputNames, srcMNN), MNN::Express::Module::destroy);
+        if (nullptr == m.get()) {
+            MNN_ERROR("Failed to load source module from %s\n", srcMNN);
+            return 1;
+        }
         auto minfo = m->getInfo();
         outputNames = minfo->outputNames;
         inputNames = minfo->inputNames;
