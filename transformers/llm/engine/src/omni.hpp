@@ -60,6 +60,7 @@ public:
     Talker(std::shared_ptr<LlmConfig> config, Llm* thinker) : Llm(config), mThinker(thinker) {}
     ~Talker() {}
     virtual bool load() override;
+    void setProcessorRuntimeManager(std::shared_ptr<Executor::RuntimeManager> processorRuntimeManager);
     virtual void generate_init(std::ostream* os = nullptr, const char* end_with = nullptr) override;
     virtual Express::VARP embedding(const std::vector<int>& input_ids) override;
     virtual Express::VARP gen_position_ids(int seq_len) override;
@@ -84,6 +85,7 @@ private:
     std::vector<VARP> mTalkerEmbeds;
     std::shared_ptr<Module> mPreDit, mDit, mBigvgan;
     Llm* mThinker;
+    std::shared_ptr<Executor::RuntimeManager> mProcessorRuntimeManager;
     // stream generate
     std::vector<float> mInitialNoise, mWaveformBuffer;
     VARP mMelBuffer = nullptr;

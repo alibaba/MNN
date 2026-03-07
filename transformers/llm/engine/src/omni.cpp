@@ -78,13 +78,6 @@ bool Omni::load() {
     if (!res) {
         return false;
     }
-    if (mConfig->has_talker()) {
-        mTalker.reset(new Talker(mConfig, this));
-        res = mTalker->load();
-    }
-    if (!res) {
-        return false;
-    }
     ScheduleConfig config;
     if (mConfig->mllm_config_.empty()) {
         mProcessorRuntimeManager = mRuntimeManager;
@@ -113,6 +106,14 @@ bool Omni::load() {
         config.backendConfig = &cpuBackendConfig;
         mProcessorRuntimeManager.reset(Executor::RuntimeManager::createRuntimeManager(config));
         setRuntimeHint(mProcessorRuntimeManager);
+    }
+    if (mConfig->has_talker()) {
+        mTalker.reset(new Talker(mConfig, this));
+        mTalker->setProcessorRuntimeManager(mProcessorRuntimeManager);
+        res = mTalker->load();
+    }
+    if (!res) {
+        return false;
     }
     if (mConfig->has_deepstack()) {
         mExtraArgs.emplace_back(Express::_Fill(_var<int>({3, 1, 1}, {3}), _Scalar<float>(0.0)));
@@ -1118,14 +1119,15 @@ bool Talker::load() {
     if (mModule.get() == nullptr) {
         return false;
     }
+    auto module_runtime = mProcessorRuntimeManager ? mProcessorRuntimeManager : mRuntimeManager;
     // dit
     mPreDit.reset(Module::load({"cond", "spk", "code"}, {"code_embeds", "rope", "mask"},
-                                mConfig->predit_model().c_str(), mRuntimeManager, &module_config));
+                                mConfig->predit_model().c_str(), module_runtime, &module_config));
     mDit.reset(Module::load({"x", "code_embeds", "rope", "mask", "time"}, {"mel"},
-                            mConfig->dit_model().c_str(), mRuntimeManager, &module_config));
+                            mConfig->dit_model().c_str(), module_runtime, &module_config));
     // bigvgan
     mBigvgan.reset(Module::load({"generated_mel"},
-                                {"waveform"}, mConfig->bigvgan_model().c_str(), mRuntimeManager, &module_config));
+                                {"waveform"}, mConfig->bigvgan_model().c_str(), module_runtime, &module_config));
     // autoregressive decode module
     mModulePool[std::make_pair(1, false)].reset(Module::clone(mModule.get()));
     // prefill module
@@ -1180,6 +1182,10 @@ Express::VARP Talker::gen_position_ids(int seq_len) {
         }
     }
     return positionIds;
+}
+
+void Talker::setProcessorRuntimeManager(std::shared_ptr<Executor::RuntimeManager> processorRuntimeManager) {
+    mProcessorRuntimeManager = processorRuntimeManager;
 }
 
 void Talker::setWavformCallback(const std::function<bool(const float*, size_t, bool)> callback) {
