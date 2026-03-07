@@ -31,7 +31,9 @@ public:
             return true;
         }
         auto exe = new AttentionBufExecution(bn, mKVCache);
-        exe->mKVCacheManager = mKVCacheManager;
+        if (bn->getMetaPtr() == backend()->getMetaPtr()) {
+            exe->mKVCacheManager = mKVCacheManager;
+        }
         *dst = exe;
         return true;
     }
