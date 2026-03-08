@@ -2,7 +2,7 @@
 #include "core/MusaBackend.hpp"
 
 namespace MNN {
-namespace CUDA {
+namespace MUSA {
 
 template<typename T>
 __global__ void ScaleKernel(const T* input, const T* scale, const T* bias, T* output,
@@ -101,5 +101,5 @@ public:
 
 MNNCreatorRegister<ScaleCreator> gScaleRegistration(OpType_Scale);
 
-} // namespace CUDA
+} // namespace MUSA
 } // namespace MNN

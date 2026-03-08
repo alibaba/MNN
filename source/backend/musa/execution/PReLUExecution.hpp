@@ -4,7 +4,7 @@
 #include "core/MusaBackend.hpp"
 
 namespace MNN {
-namespace CUDA {
+namespace MUSA {
 
 class PReLUExecution : public Execution {
 public:
@@ -26,7 +26,7 @@ private:
     dim3 mDim3Block;
 };
 
-} // namespace CUDA
+} // namespace MUSA
 } // namespace MNN
 
 #endif

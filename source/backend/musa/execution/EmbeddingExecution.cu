@@ -2,7 +2,7 @@
 #include "core/MusaBackend.hpp"
 
 namespace MNN {
-namespace CUDA {
+namespace MUSA {
 
 template<typename T>
 __global__ void EmbeddingKernel(const T* embedding, const int* indices, T* output,
@@ -77,5 +77,5 @@ public:
 
 MNNCreatorRegister<EmbeddingCreator> gEmbeddingRegistration(OpType_Embedding);
 
-} // namespace CUDA
+} // namespace MUSA
 } // namespace MNN

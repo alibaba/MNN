@@ -2,7 +2,7 @@
 #include "core/MusaBackend.hpp"
 
 namespace MNN {
-namespace CUDA {
+namespace MUSA {
 
 template<typename InputT, typename OutputT>
 __global__ void CastKernel(const InputT* input, OutputT* output, int totalSize) {
@@ -87,5 +87,5 @@ public:
 
 MNNCreatorRegister<CastCreator> gCastRegistration(OpType_Cast);
 
-} // namespace CUDA
+} // namespace MUSA
 } // namespace MNN

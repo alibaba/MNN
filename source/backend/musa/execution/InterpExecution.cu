@@ -2,7 +2,7 @@
 #include "core/MusaBackend.hpp"
 
 namespace MNN {
-namespace CUDA {
+namespace MUSA {
 
 template<typename T>
 __global__ void InterpNearestKernel(const T* src, T* dst, 
@@ -155,5 +155,5 @@ public:
 
 MNNCreatorRegister<InterpCreator> gInterpRegistration(OpType_Interp);
 
-} // namespace CUDA
+} // namespace MUSA
 } // namespace MNN

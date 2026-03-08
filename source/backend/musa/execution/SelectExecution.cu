@@ -2,7 +2,7 @@
 #include "core/MusaBackend.hpp"
 
 namespace MNN {
-namespace CUDA {
+namespace MUSA {
 
 template<typename T>
 __global__ void SelectKernel(const bool* condition, const T* x, const T* y, T* output, int totalSize) {
@@ -67,5 +67,5 @@ public:
 
 MNNCreatorRegister<SelectCreator> gSelectRegistration(OpType_Select);
 
-} // namespace CUDA
+} // namespace MUSA
 } // namespace MNN

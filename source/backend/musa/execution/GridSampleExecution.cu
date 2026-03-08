@@ -2,7 +2,7 @@
 #include "core/MusaBackend.hpp"
 
 namespace MNN {
-namespace CUDA {
+namespace MUSA {
 
 template<typename T>
 __global__ void GridSampleKernel(const T* input, const T* grid, T* output,
@@ -127,5 +127,5 @@ public:
 
 MNNCreatorRegister<GridSampleCreator> gGridSampleRegistration(OpType_GridSample);
 
-} // namespace CUDA
+} // namespace MUSA
 } // namespace MNN

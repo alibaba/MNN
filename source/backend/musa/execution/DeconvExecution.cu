@@ -2,7 +2,7 @@
 #include "core/MusaBackend.hpp"
 
 namespace MNN {
-namespace CUDA {
+namespace MUSA {
 
 template<typename T>
 __global__ void Deconv2dKernel(const T* input, const T* weight, T* output,
@@ -126,5 +126,5 @@ public:
 
 MNNCreatorRegister<DeconvCreator> gDeconvRegistration(OpType_Deconvolution);
 
-} // namespace CUDA
+} // namespace MUSA
 } // namespace MNN

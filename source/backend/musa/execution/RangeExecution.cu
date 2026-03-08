@@ -2,7 +2,7 @@
 #include "core/MusaBackend.hpp"
 
 namespace MNN {
-namespace CUDA {
+namespace MUSA {
 
 template<typename T>
 __global__ void RangeKernel(T* output, T start, T delta, int size) {
@@ -74,5 +74,5 @@ public:
 
 MNNCreatorRegister<RangeCreator> gRangeRegistration(OpType_Range);
 
-} // namespace CUDA
+} // namespace MUSA
 } // namespace MNN

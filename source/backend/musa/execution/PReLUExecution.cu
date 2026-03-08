@@ -2,7 +2,7 @@
 #include "core/MusaBackend.hpp"
 
 namespace MNN {
-namespace CUDA {
+namespace MUSA {
 
 template<typename T>
 __global__ void PReLUKernel(const T* input, const T* slope, T* output,
@@ -95,5 +95,5 @@ public:
 
 MNNCreatorRegister<PReLUCreator> gPReLURegistration(OpType_PReLU);
 
-} // namespace CUDA
+} // namespace MUSA
 } // namespace MNN

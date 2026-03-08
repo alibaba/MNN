@@ -2,7 +2,7 @@
 #include "core/MusaBackend.hpp"
 
 namespace MNN {
-namespace CUDA {
+namespace MUSA {
 
 template<typename T>
 __global__ void ArgMaxKernel(const T* input, int* output,
@@ -92,5 +92,5 @@ public:
 
 MNNCreatorRegister<ArgMaxCreator> gArgMaxRegistration(OpType_ArgMax);
 
-} // namespace CUDA
+} // namespace MUSA
 } // namespace MNN

@@ -2,7 +2,7 @@
 #include "core/MusaBackend.hpp"
 
 namespace MNN {
-namespace CUDA {
+namespace MUSA {
 
 template<typename T>
 __global__ void FuseReluKernel(const T* input, T* output, int totalSize) {
@@ -108,5 +108,5 @@ public:
 
 MNNCreatorRegister<FuseCreator> gFuseRegistration(OpType_Fuse);
 
-} // namespace CUDA
+} // namespace MUSA
 } // namespace MNN

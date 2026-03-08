@@ -2,7 +2,7 @@
 #include "core/MusaBackend.hpp"
 
 namespace MNN {
-namespace CUDA {
+namespace MUSA {
 
 template<typename T>
 __global__ void TopKKernel(const T* input, T* outValues, int* outIndices,
@@ -103,5 +103,5 @@ public:
 
 MNNCreatorRegister<TopKV2Creator> gTopKV2Registration(OpType_TopKV2);
 
-} // namespace CUDA
+} // namespace MUSA
 } // namespace MNN

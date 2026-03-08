@@ -2,7 +2,7 @@
 #include "core/MusaBackend.hpp"
 
 namespace MNN {
-namespace CUDA {
+namespace MUSA {
 
 template<typename T>
 __global__ void TransposeKernel(const T* input, T* output, const int* perm,
@@ -100,5 +100,5 @@ public:
 
 MNNCreatorRegister<TransposeCreator> gTransposeRegistration(OpType_Transpose);
 
-} // namespace CUDA
+} // namespace MUSA
 } // namespace MNN

@@ -2,7 +2,7 @@
 #include "core/MusaBackend.hpp"
 
 namespace MNN {
-namespace CUDA {
+namespace MUSA {
 
 template<typename T>
 __global__ void ArgMinKernel(const T* input, int* output,
@@ -92,5 +92,5 @@ public:
 
 MNNCreatorRegister<ArgMinCreator> gArgMinRegistration(OpType_ArgMin);
 
-} // namespace CUDA
+} // namespace MUSA
 } // namespace MNN

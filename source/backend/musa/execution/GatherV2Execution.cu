@@ -2,7 +2,7 @@
 #include "core/MusaBackend.hpp"
 
 namespace MNN {
-namespace CUDA {
+namespace MUSA {
 
 template<typename T>
 __global__ void GatherV2Kernel(const T* input, const int* indices, T* output,
@@ -99,5 +99,5 @@ public:
 
 MNNCreatorRegister<GatherV2Creator> gGatherV2Registration(OpType_GatherV2);
 
-} // namespace CUDA
+} // namespace MUSA
 } // namespace MNN

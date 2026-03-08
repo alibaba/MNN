@@ -2,7 +2,7 @@
 #include "core/MusaBackend.hpp"
 
 namespace MNN {
-namespace CUDA {
+namespace MUSA {
 
 template<typename T>
 __global__ void LayerNormKernel(const T* input, const T* gamma, const T* beta, T* output,
@@ -120,5 +120,5 @@ public:
 
 MNNCreatorRegister<LayerNormCreator> gLayerNormRegistration(OpType_LayerNorm);
 
-} // namespace CUDA
+} // namespace MUSA
 } // namespace MNN

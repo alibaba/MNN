@@ -2,7 +2,7 @@
 #include "core/MusaBackend.hpp"
 
 namespace MNN {
-namespace CUDA {
+namespace MUSA {
 
 template<typename T>
 __global__ void RasterKernel(const T** inputs, T* output, const int* regionInfos,
@@ -93,5 +93,5 @@ public:
 
 MNNCreatorRegister<RasterCreator> gRasterRegistration(OpType_Raster);
 
-} // namespace CUDA
+} // namespace MUSA
 } // namespace MNN
