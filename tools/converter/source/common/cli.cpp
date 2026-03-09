@@ -1175,10 +1175,9 @@ bool Cli::mnn2json(const char* modelFile, const char* jsonFile, int flag) {
                 auto root = MNN::SubGraphProto::Pack(newBuilder, g.get());
                 newBuilder.Finish(root);
                 auto content = newBuilder.GetBufferPointer();
-                char subGraphNameStr[128];
-                sprintf(subGraphNameStr, "%s_%d", jsonFile, i);
-                printf("Dump subgraph %s to %s\n", g->name.c_str(), subGraphNameStr);
-                std::ofstream tempOutput(subGraphNameStr);
+                std::string subGraphName = std::string(jsonFile) + "_" + std::to_string(i);
+                printf("Dump subgraph %s to %s\n", g->name.c_str(), subGraphName.c_str());
+                std::ofstream tempOutput(subGraphName);
                 auto s       = flatbuffers::FlatBufferToString((const uint8_t*)content, MNN::SubGraphProtoTypeTable());
                 tempOutput << s;
             }
