@@ -4,6 +4,32 @@
 namespace MNN {
 namespace CUDA {
 
+// Sift Down
+template<typename indexT, typename valueT>
+__device__ inline void siftDown(const int K, const int descendFlag, valueT * valuesThread, indexT * indicesThread) {
+    int parent = 0;
+    while (true) {
+        int child = 2 * parent + 1;
+        if (child >= K) break;
+        if (child + 1 < K && (valueT)(descendFlag) * valuesThread[child + 1] < (valueT)(descendFlag) * valuesThread[child]) {
+            child++;
+        }
+        if ((valueT)(descendFlag) * valuesThread[parent] > (valueT)(descendFlag) * valuesThread[child]) {
+            valueT tmpV = valuesThread[parent];
+            valuesThread[parent] = valuesThread[child];
+            valuesThread[child] = tmpV;
+
+            indexT tmpI = indicesThread[parent];
+            indicesThread[parent] = indicesThread[child];
+            indicesThread[child] = tmpI;
+
+            parent = child;
+        } else {
+            break;
+        }
+    }
+}
+
 
 // rank TopK in the corresponding thead
 template<typename indexT, typename valueT>
@@ -17,15 +43,16 @@ __device__ void TopKInThread(const valueT * inputDevice, indexT * indicesThread,
 
     // Check if we can use vectorized load (address alignment and size)
     // We assume inputDevice is aligned to at least 4 bytes. 
-    // For 128-bit alignment (float4), we need to check carefully, but here we manually unroll 
-    // to process multiple elements per iteration which helps compiler generate vector loads or ILP.
+    // Note: Since we use grid-stride loop, the data accessed by a single thread is NOT contiguous.
+    // So we cannot achieve true vectorized load (LD.E.128) which requires contiguous memory.
+    // However, manual unrolling helps Instruction-Level Parallelism (ILP) and Latency Hiding.
 
     // Main loop with unrolling (Process 4 elements per step if possible)
     indexT i = idxFirstEleInRow;
     /* 
-       Note: Explicit float4 loading requires strict alignment. 
-       Instead, we unroll the loop. The NVCC compiler is smart enough to generate 
-       vectorized loads (LD.E.128) if the access pattern allows it.
+       Note: The data[0..3] are separated by gridDim.x * blockDim.x, so they are not contiguous.
+       We unroll the loop to issue multiple independent memory loads, allowing the GPU 
+       to hide memory latency and improve ILP.
     */
     for (; i + gridDim.x * blockDim.x * 3 < numElePerRow; i += gridDim.x * blockDim.x * 4) {
         valueT data[4];
@@ -42,28 +69,7 @@ __device__ void TopKInThread(const valueT * inputDevice, indexT * indicesThread,
                 valuesThread[0] = val;
                 indicesThread[0] = i + gridDim.x * blockDim.x * k;
 
-                // Sift Down
-                int parent = 0;
-                while (true) {
-                    int child = 2 * parent + 1;
-                    if (child >= K) break;
-                    if (child + 1 < K && (valueT)(descendFlag) * valuesThread[child + 1] < (valueT)(descendFlag) * valuesThread[child]) {
-                        child++;
-                    }
-                    if ((valueT)(descendFlag) * valuesThread[parent] > (valueT)(descendFlag) * valuesThread[child]) {
-                        valueT tmpV = valuesThread[parent];
-                        valuesThread[parent] = valuesThread[child];
-                        valuesThread[child] = tmpV;
-
-                        indexT tmpI = indicesThread[parent];
-                        indicesThread[parent] = indicesThread[child];
-                        indicesThread[child] = tmpI;
-
-                        parent = child;
-                    } else {
-                        break;
-                    }
-                }
+                siftDown(K, descendFlag, valuesThread, indicesThread);
             }
         }
     }
@@ -79,32 +85,7 @@ __device__ void TopKInThread(const valueT * inputDevice, indexT * indicesThread,
             valuesThread[0] = data;
             indicesThread[0] = i;
 
-            // Sift Down
-            int parent = 0;
-            while (true) {
-                int child = 2 * parent + 1;
-                if (child >= K) break;
-
-                // Find smaller child
-                if (child + 1 < K && (valueT)(descendFlag) * valuesThread[child + 1] < (valueT)(descendFlag) * valuesThread[child]) {
-                    child++;
-                }
-
-                // If parent is larger than smaller child, swap
-                if ((valueT)(descendFlag) * valuesThread[parent] > (valueT)(descendFlag) * valuesThread[child]) {
-                    valueT tmpV = valuesThread[parent];
-                    valuesThread[parent] = valuesThread[child];
-                    valuesThread[child] = tmpV;
-
-                    indexT tmpI = indicesThread[parent];
-                    indicesThread[parent] = indicesThread[child];
-                    indicesThread[child] = tmpI;
-
-                    parent = child;
-                } else {
-                    break;
-                }
-            }
+            siftDown(K, descendFlag, valuesThread, indicesThread);
         }
     }
 
@@ -124,29 +105,7 @@ __device__ void TopKInThread(const valueT * inputDevice, indexT * indicesThread,
         indicesThread[i] = tmpI;
 
         // Restore heap property for the remaining [0, i) elements
-        int parent = 0;
-        while (true) {
-            int child = 2 * parent + 1;
-            if (child >= i) break; // Limit is i
-
-            if (child + 1 < i && (valueT)(descendFlag) * valuesThread[child + 1] < (valueT)(descendFlag) * valuesThread[child]) {
-                child++;
-            }
-
-            if ((valueT)(descendFlag) * valuesThread[parent] > (valueT)(descendFlag) * valuesThread[child]) {
-                valueT tmpV = valuesThread[parent];
-                valuesThread[parent] = valuesThread[child];
-                valuesThread[child] = tmpV;
-
-                indexT tmpI = indicesThread[parent];
-                indicesThread[parent] = indicesThread[child];
-                indicesThread[child] = tmpI;
-
-                parent = child;
-            } else {
-                break;
-            }
-        }
+        siftDown(i, descendFlag, valuesThread, indicesThread);
     }
 
     return;
