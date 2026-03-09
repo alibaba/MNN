@@ -1225,6 +1225,10 @@ public:
         if (nullptr != meta && mStateInput.size() > 0) {
             auto maskPtr = (__fp16*)mMask->mPtr;
             if (meta->remove > 0) {
+                if (meta->remove > mStateCurrent) {
+                    MNN_ERROR("QNN: Error: Remove %d larger than current = %d\n", meta->remove, mStateCurrent);
+                    return false;
+                }
                 mStateCurrent-= meta->remove;
                 for (int i=0; i<meta->remove; ++i) {
                     maskPtr[i+mStateCurrent] = mMinValue;
@@ -1238,6 +1242,10 @@ public:
         // Update State
         if (nullptr != meta && mStateInput.size() > 0) {
             auto maskPtr = (__fp16*)mMask->mPtr;
+            if (meta->add + mStateCurrent > mStateMaxSize) {
+                MNN_ERROR("QNN: Error: KV length %d larger than max size = %d\n", meta->add + mStateCurrent, mStateMaxSize);
+                return false;
+            }
             for (int i=0; i<meta->add; ++i) {
                 maskPtr[i+mStateCurrent] = 0.0f;
             }
