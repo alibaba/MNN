@@ -337,6 +337,9 @@ public:
             if (OpParameter_Reshape == op->main.type) {
                 op->main.AsReshape()->dimType = originTensorType;
             }
+            if (op->type == OpType_Shape) {
+                op->defaultDimentionFormat = MNN_DATA_FORMAT_NCHW;
+            }
         }
 
         auto config = Global<modelConfig>::Get();
