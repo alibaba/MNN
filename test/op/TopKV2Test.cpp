@@ -169,9 +169,9 @@ public:
 
     virtual bool run(int precision) {
         // set params
-        const int K = 10;
+        const int K = 300;
         const int numRow = 180;
-        
+
         const int lengthRow = 21491;
 
         // set input

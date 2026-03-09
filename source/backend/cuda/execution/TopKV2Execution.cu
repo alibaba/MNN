@@ -4,6 +4,32 @@
 namespace MNN {
 namespace CUDA {
 
+// Sift Down
+template<typename indexT, typename valueT>
+__device__ inline void siftDown(const int K, const int descendFlag, valueT * valuesThread, indexT * indicesThread) {
+    int parent = 0;
+    while (true) {
+        int child = 2 * parent + 1;
+        if (child >= K) break;
+        if (child + 1 < K && (valueT)(descendFlag) * valuesThread[child + 1] < (valueT)(descendFlag) * valuesThread[child]) {
+            child++;
+        }
+        if ((valueT)(descendFlag) * valuesThread[parent] > (valueT)(descendFlag) * valuesThread[child]) {
+            valueT tmpV = valuesThread[parent];
+            valuesThread[parent] = valuesThread[child];
+            valuesThread[child] = tmpV;
+
+            indexT tmpI = indicesThread[parent];
+            indicesThread[parent] = indicesThread[child];
+            indicesThread[child] = tmpI;
+
+            parent = child;
+        } else {
+            break;
+        }
+    }
+}
+
 
 // rank TopK in the corresponding thead
 template<typename indexT, typename valueT>
@@ -15,22 +41,71 @@ __device__ void TopKInThread(const valueT * inputDevice, indexT * indicesThread,
 
     int idxFirstEleInRow = threadIdx.x + blockIdx.x * blockDim.x;
 
-    for (indexT i =  idxFirstEleInRow; i < numElePerRow; i += gridDim.x * blockDim.x) {
-        valueT data = inputDevice[i];
-        if ((valueT)(descendFlag) * data <= (valueT)(descendFlag) * valuesThread[K - 1]) {
-            continue;
-        } else {
-            for (int j = K - 2; j >= 0; j--) {
-                if ((valueT)(descendFlag) * data > (valueT)(descendFlag) * valuesThread[j]) {
-                    valuesThread[j + 1] = valuesThread[j];
-                    indicesThread[j + 1] = indicesThread[j];
-                    valuesThread[j] = data;
-                    indicesThread[j] = i;
-                } else {
-                    break;
-                }
+    // Check if we can use vectorized load (address alignment and size)
+    // We assume inputDevice is aligned to at least 4 bytes. 
+    // Note: Since we use grid-stride loop, the data accessed by a single thread is NOT contiguous.
+    // So we cannot achieve true vectorized load (LD.E.128) which requires contiguous memory.
+    // However, manual unrolling helps Instruction-Level Parallelism (ILP) and Latency Hiding.
+
+    // Main loop with unrolling (Process 4 elements per step if possible)
+    indexT i = idxFirstEleInRow;
+    /* 
+       Note: The data[0..3] are separated by gridDim.x * blockDim.x, so they are not contiguous.
+       We unroll the loop to issue multiple independent memory loads, allowing the GPU 
+       to hide memory latency and improve ILP.
+    */
+    for (; i + gridDim.x * blockDim.x * 3 < numElePerRow; i += gridDim.x * blockDim.x * 4) {
+        valueT data[4];
+        data[0] = inputDevice[i];
+        data[1] = inputDevice[i + gridDim.x * blockDim.x];
+        data[2] = inputDevice[i + gridDim.x * blockDim.x * 2];
+        data[3] = inputDevice[i + gridDim.x * blockDim.x * 3];
+
+        #pragma unroll
+        for (int k = 0; k < 4; ++k) {
+            valueT val = data[k];
+            // Compare with the root of the heap
+            if ((valueT)(descendFlag) * val > (valueT)(descendFlag) * valuesThread[0]) {
+                valuesThread[0] = val;
+                indicesThread[0] = i + gridDim.x * blockDim.x * k;
+
+                siftDown(K, descendFlag, valuesThread, indicesThread);
             }
         }
+    }
+
+    // Handle remaining elements
+    for (; i < numElePerRow; i += gridDim.x * blockDim.x) {
+        valueT data = inputDevice[i];
+
+        // Compare with the root of the heap (which is the minimum of the current Top K)
+        // If data is larger than the minimum, it might be in the Top K.
+        if ((valueT)(descendFlag) * data > (valueT)(descendFlag) * valuesThread[0]) {
+            // Replace root
+            valuesThread[0] = data;
+            indicesThread[0] = i;
+
+            siftDown(K, descendFlag, valuesThread, indicesThread);
+        }
+    }
+
+    // Sort the Heap to produce a sorted array (Descending)
+    // We pop elements from the Min-Heap one by one.
+    // The popped element is the minimum of the remaining heap.
+    // We place it at the end of the array (filling from K-1 down to 0).
+    // This results in a descending sorted array: [Max, ..., Min]
+    for (int i = K - 1; i > 0; i--) {
+        // Move current root (min) to the end (i)
+        valueT tmpV = valuesThread[0];
+        valuesThread[0] = valuesThread[i];
+        valuesThread[i] = tmpV;
+
+        indexT tmpI = indicesThread[0];
+        indicesThread[0] = indicesThread[i];
+        indicesThread[i] = tmpI;
+
+        // Restore heap property for the remaining [0, i) elements
+        siftDown(i, descendFlag, valuesThread, indicesThread);
     }
 
     return;
