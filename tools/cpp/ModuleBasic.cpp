@@ -23,7 +23,36 @@
 
 using namespace MNN::Express;
 using namespace MNN;
-
+struct KVMeta {
+    enum {
+        NoChange,
+        PendingWrite,
+        PendingRead
+    } file_operation;
+    size_t block = 4096;
+    size_t previous = 0;
+    size_t remove = 0;
+    int* reserve = nullptr;
+    int n_reserve = 0;
+    size_t add = 0;
+    std::string file_name = "";
+    int file_flag = NoChange;
+    int seqlen_in_disk = 0;
+    int layer_index = 0;
+    int layer_nums = 0;
+    std::vector<int> reserveHost;
+    void sync() {
+        int revertNumber = 0;
+        for (int i=0; i<n_reserve; ++i) {
+            revertNumber += reserve[2*i+1];
+        }
+        previous = previous - remove + add + revertNumber;
+        n_reserve = 0;
+        reserve = nullptr;
+        remove = 0;
+        add = 0;
+    }
+};
 static bool compareOutput(VARP output, const std::string& directName, const std::string& name, Dimensionformat dataFormat, int order) {
 
     auto info = output->getInfo();
@@ -154,6 +183,7 @@ int main(int argc, char *argv[]) {
     // Call Time / Per Second
     float freq = 0.0f;
     int cpuDecreaseRate = -1;
+    int kvAdd = 0;
     if (inputNames.empty()) {
         rapidjson::Document document;
         std::ostringstream jsonNameOs;
@@ -205,6 +235,9 @@ int main(int argc, char *argv[]) {
         }
         if (document.HasMember("freq")) {
             freq = document["freq"].GetFloat();
+        }
+        if (document.HasMember("kv_add")) {
+            kvAdd = document["kv_add"].GetInt();
         }
         if (document.HasMember("cpu_decrease_rate")) {
             cpuDecreaseRate = document["cpu_decrease_rate"].GetInt();
@@ -330,6 +363,11 @@ int main(int argc, char *argv[]) {
     if (enableKleidiAI) {
         rtmgr->setHint(Interpreter::CPU_ENABLE_KLEIDIAI, true);
     }
+    KVMeta kvMeta;
+    if (kvAdd > 0) {
+        kvMeta.add = kvAdd;
+        rtmgr->setHintPtr(Interpreter::KVCACHE_INFO, &kvMeta);
+    }
 
     // rtmgr->setHint(Interpreter::CPU_SME2_INSTRUCTIONS, false);
 
@@ -433,7 +471,9 @@ int main(int argc, char *argv[]) {
                 subInputs[i] = _Clone(inputs[i], true);
             }
         }
+        kvMeta.add = kvAdd;
         auto outputs = net->onForward(inputs);
+        kvMeta.sync();
         if (outputs.empty()) {
             MNN_ERROR("Error in forward\n");
             return 0;
@@ -454,7 +494,6 @@ int main(int argc, char *argv[]) {
             v.fix(VARP::CONSTANT);
             outputs[i] = v;
         }
-
         if (checkOutput) {
             for (int i=0; i<outputNames.size(); ++i) {
                 auto output = outputs[i];
@@ -464,6 +503,18 @@ int main(int argc, char *argv[]) {
                     MNN_ERROR("%d run Error for output %s\n", repeat, outputNames[i].c_str());
                 }
             }
+        }
+        if (0 == repeat) {
+            for (int i=0; i<inputNames.size(); ++i) {
+                inputs[i].fix(VARP::CONSTANT);
+                inputs[i]->setName(inputNames[i]);
+            }
+            for (int i=0; i<outputNames.size(); ++i) {
+                outputs[i].fix(VARP::CONSTANT);
+                outputs[i]->setName(outputNames[i]);
+            }
+            Variable::save(inputs, "output/input.mnn");
+            Variable::save(outputs, "output/output.mnn");
         }
         for (int i=0; i<outputNames.size(); ++i) {
             auto name = outputNames[i];
@@ -492,6 +543,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (runTime > 0) {
+        kvMeta.remove = kvMeta.previous;
         int t = runTime;
         if (runMask & 4) {
             _initTimeTrace();
@@ -502,7 +554,9 @@ int main(int argc, char *argv[]) {
 
         for (int i = 0; i < t; ++i) {
             Timer _l;
+            kvMeta.add = kvAdd;
             auto out = net->onForward(inputs);
+            kvMeta.sync();
             Variable::compute(out);
             for (auto o : out) {
                 ((MNN::Tensor*)o->getTensor())->wait(MNN::Tensor::MAP_TENSOR_READ, true);

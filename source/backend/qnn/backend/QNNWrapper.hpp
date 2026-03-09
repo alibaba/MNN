@@ -34,6 +34,7 @@ public:
     void * alloc(Tensor::DimensionType dimType = gQnnTensorDimType);
     std::shared_ptr<Tensor> getDataContainer();
     const std::vector<uint32_t> * getDimension();
+    void setName(std::string name);
 
 private:
     std::string mName;

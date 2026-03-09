@@ -48,15 +48,15 @@ public:
 protected:
     void setNodeName(const Op * op, const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
 
-    void createStaticTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<uint32_t> & dimensions, const void * buffer, Qnn_QuantizeParams_t quantizeParam = DEFAULT_QUANTIZE_PARAMS);
-    void createStaticFloatTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<uint32_t> & dimensions, const float * buffer, Qnn_QuantizeParams_t quantize = DEFAULT_QUANTIZE_PARAMS);
-    void createStageTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<int> & dimensions, const Tensor* tensor = nullptr);
-    void createStageTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<uint32_t> & dimensions, const Tensor* tensor = nullptr);
-    void createParamTensor(const std::string & paramName, Qnn_DataType_t dataType, const std::vector<uint32_t> & dims, void * data, std::string postName = "");
-    void createParamScalar(const std::string & name, bool data);
-    void createParamScalar(const std::string & name, uint32_t data);
-    void createParamScalar(const std::string & name, int data);
-    void createParamScalar(const std::string & name, float data);
+    std::shared_ptr<QNNTensorWrapper> createStaticTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<uint32_t> & dimensions, const void * buffer, Qnn_QuantizeParams_t quantizeParam = DEFAULT_QUANTIZE_PARAMS);
+    std::shared_ptr<QNNTensorWrapper> createStaticFloatTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<uint32_t> & dimensions, const float * buffer, Qnn_QuantizeParams_t quantize = DEFAULT_QUANTIZE_PARAMS);
+    std::shared_ptr<QNNTensorWrapper> createStageTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<int> & dimensions, const Tensor* tensor = nullptr);
+    std::shared_ptr<QNNTensorWrapper> createStageTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<uint32_t> & dimensions, const Tensor* tensor = nullptr);
+    std::shared_ptr<QNNParamTensorWrapper> createParamTensor(const std::string & paramName, Qnn_DataType_t dataType, const std::vector<uint32_t> & dims, void * data, std::string postName = "");
+    std::shared_ptr<QNNParamScalarWrapper> createParamScalar(const std::string & name, bool data);
+    std::shared_ptr<QNNParamScalarWrapper> createParamScalar(const std::string & name, uint32_t data);
+    std::shared_ptr<QNNParamScalarWrapper> createParamScalar(const std::string & name, int data);
+    std::shared_ptr<QNNParamScalarWrapper> createParamScalar(const std::string & name, float data);
 
     void addNodeCommon(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
     void addNodeCommonPermute(const std::string & nodeNamePostfix, const Qnn_Tensor_t & input, const Qnn_Param_t & paramPerm, const Qnn_Tensor_t & output);

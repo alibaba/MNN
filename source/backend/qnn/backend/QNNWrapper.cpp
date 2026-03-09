@@ -100,6 +100,10 @@ Qnn_Tensor_t * QNNTensorWrapper::getNativeTensor() {
 const Qnn_Tensor_t * QNNTensorWrapper::getNativeTensor() const {
     return &mQnnTensor;
 }
+void QNNTensorWrapper::setName(std::string name) {
+    mName = name;
+    mQnnTensor.v1.name = mName.c_str();
+}
 
 std::shared_ptr<Tensor> QNNTensorWrapper::getDataContainer() {
     MNN_ASSERT(mDataContainer.get() != nullptr);
