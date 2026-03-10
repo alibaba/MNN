@@ -208,7 +208,7 @@ This is our full multimodal language model (LLM) Android app
 
 ## Version 0.2.2
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_d_0_2_2.apk)
-+ Support mmap for speed up laoding speed.
++ Support mmap for speed up loading speed.
 + Add version update checker
 
 ## Version 0.2.1
