@@ -155,7 +155,7 @@ std::shared_ptr<QNNParamScalarWrapper> QNNCommonExecution::createParamScalar(con
     return mParamScalarWrappers.back();
 }
 
-void QNNCommonExecution::addNodeCommon(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+void QNNCommonExecution::addNodeCommon(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, int inputSize, int outputSize) {
     for (int i = 0; i < mParamTensorWrappers.size(); i++) {
         mParams.push_back(*(mParamTensorWrappers[i]->getNativeParam()));
     }
@@ -163,12 +163,17 @@ void QNNCommonExecution::addNodeCommon(const std::vector<Tensor *> &inputs, cons
     for (int j = 0; j < mParamScalarWrappers.size(); j++) {
         mParams.push_back(*(mParamScalarWrappers[j]->getNativeParam()));
     }
-
-    for (int k = 0; k < inputs.size(); k++) {
+    if (0 == inputSize) {
+        inputSize = inputs.size();
+    }
+    if (0 == outputSize) {
+        outputSize = outputs.size();
+    }
+    for (int k = 0; k < inputSize; k++) {
         mInputs.push_back(*(mBackend->getNativeTensor(inputs[k])));
     }
 
-    for (int l = 0; l < outputs.size(); l++) {
+    for (int l = 0; l < outputSize; l++) {
         mOutputs.push_back(*(mBackend->getNativeTensor(outputs[l])));
     }
 

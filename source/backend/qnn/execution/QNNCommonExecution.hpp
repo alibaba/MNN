@@ -58,7 +58,7 @@ protected:
     std::shared_ptr<QNNParamScalarWrapper> createParamScalar(const std::string & name, int data);
     std::shared_ptr<QNNParamScalarWrapper> createParamScalar(const std::string & name, float data);
 
-    void addNodeCommon(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
+    void addNodeCommon(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, int inputSize = 0, int outputSize = 0);
     void addNodeCommonPermute(const std::string & nodeNamePostfix, const Qnn_Tensor_t & input, const Qnn_Param_t & paramPerm, const Qnn_Tensor_t & output);
     void addNodeCommonReshape(const std::string & nodeNamePostfix, const Qnn_Tensor_t & input, const Qnn_Tensor_t & output);
 
