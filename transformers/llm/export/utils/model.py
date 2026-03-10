@@ -51,6 +51,7 @@ class LlmModel(PreTrainedModel):
             'smolvlm': 'AutoModelForImageTextToText',
             'idefics3': 'AutoModelForVision2Seq',
             'funaudiochat': 'AutoModelForSeq2SeqLM',
+            'glm_ocr': 'GlmOcrForConditionalGeneration',
         }
         if model_type is None or model_type not in MODEL_CLASS_MAPPING:
             return AutoModelForCausalLM

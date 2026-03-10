@@ -757,7 +757,12 @@ class Rotary(torch.nn.Module):
                 position_ids[2] * self.theta_sections[2]
             ], dim=-1)
         rotary_pos_emb = torch.stack([torch.cos(idx_theta), torch.sin(idx_theta)])
-        rotary_pos_emb = torch.cat((rotary_pos_emb, rotary_pos_emb), dim=-1)
+        if self.model_type in ['glm_ocr']:
+            # interleaved doubling: [c0,c0,c1,c1,...,cn,cn]
+            rotary_pos_emb = torch.stack((rotary_pos_emb, rotary_pos_emb), dim=-1)
+            rotary_pos_emb = rotary_pos_emb.reshape(*rotary_pos_emb.shape[:-2], -1)
+        else:
+            rotary_pos_emb = torch.cat((rotary_pos_emb, rotary_pos_emb), dim=-1)
         rotary_pos_emb = rotary_pos_emb.unsqueeze(2).unsqueeze(1)
         return rotary_pos_emb
 
@@ -768,7 +773,7 @@ class Rotary(torch.nn.Module):
             return self.chatglm2_rotary_pos(x, cos, sin)
         if self.model_type in ['phi-msft', 'qwen3_5', 'qwen3_5_moe']:
             return self.phi_rotary_pos(x, cos, sin)
-        if self.model_type == 'ernie4_5':
+        if self.model_type in ['ernie4_5', 'glm_ocr']:
             return self.ernie_rotary_pos(x, cos, sin)
         return self.llama_rotary_pos(x, cos, sin)
 

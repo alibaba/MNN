@@ -18,7 +18,8 @@ class Vision(torch.nn.Module):
         self.group_conv_native = False
         self.model_type = base.config.model_type
         self.visual = visual.eval()
-        self.embed_ = base.embed
+        # Store embed_ as a non-module attribute to prevent .float() from casting it
+        object.__setattr__(self, 'embed_', base.embed)
         self.tokenizer = base.tokenizer
         self.config = base.config.origin_config
         self.hidden_size = base.config.hidden_size
@@ -48,6 +49,7 @@ class Vision(torch.nn.Module):
             'smolvlm': Idefics3Vision,
             'llava_qwen2': MobileCLIPVision,
             'minicpmv': MiniCPMVision,
+            'glm_ocr': GlmOcrVision,
         }
         if model_type in visual_models:
             return visual_models[model_type]
@@ -509,6 +511,69 @@ class Qwen2Vision(Vision):
                         "attention_mask": { 1: "size", 2: "size" }
                     })
         return onnx_model
+
+class GlmOcrVision(Qwen2Vision):
+    def __init__(self, visual, base):
+        super().__init__(visual, base)
+
+    def load(self):
+        self.vision_start_id = self.config.image_start_token_id
+        self.vision_end_id = self.config.image_end_token_id
+        self.image_pad_id = self.config.image_token_id
+        self.llm_config['image_size'] = self.image_height
+        self.llm_config['vision_start'] = self.vision_start_id
+        self.llm_config['vision_end'] = self.vision_end_id
+        self.llm_config['image_pad'] = self.image_pad_id
+        self.vision_start_token = '<|begin_of_image|>'
+        self.vision_end_token = '<|end_of_image|>'
+        self.image_pad_token = '<|image|>'
+        # load model
+        config = self.visual.config
+        self.hidden_size = config.hidden_size
+        self.num_attention_heads = config.num_heads
+        self.num_key_value_heads = config.num_heads
+        self.head_dim = self.hidden_size // self.num_attention_heads
+        self.rope_theta = 10000.0
+        self.rotary_dim = self.head_dim // 2
+        self.rotary = VisionRotary(self)
+        self.model_map = {
+            'decoder': {
+                'self_attn': 'attn',
+                'mlp': 'mlp',
+                'input_layernorm': 'norm1',
+                'post_attention_layernorm': 'norm2'
+            },
+            'attention': {
+                'qkv_proj': 'qkv',
+                'o_proj': 'proj',
+                'q_norm': 'q_norm',
+                'k_norm': 'k_norm'
+            }
+        }
+        self.patch_embed = self.visual.patch_embed
+        self.post_layernorm = self.visual.post_layernorm
+        self.downsample = self.visual.downsample
+        self.blocks = []
+        for block in self.visual.blocks.children():
+            layer_id = len(self.blocks)
+            self.blocks.append(Decoder(block, layer_id, self))
+        self.merger = self.visual.merger
+
+    def forward(self, flatten_patches, position_ids, attention_mask):
+        rotary_pos_emb = self.rotary(position_ids)
+        hidden_states = self.patch_embed(flatten_patches)
+        if rotary_pos_emb.dtype != hidden_states.dtype:
+            rotary_pos_emb = rotary_pos_emb.to(hidden_states.dtype)
+        for blk in self.blocks:
+            hidden_states = blk(hidden_states, rotary_pos_emb=rotary_pos_emb, attention_mask=attention_mask)
+        hidden_states = self.post_layernorm(hidden_states)
+        # downsample: reshape to [N, C, merge_size, merge_size] then Conv2D
+        hidden_states = hidden_states.view(-1, self.merge_size, self.merge_size, hidden_states.shape[-1])
+        hidden_states = hidden_states.permute(0, 3, 1, 2)
+        hidden_states = self.downsample(hidden_states).view(-1, self.visual.config.out_hidden_size)
+        image_embeds = self.merger(hidden_states)
+        image_embeds = image_embeds.unsqueeze(1)
+        return image_embeds
 
 class Gemma3Vision(Vision):
     def __init__(self, visual, base):

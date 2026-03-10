@@ -729,6 +729,42 @@ class ModelMapper:
         }
         self.regist('funaudiochat', funaudiochat_map)
 
+    def regist_glm_ocr(self):
+        glm_ocr_config = {
+            'hidden_size': 'text_config.hidden_size',
+            'head_dim': 'text_config.head_dim',
+            'num_attention_heads': 'text_config.num_attention_heads',
+            'num_hidden_layers': 'text_config.num_hidden_layers',
+            'num_key_value_heads': 'text_config.num_key_value_heads',
+            'rope_parameters': 'text_config.rope_parameters',
+            'max_position_embeddings': 'text_config.max_position_embeddings'
+        }
+        glm_ocr_model = {
+            'lm': 'lm_head',
+            'embed': 'model.language_model.embed_tokens',
+            'blocks': 'model.language_model.layers',
+            'final_layernorm': 'model.language_model.norm',
+            'visual': 'model.visual'
+        }
+        # GLM-OCR has same residual pattern as Gemma2:
+        # input_layernorm -> attn -> post_self_attn_layernorm -> residual
+        # -> post_attention_layernorm -> mlp -> post_mlp_layernorm -> residual
+        glm_ocr_decoder = {
+            'self_attn': 'self_attn',
+            'mlp': 'mlp',
+            'input_layernorm': 'input_layernorm',
+            'post_attention_layernorm': 'post_self_attn_layernorm',
+            'pre_feedforward_layernorm': 'post_attention_layernorm',
+            'post_feedforward_layernorm': 'post_mlp_layernorm'
+        }
+        glm_ocr_map = {
+            'config': glm_ocr_config,
+            'model': glm_ocr_model,
+            'decoder': glm_ocr_decoder,
+            'attention': self.default_attention
+        }
+        self.regist('glm_ocr', glm_ocr_map)
+
     def regist_qwen3_5(self):
         qwen3_5_config = {
             'hidden_size': 'text_config.hidden_size',

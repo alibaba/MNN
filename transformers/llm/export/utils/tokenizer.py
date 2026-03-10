@@ -32,6 +32,10 @@ class LlmTokenizer(PreTrainedTokenizer):
             elif isinstance(eos_token_id, Iterable):
                 for id in eos_token_id:
                     self.stop_ids.append(id)
+        if model_type == 'glm_ocr':
+            user_ids = self.tokenizer.encode('<|user|>', add_special_tokens=False)
+            if len(user_ids) == 1:
+                self.stop_ids.append(user_ids[0])
         self.stop_ids = [stop_id for stop_id in self.stop_ids if stop_id is not None]
         self.stop_ids = list(set(self.stop_ids))
         super().__init__(**kwargs)
