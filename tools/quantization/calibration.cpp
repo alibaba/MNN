@@ -734,57 +734,59 @@ Calibration::Calibration(MNN::NetT* model, const uint8_t* modelBuffer, const int
          for (auto& output_: outputs) {
              output_->readMap<float>();
          }
-        // _featureInfoOrigin = _featureInfo;
-
-        MNN::TensorCallBackWithInfo beforeOrigin = [&](const std::vector<MNN::Tensor*>& nTensors, const MNN::OperatorInfo* info) {
-            std::string opName = info->name();
-            std::vector<std::string>::iterator iter = std::find(_skip_quant_ops.begin(), _skip_quant_ops.end(), opName);
-            if (iter != _skip_quant_ops.end()) {
-                return true;
-            }
-            if (Helper::gNotNeedFeatureOp.find(info->type()) == Helper::gNotNeedFeatureOp.end()) {
-                int i = 0;
-                for (auto t : nTensors) {
-                    if (TensorUtils::getDescribe(t)->index < 0) {
-                        continue;
-                    }
-                    auto weakPtr = std::weak_ptr<Tensor::InsideDescribe::NativeInsideDescribe>(TensorUtils::getDescribeOrigin(t)->mContent);
-                    if (_featureInfoOrigin.find(weakPtr) == _featureInfoOrigin.end() && MNN::TensorUtils::getDescribe(t)->memoryType != MNN::Tensor::InsideDescribe::MEMORY_VIRTUAL) {
-                        _featureInfoOrigin[weakPtr] = std::shared_ptr<TensorStatistic>(
-                            new TensorStatistic(t, _featureQuantizeMethod, opName + " input_tensor_" + flatbuffers::NumToString(i), _featureClampValue));
-                    }
-                    i++;
+        if (_debug) {
+            MNN::TensorCallBackWithInfo beforeOrigin = [&](const std::vector<MNN::Tensor*>& nTensors, const MNN::OperatorInfo* info) {
+                std::string opName = info->name();
+                std::vector<std::string>::iterator iter = std::find(_skip_quant_ops.begin(), _skip_quant_ops.end(), opName);
+                if (iter != _skip_quant_ops.end()) {
+                    return true;
                 }
-            }
-            return true;
-        };
-        MNN::TensorCallBackWithInfo afterOrigin = [this](const std::vector<MNN::Tensor*>& nTensors,
-                                                const MNN::OperatorInfo* info) {
-            std::string opName = info->name();
-            std::vector<std::string>::iterator iter = std::find(_skip_quant_ops.begin(), _skip_quant_ops.end(), opName);
-            if (iter != _skip_quant_ops.end()) {
-                return true;
-            }
-            if (Helper::gNotNeedFeatureOp.find(info->type()) == Helper::gNotNeedFeatureOp.end()) {
-                int i = 0;
-                for (auto t : nTensors) {
-                    if (TensorUtils::getDescribe(t)->index < 0) {
-                        continue;
+                if (Helper::gNotNeedFeatureOp.find(info->type()) == Helper::gNotNeedFeatureOp.end()) {
+                    int i = 0;
+                    for (auto t : nTensors) {
+                        if (TensorUtils::getDescribe(t)->index < 0) {
+                            continue;
+                        }
+                        auto weakPtr = std::weak_ptr<Tensor::InsideDescribe::NativeInsideDescribe>(TensorUtils::getDescribeOrigin(t)->mContent);
+                        if (_featureInfoOrigin.find(weakPtr) == _featureInfoOrigin.end() && MNN::TensorUtils::getDescribe(t)->memoryType != MNN::Tensor::InsideDescribe::MEMORY_VIRTUAL) {
+                            _featureInfoOrigin[weakPtr] = std::shared_ptr<TensorStatistic>(
+                                new TensorStatistic(t, _featureQuantizeMethod, opName + " input_tensor_" + flatbuffers::NumToString(i), _featureClampValue));
+                        }
+                        i++;
                     }
-                    auto weakPtr = std::weak_ptr<Tensor::InsideDescribe::NativeInsideDescribe>(TensorUtils::getDescribeOrigin(t)->mContent);
-                    if (_featureInfoOrigin.find(weakPtr) == _featureInfoOrigin.end()) {
-                        _featureInfoOrigin[weakPtr] =
-                            std::shared_ptr<TensorStatistic>(new TensorStatistic(t, _featureQuantizeMethod, opName + " output_tensor_" + flatbuffers::NumToString(i), _featureClampValue));
-                    }
-                    i++;
                 }
+                return true;
+            };
+            MNN::TensorCallBackWithInfo afterOrigin = [this](const std::vector<MNN::Tensor*>& nTensors,
+                                                    const MNN::OperatorInfo* info) {
+                std::string opName = info->name();
+                std::vector<std::string>::iterator iter = std::find(_skip_quant_ops.begin(), _skip_quant_ops.end(), opName);
+                if (iter != _skip_quant_ops.end()) {
+                    return true;
+                }
+                if (Helper::gNotNeedFeatureOp.find(info->type()) == Helper::gNotNeedFeatureOp.end()) {
+                    int i = 0;
+                    for (auto t : nTensors) {
+                        if (TensorUtils::getDescribe(t)->index < 0) {
+                            continue;
+                        }
+                        auto weakPtr = std::weak_ptr<Tensor::InsideDescribe::NativeInsideDescribe>(TensorUtils::getDescribeOrigin(t)->mContent);
+                        if (_featureInfoOrigin.find(weakPtr) == _featureInfoOrigin.end()) {
+                            _featureInfoOrigin[weakPtr] =
+                                std::shared_ptr<TensorStatistic>(new TensorStatistic(t, _featureQuantizeMethod, opName + " output_tensor_" + flatbuffers::NumToString(i), _featureClampValue));
+                        }
+                        i++;
+                    }
+                }
+                return true;
+            };
+            Express::Executor::getGlobalExecutor()->setCallBack(std::move(beforeOrigin), std::move(afterOrigin));
+            auto outputsOrigin = _moduleOrigin->onForward(mInputs);
+            for (auto& output_: outputsOrigin) {
+                output_->readMap<float>();
             }
-            return true;
-        };
-        Express::Executor::getGlobalExecutor()->setCallBack(std::move(beforeOrigin), std::move(afterOrigin));
-        auto outputsOrigin = _moduleOrigin->onForward(mInputs);
-        for (auto& output_: outputsOrigin) {
-            output_->readMap<float>();
+        } else {
+            _featureInfoOrigin = _featureInfo;
         }
 
         if (_featureQuantizeMethod == "KL") {

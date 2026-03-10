@@ -269,7 +269,7 @@ static Module* extract(std::vector<Express::VARP> inputs, std::vector<Express::V
 参数：
 - `inputs` module输入信息
 - `outputs` module输出信息
-- `fortrain` 
+- `fortrain`
 - `subGraph` 子图
 
 返回：module对象
@@ -339,30 +339,6 @@ const bool shareParams() const { return mShareParams; };
 参数：无
 
 返回：共享返回true，反之则为false
-
----
-### getOrClone
-```cpp
-EXPRP getOrClone(const EXPRP expr);
-```
-获取克隆的EXPRP对象
-
-参数：
-- `expr` EXPRP对象值
-
-返回：EXPRP对象
-
----
-### getOrClone
-```cpp
-VARP getOrClone(const VARP var);
-```
-获取克隆的VARP对象
-
-参数：
-- `expr` VARP对象值
-
-返回：VARP对象
 
 ---
 ### clone

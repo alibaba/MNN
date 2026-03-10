@@ -337,7 +337,7 @@ public:
             if (OpParameter_Reshape == op->main.type) {
                 op->main.AsReshape()->dimType = originTensorType;
             }
-            if (op->type == OpType_Shape) {
+            if (op->type == OpType_Shape && originTensorType == MNN_DATA_FORMAT_NCHW) {
                 op->defaultDimentionFormat = MNN_DATA_FORMAT_NCHW;
             }
         }
