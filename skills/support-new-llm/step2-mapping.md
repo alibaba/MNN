@@ -32,6 +32,8 @@ default_config = {
     'rope_scaling': 'rope_scaling',
     'max_position_embeddings': 'max_position_embeddings'
 }
+# ⚠️ 注意：如果模型的 rope_theta 不在顶层而是在 rope_parameters 中，
+# 需要额外映射 'rope_parameters': 'rope_parameters'（参见 common-pitfalls.md 第 13 节）
 default_model = {
     'lm': 'lm_head',
     'embed': 'model.embed_tokens',
@@ -71,6 +73,7 @@ default_attention = {
 
 - 字段直接在顶层（如 `hidden_size` → 直接读） → 使用 `self.default_config`
 - 字段在 `text_config` 下（如 `text_config.hidden_size`） → **需要自定义 config**
+- **⚠️ rope_theta 特殊检查**：确认 `rope_theta` 是否在顶层。如果不在顶层但存在 `rope_parameters` dict，必须额外映射 `'rope_parameters': 'rope_parameters'`（参见 `common-pitfalls.md` 第 13 节）
 
 ```python
 # 自定义 config 示例：
@@ -81,6 +84,7 @@ new_config = {
     'num_hidden_layers': 'text_config.num_hidden_layers',
     'num_key_value_heads': 'text_config.num_key_value_heads',
     'rope_theta': 'text_config.rope_theta',
+    'rope_parameters': 'text_config.rope_parameters',  # ← 如果 rope_theta 在此 dict 中
     'rope_scaling': 'text_config.rope_scaling',
     'max_position_embeddings': 'text_config.max_position_embeddings'
 }
@@ -128,40 +132,33 @@ new_attention = {
 - 有额外 LayerNorm → 需要自定义并添加额外字段
 - 没有 `post_attention_layernorm` → 需要自定义（省略该字段）
 
-#### Decoder 残差模式速查表
+先确定新模型属于哪种残差模式，参考 `common-pitfalls.md` 第 6 节的速查表和 Gemma2 映射示例。
 
-先确定新模型属于哪种残差模式（参考 `common-pitfalls.md` 第 6 节）：
+### 检查 5：config.json 是否有非标准字段？
 
-| 模式 | Decoder 中 LayerNorm 数量 | 典型模型 | 需要额外映射字段 |
-|------|-------------------------|---------|----------------|
-| **Standard** | 2 (`input_layernorm` + `post_attention_layernorm`) | Llama, Qwen2, Qwen3 | 无 |
-| **Gemma2 (4-norm)** | 4 (input + post_self_attn + post_attn + post_mlp) | Gemma2, glm_ocr | `pre_feedforward_layernorm`, `post_feedforward_layernorm` |
-| **Phi (并行)** | 各异 | Phi | 特殊分支 |
-| **MiniCPM (缩放)** | 2 + scale_depth | MiniCPM | config 中添加 `scale_depth` |
+**判断条件**：config.json 中是否有 `LlmConfig.__init__` 尚未定义的字段，且该字段会通过 config 映射被使用？
 
-```python
-# Standard 模式（默认，无需修改）：
-new_decoder = self.default_decoder
-
-# Gemma2 模式（4-norm，注意映射"错位"）：
-# ⚠️  MNN 统一键名 ←→ HF 实际属性名的对应关系可能反直觉
-new_decoder = {
-    'self_attn': 'self_attn',
-    'mlp': 'mlp',
-    'input_layernorm': 'input_layernorm',
-    'post_attention_layernorm': 'post_self_attn_layernorm',       # MNN的post_attn → HF的post_self_attn
-    'pre_feedforward_layernorm': 'post_attention_layernorm',      # MNN的pre_ff → HF的post_attn
-    'post_feedforward_layernorm': 'post_mlp_layernorm'            # MNN的post_ff → HF的post_mlp
-}
-
-# 自定义模式（仅增加字段）：
-import copy
-new_decoder = copy.deepcopy(self.default_decoder)
-new_decoder['pre_feedforward_layernorm'] = 'pre_feedforward_layernorm'
-new_decoder['post_feedforward_layernorm'] = 'post_feedforward_layernorm'
+`LlmConfig.__init__` 已定义的字段（有默认值，无需添加）：
+```
+hidden_size, num_attention_heads, num_hidden_layers, num_key_value_heads,
+head_dim, rope_theta, rope_ratio, sliding_window, layer_types,
+attention_type, tie_word_embeddings, conv_L_cache
 ```
 
-### 检查 5：是否需要 mlp 映射？（MoE 模型）
+- 所需字段已在上述列表中 → 无需修改
+- 需要新字段（如某模型引入了新的配置参数） → **需要在 `config.py` 的 `LlmConfig.__init__` 中添加**
+
+```python
+# config.py 中添加新字段示例：
+class LlmConfig(PretrainedConfig):
+    def __init__(self, **kwargs):
+        # ... 已有字段 ...
+        self.new_field = kwargs.pop("new_field", default_value)  # ← 添加
+```
+
+> **为什么需要这步？** `ModelMapper.do_map` 使用 `setattr` 设置值，即使不在 `__init__` 中定义也能工作。但添加默认值有两个好处：(1) 其他模型不会因缺少该属性而报 `AttributeError`；(2) 代码中可以用 `config.new_field` 直接访问而不需要 `hasattr` 保护。
+
+### 检查 6：是否需要 mlp 映射？（MoE 模型）
 
 **判断条件**：config.json 中是否有 `num_experts`。
 
@@ -241,21 +238,47 @@ MODEL_CLASS_MAPPING = {
 
 ### 测试方法
 
-执行以下命令测试模型是否能正确加载：
+执行以下命令测试模型是否能正确加载，**并验证关键 config 值**：
 
 ```bash
 cd transformers/llm/export
 python3 -c "
 from utils.model import LlmModel
-model = LlmModel.from_pretrained('/path/to/model')
+import argparse
+args = argparse.Namespace(lora_path=None, lora_split=False, skip_weight=False, test=False, eagle_path=None)
+model = LlmModel.from_pretrained('/path/to/model', args=args)
 print('✅ 模型加载成功')
 print(f'  hidden_size: {model.config.hidden_size}')
 print(f'  num_layers: {model.config.num_hidden_layers}')
 print(f'  num_heads: {model.config.num_attention_heads}')
 print(f'  num_kv_heads: {model.config.num_key_value_heads}')
+print(f'  head_dim: {model.config.head_dim}')
 print(f'  blocks 数量: {len(model.blocks)}')
 print(f'  embed 类型: {type(model.embed)}')
 print(f'  lm 类型: {type(model.lm)}')
+
+# ===== 关键：验证 config 值与 HF 原始 config 一致 =====
+# rope_theta 是高频出错项，必须检查（参见 common-pitfalls.md 第 13 节）
+print(f'  rope_theta (Rotary): {model.rotary.rope_theta}')
+
+# 与原始 config 对比（手动确认与 config.json 中的值一致）
+origin = model.config.origin_config
+print(f'  [对比] origin rope_theta: {getattr(origin, \"rope_theta\", \"NOT_FOUND\")}')
+if hasattr(origin, 'rope_parameters') and origin.rope_parameters:
+    print(f'  [对比] origin rope_parameters: {origin.rope_parameters}')
+
+# 验证 config 映射完整性：检查每个映射字段是否在源 config 中存在
+print()
+print('Config 映射检查:')
+model_map = model.config.model_map
+for dst, src in model_map.get('config', {}).items():
+    val = origin
+    for attr in src.split('.'):
+        val = getattr(val, attr, None)
+        if val is None:
+            break
+    status = '✅' if val is not None else '⚠️  None'
+    print(f'  {status} {dst} <- {src} = {val if not isinstance(val, dict) else type(val).__name__}')
 "
 ```
 
@@ -266,6 +289,8 @@ print(f'  lm 类型: {type(model.lm)}')
 - [ ] **hidden_size / num_layers / num_heads 值正确**：与 config.json 中一致
 - [ ] **blocks 数量正确**：等于 num_hidden_layers
 - [ ] **embed 和 lm 类型不是 None**
+- [ ] **rope_theta 值正确**：与 HF config 中的值一致（**不是默认值 10000**，除非模型确实使用 10000）
+- [ ] **Config 映射检查无 ⚠️ None 项**：所有映射的源字段都存在（如果有 None 项，需确认是否需要替换映射路径或添加间接映射如 `rope_parameters`）
 
 ### 常见错误与修复
 

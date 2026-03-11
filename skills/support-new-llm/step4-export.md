@@ -157,11 +157,13 @@ Segmentation fault (core dumped)
 
 #### 失败 4：C++ 推理结果错误
 
-**原因**：量化精度问题。
-**排查**：
-1. 尝试 8-bit 量化：`--quant_bit 8`
-2. 尝试不量化：去掉 `--hqq` 参数
-3. 如果不量化仍然错误，检查自定义算子的 MNN 实现
+**原因**：可能是量化精度、FakeLinear 维度变换、MoE routing 计算错误、数据格式问题等。
+**排查**（按优先级）：
+1. **排除量化**：尝试 `--quant_bit 8` 或去掉 `--hqq` 重新导出。如果不量化仍然错误，不是量化问题。
+2. **检查 FakeLinear axis 问题**：用 `MNNDump2Json` 导出模型图，搜索 `GatherElements`/`TopKV2` 等 op 的 axis 参数，确认在 3D shape 下仍指向正确维度。详见 `common-pitfalls.md` 第 10 节。
+3. **MoE 模型额外检查**：在 `MoEModule.cpp` 的 `onForward` 中临时添加 debug 打印，确认 routing weights 非全零且 sum ≈ 1.0，selected_experts 在 `[0, num_experts)` 范围内。详见 `common-pitfalls.md` 第 9 节。
+4. **Dump 中间 tensor 对比**：在 Python 侧用 hook 打印关键检查点，在 C++ 侧添加临时打印，找到第一个 diff 显著的位置。详见 `common-pitfalls.md` 第 11 节。
+5. **检查自定义算子的 MNN C++ 实现**
 
 #### 失败 5：C++ Jinja 模板解析崩溃（`stof` 异常或死循环）
 
@@ -179,8 +181,16 @@ Segmentation fault (core dumped)
 
 - **导出失败** → 检查 Python 侧的导出代码（`llmexport.py`, `custom_op.py`）
 - **C++ 崩溃** → 检查配置文件和模型文件完整性
-- **C++ 结果错误** → 尝试更高精度，检查 MNN 算子实现
+- **C++ 结果错误** → 按 `common-pitfalls.md` 第 11 节的系统排查流程定位
 - **在问题修复之前，不要进入下一步**
+
+### 调试工具速查
+
+| 工具 | 用途 | 命令 |
+|------|------|------|
+| `MNNDump2Json` | 将 MNN 模型导出为 JSON，检查 op 图结构和 axis 参数 | `build/MNNDump2Json model.mnn model.json` |
+| Python hook | 对比 Python 和 C++ 的中间结果 | 参见 `step3-test-python.md` |
+| MoE debug print | 检查 routing weights 和 expert selection | 在 `MoEModule.cpp` 的 `onForward` 中添加临时打印 |
 
 ---
 

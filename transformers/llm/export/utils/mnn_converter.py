@@ -194,8 +194,11 @@ class MNNConverter:
                 inputs.append(node['outputIndexes'][0])
         for output_name in expert_graph['outputName']:
             outputs.append(tensors.index(output_name))
+        # Use actual layer indices (for models where not all layers have MoE)
+        expert_layer_ids = getattr(self.exporter, 'expert_layer_ids', list(range(layers_num)))
         subgraphs = []
         for i in range(layers_num):
+            layer_idx = expert_layer_ids[i]
             for j in range(expert_num):
                 ijnodes = copy.deepcopy(nodes)
                 for op in ijnodes:
@@ -203,10 +206,10 @@ class MNNConverter:
                         for attr in op['main']['attr']:
                             if attr['key'] == 'name':
                                 names = attr['s'].split('/')
-                                names[2] = f'{i}_{j}'
+                                names[2] = f'{layer_idx}_{j}'
                                 attr['s'] = '/'.join(names)
                 subgraph = {
-                    'name': f'/expert/{i}_{j}',
+                    'name': f'/expert/{layer_idx}_{j}',
                     'inputs': inputs,
                     'outputs': outputs,
                     'tensors': copy.deepcopy(tensors),

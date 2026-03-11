@@ -439,6 +439,75 @@ def torch_gated_delta_rule(
     return core_attn_out, S
 
 
+class ShortConvAttention(torch.nn.Module):
+    def __init__(self, attn, layer_id, config, mapper):
+        super().__init__()
+        self.layer_id = layer_id
+        self.hidden_size = config.hidden_size
+        self.conv_kernel_size = config.conv_L_cache
+
+        ModelMapper.do_map(self, attn, mapper['linear_attention'])
+
+        self.fused_attn = FusedLinearAttention(
+            name=f'/layers.{layer_id}/self_attn/FusedLinearAttention',
+            attn_type="short_conv",
+            num_k_heads=1,
+            num_v_heads=1,
+            head_k_dim=self.hidden_size,
+            head_v_dim=self.hidden_size,
+            use_qk_l2norm=False
+        )
+        self.conv_state = None
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        batch_size, seq_len, _ = hidden_states.shape
+
+        # in_proj: [B, L, H] -> [B, L, 3H]
+        bcx = self.in_proj(hidden_states)
+
+        if torch.onnx.is_in_onnx_export():
+            # ONNX path: pass through FusedLinearAttention custom op
+            bcx_t = bcx.transpose(1, 2)  # [B, 3H, L]
+            gate = torch.zeros(batch_size, seq_len, 1, dtype=bcx.dtype, device=bcx.device)
+            beta = torch.zeros(batch_size, seq_len, 1, dtype=bcx.dtype, device=bcx.device)
+            attn_out = self.fused_attn(bcx_t, gate, beta, self.conv.weight.data.detach())
+            # attn_out: [B, L, 1, H] -> [B, L, H]
+            attn_out = attn_out.view(batch_size, seq_len, -1)
+            output = self.out_proj(attn_out)
+            return output
+
+        # Test path: manual computation
+        # Split into B_, C_, x_ each [B, L, H]
+        B_, C_, x_ = bcx.chunk(3, dim=-1)
+        # Bx = B_ * x_
+        Bx = B_ * x_
+        # Transpose for conv: [B, H, L]
+        Bx = Bx.transpose(1, 2)
+
+        conv_state_size = self.conv_kernel_size - 1
+        if self.conv_state is not None:
+            conv_input = torch.cat([self.conv_state, Bx], dim=-1)
+            conv_out = F.conv1d(conv_input, self.conv.weight, padding=0, groups=self.hidden_size)
+            new_conv_state = conv_input[:, :, -conv_state_size:]
+        else:
+            new_conv_state = F.pad(Bx, (conv_state_size - Bx.shape[-1], 0))
+            conv_out = self.conv(Bx)[:, :, :seq_len]
+
+        # No SiLU for short_conv (unlike gated_delta_rule)
+        # Transpose back: [B, H, L] -> [B, L, H]
+        conv_out = conv_out.transpose(1, 2)
+        # y = C_ * conv_out
+        y = C_ * conv_out
+        output = self.out_proj(y)
+
+        self.conv_state = new_conv_state
+        return output
+
+
 class LinearAttention(torch.nn.Module):
     def __init__(self, attn, layer_id, config, rotary, mapper):
         super().__init__()
@@ -566,6 +635,13 @@ class LinearAttention(torch.nn.Module):
         self.rnn_state = last_recurrent_state
 
         return output
+
+
+def create_linear_attention(attn, layer_id, config, rotary, mapper):
+    """Factory function for creating LinearAttention variants based on config."""
+    if hasattr(config, 'conv_L_cache') and config.conv_L_cache > 0:
+        return ShortConvAttention(attn, layer_id, config, mapper)
+    return LinearAttention(attn, layer_id, config, rotary, mapper)
 
 
 def rotate_half(x):
@@ -902,6 +978,9 @@ class Mlp(torch.nn.Module):
                 gate.weight.data = self.gate.weight.data
                 self.gate = gate
 
+        if hasattr(self, 'expert_bias') and self.expert_bias is not None:
+            self.moe_type = 'lfm2_moe'
+
         if hasattr(self, 'router'):
             self.moe_type = 'gpt_oss'
             hidden_dim = self.router.weight.shape[1]
@@ -936,7 +1015,16 @@ class Mlp(torch.nn.Module):
         else:
             shared_expert_output = None
 
-        if self.moe_type == 'gpt_oss':
+        if self.moe_type == 'lfm2_moe':
+            router_logits = self.gate(hidden_states)
+            routing_weights = router_logits.sigmoid()
+            scores_for_routing = routing_weights + self.expert_bias
+            _, selected_experts = torch.topk(scores_for_routing, self.top_k, dim=-1)
+            routing_weights = torch.gather(routing_weights, dim=-1, index=selected_experts)
+            if self.norm_topk_prob:
+                routing_weights = routing_weights / (routing_weights.sum(dim=-1, keepdim=True) + 1e-6)
+            routing_weights = (routing_weights * self.routed_scaling_factor).to(hidden_states.dtype)
+        elif self.moe_type == 'gpt_oss':
             router_logits = self.gate(hidden_states)
             routing_weights, selected_experts = torch.topk(router_logits, self.top_k, dim=-1)
             routing_weights = F.softmax(routing_weights, dim=-1, dtype=torch.float).to(hidden_states.dtype)
@@ -1027,14 +1115,14 @@ class Decoder(torch.nn.Module):
         if mapper is None:
             mapper = config.model_map
         ModelMapper.do_map(self, decoder, mapper['decoder'])
-        if 'mlp' in mapper:
+        if 'mlp' in mapper and hasattr(self.mlp, 'experts'):
             self.mlp = Mlp(self.mlp, mapper, layer_id)
 
         self.layer_type = 'full_attention'
         if hasattr(self, 'self_attn') and self.self_attn is not None:
             self.self_attn = Attention(self.self_attn, layer_id, config, rotary, mapper)
         if hasattr(self, 'linear_attn') and self.linear_attn is not None:
-            self.self_attn = LinearAttention(self.linear_attn, layer_id, config, rotary, mapper)
+            self.self_attn = create_linear_attention(self.linear_attn, layer_id, config, rotary, mapper)
             self.layer_type = 'linear_attention'
 
         self.hidden_size = config.hidden_size

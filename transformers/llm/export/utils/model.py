@@ -52,6 +52,7 @@ class LlmModel(PreTrainedModel):
             'idefics3': 'AutoModelForVision2Seq',
             'funaudiochat': 'AutoModelForSeq2SeqLM',
             'glm_ocr': 'GlmOcrForConditionalGeneration',
+            'lfm2_vl': 'Lfm2VlForConditionalGeneration',
         }
         if model_type is None or model_type not in MODEL_CLASS_MAPPING:
             return AutoModelForCausalLM
@@ -93,6 +94,15 @@ class LlmModel(PreTrainedModel):
                 else:
                     original_model = AutoModelForCausalLM.from_config(original_config, trust_remote_code=True)
                 original_model.to_empty(device="cpu")
+        elif model_type == 'lfm2_audio':
+            # LFM2-Audio uses liquid_audio package, not standard HF class
+            from pathlib import Path
+            from liquid_audio import LFM2AudioModel
+            original_model = LFM2AudioModel.from_pretrained(
+                Path(pretrained_model_name_or_path), device='cpu', dtype=torch.bfloat16
+            )
+            # Force sdpa attention on CPU (flash_attention_2 requires GPU)
+            original_model.lfm.set_attn_implementation('sdpa')
         else:
             # Normal loading with weights
             try:
@@ -146,7 +156,8 @@ class LlmModel(PreTrainedModel):
             model.visual = Vision.get_vision(model_type)(model.visual.float(), model).float()
         if hasattr(model, 'audio') and model.audio is not None:
             from utils.audio import Audio
-            model.audio = Audio.get_audio(model.audio.config.model_type)(model.audio, model)
+            audio_type = model.audio.config.model_type if hasattr(model.audio, 'config') else model_type
+            model.audio = Audio.get_audio(audio_type)(model.audio, model)
         if hasattr(model, 'talker') and model.talker is not None:
             from utils.talker import Talker
             model.talker = Talker.get_talker(model_type)(model.talker, model.token2wav, model)

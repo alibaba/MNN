@@ -461,6 +461,10 @@ public:
         return config_.value("is_audio", false);
     }
 
+    std::string audio_type() const {
+        return config_.value("audio_type", "whisper");
+    }
+
     bool is_mrope() const {
         return config_.value("is_mrope", false);
     }

@@ -765,6 +765,211 @@ class ModelMapper:
         }
         self.regist('glm_ocr', glm_ocr_map)
 
+    def regist_lfm2(self):
+        lfm2_config = {
+            'hidden_size': 'hidden_size',
+            'num_attention_heads': 'num_attention_heads',
+            'num_hidden_layers': 'num_hidden_layers',
+            'num_key_value_heads': 'num_key_value_heads',
+            'rope_theta': 'rope_theta',
+            'rope_parameters': 'rope_parameters',
+            'max_position_embeddings': 'max_position_embeddings',
+            'layer_types': 'layer_types',
+            'conv_L_cache': 'conv_L_cache',
+        }
+        lfm2_model = {
+            'lm': 'lm_head',
+            'embed': 'model.embed_tokens',
+            'blocks': 'model.layers',
+            'final_layernorm': 'model.embedding_norm',
+        }
+        lfm2_decoder = {
+            'self_attn': 'self_attn',
+            'linear_attn': 'conv',
+            'mlp': 'feed_forward',
+            'input_layernorm': 'operator_norm',
+            'post_attention_layernorm': 'ffn_norm',
+        }
+        lfm2_attention = {
+            'q_proj': 'q_proj',
+            'k_proj': 'k_proj',
+            'v_proj': 'v_proj',
+            'o_proj': 'out_proj',
+            'q_norm': 'q_layernorm',
+            'k_norm': 'k_layernorm',
+        }
+        lfm2_linear_attention = {
+            'in_proj': 'in_proj',
+            'conv': 'conv',
+            'out_proj': 'out_proj',
+        }
+        lfm2_map = {
+            'config': lfm2_config,
+            'model': lfm2_model,
+            'decoder': lfm2_decoder,
+            'attention': lfm2_attention,
+            'linear_attention': lfm2_linear_attention,
+        }
+        self.regist('lfm2', lfm2_map)
+
+    def regist_lfm2_moe(self):
+        lfm2_moe_config = {
+            'hidden_size': 'hidden_size',
+            'num_attention_heads': 'num_attention_heads',
+            'num_hidden_layers': 'num_hidden_layers',
+            'num_key_value_heads': 'num_key_value_heads',
+            'rope_theta': 'rope_theta',
+            'rope_parameters': 'rope_parameters',
+            'max_position_embeddings': 'max_position_embeddings',
+            'layer_types': 'layer_types',
+            'conv_L_cache': 'conv_L_cache',
+        }
+        lfm2_moe_model = {
+            'lm': 'lm_head',
+            'embed': 'model.embed_tokens',
+            'blocks': 'model.layers',
+            'final_layernorm': 'model.embedding_norm',
+        }
+        lfm2_moe_decoder = {
+            'self_attn': 'self_attn',
+            'linear_attn': 'conv',
+            'mlp': 'feed_forward',
+            'input_layernorm': 'operator_norm',
+            'post_attention_layernorm': 'ffn_norm',
+        }
+        lfm2_moe_attention = {
+            'q_proj': 'q_proj',
+            'k_proj': 'k_proj',
+            'v_proj': 'v_proj',
+            'o_proj': 'out_proj',
+            'q_norm': 'q_layernorm',
+            'k_norm': 'k_layernorm',
+        }
+        lfm2_moe_linear_attention = {
+            'in_proj': 'in_proj',
+            'conv': 'conv',
+            'out_proj': 'out_proj',
+        }
+        lfm2_moe_mlp = {
+            'num_experts': 'experts.num_experts',
+            'top_k': 'top_k',
+            'norm_topk_prob': 'norm_topk_prob',
+            'gate': 'gate',
+            'experts': 'experts',
+            'expert_bias': 'expert_bias',
+            'routed_scaling_factor': 'routed_scaling_factor',
+        }
+        lfm2_moe_map = {
+            'config': lfm2_moe_config,
+            'model': lfm2_moe_model,
+            'decoder': lfm2_moe_decoder,
+            'attention': lfm2_moe_attention,
+            'linear_attention': lfm2_moe_linear_attention,
+            'mlp': lfm2_moe_mlp,
+        }
+        self.regist('lfm2_moe', lfm2_moe_map)
+
+    def regist_lfm2_vl(self):
+        lfm2_vl_config = {
+            'hidden_size': 'text_config.hidden_size',
+            'num_attention_heads': 'text_config.num_attention_heads',
+            'num_hidden_layers': 'text_config.num_hidden_layers',
+            'num_key_value_heads': 'text_config.num_key_value_heads',
+            'rope_theta': 'text_config.rope_theta',
+            'rope_parameters': 'text_config.rope_parameters',
+            'max_position_embeddings': 'text_config.max_position_embeddings',
+            'layer_types': 'text_config.layer_types',
+            'conv_L_cache': 'text_config.conv_L_cache',
+        }
+        lfm2_vl_model = {
+            'lm': 'lm_head',
+            'embed': 'model.language_model.embed_tokens',
+            'blocks': 'model.language_model.layers',
+            'final_layernorm': 'model.language_model.embedding_norm',
+            'visual': 'model.vision_tower',
+            'multi_modal_projector': 'model.multi_modal_projector',
+        }
+        lfm2_vl_decoder = {
+            'self_attn': 'self_attn',
+            'linear_attn': 'conv',
+            'mlp': 'feed_forward',
+            'input_layernorm': 'operator_norm',
+            'post_attention_layernorm': 'ffn_norm',
+        }
+        lfm2_vl_attention = {
+            'q_proj': 'q_proj',
+            'k_proj': 'k_proj',
+            'v_proj': 'v_proj',
+            'o_proj': 'out_proj',
+            'q_norm': 'q_layernorm',
+            'k_norm': 'k_layernorm',
+        }
+        lfm2_vl_linear_attention = {
+            'in_proj': 'in_proj',
+            'conv': 'conv',
+            'out_proj': 'out_proj',
+        }
+        lfm2_vl_map = {
+            'config': lfm2_vl_config,
+            'model': lfm2_vl_model,
+            'decoder': lfm2_vl_decoder,
+            'attention': lfm2_vl_attention,
+            'linear_attention': lfm2_vl_linear_attention,
+        }
+        self.regist('lfm2_vl', lfm2_vl_map)
+
+    def regist_lfm2_audio(self):
+        # Config fields come directly from the nested 'lfm' config (no prefix needed,
+        # because LlmConfig.from_pretrained extracts the nested config for lfm2_audio)
+        lfm2_audio_config = {
+            'hidden_size': 'hidden_size',
+            'num_attention_heads': 'num_attention_heads',
+            'num_hidden_layers': 'num_hidden_layers',
+            'num_key_value_heads': 'num_key_value_heads',
+            'rope_theta': 'rope_theta',
+            'rope_parameters': 'rope_parameters',
+            'max_position_embeddings': 'max_position_embeddings',
+            'layer_types': 'layer_types',
+            'conv_L_cache': 'conv_L_cache',
+        }
+        # Weight paths use 'lfm.' prefix (the LFM backbone is under model.lfm)
+        lfm2_audio_model = {
+            'lm': 'lm_head',
+            'embed': 'lfm.embed_tokens',
+            'blocks': 'lfm.layers',
+            'final_layernorm': 'lfm.embedding_norm',
+            'audio': 'conformer',
+            'audio_adapter': 'audio_adapter',
+        }
+        lfm2_audio_decoder = {
+            'self_attn': 'self_attn',
+            'linear_attn': 'conv',
+            'mlp': 'feed_forward',
+            'input_layernorm': 'operator_norm',
+            'post_attention_layernorm': 'ffn_norm',
+        }
+        lfm2_audio_attention = {
+            'q_proj': 'q_proj',
+            'k_proj': 'k_proj',
+            'v_proj': 'v_proj',
+            'o_proj': 'out_proj',
+            'q_norm': 'q_layernorm',
+            'k_norm': 'k_layernorm',
+        }
+        lfm2_audio_linear_attention = {
+            'in_proj': 'in_proj',
+            'conv': 'conv',
+            'out_proj': 'out_proj',
+        }
+        lfm2_audio_map = {
+            'config': lfm2_audio_config,
+            'model': lfm2_audio_model,
+            'decoder': lfm2_audio_decoder,
+            'attention': lfm2_audio_attention,
+            'linear_attention': lfm2_audio_linear_attention,
+        }
+        self.regist('lfm2_audio', lfm2_audio_map)
+
     def regist_qwen3_5(self):
         qwen3_5_config = {
             'hidden_size': 'text_config.hidden_size',

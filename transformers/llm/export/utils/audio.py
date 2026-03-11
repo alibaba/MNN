@@ -27,6 +27,7 @@ class Audio(torch.nn.Module):
             'qwen2_audio_encoder': Qwen2Audio,
             'qwen2_5_omni_audio_encoder': Qwen2_5OmniAudio,
             'funaudiochat_audio_encoder': FunAudioChatAudio,
+            'lfm2_audio': Lfm2Audio,
         }
         if model_type in audio_models:
             return audio_models[model_type]
@@ -302,3 +303,132 @@ class FunAudioChatAudio(Qwen2_5OmniAudio):
         audio_features = audio_features.mean(dim=2)
         audio_features = self.audio_tower.continual_output_matching(audio_features)
         return audio_features
+
+
+class Lfm2Audio(Audio):
+    """Audio encoder for LFM2-Audio (FastConformer + MLP adapter).
+
+    Supports audio understanding: audio → conformer → adapter → inject into LFM → text.
+    """
+
+    def __init__(self, audio, base):
+        # Store adapter and constants before super().__init__() using __dict__
+        # to bypass Module.__setattr__ (which requires __init__ to be called first)
+        self.__dict__['_audio_adapter_ref'] = base.audio_adapter
+        self.__dict__['audio_pad_id'] = 16  # <|reserved_6|> as audio placeholder
+        self.__dict__['sampling_rate'] = 16000
+        super().__init__(audio, base)
+        self.audio_embeds = None
+        self.quant_bit = 4
+
+    def load(self):
+        self.conformer = self.audio.float()
+        self.audio_adapter_module = self._audio_adapter_ref.float()
+        self.llm_config['is_audio'] = True
+        self.llm_config['audio_type'] = 'conformer'
+        self.llm_config['audio_pad'] = self.audio_pad_id
+
+        # Initialize mel spectrogram preprocessor (matching config.json preprocessor settings)
+        from liquid_audio.model.conformer.processor import AudioToMelSpectrogramPreprocessor
+        self.preprocessor = AudioToMelSpectrogramPreprocessor(
+            sample_rate=16000, window_size=0.025, window_stride=0.01,
+            window='hann', normalize='per_feature', n_fft=512,
+            features=128, log=True, dither=1e-5, pad_to=0, pad_value=0.0,
+        ).eval().float()
+
+    def forward(self, input_features, input_lengths):
+        """Run conformer encoder + adapter on mel features.
+
+        Args:
+            input_features: [B, 128, T] mel spectrogram
+            input_lengths: [B] actual mel lengths
+        Returns:
+            audio_features: [T_valid, hidden_size] (valid tokens only, padding removed)
+            enc_lens: [B] valid token counts
+        """
+        audio_enc, enc_lens = self.conformer(input_features, input_lengths)
+        # audio_enc: [B, d_model=512, T_enc]
+        # Extract valid (non-padded) tokens using boolean mask
+        len_mask = torch.arange(audio_enc.shape[-1], device=audio_enc.device).unsqueeze(0) < enc_lens.unsqueeze(1)
+        audio_enc_valid = audio_enc.transpose(1, 2)[len_mask]  # [T_valid, 512]
+        # Project to LFM hidden size
+        audio_features = self.audio_adapter_module(audio_enc_valid)  # [T_valid, 2048]
+        return audio_features, enc_lens
+
+    def audio_process(self, audio_obj):
+        """Process raw audio waveform to get audio embeddings.
+
+        Args:
+            audio_obj: numpy array of audio samples (16kHz)
+        Returns:
+            num_tokens: number of audio embedding tokens
+        """
+        waveform = torch.from_numpy(audio_obj).float().unsqueeze(0)  # [1, T]
+        length = torch.tensor([waveform.shape[1]], dtype=torch.long)
+        mel, mel_len = self.preprocessor(waveform, length)  # [1, 128, T_mel]
+        audio_features, enc_lens = self.forward(mel, mel_len)  # [T_valid, 2048]
+        self.audio_embeds = audio_features.unsqueeze(1)  # [T_valid, 1, 2048]
+        return self.audio_embeds.shape[0]
+
+    def str_to_ids(self, prompt):
+        if '<audio>' not in prompt:
+            return self.tokenizer(prompt, return_tensors="pt")['input_ids']
+
+        import re
+        import librosa
+        pattern = r'(<audio>.*?</audio>)'
+        parts = re.split(pattern, prompt)
+        # No manual BOS — the chat template already includes <|startoftext|>
+        all_ids = []
+        for part in parts:
+            if re.match(pattern, part):
+                audio_path = re.search(r'<audio>(.*?)</audio>', part).group(1)
+                audio_obj = librosa.load(audio_path, sr=self.sampling_rate)[0]
+                num_tokens = self.audio_process(audio_obj)
+                all_ids.extend([self.audio_pad_id] * num_tokens)
+            else:
+                if part:
+                    ids = self.tokenizer.encode(part, add_special_tokens=False)
+                    all_ids.extend(ids)
+        return torch.tensor([all_ids])
+
+    def embed(self, input_ids, images=None, videos=None):
+        input_embeds = self.embed_(input_ids)
+        if self.audio_embeds is not None:
+            audio_mask = (input_ids == self.audio_pad_id).squeeze()
+            input_embeds[audio_mask] = self.audio_embeds.type(input_embeds.dtype)
+        return input_embeds
+
+    @spinner_run(f'export audio to ')
+    def export(self, onnx_path):
+        class AudioExport(torch.nn.Module):
+            def __init__(self, conformer, adapter):
+                super().__init__()
+                self.conformer = conformer
+                self.adapter = adapter
+
+            def forward(self, input_features):
+                # input_features: [1, 128, T_mel]
+                input_length = torch.tensor(
+                    [input_features.shape[2]], dtype=torch.long, device=input_features.device
+                )
+                audio_enc, enc_lens = self.conformer(input_features, input_length)
+                # audio_enc: [1, 512, T_enc]
+                audio_enc = audio_enc.transpose(1, 2)  # [1, T_enc, 512]
+                audio_features = self.adapter(audio_enc)  # [1, T_enc, 2048]
+                return audio_features
+
+        model = AudioExport(self.conformer, self.audio_adapter_module).float().eval()
+        # Pre-allocate positional embeddings for max sequence length
+        model.conformer.set_max_audio_length(5000)
+
+        input_features = torch.randn((1, 128, 1000))
+        onnx_model = f'{onnx_path}/audio.onnx'
+        onnx_export(model, (input_features,),
+                    onnx_model,
+                    input_names=['input_features'],
+                    output_names=['audio_embeds'],
+                    dynamic_axes={"input_features": {
+                        2: "size"
+                    }})
+        return onnx_model

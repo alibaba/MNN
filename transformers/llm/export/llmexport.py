@@ -331,6 +331,7 @@ class LlmExporter(torch.nn.Module):
     def unload_param(self):
         self.unloaded_ops = {}
         self.experts = []
+        self.expert_layer_ids = []
         def build_faker(real, name):
             faker = FakeLinear(real.in_features, real.out_features, real.bias is not None, name)
             self.unloaded_ops[name] = real
@@ -356,6 +357,7 @@ class LlmExporter(torch.nn.Module):
                                 setattr(self.model.blocks[i].mlp.shared_expert, name, build_faker(child, f'/layers.{i}/mlp/shared_expert/{name}/Linear'))
                     if is_moe and isinstance(child, torch.nn.ModuleList): # experts
                         self.experts.append(child)
+                        self.expert_layer_ids.append(i)
                         for j in range(len(child)):
                             for name, cchild in child[j].named_children():
                                 if isinstance(cchild, torch.nn.Linear):

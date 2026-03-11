@@ -526,6 +526,115 @@ VARP fbank(VARP waveform, int sampling_rate, int n_mels, int n_fft, int hop_leng
     return mel_energies;
 }
 
+VARP conformer_fbank(VARP waveform, int sample_rate, int n_mels, int n_fft, int hop_length, int win_length,
+                     float preemphasis) {
+    if (waveform == nullptr || waveform->getInfo() == nullptr) {
+        return nullptr;
+    }
+    int wav_len = waveform->getInfo()->size;
+    if (wav_len <= 0) {
+        return nullptr;
+    }
+    // 1. Preemphasis: x_new[0] = x[0], x_new[n] = x[n] - preemph * x[n-1]
+    if (preemphasis != 0.f) {
+        float zero_val = 0.f;
+        auto zero = _Const(&zero_val, {1}, NHWC, halide_type_of<float>());
+        auto x_prev = _Slice(waveform, _var<int>({0}, {1}), _var<int>({wav_len - 1}, {1}));
+        auto shifted = _Concat({zero, x_prev}, 0);
+        waveform = waveform - _Scalar<float>(preemphasis) * shifted;
+    }
+    // 2. Center padding (constant/zero, matching NeMo's pad_mode="constant")
+    waveform = MNN::Express::_Pad(waveform, _var<int>({n_fft / 2, n_fft / 2}, {2}), MNN::Express::CONSTANT);
+    waveform = _Reshape(waveform, {1, -1, 1});
+    // 3. Create zero-padded window: hann(win_length) padded to n_fft
+    if (win_length <= 0) win_length = n_fft;
+    auto window = hann_window(win_length);
+    if (win_length < n_fft) {
+        int pad_left_w = (n_fft - win_length) / 2;
+        int pad_right_w = n_fft - win_length - pad_left_w;
+        window = MNN::Express::_Pad(window, _var<int>({pad_left_w, pad_right_w}, {2}), MNN::Express::CONSTANT);
+    }
+    // 4. STFT
+    {
+        std::unique_ptr<OpT> op(new OpT);
+        op->type      = OpType_Stft;
+        op->main.type = OpParameter_StftParam;
+        auto param = new StftParamT;
+        param->abs = true;
+        op->main.value = param;
+        EXPRP stftexpr = Expr::create(std::move(op), {waveform, _Scalar<int>(hop_length), window});
+        waveform = MNN::Express::Variable::create(stftexpr);
+    }
+    int padded_len = wav_len + n_fft;
+    int nstfts = ((padded_len - n_fft) / hop_length) + 1;
+    int dft_unique_bins = n_fft / 2 + 1;
+    // Power spectrum
+    auto specgram = _Square(waveform);
+    auto startsDims = std::vector<int>{0, 0, 0, 0};
+    auto starts1Dims = std::vector<int>{0, 0, 0, 1};
+    auto sizeDims = std::vector<int>{1, nstfts, dft_unique_bins, 1};
+    auto startVar = _Const(startsDims.data(), {4}, NCHW, halide_type_of<int>());
+    auto start1Var = _Const(starts1Dims.data(), {4}, NCHW, halide_type_of<int>());
+    auto sizeVar = _Const(sizeDims.data(), {4}, NCHW, halide_type_of<int>());
+    auto specgramReal = _Slice(specgram, startVar, sizeVar);
+    auto specgramVirt = _Slice(specgram, start1Var, sizeVar);
+    specgram = specgramReal + specgramVirt;
+    specgram = _Reshape(specgram, {nstfts, dft_unique_bins}); // [T, n_fft/2+1]
+    // 5. Mel filterbank (slaney norm)
+    MelscaleParams mel_params;
+    mel_params.n_mels      = n_mels;
+    mel_params.n_fft       = n_fft;
+    mel_params.sample_rate = sample_rate;
+    mel_params.htk         = false;
+    mel_params.norm        = true;
+    auto banks = melscale_fbanks(&mel_params);
+    auto mel_specgram = _MatMul(specgram, banks, false, true); // [T, n_mels]
+    // 6. Log with guard value
+    float log_guard = 5.96046e-8f; // 2^-24
+    mel_specgram = _Log(mel_specgram + _Scalar<float>(log_guard));
+    // 7. Per-feature normalization using valid frame count
+    //    Valid frames = floor((wav_len + pad_amount - n_fft) / hop_length)
+    //    where pad_amount = n_fft (from center padding n_fft/2 on each side)
+    int total_frames = mel_specgram->getInfo()->dim[0];
+    int valid_frames = wav_len / hop_length; // floor division
+    if (valid_frames <= 1 || total_frames <= 1) {
+        return nullptr;
+    }
+    // Mask frames beyond valid_frames to zero
+    if (valid_frames < total_frames) {
+        // Zero out invalid frames by multiplying with a mask
+        auto frame_idx = _Cast<float>(_Range(_Scalar<int>(0), _Scalar<int>(total_frames), _Scalar<int>(1)));
+        auto valid_mask = _Cast<float>(_Less(frame_idx, _Scalar<float>((float)valid_frames)));
+        valid_mask = _Unsqueeze(valid_mask, {1}); // [T, 1] for broadcasting
+        mel_specgram = mel_specgram * valid_mask;
+    }
+    // Compute mean and std using only valid frames
+    auto frame_sum = _ReduceSum(mel_specgram, {0}, true); // [1, n_mels]
+    auto mean = frame_sum * _Scalar<float>(1.0f / valid_frames);
+    auto diff = mel_specgram - mean;
+    // Zero out invalid frames in diff too
+    if (valid_frames < total_frames) {
+        auto frame_idx2 = _Cast<float>(_Range(_Scalar<int>(0), _Scalar<int>(total_frames), _Scalar<int>(1)));
+        auto valid_mask2 = _Cast<float>(_Less(frame_idx2, _Scalar<float>((float)valid_frames)));
+        valid_mask2 = _Unsqueeze(valid_mask2, {1});
+        diff = diff * valid_mask2;
+    }
+    auto diff_sq_sum = _ReduceSum(diff * diff, {0}, true);
+    // Bessel's correction: std = sqrt(sum / (N-1) + eps)
+    auto std_val = _Sqrt(diff_sq_sum * _Scalar<float>(1.0f / (valid_frames - 1)) + _Scalar<float>(1e-5f));
+    mel_specgram = diff / std_val;
+    // 8. Truncate to valid frames: floor(wav_len / hop_length)
+    //    (NeMo preprocessor returns this as seq_len, extra frames are padding)
+    if (valid_frames < total_frames) {
+        mel_specgram = _Slice(mel_specgram, _var<int>({0, 0}, {2}), _var<int>({valid_frames, n_mels}, {2}));
+    }
+    // 9. Transpose to [1, n_mels, T]
+    mel_specgram = _Unsqueeze(mel_specgram, {0, 1});
+    mel_specgram = _Convert(mel_specgram, NCHW);
+    mel_specgram = _Squeeze(mel_specgram, {2});
+    return mel_specgram;
+}
+
 VARP whisper_fbank(VARP waveform, int sample_rate, int n_mels, int n_fft, int hop_length, int chunk_len) {
     int n_samples = chunk_len * sample_rate;
     int pad_right = n_samples - waveform->getInfo()->size;

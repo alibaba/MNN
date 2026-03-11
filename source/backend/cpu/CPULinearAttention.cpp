@@ -31,57 +31,71 @@ ErrorCode CPULinearAttention::onResize(const std::vector<Tensor*>& inputs, const
     auto convWeight = inputs[3];
 
     int batch      = qkv->length(0);
-    int convDim    = qkv->length(1);    // D = 2 * key_dim + value_dim
+    int convDim    = qkv->length(1);    // D (total projection dim)
     int seqLen     = qkv->length(2);    // L
-    int kernelSize = convWeight->length(2); // conv kernel size K
-    int convStateSize = kernelSize - 1;     // padding history length
+    int kernelSize = convWeight->length(2);
+    int convStateSize = kernelSize - 1;
 
-    // After GQA expansion, the effective number of heads for the recurrent state is mNumVHeads
-    int H  = mNumVHeads;
-    int dk = mHeadKDim;
-    int dv = mHeadVDim;
+    // ─── Per-type parameters ───
+    // convChannels: number of channels that go through conv1d
+    // needRecurrentState: whether this type maintains a recurrent state matrix
+    int convChannels = convDim;
+    bool needRecurrentState = false;
+
+    if (mAttentionType == "short_conv") {
+        convChannels = mHeadVDim;  // conv applies to H channels only (not full 3H)
+    } else if (mAttentionType == "gated_delta_rule") {
+        needRecurrentState = true;
+    }
 
     // ─── Persistent state buffers (STATIC): allocate once, shared via onClone ───
     if (mStateCache->mConvState.get() == nullptr) {
-        // First time: allocate and zero-initialize
-        mStateCache->mConvState.reset(Tensor::createDevice<float>({batch, convDim, convStateSize}));
+        mStateCache->mConvState.reset(Tensor::createDevice<float>({batch, convChannels, convStateSize}));
         bool success = backend()->onAcquireBuffer(mStateCache->mConvState.get(), Backend::STATIC);
         if (!success) return OUT_OF_MEMORY;
         ::memset(mStateCache->mConvState->host<float>(), 0, mStateCache->mConvState->elementSize() * sizeof(float));
 
-        mStateCache->mRecurrentState.reset(Tensor::createDevice<float>({batch, H, dk, dv}));
-        success = backend()->onAcquireBuffer(mStateCache->mRecurrentState.get(), Backend::STATIC);
-        if (!success) return OUT_OF_MEMORY;
-        ::memset(mStateCache->mRecurrentState->host<float>(), 0, mStateCache->mRecurrentState->elementSize() * sizeof(float));
+        if (needRecurrentState) {
+            int H = mNumVHeads, dk = mHeadKDim, dv = mHeadVDim;
+            mStateCache->mRecurrentState.reset(Tensor::createDevice<float>({batch, H, dk, dv}));
+            success = backend()->onAcquireBuffer(mStateCache->mRecurrentState.get(), Backend::STATIC);
+            if (!success) return OUT_OF_MEMORY;
+            ::memset(mStateCache->mRecurrentState->host<float>(), 0, mStateCache->mRecurrentState->elementSize() * sizeof(float));
+        }
     } else if (seqLen > 1) {
-        // Prefill (seqLen > 1): reset state for new sequence
+        // Prefill: reset state for new sequence
         ::memset(mStateCache->mConvState->host<float>(), 0, mStateCache->mConvState->elementSize() * sizeof(float));
-        ::memset(mStateCache->mRecurrentState->host<float>(), 0, mStateCache->mRecurrentState->elementSize() * sizeof(float));
+        if (mStateCache->mRecurrentState.get() != nullptr) {
+            ::memset(mStateCache->mRecurrentState->host<float>(), 0, mStateCache->mRecurrentState->elementSize() * sizeof(float));
+        }
     }
-    // Decode (seqLen == 1): keep existing state untouched
 
-    // ─── Temporary buffers (DYNAMIC): re-allocate when seqLen changes ───
+    // ─── Temporary buffers (DYNAMIC) ───
     int totalLen = convStateSize + seqLen;
-    mConvPadded.reset(Tensor::createDevice<float>({batch * convDim * totalLen}));
+    mConvPadded.reset(Tensor::createDevice<float>({batch * convChannels * totalLen}));
     bool success = backend()->onAcquireBuffer(mConvPadded.get(), Backend::DYNAMIC);
     if (!success) return OUT_OF_MEMORY;
 
-    mConvOut.reset(Tensor::createDevice<float>({batch * convDim * seqLen}));
+    mConvOut.reset(Tensor::createDevice<float>({batch * convChannels * seqLen}));
     success = backend()->onAcquireBuffer(mConvOut.get(), Backend::DYNAMIC);
     if (!success) return OUT_OF_MEMORY;
 
-    mTempVPred.reset(Tensor::createDevice<float>({dv}));
-    success = backend()->onAcquireBuffer(mTempVPred.get(), Backend::DYNAMIC);
-    if (!success) return OUT_OF_MEMORY;
+    if (needRecurrentState) {
+        int dv = mHeadVDim;
+        mTempVPred.reset(Tensor::createDevice<float>({dv}));
+        success = backend()->onAcquireBuffer(mTempVPred.get(), Backend::DYNAMIC);
+        if (!success) return OUT_OF_MEMORY;
 
-    mTempDelta.reset(Tensor::createDevice<float>({dv}));
-    success = backend()->onAcquireBuffer(mTempDelta.get(), Backend::DYNAMIC);
-    if (!success) return OUT_OF_MEMORY;
+        mTempDelta.reset(Tensor::createDevice<float>({dv}));
+        success = backend()->onAcquireBuffer(mTempDelta.get(), Backend::DYNAMIC);
+        if (!success) return OUT_OF_MEMORY;
+
+        backend()->onReleaseBuffer(mTempVPred.get(), Backend::DYNAMIC);
+        backend()->onReleaseBuffer(mTempDelta.get(), Backend::DYNAMIC);
+    }
 
     backend()->onReleaseBuffer(mConvPadded.get(), Backend::DYNAMIC);
     backend()->onReleaseBuffer(mConvOut.get(), Backend::DYNAMIC);
-    backend()->onReleaseBuffer(mTempVPred.get(), Backend::DYNAMIC);
-    backend()->onReleaseBuffer(mTempDelta.get(), Backend::DYNAMIC);
 
     return NO_ERROR;
 }
@@ -330,7 +344,11 @@ void CPULinearAttention::gated_delta_rule_ref(const std::vector<Tensor*>& inputs
 }
 
 ErrorCode CPULinearAttention::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    gated_delta_rule_mnn(inputs, outputs);
+    if (mAttentionType == "short_conv") {
+        short_conv(inputs, outputs);
+    } else {
+        gated_delta_rule_mnn(inputs, outputs);
+    }
     return NO_ERROR;
 }
 
@@ -506,6 +524,93 @@ void CPULinearAttention::gated_delta_rule_mnn(const std::vector<Tensor*>& inputs
                                                nullptr, &matParam, 0);
             } // end timestep
         } // end head
+    }
+    MNN_CONCURRENCY_END();
+}
+
+void CPULinearAttention::short_conv(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    // ShortConv: in_proj(x) -> chunk(B_,C_,x_) -> Bx=B_*x_ -> conv1d(Bx) -> y=C_*conv_out
+    // inputs[0]: qkv [B, 3H, L] where H = hidden_size
+    // inputs[3]: conv_weight [H, 1, K]
+    // outputs[0]: [B, L, 1, H]
+    auto qkvTensor   = inputs[0];
+    auto convWTensor = inputs[3];
+    auto outTensor   = outputs[0];
+
+    const float* qkvPtr   = qkvTensor->host<float>();
+    const float* convWPtr = convWTensor->host<float>();
+    float* outPtr         = outTensor->host<float>();
+
+    const int B      = qkvTensor->length(0);
+    const int D      = qkvTensor->length(1);   // 3H
+    const int L      = qkvTensor->length(2);
+    const int H      = D / 3;                  // hidden_size
+    const int K_conv = convWTensor->length(2);
+    const int convStateSize = K_conv - 1;
+
+    float* convPadded   = mConvPadded->host<float>();
+    float* convOut      = mConvOut->host<float>();
+    float* convStatePtr = mStateCache->mConvState->host<float>();
+
+    int threadNum = static_cast<CPUBackend*>(backend())->threadNumber();
+    const int totalLen = convStateSize + L;
+
+    // Step 1: Compute Bx = B_ * x_, then depthwise conv1d (no SiLU)
+    // B_ = qkv[:, 0:H, :], C_ = qkv[:, H:2H, :], x_ = qkv[:, 2H:3H, :]
+    // Parallelize across B*H channels
+    const int totalChannels = B * H;
+
+    MNN_CONCURRENCY_BEGIN(tId, threadNum) {
+        for (int idx = (int)tId; idx < totalChannels; idx += threadNum) {
+            int b = idx / H;
+            int h = idx % H;
+
+            // 1a. Compute Bx = B_[b,h,:] * x_[b,h,:] and build padded input
+            float* padded = convPadded + idx * totalLen;
+            // Copy conv state history
+            const float* stateChannel = convStatePtr + idx * convStateSize;
+            ::memcpy(padded, stateChannel, convStateSize * sizeof(float));
+
+            // Compute Bx element-wise and store in padded buffer
+            const float* b_ptr = qkvPtr + b * D * L + h * L;           // B_[b, h, :]
+            const float* x_ptr = qkvPtr + b * D * L + (2 * H + h) * L; // x_[b, h, :]
+            for (int l = 0; l < L; ++l) {
+                padded[convStateSize + l] = b_ptr[l] * x_ptr[l];
+            }
+
+            // 1b. Depthwise Conv1D (no SiLU)
+            const float* weight = convWPtr + h * K_conv;
+            float* out = convOut + idx * L;
+            for (int l = 0; l < L; ++l) {
+                float sum = 0.0f;
+                for (int k = 0; k < K_conv; ++k) {
+                    sum += padded[l + k] * weight[k];
+                }
+                out[l] = sum;
+            }
+
+            // 1c. Update conv state
+            const float* newState = padded + (totalLen - convStateSize);
+            float* dstState = convStatePtr + idx * convStateSize;
+            ::memcpy(dstState, newState, convStateSize * sizeof(float));
+        }
+    }
+    MNN_CONCURRENCY_END();
+
+    // Step 2: y = C_ * conv_out, transpose to output [B, L, 1, H]
+    MNN_CONCURRENCY_BEGIN(tId, threadNum) {
+        for (int idx = (int)tId; idx < totalChannels; idx += threadNum) {
+            int b = idx / H;
+            int h = idx % H;
+
+            const float* c_ptr = qkvPtr + b * D * L + (H + h) * L; // C_[b, h, :]
+            const float* conv_ptr = convOut + idx * L;
+
+            for (int l = 0; l < L; ++l) {
+                // Output layout: [B, L, 1, H] → outPtr[(b*L + l) * H + h]
+                outPtr[(b * L + l) * H + h] = c_ptr[l] * conv_ptr[l];
+            }
+        }
     }
     MNN_CONCURRENCY_END();
 }

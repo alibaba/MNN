@@ -90,7 +90,7 @@ MNN 的模型导出本质上是**对照 HuggingFace transformers 库中原始模
 |------|--------------|------|
 | Tier 1 (纯文本 Llama-like) | 1 → 2 → 3 → 4 | 最简单，仅需映射 |
 | Tier 2 (轻微架构差异) | 1 → 2 → 3 → 4 | 可能需要修改 transformers.py |
-| Tier 3 (MoE 模型) | 1 → 2 → 3 → 4 | 需要添加 mlp 映射 |
+| Tier 3 (MoE 模型) | 1 → 2 → 3 → 4 | 需要 mlp/expert 映射 + routing 实现，参见 `common-pitfalls.md` 第 9 节 |
 | Tier 4 (音频模型) | 1 → 2 → 3 → 5 → 4 | 需要 audio.py |
 | Tier 5 (视觉模型) | 1 → 2 → 3 → 5 → 4 | 需要 vision.py |
 | Tier 6 (全新架构) | 1 → 2 → 6 → 3 → 4 | 需要新算子（如叠加 Tier 4/5 则加入 step5） |
@@ -114,8 +114,12 @@ config.json 中是否有 audio_config?
 ├─ 是 → Tier 4 (音频)
 └─ 否 → 继续
 
+layer_types 中是否有非 Attention 层（如 conv / mamba / rwkv）?
+├─ 是 → Tier 6 (混合架构，如 lfm2 的 conv + full_attention)
+└─ 否 → 继续
+
 modeling_*.py 中是否有全新的 Attention 类型（非标准 SDPA）?
-├─ 是 → Tier 6 (新架构)
+├─ 是 → Tier 6 (新架构，如 qwen3_5 的 gated_delta_rule)
 └─ 否 → 继续
 
 是否有额外 LayerNorm / scale_depth / scale_emb / 没有 post_attention_layernorm?
@@ -124,6 +128,18 @@ modeling_*.py 中是否有全新的 Attention 类型（非标准 SDPA）?
 ```
 
 > **注意**：Tier 可以叠加。例如 MoE + 视觉 = Tier 3+5，需要同时执行对应步骤。
+
+### Tier 叠加时的执行顺序
+
+当模型跨多个 Tier 时，按以下原则确定步骤顺序：
+
+| 叠加 | 执行顺序 | 说明 |
+|------|---------|------|
+| Tier 3+6 (MoE + 新架构) | 1 → 2 → 6 → 3 → 4 | 先支持新架构（如 short_conv），再加 MoE routing |
+| Tier 3+5 (MoE + 视觉) | 1 → 2 → 3 → 5 → 4 | MoE 是 text-only，视觉单独加 |
+| Tier 5+6 (视觉 + 新架构) | 1 → 2 → 6 → 5 → 3 → 4 | 先支持新架构，再加视觉 |
+
+**原则**：Tier 6（新架构）最先实现，因为它影响基础层结构；Tier 3（MoE）次之，因为它在 Tier 6 层结构之上；Tier 4/5（多模态）最后，因为它与层结构独立。
 
 ---
 
@@ -142,21 +158,27 @@ modeling_*.py 中是否有全新的 Attention 类型（非标准 SDPA）?
 | `gemma2` | 2 | 文本 (额外 LayerNorm) |
 | `gemma3_text` | 2 | 文本 |
 | `minicpm` | 2 | 文本 (scale_depth) |
-| `gpt_oss` | 3 | MoE |
-| `qwen3_moe` | 3 | MoE |
+| `gpt_oss` | 3 | MoE (topk → softmax) |
+| `qwen3_moe` | 3 | MoE (softmax → topk) |
+| `lfm2_moe` | 3+6 | MoE (sigmoid routing) + 混合架构 (short_conv) |
 | `qwen2_audio` | 4 | 音频 |
 | `funaudiochat` | 4 | 音频 |
+| `lfm2_audio` | 4+6 | 音频 (FastConformer + MLP adapter) + 混合架构 |
 | `qwen2_vl`, `qwen2_5_vl`, `qwen3_vl` | 5 | 视觉 |
 | `internvl_chat` | 5 | 视觉 |
 | `gemma3` | 5 | 视觉 |
 | `glm_ocr` | 5 | 视觉 (Gemma2残差 + interleaved M-RoPE) |
-| `qwen3_5` | 6 | 视觉+LinearAttn |
+| `smolvlm` | 5 | 视觉 (SigLIP + Perceiver) |
+| `idefics3` | 5 | 视觉 (SigLIP + Perceiver) |
+| `lfm2_vl` | 5+6 | 视觉 (SigLIP2 NaFlex + pixel_unshuffle) + 混合架构 |
+| `lfm2` | 6 | 混合架构 (short_conv + full_attention) |
+| `qwen3_5` | 6 | 视觉+LinearAttn (gated_delta_rule) |
 
 ---
 
 ## 常见陷阱
 
-**在开始之前，建议先浏览 `common-pitfalls.md`**，了解已知的常见问题和解决方案（RoPE 变体、dtype 级联、Jinja 限制、stop token、残差模式等）。
+**在开始之前，建议先浏览 `common-pitfalls.md`**，了解已知的常见问题和解决方案（RoPE 变体、dtype 级联、Jinja 限制、stop token、残差模式、MoE 支持要点、FakeLinear axis 陷阱、**do_map 静默失败与 rope_theta 间接存储**、非标准模型加载等）。
 
 ---
 

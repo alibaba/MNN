@@ -101,9 +101,12 @@ num_hidden_layers:       ____
 num_key_value_heads:     ____
 head_dim:                ____
 vocab_size:              ____
-rope_theta:              ____
+rope_theta:              ____（⚠️ 可能不在顶层，见下方说明）
 rope_scaling:            ____
+rope_parameters:         ____（有些模型把 rope_theta 放在这里）
 ```
+
+> **⚠️ rope_theta 存储位置警告**：部分模型（如 LFM2 系列）没有顶层 `rope_theta`，而是将其存储在 `rope_parameters` dict 中（如 `"rope_parameters": {"rope_theta": 1000000, "rope_type": "default"}`）。**务必检查 `rope_parameters` 字段**，否则后续映射会静默回退到默认值 10000，导致 RoPE 计算完全错误。详见 `common-pitfalls.md` 第 13 节。
 
 多模态字段（有则记录）：
 ```
@@ -293,27 +296,7 @@ RoPE 在 QK Norm 之前还是之后：____
 
 ## 1.5 确定 Tier
 
-```
-config.json 中是否有 num_experts？
-├─ 是 → Tier 3 (MoE)
-└─ 否 → 继续
-
-config.json 中是否有 vision_config？
-├─ 是 → Tier 5 (视觉)
-└─ 否 → 继续
-
-config.json 中是否有 audio_config？
-├─ 是 → Tier 4 (音频)
-└─ 否 → 继续
-
-modeling_*.py 中是否有全新的 Attention 类型？
-├─ 是 → Tier 6 (新架构)
-└─ 否 → 继续
-
-是否有额外 LayerNorm / scale_depth / 无 post_attention_layernorm？
-├─ 是 → Tier 2 (轻微差异)
-└─ 否 → Tier 1 (标准 Llama-like)
-```
+按照 `SKILL.md` 中的 **Tier 判定速查** 决策树，根据 config.json 和 modeling_*.py 的分析结果确定 Tier。
 
 ---
 

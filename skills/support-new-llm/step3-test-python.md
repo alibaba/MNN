@@ -32,125 +32,72 @@
 创建 `test_origin_hook.py`：
 
 ```python
-import torch
-import json
+import torch, json
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-model_path = "模型路径"  # ← 替换为实际路径
+model_path = "模型路径"  # ← 替换
 prompt = "你好"
 output_file = "/tmp/origin_hook_results.json"
 
-# ===== 1. 加载模型 =====
 tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
 model = AutoModelForCausalLM.from_pretrained(
-    model_path, torch_dtype=torch.float32, device_map="cpu", trust_remote_code=True
-)
+    model_path, torch_dtype=torch.float32, device_map="cpu", trust_remote_code=True)
 model.eval()
 
-# ===== 2. 构造输入 =====
-messages = [
-    {"role": "system", "content": "You are a helpful assistant."},
-    {"role": "user", "content": prompt}
-]
-try:
-    text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-except Exception:
-    text = prompt
-
+messages = [{"role": "system", "content": "You are a helpful assistant."}, {"role": "user", "content": prompt}]
+try: text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+except: text = prompt
 input_ids = tokenizer(text, return_tensors="pt", add_special_tokens=False)["input_ids"]
-print(f"输入 token 数: {input_ids.shape[1]}")
-print(f"输入 token ids: {input_ids[0].tolist()}")
+print(f"输入 token 数: {input_ids.shape[1]}, ids: {input_ids[0].tolist()}")
 
-# ===== 3. 注册 Hook =====
 hook_results = {"prefill": {}, "decode": {}}
-hooks = []
-phase = "prefill"  # 用于标记当前阶段
+hooks, phase = [], "prefill"
 
-# 找到模型内部结构路径
-# 注意: 不同模型路径不同，需要根据步骤 1 问题 1 的答案调整
-# 以下以标准 Llama-like 结构为例:
-#   model.model.embed_tokens
-#   model.model.layers[i]
-#   model.model.norm
-#   model.lm_head
-
-# Hook: embedding 输出
 def hook_embed(module, input, output):
     data = output.detach().float()
-    hook_results[phase]["embed_output_shape"] = list(data.shape)
-    hook_results[phase]["embed_output_first5"] = data[0, 0, :5].tolist()
-    hook_results[phase]["embed_output_last5"] = data[0, 0, -5:].tolist()
-
-# Hook: decoder layer 0 输出
+    hook_results[phase].update({"embed_output_shape": list(data.shape),
+        "embed_output_first5": data[0, 0, :5].tolist(), "embed_output_last5": data[0, 0, -5:].tolist()})
 def hook_layer0(module, input, output):
-    # 有些模型 decoder 层的输出是 tuple，取第一个
     data = output[0].detach().float() if isinstance(output, tuple) else output.detach().float()
-    hook_results[phase]["layer0_output_shape"] = list(data.shape)
-    hook_results[phase]["layer0_output_first5"] = data[0, -1, :5].tolist()
-    hook_results[phase]["layer0_output_last5"] = data[0, -1, -5:].tolist()
-
-# Hook: 最后一个 decoder layer 输出
+    hook_results[phase].update({"layer0_output_shape": list(data.shape),
+        "layer0_output_first5": data[0, -1, :5].tolist(), "layer0_output_last5": data[0, -1, -5:].tolist()})
 def hook_last_layer(module, input, output):
     data = output[0].detach().float() if isinstance(output, tuple) else output.detach().float()
-    hook_results[phase]["last_layer_output_first5"] = data[0, -1, :5].tolist()
-    hook_results[phase]["last_layer_output_last5"] = data[0, -1, -5:].tolist()
-
-# Hook: final layernorm 输出
+    hook_results[phase].update({"last_layer_output_first5": data[0, -1, :5].tolist(), "last_layer_output_last5": data[0, -1, -5:].tolist()})
 def hook_final_norm(module, input, output):
     data = output.detach().float()
-    hook_results[phase]["final_norm_output_first5"] = data[0, -1, :5].tolist()
-    hook_results[phase]["final_norm_output_last5"] = data[0, -1, -5:].tolist()
+    hook_results[phase].update({"final_norm_output_first5": data[0, -1, :5].tolist(), "final_norm_output_last5": data[0, -1, -5:].tolist()})
 
-# ===== 注册 hooks =====
-# ⚠️  以下路径需要根据步骤 1 问题 1 的答案修改 ⚠️
-# 标准 Llama-like 路径：
+# ⚠️ 路径需根据步骤 1 问题 1 调整（标准 Llama-like: model.model.xxx）
 num_layers = model.config.num_hidden_layers
 hooks.append(model.model.embed_tokens.register_forward_hook(hook_embed))
 hooks.append(model.model.layers[0].register_forward_hook(hook_layer0))
 hooks.append(model.model.layers[num_layers - 1].register_forward_hook(hook_last_layer))
 hooks.append(model.model.norm.register_forward_hook(hook_final_norm))
 
-# 如果是嵌套路径（如 language_model.model.xxx），需要修改为：
-# hooks.append(model.language_model.model.embed_tokens.register_forward_hook(hook_embed))
-# hooks.append(model.language_model.model.layers[0].register_forward_hook(hook_layer0))
-# hooks.append(model.language_model.model.layers[-1].register_forward_hook(hook_last_layer))
-# hooks.append(model.language_model.model.norm.register_forward_hook(hook_final_norm))
-
-# ===== 4. Prefill 阶段 =====
+# Prefill
 phase = "prefill"
 with torch.no_grad():
     outputs = model(input_ids, use_cache=True)
-    logits = outputs.logits
-    past_key_values = outputs.past_key_values
-
+    logits, past_key_values = outputs.logits, outputs.past_key_values
 prefill_token = torch.argmax(logits[0, -1, :]).item()
-hook_results["prefill"]["logits_last_pos_first5"] = logits[0, -1, :5].tolist()
-hook_results["prefill"]["logits_last_pos_last5"] = logits[0, -1, -5:].tolist()
-hook_results["prefill"]["top1_token_id"] = prefill_token
-hook_results["prefill"]["top1_token_str"] = tokenizer.decode([prefill_token])
-print(f"Prefill top1 token: {prefill_token} = '{tokenizer.decode([prefill_token])}'")
+hook_results["prefill"].update({"logits_last_pos_first5": logits[0, -1, :5].tolist(),
+    "logits_last_pos_last5": logits[0, -1, -5:].tolist(), "top1_token_id": prefill_token})
+print(f"Prefill top1: {prefill_token} = '{tokenizer.decode([prefill_token])}'")
 
-# ===== 5. First Decode 阶段 =====
+# First Decode
 phase = "decode"
-decode_input_ids = torch.tensor([[prefill_token]])
 with torch.no_grad():
-    outputs = model(decode_input_ids, past_key_values=past_key_values, use_cache=True)
+    outputs = model(torch.tensor([[prefill_token]]), past_key_values=past_key_values, use_cache=True)
     logits = outputs.logits
-
 decode_token = torch.argmax(logits[0, -1, :]).item()
-hook_results["decode"]["logits_last_pos_first5"] = logits[0, -1, :5].tolist()
-hook_results["decode"]["logits_last_pos_last5"] = logits[0, -1, -5:].tolist()
-hook_results["decode"]["top1_token_id"] = decode_token
-hook_results["decode"]["top1_token_str"] = tokenizer.decode([decode_token])
-print(f"Decode top1 token: {decode_token} = '{tokenizer.decode([decode_token])}'")
+hook_results["decode"].update({"logits_last_pos_first5": logits[0, -1, :5].tolist(),
+    "logits_last_pos_last5": logits[0, -1, -5:].tolist(), "top1_token_id": decode_token})
+print(f"Decode top1: {decode_token} = '{tokenizer.decode([decode_token])}'")
 
-# ===== 6. 保存结果 =====
-for h in hooks:
-    h.remove()
-
-with open(output_file, "w") as f:
-    json.dump(hook_results, f, indent=2, ensure_ascii=False)
-print(f"\n结果已保存到 {output_file}")
+for h in hooks: h.remove()
+with open(output_file, "w") as f: json.dump(hook_results, f, indent=2, ensure_ascii=False)
+print(f"结果已保存到 {output_file}")
 ```
 
 ### 运行脚本
@@ -172,178 +119,101 @@ python3 test_origin_hook.py
 创建 `test_llmexport_hook.py`：
 
 ```python
-import sys
-sys.path.insert(0, '.')  # 确保能导入 utils
-import torch
-import json
-
-# ===== 1. 加载 LlmModel =====
+import sys; sys.path.insert(0, '.')
+import torch, json
 from utils.model import LlmModel
-model_path = "模型路径"  # ← 替换为实际路径
+from transformers import AutoTokenizer
+
+model_path = "模型路径"  # ← 替换
 prompt = "你好"
 origin_file = "/tmp/origin_hook_results.json"
 
 model = LlmModel.from_pretrained(model_path)
 model.args = type('Args', (), {'test': True, 'eagle_path': None})()
 model.eval()
+with open(origin_file, "r") as f: origin_results = json.load(f)
 
-# 加载原始模型的 hook 结果（标准答案）
-with open(origin_file, "r") as f:
-    origin_results = json.load(f)
-
-# ===== 2. 构造输入（与原始模型相同） =====
-from transformers import AutoTokenizer
 tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
-messages = [
-    {"role": "system", "content": "You are a helpful assistant."},
-    {"role": "user", "content": prompt}
-]
-try:
-    text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-except Exception:
-    text = prompt
-
+messages = [{"role": "system", "content": "You are a helpful assistant."}, {"role": "user", "content": prompt}]
+try: text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+except: text = prompt
 input_ids = tokenizer(text, return_tensors="pt", add_special_tokens=False)["input_ids"]
-print(f"输入 token 数: {input_ids.shape[1]}")
 
-# ===== 3. 注册 Hook =====
 llm_results = {"prefill": {}, "decode": {}}
-hooks = []
-phase = "prefill"
+hooks, phase = [], "prefill"
 
 def hook_embed(module, input, output):
     data = output.detach().float()
-    llm_results[phase]["embed_output_shape"] = list(data.shape)
-    llm_results[phase]["embed_output_first5"] = data[0, 0, :5].tolist()
-    llm_results[phase]["embed_output_last5"] = data[0, 0, -5:].tolist()
-
+    llm_results[phase].update({"embed_output_shape": list(data.shape),
+        "embed_output_first5": data[0, 0, :5].tolist(), "embed_output_last5": data[0, 0, -5:].tolist()})
 def hook_layer0(module, input, output):
     data = output.detach().float() if not isinstance(output, tuple) else output[0].detach().float()
-    llm_results[phase]["layer0_output_shape"] = list(data.shape)
-    llm_results[phase]["layer0_output_first5"] = data[0, -1, :5].tolist()
-    llm_results[phase]["layer0_output_last5"] = data[0, -1, -5:].tolist()
-
+    llm_results[phase].update({"layer0_output_shape": list(data.shape),
+        "layer0_output_first5": data[0, -1, :5].tolist(), "layer0_output_last5": data[0, -1, -5:].tolist()})
 def hook_last_layer(module, input, output):
     data = output.detach().float() if not isinstance(output, tuple) else output[0].detach().float()
-    llm_results[phase]["last_layer_output_first5"] = data[0, -1, :5].tolist()
-    llm_results[phase]["last_layer_output_last5"] = data[0, -1, -5:].tolist()
-
+    llm_results[phase].update({"last_layer_output_first5": data[0, -1, :5].tolist(), "last_layer_output_last5": data[0, -1, -5:].tolist()})
 def hook_final_norm(module, input, output):
     data = output.detach().float()
-    llm_results[phase]["final_norm_output_first5"] = data[0, -1, :5].tolist()
-    llm_results[phase]["final_norm_output_last5"] = data[0, -1, -5:].tolist()
+    llm_results[phase].update({"final_norm_output_first5": data[0, -1, :5].tolist(), "final_norm_output_last5": data[0, -1, -5:].tolist()})
 
-# LlmModel 的路径是固定的：
-# model.embed       → Embedding
-# model.blocks[0]   → 第 0 层 Decoder
-# model.blocks[-1]  → 最后一层 Decoder
-# model.final_layernorm → Final LayerNorm
+# LlmModel 路径固定：model.embed / model.blocks[i] / model.final_layernorm
 hooks.append(model.embed.register_forward_hook(hook_embed))
 hooks.append(model.blocks[0].register_forward_hook(hook_layer0))
 hooks.append(model.blocks[-1].register_forward_hook(hook_last_layer))
 hooks.append(model.final_layernorm.register_forward_hook(hook_final_norm))
 
-# ===== 4. Prefill =====
-phase = "prefill"
-seq_len = input_ids.shape[1]
-
+# Prefill
+phase, seq_len = "prefill", input_ids.shape[1]
 with torch.no_grad():
     attention_mask = model.get_attention_mask(seq_len, 0)
     position_ids = model.get_position_ids(seq_len, 0, input_ids)
-    input_embeds = model.embedding(input_ids)
-    logits, _, _ = model.forward(
-        input_ids=input_embeds,
-        attention_mask=attention_mask,
-        position_ids=position_ids,
-        logits_index=torch.tensor([-1], dtype=torch.int32)
-    )
-
+    logits, _, _ = model.forward(input_ids=model.embedding(input_ids),
+        attention_mask=attention_mask, position_ids=position_ids, logits_index=torch.tensor([-1], dtype=torch.int32))
 prefill_token = torch.argmax(logits[0, -1, :]).item()
-llm_results["prefill"]["logits_last_pos_first5"] = logits[0, -1, :5].tolist()
-llm_results["prefill"]["logits_last_pos_last5"] = logits[0, -1, -5:].tolist()
-llm_results["prefill"]["top1_token_id"] = prefill_token
-print(f"LlmModel Prefill top1 token: {prefill_token}")
+llm_results["prefill"].update({"logits_last_pos_first5": logits[0, -1, :5].tolist(),
+    "logits_last_pos_last5": logits[0, -1, -5:].tolist(), "top1_token_id": prefill_token})
 
-# ===== 5. First Decode =====
+# First Decode
 phase = "decode"
-decode_input_ids = torch.tensor([[prefill_token]])
-
 with torch.no_grad():
     attention_mask = model.get_attention_mask(seq_len + 1, 1)
-    position_ids = model.get_position_ids(seq_len + 1, 1, decode_input_ids)
-    input_embeds = model.embedding(decode_input_ids)
-    logits, _, _ = model.forward(
-        input_ids=input_embeds,
-        attention_mask=attention_mask,
-        position_ids=position_ids,
-        logits_index=torch.tensor([-1], dtype=torch.int32)
-    )
-
+    position_ids = model.get_position_ids(seq_len + 1, 1, torch.tensor([[prefill_token]]))
+    logits, _, _ = model.forward(input_ids=model.embedding(torch.tensor([[prefill_token]])),
+        attention_mask=attention_mask, position_ids=position_ids, logits_index=torch.tensor([-1], dtype=torch.int32))
 decode_token = torch.argmax(logits[0, -1, :]).item()
-llm_results["decode"]["logits_last_pos_first5"] = logits[0, -1, :5].tolist()
-llm_results["decode"]["logits_last_pos_last5"] = logits[0, -1, -5:].tolist()
-llm_results["decode"]["top1_token_id"] = decode_token
-print(f"LlmModel Decode top1 token: {decode_token}")
+llm_results["decode"].update({"logits_last_pos_first5": logits[0, -1, :5].tolist(),
+    "logits_last_pos_last5": logits[0, -1, -5:].tolist(), "top1_token_id": decode_token})
 
-# ===== 6. 对比结果 =====
-for h in hooks:
-    h.remove()
-
-print("\n" + "=" * 60)
-print("对比结果")
-print("=" * 60)
+# 对比
+for h in hooks: h.remove()
+print("=" * 60 + "\n对比结果\n" + "=" * 60)
 
 def compare(key, origin_val, llm_val, tolerance=1e-3):
-    """对比两个值，支持 list 和 scalar"""
     if isinstance(origin_val, list) and isinstance(llm_val, list):
         max_diff = max(abs(a - b) for a, b in zip(origin_val, llm_val))
         match = max_diff < tolerance
     elif isinstance(origin_val, (int, float)) and isinstance(llm_val, (int, float)):
-        max_diff = abs(origin_val - llm_val)
-        match = max_diff < tolerance
+        max_diff, match = abs(origin_val - llm_val), abs(origin_val - llm_val) < tolerance
     else:
-        max_diff = "类型不同"
-        match = origin_val == llm_val
-
-    status = "✅" if match else "❌"
-    print(f"  {status} {key}: max_diff={max_diff}")
+        max_diff, match = "类型不同", origin_val == llm_val
+    print(f"  {'✅' if match else '❌'} {key}: max_diff={max_diff}")
     return match
 
 all_pass = True
 for stage in ["prefill", "decode"]:
     print(f"\n--- {stage.upper()} ---")
-    origin = origin_results.get(stage, {})
-    llm = llm_results.get(stage, {})
-
+    origin, llm = origin_results.get(stage, {}), llm_results.get(stage, {})
     for key in origin:
         if key in llm:
-            if not compare(key, origin[key], llm[key]):
-                all_pass = False
-        else:
-            print(f"  ⚠️  {key}: LlmModel 缺少此项")
-
-    # 重点对比 top1 token
-    o_token = origin.get("top1_token_id")
-    l_token = llm.get("top1_token_id")
-    if o_token is not None and l_token is not None:
-        if o_token == l_token:
-            print(f"  ✅ top1_token_id 一致: {o_token}")
-        else:
-            print(f"  ❌ top1_token_id 不一致: origin={o_token}, llmexport={l_token}")
-            all_pass = False
+            if not compare(key, origin[key], llm[key]): all_pass = False
+    o_tok, l_tok = origin.get("top1_token_id"), llm.get("top1_token_id")
+    if o_tok is not None and l_tok is not None:
+        if o_tok == l_tok: print(f"  ✅ top1_token_id 一致: {o_tok}")
+        else: print(f"  ❌ top1_token_id 不一致: origin={o_tok}, llmexport={l_tok}"); all_pass = False
 
 print("\n" + "=" * 60)
-if all_pass:
-    print("🎉 所有检查点通过！LlmModel 映射正确！")
-else:
-    print("⚠️  存在不一致，请检查映射和实现。")
-    print("排查指南：")
-    print("  - embed 不一致 → 检查 embed_tokens 路径")
-    print("  - layer0 不一致 → 检查 Attention/MLP/残差（第一层就错了）")
-    print("  - last_layer 不一致但 layer0 一致 → 错误在中间某层累积")
-    print("  - final_norm 不一致 → 检查 final_layernorm 路径")
-    print("  - logits 不一致 → 检查 lm_head 路径")
-    print("  - token 不一致但 logits 差异很小 → 可接受，是浮点精度问题")
+print("🎉 所有检查点通过！" if all_pass else "⚠️  存在不一致，见下方排查表")
 print("=" * 60)
 ```
 

@@ -23,6 +23,7 @@ class LlmConfig(PretrainedConfig):
         self.layer_types = kwargs.pop("layer_types", [])
         self.attention_type = kwargs.pop("attention_type", 'full')
         self.tie_word_embeddings = kwargs.pop("tie_word_embeddings", False)
+        self.conv_L_cache = kwargs.pop("conv_L_cache", 0)
         self.model_map = kwargs.pop("model_map", {})
         super().__init__(**kwargs)
 
@@ -52,7 +53,17 @@ class LlmConfig(PretrainedConfig):
             model_type = raw_config.get('model_type')
             cls._register_external_model(model_type)
 
-        config = AutoConfig.from_pretrained(pretrained_model_name_or_path, trust_remote_code=True, **kwargs)
+        # Handle models without top-level model_type (e.g., lfm2_audio)
+        if model_type is None:
+            archs = raw_config.get('architectures', [])
+            if 'Lfm2AudioForConditionalGeneration' in archs and 'lfm' in raw_config:
+                from transformers import Lfm2Config
+                config = Lfm2Config(**raw_config['lfm'])
+                config.model_type = 'lfm2_audio'
+            else:
+                config = AutoConfig.from_pretrained(pretrained_model_name_or_path, trust_remote_code=True, **kwargs)
+        else:
+            config = AutoConfig.from_pretrained(pretrained_model_name_or_path, trust_remote_code=True, **kwargs)
 
         model_type, model_map = ModelMapper().get_map(config)
         llm_config_kwargs = {
