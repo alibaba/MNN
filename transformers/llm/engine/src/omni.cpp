@@ -1169,6 +1169,7 @@ void Talker::generate_init(std::ostream* os, const char* end_with) {
     dit_start_index = 0;
     dit_left_padding = 0;
     vocoder_left_pad = 0;
+    mWavLastDone.store(false);
     {
         std::lock_guard<std::mutex> lock(mWavQueueMutex);
         std::queue<WavChunk>().swap(mWavQueue);
@@ -1317,16 +1318,13 @@ VARP Talker::token2wav(const std::vector<int>& codec_tokens) {
 }
 
 void Talker::startAsyncWorker() {
-    mWavWorkerRunning = true;
+    if (mWavWorkerRunning.exchange(true)) return; // already running
     mWavWorkerThread = std::thread(&Talker::asyncWorkerLoop, this);
 }
 
 void Talker::stopAsyncWorker() {
-    {
-        std::lock_guard<std::mutex> lock(mWavQueueMutex);
-        mWavWorkerRunning = false;
-    }
-    mWavQueueCond.notify_one();
+    mWavWorkerRunning.store(false);
+    mWavQueueCond.notify_all();
     if (mWavWorkerThread.joinable()) {
         mWavWorkerThread.join();
     }
@@ -1367,10 +1365,8 @@ void Talker::asyncWorkerLoop() {
         processWavChunk(chunk);
         
         if (chunk.is_last) {
-            std::lock_guard<std::mutex> lock(mWavQueueMutex);
-            if (mWavQueue.empty()) {
-                mWavQueueCond.notify_all();
-            }
+            mWavLastDone.store(true);
+            mWavQueueCond.notify_all();
         }
     }
 
@@ -1563,7 +1559,7 @@ void Talker::generate() {
             input_embeds = input_embeds + mTextPad;
         }
         auto logits = forward(input_embeds);
-        int token = Llm::sample(logits);
+        int token = sample(logits);
         mContext->current_token = token;
         mContext->history_tokens.push_back(token);
         mContext->output_tokens.push_back(token);
@@ -1583,10 +1579,11 @@ void Talker::generate() {
         
         std::unique_lock<std::mutex> lock(mWavQueueMutex);
         auto timeout = std::chrono::seconds(10);
-        bool drained = mWavQueueCond.wait_for(lock, timeout, [this] {
-            return mWavQueue.empty();
+        bool completed = mWavQueueCond.wait_for(lock, timeout, [this] {
+            return mWavLastDone.load();
         });
-        if (!drained) {
+        if (!completed) {
+            MNN_ERROR("Talker async worker timeout after 10s; audio may be incomplete\n");
         }
     } else {
         token2wav(true);

@@ -13,6 +13,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <queue>
+#include <atomic>
 
 namespace MNN {
 using namespace Express;
@@ -119,7 +120,8 @@ private:
     std::mutex mWavQueueMutex;
     std::condition_variable mWavQueueCond;
     std::queue<WavChunk> mWavQueue;
-    bool mWavWorkerRunning = false;
+    std::atomic<bool> mWavWorkerRunning{false};
+    std::atomic<bool> mWavLastDone{false};
     bool mAsyncToken2Wav = false;
     // cloned modules for worker thread — independent Session/Runtime, shared weights
     std::shared_ptr<Module> mPreDit_async, mDit_async, mBigvgan_async;
