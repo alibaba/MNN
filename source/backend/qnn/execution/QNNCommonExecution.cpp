@@ -49,7 +49,7 @@ void QNNCommonExecution::setNodeName(const Op * op, const std::vector<Tensor *> 
     if (nullptr != op->name()) {
         mNodeName = op->name()->str();
         for (int i=0; i<mNodeName.size(); ++i) {
-            if (mNodeName[i] == '.' || mNodeName[i] == '/') {
+            if (mNodeName[i] == '.' || mNodeName[i] == '/' || mNodeName[i] == ':') {
                 mNodeName[i] = '_';
             }
         }
