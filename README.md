@@ -17,6 +17,7 @@
   <img width="15%" alt="Icon" src="https://meta.alicdn.com/data/mnn/assets/qwen35_2.jpg" style="margin: 0 10px;">
   <img width="15%" alt="Icon" src="https://meta.alicdn.com/data/mnn/assets/qwen35_3.jpg" style="margin: 0 10px;">
 </p>
+
 - [2026/02/13] MNN-Sana-Edit-V2 is now available at [apps](./apps/sana/README.md), offering cartoon-style photo editing based on Sana.
 <p align="center">
   <img width="80%" alt="Icon"  src="https://meta.alicdn.com/data/mnn/assets/sana_show_case.jpg" style="margin: 0 10px;">
