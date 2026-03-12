@@ -2,8 +2,29 @@ package com.alibaba.mnnllm.android.modelmarket
 
 import org.junit.Test
 import org.junit.Assert.*
+import org.junit.Before
 
 class TagTest {
+
+    @Before
+    fun setup() {
+        TagMapper.initializeFromConfig(
+            ModelMarketConfig(
+                version = "1",
+                tagTranslations = mapOf(
+                    "Chat" to "对话",
+                    "TextGeneration" to "文本生成",
+                    "Multimodal" to "多模态"
+                ),
+                quickFilterTags = emptyList(),
+                vendorOrder = emptyList(),
+                llmModels = emptyList(),
+                ttsModels = emptyList(),
+                asrModels = emptyList(),
+                libs = emptyList()
+            )
+        )
+    }
 
     @Test
     fun testTagCreation() {

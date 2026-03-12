@@ -78,4 +78,37 @@ class CrashReportContextTest {
             payload
         )
     }
+
+    @Test
+    fun `extractLlmConfigCrashKeys reads use mmap and backend from standard llm keys`() {
+        val source = """
+            {
+              "topK": 20,
+              "backend_type": "opencl",
+              "use_mmap": true
+            }
+        """.trimIndent()
+
+        val keys = CrashReportContext.extractLlmConfigCrashKeys(source)
+        assertEquals("opencl", keys.backend)
+        assertTrue(keys.useMmap)
+    }
+
+    @Test
+    fun `extractLlmConfigCrashKeys supports fallback aliases and defaults`() {
+        val source = """
+            {
+              "backend": "cpu",
+              "use_mma": "false"
+            }
+        """.trimIndent()
+
+        val keys = CrashReportContext.extractLlmConfigCrashKeys(source)
+        assertEquals("cpu", keys.backend)
+        assertFalse(keys.useMmap)
+
+        val defaultKeys = CrashReportContext.extractLlmConfigCrashKeys("{\"topK\":20}")
+        assertEquals("unknown", defaultKeys.backend)
+        assertFalse(defaultKeys.useMmap)
+    }
 }

@@ -93,6 +93,12 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".mainsettings.StorageManagementActivity"
+            android:configChanges="orientation|screenSize"
+            android:exported="false"
+            android:label="@string/storage_management" />
+
 <!--        <activity-->
 <!--            android:name=".modelsettings.SettingsActivity"-->
 <!--            android:exported="true">-->

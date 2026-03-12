@@ -1,5 +1,8 @@
 package com.alibaba.mnnllm.android.modelmarket
 
+import android.content.Context
+import com.alibaba.mnnllm.android.utils.DeviceUtils
+
 object TagMapper {
     
     private var tagMap: Map<String, Tag> = emptyMap()
@@ -35,5 +38,14 @@ object TagMapper {
 
     fun getDisplayTagList(tagKeys: List<String>): List<String> {
         return tagKeys.map { getTag(it).getDisplayText() }
+    }
+
+    /**
+     * Context-aware version for ViewHolder bind. Uses the View's context for locale
+     * so tags display correctly on Chinese devices without requiring scroll.
+     */
+    fun getDisplayTagList(tagKeys: List<String>, context: Context): List<String> {
+        val useChinese = DeviceUtils.isChinese(context)
+        return tagKeys.map { getTag(it).getDisplayText(useChinese) }
     }
 } 

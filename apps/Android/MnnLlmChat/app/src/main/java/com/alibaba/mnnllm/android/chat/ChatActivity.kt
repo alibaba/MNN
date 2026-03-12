@@ -353,6 +353,15 @@ class ChatActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Called when model load fails (e.g. native init returned null). Shows error and finishes.
+     */
+    fun onModelLoadFailed(errorMessage: String) {
+        Log.e(TAG, "Model load failed: $errorMessage")
+        Toast.makeText(this, getString(R.string.model_load_failed, errorMessage), Toast.LENGTH_LONG).show()
+        finish()
+    }
+
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.menu_chat, menu)
         menu.findItem(R.id.show_performance_metrics)

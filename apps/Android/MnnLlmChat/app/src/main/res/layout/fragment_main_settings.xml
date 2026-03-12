@@ -54,21 +54,13 @@
                     app:icon="@drawable/baseline_arrow_drop_down_24"
                     app:labelText="@string/select_download_provider" />
 
-                <com.google.android.material.divider.MaterialDivider
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="16dp"
-                    android:layout_marginEnd="16dp" />
 
-                <com.alibaba.mnnllm.android.modelsettings.DropDownLineView
-                    android:id="@+id/dropdown_diffusion_memory_mode"
-                    style="@style/SettingsRowContainer"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:paddingStart="8dp"
-                    android:paddingEnd="8dp"
-                    app:icon="@drawable/baseline_arrow_drop_down_24"
-                    app:labelText="@string/diffusion_memory_mode" />
+                <TextView
+                    android:id="@+id/btn_voice_model_management"
+                    style="@style/SettingsRowClickable"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
+                    android:text="@string/voice_model_management" />
 
                 <com.google.android.material.divider.MaterialDivider
                     android:layout_width="match_parent"
@@ -77,11 +69,11 @@
                     android:layout_marginEnd="16dp" />
 
                 <TextView
-                    android:id="@+id/btn_voice_model_management"
+                    android:id="@+id/btn_storage_management"
                     style="@style/SettingsRowClickable"
                     android:paddingStart="16dp"
                     android:paddingEnd="16dp"
-                    android:text="@string/voice_model_management" />
+                    android:text="@string/storage_management" />
 
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>

@@ -561,8 +561,8 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
         onSettingsDoneListener?.let { it(needRecreate) }
     }
 
-    override fun resetSettingsToDefaults() {
-        super.resetSettingsToDefaults()
+    override fun onAfterSettingsReset() {
+        super.onAfterSettingsReset()
         updateSamplerSettingsVisibility()
     }
 

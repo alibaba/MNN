@@ -6,6 +6,7 @@
     <string name="action_settings">Settings</string>
     <string name="main_describe">mnn-llm</string>
     <string name="model_loading">模型加载中...</string>
+    <string name="model_load_failed">模型加载失败: %1$s</string>
     <string name="download_not_started">%1$s</string>
     <string name="downloaded_click_to_chat">%1$S</string>
     <string name="local_click_to_chat">%1$S %2$S</string>
@@ -108,8 +109,7 @@
     <string name="copy_config">复制配置</string>
     <string name="current_version">当前版本:%1$s</string>
     <string name="current_version_check_update">当前版本:%1$s（点击检查更新）</string>
-    <string name="mnn_version">MNN 版本</string>
-    <string name="mnn_version_summary">MNN 引擎版本: %1$s</string>
+    <string name="mnn_version">MNN引擎版本</string>
     <string name="select_download_provider">选择下载提供商</string>
     <string name="settings_complete">强烈建议删除未完成任务重新下载，否则可能有数据不一致问题。</string>
     <string name="stop_download_tasks_when_chat">聊天时停止下载任务</string>
@@ -138,6 +138,26 @@
     <string name="diffusion_mode_memory_balance">内存平衡模式</string>
     <string name="diffusion_memory_mode">Diffusion内存模式</string>
     <string name="voice_model_management">语音模型管理</string>
+    <string name="storage_management">存储管理</string>
+    <string name="storage_summary_internal">内部存储</string>
+    <string name="storage_summary_model">模型存储</string>
+    <string name="storage_total">总计</string>
+    <string name="storage_used">已用</string>
+    <string name="storage_free">可用</string>
+    <string name="storage_model_files">模型文件</string>
+    <string name="storage_mmap_cache">Mmap 缓存</string>
+    <string name="storage_orphan_cache">可清理缓存</string>
+    <string name="storage_mmap_by_model">按模型的 Mmap 缓存</string>
+    <string name="storage_detail">详情</string>
+    <string name="storage_status_orphan">可清理</string>
+    <string name="storage_status_tracked">已跟踪</string>
+    <string name="storage_clean_cleanable_cache">清理可清理缓存</string>
+    <string name="storage_clean_cleanable_confirm_title">清理可清理缓存？</string>
+    <string name="storage_clean_cleanable_confirm_message">将删除所有未关联已下载模型的缓存，此操作无法撤销。</string>
+    <string name="storage_detail_resolved_model">解析后的模型 ID</string>
+    <string name="storage_detail_model_dir">模型目录</string>
+    <string name="storage_detail_config_dir">配置目录</string>
+    <string name="storage_detail_mmap_dir">Mmap 目录</string>
     <string name="voice_model_management_summary">管理TTS和ASR模型</string>
     <string name="model_settings">设置</string>
     <string name="model_settings_title">模型设置</string>
@@ -194,10 +214,12 @@
     <string name="cors_disabled_status">已禁用</string>
     <string name="api_key_enabled">API Key已开启</string>
     <string name="no_authentication">无认证</string>
-    <string name="console_started">API服务控制台已启动</string>
+    <string name="console_started">API服务控制台已打开</string>
     <string name="server_running_message">服务器正在运行中</string>
     <string name="waiting_for_connections">等待客户端连接...</string>
     <string name="server_not_started">服务器未启动</string>
+    <string name="service_disabled_hint">API服务已禁用，请先在设置中开启 API Service。</string>
+    <string name="server_not_started_hint">若持续失败，请确认 API Service 已开启且通知权限已允许。</string>
     <string name="server_status_template">服务器状态: %1$s</string>
     <string name="test_log_message1">这是一条测试日志，用于验证代码行号显示和点击跳转功能</string>
     <string name="test_log_message2">调试信息：代码行号功能测试</string>
@@ -472,7 +494,7 @@
     <string name="backend_opencl">OpenCL</string>
     <string name="backend_label">后端</string>
     <string name="opencl_warning_title">OpenCL 提示</string>
-    <string name="opencl_warning_message">当前模型暂不支持 OpenCL，其他模型可能支持。</string>
+    <string name="opencl_warning_message">当前模型OPENCL后端还在支持中，请等待支持完成使用。</string>
     <string name="opencl_warning_use">我偏要用</string>
     <string name="opencl_warning_use_countdown">我偏要用（%1$d秒）</string>
     

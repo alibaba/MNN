@@ -742,6 +742,13 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
         viewModel.loadModels()
     }
 
+    /**
+     * When downloaded models change (e.g. model deleted from ModelListFragment), refresh market list.
+     */
+    fun onDownloadedModelsChanged() {
+        viewModel.loadModels()
+    }
+
     companion object {
         private var lastClickTime: Long = -1
         private const val TAG = "ModelMarketFragment"

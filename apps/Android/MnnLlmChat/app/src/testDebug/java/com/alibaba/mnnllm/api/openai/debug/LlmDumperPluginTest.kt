@@ -15,8 +15,13 @@ class LlmDumperPluginTest {
         var ensureResult = EnsureSessionResult(success = false, reason = "SESSION_INIT_FAILED")
         var releaseCalled = false
         var setThinkingCalled = false
+        var runResult = LlmRunResult(success = false, reason = "SESSION_INIT_FAILED")
+        var lastRunModelId: String? = null
+        var lastRunPrompt: String? = null
+        var lastForceReload = false
+        var lastUseAppConfig = false
 
-        override fun ensureSession(modelId: String, forceReload: Boolean): EnsureSessionResult {
+        override fun ensureSession(modelId: String, forceReload: Boolean, useAppConfig: Boolean): EnsureSessionResult {
             this.currentModelId = modelId
             return ensureResult
         }
@@ -38,6 +43,15 @@ class LlmDumperPluginTest {
             hasSession = false
             currentModelId = null
             currentThinkingEnabled = null
+        }
+
+        override fun runPrompt(modelId: String, prompt: String, forceReload: Boolean, useAppConfig: Boolean): LlmRunResult {
+            currentModelId = modelId
+            lastRunModelId = modelId
+            lastRunPrompt = prompt
+            lastForceReload = forceReload
+            lastUseAppConfig = useAppConfig
+            return runResult
         }
     }
 
@@ -127,5 +141,93 @@ class LlmDumperPluginTest {
         assertTrue(controller.releaseCalled)
         assertTrue(output.contains("RESULT=OK"))
         assertTrue(output.contains("SESSION_PRESENT=false"))
+    }
+
+    @Test
+    fun `run should execute prompt through ensured session`() {
+        val controller = FakeController().apply {
+            runResult = LlmRunResult(
+                success = true,
+                modelId = "test-model",
+                response = "hello world",
+                stage = "completed",
+                submitReturned = true,
+                chunkCount = 2,
+                completionReceived = true
+            )
+        }
+        val plugin = LlmDumperPlugin(controller)
+        val out = ByteArrayOutputStream()
+
+        plugin.execute(listOf("run", "test-model", "say", "hi"), PrintStream(out))
+
+        val output = out.toString()
+        assertTrue(output.contains("RESULT=OK"))
+        assertTrue(output.contains("MODEL_ID=test-model"))
+        assertTrue(output.contains("RESPONSE_BEGIN"))
+        assertTrue(output.contains("hello world"))
+        assertTrue(output.contains("RESPONSE_END"))
+        assertEquals("test-model", controller.lastRunModelId)
+        assertEquals("say hi", controller.lastRunPrompt)
+    }
+
+    @Test
+    fun `run should fail when prompt is missing`() {
+        val plugin = LlmDumperPlugin(FakeController())
+        val out = ByteArrayOutputStream()
+
+        plugin.execute(listOf("run", "test-model"), PrintStream(out))
+
+        val output = out.toString()
+        assertTrue(output.contains("RESULT=FAIL"))
+        assertTrue(output.contains("REASON=MISSING_MODEL_ID_OR_PROMPT"))
+        assertTrue(output.contains("USAGE=dumpapp llm run <modelId> <prompt> [--force-reload] [--use-app-config]"))
+    }
+
+    @Test
+    fun `run with --use-app-config should pass flag to controller`() {
+        val controller = FakeController().apply {
+            runResult = LlmRunResult(
+                success = true,
+                modelId = "test-model",
+                response = "ok",
+                stage = "completed",
+                submitReturned = true,
+                chunkCount = 1,
+                completionReceived = true
+            )
+        }
+        val plugin = LlmDumperPlugin(controller)
+        val out = ByteArrayOutputStream()
+
+        plugin.execute(listOf("run", "test-model", "hi", "--use-app-config"), PrintStream(out))
+
+        val output = out.toString()
+        assertTrue(output.contains("RESULT=OK"))
+        assertEquals("test-model", controller.lastRunModelId)
+        assertEquals("hi", controller.lastRunPrompt)
+        assertTrue("runPrompt should be called with useAppConfig=true", controller.lastUseAppConfig)
+    }
+
+    @Test
+    fun `run should surface ensure failure reason`() {
+        val controller = FakeController().apply {
+            runResult = LlmRunResult(
+                success = false,
+                modelId = "bad-model",
+                reason = "MODEL_CONFIG_NOT_FOUND",
+                stage = "ensure"
+            )
+        }
+        val plugin = LlmDumperPlugin(controller)
+        val out = ByteArrayOutputStream()
+
+        plugin.execute(listOf("run", "bad-model", "hello"), PrintStream(out))
+
+        val output = out.toString()
+        assertTrue(output.contains("RESULT=FAIL"))
+        assertTrue(output.contains("MODEL_ID=bad-model"))
+        assertTrue(output.contains("REASON=MODEL_CONFIG_NOT_FOUND"))
+        assertTrue(output.contains("STAGE=ensure"))
     }
 }

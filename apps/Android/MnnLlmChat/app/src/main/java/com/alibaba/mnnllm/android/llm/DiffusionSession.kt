@@ -4,14 +4,12 @@
 package com.alibaba.mnnllm.android.llm
 
 import android.util.Log
-import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.llm.ChatService.Companion.provide
 import com.alibaba.mnnllm.android.llm.LlmSession.Companion.TAG
-import com.alibaba.mnnllm.android.mainsettings.MainSettings.getDiffusionMemoryMode
-import com.google.gson.Gson
 
 class DiffusionSession(
+    private val modelId: String,
     override var sessionId: String,
     private val configPath: String,
     private var savedHistory: List<ChatDataItem>? = null
@@ -25,12 +23,9 @@ class DiffusionSession(
     private var generating = false
     
     override fun load() {
-        val configMap = HashMap<String, Any>().apply {
-            put("diffusion_memory_mode", getDiffusionMemoryMode(ApplicationProvider.get()))
-        }
         nativePtr = initNative(
             configPath,
-            Gson().toJson(configMap)
+            DiffusionLoadConfigResolver.buildExtraConfigJson(modelId, configPath)
         )
         Log.d(TAG, "DiffusionSession load nativePtr=$nativePtr configPath=$configPath")
         if (releaseRequested) {

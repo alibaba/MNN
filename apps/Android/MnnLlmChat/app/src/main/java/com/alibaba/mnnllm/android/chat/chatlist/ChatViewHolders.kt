@@ -7,7 +7,6 @@ import android.content.Intent
 import android.text.TextUtils
 import android.util.Log
 import android.view.MenuItem
-import android.view.MotionEvent
 import android.view.View
 import android.view.View.OnLongClickListener
 import android.widget.Button
@@ -33,6 +32,10 @@ import com.alibaba.mnnllm.android.utils.UiUtils
 import com.alibaba.mnnllm.android.widgets.FullScreenImageViewer
 import com.alibaba.mnnllm.android.widgets.PopupWindowHelper
 import io.noties.markwon.Markwon
+import io.noties.markwon.ext.latex.JLatexMathPlugin
+import io.noties.markwon.ext.latex.JLatexMathTheme
+import io.noties.markwon.ext.tables.TablePlugin
+import io.noties.markwon.inlineparser.MarkwonInlineParserPlugin
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import java.util.Locale
 
@@ -193,35 +196,40 @@ object ChatViewHolders {
         private val replayAudioButton: View = view.findViewById(R.id.btn_replay_audio)
         private val shareImageButton: View = view.findViewById(R.id.btn_share_image)
 
-        private val markdown = Markwon.create(itemView.context)
+        private val markdown = Markwon.builder(itemView.context)
+            .usePlugin(MarkwonInlineParserPlugin.create { builder ->
+                // Add custom LaTeX processor for single dollar sign $...$
+                // JLatexMathPlugin will add its own processor for $$...$$
+                builder.addInlineProcessor(LatexInlineProcessor())
+            })
+            .usePlugin(TablePlugin.create(itemView.context))
+            .usePlugin(JLatexMathPlugin.create(viewText.textSize, viewText.textSize) { builder ->
+                builder.inlinesEnabled(true)
+            })
+            .build()
         var viewAssistantLoading: View =
             view.findViewById(R.id.view_assistant_loading)
-
-        private var lastTouchX = 0
-        private var lastTouchY = 0
 
         init {
             viewText.setOnLongClickListener(this)
             viewThinking.setOnLongClickListener(this)
-            viewText.setOnTouchListener { v, event ->
-                if (event.action == MotionEvent.ACTION_DOWN) {
-                    updatePointerDownLocation(v, event)
-                }
-                false
-            }
-            viewThinking.setOnTouchListener { v, event ->
-                if (event.action == MotionEvent.ACTION_DOWN) {
-                    updatePointerDownLocation(v, event)
-                }
-                false
-            }
             imageGenerated.setOnClickListener(this)
             imageGenerated.setOnLongClickListener(this)
             thinkingToggle.setOnClickListener {
                 val chatDataItem = it.tag as ChatDataItem
                 chatDataItem.toggleThinking()
                 updateThinkingView(chatDataItem, itemView.context)
-                markdown.setMarkdown(viewText, chatDataItem.displayText!!)
+                
+                if (AssistantTextRenderPolicy.usePlainText(chatDataItem)) {
+                    viewText.text = chatDataItem.displayText
+                } else {
+                    val streamText = if (chatDataItem.loading) {
+                        preprocessStreamingMarkdown(chatDataItem.displayText ?: "", true)
+                    } else {
+                        chatDataItem.displayText ?: ""
+                    }
+                    markdown.setMarkdown(viewText, streamText)
+                }
             }
 
             // Setup action buttons
@@ -263,11 +271,37 @@ object ChatViewHolders {
         }
 
 
-        private fun  updatePointerDownLocation(v:View, event: MotionEvent) {
-            val location = IntArray(2)
-            v.getLocationOnScreen(location)
-            lastTouchX = location[0] + event.x.toInt()
-            lastTouchY = location[1] + event.y.toInt()
+        private fun preprocessStreamingMarkdown(text: String, isStreaming: Boolean): String {
+            if (!isStreaming) return text
+            
+            // Count occurrences to check if we are inside a latex block
+            var inInlineMath = false
+            var inBlockMath = false
+            var i = 0
+            while (i < text.length) {
+                if (i < text.length - 1 && text[i] == '$' && text[i+1] == '$') {
+                    if (!inInlineMath) {
+                        inBlockMath = !inBlockMath
+                    }
+                    i += 2
+                } else if (text[i] == '$') {
+                    // simple heuristic: don't toggle inline math if we are inside block math
+                    if (!inBlockMath) {
+                        inInlineMath = !inInlineMath
+                    }
+                    i += 1
+                } else {
+                    i += 1
+                }
+            }
+            
+            var result = text
+            if (inBlockMath) {
+                result += "\n\$\$"
+            } else if (inInlineMath) {
+                result += "$"
+            }
+            return result
         }
 
         fun bind(data: ChatDataItem, modelName: String?, payloads: List<Any?>?) {
@@ -292,15 +326,20 @@ object ChatViewHolders {
             }
 
             updateThinkingView(data, itemView.context)
-            if (TextUtils.isEmpty(data.displayText)) {
-                viewText.visibility = View.GONE
+            if (AssistantTextRenderPolicy.usePlainText(data)) {
+                viewText.text = data.displayText
             } else {
-                if (AssistantTextRenderPolicy.usePlainText(data)) {
-                    viewText.text = data.displayText
+                val streamText = if (data.loading) {
+                    preprocessStreamingMarkdown(data.displayText ?: "", true)
                 } else {
-                    markdown.setMarkdown(viewText, data.displayText!!)
+                    data.displayText ?: ""
                 }
-                viewText.visibility = View.VISIBLE
+                if (streamText.isEmpty()) {
+                    viewText.visibility = View.GONE
+                } else {
+                    viewText.visibility = View.VISIBLE
+                    markdown.setMarkdown(viewText, streamText)
+                }
             }
 
             viewAssistantLoading.visibility = if (AssistantLoadingVisibilityDecider.shouldShow(data)) {
@@ -390,7 +429,7 @@ object ChatViewHolders {
             val textView = v as? TextView ?: return false
             v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
             PopupWindowHelper().showPopupWindow(
-                v.getContext(), v, this.lastTouchX, this.lastTouchY
+                v.getContext(), v
             ) { v ->
                 if (v.id == R.id.assistant_text_copy) {
                     UiUtils.copyText(itemView.context, textView)

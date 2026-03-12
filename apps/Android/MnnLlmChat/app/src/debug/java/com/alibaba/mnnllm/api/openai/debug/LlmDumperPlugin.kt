@@ -1,25 +1,42 @@
 package com.alibaba.mnnllm.api.openai.debug
 
+import android.util.Pair
+import com.alibaba.mnnllm.android.llm.GenerateProgressListener
 import com.alibaba.mnnllm.api.openai.di.ServiceLocator
 import com.alibaba.mnnllm.api.openai.runtime.EnsureSessionResult
 import com.facebook.stetho.dumpapp.DumperContext
 import com.facebook.stetho.dumpapp.DumperPlugin
 import java.io.PrintStream
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+
+internal data class LlmRunResult(
+    val success: Boolean,
+    val modelId: String? = null,
+    val reason: String? = null,
+    val response: String = "",
+    val stage: String = "unknown",
+    val submitReturned: Boolean = false,
+    val chunkCount: Int = 0,
+    val completionReceived: Boolean = false,
+    val elapsedMs: Long = 0L
+)
 
 internal interface LlmDebugController {
-    fun ensureSession(modelId: String, forceReload: Boolean): EnsureSessionResult
+    fun ensureSession(modelId: String, forceReload: Boolean, useAppConfig: Boolean = false): EnsureSessionResult
     fun getModelId(): String?
     fun getThinkingEnabled(): Boolean?
     fun setThinkingEnabled(enabled: Boolean): Boolean
     fun hasSession(): Boolean
     fun releaseSession()
+    fun runPrompt(modelId: String, prompt: String, forceReload: Boolean, useAppConfig: Boolean = false): LlmRunResult
 }
 
 internal object DefaultLlmDebugController : LlmDebugController {
     private val runtime get() = ServiceLocator.getLlmRuntimeController()
 
-    override fun ensureSession(modelId: String, forceReload: Boolean): EnsureSessionResult {
-        return runtime.ensureSession(modelId, forceReload)
+    override fun ensureSession(modelId: String, forceReload: Boolean, useAppConfig: Boolean): EnsureSessionResult {
+        return runtime.ensureSession(modelId, forceReload, useAppConfig)
     }
 
     override fun getModelId(): String? = runtime.getActiveModelId()
@@ -34,6 +51,90 @@ internal object DefaultLlmDebugController : LlmDebugController {
 
     override fun releaseSession() {
         runtime.releaseSession()
+    }
+
+    override fun runPrompt(modelId: String, prompt: String, forceReload: Boolean, useAppConfig: Boolean): LlmRunResult {
+        val startedAt = System.currentTimeMillis()
+        val ensureResult = if (useAppConfig && !forceReload && runtime.getActiveSession() != null && runtime.getActiveModelId() == modelId) {
+            EnsureSessionResult(success = true, session = runtime.getActiveSession(), modelId = modelId)
+        } else {
+            runtime.ensureSession(modelId, forceReload, useAppConfig)
+        }
+        val session = ensureResult.session ?: runtime.getActiveSession()
+        if (!ensureResult.success || session == null) {
+            return LlmRunResult(
+                success = false,
+                modelId = ensureResult.modelId ?: modelId,
+                reason = ensureResult.reason ?: "SESSION_NOT_READY",
+                stage = "ensure",
+                elapsedMs = System.currentTimeMillis() - startedAt
+            )
+        }
+
+        val responseBuilder = StringBuilder()
+        val latch = CountDownLatch(1)
+        var chunkCount = 0
+        var completionReceived = false
+        var submitReturned = false
+
+        val listener = object : GenerateProgressListener {
+            override fun onProgress(progress: String?): Boolean {
+                if (progress != null) {
+                    chunkCount += 1
+                    responseBuilder.append(progress)
+                } else {
+                    completionReceived = true
+                    latch.countDown()
+                }
+                return false
+            }
+        }
+        return runCatching {
+            if (useAppConfig) {
+                session.generate(prompt, emptyMap(), listener)
+            } else {
+                session.submitFullHistory(listOf(Pair("user", prompt)), listener)
+            }
+            submitReturned = true
+
+            val completed = latch.await(60, TimeUnit.SECONDS)
+            if (!completed) {
+                return LlmRunResult(
+                    success = false,
+                    modelId = ensureResult.modelId ?: modelId,
+                    reason = "RUN_TIMEOUT",
+                    response = responseBuilder.toString(),
+                    stage = "await_completion",
+                    submitReturned = submitReturned,
+                    chunkCount = chunkCount,
+                    completionReceived = completionReceived,
+                    elapsedMs = System.currentTimeMillis() - startedAt
+                )
+            }
+
+            LlmRunResult(
+                success = true,
+                modelId = ensureResult.modelId ?: modelId,
+                response = responseBuilder.toString(),
+                stage = "completed",
+                submitReturned = submitReturned,
+                chunkCount = chunkCount,
+                completionReceived = completionReceived,
+                elapsedMs = System.currentTimeMillis() - startedAt
+            )
+        }.getOrElse {
+            LlmRunResult(
+                success = false,
+                modelId = ensureResult.modelId ?: modelId,
+                reason = "RUN_FAILED",
+                response = responseBuilder.toString(),
+                stage = if (submitReturned) "after_submit_exception" else "submit",
+                submitReturned = submitReturned,
+                chunkCount = chunkCount,
+                completionReceived = completionReceived,
+                elapsedMs = System.currentTimeMillis() - startedAt
+            )
+        }
     }
 }
 
@@ -55,6 +156,7 @@ internal class LlmDumperPlugin(
         when (args[0]) {
             "status" -> handleStatus(writer)
             "ensure" -> handleEnsure(writer, args.drop(1))
+            "run" -> handleRun(writer, args.drop(1))
             "thinking" -> handleThinking(writer, args.drop(1))
             "release" -> handleRelease(writer)
             else -> printUsage(writer)
@@ -96,6 +198,47 @@ internal class LlmDumperPlugin(
         writer.println("SESSION_SOURCE=service_runtime")
         writer.println("MODEL_ID=${result.modelId ?: modelId}")
         writer.println("THINKING_ENABLED=${controller.getThinkingEnabled() ?: "unknown"}")
+    }
+
+    private fun handleRun(writer: PrintStream, args: List<String>) {
+        val forceReload = args.any { it == "--force-reload" }
+        val useAppConfig = args.any { it == "--use-app-config" }
+        val positionalArgs = args.filterNot { it == "--force-reload" || it == "--use-app-config" }
+        if (positionalArgs.size < 2) {
+            writer.println("RESULT=FAIL")
+            writer.println("REASON=MISSING_MODEL_ID_OR_PROMPT")
+            writer.println("USAGE=dumpapp llm run <modelId> <prompt> [--force-reload] [--use-app-config]")
+            return
+        }
+
+        val modelId = positionalArgs[0]
+        val prompt = positionalArgs.drop(1).joinToString(" ")
+        val result = controller.runPrompt(modelId, prompt, forceReload, useAppConfig)
+        if (!result.success) {
+            writer.println("RESULT=FAIL")
+            writer.println("MODEL_ID=${result.modelId ?: modelId}")
+            writer.println("REASON=${result.reason ?: "RUN_FAILED"}")
+            writer.println("STAGE=${result.stage}")
+            writer.println("SUBMIT_RETURNED=${result.submitReturned}")
+            writer.println("CHUNK_COUNT=${result.chunkCount}")
+            writer.println("COMPLETION_RECEIVED=${result.completionReceived}")
+            writer.println("ELAPSED_MS=${result.elapsedMs}")
+            writer.println("PARTIAL_RESPONSE_LEN=${result.response.length}")
+            return
+        }
+
+        writer.println("RESULT=OK")
+        writer.println("SESSION_PRESENT=true")
+        writer.println("SESSION_SOURCE=service_runtime")
+        writer.println("MODEL_ID=${result.modelId ?: modelId}")
+        writer.println("STAGE=${result.stage}")
+        writer.println("SUBMIT_RETURNED=${result.submitReturned}")
+        writer.println("CHUNK_COUNT=${result.chunkCount}")
+        writer.println("COMPLETION_RECEIVED=${result.completionReceived}")
+        writer.println("ELAPSED_MS=${result.elapsedMs}")
+        writer.println("RESPONSE_BEGIN")
+        writer.println(result.response)
+        writer.println("RESPONSE_END")
     }
 
     private fun handleThinking(writer: PrintStream, args: List<String>) {
@@ -192,6 +335,7 @@ internal class LlmDumperPlugin(
         writer.println("Commands:")
         writer.println("  status                               Show service-runtime session status")
         writer.println("  ensure <modelId> [--force-reload]    Ensure runtime session for model")
+        writer.println("  run <modelId> <prompt> [--force-reload] [--use-app-config]  Run prompt via LlmSession")
         writer.println("  thinking get                          Get runtime thinking mode")
         writer.println("  thinking set <on|off>                Set runtime thinking mode")
         writer.println("  release                              Release runtime session")

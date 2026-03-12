@@ -1,5 +1,6 @@
 package com.alibaba.mnnllm.android.debug
 
+import android.content.Context
 import com.alibaba.mnnllm.android.modelist.ModelListManager
 import com.alibaba.mnnllm.android.modelist.ModelItemWrapper
 import com.alibaba.mnnllm.android.modelmarket.TagMapper
@@ -15,6 +16,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import com.alibaba.mls.api.ApplicationProvider
+import com.alibaba.mnnllm.android.R
 import java.io.File
 import java.nio.file.Files
 
@@ -206,6 +208,26 @@ class ModelListDumperPlugin internal constructor(
     }
 
     /**
+     * Source label for My Models tag (ModelScope, HuggingFace, Modelers, Builtin).
+     * Mirrors ModelItemHolder.getModelSource() for dumpapp debugging.
+     */
+    private fun getSourceLabel(modelId: String?, isLocal: Boolean): String {
+        if (isLocal || modelId == null || modelId == "unknown") return "(local)"
+        val ctx = runCatching { ApplicationProvider.get() as? Context }.getOrNull()
+        val huggingfaceLabel = ctx?.getString(R.string.huggingface) ?: "HuggingFace"
+        val modelscopeLabel = ctx?.getString(R.string.modelscope) ?: "ModelScope"
+        val modelersLabel = ctx?.getString(R.string.modelers) ?: "Modelers"
+        val builtinLabel = ctx?.getString(R.string.builtin) ?: "Builtin"
+        return when {
+            modelId.startsWith("HuggingFace/") || modelId.contains("taobao-mnn") -> huggingfaceLabel
+            modelId.startsWith("ModelScope/") -> modelscopeLabel
+            modelId.startsWith("Modelers/") -> modelersLabel
+            modelId.startsWith("Builtin/") -> builtinLabel
+            else -> "(none)"
+        }
+    }
+
+    /**
      * Print a single model item in a format matching the UI display.
      */
     private fun printModelItem(writer: PrintStream, index: Int, wrapper: ModelItemWrapper, verbose: Boolean) {
@@ -232,6 +254,7 @@ class ModelListDumperPlugin internal constructor(
 
         writer.println("[$index] $pinnedIndicator$modelName")
         writer.println("    ID: $modelId")
+        writer.println("    Source: ${wrapper.sourceTag ?: getSourceLabel(modelItem.modelId, wrapper.isLocal)}")
         writer.println("    Tags: ${displayTags.joinToString(", ").ifEmpty { "(none)" }}")
 
         if (sizeStr.isNotEmpty()) {
@@ -346,8 +369,10 @@ class ModelListDumperPlugin internal constructor(
 
         val tags = controller.getModelTags(modelId)
         val extraTags = controller.getExtraTags(modelId)
+        val isLocal = modelId.startsWith("local/")
         writer.println("Model: $modelId")
         writer.println("  modelName: ${model.modelName ?: ""}")
+        writer.println("  source: ${getSourceLabel(modelId, isLocal)}")
         writer.println("  tags: ${if (tags.isEmpty()) "[]" else tags.joinToString(prefix = "[", postfix = "]")}")
         writer.println("  extraTags: ${if (extraTags.isEmpty()) "[]" else extraTags.joinToString(prefix = "[", postfix = "]")}")
         writer.println("  isThinkingModel: ${controller.isThinkingModel(modelId)}")
@@ -369,8 +394,10 @@ class ModelListDumperPlugin internal constructor(
         modelEntries.forEach { (modelId, model) ->
             val tags = controller.getModelTags(modelId)
             val extraTags = controller.getExtraTags(modelId)
+            val isLocal = modelId.startsWith("local/")
             writer.println("  - $modelId")
             writer.println("    modelName: ${model.modelName ?: ""}")
+            writer.println("    source: ${getSourceLabel(modelId, isLocal)}")
             writer.println("    tags: ${if (tags.isEmpty()) "[]" else tags.joinToString(prefix = "[", postfix = "]")}")
             writer.println("    extraTags: ${if (extraTags.isEmpty()) "[]" else extraTags.joinToString(prefix = "[", postfix = "]")}")
         }

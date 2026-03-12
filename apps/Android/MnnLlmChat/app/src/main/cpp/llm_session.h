@@ -28,7 +28,10 @@ class LlmSession {
 public:
     LlmSession(std::string, json config, json extra_config, std::vector<std::string> string_history);
     void Reset();
-    void Load();
+    bool Load();
+    bool isModelReady() const { return llm_ != nullptr && model_loaded_; }
+    /** Last error message when Load() fails. Cleared on success. */
+    const std::string& getLastLoadError() const { return last_load_error_; }
     ~LlmSession();
     std::string getDebugInfo();
     void SetWavformCallback(std::function<bool(const float*, size_t, bool)> callback);
@@ -145,11 +148,13 @@ private:
     bool keep_history_{true};
     std::vector<float> waveform{};
     Llm* llm_{nullptr};
+    bool model_loaded_{false};
     std::string prompt_string_for_debug{};
     int max_new_tokens_{2048};
     std::string system_prompt_;
     json current_config_{};
     bool enable_audio_output_{false};
+    std::string last_load_error_{};
 };
 }
 

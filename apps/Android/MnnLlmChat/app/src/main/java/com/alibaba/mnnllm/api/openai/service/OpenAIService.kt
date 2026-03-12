@@ -2,10 +2,8 @@ package com.alibaba.mnnllm.api.openai.service
 
 import android.Manifest
 import android.app.Service
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Binder
@@ -16,16 +14,22 @@ import com.alibaba.mnnllm.android.chat.ChatActivity
 import com.alibaba.mnnllm.api.openai.di.ServiceLocator
 import com.alibaba.mnnllm.api.openai.manager.ApiNotificationManager
 import com.alibaba.mnnllm.api.openai.manager.CurrentModelManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import timber.log.Timber
 
 class OpenAIService : Service() {
     private val TAG = this::class.java.simpleName
     private lateinit var coordinator: ApiServiceCoordinator
     private var currentModelId: String? = null
+    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var startRequestCount: Int = 0
 
     companion object {
         private var isServiceRunning = false
-        private var serviceConnection: ServiceConnection? = null
         private var activeInstance: OpenAIService? = null
 
         fun getInstance(): OpenAIService? = activeInstance
@@ -68,22 +72,6 @@ class OpenAIService : Service() {
                 isServiceRunning = false
                 return
             }
-
-            val connection = object : ServiceConnection {
-                override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
-                    val localBinder = binder as LocalBinder
-                    localBinder.initialize()
-                    serviceConnection = this
-                }
-
-                override fun onServiceDisconnected(name: ComponentName?) {
-                    serviceConnection = null
-                    isServiceRunning = false
-                }
-            }
-
-            context.bindService(serviceIntent, connection, Context.BIND_AUTO_CREATE)
-            serviceConnection = connection
         }
 
         /** * releaseserviceresourceandstopservice * * @param context contextobject * @param force whetherforcestop，defaultasfalse*/
@@ -113,25 +101,6 @@ class OpenAIService : Service() {
                 }
             }
 
-            serviceConnection?.let { conn ->
-                try {
-                    context.unbindService(conn)
-                    Timber.tag("ServiceRelease").i("Unbound successfully")
-                } catch (e: Exception) {
-                    Timber.tag("ServiceRelease").w(e, "Failed to unbind service")
-                    if (force) {
-                        try {
-                            context.unbindService(conn)
-                            Timber.tag("ServiceRelease").w("Force unbind succeeded")
-                        } catch (e: Exception) {
-                            Timber.tag("ServiceRelease").e(e, "Force unbind also failed")
-                        }
-                    }
-                } finally {
-                    serviceConnection = null
-                }
-            }
-
             isServiceRunning = false
             Timber.tag("ServiceLifecycle").i("OpenAIService resources released")
         }
@@ -141,6 +110,7 @@ class OpenAIService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         isServiceRunning = true
+        startRequestCount += 1
 
         val previousModelId = currentModelId
         val requestedModelId = intent?.getStringExtra("modelId")
@@ -159,12 +129,15 @@ class OpenAIService : Service() {
             }
         }
 
+        // Run startServer off main thread to avoid ANR: ensureSession (llmSession.load) is heavy
         val startModelId = if (!requestedModelId.isNullOrBlank()) requestedModelId else currentModelId
-        val startSuccess = coordinator.startServer(startModelId)
-        if (!startSuccess && !requestedModelId.isNullOrBlank()) {
-            currentModelId = previousModelId
-            syncCurrentModelManager(previousModelId)
-            Timber.tag(TAG).w("Failed to switch service runtime model, rolled back to previous modelId: $previousModelId")
+        serviceScope.launch {
+            val startSuccess = coordinator.startServer(startModelId)
+            if (!startSuccess && !requestedModelId.isNullOrBlank()) {
+                currentModelId = previousModelId
+                syncCurrentModelManager(previousModelId)
+                Timber.tag(TAG).w("Failed to switch service runtime model, rolled back to previous modelId: $previousModelId")
+            }
         }
         return START_NOT_STICKY
     }
@@ -183,6 +156,7 @@ class OpenAIService : Service() {
 
     override fun onDestroy() {
         Timber.tag(TAG).i("Service is being destroyed")
+        serviceScope.cancel()
         cleanup()
         if (activeInstance == this) {
             activeInstance = null
@@ -197,7 +171,6 @@ class OpenAIService : Service() {
 
     inner class LocalBinder : Binder() {
         fun getService(): OpenAIService = this@OpenAIService
-        fun initialize() = this@OpenAIService.initializeWithSession()
     }
 
 
@@ -229,15 +202,6 @@ class OpenAIService : Service() {
             Timber.tag(TAG).i("Service cleanup completed")
         }
     }
-
-
-    fun initializeWithSession() {
-        val success = coordinator.startServer(currentModelId)
-        if (!success) {
-            Timber.tag(TAG).w("Failed to start server through coordinator")
-        }
-    }
-
     fun updateNotification(contentTitle: String, contentText: String) {
         coordinator.updateNotification(contentTitle, contentText)
     }
@@ -247,6 +211,10 @@ class OpenAIService : Service() {
     fun isServerRunning(): Boolean = coordinator.isServerRunning
     
     fun getCurrentModelId(): String? = currentModelId
+
+    fun getBootstrapCount(): Int = coordinator.getBootstrapCount()
+
+    fun getStartRequestCount(): Int = startRequestCount
 
     private fun syncCurrentModelManager(modelId: String?) {
         if (modelId.isNullOrBlank()) {

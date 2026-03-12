@@ -190,9 +190,22 @@ data class ModelConfig(
             return null
         }
 
+        /** Keys that must not be overwritten by empty string - model paths and backend from config.json */
+        private val PROTECTED_KEYS = setOf("llm_model", "llm_weight", "backend_type")
+
         private fun mergeJson(original: JsonObject, override: JsonObject) {
             for (key in override.keySet()) {
-                original.add(key, override.get(key))
+                val overrideVal = override.get(key)
+                // Don't let empty string overwrite model paths - custom_config may have saved
+                // defaultConfig's empty llm_model/llm_weight, which would break model load
+                if (key in PROTECTED_KEYS && overrideVal.isJsonPrimitive &&
+                    overrideVal.asJsonPrimitive.isString && overrideVal.asString.isBlank() &&
+                    original.has(key) && original.get(key).isJsonPrimitive &&
+                    original.get(key).asJsonPrimitive.isString && original.get(key).asString.isNotBlank()
+                ) {
+                    continue
+                }
+                original.add(key, overrideVal)
             }
         }
 
@@ -250,7 +263,7 @@ data class ModelConfig(
         val defaultConfig:ModelConfig = ModelConfig (
             llmModel = "",
             llmWeight = "",
-            backendType = "",
+            backendType = null,
             threadNum = 4,
             precision = "low",
             memory = "",

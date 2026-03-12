@@ -4,6 +4,7 @@ import android.net.Uri
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.ImageView
+import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.chat.input.ImagePreviewAdapter
@@ -33,6 +34,13 @@ class ImagePreviewAdapterTest {
         @Suppress("UNCHECKED_CAST")
         mockDeleteCallback = Mockito.mock(Function1::class.java) as (Uri) -> Unit
         adapter = ImagePreviewAdapter(mockDeleteCallback)
+    }
+
+    private fun createParentRecyclerView(): RecyclerView {
+        val context = RuntimeEnvironment.getApplication()
+        return RecyclerView(context).apply {
+            layoutManager = LinearLayoutManager(context)
+        }
     }
 
     @Test
@@ -186,8 +194,7 @@ class ImagePreviewAdapterTest {
     @Test
     fun `test onCreateViewHolder creates correct ViewHolder`() {
         // Given
-        val context = RuntimeEnvironment.getApplication()
-        val parent = RecyclerView(context)
+        val parent = createParentRecyclerView()
 
         // When
         val viewHolder = adapter.onCreateViewHolder(parent, 0)
@@ -201,8 +208,7 @@ class ImagePreviewAdapterTest {
     fun `test onBindViewHolder binds image URI`() {
         // Given
         adapter.addImage(testUri1)
-        val context = RuntimeEnvironment.getApplication()
-        val parent = RecyclerView(context)
+        val parent = createParentRecyclerView()
         val viewHolder = adapter.onCreateViewHolder(parent, 0)
 
         // When
@@ -219,8 +225,7 @@ class ImagePreviewAdapterTest {
     fun `test ViewHolder delete button triggers callback`() {
         // Given
         adapter.addImage(testUri1)
-        val context = RuntimeEnvironment.getApplication()
-        val parent = RecyclerView(context)
+        val parent = createParentRecyclerView()
         val viewHolder = adapter.onCreateViewHolder(parent, 0)
         adapter.onBindViewHolder(viewHolder, 0)
 
@@ -237,8 +242,7 @@ class ImagePreviewAdapterTest {
     fun `test ViewHolder fallback click triggers callback when no delete button`() {
         // Given
         adapter.addImage(testUri1)
-        val context = RuntimeEnvironment.getApplication()
-        val parent = RecyclerView(context)
+        val parent = createParentRecyclerView()
         val viewHolder = adapter.onCreateViewHolder(parent, 0)
         adapter.onBindViewHolder(viewHolder, 0)
 

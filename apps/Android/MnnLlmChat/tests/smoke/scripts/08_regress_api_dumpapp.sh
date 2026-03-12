@@ -9,6 +9,7 @@ PACKAGE_NAME="${PACKAGE_NAME:-com.alibaba.mnnllm.android}"
 DEFAULT_PREFS_PATH="${DEFAULT_PREFS_PATH:-${PACKAGE_NAME}_preferences}"
 API_BOOTSTRAP_MODEL_ID="${API_BOOTSTRAP_MODEL_ID:-ModelScope/MNN/Qwen3.5-0.8B-MNN}"
 OPENAI_SERVICE="${OPENAI_SERVICE:-$PACKAGE_NAME/com.alibaba.mnnllm.api.openai.service.OpenAIService}"
+MAIN_ACTIVITY="${MAIN_ACTIVITY:-$PACKAGE_NAME/com.alibaba.mnnllm.android.main.MainActivity}"
 CURL_CONNECT_TIMEOUT="${CURL_CONNECT_TIMEOUT:-5}"
 CURL_MAX_TIME="${CURL_MAX_TIME:-30}"
 LAN_HOST="${LAN_HOST:-}"
@@ -30,6 +31,7 @@ mkdir -p "$OUT_DIR"
 STATUS_LOG="$OUT_DIR/openai_status.log"
 PREFS_LOG="$OUT_DIR/prefs.log"
 LLM_ENSURE_LOG="$OUT_DIR/llm_ensure.log"
+LLM_RUN_USE_APP_CONFIG_LOG="$OUT_DIR/llm_run_use_app_config.log"
 LLM_THINKING_GET_LOG="$OUT_DIR/llm_thinking_get.log"
 LLM_THINKING_SET_ON_LOG="$OUT_DIR/llm_thinking_set_on.log"
 LLM_THINKING_SET_OFF_LOG="$OUT_DIR/llm_thinking_set_off.log"
@@ -67,7 +69,13 @@ ANTHROPIC_COMPAT_SYSTEM_ARRAY_PAYLOAD_FILE="$OUT_DIR/anthropic_compat_system_arr
 THINKING_CONFIG_SWITCH="FAIL"
 THINKING_RESPONSE_SWITCH="FAIL"
 THINKING_MODE_REGRESSION="FAIL"
+API_DUPLICATE_START_REGRESSION="FAIL"
 ACTIVITY_FALLBACK_USED="false"
+
+ensure_dumpapp_process() {
+  adb shell am start -W -n "$MAIN_ACTIVITY" >"$OUT_DIR/launch_main_activity.log" 2>&1 || true
+  sleep 2
+}
 
 run_openai_service_with_model() {
   adb shell am start-foreground-service -n "$OPENAI_SERVICE" --es modelId "$API_BOOTSTRAP_MODEL_ID" \
@@ -90,6 +98,23 @@ refresh_status() {
       return 0
     fi
     sleep 1
+  done
+  return 1
+}
+
+# Wait for INTERNAL_RUNNING=true (server started via async coroutine in OpenAIService)
+wait_for_server_ready() {
+  local max_wait="${API_SERVER_START_TIMEOUT:-30}"
+  local waited=0
+  while [ "$waited" -lt "$max_wait" ]; do
+    "$DUMPAPP" openai status >"$STATUS_LOG" 2>&1 || true
+    local internal
+    internal="$(awk -F': ' '/Is Running \(Internal\)/ {print tolower($2); exit}' "$STATUS_LOG" | tr -d '\r' || true)"
+    if [ "$internal" = "true" ]; then
+      return 0
+    fi
+    sleep 2
+    waited=$((waited + 2))
   done
   return 1
 }
@@ -118,6 +143,9 @@ write_fail_summary() {
     echo "THINKING_CONFIG_SWITCH=$THINKING_CONFIG_SWITCH"
     echo "THINKING_RESPONSE_SWITCH=$THINKING_RESPONSE_SWITCH"
     echo "THINKING_MODE_REGRESSION=$THINKING_MODE_REGRESSION"
+    echo "API_DUPLICATE_START_REGRESSION=$API_DUPLICATE_START_REGRESSION"
+    echo "START_REQUEST_COUNT=${START_REQUEST_COUNT:-unknown}"
+    echo "BOOTSTRAP_COUNT=${BOOTSTRAP_COUNT:-unknown}"
     echo "ACTIVITY_FALLBACK_USED=$ACTIVITY_FALLBACK_USED"
     echo "LISTENER_PRESENT=${LISTENER_PRESENT:-unknown}"
     echo "LISTENER_NON_LOOPBACK=${LISTENER_NON_LOOPBACK:-unknown}"
@@ -129,6 +157,8 @@ write_fail_summary() {
 
 collect_openai_diag() {
   "$DUMPAPP" openai diag >"$DIAG_LOG" 2>&1 || true
+  START_REQUEST_COUNT="$(awk -F= '/^START_REQUEST_COUNT=/{print $2; exit}' "$DIAG_LOG" | tr -d '\r' || true)"
+  BOOTSTRAP_COUNT="$(awk -F= '/^BOOTSTRAP_COUNT=/{print $2; exit}' "$DIAG_LOG" | tr -d '\r' || true)"
   LISTENER_PRESENT="$(awk -F= '/^LISTENER_PRESENT=/{print tolower($2); exit}' "$DIAG_LOG" | tr -d '\r' || true)"
   LISTENER_NON_LOOPBACK="$(awk -F= '/^LISTENER_NON_LOOPBACK=/{print tolower($2); exit}' "$DIAG_LOG" | tr -d '\r' || true)"
 
@@ -158,6 +188,24 @@ collect_openai_diag() {
       fi
     } >>"$DIAG_LOG"
   fi
+}
+
+verify_duplicate_start_regression() {
+  collect_openai_diag
+  if [ -z "${START_REQUEST_COUNT:-}" ] || [ -z "${BOOTSTRAP_COUNT:-}" ]; then
+    API_DUPLICATE_START_REGRESSION="FAIL"
+    return 1
+  fi
+  if [ "${START_REQUEST_COUNT:-0}" -lt 2 ]; then
+    API_DUPLICATE_START_REGRESSION="FAIL"
+    return 1
+  fi
+  if [ "${BOOTSTRAP_COUNT:-0}" != "1" ]; then
+    API_DUPLICATE_START_REGRESSION="FAIL"
+    return 1
+  fi
+  API_DUPLICATE_START_REGRESSION="PASS"
+  return 0
 }
 
 ensure_api_network_service_enabled() {
@@ -388,6 +436,7 @@ run_thinking_mode_regression() {
   [ "$THINKING_MODE_REGRESSION" = "PASS" ]
 }
 
+ensure_dumpapp_process
 stop_openai_service
 ensure_api_network_service_enabled
 ensure_lan_bind_ip
@@ -399,16 +448,23 @@ ensure_api_network_service_enabled
 ensure_lan_bind_ip
 ensure_cors_enabled_for_preflight
 
-echo "[API_DUMPAPP] start service with model"
-run_openai_service_with_model
-
-echo "[API_DUMPAPP] ensure runtime session without Activity fallback"
+# CRITICAL: ensure session BEFORE starting service. Otherwise Service.onStartCommand runs
+# coordinator.startServer() which calls ensureSession() on main thread -> llmSession.load()
+# blocks main thread -> ANR. With session pre-created, startServer uses getActiveSession()
+# and avoids heavy work on main thread.
+echo "[API_DUMPAPP] ensure runtime session BEFORE starting service (avoids ANR)"
 ensure_runtime_session
 
-echo "[API_DUMPAPP] trigger openai start after runtime ensure"
+echo "[API_DUMPAPP] start service with model (session already exists)"
+run_openai_service_with_model
+
+echo "[API_DUMPAPP] trigger openai start via plugin (redundant if adb start succeeded)"
 "$DUMPAPP" openai start >"$OUT_DIR/start.log" 2>&1 || true
 
 refresh_status || true
+# startServer runs async (off main thread); wait for INTERNAL_RUNNING=true
+echo "[API_DUMPAPP] waiting for async server start (INTERNAL_RUNNING=true)..."
+wait_for_server_ready || true
 parse_status_fields
 
 if [ -z "${PORT:-}" ]; then
@@ -420,6 +476,20 @@ fi
 if [ "${INTERNAL_RUNNING:-}" != "true" ]; then
   echo "openai service is not internally running after runtime ensure; status: $STATUS_LOG" >&2
   write_fail_summary "NO_ACTIVE_LLM_SESSION"
+  exit 1
+fi
+
+if ! verify_duplicate_start_regression; then
+  echo "duplicate openai service start regression failed; see $DIAG_LOG" >&2
+  write_fail_summary "DUPLICATE_START_REGRESSION_FAILED"
+  exit 1
+fi
+
+echo "[API_DUMPAPP] llm run with --use-app-config"
+"$DUMPAPP" llm run "$API_BOOTSTRAP_MODEL_ID" "hi" --use-app-config >"$LLM_RUN_USE_APP_CONFIG_LOG" 2>&1 || true
+if ! rg -q '^RESULT=OK$' "$LLM_RUN_USE_APP_CONFIG_LOG"; then
+  echo "[API_DUMPAPP] llm run --use-app-config failed, log: $LLM_RUN_USE_APP_CONFIG_LOG" >&2
+  write_fail_summary "LLM_RUN_USE_APP_CONFIG_FAILED"
   exit 1
 fi
 
@@ -664,6 +734,9 @@ fi
   echo "THINKING_CONFIG_SWITCH=$THINKING_CONFIG_SWITCH"
   echo "THINKING_RESPONSE_SWITCH=$THINKING_RESPONSE_SWITCH"
   echo "THINKING_MODE_REGRESSION=$THINKING_MODE_REGRESSION"
+  echo "API_DUPLICATE_START_REGRESSION=$API_DUPLICATE_START_REGRESSION"
+  echo "START_REQUEST_COUNT=${START_REQUEST_COUNT:-unknown}"
+  echo "BOOTSTRAP_COUNT=${BOOTSTRAP_COUNT:-unknown}"
   echo "ACTIVITY_FALLBACK_USED=$ACTIVITY_FALLBACK_USED"
   echo "LISTENER_PRESENT=${LISTENER_PRESENT:-unknown}"
   echo "LISTENER_NON_LOOPBACK=${LISTENER_NON_LOOPBACK:-unknown}"

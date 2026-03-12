@@ -2,6 +2,7 @@ package com.alibaba.mnnllm.android.chat.voice
 
 import android.app.Activity
 import android.media.AudioManager
+import android.os.Looper
 import com.alibaba.mnnllm.android.chat.ChatPresenter
 import com.alibaba.mnnllm.android.chat.GenerateResultProcessor
 import com.alibaba.mnnllm.android.llm.ChatSession
@@ -13,7 +14,9 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowLooper
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28])
@@ -39,6 +42,12 @@ class VoiceChatPresenterTest {
     @After
     fun tearDown() {
         testScope.cancel()
+    }
+
+    private fun setBooleanField(fieldName: String, value: Boolean) {
+        val field = VoiceChatPresenter::class.java.getDeclaredField(fieldName)
+        field.isAccessible = true
+        field.setBoolean(presenter, value)
     }
 
     @Test
@@ -70,13 +79,30 @@ class VoiceChatPresenterTest {
     }
 
     @Test
-    fun `test stopGeneration triggers state and view`() {
+    fun `test stopGeneration enters stopping state when generation is active`() {
         every { mockChatPresenter.stopGenerate() } just Runs
         every { mockView.updateStatus(any()) } just Runs
+        setBooleanField("isProcessingLlm", true)
+        presenter.stopGeneration()
+        runBlocking { delay(700) }
+        ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+        shadowOf(Looper.getMainLooper()).runToEndOfTasks()
+        verify(timeout = 1000) { mockChatPresenter.stopGenerate() }
+        verify(timeout = 1000) { mockView.updateStatus(VoiceChatState.STOPPING) }
+    }
+
+    @Test
+    fun `test stopGeneration is noop when idle`() {
+        every { mockChatPresenter.stopGenerate() } just Runs
+        every { mockView.updateStatus(any()) } just Runs
+
         presenter.stopGeneration()
         runBlocking { delay(400) }
-        verify { mockView.updateStatus(VoiceChatState.STOPPING) }
-        verify { mockView.updateStatus(VoiceChatState.LISTENING) }
+        ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+        shadowOf(Looper.getMainLooper()).runToEndOfTasks()
+
+        verify(exactly = 0) { mockChatPresenter.stopGenerate() }
+        verify(exactly = 0) { mockView.updateStatus(any()) }
     }
 
     @Test

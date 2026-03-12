@@ -28,7 +28,8 @@ class LlmSession (
     override var sessionId: String,
     private val configPath: String,
     var savedHistory: List<ChatDataItem>?,
-    var backendType: String? = null
+    var backendType: String? = null,
+    private val useCustomConfig: Boolean = true
 ): ChatSession{
     override var supportOmni: Boolean = false
     private var nativePtr: Long = 0
@@ -69,7 +70,11 @@ class LlmSession (
                     .map { obj: String? -> obj!! }
                     .collect(Collectors.toList())
         }
-        val config = ModelConfig.loadMergedConfig(configPath, getExtraConfigFile(modelId))!!
+        val config = if (useCustomConfig) {
+            ModelConfig.loadMergedConfig(configPath, getExtraConfigFile(modelId))!!
+        } else {
+            ModelConfig.loadDefaultConfig(configPath)!!
+        }
         var rootCacheDir: String? = ""
         if (config.useMmap == true) {
             rootCacheDir = MmapUtils.getMmapDir(modelId)
@@ -80,7 +85,11 @@ class LlmSession (
             put("mmap_dir", rootCacheDir ?: "")
             put("keep_history", keepHistory)
         }
-        val llmConfig = ModelConfig.loadMergedConfig(configPath, getExtraConfigFile(modelId))!!
+        val llmConfig = if (useCustomConfig) {
+            ModelConfig.loadMergedConfig(configPath, getExtraConfigFile(modelId))!!
+        } else {
+            ModelConfig.loadDefaultConfig(configPath)!!
+        }
         // Override backend type from constructor only if not null
         if (backendType != null) {
             llmConfig.backendType = backendType
@@ -101,9 +110,20 @@ class LlmSession (
         )
         Log.d(TAG, "MNN_DEBUG load initNative end")
         modelLoading = false
+        if (nativePtr == 0L) {
+            Log.e(TAG, "Model load failed - native initialization returned null pointer")
+            throw IllegalStateException("Model load failed - the model module could not be loaded")
+        }
         if (releaseRequested) {
             release()
         }
+    }
+
+    /**
+     * Check if the model is successfully loaded and ready for inference
+     */
+    fun isModelLoaded(): Boolean {
+        return nativePtr != 0L
     }
     
     /**

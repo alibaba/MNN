@@ -23,6 +23,8 @@ object CrashReportContext {
     private const val KEY_LLM_SET_CONFIG_STAGE = "llm_set_config_stage"
     private const val KEY_LLM_SET_CONFIG_SOURCE_LEN = "llm_set_config_source_len"
     private const val KEY_LLM_SET_CONFIG_TRUNCATED = "llm_set_config_truncated"
+    private const val KEY_LLM_SET_CONFIG_USE_MMAP = "use_mmap"
+    private const val KEY_LLM_SET_CONFIG_BACKEND = "backend"
     private const val MAX_LLM_CONFIG_LOG_CHARS = 3000
     private val NON_LLM_CONFIG_KEYS = setOf(
         "diffusion_memory_mode",
@@ -109,6 +111,7 @@ object CrashReportContext {
     fun reportLlmSetConfig(stage: String?, config: String?) {
         val safeStage = stage?.takeIf { it.isNotBlank() } ?: "unknown"
         val sourceConfig = sanitizeLlmConfigForLog(config)
+        val crashKeys = extractLlmConfigCrashKeys(sourceConfig)
         val payload = buildLlmConfigLogPayload(
             stage = safeStage,
             config = sourceConfig,
@@ -118,6 +121,8 @@ object CrashReportContext {
             setCustomKey(KEY_LLM_SET_CONFIG_STAGE, safeStage)
             setCustomKey(KEY_LLM_SET_CONFIG_SOURCE_LEN, sourceConfig.length)
             setCustomKey(KEY_LLM_SET_CONFIG_TRUNCATED, sourceConfig.length > MAX_LLM_CONFIG_LOG_CHARS)
+            setCustomKey(KEY_LLM_SET_CONFIG_USE_MMAP, crashKeys.useMmap)
+            setCustomKey(KEY_LLM_SET_CONFIG_BACKEND, crashKeys.backend)
             log(payload)
         }
     }
@@ -171,6 +176,61 @@ object CrashReportContext {
         }
         return jsonObject.toString()
     }
+
+    internal fun extractLlmConfigCrashKeys(config: String?): LlmConfigCrashKeys {
+        val normalizedConfig = config?.takeIf { it.isNotBlank() } ?: "{}"
+        val parsed = runCatching { JsonParser.parseString(normalizedConfig) }.getOrNull()
+            ?: return LlmConfigCrashKeys(backend = "unknown", useMmap = false)
+        if (!parsed.isJsonObject) {
+            return LlmConfigCrashKeys(backend = "unknown", useMmap = false)
+        }
+
+        val jsonObject = parsed.asJsonObject
+        val backend = parseStringKey(jsonObject, "backend_type")
+            ?: parseStringKey(jsonObject, "backend")
+            ?: "unknown"
+        val useMmap = parseBooleanKey(jsonObject, "use_mmap")
+            ?: parseBooleanKey(jsonObject, "use_mma")
+            ?: false
+        return LlmConfigCrashKeys(backend = backend, useMmap = useMmap)
+    }
+
+    private fun parseStringKey(jsonObject: com.google.gson.JsonObject, key: String): String? {
+        val element = jsonObject.get(key) ?: return null
+        if (!element.isJsonPrimitive) {
+            return null
+        }
+        val primitive = element.asJsonPrimitive
+        return when {
+            primitive.isString -> primitive.asString.takeIf { it.isNotBlank() }
+            primitive.isNumber -> primitive.asNumber.toString()
+            primitive.isBoolean -> primitive.asBoolean.toString()
+            else -> null
+        }
+    }
+
+    private fun parseBooleanKey(jsonObject: com.google.gson.JsonObject, key: String): Boolean? {
+        val element = jsonObject.get(key) ?: return null
+        if (!element.isJsonPrimitive) {
+            return null
+        }
+        val primitive = element.asJsonPrimitive
+        return when {
+            primitive.isBoolean -> primitive.asBoolean
+            primitive.isNumber -> primitive.asInt != 0
+            primitive.isString -> when (primitive.asString.trim().lowercase()) {
+                "true", "1", "yes", "on" -> true
+                "false", "0", "no", "off" -> false
+                else -> null
+            }
+            else -> null
+        }
+    }
+
+    internal data class LlmConfigCrashKeys(
+        val backend: String,
+        val useMmap: Boolean
+    )
 
     private inline fun updateSafely(block: FirebaseCrashlytics.() -> Unit) {
         try {

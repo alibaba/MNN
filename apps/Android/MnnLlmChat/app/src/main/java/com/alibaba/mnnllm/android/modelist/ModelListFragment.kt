@@ -46,7 +46,10 @@ class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
 
     private var filterDownloaded = false
     private var filterQuery = ""
-    
+
+    /** Notified when downloaded models change so ModelMarketFragment can refresh. Set by MainFragmentManager. */
+    var onModelListChangeListener: OnModelListChangeListener? = null
+
     // Save current search query state  
     private var currentSearchQuery: String = ""
     
@@ -280,6 +283,14 @@ class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
         }
     }
 
+    /**
+     * Refresh filter state from PreferenceUtils after menu toggle. Called by MainActivity.
+     */
+    fun refreshFilterDownloadedState() {
+        filterDownloaded = PreferenceUtils.isFilterDownloaded(requireContext())
+        adapter?.filterDownloadState(filterDownloaded.toString())
+    }
+
     override fun onDestroyView() {
         super.onDestroyView()
         modelListPresenter!!.onDestroy()
@@ -296,6 +307,10 @@ class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
         if (adapter!!.itemCount > 0) {
             modelListRecyclerView.visibility = View.VISIBLE
             modelListEmptyView.visibility = View.GONE
+            // Force rebind after layout so tags display with correct locale on Chinese devices
+            view?.post {
+                adapter?.notifyItemRangeChanged(0, adapter?.itemCount ?: 0)
+            }
         } else {
             modelListRecyclerView.visibility = View.GONE
             modelListEmptyView.visibility = View.VISIBLE
@@ -325,6 +340,10 @@ class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
         requireActivity().runOnUiThread {
             loadingMessageText?.text = message
         }
+    }
+
+    override fun onModelDeletedFromList() {
+        onModelListChangeListener?.onDownloadedModelsChanged()
     }
 
     override fun runModel(destPath:String?, modelId: String?) {

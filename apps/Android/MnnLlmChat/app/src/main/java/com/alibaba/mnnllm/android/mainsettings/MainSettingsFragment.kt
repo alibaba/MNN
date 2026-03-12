@@ -27,6 +27,11 @@ import com.alibaba.mnnllm.android.utils.AppUtils
 import com.alibaba.mnnllm.api.openai.manager.ApiServiceManager
 import com.alibaba.mnnllm.api.openai.service.ApiServerConfig
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
 
 class MainSettingsFragment : Fragment() {
 
@@ -77,8 +82,8 @@ class MainSettingsFragment : Fragment() {
         }
 
         setupDownloadProvider(sharedPreferences)
-        setupDiffusionMemoryMode()
         setupVoiceModelManagement()
+        setupStorageManagement()
 
         binding.itemEnableApi.isChecked = MainSettings.isApiServiceEnabled(requireContext())
         binding.itemEnableApi.setOnCheckedChangeListener { isChecked ->
@@ -133,37 +138,16 @@ class MainSettingsFragment : Fragment() {
         binding.dropdownDownloadProvider.setCurrentItem(currentProvider)
     }
 
-    private fun setupDiffusionMemoryMode() {
-        val memoryModes = listOf(
-            DiffusionMemoryMode.MEMORY_MODE_SAVING.value,
-            DiffusionMemoryMode.MEMORY_MODE_ENOUGH.value,
-            DiffusionMemoryMode.MEMORY_MODE_BALANCE.value
-        )
-
-        fun memoryModeLabel(value: String): String {
-            return when (value) {
-                DiffusionMemoryMode.MEMORY_MODE_SAVING.value -> getString(R.string.diffusion_mode_memory_saving)
-                DiffusionMemoryMode.MEMORY_MODE_ENOUGH.value -> getString(R.string.diffusion_mode_memory_enough)
-                else -> getString(R.string.diffusion_mode_memory_balance)
-            }
-        }
-
-        val currentMode = MainSettings.getDiffusionMemoryMode(requireContext())
-        binding.dropdownDiffusionMemoryMode.setDropDownItems(
-            memoryModes,
-            itemToString = { memoryModeLabel(it as String) },
-            onDropdownItemSelected = { _, selected ->
-                val mode = selected as String
-                MainSettings.setDiffusionMemoryMode(requireContext(), mode)
-            }
-        )
-        binding.dropdownDiffusionMemoryMode.setCurrentItem(currentMode)
-    }
-
     private fun setupVoiceModelManagement() {
         binding.btnVoiceModelManagement.setOnClickListener {
             val sheet = com.alibaba.mnnllm.android.chat.voice.VoiceModelMarketBottomSheet.newInstance()
             sheet.show(childFragmentManager, "voice_model_market")
+        }
+    }
+
+    private fun setupStorageManagement() {
+        binding.btnStorageManagement.setOnClickListener {
+            startActivity(Intent(requireContext(), StorageManagementActivity::class.java))
         }
     }
 
@@ -175,13 +159,19 @@ class MainSettingsFragment : Fragment() {
                 .setPositiveButton(android.R.string.ok) { _, _ ->
                     ApiServerConfig.resetToDefault(requireContext())
                     if (MainSettings.isApiServiceEnabled(requireContext()) && ApiServiceManager.isApiServiceRunning()) {
-                        ApiServiceManager.stopApiService(requireContext())
-                        ApiServiceManager.startApiService(requireContext())
-                        Toast.makeText(
-                            requireContext(),
-                            getString(R.string.api_config_reset_service_restarted),
-                            Toast.LENGTH_LONG
-                        ).show()
+                        // Run stop/start off main thread to avoid ANR
+                        lifecycleScope.launch {
+                            withContext(Dispatchers.IO) {
+                                ApiServiceManager.stopApiService(requireContext())
+                                delay(500)
+                                ApiServiceManager.startApiService(requireContext())
+                            }
+                            Toast.makeText(
+                                requireContext(),
+                                getString(R.string.api_config_reset_service_restarted),
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
                     } else {
                         Toast.makeText(
                             requireContext(),
@@ -252,23 +242,28 @@ class MainSettingsFragment : Fragment() {
     }
 
     private fun setupUpdateAndVersion() {
-        binding.btnCheckUpdate.text = getString(
-            R.string.current_version_check_update,
-            AppUtils.getAppVersionName(requireContext())
-        )
-        binding.btnCheckUpdate.setOnClickListener {
-            handleDebugClick()
-            updateCheckRunnable?.let { debugClickHandler.removeCallbacks(it) }
-            updateCheckRunnable = Runnable {
-                updateChecker = UpdateChecker(requireContext())
-                updateChecker?.checkForUpdates(requireContext(), true)
+        if (com.alibaba.mnnllm.android.BuildConfig.IS_GOOGLE_PLAY_BUILD) {
+            binding.btnCheckUpdate.isClickable = false
+            binding.btnCheckUpdate.text = getString(R.string.current_version, AppUtils.getAppVersionName(requireContext()))
+        } else {
+            binding.btnCheckUpdate.text = getString(
+                R.string.current_version_check_update,
+                AppUtils.getAppVersionName(requireContext())
+            )
+            binding.btnCheckUpdate.setOnClickListener {
+                handleDebugClick()
+                updateCheckRunnable?.let { debugClickHandler.removeCallbacks(it) }
+                updateCheckRunnable = Runnable {
+                    updateChecker = UpdateChecker(requireContext())
+                    updateChecker?.checkForUpdates(requireContext(), true)
+                }
+                debugClickHandler.postDelayed(updateCheckRunnable!!, 1000L)
             }
-            debugClickHandler.postDelayed(updateCheckRunnable!!, 1000L)
         }
 
         try {
             val version = MNN.getVersion()
-            binding.tvMnnVersion.text = getString(R.string.mnn_version_summary, version)
+            binding.tvMnnVersion.text = version
         } catch (_: Exception) {
             binding.tvMnnVersion.text = "N/A"
         }

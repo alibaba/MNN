@@ -31,10 +31,12 @@ Key scripts:
 - `scripts/05_regress_qwen35_benchmark_ui.sh`: Qwen3.5 benchmark regression (UI only)
 - `scripts/05_regress_qwen35_benchmark.sh`: compatibility entry, delegates to UI benchmark script
 - `scripts/06_regress_chat_text_image.sh`: chat text + image-entry regression
+- `scripts/14_regress_streaming_table.sh`: markdown table rendering smoke via mock streaming content + screenshot evidence
 - `scripts/noui/08_regress_api_dumpapp.sh`: API compatibility + thinking-mode regression via dumpapp + curl (no-code)
 - `scripts/09_regress_api_uiautomator.sh`: API settings UiAutomator instrumentation test (code-based)
 - `scripts/noui/10_regress_sana_diffusion_dumpapp.sh`: Sana + Diffusion generation regression (dumpapp only)
 - `scripts/11_regress_sana_diffusion_uiautomator.sh`: Sana + Diffusion model-entry regression (UI + uiautomator)
+- `scripts/noui/13_regress_storage_dumpapp_smoke.sh`: **dumpapp storage** subcommand smoke (list/analysis/mmap/orphans/verify, integrity checks)
 - `scripts/07_generate_report.sh`: generates single-page `artifacts/report.html`
 
 ## Quick Start
@@ -72,6 +74,8 @@ Optional env vars:
 - `SANA_MODEL_PATH`: override model path for `10_regress_sana_diffusion_dumpapp.sh`
 - `DIFFUSION_MODEL_ID`: override model id for `10_regress_sana_diffusion_dumpapp.sh`
 - `THINKING_MAX_TOKENS`: max completion tokens for step `08_regress_api_dumpapp.sh` thinking probe (default: `16`)
+- `RUN_STORAGE_DUMPAPP_SMOKE`: set to `true` to run step 13 (dumpapp storage smoke) in extended pipeline (default: `false`)
+- `RUN_TABLE_RENDER_SMOKE`: set to `true` to run markdown table rendering smoke in extended pipeline (default: `false`)
 
 ## Runtime Process
 
@@ -84,11 +88,12 @@ Typical end-to-end execution order:
 5. API compatibility regression (dumpapp no-code path)
 6. Qwen3.5 benchmark UI regression (CPU/OpenCL cases)
 7. Qwen3.5 chat text/image-entry regression
-8. Qwen3.5 download regression
-9. Optional API settings UiAutomator regression
-10. Optional Sana + Diffusion dumpapp regression
-11. Optional Sana + Diffusion UiAutomator regression
-12. Report generation to `artifacts/report.html`
+8. Optional markdown table rendering smoke
+9. Qwen3.5 download regression
+10. Optional API settings UiAutomator regression
+11. Optional Sana + Diffusion dumpapp regression
+12. Optional Sana + Diffusion UiAutomator regression
+13. Report generation to `artifacts/report.html`
 
 API compatibility stage details:
    - dumpapp no-code path (`/v1/models`, Anthropic `/v1/messages`, OpenAI `/v1/chat/completions` auth gates, plus HTTPS runtime probe)
@@ -99,6 +104,7 @@ API compatibility stage details:
    - dumpapp thinking-mode switch path (`dumpapp llm thinking set/get` + OpenAI response-tag differential check)
    - dumpapp path is service-only: no ChatActivity bootstrap fallback is allowed
    - optional UiAutomator code path (API settings switch interaction)
+   - gesture caveat: step `09_regress_api_uiautomator.sh` does not validate history-drawer left-swipe; for gesture issues use `mobile-mcp` (`mobile_swipe_on_screen`, then `mobile_take_screenshot` + `mobile_list_elements_on_screen`) and keep those artifacts
 
 ## Key Implementation Logic
 
@@ -118,6 +124,47 @@ Primary artifacts:
 - UI evidence: `artifacts/**/shots/*.png`
 - dumpapp evidence: `artifacts/qwen35_benchmark/case_*.log`
 - Aggregated report: `artifacts/report.html`
+
+Table rendering smoke specifics:
+
+- Script: `scripts/14_regress_streaming_table.sh`
+- Artifact root: `artifacts/table_io/`
+- Evidence: staged screenshots plus `generating_*.xml` / `finished.xml`
+- Acceptance style: screenshot-first review; use human or vision-capable LLM review on screenshots to judge whether the markdown table rendered correctly
+
+## Debugging My Models source tags (ModelScope / HuggingFace / Modelers)
+
+If models downloaded from ModelScope (or HuggingFace / Modelers) do not show the expected source tag in the **My Models** tab, use dumpapp to inspect `modelId` and derived **Source**:
+
+1. **List models with source** (same logic as UI):
+   ```bash
+   dumpapp models list
+   ```
+   Each model shows `ID:`, `Source:` (ModelScope / HuggingFace / Modelers / Builtin / (local) / (none)), and `Tags:`.
+
+2. **Inspect tags and source for all models**:
+   ```bash
+   dumpapp models tags --all
+   ```
+
+3. **Check storage path → modelId mapping** (ensures `.mnnmodels/modelscope/` → `ModelScope/MNN/...`):
+   ```bash
+   dumpapp models files
+   ```
+   Entries under container `modelscope` should have `Model ID: ModelScope/MNN/<name>`. If a ModelScope-downloaded model appears under another container or with a different `Model ID` prefix, the source tag in the UI will be wrong.
+
+4. **Single-model tags**:
+   ```bash
+   dumpapp models tags "ModelScope/MNN/Qwen2.5-0.5B-MNN"
+   ```
+
+Interpretation: if `Source:` is `(none)` for a ModelScope-downloaded model, the `ID` likely does not start with `ModelScope/` (e.g. wrong path when scanning, or cached with a different id). Use `dumpapp models files` to confirm the path and container.
+
+## API dumpapp and ANR
+
+`08_regress_api_dumpapp.sh` must run `dumpapp llm ensure` **before** starting OpenAIService. If the service starts first, `onStartCommand` calls `coordinator.startServer()` which invokes `ensureSession()` → `llmSession.load()` on the main thread, blocking it and causing ANR. With session pre-created, `startServer` uses `getActiveSession()` and avoids heavy work on the main thread.
+
+`dumpapp openai start` now auto-enables `enable_api_service` via the plugin when the pref is false, so the API service can be bootstrapped without UI interaction.
 
 ## Notes
 

@@ -39,7 +39,7 @@ This is our full multimodal language model (LLM) Android app
 # Development
 + Prepare
   + Android Studio
-  + NDK(21 recommended)
+  + NDK (align with `app/build.gradle`, current: `27.2.12479018`)
   + `export ANDROID_NDK=${YOUR_NDK_ROOT}`
 + Clone the repository:
   ```shell
@@ -61,6 +61,11 @@ This is our full multimodal language model (LLM) Android app
   ```
 
 # Releases
+
+## Version 0.8.1.3
++ Click here to [download](https://meta.alicdn.com/data/mnn/apks/mnn_chat_0_8_1_3.apk)
++ Bugfix:
+  + Improve overall stability for Google Play release.
 
 ## Version 0.8.1.2
 + Click here to [download](https://meta.alicdn.com/data/mnn/apks/mnn_chat_0_8_1_2.apk)

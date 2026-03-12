@@ -11,6 +11,18 @@ cmake_minimum_required(VERSION 3.22.1)
 # build script scope).
 project("mnnllmapp")
 
+set(MNNCHAT_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../")
+set(GIT_COMMIT_ID_VALUE "unknown")
+execute_process(
+        COMMAND git -C "${MNNCHAT_REPO_ROOT}" rev-parse --short HEAD
+        OUTPUT_VARIABLE GIT_COMMIT_ID_OUTPUT
+        ERROR_QUIET
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+if (GIT_COMMIT_ID_OUTPUT)
+    set(GIT_COMMIT_ID_VALUE "${GIT_COMMIT_ID_OUTPUT}")
+endif ()
+
 add_library(${CMAKE_PROJECT_NAME} SHARED
         # List C/C++ source files with relative paths to this CMakeLists.txt.
         llm_mnn_jni.cpp
@@ -28,6 +40,8 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         video/image_utils.cpp
         video/video_processor.cpp
 )
+
+target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE GIT_COMMIT_ID="${GIT_COMMIT_ID_VALUE}")
 
 # Add 16KB page size support (required for Android 15+ devices)
 target_link_options(${CMAKE_PROJECT_NAME} PRIVATE "-Wl,-z,max-page-size=16384")

@@ -15,9 +15,10 @@ class ChatService {
      * @param modelId The model ID
      * @param modelName The model name (used for type detection)
      * @param sessionIdParam Optional session ID, will generate new one if null/empty
-     * @param chatDataItemList Optional chat history data
+     * @param historyList Optional chat history data
      * @param configPath Configuration file path for LLM models, or diffusion directory for diffusion models
      * @param useNewConfig If true, ignore existing config and use provided configPath. If false, may reuse existing session config
+     * @param useCustomConfig If true, merge custom_config.json over base config (ChatActivity path). If false, use only base config (API/debug path).
      */
     @Synchronized
     fun createSession(
@@ -26,7 +27,8 @@ class ChatService {
         sessionIdParam: String?,
         historyList: List<ChatDataItem>?,
         configPath: String?,
-        useNewConfig: Boolean = false
+        useNewConfig: Boolean = false,
+        useCustomConfig: Boolean = true
     ): ChatSession {
         val sessionId = if (TextUtils.isEmpty(sessionIdParam)) {
             System.currentTimeMillis().toString()
@@ -37,9 +39,9 @@ class ChatService {
         val session = if (ModelTypeUtils.isSanaModel(modelName)) {
             SanaSession(modelId, sessionId, configPath!!, historyList)
         } else if (ModelTypeUtils.isDiffusionModel(modelName)) {
-            DiffusionSession(sessionId, configPath!!, historyList)
+            DiffusionSession(modelId, sessionId, configPath!!, historyList)
         } else {
-            val llmSession = LlmSession(modelId, sessionId, configPath!!, historyList)
+            val llmSession = LlmSession(modelId, sessionId, configPath!!, historyList, useCustomConfig = useCustomConfig)
             llmSession.supportOmni = ModelTypeUtils.isOmni(modelName)
             llmSession
         }
@@ -61,14 +63,15 @@ class ChatService {
         sessionIdParam: String?,
         chatDataItemList: List<ChatDataItem>?,
         supportOmni:Boolean,
-        backendType: String? = null
+        backendType: String? = null,
+        useCustomConfig: Boolean = true
     ): LlmSession {
         var sessionId:String = if (TextUtils.isEmpty(sessionIdParam)) {
             System.currentTimeMillis().toString()
         } else {
             sessionIdParam!!
         }
-        val session = LlmSession(modelId!!, sessionId, modelDir!!, chatDataItemList, backendType)
+        val session = LlmSession(modelId!!, sessionId, modelDir!!, chatDataItemList, backendType, useCustomConfig)
         session.supportOmni = supportOmni
         transformerSessionMap[sessionId] = session
         return session
@@ -86,7 +89,7 @@ class ChatService {
         } else {
             sessionIdParam!!
         }
-        val session = DiffusionSession(sessionId, modelDir!!, chatDataItemList)
+        val session = DiffusionSession(modelId!!, sessionId, modelDir!!, chatDataItemList)
         diffusionSessionMap[sessionId] = session
         return session
     }

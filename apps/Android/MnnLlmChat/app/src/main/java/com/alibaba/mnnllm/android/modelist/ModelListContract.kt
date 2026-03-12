@@ -10,5 +10,7 @@ class ModelListContract {
         fun onBuiltinModelsCopyProgress(current: Int, total: Int, message: String)
         val adapter: ModelListAdapter?
         fun runModel(destPath:String?, modelId: String?)
+        /** Called when a model was deleted from the list so other UI (e.g. ModelMarket) can refresh. */
+        fun onModelDeletedFromList()
     }
 }
