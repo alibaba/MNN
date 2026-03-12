@@ -273,6 +273,7 @@ class LlmExporter(torch.nn.Module):
                 "sampler_type":'penalty',
                 "penalty":1.1
             }
+            config['tokenizer_file'] = 'tokenizer.mtok'
             if self.args.embed_bit < 16:
                 config['embedding_file'] = f"embeddings_int{self.args.embed_bit}.bin"
             if hasattr(self, 'talker') and self.talker is not None:

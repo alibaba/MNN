@@ -76,11 +76,11 @@ int main(int argc, const char* argv[]) {
     size_t stride = 512;
     size_t contextLength = stride + stride / 2;
     std::shared_ptr<MNN::Transformer::LlmConfig> lmConfig(new MNN::Transformer::LlmConfig(llmPath));
-    if (lmConfig->config_.document.HasMember("chunk_limits")) {
-        contextLength = lmConfig->config_.document["chunk_limits"].GetArray().begin()->GetInt();
+    if (lmConfig->config_.contains("chunk_limits")) {
+        contextLength = lmConfig->config_["chunk_limits"][0].get<int>();
         stride = (contextLength / 3) * 2;
-    } else if (lmConfig->config_.document.HasMember("chunk")) {
-        contextLength = lmConfig->config_.document["chunk"].GetInt();
+    } else if (lmConfig->config_.contains("chunk")) {
+        contextLength = lmConfig->config_["chunk"].get<int>();
         stride = (contextLength / 3) * 2;
     }
     FUNC_PRINT(contextLength);

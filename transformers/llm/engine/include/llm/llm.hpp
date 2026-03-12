@@ -26,12 +26,20 @@
 
 namespace MNN {
 namespace Transformer {
+
+// ChatMessage: pair<role, content> for multi-turn conversation.
+//   first  = role: "system", "user", "assistant", "tool", etc.
+//   second = content: plain text message content.
+// For complex messages (tool_calls, reasoning_content, etc.):
+//   first  = "json"
+//   second = full JSON object string, e.g. {"role":"assistant","content":"","tool_calls":[...]}
+using ChatMessage = std::pair<std::string, std::string>;
+using ChatMessages = std::vector<ChatMessage>;
 class Tokenizer;
 class Pipeline;
 class LlmConfig;
 class DiskEmbedding;
 class Sampler;
-class Prompt;
 class Generation;
 class EagleGeneration;
 struct TimePerformance;
@@ -57,9 +65,6 @@ struct TimePerformance;
         return;                                                 \
     }                                                           \
 }
-
-using ChatMessage = std::pair<std::string, std::string>; // <role, content>
-using ChatMessages = std::vector<ChatMessage>;
 
 struct MNN_PUBLIC PromptImagePart {
     MNN::Express::VARP image_data;
@@ -180,12 +185,12 @@ public:
     virtual void setWavformCallback(std::function<bool(const float*, size_t, bool)> callback) {}
     virtual void generateWavform() {}
 protected:
+    void setChatTemplate();
     void initRuntime();
     void setRuntimeHint(std::shared_ptr<Express::Executor::RuntimeManager> &rtg);
     std::shared_ptr<LlmContext> mContext;
     std::shared_ptr<KVMeta> mMeta;
     std::shared_ptr<LlmConfig> mConfig;
-    std::shared_ptr<Prompt> mPrompt;
     std::shared_ptr<Tokenizer> mTokenizer;
     std::shared_ptr<DiskEmbedding> mDiskEmbedding;
     std::shared_ptr<Sampler> mSampler;

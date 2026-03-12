@@ -17,7 +17,7 @@
 #include "omni.hpp"
 #include "kvmeta.hpp"
 #include "llmconfig.hpp"
-#include "tokenizer.hpp"
+#include "tokenizer/tokenizer.hpp"
 #include "diskembedding.hpp"
 #include "sampler.hpp"
 #ifdef LLM_SUPPORT_HTTP_RESOURCE
@@ -81,7 +81,7 @@ bool Omni::load() {
         return false;
     }
     ScheduleConfig config;
-    if (mConfig->mllm_config_.empty()) {
+    if (mConfig->mllm_config_.is_null()) {
         mProcessorRuntimeManager = mRuntimeManager;
     } else {
         BackendConfig cpuBackendConfig;

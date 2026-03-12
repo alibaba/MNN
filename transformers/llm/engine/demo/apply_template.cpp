@@ -1,44 +1,46 @@
 #include <MNN/MNNDefine.h>
-#include "../src/minja/chat_template.hpp"
+#define UJSON_USE_RAPIDJSON
+#include "../src/tokenizer/jinja.hpp"
+#include "../src/ujson.hpp"
 #include <rapidjson/document.h>
 #include <rapidjson/prettywriter.h>
 #include <fstream>
 #include <iostream>
 #include <sstream>
+
 static int test(const char* testjson) {
-    rapidjson::Document document;
     std::ifstream inputFs(testjson);
-    std::ostringstream osString;
     if (inputFs.fail()) {
         MNN_ERROR("Open %s error\n", testjson);
         return 0;
     }
+    std::ostringstream osString;
     osString << inputFs.rdbuf();
-    document.Parse(osString.str().c_str());
-    if (document.HasParseError() || (!document.IsArray())) {
+    auto document = jinja::json::parse(osString.str());
+    if (!document.is_array()) {
         MNN_ERROR("Invalid json\n");
         return 0;
     }
     int pos = 0;
-    for (auto& iter : document.GetArray()) {
-        std::string res = iter["res"].GetString();
-        std::string chatTemplate = iter["chat_template"].GetString();
-        std::string bos;
-        std::string eos;
-        if (iter.HasMember("bos")) {
-            bos = iter["bos"].GetString();
+    for (size_t i = 0; i < document.size(); i++) {
+        auto iter = document[i];
+        std::string res = iter["res"].get<std::string>();
+        std::string chatTemplate = iter["chat_template"].get<std::string>();
+        std::string bos, eos;
+        if (iter.contains("bos")) bos = iter["bos"].get<std::string>();
+        if (iter.contains("eos")) eos = iter["eos"].get<std::string>();
+
+        jinja::json default_ctx = jinja::json::object();
+        default_ctx["bos_token"] = bos;
+        default_ctx["eos_token"] = eos;
+        jinja::Template tmpl(chatTemplate, default_ctx);
+
+        jinja::json messages = iter["messages"];
+        jinja::json extra_ctx = jinja::json::object();
+        if (iter.contains("extras")) {
+            extra_ctx = iter["extras"];
         }
-        if (iter.HasMember("eos")) {
-            eos = iter["eos"].GetString();
-        }
-        minja::chat_template tmpl(chatTemplate, bos, eos);
-        minja::chat_template_inputs inputs;
-        inputs.messages.CopyFrom(iter["messages"], inputs.messages.GetAllocator());
-        if (iter.HasMember("extras")) {
-            inputs.extra_context.CopyFrom(iter["extras"], inputs.extra_context.GetAllocator());
-        }
-        inputs.add_generation_prompt = true;
-        auto newres = tmpl.apply(inputs);
+        auto newres = tmpl.apply_chat_template(messages, true, jinja::json::array(), extra_ctx);
         if (res != newres) {
             MNN_ERROR("Error for %d template\n", pos);
             MNN_ERROR("Origin:\n%s\n", res.c_str());
@@ -50,6 +52,7 @@ static int test(const char* testjson) {
     MNN_PRINT("Test %d template, All Right\n", pos);
     return 0;
 }
+
 int main(int argc, const char* argv[]) {
     if (argc < 2) {
         MNN_ERROR("Usage: ./apply_template token_config.json \n");
@@ -64,7 +67,6 @@ int main(int argc, const char* argv[]) {
     }
     rapidjson::Document resDocument;
     {
-        // Load origin result
         std::ifstream inputFs("result.json");
         bool valid = false;
         if (!inputFs.fail()) {
@@ -83,8 +85,8 @@ int main(int argc, const char* argv[]) {
             MNN_PRINT("Create new result.json\n");
         }
     }
-    for (int i=1; i<argc; ++i) {
-        auto tokenConfigPath = argv[1];
+    for (int i = 1; i < argc; ++i) {
+        auto tokenConfigPath = argv[i];
         FUNC_PRINT_ALL(tokenConfigPath, s);
         rapidjson::Document document;
         std::ifstream inputFs(tokenConfigPath);
@@ -101,23 +103,13 @@ int main(int argc, const char* argv[]) {
         }
         std::string bosToken, eosToken;
         auto loadtoken = [](const rapidjson::GenericValue<rapidjson::UTF8<>>& value, std::string& dst) {
-            if (value.IsString()) {
-                dst = value.GetString();
-                return;
-            }
-            if (value.IsObject()) {
-                if (value.HasMember("content") && value["content"].IsString()) {
-                    dst = value["content"].GetString();
-                    return;
-                }
+            if (value.IsString()) { dst = value.GetString(); return; }
+            if (value.IsObject() && value.HasMember("content") && value["content"].IsString()) {
+                dst = value["content"].GetString();
             }
         };
-        if (document.HasMember("bos_token")) {
-            loadtoken(document["bos_token"], bosToken);
-        }
-        if (document.HasMember("eos_token")) {
-            loadtoken(document["eos_token"], eosToken);
-        }
+        if (document.HasMember("bos_token")) loadtoken(document["bos_token"], bosToken);
+        if (document.HasMember("eos_token")) loadtoken(document["eos_token"], eosToken);
         std::string templateChat;
         if (document.HasMember("chat_template")) {
             templateChat = document["chat_template"].GetString();
@@ -127,39 +119,40 @@ int main(int argc, const char* argv[]) {
             return 0;
         }
 
-        minja::chat_template tmpl(templateChat, bosToken, eosToken);
-        minja::chat_template_inputs inputs;
-        inputs.extra_context.SetObject();
-        inputs.extra_context.GetObject().AddMember("enable_thinking", false, inputs.extra_context.GetAllocator());
-        inputs.messages.Parse(R"([
-        {
-            "role": "system",
-            "content": "You are a helpful assistant."
-        },
-        {
-            "role": "user",
-            "content": "What is 8 * 12."
-        },
-        {
-            "role": "assistant",
-            "content": "96."
-        },
-        {
-            "role": "user",
-            "content": "What is 9 * 8?"
-        }
+        jinja::json default_ctx = jinja::json::object();
+        default_ctx["bos_token"] = bosToken;
+        default_ctx["eos_token"] = eosToken;
+        jinja::Template tmpl(templateChat, default_ctx);
+
+        jinja::json messages = jinja::json::parse(R"([
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "What is 8 * 12."},
+        {"role": "assistant", "content": "96."},
+        {"role": "user", "content": "What is 9 * 8?"}
         ])");
-        inputs.add_generation_prompt = true;
-        auto res = tmpl.apply(inputs);
+
+        jinja::json extra_ctx = jinja::json::object();
+        extra_ctx["enable_thinking"] = false;
+
+        auto res = tmpl.apply_chat_template(messages, true, jinja::json::array(), extra_ctx);
         MNN_PRINT("%s", res.c_str());
+
         // Write result
         rapidjson::Value v;
         v.SetObject();
-        rapidjson::Value messages;
-        messages.CopyFrom(inputs.messages, resDocument.GetAllocator());
+        rapidjson::Document rjMessages;
+        rjMessages.Parse(R"([
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "What is 8 * 12."},
+        {"role": "assistant", "content": "96."},
+        {"role": "user", "content": "What is 9 * 8?"}
+        ])");
         rapidjson::Value extras;
-        extras.CopyFrom(inputs.extra_context, resDocument.GetAllocator());
-        v.AddMember("messages", messages, resDocument.GetAllocator());
+        extras.SetObject();
+        extras.AddMember("enable_thinking", false, resDocument.GetAllocator());
+        rapidjson::Value msgCopy;
+        msgCopy.CopyFrom(rjMessages, resDocument.GetAllocator());
+        v.AddMember("messages", msgCopy, resDocument.GetAllocator());
         v.AddMember("extras", extras, resDocument.GetAllocator());
         {
             rapidjson::Value tv;

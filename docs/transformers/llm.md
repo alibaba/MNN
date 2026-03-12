@@ -501,6 +501,36 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
   }
   ```
 
+#### ChatMessage 多轮对话接口
+
+C++ 多轮对话使用 `ChatMessage` 类型，定义为 `std::pair<std::string, std::string>`：
+
+- **first**: 消息角色，如 `"system"`, `"user"`, `"assistant"`, `"tool"`
+- **second**: 消息内容，普通文本字符串
+
+```cpp
+ChatMessages messages;
+messages.emplace_back("system", "You are a helpful assistant.");
+messages.emplace_back("user", "你好");
+llm->response(messages, &std::cout);
+// 保存assistant回复
+messages.emplace_back("assistant", assistant_output);
+// 继续对话
+messages.emplace_back("user", "介绍一下北京");
+llm->response(messages, &std::cout);
+```
+
+**传递复杂消息（tool_calls等）**：当消息包含 `tool_calls`、`reasoning_content` 等额外字段时，将 `first` 设为 `"json"`，`second` 设为完整的 JSON 对象字符串。`apply_chat_template` 会自动将其解析为 JSON 对象传给 Jinja 模板：
+
+```cpp
+// 普通消息
+messages.emplace_back("user", "What's the weather in NYC?");
+// 带 tool_calls 的 assistant 消息：first="json", second=完整JSON
+messages.emplace_back("json", R"({"role":"assistant","content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{\"location\":\"NYC\"}"}}]})");
+// tool 回复
+messages.emplace_back("tool", R"({"temperature": 72, "condition": "sunny"})");
+```
+
 #### 推理用法
 `llm_demo`的用法如下：
 ```

@@ -11,6 +11,7 @@
 #include <vector>
 #include <memory>
 #include <string>
+#include <utility>
 #include <unordered_map>
 #include <iostream>
 // #include <string_view>
@@ -61,6 +62,10 @@ namespace std {
 }
 namespace MNN {
 namespace Transformer {
+
+// ChatMessage: pair<role, content>, see llm.hpp for full documentation.
+using ChatMessage = std::pair<std::string, std::string>;
+using ChatMessages = std::vector<ChatMessage>;
 // std::string_view impl in c++11 start
 
 
@@ -132,7 +137,8 @@ public:
         SENTENCEPIECE = 0,
         TIKTOIKEN = 1,
         BERT = 2,
-        HUGGINGFACE = 3
+        HUGGINGFACE = 3,
+        PIPELINE = 4
     };
     Tokenizer() = default;
     virtual ~Tokenizer() = default;
@@ -141,6 +147,13 @@ public:
     bool is_special(int token);
     std::vector<int> encode(const std::string& str);
     virtual std::string decode(int id) = 0;
+    virtual std::string decode(const std::vector<int>& ids);
+    // chat template
+    std::string apply_chat_template(const ChatMessages& messages, bool add_generation_prompt = true) const;
+    std::string apply_chat_template(const std::string& user_content, const std::string& system_prompt = "") const;
+    void set_chat_template(const std::string& tpl, const std::string& eos = "");
+    const std::string& chat_template() const { return chat_template_; }
+    const std::string& chat_template_eos() const { return chat_template_eos_; }
 protected:
     void cache_special_tokens();
     virtual void load_special(std::ifstream& file);
@@ -150,8 +163,9 @@ protected:
     std::vector<int> stop_tokens_;
     std::vector<int> prefix_tokens_;
     std::vector<std::pair<std::string, int>> special_tokens_cache_;
-private:
-    std::string mTemplate;
+    std::string chat_template_;
+    std::string chat_template_eos_;
+    std::string chat_template_bos_;
 };
 
 class Sentencepiece : public Tokenizer {
@@ -254,6 +268,62 @@ private:
     std::unordered_map<std::string, int> encoder_;
     std::vector<std::string> decoder_;
 };
+
+struct PreTokenizedString {
+    std::vector<std::string> splits;
+};
+
+class Normalizer {
+public:
+    virtual ~Normalizer() = default;
+    virtual std::string normalize(const std::string& text) const = 0;
+};
+
+class PreTokenizer {
+public:
+    virtual ~PreTokenizer() = default;
+    virtual void pre_tokenize(PreTokenizedString& pts) const = 0;
+};
+
+class TokenizerModel {
+public:
+    virtual ~TokenizerModel() = default;
+    virtual std::vector<int> tokenize(const std::string& text) const = 0;
+    virtual std::string id_to_token(int id) const = 0;
+    virtual size_t vocab_size() const = 0;
+};
+
+class TokenDecoder {
+public:
+    virtual ~TokenDecoder() = default;
+    virtual void decode_chain(std::vector<std::string>& tokens) const = 0;
+};
+
+class PipelineTokenizer : public Tokenizer {
+public:
+    PipelineTokenizer();
+    virtual ~PipelineTokenizer();
+    virtual std::string decode(int id) override;
+    virtual std::string decode(const std::vector<int>& ids) override;
+    bool load_vocab_binary(std::ifstream& file);
+protected:
+    virtual bool load_vocab(std::ifstream& file) override;
+    virtual void encode(const std::string& str, std::vector<int>& ids) override;
+private:
+    std::unique_ptr<Normalizer> normalizer_;
+    std::unique_ptr<PreTokenizer> pre_tokenizer_;
+    std::unique_ptr<TokenizerModel> model_;
+    std::unique_ptr<TokenDecoder> decoder_;
+    struct AddedToken { int id; std::string content; bool special; bool lstrip; bool rstrip; };
+    std::vector<AddedToken> added_tokens_;
+    std::vector<std::string> added_token_strings_;
+    std::string binary_buf_;  // holds binary file data for zero-copy token references
+    bool byte_level_ = false; // true if model uses byte-level encoding (GPT-2 style)
+    bool wordpiece_decode_ = false; // true if model uses WordPiece decoder
+    std::string wordpiece_prefix_; // "##" typically
+    bool clean_up_spaces_ = false; // clean_up_tokenization_spaces from tokenizer_config
+};
+
 };
 };
 

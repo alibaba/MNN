@@ -7,8 +7,7 @@
 
 #include "llm/llm.hpp"
 #include "llmconfig.hpp"
-#include "prompt.hpp"
-#include "tokenizer.hpp"
+#include "tokenizer/tokenizer.hpp"
 #include "diskembedding.hpp"
 
 namespace MNN {
@@ -47,7 +46,7 @@ int Embedding::dim() const {
 
 bool Embedding::load() {
     MNN::Express::ExecutorScope s(mExecutor);
-    if (mConfig->config_.document.HasMember("load_disk_embedding_only") && mConfig->config_.document["load_disk_embedding_only"].GetBool()) {
+    if (mConfig->config_.value("load_disk_embedding_only", false)) {
         mDiskEmbedding.reset(new DiskEmbedding(mConfig));
         return true;
     }
@@ -59,7 +58,7 @@ bool Embedding::load() {
     mTokenizer.reset(Tokenizer::createTokenizer(mConfig->tokenizer_file()));
     printf("load tokenizer Done\n");
     mDiskEmbedding.reset(new DiskEmbedding(mConfig));
-    mPrompt.reset(Prompt::createPrompt(mContext, mConfig));
+    setChatTemplate();
     // 2. load model
     Module::Config module_config;
     if(mConfig->backend_type() == "npu") {

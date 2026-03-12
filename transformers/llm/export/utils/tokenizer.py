@@ -108,6 +108,388 @@ class LlmTokenizer(PreTrainedTokenizer):
         except ValueError:
             return None
 
+    @staticmethod
+    def _generate_nfkc_table():
+        import unicodedata
+        entries = []
+        for cp in range(0x110000):
+            try:
+                ch = chr(cp)
+                normalized = unicodedata.normalize('NFKC', ch)
+                if normalized != ch:
+                    entries.append((cp, normalized.encode('utf-8')))
+            except (ValueError, OverflowError):
+                pass
+        return entries
+
+    @staticmethod
+    def _generate_nfd_table():
+        import unicodedata
+        entries = []
+        for cp in range(0x110000):
+            try:
+                ch = chr(cp)
+                decomposed = unicodedata.normalize('NFD', ch)
+                if decomposed != ch:
+                    entries.append((cp, decomposed.encode('utf-8')))
+            except (ValueError, OverflowError):
+                pass
+        return entries
+
+    @staticmethod
+    def _write_norm_table(fp, entries):
+        import struct
+        fp.write(struct.pack('<I', len(entries)))
+        for cp, utf8 in entries:
+            fp.write(struct.pack('<I', cp))
+            fp.write(struct.pack('<H', len(utf8)))
+            fp.write(utf8)
+
+    def export_mtok(self, save_directory, tokenizer_json_path):
+        """Export tokenizer in binary .mtok format (PipelineTokenizer)."""
+        import json
+        import struct
+
+        with open(tokenizer_json_path, 'r', encoding='utf-8') as f:
+            tj = json.load(f)
+
+        file_path = os.path.join(save_directory, "tokenizer.mtok")
+        MAGIC_NUMBER = 430
+        PIPELINE = 4
+
+        def pack_str(s):
+            if isinstance(s, str):
+                s = s.encode('utf-8')
+            return struct.pack('<H', len(s)) + s
+
+        with open(file_path, "w", encoding="utf8") as fp:
+            # Text header: magic number + type
+            fp.write(f'{MAGIC_NUMBER} {PIPELINE}\n')
+
+            # Special tokens info (same as text format)
+            special_list = list(set(self.tokenizer.all_special_ids)) if hasattr(self.tokenizer, 'all_special_ids') else []
+            if 'added_tokens' in tj:
+                for at in tj['added_tokens']:
+                    if at.get('special', False) and at.get('id', -1) not in special_list:
+                        special_list.append(at['id'])
+            special_list = [s for s in special_list if s is not None]
+
+            prefix_list = []
+            if hasattr(self.tokenizer, 'get_prefix_tokens'):
+                prefix_list = self.tokenizer.get_prefix_tokens()
+            if len(prefix_list) == 0:
+                try:
+                    ids = self.tokenizer.encode('A')
+                    get_txt = self.tokenizer.decode(ids[-1])
+                    if len(ids) > 1 and get_txt == 'A':
+                        prefix_list = ids[:-1]
+                except:
+                    pass
+
+            fp.write(f'{len(special_list)} {len(self.stop_ids)} {len(prefix_list)}\n')
+            tokens_line = ' '.join(str(t) for t in (special_list + self.stop_ids + prefix_list))
+            fp.write(tokens_line + '\n' if tokens_line else '\n')
+
+        # Now write binary body
+        with open(file_path, "ab") as fp:
+            # --- Normalizer ---
+            norm = tj.get('normalizer')
+            def write_normalizer_bin(fp, norm):
+                if norm is None:
+                    fp.write(struct.pack('<B', 0))
+                    return
+                ntype = norm.get('type', '')
+                if ntype in ('NFKC', 'Precompiled', 'NFKD'):
+                    fp.write(struct.pack('<B', 6))
+                    self._write_norm_table(fp, self._generate_nfkc_table())
+                elif ntype == 'Prepend':
+                    fp.write(struct.pack('<B', 2))
+                    fp.write(pack_str(norm.get('prepend', '')))
+                elif ntype == 'Replace':
+                    fp.write(struct.pack('<B', 3))
+                    pattern = ''
+                    if isinstance(norm.get('pattern'), dict):
+                        pattern = norm['pattern'].get('String', '')
+                    elif isinstance(norm.get('pattern'), str):
+                        pattern = norm['pattern']
+                    fp.write(pack_str(pattern))
+                    fp.write(pack_str(norm.get('content', '')))
+                elif ntype == 'Sequence':
+                    fp.write(struct.pack('<B', 4))
+                    normalizers = norm.get('normalizers', [])
+                    fp.write(struct.pack('<I', len(normalizers)))
+                    for n in normalizers:
+                        write_normalizer_bin(fp, n)
+                elif ntype == 'BertNormalizer':
+                    sa = norm.get('strip_accents', False)
+                    # In HuggingFace, strip_accents=None with lowercase=True means strip accents
+                    if sa is None and norm.get('lowercase', True):
+                        sa = True
+                    strip_accents = int(sa or False)
+                    if strip_accents:
+                        fp.write(struct.pack('<B', 7))
+                    else:
+                        fp.write(struct.pack('<B', 5))
+                    fp.write(struct.pack('<BBBB',
+                        int(norm.get('clean_text', True)),
+                        int(norm.get('handle_chinese_chars', True)),
+                        strip_accents,
+                        int(norm.get('lowercase', True))))
+                    if strip_accents:
+                        self._write_norm_table(fp, self._generate_nfd_table())
+                elif ntype == 'Lowercase':
+                    fp.write(struct.pack('<B', 5))
+                    fp.write(struct.pack('<BBBB', 0, 0, 0, 1))
+                elif ntype == 'StripAccents':
+                    fp.write(struct.pack('<B', 7))
+                    fp.write(struct.pack('<BBBB', 0, 0, 1, 0))
+                    self._write_norm_table(fp, self._generate_nfd_table())
+                else:
+                    fp.write(struct.pack('<B', 0))
+            write_normalizer_bin(fp, norm)
+
+            # --- PreTokenizer ---
+            pt = tj.get('pre_tokenizer')
+            def write_pre_tokenizer_bin(fp, pt):
+                if pt is None:
+                    fp.write(struct.pack('<B', 0))
+                    return
+                ptype = pt.get('type', '')
+                if ptype == 'ByteLevel':
+                    fp.write(struct.pack('<BB', 1, int(pt.get('use_regex', True))))
+                elif ptype == 'Digits':
+                    fp.write(struct.pack('<BB', 2, int(pt.get('individual_digits', False))))
+                elif ptype == 'Metaspace':
+                    fp.write(struct.pack('<B', 3))
+                    rep = pt.get('replacement', '\u2581')
+                    if pt.get('str_rep'):
+                        rep = pt['str_rep']
+                    fp.write(pack_str(rep))
+                    fp.write(struct.pack('<B', int(pt.get('add_prefix_space', True))))
+                elif ptype == 'Split':
+                    fp.write(struct.pack('<B', 4))
+                    pattern = ''
+                    if isinstance(pt.get('pattern'), dict):
+                        pattern = pt['pattern'].get('Regex', pt['pattern'].get('String', ''))
+                    elif isinstance(pt.get('pattern'), str):
+                        pattern = pt['pattern']
+                    fp.write(pack_str(pattern))
+                    behavior = pt.get('behavior', 'Isolated')
+                    behavior_id = 0 if behavior == 'Isolated' else (2 if behavior == 'MergedWithPrevious' else 1)
+                    fp.write(struct.pack('<BB', int(pt.get('invert', False)), behavior_id))
+                elif ptype == 'BertPreTokenizer':
+                    fp.write(struct.pack('<B', 5))
+                elif ptype == 'Sequence':
+                    fp.write(struct.pack('<B', 6))
+                    pretokenizers = pt.get('pretokenizers', [])
+                    fp.write(struct.pack('<I', len(pretokenizers)))
+                    for p in pretokenizers:
+                        write_pre_tokenizer_bin(fp, p)
+                elif ptype == 'WhitespaceSplit':
+                    fp.write(struct.pack('<B', 4))
+                    fp.write(pack_str('\\s+'))
+                    fp.write(struct.pack('<BB', 0, 1))
+                else:
+                    fp.write(struct.pack('<B', 0))
+            write_pre_tokenizer_bin(fp, pt)
+
+            # --- Model ---
+            model = tj.get('model', {})
+            mtype = model.get('type', '')
+            if not mtype:
+                # Infer model type from fields
+                if 'continuing_subword_prefix' in model and 'merges' not in model:
+                    mtype = 'WordPiece'
+                elif isinstance(model.get('vocab'), list):
+                    mtype = 'Unigram'
+                else:
+                    mtype = 'BPE'
+
+            if mtype == 'BPE':
+                vocab = model.get('vocab', {})
+                merges = model.get('merges', [])
+                byte_fallback = int(model.get('byte_fallback', False))
+
+                byte_level = 0
+                if pt and pt.get('type') == 'ByteLevel':
+                    byte_level = 0
+                elif pt and pt.get('type') == 'Sequence':
+                    has_bl_pt = any(p.get('type') == 'ByteLevel' for p in pt.get('pretokenizers', []))
+                    if not has_bl_pt:
+                        dec = tj.get('decoder')
+                        if dec and dec.get('type') == 'ByteLevel':
+                            byte_level = 1
+                        elif dec and dec.get('type') == 'Sequence':
+                            if any(d.get('type') == 'ByteLevel' for d in dec.get('decoders', [])):
+                                byte_level = 1
+
+                # Sort vocab by token string for binary search in C++
+                sorted_vocab = sorted(vocab.items(), key=lambda x: x[0])
+                vocab_size = len(sorted_vocab)
+
+                fp.write(struct.pack('<B', 0))  # type=BPE
+                fp.write(struct.pack('<I', vocab_size))
+                fp.write(struct.pack('<BB', byte_fallback, byte_level))
+                fp.write(struct.pack('<I', len(merges)))
+
+                for token, tid in sorted_vocab:
+                    fp.write(pack_str(token))
+                    fp.write(struct.pack('<I', tid))
+
+                # Build merge pairs with rank, sort by merge_key for binary search in C++
+                merge_pairs = []
+                for i, m in enumerate(merges):
+                    if isinstance(m, str):
+                        parts = m.split(' ', 1)
+                        if len(parts) == 2:
+                            id1 = vocab.get(parts[0], -1)
+                            id2 = vocab.get(parts[1], -1)
+                            merge_pairs.append((id1, id2, i))
+                    elif isinstance(m, list) and len(m) >= 2:
+                        id1 = vocab.get(m[0], -1)
+                        id2 = vocab.get(m[1], -1)
+                        merge_pairs.append((id1, id2, i))
+                # Sort by merge_key = (id1 << 32) | id2
+                merge_pairs.sort(key=lambda x: (x[0] << 32) | (x[1] & 0xFFFFFFFF))
+                for id1, id2, rank in merge_pairs:
+                    fp.write(struct.pack('<III', id1, id2, rank))
+
+            elif mtype == 'WordPiece':
+                vocab = model.get('vocab', {})
+                unk_token = model.get('unk_token', '[UNK]')
+                prefix = model.get('continuing_subword_prefix', '##')
+                max_chars = model.get('max_input_chars_per_word', 100)
+                sorted_vocab = sorted(vocab.items(), key=lambda x: x[0])
+                vocab_size = len(sorted_vocab)
+
+                fp.write(struct.pack('<B', 1))  # type=WordPiece
+                fp.write(struct.pack('<I', vocab_size))
+                fp.write(pack_str(unk_token))
+                fp.write(pack_str(prefix))
+                fp.write(struct.pack('<I', max_chars))
+
+                for token, tid in sorted_vocab:
+                    fp.write(pack_str(token))
+                    fp.write(struct.pack('<I', tid))
+
+            elif mtype == 'Unigram':
+                vocab = model.get('vocab', [])
+                unk_id = model.get('unk_id', 0)
+                byte_fallback = int(model.get('byte_fallback', False))
+
+                # Build (token, id, score) and sort by token string
+                indexed_vocab = []
+                for i, item in enumerate(vocab):
+                    if isinstance(item, list) and len(item) >= 2:
+                        indexed_vocab.append((item[0], i, item[1]))
+                indexed_vocab.sort(key=lambda x: x[0])
+
+                fp.write(struct.pack('<B', 2))  # type=Unigram
+                fp.write(struct.pack('<I', len(indexed_vocab)))
+                fp.write(struct.pack('<I', unk_id))
+                fp.write(struct.pack('<B', byte_fallback))
+
+                for token, tid, score in indexed_vocab:
+                    fp.write(pack_str(token))
+                    fp.write(struct.pack('<I', tid))
+                    fp.write(struct.pack('<d', score))
+
+            # --- Decoder ---
+            dec = tj.get('decoder')
+            def write_decoder_bin(fp, dec):
+                if dec is None:
+                    fp.write(struct.pack('<B', 0))
+                    return
+                dtype = dec.get('type', '')
+                if dtype == 'ByteLevel':
+                    fp.write(struct.pack('<B', 0))
+                elif dtype == 'ByteFallback':
+                    fp.write(struct.pack('<B', 1))
+                elif dtype == 'Metaspace':
+                    fp.write(struct.pack('<B', 2))
+                    fp.write(pack_str(dec.get('replacement', '\u2581')))
+                    fp.write(struct.pack('<B', int(dec.get('add_prefix_space', True))))
+                elif dtype == 'WordPiece':
+                    fp.write(struct.pack('<B', 3))
+                    fp.write(pack_str(dec.get('prefix', '##')))
+                    fp.write(struct.pack('<B', int(dec.get('cleanup', True))))
+                elif dtype == 'Fuse':
+                    fp.write(struct.pack('<B', 4))
+                elif dtype == 'Replace':
+                    fp.write(struct.pack('<B', 5))
+                    pattern = ''
+                    if isinstance(dec.get('pattern'), dict):
+                        pattern = dec['pattern'].get('String', '')
+                    elif isinstance(dec.get('pattern'), str):
+                        pattern = dec['pattern']
+                    fp.write(pack_str(pattern))
+                    fp.write(pack_str(dec.get('content', '')))
+                elif dtype == 'Strip':
+                    fp.write(struct.pack('<B', 6))
+                    fp.write(pack_str(dec.get('content', '')))
+                    fp.write(struct.pack('<II', dec.get('start', 0), dec.get('stop', 0)))
+                elif dtype == 'Sequence':
+                    fp.write(struct.pack('<B', 7))
+                    decoders = dec.get('decoders', [])
+                    fp.write(struct.pack('<I', len(decoders)))
+                    for d in decoders:
+                        write_decoder_bin(fp, d)
+                else:
+                    fp.write(struct.pack('<B', 0))
+            write_decoder_bin(fp, dec)
+
+            # --- Added Tokens ---
+            added_tokens = tj.get('added_tokens', [])
+            fp.write(struct.pack('<I', len(added_tokens)))
+            for at in added_tokens:
+                aid = at.get('id', -1)
+                special = int(at.get('special', False))
+                lstrip = int(at.get('lstrip', False))
+                rstrip = int(at.get('rstrip', False))
+                content = at.get('content', '')
+                fp.write(struct.pack('<I', aid))
+                fp.write(struct.pack('<BBB', special, lstrip, rstrip))
+                fp.write(pack_str(content))
+
+            # --- Chat Template & Flags ---
+            chat_template = ''
+            eos_token = ''
+            bos_token = ''
+            flags = 0
+            tokenizer_config_path = os.path.join(os.path.dirname(tokenizer_json_path), 'tokenizer_config.json')
+            if os.path.exists(tokenizer_config_path):
+                with open(tokenizer_config_path, 'r', encoding='utf-8') as tc:
+                    tc_json = json.load(tc)
+                chat_template = tc_json.get('chat_template', '')
+                eos = tc_json.get('eos_token', '')
+                if isinstance(eos, dict):
+                    eos_token = eos.get('content', '')
+                else:
+                    eos_token = str(eos) if eos else ''
+                bos = tc_json.get('bos_token', '')
+                if isinstance(bos, dict):
+                    bos_token = bos.get('content', '')
+                else:
+                    bos_token = str(bos) if bos else ''
+                if tc_json.get('clean_up_tokenization_spaces', False) is True:
+                    flags |= 0x01
+            tpl_bytes = chat_template.encode('utf-8') if chat_template else b''
+            eos_bytes = eos_token.encode('utf-8') if eos_token else b''
+            fp.write(struct.pack('<I', len(tpl_bytes)))
+            fp.write(tpl_bytes)
+            fp.write(struct.pack('<H', len(eos_bytes)))
+            fp.write(eos_bytes)
+
+            # --- Flags ---
+            fp.write(struct.pack('<B', flags))
+
+            # --- BOS token ---
+            bos_bytes = bos_token.encode('utf-8') if bos_token else b''
+            fp.write(struct.pack('<H', len(bos_bytes)))
+            fp.write(bos_bytes)
+
+        return file_path
+
     def export(self, save_directory, model_path=None, model_type=None):
         """
         Export tokenizer to MNN format with comprehensive tokenizer type support.
@@ -131,6 +513,13 @@ class LlmTokenizer(PreTrainedTokenizer):
 
         # Create directory if it doesn't exist
         os.makedirs(save_directory, exist_ok=True)
+
+        # Try .mtok format first (pipeline tokenizer) if tokenizer.json exists
+        tokenizer_json_path = os.path.join(model_path, 'tokenizer.json')
+        if os.path.exists(tokenizer_json_path):
+            result = self.export_mtok(save_directory, tokenizer_json_path)
+            if result:
+                return result
 
         # TOKENIZER MAGIC NUMBER
         MAGIC_NUMBER = 430
