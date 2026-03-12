@@ -1,5 +1,6 @@
 package com.alibaba.mnnllm.api.openai.runtime
 
+import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.llm.ChatService
 import com.alibaba.mnnllm.android.llm.LlmSession
 import com.alibaba.mnnllm.android.model.ModelUtils
@@ -11,10 +12,26 @@ object DefaultLlmRuntimeController : LlmRuntimeController {
     private var activeModelId: String? = null
     private var activeSession: LlmSession? = null
 
-    override fun ensureSession(modelId: String, forceReload: Boolean): EnsureSessionResult {
+    override fun ensureSession(
+        modelId: String,
+        forceReload: Boolean,
+        useAppConfig: Boolean,
+        configPath: String?,
+        sessionId: String?,
+        historyList: List<ChatDataItem>?,
+        deferLoad: Boolean
+    ): EnsureSessionResult {
         synchronized(lock) {
             val currentSession = activeSession
-            if (!forceReload && currentSession != null && activeModelId == modelId) {
+            if (
+                currentSession != null &&
+                RuntimeSessionReusePolicy.shouldReuse(
+                    forceReload = forceReload,
+                    activeModelId = activeModelId,
+                    requestedModelId = modelId,
+                    isSessionLoaded = currentSession.isModelLoaded()
+                )
+            ) {
                 return EnsureSessionResult(
                     success = true,
                     session = currentSession,
@@ -22,26 +39,32 @@ object DefaultLlmRuntimeController : LlmRuntimeController {
                 )
             }
 
-            releaseSessionLocked()
+            if (currentSession != null) {
+                releaseSessionLocked()
+            }
 
-            val configPath = ModelConfig.getDefaultConfigFile(modelId)
-                ?: return EnsureSessionResult(
-                    success = false,
-                    modelId = modelId,
-                    reason = "MODEL_CONFIG_NOT_FOUND"
-                )
+            val resolvedConfigPath = configPath ?: if (useAppConfig) {
+                ModelUtils.getConfigPathForModel(modelId)
+            } else {
+                ModelConfig.getDefaultConfigFile(modelId)
+            } ?: return EnsureSessionResult(
+                success = false,
+                modelId = modelId,
+                reason = "MODEL_CONFIG_NOT_FOUND"
+            )
 
             val modelName = ModelUtils.getModelName(modelId) ?: modelId
-            val sessionId = "service_runtime_${System.currentTimeMillis()}"
+            val resolvedSessionId = sessionId ?: "service_runtime_${System.currentTimeMillis()}"
 
             return runCatching {
                 val chatSession = ChatService.provide().createSession(
                     modelId = modelId,
                     modelName = modelName,
-                    sessionIdParam = sessionId,
-                    historyList = null,
-                    configPath = configPath,
-                    useNewConfig = true
+                    sessionIdParam = resolvedSessionId,
+                    historyList = historyList,
+                    configPath = resolvedConfigPath,
+                    useNewConfig = !useAppConfig,
+                    useCustomConfig = useAppConfig
                 )
 
                 val llmSession = chatSession as? LlmSession
@@ -52,7 +75,9 @@ object DefaultLlmRuntimeController : LlmRuntimeController {
                     )
 
                 llmSession.setKeepHistory(true)
-                llmSession.load()
+                if (!deferLoad) {
+                    llmSession.load()
+                }
                 activeSession = llmSession
                 activeModelId = modelId
                 EnsureSessionResult(
@@ -74,7 +99,10 @@ object DefaultLlmRuntimeController : LlmRuntimeController {
 
     override fun getActiveSession(): LlmSession? {
         synchronized(lock) {
-            return activeSession
+            val session = activeSession ?: return null
+            return session.takeIf {
+                RuntimeSessionReusePolicy.shouldExposeActiveSession(it.isModelLoaded())
+            }
         }
     }
 
@@ -94,7 +122,7 @@ object DefaultLlmRuntimeController : LlmRuntimeController {
 
     override fun setThinkingEnabled(enabled: Boolean): Boolean {
         synchronized(lock) {
-            val session = activeSession ?: return false
+            val session = getActiveSession() ?: return false
             return runCatching {
                 session.updateThinking(enabled)
                 true

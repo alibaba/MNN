@@ -319,6 +319,48 @@ class ChatDataManager private constructor(context: Context) {
         }
     }
 
+    /**
+     * Delete all sessions for a given modelId.
+     * Returns the list of deleted session IDs for resource cleanup.
+     */
+    fun deleteSessionsByModelId(modelId: String): List<String> {
+        val deletedSessionIds = mutableListOf<String>()
+        val db = dbHelper.writableDatabase
+        try {
+            // First get all session IDs for this model
+            val cursor = db.query(
+                ChatDatabaseHelper.TABLE_SESSION,
+                arrayOf(ChatDatabaseHelper.COLUMN_SESSION_ID),
+                ChatDatabaseHelper.COLUMN_MODEL_ID + "=?",
+                arrayOf(modelId), null, null, null
+            )
+            while (cursor.moveToNext()) {
+                deletedSessionIds.add(cursor.getString(0))
+            }
+            cursor.close()
+
+            // Delete chat data for all sessions
+            if (deletedSessionIds.isNotEmpty()) {
+                val placeholders = deletedSessionIds.joinToString(",") { "?" }
+                db.delete(
+                    ChatDatabaseHelper.TABLE_CHAT,
+                    ChatDatabaseHelper.COLUMN_SESSION_ID + " IN ($placeholders)",
+                    deletedSessionIds.toTypedArray()
+                )
+
+                // Delete sessions
+                db.delete(
+                    ChatDatabaseHelper.TABLE_SESSION,
+                    ChatDatabaseHelper.COLUMN_MODEL_ID + "=?",
+                    arrayOf(modelId)
+                )
+            }
+        } finally {
+            db.close()
+        }
+        return deletedSessionIds
+    }
+
     fun recordDownloadHistory(modelId: String, modelPath: String, modelType: String = "LLM") {
         val db = dbHelper.writableDatabase
         val values = ContentValues()

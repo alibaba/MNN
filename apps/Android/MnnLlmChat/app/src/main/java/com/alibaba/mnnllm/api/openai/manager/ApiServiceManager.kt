@@ -34,7 +34,8 @@ object ApiServiceManager {
         }
     }
 
-    /** * restartAPIservice * @param context context * @return whethersuccessrestart*/
+    /** * restartAPIservice * @param context context * @return whethersuccessrestart
+     * Note: Do not call from main thread. Use lifecycleScope.launch { stop+delay+start } instead. */
     fun restartApiService(context: Context): Boolean {
         return try {
             stopApiService(context)

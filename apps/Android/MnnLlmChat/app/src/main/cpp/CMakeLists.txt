@@ -11,6 +11,18 @@ cmake_minimum_required(VERSION 3.22.1)
 # build script scope).
 project("mnnllmapp")
 
+set(MNNCHAT_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../")
+set(GIT_COMMIT_ID_VALUE "unknown")
+execute_process(
+        COMMAND git -C "${MNNCHAT_REPO_ROOT}" rev-parse --short HEAD
+        OUTPUT_VARIABLE GIT_COMMIT_ID_OUTPUT
+        ERROR_QUIET
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+if (GIT_COMMIT_ID_OUTPUT)
+    set(GIT_COMMIT_ID_VALUE "${GIT_COMMIT_ID_OUTPUT}")
+endif ()
+
 add_library(${CMAKE_PROJECT_NAME} SHARED
         # List C/C++ source files with relative paths to this CMakeLists.txt.
         llm_mnn_jni.cpp
@@ -29,6 +41,8 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         video/video_processor.cpp
 )
 
+target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE GIT_COMMIT_ID="${GIT_COMMIT_ID_VALUE}")
+
 # Add 16KB page size support (required for Android 15+ devices)
 target_link_options(${CMAKE_PROJECT_NAME} PRIVATE "-Wl,-z,max-page-size=16384")
 
@@ -36,6 +50,7 @@ target_link_options(${CMAKE_PROJECT_NAME} PRIVATE "-Wl,-z,max-page-size=16384")
 set (MNN_SOURCE_ROOT "${CMAKE_SOURCE_DIR}/../../../../../../../")
 #set (MNN_SOURCE_ROOT "/Users/songjinde/git/DAI/AliNNPrivate")
 set (MNN_INSTALL_ROOT "${MNN_SOURCE_ROOT}/project/android/build_64")
+set(LIB_PATH "${MNN_INSTALL_ROOT}/lib")
 # set (MNN_INSTALL_ROOT "/Users/songjinde/MNN/project/android/build_64")
 
 #set (MNN_ROOT "${CMAKE_SOURCE_DIR}/../../../../../../../")
@@ -55,9 +70,6 @@ include_directories("${MNN_SOURCE_ROOT}/transformers/llm/engine/include")
 include_directories("${MNN_SOURCE_ROOT}/tools/audio/include")
 include_directories("${MNN_SOURCE_ROOT}/3rd_party/")
 include_directories("${CMAKE_SOURCE_DIR}/third_party")
-# Add library paths
-set(LIB_PATH "${MNN_INSTALL_ROOT}/lib")
-
 # Link the shared library
 
 add_library(MNN SHARED IMPORTED)

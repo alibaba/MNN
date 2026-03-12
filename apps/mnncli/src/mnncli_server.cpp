@@ -42,6 +42,77 @@ std::string trimLeadingWhitespace(const std::string& str) {
     return std::string(it, str.end()); // Create a substring from the first non-whitespace character
 }
 
+std::string ExtractAnthropicText(const json& content) {
+    if (content.is_string()) {
+        return content.get<std::string>();
+    }
+    if (content.is_object()) {
+        if (content.contains("type") && content["type"].is_string() &&
+            content["type"].get<std::string>() == "text" &&
+            content.contains("text") && content["text"].is_string()) {
+            return content["text"].get<std::string>();
+        }
+        return "";
+    }
+    if (content.is_array()) {
+        std::string merged;
+        bool first = true;
+        for (const auto& block : content) {
+            auto text = ExtractAnthropicText(block);
+            if (text.empty()) {
+                continue;
+            }
+            if (!first) {
+                merged += "\n";
+            }
+            merged += text;
+            first = false;
+        }
+        return merged;
+    }
+    return "";
+}
+
+json BuildOpenAiMessagesFromAnthropicRequest(const json& request_json) {
+    json messages = json::array();
+
+    if (request_json.contains("system")) {
+        auto system_text = ExtractAnthropicText(request_json["system"]);
+        if (!system_text.empty()) {
+            messages.push_back({
+                {"role", "system"},
+                {"content", system_text}
+            });
+        }
+    }
+
+    if (request_json.contains("messages") && request_json["messages"].is_array()) {
+        for (const auto& message : request_json["messages"]) {
+            if (!message.is_object()) {
+                continue;
+            }
+            auto role = message.value("role", std::string("user"));
+            std::string content_text;
+            if (message.contains("content")) {
+                content_text = ExtractAnthropicText(message["content"]);
+            }
+            messages.push_back({
+                {"role", role},
+                {"content", content_text}
+            });
+        }
+    }
+
+    return messages;
+}
+
+void SendSseEvent(httplib::DataSink& sink, const std::string& event, const json& data) {
+    std::string chunk = "event: " + event + "\n";
+    chunk += "data: " + data.dump() + "\n\n";
+    sink.os.write(chunk.c_str(), chunk.size());
+    sink.os.flush();
+}
+
     const std::string getR1AssistantString(std::string assistant_content) {
     std::size_t pos = assistant_content.find("</think>");
     if (pos != std::string::npos) {
@@ -285,6 +356,131 @@ void MnncliServer::Start(MNN::Transformer::Llm* llm, bool is_r1, const std::stri
     // Register both endpoints with the same handler
     server.Post("/chat/completions", chatCompletionsHandler);
     server.Post("/v1/chat/completions", chatCompletionsHandler);
+    auto anthropicMessagesHandler = [&](const httplib::Request &req, httplib::Response &res) {
+      LOG_DEBUG("POST /v1/messages");
+      AllowCors(res);
+      if (!json::accept(req.body)) {
+          json err;
+          err["error"] = "Invalid JSON in request body.";
+          res.status = 400;
+          res.set_content(err.dump(), "application/json");
+          return;
+      }
+
+      json request_json = json::parse(req.body, nullptr, false);
+      json messages = BuildOpenAiMessagesFromAnthropicRequest(request_json);
+      std::string model = request_json.value("model", "undefined-model");
+      bool stream = request_json.value("stream", false);
+
+      if (!stream) {
+          Answer(llm, messages, [&res, model](const std::string& answer) {
+              json response_json = {
+                  {"id", "msg_" + GetCurrentTimeAsString()},
+                  {"type", "message"},
+                  {"role", "assistant"},
+                  {"content", json::array({
+                      {
+                          {"type", "text"},
+                          {"text", answer}
+                      }
+                  })},
+                  {"model", model},
+                  {"stop_reason", "end_turn"},
+                  {"stop_sequence", nullptr},
+                  {"usage", {
+                      {"input_tokens", 0},
+                      {"output_tokens", 0}
+                  }}
+              };
+              res.set_content(response_json.dump(), "application/json");
+          });
+          return;
+      }
+
+      const std::string response_id = "msg_" + GetCurrentTimeAsString();
+      res.set_header("Content-Type", "text/event-stream");
+      res.set_header("Cache-Control", "no-cache");
+      res.set_header("Connection", "keep-alive");
+      res.set_chunked_content_provider(
+          "text/event-stream",
+          [llm, messages, model, response_id, this](size_t /*offset*/, httplib::DataSink &sink) {
+              SendSseEvent(sink, "message_start", {
+                  {"type", "message_start"},
+                  {"message", {
+                      {"id", response_id},
+                      {"type", "message"},
+                      {"role", "assistant"},
+                      {"model", model},
+                      {"content", json::array()},
+                      {"usage", {
+                          {"input_tokens", 0},
+                          {"output_tokens", 0}
+                      }}
+                  }}
+              });
+
+              SendSseEvent(sink, "content_block_start", {
+                  {"type", "content_block_start"},
+                  {"index", 0},
+                  {"content_block", {
+                      {"type", "text"},
+                      {"text", ""}
+                  }}
+              });
+
+              int output_tokens = 0;
+              auto anthropic_sse_callback = [&](const std::string &partial_text, bool end) {
+                  if (end) {
+                      return;
+                  }
+                  if (!partial_text.empty()) {
+                      output_tokens += 1;
+                  }
+                  SendSseEvent(sink, "content_block_delta", {
+                      {"type", "content_block_delta"},
+                      {"index", 0},
+                      {"delta", {
+                          {"type", "text_delta"},
+                          {"text", partial_text}
+                      }}
+                  });
+              };
+
+              AnswerStreaming(llm, messages, anthropic_sse_callback);
+
+              SendSseEvent(sink, "content_block_stop", {
+                  {"type", "content_block_stop"},
+                  {"index", 0}
+              });
+
+              SendSseEvent(sink, "message_delta", {
+                  {"type", "message_delta"},
+                  {"delta", {
+                      {"stop_reason", "end_turn"},
+                      {"stop_sequence", nullptr}
+                  }},
+                  {"usage", {
+                      {"input_tokens", 0},
+                      {"output_tokens", output_tokens}
+                  }}
+              });
+
+              SendSseEvent(sink, "message_stop", {
+                  {"type", "message_stop"}
+              });
+
+              sink.done();
+              std::this_thread::sleep_for(std::chrono::milliseconds(10));
+              return false;
+          }
+      );
+    };
+
+    server.Post("/v1/messages", anthropicMessagesHandler);
+    server.Options("/v1/messages", [](const httplib::Request& /*req*/, httplib::Response& res) {
+        AllowCors(res);
+        res.status = 200;
+    });
     // Start the server on specified host and port
     LOG_DEBUG("✅ Model initialized successfully!");
     LOG_DEBUG("🚀 Server ready at http://" + host + ":" + std::to_string(port));

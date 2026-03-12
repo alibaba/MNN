@@ -10,6 +10,8 @@ import com.alibaba.mnnllm.android.debug.MarketDumperPlugin
 import com.alibaba.mnnllm.android.debug.BenchmarkDumperPlugin
 import com.alibaba.mnnllm.android.debug.DiffusionDumperPlugin
 import com.alibaba.mnnllm.android.debug.SanaDumperPlugin
+import com.alibaba.mnnllm.android.debug.StorageDumperPlugin
+import com.alibaba.mnnllm.android.debug.VoiceDumperPlugin
 import com.alibaba.mnnllm.api.openai.debug.LlmDumperPlugin
 import com.alibaba.mnnllm.api.openai.debug.OpenApiDumperPlugin
 
@@ -25,6 +27,8 @@ object StethoInitializer {
                     .provide(SanaDumperPlugin())
                     .provide(DiffusionDumperPlugin())
                     .provide(BenchmarkDumperPlugin())
+                    .provide(StorageDumperPlugin())
+                    .provide(VoiceDumperPlugin())
                     .provide(LlmDumperPlugin())
                     .provide(OpenApiDumperPlugin())
                     .provide(HistoryDumperPlugin())

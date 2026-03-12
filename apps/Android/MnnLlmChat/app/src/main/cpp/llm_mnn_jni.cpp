@@ -121,8 +121,21 @@ JNIEXPORT jlong JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_initNativ
     }
     auto llm_session = new mls::LlmSession(model_dir_str, merged_config, extra_json_config,
                                            history);
-    llm_session->Load();
-    MNN_DEBUG("LIFECYCLE: LlmSession CREATED at %p", llm_session);
+    bool load_success = llm_session->Load();
+    MNN_DEBUG("LIFECYCLE: LlmSession CREATED at %p, load_success=%d", llm_session, load_success);
+    if (!load_success || !llm_session->isModelReady()) {
+        std::string err_msg = llm_session->getLastLoadError();
+        if (err_msg.empty()) {
+            err_msg = "Model load failed for config: " + model_dir_str;
+        }
+        MNN_DEBUG("Model load failed, cleaning up LlmSession: %s", err_msg.c_str());
+        delete llm_session;
+        jclass exClass = env->FindClass("java/lang/IllegalStateException");
+        if (exClass) {
+            env->ThrowNew(exClass, err_msg.c_str());
+        }
+        return 0;
+    }
     MNN_DEBUG("createLLM EndLoad %ld ", reinterpret_cast<jlong>(llm_session));
     return reinterpret_cast<jlong>(llm_session);
 }

@@ -6,7 +6,7 @@ SMOKE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ARTIFACT_DIR="${ARTIFACT_DIR:-$SMOKE_DIR/artifacts}"
 UNINSTALL_AT_START="${UNINSTALL_AT_START:-true}"
 UNINSTALL_PACKAGES="${UNINSTALL_PACKAGES:-com.alibaba.mnnllm.android com.alibaba.mnnllm.android.release}"
-DEVICE_ID="${DEVICE_ID:-$(adb devices | awk 'NR>1 && $2==\"device\" {print $1; exit}')}"
+DEVICE_ID="${DEVICE_ID:-$(adb devices | awk 'NR>1 && $2=="device" {print $1; exit}')}"
 
 rm -rf "$ARTIFACT_DIR/standard_debug" "$ARTIFACT_DIR/aab_release"
 mkdir -p "$ARTIFACT_DIR/standard_debug" "$ARTIFACT_DIR/aab_release"
@@ -26,13 +26,20 @@ fi
 echo "[1/2] Running standard_debug smoke (main target)..."
 BUILD_KIND=standard_debug ARTIFACT_DIR="$ARTIFACT_DIR/standard_debug" DEVICE_ID="$DEVICE_ID" UNINSTALL_CONFLICTING=false "$SCRIPT_DIR/run_smoke.sh"
 
-echo "[2/2] Running aab_release smoke (sanity target)..."
-BUILD_KIND=aab_release ARTIFACT_DIR="$ARTIFACT_DIR/aab_release" DEVICE_ID="$DEVICE_ID" UNINSTALL_CONFLICTING=false "$SCRIPT_DIR/run_smoke.sh"
+AAB_SKIPPED="false"
+if [[ -f "${BUNDLETOOL_JAR:-/tmp/bundletool-all-1.17.1.jar}" ]]; then
+  echo "[2/2] Running aab_release smoke (sanity target)..."
+  BUILD_KIND=aab_release ARTIFACT_DIR="$ARTIFACT_DIR/aab_release" DEVICE_ID="$DEVICE_ID" UNINSTALL_CONFLICTING=false "$SCRIPT_DIR/run_smoke.sh" || AAB_SKIPPED="failed"
+else
+  echo "[2/2] Skipping aab_release smoke (bundletool not found: ${BUNDLETOOL_JAR:-/tmp/bundletool-all-1.17.1.jar})"
+  AAB_SKIPPED="no_bundletool"
+fi
 
 {
   echo "PRIORITY_REGRESSION=PASS"
   echo "MAIN_TARGET=standard_debug"
   echo "SECONDARY_TARGET=aab_release"
+  echo "AAB_SKIPPED=$AAB_SKIPPED"
   echo "STANDARD_SUMMARY=$ARTIFACT_DIR/standard_debug/smoke_summary.txt"
   echo "AAB_SUMMARY=$ARTIFACT_DIR/aab_release/smoke_summary.txt"
   echo "QWEN35_CASES_REQUIRED=download,run,benchmark"

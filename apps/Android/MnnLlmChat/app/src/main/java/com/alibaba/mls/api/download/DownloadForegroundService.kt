@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import com.alibaba.mnnllm.android.R as AppR
 import com.alibaba.mnnllm.android.main.MainActivity
 
@@ -22,6 +23,7 @@ class DownloadForegroundService : Service() {
         notificationManager = getSystemService(NotificationManager::class.java)
         createNotificationChannel()
         instance = this
+        Log.d(TAG, "onCreate")
     }
 
     private fun createNotificationChannel() {
@@ -37,11 +39,19 @@ class DownloadForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent == null) return START_NOT_STICKY
+        if (intent == null) {
+            Log.w(TAG, "onStartCommand received null intent startId=$startId")
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         
         // Extract download count and model name from intent if available
         currentDownloadCount = intent.getIntExtra(EXTRA_DOWNLOAD_COUNT, 0)
         currentModelName = intent.getStringExtra(EXTRA_MODEL_NAME)
+        Log.d(
+            TAG,
+            "onStartCommand startId=$startId flags=$flags count=$currentDownloadCount modelName=$currentModelName"
+        )
         
         val notification = createNotification()
         try {
@@ -50,8 +60,14 @@ class DownloadForegroundService : Service() {
             } else {
                 startForeground(SERVICE_ID, notification)
             }
+            Log.d(TAG, "startForeground succeeded startId=$startId")
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e(
+                TAG,
+                "startForeground failed startId=$startId count=$currentDownloadCount modelName=$currentModelName",
+                e
+            )
+            stopSelf(startId)
         }
         return START_NOT_STICKY
     }
@@ -97,6 +113,7 @@ class DownloadForegroundService : Service() {
     fun updateNotification(downloadCount: Int, modelName: String? = null) {
         currentDownloadCount = downloadCount
         currentModelName = modelName
+        Log.d(TAG, "updateNotification count=$downloadCount modelName=$modelName")
         val notification = createNotification()
         notificationManager.notify(SERVICE_ID, notification)
     }
@@ -104,7 +121,13 @@ class DownloadForegroundService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         instance = null
-        stopForeground(true)
+        Log.d(TAG, "onDestroy")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } else {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+        }
     }
 
     override fun onBind(intent: Intent): IBinder? {
@@ -112,6 +135,7 @@ class DownloadForegroundService : Service() {
     }
 
     companion object {
+        private const val TAG = "DownloadForegroundSvc"
         private const val CHANNEL_ID = "DownloadServiceChannel"
         private const val SERVICE_ID = 8888
         const val EXTRA_DOWNLOAD_COUNT = "download_count"

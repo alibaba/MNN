@@ -9,6 +9,8 @@ import androidx.lifecycle.lifecycleScope
 import com.alibaba.mls.api.ModelItem
 import com.alibaba.mnnllm.android.llm.ChatService
 import com.alibaba.mnnllm.android.llm.ChatSession
+import com.alibaba.mnnllm.api.openai.di.ServiceLocator
+import com.alibaba.mnnllm.api.openai.manager.ServerEventManager
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.chat.model.ChatDataManager
 import com.alibaba.mnnllm.android.chat.chatlist.ChatViewHolders
@@ -85,8 +87,7 @@ class ChatPresenter(
 
     fun createSession(): ChatSession {
         val intent = chatActivity.intent
-        val chatService = ChatService.provide()
-        sessionId = chatActivity.intent.getStringExtra("chatSessionId")
+        sessionId = intent.getStringExtra("chatSessionId")
         Log.d(TAG, "createSession: received chatSessionId from intent: $sessionId")
         val chatDataItemList: List<ChatDataItem>?
         if (!TextUtils.isEmpty(sessionId)) {
@@ -110,9 +111,26 @@ class ChatPresenter(
         
         Log.d(TAG, "createSession: isDiffusion=${ModelTypeUtils.isDiffusionModel(modelName)}, modelName=$modelName, configPath=$configPath")
         
-        chatSession = chatService.createSession(
-            modelId, modelName, sessionId, chatDataItemList, configPath, false
-        )
+        if (ModelTypeUtils.isDiffusionModel(modelName) || ModelTypeUtils.isSanaModel(modelName)) {
+            val chatService = ChatService.provide()
+            chatSession = chatService.createSession(
+                modelId, modelName, sessionId, chatDataItemList, configPath, false
+            )
+        } else {
+            val result = ServiceLocator.getLlmRuntimeController().ensureSession(
+                modelId = modelId,
+                forceReload = false,
+                useAppConfig = true,
+                configPath = configPath,
+                sessionId = sessionId,
+                historyList = chatDataItemList,
+                deferLoad = true
+            )
+            if (!result.success || result.session == null) {
+                throw IllegalStateException(result.reason ?: "Failed to ensure LLM session")
+            }
+            chatSession = result.session!!
+        }
         sessionId = chatSession.sessionId
         chatSession.setKeepHistory(true)
         
@@ -127,12 +145,36 @@ class ChatPresenter(
             chatActivity.lifecycleScope.launch {
                 chatActivity.onLoadingChanged(true)
             }
-            chatSession.load()
-
-            chatActivity.lifecycleScope.launch {
-                chatActivity.onLoadingChanged(false)
+            try {
+                if (chatSession is com.alibaba.mnnllm.android.llm.LlmSession &&
+                    (chatSession as com.alibaba.mnnllm.android.llm.LlmSession).isModelLoaded()) {
+                    Log.d(TAG, "chatSession already loaded by LlmRuntimeController, skipping load")
+                } else {
+                    chatSession.load()
+                }
+                chatActivity.lifecycleScope.launch {
+                    chatActivity.onLoadingChanged(false)
+                }
+                Log.d(TAG, "chatSession loaded")
+            } catch (e: IllegalStateException) {
+                Log.e(TAG, "Model load failed: ${e.message}", e)
+                if (chatSession is com.alibaba.mnnllm.android.llm.LlmSession) {
+                    ServiceLocator.getLlmRuntimeController().releaseSession()
+                }
+                chatActivity.lifecycleScope.launch {
+                    chatActivity.onLoadingChanged(false)
+                    chatActivity.onModelLoadFailed(e.message ?: "Model load failed")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Model load failed with unexpected error", e)
+                if (chatSession is com.alibaba.mnnllm.android.llm.LlmSession) {
+                    ServiceLocator.getLlmRuntimeController().releaseSession()
+                }
+                chatActivity.lifecycleScope.launch {
+                    chatActivity.onLoadingChanged(false)
+                    chatActivity.onModelLoadFailed(e.message ?: "Model load failed")
+                }
             }
-            Log.d(TAG, "chatSession loaded")
         }
     }
 
@@ -348,10 +390,19 @@ class ChatPresenter(
         CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
             try {
                 if (::chatSession.isInitialized) {
-                    Log.d(TAG, "Final cleanup: Resetting and releasing chat session.")
-                    chatSession.reset()
-                    chatSession.release()
-                    Log.d(TAG, "Chat session reset and released during destroy.")
+                    if (chatSession is com.alibaba.mnnllm.android.llm.LlmSession) {
+                        if (!ServerEventManager.getInstance().isServerRunning()) {
+                            Log.d(TAG, "Final cleanup: Resetting and releasing LlmSession via LlmRuntimeController")
+                            chatSession.reset()
+                            ServiceLocator.getLlmRuntimeController().releaseSession()
+                        } else {
+                            Log.d(TAG, "LlmSession kept alive (API running)")
+                        }
+                    } else {
+                        Log.d(TAG, "Final cleanup: Resetting and releasing non-LLM session")
+                        chatSession.reset()
+                        chatSession.release()
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error during final chat session cleanup", e)
@@ -389,13 +440,15 @@ class ChatPresenter(
                 }
                 val oldSessionId = sessionId
                 destroyCurrentSession()
-                val newSession = createNewModelSession(newModelItem)
-                applyChatHistoryToNewSession(newSession, currentChatHistory)
+                val newSession = createNewModelSession(newModelItem, currentChatHistory)
                 updateDatabaseForModelSwitch(oldSessionId, newModelItem.modelId!!)
                 chatActivity.lifecycleScope.launch {
                     onSessionCreated(newSession)
                 }
-                newSession.load()
+                if (newSession !is com.alibaba.mnnllm.android.llm.LlmSession ||
+                    !(newSession as com.alibaba.mnnllm.android.llm.LlmSession).isModelLoaded()) {
+                    newSession.load()
+                }
                 chatActivity.lifecycleScope.launch {
                     onSwitchComplete(newSession)
                     chatActivity.onLoadingChanged(false)
@@ -413,20 +466,44 @@ class ChatPresenter(
     private fun destroyCurrentSession() {
         if (::chatSession.isInitialized) {
             chatSession.reset()
-            chatSession.release()
+            if (chatSession is com.alibaba.mnnllm.android.llm.LlmSession) {
+                ServiceLocator.getLlmRuntimeController().releaseSession()
+            } else {
+                chatSession.release()
+            }
         }
     }
     
-    private fun createNewModelSession(newModelItem: ModelItem): ChatSession {
-        val chatService = ChatService.provide()
+    private fun createNewModelSession(newModelItem: ModelItem, currentChatHistory: List<ChatDataItem>): ChatSession {
         val newModelId = newModelItem.modelId!!
         val newModelName = newModelItem.modelName!!
+        if (ModelTypeUtils.isDiffusionModel(newModelName) || ModelTypeUtils.isSanaModel(newModelName)) {
+            val chatService = ChatService.provide()
+            val newConfigPath = ModelUtils.getConfigPathForModel(newModelItem)
+            val newSession = chatService.createSession(
+                newModelId, newModelName,
+                null, currentChatHistory,
+                newConfigPath, true
+            )
+            chatSession = newSession
+            sessionId = newSession.sessionId
+            chatSession.setKeepHistory(true)
+            return newSession
+        }
         val newConfigPath = ModelUtils.getConfigPathForModel(newModelItem)
-        val newSession = chatService.createSession(
-            newModelId, newModelName,
-            null, null, // No previous session data
-            newConfigPath, true // Use new config
+        val result = ServiceLocator.getLlmRuntimeController().ensureSession(
+            modelId = newModelId,
+            forceReload = true,
+            useAppConfig = true,
+            configPath = newConfigPath,
+            sessionId = null,
+            historyList = currentChatHistory,
+            deferLoad = true
         )
+        if (!result.success || result.session == null) {
+            throw IllegalStateException(result.reason ?: "Failed to ensure LLM session for model switch")
+        }
+        val newSession = result.session!!
         chatSession = newSession
         sessionId = newSession.sessionId
         chatSession.setKeepHistory(true)
@@ -439,12 +516,6 @@ class ChatPresenter(
         }
     }
     
-    private fun applyChatHistoryToNewSession(newSession: ChatSession, currentChatHistory: List<ChatDataItem>) {
-        if (newSession is com.alibaba.mnnllm.android.llm.LlmSession && currentChatHistory.isNotEmpty()) {
-            newSession.savedHistory = currentChatHistory
-        }
-    }
-
     companion object {
         private const val TAG: String = "ChatPresenter"
         internal fun resolveDiffusionPrompt(input: String, modelId: String): String {

@@ -112,6 +112,7 @@ class ChatActivity : AppCompatActivity() {
         this.modelId = intent.getStringExtra("modelId")
         if (this.modelName.isEmpty() || this.modelId.isNullOrEmpty()) {
             finish()
+            return
         }
         CrashReportContext.setCurrentModel(this.modelId, intent.getStringExtra("chatSessionId"))
         dateFormat = SimpleDateFormat("hh:mm aa", Locale.getDefault())
@@ -353,6 +354,15 @@ class ChatActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Called when model load fails (e.g. native init returned null). Shows error and finishes.
+     */
+    fun onModelLoadFailed(errorMessage: String) {
+        Log.e(TAG, "Model load failed: $errorMessage")
+        Toast.makeText(this, getString(R.string.model_load_failed, errorMessage), Toast.LENGTH_LONG).show()
+        finish()
+    }
+
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.menu_chat, menu)
         menu.findItem(R.id.show_performance_metrics)
@@ -506,7 +516,9 @@ class ChatActivity : AppCompatActivity() {
         wavFileWriter = null
         bufferedAudioFilePath = null
         
-        chatPresenter.destroy()
+        if (::chatPresenter.isInitialized) {
+            chatPresenter.destroy()
+        }
         MainScope().launch {
             ApiServiceManager.stopApiService(ApplicationProvider.get())
         }

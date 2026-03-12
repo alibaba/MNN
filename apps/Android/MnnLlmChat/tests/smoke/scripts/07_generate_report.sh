@@ -10,6 +10,7 @@ std_summary="$ARTIFACT_DIR/standard_debug/smoke_summary.txt"
 aab_summary="$ARTIFACT_DIR/aab_release/smoke_summary.txt"
 dl_summary="$ARTIFACT_DIR/qwen35_download/summary.txt"
 chat_summary="$ARTIFACT_DIR/chat_io/summary.txt"
+table_summary="$ARTIFACT_DIR/table_io/summary.txt"
 bench_summary="$ARTIFACT_DIR/qwen35_benchmark/summary.txt"
 bench_noui_summary="$ARTIFACT_DIR/qwen35_benchmark/noui_summary.txt"
 bench_ui_summary="$ARTIFACT_DIR/qwen35_benchmark/ui_summary.txt"
@@ -153,6 +154,7 @@ std_status="$(status_from_file "$std_summary")"
 aab_status="$(status_from_file "$aab_summary")"
 dl_status="$(status_from_file "$dl_summary")"
 chat_status="$(status_from_file "$chat_summary")"
+table_status="$(status_from_file "$table_summary")"
 
 bench_status="$(summary_value QWEN35_BENCHMARK FAIL)"
 api_dump_status="$(status_from_file "$api_dump_summary")"
@@ -166,6 +168,7 @@ opencl_project="$(summary_value OPENCL_PROJECT MISSING)"
 thinking_config_switch="$(summary_value_from "$api_dump_summary" THINKING_CONFIG_SWITCH MISSING)"
 thinking_response_switch="$(summary_value_from "$api_dump_summary" THINKING_RESPONSE_SWITCH MISSING)"
 thinking_mode_regression="$(summary_value_from "$api_dump_summary" THINKING_MODE_REGRESSION MISSING)"
+duplicate_start_regression="$(summary_value_from "$api_dump_summary" API_DUPLICATE_START_REGRESSION MISSING)"
 
 cpu64_prefill="$(extract_metric "$bench_cpu64_log" "Prefill")"
 cpu64_decode="$(extract_metric "$bench_cpu64_log" "Decode")"
@@ -177,6 +180,11 @@ ocl64_decode="$(extract_metric "$bench_opencl_log" "Decode")"
 opencl_shot_html='<div class="shot"><div>OpenCL result screenshot is hidden because OpenCL project failed.</div></div>'
 if [ "$opencl_project" = "PASS" ] && [ -f "$ARTIFACT_DIR/qwen35_benchmark/shots/06_after_opencl_64_64_result.png" ]; then
   opencl_shot_html='<div class="shot"><div>qwen35_benchmark/shots/06_after_opencl_64_64_result.png</div><img src="qwen35_benchmark/shots/06_after_opencl_64_64_result.png" alt="bench_opencl_result"></div>'
+fi
+
+table_shot_html=''
+if [ -f "$ARTIFACT_DIR/table_io/shots/06_finished.png" ]; then
+  table_shot_html='<div class="shot"><div>table_io/shots/06_finished.png</div><img src="table_io/shots/06_finished.png" alt="table_render_result"></div>'
 fi
 
 now="$(date '+%Y-%m-%d %H:%M:%S %z')"
@@ -219,9 +227,11 @@ cat >"$REPORT_PATH" <<EOF_HTML
         <tr><td>aab release smoke</td><td class="$( [ "$aab_status" = PASS ] && echo ok || echo bad )">${aab_status}</td><td>aab_release/smoke_summary.txt</td></tr>
         <tr><td>Qwen3.5 download ops</td><td class="$( [ "$dl_status" = PASS ] && echo ok || echo bad )">${dl_status}</td><td>qwen35_download/summary.txt</td></tr>
         <tr><td>Qwen3.5 chat text/image entry</td><td class="$( [ "$chat_status" = PASS ] && echo ok || echo bad )">${chat_status}</td><td>chat_io/summary.txt</td></tr>
+        <tr><td>Table rendering smoke</td><td class="$( [ "$table_status" = PASS ] && echo ok || echo bad )">${table_status}</td><td>table_io/summary.txt</td></tr>
         <tr><td>Qwen3.5 benchmark overall</td><td class="$( [ "$bench_status" = PASS ] && echo ok || echo bad )">${bench_status}</td><td>qwen35_benchmark/summary.txt</td></tr>
         <tr><td>API dumpapp compatibility</td><td class="$( [ "$api_dump_status" = PASS ] && echo ok || echo bad )">${api_dump_status}</td><td>api_dumpapp/summary.txt</td></tr>
         <tr><td>API dumpapp thinking regression</td><td class="$( [ "$thinking_mode_regression" = PASS ] && echo ok || echo bad )">${thinking_mode_regression}</td><td>api_dumpapp/summary.txt</td></tr>
+        <tr><td>API duplicate-start regression</td><td class="$( [ "$duplicate_start_regression" = PASS ] && echo ok || echo bad )">${duplicate_start_regression}</td><td>api_dumpapp/summary.txt</td></tr>
         <tr><td>API UiAutomator compatibility</td><td class="$( [ "$api_ui_status" = PASS ] && echo ok || echo bad )">${api_ui_status}</td><td>api_uiautomator/summary.txt</td></tr>
         <tr><td>Sana+Diffusion dumpapp regression</td><td class="$( [ "$sana_diff_dump_status" = PASS ] && echo ok || echo bad )">${sana_diff_dump_status}</td><td>sana_diffusion_dumpapp/summary.txt</td></tr>
         <tr><td>Sana+Diffusion UiAutomator regression</td><td class="$( [ "$sana_diff_ui_status" = PASS ] && echo ok || echo bad )">${sana_diff_ui_status}</td><td>sana_diffusion_ui/summary.txt</td></tr>
@@ -263,6 +273,7 @@ cat >"$REPORT_PATH" <<EOF_HTML
       <div class="shots">
         <div class="shot"><div>qwen35_download/shots/03_after_pause.png</div><img src="qwen35_download/shots/03_after_pause.png" alt="download_pause"></div>
         <div class="shot"><div>chat_io/shots/07_image_test_entry.png</div><img src="chat_io/shots/07_image_test_entry.png" alt="chat_image_entry"></div>
+        ${table_shot_html}
         <div class="shot"><div>qwen35_benchmark/shots/05_after_cpu_128_128_result.png</div><img src="qwen35_benchmark/shots/05_after_cpu_128_128_result.png" alt="bench_cpu128_result"></div>
         ${opencl_shot_html}
       </div>

@@ -1,5 +1,6 @@
 package com.alibaba.mnnllm.api.openai.runtime
 
+import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.llm.LlmSession
 
 data class EnsureSessionResult(
@@ -10,7 +11,15 @@ data class EnsureSessionResult(
 )
 
 interface LlmRuntimeController {
-    fun ensureSession(modelId: String, forceReload: Boolean = false): EnsureSessionResult
+    fun ensureSession(
+        modelId: String,
+        forceReload: Boolean = false,
+        useAppConfig: Boolean = false,
+        configPath: String? = null,
+        sessionId: String? = null,
+        historyList: List<ChatDataItem>? = null,
+        deferLoad: Boolean = false
+    ): EnsureSessionResult
     fun getActiveSession(): LlmSession?
     fun getActiveModelId(): String?
     fun getThinkingEnabled(): Boolean?

@@ -74,7 +74,7 @@
             android:hint="Enter text for TTS conversion"
             android:textColorHint="#888888"
             android:textColor="@android:color/white"
-            android:text="Hello, this is a test for TTS synthesis."
+            android:text="你好，今天天气不错。"
             android:minLines="2"
             android:maxLines="4"
             android:gravity="top" />

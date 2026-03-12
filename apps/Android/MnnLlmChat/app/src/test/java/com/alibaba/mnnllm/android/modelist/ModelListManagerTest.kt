@@ -23,7 +23,9 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -97,6 +99,26 @@ class ModelListManagerTest {
         try {
             val instance = ModelListManager
             val kClass = instance::class
+
+            cancelJobField("marketDataSyncJob")
+            cancelJobField("tagWarmupJob")
+
+            val modelIdModelMapField = kClass.java.getDeclaredField("modelIdModelMap")
+            modelIdModelMapField.isAccessible = true
+            @Suppress("UNCHECKED_CAST")
+            (modelIdModelMapField.get(instance) as MutableMap<String, ModelItem>).clear()
+
+            val cachedModelsField = kClass.java.getDeclaredField("cachedModels")
+            cachedModelsField.isAccessible = true
+            cachedModelsField.set(instance, null)
+
+            val hasEmittedInitialCacheField = kClass.java.getDeclaredField("hasEmittedInitialCache")
+            hasEmittedInitialCacheField.isAccessible = true
+            hasEmittedInitialCacheField.setBoolean(instance, false)
+
+            val lastSyncedMarketDataKeyField = kClass.java.getDeclaredField("lastSyncedMarketDataKey")
+            lastSyncedMarketDataKeyField.isAccessible = true
+            lastSyncedMarketDataKeyField.set(instance, null)
             
             // Reset isInitialized
             val isInitializedProp = kClass.java.getDeclaredField("isInitialized")
@@ -111,14 +133,27 @@ class ModelListManagerTest {
             // Reset _modelListState to Loading
             val modelListStateProp = kClass.java.getDeclaredField("_modelListState")
             modelListStateProp.isAccessible = true
-            // We need to set it to a new MutableStateFlow or reset the existing one
-            // Easier to just let initialize() overwrite it? No, initialize() updates it.
-            // But if it was Success from previous run, we want it back to Loading?
-            // Actually initialize sets it to Loading or Success.
-            // Resetting isInitialized is the most important.
-            
+            @Suppress("UNCHECKED_CAST")
+            val modelListState = modelListStateProp.get(instance) as kotlinx.coroutines.flow.MutableStateFlow<ModelListManager.ModelListState>
+            modelListState.value = ModelListManager.ModelListState.Loading
+
         } catch (e: Exception) {
             println("Failed to reset ModelListManager: ${e.message}")
+        }
+    }
+
+    private fun cancelJobField(fieldName: String) {
+        try {
+            val field = ModelListManager::class.java.getDeclaredField(fieldName)
+            field.isAccessible = true
+            val job = field.get(ModelListManager) as? Job
+            if (job != null) {
+                runBlocking {
+                    job.cancelAndJoin()
+                }
+                field.set(ModelListManager, null)
+            }
+        } catch (_: Exception) {
         }
     }
 

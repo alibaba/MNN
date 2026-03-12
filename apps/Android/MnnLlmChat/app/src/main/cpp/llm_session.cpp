@@ -102,10 +102,18 @@ LlmSession::LlmSession(std::string model_path, json config, json extra_config, s
     }
 }
 
-void LlmSession::Load() {
+bool LlmSession::Load() {
+    last_load_error_.clear();
     std::string root_cache_dir_str = extra_config_["mmap_dir"];
     bool use_mmap = !extra_config_["mmap_dir"].get<std::string>().empty();
     llm_ = Llm::createLLM(model_path_);
+    if (llm_ == nullptr) {
+        last_load_error_ = "createLLM failed for config path: " + model_path_ +
+            " (config file missing or invalid)";
+        MNN_DEBUG("Failed to create LLM instance: %s", last_load_error_.c_str());
+        model_loaded_ = false;
+        return false;
+    }
     json config = config_;
     config["use_mmap"] = use_mmap;
     if (use_mmap) {
@@ -122,7 +130,13 @@ void LlmSession::Load() {
     ReportLlmSetConfigToFirebase("load", config_str);
     llm_->set_config(config_str);
     MNN_DEBUG("dumped config: %s", llm_->dump_config().c_str());
-    llm_->load();
+    model_loaded_ = llm_->load();
+    if (!model_loaded_) {
+        last_load_error_ = "Module load failed for config: " + model_path_ +
+            ". Common causes: model file (.mnn) missing or corrupted, wrong backend (e.g. NPU on CPU-only device), insufficient memory.";
+        MNN_DEBUG("Model load() returned false: %s", last_load_error_.c_str());
+    }
+    return model_loaded_;
 }
 
 LlmSession::~LlmSession() {

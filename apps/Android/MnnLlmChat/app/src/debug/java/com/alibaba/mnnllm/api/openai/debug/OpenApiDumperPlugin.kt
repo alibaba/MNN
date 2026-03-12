@@ -59,6 +59,8 @@ class OpenApiDumperPlugin : DumperPlugin {
             writer.println("Is Running (Internal): ${service.isServerRunning()}")
             writer.println("Port: ${service.getServerPort()}")
             writer.println("Model ID: ${service.getCurrentModelId()}")
+            writer.println("Start Requests: ${service.getStartRequestCount()}")
+            writer.println("Bootstrap Count: ${service.getBootstrapCount()}")
         }
         
         writer.println("--- Config ---")
@@ -93,6 +95,8 @@ class OpenApiDumperPlugin : DumperPlugin {
         writer.println("Service Instance: ${if (service == null) "null" else "running"}")
         writer.println("Service Internal Running: ${service?.isServerRunning() ?: false}")
         writer.println("Service Model ID: ${service?.getCurrentModelId() ?: "null"}")
+        writer.println("START_REQUEST_COUNT=${service?.getStartRequestCount() ?: 0}")
+        writer.println("BOOTSTRAP_COUNT=${service?.getBootstrapCount() ?: 0}")
         writer.println("LISTENER_PRESENT=${listeners.isNotEmpty()}")
         writer.println("LISTENER_NON_LOOPBACK=$hasNonLoopbackListener")
 
@@ -112,6 +116,13 @@ class OpenApiDumperPlugin : DumperPlugin {
         val context = MnnLlmApplication.getInstance()
         val modelId = parseModelArg(args)
         try {
+            // Auto-enable API service via prefs so dumpapp can bootstrap without UI
+            val prefsName = "${context.packageName}_preferences"
+            val prefs = context.getSharedPreferences(prefsName, android.content.Context.MODE_PRIVATE)
+            if (!prefs.getBoolean("enable_api_service", false)) {
+                prefs.edit().putBoolean("enable_api_service", true).apply()
+                writer.println("enable_api_service was false, auto-enabled via plugin.")
+            }
             val intent = Intent(context, OpenAIService::class.java)
             if (!modelId.isNullOrBlank()) {
                 intent.putExtra("modelId", modelId)

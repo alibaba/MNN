@@ -90,8 +90,6 @@ class DebugActivity : AppCompatActivity() {
     private var showModelInfoSwitch: Switch? = null
     private var allowNetworkSwitch: Switch? = null
     private var networkDelaySwitch: Switch? = null
-    private var videoDecoderTestButton: Button? = null
-    private var videoDecoderProcessButton: Button? = null
     private var closeDebugModeButton: Button? = null
     private var testCrashlyticsNonFatalButton: Button? = null
     private var testCrashlyticsFatalButton: Button? = null
@@ -105,7 +103,6 @@ class DebugActivity : AppCompatActivity() {
     private val testCases = listOf(
         TestCase("asr", "ASR Test", R.layout.debug_test_asr),
         TestCase("tts", "TTS Test", R.layout.debug_test_tts),
-        TestCase("video", "Video Decoder Test", R.layout.debug_test_video),
         TestCase("scan", "Model Scan Test", R.layout.debug_test_scan),
         TestCase("settings", "Debug Settings", R.layout.debug_test_settings)
     )
@@ -180,7 +177,6 @@ class DebugActivity : AppCompatActivity() {
         when (testCase.id) {
             "asr" -> initAsrViews(view)
             "tts" -> initTtsViews(view)
-            "video" -> initVideoViews(view)
             "scan" -> initScanViews(view)
             "settings" -> initSettingsViews(view)
         }
@@ -241,19 +237,6 @@ class DebugActivity : AppCompatActivity() {
 
         ttsProcessButton?.setOnClickListener {
             processTtsText()
-        }
-    }
-
-    private fun initVideoViews(parentView: View) {
-        videoDecoderTestButton = parentView.findViewById(R.id.videoDecoderTestButton)
-        videoDecoderProcessButton = parentView.findViewById(R.id.videoDecoderProcessButton)
-
-        videoDecoderTestButton?.setOnClickListener {
-            startVideoDecoderTest()
-        }
-
-        videoDecoderProcessButton?.setOnClickListener {
-            processVideoFile()
         }
     }
 
@@ -495,7 +478,13 @@ class DebugActivity : AppCompatActivity() {
                 withContext(Dispatchers.IO) {
                     try {
                         val modelDir = VoiceModelPathUtils.getTtsModelPath(this@DebugActivity)
+                        val sampleRate = VoiceModelPathUtils.getTtsSampleRate(modelDir)
+                        val language = VoiceModelPathUtils.getTtsLanguage(this@DebugActivity)
                         log("Using TTS model path: $modelDir")
+                        log("Using TTS sample rate: $sampleRate")
+                        log("Using TTS language: $language")
+                        audioPlayer?.sampleRate = sampleRate
+                        ttsService?.setLanguage(language)
                         log("Initializing TTS with model directory: $modelDir")
                         val initResult = ttsService?.init(modelDir)
                         if (initResult == true) {
@@ -578,8 +567,10 @@ class DebugActivity : AppCompatActivity() {
                     // Initialize audio player if needed
                     if (audioPlayer == null) {
                         audioPlayer = AudioChunksPlayer()
-                        audioPlayer!!.sampleRate = 44100
                     }
+                    audioPlayer!!.sampleRate = VoiceModelPathUtils.getTtsSampleRate(
+                        VoiceModelPathUtils.getTtsModelPath(this@DebugActivity)
+                    )
                     audioPlayer?.start()
 
                     // Play the audio
@@ -598,17 +589,6 @@ class DebugActivity : AppCompatActivity() {
                 Log.e(TAG, "Error processing TTS", e)
             }
         }
-    }
-
-    private fun startVideoDecoderTest() {
-        log("Starting Video Decoder Test Activity...")
-        val intent = Intent(this, VideoDecoderTestActivity::class.java)
-        startActivity(intent)
-    }
-
-    private fun processVideoFile() {
-        log("Video file processing not implemented yet")
-        Toast.makeText(this, "Video file processing not implemented yet", Toast.LENGTH_SHORT).show()
     }
 
     override fun onDestroy() {

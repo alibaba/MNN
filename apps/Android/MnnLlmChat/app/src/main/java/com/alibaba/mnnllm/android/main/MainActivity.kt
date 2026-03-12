@@ -11,11 +11,12 @@ import android.util.TypedValue
 import android.view.Menu
 import android.view.MenuInflater
 import android.view.MenuItem
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.ViewTreeObserver
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
-import androidx.appcompat.app.ActionBarDrawerToggle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SearchView
 import androidx.appcompat.widget.Toolbar
@@ -23,6 +24,9 @@ import androidx.core.view.GravityCompat
 import androidx.core.view.MenuHost
 import androidx.core.view.MenuProvider
 import androidx.drawerlayout.widget.DrawerLayout
+import androidx.appcompat.app.ActionBarDrawerToggle
+import com.alibaba.mnnllm.android.widgets.FullScreenDrawerLayout
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import com.alibaba.mls.api.download.ModelDownloadManager
@@ -39,6 +43,7 @@ import com.alibaba.mnnllm.android.update.UpdateChecker
 import com.alibaba.mnnllm.android.utils.AnalyticsTracker
 import com.alibaba.mnnllm.android.utils.CrashUtil
 import com.alibaba.mnnllm.android.utils.GithubUtils
+import com.alibaba.mnnllm.android.utils.PreferenceUtils
 import com.alibaba.mnnllm.android.utils.RouterUtils.startActivity
 import com.alibaba.mnnllm.android.utils.Searchable
 import com.alibaba.mnnllm.android.widgets.BottomTabBar
@@ -56,11 +61,14 @@ import com.alibaba.mnnllm.android.privacy.PrivacyPolicyManager
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import com.alibaba.mnnllm.android.privacy.PrivacyPolicyDialogFragment
+import java.lang.reflect.Method
+import kotlin.math.abs
 
-class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleListener {
-    private lateinit var drawerLayout: DrawerLayout
-    private var toggle: ActionBarDrawerToggle? = null
-    private lateinit var appBarLayout: AppBarLayout
+class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleListener,
+    com.alibaba.mnnllm.android.modelist.OnModelListChangeListener {
+    private lateinit var drawerLayout: FullScreenDrawerLayout
+    private var isDrawerOpen = false
+        private lateinit var appBarLayout: AppBarLayout
     private lateinit var materialToolbar: MaterialToolbar
     private lateinit var mainTitleSwitcher: ModelSwitcherView
     private var toolbarHeightPx: Int = 0
@@ -68,6 +76,7 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
     private var chatHistoryFragment: ChatHistoryFragment? = null
     private var updateChecker: UpdateChecker? = null
     private lateinit var expandableFabLayout: View
+    private lateinit var historyDrawerView: View
     
     // Add field to track current search view
     private var currentSearchView: SearchView? = null
@@ -104,6 +113,11 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
                 BottomTabBar.Tab.LOCAL_MODELS, BottomTabBar.Tab.MODEL_MARKET -> true
                 else -> false
             }
+
+            // Show "filter downloaded only" only on LOCAL_MODELS tab
+            val filterDownloadedItem = menu.findItem(R.id.action_filter_downloaded)
+            filterDownloadedItem.isVisible = bottomNav.getSelectedTab() == BottomTabBar.Tab.LOCAL_MODELS
+            filterDownloadedItem.isChecked = PreferenceUtils.isFilterDownloaded(this@MainActivity)
         }
     }
 
@@ -162,6 +176,18 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
             if (CrashUtil.hasCrash()) {
                 CrashUtil.shareLatestCrash(this@MainActivity)
             }
+            true
+        }
+
+        val filterDownloadedItem = menu.findItem(R.id.action_filter_downloaded)
+        filterDownloadedItem.setOnMenuItemClickListener {
+            val newValue = !PreferenceUtils.isFilterDownloaded(this@MainActivity)
+            PreferenceUtils.setFilterDownloaded(this@MainActivity, newValue)
+            val activeModelListFragment = currentFragment
+            if (activeModelListFragment is ModelListFragment) {
+                activeModelListFragment.refreshFilterDownloadedState()
+            }
+            invalidateOptionsMenu()
             true
         }
     }
@@ -338,6 +364,7 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
                 updateMainTitleSwitcherMode(false)
                 mainTitleSwitcher.text = getString(R.string.nav_name_chats)
                 AnalyticsTracker.logPageView(this, "local_models")
+                setDrawerEnabled(true)
             }
             BottomTabBar.Tab.MODEL_MARKET -> {
                 updateMainTitleSwitcherMode(true)
@@ -346,15 +373,30 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
                 val displayName = if (idx != -1) getString(ModelSources.sourceDisPlayList[idx]) else currentProvider
                 mainTitleSwitcher.text = displayName
                 AnalyticsTracker.logPageView(this, "model_market")
+                setDrawerEnabled(true)
             }
             BottomTabBar.Tab.BENCHMARK -> {
                 updateMainTitleSwitcherMode(false)
                 mainTitleSwitcher.text = getString(R.string.benchmark)
                 AnalyticsTracker.logPageView(this, "benchmark")
+                setDrawerEnabled(false)
             }
         }
         updateExpandableFabLayout(newTab)
         invalidateOptionsMenu()
+    }
+
+    private fun setDrawerEnabled(enabled: Boolean) {
+        if (enabled) {
+            drawerLayout.setDrawerLockMode(DrawerLayout.LOCK_MODE_UNLOCKED, GravityCompat.START)
+        } else {
+            drawerLayout.closeDrawer(GravityCompat.START)
+            drawerLayout.setDrawerLockMode(DrawerLayout.LOCK_MODE_LOCKED_CLOSED, GravityCompat.START)
+        }
+    }
+
+    override fun onDownloadedModelsChanged() {
+        mainFragmentManager.notifyModelMarketDownloadedModelsChanged()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -372,35 +414,43 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
         setupAppBar()
         bottomNav = findViewById(R.id.bottom_navigation)
         drawerLayout = findViewById(R.id.drawer_layout)
+        historyDrawerView = findViewById(R.id.nav_view)
         expandableFabLayout = findViewById(R.id.expandable_fab_layout)
         updateChecker = UpdateChecker(this)
         updateChecker!!.checkForUpdates(this, false)
-        mainFragmentManager = MainFragmentManager(this, R.id.main_fragment_container, bottomNav, this)
+        mainFragmentManager = MainFragmentManager(this, R.id.main_fragment_container, bottomNav, this, this)
         mainFragmentManager.initialize(savedInstanceState)
+        bottomNav.post { setDrawerEnabled(bottomNav.getSelectedTab() != BottomTabBar.Tab.BENCHMARK) }
+        // History fragment is lazy-loaded when drawer is opened via DrawerListener
         Log.d(TAG, "onCreate: Before bottomNav.select, currentFragment: ${currentFragment?.javaClass?.simpleName}")
-        toggle = ActionBarDrawerToggle(
-            this, drawerLayout,
-            toolbar,
-            R.string.nav_open,
-            R.string.nav_close
+
+        setSupportActionBar(toolbar)
+        supportActionBar?.setDisplayHomeAsUpEnabled(true)
+        supportActionBar?.setDisplayShowTitleEnabled(false)  // Disable default title display
+
+        val toggle = ActionBarDrawerToggle(
+            this, drawerLayout, toolbar,
+            R.string.navigation_drawer_open, R.string.navigation_drawer_close
         )
-        drawerLayout.addDrawerListener(toggle!!)
-        toggle!!.syncState()
-        // Remove eager creation of chatHistoryFragment here
-        // Lazy load chatHistoryFragment when drawer is first opened
+        drawerLayout.addDrawerListener(toggle)
+        toggle.syncState()
+
         drawerLayout.addDrawerListener(object : DrawerLayout.DrawerListener {
-            override fun onDrawerSlide(drawerView: View, slideOffset: Float) {}
-            override fun onDrawerOpened(drawerView: View) {
-                if (chatHistoryFragment == null) {
-                    chatHistoryFragment = ChatHistoryFragment()
-                    supportFragmentManager.beginTransaction()
-                        .replace(R.id.history_fragment_container, chatHistoryFragment!!)
-                        .commit()
+            override fun onDrawerSlide(drawerView: View, slideOffset: Float) {
+                if (slideOffset > 0f) {
+                    ensureHistoryFragmentInitialized()
                 }
             }
-            override fun onDrawerClosed(drawerView: View) {}
+            override fun onDrawerOpened(drawerView: View) {
+                isDrawerOpen = true
+                ensureHistoryFragmentInitialized()
+            }
+            override fun onDrawerClosed(drawerView: View) {
+                isDrawerOpen = false
+            }
             override fun onDrawerStateChanged(newState: Int) {}
         })
+
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
@@ -410,9 +460,6 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
                 }
             }
         })
-        setSupportActionBar(toolbar)
-        supportActionBar?.setDisplayHomeAsUpEnabled(true)
-        supportActionBar?.setDisplayShowTitleEnabled(false)  // Disable default title display
         
         val menuHost: MenuHost = this
         menuHost.addMenuProvider(menuProvider, this, Lifecycle.State.RESUMED)
@@ -422,7 +469,53 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
 
         AnalyticsTracker.logAppOpen(this)
     }
-    
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == ModelDownloadManager.REQUEST_CODE_POST_NOTIFICATIONS) {
+            ModelDownloadManager.getInstance(this).tryStartForegroundService()
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        ensureHistoryFragmentInitialized()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+    }
+
+    fun onAddModelButtonClick(view: View) {
+        bottomNav.select(BottomTabBar.Tab.MODEL_MARKET)
+    }
+
+    private fun ensureHistoryFragmentInitialized() {
+        val cached = chatHistoryFragment
+        if (cached != null && cached.isAdded && cached.view != null) {
+            return
+        }
+        val existing = supportFragmentManager.findFragmentById(R.id.history_fragment_container)
+        if (existing is ChatHistoryFragment && existing.isAdded && existing.view != null) {
+            chatHistoryFragment = existing
+            return
+        }
+        chatHistoryFragment = (existing as? ChatHistoryFragment) ?: ChatHistoryFragment()
+        if (supportFragmentManager.isStateSaved) {
+            supportFragmentManager.beginTransaction()
+                .replace(R.id.history_fragment_container, chatHistoryFragment!!)
+                .commitNowAllowingStateLoss()
+        } else {
+            supportFragmentManager.beginTransaction()
+                .replace(R.id.history_fragment_container, chatHistoryFragment!!)
+                .commitNow()
+        }
+    }
+
     private fun handleIntentExtras(intent: Intent?) {
         intent?.let {
             val selectTab = it.getStringExtra(EXTRA_SELECT_TAB)
@@ -435,16 +528,9 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
         }
     }
 
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        if (toggle!!.onOptionsItemSelected(item)) {
-            return true
-        }
-        return super.onOptionsItemSelected(item)
-    }
-    
     fun runModel(destModelDir: String?, modelIdParam: String?, sessionId: String?) {
         ChatRouter.startRun(this, modelIdParam!!, destModelDir, sessionId)
-        drawerLayout.close()
+        drawerLayout.closeDrawer(GravityCompat.START)
     }
 
     fun onStarProject(view: View?) {
@@ -463,46 +549,6 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
         GithubUtils.reportIssue(this)
     }
 
-    fun addLocalModels(view: View?) {
-        val adbCommand = "adb shell mkdir -p /data/local/tmp/mnn_models && adb push \${model_path} /data/local/tmp/mnn_models/"
-        val message = getResources().getString(R.string.add_local_models_message, adbCommand)
-        val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle(R.string.add_local_models_title)
-            .setMessage(message)
-            .setPositiveButton(android.R.string.ok) { dialog, _ -> dialog.dismiss() }
-            .setNeutralButton(R.string.copy_command) { _, _ ->
-                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                val clip = ClipData.newPlainText("ADB Command", adbCommand)
-                clipboard.setPrimaryClip(clip)
-                Toast.makeText(this, R.string.copied_to_clipboard, Toast.LENGTH_SHORT).show()
-            }
-            .create()
-        dialog.show()
-    }
-
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<String>,
-        grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == ModelDownloadManager.REQUEST_CODE_POST_NOTIFICATIONS) {
-            ModelDownloadManager.getInstance(this).tryStartForegroundService()
-        }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-    }
-
-    fun onAddModelButtonClick(view: View) {
-        bottomNav.select(BottomTabBar.Tab.MODEL_MARKET)
-    }
-    
-    /**
-     * Check if user has agreed to privacy policy
-     * If not, show privacy policy dialog
-     */
     private fun checkPrivacyPolicyAgreement() {
         if (!ENABLE_PRIVACY_POLICY_CHECK) {
             return
@@ -515,9 +561,6 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
         }
     }
     
-    /**
-     * Show privacy policy dialog
-     */
     private fun showPrivacyPolicyDialog() {
         val dialog = PrivacyPolicyDialogFragment.newInstance(
             onAgree = {
@@ -538,7 +581,7 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
         
         dialog.show(supportFragmentManager, PrivacyPolicyDialogFragment.TAG)
     }
-
+    
     companion object {
         const val TAG: String = "MainActivity"
         const val EXTRA_SELECT_TAB = "com.alibaba.mnnllm.android.select_tab"
@@ -547,4 +590,5 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
         // Control whether to show privacy policy agreement dialog
         const val ENABLE_PRIVACY_POLICY_CHECK = false
     }
+
 }

@@ -14,4 +14,7 @@ data class Tag(
             key
         }
     }
+
+    /** Use when context is available for locale-aware display (e.g. ViewHolder bind). */
+    fun getDisplayText(useChinese: Boolean): String = if (useChinese) ch else key
 } 

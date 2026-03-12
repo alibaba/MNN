@@ -16,6 +16,9 @@
 #include <sstream>
 #include <mutex>
 #include <iomanip>
+#ifdef __ANDROID__
+#include <android/log.h>
+#endif
 
 // 日志级别定义
 enum PixelAITTSLogLevel
@@ -54,7 +57,35 @@ public:
                //    << "(" << ":" << line << " " << func << ")"
                << fmt;
             (ss << ... << args); // C++17 variadic templates fold expression
-            std::cout << ss.str() << std::endl;
+            auto message = ss.str();
+#ifdef __ANDROID__
+            int android_level = ANDROID_LOG_INFO;
+            switch (level)
+            {
+            case TRACE:
+            case PDEBUG:
+                android_level = ANDROID_LOG_DEBUG;
+                break;
+            case INFO:
+                android_level = ANDROID_LOG_INFO;
+                break;
+            case WARNING:
+                android_level = ANDROID_LOG_WARN;
+                break;
+            case ERROR:
+                android_level = ANDROID_LOG_ERROR;
+                break;
+            case CRITICAL:
+                android_level = ANDROID_LOG_FATAL;
+                break;
+            default:
+                android_level = ANDROID_LOG_INFO;
+                break;
+            }
+            __android_log_write(android_level, "MNN_TTS", message.c_str());
+#else
+            std::cout << message << std::endl;
+#endif
         }
     }
 

@@ -4,9 +4,11 @@
 package com.alibaba.mnnllm.android.utils
 
 import android.content.Context
+import android.os.Build
 import android.util.Log
 import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.mainsettings.MainSettings
+import org.json.JSONObject
 import java.io.File
 
 /**
@@ -14,6 +16,7 @@ import java.io.File
  */
 object VoiceModelPathUtils {
     private const val TAG = "VoiceModelPathUtils"
+    const val DEFAULT_TTS_SAMPLE_RATE = 44100
     
     // Fallback paths when no default model is set
     private const val FALLBACK_ASR_MODEL_DIR = "/data/local/tmp/asr_models"
@@ -81,6 +84,51 @@ object VoiceModelPathUtils {
             Log.e(TAG, "Error getting TTS model path for: $defaultTtsModel", e)
             return FALLBACK_TTS_MODEL_DIR
         }
+    }
+
+    fun getTtsSampleRate(modelDir: String?, fallbackSampleRate: Int = DEFAULT_TTS_SAMPLE_RATE): Int {
+        if (modelDir.isNullOrBlank()) {
+            Log.w(TAG, "TTS model path is empty, using fallback sample rate: $fallbackSampleRate")
+            return fallbackSampleRate
+        }
+
+        val configFile = File(modelDir, "config.json")
+        if (!configFile.exists() || !configFile.isFile) {
+            Log.w(TAG, "TTS config.json not found at ${configFile.absolutePath}, using fallback sample rate: $fallbackSampleRate")
+            return fallbackSampleRate
+        }
+
+        return try {
+            val configJson = JSONObject(configFile.readText())
+            val sampleRate = when (val value = configJson.opt("sample_rate")) {
+                is Number -> value.toInt()
+                is String -> value.toIntOrNull()
+                else -> null
+            }
+
+            if (sampleRate != null && sampleRate > 0) {
+                Log.i(TAG, "Loaded TTS sample rate: $sampleRate from ${configFile.absolutePath}")
+                sampleRate
+            } else {
+                Log.w(TAG, "Invalid TTS sample rate in ${configFile.absolutePath}, using fallback: $fallbackSampleRate")
+                fallbackSampleRate
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse TTS sample rate from ${configFile.absolutePath}", e)
+            fallbackSampleRate
+        }
+    }
+
+    fun getTtsLanguage(context: Context): String {
+        val config = context.resources.configuration
+        val locale = if (Build.VERSION.SDK_INT >= 24) {
+            if (config.locales.isEmpty) null else config.locales[0]
+        } else {
+            @Suppress("DEPRECATION")
+            config.locale
+        }
+
+        return if (locale?.language == "zh") "zh" else "en"
     }
     
     /**

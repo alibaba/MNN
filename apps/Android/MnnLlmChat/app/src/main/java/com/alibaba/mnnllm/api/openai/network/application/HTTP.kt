@@ -25,6 +25,13 @@ fun Application.configureHTTP(context: Context) {
     if (ApiServerConfig.isCorsEnabled(context)) {
         install(CORS) {
             val corsOrigins = ApiServerConfig.getCorsOrigins(context)
+            allowMethod(HttpMethod.Options)
+            allowMethod(HttpMethod.Post)
+            allowMethod(HttpMethod.Get)
+            allowHeader(HttpHeaders.Authorization)
+            allowHeader(HttpHeaders.ContentType)
+            allowHeader("x-api-key")
+            allowHeader("anthropic-version")
             //parseCORSsourceconfig
             if (corsOrigins.isNotEmpty()) {
                 corsOrigins.split(",").forEach { origin ->
@@ -36,11 +43,6 @@ fun Application.configureHTTP(context: Context) {
             } else {
                 //if not availableconfigspecificsource，allowallhosts
                 anyHost()
-                allowMethod(HttpMethod.Post)
-                allowMethod(HttpMethod.Get)
-                allowHeader(HttpHeaders.Authorization)
-                allowHeader(HttpHeaders.ContentType)
-                allowHeader("x-api-key") //explicitlyallow x-api-key
                 allowCredentials = true
             }
         }
@@ -80,5 +82,4 @@ fun Application.configureHTTP(context: Context) {
 
 
 }
-
 

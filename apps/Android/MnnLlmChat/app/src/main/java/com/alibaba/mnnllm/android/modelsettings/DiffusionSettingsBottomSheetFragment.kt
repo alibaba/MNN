@@ -194,8 +194,8 @@ class DiffusionSettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
         onSettingsDoneListener?.invoke(needRecreate)
     }
 
-    override fun resetSettingsToDefaults() {
-        super.resetSettingsToDefaults()
+    override fun onAfterSettingsReset() {
+        super.onAfterSettingsReset()
         // Re-populate UI with loaded values
         binding.editDiffusionSteps.setText(currentConfig.diffusionSteps.toString())
         binding.editImageWidth.setText(currentConfig.imageWidth.toString())

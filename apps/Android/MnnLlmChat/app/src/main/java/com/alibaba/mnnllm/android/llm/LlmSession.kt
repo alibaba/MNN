@@ -28,7 +28,8 @@ class LlmSession (
     override var sessionId: String,
     private val configPath: String,
     var savedHistory: List<ChatDataItem>?,
-    var backendType: String? = null
+    var backendType: String? = null,
+    private val useCustomConfig: Boolean = true
 ): ChatSession{
     override var supportOmni: Boolean = false
     private var nativePtr: Long = 0
@@ -69,7 +70,11 @@ class LlmSession (
                     .map { obj: String? -> obj!! }
                     .collect(Collectors.toList())
         }
-        val config = ModelConfig.loadMergedConfig(configPath, getExtraConfigFile(modelId))!!
+        val config = if (useCustomConfig) {
+            ModelConfig.loadMergedConfig(configPath, getExtraConfigFile(modelId))!!
+        } else {
+            ModelConfig.loadDefaultConfig(configPath)!!
+        }
         var rootCacheDir: String? = ""
         if (config.useMmap == true) {
             rootCacheDir = MmapUtils.getMmapDir(modelId)
@@ -80,7 +85,11 @@ class LlmSession (
             put("mmap_dir", rootCacheDir ?: "")
             put("keep_history", keepHistory)
         }
-        val llmConfig = ModelConfig.loadMergedConfig(configPath, getExtraConfigFile(modelId))!!
+        val llmConfig = if (useCustomConfig) {
+            ModelConfig.loadMergedConfig(configPath, getExtraConfigFile(modelId))!!
+        } else {
+            ModelConfig.loadDefaultConfig(configPath)!!
+        }
         // Override backend type from constructor only if not null
         if (backendType != null) {
             llmConfig.backendType = backendType
@@ -101,9 +110,20 @@ class LlmSession (
         )
         Log.d(TAG, "MNN_DEBUG load initNative end")
         modelLoading = false
+        if (nativePtr == 0L) {
+            Log.e(TAG, "Model load failed - native initialization returned null pointer")
+            throw IllegalStateException("Model load failed - the model module could not be loaded")
+        }
         if (releaseRequested) {
             release()
         }
+    }
+
+    /**
+     * Check if the model is successfully loaded and ready for inference
+     */
+    fun isModelLoaded(): Boolean {
+        return nativePtr != 0L
     }
     
     /**
@@ -150,6 +170,10 @@ class LlmSession (
                           progressListener: GenerateProgressListener): HashMap<String, Any> {
         Log.d(TAG, "start generate prompt: $prompt")
         synchronized(this) {
+            if (mockLatex) {
+                Timber.d("MNN_DEBUG generate intercepted by mockLatex")
+                return submitMockLatexHistory(progressListener)
+            }
             Log.d(TAG, "MNN_DEBUG submit$prompt")
             generating = true
             val result = submitNative(nativePtr, prompt, keepHistory, progressListener)
@@ -283,6 +307,8 @@ class LlmSession (
 
     companion object {
         const val TAG: String = "LlmSession"
+        var mockLatex: Boolean = false
+        var mockLatexContent: String? = null
 
         init {
             System.loadLibrary("mnnllmapp")
@@ -297,6 +323,10 @@ class LlmSession (
         progressListener: GenerateProgressListener
     ): HashMap<String, Any> {
         synchronized(this) {
+            if (mockLatex) {
+                Timber.d("MNN_DEBUG submitFullHistory intercepted by mockLatex")
+                return submitMockLatexHistory(progressListener)
+            }
             //Use Timber instead of Log
             Timber.d("MNN_DEBUG submitFullHistory with ${history.size} messages")
             //Type conversion: kotlin.Pair -> android.util.Pair
@@ -306,6 +336,38 @@ class LlmSession (
             generating = false
             return result
         }
+    }
+
+    private fun submitMockLatexHistory(progressListener: GenerateProgressListener): HashMap<String, Any> {
+        val mockText = mockLatexContent ?: "Here is a math formula:\n\n\$E=mc^2$\n\nAnd a block formula:\n\n\$\$a^2 + b^2 = c^2\$\$\n\nEnd of mock."
+        Thread {
+            try {
+                // Simulate streaming delay
+                var index = 0
+                val chunkSize = 3
+                while (index < mockText.length) {
+                    Thread.sleep(50)
+                    val endIndex = Math.min(index + chunkSize, mockText.length)
+                    val chunk = mockText.substring(index, endIndex)
+                    if (progressListener.onProgress(chunk)) {
+                        break
+                    }
+                    index = endIndex
+                }
+                progressListener.onProgress(null) // notify completion
+            } catch (e: Exception) {
+                Timber.e(e, "Mock generation failed")
+            } finally {
+                generating = false
+            }
+        }.start()
+        val map = HashMap<String, Any>()
+        map["success"] = true
+        map["prompt_len"] = 10L
+        map["decode_len"] = mockText.length.toLong()
+        map["prefill_time"] = 100000L
+        map["decode_time"] = 2000000L
+        return map
     }
     private external fun submitFullHistoryNative(
         nativePtr: Long,

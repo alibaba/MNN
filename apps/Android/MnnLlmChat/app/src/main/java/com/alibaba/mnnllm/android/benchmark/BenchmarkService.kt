@@ -87,11 +87,24 @@ class BenchmarkService {
             ) as? LlmSession
 
             llmSession?.let { session ->
-                session.load()
-                currentBackendType = backendType
-                CrashReportContext.setBenchmarkState("model_loaded")
-                Log.d(TAG, "Benchmark model loaded successfully")
-                true
+                try {
+                    session.load()
+                    if (!session.isModelLoaded()) {
+                        CrashReportContext.setBenchmarkState("initialize_model_load_failed")
+                        Log.e(TAG, "Model loaded but isModelLoaded() returned false")
+                        llmSession = null
+                        return@withContext false
+                    }
+                    currentBackendType = backendType
+                    CrashReportContext.setBenchmarkState("model_loaded")
+                    Log.d(TAG, "Benchmark model loaded successfully")
+                    true
+                } catch (e: IllegalStateException) {
+                    CrashReportContext.setBenchmarkState("initialize_model_load_exception")
+                    Log.e(TAG, "Model load failed with exception: ${e.message}")
+                    llmSession = null
+                    false
+                }
             } ?: false
         } catch (e: Exception) {
             CrashReportContext.setBenchmarkState("initialize_model_failed")

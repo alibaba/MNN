@@ -28,8 +28,12 @@ import com.alibaba.mnnllm.android.utils.KeyboardUtils
 import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.utils.Permissions.REQUEST_RECORD_AUDIO_PERMISSION
 import java.util.Date
+import androidx.lifecycle.lifecycleScope
 import com.alibaba.mnnllm.android.modelist.ModelListManager
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class ChatInputComponent(
     private val chatActivity: ChatActivity,
@@ -134,11 +138,17 @@ class ChatInputComponent(
     
     private fun setupThinkingMode() {
         val extraTags = ModelListManager.getExtraTags(currentModelId)
-        binding.btnToggleThinking.visibility = if (ModelTypeUtils.isSupportThinkingSwitchByTags(extraTags)) {
-            binding.btnToggleThinking.isSelected = ModelConfig.loadConfig(currentModelId)?.jinja?.context?.enableThinking != false
-            View.VISIBLE
-        } else  {
-            View.GONE
+        if (!ModelTypeUtils.isSupportThinkingSwitchByTags(extraTags)) {
+            binding.btnToggleThinking.visibility = View.GONE
+        } else {
+            binding.btnToggleThinking.visibility = View.VISIBLE
+            // Load config off main thread to avoid ANR (file I/O)
+            chatActivity.lifecycleScope.launch {
+                val enableThinking = withContext(Dispatchers.IO) {
+                    ModelConfig.loadConfig(currentModelId)?.jinja?.context?.enableThinking != false
+                }
+                binding.btnToggleThinking.isSelected = enableThinking
+            }
         }
         binding.btnToggleThinking.setOnClickListener {
             Log.d(TAG, "handleSendClick isGenerating : ${chatActivity.isLoading}")

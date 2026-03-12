@@ -2,6 +2,9 @@ package com.alibaba.mnnllm.android.chat.voice
 
 import android.app.Activity
 import android.media.AudioManager
+import android.os.Looper
+import com.alibaba.mnnllm.android.R
+import com.alibaba.mnnllm.android.audio.AudioChunksPlayer
 import com.alibaba.mnnllm.android.chat.ChatPresenter
 import com.alibaba.mnnllm.android.chat.GenerateResultProcessor
 import com.alibaba.mnnllm.android.llm.ChatSession
@@ -13,7 +16,9 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowLooper
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28])
@@ -38,7 +43,14 @@ class VoiceChatPresenterTest {
 
     @After
     fun tearDown() {
+        unmockkAll()
         testScope.cancel()
+    }
+
+    private fun setBooleanField(fieldName: String, value: Boolean) {
+        val field = VoiceChatPresenter::class.java.getDeclaredField(fieldName)
+        field.isAccessible = true
+        field.setBoolean(presenter, value)
     }
 
     @Test
@@ -70,13 +82,30 @@ class VoiceChatPresenterTest {
     }
 
     @Test
-    fun `test stopGeneration triggers state and view`() {
+    fun `test stopGeneration enters stopping state when generation is active`() {
         every { mockChatPresenter.stopGenerate() } just Runs
         every { mockView.updateStatus(any()) } just Runs
+        setBooleanField("isProcessingLlm", true)
+        presenter.stopGeneration()
+        runBlocking { delay(700) }
+        ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+        shadowOf(Looper.getMainLooper()).runToEndOfTasks()
+        verify(timeout = 1000) { mockChatPresenter.stopGenerate() }
+        verify(timeout = 1000) { mockView.updateStatus(VoiceChatState.STOPPING) }
+    }
+
+    @Test
+    fun `test stopGeneration is noop when idle`() {
+        every { mockChatPresenter.stopGenerate() } just Runs
+        every { mockView.updateStatus(any()) } just Runs
+
         presenter.stopGeneration()
         runBlocking { delay(400) }
-        verify { mockView.updateStatus(VoiceChatState.STOPPING) }
-        verify { mockView.updateStatus(VoiceChatState.LISTENING) }
+        ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+        shadowOf(Looper.getMainLooper()).runToEndOfTasks()
+
+        verify(exactly = 0) { mockChatPresenter.stopGenerate() }
+        verify(exactly = 0) { mockView.updateStatus(any()) }
     }
 
     @Test
@@ -105,5 +134,45 @@ class VoiceChatPresenterTest {
         presenter.start()
         runBlocking { delay(200) }
         //As long as there's no crash, exceptions are handled
+    }
+
+    @Test
+    fun `start waits for tts readiness before greeting synthesis`() {
+        val ttsClient = mockk<TtsClient>()
+        val audioPlayer = mockk<AudioChunksPlayer>()
+        every { mockActivity.getString(R.string.voice_chat_ready_greeting) } returns "有什么可以帮助您的？"
+        every { mockView.updateStatus(any()) } just Runs
+        coEvery { ttsClient.waitForInitComplete() } returns true
+        every { ttsClient.process("有什么可以帮助您的？", 0) } returns shortArrayOf(1, 2, 3)
+        every { audioPlayer.setOnCompletionListener(any()) } just Runs
+        coEvery { audioPlayer.playChunk(any<ShortArray>()) } just Runs
+        every { audioPlayer.endChunk() } just Runs
+
+        presenter = VoiceChatPresenter(
+            mockActivity,
+            mockView,
+            mockChatPresenter,
+            testScope,
+            ttsClientFactory = { ttsClient }
+        )
+        val ttsField = VoiceChatPresenter::class.java.getDeclaredField("ttsService")
+        ttsField.isAccessible = true
+        ttsField.set(presenter, ttsClient)
+
+        val audioField = VoiceChatPresenter::class.java.getDeclaredField("audioPlayer")
+        audioField.isAccessible = true
+        audioField.set(presenter, audioPlayer)
+
+        val method = VoiceChatPresenter::class.java.getDeclaredMethod("speakGreetingMessage")
+        method.isAccessible = true
+        method.invoke(presenter)
+        runBlocking { delay(200) }
+        ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+        shadowOf(Looper.getMainLooper()).runToEndOfTasks()
+
+        coVerifyOrder {
+            ttsClient.waitForInitComplete()
+            ttsClient.process("有什么可以帮助您的？", 0)
+        }
     }
 } 

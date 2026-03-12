@@ -43,6 +43,15 @@ class ModelListDumperPluginTest {
             lastDeletedPath = absolutePath
             return deleteResult
         }
+
+        override fun getTagLocaleInfo(): TagLocaleInfo = TagLocaleInfo(
+            deviceLocale = "en_US",
+            isChinese = false,
+            sampleTags = listOf(
+                TagDisplaySample("Chat", "对话", "Chat", "Chat"),
+                TagDisplaySample("Multimodal", "多模态", "Multimodal", "Multimodal")
+            )
+        )
     }
 
     @Test

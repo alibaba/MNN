@@ -12,7 +12,9 @@ import com.alibaba.mnnllm.android.MnnLlmApplication
 import com.alibaba.mnnllm.android.modelmarket.ModelRepository
 import com.alibaba.mnnllm.android.modelmarket.ModelMarketItem
 import com.alibaba.mnnllm.android.modelmarket.ModelMarketCache
+import com.alibaba.mnnllm.android.modelmarket.TagMapper
 import com.alibaba.mnnllm.android.utils.FileUtils
+import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
 import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
@@ -45,7 +47,7 @@ import java.util.concurrent.TimeUnit
 @SuppressLint("StaticFieldLeak")
 object ModelListManager {
     // Application scope for automatic initialization
-    private val applicationScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val applicationScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private val marketSyncScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private const val TAG = "ModelListManager"
     private const val CACHE_FILE_NAME = "model_list_cache.json"
@@ -233,7 +235,8 @@ object ModelListManager {
                         null
                     },
                     downloadSize = downloadSize,
-                    isPinned = isPinned
+                    isPinned = isPinned,
+                    sourceTag = getSourceLabel(context, modelId, isLocal)
                 )
             }
         }
@@ -278,6 +281,18 @@ object ModelListManager {
                 this.context = context
                 cacheFile = File(context.cacheDir, CACHE_FILE_NAME)
                 startMarketDataSyncIfNeeded()
+
+                // CRITICAL: Initialize TagMapper BEFORE loading/emitting cached data
+                // This ensures tags display correctly from the first render
+                try {
+                    val marketConfig = ModelRepository.loadCachedOrAssets()
+                    if (marketConfig != null) {
+                        TagMapper.initializeFromConfig(marketConfig)
+                        Timber.d("TagMapper initialized before cache emit: ${TagMapper.getAllTags().size} tags")
+                    }
+                } catch (e: Exception) {
+                    Timber.w(e, "Failed to pre-initialize TagMapper")
+                }
 
                 // Handle builtin models before loading
                 copyBuiltinModelsIfNeeded(context)
@@ -325,13 +340,11 @@ object ModelListManager {
                             Timber.e(e, "Exception calling saveToDiskCache: ${e.message}")
                         }
                     } else {
-                        // Update source to FRESH even if data is same
-                        if (_modelListState.value is ModelListState.Success) {
-                            _modelListState.value = ModelListState.Success(
-                                models = loadedCachedModels ?: freshModels,
-                                source = DataSource.FRESH
-                            )
-                        }
+                        // Update source to FRESH and ensure we transition out of Loading state
+                        _modelListState.value = ModelListState.Success(
+                            models = loadedCachedModels ?: freshModels,
+                            source = DataSource.FRESH
+                        )
                     }
                 } catch (e: Exception) {
                     Timber.e(e, "Failed to load fresh data")
@@ -860,7 +873,8 @@ object ModelListManager {
                 modelItem = modelItem,
                 downloadedModelInfo = downloadedModel,
                 downloadSize = downloadSize,
-                isPinned = isPinned
+                isPinned = isPinned,
+                sourceTag = getSourceLabel(context, modelItem.modelId, false)
             )
         } catch (e: Exception) {
             Timber.w(e, "Failed to process model ${downloadedModel.modelId}")
@@ -942,7 +956,8 @@ object ModelListManager {
                 modelItem = localModel,
                 downloadedModelInfo = null, // Local models don't have download info
                 downloadSize = localSize,
-                isPinned = isPinned
+                isPinned = isPinned,
+                sourceTag = null // local models have no source tag
             )
         } catch (e: Exception) {
             Timber.w(e, "Failed to process local model ${localModel.modelId}")
@@ -1335,6 +1350,23 @@ object ModelListManager {
             return MODEL_TYPE_DIFFUSION
         }
         return MODEL_TYPE_LLM
+    }
+
+    /**
+     * Source label for My Models tag (ModelScope / HuggingFace / Modelers / Builtin).
+     * Used when building ModelItemWrapper so the UI can show the tag without re-deriving from modelId.
+     * Note: Do not use isLocal here — ModelItem.isLocal is true whenever localPath is set (including downloaded models).
+     * Only user-picked local models have modelId starting with "local/".
+     */
+    private fun getSourceLabel(context: Context, modelId: String?, isLocal: Boolean): String? {
+        if (modelId == null || modelId.isBlank() || modelId.startsWith("local/")) return null
+        return when {
+            modelId.startsWith("HuggingFace/") || modelId.contains("taobao-mnn") -> context.getString(R.string.huggingface)
+            modelId.startsWith("ModelScope/") -> context.getString(R.string.modelscope)
+            modelId.startsWith("Modelers/") -> context.getString(R.string.modelers)
+            modelId.startsWith("Builtin/") -> context.getString(R.string.builtin)
+            else -> null
+        }
     }
 
     /**

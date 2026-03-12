@@ -20,7 +20,6 @@ import com.alibaba.mnnllm.android.utils.PreferenceUtils
 import com.alibaba.mnnllm.android.widgets.ModelAvatarView
 import java.text.DateFormat
 import java.util.Date
-import kotlin.math.abs
 
 class ChatListComponent(private val context: Context,
                         private val dateFormat: DateFormat,
@@ -29,6 +28,18 @@ class ChatListComponent(private val context: Context,
     companion object {
         private const val SCROLL_TO_BOTTOM_THRESHOLD_DP = 30
         private const val TAG = "ChatListComponent"
+
+        internal fun resolveUserScrollingState(
+            currentUserScrolling: Boolean,
+            newState: Int,
+            isAtBottom: Boolean
+        ): Boolean {
+            return when {
+                newState == RecyclerView.SCROLL_STATE_DRAGGING -> true
+                newState == RecyclerView.SCROLL_STATE_IDLE && isAtBottom -> false
+                else -> currentUserScrolling
+            }
+        }
     }
     private lateinit var recyclerView: RecyclerView
     private lateinit var linearLayoutManager: LinearLayoutManager
@@ -96,13 +107,12 @@ class ChatListComponent(private val context: Context,
         recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
                 super.onScrollStateChanged(recyclerView, newState)
+                isUserScrolling = resolveUserScrollingState(isUserScrolling, newState, isAtBottom())
+                updateScrollToBottomButtonVisibility()
             }
 
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
                 super.onScrolled(recyclerView, dx, dy)
-                if (abs(dy.toDouble()) > 0) {
-                    isUserScrolling = true
-                }
                 updateScrollToBottomButtonVisibility()
             }
 

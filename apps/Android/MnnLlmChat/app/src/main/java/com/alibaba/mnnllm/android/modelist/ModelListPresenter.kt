@@ -113,6 +113,8 @@ class ModelListPresenter(private val context: Context, private val view: ModelLi
         presenterScope.launch {
             ModelListManager.notifyModelListMayChange(ModelListManager.ChangeReason.MODEL_DELETED)
         }
+        // Notify so ModelMarketFragment can refresh its downloaded-state UI
+        view.onModelDeletedFromList()
     }
 
     override fun onItemUpdate(modelItem: ModelItem) {

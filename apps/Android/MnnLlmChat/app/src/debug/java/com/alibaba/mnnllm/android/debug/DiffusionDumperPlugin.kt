@@ -88,6 +88,7 @@ internal object DefaultDiffusionDebugController : DiffusionDebugController {
             )
 
         val session = DiffusionSession(
+            modelId = resolved.modelId,
             sessionId = System.currentTimeMillis().toString(),
             configPath = resolved.modelPath
         )
