@@ -3,6 +3,7 @@ on:
   push:
     tags:
       - '*'
+      - '!Android*'
   workflow_dispatch:
 
 jobs:

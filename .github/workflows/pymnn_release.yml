@@ -5,6 +5,7 @@ on:
       - '.github/workflows/pymnn_release.yml'
     tags:
       - '*'
+      - '!Android*'
   workflow_dispatch:
 
 jobs:
