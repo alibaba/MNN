@@ -39,9 +39,14 @@ class HistoryListAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
                 if (this@HistoryListAdapter.onHistoryCallback != null) {
                     onHistoryCallback!!.onSessionHistoryDelete(sessionItem)
                 }
-                val index = historySessionList!!.indexOf(sessionItem)
-                historySessionList!!.removeAt(index)
-                notifyItemRemoved(index)
+                val historyList = historySessionList
+                if (historyList != null) {
+                    val index = historyList.indexOf(sessionItem)
+                    if (index >= 0) {
+                        historyList.removeAt(index)
+                        notifyItemRemoved(index)
+                    }
+                }
             }
         })
         return holder

@@ -158,6 +158,7 @@ internal class LlmDumperPlugin(
             "ensure" -> handleEnsure(writer, args.drop(1))
             "run" -> handleRun(writer, args.drop(1))
             "thinking" -> handleThinking(writer, args.drop(1))
+            "mock-latex" -> handleMockLatex(writer, args.drop(1))
             "release" -> handleRelease(writer)
             else -> printUsage(writer)
         }
@@ -330,6 +331,37 @@ internal class LlmDumperPlugin(
         writer.println("SESSION_SOURCE=none")
     }
 
+    private fun handleMockLatex(writer: PrintStream, args: List<String>) {
+        if (args.isEmpty()) {
+            writer.println("RESULT=FAIL")
+            writer.println("REASON=MISSING_MOCK_VALUE")
+            writer.println("USAGE=dumpapp llm mock-latex <on|off> [content_file_path]")
+            return
+        }
+        val value = args[0].lowercase()
+        val enabled = when (value) {
+            "on", "true", "1" -> true
+            "off", "false", "0" -> false
+            else -> {
+                writer.println("RESULT=FAIL")
+                writer.println("REASON=INVALID_MOCK_VALUE")
+                writer.println("USAGE=dumpapp llm mock-latex <on|off> [content_file_path]")
+                return
+            }
+        }
+        com.alibaba.mnnllm.android.llm.LlmSession.mockLatex = enabled
+        if (args.size > 1) {
+            val path = args[1]
+            try {
+                com.alibaba.mnnllm.android.llm.LlmSession.mockLatexContent = java.io.File(path).readText()
+            } catch (e: Exception) {
+                writer.println("REASON=FAILED_TO_READ_FILE_${e.message}")
+            }
+        }
+        writer.println("RESULT=OK")
+        writer.println("MOCK_LATEX=$enabled")
+    }
+
     private fun printUsage(writer: PrintStream) {
         writer.println("Usage: dumpapp llm <command>")
         writer.println("Commands:")
@@ -338,6 +370,7 @@ internal class LlmDumperPlugin(
         writer.println("  run <modelId> <prompt> [--force-reload] [--use-app-config]  Run prompt via LlmSession")
         writer.println("  thinking get                          Get runtime thinking mode")
         writer.println("  thinking set <on|off>                Set runtime thinking mode")
+        writer.println("  mock-latex <on|off> [path]           Enable/disable mock streaming latex using optional file path")
         writer.println("  release                              Release runtime session")
     }
 }

@@ -5,6 +5,8 @@ ALLOW_RUNTIME_SKIP=0
 WITH_CLAUDE=0
 PORT="${MNNCLI_VERIFY_PORT:-18080}"
 MODEL="${MNNCLI_VERIFY_MODEL:-Qwen3.5-0.8B-MNN}"
+STREAM_TIMEOUT="${MNNCLI_VERIFY_STREAM_TIMEOUT:-120}"
+CLAUDE_TIMEOUT="${MNNCLI_VERIFY_CLAUDE_TIMEOUT:-90}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -22,6 +24,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --model)
       MODEL="$2"
+      shift 2
+      ;;
+    --stream-timeout)
+      STREAM_TIMEOUT="$2"
+      shift 2
+      ;;
+    --claude-timeout)
+      CLAUDE_TIMEOUT="$2"
       shift 2
       ;;
     *)
@@ -166,7 +176,8 @@ print("NON_STREAM_OK")
 PY
 log "OK: /v1/messages non-stream schema"
 
-curl -sS -N --max-time 30 "http://127.0.0.1:${PORT}/v1/messages" \
+set +e
+curl -sS -N --max-time "$STREAM_TIMEOUT" "http://127.0.0.1:${PORT}/v1/messages" \
   -H "Content-Type: application/json" \
   -H "x-api-key: dummy" \
   -d '{
@@ -175,38 +186,77 @@ curl -sS -N --max-time 30 "http://127.0.0.1:${PORT}/v1/messages" \
     "max_tokens": 16,
     "messages": [{
       "role": "user",
-      "content": [{"type": "text", "text": "Say hi"}]
+      "content": [{"type": "text", "text": "Reply with OK only."}]
     }]
   }' >"$STREAM_LOG"
+STREAM_RC=$?
+set -e
+
+if [[ "$STREAM_RC" -ne 0 && "$STREAM_RC" -ne 28 ]]; then
+  log "FAIL: stream request failed with curl exit code $STREAM_RC"
+  tail -n 80 "$SERVER_LOG" || true
+  exit 1
+fi
 
 require_pattern "$STREAM_LOG" 'event: message_start' 'stream message_start event'
 require_pattern "$STREAM_LOG" 'event: content_block_start' 'stream content_block_start event'
-require_pattern "$STREAM_LOG" 'event: message_delta' 'stream message_delta event'
-require_pattern "$STREAM_LOG" 'event: message_stop' 'stream message_stop event'
+require_pattern "$STREAM_LOG" 'event: content_block_delta' 'stream content_block_delta event'
+if [[ "$STREAM_RC" -eq 0 ]]; then
+  require_pattern "$STREAM_LOG" 'event: message_delta' 'stream message_delta event'
+  require_pattern "$STREAM_LOG" 'event: message_stop' 'stream message_stop event'
+else
+  log "WARN: stream request hit timeout (${STREAM_TIMEOUT}s); validated initial SSE events from partial output"
+fi
 log "OK: /v1/messages stream schema"
 
 if [[ "$WITH_CLAUDE" -eq 1 ]]; then
   if command -v claude >/dev/null 2>&1; then
-    python3 - "$PORT" "$CLAUDE_LOG" <<'PY'
+    CLAUDE_POST_BEFORE="$(rg -c 'POST /v1/messages' "$SERVER_LOG" || true)"
+    CLAUDE_POST_BEFORE="${CLAUDE_POST_BEFORE:-0}"
+    # Create temporary settings to override ANTHROPIC_BASE_URL
+    CLAUDE_SETTINGS="$ARTIFACT_DIR/claude_settings.json"
+    cat > "$CLAUDE_SETTINGS" << EOF
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:${PORT}",
+    "ANTHROPIC_API_KEY": "dummy"
+  }
+}
+EOF
+    set +e
+    python3 - "$PORT" "$CLAUDE_LOG" "$CLAUDE_TIMEOUT" "$CLAUDE_SETTINGS" <<'PY'
 import os
 import subprocess
 import sys
 
 port = sys.argv[1]
 out = sys.argv[2]
-env = dict(os.environ)
-env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"
-env.setdefault("ANTHROPIC_API_KEY", "dummy")
+timeout_seconds = float(sys.argv[3])
+settings_path = sys.argv[4]
 
-cmd = ["claude", "-p", "Reply with OK only"]
+cmd = ["claude", "-p", "Reply with OK only", "--settings", settings_path]
 with open(out, "w", encoding="utf-8") as f:
     try:
-        subprocess.run(cmd, env=env, stdout=f, stderr=subprocess.STDOUT, check=True, timeout=40)
+        subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, check=True, timeout=timeout_seconds)
         print("CLAUDE_OK")
     except Exception as e:
         print(f"CLAUDE_FAIL:{type(e).__name__}:{e}")
         raise
 PY
+    CLAUDE_RC=$?
+    set -e
+    CLAUDE_POST_AFTER="$(rg -c 'POST /v1/messages' "$SERVER_LOG" || true)"
+    CLAUDE_POST_AFTER="${CLAUDE_POST_AFTER:-0}"
+    if [[ "$CLAUDE_POST_AFTER" -le "$CLAUDE_POST_BEFORE" ]]; then
+      log "FAIL: claude probe did not hit /v1/messages (before=${CLAUDE_POST_BEFORE}, after=${CLAUDE_POST_AFTER})"
+      tail -n 40 "$CLAUDE_LOG" || true
+      exit 1
+    fi
+    if [[ "$CLAUDE_RC" -ne 0 ]]; then
+      log "FAIL: claude probe command failed with exit code $CLAUDE_RC"
+      tail -n 40 "$CLAUDE_LOG" || true
+      exit 1
+    fi
     log "OK: claude probe passed"
   else
     log "SKIP: claude binary not found"

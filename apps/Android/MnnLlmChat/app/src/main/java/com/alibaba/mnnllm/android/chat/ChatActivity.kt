@@ -112,6 +112,7 @@ class ChatActivity : AppCompatActivity() {
         this.modelId = intent.getStringExtra("modelId")
         if (this.modelName.isEmpty() || this.modelId.isNullOrEmpty()) {
             finish()
+            return
         }
         CrashReportContext.setCurrentModel(this.modelId, intent.getStringExtra("chatSessionId"))
         dateFormat = SimpleDateFormat("hh:mm aa", Locale.getDefault())
