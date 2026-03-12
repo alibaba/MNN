@@ -136,8 +136,26 @@ exists_any_rid() {
   return 1
 }
 
+wait_for_chat_ready() {
+  local attempt
+  for attempt in 1 2 3 4 5 6; do
+    sleep 2
+    dump_ui "$TMP_XML" || true
+    if exists_any_rid "$TMP_XML" \
+      "com.alibaba.mnnllm.android:id/et_message" \
+      "com.alibaba.mnnllm.android.release:id/et_message"; then
+      echo "CHAT_READY attempt=$attempt ts=$(date '+%H:%M:%S')" | tee -a "$UI_LOG"
+      return 0
+    fi
+    echo "CHAT_READY_RETRY attempt=$attempt ts=$(date '+%H:%M:%S')" | tee -a "$UI_LOG"
+  done
+  return 1
+}
+
 # Ensure app on foreground and open model market.
 ensure_device_unlocked
+adb shell am force-stop "$PACKAGE_NAME"
+sleep 1
 adb shell monkey -p "$PACKAGE_NAME" -c android.intent.category.LAUNCHER 1 >/dev/null
 sleep 2
 dump_ui "$TMP_XML"
@@ -164,8 +182,7 @@ if tap_by_rid_text "$TMP_XML" "对话" \
   || tap_by_rid_contains_text "$TMP_XML" "对话" \
   "com.alibaba.mnnllm.android:id/btn_download_action" \
   "com.alibaba.mnnllm.android.release:id/btn_download_action"; then
-  sleep 3
-  dump_ui "$TMP_XML"
+  wait_for_chat_ready || true
 elif exists_any_rid "$TMP_XML" \
   "com.alibaba.mnnllm.android:id/et_message" \
   "com.alibaba.mnnllm.android.release:id/et_message"; then
@@ -173,8 +190,7 @@ elif exists_any_rid "$TMP_XML" \
 elif tap_by_any_rid "$TMP_XML" \
   "com.alibaba.mnnllm.android:id/tab_chat" \
   "com.alibaba.mnnllm.android.release:id/tab_chat"; then
-  sleep 2
-  dump_ui "$TMP_XML"
+  wait_for_chat_ready || true
 else
   echo "CHAT_ENTRY_NOT_FOUND (no 对话 button, no chat input, no chat tab)" >&2
   exit 1

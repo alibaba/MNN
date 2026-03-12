@@ -31,12 +31,16 @@ Key scripts:
 - `scripts/05_regress_qwen35_benchmark_ui.sh`: Qwen3.5 benchmark regression (UI only)
 - `scripts/05_regress_qwen35_benchmark.sh`: compatibility entry, delegates to UI benchmark script
 - `scripts/06_regress_chat_text_image.sh`: chat text + image-entry regression
+- `scripts/12_regress_streaming_latex.sh`: LaTeX streaming rendering smoke via mock content + screenshot evidence
 - `scripts/14_regress_streaming_table.sh`: markdown table rendering smoke via mock streaming content + screenshot evidence
+- `scripts/13_regress_storage_ui.sh`: storage management UI smoke via settings navigation + screenshot evidence
 - `scripts/noui/08_regress_api_dumpapp.sh`: API compatibility + thinking-mode regression via dumpapp + curl (no-code)
 - `scripts/09_regress_api_uiautomator.sh`: API settings UiAutomator instrumentation test (code-based)
 - `scripts/noui/10_regress_sana_diffusion_dumpapp.sh`: Sana + Diffusion generation regression (dumpapp only)
 - `scripts/11_regress_sana_diffusion_uiautomator.sh`: Sana + Diffusion model-entry regression (UI + uiautomator)
 - `scripts/noui/13_regress_storage_dumpapp_smoke.sh`: **dumpapp storage** subcommand smoke (list/analysis/mmap/orphans/verify, integrity checks)
+- `scripts/noui/15_regress_voice_dumpapp.sh`: **dumpapp voice** TTS smoke (init/test/destroy via dumpapp)
+- `scripts/16_regress_voice_ui.sh`: Voice Chat UI smoke (enter/exit voice chat, status verification)
 - `scripts/07_generate_report.sh`: generates single-page `artifacts/report.html`
 
 ## Quick Start
@@ -75,7 +79,11 @@ Optional env vars:
 - `DIFFUSION_MODEL_ID`: override model id for `10_regress_sana_diffusion_dumpapp.sh`
 - `THINKING_MAX_TOKENS`: max completion tokens for step `08_regress_api_dumpapp.sh` thinking probe (default: `16`)
 - `RUN_STORAGE_DUMPAPP_SMOKE`: set to `true` to run step 13 (dumpapp storage smoke) in extended pipeline (default: `false`)
+- `RUN_STORAGE_UI_SMOKE`: set to `true` to run storage management UI smoke in extended pipeline (default: `false`)
+- `RUN_LATEX_RENDER_SMOKE`: set to `true` to run LaTeX rendering smoke in extended pipeline (default: `false`)
 - `RUN_TABLE_RENDER_SMOKE`: set to `true` to run markdown table rendering smoke in extended pipeline (default: `false`)
+- `RUN_VOICE_DUMPAPP_SMOKE`: set to `true` to run Voice TTS dumpapp smoke in extended pipeline (default: `false`)
+- `RUN_VOICE_UI_SMOKE`: set to `true` to run Voice Chat UI smoke in extended pipeline (default: `false`)
 
 ## Runtime Process
 
@@ -88,12 +96,17 @@ Typical end-to-end execution order:
 5. API compatibility regression (dumpapp no-code path)
 6. Qwen3.5 benchmark UI regression (CPU/OpenCL cases)
 7. Qwen3.5 chat text/image-entry regression
-8. Optional markdown table rendering smoke
-9. Qwen3.5 download regression
-10. Optional API settings UiAutomator regression
-11. Optional Sana + Diffusion dumpapp regression
-12. Optional Sana + Diffusion UiAutomator regression
-13. Report generation to `artifacts/report.html`
+8. Optional LaTeX rendering smoke
+9. Optional markdown table rendering smoke
+10. Qwen3.5 download regression
+11. Optional API settings UiAutomator regression
+12. Optional Sana + Diffusion dumpapp regression
+13. Optional Sana + Diffusion UiAutomator regression
+14. Optional storage dumpapp smoke
+15. Optional storage management UI smoke
+16. Optional Voice TTS dumpapp smoke
+17. Optional Voice Chat UI smoke
+18. Report generation to `artifacts/report.html`
 
 API compatibility stage details:
    - dumpapp no-code path (`/v1/models`, Anthropic `/v1/messages`, OpenAI `/v1/chat/completions` auth gates, plus HTTPS runtime probe)
@@ -131,6 +144,20 @@ Table rendering smoke specifics:
 - Artifact root: `artifacts/table_io/`
 - Evidence: staged screenshots plus `generating_*.xml` / `finished.xml`
 - Acceptance style: screenshot-first review; use human or vision-capable LLM review on screenshots to judge whether the markdown table rendered correctly
+
+LaTeX rendering smoke specifics:
+
+- Script: `scripts/12_regress_streaming_latex.sh`
+- Artifact root: `artifacts/latex_io/`
+- Evidence: staged screenshots plus `generating_*.xml` / `finished.xml`
+- Acceptance style: screenshot-first review; verify formulas render and streaming does not visibly break layout
+
+Storage management UI smoke specifics:
+
+- Script: `scripts/13_regress_storage_ui.sh`
+- Artifact root: `artifacts/storage_ui/`
+- Evidence: settings page screenshot, storage summary screenshot, optional expanded row screenshot
+- Safety: non-destructive by design; it does not tap delete or clean actions
 
 ## Debugging My Models source tags (ModelScope / HuggingFace / Modelers)
 

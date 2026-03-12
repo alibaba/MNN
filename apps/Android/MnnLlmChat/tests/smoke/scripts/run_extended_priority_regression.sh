@@ -9,7 +9,11 @@ STEP_WATCH_TIMEOUT_SEC="${STEP_WATCH_TIMEOUT_SEC:-1800}"
 RUN_API_UIAUTOMATOR_TEST="${RUN_API_UIAUTOMATOR_TEST:-false}"
 RUN_SANA_DIFFUSION_REGRESSION="${RUN_SANA_DIFFUSION_REGRESSION:-false}"
 RUN_STORAGE_DUMPAPP_SMOKE="${RUN_STORAGE_DUMPAPP_SMOKE:-false}"
+RUN_STORAGE_UI_SMOKE="${RUN_STORAGE_UI_SMOKE:-false}"
+RUN_LATEX_RENDER_SMOKE="${RUN_LATEX_RENDER_SMOKE:-false}"
 RUN_TABLE_RENDER_SMOKE="${RUN_TABLE_RENDER_SMOKE:-false}"
+RUN_VOICE_DUMPAPP_SMOKE="${RUN_VOICE_DUMPAPP_SMOKE:-false}"
+RUN_VOICE_UI_SMOKE="${RUN_VOICE_UI_SMOKE:-false}"
 
 step_status() {
   local k="$1"
@@ -79,6 +83,12 @@ run_step_with_watch "STEP5" "[STEP 5] Chat text/image input entry regression" \
   "$SCRIPT_DIR/06_regress_chat_text_image.sh" \
   "$ARTIFACT_DIR/chat_io/summary.txt"
 
+if [ "$RUN_LATEX_RENDER_SMOKE" = "true" ]; then
+  run_step_with_watch "STEP_LATEX" "[STEP] LaTeX rendering smoke (UI screenshots)" \
+    "$SCRIPT_DIR/12_regress_streaming_latex.sh" \
+    "$ARTIFACT_DIR/latex_io/summary.txt"
+fi
+
 if [ "$RUN_TABLE_RENDER_SMOKE" = "true" ]; then
   run_step_with_watch "STEP_TABLE" "[STEP] Markdown table rendering smoke (UI screenshots)" \
     "$SCRIPT_DIR/14_regress_streaming_table.sh" \
@@ -111,6 +121,24 @@ if [ "$RUN_STORAGE_DUMPAPP_SMOKE" = "true" ]; then
     "$ARTIFACT_DIR/storage_dumpapp_smoke/summary.txt"
 fi
 
+if [ "$RUN_STORAGE_UI_SMOKE" = "true" ]; then
+  run_step_with_watch "STEP_STORAGE_UI" "[STEP] Storage management UI smoke (settings navigation + summary capture)" \
+    "$SCRIPT_DIR/13_regress_storage_ui.sh" \
+    "$ARTIFACT_DIR/storage_ui/summary.txt"
+fi
+
+if [ "$RUN_VOICE_DUMPAPP_SMOKE" = "true" ]; then
+  run_step_with_watch "STEP_VOICE_DUMPAPP" "[STEP] Voice dumpapp smoke (TTS init/test)" \
+    "$SCRIPT_DIR/noui/15_regress_voice_dumpapp.sh" \
+    "$ARTIFACT_DIR/voice_dumpapp/summary.txt"
+fi
+
+if [ "$RUN_VOICE_UI_SMOKE" = "true" ]; then
+  run_step_with_watch "STEP_VOICE_UI" "[STEP] Voice Chat UI smoke (enter/exit voice chat)" \
+    "$SCRIPT_DIR/16_regress_voice_ui.sh" \
+    "$ARTIFACT_DIR/voice_ui/summary.txt"
+fi
+
 run_step_with_watch "STEP10" "[STEP 10] Generate single-page HTML report" \
   "$SCRIPT_DIR/07_generate_report.sh" \
   "$ARTIFACT_DIR/report.html" \
@@ -118,13 +146,17 @@ run_step_with_watch "STEP10" "[STEP 10] Generate single-page HTML report" \
 
 {
   echo "EXTENDED_PRIORITY_REGRESSION=${overall}"
-  echo "COVERAGE=benchmark_noui,api_dumpapp,benchmark_ui,text_input,image_input_entry,table_render_optional,download_pause_resume_delete,api_uiautomator_optional,sana_diffusion_dumpapp_optional,sana_diffusion_uiautomator_optional,storage_dumpapp_smoke_optional"
+  echo "COVERAGE=benchmark_noui,api_dumpapp,benchmark_ui,text_input,image_input_entry,latex_render_optional,table_render_optional,download_pause_resume_delete,api_uiautomator_optional,sana_diffusion_dumpapp_optional,sana_diffusion_uiautomator_optional,storage_dumpapp_smoke_optional,storage_ui_optional,voice_dumpapp_optional,voice_ui_optional"
   echo "ARTIFACT_ROOT=$ARTIFACT_DIR"
   echo "REPORT_HTML=$ARTIFACT_DIR/report.html"
   echo "RUN_API_UIAUTOMATOR_TEST=$RUN_API_UIAUTOMATOR_TEST"
   echo "RUN_SANA_DIFFUSION_REGRESSION=$RUN_SANA_DIFFUSION_REGRESSION"
   echo "RUN_STORAGE_DUMPAPP_SMOKE=$RUN_STORAGE_DUMPAPP_SMOKE"
+  echo "RUN_STORAGE_UI_SMOKE=$RUN_STORAGE_UI_SMOKE"
+  echo "RUN_LATEX_RENDER_SMOKE=$RUN_LATEX_RENDER_SMOKE"
   echo "RUN_TABLE_RENDER_SMOKE=$RUN_TABLE_RENDER_SMOKE"
+  echo "RUN_VOICE_DUMPAPP_SMOKE=$RUN_VOICE_DUMPAPP_SMOKE"
+  echo "RUN_VOICE_UI_SMOKE=$RUN_VOICE_UI_SMOKE"
 } >"$ARTIFACT_DIR/extended_priority_summary.txt"
 
 cat "$ARTIFACT_DIR/extended_priority_summary.txt"

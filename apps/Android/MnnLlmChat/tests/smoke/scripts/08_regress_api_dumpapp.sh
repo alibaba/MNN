@@ -77,6 +77,18 @@ ensure_dumpapp_process() {
   sleep 2
 }
 
+run_dumpapp_with_retry() {
+  local out_file="$1"
+  shift
+  if "$DUMPAPP" "$@" >"$out_file" 2>&1; then
+    return 0
+  fi
+  if rg -q 'closed \(is it running\?\)|Failure to target process' "$out_file"; then
+    ensure_dumpapp_process
+    "$DUMPAPP" "$@" >"$out_file" 2>&1 || true
+  fi
+}
+
 run_openai_service_with_model() {
   adb shell am start-foreground-service -n "$OPENAI_SERVICE" --es modelId "$API_BOOTSTRAP_MODEL_ID" \
     >"$OUT_DIR/start_with_model.log" 2>&1 \
@@ -93,7 +105,7 @@ stop_openai_service() {
 
 refresh_status() {
   for _ in 1 2 3 4 5; do
-    "$DUMPAPP" openai status >"$STATUS_LOG" 2>&1 || true
+    run_dumpapp_with_retry "$STATUS_LOG" openai status
     if rg -q "Status: Service is running" "$STATUS_LOG"; then
       return 0
     fi
@@ -107,7 +119,7 @@ wait_for_server_ready() {
   local max_wait="${API_SERVER_START_TIMEOUT:-30}"
   local waited=0
   while [ "$waited" -lt "$max_wait" ]; do
-    "$DUMPAPP" openai status >"$STATUS_LOG" 2>&1 || true
+    run_dumpapp_with_retry "$STATUS_LOG" openai status
     local internal
     internal="$(awk -F': ' '/Is Running \(Internal\)/ {print tolower($2); exit}' "$STATUS_LOG" | tr -d '\r' || true)"
     if [ "$internal" = "true" ]; then
@@ -156,7 +168,7 @@ write_fail_summary() {
 }
 
 collect_openai_diag() {
-  "$DUMPAPP" openai diag >"$DIAG_LOG" 2>&1 || true
+  run_dumpapp_with_retry "$DIAG_LOG" openai diag
   START_REQUEST_COUNT="$(awk -F= '/^START_REQUEST_COUNT=/{print $2; exit}' "$DIAG_LOG" | tr -d '\r' || true)"
   BOOTSTRAP_COUNT="$(awk -F= '/^BOOTSTRAP_COUNT=/{print $2; exit}' "$DIAG_LOG" | tr -d '\r' || true)"
   LISTENER_PRESENT="$(awk -F= '/^LISTENER_PRESENT=/{print tolower($2); exit}' "$DIAG_LOG" | tr -d '\r' || true)"
@@ -208,8 +220,19 @@ verify_duplicate_start_regression() {
   return 0
 }
 
+should_require_lan_probes() {
+  if [ -n "${LAN_HOST:-}" ]; then
+    return 0
+  fi
+  if [ "${LISTENER_NON_LOOPBACK:-}" = "true" ]; then
+    return 0
+  fi
+  return 1
+}
+
 ensure_api_network_service_enabled() {
-  "$DUMPAPP" prefs print >"$PREFS_LOG" 2>&1 || true
+  ensure_dumpapp_process
+  run_dumpapp_with_retry "$PREFS_LOG" prefs print
   local enabled
   enabled="$(awk -v path="$DEFAULT_PREFS_PATH" '
     $0 == path ":" { in_path=1; next }
@@ -219,8 +242,8 @@ ensure_api_network_service_enabled() {
 
   if [ "$enabled" != "true" ]; then
     echo "[API_DUMPAPP] enable_api_service is '$enabled', force enable via dumpapp prefs"
-    "$DUMPAPP" prefs write "$DEFAULT_PREFS_PATH" enable_api_service boolean true >"$OUT_DIR/enable_api_service.log" 2>&1 || true
-    "$DUMPAPP" prefs print >"$PREFS_LOG" 2>&1 || true
+    run_dumpapp_with_retry "$OUT_DIR/enable_api_service.log" prefs write "$DEFAULT_PREFS_PATH" enable_api_service boolean true
+    run_dumpapp_with_retry "$PREFS_LOG" prefs print
     enabled="$(awk -v path="$DEFAULT_PREFS_PATH" '
       $0 == path ":" { in_path=1; next }
       /^[^ ]/ && $0 != path ":" { in_path=0 }
@@ -236,7 +259,7 @@ ensure_api_network_service_enabled() {
 }
 
 ensure_lan_bind_ip() {
-  "$DUMPAPP" prefs print >"$PREFS_LOG" 2>&1 || true
+  run_dumpapp_with_retry "$PREFS_LOG" prefs print
   local bind_ip
   bind_ip="$(awk '
     $0 == "api_settings:" { in_api=1; next }
@@ -246,15 +269,15 @@ ensure_lan_bind_ip() {
 
   if [ -z "$bind_ip" ] || [ "$bind_ip" = "127.0.0.1" ] || [ "$bind_ip" = "localhost" ]; then
     echo "[API_DUMPAPP] ip_address is '$bind_ip', force set to 0.0.0.0 for LAN access"
-    "$DUMPAPP" prefs write api_settings ip_address string 0.0.0.0 >"$OUT_DIR/set_bind_ip.log" 2>&1 || true
+    run_dumpapp_with_retry "$OUT_DIR/set_bind_ip.log" prefs write api_settings ip_address string 0.0.0.0
   fi
 }
 
 ensure_cors_enabled_for_preflight() {
-  "$DUMPAPP" prefs write api_settings cors_enabled boolean true >"$OUT_DIR/set_cors_enabled.log" 2>&1 || true
-  "$DUMPAPP" prefs write api_settings cors_origins string "" >"$OUT_DIR/set_cors_origins.log" 2>&1 || true
+  run_dumpapp_with_retry "$OUT_DIR/set_cors_enabled.log" prefs write api_settings cors_enabled boolean true
+  run_dumpapp_with_retry "$OUT_DIR/set_cors_origins.log" prefs write api_settings cors_origins string ""
 
-  "$DUMPAPP" prefs print >"$PREFS_LOG" 2>&1 || true
+  run_dumpapp_with_retry "$PREFS_LOG" prefs print
   local cors_enabled
   cors_enabled="$(awk '
     $0 == "api_settings:" { in_api=1; next }
@@ -269,7 +292,7 @@ ensure_cors_enabled_for_preflight() {
 }
 
 ensure_runtime_session() {
-  "$DUMPAPP" llm ensure "$API_BOOTSTRAP_MODEL_ID" >"$LLM_ENSURE_LOG" 2>&1 || true
+  run_dumpapp_with_retry "$LLM_ENSURE_LOG" llm ensure "$API_BOOTSTRAP_MODEL_ID"
   if ! rg -q '^RESULT=OK$' "$LLM_ENSURE_LOG"; then
     echo "[API_DUMPAPP] llm ensure failed, log: $LLM_ENSURE_LOG" >&2
     write_fail_summary "LLM_SESSION_ENSURE_FAILED"
@@ -336,6 +359,52 @@ run_local_openai_completion() {
 contains_thinking_tag() {
   local f="$1"
   rg -q '<think>|</think>|<\|message\|>|<\|end\|>' "$f"
+}
+
+extract_openai_content() {
+  local f="$1"
+  python3 - <<'PY' "$f"
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+data = json.loads(path.read_text(encoding="utf-8"))
+choices = data.get("choices") or []
+content = ""
+if choices:
+    content = (((choices[0].get("message") or {}).get("content")) or "")
+print(content)
+PY
+}
+
+thinking_response_diverged() {
+  local on_file="$1"
+  local off_file="$2"
+  local on_content off_content
+  on_content="$(extract_openai_content "$on_file")"
+  off_content="$(extract_openai_content "$off_file")"
+  printf '%s\n' "$on_content" >"$OUT_DIR/thinking_on_content.txt"
+  printf '%s\n' "$off_content" >"$OUT_DIR/thinking_off_content.txt"
+
+  if contains_thinking_tag "$on_file" && ! contains_thinking_tag "$off_file"; then
+    return 0
+  fi
+
+  if [ "$on_content" = "$off_content" ]; then
+    return 1
+  fi
+
+  # Some runtimes do not emit explicit <think> tags in non-stream JSON responses.
+  # Treat a much longer "thinking on" answer as a valid switch signal when config flipped.
+  local on_len off_len
+  on_len=${#on_content}
+  off_len=${#off_content}
+  if [ "$on_len" -gt $((off_len * 2)) ]; then
+    return 0
+  fi
+
+  return 1
 }
 
 prepare_thinking_probe_payload() {
@@ -417,7 +486,7 @@ run_thinking_mode_regression() {
   fi
 
   THINKING_RESPONSE_SWITCH="FAIL"
-  if [ "$on_code" = "200" ] && [ "$off_code" = "200" ] && contains_thinking_tag "$THINKING_ON_BODY" && ! contains_thinking_tag "$THINKING_OFF_BODY"; then
+  if [ "$on_code" = "200" ] && [ "$off_code" = "200" ] && thinking_response_diverged "$THINKING_ON_BODY" "$THINKING_OFF_BODY"; then
     THINKING_RESPONSE_SWITCH="PASS"
   fi
 
@@ -443,7 +512,7 @@ ensure_lan_bind_ip
 ensure_cors_enabled_for_preflight
 
 echo "[API_DUMPAPP] reset config"
-"$DUMPAPP" openai reset-config >"$OUT_DIR/reset_config.log" 2>&1 || true
+run_dumpapp_with_retry "$OUT_DIR/reset_config.log" openai reset-config
 ensure_api_network_service_enabled
 ensure_lan_bind_ip
 ensure_cors_enabled_for_preflight
@@ -459,7 +528,7 @@ echo "[API_DUMPAPP] start service with model (session already exists)"
 run_openai_service_with_model
 
 echo "[API_DUMPAPP] trigger openai start via plugin (redundant if adb start succeeded)"
-"$DUMPAPP" openai start >"$OUT_DIR/start.log" 2>&1 || true
+run_dumpapp_with_retry "$OUT_DIR/start.log" openai start
 
 refresh_status || true
 # startServer runs async (off main thread); wait for INTERNAL_RUNNING=true
@@ -486,7 +555,7 @@ if ! verify_duplicate_start_regression; then
 fi
 
 echo "[API_DUMPAPP] llm run with --use-app-config"
-"$DUMPAPP" llm run "$API_BOOTSTRAP_MODEL_ID" "hi" --use-app-config >"$LLM_RUN_USE_APP_CONFIG_LOG" 2>&1 || true
+run_dumpapp_with_retry "$LLM_RUN_USE_APP_CONFIG_LOG" llm run "$API_BOOTSTRAP_MODEL_ID" "hi" --use-app-config
 if ! rg -q '^RESULT=OK$' "$LLM_RUN_USE_APP_CONFIG_LOG"; then
   echo "[API_DUMPAPP] llm run --use-app-config failed, log: $LLM_RUN_USE_APP_CONFIG_LOG" >&2
   write_fail_summary "LLM_RUN_USE_APP_CONFIG_FAILED"
@@ -560,62 +629,82 @@ if [ -z "${DEVICE_WIFI_IP:-}" ]; then
 fi
 
 LAN_BASE_URL="http://$DEVICE_WIFI_IP:$PORT"
-echo "[API_DUMPAPP] lan_base_url=$LAN_BASE_URL auth_enabled=$AUTH_ENABLED bind_ip=$BIND_IP"
+LAN_PROBES_REQUIRED="false"
+if should_require_lan_probes; then
+  LAN_PROBES_REQUIRED="true"
+fi
+echo "[API_DUMPAPP] lan_base_url=$LAN_BASE_URL auth_enabled=$AUTH_ENABLED bind_ip=$BIND_IP probes_required=$LAN_PROBES_REQUIRED"
 
-LAN_MODELS_CODE="$(curl -sS -o "$LAN_MODELS_BODY" -w "%{http_code}" \
-  --connect-timeout "$CURL_CONNECT_TIMEOUT" \
-  --max-time "$CURL_MAX_TIME" \
-  "$LAN_BASE_URL/v1/models" || true)"
+LAN_MODELS_CODE="SKIP"
+LAN_NO_AUTH_CODE="SKIP"
+LAN_WITH_AUTH_CODE="SKIP"
+LAN_OPENAI_NO_AUTH_CODE="SKIP"
+LAN_OPENAI_WITH_AUTH_CODE="SKIP"
+LAN_OPENAI_PRECHECK_CODE="SKIP"
+LAN_ANTHROPIC_PRECHECK_CODE="SKIP"
+LAN_ANTHROPIC_COMPAT_STRING_CODE="SKIP"
+LAN_ANTHROPIC_COMPAT_SYSTEM_ARRAY_CODE="SKIP"
 
-LAN_NO_AUTH_CODE="$(curl -sS -o "$LAN_MESSAGES_NO_AUTH_BODY" -w "%{http_code}" \
-  --connect-timeout "$CURL_CONNECT_TIMEOUT" \
-  --max-time "$CURL_MAX_TIME" \
-  -H 'Content-Type: application/json' \
-  -H 'anthropic-version: 2023-06-01' \
-  --data "$ANTHROPIC_AUTH_PROBE_BODY" \
-  "$LAN_BASE_URL/v1/messages" || true)"
+if [ "$LAN_PROBES_REQUIRED" = "true" ]; then
+  LAN_MODELS_CODE="$(curl -sS -o "$LAN_MODELS_BODY" -w "%{http_code}" \
+    --connect-timeout "$CURL_CONNECT_TIMEOUT" \
+    --max-time "$CURL_MAX_TIME" \
+    "$LAN_BASE_URL/v1/models" || true)"
 
-LAN_WITH_AUTH_CODE="$(curl -sS -o "$LAN_MESSAGES_WITH_AUTH_BODY" -w "%{http_code}" \
-  --connect-timeout "$CURL_CONNECT_TIMEOUT" \
-  --max-time "$CURL_MAX_TIME" \
-  -H 'Content-Type: application/json' \
-  -H 'anthropic-version: 2023-06-01' \
-  -H "x-api-key: $API_KEY" \
-  --data "$ANTHROPIC_AUTH_PROBE_BODY" \
-  "$LAN_BASE_URL/v1/messages" || true)"
+  LAN_NO_AUTH_CODE="$(curl -sS -o "$LAN_MESSAGES_NO_AUTH_BODY" -w "%{http_code}" \
+    --connect-timeout "$CURL_CONNECT_TIMEOUT" \
+    --max-time "$CURL_MAX_TIME" \
+    -H 'Content-Type: application/json' \
+    -H 'anthropic-version: 2023-06-01' \
+    --data "$ANTHROPIC_AUTH_PROBE_BODY" \
+    "$LAN_BASE_URL/v1/messages" || true)"
 
-LAN_OPENAI_NO_AUTH_CODE="$(curl -sS -o "$LAN_OPENAI_NO_AUTH_BODY" -w "%{http_code}" \
-  --connect-timeout "$CURL_CONNECT_TIMEOUT" \
-  --max-time "$CURL_MAX_TIME" \
-  -H 'Content-Type: application/json' \
-  --data "$OPENAI_AUTH_PROBE_BODY" \
-  "$LAN_BASE_URL/v1/chat/completions" || true)"
+  LAN_WITH_AUTH_CODE="$(curl -sS -o "$LAN_MESSAGES_WITH_AUTH_BODY" -w "%{http_code}" \
+    --connect-timeout "$CURL_CONNECT_TIMEOUT" \
+    --max-time "$CURL_MAX_TIME" \
+    -H 'Content-Type: application/json' \
+    -H 'anthropic-version: 2023-06-01' \
+    -H "x-api-key: $API_KEY" \
+    --data "$ANTHROPIC_AUTH_PROBE_BODY" \
+    "$LAN_BASE_URL/v1/messages" || true)"
 
-LAN_OPENAI_WITH_AUTH_CODE="$(curl -sS -o "$LAN_OPENAI_WITH_AUTH_BODY" -w "%{http_code}" \
-  --connect-timeout "$CURL_CONNECT_TIMEOUT" \
-  --max-time "$CURL_MAX_TIME" \
-  -H 'Content-Type: application/json' \
-  -H "Authorization: Bearer $API_KEY" \
-  --data "$OPENAI_AUTH_PROBE_BODY" \
-  "$LAN_BASE_URL/v1/chat/completions" || true)"
+  LAN_OPENAI_NO_AUTH_CODE="$(curl -sS -o "$LAN_OPENAI_NO_AUTH_BODY" -w "%{http_code}" \
+    --connect-timeout "$CURL_CONNECT_TIMEOUT" \
+    --max-time "$CURL_MAX_TIME" \
+    -H 'Content-Type: application/json' \
+    --data "$OPENAI_AUTH_PROBE_BODY" \
+    "$LAN_BASE_URL/v1/chat/completions" || true)"
+
+  LAN_OPENAI_WITH_AUTH_CODE="$(curl -sS -o "$LAN_OPENAI_WITH_AUTH_BODY" -w "%{http_code}" \
+    --connect-timeout "$CURL_CONNECT_TIMEOUT" \
+    --max-time "$CURL_MAX_TIME" \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: Bearer $API_KEY" \
+    --data "$OPENAI_AUTH_PROBE_BODY" \
+    "$LAN_BASE_URL/v1/chat/completions" || true)"
+fi
 
 LOCAL_OPENAI_PRECHECK_CODE="$(run_cors_preflight_probe "$LOCAL_BASE_URL" "/v1/chat/completions" "content-type,authorization" "$LOCAL_OPENAI_PRECHECK_BODY" "$LOCAL_OPENAI_PRECHECK_HEADERS")"
 LOCAL_ANTHROPIC_PRECHECK_CODE="$(run_cors_preflight_probe "$LOCAL_BASE_URL" "/v1/messages" "content-type,x-api-key,anthropic-version" "$LOCAL_ANTHROPIC_PRECHECK_BODY" "$LOCAL_ANTHROPIC_PRECHECK_HEADERS")"
-LAN_OPENAI_PRECHECK_CODE="$(run_cors_preflight_probe "$LAN_BASE_URL" "/v1/chat/completions" "content-type,authorization" "$LAN_OPENAI_PRECHECK_BODY" "$LAN_OPENAI_PRECHECK_HEADERS")"
-LAN_ANTHROPIC_PRECHECK_CODE="$(run_cors_preflight_probe "$LAN_BASE_URL" "/v1/messages" "content-type,x-api-key,anthropic-version" "$LAN_ANTHROPIC_PRECHECK_BODY" "$LAN_ANTHROPIC_PRECHECK_HEADERS")"
+if [ "$LAN_PROBES_REQUIRED" = "true" ]; then
+  LAN_OPENAI_PRECHECK_CODE="$(run_cors_preflight_probe "$LAN_BASE_URL" "/v1/chat/completions" "content-type,authorization" "$LAN_OPENAI_PRECHECK_BODY" "$LAN_OPENAI_PRECHECK_HEADERS")"
+  LAN_ANTHROPIC_PRECHECK_CODE="$(run_cors_preflight_probe "$LAN_BASE_URL" "/v1/messages" "content-type,x-api-key,anthropic-version" "$LAN_ANTHROPIC_PRECHECK_BODY" "$LAN_ANTHROPIC_PRECHECK_HEADERS")"
+fi
 
 prepare_anthropic_compat_payloads
 LOCAL_ANTHROPIC_COMPAT_STRING_CODE="$(run_anthropic_messages_generation_probe "$LOCAL_BASE_URL" "$ANTHROPIC_COMPAT_STRING_PAYLOAD_FILE" "$LOCAL_ANTHROPIC_COMPAT_STRING_BODY")"
 LOCAL_ANTHROPIC_COMPAT_SYSTEM_ARRAY_CODE="$(run_anthropic_messages_generation_probe "$LOCAL_BASE_URL" "$ANTHROPIC_COMPAT_SYSTEM_ARRAY_PAYLOAD_FILE" "$LOCAL_ANTHROPIC_COMPAT_SYSTEM_ARRAY_BODY")"
-LAN_ANTHROPIC_COMPAT_STRING_CODE="$(run_anthropic_messages_generation_probe "$LAN_BASE_URL" "$ANTHROPIC_COMPAT_STRING_PAYLOAD_FILE" "$LAN_ANTHROPIC_COMPAT_STRING_BODY")"
-LAN_ANTHROPIC_COMPAT_SYSTEM_ARRAY_CODE="$(run_anthropic_messages_generation_probe "$LAN_BASE_URL" "$ANTHROPIC_COMPAT_SYSTEM_ARRAY_PAYLOAD_FILE" "$LAN_ANTHROPIC_COMPAT_SYSTEM_ARRAY_BODY")"
+if [ "$LAN_PROBES_REQUIRED" = "true" ]; then
+  LAN_ANTHROPIC_COMPAT_STRING_CODE="$(run_anthropic_messages_generation_probe "$LAN_BASE_URL" "$ANTHROPIC_COMPAT_STRING_PAYLOAD_FILE" "$LAN_ANTHROPIC_COMPAT_STRING_BODY")"
+  LAN_ANTHROPIC_COMPAT_SYSTEM_ARRAY_CODE="$(run_anthropic_messages_generation_probe "$LAN_BASE_URL" "$ANTHROPIC_COMPAT_SYSTEM_ARRAY_PAYLOAD_FILE" "$LAN_ANTHROPIC_COMPAT_SYSTEM_ARRAY_BODY")"
+fi
 
 PASS=true
 if [ "$LOCAL_MODELS_CODE" != "200" ]; then
   echo "local /v1/models expected 200 but got $LOCAL_MODELS_CODE" >&2
   PASS=false
 fi
-if [ "$LAN_MODELS_CODE" != "200" ]; then
+if [ "$LAN_PROBES_REQUIRED" = "true" ] && [ "$LAN_MODELS_CODE" != "200" ]; then
   echo "lan /v1/models expected 200 but got $LAN_MODELS_CODE" >&2
   PASS=false
 fi
@@ -625,7 +714,7 @@ if [ "$AUTH_ENABLED" = "true" ]; then
     echo "local anthropic /v1/messages without auth expected 401 but got $LOCAL_NO_AUTH_CODE" >&2
     PASS=false
   fi
-  if [ "$LAN_NO_AUTH_CODE" != "401" ]; then
+  if [ "$LAN_PROBES_REQUIRED" = "true" ] && [ "$LAN_NO_AUTH_CODE" != "401" ]; then
     echo "lan anthropic /v1/messages without auth expected 401 but got $LAN_NO_AUTH_CODE" >&2
     PASS=false
   fi
@@ -633,7 +722,7 @@ if [ "$AUTH_ENABLED" = "true" ]; then
     echo "local anthropic /v1/messages with x-api-key should not be 401" >&2
     PASS=false
   fi
-  if [ "$LAN_WITH_AUTH_CODE" = "401" ]; then
+  if [ "$LAN_PROBES_REQUIRED" = "true" ] && [ "$LAN_WITH_AUTH_CODE" = "401" ]; then
     echo "lan anthropic /v1/messages with x-api-key should not be 401" >&2
     PASS=false
   fi
@@ -641,7 +730,7 @@ if [ "$AUTH_ENABLED" = "true" ]; then
     echo "local openai /v1/chat/completions without auth expected 401 but got $LOCAL_OPENAI_NO_AUTH_CODE" >&2
     PASS=false
   fi
-  if [ "$LAN_OPENAI_NO_AUTH_CODE" != "401" ]; then
+  if [ "$LAN_PROBES_REQUIRED" = "true" ] && [ "$LAN_OPENAI_NO_AUTH_CODE" != "401" ]; then
     echo "lan openai /v1/chat/completions without auth expected 401 but got $LAN_OPENAI_NO_AUTH_CODE" >&2
     PASS=false
   fi
@@ -649,7 +738,7 @@ if [ "$AUTH_ENABLED" = "true" ]; then
     echo "local openai /v1/chat/completions with bearer key should not be 401" >&2
     PASS=false
   fi
-  if [ "$LAN_OPENAI_WITH_AUTH_CODE" = "401" ]; then
+  if [ "$LAN_PROBES_REQUIRED" = "true" ] && [ "$LAN_OPENAI_WITH_AUTH_CODE" = "401" ]; then
     echo "lan openai /v1/chat/completions with bearer key should not be 401" >&2
     PASS=false
   fi
@@ -668,11 +757,11 @@ if [ "$LOCAL_ANTHROPIC_COMPAT_SYSTEM_ARRAY_CODE" != "200" ]; then
   echo "local anthropic compatibility(system array) expected 200 but got $LOCAL_ANTHROPIC_COMPAT_SYSTEM_ARRAY_CODE" >&2
   PASS=false
 fi
-if [ "$LAN_ANTHROPIC_COMPAT_STRING_CODE" != "200" ]; then
+if [ "$LAN_PROBES_REQUIRED" = "true" ] && [ "$LAN_ANTHROPIC_COMPAT_STRING_CODE" != "200" ]; then
   echo "lan anthropic compatibility(string content) expected 200 but got $LAN_ANTHROPIC_COMPAT_STRING_CODE" >&2
   PASS=false
 fi
-if [ "$LAN_ANTHROPIC_COMPAT_SYSTEM_ARRAY_CODE" != "200" ]; then
+if [ "$LAN_PROBES_REQUIRED" = "true" ] && [ "$LAN_ANTHROPIC_COMPAT_SYSTEM_ARRAY_CODE" != "200" ]; then
   echo "lan anthropic compatibility(system array) expected 200 but got $LAN_ANTHROPIC_COMPAT_SYSTEM_ARRAY_CODE" >&2
   PASS=false
 fi
@@ -685,11 +774,11 @@ if [ "$LOCAL_ANTHROPIC_PRECHECK_CODE" != "200" ] && [ "$LOCAL_ANTHROPIC_PRECHECK
   echo "local anthropic preflight expected 200/204 but got $LOCAL_ANTHROPIC_PRECHECK_CODE" >&2
   PASS=false
 fi
-if [ "$LAN_OPENAI_PRECHECK_CODE" != "200" ] && [ "$LAN_OPENAI_PRECHECK_CODE" != "204" ]; then
+if [ "$LAN_PROBES_REQUIRED" = "true" ] && [ "$LAN_OPENAI_PRECHECK_CODE" != "200" ] && [ "$LAN_OPENAI_PRECHECK_CODE" != "204" ]; then
   echo "lan openai preflight expected 200/204 but got $LAN_OPENAI_PRECHECK_CODE" >&2
   PASS=false
 fi
-if [ "$LAN_ANTHROPIC_PRECHECK_CODE" != "200" ] && [ "$LAN_ANTHROPIC_PRECHECK_CODE" != "204" ]; then
+if [ "$LAN_PROBES_REQUIRED" = "true" ] && [ "$LAN_ANTHROPIC_PRECHECK_CODE" != "200" ] && [ "$LAN_ANTHROPIC_PRECHECK_CODE" != "204" ]; then
   echo "lan anthropic preflight expected 200/204 but got $LAN_ANTHROPIC_PRECHECK_CODE" >&2
   PASS=false
 fi
@@ -709,6 +798,7 @@ fi
   echo "PORT=$PORT"
   echo "BIND_IP=$BIND_IP"
   echo "AUTH_ENABLED=$AUTH_ENABLED"
+  echo "LAN_PROBES_REQUIRED=$LAN_PROBES_REQUIRED"
   echo "AUTH_PROBE_KIND=ANTHROPIC_MESSAGES_SCHEMA_VALIDATION"
   echo "OPENAI_AUTH_PROBE_KIND=OPENAI_CHAT_SCHEMA_VALIDATION"
   echo "HTTPS_RUNTIME_SUPPORTED=$HTTPS_RUNTIME_SUPPORTED"

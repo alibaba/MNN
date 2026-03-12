@@ -166,6 +166,28 @@ Inspect stored chat-session history.
 - `dumpapp history check <sessionId>`: run integrity checks for one session.
 - `dumpapp history diag`: run diagnostics across all history data.
 
+### `voice`
+
+Test and validate Voice Chat capabilities (TTS/ASR).
+
+- `dumpapp voice status`: check voice models status (TTS and ASR paths and readiness).
+- `dumpapp voice tts init`: initialize the TTS service with the default model.
+- `dumpapp voice tts test [text]`: run TTS on the given text and report audio generation metrics.
+- `dumpapp voice tts destroy`: release the TTS service.
+- `dumpapp voice tts status`: show TTS service internal state.
+- `dumpapp voice asr status`: show ASR model path and configuration.
+
+Note: Full ASR testing requires audio input (microphone). For end-to-end ASR validation, use the Voice Chat UI smoke test (`16_regress_voice_ui.sh`).
+
+Examples:
+
+```bash
+dumpapp voice status
+dumpapp voice tts init
+dumpapp voice tts test "Hello, this is a TTS smoke test."
+dumpapp voice tts destroy
+```
+
 ## Source of Truth
 
-The commands above are registered in `app/src/debug/java/com/alibaba/mnnllm/android/StethoInitializer.kt`, and their behavior is implemented in the dumper plugin classes under `app/src/debug/java/com/alibaba/mnnllm/android/debug/` and `app/src/debug/java/com/alibaba/mnnllm/api/openai/debug/`.
+The commands above are registered in `app/src/debug/java/com/alibaba/mnnllm/android/StethoInitializer.kt`, and their behavior is implemented in the dumper plugin classes under `app/src/debug/java/com/alibaba/mnnllm/android/debug/` (including `VoiceDumperPlugin.kt`) and `app/src/debug/java/com/alibaba/mnnllm/api/openai/debug/`.
