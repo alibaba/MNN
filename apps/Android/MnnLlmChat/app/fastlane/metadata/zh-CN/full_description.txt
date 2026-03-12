@@ -1,0 +1,18 @@
+这是我们的全功能多模态语言模型（LLM）安卓应用。
+
+## 功能亮点
+
++ **多模态支持：** 提供多种任务功能，包括文本生成文本、图像生成文本、音频转文本及文本生成图像（基于扩散模型）。
+
++ **CPU推理优化：** 在安卓平台上，MNN-LLM展现了卓越的CPU性能，预填充速度相较于llama.cpp提高了8.6倍，相较于fastllm提升了20.5倍，解码速度分别快了2.3倍和8.9倍。下图为 llama.cpp 与 MNN-LLM 与 llama.cpp 的比较。
+
++ **广泛的模型兼容性：** 支持多种领先的模型提供商，包括Qwen、Gemma、Llama（涵盖TinyLlama与MobileLLM）、Baichuan、Yi、DeepSeek、InternLM、Phi、ReaderLM和Smolm。
+
++ **本地运行：** 完全在设备本地运行，确保数据隐私，无需将信息上传至外部服务器。
+
+## 关于 MNN-LLM
+
+MNN-LLM 是一个多功能的推理框架，旨在优化和加速大语言模型在移动设备和本地 PC 上的部署。通过模型量化、混合存储和硬件特定优化等创新措施，解决高内存消耗和计算成本等挑战。在 CPU 基准测试中，MNN-LLM 表现优异，其预填充速度比 llama.cpp 快 8.6 倍，比 fastllm 快 20.5 倍，同时解码速度分别快 2.3 倍和 8.9 倍。在基于 GPU 的评估中，由于 MLC-LLM 的对称量化技术优势，MNN-LLM 的性能在使用 Qwen2-7B 进行较短提示时略有下降。MNN-LLM 的预填充速度比 llama.cpp 快 25.3 倍，解码速度快 7.1 倍，相较于 MLC-LLM 也分别提高 2.8 倍和 1.7 倍。
+
+如需更详细的信息，请参考论文：[MNN-LLM: A Generic Inference Engine for Fast Large LanguageModel Deployment on Mobile Devices](https://dl.acm.org/doi/pdf/10.1145/3700410.3702126)
+
