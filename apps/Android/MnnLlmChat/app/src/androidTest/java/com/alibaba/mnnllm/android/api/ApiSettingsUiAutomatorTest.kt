@@ -4,9 +4,9 @@ import android.content.Intent
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
+import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
 import androidx.test.uiautomator.UiDevice
-import androidx.test.uiautomator.UiObject2
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNotEquals
 import org.junit.Before
@@ -25,17 +25,16 @@ class ApiSettingsUiAutomatorTest {
         val context = instrumentation.targetContext
         val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
             ?: throw IllegalStateException("Launch intent not found for ${context.packageName}")
-        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         context.startActivity(intent)
         device.wait(Until.hasObject(By.pkg(context.packageName).depth(0)), timeoutMs)
+        ensureChatScreen(context.packageName)
     }
 
     @Test
     fun openApiSettingsAndToggleHttpsSwitch() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        openOverflowMenuIfNeeded()
-
-        val apiSettingsItem = waitForAnyText("API Settings", "API设置", "API 設置")
+        val apiSettingsItem = findApiSettingsMenuItem(context.packageName)
         assertNotNull("API Settings menu item not found", apiSettingsItem)
         apiSettingsItem!!.click()
 
@@ -59,19 +58,45 @@ class ApiSettingsUiAutomatorTest {
         switched.click()
     }
 
-    private fun openOverflowMenuIfNeeded() {
-        val alreadyOpen = waitForAnyText("API Settings", "API设置", "API 設置") != null
-        if (alreadyOpen) return
+    private fun findApiSettingsMenuItem(packageName: String): UiObject2? {
+        val direct = waitForAnyText("API Settings", "API设置", "API 設置")
+        if (direct != null) {
+            return direct
+        }
 
-        val overflow = device.findObject(
-            By.descContains("More options")
-        ) ?: device.findObject(By.descContains("更多选项"))
+        val overflow = device.findObject(By.descContains("More options"))
+            ?: device.findObject(By.descContains("更多选项"))
+            ?: device.findObject(By.descContains("更多"))
+            ?: device.findObject(By.descContains("Menu"))
+            ?: device.findObject(By.descContains("菜单"))
 
         if (overflow != null) {
             overflow.click()
+        } else {
+            device.pressMenu()
+        }
+
+        val byText = waitForAnyText("API Settings", "API设置", "API 設置")
+        if (byText != null) {
+            return byText
+        }
+
+        return device.wait(Until.findObject(By.res(packageName, "menu_item_api_settings")), 1_500L)
+    }
+
+    private fun ensureChatScreen(packageName: String) {
+        val chatInput = device.wait(Until.findObject(By.res(packageName, "et_message")), 1_500L)
+        if (chatInput != null) {
             return
         }
-        device.pressMenu()
+
+        val preferredModel = waitForAnyText("Qwen3.5-0.8B-MNN", "Qwen3.5-2B-MNN", "Qwen3.5-4B-MNN")
+        val modelEntry = preferredModel ?: device.wait(Until.findObject(By.res(packageName, "tvModelTitle")), timeoutMs)
+        assertNotNull("Model entry not found to enter chat screen", modelEntry)
+        modelEntry!!.click()
+
+        val entered = device.wait(Until.findObject(By.res(packageName, "et_message")), timeoutMs)
+        assertNotNull("Failed to enter chat screen from model list", entered)
     }
 
     private fun waitForAnyText(vararg candidates: String): UiObject2? {

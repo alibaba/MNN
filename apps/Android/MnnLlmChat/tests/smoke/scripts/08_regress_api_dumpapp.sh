@@ -47,6 +47,14 @@ LOCAL_ANTHROPIC_COMPAT_STRING_BODY="$OUT_DIR/anthropic_compat_string_body_local.
 LOCAL_ANTHROPIC_COMPAT_SYSTEM_ARRAY_BODY="$OUT_DIR/anthropic_compat_system_array_body_local.json"
 LAN_ANTHROPIC_COMPAT_STRING_BODY="$OUT_DIR/anthropic_compat_string_body_lan.json"
 LAN_ANTHROPIC_COMPAT_SYSTEM_ARRAY_BODY="$OUT_DIR/anthropic_compat_system_array_body_lan.json"
+LOCAL_OPENAI_PRECHECK_BODY="$OUT_DIR/openai_preflight_body_local.txt"
+LOCAL_OPENAI_PRECHECK_HEADERS="$OUT_DIR/openai_preflight_headers_local.txt"
+LOCAL_ANTHROPIC_PRECHECK_BODY="$OUT_DIR/anthropic_preflight_body_local.txt"
+LOCAL_ANTHROPIC_PRECHECK_HEADERS="$OUT_DIR/anthropic_preflight_headers_local.txt"
+LAN_OPENAI_PRECHECK_BODY="$OUT_DIR/openai_preflight_body_lan.txt"
+LAN_OPENAI_PRECHECK_HEADERS="$OUT_DIR/openai_preflight_headers_lan.txt"
+LAN_ANTHROPIC_PRECHECK_BODY="$OUT_DIR/anthropic_preflight_body_lan.txt"
+LAN_ANTHROPIC_PRECHECK_HEADERS="$OUT_DIR/anthropic_preflight_headers_lan.txt"
 THINKING_ON_BODY="$OUT_DIR/openai_thinking_on_body_local.json"
 THINKING_OFF_BODY="$OUT_DIR/openai_thinking_off_body_local.json"
 HTTPS_MODELS_BODY="$OUT_DIR/models_response_https_probe.json"
@@ -194,6 +202,24 @@ ensure_lan_bind_ip() {
   fi
 }
 
+ensure_cors_enabled_for_preflight() {
+  "$DUMPAPP" prefs write api_settings cors_enabled boolean true >"$OUT_DIR/set_cors_enabled.log" 2>&1 || true
+  "$DUMPAPP" prefs write api_settings cors_origins string "" >"$OUT_DIR/set_cors_origins.log" 2>&1 || true
+
+  "$DUMPAPP" prefs print >"$PREFS_LOG" 2>&1 || true
+  local cors_enabled
+  cors_enabled="$(awk '
+    $0 == "api_settings:" { in_api=1; next }
+    /^[^ ]/ && $0 != "api_settings:" { in_api=0 }
+    in_api && $1 == "cors_enabled" && $2 == "=" { print tolower($3); exit }
+  ' "$PREFS_LOG" || true)"
+  if [ "$cors_enabled" != "true" ]; then
+    echo "[API_DUMPAPP] failed to enable CORS for preflight check (cors_enabled=$cors_enabled)" >&2
+    write_fail_summary "CORS_PREF_NOT_ENABLED"
+    exit 1
+  fi
+}
+
 ensure_runtime_session() {
   "$DUMPAPP" llm ensure "$API_BOOTSTRAP_MODEL_ID" >"$LLM_ENSURE_LOG" 2>&1 || true
   if ! rg -q '^RESULT=OK$' "$LLM_ENSURE_LOG"; then
@@ -201,6 +227,24 @@ ensure_runtime_session() {
     write_fail_summary "LLM_SESSION_ENSURE_FAILED"
     exit 1
   fi
+}
+
+run_cors_preflight_probe() {
+  local base_url="$1"
+  local path="$2"
+  local req_headers="$3"
+  local output_body="$4"
+  local output_headers="$5"
+  local code
+  code="$(curl -sS -o "$output_body" -D "$output_headers" -w "%{http_code}" \
+    --connect-timeout "$CURL_CONNECT_TIMEOUT" \
+    --max-time "$CURL_MAX_TIME" \
+    -X OPTIONS \
+    -H 'Origin: https://mnn-preflight.local' \
+    -H 'Access-Control-Request-Method: POST' \
+    -H "Access-Control-Request-Headers: $req_headers" \
+    "$base_url$path" || true)"
+  echo "$code"
 }
 
 get_thinking_state() {
@@ -347,11 +391,13 @@ run_thinking_mode_regression() {
 stop_openai_service
 ensure_api_network_service_enabled
 ensure_lan_bind_ip
+ensure_cors_enabled_for_preflight
 
 echo "[API_DUMPAPP] reset config"
 "$DUMPAPP" openai reset-config >"$OUT_DIR/reset_config.log" 2>&1 || true
 ensure_api_network_service_enabled
 ensure_lan_bind_ip
+ensure_cors_enabled_for_preflight
 
 echo "[API_DUMPAPP] start service with model"
 run_openai_service_with_model
@@ -483,6 +529,11 @@ LAN_OPENAI_WITH_AUTH_CODE="$(curl -sS -o "$LAN_OPENAI_WITH_AUTH_BODY" -w "%{http
   --data "$OPENAI_AUTH_PROBE_BODY" \
   "$LAN_BASE_URL/v1/chat/completions" || true)"
 
+LOCAL_OPENAI_PRECHECK_CODE="$(run_cors_preflight_probe "$LOCAL_BASE_URL" "/v1/chat/completions" "content-type,authorization" "$LOCAL_OPENAI_PRECHECK_BODY" "$LOCAL_OPENAI_PRECHECK_HEADERS")"
+LOCAL_ANTHROPIC_PRECHECK_CODE="$(run_cors_preflight_probe "$LOCAL_BASE_URL" "/v1/messages" "content-type,x-api-key,anthropic-version" "$LOCAL_ANTHROPIC_PRECHECK_BODY" "$LOCAL_ANTHROPIC_PRECHECK_HEADERS")"
+LAN_OPENAI_PRECHECK_CODE="$(run_cors_preflight_probe "$LAN_BASE_URL" "/v1/chat/completions" "content-type,authorization" "$LAN_OPENAI_PRECHECK_BODY" "$LAN_OPENAI_PRECHECK_HEADERS")"
+LAN_ANTHROPIC_PRECHECK_CODE="$(run_cors_preflight_probe "$LAN_BASE_URL" "/v1/messages" "content-type,x-api-key,anthropic-version" "$LAN_ANTHROPIC_PRECHECK_BODY" "$LAN_ANTHROPIC_PRECHECK_HEADERS")"
+
 prepare_anthropic_compat_payloads
 LOCAL_ANTHROPIC_COMPAT_STRING_CODE="$(run_anthropic_messages_generation_probe "$LOCAL_BASE_URL" "$ANTHROPIC_COMPAT_STRING_PAYLOAD_FILE" "$LOCAL_ANTHROPIC_COMPAT_STRING_BODY")"
 LOCAL_ANTHROPIC_COMPAT_SYSTEM_ARRAY_CODE="$(run_anthropic_messages_generation_probe "$LOCAL_BASE_URL" "$ANTHROPIC_COMPAT_SYSTEM_ARRAY_PAYLOAD_FILE" "$LOCAL_ANTHROPIC_COMPAT_SYSTEM_ARRAY_BODY")"
@@ -556,6 +607,23 @@ if [ "$LAN_ANTHROPIC_COMPAT_SYSTEM_ARRAY_CODE" != "200" ]; then
   PASS=false
 fi
 
+if [ "$LOCAL_OPENAI_PRECHECK_CODE" != "200" ] && [ "$LOCAL_OPENAI_PRECHECK_CODE" != "204" ]; then
+  echo "local openai preflight expected 200/204 but got $LOCAL_OPENAI_PRECHECK_CODE" >&2
+  PASS=false
+fi
+if [ "$LOCAL_ANTHROPIC_PRECHECK_CODE" != "200" ] && [ "$LOCAL_ANTHROPIC_PRECHECK_CODE" != "204" ]; then
+  echo "local anthropic preflight expected 200/204 but got $LOCAL_ANTHROPIC_PRECHECK_CODE" >&2
+  PASS=false
+fi
+if [ "$LAN_OPENAI_PRECHECK_CODE" != "200" ] && [ "$LAN_OPENAI_PRECHECK_CODE" != "204" ]; then
+  echo "lan openai preflight expected 200/204 but got $LAN_OPENAI_PRECHECK_CODE" >&2
+  PASS=false
+fi
+if [ "$LAN_ANTHROPIC_PRECHECK_CODE" != "200" ] && [ "$LAN_ANTHROPIC_PRECHECK_CODE" != "204" ]; then
+  echo "lan anthropic preflight expected 200/204 but got $LAN_ANTHROPIC_PRECHECK_CODE" >&2
+  PASS=false
+fi
+
 if ! run_thinking_mode_regression; then
   PASS=false
 fi
@@ -589,6 +657,10 @@ fi
   echo "LOCAL_ANTHROPIC_COMPAT_SYSTEM_ARRAY_HTTP_CODE=$LOCAL_ANTHROPIC_COMPAT_SYSTEM_ARRAY_CODE"
   echo "LAN_ANTHROPIC_COMPAT_STRING_HTTP_CODE=$LAN_ANTHROPIC_COMPAT_STRING_CODE"
   echo "LAN_ANTHROPIC_COMPAT_SYSTEM_ARRAY_HTTP_CODE=$LAN_ANTHROPIC_COMPAT_SYSTEM_ARRAY_CODE"
+  echo "LOCAL_OPENAI_PREFLIGHT_HTTP_CODE=$LOCAL_OPENAI_PRECHECK_CODE"
+  echo "LOCAL_ANTHROPIC_PREFLIGHT_HTTP_CODE=$LOCAL_ANTHROPIC_PRECHECK_CODE"
+  echo "LAN_OPENAI_PREFLIGHT_HTTP_CODE=$LAN_OPENAI_PRECHECK_CODE"
+  echo "LAN_ANTHROPIC_PREFLIGHT_HTTP_CODE=$LAN_ANTHROPIC_PRECHECK_CODE"
   echo "THINKING_CONFIG_SWITCH=$THINKING_CONFIG_SWITCH"
   echo "THINKING_RESPONSE_SWITCH=$THINKING_RESPONSE_SWITCH"
   echo "THINKING_MODE_REGRESSION=$THINKING_MODE_REGRESSION"
