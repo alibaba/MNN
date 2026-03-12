@@ -13,7 +13,17 @@ namespace QNN {
 #ifdef ENABLE_QNN_ONLINE_FINALIZE
 
 ErrorCode QNNConcat::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    mNodeType = "Concat";
+    int axis;
+    if (mOp->type() == OpType_Concat) {
+        mNodeType = "Concat";
+        axis = mOp->main_as_Axis()->axis();
+    } else if (mOp->type() == OpType_Pack) {
+        mNodeType = "Pack";
+        axis = mOp->main_as_PackParam()->axis();
+    } else if (mOp->type() == OpType_Unpack) {
+        mNodeType = "UnPack";
+        axis = mOp->main_as_Axis()->axis();
+    }
     Tensor * output = outputs[0];
 
     if (inputs.size() == 2 && inputs[0]->elementSize() == 0) {
@@ -22,7 +32,6 @@ ErrorCode QNNConcat::onEncode(const std::vector<Tensor *> &inputs, const std::ve
     }
 
     int dim = outputs[0]->dimensions();
-    int axis = mOp->main_as_Axis()->axis();
     if (axis < 0) {
         axis = dim + axis;
     }
@@ -44,6 +53,7 @@ public:
         //     MNN_PRINT("Input%d elementSize is %d.\n", i, inputs[i]->elementSize());
         // }
         if (outputs[0]->dimensions() > 5) {
+            MNN_ERROR("QNN Don't support dimension > 5 for concat / pack\n");
             return nullptr;
         }
         return new QNNConcat(backend, op);
@@ -51,6 +61,8 @@ public:
 };
 
 REGISTER_QNN_OP_CREATOR(QNNConcatCreator, OpType_Concat)
+REGISTER_QNN_OP_CREATOR(QNNConcatCreator, OpType_Pack)
+REGISTER_QNN_OP_CREATOR(QNNConcatCreator, OpType_Unpack)
 #endif
 } // end namespace QNN
 } // end namespace MNN

@@ -122,6 +122,8 @@ void registerQNNOps() {
     ___QNNBinaryCreator__OpType_BinaryOp__();
     ___QNNBinaryCreator__OpType_Eltwise__();
     ___QNNConcatCreator__OpType_Concat__();
+    ___QNNConcatCreator__OpType_Pack__();
+    ___QNNConcatCreator__OpType_Unpack__();
     ___QNNConvDepthwiseCreator__OpType_ConvolutionDepthwise__();
     ___QNNConvolutionCreator__OpType_Convolution__();
     ___QNNFlattenCreator__OpType_Flatten__();
@@ -141,6 +143,7 @@ void registerQNNOps() {
     ___QNNUnaryCreator__OpType_UnaryOp__();
     ___QNNCastCreator__OpType_Cast__();
     ___QNNPermuteCreator__OpType_Permute__();
+    ___QNNPermuteCreator__OpType_Transpose__();
     ___QNNGatherCreator__OpType_GatherV2__();
     ___QNNGatherCreator__OpType_GatherElements__();
 
