@@ -7,10 +7,14 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mnnllm.android.R
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 
 /**
  * Adapter for expandable storage list: group rows (model entry) and child rows (storage unit with delete).
@@ -95,6 +99,16 @@ class StorageListAdapter(
                 size.visibility = View.GONE
             }
             deleteBtn.setOnClickListener { onChildDelete(item) }
+            // Long press to copy path
+            itemView.setOnLongClickListener {
+                item.path?.let { path ->
+                    val clipboard = itemView.context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    val clip = ClipData.newPlainText("Storage Path", path)
+                    clipboard.setPrimaryClip(clip)
+                    Toast.makeText(itemView.context, R.string.path_copied, Toast.LENGTH_SHORT).show()
+                    true
+                } ?: false
+            }
         }
     }
 

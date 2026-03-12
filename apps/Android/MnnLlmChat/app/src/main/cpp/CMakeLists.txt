@@ -50,6 +50,7 @@ target_link_options(${CMAKE_PROJECT_NAME} PRIVATE "-Wl,-z,max-page-size=16384")
 set (MNN_SOURCE_ROOT "${CMAKE_SOURCE_DIR}/../../../../../../../")
 #set (MNN_SOURCE_ROOT "/Users/songjinde/git/DAI/AliNNPrivate")
 set (MNN_INSTALL_ROOT "${MNN_SOURCE_ROOT}/project/android/build_64")
+set(LIB_PATH "${MNN_INSTALL_ROOT}/lib")
 # set (MNN_INSTALL_ROOT "/Users/songjinde/MNN/project/android/build_64")
 
 #set (MNN_ROOT "${CMAKE_SOURCE_DIR}/../../../../../../../")
@@ -69,9 +70,6 @@ include_directories("${MNN_SOURCE_ROOT}/transformers/llm/engine/include")
 include_directories("${MNN_SOURCE_ROOT}/tools/audio/include")
 include_directories("${MNN_SOURCE_ROOT}/3rd_party/")
 include_directories("${CMAKE_SOURCE_DIR}/third_party")
-# Add library paths
-set(LIB_PATH "${MNN_INSTALL_ROOT}/lib")
-
 # Link the shared library
 
 add_library(MNN SHARED IMPORTED)

@@ -147,7 +147,7 @@
     <string name="storage_model_files">模型文件</string>
     <string name="storage_mmap_cache">Mmap 缓存</string>
     <string name="storage_orphan_cache">可清理缓存</string>
-    <string name="storage_mmap_by_model">按模型的 Mmap 缓存</string>
+    <string name="storage_mmap_by_model">存储详情</string>
     <string name="storage_detail">详情</string>
     <string name="storage_status_orphan">可清理</string>
     <string name="storage_status_tracked">已跟踪</string>
@@ -158,6 +158,7 @@
     <string name="storage_detail_model_dir">模型目录</string>
     <string name="storage_detail_config_dir">配置目录</string>
     <string name="storage_detail_mmap_dir">Mmap 目录</string>
+    <string name="path_copied">路径已复制</string>
     <string name="voice_model_management_summary">管理TTS和ASR模型</string>
     <string name="model_settings">设置</string>
     <string name="model_settings_title">模型设置</string>
@@ -401,9 +402,6 @@
     <string name="voice_chat_permission_required">语音聊天需要麦克风权限</string>
     <string name="voice_chat_session_ended">语音聊天会话已结束</string>
     <string name="voice_chat_connecting">正在连接...</string>
-    <string name="mic_mode_hardware">硬件</string>
-    <string name="mic_mode_auto_mute">自动静音</string>
-    <string name="echo_cancellation_mode">回音消除模式</string>
     <string name="initializing">正在初始化</string>
     <string name="voice_chat_stop">停止</string>
     <string name="voice_chat_stopping">正在停止...</string>

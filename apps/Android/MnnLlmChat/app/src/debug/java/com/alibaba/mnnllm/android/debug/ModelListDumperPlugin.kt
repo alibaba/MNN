@@ -17,6 +17,8 @@ import java.util.Date
 import java.util.Locale
 import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mnnllm.android.R
+import com.alibaba.mnnllm.android.modelmarket.Tag
+import com.alibaba.mnnllm.android.utils.DeviceUtils
 import java.io.File
 import java.nio.file.Files
 
@@ -31,6 +33,19 @@ internal data class StorageEntry(
     val container: String
 )
 
+internal data class TagLocaleInfo(
+    val deviceLocale: String,
+    val isChinese: Boolean,
+    val sampleTags: List<TagDisplaySample>
+)
+
+internal data class TagDisplaySample(
+    val rawTag: String,
+    val chineseDisplay: String,
+    val englishDisplay: String,
+    val currentDisplay: String
+)
+
 internal interface ModelListDebugController {
     fun getModelListState(): ModelListManager.ModelListState
     suspend fun notifyModelListMayChange(reason: ModelListManager.ChangeReason)
@@ -43,6 +58,7 @@ internal interface ModelListDebugController {
     fun isVideoModel(modelId: String): Boolean
     fun scanStorageEntries(): List<StorageEntry> = emptyList()
     fun deleteSymlink(absolutePath: String): Boolean = false
+    fun getTagLocaleInfo(): TagLocaleInfo
 }
 
 internal object DefaultModelListDebugController : ModelListDebugController {
@@ -136,6 +152,39 @@ internal object DefaultModelListDebugController : ModelListDebugController {
             container = container
         )
     }
+
+    override fun getTagLocaleInfo(): TagLocaleInfo {
+        val context = ApplicationProvider.get()
+        val config = context.resources.configuration
+        val locale = if (android.os.Build.VERSION.SDK_INT >= 24) {
+            if (config.locales.isEmpty()) Locale.getDefault() else config.locales.get(0)
+        } else {
+            @Suppress("DEPRECATION")
+            config.locale ?: Locale.getDefault()
+        }
+        
+        val isChineseWithContext = DeviceUtils.isChinese(context)
+        val isChineseStatic = DeviceUtils.isChinese // 无参数版本
+        
+        // Sample tags to show the display difference
+        val sampleTagKeys = listOf("Chat", "Multimodal", "Think", "Vision", "local", "builtin")
+        val sampleTags = sampleTagKeys.map { tagKey ->
+            val tag = TagMapper.getTag(tagKey)
+            TagDisplaySample(
+                rawTag = tagKey,
+                chineseDisplay = tag.getDisplayText(useChinese = true),
+                englishDisplay = tag.getDisplayText(useChinese = false),
+                // Use context version to match UI (ModelItemHolder uses context)
+                currentDisplay = tag.getDisplayText(isChineseWithContext)
+            )
+        }
+        
+        return TagLocaleInfo(
+            deviceLocale = "${locale.language}_${locale.country}",
+            isChinese = isChineseWithContext,
+            sampleTags = sampleTags
+        )
+    }
 }
 
 class ModelListDumperPlugin internal constructor(
@@ -163,6 +212,7 @@ class ModelListDumperPlugin internal constructor(
             "list" -> doList(writer, args.drop(1))
             "refresh" -> doRefresh(writer)
             "tags" -> doTags(writer, args.drop(1))
+            "tagslocale" -> doTagsLocale(writer)
             "find" -> doFind(writer, args.drop(1))
             "files" -> doFiles(writer)
             "unlink" -> doUnlink(writer, args.drop(1))
@@ -235,9 +285,12 @@ class ModelListDumperPlugin internal constructor(
         val modelId = modelItem.modelId ?: "unknown"
         val modelName = modelItem.modelName ?: ""
 
-        // Get display tags exactly as shown in UI (using TagMapper, limited to 3)
-        val rawTags = modelItem.getTags()
-        val displayTags = TagMapper.getDisplayTagList(rawTags).take(3)
+        // Get display tags exactly as shown in UI (using TagMapper with context, limited to 3)
+        // Must use context version to match ModelItemHolder behavior
+        val context = ApplicationProvider.get()
+        // Use modelItem.tags (same as ModelItemHolder) instead of modelItem.getTags()
+        val rawTags = modelItem.tags
+        val displayTags = TagMapper.getDisplayTagList(rawTags, context).take(3)
 
         // Format size like UI does
         val sizeStr = if (wrapper.downloadSize > 0) {
@@ -267,7 +320,9 @@ class ModelListDumperPlugin internal constructor(
 
         if (verbose) {
             writer.println("    Downloaded: ${wrapper.isLocal}")
-            writer.println("    Raw Tags: ${rawTags.joinToString(", ").ifEmpty { "(none)" }}")
+            writer.println("    Raw Tags (modelItem.tags): ${rawTags.joinToString(", ").ifEmpty { "(none)" }}")
+            writer.println("    Raw Tags (getTags()): ${modelItem.getTags().joinToString(", ").ifEmpty { "(none)" }}")
+            writer.println("    Display Tags: ${displayTags.joinToString(", ").ifEmpty { "(none)" }}")
             writer.println("    Local Path: ${modelItem.localPath ?: "(none)"}")
 
             val downloadTimeStr = if (wrapper.downloadTime > 0) {
@@ -403,6 +458,64 @@ class ModelListDumperPlugin internal constructor(
         }
     }
 
+    /**
+     * Dump tag locale information for debugging tag display issues.
+     * Shows device locale, isChinese result, and sample tag display in both languages.
+     */
+    private fun doTagsLocale(writer: PrintStream) {
+        val info = controller.getTagLocaleInfo()
+        
+        writer.println("=== Tag Locale Debug Info ===")
+        writer.println()
+        writer.println("Device Locale: ${info.deviceLocale}")
+        writer.println("DeviceUtils.isChinese: ${info.isChinese}")
+        writer.println()
+        
+        // Check if TagMapper is initialized
+        val allTags = TagMapper.getAllTags()
+        writer.println("TagMapper initialized: ${allTags.isNotEmpty()}")
+        writer.println("TagMapper tag count: ${allTags.size}")
+        if (allTags.isEmpty()) {
+            writer.println()
+            writer.println("BUG: TagMapper.tagMap is EMPTY!")
+            writer.println("This means TagMapper.initializeFromConfig() was never called.")
+            writer.println("Tags will show raw English keys instead of translations.")
+            writer.println()
+            writer.println("TagMapper is only initialized in ModelMarketViewModel.loadModels(),")
+            writer.println("which is only called when user enters Model Market page.")
+            return
+        }
+        writer.println()
+        
+        writer.println("Expected behavior:")
+        writer.println("  - zh_CN: should show Chinese tags")
+        writer.println("  - zh_TW/zh_HK/zh_SG/zh: should show Chinese tags (currently broken)")
+        writer.println("  - en_US/other: should show English tags")
+        writer.println()
+        writer.println("Sample Tags Display:")
+        writer.println("  %-12s | %-10s | %-10s | %-10s".format("Raw Tag", "Chinese", "English", "Current"))
+        writer.println("  ${"-".repeat(12)} | ${"-".repeat(10)} | ${"-".repeat(10)} | ${"-".repeat(10)}")
+        
+        info.sampleTags.forEach { sample ->
+            writer.println("  %-12s | %-10s | %-10s | %-10s".format(
+                sample.rawTag,
+                sample.chineseDisplay,
+                sample.englishDisplay,
+                sample.currentDisplay
+            ))
+        }
+        
+        writer.println()
+        if (!info.isChinese && info.deviceLocale.startsWith("zh")) {
+            writer.println("BUG DETECTED: Device locale is Chinese (${info.deviceLocale}) but isChinese=false")
+            writer.println("This causes tags to display in English instead of Chinese.")
+        } else if (info.isChinese) {
+            writer.println("OK: Tags should display in Chinese")
+        } else {
+            writer.println("OK: Tags should display in English (non-Chinese locale)")
+        }
+    }
+
     private fun doFind(writer: PrintStream, args: List<String>) {
         if (args.isEmpty()) {
             writer.println("Usage: dumpapp models find <keyword>")
@@ -510,6 +623,7 @@ class ModelListDumperPlugin internal constructor(
         writer.println("  dump                  - Dump current model list state (raw)")
         writer.println("  refresh               - Trigger manual refresh")
         writer.println("  tags [modelId|--all]  - Dump tags/extraTags for one or all models")
+        writer.println("  tagslocale            - Debug tag locale display (zh_CN/zh_TW issue)")
         writer.println("  find <keyword>        - Find models by id/name and print tags")
         writer.println("  files                 - List all entries in .mnnmodels/ with symlink info")
         writer.println("  unlink <modelId|name> - Remove outermost symlink only (preserves data)")
@@ -518,6 +632,7 @@ class ModelListDumperPlugin internal constructor(
         writer.println("  dumpapp models list           - List all models with display tags")
         writer.println("  dumpapp models list -v        - Verbose output with all details")
         writer.println("  dumpapp models tags           - Dump tags/extraTags for all models")
+        writer.println("  dumpapp models tagslocale     - Check why tags show English on Chinese device")
         writer.println("  dumpapp models tags ModelScope/MNN/Qwen3-0.6B-MNN")
         writer.println("  dumpapp models files          - Show storage entries with symlink info")
         writer.println("  dumpapp models unlink ModelScope/MNN/stable-diffusion-v1-5")

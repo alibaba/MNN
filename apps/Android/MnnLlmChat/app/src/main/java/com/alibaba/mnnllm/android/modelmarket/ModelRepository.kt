@@ -512,6 +512,8 @@ object ModelRepository {
                 _marketDataFlow.value = cachedConfig
                 cachedModelMarketData = cachedConfig
                 _loadingStateFlow.value = LoadingState.LOADED
+                // Initialize TagMapper immediately so tags display correctly
+                TagMapper.initializeFromConfig(cachedConfig)
                 // Build cache for immediate access
                 buildCacheFromData(cachedConfig)
                 val modelCount = cachedConfig.llmModels.size + cachedConfig.ttsModels.size + cachedConfig.asrModels.size + cachedConfig.libs.size
@@ -548,6 +550,8 @@ object ModelRepository {
                     _loadingStateFlow.value = LoadingState.LOADED
                     _errorFlow.value = null
                     
+                    // Update TagMapper with new config
+                    TagMapper.initializeFromConfig(networkConfig)
                     // Update cache
                     buildCacheFromData(networkConfig)
                     val modelCount = networkConfig.llmModels.size + networkConfig.ttsModels.size + networkConfig.asrModels.size + networkConfig.libs.size

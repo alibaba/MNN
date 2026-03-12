@@ -478,7 +478,13 @@ class DebugActivity : AppCompatActivity() {
                 withContext(Dispatchers.IO) {
                     try {
                         val modelDir = VoiceModelPathUtils.getTtsModelPath(this@DebugActivity)
+                        val sampleRate = VoiceModelPathUtils.getTtsSampleRate(modelDir)
+                        val language = VoiceModelPathUtils.getTtsLanguage(this@DebugActivity)
                         log("Using TTS model path: $modelDir")
+                        log("Using TTS sample rate: $sampleRate")
+                        log("Using TTS language: $language")
+                        audioPlayer?.sampleRate = sampleRate
+                        ttsService?.setLanguage(language)
                         log("Initializing TTS with model directory: $modelDir")
                         val initResult = ttsService?.init(modelDir)
                         if (initResult == true) {
@@ -561,8 +567,10 @@ class DebugActivity : AppCompatActivity() {
                     // Initialize audio player if needed
                     if (audioPlayer == null) {
                         audioPlayer = AudioChunksPlayer()
-                        audioPlayer!!.sampleRate = 44100
                     }
+                    audioPlayer!!.sampleRate = VoiceModelPathUtils.getTtsSampleRate(
+                        VoiceModelPathUtils.getTtsModelPath(this@DebugActivity)
+                    )
                     audioPlayer?.start()
 
                     // Play the audio

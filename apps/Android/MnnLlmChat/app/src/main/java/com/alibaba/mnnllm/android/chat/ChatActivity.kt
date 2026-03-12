@@ -516,7 +516,9 @@ class ChatActivity : AppCompatActivity() {
         wavFileWriter = null
         bufferedAudioFilePath = null
         
-        chatPresenter.destroy()
+        if (::chatPresenter.isInitialized) {
+            chatPresenter.destroy()
+        }
         MainScope().launch {
             ApiServiceManager.stopApiService(ApplicationProvider.get())
         }

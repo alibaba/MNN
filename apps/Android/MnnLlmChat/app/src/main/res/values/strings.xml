@@ -155,7 +155,7 @@
     <string name="storage_model_files">Model files</string>
     <string name="storage_mmap_cache">Mmap cache</string>
     <string name="storage_orphan_cache">Cleanable cache</string>
-    <string name="storage_mmap_by_model">Mmap cache by model</string>
+    <string name="storage_mmap_by_model">Storage Detail</string>
     <string name="storage_detail">Detail</string>
     <string name="storage_status_orphan">Cleanable</string>
     <string name="storage_status_tracked">TRACKED</string>
@@ -166,6 +166,7 @@
     <string name="storage_detail_model_dir">Model dir</string>
     <string name="storage_detail_config_dir">Config dir</string>
     <string name="storage_detail_mmap_dir">Mmap dir</string>
+    <string name="path_copied">Path copied</string>
     <string name="voice_model_management_summary">Manage TTS and ASR models, set default models</string>
     <string name="model_settings">Settings</string>
     <string name="model_settings_title">Model Settings</string>
@@ -415,9 +416,6 @@
     <string name="voice_chat_permission_required">Voice chat requires microphone permission</string>
     <string name="voice_chat_session_ended">Voice chat session ended</string>
     <string name="voice_chat_connecting">Connecting...</string>
-    <string name="mic_mode_hardware">Hardware</string>
-    <string name="mic_mode_auto_mute">Auto-Mute</string>
-    <string name="echo_cancellation_mode">Echo Cancellation Mode</string>
     <string name="initializing">Initializing</string>
     <string name="voice_chat_stop">Stop</string>
     <string name="voice_chat_stopping">Stopping...</string>

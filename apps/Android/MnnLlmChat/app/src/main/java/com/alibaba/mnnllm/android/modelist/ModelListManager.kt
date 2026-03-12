@@ -12,6 +12,7 @@ import com.alibaba.mnnllm.android.MnnLlmApplication
 import com.alibaba.mnnllm.android.modelmarket.ModelRepository
 import com.alibaba.mnnllm.android.modelmarket.ModelMarketItem
 import com.alibaba.mnnllm.android.modelmarket.ModelMarketCache
+import com.alibaba.mnnllm.android.modelmarket.TagMapper
 import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
@@ -280,6 +281,18 @@ object ModelListManager {
                 this.context = context
                 cacheFile = File(context.cacheDir, CACHE_FILE_NAME)
                 startMarketDataSyncIfNeeded()
+
+                // CRITICAL: Initialize TagMapper BEFORE loading/emitting cached data
+                // This ensures tags display correctly from the first render
+                try {
+                    val marketConfig = ModelRepository.loadCachedOrAssets()
+                    if (marketConfig != null) {
+                        TagMapper.initializeFromConfig(marketConfig)
+                        Timber.d("TagMapper initialized before cache emit: ${TagMapper.getAllTags().size} tags")
+                    }
+                } catch (e: Exception) {
+                    Timber.w(e, "Failed to pre-initialize TagMapper")
+                }
 
                 // Handle builtin models before loading
                 copyBuiltinModelsIfNeeded(context)

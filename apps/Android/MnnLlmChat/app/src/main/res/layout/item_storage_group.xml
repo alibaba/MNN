@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
@@ -19,7 +20,8 @@
         android:layout_height="24dp"
         android:layout_marginEnd="8dp"
         android:contentDescription="@null"
-        android:src="@drawable/baseline_arrow_drop_down_24" />
+        android:src="@drawable/baseline_arrow_drop_down_24"
+        app:tint="?attr/colorOnSurfaceVariant" />
 
     <TextView
         android:id="@+id/storage_group_label"

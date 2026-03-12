@@ -2,6 +2,7 @@ package com.alibaba.mnnllm.android.modelmarket
 
 import android.content.Context
 import com.alibaba.mnnllm.android.utils.DeviceUtils
+import timber.log.Timber
 
 object TagMapper {
     
@@ -14,6 +15,7 @@ object TagMapper {
             mappings[key] = Tag(chineseTranslation, key)
         }
         tagMap = mappings
+        Timber.d("initializeFromConfig: loaded ${tagMap.size} tag mappings")
     }
     
     fun getTag(stringTag: String): Tag {
@@ -23,7 +25,11 @@ object TagMapper {
         if (stringTag.equals("builtin", ignoreCase = true)) {
             return Tag("内置", "builtin")
         }
-        return tagMap[stringTag] ?: Tag(stringTag, stringTag) // Fallback for unmapped tags
+        val tag = tagMap[stringTag] ?: Tag(stringTag, stringTag) // Fallback for unmapped tags
+        if (tagMap[stringTag] == null && tagMap.isNotEmpty()) {
+            Timber.w("getTag: '$stringTag' not found in tagMap (size=${tagMap.size}), using fallback")
+        }
+        return tag
     }
     
     fun getAllTags(): List<Tag> {

@@ -9,6 +9,7 @@ TTSService::~TTSService() {
 }
 
 bool TTSService::LoadTtsResources(const char *resPath, const char* modelName, const char* cacheDir) {
+    MNNITTSLogger::GetInstance().SetLogLevel(PDEBUG);
     MH_DEBUG("TTSService::LoadTtsResources resPath: %s", resPath);
     if (!tts_) {
         tts_ = std::make_shared<MNNTTSSDK>(

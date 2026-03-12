@@ -1,18 +1,17 @@
 package com.alibaba.mnnllm.android.chat.voice
 
 import android.app.Application
-import android.content.Intent
-import android.os.Build
 import android.os.Handler
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
-import com.alibaba.mls.api.download.DownloadForegroundService
 import com.alibaba.mls.api.download.DownloadInfo
 import com.alibaba.mls.api.download.DownloadListener
+import com.alibaba.mls.api.download.DownloadState
 import com.alibaba.mls.api.download.ModelDownloadManager
+import com.alibaba.mnnllm.android.download.DownloadForegroundServiceManager
 import com.alibaba.mnnllm.android.modelmarket.ModelMarketItem
 import com.alibaba.mnnllm.android.modelmarket.ModelMarketItemWrapper
 import com.alibaba.mnnllm.android.modelmarket.ModelRepository
@@ -30,8 +29,6 @@ class VoiceModelMarketViewModel(application: Application) : AndroidViewModel(app
     private var allTtsModels: List<ModelMarketItemWrapper> = emptyList()
     private var allAsrModels: List<ModelMarketItemWrapper> = emptyList()
     private var mainHandler: Handler = Handler(application.mainLooper)
-    /** Tracks voice (TTS/ASR) downloads started from this ViewModel for notification. modelId -> modelName */
-    private val downloadingVoiceModels: MutableMap<String, String> = mutableMapOf()
     
     private val _models = MutableLiveData<List<ModelMarketItemWrapper>>()
     val models: LiveData<List<ModelMarketItemWrapper>> = _models
@@ -106,34 +103,18 @@ class VoiceModelMarketViewModel(application: Application) : AndroidViewModel(app
         _models.postValue(updatedList)
     }
 
-    private fun updateServiceState() {
-        val count = downloadingVoiceModels.size
-        val context = getApplication<Application>()
-        val intent = Intent(context, DownloadForegroundService::class.java)
-
-        if (count > 0) {
-            val name = downloadingVoiceModels.values.firstOrNull()
-            intent.putExtra(DownloadForegroundService.EXTRA_DOWNLOAD_COUNT, count)
-            intent.putExtra(DownloadForegroundService.EXTRA_MODEL_NAME, name)
-
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(intent)
-                } else {
-                    context.startService(intent)
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to start download service", e)
-            }
-        } else {
-            context.stopService(intent)
-        }
+    private fun resolveModelName(modelId: String): String? {
+        return (_models.value ?: emptyList())
+            .asSequence()
+            .plus(allTtsModels.asSequence())
+            .plus(allAsrModels.asSequence())
+            .firstOrNull { it.modelMarketItem.modelId == modelId }
+            ?.modelMarketItem
+            ?.modelName
     }
 
     fun startDownload(item: ModelMarketItem) {
         Log.d(TAG, "Starting download for: ${item.modelId}")
-        downloadingVoiceModels[item.modelId] = item.modelName
-        updateServiceState()
         downloadManager.startDownload(item.modelId)
     }
 
@@ -151,8 +132,6 @@ class VoiceModelMarketViewModel(application: Application) : AndroidViewModel(app
 
     fun updateModel(item: ModelMarketItem) {
         Log.d(TAG, "Starting update for: ${item.modelId}")
-        downloadingVoiceModels[item.modelId] = item.modelName
-        updateServiceState()
         downloadManager.startDownload(item.modelId)
     }
 
@@ -176,21 +155,34 @@ class VoiceModelMarketViewModel(application: Application) : AndroidViewModel(app
         Log.d(TAG, "Download started for: $modelId")
         mainHandler.post {
             updateDownloadInfo(modelId)
+            DownloadForegroundServiceManager.onDownloadStateChanged(
+                modelId = modelId,
+                modelName = resolveModelName(modelId),
+                isDownloading = true
+            )
             _itemUpdate.value = modelId
         }
     }
 
     override fun onDownloadProgress(modelId: String, downloadInfo: DownloadInfo) {
         mainHandler.post {
+            DownloadForegroundServiceManager.onDownloadStateChanged(
+                modelId = modelId,
+                modelName = resolveModelName(modelId),
+                isDownloading = downloadInfo.downloadState == DownloadState.DOWNLOADING
+            )
             _progressUpdate.value = Pair(modelId, downloadInfo)
         }
     }
 
-    override fun onDownloadFailed(modelId: String, exception: Exception) {
-        Log.d(TAG, "Download failed for: $modelId, error: ${exception.message}")
+    override fun onDownloadFailed(modelId: String, e: Exception) {
+        Log.d(TAG, "Download failed for: $modelId, error: ${e.message}")
         mainHandler.post {
-            downloadingVoiceModels.remove(modelId)
-            updateServiceState()
+            DownloadForegroundServiceManager.onDownloadStateChanged(
+                modelId = modelId,
+                modelName = resolveModelName(modelId),
+                isDownloading = false
+            )
             updateDownloadInfo(modelId)
             _itemUpdate.value = modelId
         }
@@ -199,8 +191,11 @@ class VoiceModelMarketViewModel(application: Application) : AndroidViewModel(app
     override fun onDownloadFinished(modelId: String, path: String) {
         Log.d(TAG, "Download finished for: $modelId")
         mainHandler.post {
-            downloadingVoiceModels.remove(modelId)
-            updateServiceState()
+            DownloadForegroundServiceManager.onDownloadStateChanged(
+                modelId = modelId,
+                modelName = resolveModelName(modelId),
+                isDownloading = false
+            )
             updateDownloadInfo(modelId)
             _itemUpdate.value = modelId
         }
@@ -209,8 +204,11 @@ class VoiceModelMarketViewModel(application: Application) : AndroidViewModel(app
     override fun onDownloadPaused(modelId: String) {
         Log.d(TAG, "Download paused for: $modelId")
         mainHandler.post {
-            downloadingVoiceModels.remove(modelId)
-            updateServiceState()
+            DownloadForegroundServiceManager.onDownloadStateChanged(
+                modelId = modelId,
+                modelName = resolveModelName(modelId),
+                isDownloading = false
+            )
             updateDownloadInfo(modelId)
             _itemUpdate.value = modelId
         }
@@ -219,8 +217,11 @@ class VoiceModelMarketViewModel(application: Application) : AndroidViewModel(app
     override fun onDownloadFileRemoved(modelId: String) {
         Log.d(TAG, "Download file removed for: $modelId")
         mainHandler.post {
-            downloadingVoiceModels.remove(modelId)
-            updateServiceState()
+            DownloadForegroundServiceManager.onDownloadStateChanged(
+                modelId = modelId,
+                modelName = resolveModelName(modelId),
+                isDownloading = false
+            )
             updateDownloadInfo(modelId)
             _itemUpdate.value = modelId
         }
@@ -240,8 +241,6 @@ class VoiceModelMarketViewModel(application: Application) : AndroidViewModel(app
 
     override fun onCleared() {
         super.onCleared()
-        downloadingVoiceModels.clear()
-        updateServiceState()
         downloadManager.removeListener(this)
         mainHandler.removeCallbacksAndMessages(null)
     }

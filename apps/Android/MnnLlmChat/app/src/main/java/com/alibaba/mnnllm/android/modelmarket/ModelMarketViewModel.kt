@@ -15,12 +15,10 @@ import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.model.Modality
 import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.chat.model.ChatDataManager
+import com.alibaba.mnnllm.android.download.DownloadForegroundServiceManager
 import com.alibaba.mnnllm.android.modelmarket.ModelMarketCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import android.content.Intent
-import android.os.Build
-import com.alibaba.mls.api.download.DownloadForegroundService
 import java.util.Locale
 
 class ModelMarketViewModel(application: Application) : AndroidViewModel(application), DownloadListener {
@@ -188,31 +186,8 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
         applyCurrentFilters()
     }
 
-    private fun updateServiceState() {
-        val downloadingItems = allModels.filter {
-            it.downloadInfo.downloadState == DownloadState.DOWNLOADING
-        }
-        val count = downloadingItems.size
-        val context = getApplication<Application>()
-        val intent = Intent(context, DownloadForegroundService::class.java)
-
-        if (count > 0) {
-            val name = downloadingItems.firstOrNull()?.modelMarketItem?.modelName
-            intent.putExtra(DownloadForegroundService.EXTRA_DOWNLOAD_COUNT, count)
-            intent.putExtra(DownloadForegroundService.EXTRA_MODEL_NAME, name)
-
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(intent)
-                } else {
-                    context.startService(intent)
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to start download service", e)
-            }
-        } else {
-            context.stopService(intent)
-        }
+    private fun resolveModelName(modelId: String): String? {
+        return allModels.firstOrNull { it.modelMarketItem.modelId == modelId }?.modelMarketItem?.modelName
     }
 
     fun startDownload(item: ModelMarketItem) {
@@ -306,7 +281,11 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
         mainHandler.post {
             allModels.find { it.modelMarketItem.modelId == modelId }?.let { updateDownloadInfo(modelId, downloadManager.getDownloadInfo(it.modelMarketItem.modelId)) }
             _itemUpdate.value = modelId
-            updateServiceState()
+            DownloadForegroundServiceManager.onDownloadStateChanged(
+                modelId = modelId,
+                modelName = resolveModelName(modelId),
+                isDownloading = true
+            )
         }
     }
 
@@ -322,7 +301,11 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
             } else {
                 Log.e(TAG, "[onDownloadFailed] Could not find wrapper for modelId: $modelId")
             }
-            updateServiceState()
+            DownloadForegroundServiceManager.onDownloadStateChanged(
+                modelId = modelId,
+                modelName = resolveModelName(modelId),
+                isDownloading = false
+            )
         }
     }
 
@@ -354,9 +337,11 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
                 _progressUpdate.value = Pair(modelId, downloadInfo)
             }
             
-            if (progressStateChanged) {
-                 updateServiceState()
-            }
+            DownloadForegroundServiceManager.onDownloadStateChanged(
+                modelId = modelId,
+                modelName = resolveModelName(modelId),
+                isDownloading = downloadInfo.downloadState == DownloadState.DOWNLOADING
+            )
         }
     }
 
@@ -369,7 +354,11 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
                 // which subscribes to ModelRepository changes
             }
             _itemUpdate.value = modelId
-            updateServiceState()
+            DownloadForegroundServiceManager.onDownloadStateChanged(
+                modelId = modelId,
+                modelName = resolveModelName(modelId),
+                isDownloading = false
+            )
         }
     }
 
@@ -403,7 +392,11 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
         mainHandler.post {
             allModels.find { it.modelMarketItem.modelId == modelId }?.let { updateDownloadInfo(modelId, downloadManager.getDownloadInfo(it.modelMarketItem.modelId)) }
             _itemUpdate.value = modelId
-            updateServiceState()
+            DownloadForegroundServiceManager.onDownloadStateChanged(
+                modelId = modelId,
+                modelName = resolveModelName(modelId),
+                isDownloading = false
+            )
         }
     }
 
@@ -411,7 +404,11 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
         mainHandler.post {
             allModels.find { it.modelMarketItem.modelId == modelId }?.let { updateDownloadInfo(modelId, downloadManager.getDownloadInfo(it.modelMarketItem.modelId)) }
             _itemUpdate.value = modelId
-            updateServiceState()
+            DownloadForegroundServiceManager.onDownloadStateChanged(
+                modelId = modelId,
+                modelName = resolveModelName(modelId),
+                isDownloading = false
+            )
         }
     }
 
