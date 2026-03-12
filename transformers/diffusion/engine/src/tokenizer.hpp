@@ -1,5 +1,6 @@
 #include <vector>
 #include <string>
+#include <cstdint>
 #include <unordered_map>
 
 #ifndef MNN_DIFFUSION_TOKENIZER_HPP
