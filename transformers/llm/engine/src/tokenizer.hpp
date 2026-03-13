@@ -15,6 +15,7 @@
 #include <iostream>
 // #include <string_view>
 #include <cstring>
+#include <cstdint>
 class string_view_ {
 public:
     string_view_() : data_(nullptr), size_(0) {}
