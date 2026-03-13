@@ -170,17 +170,75 @@ static onnx::ModelProto makeReduceEinsumModel() {
     return model;
 }
 
+static onnx::ModelProto makeConcat3EinsumModel() {
+    onnx::ModelProto model;
+    model.set_ir_version(8);
+    model.mutable_opset_import()->Add()->set_version(13);
+    auto* graph = model.mutable_graph();
+    graph->set_name("Concat3Einsum");
+
+    addTensorShape(graph->add_input(), "x", {2, 3});
+    addTensorShape(graph->add_input(), "y", {2, 3});
+    addTensorShape(graph->add_input(), "z", {2, 3});
+    addTensorShape(graph->add_output(), "out", {2, 3});
+
+    addFloatInitializer(graph, "weight", {3}, {1.0f, -2.0f, 0.5f});
+    addInt64Initializer(graph, "axes", {1}, {0});
+
+    auto* unsqueezeX = graph->add_node();
+    unsqueezeX->set_op_type("Unsqueeze");
+    unsqueezeX->add_input("x");
+    unsqueezeX->add_input("axes");
+    unsqueezeX->add_output("x_unsqueezed");
+
+    auto* unsqueezeY = graph->add_node();
+    unsqueezeY->set_op_type("Unsqueeze");
+    unsqueezeY->add_input("y");
+    unsqueezeY->add_input("axes");
+    unsqueezeY->add_output("y_unsqueezed");
+
+    auto* unsqueezeZ = graph->add_node();
+    unsqueezeZ->set_op_type("Unsqueeze");
+    unsqueezeZ->add_input("z");
+    unsqueezeZ->add_input("axes");
+    unsqueezeZ->add_output("z_unsqueezed");
+
+    auto* concat = graph->add_node();
+    concat->set_op_type("Concat");
+    concat->add_input("x_unsqueezed");
+    concat->add_input("y_unsqueezed");
+    concat->add_input("z_unsqueezed");
+    concat->add_output("stacked");
+    auto* axis = concat->add_attribute();
+    axis->set_name("axis");
+    axis->set_i(0);
+
+    auto* einsum = graph->add_node();
+    einsum->set_op_type("Einsum");
+    einsum->add_input("weight");
+    einsum->add_input("stacked");
+    einsum->add_output("out");
+    auto* equation = einsum->add_attribute();
+    equation->set_name("equation");
+    equation->set_s("i,i...->...");
+    return model;
+}
+
 int main() {
     const std::string concatOnnx = "/tmp/mnn_concat_einsum.onnx";
     const std::string concatMnn = "/tmp/mnn_concat_einsum.mnn";
     const std::string reduceOnnx = "/tmp/mnn_reduce_einsum.onnx";
     const std::string reduceMnn = "/tmp/mnn_reduce_einsum.mnn";
+    const std::string concat3Onnx = "/tmp/mnn_concat3_einsum.onnx";
+    const std::string concat3Mnn = "/tmp/mnn_concat3_einsum.mnn";
 
     bool ok = saveModel(makeConcatEinsumModel(), concatOnnx);
     ok = saveModel(makeReduceEinsumModel(), reduceOnnx) && ok;
+    ok = saveModel(makeConcat3EinsumModel(), concat3Onnx) && ok;
 
     ok = convertOnnx(concatOnnx, concatMnn) && ok;
     ok = convertOnnx(reduceOnnx, reduceMnn) && ok;
+    ok = convertOnnx(concat3Onnx, concat3Mnn) && ok;
 
     const std::vector<float> x = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
     const std::vector<float> y = {6.0f, 5.0f, 4.0f, 3.0f, 2.0f, 1.0f};
@@ -193,9 +251,15 @@ int main() {
     };
     ok = runMNNModel(reduceMnn, {{"stacked", stacked}}, expected) && ok;
 
+    const std::vector<float> z = {0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 1.0f};
+    const std::vector<float> expected3 = {-11.0f, -7.5f, -5.0f, -1.5f, 1.0f, 4.5f};
+    ok = runMNNModel(concat3Mnn, {{"x", x}, {"y", y}, {"z", z}}, expected3) && ok;
+
     ::remove(concatOnnx.c_str());
     ::remove(concatMnn.c_str());
     ::remove(reduceOnnx.c_str());
     ::remove(reduceMnn.c_str());
+    ::remove(concat3Onnx.c_str());
+    ::remove(concat3Mnn.c_str());
     return ok ? 0 : 1;
 }

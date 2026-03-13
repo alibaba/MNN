@@ -140,19 +140,27 @@ static onnx::ModelProto makeResizeModel(const std::vector<int>& inputShape, bool
 int main() {
     const std::string rank3Scales = "/tmp/mnn_resize_rank3_scales.onnx";
     const std::string rank3Sizes = "/tmp/mnn_resize_rank3_sizes.onnx";
+    const std::string rank4Scales = "/tmp/mnn_resize_rank4_scales.onnx";
+    const std::string rank4Sizes = "/tmp/mnn_resize_rank4_sizes.onnx";
     const std::string rank5Scales = "/tmp/mnn_resize_rank5_scales.onnx";
 
     writeModel(makeResizeModel({2, 3, 5}, false), rank3Scales);
     writeModel(makeResizeModel({2, 3, 5}, true), rank3Sizes);
+    writeModel(makeResizeModel({1, 2, 3, 4}, false), rank4Scales);
+    writeModel(makeResizeModel({1, 2, 3, 4}, true), rank4Sizes);
     writeModel(makeResizeModel({1, 2, 3, 4, 5}, false), rank5Scales);
 
     bool ok = true;
     ok = runConvert(rank3Scales, "resize_node", MNN::OpType_Interp, 2) && ok;
     ok = runConvert(rank3Sizes, "resize_node", MNN::OpType_Interp, 2) && ok;
+    ok = runConvert(rank4Scales, "resize_node", MNN::OpType_Interp, 1) && ok;
+    ok = runConvert(rank4Sizes, "resize_node", MNN::OpType_Interp, 1) && ok;
     ok = runConvert(rank5Scales, "resize_node", MNN::OpType_Interp3D, 1) && ok;
 
     ::remove(rank3Scales.c_str());
     ::remove(rank3Sizes.c_str());
+    ::remove(rank4Scales.c_str());
+    ::remove(rank4Sizes.c_str());
     ::remove(rank5Scales.c_str());
     return ok ? 0 : 1;
 }
