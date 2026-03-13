@@ -33,6 +33,7 @@ public:
             MNN_ERROR("Can't convert Einsum for invalid Equation\n");
             return nullptr;
         }
+        std::string rawEquation = equation;
         // Turn ... to .
         bool hasPrefix = false;
         {
@@ -45,13 +46,21 @@ public:
         }
         // Remove space
         std::vector<char> valid;
+        std::vector<char> rawValid;
         for (int i=0; i<equation.size(); ++i) {
             if (equation[i] != ' ') {
                 valid.emplace_back(equation[i]);
             }
         }
+        for (int i=0; i<rawEquation.size(); ++i) {
+            if (rawEquation[i] != ' ') {
+                rawValid.emplace_back(rawEquation[i]);
+            }
+        }
         valid.emplace_back('\0');
+        rawValid.emplace_back('\0');
         equation = std::string(valid.data());
+        rawEquation = std::string(rawValid.data());
         auto pos = equation.find("->");
         if (pos == std::string::npos) {
             MNN_ERROR("Can't convert Einsum for no support Equation:%s\n", equation.c_str());
@@ -59,8 +68,8 @@ public:
         }
         auto left = equation.substr(0, pos);
         auto right = equation.substr(pos+2, equation.size());
-        if (expr->inputs().size() == 1 ){
-            auto currentVar = expr->inputs()[0];
+        if (inputs.size() == 1 ){
+            auto currentVar = inputs[0];
             std::map<char, int> outputPos;
             for (int i=0; i<right.size(); ++i) {
                 outputPos.insert(std::make_pair(right[i], i));
@@ -94,8 +103,64 @@ public:
         auto iPos = left.find(",");
         auto input0 = left.substr(0, iPos);
         auto input1 = left.substr(iPos+1, left.size());
-        auto var0 = expr->inputs()[0];
-        auto var1 = expr->inputs()[1];
+        auto var0 = inputs[0];
+        auto var1 = inputs[1];
+        if (rawEquation == "i,i...->...") {
+            auto concatExpr = var1->expr().first;
+            auto weightExpr = var0->expr().first;
+            if (concatExpr != nullptr && weightExpr != nullptr && weightExpr->get() != nullptr) {
+                auto concatOp = concatExpr->get();
+                auto weightOp = weightExpr->get();
+                if (concatOp != nullptr && concatOp->type() == OpType_Concat && concatOp->main_as_Axis() != nullptr &&
+                    concatOp->main_as_Axis()->axis() == 0 && weightOp->type() == OpType_Const && weightOp->main_as_Blob() != nullptr) {
+                    auto weightBlob = weightOp->main_as_Blob();
+                    auto weightPtr = weightBlob->float32s() != nullptr ? weightBlob->float32s()->data() : nullptr;
+                    auto terms = concatExpr->inputs();
+                    int weightSize = 1;
+                    if (weightBlob->dims() != nullptr) {
+                        for (int i = 0; i < weightBlob->dims()->size(); ++i) {
+                            weightSize *= weightBlob->dims()->data()[i];
+                        }
+                    }
+                    if (weightPtr != nullptr && weightSize == terms.size()) {
+                        VARP output;
+                        for (int i = 0; i < terms.size(); ++i) {
+                            auto term = terms[i];
+                            auto termExpr = term->expr().first;
+                            if (termExpr != nullptr) {
+                                auto termOp = termExpr->get();
+                                if (termOp != nullptr && termOp->type() == OpType_Unsqueeze && !termExpr->inputs().empty()) {
+                                    term = termExpr->inputs()[0];
+                                }
+                            }
+                            auto current = term * _Scalar<float>(weightPtr[i]);
+                            output = (output == nullptr) ? current : (output + current);
+                        }
+                        if (output.get() != nullptr) {
+                            output->setName(expr->name());
+                            return output->expr().first;
+                        }
+                    }
+                }
+            }
+            VARP scale;
+            auto input0Info = var0->getInfo();
+            auto input1Info = var1->getInfo();
+            if (input0Info != nullptr && input1Info != nullptr) {
+                std::vector<int> scaleShape = input0Info->dim;
+                scaleShape.resize(input1Info->dim.size(), 1);
+                scale = _Reshape(var0, scaleShape);
+            } else {
+                auto one = _Unsqueeze(_Scalar<int>(1), {0});
+                auto rank = _Rank(var1);
+                auto ones = _Fill(_Unsqueeze(rank - _Scalar<int>(1), {0}), one);
+                auto dynamicShape = _Concat({_Shape(var0, NCHW), ones}, 0);
+                scale = _Reshape(var0, dynamicShape);
+            }
+            auto output = _ReduceSum(scale * var1, {0}, false);
+            output->setName(expr->name());
+            return output->expr().first;
+        }
         // dim = 4
         if (right.size() == 4 && input0.size() == 4 && input1.size() == 4) {
             // batch align:
