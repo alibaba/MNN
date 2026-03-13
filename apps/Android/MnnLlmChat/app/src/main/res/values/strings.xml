@@ -420,6 +420,9 @@
     <string name="voice_chat_stop">Stop</string>
     <string name="voice_chat_stopping">Stopping...</string>
     <string name="voice_chat_ready_greeting">What can I help you with?</string>
+    <string name="echo_cancellation_mode">Echo Cancellation</string>
+    <string name="mic_mode_hardware">Hardware</string>
+    <string name="mic_mode_auto_mute">Auto Mute</string>
     <string name="voice_chat_usage_notice">To use voice chat, TTS and ASR models need to be downloaded. Please note multi-language support.</string>
     <string name="nav_name_chats">My Models</string>
     <string name="benchmark">Benchmark</string>

@@ -68,6 +68,8 @@ class VoiceChatPresenter(
     private var isStopped = false
     private var isStoppingGeneration = false
     private var isGenerationFinished = false
+    private var isMuted = false
+    private var isAutoMuteForEchoCancelMode = false
     
     // For handling LLM generation progress with thinking support
     private var generateResultProcessor: GenerateResultProcessor? = null
@@ -222,6 +224,9 @@ class VoiceChatPresenter(
         
         // Register this presenter as an additional listener to ChatPresenter
         chatPresenter.addGenerateListener(this)
+
+        view.updateMuteButtonState(isMuted)
+        view.updateEchoCancelMode(isAutoMuteForEchoCancelMode)
         
         initTts()
         startAsr()
@@ -513,6 +518,19 @@ class VoiceChatPresenter(
         Log.d(TAG, "Speaker toggled: $isSpeakerOn")
     }
 
+    fun toggleMute() {
+        isMuted = !isMuted
+        asrService?.setMuted(isMuted)
+        view.updateMuteButtonState(isMuted)
+        Log.d(TAG, "Microphone mute toggled: $isMuted")
+    }
+
+    fun toggleEchoCancelMode() {
+        isAutoMuteForEchoCancelMode = !isAutoMuteForEchoCancelMode
+        view.updateEchoCancelMode(isAutoMuteForEchoCancelMode)
+        Log.d(TAG, "Echo cancel mode toggled, auto mute: $isAutoMuteForEchoCancelMode")
+    }
+
     fun stopGeneration() {
         Log.d(TAG, "Stopping generation...")
         if (isProcessingLlm || isSpeaking) {
@@ -644,6 +662,8 @@ interface VoiceChatView {
     fun showError(message: String)
     fun stopGeneration()
     fun showGreetingMessage()
+    fun updateMuteButtonState(isMuted: Boolean)
+    fun updateEchoCancelMode(isAutoMuteForEchoCancelMode: Boolean)
 }
 
 interface TtsClient {
