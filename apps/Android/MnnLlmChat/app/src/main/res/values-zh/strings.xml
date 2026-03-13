@@ -406,6 +406,9 @@
     <string name="voice_chat_stop">停止</string>
     <string name="voice_chat_stopping">正在停止...</string>
     <string name="voice_chat_ready_greeting">有什么可以帮助您的？</string>
+    <string name="echo_cancellation_mode">回声消除</string>
+    <string name="mic_mode_hardware">硬件</string>
+    <string name="mic_mode_auto_mute">自动静音</string>
     <string name="voice_chat_usage_notice">使用语音聊天需要下载TTS和ASR模型，请注意多语言支持。</string>
     <string name="nav_name_chats">我的模型</string>
     <string name="benchmark">性能评测</string>
