@@ -147,10 +147,13 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode,
             int inputIdx = scope->lookupTensor(onnxNode.input(k));
             if (inputIdx < 0) {
                 LOG(INFO) << "Check it out ==> " << MNNOp->name << " has empty input, the index is " << k;
+                if (opType == "Resize") {
+                    continue;
+                }
             }
             MNNOp->inputIndexes.push_back(inputIdx);
         }
-        for (int k = onnxNode.input_size() - 1; k >= 0 && MNNOp->inputIndexes[k] < 0; --k) {
+        for (int k = (int)MNNOp->inputIndexes.size() - 1; k >= 0 && MNNOp->inputIndexes[k] < 0; --k) {
             MNNOp->inputIndexes.pop_back();
         }
         for (int k = 0; k < onnxNode.output_size(); k++) {
