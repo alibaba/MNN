@@ -193,7 +193,8 @@ class VoiceChatPresenter(
                     view.addTranscript(Transcript(isUser = true, text = task.text))
                     view.updateStatus(VoiceChatState.PROCESSING)
                 }
-                stopRecord()
+                // We don't call `stopRecord()` here to keep ASR remains active during LLM generation to support "speech interruption" (full-duplex). If the user starts speaking, onSpeechDetected will trigger and stop current generation.
+                // stopRecord()
                 llmGenerate(task.text)
             }
             is SerialTask.OnTtsComplete -> {
@@ -313,6 +314,16 @@ class VoiceChatPresenter(
                         }
                     }
                 }
+
+                // Interruption Support: Listen for speech onset even while AI is speaking or thinking. If the user speaks, we cancel ongoing LLM generation and audio playback immediately.
+                asrService?.onSpeechDetected = {
+                    lifecycleScope.launch(Dispatchers.Main) {
+                        if (!isStopped && (isSpeaking || isProcessingLlm)) {
+                            Log.i(TAG, "Speech detected during AI output, interrupting...")
+                            stopGeneration()
+                        }
+                    }
+                }
                 
                 // Reset generation state when ASR is ready
                 isGenerationFinished = false
@@ -377,8 +388,8 @@ class VoiceChatPresenter(
                 // Get the greeting message from resources (Android will auto-select language)
                 val greetingMessage = activity.getString(com.alibaba.mnnllm.android.R.string.voice_chat_ready_greeting)
                 
-                // Temporarily stop recording while speaking greeting
-                stopRecord()
+                // We don't call `stopRecord()` here to keep ASR recording active to allow user to skip or interrupt the greeting.
+                // stopRecord()
                 
                 // Set status to greeting
                 currentStatus = VoiceChatPresenterState.PLAYING
