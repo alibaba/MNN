@@ -193,7 +193,11 @@ class VoiceChatPresenter(
                     view.addTranscript(Transcript(isUser = true, text = task.text))
                     view.updateStatus(VoiceChatState.PROCESSING)
                 }
-                // We don't call `stopRecord()` here to keep ASR remains active during LLM generation to support "speech interruption" (full-duplex). If the user starts speaking, onSpeechDetected will trigger and stop current generation.
+                // Automatically mute microphone in Auto-Mute mode when AI starts processing/speaking
+                if (isAutoMuteForEchoCancelMode) {
+                    muteMicrophone(true)
+                }
+                // We don't call `stopRecord()` here to keep ASR active during LLM generation to support "speech interruption" (full-duplex). If the user starts speaking, onSpeechDetected will trigger and stop current generation.
                 // stopRecord()
                 llmGenerate(task.text)
             }
@@ -211,7 +215,11 @@ class VoiceChatPresenter(
                 kotlinx.coroutines.delay(500)
                 // Only start recording if we're not in the middle of stopping
                 if (!isStoppingGeneration) {
-                    startRecord()
+                    // Automatically un-mute microphone in Auto-Mute mode when AI finishes speaking
+                    if (isAutoMuteForEchoCancelMode) {
+                        muteMicrophone(false)
+                    }
+                startRecord()
                 }
             }
         }
@@ -396,6 +404,11 @@ class VoiceChatPresenter(
                 withContext(Dispatchers.Main) {
                     view.updateStatus(VoiceChatState.GREETING)
                 }
+
+                // Automatically mute during greeting if Auto-Mute mode is enabled
+                if (isAutoMuteForEchoCancelMode) {
+                    muteMicrophone(true)
+                }
                 
                 // Generate TTS audio for greeting
                 withContext(Dispatchers.IO) {
@@ -428,6 +441,12 @@ class VoiceChatPresenter(
                                     }
                                     // Small delay then resume recording
                                     kotlinx.coroutines.delay(300)
+
+                                    // Automatically un-mute after greeting if Auto-Mute mode is enabled
+                                    if (isAutoMuteForEchoCancelMode) {
+                                        muteMicrophone(false)
+                                    }
+
                                     startRecord()
                                     
                                     // Restore the original completion listener for normal TTS
@@ -451,6 +470,9 @@ class VoiceChatPresenter(
                             currentStatus = VoiceChatPresenterState.LISTENING
                             view.updateStatus(VoiceChatState.LISTENING)
                         }
+                        if (isAutoMuteForEchoCancelMode) {
+                            muteMicrophone(false)
+                        }
                         startRecord()
                     }
                 }
@@ -461,6 +483,9 @@ class VoiceChatPresenter(
                 currentStatus = VoiceChatPresenterState.LISTENING
                 withContext(Dispatchers.Main) {
                     view.updateStatus(VoiceChatState.LISTENING)
+                }
+                if (isAutoMuteForEchoCancelMode) {
+                    muteMicrophone(false)
                 }
                 startRecord()
             }
@@ -530,10 +555,16 @@ class VoiceChatPresenter(
     }
 
     fun toggleMute() {
-        isMuted = !isMuted
-        asrService?.setMuted(isMuted)
-        view.updateMuteButtonState(isMuted)
-        Log.d(TAG, "Microphone mute toggled: $isMuted")
+        muteMicrophone(!isMuted)
+    }
+
+    private fun muteMicrophone(mute: Boolean) {
+        if (isMuted != mute) {
+            isMuted = mute
+            asrService?.setMuted(isMuted)
+            view.updateMuteButtonState(isMuted)
+            Log.d(TAG, "Microphone mute state changed: $isMuted")
+        }
     }
 
     fun toggleEchoCancelMode() {
@@ -573,6 +604,12 @@ class VoiceChatPresenter(
                 // Reset audio player and restart recording
                 audioPlayer?.reset()
                 kotlinx.coroutines.delay(200)
+
+                // Ensure mic is un-muted when stopping generation manually
+                if (isAutoMuteForEchoCancelMode) {
+                    muteMicrophone(false)
+                }
+
                 isStoppingGeneration = false
                 startRecord()
             }
