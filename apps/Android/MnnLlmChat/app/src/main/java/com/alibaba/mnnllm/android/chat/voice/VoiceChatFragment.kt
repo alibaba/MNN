@@ -22,6 +22,17 @@ import com.alibaba.mnnllm.android.chat.ChatPresenter
 import com.alibaba.mnnllm.android.databinding.FragmentVoiceChatBinding
 import com.alibaba.mnnllm.android.utils.KeyboardUtils
 import androidx.core.graphics.toColorInt
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
+import androidx.camera.core.Preview
+import androidx.camera.lifecycle.ProcessCameraProvider
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import android.net.Uri
 
 class VoiceChatFragment : Fragment(), VoiceChatView {
     
@@ -56,6 +67,14 @@ class VoiceChatFragment : Fragment(), VoiceChatView {
     // Presenter
     private var presenter: VoiceChatPresenter? = null
 
+    // Camera
+    private var isCameraEnabled = false
+    private var imageCapture: ImageCapture? = null
+    private var currentCameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+    private var cameraExecutor: ExecutorService? = null
+    private var capturedImageUri: Uri? = null
+    private var modelId: String = ""
+
 
     // Permissions
     private val requestPermissionLauncher =
@@ -74,8 +93,10 @@ class VoiceChatFragment : Fragment(), VoiceChatView {
         super.onCreate(savedInstanceState)
         arguments?.let {
             modelName = it.getString(ARG_MODEL_NAME, "")
+            modelId = it.getString(ARG_MODEL_ID, "")
         }
-        Log.d(TAG, "onCreate: modelName=$modelName")
+        cameraExecutor = Executors.newSingleThreadExecutor()
+        Log.d(TAG, "onCreate: modelName=$modelName, modelId=$modelId")
     }
     
     override fun onCreateView(
@@ -138,7 +159,225 @@ class VoiceChatFragment : Fragment(), VoiceChatView {
         binding.buttonEchoCancelMode.setOnClickListener {
             presenter?.toggleEchoCancelMode()
         }
+
+        binding.buttonCamera.setOnClickListener {
+            toggleCamera()
+        }
+
+        binding.buttonCameraSwitch.setOnClickListener {
+            switchCamera()
+        }
     }
+
+    /**
+     * Toggles the camera state between enabled and disabled.
+     * Starts the camera preview if disabled, or stops it if enabled.
+     */
+    private fun toggleCamera() {
+        if (!isCameraEnabled) {
+            checkAndRequestCameraPermission()
+        } else {
+            stopCamera()
+        }
+    }
+
+    /**
+     * Checks if camera permission is granted.
+     * If granted, starts the camera; otherwise, requests the permission from the user.
+     */
+    private fun checkAndRequestCameraPermission() {
+        when {
+            ContextCompat.checkSelfPermission(
+                requireContext(),
+                Manifest.permission.CAMERA
+            ) == PackageManager.PERMISSION_GRANTED -> {
+                startCamera()
+            }
+            else -> {
+                // Request camera permission using the registered launcher
+                requestCameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+            }
+        }
+    }
+
+    private val requestCameraPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted: Boolean ->
+            if (isGranted) {
+                startCamera()
+            } else {
+                Toast.makeText(requireContext(), R.string.camera_permission_denied, Toast.LENGTH_LONG).show()
+            }
+        }
+
+    /**
+     * Initializes and starts the CameraX camera.
+     * Binds the preview and image capture use cases to the fragment's lifecycle.
+     */
+    private fun startCamera() {
+        // Obtain the ProcessCameraProvider instance
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(requireContext())
+        cameraProviderFuture.addListener({
+            // Camera provider is now available
+            val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
+
+            // Set up the preview use case and link it to the PreviewView
+            val preview = Preview.Builder().build().also {
+                it.setSurfaceProvider(binding.cameraPreview.surfaceProvider)
+            }
+
+            // Set up the image capture use case with low latency optimization
+            imageCapture = ImageCapture.Builder()
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                .build()
+
+            // Select the current camera (front or back)
+            val cameraSelector = currentCameraSelector
+
+            try {
+                // Unbind any previous use cases before binding new ones
+                cameraProvider.unbindAll()
+                
+                // Bind use cases to the lifecycle owner (this fragment)
+                cameraProvider.bindToLifecycle(
+                    viewLifecycleOwner, cameraSelector, preview, imageCapture
+                )
+                
+                // Set camera state and update UI visibility
+                isCameraEnabled = true
+                binding.cameraPreview.visibility = View.VISIBLE
+                
+                // Resolve colorSurface from theme for consistent background restoration
+                val typedValue = android.util.TypedValue()
+                requireContext().theme.resolveAttribute(com.google.android.material.R.attr.colorSurface, typedValue, true)
+                val colorSurface = typedValue.data
+                
+                // Update UI theme for camera mode (darker overlays)
+                binding.root.setBackgroundColor(colorSurface)
+                binding.appBar.setBackgroundColor(android.graphics.Color.parseColor("#44000000"))
+                binding.toolbar.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                
+                // Apply rounded background for the transcript area for better visual isolation
+                binding.rvVoiceTranscript.background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor("#33000000".toColorInt())
+                    val cornerRadius = 16f * resources.displayMetrics.density
+                    setCornerRadius(cornerRadius)
+                }
+                
+                binding.buttonCamera.setImageResource(R.drawable.ic_camera_on)
+                binding.buttonCameraSwitch.visibility = View.VISIBLE
+            } catch (exc: Exception) {
+                Log.e(TAG, "Use case binding failed", exc)
+            }
+        }, ContextCompat.getMainExecutor(requireContext())) // Main thread executor for UI updates
+    }
+
+    /**
+     * Stops the camera preview and unbinds all CameraX use cases.
+     * Restores the UI theme to the non-camera state.
+     */
+    private fun stopCamera() {
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(requireContext())
+        cameraProviderFuture.addListener({
+            val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
+            // Unbind all use cases to release the camera hardware
+            cameraProvider.unbindAll()
+            
+            // Update internal state and UI visibility
+            isCameraEnabled = false
+            imageCapture = null
+            binding.cameraPreview.visibility = View.GONE
+            binding.buttonCameraSwitch.visibility = View.GONE
+            
+            // Restore the original background color based on the theme attribute
+            val typedValue = android.util.TypedValue()
+            val theme = requireContext().theme
+            theme.resolveAttribute(com.google.android.material.R.attr.colorSurface, typedValue, true)
+            val colorSurface = typedValue.data
+            
+            // Revert layout colors to standard mode
+            binding.root.setBackgroundColor(colorSurface)
+            binding.appBar.setBackgroundColor(colorSurface)
+            binding.toolbar.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+            binding.rvVoiceTranscript.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+            
+            // Update the camera button icon
+            binding.buttonCamera.setImageResource(R.drawable.ic_camera_off)
+        }, ContextCompat.getMainExecutor(requireContext()))
+    }
+
+    /**
+     * Toggles between the front and back camera.
+     * Restarts the camera preview immediately if it is currently enabled.
+     */
+    private fun switchCamera() {
+        // Toggle the camera selector between back and front
+        currentCameraSelector = if (currentCameraSelector == CameraSelector.DEFAULT_BACK_CAMERA) {
+            CameraSelector.DEFAULT_FRONT_CAMERA
+        } else {
+            CameraSelector.DEFAULT_BACK_CAMERA
+        }
+        
+        // Re-initialize the camera with the new selector if it's currently active
+        if (isCameraEnabled) {
+            startCamera()
+        }
+    }
+
+    /**
+     * Captures a photo using the current camera use case.
+     * The photo is saved to the app's cache directory and compressed in a background thread.
+     */
+    override fun capturePhoto() {
+        if (!isCameraEnabled) return
+        val imageCapture = imageCapture ?: return
+
+        // Create a dedicated directory for captured images in cache
+        val outputDir = File(requireContext().cacheDir, "shared_images")
+        if (!outputDir.exists()) {
+            outputDir.mkdirs()
+        }
+        
+        // Generate a unique filename based on current timestamp
+        val photoFile = File(
+            outputDir,
+            SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS", Locale.US).format(System.currentTimeMillis()) + ".jpg"
+        )
+
+        // Configure file storage options
+        val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+
+        // Capture the picture using a background executor to avoid blocking the UI thread during processing
+        imageCapture.takePicture(
+            outputOptions,
+            cameraExecutor!!, // USE BACKGROUND EXECUTOR for compression logic!
+            object : ImageCapture.OnImageSavedCallback {
+                override fun onError(exc: ImageCaptureException) {
+                    Log.e(TAG, "Photo capture failed: ${exc.message}", exc)
+                }
+
+                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                    // Compression is performed in the background (as we specified cameraExecutor above)
+                    com.alibaba.mnnllm.android.utils.ImageUtils.compressImageFile(photoFile)
+                    capturedImageUri = Uri.fromFile(photoFile)
+                    Log.d(TAG, "Photo capture and compression succeeded: $capturedImageUri")
+                }
+            }
+        )
+    }
+
+    /**
+     * Fetches the URI of the most recently captured image.
+     * Used by the presenter to include visual data in the LLM context.
+     * 
+     * @return The Uri of the captured photo, or null if none is available.
+     */
+    override fun getCapturedImageUri(): Uri? = capturedImageUri
+
+    override fun clearCapturedImageUri() {
+        capturedImageUri = null
+    }
+
+    override fun isCameraEnabled(): Boolean = isCameraEnabled
     
     // Helper to create the styled text for mic mode display
     // Highlights the selected mode and dims/strikethroughs the unselected one
@@ -317,12 +556,22 @@ class VoiceChatFragment : Fragment(), VoiceChatView {
         // Make it clickable when showing "Stop"
         val stopText = getString(R.string.voice_chat_stop)
         binding.tvVoiceChatStatus.isClickable = statusText == stopText
+
+        // Vision support check
+        if (com.alibaba.mnnllm.android.model.ModelTypeUtils.isVisualModel(modelId)) {
+            binding.buttonCamera.visibility = View.VISIBLE
+            binding.spaceCamera.visibility = View.VISIBLE
+        } else {
+            binding.buttonCamera.visibility = View.GONE
+            binding.spaceCamera.visibility = View.GONE
+        }
     }
 
     override fun onDestroyView() {
         super.onDestroyView()
         Log.d(TAG, "onDestroyView")
         presenter?.stop()
+        cameraExecutor?.shutdown()
         _binding = null
     }
 

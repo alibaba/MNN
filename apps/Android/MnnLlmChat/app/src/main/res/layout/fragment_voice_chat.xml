@@ -32,6 +32,13 @@
         android:layout_height="match_parent"
         app:layout_behavior="@string/appbar_scrolling_view_behavior">
 
+        <!-- Camera Preview (Background) for the live video chat in VoiceChatFragment -->
+        <androidx.camera.view.PreviewView
+            android:id="@+id/camera_preview"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone" />
+
         <!-- Status indicator -->
         <TextView
             android:id="@+id/text_status"
@@ -49,6 +56,7 @@
             android:layout_height="match_parent"
             android:layout_above="@+id/text_status_layout"
             android:layout_alignParentTop="true"
+            android:layout_marginTop="16dp"
             android:layout_marginHorizontal="16dp"
             android:overScrollMode="never"
             android:visibility="gone"
@@ -106,7 +114,22 @@
                 </LinearLayout>
 
                 <Space
-                    android:layout_width="24dp"
+                    android:id="@+id/space_camera"
+                    android:layout_width="10dp"
+                    android:layout_height="wrap_content"
+                    android:visibility="gone"/>
+
+                <ImageView
+                    android:id="@+id/button_camera"
+                    android:layout_width="70dp"
+                    android:layout_height="70dp"
+                    android:src="@drawable/ic_camera_off"
+                    android:background="@drawable/bg_camera_circle"
+                    android:padding="20dp"
+                    android:visibility="gone"/>
+
+                <Space
+                    android:layout_width="10dp"
                     android:layout_height="wrap_content"/>
 
                 <ImageView
@@ -118,13 +141,14 @@
                     android:padding="20dp"/>
 
                 <Space
-                    android:layout_width="24dp"
+                    android:layout_width="10dp"
                     android:layout_height="wrap_content"/>
 
                 <ImageView
                     android:id="@+id/button_end_call"
                     android:layout_width="70dp"
                     android:layout_height="70dp"
+                    android:alpha="0.7"
                     android:src="@drawable/end_call"/>
             </LinearLayout>
 
@@ -261,5 +285,19 @@
             android:textAppearance="?textAppearanceBodyMedium"
             android:textColor="@android:color/white" />
     </RelativeLayout>
+
+    <ImageButton
+        android:id="@+id/button_camera_switch"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:layout_marginEnd="20dp"
+        android:layout_marginBottom="110dp"
+        android:layout_gravity="bottom|end"
+        android:background="@drawable/bg_mute_circle"
+        android:padding="10dp"
+        android:scaleType="centerInside"
+        android:src="@drawable/ic_camera_switch"
+        android:alpha="0.7"
+        android:visibility="gone" />
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

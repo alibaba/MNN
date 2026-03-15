@@ -199,7 +199,40 @@ class VoiceChatPresenter(
                 }
                 // We don't call `stopRecord()` here to keep ASR active during LLM generation to support "speech interruption" (full-duplex). If the user starts speaking, onSpeechDetected will trigger and stop current generation.
                 // stopRecord()
-                llmGenerate(task.text)
+
+                // Check if a vision-mode photo has been captured and is ready for sending
+                val capturedImageUri = view.getCapturedImageUri()
+                if (capturedImageUri != null) {
+                    // --- Vision Mode Execution Path ---
+                    // If an image is present, we trigger a multi-modal interaction.
+                    // This allows the AI to "see" what the camera is currently looking at.
+                    Log.i(TAG, "Vision Mode: Processing message with captured image: $capturedImageUri")
+                    
+                    // Construct a ChatDataItem compatible with ChatPresenter's multi-modal message format
+                    val userData = com.alibaba.mnnllm.android.chat.model.ChatDataItem(com.alibaba.mnnllm.android.chat.chatlist.ChatViewHolders.USER)
+                    userData.text = task.text
+                    userData.imageUris = listOf(capturedImageUri) // Attach the captured photo
+                    userData.time = chatPresenter.dateFormat.format(java.util.Date())
+
+                    // Reset local generation/playback states to prepare for a fresh response
+                    responseBuilder.clear()
+                    ttsSegmentBuffer.clear()
+                    isFirstChunk = true
+                    isGenerationFinished = false
+
+                    // Delegate the actual message sending and LLM interaction to the main ChatPresenter
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        chatPresenter.sendMessage(userData)
+                    }
+                    
+                    // Crucial: Clear the captured image URI to ensure it doesn't persist to the next turn erroneously
+                    view.clearCapturedImageUri()
+                } else {
+                    // --- Standard Voice Mode Execution Path ---
+                    // No image present; perform standard text-based LLM generation
+                    Log.d(TAG, "Standard Mode: Sending text-only generation request: ${task.text}")
+                    llmGenerate(task.text)
+                }
             }
             is SerialTask.OnTtsComplete -> {
                 // Always handle TTS completion to ensure proper state transition
@@ -329,6 +362,10 @@ class VoiceChatPresenter(
                         if (!isStopped && (isSpeaking || isProcessingLlm)) {
                             Log.i(TAG, "Speech detected during AI output, interrupting...")
                             stopGeneration()
+                        }
+                        if (view.isCameraEnabled() && !isSpeaking && !isProcessingLlm) {
+                            Log.d(TAG, "Speech detected, capturing photo...")
+                            view.capturePhoto()
                         }
                     }
                 }
@@ -712,6 +749,10 @@ interface VoiceChatView {
     fun showGreetingMessage()
     fun updateMuteButtonState(isMuted: Boolean)
     fun updateEchoCancelMode(isAutoMuteForEchoCancelMode: Boolean)
+    fun capturePhoto()
+    fun getCapturedImageUri(): android.net.Uri?
+    fun clearCapturedImageUri()
+    fun isCameraEnabled(): Boolean
 }
 
 interface TtsClient {
