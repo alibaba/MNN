@@ -15,8 +15,8 @@ KEY_ALIAS=your_key_alias
 KEY_PASSWORD=your_key_password
 
 # CDN Configuration (Required for CDN uploads)
-# Aliyun OSS endpoint (e.g., https://oss-cn-hangzhou.aliyuncs.com)
-CDN_ENDPOINT=https://oss-cn-hangzhou.aliyuncs.com
+# Set in ~/.zshrc or here. No defaults in codebase.
+CDN_ENDPOINT=https://oss-cn-xxx.aliyuncs.com
 
 # Aliyun OSS access key ID
 CDN_ACCESS_KEY=your_access_key_id
@@ -26,6 +26,9 @@ CDN_SECRET_KEY=your_access_key_secret
 
 # Aliyun OSS bucket name
 CDN_BUCKET=your_bucket_name
+
+# OSS path prefix for APK (default: data/mnn/apks)
+# CDN_OSS_PREFIX=data/mnn/apks
 
 # Google Play Configuration (Required for Google Play uploads)
 # Path to Google Play service account JSON file

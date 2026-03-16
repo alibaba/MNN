@@ -184,29 +184,33 @@ upload_to_cdn() {
         return
     fi
     
-    log_info "Uploading to CDN..."
+    log_info "Uploading to CDN (ali-oss SDK)..."
     
-    # Check if ossutil is available (Aliyun OSS CLI tool)
-    if ! command -v ossutil &> /dev/null; then
-        log_warning "ossutil not found. Please install it to upload to CDN."
-        log_info "You can install ossutil from: https://www.alibabacloud.com/help/en/object-storage-service/latest/ossutil-installation"
+    # Ensure Node.js and dependencies are available
+    if ! command -v node &> /dev/null; then
+        log_warning "Node.js not found. Install Node.js to enable automatic CDN upload."
         return
     fi
     
-    # Configure ossutil
-    ossutil config -e "$CDN_ENDPOINT" -i "$CDN_ACCESS_KEY" -k "$CDN_SECRET_KEY"
+    if [[ ! -d "node_modules/ali-oss" ]]; then
+        log_info "Installing ali-oss for CDN upload..."
+        npm install --no-save ali-oss
+    fi
     
-    # Generate version-based filename for upload
     VERSION_FILENAME=$(echo "$VERSION_NAME" | sed 's/\./_/g')
     APK_FILENAME="mnn_chat_${VERSION_FILENAME}.apk"
-    
-    # Upload APK to CDN
     APK_FILE="$CDN_UPLOAD_DIR/$APK_FILENAME"
-    if [[ -f "$APK_FILE" ]]; then
-        ossutil cp "$APK_FILE" "oss://$CDN_BUCKET/releases/$VERSION_NAME/$APK_FILENAME"
-        log_success "APK uploaded to CDN: oss://$CDN_BUCKET/releases/$VERSION_NAME/$APK_FILENAME"
-    else
+    
+    if [[ ! -f "$APK_FILE" ]]; then
         log_error "APK file not found for CDN upload: $APK_FILE"
+        return
+    fi
+    
+    if node scripts/upload-cdn.mjs --apk "$APK_FILE" --version "$VERSION_NAME"; then
+        OSS_PREFIX="${CDN_OSS_PREFIX:-data/mnn/apks}"
+        log_success "APK uploaded to CDN: oss://$CDN_BUCKET/$OSS_PREFIX/$APK_FILENAME"
+    else
+        log_error "CDN upload failed"
     fi
 }
 
