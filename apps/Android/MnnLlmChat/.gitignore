@@ -5,6 +5,7 @@ toc.pb
 release_outputs/
 .kotlin/
 tests/smoke/artifacts/
+node_modules/
 
 # Model configuration files (contains internal URLs)
 model-config.json

@@ -6,6 +6,8 @@ This directory contains scripts for building and releasing the MnnLlmChat Androi
 
 - `release.sh` - Main release script for building and publishing the app
 - `bump_version.sh` - Version bump helper for `versionName` and `versionCode`
+- `upload-cdn.mjs` - Upload APK to CDN (ali-oss)
+- `upload-market-config.mjs` - Upload `model_market.json` to OSS (`data/mnn/apis/model_market.json`)
 - `release.config.example` - Example configuration file
 - `setup_release.sh` - Setup script to help configure the release environment
 - `test_build.sh` - Test script to verify build commands work correctly
@@ -109,11 +111,17 @@ The script uses the following environment variables (can be set in `release.conf
 - `KEY_ALIAS` - Key alias
 - `KEY_PASSWORD` - Key password
 
-#### CDN Configuration
+#### CDN Configuration (automatic upload via ali-oss SDK)
+Set in `~/.zshrc` or `release.config`. No bucket/region defaults in codebase.
 - `CDN_ENDPOINT` - Aliyun OSS endpoint
 - `CDN_ACCESS_KEY` - Aliyun OSS access key ID
 - `CDN_SECRET_KEY` - Aliyun OSS access key secret
-- `CDN_BUCKET` - Aliyun OSS bucket name
+- `CDN_BUCKET` - OSS bucket name
+- `CDN_OSS_PREFIX` - (optional) OSS path prefix, default `data/mnn/apks`
+
+Upload path: `{CDN_OSS_PREFIX}/mnn_chat_{version}.apk`
+
+CDN upload uses Node.js + ali-oss SDK (no ossutil required). Run `npm install` once in the project root to install dependencies.
 
 #### Google Play Configuration
 - `GOOGLE_PLAY_SERVICE_ACCOUNT` - Path to Google Play service account JSON file
