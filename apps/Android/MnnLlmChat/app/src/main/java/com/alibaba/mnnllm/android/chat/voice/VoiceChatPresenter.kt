@@ -193,8 +193,46 @@ class VoiceChatPresenter(
                     view.addTranscript(Transcript(isUser = true, text = task.text))
                     view.updateStatus(VoiceChatState.PROCESSING)
                 }
-                stopRecord()
-                llmGenerate(task.text)
+                // Automatically mute microphone in Auto-Mute mode when AI starts processing/speaking
+                if (isAutoMuteForEchoCancelMode) {
+                    muteMicrophone(true)
+                }
+                // We don't call `stopRecord()` here to keep ASR active during LLM generation to support "speech interruption" (full-duplex). If the user starts speaking, onSpeechDetected will trigger and stop current generation.
+                // stopRecord()
+
+                // Check if a vision-mode photo has been captured and is ready for sending
+                val capturedImageUri = view.getCapturedImageUri()
+                if (capturedImageUri != null) {
+                    // --- Vision Mode Execution Path ---
+                    // If an image is present, we trigger a multi-modal interaction.
+                    // This allows the AI to "see" what the camera is currently looking at.
+                    Log.i(TAG, "Vision Mode: Processing message with captured image: $capturedImageUri")
+                    
+                    // Construct a ChatDataItem compatible with ChatPresenter's multi-modal message format
+                    val userData = com.alibaba.mnnllm.android.chat.model.ChatDataItem(com.alibaba.mnnllm.android.chat.chatlist.ChatViewHolders.USER)
+                    userData.text = task.text
+                    userData.imageUris = listOf(capturedImageUri) // Attach the captured photo
+                    userData.time = chatPresenter.dateFormat.format(java.util.Date())
+
+                    // Reset local generation/playback states to prepare for a fresh response
+                    responseBuilder.clear()
+                    ttsSegmentBuffer.clear()
+                    isFirstChunk = true
+                    isGenerationFinished = false
+
+                    // Delegate the actual message sending and LLM interaction to the main ChatPresenter
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        chatPresenter.sendMessage(userData)
+                    }
+                    
+                    // Crucial: Clear the captured image URI to ensure it doesn't persist to the next turn erroneously
+                    view.clearCapturedImageUri()
+                } else {
+                    // --- Standard Voice Mode Execution Path ---
+                    // No image present; perform standard text-based LLM generation
+                    Log.d(TAG, "Standard Mode: Sending text-only generation request: ${task.text}")
+                    llmGenerate(task.text)
+                }
             }
             is SerialTask.OnTtsComplete -> {
                 // Always handle TTS completion to ensure proper state transition
@@ -210,7 +248,11 @@ class VoiceChatPresenter(
                 kotlinx.coroutines.delay(500)
                 // Only start recording if we're not in the middle of stopping
                 if (!isStoppingGeneration) {
-                    startRecord()
+                    // Automatically un-mute microphone in Auto-Mute mode when AI finishes speaking
+                    if (isAutoMuteForEchoCancelMode) {
+                        muteMicrophone(false)
+                    }
+                startRecord()
                 }
             }
         }
@@ -313,6 +355,20 @@ class VoiceChatPresenter(
                         }
                     }
                 }
+
+                // Interruption Support: Listen for speech onset even while AI is speaking or thinking. If the user speaks, we cancel ongoing LLM generation and audio playback immediately.
+                asrService?.onSpeechDetected = {
+                    lifecycleScope.launch(Dispatchers.Main) {
+                        if (!isStopped && (isSpeaking || isProcessingLlm)) {
+                            Log.i(TAG, "Speech detected during AI output, interrupting...")
+                            stopGeneration()
+                        }
+                        if (view.isCameraEnabled() && !isSpeaking && !isProcessingLlm) {
+                            Log.d(TAG, "Speech detected, capturing photo...")
+                            view.capturePhoto()
+                        }
+                    }
+                }
                 
                 // Reset generation state when ASR is ready
                 isGenerationFinished = false
@@ -377,13 +433,18 @@ class VoiceChatPresenter(
                 // Get the greeting message from resources (Android will auto-select language)
                 val greetingMessage = activity.getString(com.alibaba.mnnllm.android.R.string.voice_chat_ready_greeting)
                 
-                // Temporarily stop recording while speaking greeting
-                stopRecord()
+                // We don't call `stopRecord()` here to keep ASR recording active to allow user to skip or interrupt the greeting.
+                // stopRecord()
                 
                 // Set status to greeting
                 currentStatus = VoiceChatPresenterState.PLAYING
                 withContext(Dispatchers.Main) {
                     view.updateStatus(VoiceChatState.GREETING)
+                }
+
+                // Automatically mute during greeting if Auto-Mute mode is enabled
+                if (isAutoMuteForEchoCancelMode) {
+                    muteMicrophone(true)
                 }
                 
                 // Generate TTS audio for greeting
@@ -417,6 +478,12 @@ class VoiceChatPresenter(
                                     }
                                     // Small delay then resume recording
                                     kotlinx.coroutines.delay(300)
+
+                                    // Automatically un-mute after greeting if Auto-Mute mode is enabled
+                                    if (isAutoMuteForEchoCancelMode) {
+                                        muteMicrophone(false)
+                                    }
+
                                     startRecord()
                                     
                                     // Restore the original completion listener for normal TTS
@@ -440,6 +507,9 @@ class VoiceChatPresenter(
                             currentStatus = VoiceChatPresenterState.LISTENING
                             view.updateStatus(VoiceChatState.LISTENING)
                         }
+                        if (isAutoMuteForEchoCancelMode) {
+                            muteMicrophone(false)
+                        }
                         startRecord()
                     }
                 }
@@ -450,6 +520,9 @@ class VoiceChatPresenter(
                 currentStatus = VoiceChatPresenterState.LISTENING
                 withContext(Dispatchers.Main) {
                     view.updateStatus(VoiceChatState.LISTENING)
+                }
+                if (isAutoMuteForEchoCancelMode) {
+                    muteMicrophone(false)
                 }
                 startRecord()
             }
@@ -519,10 +592,16 @@ class VoiceChatPresenter(
     }
 
     fun toggleMute() {
-        isMuted = !isMuted
-        asrService?.setMuted(isMuted)
-        view.updateMuteButtonState(isMuted)
-        Log.d(TAG, "Microphone mute toggled: $isMuted")
+        muteMicrophone(!isMuted)
+    }
+
+    private fun muteMicrophone(mute: Boolean) {
+        if (isMuted != mute) {
+            isMuted = mute
+            asrService?.setMuted(isMuted)
+            view.updateMuteButtonState(isMuted)
+            Log.d(TAG, "Microphone mute state changed: $isMuted")
+        }
     }
 
     fun toggleEchoCancelMode() {
@@ -562,6 +641,12 @@ class VoiceChatPresenter(
                 // Reset audio player and restart recording
                 audioPlayer?.reset()
                 kotlinx.coroutines.delay(200)
+
+                // Ensure mic is un-muted when stopping generation manually
+                if (isAutoMuteForEchoCancelMode) {
+                    muteMicrophone(false)
+                }
+
                 isStoppingGeneration = false
                 startRecord()
             }
@@ -664,6 +749,10 @@ interface VoiceChatView {
     fun showGreetingMessage()
     fun updateMuteButtonState(isMuted: Boolean)
     fun updateEchoCancelMode(isAutoMuteForEchoCancelMode: Boolean)
+    fun capturePhoto()
+    fun getCapturedImageUri(): android.net.Uri?
+    fun clearCapturedImageUri()
+    fun isCameraEnabled(): Boolean
 }
 
 interface TtsClient {
