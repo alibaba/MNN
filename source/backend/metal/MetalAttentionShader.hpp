@@ -172,6 +172,9 @@ kernel void prefill_qk_tensor(const device ftype4* input0 [[buffer(0)]],
                 out0 = mask_val + out0;
             #elif defined(SET_MASK)
                 out0 = mask[(ori_q_idx * k_seq_len + (kv_start + base_k_idx + 0))] == 0 ? -FLT_MAX : out0;
+            #elif defined(CAUSAL_MASK)
+                // keep if j <= i + (k_len - q_len), else -inf
+                out0 = (kv_start + base_k_idx + 0) > (ori_q_idx + (k_seq_len - q_seq_len)) ? -FLT_MAX : out0;
             #endif
             xy_out[0] = out0;
         }
@@ -182,6 +185,8 @@ kernel void prefill_qk_tensor(const device ftype4* input0 [[buffer(0)]],
                 out0 = mask_val + out0;
             #elif defined(SET_MASK)
                 out0 = mask[(ori_q_idx * k_seq_len + (kv_start + base_k_idx + 1))] == 0 ? -FLT_MAX : out0;
+            #elif defined(CAUSAL_MASK)
+                out0 = (kv_start + base_k_idx + 1) > (ori_q_idx + (k_seq_len - q_seq_len)) ? -FLT_MAX : out0;
             #endif
             xy_out[1] = out0;
         }
@@ -192,6 +197,8 @@ kernel void prefill_qk_tensor(const device ftype4* input0 [[buffer(0)]],
                 out0 = mask_val + out0;
             #elif defined(SET_MASK)
                 out0 = mask[(ori_q_idx * k_seq_len + (kv_start + base_k_idx + 2))] == 0 ? -FLT_MAX : out0;
+            #elif defined(CAUSAL_MASK)
+                out0 = (kv_start + base_k_idx + 2) > (ori_q_idx + (k_seq_len - q_seq_len)) ? -FLT_MAX : out0;
             #endif
             xy_out[2] = out0;
         }
@@ -202,6 +209,8 @@ kernel void prefill_qk_tensor(const device ftype4* input0 [[buffer(0)]],
                 out0 = mask_val + out0;
             #elif defined(SET_MASK)
                 out0 = mask[(ori_q_idx * k_seq_len + (kv_start + base_k_idx + 3))] == 0 ? -FLT_MAX : out0;
+            #elif defined(CAUSAL_MASK)
+                out0 = (kv_start + base_k_idx + 3) > (ori_q_idx + (k_seq_len - q_seq_len)) ? -FLT_MAX : out0;
             #endif
             xy_out[3] = out0;
         }
@@ -212,6 +221,8 @@ kernel void prefill_qk_tensor(const device ftype4* input0 [[buffer(0)]],
                 out0 = mask_val + out0;
             #elif defined(SET_MASK)
                 out0 = mask[(ori_q_idx * k_seq_len + (kv_start + base_k_idx + 4))] == 0 ? -FLT_MAX : out0;
+            #elif defined(CAUSAL_MASK)
+                out0 = (kv_start + base_k_idx + 4) > (ori_q_idx + (k_seq_len - q_seq_len)) ? -FLT_MAX : out0;
             #endif
             xy_out[4] = out0;
         }
@@ -222,6 +233,8 @@ kernel void prefill_qk_tensor(const device ftype4* input0 [[buffer(0)]],
                 out0 = mask_val + out0;
             #elif defined(SET_MASK)
                 out0 = mask[(ori_q_idx * k_seq_len + (kv_start + base_k_idx + 5))] == 0 ? -FLT_MAX : out0;
+            #elif defined(CAUSAL_MASK)
+                out0 = (kv_start + base_k_idx + 5) > (ori_q_idx + (k_seq_len - q_seq_len)) ? -FLT_MAX : out0;
             #endif
             xy_out[5] = out0;
         }
@@ -232,6 +245,8 @@ kernel void prefill_qk_tensor(const device ftype4* input0 [[buffer(0)]],
                 out0 = mask_val + out0;
             #elif defined(SET_MASK)
                 out0 = mask[(ori_q_idx * k_seq_len + (kv_start + base_k_idx + 6))] == 0 ? -FLT_MAX : out0;
+            #elif defined(CAUSAL_MASK)
+                out0 = (kv_start + base_k_idx + 6) > (ori_q_idx + (k_seq_len - q_seq_len)) ? -FLT_MAX : out0;
             #endif
             xy_out[6] = out0;
         }
@@ -242,6 +257,8 @@ kernel void prefill_qk_tensor(const device ftype4* input0 [[buffer(0)]],
                 out0 = mask_val + out0;
             #elif defined(SET_MASK)
                 out0 = mask[(ori_q_idx * k_seq_len + (kv_start + base_k_idx + 7))] == 0 ? -FLT_MAX : out0;
+            #elif defined(CAUSAL_MASK)
+                out0 = (kv_start + base_k_idx + 7) > (ori_q_idx + (k_seq_len - q_seq_len)) ? -FLT_MAX : out0;
             #endif
             xy_out[7] = out0;
         }
@@ -419,6 +436,10 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
                 out0 = mask_val + out0;
             #elif defined(SET_MASK)
                 out0 = mask[(ori_q_idx * k_seq_len + (kv_start + slk * 16 + kl * 8 + 0))] == 0 ? -FLT_MAX : out0;
+            #elif defined(CAUSAL_MASK)
+                // Causal mask: keep if key_pos <= query_pos + (kv_len - q_len), else -inf
+                int key_pos = kv_start + slk * 16 + kl * 8 + 0;
+                if (key_pos > (ori_q_idx + (k_seq_len - q_seq_len))) out0 = -FLT_MAX;
             #endif
             xy_out[0] = out0;
         }
@@ -429,6 +450,9 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
                 out0 = mask_val + out0;
             #elif defined(SET_MASK)
                 out0 = mask[(ori_q_idx * k_seq_len + (kv_start + slk * 16 + kl * 8 + 1))] == 0 ? -FLT_MAX : out0;
+            #elif defined(CAUSAL_MASK)
+                int key_pos = kv_start + slk * 16 + kl * 8 + 1;
+                if (key_pos > (ori_q_idx + (k_seq_len - q_seq_len))) out0 = -FLT_MAX;
             #endif
             xy_out[1] = out0;
         }
@@ -439,6 +463,9 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
                 out0 = mask_val + out0;
             #elif defined(SET_MASK)
                 out0 = mask[(ori_q_idx * k_seq_len + (kv_start + slk * 16 + kl * 8 + 2))] == 0 ? -FLT_MAX : out0;
+            #elif defined(CAUSAL_MASK)
+                int key_pos = kv_start + slk * 16 + kl * 8 + 2;
+                if (key_pos > (ori_q_idx + (k_seq_len - q_seq_len))) out0 = -FLT_MAX;
             #endif
             xy_out[2] = out0;
         }
@@ -449,6 +476,9 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
                 out0 = mask_val + out0;
             #elif defined(SET_MASK)
                 out0 = mask[(ori_q_idx * k_seq_len + (kv_start + slk * 16 + kl * 8 + 3))] == 0 ? -FLT_MAX : out0;
+            #elif defined(CAUSAL_MASK)
+                int key_pos = kv_start + slk * 16 + kl * 8 + 3;
+                if (key_pos > (ori_q_idx + (k_seq_len - q_seq_len))) out0 = -FLT_MAX;
             #endif
             xy_out[3] = out0;
         }
@@ -459,6 +489,9 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
                 out0 = mask_val + out0;
             #elif defined(SET_MASK)
                 out0 = mask[(ori_q_idx * k_seq_len + (kv_start + slk * 16 + kl * 8 + 4))] == 0 ? -FLT_MAX : out0;
+            #elif defined(CAUSAL_MASK)
+                int key_pos = kv_start + slk * 16 + kl * 8 + 4;
+                if (key_pos > (ori_q_idx + (k_seq_len - q_seq_len))) out0 = -FLT_MAX;
             #endif
             xy_out[4] = out0;
         }
@@ -469,6 +502,9 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
                 out0 = mask_val + out0;
             #elif defined(SET_MASK)
                 out0 = mask[(ori_q_idx * k_seq_len + (kv_start + slk * 16 + kl * 8 + 5))] == 0 ? -FLT_MAX : out0;
+            #elif defined(CAUSAL_MASK)
+                int key_pos = kv_start + slk * 16 + kl * 8 + 5;
+                if (key_pos > (ori_q_idx + (k_seq_len - q_seq_len))) out0 = -FLT_MAX;
             #endif
             xy_out[5] = out0;
         }
@@ -479,6 +515,9 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
                 out0 = mask_val + out0;
             #elif defined(SET_MASK)
                 out0 = mask[(ori_q_idx * k_seq_len + (kv_start + slk * 16 + kl * 8 + 6))] == 0 ? -FLT_MAX : out0;
+            #elif defined(CAUSAL_MASK)
+                int key_pos = kv_start + slk * 16 + kl * 8 + 6;
+                if (key_pos > (ori_q_idx + (k_seq_len - q_seq_len))) out0 = -FLT_MAX;
             #endif
             xy_out[6] = out0;
         }
@@ -489,6 +528,9 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
                 out0 = mask_val + out0;
             #elif defined(SET_MASK)
                 out0 = mask[(ori_q_idx * k_seq_len + (kv_start + slk * 16 + kl * 8 + 7))] == 0 ? -FLT_MAX : out0;
+            #elif defined(CAUSAL_MASK)
+                int key_pos = kv_start + slk * 16 + kl * 8 + 7;
+                if (key_pos > (ori_q_idx + (k_seq_len - q_seq_len))) out0 = -FLT_MAX;
             #endif
             xy_out[7] = out0;
         }
@@ -537,6 +579,9 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
     out0 = mask_val + out0;
  #elif defined(SET_MASK)
     out0 = mask[((q_idx + 0) * key_seq_len + (z_global + 0))] == 0 ? -FLT_MAX : out0;
+ #elif defined(CAUSAL_MASK)
+    // keep if j <= i + (k_len - q_len), else -inf
+    out0 = z_global > (q_idx + (key_seq_len - query_seq_len)) ? -FLT_MAX : out0;
  #endif
     output[output_offset + x * output_k_len + z] = (ftype)out0;
 #endif
@@ -615,8 +660,10 @@ kernel void decode_qk(const device ftype* input0 [[buffer(0)]],
         out[j] *= Vscale;
         #ifdef ADD_MASK
             out[j] += mask_val;
-        #elif SET_MASK
+        #elif defined(SET_MASK)
             out[j] = mask_val == 0 ? -FLT_MAX : out[j];
+        #elif defined(CAUSAL_MASK)
+            out[j] = z > (x + (key_seq_len - param.query_seq_len)) ? -FLT_MAX : out[j];
         #endif
         output[((y * group + j) * param.query_seq_len + x) * key_seq_len + z] = (ftype)out[j];
     }
@@ -1834,12 +1881,16 @@ kernel void flash_attention_fused(
                     int ti = t_blk + j;
                     
                     #ifdef ADD_MASK
-                    int mask_offset = ti - kv_len + param.query_seq_len;
-                    if (ti < kv_len && mask_offset >= 0 && mask_offset < param.query_seq_len)
-                        val += (float)mask[(sl_blk * Q_BLOCK + ltid) * param.query_seq_len + mask_offset];
-                    else if (ti >= kv_len) val = -FLT_MAX;
+                        int mask_offset = ti - kv_len + param.query_seq_len;
+                        if (ti < kv_len && mask_offset >= 0 && mask_offset < param.query_seq_len)
+                            val += (float)mask[(sl_blk * Q_BLOCK + ltid) * param.query_seq_len + mask_offset];
+                        else if (ti >= kv_len) val = -FLT_MAX;
                     #elif defined(SET_MASK)
-                    if (ti >= kv_len || mask[(sl_blk * Q_BLOCK + ltid) * kv_len + ti] == 0) val = -FLT_MAX;
+                        if (ti >= kv_len || mask[(sl_blk * Q_BLOCK + ltid) * kv_len + ti] == 0) val = -FLT_MAX;
+                    #elif defined(CAUSAL_MASK)
+                        // Causal mask: keep if ti <= query_pos + (kv_len - query_seq_len), else -inf
+                        int query_pos = sl_blk * Q_BLOCK + ltid;
+                        if (ti > query_pos + (kv_len - param.query_seq_len)) val = -FLT_MAX;
                     #endif
                     
                     sdata_work[ltid * 16 + j] = val;
@@ -2027,6 +2078,9 @@ kernel void flash_attention_fused(
             #elif defined(SET_MASK)
             int mask_val = mask[s * kv_len + t];
             if (mask_val == 0) score = -FLT_MAX;
+            #elif defined(CAUSAL_MASK)
+            // Causal mask: keep if t <= s + (kv_len - query_seq_len), else -inf
+            if (t > s + (kv_len - param.query_seq_len)) score = -FLT_MAX;
             #endif
             
             shared_reduce[0] = score; // Store score for all threads

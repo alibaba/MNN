@@ -11,6 +11,7 @@
 #import "MNNMetalContext.h"
 #import "MetalAttentionShader.hpp"
 #include "backend/cpu/compute/CommonOptFunction.h"
+#include "core/TensorUtils.hpp"
 
 #if MNN_METAL_ENABLED
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
@@ -89,6 +90,12 @@ void AttentionBufExecution::compilerShader(const std::vector<Tensor *> &inputs) 
     std::vector<std::string> qkPrefillKeys = {
         {"matmul_qk_div_mask", ftype, group_str, "FOR_PREFILL"}
     };
+    if (mCausalMaskScalar) {
+        qkPrefillKeys.emplace_back("CAUSAL_MASK");
+        if (seq_len > 1) {
+            qkKeys.emplace_back("CAUSAL_MASK");
+        }
+    }
     if(mHasMask) {
         if (mIsAddMask) {
             qkPrefillKeys.emplace_back("ADD_MASK");
@@ -295,6 +302,10 @@ void AttentionBufExecution::compilerShader(const std::vector<Tensor *> &inputs) 
                  } else {
                      [dic setValue:@"1" forKey:@"SET_MASK"];
                  }
+            } else if(mCausalMaskScalar) {
+                // Use causal mask when scalar mask is provided
+                [dic setValue:@"1" forKey:@"CAUSAL_MASK"];
+                keys.emplace_back("CAUSAL_MASK");
             }
             option.preprocessorMacros = dic;
             
@@ -379,8 +390,18 @@ void AttentionBufExecution::handleKVAllocMemory() {
 }
 ErrorCode AttentionBufExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     mHasMask = inputs.size() > 3;
-    if(mHasMask) {
-        mIsAddMask = (inputs[3]->getType() == halide_type_of<float>()); 
+    mCausalMaskScalar = false;
+    if (mHasMask) {
+        // In transformer graphs / unit tests, a scalar mask input is a placeholder that means:
+        // apply causal(lower-triangular) mask inside Attention, instead of providing an explicit mask matrix.
+        // See `AttentionTest::generateMask()` for the expected rule:
+        //   keep if (j - i) <= (kv_len - q_len), else mask to -inf.
+        if (inputs[3]->elementSize() <= 1) {
+            mCausalMaskScalar = true;
+            mHasMask = false; // don't bind mask buffer; shader will generate causal mask
+        } else {
+            mIsAddMask = (inputs[3]->getType() == halide_type_of<float>());
+        }
     }
     auto query = inputs[0];
     auto key = inputs[1];
@@ -420,9 +441,16 @@ ErrorCode AttentionBufExecution::onResize(const std::vector<Tensor *> &inputs, c
     // no kv_cache memory, should create temp q/k memory
     mTempK.reset(Tensor::createDevice<float>({mKvMaxLen * mHeadDim * mBatch * mKvNumHead}));
     mTempV.reset(Tensor::createDevice<float>({mKvMaxLen * mHeadDim * mBatch * mKvNumHead}));
+
+    backend()->onAcquireBuffer(mTempK.get(), Backend::DYNAMIC);
+    backend()->onAcquireBuffer(mTempV.get(), Backend::DYNAMIC);
+    
     if (mUseSimpleAttention) {
         mTempQK.reset(Tensor::createDevice<float>({mKvMaxLen * UP_DIV(mSeqLen, mQseqSplitNum) * mBatch * mNumHead}));
         mTempSoftMax.reset(Tensor::createDevice<float>({mKvMaxLen * UP_DIV(mSeqLen, mQseqSplitNum) * mBatch * mNumHead}));
+        
+        backend()->onAcquireBuffer(mTempQK.get(), Backend::DYNAMIC);
+        backend()->onAcquireBuffer(mTempSoftMax.get(), Backend::DYNAMIC);
     } else if(mUseFlashAttention){
         int blockSize = MNN_FLASH_ATTENTION_BLOCK_SIZE;
         mTempQK.reset(Tensor::createDevice<float>({blockSize * mSeqLen * mBatch * mNumHead}));
@@ -431,22 +459,18 @@ ErrorCode AttentionBufExecution::onResize(const std::vector<Tensor *> &inputs, c
         mCorrectionScale.reset(Tensor::createDevice<uint8_t>({mBatch * mNumHead * mSeqLen * 4/*sizeof(float)*/}));
         mTempOutput.reset(Tensor::createDevice<uint8_t>({mBatch * mNumHead * mSeqLen * mHeadDim * 4/*sizeof(float)*/}));
 
-        
+        backend()->onAcquireBuffer(mTempQK.get(), Backend::DYNAMIC);
+        backend()->onAcquireBuffer(mTempSoftMax.get(), Backend::DYNAMIC);
         backend()->onAcquireBuffer(mRunningStats.get(), Backend::DYNAMIC);
         backend()->onAcquireBuffer(mCorrectionScale.get(), Backend::DYNAMIC);
         backend()->onAcquireBuffer(mTempOutput.get(), Backend::DYNAMIC);
 
     }
-    
-    backend()->onAcquireBuffer(mTempK.get(), Backend::DYNAMIC);
-    backend()->onAcquireBuffer(mTempV.get(), Backend::DYNAMIC);
-    if (mUseSimpleAttention) {
-        backend()->onAcquireBuffer(mTempQK.get(), Backend::DYNAMIC);
-        backend()->onAcquireBuffer(mTempSoftMax.get(), Backend::DYNAMIC);
-    }
+
+    // release buffer
     backend()->onReleaseBuffer(mTempK.get(), Backend::DYNAMIC);
     backend()->onReleaseBuffer(mTempV.get(), Backend::DYNAMIC);
-    if (mUseSimpleAttention) {
+    if (mUseSimpleAttention || mUseFlashAttention) {
         backend()->onReleaseBuffer(mTempQK.get(), Backend::DYNAMIC);
         backend()->onReleaseBuffer(mTempSoftMax.get(), Backend::DYNAMIC);
     }
@@ -583,7 +607,7 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
                 int kv_start = 0, current_block_len = mKvSeqLen;
                 [encoder setBytes:&kv_start length:sizeof(kv_start) atIndex:5];
                 [encoder setBytes:&current_block_len length:sizeof(int) atIndex:6];
-                if(mHasMask) {
+                if(mHasMask && !mCausalMaskScalar) {
                     MetalBackend::setTensor(inputs[3], encoder, 7);
                 }
 
@@ -683,7 +707,7 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
                 MetalBackend::setTensor(tempTensorK, encoder, 1);
                 MetalBackend::setTensor(tempTensorV, encoder, 2);
             }
-            if(mHasMask) {
+            if(mHasMask && !mCausalMaskScalar) {
                  MetalBackend::setTensor(inputs[3], encoder, 3);
             }
             MetalBackend::setTensor(outputs[0], encoder, 4);
@@ -733,7 +757,7 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
                     [encoder setBuffer:mParamQKV offset:0 atIndex:4];
                     [encoder setBytes:&kv_start length:sizeof(kv_start) atIndex:5];
                     [encoder setBytes:&current_block_len length:sizeof(int) atIndex:6];
-                    if(mHasMask) {
+                    if(mHasMask && !mCausalMaskScalar) {
                         MetalBackend::setTensor(inputs[3], encoder, 7);
                     }
                     

@@ -81,6 +81,7 @@ private:
 private:
     bool mHasMask = false;
     bool mIsAddMask = false;
+    bool mCausalMaskScalar = false; // scalar mask input means causal mask
     int mBatch, mKvSeqLen, mKvMaxLen;
     int mQseqSplitNum = 1;
     std::shared_ptr<Tensor> mTempK, mTempV;

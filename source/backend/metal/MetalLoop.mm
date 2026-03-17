@@ -32,58 +32,18 @@ struct constBuffer
     int4 iter;
 };
 
-struct s3
-{
-    T data[1];
-};
-
-struct s4
-{
-    T data[1];
-};
-
-struct s5
-{
-    T data[1];
-};
-
-struct s6
-{
-    T data[1];
-};
-
-struct s0
-{
-    T data[1];
-};
-
-struct s1
-{
-    T data[1];
-};
-
-struct s2
-{
-    T data[1];
-};
-
-struct d0
-{
-    T data[1];
-};
-
-kernel void loop_matmul(device d0& uOutput [[buffer(0)]], const device s0& uInputA [[buffer(1)]], const device s1& uInputB [[buffer(2)]],
+kernel void loop_matmul(device T* uOutput [[buffer(0)]], const device T* uInputA [[buffer(1)]], const device T* uInputB [[buffer(2)]],
 #ifdef HAS_BIAS
-    const device s2& uInputC [[buffer(3)]],
-    const device s3& uOOffset [[buffer(4)]],
-    const device s4& uAOffset [[buffer(5)]],
-    const device s5& uBOffset [[buffer(6)]],
-    const device s6& uCOffset [[buffer(7)]],
+    const device T* uInputC [[buffer(3)]],
+    const device int* uOOffset [[buffer(4)]],
+    const device int* uAOffset [[buffer(5)]],
+    const device int* uBOffset [[buffer(6)]],
+    const device int* uCOffset [[buffer(7)]],
     constant constBuffer& uConstant [[buffer(8)]],
 #else
-    const device s3& uOOffset [[buffer(3)]],
-    const device s4& uAOffset [[buffer(4)]],
-    const device s5& uBOffset [[buffer(5)]],
+    const device int* uOOffset [[buffer(3)]],
+    const device int* uAOffset [[buffer(4)]],
+    const device int* uBOffset [[buffer(5)]],
     constant constBuffer& uConstant [[buffer(6)]],
 #endif
     uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
@@ -103,34 +63,34 @@ kernel void loop_matmul(device d0& uOutput [[buffer(0)]], const device s0& uInpu
         int4 index = int4(regionOutsideIndex, regionOutsideIndex, regionOutsideIndex, regionOutsideIndex);
         if (uConstant.iter.x >= 0)
         {
-            index.x = int(uOOffset.data[regionOutsideIndex]);
+            index.x = uOOffset[regionOutsideIndex];
         }
         if (uConstant.iter.y >= 0)
         {
-            index.y = int(uAOffset.data[regionOutsideIndex]);
+            index.y = uAOffset[regionOutsideIndex];
         }
         if (uConstant.iter.z >= 0)
         {
-            index.z = int(uBOffset.data[regionOutsideIndex]);
+            index.z = uBOffset[regionOutsideIndex];
         }
 #ifdef HAS_BIAS
         if (uConstant.iter.w >= 0)
         {
-            index.w = int(uCOffset.data[regionOutsideIndex]);
+            index.w = uCOffset[regionOutsideIndex];
         }
 #endif
         int4 offset = index * uConstant._step;
-        T value = 0.0;
+        T value = T(0.0);
         int aOffset = (offset.y + uConstant.stride_a.w) + (X * uConstant.stride_a.x);
         int bOffset = (offset.z + uConstant.stride_b.w) + (Y * uConstant.stride_b.z);
         for (int i = 0; i < l; i++)
         {
-            value += (uInputA.data[aOffset + (i * uConstant.stride_a.y)] * uInputB.data[bOffset + (i * uConstant.stride_b.y)]);
+            value += (uInputA[aOffset + (i * uConstant.stride_a.y)] * uInputB[bOffset + (i * uConstant.stride_b.y)]);
         }
 #ifdef HAS_BIAS
-        value += uInputC.data[(offset.w + (Y * uConstant.stride_c.z)) + (X * uConstant.stride_c.x)];
+        value += uInputC[(offset.w + (Y * uConstant.stride_c.z)) + (X * uConstant.stride_c.x)];
 #endif
-        uOutput.data[((offset.x + uConstant.stride_o.w) + (X * uConstant.stride_o.x)) + (Y * uConstant.stride_o.z)] = value;
+        uOutput[((offset.x + uConstant.stride_o.w) + (X * uConstant.stride_o.x)) + (Y * uConstant.stride_o.z)] = value;
     }
 }
 )metal";
