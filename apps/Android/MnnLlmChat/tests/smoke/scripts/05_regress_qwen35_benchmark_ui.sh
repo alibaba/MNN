@@ -69,7 +69,7 @@ ensure_benchmark_tab() {
     if tap_by_any_rid "$TMP_XML" \
       "com.alibaba.mnnllm.android:id/tab_benchmark" \
       "com.alibaba.mnnllm.android.release:id/tab_benchmark"; then
-      sleep 2
+      sleep 3
       return 0
     fi
     adb shell input keyevent 4 >/dev/null 2>&1 || true
@@ -97,14 +97,30 @@ relaunch_and_enter_benchmark() {
 
 ensure_backend_selector_visible() {
   local try
-  for try in 1 2 3 4; do
+  # Get display height for device-agnostic scroll coordinates
+  local h
+  h=$(adb shell wm size 2>/dev/null | sed -n 's/.*: \([0-9]*\)x[0-9]*/\1/p' || echo "2400")
+  local cy=$((h / 2))
+  local top_y=$((h / 6))
+  local bottom_y=$((h * 5 / 6))
+  for try in 1 2 3 4 5; do
     dump_ui "$TMP_XML" || true
     if python3 "$QUERY" --xml "$TMP_XML" --resource-id "com.alibaba.mnnllm.android:id/backend_selector_group" >/dev/null 2>&1 \
-      || python3 "$QUERY" --xml "$TMP_XML" --resource-id "com.alibaba.mnnllm.android.release:id/backend_selector_group" >/dev/null 2>&1; then
+      || python3 "$QUERY" --xml "$TMP_XML" --resource-id "com.alibaba.mnnllm.android.release:id/backend_selector_group" >/dev/null 2>&1 \
+      || python3 "$QUERY" --xml "$TMP_XML" --contains-text "CPU" >/dev/null 2>&1; then
       return 0
     fi
-    echo "SWIPE_TO_TOP try=$try ts=$(date '+%H:%M:%S')" | tee -a "$UI_LOG"
-    adb shell input swipe 540 900 540 1750 240 >/dev/null 2>&1 || true
+    # Scroll down to reveal backend (finger moves down = see content below)
+    echo "SWIPE_DOWN try=$try ts=$(date '+%H:%M:%S')" | tee -a "$UI_LOG"
+    adb shell input swipe "$cy" "$cy" "$cy" "$bottom_y" 300 >/dev/null 2>&1 || true
+    sleep 1
+    dump_ui "$TMP_XML" || true
+    if python3 "$QUERY" --xml "$TMP_XML" --contains-text "CPU" >/dev/null 2>&1; then
+      return 0
+    fi
+    # Alternate: scroll up (in case we're past the backend)
+    echo "SWIPE_UP try=$try ts=$(date '+%H:%M:%S')" | tee -a "$UI_LOG"
+    adb shell input swipe "$cy" "$cy" "$cy" "$top_y" 300 >/dev/null 2>&1 || true
     sleep 1
   done
   return 1
@@ -119,6 +135,10 @@ select_backend() {
     if python3 "$QUERY" --xml "$TMP_XML" --text "$label" >/tmp/mnn_bench_query_hit.txt 2>/dev/null; then
       read -r x y _ </tmp/mnn_bench_query_hit.txt
       echo "TAP text=$label x=$x y=$y ts=$(date '+%H:%M:%S')" | tee -a "$UI_LOG"
+      adb shell input tap "$x" "$y"
+    elif python3 "$QUERY" --xml "$TMP_XML" --contains-text "$label" >/tmp/mnn_bench_query_hit.txt 2>/dev/null; then
+      read -r x y _ </tmp/mnn_bench_query_hit.txt
+      echo "TAP contains=$label x=$x y=$y ts=$(date '+%H:%M:%S')" | tee -a "$UI_LOG"
       adb shell input tap "$x" "$y"
     else
       return 1

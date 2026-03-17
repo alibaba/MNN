@@ -2,6 +2,7 @@ package com.alibaba.mnnllm.android
 
 import android.content.Context
 import com.facebook.stetho.Stetho
+import com.alibaba.mnnllm.android.debug.ConfigDumperPlugin
 import com.alibaba.mnnllm.android.debug.DownloadDumperPlugin
 import com.alibaba.mnnllm.android.debug.HistoryDumperPlugin
 import com.alibaba.mnnllm.android.debug.ModelListDumperPlugin
@@ -20,6 +21,7 @@ object StethoInitializer {
         val initializer = Stetho.newInitializerBuilder(context)
             .enableDumpapp {
                 Stetho.DefaultDumperPluginsBuilder(context)
+                    .provide(ConfigDumperPlugin())
                     .provide(ModelListDumperPlugin())
                     .provide(LoggerDumperPlugin())
                     .provide(MarketDumperPlugin())

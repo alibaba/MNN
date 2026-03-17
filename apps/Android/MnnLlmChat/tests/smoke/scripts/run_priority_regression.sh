@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SMOKE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ARTIFACT_DIR="${ARTIFACT_DIR:-$SMOKE_DIR/artifacts}"
-UNINSTALL_AT_START="${UNINSTALL_AT_START:-true}"
+UNINSTALL_AT_START="${UNINSTALL_AT_START:-false}"
 UNINSTALL_PACKAGES="${UNINSTALL_PACKAGES:-com.alibaba.mnnllm.android com.alibaba.mnnllm.android.release}"
 DEVICE_ID="${DEVICE_ID:-$(adb devices | awk 'NR>1 && $2=="device" {print $1; exit}')}"
 

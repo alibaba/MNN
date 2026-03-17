@@ -36,6 +36,7 @@ Key scripts:
 - `scripts/13_regress_storage_ui.sh`: storage management UI smoke via settings navigation + screenshot evidence
 - `scripts/noui/08_regress_api_dumpapp.sh`: API compatibility + thinking-mode regression via dumpapp + curl (no-code)
 - `scripts/09_regress_api_uiautomator.sh`: API settings UiAutomator instrumentation test (code-based)
+- `scripts/15_regress_model_settings_config_ui.sh`: Model settings (home + ChatActivity) + config dump UiAutomator (guards #4259; verifies merged config after save)
 - `scripts/noui/10_regress_sana_diffusion_dumpapp.sh`: Sana + Diffusion generation regression (dumpapp only)
 - `scripts/11_regress_sana_diffusion_uiautomator.sh`: Sana + Diffusion model-entry regression (UI + uiautomator)
 - `scripts/noui/13_regress_storage_dumpapp_smoke.sh`: **dumpapp storage** subcommand smoke (list/analysis/mmap/orphans/verify, integrity checks)
@@ -70,6 +71,7 @@ Optional env vars:
 - `AAB_PATH`: default `apps/Android/MnnLlmChat/release_outputs/googleplay/app-googleplay-release.aab`
 - `DEBUG_APK_PATH`: default `apps/Android/MnnLlmChat/app/build/outputs/apk/standard/debug/app-standard-debug.apk`
 - `BUNDLETOOL_JAR`: default `/tmp/bundletool-all-1.17.1.jar`
+- `UNINSTALL_AT_START`: default `false`; set `true` to uninstall both debug and release packages before STEP1 (wipes model data; use if you hit `INSTALL_FAILED_UPDATE_INCOMPATIBLE`)
 - `UNINSTALL_CONFLICTING`: default `true`, uninstall package before install
 - `BUILD_KIND`: `standard_debug` or `aab_release` (default: `aab_release`)
 - `RUN_API_UIAUTOMATOR_TEST`: `true` to run step `09_regress_api_uiautomator.sh` in extended pipeline (default: `false`)
@@ -84,6 +86,7 @@ Optional env vars:
 - `RUN_TABLE_RENDER_SMOKE`: set to `true` to run markdown table rendering smoke in extended pipeline (default: `false`)
 - `RUN_VOICE_DUMPAPP_SMOKE`: set to `true` to run Voice TTS dumpapp smoke in extended pipeline (default: `false`)
 - `RUN_VOICE_UI_SMOKE`: set to `true` to run Voice Chat UI smoke in extended pipeline (default: `false`)
+- `RUN_MODEL_SETTINGS_CONFIG_UI_SMOKE`: run Model settings (home+chat) + config dump regression (guards #4259, system prompt persist); default `true`; set `false` to skip
 
 ## Runtime Process
 
