@@ -38,8 +38,8 @@ static PyObject* PyMNNLLM_str(PyObject *self) {
 }
 
 static PyObject* PyMNNLLM_load(LLM *self, PyObject *args) {
-    self->llm->load();
-    Py_RETURN_NONE;
+    bool res = self->llm->load();
+    return toPyObj(res);
 }
 
 static PyObject* PyMNNLLM_forward(LLM *self, PyObject *args) {

@@ -18,6 +18,7 @@ namespace MNN {
 namespace Transformer {
 struct GenerationParams {
     int max_new_tokens;
+    int timeout_ms = -1; // -1 means no timeout
     std::vector<int> input_ids;
     MNN::Express::VARP input_embeds;
     std::vector<MNN::Express::VARP> outputs;

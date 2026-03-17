@@ -76,6 +76,7 @@ bool Embedding::load() {
         return false;
     }
     MNN_PRINT("Done!\n");
+    mContext->status = LlmStatus::RUNNING;  // Set status to RUNNING after successful load
     return true;
 }
 
@@ -93,6 +94,7 @@ VARP Embedding::ids_embedding(const std::vector<int>& ids) {
 }
 
 VARP Embedding::txt_embedding(const std::string& txt) {
+    CHECK_LLM_RUNNING_RET(mContext, nullptr);
     auto prompt = apply_chat_template(txt);
     return ids_embedding(tokenizer_encode(prompt));
 }

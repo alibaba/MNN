@@ -327,6 +327,10 @@ void EagleGeneration::generate(GenerationParams& param) {
         if(mContext->status == LlmStatus::USER_CANCEL) {
             break;
         }
+        if (param.timeout_ms > 0 && (mContext->prefill_us + _t.durationInUs()) / 1000 >= param.timeout_ms) {
+            mContext->status = LlmStatus::TIMEOUT;
+            break;
+        }
         steps++;
         MNN::Timer _dt;
         auto decodingInfo = treeDecoding(draftInfo);

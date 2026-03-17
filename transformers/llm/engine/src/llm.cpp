@@ -95,6 +95,7 @@ bool Llm::set_config(const std::string& content) {
         mPrompt.reset(Prompt::createPrompt(mContext, mConfig));
     }
     mAsync = mConfig->config_.document.HasMember("async") ? mConfig->config_.document["async"].GetBool() : true;
+    mGenerateParam->timeout_ms = mConfig->timeout_ms();
     mValidBlockSize.clear();
     mBlockSize = 0;
     if (mConfig->config_.document.HasMember("chunk")) {
@@ -234,13 +235,39 @@ void Llm::setSpeculativeConfig() {
     }
 }
 
+static bool checkFile(const std::string& path, const char* name) {
+    if (!MNNFileExist(path.c_str())) {
+        MNN_ERROR("[Error]: %s not found: %s\n", name, path.c_str());
+        return false;
+    }
+    std::ifstream f(path);
+    if (!f.is_open()) {
+        MNN_ERROR("[Error]: Failed to open %s (permission denied?): %s\n", name, path.c_str());
+        return false;
+    }
+    return true;
+}
+
 bool Llm::load() {
+    // check required files before loading
+    std::string tokenizer_path = mConfig->tokenizer_file();
+    std::string model_path = mConfig->llm_model();
+    std::string weight_path = mConfig->llm_weight();
+    if (!checkFile(tokenizer_path, "tokenizer file") ||
+        !checkFile(model_path, "LLM model file") ||
+        !checkFile(weight_path, "LLM weight file")) {
+        return false;
+    }
     MNN::Express::ExecutorScope s(mExecutor);
     Timer _t;
     initRuntime();
     // init module status
     // 1. load vocab
-    mTokenizer.reset(Tokenizer::createTokenizer(mConfig->tokenizer_file()));
+    mTokenizer.reset(Tokenizer::createTokenizer(tokenizer_path));
+    if (mTokenizer == nullptr) {
+        MNN_ERROR("[Error]: Failed to load tokenizer from: %s\n", tokenizer_path.c_str());
+        return false;
+    }
     // 2. load context
     {
         std::ifstream contextFile(mConfig->context_file());
@@ -277,8 +304,6 @@ bool Llm::load() {
         module_config.base = mBaseModule;
     }
     // load single model
-    std::string model_path = mConfig->llm_model();
-
     std::vector<std::string> inputNames {"input_ids", "attention_mask", "position_ids", "logits_index"};
     std::vector<std::string> outputNames {"logits"};
     if (mConfig->has_talker()) {
@@ -295,7 +320,7 @@ bool Llm::load() {
         outputNames.emplace_back("hidden_states");
     }
 
-    mRuntimeManager->setExternalFile(mConfig->llm_weight());
+    mRuntimeManager->setExternalFile(weight_path);
     if (mConfig->has_deepstack()) {
         inputNames.emplace_back("deepstack_embeds");
     }
@@ -367,6 +392,7 @@ bool Llm::load() {
     // MTP model load
     mGenerationStrategy->load(module_config);
     mContext->load_us += _t.durationInUs();
+    mContext->status = LlmStatus::RUNNING;  // Set status to RUNNING after successful load
     return true;
 }
 
@@ -384,6 +410,7 @@ Llm* Llm::create_lora(const std::string& lora_path) {
 }
 
 void Llm::tuning(TuneType type, std::vector<int> candidates) {
+    CHECK_LLM_RUNNING(mContext);
     MNN::Express::ExecutorScope s(mExecutor);
     if (type != OP_ENCODER_NUMBER) {
         MNN_ERROR("tuning type not supported\n");
@@ -709,7 +736,6 @@ void Llm::generate_init(std::ostream* os, const char* end_with) {
     mContext->decode_us   = 0;
     mContext->current_token = -1;
     mContext->sample_us = 0;
-    mContext->status = LlmStatus::RUNNING;
     if (!mConfig->reuse_kv()) {
         mContext->all_seq_len = 0;
         mContext->history_tokens.clear();
@@ -754,6 +780,7 @@ bool Llm::stoped() {
 }
 
 void Llm::generate(int max_token) {
+    CHECK_LLM_RUNNING(mContext);
     MNN::Express::ExecutorScope s(mExecutor);
     if (is_stop(mContext->current_token)) {
         return;
@@ -763,6 +790,7 @@ void Llm::generate(int max_token) {
 }
 
 std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_tokens) {
+    CHECK_LLM_RUNNING_RET(mContext, std::vector<int>());
     MNN::Express::ExecutorScope s(mExecutor);
     if (max_tokens < 0) {
         max_tokens = mConfig->max_new_tokens();
@@ -842,6 +870,7 @@ std::vector<int> Llm::tokenizer_encode(const MultimodalPrompt& multimodal_input)
 
 void Llm::response(const MultimodalPrompt& multimodal_input,
                    std::ostream* os, const char* end_with, int max_new_tokens) {
+    CHECK_LLM_RUNNING(mContext);
     MNN::Express::ExecutorScope s(mExecutor);
     auto multimodal_input_copy = multimodal_input;
     if (mConfig->use_template()) {
@@ -852,6 +881,7 @@ void Llm::response(const MultimodalPrompt& multimodal_input,
 }
 
 std::vector<int> Llm::generate(MNN::Express::VARP input_embeds, int max_tokens) {
+    CHECK_LLM_RUNNING_RET(mContext, std::vector<int>());
     MNN::Express::ExecutorScope s(mExecutor);
     if (max_tokens < 0) {
         max_tokens = mConfig->max_new_tokens();
@@ -904,6 +934,11 @@ std::vector<int> Llm::generate(MNN::Express::VARP input_embeds, int max_tokens) 
     }
 #endif
 
+    // check timeout after prefill
+    if (mGenerateParam->timeout_ms > 0 && mContext->prefill_us / 1000 >= mGenerateParam->timeout_ms) {
+        mContext->status = LlmStatus::TIMEOUT;
+        return mContext->output_tokens;
+    }
     // call generation function
     if (0 < max_tokens) {
         mGenerateParam->max_new_tokens = max_tokens;
@@ -913,6 +948,7 @@ std::vector<int> Llm::generate(MNN::Express::VARP input_embeds, int max_tokens) 
 }
 
 void Llm::response(const std::vector<int>& input_ids, std::ostream* os, const char* end_with, int max_new_tokens) {
+    CHECK_LLM_RUNNING(mContext);
     MNN::Express::ExecutorScope s(mExecutor);
     if (!end_with) { end_with = "\n"; }
     generate_init(os, end_with);
@@ -920,6 +956,7 @@ void Llm::response(const std::vector<int>& input_ids, std::ostream* os, const ch
 }
 
 void Llm::response(MNN::Express::VARP input_embeds, std::ostream* os, const char* end_with, int max_new_tokens) {
+    CHECK_LLM_RUNNING(mContext);
     MNN::Express::ExecutorScope s(mExecutor);
     if (!end_with) { end_with = "\n"; }
     generate_init(os, end_with);
@@ -927,6 +964,7 @@ void Llm::response(MNN::Express::VARP input_embeds, std::ostream* os, const char
 }
 
 void Llm::response(const std::string& user_content, std::ostream* os, const char* end_with, int max_new_tokens) {
+    CHECK_LLM_RUNNING(mContext);
     MNN::Express::ExecutorScope s(mExecutor);
     auto prompt = user_content;
     if (mConfig->use_template()) {
@@ -940,7 +978,7 @@ void Llm::response(const std::string& user_content, std::ostream* os, const char
 }
 
 void Llm::response(const ChatMessages& chat_prompts, std::ostream* os, const char* end_with, int max_new_tokens) {
-    MNN::Express::ExecutorScope s(mExecutor);
+    CHECK_LLM_RUNNING(mContext);
     if (chat_prompts.empty()) {
         return;
     }
@@ -956,6 +994,7 @@ Llm::Llm(std::shared_ptr<LlmConfig> config) : mConfig(config) {
     mMeta.reset(new KVMeta);
     mMeta->layer_nums = mConfig->layer_nums();
     mGenerateParam.reset(new GenerationParams);
+    mGenerateParam->timeout_ms = mConfig->timeout_ms();
 }
 
 Llm::~Llm() {

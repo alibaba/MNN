@@ -2,11 +2,13 @@ import _mnncengine.llm as _F
 from enum import IntEnum
 
 class LlmStatus(IntEnum):
+    NOT_LOADED = -1
     RUNNING = 0
     NORMAL_FINISHED = 1
     MAX_TOKENS_FINISHED = 2
     USER_CANCEL = 3
     INTERNAL_ERROR = 4
+    TIMEOUT = 5
 
     def __str__(self):
         return "{}.{}".format(self.__class__.__name__, self.name)

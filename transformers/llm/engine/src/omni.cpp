@@ -140,6 +140,7 @@ bool Omni::load() {
             return false;
         }
     }
+    mContext->status = LlmStatus::RUNNING;  // Set status to RUNNING after successful load
     return true;
 }
 
@@ -1062,6 +1063,7 @@ std::vector<Express::VARP> Omni::forwardRaw(Express::VARP hiddenState, Express::
 }
 
 void Omni::response(const std::vector<int>& input_ids, std::ostream* os, const char* end_with, int max_new_tokens) {
+    CHECK_LLM_RUNNING(mContext);
     MNN::Express::ExecutorScope s(mExecutor);
     if (!end_with) { end_with = "\n"; }
     generate_init(os, end_with);
@@ -1160,6 +1162,7 @@ bool Talker::load() {
         startAsyncWorker();
     }
     
+    mContext->status = LlmStatus::RUNNING;  // Set status to RUNNING after successful load
     return true;
 }
 
@@ -1549,6 +1552,7 @@ int Talker::sample(Express::VARP logits, int offset, int size) {
 }
 
 void Talker::generate() {
+    CHECK_LLM_RUNNING(mContext);
     MNN::Express::ExecutorScope s(mExecutor);
     if (!doGenerate()) { return; }
 

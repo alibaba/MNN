@@ -372,6 +372,10 @@ public:
     bool all_logits() const {
         return config_.value("all_logits", false);
     }
+
+    int timeout_ms() const {
+        return config_.value("timeout_ms", -1);
+    }
     // generate config end >
 
     // < backend config start

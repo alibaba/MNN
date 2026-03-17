@@ -87,9 +87,12 @@ void LookaheadGeneration::generate(GenerationParams& param) {
     // speculative number of times
     int spl_count = 0;
     int verify_len = mLlm->mDraftLength + 1;
-    
     while (len < max_token) {
         if(mContext->status == LlmStatus::USER_CANCEL) {
+            break;
+        }
+        if (param.timeout_ms > 0 && (mContext->prefill_us + mContext->decode_us) / 1000 >= param.timeout_ms) {
+            mContext->status = LlmStatus::TIMEOUT;
             break;
         }
         MNN::Timer _t;

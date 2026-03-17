@@ -154,6 +154,10 @@ void MtpGeneration::generate(GenerationParams& param) {
         if(mContext->status == LlmStatus::USER_CANCEL) {
             break;
         }
+        if (param.timeout_ms > 0 && (mContext->prefill_us + mContext->decode_us) / 1000 >= param.timeout_ms) {
+            mContext->status = LlmStatus::TIMEOUT;
+            break;
+        }
         MNN::Timer _t;
         std::vector<int> drafts;
         drafts.push_back(mContext->current_token);

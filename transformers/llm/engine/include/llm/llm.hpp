@@ -35,6 +35,22 @@ class Prompt;
 class Generation;
 class EagleGeneration;
 struct TimePerformance;
+#define CHECK_LLM_RUNNING_RET(ctx, ret)                         \
+{                                                               \
+    if ((ctx)->status != LlmStatus::RUNNING) {                  \
+        MNN_ERROR("[Error]: LLM not loaded or in error state. Status: %d\n", \
+                  static_cast<int>((ctx)->status));             \
+        return (ret);                                           \
+    }                                                           \
+}
+#define CHECK_LLM_RUNNING(ctx)                                  \
+{                                                               \
+    if ((ctx)->status != LlmStatus::RUNNING) {                  \
+        MNN_ERROR("[Error]: LLM not loaded or in error state. Status: %d\n", \
+                  static_cast<int>((ctx)->status));             \
+        return;                                                 \
+    }                                                           \
+}
 
 using ChatMessage = std::pair<std::string, std::string>; // <role, content>
 using ChatMessages = std::vector<ChatMessage>;
@@ -61,11 +77,13 @@ enum TuneType {
     OP_ENCODER_NUMBER = 0,
 };
 enum class LlmStatus {
+    NOT_LOADED = -1,
     RUNNING = 0,
     NORMAL_FINISHED = 1,
     MAX_TOKENS_FINISHED = 2,
     USER_CANCEL = 3,
     INTERNAL_ERROR = 4,
+    TIMEOUT = 5,
 };
 enum class MatchStrictLevel : int;
 enum class NgramSelectRule : int;
@@ -93,7 +111,7 @@ struct LlmContext {
     std::vector<int> output_tokens;
     std::string generate_str;
     // llm status
-    LlmStatus status;
+    LlmStatus status = LlmStatus::NOT_LOADED;
 };
 struct GenerationParams;
 class MNN_PUBLIC Llm {

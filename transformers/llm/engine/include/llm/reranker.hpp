@@ -111,6 +111,7 @@ public:
      * @return A vector of float scores, one for each document.
      */
     std::vector<float> compute_scores(const std::string& query, const std::vector<std::string>& documents) override {
+        CHECK_LLM_RUNNING_RET(mLlm->getContext(), std::vector<float>());
         std::string prefix = "<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be \"yes\" or \"no\".<|im_end|>\n<|im_start|>user\n";
         prefix = prefix + "<Instruct>: " + mInstruct + "\n<Query>: " + query + "\n<Document>: ";
         auto suffix = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n";
@@ -247,6 +248,7 @@ public:
      * @return A vector of float scores, one for each document.
      */
     std::vector<float> compute_scores(const std::string& query, const std::vector<std::string>& documents) override {
+        CHECK_LLM_RUNNING_RET(mLlm->getContext(), std::vector<float>());
         constexpr int pad_token_id = 1;
         constexpr int eos_token_id = 2;
         std::vector<int> query_ids {0, 6};
