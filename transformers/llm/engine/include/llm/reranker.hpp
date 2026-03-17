@@ -175,8 +175,13 @@ public:
 
         // clear history cache
         mLlm->setKVCacheInfo(total_len, mLlm->getCurrentHistory());
+        
         // forward
-        auto logits = mLlm->forwardRaw(input_embeds, attention_mask, position_ids)[0];
+        auto outputs = mLlm->forwardRaw(input_embeds, attention_mask, position_ids);
+        if(outputs.empty()) {
+            return {};
+        }
+        auto logits = outputs[0];
         auto logits_dim = logits->getInfo()->dim[2];
         auto logits_ptr = logits->readMap<float>();
 
@@ -283,10 +288,14 @@ public:
                 mask_ptr[idx] = std::numeric_limits<float>::lowest();
             }
         }
+        
         auto input_embeds = mLlm->embedding(input_ids);
         input_embeds = _Reshape(input_embeds, _var<int>({batch, max_len, -1}, {3}));
         auto position_ids = mLlm->gen_position_ids(max_len);
         auto outputs = mLlm->forwardRaw(input_embeds, attention_mask, position_ids);
+        if(outputs.empty()) {
+            return {};
+        }
         std::vector<float> scores(outputs[0]->readMap<float>(), outputs[0]->readMap<float>() + batch);
         return scores;
     }

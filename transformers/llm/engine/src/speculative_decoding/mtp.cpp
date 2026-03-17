@@ -38,7 +38,15 @@ void MtpGeneration::load(Module::Config module_config) {
 }
 
 std::vector<VARP> MtpGeneration::mtpForward(const std::vector<int>& input_ids, VARP hidden_states) {
+    // Check if already in error state
+    if(mLlm->mContext->status == LlmStatus::INTERNAL_ERROR) {
+        return {};
+    }
+    
     auto input_embeds = mLlm->embedding(input_ids);
+    if(input_embeds == nullptr) {
+        return {};
+    }
     auto outputs = mtpForward(input_embeds, hidden_states);
     return outputs;
 }
@@ -151,7 +159,7 @@ void MtpGeneration::generate(GenerationParams& param) {
     int spl_count = 0;
 
     while (len < max_token) {
-        if(mContext->status == LlmStatus::USER_CANCEL) {
+        if(mContext->status == LlmStatus::USER_CANCEL || mContext->status == LlmStatus::INTERNAL_ERROR) {
             break;
         }
         if (param.timeout_ms > 0 && (mContext->prefill_us + mContext->decode_us) / 1000 >= param.timeout_ms) {
@@ -178,13 +186,7 @@ void MtpGeneration::generate(GenerationParams& param) {
             AUTOTIME;
             // do draft token parallel verify
             auto outputs = mLlm->forwardVec(drafts);
-            for (auto o : outputs) {
-                if(nullptr == o->readMap<float>()) {
-                    mContext->status = LlmStatus::INTERNAL_ERROR;
-                    break;
-                }
-            }
-            if (outputs.size() < 2) {
+            if(outputs.empty()) {
                 break;
             }
             auto logits = outputs[0];

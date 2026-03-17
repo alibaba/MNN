@@ -100,6 +100,11 @@ public:
             all_ids.push_back(ids);
             if (ids.size() > max_len) max_len = ids.size();
         }
+        
+        // Check if already in error state
+        if(mLlm->mContext->status == LlmStatus::INTERNAL_ERROR) {
+            return nullptr;
+        }
 
         int batch = all_ids.size(); // 2
         // Flatten input_ids and create attention_mask
@@ -126,7 +131,16 @@ public:
 
         auto input_ids_var = _Const(flat_input_ids.data(), {batch, max_len}, NCHW, halide_type_of<int>());
         // embedding expects input_ids
-        auto inputs_embeds = mLlm->embedding(flat_input_ids); 
+        
+        // Check if already in error state
+        if(mLlm->mContext->status == LlmStatus::INTERNAL_ERROR) {
+            return nullptr;
+        }
+        
+        auto inputs_embeds = mLlm->embedding(flat_input_ids);
+        if(inputs_embeds == nullptr) {
+            return nullptr;
+        }
         // Reshape to [Batch, SeqLen, Hidden]
         inputs_embeds = _Reshape(inputs_embeds, {batch, max_len, -1});
 
@@ -274,6 +288,9 @@ public:
 
         mLlm->setKVCacheInfo(batch*total_len, 0);
         auto outputs = mLlm->forwardRaw(full_embeds, attention_mask, position_ids);
+        if(outputs.empty()) {
+            return nullptr;
+        }
         int hiddenStateIndex = mLlm->getOutputIndex("hidden_states");
         hiddenStateIndex = hiddenStateIndex == -1 ? outputs.size() - 1 : hiddenStateIndex;
 

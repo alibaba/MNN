@@ -102,7 +102,15 @@ std::vector<VARP> EagleGeneration::eagleForward(Express::VARP input_embeds, VARP
 }
 
 std::vector<VARP> EagleGeneration::eagleForward(const std::vector<int>& input_ids, VARP hidden_states, bool all_logits) {
+    // Check if already in error state
+    if(mLlm->mContext->status == LlmStatus::INTERNAL_ERROR) {
+        return {};
+    }
+    
     auto input_embeds = mLlm->embedding(input_ids);
+    if(input_embeds == nullptr) {
+        return {};
+    }
     auto outputs = eagleForward(input_embeds, hidden_states, all_logits);
     return outputs;
 }
@@ -119,6 +127,11 @@ EagleGeneration::DraftInfo EagleGeneration::topkGenerate(const std::vector<int>&
     int sampleToken = inputIds.back();
     if(inputEmbeds == nullptr) {
         inputEmbeds = mLlm->embedding(inputIds);
+        if(inputEmbeds == nullptr) {
+            // Return empty DraftInfo - will cause generation to stop
+            DraftInfo info;
+            return info;
+        }
     }
     int seqLen       = mEaglePastLen + inputEmbeds->getInfo()->dim[0];
     auto inputHidden = mEagleModules[1]->forward(hiddenStates);
@@ -144,6 +157,11 @@ EagleGeneration::DraftInfo EagleGeneration::topkGenerate(const std::vector<int>&
     for (int d = 0; d < mDepth - 1; d++) {
         setPosition(seqLen + d);
         inputEmbeds   = mLlm->embedding(tokenTree.getIds());
+        if(inputEmbeds == nullptr) {
+            // Return empty DraftInfo - will cause generation to stop
+            DraftInfo info;
+            return info;
+        }
         auto attentionMask = getMask(tokenTree.getMask(), seqLen);
         mEagleMeta->remove = 0;
         outputs = eagleForwardRaw({inputEmbeds, inputHidden, attentionMask, mTreePosition, mLlm->logitsAllIdx});
@@ -324,7 +342,7 @@ void EagleGeneration::generate(GenerationParams& param) {
     std::vector<int> accpetLens;
     auto newTokens = 0, steps = 0;
     while (true) {
-        if(mContext->status == LlmStatus::USER_CANCEL) {
+        if(mContext->status == LlmStatus::USER_CANCEL || mContext->status == LlmStatus::INTERNAL_ERROR) {
             break;
         }
         if (param.timeout_ms > 0 && (mContext->prefill_us + _t.durationInUs()) / 1000 >= param.timeout_ms) {

@@ -86,11 +86,20 @@ std::vector<Express::VARP> Embedding::forwardRaw(Express::VARP hiddenState, Expr
 }
 
 VARP Embedding::ids_embedding(const std::vector<int>& ids) {
+    // Check if already in error state
+    if(mContext->status == LlmStatus::INTERNAL_ERROR) {
+        return nullptr;
+    }
+    
     int prompt_len           = ids.size();
     auto inputs_ids          = embedding(ids);
     auto attention_mask      = gen_attention_mask(prompt_len);
     auto position_ids        = gen_position_ids(prompt_len);
-    return forwardRaw(inputs_ids, attention_mask, position_ids)[0];
+    auto outputs = forwardRaw(inputs_ids, attention_mask, position_ids);
+    if(outputs.empty()) {
+        return nullptr;
+    }
+    return outputs[0];
 }
 
 VARP Embedding::txt_embedding(const std::string& txt) {

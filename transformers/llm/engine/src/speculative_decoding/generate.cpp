@@ -43,7 +43,7 @@ void ArGeneration::generate(GenerationParams& param) {
     int max_token = param.max_new_tokens;
     int len = 0;
     while (len < max_token) {
-        if(mContext->status == LlmStatus::USER_CANCEL) {
+        if(mContext->status == LlmStatus::USER_CANCEL || mContext->status == LlmStatus::INTERNAL_ERROR) {
             break;
         }
         if (param.timeout_ms > 0 && (mContext->prefill_us + mContext->decode_us) / 1000 >= param.timeout_ms) {
@@ -72,12 +72,6 @@ void ArGeneration::generate(GenerationParams& param) {
         }
         // Compute Next Logits
         auto outputs = mLlm->forwardVec({mContext->current_token});
-        for (auto o : outputs) {
-            if(nullptr == o->readMap<float>()) {
-                mContext->status = LlmStatus::INTERNAL_ERROR;
-                break;
-            }
-        }
         if(outputs.empty()) {
             break;
         }

@@ -35,6 +35,10 @@ int main(int argc, const char* argv[]) {
         auto t1 = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
         std::cout << "Reranker compute time: " << duration << " ms" << std::endl;
+        if(scores.empty()) {
+            std::cerr << "Error: Reranker compute_scores failed (returned empty)" << std::endl;
+            return -1;
+        }
     }
     #endif
     auto t0 = std::chrono::high_resolution_clock::now();
@@ -42,6 +46,12 @@ int main(int argc, const char* argv[]) {
     auto t1 = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
     std::cout << "Reranker compute time: " << duration << " ms" << std::endl;
+    
+    // Check for errors
+    if(scores.empty()) {
+        std::cerr << "Error: Reranker compute_scores failed (returned empty)" << std::endl;
+        return -1;
+    }
     // sorted_documents by scores
     std::vector<int> documents_index(documents.size());
     for (int i = 0; i < documents.size(); i++) {

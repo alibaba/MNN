@@ -958,6 +958,9 @@ VARP Omni::embedding(const std::vector<int>& input_ids) {
             }
         } else if (id == mAudioPad) {
             auto txt_embedding = Llm::embedding(cur_txt_ids);
+            if(txt_embedding == nullptr) {
+                return nullptr;
+            }
             auto mul_embedding = mAudioEmbeddings[audio_idx++];
             embeddings.push_back(txt_embedding);
             embeddings.push_back(mul_embedding);
@@ -973,6 +976,9 @@ VARP Omni::embedding(const std::vector<int>& input_ids) {
             }
         } else if (id == mVisionPad) {
             auto txt_embedding = Llm::embedding(cur_txt_ids);
+            if(txt_embedding == nullptr) {
+                return nullptr;
+            }
             if (hasDeepStack) {
                 deepstacksTxt();
                 auto deepstack_embedding = mDeepStackEmbeddings[vision_idx];
@@ -990,6 +996,9 @@ VARP Omni::embedding(const std::vector<int>& input_ids) {
     mDeepStackEmbeddings.clear();
     if (!cur_txt_ids.empty()) {
         auto txt_embedding = Llm::embedding(cur_txt_ids);
+        if(txt_embedding == nullptr) {
+            return nullptr;
+        }
         embeddings.push_back(txt_embedding);
         deepstacksTxt();
     }

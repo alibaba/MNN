@@ -110,9 +110,19 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_
             llm->response(prompt, &std::cout, nullptr, 0);
             while (!llm->stoped() && context->gen_seq_len < max_token_number) {
                 llm->generate(1);
+                // Check for errors
+                if(context->status == LlmStatus::INTERNAL_ERROR) {
+                    MNN_ERROR("Error: Generation failed due to internal error\n");
+                    return -1;
+                }
             }
         } else {
             llm->response(prompt);
+            // Check for errors after response
+            if(context->status == LlmStatus::INTERNAL_ERROR) {
+                MNN_ERROR("Error: Response generation failed due to internal error\n");
+                return -1;
+            }
         }
         prompt_len += context->prompt_len;
         decode_len += context->gen_seq_len;

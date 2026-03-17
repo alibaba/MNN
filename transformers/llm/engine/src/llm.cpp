@@ -427,6 +427,9 @@ void Llm::tuning(TuneType type, std::vector<int> candidates) {
         // start autoregressive decoding
         std::vector<int> input_ids = {0};
         auto logits = forwardVec(input_ids);
+        if(logits.empty()) {
+            return;
+        }
         int verify_length = mDraftLength + 1;
         decode_seq = verify_length;
     }
@@ -479,6 +482,11 @@ void Llm::setKVCacheInfo(size_t add, size_t remove, int* reserve, int n_reserve)
 
 std::vector<Express::VARP> Llm::forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos, Express::VARPS extraArgs) {
     MNN::Express::ExecutorScope s(mExecutor);
+    // Check if already in error state
+    if(mContext->status == LlmStatus::INTERNAL_ERROR) {
+        return {};
+    }
+    
     Express::VARP logitsIndex;
     bool inDecode = mContext->gen_seq_len > 0;
     bool isAllLogists = mConfig->all_logits() ? true : (inDecode ? mInSpec : false);
@@ -517,6 +525,13 @@ std::vector<Express::VARP> Llm::forwardRaw(Express::VARP hiddenState, Express::V
     if (outputs.empty()) {
         mContext->status = LlmStatus::INTERNAL_ERROR;
         return outputs;
+    }
+    // Validate output VARP and readMap
+    for (auto o : outputs) {
+        if(nullptr == o || nullptr == o->readMap<float>()) {
+            mContext->status = LlmStatus::INTERNAL_ERROR;
+            return outputs;
+        }
     }
     if (!mAsync) {
         ((MNN::Tensor*)(outputs[0]->getTensor()))->wait(Tensor::MAP_TENSOR_READ, true);
@@ -584,6 +599,9 @@ std::vector<Express::VARP> Llm::forwardRaw(Express::VARP hiddenState, Express::V
 VARP Llm::forward(const std::vector<int>& input_ids, bool is_prefill) {
     MNN::Express::ExecutorScope s(mExecutor);
     auto hidden_states = embedding(input_ids);
+    if(hidden_states == nullptr) {
+        return nullptr;
+    }
     return forward(hidden_states);
 }
 VARP Llm::forward(MNN::Express::VARP input_embeds) {
@@ -607,6 +625,11 @@ std::vector<VARP> Llm::forwardVec(const std::vector<int>& input_ids) {
 
 std::vector<VARP> Llm::forwardVec(MNN::Express::VARP input_embeds) {
     MNN::Express::ExecutorScope s(mExecutor);
+    // Check if already in error state
+    if(mContext->status == LlmStatus::INTERNAL_ERROR) {
+        return {};
+    }
+    
     int seq_len         = input_embeds->getInfo()->dim[mSeqLenIndex];
     if (0 == mBlockSize) {
         mMeta->add = seq_len;
@@ -828,6 +851,9 @@ std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_tokens
     if(!passExecute) {
         if (0 == mBlockSize || input_ids.size() <= mBlockSize) {
             auto hidden_states = embedding(input_ids);
+            if(hidden_states == nullptr) {
+                return {};
+            }
             return generate(hidden_states, max_tokens);
         }
         int total_size = (int)input_ids.size();
@@ -840,6 +866,9 @@ std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_tokens
             }
             std::vector<int> chunk_ids(input_ids.begin() + start, input_ids.begin() + end);
             auto input_embeds = embedding(chunk_ids);
+            if(input_embeds == nullptr) {
+                return {};
+            }
             generate(input_embeds, 0);
         }
     } else {
@@ -883,6 +912,11 @@ void Llm::response(const MultimodalPrompt& multimodal_input,
 std::vector<int> Llm::generate(MNN::Express::VARP input_embeds, int max_tokens) {
     CHECK_LLM_RUNNING_RET(mContext, std::vector<int>());
     MNN::Express::ExecutorScope s(mExecutor);
+    // Check if already in error state
+    if(mContext->status == LlmStatus::INTERNAL_ERROR) {
+        return {};
+    }
+    
     if (max_tokens < 0) {
         max_tokens = mConfig->max_new_tokens();
     }
@@ -890,11 +924,12 @@ std::vector<int> Llm::generate(MNN::Express::VARP input_embeds, int max_tokens) 
     mContext->prompt_len = seqLen;
 
     Timer _t;
-    forwardVec(input_embeds);
+    auto outputs = forwardVec(input_embeds);
     if(mGenerateParam->outputs.size() < 1) {
         mContext->status = LlmStatus::INTERNAL_ERROR;
         return {};
     }
+    
     updateContext(seqLen, 0);
     mContext->prefill_us += _t.durationInUs();
     MNN::Express::ExecutorScope::Current()->gc(); // after prefill

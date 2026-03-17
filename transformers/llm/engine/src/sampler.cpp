@@ -424,13 +424,16 @@ struct SubsetLogits Sampler::penalty(struct SubsetLogits subset) {
     penalty = std::min(penalty, mConfig.max_penalty);
     // initialization
     std::vector<int>& prev = mContext->history_tokens;
+    if (prev.empty()) return subset; // no history, nothing to penalize
     std::unordered_map<int, float> penalty_map;
     // 1. local ngram info, reversed order
     std::vector<int> ngram_info(ngram-1);
-    if (penalizeNgram) {
+    if (penalizeNgram && prev.size() >= static_cast<size_t>(ngram)) {
         for (int n = 0; n < ngram_info.size(); ++n) {
             ngram_info[n] = prev[prev.size()-1-n];
         }
+    } else {
+        penalizeNgram = false;
     }
     // 2. generate penalty map
     for (int i = 0; i < prev.size(); ++i) {
@@ -448,9 +451,19 @@ struct SubsetLogits Sampler::penalty(struct SubsetLogits subset) {
         }
     }
     // 3. penalize logits according to penalty_map
+    auto logitsSize = subset.logits->getInfo()->size;
     auto scoresMap = (float*)(subset.logits->readMap<float>());
+    if (scoresMap == nullptr) return subset;
     for (auto it = penalty_map.begin(); it != penalty_map.end(); ++it) {
-        scoresMap[it->first] = (scoresMap[it->first] >= 0.0f) ? (scoresMap[it->first]/it->second) : (scoresMap[it->first]*it->second);
+        int tokenId = subset.is_subset ? -1 : it->first;
+        if (subset.is_subset) {
+            // find the position of this token in the subset index
+            for (int i = 0; i < subset.index.size(); ++i) {
+                if (subset.index[i] == it->first) { tokenId = i; break; }
+            }
+        }
+        if (tokenId < 0 || tokenId >= logitsSize) continue;
+        scoresMap[tokenId] = (scoresMap[tokenId] >= 0.0f) ? (scoresMap[tokenId]/it->second) : (scoresMap[tokenId]*it->second);
     }
     return subset;
 }
