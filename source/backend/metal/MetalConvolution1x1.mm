@@ -29,7 +29,7 @@ MetalConvolution1x1::MetalConvolution1x1(Backend *backend, const MNN::Op *op) : 
     if(static_cast<MetalBackend*>(backend)->getMemoryMode() == BackendConfig::Memory_Low) {
         if (conv2D->quanParameter() && (conv2D->external() || conv2D->quanParameter()->buffer())) {
             // quant type equal to 3 means fp16, fallback to float weight
-            if(conv2D->quanParameter()->type() != 3) {
+            if(conv2D->quanParameter()->type() != 3 && conv2D->quanParameter()->type() != 8) {
             	ldInt8Weight = true;
             }
         }
