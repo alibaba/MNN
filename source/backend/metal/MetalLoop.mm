@@ -98,21 +98,58 @@ kernel void loop_matmul(device T* uOutput [[buffer(0)]], const device T* uInputA
         b_idx[y] = min(Y0 + y, h - 1) * uConstant.stride_b.z;
     }
 
-    for (int i = 0; i < l; i++) {
-        T a[4];
-        T b[4];
-        int a_base = aOffset0 + i * uConstant.stride_a.y;
-        int b_base = bOffset0 + i * uConstant.stride_b.y;
-        for(int x = 0; x < 4; ++x) {
-            a[x] = uInputA[a_base + a_idx[x]];
-        }
-        for(int y = 0; y < 4; ++y) {
-            b[y] = uInputB[b_base + b_idx[y]];
-        }
+    bool safe = (X0 + 3 < e) && (Y0 + 3 < h);
 
-        for(int y = 0; y < 4; ++y) {
+    if (safe) {
+        for (int i = 0; i < l; i++) {
+            T a[4];
+            T b[4];
+            int a_base = aOffset0 + i * uConstant.stride_a.y;
+            int b_base = bOffset0 + i * uConstant.stride_b.y;
+
             for(int x = 0; x < 4; ++x) {
-                value[x][y] += a[x] * b[y];
+                a[x] = uInputA[a_base + a_idx[x]];
+            }
+
+            for(int y = 0; y < 4; ++y) {
+                b[y] = uInputB[b_base + b_idx[y]];
+            }
+
+            for(int y = 0; y < 4; ++y) {
+                for(int x = 0; x < 4; ++x) {
+                    value[x][y] += a[x] * b[y];
+                }
+            }
+        }
+    } else {
+        for (int i = 0; i < l; i++) {
+            T a[4];
+            T b[4];
+            int a_base = aOffset0 + i * uConstant.stride_a.y;
+            int b_base = bOffset0 + i * uConstant.stride_b.y;
+
+            // Load A with boundary check
+            for(int x = 0; x < 4; ++x) {
+                if (X0 + x < e) {
+                    a[x] = uInputA[a_base + a_idx[x]];
+                } else {
+                    a[x] = T(0.0);
+                }
+            }
+
+            // Load B with boundary check
+            for(int y = 0; y < 4; ++y) {
+                if (Y0 + y < h) {
+                    b[y] = uInputB[b_base + b_idx[y]];
+                } else {
+                    b[y] = T(0.0);
+                }
+            }
+
+            for(int y = 0; y < 4; ++y) {
+                for(int x = 0; x < 4; ++x) {
+                    value[x][y] += a[x] * b[y];
+                }
             }
         }
     }
