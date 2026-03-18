@@ -9,6 +9,8 @@
 #define LLMCONFIG_Hpp
 
 #include <vector>
+#include <unordered_map>
+#include <cstdlib>
 #include <iostream>
 #include <sstream>
 #include <fstream>
@@ -356,7 +358,7 @@ public:
 
     // < sampler config start
     std::string sampler_type() const {
-        return config_.value("sampler_type", "greedy");
+        return config_.value("sampler_type", "mixed");
     }
 
     std::vector<std::string> mixed_samplers() const {
@@ -367,19 +369,31 @@ public:
         return config_.value("temperature", 1.0f);
     }
 
+    // backward compatible: top_k > topK
     int topK() const {
+        int val = config_.value("top_k", -1);
+        if (val >= 0) return val;
         return config_.value("topK", 40);
     }
 
+    // backward compatible: top_p > topP
     float topP() const {
+        float val = config_.value("top_p", -1.0f);
+        if (val >= 0.0f) return val;
         return config_.value("topP", 0.9f);
     }
 
+    // backward compatible: min_p > minP
     float minP() const {
+        float val = config_.value("min_p", -1.0f);
+        if (val >= 0.0f) return val;
         return config_.value("minP", 0.1f);
     }
 
+    // backward compatible: tfs_z > tfsZ
     float tfsZ() const {
+        float val = config_.value("tfs_z", -1.0f);
+        if (val >= 0.0f) return val;
         return config_.value("tfsZ", 1.0f);
     }
 
@@ -387,8 +401,15 @@ public:
         return config_.value("typical", 1.0f);
     }
 
-    float penalty() const {
-        return config_.value("penalty", 0.0f);
+    // backward compatible: repetition_penalty > penalty
+    float repetition_penalty() const {
+        float val = config_.value("repetition_penalty", -1.0f);
+        if (val >= 0.0f) return val;
+        return config_.value("penalty", 1.0f);
+    }
+
+    float presence_penalty() const {
+        return config_.value("presence_penalty", 0.0f);
     }
 
     int ngram() const {
@@ -401,6 +422,30 @@ public:
 
     std::string penalty_sampler() const {
         return config_.value("penalty_sampler", "greedy");
+    }
+
+    float frequency_penalty() const {
+        return config_.value("frequency_penalty", 0.0f);
+    }
+
+    int penalty_window() const {
+        return config_.value("penalty_window", 0);
+    }
+
+    std::unordered_map<int, float> logit_bias() const {
+        std::unordered_map<int, float> result;
+        if (config_.contains("logit_bias")) {
+            auto bias = config_["logit_bias"];
+            for (auto it = bias.begin(); it != bias.end(); ++it) {
+                int key = std::atoi(it.key().c_str());
+                result[key] = it.value().get<float>();
+            }
+        }
+        return result;
+    }
+
+    std::vector<int> banned_tokens() const {
+        return config_.value("banned_tokens", std::vector<int>{});
     }
     // sampler config end >
 

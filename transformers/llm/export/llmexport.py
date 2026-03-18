@@ -270,8 +270,19 @@ class LlmExporter(torch.nn.Module):
                 "precision": "low",
                 "memory": "low",
                 # "system_prompt": "You are a helpful assistant.",
-                "sampler_type":'penalty',
-                "penalty":1.1
+                "sampler_type": "mixed",
+                "temperature": 0.8,
+                "top_k": 40,
+                "top_p": 0.9,
+                "min_p": 0.05,
+                "tfs_z": 1.0,
+                "typical": 0.95,
+                "repetition_penalty": 1.0,
+                "presence_penalty": 0.0,
+                "frequency_penalty": 0.0,
+                "penalty_window": 0,
+                "n_gram": 8,
+                "ngram_factor": 1.0
             }
             config['tokenizer_file'] = 'tokenizer.mtok'
             if self.args.embed_bit < 16:

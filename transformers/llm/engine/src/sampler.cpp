@@ -1,8 +1,9 @@
 #include <random>
-#include <queue>
 #include <algorithm>
 #include <cmath>
+#include <numeric>
 #include <unordered_map>
+#include <limits>
 
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/Executor.hpp>
@@ -12,235 +13,124 @@
 #include "sampler.hpp"
 #include "llmconfig.hpp"
 
-namespace MNN{
-namespace Transformer{
+namespace MNN {
+namespace Transformer {
 
-// sampler compute struct start
-// a index and its corresponding score
-struct IndexScore {
-    int index;
-    float score;
-};
-struct IndexScoreCmpLess{
-    bool operator()(IndexScore a, IndexScore b) {
-        return a.score < b.score;
+// SamplerState methods
+void SamplerState::ensureProbs(float temperature) {
+    if (!probs.empty()) return;
+    float invTemp = 1.0f / temperature;
+    // find max for numerical stability
+    float maxLogit = *std::max_element(logits.begin(), logits.end());
+    probs.resize(logits.size());
+    float sum = 0.0f;
+    for (size_t i = 0; i < logits.size(); ++i) {
+        probs[i] = std::exp((logits[i] - maxLogit) * invTemp);
+        sum += probs[i];
     }
-};
-struct IndexScoreCmpGreater{
-    bool operator()(IndexScore a, IndexScore b) {
-        return a.score > b.score;
-    }
-};
-// a series of index and their corresponding logits
-struct SubsetLogits{
-    std::vector<int> index;
-    MNN::Express::VARP logits;
-    bool is_subset;
-};
-// sampler compute struct end
-
-// sampler compute functions start
-Express::VARP _TempratureSoftmax(Express::VARP logits, float temperature, int axis = -1) {
-    return Express::_Softmax(logits * Express::_Scalar<float>(1.0f / temperature), axis);
+    float invSum = 1.0f / sum;
+    for (auto& p : probs) p *= invSum;
 }
 
-SubsetLogits createSubsetLogits(Express::VARP logits) {
-    struct SubsetLogits subset;
-    subset.logits = logits;
-    subset.is_subset = false;
-    return subset;
+void SamplerState::invalidateProbs() {
+    probs.clear();
 }
 
-SubsetLogits createSubsetLogits(Express::VARP logits, const std::vector<int>& index) {
-    struct SubsetLogits subset;
-    subset.logits = logits;
-    subset.index = index;
-    subset.is_subset = true;
-    return subset;
-}
-
-SubsetLogits createSubsetLogits(int size) {
-    struct SubsetLogits subset;
-    subset.logits = Express::_Input({size}, Express::NHWC);
-    subset.index.resize(size);
-    subset.is_subset = true;
-    return subset;
-}
-
-SubsetLogits createSubsetLogits(const std::vector<float>& scores, const std::vector<int>& index) {
-    int size = (int)(index.size());
-    struct SubsetLogits subset;
-    subset.logits = Express::_Input({size}, Express::NHWC);
-    auto pointer = (float*)(subset.logits->writeMap<float>());
-    for (int i = 0; i < size; ++i) {
-        pointer[i] = scores[i];
-    }
-    subset.index = index;
-    subset.is_subset = true;
-    return subset;
-}
-
-void transformIndex(struct SubsetLogits& superset, struct SubsetLogits& subset) {
-    if (!(superset.is_subset)) return;
-    for (auto& id : subset.index) {
-        id = superset.index[id];
-    }
-}
-
-int select(struct SubsetLogits& subset, int id) {
-    if (!(subset.is_subset)) {
-        return id;
-    }
-    return subset.index[id];
-}
-
-int argmaxSelect(struct SubsetLogits superset) {
-    auto scores = (float*)(superset.logits->readMap<float>());
-    // get last dimension index
-    int lastIndex = superset.logits->getInfo()->dim.size() - 1;
-    // argmax size is last dimension size
-    auto size = superset.logits->getInfo()->dim[lastIndex];
-    float max_score = scores[0];
-    int token_id = 0;
-    for (int i = 0; i < size; i++) {
-        float score = scores[i];
-        if (score > max_score) {
-            max_score = score;
-            token_id = i;
+// Helper: build index→position map for subset
+static std::unordered_map<int, int> buildIndexMap(const SamplerState& state) {
+    std::unordered_map<int, int> map;
+    if (state.is_subset) {
+        map.reserve(state.indices.size());
+        for (int i = 0; i < (int)state.indices.size(); ++i) {
+            map[state.indices[i]] = i;
         }
     }
-    return select(superset, token_id);
+    return map;
 }
 
-int randomSelect(float* probs, size_t size) {
-    std::random_device rd;
-    std::mt19937 generator(rd());
-    std::uniform_real_distribution<float> distribution(0.0, 1.0);
-    float target = distribution(generator);
-    float cumulative = 0.0;
-    for (int i = 0; i < size; i++) {
-        cumulative += probs[i];
-        if (target < cumulative) {
-            return i;
-        }
-    }
-    return size - 1;
-}
-
-int randomSelect(Express::VARP probs) {
-    return randomSelect((float*)(probs->readMap<float>()), probs->getInfo()->size);
-}
-
-int reSoftmaxSelect(struct SubsetLogits subset, float temperature) {
-    int token_index_id = randomSelect(_TempratureSoftmax(subset.logits, temperature));
-    return ((subset.is_subset) ? subset.index[token_index_id] : token_index_id);
-}
-
-int packSoftmax(Express::VARP logits, std::vector<IndexScore>& index_scores, float temperature) {
-    auto prob_varp = _TempratureSoftmax(logits, temperature);
-    auto probs = (float*)(prob_varp->readMap<float>());
-    auto size = prob_varp->getInfo()->size;
-    index_scores.resize(size);
-    for (int i = 0; i < size; i++) {
-        IndexScore m;
-        m.index = i;
-        m.score = probs[i];
-        index_scores[i] = m;
-    }
-    return size;
-}
-// sampler compute functions end
-
-Sampler* Sampler::createSampler(std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config) {
-    return new Sampler(context, config);
-}
-
-Sampler::Sampler(std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config) {
-    mContext = context;
-    // mConfig = getSamplerConfig(config);
-    mConfig.max_all_tokens = config->max_all_tokens();
-    mConfig.max_new_tokens = config->max_new_tokens();
-    mConfig.type = config->sampler_type();
-    mConfig.configSampler(mConfig.type, config);
-}
-
-/* ----------Sampler's members---------- */
-
-
-
-/* ----------SamplerConfig---------- */
-void Sampler::SamplerConfig::configSampler( std::string sampler_type, std::shared_ptr<LlmConfig> llmConfig) {
-    if (sampler_type == "greedy"){
-        this->configGreedy(llmConfig);
-    } else if (sampler_type == "temperature"){
-        this->configTemperature(llmConfig);
-    } else if (sampler_type == "topK"){
-        this->configTopK(llmConfig);
-    } else if (sampler_type == "topP"){
-        this->configTopP(llmConfig);
-    } else if (sampler_type == "minP"){
-        this->configMinP(llmConfig);
-    } else if (sampler_type == "tfs"){
-        this->configTFS(llmConfig);
-    } else if (sampler_type == "typical"){
-        this->configTypical(llmConfig);
-    } else if (sampler_type == "penalty"){
-        this->configPenalty(llmConfig);
-    } else if (sampler_type == "mixed"){
-        this->configMixed(llmConfig);
+// SamplerConfig methods
+void Sampler::SamplerConfig::configSampler(std::string sampler_type, std::shared_ptr<LlmConfig> llmConfig) {
+    if (sampler_type == "greedy") {
+        configGreedy(llmConfig);
+    } else if (sampler_type == "temperature") {
+        configTemperature(llmConfig);
+    } else if (sampler_type == "topK") {
+        configTopK(llmConfig);
+    } else if (sampler_type == "topP") {
+        configTopP(llmConfig);
+    } else if (sampler_type == "minP" || sampler_type == "min_p") {
+        configMinP(llmConfig);
+    } else if (sampler_type == "tfs") {
+        configTFS(llmConfig);
+    } else if (sampler_type == "typical") {
+        configTypical(llmConfig);
+    } else if (sampler_type == "penalty") {
+        configPenalty(llmConfig);
+    } else if (sampler_type == "mixed") {
+        configMixed(llmConfig);
     }
 }
+
 void Sampler::SamplerConfig::configGreedy(std::shared_ptr<LlmConfig> llmConfig) {
     select_type = "greedy";
 }
+
 void Sampler::SamplerConfig::configTemperature(std::shared_ptr<LlmConfig> llmConfig) {
     temperature = llmConfig->temperature();
     select_type = "temperature";
 }
+
 void Sampler::SamplerConfig::configTopK(std::shared_ptr<LlmConfig> llmConfig) {
     topK = llmConfig->topK();
     select_type = "temperature";
 }
+
 void Sampler::SamplerConfig::configTopP(std::shared_ptr<LlmConfig> llmConfig) {
     topP = llmConfig->topP();
     temperature = llmConfig->temperature();
     select_type = "temperature";
 }
+
 void Sampler::SamplerConfig::configMinP(std::shared_ptr<LlmConfig> llmConfig) {
     minP = llmConfig->minP();
     temperature = llmConfig->temperature();
     select_type = "temperature";
 }
+
 void Sampler::SamplerConfig::configTFS(std::shared_ptr<LlmConfig> llmConfig) {
     tfsZ = llmConfig->tfsZ();
     temperature = llmConfig->temperature();
     select_type = "temperature";
 }
+
 void Sampler::SamplerConfig::configTypical(std::shared_ptr<LlmConfig> llmConfig) {
     typical = llmConfig->typical();
     temperature = llmConfig->temperature();
     select_type = "temperature";
 }
+
 void Sampler::SamplerConfig::configPenalty(std::shared_ptr<LlmConfig> llmConfig) {
-    penalty = llmConfig->penalty();
+    repetition_penalty = llmConfig->repetition_penalty();
+    presence_penalty = llmConfig->presence_penalty();
+    frequency_penalty = llmConfig->frequency_penalty();
+    penalty_window = llmConfig->penalty_window();
     ngram = llmConfig->ngram();
     ngram_factor = llmConfig->ngram_factor();
     sampler = llmConfig->penalty_sampler();
     select_type = sampler;
 }
+
 void Sampler::SamplerConfig::configMixed(std::shared_ptr<LlmConfig> llmConfig) {
     mixedSamplers = llmConfig->mixed_samplers();
-    // std::cout << "Mixed Sampler Sequence: " << std::flush;
-    for (auto samplerName : mixedSamplers) {
-        this->configSampler(samplerName, llmConfig);
-        // std::cout << samplerName << " " << std::flush;
+    for (const auto& samplerName : mixedSamplers) {
+        configSampler(samplerName, llmConfig);
     }
-    // remove all "penalty", and add one to begin if presence.
+    // move penalty to front if present
     std::vector<std::string> newSamplers;
     bool hasPenalty = false;
-    for (auto sampler:mixedSamplers) {
-        if (sampler!="penalty") {
-            newSamplers.push_back(sampler);
+    for (const auto& s : mixedSamplers) {
+        if (s != "penalty") {
+            newSamplers.push_back(s);
         } else {
             hasPenalty = true;
         }
@@ -248,263 +138,408 @@ void Sampler::SamplerConfig::configMixed(std::shared_ptr<LlmConfig> llmConfig) {
     if (hasPenalty) {
         newSamplers.insert(newSamplers.begin(), "penalty");
     }
-    mixedSamplers = newSamplers;
-    // std::cout << std::endl;
-    // set select type
-    // the final sampler select the token
-    if (mixedSamplers.back() == "greedy") select_type = "greedy";
-    else if(mixedSamplers.back()=="temperature") select_type = "temperature";
-    else select_type = "temperature"; // By default temperature is used.
-}
-
-struct SubsetLogits Sampler::topK(struct SubsetLogits superset) {
-    int K = mConfig.topK;
-    auto scores = (float*)(superset.logits->readMap<float>());
-    auto size = superset.logits->getInfo()->size;
-    // 1. time complexity: O(nlogk)
-    std::priority_queue<IndexScore, std::vector<IndexScore>, IndexScoreCmpGreater> heap;
-    for (int i = 0; i < size; i++) {
-        IndexScore m;
-        m.index = i;
-        m.score = scores[i];
-        if (heap.size() < K) {
-            heap.push(m);
-        }
-        else {
-            if (heap.top().score < m.score) {
-                heap.pop();
-                heap.push(m);
-            }
-        }
-    }
-    // 2. store top K results
-    auto subset = createSubsetLogits(K);
-    float* topKscores = (float*)(subset.logits->writeMap<float>());
-    for (int i = 0; i < K; i++) {
-        subset.index[K-i-1] = heap.top().index;
-        topKscores[K-i-1]  = heap.top().score;
-        heap.pop();
-    }
-    transformIndex(superset, subset);
-    return subset;
-}
-
-struct SubsetLogits Sampler::topP(struct SubsetLogits superset) {
-    float p = mConfig.topP, temperature = mConfig.temperature;
-    std::vector<IndexScore> index_scores;
-    int size = packSoftmax(superset.logits, index_scores, temperature);
-    // 1. make max heap
-    std::make_heap(index_scores.begin(), index_scores.end(), IndexScoreCmpLess());
-    // 2. top p algorithm
-    auto scores = (float*)(superset.logits->readMap<float>());
-    std::vector<int> index;
-    std::vector<float> subset_logits;
-    float cumulative = 0.0f;
-    while (cumulative < p && !index_scores.empty()) {
-        std::pop_heap(index_scores.begin(), index_scores.end(), IndexScoreCmpLess());
-        IndexScore m = index_scores.back();
-        index_scores.pop_back();
-        index.push_back(m.index);
-        subset_logits.push_back(scores[m.index]);
-        cumulative += m.score;
-    }
-    auto subset = createSubsetLogits(subset_logits, index);
-    transformIndex(superset, subset);
-    return subset;
-}
-
-struct SubsetLogits Sampler::minP(struct SubsetLogits superset) {
-    float p = mConfig.minP, temperature = mConfig.temperature;
-    std::vector<IndexScore> index_scores;
-    int size = packSoftmax(superset.logits, index_scores, temperature);
-    // 1. make max heap
-    std::make_heap(index_scores.begin(), index_scores.end(), IndexScoreCmpLess());
-    // 2. min p algorithm
-    auto scores = (float*)(superset.logits->readMap<float>());
-    std::vector<int> index;
-    std::vector<float> subset_logits;
-    for (int i = 0; i < size; ++i) {
-        std::pop_heap(index_scores.begin(), index_scores.end(), IndexScoreCmpLess());
-        IndexScore m = index_scores.back();
-        if (m.score < p && !index.empty()) break;
-        index_scores.pop_back();
-        index.push_back(m.index);
-        subset_logits.push_back(scores[m.index]);
-    }
-    auto subset = createSubsetLogits(subset_logits, index);
-    transformIndex(superset, subset);
-    return subset;
-}
-
-struct SubsetLogits Sampler::tfs(struct SubsetLogits superset) {
-    float z = mConfig.tfsZ, temperature = mConfig.temperature;
-    // tfs algorithm
-    // 1. softmax
-    std::vector<IndexScore> index_scores;
-    int size = packSoftmax(superset.logits, index_scores, temperature);
-    // 2. sort
-    std::sort(index_scores.begin(), index_scores.end(), IndexScoreCmpGreater());
-    auto scores = (float*)(superset.logits->readMap<float>());
-    // 3. calculate derivatives
-    std::vector<float> derivatives(size - 2, 0.0f);
-    float first = index_scores[0].score - index_scores[1].score;
-    float second = index_scores[1].score - index_scores[2].score;
-    for (int i = 0; i < size - 2; ++i) {
-        second = index_scores[i+1].score - index_scores[i+2].score;
-        derivatives[i] = std::fabs(first - second);
-        first = second;
-    }
-    // 4. normalize derivatives
-    float derivatives_sum = 0.0;
-    for (int i = 0; i < size - 2; ++i) derivatives_sum += derivatives[i];
-    float derivatives_sum_rec = 1.0f / derivatives_sum;
-    for (int i = 0; i < size - 2; ++i) derivatives[i] *= derivatives_sum_rec;
-    // 5. cumulate, discard last 2 for sure.
-    float cumulative = 0.0;
-    std::vector<int> index;
-    std::vector<float> subset_logits;
-    for (int i = 0; i < size - 2; ++i) {
-        IndexScore m = index_scores[i];
-        cumulative += derivatives[i];
-        if (cumulative >= z && !index.empty()) break;
-        index.push_back(m.index);
-        subset_logits.push_back(scores[m.index]);
-    }
-    auto subset = createSubsetLogits(subset_logits, index);
-    transformIndex(superset, subset);
-    return subset;
-}
-
-struct SubsetLogits Sampler::typical(struct SubsetLogits superset) {
-    float p = mConfig.typical, temperature = mConfig.temperature;
-    auto prob_varp = _TempratureSoftmax(superset.logits, temperature);
-    auto probs = (float*)(prob_varp->readMap<float>());
-    auto size = prob_varp->getInfo()->size;
-    std::vector<IndexScore> index_scores;
-    index_scores.resize(size);
-    // 1. calcaluate dist
-    float entropy = 0.0f;
-    for (int i = 0; i < size; i++) entropy -= probs[i] * std::log(probs[i]);
-    for (int i = 0; i < size; i++) {
-        IndexScore m;
-        m.index = i;
-        m.score = std::fabs(entropy + std::log(probs[i]));
-        index_scores[i] = m;
-    }
-    // 2. make min heap for dist
-    std::make_heap(index_scores.begin(), index_scores.end(), IndexScoreCmpGreater());
-    // 3. typical p algorithm
-    auto scores = (float*)(superset.logits->readMap<float>());
-    float cumulative = 0.0f;
-    std::vector<int> index;
-    std::vector<float> subset_logits;
-    for (int i = 0; i < size; ++i) {
-        std::pop_heap(index_scores.begin(), index_scores.end(), IndexScoreCmpGreater());
-        IndexScore m = index_scores.back();
-        cumulative += probs[m.index];
-        if (cumulative >= p && !index.empty()) break;
-        index_scores.pop_back();
-        index.push_back(m.index);
-        subset_logits.push_back(scores[m.index]);
-    }
-    auto subset = createSubsetLogits(subset_logits, index);
-    transformIndex(superset, subset);
-    return subset;
-}
-
-// presence penalty
-// no frequency penalty now!
-struct SubsetLogits Sampler::penalty(struct SubsetLogits subset) {
-    float penalty = mConfig.penalty;
-    int ngram = mConfig.ngram;
-    float ngram_factor = mConfig.ngram_factor;
-    float temperature = mConfig.temperature;
-    bool penalizeNgram = (ngram_factor > 1.0f);
-    if (penalty <= 1.0f) return subset; // no penalty!
-    penalty = std::min(penalty, mConfig.max_penalty);
-    // initialization
-    std::vector<int>& prev = mContext->history_tokens;
-    if (prev.empty()) return subset; // no history, nothing to penalize
-    std::unordered_map<int, float> penalty_map;
-    // 1. local ngram info, reversed order
-    std::vector<int> ngram_info(ngram-1);
-    if (penalizeNgram && prev.size() >= static_cast<size_t>(ngram)) {
-        for (int n = 0; n < ngram_info.size(); ++n) {
-            ngram_info[n] = prev[prev.size()-1-n];
-        }
+    mixedSamplers = std::move(newSamplers);
+    // set select type from last sampler
+    if (mixedSamplers.back() == "greedy") {
+        select_type = "greedy";
     } else {
-        penalizeNgram = false;
+        select_type = "temperature";
     }
-    // 2. generate penalty map
-    for (int i = 0; i < prev.size(); ++i) {
-        if (penalty_map.count(prev[i]) == 0) penalty_map[prev[i]] = penalty;
-        if (penalizeNgram) {
-            float ngram_penalty = penalty;
-            for (int j = i-1; i-j < ngram && j>=0; --j) {
-                int idx = i-j-1;
-                if (prev[j] != ngram_info[idx]) break;
-                ngram_penalty *= ngram_factor;
-                // no repeat larger than ngram!
-                if (idx == ngram_info.size()-1) ngram_penalty = mConfig.max_penalty;
-            }
-            if (ngram_penalty > penalty_map[prev[i]]) penalty_map[prev[i]] = ngram_penalty;
+    // load new config fields
+    logit_bias = llmConfig->logit_bias();
+    banned_tokens = llmConfig->banned_tokens();
+    repetition_penalty = llmConfig->repetition_penalty();
+    presence_penalty = llmConfig->presence_penalty();
+    frequency_penalty = llmConfig->frequency_penalty();
+    penalty_window = llmConfig->penalty_window();
+}
+
+Sampler* Sampler::createSampler(std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config) {
+    return new Sampler(context, config);
+}
+
+Sampler::Sampler(std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config)
+    : mContext(context), mRng(std::random_device{}()) {
+    mConfig.max_all_tokens = config->max_all_tokens();
+    mConfig.max_new_tokens = config->max_new_tokens();
+    mConfig.type = config->sampler_type();
+    mConfig.configSampler(mConfig.type, config);
+    buildPipeline();
+}
+
+SamplerState Sampler::createState(Express::VARP logits) {
+    SamplerState state;
+    auto ptr = logits->readMap<float>();
+    int lastDim = logits->getInfo()->dim.back();
+    state.vocab_size = lastDim;
+    state.logits.assign(ptr, ptr + lastDim);
+    state.is_subset = false;
+    return state;
+}
+
+void Sampler::buildPipeline() {
+    auto addStep = [this](const std::string& name) {
+        if (name == "penalty") {
+            mPipeline.push_back([this](SamplerState& s) { stepPenalty(s); });
+        } else if (name == "topK") {
+            mPipeline.push_back([this](SamplerState& s) { stepTopK(s); });
+        } else if (name == "topP") {
+            mPipeline.push_back([this](SamplerState& s) { stepTopP(s); });
+        } else if (name == "minP" || name == "min_p") {
+            mPipeline.push_back([this](SamplerState& s) { stepMinP(s); });
+        } else if (name == "tfs") {
+            mPipeline.push_back([this](SamplerState& s) { stepTfs(s); });
+        } else if (name == "typical") {
+            mPipeline.push_back([this](SamplerState& s) { stepTypical(s); });
         }
-    }
-    // 3. penalize logits according to penalty_map
-    auto logitsSize = subset.logits->getInfo()->size;
-    auto scoresMap = (float*)(subset.logits->readMap<float>());
-    if (scoresMap == nullptr) return subset;
-    for (auto it = penalty_map.begin(); it != penalty_map.end(); ++it) {
-        int tokenId = subset.is_subset ? -1 : it->first;
-        if (subset.is_subset) {
-            // find the position of this token in the subset index
-            for (int i = 0; i < subset.index.size(); ++i) {
-                if (subset.index[i] == it->first) { tokenId = i; break; }
-            }
+        // greedy/temperature handled by stepSelect
+    };
+
+    if (mConfig.type == "mixed") {
+        // logit_bias and banned_tokens before other steps
+        if (!mConfig.logit_bias.empty()) {
+            mPipeline.push_back([this](SamplerState& s) { stepLogitBias(s); });
         }
-        if (tokenId < 0 || tokenId >= logitsSize) continue;
-        scoresMap[tokenId] = (scoresMap[tokenId] >= 0.0f) ? (scoresMap[tokenId]/it->second) : (scoresMap[tokenId]*it->second);
+        if (!mConfig.banned_tokens.empty()) {
+            mPipeline.push_back([this](SamplerState& s) { stepBannedTokens(s); });
+        }
+        for (const auto& name : mConfig.mixedSamplers) {
+            addStep(name);
+        }
+    } else if (mConfig.type == "greedy") {
+        // no filtering steps needed
+    } else {
+        // single sampler type
+        addStep(mConfig.type);
     }
-    return subset;
-}
-
-struct SubsetLogits Sampler::mixed(struct SubsetLogits subset) {
-    for (auto sampler : mConfig.mixedSamplers) {
-        subset = subsetSampler(sampler, subset);
-    }
-    return subset;
-}
-
-struct SubsetLogits Sampler::subsetSampler(std::string sampler_type, struct SubsetLogits subset) {
-    if (sampler_type == "penalty") subset = penalty(subset);
-    if (sampler_type == "topK") subset = topK(subset);
-    if (sampler_type == "topP") subset = topP(subset);
-    if (sampler_type == "minP") subset = minP(subset);
-    if (sampler_type == "tfs") subset = tfs(subset);
-    if (sampler_type == "typical") subset = typical(subset);
-    if (sampler_type == "mixed") subset = mixed(subset);
-    // if greedy and temperate, just let the Selector handle it.
-    return subset;
-}
-
-int Sampler::handleSelect(struct SubsetLogits subset) {
-    if (mConfig.select_type == "greedy") {
-        return argmaxSelect(subset);
-    } else if(mConfig.select_type =="temperature") {
-        return reSoftmaxSelect(subset, mConfig.temperature);
-    }
-    return 0;
+    // final select step
+    mPipeline.push_back([this](SamplerState& s) { stepSelect(s); });
 }
 
 int Sampler::sample(Express::VARP logits) {
     Timer _t;
-    struct SubsetLogits subset = createSubsetLogits(logits);
-    // process subsetSampler
-    subset = subsetSampler(mConfig.type, subset);
-    // select token from the subset
-    int res = handleSelect(subset);
+    SamplerState state = createState(logits);
+    for (auto& step : mPipeline) {
+        step(state);
+    }
     mContext->sample_us += _t.durationInUs();
-    return res;
+    return state.selected_token;
+}
+
+// --- Step implementations ---
+
+void Sampler::stepPenalty(SamplerState& state) {
+    float repPenalty = mConfig.repetition_penalty;
+    float presPenalty = mConfig.presence_penalty;
+    float freqPenalty = mConfig.frequency_penalty;
+    int ngram = mConfig.ngram;
+    float ngram_factor = mConfig.ngram_factor;
+    bool penalizeNgram = (ngram_factor > 1.0f);
+    if (repPenalty <= 1.0f && presPenalty <= 0.0f && freqPenalty <= 0.0f) return;
+    repPenalty = std::min(repPenalty, mConfig.max_penalty);
+
+    const std::vector<int>& prev = mContext->history_tokens;
+    if (prev.empty()) return;
+
+    // determine window
+    int start = 0;
+    if (mConfig.penalty_window > 0 && (int)prev.size() > mConfig.penalty_window) {
+        start = (int)prev.size() - mConfig.penalty_window;
+    }
+
+    // count occurrences and compute penalty
+    std::unordered_map<int, float> penalty_map;
+    std::unordered_map<int, int> freq_map;
+
+    // ngram info (reversed order)
+    std::vector<int> ngram_info;
+    if (penalizeNgram && (int)prev.size() >= ngram) {
+        ngram_info.resize(ngram - 1);
+        for (int n = 0; n < (int)ngram_info.size(); ++n) {
+            ngram_info[n] = prev[prev.size() - 1 - n];
+        }
+    } else {
+        penalizeNgram = false;
+    }
+
+    for (int i = start; i < (int)prev.size(); ++i) {
+        int tok = prev[i];
+        freq_map[tok]++;
+        if (penalty_map.count(tok) == 0) {
+            penalty_map[tok] = repPenalty;
+        }
+        if (penalizeNgram) {
+            float ngram_penalty = repPenalty;
+            for (int j = i - 1; i - j < ngram && j >= 0; --j) {
+                int idx = i - j - 1;
+                if (prev[j] != ngram_info[idx]) break;
+                ngram_penalty *= ngram_factor;
+                if (idx == (int)ngram_info.size() - 1) ngram_penalty = mConfig.max_penalty;
+            }
+            if (ngram_penalty > penalty_map[tok]) penalty_map[tok] = ngram_penalty;
+        }
+    }
+
+    // build reverse index for subset mode
+    auto indexMap = buildIndexMap(state);
+
+    for (auto& kv : penalty_map) {
+        int tokenId;
+        if (state.is_subset) {
+            auto it = indexMap.find(kv.first);
+            if (it == indexMap.end()) continue;
+            tokenId = it->second;
+        } else {
+            tokenId = kv.first;
+        }
+        if (tokenId < 0 || tokenId >= (int)state.logits.size()) continue;
+        float& logit = state.logits[tokenId];
+        // repetition_penalty: multiplicative
+        if (kv.second > 1.0f) {
+            logit = (logit >= 0.0f) ? (logit / kv.second) : (logit * kv.second);
+        }
+        // presence_penalty: additive, applied once per token
+        logit -= presPenalty;
+        // frequency_penalty: additive, proportional to count
+        if (freqPenalty > 0.0f) {
+            logit -= freqPenalty * freq_map[kv.first];
+        }
+    }
+    state.invalidateProbs();
+}
+
+void Sampler::stepTopK(SamplerState& state) {
+    int K = mConfig.topK;
+    int size = (int)state.logits.size();
+    if (K >= size) return;
+
+    // Use nth_element for O(n) average
+    std::vector<int> idx(size);
+    std::iota(idx.begin(), idx.end(), 0);
+    std::nth_element(idx.begin(), idx.begin() + K, idx.end(),
+        [&](int a, int b) { return state.logits[a] > state.logits[b]; });
+
+    std::vector<int> newIndices(K);
+    std::vector<float> newLogits(K);
+    for (int i = 0; i < K; ++i) {
+        newLogits[i] = state.logits[idx[i]];
+        newIndices[i] = state.is_subset ? state.indices[idx[i]] : idx[i];
+    }
+    state.logits = std::move(newLogits);
+    state.indices = std::move(newIndices);
+    state.is_subset = true;
+    state.invalidateProbs();
+}
+
+void Sampler::stepTopP(SamplerState& state) {
+    float p = mConfig.topP;
+    state.ensureProbs(mConfig.temperature);
+    int size = (int)state.probs.size();
+
+    // sort by prob descending
+    std::vector<int> idx(size);
+    std::iota(idx.begin(), idx.end(), 0);
+    std::sort(idx.begin(), idx.end(),
+        [&](int a, int b) { return state.probs[a] > state.probs[b]; });
+
+    std::vector<int> newIndices;
+    std::vector<float> newLogits;
+    float cumulative = 0.0f;
+    for (int i = 0; i < size; ++i) {
+        int id = idx[i];
+        cumulative += state.probs[id];
+        newIndices.push_back(state.is_subset ? state.indices[id] : id);
+        newLogits.push_back(state.logits[id]);
+        if (cumulative >= p && !newIndices.empty()) break;
+    }
+    state.logits = std::move(newLogits);
+    state.indices = std::move(newIndices);
+    state.is_subset = true;
+    state.invalidateProbs();
+}
+
+void Sampler::stepMinP(SamplerState& state) {
+    float p = mConfig.minP;
+    state.ensureProbs(mConfig.temperature);
+    int size = (int)state.probs.size();
+
+    // sort by prob descending
+    std::vector<int> idx(size);
+    std::iota(idx.begin(), idx.end(), 0);
+    std::sort(idx.begin(), idx.end(),
+        [&](int a, int b) { return state.probs[a] > state.probs[b]; });
+
+    std::vector<int> newIndices;
+    std::vector<float> newLogits;
+    for (int i = 0; i < size; ++i) {
+        int id = idx[i];
+        if (state.probs[id] < p && !newIndices.empty()) break;
+        newIndices.push_back(state.is_subset ? state.indices[id] : id);
+        newLogits.push_back(state.logits[id]);
+    }
+    state.logits = std::move(newLogits);
+    state.indices = std::move(newIndices);
+    state.is_subset = true;
+    state.invalidateProbs();
+}
+
+void Sampler::stepTfs(SamplerState& state) {
+    float z = mConfig.tfsZ;
+    state.ensureProbs(mConfig.temperature);
+    int size = (int)state.probs.size();
+    if (size < 3) return;
+
+    // sort by prob descending
+    std::vector<int> idx(size);
+    std::iota(idx.begin(), idx.end(), 0);
+    std::sort(idx.begin(), idx.end(),
+        [&](int a, int b) { return state.probs[a] > state.probs[b]; });
+
+    // second derivatives
+    std::vector<float> derivatives(size - 2);
+    for (int i = 0; i < size - 2; ++i) {
+        float first = state.probs[idx[i]] - state.probs[idx[i + 1]];
+        float second = state.probs[idx[i + 1]] - state.probs[idx[i + 2]];
+        derivatives[i] = std::fabs(first - second);
+    }
+    // normalize
+    float sum = 0.0f;
+    for (auto d : derivatives) sum += d;
+    if (sum > 0.0f) {
+        float invSum = 1.0f / sum;
+        for (auto& d : derivatives) d *= invSum;
+    }
+
+    std::vector<int> newIndices;
+    std::vector<float> newLogits;
+    float cumulative = 0.0f;
+    for (int i = 0; i < size - 2; ++i) {
+        cumulative += derivatives[i];
+        if (cumulative >= z && !newIndices.empty()) break;
+        int id = idx[i];
+        newIndices.push_back(state.is_subset ? state.indices[id] : id);
+        newLogits.push_back(state.logits[id]);
+    }
+    if (newIndices.empty()) {
+        // keep at least the top token
+        int id = idx[0];
+        newIndices.push_back(state.is_subset ? state.indices[id] : id);
+        newLogits.push_back(state.logits[id]);
+    }
+    state.logits = std::move(newLogits);
+    state.indices = std::move(newIndices);
+    state.is_subset = true;
+    state.invalidateProbs();
+}
+
+void Sampler::stepTypical(SamplerState& state) {
+    float p = mConfig.typical;
+    state.ensureProbs(mConfig.temperature);
+    int size = (int)state.probs.size();
+
+    // entropy
+    float entropy = 0.0f;
+    for (int i = 0; i < size; ++i) {
+        if (state.probs[i] > 0.0f) {
+            entropy -= state.probs[i] * std::log(state.probs[i]);
+        }
+    }
+
+    // distance from entropy for each token
+    std::vector<int> idx(size);
+    std::iota(idx.begin(), idx.end(), 0);
+    // sort by distance ascending (closest to entropy first)
+    std::sort(idx.begin(), idx.end(), [&](int a, int b) {
+        float da = std::fabs(entropy + std::log(state.probs[a]));
+        float db = std::fabs(entropy + std::log(state.probs[b]));
+        return da < db;
+    });
+
+    std::vector<int> newIndices;
+    std::vector<float> newLogits;
+    float cumulative = 0.0f;
+    for (int i = 0; i < size; ++i) {
+        int id = idx[i];
+        cumulative += state.probs[id];
+        newIndices.push_back(state.is_subset ? state.indices[id] : id);
+        newLogits.push_back(state.logits[id]);
+        if (cumulative >= p && !newIndices.empty()) break;
+    }
+    state.logits = std::move(newLogits);
+    state.indices = std::move(newIndices);
+    state.is_subset = true;
+    state.invalidateProbs();
+}
+
+void Sampler::stepLogitBias(SamplerState& state) {
+    if (mConfig.logit_bias.empty()) return;
+    if (state.is_subset) {
+        auto indexMap = buildIndexMap(state);
+        for (const auto& kv : mConfig.logit_bias) {
+            auto it = indexMap.find(kv.first);
+            if (it != indexMap.end()) {
+                state.logits[it->second] += kv.second;
+            }
+        }
+    } else {
+        for (const auto& kv : mConfig.logit_bias) {
+            if (kv.first >= 0 && kv.first < (int)state.logits.size()) {
+                state.logits[kv.first] += kv.second;
+            }
+        }
+    }
+    state.invalidateProbs();
+}
+
+void Sampler::stepBannedTokens(SamplerState& state) {
+    if (mConfig.banned_tokens.empty()) return;
+    const float NEG_INF = -std::numeric_limits<float>::infinity();
+    if (state.is_subset) {
+        auto indexMap = buildIndexMap(state);
+        for (int tok : mConfig.banned_tokens) {
+            auto it = indexMap.find(tok);
+            if (it != indexMap.end()) {
+                state.logits[it->second] = NEG_INF;
+            }
+        }
+    } else {
+        for (int tok : mConfig.banned_tokens) {
+            if (tok >= 0 && tok < (int)state.logits.size()) {
+                state.logits[tok] = NEG_INF;
+            }
+        }
+    }
+    state.invalidateProbs();
+}
+
+void Sampler::stepSelect(SamplerState& state) {
+    if (mConfig.select_type == "greedy") {
+        // argmax
+        int bestIdx = 0;
+        float bestScore = state.logits[0];
+        for (int i = 1; i < (int)state.logits.size(); ++i) {
+            if (state.logits[i] > bestScore) {
+                bestScore = state.logits[i];
+                bestIdx = i;
+            }
+        }
+        state.selected_token = state.is_subset ? state.indices[bestIdx] : bestIdx;
+    } else {
+        // temperature random sampling
+        state.ensureProbs(mConfig.temperature);
+        std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+        float target = dist(mRng);
+        float cumulative = 0.0f;
+        int idx = (int)state.probs.size() - 1;
+        for (int i = 0; i < (int)state.probs.size(); ++i) {
+            cumulative += state.probs[i];
+            if (target < cumulative) {
+                idx = i;
+                break;
+            }
+        }
+        state.selected_token = state.is_subset ? state.indices[idx] : idx;
+    }
 }
 
 } // Transformer

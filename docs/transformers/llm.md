@@ -31,7 +31,7 @@
         --path /path/to/Qwen2-0.5B-Instruct \
         --export mnn --hqq
     ```
-    *   **关键产物**：脚本会生成一个包含 `llm.mnn`, `llm.mnn.weight`, `tokenizer.txt`, `embeddings_bf16.bin`【可能存在】, `llm_config.json`, `config.json` 等文件的模型目录。
+    *   **关键产物**：脚本会生成一个包含 `llm.mnn`, `llm.mnn.weight`, `tokenizer.mtok`, `embeddings_bf16.bin`【可能存在】, `llm_config.json`, `config.json` 等文件的模型目录。
 
 4.  **（可选）高级功能**：
     *   **量化**：通过 `--quant_bit 4` 和 `--quant_block 128` 等参数可以调节量化的Bits数，默认为`4 bit , block size 64`。通过 `--hqq` 或 `--awq` 或 `--omni` 可以启用对应算法以提升量化后的模型精度，一般建议增加`--hqq`
@@ -71,13 +71,13 @@
 此步骤是配置模型运行参数并启动推理。
 
 1.  **准备模型目录**：
-    将第一步导出的所有文件（`llm.mnn`, `llm.mnn.weight`, `tokenizer.txt`, `embeddings_bf16.bin`, `llm_config.json`）放在同一个文件夹下。
+    将第一步导出的所有文件（`llm.mnn`, `llm.mnn.weight`, `tokenizer.mtok`, `embeddings_bf16.bin`, `llm_config.json`）放在同一个文件夹下。
 
 2.  **配置 `config.json`**：
     编辑或使用自动生成的 `config.json` 文件，根据你的硬件和需求调整参数：
     *   **硬件**：设置 `backend_type` (如 `"cpu"`, `"opencl"`) 和 `thread_num`。
     *   **性能**：设置 `precision` (如 `"low"` for fp16) 和 `memory` (如 `"low"` for runtime quant)。
-    *   **生成**：设置 `max_new_tokens`, `sampler_type` (如 `"mixed"`), `temperature`, `topK`, `topP` 等。
+    *   **生成**：设置 `max_new_tokens`, `sampler_type` (默认 `"mixed"`), `temperature`, `top_k`, `top_p`, `repetition_penalty` 等。
     *   **高级**：设置 `reuse_kv` (多轮对话), `chunk` (内存分块) 等。
     *   **示例**：
         ```json
@@ -154,7 +154,7 @@ python llmexport.py \
 5. `llm.mnn.weight`: 模型的mnn权重，推理时使用；
 6. `llm.onnx`: 模型的onnx文件，不包含权重，推理时不使用；
 7. `llm_config.json`: 模型的配置信息，推理时使用；
-8. `tokenizer.txt`: 模型的tokenzier文件，推理时使用；
+8. `tokenizer.mtok`: 模型的tokenzier文件，推理时使用；
 目录结构如下所示：
 ```
 .
@@ -168,7 +168,7 @@ python llmexport.py \
           ├──llm.onnx
           ├──llm.onnx.data
      ├── llm_config.json
-     └── tokenizer.txt
+     └── tokenizer.mtok
 ```
 
 ### 功能
@@ -239,7 +239,7 @@ optional arguments:
 llmexport.py 同时支持 LLM 的验证功能，有较多的依赖。在没有相应环境的情况下，MNN-LLM也提供由 safetensors 或 gguf 文件读取权重的工具，可以降低内存需求，提高转换速度。使用方法如下：
 
 #### 权重读取前置工作
-1. 下载模型结构：在如下地址找到对应的MNN模型并下载（建文件夹 model，单独下载4个文件： llm.mnn , llm_config.json, tokenizer.txt , config.json）
+1. 下载模型结构：在如下地址找到对应的MNN模型并下载（建文件夹 model，单独下载4个文件： llm.mnn , llm_config.json, tokenizer.mtok , config.json）
 ```
 https://modelscope.cn/organization/MNN
 ```
@@ -358,7 +358,7 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
      ├── llm_config.json
      ├── llm.mnn
      ├── llm.mnn.weight
-     └── tokenizer.txt
+     └── tokenizer.mtok
 ```
 
 ##### 配置项
@@ -372,7 +372,7 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
   - lm_model: 分段模型时`lm.mnn`的实际路径为`base_dir + lm_model`，默认为`base_dir + 'lm.mnn'`
   - embedding_model: 当embedding使用模型时，embedding的实际路径为`base_dir + embedding_model`，默认为`base_dir + 'embedding.mnn'`
   - embedding_file: 当embedding使用二进制时，embedding的实际路径为`base_dir + embedding_file`，默认为`base_dir + 'embeddings_bf16.bin'`
-  - tokenizer_file: `tokenizer.txt`的实际名称路径为`base_dir + tokenizer_file`，默认为`base_dir + 'tokenizer.txt'`
+  - tokenizer_file: `tokenizer.mtok`的实际名称路径为`base_dir + tokenizer_file`，默认为`base_dir + 'tokenizer.mtok'`
   - visual_model: 当使用VL模型时，visual_model的实际路径为`base_dir + visual_model`，默认为`base_dir + 'visual.mnn'`、
   - audio_model: 当使用Audio模型时，audio_model的实际路径为`base_dir + audio_model`，默认为`base_dir + 'audio.mnn'`
   - Omni模型文件信息
@@ -388,7 +388,7 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
   - max_new_tokens: 生成时最大token数，默认为`512`
   - reuse_kv: 多轮对话时是否复用之前对话的`kv cache`，默认为`false`.
   - quant_qkv: 选项废弃，请使用 `attention_mode`
-  - attention_mode: 
+  - attention_mode:
     - CPU attention 算子中`query, key, value`是否量化，可选为：`0, 1, 2, 8, 9, 10`，默认为`8`，含义如下：
       - 0: 运行时不使用Flash Attention, query, key, value均不量化
       - 1: 运行时不使用Flash Attention, query和key使用8bit非对称量化，value不量化
@@ -420,18 +420,53 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
   - cpu_sme2_neon_division_ratio: 为了提高Arm SME后端多线程推理时性能，可根据模型、线程数定制化设置该参数。参数计算方式: Prefill阶段单个SME核和NEON核的工作量比例x:1，Decode阶段工作量比例y:1，
                                   则参数设置为8*x+y，x和y均是不大于7的正整数。41、49和33是常见的参数设置. 可以通过观察单线程推理时，SME后端相较于NEON后端的加速比来决定该参数的取值。默认是`41`.
 - Sampler配置
-  - sampler_type: 使用的sampler种类，目前支持`greedy`, `temperature`, `topK`, `topP`, `minP`, `tfs`, `typical`, `penalty`8种基本sampler，外加`mixed`(混合sampler，当选择`mixed`时，依次执行mixed_samplers中的sampler)。默认为`greedy`，但是建议使用`mixed`、`temperature`来增加输出多样性，或使用`penalty`来降低重复。
-  - mixed_samplers: 当`sampler_type`为`mixed`时有效，默认为`["topK", "tfs", "typical", "topP", "min_p", "temperature"]`, 模型计算得到的logits会依次经过这些sampler采样。
-  - temperature: `temperature`, `topP`, `minP`, `tfsZ`, `typical`中temerature值，默认为1.0
-  - topK: `topK`中top K 个的个数，默认为40
-  - topP: `topP`中top P的值，默认为0.9
-  - minP: `minP`中min P的值，默认为0.1
-  - tfsZ: `tfs`中Z的值，默认为1.0 (即不使用tfs算法)
-  - typical: `typical`中p的值，默认为1.0 (即不使用typical算法)
-  - penalty: `penalty`中对于logits中重复token的惩罚项，默认为0.0 (即不惩罚)，推荐值为1.05~1.5。
-  - n_gram: 最大存储的ngram大小，超过此大小的重复ngram将被禁止重复输出，仅在`penalty`选中时生效，默认为8
-  - ngram_factor: `penalty`中对于重复ngram (n>1) 的额外惩罚，默认为1.0，即没有额外惩罚
-  - penalty_sampler: `penalty`中施加完惩罚项后采用的sampling策略，可选"greedy"或"temperature"，默认greedy.
+
+  MNN-LLM 采用pipeline架构的采样器，模型输出的logits依次经过各采样步骤处理，最终选出一个token。支持以下9种采样器及`mixed`混合模式：
+
+  **采样器类型说明**
+
+  | 采样器 | 别名 | 说明 |
+  |--------|------|------|
+  | `greedy` | - | 贪心采样，直接选择logit最大的token，输出完全确定性，不受temperature等参数影响 |
+  | `temperature` | - | 温度采样，将logits除以temperature后做softmax得到概率分布，再按概率随机采样。temperature越高输出越随机，越低越确定 |
+  | `topK` | `top_k` | 仅保留logit值最大的K个候选token，丢弃其余token，缩小采样范围后再采样 |
+  | `topP` | `top_p` | 核采样(Nucleus Sampling)，将token按概率从高到低排序，保留累积概率刚好超过P的最小token集合，丢弃长尾低概率token |
+  | `minP` | `min_p` | 最小概率采样，丢弃概率低于阈值P的token。与topP不同，minP是绝对阈值而非累积阈值 |
+  | `tfs` | - | 尾部自由采样(Tail Free Sampling)，通过计算概率分布的二阶导数来定位分布的"尾部"，裁剪掉尾部的低概率token。参数Z控制裁剪程度，Z=1.0表示不裁剪 |
+  | `typical` | - | 典型采样(Typical Sampling)，保留信息量（-log(p)）最接近分布熵的token，丢弃信息量异常高或低的token。参数P控制保留的累积概率 |
+  | `penalty` | - | 重复惩罚，对已生成的token施加惩罚以降低重复。支持三种惩罚方式：乘性的repetition_penalty、加性的presence_penalty和频率相关的frequency_penalty |
+  | `mixed` | - | 混合模式，按`mixed_samplers`列表中的顺序依次执行多个采样器。logit_bias和banned_tokens会在其他步骤之前执行，penalty会被移到最前面 |
+
+  > **名称兼容性说明**：`topK`/`top_k`、`topP`/`top_p`、`minP`/`min_p` 在采样器名称和配置参数中均可互换使用。配置参数中同时支持 snake_case 和 camelCase 写法（如 `top_k` 与 `topK`），优先读取 snake_case 版本。旧配置中的 `penalty` 字段会自动映射为 `repetition_penalty`。
+
+  **配置参数**
+
+  - sampler_type: 使用的采样器种类，默认为`mixed`。可选值见上表。
+  - mixed_samplers: 当`sampler_type`为`mixed`时有效，默认为`["topK", "tfs", "typical", "topP", "min_p", "temperature"]`，模型计算得到的logits会依次经过这些采样器处理。
+  - temperature: 温度参数，用于`temperature`/`topP`/`minP`/`tfs`/`typical`采样中的softmax计算，默认为1.0。值越大输出越随机，值越小输出越确定。
+  - top_k/topK: Top-K采样的K值，保留概率最大的K个token，默认为40。（支持`top_k`或`topK`两种写法，优先读取`top_k`）
+  - top_p/topP: Top-P采样的P值，保留累积概率达到P的最小token集合，默认为0.9。（支持`top_p`或`topP`两种写法，优先读取`top_p`）
+  - min_p/minP: Min-P采样的P值，丢弃概率低于P的token，默认为0.1。（支持`min_p`或`minP`两种写法，优先读取`min_p`）
+  - tfs_z/tfsZ: TFS采样的Z值，控制尾部裁剪程度，默认为1.0（即不裁剪）。值越小裁剪越激进。（支持`tfs_z`或`tfsZ`两种写法，优先读取`tfs_z`）
+  - typical: Typical采样的P值，控制保留的累积概率，默认为1.0（即不过滤）。推荐值0.9~0.99。
+  - repetition_penalty: 重复惩罚系数（乘性），对已出现的token，正logit除以该值、负logit乘以该值，使其概率降低。默认为1.0（不惩罚），推荐值1.05~1.5。向后兼容旧配置中的`penalty`字段。
+  - presence_penalty: 存在惩罚（加性），对已出现过的每个token的logit减去该值，不论出现几次惩罚相同。默认为0.0。
+  - frequency_penalty: 频率惩罚（加性），对已出现的token按出现次数成比例扣减logit，出现N次则减去`N * frequency_penalty`。默认为0.0。
+  - penalty_window: 惩罚窗口大小，仅对最近N个token施加惩罚。0表示对全部历史token施加惩罚，默认为0。
+  - n_gram: 最大存储的ngram大小，超过此大小的重复ngram将被施加更强惩罚，仅在`penalty`选中时生效，默认为8。
+  - ngram_factor: 对重复ngram (n>1) 的额外惩罚倍率，匹配越长惩罚越强（逐级乘以ngram_factor）。默认为1.0（无额外惩罚）。
+  - penalty_sampler: `penalty`模式下施加完惩罚项后的最终采样策略，可选`"greedy"`或`"temperature"`，默认`"greedy"`。
+  - logit_bias: 对指定token的logit施加偏置，格式为`{"token_id": bias_value}`的JSON对象，正值增加生成概率，负值降低。默认为空。token_id可通过tokenizer获取，示例：
+    ```json
+    {
+        "logit_bias": {
+            "198": -100.0,
+            "151643": 5.0
+        }
+    }
+    ```
+    上例中，token 198 (如换行符) 的logit减少100（几乎禁止生成），token 151643 的logit增加5（提高生成概率）。
+  - banned_tokens: 禁止生成的token id列表，这些token的logit会被设为负无穷。默认为空。示例：`"banned_tokens": [198, 151643]`
 - 投机解码配置项
   - speculative_type: 投机解码算法设置，当前仅支持配置为`lookahead`(使用外接知识库/输入prompt信息去生成草稿做投机验证),通常需要较完备的知识库或者输入prompt与输出重合度较高的场景(例如：代码编辑、文本总结)才有较明显加速。
   - draft_predict_length: 草稿长度，通常设置2-8之间，默认为4。
@@ -459,11 +494,13 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
       "memory": "low",
       "sampler_type": "mixed",
       "mixed_samplers": ["topK", "tfs", "typical", "topP", "min_p", "temperature"],
-      "temperature": 1.0,
-      "topK": 40,
-      "topP": 0.9,
-      "tfsZ": 1.0,
-      "minP": 0.1,
+      "temperature": 0.8,
+      "top_k": 40,
+      "top_p": 0.9,
+      "min_p": 0.05,
+      "tfs_z": 1.0,
+      "typical": 0.95,
+      "repetition_penalty": 1.0,
       "reuse_kv": true
   }
   ```
