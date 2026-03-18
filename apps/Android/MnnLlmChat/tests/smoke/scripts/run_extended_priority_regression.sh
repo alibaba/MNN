@@ -14,6 +14,7 @@ RUN_LATEX_RENDER_SMOKE="${RUN_LATEX_RENDER_SMOKE:-false}"
 RUN_TABLE_RENDER_SMOKE="${RUN_TABLE_RENDER_SMOKE:-false}"
 RUN_VOICE_DUMPAPP_SMOKE="${RUN_VOICE_DUMPAPP_SMOKE:-false}"
 RUN_VOICE_UI_SMOKE="${RUN_VOICE_UI_SMOKE:-false}"
+RUN_MODEL_SETTINGS_CONFIG_UI_SMOKE="${RUN_MODEL_SETTINGS_CONFIG_UI_SMOKE:-true}"
 
 step_status() {
   local k="$1"
@@ -105,6 +106,12 @@ if [ "$RUN_API_UIAUTOMATOR_TEST" = "true" ]; then
     "$ARTIFACT_DIR/api_uiautomator/summary.txt"
 fi
 
+if [ "$RUN_MODEL_SETTINGS_CONFIG_UI_SMOKE" = "true" ]; then
+  run_step_with_watch "STEP_MODEL_SETTINGS_CONFIG" "[STEP] Model settings (home+chat) + config dump UiAutomator (guards #4259)" \
+    "$SCRIPT_DIR/15_regress_model_settings_config_ui.sh" \
+    "$ARTIFACT_DIR/model_settings_config_ui/summary.txt"
+fi
+
 if [ "$RUN_SANA_DIFFUSION_REGRESSION" = "true" ]; then
   run_step_with_watch "STEP8" "[STEP 8] Sana+Diffusion no-UI dumpapp regression" \
     "$SCRIPT_DIR/noui/10_regress_sana_diffusion_dumpapp.sh" \
@@ -146,7 +153,7 @@ run_step_with_watch "STEP10" "[STEP 10] Generate single-page HTML report" \
 
 {
   echo "EXTENDED_PRIORITY_REGRESSION=${overall}"
-  echo "COVERAGE=benchmark_noui,api_dumpapp,benchmark_ui,text_input,image_input_entry,latex_render_optional,table_render_optional,download_pause_resume_delete,api_uiautomator_optional,sana_diffusion_dumpapp_optional,sana_diffusion_uiautomator_optional,storage_dumpapp_smoke_optional,storage_ui_optional,voice_dumpapp_optional,voice_ui_optional"
+  echo "COVERAGE=benchmark_noui,api_dumpapp,benchmark_ui,text_input,image_input_entry,latex_render_optional,table_render_optional,download_pause_resume_delete,model_settings_config_ui,api_uiautomator_optional,sana_diffusion_dumpapp_optional,sana_diffusion_uiautomator_optional,storage_dumpapp_smoke_optional,storage_ui_optional,voice_dumpapp_optional,voice_ui_optional"
   echo "ARTIFACT_ROOT=$ARTIFACT_DIR"
   echo "REPORT_HTML=$ARTIFACT_DIR/report.html"
   echo "RUN_API_UIAUTOMATOR_TEST=$RUN_API_UIAUTOMATOR_TEST"
@@ -157,6 +164,7 @@ run_step_with_watch "STEP10" "[STEP 10] Generate single-page HTML report" \
   echo "RUN_TABLE_RENDER_SMOKE=$RUN_TABLE_RENDER_SMOKE"
   echo "RUN_VOICE_DUMPAPP_SMOKE=$RUN_VOICE_DUMPAPP_SMOKE"
   echo "RUN_VOICE_UI_SMOKE=$RUN_VOICE_UI_SMOKE"
+  echo "RUN_MODEL_SETTINGS_CONFIG_UI_SMOKE=$RUN_MODEL_SETTINGS_CONFIG_UI_SMOKE"
 } >"$ARTIFACT_DIR/extended_priority_summary.txt"
 
 cat "$ARTIFACT_DIR/extended_priority_summary.txt"

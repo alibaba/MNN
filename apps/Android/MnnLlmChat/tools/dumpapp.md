@@ -132,6 +132,13 @@ Inspect and clean app internal storage, especially mmap cache leftovers.
 - `dumpapp storage clean <path>`: clean one relative path under `filesDir`.
 - `dumpapp storage verify`: output a machine-readable integrity check.
 
+### `config`
+
+Validate model config loading (guards issue #4259).
+
+- `dumpapp config validate <modelId>`: verify config path is a file (not directory) and loadMergedConfig succeeds. Fails if settings would receive wrong path (e.g. model directory instead of config.json).
+- `dumpapp config dump <modelId>`: dump merged config (config_path, llm_model, llm_weight, system_prompt). RESULT=FAIL if llm_model/llm_weight empty (corrupted).
+
 ### `llm`
 
 Manage the OpenAI-service-side LLM runtime session.

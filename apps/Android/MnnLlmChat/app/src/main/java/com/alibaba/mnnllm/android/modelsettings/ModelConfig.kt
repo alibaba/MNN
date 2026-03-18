@@ -238,6 +238,17 @@ data class ModelConfig(
             return getModelConfigDir(modelId) + "/custom_config.json"
         }
 
+        /** Delete custom_config.json so next load uses base config.json only (restores defaults). */
+        fun deleteExtraConfig(modelId: String): Boolean {
+            return try {
+                val file = File(getExtraConfigFile(modelId))
+                file.exists() && file.delete()
+            } catch (e: Exception) {
+                Log.e(TAG, "deleteExtraConfig error", e)
+                false
+            }
+        }
+
         fun getMarketConfigFile(modelId: String):String {
             if (modelId.startsWith("local/")) {
                 val localPath = modelId.removePrefix("local/")
@@ -261,8 +272,8 @@ data class ModelConfig(
         }
 
         val defaultConfig:ModelConfig = ModelConfig (
-            llmModel = "",
-            llmWeight = "",
+            llmModel = null,
+            llmWeight = null,
             backendType = null,
             threadNum = 4,
             precision = "low",

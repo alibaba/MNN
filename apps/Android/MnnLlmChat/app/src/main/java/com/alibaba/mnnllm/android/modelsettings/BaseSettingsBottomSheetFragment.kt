@@ -64,6 +64,7 @@ abstract class BaseSettingsBottomSheetFragment : BaseBottomSheetDialogFragment()
         lifecycleScope.launch {
             loadSettingsAsync()
             setupUI()
+            refreshUIFromConfig()
             setupActionButtons()
         }
     }
@@ -117,6 +118,12 @@ abstract class BaseSettingsBottomSheetFragment : BaseBottomSheetDialogFragment()
     protected abstract fun setupUI()
 
     /**
+     * Refresh UI from currentConfig after load. Override to populate EditTexts etc.
+     * Called after loadSettingsAsync and setupUI so saved values (e.g. system prompt) are displayed.
+     */
+    protected open fun refreshUIFromConfig() {}
+
+    /**
      * Setup action buttons (Cancel, Save, Reset)
      */
     protected abstract fun setupActionButtons()
@@ -127,10 +134,14 @@ abstract class BaseSettingsBottomSheetFragment : BaseBottomSheetDialogFragment()
     protected abstract fun saveSettings()
 
     /**
-     * Reset settings to defaults. Loads config off main thread to avoid ANR.
+     * Reset settings to defaults. Deletes custom_config.json so base config.json is used,
+     * then reloads. Ensures default system prompt and other defaults are restored.
      */
     protected open fun resetSettingsToDefaults() {
         lifecycleScope.launch {
+            withContext(Dispatchers.IO) {
+                ModelConfig.deleteExtraConfig(_modelId)
+            }
             loadSettingsAsync()
             onAfterSettingsReset()
         }

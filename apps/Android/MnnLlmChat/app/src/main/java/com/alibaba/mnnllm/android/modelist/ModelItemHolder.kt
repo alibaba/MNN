@@ -348,12 +348,12 @@ class ModelItemHolder(
                     if (ModelTypeUtils.isDiffusionModel(modelId!!)) {
                         val settingsSheet = DiffusionSettingsBottomSheetFragment()
                         settingsSheet.setModelId(modelId)
-                        settingsSheet.setConfigPath(modelItem.localPath)
+                        settingsSheet.setConfigPath(ModelUtils.getConfigPathForModel(modelItem))
                         settingsSheet.show(fragmentManager, DiffusionSettingsBottomSheetFragment.TAG)
                     } else {
                         val settingsSheet = SettingsBottomSheetFragment()
                         settingsSheet.setModelId(modelId)
-                        settingsSheet.setConfigPath(modelItem.localPath)
+                        settingsSheet.setConfigPath(ModelUtils.getConfigPathForModel(modelItem))
                         settingsSheet.show(fragmentManager, SettingsBottomSheetFragment.TAG)
                     }
                 }

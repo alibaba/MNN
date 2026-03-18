@@ -62,13 +62,13 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
 
     override fun loadSettings() {
         super.loadSettings()
+        refreshUIFromConfig()
+    }
+
+    override fun refreshUIFromConfig() {
         updateSamplerSettings()
-        
-        // Max tokens
         currentConfig.maxNewTokens = currentConfig.maxNewTokens ?: defaultConfig.maxNewTokens
         binding.editMaxNewTokens.setText(currentConfig.maxNewTokens.toString())
-
-        // System prompt
         currentConfig.systemPrompt = currentConfig.systemPrompt ?: defaultConfig.systemPrompt
         binding.editTextSystemPrompt.setText(currentConfig.systemPrompt)
     }
@@ -563,7 +563,14 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
 
     override fun onAfterSettingsReset() {
         super.onAfterSettingsReset()
+        currentConfig.systemPrompt = currentConfig.systemPrompt ?: defaultConfig.systemPrompt
+        binding.editTextSystemPrompt.setText(currentConfig.systemPrompt)
+        currentConfig.maxNewTokens = currentConfig.maxNewTokens ?: defaultConfig.maxNewTokens
+        binding.editMaxNewTokens.setText(currentConfig.maxNewTokens.toString())
+        updateSamplerSettings()
         updateSamplerSettingsVisibility()
+        chatSession?.updateSystemPrompt(currentConfig.systemPrompt ?: defaultConfig.systemPrompt ?: "")
+        chatSession?.updateMaxNewTokens(currentConfig.maxNewTokens ?: defaultConfig.maxNewTokens ?: 2048)
     }
 
     override fun onDestroyView() {

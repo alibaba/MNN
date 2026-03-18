@@ -32,6 +32,7 @@ STATUS_LOG="$OUT_DIR/openai_status.log"
 PREFS_LOG="$OUT_DIR/prefs.log"
 LLM_ENSURE_LOG="$OUT_DIR/llm_ensure.log"
 LLM_RUN_USE_APP_CONFIG_LOG="$OUT_DIR/llm_run_use_app_config.log"
+CONFIG_VALIDATE_LOG="$OUT_DIR/config_validate.log"
 LLM_THINKING_GET_LOG="$OUT_DIR/llm_thinking_get.log"
 LLM_THINKING_SET_ON_LOG="$OUT_DIR/llm_thinking_set_on.log"
 LLM_THINKING_SET_OFF_LOG="$OUT_DIR/llm_thinking_set_off.log"
@@ -551,6 +552,14 @@ fi
 if ! verify_duplicate_start_regression; then
   echo "duplicate openai service start regression failed; see $DIAG_LOG" >&2
   write_fail_summary "DUPLICATE_START_REGRESSION_FAILED"
+  exit 1
+fi
+
+echo "[API_DUMPAPP] config validate (guards #4259: config path must be file not directory)"
+run_dumpapp_with_retry "$CONFIG_VALIDATE_LOG" config validate "$API_BOOTSTRAP_MODEL_ID"
+if ! rg -q '^RESULT=OK$' "$CONFIG_VALIDATE_LOG"; then
+  echo "[API_DUMPAPP] config validate failed, log: $CONFIG_VALIDATE_LOG" >&2
+  write_fail_summary "CONFIG_VALIDATE_FAILED"
   exit 1
 fi
 
