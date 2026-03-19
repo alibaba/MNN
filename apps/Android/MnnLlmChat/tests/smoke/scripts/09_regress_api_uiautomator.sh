@@ -27,6 +27,10 @@ pushd "$PROJECT_DIR" >/dev/null
 ./gradlew :app:installStandardDebug :app:installStandardDebugAndroidTest >/dev/null
 popd >/dev/null
 
+# Android 13+ may surface the notification runtime permission on first launch.
+# Grant it up front so the UiAutomator flow is not blocked by a system dialog.
+adb -s "$DEVICE_ID" shell pm grant com.alibaba.mnnllm.android android.permission.POST_NOTIFICATIONS >/dev/null 2>&1 || true
+
 set +e
 adb -s "$DEVICE_ID" shell am instrument -w -r -e class "$TEST_CLASS" "$INSTRUMENTATION" >"$LOG_FILE" 2>&1
 RC=$?
