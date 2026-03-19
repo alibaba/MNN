@@ -108,14 +108,10 @@ exists_any_rid() {
   return 1
 }
 
-# 1. Start App and enable mock-latex
+# 1. Prepare mock latex content
 ensure_device_unlocked
 adb shell am force-stop "$PACKAGE_NAME"
 sleep 1
-adb shell monkey -p "$PACKAGE_NAME" -c android.intent.category.LAUNCHER 1 >/dev/null
-sleep 3
-dump_ui "$TMP_XML"
-shot "01_after_launch"
 
 # Push mock latex content with complex formulas
 MOCK_CONTENT_FILE="$ARTIFACT_DIR/mock_latex.txt"
@@ -137,82 +133,43 @@ $$
 EOF
 adb push "$MOCK_CONTENT_FILE" /data/local/tmp/mock_latex.txt
 
-# Try enabling mock-latex via dumpapp (ignore failure if service not running yet, retry later if needed)
-python3 "$SMOKE_DIR/../../tools/dumpapp" llm mock-latex on /data/local/tmp/mock_latex.txt | tee -a "$UI_LOG" || true
-
-# 2. Enter Chat
-if exists_any_rid "$TMP_XML" "com.alibaba.mnnllm.android:id/et_message" "com.alibaba.mnnllm.android.release:id/et_message"; then
-  echo "ENTRY_ALREADY_ON_CHAT ts=$(date '+%H:%M:%S')" | tee -a "$UI_LOG"
-elif tap_by_rid_text "$TMP_XML" "对话" \
-  "com.alibaba.mnnllm.android:id/btn_download_action" \
-  "com.alibaba.mnnllm.android.release:id/btn_download_action" \
-  || tap_by_rid_contains_text "$TMP_XML" "对话" \
-  "com.alibaba.mnnllm.android:id/btn_download_action" \
-  "com.alibaba.mnnllm.android.release:id/btn_download_action"; then
-  sleep 3
-  dump_ui "$TMP_XML"
-elif tap_by_any_rid "$TMP_XML" "com.alibaba.mnnllm.android:id/tab_chat" "com.alibaba.mnnllm.android.release:id/tab_chat"; then
-  sleep 2
-  dump_ui "$TMP_XML"
-elif tap_by_any_rid "$TMP_XML" "com.alibaba.mnnllm.android:id/btn_cloud_chat" "com.alibaba.mnnllm.android.release:id/btn_cloud_chat"; then
-  # 如果找不到普通对话，可能需要使用云端服务进行聊天入口（前提是我们的 mock 可以接管）
-  sleep 2
-  dump_ui "$TMP_XML"
-else
-  # 兜底：如果直接在应用中心，尝试寻找“我的模型”列表中的任意模型进行点击
-  tap_by_any_rid "$TMP_XML" "com.alibaba.mnnllm.android:id/tvModelTitle" "com.alibaba.mnnllm.android.release:id/tvModelTitle" || true
-  sleep 2
-  dump_ui "$TMP_XML"
-  tap_by_rid_contains_text "$TMP_XML" "对话" "com.alibaba.mnnllm.android:id/btn_download_action" || true
-  sleep 3
-  dump_ui "$TMP_XML"
-  if ! exists_any_rid "$TMP_XML" "com.alibaba.mnnllm.android:id/et_message" "com.alibaba.mnnllm.android.release:id/et_message"; then
-    echo "CHAT_ENTRY_NOT_FOUND" >&2
-    exit 1
-  fi
+# 2. Launch mock chat directly so this case only validates latex rendering
+echo "LAUNCH_MOCK_CHAT ts=$(date '+%H:%M:%S')" | tee -a "$UI_LOG"
+adb shell am start -W \
+  -n "$PACKAGE_NAME/.chat.ChatActivity" \
+  --es modelName "Qwen" \
+  --es modelId "mock" \
+  --ez mock_stream_enable true \
+  --es mock_stream_content_file "/data/local/tmp/mock_latex.txt" \
+  --el mock_stream_interval_ms 20 >/dev/null
+sleep 1
+dump_ui "$TMP_XML"
+shot "01_after_launch"
+if ! exists_any_rid "$TMP_XML" "com.alibaba.mnnllm.android:id/recyclerView" "com.alibaba.mnnllm.android.release:id/recyclerView"; then
+  echo "MOCK_CHAT_NOT_FOUND" >&2
+  exit 1
 fi
 shot "02_chat_entered"
 
-# Ensure mock-latex is ON again in case we just started the session UI
-python3 "$SMOKE_DIR/../../tools/dumpapp" llm mock-latex on /data/local/tmp/mock_latex.txt | tee -a "$UI_LOG" || true
-
-# 3. Input text and send
-tap_by_any_rid "$TMP_XML" "com.alibaba.mnnllm.android:id/et_message" "com.alibaba.mnnllm.android.release:id/et_message"
-# Switch to ASCII-only IME to avoid Chinese pinyin conversion (Gboard Latin is common on these devices)
-adb shell ime set com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME 2>/dev/null || \
-adb shell ime set com.android.inputmethod.latin/.LatinIME 2>/dev/null || true
+# 3. Observe streaming and dump UI during generation
 sleep 1
-echo "CURRENT_IME=$(adb shell settings get secure default_input_method)" | tee -a "$UI_LOG"
-adb shell input text "smoke_test_LaTeX_streaming"
-# Restore default IME
-adb shell ime reset 2>/dev/null || true
-sleep 1
-dump_ui "$TMP_XML"
-shot "03_before_send"
-tap_by_any_rid "$TMP_XML" "com.alibaba.mnnllm.android:id/btn_send" "com.alibaba.mnnllm.android.release:id/btn_send"
-
-# 4. Observe streaming and dump UI during generation
-sleep 1
-shot "04_generating_1"
+shot "03_generating_1"
 dump_ui "$TMP_XML"
 cp "$TMP_XML" "$ARTIFACT_DIR/latex_io/generating_1.xml"
 
 sleep 1
-shot "05_generating_2"
+shot "04_generating_2"
 dump_ui "$TMP_XML"
 cp "$TMP_XML" "$ARTIFACT_DIR/latex_io/generating_2.xml"
 
-# Wait for finish (mock stream is short, ~2-3 seconds total)
+# Wait for finish
 sleep 4
-shot "06_finished"
+shot "05_finished"
 dump_ui "$TMP_XML"
 cp "$TMP_XML" "$ARTIFACT_DIR/latex_io/finished.xml"
 
 # Print check result
 echo "LATEX_TEST=PASS" > "$ARTIFACT_DIR/latex_io/summary.txt"
 echo "Check screenshots in $SHOT_DIR to verify no bad flickering or unrendered Math equations." >> "$ARTIFACT_DIR/latex_io/summary.txt"
-
-# Turn off mock-latex
-python3 "$SMOKE_DIR/../../tools/dumpapp" llm mock-latex off | tee -a "$UI_LOG" || true
 
 exit 0

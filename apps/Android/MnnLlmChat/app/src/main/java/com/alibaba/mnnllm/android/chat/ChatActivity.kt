@@ -55,6 +55,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.io.File
 import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -243,7 +244,7 @@ class ChatActivity : AppCompatActivity() {
             EXTRA_MOCK_STREAM_PAUSE_ON_DETACH,
             false
         )
-        val mockText = buildMockStreamText(textLength, lineWidth)
+        val mockText = resolveMockStreamText(textLength, lineWidth)
         val userData = createUserMessage("mock long stream")
         onGenerateStart(userData)
         val processor = GenerateResultProcessor()
@@ -293,6 +294,25 @@ class ChatActivity : AppCompatActivity() {
         }
         mockStreamRunnable = streamRunnable
         mockStreamHandler.post(streamRunnable)
+    }
+
+    private fun resolveMockStreamText(textLength: Int, lineWidth: Int): String {
+        val inlineContent = intent.getStringExtra(EXTRA_MOCK_STREAM_CONTENT)
+        if (!inlineContent.isNullOrEmpty()) {
+            return inlineContent
+        }
+
+        val contentFile = intent.getStringExtra(EXTRA_MOCK_STREAM_CONTENT_FILE)
+        if (!contentFile.isNullOrEmpty()) {
+            return try {
+                File(contentFile).readText()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to read mock stream content file: $contentFile", e)
+                buildMockStreamText(textLength, lineWidth)
+            }
+        }
+
+        return buildMockStreamText(textLength, lineWidth)
     }
 
     private fun buildMockStreamText(length: Int, lineWidth: Int): String {
@@ -1012,6 +1032,8 @@ class ChatActivity : AppCompatActivity() {
     companion object {
         const val TAG: String = "ChatActivity"
         const val EXTRA_MOCK_STREAM_ENABLE = "mock_stream_enable"
+        const val EXTRA_MOCK_STREAM_CONTENT = "mock_stream_content"
+        const val EXTRA_MOCK_STREAM_CONTENT_FILE = "mock_stream_content_file"
         const val EXTRA_MOCK_STREAM_TEXT_LENGTH = "mock_stream_text_length"
         const val EXTRA_MOCK_STREAM_INTERVAL_MS = "mock_stream_interval_ms"
         const val EXTRA_MOCK_STREAM_LINE_WIDTH = "mock_stream_line_width"

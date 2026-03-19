@@ -37,7 +37,8 @@ VERSION_CODE=$(awk '
     in_default && /\}/ { in_default=0 }
 ' app/build.gradle)
 BUILD_DATE=$(date +"%Y%m%d_%H%M%S")
-RELEASE_HIGHLIGHTS="${RELEASE_HIGHLIGHTS:-Fix download deletion failure bug|Support Sana image edit model}"
+RELEASE_HIGHLIGHTS="${RELEASE_HIGHLIGHTS:-}"
+PREVIOUS_VERSION="${PREVIOUS_VERSION:-}"
 
 # Directories
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -63,6 +64,9 @@ CDN_BUCKET="${CDN_BUCKET:-}"
 GOOGLE_PLAY_SERVICE_ACCOUNT="${GOOGLE_PLAY_SERVICE_ACCOUNT:-}"
 GOOGLE_PLAY_PACKAGE_NAME="${GOOGLE_PLAY_PACKAGE_NAME:-com.alibaba.mnnllm.android.googleplay}"
 ENABLE_FIREBASE="${ENABLE_FIREBASE:-true}"
+MNN_FIREBASE_CONFIG_DIR="${MNN_FIREBASE_CONFIG_DIR:-$HOME/.mnn}"
+MNN_FIREBASE_DEV_CONFIG="${MNN_FIREBASE_DEV_CONFIG:-$MNN_FIREBASE_CONFIG_DIR/google-services-dev.json}"
+MNN_FIREBASE_RELEASE_CONFIG="${MNN_FIREBASE_RELEASE_CONFIG:-$MNN_FIREBASE_CONFIG_DIR/google-services-release.json}"
 
 STANDARD_GRADLE_ARGS=()
 GOOGLEPLAY_GRADLE_ARGS=()
@@ -86,6 +90,47 @@ log_error() {
 
 has_google_services_config() {
     [[ -f "app/google-services.json" ]] || [[ -f "app/src/googleplay/google-services.json" ]] || [[ -f "app/src/standard/google-services.json" ]]
+}
+
+detect_previous_version() {
+    local readme_file="README.md"
+    if [[ ! -f "$readme_file" ]]; then
+        return
+    fi
+
+    awk -v current="$VERSION_NAME" '
+        /^## Version / {
+            version=$3
+            if (seen_current && version != current) {
+                print version
+                exit
+            }
+            if (version == current) {
+                seen_current=1
+            }
+        }
+    ' "$readme_file"
+}
+
+prepare_google_services_config() {
+    if [[ "$ENABLE_FIREBASE" != "true" ]]; then
+        return
+    fi
+
+    if [[ ! -f "$MNN_FIREBASE_DEV_CONFIG" ]]; then
+        log_error "Missing standard/debug Firebase config: $MNN_FIREBASE_DEV_CONFIG"
+        exit 1
+    fi
+
+    if [[ ! -f "$MNN_FIREBASE_RELEASE_CONFIG" ]]; then
+        log_error "Missing Google Play/release Firebase config: $MNN_FIREBASE_RELEASE_CONFIG"
+        exit 1
+    fi
+
+    mkdir -p "app/src/standard" "app/src/googleplay"
+    cp "$MNN_FIREBASE_DEV_CONFIG" "app/src/standard/google-services.json"
+    cp "$MNN_FIREBASE_RELEASE_CONFIG" "app/src/googleplay/google-services.json"
+    log_info "Prepared Firebase configs for standard(debug) and googleplay(release) flavors."
 }
 
 check_requirements() {
@@ -120,6 +165,7 @@ check_requirements() {
     fi
 
     if [[ "$ENABLE_FIREBASE" == "true" ]]; then
+        prepare_google_services_config
         if has_google_services_config; then
             STANDARD_GRADLE_ARGS+=("-PENABLE_FIREBASE=true")
             GOOGLEPLAY_GRADLE_ARGS+=("-PENABLE_FIREBASE=true")
@@ -274,6 +320,8 @@ generate_release_notes() {
     APK_FILENAME="mnn_chat_${VERSION_FILENAME}.apk"
     
     RELEASE_NOTES_FILE="$OUTPUT_DIR/release_notes.md"
+    local previous_version_resolved="${PREVIOUS_VERSION:-$(detect_previous_version)}"
+
     cat > "$RELEASE_NOTES_FILE" << EOF
 # Release Notes - $PROJECT_NAME v$VERSION_NAME
 
@@ -310,10 +358,19 @@ EOF
 
     echo "" >> "$RELEASE_NOTES_FILE"
     echo "## Release Highlights" >> "$RELEASE_NOTES_FILE"
-    IFS='|' read -r -a highlight_items <<< "$RELEASE_HIGHLIGHTS"
-    for item in "${highlight_items[@]}"; do
-        echo "- $item" >> "$RELEASE_NOTES_FILE"
-    done
+    if [[ -n "$RELEASE_HIGHLIGHTS" ]]; then
+        IFS='|' read -r -a highlight_items <<< "$RELEASE_HIGHLIGHTS"
+        for item in "${highlight_items[@]}"; do
+            echo "- $item" >> "$RELEASE_NOTES_FILE"
+        done
+    else
+        echo "- Release highlights were not provided." >> "$RELEASE_NOTES_FILE"
+        if [[ -n "$previous_version_resolved" ]]; then
+            log_warning "RELEASE_HIGHLIGHTS is empty. Provide highlights that summarize the delta from v$previous_version_resolved."
+        else
+            log_warning "RELEASE_HIGHLIGHTS is empty. Release notes were generated without a curated change summary."
+        fi
+    fi
     
     log_success "Release notes generated: $RELEASE_NOTES_FILE"
 }

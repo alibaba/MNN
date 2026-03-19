@@ -62,6 +62,15 @@ This is our full multimodal language model (LLM) Android app
 
 # Releases
 
+## Version 0.8.2
++ Click here to [download](https://meta.alicdn.com/data/mnn/apks/mnn_chat_0_8_2.apk)
++ Highlights:
+  + Support real-time vision in voice chat.
+  + Restore chat auto-scroll after resume.
++ Bugfix:
+  + Fix model settings config path and reset behavior.
+  + Improve LaTeX and markdown-table streaming render regression coverage.
+
 ## Version 0.8.1.3
 + Click here to [download](https://meta.alicdn.com/data/mnn/apks/mnn_chat_0_8_1_3.apk)
 + Bugfix:

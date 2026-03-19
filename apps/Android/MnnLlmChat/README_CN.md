@@ -58,6 +58,15 @@
   ```
 # Releases
 
+## Version 0.8.2
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/apks/mnn_chat_0_8_2.apk)
++ 更新亮点：
+  + 支持在语音聊天中实时使用视觉输入。
+  + 恢复聊天页面返回后的自动滚动。
++ 问题修复：
+  + 修复模型设置的配置路径与重置行为。
+  + 提升 LaTeX 与 Markdown 表格流式渲染的回归覆盖。
+
 ## Version 0.8.1.3
 + 点击这里 [下载](https://meta.alicdn.com/data/mnn/apks/mnn_chat_0_8_1_3.apk)
 + 问题修复：

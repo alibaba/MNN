@@ -111,10 +111,6 @@ exists_any_rid() {
 ensure_device_unlocked
 adb shell am force-stop "$PACKAGE_NAME"
 sleep 1
-adb shell monkey -p "$PACKAGE_NAME" -c android.intent.category.LAUNCHER 1 >/dev/null
-sleep 3
-dump_ui "$TMP_XML"
-shot "01_after_launch"
 
 MOCK_CONTENT_FILE="$ARTIFACT_DIR/mock_table.md"
 cat << 'EOF' >"$MOCK_CONTENT_FILE"
@@ -130,98 +126,36 @@ cat << 'EOF' >"$MOCK_CONTENT_FILE"
 EOF
 adb push "$MOCK_CONTENT_FILE" /data/local/tmp/mock_table.md
 
-# Reuse the existing mock streaming hook. The command name is historical,
-# but it can load arbitrary markdown content from a file.
-python3 "$SMOKE_DIR/../../tools/dumpapp" llm mock-latex on /data/local/tmp/mock_table.md | tee -a "$UI_LOG" || true
-
-if exists_any_rid "$TMP_XML" "com.alibaba.mnnllm.android:id/et_message" "com.alibaba.mnnllm.android.release:id/et_message"; then
-  echo "ENTRY_ALREADY_ON_CHAT ts=$(date '+%H:%M:%S')" | tee -a "$UI_LOG"
-elif exists_any_rid "$TMP_XML" \
-  "com.alibaba.mnnllm.android:id/tab_local_models" \
-  "com.alibaba.mnnllm.android.release:id/tab_local_models" \
-  && exists_any_rid "$TMP_XML" \
-  "com.alibaba.mnnllm.android:id/recycler_item_model_parent" \
-  "com.alibaba.mnnllm.android.release:id/recycler_item_model_parent"; then
-  tap_by_any_rid "$TMP_XML" \
-    "com.alibaba.mnnllm.android:id/recycler_item_model_parent" \
-    "com.alibaba.mnnllm.android.release:id/recycler_item_model_parent"
-  sleep 3
-  dump_ui "$TMP_XML"
-elif tap_by_rid_text "$TMP_XML" "对话" \
-  "com.alibaba.mnnllm.android:id/btn_download_action" \
-  "com.alibaba.mnnllm.android.release:id/btn_download_action" \
-  || tap_by_rid_contains_text "$TMP_XML" "对话" \
-  "com.alibaba.mnnllm.android:id/btn_download_action" \
-  "com.alibaba.mnnllm.android.release:id/btn_download_action"; then
-  sleep 3
-  dump_ui "$TMP_XML"
-elif tap_by_any_rid "$TMP_XML" \
-  "com.alibaba.mnnllm.android:id/tab_model_market" \
-  "com.alibaba.mnnllm.android.release:id/tab_model_market"; then
-  sleep 2
-  dump_ui "$TMP_XML"
-  if tap_by_rid_text "$TMP_XML" "对话" \
-    "com.alibaba.mnnllm.android:id/btn_download_action" \
-    "com.alibaba.mnnllm.android.release:id/btn_download_action" \
-    || tap_by_rid_contains_text "$TMP_XML" "对话" \
-    "com.alibaba.mnnllm.android:id/btn_download_action" \
-    "com.alibaba.mnnllm.android.release:id/btn_download_action"; then
-    sleep 3
-    dump_ui "$TMP_XML"
-  fi
-elif tap_by_any_rid "$TMP_XML" "com.alibaba.mnnllm.android:id/tab_chat" "com.alibaba.mnnllm.android.release:id/tab_chat"; then
-  sleep 2
-  dump_ui "$TMP_XML"
-elif tap_by_any_rid "$TMP_XML" "com.alibaba.mnnllm.android:id/btn_cloud_chat" "com.alibaba.mnnllm.android.release:id/btn_cloud_chat"; then
-  sleep 2
-  dump_ui "$TMP_XML"
-else
-  tap_by_any_rid "$TMP_XML" "com.alibaba.mnnllm.android:id/tvModelTitle" "com.alibaba.mnnllm.android.release:id/tvModelTitle" || true
-  sleep 2
-  dump_ui "$TMP_XML"
-  tap_by_rid_contains_text "$TMP_XML" "对话" \
-    "com.alibaba.mnnllm.android:id/btn_download_action" \
-    "com.alibaba.mnnllm.android.release:id/btn_download_action" || true
-  sleep 3
-  dump_ui "$TMP_XML"
-  if ! exists_any_rid "$TMP_XML" "com.alibaba.mnnllm.android:id/et_message" "com.alibaba.mnnllm.android.release:id/et_message"; then
-    echo "CHAT_ENTRY_NOT_FOUND" >&2
-    exit 1
-  fi
-fi
-
-if ! exists_any_rid "$TMP_XML" "com.alibaba.mnnllm.android:id/et_message" "com.alibaba.mnnllm.android.release:id/et_message"; then
-  echo "CHAT_ENTRY_NOT_FOUND" >&2
+# Launch mock chat directly so this case only validates markdown-table rendering
+echo "LAUNCH_MOCK_CHAT ts=$(date '+%H:%M:%S')" | tee -a "$UI_LOG"
+adb shell am start -W \
+  -n "$PACKAGE_NAME/.chat.ChatActivity" \
+  --es modelName "Qwen" \
+  --es modelId "mock" \
+  --ez mock_stream_enable true \
+  --es mock_stream_content_file "/data/local/tmp/mock_table.md" \
+  --el mock_stream_interval_ms 20 >/dev/null
+sleep 1
+dump_ui "$TMP_XML"
+shot "01_after_launch"
+if ! exists_any_rid "$TMP_XML" "com.alibaba.mnnllm.android:id/recyclerView" "com.alibaba.mnnllm.android.release:id/recyclerView"; then
+  echo "MOCK_CHAT_NOT_FOUND" >&2
   exit 1
 fi
 shot "02_chat_entered"
 
-python3 "$SMOKE_DIR/../../tools/dumpapp" llm mock-latex on /data/local/tmp/mock_table.md | tee -a "$UI_LOG" || true
-
-tap_by_any_rid "$TMP_XML" "com.alibaba.mnnllm.android:id/et_message" "com.alibaba.mnnllm.android.release:id/et_message"
-adb shell ime set com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME 2>/dev/null || \
-adb shell ime set com.android.inputmethod.latin/.LatinIME 2>/dev/null || true
 sleep 1
-echo "CURRENT_IME=$(adb shell settings get secure default_input_method)" | tee -a "$UI_LOG"
-adb shell input text "smoke_test_table_streaming"
-adb shell ime reset 2>/dev/null || true
-sleep 1
-dump_ui "$TMP_XML"
-shot "03_before_send"
-tap_by_any_rid "$TMP_XML" "com.alibaba.mnnllm.android:id/btn_send" "com.alibaba.mnnllm.android.release:id/btn_send"
-
-sleep 1
-shot "04_generating_1"
+shot "03_generating_1"
 dump_ui "$TMP_XML"
 cp "$TMP_XML" "$ARTIFACT_DIR/table_io/generating_1.xml"
 
 sleep 1
-shot "05_generating_2"
+shot "04_generating_2"
 dump_ui "$TMP_XML"
 cp "$TMP_XML" "$ARTIFACT_DIR/table_io/generating_2.xml"
 
 sleep 4
-shot "06_finished"
+shot "05_finished"
 dump_ui "$TMP_XML"
 cp "$TMP_XML" "$ARTIFACT_DIR/table_io/finished.xml"
 
@@ -231,7 +165,5 @@ cp "$TMP_XML" "$ARTIFACT_DIR/table_io/finished.xml"
   echo "UI_ACTION_LOG=$UI_LOG"
   echo "NOTE=Check screenshots to verify the markdown table renders cleanly without severe flicker or obvious raw-markdown fallback."
 } >"$ARTIFACT_DIR/table_io/summary.txt"
-
-python3 "$SMOKE_DIR/../../tools/dumpapp" llm mock-latex off | tee -a "$UI_LOG" || true
 
 exit 0

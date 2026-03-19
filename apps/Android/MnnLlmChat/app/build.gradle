@@ -10,6 +10,20 @@ def hasGoogleServicesConfig = [
         file("$projectDir/src/googleplay/google-services.json"),
         file("$projectDir/src/standard/google-services.json")
 ].any { it.exists() }
+def markwonDirEnv = System.getenv("MARKWON_DIR")
+def localMarkwonDir = markwonDirEnv ? new File(markwonDirEnv) : new File(rootProject.projectDir, "../../../../../Markwon")
+def localMarkwonAars = [
+        new File(localMarkwonDir, "markwon-core/build/outputs/aar/markwon-core-release.aar"),
+        new File(localMarkwonDir, "markwon-inline-parser/build/outputs/aar/markwon-inline-parser-release.aar"),
+        new File(localMarkwonDir, "markwon-ext-latex/build/outputs/aar/markwon-ext-latex-release.aar"),
+        new File(localMarkwonDir, "markwon-ext-tables/build/outputs/aar/markwon-ext-tables-release.aar")
+]
+def markwonForkVersion = "v4.6.2-mnnchat.1"
+def useLocalMarkwon = (project.findProperty("USE_LOCAL_MARKWON")?.toString()?.toBoolean()
+        ?: System.getenv("USE_LOCAL_MARKWON")?.toBoolean()
+        ?: false)
+def localMarkwonAarsReady = localMarkwonAars.every { it.exists() }
+def useLocalMarkwonAars = useLocalMarkwon && localMarkwonAarsReady
 
 if (enableFirebase && hasGoogleServicesConfig) {
     apply plugin: 'com.google.gms.google-services'
@@ -17,6 +31,16 @@ if (enableFirebase && hasGoogleServicesConfig) {
     println("Firebase plugins enabled (ENABLE_FIREBASE=true).")
 } else {
     println("Firebase plugins disabled. Set -PENABLE_FIREBASE=true and provide google-services.json to enable.")
+}
+
+if (useLocalMarkwon && !localMarkwonAarsReady) {
+    println("USE_LOCAL_MARKWON=true but local Markwon AARs are missing, falling back to JitPack.")
+}
+
+if (useLocalMarkwonAars) {
+    println("Using local Markwon AARs from ${localMarkwonDir}")
+} else {
+    println("Using Markwon fork from JitPack: ${markwonForkVersion}")
 }
 
 // Apply prebuilt models configuration
@@ -45,8 +69,8 @@ android {
         applicationId "com.alibaba.mnnllm.android"
         minSdk 26
         targetSdk 35
-        versionCode 813
-        versionName "0.8.1.3"
+        versionCode 820
+        versionName "0.8.2"
         buildConfigField "boolean", "ENABLE_FIREBASE", enableFirebase ? "true" : "false"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         externalNativeBuild {
@@ -188,9 +212,15 @@ dependencies {
     androidTestImplementation 'androidx.test.ext:junit:1.2.1'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.1'
     androidTestImplementation 'androidx.test.uiautomator:uiautomator:2.3.0'
-    implementation "io.noties.markwon:core:4.6.2"
-    implementation "io.noties.markwon:ext-latex:4.6.2"
-    implementation "io.noties.markwon:ext-tables:4.6.2"
+    if (useLocalMarkwonAars) {
+        implementation files(localMarkwonAars)
+        implementation 'com.atlassian.commonmark:commonmark:0.13.0'
+        implementation 'com.atlassian.commonmark:commonmark-ext-gfm-tables:0.13.0'
+    } else {
+        implementation "com.github.Juude.Markwon:core:${markwonForkVersion}"
+        implementation "com.github.Juude.Markwon:ext-latex:${markwonForkVersion}"
+        implementation "com.github.Juude.Markwon:ext-tables:${markwonForkVersion}"
+    }
     implementation 'ru.noties:jlatexmath-android:0.2.0'
     implementation 'ru.noties:jlatexmath-android-font-cyrillic:0.2.0'
     implementation 'ru.noties:jlatexmath-android-font-greek:0.2.0'

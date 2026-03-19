@@ -102,7 +102,7 @@ public:
         }
         
         // Check if already in error state
-        if(mLlm->mContext->status == LlmStatus::INTERNAL_ERROR) {
+        if (mLlm->getContext()->status == LlmStatus::INTERNAL_ERROR) {
             return nullptr;
         }
 
@@ -133,7 +133,7 @@ public:
         // embedding expects input_ids
         
         // Check if already in error state
-        if(mLlm->mContext->status == LlmStatus::INTERNAL_ERROR) {
+        if (mLlm->getContext()->status == LlmStatus::INTERNAL_ERROR) {
             return nullptr;
         }
         
