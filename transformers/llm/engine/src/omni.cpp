@@ -1072,13 +1072,13 @@ std::vector<Express::VARP> Omni::forwardRaw(Express::VARP hiddenState, Express::
 }
 
 void Omni::response(const std::vector<int>& input_ids, std::ostream* os, const char* end_with, int max_new_tokens) {
-    CHECK_LLM_RUNNING(mContext);
     MNN::Express::ExecutorScope s(mExecutor);
     if (!end_with) { end_with = "\n"; }
     generate_init(os, end_with);
     if (mTalker) {
         mTalker->generate_init();
     }
+    CHECK_LLM_RUNNING(mContext);
     generate(input_ids, max_new_tokens);
 }
 

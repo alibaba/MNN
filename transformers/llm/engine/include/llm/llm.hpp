@@ -37,16 +37,22 @@ class EagleGeneration;
 struct TimePerformance;
 #define CHECK_LLM_RUNNING_RET(ctx, ret)                         \
 {                                                               \
-    if ((ctx)->status != LlmStatus::RUNNING) {                  \
-        MNN_ERROR("[Error]: LLM not loaded or in error state. Status: %d\n", \
+    if ((ctx)->status == LlmStatus::NOT_LOADED ||               \
+    (ctx)->status == LlmStatus::INTERNAL_ERROR ||               \
+    (ctx)->status == LlmStatus::TIMEOUT ||                      \
+    (ctx)->status == LlmStatus::USER_CANCEL) {                  \
+        MNN_ERROR("[Error]: LLM in error state. Status: %d\n", \
                   static_cast<int>((ctx)->status));             \
         return (ret);                                           \
     }                                                           \
 }
 #define CHECK_LLM_RUNNING(ctx)                                  \
 {                                                               \
-    if ((ctx)->status != LlmStatus::RUNNING) {                  \
-        MNN_ERROR("[Error]: LLM not loaded or in error state. Status: %d\n", \
+    if ((ctx)->status == LlmStatus::NOT_LOADED ||               \
+    (ctx)->status == LlmStatus::INTERNAL_ERROR ||               \
+    (ctx)->status == LlmStatus::TIMEOUT ||                      \
+    (ctx)->status == LlmStatus::USER_CANCEL) {                  \
+        MNN_ERROR("[Error]: LLM in error state. Status: %d\n", \
                   static_cast<int>((ctx)->status));             \
         return;                                                 \
     }                                                           \

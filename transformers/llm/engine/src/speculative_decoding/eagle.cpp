@@ -102,10 +102,7 @@ std::vector<VARP> EagleGeneration::eagleForward(Express::VARP input_embeds, VARP
 }
 
 std::vector<VARP> EagleGeneration::eagleForward(const std::vector<int>& input_ids, VARP hidden_states, bool all_logits) {
-    // Check if already in error state
-    if(mLlm->mContext->status == LlmStatus::INTERNAL_ERROR) {
-        return {};
-    }
+    CHECK_LLM_RUNNING_RET(mContext, std::vector<VARP>());
     
     auto input_embeds = mLlm->embedding(input_ids);
     if(input_embeds == nullptr) {

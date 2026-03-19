@@ -481,11 +481,8 @@ void Llm::setKVCacheInfo(size_t add, size_t remove, int* reserve, int n_reserve)
 }
 
 std::vector<Express::VARP> Llm::forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos, Express::VARPS extraArgs) {
+    CHECK_LLM_RUNNING_RET(mContext, std::vector<Express::VARP>());
     MNN::Express::ExecutorScope s(mExecutor);
-    // Check if already in error state
-    if(mContext->status == LlmStatus::INTERNAL_ERROR) {
-        return {};
-    }
     
     Express::VARP logitsIndex;
     bool inDecode = mContext->gen_seq_len > 0;
@@ -624,11 +621,8 @@ std::vector<VARP> Llm::forwardVec(const std::vector<int>& input_ids) {
 }
 
 std::vector<VARP> Llm::forwardVec(MNN::Express::VARP input_embeds) {
+    CHECK_LLM_RUNNING_RET(mContext, std::vector<VARP>());
     MNN::Express::ExecutorScope s(mExecutor);
-    // Check if already in error state
-    if(mContext->status == LlmStatus::INTERNAL_ERROR) {
-        return {};
-    }
     
     int seq_len         = input_embeds->getInfo()->dim[mSeqLenIndex];
     if (0 == mBlockSize) {
@@ -765,6 +759,9 @@ void Llm::generate_init(std::ostream* os, const char* end_with) {
         mMeta->remove = mMeta->previous;
     }
     mContext->output_tokens.clear();
+    if(mContext->status != LlmStatus::NOT_LOADED) {
+        mContext->status = LlmStatus::RUNNING;
+    }
 }
 
 size_t Llm::getCurrentHistory() const {
@@ -912,10 +909,6 @@ void Llm::response(const MultimodalPrompt& multimodal_input,
 std::vector<int> Llm::generate(MNN::Express::VARP input_embeds, int max_tokens) {
     CHECK_LLM_RUNNING_RET(mContext, std::vector<int>());
     MNN::Express::ExecutorScope s(mExecutor);
-    // Check if already in error state
-    if(mContext->status == LlmStatus::INTERNAL_ERROR) {
-        return {};
-    }
     
     if (max_tokens < 0) {
         max_tokens = mConfig->max_new_tokens();
@@ -983,18 +976,18 @@ std::vector<int> Llm::generate(MNN::Express::VARP input_embeds, int max_tokens) 
 }
 
 void Llm::response(const std::vector<int>& input_ids, std::ostream* os, const char* end_with, int max_new_tokens) {
-    CHECK_LLM_RUNNING(mContext);
     MNN::Express::ExecutorScope s(mExecutor);
     if (!end_with) { end_with = "\n"; }
     generate_init(os, end_with);
+    CHECK_LLM_RUNNING(mContext);
     generate(input_ids, max_new_tokens);
 }
 
 void Llm::response(MNN::Express::VARP input_embeds, std::ostream* os, const char* end_with, int max_new_tokens) {
-    CHECK_LLM_RUNNING(mContext);
     MNN::Express::ExecutorScope s(mExecutor);
     if (!end_with) { end_with = "\n"; }
     generate_init(os, end_with);
+    CHECK_LLM_RUNNING(mContext);
     generate(input_embeds, max_new_tokens);
 }
 
@@ -1014,6 +1007,7 @@ void Llm::response(const std::string& user_content, std::ostream* os, const char
 
 void Llm::response(const ChatMessages& chat_prompts, std::ostream* os, const char* end_with, int max_new_tokens) {
     CHECK_LLM_RUNNING(mContext);
+    MNN::Express::ExecutorScope s(mExecutor);
     if (chat_prompts.empty()) {
         return;
     }
@@ -1278,9 +1272,7 @@ VARP Llm::gen_position_ids(int seq_len) {
 }
 
 bool Llm::is_stop(int token_id) {
-    if (mContext->status == LlmStatus::USER_CANCEL || mContext->status == LlmStatus::INTERNAL_ERROR) {
-        return true;
-    }
+    CHECK_LLM_RUNNING_RET(mContext, true);
     bool stop = mTokenizer->is_stop(token_id);
     if (stop) {
         mContext->status = LlmStatus::NORMAL_FINISHED;

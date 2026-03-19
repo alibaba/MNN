@@ -38,10 +38,7 @@ void MtpGeneration::load(Module::Config module_config) {
 }
 
 std::vector<VARP> MtpGeneration::mtpForward(const std::vector<int>& input_ids, VARP hidden_states) {
-    // Check if already in error state
-    if(mLlm->mContext->status == LlmStatus::INTERNAL_ERROR) {
-        return {};
-    }
+    CHECK_LLM_RUNNING_RET(mContext, std::vector<VARP>());
     
     auto input_embeds = mLlm->embedding(input_ids);
     if(input_embeds == nullptr) {
