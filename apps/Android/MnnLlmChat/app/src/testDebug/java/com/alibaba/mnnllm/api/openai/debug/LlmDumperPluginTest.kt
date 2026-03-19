@@ -2,6 +2,7 @@ package com.alibaba.mnnllm.api.openai.debug
 
 import com.alibaba.mnnllm.api.openai.runtime.EnsureSessionResult
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayOutputStream
@@ -229,5 +230,24 @@ class LlmDumperPluginTest {
         assertTrue(output.contains("MODEL_ID=bad-model"))
         assertTrue(output.contains("REASON=MODEL_CONFIG_NOT_FOUND"))
         assertTrue(output.contains("STAGE=ensure"))
+    }
+
+    @Test
+    fun `completeRunResult treats synchronous return as completion without terminal callback`() {
+        val startedAt = System.currentTimeMillis() - 10
+
+        val result = completeRunResult(
+            modelId = "test-model",
+            startedAt = startedAt,
+            response = "done",
+            submitReturned = true,
+            chunkCount = 1,
+            completionReceived = false
+        )
+
+        assertTrue(result.success)
+        assertEquals("completed_without_terminal_callback", result.stage)
+        assertTrue(result.completionReceived)
+        assertFalse(result.elapsedMs < 0)
     }
 }
