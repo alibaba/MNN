@@ -28,7 +28,9 @@ class ApiSettingsUiAutomatorTest {
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         context.startActivity(intent)
         device.wait(Until.hasObject(By.pkg(context.packageName).depth(0)), timeoutMs)
+        dismissBlockingSystemDialogs()
         ensureChatScreen(context.packageName)
+        dismissBlockingSystemDialogs()
     }
 
     @Test
@@ -59,6 +61,7 @@ class ApiSettingsUiAutomatorTest {
     }
 
     private fun findApiSettingsMenuItem(packageName: String): UiObject2? {
+        dismissBlockingSystemDialogs()
         val direct = waitForAnyText("API Settings", "API设置", "API 設置")
         if (direct != null) {
             return direct
@@ -69,6 +72,7 @@ class ApiSettingsUiAutomatorTest {
             ?: device.findObject(By.descContains("更多"))
             ?: device.findObject(By.descContains("Menu"))
             ?: device.findObject(By.descContains("菜单"))
+            ?: device.findObject(By.descContains("Options"))
 
         if (overflow != null) {
             overflow.click()
@@ -107,5 +111,26 @@ class ApiSettingsUiAutomatorTest {
             }
         }
         return null
+    }
+
+    private fun dismissBlockingSystemDialogs() {
+        repeat(3) {
+            val dismissButton = waitForAnyText(
+                "始终允许",
+                "仅在使用中允许",
+                "仅在使用期间允许",
+                "允许",
+                "Allow",
+                "While using the app",
+                "仅此一次",
+                "Only this time",
+                "拒绝",
+                "Don’t allow",
+                "Don't allow"
+            ) ?: return
+            dismissButton.click()
+            device.waitForIdle()
+            Thread.sleep(300)
+        }
     }
 }

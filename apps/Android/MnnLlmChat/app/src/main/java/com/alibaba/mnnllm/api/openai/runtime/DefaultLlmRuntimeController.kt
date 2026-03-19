@@ -11,6 +11,7 @@ object DefaultLlmRuntimeController : LlmRuntimeController {
     private val lock = Any()
     private var activeModelId: String? = null
     private var activeSession: LlmSession? = null
+    private var activeUseAppConfig: Boolean = false
 
     override fun ensureSession(
         modelId: String,
@@ -29,7 +30,9 @@ object DefaultLlmRuntimeController : LlmRuntimeController {
                     forceReload = forceReload,
                     activeModelId = activeModelId,
                     requestedModelId = modelId,
-                    isSessionLoaded = currentSession.isModelLoaded()
+                    isSessionLoaded = currentSession.isModelLoaded(),
+                    activeUseAppConfig = activeUseAppConfig,
+                    requestedUseAppConfig = useAppConfig
                 )
             ) {
                 return EnsureSessionResult(
@@ -80,6 +83,7 @@ object DefaultLlmRuntimeController : LlmRuntimeController {
                 }
                 activeSession = llmSession
                 activeModelId = modelId
+                activeUseAppConfig = useAppConfig
                 EnsureSessionResult(
                     success = true,
                     session = llmSession,
@@ -147,5 +151,6 @@ object DefaultLlmRuntimeController : LlmRuntimeController {
         }
         activeSession = null
         activeModelId = null
+        activeUseAppConfig = false
     }
 }

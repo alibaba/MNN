@@ -22,6 +22,42 @@ internal data class LlmRunResult(
     val elapsedMs: Long = 0L
 )
 
+internal fun completeRunResult(
+    modelId: String,
+    startedAt: Long,
+    response: String,
+    submitReturned: Boolean,
+    chunkCount: Int,
+    completionReceived: Boolean
+): LlmRunResult {
+    val completedWithoutTerminalCallback = submitReturned && !completionReceived && (chunkCount > 0 || response.isNotEmpty())
+    val didComplete = completionReceived || completedWithoutTerminalCallback
+    if (!didComplete) {
+        return LlmRunResult(
+            success = false,
+            modelId = modelId,
+            reason = "RUN_TIMEOUT",
+            response = response,
+            stage = "await_completion",
+            submitReturned = submitReturned,
+            chunkCount = chunkCount,
+            completionReceived = completionReceived,
+            elapsedMs = System.currentTimeMillis() - startedAt
+        )
+    }
+
+    return LlmRunResult(
+        success = true,
+        modelId = modelId,
+        response = response,
+        stage = if (completionReceived) "completed" else "completed_without_terminal_callback",
+        submitReturned = submitReturned,
+        chunkCount = chunkCount,
+        completionReceived = completionReceived || completedWithoutTerminalCallback,
+        elapsedMs = System.currentTimeMillis() - startedAt
+    )
+}
+
 internal interface LlmDebugController {
     fun ensureSession(modelId: String, forceReload: Boolean, useAppConfig: Boolean = false): EnsureSessionResult
     fun getModelId(): String?
@@ -54,12 +90,39 @@ internal object DefaultLlmDebugController : LlmDebugController {
     }
 
     override fun runPrompt(modelId: String, prompt: String, forceReload: Boolean, useAppConfig: Boolean): LlmRunResult {
-        val startedAt = System.currentTimeMillis()
-        val ensureResult = if (useAppConfig && !forceReload && runtime.getActiveSession() != null && runtime.getActiveModelId() == modelId) {
-            EnsureSessionResult(success = true, session = runtime.getActiveSession(), modelId = modelId)
+        return if (useAppConfig) {
+            runIsolatedAppConfigPrompt(modelId, prompt, forceReload)
         } else {
-            runtime.ensureSession(modelId, forceReload, useAppConfig)
+            runPromptWithRuntimeSession(modelId, prompt, forceReload, useAppConfig = false)
         }
+    }
+
+    private fun runIsolatedAppConfigPrompt(modelId: String, prompt: String, forceReload: Boolean): LlmRunResult {
+        val restoreModelId = runtime.getActiveModelId()
+        val shouldRestoreBaseSession = !restoreModelId.isNullOrBlank() && runtime.getActiveSession() != null
+
+        return try {
+            runPromptWithRuntimeSession(modelId, prompt, forceReload = true, useAppConfig = true)
+        } finally {
+            runtime.releaseSession()
+            if (shouldRestoreBaseSession) {
+                runtime.ensureSession(
+                    modelId = restoreModelId!!,
+                    forceReload = true,
+                    useAppConfig = false
+                )
+            }
+        }
+    }
+
+    private fun runPromptWithRuntimeSession(
+        modelId: String,
+        prompt: String,
+        forceReload: Boolean,
+        useAppConfig: Boolean
+    ): LlmRunResult {
+        val startedAt = System.currentTimeMillis()
+        val ensureResult = runtime.ensureSession(modelId, forceReload, useAppConfig)
         val session = ensureResult.session ?: runtime.getActiveSession()
         if (!ensureResult.success || session == null) {
             return LlmRunResult(
@@ -97,30 +160,17 @@ internal object DefaultLlmDebugController : LlmDebugController {
             }
             submitReturned = true
 
-            val completed = latch.await(60, TimeUnit.SECONDS)
-            if (!completed) {
-                return LlmRunResult(
-                    success = false,
-                    modelId = ensureResult.modelId ?: modelId,
-                    reason = "RUN_TIMEOUT",
-                    response = responseBuilder.toString(),
-                    stage = "await_completion",
-                    submitReturned = submitReturned,
-                    chunkCount = chunkCount,
-                    completionReceived = completionReceived,
-                    elapsedMs = System.currentTimeMillis() - startedAt
-                )
+            if (!completionReceived) {
+                latch.await(250, TimeUnit.MILLISECONDS)
             }
 
-            LlmRunResult(
-                success = true,
+            completeRunResult(
                 modelId = ensureResult.modelId ?: modelId,
+                startedAt = startedAt,
                 response = responseBuilder.toString(),
-                stage = "completed",
                 submitReturned = submitReturned,
                 chunkCount = chunkCount,
-                completionReceived = completionReceived,
-                elapsedMs = System.currentTimeMillis() - startedAt
+                completionReceived = completionReceived
             )
         }.getOrElse {
             LlmRunResult(

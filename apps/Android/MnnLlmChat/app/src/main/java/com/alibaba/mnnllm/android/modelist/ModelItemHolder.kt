@@ -1,6 +1,5 @@
 package com.alibaba.mnnllm.android.modelist
 
-import android.content.Context
 import android.util.Log
 import android.view.MenuItem
 import android.view.View
@@ -21,7 +20,6 @@ import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.modelsettings.SettingsBottomSheetFragment
 import com.alibaba.mnnllm.android.modelsettings.DiffusionSettingsBottomSheetFragment
 import com.alibaba.mnnllm.android.utils.DialogUtils
-import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.widgets.ModelAvatarView
 import com.alibaba.mnnllm.android.widgets.TagsLayout
 import kotlinx.coroutines.MainScope
@@ -29,7 +27,6 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.io.File
 
 class ModelItemHolder(
     itemView: View, 
@@ -71,222 +68,42 @@ class ModelItemHolder(
         }
     }
 
-    private fun displayTimeInfo(modelWrapper: ModelItemWrapper) {
-        val lastChatTime = modelWrapper.lastChatTime
-        
-        // 1. If there hasn't been any chat, do not display
-        if (lastChatTime <= 0) {
-            tvTimeInfo.visibility = View.GONE
-            return
-        }
-        
-        // 2. Check if the chat happened on the same day
-        val now = System.currentTimeMillis()
-        val chatDate = Date(lastChatTime)
-        val today = Date(now)
-        
-        // Determine whether it's the same day
-        val isSameDay = isSameDay(chatDate, today)
-        
-        val formattedTime = if (isSameDay) {
-            // 2.1 Chat occurred today, display hours and minutes, e.g., 8:30
-            val timeFormat = SimpleDateFormat("H:mm", Locale.getDefault())
-            timeFormat.format(chatDate)
-        } else {
-            // 2.2 Chat did not occur today, display date, supports both Chinese and English
-            val locale = Locale.getDefault()
-            val dateFormat = if (locale.language == "zh") {
-                SimpleDateFormat("M月d日", locale)
-            } else {
-                SimpleDateFormat("MMM d", locale) // For example: Jun 20, Dec 15
-            }
-            dateFormat.format(chatDate)
-        }
-        
-        tvTimeInfo.text = formattedTime
-        tvTimeInfo.visibility = View.VISIBLE
-    }
-    
-    private fun isSameDay(date1: Date, date2: Date): Boolean {
-        val cal1 = java.util.Calendar.getInstance()
-        val cal2 = java.util.Calendar.getInstance()
-        cal1.time = date1
-        cal2.time = date2
-        return cal1.get(java.util.Calendar.YEAR) == cal2.get(java.util.Calendar.YEAR) &&
-                cal1.get(java.util.Calendar.DAY_OF_YEAR) == cal2.get(java.util.Calendar.DAY_OF_YEAR)
-    }
-
-    private fun getFormattedFileSize(modelWrapper: ModelItemWrapper): String {
-        val modelItem = modelWrapper.modelItem
-        
-        // Try to get file size using the same method as MarketItemHolder
-        modelItem.modelId?.let { modelId ->
-            val downloadedFile = modelDownloadManager.getDownloadedFile(modelId)
-            if (downloadedFile != null) {
-                return FileUtils.getFileSizeString(downloadedFile)
-            }
-        }
-        
-        // Fallback to direct file size calculation
-        if (modelWrapper.downloadSize > 0) {
-            return FileUtils.formatFileSize(modelWrapper.downloadSize)
-        }
-        
-        // Try to get size from local path
-        modelItem.localPath?.let { localPath ->
-            val file = File(localPath)
-            if (file.exists()) {
-                return FileUtils.getFileSizeString(file)
-            }
-        }
-        
-        return ""
-    }
-
-    /**
-     * Extract source label from modelId for non-local models (ModelScope, HuggingFace, Modelers, Builtin).
-     */
-    private fun getModelSource(modelId: String?): String? {
-        return when {
-            modelId == null -> null
-            modelId.startsWith("HuggingFace/") || modelId.contains("taobao-mnn") -> itemView.context.getString(R.string.huggingface)
-            modelId.startsWith("ModelScope/") -> itemView.context.getString(R.string.modelscope)
-            modelId.startsWith("Modelers/") -> itemView.context.getString(R.string.modelers)
-            modelId.startsWith("Builtin/") -> itemView.context.getString(R.string.builtin)
-            else -> null
-        }
-    }
-
-    /**
-     * Fallback: derive source from localPath when modelId has no source prefix (e.g. legacy or wrong id).
-     * Paths under .mnnmodels/modelscope/ -> ModelScope, modelers/ -> Modelers, builtin/ -> Builtin, else root -> HuggingFace.
-     */
-    private fun getModelSourceFromPath(localPath: String?): String? {
-        if (localPath == null) return null
-        return when {
-            localPath.contains("/modelscope/") -> itemView.context.getString(R.string.modelscope)
-            localPath.contains("/modelers/") -> itemView.context.getString(R.string.modelers)
-            localPath.contains("/builtin/") -> itemView.context.getString(R.string.builtin)
-            localPath.contains(".mnnmodels") -> itemView.context.getString(R.string.huggingface)
-            else -> null
-        }
-    }
-
-    private fun getDisplayTags(modelItem: ModelItem, context: Context): List<String> {
-        return com.alibaba.mnnllm.android.modelmarket.TagMapper.getDisplayTagList(modelItem.tags, context).take(3)
-    }
-
-    /**
-     * Tags to show: for models from ModelScope/HuggingFace/Modelers/Builtin prepend source label, then up to 2 content tags (3 total).
-     * Note: ModelItem.isLocal is true whenever localPath is set (including downloaded models). We show source when modelId
-     * or path indicates a store source (ModelScope etc.), not when !isLocal.
-     */
-    private fun getDisplayTagsWithSource(modelWrapper: ModelItemWrapper): List<String> {
-        val modelItem = modelWrapper.modelItem
-        val contentTags = getDisplayTags(modelItem, itemView.context).toMutableList()
-        val sourceLabel = modelWrapper.sourceTag
-            ?: getModelSource(modelItem.modelId)
-            ?: getModelSourceFromPath(modelItem.localPath)
-        if (sourceLabel != null) {
-            return listOf(sourceLabel) + contentTags.take(2)
-        }
-        return contentTags.take(3)
-    }
-
     fun bind(modelWrapper: ModelItemWrapper) {
         val modelItem = modelWrapper.modelItem
-        val modelName = modelItem.modelName
-        
+
         // Store current wrapper and set item tag
         this.currentModelWrapper = modelWrapper
         itemView.tag = modelWrapper
-        
-        // Set basic model info
-        tvModelTitle.text = modelName
-        headerSection.setModelName(modelName)
-        
-        // Use consistent tag display logic; for non-local models prepend data-source tag (ModelScope, HuggingFace, etc.)
-        tagsLayout.setTags(getDisplayTagsWithSource(modelWrapper))
-        
-        // Display time information from wrapper
-        displayTimeInfo(modelWrapper)
-        
-        // Show pinned overlay
-        pinnedOverlay.visibility = if (modelWrapper.isPinned) View.VISIBLE else View.GONE
-        
-        // Handle update button visibility and status
-        updateButtonAndStatus(modelWrapper)
-        
+
+        render(
+            ModelListItemUiStateFactory.fromModelWrapper(
+                context = itemView.context,
+                modelWrapper = modelWrapper,
+                modelDownloadManager = modelDownloadManager
+            )
+        )
         itemView.isActivated = modelWrapper.isPinned
     }
 
-    /**
-     * Update the update button visibility and status text based on model state
-     */
-    private fun updateButtonAndStatus(modelWrapper: ModelItemWrapper) {
-        val formattedSize = getFormattedFileSize(modelWrapper)
-        
-        // Check if model is currently updating (hasUpdate and downloading)
-        val isUpdating = isModelUpdating(modelWrapper)
-        
-        if (modelWrapper.hasUpdate) {
-            btnUpdate.visibility = View.VISIBLE
-            if (isUpdating) {
-                val downloadInfo = modelWrapper.modelItem.modelId?.let { modelDownloadManager.getDownloadInfo(it) }
-                val isPreparing = downloadInfo?.downloadState == DownloadState.PREPARING
-                
-                val statusText = if (isPreparing) {
-                     btnUpdate.resources.getString(R.string.download_pending)
-                } else {
-                     btnUpdate.resources.getString(R.string.download_state_updating)
-                }
-                
-                btnUpdate.text = statusText
-                btnUpdate.isEnabled = false
-                
-                val statusMsg = if (isPreparing) {
-                    tvStatus.resources.getString(R.string.download_preparing)
-                } else {
-                    tvStatus.resources.getString(R.string.download_state_updating)
-                }
-                
-                tvStatus.text = if (formattedSize.isNotEmpty()) {
-                    "$formattedSize ($statusMsg)"
-                } else {
-                    statusMsg
-                }
-            } else {
-                btnUpdate.text = btnUpdate.resources.getString(R.string.update)
-                btnUpdate.isEnabled = true
-                tvStatus.text = if (formattedSize.isNotEmpty()) {
-                    tvStatus.resources.getString(R.string.downloaded_update_available, formattedSize)
-                } else {
-                    tvStatus.resources.getString(R.string.downloaded_update_available, "")
-                }
-            }
-        } else {
-            btnUpdate.visibility = View.GONE
-            tvStatus.text = if (formattedSize.isNotEmpty()) {
-                tvStatus.resources.getString(R.string.downloaded_click_to_chat, formattedSize)
-            } else {
-                tvStatus.resources.getString(R.string.downloaded_click_to_chat, "")
-            }
-        }
-    }
+    internal fun render(uiState: ModelListItemUiState) {
+        tvModelTitle.text = uiState.title
+        headerSection.setModelName(uiState.title)
+        tagsLayout.setTags(uiState.tags)
 
-    /**
-     * Check if the model is currently being updated
-     * @param modelWrapper The model wrapper to check
-     * @return true if model hasUpdate and is currently downloading
-     */
-    private fun isModelUpdating(modelWrapper: ModelItemWrapper): Boolean {
-        if (!modelWrapper.hasUpdate) return false
-        
-        modelWrapper.modelItem.modelId?.let { modelId ->
-            val downloadInfo = modelDownloadManager.getDownloadInfo(modelId)
-            return downloadInfo.downloadState == DownloadState.DOWNLOADING || downloadInfo.downloadState == DownloadState.PREPARING
+        tvStatus.text = uiState.statusText
+
+        if (uiState.timeText.isNullOrEmpty()) {
+            tvTimeInfo.visibility = View.GONE
+        } else {
+            tvTimeInfo.text = uiState.timeText
+            tvTimeInfo.visibility = View.VISIBLE
         }
-        return false
+
+        btnUpdate.visibility = if (uiState.updateButtonVisible) View.VISIBLE else View.GONE
+        btnUpdate.text = uiState.updateButtonText
+        btnUpdate.isEnabled = uiState.updateButtonEnabled
+        pinnedOverlay.visibility = if (uiState.isPinned) View.VISIBLE else View.GONE
+        itemView.isActivated = uiState.isPinned
     }
 
     /**
@@ -297,7 +114,13 @@ class ModelItemHolder(
         currentModelWrapper?.let { wrapper ->
             // If model has update and is downloading, refresh the UI
             if (wrapper.hasUpdate && downloadInfo.downloadState == DownloadState.DOWNLOADING) {
-                updateButtonAndStatus(wrapper)
+                render(
+                    ModelListItemUiStateFactory.fromModelWrapper(
+                        context = itemView.context,
+                        modelWrapper = wrapper,
+                        modelDownloadManager = modelDownloadManager
+                    )
+                )
             }
         }
     }
@@ -369,7 +192,9 @@ class ModelItemHolder(
                 info.append("Storage Location:\n$storagePath\n\n")
                 
                 // Show size
-                val sizeInfo = currentModelWrapper?.let { getFormattedFileSize(it) } ?: "Unknown"
+                val sizeInfo = currentModelWrapper?.let {
+                    ModelListItemUiStateFactory.getFormattedFileSize(it, modelDownloadManager)
+                } ?: "Unknown"
                 info.append("Size: ${if (sizeInfo.isNotEmpty()) sizeInfo else "Unknown"}\n")
                 
                 // Show last chat time
