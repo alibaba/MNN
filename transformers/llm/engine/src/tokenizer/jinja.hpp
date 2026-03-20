@@ -124,9 +124,9 @@ private:
 namespace jinja {
 
 
-// C++14 make_unique polyfill for C++11
+// Use mnn_make_unique to avoid ADL ambiguity with std::make_unique on MSVC C++14+
 template<typename T, typename... Args>
-std::unique_ptr<T> make_unique(Args&&... args) {
+std::unique_ptr<T> mnn_make_unique(Args&&... args) {
     return std::unique_ptr<T>(new T(std::forward<Args>(args)...));
 }
 
@@ -1440,7 +1440,7 @@ public:
         std::vector<std::unique_ptr<Node>> nodes;
         while (!is_at_end()) {
             if (check(Token::Text)) {
-                nodes.push_back(make_unique<TextNode>(advance().value));
+                nodes.push_back(mnn_make_unique<TextNode>(advance().value));
             } else if (check(Token::ExpressionStart)) {
                 nodes.push_back(parse_print());
             } else if (check(Token::BlockStart)) {
@@ -1474,7 +1474,7 @@ private:
             advance();
         }
         if (!is_at_end()) advance(); // eat %}
-        return make_unique<TextNode>("");
+        return mnn_make_unique<TextNode>("");
     }
 
     std::unique_ptr<Node> parse_macro() {
@@ -1514,12 +1514,12 @@ private:
                      break;
                  }
              }
-             if (check(Token::Text)) body.push_back(make_unique<TextNode>(advance().value));
+             if (check(Token::Text)) body.push_back(mnn_make_unique<TextNode>(advance().value));
              else if (check(Token::ExpressionStart)) body.push_back(parse_print());
              else if (check(Token::BlockStart)) body.push_back(parse_block());
              else advance();
         }
-        return make_unique<MacroNode>(std::move(name), std::move(args), std::move(body));
+        return mnn_make_unique<MacroNode>(std::move(name), std::move(args), std::move(body));
     }
 
     std::unique_ptr<Node> parse_set() {
@@ -1536,7 +1536,7 @@ private:
 
         if (check(Token::BlockEnd)) advance(); // eat %}
 
-        return make_unique<SetNode>(std::move(target), std::move(value));
+        return mnn_make_unique<SetNode>(std::move(target), std::move(value));
     }
 
     std::unique_ptr<Node> parse_if() {
@@ -1589,7 +1589,7 @@ private:
              }
 
              if (check(Token::Text)) {
-                current_body->push_back(make_unique<TextNode>(advance().value));
+                current_body->push_back(mnn_make_unique<TextNode>(advance().value));
             } else if (check(Token::ExpressionStart)) {
                 current_body->push_back(parse_print());
             } else if (check(Token::BlockStart)) {
@@ -1599,7 +1599,7 @@ private:
             }
         }
 
-        return make_unique<IfNode>(std::move(condition), std::move(true_body), std::move(false_body));
+        return mnn_make_unique<IfNode>(std::move(condition), std::move(true_body), std::move(false_body));
     }
 
     std::unique_ptr<Node> parse_if_from_elif(std::unique_ptr<Expr> condition) {
@@ -1640,7 +1640,7 @@ private:
              }
 
              if (check(Token::Text)) {
-                current_body->push_back(make_unique<TextNode>(advance().value));
+                current_body->push_back(mnn_make_unique<TextNode>(advance().value));
             } else if (check(Token::ExpressionStart)) {
                 current_body->push_back(parse_print());
             } else if (check(Token::BlockStart)) {
@@ -1649,7 +1649,7 @@ private:
                  advance();
             }
          }
-         return make_unique<IfNode>(std::move(condition), std::move(true_body), std::move(false_body));
+         return mnn_make_unique<IfNode>(std::move(condition), std::move(true_body), std::move(false_body));
     }
 
     std::unique_ptr<Node> parse_for() {
@@ -1696,7 +1696,7 @@ private:
                  }
             }
             if (check(Token::Text)) {
-                body.push_back(make_unique<TextNode>(advance().value));
+                body.push_back(mnn_make_unique<TextNode>(advance().value));
             } else if (check(Token::ExpressionStart)) {
                 body.push_back(parse_print());
             } else if (check(Token::BlockStart)) {
@@ -1706,7 +1706,7 @@ private:
             }
         }
 
-        return make_unique<ForStmt>(std::move(vars), std::move(iterable), std::move(body), std::move(filter_expr));
+        return mnn_make_unique<ForStmt>(std::move(vars), std::move(iterable), std::move(body), std::move(filter_expr));
     }
 
     std::unique_ptr<Node> parse_print() {
@@ -1715,7 +1715,7 @@ private:
         if (check(Token::ExpressionEnd)) {
             advance(); // eat }}
         }
-        return make_unique<PrintNode>(std::move(expr));
+        return mnn_make_unique<PrintNode>(std::move(expr));
     }
 
     // Expression Parsing with Precedence
@@ -1729,7 +1729,7 @@ private:
             if (check(Token::Identifier) && peek().value == "else") {
                 advance(); // else
                 auto else_expr = parse_expression();
-                return make_unique<TernaryExpr>(std::move(cond), std::move(expr), std::move(else_expr));
+                return mnn_make_unique<TernaryExpr>(std::move(cond), std::move(expr), std::move(else_expr));
             } else {
                  // Syntax error: expected else
             }
@@ -1742,7 +1742,7 @@ private:
         while (check(Token::Identifier) && peek().value == "or") {
             advance();
             auto right = parse_and();
-            left = make_unique<BinaryExpr>("or", std::move(left), std::move(right));
+            left = mnn_make_unique<BinaryExpr>("or", std::move(left), std::move(right));
         }
         return left;
     }
@@ -1752,7 +1752,7 @@ private:
         while (check(Token::Identifier) && peek().value == "and") {
             advance();
             auto right = parse_not(); // logic op precedence
-            left = make_unique<BinaryExpr>("and", std::move(left), std::move(right));
+            left = mnn_make_unique<BinaryExpr>("and", std::move(left), std::move(right));
         }
         return left;
     }
@@ -1762,10 +1762,10 @@ private:
             advance();
             // (not Expr) -> (Expr ? false : true)。
             auto expr = parse_not();
-            return make_unique<TernaryExpr>(
+            return mnn_make_unique<TernaryExpr>(
                 std::move(expr),
-                make_unique<LiteralExpr>(false),
-                make_unique<LiteralExpr>(true)
+                mnn_make_unique<LiteralExpr>(false),
+                mnn_make_unique<LiteralExpr>(true)
             );
          }
          return parse_compare();
@@ -1783,12 +1783,12 @@ private:
                     is_not = true;
                 }
                 std::string test_name = advance().value;
-                left = make_unique<TestExpr>(std::move(left), test_name, is_not);
+                left = mnn_make_unique<TestExpr>(std::move(left), test_name, is_not);
             } else if (op == "not") {
                 if (check(Token::Identifier) && peek().value == "in") {
                     advance(); // eat in
                     auto right = parse_add();
-                    left = make_unique<BinaryExpr>("not in", std::move(left), std::move(right));
+                    left = mnn_make_unique<BinaryExpr>("not in", std::move(left), std::move(right));
                 } else {
                      // Error or treat as unary not binding weirdly?
                      // Assuming 'not in' is the only valid infix 'not'.
@@ -1796,7 +1796,7 @@ private:
                 }
             } else {
                 auto right = parse_add();
-                left = make_unique<BinaryExpr>(op, std::move(left), std::move(right));
+                left = mnn_make_unique<BinaryExpr>(op, std::move(left), std::move(right));
             }
         }
         return left;
@@ -1807,7 +1807,7 @@ private:
         while (check(Token::Operator) && (peek().value == "+" || peek().value == "-" || peek().value == "~")) {
             std::string op = advance().value;
             auto right = parse_filter();
-            left = make_unique<BinaryExpr>(op, std::move(left), std::move(right));
+            left = mnn_make_unique<BinaryExpr>(op, std::move(left), std::move(right));
         }
         return left;
     }
@@ -1839,7 +1839,7 @@ private:
                     }
                     if (check(Token::Punctuation) && peek().value == ")") advance();
                 }
-                left = make_unique<FilterExpr>(std::move(left), name, std::move(args));
+                left = mnn_make_unique<FilterExpr>(std::move(left), name, std::move(args));
             }
         }
         return left;
@@ -1850,7 +1850,7 @@ private:
             std::string op = advance().value;
             auto right = parse_unary();
              // Treat as 0 + val or 0 - val
-             return make_unique<BinaryExpr>(op, make_unique<LiteralExpr>(0), std::move(right));
+             return mnn_make_unique<BinaryExpr>(op, mnn_make_unique<LiteralExpr>(0), std::move(right));
         }
         return parse_primary();
     }
@@ -1864,7 +1864,7 @@ private:
                  if (check(Token::Punctuation) && peek().value == ",") advance();
              }
              if (check(Token::Punctuation) && peek().value == "]") advance();
-             return make_unique<ListExpr>(std::move(items));
+             return mnn_make_unique<ListExpr>(std::move(items));
         }
 
         if (check(Token::Punctuation) && peek().value == "{") {
@@ -1878,17 +1878,17 @@ private:
                  if (check(Token::Punctuation) && peek().value == ",") advance();
              }
              if (check(Token::Punctuation) && peek().value == "}") advance();
-             return make_unique<ObjectExpr>(std::move(items));
+             return mnn_make_unique<ObjectExpr>(std::move(items));
         }
 
         if (check(Token::String)) {
-            return make_unique<LiteralExpr>(advance().value);
+            return mnn_make_unique<LiteralExpr>(advance().value);
         }
         if (check(Token::Identifier)) {
             std::string name = advance().value;
-             if (name == "true") return make_unique<LiteralExpr>(true);
-             if (name == "false") return make_unique<LiteralExpr>(false);
-             if (name == "none") return make_unique<LiteralExpr>(nullptr);
+             if (name == "true") return mnn_make_unique<LiteralExpr>(true);
+             if (name == "false") return mnn_make_unique<LiteralExpr>(false);
+             if (name == "none") return mnn_make_unique<LiteralExpr>(nullptr);
 
             std::unique_ptr<Expr> expr;
 
@@ -1915,9 +1915,9 @@ private:
                     else break;
                 }
                 if (check(Token::Punctuation) && peek().value == ")") advance();
-                expr = make_unique<CallExpr>(name, std::move(args));
+                expr = mnn_make_unique<CallExpr>(name, std::move(args));
             } else {
-                expr = make_unique<VarExpr>(name);
+                expr = mnn_make_unique<VarExpr>(name);
             }
 
             while (true) { // Chain of accesses
@@ -1953,13 +1953,13 @@ private:
                      if (check(Token::Punctuation) && peek().value == "]") advance();
 
                      if (is_slice) {
-                         auto slice_expr = make_unique<SliceExpr>(std::move(start), std::move(stop), std::move(step));
-                         expr = make_unique<GetItemExpr>(std::move(expr), std::move(slice_expr));
+                         auto slice_expr = mnn_make_unique<SliceExpr>(std::move(start), std::move(stop), std::move(step));
+                         expr = mnn_make_unique<GetItemExpr>(std::move(expr), std::move(slice_expr));
                      } else {
                          // Normal index
                          // if start is null effectively (e.g. []) - invalid in Jinja usually but maybe empty key used?
-                         if (!start) start = make_unique<LiteralExpr>("");
-                         expr = make_unique<GetItemExpr>(std::move(expr), std::move(start));
+                         if (!start) start = mnn_make_unique<LiteralExpr>("");
+                         expr = mnn_make_unique<GetItemExpr>(std::move(expr), std::move(start));
                      }
                 } else if (check(Token::Punctuation) && peek().value == ".") {
                     advance(); // .
@@ -1975,9 +1975,9 @@ private:
                                  else break;
                              }
                              if (check(Token::Punctuation) && peek().value == ")") advance();
-                             expr = make_unique<MethodCallExpr>(std::move(expr), member, std::move(method_args));
+                             expr = mnn_make_unique<MethodCallExpr>(std::move(expr), member, std::move(method_args));
                         } else {
-                            expr = make_unique<GetAttrExpr>(std::move(expr), member);
+                            expr = mnn_make_unique<GetAttrExpr>(std::move(expr), member);
                         }
                     }
                 } else {
@@ -1992,12 +1992,12 @@ private:
                 char* end = nullptr;
                 if (val.find('.') != std::string::npos) {
                     float f = std::strtof(val.c_str(), &end);
-                    if (end && end != val.c_str()) return make_unique<LiteralExpr>(f);
+                    if (end && end != val.c_str()) return mnn_make_unique<LiteralExpr>(f);
                 } else {
                     long l = std::strtol(val.c_str(), &end, 10);
-                    if (end && end != val.c_str()) return make_unique<LiteralExpr>((int)l);
+                    if (end && end != val.c_str()) return mnn_make_unique<LiteralExpr>((int)l);
                 }
-                return make_unique<LiteralExpr>(0);
+                return mnn_make_unique<LiteralExpr>(0);
              }
         }
         if (check(Token::Punctuation) && peek().value == "(") {
@@ -2006,7 +2006,7 @@ private:
             if (check(Token::Punctuation) && peek().value == ")") advance();
             return expr;
         }
-        return make_unique<LiteralExpr>("");
+        return mnn_make_unique<LiteralExpr>("");
     }
 
     // Helper methods
@@ -2051,7 +2051,7 @@ struct Template::Impl {
 };
 
 inline Template::Template(const std::string& template_str, const json& default_context)
-    : m_impl(make_unique<Impl>()) {
+    : m_impl(mnn_make_unique<Impl>()) {
     m_impl->template_str = template_str;
     m_impl->default_context = default_context;
 
