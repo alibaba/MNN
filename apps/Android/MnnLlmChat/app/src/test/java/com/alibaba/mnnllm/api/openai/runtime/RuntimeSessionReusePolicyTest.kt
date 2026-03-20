@@ -13,7 +13,9 @@ class RuntimeSessionReusePolicyTest {
                 forceReload = false,
                 activeModelId = "same-model",
                 requestedModelId = "same-model",
-                isSessionLoaded = false
+                isSessionLoaded = false,
+                activeUseAppConfig = false,
+                requestedUseAppConfig = false
             )
         )
     }
@@ -25,7 +27,23 @@ class RuntimeSessionReusePolicyTest {
                 forceReload = false,
                 activeModelId = "same-model",
                 requestedModelId = "same-model",
-                isSessionLoaded = true
+                isSessionLoaded = true,
+                activeUseAppConfig = true,
+                requestedUseAppConfig = true
+            )
+        )
+    }
+
+    @Test
+    fun shouldReuse_returnsFalse_whenAppConfigModeChanges() {
+        assertFalse(
+            RuntimeSessionReusePolicy.shouldReuse(
+                forceReload = false,
+                activeModelId = "same-model",
+                requestedModelId = "same-model",
+                isSessionLoaded = true,
+                activeUseAppConfig = false,
+                requestedUseAppConfig = true
             )
         )
     }

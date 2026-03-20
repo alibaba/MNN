@@ -79,7 +79,7 @@ Optional env vars:
 - `RUN_SANA_DIFFUSION_REGRESSION`: `true` to run step `10/11` Sana + Diffusion regressions in extended pipeline (default: `false`)
 - `SANA_MODEL_PATH`: override model path for `10_regress_sana_diffusion_dumpapp.sh`
 - `DIFFUSION_MODEL_ID`: override model id for `10_regress_sana_diffusion_dumpapp.sh`
-- `THINKING_MAX_TOKENS`: max completion tokens for step `08_regress_api_dumpapp.sh` thinking probe (default: `16`)
+- `THINKING_MAX_TOKENS`: max completion tokens for step `08_regress_api_dumpapp.sh` thinking probe (default: `96`)
 - `RUN_STORAGE_DUMPAPP_SMOKE`: set to `true` to run step 13 (dumpapp storage smoke) in extended pipeline (default: `false`)
 - `RUN_STORAGE_UI_SMOKE`: set to `true` to run storage management UI smoke in extended pipeline (default: `false`)
 - `RUN_LATEX_RENDER_SMOKE`: set to `true` to run LaTeX rendering smoke in extended pipeline (default: `false`)
@@ -117,7 +117,7 @@ API compatibility stage details:
      - `messages[].content` as string
      - `system` as content-block array
      - both validated on local-forward and LAN direct base URLs
-   - dumpapp thinking-mode switch path (`dumpapp llm thinking set/get` + OpenAI response-tag differential check)
+   - dumpapp thinking-mode switch path (`dumpapp llm thinking set/get` + OpenAI reasoning-response differential check)
    - dumpapp path is service-only: no ChatActivity bootstrap fallback is allowed
    - optional UiAutomator code path (API settings switch interaction)
    - gesture caveat: step `09_regress_api_uiautomator.sh` does not validate history-drawer left-swipe; for gesture issues use `mobile-mcp` (`mobile_swipe_on_screen`, then `mobile_take_screenshot` + `mobile_list_elements_on_screen`) and keep those artifacts

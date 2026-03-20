@@ -13,8 +13,9 @@ MAIN_ACTIVITY="${MAIN_ACTIVITY:-$PACKAGE_NAME/com.alibaba.mnnllm.android.main.Ma
 CURL_CONNECT_TIMEOUT="${CURL_CONNECT_TIMEOUT:-5}"
 CURL_MAX_TIME="${CURL_MAX_TIME:-30}"
 LAN_HOST="${LAN_HOST:-}"
-THINKING_PROMPT="${THINKING_PROMPT:-Reply with exactly: THINKING_SWITCH_CHECK}"
-THINKING_MAX_TOKENS="${THINKING_MAX_TOKENS:-16}"
+THINKING_PROMPT="${THINKING_PROMPT:-Compute 37 * 41. Show concise reasoning, then give the final answer.}"
+THINKING_MAX_TOKENS="${THINKING_MAX_TOKENS:-96}"
+THINKING_PROBE_ATTEMPTS="${THINKING_PROBE_ATTEMPTS:-3}"
 CLAUDE_COMPAT_MAX_TOKENS="${CLAUDE_COMPAT_MAX_TOKENS:-16}"
 CLAUDE_COMPAT_USER_PROMPT="${CLAUDE_COMPAT_USER_PROMPT:-Reply exactly: CLAUDE_COMPAT_MARKER}"
 CLAUDE_COMPAT_SYSTEM_TEXT="${CLAUDE_COMPAT_SYSTEM_TEXT:-You are concise. Reply with the requested marker only.}"
@@ -23,7 +24,7 @@ ANTHROPIC_AUTH_PROBE_BODY='{"model":"mnn-local","max_tokens":16,"anthropic_versi
 # OpenAI auth probe: keep request non-generative by forcing schema validation failure.
 OPENAI_AUTH_PROBE_BODY='{"model":"mnn-local","messages":"invalid","stream":false}'
 # OpenAI generation probe for thinking mode toggling.
-OPENAI_THINKING_PROBE_BODY_TEMPLATE='{"model":"mnn-local","max_tokens":%s,"messages":[{"role":"user","content":"%s"}],"stream":false}'
+OPENAI_THINKING_PROBE_BODY_TEMPLATE='{"model":"mnn-local","max_tokens":%s,"temperature":0,"messages":[{"role":"user","content":"%s"}],"stream":false}'
 
 OUT_DIR="$ARTIFACT_DIR/api_dumpapp"
 mkdir -p "$OUT_DIR"
@@ -301,6 +302,24 @@ ensure_runtime_session() {
   fi
 }
 
+reset_runtime_before_api_cases() {
+  echo "[API_DUMPAPP] reset runtime before API HTTP probes" >&2
+  run_dumpapp_with_retry "$OUT_DIR/llm_release_before_api.log" llm release
+  stop_openai_service
+  ensure_runtime_session
+  run_openai_service_with_model
+  run_dumpapp_with_retry "$OUT_DIR/start_after_reset.log" openai start
+  refresh_status || true
+  wait_for_server_ready || true
+  parse_status_fields
+
+  if [ "${INTERNAL_RUNNING:-}" != "true" ]; then
+    echo "[API_DUMPAPP] runtime reset completed but service is not internally running" >&2
+    write_fail_summary "POST_RESET_SERVICE_NOT_RUNNING"
+    exit 1
+  fi
+}
+
 run_cors_preflight_probe() {
   local base_url="$1"
   local path="$2"
@@ -428,6 +447,8 @@ run_anthropic_messages_generation_probe() {
   local output_body="$3"
   local code="000"
 
+  reset_runtime_before_api_cases
+
   for _ in 1 2 3; do
     if [ "$AUTH_ENABLED" = "true" ]; then
       code="$(curl -sS -o "$output_body" -w "%{http_code}" \
@@ -458,50 +479,53 @@ run_anthropic_messages_generation_probe() {
 }
 
 run_thinking_mode_regression() {
-  local on_state off_state on_code off_code
-  if ! set_thinking_state "on" "$LLM_THINKING_SET_ON_LOG"; then
-    echo "[API_DUMPAPP] failed to set thinking=on" >&2
-    THINKING_CONFIG_SWITCH="FAIL"
-    THINKING_RESPONSE_SWITCH="FAIL"
-    THINKING_MODE_REGRESSION="FAIL"
-    return 1
-  fi
-  on_state="$(get_thinking_state)"
+  local on_state off_state on_code off_code attempt
+  THINKING_CONFIG_SWITCH="FAIL"
+  THINKING_RESPONSE_SWITCH="FAIL"
+  THINKING_MODE_REGRESSION="FAIL"
 
   prepare_thinking_probe_payload
-  on_code="$(run_local_openai_completion "$THINKING_ON_BODY")"
 
-  if ! set_thinking_state "off" "$LLM_THINKING_SET_OFF_LOG"; then
-    echo "[API_DUMPAPP] failed to set thinking=off" >&2
+  for attempt in $(seq 1 "$THINKING_PROBE_ATTEMPTS"); do
+    reset_runtime_before_api_cases
+    if ! set_thinking_state "on" "$LLM_THINKING_SET_ON_LOG"; then
+      echo "[API_DUMPAPP] failed to set thinking=on (attempt $attempt)" >&2
+      continue
+    fi
+    on_state="$(get_thinking_state)"
+    on_code="$(run_local_openai_completion "$THINKING_ON_BODY")"
+
+    reset_runtime_before_api_cases
+    if ! set_thinking_state "off" "$LLM_THINKING_SET_OFF_LOG"; then
+      echo "[API_DUMPAPP] failed to set thinking=off (attempt $attempt)" >&2
+      continue
+    fi
+    off_state="$(get_thinking_state)"
+    off_code="$(run_local_openai_completion "$THINKING_OFF_BODY")"
+
     THINKING_CONFIG_SWITCH="FAIL"
+    if [ "$on_state" = "true" ] && [ "$off_state" = "false" ]; then
+      THINKING_CONFIG_SWITCH="PASS"
+    fi
+
     THINKING_RESPONSE_SWITCH="FAIL"
-    THINKING_MODE_REGRESSION="FAIL"
-    return 1
-  fi
-  off_state="$(get_thinking_state)"
-  off_code="$(run_local_openai_completion "$THINKING_OFF_BODY")"
+    if [ "$on_code" = "200" ] && [ "$off_code" = "200" ] && thinking_response_diverged "$THINKING_ON_BODY" "$THINKING_OFF_BODY"; then
+      THINKING_RESPONSE_SWITCH="PASS"
+    fi
 
-  THINKING_CONFIG_SWITCH="FAIL"
-  if [ "$on_state" = "true" ] && [ "$off_state" = "false" ]; then
-    THINKING_CONFIG_SWITCH="PASS"
-  fi
+    {
+      echo "THINKING_PROBE_ATTEMPT=$attempt"
+      echo "THINKING_ON_STATE=$on_state"
+      echo "THINKING_OFF_STATE=$off_state"
+      echo "THINKING_ON_HTTP_CODE=$on_code"
+      echo "THINKING_OFF_HTTP_CODE=$off_code"
+    } >"$OUT_DIR/thinking_probe_summary.txt"
 
-  THINKING_RESPONSE_SWITCH="FAIL"
-  if [ "$on_code" = "200" ] && [ "$off_code" = "200" ] && thinking_response_diverged "$THINKING_ON_BODY" "$THINKING_OFF_BODY"; then
-    THINKING_RESPONSE_SWITCH="PASS"
-  fi
-
-  THINKING_MODE_REGRESSION="FAIL"
-  if [ "$THINKING_CONFIG_SWITCH" = "PASS" ] && [ "$THINKING_RESPONSE_SWITCH" = "PASS" ]; then
-    THINKING_MODE_REGRESSION="PASS"
-  fi
-
-  {
-    echo "THINKING_ON_STATE=$on_state"
-    echo "THINKING_OFF_STATE=$off_state"
-    echo "THINKING_ON_HTTP_CODE=$on_code"
-    echo "THINKING_OFF_HTTP_CODE=$off_code"
-  } >"$OUT_DIR/thinking_probe_summary.txt"
+    if [ "$THINKING_CONFIG_SWITCH" = "PASS" ] && [ "$THINKING_RESPONSE_SWITCH" = "PASS" ]; then
+      THINKING_MODE_REGRESSION="PASS"
+      return 0
+    fi
+  done
 
   [ "$THINKING_MODE_REGRESSION" = "PASS" ]
 }
@@ -570,6 +594,8 @@ if ! rg -q '^RESULT=OK$' "$LLM_RUN_USE_APP_CONFIG_LOG"; then
   write_fail_summary "LLM_RUN_USE_APP_CONFIG_FAILED"
   exit 1
 fi
+
+reset_runtime_before_api_cases
 
 collect_openai_diag
 

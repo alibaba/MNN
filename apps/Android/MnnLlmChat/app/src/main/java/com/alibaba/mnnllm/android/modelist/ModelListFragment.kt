@@ -23,11 +23,53 @@ import com.alibaba.mnnllm.android.modelsettings.DropDownMenuHelper
 import com.alibaba.mnnllm.android.utils.Searchable
 import com.alibaba.mnnllm.android.utils.LargeModelConfirmationDialog
 import com.alibaba.mnnllm.android.modelist.ModelListManager
+import kotlin.math.max
 
 class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
     
     companion object {
         private const val TAG = "ModelListFragment"
+
+        internal fun calculateBottomClearancePadding(
+            basePaddingBottom: Int,
+            recyclerBottom: Int,
+            bottomNavigationTop: Int
+        ): Int {
+            return basePaddingBottom + max(0, recyclerBottom - bottomNavigationTop)
+        }
+
+        internal fun applyBottomClearanceForViews(
+            recyclerView: RecyclerView,
+            bottomNavigation: View,
+            basePaddingBottom: Int
+        ) {
+            if (recyclerView.height == 0 || bottomNavigation.height == 0) {
+                return
+            }
+
+            val recyclerLocation = IntArray(2)
+            val bottomNavigationLocation = IntArray(2)
+            recyclerView.getLocationInWindow(recyclerLocation)
+            bottomNavigation.getLocationInWindow(bottomNavigationLocation)
+
+            val recyclerBottom = recyclerLocation[1] + recyclerView.height
+            val bottomNavigationTop = bottomNavigationLocation[1]
+            val targetPaddingBottom = calculateBottomClearancePadding(
+                basePaddingBottom = basePaddingBottom,
+                recyclerBottom = recyclerBottom,
+                bottomNavigationTop = bottomNavigationTop
+            )
+            if (recyclerView.paddingBottom == targetPaddingBottom) {
+                return
+            }
+
+            recyclerView.setPadding(
+                recyclerView.paddingLeft,
+                recyclerView.paddingTop,
+                recyclerView.paddingRight,
+                targetPaddingBottom
+            )
+        }
     }
     private lateinit var modelListRecyclerView: RecyclerView
     private lateinit var modelListLoadingView: View
@@ -46,6 +88,7 @@ class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
 
     private var filterDownloaded = false
     private var filterQuery = ""
+    private var baseRecyclerPaddingBottom = 0
 
     /** Notified when downloaded models change so ModelMarketFragment can refresh. Set by MainFragmentManager. */
     var onModelListChangeListener: OnModelListChangeListener? = null
@@ -81,6 +124,7 @@ class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
         modelListEmptyView = view.findViewById(R.id.model_list_empty_view)
         modelListErrorText = modelListErrorView.findViewById(R.id.tv_error_text)
         loadingMessageText = modelListLoadingView.findViewById(R.id.tv_loading_message)
+        baseRecyclerPaddingBottom = modelListRecyclerView.paddingBottom
         modelListRecyclerView.setLayoutManager(
             LinearLayoutManager(
                 context,
@@ -158,6 +202,22 @@ class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         setupCustomToolbar()
+        view.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            applyBottomNavigationClearance()
+        }
+        view.post {
+            applyBottomNavigationClearance()
+        }
+    }
+
+    private fun applyBottomNavigationClearance() {
+        val activity = activity ?: return
+        val bottomNavigation = activity.findViewById<View>(R.id.bottom_navigation) ?: return
+        applyBottomClearanceForViews(
+            recyclerView = modelListRecyclerView,
+            bottomNavigation = bottomNavigation,
+            basePaddingBottom = baseRecyclerPaddingBottom
+        )
     }
 
     private fun setupCustomToolbar() {
