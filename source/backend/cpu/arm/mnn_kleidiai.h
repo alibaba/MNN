@@ -120,7 +120,7 @@ namespace MNN {
         static bool mKaiInitialized;
 
         //Get instance.
-        static KleidiAI &getInstance(const MNNCPUInfo& gCPUInfo);
+        static KleidiAI &getInstance(const MNNCPUInfo& gCPUInfo, bool enableSme2 = true);
         static KleidiAI &getInstance();
         static void initKernelInfo();
 

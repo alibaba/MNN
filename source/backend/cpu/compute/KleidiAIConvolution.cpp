@@ -29,7 +29,7 @@ KleidiAIConvolution::KleidiAIConvolution(const Convolution2DCommon *common, Back
         if (b->getRuntime()->hint().useCachedMmap > 1) {
             return;
         }
-        KleidiAI& kai = KleidiAI::getInstance(*MNNGetCPUInfo());
+        KleidiAI& kai = KleidiAI::getInstance(*MNNGetCPUInfo(), b->getRuntime()->hint().useArmSme2Cores);
 
         if (core->bytes == 2) {
             AutoRelease<Tensor> tempTensor(Tensor::createDevice<float>({outputCount * mSrcCount}));
@@ -130,7 +130,7 @@ ErrorCode KleidiAIConvolution::onResize(const std::vector<Tensor *> &inputs, con
     auto batch       = input->batch();
     auto b = backend();
 
-    KleidiAI& kai = KleidiAI::getInstance(*MNNGetCPUInfo());
+    KleidiAI& kai = KleidiAI::getInstance(*MNNGetCPUInfo(), b->getRuntime()->hint().useArmSme2Cores);
     auto inputOriginFmt = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
     auto outputOriginFmt = TensorUtils::getDescribe(outputs[0])->dimensionFormat;
     halide_type_t dataType = core->bytes == 2 ? halide_type_of<int16_t>() : halide_type_of<float>();
@@ -184,14 +184,14 @@ ErrorCode KleidiAIConvolution::onExecute(const std::vector<Tensor *> &inputs, co
     auto weightPtr = mResource->mWeight->host<uint8_t>();
     int threadNum = static_cast<CPUBackend*>(backend())->threadNumber();
 
-    KleidiAI& kai = KleidiAI::getInstance(*MNNGetCPUInfo());
+    auto b = backend();
+    KleidiAI& kai = KleidiAI::getInstance(*MNNGetCPUInfo(), static_cast<CPUBackend*>(b)->getRuntime()->hint().useArmSme2Cores);
     const size_t m = input->batch() * input->width() * input->height(); //lhs vector number.
     const size_t n = output->channel(); //rhs vector number.
     const size_t k = input->channel(); //vector size.
     auto dst = output->host<uint8_t>();
     halide_type_t dataType = core->bytes == 2 ? halide_type_of<int16_t>() : halide_type_of<float>();
     size_t elementSize = core->bytes;
-    auto b = backend();
 
     auto inputDes = TensorUtils::getDescribe(inputs[0]);
     if(inputDes->dimensionFormat != MNN_DATA_FORMAT_NHWC){

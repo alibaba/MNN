@@ -68,7 +68,7 @@ static Execution* _createKleidiAIUnit(const Tensor* input, const Tensor* output,
 
                 KleidiAI::AccelType accelType = KleidiAI::getQIntAccelType(4, bAsym, blkSize, core->bytes);
 
-                KleidiAI& kai = KleidiAI::getInstance(*MNNGetCPUInfo());
+                KleidiAI& kai = KleidiAI::getInstance(*MNNGetCPUInfo(), cpuBackend->getRuntime()->hint().useArmSme2Cores);
                 if (!kai.canAccelerate(accelType, convOp->common())) {
                     break;
                 }
@@ -103,7 +103,7 @@ static Execution* _createKleidiAIUnit(const Tensor* input, const Tensor* output,
     if (fastWay && cpuBackend->functions()->matmulBytes == 0) {
         auto bytes     = cpuBackend->functions()->bytes;
         auto accelType = (bytes == 2) ? KleidiAI::AccelType::FP16 : KleidiAI::AccelType::FP32;
-        KleidiAI& kai  = KleidiAI::getInstance(*MNNGetCPUInfo());
+        KleidiAI& kai  = KleidiAI::getInstance(*MNNGetCPUInfo(), cpuBackend->getRuntime()->hint().useArmSme2Cores);
         if (kai.canAccelerate(accelType)) {
             return new KleidiAIConvolution(common, backend, originWeight, originWeightSize, bias, biasSize);
         }

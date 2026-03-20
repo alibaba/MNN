@@ -15,14 +15,14 @@ KleidiAI *KleidiAI::mKaiInstance = NULL;
 KleidiAI::StaticInfo KleidiAI::mStaticInfo;
 
 //Get instance.
-KleidiAI& KleidiAI::getInstance(const MNNCPUInfo& gCPUInfo) {
+KleidiAI& KleidiAI::getInstance(const MNNCPUInfo& gCPUInfo, bool enableSme2) {
     if(!mKaiInstance) {
         mKaiInstance = new KleidiAI;
         mKaiInitialized = true;
 
         mStaticInfo.mDot = gCPUInfo.dot;
         mStaticInfo.mI8mm = gCPUInfo.i8mm;
-        mStaticInfo.mSme2 = gCPUInfo.sme2;
+        mStaticInfo.mSme2 = gCPUInfo.sme2 && enableSme2;
 
         initKernelInfo();
     }
