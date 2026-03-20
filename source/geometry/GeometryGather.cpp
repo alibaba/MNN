@@ -40,7 +40,9 @@ static void _computeGather(const std::vector<Tensor*>& inputs, const std::vector
         inside *= params->length(i);
     }
     const int limit = 3;
-    if (TensorUtils::getDescribe(indices)->usage == Tensor::InsideDescribe::CONSTANT && N < limit) {
+    auto indiceOrigin = TensorUtils::getDescribeOrigin(indices);
+    bool memoryInCPU = nullptr == indiceOrigin->getBackend() || indiceOrigin->getBackend()->type() == MNN_FORWARD_CPU || indiceOrigin->getBackend()->type() == MNN_FORWARD_CPU_EXTENSION;
+    if (TensorUtils::getDescribe(indices)->usage == Tensor::InsideDescribe::CONSTANT && N < limit && memoryInCPU) {
         // Use Raster instead of loop
         auto outDes = TensorUtils::getDescribe(output);
         outDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
