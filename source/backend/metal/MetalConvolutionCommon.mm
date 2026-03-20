@@ -12,6 +12,7 @@
 #import "backend/metal/MetalConvolution1x1.hpp"
 #import "backend/metal/MetalConvolutionWinograd.hpp"
 #import "core/TensorUtils.hpp"
+#include "core/OpCommonUtils.hpp"
 
 #if MNN_METAL_ENABLED
 namespace MNN {
@@ -78,29 +79,51 @@ kernel void weight_transform_common(const device IType* src [[buffer(0)]],
 }
 )metal";
     
-static std::shared_ptr<MNN::Tensor> biasForConv(Backend *bn, const Convolution2D *conv, bool fp16) {
+static std::shared_ptr<MNN::Tensor> biasForConv(Backend *bn, const Op* op, const Convolution2D *conv, bool fp16) {
     auto bias   = conv->bias();
     auto oc     = conv->common()->outputCount();
-    int bytes = 4;
-    if (fp16) {
-        bytes = 2;
-    }
+    int bytes = fp16 ? 2 : 4;
+
     auto bias_size_unit = UP_DIV(oc, 16) * 16;
     std::shared_ptr<MNN::Tensor> t(MNN::Tensor::createDevice<float>({bias_size_unit}));
     auto res = bn->onAcquireBuffer(t.get(), Backend::STATIC);
     if (!res) {
         return nullptr;
     }
-    if (bn->getRuntime()->hint().useCachedMmap > 1) {
+
+    const bool useCachedMmap = (bn->getRuntime() && bn->getRuntime()->hint().useCachedMmap > 1);
+    if (useCachedMmap) {
         return t;
     }
-    auto bias_size = bias_size_unit *bytes;
+
     auto buffer = MetalBackend::getBuffer(t.get());
-    auto src    = bias->data();
     auto dstOrigin = (uint8_t*)[buffer.first contents] + buffer.second;
-    ::memset(dstOrigin, 0, bias_size);
+    ::memset(dstOrigin, 0, bias_size_unit * bytes);
+
+    const float* src = nullptr;
+    std::unique_ptr<float[]> externalBias;
+    if (nullptr != bias && bias->size() >= oc) {
+        src = bias->data();
+    } else if (nullptr != op && nullptr != op->externalPath() && USE_EXTERNAL_DATA(conv) && nullptr != conv->external() && conv->external()->size() >= 3 && conv->external()->data()[2] > 0) {
+        auto externalInfo = conv->external()->data();
+        size_t biasBytes = externalInfo[2];
+        size_t expectedBytes = (size_t)oc * sizeof(float);
+        if (biasBytes < expectedBytes) {
+            return t;
+        }
+        externalBias.reset(new float[oc]);
+        std::unique_ptr<FileLoader> external(new FileLoader(op->externalPath()->c_str()));
+        external->offset(externalInfo[0] + externalInfo[1]);
+        external->read((char*)externalBias.get(), expectedBytes);
+        src = externalBias.get();
+    }
+
+    if (nullptr == src) {
+        return t;
+    }
+
     if (fp16) {
-        auto dst    = (__fp16 *)dstOrigin;
+        auto dst = (__fp16 *)dstOrigin;
     #pragma clang loop vectorize(enable) unroll(enable)
         for (int i = 0; i < oc; i++) {
             dst[i] = src[i];
@@ -108,6 +131,7 @@ static std::shared_ptr<MNN::Tensor> biasForConv(Backend *bn, const Convolution2D
     } else {
         ::memcpy(dstOrigin, src, oc * sizeof(float));
     }
+
     return t;
 }
 
@@ -125,7 +149,7 @@ MetalConvolutionCommon::MetalConvolutionCommon(Backend *backend, const MNN::Op *
     if (nullptr != bias) {
         mBias = bias;
     } else {
-        mBias = biasForConv(backend, conv, mtbn->useFp16InsteadFp32());
+        mBias = biasForConv(backend, op, conv, mtbn->useFp16InsteadFp32());
     }
     mActivationType = common->relu() ? 1 : (common->relu6() ? 2 : 0);
     if (nullptr == mBias) {
@@ -345,7 +369,28 @@ void MetalConvolutionCommon::loadWeight(const MNN::Op *op, bool loadWeightInt8) 
     } else if (qnt && qnt->weightFloat.get()) {
         mWeight = weightTransform(group, oc, ic, kh, kw, qnt->weightFloat.get(), false, false, srcGpuBuffer);
     } else {
-        mWeight = weightTransform(group, oc, ic, kh, kw, conv->weight()->data(), false, false, srcGpuBuffer);
+        const float* src = nullptr;
+        std::unique_ptr<float[]> externalWeight;
+        if (nullptr != conv->weight() && conv->weight()->size() > 0) {
+            src = conv->weight()->data();
+        } else {
+            const bool useCachedMmap = (backend()->getRuntime() && backend()->getRuntime()->hint().useCachedMmap > 1);
+            if (!useCachedMmap && nullptr != op->externalPath() && USE_EXTERNAL_DATA(conv) && nullptr != conv->external() && conv->external()->size() >= 2 && conv->external()->data()[1] > 0) {
+                auto externalInfo = conv->external()->data();
+                size_t weightBytes = externalInfo[1];
+                size_t expectedBytes = size * sizeof(float);
+                if (weightBytes < expectedBytes) {
+                    mValid = false;
+                    return;
+                }
+                externalWeight.reset(new float[size]);
+                std::unique_ptr<FileLoader> external(new FileLoader(op->externalPath()->c_str()));
+                external->offset(externalInfo[0]);
+                external->read((char*)externalWeight.get(), expectedBytes);
+                src = externalWeight.get();
+            }
+        }
+        mWeight = weightTransform(group, oc, ic, kh, kw, src, false, false, srcGpuBuffer);
     }
 }
 
