@@ -1205,6 +1205,10 @@ void Talker::generate_init(std::ostream* os, const char* end_with) {
         std::lock_guard<std::mutex> lock(mWavQueueMutex);
         std::queue<WavChunk>().swap(mWavQueue);
     }
+    {
+        std::lock_guard<std::mutex> lock(mMelQueueMutex);
+        std::queue<WavChunk>().swap(mMelQueue);
+    }
 }
 
 Express::VARP Talker::embedding(const std::vector<int>& input_ids) {
@@ -1350,18 +1354,23 @@ VARP Talker::token2wav(const std::vector<int>& codec_tokens) {
 
 void Talker::startAsyncWorker() {
     if (mWavWorkerRunning.exchange(true)) return; // already running
-    mWavWorkerThread = std::thread(&Talker::asyncWorkerLoop, this);
+    mDitWorkerThread = std::thread(&Talker::ditWorkerLoop, this);
+    mVocoderWorkerThread = std::thread(&Talker::vocoderWorkerLoop, this);
 }
 
 void Talker::stopAsyncWorker() {
     mWavWorkerRunning.store(false);
     mWavQueueCond.notify_all();
-    if (mWavWorkerThread.joinable()) {
-        mWavWorkerThread.join();
+    mMelQueueCond.notify_all();
+    if (mDitWorkerThread.joinable()) {
+        mDitWorkerThread.join();
+    }
+    if (mVocoderWorkerThread.joinable()) {
+        mVocoderWorkerThread.join();
     }
 }
 
-void Talker::asyncWorkerLoop() {
+void Talker::ditWorkerLoop() {
     BackendConfig backendConfig;
     auto forwardType = backend_type_convert(mConfig->backend_type(true));
     int numThread = mConfig->thread_num(true);
@@ -1369,7 +1378,6 @@ void Talker::asyncWorkerLoop() {
     Express::ExecutorScope scope(executor);
     mPreDit_async.reset(Module::clone(mPreDit.get()));
     mDit_async.reset(Module::clone(mDit.get()));
-    mBigvgan_async.reset(Module::clone(mBigvgan.get()));
     mSpk_async = _Clone(mSpk, true);
     mCond_async = _Clone(mCond, true);
 
@@ -1392,20 +1400,66 @@ void Talker::asyncWorkerLoop() {
             chunk = std::move(mWavQueue.front());
             mWavQueue.pop();
         }
-        
+
+        if (!chunk.codec_tokens.empty()) {
+            auto generated_mel = ditForwardAsync((int)chunk.codec_tokens.size(),
+                chunk.codec_tokens.data(), chunk.noise.data());
+            generated_mel = _Slice(generated_mel,
+                _var<int>({0, 0, chunk.mel_slice_start}, {3}),
+                _var<int>({-1, -1, chunk.mel_slice_size}, {3}));
+            auto mel_info = generated_mel->getInfo();
+            chunk.mel_dims = mel_info->dim;
+            chunk.mel.assign(generated_mel->readMap<float>(),
+                             generated_mel->readMap<float>() + mel_info->size);
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(mMelQueueMutex);
+            mMelQueue.push(std::move(chunk));
+        }
+        mMelQueueCond.notify_one();
+    }
+
+    mPreDit_async.reset();
+    mDit_async.reset();
+    mSpk_async = nullptr;
+    mCond_async = nullptr;
+}
+
+void Talker::vocoderWorkerLoop() {
+    BackendConfig backendConfig;
+    auto forwardType = backend_type_convert(mConfig->backend_type(true));
+    int numThread = mConfig->thread_num(true);
+    auto executor = Express::Executor::newExecutor(forwardType, backendConfig, numThread);
+    Express::ExecutorScope scope(executor);
+    mBigvgan_async.reset(Module::clone(mBigvgan.get()));
+
+    while (true) {
+        WavChunk chunk;
+        {
+            std::unique_lock<std::mutex> lock(mMelQueueMutex);
+            mMelQueueCond.wait(lock, [this] {
+                return !mMelQueue.empty() || !mWavWorkerRunning;
+            });
+            if (!mWavWorkerRunning && mMelQueue.empty()) {
+                break;
+            }
+            if (mMelQueue.empty()) {
+                continue;
+            }
+            chunk = std::move(mMelQueue.front());
+            mMelQueue.pop();
+        }
+
         processWavChunk(chunk);
-        
+
         if (chunk.is_last) {
             mWavLastDone.store(true);
             mWavQueueCond.notify_all();
         }
     }
 
-    mPreDit_async.reset();
-    mDit_async.reset();
     mBigvgan_async.reset();
-    mSpk_async = nullptr;
-    mCond_async = nullptr;
 }
 
 VARP Talker::ditForwardAsync(const int codec_size, const int* codec_tokens, const float* initial_noise) {
@@ -1463,18 +1517,14 @@ VARP Talker::bigvganForwardAsync(VARP mel) {
 }
 
 void Talker::processWavChunk(WavChunk& chunk) {
-    if (chunk.codec_tokens.empty()) {
+    if (chunk.mel.empty() || chunk.mel_dims.empty()) {
         if (chunk.is_last && mWavformCallback) {
             mWavformCallback(nullptr, 0, true);
         }
         return;
     }
     MNN::Timer _t;
-    auto generated_mel = ditForwardAsync((int)chunk.codec_tokens.size(),
-        chunk.codec_tokens.data(), chunk.noise.data());
-    generated_mel = _Slice(generated_mel,
-        _var<int>({0, 0, chunk.mel_slice_start}, {3}),
-        _var<int>({-1, -1, chunk.mel_slice_size}, {3}));
+    auto generated_mel = _Const(chunk.mel.data(), chunk.mel_dims, NCHW, halide_type_of<float>());
     mMelBuffer = (mMelBuffer == nullptr) ?
         generated_mel : _Concat({mMelBuffer, generated_mel}, -1);
 
@@ -1608,14 +1658,9 @@ void Talker::generate() {
     mContext->decode_us += _t.durationInUs();
     if (mAsyncToken2Wav) {
         trySubmitChunkAsync(true);
-        
         std::unique_lock<std::mutex> lock(mWavQueueMutex);
-        auto timeout = std::chrono::seconds(10);
-        bool completed = mWavQueueCond.wait_for(lock, timeout, [this] {
-            return mWavLastDone.load();
-        });
-        if (!completed) {
-            MNN_ERROR("Talker async worker timeout after 10s; audio may be incomplete\n");
+        while (!mWavLastDone.load()) {
+            mWavQueueCond.wait(lock);
         }
     } else {
         token2wav(true);
