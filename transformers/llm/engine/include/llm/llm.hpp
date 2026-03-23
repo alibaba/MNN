@@ -165,6 +165,7 @@ public:
     // config function
     std::string dump_config();
     bool set_config(const std::string& content);
+    void setDebugCallback(MNN::TensorCallBackWithInfo&& before, MNN::TensorCallBackWithInfo&& after);
     Llm* create_lora(const std::string& lora_path);
     // tokenier function
     bool is_stop(int token);

@@ -2,6 +2,7 @@
 #include "core/MNNFileUtils.h"
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
+#include "Profiler.hpp"
 #include <fstream>
 #include <sstream>
 #include <regex>
@@ -817,10 +818,11 @@ static void printUsage(int /* argc */, char ** argv) {
     printf("  -mr, --mixedSme2NeonRatio <n>             (default: 41) | Note: This parameter is intended to optimize multi-threaded inference performance on backends that support Arm SME instructions. The optimal ratio may vary across different models; we recommend trying values such as 41, 49, 33.\n");
     printf("  -qatten, --quant-attention <0|1>          (default: 0) | Note: if 1, quantize attention's key value to int8; default 0\n");
     printf("  -j, --json <filename>                     (default: llm_bench.json) | Note: if set, output result to a JSON file\n");
+    printf("  --profile                                 Enable operator-level profiling to print detailed timing statistics\n");
 }
 
 
-static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimeParams, TestParameters & testParams, FILE** outfile, bool& helpInfo, bool& jsonMode, std::string& jsonFile) {
+static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimeParams, TestParameters & testParams, FILE** outfile, bool& helpInfo, bool& jsonMode, std::string& jsonFile, bool& enableProfile) {
     std::string       arg;
     bool              invalidParam = false;
     const std::string argPrefix    = "--";
@@ -992,6 +994,8 @@ static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimePa
              if (i + 1 < argc && argv[i+1][0] != '-') {
                  jsonFile = argv[++i];
              }
+        } else if (arg == "--profile") {
+            enableProfile = true;
         }
         else {
             invalidParam = true;
@@ -1137,7 +1141,8 @@ int main(int argc, char ** argv) {
     bool helpInfo = false;
     bool jsonMode = false;
     std::string jsonFile = "llm_bench.json";
-    bool parseSuccess = parseCmdParams(argc, argv, runtimeParams, testParams, &outfile, helpInfo, jsonMode, jsonFile);
+    bool enableProfile = false;
+    bool parseSuccess = parseCmdParams(argc, argv, runtimeParams, testParams, &outfile, helpInfo, jsonMode, jsonFile, enableProfile);
     if (!parseSuccess) {
         MNN_ERROR("Parse arguments error\n");
         return -1;
@@ -1186,6 +1191,23 @@ int main(int argc, char ** argv) {
 
         auto llmPtr = buildLLM(instance.mCmdParam.model, instance.mCmdParam.backend, instance.mCmdParam.memory, instance.mCmdParam.precision, instance.mCmdParam.threads, instance.mCmdParam.power, instance.mCmdParam.dynamicOption, instance.mCmdParam.useMmap, instance.mCmdParam.divisionRatioSme2Neon, instance.mCmdParam.smeCoreNum, instance.mCmdParam.nPrompt, instance.mCmdParam.attentionOption);
         std::unique_ptr<Llm> llm(llmPtr);
+        if (enableProfile) {
+            llm->set_config(R"({"enable_debug":true})");
+            auto profiler = MNN::Profiler::getInstance();
+            llm->setDebugCallback(
+                [profiler](const std::vector<MNN::Tensor*>& inputs, const MNN::OperatorInfo* info) {
+                    profiler->start(info);
+                    return true;
+                },
+                [profiler](const std::vector<MNN::Tensor*>& outputs, const MNN::OperatorInfo* info) {
+                    for (auto o : outputs) {
+                        o->wait(MNN::Tensor::MAP_TENSOR_READ, true);
+                    }
+                    profiler->end(info);
+                    return true;
+                }
+            );
+        }
         if (instance.mCmdParam.loadingTime == "true") {
             for (int k = 0; k < 3; ++k) {
                 Timer loadingCost;
@@ -1263,6 +1285,13 @@ int main(int argc, char ** argv) {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
 
         }
+    }
+
+    if (enableProfile) {
+        auto profiler = MNN::Profiler::getInstance();
+        fprintf(stdout, "\n========== Operator Profile Results ==========\n");
+        // profiler->printTimeByName(1);
+        profiler->printTimeByType(1);
     }
 
     fprintf(stdout, "\n");

@@ -123,6 +123,10 @@ bool Llm::set_config(const std::string& content) {
     return true;
 }
 
+void Llm::setDebugCallback(MNN::TensorCallBackWithInfo&& before, MNN::TensorCallBackWithInfo&& after) {
+    mExecutor->setCallBack(std::move(before), std::move(after));
+}
+
 void Llm::setRuntimeHint(std::shared_ptr<Express::Executor::RuntimeManager> &rtg) {
     rtg->setHint(MNN::Interpreter::INIT_THREAD_NUMBER, 4);
 

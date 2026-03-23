@@ -624,6 +624,7 @@ options:
   -rep, --n-repeat <n>                      (default: 5)
   -kv, --kv-cache <true|false>              (default: false) | Note: if true: Every time the LLM model generates a new word, it utilizes the cached KV-cache
   -fp, --file-print <stdout|filename>       (default: stdout) ｜ If not 'stdout', all test results will be written to the specified file.
+  --profile                                 Enable operator-level profiling to print detailed timing statistics
 ```
 
 ##### llm_bench 参数解释
