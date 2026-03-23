@@ -1420,6 +1420,14 @@ void Talker::ditWorkerLoop() {
         mMelQueueCond.notify_one();
     }
 
+    {
+        WavChunk sentinel;
+        sentinel.is_last = true;
+        std::lock_guard<std::mutex> lock(mMelQueueMutex);
+        mMelQueue.push(std::move(sentinel));
+    }
+    mMelQueueCond.notify_one();
+
     mPreDit_async.reset();
     mDit_async.reset();
     mSpk_async = nullptr;
@@ -1659,8 +1667,12 @@ void Talker::generate() {
     if (mAsyncToken2Wav) {
         trySubmitChunkAsync(true);
         std::unique_lock<std::mutex> lock(mWavQueueMutex);
+        auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
         while (!mWavLastDone.load()) {
-            mWavQueueCond.wait(lock);
+            if (!mWavQueueCond.wait_until(lock, deadline, [this] { return mWavLastDone.load(); })) {
+                MNN_ERROR("Talker async worker timeout; audio may be incomplete\n");
+                break;
+            }
         }
     } else {
         token2wav(true);

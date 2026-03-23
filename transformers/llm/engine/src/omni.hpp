@@ -9,6 +9,7 @@
 #define OMNI_hpp
 
 #include "llm/llm.hpp"
+#include <vector>
 #include <thread>
 #include <mutex>
 #include <condition_variable>
