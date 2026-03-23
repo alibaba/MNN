@@ -13,6 +13,7 @@
 #include <unordered_set>
 
 #include <MNN/AutoTime.hpp>
+#include "core/TensorUtils.hpp"
 #include "cpp/ExprDebug.hpp"
 #include "llm/llm.hpp"
 #include "kvmeta.hpp"
@@ -917,7 +918,6 @@ std::vector<int> Llm::generate(MNN::Express::VARP input_embeds, int max_tokens) 
         mContext->status = LlmStatus::INTERNAL_ERROR;
         return {};
     }
-    
     updateContext(seqLen, 0);
     mContext->prefill_us += _t.durationInUs();
     MNN::Express::ExecutorScope::Current()->gc(); // after prefill

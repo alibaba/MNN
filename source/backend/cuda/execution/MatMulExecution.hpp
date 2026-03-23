@@ -90,6 +90,7 @@ private:
     bool mFp16Fp32MixInfer = false;
     bool mConvertGemmSplitK = false;
     bool mLargeBatchSmallGemm = false;
+    bool mIsGemvCase = false;  // P4: GEMV path for M=1
 };
 } // namespace CUDA
 } // namespace MNN

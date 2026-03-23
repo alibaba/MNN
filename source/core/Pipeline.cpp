@@ -579,7 +579,7 @@ static ErrorCode _createExecutions(Schedule::PipelineInfo& mInfo, const std::str
             }
             // invalid means memory alloc failed
             if (!iter.execution->valid()) {
-                iter.execution = nullptr;
+                MNN_ERROR("Pipeline: execution invalid (OOM) for op type: %d\n", iter.op->type());
                 iter.execution = nullptr;
                 return OUT_OF_MEMORY;
             }
@@ -981,6 +981,7 @@ ErrorCode Pipeline::_allocForTensor(int index, bool allocInput) {
                 for (auto t : iter.workInputs) {
                     auto allocRes = _allocTensor(t, curBackend, mOutputStatic, index);
                     if (!allocRes) {
+                        MNN_ERROR("Pipeline: _allocTensor failed for input of op type: %d\n", iter.op->type());
                         return OUT_OF_MEMORY;
                     }
                 }
@@ -989,6 +990,7 @@ ErrorCode Pipeline::_allocForTensor(int index, bool allocInput) {
                 for (auto t : iter.workOutputs) {
                     auto res = _allocTensor(t, curBackend, mOutputStatic, index);
                     if (!res) {
+                        MNN_ERROR("Pipeline: _allocTensor failed for output of op type: %d\n", iter.op->type());
                         return OUT_OF_MEMORY;
                     }
                 }

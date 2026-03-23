@@ -207,7 +207,6 @@ struct TestInstance {
         std::transform(cost_us.begin(), cost_us.end(), std::back_inserter(ts), [n_tokens](int64_t t) { return 1e6 * n_tokens / t; });
         return ts;
     }
-
     std::vector<double> getTokensPerSecond(std::vector<int64_t> n_tokens, std::vector<int64_t> cost_us) const {
         std::vector<double> ts(n_tokens.size());
         for (int i = 0; i < n_tokens.size(); ++i) {
@@ -380,6 +379,7 @@ struct markdownPrinter : public Printer {
                 value = buf;
             }  else if (field == "backend") {
                 if (t.backend == 1) value = "METAL";
+                else if (t.backend == 2) value = "CUDA";
                 else if (t.backend == 3) value = "OPENCL";
                 else value = "CPU";
             } else if (field == "test") {
@@ -538,7 +538,7 @@ struct jsonAggregator : public Printer {
 
                 std::vector<double> speed;
                 if (!inst.decodeUs.empty()) {
-                    speed = inst.getTokensPerSecond(inst.nGenerate, inst.decodeUs);
+                    speed = inst.getTokensPerSecond(inst.nGenerates, inst.decodeUs);
                 } else if (!inst.samplesUs.empty()) {
                     speed = inst.getTokensPerSecond(inst.nGenerate, inst.samplesUs);
                 }
@@ -567,7 +567,7 @@ struct jsonAggregator : public Printer {
                     writer.Double(inst.getStdevUs(prefill_speed));
                 }
                 if (!inst.decodeUs.empty()) {
-                    auto decode_speed = inst.getTokensPerSecond(inst.nGenerate, inst.decodeUs);
+                    auto decode_speed = inst.getTokensPerSecond(inst.nGenerates, inst.decodeUs);
                     writer.Key("decode_tps");
                     writer.Double(inst.getAvgUs(decode_speed));
                     writer.Key("decode_std");
@@ -882,6 +882,8 @@ static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimePa
             for (auto& type: ba) {
                 if (type == "metal") {
                     p.emplace_back(1);
+                } else if (type == "cuda") {
+                    p.emplace_back(2);
                 } else if (type == "opencl") {
                     p.emplace_back(3);
                 } else {
@@ -1061,7 +1063,7 @@ static Llm* buildLLM(const std::string& config_path, int backend, int memory, in
     // Otherwise, mContext->history_tokens retains data after the first run, skewing true prefill performance metrics."
     llmPtr->set_config(R"({"reuse_kv":false})");
     std::map<int, std::string> lever = {{0,"normal"}, {1, "high"}, {2, "low"}};
-    std::map<int, std::string> backend_type = {{0, "cpu"}, {1, "metal"}, {3, "opencl"}};
+    std::map<int, std::string> backend_type = {{0, "cpu"}, {1, "metal"}, {2, "cuda"}, {3, "opencl"}};
     std::map<bool, std::string> mmap = {{true,"true"}, {false, "false"}};
 
     bool setSuccess = true;
@@ -1177,7 +1179,9 @@ int main(int argc, char ** argv) {
         t.modelSize = MNNGetFileSize(file);
 
         MNN::BackendConfig backendConfig;
-        auto executor = MNN::Express::Executor::newExecutor(MNN_FORWARD_CPU, backendConfig, 1);
+        // Map backend parameter to MNN forward type (0=CPU, 1=METAL, 2=CUDA, 3=OPENCL)
+        MNNForwardType forwardType = static_cast<MNNForwardType>(instance.mCmdParam.backend);
+        auto executor = MNN::Express::Executor::newExecutor(forwardType, backendConfig, 1);
         MNN::Express::ExecutorScope scope(executor);
 
         auto llmPtr = buildLLM(instance.mCmdParam.model, instance.mCmdParam.backend, instance.mCmdParam.memory, instance.mCmdParam.precision, instance.mCmdParam.threads, instance.mCmdParam.power, instance.mCmdParam.dynamicOption, instance.mCmdParam.useMmap, instance.mCmdParam.divisionRatioSme2Neon, instance.mCmdParam.smeCoreNum, instance.mCmdParam.nPrompt, instance.mCmdParam.attentionOption);
@@ -1193,6 +1197,8 @@ int main(int argc, char ** argv) {
         }
         tuning_prepare(llm.get());
         auto context = llm->getContext();
+        // Ensure GPU sync for accurate timing
+        llm->set_config("{\"async\":false}");
         if (instance.mCmdParam.nGenerate > 0) {
             llm->set_config("{\"max_new_tokens\":1}");
         }

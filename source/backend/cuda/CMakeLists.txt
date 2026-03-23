@@ -172,6 +172,15 @@ if(WIN32)
 else()
 
     cuda_add_library(MNN_Cuda_Main SHARED ${MNN_CUDA_SRC})
+
+    # Link cuBLAS for prefill GEMM acceleration
+    find_library(CUDA_CUBLAS_LIBRARY cublas HINTS ${CUDA_TOOLKIT_ROOT_DIR}/lib64 ${CUDA_TOOLKIT_ROOT_DIR}/lib)
+    if(CUDA_CUBLAS_LIBRARY)
+        target_link_libraries(MNN_Cuda_Main ${CUDA_CUBLAS_LIBRARY})
+    else()
+        target_link_libraries(MNN_Cuda_Main -lcublas)
+    endif()
+
     if(MNN_CUDA_PROFILE)
       target_compile_options(MNN_Cuda_Main PRIVATE -DMNN_CUDA_PROFILE)
       target_link_libraries(MNN_Cuda_Main  ${CUDA_INCLUDE_DIRS}/../lib/libnvToolsExt.so)

@@ -11,6 +11,7 @@
 #include "../Raster.cuh"
 #include "../ConvBaseKernel.cuh"
 #include <float.h>
+#include <cublas_v2.h>
 
 //#define DEBUG
 
@@ -18,7 +19,9 @@ namespace MNN {
 namespace CUDA {
 
 const int TILE_DIM = 16; // GEMM_FpAIntB
-const int GEMV_TILE = 64; // GEMV_FpAIntB
+const int GEMV_TILE = 64; // GEMV_FpAIntB (legacy, kept for INT8)
+const int GEMV_TILE_V2 = 256; // P1: Optimized GEMV tile size
+const int GEMV_OC_PER_BLOCK = 4; // P1: Output channels per block for GEMV
 const int SUB_GEMM_TILE_DIM = 16; // GEMM_Int
 const int BLOCK_SIZE = 256; // Quant / SumBq / Bias
 const int DEQUANT_TILE_DIM = 32; // Dequant
@@ -54,34 +57,91 @@ __global__ void DequantizeInt8Weight(
     }
 }
 
+// Optimized INT4 weight dequantization: each thread unpacks 8 bytes → 16 FP16 values
+// Uses uint2 vectorized load for weights and float4 (8 half) vectorized writes
 template<typename T, typename dT>
 __global__ void DequantizeInt4Weight(
-    const uint8_t* quantized_kernel,
-    dT* dequantized_kernel,
-    const T* scale,
-    const T* offset,
+    const uint8_t* __restrict__ packed_weight,
+    dT* __restrict__ output,
+    const T* __restrict__ scale,
+    const T* __restrict__ offset,
     const int oc, const int ic, const int ic_p, const int quanC
 ) {
-    const int col = blockIdx.x * blockDim.x + threadIdx.x; // ic
-    const int row = blockIdx.y * blockDim.y + threadIdx.y; // oc
+    // Each thread handles 8 packed bytes = 16 int4 values
+    const int tid = blockIdx.y * blockDim.x + threadIdx.x;
+    const int row = blockIdx.x;  // OC index
 
-    if (row < oc && col < ic) {
-        const int num_quan_groups_per_channel = (quanC > 0) ? (quanC / oc) : 1;
-        const int ic_per_group = max(1, (num_quan_groups_per_channel > 0) ? (ic / num_quan_groups_per_channel) : ic);
-        const int group_idx = min(col / ic_per_group, num_quan_groups_per_channel - 1);
-        const int quan_param_index = row * num_quan_groups_per_channel + group_idx;
+    if (row >= oc) return;
 
-        const float x_scale  = (float)scale[quan_param_index];
-        const float x_offset = (float)offset[quan_param_index];
+    const int half_ic = ic_p / 2;  // bytes per row
+    const int col_byte = tid * 8;  // starting byte within row
+    if (col_byte >= half_ic) return;
 
-        const uint8_t packed_val = quantized_kernel[row * (ic_p / 2) + (col / 2)];
-        
-        const int8_t quantized_val = (col % 2 == 0) ?
-            ((packed_val >> 4) - 8) :      // 偶数列(ic)，取高4位
-            ((packed_val & 0x0F) - 8);     // 奇数列(ic)，取低4位
+    const int num_qg = (quanC > 0) ? (quanC / oc) : 1;
+    const int ic_per_group = max(1, (num_qg > 0) ? (ic / num_qg) : ic);
+    const int qparam_base = row * num_qg;
 
-        dequantized_kernel[row * ic_p + col] = (dT)((float)quantized_val * x_scale + x_offset);
+    // Vectorized 8-byte weight load (two uint32s)
+    const uint32_t* src = reinterpret_cast<const uint32_t*>(packed_weight + row * half_ic + col_byte);
+    const uint32_t packed0 = __ldg(src);
+    const uint32_t packed1 = (col_byte + 4 < half_ic) ? __ldg(src + 1) : 0;
+
+    const int col = col_byte * 2;  // starting ic index
+    const int out_base = row * ic_p + col;
+
+    // Process 8 bytes = 16 int4 values, write as half2 pairs
+    half result[16];
+    #pragma unroll
+    for (int j = 0; j < 4; j++) {
+        const int kk = col + j * 2;
+        if (kk >= ic) break;
+        const int gidx = min(kk / ic_per_group, num_qg - 1);
+        const float s = (float)__ldg(&scale[qparam_base + gidx]);
+        const float o = (float)__ldg(&offset[qparam_base + gidx]);
+        const uint8_t byte_val = (packed0 >> (j * 8)) & 0xFF;
+        result[j * 2] = (half)(((float)(byte_val >> 4) - 8.0f) * s + o);
+        result[j * 2 + 1] = (half)(((float)(byte_val & 0x0F) - 8.0f) * s + o);
     }
+    #pragma unroll
+    for (int j = 0; j < 4; j++) {
+        const int kk = col + 8 + j * 2;
+        if (kk >= ic) break;
+        const int gidx = min(kk / ic_per_group, num_qg - 1);
+        const float s = (float)__ldg(&scale[qparam_base + gidx]);
+        const float o = (float)__ldg(&offset[qparam_base + gidx]);
+        const uint8_t byte_val = (packed1 >> (j * 8)) & 0xFF;
+        result[8 + j * 2] = (half)(((float)(byte_val >> 4) - 8.0f) * s + o);
+        result[8 + j * 2 + 1] = (half)(((float)(byte_val & 0x0F) - 8.0f) * s + o);
+    }
+
+    // Vectorized write: 16 halves = 32 bytes = float4 + float4
+    if (col + 8 <= ic) {
+        *reinterpret_cast<float4*>(output + out_base) = *reinterpret_cast<float4*>(result);
+    } else {
+        for (int i = 0; i < 8 && col + i < ic; i++) output[out_base + i] = (dT)result[i];
+    }
+    if (col + 16 <= ic) {
+        *reinterpret_cast<float4*>(output + out_base + 8) = *reinterpret_cast<float4*>(result + 8);
+    } else if (col + 8 < ic) {
+        for (int i = 8; i < 16 && col + i < ic; i++) output[out_base + i] = (dT)result[i];
+    }
+}
+
+// R6: Pre-compute GEMV params: scale and adj_offset as float2 array
+// Eliminates scattered offset loads and runtime computation in GEMV
+// Grid: (ceil(total/256)), Block: 256
+template<typename T>
+__global__ void PrecomputeGemvParams(
+    const T* __restrict__ scale,
+    const T* __restrict__ offset,
+    float2* __restrict__ params,   // [oc * num_qg], .x=scale, .y=adj_offset
+    const int total                // oc * num_qg
+) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total) return;
+    const float s = (float)scale[idx];
+    const float o = (float)offset[idx];
+    params[idx] = make_float2(s, o - 8.0f * s);  // adj_offset = offset - 8*scale
 }
 
 // 动态量化 A、计算 sum_A
@@ -683,6 +743,341 @@ __global__ void GEMV_FpAInt4B(
     }
 }
 
+
+// =====================================================================
+// P1-V5: 128-thread GEMV — all 128 threads cooperate on 1 OC
+// - Grid: (oc, batch), Block: 128
+// =====================================================================
+template<typename T>
+__global__ void GEMV_FpAInt4B_V5(
+    const T* __restrict__ input,
+    const uint8_t* __restrict__ kernel,  // packed int4 weights [oc, ic_p/2]
+    const T* __restrict__ scale, const T* __restrict__ offset, const T* __restrict__ bias,
+    T* __restrict__ output,
+    const float maxV, const float minV,
+    const int batch, const int ic, const int ic_p,
+    const int oc, const int oc_p, const int quanC
+) {
+    const int oz = blockIdx.x;  // 1 OC per block
+    const int b = blockIdx.y;
+    if (oz >= oc || b >= batch) return;
+
+    const int tid = threadIdx.x;  // 0..127
+    const int warp_id = tid / 32;
+    const int lane_id = tid % 32;
+
+    const int num_qg = (quanC > 0) ? (quanC / oc) : 1;
+    const int ic_per_group = (num_qg > 0) ? (ic / num_qg) : ic;
+    const int qparam_base = oz * num_qg;
+
+    const int row_bytes = ic_p / 2;
+    const uint8_t* w_row = kernel + oz * row_bytes;
+    const T* in_ptr = input + b * ic_p;
+
+    float acc = 0.0f;
+
+    // 128 threads × 8 elements = 1024 per iteration
+    for (int k = tid * 8; k < ic; k += 1024) {
+        uint32_t w32 = __ldg(reinterpret_cast<const uint32_t*>(w_row + k / 2));
+
+        const int gidx = k / ic_per_group;
+        const float s = (float)__ldg(&scale[qparam_base + gidx]);
+        const float o = (float)__ldg(&offset[qparam_base + gidx]);
+        const float adj_off = o - 8.0f * s;
+
+        #pragma unroll
+        for (int j = 0; j < 4; j++) {
+            const int kk = k + j * 2;
+            if (kk >= ic) break;
+            const uint8_t packed = (w32 >> (j * 8)) & 0xFF;
+            const float w0 = (float)(packed >> 4) * s + adj_off;
+            const float w1 = (float)(packed & 0x0F) * s + adj_off;
+            acc += (float)in_ptr[kk] * w0;
+            if (kk + 1 < ic) acc += (float)in_ptr[kk + 1] * w1;
+        }
+    }
+
+    // Warp-level reduction
+    #pragma unroll
+    for (int off = 16; off > 0; off >>= 1) {
+        acc += __shfl_xor_sync(0xffffffff, acc, off);
+    }
+
+    // Cross-warp reduction via shared memory (4 warps → 1 result)
+    __shared__ float smem[4];
+    if (lane_id == 0) smem[warp_id] = acc;
+    __syncthreads();
+
+    if (tid == 0) {
+        float result = smem[0] + smem[1] + smem[2] + smem[3];
+        result += (float)bias[oz];
+        result = fmaxf(result, minV);
+        result = fminf(result, maxV);
+        output[b * oc_p + oz] = (T)result;
+    }
+}
+
+// =====================================================================
+// V9: Multi-OC GEMV — each block processes OC_PER_BLK output channels
+// 128 threads cooperatively reduce each OC in sequence (fewer blocks, better latency hiding)
+// Grid: (ceil(oc/OC_PER_BLK), batch), Block: 128
+// =====================================================================
+template<typename T, int OC_PER_BLK>
+__global__ void GEMV_FpAInt4B_V9(
+    const T* __restrict__ input,
+    const uint8_t* __restrict__ kernel,  // packed int4 weights [oc, ic_p/2]
+    const T* __restrict__ scale, const T* __restrict__ offset, const T* __restrict__ bias,
+    T* __restrict__ output,
+    const float maxV, const float minV,
+    const int batch, const int ic, const int ic_p,
+    const int oc, const int oc_p, const int quanC
+) {
+    const int oc_base = blockIdx.x * OC_PER_BLK;
+    const int b = blockIdx.y;
+    if (oc_base >= oc || b >= batch) return;
+
+    const int tid = threadIdx.x;
+    const int warp_id = tid / 32;
+    const int lane_id = tid % 32;
+
+    const int num_qg = (quanC > 0) ? (quanC / oc) : 1;
+    const int ic_per_group = (num_qg > 0) ? (ic / num_qg) : ic;
+
+    const int row_bytes = ic_p / 2;
+    const T* in_ptr = input + b * ic_p;
+
+    // blockDim.x threads, (blockDim.x/32) warps
+    const int nwarps = blockDim.x / 32;
+    __shared__ float smem[8];  // up to 8 warps (256 threads)
+
+    #pragma unroll
+    for (int oc_off = 0; oc_off < OC_PER_BLK; oc_off++) {
+        const int oz = oc_base + oc_off;
+        if (oz >= oc) break;
+
+        const int qparam_base = oz * num_qg;
+        const uint8_t* w_row = kernel + oz * row_bytes;
+
+        float acc = 0.0f;
+
+        // Each thread handles 8 IC elements per iteration, stride = nthreads * 8
+        const int stride = blockDim.x * 8;
+        for (int k = tid * 8; k < ic; k += stride) {
+            uint32_t w32 = __ldg(reinterpret_cast<const uint32_t*>(w_row + k / 2));
+
+            const int gidx = k / ic_per_group;
+            const float s = (float)__ldg(&scale[qparam_base + gidx]);
+            const float o = (float)__ldg(&offset[qparam_base + gidx]);
+            const float adj_off = o - 8.0f * s;
+
+            #pragma unroll
+            for (int j = 0; j < 4; j++) {
+                const int kk = k + j * 2;
+                if (kk >= ic) break;
+                const uint8_t packed = (w32 >> (j * 8)) & 0xFF;
+                const float w0 = (float)(packed >> 4) * s + adj_off;
+                const float w1 = (float)(packed & 0x0F) * s + adj_off;
+                acc += (float)in_ptr[kk] * w0;
+                if (kk + 1 < ic) acc += (float)in_ptr[kk + 1] * w1;
+            }
+        }
+
+        // Warp-level reduction
+        #pragma unroll
+        for (int off = 16; off > 0; off >>= 1)
+            acc += __shfl_xor_sync(0xffffffff, acc, off);
+
+        if (lane_id == 0) smem[warp_id] = acc;
+        __syncthreads();
+
+        if (tid == 0) {
+            float result = 0.0f;
+            for (int w = 0; w < nwarps; w++) result += smem[w];
+            result += (float)bias[oz];
+            result = fmaxf(result, minV);
+            result = fminf(result, maxV);
+            output[b * oc_p + oz] = (T)result;
+        }
+        __syncthreads();
+    }
+}
+
+
+
+
+// =====================================================================
+// V14: Factored-dequant multi-OC GEMV — reduces ALU per weight byte.
+// Key insight: acc += in * (s * nibble + adj) = s * sum(in*nibble) + adj * sum(in)
+// By factoring out scale/adj, we save 6 FMA per OC per 8-IC iteration.
+// Also: explicit load-compute separation for better instruction scheduling.
+// Grid: (ceil(oc/OC_PER_BLK), batch), Block: 128
+// =====================================================================
+template<typename T, int OC_PER_BLK>
+__global__ void __launch_bounds__(128, 12) GEMV_FpAInt4B_V14(
+    const T* __restrict__ input,
+    const uint8_t* __restrict__ kernel,  // packed int4 weights [oc, ic_p/2]
+    const float2* __restrict__ gemv_params,  // [oc * num_qg], .x=scale, .y=adj_offset
+    const T* __restrict__ bias,
+    T* __restrict__ output,
+    const float maxV, const float minV,
+    const int batch, const int ic, const int ic_p,
+    const int oc, const int oc_p, const int num_qg
+) {
+    const int oc_base = blockIdx.x * OC_PER_BLK;
+    const int b = blockIdx.y;
+    if (oc_base >= oc || b >= batch) return;
+
+    const int tid = threadIdx.x;
+    const int warp_id = tid / 32;
+    const int lane_id = tid % 32;
+    const int nwarps = blockDim.x / 32;
+
+    const int ic_per_group = ic / num_qg;
+    const int row_bytes = ic_p / 2;
+    const T* in_ptr = input + b * ic_p;
+
+    // Compute per-OC base pointers (on-the-fly, no pointer arrays to save registers)
+    float accs[OC_PER_BLK];
+    #pragma unroll
+    for (int i = 0; i < OC_PER_BLK; i++)
+        accs[i] = 0.0f;
+
+    // Main IC loop — all OCs processed simultaneously
+    const int stride = blockDim.x * 8;
+    for (int k = tid * 8; k < ic; k += stride) {
+        // Phase 1: Load ALL input values
+        float in_vals[8];
+        #pragma unroll
+        for (int j = 0; j < 8; j++)
+            in_vals[j] = (float)in_ptr[k + j];
+
+        // Pre-compute input sum for factored adj_offset term (shared across all OCs)
+        float input_sum = in_vals[0] + in_vals[1] + in_vals[2] + in_vals[3]
+                        + in_vals[4] + in_vals[5] + in_vals[6] + in_vals[7];
+
+        const int gidx = k / ic_per_group;
+
+        // Phase 2: Load ALL weights and params before any compute
+        uint32_t w_data[OC_PER_BLK];
+        float s_data[OC_PER_BLK], adj_data[OC_PER_BLK];
+        #pragma unroll
+        for (int oi = 0; oi < OC_PER_BLK; oi++) {
+            const int oc_idx = oc_base + oi;
+            if (oc_idx < oc) {
+                w_data[oi] = __ldg(reinterpret_cast<const uint32_t*>(
+                    kernel + oc_idx * row_bytes + k / 2));
+                const float2 p = __ldg(gemv_params + oc_idx * num_qg + gidx);
+                s_data[oi] = p.x;
+                adj_data[oi] = p.y;
+            }
+        }
+
+        // Phase 3: Compute raw dot products (no scale/adj in the hot loop)
+        #pragma unroll
+        for (int oi = 0; oi < OC_PER_BLK; oi++) {
+            if (oc_base + oi >= oc) break;
+            float raw_dot = 0.0f;
+            #pragma unroll
+            for (int j = 0; j < 4; j++) {
+                const uint32_t packed = (w_data[oi] >> (j * 8)) & 0xFF;
+                raw_dot += in_vals[j * 2] * (float)(packed >> 4);
+                raw_dot += in_vals[j * 2 + 1] * (float)(packed & 0x0F);
+            }
+            // Apply scale and adj_offset: acc += s * raw_dot + adj * input_sum
+            accs[oi] = fmaf(adj_data[oi], input_sum, fmaf(s_data[oi], raw_dot, accs[oi]));
+        }
+    }
+
+    // Warp-level reduction for all accumulators
+    #pragma unroll
+    for (int oi = 0; oi < OC_PER_BLK; oi++) {
+        #pragma unroll
+        for (int off = 16; off > 0; off >>= 1)
+            accs[oi] += __shfl_xor_sync(0xffffffff, accs[oi], off);
+    }
+
+    // Single-sync parallel cross-warp reduction for ALL OCs at once
+    __shared__ float smem[OC_PER_BLK][8];  // [oc_idx][warp_idx]
+
+    if (lane_id == 0) {
+        #pragma unroll
+        for (int oi = 0; oi < OC_PER_BLK; oi++)
+            smem[oi][warp_id] = accs[oi];
+    }
+    __syncthreads();
+
+    // First OC_PER_BLK threads each reduce one OC
+    if (tid < OC_PER_BLK && oc_base + tid < oc) {
+        float result = 0.0f;
+        for (int w = 0; w < nwarps; w++) result += smem[tid][w];
+        result += (float)__ldg(&bias[oc_base + tid]);
+        result = fmaxf(result, minV);
+        result = fminf(result, maxV);
+        output[b * oc_p + oc_base + tid] = (T)result;
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+// P1: Optimized INT8 GEMV with warp shuffle reduction
+template<typename T>
+__global__ void GEMV_FpAInt8B_V2(
+    const T* __restrict__ input,
+    const int8_t* __restrict__ kernel,
+    const T* __restrict__ scale, const T* __restrict__ offset, const T* __restrict__ bias,
+    T* __restrict__ output,
+    const float maxV, const float minV,
+    const int batch, const int ic, const int ic_p,
+    const int oc, const int oc_p, const int quanC
+) {
+    const int b = blockIdx.y;
+    const int oz_base = blockIdx.x * GEMV_OC_PER_BLOCK;
+    const int warp_id = threadIdx.y;
+    const int lane_id = threadIdx.x;
+    const int oz = oz_base + warp_id;
+
+    if (oz >= oc || b >= batch) return;
+
+    const int num_quan_groups_per_channel = (quanC > 0) ? (quanC / oc) : 1;
+    const int ic_per_group = (num_quan_groups_per_channel > 0) ? (ic / num_quan_groups_per_channel) : ic;
+    const int quan_param_index_base = oz * num_quan_groups_per_channel;
+
+    float my_sum = 0.0f;
+    for (int k = lane_id; k < ic; k += WARP_SIZE) {
+        const float inp0 = (float)input[b * ic_p + k];
+        const int8_t ker0 = __ldg(&kernel[oz * ic_p + k]);
+
+        const int group_idx = k / ic_per_group;
+        const int quan_param_index = quan_param_index_base + group_idx;
+        const float x_scale = (float)__ldg(&scale[quan_param_index]);
+        const float x_offset = (float)__ldg(&offset[quan_param_index]);
+
+        my_sum += inp0 * ((float)ker0 * x_scale + x_offset);
+    }
+
+    // Warp shuffle reduction
+    #pragma unroll
+    for (int offset_val = WARP_SIZE / 2; offset_val > 0; offset_val >>= 1) {
+        my_sum += __shfl_xor_sync(0xffffffff, my_sum, offset_val);
+    }
+
+    if (lane_id == 0) {
+        float final_val = my_sum + (float)bias[oz];
+        final_val = max(final_val, minV);
+        final_val = min(final_val, maxV);
+        output[b * oc_p + oz] = (T)final_val;
+    }
+}
+
 template<typename T>
 __global__ void CONV_FpAInt8B(const T* input,
     const int8_t* kernel,
@@ -996,15 +1391,35 @@ ConvFpAIntBExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
             int block_num = runtime->blocks_num(khw*icp/2*hp);
             int block_size = runtime->threads_num();
             Rearrange_Packed_Weight_Int4<<<block_num, block_size>>>((const uint8_t*)cacheWeight, (uint8_t*)mFilter, khw, khw*icp/2*hp, oc, ic, khwD, icp2D);
-            // Rearrange_Weight_Int4<<<block_num, block_size>>>((const int8_t*)cacheWeight, (uint8_t*)mFilter, khw, khw*icp/2*hp, oc, ic, khwD, icp2D);
             checkKernelErrors;
 
             static_cast<CUDABackend*>(bn)->getStaticBufferPool()->free(tempCacheBuffer);
+
+            // R6: Pre-compute GEMV params (scale, adj_offset) as float2 array for 1x1 conv
+            if (khw == 1) {
+                mNumQg = (mQuanC > 0) ? (mQuanC / oc) : 1;
+                const size_t param_count = (size_t)oc * mNumQg;
+                cudaError_t err = cudaMalloc(&mGemvParams, param_count * sizeof(float2));
+                if (err == cudaSuccess) {
+                    dim3 pg_block(256);
+                    dim3 pg_grid((param_count + 255) / 256);
+                    if (static_cast<CUDABackend*>(bn)->useFp16()) {
+                        PrecomputeGemvParams<half><<<pg_grid, pg_block>>>(
+                            (const half*)mScale, (const half*)mOffset,
+                            mGemvParams, (int)param_count);
+                    } else {
+                        PrecomputeGemvParams<float><<<pg_grid, pg_block>>>(
+                            (const float*)mScale, (const float*)mOffset,
+                            mGemvParams, (int)param_count);
+                    }
+                    checkKernelErrors;
+                }
+            }
         } else {
             auto tempCacheBuffer = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(weightSize * sizeof(int8_t));
             float* cacheWeight = (float*)((uint8_t*)tempCacheBuffer.first + tempCacheBuffer.second);
             runtime->memcpy(cacheWeight, quanCommon->weight.get(), weightSize * sizeof(int8_t), MNNMemcpyHostToDevice);
-            
+
             weightTensor.reset(Tensor::createDevice<int8_t>({khw * icp * hp}));
             bn->onAcquireBuffer(weightTensor.get(), Backend::STATIC);
             mFilter = (void *)weightTensor.get()->buffer().device;
@@ -1066,7 +1481,7 @@ ConvFpAIntBExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
 }
 
 ConvFpAIntBExecution::Resource::~Resource() {
-    // Do nothing
+    if (mGemvParams) cudaFree(mGemvParams);
 }
 ConvFpAIntBExecution::ConvFpAIntBExecution(Backend* backend, const MNN::Op* op, std::shared_ptr<Resource> res) : CutlassConvCommonExecution(backend) {
     mOp = op;
@@ -1080,7 +1495,9 @@ ConvFpAIntBExecution::ConvFpAIntBExecution(Backend* backend, const MNN::Op* op, 
 }
 
 ConvFpAIntBExecution::~ConvFpAIntBExecution() {
-    if (mDequantFilterTensor) {
+    // DYNAMIC dequant buffers are managed by the memory planner (alloc+release in onResize)
+    // Only STATIC buffers need explicit release in destructor
+    if (mDequantFilterTensor && mDequantIsStatic) {
         backend()->onReleaseBuffer(mDequantFilterTensor.get(), Backend::STATIC);
     }
 }
@@ -1160,12 +1577,23 @@ ErrorCode ConvFpAIntBExecution::onResize(const std::vector<Tensor*> &inputs, con
         pool->free(buffer);
     }
 
-    mDequantFilterTensor = nullptr;
+    if (mDequantFilterTensor) {
+        if (mDequantIsStatic) {
+            backend()->onReleaseBuffer(mDequantFilterTensor.get(), Backend::STATIC);
+        }
+        // DYNAMIC buffers were already released in previous onResize, no action needed
+        mDequantFilterTensor = nullptr;
+    }
+    mDequantFilter = nullptr;
+    mNeedRuntimeDequant = false;
+    mDequantIsStatic = false;
 
-    // 运行时离线反量化
+    // Weight dequantization: use DYNAMIC buffer with runtime dequant in onExecute.
+    // DYNAMIC buffers are shared across all Conv layers (only one active at a time),
+    // saving massive GPU memory vs STATIC (which would need ~30GB for 27B models).
     if (!mFp32Infer) {
         if (mIsConv1x1S1D1P0) {
-            std::vector<int> dequantShape = {mGemmInfo.elhPad[2], mGemmInfo.elhPad[1]}; // Shape: [N, K]
+            std::vector<int> dequantShape = {mGemmInfo.elhPad[2], mGemmInfo.elhPad[1]}; // Shape: [oc_p, ic_p]
             if (mFp16Infer || mFp16Fp32MixInfer) {
                 mDequantFilterTensor.reset(Tensor::createDevice<int16_t>(dequantShape));
             } else {
@@ -1173,10 +1601,14 @@ ErrorCode ConvFpAIntBExecution::onResize(const std::vector<Tensor*> &inputs, con
             }
             backend()->onAcquireBuffer(mDequantFilterTensor.get(), Backend::DYNAMIC);
             backend()->onReleaseBuffer(mDequantFilterTensor.get(), Backend::DYNAMIC);
+            mNeedRuntimeDequant = true;
+            mDequantIsStatic = false;
+
             mBiasAddr   = mResource->mBias;
             mBackendPtr = mResource->mBackend;
-            mDequantFilter = (void*)mDequantFilterTensor->buffer().device;            
+            mDequantFilter = (void*)mDequantFilterTensor->buffer().device;
             mFilterAddr = mDequantFilter;
+
             if (mFp32Infer) {
                 return callCutlassGemmCudaCoreFloat32(inputs, outputs);
             }
@@ -1247,61 +1679,23 @@ ErrorCode ConvFpAIntBExecution::onExecute(const std::vector<Tensor*> &inputs, co
     DivModFast d_oh(oh);
 
     const int batch = inputs[0]->batch();
-    if (mDequantFilterTensor != nullptr) {
-        cuda_check(cudaMemset(mDequantFilter, 0, mDequantFilterTensor->size()));
 
-        if (mResource->mIsWeightInt4) {
-            dim3 threads(32, 32);
-            dim3 blocks(UP_DIV(ic, threads.x), UP_DIV(oc, threads.y));
-            if (mFp16Infer) {
-                DequantizeInt4Weight<half, half><<<blocks, threads>>>(
-                    (const uint8_t*)mResource->mFilter, (half*)mDequantFilter,
-                    (const half*)mResource->mScale, (const half*)mResource->mOffset,
-                    oc, ic, icp, mResource->mQuanC
-                );
-            } else if (mFp16Fp32MixInfer) {
-                DequantizeInt4Weight<float, half><<<blocks, threads>>>(
-                    (const uint8_t*)mResource->mFilter, (half*)mDequantFilter,
-                    (const float*)mResource->mScale, (const float*)mResource->mOffset,
-                    oc, ic, icp, mResource->mQuanC
-                );
-            }
-        } else {
-            dim3 threads(32, 32);
-            dim3 blocks(UP_DIV(ic, threads.x), UP_DIV(oc, threads.y));
-            if (mFp16Infer) {
-                DequantizeInt8Weight<half, half><<<blocks, threads>>>(
-                    (const int8_t*)mResource->mFilter, (half*)mDequantFilter,
-                    (const half*)mResource->mScale, (const half*)mResource->mOffset,
-                    oc, ic, icp, mResource->mQuanC
-                );
-            } else if (mFp16Fp32MixInfer) {
-                DequantizeInt8Weight<float, half><<<blocks, threads>>>(
-                    (const int8_t*)mResource->mFilter, (half*)mDequantFilter,
-                    (const float*)mResource->mScale, (const float*)mResource->mOffset,
-                    oc, ic, icp, mResource->mQuanC
-                );
-            }
-        }
-    }
+    // Weight dequantization now happens once in onResize (STATIC buffer).
+    // GEMV path (batch <= 4) reads packed INT4 weights directly.
 
-    
+
     if(mResource->mIsWeightInt4) {
         if (mIsConv1x1S1D1P0) {
             if (mFp32Infer) { // High + Int4
                 if (batch <= 16) {
-                    dim3 threads(GEMV_TILE);
-                    dim3 blocks(oc, batch);
-                    size_t input_smem_size = icp * (mFp16Infer ? sizeof(half) : sizeof(float));
-                    size_t reduction_smem_size = GEMV_TILE * sizeof(float);
-                    size_t smem_size = input_smem_size + reduction_smem_size;
-    
-                    GEMV_FpAInt4B<<<blocks, threads, smem_size>>>(
+                    // P1-V5: 128-thread GEMV, 1 OC per block
+                    dim3 v5_grid(oc, batch);
+                    dim3 v5_block(128);
+                    GEMV_FpAInt4B_V5<<<v5_grid, v5_block>>>(
                         (const float*)input_addr, (const uint8_t*)mResource->mFilter,
-                        (const float*)mResource->mScale,  (const float*)mResource->mOffset,
+                        (const float*)mResource->mScale, (const float*)mResource->mOffset,
                         (const float*)bias_addr, (float*)output_addr,
-                        maxV, minV, batch, ic, icp, oc, ocp, mResource->mQuanC
-                    );
+                        maxV, minV, batch, ic, icp, oc, ocp, mResource->mQuanC);
                 } else {
                     dim3 threads(TILE_DIM, TILE_DIM);
                     dim3 blocks(UP_DIV(ocp, TILE_DIM), UP_DIV(batch, TILE_DIM));
@@ -1314,11 +1708,87 @@ ErrorCode ConvFpAIntBExecution::onExecute(const std::vector<Tensor*> &inputs, co
                     );
                 }
             } else {
-                if (mFp16Fp32MixInfer) {
-                    size_t maxCount = mGemmInfo.elh[0] * mGemmInfo.elhPad[1];
-                    callFloat2Half(input_addr, mIm2ColBuffer, maxCount, runtime);
+                if (batch <= 4) {
+                    const int num_qg = (mResource->mQuanC > 0) ? (mResource->mQuanC / oc) : 1;
+                    if (mResource->mGemvParams) {
+                        // R7-V14: Factored-dequant multi-OC GEMV
+                        constexpr int V14_OC = 4;
+                        dim3 v14_grid((oc + V14_OC - 1) / V14_OC, batch);
+                        dim3 v14_block(128);
+                        if (mFp16Infer) {
+                            GEMV_FpAInt4B_V14<half, V14_OC><<<v14_grid, v14_block>>>(
+                                (const half*)input_addr, (const uint8_t*)mResource->mFilter,
+                                mResource->mGemvParams,
+                                (const half*)bias_addr, (half*)output_addr,
+                                maxV, minV, batch, ic, icp, oc, ocp, num_qg);
+                        } else if (mFp16Fp32MixInfer) {
+                            GEMV_FpAInt4B_V14<float, V14_OC><<<v14_grid, v14_block>>>(
+                                (const float*)input_addr, (const uint8_t*)mResource->mFilter,
+                                mResource->mGemvParams,
+                                (const float*)bias_addr, (float*)output_addr,
+                                maxV, minV, batch, ic, icp, oc, ocp, num_qg);
+                        }
+                    } else {
+                        // Fallback to V9/V5
+                        dim3 v5_grid(oc, batch);
+                        dim3 v5_block(128);
+                        if (mFp16Infer) {
+                            constexpr int OC_PER_BLK = 2;
+                            dim3 v9_grid((oc + OC_PER_BLK - 1) / OC_PER_BLK, batch);
+                            GEMV_FpAInt4B_V9<half, OC_PER_BLK><<<v9_grid, v5_block>>>(
+                                (const half*)input_addr, (const uint8_t*)mResource->mFilter,
+                                (const half*)mResource->mScale, (const half*)mResource->mOffset,
+                                (const half*)bias_addr, (half*)output_addr,
+                                maxV, minV, batch, ic, icp, oc, ocp, mResource->mQuanC);
+                        } else if (mFp16Fp32MixInfer) {
+                            GEMV_FpAInt4B_V5<<<v5_grid, v5_block>>>(
+                                (const float*)input_addr, (const uint8_t*)mResource->mFilter,
+                                (const float*)mResource->mScale, (const float*)mResource->mOffset,
+                                (const float*)bias_addr, (float*)output_addr,
+                                maxV, minV, batch, ic, icp, oc, ocp, mResource->mQuanC);
+                        }
+                    }
+                } else {
+                    // Prefill/batched GEMM path: CUTLASS with dequantized FP16 weights
+                    if (mNeedRuntimeDequant) {
+                        // Runtime dequantization: dequant INT4→FP16 into DYNAMIC buffer before CUTLASS
+                        if (mResource->mIsWeightInt4) {
+                            int threads_per_row = UP_DIV(icp, 16);
+                            dim3 dq_block(min(threads_per_row, 256));
+                            dim3 dq_grid(oc, UP_DIV(threads_per_row, (int)dq_block.x));
+                            if (mFp16Infer) {
+                                DequantizeInt4Weight<half, half><<<dq_grid, dq_block>>>(
+                                    (const uint8_t*)mResource->mFilter, (half*)mDequantFilter,
+                                    (const half*)mResource->mScale, (const half*)mResource->mOffset,
+                                    oc, ic, icp, mResource->mQuanC);
+                            } else if (mFp16Fp32MixInfer) {
+                                DequantizeInt4Weight<float, half><<<dq_grid, dq_block>>>(
+                                    (const uint8_t*)mResource->mFilter, (half*)mDequantFilter,
+                                    (const float*)mResource->mScale, (const float*)mResource->mOffset,
+                                    oc, ic, icp, mResource->mQuanC);
+                            }
+                        } else {
+                            dim3 threads(32, 32);
+                            dim3 blocks(UP_DIV(ic, threads.x), UP_DIV(oc, threads.y));
+                            if (mFp16Infer) {
+                                DequantizeInt8Weight<half, half><<<blocks, threads>>>(
+                                    (const int8_t*)mResource->mFilter, (half*)mDequantFilter,
+                                    (const half*)mResource->mScale, (const half*)mResource->mOffset,
+                                    oc, ic, icp, mResource->mQuanC);
+                            } else if (mFp16Fp32MixInfer) {
+                                DequantizeInt8Weight<float, half><<<blocks, threads>>>(
+                                    (const int8_t*)mResource->mFilter, (half*)mDequantFilter,
+                                    (const float*)mResource->mScale, (const float*)mResource->mOffset,
+                                    oc, ic, icp, mResource->mQuanC);
+                            }
+                        }
+                    }
+                    if (mFp16Fp32MixInfer) {
+                        size_t maxCount = mGemmInfo.elh[0] * mGemmInfo.elhPad[1];
+                        callFloat2Half(input_addr, mIm2ColBuffer, maxCount, runtime);
+                    }
+                    runCutlassGemmFunc();
                 }
-                runCutlassGemmFunc();
             }
         } else {
             if(mFp16Infer) {
@@ -1337,18 +1807,19 @@ ErrorCode ConvFpAIntBExecution::onExecute(const std::vector<Tensor*> &inputs, co
         if (mIsConv1x1S1D1P0) {
             if (mFp32Infer) { // High + Int8
                 if (batch <= 16) {
-                    dim3 threads(GEMV_TILE);
-                    dim3 blocks(oc, batch);
-                    
+                    // P1: Use optimized GEMV with warp shuffle reduction
+                    dim3 threads(WARP_SIZE, GEMV_OC_PER_BLOCK);
+                    dim3 blocks(UP_DIV(oc, GEMV_OC_PER_BLOCK), batch);
+
                     if (mFp16Infer) {
-                        GEMV_FpAInt8B<<<blocks, threads>>>(
+                        GEMV_FpAInt8B_V2<<<blocks, threads>>>(
                             (const half*)input_addr, (const int8_t*)mResource->mFilter,
                             (const half*)mResource->mScale,  (const half*)mResource->mOffset,
                             (const half*)bias_addr, (half*)output_addr,
                             maxV, minV, batch, ic, icp, oc, ocp, mResource->mQuanC
                         );
                     } else {
-                        GEMV_FpAInt8B<<<blocks, threads>>>(
+                        GEMV_FpAInt8B_V2<<<blocks, threads>>>(
                             (const float*)input_addr, (const int8_t*)mResource->mFilter,
                             (const float*)mResource->mScale,  (const float*)mResource->mOffset,
                             (const float*)bias_addr, (float*)output_addr,
@@ -1367,11 +1838,33 @@ ErrorCode ConvFpAIntBExecution::onExecute(const std::vector<Tensor*> &inputs, co
                     );
                 }
             } else {
-                if (mFp16Fp32MixInfer) {
-                    size_t maxCount = mGemmInfo.elh[0] * mGemmInfo.elhPad[1];
-                    callFloat2Half(input_addr, mIm2ColBuffer, maxCount, runtime);
+                if (batch <= 16) {
+                    // P1: FP16 direct GEMV for INT8 small batch
+                    dim3 threads(WARP_SIZE, GEMV_OC_PER_BLOCK);
+                    dim3 blocks(UP_DIV(oc, GEMV_OC_PER_BLOCK), batch);
+                    if (mFp16Infer) {
+                        GEMV_FpAInt8B_V2<<<blocks, threads>>>(
+                            (const half*)input_addr, (const int8_t*)mResource->mFilter,
+                            (const half*)mResource->mScale, (const half*)mResource->mOffset,
+                            (const half*)bias_addr, (half*)output_addr,
+                            maxV, minV, batch, ic, icp, oc, ocp, mResource->mQuanC
+                        );
+                    } else if (mFp16Fp32MixInfer) {
+                        GEMV_FpAInt8B_V2<<<blocks, threads>>>(
+                            (const float*)input_addr, (const int8_t*)mResource->mFilter,
+                            (const float*)mResource->mScale, (const float*)mResource->mOffset,
+                            (const float*)bias_addr, (float*)output_addr,
+                            maxV, minV, batch, ic, icp, oc, ocp, mResource->mQuanC
+                        );
+                    }
+                } else {
+                    // Prefill path: CUTLASS GEMM with dequantized FP16 weights
+                    if (mFp16Fp32MixInfer) {
+                        size_t maxCount = mGemmInfo.elh[0] * mGemmInfo.elhPad[1];
+                        callFloat2Half(input_addr, mIm2ColBuffer, maxCount, runtime);
+                    }
+                    runCutlassGemmFunc();
                 }
-                runCutlassGemmFunc();
             }
         } else {
             if(mFp16Infer) {

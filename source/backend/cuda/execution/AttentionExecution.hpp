@@ -67,7 +67,7 @@ private:
     // GPU上的临时Tensor
     std::shared_ptr<Tensor> mTempQK;        // 存储 (Q*K^T)/sqrt(d)。形状: [B, H_q, Max_L_q_piece, Max_L_k_total]
     std::shared_ptr<Tensor> mTempSoftmax;   // 存储 Softmax 输出。形状: [B, H_q, Max_L_q_piece, Max_L_k_total]
-    
+
     // 如果 !mIsKVCacheEnabled, 用于存储当前步骤的K/V (类Cache格式)
     std::shared_ptr<Tensor> mTempK_current_step; // 布局: [Max_L_k_new_alloc, B, H_kv, D]
     std::shared_ptr<Tensor> mTempV_current_step; // 布局: [B, H_kv, D, Max_L_k_new_alloc]
@@ -79,8 +79,13 @@ private:
     AttentionKernelParam* mParam_gpu = nullptr; // Kernel参数的设备指针
     KVMeta* mMeta = nullptr;
 
-    const int mExpandChunk = 64; // KV Cache重分配时的扩展块大小
+    int mExpandChunk = 64; // KV Cache重分配时的扩展块大小
     int mPrecision;              // 精度 (float或half)
+
+    // OPT-2: Split-K Flash Decoding temporary buffers (raw cudaMalloc)
+    float* mSplitKOutputPtr = nullptr;   // [parallel_blocks, batch*num_head, head_dim]
+    float* mSplitKMetaPtr = nullptr;     // [parallel_blocks, batch*num_head, 2] (max, sum)
+    int mMaxParallelBlocks = 0;
 };
 #endif // MNN_SUPPORT_TRANSFORMER_FUSE
 

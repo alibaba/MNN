@@ -36,6 +36,12 @@ public:
         
         std::shared_ptr<Tensor> mSumBQTensor;
         void* mSumBQ = nullptr;
+
+        // R6: Pre-computed GEMV params: float2 array [oc * num_qg]
+        // .x = scale (float32), .y = adj_offset = offset - 8*scale (float32)
+        // Eliminates scattered offset loads and runtime adj_off computation
+        float2* mGemvParams = nullptr;  // allocated via cudaMalloc
+        int mNumQg = 0;  // number of quantization groups per OC
     };
     static bool isValid(const Convolution2D* conv, Backend* backend);
     ConvFpAIntBExecution(Backend* backend, const MNN::Op* op, std::shared_ptr<Resource> res);
@@ -49,6 +55,12 @@ private:
 
     std::shared_ptr<Tensor> mDequantFilterTensor;
     void* mDequantFilter = nullptr;
+
+    // When true, STATIC dequant buffer allocation failed (OOM for large models).
+    // Dequantization will be done just-in-time in onExecute using DYNAMIC buffer.
+    bool mNeedRuntimeDequant = false;
+    bool mDequantIsStatic = false;  // Track whether dequant buffer is STATIC or DYNAMIC
+
 };
 
 } // namespace CUDA

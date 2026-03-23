@@ -200,6 +200,87 @@ __global__ void GENERAL_BATCH_MATMUL(
     }
 }
 
+// P4: FP16/FP32 GEMV kernel for M=1 case in MatMul
+// A: [batch, 1, L], B: [batch, L, H] or [batch, H, L] (transposed)
+// C: [batch, 1, H]
+// Each block handles one output element along H dimension
+// Multiple warps per block for reduction along L dimension
+template<typename T>
+__global__ void matmul_gemv_kernel(
+    const T* __restrict__ A,      // [batchA, 1, L] or [batchA, L, 1] if transA
+    const T* __restrict__ B,      // [batchB, L, H] or [batchB, H, L] if transB
+    const T* __restrict__ bias,   // [H] or nullptr
+    T* __restrict__ C,            // [batch, 1, H]
+    bool transA, bool transB,
+    int coefBatchA, int coefBatchB,
+    int l, int h, int batch
+) {
+    // Each block: one (batch, h) pair
+    const int h_idx = blockIdx.x;
+    const int b_idx = blockIdx.y;
+    const int tid = threadIdx.x;
+
+    if (h_idx >= h || b_idx >= batch) return;
+
+    const int bA = coefBatchA * b_idx;
+    const int bB = coefBatchB * b_idx;
+
+    float sum = 0.0f;
+
+    if (!transA && !transB) {
+        // A: [b, 1, L], B: [b, L, H]
+        const T* a_ptr = A + bA * l;
+        for (int k = tid; k < l; k += blockDim.x) {
+            sum += (float)a_ptr[k] * (float)B[bB * l * h + k * h + h_idx];
+        }
+    } else if (!transA && transB) {
+        // A: [b, 1, L], B: [b, H, L]
+        const T* a_ptr = A + bA * l;
+        const T* b_ptr = B + bB * h * l + h_idx * l;
+        for (int k = tid; k < l; k += blockDim.x) {
+            sum += (float)a_ptr[k] * (float)b_ptr[k];
+        }
+    } else if (transA && !transB) {
+        // A: [b, L, 1], B: [b, L, H]
+        for (int k = tid; k < l; k += blockDim.x) {
+            sum += (float)A[bA * l + k] * (float)B[bB * l * h + k * h + h_idx];
+        }
+    } else { // transA && transB
+        // A: [b, L, 1], B: [b, H, L]
+        const T* b_ptr = B + bB * h * l + h_idx * l;
+        for (int k = tid; k < l; k += blockDim.x) {
+            sum += (float)A[bA * l + k] * (float)b_ptr[k];
+        }
+    }
+
+    // Warp shuffle reduction
+    for (int offset = 16; offset > 0; offset >>= 1) {
+        sum += __shfl_xor_sync(0xffffffff, sum, offset);
+    }
+
+    // Cross-warp reduction via shared memory
+    __shared__ float warp_sums[32]; // max 32 warps
+    const int warp_id = tid / 32;
+    const int lane_id = tid % 32;
+
+    if (lane_id == 0) {
+        warp_sums[warp_id] = sum;
+    }
+    __syncthreads();
+
+    if (tid == 0) {
+        float total = 0.0f;
+        int num_warps = (blockDim.x + 31) / 32;
+        for (int w = 0; w < num_warps; w++) {
+            total += warp_sums[w];
+        }
+        if (bias != nullptr) {
+            total += (float)bias[h_idx];
+        }
+        C[b_idx * h + h_idx] = (T)total;
+    }
+}
+
 MatMulExecution::MatMulExecution(bool transposeA, bool transposeB, Backend *backend, int aS, int bS, int cS) : 
     #ifdef ENABLE_CUDA_TUNE_PARAM
     CutlassGemmTuneCommonExecution(backend)
@@ -994,7 +1075,9 @@ ErrorCode MatMulExecution::onResize(const std::vector<Tensor *> &inputs, const s
     mGemmInfo.elh[1] = l;
     mGemmInfo.elh[2] = h;
     mLargeBatchSmallGemm = (mBatch > 2048 && l < 8 && e < 8 && h < 8);
-    if(mLargeBatchSmallGemm) {
+    // P4: Detect GEMV case (M=1) for decode stage optimization
+    mIsGemvCase = (e == 1 && l >= 128 && h >= 128);
+    if(mLargeBatchSmallGemm || mIsGemvCase) {
         return NO_ERROR;
     }
 
@@ -1061,6 +1144,39 @@ ErrorCode MatMulExecution::onExecute(const std::vector<Tensor *> &inputs, const 
     auto runtime = static_cast<CUDABackend*>(backend())->getCUDARuntime();
     bool hAlignment = (mGemmInfo.elhPad[2] == mGemmInfo.elh[2]);
 
+    // P4: GEMV path for M=1 (decode stage optimization)
+    if (mIsGemvCase) {
+        int l = mGemmInfo.elh[1];
+        int h = mGemmInfo.elh[2];
+
+        // Choose thread count based on L dimension for optimal reduction
+        int gemv_threads = 128;
+        if (l > 1024) gemv_threads = 256;
+        if (l > 4096) gemv_threads = 512;
+
+        dim3 grid(h, mBatch);
+        dim3 block(gemv_threads);
+
+        void* biasPtr = nullptr;
+        if (inputs.size() > 2) {
+            biasPtr = (void *)inputs[2]->deviceId();
+        }
+
+        if (mFp16Infer) {
+            matmul_gemv_kernel<<<grid, block>>>((const half*)inputs[0]->deviceId(),
+                (const half*)inputs[1]->deviceId(), (const half*)biasPtr,
+                (half*)outputs[0]->deviceId(),
+                mTransposeA, mTransposeB, mAs, mBs, l, h, mBatch);
+        } else {
+            matmul_gemv_kernel<<<grid, block>>>((const float*)inputs[0]->deviceId(),
+                (const float*)inputs[1]->deviceId(), (const float*)biasPtr,
+                (float*)outputs[0]->deviceId(),
+                mTransposeA, mTransposeB, mAs, mBs, l, h, mBatch);
+        }
+        checkKernelErrors;
+        return NO_ERROR;
+    }
+
     if(mLargeBatchSmallGemm) {
         auto total = mBatch * mGemmInfo.elh[0] * mGemmInfo.elh[2];
         DivModFast eD(mGemmInfo.elh[0]);
@@ -1079,7 +1195,7 @@ ErrorCode MatMulExecution::onExecute(const std::vector<Tensor *> &inputs, const 
                     mGemmInfo.elh[0], mGemmInfo.elh[1], mGemmInfo.elh[2], \
                     total, (half*)outputs[0]->deviceId(), \
                     eD, hD);
-            checkKernelErrors;        
+            checkKernelErrors;
         } else {
             GENERAL_BATCH_MATMUL<<<block_num, block_size>>>((const float*)inputs[0]->deviceId(), \
                     (const float*)inputs[1]->deviceId(), (const float*)biasPtr, \
@@ -1087,7 +1203,7 @@ ErrorCode MatMulExecution::onExecute(const std::vector<Tensor *> &inputs, const 
                     mGemmInfo.elh[0], mGemmInfo.elh[1], mGemmInfo.elh[2], \
                     total, (float*)outputs[0]->deviceId(), \
                     eD, hD);
-            checkKernelErrors;   
+            checkKernelErrors;
         }
         return NO_ERROR;
     }
