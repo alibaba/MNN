@@ -58,6 +58,12 @@
   ```
 # Releases
 
+## Version 0.8.2.1
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/apks/mnn_chat_0_8_2_1.apk)
++ 问题修复：
+  + 修复 Android 聊天在预编译 runtime 下可能只输出单个 token，或第二轮无法继续生成的问题。
+  + 加强 dumpapp 与 smoke 对终止回调、单 token 回归和思考模式差异判定的覆盖。
+
 ## Version 0.8.2
 + 点击这里 [下载](https://meta.alicdn.com/data/mnn/apks/mnn_chat_0_8_2.apk)
 + 更新亮点：
