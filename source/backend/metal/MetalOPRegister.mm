@@ -12,6 +12,7 @@
   extern void ___MetalEltwiseCreator__OpType_Eltwise__();
   extern void ___MetalConvolutionCreator__OpType_Convolution__();
   extern void ___MetalLayerNormCreator__OpType_LayerNorm__();
+  extern void ___MetalTopKV2Creator__OpType_TopKV2__();
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
   extern void ___AttentionBufCreator__OpType_Attention__();
   extern void ___MetalLinearAttentionCreator__OpType_LinearAttention__();
@@ -46,6 +47,7 @@ void registerMetalOps() {
    ___MetalEltwiseCreator__OpType_Eltwise__();
    ___MetalConvolutionCreator__OpType_Convolution__();
    ___MetalLayerNormCreator__OpType_LayerNorm__();
+   ___MetalTopKV2Creator__OpType_TopKV2__();
    ___MetalMatMulCreator__OpType_MatMul__();
    ___MetalBinaryCreator__OpType_BinaryOp__();
    ___MetalConvolutionDepthwiseCreator__OpType_ConvolutionDepthwise__();
