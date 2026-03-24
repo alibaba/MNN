@@ -116,6 +116,9 @@ extern const char* unary_subgroup_buf;
 #endif
 extern const char* gemm;
 extern const char* depthwise_deconv2d;
+#ifndef MNN_OPENCL_BUFFER_CLOSED
+extern const char* topkv2_buf;
+#endif
 extern const char* range;
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 extern const char* scale_buf;
@@ -286,6 +289,9 @@ const std::map<std::string, const char*> OpenCLProgramMap =
 #endif
   { "gemm", gemm },
   { "depthwise_deconv2d", depthwise_deconv2d },
+#ifndef MNN_OPENCL_BUFFER_CLOSED
+  { "topkv2_buf", topkv2_buf },
+#endif
   { "range", range },
 #ifndef MNN_OPENCL_BUFFER_CLOSED
   { "scale_buf", scale_buf },
@@ -390,6 +396,7 @@ const std::map<std::string, std::string> OpenCLProgramMd5Map =
   { "unary_subgroup_buf", "31e3768f899da6da45084f617b13c282" },
   { "gemm", "5729018147348682e02762ed5ec14d0c" },
   { "depthwise_deconv2d", "810f69205dede9b38e4858aad621fa71" },
+  { "topkv2_buf", "df1be3cf447e7cbf9a0754dc66e7847b" },
   { "range", "97feaf25d837a325382c162ad77ae0ca" },
   { "scale_buf", "9176b8e86fd4d326e7fa14640ce13b48" },
   { "matmul_buf", "b66faece7f0591d49c289e5227d9f680" },

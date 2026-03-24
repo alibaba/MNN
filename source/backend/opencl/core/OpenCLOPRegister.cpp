@@ -31,6 +31,7 @@ extern void ___OpenCLUnaryBufCreator__OpType_TanH__BUFFER__();
 extern void ___OpenCLFuseBufCreator__OpType_Extra__BUFFER__();
 extern void ___OpenCLGridSampleBufCreator__OpType_GridSample__BUFFER__();
 extern void ___OpenCLScaleBufCreator__OpType_Scale__BUFFER__();
+extern void ___OpenCLTopKV2BufCreator__OpType_TopKV2__BUFFER__();
 #endif
 extern void ___OpenCLDepthwiseConvolutionCreator__OpType_ConvolutionDepthwise__IMAGE__();
 extern void ___OpenCLMatMulCreator__OpType_MatMul__IMAGE__();
@@ -99,6 +100,7 @@ ___OpenCLUnaryBufCreator__OpType_TanH__BUFFER__();
 ___OpenCLFuseBufCreator__OpType_Extra__BUFFER__();
 ___OpenCLGridSampleBufCreator__OpType_GridSample__BUFFER__();
 ___OpenCLScaleBufCreator__OpType_Scale__BUFFER__();
+___OpenCLTopKV2BufCreator__OpType_TopKV2__BUFFER__();
 #endif
 ___OpenCLDepthwiseConvolutionCreator__OpType_ConvolutionDepthwise__IMAGE__();
 ___OpenCLMatMulCreator__OpType_MatMul__IMAGE__();
