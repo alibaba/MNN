@@ -9,6 +9,7 @@
 #define OMNI_hpp
 
 #include "llm/llm.hpp"
+#include <vector>
 #include <thread>
 #include <mutex>
 #include <condition_variable>
@@ -65,6 +66,8 @@ struct WavChunk {
     int mel_slice_start = 0;
     int mel_slice_size = -1;
     bool is_last = false;
+    std::vector<float> mel;
+    std::vector<int> mel_dims;
 };
 
 class Talker : public Llm {
@@ -111,15 +114,20 @@ private:
     // async token2wav pipeline (true parallelism via cloned modules)
     void startAsyncWorker();
     void stopAsyncWorker();
-    void asyncWorkerLoop();
+    void ditWorkerLoop();
+    void vocoderWorkerLoop();
     void processWavChunk(WavChunk& chunk);
     void trySubmitChunkAsync(bool talker_done);
     VARP ditForwardAsync(const int codec_size, const int* codec_tokens, const float* initial_noise);
     VARP bigvganForwardAsync(VARP mel);
-    std::thread mWavWorkerThread;
+    std::thread mDitWorkerThread;
+    std::thread mVocoderWorkerThread;
     std::mutex mWavQueueMutex;
     std::condition_variable mWavQueueCond;
     std::queue<WavChunk> mWavQueue;
+    std::mutex mMelQueueMutex;
+    std::condition_variable mMelQueueCond;
+    std::queue<WavChunk> mMelQueue;
     std::atomic<bool> mWavWorkerRunning{false};
     std::atomic<bool> mWavLastDone{false};
     bool mAsyncToken2Wav = false;
