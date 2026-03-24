@@ -289,15 +289,17 @@ Backend* CPURuntime::onCreate(const BackendConfig* config, Backend* origin) cons
         prefix[6] += mPower;
         // prefix += hint().modelUUID + "_";
         bool autoRemove = true;
+        bool syncValid = false;
         if (hint().useCachedMmap) {
             autoRemove = false;
             std::string fileName = MNNFilePathConcat(hint().weightMemoryPath, prefix + "sync.static");
-            const_cast<RuntimeHint&>(hint()).useCachedMmap += MNNFileExist(fileName.c_str());
+            syncValid = MNNFileExist(fileName.c_str());
+            const_cast<RuntimeHint&>(hint()).useCachedMmap += syncValid;
         }
         if (nullptr == mStaticAllocatorMMap.get()) {
             // Only support set weightmap dir once
             mStaticAllocatorRaw = mStaticAllocator;
-            auto mmapMem = BufferAllocator::Allocator::createMmap(hint().weightMemoryPath.c_str(), prefix.c_str(), "static", autoRemove);
+            auto mmapMem = BufferAllocator::Allocator::createMmap(hint().weightMemoryPath.c_str(), prefix.c_str(), "static", autoRemove, syncValid);
             size_t mmapSize = static_cast<size_t>(hint().mmapFileSize) * 1024 * 1024;
             mStaticAllocator.reset(new EagerBufferAllocator(mmapMem, 32, mmapSize));
             mStaticAllocatorMMap = mStaticAllocator;
