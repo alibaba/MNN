@@ -968,9 +968,10 @@ std::string HuggingfaceTokenizer::decode(int id) {
 }
 
 // Tokenizer chat template methods
-void Tokenizer::set_chat_template(const std::string& tpl, const std::string& eos) {
+void Tokenizer::set_chat_template(const std::string& tpl, const std::string& eos, const std::string& context) {
     chat_template_ = tpl;
     chat_template_eos_ = eos;
+    chat_template_context_ = context;
 }
 
 std::string Tokenizer::apply_chat_template(const ChatMessages& messages, bool add_generation_prompt) const {
@@ -1002,7 +1003,14 @@ std::string Tokenizer::apply_chat_template(const ChatMessages& messages, bool ad
         msg["content"] = m.second;
         msgs.push_back(msg);
     }
-    return tpl.apply_chat_template(msgs, add_generation_prompt);
+    jinja::json extra_ctx = jinja::json::object();
+    if (!chat_template_context_.empty()) {
+        auto parsed = jinja::json::parse(chat_template_context_);
+        if (parsed.is_object()) {
+            extra_ctx = parsed;
+        }
+    }
+    return tpl.apply_chat_template(msgs, add_generation_prompt, jinja::json::array(), extra_ctx);
 #else
     std::string result;
     for (const auto& m : messages) {

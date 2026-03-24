@@ -90,7 +90,11 @@ void Llm::setChatTemplate() {
     if (!mTokenizer || !mConfig->config_.contains("jinja")) return;
     auto jinja = mConfig->config_["jinja"];
     if (jinja.contains("chat_template")) {
-        mTokenizer->set_chat_template(jinja["chat_template"].get<std::string>(), jinja.value("eos", ""));
+        std::string context;
+        if (jinja.contains("context")) {
+            context = jinja["context"].dump();
+        }
+        mTokenizer->set_chat_template(jinja["chat_template"].get<std::string>(), jinja.value("eos", ""), context);
     }
 }
 
