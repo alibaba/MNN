@@ -62,6 +62,12 @@ This is our full multimodal language model (LLM) Android app
 
 # Releases
 
+## Version 0.8.2.1
++ Click here to [download](https://meta.alicdn.com/data/mnn/apks/mnn_chat_0_8_2_1.apk)
++ Bugfix:
+  + Fix the Android chat regression that could stop after a single token or fail to continue on the second turn with the prebuilt runtime.
+  + Harden dumpapp and smoke coverage for terminal callback delivery, single-token regression, and thinking-mode divergence checks.
+
 ## Version 0.8.2
 + Click here to [download](https://meta.alicdn.com/data/mnn/apks/mnn_chat_0_8_2.apk)
 + Highlights:

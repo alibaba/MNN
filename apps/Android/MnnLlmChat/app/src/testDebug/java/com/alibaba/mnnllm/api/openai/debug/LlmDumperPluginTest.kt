@@ -154,7 +154,11 @@ class LlmDumperPluginTest {
                 stage = "completed",
                 submitReturned = true,
                 chunkCount = 2,
-                completionReceived = true
+                completionReceived = true,
+                terminalCallbackCount = 1,
+                terminalSignal = "callback_null",
+                nonTerminalChunkCount = 2,
+                emptyChunkCount = 0
             )
         }
         val plugin = LlmDumperPlugin(controller)
@@ -165,6 +169,10 @@ class LlmDumperPluginTest {
         val output = out.toString()
         assertTrue(output.contains("RESULT=OK"))
         assertTrue(output.contains("MODEL_ID=test-model"))
+        assertTrue(output.contains("TERMINAL_CALLBACK_COUNT=1"))
+        assertTrue(output.contains("TERMINAL_SIGNAL=callback_null"))
+        assertTrue(output.contains("NON_TERMINAL_CHUNK_COUNT=2"))
+        assertTrue(output.contains("EMPTY_CHUNK_COUNT=0"))
         assertTrue(output.contains("RESPONSE_BEGIN"))
         assertTrue(output.contains("hello world"))
         assertTrue(output.contains("RESPONSE_END"))
@@ -195,7 +203,11 @@ class LlmDumperPluginTest {
                 stage = "completed",
                 submitReturned = true,
                 chunkCount = 1,
-                completionReceived = true
+                completionReceived = true,
+                terminalCallbackCount = 1,
+                terminalSignal = "callback_null",
+                nonTerminalChunkCount = 1,
+                emptyChunkCount = 0
             )
         }
         val plugin = LlmDumperPlugin(controller)
@@ -217,7 +229,11 @@ class LlmDumperPluginTest {
                 success = false,
                 modelId = "bad-model",
                 reason = "MODEL_CONFIG_NOT_FOUND",
-                stage = "ensure"
+                stage = "ensure",
+                terminalCallbackCount = 0,
+                terminalSignal = "missing",
+                nonTerminalChunkCount = 0,
+                emptyChunkCount = 0
             )
         }
         val plugin = LlmDumperPlugin(controller)
@@ -230,6 +246,33 @@ class LlmDumperPluginTest {
         assertTrue(output.contains("MODEL_ID=bad-model"))
         assertTrue(output.contains("REASON=MODEL_CONFIG_NOT_FOUND"))
         assertTrue(output.contains("STAGE=ensure"))
+        assertTrue(output.contains("TERMINAL_CALLBACK_COUNT=0"))
+        assertTrue(output.contains("TERMINAL_SIGNAL=missing"))
+        assertTrue(output.contains("NON_TERMINAL_CHUNK_COUNT=0"))
+    }
+
+    @Test
+    fun `completeRunResult keeps missing terminal callback visible when synchronous completion is inferred`() {
+        val startedAt = System.currentTimeMillis() - 10
+
+        val result = completeRunResult(
+            modelId = "test-model",
+            startedAt = startedAt,
+            response = "done",
+            submitReturned = true,
+            chunkCount = 1,
+            completionReceived = false,
+            terminalCallbackCount = 0,
+            nonTerminalChunkCount = 1,
+            emptyChunkCount = 0
+        )
+
+        assertTrue(result.success)
+        assertEquals("completed_without_terminal_callback", result.stage)
+        assertTrue(result.completionReceived)
+        assertEquals(0, result.terminalCallbackCount)
+        assertEquals("missing", result.terminalSignal)
+        assertEquals(1, result.nonTerminalChunkCount)
     }
 
     @Test
@@ -242,7 +285,10 @@ class LlmDumperPluginTest {
             response = "done",
             submitReturned = true,
             chunkCount = 1,
-            completionReceived = false
+            completionReceived = false,
+            terminalCallbackCount = 0,
+            nonTerminalChunkCount = 1,
+            emptyChunkCount = 0
         )
 
         assertTrue(result.success)

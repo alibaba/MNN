@@ -23,6 +23,99 @@ void ReportLlmSetConfigToFirebase(const std::string& stage, const std::string& c
 
 namespace mls {
 
+namespace {
+
+void restoreAndroidSteppingStatusIfNeeded(Llm* llm) {
+    if (llm == nullptr) {
+        return;
+    }
+    auto* context = llm->getContext();
+    if (context == nullptr) {
+        return;
+    }
+    if (context->status == MNN::Transformer::LlmStatus::MAX_TOKENS_FINISHED ||
+        context->status == MNN::Transformer::LlmStatus::NORMAL_FINISHED) {
+        // Android links the prebuilt libMNN.so runtime, so this wrapper locally resets
+        // terminal step states instead of depending on a shared engine change.
+        auto* mutable_context = const_cast<MNN::Transformer::LlmContext*>(context);
+        mutable_context->status = MNN::Transformer::LlmStatus::RUNNING;
+    }
+}
+
+struct AndroidSteppingStreamState {
+    std::stringstream& response_buffer;
+    const std::function<bool(const std::string&, bool is_eop)>& on_progress;
+    bool& generate_text_end;
+    bool& stop_requested;
+    std::string& response_string_for_debug;
+    std::function<void(const std::string&)> on_response_complete;
+    const char* result_log_tag;
+    bool pending_eop = false;
+
+    void processChunk(const std::string& utf8Char) {
+        const bool is_eop = utf8Char.find("<eop>") != std::string::npos;
+        if (!is_eop) {
+            response_buffer << utf8Char;
+            if (on_progress) {
+                stop_requested = stop_requested || on_progress(utf8Char, false);
+            }
+            return;
+        }
+        pending_eop = true;
+    }
+
+    void finalizePendingEop() {
+        if (!pending_eop) {
+            return;
+        }
+        std::string response_result = response_buffer.str();
+        MNN_DEBUG("%s %s", result_log_tag, response_result.c_str());
+        response_string_for_debug = response_result;
+        on_response_complete(response_result);
+        if (on_progress) {
+            stop_requested = stop_requested || on_progress("<eop>", true);
+        }
+        generate_text_end = true;
+        pending_eop = false;
+    }
+};
+
+void resolveAndroidSteppingEop(
+        Llm* llm,
+        AndroidSteppingStreamState& stream_state,
+        int current_size,
+        int max_new_tokens) {
+    auto* context = llm != nullptr ? llm->getContext() : nullptr;
+    if (context != nullptr &&
+        context->status == MNN::Transformer::LlmStatus::MAX_TOKENS_FINISHED &&
+        !stream_state.stop_requested &&
+        current_size < max_new_tokens) {
+        // Android currently links a prebuilt runtime that emits <eop> at the end of
+        // every generate(1) step. Treat that as an intermediate boundary, not final end.
+        restoreAndroidSteppingStatusIfNeeded(llm);
+        if (stream_state.pending_eop) {
+            stream_state.generate_text_end = false;
+            stream_state.pending_eop = false;
+        }
+        return;
+    }
+    if (context != nullptr &&
+        context->status == MNN::Transformer::LlmStatus::NORMAL_FINISHED &&
+        !stream_state.pending_eop &&
+        !stream_state.stop_requested &&
+        current_size < max_new_tokens) {
+        // After one round finishes naturally, prefill-only response(..., 0) can leave the
+        // next round's first generate(1) starting from NORMAL_FINISHED in the prebuilt runtime.
+        restoreAndroidSteppingStatusIfNeeded(llm);
+        return;
+    }
+    if (stream_state.pending_eop) {
+        stream_state.finalizePendingEop();
+    }
+}
+
+} // namespace
+
 std::string trimLeadingWhitespace(const std::string& str) {
     auto it = std::find_if(str.begin(), str.end(), [](unsigned char ch) {
         return !std::isspace(ch);
@@ -157,30 +250,29 @@ const MNN::Transformer::LlmContext * LlmSession::Response(const std::string &pro
     stop_requested_ = false;
     generate_text_end_ = false;
     std::stringstream response_buffer;
-    mls::Utf8StreamProcessor processor([&response_buffer, &on_progress, this](const std::string& utf8Char) {
-        bool is_eop = utf8Char.find("<eop>") != std::string::npos;
-        if (!is_eop) {
-            response_buffer << utf8Char;
-        } else {
-            std::string response_result =  response_buffer.str();
-            MNN_DEBUG("submitNative Result %s", response_result.c_str());
-            response_string_for_debug = response_result;
-            if (is_r1_) {
-                auto& last_message = history_.at(history_.size() - 1);
-                std::size_t user_think_pos = last_message.second.find("<think>\n");
-                if (user_think_pos != std::string::npos) {
-                    last_message.second.erase(user_think_pos, std::string("<think>\n").length());
+    AndroidSteppingStreamState stream_state{
+            response_buffer,
+            on_progress,
+            generate_text_end_,
+            stop_requested_,
+            response_string_for_debug,
+            [this](const std::string& raw_response) {
+                std::string response_result = raw_response;
+                if (is_r1_) {
+                    auto& last_message = history_.at(history_.size() - 1);
+                    std::size_t user_think_pos = last_message.second.find("<think>\n");
+                    if (user_think_pos != std::string::npos) {
+                        last_message.second.erase(user_think_pos, std::string("<think>\n").length());
+                    }
+                    response_result = getR1AssistantString(response_result);
                 }
-                response_result = getR1AssistantString(response_result);
-            }
-            response_result = trimLeadingWhitespace(deleteThinkPart(response_result));
-            history_.emplace_back("assistant", response_result);
-        }
-        if (on_progress) {
-            bool user_stop_requested = on_progress(utf8Char, is_eop);
-            generate_text_end_ = is_eop;
-            stop_requested_ = user_stop_requested;
-        }
+                response_result = trimLeadingWhitespace(deleteThinkPart(response_result));
+                history_.emplace_back("assistant", response_result);
+            },
+            "submitNative Result"
+    };
+    mls::Utf8StreamProcessor processor([&stream_state](const std::string& utf8Char) {
+        stream_state.processChunk(utf8Char);
     });
     LlmStreamBuffer stream_buffer{[&processor](const char* str, size_t len){
         processor.processStream(str, len);
@@ -206,6 +298,7 @@ const MNN::Transformer::LlmContext * LlmSession::Response(const std::string &pro
     
     // Check for multimodal content in the full prompt
     auto multimodal_result = processMultimodalPrompt(full_prompt_text);
+    restoreAndroidSteppingStatusIfNeeded(llm_);
     if (multimodal_result.has_multimodal) {
         MNN_DEBUG("Detected multimodal content, using multimodal API prompt %s with %zu images",
              multimodal_result.multimodal_prompt.prompt_template.c_str(),
@@ -213,15 +306,18 @@ const MNN::Transformer::LlmContext * LlmSession::Response(const std::string &pro
         if (!multimodal_result.error_message.empty()) {
             MNN_ERROR("Multimodal processing errors: %s", multimodal_result.error_message.c_str());
         }
-        llm_->response(multimodal_result.multimodal_prompt, &output_ostream, "<eop>", 1);
+        // Prefill only. Stepping decode one token at a time via llm_->generate(1) keeps
+        // streaming active without letting the engine mark the session as finished up front.
+        llm_->response(multimodal_result.multimodal_prompt, &output_ostream, "<eop>", 0);
     } else {
         MNN_DEBUG("No multimodal content detected, using regular text API");
-        llm_->response(history_, &output_ostream, "<eop>", 1);
+        llm_->response(history_, &output_ostream, "<eop>", 0);
     }
-    current_size++;
+    resolveAndroidSteppingEop(llm_, stream_state, current_size, max_new_tokens_);
     while (!stop_requested_ && !generate_text_end_ && current_size < max_new_tokens_) {
         llm_->generate(1);
         current_size++;
+        resolveAndroidSteppingEop(llm_, stream_state, current_size, max_new_tokens_);
     }
     if (!stop_requested_ && enable_audio_output_) {
         llm_->generateWavform();
@@ -327,24 +423,23 @@ const MNN::Transformer::LlmContext * LlmSession::ResponseWithHistory(
     std::stringstream response_buffer;
 
     // Stream processing logic without modifying history_ member
-    mls::Utf8StreamProcessor processor([&response_buffer, &on_progress, this](const std::string& utf8Char) {
-        bool is_eop = utf8Char.find("<eop>") != std::string::npos;
-        if (!is_eop) {
-            response_buffer << utf8Char;
-        } else {
-            std::string response_result = response_buffer.str();
-            MNN_DEBUG("ResponseWithHistory Result %s", response_result.c_str());
-            response_string_for_debug = response_result;
-            if (is_r1_) {
-                response_result = getR1AssistantString(response_result);
-            }
-            response_result = trimLeadingWhitespace(deleteThinkPart(response_result));
-        }
-        if (on_progress) {
-            bool user_stop_requested = on_progress(utf8Char, is_eop);
-            generate_text_end_ = is_eop;
-            stop_requested_ = user_stop_requested;
-        }
+    AndroidSteppingStreamState stream_state{
+            response_buffer,
+            on_progress,
+            generate_text_end_,
+            stop_requested_,
+            response_string_for_debug,
+            [this](const std::string& raw_response) {
+                std::string response_result = raw_response;
+                if (is_r1_) {
+                    response_result = getR1AssistantString(response_result);
+                }
+                response_result = trimLeadingWhitespace(deleteThinkPart(response_result));
+            },
+            "ResponseWithHistory Result"
+    };
+    mls::Utf8StreamProcessor processor([&stream_state](const std::string& utf8Char) {
+        stream_state.processChunk(utf8Char);
     });
 
     LlmStreamBuffer stream_buffer{[&processor](const char* str, size_t len){
@@ -368,21 +463,23 @@ const MNN::Transformer::LlmContext * LlmSession::ResponseWithHistory(
     
     // Check for multimodal content in the full prompt
     auto multimodal_result = processMultimodalPrompt(full_prompt_text);
+    restoreAndroidSteppingStatusIfNeeded(llm_);
     if (multimodal_result.has_multimodal) {
         MNN_DEBUG("ResponseWithHistory: Detected multimodal content, using multimodal API");
         if (!multimodal_result.error_message.empty()) {
             MNN_ERROR("ResponseWithHistory: Multimodal processing errors: %s", multimodal_result.error_message.c_str());
         }
-        llm_->response(multimodal_result.multimodal_prompt, &output_ostream, "<eop>", 1);
+        llm_->response(multimodal_result.multimodal_prompt, &output_ostream, "<eop>", 0);
     } else {
         MNN_DEBUG("ResponseWithHistory: No multimodal content detected, using regular text API");
-        llm_->response(temp_history, &output_ostream, "<eop>", 1);
+        llm_->response(temp_history, &output_ostream, "<eop>", 0);
     }
-    current_size++;
+    resolveAndroidSteppingEop(llm_, stream_state, current_size, max_new_tokens_);
 
     while (!stop_requested_ && !generate_text_end_ && current_size < max_new_tokens_) {
         llm_->generate(1);
         current_size++;
+        resolveAndroidSteppingEop(llm_, stream_state, current_size, max_new_tokens_);
     }
 
     if (!stop_requested_ && enable_audio_output_) {
