@@ -844,6 +844,9 @@ std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_tokens
                 mMeta->file_name = mPrefixCacheFileName;
                 mMeta->file_flag = KVMeta::PendingRead; // read
                 mMeta->seqlen_in_disk = mPrefixLength; // set_length
+                // Restore all_seq_len to include prefix length so that
+                // gen_position_ids and gen_attention_mask produce correct results
+                mContext->all_seq_len = mPrefixLength;
             }
         }
     }
@@ -852,10 +855,12 @@ std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_tokens
     if(!passExecute) {
         if (0 == mBlockSize || input_ids.size() <= mBlockSize) {
             auto hidden_states = embedding(input_ids);
-            if(hidden_states == nullptr) {
+            if (hidden_states == nullptr) {
                 return {};
             }
-            return generate(hidden_states, max_tokens);
+            auto result = generate(hidden_states, max_tokens);
+            createPrefixSyncFiles();
+            return result;
         }
         int total_size = (int)input_ids.size();
         int loop_size = UP_DIV(total_size, mBlockSize);
@@ -872,6 +877,7 @@ std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_tokens
             }
             generate(input_embeds, 0);
         }
+        createPrefixSyncFiles();
     } else {
         // update states
         updateContext((int)input_ids.size(), 0);
@@ -1004,7 +1010,7 @@ void Llm::response(const std::string& user_content, std::ostream* os, const char
             prompt = user_content;
         }
     }
-    std::cout << "prompt: " << prompt << std::endl;
+//    std::cout << "prompt: " << prompt << std::endl;
     std::vector<int> input_ids = tokenizer_encode(prompt);
     response(input_ids, os, end_with, max_new_tokens);
 }
@@ -1079,6 +1085,29 @@ bool Llm::setPrefixCacheFile(const std::string& filename, int flag) {
         }
     }
     return mIsPrefixFileExist;
+}
+
+void Llm::createPrefixSyncFiles() {
+    if (!mPrefixCacheMode || mCallIndex != 1 || mIsPrefixFileExist) {
+        return;
+    }
+    for (int i = 0; i < mConfig->layer_nums(); i++) {
+        auto base = MNNFilePathConcat(mConfig->prefix_cache_path(), mPrefixCacheFileName) + "_" + std::to_string(i);
+        auto k_sync = base + "_sync.k";
+        auto v_sync = base + "_sync.v";
+        auto k_fd = MNNCreateFile(k_sync.c_str());
+        if (k_fd != INVALID_FILE) {
+            MNNCloseFile(k_fd);
+        }
+        auto v_fd = MNNCreateFile(v_sync.c_str());
+        if (v_fd != INVALID_FILE) {
+            MNNCloseFile(v_fd);
+        }
+    }
+    // Clear prefix write meta to prevent second response from overwriting prefix files
+    mMeta->file_name = "";
+    mMeta->file_flag = KVMeta::NoChange;
+    mMeta->layer_index = 0;
 }
 
 bool Llm::reuse_kv() { return mConfig->reuse_kv(); }

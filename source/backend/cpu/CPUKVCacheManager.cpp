@@ -327,13 +327,14 @@ void CPUKVCacheManager::onAlloc(KVMeta* meta, int seq_len) {
             MNN_ERROR("[Error]: Kvcache in disk size smaller than saved lengthInDiskToload:%d\n", (int)meta->seqlen_in_disk);
         }
 
+        // Update mMaxLength first, then setFlashAttentionUpperKv to avoid division by zero
+        int kv_seq_len = meta->add + meta->seqlen_in_disk;
+        mMaxLength = kv_seq_len > oldMaxLength ? kv_seq_len + mConfig.mExpandChunk : oldMaxLength;
         if (mUseFlashAttention) {
             setFlashAttentionUpperKv(MNN_FLASH_ATTENTION_BLOCK_SIZE);
         } else {
             setFlashAttentionUpperKv(mMaxLength);
         }
-        int kv_seq_len = meta->add + meta->seqlen_in_disk;
-        mMaxLength = kv_seq_len > oldMaxLength ? kv_seq_len + mConfig.mExpandChunk : oldMaxLength;
         size_t keySize = (size_t)mKvNumHead * ROUND_UP(mMaxLength, hP) * ROUND_UP(mHeadDim, lP) * mBytes;
         size_t valueSize = (size_t)mKvNumHead * UP_DIV(mMaxLength, mFlashAttentionUpperKv) * (ROUND_UP(mHeadDim, hP) * ROUND_UP(mFlashAttentionUpperKv, lP) * mBytes);
 
@@ -351,6 +352,7 @@ void CPUKVCacheManager::onAlloc(KVMeta* meta, int seq_len) {
             mCurrentValueSizePerHead = UP_DIV(mMaxLength, mFlashAttentionUpperKv) * (ROUND_UP(mHeadDim, hP) * ROUND_UP(mFlashAttentionUpperKv, lP) * mBytes);
         }
 
+        // Create temporary kv cache files (fallback to mPrefixCacheDir when mKVCacheDir is empty)
         createKVCacheFile();
         resetKVCacheFileSize(keySize, valueSize);
         expandKVCacheInDisk(oldMaxLength, oldKeySize, oldValueSize, keySize, valueSize, old_key_fd, old_value_fd);
