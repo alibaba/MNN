@@ -1161,7 +1161,7 @@ ErrorCode Pipeline::execute() {
                     deviceOfOutput = deviceOfOutput + " " + std::to_string(cmd.workOutputs[v]->deviceId()) + " ";
                 }
                 deviceOfOutput += "]";
-                MNN_PRINT("Group: %d, %s - %d, type=%s, inputs: %s, devices: %s - %s\n", info.group, info.op->name()->c_str(), cmdIndex, EnumNameOpType(cmd.op->type()), groupOfInput.c_str(), deviceOfInput.c_str(), deviceOfOutput.c_str());
+                MNN_PRINT("Group: %d, %s - %d, type=%s, inputs: %s, devices: %s - %s\n", cmd.group, info.op->name()->c_str(), cmdIndex, EnumNameOpType(cmd.op->type()), groupOfInput.c_str(), deviceOfInput.c_str(), deviceOfOutput.c_str());
             }
 #endif
             auto code = cmd.execution->onExecute(cmd.workInputs, cmd.workOutputs);
