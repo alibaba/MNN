@@ -20,6 +20,7 @@ ArgMaxBufExecution::ArgMaxBufExecution(const std::string &compute, const MNN::Op
     std::set<std::string> buildOptions = mBuildOptions;
     buildOptions.emplace("-DARGMAX_LOCAL_SIZE=512");
     auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("argmax_buf", "argmax_buf", buildOptions, mOpenCLBackend->getPrecision());
+    OPENCL_CHECK_KERNEL_CTOR(kernel);
     mMaxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel));
 }
 
@@ -193,9 +194,9 @@ public:
         }
         int axis = op->main_as_ArgMax()->axis();
         if (op->type() == OpType_ArgMax) {
-            return new ArgMaxBufExecution("-DARGMAX", op, backend, axis);
+            OPENCL_CREATOR_CHECK(new ArgMaxBufExecution("-DARGMAX", op, backend, axis));
         }else{
-            return new ArgMaxBufExecution("", op, backend, axis);
+            OPENCL_CREATOR_CHECK(new ArgMaxBufExecution("", op, backend, axis));
         }
     }
 };

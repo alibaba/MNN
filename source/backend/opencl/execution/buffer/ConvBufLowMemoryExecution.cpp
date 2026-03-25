@@ -15,6 +15,10 @@ namespace OpenCL {
 // set mDequantScale mDequantOffset mNumQuantBit mFilterDataPtr from mConv2dParams
 void ConvBufLowMemoryExecution::getInfoFromOpLowMemory(void *weight_ptr) {
     auto quanCommon = ConvolutionCommon::load(mOp, this->backend(), false, true, weight_ptr);
+    if (quanCommon == nullptr) {
+        mValid = false;
+        return;
+    }
     // set mResource->mNumQuantBit
     if(quanCommon->canUseInt4){
         mResource->mNumQuantBit = 4;
@@ -165,6 +169,9 @@ bool ConvBufLowMemoryExecution::convertToQuantWeight1x1Buffer(cl::Buffer input) 
     } else {/* More types to be supported. */}
 
     mBufferToConv1x1Kernel = runtime->buildKernelWithCache("buffer_convert_quant", kernelName, buildOptions, mOpenCLBackend->getPrecision());
+    if (mBufferToConv1x1Kernel == nullptr) {
+        return false;
+    }
     auto kernel = mBufferToConv1x1Kernel->get();
     uint32_t gws[2] = {static_cast<uint32_t>(UP_DIV(mResource->mInputChannel, PACK_CIN)), static_cast<uint32_t>(UP_DIV(mResource->mOutputChannel, PACK_COUT))};
 
@@ -337,14 +344,20 @@ void ConvBufLowMemoryExecution::setGeneralWeightLowMemory() {
         if (mResource->mNumQuantBit == 8) {
             // ROUND_UP(IC, 4), UP_DIV(OC, 4) * mKernelWidth * mKernelHeight
             mResource->mFilter.reset(Tensor::createDevice<int8_t>({1, UP_DIV(mResource->mOutputChannel, 4) * mResource->mKernelWidth * mResource->mKernelHeight, 1, 4 * ROUND_UP(mResource->mInputChannel, 4)}));
-            mOpenCLBackend->onAcquireBuffer(mResource->mFilter.get(), Backend::STATIC);
+            if (!(mOpenCLBackend->onAcquireBuffer(mResource->mFilter.get(), Backend::STATIC))) {
+                mValid = false;
+                return;
+            }
         } else if (mResource->mNumQuantBit == 4){
             // ROUND_UP(IC, 4), UP_DIV(OC, 4) * mKernelWidth * mKernelHeight
             // For int4 case, data stored in mFilter should be uint8_t,
             // while "Tensor::createDevice<uint8_t>" occupies more memory than "Tensor::createDevice<int8_t>".
             // Therefore, we use "Tensor::createDevice<int8_t>" currently, leaving "Tensor::createDevice<uint8_t>" to be supported.
             mResource->mFilter.reset(Tensor::createDevice<int8_t>({1, UP_DIV(mResource->mOutputChannel, 4) * mResource->mKernelWidth * mResource->mKernelHeight, 1, 2 * ROUND_UP(mResource->mInputChannel, 4)}));
-            mOpenCLBackend->onAcquireBuffer(mResource->mFilter.get(), Backend::STATIC);
+            if (!(mOpenCLBackend->onAcquireBuffer(mResource->mFilter.get(), Backend::STATIC))) {
+                mValid = false;
+                return;
+            }
         }
         // convert to NC4HW4
         MNN::OpenCL::BufferConvertor bufferConvertor{mOpenCLBackend->getOpenCLRuntime()};
@@ -356,14 +369,20 @@ void ConvBufLowMemoryExecution::setGeneralWeightLowMemory() {
         if (mResource->mNumQuantBit == 8) {
             // ROUND_UP(IC, 4), UP_DIV(OC, 4) * mKernelWidth * mKernelHeight
             mResource->mFilter.reset(Tensor::createDevice<int8_t>({1, UP_DIV(mResource->mOutputChannel, 4) * mResource->mKernelWidth * mResource->mKernelHeight, 1, 4 * ROUND_UP(mResource->mInputChannel, 4)}));
-            mOpenCLBackend->onAcquireBuffer(mResource->mFilter.get(), Backend::STATIC);
+            if (!(mOpenCLBackend->onAcquireBuffer(mResource->mFilter.get(), Backend::STATIC))) {
+                mValid = false;
+                return;
+            }
         } else if (mResource->mNumQuantBit == 4){
             // ROUND_UP(IC, 4), UP_DIV(OC, 4) * mKernelWidth * mKernelHeight
             // For int4 case, data stored in mFilter should be uint8_t,
             // while "Tensor::createDevice<uint8_t>" occupies more memory than "Tensor::createDevice<int8_t>".
             // Therefore, we use "Tensor::createDevice<int8_t>" currently, leaving "Tensor::createDevice<uint8_t>" to be supported.
             mResource->mFilter.reset(Tensor::createDevice<int8_t>({1, UP_DIV(mResource->mOutputChannel, 4) * mResource->mKernelWidth * mResource->mKernelHeight, 1, 2 * ROUND_UP(mResource->mInputChannel, 4)}));
-            mOpenCLBackend->onAcquireBuffer(mResource->mFilter.get(), Backend::STATIC);
+            if (!(mOpenCLBackend->onAcquireBuffer(mResource->mFilter.get(), Backend::STATIC))) {
+                mValid = false;
+                return;
+            }
         }
     }
 
@@ -986,6 +1005,10 @@ void ConvBufLowMemoryExecution::tuneGemmLowMemory(Tensor * input, Tensor * outpu
 }
 ConvBufLowMemoryExecution::ConvBufLowMemoryExecution(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, const MNN::Op *op, Backend *backend)
     : ConvBufCommonExecution(op->main_as_Convolution2D(), backend), CommonExecution(backend, op) {
+    if (!mConvComValid) {
+        mValid = false;
+        return;
+    }
 #ifdef LOG_VERBOSE
     MNN_PRINT("Start ConvBufLowMemoryExecution init !\n");
 #endif

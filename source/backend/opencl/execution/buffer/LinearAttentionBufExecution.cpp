@@ -279,7 +279,7 @@ public:
         for (int i = 0; i < outputs.size(); ++i) {
             TensorUtils::setTensorSupportPack(outputs[i], false);
         }
-        return new LinearAttentionBufExecution(op, backend);
+        OPENCL_CREATOR_CHECK(new LinearAttentionBufExecution(op, backend));
     }
 };
 REGISTER_OPENCL_OP_CREATOR_TRANSFORMER(LinearAttentionBufCreator, OpType_LinearAttention, BUFFER);

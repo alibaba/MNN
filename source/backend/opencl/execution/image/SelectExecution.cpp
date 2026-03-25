@@ -67,7 +67,7 @@ class SelectCreator : public OpenCLBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
-        return new SelectExecution(op, backend);
+        OPENCL_CREATOR_CHECK(new SelectExecution(op, backend));
     }
 };
 

@@ -38,6 +38,7 @@ table BackendInfo{
     programs:[Shader];
     tunings:[Autotuning];
     gemm:[GemmInfo];
+    driverVersion:string;
 } 
 
 table Cache {

@@ -129,7 +129,7 @@ public:
         for (int i = 0; i < outputs.size(); ++i) {
             TensorUtils::setTensorSupportPack(outputs[i], false);
         }
-        return new TopKV2BufExecution(op, backend, k);
+        OPENCL_CREATOR_CHECK(new TopKV2BufExecution(op, backend, k));
     }
 };
 

@@ -229,7 +229,7 @@ public:
             TensorUtils::setTensorSupportPack(outputs[i], false);
         }
         auto param = op->main_as_MatMul();
-        return new MatMulBufExecution(inputs, op, backend, param->transposeA(), param->transposeB());
+        OPENCL_CREATOR_CHECK(new MatMulBufExecution(inputs, op, backend, param->transposeA(), param->transposeB()));
     }
 };
 

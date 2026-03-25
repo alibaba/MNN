@@ -34,7 +34,7 @@ ScaleBufExecution::ScaleBufExecution(const std::vector<Tensor *> &inputs, const 
     }
 
     mScale.reset(Tensor::createDevice<float>({1, 1, 1, ALIGN_UP4(scaleSize)}));
-    backend->onAcquireBuffer(mScale.get(), Backend::STATIC);
+    OPENCL_CHECK_ALLOC_CTOR(backend->onAcquireBuffer(mScale.get(), Backend::STATIC));
     
     if (mOpenCLBackend->getRuntime()->hint().useCachedMmap <= 1){
         cl::Buffer &scaleBuffer = openCLBuffer(mScale.get());
@@ -72,7 +72,7 @@ ScaleBufExecution::ScaleBufExecution(const std::vector<Tensor *> &inputs, const 
         }
         
         mBias.reset(Tensor::createDevice<float>({1, 1, 1, ALIGN_UP4(biasSize)}));
-        backend->onAcquireBuffer(mBias.get(), Backend::STATIC);
+        OPENCL_CHECK_ALLOC_CTOR(backend->onAcquireBuffer(mBias.get(), Backend::STATIC));
         if (mOpenCLBackend->getRuntime()->hint().useCachedMmap <= 1){
             cl::Buffer &biasBuffer = openCLBuffer(mBias.get());
             cl_int error;
@@ -163,7 +163,7 @@ public:
         for (int i = 0; i < outputs.size(); ++i) {
             TensorUtils::setTensorSupportPack(outputs[i], false);
         }
-        return new ScaleBufExecution(inputs, op, backend);
+        OPENCL_CREATOR_CHECK(new ScaleBufExecution(inputs, op, backend));
     }
 };
 

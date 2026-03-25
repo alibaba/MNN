@@ -26,6 +26,7 @@ LayerNormBufExecution::LayerNormBufExecution(const std::vector<Tensor *> &inputs
     mResource->RMSNorm = layer_norm_param->useRMSNorm();
     auto bufferUnitSize = mOpenCLBackend->getPrecision() != BackendConfig::Precision_High ? sizeof(half_float::half) : sizeof(float);
     auto kernel = runtime->buildKernel("layernorm_buf", "layernorm_buf", {"-DLOCAL_SIZE=512"}, mOpenCLBackend->getPrecision());
+    OPENCL_CHECK_KERNEL_CTOR(kernel);
     mResource->mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(kernel));
 
     mResource->has_gamma_beta_ = (layer_norm_param->gamma() && layer_norm_param->beta());
@@ -208,7 +209,7 @@ public:
             TensorUtils::setTensorSupportPack(outputs[i], false);
         }
         const auto* layer_norm_param = op->main_as_LayerNorm();
-        return new LayerNormBufExecution(inputs, op, backend);
+        OPENCL_CREATOR_CHECK(new LayerNormBufExecution(inputs, op, backend));
     }
 };
 
