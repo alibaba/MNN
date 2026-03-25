@@ -859,7 +859,7 @@ std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_tokens
                 return {};
             }
             auto result = generate(hidden_states, max_tokens);
-            createPrefixSyncFiles();
+            completePrefixWrite();
             return result;
         }
         int total_size = (int)input_ids.size();
@@ -877,7 +877,7 @@ std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_tokens
             }
             generate(input_embeds, 0);
         }
-        createPrefixSyncFiles();
+        completePrefixWrite();
     } else {
         // update states
         updateContext((int)input_ids.size(), 0);
@@ -1010,7 +1010,7 @@ void Llm::response(const std::string& user_content, std::ostream* os, const char
             prompt = user_content;
         }
     }
-    std::cout << "prompt: " << prompt << std::endl;
+//    std::cout << "prompt: " << prompt << std::endl;
     std::vector<int> input_ids = tokenizer_encode(prompt);
     response(input_ids, os, end_with, max_new_tokens);
 }
@@ -1087,26 +1087,12 @@ bool Llm::setPrefixCacheFile(const std::string& filename, int flag) {
     return mIsPrefixFileExist;
 }
 
-void Llm::createPrefixSyncFiles() {
+void Llm::completePrefixWrite() {
     if (!mPrefixCacheMode || mCallIndex != 1 || mIsPrefixFileExist) {
         return;
     }
-    for (int i = 0; i < mConfig->layer_nums(); i++) {
-        auto base = MNNFilePathConcat(mConfig->prefix_cache_path(), mPrefixCacheFileName) + "_" + std::to_string(i);
-        auto k_sync = base + "_sync.k";
-        auto v_sync = base + "_sync.v";
-        auto k_fd = MNNCreateFile(k_sync.c_str());
-        if (k_fd != INVALID_FILE) {
-            MNNCloseFile(k_fd);
-        }
-        auto v_fd = MNNCreateFile(v_sync.c_str());
-        if (v_fd != INVALID_FILE) {
-            MNNCloseFile(v_fd);
-        }
-    }
-    // Clear prefix write meta to prevent second response from overwriting prefix files
-    mMeta->file_name = "";
     mMeta->file_flag = KVMeta::NoChange;
+    mMeta->file_name = "";
     mMeta->layer_index = 0;
 }
 
