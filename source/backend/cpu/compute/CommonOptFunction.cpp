@@ -4049,6 +4049,48 @@ void MNNVectorTop1Int32(int32_t* input, int32_t* maxValue, int32_t* maxIndex, si
 
 #endif
 
+#ifndef __aarch64__
+static void MNNRankOneUpdateDefault(float* S, const float* k, const float* delta, size_t dk, size_t dv) {
+    for (size_t i = 0; i < dk; ++i) {
+        float k_val = k[i];
+        float* row = S + i * dv;
+        for (size_t j = 0; j < dv; ++j) {
+            row[j] += k_val * delta[j];
+        }
+    }
+}
+// Read-only dual MatVec: out_k = S^T @ k, out_q = S^T @ q
+static void MNNDualMatVecDefault(const float* S, const float* k, const float* q, float* out_k, float* out_q, size_t dk, size_t dv) {
+    ::memset(out_k, 0, dv * sizeof(float));
+    ::memset(out_q, 0, dv * sizeof(float));
+    for (size_t i = 0; i < dk; ++i) {
+        float k_val = k[i];
+        float q_val = q[i];
+        const float* row = S + i * dv;
+        for (size_t j = 0; j < dv; ++j) {
+            out_k[j] += row[j] * k_val;
+            out_q[j] += row[j] * q_val;
+        }
+    }
+}
+// Fused decay + rank-1 update: S[i,j] = decay * S[i,j] + k[i] * delta[j]
+static void MNNDecayRankOneUpdateDefault(float* S, const float* k, const float* delta, float decay, size_t dk, size_t dv) {
+    for (size_t i = 0; i < dk; ++i) {
+        float k_val = k[i];
+        float* row = S + i * dv;
+        for (size_t j = 0; j < dv; ++j) {
+            row[j] = decay * row[j] + k_val * delta[j];
+        }
+    }
+}
+#else
+extern "C" {
+void MNNRankOneUpdateDefault(float* S, const float* k, const float* delta, size_t dk, size_t dv);
+void MNNDualMatVecDefault(const float* S, const float* k, const float* q, float* out_k, float* out_q, size_t dk, size_t dv);
+void MNNDecayRankOneUpdateDefault(float* S, const float* k, const float* delta, float decay, size_t dk, size_t dv);
+}
+#endif
+
 void MNNComputeMatMulForE_1(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tIdL) {
     auto l = param->l;
     auto h = param->h;
@@ -4574,6 +4616,9 @@ void MNNCoreFunctionInit() {
 
     gCoreFunction->MNNComputeMatMulForE_1 = MNNComputeMatMulForE_1;
     gCoreFunction->MNNComputeMatMulForH_1 = MNNComputeMatMulForH_1;
+    gCoreFunction->MNNRankOneUpdate = MNNRankOneUpdateDefault;
+    gCoreFunction->MNNDualMatVec = MNNDualMatVecDefault;
+    gCoreFunction->MNNDecayRankOneUpdate = MNNDecayRankOneUpdateDefault;
 
     // Lowp
     gCoreFunction->MNNFp32ToLowp = nullptr;

@@ -73,6 +73,11 @@ void MNNDepthwiseConvFastKernelFP16(float* dst, const float* src, const float* w
 
 void MNNConvRunForLineDepthwiseFP16(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
                                 size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height, size_t srcHStep, size_t dstHStep);
+
+// LinearAttention fp16 kernels
+void MNNRankOneUpdateFp16(float* S, const float* k, const float* delta, size_t dk, size_t dv);
+void MNNDualMatVecFp16(const float* S, const float* k, const float* q, float* out_k, float* out_q, size_t dk, size_t dv);
+void MNNDecayRankOneUpdateFp16(float* S, const float* k, const float* delta, float decay, size_t dk, size_t dv);
 }
 
 
@@ -2720,6 +2725,11 @@ bool Arm82Functions::init() {
     FUNC_PTR_ASSIGN(gInstance->MNNFlashAttentionUpdateBlockOutput, MNNFlashAttentionUpdateBlockOutput);
     gInstance->MNNQuantAttentionKey = MNNQuantAttentionKeyFP16;
     gInstance->MNNQuantAttentionValue = MNNQuantAttentionValueFP16;
+
+    // LinearAttention fp16 kernels
+    FUNC_PTR_ASSIGN(gInstance->MNNRankOneUpdate, MNNRankOneUpdateFp16);
+    FUNC_PTR_ASSIGN(gInstance->MNNDualMatVec, MNNDualMatVecFp16);
+    FUNC_PTR_ASSIGN(gInstance->MNNDecayRankOneUpdate, MNNDecayRankOneUpdateFp16);
 #endif // MNN_SUPPORT_TRANSFORMER_FUSE
 
     gInstance->MNNComputeMatMulForH_1 = _MNNComputeMatMulForH_1_FP16;

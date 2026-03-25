@@ -283,6 +283,12 @@ struct CoreFunctions {
     void(*MNNPackedMatMulRemain_int8)(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b) = nullptr;
     void(*MNNComputeMatMulForH_1)(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId);
     void(*MNNComputeMatMulForE_1)(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId);
+    // Rank-1 update: S[dk, dv] += k[dk] * delta[dv] (outer product add)
+    void(*MNNRankOneUpdate)(float* S, const float* k, const float* delta, size_t dk, size_t dv);
+    // Read-only dual MatVec: out_k = S^T @ k, out_q = S^T @ q (does NOT modify S)
+    void(*MNNDualMatVec)(const float* S, const float* k, const float* q, float* out_k, float* out_q, size_t dk, size_t dv);
+    // Fused decay + rank-1 update: S[i,j] = decay * S[i,j] + k[i] * delta[j]
+    void(*MNNDecayRankOneUpdate)(float* S, const float* k, const float* delta, float decay, size_t dk, size_t dv);
     void(*MNNCountMaxMinValue)(const float* source, float* minVal, float* maxVal, size_t size);
     void(*MNNDynamicUpdateConvBiasScale)(float* newbias, float* oldbias, float* weightKernelSum, float* inputZero, size_t ocQuad);
     void(*MNNAsyQuantInfo)(float* scale, float* bias, float* qscale, float* qbias, float* dstMin, float* dstMax, const float* src, const size_t* info);
