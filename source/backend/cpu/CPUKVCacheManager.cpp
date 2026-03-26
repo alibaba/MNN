@@ -694,6 +694,10 @@ void CPUKVCacheManager::onClear() {
                 mMeta->file_flag = KVMeta::NoChange;
                 mMeta->file_name = "";
             }
+        } else if (!mBasePrefixFileName.empty()) {
+            // Sync files already created by onRealloc, just close fds without removing prefix cache files
+            if (mKeyCacheFD != INVALID_FILE) { MNNCloseFile(mKeyCacheFD); mKeyCacheFD = INVALID_FILE; }
+            if (mValueCacheFD != INVALID_FILE) { MNNCloseFile(mValueCacheFD); mValueCacheFD = INVALID_FILE; }
         } else {
             // delete temp kvcache file
             removeKVCacheFile();
