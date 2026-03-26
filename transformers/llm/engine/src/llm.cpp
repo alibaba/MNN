@@ -852,7 +852,7 @@ std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_tokens
     if(!passExecute) {
         if (0 == mBlockSize || input_ids.size() <= mBlockSize) {
             auto hidden_states = embedding(input_ids);
-            if (hidden_states == nullptr) {
+            if(hidden_states == nullptr) {
                 return {};
             }
             auto result = generate(hidden_states, max_tokens);
