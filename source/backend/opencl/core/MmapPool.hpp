@@ -42,7 +42,7 @@ struct OpenCLMmapImageNode {
 
 class OpenCLMmapAllocator {
 private:
-    std::map<std::string, std::tuple<file_t, size_t>> mCache;
+    std::map<std::string, std::tuple<file_t, size_t, void*>> mCache;
     std::string mFileName;
     std::string mPrefix;
     std::string mPosfix;
@@ -54,7 +54,13 @@ public:
     OpenCLMmapAllocator(const char* dirName, const char* prefix, const char* posfix, bool autoRemove);
     ~ OpenCLMmapAllocator() {
         for (auto& iter : mCache) {
-            MNNCloseFile(std::get<0>(iter.second));
+            void*  addr = std::get<2>(iter.second);
+            size_t size = std::get<1>(iter.second);
+            file_t file = std::get<0>(iter.second);
+            if (addr != nullptr) {
+                MNNUnmapFile(addr, size);
+            }
+            MNNCloseFile(file);
             if (mRemove) {
                 MNNRemoveFile(iter.first.c_str());
             }

@@ -41,7 +41,11 @@ std::string OpenCLMmapAllocator::onAlloc(size_t size) {
         }
         mNewMmap = true;
     }
-    mCache.insert(std::make_pair(fileName, std::make_tuple(file, size)));
+    void* mmapAddr = MNNMmapFile(file, size, false);
+    if (mmapAddr == nullptr) {
+        MNN_ERROR("MmapFile failed for %s\n", fileName.c_str());
+    }
+    mCache.insert(std::make_pair(fileName, std::make_tuple(file, size, mmapAddr)));
     mAllocTimes++;
     return fileName;
 }
@@ -52,15 +56,13 @@ bool OpenCLMmapAllocator::read(std::string fileName, size_t offset, size_t size,
         MNN_ERROR("Invalid mmap for OpenCLMmapAllocator\n");
         return false;
     }
-    file_t file = std::get<0>(iter->second);
-    auto ret = MNNSetFilePointer(file, offset);
-    if (ret != NO_ERROR) {
+    void* mmapAddr = std::get<2>(iter->second);
+    if (mmapAddr == nullptr) {
+        MNN_ERROR("Mmap addr is null for %s\n", fileName.c_str());
         return false;
     }
-    auto readSize = MNNReadFile(file, buffer, size);
-    if (readSize != size) {
-        return false;
-    }
+    memcpy(buffer, (char*)mmapAddr + offset, size);
+    return true;
 }
 bool OpenCLMmapAllocator::write(std::string fileName, size_t offset, size_t size, void* buffer){
     auto iter = mCache.find(fileName);
