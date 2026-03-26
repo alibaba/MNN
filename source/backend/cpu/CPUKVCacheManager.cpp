@@ -352,7 +352,6 @@ void CPUKVCacheManager::onAlloc(KVMeta* meta, int seq_len) {
             mCurrentValueSizePerHead = UP_DIV(mMaxLength, mFlashAttentionUpperKv) * (ROUND_UP(mHeadDim, hP) * ROUND_UP(mFlashAttentionUpperKv, lP) * mBytes);
         }
 
-        // Create temporary kv cache files (fallback to mPrefixCacheDir when mKVCacheDir is empty)
         createKVCacheFile();
         resetKVCacheFileSize(keySize, valueSize);
         expandKVCacheInDisk(oldMaxLength, oldKeySize, oldValueSize, keySize, valueSize, old_key_fd, old_value_fd);
