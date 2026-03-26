@@ -844,9 +844,6 @@ std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_tokens
                 mMeta->file_name = mPrefixCacheFileName;
                 mMeta->file_flag = KVMeta::PendingRead; // read
                 mMeta->seqlen_in_disk = mPrefixLength; // set_length
-                // Restore all_seq_len to include prefix length so that
-                // gen_position_ids and gen_attention_mask produce correct results
-                mContext->all_seq_len = mPrefixLength;
             }
         }
     }
