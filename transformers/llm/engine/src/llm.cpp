@@ -1094,6 +1094,23 @@ void Llm::completePrefixWrite() {
     mMeta->file_flag = KVMeta::NoChange;
     mMeta->file_name = "";
     mMeta->layer_index = 0;
+    // Create sync files to mark prefix cache as valid
+    auto prefixDir = mConfig->prefix_cache_path();
+    for (int i = 0; i < mConfig->layer_nums(); i++) {
+        auto base = MNNFilePathConcat(prefixDir, mPrefixCacheFileName) + "_" + std::to_string(i);
+        auto k_file = base + ".k";
+        if (MNNFileExist(k_file.c_str())) {
+            auto k_sync = base + "_sync.k";
+            auto fd = MNNCreateFile(k_sync.c_str());
+            if (fd != INVALID_FILE) { MNNCloseFile(fd); }
+        }
+        auto v_file = base + ".v";
+        if (MNNFileExist(v_file.c_str())) {
+            auto v_sync = base + "_sync.v";
+            auto fd = MNNCreateFile(v_sync.c_str());
+            if (fd != INVALID_FILE) { MNNCloseFile(fd); }
+        }
+    }
 }
 
 bool Llm::reuse_kv() { return mConfig->reuse_kv(); }

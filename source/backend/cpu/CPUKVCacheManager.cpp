@@ -454,24 +454,6 @@ void CPUKVCacheManager::onAlloc(KVMeta* meta, int seq_len) {
 }
 
 void CPUKVCacheManager::onRealloc(KVMeta* meta) {
-    // Create sync files when prefix write phase is complete (handles reuse_kv=true path)
-    // After first prefill, llm.cpp clears file_flag from PendingWrite to NoChange.
-    // Detecting this transition here allows sync file creation without waiting for onClear().
-    if (mSaveShareKvPrefix && meta->file_flag != KVMeta::PendingWrite) {
-        auto k_file = mBasePrefixFileName + ".k";
-        if (MNNFileExist(k_file.c_str())) {
-            auto k_sync = mBasePrefixFileName + "_sync.k";
-            auto k_fd = MNNCreateFile(k_sync.c_str());
-            if (k_fd != INVALID_FILE) { MNNCloseFile(k_fd); }
-        }
-        auto v_file = mBasePrefixFileName + ".v";
-        if (MNNFileExist(v_file.c_str())) {
-            auto v_sync = mBasePrefixFileName + "_sync.v";
-            auto v_fd = MNNCreateFile(v_sync.c_str());
-            if (v_fd != INVALID_FILE) { MNNCloseFile(v_fd); }
-        }
-        mSaveShareKvPrefix = false;
-    }
     auto kv_seq_len = meta->previous + meta->add - meta->remove + meta->computeReverseSize();
     if (kv_seq_len > mMaxLength) {
         // Realloc
@@ -675,29 +657,13 @@ void CPUKVCacheManager::onClear() {
             auto k_file = mBasePrefixFileName + ".k";
             if(MNNFileExist(k_file.c_str())) {
                 auto k_sync_file = mBasePrefixFileName + "_sync.k";
-                auto k_fd = MNNCreateFile(k_sync_file.c_str());
-                if (k_fd != INVALID_FILE) {
-                    MNNCloseFile(k_fd);
-                }
+                MNNCreateFile(k_sync_file.c_str());
             }
             auto v_file = mBasePrefixFileName + ".v";
             if(MNNFileExist(v_file.c_str())) {
                 auto v_sync_file = mBasePrefixFileName + "_sync.v";
-                auto v_fd = MNNCreateFile(v_sync_file.c_str());
-                if (v_fd != INVALID_FILE) {
-                    MNNCloseFile(v_fd);
-                }
+                MNNCreateFile(v_sync_file.c_str());
             }
-            mSaveShareKvPrefix = false;
-            // Clear PendingWrite flag so subsequent onAlloc() won't re-trigger prefix write
-            if (mMeta != nullptr && mMeta->file_flag == KVMeta::PendingWrite) {
-                mMeta->file_flag = KVMeta::NoChange;
-                mMeta->file_name = "";
-            }
-        } else if (!mBasePrefixFileName.empty()) {
-            // Sync files already created by onRealloc, just close fds without removing prefix cache files
-            if (mKeyCacheFD != INVALID_FILE) { MNNCloseFile(mKeyCacheFD); mKeyCacheFD = INVALID_FILE; }
-            if (mValueCacheFD != INVALID_FILE) { MNNCloseFile(mValueCacheFD); mValueCacheFD = INVALID_FILE; }
         } else {
             // delete temp kvcache file
             removeKVCacheFile();
