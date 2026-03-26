@@ -28,9 +28,7 @@ void KVCacheManager::createKVCacheFile(std::string keyPath, std::string valuePat
     // Each layer has its own kvcache, so we have to create a key file and a value file for each layer and the file name must be unique
     // Here we use the address of the mResource as the file name because the addresses of mResource in different layers are guaranteed to be different
     std::string fileName = addrToHex(this);
-    // Use mPrefixCacheDir as fallback when mKVCacheDir is empty (kvcache_mmap not enabled)
-    auto& baseDir = mConfig.mKVCacheDir.empty() ? mConfig.mPrefixCacheDir : mConfig.mKVCacheDir;
-    mBaseFileName = MNNFilePathConcat(baseDir, fileName);
+    mBaseFileName = MNNFilePathConcat(mConfig.mKVCacheDir, fileName);
 
     std::string pathk    = keyPath.size() > 0 ? keyPath : mBaseFileName + ".k";
     std::string pathv    = valuePath.size() > 0 ? valuePath : mBaseFileName + ".v";
