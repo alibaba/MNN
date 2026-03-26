@@ -233,6 +233,7 @@ private:
     int mCallIndex;
     int mPrefixLength;
     bool mIsPrefixFileExist = false;
+    void completePrefixWrite();
 };
 
 // Embedding start

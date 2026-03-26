@@ -855,7 +855,9 @@ std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_tokens
             if(hidden_states == nullptr) {
                 return {};
             }
-            return generate(hidden_states, max_tokens);
+            auto result = generate(hidden_states, max_tokens);
+            completePrefixWrite();
+            return result;
         }
         int total_size = (int)input_ids.size();
         int loop_size = UP_DIV(total_size, mBlockSize);
@@ -872,6 +874,7 @@ std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_tokens
             }
             generate(input_embeds, 0);
         }
+        completePrefixWrite();
     } else {
         // update states
         updateContext((int)input_ids.size(), 0);
@@ -1079,6 +1082,32 @@ bool Llm::setPrefixCacheFile(const std::string& filename, int flag) {
         }
     }
     return mIsPrefixFileExist;
+}
+
+void Llm::completePrefixWrite() {
+    if (!mPrefixCacheMode || mCallIndex != 1 || mIsPrefixFileExist) {
+        return;
+    }
+    mMeta->file_flag = KVMeta::NoChange;
+    mMeta->file_name = "";
+    mMeta->layer_index = 0;
+    // Create sync files to mark prefix cache as valid
+    auto prefixDir = mConfig->prefix_cache_path();
+    for (int i = 0; i < mConfig->layer_nums(); i++) {
+        auto base = MNNFilePathConcat(prefixDir, mPrefixCacheFileName) + "_" + std::to_string(i);
+        auto k_file = base + ".k";
+        if (MNNFileExist(k_file.c_str())) {
+            auto k_sync = base + "_sync.k";
+            auto fd = MNNCreateFile(k_sync.c_str());
+            if (fd != INVALID_FILE) { MNNCloseFile(fd); }
+        }
+        auto v_file = base + ".v";
+        if (MNNFileExist(v_file.c_str())) {
+            auto v_sync = base + "_sync.v";
+            auto fd = MNNCreateFile(v_sync.c_str());
+            if (fd != INVALID_FILE) { MNNCloseFile(fd); }
+        }
+    }
 }
 
 bool Llm::reuse_kv() { return mConfig->reuse_kv(); }

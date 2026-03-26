@@ -327,13 +327,14 @@ void CPUKVCacheManager::onAlloc(KVMeta* meta, int seq_len) {
             MNN_ERROR("[Error]: Kvcache in disk size smaller than saved lengthInDiskToload:%d\n", (int)meta->seqlen_in_disk);
         }
 
+        // Update mMaxLength first, then setFlashAttentionUpperKv to avoid division by zero
+        int kv_seq_len = meta->add + meta->seqlen_in_disk;
+        mMaxLength = kv_seq_len > oldMaxLength ? kv_seq_len + mConfig.mExpandChunk : oldMaxLength;
         if (mUseFlashAttention) {
             setFlashAttentionUpperKv(MNN_FLASH_ATTENTION_BLOCK_SIZE);
         } else {
             setFlashAttentionUpperKv(mMaxLength);
         }
-        int kv_seq_len = meta->add + meta->seqlen_in_disk;
-        mMaxLength = kv_seq_len > oldMaxLength ? kv_seq_len + mConfig.mExpandChunk : oldMaxLength;
         size_t keySize = (size_t)mKvNumHead * ROUND_UP(mMaxLength, hP) * ROUND_UP(mHeadDim, lP) * mBytes;
         size_t valueSize = (size_t)mKvNumHead * UP_DIV(mMaxLength, mFlashAttentionUpperKv) * (ROUND_UP(mHeadDim, hP) * ROUND_UP(mFlashAttentionUpperKv, lP) * mBytes);
 
@@ -646,19 +647,7 @@ void CPUKVCacheManager::onClear() {
     if (mKVCacheInDisk) {
         // mSaveShareKvPrefix also need unmap file
         unmapKVCache(mCurrentKeySizePerHead * (size_t)mKvNumHead, mCurrentValueSizePerHead * (size_t)mKvNumHead);
-        if(mSaveShareKvPrefix) {
-            // set prefix cachefile validation
-            auto k_file = mBasePrefixFileName + ".k";
-            if(MNNFileExist(k_file.c_str())) {
-                auto k_sync_file = mBasePrefixFileName + "_sync.k";
-                MNNCreateFile(k_sync_file.c_str());
-            }
-            auto v_file = mBasePrefixFileName + ".v";
-            if(MNNFileExist(v_file.c_str())) {
-                auto v_sync_file = mBasePrefixFileName + "_sync.v";
-                MNNCreateFile(v_sync_file.c_str());
-            }
-        } else {
+        if(!mSaveShareKvPrefix) {
             // delete temp kvcache file
             removeKVCacheFile();
         }
