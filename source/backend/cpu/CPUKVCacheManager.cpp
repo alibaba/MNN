@@ -302,10 +302,6 @@ void CPUKVCacheManager::onAlloc(KVMeta* meta, int seq_len) {
         std::string pathk    = MNNFilePathConcat(mConfig.mPrefixCacheDir, mMeta->file_name) + "_" + std::to_string(mMeta->layer_index) + ".k";
         std::string pathv    = MNNFilePathConcat(mConfig.mPrefixCacheDir, mMeta->file_name) + "_" + std::to_string(mMeta->layer_index++) + ".v";
         mMeta->layer_index = mMeta->layer_index % mMeta->layer_nums;
-        if (mMeta->layer_index == 0) {
-            mMeta->file_flag = KVMeta::NoChange;
-            mMeta->file_name = "";
-        }
         auto old_key_fd   = MNNOpenFile(pathk.c_str(), MNN_FILE_WRITE);
         auto old_value_fd = MNNOpenFile(pathv.c_str(), MNN_FILE_WRITE);
         if (old_key_fd == INVALID_FILE) {
