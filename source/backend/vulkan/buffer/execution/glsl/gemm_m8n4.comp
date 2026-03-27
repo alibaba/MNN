@@ -1,0 +1,202 @@
+// One thread computes an 8x4 output tile in registers.
+// Workgroup 8x8 -> output tile 64x32.
+// Layout:
+//   A: [M/64, K/4, M64, K4] packed
+//   B: [K/4, N/32, K4, N32] packed
+//   Bias: [padN] packed as FLOAT4[padN/4]
+//   C: [N/4, M, 4] packed as FLOAT4[N/4 * M]
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+layout(constant_id = 3) const uint ACTIVATION = 0; // 0:none 1:relu 2:relu6
+
+layout(binding = 0) readonly buffer MatrixA {
+    FLOAT4 A4[];
+};
+
+layout(binding = 1) readonly buffer MatrixB {
+    FLOAT4 B4[];
+};
+
+layout(binding = 2) readonly buffer VectorBias {
+    FLOAT4 Bias4[];
+};
+
+layout(binding = 3) writeonly buffer MatrixC {
+    FLOAT4 C4[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint M;    // real M
+    uint N;    // real N
+    uint K;    // real K
+    uint padN; // N aligned to 32
+} pc;
+
+#define ACCUM_ONE_K4_STEP()                                                                    \
+    {                                                                                           \
+        FLOAT4 a0v = A4[aIterBase + 0u];                                                       \
+        FLOAT4 a1v = A4[aIterBase + 1u];                                                       \
+        FLOAT4 a2v = A4[aIterBase + 2u];                                                       \
+        FLOAT4 a3v = A4[aIterBase + 3u];                                                       \
+        FLOAT4 a4v = A4[aIterBase + 4u];                                                       \
+        FLOAT4 a5v = A4[aIterBase + 5u];                                                       \
+        FLOAT4 a6v = A4[aIterBase + 6u];                                                       \
+        FLOAT4 a7v = A4[aIterBase + 7u];                                                       \
+                                                                                                \
+        FLOAT4 b0 = B4[bIterBase + 0u * N_VEC_PER_BLOCK32 + nVecIn32];                        \
+        FLOAT4 b1 = B4[bIterBase + 1u * N_VEC_PER_BLOCK32 + nVecIn32];                        \
+        FLOAT4 b2 = B4[bIterBase + 2u * N_VEC_PER_BLOCK32 + nVecIn32];                        \
+        FLOAT4 b3 = B4[bIterBase + 3u * N_VEC_PER_BLOCK32 + nVecIn32];                        \
+                                                                                                \
+        acc0 += FLOAT4(a0v.x) * b0 + FLOAT4(a0v.y) * b1 + FLOAT4(a0v.z) * b2 + FLOAT4(a0v.w) * b3; \
+        acc1 += FLOAT4(a1v.x) * b0 + FLOAT4(a1v.y) * b1 + FLOAT4(a1v.z) * b2 + FLOAT4(a1v.w) * b3; \
+        acc2 += FLOAT4(a2v.x) * b0 + FLOAT4(a2v.y) * b1 + FLOAT4(a2v.z) * b2 + FLOAT4(a2v.w) * b3; \
+        acc3 += FLOAT4(a3v.x) * b0 + FLOAT4(a3v.y) * b1 + FLOAT4(a3v.z) * b2 + FLOAT4(a3v.w) * b3; \
+        acc4 += FLOAT4(a4v.x) * b0 + FLOAT4(a4v.y) * b1 + FLOAT4(a4v.z) * b2 + FLOAT4(a4v.w) * b3; \
+        acc5 += FLOAT4(a5v.x) * b0 + FLOAT4(a5v.y) * b1 + FLOAT4(a5v.z) * b2 + FLOAT4(a5v.w) * b3; \
+        acc6 += FLOAT4(a6v.x) * b0 + FLOAT4(a6v.y) * b1 + FLOAT4(a6v.z) * b2 + FLOAT4(a6v.w) * b3; \
+        acc7 += FLOAT4(a7v.x) * b0 + FLOAT4(a7v.y) * b1 + FLOAT4(a7v.z) * b2 + FLOAT4(a7v.w) * b3; \
+                                                                                                \
+        aIterBase += 64u;                                                                       \
+        bIterBase += bStepPerK4;                                                                \
+    }
+
+FLOAT4 applyActivation(FLOAT4 x) {
+    if (ACTIVATION == 1u) {
+        return max(x, FLOAT4(FLOAT(0.0)));
+    }
+    if (ACTIVATION == 2u) {
+        return clamp(x, FLOAT4(FLOAT(0.0)), FLOAT4(FLOAT(6.0)));
+    }
+    return x;
+}
+
+FLOAT4 applyColumnMask(FLOAT4 x, uint validCols) {
+    if (validCols >= 4u) {
+        return x;
+    }
+    if (validCols <= 1u) {
+        x.y = FLOAT(0.0);
+    }
+    if (validCols <= 2u) {
+        x.z = FLOAT(0.0);
+    }
+    if (validCols <= 3u) {
+        x.w = FLOAT(0.0);
+    }
+    return x;
+}
+
+void main() {
+    const uint N_VEC_PER_BLOCK32 = 8u;
+    const uint K_VEC4 = pc.K >> 2u;
+    const uint K4_MAIN = 16u; // 64 / 4
+
+    const uint N_PAD = pc.padN;
+    const uint N_BLOCK32 = N_PAD >> 5u;
+
+    const uint lx = gl_LocalInvocationID.x;
+    const uint ly = gl_LocalInvocationID.y;
+
+    const uint blockRow = gl_WorkGroupID.y << 6u;
+    const uint blockCol = gl_WorkGroupID.x << 5u;
+
+    const uint rowBase = blockRow + ly * 8u;
+    const uint col0 = blockCol + lx * 4u;
+
+    if (rowBase >= pc.M || col0 >= pc.N) {
+        return;
+    }
+
+    const uint row0 = rowBase + 0u;
+    const uint row1 = rowBase + 1u;
+    const uint row2 = rowBase + 2u;
+    const uint row3 = rowBase + 3u;
+    const uint row4 = rowBase + 4u;
+    const uint row5 = rowBase + 5u;
+    const uint row6 = rowBase + 6u;
+    const uint row7 = rowBase + 7u;
+
+    const uint mOuter = rowBase >> 6u;
+    const uint rowIn64Base = rowBase & 63u;
+
+    const uint colVec = col0 >> 2u;
+    const uint nBlock32 = colVec >> 3u;
+    const uint nVecIn32 = colVec & 7u;
+
+    FLOAT4 acc0 = FLOAT4(FLOAT(0.0));
+    FLOAT4 acc1 = FLOAT4(FLOAT(0.0));
+    FLOAT4 acc2 = FLOAT4(FLOAT(0.0));
+    FLOAT4 acc3 = FLOAT4(FLOAT(0.0));
+    FLOAT4 acc4 = FLOAT4(FLOAT(0.0));
+    FLOAT4 acc5 = FLOAT4(FLOAT(0.0));
+    FLOAT4 acc6 = FLOAT4(FLOAT(0.0));
+    FLOAT4 acc7 = FLOAT4(FLOAT(0.0));
+
+    uint aIterBase = (mOuter * K_VEC4) * 64u + rowIn64Base;
+    const uint bStepPerK4 = N_BLOCK32 * (4u * N_VEC_PER_BLOCK32);
+    uint bIterBase = nBlock32 * (4u * N_VEC_PER_BLOCK32);
+
+    const uint kBlockNum = K_VEC4 / K4_MAIN;
+    for (uint b = 0u; b < kBlockNum; ++b) {
+        for (uint kk = 0u; kk < K4_MAIN; ++kk) {
+            ACCUM_ONE_K4_STEP();
+        }
+    }
+
+    const uint k4Main = kBlockNum * K4_MAIN;
+    for (uint k4 = k4Main; k4 < K_VEC4; ++k4) {
+        ACCUM_ONE_K4_STEP();
+    }
+
+    const FLOAT4 bias = Bias4[colVec];
+    acc0 = applyActivation(acc0 + bias);
+    acc1 = applyActivation(acc1 + bias);
+    acc2 = applyActivation(acc2 + bias);
+    acc3 = applyActivation(acc3 + bias);
+    acc4 = applyActivation(acc4 + bias);
+    acc5 = applyActivation(acc5 + bias);
+    acc6 = applyActivation(acc6 + bias);
+    acc7 = applyActivation(acc7 + bias);
+
+    const bool fullTile = (row7 < pc.M) && (blockCol + 31u < pc.N);
+    if (fullTile) {
+        C4[colVec * pc.M + row0] = acc0;
+        C4[colVec * pc.M + row1] = acc1;
+        C4[colVec * pc.M + row2] = acc2;
+        C4[colVec * pc.M + row3] = acc3;
+        C4[colVec * pc.M + row4] = acc4;
+        C4[colVec * pc.M + row5] = acc5;
+        C4[colVec * pc.M + row6] = acc6;
+        C4[colVec * pc.M + row7] = acc7;
+        return;
+    }
+
+    const uint validCols = min(4u, pc.N - col0);
+
+    if (row0 < pc.M) {
+        C4[colVec * pc.M + row0] = applyColumnMask(acc0, validCols);
+    }
+    if (row1 < pc.M) {
+        C4[colVec * pc.M + row1] = applyColumnMask(acc1, validCols);
+    }
+    if (row2 < pc.M) {
+        C4[colVec * pc.M + row2] = applyColumnMask(acc2, validCols);
+    }
+    if (row3 < pc.M) {
+        C4[colVec * pc.M + row3] = applyColumnMask(acc3, validCols);
+    }
+    if (row4 < pc.M) {
+        C4[colVec * pc.M + row4] = applyColumnMask(acc4, validCols);
+    }
+    if (row5 < pc.M) {
+        C4[colVec * pc.M + row5] = applyColumnMask(acc5, validCols);
+    }
+    if (row6 < pc.M) {
+        C4[colVec * pc.M + row6] = applyColumnMask(acc6, validCols);
+    }
+    if (row7 < pc.M) {
+        C4[colVec * pc.M + row7] = applyColumnMask(acc7, validCols);
+    }
+}
+
+#undef ACCUM_ONE_K4_STEP

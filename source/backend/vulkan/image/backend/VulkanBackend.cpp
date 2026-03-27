@@ -60,7 +60,7 @@ static void _copyTensorToBuffer(const Tensor* source, const VulkanBuffer* dest) 
     dest->unmap();
 }
 
-VulkanBackend::VulkanBackend(const VulkanRuntime* runtime, const Backend::Info& info) : Backend(MNN_FORWARD_VULKAN) {
+VulkanBackend::VulkanBackend(const VulkanRuntime* runtime) : Backend(MNN_FORWARD_VULKAN) {
     mRuntime = runtime;
     mDirect = (mRuntime->mGpuMode & MNNGpuMode::MNN_GPU_RECORD_BATCH) == 0;
     mDynamicMemoryPool.reset(new VulkanMemoryPool(runtime->mMemoryPool.get()));
@@ -268,11 +268,9 @@ void VulkanBackend::onExecuteEnd() const {
     auto endTime = std::chrono::high_resolution_clock::now();
     float totalTime = std::chrono::duration_cast<std::chrono::nanoseconds>(endTime - startTime).count() / (1e6f);
     if (mTimeProfiler) {
-        MNN_PRINT("\n=============== Vulkan Time Profiling (Begin) ===============\n");
         mTimeProfiler->printTimeProfile();
-        MNN_PRINT("Total time calculated by CPU is %6.2f ms.\n", totalTime);
-        MNN_PRINT("\n================ Vulkan Time Profiling (End) ================\n");
     }
+    MNN_PRINT("Total time calculated by CPU is %6.2f ms.\n", totalTime);
 #else
     _finish();
 #endif

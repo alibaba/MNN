@@ -18,6 +18,10 @@ VulkanBasicExecutionDirect::VulkanBasicExecutionDirect(std::shared_ptr<VulkanBas
 
 ErrorCode VulkanBasicExecutionDirect::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto extra = static_cast<VulkanBackend *>(backend());
+    auto code = mEncoder->onBeforeExecute(inputs, outputs);
+    if (NO_ERROR != code) {
+        return code;
+    }
     extra->pushCommand(mCmdBuffer->get());
     return NO_ERROR;
 }
@@ -60,9 +64,13 @@ ErrorCode VulkanBasicExecutionDirect::onResize(const std::vector<Tensor *> &inpu
 VulkanBasicExecutionInDirect::VulkanBasicExecutionInDirect(std::shared_ptr<VulkanBasicExecution> encoder) : Execution(encoder->backend()) {
     mEncoder = encoder;
 }
+ErrorCode VulkanBasicExecutionInDirect::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    auto code = mEncoder->onBeforeExecute(inputs, outputs);
+    return code;
+}
 ErrorCode VulkanBasicExecutionInDirect::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto extra = static_cast<VulkanBackend *>(backend());
-    auto mCmdBuffer = extra->getSingleCommand();
+    auto cmdBuffer = extra->acquireIndirectSegmentForRecord();
     auto vkBn = static_cast<VulkanBackend*>(backend());
     for (auto input : inputs) {
         auto vkTensor = (VulkanBuffer*)(input->deviceId());
@@ -72,16 +80,22 @@ ErrorCode VulkanBasicExecutionInDirect::onResize(const std::vector<Tensor *> &in
             continue;
         }
         auto offset = des->extra.offset;
-        mCmdBuffer->barrierSource(vkTensor->buffer(), offset, vkBn->getTensorSize(input));
+        cmdBuffer->barrierSource(vkTensor->buffer(), offset, vkBn->getTensorSize(input));
     }
     ErrorCode code = NO_ERROR;
 #ifdef ENABLE_VULKAN_TIME_PROFILE
-    VulkanTimeProfileScope scope(vkBn->timeProfiler(), mCmdBuffer->get(), mEncoder->getName().c_str(),
-                                 VulkanTimeProfiler::Kind::Execution);
-    code = mEncoder->onEncode(inputs, outputs, mCmdBuffer.get());
+    {
+        // The scope must finish before the indirect segment may be sealed.
+        VulkanTimeProfileScope scope(vkBn->timeProfiler(), cmdBuffer->get(), mEncoder->getName().c_str(),
+                                     VulkanTimeProfiler::Kind::Execution);
+        code = mEncoder->onEncode(inputs, outputs, cmdBuffer.get());
+    }
 #else
-    code = mEncoder->onEncode(inputs, outputs, mCmdBuffer.get());
+    code = mEncoder->onEncode(inputs, outputs, cmdBuffer.get());
 #endif
+    if (NO_ERROR == code) {
+        extra->finishIndirectRecordedOp();
+    }
     return code;
 }
 } // namespace MNN
