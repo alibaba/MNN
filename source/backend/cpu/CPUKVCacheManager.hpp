@@ -14,6 +14,11 @@
 #include "core/KVCacheManager.hpp"
 #include "backend/cpu/CPUBackend.hpp"
 #include "backend/cpu/compute/CommonOptFunction.h"
+#include "backend/cpu/compute/TurboQuant.hpp"
+
+// KV cache quantization mode enum
+enum class KVQuantMode : int { None = 0, Int8 = 1, TQ3 = 2, TQ4 = 3 };
+
 #if defined (__aarch64__)
 #define FLOAT16_T __fp16
 #else
@@ -51,9 +56,9 @@ private:
     // flash attention
     bool mUseFlashAttention = true;
 
-    // quant Key/Value
-    bool mQuantValue    = false;                    // Quantize values to int8 or not
-    bool mQuantKey      = false;                    // Whether to use int8 gemm kernel in CPU attention
+    // KV cache quantization mode
+    KVQuantMode mKeyQuantMode = KVQuantMode::None;
+    KVQuantMode mValueQuantMode = KVQuantMode::None;
     std::shared_ptr<Tensor> mKeySum;                // numhead, [maxlen/hP8, hP8]
     std::shared_ptr<Tensor> mValueSum;              // numhead, [headDim/hP8, hP8]
     std::shared_ptr<Tensor> mKeyMax;                // {numhead, headDim}
@@ -100,30 +105,30 @@ public:
 
     // quant Key/Value
     int8_t * addrOfKeySum(int kv_h) {
-        if (mQuantKey) {
+        if (mKeyQuantMode == KVQuantMode::Int8) {
             return mKeySum->host<int8_t>() + kv_h * UP_DIV(mMaxLength, hP8) * hP8 * 4;
-        }else {
+        } else {
             return nullptr;
         }
     }
     int8_t* addrOfKeyMax(int kvH) {
-        if (mQuantKey) {
+        if (mKeyQuantMode == KVQuantMode::Int8) {
             return mKeyMax->host<int8_t>() + kvH * mHeadDim * mBytes;
         } else {
             return nullptr;
         }
     }
     int8_t* addrOfValueSum(int kvH) {
-        if (mQuantValue) {
+        if (mValueQuantMode == KVQuantMode::Int8) {
             return mValueSum->host<int8_t>() + kvH * mValueSum->stride(0);
         } else {
             return nullptr;
         }
     }
-    void setAttenQuantKeyValue(bool useFlashAttention, bool quantKey, bool quantValue) {
+    void setKVQuantMode(bool useFlashAttention, KVQuantMode keyMode, KVQuantMode valueMode) {
         mUseFlashAttention = useFlashAttention;
-        mQuantValue = quantValue;
-        mQuantKey = quantKey;
+        mKeyQuantMode = keyMode;
+        mValueQuantMode = valueMode;
     }
 
     virtual void onResize(int kv_num_head, int head_dim);
