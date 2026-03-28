@@ -20,7 +20,7 @@
 #include <sys/auxv.h>
 #endif
 //riscv support component
-#if defind(__riscv)
+#if defined(__riscv)
 #include <stdlib.h>
 #include <string.h>
 #include <sys/auxv.h>
