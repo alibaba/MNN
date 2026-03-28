@@ -14,6 +14,7 @@
 #include <unordered_map>
 #include <iostream>
 // #include <string_view>
+#include <cstdint>
 #include <cstring>
 class string_view_ {
 public:
