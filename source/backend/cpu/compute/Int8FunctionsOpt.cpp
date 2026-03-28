@@ -2560,6 +2560,14 @@ void MNNCoreInt8FunctionInit() {
 #endif
 #endif
 
+//RVV support
+#ifdef __riscv
+#ifdef MNN_USE_RVV
+    if (core->supportRVV) {
+        gCoreFunc->Int8GemmKernel = MNNGemmInt8AddBiasScale_16x4_Unit_RVV;
+    }
+#endif
+#endif
     {   // Update the function pointers in the int8MatmulRelatedFunctions struct.
         core->int8MatmulRelatedFunctions.Int8GemmKernel = gCoreFunc->Int8GemmKernel;
         core->int8MatmulRelatedFunctions.Int8GemmKernelFast = gCoreFunc->Int8GemmKernelFast;
