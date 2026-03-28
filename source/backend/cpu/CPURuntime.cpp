@@ -19,6 +19,14 @@
 #if defined(__aarch64__)
 #include <sys/auxv.h>
 #endif
+//riscv support component
+#if defind(__riscv)
+#include <stdlib.h>
+#include <string.h>
+#include <sys/auxv.h>
+#endif
+
+
 #include <sys/time.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -1372,7 +1380,96 @@ static void _getInfoAux(MNNCPUInfo* cpuinfo_isa) {
     }
 }
 #endif
+//Riscv support
+#if defined(__linux__) && defined(__riscv)
+    // only needed in  RISC-V Linux
+  #ifndef AT_HWCAP
+        #define AT_HWCAP 16
+    #endif
+    
+    #ifndef RISCV_HWCAP_ISA_V
+        #define RISCV_HWCAP_ISA_V (1 << 21)
+    #endif
+static bool _check_riscv_extension(const char* ext) {
+    FILE* f = fopen("/proc/cpuinfo", "r");
+    if (!f) return false;
+    char line[1024];
+    bool found = false;
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, "isa", 3) == 0) {
+            if (strstr(line, ext) != NULL) {
+                found = true;
+                break;
+            }
+        }
+    }
+    fclose(f);
+    return found;
+}
 
+static uint32_t _safe_read_vlenb() {
+    uint32_t vlenb = 0;
+    // method 1: apply intrinsic firstly, if compiler supports and enabled -march=rv64gcv, this will work
+    // #if defined(__riscv_v_intrinsic) && __riscv_v_intrinsic >= 10000
+    //     // only if compiler supports and enabled vector extension
+    //     #include <riscv_vector.h>
+    //     vlenb = __riscv_vlenb(); 
+    // #endif
+    
+    // method 2: even if the compiler doesn't enable -march=rv64gcv, we can still probe the register forcefully
+    if (vlenb == 0) {
+        // detect with assembly to avoid illegal instruction on compilers that don't support the intrinsic or when not enabled with -march=rv64gcv
+        __asm__ __volatile__(
+            ".option push\n\t"
+            ".option arch, +v\n\t"
+            "csrr %0, vlenb\n\t"
+            ".option pop"
+            : "=r"(vlenb) : : "memory"
+        );
+    }
+    
+    // method 3: fallback to a default value if the above methods fail (e.g., on older hardware or with very old compilers)
+    if (vlenb == 0) vlenb = 16; 
+    return vlenb;
+}
+
+static void _getRISCVInfoAux(MNNCPUInfo* cpuinfo) {
+    // 1. get CPU core count
+    cpuinfo->cpuNumber = (int)sysconf(_SC_NPROCESSORS_ONLN);
+    if (cpuinfo->cpuNumber <= 0) {
+        cpuinfo->cpuNumber = (int)sysconf(_SC_NPROCESSORS_CONF);
+    }
+
+    // 2. check HWCAP
+    unsigned long hwcap = getauxval(AT_HWCAP);
+    if ((hwcap & RISCV_HWCAP_ISA_V) == 0) return; 
+    
+    cpuinfo->rvv = true;
+
+    // 3. safe read VLEN
+    uint32_t vlenb = _safe_read_vlenb();
+    cpuinfo->rvv_vlen = (int)(vlenb * 8);
+
+    // 4.check RVV version (based on intrinsic definition)
+    #if defined(__riscv_v_intrinsic)
+        #if __riscv_v_intrinsic >= 10000
+            cpuinfo->rvv_version = 100;
+        #elif __riscv_v_intrinsic >= 7100
+            cpuinfo->rvv_version = 71;
+        #endif
+    #endif
+
+    // 5.（zvfh, zvkn/zvkdot）
+    if (_check_riscv_extension("_zvfh")) {
+        cpuinfo->zvfh = true;
+        cpuinfo->fp16arith = true;
+    }
+    if (_check_riscv_extension("_zvkn") || _check_riscv_extension("_zvkdot")) {
+        cpuinfo->zvkn = true;
+        cpuinfo->dot = true;
+    }
+}
+#endif
 static bool _readAll(const std::string& fileName, MNN::AutoStorage<uint8_t>& buffer) {
     MNN::FileLoader l(fileName.c_str());
     if (false == l.read()) {
@@ -1502,6 +1599,13 @@ static void _fillInfo(MNNCPUInfo* cpuinfo_isa) {
 #if defined(__aarch64__)
     _getInfoAux(cpuinfo_isa);
 #endif
+
+//riscv support
+#if defined(__riscv)
+    _getRISCVInfoAux(cpuinfo_isa);
+#endif
+
+
 #if (defined(ENABLE_ARMV82) && defined(__arm__)) || (defined(__ANDROID__) && defined(__aarch64__))
     _getInfoArm(cpuinfo_isa);
 #endif // #ifdef arm / arm64

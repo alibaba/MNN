@@ -2251,7 +2251,18 @@ static void MNNGetGemmUnitSme2_HP64(int* UNIT, int* SRC_UNIT, int* DST_XUNIT) {
     *SRC_UNIT = 4;
     *DST_XUNIT = 16;
 }
-
+//ADD RVV suport
+#ifdef MNN_USE_RVV
+extern "C" void MNNGemmInt8AddBiasScale_16x4_Unit_RVV(
+    int8_t* dst,
+    const int8_t* src,
+    const int8_t* weight,
+    size_t src_depth_quad,
+    size_t dst_step,
+    size_t dst_depth_quad,
+    const QuanPostTreatParameters* post,
+    size_t realCount)
+#endif
 template<int EP, int HP>
 static void _ArmBasicMNNPackC4ForMatMul_A_L4(int8_t* destOrigin, int8_t const** sourceGroup, const int32_t* info, const int32_t* el) {
     int number = info[0];

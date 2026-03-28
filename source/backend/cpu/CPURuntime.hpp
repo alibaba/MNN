@@ -16,6 +16,7 @@ struct CPUGroup {
     uint32_t maxFreq;
     std::vector<int> ids;
 };
+/** before RVV support
 struct MNNCPUInfo {
     bool fp16arith;
     bool dot;
@@ -26,6 +27,24 @@ struct MNNCPUInfo {
     int cpuNumber = 0;
     int smeCoreNumber = 0;
 };
+**/
+struct MNNCPUInfo {
+    bool fp16arith = false;
+    bool dot = false;
+    bool i8mm = false;
+    bool sve2 = false;
+    bool sme2 = false;
+ // RVV attributes
+    bool rvv = false;
+    int rvv_vlen = 0;
+    int rvv_version = 0;
+    bool zvfh = false;
+    bool zvkn = false;
+
+    int cpuNumber = 0;
+    int smeCoreNumber = 0;
+};
+
 using cpu_mask_t = unsigned long;
 int MNNSetSchedAffinity(const int* cpuIDs, int size);
 int MNNGetCurrentPid();
