@@ -162,6 +162,11 @@ public:
     std::vector<int> generate(MNN::Express::VARP input_embeds, int max_tokens = -1);
     bool stoped();
     bool reuse_kv();
+    // Prompt cache: call after decode completes to sync the cached text with the
+    // full conversation (including assistant response). Optional — the cache
+    // self-updates after generate(), but this allows callers with post-processed
+    // response text (e.g. deleteThinkPart) to provide a more accurate version.
+    void syncPromptCache(const ChatMessages& chat_prompts);
     // config function
     std::string dump_config();
     bool set_config(const std::string& content);
@@ -234,6 +239,9 @@ private:
     int mPrefixLength;
     bool mIsPrefixFileExist = false;
     void completePrefixWrite();
+    // Prompt cache state
+    std::string mCachedPromptText;
+    void updateCachedPromptText(const ChatMessages& chat_prompts, size_t history_before);
 };
 
 // Embedding start
