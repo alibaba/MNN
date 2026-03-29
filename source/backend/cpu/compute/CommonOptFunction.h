@@ -259,6 +259,7 @@ struct CoreFunctions {
     bool supportSDot = false;
     bool supportI8mm = false;
     bool supportSME2 = false;
+    bool supportRVV  = false;
     int  smeCoreNumber = 0;
     /**MatMul Pack and Functions*/
     void(*MNNGetMatMulPackMode)(int* eP, int *lP, int* hP);
