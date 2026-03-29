@@ -37,7 +37,7 @@ static void saveInputOutputs(const MNN::Express::Module::Info* info, std::vector
     MNN_PRINT("Successfully generate %s and %s.\n", inputPath.c_str(), outputPath.c_str());
 }
 
-static void createInputsForLLM(int seqLen, int hiddenSize, const std::string& attentionMaskType, bool lastLogit, std::vector<MNN::Express::VARP>& inputs) {
+static void createInputsForLLM(int seqLen, int hiddenSize, const std::string& attentionMaskType, bool lastLogit, bool hasDeepstack, const rapidjson::Document& doc, std::vector<MNN::Express::VARP>& inputs) {
     if (attentionMaskType != "float") {
         MNN_ERROR("Don't support Attention Mask Type other than 'float', currently.\n");
         return;
@@ -59,16 +59,36 @@ static void createInputsForLLM(int seqLen, int hiddenSize, const std::string& at
     }
     inputs.push_back(attentionMask);
 
-    MNN::Express::VARP positionIds = MNN::Express::_Input({1, seqLen}, MNN::Express::NCHW, halide_type_of<int>());
-    int * positionIdsData = positionIds->writeMap<int>();
-    for (int i = 0; i < seqLen; i++) {
-        positionIdsData[i] = i;
+    MNN::Express::VARP positionIds;
+    if (doc.HasMember("is_mrope") && doc["is_mrope"].IsBool() && doc["is_mrope"].GetBool()) {
+        positionIds = MNN::Express::_Input({3, seqLen}, MNN::Express::NCHW, halide_type_of<int>());
+        int * positionIdsData = positionIds->writeMap<int>();
+        for (int i = 0; i < seqLen; i++) {
+            positionIdsData[0 * seqLen + i] = i;
+            positionIdsData[1 * seqLen + i] = i;
+            positionIdsData[2 * seqLen + i] = i;
+        }
+    } else {
+        positionIds = MNN::Express::_Input({1, seqLen}, MNN::Express::NCHW, halide_type_of<int>());
+        int * positionIdsData = positionIds->writeMap<int>();
+        for (int i = 0; i < seqLen; i++) {
+            positionIdsData[i] = i;
+        }
     }
     inputs.push_back(positionIds);
 
     int logitsIndexValue = lastLogit ? -1 : 0;
     MNN::Express::VARP logitsIndex = MNN::Express::_Const((const void *) &logitsIndexValue, {1}, MNN::Express::NHWC, halide_type_of<int>());
     inputs.push_back(logitsIndex);
+
+    if (hasDeepstack) {
+        MNN::Express::VARP deepstackEmbeds = MNN::Express::_Input({3, 1, hiddenSize}, MNN::Express::NCHW, halide_type_of<float>());
+        float* deepstackEmbedsData = deepstackEmbeds->writeMap<float>();
+        for (int i = 0; i < 3 * 1 * hiddenSize; ++i) {
+            deepstackEmbedsData[i] = (float)(rand()) / RAND_MAX;
+        }
+        inputs.push_back(deepstackEmbeds);
+    }
 
     return;
 }
@@ -122,9 +142,11 @@ static bool generateForModel(const std::string& modelPath, const std::string& ou
     std::vector<std::string> inputNames;
     std::vector<std::string> outputNames;
     bool isEmbedding = false;
+    bool hasDeepstack = false;
 
     int hiddenSize;
     std::string attentionMaskType;
+    rapidjson::Document doc;
     {
         std::ifstream ifs(jsonPath);
         if (!ifs.is_open()) {
@@ -132,7 +154,6 @@ static bool generateForModel(const std::string& modelPath, const std::string& ou
             return false;
         }
         rapidjson::IStreamWrapper isw(ifs);
-        rapidjson::Document doc;
         doc.ParseStream(isw);
 
         if (doc.HasParseError() || !doc.IsObject()) {
@@ -153,6 +174,10 @@ static bool generateForModel(const std::string& modelPath, const std::string& ou
         attentionMaskType = doc["attention_mask"].GetString();
 
         isEmbedding = isEmbeddingModel(doc);
+
+        if (doc.HasMember("has_deepstack") && doc["has_deepstack"].IsBool()) {
+            hasDeepstack = doc["has_deepstack"].GetBool();
+        }
     }
 
     MNN::ScheduleConfig config;
@@ -164,6 +189,9 @@ static bool generateForModel(const std::string& modelPath, const std::string& ou
         outputNames = {"sentence_embeddings"};
     } else {
         inputNames = {"input_ids", "attention_mask", "position_ids", "logits_index"};
+        if (hasDeepstack) {
+            inputNames.push_back("deepstack_embeds");
+        }
         outputNames = {"logits"};
     }
     net.reset(MNN::Express::Module::load(inputNames, outputNames, modelPath.c_str(), rtmgr), MNN::Express::Module::destroy);
@@ -178,7 +206,7 @@ static bool generateForModel(const std::string& modelPath, const std::string& ou
         if (isEmbedding) {
             createInputsForEmbedding(blockSize, hiddenSize, attentionMaskType, inputs);
         } else {
-            createInputsForLLM(blockSize, hiddenSize, attentionMaskType, false, inputs);
+            createInputsForLLM(blockSize, hiddenSize, attentionMaskType, false, hasDeepstack, doc, inputs);
         }
         outputs = net->onForward(inputs);
         if (outputs.empty()) {
@@ -191,7 +219,7 @@ static bool generateForModel(const std::string& modelPath, const std::string& ou
     if (!isEmbedding) {
         std::vector<MNN::Express::VARP> inputs;
         std::vector<MNN::Express::VARP> outputs;
-        createInputsForLLM(1, hiddenSize, attentionMaskType, true, inputs);
+        createInputsForLLM(1, hiddenSize, attentionMaskType, true, hasDeepstack, doc, inputs);
         outputs = net->onForward(inputs);
         if (outputs.empty()) {
             MNN_ERROR("Failed to run decode forward for QNN IO generation.\n");
