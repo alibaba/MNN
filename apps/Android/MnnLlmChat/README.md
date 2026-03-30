@@ -62,6 +62,17 @@ This is our full multimodal language model (LLM) Android app
 
 # Releases
 
+## Version 0.8.2.2
++ Click here to [download](https://meta.alicdn.com/data/mnn/apks/mnn_chat_0_8_2_2.apk)
++ Highlights:
+  + Refresh the bundled MNN runtime with the latest CPU LinearAttention and Arm82 fp16 optimization path.
+  + Improve tokenizer and template rendering compatibility for thinking-mode prompts and array concatenation cases.
+  + Add TopKV2 backend coverage for OpenCL and Metal execution paths.
++ Bugfix:
+  + Fix the crash when tapping Add Local Model on Android.
+  + Avoid deadlocks caused by partially initialized mmap weights during model loading.
+  + Reuse the loaded runtime session when starting API service for the same model to avoid extra reloads that could freeze or crash API startup.
+
 ## Version 0.8.2.1
 + Click here to [download](https://meta.alicdn.com/data/mnn/apks/mnn_chat_0_8_2_1.apk)
 + Bugfix:
