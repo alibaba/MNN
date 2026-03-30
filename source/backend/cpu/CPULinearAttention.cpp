@@ -14,6 +14,7 @@
 #include <algorithm>
 #include "CPULinearAttention.hpp"
 #include "CPUBackend.hpp"
+#include "core/MNNFileUtils.h"
 #include "compute/CommonOptFunction.h"
 #include "core/Macro.h"
 #include "core/Concurrency.h"
@@ -76,12 +77,18 @@ ErrorCode CPULinearAttention::onResize(const std::vector<Tensor*>& inputs, const
             ::memset(mStateCache->mRecurrentState->host<int8_t>(), 0, batch * H * dk * dv * mBytes);
         }
     } else if (seqLen > 1) {
-        // Prefill: reset state for new sequence
-        int convStateBytes = batch * convChannels * convStateSize * mBytes;
-        ::memset(mStateCache->mConvState->host<int8_t>(), 0, convStateBytes);
-        if (mStateCache->mRecurrentState.get() != nullptr) {
-            int H = mNumVHeads, dk = mHeadKDim, dv = mHeadVDim;
-            ::memset(mStateCache->mRecurrentState->host<int8_t>(), 0, batch * H * dk * dv * mBytes);
+        // Prefill: reset state for new sequence, UNLESS:
+        // 1. Loading from prefix cache (PendingRead), or
+        // 2. Reusing KV from previous inference (reuse_kv=true, i.e. previous != remove)
+        bool loadingFromDisk = (mMeta != nullptr && mMeta->file_flag == KVMeta::PendingRead && mMeta->file_name.size() > 0);
+        bool reusingKV = (mMeta != nullptr && mMeta->previous != mMeta->remove);
+        if (!loadingFromDisk && !reusingKV) {
+            int convStateBytes = batch * convChannels * convStateSize * mBytes;
+            ::memset(mStateCache->mConvState->host<int8_t>(), 0, convStateBytes);
+            if (mStateCache->mRecurrentState.get() != nullptr) {
+                int H = mNumVHeads, dk = mHeadKDim, dv = mHeadVDim;
+                ::memset(mStateCache->mRecurrentState->host<int8_t>(), 0, batch * H * dk * dv * mBytes);
+            }
         }
     }
 
@@ -299,11 +306,92 @@ void CPULinearAttention::gated_delta_rule_ref(const std::vector<Tensor*>& inputs
 }
 
 ErrorCode CPULinearAttention::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    // Load prefix cache from disk (PendingRead)
+    if (mMeta != nullptr && mMeta->file_name.size() > 0 && mMeta->file_flag == KVMeta::PendingRead) {
+        int layer_index = mMeta->layer_index;
+        std::string basePath = MNNFilePathConcat(mPrefixCacheDir, mMeta->file_name) + "_" + std::to_string(layer_index);
+        std::string pathk = basePath + ".k";
+        std::string pathv = basePath + ".v";
+        // Load conv state (.k file)
+        auto kfd = MNNOpenFile(pathk.c_str(), MNN_FILE_READ);
+        if (kfd != INVALID_FILE) {
+            size_t kSize = MNNGetFileSize(kfd);
+            if (kSize > 0 && kSize != INVALID_SIZE) {
+                void* kMap = MNNMmapFile(kfd, kSize, true);
+                if (kMap != nullptr) {
+                    ::memcpy(mStateCache->mConvState->host<int8_t>(), kMap, kSize);
+                    MNNUnmapFile(kMap, kSize);
+                }
+            }
+            MNNCloseFile(kfd);
+        } else {
+            MNN_PRINT("CPULinearAttention: Failed to open prefix cache file: %s\n", pathk.c_str());
+        }
+        // Load recurrent state (.v file)
+        auto vfd = MNNOpenFile(pathv.c_str(), MNN_FILE_READ);
+        if (vfd != INVALID_FILE) {
+            size_t vSize = MNNGetFileSize(vfd);
+            if (vSize > 0 && vSize != INVALID_SIZE && mStateCache->mRecurrentState.get() != nullptr) {
+                void* vMap = MNNMmapFile(vfd, vSize, true);
+                if (vMap != nullptr) {
+                    ::memcpy(mStateCache->mRecurrentState->host<int8_t>(), vMap, vSize);
+                    MNNUnmapFile(vMap, vSize);
+                }
+            }
+            MNNCloseFile(vfd);
+        } else {
+            MNN_PRINT("CPULinearAttention: Failed to open prefix cache file: %s\n", pathv.c_str());
+        }
+        mMeta->layer_index = (layer_index + 1) % mMeta->layer_nums;
+    }
+
+    // Normal execution
     if (mAttentionType == "short_conv") {
         short_conv(inputs, outputs);
     } else {
         gated_delta_rule_mnn(inputs, outputs);
     }
+
+    // Save prefix cache to disk (PendingWrite)
+    if (mMeta != nullptr && mMeta->file_name.size() > 0 && mMeta->file_flag == KVMeta::PendingWrite) {
+        MNNCreateDir(mPrefixCacheDir.c_str());
+        int layer_index = mMeta->layer_index;
+        std::string basePath = MNNFilePathConcat(mPrefixCacheDir, mMeta->file_name) + "_" + std::to_string(layer_index);
+        std::string pathk = basePath + ".k";
+        std::string pathv = basePath + ".v";
+        // Save conv state (.k file)
+        size_t convBytes = mStateCache->mConvState->elementSize();
+        auto kfd = MNNCreateFile(pathk.c_str());
+        if (kfd != INVALID_FILE) {
+            MNNSetFileSize(kfd, convBytes);
+            void* kMap = MNNMmapFile(kfd, convBytes);
+            if (kMap != nullptr) {
+                ::memcpy(kMap, mStateCache->mConvState->host<int8_t>(), convBytes);
+                MNNUnmapFile(kMap, convBytes);
+            }
+            MNNCloseFile(kfd);
+        } else {
+            MNN_PRINT("CPULinearAttention: Failed to create prefix cache file: %s\n", pathk.c_str());
+        }
+        // Save recurrent state (.v file) — may be empty for short_conv
+        size_t recurrentBytes = (mStateCache->mRecurrentState.get() != nullptr) ? mStateCache->mRecurrentState->elementSize() : 0;
+        auto vfd = MNNCreateFile(pathv.c_str());
+        if (vfd != INVALID_FILE) {
+            if (recurrentBytes > 0) {
+                MNNSetFileSize(vfd, recurrentBytes);
+                void* vMap = MNNMmapFile(vfd, recurrentBytes);
+                if (vMap != nullptr) {
+                    ::memcpy(vMap, mStateCache->mRecurrentState->host<int8_t>(), recurrentBytes);
+                    MNNUnmapFile(vMap, recurrentBytes);
+                }
+            }
+            MNNCloseFile(vfd);
+        } else {
+            MNN_PRINT("CPULinearAttention: Failed to create prefix cache file: %s\n", pathv.c_str());
+        }
+        mMeta->layer_index = (layer_index + 1) % mMeta->layer_nums;
+    }
+
     return NO_ERROR;
 }
 
@@ -647,6 +735,8 @@ CPULinearAttention::CPULinearAttention(Backend *backend, const MNN::Op* op) : Ex
     mUseQKL2Norm = param->use_qk_l2norm();
     mBytes = static_cast<CPUBackend*>(backend)->functions()->bytes;
     mStateCache.reset(new StateCache);
+    mMeta = (KVMeta*)(backend->getMetaPtr());
+    mPrefixCacheDir = static_cast<CPUBackend*>(backend)->getRuntime()->hint().prefixcacheDirPath;
 }
 
 CPULinearAttention::~CPULinearAttention() {

@@ -81,6 +81,7 @@ class LlmExporter(torch.nn.Module):
         self.llm_config = {
             'model_type': self.config.model_type,
             'hidden_size' : self.config.hidden_size,
+            'layer_nums': self.config.num_hidden_layers,
             'attention_mask': 'float', # Will be determined by model later
             'attention_type': self.config.attention_type,
             'is_mrope': self.model.rotary.is_mrope
