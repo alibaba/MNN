@@ -29,6 +29,14 @@ KleidiAI& KleidiAI::getInstance(const MNNCPUInfo& gCPUInfo) {
     return *mKaiInstance;
 }
 
+void KleidiAI::setSme2Enabled(bool enabled) {
+    bool targetSme2 = MNNGetCPUInfo()->sme2 && enabled;
+    if (mKaiInstance && mStaticInfo.mSme2 != targetSme2) {
+        mStaticInfo.mSme2 = targetSme2;
+        initKernelInfo();
+    }
+}
+
 KleidiAI& KleidiAI::getInstance() {
     if(!mKaiInstance) {
         MNN_ASSERT(0); //Should never happen.

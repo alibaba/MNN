@@ -38,6 +38,8 @@ static Execution* _createKleidiAIUnit(const Tensor* input, const Tensor* output,
                                       size_t biasSize, std::shared_ptr<ConvolutionCommon::Int8Common> weightQuantInfo,
                                       bool supportSparse, bool lowMemory) {
     auto cpuBackend = (CPUBackend*)backend;
+    // Sync SME2 state from runtime hint before querying kernel support
+    KleidiAI::setSme2Enabled(cpuBackend->getRuntime()->hint().useArmSme2Cores);
     auto conv2d     = op->main_as_Convolution2D();
     auto common     = conv2d->common();
 
@@ -87,7 +89,7 @@ static Execution* _createKleidiAIUnit(const Tensor* input, const Tensor* output,
     }
 #else
     if (cpuBackend->memoryMode() == BackendConfig::Memory_Low) {
-        if (MNNGetCPUInfo()->sme2 && !weightQuantInfo) {
+        if (cpuBackend->getRuntime()->hint().useArmSme2Cores && MNNGetCPUInfo()->sme2 && !weightQuantInfo) {
             return new KleidiAIDenseConvolution(common, backend, originWeight, originWeightSize, bias, biasSize,
                                                 weightQuantInfo);
         }
@@ -109,7 +111,7 @@ static Execution* _createKleidiAIUnit(const Tensor* input, const Tensor* output,
         }
     }
 
-    if (MNNGetCPUInfo()->sme2 && !weightQuantInfo) {
+    if (cpuBackend->getRuntime()->hint().useArmSme2Cores && MNNGetCPUInfo()->sme2 && !weightQuantInfo) {
         return new KleidiAIDenseConvolution(common, backend, originWeight, originWeightSize, bias, biasSize,
                                             weightQuantInfo);
     }

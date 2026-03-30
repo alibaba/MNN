@@ -168,6 +168,18 @@ void Llm::setRuntimeHint(std::shared_ptr<Express::Executor::RuntimeManager> &rtg
     }
     rtg->setHint(MNN::Interpreter::CPU_SME2_NEON_DIVISION_RATIO, mConfig->config_.value("cpu_sme2_neon_division_ratio", 41));
     rtg->setHint(MNN::Interpreter::CPU_SME_CORES, mConfig->config_.value("cpu_sme_core_num", 2));
+#ifdef MNN_KLEIDIAI_ENABLED
+    {
+        int kleidiAI = mConfig->config_.value("cpu_enable_kleidi_ai", -1);
+        if (kleidiAI >= 0) {
+            rtg->setHint(MNN::Interpreter::CPU_ENABLE_KLEIDIAI, kleidiAI);
+        }
+        int sme2 = mConfig->config_.value("cpu_sme2_instructions", -1);
+        if (sme2 >= 0) {
+            rtg->setHint(MNN::Interpreter::CPU_SME2_INSTRUCTIONS, sme2);
+        }
+    }
+#endif
 }
 
 void Llm::initRuntime() {
