@@ -154,6 +154,15 @@
                             android:minLines="3" />
                     </com.google.android.material.textfield.TextInputLayout>
 
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/promptCacheToggle"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/prompt_cache"
+                        android:paddingLeft="8dp"
+                        android:paddingRight="8dp"
+                        style="@style/SettingsRowContainer"/>
+
                     <TextView
                         android:id="@+id/id_label_diffusion_steps"
                         style="@style/SettingsRowLabel"

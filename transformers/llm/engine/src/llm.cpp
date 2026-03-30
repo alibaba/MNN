@@ -12,6 +12,7 @@
 #include <iomanip>
 #include <unordered_set>
 
+#include "prompt_cache_utils.hpp"
 #include <MNN/AutoTime.hpp>
 #include "core/TensorUtils.hpp"
 #include "cpp/ExprDebug.hpp"
@@ -102,13 +103,6 @@ bool Llm::set_config(const std::string& content) {
     mConfig->config_.merge(ujson::json::parse(content));
     setChatTemplate();
     mAsync = mConfig->config_.value("async", true);
-    // Clear prompt cache and KV state when config changes to avoid stale state.
-    // Without this, the next turn could prefill on top of existing KV when
-    // reuse_kv=true, duplicating the prompt.
-    mCachedPromptText.clear();
-    mContext->all_seq_len = 0;
-    mContext->history_tokens.clear();
-    mMeta->remove = mMeta->previous;
     mGenerateParam->timeout_ms = mConfig->timeout_ms();
     mValidBlockSize.clear();
     mBlockSize = mConfig->config_.value("chunk", 0);
@@ -1059,10 +1053,14 @@ void Llm::response(const ChatMessages& chat_prompts, std::ostream* os, const cha
 
         // Tokenize the full prompt and split at a token boundary rather than
         // tokenizing a text substring (which can land mid-token for BPE/UTF-8).
-        // Skip prefix/BOS tokens that tokenizer_encode() prepends — they don't
-        // correspond to any prompt text bytes. Detect prefix count by encoding
-        // an empty string (returns only prefix tokens).
         std::vector<int> full_tokens = tokenizer_encode(prompt);
+        // Detect prefix token count (BOS, etc.) by encoding an empty string.
+        // tokenizer_encode("") returns only the prefix tokens that are
+        // automatically prepended to every input (e.g., <|begin_of_text|>).
+        // This count is used to skip prefix tokens when mapping text
+        // positions to token indices, since they don't correspond to any
+        // prompt text bytes. Assumption: prefix tokens are constant across
+        // inputs for a given tokenizer configuration.
         size_t prefix_count = tokenizer_encode("").size();
         size_t char_pos = 0;
         size_t token_split = prefix_count; // start after prefix tokens
@@ -1103,12 +1101,24 @@ void Llm::response(const ChatMessages& chat_prompts, std::ostream* os, const cha
         updateCachedPromptText(chat_prompts, history_before);
     } else {
         // First turn or prompt_cache disabled: full tokenization, full prefill.
+        // Clear any existing KV state before a full re-prefill. generate_init()
+        // only clears KV when reuse_kv=false, so handle reuse_kv=true here.
+        if (mContext->all_seq_len > 0) {
+            mContext->all_seq_len = 0;
+            mContext->history_tokens.clear();
+            mMeta->remove = mMeta->previous;
+        }
         std::vector<int> input_ids = tokenizer_encode(prompt);
         // history_before accounts for input_ids that generate() pushes first
-        size_t history_before = mContext->history_tokens.size() + input_ids.size();
+        size_t history_before = input_ids.size();
         response(input_ids, os, end_with, max_new_tokens);
         if (mConfig->prompt_cache()) {
             updateCachedPromptText(chat_prompts, history_before);
+        } else {
+            // Cache text must not survive while caching is disabled —
+            // if re-enabled later, stale text would mismatch the KV state
+            // that was rebuilt from scratch on each turn while disabled.
+            mCachedPromptText.clear();
         }
     }
 }
@@ -1135,21 +1145,7 @@ void Llm::updateCachedPromptText(const ChatMessages& chat_prompts, size_t histor
         msgs_with_response.emplace_back("assistant", response_text);
     }
     mCachedPromptText = mTokenizer->apply_chat_template(msgs_with_response, false);
-    // Strip <think>...</think> blocks that enable_thinking adds to the last
-    // assistant message. On the next turn it won't be last, so stripping ensures
-    // the cached text matches the next turn's rendering.
-    while (true) {
-        auto start = mCachedPromptText.find("<think>");
-        if (start == std::string::npos)
-            break;
-        auto end = mCachedPromptText.find("</think>", start);
-        if (end == std::string::npos)
-            break;
-        end += 8;
-        while (end < mCachedPromptText.size() && (mCachedPromptText[end] == '\n' || mCachedPromptText[end] == '\r'))
-            end++;
-        mCachedPromptText.erase(start, end - start);
-    }
+    MNN::Transformer::stripThinkBlocks(mCachedPromptText);
 }
 
 Llm::Llm(std::shared_ptr<LlmConfig> config) : mConfig(config) {
@@ -1248,18 +1244,7 @@ void Llm::syncPromptCache(const ChatMessages& chat_prompts) {
     // deleteThinkPart processing in Android). Uses the same rendering
     // and <think> stripping as updateCachedPromptText.
     mCachedPromptText = mTokenizer->apply_chat_template(chat_prompts, false);
-    while (true) {
-        auto start = mCachedPromptText.find("<think>");
-        if (start == std::string::npos)
-            break;
-        auto end = mCachedPromptText.find("</think>", start);
-        if (end == std::string::npos)
-            break;
-        end += 8;
-        while (end < mCachedPromptText.size() && (mCachedPromptText[end] == '\n' || mCachedPromptText[end] == '\r'))
-            end++;
-        mCachedPromptText.erase(start, end - start);
-    }
+    MNN::Transformer::stripThinkBlocks(mCachedPromptText);
 }
 
 static inline bool needNewVar(VARP var, int axis, int seq_len, int kv_seq_len = 0) {

@@ -106,6 +106,12 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
         binding.mmapSettingsItem.setOnCheckedChangeListener { _, isChecked ->
             currentConfig.useMmap = isChecked
         }
+        // Prompt cache toggle
+        binding.promptCacheToggle.isChecked = currentConfig.promptCache ?: false
+        binding.promptCacheToggle.setOnCheckedChangeListener { _, isChecked ->
+            currentConfig.promptCache = isChecked
+        }
+
         binding.buttonClearMmapCache.setOnClickListener {
             val success = MmapUtils.clearMmapCache(modelId)
             if (success) {
@@ -542,6 +548,11 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
             needSaveConfig = true
             chatSession?.updateSystemPrompt(currentConfig.systemPrompt!!)
             needRecreate = false
+        } else if (currentConfig.promptCache != loadedConfig.promptCache) {
+            needSaveConfig = true
+            val llmSession = chatSession as? com.alibaba.mnnllm.android.llm.LlmSession
+            llmSession?.updateConfig("""{"prompt_cache": ${currentConfig.promptCache ?: false}}""")
+            needRecreate = false
         } else if (currentConfig.useMmap != loadedConfig.useMmap) {
             needSaveConfig = true
             needRecreate = true
@@ -571,6 +582,9 @@ class SettingsBottomSheetFragment : BaseSettingsBottomSheetFragment() {
         updateSamplerSettingsVisibility()
         chatSession?.updateSystemPrompt(currentConfig.systemPrompt ?: defaultConfig.systemPrompt ?: "")
         chatSession?.updateMaxNewTokens(currentConfig.maxNewTokens ?: defaultConfig.maxNewTokens ?: 2048)
+        binding.promptCacheToggle.isChecked = currentConfig.promptCache ?: false
+        val llmSession = chatSession as? com.alibaba.mnnllm.android.llm.LlmSession
+        llmSession?.updateConfig("""{"prompt_cache": ${currentConfig.promptCache ?: false}}""")
     }
 
     override fun onDestroyView() {

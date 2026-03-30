@@ -169,6 +169,9 @@ mls::PromptProcessingResult processMultimodalPrompt(const std::string& prompt_te
 
 void LlmSession::Reset() {
     history_.resize(1);
+    if (llm_) {
+        llm_->reset();
+    }
 }
 
 LlmSession::LlmSession(std::string model_path, json config, json extra_config, std::vector<std::string> history):
@@ -359,7 +362,9 @@ const MNN::Transformer::LlmContext * LlmSession::Response(const std::string &pro
     float prefill_tps = (prefill_s > 0) ? context->prompt_len / prefill_s : 0;
     float decode_tps = (decode_s > 0) ? context->gen_seq_len / decode_s : 0;
     MNN_DEBUG("PERF | prefill: %d tok in %.2fs (%.1f t/s) | decode: %d tok in %.2fs (%.1f t/s) | history: %zu msgs",
-              context->prompt_len, prefill_s, prefill_tps, context->gen_seq_len, decode_s, decode_tps, history_.size());
+              context->prompt_len, prefill_s, prefill_tps,
+              context->gen_seq_len, decode_s, decode_tps,
+              history_.size());
     return context;
 }
 
@@ -528,7 +533,7 @@ const MNN::Transformer::LlmContext * LlmSession::ResponseWithHistory(
     // (generate_text_end_) or by reaching max_new_tokens. Only skip sync
     // when explicitly stopped (disconnect/cancel) since the caller typically
     // won't include that partial reply in the next request.
-    stream_state.finalizePendingEop(); // flush any pending eop
+    stream_state.finalizePendingEop();  // flush any pending eop
     if (!stop_requested_) {
         std::string response_result = response_buffer.str();
         if (is_r1_) {
@@ -558,6 +563,9 @@ void LlmSession::clearHistory(int numToKeep) {
     // 清空相关缓存
     prompt_string_for_debug.clear();
     //response_string_for_debug.clear();
+    if (llm_) {
+        llm_->reset();
+    }
 }
 
 std::string LlmSession::getSystemPrompt() const {
