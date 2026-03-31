@@ -15,8 +15,12 @@ namespace OpenCL {
 // set mDequantScale mDequantOffset mNumQuantBit mFilterDataPtr from mConv2dParams
 void ConvBufLowMemoryExecution::getInfoFromOpLowMemory(void *weight_ptr) {
     auto quanCommon = ConvolutionCommon::load(mOp, this->backend(), false, true, weight_ptr);
-    if (quanCommon == nullptr) {
+    if(quanCommon == nullptr){
         mValid = false;
+        auto staticMapAlloc = mOpenCLBackend->getStaticAllocatorMMap();
+        if(mOpenCLBackend->getRuntime()->hint().useCachedMmap && staticMapAlloc != nullptr){
+            staticMapAlloc->setRemove(true);
+        }
         return;
     }
     // set mResource->mNumQuantBit
@@ -224,6 +228,9 @@ void ConvBufLowMemoryExecution::set1x1WeightLowMemory() {
         }
     } else{
         getInfoFromOpLowMemory(nullptr);
+        if(mValid == false){
+            return;
+        }
     }
     cl_int res = CL_SUCCESS;
     std::shared_ptr<Tensor> filterBuffer(Tensor::createDevice<float>({ROUND_UP(mResource->mOutputChannel, PACK_COUT), ROUND_UP(mResource->mInputChannel, PACK_CIN), 1, 1}));
@@ -244,6 +251,9 @@ void ConvBufLowMemoryExecution::set1x1WeightLowMemory() {
         if(mapPtr != nullptr && res == CL_SUCCESS){
             if(preAllocGpuMem){
                 getInfoFromOpLowMemory(mapPtr);
+                if(mValid == false){
+                    return;
+                }
             } else{
                 ::memcpy(mapPtr, mFilterDataPtr, cpy_size);
             }
@@ -279,6 +289,9 @@ void ConvBufLowMemoryExecution::set1x1WeightLowMemory() {
     }else {
         if(preAllocGpuMem){
             getInfoFromOpLowMemory(nullptr);
+            if(mValid == false){
+                return;
+            }
         }
         // Use Image load weights
         if(UP_DIV(mResource->mInputChannel, actual_packCin) <= 16384 && ROUND_UP(mResource->mOutputChannel, PACK_COUT) <= 16384){
@@ -316,6 +329,9 @@ void ConvBufLowMemoryExecution::setGeneralWeightLowMemory() {
         }
     } else{
         getInfoFromOpLowMemory(nullptr);
+        if(mValid == false){
+            return;
+        }
     }
     
     if(mOpenCLBackend->getRuntime()->hint().useCachedMmap <= 1){
@@ -334,6 +350,9 @@ void ConvBufLowMemoryExecution::setGeneralWeightLowMemory() {
         if(ptrCL != nullptr && res == CL_SUCCESS) {
             if(preAllocGpuMem){
                 getInfoFromOpLowMemory(ptrCL);
+                if(mValid == false){
+                    return;
+                }
             } else{
                 ::memcpy(ptrCL, mFilterDataPtr, cpy_size);
             }
@@ -365,6 +384,9 @@ void ConvBufLowMemoryExecution::setGeneralWeightLowMemory() {
     }else{
         if(preAllocGpuMem){
             getInfoFromOpLowMemory(nullptr);
+            if(mValid == false){
+                return;
+            }
         }
         if (mResource->mNumQuantBit == 8) {
             // ROUND_UP(IC, 4), UP_DIV(OC, 4) * mKernelWidth * mKernelHeight

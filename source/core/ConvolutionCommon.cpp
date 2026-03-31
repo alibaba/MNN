@@ -592,6 +592,10 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op*
             if (0 != buffer_size) {
                 if (1 == quan->type() && !forceFloat) {
                     buffer = IDSTDecoder::ReadQuanData_c(external_file.get(), &weightLength, result.get(), quan, forceInt8, forceFloat, weightPtr);
+                    if(weightLength == 0){
+                        MNN_PRINT("ReadQuanData_c return weightLength is 0, maybe the weight data is invalid\n");
+                        return nullptr;
+                    }
                 } else {
                     external_buffer.reset(new int8_t[buffer_size]);
                     buffer_ptr = external_buffer.get();
