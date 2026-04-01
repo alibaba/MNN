@@ -16,18 +16,6 @@ struct CPUGroup {
     uint32_t maxFreq;
     std::vector<int> ids;
 };
-/** before RVV support
-struct MNNCPUInfo {
-    bool fp16arith;
-    bool dot;
-    bool i8mm;
-    bool sve2;
-    bool sme2;
-    std::vector<CPUGroup> groups;
-    int cpuNumber = 0;
-    int smeCoreNumber = 0;
-};
-**/
 struct MNNCPUInfo {
     bool fp16arith = false;
     bool dot = false;
