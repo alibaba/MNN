@@ -1,3 +1,10 @@
+//
+//  CommonOptFunction.h
+//  MNN
+//
+//  Created by MNN on 2026/04/01.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
 #include <riscv_vector.h>
 #include <cstring>
 #include <cmath>
