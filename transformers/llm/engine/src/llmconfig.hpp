@@ -283,6 +283,9 @@ public:
     bool use_cached_mmap() const {
         return config_.value("use_cached_mmap", true);
     }
+    int mmap_size() const {
+        return config_.value("mmap_size", 1024);
+    }
     int dynamic_option() const {
         return config_.value("dynamic_option", 0);
     }

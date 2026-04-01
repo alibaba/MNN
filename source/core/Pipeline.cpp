@@ -238,14 +238,14 @@ ErrorCode Pipeline::encode(bool supportDebug, bool permitCodegen) {
     }
     // Propagate Scale and insert new command
     const RuntimeCreator* creator = nullptr;
-    {
+    if (mIsQuantModel) {
         auto type = mBackend->type();
         if (MNN_FORWARD_CPU_EXTENSION == type) {
             type = MNN_FORWARD_CPU;
         }
         creator = MNNGetExtraRuntimeCreator(type);
     }
-    if (mIsQuantModel && creator->onSetQuantInfo(nullptr, {}, {})) {
+    if (mIsQuantModel && creator && creator->onSetQuantInfo(nullptr, {}, {})) {
         // get propagate map
         using PropagateMap = std::map<const MNN::Tensor*, std::set<const MNN::Tensor*>>;
         PropagateMap forwardMap, backwardMap;

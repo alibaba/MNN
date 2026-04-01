@@ -168,6 +168,7 @@ void Llm::setRuntimeHint(std::shared_ptr<Express::Executor::RuntimeManager> &rtg
     }
     rtg->setHint(MNN::Interpreter::CPU_SME2_NEON_DIVISION_RATIO, mConfig->config_.value("cpu_sme2_neon_division_ratio", 41));
     rtg->setHint(MNN::Interpreter::CPU_SME_CORES, mConfig->config_.value("cpu_sme_core_num", 2));
+    rtg->setHint(MNN::Interpreter::MMAP_FILE_SIZE, mConfig->mmap_size());
 }
 
 void Llm::initRuntime() {
@@ -1007,7 +1008,6 @@ void Llm::response(const std::string& user_content, std::ostream* os, const char
             prompt = user_content;
         }
     }
-    std::cout << "prompt: " << prompt << std::endl;
     std::vector<int> input_ids = tokenizer_encode(prompt);
     response(input_ids, os, end_with, max_new_tokens);
 }

@@ -1,0 +1,63 @@
+layout(set=0, binding=0) readonly buffer s0 {
+    FLOAT4 data[];
+} uKey;
+
+layout(set=0, binding=1) readonly buffer s1 {
+    FLOAT4 data[];
+} uValue;
+
+layout(set=0, binding=2) writeonly buffer s2 {
+    FLOAT4 data[];
+} uCacheKey;
+
+layout(set=0, binding=3) writeonly buffer s3 {
+    FLOAT4 data[];
+} uCacheValue;
+
+layout(set=0, binding=4) readonly uniform constBuffer {
+    ivec4 s0; // qLen, kLen, headNum, kvHeadNum
+    ivec4 s1; // headDim, group, pastLen, totalLen
+    ivec4 s2; // maskQlen, maskKvlen, hasMask, cacheMaxLen
+    vec4 f0;  // scale, 0, 0, 0
+} uConst;
+
+layout(local_size_x = 8, local_size_y = 1, local_size_z = 1) in;
+
+void main() {
+    const int d4 = int(gl_GlobalInvocationID.x);
+    const int token = int(gl_GlobalInvocationID.y);
+    const int kvh = int(gl_GlobalInvocationID.z);
+
+    const int headDim = uConst.s1.x;
+    const int kLen = uConst.s0.y;
+    const int kvHeadNum = uConst.s0.w;
+    const int pastLen = uConst.s1.z;
+    const int maxLen = uConst.s2.w;
+    if (token >= kLen || kvh >= kvHeadNum) {
+        return;
+    }
+    const int d = d4 * 4;
+    if (d + 3 >= headDim) {
+        return;
+    }
+    if (maxLen <= 0) {
+        return;
+    }
+
+    // input: [1, kLen, kvHeadNum, headDim]
+    const int inBase = (token * kvHeadNum + kvh) * headDim + d;
+    const int cacheToken = pastLen + token;
+    if (cacheToken >= maxLen) {
+        return;
+    }
+
+    // cacheK (packed): [kvHeadNum, headDim/4, maxLen, 4]
+    const int d4Size = headDim / 4;
+    const int outBase = (kvh * d4Size + d4) * maxLen + cacheToken;
+    uCacheKey.data[outBase] = uKey.data[inBase / 4];
+
+    // cacheV (kvh-major, packed-D): [kvHeadNum, maxLen, headDim/4, 4]
+    // Index: ((kvh * maxLen + token) * d4Size + d4)
+    const int outBaseV4 = (kvh * maxLen + cacheToken) * d4Size + d4;
+    uCacheValue.data[outBaseV4] = uValue.data[inBase / 4];
+}

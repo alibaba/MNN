@@ -1,0 +1,88 @@
+layout(set=0, binding=0) writeonly buffer s0 {
+    FLOAT4 data[];
+} uOutput;
+
+layout(set=0, binding=1) readonly buffer s1 {
+    FLOAT4 data[];
+} uInput;
+
+layout(set=0, binding=2) readonly uniform constBuffer {
+    ivec4 size; // inside, outside, useRMSNorm, outside
+    float eps;
+} uConstant;
+
+layout(constant_id = 3) const uint USE_RMS = 0;
+layout(constant_id = 4) const uint LOCAL_SIZE = 128;
+
+#ifdef LAYERNORM_SCALE
+layout(set=0, binding=3) readonly buffer s2 {
+    FLOAT4 data[];
+} uGamma;
+
+layout(set=0, binding=4) readonly buffer s3 {
+    FLOAT4 data[];
+} uBeta;
+#endif
+
+// 1 workgroup handles 1 "outside" row; parallel reduce across "inside".
+// local_size_x is specialized based on inside size.
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+shared float gSum[LOCAL_SIZE];
+shared float gSqSum[LOCAL_SIZE];
+
+void main() {
+    int inside = uConstant.size.x;
+    int outside = uConstant.size.w;
+    int y = int(gl_WorkGroupID.x);
+    if (y >= outside) {
+        return;
+    }
+    int inside4 = inside >> 2;
+    int base4 = y * inside4;
+    uint tid = gl_LocalInvocationID.x;
+    uint groupSize = gl_WorkGroupSize.x;
+
+    float sum = 0.0;
+    float sqSum = 0.0;
+    for (int j4 = int(tid); j4 < inside4; j4 += int(groupSize)) {
+        vec4 v4 = vec4(uInput.data[base4 + j4]);
+        if (USE_RMS == 0u) {
+            sum += v4.x + v4.y + v4.z + v4.w;
+        }
+        sqSum += dot(v4, v4);
+    }
+
+    if (USE_RMS == 0u) {
+        gSum[tid] = sum;
+    }
+    gSqSum[tid] = sqSum;
+    barrier();
+
+    for (uint stride = (groupSize >> 1); stride > 0; stride >>= 1) {
+        if (tid < stride) {
+            if (USE_RMS == 0u) {
+                gSum[tid] += gSum[tid + stride];
+            }
+            gSqSum[tid] += gSqSum[tid + stride];
+        }
+        barrier();
+    }
+
+    float invInside = 1.0 / float(inside);
+    float mean = (USE_RMS != 0u) ? 0.0 : (gSum[0] * invInside);
+    float squareMean = gSqSum[0] * invInside;
+    float var = (USE_RMS != 0u) ? squareMean : max(squareMean - mean * mean, 0.0);
+    float invStd = inversesqrt(var + uConstant.eps);
+
+    for (int j4 = int(tid); j4 < inside4; j4 += int(groupSize)) {
+        vec4 v4 = vec4(uInput.data[base4 + j4]);
+        vec4 nv = (USE_RMS != 0u) ? (v4 * invStd) : ((v4 - vec4(mean)) * invStd);
+#ifdef LAYERNORM_SCALE
+        vec4 dst = nv * vec4(uGamma.data[j4]) + vec4(uBeta.data[j4]);
+#else
+        vec4 dst = nv;
+#endif
+        uOutput.data[base4 + j4] = FLOAT4(dst);
+    }
+}

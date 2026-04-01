@@ -1,0 +1,38 @@
+// Input A layout:  [K/4, M, 4] as FLOAT4[K/4 * M]
+// Output A layout: [M/64, K/4, 64, 4] as FLOAT4[(M/64) * (K/4) * 64]
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(binding = 0) readonly buffer SrcBuffer {
+    FLOAT4 SrcA4[];
+};
+
+layout(binding = 1) writeonly buffer DstBuffer {
+    FLOAT4 DstA4[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint K;
+} pc;
+
+void main() {
+    const uint k4 = gl_WorkGroupID.x;
+    const uint mOuter = gl_WorkGroupID.y;
+    const uint mIn64 = gl_LocalInvocationID.x;
+
+    const uint K4 = pc.K >> 2u;
+    if (k4 >= K4) {
+        return;
+    }
+
+    const uint mBase = mOuter << 6u;
+    const uint m = mBase + mIn64;
+    const uint dstIdx = (mOuter * K4 + k4) * 64u + mIn64;
+
+    if (m < pc.M) {
+        const uint srcIdx = k4 * pc.M + m;
+        DstA4[dstIdx] = SrcA4[srcIdx];
+        return;
+    }
+    DstA4[dstIdx] = FLOAT4(FLOAT(0.0));
+}

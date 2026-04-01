@@ -43,6 +43,8 @@ private:
     bool mUseQKL2Norm;
     int mBytes;  // 4 for fp32, 2 for fp16 (Arm82)
     std::shared_ptr<StateCache> mStateCache;
+    KVMeta* mMeta;
+    std::string mPrefixCacheDir;
 
     // Temporary buffers for MNN-optimized path (per-Execution, DYNAMIC)
     std::shared_ptr<Tensor> mConvPadded;         // Padded conv input:  [B, D, convStateSize + L]
