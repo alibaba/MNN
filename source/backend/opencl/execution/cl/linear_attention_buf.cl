@@ -96,7 +96,6 @@ __kernel void linear_attn_conv_state_update(
 // Each work-item processes one (batch, head) pair across all timesteps.
 // Uses float32 exclusively for numerical stability of the recurrence.
 __kernel void linear_attn_gated_delta_rule(
-    __private const int global_dim0,
     __global const FLOAT* conv_out,
     __global const FLOAT* gate,
     __global const FLOAT* beta_in,
@@ -107,107 +106,207 @@ __kernel void linear_attn_gated_delta_rule(
     __private const int seq_len,
     __private const int num_k_heads,
     __private const int num_v_heads,
-    __private const int head_k_dim,
-    __private const int head_v_dim,
+    __private const int d_k,
+    __private const int d_v,
     __private const int key_dim,
     __private const int val_dim,
     __private const int gqa_factor,
-    __private const int use_l2norm,
     __private const float q_scale)
 {
-    const int gid = get_global_id(0);
-    if (gid >= global_dim0) return;
-
-    const int D = conv_dim;
-    const int L = seq_len;
-    const int H = num_v_heads;
-    const int d_k = head_k_dim;
-    const int d_v = head_v_dim;
-
-    const int b = gid / H;
-    const int h = gid % H;           // V-head index
+    const int dv4 = (d_v + 3) / 4;
+    const int total = dv4 * num_v_heads * batch;
+    const int gid = get_global_id(1);
+    if (gid >= total) return;
+    const int x = (gid % dv4) << 2;
+    const int bh = gid / dv4;
+    const int h = bh % num_v_heads;
+    const int b = bh / num_v_heads;
     const int k_head = h / gqa_factor; // GQA: corresponding K-head
+    __local float4 __sum[LOCAL_SIZE];
+    __local float4 rec_local[K_SIZE];
+    __local float key_local[K_SIZE];
+    const int lid = get_local_id(0);
 
     // State pointer: recurrent_state layout [B, H, d_k, d_v]
-    const int state_offset = (b * H + h) * d_k * d_v;
-
-    // Process each timestep sequentially
-    for (int t = 0; t < L; ++t) {
-        // Step 2: Extract q_t, k_t, v_t from conv_out (transpose on the fly)
-        // conv_out layout: [B, D, L], access: conv_out[b*D*L + channel*L + t]
-        float q_local[256]; // max d_k
-        float k_local[256];
-        float v_local[256]; // max d_v
-
-        const int conv_base = b * D * L;
-
-        for (int i = 0; i < d_k; ++i) {
-            q_local[i] = (float)conv_out[conv_base + (k_head * d_k + i) * L + t];
-            k_local[i] = (float)conv_out[conv_base + (key_dim + k_head * d_k + i) * L + t];
+    const int state_offset = (b * num_v_heads + h) * K_SIZE * d_v + x;
+    #ifdef DECODE_PHASE
+    const int conv_base = b * conv_dim;
+    float g_t    = (float)(gate[b * num_v_heads + h]);
+    float4 beta_t = (float4)(beta_in[b * num_v_heads + h]);
+    float4 decay_val = (float4)(exp(g_t));
+    const int out_offset = b * num_v_heads * d_v + h * d_v;
+    float4 s = (float4)(0);
+    for (int i = lid; i < K_SIZE; i+=LOCAL_SIZE) {
+        float4 rec = convert_float4(vload4(0, recurrent_state + state_offset + i * d_v))* decay_val;
+        float key = (float)(conv_out[conv_base + key_dim + k_head * K_SIZE + i]);
+        s += rec * (float4)(key);
+        rec_local[i] = rec;
+        key_local[i] = key;
+    }
+    __sum[lid] = s;
+    barrier(CLK_LOCAL_MEM_FENCE);
+    for(int i = LOCAL_SIZE/2; i > 0; i /= 2){
+        if (lid < i)
+            __sum[lid] += __sum[lid + i];
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+    s = __sum[0];
+    float4 v_data = convert_float4(vload4(0, conv_out + conv_base + 2 * key_dim + h * d_v + x));
+    float4 delta = beta_t * (v_data - s);
+    s = (float4)(0);
+    for (int i = lid; i < K_SIZE; i+=LOCAL_SIZE) {
+        float4 recurrent_state_data = rec_local[i]  + (float4)(key_local[i]) * delta;
+        s += recurrent_state_data * (float4)(conv_out[conv_base + (k_head * K_SIZE + i)]) * (float4)(q_scale);
+        vstore4(CONVERT_FLOAT4(recurrent_state_data), 0, recurrent_state + state_offset + i * d_v);
+    }
+    __sum[lid] = s;
+    barrier(CLK_LOCAL_MEM_FENCE);
+    for(int i = LOCAL_SIZE/2; i > 0; i /= 2){
+        if (lid < i)
+            __sum[lid] += __sum[lid + i];
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+    s = __sum[0];
+    if(lid == 0){
+        vstore4(CONVERT_FLOAT4(s), 0, attn_out + out_offset + x);
+    }
+    #else
+    for (int i = lid; i < K_SIZE; i+=LOCAL_SIZE) {
+        rec_local[i] = convert_float4(vload4(0, recurrent_state + state_offset + i * d_v));
+    }
+    for (int t = 0; t < seq_len; ++t) {
+        const int conv_base = b * seq_len * conv_dim;
+        float g_t    = (float)(gate[b * seq_len * num_v_heads + t * num_v_heads + h]);
+        float4 beta_t = (float4)(beta_in[b * seq_len * num_v_heads + t * num_v_heads + h]);
+        float4 decay_val = (float4)(exp(g_t));
+        const int out_offset = (b * seq_len + t) * num_v_heads * d_v + h * d_v;
+        float4 s = (float4)(0);
+        for (int i = lid; i < K_SIZE; i+=LOCAL_SIZE) {
+            float4 rec = rec_local[i] * decay_val;
+            float key = (float)(conv_out[conv_base + (key_dim + k_head * K_SIZE + i) * seq_len + t]);
+            s += rec * (float4)(key);
+            key_local[i] = key;
         }
-        for (int i = 0; i < d_v; ++i) {
-            v_local[i] = (float)conv_out[conv_base + (2 * key_dim + h * d_v + i) * L + t];
+        __sum[lid] = s;
+        barrier(CLK_LOCAL_MEM_FENCE);
+        for(int i = LOCAL_SIZE/2; i > 0; i /= 2){
+            if (lid < i)
+                __sum[lid] += __sum[lid + i];
+            barrier(CLK_LOCAL_MEM_FENCE);
         }
-
-        // Step 3: Optional L2 Normalization on q_t and k_t
-        if (use_l2norm) {
-            const float eps = 1e-6f;
-            float sumSq = 0.0f;
-            for (int i = 0; i < d_k; ++i) sumSq += q_local[i] * q_local[i];
-            float invNorm = 1.0f / sqrt(sumSq + eps);
-            for (int i = 0; i < d_k; ++i) q_local[i] *= invNorm;
-
-            sumSq = 0.0f;
-            for (int i = 0; i < d_k; ++i) sumSq += k_local[i] * k_local[i];
-            invNorm = 1.0f / sqrt(sumSq + eps);
-            for (int i = 0; i < d_k; ++i) k_local[i] *= invNorm;
+        s = __sum[0];
+        float4 v_data;
+        v_data.x = (float)(conv_out[conv_base + (2 * key_dim + h * d_v + x) * seq_len + t]);
+        v_data.y = (float)(conv_out[conv_base + (2 * key_dim + h * d_v + x + 1) * seq_len + t]);
+        v_data.z = (float)(conv_out[conv_base + (2 * key_dim + h * d_v + x + 2) * seq_len + t]);
+        v_data.w = (float)(conv_out[conv_base + (2 * key_dim + h * d_v + x + 3) * seq_len + t]);
+        float4 delta = beta_t * (v_data - s);
+        s = (float4)(0);
+        for (int i = lid; i < K_SIZE; i+=LOCAL_SIZE) {
+            float4 recurrent_state_data = rec_local[i] * decay_val + (float4)(key_local[i]) * delta;
+            s += recurrent_state_data * (float4)(conv_out[conv_base + (k_head * K_SIZE + i) * seq_len + t]) * (float4)(q_scale);
+            rec_local[i] = recurrent_state_data;
         }
-
-        // Step 4: Scale q_t by 1/sqrt(d_k)
-        for (int i = 0; i < d_k; ++i) q_local[i] *= q_scale;
-
-        // Step 5: Gated Delta Rule recurrence
-        float g_t    = (float)gate[b * L * H + t * H + h];
-        float beta_t = (float)beta_in[b * L * H + t * H + h];
-
-        // 5.1 Decay: S = S * exp(g_t)
-        float decay_val = exp(g_t);
-        for (int i = 0; i < d_k * d_v; ++i) {
-            recurrent_state[state_offset + i] = (FLOAT)((float)recurrent_state[state_offset + i] * decay_val);
+        __sum[lid] = s;
+        barrier(CLK_LOCAL_MEM_FENCE);
+        for(int i = LOCAL_SIZE/2; i > 0; i /= 2){
+            if (lid < i)
+                __sum[lid] += __sum[lid + i];
+            barrier(CLK_LOCAL_MEM_FENCE);
         }
-
-        // 5.2 Read: v_pred = S^T @ k_t
-        float v_pred[256]; // max d_v
-        for (int j = 0; j < d_v; ++j) {
-            float s = 0.0f;
-            for (int i = 0; i < d_k; ++i) {
-                s += (float)recurrent_state[state_offset + i * d_v + j] * k_local[i];
-            }
-            v_pred[j] = s;
+        s = __sum[0];
+        if(lid == 0){
+            vstore4(CONVERT_FLOAT4(s), 0, attn_out + out_offset + x);
         }
+    }
+    for (int i = lid; i < K_SIZE; i+=LOCAL_SIZE) {
+        vstore4(CONVERT_FLOAT4(rec_local[i]), 0, recurrent_state + state_offset + i * d_v);
+    }
+    #endif
+}
 
-        // 5.3 Delta: delta = beta_t * (v_t - v_pred)
-        float delta[256]; // max d_v
-        for (int j = 0; j < d_v; ++j) {
-            delta[j] = beta_t * (v_local[j] - v_pred[j]);
+__kernel void l2_norm(__global const FLOAT* input,
+                             __global FLOAT* output,
+                             __private const int conv_dim,
+                             __private const int head_k_dim,
+                             __private const int gqa_factor,
+                             __private const int key_dim,
+                             __private const int seq_len)
+{
+    #ifdef USE_VEC
+    const int hl = get_global_id(1);
+    const int bk = get_global_id(2);
+    const int seq_len4 = (seq_len + 3) / 4;
+    const int h = hl / seq_len4;
+    const int sq = hl % seq_len4;
+    const int b = bk / 2;
+    const int k = bk % 2;
+    const int lid = get_local_id(0);
+    const int k_head = h / gqa_factor; // GQA: corresponding K-head
+    const int input_offset = (b * conv_dim + k * key_dim + k_head * head_k_dim) * seq_len + (sq << 2);
+    __local float4 __sum[K_SIZE];
+    float4 sum = 0.0f;
+    for(int i = lid; i < K_SIZE; i += K_SIZE){
+        float4 in = convert_float4(vload4(0, input + input_offset + i * seq_len));
+        sum += in * in;
+    }
+    __sum[lid] = sum;
+    barrier(CLK_LOCAL_MEM_FENCE);
+    for(int i = K_SIZE/2; i > 0; i /= 2){
+        if (lid < i)
+            __sum[lid] += __sum[lid + i];
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+    sum = __sum[0];
+    int remain = seq_len - (sq << 2);
+    float4 invNorm = (float4)1.0f / sqrt(sum + (float4)1e-6f);
+    if(remain == 1){
+        for(int i = lid; i < K_SIZE; i += K_SIZE){
+            float4 out = convert_float4(vload4(0, input + input_offset + i * seq_len)) * invNorm;
+            output[input_offset + i * seq_len] = (FLOAT)out.s0;
         }
-
-        // 5.4 Write: S += k_t @ delta^T (outer product)
-        for (int i = 0; i < d_k; ++i) {
-            float k_val = k_local[i];
-            for (int j = 0; j < d_v; ++j) {
-                recurrent_state[state_offset + i * d_v + j] = (FLOAT)((float)recurrent_state[state_offset + i * d_v + j] + k_val * delta[j]);
-            }
+    }else if(remain == 2){
+        for(int i = lid; i < K_SIZE; i += K_SIZE){
+            float4 out = convert_float4(vload4(0, input + input_offset + i * seq_len)) * invNorm;
+            vstore2(CONVERT_FLOAT2(out.s01), 0, output + input_offset + i * seq_len);
         }
-
-        // 5.5 Query: o_t = S^T @ q_t
-        const int out_offset = (b * L + t) * H * d_v + h * d_v;
-        for (int j = 0; j < d_v; ++j) {
-            float s = 0.0f;
-            for (int i = 0; i < d_k; ++i) {
-                s += (float)recurrent_state[state_offset + i * d_v + j] * q_local[i];
-            }
-            attn_out[out_offset + j] = (FLOAT)s;
+    }else if(remain == 3){
+        for(int i = lid; i < K_SIZE; i += K_SIZE){
+            float4 out = convert_float4(vload4(0, input + input_offset + i * seq_len)) * invNorm;
+            vstore3(CONVERT_FLOAT3(out.s012), 0, output + input_offset + i * seq_len);
         }
-    } // end timestep
+    }else{
+        for(int i = lid; i < K_SIZE; i += K_SIZE){
+            float4 out = convert_float4(vload4(0, input + input_offset + i * seq_len)) * invNorm;
+            vstore4(CONVERT_FLOAT4(out), 0, output + input_offset + i * seq_len);
+        }
+    }
+    #else
+    const int h = get_global_id(1);
+    const int bk = get_global_id(2);
+    const int b = bk / 2;
+    const int k = bk % 2;
+    const int lid = get_local_id(0);
+    const int k_head = h / gqa_factor; // GQA: corresponding K-head
+    const int input_offset = b * conv_dim + k * key_dim + k_head * head_k_dim;
+    __local float __sum[K_SIZE];
+    float sum = 0.0f;
+    for(int i = lid; i < K_SIZE; i += K_SIZE){
+        float in = (float)(input[input_offset + i]);
+        sum += in * in;
+    }
+    __sum[lid] = sum;
+    barrier(CLK_LOCAL_MEM_FENCE);
+    for(int i = K_SIZE/2; i > 0; i /= 2){
+        if (lid < i)
+            __sum[lid] += __sum[lid + i];
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+    sum = __sum[0];
+    float invNorm = 1.0f / sqrt(sum + 1e-6f);
+    for(int i = lid; i < K_SIZE; i += K_SIZE){
+        float out = (float)(input[input_offset + i]) * invNorm;
+        output[input_offset + i] = (FLOAT)out;
+    }
+    #endif
 }

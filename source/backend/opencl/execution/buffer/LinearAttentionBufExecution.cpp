@@ -113,6 +113,9 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor *> &inp
 
     // Build kernels
     std::set<std::string> buildOptions;
+    int local_size = 16;
+    buildOptions.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
+    buildOptions.emplace("-DK_SIZE=" + std::to_string(dk));
 
     // Kernel 1: Conv1D + SiLU
     mKernelConvSilu = runtime->buildKernel("linear_attention_buf", "linear_attn_conv_silu", buildOptions, mOpenCLBackend->getPrecision());
@@ -137,14 +140,11 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor *> &inp
     }
 
     // Kernel 3: Gated Delta Rule
-    mKernelGatedDeltaRule = runtime->buildKernel("linear_attention_buf", "linear_attn_gated_delta_rule", buildOptions, mOpenCLBackend->getPrecision());
-
-    int totalHeads = batch * H;
-    mGWSGatedDeltaRule = {(uint32_t)totalHeads, 1, 1};
-    maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernelGatedDeltaRule));
-    uint32_t lwsDelta = std::min(maxWorkGroupSize, (uint32_t)256);
-    lwsDelta = std::min(lwsDelta, (uint32_t)totalHeads);
-    mLWSGatedDeltaRule = {lwsDelta, 1, 1};
+    auto gateDeltaRuleBuildOptions = buildOptions;
+    if(seqLen == 1){
+        gateDeltaRuleBuildOptions.emplace("-DDECODE_PHASE");
+    }
+    mKernelGatedDeltaRule = runtime->buildKernel("linear_attention_buf", "linear_attn_gated_delta_rule", gateDeltaRuleBuildOptions, mOpenCLBackend->getPrecision());
 
     // Set kernel arguments
     // Kernel 1: conv_silu
@@ -179,15 +179,36 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor *> &inp
         MNN_CHECK_CL_SUCCESS(ret, "setArg linear_attn_conv_state_update");
     }
 
-    // Kernel 3: gated_delta_rule
-    {
+    // Kernel 2.5: l2
+    if(mUseQKL2Norm){
+        auto l2BuildOptions = buildOptions;
+        if(seqLen > 1){
+            l2BuildOptions.emplace("-DUSE_VEC");
+        }
+        mKernell2Norm = runtime->buildKernel("linear_attention_buf", "l2_norm", l2BuildOptions, mOpenCLBackend->getPrecision());
+        mGWSl2Norm = {(uint32_t)dk, (uint32_t)(H * UP_DIV(seqLen, 4)), (uint32_t)(batch * 2)};
+        mLWSl2Norm = {(uint32_t)dk, 1, 1};
         uint32_t idx = 0;
         cl_int ret = CL_SUCCESS;
-        ret |= mKernelGatedDeltaRule->get().setArg(idx++, totalHeads);
+        ret |= mKernell2Norm->get().setArg(idx++, openCLBuffer(mConvOut.get()));    // conv_out
+        ret |= mKernell2Norm->get().setArg(idx++, openCLBuffer(mConvOut.get()));    // conv_out
+        ret |= mKernell2Norm->get().setArg(idx++, convDim);
+        ret |= mKernell2Norm->get().setArg(idx++, dk);
+        ret |= mKernell2Norm->get().setArg(idx++, gqa_factor);
+        ret |= mKernell2Norm->get().setArg(idx++, key_dim);
+        ret |= mKernell2Norm->get().setArg(idx++, seqLen);
+        MNN_CHECK_CL_SUCCESS(ret, "setArg l2 norm");
+    }
+
+    // Kernel 3: gated_delta_rule
+    {
+        mGWSGatedDeltaRule = {(uint32_t)local_size, (uint32_t)UP_DIV(dv, 4) * H * batch};
+        uint32_t idx = 0;
+        cl_int ret = CL_SUCCESS;
         ret |= mKernelGatedDeltaRule->get().setArg(idx++, openCLBuffer(mConvOut.get()));           // conv_out
         ret |= mKernelGatedDeltaRule->get().setArg(idx++, openCLBuffer(inputs[1]));                // gate
         ret |= mKernelGatedDeltaRule->get().setArg(idx++, openCLBuffer(inputs[2]));                // beta
-        ret |= mKernelGatedDeltaRule->get().setArg(idx++, openCLBuffer(mStateCache->mRecurrentState.get()));    // recurrent_state
+        ret |= mKernelGatedDeltaRule->get().setArg(idx++, openCLBuffer(mStateCache->mRecurrentState.get()));    // recurrent_state id = 6
         ret |= mKernelGatedDeltaRule->get().setArg(idx++, openCLBuffer(outputs[0]));               // attn_out
         ret |= mKernelGatedDeltaRule->get().setArg(idx++, batch);
         ret |= mKernelGatedDeltaRule->get().setArg(idx++, convDim);
@@ -199,9 +220,10 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor *> &inp
         ret |= mKernelGatedDeltaRule->get().setArg(idx++, key_dim);
         ret |= mKernelGatedDeltaRule->get().setArg(idx++, val_dim);
         ret |= mKernelGatedDeltaRule->get().setArg(idx++, gqa_factor);
-        ret |= mKernelGatedDeltaRule->get().setArg(idx++, (int)mUseQKL2Norm);
         ret |= mKernelGatedDeltaRule->get().setArg(idx++, qScale);
         MNN_CHECK_CL_SUCCESS(ret, "setArg linear_attn_gated_delta_rule");
+        maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernelGatedDeltaRule));
+        mLWSGatedDeltaRule = {(uint32_t)local_size, 1};
     }
 
     // Round up global work sizes to multiples of local work sizes
@@ -217,7 +239,10 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor *> &inp
     if (convStateSize > 0) {
         mOpenCLBackend->recordKernel3d(mKernelConvStateUpdate, mGWSConvStateUpdate, mLWSConvStateUpdate);
     }
-    mOpenCLBackend->recordKernel3d(mKernelGatedDeltaRule, mGWSGatedDeltaRule, mLWSGatedDeltaRule);
+    if(mUseQKL2Norm){
+        mOpenCLBackend->recordKernel3d(mKernell2Norm, mGWSl2Norm, mLWSl2Norm);
+    }
+    mOpenCLBackend->recordKernel2d(mKernelGatedDeltaRule, mGWSGatedDeltaRule, mLWSGatedDeltaRule);
     mOpenCLBackend->endRecord(mRecording);
 
     return NO_ERROR;
@@ -238,9 +263,14 @@ ErrorCode LinearAttentionBufExecution::onExecute(const std::vector<Tensor *> &in
         run3DKernelDefault(mKernelConvStateUpdate, mGWSConvStateUpdate, mLWSConvStateUpdate, runtime, &event);
         runtime->pushEvent({"linear_attn_conv_state_update", event});
     }
+    if(mUseQKL2Norm){
+        cl::Event event;
+        run3DKernelDefault(mKernell2Norm, mGWSl2Norm, mLWSl2Norm, runtime, &event);
+        runtime->pushEvent({"l2_norm", event});
+    }
     {
         cl::Event event;
-        run3DKernelDefault(mKernelGatedDeltaRule, mGWSGatedDeltaRule, mLWSGatedDeltaRule, runtime, &event);
+        runKernel2D(mKernelGatedDeltaRule, mGWSGatedDeltaRule, mLWSGatedDeltaRule, runtime, &event);
         runtime->pushEvent({"linear_attn_gated_delta_rule", event});
     }
 #else
@@ -252,7 +282,10 @@ ErrorCode LinearAttentionBufExecution::onExecute(const std::vector<Tensor *> &in
     if (convStateSize > 0) {
         run3DKernelDefault(mKernelConvStateUpdate, mGWSConvStateUpdate, mLWSConvStateUpdate, runtime);
     }
-    run3DKernelDefault(mKernelGatedDeltaRule, mGWSGatedDeltaRule, mLWSGatedDeltaRule, runtime);
+    if(mUseQKL2Norm){
+        run3DKernelDefault(mKernell2Norm, mGWSl2Norm, mLWSl2Norm, runtime);
+    }
+    runKernel2D(mKernelGatedDeltaRule, mGWSGatedDeltaRule, mLWSGatedDeltaRule, runtime);
 #endif
 
     return NO_ERROR;
