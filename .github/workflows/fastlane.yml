@@ -19,4 +19,4 @@ jobs:
       - name: Validate Fastlane Supply Metadata
         uses: ashutoshgngwr/validate-fastlane-supply-metadata@v2
         with:
-          fastlaneDir: apps/Android/MnnLlmChat/app/fastlane/metadata
+          fastlaneDir: apps/Android/MnnLlmChat/app/fastlane/metadata/android
