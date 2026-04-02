@@ -4715,6 +4715,10 @@ void MNNCoreFunctionInit() {
     gCoreFunction->supportSDot = gCPUInfo.dot;
     gCoreFunction->supportI8mm = gCPUInfo.i8mm;
     gCoreFunction->supportSME2 = gCPUInfo.sme2;
+    //add rvv support
+    gCoreFunction->supportRVV = gCPUInfo.rvv;
+
+    
     gCoreFunction->smeCoreNumber = gCPUInfo.smeCoreNumber;
     gCoreFunction->MNNSumByAxisLForMatmul_A = MNNSumByAxisLForMatmul_A;
     gCoreFunction->MNNReorderWeightInt4 = MNNReorderWeightInt4;
