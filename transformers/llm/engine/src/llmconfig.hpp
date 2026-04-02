@@ -161,6 +161,8 @@ public:
         return config_.value("reuse_kv", false);
     }
 
+    bool prompt_cache() const { return config_.value("prompt_cache", false); }
+
     bool all_logits() const {
         return config_.value("all_logits", false);
     }

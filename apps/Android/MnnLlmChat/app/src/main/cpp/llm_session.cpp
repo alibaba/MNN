@@ -169,6 +169,9 @@ mls::PromptProcessingResult processMultimodalPrompt(const std::string& prompt_te
 
 void LlmSession::Reset() {
     history_.resize(1);
+    if (llm_) {
+        llm_->reset();
+    }
 }
 
 LlmSession::LlmSession(std::string model_path, json config, json extra_config, std::vector<std::string> history):
@@ -322,7 +325,46 @@ const MNN::Transformer::LlmContext * LlmSession::Response(const std::string &pro
     if (!stop_requested_ && enable_audio_output_) {
         llm_->generateWavform();
     }
+    // Two post-decode outcomes:
+    // 1. Natural <eop>: finalizePendingEop fires the on_response_complete
+    //    callback which adds the assistant reply to history_ — sync cache.
+    // 2. No <eop> (max-tokens truncation OR user cancel): the partial
+    //    response was streamed to the UI and the caller always persists
+    //    the assistant item, so add it to history_ and sync to keep
+    //    engine state aligned with the visible conversation.
+    size_t history_after = history_.size();
+    stream_state.finalizePendingEop();
+    if (history_.size() > history_after) {
+        // (1) Natural <eop> — callback already added the assistant reply
+        llm_->syncPromptCache(history_);
+    } else if (current_size > 0) {
+        // (2) No <eop> — add the partial response to history_ using the
+        //     same processing as the on_response_complete callback.
+        std::string response_result = response_buffer.str();
+        if (is_r1_) {
+            auto& last_message = history_.at(history_.size() - 1);
+            std::size_t user_think_pos = last_message.second.find("<think>\n");
+            if (user_think_pos != std::string::npos) {
+                last_message.second.erase(user_think_pos, std::string("<think>\n").length());
+            }
+            response_result = getR1AssistantString(response_result);
+        }
+        response_result = trimLeadingWhitespace(deleteThinkPart(response_result));
+        if (!response_result.empty()) {
+            history_.emplace_back("assistant", response_result);
+        }
+        llm_->syncPromptCache(history_);
+    }
+
     auto context = llm_->getContext();
+    float prefill_s = context->prefill_us / 1e6f;
+    float decode_s = context->decode_us / 1e6f;
+    float prefill_tps = (prefill_s > 0) ? context->prompt_len / prefill_s : 0;
+    float decode_tps = (decode_s > 0) ? context->gen_seq_len / decode_s : 0;
+    MNN_DEBUG("PERF | prefill: %d tok in %.2fs (%.1f t/s) | decode: %d tok in %.2fs (%.1f t/s) | history: %zu msgs",
+              context->prompt_len, prefill_s, prefill_tps,
+              context->gen_seq_len, decode_s, decode_tps,
+              history_.size());
     return context;
 }
 
@@ -474,6 +516,7 @@ const MNN::Transformer::LlmContext * LlmSession::ResponseWithHistory(
         MNN_DEBUG("ResponseWithHistory: No multimodal content detected, using regular text API");
         llm_->response(temp_history, &output_ostream, "<eop>", 0);
     }
+    size_t kv_before_decode = llm_->getCurrentHistory();
     resolveAndroidSteppingEop(llm_, stream_state, current_size, max_new_tokens_);
 
     while (!stop_requested_ && !generate_text_end_ && current_size < max_new_tokens_) {
@@ -484,6 +527,27 @@ const MNN::Transformer::LlmContext * LlmSession::ResponseWithHistory(
 
     if (!stop_requested_ && enable_audio_output_) {
         llm_->generateWavform();
+    }
+
+    // Sync prompt cache if generation completed normally: either by <eop>
+    // (generate_text_end_) or by reaching max_new_tokens. Only skip sync
+    // when explicitly stopped (disconnect/cancel) since the caller typically
+    // won't include that partial reply in the next request.
+    stream_state.finalizePendingEop();  // flush any pending eop
+    if (!stop_requested_) {
+        std::string response_result = response_buffer.str();
+        if (is_r1_) {
+            response_result = getR1AssistantString(response_result);
+        }
+        response_result = trimLeadingWhitespace(deleteThinkPart(response_result));
+        if (!response_result.empty()) {
+            temp_history.emplace_back("assistant", response_result);
+        }
+        llm_->syncPromptCache(temp_history);
+    } else if (current_size > 0) {
+        // Cancelled — engine's KV/history is ahead of what the caller will
+        // include in the next request. Roll back to pre-decode state.
+        llm_->eraseHistory(kv_before_decode, 0);
     }
 
     return llm_->getContext();
@@ -499,6 +563,9 @@ void LlmSession::clearHistory(int numToKeep) {
     // 清空相关缓存
     prompt_string_for_debug.clear();
     //response_string_for_debug.clear();
+    if (llm_) {
+        llm_->reset();
+    }
 }
 
 std::string LlmSession::getSystemPrompt() const {
