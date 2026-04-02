@@ -39,9 +39,11 @@ class WhereSizeComputer : public SizeComputer {
             // support old version
             return true;
         }
-        // For zeroshape input
+        // For GPU backend where host data is not available, use conservative estimate (max possible output size).
+        // The actual output size will be determined at runtime.
         if (nullptr == inputs[0]->host<void>()) {
-            ob.dim[0].extent = 0;
+            // Keep the conservative estimate: output could have up to elementSize non-zero elements
+            // ob.dim[0].extent is already set to inputs[0]->elementSize() above
             return true;
         }
         int count = 0;

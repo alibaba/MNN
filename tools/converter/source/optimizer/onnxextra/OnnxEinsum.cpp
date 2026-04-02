@@ -224,44 +224,35 @@ public:
         }
         // dim < 4
         if (sumPos.empty()) {
-            // Broadcast Mul
+            // Broadcast Mul for outer product (e.g., i,j->ij)
+            // For var0: unsqueeze at positions where var0's dims are not present in output
+            // For var1: unsqueeze at positions where var1's dims are not present in output
             {
-                // Reshape + Transpose
-                std::vector<int> reshapeDims(outputPos.size(), 0);
-                int insertPos = (int)input0Pos.size();
-                std::vector<int> transpose;
-                for (int i=0; i<right.size(); ++i) {
-                    auto iter = input0Pos.find(right[i]);
-                    if (iter == input0Pos.end()) {
-                        reshapeDims[insertPos] = 1;
-                        transpose.emplace_back(insertPos);
-                        insertPos++;
-                    } else {
-                        transpose.emplace_back(iter->second);
+                // For var0: find output positions where input0 dims are NOT present
+                // These are the positions where we need to unsqueeze (add dim=1)
+                std::vector<int> unsqueezeAxes;
+                for (int i = 0; i < right.size(); ++i) {
+                    if (input0Pos.find(right[i]) == input0Pos.end()) {
+                        unsqueezeAxes.push_back(i);
                     }
                 }
-                auto _shape  = _Const(reshapeDims.data(), {static_cast<int32_t>(right.size())}, NHWC, halide_type_of<int>());
-                var0 = OnnxExtraManager::_ReshapeF(var0, _shape, MNN::MNN_DATA_FORMAT_NCHW);
-                var0 = _Permute(var0, transpose);
+                // Unsqueeze in reverse order to maintain correct axis indices
+                for (int k = unsqueezeAxes.size() - 1; k >= 0; --k) {
+                    var0 = _Unsqueeze(var0, {unsqueezeAxes[k]});
+                }
             }
             {
-                // Reshape + Transpose
-                std::vector<int> reshapeDims(outputPos.size(), 0);
-                int insertPos = (int)input1Pos.size();
-                std::vector<int> transpose;
-                for (int i=0; i<right.size(); ++i) {
-                    auto iter = input1Pos.find(right[i]);
-                    if (iter == input1Pos.end()) {
-                        reshapeDims[insertPos] = 1;
-                        transpose.emplace_back(insertPos);
-                        insertPos++;
-                    } else {
-                        transpose.emplace_back(iter->second);
+                // For var1: find output positions where input1 dims are NOT present
+                std::vector<int> unsqueezeAxes;
+                for (int i = 0; i < right.size(); ++i) {
+                    if (input1Pos.find(right[i]) == input1Pos.end()) {
+                        unsqueezeAxes.push_back(i);
                     }
                 }
-                auto _shape  = _Const(reshapeDims.data(), {static_cast<int>(right.size())}, NHWC, halide_type_of<int>());
-                var1 = OnnxExtraManager::_ReshapeF(var1, _shape, MNN::MNN_DATA_FORMAT_NCHW);
-                var1 = _Permute(var1, transpose);
+                // Unsqueeze in reverse order
+                for (int k = unsqueezeAxes.size() - 1; k >= 0; --k) {
+                    var1 = _Unsqueeze(var1, {unsqueezeAxes[k]});
+                }
             }
             auto output = var0 * var1;
             if (hasPrefix) {
