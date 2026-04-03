@@ -51,6 +51,21 @@ class OmniQuantizer:
         self.act_dict = [defaultdict(dict) for _ in range(len(self.modules))]
 
     @staticmethod
+    def _is_offset_rmsnorm(op):
+        type_name = str(type(op))
+        if any(
+            t in type_name
+            for t in [
+                "GemmaRMSNorm",
+                "Qwen3_5RMSNorm",
+                "Qwen3_5MoeRMSNorm",
+                "Qwen3NextRMSNorm",
+            ]
+        ):
+            return True
+        return False
+
+    @staticmethod
     def get_best_device():
         if torch.backends.mps.is_available():
             return "mps"
@@ -172,10 +187,31 @@ class OmniQuantizer:
                 sanitized_kwargs[k] = v
         return sanitized_kwargs
 
+    def _select_layer_kwargs(self, module, inputs_kwargs):
+        """Select per-layer kwargs for mixed attention models."""
+        selected_kwargs = dict(inputs_kwargs)
+        attention_mask = selected_kwargs.get("attention_mask", None)
+        if attention_mask is None:
+            return selected_kwargs
+
+        if getattr(self.model.config, "attention_type", None) != "mix":
+            return selected_kwargs
+
+        if isinstance(attention_mask, torch.Tensor) and attention_mask.dim() >= 1 and attention_mask.shape[0] == 2:
+            layer_type = getattr(module, "layer_type", None)
+            is_sliding = layer_type in ("linear_attention", "sliding_attention")
+            selected_kwargs["attention_mask"] = attention_mask[int(is_sliding)]
+        return selected_kwargs
+
     def _clear_block_kv_cache(self, block):
         """Clear KV cache on the block's attention so each calibration sample is independent."""
-        if hasattr(block, "self_attn") and hasattr(block.self_attn, "past_key_value"):
-            block.self_attn.past_key_value = None
+        if hasattr(block, "self_attn") and block.self_attn is not None:
+            if hasattr(block.self_attn, "past_key_value"):
+                block.self_attn.past_key_value = None
+            if hasattr(block.self_attn, "conv_state"):
+                block.self_attn.conv_state = None
+            if hasattr(block.self_attn, "rnn_state"):
+                block.self_attn.rnn_state = None
 
     def _safe_forward(self, x, module, module_kwargs):
         try:
@@ -336,7 +372,7 @@ class OmniQuantizer:
         with torch.no_grad():
             final_scale = torch.exp(log_scale).detach().view(-1)
 
-            if 'GemmaRMSNorm' in str(type(ln)):
+            if self._is_offset_rmsnorm(ln):
                 ln.weight += 1
                 ln.weight.div_(final_scale)
                 ln.weight -= 1
@@ -425,7 +461,8 @@ class OmniQuantizer:
         for name in named_linears:
             handles.append(named_linears[name].register_forward_hook(functools.partial(stat_io_hook, name=name)))
 
-        sanitized_kwargs = self._sanitize_kwargs(module_kwargs, layer)
+        layer_kwargs = self._select_layer_kwargs(layer, module_kwargs)
+        sanitized_kwargs = self._sanitize_kwargs(layer_kwargs, layer)
 
         with torch.no_grad():
             self._safe_forward(x_in, layer, sanitized_kwargs)
@@ -491,7 +528,6 @@ class OmniQuantizer:
             self.act_dict = [defaultdict(dict) for _ in range(len(self.modules))]
 
         print(f"OmniQuant: Starting weight optimization (Epochs={self.epochs})...")
-
         for idx in tqdm(range(len(self.modules)), desc="OmniQuant: Optimize Weights"):
             block = self.modules[idx]
             self.to_device(block, self.best_device)
@@ -514,7 +550,23 @@ class OmniQuantizer:
                     inp = i
                 mlp_inputs_list.append(inp.detach().view(-1, inp.shape[-1]))
 
-            h1 = block.self_attn.q_proj.register_forward_hook(hook_attn_input)
+            attn_module = block.self_attn
+            attn_linears = []
+            attn_hook_target = None
+            if all(hasattr(attn_module, name) for name in ("q_proj", "k_proj", "v_proj")):
+                attn_linears = [attn_module.q_proj, attn_module.k_proj, attn_module.v_proj]
+                attn_hook_target = attn_module.q_proj
+            elif hasattr(attn_module, "in_proj_qkv"):
+                attn_linears = [attn_module.in_proj_qkv]
+                for optional_name in ("in_proj_a", "in_proj_b", "in_proj_z"):
+                    optional_proj = getattr(attn_module, optional_name, None)
+                    if optional_proj is not None:
+                        attn_linears.append(optional_proj)
+                attn_hook_target = attn_module.in_proj_qkv
+
+            h1 = None
+            if attn_hook_target is not None:
+                h1 = attn_hook_target.register_forward_hook(hook_attn_input)
             h2 = block.mlp.gate_proj.register_forward_hook(hook_mlp_input)
 
             # Pre-compute sanitized kwargs once for this block
@@ -524,6 +576,7 @@ class OmniQuantizer:
                     sample_kw_gpu[k] = v.to(self.best_device)
                 else:
                     sample_kw_gpu[k] = v
+            sample_kw_gpu = self._select_layer_kwargs(block, sample_kw_gpu)
             sanitized_kw_template = self._sanitize_kwargs(sample_kw_gpu, block)
 
             # Single forward pass: collect hooks AND compute outputs
@@ -532,6 +585,7 @@ class OmniQuantizer:
                     # Clear KV cache so each sample is processed independently (no past_key_value from previous iteration)
                     self._clear_block_kv_cache(block)
                     inp_gpu = inp.to(self.best_device)
+                    kw = self._select_layer_kwargs(block, kw)
 
                     # Reuse sanitized keys, only update tensor values
                     kw_gpu = {}
@@ -548,23 +602,31 @@ class OmniQuantizer:
 
                     del inp_gpu, kw_gpu, out
 
-            h1.remove()
+            if h1 is not None:
+                h1.remove()
             h2.remove()
 
             # Process collected attention inputs
-            if len(attn_inputs_list) > 0:
+            optimize_attn = len(attn_inputs_list) > 0
+            if optimize_attn:
                 # Concatenate on GPU, then move to CPU once
                 total_attn_in = torch.cat(attn_inputs_list, dim=0).to("cpu")
                 del attn_inputs_list
 
-                qkv = [block.self_attn.q_proj, block.self_attn.k_proj, block.self_attn.v_proj]
+                # Mixed-attention models such as Qwen3.5 are highly sensitive to
+                # attention-side rescaling. Keep the generic optimization path for
+                # other architectures only.
                 ln_attn = block.input_layernorm
                 robust_max_attn = self._get_robust_act_max(total_attn_in)
-                self._run_optimization(total_attn_in, qkv, ln_attn, robust_max_attn)
-                del total_attn_in, robust_max_attn
+                self._run_optimization(total_attn_in, attn_linears, ln_attn, robust_max_attn)
+                del robust_max_attn
+                del total_attn_in
+            else:
+                del attn_inputs_list
 
             # Process collected MLP inputs
-            if len(mlp_inputs_list) > 0:
+            optimize_mlp = len(mlp_inputs_list) > 0
+            if optimize_mlp:
                 # Concatenate on GPU, then move to CPU once
                 total_mlp_in = torch.cat(mlp_inputs_list, dim=0).to("cpu")
                 del mlp_inputs_list
@@ -574,6 +636,8 @@ class OmniQuantizer:
                 robust_max_mlp = self._get_robust_act_max(total_mlp_in)
                 self._run_optimization(total_mlp_in, fcs_mlp, ln_mlp, robust_max_mlp)
                 del total_mlp_in, robust_max_mlp
+            else:
+                del mlp_inputs_list
 
             self.clear_memory()
 
@@ -671,6 +735,7 @@ class OmniQuantizer:
                     # Process each calibration sample independently to avoid KV cache from the previous sample causing dimension mismatch between attn_weights and attention_mask
                     self._clear_block_kv_cache(block)
                     inp_gpu = inp.to(self.best_device)
+                    kw = self._select_layer_kwargs(block, kw)
                     kw_gpu = {k: (v.to(self.best_device) if isinstance(v, torch.Tensor) else v) for k, v in kw.items()}
 
                     # First forward: collect activation scales

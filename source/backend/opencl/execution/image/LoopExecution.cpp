@@ -20,6 +20,7 @@ static void _TileTensor(Tensor *input, cl::Buffer *output, std::shared_ptr<Kerne
         buildOptions.emplace("-DMNN_NHWC");
     }
     kernelW = bn->getOpenCLRuntime()->buildKernel("loop", "tile", buildOptions, bn->getPrecision(), input, input);
+    if (kernelW == nullptr) { return; }
     uint32_t mMaxWorkGroupSize  = static_cast<uint32_t>(bn->getOpenCLRuntime()->getMaxWorkGroupSize(kernelW));
     std::vector<uint32_t> mGlobalWorkSize = {(uint32_t)(Width * Height), (uint32_t)(UP_DIV(Channel, 4)), (uint32_t)(Batch)};
     auto kernel = kernelW->get();
@@ -50,6 +51,7 @@ static void _PackTensor(cl::Buffer *input, Tensor *output, std::shared_ptr<Kerne
         buildOptions.emplace("-DMNN_NHWC");
     }
     kernelW = bn->getOpenCLRuntime()->buildKernel("loop", "pack", buildOptions, bn->getPrecision(), output, output);
+    if (kernelW == nullptr) { return; }
     uint32_t mMaxWorkGroupSize  = static_cast<uint32_t>(bn->getOpenCLRuntime()->getMaxWorkGroupSize(kernelW));
     std::vector<uint32_t> mGlobalWorkSize = {(uint32_t)(Width * Height), (uint32_t)(UP_DIV(Channel, 4)), (uint32_t)(Batch)};
     auto kernel = kernelW->get();
@@ -888,7 +890,7 @@ public:
         if (nullptr == loop || loop->commands() == nullptr) {
             return nullptr;
         }
-        return new LoopExecution(loop, op, backend);
+        OPENCL_CREATOR_CHECK(new LoopExecution(loop, op, backend));
     }
 };
 

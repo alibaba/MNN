@@ -307,19 +307,7 @@ void MetalKVCacheManager::onClear() {
         
         // mSaveShareKvPrefix also need unmap file
         unmapKVCache(mCurrentTotalSize, mCurrentTotalSize);
-        if(mSaveShareKvPrefix) {
-            // set prefix cachefile validation
-            auto k_file = mBasePrefixFileName + ".k";
-            if(MNNFileExist(k_file.c_str())) {
-                auto k_sync_file = mBasePrefixFileName + "_sync.k";
-                MNNCreateFile(k_sync_file.c_str());
-            }
-            auto v_file = mBasePrefixFileName + ".v";
-            if(MNNFileExist(v_file.c_str())) {
-                auto v_sync_file = mBasePrefixFileName + "_sync.v";
-                MNNCreateFile(v_sync_file.c_str());
-            }
-        } else {
+        if(!mSaveShareKvPrefix) {
             // delete temp kvcache file
             removeKVCacheFile();
         }

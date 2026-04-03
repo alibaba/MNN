@@ -222,7 +222,7 @@ public:
         for (int i = 0; i < outputs.size(); ++i) {
             TensorUtils::setTensorSupportPack(outputs[i], false);
         }
-        return new RasterBufExecution(inputs, op, backend);
+        OPENCL_CREATOR_CHECK(new RasterBufExecution(inputs, op, backend));
     }
 };
 

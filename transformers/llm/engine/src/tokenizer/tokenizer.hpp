@@ -15,6 +15,7 @@
 #include <unordered_map>
 #include <iostream>
 // #include <string_view>
+#include <cstdint>
 #include <cstring>
 class string_view_ {
 public:
@@ -151,7 +152,7 @@ public:
     // chat template
     std::string apply_chat_template(const ChatMessages& messages, bool add_generation_prompt = true) const;
     std::string apply_chat_template(const std::string& user_content, const std::string& system_prompt = "") const;
-    void set_chat_template(const std::string& tpl, const std::string& eos = "");
+    void set_chat_template(const std::string& tpl, const std::string& eos = "", const std::string& context = "");
     const std::string& chat_template() const { return chat_template_; }
     const std::string& chat_template_eos() const { return chat_template_eos_; }
 protected:
@@ -166,6 +167,7 @@ protected:
     std::string chat_template_;
     std::string chat_template_eos_;
     std::string chat_template_bos_;
+    std::string chat_template_context_;
 };
 
 class Sentencepiece : public Tokenizer {

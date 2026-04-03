@@ -233,6 +233,83 @@ class ModelSettingsConfigUiAutomatorTest {
         assertNotNull("Chat input disappeared after send; app may have crashed (issue #4259)", chatInputStill)
     }
 
+    // --- Prompt cache toggle helpers ---
+
+    private fun findPromptCacheToggle(packageName: String): UiObject2? {
+        return device.wait(Until.findObject(By.res(packageName, "promptCacheToggle")), timeoutMs)
+    }
+
+    private fun setPromptCache(packageName: String, enabled: Boolean) {
+        val toggle = findPromptCacheToggle(packageName)
+        assertNotNull("Prompt cache toggle not found", toggle)
+        if (toggle!!.isChecked != enabled) {
+            toggle.click()
+            Thread.sleep(300)
+        }
+    }
+
+    private fun saveSettingsById(packageName: String) {
+        val saveButton = device.wait(Until.findObject(By.res(packageName, "button_save")), timeoutMs)
+        assertNotNull("Save button not found", saveButton)
+        saveButton!!.click()
+        Thread.sleep(500)
+    }
+
+    private fun resetSettingsById(packageName: String) {
+        val resetButton = device.wait(Until.findObject(By.res(packageName, "button_reset")), timeoutMs)
+        assertNotNull("Reset button not found", resetButton)
+        resetButton!!.click()
+        Thread.sleep(800)
+    }
+
+    @Test
+    fun homeSettingsTogglePromptCache_reopenShowsSavedState() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val packageName = context.packageName
+
+        val modelEntry = findModelEntry(packageName)
+        assertNotNull("Model entry not found on home screen", modelEntry)
+
+        openSettingsFromHome(modelEntry!!, packageName)
+        setPromptCache(packageName, true)
+        saveSettingsById(packageName)
+
+        openSettingsFromHome(findModelEntry(packageName)!!, packageName)
+        val toggle = findPromptCacheToggle(packageName)
+        assertNotNull("Prompt cache toggle not found on reopen", toggle)
+        assertTrue("Prompt cache toggle should be checked after save", toggle!!.isChecked)
+
+        // Clean up: restore to default (false)
+        setPromptCache(packageName, false)
+        saveSettingsById(packageName)
+    }
+
+    @Test
+    fun homeSettingsReset_restoresPromptCacheDefault() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val packageName = context.packageName
+
+        val modelEntry = findModelEntry(packageName)
+        assertNotNull("Model entry not found on home screen", modelEntry)
+
+        // Set to non-default (true)
+        openSettingsFromHome(modelEntry!!, packageName)
+        setPromptCache(packageName, true)
+        saveSettingsById(packageName)
+
+        // Reopen, reset to defaults, and wait for the toggle to reflect them.
+        openSettingsFromHome(findModelEntry(packageName)!!, packageName)
+        resetSettingsById(packageName)
+        val resetToggle = device.wait(
+            Until.findObject(By.res(packageName, "promptCacheToggle").checked(false)),
+            timeoutMs
+        )
+        assertNotNull(
+            "Prompt cache toggle should be unchecked after reset (default is false)",
+            resetToggle
+        )
+    }
+
     private fun ensureHomeScreen(packageName: String) {
         val chatInput = device.wait(Until.findObject(By.res(packageName, "et_message")), 1_500L)
         if (chatInput != null) {

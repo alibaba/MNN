@@ -389,13 +389,24 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
   - reuse_kv: 多轮对话时是否复用之前对话的`kv cache`，默认为`false`.
   - quant_qkv: 选项废弃，请使用 `attention_mode`
   - attention_mode:
-    - CPU attention 算子中`query, key, value`是否量化，可选为：`0, 1, 2, 8, 9, 10`，默认为`8`，含义如下：
-      - 0: 运行时不使用Flash Attention, query, key, value均不量化
-      - 1: 运行时不使用Flash Attention, query和key使用8bit非对称量化，value不量化
-      - 2: 运行时不使用Flash Attention, query, key, value均使用8bit非对称量化
-      - 8: 运行时使用Flash Attention, query, key, value均不量化
-      - 9: 运行时使用Flash Attention, query和key使用8bit非对称量化，value不量化
-      - 10: 运行时使用Flash Attention, query, key, value均使用8bit非对称量化
+    - CPU attention 算子中KV Cache量化方式和FlashAttention开关，编码规则为 `attention_mode = flash_attention * 8 + kv_quant_mode`，默认为`8`
+    - KV Cache量化模式（attention_mode % 8）：
+      - 0: 不量化，key和value均为fp16
+      - 1: key使用int8量化，value不量化
+      - 2: key和value均使用int8量化
+      - 3: key使用TQ3（3-bit）量化，value不量化
+      - 4: key和value均使用TQ3（3-bit）量化
+      - 5: key使用TQ4（4-bit）量化，value不量化
+      - 6: key和value均使用TQ4（4-bit）量化
+    - FlashAttention（attention_mode / 8）：
+      - 0: 不使用FlashAttention
+      - 1: 使用FlashAttention
+    - 常用配置：
+      - 8: FlashAttention，不量化（默认推荐）
+      - 10: FlashAttention + KV-INT8（精度几乎无损）
+      - 14: FlashAttention + KV-TQ4（4-bit量化，内存节省>30%，推荐4B+模型）
+      - 12: FlashAttention + KV-TQ3（3-bit量化，极致压缩，推荐4B+模型）
+    - 注意：TQ3/TQ4基于TurboQuant算法（WHT旋转+Lloyd-Max码本），建议在4B及以上参数模型上使用，小模型（<1B）精度损失较大
     - GPU attention 算子中是否使用Flash Attention，可选为：`0, 8, 16`，默认为`8`，目前仅支持Metal后端，含义如下：
       - 0: 运行时不使用Flash Attention, 朴素Attention实现，上下文较长时不推荐内存占用高
       - 8: 运行时使用Flash Attention, 在算子层面分步实现，性能接近设为0，内存占用比设为0小

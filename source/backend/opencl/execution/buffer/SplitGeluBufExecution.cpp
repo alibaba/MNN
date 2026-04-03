@@ -92,7 +92,7 @@ public:
             TensorUtils::setTensorSupportPack(outputs[i], false);
         }
         
-        return new SplitGeluBufExecution(op, backend);
+        OPENCL_CREATOR_CHECK(new SplitGeluBufExecution(op, backend));
     }
 };
 

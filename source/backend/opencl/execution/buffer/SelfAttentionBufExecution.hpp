@@ -54,6 +54,7 @@ private:
     int mSoftmaxShape[4];
     int mByte = 4;
     cl_recording_qcom mRecording{NULL};
+    bool mValid = true;
 
 };
 

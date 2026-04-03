@@ -29,10 +29,12 @@ Interp3DBufExecution::Interp3DBufExecution(const std::vector<Tensor *> &inputs, 
     if (op->main_as_Interp()->resizeType() == 1) {
         mKernelName = "nearest3D_buf";
         unit.kernel                = runtime->buildKernel("interp_buf", mKernelName, buildOptions, mOpenCLBackend->getPrecision());
+        OPENCL_CHECK_KERNEL_CTOR(unit.kernel);
     } else {
         MNN_ERROR("Resize type other than nearest is not supported in Interp3DBuf, change to nearest!");
         mKernelName = "nearest3D_buf";
         unit.kernel                = runtime->buildKernel("interp_buf", mKernelName, buildOptions, mOpenCLBackend->getPrecision());
+        OPENCL_CHECK_KERNEL_CTOR(unit.kernel);
     }
 
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
@@ -108,7 +110,7 @@ public:
         for (int i = 0; i < outputs.size(); ++i) {
             TensorUtils::setTensorSupportPack(outputs[i], false);
         }
-        return new Interp3DBufExecution(inputs, op, backend);
+        OPENCL_CREATOR_CHECK(new Interp3DBufExecution(inputs, op, backend));
         ;
     }
 };

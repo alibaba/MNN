@@ -238,14 +238,14 @@ ErrorCode Pipeline::encode(bool supportDebug, bool permitCodegen) {
     }
     // Propagate Scale and insert new command
     const RuntimeCreator* creator = nullptr;
-    {
+    if (mIsQuantModel) {
         auto type = mBackend->type();
         if (MNN_FORWARD_CPU_EXTENSION == type) {
             type = MNN_FORWARD_CPU;
         }
         creator = MNNGetExtraRuntimeCreator(type);
     }
-    if (mIsQuantModel && creator->onSetQuantInfo(nullptr, {}, {})) {
+    if (mIsQuantModel && creator && creator->onSetQuantInfo(nullptr, {}, {})) {
         // get propagate map
         using PropagateMap = std::map<const MNN::Tensor*, std::set<const MNN::Tensor*>>;
         PropagateMap forwardMap, backwardMap;
@@ -1161,7 +1161,7 @@ ErrorCode Pipeline::execute() {
                     deviceOfOutput = deviceOfOutput + " " + std::to_string(cmd.workOutputs[v]->deviceId()) + " ";
                 }
                 deviceOfOutput += "]";
-                MNN_PRINT("Group: %d, %s - %d, type=%s, inputs: %s, devices: %s - %s\n", info.group, info.op->name()->c_str(), cmdIndex, EnumNameOpType(cmd.op->type()), groupOfInput.c_str(), deviceOfInput.c_str(), deviceOfOutput.c_str());
+                MNN_PRINT("Group: %d, %s - %d, type=%s, inputs: %s, devices: %s - %s\n", cmd.group, info.op->name()->c_str(), cmdIndex, EnumNameOpType(cmd.op->type()), groupOfInput.c_str(), deviceOfInput.c_str(), deviceOfOutput.c_str());
             }
 #endif
             auto code = cmd.execution->onExecute(cmd.workInputs, cmd.workOutputs);

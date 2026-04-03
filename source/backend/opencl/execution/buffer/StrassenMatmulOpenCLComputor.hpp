@@ -61,6 +61,7 @@ private:
     int mM, mN, mK;
     std::vector<cl::Buffer> mStack;
     int mBytes = 4;
+    bool mValid = true;
 };
 } // namespace MNN
 }

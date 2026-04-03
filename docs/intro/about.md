@@ -22,6 +22,10 @@
         month = jul,
     }
 
+## 版本发布
+
+版本发布记录请查看 [GitHub Releases](https://github.com/alibaba/MNN/releases)。
+
 ## 工作台
 [MNN官网](http://www.mnn.zone)上还可以下载MNN团队全新力作MNN工作台，涵盖开箱即用模型、可视化训练等工具，更可以一键部署到多端设备。
 

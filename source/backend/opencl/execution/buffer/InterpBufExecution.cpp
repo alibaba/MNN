@@ -28,13 +28,16 @@ InterpBufExecution::InterpBufExecution(const std::vector<Tensor *> &inputs, cons
     if (op->main_as_Interp()->resizeType() == 1) {
         mKernelName = "nearest_buf";
         unit.kernel             = runtime->buildKernel("interp_buf", mKernelName, buildOptions, mOpenCLBackend->getPrecision());
+        OPENCL_CHECK_KERNEL_CTOR(unit.kernel);
     } else if(op->main_as_Interp()->resizeType() == 4) {
         mKernelName = "nearest_buf";
         buildOptions.emplace("-DUSE_ROUND");
         unit.kernel             = runtime->buildKernel("interp_buf", mKernelName, buildOptions, mOpenCLBackend->getPrecision());
+        OPENCL_CHECK_KERNEL_CTOR(unit.kernel);
     }else {
         mKernelName = "bilinear_buf";
         unit.kernel             = runtime->buildKernel("interp_buf", mKernelName, buildOptions, mOpenCLBackend->getPrecision());
+        OPENCL_CHECK_KERNEL_CTOR(unit.kernel);
     }
 
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
@@ -105,7 +108,7 @@ public:
             MNN_PRINT("openCL buffer not support interp type:%d, fallback to cpu\n", op->main_as_Interp()->resizeType());
             return nullptr;
         }
-        return new InterpBufExecution(inputs, op, backend);
+        OPENCL_CREATOR_CHECK(new InterpBufExecution(inputs, op, backend));
     }
 };
     

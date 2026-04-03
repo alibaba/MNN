@@ -1,0 +1,9 @@
+# This file lists commits that should be ignored by `git blame`.
+# Typically large-scale reformatting commits that don't change logic.
+#
+# To use locally:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+#
+# GitHub automatically respects this file in the web UI.
+#
+# Add format-only commit hashes below (one per line):

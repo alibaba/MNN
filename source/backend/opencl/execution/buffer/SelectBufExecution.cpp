@@ -74,7 +74,7 @@ public:
         for (int i = 0; i < outputs.size(); ++i) {
             TensorUtils::setTensorSupportPack(outputs[i], false);
         }
-        return new SelectBufExecution(backend, op);
+        OPENCL_CREATOR_CHECK(new SelectBufExecution(backend, op));
     }
 };
 

@@ -17,6 +17,10 @@ namespace OpenCL {
 
 DepthwiseConvBufExecution::DepthwiseConvBufExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend)
     : ConvBufCommonExecution(op->main_as_Convolution2D(), backend), CommonExecution(backend, op) {
+    if (!mConvComValid) {
+        mValid = false;
+        return;
+    }
     mOpenCLBackend      = static_cast<OpenCLBackend *>(backend);
     mResource->mConv2dParams       = op->main_as_Convolution2D();
     mResource->mConv2dCommonParams = mResource->mConv2dParams->common();
@@ -37,7 +41,7 @@ DepthwiseConvBufExecution::DepthwiseConvBufExecution(const std::vector<Tensor *>
     ConvolutionCommon::getConvParameters(&quanCommon, backend, op, &filterDataPtr, &filterDataSize);
 
     mResource->mFilter.reset(Tensor::createDevice<float>({1, ROUND_UP(filterImageShape[1], 2)/*for kernel C8 read*/, 1, 4 * filterImageShape[0]}));
-    mOpenCLBackend->onAcquireBuffer(mResource->mFilter.get(), Backend::STATIC);
+    OPENCL_CHECK_ALLOC_CTOR(mOpenCLBackend->onAcquireBuffer(mResource->mFilter.get(), Backend::STATIC));
     
     if (mOpenCLBackend->getRuntime()->hint().useCachedMmap <= 1){
         std::shared_ptr<Tensor> filterBuffer(Tensor::createDevice<float>(filterShape));
@@ -329,7 +333,7 @@ public:
             auto pads = ConvolutionCommon::convolutionPadFull(inputs[0], outputs[0], conv2D->common());
             TensorUtils::setTensorChannelPack(inputs[0], 16);
             TensorUtils::setTensorPad(inputs[0], std::get<0>(pads), std::get<2>(pads), 0, 0);
-            return new DepthwiseConvSubgroupBufExecution(inputs, op, backend);
+            OPENCL_CREATOR_CHECK(new DepthwiseConvSubgroupBufExecution(inputs, op, backend));
         }
 #endif /* MNN_SUPPORT_INTEL_SUBGROUP */
         for (int i = 0; i < inputs.size(); ++i) {
@@ -338,7 +342,7 @@ public:
         for (int i = 0; i < outputs.size(); ++i) {
             TensorUtils::setTensorSupportPack(outputs[i], false);
         }
-        return new DepthwiseConvBufExecution(inputs, op, backend);
+        OPENCL_CREATOR_CHECK(new DepthwiseConvBufExecution(inputs, op, backend));
     }
 };
 

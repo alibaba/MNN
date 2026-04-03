@@ -475,6 +475,7 @@ struct BackendInfoT : public flatbuffers::NativeTable {
   std::vector<std::unique_ptr<ShaderT>> programs;
   std::vector<std::unique_ptr<AutotuningT>> tunings;
   std::vector<std::unique_ptr<GemmInfoT>> gemm;
+  std::string driverVersion;
   BackendInfoT() {
   }
 };
@@ -496,6 +497,9 @@ struct BackendInfo FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const flatbuffers::Vector<flatbuffers::Offset<GemmInfo>> *gemm() const {
     return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<GemmInfo>> *>(10);
   }
+  const flatbuffers::String *driverVersion() const {
+    return GetPointer<const flatbuffers::String *>(12);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, 4) &&
@@ -509,6 +513,8 @@ struct BackendInfo FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            VerifyOffset(verifier, 10) &&
            verifier.VerifyVector(gemm()) &&
            verifier.VerifyVectorOfTables(gemm()) &&
+           VerifyOffset(verifier, 12) &&
+           verifier.VerifyString(driverVersion()) &&
            verifier.EndTable();
   }
   BackendInfoT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -531,6 +537,9 @@ struct BackendInfoBuilder {
   void add_gemm(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<GemmInfo>>> gemm) {
     fbb_.AddOffset(10, gemm);
   }
+  void add_driverVersion(flatbuffers::Offset<flatbuffers::String> driverVersion) {
+    fbb_.AddOffset(12, driverVersion);
+  }
   explicit BackendInfoBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -548,8 +557,10 @@ inline flatbuffers::Offset<BackendInfo> CreateBackendInfo(
     flatbuffers::Offset<flatbuffers::String> deviceName = 0,
     flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<Shader>>> programs = 0,
     flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<Autotuning>>> tunings = 0,
-    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<GemmInfo>>> gemm = 0) {
+    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<GemmInfo>>> gemm = 0,
+    flatbuffers::Offset<flatbuffers::String> driverVersion = 0) {
   BackendInfoBuilder builder_(_fbb);
+  builder_.add_driverVersion(driverVersion);
   builder_.add_gemm(gemm);
   builder_.add_tunings(tunings);
   builder_.add_programs(programs);
@@ -811,6 +822,7 @@ inline void BackendInfo::UnPackTo(BackendInfoT *_o, const flatbuffers::resolver_
   { auto _e = programs(); if (_e) { _o->programs.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->programs[_i] = std::unique_ptr<ShaderT>(_e->Get(_i)->UnPack(_resolver)); } } };
   { auto _e = tunings(); if (_e) { _o->tunings.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->tunings[_i] = std::unique_ptr<AutotuningT>(_e->Get(_i)->UnPack(_resolver)); } } };
   { auto _e = gemm(); if (_e) { _o->gemm.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->gemm[_i] = std::unique_ptr<GemmInfoT>(_e->Get(_i)->UnPack(_resolver)); } } };
+  { auto _e = driverVersion(); if (_e) _o->driverVersion = _e->str(); };
 }
 
 inline flatbuffers::Offset<BackendInfo> BackendInfo::Pack(flatbuffers::FlatBufferBuilder &_fbb, const BackendInfoT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -825,12 +837,14 @@ inline flatbuffers::Offset<BackendInfo> CreateBackendInfo(flatbuffers::FlatBuffe
   auto _programs = _o->programs.size() ? _fbb.CreateVector<flatbuffers::Offset<Shader>> (_o->programs.size(), [](size_t i, _VectorArgs *__va) { return CreateShader(*__va->__fbb, __va->__o->programs[i].get(), __va->__rehasher); }, &_va ) : 0;
   auto _tunings = _o->tunings.size() ? _fbb.CreateVector<flatbuffers::Offset<Autotuning>> (_o->tunings.size(), [](size_t i, _VectorArgs *__va) { return CreateAutotuning(*__va->__fbb, __va->__o->tunings[i].get(), __va->__rehasher); }, &_va ) : 0;
   auto _gemm = _o->gemm.size() ? _fbb.CreateVector<flatbuffers::Offset<GemmInfo>> (_o->gemm.size(), [](size_t i, _VectorArgs *__va) { return CreateGemmInfo(*__va->__fbb, __va->__o->gemm[i].get(), __va->__rehasher); }, &_va ) : 0;
+  auto _driverVersion = _o->driverVersion.empty() ? 0 : _fbb.CreateString(_o->driverVersion);
   return CLCache::CreateBackendInfo(
       _fbb,
       _deviceName,
       _programs,
       _tunings,
-      _gemm);
+      _gemm,
+      _driverVersion);
 }
 
 inline CacheT *Cache::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -963,7 +977,8 @@ inline const flatbuffers::TypeTable *BackendInfoTypeTable() {
     { flatbuffers::ET_STRING, 0, -1 },
     { flatbuffers::ET_SEQUENCE, 1, 0 },
     { flatbuffers::ET_SEQUENCE, 1, 1 },
-    { flatbuffers::ET_SEQUENCE, 1, 2 }
+    { flatbuffers::ET_SEQUENCE, 1, 2 },
+    { flatbuffers::ET_STRING, 0, -1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     ShaderTypeTable,
@@ -974,10 +989,11 @@ inline const flatbuffers::TypeTable *BackendInfoTypeTable() {
     "deviceName",
     "programs",
     "tunings",
-    "gemm"
+    "gemm",
+    "driverVersion"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 4, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 5, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

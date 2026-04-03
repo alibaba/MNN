@@ -262,6 +262,12 @@
             "LAYERNORM_SCALE"
         ]
     },
+    "norm_opt.comp": {
+        "useFP16": true,
+        "macro": [
+            "LAYERNORM_SCALE"
+        ]
+    },
     "argmax.comp": {
         "useFP16": true,
         "macro": [
@@ -335,6 +341,45 @@
     "onehot.comp": {
         "useFP16": true
     },
+    "attention_fused.comp": {
+        "useFP16": true
+    },
+    "attention_fused_packed.comp": {
+        "useFP16": true
+    },
+    "attention_decode_q1_subgroup.comp": {
+        "useFP16": true
+    },
+    "attention_decode_q1_subgroup_hd128.comp": {
+        "useFP16": true
+    },
+    "attention_kvcache_update.comp": {
+        "useFP16": true
+    },
+    "attention_prefill_rearrange_q.comp": {
+        "useFP16": true
+    },
+    "attention_prefill_kblock_init_state.comp": {
+        "useFP16": true
+    },
+    "attention_prefill_kblock_qk.comp": {
+        "useFP16": true
+    },
+    "attention_prefill_kblock_qk_full.comp": {
+        "useFP16": true
+    },
+    "attention_prefill_kblock_softmax_online.comp": {
+        "useFP16": true
+    },
+    "attention_prefill_kblock_qkv_acc.comp": {
+        "useFP16": true
+    },
+    "attention_prefill_kblock_qkv_acc_full.comp": {
+        "useFP16": true
+    },
+    "attention_prefill_kblock_finalize.comp": {
+        "useFP16": true
+    },
     "roipooling.comp": {
         "useFP16": true
     },
@@ -351,6 +396,33 @@
         "useFP16": true
     },
     "int8_weight_to_coop.comp": {
+        "useFP16": true
+    },
+    "gemv_dequant_int4.comp": {
+        "useFP16": true
+    },
+    "gemv_dequant_int8.comp": {
+        "useFP16": true
+    },
+    "pack_a_k4m4_to_m64k4.comp": {
+        "useFP16": true
+    },
+    "int4_weight_to_pack.comp": {
+        "useFP16": true
+    },
+    "int8_weight_to_pack.comp": {
+        "useFP16": true
+    },
+    "conv1x1_int4_weight_prepare.comp": {
+        "useFP16": false
+    },
+    "conv1x1_int8_weight_prepare.comp": {
+        "useFP16": false
+    },
+    "conv1x1_quant_meta_prepare.comp": {
+        "useFP16": true
+    },
+    "gemm_m8n4.comp": {
         "useFP16": true
     }
 }

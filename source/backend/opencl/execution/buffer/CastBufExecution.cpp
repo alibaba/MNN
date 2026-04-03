@@ -88,11 +88,7 @@ public:
         auto dstT = _mapDataType(cast->dstT());
 
         const auto &inputDataType = inputs[0]->getType();
-        if (inputDataType.bytes() == 4 && cast->dstT() == MNN::DataType_DT_BOOL) {
-            return new CastBufExecution(inputs, outputs, "-DTO_BOOL", op, backend);
-        } else {
-            return new CastBufExecution(inputs, outputs, "", op, backend);
-        }
+        if (inputDataType.bytes() == 4 && cast->dstT() == MNN::DataType_DT_BOOL) OPENCL_CREATOR_CHECK(new CastBufExecution(inputs, outputs, "-DTO_BOOL", op, backend)); else OPENCL_CREATOR_CHECK(new CastBufExecution(inputs, outputs, "", op, backend));
         return nullptr;
     }
 };

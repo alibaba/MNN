@@ -48,6 +48,7 @@ private:
     // Kernels
     std::shared_ptr<KernelWrap> mKernelConvSilu;
     std::shared_ptr<KernelWrap> mKernelConvStateUpdate;
+    std::shared_ptr<KernelWrap> mKernell2Norm;
     std::shared_ptr<KernelWrap> mKernelGatedDeltaRule;
 
     // Work sizes
@@ -55,6 +56,8 @@ private:
     std::vector<uint32_t> mLWSConvSilu;
     std::vector<uint32_t> mGWSConvStateUpdate;
     std::vector<uint32_t> mLWSConvStateUpdate;
+    std::vector<uint32_t> mGWSl2Norm;
+    std::vector<uint32_t> mLWSl2Norm;
     std::vector<uint32_t> mGWSGatedDeltaRule;
     std::vector<uint32_t> mLWSGatedDeltaRule;
 };

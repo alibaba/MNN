@@ -166,6 +166,21 @@ class SmoothQuantizer:
         gc.collect()
         torch.cuda.empty_cache()
 
+    @staticmethod
+    def clear_block_cache(block):
+        if hasattr(block, 'self_attn') and block.self_attn is not None:
+            attn = block.self_attn
+            if hasattr(attn, 'past_key_value'):
+                attn.past_key_value = None
+            if hasattr(attn, 'conv_state'):
+                attn.conv_state = None
+            if hasattr(attn, 'rnn_state'):
+                attn.rnn_state = None
+
+    def clear_all_block_caches(self):
+        for block in self.modules:
+            self.clear_block_cache(block)
+
 
     def init_quant(self, n_samples=128, max_seq_len=512):
         samples = SmoothQuantizer.get_calib_dataset(
@@ -193,9 +208,26 @@ class SmoothQuantizer:
 
     def _get_max_input(self, idx, layer, named_linears):
 
-        def stat_tensor(name, tensor):
+        def infer_feature_dim(module):
+            if hasattr(module, "in_features"):
+                return module.in_features
+            if hasattr(module, "in_channels"):
+                return module.in_channels
+            if hasattr(module, "weight") and getattr(module, "weight", None) is not None:
+                weight = module.weight
+                if weight.dim() == 1:
+                    return weight.numel()
+            return None
+
+        def stat_tensor(name, tensor, module):
+            feature_dim = infer_feature_dim(module)
+            if tensor.dim() == 3 and feature_dim is not None:
+                if tensor.shape[-1] == feature_dim:
+                    pass
+                elif tensor.shape[1] == feature_dim:
+                    tensor = tensor.transpose(1, 2).contiguous()
             hidden_dim = tensor.shape[-1]
-            tensor = tensor.view(-1, hidden_dim).abs().detach()
+            tensor = tensor.reshape(-1, hidden_dim).abs().detach()
             comming_max = torch.max(tensor, dim=0)[0].float().cpu()
             if name in self.act_scales[idx]:
                 self.act_scales[idx][name] = torch.max(self.act_scales[idx][name], comming_max)
@@ -205,7 +237,7 @@ class SmoothQuantizer:
         def stat_input_hook(m, x, y, name):
             if isinstance(x, tuple):
                 x = x[0]
-            stat_tensor(name, x)
+            stat_tensor(name, x, m)
         handles = []
         for name in named_linears:
             handles.append(
@@ -213,7 +245,8 @@ class SmoothQuantizer:
                     functools.partial(stat_input_hook, name=name)
                 )
             )
-        module_kwargs = self._sanitize_kwargs(self.module_kwargs, layer)
+        layer_kwargs = self._select_layer_kwargs(layer, self.module_kwargs)
+        module_kwargs = self._sanitize_kwargs(layer_kwargs, layer)
 
         self.inps = self._module_forward(self.inps, layer, module_kwargs)
         for h in handles:
@@ -237,6 +270,21 @@ class SmoothQuantizer:
             if k in module_signature:
                 sanitized_kwargs[k] = v
         return sanitized_kwargs
+
+    def _select_layer_kwargs(self, module, inputs_kwargs):
+        selected_kwargs = dict(inputs_kwargs)
+        attention_mask = selected_kwargs.get("attention_mask", None)
+        if attention_mask is None:
+            return selected_kwargs
+
+        if getattr(self.model.config, "attention_type", None) != "mix":
+            return selected_kwargs
+
+        if isinstance(attention_mask, torch.Tensor) and attention_mask.dim() >= 1 and attention_mask.shape[0] == 2:
+            layer_type = getattr(module, "layer_type", None)
+            is_sliding = layer_type in ("linear_attention", "sliding_attention")
+            selected_kwargs["attention_mask"] = attention_mask[int(is_sliding)]
+        return selected_kwargs
 
     @torch.no_grad()
     def _module_forward(
@@ -300,6 +348,21 @@ class SmoothQuantizer:
         return targets
 
     @staticmethod
+    def is_offset_rmsnorm(op):
+        type_name = str(type(op))
+        if any(
+            t in type_name
+            for t in [
+                'GemmaRMSNorm',
+                'Qwen3_5RMSNorm',
+                'Qwen3_5MoeRMSNorm',
+                'Qwen3NextRMSNorm',
+            ]
+        ):
+            return True
+        return False
+
+    @staticmethod
     @torch.no_grad()
     def smooth_ln_fcs(ln, fcs, act_scales, alpha=0.5):
         if not isinstance(fcs, list):
@@ -324,7 +387,7 @@ class SmoothQuantizer:
             .to(dtype)
         )
 
-        if 'GemmaRMSNorm' in str(type(ln)):
+        if SmoothQuantizer.is_offset_rmsnorm(ln):
             ln.weight += 1
             ln.weight.div_(scales)
             ln.weight -= 1
@@ -348,15 +411,45 @@ class SmoothQuantizer:
         return False
 
     def _apply_scale(self, idx, module):
-        attn_ln = module.input_layernorm
-        qkv = [
-                module.self_attn.q_proj,
-                module.self_attn.k_proj,
-                module.self_attn.v_proj,
-            ]
+        model_type = getattr(self.model.config, "model_type", "")
+        layer_type = getattr(module, "layer_type", None)
 
-        qkv_input_scales = self.act_scales[idx]["self_attn.q_proj"]
-        SmoothQuantizer.smooth_ln_fcs(attn_ln, qkv, qkv_input_scales, self.alpha)
+        if model_type in ("qwen3_5", "qwen3_5_moe"):
+            if layer_type == "linear_attention" and hasattr(module, "linear_attn"):
+                attn_ln = module.input_layernorm
+                linear_attn = module.linear_attn
+                fcs = []
+                for name in ("in_proj_qkv", "in_proj_a", "in_proj_b", "in_proj_z"):
+                    fc = getattr(linear_attn, name, None)
+                    if fc is not None:
+                        fcs.append(fc)
+                if fcs and "linear_attn.in_proj_qkv" in self.act_scales[idx]:
+                    input_scales = self.act_scales[idx]["linear_attn.in_proj_qkv"]
+                    SmoothQuantizer.smooth_ln_fcs(attn_ln, fcs, input_scales, self.alpha)
+                return
+
+            if hasattr(module.self_attn, 'q_proj') and hasattr(module.self_attn, 'k_proj') and hasattr(module.self_attn, 'v_proj'):
+                attn_ln = module.input_layernorm
+                qkv = [
+                        module.self_attn.q_proj,
+                        module.self_attn.k_proj,
+                        module.self_attn.v_proj,
+                    ]
+                if "self_attn.q_proj" in self.act_scales[idx]:
+                    qkv_input_scales = self.act_scales[idx]["self_attn.q_proj"]
+                    SmoothQuantizer.smooth_ln_fcs(attn_ln, qkv, qkv_input_scales, self.alpha)
+                return
+
+        if hasattr(module.self_attn, 'q_proj') and hasattr(module.self_attn, 'k_proj') and hasattr(module.self_attn, 'v_proj'):
+            attn_ln = module.input_layernorm
+            qkv = [
+                    module.self_attn.q_proj,
+                    module.self_attn.k_proj,
+                    module.self_attn.v_proj,
+                ]
+
+            qkv_input_scales = self.act_scales[idx]["self_attn.q_proj"]
+            SmoothQuantizer.smooth_ln_fcs(attn_ln, qkv, qkv_input_scales, self.alpha)
 
         ffn_ln = module.post_attention_layernorm  # feed forward norm
         fcs = [module.mlp.gate_proj, module.mlp.up_proj]
@@ -387,7 +480,8 @@ class SmoothQuantizer:
                     functools.partial(stat_io_hook, name=name)
                 )
             )
-        module_kwargs = self._sanitize_kwargs(self.module_kwargs, layer)
+        layer_kwargs = self._select_layer_kwargs(layer, self.module_kwargs)
+        module_kwargs = self._sanitize_kwargs(layer_kwargs, layer)
 
         self.inps = self._module_forward(self.inps, layer, module_kwargs)
         for h in handles:
@@ -440,10 +534,12 @@ class SmoothQuantizer:
             sample = self.samples[i]
             if sample.numel() == 0:
                 continue
+            self.clear_all_block_caches()
             self.module_kwargs, self.inps = self._get_first_input(sample)
 
             for idx in range(len(self.modules)):
                 SmoothQuantizer.to_device(self.modules[idx], self.best_device)
+                self.clear_block_cache(self.modules[idx])
 
                 if self.module_kwargs.get("position_ids", None) is not None:
                     self.module_kwargs["position_ids"] = self.module_kwargs["position_ids"].to(self.best_device)
@@ -464,10 +560,12 @@ class SmoothQuantizer:
             sample = self.samples[i]
             if sample.numel() == 0:
                 continue
+            self.clear_all_block_caches()
             self.module_kwargs, self.inps = self._get_first_input(sample)
 
             for idx in range(len(self.modules)):
                 SmoothQuantizer.to_device(self.modules[idx], self.best_device)
+                self.clear_block_cache(self.modules[idx])
 
                 if self.module_kwargs.get("position_ids", None) is not None:
                     self.module_kwargs["position_ids"] = self.module_kwargs["position_ids"].to(self.best_device)
@@ -735,13 +833,3 @@ class SmoothQuantizer:
             json.dump(mnn, f, ensure_ascii=False, indent=4)
 
         return base_path
-
-
-
-
-
-
-
-
-
-

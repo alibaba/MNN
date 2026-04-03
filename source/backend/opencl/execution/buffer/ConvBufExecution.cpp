@@ -34,7 +34,10 @@ ConvBufCommonExecution::ConvBufCommonExecution(const Convolution2D *conv2dParams
 
     mResource.reset(new ConvBufResource);
     mResource->mBias.reset(Tensor::createDevice<float>({1, 1, 1, ROUND_UP(biasSize, 32)}));
-    backend->onAcquireBuffer(mResource->mBias.get(), Backend::STATIC);
+    if (!(backend->onAcquireBuffer(mResource->mBias.get(), Backend::STATIC))) {
+        mConvComValid = false;
+        return;
+    }
     if(openclBackend->getRuntime()->hint().useCachedMmap <= 1){
         cl::Buffer &biasBuffer = openCLBuffer(mResource->mBias.get());
         cl_int res;
@@ -78,7 +81,10 @@ ConvBufCommonExecution::ConvBufCommonExecution(const Op *op, Backend *backend, b
     
     mResource.reset(new ConvBufResource);
     mResource->mBias.reset(Tensor::createDevice<float>({1, 1, 1, ROUND_UP(biasSize, 32)}));
-    backend->onAcquireBuffer(mResource->mBias.get(), Backend::STATIC);
+    if (!(backend->onAcquireBuffer(mResource->mBias.get(), Backend::STATIC))) {
+        mConvComValid = false;
+        return;
+    }
     if(openclBackend->getRuntime()->hint().useCachedMmap <= 1){
         cl::Buffer &biasBuffer = openCLBuffer(mResource->mBias.get());
         auto biasPtrCL = openclBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(biasBuffer, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &res);
@@ -99,12 +105,15 @@ ConvBufCommonExecution::ConvBufCommonExecution(const Op *op, Backend *backend, b
         }
         openclBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(biasBuffer, biasPtrCL);
     }
-    
+
     if(isExtra){
         const PRelu* preluParam = flatbuffers::GetRoot<PRelu>(op->main_as_Extra()->attr()->GetAs<Attribute>(1)->tensor()->uint8s()->data());
         const float *slopeDataPtr = preluParam->slope()->data();
         mResource->mSlope.reset(Tensor::createDevice<float>({1, 1, 1, ROUND_UP(biasSize, 32)}));
-        backend->onAcquireBuffer(mResource->mSlope.get(), Backend::STATIC);
+        if (!(backend->onAcquireBuffer(mResource->mSlope.get(), Backend::STATIC))) {
+            mConvComValid = false;
+            return;
+        }
         if(openclBackend->getRuntime()->hint().useCachedMmap <= 1){
             cl::Buffer &slopeBuffer = openCLBuffer(mResource->mSlope.get());
             auto slopePtrCL = openclBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(slopeBuffer, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &res);
@@ -155,6 +164,10 @@ void ConvBufExecution::_generateFilterConvertRegion(Tensor* virtualFilter, Tenso
 
 ConvBufExecution::ConvBufExecution(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, const MNN::Op *op, Backend *backend, bool isExtra)
     : ConvBufCommonExecution(op, backend, isExtra), CommonExecution(backend, op) {
+    if (!mConvComValid) {
+        mValid = false;
+        return;
+    }
 #ifdef LOG_VERBOSE
     MNN_PRINT("Start ConvExecution init !\n");
 #endif
@@ -191,6 +204,7 @@ ConvBufExecution::ConvBufExecution(const std::vector<Tensor *> &inputs, const st
         if (nullptr != conv2dParams->quanParameter()) {
             bool forceFloat = conv2dParams->quanParameter()->index() != nullptr;
             quanCommon = ConvolutionCommon::load(op, backend, forceFloat);
+            OPENCL_CHECK_PTR_CTOR(quanCommon);
             mFilterDataPtr = quanCommon->weightFloat.get();
             weightSize = quanCommon->weightFloat.size();
         }
@@ -224,7 +238,7 @@ ConvBufExecution::ConvBufExecution(const std::vector<Tensor *> &inputs, const st
     if (mResource->mConv1x1Opt) {
         int buffer_size = ROUND_UP(mResource->mOutputChannel, mResource->mAlignN) * ROUND_UP(mResource->mInputChannel, mResource->mAlignK);
         mResource->mFilter.reset(Tensor::createDevice<float>({buffer_size}));
-        mOpenCLBackend->onAcquireBuffer(mResource->mFilter.get(), Backend::STATIC);
+        OPENCL_CHECK_ALLOC_CTOR(mOpenCLBackend->onAcquireBuffer(mResource->mFilter.get(), Backend::STATIC));
         
         if(mOpenCLBackend->getRuntime()->hint().useCachedMmap <= 1){
             if (mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
@@ -264,7 +278,7 @@ ConvBufExecution::ConvBufExecution(const std::vector<Tensor *> &inputs, const st
         if (mFilterDataPtr != nullptr) {
             std::vector<int> filterImageShape{ROUND_UP(mResource->mInputChannel, 4), (UP_DIV(mResource->mOutputChannel, 4) * mResource->mKernelWidth * mResource->mKernelHeight)};
             mResource->mFilter.reset(Tensor::createDevice<float>({filterImageShape[1] * 4 * filterImageShape[0]}));
-            mOpenCLBackend->onAcquireBuffer(mResource->mFilter.get(), Backend::STATIC);
+            OPENCL_CHECK_ALLOC_CTOR(mOpenCLBackend->onAcquireBuffer(mResource->mFilter.get(), Backend::STATIC));
             
             if(mOpenCLBackend->getRuntime()->hint().useCachedMmap <= 1){
                 std::shared_ptr<Tensor> filterBuffer(Tensor::createDevice<float>({mResource->mOutputChannel, ROUND_UP(mResource->mInputChannel, 4), mResource->mKernelWidth, mResource->mKernelHeight}));
@@ -907,9 +921,9 @@ public:
             for (int i = 0; i < outputs.size(); ++i) {
                 TensorUtils::setTensorSupportPack(outputs[i], false);
             }
-            return new ConvBufExecution(inputs, outputs, op, backend);
+            OPENCL_CREATOR_CHECK(new ConvBufExecution(inputs, outputs, op, backend));
         }
-        
+
 #ifdef MNN_LOW_MEMORY
         if (static_cast<OpenCLBackend *>(backend)->getMemory() == BackendConfig::Memory_Low){
             auto conv2dParams = op->main_as_Convolution2D();
@@ -927,7 +941,7 @@ public:
                     for (int i = 0; i < outputs.size(); ++i) {
                         TensorUtils::setTensorSupportPack(outputs[i], false);
                     }
-                    return new ConvBufLowMemoryExecution(inputs, outputs, op, backend);
+                    OPENCL_CREATOR_CHECK(new ConvBufLowMemoryExecution(inputs, outputs, op, backend));
                 }
             }
         }
@@ -945,7 +959,7 @@ public:
                 TensorUtils::setTensorChannelPack(input, 16);
             }
 #endif /* MNN_SUPPORT_INTEL_SUBGROUP */
-            return new ConvBufWinograd(op, backend);
+            OPENCL_CREATOR_CHECK(new ConvBufWinograd(op, backend));
         }
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP
         if (static_cast<OpenCLBackend *>(backend)->getOpenCLRuntime()->isSupportedIntelSubgroup() && outputChannel >= 16) {
@@ -954,7 +968,7 @@ public:
                 TensorUtils::setTensorPad(inputs[0], std::get<0>(pads), std::get<2>(pads), 0, 0);
                 TensorUtils::setTensorChannelPack(inputs[0], 16);
             }
-            return new ConvSubgroupBuf(inputs, outputs, op, backend);
+            OPENCL_CREATOR_CHECK(new ConvSubgroupBuf(inputs, outputs, op, backend));
         }
 #endif /* MNN_SUPPORT_INTEL_SUBGROUP */
         
@@ -964,7 +978,7 @@ public:
         for (int i = 0; i < outputs.size(); ++i) {
             TensorUtils::setTensorSupportPack(outputs[i], false);
         }
-        return new ConvBufExecution(inputs, outputs, op, backend);
+        OPENCL_CREATOR_CHECK(new ConvBufExecution(inputs, outputs, op, backend));
     }
 };
 

@@ -41,9 +41,10 @@ private:
     std::shared_ptr<CPUKVCacheManager> mKVCacheManager = nullptr;
     bool mUseFlashAttention = true;
 
-    // quant Query/Key/Value
-    bool mQuantKey   = false;
-    bool mQuantValue = false;
+    // KV cache quantization mode
+    KVQuantMode mKeyQuantMode = KVQuantMode::None;
+    KVQuantMode mValueQuantMode = KVQuantMode::None;
+    std::shared_ptr<Tensor> mTQ3DequantBuf; // shared by TQ3 and TQ4
     int  mBlockNum   = 1;
     MemChunk mSumQ;
     MemChunk mQueryScale, mQueryZeroPoint, mQueryQuantScale, mQueryQuantZero;

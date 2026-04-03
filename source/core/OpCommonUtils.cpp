@@ -513,6 +513,7 @@ bool OpCommonUtils::opCompabilityForLowp(const Op* op, int bytes) {
         case OpType_RNNSequenceGRU:
         case OpType_DynamicQuant:
         case OpType_Attention:
+        case OpType_LinearAttention:
         case OpType_LayerNorm:
         case OpType_Softmax:
         case OpType_Plugin:

@@ -979,6 +979,8 @@ class ModelMapper:
             'num_key_value_heads': 'text_config.num_key_value_heads',
             'rope_parameters': 'text_config.rope_parameters',
             'max_position_embeddings': 'text_config.max_position_embeddings',
+            'layer_types': 'text_config.layer_types',
+            'sliding_window': 'text_config.full_attention_interval',
             'rms_norm_eps': 'text_config.rms_norm_eps',
             'linear_conv_kernel_dim': 'text_config.linear_conv_kernel_dim',
             'linear_key_head_dim': 'text_config.linear_key_head_dim',

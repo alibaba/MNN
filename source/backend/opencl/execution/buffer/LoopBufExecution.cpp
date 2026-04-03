@@ -780,7 +780,7 @@ public:
         if (nullptr == loop || loop->commands() == nullptr) {
             return nullptr;
         }
-        return new LoopBufExecution(loop, op, backend);
+        OPENCL_CREATOR_CHECK(new LoopBufExecution(loop, op, backend));
     }
 };
 

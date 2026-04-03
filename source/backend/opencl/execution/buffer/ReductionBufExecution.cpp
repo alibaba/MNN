@@ -48,6 +48,7 @@ ReductionBufExecution::ReductionBufExecution(const std::vector<Tensor *> &inputs
             break;
     }
     auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("reduction_buf", "reduct_buf", {"-DOPERATE(a,b)=(a+b)","-DVALUE=0","-DLOCAL_SIZE=512"}, mOpenCLBackend->getPrecision(), inputs[0], outputs[0]);
+    OPENCL_CHECK_KERNEL_CTOR(kernel);
     mMaxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel));
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ReductionBufExecution init !\n");
@@ -160,7 +161,7 @@ public:
                 return NULL;
                 break;
         }
-        return new ReductionBufExecution(inputs, outputs, op, backend);
+        OPENCL_CREATOR_CHECK(new ReductionBufExecution(inputs, outputs, op, backend));
     }
 };
 

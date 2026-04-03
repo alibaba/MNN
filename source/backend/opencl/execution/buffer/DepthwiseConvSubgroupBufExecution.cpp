@@ -18,6 +18,10 @@ namespace OpenCL {
 
 DepthwiseConvSubgroupBufExecution::DepthwiseConvSubgroupBufExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend)
     : ConvBufCommonExecution(op->main_as_Convolution2D(), backend), CommonExecution(backend, op) {
+    if (!mConvComValid) {
+        mValid = false;
+        return;
+    }
     mOpenCLBackend      = static_cast<OpenCLBackend *>(backend);
     mResource->mConv2dParams        = op->main_as_Convolution2D();
     mResource->mConv2dCommonParams = mResource->mConv2dParams->common();

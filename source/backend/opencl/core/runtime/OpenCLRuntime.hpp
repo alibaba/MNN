@@ -229,6 +229,7 @@ private:
 #endif
     std::string mDeviceName;
     std::string mDeviceInfo;
+    std::string mDriverInfo;
     bool isSetWorkGroupAttribute = false;
     std::string mDefaultBuildParams;
     float mFlops = 4.0f;
