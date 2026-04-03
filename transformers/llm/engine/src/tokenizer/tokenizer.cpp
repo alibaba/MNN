@@ -1135,6 +1135,7 @@ public:
 class StripNormalizer : public Normalizer {
     bool strip_left_;
     bool strip_right_;
+
 public:
     StripNormalizer(bool left, bool right) : strip_left_(left), strip_right_(right) {}
     std::string normalize(const std::string& text) const override {
@@ -2251,7 +2252,7 @@ bool PipelineTokenizer::load_vocab_binary(std::ifstream& file) {
                 if (strip) nfd = read_norm_table(p);
                 return make_unique_<BertNormalizer>((bool)clean, (bool)chinese, (bool)strip, (bool)lower, std::move(nfd));
             }
-            case 8: {  // Strip normalizer
+            case 8: { // Strip normalizer
                 uint8_t strip_left = read_u8(p);
                 uint8_t strip_right = read_u8(p);
                 return make_unique_<StripNormalizer>((bool)strip_left, (bool)strip_right);

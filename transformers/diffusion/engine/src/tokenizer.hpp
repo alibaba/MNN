@@ -47,7 +47,7 @@ public:
     virtual ~CLIPTokenizer();
     virtual bool load(const std::string& filePath) override;
     virtual std::vector<int> encode(const std::string& sentence, int maxlen = 0) override;
-    
+
 private:
     bool loadMtok(const std::string& filePath);
     std::vector<int> encodeMtok(const std::string& sentence, int maxlen);
@@ -66,7 +66,7 @@ private:
 
     MNN::Transformer::Tokenizer* mMtokTokenizer = nullptr;
     bool mUseMtok = false;
-    
+
     int mStartIdx = 49406;
     int mEndIdx = 49407;
 };
@@ -87,22 +87,22 @@ private:
         std::unordered_map<char, int> children;
         int id = -1;
     };
-    
+
     class Trie {
     public:
         std::vector<TrieNode> list;
         int size = 1;
-        
+
         Trie() {
             list.resize(1024);
             size = 1;
         }
-        
+
         void insert(const std::string& key, int id);
         // Returns pairs of (id, length)
         std::vector<std::pair<int, int>> commonPrefixSearch(const std::string& str, int start);
     };
-    
+
     Trie mTrie;
     std::vector<std::pair<std::string, float>> mPieces;
     int mUnkId = 2;
@@ -110,10 +110,9 @@ private:
 
     MNN::Transformer::Tokenizer* mMtokTokenizer = nullptr;
     bool mUseMtok = false;
-    
+
     std::vector<int> encodeUnigram(const std::string& text);
 };
-
 }
 } // diffusion
 #endif

@@ -34,7 +34,8 @@ static bool ReadVarint(const char*& ptr, const char* end, uint64_t& value) {
     while (ptr < end) {
         uint8_t byte = *ptr++;
         value |= (uint64_t)(byte & 0x7F) << shift;
-        if ((byte & 0x80) == 0) return true;
+        if ((byte & 0x80) == 0)
+            return true;
         shift += 7;
     }
     return false;
@@ -59,7 +60,8 @@ bool CLIPTokenizer::loadMtok(const std::string& filePath) {
     auto mtokPath = BuildMtokPath(filePath);
     std::ifstream input(mtokPath.c_str(), std::ios::binary);
     if (!input.good()) {
-        MNN_PRINT("[Tokenizer][CLIP] tokenizer.mtok not found at %s, fallback to legacy tokenizer files\n", mtokPath.c_str());
+        MNN_PRINT("[Tokenizer][CLIP] tokenizer.mtok not found at %s, fallback to legacy tokenizer files\n",
+                  mtokPath.c_str());
         return false;
     }
     input.close();
@@ -207,38 +209,42 @@ bool T5Tokenizer::load(const std::string& filePath) {
         MNN_ERROR("Failed to open %s\n", modelPath.c_str());
         return false;
     }
-    
+
     std::string content((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
     const char* ptr = content.data();
     const char* end = content.data() + content.size();
-    
+
     mPieces.clear();
     mTrie = Trie();
-    
+
     while (ptr < end) {
         uint64_t tag;
-        if (!ReadVarint(ptr, end, tag)) break;
+        if (!ReadVarint(ptr, end, tag))
+            break;
         int field_num = tag >> 3;
         int wire_type = tag & 7;
-        
+
         if (field_num == 1 && wire_type == 2) { // pieces
             uint64_t len;
-            if (!ReadVarint(ptr, end, len)) break;
+            if (!ReadVarint(ptr, end, len))
+                break;
             const char* msg_end = ptr + len;
-            
+
             std::string piece;
             float score = 0.0f;
             int type = 1;
-            
+
             while (ptr < msg_end) {
                 uint64_t sp_tag;
-                if (!ReadVarint(ptr, end, sp_tag)) break;
+                if (!ReadVarint(ptr, end, sp_tag))
+                    break;
                 int sp_field = sp_tag >> 3;
                 int sp_wire = sp_tag & 7;
-                
+
                 if (sp_field == 1 && sp_wire == 2) { // piece
                     uint64_t str_len;
-                    if (!ReadVarint(ptr, end, str_len)) break;
+                    if (!ReadVarint(ptr, end, str_len))
+                        break;
                     piece = std::string(ptr, str_len);
                     ptr += str_len;
                 } else if (sp_field == 2 && sp_wire == 5) { // score
@@ -251,13 +257,20 @@ bool T5Tokenizer::load(const std::string& filePath) {
                     ReadVarint(ptr, end, type_val);
                     type = (int)type_val;
                 } else {
-                    if (sp_wire == 0) { uint64_t tmp; ReadVarint(ptr, end, tmp); }
-                    else if (sp_wire == 1) ptr += 8;
-                    else if (sp_wire == 2) { uint64_t tmp; ReadVarint(ptr, end, tmp); ptr += tmp; }
-                    else if (sp_wire == 5) ptr += 4;
+                    if (sp_wire == 0) {
+                        uint64_t tmp;
+                        ReadVarint(ptr, end, tmp);
+                    } else if (sp_wire == 1)
+                        ptr += 8;
+                    else if (sp_wire == 2) {
+                        uint64_t tmp;
+                        ReadVarint(ptr, end, tmp);
+                        ptr += tmp;
+                    } else if (sp_wire == 5)
+                        ptr += 4;
                 }
             }
-            
+
             mPieces.push_back({piece, score});
             if (type == 1) { // NORMAL
                 mTrie.insert(piece, mPieces.size() - 1);
@@ -266,15 +279,22 @@ bool T5Tokenizer::load(const std::string& filePath) {
             } else if (type == 2) { // UNKNOWN
                 mUnkId = mPieces.size() - 1;
             }
-            
+
         } else {
-            if (wire_type == 0) { uint64_t tmp; ReadVarint(ptr, end, tmp); }
-            else if (wire_type == 1) ptr += 8;
-            else if (wire_type == 2) { uint64_t tmp; ReadVarint(ptr, end, tmp); ptr += tmp; }
-            else if (wire_type == 5) ptr += 4;
+            if (wire_type == 0) {
+                uint64_t tmp;
+                ReadVarint(ptr, end, tmp);
+            } else if (wire_type == 1)
+                ptr += 8;
+            else if (wire_type == 2) {
+                uint64_t tmp;
+                ReadVarint(ptr, end, tmp);
+                ptr += tmp;
+            } else if (wire_type == 5)
+                ptr += 4;
         }
     }
-    
+
     // Find EOS ID
     for (int i = 0; i < mPieces.size(); ++i) {
         if (mPieces[i].first == "</s>") {
@@ -282,7 +302,7 @@ bool T5Tokenizer::load(const std::string& filePath) {
             break;
         }
     }
-    
+
     return true;
 }
 
@@ -293,21 +313,23 @@ std::vector<int> T5Tokenizer::encodeUnigram(const std::string& text) {
         int prev_idx = -1;
         int length = 0;
     };
-    
+
     std::vector<Node> lattice(text.length() + 1);
     lattice[0].score = 0.0f;
-    
+
     for (int i = 0; i < text.length(); ++i) {
-        if (lattice[i].score <= -1e9) continue;
-        
+        if (lattice[i].score <= -1e9)
+            continue;
+
         auto matches = mTrie.commonPrefixSearch(text, i);
-        
+
         bool has_single = false;
         for (auto& m : matches) {
             int id = m.first;
             int len = m.second;
-            if (len == 1) has_single = true;
-            
+            if (len == 1)
+                has_single = true;
+
             float score = lattice[i].score + mPieces[id].second;
             if (score > lattice[i + len].score) {
                 lattice[i + len].score = score;
@@ -316,7 +338,7 @@ std::vector<int> T5Tokenizer::encodeUnigram(const std::string& text) {
                 lattice[i + len].length = len;
             }
         }
-        
+
         if (!has_single) {
             float score = lattice[i].score - 10.0f;
             if (score > lattice[i + 1].score) {
@@ -327,12 +349,13 @@ std::vector<int> T5Tokenizer::encodeUnigram(const std::string& text) {
             }
         }
     }
-    
+
     std::vector<int> ids;
     int idx = text.length();
     while (idx > 0) {
         int id = lattice[idx].id;
-        if (id != -1) ids.push_back(id);
+        if (id != -1)
+            ids.push_back(id);
         idx = lattice[idx].prev_idx;
     }
     std::reverse(ids.begin(), ids.end());
@@ -345,20 +368,22 @@ std::vector<int> T5Tokenizer::encode(const std::string& sentence, int maxlen) {
     }
     std::string normalized;
     for (char c : sentence) {
-        if (c == ' ') normalized += "\xe2\x96\x81";
-        else normalized += c;
+        if (c == ' ')
+            normalized += "\xe2\x96\x81";
+        else
+            normalized += c;
     }
     if (normalized.empty() || normalized[0] != '\xe2\x96\x81') {
         normalized = "\xe2\x96\x81" + normalized;
     }
-    
+
     std::vector<int> ids = encodeUnigram(normalized);
-    ids.push_back(mEosId); 
-    
+    ids.push_back(mEosId);
+
     if (maxlen > 0) {
         if (ids.size() > maxlen) {
             ids.resize(maxlen);
-            ids[maxlen - 1] = mEosId; 
+            ids[maxlen - 1] = mEosId;
         } else {
             while (ids.size() < maxlen) {
                 ids.push_back(0);
@@ -367,7 +392,7 @@ std::vector<int> T5Tokenizer::encode(const std::string& sentence, int maxlen) {
     }
     return ids;
 }
-    
+
 bool BertTokenizer::load(const std::string& dictPath) {
     std::ifstream dictFile(dictPath + "/vocab.txt");
     if(!dictFile.is_open()) {
@@ -471,8 +496,8 @@ std::vector<int> BertTokenizer::encode(const std::string& str, int maxlen) {
             tokens.push_back(current_token);
         }
     }
-    
-    int max_token_limit = maxlen * 2 - 1; 
+
+    int max_token_limit = maxlen * 2 - 1;
 
     for (auto token : tokens) {
         std::vector<int> sub_tokens = word_piece(token);
@@ -686,8 +711,9 @@ std::vector<int> CLIPTokenizer::encode(const std::string& text, int maxlen) {
     }
     // Use static regex to avoid recompilation and potential stack/heap issues with repeated construction
     // Also replaced POSIX classes with explicit ranges to avoid potential locale issues
-    static const std::regex re(R"(<\|startoftext\|>|<\|endoftext\|>|'s|'t|'re|'ve|'m|'ll|'d|[a-zA-Z]+|[0-9]|[^ \t\n\r\f\va-zA-Z0-9]+)",
-                   std::regex::icase);
+    static const std::regex re(
+        R"(<\|startoftext\|>|<\|endoftext\|>|'s|'t|'re|'ve|'m|'ll|'d|[a-zA-Z]+|[0-9]|[^ \t\n\r\f\va-zA-Z0-9]+)",
+        std::regex::icase);
     std::string input = text;
     std::vector<std::wstring> result;
     std::string token;
@@ -715,7 +741,7 @@ std::vector<int> CLIPTokenizer::encode(const std::string& text, int maxlen) {
     // ids
     int idx = maxlen;
     ids[idx++] = mStartIdx;
-    int max_token_limit = maxlen * 2 - 1; 
+    int max_token_limit = maxlen * 2 - 1;
 
     for (auto s : result) {
         if (idx >= max_token_limit) {
