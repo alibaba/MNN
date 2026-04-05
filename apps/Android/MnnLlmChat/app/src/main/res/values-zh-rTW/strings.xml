@@ -27,9 +27,9 @@
     <string name="input_face_image_hint">請輸入人臉圖片</string>
     <string name="send">傳送</string>
     <string name="raise_issue">回報問題 (Issue)</string>
-    <string name="star_project">在 Github 上加星號 (Star)</string>
+    <string name="star_project">在 GitHub 上加星號 (Star)</string>
     <string name="star_project_confirm_title">為 MNN 專案給予 Star</string>
-    <string name="star_project_confirm_message">在 Github 上給予 Star 以支持我們！</string>
+    <string name="star_project_confirm_message">在 GitHub 上給予 Star 以支持我們！</string>
     <string name="resume_all_downloads">復原所有未完成的下載</string>
     <string name="history_cleard">歷史記錄已清除</string>
     <string name="press_to_chat">按住說話</string>
