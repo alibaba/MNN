@@ -2263,6 +2263,23 @@ extern void MNNGemmInt8AddBiasScale_16x4_Unit_RVV(
     size_t dst_depth_quad,
     const QuanPostTreatParameters* post,
     size_t realCount);
+
+extern void MNNAvgPoolInt8_RVV(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx, ssize_t paddingx, ssize_t factor);
+
+extern void MNNFloat2Int8_RVV(const float* src, int8_t* dst, size_t sizeQuad,
+                       const float* scalep, ssize_t minValue, ssize_t maxValue,
+                       const float* zeroPoint, ssize_t quanParamVec);
+
+extern void MNNInt8ScaleToFloat_RVV(float* dst, const int8_t* src, const float* scale, size_t size, const float* zeroPoint, ssize_t quantParamVec);
+
+extern void MNNLineDepthWiseInt8AddBiasScaleUnit_RVV(int8_t* dst, const int8_t* src, const int8_t* weight, const QuanPostTreatParameters* parameters,
+                                          size_t width, size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step,
+                                          size_t dilateY_step, int8_t* idxOrder);
+
+extern void MNNMaxPoolInt8_RVV(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx);
+
+extern void MNNReluWithSlopeChannelInt8_RVV(int8_t* dst, const int8_t* src, const float* slope, size_t planeNumber, size_t depthQuad, const QuanPrePostParameters *params, size_t pack);
+
 #endif
 
 template<int EP, int HP>
@@ -2566,6 +2583,12 @@ void MNNCoreInt8FunctionInit() {
 #ifdef MNN_USE_RVV
     if (core->supportRVV) {
         gCoreFunc->Int8GemmKernel = MNNGemmInt8AddBiasScale_16x4_Unit_RVV;
+	gCoreFunc->MNNAvgPoolInt8 = MNNAvgPoolInt8_RVV;
+        gCoreFunc->MNNFloat2Int8 = MNNFloat2Int8_RVV;
+        gCoreFunc->MNNInt8ScaleToFloat = MNNInt8ScaleToFloat_RVV;
+        gCoreFunc->ConvDepthwiseLineInt8 = MNNLineDepthWiseInt8AddBiasScaleUnit_RVV;
+        gCoreFunc->MNNMaxPoolInt8 = MNNMaxPoolInt8_RVV
+        gCoreFunc->MNNReluWithSlopeChannelInt8 = MNNReluWithSlopeChannelInt8_RVV;
     }
 #endif
 #endif
