@@ -6,6 +6,7 @@
 [![簡體中文版本](https://img.shields.io/badge/Language-%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-green)](README_CN.md)
 [![日本語バージョン](https://img.shields.io/badge/Language-%E6%97%A5%E6%9C%AC%E8%AA%9E-green)](README_JP.md)
 [![MNN Homepage](https://img.shields.io/badge/Homepage-Visit-green)](http://www.mnn.zone)
+[![zread](https://img.shields.io/badge/Zread-ask-green)](https://zread.ai/alibaba/MNN)
 
 [MNN](https://github.com/alibaba/MNN) 是一個輕量級的深度神經網路引擎，支援深度學習的推理 (Inference) 與訓練。適用於伺服器、個人電腦、手機及各類嵌入式裝置。目前，MNN 已在阿里巴巴的手機淘寶、手機天貓、優酷等超過 30 個 App 中使用，涵蓋直播、短影音、搜尋推薦、商品圖像搜尋、互動行銷、權益發放、安全風控等場景。
 
