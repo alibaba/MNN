@@ -275,6 +275,43 @@ public:
         return config_.value("has_deepstack", false);
     }
 
+    bool has_ple() const {
+        return config_.find("ple_embed_file") != config_.end();
+    }
+
+    std::string ple_embed_file() const {
+        return base_dir_ + config_.value("ple_embed_file", "");
+    }
+
+    float ple_embed_scale() const {
+        return config_.value("ple_embed_scale", 1.0f);
+    }
+
+    int ple_embed_dim() const {
+        return config_.value("ple_embed_dim", 0);
+    }
+
+    std::vector<int64_t> ple_quant() const {
+        return config_.value("ple_quant", std::vector<int64_t>{});
+    }
+
+    float attn_scale() const {
+        return config_.value("attn_scale", 0.0f);
+    }
+
+    bool has_kv_shared_map() const {
+        return config_.find("kv_shared_map") != config_.end();
+    }
+
+    std::string kv_shared_source(const std::string& layer_name) const {
+        if (!has_kv_shared_map()) return "";
+        const auto& map = config_["kv_shared_map"];
+        if (map.find(layer_name) != map.end()) {
+            return map[layer_name].get<std::string>();
+        }
+        return "";
+    }
+
     bool use_template() const {
         return config_.value("use_template", true);
     }

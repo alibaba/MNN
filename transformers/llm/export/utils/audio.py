@@ -28,6 +28,7 @@ class Audio(torch.nn.Module):
             'qwen2_5_omni_audio_encoder': Qwen2_5OmniAudio,
             'funaudiochat_audio_encoder': FunAudioChatAudio,
             'lfm2_audio': Lfm2Audio,
+            'gemma4_audio': Gemma4Audio,
         }
         if model_type in audio_models:
             return audio_models[model_type]
@@ -431,4 +432,320 @@ class Lfm2Audio(Audio):
                     dynamic_axes={"input_features": {
                         2: "size"
                     }})
+        return onnx_model
+
+
+class Gemma4AudioExportModel(torch.nn.Module):
+    """ONNX-exportable wrapper for gemma4 audio encoder.
+
+    Replaces unfold-based chunked attention with index-gather approach,
+    and skips HF's create_bidirectional_mask (not needed for non-padded audio).
+    """
+
+    def __init__(self, audio_tower, embed_audio):
+        super().__init__()
+        self.audio_tower = audio_tower
+        self.embed_audio = embed_audio
+        cfg = audio_tower.config
+        self.chunk_size = cfg.attention_chunk_size
+        self.max_past = cfg.attention_context_left - 1
+        self.max_future = cfg.attention_context_right
+        self.context_size = self.chunk_size + self.max_past + self.max_future
+        self.gradient_clipping = cfg.gradient_clipping
+
+    def _clippable_linear(self, module, x):
+        if module.use_clipped_linears:
+            x = torch.clamp(x, module.input_min, module.input_max)
+        x = module.linear(x)
+        if module.use_clipped_linears:
+            x = torch.clamp(x, module.output_min, module.output_max)
+        return x
+
+    def _convert_to_block(self, hidden_states):
+        B, S, H, D = hidden_states.shape
+        num_blocks = (S + self.chunk_size - 1) // self.chunk_size
+        pad = num_blocks * self.chunk_size - S
+        if pad > 0:
+            hidden_states = torch.nn.functional.pad(hidden_states, (0, 0, 0, 0, 0, pad), value=0.0)
+        return hidden_states.reshape(B, num_blocks, self.chunk_size, H, D)
+
+    def _extract_block_context(self, hidden_states):
+        B, S, H, D = hidden_states.shape
+        num_blocks = (S + self.chunk_size - 1) // self.chunk_size
+        padded = torch.nn.functional.pad(
+            hidden_states, (0, 0, 0, 0, self.max_past, self.max_future + self.chunk_size - 1), value=0.0
+        )
+        offsets = torch.arange(self.context_size, device=hidden_states.device)
+        block_starts = torch.arange(num_blocks, device=hidden_states.device) * self.chunk_size
+        indices = (block_starts.unsqueeze(1) + offsets.unsqueeze(0)).reshape(-1)
+        result = padded[:, indices].reshape(B, num_blocks, self.context_size, H, D)
+        return result
+
+    def _rel_shift(self, x):
+        B, H, NB, BS, PL = x.shape
+        CS = self.context_size
+        x = torch.nn.functional.pad(x, (0, CS + 1 - PL), value=0.0)
+        x = x.reshape(B, H, NB, BS * (CS + 1))
+        x = x[..., :BS * CS]
+        return x.reshape(B, H, NB, BS, CS)
+
+    def _build_blocked_mask(self, S, device):
+        """Build 5D blocked sliding window attention mask."""
+        num_blocks = (S + self.chunk_size - 1) // self.chunk_size
+        q_idx = torch.arange(self.chunk_size, device=device)
+        c_idx = torch.arange(self.context_size, device=device)
+        b_idx = torch.arange(num_blocks, device=device)
+        abs_query = b_idx.unsqueeze(1) * self.chunk_size + q_idx.unsqueeze(0)
+        abs_key = b_idx.unsqueeze(1) * self.chunk_size - self.max_past + c_idx.unsqueeze(0)
+        query_valid = abs_query < S
+        key_valid = (abs_key >= 0) & (abs_key < S)
+        # Sliding window: c > q AND c <= q + max_past (strict left, closed right)
+        slide = (c_idx.unsqueeze(0) > q_idx.unsqueeze(1)) & \
+                (c_idx.unsqueeze(0) <= q_idx.unsqueeze(1) + self.max_past)
+        mask = query_valid.unsqueeze(2) & key_valid.unsqueeze(1) & slide.unsqueeze(0)
+        return mask.unsqueeze(0).unsqueeze(0)  # [1, 1, num_blocks, chunk_size, context_size]
+
+    def _conformer_attention(self, attn, hidden_states, position_embeddings, attention_mask):
+        B, S, _ = hidden_states.shape
+        num_heads = attn.num_heads
+        head_dim = attn.head_dim
+
+        query_states = self._clippable_linear(attn.q_proj, hidden_states).float()
+        key_states = self._clippable_linear(attn.k_proj, hidden_states).float()
+        value_states = self._clippable_linear(attn.v_proj, hidden_states).float()
+
+        query_states = query_states.view(B, S, num_heads, head_dim)
+        key_states = key_states.view(B, S, num_heads, head_dim)
+        value_states = value_states.view(B, S, num_heads, head_dim)
+
+        query_states = query_states * attn.q_scale * torch.nn.functional.softplus(attn.per_dim_scale)
+        key_states = key_states * attn.k_scale
+
+        query_blocked = self._convert_to_block(query_states)
+        key_context = self._extract_block_context(key_states)
+        value_context = self._extract_block_context(value_states)
+        num_blocks = query_blocked.shape[1]
+
+        relative_key_states = attn.relative_k_proj(position_embeddings)
+        relative_key_states = relative_key_states.view(-1, num_heads, head_dim).to(query_states.dtype)
+
+        queries = query_blocked.permute(0, 3, 1, 2, 4)
+        matrix_ac = queries @ key_context.permute(0, 3, 1, 4, 2)
+
+        queries_flat = queries.reshape(B, num_heads, -1, head_dim)
+        matrix_bd = queries_flat @ relative_key_states.permute(1, 2, 0)
+        matrix_bd = matrix_bd.reshape(B, num_heads, num_blocks, self.chunk_size, -1)
+        matrix_bd = self._rel_shift(matrix_bd)
+
+        attn_weights = matrix_ac + matrix_bd
+        attn_weights = attn_weights / attn.softcap
+        attn_weights = torch.tanh(attn_weights)
+        attn_weights = attn_weights * attn.softcap
+
+        # Apply sliding window mask
+        if attention_mask is not None:
+            invalid_value = torch.tensor(-1e9, dtype=attn_weights.dtype, device=attn_weights.device)
+            attn_weights = torch.where(attention_mask, attn_weights, invalid_value)
+
+        attn_weights = torch.nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32)
+        attn_weights = attn_weights.to(value_context.dtype)
+        attn_output = attn_weights @ value_context.permute(0, 3, 1, 2, 4)
+        attn_output = attn_output.permute(0, 2, 3, 1, 4).reshape(B, num_blocks * self.chunk_size, -1)
+        attn_output = attn_output[:, :S].contiguous()
+        attn_output = self._clippable_linear(attn.post, attn_output.to(attn.post.linear.weight.dtype))
+        return attn_output
+
+    def _feed_forward(self, ff, hidden_states):
+        gc = min(self.gradient_clipping, torch.finfo(ff.ffw_layer_1.linear.weight.dtype).max)
+        residual = hidden_states
+        hidden_states = torch.clamp(hidden_states, -gc, gc)
+        hidden_states = ff.pre_layer_norm(hidden_states)
+        hidden_states = self._clippable_linear(ff.ffw_layer_1, hidden_states)
+        hidden_states = ff.act_fn(hidden_states)
+        hidden_states = self._clippable_linear(ff.ffw_layer_2, hidden_states)
+        hidden_states = torch.clamp(hidden_states, -gc, gc)
+        hidden_states = ff.post_layer_norm(hidden_states)
+        hidden_states = hidden_states * ff.post_layer_scale
+        hidden_states = hidden_states + residual
+        return hidden_states
+
+    def _causal_conv1d(self, conv, x):
+        """Causal Conv1d with explicit pad value for ONNX compatibility."""
+        left_pad = (conv.kernel_size[0] - 1) * conv.dilation[0] + 1 - conv.stride[0]
+        x = torch.nn.functional.pad(x, (left_pad, 0), value=0.0)
+        return torch.nn.functional.conv1d(x, conv.weight, conv.bias,
+                                          stride=conv.stride, dilation=conv.dilation, groups=conv.groups)
+
+    def _light_conv(self, lconv, hidden_states):
+        residual = hidden_states
+        hidden_states = lconv.pre_layer_norm(hidden_states)
+        hidden_states = self._clippable_linear(lconv.linear_start, hidden_states)
+        hidden_states = torch.nn.functional.glu(hidden_states, dim=-1)
+        hidden_states = self._causal_conv1d(lconv.depthwise_conv1d, hidden_states.transpose(1, 2)).transpose(1, 2)
+        gc = min(self.gradient_clipping, torch.finfo(lconv.linear_start.linear.weight.dtype).max)
+        hidden_states = torch.clamp(hidden_states, -gc, gc)
+        hidden_states = lconv.conv_norm(hidden_states)
+        hidden_states = lconv.act_fn(hidden_states)
+        hidden_states = self._clippable_linear(lconv.linear_end, hidden_states)
+        hidden_states = hidden_states + residual
+        return hidden_states
+
+    def _encoder_layer(self, layer, hidden_states, position_embeddings, attention_mask):
+        gc = min(self.gradient_clipping, torch.finfo(layer.norm_pre_attn.weight.dtype).max)
+        hidden_states = self._feed_forward(layer.feed_forward1, hidden_states)
+        residual = hidden_states
+        hidden_states = torch.clamp(hidden_states, -gc, gc)
+        hidden_states = layer.norm_pre_attn(hidden_states)
+        hidden_states = self._conformer_attention(layer.self_attn, hidden_states, position_embeddings, attention_mask)
+        hidden_states = torch.clamp(hidden_states, -gc, gc)
+        hidden_states = layer.norm_post_attn(hidden_states)
+        hidden_states = hidden_states + residual
+        hidden_states = self._light_conv(layer.lconv1d, hidden_states)
+        hidden_states = self._feed_forward(layer.feed_forward2, hidden_states)
+        hidden_states = torch.clamp(hidden_states, -gc, gc)
+        hidden_states = layer.norm_out(hidden_states)
+        return hidden_states
+
+    def forward(self, input_features):
+        at = self.audio_tower
+        # 1. Subsample conv projection (no mask needed for export)
+        hidden_states = input_features.unsqueeze(1)  # [B, 1, T, F]
+        hidden_states = at.subsample_conv_projection.layer0.conv(hidden_states.to(at.subsample_conv_projection.layer0.conv.weight.dtype))
+        hidden_states = at.subsample_conv_projection.layer0.act(
+            at.subsample_conv_projection.layer0.norm(hidden_states.permute(0, 2, 3, 1)).permute(0, 3, 1, 2).contiguous()
+        )
+        hidden_states = at.subsample_conv_projection.layer1.conv(hidden_states)
+        hidden_states = at.subsample_conv_projection.layer1.act(
+            at.subsample_conv_projection.layer1.norm(hidden_states.permute(0, 2, 3, 1)).permute(0, 3, 1, 2).contiguous()
+        )
+        B, C, T, F = hidden_states.shape
+        hidden_states = hidden_states.permute(0, 2, 3, 1).contiguous().reshape(B, T, -1)
+        hidden_states = at.subsample_conv_projection.input_proj_linear(hidden_states)
+        # 2. Relative positional encoding
+        position_embeddings = at.rel_pos_enc(hidden_states)
+        # 3. Build sliding window attention mask
+        S = hidden_states.shape[1]
+        attention_mask = self._build_blocked_mask(S, hidden_states.device)
+        # 4. Encoder layers
+        for layer in at.layers:
+            hidden_states = self._encoder_layer(layer, hidden_states, position_embeddings, attention_mask)
+        # 4. Output projection
+        hidden_states = at.output_proj(hidden_states)
+        # 5. Multimodal embedder
+        audio_features = self.embed_audio(hidden_states)
+        return audio_features
+
+
+class Gemma4Audio(Audio):
+    def __init__(self, audio, base):
+        object.__setattr__(self, 'embed_audio_ref', base.embed_audio)
+        super().__init__(audio, base)
+        self.sampling_rate = 16000
+        self.feature_size = 128
+        self.audio_embeds = None
+
+    def load(self):
+        self.audio_tower = self.audio.float()
+        self.embed_audio = self.embed_audio_ref.float()
+        self.llm_config['is_audio'] = True
+        self.llm_config['audio_pad'] = self.config.audio_token_id
+        self.llm_config['audio_start'] = self.config.boa_token_id
+        self.llm_config['audio_end'] = self.config.eoa_token_id
+        self.llm_config['audio_type'] = 'usm'
+        self.export_model = Gemma4AudioExportModel(self.audio_tower, self.embed_audio)
+
+    def init_config(self):
+        self.llm_config['is_audio'] = True
+
+    def _extract_mel_features(self, audio_obj):
+        """USM-style mel spectrogram extraction matching Gemma4AudioFeatureExtractor."""
+        import numpy as np
+        from transformers.audio_utils import mel_filter_bank, window_function
+        waveform = audio_obj if isinstance(audio_obj, np.ndarray) else audio_obj.numpy()
+        if waveform.ndim == 1:
+            waveform = waveform[np.newaxis, :]
+        frame_length = 320  # 20ms * 16000
+        hop_length = 160    # 10ms * 16000
+        fft_length = 512
+        mel_floor = 0.001
+        # Semicausal padding
+        pad_left = frame_length // 2
+        waveform = np.pad(waveform, ((0, 0), (pad_left, 0)), mode='constant')
+        # Frame extraction (unfold)
+        frame_size = frame_length + 1  # 321
+        B, L = waveform.shape
+        num_frames = (L - frame_size) // hop_length + 1
+        strides = (waveform.strides[0], waveform.strides[1] * hop_length, waveform.strides[1])
+        frames = np.lib.stride_tricks.as_strided(waveform, (B, num_frames, frame_size), strides)
+        # No preemphasis (preemphasis=0), take first frame_length samples
+        frames = frames[..., :-1]
+        # Window
+        window = window_function(frame_length).astype(np.float32)
+        frames = frames * window
+        # RFFT
+        stft = np.fft.rfft(frames, n=fft_length, axis=-1)
+        magnitude = np.abs(stft)
+        # Mel filterbank
+        mel_filters = mel_filter_bank(
+            num_frequency_bins=fft_length // 2 + 1,
+            num_mel_filters=128,
+            min_frequency=0.0, max_frequency=8000.0,
+            sampling_rate=16000, norm=None, mel_scale='htk',
+        )
+        mel_spec = np.matmul(magnitude, mel_filters)
+        log_mel = np.log(mel_spec + mel_floor)
+        return torch.from_numpy(log_mel.astype(np.float32))
+
+    def forward(self, input_features):
+        return self.export_model(input_features)
+
+    def audio_process(self, audio_obj):
+        input_features = self._extract_mel_features(audio_obj)  # [1, T, 128]
+        with torch.no_grad():
+            audio_embeds = self.forward(input_features)  # [1, T/4, hidden_size]
+        self.audio_embeds = audio_embeds.permute(1, 0, 2)  # [T/4, 1, hidden_size]
+        return self.audio_embeds.shape[0]
+
+    def str_to_ids(self, prompt):
+        if '<audio>' not in prompt:
+            return self.tokenizer(prompt, return_tensors="pt")['input_ids']
+        import re
+        import librosa
+        audio_pad_id = self.config.audio_token_id
+        boa_token = self.tokenizer.decode([self.config.boa_token_id])
+        eoa_token = self.tokenizer.decode([self.config.eoa_token_id])
+        pad_token = self.tokenizer.decode([audio_pad_id])
+        # Parse <audio> tags, process audio, and replace with placeholder tokens
+        pattern = r'(<audio>.*?</audio>)'
+        parts = re.split(pattern, prompt)
+        txt_prompt = ''
+        for part in parts:
+            if re.match(pattern, part):
+                audio_path = re.search(r'<audio>(.*?)</audio>', part).group(1)
+                audio_obj = librosa.load(audio_path, sr=self.sampling_rate)[0]
+                num_tokens = self.audio_process(audio_obj)
+                txt_prompt += boa_token + pad_token * num_tokens + eoa_token
+            else:
+                txt_prompt += part
+        input_ids = self.tokenizer(txt_prompt, return_tensors="pt", add_special_tokens=False)['input_ids']
+        return input_ids
+
+    def embed(self, input_ids, images=None, videos=None):
+        input_embeds = self.embed_(input_ids)
+        if self.audio_embeds is not None:
+            audio_pad_id = self.config.audio_token_id
+            audio_mask = (input_ids == audio_pad_id).squeeze()
+            input_embeds[audio_mask] = self.audio_embeds.to(input_embeds.dtype)
+        return input_embeds
+
+    @spinner_run(f'export audio to ')
+    def export(self, onnx_path):
+        input_features = torch.randn((1, 600, self.feature_size))
+        model = self.export_model.float().eval()
+        onnx_model = f'{onnx_path}/audio.onnx'
+        onnx_export(model, (input_features,),
+                    onnx_model,
+                    input_names=['input_features'],
+                    output_names=['audio_embeds'],
+                    dynamic_axes={"input_features": {1: "seq_len"}})
         return onnx_model

@@ -25,7 +25,9 @@
 #include <MNN/expr/ExecutorScope.hpp>
 
 namespace MNN {
+struct KVMeta;
 namespace Transformer {
+using MNN::KVMeta;
 
 // ChatMessage: pair<role, content> for multi-turn conversation.
 //   first  = role: "system", "user", "assistant", "tool", etc.
@@ -99,7 +101,6 @@ enum class LlmStatus {
 enum class MatchStrictLevel : int;
 enum class NgramSelectRule : int;
 
-struct KVMeta;
 struct LlmContext {
     // forward
     int prompt_len = 0;
@@ -199,6 +200,9 @@ protected:
     std::shared_ptr<LlmConfig> mConfig;
     std::shared_ptr<Tokenizer> mTokenizer;
     std::shared_ptr<DiskEmbedding> mDiskEmbedding;
+    std::shared_ptr<DiskEmbedding> mPleEmbedding;
+    Express::VARP mPleInput; // PLE embeddings for current input
+    Express::VARP mTextEmbedsForPle; // Pure text embeddings for PLE projection
     std::shared_ptr<Sampler> mSampler;
     std::shared_ptr<Express::Executor::RuntimeManager> mRuntimeManager, mProcessorRuntimeManager;
     std::shared_ptr<Express::Module> mModule;

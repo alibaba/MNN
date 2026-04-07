@@ -34,18 +34,6 @@ namespace MNN {
 using namespace Express;
 namespace Transformer {
 
-void KVMeta::sync() {
-    int revertNumber = 0;
-    for (int i=0; i<n_reserve; ++i) {
-        revertNumber += reserve[2*i+1];
-    }
-    previous = previous - remove + add + revertNumber;
-    n_reserve = 0;
-    reserve = nullptr;
-    remove = 0;
-    add = 0;
-}
-
 static MNNForwardType backend_type_convert(const std::string& type_str) {
     if (type_str == "cpu")
         return MNN_FORWARD_CPU;
@@ -298,6 +286,10 @@ bool Llm::load() {
         }
     }
     mDiskEmbedding.reset(new DiskEmbedding(mConfig));
+    // PLE (Per-Layer Embeddings) for gemma4
+    if (mConfig->has_ple()) {
+        mPleEmbedding.reset(new DiskEmbedding(mConfig, mConfig->ple_embed_file(), mConfig->ple_embed_dim(), mConfig->ple_quant()));
+    }
     setChatTemplate();
     mSampler.reset(Sampler::createSampler(mContext, mConfig));
     // 3. load model
@@ -329,6 +321,9 @@ bool Llm::load() {
     mRuntimeManager->setExternalFile(weight_path);
     if (mConfig->has_deepstack()) {
         inputNames.emplace_back("deepstack_embeds");
+    }
+    if (mConfig->has_ple()) {
+        inputNames.emplace_back("ple_embeddings");
     }
     mModule.reset(Module::load(inputNames, outputNames, model_path.c_str(), mRuntimeManager, &module_config));
     mRuntimeManager->setExternalFile("");
@@ -631,11 +626,16 @@ std::vector<VARP> Llm::forwardVec(MNN::Express::VARP input_embeds) {
     MNN::Express::ExecutorScope s(mExecutor);
     
     int seq_len         = input_embeds->getInfo()->dim[mSeqLenIndex];
+    // Prepare PLE extra arg
+    Express::VARPS extraArgs;
+    if (mPleInput.get()) {
+        extraArgs.push_back(mPleInput);
+    }
     if (0 == mBlockSize) {
         mMeta->add = seq_len;
         auto attention_mask = gen_attention_mask(seq_len);
         auto position_ids = gen_position_ids(seq_len);
-        auto res = forwardRaw(input_embeds, attention_mask, position_ids);
+        auto res = forwardRaw(input_embeds, attention_mask, position_ids, extraArgs);
         return res;
     }
     // For decode can't support seq_len <= mBlockSize
@@ -661,13 +661,22 @@ std::vector<VARP> Llm::forwardVec(MNN::Express::VARP input_embeds) {
         embeddings = {input_embeds};
     }
     int addSize = blockSize;
+    // Split PLE if needed
+    std::vector<VARP> pleChunks;
+    if (mPleInput.get() && sizeSplits.size() > 1) {
+        pleChunks = MNN::Express::_Split(mPleInput, sizeSplits, 1); // split on seq_len dim (dim=1)
+    } else if (mPleInput.get()) {
+        pleChunks = {mPleInput};
+    }
     for (int i=0; i<blockNumber; ++i) {
         logits.clear();
         mMeta->add = blockSize;
         auto embed = embeddings[i];
         auto attention_mask = gen_attention_mask(blockSize);
         auto position_ids = gen_position_ids(blockSize);
-        logits = forwardRaw(embed, attention_mask, position_ids);
+        Express::VARPS blockExtraArgs;
+        if (!pleChunks.empty()) blockExtraArgs.push_back(pleChunks[i]);
+        logits = forwardRaw(embed, attention_mask, position_ids, blockExtraArgs);
         if(logits.empty()) {
             return logits;
         }
@@ -701,7 +710,9 @@ std::vector<VARP> Llm::forwardVec(MNN::Express::VARP input_embeds) {
         }
         auto attention_mask = gen_attention_mask(forwardSize);
         auto position_ids = gen_position_ids(forwardSize);
-        logits = forwardRaw(input_embeds, attention_mask, position_ids);
+        Express::VARPS remainExtraArgs;
+        if (!pleChunks.empty()) remainExtraArgs.push_back(pleChunks.back());
+        logits = forwardRaw(input_embeds, attention_mask, position_ids, remainExtraArgs);
         if(logits.empty()) {
             return logits;
         }
@@ -1154,6 +1165,14 @@ Llm::Llm(std::shared_ptr<LlmConfig> config) : mConfig(config) {
     mContext.reset(new LlmContext);
     mMeta.reset(new KVMeta);
     mMeta->layer_nums = mConfig->layer_nums();
+    mMeta->attn_scale = mConfig->attn_scale();
+    // Populate KV sharing map from config
+    if (mConfig->has_kv_shared_map()) {
+        const auto& map = mConfig->config_["kv_shared_map"];
+        for (auto it = map.begin(); it != map.end(); ++it) {
+            mMeta->kv_shared_map[it.key()] = it.value().get<std::string>();
+        }
+    }
     mGenerateParam.reset(new GenerationParams);
     mGenerateParam->timeout_ms = mConfig->timeout_ms();
 }
@@ -1269,6 +1288,20 @@ VARP Llm::embedding(const std::vector<int>& input_ids) {
     VARP res = _Input({seq_len, 1, hidden_size}, NCHW);
     // disk embedding to save memory
     mDiskEmbedding->embedding(input_ids, res->writeMap<float>());
+    // scale_emb is in ONNX model, not here. C++ passes raw embedding.
+
+    // PLE embedding lookup (gemma4)
+    // mPleInput may be pre-set by Omni::embedding for multimodal prefill;
+    // update only if null or if seq_len matches (decode single token)
+    if (mPleEmbedding && (!mPleInput.get() || seq_len == 1)) {
+        int ple_dim = mConfig->ple_embed_dim();
+        float ple_scale = mConfig->ple_embed_scale();
+        mPleInput = _Input({1, seq_len, ple_dim}, NCHW);
+        mPleEmbedding->embedding(input_ids, mPleInput->writeMap<float>());
+        if (ple_scale != 1.0f) {
+            mPleInput = mPleInput * _Scalar<float>(ple_scale);
+        }
+    }
     return res;
 }
 

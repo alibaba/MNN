@@ -53,6 +53,7 @@ class LlmModel(PreTrainedModel):
             'funaudiochat': 'AutoModelForSeq2SeqLM',
             'glm_ocr': 'GlmOcrForConditionalGeneration',
             'lfm2_vl': 'Lfm2VlForConditionalGeneration',
+            'gemma4': 'Gemma4ForConditionalGeneration',
         }
         if model_type is None or model_type not in MODEL_CLASS_MAPPING:
             return AutoModelForCausalLM
@@ -140,11 +141,57 @@ class LlmModel(PreTrainedModel):
             model.lm.weight = weight
 
         model.embed = Embedding(model.embed, config)
-        model.rotary = Rotary(config)
+
+        # gemma4: dual rotary for sliding vs full attention layers
+        if model_type == 'gemma4' and hasattr(config, 'rope_parameters') and config.rope_parameters is not None:
+            rp = config.rope_parameters
+            origin_config = config.origin_config
+            text_config = origin_config.text_config if hasattr(origin_config, 'text_config') else origin_config
+            # Sliding attention rotary
+            sliding_rp = rp.get('sliding_attention', {})
+            sliding_config = type('Config', (), {
+                'rope_theta': sliding_rp.get('rope_theta', 10000.0),
+                'rope_ratio': None,
+                'head_dim': text_config.head_dim,
+                'model_type': 'gemma4',
+                'rope_parameters': None,
+                'rope_scaling': None,
+                'max_position_embeddings': config.max_position_embeddings if hasattr(config, 'max_position_embeddings') else 131072,
+            })()
+            model.rotary_sliding = Rotary(sliding_config)
+            # Full attention rotary
+            full_rp = rp.get('full_attention', {})
+            global_head_dim = getattr(text_config, 'global_head_dim', text_config.head_dim)
+            partial_factor = full_rp.get('partial_rotary_factor', 1.0)
+            full_config = type('Config', (), {
+                'rope_theta': full_rp.get('rope_theta', 1000000.0),
+                'rope_ratio': None,
+                'head_dim': global_head_dim,
+                'model_type': 'gemma4',
+                'rope_parameters': None,
+                'rope_scaling': None,
+                'max_position_embeddings': config.max_position_embeddings if hasattr(config, 'max_position_embeddings') else 131072,
+            })()
+            model.rotary_full = Rotary(full_config)
+            # Adjust rotary_dim for partial rotary factor
+            if partial_factor < 1.0:
+                rotary_dim = int(global_head_dim * partial_factor)
+                model.rotary_full.rotary_dim = rotary_dim
+                model.rotary_full.theta = 1.0 / (full_rp.get('rope_theta', 1000000.0) ** (torch.arange(0, rotary_dim, 2, dtype=torch.float32) / global_head_dim))
+            model.rotary = model.rotary_sliding  # default rotary for config reference
+        else:
+            model.rotary = Rotary(config)
+            model.rotary_sliding = None
+            model.rotary_full = None
+
         model.blocks = torch.nn.ModuleList([
             Decoder(block, i, config, model.rotary, config.model_map) for i, block in enumerate(model.blocks.children())
         ])
-        model.lm = Lm(model.lm)
+        # Check for final_logit_softcapping (gemma4, gemma2)
+        origin_config = config.origin_config
+        text_config = origin_config.text_config if hasattr(origin_config, 'text_config') else origin_config
+        final_logit_softcapping = getattr(text_config, 'final_logit_softcapping', None)
+        model.lm = Lm(model.lm, final_logit_softcapping=final_logit_softcapping)
 
         if 'gemma' in model_type and hasattr(model.embed, 'embed_scale'):
             model.scale_emb = model.embed.embed_scale
@@ -152,12 +199,19 @@ class LlmModel(PreTrainedModel):
         # Multi-modal parts
         if model.visual is not None:
             from utils.vision import Vision
-            # model.visual = Vision.get_vision(model_type)(model.visual, model)
-            model.visual = Vision.get_vision(model_type)(model.visual.float(), model).float()
+            vision_cls = Vision.get_vision(model_type)
+            if vision_cls is not None:
+                model.visual = vision_cls(model.visual.float(), model).float()
+            else:
+                model.visual = None
         if hasattr(model, 'audio') and model.audio is not None:
             from utils.audio import Audio
             audio_type = model.audio.config.model_type if hasattr(model.audio, 'config') else model_type
-            model.audio = Audio.get_audio(audio_type)(model.audio, model)
+            audio_cls = Audio.get_audio(audio_type)
+            if audio_cls is not None:
+                model.audio = audio_cls(model.audio, model)
+            else:
+                model.audio = None
         if hasattr(model, 'talker') and model.talker is not None:
             from utils.talker import Talker
             model.talker = Talker.get_talker(model_type)(model.talker, model.token2wav, model)
@@ -170,21 +224,110 @@ class LlmModel(PreTrainedModel):
         return model
 
     def embedding(self, input_ids):
+        # Store original input_ids for PLE (gemma4)
+        self._last_input_ids = input_ids
         if self.visual is not None and input_ids.numel() > 1:
-            return self.visual.embed(input_ids)
+            result = self.visual.embed(input_ids)
+            # Also apply audio embeddings if audio module has pending embeddings
+            if self.audio is not None and self.audio.audio_embeds is not None:
+                audio_pad_id = self.audio.config.audio_token_id
+                audio_mask = (input_ids == audio_pad_id).squeeze()
+                if audio_mask.any():
+                    embed_scale = self.config.hidden_size ** 0.5
+                    result[audio_mask] = self.audio.audio_embeds.to(result.dtype) / embed_scale
+                    self.audio.audio_embeds = None
+            return result
         if self.audio is not None and input_ids.numel() > 1:
             return self.audio.embed(input_ids)
         return self.embed(input_ids)
+
+    def compute_ple_from_embeddings(self, hidden_states, ple_embeddings):
+        """Compute PLE from pre-looked-up embeddings (for export/C++ mode).
+        ple_embeddings: [1, seq_len, num_layers * ple_dim] — already scaled by embed_scale.
+        """
+        num_layers = self.config.num_hidden_layers
+        ple_dim = ple_embeddings.shape[-1] // num_layers
+        per_layer_inputs = ple_embeddings.reshape(*ple_embeddings.shape[:2], num_layers, ple_dim)
+        # Project from main embeddings
+        hs_for_proj = hidden_states.view(1, -1, self.config.hidden_size)
+        per_layer_proj = self.per_layer_model_projection(hs_for_proj) * (self.config.hidden_size ** -0.5)
+        per_layer_proj = per_layer_proj.reshape(*hs_for_proj.shape[:-1], num_layers, ple_dim)
+        per_layer_proj = self.per_layer_projection_norm(per_layer_proj)
+        return (per_layer_proj + per_layer_inputs) * (2.0 ** -0.5)
+
+    def compute_ple(self, hidden_states, input_ids=None):
+        """Compute Per-Layer Embeddings for gemma4."""
+        if not (hasattr(self, 'embed_tokens_per_layer') and self.embed_tokens_per_layer is not None):
+            return None
+        if input_ids is None:
+            input_ids = getattr(self, '_last_input_ids', None)
+        if input_ids is None:
+            return None
+        # Replace multimodal token IDs with pad_token_id for PLE lookup
+        # (matches HF behavior: llm_input_ids[multimodal_mask] = pad_token_id)
+        ple_ids = input_ids.clone()
+        oc = getattr(self.config, 'origin_config', self.config)
+        tc = getattr(oc, 'text_config', oc)
+        pad_token_id = getattr(tc, 'pad_token_id', 0) or 0
+        for attr in ['image_token_id', 'audio_token_id', 'video_token_id']:
+            token_id = getattr(oc, attr, None)
+            if isinstance(token_id, int):
+                ple_ids[ple_ids == token_id] = pad_token_id
+        num_layers = self.config.num_hidden_layers
+        ple_dim = self.embed_tokens_per_layer.embedding_dim // num_layers
+        # 1. Lookup per-layer embeddings (ScaledWordEmbedding applies scale internally)
+        per_layer_inputs = self.embed_tokens_per_layer(ple_ids)
+        per_layer_inputs = per_layer_inputs.reshape(*input_ids.shape, num_layers, ple_dim)
+        # 2. Project from main embeddings
+        hs_for_proj = hidden_states.view(1, -1, self.config.hidden_size)
+        per_layer_proj = self.per_layer_model_projection(hs_for_proj) * (self.config.hidden_size ** -0.5)
+        per_layer_proj = per_layer_proj.reshape(*hs_for_proj.shape[:-1], num_layers, ple_dim)
+        per_layer_proj = self.per_layer_projection_norm(per_layer_proj)
+        # 3. Combine
+        return (per_layer_proj + per_layer_inputs) * (2.0 ** -0.5)
 
     def forward(self,
                 input_ids: torch.Tensor,
                 attention_mask: torch.Tensor,
                 position_ids: torch.Tensor,
                 logits_index: torch.Tensor = torch.tensor([-1], dtype=torch.int32),
-                deepstack_embeds: torch.Tensor = None
+                deepstack_embeds: torch.Tensor = None,
+                ple_embeddings: torch.Tensor = None
                 ):
         hidden_states = input_ids # llm forward without embedding
 
+        # gemma4: compute PLE
+        # For ONNX export: scale_emb is NOT in forward(), it's applied externally.
+        # For Python test: scale_emb is applied in forward() above (selective scaling).
+        # Both cases: hidden_states at this point has text positions scaled.
+        per_layer_inputs = None
+        if hasattr(self, 'per_layer_model_projection') and self.per_layer_model_projection is not None:
+            ple_proj_input = hidden_states
+            # For multimodal inputs, PLE projection uses pad embeddings at multimodal positions
+            # (matches HF: llm_inputs_embeds = where(multimodal_mask, pad_embedding, inputs_embeds))
+            ids = getattr(self, '_last_input_ids', None)
+            if ids is not None:
+                oc = getattr(self.config, 'origin_config', self.config)
+                mm_mask = torch.zeros_like(ids, dtype=torch.bool)
+                for attr in ['image_token_id', 'audio_token_id', 'video_token_id']:
+                    token_id = getattr(oc, attr, None)
+                    if isinstance(token_id, int):
+                        mm_mask = mm_mask | (ids == token_id)
+                if mm_mask.any():
+                    tc = getattr(oc, 'text_config', oc)
+                    pad_id = getattr(tc, 'pad_token_id', 0) or 0
+                    pad_emb = self.embed(torch.tensor([[pad_id]]))  # [1, 1, hidden_size]
+                    ple_proj_input = hidden_states.clone()
+                    mm_flat = mm_mask.squeeze()
+                    ple_proj_input[mm_flat] = pad_emb.squeeze()
+            if ple_embeddings is None and hasattr(self, 'embed_tokens_per_layer') and self.embed_tokens_per_layer is not None:
+                if ids is not None:
+                    per_layer_inputs = self.compute_ple(ple_proj_input, ids)
+            elif ple_embeddings is not None:
+                per_layer_inputs = self.compute_ple_from_embeddings(ple_proj_input, ple_embeddings)
+
+        # scale_emb: multiply ALL positions uniformly (text + vision).
+        # Vision positions are pre-divided by scale_emb, so after this multiply they restore.
         if self.scale_emb is not None:
             hidden_states = hidden_states * self.scale_emb
 
@@ -193,7 +336,20 @@ class LlmModel(PreTrainedModel):
         if self.args and self.args.test and rotary_pos_emb.dtype != hidden_states.dtype:
             rotary_pos_emb = rotary_pos_emb.type(hidden_states.dtype)
 
+        # gemma4: compute separate rotary for full attention layers
+        rotary_pos_emb_full = None
+        if self.rotary_full is not None:
+            rotary_pos_emb_full = self.rotary_full(position_ids)
+            if self.args and self.args.test and rotary_pos_emb_full.dtype != hidden_states.dtype:
+                rotary_pos_emb_full = rotary_pos_emb_full.type(hidden_states.dtype)
+
+        # KV sharing cache (gemma4: layers 15-34 share KV with layers 13/14)
+        shared_kv_cache = {}
         for i in range(len(self.blocks)):
+            # Set shared KV cache reference on attention
+            if hasattr(self.blocks[i].self_attn, 'is_kv_shared_layer'):
+                self.blocks[i].self_attn._shared_kv_cache = shared_kv_cache
+
             # eagle3 hidden states
             if self.args and self.args.eagle_path and (i == len(self.blocks)-3 or i == len(self.blocks)//2 or i==2):
                 eagle_hidden_states.append(hidden_states)
@@ -205,7 +361,16 @@ class LlmModel(PreTrainedModel):
             else:
                 layer_attention_mask = attention_mask
 
-            hidden_states = self.blocks[i](hidden_states, rotary_pos_emb, layer_attention_mask)
+            # gemma4: use different rotary for full vs sliding layers
+            if rotary_pos_emb_full is not None and not (hasattr(self.config, 'sliding_attn_layers') and i in self.config.sliding_attn_layers):
+                layer_rotary = rotary_pos_emb_full
+            else:
+                layer_rotary = rotary_pos_emb
+
+            # Set per-layer input for PLE
+            if per_layer_inputs is not None:
+                self.blocks[i]._per_layer_input = per_layer_inputs[:, :, i, :]
+            hidden_states = self.blocks[i](hidden_states, layer_rotary, layer_attention_mask)
             if deepstack_embeds is not None and i in range(deepstack_embeds.shape[0]):
                 hidden_states += deepstack_embeds[i]
 

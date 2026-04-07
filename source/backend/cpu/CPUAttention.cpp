@@ -28,6 +28,7 @@
 #endif
 
 
+
 namespace MNN {
 
 template <typename T>
@@ -196,8 +197,10 @@ ErrorCode CPUAttention::onResize(const std::vector<Tensor*>& inputs, const std::
     mNumHead = query->length(2);
     mHeadDim = query->length(3);
     mKvNumHead = key->length(2);
-    mKVCacheManager->setKVQuantMode(mUseFlashAttention, mKeyQuantMode, mValueQuantMode);
-    mKVCacheManager->onResize(mKvNumHead, mHeadDim);
+    if (!mIsKVShared) {
+        mKVCacheManager->setKVQuantMode(mUseFlashAttention, mKeyQuantMode, mValueQuantMode);
+        mKVCacheManager->onResize(mKvNumHead, mHeadDim);
+    }
 
     // Common buffer allocated
     auto bufferAlloc = static_cast<CPUBackend*>(backend())->getBufferAllocator();
@@ -365,7 +368,7 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     int numHeadDiv = UP_DIV(mNumHead, mThreadNum);
     int group_size = mNumHead / mKvNumHead;
     // reduce the value of 'query' to avoid fp16 overflow
-    float mScale = 1.0 / sqrt(mHeadDim);
+    float mScale = (mMeta && mMeta->attn_scale > 0) ? mMeta->attn_scale : (1.0 / sqrt(mHeadDim));
     float q_scale = 1.0;
     if (mBytes == 2 && mKeyQuantMode != KVQuantMode::Int8) {
         // reduce the value of 'query' to 'query * FP16_QSCALE', avoid fp16 overflow
@@ -382,22 +385,36 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     }
     int insertLen = seqLen;
 
-    if (mKVCache && mMeta != nullptr) {
-        if (mMeta->previous == mMeta->remove) {
-            mKVCacheManager->onClear();
-            mKVCacheManager->onAlloc(mMeta, seqLen);
-        } else {
-            MNN_ASSERT(mMeta->previous == mKVCacheManager->kvLength());
-            mKVCacheManager->onRealloc(mMeta);
-        }
-        insertLen = (int)mMeta->add;
-    } else {
-        mKVCacheManager->onClear();
-        mKVCacheManager->onAlloc(mMeta, seqLen);
+    // KV sharing: for shared layers, temporarily swap KV cache to source layer's cache
+    std::shared_ptr<CPUKVCacheManager> savedKVCache;
+    if (mIsKVShared && mMeta && mKVSharedLayerIndex >= 0
+        && mKVSharedLayerIndex < (int)mMeta->kv_registry.size()
+        && mMeta->kv_registry[mKVSharedLayerIndex] != nullptr) {
+        savedKVCache = mKVCacheManager;
+        auto sourceKV = static_cast<CPUAttention*>(mMeta->kv_registry[mKVSharedLayerIndex])->getKVCacheManager();
+        mKVCacheManager = std::shared_ptr<CPUKVCacheManager>(sourceKV, [](CPUKVCacheManager*){});
     }
 
-    // Add the new kv to the kvcache
-    mKVCacheManager->onUpdateKV(key, value, (int)insertLen);
+    if (!mIsKVShared) {
+        if (mKVCache && mMeta != nullptr) {
+            if (mMeta->previous == mMeta->remove) {
+                mKVCacheManager->onClear();
+                mKVCacheManager->onAlloc(mMeta, seqLen);
+            } else {
+                MNN_ASSERT(mMeta->previous == mKVCacheManager->kvLength());
+                mKVCacheManager->onRealloc(mMeta);
+            }
+            insertLen = (int)mMeta->add;
+        } else {
+            mKVCacheManager->onClear();
+            mKVCacheManager->onAlloc(mMeta, seqLen);
+        }
+        // Add the new kv to the kvcache
+        mKVCacheManager->onUpdateKV(key, value, (int)insertLen);
+    } else {
+        // Shared layer: skip KV update, use source's cache length
+        insertLen = (int)mMeta->add;
+    }
 
     if (mUseFlashAttention) {
         mBlockKV = ALIMIN(MNN_FLASH_ATTENTION_BLOCK_SIZE, mKVCacheManager->kvLength());
@@ -1038,6 +1055,10 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     if (seqLen < outputs[0]->length(1)) {
         ::memset(outputs[0]->host<uint8_t>() + seqLen * mHeadDim * mNumHead * mBytes, 0, (outputs[0]->length(1)-seqLen) * mHeadDim * mNumHead * mBytes);
     }
+    // Restore original KV cache for shared layers
+    if (savedKVCache) {
+        mKVCacheManager = savedKVCache;
+    }
     return NO_ERROR;
 }
 
@@ -1045,15 +1066,21 @@ bool CPUAttention::onClone(Backend* bn, const Op* op, Execution** dst) {
     if (nullptr == dst) {
         return true;
     }
-    auto tmp = new CPUAttention(bn, mKVCache);
+    auto tmp = new CPUAttention(bn, mKVCache, mLayerIndex, mKVSharedLayerIndex);
     if (bn->getMetaPtr() == mMeta) {
         tmp->mKVCacheManager = mKVCacheManager;
+    }
+    // Re-register clone in KV registry
+    if (mLayerIndex >= 0 && tmp->mMeta && mLayerIndex < (int)tmp->mMeta->kv_registry.size()) {
+        tmp->mMeta->kv_registry[mLayerIndex] = tmp;
     }
     *dst = tmp;
     return true;
 }
 
-CPUAttention::CPUAttention(Backend *backend, bool kv_cache) : Execution(backend), mKVCache(kv_cache) {
+CPUAttention::CPUAttention(Backend *backend, bool kv_cache, int layerIndex, int kvSharedLayerIndex)
+    : Execution(backend), mKVCache(kv_cache), mLayerIndex(layerIndex),
+      mKVSharedLayerIndex(kvSharedLayerIndex), mIsKVShared(kvSharedLayerIndex >= 0) {
     mMeta = (KVMeta*)(backend->getMetaPtr());
     mPackQ.reset(Tensor::createDevice<float>({1, 1, 1, 1}));
     mPackQKV.reset(Tensor::createDevice<float>({1, 1, 1, 1}));
@@ -1079,7 +1106,9 @@ CPUAttention::CPUAttention(Backend *backend, bool kv_cache) : Execution(backend)
 }
 
 CPUAttention::~CPUAttention() {
-
+    if (mLayerIndex >= 0 && mMeta && mLayerIndex < (int)mMeta->kv_registry.size()) {
+        mMeta->kv_registry[mLayerIndex] = nullptr;
+    }
 }
 
 class CPUAttentionCreator : public CPUBackend::Creator {
@@ -1087,7 +1116,37 @@ public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
         auto param = op->main_as_AttentionParam();
-        return new CPUAttention(backend, param->kv_cache());
+        int layerIndex = param->layer_index();
+        int kvSharedLayerIndex = param->kv_shared_layer_index();
+        // Fallback: check KV sharing from KVMeta config (for older models without schema fields)
+        auto meta = (KVMeta*)(backend->getMetaPtr());
+        if (kvSharedLayerIndex < 0 && meta) {
+            std::string opName = op->name() ? op->name()->str() : "";
+            auto it = meta->kv_shared_map.find(opName);
+            if (it != meta->kv_shared_map.end()) {
+                // Parse layer index from source name like "/layers.13/self_attn/FusedAttention"
+                auto& src = it->second;
+                auto dotPos = src.find("layers.");
+                if (dotPos != std::string::npos) {
+                    kvSharedLayerIndex = std::atoi(src.c_str() + dotPos + 7);
+                }
+                // Also parse own layer index from opName if not set
+                if (layerIndex < 0) {
+                    dotPos = opName.find("layers.");
+                    if (dotPos != std::string::npos) {
+                        layerIndex = std::atoi(opName.c_str() + dotPos + 7);
+                    }
+                }
+            }
+        }
+        auto attn = new CPUAttention(backend, param->kv_cache(), layerIndex, kvSharedLayerIndex);
+        if (layerIndex >= 0 && meta) {
+            if ((int)meta->kv_registry.size() <= layerIndex) {
+                meta->kv_registry.resize(layerIndex + 1, nullptr);
+            }
+            meta->kv_registry[layerIndex] = attn;
+        }
+        return attn;
     }
 };
 

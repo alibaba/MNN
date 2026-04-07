@@ -21,13 +21,19 @@ namespace MNN {
 
 class CPUAttention : public Execution {
 public:
-    CPUAttention(Backend *backend, bool kv_cache);
+    CPUAttention(Backend *backend, bool kv_cache, int layerIndex = -1, int kvSharedLayerIndex = -1);
     virtual ~CPUAttention();
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
+    CPUKVCacheManager* getKVCacheManager() const { return mKVCacheManager.get(); }
+    int layerIndex() const { return mLayerIndex; }
 private:
     bool mKVCache        = true;
+    bool mIsKVShared     = false;
+    int mLayerIndex      = -1;
+    int mKVSharedLayerIndex = -1;
+    CPUKVCacheManager* mSharedKVCache = nullptr;
     int mBytes = 4;
     int mThreadNum = 1;
     int mBlockKV = 512;

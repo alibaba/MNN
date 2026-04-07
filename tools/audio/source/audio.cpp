@@ -427,7 +427,8 @@ VARP spectrogram(VARP waveform, const SpectrogramParams *params) {
     param->abs = true;
     op->main.value = param;
     EXPRP stftexpr = Expr::create(std::move(op), {waveform, _Scalar<int>(hop_length), window});
-    int nstfts = ((waveform->getInfo()->dim[1] - n_fft) / hop_length) + 1;
+    int frame_size = win_length > 0 ? win_length : n_fft;
+    int nstfts = ((waveform->getInfo()->dim[1] - frame_size) / hop_length) + 1;
     int dft_unique_bins = n_fft / 2 + 1;
     auto specgram = MNN::Express::Variable::create(stftexpr);
     specgram = _Square(specgram);
@@ -660,6 +661,65 @@ VARP whisper_fbank(VARP waveform, int sample_rate, int n_mels, int n_fft, int ho
     log_specgram = _Unsqueeze(log_specgram, {0, 1});
     log_specgram = _Convert(log_specgram, NCHW);
     log_specgram = _Squeeze(log_specgram, {2});
+    return log_specgram;
+}
+
+VARP usm_fbank(VARP waveform, int sample_rate, int n_mels, int n_fft, int hop_length, int frame_length, float mel_floor) {
+    // USM-style mel spectrogram (Gemma4 audio encoder)
+    // Key differences from whisper: magnitude spectrum, semicausal padding, log(mel + floor)
+    // 1. Semicausal padding
+    int pad_left = frame_length / 2;
+    MelscaleParams mel_params;
+    mel_params.n_mels      = n_mels;
+    mel_params.n_fft       = n_fft;
+    mel_params.sample_rate = sample_rate;
+    mel_params.htk         = true;
+    mel_params.norm        = true;  // htk+norm → enorm=1.0 (no area normalization), matching HF mel_filter_bank(norm=None)
+    // 2. Spectrogram with zero-padded window (frame_length -> n_fft for FFT)
+    // The STFT uses window length as frame size, so we zero-pad the window to n_fft
+    SpectrogramParams spec_params;
+    spec_params.pad_left   = pad_left;
+    spec_params.n_fft      = n_fft;
+    spec_params.hop_length = hop_length;
+    spec_params.win_length = n_fft;  // Use n_fft as window size (zero-padded)
+    spec_params.power      = 1.0f;   // magnitude spectrum
+    // Override default window: create hann(frame_length) zero-padded to n_fft
+    auto banks = melscale_fbanks(&mel_params);
+    // Pad waveform
+    waveform = MNN::Express::_Pad(waveform, _var<int>({pad_left, 0}, {2}), MNN::Express::CONSTANT);
+    waveform = _Reshape(waveform, {1, -1, 1});
+    // Create periodic hann window (matching HF window_function('hann', periodic=True)), zero-padded to n_fft
+    auto hann = hann_window(frame_length, true);
+    auto padded_window = MNN::Express::_Pad(hann, _var<int>({0, n_fft - frame_length}, {2}), MNN::Express::CONSTANT);
+    // STFT
+    std::unique_ptr<OpT> op(new OpT);
+    op->type      = OpType_Stft;
+    op->main.type = OpParameter_StftParam;
+    auto param = new StftParamT;
+    param->abs = true;
+    op->main.value = param;
+    EXPRP stftexpr = Expr::create(std::move(op), {waveform, _Scalar<int>(hop_length), padded_window});
+    int nstfts = ((waveform->getInfo()->dim[1] - n_fft) / hop_length) + 1;
+    int dft_unique_bins = n_fft / 2 + 1;
+    auto specgram = MNN::Express::Variable::create(stftexpr);
+    // STFT output is complex: [1, nstfts, dft_unique_bins, 2], compute magnitude
+    specgram = _Square(specgram);
+    auto startsDims = std::vector<int>{0, 0, 0, 0};
+    auto starts1Dims = std::vector<int>{0, 0, 0, 1};
+    auto sizeDims = std::vector<int>{1, nstfts, dft_unique_bins, 1};
+    auto startVar = _Const(startsDims.data(), {4}, NCHW, halide_type_of<int>());
+    auto start1Var = _Const(starts1Dims.data(), {4}, NCHW, halide_type_of<int>());
+    auto sizeVar = _Const(sizeDims.data(), {4}, NCHW, halide_type_of<int>());
+    auto specgramReal = _Slice(specgram, startVar, sizeVar);
+    auto specgramVirt = _Slice(specgram, start1Var, sizeVar);
+    specgram = _Sqrt(specgramReal + specgramVirt);  // magnitude = sqrt(real^2 + imag^2)
+    specgram = _Reshape(specgram, {nstfts, dft_unique_bins});
+    // 3. Mel filterbank
+    auto mel_specgram = _MatMul(specgram, banks, false, true);
+    // 4. log(mel + mel_floor)
+    auto log_specgram = _Log(mel_specgram + _Scalar<float>(mel_floor));
+    // Output: [T, n_mels] -> [1, T, n_mels]
+    log_specgram = _Unsqueeze(log_specgram, {0});
     return log_specgram;
 }
 

@@ -24,6 +24,7 @@ class LlmConfig(PretrainedConfig):
         self.attention_type = kwargs.pop("attention_type", 'full')
         self.tie_word_embeddings = kwargs.pop("tie_word_embeddings", False)
         self.conv_L_cache = kwargs.pop("conv_L_cache", 0)
+        self.rope_parameters = kwargs.pop("rope_parameters", None)
         self.model_map = kwargs.pop("model_map", {})
         super().__init__(**kwargs)
 

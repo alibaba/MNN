@@ -453,6 +453,70 @@ class ModelMapper:
         }
         self.regist('gemma3_text', gemma3_text_map)
 
+    def regist_gemma4(self):
+        gemma4_config = {
+            'hidden_size': 'text_config.hidden_size',
+            'head_dim': 'text_config.head_dim',
+            'num_attention_heads': 'text_config.num_attention_heads',
+            'num_hidden_layers': 'text_config.num_hidden_layers',
+            'num_key_value_heads': 'text_config.num_key_value_heads',
+            'rope_parameters': 'text_config.rope_parameters',
+            'max_position_embeddings': 'text_config.max_position_embeddings',
+            'layer_types': 'text_config.layer_types',
+            'sliding_window': 'text_config.sliding_window',
+            'tie_word_embeddings': 'tie_word_embeddings',
+        }
+        gemma4_model = {
+            'lm': 'lm_head',
+            'embed': 'model.language_model.embed_tokens',
+            'blocks': 'model.language_model.layers',
+            'final_layernorm': 'model.language_model.norm',
+            'rotary_emb': 'model.language_model.rotary_emb',
+            'visual': 'model.vision_tower',
+            'audio': 'model.audio_tower',
+            'embed_vision': 'model.embed_vision',
+            'embed_audio': 'model.embed_audio',
+            # PLE (Per-Layer Embeddings) components
+            'embed_tokens_per_layer': 'model.language_model.embed_tokens_per_layer',
+            'per_layer_model_projection': 'model.language_model.per_layer_model_projection',
+            'per_layer_projection_norm': 'model.language_model.per_layer_projection_norm',
+        }
+        gemma4_decoder = {
+            'self_attn': 'self_attn',
+            'mlp': 'mlp',
+            'input_layernorm': 'input_layernorm',
+            'post_attention_layernorm': 'post_attention_layernorm',
+            'pre_feedforward_layernorm': 'pre_feedforward_layernorm',
+            'post_feedforward_layernorm': 'post_feedforward_layernorm',
+            'layer_scalar': 'layer_scalar',
+            'per_layer_input_gate': 'per_layer_input_gate',
+            'per_layer_projection': 'per_layer_projection',
+            'post_per_layer_input_norm': 'post_per_layer_input_norm',
+            'act_fn': 'act_fn',
+            # MoE components (gemma4 26B-A4B)
+            'router': 'router',
+            'experts': 'experts',
+            'post_feedforward_layernorm_1': 'post_feedforward_layernorm_1',
+            'post_feedforward_layernorm_2': 'post_feedforward_layernorm_2',
+            'pre_feedforward_layernorm_2': 'pre_feedforward_layernorm_2',
+        }
+        gemma4_attention = {
+            'q_proj': 'q_proj',
+            'k_proj': 'k_proj',
+            'v_proj': 'v_proj',
+            'o_proj': 'o_proj',
+            'q_norm': 'q_norm',
+            'k_norm': 'k_norm',
+            'v_norm': 'v_norm',
+        }
+        gemma4_map = {
+            'config': gemma4_config,
+            'model': gemma4_model,
+            'decoder': gemma4_decoder,
+            'attention': gemma4_attention,
+        }
+        self.regist('gemma4', gemma4_map)
+
     def register_openelm(self):
         openelm_config = {
             'hidden_size': 'model_dim',

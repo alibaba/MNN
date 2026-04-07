@@ -20,39 +20,10 @@
 #include <iostream>
 #include <thread>
 #include "ExprDebug.hpp"
+#include "core/KVMeta.hpp"
 
 using namespace MNN::Express;
 using namespace MNN;
-struct KVMeta {
-    enum {
-        NoChange,
-        PendingWrite,
-        PendingRead
-    } file_operation;
-    size_t block = 4096;
-    size_t previous = 0;
-    size_t remove = 0;
-    int* reserve = nullptr;
-    int n_reserve = 0;
-    size_t add = 0;
-    std::string file_name = "";
-    int file_flag = NoChange;
-    int seqlen_in_disk = 0;
-    int layer_index = 0;
-    int layer_nums = 0;
-    std::vector<int> reserveHost;
-    void sync() {
-        int revertNumber = 0;
-        for (int i=0; i<n_reserve; ++i) {
-            revertNumber += reserve[2*i+1];
-        }
-        previous = previous - remove + add + revertNumber;
-        n_reserve = 0;
-        reserve = nullptr;
-        remove = 0;
-        add = 0;
-    }
-};
 static bool compareOutput(VARP output, const std::string& directName, const std::string& name, Dimensionformat dataFormat, int order) {
 
     auto info = output->getInfo();
