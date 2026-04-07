@@ -4,6 +4,7 @@
   <img width="20%" alt="Icon"  src="https://meta.alicdn.com/data/mnn/avatar/avatar_demo.gif" style="margin: 0 10px;">
 </p>
 
++ [简体中文版本](./README_CN.md) | [繁體中文版本](./README_TW.md)
 + [下载](#releases) 
 
 这是一个一个本地运行、完全离线、支持多模态交互的智能数字人App！

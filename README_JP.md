@@ -3,7 +3,8 @@
 [![License](https://img.shields.io/github/license/alibaba/MNN)](LICENSE.txt)
 [![Documentation](https://img.shields.io/badge/Documentation-Read-green)](https://mnn-docs.readthedocs.io/en/latest/)
 [![English Version](https://img.shields.io/badge/Language-English-green)](README.md)
-[![中文版本](https://img.shields.io/badge/Language-%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-green)](README_CN.md)
+[![簡體中文版本](https://img.shields.io/badge/Language-%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-green)](README_CN.md)
+[![繁體中文版本](https://img.shields.io/badge/Language-%E7%B9%81%E9%AB%94%E4%B8%AD%E6%96%87-green)](README_TW.md)
 [![MNN ホームページ](https://img.shields.io/badge/Homepage-Visit-green)](http://www.mnn.zone)
 
 ## ニュース 🔥
