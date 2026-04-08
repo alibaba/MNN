@@ -469,4 +469,383 @@ public:
 
 MNNTestSuiteRegister(LinearAttentionTest, "op/linear_attention");
 
+// ─── Decode fast path test: focuses on L=1 correctness and state consistency ───
+class LinearAttentionDecodeTest : public MNNTestCase {
+public:
+    LinearAttentionDecodeTest() = default;
+    virtual ~LinearAttentionDecodeTest() = default;
+
+    virtual bool run(int precision) {
+        const float tolerance = 0.001f;
+
+        // ─── Test 1: Single decode step (L=1) basic correctness ───
+        {
+            const int B = 1, numKHeads = 2, numVHeads = 2;
+            const int headKDim = 8, headVDim = 8, K_conv = 4;
+            const int key_dim = numKHeads * headKDim;
+            const int val_dim = numVHeads * headVDim;
+            const int D = 2 * key_dim + val_dim;
+            const int L = 1;
+
+            auto module = _makeLinearAttentionModule(numKHeads, numVHeads, headKDim, headVDim, true);
+            if (!module) {
+                MNN_PRINT("Error: Failed to create module for decode single step test\n");
+                return false;
+            }
+
+            auto qkvVar = _Input({B, D, L}, NCHW, halide_type_of<float>());
+            auto gateVar = _Input({B, L, numVHeads}, NCHW, halide_type_of<float>());
+            auto betaVar = _Input({B, L, numVHeads}, NCHW, halide_type_of<float>());
+            auto convWVar = _Input({D, 1, K_conv}, NCHW, halide_type_of<float>());
+
+            fillDeterministic(qkvVar->writeMap<float>(), B * D * L, 0.1f);
+            fillGate(gateVar->writeMap<float>(), B * L * numVHeads);
+            fillBeta(betaVar->writeMap<float>(), B * L * numVHeads);
+            fillConvWeight(convWVar->writeMap<float>(), D * 1 * K_conv);
+
+            NaiveLinearAttention naive;
+            naive.init(B, D, K_conv, numVHeads, headKDim, headVDim);
+            auto expected = naive.forward(qkvVar->readMap<float>(), gateVar->readMap<float>(),
+                                          betaVar->readMap<float>(), convWVar->readMap<float>(), B, L, D, K_conv,
+                                          numKHeads, numVHeads, headKDim, headVDim, true);
+
+            auto outputs = module->onForward({qkvVar, gateVar, betaVar, convWVar});
+            if (outputs.empty()) {
+                MNN_PRINT("Error: Decode single step returned empty output\n");
+                return false;
+            }
+            const float* resultPtr = outputs[0]->readMap<float>();
+            const int outSize = B * L * numVHeads * headVDim;
+
+            for (int i = 0; i < outSize; ++i) {
+                float diff = fabs(resultPtr[i] - expected[i]);
+                if (diff > tolerance) {
+                    MNN_PRINT("Decode single step FAILED at index %d: expected %.6f, got %.6f (diff=%.6f)\n", i,
+                              expected[i], resultPtr[i], diff);
+                    return false;
+                }
+            }
+            MNN_PRINT("LinearAttention Decode single step (dk=%d, dv=%d) PASSED\n", headKDim, headVDim);
+        }
+
+        // ─── Test 2: Prefill then multi-step decode (state continuity) ───
+        {
+            const int B = 1, numKHeads = 2, numVHeads = 2;
+            const int headKDim = 4, headVDim = 4, K_conv = 4;
+            const int key_dim = numKHeads * headKDim;
+            const int val_dim = numVHeads * headVDim;
+            const int D = 2 * key_dim + val_dim;
+            const int prefillLen = 3;
+            const int decodeSteps = 6;
+
+            auto module = _makeLinearAttentionModule(numKHeads, numVHeads, headKDim, headVDim, true);
+            if (!module) {
+                MNN_PRINT("Error: Failed to create module for prefill+decode test\n");
+                return false;
+            }
+
+            NaiveLinearAttention naive;
+            naive.init(B, D, K_conv, numVHeads, headKDim, headVDim);
+
+            auto convWVar = _Input({D, 1, K_conv}, NCHW, halide_type_of<float>());
+            fillConvWeight(convWVar->writeMap<float>(), D * 1 * K_conv);
+
+            // Prefill phase
+            {
+                auto qkvVar = _Input({B, D, prefillLen}, NCHW, halide_type_of<float>());
+                auto gateVar = _Input({B, prefillLen, numVHeads}, NCHW, halide_type_of<float>());
+                auto betaVar = _Input({B, prefillLen, numVHeads}, NCHW, halide_type_of<float>());
+
+                fillDeterministic(qkvVar->writeMap<float>(), B * D * prefillLen, 0.08f, 0.02f);
+                fillGate(gateVar->writeMap<float>(), B * prefillLen * numVHeads);
+                fillBeta(betaVar->writeMap<float>(), B * prefillLen * numVHeads);
+
+                auto expected = naive.forward(qkvVar->readMap<float>(), gateVar->readMap<float>(),
+                                              betaVar->readMap<float>(), convWVar->readMap<float>(), B, prefillLen, D,
+                                              K_conv, numKHeads, numVHeads, headKDim, headVDim, true);
+
+                auto outputs = module->onForward({qkvVar, gateVar, betaVar, convWVar});
+                if (outputs.empty()) {
+                    MNN_PRINT("Error: Prefill phase returned empty output\n");
+                    return false;
+                }
+                const float* resultPtr = outputs[0]->readMap<float>();
+                const int outSize = B * prefillLen * numVHeads * headVDim;
+
+                for (int i = 0; i < outSize; ++i) {
+                    float diff = fabs(resultPtr[i] - expected[i]);
+                    if (diff > tolerance) {
+                        MNN_PRINT("Prefill+Decode: Prefill FAILED at index %d: expected %.6f, got %.6f\n", i,
+                                  expected[i], resultPtr[i]);
+                        return false;
+                    }
+                }
+            }
+
+            // Decode phase (L=1 per step, state should carry over from prefill)
+            for (int step = 0; step < decodeSteps; ++step) {
+                const int L = 1;
+                auto qkvVar = _Input({B, D, L}, NCHW, halide_type_of<float>());
+                auto gateVar = _Input({B, L, numVHeads}, NCHW, halide_type_of<float>());
+                auto betaVar = _Input({B, L, numVHeads}, NCHW, halide_type_of<float>());
+
+                fillDeterministic(qkvVar->writeMap<float>(), B * D * L, 0.1f, 0.03f * step);
+                fillGate(gateVar->writeMap<float>(), B * L * numVHeads);
+                fillBeta(betaVar->writeMap<float>(), B * L * numVHeads);
+
+                auto expected = naive.forward(qkvVar->readMap<float>(), gateVar->readMap<float>(),
+                                              betaVar->readMap<float>(), convWVar->readMap<float>(), B, L, D, K_conv,
+                                              numKHeads, numVHeads, headKDim, headVDim, true);
+
+                auto outputs = module->onForward({qkvVar, gateVar, betaVar, convWVar});
+                if (outputs.empty()) {
+                    MNN_PRINT("Error: Decode step %d returned empty output\n", step);
+                    return false;
+                }
+                const float* resultPtr = outputs[0]->readMap<float>();
+                const int outSize = B * L * numVHeads * headVDim;
+
+                for (int i = 0; i < outSize; ++i) {
+                    float diff = fabs(resultPtr[i] - expected[i]);
+                    if (diff > tolerance) {
+                        MNN_PRINT("Prefill+Decode: Decode step %d FAILED at index %d: expected %.6f, got %.6f\n", step,
+                                  i, expected[i], resultPtr[i]);
+                        return false;
+                    }
+                }
+            }
+            MNN_PRINT("LinearAttention Prefill(%d)+Decode(%d steps) state continuity PASSED\n", prefillLen,
+                      decodeSteps);
+        }
+
+        // ─── Test 3: Decode without L2 Norm ───
+        {
+            const int B = 1, numKHeads = 2, numVHeads = 2;
+            const int headKDim = 4, headVDim = 4, K_conv = 4;
+            const int key_dim = numKHeads * headKDim;
+            const int val_dim = numVHeads * headVDim;
+            const int D = 2 * key_dim + val_dim;
+            const int decodeSteps = 4;
+
+            auto module = _makeLinearAttentionModule(numKHeads, numVHeads, headKDim, headVDim, false);
+            if (!module) {
+                MNN_PRINT("Error: Failed to create module for decode no-L2 test\n");
+                return false;
+            }
+
+            NaiveLinearAttention naive;
+            naive.init(B, D, K_conv, numVHeads, headKDim, headVDim);
+
+            auto convWVar = _Input({D, 1, K_conv}, NCHW, halide_type_of<float>());
+            fillConvWeight(convWVar->writeMap<float>(), D * 1 * K_conv);
+
+            for (int step = 0; step < decodeSteps; ++step) {
+                const int L = 1;
+                auto qkvVar = _Input({B, D, L}, NCHW, halide_type_of<float>());
+                auto gateVar = _Input({B, L, numVHeads}, NCHW, halide_type_of<float>());
+                auto betaVar = _Input({B, L, numVHeads}, NCHW, halide_type_of<float>());
+
+                fillDeterministic(qkvVar->writeMap<float>(), B * D * L, 0.05f, 0.02f * step);
+                fillGate(gateVar->writeMap<float>(), B * L * numVHeads);
+                fillBeta(betaVar->writeMap<float>(), B * L * numVHeads);
+
+                auto expected = naive.forward(qkvVar->readMap<float>(), gateVar->readMap<float>(),
+                                              betaVar->readMap<float>(), convWVar->readMap<float>(), B, L, D, K_conv,
+                                              numKHeads, numVHeads, headKDim, headVDim, false);
+
+                auto outputs = module->onForward({qkvVar, gateVar, betaVar, convWVar});
+                if (outputs.empty()) {
+                    MNN_PRINT("Error: Decode no-L2 step %d returned empty output\n", step);
+                    return false;
+                }
+                const float* resultPtr = outputs[0]->readMap<float>();
+                const int outSize = B * L * numVHeads * headVDim;
+
+                for (int i = 0; i < outSize; ++i) {
+                    float diff = fabs(resultPtr[i] - expected[i]);
+                    if (diff > tolerance) {
+                        MNN_PRINT("Decode no-L2 step %d FAILED at index %d: expected %.6f, got %.6f\n", step, i,
+                                  expected[i], resultPtr[i]);
+                        return false;
+                    }
+                }
+            }
+            MNN_PRINT("LinearAttention Decode no-L2Norm (%d steps) PASSED\n", decodeSteps);
+        }
+
+        // ─── Test 4: Decode with GQA (numVHeads > numKHeads) ───
+        {
+            const int B = 1, numKHeads = 2, numVHeads = 4;
+            const int headKDim = 4, headVDim = 4, K_conv = 4;
+            const int key_dim = numKHeads * headKDim;
+            const int val_dim = numVHeads * headVDim;
+            const int D = 2 * key_dim + val_dim;
+            const int decodeSteps = 3;
+
+            auto module = _makeLinearAttentionModule(numKHeads, numVHeads, headKDim, headVDim, true);
+            if (!module) {
+                MNN_PRINT("Error: Failed to create module for decode GQA test\n");
+                return false;
+            }
+
+            NaiveLinearAttention naive;
+            naive.init(B, D, K_conv, numVHeads, headKDim, headVDim);
+
+            auto convWVar = _Input({D, 1, K_conv}, NCHW, halide_type_of<float>());
+            fillConvWeight(convWVar->writeMap<float>(), D * 1 * K_conv);
+
+            for (int step = 0; step < decodeSteps; ++step) {
+                const int L = 1;
+                auto qkvVar = _Input({B, D, L}, NCHW, halide_type_of<float>());
+                auto gateVar = _Input({B, L, numVHeads}, NCHW, halide_type_of<float>());
+                auto betaVar = _Input({B, L, numVHeads}, NCHW, halide_type_of<float>());
+
+                fillDeterministic(qkvVar->writeMap<float>(), B * D * L, 0.1f, 0.05f * step);
+                fillGate(gateVar->writeMap<float>(), B * L * numVHeads);
+                fillBeta(betaVar->writeMap<float>(), B * L * numVHeads);
+
+                auto expected = naive.forward(qkvVar->readMap<float>(), gateVar->readMap<float>(),
+                                              betaVar->readMap<float>(), convWVar->readMap<float>(), B, L, D, K_conv,
+                                              numKHeads, numVHeads, headKDim, headVDim, true);
+
+                auto outputs = module->onForward({qkvVar, gateVar, betaVar, convWVar});
+                if (outputs.empty()) {
+                    MNN_PRINT("Error: Decode GQA step %d returned empty output\n", step);
+                    return false;
+                }
+                const float* resultPtr = outputs[0]->readMap<float>();
+                const int outSize = B * L * numVHeads * headVDim;
+
+                for (int i = 0; i < outSize; ++i) {
+                    float diff = fabs(resultPtr[i] - expected[i]);
+                    if (diff > tolerance) {
+                        MNN_PRINT("Decode GQA step %d FAILED at index %d: expected %.6f, got %.6f\n", step, i,
+                                  expected[i], resultPtr[i]);
+                        return false;
+                    }
+                }
+            }
+            MNN_PRINT("LinearAttention Decode GQA (H_k=%d, H_v=%d, %d steps) PASSED\n", numKHeads, numVHeads,
+                      decodeSteps);
+        }
+
+        // ─── Test 5: Decode with larger head dimensions ───
+        {
+            const int B = 1, numKHeads = 1, numVHeads = 1;
+            const int headKDim = 16, headVDim = 16, K_conv = 4;
+            const int key_dim = numKHeads * headKDim;
+            const int val_dim = numVHeads * headVDim;
+            const int D = 2 * key_dim + val_dim;
+            const int decodeSteps = 3;
+
+            auto module = _makeLinearAttentionModule(numKHeads, numVHeads, headKDim, headVDim, true);
+            if (!module) {
+                MNN_PRINT("Error: Failed to create module for decode large-dim test\n");
+                return false;
+            }
+
+            NaiveLinearAttention naive;
+            naive.init(B, D, K_conv, numVHeads, headKDim, headVDim);
+
+            auto convWVar = _Input({D, 1, K_conv}, NCHW, halide_type_of<float>());
+            fillConvWeight(convWVar->writeMap<float>(), D * 1 * K_conv);
+
+            for (int step = 0; step < decodeSteps; ++step) {
+                const int L = 1;
+                auto qkvVar = _Input({B, D, L}, NCHW, halide_type_of<float>());
+                auto gateVar = _Input({B, L, numVHeads}, NCHW, halide_type_of<float>());
+                auto betaVar = _Input({B, L, numVHeads}, NCHW, halide_type_of<float>());
+
+                fillDeterministic(qkvVar->writeMap<float>(), B * D * L, 0.08f, 0.01f * step);
+                fillGate(gateVar->writeMap<float>(), B * L * numVHeads);
+                fillBeta(betaVar->writeMap<float>(), B * L * numVHeads);
+
+                auto expected = naive.forward(qkvVar->readMap<float>(), gateVar->readMap<float>(),
+                                              betaVar->readMap<float>(), convWVar->readMap<float>(), B, L, D, K_conv,
+                                              numKHeads, numVHeads, headKDim, headVDim, true);
+
+                auto outputs = module->onForward({qkvVar, gateVar, betaVar, convWVar});
+                if (outputs.empty()) {
+                    MNN_PRINT("Error: Decode large-dim step %d returned empty output\n", step);
+                    return false;
+                }
+                const float* resultPtr = outputs[0]->readMap<float>();
+                const int outSize = B * L * numVHeads * headVDim;
+
+                for (int i = 0; i < outSize; ++i) {
+                    float diff = fabs(resultPtr[i] - expected[i]);
+                    if (diff > tolerance) {
+                        MNN_PRINT("Decode large-dim step %d FAILED at index %d: expected %.6f, got %.6f\n", step, i,
+                                  expected[i], resultPtr[i]);
+                        return false;
+                    }
+                }
+            }
+            MNN_PRINT("LinearAttention Decode large-dim (dk=%d, dv=%d, %d steps) PASSED\n", headKDim, headVDim,
+                      decodeSteps);
+        }
+
+        // ─── Test 6: Decode with batch size > 1 ───
+        {
+            const int B = 3, numKHeads = 2, numVHeads = 2;
+            const int headKDim = 4, headVDim = 4, K_conv = 4;
+            const int key_dim = numKHeads * headKDim;
+            const int val_dim = numVHeads * headVDim;
+            const int D = 2 * key_dim + val_dim;
+            const int decodeSteps = 4;
+
+            auto module = _makeLinearAttentionModule(numKHeads, numVHeads, headKDim, headVDim, true);
+            if (!module) {
+                MNN_PRINT("Error: Failed to create module for decode batch test\n");
+                return false;
+            }
+
+            NaiveLinearAttention naive;
+            naive.init(B, D, K_conv, numVHeads, headKDim, headVDim);
+
+            auto convWVar = _Input({D, 1, K_conv}, NCHW, halide_type_of<float>());
+            fillConvWeight(convWVar->writeMap<float>(), D * 1 * K_conv);
+
+            for (int step = 0; step < decodeSteps; ++step) {
+                const int L = 1;
+                auto qkvVar = _Input({B, D, L}, NCHW, halide_type_of<float>());
+                auto gateVar = _Input({B, L, numVHeads}, NCHW, halide_type_of<float>());
+                auto betaVar = _Input({B, L, numVHeads}, NCHW, halide_type_of<float>());
+
+                // Use different offsets per step so each batch element gets distinct data
+                fillDeterministic(qkvVar->writeMap<float>(), B * D * L, 0.1f, 0.02f * step);
+                fillGate(gateVar->writeMap<float>(), B * L * numVHeads);
+                fillBeta(betaVar->writeMap<float>(), B * L * numVHeads);
+
+                auto expected = naive.forward(qkvVar->readMap<float>(), gateVar->readMap<float>(),
+                                              betaVar->readMap<float>(), convWVar->readMap<float>(), B, L, D, K_conv,
+                                              numKHeads, numVHeads, headKDim, headVDim, true);
+
+                auto outputs = module->onForward({qkvVar, gateVar, betaVar, convWVar});
+                if (outputs.empty()) {
+                    MNN_PRINT("Error: Decode batch step %d returned empty output\n", step);
+                    return false;
+                }
+                const float* resultPtr = outputs[0]->readMap<float>();
+                const int outSize = B * L * numVHeads * headVDim;
+
+                for (int i = 0; i < outSize; ++i) {
+                    float diff = fabs(resultPtr[i] - expected[i]);
+                    if (diff > tolerance) {
+                        MNN_PRINT(
+                            "Decode batch(B=%d) step %d FAILED at index %d: expected %.6f, got %.6f (diff=%.6f)\n", B,
+                            step, i, expected[i], resultPtr[i], diff);
+                        return false;
+                    }
+                }
+            }
+            MNN_PRINT("LinearAttention Decode batch (B=%d, %d steps) PASSED\n", B, decodeSteps);
+        }
+
+        return true;
+    }
+};
+
+MNNTestSuiteRegister(LinearAttentionDecodeTest, "op/linear_attention_decode");
+
 #endif // MNN_SUPPORT_TRANSFORMER_FUSE
