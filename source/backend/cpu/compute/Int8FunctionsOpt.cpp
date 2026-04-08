@@ -2587,7 +2587,7 @@ void MNNCoreInt8FunctionInit() {
         gCoreFunc->MNNFloat2Int8 = MNNFloat2Int8_RVV;
         gCoreFunc->MNNInt8ScaleToFloat = MNNInt8ScaleToFloat_RVV;
         gCoreFunc->ConvDepthwiseLineInt8 = MNNLineDepthWiseInt8AddBiasScaleUnit_RVV;
-        gCoreFunc->MNNMaxPoolInt8 = MNNMaxPoolInt8_RVV
+        gCoreFunc->MNNMaxPoolInt8 = MNNMaxPoolInt8_RVV;
         gCoreFunc->MNNReluWithSlopeChannelInt8 = MNNReluWithSlopeChannelInt8_RVV;
     }
 #endif
