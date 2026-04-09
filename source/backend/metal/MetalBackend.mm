@@ -1067,12 +1067,22 @@ MetalRuntime::MetalRuntime(void* context) {
     mContext = context;
     auto ctx = (__bridge MNNMetalContext *)mContext;
     std::shared_ptr<EagerBufferAllocator::Allocator> allocator(new MetalRuntimeAllocator([ctx device]));
-    mSimdGroupReduce = [[ctx device] supportsFamily:MTLGPUFamilyApple7];
-    mSimdGroupReduce |= [[ctx device] supportsFamily:(MTLGPUFamily)MTLGPUFamilyMetal3_MNN];
-    mSimdGroupMatrix = [[ctx device] supportsFamily:MTLGPUFamilyApple7];
+    // supportsFamily: is available since iOS 13.0 / macOS 10.15, must check before calling
+    if (@available(iOS 13.0, macOS 10.15, *)) {
+        mSimdGroupReduce = [[ctx device] supportsFamily:MTLGPUFamilyApple7];
+        mSimdGroupReduce |= [[ctx device] supportsFamily:(MTLGPUFamily)MTLGPUFamilyMetal3_MNN];
+        mSimdGroupMatrix = [[ctx device] supportsFamily:MTLGPUFamilyApple7];
+    } else {
+        mSimdGroupReduce = false;
+        mSimdGroupMatrix = false;
+    }
     // Metal4 Support M1/A14 and later chips
 #ifdef MNN_METAL_TENSOR
-    mTensorOps = [[ctx device] supportsFamily:(MTLGPUFamily)MTLGPUFamilyMetal4_MNN];
+    if (@available(iOS 13.0, macOS 10.15, *)) {
+        mTensorOps = [[ctx device] supportsFamily:(MTLGPUFamily)MTLGPUFamilyMetal4_MNN];
+    } else {
+        mTensorOps = false;
+    }
 
     // AI TensorCore device support from M5/A19
     bool noAICoreDevice = [[[ctx device] name] containsString:@"M1"] || \
