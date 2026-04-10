@@ -8,17 +8,7 @@ if ! command -v git-clang-format &> /dev/null; then
     exit 1
 fi
 
-# Collect staged files with matching extensions, excluding generated headers
-files=$(git diff --cached --name-only --diff-filter=ACM \
-    | grep -E '\.(cpp|c|h|hpp|cc|m|mm)$' \
-    | grep -v 'MNN_generated\.h$' \
-    || true)
-
-if [ -z "$files" ]; then
-    exit 0
-fi
-
-output=$(git clang-format --diff --staged --extensions cpp,c,h,hpp,cc,m,mm -- $files 2>&1)
+output=$(git clang-format --diff --staged --extensions cpp,c,h,hpp,cc,m,mm 2>&1)
 
 if [ "$output" = "no modified files to format" ] || \
    [ "$output" = "clang-format did not modify any files" ]; then
@@ -31,7 +21,7 @@ if echo "$output" | grep -q "^diff"; then
     echo "$output"
     echo ""
     echo "To fix, run:"
-    echo "  git diff --cached --name-only --diff-filter=ACM | grep -E '\.(cpp|c|h|hpp|cc|m|mm)$' | grep -v 'MNN_generated\.h$' | xargs git clang-format --staged --"
+    echo "  git clang-format --staged --extensions cpp,c,h,hpp,cc,m,mm"
     echo "  git add -u"
     exit 1
 fi

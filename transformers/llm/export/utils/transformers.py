@@ -102,6 +102,10 @@ class Attention(torch.nn.Module):
         # where head_dim varies per layer type: sliding=256, full=512)
         if hasattr(self, 'q_proj') and self.q_proj is not None and not (hasattr(self, 'qkv_proj') and self.qkv_proj is not None):
             actual_head_dim = self.q_proj.out_features // self.num_heads
+            # If q_norm exists, use its weight size as authoritative head_dim
+            # (q_proj may output 2x head_dim for gated attention, e.g. Qwen3.5)
+            if hasattr(self, 'q_norm') and self.q_norm is not None and hasattr(self.q_norm, 'weight'):
+                actual_head_dim = self.q_norm.weight.shape[0]
             if actual_head_dim != self.head_dim:
                 self.head_dim = actual_head_dim
                 # Re-detect num_key_value_heads with new head_dim
