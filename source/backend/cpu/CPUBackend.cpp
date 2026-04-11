@@ -621,8 +621,8 @@ Backend::MemObj* CPUBackend::allocBuffer(size_t size, Tensor* dest, StorageType 
     }
     if (chunk.ptr()) {
         buffer.host = chunk.ptr();
-    }
-    des->extra.offset = 0;
+     }
+    TensorUtils::getDescribeOrigin(dest)->offset = 0;
     return res;
 }
 
@@ -844,6 +844,7 @@ public:
         auto otype = op->type();
         for (auto t : inputs) {
             auto des = TensorUtils::getDescribe(t);
+            auto desO = TensorUtils::getDescribeOrigin(t);
             if (des->quantAttr == nullptr) {
                 return false;
             }
