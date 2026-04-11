@@ -41,7 +41,7 @@ ErrorCode VulkanBasicExecutionDirect::onResize(const std::vector<Tensor *> &inpu
             // The case occured if we don't need the content of input
             continue;
         }
-        auto offset = des->extra.offset;
+        auto offset = des->offset;
         mCmdBuffer->barrierSource(vkTensor->buffer(), offset, vkBn->getTensorSize(input));
     }
 
@@ -79,7 +79,7 @@ ErrorCode VulkanBasicExecutionInDirect::onResize(const std::vector<Tensor *> &in
             // The case occured if we don't need the content of input
             continue;
         }
-        auto offset = des->extra.offset;
+        auto offset = des->offset;
         cmdBuffer->barrierSource(vkTensor->buffer(), offset, vkBn->getTensorSize(input));
     }
     ErrorCode code = NO_ERROR;
