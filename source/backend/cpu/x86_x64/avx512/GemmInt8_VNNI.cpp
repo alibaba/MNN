@@ -11,99 +11,100 @@
 #include "FunctionSummary.hpp"
 #include "GemmInt8Macro.h"
 #define GEMMINT8_AVX512_H GEMMINT8_AVX512_H_VNNI
-#define _MM256_SET_M128I(__H, __L) _mm256_insertf128_si256(_mm256_castsi128_si256(__L), __H, 1) // for compile compatiable
+#define _MM256_SET_M128I(__H, __L) \
+    _mm256_insertf128_si256(_mm256_castsi128_si256(__L), __H, 1) // for compile compatiable
 #define AVX512_BROADCAST_INT32(src) _mm512_castps_si512(_mm512_broadcastss_ps(_mm_load_ss(src)))
 
-#define DEQUANT_VALUE(N) \
-    auto f##N = _mm512_cvtepi32_ps(D##N);\
+#define DEQUANT_VALUE(N)                  \
+    auto f##N = _mm512_cvtepi32_ps(D##N); \
     f##N = _mm512_mul_ps(f##N, scaleValue);
 
-#define MUL_WEIGHT_SCALE(N, P) \
-    auto f##N = _mm512_cvtepi32_ps(D##N);\
+#define MUL_WEIGHT_SCALE(N, P)            \
+    auto f##N = _mm512_cvtepi32_ps(D##N); \
     f##N = _mm512_mul_ps(f##N, scaleValue##P);
 
-#define SCALE_BIAS_VEC(N) \
-    f##N = _mm512_add_ps(f##N, biasValue);
+#define SCALE_BIAS_VEC(N) f##N = _mm512_add_ps(f##N, biasValue);
 
-#define POSTTREAT(N, O) \
-                f##N = _mm512_min_ps(f##N, maxValue);\
-                f##N = _mm512_max_ps(f##N, minValue);\
-                auto m##N = _mm512_cmp_ps_mask(f##N, zero512, 1);\
-                auto b##N = _mm512_mask_blend_ps(m##N, plus, minus);\
-                f##N = _mm512_add_ps(f##N, b##N);\
-                auto d##N = _mm512_cvtps_epi32(_mm512_roundscale_ps(f##N, 3));\
-                auto hd##N = _mm512_cvtsepi32_epi16(d##N); hd##N = _mm256_add_epi16(hd##N, offset);\
-                auto h0##N = _mm256_extracti128_si256(hd##N, 0);\
-                auto h1##N = _mm256_extracti128_si256(hd##N, 1);\
-                h0##N = _mm_packus_epi16(h0##N, h1##N);\
-                _mm_storeu_si128((__m128i*)dst_x + O, h0##N);
+#define POSTTREAT(N, O)                                            \
+    f##N = _mm512_min_ps(f##N, maxValue);                          \
+    f##N = _mm512_max_ps(f##N, minValue);                          \
+    auto m##N = _mm512_cmp_ps_mask(f##N, zero512, 1);              \
+    auto b##N = _mm512_mask_blend_ps(m##N, plus, minus);           \
+    f##N = _mm512_add_ps(f##N, b##N);                              \
+    auto d##N = _mm512_cvtps_epi32(_mm512_roundscale_ps(f##N, 3)); \
+    auto hd##N = _mm512_cvtsepi32_epi16(d##N);                     \
+    hd##N = _mm256_add_epi16(hd##N, offset);                       \
+    auto h0##N = _mm256_extracti128_si256(hd##N, 0);               \
+    auto h1##N = _mm256_extracti128_si256(hd##N, 1);               \
+    h0##N = _mm_packus_epi16(h0##N, h1##N);                        \
+    _mm_storeu_si128((__m128i*)dst_x + O, h0##N);
 
-#define POST_TREAT_FLOAT(N,M,K,V) \
-                f##N = _mm512_min_ps(f##N, fp32max);\
-                f##N = _mm512_max_ps(f##N, fp32min);\
-                f##M = _mm512_min_ps(f##M, fp32max);\
-                f##M = _mm512_max_ps(f##M, fp32min);\
-                f##K = _mm512_min_ps(f##K, fp32max);\
-                f##K = _mm512_max_ps(f##K, fp32min);\
-                f##V = _mm512_min_ps(f##V, fp32max);\
-                f##V = _mm512_max_ps(f##V, fp32min);
+#define POST_TREAT_FLOAT(N, M, K, V)     \
+    f##N = _mm512_min_ps(f##N, fp32max); \
+    f##N = _mm512_max_ps(f##N, fp32min); \
+    f##M = _mm512_min_ps(f##M, fp32max); \
+    f##M = _mm512_max_ps(f##M, fp32min); \
+    f##K = _mm512_min_ps(f##K, fp32max); \
+    f##K = _mm512_max_ps(f##K, fp32min); \
+    f##V = _mm512_min_ps(f##V, fp32max); \
+    f##V = _mm512_max_ps(f##V, fp32min);
 
-#define SRCKERNELSUM_MUL_WEIGHTQUANBIAS \
-                xy0_0 = _mm512_mul_ps(kernelSum0, weightBiasValue);\
-                xy0_1 = _mm512_mul_ps(kernelSum1, weightBiasValue);\
-                xy0_2 = _mm512_mul_ps(kernelSum2, weightBiasValue);\
-                xy0_3 = _mm512_mul_ps(kernelSum3, weightBiasValue);
+#define SRCKERNELSUM_MUL_WEIGHTQUANBIAS                 \
+    xy0_0 = _mm512_mul_ps(kernelSum0, weightBiasValue); \
+    xy0_1 = _mm512_mul_ps(kernelSum1, weightBiasValue); \
+    xy0_2 = _mm512_mul_ps(kernelSum2, weightBiasValue); \
+    xy0_3 = _mm512_mul_ps(kernelSum3, weightBiasValue);
 
-#define PLUS_TERM(N,M,K,V) \
-                f##N = _mm512_add_ps(f##N, xy0_0);\
-                f##M = _mm512_add_ps(f##M, xy0_1);\
-                f##K = _mm512_add_ps(f##K, xy0_2);\
-                f##V = _mm512_add_ps(f##V, xy0_3);
+#define PLUS_TERM(N, M, K, V)          \
+    f##N = _mm512_add_ps(f##N, xy0_0); \
+    f##M = _mm512_add_ps(f##M, xy0_1); \
+    f##K = _mm512_add_ps(f##K, xy0_2); \
+    f##V = _mm512_add_ps(f##V, xy0_3);
 
-#define POST_TREAT_FLOAT_3(N,M,K) \
-                f##N = _mm512_min_ps(f##N, fp32max);\
-                f##N = _mm512_max_ps(f##N, fp32min);\
-                f##M = _mm512_min_ps(f##M, fp32max);\
-                f##M = _mm512_max_ps(f##M, fp32min);\
-                f##K = _mm512_min_ps(f##K, fp32max);\
-                f##K = _mm512_max_ps(f##K, fp32min);
+#define POST_TREAT_FLOAT_3(N, M, K)      \
+    f##N = _mm512_min_ps(f##N, fp32max); \
+    f##N = _mm512_max_ps(f##N, fp32min); \
+    f##M = _mm512_min_ps(f##M, fp32max); \
+    f##M = _mm512_max_ps(f##M, fp32min); \
+    f##K = _mm512_min_ps(f##K, fp32max); \
+    f##K = _mm512_max_ps(f##K, fp32min);
 
-#define SRCKERNELSUM_MUL_WEIGHTQUANBIAS_3 \
-                xy0_0 = _mm512_mul_ps(kernelSum0, weightBiasValue);\
-                xy0_1 = _mm512_mul_ps(kernelSum1, weightBiasValue);\
-                xy0_2 = _mm512_mul_ps(kernelSum2, weightBiasValue);
+#define SRCKERNELSUM_MUL_WEIGHTQUANBIAS_3               \
+    xy0_0 = _mm512_mul_ps(kernelSum0, weightBiasValue); \
+    xy0_1 = _mm512_mul_ps(kernelSum1, weightBiasValue); \
+    xy0_2 = _mm512_mul_ps(kernelSum2, weightBiasValue);
 
-#define PLUS_TERM_3(N,M,K) \
-                f##N = _mm512_add_ps(f##N, xy0_0);\
-                f##M = _mm512_add_ps(f##M, xy0_1);\
-                f##K = _mm512_add_ps(f##K, xy0_2);
+#define PLUS_TERM_3(N, M, K)           \
+    f##N = _mm512_add_ps(f##N, xy0_0); \
+    f##M = _mm512_add_ps(f##M, xy0_1); \
+    f##K = _mm512_add_ps(f##K, xy0_2);
 
-#define POST_TREAT_FLOAT_2(N,M) \
-                f##N = _mm512_min_ps(f##N, fp32max);\
-                f##N = _mm512_max_ps(f##N, fp32min);\
-                f##M = _mm512_min_ps(f##M, fp32max);\
-                f##M = _mm512_max_ps(f##M, fp32min);
+#define POST_TREAT_FLOAT_2(N, M)         \
+    f##N = _mm512_min_ps(f##N, fp32max); \
+    f##N = _mm512_max_ps(f##N, fp32min); \
+    f##M = _mm512_min_ps(f##M, fp32max); \
+    f##M = _mm512_max_ps(f##M, fp32min);
 
-#define SRCKERNELSUM_MUL_WEIGHTQUANBIAS_2 \
-                xy0_0 = _mm512_mul_ps(kernelSum0, weightBiasValue);\
-                xy0_1 = _mm512_mul_ps(kernelSum1, weightBiasValue);
+#define SRCKERNELSUM_MUL_WEIGHTQUANBIAS_2               \
+    xy0_0 = _mm512_mul_ps(kernelSum0, weightBiasValue); \
+    xy0_1 = _mm512_mul_ps(kernelSum1, weightBiasValue);
 
-#define PLUS_TERM_2(N,M) \
-                f##N = _mm512_add_ps(f##N, xy0_0);\
-                f##M = _mm512_add_ps(f##M, xy0_1);
+#define PLUS_TERM_2(N, M)              \
+    f##N = _mm512_add_ps(f##N, xy0_0); \
+    f##M = _mm512_add_ps(f##M, xy0_1);
 
-#define POST_TREAT_FLOAT_1(N) \
-                f##N = _mm512_min_ps(f##N, fp32max);\
-                f##N = _mm512_max_ps(f##N, fp32min);
+#define POST_TREAT_FLOAT_1(N)            \
+    f##N = _mm512_min_ps(f##N, fp32max); \
+    f##N = _mm512_max_ps(f##N, fp32min);
 
-#define SRCKERNELSUM_MUL_WEIGHTQUANBIAS_1 \
-                xy0_0 = _mm512_mul_ps(kernelSum0, weightBiasValue);
+#define SRCKERNELSUM_MUL_WEIGHTQUANBIAS_1 xy0_0 = _mm512_mul_ps(kernelSum0, weightBiasValue);
 
-#define PLUS_TERM_1(N) \
-                f##N = _mm512_add_ps(f##N, xy0_0);
+#define PLUS_TERM_1(N) f##N = _mm512_add_ps(f##N, xy0_0);
 
 // GemmInt8 with VNNI
-void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDst) {
+void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* src, const int8_t* weight,
+                                                    size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
+                                                    const QuanPostTreatParameters* post, size_t realDst) {
     const auto dst_step_tmp = dst_step / sizeof(int8_t);
     // common
     int dzUnit = GEMMINT8_AVX512_H / PACK_UNIT;
@@ -122,8 +123,9 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
     auto minus = _mm512_set1_ps(-0.5f);
     auto offset = _mm256_set1_epi16(128);
     // float outout relevant
-    auto neg128f   = _mm512_set1_ps(-128.f);
-    __m512 bias00, bias10, bias20, bias30, bias01, bias02, bias03, bias11, bias12, bias13, bias21, bias22, bias23, bias31, bias32, bias33;
+    auto neg128f = _mm512_set1_ps(-128.f);
+    __m512 bias00, bias10, bias20, bias30, bias01, bias02, bias03, bias11, bias12, bias13, bias21, bias22, bias23,
+        bias31, bias32, bias33;
     __m512 fp32min, fp32max;
     if (0 == post->useInt8 && post->fp32minmax) {
         fp32min = _mm512_set1_ps((post->fp32minmax)[0]);
@@ -140,7 +142,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
     if (post->inputScale) {
         inputscale0 = _mm512_set1_ps(post->inputScale[0]);
         if (realDst > 1) {
-            inputscale1 = _mm512_set1_ps(post->inputScale[1]);    
+            inputscale1 = _mm512_set1_ps(post->inputScale[1]);
         }
         if (realDst > 2) {
             inputscale2 = _mm512_set1_ps(post->inputScale[2]);
@@ -150,7 +152,8 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
         }
     }
 
-    int weight_step_Z = static_cast<int32_t>(src_depth_quad * (GEMMINT8_AVX512_L * GEMMINT8_AVX512_H)) + (2 * sizeof(float) * GEMMINT8_AVX512_H);
+    int weight_step_Z = static_cast<int32_t>(src_depth_quad * (GEMMINT8_AVX512_L * GEMMINT8_AVX512_H)) +
+                        (2 * sizeof(float) * GEMMINT8_AVX512_H);
     int weight_step_Y = static_cast<int32_t>(GEMMINT8_AVX512_L * GEMMINT8_AVX512_H);
     int weightPackStride = GEMMINT8_AVX512_L * PACK_UNIT;
     int source_step = realDst * PACK_UNIT;
@@ -185,14 +188,14 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
                 __m512i D15 = _mm512_set1_epi32(0);
 
                 // block's weight&scale&bias
-                const auto weight_dz = weight + dz * blockNum * weight_step_Z + bk *  weight_step_Z;
+                const auto weight_dz = weight + dz * blockNum * weight_step_Z + bk * weight_step_Z;
                 const float* scale_dz = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weight_step_Y);
                 const auto weightBias_dz = scale_dz + GEMMINT8_AVX512_H;
                 // block's input
                 const auto src_x = src + bk * src_depth_quad * GEMMINT8_AVX512_L * realDst;
                 for (int sz = 0; sz < src_depth_quad; ++sz) {
                     const auto weight_sz = weight_dz + weight_step_Y * sz;
-                    const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
+                    const auto src_z = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
                     auto w0 = _mm512_loadu_si512(weight_sz);
                     auto w1 = _mm512_loadu_si512(weight_sz + 1 * PACK_UNIT * GEMMINT8_AVX512_L);
                     auto w2 = _mm512_loadu_si512(weight_sz + 2 * PACK_UNIT * GEMMINT8_AVX512_L);
@@ -284,7 +287,8 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
                     f15 = _mm512_mul_ps(f15, inputscale3);
                     if ((post->useInt8 == 0) && post->weightKernelSum && (post->inputBias || (bk == 0))) {
                         if (post->inputBias) {
-                            weightKernelSum_dz = post->weightKernelSum + bk * GEMMINT8_AVX512_H + dz * blockNum * GEMMINT8_AVX512_H;
+                            weightKernelSum_dz =
+                                post->weightKernelSum + bk * GEMMINT8_AVX512_H + dz * blockNum * GEMMINT8_AVX512_H;
                             auto wsum0 = _mm512_loadu_ps(weightKernelSum_dz);
                             auto wsum1 = _mm512_loadu_ps(weightKernelSum_dz + 1 * PACK_UNIT);
                             auto wsum2 = _mm512_loadu_ps(weightKernelSum_dz + 2 * PACK_UNIT);
@@ -356,12 +360,12 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
                 f7 = _mm512_add_ps(_mm512_mul_ps(kernelSum3, weightBiasValue1), f7);
                 f8 = _mm512_add_ps(_mm512_mul_ps(kernelSum0, weightBiasValue2), f8);
                 f9 = _mm512_add_ps(_mm512_mul_ps(kernelSum1, weightBiasValue2), f9);
-                f10 = _mm512_add_ps(_mm512_mul_ps(kernelSum2, weightBiasValue2),f10);
-                f11 = _mm512_add_ps(_mm512_mul_ps(kernelSum3, weightBiasValue2),f11);
-                f12 = _mm512_add_ps(_mm512_mul_ps(kernelSum0, weightBiasValue3),f12);
-                f13 = _mm512_add_ps(_mm512_mul_ps(kernelSum1, weightBiasValue3),f13);
-                f14 = _mm512_add_ps(_mm512_mul_ps(kernelSum2, weightBiasValue3),f14);
-                f15 = _mm512_add_ps(_mm512_mul_ps(kernelSum3, weightBiasValue3),f15);
+                f10 = _mm512_add_ps(_mm512_mul_ps(kernelSum2, weightBiasValue2), f10);
+                f11 = _mm512_add_ps(_mm512_mul_ps(kernelSum3, weightBiasValue2), f11);
+                f12 = _mm512_add_ps(_mm512_mul_ps(kernelSum0, weightBiasValue3), f12);
+                f13 = _mm512_add_ps(_mm512_mul_ps(kernelSum1, weightBiasValue3), f13);
+                f14 = _mm512_add_ps(_mm512_mul_ps(kernelSum2, weightBiasValue3), f14);
+                f15 = _mm512_add_ps(_mm512_mul_ps(kernelSum3, weightBiasValue3), f15);
 
                 if (post->useInt8 == 1) {
                     if (biasPtr) {
@@ -455,12 +459,12 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
                         f15 = _mm512_add_ps(f15, biasValue12);
                     }
                     if (post->fp32minmax) {
-                        POST_TREAT_FLOAT(0,1,2,3);
-                        POST_TREAT_FLOAT(4,5,6,7);
-                        POST_TREAT_FLOAT(8,9,10,11);
-                        POST_TREAT_FLOAT(12,13,14,15);
+                        POST_TREAT_FLOAT(0, 1, 2, 3);
+                        POST_TREAT_FLOAT(4, 5, 6, 7);
+                        POST_TREAT_FLOAT(8, 9, 10, 11);
+                        POST_TREAT_FLOAT(12, 13, 14, 15);
                     }
-                    
+
                     _mm512_storeu_ps(((float*)dst_x), f0);
                     _mm512_storeu_ps(((float*)dst_x) + 16, f1);
                     _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f2);
@@ -510,7 +514,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
         }
 
         auto dst_x = dst + dzU * dst_step_tmp * dzUnit;
-        for (int i=0; i<dzR; ++i) {
+        for (int i = 0; i < dzR; ++i) {
             auto accum_x = accumbuff;
             for (int bk = 0; bk < blockNum; ++bk) {
                 __m512i D0 = _mm512_set1_epi32(0);
@@ -519,12 +523,12 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
                 __m512i D3 = _mm512_set1_epi32(0);
                 auto weightDzSub = weight_dz + bk * weight_step_Z + i * weightPackStride;
                 auto scaleDz = (float*)(weight_dz + bk * weight_step_Z + src_depth_quad * weight_step_Y);
-                 auto biasDz = scaleDz + GEMMINT8_AVX512_H;
+                auto biasDz = scaleDz + GEMMINT8_AVX512_H;
                 const auto src_x = src + bk * src_depth_quad * GEMMINT8_AVX512_L * realDst;
 
                 for (int sz = 0; sz < src_depth_quad; ++sz) {
                     const auto weight_sz = weightDzSub + weight_step_Y * sz;
-                    const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
+                    const auto src_z = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
                     auto w0 = _mm512_loadu_si512(weight_sz);
 
                     auto s0 = AVX512_BROADCAST_INT32(src_z + 0);
@@ -568,7 +572,8 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
 
                     if ((post->useInt8 == 0) && post->weightKernelSum && (post->inputBias || (bk == 0))) {
                         if (post->inputBias) {
-                            weightKernelSum_dz = post->weightKernelSum + dzU * blockNum * GEMMINT8_AVX512_H + bk * GEMMINT8_AVX512_H;
+                            weightKernelSum_dz =
+                                post->weightKernelSum + dzU * blockNum * GEMMINT8_AVX512_H + bk * GEMMINT8_AVX512_H;
                             auto wsum0 = _mm512_loadu_ps(weightKernelSum_dz + i * PACK_UNIT);
                             bias00 = _mm512_mul_ps(inputbias0, wsum0);
                             bias01 = _mm512_mul_ps(inputbias1, wsum0);
@@ -592,7 +597,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
                 f1 = _mm512_add_ps(_mm512_mul_ps(kernelSum1, weightBiasValue0), f1);
                 f2 = _mm512_add_ps(_mm512_mul_ps(kernelSum2, weightBiasValue0), f2);
                 f3 = _mm512_add_ps(_mm512_mul_ps(kernelSum3, weightBiasValue0), f3);
-                
+
                 if (post->useInt8 == 1) {
                     if (nullptr != biasPtr) {
                         auto biasValue0 = _mm512_loadu_ps(bias_dz + i * PACK_UNIT);
@@ -623,7 +628,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
                         f3 = _mm512_add_ps(f3, biasValue0);
                     }
                     if (post->fp32minmax) {
-                        POST_TREAT_FLOAT(0,1,2,3);
+                        POST_TREAT_FLOAT(0, 1, 2, 3);
                     }
                     _mm512_storeu_ps((float*)(dst_x + i * dst_step_tmp), f0);
                     _mm512_storeu_ps((float*)(dst_x + i * dst_step_tmp) + 16, f1);
@@ -639,7 +644,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
         }
         return;
     }
-    
+
     if (realDst == 3) {
         for (int dz = 0; dz < dzU; ++dz) {
             if (biasPtr) {
@@ -666,14 +671,14 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
                 __m512i D14 = _mm512_set1_epi32(0);
 
                 // block's weight&scale&bias
-                const auto weight_dz = weight + dz * blockNum * weight_step_Z + bk *  weight_step_Z;
+                const auto weight_dz = weight + dz * blockNum * weight_step_Z + bk * weight_step_Z;
                 const float* scale_dz = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weight_step_Y);
                 const auto weightBias_dz = scale_dz + GEMMINT8_AVX512_H;
                 // block's input
                 const auto src_x = src + bk * src_depth_quad * GEMMINT8_AVX512_L * realDst;
                 for (int sz = 0; sz < src_depth_quad; ++sz) {
                     const auto weight_sz = weight_dz + weight_step_Y * sz;
-                    const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
+                    const auto src_z = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
 
                     auto w0 = _mm512_loadu_si512(weight_sz);
                     auto w1 = _mm512_loadu_si512(weight_sz + 1 * PACK_UNIT * GEMMINT8_AVX512_L);
@@ -751,7 +756,8 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
                     f14 = _mm512_mul_ps(f14, inputscale2);
                     if ((post->useInt8 == 0) && post->weightKernelSum && (post->inputBias || (bk == 0))) {
                         if (post->inputBias) {
-                            weightKernelSum_dz = post->weightKernelSum + bk * GEMMINT8_AVX512_H + dz * blockNum * GEMMINT8_AVX512_H;
+                            weightKernelSum_dz =
+                                post->weightKernelSum + bk * GEMMINT8_AVX512_H + dz * blockNum * GEMMINT8_AVX512_H;
                             auto wsum0 = _mm512_loadu_ps(weightKernelSum_dz);
                             auto wsum1 = _mm512_loadu_ps(weightKernelSum_dz + 1 * PACK_UNIT);
                             auto wsum2 = _mm512_loadu_ps(weightKernelSum_dz + 2 * PACK_UNIT);
@@ -809,10 +815,10 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
                 f6 = _mm512_add_ps(_mm512_mul_ps(kernelSum2, weightBiasValue1), f6);
                 f8 = _mm512_add_ps(_mm512_mul_ps(kernelSum0, weightBiasValue2), f8);
                 f9 = _mm512_add_ps(_mm512_mul_ps(kernelSum1, weightBiasValue2), f9);
-                f10 = _mm512_add_ps(_mm512_mul_ps(kernelSum2, weightBiasValue2),f10);
-                f12 = _mm512_add_ps(_mm512_mul_ps(kernelSum0, weightBiasValue3),f12);
-                f13 = _mm512_add_ps(_mm512_mul_ps(kernelSum1, weightBiasValue3),f13);
-                f14 = _mm512_add_ps(_mm512_mul_ps(kernelSum2, weightBiasValue3),f14);
+                f10 = _mm512_add_ps(_mm512_mul_ps(kernelSum2, weightBiasValue2), f10);
+                f12 = _mm512_add_ps(_mm512_mul_ps(kernelSum0, weightBiasValue3), f12);
+                f13 = _mm512_add_ps(_mm512_mul_ps(kernelSum1, weightBiasValue3), f13);
+                f14 = _mm512_add_ps(_mm512_mul_ps(kernelSum2, weightBiasValue3), f14);
 
                 if (post->useInt8 == 1) {
                     if (biasPtr) {
@@ -837,17 +843,17 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
                     POSTTREAT(1, 1);
                     POSTTREAT(2, 2);
                     dst_x += dst_step_tmp;
-    
+
                     POSTTREAT(4, 0);
                     POSTTREAT(5, 1);
                     POSTTREAT(6, 2);
                     dst_x += dst_step_tmp;
-    
+
                     POSTTREAT(8, 0);
                     POSTTREAT(9, 1);
                     POSTTREAT(10, 2);
                     dst_x += dst_step_tmp;
-    
+
                     POSTTREAT(12, 0);
                     POSTTREAT(13, 1);
                     POSTTREAT(14, 2);
@@ -890,10 +896,10 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
                         f14 = _mm512_add_ps(f14, biasValue12);
                     }
                     if (post->fp32minmax) {
-                        POST_TREAT_FLOAT_3(0,1,2);
-                        POST_TREAT_FLOAT_3(4,5,6);
-                        POST_TREAT_FLOAT_3(8,9,10);
-                        POST_TREAT_FLOAT_3(12,13,14);
+                        POST_TREAT_FLOAT_3(0, 1, 2);
+                        POST_TREAT_FLOAT_3(4, 5, 6);
+                        POST_TREAT_FLOAT_3(8, 9, 10);
+                        POST_TREAT_FLOAT_3(12, 13, 14);
                     }
 
                     _mm512_storeu_ps(((float*)dst_x), f0);
@@ -928,13 +934,13 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
             }
         } // dzU
         // the remaining ocDivPack
-        auto weight_dz = weight + dzU * blockNum * weight_step_Z;                                            // weight address for remaining
+        auto weight_dz = weight + dzU * blockNum * weight_step_Z; // weight address for remaining
         if (biasPtr) {
             bias_dz = post->biasFloat + dzU * PACK_UNIT * dzUnit;
         }
 
         auto dst_x = dst + dzU * dst_step_tmp * dzUnit;
-        for (int i=0; i<dzR; ++i) {
+        for (int i = 0; i < dzR; ++i) {
             auto accum_x = accumbuff;
             for (int bk = 0; bk < blockNum; ++bk) {
                 __m512i D0 = _mm512_set1_epi32(0);
@@ -942,12 +948,12 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
                 __m512i D2 = _mm512_set1_epi32(0);
                 auto weightDzSub = weight_dz + bk * weight_step_Z + i * weightPackStride;
                 auto scaleDz = (float*)(weight_dz + bk * weight_step_Z + src_depth_quad * weight_step_Y);
-                 auto biasDz = scaleDz + GEMMINT8_AVX512_H;
+                auto biasDz = scaleDz + GEMMINT8_AVX512_H;
                 const auto src_x = src + bk * src_depth_quad * GEMMINT8_AVX512_L * realDst;
 
                 for (int sz = 0; sz < src_depth_quad; ++sz) {
                     const auto weight_sz = weightDzSub + weight_step_Y * sz;
-                    const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
+                    const auto src_z = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
                     auto w0 = _mm512_loadu_si512(weight_sz);
 
                     auto s0 = AVX512_BROADCAST_INT32(src_z + 0);
@@ -983,7 +989,8 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
                     f2 = _mm512_mul_ps(f2, inputscale2);
                     if ((post->useInt8 == 0) && post->weightKernelSum && (post->inputBias || (bk == 0))) {
                         if (post->inputBias) {
-                            weightKernelSum_dz = post->weightKernelSum + dzU * blockNum * GEMMINT8_AVX512_H + bk * GEMMINT8_AVX512_H;
+                            weightKernelSum_dz =
+                                post->weightKernelSum + dzU * blockNum * GEMMINT8_AVX512_H + bk * GEMMINT8_AVX512_H;
                             auto wsum0 = _mm512_loadu_ps(weightKernelSum_dz + i * PACK_UNIT);
                             bias00 = _mm512_mul_ps(inputbias0, wsum0);
                             bias01 = _mm512_mul_ps(inputbias1, wsum0);
@@ -1030,7 +1037,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
                         f2 = _mm512_add_ps(f2, biasValue0);
                     }
                     if (post->fp32minmax) {
-                        POST_TREAT_FLOAT_3(0,1,2);
+                        POST_TREAT_FLOAT_3(0, 1, 2);
                     }
                     _mm512_storeu_ps((float*)(dst_x + i * dst_step_tmp), f0);
                     _mm512_storeu_ps((float*)(dst_x + i * dst_step_tmp) + 16, f1);
@@ -1067,14 +1074,14 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
                 __m512i D13 = _mm512_set1_epi32(0);
 
                 // block's weight&scale&bias
-                const auto weight_dz = weight + dz * blockNum * weight_step_Z + bk *  weight_step_Z;
+                const auto weight_dz = weight + dz * blockNum * weight_step_Z + bk * weight_step_Z;
                 const float* scale_dz = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weight_step_Y);
                 const auto weightBias_dz = scale_dz + GEMMINT8_AVX512_H;
                 // block's input
                 const auto src_x = src + bk * src_depth_quad * GEMMINT8_AVX512_L * realDst;
                 for (int sz = 0; sz < src_depth_quad; ++sz) {
                     const auto weight_sz = weight_dz + weight_step_Y * sz;
-                    const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
+                    const auto src_z = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
                     auto w0 = _mm512_loadu_si512(weight_sz);
                     auto w1 = _mm512_loadu_si512(weight_sz + 1 * PACK_UNIT * GEMMINT8_AVX512_L);
                     auto w2 = _mm512_loadu_si512(weight_sz + 2 * PACK_UNIT * GEMMINT8_AVX512_L);
@@ -1134,7 +1141,8 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
                     f13 = _mm512_mul_ps(f13, inputscale1);
                     if ((post->useInt8 == 0) && post->weightKernelSum && (post->inputBias || (bk == 0))) {
                         if (post->inputBias) {
-                            weightKernelSum_dz = post->weightKernelSum + bk * GEMMINT8_AVX512_H + dz * blockNum * GEMMINT8_AVX512_H;
+                            weightKernelSum_dz =
+                                post->weightKernelSum + bk * GEMMINT8_AVX512_H + dz * blockNum * GEMMINT8_AVX512_H;
                             auto wsum0 = _mm512_loadu_ps(weightKernelSum_dz);
                             auto wsum1 = _mm512_loadu_ps(weightKernelSum_dz + 1 * PACK_UNIT);
                             auto wsum2 = _mm512_loadu_ps(weightKernelSum_dz + 2 * PACK_UNIT);
@@ -1178,8 +1186,8 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
                 f5 = _mm512_add_ps(_mm512_mul_ps(kernelSum1, weightBiasValue1), f5);
                 f8 = _mm512_add_ps(_mm512_mul_ps(kernelSum0, weightBiasValue2), f8);
                 f9 = _mm512_add_ps(_mm512_mul_ps(kernelSum1, weightBiasValue2), f9);
-                f12 = _mm512_add_ps(_mm512_mul_ps(kernelSum0, weightBiasValue3),f12);
-                f13 = _mm512_add_ps(_mm512_mul_ps(kernelSum1, weightBiasValue3),f13);
+                f12 = _mm512_add_ps(_mm512_mul_ps(kernelSum0, weightBiasValue3), f12);
+                f13 = _mm512_add_ps(_mm512_mul_ps(kernelSum1, weightBiasValue3), f13);
 
                 if (post->useInt8 == 1) {
                     if (biasPtr) {
@@ -1199,15 +1207,15 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
                     POSTTREAT(0, 0);
                     POSTTREAT(1, 1);
                     dst_x += dst_step_tmp;
-    
+
                     POSTTREAT(4, 0);
                     POSTTREAT(5, 1);
                     dst_x += dst_step_tmp;
-    
+
                     POSTTREAT(8, 0);
                     POSTTREAT(9, 1);
                     dst_x += dst_step_tmp;
-    
+
                     POSTTREAT(12, 0);
                     POSTTREAT(13, 1);
                     continue;
@@ -1241,12 +1249,12 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
                         f13 = _mm512_add_ps(f13, biasValue12);
                     }
                     if (post->fp32minmax) {
-                        POST_TREAT_FLOAT_2(0,1);
-                        POST_TREAT_FLOAT_2(4,5);
-                        POST_TREAT_FLOAT_2(8,9);
-                        POST_TREAT_FLOAT_2(12,13);
+                        POST_TREAT_FLOAT_2(0, 1);
+                        POST_TREAT_FLOAT_2(4, 5);
+                        POST_TREAT_FLOAT_2(8, 9);
+                        POST_TREAT_FLOAT_2(12, 13);
                     }
-                    
+
                     _mm512_storeu_ps(((float*)dst_x), f0);
                     _mm512_storeu_ps(((float*)dst_x) + 16, f1);
                     dst_x += dst_step_tmp;
@@ -1271,26 +1279,26 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
             }
         } // dzU
         // the remaining ocDivPack
-        auto weight_dz = weight + dzU * blockNum * weight_step_Z;                                            // weight address for remaining
+        auto weight_dz = weight + dzU * blockNum * weight_step_Z; // weight address for remaining
 
         if (biasPtr) {
             bias_dz = post->biasFloat + dzU * PACK_UNIT * dzUnit;
         }
 
         auto dst_x = dst + dzU * dst_step_tmp * dzUnit;
-        for (int i=0; i<dzR; ++i) {
+        for (int i = 0; i < dzR; ++i) {
             auto accum_x = accumbuff;
             for (int bk = 0; bk < blockNum; ++bk) {
                 __m512i D0 = _mm512_set1_epi32(0);
                 __m512i D1 = _mm512_set1_epi32(0);
                 auto weightDzSub = weight_dz + bk * weight_step_Z + i * weightPackStride;
                 auto scaleDz = (float*)(weight_dz + bk * weight_step_Z + src_depth_quad * weight_step_Y);
-                 auto biasDz = scaleDz + GEMMINT8_AVX512_H;
+                auto biasDz = scaleDz + GEMMINT8_AVX512_H;
                 const auto src_x = src + bk * src_depth_quad * GEMMINT8_AVX512_L * realDst;
 
                 for (int sz = 0; sz < src_depth_quad; ++sz) {
                     const auto weight_sz = weightDzSub + weight_step_Y * sz;
-                    const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
+                    const auto src_z = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
                     auto w0 = _mm512_loadu_si512(weight_sz);
 
                     auto s0 = AVX512_BROADCAST_INT32(src_z + 0);
@@ -1319,7 +1327,8 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
                     f1 = _mm512_mul_ps(f1, inputscale1);
                     if ((post->useInt8 == 0) && post->weightKernelSum && (post->inputBias || (bk == 0))) {
                         if (post->inputBias) {
-                            weightKernelSum_dz = post->weightKernelSum + dzU * blockNum * GEMMINT8_AVX512_H + bk * GEMMINT8_AVX512_H;
+                            weightKernelSum_dz =
+                                post->weightKernelSum + dzU * blockNum * GEMMINT8_AVX512_H + bk * GEMMINT8_AVX512_H;
                             auto wsum0 = _mm512_loadu_ps(weightKernelSum_dz + i * PACK_UNIT);
                             bias00 = _mm512_mul_ps(inputbias0, wsum0);
                             bias01 = _mm512_mul_ps(inputbias1, wsum0);
@@ -1358,7 +1367,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
                         f1 = _mm512_add_ps(f1, biasValue0);
                     }
                     if (post->fp32minmax) {
-                        POST_TREAT_FLOAT_2(0,1);
+                        POST_TREAT_FLOAT_2(0, 1);
                     }
                     _mm512_storeu_ps((float*)(dst_x + i * dst_step_tmp), f0);
                     _mm512_storeu_ps((float*)(dst_x + i * dst_step_tmp) + 16, f1);
@@ -1385,7 +1394,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
                 __m512i D12 = _mm512_set1_epi32(0);
 
                 // block's weight&scale&bias
-                const auto weight_dz = weight + dz * blockNum * weight_step_Z + bk *  weight_step_Z;
+                const auto weight_dz = weight + dz * blockNum * weight_step_Z + bk * weight_step_Z;
                 const float* scale_dz = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weight_step_Y);
                 const auto weightBias_dz = scale_dz + GEMMINT8_AVX512_H;
                 // block's input
@@ -1393,7 +1402,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
 
                 for (int sz = 0; sz < src_depth_quad; ++sz) {
                     const auto weight_sz = weight_dz + weight_step_Y * sz;
-                    const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
+                    const auto src_z = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
                     auto w0 = _mm512_loadu_si512(weight_sz);
                     auto w1 = _mm512_loadu_si512(weight_sz + 1 * PACK_UNIT * GEMMINT8_AVX512_L);
                     auto w2 = _mm512_loadu_si512(weight_sz + 2 * PACK_UNIT * GEMMINT8_AVX512_L);
@@ -1437,7 +1446,8 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
                     f12 = _mm512_mul_ps(f12, inputscale0);
                     if ((post->useInt8 == 0) && post->weightKernelSum && (post->inputBias || (bk == 0))) {
                         if (post->inputBias) {
-                            weightKernelSum_dz = post->weightKernelSum + bk * GEMMINT8_AVX512_H + dz * blockNum * GEMMINT8_AVX512_H;
+                            weightKernelSum_dz =
+                                post->weightKernelSum + bk * GEMMINT8_AVX512_H + dz * blockNum * GEMMINT8_AVX512_H;
                             auto wsum0 = _mm512_loadu_ps(weightKernelSum_dz);
                             auto wsum1 = _mm512_loadu_ps(weightKernelSum_dz + 1 * PACK_UNIT);
                             auto wsum2 = _mm512_loadu_ps(weightKernelSum_dz + 2 * PACK_UNIT);
@@ -1481,13 +1491,13 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
                     }
                     POSTTREAT(0, 0);
                     dst_x += dst_step_tmp;
-    
+
                     POSTTREAT(4, 0);
                     dst_x += dst_step_tmp;
-    
+
                     POSTTREAT(8, 0);
                     dst_x += dst_step_tmp;
-    
+
                     POSTTREAT(12, 0);
                     continue;
                 }
@@ -1527,25 +1537,25 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
             }
         }
         // the remaining ocDivPack
-        auto weight_dz = weight + dzU * blockNum * weight_step_Z;                                            // weight address for remaining
+        auto weight_dz = weight + dzU * blockNum * weight_step_Z; // weight address for remaining
         if (biasPtr) {
             bias_dz = post->biasFloat + dzU * PACK_UNIT * dzUnit;
         }
 
         auto dst_x = dst + dzU * dst_step_tmp * dzUnit;
-        for (int i=0; i<dzR; ++i) {
+        for (int i = 0; i < dzR; ++i) {
             auto accum_x = accumbuff;
             for (int bk = 0; bk < blockNum; ++bk) {
                 auto weightDzSub = weight_dz + bk * weight_step_Z + i * weightPackStride;
                 auto scaleDz = (float*)(weight_dz + bk * weight_step_Z + src_depth_quad * weight_step_Y);
-                 auto biasDz = scaleDz + GEMMINT8_AVX512_H;
+                auto biasDz = scaleDz + GEMMINT8_AVX512_H;
                 const auto src_x = src + bk * src_depth_quad * GEMMINT8_AVX512_L * realDst;
 
                 __m512i D0 = _mm512_set1_epi32(0);
 
                 for (int sz = 0; sz < src_depth_quad; ++sz) {
                     const auto weight_sz = weightDzSub + weight_step_Y * sz;
-                    const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
+                    const auto src_z = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
                     auto w0 = _mm512_loadu_si512(weight_sz);
                     auto s0 = AVX512_BROADCAST_INT32(src_z + 0);
                     D0 = _mm512_dpbusds_epi32(D0, s0, w0);
@@ -1565,7 +1575,8 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
                     f0 = _mm512_mul_ps(f0, inputscale0);
                     if ((post->useInt8 == 0) && post->weightKernelSum && (post->inputBias || (bk == 0))) {
                         if (post->inputBias) {
-                            weightKernelSum_dz = post->weightKernelSum + dzU * blockNum * GEMMINT8_AVX512_H + bk * GEMMINT8_AVX512_H;
+                            weightKernelSum_dz =
+                                post->weightKernelSum + dzU * blockNum * GEMMINT8_AVX512_H + bk * GEMMINT8_AVX512_H;
                             auto wsum0 = _mm512_loadu_ps(weightKernelSum_dz + i * PACK_UNIT);
                             bias00 = _mm512_mul_ps(inputbias0, wsum0);
                         } else if (bk == 0) { // if input not block quant, only accum once!
@@ -1609,9 +1620,12 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
 }
 
 // GemmInt8 with VNNI int4-weight fp32-output
-#define SUB_ORDER {0,2,1,3}
+#define SUB_ORDER \
+    { 0, 2, 1, 3 }
 
-void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDst) {
+void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t* src, const int8_t* weight,
+                                                       size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
+                                                       const QuanPostTreatParameters* post, size_t realDst) {
     MNN_ASSERT(post->useInt8 == 0);
     int suborder[4] = SUB_ORDER;
     const auto dst_step_tmp = dst_step / sizeof(int8_t);
@@ -1639,7 +1653,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
     if (post->inputScale) {
         inputscale0 = _mm512_set1_ps(post->inputScale[0]);
         if (realDst > 1) {
-            inputscale1 = _mm512_set1_ps(post->inputScale[1]);    
+            inputscale1 = _mm512_set1_ps(post->inputScale[1]);
         }
         if (realDst > 2) {
             inputscale2 = _mm512_set1_ps(post->inputScale[2]);
@@ -1648,8 +1662,9 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
             inputscale3 = _mm512_set1_ps(post->inputScale[3]);
         }
     }
-    auto neg128f   = _mm512_set1_ps(-128.f);
-    __m512 bias00, bias10, bias20, bias30, bias01, bias02, bias03, bias11, bias12, bias13, bias21, bias22, bias23, bias31, bias32, bias33;
+    auto neg128f = _mm512_set1_ps(-128.f);
+    __m512 bias00, bias10, bias20, bias30, bias01, bias02, bias03, bias11, bias12, bias13, bias21, bias22, bias23,
+        bias31, bias32, bias33;
 
     int weight_step_Y = GEMMINT8_AVX512_L * GEMMINT8_AVX512_H / 2;
     int weight_step_Z = src_depth_quad * weight_step_Y + (2 * 4 * GEMMINT8_AVX512_H);
@@ -1685,22 +1700,22 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
                 __m512i D15 = _mm512_set1_epi32(0);
 
                 // block's weight&scale&bias
-                const auto weight_dz = weight + dz * (blockNum * weight_step_Z) + bk *  weight_step_Z;
+                const auto weight_dz = weight + dz * (blockNum * weight_step_Z) + bk * weight_step_Z;
                 const float* scale_dz = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weight_step_Y);
                 const auto weightBias_dz = scale_dz + GEMMINT8_AVX512_H;
                 // block's input
                 const auto src_x = src + bk * src_depth_quad * GEMMINT8_AVX512_L * realDst;
                 for (int sz = 0; sz < src_depth_quad; ++sz) {
                     const auto weight_sz = weight_dz + weight_step_Y * sz;
-                    const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
+                    const auto src_z = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
 
                     // int4->int8: total count=4*64(GEMMINT8_AVX512_L * GEMMINT8_AVX512_H)
                     // Load 4*64 int4 weight
-                    auto w0_int4_64 = _mm512_loadu_si512(weight_sz); // 128xint4_t=64 byte
+                    auto w0_int4_64 = _mm512_loadu_si512(weight_sz);      // 128xint4_t=64 byte
                     auto w1_int4_64 = _mm512_loadu_si512(weight_sz + 64); // 128xint4_t
                     // 256xint4_t->256xint8_t
                     auto w0 = _mm512_and_si512(mask, _mm512_srli_epi16(w0_int4_64, 4)); // 64xint8_t
-                    auto w2 = _mm512_and_si512(mask, w0_int4_64); // 64xint8_t
+                    auto w2 = _mm512_and_si512(mask, w0_int4_64);                       // 64xint8_t
                     auto w1 = _mm512_and_si512(mask, _mm512_srli_epi16(w1_int4_64, 4));
                     auto w3 = _mm512_and_si512(mask, w1_int4_64);
 
@@ -1745,7 +1760,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
                 kernelSum3 = _mm512_set1_ps((post->srcKernelSum + bk * realDst)[3]);
                 if (post->inputBias) {
                     inputscale0 = _mm512_set1_ps((post->inputScale + bk * realDst)[0]);
-                    inputscale1= _mm512_set1_ps((post->inputScale + bk * realDst)[1]);
+                    inputscale1 = _mm512_set1_ps((post->inputScale + bk * realDst)[1]);
                     inputscale2 = _mm512_set1_ps((post->inputScale + bk * realDst)[2]);
                     inputscale3 = _mm512_set1_ps((post->inputScale + bk * realDst)[3]);
                     inputbias0 = _mm512_set1_ps((post->inputBias + bk * realDst)[0]);
@@ -1790,7 +1805,8 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
                     f15 = _mm512_mul_ps(f15, inputscale3);
                     if ((post->useInt8 == 0) && post->weightKernelSum && (post->inputBias || (bk == 0))) {
                         if (post->inputBias) {
-                            weightKernelSum_dz = post->weightKernelSum + bk * GEMMINT8_AVX512_H + dz * blockNum * GEMMINT8_AVX512_H;
+                            weightKernelSum_dz =
+                                post->weightKernelSum + bk * GEMMINT8_AVX512_H + dz * blockNum * GEMMINT8_AVX512_H;
                             auto wsum0 = _mm512_loadu_ps(weightKernelSum_dz);
                             auto wsum1 = _mm512_loadu_ps(weightKernelSum_dz + 1 * PACK_UNIT);
                             auto wsum2 = _mm512_loadu_ps(weightKernelSum_dz + 2 * PACK_UNIT);
@@ -1862,12 +1878,12 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
                 f7 = _mm512_add_ps(_mm512_mul_ps(kernelSum3, weightBiasValue1), f7);
                 f8 = _mm512_add_ps(_mm512_mul_ps(kernelSum0, weightBiasValue2), f8);
                 f9 = _mm512_add_ps(_mm512_mul_ps(kernelSum1, weightBiasValue2), f9);
-                f10 = _mm512_add_ps(_mm512_mul_ps(kernelSum2, weightBiasValue2),f10);
-                f11 = _mm512_add_ps(_mm512_mul_ps(kernelSum3, weightBiasValue2),f11);
-                f12 = _mm512_add_ps(_mm512_mul_ps(kernelSum0, weightBiasValue3),f12);
-                f13 = _mm512_add_ps(_mm512_mul_ps(kernelSum1, weightBiasValue3),f13);
-                f14 = _mm512_add_ps(_mm512_mul_ps(kernelSum2, weightBiasValue3),f14);
-                f15 = _mm512_add_ps(_mm512_mul_ps(kernelSum3, weightBiasValue3),f15);
+                f10 = _mm512_add_ps(_mm512_mul_ps(kernelSum2, weightBiasValue2), f10);
+                f11 = _mm512_add_ps(_mm512_mul_ps(kernelSum3, weightBiasValue2), f11);
+                f12 = _mm512_add_ps(_mm512_mul_ps(kernelSum0, weightBiasValue3), f12);
+                f13 = _mm512_add_ps(_mm512_mul_ps(kernelSum1, weightBiasValue3), f13);
+                f14 = _mm512_add_ps(_mm512_mul_ps(kernelSum2, weightBiasValue3), f14);
+                f15 = _mm512_add_ps(_mm512_mul_ps(kernelSum3, weightBiasValue3), f15);
 
                 if (bk > 0) {
                     f0 = _mm512_add_ps(_mm512_loadu_ps(accum_x), f0);
@@ -1914,12 +1930,12 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
                         f15 = _mm512_add_ps(f15, biasValue12);
                     }
                     if (post->fp32minmax) {
-                        POST_TREAT_FLOAT(0,1,2,3);
-                        POST_TREAT_FLOAT(4,5,6,7);
-                        POST_TREAT_FLOAT(8,9,10,11);
-                        POST_TREAT_FLOAT(12,13,14,15);
+                        POST_TREAT_FLOAT(0, 1, 2, 3);
+                        POST_TREAT_FLOAT(4, 5, 6, 7);
+                        POST_TREAT_FLOAT(8, 9, 10, 11);
+                        POST_TREAT_FLOAT(12, 13, 14, 15);
                     }
-                    
+
                     _mm512_storeu_ps(((float*)dst_x), f0);
                     _mm512_storeu_ps(((float*)dst_x) + 16, f1);
                     _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f2);
@@ -1960,30 +1976,33 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
             }
         } // dzU
         // the remaining ocDivPack
-        auto weight_dz = weight + dzU * blockNum * weight_step_Z;                                            // weight address for remaining
+        auto weight_dz = weight + dzU * blockNum * weight_step_Z; // weight address for remaining
         if (biasPtr) {
             bias_dz = post->biasFloat + dzU * PACK_UNIT * dzUnit;
         }
 
         auto dst_x = dst + dzU * dst_step_tmp * dzUnit;
-        for (int i=0; i<dzR; ++i) {
+        for (int i = 0; i < dzR; ++i) {
             auto accum_x = accumbuff;
             for (int bk = 0; bk < blockNum; ++bk) {
                 __m512i D0 = _mm512_set1_epi32(0);
                 __m512i D1 = _mm512_set1_epi32(0);
                 __m512i D2 = _mm512_set1_epi32(0);
                 __m512i D3 = _mm512_set1_epi32(0);
-                auto weightDzSub = weight_dz + bk * weight_step_Z + weightPackStride * suborder[i];
+                int subIndex = i;
+                int subPair = subIndex & 1;
+                auto weightDzSub = weight_dz + bk * weight_step_Z + subPair * 64;
                 auto scaleDz = (float*)(weight_dz + bk * weight_step_Z + src_depth_quad * weight_step_Y);
-                 auto biasDz = scaleDz + GEMMINT8_AVX512_H;
+                auto biasDz = scaleDz + GEMMINT8_AVX512_H;
                 const auto src_x = src + bk * src_depth_quad * GEMMINT8_AVX512_L * realDst;
 
                 for (int sz = 0; sz < src_depth_quad; ++sz) {
                     const auto weight_sz = weightDzSub + weight_step_Y * sz;
-                    const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
-                    auto w0_int4_64 = _mm512_loadu_si512(weight_sz); // 128xint4_t=64 byte
-                    // 256xint4_t->256xint8_t
-                    auto w0 = _mm512_and_si512(mask, _mm512_srli_epi16(w0_int4_64, 4)); // 64xint8_t
+                    const auto src_z = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
+                    auto w0_int4_64 = _mm512_loadu_si512(weight_sz);                       // 128xint4_t=64 byte
+                    auto w0_hi = _mm512_and_si512(mask, _mm512_srli_epi16(w0_int4_64, 4)); // 64xint8_t
+                    auto w0_lo = _mm512_and_si512(mask, w0_int4_64);                       // 64xint8_t
+                    auto w0 = subIndex < 2 ? w0_hi : w0_lo;
 
                     auto s0 = AVX512_BROADCAST_INT32(src_z + 0);
                     auto s1 = AVX512_BROADCAST_INT32(src_z + 1);
@@ -2025,7 +2044,8 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
                     f3 = _mm512_mul_ps(f3, inputscale3);
                     if ((post->useInt8 == 0) && post->weightKernelSum && (post->inputBias || (bk == 0))) {
                         if (post->inputBias) {
-                            weightKernelSum_dz = post->weightKernelSum + dzU * blockNum * GEMMINT8_AVX512_H + bk * GEMMINT8_AVX512_H;
+                            weightKernelSum_dz =
+                                post->weightKernelSum + dzU * blockNum * GEMMINT8_AVX512_H + bk * GEMMINT8_AVX512_H;
                             auto wsum0 = _mm512_loadu_ps(weightKernelSum_dz + i * PACK_UNIT);
                             bias00 = _mm512_mul_ps(inputbias0, wsum0);
                             bias01 = _mm512_mul_ps(inputbias1, wsum0);
@@ -2049,7 +2069,6 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
                 f1 = _mm512_add_ps(_mm512_mul_ps(kernelSum1, weightBiasValue0), f1);
                 f2 = _mm512_add_ps(_mm512_mul_ps(kernelSum2, weightBiasValue0), f2);
                 f3 = _mm512_add_ps(_mm512_mul_ps(kernelSum3, weightBiasValue0), f3);
-                
 
                 if (bk > 0) {
                     f0 = _mm512_add_ps(_mm512_loadu_ps((float*)accum_x), f0);
@@ -2066,7 +2085,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
                         f3 = _mm512_add_ps(f3, biasValue0);
                     }
                     if (post->fp32minmax) {
-                        POST_TREAT_FLOAT(0,1,2,3);
+                        POST_TREAT_FLOAT(0, 1, 2, 3);
                     }
                     _mm512_storeu_ps((float*)(dst_x + i * dst_step_tmp), f0);
                     _mm512_storeu_ps((float*)(dst_x + i * dst_step_tmp) + 16, f1);
@@ -2082,7 +2101,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
         }
         return;
     }
-    
+
     if (realDst == 3) {
         for (int dz = 0; dz < dzU; ++dz) {
             if (biasPtr) {
@@ -2109,22 +2128,22 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
                 __m512i D14 = _mm512_set1_epi32(0);
 
                 // block's weight&scale&bias
-                const auto weight_dz = weight + dz * blockNum * weight_step_Z + bk *  weight_step_Z;
+                const auto weight_dz = weight + dz * blockNum * weight_step_Z + bk * weight_step_Z;
                 const float* scale_dz = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weight_step_Y);
                 const auto weightBias_dz = scale_dz + GEMMINT8_AVX512_H;
                 // block's input
                 const auto src_x = src + bk * src_depth_quad * GEMMINT8_AVX512_L * realDst;
                 for (int sz = 0; sz < src_depth_quad; ++sz) {
                     const auto weight_sz = weight_dz + weight_step_Y * sz;
-                    const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
+                    const auto src_z = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
 
                     // int4->int8: total count=4*64(GEMMINT8_AVX512_L * GEMMINT8_AVX512_H)
                     // Load 4*64 int4 weight
-                    auto w0_int4_64 = _mm512_loadu_si512(weight_sz); // 128xint4_t=64 byte
+                    auto w0_int4_64 = _mm512_loadu_si512(weight_sz);      // 128xint4_t=64 byte
                     auto w1_int4_64 = _mm512_loadu_si512(weight_sz + 64); // 128xint4_t
                     // 256xint4_t->256xint8_t
                     auto w0 = _mm512_and_si512(mask, _mm512_srli_epi16(w0_int4_64, 4)); // 64xint8_t
-                    auto w2 = _mm512_and_si512(mask, w0_int4_64); // 64xint8_t
+                    auto w2 = _mm512_and_si512(mask, w0_int4_64);                       // 64xint8_t
                     auto w1 = _mm512_and_si512(mask, _mm512_srli_epi16(w1_int4_64, 4));
                     auto w3 = _mm512_and_si512(mask, w1_int4_64);
 
@@ -2163,7 +2182,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
                 kernelSum2 = _mm512_set1_ps((post->srcKernelSum + bk * realDst)[2]);
                 if (post->inputBias) {
                     inputscale0 = _mm512_set1_ps((post->inputScale + bk * realDst)[0]);
-                    inputscale1= _mm512_set1_ps((post->inputScale + bk * realDst)[1]);
+                    inputscale1 = _mm512_set1_ps((post->inputScale + bk * realDst)[1]);
                     inputscale2 = _mm512_set1_ps((post->inputScale + bk * realDst)[2]);
                     inputbias0 = _mm512_set1_ps((post->inputBias + bk * realDst)[0]);
                     inputbias1 = _mm512_set1_ps((post->inputBias + bk * realDst)[1]);
@@ -2197,7 +2216,8 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
                     f14 = _mm512_mul_ps(f14, inputscale2);
                     if ((post->useInt8 == 0) && post->weightKernelSum && (post->inputBias || (bk == 0))) {
                         if (post->inputBias) {
-                            weightKernelSum_dz = post->weightKernelSum + bk * GEMMINT8_AVX512_H + dz * blockNum * GEMMINT8_AVX512_H;
+                            weightKernelSum_dz =
+                                post->weightKernelSum + bk * GEMMINT8_AVX512_H + dz * blockNum * GEMMINT8_AVX512_H;
                             auto wsum0 = _mm512_loadu_ps(weightKernelSum_dz);
                             auto wsum1 = _mm512_loadu_ps(weightKernelSum_dz + 1 * PACK_UNIT);
                             auto wsum2 = _mm512_loadu_ps(weightKernelSum_dz + 2 * PACK_UNIT);
@@ -2255,10 +2275,10 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
                 f6 = _mm512_add_ps(_mm512_mul_ps(kernelSum2, weightBiasValue1), f6);
                 f8 = _mm512_add_ps(_mm512_mul_ps(kernelSum0, weightBiasValue2), f8);
                 f9 = _mm512_add_ps(_mm512_mul_ps(kernelSum1, weightBiasValue2), f9);
-                f10 = _mm512_add_ps(_mm512_mul_ps(kernelSum2, weightBiasValue2),f10);
-                f12 = _mm512_add_ps(_mm512_mul_ps(kernelSum0, weightBiasValue3),f12);
-                f13 = _mm512_add_ps(_mm512_mul_ps(kernelSum1, weightBiasValue3),f13);
-                f14 = _mm512_add_ps(_mm512_mul_ps(kernelSum2, weightBiasValue3),f14);
+                f10 = _mm512_add_ps(_mm512_mul_ps(kernelSum2, weightBiasValue2), f10);
+                f12 = _mm512_add_ps(_mm512_mul_ps(kernelSum0, weightBiasValue3), f12);
+                f13 = _mm512_add_ps(_mm512_mul_ps(kernelSum1, weightBiasValue3), f13);
+                f14 = _mm512_add_ps(_mm512_mul_ps(kernelSum2, weightBiasValue3), f14);
 
                 if (bk > 0) {
                     f0 = _mm512_add_ps(_mm512_loadu_ps(accum_x), f0);
@@ -2297,10 +2317,10 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
                         f14 = _mm512_add_ps(f14, biasValue12);
                     }
                     if (post->fp32minmax) {
-                        POST_TREAT_FLOAT_3(0,1,2);
-                        POST_TREAT_FLOAT_3(4,5,6);
-                        POST_TREAT_FLOAT_3(8,9,10);
-                        POST_TREAT_FLOAT_3(12,13,14);
+                        POST_TREAT_FLOAT_3(0, 1, 2);
+                        POST_TREAT_FLOAT_3(4, 5, 6);
+                        POST_TREAT_FLOAT_3(8, 9, 10);
+                        POST_TREAT_FLOAT_3(12, 13, 14);
                     }
 
                     _mm512_storeu_ps(((float*)dst_x), f0);
@@ -2335,29 +2355,32 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
             }
         } // dzU
         // the remaining ocDivPack
-        auto weight_dz = weight + dzU * blockNum * weight_step_Z;                                            // weight address for remaining
+        auto weight_dz = weight + dzU * blockNum * weight_step_Z; // weight address for remaining
         if (biasPtr) {
             bias_dz = post->biasFloat + dzU * PACK_UNIT * dzUnit;
         }
 
         auto dst_x = dst + dzU * dst_step_tmp * dzUnit;
-        for (int i=0; i<dzR; ++i) {
+        for (int i = 0; i < dzR; ++i) {
             auto accum_x = accumbuff;
             for (int bk = 0; bk < blockNum; ++bk) {
                 __m512i D0 = _mm512_set1_epi32(0);
                 __m512i D1 = _mm512_set1_epi32(0);
                 __m512i D2 = _mm512_set1_epi32(0);
-                auto weightDzSub = weight_dz + bk * weight_step_Z + weightPackStride * suborder[i];
+                int subIndex = i;
+                int subPair = subIndex & 1;
+                auto weightDzSub = weight_dz + bk * weight_step_Z + subPair * 64;
                 auto scaleDz = (float*)(weight_dz + bk * weight_step_Z + src_depth_quad * weight_step_Y);
-                 auto biasDz = scaleDz + GEMMINT8_AVX512_H;
+                auto biasDz = scaleDz + GEMMINT8_AVX512_H;
                 const auto src_x = src + bk * src_depth_quad * GEMMINT8_AVX512_L * realDst;
 
                 for (int sz = 0; sz < src_depth_quad; ++sz) {
                     const auto weight_sz = weightDzSub + weight_step_Y * sz;
-                    const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
-                    auto w0_int4_64 = _mm512_loadu_si512(weight_sz); // 128xint4_t=64 byte
-                    // 256xint4_t->256xint8_t
-                    auto w0 = _mm512_and_si512(mask, _mm512_srli_epi16(w0_int4_64, 4)); // 64xint8_t
+                    const auto src_z = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
+                    auto w0_int4_64 = _mm512_loadu_si512(weight_sz);                       // 128xint4_t=64 byte
+                    auto w0_hi = _mm512_and_si512(mask, _mm512_srli_epi16(w0_int4_64, 4)); // 64xint8_t
+                    auto w0_lo = _mm512_and_si512(mask, w0_int4_64);                       // 64xint8_t
+                    auto w0 = subIndex < 2 ? w0_hi : w0_lo;
 
                     auto s0 = AVX512_BROADCAST_INT32(src_z + 0);
                     auto s1 = AVX512_BROADCAST_INT32(src_z + 1);
@@ -2392,7 +2415,8 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
                     f2 = _mm512_mul_ps(f2, inputscale2);
                     if ((post->useInt8 == 0) && post->weightKernelSum && (post->inputBias || (bk == 0))) {
                         if (post->inputBias) {
-                            weightKernelSum_dz = post->weightKernelSum + dzU * blockNum * GEMMINT8_AVX512_H + bk * GEMMINT8_AVX512_H;
+                            weightKernelSum_dz =
+                                post->weightKernelSum + dzU * blockNum * GEMMINT8_AVX512_H + bk * GEMMINT8_AVX512_H;
                             auto wsum0 = _mm512_loadu_ps(weightKernelSum_dz + i * PACK_UNIT);
                             bias00 = _mm512_mul_ps(inputbias0, wsum0);
                             bias01 = _mm512_mul_ps(inputbias1, wsum0);
@@ -2426,7 +2450,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
                         f2 = _mm512_add_ps(f2, biasValue0);
                     }
                     if (post->fp32minmax) {
-                        POST_TREAT_FLOAT_3(0,1,2);
+                        POST_TREAT_FLOAT_3(0, 1, 2);
                     }
                     _mm512_storeu_ps((float*)(dst_x + i * dst_step_tmp), f0);
                     _mm512_storeu_ps((float*)(dst_x + i * dst_step_tmp) + 16, f1);
@@ -2463,22 +2487,22 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
                 __m512i D13 = _mm512_set1_epi32(0);
 
                 // block's weight&scale&bias
-                const auto weight_dz = weight + dz * blockNum * weight_step_Z + bk *  weight_step_Z;
+                const auto weight_dz = weight + dz * blockNum * weight_step_Z + bk * weight_step_Z;
                 const float* scale_dz = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weight_step_Y);
                 const auto weightBias_dz = scale_dz + GEMMINT8_AVX512_H;
                 // block's input
                 const auto src_x = src + bk * src_depth_quad * GEMMINT8_AVX512_L * realDst;
                 for (int sz = 0; sz < src_depth_quad; ++sz) {
                     const auto weight_sz = weight_dz + weight_step_Y * sz;
-                    const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
+                    const auto src_z = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
 
                     // int4->int8: total count=4*64(GEMMINT8_AVX512_L * GEMMINT8_AVX512_H)
                     // Load 4*64 int4 weight
-                    auto w0_int4_64 = _mm512_loadu_si512(weight_sz); // 128xint4_t=64 byte
+                    auto w0_int4_64 = _mm512_loadu_si512(weight_sz);      // 128xint4_t=64 byte
                     auto w1_int4_64 = _mm512_loadu_si512(weight_sz + 64); // 128xint4_t
                     // 256xint4_t->256xint8_t
                     auto w0 = _mm512_and_si512(mask, _mm512_srli_epi16(w0_int4_64, 4)); // 64xint8_t
-                    auto w2 = _mm512_and_si512(mask, w0_int4_64); // 64xint8_t
+                    auto w2 = _mm512_and_si512(mask, w0_int4_64);                       // 64xint8_t
                     auto w1 = _mm512_and_si512(mask, _mm512_srli_epi16(w1_int4_64, 4));
                     auto w3 = _mm512_and_si512(mask, w1_int4_64);
 
@@ -2511,7 +2535,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
                 kernelSum1 = _mm512_set1_ps((post->srcKernelSum + bk * realDst)[1]);
                 if (post->inputBias) {
                     inputscale0 = _mm512_set1_ps((post->inputScale + bk * realDst)[0]);
-                    inputscale1= _mm512_set1_ps((post->inputScale + bk * realDst)[1]);
+                    inputscale1 = _mm512_set1_ps((post->inputScale + bk * realDst)[1]);
                     inputbias0 = _mm512_set1_ps((post->inputBias + bk * realDst)[0]);
                     inputbias1 = _mm512_set1_ps((post->inputBias + bk * realDst)[1]);
                 }
@@ -2536,7 +2560,8 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
                     f13 = _mm512_mul_ps(f13, inputscale1);
                     if ((post->useInt8 == 0) && post->weightKernelSum && (post->inputBias || (bk == 0))) {
                         if (post->inputBias) {
-                            weightKernelSum_dz = post->weightKernelSum + bk * GEMMINT8_AVX512_H + dz * blockNum * GEMMINT8_AVX512_H;
+                            weightKernelSum_dz =
+                                post->weightKernelSum + bk * GEMMINT8_AVX512_H + dz * blockNum * GEMMINT8_AVX512_H;
                             auto wsum0 = _mm512_loadu_ps(weightKernelSum_dz);
                             auto wsum1 = _mm512_loadu_ps(weightKernelSum_dz + 1 * PACK_UNIT);
                             auto wsum2 = _mm512_loadu_ps(weightKernelSum_dz + 2 * PACK_UNIT);
@@ -2580,8 +2605,8 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
                 f5 = _mm512_add_ps(_mm512_mul_ps(kernelSum1, weightBiasValue1), f5);
                 f8 = _mm512_add_ps(_mm512_mul_ps(kernelSum0, weightBiasValue2), f8);
                 f9 = _mm512_add_ps(_mm512_mul_ps(kernelSum1, weightBiasValue2), f9);
-                f12 = _mm512_add_ps(_mm512_mul_ps(kernelSum0, weightBiasValue3),f12);
-                f13 = _mm512_add_ps(_mm512_mul_ps(kernelSum1, weightBiasValue3),f13);
+                f12 = _mm512_add_ps(_mm512_mul_ps(kernelSum0, weightBiasValue3), f12);
+                f13 = _mm512_add_ps(_mm512_mul_ps(kernelSum1, weightBiasValue3), f13);
 
                 if (bk > 0) {
                     f0 = _mm512_add_ps(_mm512_loadu_ps(accum_x), f0);
@@ -2612,12 +2637,12 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
                         f13 = _mm512_add_ps(f13, biasValue12);
                     }
                     if (post->fp32minmax) {
-                        POST_TREAT_FLOAT_2(0,1);
-                        POST_TREAT_FLOAT_2(4,5);
-                        POST_TREAT_FLOAT_2(8,9);
-                        POST_TREAT_FLOAT_2(12,13);
+                        POST_TREAT_FLOAT_2(0, 1);
+                        POST_TREAT_FLOAT_2(4, 5);
+                        POST_TREAT_FLOAT_2(8, 9);
+                        POST_TREAT_FLOAT_2(12, 13);
                     }
-                    
+
                     _mm512_storeu_ps(((float*)dst_x), f0);
                     _mm512_storeu_ps(((float*)dst_x) + 16, f1);
                     dst_x += dst_step_tmp;
@@ -2642,28 +2667,31 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
             }
         } // dzU
         // the remaining ocDivPack
-        auto weight_dz = weight + dzU * blockNum * weight_step_Z;                                            // weight address for remaining
+        auto weight_dz = weight + dzU * blockNum * weight_step_Z; // weight address for remaining
         if (biasPtr) {
             bias_dz = post->biasFloat + dzU * PACK_UNIT * dzUnit;
         }
 
         auto dst_x = dst + dzU * dst_step_tmp * dzUnit;
-        for (int i=0; i<dzR; ++i) {
+        for (int i = 0; i < dzR; ++i) {
             auto accum_x = accumbuff;
             for (int bk = 0; bk < blockNum; ++bk) {
                 __m512i D0 = _mm512_set1_epi32(0);
                 __m512i D1 = _mm512_set1_epi32(0);
-                auto weightDzSub = weight_dz + bk * weight_step_Z + weightPackStride * suborder[i];
+                int subIndex = i;
+                int subPair = subIndex & 1;
+                auto weightDzSub = weight_dz + bk * weight_step_Z + subPair * 64;
                 auto scaleDz = (float*)(weight_dz + bk * weight_step_Z + src_depth_quad * weight_step_Y);
-                 auto biasDz = scaleDz + GEMMINT8_AVX512_H;
+                auto biasDz = scaleDz + GEMMINT8_AVX512_H;
                 const auto src_x = src + bk * src_depth_quad * GEMMINT8_AVX512_L * realDst;
 
                 for (int sz = 0; sz < src_depth_quad; ++sz) {
                     const auto weight_sz = weightDzSub + weight_step_Y * sz;
-                    const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
-                    auto w0_int4_64 = _mm512_loadu_si512(weight_sz); // 128xint4_t=64 byte
-                    // 256xint4_t->256xint8_t
-                    auto w0 = _mm512_and_si512(mask, _mm512_srli_epi16(w0_int4_64, 4)); // 64xint8_t
+                    const auto src_z = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
+                    auto w0_int4_64 = _mm512_loadu_si512(weight_sz);                       // 128xint4_t=64 byte
+                    auto w0_hi = _mm512_and_si512(mask, _mm512_srli_epi16(w0_int4_64, 4)); // 64xint8_t
+                    auto w0_lo = _mm512_and_si512(mask, w0_int4_64);                       // 64xint8_t
+                    auto w0 = subIndex < 2 ? w0_hi : w0_lo;
 
                     auto s0 = AVX512_BROADCAST_INT32(src_z + 0);
                     auto s1 = AVX512_BROADCAST_INT32(src_z + 1);
@@ -2691,7 +2719,8 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
                     f1 = _mm512_mul_ps(f1, inputscale1);
                     if ((post->useInt8 == 0) && post->weightKernelSum && (post->inputBias || (bk == 0))) {
                         if (post->inputBias) {
-                            weightKernelSum_dz = post->weightKernelSum + dzU * blockNum * GEMMINT8_AVX512_H + bk * GEMMINT8_AVX512_H;
+                            weightKernelSum_dz =
+                                post->weightKernelSum + dzU * blockNum * GEMMINT8_AVX512_H + bk * GEMMINT8_AVX512_H;
                             auto wsum0 = _mm512_loadu_ps(weightKernelSum_dz + i * PACK_UNIT);
                             bias00 = _mm512_mul_ps(inputbias0, wsum0);
                             bias01 = _mm512_mul_ps(inputbias1, wsum0);
@@ -2719,7 +2748,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
                         f1 = _mm512_add_ps(f1, biasValue0);
                     }
                     if (post->fp32minmax) {
-                        POST_TREAT_FLOAT_2(0,1);
+                        POST_TREAT_FLOAT_2(0, 1);
                     }
                     _mm512_storeu_ps((float*)(dst_x + i * dst_step_tmp), f0);
                     _mm512_storeu_ps((float*)(dst_x + i * dst_step_tmp) + 16, f1);
@@ -2746,7 +2775,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
                 __m512i D12 = _mm512_set1_epi32(0);
 
                 // block's weight&scale&bias
-                const auto weight_dz = weight + dz * blockNum * weight_step_Z + bk *  weight_step_Z;
+                const auto weight_dz = weight + dz * blockNum * weight_step_Z + bk * weight_step_Z;
                 const float* scale_dz = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weight_step_Y);
                 const auto weightBias_dz = scale_dz + GEMMINT8_AVX512_H;
                 // block's input
@@ -2754,14 +2783,14 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
 
                 for (int sz = 0; sz < src_depth_quad; ++sz) {
                     const auto weight_sz = weight_dz + weight_step_Y * sz;
-                    const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
+                    const auto src_z = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
                     // int4->int8: total count=4*64(GEMMINT8_AVX512_L * GEMMINT8_AVX512_H)
                     // Load 4*64 int4 weight
-                    auto w0_int4_64 = _mm512_loadu_si512(weight_sz); // 128xint4_t=64 byte
+                    auto w0_int4_64 = _mm512_loadu_si512(weight_sz);      // 128xint4_t=64 byte
                     auto w1_int4_64 = _mm512_loadu_si512(weight_sz + 64); // 128xint4_t
                     // 256xint4_t->256xint8_t
                     auto w0 = _mm512_and_si512(mask, _mm512_srli_epi16(w0_int4_64, 4)); // 64xint8_t
-                    auto w2 = _mm512_and_si512(mask, w0_int4_64); // 64xint8_t
+                    auto w2 = _mm512_and_si512(mask, w0_int4_64);                       // 64xint8_t
                     auto w1 = _mm512_and_si512(mask, _mm512_srli_epi16(w1_int4_64, 4));
                     auto w3 = _mm512_and_si512(mask, w1_int4_64);
 
@@ -2800,7 +2829,8 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
                     f12 = _mm512_mul_ps(f12, inputscale0);
                     if ((post->useInt8 == 0) && post->weightKernelSum && (post->inputBias || (bk == 0))) {
                         if (post->inputBias) {
-                            weightKernelSum_dz = post->weightKernelSum + bk * GEMMINT8_AVX512_H + dz * blockNum * GEMMINT8_AVX512_H;
+                            weightKernelSum_dz =
+                                post->weightKernelSum + bk * GEMMINT8_AVX512_H + dz * blockNum * GEMMINT8_AVX512_H;
                             auto wsum0 = _mm512_loadu_ps(weightKernelSum_dz);
                             auto wsum1 = _mm512_loadu_ps(weightKernelSum_dz + 1 * PACK_UNIT);
                             auto wsum2 = _mm512_loadu_ps(weightKernelSum_dz + 2 * PACK_UNIT);
@@ -2867,27 +2897,31 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
             }
         }
         // the remaining ocDivPack
-        auto weight_dz = weight + dzU * blockNum * weight_step_Z;                                            // weight address for remaining
+        auto weight_dz = weight + dzU * blockNum * weight_step_Z; // weight address for remaining
         if (biasPtr) {
             bias_dz = post->biasFloat + dzU * PACK_UNIT * dzUnit;
         }
 
         auto dst_x = dst + dzU * dst_step_tmp * dzUnit;
-        for (int i=0; i<dzR; ++i) {
+        for (int i = 0; i < dzR; ++i) {
             auto accum_x = accumbuff;
             for (int bk = 0; bk < blockNum; ++bk) {
-                auto weightDzSub = weight_dz + bk * weight_step_Z + weightPackStride * suborder[i];
+                int subIndex = i;
+                int subPair = subIndex & 1;
+                auto weightDzSub = weight_dz + bk * weight_step_Z + subPair * 64;
                 auto scaleDz = (float*)(weight_dz + bk * weight_step_Z + src_depth_quad * weight_step_Y);
-                 auto biasDz = scaleDz + GEMMINT8_AVX512_H;
+                auto biasDz = scaleDz + GEMMINT8_AVX512_H;
                 const auto src_x = src + bk * src_depth_quad * GEMMINT8_AVX512_L * realDst;
 
                 __m512i D0 = _mm512_set1_epi32(0);
 
                 for (int sz = 0; sz < src_depth_quad; ++sz) {
                     const auto weight_sz = weightDzSub + weight_step_Y * sz;
-                    const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
-                    auto w0_int4_64 = _mm512_loadu_si512(weight_sz); // 128xint4_t=64 byte
-                    auto w0 = _mm512_and_si512(mask, _mm512_srli_epi16(w0_int4_64, 4)); // 64xint8_t
+                    const auto src_z = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
+                    auto w0_int4_64 = _mm512_loadu_si512(weight_sz);                       // 128xint4_t=64 byte
+                    auto w0_hi = _mm512_and_si512(mask, _mm512_srli_epi16(w0_int4_64, 4)); // 64xint8_t
+                    auto w0_lo = _mm512_and_si512(mask, w0_int4_64);                       // 64xint8_t
+                    auto w0 = subIndex < 2 ? w0_hi : w0_lo;
                     auto s0 = AVX512_BROADCAST_INT32(src_z + 0);
                     D0 = _mm512_dpbusds_epi32(D0, s0, w0);
                 }
@@ -2906,7 +2940,8 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
                     f0 = _mm512_mul_ps(f0, inputscale0);
                     if ((post->useInt8 == 0) && post->weightKernelSum && (post->inputBias || (bk == 0))) {
                         if (post->inputBias) {
-                            weightKernelSum_dz = post->weightKernelSum + dzU * blockNum * GEMMINT8_AVX512_H + bk * GEMMINT8_AVX512_H;
+                            weightKernelSum_dz =
+                                post->weightKernelSum + dzU * blockNum * GEMMINT8_AVX512_H + bk * GEMMINT8_AVX512_H;
                             auto wsum0 = _mm512_loadu_ps(weightKernelSum_dz + i * PACK_UNIT);
                             bias00 = _mm512_mul_ps(inputbias0, wsum0);
                         } else if (bk == 0) { // if input not block quant, only accum once!
@@ -2940,7 +2975,10 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
     }
 }
 
-void _AVX512_MNNLineDepthWiseInt8AddBiasScaleUnit_VNNI(int8_t* dstO, const int8_t* srcO, const int8_t* weightO, const QuanPostTreatParameters* parameters, size_t width, size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, int8_t* idxOrder) {
+void _AVX512_MNNLineDepthWiseInt8AddBiasScaleUnit_VNNI(int8_t* dstO, const int8_t* srcO, const int8_t* weightO,
+                                                       const QuanPostTreatParameters* parameters, size_t width,
+                                                       size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step,
+                                                       size_t dilateY_step, int8_t* idxOrder) {
     auto dst = dstO;
     auto src = (const int16_t*)srcO;
     int widthC4 = width / 2;
@@ -2964,17 +3002,21 @@ void _AVX512_MNNLineDepthWiseInt8AddBiasScaleUnit_VNNI(int8_t* dstO, const int8_
         d2 = biasValue0;
         d3 = biasValue1;
 
-        auto dst_x          = dst;
-        const auto src_z    = src;
+        auto dst_x = dst;
+        const auto src_z = src;
         for (fy = 0; fy < fh; ++fy) {
-            const auto src_y    = src_z + fy * dilateY_step;
+            const auto src_y = src_z + fy * dilateY_step;
             const auto weight_y = weight + fy * fw * PACK_UNIT;
             for (fx = 0; fx < fw; ++fx) {
-                const auto src_x    = src_y + fx * dilateX_step;
-                auto S0 = _mm256_castsi128_si256(_mm_castps_si128(_mm_loadu_ps((const float*)(src_x + 0 * src_w_step))));
-                auto S1 = _mm256_castsi128_si256(_mm_castps_si128(_mm_loadu_ps((const float*)(src_x + 0 * src_w_step + 8))));
-                auto S2 = _mm256_castsi128_si256(_mm_castps_si128(_mm_loadu_ps((const float*)(src_x + 1 * src_w_step))));
-                auto S3 = _mm256_castsi128_si256(_mm_castps_si128(_mm_loadu_ps((const float*)(src_x + 1 * src_w_step + 8))));
+                const auto src_x = src_y + fx * dilateX_step;
+                auto S0 =
+                    _mm256_castsi128_si256(_mm_castps_si128(_mm_loadu_ps((const float*)(src_x + 0 * src_w_step))));
+                auto S1 =
+                    _mm256_castsi128_si256(_mm_castps_si128(_mm_loadu_ps((const float*)(src_x + 0 * src_w_step + 8))));
+                auto S2 =
+                    _mm256_castsi128_si256(_mm_castps_si128(_mm_loadu_ps((const float*)(src_x + 1 * src_w_step))));
+                auto S3 =
+                    _mm256_castsi128_si256(_mm_castps_si128(_mm_loadu_ps((const float*)(src_x + 1 * src_w_step + 8))));
                 const auto weight_x = weight_y + PACK_UNIT * fx;
                 auto W0 = _mm256_castsi128_si256(_mm_castps_si128(_mm_loadu_ps((const float*)weight_x)));
                 auto W1 = _mm256_castsi128_si256(_mm_castps_si128(_mm_loadu_ps((const float*)(weight_x + 8))));
@@ -3065,15 +3107,17 @@ void _AVX512_MNNLineDepthWiseInt8AddBiasScaleUnit_VNNI(int8_t* dstO, const int8_
         d0 = biasValue0;
         d1 = biasValue1;
 
-        auto dst_x          = dst;
-        const auto src_z    = src;
+        auto dst_x = dst;
+        const auto src_z = src;
         for (fy = 0; fy < fh; ++fy) {
-            const auto src_y    = src_z + fy * dilateY_step;
+            const auto src_y = src_z + fy * dilateY_step;
             const auto weight_y = weight + fy * fw * PACK_UNIT;
             for (fx = 0; fx < fw; ++fx) {
-                const auto src_x    = src_y + fx * dilateX_step;
-                auto S0 = _mm256_castsi128_si256(_mm_castps_si128(_mm_loadu_ps((const float*)(src_x + 0 * src_w_step))));
-                auto S1 = _mm256_castsi128_si256(_mm_castps_si128(_mm_loadu_ps((const float*)(src_x + 0 * src_w_step + 8))));
+                const auto src_x = src_y + fx * dilateX_step;
+                auto S0 =
+                    _mm256_castsi128_si256(_mm_castps_si128(_mm_loadu_ps((const float*)(src_x + 0 * src_w_step))));
+                auto S1 =
+                    _mm256_castsi128_si256(_mm_castps_si128(_mm_loadu_ps((const float*)(src_x + 0 * src_w_step + 8))));
                 const auto weight_x = weight_y + PACK_UNIT * fx;
                 auto W0 = _mm256_castsi128_si256(_mm_castps_si128(_mm_loadu_ps((const float*)weight_x)));
                 auto W1 = _mm256_castsi128_si256(_mm_castps_si128(_mm_loadu_ps((const float*)(weight_x + 8))));
