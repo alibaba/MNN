@@ -1,0 +1,80 @@
+layout(set=0, binding=0) readonly buffer s0 {
+    FLOAT data[];
+} uConvOut;
+
+layout(set=0, binding=1) writeonly buffer s1 {
+    FLOAT data[];
+} uQ;
+
+layout(set=0, binding=2) writeonly buffer s2 {
+    FLOAT data[];
+} uK;
+
+layout(set=0, binding=3) writeonly buffer s3 {
+    FLOAT data[];
+} uV;
+
+layout(set=0, binding=4) readonly uniform constBuffer {
+    ivec4 size0; // batch, conv_dim, seq_len, num_k_heads
+    ivec4 size1; // num_v_heads, head_k_dim, head_v_dim, key_dim
+    ivec4 size2; // val_dim, gqa_factor, use_l2norm, total
+    vec4 size3;  // q_scale, 0, 0, 0
+} uConstant;
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+void main() {
+    const int gid = int(gl_GlobalInvocationID.x);
+    const int total = uConstant.size2.w;
+    if (gid >= total) {
+        return;
+    }
+
+    const int batch = uConstant.size0.x;
+    const int convDim = uConstant.size0.y;
+    const int seqLen = uConstant.size0.z;
+    const int numVHeads = uConstant.size1.x;
+    const int dk = uConstant.size1.y;
+    const int dv = uConstant.size1.z;
+    const int keyDim = uConstant.size1.w;
+    const int gqaFactor = uConstant.size2.y;
+    const int useL2Norm = uConstant.size2.z;
+    const float qScale = uConstant.size3.x;
+
+    const int b = gid / (seqLen * numVHeads);
+    const int rem = gid % (seqLen * numVHeads);
+    const int t = rem / numVHeads;
+    const int h = rem % numVHeads;
+    const int kHead = h / gqaFactor;
+    const int convBase = b * convDim * seqLen;
+    const int qBase = gid * dk;
+    const int kBase = gid * dk;
+    const int vBase = gid * dv;
+
+    float qInvNorm = qScale;
+    float kInvNorm = 1.0;
+    if (useL2Norm != 0) {
+        float qSumSq = 0.0;
+        float kSumSq = 0.0;
+        for (int i = 0; i < dk; ++i) {
+            const float qv = float(uConvOut.data[convBase + (kHead * dk + i) * seqLen + t]);
+            const float kv = float(uConvOut.data[convBase + (keyDim + kHead * dk + i) * seqLen + t]);
+            qSumSq += qv * qv;
+            kSumSq += kv * kv;
+        }
+        const float eps = 1e-6;
+        qInvNorm = inversesqrt(qSumSq + eps) * qScale;
+        kInvNorm = inversesqrt(kSumSq + eps);
+    }
+
+    for (int i = 0; i < dk; ++i) {
+        const float qv = float(uConvOut.data[convBase + (kHead * dk + i) * seqLen + t]);
+        const float kv = float(uConvOut.data[convBase + (keyDim + kHead * dk + i) * seqLen + t]);
+        uQ.data[qBase + i] = FLOAT(qv * qInvNorm);
+        uK.data[kBase + i] = FLOAT(kv * kInvNorm);
+    }
+
+    for (int i = 0; i < dv; ++i) {
+        uV.data[vBase + i] = uConvOut.data[convBase + (2 * keyDim + h * dv + i) * seqLen + t];
+    }
+}

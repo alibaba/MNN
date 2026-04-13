@@ -380,6 +380,21 @@
     "attention_prefill_kblock_finalize.comp": {
         "useFP16": true
     },
+    "linear_attn_conv_silu.comp": {
+        "useFP16": true
+    },
+    "linear_attn_conv_state_update.comp": {
+        "useFP16": true
+    },
+    "linear_attn_qkv_prep.comp": {
+        "useFP16": true
+    },
+    "linear_attn_gated_delta_rule_prefill.comp": {
+        "useFP16": true
+    },
+    "linear_attn_gated_delta_rule_decode.comp": {
+        "useFP16": true
+    },
     "roipooling.comp": {
         "useFP16": true
     },
