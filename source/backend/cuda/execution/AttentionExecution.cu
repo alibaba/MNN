@@ -25,7 +25,8 @@ __global__ void compact_kv_cache_kernel(
     int n_reserve_pairs,
     int past_kv_len_after_remove, // 移除了末尾token后的长度
     int b, int h_kv, int d,
-    int kv_cache_max_len,
+    int src_kv_cache_max_len, // Value Cache 源的 L 维度步长
+    int dst_kv_cache_max_len, // Value Cache 目标的 L 维度步长
     size_t element_size
 ) {
     // 每个线程负责一个 (b, h_kv, d) 组合下，一个 reserve 片段的拷贝
@@ -59,8 +60,8 @@ __global__ void compact_kv_cache_kernel(
         memcpy(dst_k_ptr + k_dst_idx * element_size, src_k_ptr + k_src_idx * element_size, element_size);
 
         // Value: [B, H, L, D]
-        int v_src_idx = ((b_idx * h_kv + h_kv_idx) * kv_cache_max_len + (src_offset + l)) * d + d_idx;
-        int v_dst_idx = ((b_idx * h_kv + h_kv_idx) * kv_cache_max_len + (dst_offset + l)) * d + d_idx;
+        int v_src_idx = ((b_idx * h_kv + h_kv_idx) * src_kv_cache_max_len + (src_offset + l)) * d + d_idx;
+        int v_dst_idx = ((b_idx * h_kv + h_kv_idx) * dst_kv_cache_max_len + (dst_offset + l)) * d + d_idx;
         memcpy(dst_v_ptr + v_dst_idx * element_size, src_v_ptr + v_src_idx * element_size, element_size);
     }
 }
@@ -260,6 +261,146 @@ __global__ void flash_decode_kernel(
     }
 }
 
+
+// =====================================================================
+// Flash Decode Kernel with Mask support for speculative decoding
+// - Each block handles one (batch, q_head, q_idx) triple
+// - Uses online softmax like flash_decode_kernel (single pass, no temp buffers)
+// - Supports additive mask for the new KV region (tree attention)
+// - Optimal for small seq_len (e.g., 4-32 tokens) with large KV cache
+// =====================================================================
+template<typename T>
+__global__ void flash_decode_kernel_with_mask(
+    const T* __restrict__ query_input,    // [B, L_q, H_q, D]
+    const T* __restrict__ key_cache,      // [L_kv_alloc, B, H_kv, D]
+    const T* __restrict__ value_cache,    // [B, H_kv, L_kv_alloc, D]
+    T* __restrict__ output,               // [B, L_q, H_q, D]
+    const T* __restrict__ mask,           // [1, 1, L_q, L_q] additive mask for new KV region
+    const int batch,
+    const int head_num,         // H_q
+    const int kv_head_num,      // H_kv
+    const int head_dim,         // D
+    const int key_seq_len,      // total KV length (past + new)
+    const int max_kv_len,       // allocated KV length (stride for value cache)
+    const int query_seq_len,    // L_q (number of new/query tokens)
+    const float scale
+) {
+    // Each block: one (batch, head_q, q_idx) triple
+    const int idx = blockIdx.x;
+    const int q_idx = idx % query_seq_len;
+    const int bh_idx = idx / query_seq_len;
+    const int b_idx = bh_idx / head_num;
+    const int h_q_idx = bh_idx % head_num;
+    const int h_kv_idx = h_q_idx / (head_num / kv_head_num);
+    const int tid = threadIdx.x;
+    const int WARP_SIZE = 32;
+    const int warp_id = tid / WARP_SIZE;
+    const int lane_id = tid % WARP_SIZE;
+    const int num_warps = blockDim.x / WARP_SIZE;
+
+    if (b_idx >= batch) return;
+
+    // Load query vector: [B, L_q, H_q, D]
+    const T* q_ptr = query_input + b_idx * query_seq_len * head_num * head_dim
+                    + q_idx * head_num * head_dim + h_q_idx * head_dim;
+
+    // Mask region: keys at index >= (key_seq_len - query_seq_len) are new tokens
+    const int past_kv_len = key_seq_len - query_seq_len;
+
+    // Shared memory for warp-level reductions
+    extern __shared__ char smem_raw[];
+    float* smem = reinterpret_cast<float*>(smem_raw); // [num_warps]
+
+    // Online softmax state
+    float thread_max = -1e20f;
+    float thread_sum = 0.0f;
+
+    // Per-thread output accumulator
+    float thread_out[8];
+    const int d_per_thread = (head_dim + blockDim.x - 1) / blockDim.x;
+    for (int i = 0; i < d_per_thread && i < 8; i++) thread_out[i] = 0.0f;
+
+    // Value cache base pointer: [B, H_kv, L_kv_alloc, D]
+    const T* v_base = value_cache + b_idx * kv_head_num * max_kv_len * head_dim
+                    + h_kv_idx * max_kv_len * head_dim;
+
+    // Iterate over all KV positions
+    for (int k = 0; k < key_seq_len; k++) {
+        // Key Cache: [L_kv_alloc, B, H_kv, D]
+        const T* k_ptr = key_cache + k * batch * kv_head_num * head_dim
+                        + b_idx * kv_head_num * head_dim
+                        + h_kv_idx * head_dim;
+
+        // Compute QK dot product
+        float qk_partial = 0.0f;
+        for (int d = tid; d < head_dim; d += blockDim.x) {
+            qk_partial += (float)q_ptr[d] * (float)k_ptr[d];
+        }
+
+        // Warp-level reduction
+        for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
+            qk_partial += __shfl_xor_sync(0xffffffff, qk_partial, offset);
+        }
+        if (lane_id == 0) {
+            smem[warp_id] = qk_partial;
+        }
+        __syncthreads();
+
+        float qk_score = 0.0f;
+        if (tid == 0) {
+            for (int w = 0; w < num_warps; w++) {
+                qk_score += smem[w];
+            }
+            qk_score *= scale;
+
+            // Apply additive mask for new KV positions
+            if (k >= past_kv_len) {
+                int new_k_idx = k - past_kv_len;
+                // mask: [1, 1, L_q, L_q], row=q_idx, col=new_k_idx
+                float mask_val = (float)mask[q_idx * query_seq_len + new_k_idx];
+                qk_score += mask_val;
+            }
+
+            smem[0] = qk_score;
+        }
+        __syncthreads();
+        qk_score = smem[0];
+
+        // Online softmax update
+        float old_max = thread_max;
+        float new_max = fmaxf(old_max, qk_score);
+        float exp_diff = expf(old_max - new_max);
+        float exp_score = expf(qk_score - new_max);
+
+        for (int i = 0; i < d_per_thread && i < 8; i++) {
+            thread_out[i] *= exp_diff;
+        }
+        thread_sum = thread_sum * exp_diff + exp_score;
+        thread_max = new_max;
+
+        // Accumulate weighted value
+        for (int i = 0; i < d_per_thread && i < 8; i++) {
+            int d = tid + i * blockDim.x;
+            if (d < head_dim) {
+                float v_val = (float)v_base[k * head_dim + d];
+                thread_out[i] += exp_score * v_val;
+            }
+        }
+    }
+
+    // Final normalize
+    float inv_sum = (thread_sum > 0.0f) ? (1.0f / thread_sum) : 0.0f;
+
+    // Write output: [B, L_q, H_q, D]
+    T* out_ptr = output + b_idx * query_seq_len * head_num * head_dim
+                + q_idx * head_num * head_dim + h_q_idx * head_dim;
+    for (int i = 0; i < d_per_thread && i < 8; i++) {
+        int d = tid + i * blockDim.x;
+        if (d < head_dim) {
+            out_ptr[d] = (T)(thread_out[i] * inv_sum);
+        }
+    }
+}
 
 // =====================================================================
 // OPT-2: Split-K Flash Decode Kernel
@@ -763,7 +904,7 @@ ErrorCode AttentionExecution::reallocKVCache_gpu(int required_total_kv_len, cons
         cudaMemcpyAsync(reserve_offsets_gpu, reserve_offsets_host.data(), (meta->n_reserve + 1) * sizeof(int), cudaMemcpyHostToDevice, stream);
 
         dim3 blockDim(mHeadDim, 1, 1);
-        dim3 gridDim(mBatch * mKvNumHead, 1, 1);
+        dim3 gridDim(mBatch * mKvNumHead, meta->n_reserve, 1);
 
         if (needs_realloc) {
             // P2: 2x growth strategy
@@ -782,12 +923,30 @@ ErrorCode AttentionExecution::reallocKVCache_gpu(int required_total_kv_len, cons
                 return MNN::OUT_OF_MEMORY;
             }
 
+            // Copy preserved data [0, past_len_after_remove) from old to new cache
+            if (past_len_after_remove > 0) {
+                // Key: [L, B, H_kv, D] — contiguous in first dimension
+                cudaMemcpyAsync(getTensorDevicePtr(new_past_key_tensor.get()),
+                    getTensorDevicePtr(mCache->mPastKey.get()),
+                    (size_t)past_len_after_remove * mBatch * mKvNumHead * mHeadDim * element_size,
+                    cudaMemcpyDeviceToDevice, stream);
+                // Value: [B, H_kv, L, D] — strided copy
+                cudaMemcpy2DAsync(getTensorDevicePtr(new_past_value_tensor.get()),
+                    (size_t)new_allocated_max_len * mHeadDim * element_size,
+                    getTensorDevicePtr(mCache->mPastValue.get()),
+                    (size_t)mCache->mMaxLength * mHeadDim * element_size,
+                    (size_t)past_len_after_remove * mHeadDim * element_size,
+                    (size_t)mBatch * mKvNumHead,
+                    cudaMemcpyDeviceToDevice, stream);
+            }
+
+            // Compact reserve data from old cache into new cache
             compact_kv_cache_kernel<<<gridDim, blockDim, 0, stream>>>(
                 getTensorDevicePtr(mCache->mPastKey.get()), getTensorDevicePtr(mCache->mPastValue.get()),
                 getTensorDevicePtr(new_past_key_tensor.get()), getTensorDevicePtr(new_past_value_tensor.get()),
                 reserve_info_gpu, reserve_offsets_gpu,
                 meta->n_reserve, past_len_after_remove,
-                mBatch, mKvNumHead, mHeadDim, new_allocated_max_len, element_size
+                mBatch, mKvNumHead, mHeadDim, mCache->mMaxLength, new_allocated_max_len, element_size
             );
 
             mCudaBackend->onReleaseBuffer(mCache->mPastKey.get(), Backend::STATIC);
@@ -796,38 +955,18 @@ ErrorCode AttentionExecution::reallocKVCache_gpu(int required_total_kv_len, cons
             mCache->mPastValue = new_past_value_tensor;
             mCache->mMaxLength = new_allocated_max_len;
         } else {
-            std::shared_ptr<Tensor> temp_key(mPrecision == 4
-                ? Tensor::createDevice<float>(mCache->mPastKey->shape())
-                : Tensor::createDevice<uint16_t>(mCache->mPastKey->shape()));
-            std::shared_ptr<Tensor> temp_value(mPrecision == 4
-                ? Tensor::createDevice<float>(mCache->mPastValue->shape())
-                : Tensor::createDevice<uint16_t>(mCache->mPastValue->shape()));
-            if(!mCudaBackend->onAcquireBuffer(temp_key.get(), Backend::STATIC)
-            || !mCudaBackend->onAcquireBuffer(temp_value.get(), Backend::STATIC)) {
-                return MNN::OUT_OF_MEMORY;
-            }
-
+            // No realloc: compact reserve data in-place directly
+            // For speculative decoding, reserve entries are at positions after past_len_after_remove,
+            // and destination offsets are always <= source offsets (sorted accept indices),
+            // so forward-order in-place copy is safe without temp buffers.
+            // [0, past_len_after_remove) is already in place and doesn't need copying.
             compact_kv_cache_kernel<<<gridDim, blockDim, 0, stream>>>(
                 getTensorDevicePtr(mCache->mPastKey.get()), getTensorDevicePtr(mCache->mPastValue.get()),
-                getTensorDevicePtr(temp_key.get()), getTensorDevicePtr(temp_value.get()),
+                getTensorDevicePtr(mCache->mPastKey.get()), getTensorDevicePtr(mCache->mPastValue.get()),
                 reserve_info_gpu, reserve_offsets_gpu,
                 meta->n_reserve, past_len_after_remove,
-                mBatch, mKvNumHead, mHeadDim, mCache->mMaxLength, element_size
+                mBatch, mKvNumHead, mHeadDim, mCache->mMaxLength, mCache->mMaxLength, element_size
             );
-            int compacted_len = past_len_after_remove + meta->computeReverseSize();
-            cudaMemcpyAsync(getTensorDevicePtr(mCache->mPastKey.get()),
-                getTensorDevicePtr(temp_key.get()),
-                compacted_len * mBatch * mKvNumHead * mHeadDim * element_size,
-                cudaMemcpyDeviceToDevice, stream);
-            cudaMemcpy2DAsync(getTensorDevicePtr(mCache->mPastValue.get()),
-                mCache->mMaxLength * mHeadDim * element_size,
-                getTensorDevicePtr(temp_value.get()),
-                mCache->mMaxLength * mHeadDim * element_size,
-                compacted_len * mHeadDim * element_size,
-                mBatch * mKvNumHead,
-                cudaMemcpyDeviceToDevice, stream);
-            mCudaBackend->onReleaseBuffer(temp_key.get(), Backend::STATIC);
-            mCudaBackend->onReleaseBuffer(temp_value.get(), Backend::STATIC);
         }
         checkKernelErrors;
         cudaFreeAsync(reserve_info_gpu, stream);
@@ -1202,6 +1341,47 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
                     mBatch, mNumHead, mHeadDim, parallel_blocks);
             }
         }
+        checkKernelErrors;
+
+        mCache->mPastLength += mNewKvSeqLen;
+        return MNN::NO_ERROR;
+    }
+
+    // =====================================================================
+    // Flash Decode with Mask path for speculative/tree decoding
+    // Small seq_len (<=32) with KV cache and additive mask
+    // Uses per-query flash decode with online softmax (1-pass, no temp buffers)
+    // =====================================================================
+    if (mQuerySeqLen <= 32 && mIsKVCacheEnabled && mHasMask && mIsAddMask) {
+        const int num_threads = 128;
+        const int num_warps = num_threads / 32;
+        const int smem_size = num_warps * sizeof(float);
+        const int total_blocks = mBatch * mNumHead * mQuerySeqLen;
+
+        dim3 grid(total_blocks);
+        dim3 block(num_threads);
+
+        if (mPrecision == 4) {
+            flash_decode_kernel_with_mask<float><<<grid, block, smem_size, stream>>>(
+                getTensorDevicePtr<float>(query_input_tensor),
+                static_cast<const float*>(effective_key_cache_ptr),
+                static_cast<const float*>(effective_value_cache_ptr),
+                getTensorDevicePtr<float>(final_output_tensor),
+                static_cast<const float*>(getTensorDevicePtr(mask_input_tensor)),
+                mBatch, mNumHead, mKvNumHead, mHeadDim,
+                current_total_kv_len_for_qk, allocated_kv_len_for_value_stride,
+                mQuerySeqLen, mScale);
+        } else if (mPrecision == 2) {
+            flash_decode_kernel_with_mask<__half><<<grid, block, smem_size, stream>>>(
+                getTensorDevicePtr<__half>(query_input_tensor),
+                static_cast<const __half*>(effective_key_cache_ptr),
+                static_cast<const __half*>(effective_value_cache_ptr),
+                getTensorDevicePtr<__half>(final_output_tensor),
+                static_cast<const __half*>(getTensorDevicePtr(mask_input_tensor)),
+                mBatch, mNumHead, mKvNumHead, mHeadDim,
+                current_total_kv_len_for_qk, allocated_kv_len_for_value_stride,
+                mQuerySeqLen, mScale);
+        } else { return MNN::NOT_SUPPORT; }
         checkKernelErrors;
 
         mCache->mPastLength += mNewKvSeqLen;
