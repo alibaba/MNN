@@ -1166,13 +1166,6 @@ Llm::Llm(std::shared_ptr<LlmConfig> config) : mConfig(config) {
     mMeta.reset(new KVMeta);
     mMeta->layer_nums = mConfig->layer_nums();
     mMeta->attn_scale = mConfig->attn_scale();
-    // Populate KV sharing map from config
-    if (mConfig->has_kv_shared_map()) {
-        const auto& map = mConfig->config_["kv_shared_map"];
-        for (auto it = map.begin(); it != map.end(); ++it) {
-            mMeta->kv_shared_map[it.key()] = it.value().get<std::string>();
-        }
-    }
     mGenerateParam.reset(new GenerationParams);
     mGenerateParam->timeout_ms = mConfig->timeout_ms();
 }

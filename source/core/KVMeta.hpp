@@ -11,7 +11,6 @@
 
 #include <vector>
 #include <string>
-#include <unordered_map>
 
 namespace MNN {
 
@@ -33,10 +32,6 @@ struct KVMeta {
     int layer_index = 0;
     int layer_nums = 0;
     std::vector<int> reserveHost;
-    // KV sharing map: attention_op_name -> source_attention_op_name (fallback for older models)
-    std::unordered_map<std::string, std::string> kv_shared_map;
-    // Per-instance registry for KV sharing: indexed by layer_index, stores opaque Attention pointers
-    std::vector<void*> kv_registry;
     // Attention scaling override (gemma4 uses 1.0 instead of 1/sqrt(head_dim))
     float attn_scale = 0.0f; // 0 means use default 1/sqrt(head_dim)
     int computeReverseSize() const {

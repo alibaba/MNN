@@ -299,19 +299,6 @@ public:
         return config_.value("attn_scale", 0.0f);
     }
 
-    bool has_kv_shared_map() const {
-        return config_.find("kv_shared_map") != config_.end();
-    }
-
-    std::string kv_shared_source(const std::string& layer_name) const {
-        if (!has_kv_shared_map()) return "";
-        const auto& map = config_["kv_shared_map"];
-        if (map.find(layer_name) != map.end()) {
-            return map[layer_name].get<std::string>();
-        }
-        return "";
-    }
-
     bool use_template() const {
         return config_.value("use_template", true);
     }
