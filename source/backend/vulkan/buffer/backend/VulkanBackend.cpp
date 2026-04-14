@@ -205,7 +205,7 @@ VULKAN_TENSOR VulkanBackend::getBuffer(const Tensor* tensor) const {
 std::pair<const VulkanBuffer*, size_t> VulkanBackend::getTensorBuffer(const Tensor* tensor) const {
     auto mem = (VulkanBuffer*)(tensor->deviceId());
     MNN_ASSERT(nullptr != mem);
-    return std::make_pair(mem, TensorUtils::getDescribe(tensor)->extra.offset);
+    return std::make_pair(mem, TensorUtils::getDescribeOrigin(tensor)->offset);
 }
 
 size_t VulkanBackend::getTensorSize(const Tensor* tensor) const {
@@ -225,14 +225,14 @@ Backend::MemObj* VulkanBackend::onAcquire(const Tensor* tensor, StorageType stor
         auto newBuffer = mRuntime->mBufferPool->alloc(alignSize);
         auto mem = new VulkanMemRelease(mRuntime->mBufferPool.get(), newBuffer, alignSize);
         MTensor->buffer().device = (uint64_t)(newBuffer.first);
-        des->extra.offset = newBuffer.second;
+        des->offset = newBuffer.second;
         return mem;
     }
     bool seperate  = storageType == Backend::DYNAMIC_SEPERATE;
     auto newBuffer = mCurrentDynamicBufferPool->alloc(alignSize, seperate);
     auto mem = new VulkanMemRelease(mCurrentDynamicBufferPool, newBuffer, alignSize);
     MTensor->buffer().device = (uint64_t)(newBuffer.first);
-    des->extra.offset = newBuffer.second;
+    des->offset = newBuffer.second;
     return mem;
 }
 bool VulkanBackend::onSelectDynamicAllocator(int index, int maxIndex) {
@@ -459,7 +459,7 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
         _finish();
         auto format = TensorUtils::getDescribe(dstTensor)->dimensionFormat;
         auto buffer = reinterpret_cast<VulkanBuffer*>(dstTensor->deviceId());
-        auto offset = TensorUtils::getDescribe(dstTensor)->extra.offset;
+        auto offset = TensorUtils::getDescribeOrigin(dstTensor)->offset;
         // host->gpu
         if(format != TensorUtils::getDescribe(srcTensor)->dimensionFormat) {
             tempTensor.reset(Tensor::create(dstTensor->shape(), dstTensor->getType(), nullptr, _convert(format)));
@@ -495,7 +495,7 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
         size_t cpSize = calculateCpSize(dstTensor);
         _requireHostBuffer(cpSize);
         auto buffer = reinterpret_cast<VulkanBuffer*>(srcTensor->deviceId());
-        auto offset = TensorUtils::getDescribe(srcTensor)->extra.offset;
+        auto offset = TensorUtils::getDescribeOrigin(srcTensor)->offset;
         auto cmdbuffer = mCmdBufferForCopy;
         cmdbuffer->begin(0);
         VkBufferCopy bufferCopy;
@@ -517,8 +517,8 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
         VkBufferCopy bufferCopy;
         size_t cpSize = calculateCpSize(srcTensor);
         bufferCopy.size = cpSize;
-        bufferCopy.dstOffset = TensorUtils::getDescribe(dstTensor)->extra.offset;
-        bufferCopy.srcOffset = TensorUtils::getDescribe(srcTensor)->extra.offset;
+        bufferCopy.dstOffset = TensorUtils::getDescribeOrigin(dstTensor)->offset;
+        bufferCopy.srcOffset = TensorUtils::getDescribeOrigin(srcTensor)->offset;
         vkCmdCopyBuffer(buffer->get(), reinterpret_cast<VulkanBuffer*>(srcTensor->deviceId())->buffer(), reinterpret_cast<VulkanBuffer*>(dstTensor->deviceId())->buffer(),
                         1, &bufferCopy);
         buffer->end();

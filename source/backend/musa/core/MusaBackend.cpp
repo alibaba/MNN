@@ -186,7 +186,7 @@ Backend::MemObj* MusaBackend::onAcquire(const Tensor* nativeTensor, StorageType 
     auto host = buffer.ptr();
     ((Tensor*)nativeTensor)->buffer().device = (uint64_t)host;
     auto des = TensorUtils::getDescribe(nativeTensor);
-    des->extra.offset = buffer.second;
+    des->offset = buffer.second;
     return new MusaMemObj(allocator, buffer);
 }
 

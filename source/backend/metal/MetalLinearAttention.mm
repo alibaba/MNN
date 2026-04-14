@@ -155,7 +155,7 @@ ErrorCode MetalLinearAttention::onResize(const std::vector<Tensor *> &inputs, co
             bool success = backend()->onAcquireBuffer(mStateCache->mConvState.get(), Backend::STATIC);
             if (!success) return OUT_OF_MEMORY;
             auto convDevice = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mStateCache->mConvState->deviceId())->getBuffer();
-            auto convPtr = (uint8_t*)convDevice.contents + TensorUtils::getDescribe(mStateCache->mConvState.get())->extra.offset;
+            auto convPtr = (uint8_t*)convDevice.contents + TensorUtils::getDescribeOrigin(mStateCache->mConvState.get())->offset;
             ::memset(convPtr, 0, batch * convDim * convStateSize * bytesPerElement);
         }
 
@@ -163,17 +163,17 @@ ErrorCode MetalLinearAttention::onResize(const std::vector<Tensor *> &inputs, co
         bool success = backend()->onAcquireBuffer(mStateCache->mRecurrentState.get(), Backend::STATIC);
         if (!success) return OUT_OF_MEMORY;
         auto rnnDevice = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mStateCache->mRecurrentState->deviceId())->getBuffer();
-        auto rnnPtr = (uint8_t*)rnnDevice.contents + TensorUtils::getDescribe(mStateCache->mRecurrentState.get())->extra.offset;
+        auto rnnPtr = (uint8_t*)rnnDevice.contents + TensorUtils::getDescribeOrigin(mStateCache->mRecurrentState.get())->offset;
         ::memset(rnnPtr, 0, batch * H * dk * dv * bytesPerElement);
     } else if (seqLen > 1) {
         // Prefill (seqLen > 1): reset state for new sequence
         if (mStateCache->mConvState.get() != nullptr) {
             auto convDevice = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mStateCache->mConvState->deviceId())->getBuffer();
-            auto convPtr = (uint8_t*)convDevice.contents + TensorUtils::getDescribe(mStateCache->mConvState.get())->extra.offset;
+            auto convPtr = (uint8_t*)convDevice.contents + TensorUtils::getDescribeOrigin(mStateCache->mConvState.get())->offset;
             ::memset(convPtr, 0, mStateCache->mConvState->elementSize() * bytesPerElement);
         }
         auto rnnDevice = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mStateCache->mRecurrentState->deviceId())->getBuffer();
-        auto rnnPtr = (uint8_t*)rnnDevice.contents + TensorUtils::getDescribe(mStateCache->mRecurrentState.get())->extra.offset;
+        auto rnnPtr = (uint8_t*)rnnDevice.contents + TensorUtils::getDescribeOrigin(mStateCache->mRecurrentState.get())->offset;
         ::memset(rnnPtr, 0, mStateCache->mRecurrentState->elementSize() * bytesPerElement);
     }
     // Decode (seqLen == 1): keep existing state untouched

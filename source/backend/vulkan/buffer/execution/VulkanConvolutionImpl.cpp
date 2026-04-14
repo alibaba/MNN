@@ -126,7 +126,7 @@ public:
             }
             sourceBuffer->unmap();
             sourceWeight->buffer().device = (uint64_t)(sourceBuffer.get());
-            TensorUtils::getDescribe(sourceWeight.get())->extra.offset = 0;
+            TensorUtils::getDescribe(sourceWeight.get())->offset = 0;
 
             std::shared_ptr<VulkanCommandPool::Buffer> prearrangeCmd( vkBn->getPool().allocBuffer());
             for (auto& reg : des->regions) {
