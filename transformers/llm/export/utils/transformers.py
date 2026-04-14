@@ -78,16 +78,22 @@ class Attention(torch.nn.Module):
         if hasattr(attn, 'scaling'):
             self.attn_scaling = attn.scaling
 
-        # attention_k_eq_v: v_proj is None, value_states = key_states (before norm/rope)
-        self.k_eq_v = not hasattr(self, 'v_proj') or self.v_proj is None
-
-        # Auto-detect num_key_value_heads from k_proj shape (for models like gemma4
-        # where full attention layers use num_global_key_value_heads != num_key_value_heads)
-        if hasattr(self, 'k_proj') and self.k_proj is not None and not (hasattr(self, 'qkv_proj') and self.qkv_proj is not None):
-            actual_kv_heads = self.k_proj.out_features // self.head_dim
-            if actual_kv_heads != self.num_key_value_heads:
-                self.num_key_value_heads = actual_kv_heads
-                self.num_key_value_groups = self.num_heads // self.num_key_value_heads
+        # k_eq_v: set by do_map from mapper 'k_eq_v' -> HF 'use_alternative_attention'
+        # For gemma4: True/False per layer; for other models: not set (None)
+        if getattr(self, 'k_eq_v', None) is not None:
+            # gemma4: per-layer auto-detection of head_dim, num_kv_heads
+            self.k_eq_v = not hasattr(self, 'v_proj') or self.v_proj is None
+            if hasattr(self, 'q_proj') and self.q_proj is not None:
+                actual_head_dim = self.q_proj.out_features // self.num_heads
+                if actual_head_dim != self.head_dim:
+                    self.head_dim = actual_head_dim
+            if hasattr(self, 'k_proj') and self.k_proj is not None:
+                actual_kv_heads = self.k_proj.out_features // self.head_dim
+                if actual_kv_heads != self.num_key_value_heads:
+                    self.num_key_value_heads = actual_kv_heads
+                    self.num_key_value_groups = self.num_heads // self.num_key_value_heads
+        else:
+            self.k_eq_v = False
 
         # KV sharing (gemma4): track which layers share KV
         self.is_kv_shared_layer = getattr(attn, 'is_kv_shared_layer', False)
@@ -97,22 +103,6 @@ class Attention(torch.nn.Module):
         # Create FusedAttention with KV sharing info
         kv_shared_idx = self.kv_shared_layer_index if self.is_kv_shared_layer else -1
         self.fused_attn = FusedAttention(self.num_heads * self.head_dim, self.kv_cache, f'/layers.{layer_id}/self_attn/FusedAttention', layer_id, kv_shared_idx)
-
-        # Auto-detect head_dim from q_proj weight shape (for models like gemma4
-        # where head_dim varies per layer type: sliding=256, full=512)
-        if hasattr(self, 'q_proj') and self.q_proj is not None and not (hasattr(self, 'qkv_proj') and self.qkv_proj is not None):
-            actual_head_dim = self.q_proj.out_features // self.num_heads
-            # If q_norm exists, use its weight size as authoritative head_dim
-            # (q_proj may output 2x head_dim for gated attention, e.g. Qwen3.5)
-            if hasattr(self, 'q_norm') and self.q_norm is not None and hasattr(self.q_norm, 'weight'):
-                actual_head_dim = self.q_norm.weight.shape[0]
-            if actual_head_dim != self.head_dim:
-                self.head_dim = actual_head_dim
-                # Re-detect num_key_value_heads with new head_dim
-                if hasattr(self, 'k_proj') and self.k_proj is not None:
-                    self.num_key_value_heads = self.k_proj.out_features // self.head_dim
-                    self.num_key_value_groups = self.num_heads // self.num_key_value_heads
-                self.fused_attn = FusedAttention(self.num_heads * self.head_dim, self.kv_cache, f'/layers.{layer_id}/self_attn/FusedAttention', layer_id, kv_shared_idx)
 
         if hasattr(self, 'qkv_proj') and self.qkv_proj is not None:
             # split qkv linear to q, k, v
@@ -195,7 +185,6 @@ class Attention(torch.nn.Module):
         else:
             key_states = self.k_proj(hidden_states)
             if self.k_eq_v:
-                # attention_k_eq_v: V shares K projection (before norms diverge)
                 value_states = key_states.clone()
             else:
                 value_states = self.v_proj(hidden_states)

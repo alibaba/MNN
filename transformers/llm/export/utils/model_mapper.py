@@ -508,6 +508,7 @@ class ModelMapper:
             'q_norm': 'q_norm',
             'k_norm': 'k_norm',
             'v_norm': 'v_norm',
+            'k_eq_v': 'use_alternative_attention',
         }
         gemma4_map = {
             'config': gemma4_config,
