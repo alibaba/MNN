@@ -9,7 +9,8 @@
 #include <stdint.h>
 #include <limits.h>
 
-void MNNMaxPoolInt8_RVV(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx) {
+void MNNMaxPoolInt8_RVV(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely,
+                        size_t stridesx) {
     const size_t vl = __riscv_vsetvl_e8m1(16);
     const size_t pack = 16;
 

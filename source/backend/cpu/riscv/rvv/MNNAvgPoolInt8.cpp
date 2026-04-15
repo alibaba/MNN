@@ -9,7 +9,8 @@
 #include <stdint.h>
 #include <limits.h>
 
-void MNNAvgPoolInt8_RVV(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx, ssize_t paddingx, ssize_t factor) {
+void MNNAvgPoolInt8_RVV(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely,
+                        size_t stridesx, ssize_t paddingx, ssize_t factor) {
     const size_t vl = __riscv_vsetvl_e8m1(16);
     const size_t pack = 16;
 
@@ -30,11 +31,11 @@ void MNNAvgPoolInt8_RVV(int8_t* dst, int8_t* src, size_t outputWidth, size_t inp
             }
         }
 
-        vint32m4_t v_mul    = __riscv_vmul_vv_i32m4(vec_sum, v_factor, vl);
-        vint32m4_t v_shr    = __riscv_vsra_vx_i32m4(v_mul, 24, vl);
+        vint32m4_t v_mul = __riscv_vmul_vv_i32m4(vec_sum, v_factor, vl);
+        vint32m4_t v_shr = __riscv_vsra_vx_i32m4(v_mul, 24, vl);
         vint16m2_t v_temp = __riscv_vncvt_x_x_w_i16m2(v_shr, vl);
-        vint8m1_t  v_result = __riscv_vncvt_x_x_w_i8m1(v_temp, vl);
-        
+        vint8m1_t v_result = __riscv_vncvt_x_x_w_i8m1(v_temp, vl);
+
         __riscv_vse8_v_i8m1(dstPtr, v_result, vl);
 
         dstPtr += pack;

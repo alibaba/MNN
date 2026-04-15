@@ -9,9 +9,10 @@
 #include <riscv_vector.h>
 #include <stdint.h>
 
-void MNNLineDepthWiseInt8AddBiasScaleUnit_RVV(int8_t* dst, const int8_t* src, const int8_t* weight, const QuanPostTreatParameters* parameters,
-                                          size_t width, size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step,
-                                          size_t dilateY_step, int8_t* idxOrder) {
+void MNNLineDepthWiseInt8AddBiasScaleUnit_RVV(int8_t* dst, const int8_t* src, const int8_t* weight,
+                                              const QuanPostTreatParameters* parameters, size_t width,
+                                              size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step,
+                                              size_t dilateY_step, int8_t* idxOrder) {
     const size_t vl = __riscv_vsetvl_e8m1(16);
     const int offset = 0;
     int8_t* dstPtr = dst;
@@ -65,8 +66,8 @@ void MNNLineDepthWiseInt8AddBiasScaleUnit_RVV(int8_t* dst, const int8_t* src, co
         v_res = __riscv_vmin_vv_i32m4(v_res, v_max, vl);
 
         vint16m2_t v_res_16 = __riscv_vncvt_x_x_w_i16m2(v_res, vl);
-        vint8m1_t  v_out    = __riscv_vncvt_x_x_w_i8m1(v_res_16, vl);
-        
+        vint8m1_t v_out = __riscv_vncvt_x_x_w_i8m1(v_res_16, vl);
+
         __riscv_vse8_v_i8m1(dst_x, v_out, vl);
     }
 }
