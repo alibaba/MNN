@@ -39,9 +39,9 @@ DiffusionSD35::DiffusionSD35(std::string modelPath, DiffusionModelType modelType
                              int memoryMode)
     : mModelPath(modelPath), mModelType(modelType), mBackendType(backendType), mMemoryMode(memoryMode) {
     // Initialize tokenizers
-    mTokenizer1.reset(new CLIPTokenizer);
-    mTokenizer2.reset(new CLIPTokenizer);
-    mTokenizer3.reset(new T5Tokenizer);
+    mTokenizer1.reset(new MtokTokenizer(MtokTokenizer::Style::kPair, 49406, 49407));
+    mTokenizer2.reset(new MtokTokenizer(MtokTokenizer::Style::kPair, 49406, 49407));
+    mTokenizer3.reset(new MtokTokenizer(MtokTokenizer::Style::kSingle, -1, 1));
 }
 
 DiffusionSD35::~DiffusionSD35() {
@@ -51,6 +51,10 @@ DiffusionSD35::~DiffusionSD35() {
 
 bool DiffusionSD35::load() {
     AUTOTIME;
+#if !defined(MNN_DIFFUSION_WITH_LLM_TOKENIZER)
+    MNN_ERROR("Stable Diffusion 3.5 requires MNN_BUILD_LLM=ON so diffusion can load tokenizer.mtok\n");
+    return false;
+#endif
     ScheduleConfig config;
     BackendConfig backendConfig;
     config.type = mBackendType;

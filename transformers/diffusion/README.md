@@ -70,8 +70,14 @@ models/sd15/
 ├── text_encoder.mnn    # CLIP文本编码器
 ├── unet.mnn            # UNet去噪模型
 ├── vae_decoder.mnn     # VAE解码器
-└── vocab.txt           # Tokenizer词表
+└── tokenizer.mtok      # Tokenizer
 ```
+
+#### Tokenizer 说明
+
+- 运行 diffusion demo 需要开启 `-DMNN_BUILD_LLM=ON`。
+- `resource_path` 目录下需要提供 `tokenizer.mtok`。
+- `convert_mnn.py` 会把 HuggingFace tokenizer 导出为 `tokenizer.mtok`。
 
 ---
 
@@ -160,7 +166,8 @@ Stable Diffusion 3.5 Medium 模型。
 - 提示词：建议使用英文短句；中文也可用。
 - 步数：建议使用 `20` 步作为平衡配置。
 - 后端：`0`=CPU，`3`=OpenCL，`6`=Metal。
-- Tokenizer：优先读取 `tokenizer.mtok`；若不存在自动回退到 legacy 文件（CLIP 走 `vocab.json+merges.txt`，T5 走 `spiece.model`）。
+- 编译：需要开启 `-DMNN_BUILD_LLM=ON`。
+- Tokenizer：`tokenizer`、`tokenizer_2`、`tokenizer_3` 目录下都需要提供 `tokenizer.mtok`。
 
 #### 在 MNN Chat 应用中的使用
 1. 完成模型转换并准备 SD3.5 MNN 模型目录。
@@ -168,13 +175,13 @@ Stable Diffusion 3.5 Medium 模型。
 3. 按以下命令运行生成：
 
 ```bash
-./diffusion_sd35_demo <resource_path> <model_type> <memory_mode> <backend_type> <iteration_num> <random_seed> <output_image_name> <prompt_text>
+./diffusion_sd35_demo <resource_path> <memory_mode> <backend_type> <iteration_num> <random_seed> <output_image_name> <prompt_text>
 ```
 
 示例：
 
 ```bash
-./diffusion_sd35_demo /path/to/stable-diffusion-3.5-medium-MNN 0 0 3 20 1 demo.jpg "a cute cat"
+./diffusion_sd35_demo /path/to/stable-diffusion-3.5-medium-MNN 0 3 20 1 demo.jpg "a cute cat"
 ```
 
 #### 参考

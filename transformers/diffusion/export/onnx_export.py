@@ -79,6 +79,8 @@ def convert_models(model_path: str, output_path: str, opset: int, fp16: bool = F
     device = "cpu"
     pipeline = StableDiffusionPipeline.from_pretrained(model_path, torch_dtype=dtype).to(device)
     output_path = Path(output_path)
+    (output_path / "tokenizer").mkdir(parents=True, exist_ok=True)
+    pipeline.tokenizer.save_pretrained((output_path / "tokenizer").as_posix())
 
     # TEXT ENCODER
     num_tokens = pipeline.text_encoder.config.max_position_embeddings
