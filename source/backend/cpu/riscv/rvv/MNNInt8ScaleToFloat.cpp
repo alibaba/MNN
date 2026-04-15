@@ -10,7 +10,8 @@
 #include <stdint.h>
 #include <string.h>
 
-void MNNInt8ScaleToFloat_RVV(float* dst, const int8_t* src, const float* scale, size_t size, const float* zeroPoint, ssize_t quantParamVec) {
+void MNNInt8ScaleToFloat_RVV(float* dst, const int8_t* src, const float* scale, size_t size, const float* zeroPoint,
+                             ssize_t quantParamVec) {
     size_t total_elems = size * 4;
     size_t i = 0;
 
