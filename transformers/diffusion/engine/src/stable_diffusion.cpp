@@ -130,7 +130,7 @@ bool StableDiffusion::load() {
         MNN_ERROR("Failed to load tokenizer.mtok from %s\n", mModelPath.c_str());
         return false;
     }
-    
+
     // Resize fix
     for (auto& m : mModules) {
         m->traceOrOptimize(MNN::Interpreter::Session_Resize_Fix);

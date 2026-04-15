@@ -15,9 +15,7 @@ static std::string BuildMtokPath(const std::string& filePath) {
     return filePath + "/tokenizer.mtok";
 }
 
-MtokTokenizer::MtokTokenizer(Style style, int bosId, int eosId)
-    : mStyle(style), mBosId(bosId), mEosId(eosId) {
-}
+MtokTokenizer::MtokTokenizer(Style style, int bosId, int eosId) : mStyle(style), mBosId(bosId), mEosId(eosId) {}
 
 MtokTokenizer::~MtokTokenizer() {
 #if defined(MNN_DIFFUSION_WITH_LLM_TOKENIZER)
