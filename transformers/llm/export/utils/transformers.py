@@ -78,16 +78,21 @@ class Attention(torch.nn.Module):
         if hasattr(attn, 'scaling'):
             self.attn_scaling = attn.scaling
 
-        # k_eq_v: set by do_map from mapper 'k_eq_v' -> HF 'use_alternative_attention'
-        # For gemma4: True/False per layer; for other models: not set (None)
+        # k_eq_v / KV sharing detection (gemma4 and similar models)
+        # Mapper key 'k_eq_v' acts as sentinel: its presence means per-layer detection is needed.
+        # Detection is structural (works across HF versions):
+        #   - k_proj exists, v_proj missing → k_eq_v (K serves as both K and V)
+        #   - both missing + is_kv_shared_layer → pure KV sharing (no local K/V computation)
         if getattr(self, 'k_eq_v', None) is not None:
-            # gemma4: per-layer auto-detection of head_dim, num_kv_heads
-            self.k_eq_v = not hasattr(self, 'v_proj') or self.v_proj is None
+            has_k_proj = hasattr(self, 'k_proj') and self.k_proj is not None
+            has_v_proj = hasattr(self, 'v_proj') and self.v_proj is not None
+            self.k_eq_v = has_k_proj and not has_v_proj
+            # per-layer head_dim auto-detection (gemma4 has varying head_dim)
             if hasattr(self, 'q_proj') and self.q_proj is not None:
                 actual_head_dim = self.q_proj.out_features // self.num_heads
                 if actual_head_dim != self.head_dim:
                     self.head_dim = actual_head_dim
-            if hasattr(self, 'k_proj') and self.k_proj is not None:
+            if has_k_proj:
                 actual_kv_heads = self.k_proj.out_features // self.head_dim
                 if actual_kv_heads != self.num_key_value_heads:
                     self.num_key_value_heads = actual_kv_heads
@@ -169,9 +174,8 @@ class Attention(torch.nn.Module):
             gate = None
 
         query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim)
-        # openelm model has qk_norm
-        if hasattr(self, 'q_norm') and self.q_norm is not None and \
-           hasattr(self, 'k_norm') and self.k_norm is not None:
+        # q_norm (openelm, gemma3/4, qwen3, etc.)
+        if hasattr(self, 'q_norm') and self.q_norm is not None:
             query_states = self.q_norm(query_states)
 
         # KV sharing: for shared layers, reuse KV from source layer (test mode only)
@@ -182,7 +186,7 @@ class Attention(torch.nn.Module):
 
         if use_shared_kv:
             key_states, value_states = shared_kv_cache[self.kv_shared_layer_index]
-        else:
+        elif self.k_proj is not None:
             key_states = self.k_proj(hidden_states)
             if self.k_eq_v:
                 value_states = key_states.clone()
@@ -192,10 +196,14 @@ class Attention(torch.nn.Module):
             value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim)
             if hasattr(self, 'k_norm') and self.k_norm is not None:
                 key_states = self.k_norm(key_states)
-
             # gemma4 has v_norm (RMSNorm without scale)
             if hasattr(self, 'v_norm') and self.v_norm is not None:
                 value_states = self.v_norm(value_states)
+        else:
+            # Pure KV sharing layer: no local K/V projections (e.g. gemma4 in HF>=5.5.4)
+            # Dummy K/V for ONNX tracing; FusedAttention handles sharing via kv_shared_layer_index
+            key_states = query_states.new_zeros(bsz, q_len, self.num_key_value_heads, self.head_dim)
+            value_states = key_states
 
         kv_seq_len = key_states.shape[1]
         if self.past_key_value is not None:
@@ -204,7 +212,7 @@ class Attention(torch.nn.Module):
         if self.rotary is not None:
             cos, sin = rotary_pos_emb[0], rotary_pos_emb[1]
             query_states = self.rotary.apply_rotary_pos(query_states, cos, sin)
-            if not use_shared_kv:
+            if not use_shared_kv and self.k_proj is not None:
                 key_states = self.rotary.apply_rotary_pos(key_states, cos, sin)
 
         # MobileLLM model llama4_text has qk_norm after rotary
