@@ -844,7 +844,6 @@ public:
         auto otype = op->type();
         for (auto t : inputs) {
             auto des = TensorUtils::getDescribe(t);
-            auto desO = TensorUtils::getDescribeOrigin(t);
             if (des->quantAttr == nullptr) {
                 return false;
             }

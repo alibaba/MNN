@@ -216,7 +216,7 @@ Backend::MemObj* CUDABackend::onAcquire(const Tensor* nativeTensor, StorageType 
     };
     auto host = buffer.ptr();
     ((Tensor*)nativeTensor)->buffer().device = (uint64_t)host;
-    auto des = TensorUtils::getDescribe(nativeTensor);
+    auto des = TensorUtils::getDescribeOrigin(nativeTensor);
     des->offset = buffer.second;
     return new CUDAMemObj(allocator, buffer);
 }

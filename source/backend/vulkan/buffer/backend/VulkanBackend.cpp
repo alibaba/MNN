@@ -220,7 +220,7 @@ Backend::MemObj* VulkanBackend::onAcquire(const Tensor* tensor, StorageType stor
     //FUNC_PRINT_ALL(tensor, p);
     auto alignSize = getTensorSize(tensor);
     auto MTensor     = const_cast<Tensor*>(tensor);
-    auto des = TensorUtils::getDescribe(tensor);
+    auto des = TensorUtils::getDescribeOrigin(tensor);
     if (Backend::STATIC == storageType) {
         auto newBuffer = mRuntime->mBufferPool->alloc(alignSize);
         auto mem = new VulkanMemRelease(mRuntime->mBufferPool.get(), newBuffer, alignSize);

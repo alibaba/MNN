@@ -139,7 +139,7 @@ VulkanDeconvolution* VulkanDeconvolution::create(Backend* bn, const Op* op, OpTy
                 tempWeightData = (const void *)tempWeight;
             }
             auto tempWeightBuffer = reinterpret_cast<VulkanBuffer*>(tempWeightTensor->deviceId());
-            vkBn->copyToGPUBuffer(tempWeightData, tempWeightBuffer->buffer(), tempWeightSize * elementSize, TensorUtils::getDescribe(tempWeightTensor.get())->offset);
+            vkBn->copyToGPUBuffer(tempWeightData, tempWeightBuffer->buffer(), tempWeightSize * elementSize, TensorUtils::getDescribeOrigin(tempWeightTensor.get())->offset);
         }
         std::shared_ptr<VulkanCommandPool::Buffer> prearrangeCmd( vkBn->getPool().allocBuffer());
         for (auto& reg : des->regions) {

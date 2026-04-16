@@ -32,7 +32,7 @@ ErrorCode VulkanBasicExecutionDirect::onResize(const std::vector<Tensor *> &inpu
 
     auto vkBn = static_cast<VulkanBackend*>(backend());
     for (auto input : inputs) {
-        auto des = TensorUtils::getDescribe(input);
+        auto des = TensorUtils::getDescribeOrigin(input);
         if (0 == input->deviceId()) {
             continue;
         }
@@ -74,7 +74,7 @@ ErrorCode VulkanBasicExecutionInDirect::onResize(const std::vector<Tensor *> &in
     auto vkBn = static_cast<VulkanBackend*>(backend());
     for (auto input : inputs) {
         auto vkTensor = (VulkanBuffer*)(input->deviceId());
-        auto des = TensorUtils::getDescribe(input);
+        auto des = TensorUtils::getDescribeOrigin(input);
         if (nullptr == vkTensor) {
             // The case occured if we don't need the content of input
             continue;
