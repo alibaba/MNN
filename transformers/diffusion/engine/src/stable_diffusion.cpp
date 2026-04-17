@@ -41,6 +41,10 @@ StableDiffusion::StableDiffusion(std::string modelPath, DiffusionModelType model
 
 bool StableDiffusion::load() {
     AUTOTIME;
+#if !defined(MNN_DIFFUSION_WITH_LLM_TOKENIZER)
+    MNN_ERROR("Diffusion models require MNN_BUILD_LLM=ON so diffusion can load tokenizer.mtok\n");
+    return false;
+#endif
     ScheduleConfig config;
     BackendConfig backendConfig;
     config.type = mBackendType;
@@ -114,13 +118,19 @@ bool StableDiffusion::load() {
     }
     
     // tokenizer loading
-    if(mModelType == STABLE_DIFFUSION_1_5) {
-        mTokenizer.reset(new CLIPTokenizer);
-    } else if(mModelType == STABLE_DIFFUSION_TAIYI_CHINESE) {
-        mTokenizer.reset(new BertTokenizer);
+    if (mModelType == STABLE_DIFFUSION_1_5) {
+        mTokenizer.reset(new MtokTokenizer(MtokTokenizer::Style::kPair, 49406, 49407));
+    } else if (mModelType == STABLE_DIFFUSION_TAIYI_CHINESE) {
+        mTokenizer.reset(new MtokTokenizer(MtokTokenizer::Style::kPair, 101, 102));
+    } else {
+        MNN_ERROR("Unsupported diffusion model type: %d\n", (int)mModelType);
+        return false;
     }
-    mTokenizer->load(mModelPath);
-    
+    if (!mTokenizer->load(mModelPath)) {
+        MNN_ERROR("Failed to load tokenizer.mtok from %s\n", mModelPath.c_str());
+        return false;
+    }
+
     // Resize fix
     for (auto& m : mModules) {
         m->traceOrOptimize(MNN::Interpreter::Session_Resize_Fix);

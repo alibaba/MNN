@@ -1,5 +1,5 @@
-#include <vector>
 #include <string>
+#include <vector>
 #include <unordered_map>
 #include <cstdint>
 
@@ -7,6 +7,9 @@
 #define MNN_DIFFUSION_TOKENIZER_HPP
 
 namespace MNN {
+namespace Transformer {
+class Tokenizer;
+}
 namespace DIFFUSION {
     
 class Tokenizer {
@@ -17,50 +20,27 @@ public:
     virtual std::vector<int> encode(const std::string& sentence, int maxlen = 0) = 0;
 };
 
-class BertTokenizer : public Tokenizer{
+class MtokTokenizer : public Tokenizer {
 public:
-    BertTokenizer() = default;
-    virtual bool load(const std::string& filePath) override;
-    virtual std::vector<int> encode(const std::string& sentence, int maxlen = 0) override;
-private:
-    std::vector<int> word_piece(const std::string& token);
-private:
-    int mStartIdx, mEndIdx;
-    std::unordered_map<std::string, int> mVocabs;
-};
-
-class CLIPTokenizer : public Tokenizer{
-    struct hash_pair_wstring {
-        size_t operator()(const std::pair<std::wstring, std::wstring>& p) const {
-            auto hash1 = std::hash<std::wstring>{}(p.first);
-            auto hash2 = std::hash<std::wstring>{}(p.second);
-            // If hash1 == hash2, their XOR is zero.
-            return (hash1 != hash2) ? hash1 ^ hash2 : hash1;
-        }
+    enum class Style {
+        kPair,
+        kSingle,
     };
-    using BPERanks = std::unordered_map<std::pair<std::wstring, std::wstring>, int, hash_pair_wstring>;
-    
-public:
-    CLIPTokenizer() = default;
+
+    MtokTokenizer(Style style, int bosId = -1, int eosId = -1);
+    virtual ~MtokTokenizer();
     virtual bool load(const std::string& filePath) override;
     virtual std::vector<int> encode(const std::string& sentence, int maxlen = 0) override;
-    
-private:
-    bool loadVocab(const std::string& vocabFilePath);
-    bool loadMerges(const std::string& mergesFilePath);
-    
-private:
-    void bpe(const std::wstring& token, const BPERanks& bpe_ranks, std::vector<std::wstring>* result);
-    BPERanks bpe_ranks_;
-    std::unordered_map<uint8_t, wchar_t> b2u_;
-    std::unordered_map<wchar_t, uint8_t> u2b_;
-    
-    std::unordered_map<std::wstring, int> mVocabs;
-    
-    int mStartIdx = 49406;
-    int mEndIdx = 49407;
-};
 
+private:
+    std::vector<int> encodeSingle(const std::string& sentence, int maxlen) const;
+
+private:
+    Style mStyle;
+    int mBosId;
+    int mEosId;
+    MNN::Transformer::Tokenizer* mTokenizer = nullptr;
+};
 }
 } // diffusion
 #endif

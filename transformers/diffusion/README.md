@@ -70,8 +70,14 @@ models/sd15/
 ├── text_encoder.mnn    # CLIP文本编码器
 ├── unet.mnn            # UNet去噪模型
 ├── vae_decoder.mnn     # VAE解码器
-└── vocab.txt           # Tokenizer词表
+└── tokenizer.mtok      # Tokenizer
 ```
+
+#### Tokenizer 说明
+
+- 运行 diffusion demo 需要开启 `-DMNN_BUILD_LLM=ON`。
+- `resource_path` 目录下需要提供 `tokenizer.mtok`。
+- `convert_mnn.py` 会把 HuggingFace tokenizer 导出为 `tokenizer.mtok`。
 
 ---
 
@@ -131,3 +137,52 @@ models/sana/
 ├── vae_decoder.mnn     # VAE解码器
 └── vae_encoder.mnn     # VAE编码器（img2img需要）
 ```
+
+---
+
+### SD3.5 Diffusion Demo
+
+SD3.5 已集成到 MNN，用于移动端/边缘端的文生图推理。
+
+English: [README.md](./README.md)
+
+#### 效果展示
+
+示例输出可参考 `Running.md` 中的 SD3.5 运行命令与结果保存路径。
+
+#### 应用链接
+- [Android MNN LLM Chat](../../apps/Android/MnnLlmChat/README.md)
+- [iOS MNN LLM Chat](../../apps/iOS/MNNLLMChat/README.md)
+
+#### 模型链接
+Stable Diffusion 3.5 Medium 模型。
+
+- HuggingFace: [https://huggingface.co/stabilityai/stable-diffusion-3.5-medium](https://huggingface.co/stabilityai/stable-diffusion-3.5-medium)
+- ModelScope: [https://modelscope.cn/models/stabilityai/stable-diffusion-3.5-medium](https://modelscope.cn/models/stabilityai/stable-diffusion-3.5-medium)
+
+#### 推荐设置
+- 输入：文本提示词（prompt）。
+- 输出：默认示例保存为 `demo.jpg`。
+- 提示词：建议使用英文短句；中文也可用。
+- 步数：建议使用 `20` 步作为平衡配置。
+- 后端：`0`=CPU，`3`=OpenCL，`6`=Metal。
+- 编译：需要开启 `-DMNN_BUILD_LLM=ON`。
+- Tokenizer：`tokenizer`、`tokenizer_2`、`tokenizer_3` 目录下都需要提供 `tokenizer.mtok`。
+
+#### 在 MNN Chat 应用中的使用
+1. 完成模型转换并准备 SD3.5 MNN 模型目录。
+2. 进入构建目录并确认 `diffusion_sd35_demo` 已编译。
+3. 按以下命令运行生成：
+
+```bash
+./diffusion_sd35_demo <resource_path> <memory_mode> <backend_type> <iteration_num> <random_seed> <output_image_name> <prompt_text>
+```
+
+示例：
+
+```bash
+./diffusion_sd35_demo /path/to/stable-diffusion-3.5-medium-MNN 0 3 20 1 demo.jpg "a cute cat"
+```
+
+#### 参考
+- 运行与导出示例: [Running.md](../../Running.md)

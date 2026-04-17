@@ -1132,6 +1132,49 @@ public:
     std::string normalize(const std::string& text) const override { return prepend_ + text; }
 };
 
+class StripNormalizer : public Normalizer {
+    bool strip_left_;
+    bool strip_right_;
+
+public:
+    StripNormalizer(bool left, bool right) : strip_left_(left), strip_right_(right) {}
+    std::string normalize(const std::string& text) const override {
+        if (text.empty()) {
+            return text;
+        }
+        size_t begin = 0;
+        size_t end = text.size();
+
+        if (strip_left_) {
+            while (begin < end) {
+                int32_t cp = 0;
+                int r = Unicode::utf8_decode((const uint8_t*)text.data() + begin, end - begin, &cp);
+                if (r <= 0 || !Unicode::is_whitespace(cp)) {
+                    break;
+                }
+                begin += (size_t)r;
+            }
+        }
+
+        if (strip_right_) {
+            while (begin < end) {
+                size_t pos = end;
+                while (pos > begin && (((unsigned char)text[pos - 1] & 0xC0) == 0x80)) {
+                    pos--;
+                }
+                int32_t cp = 0;
+                int r = Unicode::utf8_decode((const uint8_t*)text.data() + pos, end - pos, &cp);
+                if (r <= 0 || !Unicode::is_whitespace(cp)) {
+                    break;
+                }
+                end = pos;
+            }
+        }
+
+        return text.substr(begin, end - begin);
+    }
+};
+
 class ReplaceNormalizer : public Normalizer {
     std::string pattern_, content_;
 public:
@@ -1154,7 +1197,13 @@ public:
     SequenceNormalizer(const std::vector<std::shared_ptr<Normalizer>>& n) : normalizers_(n) {}
     std::string normalize(const std::string& text) const override {
         std::string out = text;
-        for (const auto& n : normalizers_) out = n->normalize(out);
+        for (const auto& n : normalizers_) {
+            if (!n) {
+                MNN_ERROR("[Tokenizer] SequenceNormalizer got null normalizer, skipping.\n");
+                continue;
+            }
+            out = n->normalize(out);
+        }
         return out;
     }
 };
@@ -1268,7 +1317,13 @@ public:
     std::vector<std::shared_ptr<PreTokenizer>> pts_;
     SequencePreTokenizer(const std::vector<std::shared_ptr<PreTokenizer>>& pts) : pts_(pts) {}
     void pre_tokenize(PreTokenizedString& pts) const override {
-        for (const auto& pt : pts_) pt->pre_tokenize(pts);
+        for (const auto& pt : pts_) {
+            if (!pt) {
+                MNN_ERROR("[Tokenizer] SequencePreTokenizer got null component, skipping.\n");
+                continue;
+            }
+            pt->pre_tokenize(pts);
+        }
     }
 };
 
@@ -1852,7 +1907,13 @@ class SequenceDecoder : public TokenDecoder {
 public:
     SequenceDecoder(const std::vector<std::shared_ptr<TokenDecoder>>& d) : decoders_(d) {}
     void decode_chain(std::vector<std::string>& tokens) const override {
-        for (const auto& d : decoders_) d->decode_chain(tokens);
+        for (const auto& d : decoders_) {
+            if (!d) {
+                MNN_ERROR("[Tokenizer] SequenceDecoder got null component, skipping.\n");
+                continue;
+            }
+            d->decode_chain(tokens);
+        }
     }
 };
 
@@ -2162,7 +2223,12 @@ bool PipelineTokenizer::load_vocab_binary(std::ifstream& file) {
                 uint32_t count = read_u32(p);
                 std::vector<std::shared_ptr<Normalizer>> norms;
                 for (uint32_t i = 0; i < count; i++) {
-                    norms.push_back(std::shared_ptr<Normalizer>(read_normalizer_bin(p).release()));
+                    auto child = read_normalizer_bin(p);
+                    if (!child) {
+                        MNN_ERROR("[Tokenizer] Skip null normalizer in sequence.\n");
+                        continue;
+                    }
+                    norms.push_back(std::shared_ptr<Normalizer>(child.release()));
                 }
                 return make_unique_<SequenceNormalizer>(norms);
             }
@@ -2185,6 +2251,11 @@ bool PipelineTokenizer::load_vocab_binary(std::ifstream& file) {
                 std::vector<std::pair<uint32_t, std::string>> nfd;
                 if (strip) nfd = read_norm_table(p);
                 return make_unique_<BertNormalizer>((bool)clean, (bool)chinese, (bool)strip, (bool)lower, std::move(nfd));
+            }
+            case 8: { // Strip normalizer
+                uint8_t strip_left = read_u8(p);
+                uint8_t strip_right = read_u8(p);
+                return make_unique_<StripNormalizer>((bool)strip_left, (bool)strip_right);
             }
             default: break;
         }
@@ -2210,7 +2281,12 @@ bool PipelineTokenizer::load_vocab_binary(std::ifstream& file) {
                 uint32_t count = read_u32(p);
                 std::vector<std::shared_ptr<PreTokenizer>> pts;
                 for (uint32_t i = 0; i < count; i++) {
-                    pts.push_back(std::shared_ptr<PreTokenizer>(read_pre_tokenizer_bin(p).release()));
+                    auto child = read_pre_tokenizer_bin(p);
+                    if (!child) {
+                        MNN_ERROR("[Tokenizer] Skip null pre-tokenizer in sequence.\n");
+                        continue;
+                    }
+                    pts.push_back(std::shared_ptr<PreTokenizer>(child.release()));
                 }
                 return make_unique_<SequencePreTokenizer>(pts);
             }
@@ -2308,7 +2384,12 @@ bool PipelineTokenizer::load_vocab_binary(std::ifstream& file) {
                 uint32_t count = read_u32(p);
                 std::vector<std::shared_ptr<TokenDecoder>> decs;
                 for (uint32_t i = 0; i < count; i++) {
-                    decs.push_back(std::shared_ptr<TokenDecoder>(read_decoder_bin(p).release()));
+                    auto child = read_decoder_bin(p);
+                    if (!child) {
+                        MNN_ERROR("[Tokenizer] Skip null decoder in sequence.\n");
+                        continue;
+                    }
+                    decs.push_back(std::shared_ptr<TokenDecoder>(child.release()));
                 }
                 return make_unique_<SequenceDecoder>(decs);
             }

@@ -130,6 +130,20 @@ class LlmTokenizer(PreTrainedTokenizer):
         return entries
 
     @staticmethod
+    def _generate_nfc_table():
+        import unicodedata
+        entries = []
+        for cp in range(0x110000):
+            try:
+                ch = chr(cp)
+                normalized = unicodedata.normalize('NFC', ch)
+                if normalized != ch:
+                    entries.append((cp, normalized.encode('utf-8')))
+            except (ValueError, OverflowError):
+                pass
+        return entries
+
+    @staticmethod
     def _generate_nfd_table():
         import unicodedata
         entries = []
@@ -209,6 +223,9 @@ class LlmTokenizer(PreTrainedTokenizer):
                 if ntype in ('NFKC', 'Precompiled', 'NFKD'):
                     fp.write(struct.pack('<B', 6))
                     self._write_norm_table(fp, self._generate_nfkc_table())
+                elif ntype == 'NFC':
+                    fp.write(struct.pack('<B', 6))
+                    self._write_norm_table(fp, self._generate_nfc_table())
                 elif ntype == 'Prepend':
                     fp.write(struct.pack('<B', 2))
                     fp.write(pack_str(norm.get('prepend', '')))
@@ -251,6 +268,11 @@ class LlmTokenizer(PreTrainedTokenizer):
                     fp.write(struct.pack('<B', 7))
                     fp.write(struct.pack('<BBBB', 0, 0, 1, 0))
                     self._write_norm_table(fp, self._generate_nfd_table())
+                elif ntype == 'Strip':
+                    fp.write(struct.pack('<B', 8))
+                    fp.write(struct.pack('<BB',
+                        int(norm.get('strip_left', True)),
+                        int(norm.get('strip_right', True))))
                 else:
                     fp.write(struct.pack('<B', 0))
             write_normalizer_bin(fp, norm)
