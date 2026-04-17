@@ -209,15 +209,6 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance)
     vkEnumerateDeviceExtensionProperties(mPhysicalDevice, nullptr, &extensionCount, nullptr);
     std::vector<VkExtensionProperties> extensions(extensionCount);
     vkEnumerateDeviceExtensionProperties(mPhysicalDevice, nullptr, &extensionCount, extensions.data());
-
-    VkPhysicalDeviceShaderFloat16Int8FeaturesKHR float16Features = {};
-    float16Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES_KHR;
-
-    VkPhysicalDeviceFeatures2 features2 = {};
-    features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-    features2.pNext = &float16Features;
-
-    vkGetPhysicalDeviceFeatures2(mPhysicalDevice, &features2);
 }
 
 }
@@ -643,10 +634,13 @@ void VulkanDevice::checkFP16(const std::vector<VkExtensionProperties>& available
     mFP16Info.enabledVulkan12Features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
     mFP16Info.enabledShaderFloat16Int8Features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES};
     mFP16Info.enabled16BitStorageFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES};
-    
-    PFN_vkGetPhysicalDeviceFeatures2 getFeatures2 = vkGetPhysicalDeviceFeatures2;
+
+    VkInstance instance = mInstance->get();
+    auto getFeatures2 =
+        (PFN_vkGetPhysicalDeviceFeatures2)vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2");
     if (!getFeatures2) {
-        getFeatures2 = vkGetPhysicalDeviceFeatures2KHR;
+        getFeatures2 =
+            (PFN_vkGetPhysicalDeviceFeatures2)vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2KHR");
     }
     if (!getFeatures2) {
         return;
@@ -704,9 +698,12 @@ void VulkanDevice::checkCoopMat(const std::vector<VkExtensionProperties>& availa
     mCoopMatInfo.selectedFP32CoopMatShape.clear();
     mCoopMatInfo.selectedFP16CoopMatShape.clear();
 
-    PFN_vkGetPhysicalDeviceFeatures2 getFeatures2 = vkGetPhysicalDeviceFeatures2;
+    VkInstance instance = mInstance->get();
+    auto getFeatures2 =
+        (PFN_vkGetPhysicalDeviceFeatures2)vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2");
     if (!getFeatures2) {
-        getFeatures2 = vkGetPhysicalDeviceFeatures2KHR;
+        getFeatures2 =
+            (PFN_vkGetPhysicalDeviceFeatures2)vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2KHR");
     }
     if (!getFeatures2) {
         return;
@@ -725,7 +722,6 @@ void VulkanDevice::checkCoopMat(const std::vector<VkExtensionProperties>& availa
     if (mCoopMatInfo.enabledCoopMatFeatures.cooperativeMatrix != VK_TRUE) return;
 
     // 3. Query Properties (Shapes)
-    VkInstance instance = mInstance->get();
     auto fpGetCoopMat = reinterpret_cast<PFN_vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR>(
             vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR"));
 

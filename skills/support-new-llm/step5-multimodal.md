@@ -70,70 +70,15 @@ Position embedding 方式 (固定 / 可变插值)：____
 - **投影器**：直接 Linear / MLP / Perceiver resampler / pixel_unshuffle + MLP
 - **Tiling**：是否支持大图拆分为多个 tile（tile_size 配置）
 
-### 5.2.3 Vision 子类实现模板
+### 5.2.3 Vision 子类实现
 
-Vision 子类需要实现以下方法（参考 `vision.py` 中已有子类的实现）：
+参考 `vision.py` 中已有子类（如 `Gemma3Vision`、`Qwen2Vision`），继承最相似的现有类或基类 `Vision`。
 
-```python
-class NewVision(Vision):
-    def __init__(self, visual, base):
-        # 在 super().__init__() 之前设置属性；super() 会调用 init_config() 和 load()
-        # 投影器从 base 获取：self.projector = base.multi_modal_projector
-        self.tile_size = 512
-        self.image_embeds = []
-        super().__init__(visual, base)
-        self.visual = self.visual.float()
-        self.quant_bit = 8
-        self.transformer_fuse = False
+**必须实现的方法**：`__init__`、`init_config`、`load`、`forward`、`export`、`embed`。
 
-    def init_config(self):
-        # 图像归一化：C++ 使用 (pixel * image_norm) - image_mean（像素范围 0-255）
-        self.llm_config['is_visual'] = True
-        self.llm_config['image_mean'] = (np.array([0.5, 0.5, 0.5]) * 255.0).tolist()
-        self.llm_config['image_norm'] = (1 / (np.array([0.5, 0.5, 0.5]) * 255.0)).tolist()
-
-    def load(self):
-        # 必须设置的 llm_config 字段（→ 参见 5.2.5 字段速查表）
-        self.llm_config['image_size'] = self.tile_size
-        self.llm_config['vision_start'] = ...  # token IDs
-        self.llm_config['vision_end'] = ...
-        self.llm_config['image_pad'] = ...
-        # tiling 模型还需: image_size_unit, image_max_size, global_image
-
-    def forward(self, pixel_values):
-        # 输入: (batch, 3, H, W)  输出: (batch, num_tokens, 1, hidden_size)
-        # ⚠️ 输出 dim[2] 固定为 1（MNN C++ 约定）
-        ...
-        return image_features.unsqueeze(2)
-
-    def str_to_ids(self, prompt):
-        # 解析 <img>path</img> → img_process() → 替换为 pad token → tokenize
-        pass
-
-    def img_process(self, image):
-        # resize → normalize → forward() → 存入 self.image_embeds
-        # 返回 token 数量
-        pass
-
-    def embed(self, input_ids, images=None, videos=None):
-        # 将 self.image_embeds 替换到 input_embeds 的 image_pad 位置
-        input_embeds = self.embed_(input_ids)
-        if self.image_embeds:
-            image_mask = (input_ids == self.image_pad_id).squeeze()
-            input_embeds[image_mask] = torch.concat(self.image_embeds, dim=0).to(input_embeds.dtype)
-        return input_embeds
-
-    @spinner_run(f'export visual to ')
-    def export(self, onnx_path):
-        # ⚠️ input_names 决定 C++ dispatch 路径（→ 参见 5.4.1）
-        pixel_values = torch.randn([1, 3, self.tile_size, self.tile_size])
-        onnx_model = f'{onnx_path}/visual.onnx'
-        onnx_export(self, (pixel_values), onnx_model,
-                    input_names=['pixel_values'],
-                    output_names=['image_embeds'],
-                    dynamic_axes={"pixel_values": {0: "size"}})
-        return onnx_model
-```
+**关键约束**：
+- `super().__init__()` 之前设置属性（super 会调用 `init_config()` 和 `load()`）
+- `export()` 的 `input_names` 决定 C++ dispatch 路径（→ 参见 5.4.1）
 
 ### 5.2.4 VL 模型的 mapper 路径约定
 
@@ -389,54 +334,9 @@ visual.mnn 输入名?
 - 如果新模型兼容 Qwen2-VL 的 patch+position 接口 → 使用 `input_names=['patches', ...]`
 - 如果都不兼容 → 需要在 `omni.cpp` 中添加新的 dispatch 分支
 
-### 5.4.2 smolvlmVisionProcess 详解
-
-大多数新模型可以复用 `smolvlmVisionProcess`，它的处理流程是：
-
-```
-输入图片
-├─ 图片尺寸 > image_size_unit?
-│   ├─ 是（需要 tiling）：
-│   │   1. resize 全局图到 image_size_unit × image_size_unit
-│   │   2. forward 全局图 → 获取 visionLen（每 tile token 数）
-│   │   3. resize 大图到 grid_h × grid_w 个 tile
-│   │   4. 所有 tile 拼接 forward → 每个 tile 一个 embedding
-│   │   5. 全局图 embedding 也加入
-│   │   6. 生成 imgIds: [vision_start, <row_col>, pad×visionLen, ...] + [vision_start, global, pad×visionLen, vision_end]
-│   │
-│   └─ 否（小图，单 tile）：
-│       1. resize 到 image_size_unit × image_size_unit
-│       2. forward → 获取 embedding
-│       3. 生成 imgIds: [vision_start, global, pad×visionLen, vision_end]
-
-输出：imgIds + mVisionEmbeddings（embedding 列表）
-```
-
-**兼容性要求**：
-- 视觉模型 forward 输出 shape 必须是 `(batch, visionLen, 1, hidden_size)`
-- `visionLen` 从 forward 输出动态获取，不需要硬编码
-- 所有 tile 使用相同的 tile_size（image_size_unit），输出相同的 visionLen
-
-### 5.4.3 C++ 图片输入格式
-
-在 `llm_demo` 的 chat 模式中，图片用 `<img>` 标签包裹：
-
-```
-<img>/path/to/image.jpg</img>描述一下这张图片
-```
-
-音频用 `<audio>` 标签包裹：
-
-```
-<audio>/path/to/audio.wav</audio>请描述这段音频
-```
-
-### 5.4.4 运行 C++ 多模态测试
+### 5.4.2 C++ 多模态测试
 
 ```bash
-# 先构建（如果还没有）
-cd build && cmake .. -DMNN_BUILD_LLM=ON -DMNN_LOW_MEMORY=ON && make -j$(nproc)
-
 # 测试视觉推理
 echo "<img>/path/to/test.jpg</img>描述一下这张图片" > /tmp/prompt.txt
 ./llm_demo /path/to/MODEL/config.json /tmp/prompt.txt
@@ -446,53 +346,55 @@ echo "你好" > /tmp/prompt.txt
 ./llm_demo /path/to/MODEL/config.json /tmp/prompt.txt
 ```
 
-### 5.4.5 Stop Token 配置
-
-多模态模型在 C++ 推理时经常出现输出不停止的问题（无限重复 role token）。需要在 `tokenizer.py` 中为模型添加额外的 stop token：
-
-```python
-# tokenizer.py 中 MNNTokenizer.__init__：
-if model_type == 'glm_ocr':
-    user_ids = self.tokenizer.encode('<|user|>', add_special_tokens=False)
-    if len(user_ids) == 1:
-        self.stop_ids.append(user_ids[0])
-```
-
-详见 `common-pitfalls.md` 第 4 节。
+如果输出不停止，参见 `common-pitfalls.md` 第 4 节配置 stop token。
 
 ---
 
 ## 步骤 5 测试标准
 
+### 在开始写代码之前，先制定测试目标
+
+准备一张有明确内容的测试图片（如包含人物、动物、场景的照片），写好测试脚本：
+
+```bash
+# 1. HF 基准（Python float32）— 这是 ground truth
+python3 -c "... model.generate(input_ids, pixel_values, ...) ..."
+# 期望输出示例："一位女性和一只金毛犬在沙滩上"
+
+# 2. MNN Python --test
+python3 llmexport.py --path /path/to/model --test "<img>test.jpg</img>描述图片"
+# 期望：输出质量与 HF 基准相当
+
+# 3. C++ llm_demo
+echo "<img>test.jpg</img>描述图片" > test.txt
+./llm_demo config.json test.txt
+# 期望：输出质量与 HF 基准相当
+```
+
 ### 通过标准
 
-- [ ] 纯文本推理仍然正确（步骤 3 的测试仍通过）
-- [ ] 多模态推理能正常运行不报错
-- [ ] 多模态输入能生成相关的文本描述
-- [ ] 视觉/音频编码器的 ONNX 导出不报错（测试：`--export mnn` 过程无异常）
-- [ ] **C++ 多模态推理不崩溃**，输出与图片/音频内容相关
-- [ ] **C++ 推理能正常停止**（如果不能，需要配置 stop token）
+- [ ] **HF 基准输出正确**（先确认 ground truth）
+- [ ] **MNN Python 输出与 HF 基准质量相当**（能描述图片主体内容）
+- [ ] **C++ 输出与 HF 基准质量相当**（能描述图片主体内容）
+- [ ] 纯文本推理仍然正确
+- [ ] C++ 推理能正常停止
 
-### 常见错误与修复
+> **⚠️ "能感知到一些信号"不算通过。** C++ 输出模糊关键词（如"光芒/温暖"）而 HF 输出精确描述（如"一位女性和一只金毛犬在沙滩上"）→ 实现有未对齐细节，不要归因于量化精度，继续排查。
 
-| 错误 | 原因 | 修复 |
-|------|------|------|
-| `audio_pad_id` 错误 | 使用了错误的 token ID | 检查模型的 special_tokens |
-| 视觉嵌入维度不匹配 | 投影层输出维度 ≠ 语言模型 hidden_size | 检查 connector/projector 的实现 |
-| ONNX 导出时 dynamic_axes 报错 | 动态轴设置不对 | 检查 export() 方法的参数 |
-| embed_ dtype 不一致 | `.float()` 级联到共享 embedding | 参见 `common-pitfalls.md` 第 2 节 |
-| C++ Jinja 模板崩溃 | 模板过于复杂 | 参见 `common-pitfalls.md` 第 3 节 |
-| C++ 推理不停止 | 缺少 stop token | 参见 `common-pitfalls.md` 第 4 节 |
-| C++ 走错 dispatch 分支 | ONNX input_names 不匹配 | 参见 5.4.1 dispatch 规则 |
-| C++ tiling 后 token 数错误 | visionLen 与预期不符 | 检查 forward() 输出 shape 的 dim[1] |
+### C++ 结果错误时的排查流程
 
-### 失败处理
+**按 `common-pitfalls.md` 第 11 节的 4 步流程逐级排查，不能跳步。**
 
-- **纯文本推理不再正确** → 多模态代码影响了文本路径，检查 embed() 方法
-- **多模态推理报错** → 检查编码器 forward() 和 embed() 的实现
-- **C++ 崩溃** → 检查 visual.mnn 输入名称是否匹配 dispatch 逻辑（5.4.1）
-- **C++ 结果错误但 Python 正确** → 参见 `common-pitfalls.md` 第 11 节的系统排查流程
-- **在问题修复之前，不要进入步骤 4**
+核心思路：dump Python 的中间数据，喂给 C++ 对比，逐步缩小差异范围。
+
+### 常见错误速查
+
+| 错误 | 最可能原因 |
+|------|----------|
+| C++ 崩溃 | ONNX input_names 不匹配 dispatch（5.4.1） |
+| 图片能跑但内容完全错误 | HF forward 中 vision tokens 有特殊预处理未对齐 |
+| C++ 推理不停止 | 缺少 stop token（`common-pitfalls.md` 第 4 节） |
+| 纯文本也坏了 | embed() 影响了文本路径 |
 
 ---
 

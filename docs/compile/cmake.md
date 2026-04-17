@@ -104,3 +104,8 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_KLEIDIAI         | 是否集成ARM的klediAI加速库，默认为`ON` |
 | MNN_KLEIDIAI_DEFAULT_ON | 是否默认使用KLEIDIAI的Kernel, 默认为`OFF` |
 | MNN_USE_RVV          | 是否启用RISC-V向量扩展支持，默认为`OFF` |
+| MNN_MUSA_QUANT       | 是否开启 MUSA 量化相关代码编译，默认为`OFF` |
+| MNN_MUSA_BF16        | 是否开启 MUSA BFloat16 代码编译，默认为`OFF` |
+| MNN_MUSA_COMPAT_STUB | MUSA 兼容存根模式，仅编译不依赖真实 GPU，默认为`ON` |
+| MNN_MUSA_COMPAT_CUDA | 将 MUSA API 映射到 CUDA 进行编译测试，默认为`OFF` |
+| MNN_MUSA_NATIVE      | 使用原生 MUSA SDK 编译，默认为`OFF` |

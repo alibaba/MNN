@@ -275,6 +275,30 @@ public:
         return config_.value("has_deepstack", false);
     }
 
+    bool has_ple() const {
+        return config_.find("ple_embed_file") != config_.end();
+    }
+
+    std::string ple_embed_file() const {
+        return base_dir_ + config_.value("ple_embed_file", "");
+    }
+
+    float ple_embed_scale() const {
+        return config_.value("ple_embed_scale", 1.0f);
+    }
+
+    int ple_embed_dim() const {
+        return config_.value("ple_embed_dim", 0);
+    }
+
+    std::vector<int64_t> ple_quant() const {
+        return config_.value("ple_quant", std::vector<int64_t>{});
+    }
+
+    float attn_scale() const {
+        return config_.value("attn_scale", 0.0f);
+    }
+
     bool use_template() const {
         return config_.value("use_template", true);
     }

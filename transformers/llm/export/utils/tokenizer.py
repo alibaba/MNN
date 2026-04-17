@@ -32,6 +32,13 @@ class LlmTokenizer(PreTrainedTokenizer):
             elif isinstance(eos_token_id, Iterable):
                 for id in eos_token_id:
                     self.stop_ids.append(id)
+        # gemma4: <turn|> (token 106) is end-of-turn
+        try:
+            turn_ids = self.tokenizer.encode('<turn|>', add_special_tokens=False)
+            if len(turn_ids) == 1 and turn_ids[0] not in self.stop_ids:
+                self.stop_ids.append(turn_ids[0])
+        except:
+            pass
         if model_type == 'glm_ocr':
             user_ids = self.tokenizer.encode('<|user|>', add_special_tokens=False)
             if len(user_ids) == 1:

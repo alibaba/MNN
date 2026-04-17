@@ -1,4 +1,5 @@
 # MNN Chat Android App
+[简体中文版本](./README_CN.md) | [繁体中文版本](./README_TW.md)
 
 [下载](#releases)
 

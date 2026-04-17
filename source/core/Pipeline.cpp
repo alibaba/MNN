@@ -15,6 +15,7 @@
 #include "geometry/GeometryComputerUtils.hpp"
 #include "shape/SizeComputer.hpp"
 #include "core/OpCommonUtils.hpp"
+#include "MNN_generated.h"
 
 // TODO: Find better way for debug
 //#define MNN_OP_SEPERATE
@@ -538,6 +539,8 @@ static ErrorCode _createExecutions(Schedule::PipelineInfo& mInfo, const std::str
     FileLoader loader(externalFile.c_str());
     auto& mBackend = mInfo.first.cache.first;
     auto& mBackupBackend = mInfo.first.cache.second;
+    // KV Cache sharing: registry of Attention executions by layer_index for clone-based reuse
+    std::map<int, std::shared_ptr<Execution>> kvAttentionRegistry;
     for (auto& info : mInfo.second) {
         if (!info.computeCache.needComputeShape) {
             continue;
@@ -562,7 +565,24 @@ static ErrorCode _createExecutions(Schedule::PipelineInfo& mInfo, const std::str
             }
             std::shared_ptr<BufferStorage> tmpStorage;
             if (nullptr == iter.execution) {
-                iter.execution.reset(OpCommonUtils::createExecutionWithExternal(mBackend.get(), iter.inputs, iter.outputs, iter.op, &loader, tmpStorage));
+                // KV Cache sharing: clone from source Attention's execution instead of creating new
+                if (iter.op->type() == OpType_Attention && iter.op->main_type() == OpParameter_AttentionParam) {
+                    auto param = iter.op->main_as_AttentionParam();
+                    int kvSharedIdx = param ? param->kv_shared_layer_index() : -1;
+                    if (kvSharedIdx >= 0) {
+                        auto srcIt = kvAttentionRegistry.find(kvSharedIdx);
+                        if (srcIt != kvAttentionRegistry.end()) {
+                            Execution* cloned = nullptr;
+                            if (srcIt->second->onClone(srcIt->second->backend(), iter.op, &cloned) && cloned) {
+                                iter.execution.reset(cloned);
+                            }
+                        }
+                    }
+                }
+                if (nullptr == iter.execution) {
+                    iter.execution.reset(OpCommonUtils::createExecutionWithExternal(
+                        mBackend.get(), iter.inputs, iter.outputs, iter.op, &loader, tmpStorage));
+                }
             }
             if (nullptr == iter.execution) {
                 // Try Backup
@@ -582,6 +602,14 @@ static ErrorCode _createExecutions(Schedule::PipelineInfo& mInfo, const std::str
                 MNN_ERROR("Pipeline: execution invalid (OOM) for op type: %d\n", iter.op->type());
                 iter.execution = nullptr;
                 return OUT_OF_MEMORY;
+            }
+            // Register Attention execution for KV Cache sharing
+            if (iter.op->type() == OpType_Attention && iter.op->main_type() == OpParameter_AttentionParam) {
+                auto param = iter.op->main_as_AttentionParam();
+                int layerIndex = param ? param->layer_index() : -1;
+                if (layerIndex >= 0) {
+                    kvAttentionRegistry[layerIndex] = iter.execution;
+                }
             }
             if ((!cached) && iter.buffer == nullptr && (iter.op->type() != OpType_Raster) && (iter.op->type() != OpType_BinaryOp)) {
                 info.executionCache.insert(std::make_pair(iter.op, iter.execution));

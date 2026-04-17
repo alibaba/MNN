@@ -411,6 +411,12 @@ void CPULinearAttention::gated_delta_rule_mnn(const std::vector<Tensor*>& inputs
     const int B       = qkvTensor->length(0);
     const int D       = qkvTensor->length(1);
     const int L       = qkvTensor->length(2);
+
+    // Decode fast path: L=1, skip decay buffer, stride=1 contiguous access
+    if (L == 1) {
+        gated_delta_rule_decode(inputs, outputs);
+        return;
+    }
     const int H_k     = mNumKHeads;
     const int H_v     = mNumVHeads;
     const int d_k     = mHeadKDim;
@@ -639,6 +645,161 @@ void CPULinearAttention::gated_delta_rule_mnn(const std::vector<Tensor*>& inputs
     MNN_CONCURRENCY_END();
 }
 
+void CPULinearAttention::gated_delta_rule_decode(const std::vector<Tensor*>& inputs,
+                                                 const std::vector<Tensor*>& outputs) const {
+    auto qkvTensor = inputs[0];
+    auto gateTensor = inputs[1];
+    auto betaTensor = inputs[2];
+    auto convWTensor = inputs[3];
+    auto outTensor = outputs[0];
+
+    const int8_t* qkvPtr = qkvTensor->host<int8_t>();
+    const int8_t* gatePtr = gateTensor->host<int8_t>();
+    const int8_t* betaPtr = betaTensor->host<int8_t>();
+    const int8_t* convWPtr = convWTensor->host<int8_t>();
+    int8_t* outPtr = outTensor->host<int8_t>();
+
+    const int B = qkvTensor->length(0);
+    const int D = qkvTensor->length(1);
+    // L == 1 guaranteed
+    const int H_k = mNumKHeads;
+    const int H_v = mNumVHeads;
+    const int d_k = mHeadKDim;
+    const int d_v = mHeadVDim;
+    const int key_dim = H_k * d_k;
+    const int K_conv = convWTensor->length(2);
+    const int convStateSize = K_conv - 1;
+    const bool useL2Norm = mUseQKL2Norm;
+    const int gqa_factor = (H_v > H_k) ? (H_v / H_k) : 1;
+    const int H = H_v;
+    const int bytes = mBytes;
+
+    auto* convOut = mConvOut->host<int8_t>();
+    auto* convStatePtr = mStateCache->mConvState->host<int8_t>();
+
+    const int threadNum = static_cast<CPUBackend*>(backend())->threadNumber();
+
+    // ─── Step 1: Conv1D + SiLU (L=1, one output per channel) ───
+    // Each channel: dot product of [convState, input_val] with weight, then SiLU
+    const int totalChannels = B * D;
+    MNN_CONCURRENCY_BEGIN(tId, threadNum) {
+        for (int idx = (int)tId; idx < totalChannels; idx += threadNum) {
+            const int d = idx % D;
+
+            // Read the single input value for this channel
+            const float inputVal = _readElement(qkvPtr, idx, bytes);
+
+            // Compute conv: dot(cat(state, input), weight)
+            float sum = 0.0f;
+            const int8_t* stateChannel = convStatePtr + idx * convStateSize * bytes;
+            const int8_t* weight = convWPtr + d * K_conv * bytes;
+            for (int k = 0; k < convStateSize; ++k) {
+                sum += _readElement(stateChannel, k, bytes) * _readElement(weight, k, bytes);
+            }
+            sum += inputVal * _readElement(weight, convStateSize, bytes);
+
+            // SiLU activation
+            const float sigmoid_val = 1.0f / (1.0f + expf(-sum));
+            const float convResult = sum * sigmoid_val;
+            _writeElement(convOut, idx, convResult, bytes);
+
+            // Update conv state: shift left by 1, append new input
+            for (int k = 0; k < convStateSize - 1; ++k) {
+                const float v = _readElement(stateChannel, k + 1, bytes);
+                _writeElement(convStatePtr + idx * convStateSize * bytes, k, v, bytes);
+            }
+            _writeElement(convStatePtr + idx * convStateSize * bytes, convStateSize - 1, inputVal, bytes);
+        }
+    }
+    MNN_CONCURRENCY_END();
+
+    // ─── Steps 2-5 fused: QKV extraction + L2Norm + Scale + Gated Delta Rule ───
+    const float qScale = 1.0f / sqrtf((float)d_k);
+    const auto gcore = static_cast<CPUBackend*>(backend())->functions();
+    auto* rnnStatePtr = mStateCache->mRecurrentState->host<int8_t>();
+
+    const int totalHeads = B * H;
+    auto* threadBufBase = mThreadLocalBuf->host<int8_t>();
+    const int perThread = 2 * d_k + 3 * d_v;
+
+    MNN_CONCURRENCY_BEGIN(tId, threadNum) {
+        int8_t* tBuf = threadBufBase + (int)tId * perThread * bytes;
+        int8_t* q_local = tBuf;
+        int8_t* k_local = tBuf + d_k * bytes;
+        int8_t* v_local = tBuf + 2 * d_k * bytes;
+        int8_t* localVPred = tBuf + (2 * d_k + d_v) * bytes;
+        int8_t* localDelta = tBuf + (2 * d_k + 2 * d_v) * bytes;
+
+        for (int idx = (int)tId; idx < totalHeads; idx += threadNum) {
+            const int b = idx / H;
+            const int h = idx % H;
+            const int k_head = h / gqa_factor;
+
+            int8_t* state = rnnStatePtr + idx * d_k * d_v * bytes;
+
+            // L=1: conv_out is [B, D, 1], stride=1, contiguous read
+            const int8_t* convBase = convOut + b * D * bytes;
+            const int8_t* qBase = convBase + k_head * d_k * bytes;
+            const int8_t* kBase = convBase + (key_dim + k_head * d_k) * bytes;
+            const int8_t* vBase = convBase + (2 * key_dim + h * d_v) * bytes;
+
+            // ── Step 2: Extract q, k, v (contiguous copy, stride=1) ──
+            ::memcpy(q_local, qBase, d_k * bytes);
+            ::memcpy(k_local, kBase, d_k * bytes);
+            ::memcpy(v_local, vBase, d_v * bytes);
+
+            // ── Step 3+4: L2 Normalization + Scale (fused) ──
+            if (useL2Norm) {
+                const float eps = 1e-6f;
+                float qSumSq = 0.0f, kSumSq = 0.0f;
+                for (int i = 0; i < d_k; ++i) {
+                    const float qi = _readElement(q_local, i, bytes);
+                    const float ki = _readElement(k_local, i, bytes);
+                    qSumSq += qi * qi;
+                    kSumSq += ki * ki;
+                }
+                const float qNormScale = qScale / sqrtf(qSumSq + eps);
+                const float kInvNorm = 1.0f / sqrtf(kSumSq + eps);
+                for (int i = 0; i < d_k; ++i) {
+                    _writeElement(q_local, i, _readElement(q_local, i, bytes) * qNormScale, bytes);
+                    _writeElement(k_local, i, _readElement(k_local, i, bytes) * kInvNorm, bytes);
+                }
+            } else {
+                for (int i = 0; i < d_k; ++i) {
+                    _writeElement(q_local, i, _readElement(q_local, i, bytes) * qScale, bytes);
+                }
+            }
+
+            // ── Step 5: Gated Delta Rule (inline decay, no pre-computed buffer) ──
+            const float decay = expf(_readElement(gatePtr, b * H + h, bytes));
+            const float beta_t = _readElement(betaPtr, b * H + h, bytes);
+
+            // Pass 1 (read-only): compute S^T@k and S^T@q simultaneously
+            int8_t* o_t = outPtr + (b * H * d_v + h * d_v) * bytes;
+            gcore->MNNDualMatVec((float*)state, (float*)k_local, (float*)q_local, (float*)localVPred, (float*)o_t, d_k,
+                                 d_v);
+
+            // Analytic correction
+            float kq = 0.0f;
+            for (int i = 0; i < d_k; ++i) {
+                kq += _readElement(k_local, i, bytes) * _readElement(q_local, i, bytes);
+            }
+            for (int i = 0; i < d_v; ++i) {
+                const float vPred_i = decay * _readElement(localVPred, i, bytes);
+                const float v_i = _readElement(v_local, i, bytes);
+                const float delta_i = beta_t * (v_i - vPred_i);
+                const float out_i = decay * _readElement(o_t, i, bytes) + kq * delta_i;
+                _writeElement(localDelta, i, delta_i, bytes);
+                _writeElement(o_t, i, out_i, bytes);
+            }
+
+            // Pass 2: S = decay*S + k⊗delta
+            gcore->MNNDecayRankOneUpdate((float*)state, (float*)k_local, (float*)localDelta, decay, d_k, d_v);
+        }
+    }
+    MNN_CONCURRENCY_END();
+}
+
 void CPULinearAttention::short_conv(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto qkvTensor   = inputs[0];
     auto convWTensor = inputs[3];
@@ -657,7 +818,7 @@ void CPULinearAttention::short_conv(const std::vector<Tensor*>& inputs, const st
     const int bytes = mBytes;
 
     int8_t* convPadded   = mConvPadded->host<int8_t>();
-    int8_t* convOut      = mConvOut->host<int8_t>();
+    int8_t* convOut = mConvOut->host<int8_t>();
     int8_t* convStatePtr = mStateCache->mConvState->host<int8_t>();
 
     int threadNum = static_cast<CPUBackend*>(backend())->threadNumber();

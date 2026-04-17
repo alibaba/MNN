@@ -36,10 +36,14 @@ void DiskEmbedding::seek_read(uint8_t* dst, size_t size, size_t offset) {
     mFile->read((char*)dst, size);
 }
 
-DiskEmbedding::DiskEmbedding(const std::shared_ptr<LlmConfig>& config, std::string fileName) {
-    auto tie_embeddings = config->tie_embeddings();
-    mHiddenSize        = config->hidden_size();
-    if (tie_embeddings.size() == 5) {
+DiskEmbedding::DiskEmbedding(const std::shared_ptr<LlmConfig>& config, std::string fileName, int hiddenSize, std::vector<int64_t> quant_info) {
+    auto tie_embeddings = quant_info.size() == 5 ? quant_info : config->tie_embeddings();
+    mHiddenSize        = hiddenSize > 0 ? hiddenSize : config->hidden_size();
+    if (hiddenSize > 0 && !fileName.empty() && quant_info.empty()) {
+        // PLE bf16 path
+        mTokenSize = mHiddenSize * sizeof(int16_t);
+        mFile.reset(new FileLoader(fileName.c_str(), true));
+    } else if (tie_embeddings.size() == 5) {
         mWeightOffset     = tie_embeddings[0];
         mQuantBit         = tie_embeddings[3];
         mQuantBlock       = tie_embeddings[4];
