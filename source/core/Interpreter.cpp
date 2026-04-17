@@ -81,6 +81,7 @@ static Content* loadModelFile(const char* file) {
     auto net     = new Content;
     bool success = loader->merge(net->buffer);
     if (!success) {
+        delete net;
         return nullptr;
     }
     loader.reset();
@@ -105,7 +106,8 @@ Interpreter* Interpreter::createFromBuffer(const void* buffer, size_t size) {
     auto net = new Content;
     net->buffer.reset((int)size);
     if (nullptr == net->buffer.get()) {
-        MNN_ERROR("Memory not enought!\n");
+        MNN_ERROR("Memory not enough!\n");
+        delete net;
         return nullptr;
     }
     ::memcpy(net->buffer.get(), buffer, size);
