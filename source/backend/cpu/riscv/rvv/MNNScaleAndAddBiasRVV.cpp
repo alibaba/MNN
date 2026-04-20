@@ -1,14 +1,22 @@
+//
+//  MNNScaleAndAddBiasRVV.cpp
+//  MNN
+//
+//  Created by ISCAS on 2025/11/26.
+//  Copyright (c) 2025, ISCAS.
+//
 #include <riscv_vector.h>
 
-void MNNScaleAndAddBias(float *dst, const float *src, const float *bias, const float *alpha, size_t planeNumber, size_t biasNumber) {
+void MNNScaleAndAddBiasRVV(float* dst, const float* src, const float* bias, const float* alpha, size_t planeNumber,
+                           size_t biasNumber) {
     const ptrdiff_t stride = 4 * sizeof(float);
 
     for (size_t z = 0; z < biasNumber; ++z) {
-        float *dstZ = dst + z * planeNumber * 4;
-        const float *srcZ = src + z * planeNumber * 4;
-        const float *biasZ = bias + 4 * z;
-        const float *alphaZ = alpha + 4 * z;
-                float b0 = biasZ[0], b1 = biasZ[1], b2 = biasZ[2], b3 = biasZ[3];
+        float* dstZ = dst + z * planeNumber * 4;
+        const float* srcZ = src + z * planeNumber * 4;
+        const float* biasZ = bias + 4 * z;
+        const float* alphaZ = alpha + 4 * z;
+        float b0 = biasZ[0], b1 = biasZ[1], b2 = biasZ[2], b3 = biasZ[3];
         float a0 = alphaZ[0], a1 = alphaZ[1], a2 = alphaZ[2], a3 = alphaZ[3];
 
         size_t n = planeNumber;

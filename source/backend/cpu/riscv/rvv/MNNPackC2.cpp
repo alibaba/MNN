@@ -1,3 +1,10 @@
+//
+//  MNNPackC2.cpp
+//  MNN
+//
+//  Created by ISCAS on 2025/11/24.
+//  Copyright (c) 2025, ISCAS.
+//
 #include <riscv_vector.h>
 
 void MNNPackC2(float *dst, const float *src, size_t area, size_t depth, int *areaOffset) {
@@ -71,4 +78,3 @@ void MNNPackC2(float *dst, const float *src, size_t area, size_t depth, int *are
         }
     }
 }
-

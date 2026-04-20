@@ -19,6 +19,9 @@
 typedef SSIZE_T ssize_t;
 #endif
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 /* CPU without sdot */
 #define GEMM_INT8_UNIT 4
 #define GEMM_INT8_SRC_UNIT 16
@@ -47,10 +50,6 @@ typedef SSIZE_T ssize_t;
 #define GEMM_INT8_SRC_UNIT_SME2 4
 #define GEMM_INT8_DST_XUNIT_SME2 16
 #define GEMM_INT8_UNIT_SME2_128 128
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 struct QuanPostTreatParameters {
     const float* scale;

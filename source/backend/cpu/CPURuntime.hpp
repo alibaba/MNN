@@ -25,7 +25,6 @@ struct MNNCPUInfo {
     std::vector<CPUGroup> groups;
  // RVV attributes
     bool rvv = false;
-    int rvv_vlen = 0;
     int rvv_version = 0;
     bool zvfh = false;
     bool zvkn = false;

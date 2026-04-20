@@ -1,3 +1,10 @@
+//
+//  MNNGRAYToC4.cpp
+//  MNN
+//
+//  Created by ISCAS on 2025/12/19.
+//  Copyright (c) 2025, ISCAS.
+//
 #include <riscv_vector.h>
 
 void MNNGRAYToC4(const unsigned char* source, unsigned char* dest, size_t count) {

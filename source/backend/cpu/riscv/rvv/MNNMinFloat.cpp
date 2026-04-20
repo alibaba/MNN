@@ -1,3 +1,10 @@
+//
+//  MNNMinFloat.cpp
+//  MNN
+//
+//  Created by ISCAS on 2025/12/01.
+//  Copyright (c) 2025, ISCAS.
+//
 #include <riscv_vector.h>
 #include <cfloat>
 

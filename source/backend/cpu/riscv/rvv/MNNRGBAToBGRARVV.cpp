@@ -1,0 +1,31 @@
+//
+//  MNNRGBAToBGRARVV.cpp
+//  MNN
+//
+//  Created by ISCAS on 2025/12/19.
+//  Copyright (c) 2025, ISCAS.
+//
+#include <riscv_vector.h>
+
+void MNNRGBAToBGRARVV(const unsigned char* source, unsigned char* dest, size_t count) {
+    size_t i = 0;
+    while (i < count) {
+        size_t vl = __riscv_vsetvl_e8m8(count - i);
+        vuint8m8_t channel = __riscv_vlse8_v_u8m8(source + 4 * i + 2, 4, vl);
+        __riscv_vsse8_v_u8m8(dest + 4 * i + 0, 4, channel, vl);
+
+        channel = __riscv_vlse8_v_u8m8(source + 4 * i + 1, 4, vl);
+        __riscv_vsse8_v_u8m8(dest + 4 * i + 1, 4, channel, vl);
+
+        channel = __riscv_vlse8_v_u8m8(source + 4 * i + 0, 4, vl);
+        __riscv_vsse8_v_u8m8(dest + 4 * i + 2, 4, channel, vl);
+
+        channel = __riscv_vlse8_v_u8m8(source + 4 * i + 3, 4, vl);
+        __riscv_vsse8_v_u8m8(dest + 4 * i + 3, 4, channel, vl);
+        i += vl;
+    }
+}
+
+void MNNRGBAToBGRA(const unsigned char* source, unsigned char* dest, size_t count) {
+    MNNRGBAToBGRARVV(source, dest, count);
+}
