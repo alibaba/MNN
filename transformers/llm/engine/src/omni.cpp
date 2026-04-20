@@ -1238,7 +1238,68 @@ VARP Omni::gen_position_ids(int seq_len) {
 
 std::vector<Express::VARP> Omni::forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos, Express::VARPS extraArgs) {
     MNN::Express::ExecutorScope s(mExecutor);
-    extraArgs.insert(extraArgs.end(), mExtraArgs.begin(), mExtraArgs.end());
+    // Qwen3-VL deepstack profile contract:
+    // - prefill (seq > 1): deepstack uses (seq, hidden)
+    // - decode  (seq = 1): deepstack keeps scalar placeholder (1, 1)
+    // Keep this aligned with exported QNN profiles to avoid shape-profile miss.
+    if (mConfig->has_deepstack() && !mExtraArgs.empty()) {
+        auto deepstack = mExtraArgs[0];
+        auto deepInfo = deepstack.get() ? deepstack->getInfo() : nullptr;
+        auto hiddenInfo = hiddenState.get() ? hiddenState->getInfo() : nullptr;
+        int targetSeq = 0;
+        int targetHidden = 0;
+        if (hiddenInfo && !hiddenInfo->dim.empty()) {
+            const auto& hdim = hiddenInfo->dim;
+            targetHidden = hdim.back();
+            // Hidden state layout may vary across backends/model variants.
+            // Infer seq len from all dims except the last hidden-size dim.
+            for (int i = 0; i + 1 < hdim.size(); ++i) {
+                targetSeq = std::max(targetSeq, hdim[i]);
+            }
+            if (targetSeq == 0) {
+                targetSeq = 1;
+            }
+        }
+        if (deepInfo && deepInfo->dim.size() >= 3 && targetSeq > 0 && targetHidden > 0) {
+            int desiredSeq = (targetSeq > 1) ? targetSeq : 1;
+            int desiredHidden = (targetSeq > 1) ? targetHidden : 1;
+            if (deepInfo->dim[1] != desiredSeq || deepInfo->dim[2] != desiredHidden) {
+                auto oldDims = deepInfo->dim;
+                auto newDims = oldDims;
+                newDims[1] = desiredSeq;
+                newDims[2] = desiredHidden;
+                auto padded = _Input(newDims, deepInfo->order, deepInfo->type);
+                ::memset(padded->writeMap<void>(), 0, padded->getInfo()->size * deepInfo->type.bytes());
+
+                int batch = oldDims[0];
+                int oldSeq = oldDims[1];
+                int newSeq = newDims[1];
+                int oldHidden = oldDims[2];
+                int newHidden = newDims[2];
+                int copySeq = oldSeq < newSeq ? oldSeq : newSeq;
+                int copyHidden = oldHidden < newHidden ? oldHidden : newHidden;
+                auto src = deepstack->readMap<float>();
+                auto dst = padded->writeMap<float>();
+                for (int b = 0; b < batch; ++b) {
+                    for (int sIdx = 0; sIdx < copySeq; ++sIdx) {
+                        auto srcOffset = (b * oldSeq + sIdx) * oldHidden;
+                        auto dstOffset = (b * newSeq + sIdx) * newHidden;
+                        ::memcpy(dst + dstOffset, src + srcOffset, copyHidden * sizeof(float));
+                    }
+                }
+                extraArgs.push_back(padded);
+            } else {
+                extraArgs.push_back(deepstack);
+            }
+        } else {
+            extraArgs.push_back(deepstack);
+        }
+        for (size_t i = 1; i < mExtraArgs.size(); ++i) {
+            extraArgs.push_back(mExtraArgs[i]);
+        }
+    } else {
+        extraArgs.insert(extraArgs.end(), mExtraArgs.begin(), mExtraArgs.end());
+    }
     auto outputs = Llm::forwardRaw(hiddenState, mask, inputPos, extraArgs);
     if (mTalker && outputs.size() > 1) {
         mTalker->addTalkerEmbeds(outputs[1]);

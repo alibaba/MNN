@@ -12,6 +12,11 @@
 // #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 #include "core/FileLoader.hpp"
+#include <cstdlib>
+
+#if !defined(__aarch64__) && !defined(__arm__)
+typedef uint16_t __fp16;
+#endif
 // #define QNN_PROFILE_OP
 // #define QNN_PROFILE_SUMMARIZE
 // #define QNN_VERBOSE
@@ -37,11 +42,32 @@ struct QnnContext {
 static QnnContext gContext;
 static std::mutex gQnnContextMutex;
 
+#ifdef ENABLE_QNN_CONVERT_MODE
+static bool useConvertorInterface() {
+    const char* forceConvertor = std::getenv("MNN_QNN_USE_CONVERTOR_INTERFACE");
+    return forceConvertor != nullptr && forceConvertor[0] == '1';
+}
+#endif
+
 static void createQnnContext(){
     std::lock_guard<std::mutex> lck(gQnnContextMutex);
     QNN_INTERFACE_VER_TYPE qnnInterface{};
-#ifndef ENABLE_QNN_CONVERT_MODE
-    {
+#ifdef ENABLE_QNN_CONVERT_MODE
+    bool useConvertor = useConvertorInterface();
+#else
+    bool useConvertor = false;
+#endif
+    if (!useConvertor) {
+        bool needLoadSymbol = (QNN::QnnInterface_getProviders == nullptr);
+#ifdef MNN_WITH_PLUGIN
+        needLoadSymbol = needLoadSymbol || (QNN::QnnSystemInterface_getProviders == nullptr);
+#endif
+        if (needLoadSymbol && !QNN::loadQNNSymbol()) {
+            MNN_ERROR("MNN_QNN: Failed to load QNN symbols for runtime execution.\n");
+            return;
+        }
+    }
+    if (!useConvertor) {
         QnnInterface_t** interfaceProviders = nullptr;
         uint32_t numProviders = 0;
         if (QNN::QnnInterface_getProviders((const QnnInterface_t***)&interfaceProviders, &numProviders) != QNN_SUCCESS) {
@@ -70,8 +96,11 @@ static void createQnnContext(){
             return;
         }
     }
-#else
-    qnnInterface = QNN::gQnnConvertorInterface;
+#ifdef ENABLE_QNN_CONVERT_MODE
+    else {
+        MNN_PRINT("MNN_QNN: Using convertor interface (MNN_QNN_USE_CONVERTOR_INTERFACE=1).\n");
+        qnnInterface = QNN::gQnnConvertorInterface;
+    }
 #endif
 
     // Create Log.
@@ -133,9 +162,8 @@ static void createQnnContext(){
 
     // Create System Interface
     QNN_SYSTEM_INTERFACE_VER_TYPE systemInterface{};
-#ifndef ENABLE_QNN_CONVERT_MODE
-    #ifdef MNN_WITH_PLUGIN
-    {
+#ifdef MNN_WITH_PLUGIN
+    if (!useConvertor) {
         QnnSystemInterface_t** interfaceProviders = nullptr;
         uint32_t numProviders = 0;
         if (QNN::QnnSystemInterface_getProviders((const QnnSystemInterface_t***)&interfaceProviders, &numProviders) != QNN_SUCCESS) {
@@ -164,9 +192,11 @@ static void createQnnContext(){
             return;
         }
     }
-    #endif
-#else
-    systemInterface = QNN::gQnnConvertorSystemInterface;
+#endif
+#ifdef ENABLE_QNN_CONVERT_MODE
+    if (useConvertor) {
+        systemInterface = QNN::gQnnConvertorSystemInterface;
+    }
 #endif
 
 
@@ -459,6 +489,28 @@ static bool computeIndex(PluginContext* ctx, int & index) {
             index = si;
             return true;
         }
+    }
+    MNN_ERROR("MNN_QNN: Plugin shape profile miss. input_count=%d, dim_sum=%d, profile_count=%d\n", (int)inputs.size(), dimSum, indexNumber);
+    for (int i = 0; i < inputs.size(); ++i) {
+        auto inputDim = inputs[i]->dimensions();
+        MNN_ERROR("  input[%d] rank=%d shape=", i, inputDim);
+        for (int j = 0; j < inputDim; ++j) {
+            MNN_ERROR("%d%s", inputs[i]->length(j), (j + 1 == inputDim) ? "" : "x");
+        }
+        MNN_ERROR("\n");
+    }
+    for (int si = 0; si < indexNumber; ++si) {
+        auto dstSi = attrAllShape->list()->i()->data() + si * dimSum;
+        MNN_ERROR("  profile[%d]=", si);
+        for (int i = 0; i < inputs.size(); ++i) {
+            auto inputDim = inputs[i]->dimensions();
+            MNN_ERROR("%s", (i == 0) ? "" : " | ");
+            for (int j = 0; j < inputDim; ++j) {
+                MNN_ERROR("%d%s", dstSi[j], (j + 1 == inputDim) ? "" : "x");
+            }
+            dstSi += inputDim;
+        }
+        MNN_ERROR("\n");
     }
     return false;
 }
@@ -850,27 +902,106 @@ public:
 
         // 1. Set mGraphsInfo and mGraphCount from the buffer.
         {
-            QnnSystemContext_Handle_t systemContextHandle = nullptr;
-            if (QNN_SUCCESS != QNN::gContext.systemInterface.systemContextCreate(&systemContextHandle)) {
-                MNN_ERROR("Could not create system context handle.");
+            bool hasSystemInterfaceFns =
+                QNN::gContext.systemInterface.systemContextCreate != nullptr &&
+                QNN::gContext.systemInterface.systemContextGetBinaryInfo != nullptr &&
+                QNN::gContext.systemInterface.systemContextFree != nullptr;
+            bool hasDirectSystemFns =
+                QNN::QnnSystemContext_create != nullptr &&
+                QNN::QnnSystemContext_getBinaryInfo != nullptr &&
+                QNN::QnnSystemContext_free != nullptr;
+            if (!hasSystemInterfaceFns && !hasDirectSystemFns) {
+                MNN_ERROR("QNN: system interface is not initialized correctly.\n");
                 return false;
             }
+            QnnSystemContext_Handle_t systemContextHandle = nullptr;
             Qnn_ContextBinarySize_t binarySize = 0;
             const QnnSystemContext_BinaryInfo_t* binaryInfo = nullptr;
-            CALL_QNN(QNN::gContext.systemInterface.systemContextGetBinaryInfo(systemContextHandle, buffer, size, &binaryInfo,&binarySize));
-            copyMetadataToGraphsInfo(binaryInfo, mGraphsInfo, mGraphCount);
-            if (QNN_SUCCESS != QNN::gContext.systemInterface.systemContextFree(systemContextHandle)) {
-                MNN_ERROR("Could not free system context handle.");
+
+            bool parsed = false;
+            if (hasSystemInterfaceFns) {
+                auto createStatus = QNN::gContext.systemInterface.systemContextCreate(&systemContextHandle);
+                MNN_PRINT("QNN: systemContextCreate status=%llu(code=%u), handle=%p, path=%s\n",
+                          (unsigned long long)createStatus, (unsigned int)QNN_GET_ERROR_CODE(createStatus), systemContextHandle, path.c_str());
+                if (QNN_SUCCESS == createStatus) {
+                    auto getInfoStatus = QNN::gContext.systemInterface.systemContextGetBinaryInfo(
+                        systemContextHandle, buffer, size, &binaryInfo, &binarySize);
+                    MNN_PRINT("QNN: systemContextGetBinaryInfo status=%llu(code=%u), info=%p, infoSize=%llu, path=%s\n",
+                              (unsigned long long)getInfoStatus, (unsigned int)QNN_GET_ERROR_CODE(getInfoStatus),
+                              binaryInfo, (unsigned long long)binarySize, path.c_str());
+                    if (QNN_SUCCESS == getInfoStatus && binaryInfo != nullptr) {
+                        parsed = true;
+                    } else if (QNN::gContext.systemInterface.systemContextGetMetaData != nullptr) {
+                        auto getMetaStatus = QNN::gContext.systemInterface.systemContextGetMetaData(
+                            systemContextHandle, buffer, size, &binaryInfo);
+                        MNN_PRINT("QNN: systemContextGetMetaData status=%llu(code=%u), info=%p, path=%s\n",
+                                  (unsigned long long)getMetaStatus, (unsigned int)QNN_GET_ERROR_CODE(getMetaStatus),
+                                  binaryInfo, path.c_str());
+                        if (QNN_SUCCESS == getMetaStatus && binaryInfo != nullptr) {
+                            parsed = true;
+                        }
+                    }
+                    if (parsed) {
+                        if (!copyMetadataToGraphsInfo(binaryInfo, mGraphsInfo, mGraphCount)) {
+                            MNN_ERROR("QNN: failed to copy binary metadata: %s\n", path.c_str());
+                            parsed = false;
+                        }
+                    }
+                    QNN::gContext.systemInterface.systemContextFree(systemContextHandle);
+                    systemContextHandle = nullptr;
+                }
+            }
+
+            if (!parsed && hasDirectSystemFns) {
+                auto createStatus = QNN::QnnSystemContext_create(&systemContextHandle);
+                if (QNN_SUCCESS == createStatus) {
+                    auto getInfoStatus = QNN::QnnSystemContext_getBinaryInfo(
+                        systemContextHandle, reinterpret_cast<const uint8_t*>(buffer), size, &binaryInfo, &binarySize);
+                    MNN_PRINT("QNN: direct QnnSystemContext_getBinaryInfo status=%llu(code=%u), info=%p, infoSize=%llu, path=%s\n",
+                              (unsigned long long)getInfoStatus, (unsigned int)QNN_GET_ERROR_CODE(getInfoStatus),
+                              binaryInfo, (unsigned long long)binarySize, path.c_str());
+                    if (QNN_SUCCESS == getInfoStatus && binaryInfo != nullptr) {
+                        parsed = true;
+                        if (!copyMetadataToGraphsInfo(binaryInfo, mGraphsInfo, mGraphCount)) {
+                            MNN_ERROR("QNN: failed to copy binary metadata (direct): %s\n", path.c_str());
+                            parsed = false;
+                        }
+                    }
+                    QNN::QnnSystemContext_free(systemContextHandle);
+                    systemContextHandle = nullptr;
+                }
+            }
+
+            if (!parsed) {
+                MNN_ERROR("QNN: failed to parse binary metadata: %s\n", path.c_str());
+                return false;
+            }
+            if (mGraphCount == 0 || mGraphsInfo == nullptr) {
+                MNN_ERROR("QNN: no graph metadata parsed from binary: %s\n", path.c_str());
                 return false;
             }
         }
 
         // 2. Retrieve graphs.
         {
-            auto error = QNN::gContext.interface.contextValidateBinary(QNN::gContext.backendHandle, QNN::gContext.deviceHandle, mQnnContextConfig, buffer, size);
-            if (QNN_SUCCESS != error) {
-                MNN_ERROR("QNN: Failed to validate binary: %d\n", (int) error);
+            if (QNN::gContext.interface.contextCreateFromBinary == nullptr ||
+                QNN::gContext.interface.graphRetrieve == nullptr) {
+                MNN_ERROR("QNN: context interface is not initialized correctly.\n");
                 return false;
+            }
+            if (QNN::gContext.interface.contextValidateBinary != nullptr) {
+                auto error = QNN::gContext.interface.contextValidateBinary(QNN::gContext.backendHandle, QNN::gContext.deviceHandle, mQnnContextConfig, buffer, size);
+                if (QNN_SUCCESS != error) {
+                    if (QNN_GET_ERROR_CODE(error) == QNN_COMMON_ERROR_NOT_SUPPORTED) {
+                        MNN_PRINT("QNN: contextValidateBinary is not supported by backend, skip validate. status=%llu(code=%u)\n",
+                                  (unsigned long long)error, (unsigned int)QNN_GET_ERROR_CODE(error));
+                    } else {
+                        MNN_ERROR("QNN: Failed to validate binary: %d\n", (int) error);
+                        return false;
+                    }
+                }
+            } else {
+                MNN_PRINT("QNN: contextValidateBinary is nullptr, skip validate.\n");
             }
 
             // Create Graph profile
@@ -879,6 +1010,10 @@ public:
             CALL_QNN(QNN::gContext.interface.contextCreateFromBinary(QNN::gContext.backendHandle, QNN::gContext.deviceHandle, mQnnContextConfig, buffer, size, &mQnnContextHandle, mQnnProfileHandle));
 
             mQnnGraphHandleVec.resize(mGraphCount, nullptr);
+            if (allGraphName.size() != mGraphCount) {
+                MNN_ERROR("QNN: graph name count mismatch. binary=%d attr=%d path=%s\n", (int)mGraphCount, (int)allGraphName.size(), path.c_str());
+                return false;
+            }
 
             std::vector<GraphInfo*> sortedGraphsInfo(mGraphCount, nullptr);
             std::map<std::string, GraphInfo*> graphInfoMap;
@@ -888,7 +1023,10 @@ public:
 
             for (int i = 0; i < mGraphCount; ++i) {
                 auto it = graphInfoMap.find(allGraphName[i]);
-                MNN_ASSERT(it != graphInfoMap.end());
+                if (it == graphInfoMap.end()) {
+                    MNN_ERROR("QNN: can not find graph '%s' in binary '%s'.\n", allGraphName[i].c_str(), path.c_str());
+                    return false;
+                }
                 sortedGraphsInfo[i] = it->second;
             }
             for (int i = 0; i < mGraphCount; ++i) {
@@ -930,8 +1068,20 @@ public:
         return nullptr;
     }
     void setupAddress(const std::vector<std::pair<const MNN::Tensor *, std::string>>& inputs, std::vector<std::pair<const MNN::Tensor *, std::string>>& outputs, int shapeIndex) {
+        if (mGraphsInfo == nullptr || shapeIndex < 0 || shapeIndex >= mGraphCount) {
+            MNN_ERROR("QNN: invalid graph index %d (graph_count=%d).\n", shapeIndex, (int)mGraphCount);
+            return;
+        }
         GraphInfo* graph = mGraphsInfo[shapeIndex];
+        if (graph == nullptr) {
+            MNN_ERROR("QNN: graph info is nullptr for index %d.\n", shapeIndex);
+            return;
+        }
         Qnn_GraphHandle_t qnnGraphHandle = mQnnGraphHandleVec[shapeIndex];
+        if (qnnGraphHandle == nullptr) {
+            MNN_ERROR("QNN: graph handle is nullptr for index %d.\n", shapeIndex);
+            return;
+        }
 
         // MNN_PRINT("%s, Input:%d, output:%d\n", mPath.c_str(), inputs.size(), outputs.size());
         for (int i=0; i<inputs.size(); ++i) {
@@ -998,12 +1148,30 @@ public:
         }
     }
 
-    void invokModel(int shapeIndex) {
+    bool invokModel(int shapeIndex) {
+        if (mGraphsInfo == nullptr || shapeIndex < 0 || shapeIndex >= mGraphCount) {
+            MNN_ERROR("QNN: invalid invoke graph index %d (graph_count=%d).\n", shapeIndex, (int)mGraphCount);
+            return false;
+        }
+        if (shapeIndex >= mQnnGraphHandleVec.size() || mQnnGraphHandleVec[shapeIndex] == nullptr) {
+            MNN_ERROR("QNN: graph handle is nullptr on invoke, index=%d.\n", shapeIndex);
+            return false;
+        }
         GraphInfo* graph = mGraphsInfo[shapeIndex];
+        if (graph == nullptr) {
+            MNN_ERROR("QNN: graph info is nullptr on invoke, index=%d.\n", shapeIndex);
+            return false;
+        }
         Qnn_GraphHandle_t qnnGraphHandle = mQnnGraphHandleVec[shapeIndex];
-        CALL_QNN(QNN::gContext.interface.graphExecute(qnnGraphHandle, graph->inputTensors, graph->numInputTensors, \
-            graph->outputTensors, graph->numOutputTensors, mQnnProfileHandle, nullptr));
+        auto executeStatus = QNN::gContext.interface.graphExecute(qnnGraphHandle, graph->inputTensors, graph->numInputTensors, \
+            graph->outputTensors, graph->numOutputTensors, mQnnProfileHandle, nullptr);
+        if (QNN_SUCCESS != executeStatus) {
+            MNN_ERROR("QNN: graphExecute failed, status=%llu(code=%u), graphIndex=%d.\n",
+                      (unsigned long long)executeStatus, (unsigned int)QNN_GET_ERROR_CODE(executeStatus), shapeIndex);
+            return false;
+        }
         MNN::QNN::doProfile(QNN::gContext.interface, mQnnProfileHandle);
+        return true;
     }
 };
 
@@ -1169,6 +1337,10 @@ public:
             return false;
         }
         mShapeIndex = shapeIndex;
+        if (!mRawExecutor) {
+            MNN_ERROR("MNN_QNN: RawExecutor is nullptr in resize.\n");
+            return false;
+        }
 
         auto inputs = ctx->getAttr("inputs")->list();
         auto inputTensor = ctx->inputs();
@@ -1198,6 +1370,10 @@ public:
             }
             std::vector<RPCBuffer*> statesOutput(mStateInput.size());
             for (int i=0; i<mStateInput.size(); ++i) {
+                if (mShapeIndex < 0 || mShapeIndex >= mStateInput[i].update.size()) {
+                    MNN_ERROR("QNN: invalid state update index %d (size=%d) for state %d.\n", mShapeIndex, (int)mStateInput[i].update.size(), i);
+                    return false;
+                }
                 statesOutput[i] = mStateInput[i].update[mShapeIndex].get();
             }
 
@@ -1208,8 +1384,17 @@ public:
 
     bool compute(CPUKernelContext* ctx) override {
         AUTOTIME;
+        if (!mRawExecutor) {
+            MNN_ERROR("MNN_QNN: RawExecutor is nullptr in compute.\n");
+            return false;
+        }
         int shapeIndex = mShapeIndex;
-        std::string graphName = ctx->getAttr("allGraphName")->list()->s()->GetAsString(shapeIndex)->str();
+        auto allGraphNameList = ctx->getAttr("allGraphName")->list()->s();
+        if (shapeIndex < 0 || shapeIndex >= allGraphNameList->size()) {
+            MNN_ERROR("MNN_QNN: invalid shapeIndex=%d, allGraphName size=%d.\n", shapeIndex, allGraphNameList->size());
+            return false;
+        }
+        std::string graphName = allGraphNameList->GetAsString(shapeIndex)->str();
 
         #ifdef QNN_VERBOSE
         MNN_PRINT("Graph name:%s, %d\n", graphName.c_str(), shapeIndex);
@@ -1223,6 +1408,10 @@ public:
         // If has remove, remove invalid state
         auto meta = (KVMeta*)(ctx->backend()->getMetaPtr());
         if (nullptr != meta && mStateInput.size() > 0) {
+            if (mMask == nullptr || mMask->mPtr == nullptr) {
+                MNN_ERROR("QNN: mask buffer is nullptr.\n");
+                return false;
+            }
             auto maskPtr = (__fp16*)mMask->mPtr;
             if (meta->remove > 0) {
                 if (meta->remove > mStateCurrent) {
@@ -1235,12 +1424,19 @@ public:
                 }
             }
         }
-        mRawExecutor->invokModel(shapeIndex);
+        if (!mRawExecutor->invokModel(shapeIndex)) {
+            MNN_ERROR("MNN_QNN: invoke failed for shapeIndex=%d.\n", shapeIndex);
+            return false;
+        }
         for (int i=0; i<mOutputs.size(); ++i) {
             ctx->backend()->onCopyBuffer(mRealOutputs[i].get(), outputTensor[i]);
         }
         // Update State
         if (nullptr != meta && mStateInput.size() > 0) {
+            if (mMask == nullptr || mMask->mPtr == nullptr) {
+                MNN_ERROR("QNN: mask buffer is nullptr in state update.\n");
+                return false;
+            }
             auto maskPtr = (__fp16*)mMask->mPtr;
             if (meta->add + mStateCurrent > mStateMaxSize) {
                 MNN_ERROR("QNN: Error: KV length %d larger than max size = %d\n", meta->add + mStateCurrent, mStateMaxSize);
@@ -1251,9 +1447,17 @@ public:
             }
             // Temply use StateOutputs[0] size to compute seq_len
             int bytes = 2;
+            if (mShapeIndex < 0 || mShapeIndex >= mSeqLen.size()) {
+                MNN_ERROR("QNN: invalid mShapeIndex=%d for seq len size=%d.\n", mShapeIndex, (int)mSeqLen.size());
+                return false;
+            }
             int seqLen = mSeqLen[mShapeIndex];
             for (int i=0; i<mStateInput.size(); ++i) {
                 auto& input = mStateInput[i];
+                if (mShapeIndex < 0 || mShapeIndex >= input.update.size() || input.update[mShapeIndex] == nullptr) {
+                    MNN_ERROR("QNN: invalid state update buffer for state %d, shapeIndex=%d.\n", i, mShapeIndex);
+                    return false;
+                }
                 for (int y=0; y<input.outside; ++y) {
                     auto dstOffset = y * input.inside * mStateMaxSize + mStateCurrent * input.inside;
                     auto srcOffset = y * input.inside * seqLen;
@@ -1730,23 +1934,38 @@ int QnnBackend::getTensorIdx(const Tensor * tensor) const {
     int idx = -1;
     if (iter == mTensorMap.end()) {
         std::string tName = "QnnTensor_" + std::to_string(mTensorCounter);;
-        if (TensorUtils::getDescribe(tensor)->usage != Tensor::InsideDescribe::Usage::CONSTANT) {
-            MNN_PRINT("Tensor usage is %d.\n", (int) TensorUtils::getDescribe(tensor)->usage);
-        }
+        auto usage = TensorUtils::getDescribe(tensor)->usage;
         #ifdef QNN_VERBOSE
-        MNN_PRINT("qnn tenor usage:%d, dimension:%d\n", TensorUtils::getDescribe(tensor)->usage, tensor->dimensions());
+        MNN_PRINT("qnn tenor usage:%d, dimension:%d\n", usage, tensor->dimensions());
         #endif
-        MNN_ASSERT(TensorUtils::getDescribe(tensor)->usage == Tensor::InsideDescribe::Usage::CONSTANT);
-        // MNN_ASSERT(tensor->dimensions() <= 2);
+        if (usage != Tensor::InsideDescribe::Usage::CONSTANT) {
+            MNN_PRINT("MNN_QNN: Tensor not in map and usage=%d, treating as static for graph construction.\n", (int) usage);
+        }
         std::vector<uint32_t> tDims = getNHWCShape(tensor);
+        uint32_t numElement = 1;
+        for (auto d : tDims) {
+            numElement *= d;
+        }
         Qnn_DataType_t tDataType;
         std::shared_ptr<QNNTensorWrapper> qnnTensorWrapper;
+        std::vector<uint8_t> zeroBuffer;
         if (tensor->getType().code == halide_type_int && tensor->getType().bits == 32) {
             tDataType = QNN_DATATYPE_INT_32;
-            qnnTensorWrapper = QNNTensorWrapper::createStaticTensor(tName, tDataType, tDims, tensor->host<int>());
+            const void* hostPtr = tensor->host<int>();
+            if (!hostPtr) {
+                zeroBuffer.resize(numElement * sizeof(int32_t), 0);
+                hostPtr = zeroBuffer.data();
+            }
+            qnnTensorWrapper = QNNTensorWrapper::createStaticTensor(tName, tDataType, tDims, hostPtr);
         } else if (tensor->getType().code == halide_type_float) {
             tDataType = mUseFP16 ? QNN_DATATYPE_FLOAT_16 : QNN_DATATYPE_FLOAT_32;
-            qnnTensorWrapper = QNNTensorWrapper::createStaticFloatTensor(tName, tDataType, tDims, tensor->host<float>());
+            const float* hostPtr = tensor->host<float>();
+            std::vector<float> zeroFloatBuffer;
+            if (!hostPtr) {
+                zeroFloatBuffer.resize(numElement, 0.0f);
+                hostPtr = zeroFloatBuffer.data();
+            }
+            qnnTensorWrapper = QNNTensorWrapper::createStaticFloatTensor(tName, tDataType, tDims, hostPtr);
         } else {
             MNN_ASSERT(false);
         }
