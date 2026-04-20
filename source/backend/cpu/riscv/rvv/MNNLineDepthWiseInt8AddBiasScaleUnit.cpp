@@ -8,6 +8,7 @@
 #include <math.h>
 #include <riscv_vector.h>
 #include <stdint.h>
+#include "../../compute/Int8FunctionsOpt.h"
 
 void MNNLineDepthWiseInt8AddBiasScaleUnit_RVV(int8_t* dst, const int8_t* src, const int8_t* weight,
                                               const QuanPostTreatParameters* parameters, size_t width,

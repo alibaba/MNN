@@ -9,15 +9,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <math.h>
-
-#ifndef ALIMAX
-#define ALIMAX(a, b) ((a) > (b) ? (a) : (b))
-#endif
-
-#ifndef ALIMIN
-#define ALIMIN(a, b) ((a) < (b) ? (a) : (b))
-#endif
-
+#include "../../compute/Int8FunctionsOpt.h"
 void MNNReluWithSlopeChannelInt8_RVV(int8_t* dst, const int8_t* src, const float* slope, size_t planeNumber,
                                      size_t depthQuad, const QuanPrePostParameters* params, size_t pack) {
     const float offset = 0.f;
