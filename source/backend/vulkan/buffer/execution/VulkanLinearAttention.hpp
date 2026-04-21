@@ -48,7 +48,9 @@ private:
     int mHeadVDim = 0;
     bool mUseQKL2Norm = false;
     bool mUseFP16 = false;
+    bool mUseSubgroup = false;
     uint32_t mSubgroupSize = 0;
+    uint32_t mLaneCount = 0;
     uint32_t mSubgroupsPerWorkgroup = 4;
     KVMeta* mMeta = nullptr;
 

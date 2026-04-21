@@ -70,6 +70,8 @@ VulkanLinearAttention::VulkanLinearAttention(const MNN::Op* op, Backend* backend
     auto vkBn = static_cast<VulkanBackend*>(backend);
     mUseFP16 = vkBn->useFP16();
     mSubgroupSize = vkBn->getDevice().getSubgroupSize();
+    mUseSubgroup = _supportLinearAttentionSubgroup(vkBn->getDevice());
+    mLaneCount = mSubgroupSize > 0 ? mSubgroupSize : 32;
     mMeta = reinterpret_cast<KVMeta*>(vkBn->getMetaPtr());
 
     auto shaderKey = [this](const char* base) {
@@ -129,10 +131,18 @@ VulkanLinearAttention::VulkanLinearAttention(const MNN::Op* op, Backend* backend
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
         };
-        mPrefillPipeline = vkBn->getPipeline(shaderKey("glsl_linear_attn_gated_delta_rule_prefill"), types,
-                                             {mSubgroupSize, mSubgroupsPerWorkgroup, 1});
-        mDecodePipeline = vkBn->getPipeline(shaderKey("glsl_linear_attn_gated_delta_rule_decode"), types,
-                                            {mSubgroupSize, mSubgroupsPerWorkgroup, 1});
+        const char* prefillBase = mUseSubgroup ? "glsl_linear_attn_gated_delta_rule_prefill"
+                                               : "glsl_linear_attn_gated_delta_rule_prefill_nosubgroup";
+        const char* decodeBase  = mUseSubgroup ? "glsl_linear_attn_gated_delta_rule_decode"
+                                               : "glsl_linear_attn_gated_delta_rule_decode_nosubgroup";
+        mPrefillPipeline = vkBn->getPipeline(shaderKey(prefillBase), types,
+                                             {mLaneCount, mSubgroupsPerWorkgroup, 1});
+        mDecodePipeline = vkBn->getPipeline(shaderKey(decodeBase), types,
+                                            {mLaneCount, mSubgroupsPerWorkgroup, 1});
+#ifdef MNN_VULKAN_LINEAR_ATTN_VERBOSE
+        MNN_PRINT("[VulkanLinearAttention] path=%s, laneCount=%u, rowsPerGroup=%u\n",
+                  mUseSubgroup ? "subgroup" : "shared_memory", mLaneCount, mSubgroupsPerWorkgroup);
+#endif
         MNN_ASSERT(nullptr != mPrefillPipeline);
         MNN_ASSERT(nullptr != mDecodePipeline);
         mPrefillDesSet.reset(mPrefillPipeline->createSet());
@@ -408,10 +418,6 @@ public:
                                            const MNN::Op* op, Backend* backend) const override {
         auto param = op->main_as_LinearAttentionParam();
         if (nullptr == param || nullptr == param->attn_type() || param->attn_type()->str() != "gated_delta_rule") {
-            return nullptr;
-        }
-        auto vkBn = static_cast<VulkanBackend*>(backend);
-        if (!_supportLinearAttentionSubgroup(vkBn->getDevice())) {
             return nullptr;
         }
         return new VulkanLinearAttention(op, backend);

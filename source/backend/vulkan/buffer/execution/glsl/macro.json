@@ -395,6 +395,12 @@
     "linear_attn_gated_delta_rule_decode.comp": {
         "useFP16": true
     },
+    "linear_attn_gated_delta_rule_prefill_nosubgroup.comp": {
+        "useFP16": true
+    },
+    "linear_attn_gated_delta_rule_decode_nosubgroup.comp": {
+        "useFP16": true
+    },
     "roipooling.comp": {
         "useFP16": true
     },
