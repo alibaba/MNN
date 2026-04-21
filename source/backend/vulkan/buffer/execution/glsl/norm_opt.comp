@@ -12,7 +12,6 @@ layout(set=0, binding=2) readonly uniform constBuffer {
 } uConstant;
 
 layout(constant_id = 3) const uint USE_RMS = 0;
-layout(constant_id = 4) const uint LOCAL_SIZE = 128;
 
 #ifdef LAYERNORM_SCALE
 layout(set=0, binding=3) readonly buffer s2 {
@@ -25,11 +24,10 @@ layout(set=0, binding=4) readonly buffer s3 {
 #endif
 
 // 1 workgroup handles 1 "outside" row; parallel reduce across "inside".
-// local_size_x is specialized based on inside size.
-layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
-shared float gSum[LOCAL_SIZE];
-shared float gSqSum[LOCAL_SIZE];
+shared float gSum[64];
+shared float gSqSum[64];
 
 void main() {
     int inside = uConstant.size.x;
