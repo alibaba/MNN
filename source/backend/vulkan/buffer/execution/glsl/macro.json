@@ -416,7 +416,13 @@
     "gemv_dequant_int4.comp": {
         "useFP16": true
     },
+    "gemv_dequant_int4_nosubgroup.comp": {
+        "useFP16": true
+    },
     "gemv_dequant_int8.comp": {
+        "useFP16": true
+    },
+    "gemv_dequant_int8_nosubgroup.comp": {
         "useFP16": true
     },
     "pack_a_k4m4_to_m64k4.comp": {

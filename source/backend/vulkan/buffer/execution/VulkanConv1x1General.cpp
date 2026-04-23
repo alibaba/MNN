@@ -241,6 +241,14 @@ bool VulkanConv1x1General::_init(const float* biasPtr, bool initStaticResource) 
         activation = 2;
     }
 
+    {
+        const auto& subgroup = vkBn->getDevice().getSubgroupInfo();
+        const VkSubgroupFeatureFlags requiredOps = VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_ARITHMETIC_BIT;
+        mUseSubgroup = subgroup.size > 0 &&
+                       (subgroup.stages & VK_SHADER_STAGE_COMPUTE_BIT) &&
+                       ((subgroup.ops & requiredOps) == requiredOps);
+    }
+
     mDecodeSubgroupSize = vkBn->getDevice().getSubgroupSize();
     if (mDecodeSubgroupSize == 0u) {
         mDecodeSubgroupSize = 64u;
@@ -254,14 +262,25 @@ bool VulkanConv1x1General::_init(const float* biasPtr, bool initStaticResource) 
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         };
-        std::vector<uint32_t> spec = {static_cast<uint32_t>(activation)};
         const char* shader = nullptr;
-        if (mIsInt4) {
-            shader = useFP16 ? "glsl_gemv_dequant_int4_FP16_comp" : "glsl_gemv_dequant_int4_comp";
+        if (mUseSubgroup) {
+            std::vector<uint32_t> spec = {static_cast<uint32_t>(activation)};
+            if (mIsInt4) {
+                shader = useFP16 ? "glsl_gemv_dequant_int4_FP16_comp" : "glsl_gemv_dequant_int4_comp";
+            } else {
+                shader = useFP16 ? "glsl_gemv_dequant_int8_FP16_comp" : "glsl_gemv_dequant_int8_comp";
+            }
+            mDecodePipeline = vkBn->getPipeline(shader, types, {mDecodeSubgroupSize, 1, 1}, spec);
         } else {
-            shader = useFP16 ? "glsl_gemv_dequant_int8_FP16_comp" : "glsl_gemv_dequant_int8_comp";
+            uint32_t localSize = 64u;
+            std::vector<uint32_t> spec = {static_cast<uint32_t>(activation), localSize};
+            if (mIsInt4) {
+                shader = useFP16 ? "glsl_gemv_dequant_int4_nosubgroup_FP16_comp" : "glsl_gemv_dequant_int4_nosubgroup_comp";
+            } else {
+                shader = useFP16 ? "glsl_gemv_dequant_int8_nosubgroup_FP16_comp" : "glsl_gemv_dequant_int8_nosubgroup_comp";
+            }
+            mDecodePipeline = vkBn->getPipeline(shader, types, {localSize, 1, 1}, spec);
         }
-        mDecodePipeline = vkBn->getPipeline(shader, types, {mDecodeSubgroupSize, 1, 1}, spec);
         if (nullptr == mDecodePipeline) {
             return false;
         }
@@ -336,6 +355,7 @@ bool VulkanConv1x1General::onClone(Backend* bn, const Op* op, VulkanBasicExecuti
     res->mBlockStride = mBlockStride;
     res->mDecodeWeightStrideWords = mDecodeWeightStrideWords;
     res->mDecodeSubgroupSize = mDecodeSubgroupSize;
+    res->mUseSubgroup = mUseSubgroup;
     res->mQuantWeightBuffer = mQuantWeightBuffer;
     res->mQuantMetaBuffer = mQuantMetaBuffer;
     res->mBiasBuffer = mBiasBuffer;
