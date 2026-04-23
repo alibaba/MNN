@@ -1,3 +1,10 @@
+//
+//  MNNMatrixProd.cpp
+//  MNN
+//
+//  Created by ISCAS on 2025/08/05.
+//  Copyright (c) 2025, ISCAS.
+//
 #include <riscv_vector.h>
 
 void MNNMatrixProd(float* C, const float* A, const float* B,

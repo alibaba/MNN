@@ -1,11 +1,17 @@
+//
+//  CPUBilinearLineC4.cpp
+//  MNN
+//
+//  Created by ISCAS on 2025/12/12.
+//  Copyright (c) 2025, ISCAS.
+//
 #include <riscv_vector.h>
 
-void CPUBilinearLineC4(float* dst, const float* A, const float* B, 
-                       const float* t, int8_t* zeroPoint, size_t number) {
+void CPUBilinearLineC4(float* dst, const float* A, const float* B, const float* t, int8_t* zeroPoint, size_t number) {
     float tf = *t;
     float sf = 1.0f - tf;
     size_t total = number << 2;
-    
+
     size_t i = 0;
     while (i < total) {
         size_t vl = __riscv_vsetvl_e32m8(total - i);

@@ -35,6 +35,9 @@
 #ifdef MNN_SUPPORT_BF16
 #include "bf16/BF16Functions.hpp"
 #endif
+#ifdef MNN_USE_RVV
+#include "riscv/RVVFunctions.hpp"
+#endif
 
 #ifdef MNN_USE_SSE
 #include "x86_x64/AVX2Backend.hpp"
@@ -323,8 +326,8 @@ Backend* CPURuntime::onCreate(const BackendConfig* config, Backend* origin) cons
     CPUBackend* res = nullptr;
     auto initThreadNumber = hint().initThreadNumber;
     do {
-#ifdef MNN_USE_ARMV82
         auto core = MNNGetCoreFunctions();
+#ifdef MNN_USE_ARMV82
         if (core->supportFp16arith && precision == BackendConfig::Precision_Low) {
             res = new Arm82Backend(this, memory);
             res->mRelatedFunctions = &(res->functions()->int8MatmulRelatedFunctions);
@@ -343,6 +346,15 @@ Backend* CPURuntime::onCreate(const BackendConfig* config, Backend* origin) cons
             res = new CPUBackend(this, precision, memory, MNN_FORWARD_CPU);
             break;
         }
+#ifdef MNN_USE_RVV
+        if (core->supportRVV && RVVFunctions::get()) {
+            res = new CPUBackend(this, precision, memory, MNN_FORWARD_CPU_EXTENSION, flags);
+            res->mCoreFunctions = RVVFunctions::get();
+            res->mInt8CoreFunctions = RVVFunctions::getInt8();
+            res->mRelatedFunctions = &(res->functions()->int8MatmulRelatedFunctions);
+            break;
+        }
+#endif
 #ifdef MNN_USE_SSE
         if (AVX2Backend::isValid()) {
             res = new AVX2Backend(this, memory, flags);
@@ -941,6 +953,9 @@ public:
 #ifdef MNN_SUPPORT_BF16
 extern void registerBF16Backend();
 #endif
+#ifdef MNN_USE_RVV
+extern void registerRVVBackend();
+#endif
 #ifdef ENABLE_ARMV82
 extern void registerArm82RuntimeCreator();
 #endif
@@ -950,6 +965,9 @@ void registerCPURuntimeCreator() {
     registerCPUOps();
 #ifdef MNN_SUPPORT_BF16
     registerBF16Backend();
+#endif
+#ifdef MNN_USE_RVV
+    registerRVVBackend();
 #endif
 #ifdef MNN_USE_ARMV82
     registerArm82RuntimeCreator();

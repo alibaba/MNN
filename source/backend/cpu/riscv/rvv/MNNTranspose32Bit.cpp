@@ -1,3 +1,10 @@
+//
+//  MNNTranspose32Bit.cpp
+//  MNN
+//
+//  Created by ISCAS on 2025/11/25.
+//  Copyright (c) 2025, ISCAS.
+//
 #include <riscv_vector.h>
 
 void MNNTranspose32Bit(int32_t* dstO, const int32_t* srcO, int32_t* dim) {
@@ -16,10 +23,9 @@ void MNNTranspose32Bit(int32_t* dstO, const int32_t* srcO, int32_t* dim) {
             size_t vl = __riscv_vsetvl_e32m8(w - j);
             vint32m8_t data = __riscv_vlse32_v_i32m8(srcPtr, srcStrideByte, vl);
             __riscv_vse32_v_i32m8(dstPtr, data, vl);
-            srcPtr += vl * srcStride; 
+            srcPtr += vl * srcStride;
             dstPtr += vl;
             j += vl;
         }
     }
 }
-

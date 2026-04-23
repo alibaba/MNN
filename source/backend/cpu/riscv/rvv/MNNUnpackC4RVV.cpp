@@ -1,13 +1,20 @@
+//
+//  MNNUnpackC4RVV.cpp
+//  MNN
+//
+//  Created by ISCAS on 2025/11/24.
+//  Copyright (c) 2025, ISCAS.
+//
 #include <riscv_vector.h>
 
-void MNNUnpackC4(float *dst, const float *src, size_t area, size_t depth, int *areaOffset) {
-    int depthC4 = depth / 4;        
-    int depthRemain = depthC4 * 4;  
+void MNNUnpackC4RVV(float* dst, const float* src, size_t area, size_t depth, int* areaOffset) {
+    int depthC4 = depth / 4;
+    int depthRemain = depthC4 * 4;
     int remain = depth - depthRemain;
-    const float *srcOffset = src;
+    const float* srcOffset = src;
 
     for (int z = 0; z < depthC4; ++z) {
-        float *dstZ[4];
+        float* dstZ[4];
 
         for (int y = 0; y < 4; ++y) {
             dstZ[y] = dst + (z * 4 + y) * areaOffset[1];
@@ -38,12 +45,12 @@ void MNNUnpackC4(float *dst, const float *src, size_t area, size_t depth, int *a
     }
 
     if (remain > 0) {
-        float *dstZ = dst + depthC4 * areaOffset[1] * 4;
-        const float *srcBase = srcOffset;
+        float* dstZ = dst + depthC4 * areaOffset[1] * 4;
+        const float* srcBase = srcOffset;
 
         for (int y = 0; y < remain; ++y) {
-            float *dstChannel = dstZ + y * areaOffset[1];
-            const float *srcChannel = srcBase + y;
+            float* dstChannel = dstZ + y * areaOffset[1];
+            const float* srcChannel = srcBase + y;
 
             for (size_t x = 0; x < area; ++x) {
                 dstChannel[x] = srcChannel[0];
@@ -52,4 +59,3 @@ void MNNUnpackC4(float *dst, const float *src, size_t area, size_t depth, int *a
         }
     }
 }
-

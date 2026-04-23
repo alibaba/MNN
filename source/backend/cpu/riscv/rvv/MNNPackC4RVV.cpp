@@ -1,14 +1,21 @@
+//
+//  MNNPackC4RVV.cpp
+//  MNN
+//
+//  Created by ISCAS on 2025/11/24.
+//  Copyright (c) 2025, ISCAS.
+//
 #include <riscv_vector.h>
 
-void MNNPackC4(float *dst, const float *src, size_t area, size_t depth, int *areaOffset) {
+void MNNPackC4RVV(float* dst, const float* src, size_t area, size_t depth, int* areaOffset) {
     int depthC4 = depth / 4;
     int depthRemain = depthC4 * 4;
     int remain = depth - depthRemain;
-    const float *srcOffset = src;
-    const float *srcChannel[4];
+    const float* srcOffset = src;
+    const float* srcChannel[4];
 
     for (int z = 0; z < depthC4; ++z) {
-        float *dstZ = dst + z * areaOffset[1] * 4;
+        float* dstZ = dst + z * areaOffset[1] * 4;
 
         for (int y = 0; y < 4; ++y) {
             srcChannel[y] = srcOffset + areaOffset[0] * y;
@@ -18,7 +25,7 @@ void MNNPackC4(float *dst, const float *src, size_t area, size_t depth, int *are
         size_t vl = __riscv_vsetvl_e32m8(area);
 
         for (; x + vl <= area; x += vl) {
-            float *dstPtr = dstZ + x * 4;
+            float* dstPtr = dstZ + x * 4;
             vfloat32m8_t vec = __riscv_vle32_v_f32m8(srcChannel[0] + x, vl);
             __riscv_vsse32_v_f32m8(dstPtr + 0, 4 * sizeof(float), vec, vl);
             vec = __riscv_vle32_v_f32m8(srcChannel[1] + x, vl);
@@ -30,7 +37,7 @@ void MNNPackC4(float *dst, const float *src, size_t area, size_t depth, int *are
         }
 
         for (; x < area; ++x) {
-            float *dstPtr = dstZ + x * 4;
+            float* dstPtr = dstZ + x * 4;
             dstPtr[0] = srcChannel[0][x];
             dstPtr[1] = srcChannel[1][x];
             dstPtr[2] = srcChannel[2][x];
@@ -41,7 +48,7 @@ void MNNPackC4(float *dst, const float *src, size_t area, size_t depth, int *are
     }
 
     if (remain > 0) {
-        float *dstZ = dst + depthC4 * areaOffset[1] * 4;
+        float* dstZ = dst + depthC4 * areaOffset[1] * 4;
 
         for (int y = 0; y < remain; ++y) {
             srcChannel[y] = srcOffset + areaOffset[0] * y;
@@ -51,7 +58,7 @@ void MNNPackC4(float *dst, const float *src, size_t area, size_t depth, int *are
         size_t vl = __riscv_vsetvl_e32m8(area);
 
         for (; x + vl <= area; x += vl) {
-            float *dstPtr = dstZ + x * 4;
+            float* dstPtr = dstZ + x * 4;
 
             for (int y = 0; y < remain; ++y) {
                 vfloat32m8_t vec = __riscv_vle32_v_f32m8(srcChannel[y] + x, vl);
@@ -65,7 +72,7 @@ void MNNPackC4(float *dst, const float *src, size_t area, size_t depth, int *are
         }
 
         for (; x < area; ++x) {
-            float *dstPtr = dstZ + x * 4;
+            float* dstPtr = dstZ + x * 4;
 
             for (int y = 0; y < remain; ++y) {
                 dstPtr[y] = srcChannel[y][x];
@@ -77,4 +84,3 @@ void MNNPackC4(float *dst, const float *src, size_t area, size_t depth, int *are
         }
     }
 }
-
