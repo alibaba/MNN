@@ -24,8 +24,17 @@ cl::Buffer* BufferPool::alloc(size_t size, bool separate) {
     node->size = size;
     node->buffer.reset(new cl::Buffer(mContext, mFlag, size, NULL, &ret));
     if (nullptr == node->buffer.get() || ret != CL_SUCCESS) {
-        MNN_ERROR("Alloc Buffer %lu error, code:%d \n", size, ret);
-        return nullptr;
+        // Allocation failed: release free list to reclaim memory and retry once.
+        if (!mFreeList.empty()) {
+            releaseFreeList();
+            ret = CL_SUCCESS;
+            node->buffer.reset(new cl::Buffer(mContext, mFlag, size, NULL, &ret));
+        }
+        if (nullptr == node->buffer.get() || ret != CL_SUCCESS) {
+            MNN_ERROR("Alloc buffer %zu MB failed, code:%d\n", size/(1024*1024), ret);
+            mTotalSize -= size;
+            return nullptr;
+        }
     }
     mAllBuffer.insert(std::make_pair(node->buffer.get(), node));
     return node->buffer.get();
@@ -51,13 +60,20 @@ void BufferPool::clear() {
 }
 
 void BufferPool::releaseFreeList() {
+    std::multimap<size_t, std::shared_ptr<OpenCLBufferNode>> keepList;
     for(auto mf : mFreeList){
+        // Keep large buffers (>1GB) in free list so they can be reused by subsequent
+        // allocations (e.g. 6.78GB fp32 attention score tensors in 1024 edit mode).
+        if (mf.first > 1024UL * 1024 * 1024) {
+            keepList.insert(mf);
+            continue;
+        }
         auto iter = mAllBuffer.find(mf.second->buffer.get());
         if (iter != mAllBuffer.end()) {
             mAllBuffer.erase(iter);
         }
     }
-    mFreeList.clear();
+    mFreeList = keepList;
 }
 
 std::shared_ptr<OpenCLBufferNode> BufferExecutionPool::alloc(size_t size, bool separate) {
