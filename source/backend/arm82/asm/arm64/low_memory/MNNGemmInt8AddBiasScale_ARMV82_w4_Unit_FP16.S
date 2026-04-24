@@ -708,6 +708,9 @@ TILE1_BLOCKNUM:
     blt L8LoopSz_TILE_1_lu1
     cmp x13, #8
     blt L8LoopSz_TILE_1_lu4
+
+    movi v30.16b, #0
+    movi v31.16b, #0
     L8LoopSz_TILE_1_lu8:
         ld1 {v3.16b, v4.16b, v5.16b, v6.16b}, [x12], #64 // weight: hu=0,1,2,3,pack=0~7
         ld1 {v10.16b, v11.16b, v12.16b, v13.16b}, [x12], #64
@@ -742,27 +745,31 @@ TILE1_BLOCKNUM:
         cmp x13, #8
         .inst 0x4f80e1c8 // sdot v8.4s, v14.16b, v0.4b[0]
         .inst 0x4f80e2c9 // sdot v9.4s, v22.16b, v0.4b[0]
-        .inst 0x4fa0e1e8 // sdot v8.4s, v15.16b, v0.4b[1]
-        .inst 0x4fa0e2e9 // sdot v9.4s, v23.16b, v0.4b[1]
+        .inst 0x4fa0e1fe // sdot v30.4s, v15.16b, v0.4b[1]
+        .inst 0x4fa0e2ff // sdot v31.4s, v23.16b, v0.4b[1]
         .inst 0x4f80ea48 // sdot v8.4s, v18.16b, v0.4b[2]
         .inst 0x4f80eb09 // sdot v9.4s, v24.16b, v0.4b[2]
-        .inst 0x4fa0eaa8 // sdot v8.4s, v21.16b, v0.4b[3]
-        .inst 0x4fa0eb29 // sdot v9.4s, v25.16b, v0.4b[3]
+        .inst 0x4fa0eabe // sdot v30.4s, v21.16b, v0.4b[3]
+        .inst 0x4fa0eb3f // sdot v31.4s, v25.16b, v0.4b[3]
 
         .inst 0x4f81e208 // sdot v8.4s, v16.16b, v1.4b[0]
         .inst 0x4f81e229 // sdot v9.4s, v17.16b, v1.4b[0]
-        .inst 0x4fa1e268 // sdot v8.4s, v19.16b, v1.4b[1]
-        .inst 0x4fa1e289 // sdot v9.4s, v20.16b, v1.4b[1]
+        .inst 0x4fa1e27e // sdot v30.4s, v19.16b, v1.4b[1]
+        .inst 0x4fa1e29f // sdot v31.4s, v20.16b, v1.4b[1]
         .inst 0x4f81eb48 // sdot v8.4s, v26.16b, v1.4b[2]
         .inst 0x4f81eb69 // sdot v9.4s, v27.16b, v1.4b[2]
-        .inst 0x4fa1eb88 // sdot v8.4s, v28.16b, v1.4b[3]
-        .inst 0x4fa1eba9 // sdot v9.4s, v29.16b, v1.4b[3]
+        .inst 0x4fa1eb9e // sdot v30.4s, v28.16b, v1.4b[3]
+        .inst 0x4fa1ebbf // sdot v31.4s, v29.16b, v1.4b[3]
         bge L8LoopSz_TILE_1_lu8
+    add v8.4s, v8.4s, v30.4s
+    add v9.4s, v9.4s, v31.4s
 
     cbz x13, L8LoopSzEnd_TILE_1
     cmp x13, #4
     blt L8LoopSz_TILE_1_lu1
 
+    movi v30.16b, #0
+    movi v31.16b, #0
     L8LoopSz_TILE_1_lu4:
         ld1 {v3.16b, v4.16b, v5.16b, v6.16b}, [x12], #64 // weight: hu=0,1,2,3,pack=0~7
         ld1 {v0.4s}, [x11], #16 // src
@@ -784,13 +791,15 @@ TILE1_BLOCKNUM:
         cmp x13, #4
         .inst 0x4f80e188 // sdot v8.4s, v12.16b, v0.4b[0]
         .inst 0x4f80e2c9 // sdot v9.4s, v22.16b, v0.4b[0]
-        .inst 0x4fa0e1e8 // sdot v8.4s, v15.16b, v0.4b[1]
-        .inst 0x4fa0e2e9 // sdot v9.4s, v23.16b, v0.4b[1]
+        .inst 0x4fa0e1fe // sdot v30.4s, v15.16b, v0.4b[1]
+        .inst 0x4fa0e2ff // sdot v31.4s, v23.16b, v0.4b[1]
         .inst 0x4f80ea48 // sdot v8.4s, v18.16b, v0.4b[2]
         .inst 0x4f80eb09 // sdot v9.4s, v24.16b, v0.4b[2]
-        .inst 0x4fa0eaa8 // sdot v8.4s, v21.16b, v0.4b[3]
-        .inst 0x4fa0eb29 // sdot v9.4s, v25.16b, v0.4b[3]
+        .inst 0x4fa0eabe // sdot v30.4s, v21.16b, v0.4b[3]
+        .inst 0x4fa0eb3f // sdot v31.4s, v25.16b, v0.4b[3]
         bge L8LoopSz_TILE_1_lu4
+    add v8.4s, v8.4s, v30.4s
+    add v9.4s, v9.4s, v31.4s
 
     cbz x13, L8LoopSzEnd_TILE_1
 
