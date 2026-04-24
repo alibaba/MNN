@@ -236,6 +236,8 @@ public:
         return config_.value("talker_speaker", "Chelsie");
     }
 
+    bool interleaved() const { return config_.value("interleaved", false); }
+
     int dit_steps() const {
         return config_.value("dit_steps", 5);
     }
