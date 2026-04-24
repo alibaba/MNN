@@ -1,6 +1,7 @@
 #include <set>
 #include <map>
 #include <queue>
+#include <cstdlib>
 #include <fstream>
 #include <sstream>
 #include "flatbuffers/flexbuffers.h"
@@ -66,6 +67,47 @@ struct SubModuleIO {
     std::vector<std::vector<int>> kvcache;
     int seqLen = 0;
 };
+
+static bool _isValidShapeVar(const MNN::Express::VARP& var) {
+    auto info = var->getInfo();
+    if (nullptr == info || info->dim.empty()) {
+        return false;
+    }
+    for (auto d : info->dim) {
+        if (d <= 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool _subModuleHasValidShapes(const SubModuleIO& io) {
+    for (const auto& v : io.inputs) {
+        if (!_isValidShapeVar(v)) {
+            return false;
+        }
+    }
+    for (const auto& v : io.outputs) {
+        if (!_isValidShapeVar(v)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static const char* _safeOpName(const Net* net, int opIndex) {
+    if (nullptr == net || nullptr == net->oplists()) {
+        return "unknown";
+    }
+    if (opIndex < 0 || opIndex >= net->oplists()->size()) {
+        return "unknown";
+    }
+    auto op = net->oplists()->GetAs<Op>(opIndex);
+    if (nullptr == op || nullptr == op->name()) {
+        return "unknown";
+    }
+    return op->name()->c_str();
+}
 static void _computeTensorMask(SubModuleInfo& m, const Net* net) {
     /**Compute All SubModule's inputs and outputs*/
     // 0: not use, 1: input, 2: output, 3: mid, 4: valid output
@@ -105,7 +147,7 @@ static bool isBreakOp(const Op* op) {
     if (op->type() == OpType_While && op->main_as_WhileParam() != nullptr) {
         isWhileControlflow = true;
     }
-    if (op->type() == OpType_If || isWhileControlflow || op->type() == OpType_Where || op->type() == OpType_Segment || op->type() == OpType_Unique || op->type() == OpType_NonMaxSuppressionV2) {
+    if (op->type() == OpType_If || isWhileControlflow || op->type() == OpType_Where || op->type() == OpType_Segment || op->type() == OpType_Unique || op->type() == OpType_NonMaxSuppressionV2 || op->type() == OpType_Im2Col) {
         return true;
     }
     if (!_npuSupportOp(op)) {
@@ -868,6 +910,11 @@ int main(int argc, const char* argv[]) {
         gNPUName = document["type"].GetString();
         if (gNPUName == "QNN") {
             MNN_PRINT("Convert for QNN, QualComn's NPU\n");
+#ifdef _WIN32
+            _putenv_s("MNN_QNN_USE_CONVERTOR_INTERFACE", "1");
+#else
+            setenv("MNN_QNN_USE_CONVERTOR_INTERFACE", "1", 1);
+#endif
             gNPUType = MNN_CONVERT_QNN;
             gNeedOffline = true;
             gOfflieSrc = "";
@@ -1074,10 +1121,34 @@ int main(int argc, const char* argv[]) {
         for (int i=0; i<subModulesInfo.size(); ++i) {
             auto& current = subModulesInfo[i];
             std::vector<MNN::Express::VARP> subInputs;
+            bool missingInput = false;
             for (auto index : current.inputs) {
-                subInputs.emplace_back(stackes[index]);
+                auto iter = stackes.find(index);
+                if (iter == stackes.end() || nullptr == iter->second.get()) {
+                    missingInput = true;
+                    break;
+                }
+                subInputs.emplace_back(iter->second);
+            }
+            if (missingInput) {
+                auto firstOpIndex = current.opList.empty() ? -1 : current.opList[0];
+                MNN_PRINT("Skip NPU submodule %d (%s): missing runtime input tensor.\n", i, _safeOpName(net, firstOpIndex));
+                subModulesInfo[i].isBreak = true;
+                continue;
             }
             moduleIO[i] = _getSubModuleIO(subInputs, current, bufferPair.first, bufferPair.second, srcMNN);
+            if (moduleIO[i].outputs.size() != current.outputs.size()) {
+                auto firstOpIndex = current.opList.empty() ? -1 : current.opList[0];
+                MNN_PRINT(
+                    "Skip NPU submodule %d (%s): output count mismatch runtime=%zu expect=%zu.\n",
+                    i,
+                    _safeOpName(net, firstOpIndex),
+                    moduleIO[i].outputs.size(),
+                    current.outputs.size()
+                );
+                subModulesInfo[i].isBreak = true;
+                continue;
+            }
             for (int j=0; j<current.outputs.size(); ++j) {
                 stackes.insert(std::make_pair(current.outputs[j], moduleIO[i].outputs[j]));
             }
@@ -1095,6 +1166,12 @@ int main(int argc, const char* argv[]) {
                 }
             }
             if (!hasConvolution) {
+                subModulesInfo[i].isBreak = true;
+                continue;
+            }
+            if (!_subModuleHasValidShapes(moduleIO[i])) {
+                auto firstOpIndex = subModulesInfo[i].opList.empty() ? -1 : subModulesInfo[i].opList[0];
+                MNN_PRINT("Skip NPU submodule %d (%s): unresolved runtime shape detected.\n", i, _safeOpName(net, firstOpIndex));
                 subModulesInfo[i].isBreak = true;
             }
         }

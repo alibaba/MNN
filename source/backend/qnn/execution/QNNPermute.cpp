@@ -40,11 +40,44 @@ ErrorCode QNNPermute::onEncode(const std::vector<Tensor *> &inputs, const std::v
         }
     } else {
         auto permutation = inputs[1]->host<int32_t>();
-        for (int i = 0; i < dim; i++) {
-            mapRaw[i] = (uint32_t)permutation[i];
+        if (permutation) {
+            for (int i = 0; i < dim; i++) {
+                mapRaw[i] = (uint32_t)permutation[i];
+            }
+        } else {
+            for (int i = 0; i < dim; i++) {
+                mapRaw[i] = (uint32_t)i;
+            }
         }
     }
-    
+
+    // When tensor is NC4HW4, QNN sees NHWC layout via getNHWCShape.
+    // The permutation from MNN is in NCHW order and must be remapped.
+    // NCHW dim mapping to NHWC: 0->0, 1->dim-1, k(2..dim-1)->k-1
+    auto dataFormat = TensorUtils::getDescribe(input)->dimensionFormat;
+    if (dataFormat == MNN_DATA_FORMAT_NC4HW4 && dim > 2) {
+        // nchw2nhwc[i] = where NCHW dim i appears in NHWC
+        std::vector<int> nchw2nhwc(dim);
+        nchw2nhwc[0] = 0;
+        nchw2nhwc[1] = dim - 1;
+        for (int i = 2; i < dim; i++) {
+            nchw2nhwc[i] = i - 1;
+        }
+        // nhwc2nchw is the inverse
+        std::vector<int> nhwc2nchw(dim);
+        for (int i = 0; i < dim; i++) {
+            nhwc2nchw[nchw2nhwc[i]] = i;
+        }
+        // Convert: nhwcPerm[nhwcPos] = nchw2nhwc[nchwPerm[nhwc2nchw[nhwcPos]]]
+        std::vector<uint32_t> nhwcPerm(dim);
+        for (int i = 0; i < dim; i++) {
+            int ncPos = nhwc2nchw[i];
+            int ncDst = (int)mapRaw[ncPos];
+            nhwcPerm[i] = (uint32_t)nchw2nhwc[ncDst];
+        }
+        mapRaw = nhwcPerm;
+    }
+
     this->createParamTensor("perm", QNN_DATATYPE_UINT_32, {(uint32_t) dim}, mapRaw.data());
     this->addNodeCommon(inputs, outputs, 1, 1);
     return NO_ERROR;

@@ -48,6 +48,9 @@ void QnnHalfToFloat(const int16_t* src, float* dst, size_t size) {
 QnnInterface_getProviders_t QnnInterface_getProviders = nullptr;
 #ifdef MNN_WITH_PLUGIN
 QnnSystemInterface_getProviders_t QnnSystemInterface_getProviders = nullptr;
+QnnSystemContext_create_t QnnSystemContext_create = nullptr;
+QnnSystemContext_getBinaryInfo_t QnnSystemContext_getBinaryInfo = nullptr;
+QnnSystemContext_free_t QnnSystemContext_free = nullptr;
 #endif
 bool loadQNNSymbol() {
     LibHandle qnnLibHandle = nullptr;
@@ -93,6 +96,9 @@ bool loadQNNSymbol() {
         MNN_PRINT("MNN_QNN: Failed to load symbol <QnnSystemInterface_getProviders>. dlerror returns %s.\n", errorSym);
         return false;
     }
+    QnnSystemContext_create = (QnnSystemContext_create_t)dlsym(qnnSystemHandle, "QnnSystemContext_create");
+    QnnSystemContext_getBinaryInfo = (QnnSystemContext_getBinaryInfo_t)dlsym(qnnSystemHandle, "QnnSystemContext_getBinaryInfo");
+    QnnSystemContext_free = (QnnSystemContext_free_t)dlsym(qnnSystemHandle, "QnnSystemContext_free");
     #endif
 #endif
 
@@ -154,6 +160,7 @@ void registerQNNOps() {
     #endif
     ___QNNQuantCreator__OpType_FloatToInt8__();
     ___QNNDeQuantCreator__OpType_Int8ToFloat__();
+    ___QNNIm2ColCreator__OpType_Im2Col__();
 }
 
 Tensor::DimensionType gQnnTensorDimType = Tensor::TENSORFLOW;
