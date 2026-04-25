@@ -555,7 +555,11 @@ static bool deepCopyQnnTensorInfo(Qnn_Tensor_t *dst, const Qnn_Tensor_t *src) {
   if (!tensorName) {
     QNN_TENSOR_SET_NAME(dst, nullptr);
   } else {
-    QNN_TENSOR_SET_NAME(dst, ::strdup(tensorName));
+    char *nameCopy = ::strdup(tensorName);
+    if (!nameCopy) {
+      return false;
+    }
+    QNN_TENSOR_SET_NAME(dst, nameCopy);
   }
   QNN_TENSOR_SET_ID(dst, QNN_TENSOR_GET_ID(src));
   QNN_TENSOR_SET_TYPE(dst, QNN_TENSOR_GET_TYPE(src));
@@ -580,31 +584,40 @@ static bool deepCopyQnnTensorInfo(Qnn_Tensor_t *dst, const Qnn_Tensor_t *src) {
       qParams.axisScaleOffsetEncoding.scaleOffset = (Qnn_ScaleOffset_t *)malloc(
           QNN_TENSOR_GET_QUANT_PARAMS(src).axisScaleOffsetEncoding.numScaleOffsets *
           sizeof(Qnn_ScaleOffset_t));
-      if (qParams.axisScaleOffsetEncoding.scaleOffset) {
-        for (size_t idx = 0;
-             idx < QNN_TENSOR_GET_QUANT_PARAMS(src).axisScaleOffsetEncoding.numScaleOffsets;
-             idx++) {
-          qParams.axisScaleOffsetEncoding.scaleOffset[idx].scale =
-              QNN_TENSOR_GET_QUANT_PARAMS(src).axisScaleOffsetEncoding.scaleOffset[idx].scale;
-          qParams.axisScaleOffsetEncoding.scaleOffset[idx].offset =
-              QNN_TENSOR_GET_QUANT_PARAMS(src).axisScaleOffsetEncoding.scaleOffset[idx].offset;
-        }
+      if (!qParams.axisScaleOffsetEncoding.scaleOffset) {
+        free((void *)QNN_TENSOR_GET_NAME(dst));
+        return false;
+      }
+      for (size_t idx = 0;
+           idx < QNN_TENSOR_GET_QUANT_PARAMS(src).axisScaleOffsetEncoding.numScaleOffsets;
+           idx++) {
+        qParams.axisScaleOffsetEncoding.scaleOffset[idx].scale =
+            QNN_TENSOR_GET_QUANT_PARAMS(src).axisScaleOffsetEncoding.scaleOffset[idx].scale;
+        qParams.axisScaleOffsetEncoding.scaleOffset[idx].offset =
+            QNN_TENSOR_GET_QUANT_PARAMS(src).axisScaleOffsetEncoding.scaleOffset[idx].offset;
       }
     }
   }
   QNN_TENSOR_SET_QUANT_PARAMS(dst, qParams);
   QNN_TENSOR_SET_RANK(dst, QNN_TENSOR_GET_RANK(src));
   QNN_TENSOR_SET_DIMENSIONS(dst, nullptr);
+  QNN_TENSOR_SET_IS_DYNAMIC_DIMENSIONS(dst, nullptr);
   if (QNN_TENSOR_GET_RANK(src) > 0) {
     QNN_TENSOR_SET_DIMENSIONS(dst, (uint32_t *)malloc(QNN_TENSOR_GET_RANK(src) * sizeof(uint32_t)));
-    if (QNN_TENSOR_GET_DIMENSIONS(dst)) {
-      ::memcpy(QNN_TENSOR_GET_DIMENSIONS(dst),
-                             QNN_TENSOR_GET_DIMENSIONS(src),
-                             QNN_TENSOR_GET_RANK(src) * sizeof(uint32_t));
+    if (!QNN_TENSOR_GET_DIMENSIONS(dst)) {
+      freeQnnTensor(*dst);
+      return false;
     }
+    ::memcpy(QNN_TENSOR_GET_DIMENSIONS(dst),
+                           QNN_TENSOR_GET_DIMENSIONS(src),
+                           QNN_TENSOR_GET_RANK(src) * sizeof(uint32_t));
     if (QNN_TENSOR_GET_IS_DYNAMIC_DIMENSIONS(src)) {
       QNN_TENSOR_SET_IS_DYNAMIC_DIMENSIONS(
           dst, (uint8_t *)malloc(QNN_TENSOR_GET_RANK(src) * sizeof(uint8_t)));
+      if (!QNN_TENSOR_GET_IS_DYNAMIC_DIMENSIONS(dst)) {
+        freeQnnTensor(*dst);
+        return false;
+      }
       ::memcpy(QNN_TENSOR_GET_IS_DYNAMIC_DIMENSIONS(dst),
                              QNN_TENSOR_GET_IS_DYNAMIC_DIMENSIONS(src),
                              QNN_TENSOR_GET_RANK(src) * sizeof(uint8_t));
