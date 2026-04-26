@@ -22,9 +22,11 @@ class InterpComputer : public SizeComputer {
         auto& output        = outputs[0]->buffer();
         int w               = 0;
         int h               = 0;
+        int d               = 0;
         const int inputSize = (int)inputs.size();
-        auto iw = inputs[0]->width();
-        auto ih = inputs[0]->height();
+        auto iw = inputs[0]->dimensions() > 4 ? inputs[0]->buffer().dim[4].extent : inputs[0]->width();
+        auto ih = inputs[0]->dimensions() > 4 ? inputs[0]->buffer().dim[3].extent : inputs[0]->height();
+        auto id = inputs[0]->dimensions() > 4 ? inputs[0]->buffer().dim[2].extent : 0;
         // copy dims
         memcpy(output.dim, input.dim, sizeof(halide_dimension_t) * input.dimensions);
         outputs[0]->buffer().dimensions = inputs[0]->dimensions();
@@ -58,9 +60,13 @@ class InterpComputer : public SizeComputer {
             // get output dims
             w = interp->outputWidth();
             h = interp->outputHeight();
-            if (w == 0 || h == 0) {
+            d = interp->outputDepth();
+            if (w == 0 || h == 0 || (inputs[0]->dimensions() == 5 && d == 0)) {
                 w = iw * interp->widthScale();
                 h = ih * interp->heightScale();
+                if (inputs[0]->dimensions() == 5) {
+                    d = id * interp->depthScale();
+                }
             }
         } else {
             // For mnn model from tensorflow
@@ -89,6 +95,11 @@ class InterpComputer : public SizeComputer {
         } else {
             output.dim[3].extent     = w;
             output.dim[2].extent     = h;
+            if (inputs[0]->dimensions() == 5) {
+                output.dim[4].extent = w;
+                output.dim[3].extent = h;
+                output.dim[2].extent = d;
+            }
         }
         return true;
     }
@@ -118,4 +129,5 @@ class InterpComputer : public SizeComputer {
 };
 
 REGISTER_SHAPE_INPUTS(InterpComputer, OpType_Interp, {1});
+REGISTER_SHAPE_INPUTS(InterpComputer, OpType_Interp3D, {1});
 } // namespace MNN
