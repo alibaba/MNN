@@ -1602,7 +1602,7 @@ static void _fillInfo(MNNCPUInfo* cpuinfo_isa) {
         CPUGroup group;
         struct dirent* ent;
         while ((ent = readdir(root)) != NULL) {
-            if (ent->d_name[0] != '.') {
+            if (ent->d_name[0] != '.' && ent->d_type == DT_DIR) {
                 std::string policyName = dir + "/" + ent->d_name;
                 std::string cpus = policyName + "/affected_cpus";
                 {
