@@ -160,6 +160,11 @@ check_requirements() {
     if [[ -z "$KEYSTORE_FILE" || -z "$KEYSTORE_PASSWORD" || -z "$KEY_ALIAS" || -z "$KEY_PASSWORD" ]]; then
         log_warning "Signing configuration not found. Google Play upload will be skipped."
         SKIP_GOOGLE_PLAY_UPLOAD=true
+        unset KEYSTORE_FILE KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD
+    elif [[ ! -f "$KEYSTORE_FILE" ]]; then
+        log_warning "Signing keystore not found at $KEYSTORE_FILE. Building local AAB without signing and skipping Google Play upload."
+        SKIP_GOOGLE_PLAY_UPLOAD=true
+        unset KEYSTORE_FILE KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD
     else
         SKIP_GOOGLE_PLAY_UPLOAD=false
     fi
