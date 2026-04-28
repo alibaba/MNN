@@ -59,6 +59,15 @@
   ```
 # Releases
 
+## Version 0.8.3
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/apks/mnn_chat_0_8_3.apk)
++ 更新亮点：
+  + 新增 Gemma 4 模型条目，包括多模态 E2B/E4B 以及视觉 26B-A4B/31B 版本。
+  + 新增 LFM 模型家族，覆盖 LFM2/LFM2.5 文本、任务增强、视觉语言、音频和 MoE 版本。
+  + 新增 Qwen3.5 Claude 4.6 Opus reasoning-distilled 模型条目。
++ 问题修复：
+  + 清理 Android 原生链接配置，使其与内置 MNN runtime 库打包方式保持一致。
+
 ## Version 0.8.2.2
 + 点击这里 [下载](https://meta.alicdn.com/data/mnn/apks/mnn_chat_0_8_2_2.apk)
 + 更新亮点：

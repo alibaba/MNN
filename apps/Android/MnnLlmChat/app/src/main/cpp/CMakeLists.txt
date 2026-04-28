@@ -71,13 +71,6 @@ include_directories("${CMAKE_SOURCE_DIR}/third_party")
 add_library(MNN SHARED IMPORTED)
 set_target_properties(MNN PROPERTIES IMPORTED_LOCATION "${LIB_PATH}/libMNN.so")
 
-add_library(llm SHARED IMPORTED)
-set_target_properties(llm PROPERTIES IMPORTED_LOCATION "${LIB_PATH}/libllm.so")
-
-add_library(mnn_Express SHARED IMPORTED)
-set_target_properties(mnn_Express PROPERTIES IMPORTED_LOCATION "${LIB_PATH}/libMNN_Express.so")
-
-
 # Link your native library with the `.so` file
 
 # Specifies libraries CMake should link to your target library. You
@@ -88,8 +81,6 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
         android
         log
         MNN
-        llm
-        mnn_Express
         # MediaCodec libraries for hardware video decoding
         mediandk
 

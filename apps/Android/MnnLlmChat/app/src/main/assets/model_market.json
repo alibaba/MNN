@@ -1,5 +1,5 @@
 {
-    "version": "21",
+    "version": "22",
     "tagTranslations": {
         "Vision": "图像理解",
         "Video": "视频理解",
@@ -25,6 +25,7 @@
         "Qwen",
         "DeepSeek",
         "Gemma",
+        "LFM",
         "Smol",
         "stability.ai",
         "Llama",
@@ -43,6 +44,518 @@
         "Lingshu"
     ],
     "models": [
+        {
+            "modelName": "gemma-4-E2B-it-MNN",
+            "tags": [
+                "Vision",
+                "Audio"
+            ],
+            "categories": [
+                "chat",
+                "gemma"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/gemma-4-E2B-it-MNN",
+                "ModelScope": "MNN/gemma-4-E2B-it-MNN"
+            },
+            "min_app_version": "0.8.3",
+            "size_gb": 2,
+            "vendor": "Gemma",
+            "file_size": 3739999029
+        },
+        {
+            "modelName": "gemma-4-E4B-it-MNN",
+            "tags": [
+                "Vision",
+                "Audio"
+            ],
+            "categories": [
+                "chat",
+                "gemma"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/gemma-4-E4B-it-MNN",
+                "ModelScope": "MNN/gemma-4-E4B-it-MNN"
+            },
+            "min_app_version": "0.8.3",
+            "size_gb": 4,
+            "vendor": "Gemma",
+            "file_size": 5542173790
+        },
+        {
+            "modelName": "gemma-4-26B-A4B-it-MNN",
+            "tags": [
+                "Vision"
+            ],
+            "categories": [
+                "chat",
+                "gemma"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/gemma-4-26B-A4B-it-MNN",
+                "ModelScope": "MNN/gemma-4-26B-A4B-it-MNN"
+            },
+            "min_app_version": "0.8.3",
+            "size_gb": 26,
+            "vendor": "Gemma",
+            "file_size": 16542648227
+        },
+        {
+            "modelName": "gemma-4-31B-it-MNN",
+            "tags": [
+                "Vision"
+            ],
+            "categories": [
+                "chat",
+                "gemma"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/gemma-4-31B-it-MNN",
+                "ModelScope": "MNN/gemma-4-31B-it-MNN"
+            },
+            "min_app_version": "0.8.3",
+            "size_gb": 31,
+            "vendor": "Gemma",
+            "file_size": 19893380963
+        },
+        {
+            "modelName": "LFM2-350M-MNN",
+            "tags": [],
+            "categories": [
+                "chat",
+                "lfm"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/LFM2-350M-MNN",
+                "ModelScope": "MNN/LFM2-350M-MNN"
+            },
+            "min_app_version": "0.8.3",
+            "size_gb": 0.35,
+            "vendor": "LFM",
+            "file_size": 223529599
+        },
+        {
+            "modelName": "LFM2-700M-MNN",
+            "tags": [],
+            "categories": [
+                "chat",
+                "lfm"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/LFM2-700M-MNN",
+                "ModelScope": "MNN/LFM2-700M-MNN"
+            },
+            "min_app_version": "0.8.3",
+            "size_gb": 0.7,
+            "vendor": "LFM",
+            "file_size": 466368851
+        },
+        {
+            "modelName": "LFM2-1.2B-MNN",
+            "tags": [],
+            "categories": [
+                "chat",
+                "lfm"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/LFM2-1.2B-MNN",
+                "ModelScope": "MNN/LFM2-1.2B-MNN"
+            },
+            "min_app_version": "0.8.3",
+            "size_gb": 1.2,
+            "vendor": "LFM",
+            "file_size": 734112071
+        },
+        {
+            "modelName": "LFM2-1.2B-Extract-MNN",
+            "tags": [],
+            "categories": [
+                "chat",
+                "lfm"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/LFM2-1.2B-Extract-MNN",
+                "ModelScope": "MNN/LFM2-1.2B-Extract-MNN"
+            },
+            "min_app_version": "0.8.3",
+            "size_gb": 1.2,
+            "vendor": "LFM",
+            "file_size": 734111769
+        },
+        {
+            "modelName": "LFM2-1.2B-RAG-MNN",
+            "tags": [],
+            "categories": [
+                "chat",
+                "lfm"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/LFM2-1.2B-RAG-MNN",
+                "ModelScope": "MNN/LFM2-1.2B-RAG-MNN"
+            },
+            "min_app_version": "0.8.3",
+            "size_gb": 1.2,
+            "vendor": "LFM",
+            "file_size": 734111982
+        },
+        {
+            "modelName": "LFM2-1.2B-Tool-MNN",
+            "tags": [],
+            "categories": [
+                "chat",
+                "lfm"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/LFM2-1.2B-Tool-MNN",
+                "ModelScope": "MNN/LFM2-1.2B-Tool-MNN"
+            },
+            "min_app_version": "0.8.3",
+            "size_gb": 1.2,
+            "vendor": "LFM",
+            "file_size": 734111998
+        },
+        {
+            "modelName": "LFM2.5-1.2B-Base-MNN",
+            "tags": [],
+            "categories": [
+                "chat",
+                "lfm"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/LFM2.5-1.2B-Base-MNN",
+                "ModelScope": "MNN/LFM2.5-1.2B-Base-MNN"
+            },
+            "min_app_version": "0.8.3",
+            "size_gb": 1.2,
+            "vendor": "LFM",
+            "file_size": 734112509
+        },
+        {
+            "modelName": "LFM2.5-1.2B-Instruct-MNN",
+            "tags": [],
+            "categories": [
+                "chat",
+                "lfm"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/LFM2.5-1.2B-Instruct-MNN",
+                "ModelScope": "MNN/LFM2.5-1.2B-Instruct-MNN"
+            },
+            "min_app_version": "0.8.3",
+            "size_gb": 1.2,
+            "vendor": "LFM",
+            "file_size": 734112941
+        },
+        {
+            "modelName": "LFM2.5-1.2B-JP-MNN",
+            "tags": [],
+            "categories": [
+                "chat",
+                "lfm"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/LFM2.5-1.2B-JP-MNN",
+                "ModelScope": "MNN/LFM2.5-1.2B-JP-MNN"
+            },
+            "min_app_version": "0.8.3",
+            "size_gb": 1.2,
+            "vendor": "LFM",
+            "file_size": 734112851
+        },
+        {
+            "modelName": "LFM2.5-1.2B-Thinking-MNN",
+            "tags": [
+                "Think"
+            ],
+            "categories": [
+                "chat",
+                "lfm"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/LFM2.5-1.2B-Thinking-MNN",
+                "ModelScope": "MNN/LFM2.5-1.2B-Thinking-MNN"
+            },
+            "min_app_version": "0.8.3",
+            "size_gb": 1.2,
+            "vendor": "LFM",
+            "file_size": 734112911
+        },
+        {
+            "modelName": "LFM2-2.6B-MNN",
+            "tags": [],
+            "categories": [
+                "chat",
+                "lfm"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/LFM2-2.6B-MNN",
+                "ModelScope": "MNN/LFM2-2.6B-MNN"
+            },
+            "min_app_version": "0.8.3",
+            "size_gb": 2.6,
+            "vendor": "LFM",
+            "file_size": 1610283276
+        },
+        {
+            "modelName": "LFM2-2.6B-Exp-MNN",
+            "tags": [],
+            "categories": [
+                "chat",
+                "lfm"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/LFM2-2.6B-Exp-MNN",
+                "ModelScope": "MNN/LFM2-2.6B-Exp-MNN"
+            },
+            "min_app_version": "0.8.3",
+            "size_gb": 2.6,
+            "vendor": "LFM",
+            "file_size": 1610283391
+        },
+        {
+            "modelName": "LFM2-2.6B-Transcript-MNN",
+            "tags": [],
+            "categories": [
+                "chat",
+                "lfm"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/LFM2-2.6B-Transcript-MNN",
+                "ModelScope": "MNN/LFM2-2.6B-Transcript-MNN"
+            },
+            "min_app_version": "0.8.3",
+            "size_gb": 2.6,
+            "vendor": "LFM",
+            "file_size": 1610283859
+        },
+        {
+            "modelName": "LFM2-24B-A2B-MNN",
+            "tags": [],
+            "categories": [
+                "chat",
+                "lfm"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/LFM2-24B-A2B-MNN",
+                "ModelScope": "MNN/LFM2-24B-A2B-MNN"
+            },
+            "min_app_version": "0.8.3",
+            "size_gb": 24,
+            "vendor": "LFM",
+            "file_size": 14945491712
+        },
+        {
+            "modelName": "LFM2-350M-ENJP-MT-MNN",
+            "tags": [],
+            "categories": [
+                "chat",
+                "lfm"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/LFM2-350M-ENJP-MT-MNN",
+                "ModelScope": "MNN/LFM2-350M-ENJP-MT-MNN"
+            },
+            "min_app_version": "0.8.3",
+            "size_gb": 0.35,
+            "vendor": "LFM",
+            "file_size": 223529429
+        },
+        {
+            "modelName": "LFM2-350M-Extract-MNN",
+            "tags": [],
+            "categories": [
+                "chat",
+                "lfm"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/LFM2-350M-Extract-MNN",
+                "ModelScope": "MNN/LFM2-350M-Extract-MNN"
+            },
+            "min_app_version": "0.8.3",
+            "size_gb": 0.35,
+            "vendor": "LFM",
+            "file_size": 223529638
+        },
+        {
+            "modelName": "LFM2-350M-Math-MNN",
+            "tags": [
+                "Math"
+            ],
+            "categories": [
+                "chat",
+                "lfm"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/LFM2-350M-Math-MNN",
+                "ModelScope": "MNN/LFM2-350M-Math-MNN"
+            },
+            "min_app_version": "0.8.3",
+            "size_gb": 0.35,
+            "vendor": "LFM",
+            "file_size": 223529380
+        },
+        {
+            "modelName": "LFM2-350M-PII-Extract-JP-MNN",
+            "tags": [],
+            "categories": [
+                "chat",
+                "lfm"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/LFM2-350M-PII-Extract-JP-MNN",
+                "ModelScope": "MNN/LFM2-350M-PII-Extract-JP-MNN"
+            },
+            "min_app_version": "0.8.3",
+            "size_gb": 0.35,
+            "vendor": "LFM",
+            "file_size": 223529947
+        },
+        {
+            "modelName": "LFM2-VL-450M-MNN",
+            "tags": [
+                "Vision"
+            ],
+            "categories": [
+                "chat",
+                "lfm"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/LFM2-VL-450M-MNN",
+                "ModelScope": "MNN/LFM2-VL-450M-MNN"
+            },
+            "min_app_version": "0.8.3",
+            "size_gb": 0.45,
+            "vendor": "LFM",
+            "file_size": 327132700
+        },
+        {
+            "modelName": "LFM2-VL-1.6B-MNN",
+            "tags": [
+                "Vision"
+            ],
+            "categories": [
+                "chat",
+                "lfm"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/LFM2-VL-1.6B-MNN",
+                "ModelScope": "MNN/LFM2-VL-1.6B-MNN"
+            },
+            "min_app_version": "0.8.3",
+            "size_gb": 1.6,
+            "vendor": "LFM",
+            "file_size": 1169276117
+        },
+        {
+            "modelName": "LFM2-Audio-1.5B-MNN",
+            "tags": [
+                "Audio"
+            ],
+            "categories": [
+                "chat",
+                "lfm"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/LFM2-Audio-1.5B-MNN",
+                "ModelScope": "MNN/LFM2-Audio-1.5B-MNN"
+            },
+            "min_app_version": "0.8.3",
+            "size_gb": 1.5,
+            "vendor": "LFM",
+            "file_size": 828120793
+        },
+        {
+            "modelName": "Qwen3.5-0.8B-Claude-4.6-Opus-Reasoning-Distilled-MNN",
+            "tags": [
+                "Think",
+                "Vision"
+            ],
+            "extra_tags": [
+                "opencl_warning",
+                "ThinkingSwitch"
+            ],
+            "categories": [
+                "recommended",
+                "qwen"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/Qwen3.5-0.8B-Claude-4.6-Opus-Reasoning-Distilled-MNN",
+                "ModelScope": "MNN/Qwen3.5-0.8B-Claude-4.6-Opus-Reasoning-Distilled-MNN"
+            },
+            "min_app_version": "0.8.3",
+            "size_gb": 0.8,
+            "vendor": "Qwen",
+            "file_size": 544134218
+        },
+        {
+            "modelName": "Qwen3.5-2B-Claude-4.6-Opus-Reasoning-Distilled-MNN",
+            "tags": [
+                "Think",
+                "Vision"
+            ],
+            "extra_tags": [
+                "opencl_warning",
+                "ThinkingSwitch"
+            ],
+            "categories": [
+                "recommended",
+                "qwen"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/Qwen3.5-2B-Claude-4.6-Opus-Reasoning-Distilled-MNN",
+                "ModelScope": "MNN/Qwen3.5-2B-Claude-4.6-Opus-Reasoning-Distilled-MNN"
+            },
+            "min_app_version": "0.8.3",
+            "size_gb": 2,
+            "vendor": "Qwen",
+            "file_size": 1383239575
+        },
+        {
+            "modelName": "Qwen3.5-4B-Claude-4.6-Opus-Reasoning-Distilled-MNN",
+            "tags": [
+                "Think",
+                "Vision"
+            ],
+            "extra_tags": [
+                "opencl_warning",
+                "ThinkingSwitch"
+            ],
+            "categories": [
+                "recommended",
+                "qwen"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/Qwen3.5-4B-Claude-4.6-Opus-Reasoning-Distilled-MNN",
+                "ModelScope": "MNN/Qwen3.5-4B-Claude-4.6-Opus-Reasoning-Distilled-MNN"
+            },
+            "min_app_version": "0.8.3",
+            "size_gb": 4,
+            "vendor": "Qwen",
+            "file_size": 2842506997
+        },
+        {
+            "modelName": "Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-MNN",
+            "tags": [
+                "Think",
+                "Vision"
+            ],
+            "extra_tags": [
+                "opencl_warning",
+                "ThinkingSwitch"
+            ],
+            "categories": [
+                "recommended",
+                "qwen"
+            ],
+            "sources": {
+                "HuggingFace": "taobao-mnn/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-MNN",
+                "ModelScope": "MNN/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-MNN"
+            },
+            "min_app_version": "0.8.3",
+            "size_gb": 27,
+            "vendor": "Qwen",
+            "file_size": 18858231999
+        },
         {
             "modelName": "Qwen3.5-2B-MNN",
             "tags": [
