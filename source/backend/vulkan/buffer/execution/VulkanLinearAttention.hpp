@@ -10,6 +10,7 @@
 #define VulkanLinearAttention_hpp
 
 #include "VulkanBasicExecution.hpp"
+#include "core/KVMeta.hpp"
 
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 

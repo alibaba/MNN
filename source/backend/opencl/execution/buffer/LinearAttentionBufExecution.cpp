@@ -18,6 +18,7 @@ namespace OpenCL {
 LinearAttentionBufExecution::LinearAttentionBufExecution(const MNN::Op *op, Backend *backend)
     : CommonExecution(backend, op) {
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
+    mMeta = (KVMeta*)(backend->getMetaPtr());
     auto param = op->main_as_LinearAttentionParam();
     mAttentionType = param->attn_type()->str();
     mNumKHeads = param->num_k_heads();
@@ -88,25 +89,31 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor *> &inp
             }
         }
     } else if (seqLen > 1) {
-        // Prefill (seqLen > 1): reset state for new sequence
-        {
-            cl_int res;
-            int bufferBytes = mStateCache->mRecurrentState->elementSize() * bytesPerElement;
-            void* mapPtr = runtime->commandQueue().enqueueMapBuffer(
-                openCLBuffer(mStateCache->mRecurrentState.get()), true, CL_MAP_WRITE, 0, bufferBytes, nullptr, nullptr, &res);
-            if (mapPtr != nullptr && res == CL_SUCCESS) {
-                ::memset(mapPtr, 0, bufferBytes);
-                runtime->commandQueue().enqueueUnmapMemObject(openCLBuffer(mStateCache->mRecurrentState.get()), mapPtr);
+        // Prefill: reset state for new sequence, UNLESS:
+        // 1. Loading from prefix cache (PendingRead), or
+        // 2. Reusing KV from previous inference (reuse_kv=true, i.e. previous != remove)
+        bool loadingFromDisk = (mMeta != nullptr && mMeta->file_flag == KVMeta::PendingRead && mMeta->file_name.size() > 0);
+        bool reusingKV = (mMeta != nullptr && mMeta->previous != mMeta->remove);
+        if (!loadingFromDisk && !reusingKV) {
+            {
+                cl_int res;
+                int bufferBytes = mStateCache->mRecurrentState->elementSize() * bytesPerElement;
+                void* mapPtr = runtime->commandQueue().enqueueMapBuffer(
+                    openCLBuffer(mStateCache->mRecurrentState.get()), true, CL_MAP_WRITE, 0, bufferBytes, nullptr, nullptr, &res);
+                if (mapPtr != nullptr && res == CL_SUCCESS) {
+                    ::memset(mapPtr, 0, bufferBytes);
+                    runtime->commandQueue().enqueueUnmapMemObject(openCLBuffer(mStateCache->mRecurrentState.get()), mapPtr);
+                }
             }
-        }
-        if (mStateCache->mConvState.get() != nullptr) {
-            cl_int res;
-            int bufferBytes = mStateCache->mConvState->elementSize() * bytesPerElement;
-            void* mapPtr = runtime->commandQueue().enqueueMapBuffer(
-                openCLBuffer(mStateCache->mConvState.get()), true, CL_MAP_WRITE, 0, bufferBytes, nullptr, nullptr, &res);
-            if (mapPtr != nullptr && res == CL_SUCCESS) {
-                ::memset(mapPtr, 0, bufferBytes);
-                runtime->commandQueue().enqueueUnmapMemObject(openCLBuffer(mStateCache->mConvState.get()), mapPtr);
+            if (mStateCache->mConvState.get() != nullptr) {
+                cl_int res;
+                int bufferBytes = mStateCache->mConvState->elementSize() * bytesPerElement;
+                void* mapPtr = runtime->commandQueue().enqueueMapBuffer(
+                    openCLBuffer(mStateCache->mConvState.get()), true, CL_MAP_WRITE, 0, bufferBytes, nullptr, nullptr, &res);
+                if (mapPtr != nullptr && res == CL_SUCCESS) {
+                    ::memset(mapPtr, 0, bufferBytes);
+                    runtime->commandQueue().enqueueUnmapMemObject(openCLBuffer(mStateCache->mConvState.get()), mapPtr);
+                }
             }
         }
     }
@@ -718,9 +725,40 @@ ErrorCode LinearAttentionBufExecution::onExecuteChunkedPrefill(const std::vector
 }
 
 ErrorCode LinearAttentionBufExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    // onResize() may be skipped when shapes are unchanged. Ensure state is reset here too.
+    int seqLen = inputs[0]->length(2);
+    if (seqLen > 1 && mMeta != nullptr && mMeta->previous == mMeta->remove) {
+        bool loadingFromDisk = (mMeta->file_flag == KVMeta::PendingRead && mMeta->file_name.size() > 0);
+        if (!loadingFromDisk) {
+            auto runtime = mOpenCLBackend->getOpenCLRuntime();
+            int bytesPerElement = mOpenCLBackend->fpBytes();
+            if (mStateCache->mConvState.get() != nullptr) {
+                cl_int res;
+                int bufferBytes = mStateCache->mConvState->elementSize() * bytesPerElement;
+                void* mapPtr = runtime->commandQueue().enqueueMapBuffer(
+                    openCLBuffer(mStateCache->mConvState.get()), true, CL_MAP_WRITE, 0, bufferBytes, nullptr, nullptr, &res);
+                if (mapPtr != nullptr && res == CL_SUCCESS) {
+                    ::memset(mapPtr, 0, bufferBytes);
+                    runtime->commandQueue().enqueueUnmapMemObject(openCLBuffer(mStateCache->mConvState.get()), mapPtr);
+                }
+            }
+            {
+                cl_int res;
+                int bufferBytes = mStateCache->mRecurrentState->elementSize() * bytesPerElement;
+                void* mapPtr = runtime->commandQueue().enqueueMapBuffer(
+                    openCLBuffer(mStateCache->mRecurrentState.get()), true, CL_MAP_WRITE, 0, bufferBytes, nullptr, nullptr, &res);
+                if (mapPtr != nullptr && res == CL_SUCCESS) {
+                    ::memset(mapPtr, 0, bufferBytes);
+                    runtime->commandQueue().enqueueUnmapMemObject(openCLBuffer(mStateCache->mRecurrentState.get()), mapPtr);
+                }
+            }
+        }
+    }
+
     if (mUseChunkedPrefill) {
         return onExecuteChunkedPrefill(inputs, outputs);
     }
+
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
     int convStateSize = inputs[3]->length(2) - 1;
 
