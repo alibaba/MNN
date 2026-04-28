@@ -11,6 +11,7 @@
 
 #include "QnnInterface.h"
 #include "System/QnnSystemInterface.h"
+#include "System/QnnSystemContext.h"
 #include "QnnCommon.h"
 #include "QnnLog.h"
 #include "QnnTypes.h"
@@ -65,6 +66,17 @@ extern QnnInterface_getProviders_t QnnInterface_getProviders;
 typedef Qnn_ErrorHandle_t (*QnnSystemInterface_getProviders_t)(const QnnSystemInterface_t*** providerList,
                                                   uint32_t* numProviders);
 extern QnnSystemInterface_getProviders_t QnnSystemInterface_getProviders;
+typedef Qnn_ErrorHandle_t (*QnnSystemContext_create_t)(QnnSystemContext_Handle_t* sysCtxHandle);
+typedef Qnn_ErrorHandle_t (*QnnSystemContext_getBinaryInfo_t)(
+    QnnSystemContext_Handle_t sysCtxHandle,
+    const uint8_t* binaryBuffer,
+    uint64_t binaryBufferSize,
+    const QnnSystemContext_BinaryInfo_t** binaryInfo,
+    Qnn_ContextBinarySize_t* binaryInfoSize);
+typedef Qnn_ErrorHandle_t (*QnnSystemContext_free_t)(QnnSystemContext_Handle_t sysCtxHandle);
+extern QnnSystemContext_create_t QnnSystemContext_create;
+extern QnnSystemContext_getBinaryInfo_t QnnSystemContext_getBinaryInfo;
+extern QnnSystemContext_free_t QnnSystemContext_free;
 #endif
 
 bool loadQNNSymbol();
@@ -112,6 +124,7 @@ extern void ___QNNAttentionCreator__OpType_Attention__();
 #endif
 extern void ___QNNQuantCreator__OpType_FloatToInt8__();
 extern void ___QNNDeQuantCreator__OpType_Int8ToFloat__();
+extern void ___QNNIm2ColCreator__OpType_Im2Col__();
 
 void registerQNNOps();
 

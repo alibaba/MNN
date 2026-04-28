@@ -12,17 +12,29 @@ namespace MNN {
 namespace QNN {
 
 QNNPerf::QNNPerf(const QNN_INTERFACE_VER_TYPE * qnnInterface) {
-    MNN_ASSERT(qnnInterface != nullptr);
+    if (nullptr == qnnInterface || qnnInterface->deviceGetInfrastructure == nullptr) {
+        MNN_PRINT("MNN_QNN: QNN perf infra is unavailable, skip power tuning.\n");
+        return;
+    }
     mQnnInterface = qnnInterface;
 
     QnnDevice_Infrastructure_t deviceInfra = nullptr;
     CALL_QNN(mQnnInterface->deviceGetInfrastructure(&deviceInfra));
+    if (nullptr == deviceInfra) {
+        MNN_PRINT("MNN_QNN: device infra is null, skip power tuning.\n");
+        return;
+    }
     QnnHtpDevice_Infrastructure_t *htpInfra  = static_cast<QnnHtpDevice_Infrastructure_t *>(deviceInfra);
+    if (nullptr == htpInfra || nullptr == htpInfra->perfInfra.createPowerConfigId) {
+        MNN_PRINT("MNN_QNN: HTP perf infra is unavailable, skip power tuning.\n");
+        return;
+    }
     mPerfInfra = htpInfra->perfInfra;
 
     uint32_t deviceId = 0;
     uint32_t coreId   = 0;
     CALL_QNN(mPerfInfra.createPowerConfigId(deviceId, coreId, &mPowerConfigId));
+    mValid = true;
 
     mPowerConfigBurst = {
         .option       = QNN_HTP_PERF_INFRASTRUCTURE_POWER_CONFIGOPTION_DCVS_V3,
@@ -73,11 +85,17 @@ QNNPerf::QNNPerf(const QNN_INTERFACE_VER_TYPE * qnnInterface) {
 
 // destory power config
 QNNPerf::~QNNPerf() {
+    if (!mValid || mPerfInfra.destroyPowerConfigId == nullptr) {
+        return;
+    }
     CALL_QNN(mPerfInfra.destroyPowerConfigId(mPowerConfigId));
 }
 
 
 void QNNPerf::setRpcLatencyAndPolling() {
+    if (!mValid || mPerfInfra.setPowerConfig == nullptr) {
+        return;
+    }
     // set RPC Control Latency
     QnnHtpPerfInfrastructure_PowerConfig_t rpcControlLatency;            // refer QnnHtpPerfInfrastructure.h
     ::memset(&rpcControlLatency, 0, sizeof(rpcControlLatency));
@@ -98,6 +116,9 @@ void QNNPerf::setRpcLatencyAndPolling() {
 }
 
 void QNNPerf::setPowerConfigBurst() {
+    if (!mValid || mPerfInfra.setPowerConfig == nullptr) {
+        return;
+    }
     #ifdef QNN_VERBOSE
     MNN_PRINT("MNN QNN set burst mode\n");
     #endif
@@ -106,6 +127,9 @@ void QNNPerf::setPowerConfigBurst() {
 }
 
 void QNNPerf::setPowerConfigBalanced() {
+    if (!mValid || mPerfInfra.setPowerConfig == nullptr) {
+        return;
+    }
     const QnnHtpPerfInfrastructure_PowerConfig_t *powerConfigs[] = {&mPowerConfigBalanced, NULL};
     CALL_QNN(mPerfInfra.setPowerConfig(mPowerConfigId, powerConfigs));
 }

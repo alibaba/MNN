@@ -45,6 +45,9 @@ add_executable(testModel.out ${CMAKE_CURRENT_LIST_DIR}/testModel.cpp)
 list(APPEND MNN_CPP_TOOLS testModel.out)
 
 add_executable(compilefornpu ${CMAKE_CURRENT_LIST_DIR}/compilefornpu.cpp ${CMAKE_CURRENT_LIST_DIR}/../../3rd_party/flatbuffers/src/util.cpp)
+set_source_files_properties(${CMAKE_CURRENT_LIST_DIR}/../../3rd_party/flatbuffers/src/util.cpp
+    TARGET_DIRECTORY compilefornpu
+    PROPERTIES COMPILE_FLAGS "-fvisibility=default")
 list(APPEND MNN_CPP_TOOLS compilefornpu)
 
 

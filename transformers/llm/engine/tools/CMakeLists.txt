@@ -10,3 +10,6 @@ target_include_directories(generateLlmIO PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../sr
 target_include_directories(quantize_llm PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../src)
 target_link_libraries(ppl_eval ${LLM_DEPS})
 target_include_directories(ppl_eval PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../src)
+add_executable(generateVisualIO ${CMAKE_CURRENT_LIST_DIR}/generateVisualIO.cpp)
+target_link_libraries(generateVisualIO ${LLM_DEPS})
+target_include_directories(generateVisualIO PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../src)

@@ -156,25 +156,17 @@ public:
             {BinaryOpOperation_POW, "ElementWisePower"},
             {BinaryOpOperation_REALDIV, "ElementWiseDivide"},
             {BinaryOpOperation_MINIMUM, "ElementWiseMinimum"},
-            {BinaryOpOperation_MAXIMUM, "ElementWiseMaximum"}
-            // {BinaryOpOperation_GREATER, ""},
-            // {BinaryOpOperation_GREATER_EQUAL, ""},
-            // {BinaryOpOperation_LESS, ""},
-            // {BinaryOpOperation_FLOORDIV, ""},
-            // {BinaryOpOperation_SquaredDifference, ""},
-            // {BinaryOpOperation_LESS_EQUAL, ""},
-            // {BinaryOpOperation_FLOORMOD, ""},
-            // {BinaryOpOperation_EQUAL, ""},
-            // {BinaryOpOperation_MOD, ""},
-            // {BinaryOpOperation_ATAN2, ""},
-            // {BinaryOpOperation_LOGICALOR, ""},
-            // {BinaryOpOperation_NOTEQUAL, ""},
-            // {BinaryOpOperation_BITWISE_AND, ""},
-            // {BinaryOpOperation_BITWISE_OR, ""},
-            // {BinaryOpOperation_BITWISE_XOR, ""},
-            // {BinaryOpOperation_LOGICALXOR, ""},
-            // {BinaryOpOperation_LEFTSHIFT, ""},
-            // {BinaryOpOperation_RIGHTSHIFT, ""}
+            {BinaryOpOperation_MAXIMUM, "ElementWiseMaximum"},
+            {BinaryOpOperation_GREATER, "ElementWiseGreater"},
+            {BinaryOpOperation_GREATER_EQUAL, "ElementWiseGreaterEqual"},
+            {BinaryOpOperation_LESS, "ElementWiseLess"},
+            {BinaryOpOperation_FLOORDIV, "ElementWiseFloorDiv"},
+            {BinaryOpOperation_LESS_EQUAL, "ElementWiseLessEqual"},
+            {BinaryOpOperation_FLOORMOD, "ElementWiseFmod"},
+            {BinaryOpOperation_EQUAL, "ElementWiseEqual"},
+            {BinaryOpOperation_MOD, "ElementWiseMod"},
+            {BinaryOpOperation_LOGICALOR, "ElementWiseOr"},
+            {BinaryOpOperation_NOTEQUAL, "ElementWiseNotEqual"}
         };
 
         std::map<EltwiseType, std::string> eltwiseMap {

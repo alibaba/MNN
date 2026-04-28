@@ -20,6 +20,8 @@ cache_dir = 'res'
 if 'cache' in post_treat:
     cache_dir = post_treat['cache']
 clean_tmp = True
+weight_sharing_enabled = os.environ.get("MNN_QNN_WEIGHT_SHARING", "0") == "1"
+print('weight_sharing_enabled:', weight_sharing_enabled)
 context_config = {
     "backend_extensions": {
         "shared_library_path": os.path.join(qnn_sdk, "lib","x86_64-linux-clang","libQnnHtpNetRunExtensions.so"),
@@ -53,7 +55,7 @@ htp_backend_extensions = {
         }
     ],
     "context": {
-        "weight_sharing_enabled": True
+        "weight_sharing_enabled": weight_sharing_enabled
     }
 }
 
@@ -94,6 +96,5 @@ for key in post_treat["merge"]:
     if clean_tmp:
         for workdir in workdirs:
             os.popen("rm -rf " + workdir).read()
-
 
 
