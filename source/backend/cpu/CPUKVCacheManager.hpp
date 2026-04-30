@@ -41,7 +41,8 @@ private:
     
     void expandKVCacheInMem(int oldMaxLength);
     void moveKVCacheFromMemToDisk(int oldMaxLength);
-    void expandKVCacheInDisk(int oldMaxLength, int oldKeySize, int oldValueSize, int keySize, int valueSize, file_t specKeyFile = INVALID_FILE, file_t specValueFile = INVALID_FILE);
+    void expandKVCacheInDisk(size_t oldMaxLength, size_t oldKeySize, size_t oldValueSize, size_t keySize,
+                             size_t valueSize, file_t specKeyFile = INVALID_FILE, file_t specValueFile = INVALID_FILE);
     template <typename T> void ProcessKey(const Tensor* key, int seq_len, int kv_h);
     template <typename T> void ProcessValue(const Tensor* value, int seq_len, int kv_h);
     template <typename T> void moveKV(int src, int dst, int size);
