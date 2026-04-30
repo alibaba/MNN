@@ -250,6 +250,8 @@ void chat(Llm* llm) {
         }
         if (user_str == "/reset") {
             llm->reset();
+            messages.clear();
+            messages.emplace_back("system", "You are a helpful assistant.");
             std::cout << "\nA: reset done." << std::endl;
             continue;
         }
