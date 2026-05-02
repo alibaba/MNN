@@ -122,6 +122,7 @@ Interpreter* Interpreter::createFromBufferInternal(Content* net, bool enforceAut
     }
     auto valid = OpCommonUtils::checkNet(net->buffer.get(), net->buffer.size());
     if (!valid) {
+        delete net;
         return nullptr;
     }
     net->net = GetNet(net->buffer.get());
