@@ -8,78 +8,41 @@
 #include <riscv_vector.h>
 
 void MNNPackC4RVV(float* dst, const float* src, size_t area, size_t depth, int* areaOffset) {
-    int depthC4 = depth / 4;
-    int depthRemain = depthC4 * 4;
-    int remain = depth - depthRemain;
-    const float* srcOffset = src;
-    const float* srcChannel[4];
+    const size_t srcAreaStride = (size_t)areaOffset[0];
+    const size_t dstAreaStride = (size_t)areaOffset[1];
+    const ptrdiff_t dstStrideBytes = 4 * (ptrdiff_t)sizeof(float);
+    const size_t depthC4 = (depth + 3) / 4;
 
-    for (int z = 0; z < depthC4; ++z) {
-        float* dstZ = dst + z * areaOffset[1] * 4;
-
-        for (int y = 0; y < 4; ++y) {
-            srcChannel[y] = srcOffset + areaOffset[0] * y;
+    for (size_t z = 0; z < depthC4; ++z) {
+        const size_t cBase = z * 4;
+        const float* srcZ = src + cBase * srcAreaStride;
+        float* dstZ = dst + z * dstAreaStride * 4;
+        size_t valid = depth - cBase;
+        if (valid > 4) {
+            valid = 4;
         }
 
-        size_t x = 0;
-        size_t vl = __riscv_vsetvl_e32m8(area);
+        for (size_t y = 0; y < valid; ++y) {
+            const float* srcChannel = srcZ + y * srcAreaStride;
 
-        for (; x + vl <= area; x += vl) {
-            float* dstPtr = dstZ + x * 4;
-            vfloat32m8_t vec = __riscv_vle32_v_f32m8(srcChannel[0] + x, vl);
-            __riscv_vsse32_v_f32m8(dstPtr + 0, 4 * sizeof(float), vec, vl);
-            vec = __riscv_vle32_v_f32m8(srcChannel[1] + x, vl);
-            __riscv_vsse32_v_f32m8(dstPtr + 1, 4 * sizeof(float), vec, vl);
-            vec = __riscv_vle32_v_f32m8(srcChannel[2] + x, vl);
-            __riscv_vsse32_v_f32m8(dstPtr + 2, 4 * sizeof(float), vec, vl);
-            vec = __riscv_vle32_v_f32m8(srcChannel[3] + x, vl);
-            __riscv_vsse32_v_f32m8(dstPtr + 3, 4 * sizeof(float), vec, vl);
-        }
+            size_t x = 0;
+            while (x < area) {
+                const size_t vl = __riscv_vsetvl_e32m8(area - x);
+                vfloat32m8_t v = __riscv_vle32_v_f32m8(srcChannel + x, vl);
+                __riscv_vsse32_v_f32m8(dstZ + 4 * x + y, dstStrideBytes, v, vl);
 
-        for (; x < area; ++x) {
-            float* dstPtr = dstZ + x * 4;
-            dstPtr[0] = srcChannel[0][x];
-            dstPtr[1] = srcChannel[1][x];
-            dstPtr[2] = srcChannel[2][x];
-            dstPtr[3] = srcChannel[3][x];
-        }
-
-        srcOffset += areaOffset[0] * 4;
-    }
-
-    if (remain > 0) {
-        float* dstZ = dst + depthC4 * areaOffset[1] * 4;
-
-        for (int y = 0; y < remain; ++y) {
-            srcChannel[y] = srcOffset + areaOffset[0] * y;
-        }
-
-        size_t x = 0;
-        size_t vl = __riscv_vsetvl_e32m8(area);
-
-        for (; x + vl <= area; x += vl) {
-            float* dstPtr = dstZ + x * 4;
-
-            for (int y = 0; y < remain; ++y) {
-                vfloat32m8_t vec = __riscv_vle32_v_f32m8(srcChannel[y] + x, vl);
-                __riscv_vsse32_v_f32m8(dstPtr + y, 4 * sizeof(float), vec, vl);
-            }
-
-            vfloat32m8_t zero = __riscv_vfmv_v_f_f32m8(0.0f, vl);
-            for (int y = remain; y < 4; ++y) {
-                __riscv_vsse32_v_f32m8(dstPtr + y, 4 * sizeof(float), zero, vl);
+                x += vl;
             }
         }
 
-        for (; x < area; ++x) {
-            float* dstPtr = dstZ + x * 4;
+        for (size_t y = valid; y < 4; ++y) {
+            size_t x = 0;
+            while (x < area) {
+                const size_t vl = __riscv_vsetvl_e32m8(area - x);
+                vfloat32m8_t zero = __riscv_vfmv_v_f_f32m8(0.0f, vl);
+                __riscv_vsse32_v_f32m8(dstZ + 4 * x + y, dstStrideBytes, zero, vl);
 
-            for (int y = 0; y < remain; ++y) {
-                dstPtr[y] = srcChannel[y][x];
-            }
-
-            for (int y = remain; y < 4; ++y) {
-                dstPtr[y] = 0.0f;
+                x += vl;
             }
         }
     }
