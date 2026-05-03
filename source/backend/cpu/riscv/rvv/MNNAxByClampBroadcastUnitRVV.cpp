@@ -1,6 +1,14 @@
+//
+//  MNNAxByClampBroadcastUnitRVV.cpp
+//  MNN
+//
+//  Created by ISCAS on 2025/11/26.
+//  Copyright (c) 2025, ISCAS.
+//
 #include <riscv_vector.h>
 
-void MNNAxByClampBroadcastUnit(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t height, const float* parameters) {
+void MNNAxByClampBroadcastUnitRVV(float* C, const float* A, const float* B, size_t width, size_t cStride,
+                                  size_t aStride, size_t height, const float* parameters) {
     float beta = parameters[1];
     float minF = parameters[2];
     float maxF = parameters[3];
@@ -20,10 +28,10 @@ void MNNAxByClampBroadcastUnit(float* C, const float* A, const float* B, size_t 
             size_t vl = __riscv_vsetvl_e32m8(w);
 
             vfloat32m8_t data = __riscv_vlse32_v_f32m8(a + 0, stride, vl);
-                        data = __riscv_vfadd_vf_f32m8(data, b0Beta, vl);
-                        data = __riscv_vfmax_vf_f32m8(data, minF, vl);
+            data = __riscv_vfadd_vf_f32m8(data, b0Beta, vl);
+            data = __riscv_vfmax_vf_f32m8(data, minF, vl);
             data = __riscv_vfmin_vf_f32m8(data, maxF, vl);
-                        __riscv_vsse32_v_f32m8(c + 0, stride, data, vl);
+            __riscv_vsse32_v_f32m8(c + 0, stride, data, vl);
 
             data = __riscv_vlse32_v_f32m8(a + 1, stride, vl);
             data = __riscv_vfadd_vf_f32m8(data, b1Beta, vl);
@@ -49,4 +57,3 @@ void MNNAxByClampBroadcastUnit(float* C, const float* A, const float* B, size_t 
         }
     }
 }
-

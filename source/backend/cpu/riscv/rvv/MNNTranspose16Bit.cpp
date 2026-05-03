@@ -1,6 +1,13 @@
+//
+//  MNNTranspose16Bit.cpp
+//  MNN
+//
+//  Created by ISCAS on 2025/11/25.
+//  Copyright (c) 2025, ISCAS.
+//
 #include <riscv_vector.h>
 
-void MNNTranspose16Bit(int16_t* dstO, const int16_t* srcO, int16_t* dim) {
+void MNNTranspose16Bit(int16_t* dstO, const int16_t* srcO, int32_t* dim) {
     int w = dim[0];
     int h = dim[1];
     int srcStride = dim[2];
@@ -16,11 +23,9 @@ void MNNTranspose16Bit(int16_t* dstO, const int16_t* srcO, int16_t* dim) {
             size_t vl = __riscv_vsetvl_e16m8(w - j);
             vint16m8_t data = __riscv_vlse16_v_i16m8(srcPtr, srcStrideByte, vl);
             __riscv_vse16_v_i16m8(dstPtr, data, vl);
-            srcPtr += vl * srcStride; 
+            srcPtr += vl * srcStride;
             dstPtr += vl;
             j += vl;
         }
     }
 }
-
-

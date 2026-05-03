@@ -1,165 +1,124 @@
 //
-//  CommonOptFunction.h
+//  MNNGemmInt8AddBiasScale_16x4_Unit_RVV.cpp
 //  MNN
 //
-//  Created by MNN on 2026/04/01.
-//  Copyright © 2018, Alibaba Group Holding Limited
+//  Created by ISCAS on 2026/04/02.
+//  Copyright (c) 2026, ISCAS.
 //
 #include <riscv_vector.h>
-#include <cstring>
+#include <algorithm>
 #include <cmath>
+#include <vector>
+
 #include "../../compute/Int8FunctionsOpt.h"
 
- void MNNGemmInt8AddBiasScale_16x4_Unit_RVV(
-    int8_t* dst,
-    const int8_t* src,
-    const int8_t* weight,
-    size_t src_depth_quad,
-    size_t dst_step,
-    size_t dst_depth_quad,
-    const QuanPostTreatParameters* post,
-    size_t realCount) {
+void MNNGemmInt8AddBiasScale_16x4_Unit_RVV(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad,
+                                           size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post,
+                                           size_t realCount) {
+    const int bytes = post->useInt8 == 1 ? 1 : 4;
+    const int weightStepY = GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT;
+    const int weightStepZ = src_depth_quad * weightStepY + 4 * 2 * GEMM_INT8_UNIT;
+    const ptrdiff_t srcStride = GEMM_INT8_SRC_UNIT;
+    const ptrdiff_t dstStride = GEMM_INT8_UNIT * sizeof(float);
+    float fp32min = 0.0f;
+    float fp32max = 0.0f;
 
-    const int bytes = (post->useInt8 == 1) ? 1 : 4;
-
-    float fp32min = 0.f, fp32max = 0.f;
-    if (post->useInt8 == 0 && post->fp32minmax) {
+    if (post->useInt8 == 0 && post->fp32minmax != nullptr) {
         fp32min = post->fp32minmax[0];
         fp32max = post->fp32minmax[1];
     }
 
-    const int weight_step_Z =
-        src_depth_quad * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT)
-        + 4 * 2 * GEMM_INT8_UNIT;
-
-    const int weight_step_Y = (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT);
-
-    float* biasPtr = (float*)post->biasFloat;
-    auto accumbuff = post->accumBuffer;
+    auto biasPtr = post->biasFloat;
+    auto accumBuffer = post->accumBuffer;
     auto blockNum = post->blockNum;
+    std::vector<int32_t> accCache(realCount);
 
     for (int dz = 0; dz < dst_depth_quad; ++dz) {
-        auto dst_z = dst + dz * dst_step;
+        auto dstZ = dst + dz * dst_step;
+        auto accumZ = accumBuffer;
+        const auto biasDz = biasPtr + dz * GEMM_INT8_UNIT;
 
         for (int bk = 0; bk < blockNum; ++bk) {
-
-            const auto weight_dz =
-                weight + dz * blockNum * weight_step_Z + bk * weight_step_Z;
-
-            const float* scale_dz =
-                reinterpret_cast<const float*>(
-                    weight_dz + src_depth_quad * weight_step_Y);
-
-            const auto weightBias_dz = scale_dz + GEMM_INT8_UNIT;
-            const auto bias_dz = biasPtr + dz * GEMM_INT8_UNIT;
-
+            const auto weightDz = weight + dz * blockNum * weightStepZ + bk * weightStepZ;
+            const auto scaleDz = reinterpret_cast<const float*>(weightDz + src_depth_quad * weightStepY);
+            const auto weightBiasDz = scaleDz + GEMM_INT8_UNIT;
             const auto srcSumPtr = post->srcKernelSum + bk * realCount;
+            const auto inputScalePtr = post->inputBias ? post->inputScale + bk * realCount : post->inputScale;
+            const auto inputBiasPtr = post->inputBias ? post->inputBias + bk * realCount : nullptr;
+            const auto weightKernelSum =
+                post->inputBias ? post->weightKernelSum + dz * (blockNum * GEMM_INT8_UNIT) + bk * GEMM_INT8_UNIT
+                                : nullptr;
 
-            const auto inputScalePtr =
-                post->inputBias ? post->inputScale + bk * realCount
-                                : post->inputScale;
+            size_t w = 0;
+            while (w < realCount) {
+                const size_t vl = __riscv_vsetvl_e8m2(realCount - w);
+                for (int c = 0; c < GEMM_INT8_UNIT; ++c) {
+                    auto acc = __riscv_vmv_v_x_i32m8(0, vl);
 
-            for (int w = 0; w < realCount; ++w) {
+                    for (int sz = 0; sz < src_depth_quad; ++sz) {
+                        const auto weightSz = weightDz + weightStepY * sz + c * GEMM_INT8_SRC_UNIT;
+                        const auto srcSz = src + bk * src_depth_quad * GEMM_INT8_SRC_UNIT * realCount +
+                                           sz * realCount * GEMM_INT8_SRC_UNIT + w * GEMM_INT8_SRC_UNIT;
 
-                const auto src_x =
-                    src + bk * src_depth_quad * GEMM_INT8_SRC_UNIT * realCount
-                    + w * GEMM_INT8_SRC_UNIT;
-
-                auto dst_x = dst_z + w * GEMM_INT8_UNIT * bytes;
-                auto accum_x = accumbuff + w * GEMM_INT8_UNIT;
-
-                int32_t acc[4] = {0, 0, 0, 0};
-
-                // ===============================
-                // RVV 核心：int8 GEMM 累加
-                // ===============================
-                for (int sz = 0; sz < src_depth_quad; ++sz) {
-
-                    const auto weight_sz = weight_dz + weight_step_Y * sz;
-                    const auto src_z =
-                        src_x + sz * realCount * GEMM_INT8_SRC_UNIT;
-
-                    size_t vl = __riscv_vsetvl_e8m1(GEMM_INT8_SRC_UNIT);
-
-                    // load src
-                    vint8m1_t vsrc =
-                        __riscv_vle8_v_i8m1(src_z, vl);
-
-                    for (int j = 0; j < GEMM_INT8_UNIT; ++j) {
-
-                        const auto weight_j =
-                            weight_sz + j * GEMM_INT8_SRC_UNIT;
-
-                        vint8m1_t vw =
-                            __riscv_vle8_v_i8m1(weight_j, vl);
-
-                        // widen mul → int16
-                        vint16m2_t prod =
-                            __riscv_vwmul_vv_i16m2(vsrc, vw, vl);
-
-                        // reduce → int32
-                        vint32m1_t sum =
-                            __riscv_vwredsum_vs_i16m2_i32m1(
-                                prod,
-                                __riscv_vmv_v_x_i32m1(0, 1),
-                                vl);
-
-                        acc[j] += __riscv_vmv_x_s_i32m1_i32(sum);
-                    }
-                }
-
-                // ===============================
-                // 后处理（严格按标量逻辑）
-                // ===============================
-                for (int j = 0; j < GEMM_INT8_UNIT; ++j) {
-
-                    float value = acc[j] * scale_dz[j]
-                                  + srcSumPtr[w] * weightBias_dz[j];
-
-                    if (post->inputScale) {
-                        value = acc[j] * scale_dz[j] * inputScalePtr[w]
-                                + srcSumPtr[w] * weightBias_dz[j];
-                    }
-
-                    if (post->inputBias) {
-                        auto weightKernelSum =
-                            post->weightKernelSum
-                            + dz * (blockNum * GEMM_INT8_UNIT)
-                            + bk * GEMM_INT8_UNIT;
-
-                        value += (post->inputBias[bk * realCount + w]
-                                  * weightKernelSum[j]);
+                        for (int i = 0; i < GEMM_INT8_SRC_UNIT; ++i) {
+                            auto src8 = __riscv_vlse8_v_i8m2(srcSz + i, srcStride, vl);
+                            auto src16 = __riscv_vsext_vf2_i16m4(src8, vl);
+                            acc = __riscv_vwmacc_vx_i32m8(acc, static_cast<int16_t>(weightSz[i]), src16, vl);
+                        }
                     }
 
                     if (post->useInt8 == 0) {
+                        auto value = __riscv_vfcvt_f_x_v_f32m8(acc, vl);
+                        value = __riscv_vfmul_vf_f32m8(value, scaleDz[c], vl);
+                        if (inputScalePtr != nullptr) {
+                            auto inputScaleVec = __riscv_vle32_v_f32m8(inputScalePtr + w, vl);
+                            value = __riscv_vfmul_vv_f32m8(value, inputScaleVec, vl);
+                        }
+                        auto srcSumVec = __riscv_vle32_v_f32m8(srcSumPtr + w, vl);
+                        value = __riscv_vfmacc_vf_f32m8(value, weightBiasDz[c], srcSumVec, vl);
+                        if (inputBiasPtr != nullptr) {
+                            auto inputBiasVec = __riscv_vle32_v_f32m8(inputBiasPtr + w, vl);
+                            value = __riscv_vfmacc_vf_f32m8(value, weightKernelSum[c], inputBiasVec, vl);
+                        }
                         if (bk > 0) {
-                            value += ((float*)accum_x)[j];
+                            auto old = __riscv_vlse32_v_f32m8(accumZ + w * GEMM_INT8_UNIT + c, dstStride, vl);
+                            value = __riscv_vfadd_vv_f32m8(value, old, vl);
                         }
-
                         if (bk == blockNum - 1) {
-                            if (biasPtr) {
-                                value += bias_dz[j];
+                            if (biasPtr != nullptr) {
+                                value = __riscv_vfadd_vf_f32m8(value, biasDz[c], vl);
                             }
-
-                            if (post->fp32minmax) {
-                                value = std::min(
-                                    std::max(fp32min, value),
-                                    fp32max);
+                            if (post->fp32minmax != nullptr) {
+                                value = __riscv_vfmax_vf_f32m8(value, fp32min, vl);
+                                value = __riscv_vfmin_vf_f32m8(value, fp32max, vl);
                             }
-
-                            ((float*)dst_x)[j] = value;
+                            __riscv_vsse32_v_f32m8(reinterpret_cast<float*>(dstZ + w * GEMM_INT8_UNIT * bytes) + c,
+                                                   dstStride, value, vl);
                         } else {
-                            ((float*)accum_x)[j] = value;
+                            __riscv_vsse32_v_f32m8(accumZ + w * GEMM_INT8_UNIT + c, dstStride, value, vl);
                         }
-                    } else {
-                        value += bias_dz[j];
+                        continue;
+                    }
 
-                        value = std::max(value, (float)post->minValue);
-                        value = std::min(value, (float)post->maxValue);
-
-                        dst_x[j] = (int8_t)roundf(value);
+                    __riscv_vse32_v_i32m8(accCache.data() + w, acc, vl);
+                    for (size_t lane = 0; lane < vl; ++lane) {
+                        const size_t index = w + lane;
+                        auto dstX = dstZ + index * GEMM_INT8_UNIT * bytes;
+                        float value = accCache[index] * scaleDz[c] + srcSumPtr[index] * weightBiasDz[c];
+                        if (inputScalePtr != nullptr) {
+                            value = accCache[index] * scaleDz[c] * inputScalePtr[index] +
+                                    srcSumPtr[index] * weightBiasDz[c];
+                        }
+                        if (inputBiasPtr != nullptr) {
+                            value += inputBiasPtr[index] * weightKernelSum[c];
+                        }
+                        value += biasDz[c];
+                        value = std::max(value, static_cast<float>(post->minValue));
+                        value = std::min(value, static_cast<float>(post->maxValue));
+                        dstX[c] = static_cast<int8_t>(roundf(value));
                     }
                 }
+                w += vl;
             }
         }
     }

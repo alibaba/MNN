@@ -19,15 +19,19 @@
 #if defined(__aarch64__)
 #include <sys/auxv.h>
 #endif
-//riscv support component
+// riscv support component
 #if defined(__riscv)
 #include <stdlib.h>
 #include <string.h>
 #include <sys/auxv.h>
-#include <signal.h>
-#include <setjmp.h>
+#include <errno.h>
+#if defined(__has_include)
+#if __has_include(<sys/hwprobe.h>)
+#include <sys/hwprobe.h>
+#define MNN_RISCV_HAS_HWPROBE 1
 #endif
-
+#endif
+#endif
 
 #include <sys/time.h>
 #include <sys/stat.h>
@@ -1382,50 +1386,24 @@ static void _getInfoAux(MNNCPUInfo* cpuinfo_isa) {
     }
 }
 #endif
-//Riscv support
-#if defined(__linux__) && defined(__riscv)
-    // only needed in  RISC-V Linux
-  #ifndef AT_HWCAP
-        #define AT_HWCAP 16
-    #endif
 
-    #ifndef RISCV_HWCAP_ISA_V
-        #define RISCV_HWCAP_ISA_V (1 << 21)
-    #endif
-// ============================================================
-// 1. cpuinfo 缓存
-// ============================================================
-
-static char g_cpuinfo_buf[8192];
-static int g_cpuinfo_loaded = 0;
-
-static void _load_cpuinfo_once() {
-    if (g_cpuinfo_loaded) return;
-
-    FILE* f = fopen("/proc/cpuinfo", "r");
-    if (!f) return;
-
-    size_t len = fread(g_cpuinfo_buf, 1, sizeof(g_cpuinfo_buf) - 1, f);
-    g_cpuinfo_buf[len] = '\0';
-
-    fclose(f);
-    g_cpuinfo_loaded = 1;
-}
-
-// ============================================================
-// 2. 精确匹配扩展（避免 _zvfh 命中 _zvfhmin）
-// ============================================================
+#if defined(__riscv)
+#ifndef RISCV_HWCAP_ISA_V
+#define RISCV_HWCAP_ISA_V (1UL << ('V' - 'A'))
+#endif
 
 static int _match_ext_token(const char* str, const char* ext) {
     const char* p = str;
+    const size_t ext_len = strlen(ext);
 
-    size_t ext_len = strlen(ext);
+    while ((p = strstr(p, ext)) != nullptr) {
+        const char prev = (p == str) ? '\0' : p[-1];
+        const char next = p[ext_len];
 
-    while ((p = strstr(p, ext)) != NULL) {
-        char next = p[ext_len];
+        const bool prev_ok = (p == str) || prev == '_' || prev == ' ' || prev == '\t';
+        const bool next_ok = next == '\0' || next == '_' || next == ' ' || next == '\t' || next == '\n';
 
-        // 设置边界条件
-        if (next == '\0' || next == ' ' || next == '\n' || next == '_') {
+        if (prev_ok && next_ok) {
             return 1;
         }
         p += ext_len;
@@ -1434,111 +1412,161 @@ static int _match_ext_token(const char* str, const char* ext) {
     return 0;
 }
 
-static bool _check_riscv_extension(const char* ext) {
-    _load_cpuinfo_once();
+static bool _load_riscv_cpuinfo(std::string& cpuinfo) {
+    FILE* f = fopen("/proc/cpuinfo", "r");
+    if (f == nullptr) {
+        return false;
+    }
 
-    const char* line = g_cpuinfo_buf;
+    cpuinfo.clear();
+    char buffer[1024];
+    while (!feof(f)) {
+        const size_t n = fread(buffer, 1, sizeof(buffer), f);
+        if (n > 0) {
+            cpuinfo.append(buffer, n);
+        }
+        if (n < sizeof(buffer) && ferror(f)) {
+            fclose(f);
+            cpuinfo.clear();
+            return false;
+        }
+    }
 
-    while ((line = strstr(line, "isa")) != NULL) {
-        const char* end = strchr(line, '\n');
-        if (!end) break;
+    fclose(f);
+    return true;
+}
 
-        char isa_line[1024];
-        size_t len = end - line;
-        if (len >= sizeof(isa_line)) len = sizeof(isa_line) - 1;
+static const char* _skip_riscv_spaces(const char* p, const char* end) {
+    while (p < end && (*p == ' ' || *p == '\t')) {
+        ++p;
+    }
+    return p;
+}
 
-        strncpy(isa_line, line, len);
-        isa_line[len] = '\0';
+static bool _extract_riscv_isa_value_from_cpuinfo(const std::string& cpuinfo, std::string& isaValue) {
+    const char* base = cpuinfo.c_str();
+    const char* cur = base;
+    const char* endAll = base + cpuinfo.size();
 
-        if (_match_ext_token(isa_line, ext)) {
-            return true;
+    while (cur < endAll) {
+        const char* lineEnd = (const char*)memchr(cur, '\n', (size_t)(endAll - cur));
+        if (lineEnd == nullptr) {
+            lineEnd = endAll;
         }
 
-        line = end + 1;
+        const char* colon = (const char*)memchr(cur, ':', (size_t)(lineEnd - cur));
+        if (colon != nullptr) {
+            const char* keyBegin = cur;
+            const char* keyEnd = colon;
+
+            while (keyEnd > keyBegin && (keyEnd[-1] == ' ' || keyEnd[-1] == '\t')) {
+                --keyEnd;
+            }
+
+            if ((keyEnd - keyBegin) == 3 && memcmp(keyBegin, "isa", 3) == 0) {
+                const char* valueBegin = _skip_riscv_spaces(colon + 1, lineEnd);
+                isaValue.assign(valueBegin, (size_t)(lineEnd - valueBegin));
+                return true;
+            }
+        }
+
+        cur = (lineEnd < endAll) ? (lineEnd + 1) : endAll;
     }
 
     return false;
 }
 
-// ============================================================
-// 3. SIGILL读取 vlenb
-// ============================================================
-
-static sigjmp_buf g_jmpbuf;
-
-static void _sigill_handler(int signo) {
-    siglongjmp(g_jmpbuf, 1);
+static bool _check_riscv_extension_from_cpuinfo(const std::string& cpuinfo, const char* ext) {
+    std::string isaValue;
+    if (!_extract_riscv_isa_value_from_cpuinfo(cpuinfo, isaValue)) {
+        return false;
+    }
+    return _match_ext_token(isaValue.c_str(), ext) != 0;
 }
 
-static uint32_t _safe_read_vlenb() {
-    uint32_t vlenb = 0;
+#ifdef MNN_RISCV_HAS_HWPROBE
+static int _riscv_hwprobe_one(int64_t key, uint64_t* value) {
+    struct riscv_hwprobe pair;
+    pair.key = key;
+    pair.value = 0;
 
-    struct sigaction sa_old, sa_new;
-    memset(&sa_new, 0, sizeof(sa_new));
-    sa_new.sa_handler = _sigill_handler;
-
-    sigaction(SIGILL, &sa_new, &sa_old);
-
-    if (sigsetjmp(g_jmpbuf, 1) == 0) {
-        __asm__ __volatile__(
-            ".option push\n\t"
-            ".option arch, +v\n\t"
-            "csrr %0, vlenb\n\t"
-            ".option pop\n\t"
-            : "=r"(vlenb)
-            :
-            : "memory"
-        );
-    } else {
-        // SIGILL fallback
-        vlenb = 0;
+    int rc = __riscv_hwprobe(&pair, 1, 0, nullptr, 0);
+    if (rc != 0) {
+        return rc;
+    }
+    if (pair.key < 0) {
+        return ENOENT;
     }
 
-    sigaction(SIGILL, &sa_old, NULL);
-
-    if (vlenb == 0) vlenb = 16; // fallback
-
-    return vlenb;
+    *value = pair.value;
+    return 0;
 }
-
-// ============================================================
-// 4. 主逻辑
-// ============================================================
+#endif
 
 static void _getRISCVInfoAux(MNNCPUInfo* cpuinfo) {
-    // CPU 核心数
     cpuinfo->cpuNumber = (int)sysconf(_SC_NPROCESSORS_ONLN);
     if (cpuinfo->cpuNumber <= 0) {
         cpuinfo->cpuNumber = (int)sysconf(_SC_NPROCESSORS_CONF);
     }
 
-    // HWCAP 检测
-    unsigned long hwcap = getauxval(AT_HWCAP);
-    if ((hwcap & RISCV_HWCAP_ISA_V) == 0) return;
-
-    cpuinfo->rvv = true;
-
-    // 安全读取 VLEN
-    uint32_t vlenb = _safe_read_vlenb();
-    cpuinfo->rvv_vlen = (int)(vlenb * 8);
-
-    // RVV 版本
 #if defined(__riscv_v)
     cpuinfo->rvv_version = __riscv_v;
 #endif
 
-    // 扩展检测（使用缓存 + 精确匹配）
-    if (_check_riscv_extension("_zvfh")) {
+#ifdef MNN_RISCV_HAS_HWPROBE
+    uint64_t isaExt = 0;
+    if (_riscv_hwprobe_one(RISCV_HWPROBE_KEY_IMA_EXT_0, &isaExt) == 0) {
+        cpuinfo->rvv = (isaExt & RISCV_HWPROBE_IMA_V) != 0;
+
+#ifdef RISCV_HWPROBE_EXT_ZVFH
+        cpuinfo->zvfh = (isaExt & RISCV_HWPROBE_EXT_ZVFH) != 0;
+        if (cpuinfo->zvfh) {
+            cpuinfo->fp16arith = true;
+        }
+#endif
+
+#ifdef RISCV_HWPROBE_EXT_ZVKNED
+        cpuinfo->zvkn = cpuinfo->zvkn || ((isaExt & RISCV_HWPROBE_EXT_ZVKNED) != 0);
+#endif
+#ifdef RISCV_HWPROBE_EXT_ZVKNHA
+        cpuinfo->zvkn = cpuinfo->zvkn || ((isaExt & RISCV_HWPROBE_EXT_ZVKNHA) != 0);
+#endif
+#ifdef RISCV_HWPROBE_EXT_ZVKNHB
+        cpuinfo->zvkn = cpuinfo->zvkn || ((isaExt & RISCV_HWPROBE_EXT_ZVKNHB) != 0);
+#endif
+
+        return;
+    }
+#endif
+
+    const unsigned long hwcap = getauxval(AT_HWCAP);
+    cpuinfo->rvv = (hwcap & RISCV_HWCAP_ISA_V) != 0;
+    if (!cpuinfo->rvv) {
+        return;
+    }
+
+    std::string cpuinfoText;
+    if (!_load_riscv_cpuinfo(cpuinfoText)) {
+        return;
+    }
+
+    if (_check_riscv_extension_from_cpuinfo(cpuinfoText, "zvfh") ||
+        _check_riscv_extension_from_cpuinfo(cpuinfoText, "_zvfh")) {
         cpuinfo->zvfh = true;
         cpuinfo->fp16arith = true;
     }
 
-    if (_check_riscv_extension("_zvkn") || _check_riscv_extension("_zvkdot")) {
+    if (_check_riscv_extension_from_cpuinfo(cpuinfoText, "zvkn") ||
+        _check_riscv_extension_from_cpuinfo(cpuinfoText, "_zvkn") ||
+        _check_riscv_extension_from_cpuinfo(cpuinfoText, "zvkned") ||
+        _check_riscv_extension_from_cpuinfo(cpuinfoText, "_zvkned") ||
+        _check_riscv_extension_from_cpuinfo(cpuinfoText, "zvknha") ||
+        _check_riscv_extension_from_cpuinfo(cpuinfoText, "_zvknha") ||
+        _check_riscv_extension_from_cpuinfo(cpuinfoText, "zvknhb") ||
+        _check_riscv_extension_from_cpuinfo(cpuinfoText, "_zvknhb")) {
         cpuinfo->zvkn = true;
-        cpuinfo->dot = true;
     }
 }
-
 #endif
 
 
@@ -1671,12 +1699,11 @@ static void _fillInfo(MNNCPUInfo* cpuinfo_isa) {
 #if defined(__aarch64__)
     _getInfoAux(cpuinfo_isa);
 #endif
- 
-//riscv support
+
+// riscv support
 #if defined(__riscv)
     _getRISCVInfoAux(cpuinfo_isa);
 #endif
-
 
 #if (defined(ENABLE_ARMV82) && defined(__arm__)) || (defined(__ANDROID__) && defined(__aarch64__))
     _getInfoArm(cpuinfo_isa);
