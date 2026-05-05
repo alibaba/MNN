@@ -318,8 +318,12 @@ provision_llm_model() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Public smoke models (resource/model/) — populated by tools/script/get_model.sh
-# from upstream MobileNet/SqueezeNet GitHub repos.
+# Public smoke models (resource/model/) — Caffe MobileNet/SqueezeNet pairs
+# fetched from upstream GitHub repos and converted with our local MNNConvert.
+# We deliberately do NOT use tools/script/get_model.sh: it pulls extra TFLite
+# tarballs from URLs that frequently 404 / 503, producing noisy gzip + parser
+# errors (and an MNNConvert SIGSEGV on a corrupt .tflite payload) even when
+# the four .mnn files we actually need have already been converted.
 # ─────────────────────────────────────────────────────────────────────────────
 public_models_complete() {
     local m
@@ -329,8 +333,33 @@ public_models_complete() {
     return 0
 }
 
-# Returns 0 if the public smoke set is ready, 1 if it could not be provisioned
-# (e.g. host MNNConvert is missing). Caller decides whether to skip stages.
+# Convert a caffemodel/prototxt pair to ${PUBLIC_MODELS_DIR}/<relpath>.
+# Args: 1=caffemodel basename, 2=prototxt basename, 3=output relpath
+_local_convert_caffe_pair() {
+    local caffemodel="$1" prototxt="$2" relpath="$3"
+    local src_caffe="${SMOKE_SOURCES_DIR}/${caffemodel}"
+    local src_proto="${SMOKE_SOURCES_DIR}/${prototxt}"
+    local dst="${PUBLIC_MODELS_DIR}/${relpath}"
+    if [[ -s "${dst}" ]]; then
+        return 0
+    fi
+    if [[ ! -s "${src_caffe}" || ! -s "${src_proto}" ]]; then
+        log_err "missing source: ${src_caffe} or ${src_proto}"
+        return 1
+    fi
+    mkdir -p "$(dirname "${dst}")"
+    log_info "converting ${relpath}"
+    "${SCRIPT_DIR}/build/MNNConvert" \
+        -f CAFFE \
+        --modelFile "${src_caffe}" \
+        --prototxt "${src_proto}" \
+        --MNNModel "${dst}" \
+        --bizCode 0000 \
+        --keepInputFormat=0 >/dev/null
+}
+
+# Returns 0 if the public smoke set is ready, 1 otherwise. Caller decides
+# whether to skip downstream stages.
 provision_public_models() {
     log_step "provisioning public smoke models"
     if public_models_complete; then
@@ -338,16 +367,28 @@ provision_public_models() {
         return 0
     fi
     if [[ ! -x "${SCRIPT_DIR}/build/MNNConvert" ]]; then
-        log_warn "build/MNNConvert missing — cannot run get_model.sh; smoke stages will skip"
+        log_warn "build/MNNConvert missing — smoke stages will skip"
         return 1
     fi
-    log_info "running tools/script/get_model.sh"
-    if ! bash "${SCRIPT_DIR}/tools/script/get_model.sh"; then
-        log_warn "get_model.sh failed — smoke stages will skip"
+    if ! provision_smoke_sources; then
+        log_warn "smoke source download failed — smoke stages will skip"
+        return 1
+    fi
+    local rc=0
+    _local_convert_caffe_pair mobilenet_v1.caffemodel mobilenet_v1.prototxt \
+        MobileNet/v1/mobilenet_v1.caffe.mnn || rc=1
+    _local_convert_caffe_pair mobilenet_v2.caffemodel mobilenet_v2.prototxt \
+        MobileNet/v2/mobilenet_v2.caffe.mnn || rc=1
+    _local_convert_caffe_pair squeezenet_v1.0.caffemodel squeezenet_v1.0.prototxt \
+        SqueezeNet/v1.0/squeezenet_v1.0.caffe.mnn || rc=1
+    _local_convert_caffe_pair squeezenet_v1.1.caffemodel squeezenet_v1.1.prototxt \
+        SqueezeNet/v1.1/squeezenet_v1.1.caffe.mnn || rc=1
+    if [[ ${rc} -ne 0 ]]; then
+        log_warn "one or more conversions failed — smoke stages will skip"
         return 1
     fi
     if ! public_models_complete; then
-        log_warn "get_model.sh did not produce all expected .mnn files — smoke stages will skip"
+        log_warn "expected .mnn files missing after conversion — smoke stages will skip"
         return 1
     fi
     log_ok "public smoke models ready"
