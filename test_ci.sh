@@ -747,13 +747,22 @@ android_smoke_b_stages() {
 }
 
 # Unit-test matrix (mirrors test.sh:android_unit_test 64 0 plus Vulkan).
+#
+# IMPORTANT: argv[4] of run_test.out has DIFFERENT semantics per backend.
+#   - CPU (type 0)        → thread count (we use 1 or 4).
+#   - OpenCL (type 3)     → gpuMode bitmask (MNN_GPU_TUNING_* | MNN_GPU_MEMORY_*).
+#                           132 = TUNING_WIDE (4) | MEMORY_IMAGE (128) — the
+#                           recommended OpenCL default. Plain 4 leaves memory
+#                           mode unset, which on some drivers segfaults.
+#   - Vulkan (type 7)     → gpuMode bitmask, but only TUNING_* bits are valid.
+#                           4 = TUNING_WIDE.
 android_unit_tests() {
     run_stage "unit/cpu/all"            -- _remote_run_test all 0 0 1 64 0
     run_stage "unit/cpu/op-mt"          -- _remote_run_test op 0 0 4 multi64 0
     run_stage "unit/cpu/op-fp16-conv"   -- _remote_run_test op/convolution 0 2 4 fp16multi64 0
     run_stage "unit/cpu/op-fp16-col2im" -- _remote_run_test op/col2im 0 2 4 fp16col2im64 0
     run_stage "unit/cpu/op-fp16-roi"    -- _remote_run_test op/R 0 2 4 fp16roipooling64 0
-    run_stage "unit/opencl/op"          -- _remote_run_test op 3 1 4 64 0
+    run_stage "unit/opencl/op"          -- _remote_run_test op 3 1 132 64 0
     run_stage "unit/vulkan/op"          -- _remote_run_test op 7 1 4 64 0
 }
 
