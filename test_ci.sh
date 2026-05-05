@@ -572,20 +572,16 @@ android_build() {
 ANDROID_BIN_LIST=(
     libllm.so
     llm_demo
-    diffusion_demo
     libMNN.so
     libMNN_CL.so
     libMNN_Vulkan.so
-    libMNN_GL.so
     libMNN_Express.so
     MNNV2Basic.out
     ModuleBasic.out
-    unitTest.out
     testModel.out
     testModelWithDescribe.out
     backendTest.out
     timeProfile.out
-    train.out
     benchmark.out
     benchmarkExprModels.out
     run_test.out
