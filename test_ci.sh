@@ -553,6 +553,14 @@ android_build() {
     ensure_android_ndk
     mkdir -p "${ANDROID_BUILD_DIR}"
     pushd "${ANDROID_BUILD_DIR}" >/dev/null
+    # ANDROID_EXTRA_CMAKE lets the caller append/override cmake flags, e.g.
+    #   ANDROID_EXTRA_CMAKE="-DMNN_KLEIDIAI=OFF" ./test_ci.sh android <serial>
+    # to bypass suspect runtime paths without editing the script.
+    local -a extra=()
+    if [[ -n "${ANDROID_EXTRA_CMAKE:-}" ]]; then
+        # shellcheck disable=SC2206
+        extra=(${ANDROID_EXTRA_CMAKE})
+    fi
     bash ../build_64.sh \
         -DMNN_BUILD_TRAIN=OFF \
         -DMNN_ARM82=true \
@@ -561,7 +569,8 @@ android_build() {
         -DMNN_LOW_MEMORY=true \
         -DMNN_SUPPORT_TRANSFORMER_FUSE=ON \
         -DMNN_BUILD_LLM=ON \
-        -DMNN_BUILD_CONVERTER=ON
+        -DMNN_BUILD_CONVERTER=ON \
+        "${extra[@]}"
     popd >/dev/null
     log_ok "android build complete"
 }
