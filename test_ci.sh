@@ -357,17 +357,19 @@ ensure_android_ndk() {
 # ─────────────────────────────────────────────────────────────────────────────
 # Local-mode build
 # ─────────────────────────────────────────────────────────────────────────────
+_host_jobs() {
+    if command -v nproc >/dev/null 2>&1; then
+        nproc
+    else
+        sysctl -n hw.ncpu 2>/dev/null || echo 4
+    fi
+}
+
 local_build() {
     log_step "configuring + building host (build/)"
     local build_dir="${SCRIPT_DIR}/build"
     mkdir -p "${build_dir}"
     pushd "${build_dir}" >/dev/null
-    local jobs
-    if command -v nproc >/dev/null 2>&1; then
-        jobs="$(nproc)"
-    else
-        jobs="$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
-    fi
     cmake .. \
         -DCMAKE_BUILD_TYPE=Release \
         -DMNN_BUILD_TEST=ON \
@@ -377,9 +379,70 @@ local_build() {
         -DMNN_SUPPORT_TRANSFORMER_FUSE=ON \
         -DMNN_BUILD_LLM=ON \
         -DMNN_BUILD_CONVERTER=ON
-    make -j"${jobs}"
+    make -j"$(_host_jobs)"
     popd >/dev/null
     log_ok "host build complete"
+}
+
+# Source archives for the smoke corpus. Hosts the upstream URLs that
+# tools/script/get_model.sh hits. Format per row:
+#   <url> <local_basename> <output_mnn_relpath> <framework>
+# framework is "CAFFE" (paired prototxt download follows immediately) or
+# "TFLITE" (single .tflite payload).
+# Total payload ~40 MB.
+SMOKE_SOURCES=(
+    "https://raw.githubusercontent.com/shicai/MobileNet-Caffe/master/mobilenet.caffemodel|mobilenet_v1.caffemodel|MobileNet/v1/mobilenet_v1.caffe.mnn|CAFFE"
+    "https://raw.githubusercontent.com/shicai/MobileNet-Caffe/master/mobilenet_deploy.prototxt|mobilenet_v1.prototxt|MobileNet/v1/mobilenet_v1.caffe.mnn|CAFFE_PROTOTXT"
+    "https://raw.githubusercontent.com/shicai/MobileNet-Caffe/master/mobilenet_v2.caffemodel|mobilenet_v2.caffemodel|MobileNet/v2/mobilenet_v2.caffe.mnn|CAFFE"
+    "https://raw.githubusercontent.com/shicai/MobileNet-Caffe/master/mobilenet_v2_deploy.prototxt|mobilenet_v2.prototxt|MobileNet/v2/mobilenet_v2.caffe.mnn|CAFFE_PROTOTXT"
+    "https://raw.githubusercontent.com/DeepScale/SqueezeNet/master/SqueezeNet_v1.0/squeezenet_v1.0.caffemodel|squeezenet_v1.0.caffemodel|SqueezeNet/v1.0/squeezenet_v1.0.caffe.mnn|CAFFE"
+    "https://raw.githubusercontent.com/DeepScale/SqueezeNet/master/SqueezeNet_v1.0/deploy.prototxt|squeezenet_v1.0.prototxt|SqueezeNet/v1.0/squeezenet_v1.0.caffe.mnn|CAFFE_PROTOTXT"
+    "https://raw.githubusercontent.com/DeepScale/SqueezeNet/master/SqueezeNet_v1.1/squeezenet_v1.1.caffemodel|squeezenet_v1.1.caffemodel|SqueezeNet/v1.1/squeezenet_v1.1.caffe.mnn|CAFFE"
+    "https://raw.githubusercontent.com/DeepScale/SqueezeNet/b6b5ae2ce884a3866c21efd31e103defde8631ae/SqueezeNet_v1.1/deploy.prototxt|squeezenet_v1.1.prototxt|SqueezeNet/v1.1/squeezenet_v1.1.caffe.mnn|CAFFE_PROTOTXT"
+)
+SMOKE_SOURCES_DIR="${SCRIPT_DIR}/smoke_sources"
+
+# Map MNN-output relpath -> (caffemodel, prototxt) basenames. Mirrors the
+# pairing in SMOKE_SOURCES above and is consumed by android conversion.
+_smoke_pair_for() {
+    case "$1" in
+        MobileNet/v1/mobilenet_v1.caffe.mnn)
+            printf '%s\n%s\n' mobilenet_v1.caffemodel mobilenet_v1.prototxt ;;
+        MobileNet/v2/mobilenet_v2.caffe.mnn)
+            printf '%s\n%s\n' mobilenet_v2.caffemodel mobilenet_v2.prototxt ;;
+        SqueezeNet/v1.0/squeezenet_v1.0.caffe.mnn)
+            printf '%s\n%s\n' squeezenet_v1.0.caffemodel squeezenet_v1.0.prototxt ;;
+        SqueezeNet/v1.1/squeezenet_v1.1.caffe.mnn)
+            printf '%s\n%s\n' squeezenet_v1.1.caffemodel squeezenet_v1.1.prototxt ;;
+        *)
+            return 1 ;;
+    esac
+}
+
+# Download upstream caffe sources to the host cache. Skips files already
+# present. Returns non-zero if any download fails.
+provision_smoke_sources() {
+    log_step "fetching smoke-model sources"
+    mkdir -p "${SMOKE_SOURCES_DIR}"
+    local entry url fname rest
+    for entry in "${SMOKE_SOURCES[@]}"; do
+        url="${entry%%|*}"
+        rest="${entry#*|}"
+        fname="${rest%%|*}"
+        local dst="${SMOKE_SOURCES_DIR}/${fname}"
+        if [[ -s "${dst}" ]]; then
+            continue
+        fi
+        log_info "fetching ${fname}"
+        if ! curl -fL --retry 3 --retry-delay 2 -o "${dst}.part" "${url}"; then
+            log_err "failed to download ${url}"
+            rm -f "${dst}.part"
+            return 1
+        fi
+        mv "${dst}.part" "${dst}"
+    done
+    log_ok "smoke sources cached at ${SMOKE_SOURCES_DIR}"
+    return 0
 }
 
 # Detect whether a backend library was built locally.
@@ -497,7 +560,8 @@ android_build() {
         -DMNN_VULKAN=true \
         -DMNN_LOW_MEMORY=true \
         -DMNN_SUPPORT_TRANSFORMER_FUSE=ON \
-        -DMNN_BUILD_LLM=ON
+        -DMNN_BUILD_LLM=ON \
+        -DMNN_BUILD_CONVERTER=ON
     popd >/dev/null
     log_ok "android build complete"
 }
@@ -525,7 +589,9 @@ ANDROID_BIN_LIST=(
     benchmark.out
     benchmarkExprModels.out
     run_test.out
+    MNNConvert
 )
+DEVICE_SMOKE_SRC_DIR="/data/local/tmp/MNN/smoke_sources"
 
 push_artifacts() {
     log_step "pushing artefacts to ${DEVICE_DIR}"
@@ -546,24 +612,69 @@ push_artifacts() {
     log_ok "pushed ${pushed} artefact(s); ${missing} missing"
 }
 
-push_public_models() {
-    log_step "pushing public smoke models to ${DEVICE_PUBLIC_MODELS_DIR}"
-    if ! public_models_complete; then
-        log_warn "public smoke models not provisioned; skipping push"
+# Push the cached caffe sources (.caffemodel + .prototxt) to the device,
+# then drive the on-device MNNConvert binary to produce .mnn files. Avoids
+# requiring a host MNNConvert.
+convert_smoke_on_device() {
+    log_step "converting smoke models on device (arm64 MNNConvert)"
+
+    if ! ad shell "[ -x ${DEVICE_DIR}/MNNConvert ]" 2>/dev/null; then
+        log_warn "device MNNConvert missing; cannot convert smoke models"
         return 1
     fi
-    ad shell "mkdir -p ${DEVICE_PUBLIC_MODELS_DIR}" >/dev/null
-    local pushed=0
-    local m
-    for m in "${SMOKE_MODELS[@]}"; do
-        local src="${PUBLIC_MODELS_DIR}/${m}"
-        local dst="${DEVICE_PUBLIC_MODELS_DIR}/$(basename "${m}")"
-        ad shell "mkdir -p $(dirname "${dst}")" >/dev/null
-        ad push "${src}" "${dst}" >/dev/null
-        pushed=$((pushed + 1))
+
+    ad shell "mkdir -p ${DEVICE_SMOKE_SRC_DIR} ${DEVICE_PUBLIC_MODELS_DIR}" >/dev/null
+
+    # Push every source file we have cached. Idempotent: skip when the size
+    # matches what's already on device.
+    local f local_path remote_path
+    for f in "${SMOKE_SOURCES_DIR}"/*; do
+        [[ -f "${f}" ]] || continue
+        local_path="${f}"
+        remote_path="${DEVICE_SMOKE_SRC_DIR}/$(basename "${f}")"
+        local local_size remote_size
+        local_size="$(stat -f%z "${local_path}" 2>/dev/null || stat -c%s "${local_path}" 2>/dev/null || echo 0)"
+        remote_size="$(ad shell "stat -c%s ${remote_path} 2>/dev/null || echo 0" 2>/dev/null \
+            | tr -d '[:space:]\r' || echo 0)"
+        if [[ "${local_size}" != "${remote_size}" ]]; then
+            ad push "${local_path}" "${remote_path}" >/dev/null
+        fi
     done
-    log_ok "pushed ${pushed} smoke model(s)"
-    return 0
+
+    # Convert each model on device. Skip if the .mnn already exists with
+    # non-zero size (idempotent on re-runs).
+    local m short ok=0 fail=0
+    for m in "${SMOKE_MODELS[@]}"; do
+        short="${m##*/}"
+        local mnn_remote="${DEVICE_PUBLIC_MODELS_DIR}/${short}"
+        if ad shell "[ -s ${mnn_remote} ]" 2>/dev/null; then
+            log_info "skip convert ${short} (already on device)"
+            ok=$((ok + 1))
+            continue
+        fi
+        local pair_caffe pair_proto
+        pair_caffe="$(_smoke_pair_for "${m}" | sed -n '1p')"
+        pair_proto="$(_smoke_pair_for "${m}" | sed -n '2p')"
+        if [[ -z "${pair_caffe}" || -z "${pair_proto}" ]]; then
+            log_warn "no source pairing known for ${m}; skipping"
+            fail=$((fail + 1))
+            continue
+        fi
+        local cmd="cd ${DEVICE_DIR} && export LD_LIBRARY_PATH=. && ./MNNConvert -f CAFFE \
+            --modelFile ${DEVICE_SMOKE_SRC_DIR}/${pair_caffe} \
+            --prototxt ${DEVICE_SMOKE_SRC_DIR}/${pair_proto} \
+            --MNNModel ${mnn_remote} \
+            --bizCode 0000 --keepInputFormat=0"
+        log_info "converting ${short}"
+        if ad shell "${cmd}" >/dev/null 2>&1; then
+            ok=$((ok + 1))
+        else
+            log_warn "conversion failed for ${short}"
+            fail=$((fail + 1))
+        fi
+    done
+    log_ok "on-device conversion complete (${ok} ok, ${fail} failed)"
+    [[ ${fail} -eq 0 ]]
 }
 
 push_llm_model() {
@@ -682,15 +793,15 @@ drive_android() {
     ensure_adbk_session
     verify_device_online
     provision_llm_model
+    # Cache caffe sources on host (small download). The conversion itself
+    # runs on device with the arm64 MNNConvert we build below.
+    local smoke_ok=1
+    provision_smoke_sources || smoke_ok=0
     android_build
     push_artifacts
     push_llm_model
-    # Public smoke models require a host MNNConvert (produced by `local` mode).
-    # If absent we silently skip the smoke stages rather than erroring.
-    local smoke_ok=1
-    provision_public_models || smoke_ok=0
     if [[ ${smoke_ok} -eq 1 ]]; then
-        push_public_models || smoke_ok=0
+        convert_smoke_on_device || smoke_ok=0
     fi
     android_unit_tests
     android_low_memory_tests
@@ -701,8 +812,8 @@ drive_android() {
         android_smoke_b_stages 3 opencl 0.05
         android_smoke_b_stages 7 vulkan 0.05
     else
-        skip_stage "smokeA" "public smoke models unavailable on host (run \`./test_ci.sh local\` first)"
-        skip_stage "smokeB" "public smoke models unavailable on host (run \`./test_ci.sh local\` first)"
+        skip_stage "smokeA" "smoke source download or on-device conversion failed"
+        skip_stage "smokeB" "smoke source download or on-device conversion failed"
     fi
     android_llm_test
 }
