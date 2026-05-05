@@ -94,6 +94,7 @@ public:
                 case UnaryOpOperation_COSH: OPENCL_CREATOR_CHECK(new UnaryExecution("cosh(convert_float4(in))", op, backend));
                case UnaryOpOperation_ERF: OPENCL_CREATOR_CHECK(new UnaryExecution("erf(convert_float4(in))", op, backend));
                 case UnaryOpOperation_ERFC: OPENCL_CREATOR_CHECK(new UnaryExecution("erfc(convert_float4(in))", op, backend));
+                case UnaryOpOperation_ERFINV: OPENCL_CREATOR_CHECK(new UnaryExecution("erfinv4(convert_float4(in))", op, backend));
                 case UnaryOpOperation_EXPM1: OPENCL_CREATOR_CHECK(new UnaryExecution("expm1(convert_float4(in))", op, backend));
                 case UnaryOpOperation_SIGMOID: OPENCL_CREATOR_CHECK(new UnaryExecution("native_recip((float4)1+native_exp(convert_float4(-in)))", op, backend));
                 case UnaryOpOperation_SILU: OPENCL_CREATOR_CHECK(new UnaryExecution("(convert_float4(in)*native_recip((float4)1+native_exp(convert_float4(-in))))", op, backend));
