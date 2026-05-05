@@ -694,15 +694,22 @@ push_llm_model() {
 # ─────────────────────────────────────────────────────────────────────────────
 # Android on-device stages
 # ─────────────────────────────────────────────────────────────────────────────
+# NOTE: the script-wide IFS is set to $'\n\t', so unquoted "$*" would join
+# args with newlines. Embedded in an `adb shell` command string those
+# newlines split into separate remote commands, breaking the run with rc=127
+# on the trailing tokens. Force a local space-only IFS for the join.
 _remote_run_test() {
+    local IFS=' '
     ad shell "cd ${DEVICE_DIR} && export LD_LIBRARY_PATH=. && ./run_test.out $*"
 }
 
 _remote_v2basic() {
+    local IFS=' '
     ad shell "cd ${DEVICE_DIR} && export LD_LIBRARY_PATH=. && ./MNNV2Basic.out $*"
 }
 
 _remote_backendtest() {
+    local IFS=' '
     ad shell "cd ${DEVICE_DIR} && export LD_LIBRARY_PATH=. && ./backendTest.out $*"
 }
 
