@@ -33,8 +33,19 @@ umask 022
 # ─────────────────────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODELS_DIR="${SCRIPT_DIR}/models"
+PUBLIC_MODELS_DIR="${SCRIPT_DIR}/resource/model"
 DEVICE_DIR="/data/local/tmp/MNN"
 DEVICE_MODEL_DIR="/data/local/tmp/MNN/models"
+DEVICE_PUBLIC_MODELS_DIR="/data/local/tmp/MNN/public_models"
+
+# Public smoke-test models. Populated by tools/script/get_model.sh from
+# upstream MobileNet/SqueezeNet GitHub repos and the TensorFlow model zoo.
+SMOKE_MODELS=(
+    MobileNet/v1/mobilenet_v1.caffe.mnn
+    MobileNet/v2/mobilenet_v2.caffe.mnn
+    SqueezeNet/v1.0/squeezenet_v1.0.caffe.mnn
+    SqueezeNet/v1.1/squeezenet_v1.1.caffe.mnn
+)
 
 LLM_MODEL_REPO="${LLM_MODEL_REPO:-taobao-mnn/Qwen2.5-0.5B-Instruct-MNN}"
 LLM_MODEL_URL_BASE="${LLM_MODEL_URL_BASE:-https://huggingface.co/${LLM_MODEL_REPO}/resolve/main}"
@@ -289,6 +300,43 @@ provision_llm_model() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Public smoke models (resource/model/) — populated by tools/script/get_model.sh
+# from upstream MobileNet/SqueezeNet GitHub repos.
+# ─────────────────────────────────────────────────────────────────────────────
+public_models_complete() {
+    local m
+    for m in "${SMOKE_MODELS[@]}"; do
+        [[ -s "${PUBLIC_MODELS_DIR}/${m}" ]] || return 1
+    done
+    return 0
+}
+
+# Returns 0 if the public smoke set is ready, 1 if it could not be provisioned
+# (e.g. host MNNConvert is missing). Caller decides whether to skip stages.
+provision_public_models() {
+    log_step "provisioning public smoke models"
+    if public_models_complete; then
+        log_ok "public model cache hit at ${PUBLIC_MODELS_DIR}"
+        return 0
+    fi
+    if [[ ! -x "${SCRIPT_DIR}/build/MNNConvert" ]]; then
+        log_warn "build/MNNConvert missing — cannot run get_model.sh; smoke stages will skip"
+        return 1
+    fi
+    log_info "running tools/script/get_model.sh"
+    if ! bash "${SCRIPT_DIR}/tools/script/get_model.sh"; then
+        log_warn "get_model.sh failed — smoke stages will skip"
+        return 1
+    fi
+    if ! public_models_complete; then
+        log_warn "get_model.sh did not produce all expected .mnn files — smoke stages will skip"
+        return 1
+    fi
+    log_ok "public smoke models ready"
+    return 0
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # NDK helpers
 # ─────────────────────────────────────────────────────────────────────────────
 ensure_android_ndk() {
@@ -327,7 +375,8 @@ local_build() {
         -DMNN_VULKAN=ON \
         -DMNN_LOW_MEMORY=ON \
         -DMNN_SUPPORT_TRANSFORMER_FUSE=ON \
-        -DMNN_BUILD_LLM=ON
+        -DMNN_BUILD_LLM=ON \
+        -DMNN_BUILD_CONVERTER=ON
     make -j"${jobs}"
     popd >/dev/null
     log_ok "host build complete"
@@ -343,6 +392,50 @@ local_has_lib() {
 # Local-mode stages
 # ─────────────────────────────────────────────────────────────────────────────
 _local_unit() { (cd "${SCRIPT_DIR}/build" && ./run_test.out "$@"); }
+_local_v2basic() {
+    (cd "${SCRIPT_DIR}/build" && ./MNNV2Basic.out "$@")
+}
+_local_backendtest() {
+    (cd "${SCRIPT_DIR}/build" && ./backendTest.out "$@")
+}
+
+# Stage A: load+forward smoke via MNNV2Basic.out (no numeric validation).
+local_smoke_a_stages() {
+    local backend_id="$1" backend_name="$2" prefix="$3"
+    if [[ -n "${prefix}" ]] && ! local_has_lib "${prefix}"; then
+        skip_stage "smokeA/${backend_name}" "lib${prefix} not built"
+        return 0
+    fi
+    local m short
+    for m in "${SMOKE_MODELS[@]}"; do
+        short="${m##*/}"
+        if [[ ! -s "${PUBLIC_MODELS_DIR}/${m}" ]]; then
+            skip_stage "smokeA/${backend_name}/${short}" "model file missing"
+            continue
+        fi
+        run_stage "smokeA/${backend_name}/${short}" -- \
+            _local_v2basic "${PUBLIC_MODELS_DIR}/${m}" 1 0 "${backend_id}"
+    done
+}
+
+# Stage B: CPU-as-oracle correctness check via backendTest.out.
+local_smoke_b_stages() {
+    local backend_id="$1" backend_name="$2" prefix="$3" tolerance="${4:-0.05}"
+    if ! local_has_lib "${prefix}"; then
+        skip_stage "smokeB/${backend_name}" "lib${prefix} not built"
+        return 0
+    fi
+    local m short
+    for m in "${SMOKE_MODELS[@]}"; do
+        short="${m##*/}"
+        if [[ ! -s "${PUBLIC_MODELS_DIR}/${m}" ]]; then
+            skip_stage "smokeB/${backend_name}/${short}" "model file missing"
+            continue
+        fi
+        run_stage "smokeB/${backend_name}/${short}" -- \
+            _local_backendtest "${PUBLIC_MODELS_DIR}/${m}" "${backend_id}" "${tolerance}"
+    done
+}
 
 local_run_stages() {
     # Unit tests use built-in op cases; no external corpus needed.
@@ -357,6 +450,25 @@ local_run_stages() {
         run_stage "unit/vulkan" -- _local_unit op 7 1 4
     else
         skip_stage "unit/vulkan" "libMNN_Vulkan not built"
+    fi
+
+    # Stage A: forward-smoke per (backend × model). CPU stage A is a useful
+    # baseline (catches model load / shape inference regressions).
+    if [[ -x "${SCRIPT_DIR}/build/MNNV2Basic.out" ]] && public_models_complete; then
+        local_smoke_a_stages 0 cpu    ""
+        local_smoke_a_stages 3 opencl libMNN_CL
+        local_smoke_a_stages 7 vulkan libMNN_Vulkan
+    else
+        skip_stage "smokeA" "MNNV2Basic.out or smoke models missing"
+    fi
+
+    # Stage B: CPU-vs-backend numeric comparison per (backend × model).
+    # CPU-vs-CPU is meaningless, so only run for non-CPU backends.
+    if [[ -x "${SCRIPT_DIR}/build/backendTest.out" ]] && public_models_complete; then
+        local_smoke_b_stages 3 opencl libMNN_CL     0.05
+        local_smoke_b_stages 7 vulkan libMNN_Vulkan 0.05
+    else
+        skip_stage "smokeB" "backendTest.out or smoke models missing"
     fi
 
     # LLM smoke test on the public HF model.
@@ -434,6 +546,26 @@ push_artifacts() {
     log_ok "pushed ${pushed} artefact(s); ${missing} missing"
 }
 
+push_public_models() {
+    log_step "pushing public smoke models to ${DEVICE_PUBLIC_MODELS_DIR}"
+    if ! public_models_complete; then
+        log_warn "public smoke models not provisioned; skipping push"
+        return 1
+    fi
+    ad shell "mkdir -p ${DEVICE_PUBLIC_MODELS_DIR}" >/dev/null
+    local pushed=0
+    local m
+    for m in "${SMOKE_MODELS[@]}"; do
+        local src="${PUBLIC_MODELS_DIR}/${m}"
+        local dst="${DEVICE_PUBLIC_MODELS_DIR}/$(basename "${m}")"
+        ad shell "mkdir -p $(dirname "${dst}")" >/dev/null
+        ad push "${src}" "${dst}" >/dev/null
+        pushed=$((pushed + 1))
+    done
+    log_ok "pushed ${pushed} smoke model(s)"
+    return 0
+}
+
 push_llm_model() {
     log_step "pushing LLM model ${LLM_MODEL_NAME} to device"
     local remote="${DEVICE_MODEL_DIR}/${LLM_MODEL_NAME}"
@@ -457,6 +589,38 @@ push_llm_model() {
 # ─────────────────────────────────────────────────────────────────────────────
 _remote_run_test() {
     ad shell "cd ${DEVICE_DIR} && export LD_LIBRARY_PATH=. && ./run_test.out $*"
+}
+
+_remote_v2basic() {
+    ad shell "cd ${DEVICE_DIR} && export LD_LIBRARY_PATH=. && ./MNNV2Basic.out $*"
+}
+
+_remote_backendtest() {
+    ad shell "cd ${DEVICE_DIR} && export LD_LIBRARY_PATH=. && ./backendTest.out $*"
+}
+
+# Stage A on-device: forward smoke per (backend × model).
+android_smoke_a_stages() {
+    local backend_id="$1" backend_name="$2"
+    local m short remote
+    for m in "${SMOKE_MODELS[@]}"; do
+        short="${m##*/}"
+        remote="${DEVICE_PUBLIC_MODELS_DIR}/${short}"
+        run_stage "smokeA/${backend_name}/${short}" -- \
+            _remote_v2basic "${remote}" 1 0 "${backend_id}"
+    done
+}
+
+# Stage B on-device: CPU-vs-backend numeric comparison.
+android_smoke_b_stages() {
+    local backend_id="$1" backend_name="$2" tolerance="${3:-0.05}"
+    local m short remote
+    for m in "${SMOKE_MODELS[@]}"; do
+        short="${m##*/}"
+        remote="${DEVICE_PUBLIC_MODELS_DIR}/${short}"
+        run_stage "smokeB/${backend_name}/${short}" -- \
+            _remote_backendtest "${remote}" "${backend_id}" "${tolerance}"
+    done
 }
 
 # Unit-test matrix (mirrors test.sh:android_unit_test 64 0 plus Vulkan).
@@ -506,6 +670,9 @@ drive_local() {
     else
         log_info "reusing existing build/ (delete it to force a rebuild)"
     fi
+    # Try to populate the public smoke set after the build (MNNConvert is
+    # produced by the build). Stages downstream gate on availability.
+    provision_public_models || true
     local_run_stages
 }
 
@@ -518,8 +685,25 @@ drive_android() {
     android_build
     push_artifacts
     push_llm_model
+    # Public smoke models require a host MNNConvert (produced by `local` mode).
+    # If absent we silently skip the smoke stages rather than erroring.
+    local smoke_ok=1
+    provision_public_models || smoke_ok=0
+    if [[ ${smoke_ok} -eq 1 ]]; then
+        push_public_models || smoke_ok=0
+    fi
     android_unit_tests
     android_low_memory_tests
+    if [[ ${smoke_ok} -eq 1 ]]; then
+        android_smoke_a_stages 0 cpu
+        android_smoke_a_stages 3 opencl
+        android_smoke_a_stages 7 vulkan
+        android_smoke_b_stages 3 opencl 0.05
+        android_smoke_b_stages 7 vulkan 0.05
+    else
+        skip_stage "smokeA" "public smoke models unavailable on host (run \`./test_ci.sh local\` first)"
+        skip_stage "smokeB" "public smoke models unavailable on host (run \`./test_ci.sh local\` first)"
+    fi
     android_llm_test
 }
 
