@@ -535,9 +535,18 @@ android_build() {
     ensure_android_ndk
     mkdir -p "${ANDROID_BUILD_DIR}"
     pushd "${ANDROID_BUILD_DIR}" >/dev/null
-    # ANDROID_EXTRA_CMAKE lets the caller append/override cmake flags, e.g.
-    #   ANDROID_EXTRA_CMAKE="-DMNN_KLEIDIAI=OFF" ./test_ci.sh android <serial>
-    # to bypass suspect runtime paths without editing the script.
+    # We default MNN_SME2 and MNN_KLEIDIAI to OFF because both pull in
+    # SME/SME2 assembly that crashes (SIGSEGV) inside the Executor's
+    # CPU-fallback init on at least one SME2-capable device (Tensor
+    # G4 / Mali-G715 class). The crash reproduces only for non-CPU
+    # forward types because Executor::Executor for GPU backends spins up
+    # an extra CPU Backend with defaultConfig.flags=4 that exercises the
+    # SME2 codepath. Disable by default; re-enable explicitly via
+    # ANDROID_EXTRA_CMAKE when validating SME2 paths on a fix.
+    #
+    # ANDROID_EXTRA_CMAKE lets the caller append/override cmake flags:
+    #   ANDROID_EXTRA_CMAKE="-DMNN_SME2=ON -DMNN_KLEIDIAI=ON" \
+    #       ./test_ci.sh android <serial>
     local -a extra=()
     if [[ -n "${ANDROID_EXTRA_CMAKE:-}" ]]; then
         # shellcheck disable=SC2206
@@ -552,6 +561,8 @@ android_build() {
         -DMNN_SUPPORT_TRANSFORMER_FUSE=ON \
         -DMNN_BUILD_LLM=ON \
         -DMNN_BUILD_CONVERTER=ON \
+        -DMNN_SME2=OFF \
+        -DMNN_KLEIDIAI=OFF \
         "${extra[@]}"
     popd >/dev/null
     log_ok "android build complete"
