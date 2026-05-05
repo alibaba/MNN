@@ -366,15 +366,16 @@ _host_jobs() {
 }
 
 local_build() {
-    log_step "configuring + building host (build/)"
+    log_step "configuring + building host (build/) [CPU-only]"
     local build_dir="${SCRIPT_DIR}/build"
     mkdir -p "${build_dir}"
     pushd "${build_dir}" >/dev/null
+    # Local mode is CPU-only: host GPU drivers are usually unavailable or
+    # unreliable on dev machines, so we omit OpenCL/Vulkan to keep the
+    # build fast and the test surface meaningful.
     cmake .. \
         -DCMAKE_BUILD_TYPE=Release \
         -DMNN_BUILD_TEST=ON \
-        -DMNN_OPENCL=ON \
-        -DMNN_VULKAN=ON \
         -DMNN_LOW_MEMORY=ON \
         -DMNN_SUPPORT_TRANSFORMER_FUSE=ON \
         -DMNN_BUILD_LLM=ON \
@@ -501,37 +502,18 @@ local_smoke_b_stages() {
 }
 
 local_run_stages() {
+    # Local mode is CPU-only by design — see local_build() comment.
     # Unit tests use built-in op cases; no external corpus needed.
-    run_stage "unit/cpu"        -- _local_unit
-    run_stage "unit/cpu-mt"     -- _local_unit op 0 0 4
-    if local_has_lib "libMNN_CL"; then
-        run_stage "unit/opencl" -- _local_unit op 3 1 4
-    else
-        skip_stage "unit/opencl" "libMNN_CL not built"
-    fi
-    if local_has_lib "libMNN_Vulkan"; then
-        run_stage "unit/vulkan" -- _local_unit op 7 1 4
-    else
-        skip_stage "unit/vulkan" "libMNN_Vulkan not built"
-    fi
+    run_stage "unit/cpu"    -- _local_unit
+    run_stage "unit/cpu-mt" -- _local_unit op 0 0 4
 
-    # Stage A: forward-smoke per (backend × model). CPU stage A is a useful
-    # baseline (catches model load / shape inference regressions).
+    # Stage A on CPU: forward-smoke per public model. Catches model-load /
+    # shape-inference regressions. (Stage B is CPU-vs-backend, meaningless
+    # here without GPU, so it's skipped in local mode.)
     if [[ -x "${SCRIPT_DIR}/build/MNNV2Basic.out" ]] && public_models_complete; then
-        local_smoke_a_stages 0 cpu    ""
-        local_smoke_a_stages 3 opencl libMNN_CL
-        local_smoke_a_stages 7 vulkan libMNN_Vulkan
+        local_smoke_a_stages 0 cpu ""
     else
         skip_stage "smokeA" "MNNV2Basic.out or smoke models missing"
-    fi
-
-    # Stage B: CPU-vs-backend numeric comparison per (backend × model).
-    # CPU-vs-CPU is meaningless, so only run for non-CPU backends.
-    if [[ -x "${SCRIPT_DIR}/build/backendTest.out" ]] && public_models_complete; then
-        local_smoke_b_stages 3 opencl libMNN_CL     0.05
-        local_smoke_b_stages 7 vulkan libMNN_Vulkan 0.05
-    else
-        skip_stage "smokeB" "backendTest.out or smoke models missing"
     fi
 
     # LLM smoke test on the public HF model.
@@ -722,6 +704,25 @@ _remote_backendtest() {
     ad shell "cd ${DEVICE_DIR} && export LD_LIBRARY_PATH=. && ./backendTest.out $*"
 }
 
+_remote_benchmark() {
+    local IFS=' '
+    ad shell "cd ${DEVICE_DIR} && export LD_LIBRARY_PATH=. && ./benchmark.out $*"
+}
+
+# Per-backend benchmark over the public smoke model set.
+# benchmark.out args: <models_folder> <loop> <warmup> <forwardtype> <numberThread|gpuMode> <precision>
+# argv[5] (numberThread) is reused as gpuMode for OpenCL/Vulkan, same as run_test.out.
+android_benchmarks() {
+    local loop=10 warmup=2
+    if ! ad shell "[ -d ${DEVICE_PUBLIC_MODELS_DIR} ]" 2>/dev/null; then
+        skip_stage "bench" "public_models dir absent on device"
+        return 0
+    fi
+    run_stage "bench/cpu"    -- _remote_benchmark "${DEVICE_PUBLIC_MODELS_DIR}" "${loop}" "${warmup}" 0 4 1
+    run_stage "bench/opencl" -- _remote_benchmark "${DEVICE_PUBLIC_MODELS_DIR}" "${loop}" "${warmup}" 3 132 1
+    run_stage "bench/vulkan" -- _remote_benchmark "${DEVICE_PUBLIC_MODELS_DIR}" "${loop}" "${warmup}" 7 4 1
+}
+
 # Stage A on-device: forward smoke per (backend × model).
 android_smoke_a_stages() {
     local backend_id="$1" backend_name="$2"
@@ -832,9 +833,11 @@ drive_android() {
         android_smoke_a_stages 7 vulkan
         android_smoke_b_stages 3 opencl 0.05
         android_smoke_b_stages 7 vulkan 0.05
+        android_benchmarks
     else
         skip_stage "smokeA" "smoke source download or on-device conversion failed"
         skip_stage "smokeB" "smoke source download or on-device conversion failed"
+        skip_stage "bench"  "smoke source download or on-device conversion failed"
     fi
     android_llm_test
 }
