@@ -73,6 +73,10 @@ STAGE_FAIL=0
 STAGE_SKIP=0
 declare -a STAGE_LOG=()
 
+# Per-run log directory; each stage's combined stdout/stderr lands here.
+LOG_DIR="${SCRIPT_DIR}/logs/test_ci-$(date -u +%Y%m%d-%H%M%S)"
+mkdir -p "${LOG_DIR}"
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Logging
 # ─────────────────────────────────────────────────────────────────────────────
@@ -101,16 +105,30 @@ run_stage() {
     local name="$1"; shift
     [[ "${1:-}" == "--" ]] && shift
     log_step "stage: ${name}"
+    # Mirror combined stdout/stderr into a per-stage log so failures stay
+    # diagnosable after the run. Stage names contain '/'; flatten to '_'.
+    local logname="${name//\//_}"
+    local logfile="${LOG_DIR}/${logname}.log"
     local rc=0
-    "$@" || rc=$?
+    if "$@" 2>&1 | tee "${logfile}"; then
+        rc=0
+    else
+        # PIPESTATUS[0] is the command's rc; tee almost always returns 0.
+        rc=${PIPESTATUS[0]}
+    fi
     if [[ $rc -eq 0 ]]; then
         STAGE_PASS=$((STAGE_PASS + 1))
         STAGE_LOG+=("PASS  ${name}")
         log_ok "stage '${name}' passed"
     else
         STAGE_FAIL=$((STAGE_FAIL + 1))
-        STAGE_LOG+=("FAIL  ${name} (rc=${rc})")
-        log_err "stage '${name}' failed (rc=${rc})"
+        STAGE_LOG+=("FAIL  ${name} (rc=${rc}, log=${logfile})")
+        log_err "stage '${name}' failed (rc=${rc}); log: ${logfile}"
+        if [[ $rc -eq 137 ]]; then
+            log_warn "rc=137 = SIGKILL — likely OOM-killed. Check 'dmesg | tail' on Linux"
+        elif [[ $rc -eq 139 ]]; then
+            log_warn "rc=139 = SIGSEGV — process crashed. See ${logfile} for trailing output"
+        fi
     fi
     return 0
 }
@@ -510,10 +528,12 @@ local_run_stages() {
     # Stage A on CPU: forward-smoke per public model. Catches model-load /
     # shape-inference regressions. (Stage B is CPU-vs-backend, meaningless
     # here without GPU, so it's skipped in local mode.)
-    if [[ -x "${SCRIPT_DIR}/build/MNNV2Basic.out" ]] && public_models_complete; then
-        local_smoke_a_stages 0 cpu ""
+    if [[ ! -x "${SCRIPT_DIR}/build/MNNV2Basic.out" ]]; then
+        skip_stage "smokeA" "build/MNNV2Basic.out not built (check MNN_BUILD_TOOLS)"
+    elif ! public_models_complete; then
+        skip_stage "smokeA" "public smoke models missing under ${PUBLIC_MODELS_DIR} (get_model.sh failed?)"
     else
-        skip_stage "smokeA" "MNNV2Basic.out or smoke models missing"
+        local_smoke_a_stages 0 cpu ""
     fi
 
     # LLM smoke test on the public HF model.
@@ -535,17 +555,9 @@ android_build() {
     ensure_android_ndk
     mkdir -p "${ANDROID_BUILD_DIR}"
     pushd "${ANDROID_BUILD_DIR}" >/dev/null
-    # We default MNN_SME2 and MNN_KLEIDIAI to OFF because both pull in
-    # SME/SME2 assembly that crashes (SIGSEGV) inside the Executor's
-    # CPU-fallback init on at least one SME2-capable device (Tensor
-    # G4 / Mali-G715 class). The crash reproduces only for non-CPU
-    # forward types because Executor::Executor for GPU backends spins up
-    # an extra CPU Backend with defaultConfig.flags=4 that exercises the
-    # SME2 codepath. Disable by default; re-enable explicitly via
-    # ANDROID_EXTRA_CMAKE when validating SME2 paths on a fix.
-    #
-    # ANDROID_EXTRA_CMAKE lets the caller append/override cmake flags:
-    #   ANDROID_EXTRA_CMAKE="-DMNN_SME2=ON -DMNN_KLEIDIAI=ON" \
+    # ANDROID_EXTRA_CMAKE lets the caller append/override cmake flags, e.g.
+    # to bisect a suspected backend regression:
+    #   ANDROID_EXTRA_CMAKE="-DMNN_SME2=OFF -DMNN_KLEIDIAI=OFF" \
     #       ./test_ci.sh android <serial>
     local -a extra=()
     if [[ -n "${ANDROID_EXTRA_CMAKE:-}" ]]; then
@@ -561,8 +573,6 @@ android_build() {
         -DMNN_SUPPORT_TRANSFORMER_FUSE=ON \
         -DMNN_BUILD_LLM=ON \
         -DMNN_BUILD_CONVERTER=ON \
-        -DMNN_SME2=OFF \
-        -DMNN_KLEIDIAI=OFF \
         "${extra[@]}"
     popd >/dev/null
     log_ok "android build complete"
