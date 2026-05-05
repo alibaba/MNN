@@ -3,8 +3,8 @@
 #
 # Subcommands:
 #   ./test_ci.sh local                  Run host-side regression: build + the
-#                                       built-in unit-test suite (CPU / OpenCL
-#                                       / Vulkan) and the LLM smoke test.
+#                                       built-in unit-test suite (CPU) and the
+#                                       LLM smoke test.
 #   ./test_ci.sh android <serial>       Build for arm64-v8a, push artefacts and
 #                                       the LLM model to /data/local/tmp, then
 #                                       run the on-device matrix.
@@ -33,6 +33,11 @@ umask 022
 # ─────────────────────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODELS_DIR="${SCRIPT_DIR}/models"
+# Declarative stage list — see test_stages.json for the schema and rationale
+# behind each entry. Editing the JSON is the supported way to add, drop, or
+# reconfigure unit/lowmem stages. Smoke and bench stages stay in shell since
+# they iterate over external model files rather than a fixed parameter grid.
+STAGES_JSON_FILE="${SCRIPT_DIR}/test_stages.json"
 PUBLIC_MODELS_DIR="${SCRIPT_DIR}/resource/model"
 DEVICE_DIR="/data/local/tmp/MNN"
 DEVICE_MODEL_DIR="/data/local/tmp/MNN/models"
@@ -47,10 +52,12 @@ SMOKE_MODELS=(
     SqueezeNet/v1.1/squeezenet_v1.1.caffe.mnn
 )
 
-LLM_MODEL_REPO="${LLM_MODEL_REPO:-taobao-mnn/Qwen2.5-0.5B-Instruct-MNN}"
+LLM_MODEL_REPO_DEFAULT="$(python3 -c "import json; print(json.load(open('${STAGES_JSON_FILE}')).get('llm', {}).get('model_repo', 'taobao-mnn/Qwen2.5-0.5B-Instruct-MNN'))" 2>/dev/null || true)"
+LLM_MODEL_REPO="${LLM_MODEL_REPO:-${LLM_MODEL_REPO_DEFAULT:-taobao-mnn/Qwen2.5-0.5B-Instruct-MNN}}"
 LLM_MODEL_URL_BASE="${LLM_MODEL_URL_BASE:-https://huggingface.co/${LLM_MODEL_REPO}/resolve/main}"
 LLM_MODEL_NAME="$(basename "${LLM_MODEL_REPO}")"
 LLM_MODEL_DIR="${MODELS_DIR}/${LLM_MODEL_NAME}"
+
 # Files that must be present in a complete MNN-format LLM checkout.
 LLM_MODEL_FILES=(
     config.json
@@ -63,6 +70,7 @@ LLM_MODEL_FILES=(
 )
 
 MODE=""
+FILTER="all"
 DEVICE=""
 ADB_BIN=""
 USE_ADBK=0
@@ -149,7 +157,18 @@ Usage: $0 <subcommand> [args]
 
 Subcommands:
   local                    Run host-side regression suite.
-  android <device_serial>  Build arm64-v8a, push and test on device.
+  android <device_serial> [filter]
+                           Build arm64-v8a, push and test on device.
+                           filter (optional, default 'all'):
+                             all      — every stage (cpu+opencl+vulkan+lowmem+llm+smoke).
+                             cpu      — CPU unit + lowmem + llm only.
+                             opencl   — OpenCL unit (IMAGE + BUFFER) + opencl smoke.
+                             opencl-image  — only OpenCL IMAGE-mem stage.
+                             opencl-buffer — only OpenCL BUFFER-mem stage.
+                             vulkan   — Vulkan unit + vulkan smoke.
+                             gpu      — opencl + vulkan unit + smoke.
+                             unit     — all unit/op stages, no lowmem/smoke/llm.
+                             lowmem   — only lowmem matrix.
 
 Environment:
   ANDROID_NDK              NDK root (android mode). Defaults to
@@ -161,6 +180,8 @@ Environment:
 Examples:
   $0 local
   $0 android emulator-5554
+  $0 android R5CY71BJJ9D opencl-buffer
+  $0 android R5CY71BJJ9D cpu
   LLM_MODEL_REPO=taobao-mnn/Qwen2-0.5B-Instruct-MNN $0 local
 EOF
 }
@@ -176,6 +197,13 @@ parse_args() {
                 usage; exit 2
             fi
             DEVICE="$1"; shift
+            if [[ $# -ge 1 && -n "${1:-}" ]]; then
+                FILTER="$1"; shift
+            fi
+            case "${FILTER}" in
+                all|cpu|opencl|opencl-image|opencl-buffer|vulkan|gpu|unit|lowmem) ;;
+                *) log_err "unknown filter: ${FILTER}"; usage; exit 2 ;;
+            esac
             ;;
         -h|--help|help) usage; exit 0 ;;
         *) log_err "unknown subcommand: ${MODE}"; usage; exit 2 ;;
@@ -514,7 +542,9 @@ local_has_lib() {
 # ─────────────────────────────────────────────────────────────────────────────
 # Local-mode stages
 # ─────────────────────────────────────────────────────────────────────────────
-_local_unit() { (cd "${SCRIPT_DIR}/build" && ./run_test.out "$@"); }
+_local_unit() {
+    (cd "${SCRIPT_DIR}/build" && ./run_test.out "$@");
+}
 _local_v2basic() {
     (cd "${SCRIPT_DIR}/build" && ./MNNV2Basic.out "$@")
 }
@@ -562,19 +592,18 @@ local_smoke_b_stages() {
 
 local_run_stages() {
     # Local mode is CPU-only by design — see local_build() comment.
-    # Unit tests use built-in op cases; no external corpus needed.
-    run_stage "unit/cpu"    -- _local_unit
-    run_stage "unit/cpu-mt" -- _local_unit op 0 0 4
+    # Unit and smoke stages flow through the JSON config (section: "local").
+    _run_json_stages local _local_unit
 
-    # Stage A on CPU: forward-smoke per public model. Catches model-load /
-    # shape-inference regressions. (Stage B is CPU-vs-backend, meaningless
-    # here without GPU, so it's skipped in local mode.)
+    # Stage A on CPU: forward-smoke per public model. Stage B (CPU-vs-
+    # backend) is meaningless without a GPU build, so the local section of
+    # the JSON only declares smoke_a_stages.
     if [[ ! -x "${SCRIPT_DIR}/build/MNNV2Basic.out" ]]; then
         skip_stage "smokeA" "build/MNNV2Basic.out not built (check MNN_BUILD_TOOLS)"
     elif ! public_models_complete; then
         skip_stage "smokeA" "public smoke models missing under ${PUBLIC_MODELS_DIR} (get_model.sh failed?)"
     else
-        local_smoke_a_stages 0 cpu ""
+        _run_json_model_stages smokeA local "${PUBLIC_MODELS_DIR}"
     fi
 
     # LLM smoke test on the public HF model.
@@ -615,6 +644,9 @@ android_build() {
         -DMNN_BUILD_LLM=ON \
         -DMNN_BUILD_CONVERTER=ON \
         "${extra[@]}"
+    # build_64.sh hard-codes `make -j4`; respin with all cores so subsequent
+    # incremental work uses full parallelism.
+    make -j"$(_host_jobs)"
     popd >/dev/null
     log_ok "android build complete"
 }
@@ -639,6 +671,11 @@ ANDROID_BIN_LIST=(
     benchmarkExprModels.out
     run_test.out
     MNNConvert
+    # MNNConvert dynamically links against libMNNConvertDeps.so which is
+    # built under tools/converter/. Without this push the on-device caffe->
+    # mnn conversion fails ("library libMNNConvertDeps.so not found"),
+    # causing smokeA / smokeB / bench to be skipped.
+    tools/converter/libMNNConvertDeps.so
 )
 DEVICE_SMOKE_SRC_DIR="/data/local/tmp/MNN/smoke_sources"
 
@@ -753,7 +790,14 @@ push_llm_model() {
 # on the trailing tokens. Force a local space-only IFS for the join.
 _remote_run_test() {
     local IFS=' '
-    ad shell "cd ${DEVICE_DIR} && export LD_LIBRARY_PATH=. && ./run_test.out $*"
+    # MNN_TEST_SKIP is honored by MNNTestSuite::run() to omit named tests
+    # from the in-process loop. Used by the OpenCL BUFFER stage to drop
+    # ops that hit Mali driver bugs in BUFFER-mode loop kernels.
+    local skip_env=""
+    if [[ -n "${MNN_TEST_SKIP:-}" ]]; then
+        skip_env="export MNN_TEST_SKIP='${MNN_TEST_SKIP}' && "
+    fi
+    ad shell "cd ${DEVICE_DIR} && export LD_LIBRARY_PATH=. && ${skip_env}./run_test.out $*"
 }
 
 _remote_v2basic() {
@@ -771,77 +815,216 @@ _remote_benchmark() {
     ad shell "cd ${DEVICE_DIR} && export LD_LIBRARY_PATH=. && ./benchmark.out $*"
 }
 
-# Per-backend benchmark over the public smoke model set.
-# benchmark.out args: <models_folder> <loop> <warmup> <forwardtype> <numberThread|gpuMode> <precision>
-# argv[5] (numberThread) is reused as gpuMode for OpenCL/Vulkan, same as run_test.out.
+# Map JSON 'binary' string -> shell function that invokes the on-device tool.
+_remote_for_binary() {
+    case "$1" in
+        run_test)    echo _remote_run_test ;;
+        v2basic)     echo _remote_v2basic ;;
+        backendtest) echo _remote_backendtest ;;
+        benchmark)   echo _remote_benchmark ;;
+        *)           return 1 ;;
+    esac
+}
+
+# Materialize per-model smoke stage rows. One TAB-separated row per
+# (smoke_a or smoke_b stage) × (model). Columns:
+#   1: stage name (with model short-name suffix)
+#   2: filter tag
+#   3: shell function name (_remote_v2basic / _remote_backendtest)
+#   4: shell-quoted argv (with {model} / {models_dir} substituted)
+_emit_json_smoke_stages() {
+    local section_root="$1"      # "android" or "local"
+    local stages_key="$2"        # "smoke_a_stages" or "smoke_b_stages"
+    local models_dir="$3"        # device or host public_models dir
+    SMOKE_SECTION_ROOT="${section_root}" SMOKE_STAGES_KEY="${stages_key}" \
+    SMOKE_MODELS_DIR="${models_dir}" \
+        python3 - "${STAGES_JSON_FILE}" <<'PY'
+import json, os, shlex, sys
+root       = os.environ["SMOKE_SECTION_ROOT"]
+key        = os.environ["SMOKE_STAGES_KEY"]
+models_dir = os.environ["SMOKE_MODELS_DIR"]
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+node   = data.get(root, {})
+models = node.get("smoke_models", []) or data.get("android", {}).get("smoke_models", [])
+stages = node.get(key, [])
+for m in models:
+    short = m.split("/")[-1]
+    device_path = f"{models_dir}/{short}"
+    for st in stages:
+        argv = [
+            a.replace("{model}", device_path).replace("{models_dir}", models_dir)
+            for a in st["args"]
+        ]
+        name = f"{st['name']}/{short}"
+        quoted = " ".join(shlex.quote(a) for a in argv)
+        print(f"{name}|{st['filter']}|{st['binary']}|{quoted}")
+PY
+}
+
+# Materialize bench stage rows (one per backend, models_dir substituted).
+_emit_json_bench_stages() {
+    local section_root="$1"      # "android"
+    local models_dir="$2"
+    BENCH_SECTION_ROOT="${section_root}" BENCH_MODELS_DIR="${models_dir}" \
+        python3 - "${STAGES_JSON_FILE}" <<'PY'
+import json, os, shlex, sys
+root       = os.environ["BENCH_SECTION_ROOT"]
+models_dir = os.environ["BENCH_MODELS_DIR"]
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+for st in data.get(root, {}).get("bench_stages", []):
+    argv = [a.replace("{models_dir}", models_dir) for a in st["args"]]
+    print(f"{st['name']}|{st['filter']}|{st['binary']}|{' '.join(shlex.quote(a) for a in argv)}")
+PY
+}
+
+# Driver for smoke A / smoke B / bench JSON-defined stages. Buffers rows
+# into an array first so adb's stdin can't close the read loop early
+# (the classic `while read … | tee | adb` gotcha).
+_run_json_model_stages() {
+    local kind="$1"                # smokeA | smokeB | bench
+    local section_root="${2:-android}"
+    local models_dir="${3:-${DEVICE_PUBLIC_MODELS_DIR}}"
+    local -a rows=()
+    local row
+    case "${kind}" in
+        smokeA)
+            while IFS= read -r row; do rows+=("${row}"); done \
+                < <(_emit_json_smoke_stages "${section_root}" smoke_a_stages "${models_dir}") ;;
+        smokeB)
+            while IFS= read -r row; do rows+=("${row}"); done \
+                < <(_emit_json_smoke_stages "${section_root}" smoke_b_stages "${models_dir}") ;;
+        bench)
+            while IFS= read -r row; do rows+=("${row}"); done \
+                < <(_emit_json_bench_stages "${section_root}" "${models_dir}") ;;
+        *) return 1 ;;
+    esac
+    local name filt binary argv runner
+    for row in "${rows[@]}"; do
+        IFS='|' read -r name filt binary argv <<<"${row}"
+        [[ -z "${name}" ]] && continue
+        if ! _filter_runs "${filt}"; then
+            continue
+        fi
+        runner="$(_remote_for_binary "${binary}")" || continue
+        eval run_stage \"\${name}\" -- "${runner}" "${argv}"
+    done
+}
+
 android_benchmarks() {
-    local loop=10 warmup=2
     if ! ad shell "[ -d ${DEVICE_PUBLIC_MODELS_DIR} ]" 2>/dev/null; then
         skip_stage "bench" "public_models dir absent on device"
         return 0
     fi
-    run_stage "bench/cpu"    -- _remote_benchmark "${DEVICE_PUBLIC_MODELS_DIR}" "${loop}" "${warmup}" 0 4 1
-    run_stage "bench/opencl" -- _remote_benchmark "${DEVICE_PUBLIC_MODELS_DIR}" "${loop}" "${warmup}" 3 132 1
-    run_stage "bench/vulkan" -- _remote_benchmark "${DEVICE_PUBLIC_MODELS_DIR}" "${loop}" "${warmup}" 7 4 1
+    _run_json_model_stages bench android "${DEVICE_PUBLIC_MODELS_DIR}"
 }
 
-# Stage A on-device: forward smoke per (backend × model).
+# Backwards-compatible wrappers — drive_android still calls these.
 android_smoke_a_stages() {
-    local backend_id="$1" backend_name="$2"
-    local m short remote
-    for m in "${SMOKE_MODELS[@]}"; do
-        short="${m##*/}"
-        remote="${DEVICE_PUBLIC_MODELS_DIR}/${short}"
-        run_stage "smokeA/${backend_name}/${short}" -- \
-            _remote_v2basic "${remote}" 1 0 "${backend_id}"
-    done
+    _run_json_model_stages smokeA android "${DEVICE_PUBLIC_MODELS_DIR}"
 }
 
-# Stage B on-device: CPU-vs-backend numeric comparison.
 android_smoke_b_stages() {
-    local backend_id="$1" backend_name="$2" tolerance="${3:-0.05}"
-    local m short remote
-    for m in "${SMOKE_MODELS[@]}"; do
-        short="${m##*/}"
-        remote="${DEVICE_PUBLIC_MODELS_DIR}/${short}"
-        run_stage "smokeB/${backend_name}/${short}" -- \
-            _remote_backendtest "${remote}" "${backend_id}" "${tolerance}"
-    done
+    _run_json_model_stages smokeB android "${DEVICE_PUBLIC_MODELS_DIR}"
 }
 
 # Unit-test matrix (mirrors test.sh:android_unit_test 64 0 plus Vulkan).
 #
 # IMPORTANT: argv[4] of run_test.out has DIFFERENT semantics per backend.
-#   - CPU (type 0)        → thread count (we use 1 or 4).
-#   - OpenCL (type 3)     → gpuMode bitmask (MNN_GPU_TUNING_* | MNN_GPU_MEMORY_*).
-#                           132 = TUNING_WIDE (4) | MEMORY_IMAGE (128) — the
-#                           recommended OpenCL default. Plain 4 leaves memory
-#                           mode unset, which on some drivers segfaults.
-#   - Vulkan (type 7)     → gpuMode bitmask, but only TUNING_* bits are valid.
-#                           4 = TUNING_WIDE.
-android_unit_tests() {
-    run_stage "unit/cpu/all"            -- _remote_run_test all 0 0 1 64 0
-    run_stage "unit/cpu/op-mt"          -- _remote_run_test op 0 0 4 multi64 0
-    run_stage "unit/cpu/op-fp16-conv"   -- _remote_run_test op/convolution 0 2 4 fp16multi64 0
-    run_stage "unit/cpu/op-fp16-col2im" -- _remote_run_test op/col2im 0 2 4 fp16col2im64 0
-    run_stage "unit/cpu/op-fp16-roi"    -- _remote_run_test op/R 0 2 4 fp16roipooling64 0
-    run_stage "unit/opencl/op"          -- _remote_run_test op 3 1 132 64 0
-    run_stage "unit/vulkan/op"          -- _remote_run_test op 7 1 4 64 0
+#   - CPU (type 0)        -> thread count (we use 1 or 4).
+#   - OpenCL (type 3)     -> gpuMode bitmask (MNN_GPU_TUNING_* | MNN_GPU_MEMORY_*).
+#                            132 = TUNING_WIDE (4) | MEMORY_IMAGE (128) — the
+#                            recommended OpenCL default. Plain 4 leaves memory
+#                            mode unset, which on some drivers segfaults.
+#   - Vulkan (type 7)     -> gpuMode bitmask, but only TUNING_* bits are valid.
+#                            4 = TUNING_WIDE.
+_filter_runs() {
+    # arg1 = backend tag (cpu|opencl-image|opencl-buffer|vulkan|lowmem|smoke|llm)
+    # returns 0 (truthy in bash if-statements) if the stage should run.
+    local tag="$1"
+    case "${FILTER}" in
+        all)            return 0 ;;
+        cpu)            [[ "${tag}" == "cpu" || "${tag}" == "lowmem" || "${tag}" == "llm" ]] ;;
+        opencl)         [[ "${tag}" == "opencl-image" || "${tag}" == "opencl-buffer" || "${tag}" == "smoke-opencl" ]] ;;
+        opencl-image)   [[ "${tag}" == "opencl-image" ]] ;;
+        opencl-buffer)  [[ "${tag}" == "opencl-buffer" ]] ;;
+        vulkan)         [[ "${tag}" == "vulkan" || "${tag}" == "smoke-vulkan" ]] ;;
+        gpu)            [[ "${tag}" == "opencl-image" || "${tag}" == "opencl-buffer" || "${tag}" == "vulkan" || "${tag}" == "smoke-opencl" || "${tag}" == "smoke-vulkan" ]] ;;
+        unit)           [[ "${tag}" == "cpu" || "${tag}" == "opencl-image" || "${tag}" == "opencl-buffer" || "${tag}" == "vulkan" ]] ;;
+        lowmem)         [[ "${tag}" == "lowmem" ]] ;;
+    esac
 }
 
-# Low-memory armv8 matrix (mirrors test.sh:android_unit_test_low_memory_armv8).
-android_low_memory_tests() {
-    local tag=64
-    run_stage "lowmem/dyn-p1-t1"  -- _remote_run_test op/lowMemory 0 1 1 "${tag}" 2
-    run_stage "lowmem/dyn-p2-t1"  -- _remote_run_test op/lowMemory 0 2 1 "${tag}" 2
-    run_stage "lowmem/dyn-p1-t4"  -- _remote_run_test op/lowMemory 0 1 4 "${tag}" 2
-    run_stage "lowmem/dyn-p2-t4"  -- _remote_run_test op/lowMemory 0 2 4 "${tag}" 2
-    run_stage "lowmem/wdeq-p1"    -- _remote_run_test op/lowMemory 0 1 1 "${tag}"
-    run_stage "lowmem/wdeq-p2"    -- _remote_run_test op/lowMemory 0 2 1 "${tag}"
-    run_stage "lowmem/i8i4-d1-p2" -- _remote_run_test op/convolution/weighti8i4conv2d 0 2 4 "${tag}" 2 1
-    run_stage "lowmem/i8i4-d1-p1" -- _remote_run_test op/convolution/weighti8i4conv2d 0 1 4 "${tag}" 2 1
-    run_stage "lowmem/i8i4-d2-p2" -- _remote_run_test op/convolution/weighti8i4conv2d 0 2 4 "${tag}" 2 2
-    run_stage "lowmem/i8i4-d2-p1" -- _remote_run_test op/convolution/weighti8i4conv2d 0 1 4 "${tag}" 2 2
+# Materialize each stage from a $section.stages array in test_stages.json
+# into one shell-quoted line per stage. Columns are pipe-delimited because
+# `read` collapses runs of whitespace IFS chars (tab/space/newline) into a
+# single separator — using '|' (non-whitespace) keeps empty fields like
+# 'skip' addressable instead of losing them.
+#   1: name
+#   2: filter tag
+#   3: skip-list (comma-joined; empty if none)
+#   4: positional argv for the chosen binary, already shell-quoted
+_emit_json_stages() {
+    local section="${1:-android}"
+    JSON_SECTION="${section}" python3 - "${STAGES_JSON_FILE}" <<'PY'
+import json, os, shlex, sys
+section = os.environ["JSON_SECTION"]
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+node = data.get(section, {})
+for st in node.get("stages", []):
+    name   = st["name"]
+    filt   = st["filter"]
+    skip   = ",".join(st.get("skip") or [])
+    argv = [
+        str(st["prefix"]),
+        str(st["type"]),
+        str(st["precision"]),
+        str(st["threadOrGpuMode"]),
+        str(st["tag"]),
+    ]
+    if st.get("memory") is not None:
+        argv.append(str(st["memory"]))
+        if st.get("dynamicOption") is not None:
+            argv.append(str(st["dynamicOption"]))
+            if st.get("kleidiAi") is not None:
+                argv.append(str(st["kleidiAi"]))
+    quoted = " ".join(shlex.quote(a) for a in argv)
+    print(f"{name}|{filt}|{skip}|{quoted}")
+PY
+}
+
+# Iterate JSON-defined stages from the named section and dispatch each one.
+# Honours --runs filter via `_filter_runs` and the per-stage skip list via
+# MNN_TEST_SKIP. The stage list is captured up-front into an array so the
+# inner adb-shell calls in run_stage can't eat the read loop's stdin
+# (classic gotcha with `while read … done < <(generator)` + ssh/adb).
+_run_json_stages() {
+    local section="${1:-android}"
+    local runner="${2:-_remote_run_test}"
+    local -a rows=()
+    local row
+    while IFS= read -r row; do
+        rows+=("${row}")
+    done < <(_emit_json_stages "${section}")
+    local name filt skip argv
+    for row in "${rows[@]}"; do
+        IFS='|' read -r name filt skip argv <<<"${row}"
+        [[ -z "${name}" ]] && continue
+        if ! _filter_runs "${filt}"; then
+            continue
+        fi
+        if [[ -n "${skip}" ]]; then
+            MNN_TEST_SKIP="${skip}" eval run_stage \"\${name}\" -- "${runner}" "${argv}"
+        else
+            eval run_stage \"\${name}\" -- "${runner}" "${argv}"
+        fi
+    done
+}
+
+android_tests() {
+    _run_json_stages android _remote_run_test
 }
 
 android_llm_test() {
@@ -887,21 +1070,22 @@ drive_android() {
     if [[ ${smoke_ok} -eq 1 ]]; then
         convert_smoke_on_device || smoke_ok=0
     fi
-    android_unit_tests
-    android_low_memory_tests
+    android_tests
     if [[ ${smoke_ok} -eq 1 ]]; then
-        android_smoke_a_stages 0 cpu
-        android_smoke_a_stages 3 opencl
-        android_smoke_a_stages 7 vulkan
-        android_smoke_b_stages 3 opencl 0.05
-        android_smoke_b_stages 7 vulkan 0.05
+        # Each driver iterates the JSON-defined backend list and applies
+        # _filter_runs internally, so a single call covers cpu/opencl/vulkan.
+        android_smoke_a_stages
+        android_smoke_b_stages
         android_benchmarks
     else
         skip_stage "smokeA" "smoke source download or on-device conversion failed"
         skip_stage "smokeB" "smoke source download or on-device conversion failed"
         skip_stage "bench"  "smoke source download or on-device conversion failed"
     fi
-    android_llm_test
+
+    if _filter_runs llm; then
+        android_llm_test
+    fi
 }
 
 # ─────────────────────────────────────────────────────────────────────────────

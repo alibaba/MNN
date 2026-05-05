@@ -1,0 +1,395 @@
+{
+  "$schemaVersion": 2,
+  "_documentation": {
+    "purpose": "Declarative configuration for ./test_ci.sh. Editing this file is the supported way to add, drop, or reconfigure tests for either the local-host or on-device Android driver.",
+    "top_level": {
+      "android": "Stages dispatched by `./test_ci.sh android <serial>` — runs on the connected device after a cross-build push.",
+      "local":   "Stages dispatched by `./test_ci.sh local`     — runs entirely on the host (CPU only).",
+      "llm":     "LLM smoke-test configuration. Active in both modes when the model is provisioned."
+    },
+    "stage_object": {
+      "name":             "Stage label, also used for the per-stage log filename.",
+      "filter":           "Filter tag — see filter_tags below. Matched against the user's --runs selector.",
+      "comment":          "Free-form note about why this stage exists / what it covers.",
+      "binary":           "On-device binary: 'run_test' (default), 'v2basic' (MNNV2Basic.out), 'backendtest' (backendTest.out), or 'benchmark' (benchmark.out).",
+      "prefix":           "First positional arg to run_test.out — test-name prefix (or 'all').",
+      "type":             "Forward type. 0 = CPU, 3 = OpenCL, 7 = Vulkan.",
+      "precision":        "BackendConfig::PrecisionMode. 0 = Normal, 1 = High, 2 = Low.",
+      "threadOrGpuMode":  "CPU: thread count. GPU: gpuMode bitmask (TUNING_NONE=1, TUNING_HEAVY=2, TUNING_WIDE=4; MEMORY_BUFFER=64, MEMORY_IMAGE=128). e.g. 129 = TUNING_NONE | MEMORY_IMAGE.",
+      "tag":              "Test-report flag forwarded to run_test.out.",
+      "memory":           "BackendConfig::MemoryMode (0=Normal, 1=High, 2=Low). Omit when not setting.",
+      "dynamicOption":    "RuntimeHint::dynamicQuantOption (0..7). Omit when not setting.",
+      "kleidiAi":         "argv[8]: 1 enables KleidiAI on ARM. Omit when not setting.",
+      "skip":             "Array of EXACT test names to skip (passed via MNN_TEST_SKIP env to MNNTestSuite::run()). Use to exclude tests that hit known device/driver bugs without losing coverage of their siblings.",
+      "args":             "(smoke/bench only) Positional argv array; '{model}' / '{models_dir}' get per-iteration substitution."
+    },
+    "filter_tags": {
+      "cpu":            "Plain CPU stages (also covers lowmem and llm).",
+      "opencl-image":   "OpenCL with MNN_GPU_MEMORY_IMAGE.",
+      "opencl-buffer":  "OpenCL with MNN_GPU_MEMORY_BUFFER (some upstream kernels are buggy on Mali Bifrost — see 'skip' lists).",
+      "vulkan":         "Vulkan backend.",
+      "lowmem":         "Low-memory configurations (memory=2).",
+      "smoke-opencl":   "Smoke A/B on OpenCL.",
+      "smoke-vulkan":   "Smoke A/B on Vulkan.",
+      "llm":            "LLM smoke test."
+    },
+    "skip_rationale": {
+      "opencl_image_sequence_pollution": "On the OpenCL IMAGE path, cumprod/cumsum/ROIPooling pass standalone but fail when run after the long preceding test sequence — the OpenCL→CPU fallback path leaks state through the IMAGE-memtype tensor pool. Skipped in the bulk run; covered by per-test isolation if you need them.",
+      "opencl_buffer_mali_loop_bugs": "BatchMatMul, col2im, cumprod, cumsum, ROIPooling, ScatterElementsTest, ScatterNdTest all decompose to the BUFFER-mode `loop`/`gather` kernel set on OpenCL. On Mali Bifrost these kernels return zero-or-tiny outputs (BatchMatMul large-K accumulates to ~0; Col2Im fuse path zeros batch index 1; gather-based ops fall back via WrapExecution and the gather kernel writes zero). All pass on the IMAGE memtype path, exercised by the 'unit/opencl/op' stage.",
+      "vulkan_buggy_kernels": "op/binary/powInt8 returns 0 instead of 16 on Vulkan; op/binary/AddBroast returns -2 instead of 0 then SIGSEGVs the process. Both are upstream Vulkan-backend bugs unrelated to anything in this fork."
+    }
+  },
+
+  "android": {
+    "_comment": "Stages run by `./test_ci.sh android`. Smoke + bench stages iterate per model from android.smoke_models below.",
+    "stages": [
+      {
+        "name":            "unit/cpu/all",
+        "filter":          "cpu",
+        "comment":         "Single-thread CPU full test suite at Precision_Normal — the broadest sanity check.",
+        "prefix":          "all",
+        "type":            0,
+        "precision":       0,
+        "threadOrGpuMode": 1,
+        "tag":             "64",
+        "memory":          0
+      },
+      {
+        "name":            "unit/cpu/op-mt",
+        "filter":          "cpu",
+        "comment":         "4-thread op-only sweep. Exercises threadpool paths that the single-thread run can't hit.",
+        "prefix":          "op",
+        "type":            0,
+        "precision":       0,
+        "threadOrGpuMode": 4,
+        "tag":             "multi64",
+        "memory":          0
+      },
+      {
+        "name":            "unit/cpu/op-fp16-conv",
+        "filter":          "cpu",
+        "comment":         "FP16-precision convolution sweep (precision=Low).",
+        "prefix":          "op/convolution",
+        "type":            0,
+        "precision":       2,
+        "threadOrGpuMode": 4,
+        "tag":             "fp16multi64",
+        "memory":          0
+      },
+      {
+        "name":            "unit/cpu/op-fp16-col2im",
+        "filter":          "cpu",
+        "comment":         "FP16-precision Col2Im check.",
+        "prefix":          "op/col2im",
+        "type":            0,
+        "precision":       2,
+        "threadOrGpuMode": 4,
+        "tag":             "fp16col2im64",
+        "memory":          0
+      },
+      {
+        "name":            "unit/cpu/op-fp16-roi",
+        "filter":          "cpu",
+        "comment":         "FP16-precision ROIAlign / ROIPooling check (prefix 'op/R').",
+        "prefix":          "op/R",
+        "type":            0,
+        "precision":       2,
+        "threadOrGpuMode": 4,
+        "tag":             "fp16roipooling64",
+        "memory":          0
+      },
+      {
+        "name":            "unit/opencl/op",
+        "filter":          "opencl-image",
+        "comment":         "OpenCL TUNING_NONE | MEMORY_IMAGE = 129. Correctness sweep — TUNING_WIDE adds many seconds of per-kernel tuning that's wasted on a single-shot run.",
+        "prefix":          "op",
+        "type":            3,
+        "precision":       1,
+        "threadOrGpuMode": 129,
+        "tag":             "64",
+        "memory":          0,
+        "skip": [
+          "op/cumprod",
+          "op/cumsum",
+          "op/ROIPooling",
+          "op/ScatterNdTest",
+          "op/ConvInt8/winograd"
+        ]
+      },
+      {
+        "name":            "unit/opencl/op-buffer",
+        "filter":          "opencl-buffer",
+        "comment":         "OpenCL TUNING_NONE | MEMORY_BUFFER = 65. Catches regressions in BUFFER-only creators (e.g. Attention) that the IMAGE path masks via CPU fallback.",
+        "prefix":          "op",
+        "type":            3,
+        "precision":       1,
+        "threadOrGpuMode": 65,
+        "tag":             "64",
+        "memory":          0,
+        "skip": [
+          "op/BatchMatMul",
+          "op/col2im",
+          "op/cumprod",
+          "op/cumsum",
+          "op/ROIPooling",
+          "op/ScatterElementsTest",
+          "op/ScatterNdTest",
+          "op/ConvInt8/winograd"
+        ]
+      },
+      {
+        "name":            "unit/vulkan/op",
+        "filter":          "vulkan",
+        "comment":         "Vulkan TUNING_NONE = 1. Vulkan ignores MEMORY_* bits — they're set via the MNN_VULKAN_IMAGE CMake option.",
+        "prefix":          "op",
+        "type":            7,
+        "precision":       1,
+        "threadOrGpuMode": 1,
+        "tag":             "64",
+        "memory":          0,
+        "skip": [
+          "op/binary/powInt8",
+          "op/binary/AddBroast"
+        ]
+      },
+      {
+        "name":            "lowmem/dyn-p1-t1",
+        "filter":          "lowmem",
+        "comment":         "Low-memory dynamic-quant: precision=High, single-thread, dynamicOption=2.",
+        "prefix":          "op/lowMemory",
+        "type":            0,
+        "precision":       1,
+        "threadOrGpuMode": 1,
+        "tag":             "64",
+        "memory":          2,
+        "dynamicOption":   2
+      },
+      {
+        "name":            "lowmem/dyn-p2-t1",
+        "filter":          "lowmem",
+        "comment":         "Low-memory dynamic-quant: precision=Low, single-thread, dynamicOption=2.",
+        "prefix":          "op/lowMemory",
+        "type":            0,
+        "precision":       2,
+        "threadOrGpuMode": 1,
+        "tag":             "64",
+        "memory":          2,
+        "dynamicOption":   2
+      },
+      {
+        "name":            "lowmem/dyn-p1-t4",
+        "filter":          "lowmem",
+        "comment":         "Low-memory dynamic-quant: precision=High, 4-thread, dynamicOption=2.",
+        "prefix":          "op/lowMemory",
+        "type":            0,
+        "precision":       1,
+        "threadOrGpuMode": 4,
+        "tag":             "64",
+        "memory":          2,
+        "dynamicOption":   2
+      },
+      {
+        "name":            "lowmem/dyn-p2-t4",
+        "filter":          "lowmem",
+        "comment":         "Low-memory dynamic-quant: precision=Low, 4-thread, dynamicOption=2.",
+        "prefix":          "op/lowMemory",
+        "type":            0,
+        "precision":       2,
+        "threadOrGpuMode": 4,
+        "tag":             "64",
+        "memory":          2,
+        "dynamicOption":   2
+      },
+      {
+        "name":            "lowmem/wdeq-p1",
+        "filter":          "lowmem",
+        "comment":         "Weight-dequant low-memory mode: precision=High, single-thread (dynamicOption omitted).",
+        "prefix":          "op/lowMemory",
+        "type":            0,
+        "precision":       1,
+        "threadOrGpuMode": 1,
+        "tag":             "64"
+      },
+      {
+        "name":            "lowmem/wdeq-p2",
+        "filter":          "lowmem",
+        "comment":         "Weight-dequant low-memory mode: precision=Low, single-thread (dynamicOption omitted).",
+        "prefix":          "op/lowMemory",
+        "type":            0,
+        "precision":       2,
+        "threadOrGpuMode": 1,
+        "tag":             "64"
+      },
+      {
+        "name":            "lowmem/i8i4-d1-p2",
+        "filter":          "lowmem",
+        "comment":         "weighti8i4 conv2d: precision=Low, 4-thread, memory=Low, dynamicOption=1.",
+        "prefix":          "op/convolution/weighti8i4conv2d",
+        "type":            0,
+        "precision":       2,
+        "threadOrGpuMode": 4,
+        "tag":             "64",
+        "memory":          2,
+        "dynamicOption":   1
+      },
+      {
+        "name":            "lowmem/i8i4-d1-p1",
+        "filter":          "lowmem",
+        "comment":         "weighti8i4 conv2d: precision=High, 4-thread, memory=Low, dynamicOption=1.",
+        "prefix":          "op/convolution/weighti8i4conv2d",
+        "type":            0,
+        "precision":       1,
+        "threadOrGpuMode": 4,
+        "tag":             "64",
+        "memory":          2,
+        "dynamicOption":   1
+      },
+      {
+        "name":            "lowmem/i8i4-d2-p2",
+        "filter":          "lowmem",
+        "comment":         "weighti8i4 conv2d: precision=Low, 4-thread, memory=Low, dynamicOption=2.",
+        "prefix":          "op/convolution/weighti8i4conv2d",
+        "type":            0,
+        "precision":       2,
+        "threadOrGpuMode": 4,
+        "tag":             "64",
+        "memory":          2,
+        "dynamicOption":   2
+      },
+      {
+        "name":            "lowmem/i8i4-d2-p1",
+        "filter":          "lowmem",
+        "comment":         "weighti8i4 conv2d: precision=High, 4-thread, memory=Low, dynamicOption=2.",
+        "prefix":          "op/convolution/weighti8i4conv2d",
+        "type":            0,
+        "precision":       1,
+        "threadOrGpuMode": 4,
+        "tag":             "64",
+        "memory":          2,
+        "dynamicOption":   2
+      }
+    ],
+
+    "smoke_models": [
+      "MobileNet/v1/mobilenet_v1.caffe.mnn",
+      "MobileNet/v2/mobilenet_v2.caffe.mnn",
+      "SqueezeNet/v1.0/squeezenet_v1.0.caffe.mnn",
+      "SqueezeNet/v1.1/squeezenet_v1.1.caffe.mnn"
+    ],
+
+    "smoke_a_stages": [
+      {
+        "name":    "smokeA/cpu",
+        "filter":  "cpu",
+        "comment": "Forward-smoke on CPU. Catches model-load and shape-inference regressions.",
+        "binary":  "v2basic",
+        "args":    ["{model}", "1", "0", "0"]
+      },
+      {
+        "name":    "smokeA/opencl",
+        "filter":  "smoke-opencl",
+        "comment": "Forward-smoke on OpenCL with default gpuMode.",
+        "binary":  "v2basic",
+        "args":    ["{model}", "1", "0", "3"]
+      },
+      {
+        "name":    "smokeA/vulkan",
+        "filter":  "smoke-vulkan",
+        "comment": "Forward-smoke on Vulkan.",
+        "binary":  "v2basic",
+        "args":    ["{model}", "1", "0", "7"]
+      }
+    ],
+
+    "smoke_b_stages": [
+      {
+        "name":    "smokeB/opencl",
+        "filter":  "smoke-opencl",
+        "comment": "Numeric CPU-vs-OpenCL comparison; tolerance 0.05.",
+        "binary":  "backendtest",
+        "args":    ["{model}", "3", "0.05"]
+      },
+      {
+        "name":    "smokeB/vulkan",
+        "filter":  "smoke-vulkan",
+        "comment": "Numeric CPU-vs-Vulkan comparison; tolerance 0.05.",
+        "binary":  "backendtest",
+        "args":    ["{model}", "7", "0.05"]
+      }
+    ],
+
+    "bench_stages": [
+      {
+        "name":    "bench/cpu",
+        "filter":  "cpu",
+        "comment": "10-iter benchmark on CPU, 4-thread, Precision_High.",
+        "binary":  "benchmark",
+        "args":    ["{models_dir}", "10", "2", "0", "4", "1"]
+      },
+      {
+        "name":    "bench/opencl",
+        "filter":  "cpu",
+        "comment": "10-iter benchmark on OpenCL with TUNING_WIDE | MEMORY_IMAGE = 132. TUNING_WIDE intentional — perf is the point.",
+        "binary":  "benchmark",
+        "args":    ["{models_dir}", "10", "2", "3", "132", "1"]
+      },
+      {
+        "name":    "bench/vulkan",
+        "filter":  "cpu",
+        "comment": "10-iter benchmark on Vulkan with TUNING_WIDE.",
+        "binary":  "benchmark",
+        "args":    ["{models_dir}", "10", "2", "7", "4", "1"]
+      }
+    ]
+  },
+
+  "local": {
+    "_comment": "Stages run by `./test_ci.sh local`. Local mode is CPU-only by design — Stage B (CPU-vs-backend) is meaningless without a GPU build.",
+    "stages": [
+      {
+        "name":            "unit/cpu",
+        "filter":          "cpu",
+        "comment":         "Single-thread full unit-test suite on the host build.",
+        "prefix":          "",
+        "type":            0,
+        "precision":       0,
+        "threadOrGpuMode": 1,
+        "tag":             "",
+        "memory":          0
+      },
+      {
+        "name":            "unit/cpu-mt",
+        "filter":          "cpu",
+        "comment":         "4-thread op-only sweep on the host build.",
+        "prefix":          "op",
+        "type":            0,
+        "precision":       0,
+        "threadOrGpuMode": 4,
+        "tag":             "",
+        "memory":          0
+      }
+    ],
+
+    "smoke_a_stages": [
+      {
+        "name":    "smokeA/cpu",
+        "filter":  "cpu",
+        "comment": "Forward-smoke on CPU — catches model-load / shape-inference regressions.",
+        "binary":  "v2basic",
+        "args":    ["{model}", "1", "0", "0"]
+      }
+    ]
+  },
+
+  "llm": {
+    "_comment": "LLM smoke test. Skipped automatically when the model directory is missing on disk / device.",
+    "model_repo":  "taobao-mnn/Qwen2.5-0.5B-Instruct-MNN",
+    "config_file": "config.json",
+    "prompt_file": "prompt.txt",
+    "stage": {
+      "name":    "llm/{model_name}",
+      "filter":  "llm",
+      "comment": "Runs llm_demo against the provisioned config.json + prompt.txt."
+    }
+  }
+}
