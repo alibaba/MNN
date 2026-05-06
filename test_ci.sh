@@ -169,6 +169,9 @@ Subcommands:
                              gpu      — opencl + vulkan unit + smoke.
                              unit     — all unit/op stages, no lowmem/smoke/llm.
                              lowmem   — only lowmem matrix.
+                             android-ci
+                                      — bench + smoke (cpu/opencl/vulkan) + llm only;
+                                        skips unit-test and lowmem stages.
 
 Environment:
   ANDROID_NDK              NDK root (android mode). Defaults to
@@ -182,6 +185,7 @@ Examples:
   $0 android emulator-5554
   $0 android R5CY71BJJ9D opencl-buffer
   $0 android R5CY71BJJ9D cpu
+  $0 android R5CY71BJJ9D android-ci      # bench + smoke + llm only
   LLM_MODEL_REPO=taobao-mnn/Qwen2-0.5B-Instruct-MNN $0 local
 EOF
 }
@@ -201,7 +205,7 @@ parse_args() {
                 FILTER="$1"; shift
             fi
             case "${FILTER}" in
-                all|cpu|opencl|opencl-image|opencl-buffer|vulkan|gpu|unit|lowmem) ;;
+                all|cpu|opencl|opencl-image|opencl-buffer|vulkan|gpu|unit|lowmem|android-ci) ;;
                 *) log_err "unknown filter: ${FILTER}"; usage; exit 2 ;;
             esac
             ;;
@@ -457,6 +461,29 @@ local_build() {
     local build_dir="${SCRIPT_DIR}/build"
     mkdir -p "${build_dir}"
     pushd "${build_dir}" >/dev/null
+    # On macOS, CMake fails to auto-pick the SDK when CMAKE_CXX_COMPILER
+    # resolves to /usr/bin/c++ (the Apple shim), leaving CMAKE_OSX_SYSROOT
+    # empty and the OBJECT-library targets (e.g. MNNARM64) unable to find
+    # <vector>/<map>. Pass the active SDK path explicitly.
+    #
+    # Additionally, partially-upgraded Command Line Tools installs leave a
+    # stale /Library/Developer/CommandLineTools/usr/include/c++/v1 with only
+    # a few legacy files. clang's internal-isystem hits that dir first and
+    # stops searching, so the SDK's complete libc++ headers are never seen.
+    # Prepend the SDK's libc++ via CPLUS_INCLUDE_PATH to force a hit.
+    local -a platform_args=()
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        local sdkpath
+        sdkpath="$(xcrun --show-sdk-path 2>/dev/null || true)"
+        if [[ -n "${sdkpath}" ]]; then
+            platform_args+=("-DCMAKE_OSX_SYSROOT=${sdkpath}")
+            local sdk_libcxx="${sdkpath}/usr/include/c++/v1"
+            if [[ -d "${sdk_libcxx}" && ! -f "/Library/Developer/CommandLineTools/usr/include/c++/v1/vector" ]]; then
+                export CPLUS_INCLUDE_PATH="${sdk_libcxx}${CPLUS_INCLUDE_PATH:+:${CPLUS_INCLUDE_PATH}}"
+                log_warn "host CommandLineTools libc++ is incomplete; prepending ${sdk_libcxx} to CPLUS_INCLUDE_PATH"
+            fi
+        fi
+    fi
     # Local mode is CPU-only: host GPU drivers are usually unavailable or
     # unreliable on dev machines, so we omit OpenCL/Vulkan to keep the
     # build fast and the test surface meaningful.
@@ -466,7 +493,8 @@ local_build() {
         -DMNN_LOW_MEMORY=ON \
         -DMNN_SUPPORT_TRANSFORMER_FUSE=ON \
         -DMNN_BUILD_LLM=ON \
-        -DMNN_BUILD_CONVERTER=ON
+        -DMNN_BUILD_CONVERTER=ON \
+        "${platform_args[@]}"
     make -j"$(_host_jobs)"
     popd >/dev/null
     log_ok "host build complete"
@@ -533,16 +561,11 @@ provision_smoke_sources() {
     return 0
 }
 
-# Detect whether a backend library was built locally.
-local_has_lib() {
-    local prefix="$1"
-    compgen -G "${SCRIPT_DIR}/build/${prefix}.*" >/dev/null
-}
-
 # ─────────────────────────────────────────────────────────────────────────────
-# Local-mode stages
+# Local-mode runners — invoked by the JSON dispatch table; one wrapper per
+# binary, named symmetrically with the remote/_remote_* counterparts.
 # ─────────────────────────────────────────────────────────────────────────────
-_local_unit() {
+_local_run_test() {
     (cd "${SCRIPT_DIR}/build" && ./run_test.out "$@");
 }
 _local_v2basic() {
@@ -552,48 +575,10 @@ _local_backendtest() {
     (cd "${SCRIPT_DIR}/build" && ./backendTest.out "$@")
 }
 
-# Stage A: load+forward smoke via MNNV2Basic.out (no numeric validation).
-local_smoke_a_stages() {
-    local backend_id="$1" backend_name="$2" prefix="$3"
-    if [[ -n "${prefix}" ]] && ! local_has_lib "${prefix}"; then
-        skip_stage "smokeA/${backend_name}" "lib${prefix} not built"
-        return 0
-    fi
-    local m short
-    for m in "${SMOKE_MODELS[@]}"; do
-        short="${m##*/}"
-        if [[ ! -s "${PUBLIC_MODELS_DIR}/${m}" ]]; then
-            skip_stage "smokeA/${backend_name}/${short}" "model file missing"
-            continue
-        fi
-        run_stage "smokeA/${backend_name}/${short}" -- \
-            _local_v2basic "${PUBLIC_MODELS_DIR}/${m}" 1 0 "${backend_id}"
-    done
-}
-
-# Stage B: CPU-as-oracle correctness check via backendTest.out.
-local_smoke_b_stages() {
-    local backend_id="$1" backend_name="$2" prefix="$3" tolerance="${4:-0.05}"
-    if ! local_has_lib "${prefix}"; then
-        skip_stage "smokeB/${backend_name}" "lib${prefix} not built"
-        return 0
-    fi
-    local m short
-    for m in "${SMOKE_MODELS[@]}"; do
-        short="${m##*/}"
-        if [[ ! -s "${PUBLIC_MODELS_DIR}/${m}" ]]; then
-            skip_stage "smokeB/${backend_name}/${short}" "model file missing"
-            continue
-        fi
-        run_stage "smokeB/${backend_name}/${short}" -- \
-            _local_backendtest "${PUBLIC_MODELS_DIR}/${m}" "${backend_id}" "${tolerance}"
-    done
-}
-
 local_run_stages() {
     # Local mode is CPU-only by design — see local_build() comment.
     # Unit and smoke stages flow through the JSON config (section: "local").
-    _run_json_stages local _local_unit
+    _run_json_stages local _local_run_test
 
     # Stage A on CPU: forward-smoke per public model. Stage B (CPU-vs-
     # backend) is meaningless without a GPU build, so the local section of
@@ -683,10 +668,10 @@ push_artifacts() {
     log_step "pushing artefacts to ${DEVICE_DIR}"
     ad shell "mkdir -p ${DEVICE_DIR} && rm -rf ${DEVICE_DIR}/output && mkdir -p ${DEVICE_DIR}/output" >/dev/null
     local pushed=0 missing=0
-    local rel
+    local rel src dst
     for rel in "${ANDROID_BIN_LIST[@]}"; do
-        local src="${ANDROID_BUILD_DIR}/${rel}"
-        local dst="${DEVICE_DIR}/$(basename "${rel}")"
+        src="${ANDROID_BUILD_DIR}/${rel}"
+        dst="${DEVICE_DIR}/$(basename "${rel}")"
         if [[ -e "${src}" ]]; then
             ad push "${src}" "${dst}" >/dev/null
             pushed=$((pushed + 1))
@@ -732,6 +717,11 @@ convert_smoke_on_device() {
     local m short ok=0 fail=0
     for m in "${SMOKE_MODELS[@]}"; do
         short="${m##*/}"
+        # Flat layout on device: benchmark.out's findModelFiles() does a
+        # non-recursive readdir() of its dir argument and trips over any
+        # subdirectories, so all .mnn files must sit at the same level.
+        # _emit_json_smoke_stages is section-aware and uses basename for
+        # android paths to match.
         local mnn_remote="${DEVICE_PUBLIC_MODELS_DIR}/${short}"
         if ad shell "[ -s ${mnn_remote} ]" 2>/dev/null; then
             log_info "skip convert ${short} (already on device)"
@@ -815,6 +805,11 @@ _remote_benchmark() {
     ad shell "cd ${DEVICE_DIR} && export LD_LIBRARY_PATH=. && ./benchmark.out $*"
 }
 
+# ─────────────────────────────────────────────────────────────────────────────
+# JSON dispatch — every stage in test_stages.json is materialised to a row
+# (name|filter|binary|argv) and dispatched through one of two binary maps.
+# ─────────────────────────────────────────────────────────────────────────────
+
 # Map JSON 'binary' string -> shell function that invokes the on-device tool.
 _remote_for_binary() {
     case "$1" in
@@ -822,6 +817,18 @@ _remote_for_binary() {
         v2basic)     echo _remote_v2basic ;;
         backendtest) echo _remote_backendtest ;;
         benchmark)   echo _remote_benchmark ;;
+        *)           return 1 ;;
+    esac
+}
+
+# Map JSON 'binary' string -> shell function that invokes the host tool.
+# Local mode has no benchmark.out (not built); benchmark stages live in
+# JSON's android section only, so this map intentionally omits it.
+_local_for_binary() {
+    case "$1" in
+        run_test)    echo _local_run_test ;;
+        v2basic)     echo _local_v2basic ;;
+        backendtest) echo _local_backendtest ;;
         *)           return 1 ;;
     esac
 }
@@ -850,7 +857,10 @@ models = node.get("smoke_models", []) or data.get("android", {}).get("smoke_mode
 stages = node.get(key, [])
 for m in models:
     short = m.split("/")[-1]
-    device_path = f"{models_dir}/{short}"
+    # Local mode keeps host's nested layout (resource/model/MobileNet/v1/...).
+    # Android mode keeps a flat layout under DEVICE_PUBLIC_MODELS_DIR because
+    # benchmark.out's findModelFiles() is non-recursive (see benchmark.cpp:54).
+    device_path = f"{models_dir}/{m}" if root == "local" else f"{models_dir}/{short}"
     for st in stages:
         argv = [
             a.replace("{model}", device_path).replace("{models_dir}", models_dir)
@@ -907,8 +917,15 @@ _run_json_model_stages() {
         if ! _filter_runs "${filt}"; then
             continue
         fi
-        runner="$(_remote_for_binary "${binary}")" || continue
-        eval run_stage \"\${name}\" -- "${runner}" "${argv}"
+        if [[ "${section_root}" == "local" ]]; then
+            runner="$(_local_for_binary "${binary}")" || continue
+        else
+            runner="$(_remote_for_binary "${binary}")" || continue
+        fi
+        # ${argv} is shell-quoted by Python's shlex.quote, so eval-driven
+        # word-splitting is required to honour the original token
+        # boundaries. \$name defers expansion to eval's parse pass.
+        eval "run_stage \"\$name\" -- ${runner} ${argv}"
     done
 }
 
@@ -929,6 +946,10 @@ android_smoke_b_stages() {
     _run_json_model_stages smokeB android "${DEVICE_PUBLIC_MODELS_DIR}"
 }
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Filter logic — translates the user-supplied --filter (FILTER global) into a
+# per-stage admission decision based on the row's tag.
+#
 # Unit-test matrix (mirrors test.sh:android_unit_test 64 0 plus Vulkan).
 #
 # IMPORTANT: argv[4] of run_test.out has DIFFERENT semantics per backend.
@@ -939,6 +960,7 @@ android_smoke_b_stages() {
 #                            mode unset, which on some drivers segfaults.
 #   - Vulkan (type 7)     -> gpuMode bitmask, but only TUNING_* bits are valid.
 #                            4 = TUNING_WIDE.
+# ─────────────────────────────────────────────────────────────────────────────
 _filter_runs() {
     # arg1 = backend tag (cpu|opencl-image|opencl-buffer|vulkan|lowmem|smoke|llm)
     # returns 0 (truthy in bash if-statements) if the stage should run.
@@ -953,6 +975,11 @@ _filter_runs() {
         gpu)            [[ "${tag}" == "opencl-image" || "${tag}" == "opencl-buffer" || "${tag}" == "vulkan" || "${tag}" == "smoke-opencl" || "${tag}" == "smoke-vulkan" ]] ;;
         unit)           [[ "${tag}" == "cpu" || "${tag}" == "opencl-image" || "${tag}" == "opencl-buffer" || "${tag}" == "vulkan" ]] ;;
         lowmem)         [[ "${tag}" == "lowmem" ]] ;;
+        # android-ci: bench (filter=cpu inside bench_stages) + smokeA/B
+        # (cpu, smoke-opencl, smoke-vulkan) + llm. Unit/lowmem are skipped at
+        # the drive_android level by gating android_tests, so accepting "cpu"
+        # here only lets bench and smokeA/cpu rows through.
+        android-ci)     [[ "${tag}" == "cpu" || "${tag}" == "smoke-opencl" || "${tag}" == "smoke-vulkan" || "${tag}" == "llm" ]] ;;
     esac
 }
 
@@ -1015,10 +1042,13 @@ _run_json_stages() {
         if ! _filter_runs "${filt}"; then
             continue
         fi
+        # ${argv} is shell-quoted by Python's shlex.quote, so eval-driven
+        # word-splitting is required to honour the original token
+        # boundaries. \$name defers expansion to eval's parse pass.
         if [[ -n "${skip}" ]]; then
-            MNN_TEST_SKIP="${skip}" eval run_stage \"\${name}\" -- "${runner}" "${argv}"
+            MNN_TEST_SKIP="${skip}" eval "run_stage \"\$name\" -- ${runner} ${argv}"
         else
-            eval run_stage \"\${name}\" -- "${runner}" "${argv}"
+            eval "run_stage \"\$name\" -- ${runner} ${argv}"
         fi
     done
 }
@@ -1070,7 +1100,11 @@ drive_android() {
     if [[ ${smoke_ok} -eq 1 ]]; then
         convert_smoke_on_device || smoke_ok=0
     fi
-    android_tests
+    # Unit/op + lowmem matrix. android-ci skips these so the on-device run
+    # stays focused on bench / smoke / llm.
+    if [[ "${FILTER}" != "android-ci" ]]; then
+        android_tests
+    fi
     if [[ ${smoke_ok} -eq 1 ]]; then
         # Each driver iterates the JSON-defined backend list and applies
         # _filter_runs internally, so a single call covers cpu/opencl/vulkan.
