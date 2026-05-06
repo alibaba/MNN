@@ -78,11 +78,12 @@ void MNNGemmInt8AddBiasScaleHp128_SME2_w8_Fp16(int8_t* dst, const int8_t* src, c
 void MNNGemmInt8AddBiasScaleHp128_SME2_w4_Fp32(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDstCount);
 void MNNGemmInt8AddBiasScaleHp128_SME2_w8_Fp32(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDstCount);
 #endif
+#endif // __aarch64__
+}
+#endif // MNN_USE_NEON
 
-//ADD RVV suport
 #ifdef MNN_USE_RVV
-extern void MNNGemmInt8AddBiasScale_16x4_Unit_RVV(
-    int8_t* dst,
+extern void MNNGemmInt8AddBiasScale_16x4_Unit_RVV(int8_t* dst,
     const int8_t* src,
     const int8_t* weight,
     size_t src_depth_quad,
@@ -115,11 +116,7 @@ void MNNScaleAndAddBiasInt8_RVV(int8_t* dst, const int8_t* src, const int32_t* b
                                 int8_t* outputZeroPoint, ssize_t planeNumber, ssize_t biasNumber, ssize_t pack);
 void MNNSumByAxisLForMatmul_A_RVV(float* dest, int8_t* source, const float* scale, ssize_t realDstCount,
                                   SumByAxisParams sumParams);
-#endif
-
-#endif // __aarch64__
-}
-#endif // MNN_USE_NEON
+#endif//ADD RVV suport
 
 /*
     layout should be optimized for int8
