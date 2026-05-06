@@ -1,4 +1,3 @@
-//
 //  CPULinearAttention.cpp
 //  MNN
 //
@@ -76,9 +75,7 @@ ErrorCode CPULinearAttention::onResize(const std::vector<Tensor*>& inputs, const
             if (!success) return OUT_OF_MEMORY;
             ::memset(mStateCache->mRecurrentState->host<int8_t>(), 0, batch * H * dk * dv * mBytes);
         }
-    }
-
-    if (seqLen > 1) {
+    } else if (seqLen > 1) {
         // Prefill: reset state for new sequence, UNLESS:
         // 1. Loading from prefix cache (PendingRead), or
         // 2. Reusing KV from previous inference (reuse_kv=true, i.e. previous != remove)
