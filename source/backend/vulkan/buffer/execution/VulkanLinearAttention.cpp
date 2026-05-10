@@ -234,7 +234,8 @@ ErrorCode VulkanLinearAttention::onEncode(const std::vector<Tensor*>& inputs, co
         return code;
     }
     const bool reusingKV = (nullptr != mMeta && mMeta->previous != mMeta->remove);
-    if (seqLen > 1 && !reusingKV) {
+    const bool loadingFromDisk = (mMeta != nullptr && mMeta->file_flag == KVMeta::PendingRead && mMeta->file_name.size() > 0);
+    if (seqLen > 1 && !reusingKV && !loadingFromDisk) {
         code = resetPersistentState(vkBn);
         if (NO_ERROR != code) {
             return code;
