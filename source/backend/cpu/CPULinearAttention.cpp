@@ -105,9 +105,12 @@ ErrorCode CPULinearAttention::onResize(const std::vector<Tensor*>& inputs, const
     if (needRecurrentState) {
         int dk = mHeadKDim, dv = mHeadVDim;
         int threadNum = static_cast<CPUBackend*>(backend())->threadNumber();
-        // Per-thread scratch holds q_local + k_local + v_local; the fused
-        // MNNFusedGatedDelta kernel keeps vPred and delta in registers.
-        int perThread = 2 * dk + dv;
+        // Per-thread scratch holds q_local + k_local + v_local + vPred + delta.
+        // Prefill uses MNNFusedGatedDelta (only needs first 2*dk+dv) but decode
+        // falls back to the legacy two-call path (MNNDualMatVec + scalar
+        // correction + MNNDecayRankOneUpdate) which needs the full 2*dk+3*dv:
+        // the fused kernel regressed FP32 decode by ~3.5% on small L=1 shapes.
+        int perThread = 2 * dk + 3 * dv;
         mThreadLocalBuf.reset(Tensor::createDevice<int8_t>({threadNum * perThread * mBytes}));
         success = backend()->onAcquireBuffer(mThreadLocalBuf.get(), Backend::DYNAMIC);
         if (!success) return OUT_OF_MEMORY;
@@ -556,7 +559,9 @@ void CPULinearAttention::gated_delta_rule_mnn(const std::vector<Tensor*>& inputs
     const int totalHeads = B * H;
 
     int8_t* threadBufBase = mThreadLocalBuf->host<int8_t>();
-    const int perThread = 2 * d_k + d_v;
+    // Prefill uses fused kernel (only first 2*dk+dv touched) but the per-thread
+    // stride must match the larger allocation (decode's 2*dk+3*dv).
+    const int perThread = 2 * d_k + 3 * d_v;
 
     MNN_CONCURRENCY_BEGIN(tId, threadNum) {
         int8_t* tBuf = threadBufBase + (int)tId * perThread * bytes;
@@ -709,13 +714,17 @@ void CPULinearAttention::gated_delta_rule_decode(const std::vector<Tensor*>& inp
 
     const int totalHeads = B * H;
     auto* threadBufBase = mThreadLocalBuf->host<int8_t>();
-    const int perThread = 2 * d_k + d_v;
+    // Decode (L=1) keeps the legacy two-call path: the fused kernel regressed
+    // FP32 decode by ~3.5% on this shape (small d_v, single timestep).
+    const int perThread = 2 * d_k + 3 * d_v;
 
     MNN_CONCURRENCY_BEGIN(tId, threadNum) {
         int8_t* tBuf = threadBufBase + (int)tId * perThread * bytes;
         int8_t* q_local = tBuf;
         int8_t* k_local = tBuf + d_k * bytes;
         int8_t* v_local = tBuf + 2 * d_k * bytes;
+        int8_t* localVPred = tBuf + (2 * d_k + d_v) * bytes;
+        int8_t* localDelta = tBuf + (2 * d_k + 2 * d_v) * bytes;
 
         for (int idx = (int)tId; idx < totalHeads; idx += threadNum) {
             const int b = idx / H;
@@ -757,21 +766,34 @@ void CPULinearAttention::gated_delta_rule_decode(const std::vector<Tensor*>& inp
                 }
             }
 
-            // ── Step 5: Gated Delta Rule ──
+            // ── Step 5: Gated Delta Rule (legacy two-call path) ──
             const float decay = expf(_readElement(gatePtr, b * H + h, bytes));
             const float beta_t = _readElement(betaPtr, b * H + h, bytes);
 
-            // dot(k, q) — small reduction in fp32 for precision.
+            // Pass 1 (read-only): out_k = S^T @ k → localVPred,
+            //                     out_q = S^T @ q → o_t (overwritten by correction below).
+            int8_t* o_t = outPtr + (b * H * d_v + h * d_v) * bytes;
+            gcore->MNNDualMatVec((float*)state, (float*)k_local, (float*)q_local,
+                                 (float*)localVPred, (float*)o_t, d_k, d_v);
+
+            // Analytic correction: delta = beta * (v - decay * vPred);
+            //                      out   = decay * out_q + dot(k,q) * delta.
             float kq = 0.0f;
             for (int i = 0; i < d_k; ++i) {
                 kq += _readElement(k_local, i, bytes) * _readElement(q_local, i, bytes);
             }
+            for (int i = 0; i < d_v; ++i) {
+                const float vPred_i = decay * _readElement(localVPred, i, bytes);
+                const float v_i     = _readElement(v_local, i, bytes);
+                const float delta_i = beta_t * (v_i - vPred_i);
+                const float out_i   = decay * _readElement(o_t, i, bytes) + kq * delta_i;
+                _writeElement(localDelta, i, delta_i, bytes);
+                _writeElement(o_t, i, out_i, bytes);
+            }
 
-            // out_t is written; state S is updated in-place.
-            int8_t* o_t = outPtr + (b * H * d_v + h * d_v) * bytes;
-            gcore->MNNFusedGatedDelta((float*)state, (float*)k_local, (float*)q_local,
-                                      (float*)v_local, (float*)o_t, decay, beta_t, kq,
-                                      d_k, d_v);
+            // Pass 2: S = decay * S + k ⊗ delta.
+            gcore->MNNDecayRankOneUpdate((float*)state, (float*)k_local,
+                                         (float*)localDelta, decay, d_k, d_v);
         }
     }
     MNN_CONCURRENCY_END();
