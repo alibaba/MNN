@@ -61,6 +61,7 @@ class MNNWeight:
 
 class GPTQ:
     def __init__(self, gptq_path):
+        self.weight_dict = dict()
         self.load(gptq_path)
 
     def load(self, path):
@@ -83,7 +84,6 @@ class GPTQ:
         return None
 
     def load_safetensor(self, tensor):
-        self.weight_dict = dict()
         with safe_open(tensor, framework="pt") as f:
             for k in f.keys():
                 p, s = self.prefix(k)

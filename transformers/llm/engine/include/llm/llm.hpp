@@ -115,6 +115,7 @@ struct LlmContext {
     int64_t prefill_us = 0;
     int64_t decode_us = 0;
     int64_t sample_us = 0;
+    int64_t ttfa_us = 0;
     float pixels_mp = 0;
     float audio_input_s = 0;
     // tokens
@@ -224,6 +225,7 @@ protected:
     friend class LookaheadGeneration;
     friend class MtpGeneration;
     friend class EagleGeneration;
+    friend class Omni;
     std::vector<Express::VARP> forwardVec(const std::vector<int>& input_ids);
     std::vector<Express::VARP> forwardVec(MNN::Express::VARP input_embeds);
 private:

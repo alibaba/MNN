@@ -33,121 +33,99 @@ ErrorCode QNNFlatten::onEncode(const std::vector<Tensor *> &inputs, const std::v
 }
 
 void QNNFlatten::ReshapeTranspose(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    if(inputs[0]->shape().size() == 4 && outputs[0]->shape().size() == 3) {
-        std::vector<int> outputShape = outputs[0]->shape();
+    std::vector<uint32_t> inputShape = getNHWCShape(inputs[0]);
+    std::vector<uint32_t> outputShape = getNHWCShape(outputs[0]);
+    int inputDim = inputs[0]->shape().size();
+    int outputDim = outputs[0]->shape().size();
+    std::vector<uint32_t> inputReshape(inputShape);
+    std::vector<uint32_t> outputReshape(outputShape);
+    std::vector<uint32_t> inputPerm(inputDim, 0);
+    std::vector<uint32_t> outputPerm(outputDim, 0);
+    inputReshape[0] = inputShape[0];
+    outputReshape[0] = outputShape[0];
+    bool permuteInput = false;
+    bool permuteOutput = false;
+    int inputTempIndex, outputTempIndex;
+    int tempNum = 0;
+
+    if (inputDim > 2) {
+        permuteInput = true;
+        for (int i = 1; i < inputDim - 1; ++i) {
+            inputPerm[i + 1] = i;
+            inputReshape[i + 1] = inputShape[i];
+        }
+        inputPerm[1] = inputDim - 1;
+        inputReshape[1] = inputShape[inputDim - 1];
         Qnn_DataType_t dataType = mBackend->getNativeTensor(inputs[0])->v1.dataType;
-        this->createStageTensor("reshape_temp", dataType, outputShape, inputs[0]);
-        // first reshape
-        {
-            mNodeType = "Reshape";
-            std::string name = mNodeName + "_0_reshape";
-            mParams.clear();
-            mInputs.clear();
-            mOutputs.clear();
+        this->createStageTensor("permute_input", dataType, inputReshape, inputs[0]);
+        inputTempIndex = tempNum;
+        tempNum++;
+    }
+    if (outputDim > 2) {
+        permuteOutput = true;
+        for (int i = 1; i < outputDim - 1; ++i) {
+            outputPerm[i] = i + 1;
+            outputReshape[i + 1] = outputShape[i];
+        }
+        outputPerm[outputDim - 1] = 1;
+        outputReshape[1] = outputShape[outputDim - 1];
+        Qnn_DataType_t dataType = mBackend->getNativeTensor(outputs[0])->v1.dataType;
+        this->createStageTensor("permute_output", dataType, outputReshape, outputs[0]);
+        outputTempIndex = tempNum;
+        tempNum++;
+    }
+
+    // nhwc -> nchw
+    if (permuteInput) {
+        mNodeType = "Transpose";
+        std::string name = mNodeName + "_input_transpose";
+        mParams.clear();
+        mInputs.clear();
+        mOutputs.clear();
+        this->createParamTensor("perm", QNN_DATATYPE_UINT_32, {(uint32_t)inputPerm.size()}, (void*)inputPerm.data(),
+                                "_input_transpose");
+        mParams.push_back(*(mParamTensorWrappers.back()->getNativeParam()));
+        mInputs.push_back(*(mBackend->getNativeTensor(inputs[0])));
+        mOutputs.push_back(*(mTempTensorWrappers[inputTempIndex]->getNativeTensor()));
+        mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams,
+                                 mInputs, mOutputs);
+    }
+
+    // reshape
+    {
+        mNodeType = "Reshape";
+        std::string name = mNodeName;
+        mParams.clear();
+        mInputs.clear();
+        mOutputs.clear();
+        if (permuteInput) {
+            mInputs.push_back(*(mTempTensorWrappers[inputTempIndex]->getNativeTensor()));
+        } else {
             mInputs.push_back(*(mBackend->getNativeTensor(inputs[0])));
-            mOutputs.push_back(*(mTempTensorWrappers[0]->getNativeTensor()));
-            mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
         }
-        // second transpose
-        {
-            mNodeType = "Transpose";
-            std::string name = mNodeName + "_1_transpose";
-            mParams.clear();
-            mInputs.clear();
-            mOutputs.clear();
-            std::vector<uint32_t> permData{0, 2, 1};
-            this->createParamTensor("perm", QNN_DATATYPE_UINT_32, {(uint32_t)3}, (void *)permData.data(), "_1_transpose");
-            mParams.push_back(*(mParamTensorWrappers.back()->getNativeParam()));
-            mInputs.push_back(*(mTempTensorWrappers[0]->getNativeTensor()));
+        if (permuteOutput) {
+            mOutputs.push_back(*(mTempTensorWrappers[outputTempIndex]->getNativeTensor()));
+        } else {
             mOutputs.push_back(*(mBackend->getNativeTensor(outputs[0])));
-            mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
         }
-    } else if(inputs[0]->shape().size() == 3 && outputs[0]->shape().size() == 4) {
-        std::vector<int> inputShape = inputs[0]->shape();
-        Qnn_DataType_t dataType = mBackend->getNativeTensor(inputs[0])->v1.dataType;
-        this->createStageTensor("reshape_temp", dataType, inputShape, inputs[0]);
-        // first transpose
-        {
-            mNodeType = "Transpose";
-            std::string name = mNodeName + "_0_transpose";
-            mParams.clear();
-            mInputs.clear();
-            mOutputs.clear();
-            std::vector<uint32_t> permData{0, 2, 1};
-            this->createParamTensor("perm", QNN_DATATYPE_UINT_32, {(uint32_t)3}, (void *)permData.data(), "_0_transpose");
-            mParams.push_back(*(mParamTensorWrappers.back()->getNativeParam()));
-            mInputs.push_back(*(mBackend->getNativeTensor(inputs[0])));
-            mOutputs.push_back(*(mTempTensorWrappers[0]->getNativeTensor()));
-            mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
-        }
-        // second reshape
-        {
-            mNodeType = "Reshape";
-            std::string name = mNodeName + "_1_reshape";
-            mParams.clear();
-            mInputs.clear();
-            mOutputs.clear();
-            mInputs.push_back(*(mTempTensorWrappers[0]->getNativeTensor()));
-            mOutputs.push_back(*(mBackend->getNativeTensor(outputs[0])));
-            mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
-        }
-    } else {
-        std::vector<int> inputShape = inputs[0]->shape();
-        Qnn_DataType_t dataType = mBackend->getNativeTensor(inputs[0])->v1.dataType;
-        this->createStageTensor("reshape_temp", dataType, inputShape, inputs[0]);
-        this->createStageTensor("reshape_temp_1", dataType, outputs[0]->shape(), outputs[0]);
-        // first transpose
-        {
-            mNodeType = "Transpose";
-            std::string name = mNodeName + "_0_transpose";
-            mParams.clear();
-            mInputs.clear();
-            mOutputs.clear();
-            mNodeType = "Transpose";
-            uint32_t dim = inputs[0]->shape().size();
-            std::vector<uint32_t> permData(dim, 0);
-            permData[0] = 0;
-            permData[1] = dim - 1;
-            for (int i = 2; i < dim; i++) {
-                permData[i] = i - 1;
-            }
-            this->createParamTensor("perm", QNN_DATATYPE_UINT_32, {dim}, (void *)permData.data());
-            mParams.push_back(*(mParamTensorWrappers.back()->getNativeParam()));
-            mInputs.push_back(*(mBackend->getNativeTensor(inputs[0])));
-            mOutputs.push_back(*(mTempTensorWrappers[0]->getNativeTensor()));
-            mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
-        }
-        // second reshape
-        {
-            mNodeType = "Reshape";
-            std::string name = mNodeName + "_1_reshape";
-            mParams.clear();
-            mInputs.clear();
-            mOutputs.clear();
-            mInputs.push_back(*(mTempTensorWrappers[0]->getNativeTensor()));
-            mOutputs.push_back(*(mTempTensorWrappers[1]->getNativeTensor()));
-            mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
-        }
-        // third convert
-        {
-            mParams.clear();
-            mInputs.clear();
-            mOutputs.clear();
-            mNodeType = "Transpose";
-            std::string name = mNodeName + "_2_transpose";
-            uint32_t dim = outputs[0]->shape().size();
-            std::vector<uint32_t> permData(dim, 0);
-            permData[0] = 0;
-            permData[dim - 1] = 1;
-            for (int i = 1; i < dim - 1; i++) {
-                permData[i] = i + 1;
-            }
-            this->createParamTensor("perm", QNN_DATATYPE_UINT_32, {(uint32_t)dim}, (void *)permData.data(), "_2_transpose");
-            mParams.push_back(*(mParamTensorWrappers.back()->getNativeParam()));
-            mInputs.push_back(*(mTempTensorWrappers[1]->getNativeTensor()));
-            mOutputs.push_back(*(mBackend->getNativeTensor(outputs[0])));
-            mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
-        }
+        mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams,
+                                 mInputs, mOutputs);
+    }
+
+    // nchw -> nhwc
+    {
+        mNodeType = "Transpose";
+        std::string name = mNodeName + "_output_transpose";
+        mParams.clear();
+        mInputs.clear();
+        mOutputs.clear();
+        this->createParamTensor("perm", QNN_DATATYPE_UINT_32, {(uint32_t)outputPerm.size()}, (void*)outputPerm.data(),
+                                "_output_transpose");
+        mParams.push_back(*(mParamTensorWrappers.back()->getNativeParam()));
+        mInputs.push_back(*(mTempTensorWrappers[outputTempIndex]->getNativeTensor()));
+        mOutputs.push_back(*(mBackend->getNativeTensor(outputs[0])));
+        mBackend->addNodeToGraph(mOpConfigVersion, name.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams,
+                                 mInputs, mOutputs);
     }
 }
 

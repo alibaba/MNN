@@ -87,12 +87,19 @@ public:
     VARP token2wav(const std::vector<int>& codec_tokens);
     void token2wav(bool talker_done = false);
     void generate();
+    void stepPrefill();
+    void stepForward(int stepIdx);
+    void finalize();
     void setPostionIds(const MropeInfo& positionIds);
     void addTalkerEmbeds(VARP talker_embeds);
+    bool hasEmbeds() const { return !mTalkerEmbeds.empty(); }
     // is generate
     bool doGenerate() { return mWavformCallback != nullptr; }
+    int maxNewTokens() const { return mMaxNewTokens; }
     // is decode with token2wav
     bool mStreamWithDecode = false;
+    bool mInterleaved = false;
+
 private:
     int mMaxNewTokens = 2048, mTextBosToken = 151872, mTextEosToken = 151861,
         mTextPadToken = 151859, mCodecBosToken = 8293, mCodecPadToken = 8292;
@@ -174,9 +181,12 @@ private:
     std::vector<int> audioProcess(MNN::Express::VARP waveform);
     std::vector<int> processImageContent(const std::string& content, const std::map<std::string, PromptImagePart>& images);
     std::vector<int> processAudioContent(const std::string& content, const std::map<std::string, PromptAudioPart>& audios);
+    void responseInterleaved(const std::vector<int>& input_ids, std::ostream* os, const char* end_with,
+                             int max_new_tokens);
     std::shared_ptr<Module> mVisionModule, mAudioModule;
     std::vector<VARP> mExtraArgs, mVisionEmbeddings, mAudioEmbeddings, mDeepStackEmbeddings;
     std::shared_ptr<Talker> mTalker;
+    int64_t mThinkerElapsedUs = 0;
     // m_rope position ids
     void addPositionIds(int t, int h = -1, int w = -1);
     MropeInfo mPositionIds;

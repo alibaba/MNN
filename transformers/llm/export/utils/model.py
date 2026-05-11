@@ -142,8 +142,14 @@ class LlmModel(PreTrainedModel):
 
         model.embed = Embedding(model.embed, config)
 
-        # gemma4: dual rotary for sliding vs full attention layers
-        if model_type == 'gemma4' and hasattr(config, 'rope_parameters') and config.rope_parameters is not None:
+        # gemma3/gemma3_text/gemma4: dual rotary for sliding vs full attention layers
+        # rope_parameters has form {'sliding_attention': {'rope_theta': ...}, 'full_attention': {'rope_theta': ...}}
+        _rp = getattr(config, 'rope_parameters', None)
+        _is_dual_rope = (model_type in ('gemma3', 'gemma3_text', 'gemma4')
+                         and _rp is not None
+                         and isinstance(_rp, dict)
+                         and any(isinstance(v, dict) for v in _rp.values()))
+        if _is_dual_rope:
             rp = config.rope_parameters
             origin_config = config.origin_config
             text_config = origin_config.text_config if hasattr(origin_config, 'text_config') else origin_config
@@ -153,7 +159,7 @@ class LlmModel(PreTrainedModel):
                 'rope_theta': sliding_rp.get('rope_theta', 10000.0),
                 'rope_ratio': None,
                 'head_dim': text_config.head_dim,
-                'model_type': 'gemma4',
+                'model_type': model_type,
                 'rope_parameters': None,
                 'rope_scaling': None,
                 'max_position_embeddings': config.max_position_embeddings if hasattr(config, 'max_position_embeddings') else 131072,
@@ -167,7 +173,7 @@ class LlmModel(PreTrainedModel):
                 'rope_theta': full_rp.get('rope_theta', 1000000.0),
                 'rope_ratio': None,
                 'head_dim': global_head_dim,
-                'model_type': 'gemma4',
+                'model_type': model_type,
                 'rope_parameters': None,
                 'rope_scaling': None,
                 'max_position_embeddings': config.max_position_embeddings if hasattr(config, 'max_position_embeddings') else 131072,

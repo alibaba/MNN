@@ -3,7 +3,7 @@
 
 #include <numeric>
 
-#include "CommonOptFunction.h"
+#include "backend/cpu/compute/CommonOptFunction.h"
 #include "MNN/ErrorCode.hpp"
 #include "backend/cpu/CPUBackend.hpp"
 #include "backend/cpu/CPUTensorConvert.hpp"

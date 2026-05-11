@@ -16,7 +16,8 @@
 #include "backend/cpu/compute/ConvOpt.h"
 
 #ifdef MNN_KLEIDIAI_ENABLED
-#include "backend/cpu/KleidiAIConvolutionDepthwise.hpp"
+#include "backend/cpu/kleidiai/KleidiAIConvolutionDepthwise.hpp"
+#include "backend/cpu/CPURuntime.hpp"
 #endif //MNN_KLEIDIAI_ENABLED
 
 namespace MNN {
@@ -214,13 +215,13 @@ ErrorCode CPUConvolutionDepthwise::BasicFloatExecution::onResize(const std::vect
         auto biasP   = inputs[2]->host<uint8_t>();
         auto weightP = inputs[1]->host<uint8_t>();
         for (int index = divides[tId]; index < divides[tId+1]; ++index) {
-            
+
             int dz = index / batch;
             auto dstOrigin           = outputPtr + dst_z_step * index * bytes;
             const auto srcOrigin     = inputPtr + src_z_step * index * bytes;
             auto bias_z          = biasP + unit * dz * bytes;
             const auto weight_dz = weightP + dz * weight_z_step * bytes;
-            
+
             auto srcPtr = srcOrigin;
             // Pad inputs
             for (int y = 0; y < src_height; ++y) {
@@ -288,11 +289,11 @@ public:
         int strideX        = conv2d->common()->strideX();
         int dilateX        = conv2d->common()->dilateX();
         int dilateY        = conv2d->common()->dilateY();
-        bool useKleidiAI = kernel_height ==3 && kernel_width ==3 && 
-                            strideY ==1 && strideX ==1 && 
+        bool useKleidiAI = kernel_height ==3 && kernel_width ==3 &&
+                            strideY ==1 && strideX ==1 &&
                             dilateX ==1 && dilateY ==1 &&
                             bytes == 4;
-        useKleidiAI = backend->getRuntime()->hint().enableKleidiAI && useKleidiAI;
+        useKleidiAI = backend->getRuntime()->hint().enableKleidiAI && MNNGetCPUInfo()->sme2 && useKleidiAI;
         if(useKleidiAI) {
             return new KleidiAIConvolutionDepthwise::KleidiAIDepthwiseExecution(conv2d->common(), backend, originWeight, originWeightSize, originBias, originBiasSize);
         }

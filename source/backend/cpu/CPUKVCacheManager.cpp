@@ -191,13 +191,17 @@ void CPUKVCacheManager::moveKVCacheFromMemToDisk(int oldMaxLength) {
 /*
 **  @brief  Expand the size of kvcache files in disk
 */
-void CPUKVCacheManager::expandKVCacheInDisk(int oldMaxLength, int oldKeySize, int oldValueSize, int keySize, int valueSize, file_t specKeyFile, file_t specValueFile) {
+void CPUKVCacheManager::expandKVCacheInDisk(size_t oldMaxLength, size_t oldKeySize, size_t oldValueSize, size_t keySize,
+                                            size_t valueSize, file_t specKeyFile, file_t specValueFile) {
     // Step 1: Copy the old kvcache from files to temporary buffers in memory
     auto prevKeySizePerHead = oldKeySize / mKvNumHead;
     auto prevValueSizePerHead = oldValueSize / mKvNumHead;
     std::shared_ptr<Tensor> prevKey, prevValue;
-    prevKey.reset(Tensor::createDevice<int8_t>({mKvNumHead, prevKeySizePerHead}));
-    prevValue.reset(Tensor::createDevice<int8_t>({mKvNumHead, prevValueSizePerHead}));
+    // NOTE: Tensor shape is std::vector<int>. prevKeySizePerHead is size_t after
+    // the int -> size_t fix; cast back to int here. In realistic models a single
+    // head's cache is far below 2 GB, so the narrowing is safe in practice.
+    prevKey.reset(Tensor::createDevice<int8_t>({mKvNumHead, (int)prevKeySizePerHead}));
+    prevValue.reset(Tensor::createDevice<int8_t>({mKvNumHead, (int)prevValueSizePerHead}));
 
     mBackend->onAcquireBuffer(prevKey.get(), Backend::STATIC);
     mBackend->onAcquireBuffer(prevValue.get(), Backend::STATIC);
