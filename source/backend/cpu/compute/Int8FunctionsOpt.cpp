@@ -144,45 +144,6 @@ void MNNGemmInt8AddBiasScaleHp128_SME2_w8_Fp32(int8_t* dst, const int8_t* src, c
 #endif // __aarch64__
 }
 #endif // MNN_USE_NEON
-<<<<<<< HEAD
-=======
-
-#ifdef MNN_USE_RVV
-extern void MNNGemmInt8AddBiasScale_16x4_Unit_RVV(int8_t* dst,
-    const int8_t* src,
-    const int8_t* weight,
-    size_t src_depth_quad,
-    size_t dst_step,
-    size_t dst_depth_quad,
-    const QuanPostTreatParameters* post,
-    size_t realCount);
-void MNNBinaryAddInt8_RVV(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1,
-                          ssize_t* inputScalesInt32, float* inputScalesFp32, const QuanPrePostParameters* params,
-                          size_t elementSize, size_t needBroadcast);
-void MNNBinaryMaxInt8_RVV(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1,
-                          ssize_t* inputScalesInt32, float* inputScalesFp32, const QuanPrePostParameters* params,
-                          size_t elementSize, size_t needBroadcast);
-void MNNBinaryMinInt8_RVV(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, ssize_t* inputScalesInt32,
-                         float* inputScalesFp32, const QuanPrePostParameters* params, size_t elementSize,
-                         size_t needBroadcast);
-void MNNBinaryMulInt8_RVV(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1,
-                          ssize_t* inputScalesInt32, float* inputScalesFp32, const QuanPrePostParameters* params,
-                          size_t elementSize, size_t needBroadcast);
-void MNNBinarySqdInt8_RVV(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1,
-                          ssize_t* inputScalesInt32, float* inputScalesFp32, const QuanPrePostParameters* params,
-                          size_t elementSize, size_t needBroadcast);
-void MNNBinarySubInt8_RVV(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1,
-                          ssize_t* inputScalesInt32, float* inputScalesFp32, const QuanPrePostParameters* params,
-                          size_t elementSize, size_t needBroadcast);
-void _MNNPackC4Int8ForMatMul_ASparse_RVV(int8_t* destOrigin, int8_t const** sourceGroup, const int32_t* info,
-                                         const int32_t* el);
-void MNNScaleAndAddBiasInt8_RVV(int8_t* dst, const int8_t* src, const int32_t* bias, const int32_t* alpha,
-                                int32_t mShiftBits, ssize_t minValue, ssize_t maxValue, int8_t* inputZeroPoint,
-                                int8_t* outputZeroPoint, ssize_t planeNumber, ssize_t biasNumber, ssize_t pack);
-void MNNSumByAxisLForMatmul_A_RVV(float* dest, int8_t* source, const float* scale, ssize_t realDstCount,
-                                  SumByAxisParams sumParams);
-#endif//ADD RVV suport
->>>>>>> efbe9450 ([CPU:feature] hotfix :inappropriate insertion)
 
 // ADD RVV suport
 #ifdef MNN_USE_RVV
@@ -2893,11 +2854,9 @@ void MNNCoreInt8FunctionInit() {
         gCoreFunc->ConvDepthwiseLineInt8 = MNNLineDepthWiseInt8AddBiasScaleUnit_RVV;
         gCoreFunc->MNNMaxPoolInt8 = MNNMaxPoolInt8_RVV;
         gCoreFunc->MNNReluWithSlopeChannelInt8 = MNNReluWithSlopeChannelInt8_RVV;
-        core->MNNSumByAxisLForMatmul_A = MNNSumByAxisLForMatmul_A
-#ifdef MNN_USE_SPARSE_COMPUTE
-                                             // sparse
-                                             gCoreFunc->MNNPackC4Int8ForMatMul_ASparse =
-            _MNNPackC4Int8ForMatMul_ASparse_RVV;
+        core->MNNSumByAxisLForMatmul_A = MNNSumByAxisLForMatmul_A;
+#ifdef MNN_USE_SPARSE_COMPUTE // sparse
+        gCoreFunc->MNNPackC4Int8ForMatMul_ASparse = _MNNPackC4Int8ForMatMul_ASparse_RVV;
 #endif
     }
 #endif
