@@ -1,11 +1,10 @@
-
 #include <riscv_vector.h>
 #include <stdint.h>
 #include <stddef.h>
 #include <algorithm>
 
-void generalIm2col(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el, int LP,
-                   int pack) {
+void generalIm2col_RVV(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el, int LP,
+                       int pack) {
     int number = info[0];
     int eReal = info[1];
     int eDest = info[2];

@@ -33,6 +33,42 @@ using Vec = MNN::Math::Vec<float, 4>;
 #endif
 #endif
 
+#ifdef MNN_USE_RVV
+extern void MNNAbsMaxFP32_RVV(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack);
+extern void MNNAccumulateSequenceNumber_RVV(float* dst, const float* src, int size);
+extern void MNNAsyQuantFunc_RVV(int8_t* dst, const float* src, float* qscale, float* qbias, const size_t* info);
+extern void MNNAsyQuantInfo_FP32_RVV(float* scale, float* bias, float* qscale, float* qbias, float* dstMin,
+                                     float* dstMax, const float* src, const size_t* info);
+extern void MNNDynamicQuantFP32_RVV(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad,
+                                    size_t realSize, int pack, const float* bias);
+extern void MNNPackedMatMul_int8_RVV(float* C, const float* A, const float* B, const size_t* parameter,
+                                     const float* postParameters, const float* bias, const float* k, const float* b);
+extern void MNNPackedMatMulRemain_int8_RVV(float* C, const float* A, const float* B, size_t eSize,
+                                           const size_t* parameter, const float* postParameters, const float* bias,
+                                           const float* k, const float* b);
+extern void MNNReorderWeightInt4_RVV(uint8_t* dest, const uint8_t* source, int32_t* shape, size_t size,
+                                     float* kernelsum);
+extern void MNNSumByAxisLForMatmul_A_RVV(float* dest, int8_t* source, const float* dequantScale,
+                                         ssize_t realDstCount, SumByAxisParams sumParams);
+extern void MNNSumWeightInt8_RVV(float* kernelsum, int8_t* source, size_t outside, size_t reduceAxis, size_t hP,
+                                 size_t lP);
+extern void generalIm2col_RVV(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el,
+                              int LP, int pack);
+extern void MNNDynamicUpdateConvBiasScale_RVV(float* newbias, float* oldbias, float* weightKernelSum, float* inputBias,
+                                              size_t ocQuad);
+extern void MNNPackC4ForMatMul_A_RVV(float* destOrigin, float const** sourceGroup, const int32_t* info,
+                                     const int32_t* el);
+extern void MNNPackedMatMulFP32_RVV(float* C, const float* A, const float* B, const size_t* parameter,
+                                    const float* postParameters, const float* bias, const float* k, const float* b);
+extern void MNNPackedMatMulRemainFP32_RVV(float* C, const float* A, const float* B, size_t eSize,
+                                          const size_t* parameter, const float* postParameters, const float* bias,
+                                          const float* k, const float* b);
+extern void MNNPackForMatMul_B_RVV(float* destC, const float* sourceC, size_t h, size_t kernelsize, size_t ic,
+                                   bool transpose);
+extern void MNNQuantScaleFP32_RVV(float* absmax, float* quant_scale, float* dequant_scale, size_t thread, size_t batch);
+extern void MNNGetMatMulPackMode_RVV(int* eP, int* lP, int* hP);
+#endif // ADD RVV suport
+
 #ifndef MNN_USE_SSE
 void MNNInt8ToInt16(int16_t* dest, const int8_t* source, size_t count) {
     // Should not be called
@@ -4049,6 +4085,226 @@ void MNNVectorTop1Int32(int32_t* input, int32_t* maxValue, int32_t* maxIndex, si
 
 #endif
 
+#ifndef __aarch64__
+static void MNNRankOneUpdateDefault(float* S, const float* k, const float* delta, size_t dk, size_t dv) {
+    for (size_t i = 0; i < dk; ++i) {
+        float k_val = k[i];
+        float* row = S + i * dv;
+        for (size_t j = 0; j < dv; ++j) {
+            row[j] += k_val * delta[j];
+        }
+    }
+}
+// Read-only dual MatVec: out_k = S^T @ k, out_q = S^T @ q
+static void MNNDualMatVecDefault(const float* S, const float* k, const float* q, float* out_k, float* out_q, size_t dk, size_t dv) {
+    ::memset(out_k, 0, dv * sizeof(float));
+    ::memset(out_q, 0, dv * sizeof(float));
+    for (size_t i = 0; i < dk; ++i) {
+        float k_val = k[i];
+        float q_val = q[i];
+        const float* row = S + i * dv;
+        for (size_t j = 0; j < dv; ++j) {
+            out_k[j] += row[j] * k_val;
+            out_q[j] += row[j] * q_val;
+        }
+    }
+}
+// Fused decay + rank-1 update: S[i,j] = decay * S[i,j] + k[i] * delta[j]
+static void MNNDecayRankOneUpdateDefault(float* S, const float* k, const float* delta, float decay, size_t dk, size_t dv) {
+    for (size_t i = 0; i < dk; ++i) {
+        float k_val = k[i];
+        float* row = S + i * dv;
+        for (size_t j = 0; j < dv; ++j) {
+            row[j] = decay * row[j] + k_val * delta[j];
+        }
+    }
+}
+#else
+extern "C" {
+void MNNRankOneUpdateDefault(float* S, const float* k, const float* delta, size_t dk, size_t dv);
+void MNNDualMatVecDefault(const float* S, const float* k, const float* q, float* out_k, float* out_q, size_t dk, size_t dv);
+void MNNDecayRankOneUpdateDefault(float* S, const float* k, const float* delta, float decay, size_t dk, size_t dv);
+}
+#endif
+
+// ─────────────────────────────────────────────────────────────────────────
+// MNNFusedGatedDelta — fused gated_delta_rule recurrence step.
+//
+// Processes S column-wise in chunks of `kChunk` (=16 elements for fp32,
+// four v.4s lanes). For each chunk j..j+kChunk-1:
+//   Pass 1: stream rows [0,d_k) and accumulate out_k, out_q in registers.
+//   Inline correction: still in registers, compute
+//             delta = beta * (v - decay * out_k)
+//             out   = decay * out_q + kq * delta
+//           Store `out`; keep delta resident.
+//   Pass 2: stream rows [0,d_k) again and update S in-place using the
+//           in-register delta.
+//
+// Requires d_v to be a multiple of 16 in fp32 (Qwen3-Next-style heads use
+// d_v ∈ {64, 128, 256}). A scalar tail covers the remainder defensively.
+// ─────────────────────────────────────────────────────────────────────────
+static void MNNFusedGatedDeltaDefault(float* S, const float* k, const float* q, const float* v, float* out, float decay,
+                                      float beta, float kq, size_t dk, size_t dv) {
+#if defined(__aarch64__) && defined(MNN_USE_NEON)
+    // FP32 chunk = 16 elements (4 v.4s registers per accumulator).
+    // The inner loop is unrolled by 4 rows so a single vld1q_f32 of
+    // (k[i], k[i+1], k[i+2], k[i+3]) feeds 4 vfmaq_laneq_f32 ops via
+    // .s[lane], amortizing the scalar broadcast across 4 row iterations.
+    const size_t kChunk = 16;
+    const float32x4_t vDecay = vdupq_n_f32(decay);
+    const float32x4_t vBeta = vdupq_n_f32(beta);
+    const float32x4_t vKq = vdupq_n_f32(kq);
+
+    size_t j = 0;
+    for (; j + kChunk <= dv; j += kChunk) {
+        // ── Pass 1: out_k = S^T @ k, out_q = S^T @ q for this column chunk ──
+        float32x4_t ok0 = vdupq_n_f32(0.0f), ok1 = vdupq_n_f32(0.0f), ok2 = vdupq_n_f32(0.0f), ok3 = vdupq_n_f32(0.0f);
+        float32x4_t oq0 = vdupq_n_f32(0.0f), oq1 = vdupq_n_f32(0.0f), oq2 = vdupq_n_f32(0.0f), oq3 = vdupq_n_f32(0.0f);
+
+        size_t i = 0;
+        for (; i + 4 <= dk; i += 4) {
+            float32x4_t kVec = vld1q_f32(k + i);
+            float32x4_t qVec = vld1q_f32(q + i);
+#define LANE_STEP_FP32(lane)                          \
+    {                                                 \
+        const float* row = S + (i + (lane)) * dv + j; \
+        float32x4_t s0 = vld1q_f32(row);              \
+        float32x4_t s1 = vld1q_f32(row + 4);          \
+        float32x4_t s2 = vld1q_f32(row + 8);          \
+        float32x4_t s3 = vld1q_f32(row + 12);         \
+        ok0 = vfmaq_laneq_f32(ok0, s0, kVec, (lane)); \
+        ok1 = vfmaq_laneq_f32(ok1, s1, kVec, (lane)); \
+        ok2 = vfmaq_laneq_f32(ok2, s2, kVec, (lane)); \
+        ok3 = vfmaq_laneq_f32(ok3, s3, kVec, (lane)); \
+        oq0 = vfmaq_laneq_f32(oq0, s0, qVec, (lane)); \
+        oq1 = vfmaq_laneq_f32(oq1, s1, qVec, (lane)); \
+        oq2 = vfmaq_laneq_f32(oq2, s2, qVec, (lane)); \
+        oq3 = vfmaq_laneq_f32(oq3, s3, qVec, (lane)); \
+    }
+            LANE_STEP_FP32(0);
+            LANE_STEP_FP32(1);
+            LANE_STEP_FP32(2);
+            LANE_STEP_FP32(3);
+#undef LANE_STEP_FP32
+        }
+        // Tail rows (dk % 4) — fall back to scalar broadcast form.
+        for (; i < dk; ++i) {
+            const float* row = S + i * dv + j;
+            float32x4_t s0 = vld1q_f32(row);
+            float32x4_t s1 = vld1q_f32(row + 4);
+            float32x4_t s2 = vld1q_f32(row + 8);
+            float32x4_t s3 = vld1q_f32(row + 12);
+            ok0 = vfmaq_n_f32(ok0, s0, k[i]);
+            ok1 = vfmaq_n_f32(ok1, s1, k[i]);
+            ok2 = vfmaq_n_f32(ok2, s2, k[i]);
+            ok3 = vfmaq_n_f32(ok3, s3, k[i]);
+            oq0 = vfmaq_n_f32(oq0, s0, q[i]);
+            oq1 = vfmaq_n_f32(oq1, s1, q[i]);
+            oq2 = vfmaq_n_f32(oq2, s2, q[i]);
+            oq3 = vfmaq_n_f32(oq3, s3, q[i]);
+        }
+
+        // ── Inline analytic correction (regs only) ──
+        float32x4_t v0 = vld1q_f32(v + j);
+        float32x4_t v1 = vld1q_f32(v + j + 4);
+        float32x4_t v2 = vld1q_f32(v + j + 8);
+        float32x4_t v3 = vld1q_f32(v + j + 12);
+        // delta = beta * (v - decay * out_k)
+        float32x4_t d0 = vmulq_f32(vBeta, vsubq_f32(v0, vmulq_f32(vDecay, ok0)));
+        float32x4_t d1 = vmulq_f32(vBeta, vsubq_f32(v1, vmulq_f32(vDecay, ok1)));
+        float32x4_t d2 = vmulq_f32(vBeta, vsubq_f32(v2, vmulq_f32(vDecay, ok2)));
+        float32x4_t d3 = vmulq_f32(vBeta, vsubq_f32(v3, vmulq_f32(vDecay, ok3)));
+        // out = decay * out_q + kq * delta
+        float32x4_t o0 = vfmaq_f32(vmulq_f32(vDecay, oq0), vKq, d0);
+        float32x4_t o1 = vfmaq_f32(vmulq_f32(vDecay, oq1), vKq, d1);
+        float32x4_t o2 = vfmaq_f32(vmulq_f32(vDecay, oq2), vKq, d2);
+        float32x4_t o3 = vfmaq_f32(vmulq_f32(vDecay, oq3), vKq, d3);
+        vst1q_f32(out + j, o0);
+        vst1q_f32(out + j + 4, o1);
+        vst1q_f32(out + j + 8, o2);
+        vst1q_f32(out + j + 12, o3);
+
+        // ── Pass 2: S = decay * S + k ⊗ delta (delta d0..d3 still in regs) ──
+        size_t i2 = 0;
+        for (; i2 + 4 <= dk; i2 += 4) {
+            float32x4_t kVec = vld1q_f32(k + i2);
+#define ROW_UPDATE_FP32(lane)                                                      \
+    {                                                                              \
+        float* row = S + (i2 + (lane)) * dv + j;                                   \
+        float32x4_t s0 = vld1q_f32(row);                                           \
+        float32x4_t s1 = vld1q_f32(row + 4);                                       \
+        float32x4_t s2 = vld1q_f32(row + 8);                                       \
+        float32x4_t s3 = vld1q_f32(row + 12);                                      \
+        float32x4_t r0 = vfmaq_laneq_f32(vmulq_f32(vDecay, s0), d0, kVec, (lane)); \
+        float32x4_t r1 = vfmaq_laneq_f32(vmulq_f32(vDecay, s1), d1, kVec, (lane)); \
+        float32x4_t r2 = vfmaq_laneq_f32(vmulq_f32(vDecay, s2), d2, kVec, (lane)); \
+        float32x4_t r3 = vfmaq_laneq_f32(vmulq_f32(vDecay, s3), d3, kVec, (lane)); \
+        vst1q_f32(row, r0);                                                        \
+        vst1q_f32(row + 4, r1);                                                    \
+        vst1q_f32(row + 8, r2);                                                    \
+        vst1q_f32(row + 12, r3);                                                   \
+    }
+            ROW_UPDATE_FP32(0);
+            ROW_UPDATE_FP32(1);
+            ROW_UPDATE_FP32(2);
+            ROW_UPDATE_FP32(3);
+#undef ROW_UPDATE_FP32
+        }
+        for (; i2 < dk; ++i2) {
+            float* row = S + i2 * dv + j;
+            float32x4_t s0 = vld1q_f32(row);
+            float32x4_t s1 = vld1q_f32(row + 4);
+            float32x4_t s2 = vld1q_f32(row + 8);
+            float32x4_t s3 = vld1q_f32(row + 12);
+            float32x4_t r0 = vfmaq_n_f32(vmulq_f32(vDecay, s0), d0, k[i2]);
+            float32x4_t r1 = vfmaq_n_f32(vmulq_f32(vDecay, s1), d1, k[i2]);
+            float32x4_t r2 = vfmaq_n_f32(vmulq_f32(vDecay, s2), d2, k[i2]);
+            float32x4_t r3 = vfmaq_n_f32(vmulq_f32(vDecay, s3), d3, k[i2]);
+            vst1q_f32(row, r0);
+            vst1q_f32(row + 4, r1);
+            vst1q_f32(row + 8, r2);
+            vst1q_f32(row + 12, r3);
+        }
+    }
+    // Scalar tail (guards d_v not divisible by 16 — defensive only)
+    for (; j < dv; ++j) {
+        float ok = 0.0f, oq = 0.0f;
+        for (size_t i = 0; i < dk; ++i) {
+            float s = S[i * dv + j];
+            ok += s * k[i];
+            oq += s * q[i];
+        }
+        float delta_j = beta * (v[j] - decay * ok);
+        out[j] = decay * oq + kq * delta_j;
+        for (size_t i = 0; i < dk; ++i) {
+            S[i * dv + j] = decay * S[i * dv + j] + k[i] * delta_j;
+        }
+    }
+#else
+    // Pure scalar fallback (non-aarch64 / no NEON): same math, no SIMD.
+    // We need delta cached because Pass 2 uses it after Pass 1+correction.
+    std::vector<float> deltaBuf(dv);
+    for (size_t j = 0; j < dv; ++j) {
+        float ok = 0.0f, oq = 0.0f;
+        for (size_t i = 0; i < dk; ++i) {
+            float s = S[i * dv + j];
+            ok += s * k[i];
+            oq += s * q[i];
+        }
+        float delta_j = beta * (v[j] - decay * ok);
+        deltaBuf[j] = delta_j;
+        out[j] = decay * oq + kq * delta_j;
+    }
+    for (size_t i = 0; i < dk; ++i) {
+        float k_val = k[i];
+        float* row = S + i * dv;
+        for (size_t j = 0; j < dv; ++j) {
+            row[j] = decay * row[j] + k_val * deltaBuf[j];
+        }
+    }
+#endif
+}
+
 void MNNComputeMatMulForE_1(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tIdL) {
     auto l = param->l;
     auto h = param->h;
@@ -4574,6 +4830,10 @@ void MNNCoreFunctionInit() {
 
     gCoreFunction->MNNComputeMatMulForE_1 = MNNComputeMatMulForE_1;
     gCoreFunction->MNNComputeMatMulForH_1 = MNNComputeMatMulForH_1;
+    gCoreFunction->MNNRankOneUpdate = MNNRankOneUpdateDefault;
+    gCoreFunction->MNNDualMatVec = MNNDualMatVecDefault;
+    gCoreFunction->MNNDecayRankOneUpdate = MNNDecayRankOneUpdateDefault;
+    gCoreFunction->MNNFusedGatedDelta = MNNFusedGatedDeltaDefault;
 
     // Lowp
     gCoreFunction->MNNFp32ToLowp = nullptr;
@@ -4670,6 +4930,10 @@ void MNNCoreFunctionInit() {
     gCoreFunction->supportSDot = gCPUInfo.dot;
     gCoreFunction->supportI8mm = gCPUInfo.i8mm;
     gCoreFunction->supportSME2 = gCPUInfo.sme2;
+    //add rvv support
+    gCoreFunction->supportRVV = gCPUInfo.rvv;
+
+    
     gCoreFunction->smeCoreNumber = gCPUInfo.smeCoreNumber;
     gCoreFunction->MNNSumByAxisLForMatmul_A = MNNSumByAxisLForMatmul_A;
     gCoreFunction->MNNReorderWeightInt4 = MNNReorderWeightInt4;
@@ -4710,6 +4974,32 @@ void MNNCoreFunctionInit() {
 #endif
 #endif
 
+#if defined(__riscv) && defined(MNN_USE_RVV)
+    if (gCoreFunction->supportRVV) {
+        gCoreFunction->MNNAccumulateSequenceNumber = MNNAccumulateSequenceNumber_RVV;
+        gCoreFunction->MNNSumByAxisLForMatmul_A = MNNSumByAxisLForMatmul_A_RVV;
+        gCoreFunction->MNNReorderWeightInt4 = MNNReorderWeightInt4_RVV;
+        gCoreFunction->MNNSumWeightInt8 = MNNSumWeightInt8_RVV;
+        gCoreFunction->MNNPackedMatMul = MNNPackedMatMulFP32_RVV;
+        gCoreFunction->MNNPackedMatMulRemain = MNNPackedMatMulRemainFP32_RVV;
+        gCoreFunction->MNNPackC4ForMatMul_A = MNNPackC4ForMatMul_A_RVV;
+        gCoreFunction->MNNPackForMatMul_B = MNNPackForMatMul_B_RVV;
+        gCoreFunction->MNNGetMatMulPackMode = MNNGetMatMulPackMode_RVV;
+#ifdef MNN_CPU_WEIGHT_DEQUANT_GEMM
+        gCoreFunction->MNNPackedMatMul_int8 = MNNPackedMatMul_int8_RVV;
+        gCoreFunction->MNNPackedMatMulRemain_int8 = MNNPackedMatMulRemain_int8_RVV;
+#endif
+#ifdef MNN_LOW_MEMORY
+        gCoreFunction->MNNAbsMax = MNNAbsMaxFP32_RVV;
+        gCoreFunction->MNNDynamicQuant = MNNDynamicQuantFP32_RVV;
+        gCoreFunction->MNNAsyQuantFunc = MNNAsyQuantFunc_RVV;
+        gCoreFunction->MNNAsyQuantInfo = MNNAsyQuantInfo_FP32_RVV;
+        gCoreFunction->MNNGeneralIm2Col = generalIm2col_RVV;
+        gCoreFunction->MNNDynamicUpdateConvBiasScale = MNNDynamicUpdateConvBiasScale_RVV;
+        gCoreFunction->MNNQuantScale = MNNQuantScaleFP32_RVV;
+#endif
+    }
+#endif
 
 #ifdef __aarch64__
 #ifdef MNN_SME2

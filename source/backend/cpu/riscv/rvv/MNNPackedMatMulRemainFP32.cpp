@@ -2,10 +2,8 @@
 #include <algorithm>
 #include <limits>
 #include <stddef.h>
-
-#define UP_DIV(x, y) (((x) + (y) - 1) / (y))
-void MNNPackedMatMulRemainFP32(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
-                               const float* postParameters, const float* bias, const float* k, const float* b) {
+void MNNPackedMatMulRemainFP32_RVV(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
+                                   const float* postParameters, const float* bias, const float* k, const float* b) {
     if (eSize == 0)
         return;
 

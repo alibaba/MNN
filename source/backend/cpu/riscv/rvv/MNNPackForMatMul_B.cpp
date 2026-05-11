@@ -3,17 +3,16 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define SME2_MATMUL_LP 1
-#define SME2_MATMUL_HP 64
-#define ROUND_UP(x, y) (((x) + (y) - 1) / (y) * (y))
+#define RVV_MATMUL_LP 1
+#define RVV_MATMUL_HP 4
 
 void MNNPackForMatMul_B_RVV(float* destC, const float* sourceC, size_t h, size_t kernelsize, size_t ic,
                             bool transpose) {
     auto dest = (int32_t*)destC;
     auto source = (int32_t*)sourceC;
 
-    int LP = SME2_MATMUL_LP;
-    int HP = SME2_MATMUL_HP;
+    int LP = RVV_MATMUL_LP;
+    int HP = RVV_MATMUL_HP;
     auto l = kernelsize * ic;
 
     size_t dest_size = ROUND_UP(h, HP) * ROUND_UP(ic, LP) * kernelsize * 4;
