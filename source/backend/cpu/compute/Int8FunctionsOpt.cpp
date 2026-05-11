@@ -82,7 +82,7 @@ void MNNGemmInt8AddBiasScaleHp128_SME2_w8_Fp32(int8_t* dst, const int8_t* src, c
 }
 #endif // MNN_USE_NEON
 
-#ifdef MNN_USE_RVV
+#ifdef defined(MNN_USE_RVV)
 extern void MNNGemmInt8AddBiasScale_16x4_Unit_RVV(int8_t* dst,
     const int8_t* src,
     const int8_t* weight,
@@ -1825,7 +1825,7 @@ void MNNBinaryAddInt8 (int8_t* outputRaw, const int8_t* inputRaw0, const int8_t*
     const uint8_t* inputData0 = (uint8_t*)inputRaw0;
     const uint8_t* inputData1 = (uint8_t*)inputRaw1;
     uint8_t* outputData = (uint8_t*)outputRaw;
-#elif MNN_USE_RVV
+#elif defined(MNN_USE_RVV)
     MNNBinaryAddInt8_RVV(outputRaw, inputRaw0, inputRaw1, inputScalesInt32, inputScalesFp32, params, elementSize, needBroadcast);
     return;
 #else
@@ -1868,7 +1868,7 @@ void MNNBinarySubInt8 (int8_t* outputRaw, const int8_t* inputRaw0, const int8_t*
     const uint8_t* inputData0 = (uint8_t*)inputRaw0;
     const uint8_t* inputData1 = (uint8_t*)inputRaw1;
     uint8_t* outputData = (uint8_t*)outputRaw;
-#elif MNN_USE_RVV
+#elif defined(MNN_USE_RVV)
     MNNBinarySubInt8_RVV(outputRaw, inputRaw0, inputRaw1, inputScalesInt32, inputScalesFp32, params, elementSize, needBroadcast);
     return;
 #else
@@ -1911,7 +1911,7 @@ void MNNBinaryMulInt8 (int8_t* outputRaw, const int8_t* inputRaw0, const int8_t*
     const uint8_t* inputData0 = (uint8_t*)inputRaw0;
     const uint8_t* inputData1 = (uint8_t*)inputRaw1;
     uint8_t* outputData = (uint8_t*)outputRaw;
-#elif MNN_USE_RVV
+#elif defined(MNN_USE_RVV)
     MNNBinaryMulInt8_RVV(outputRaw, inputRaw0, inputRaw1, inputScalesInt32, inputScalesFp32, params, elementSize, needBroadcast);
     return;
 #else
@@ -1954,7 +1954,7 @@ void MNNBinaryMinInt8 (int8_t* outputRaw, const int8_t* inputRaw0, const int8_t*
     const uint8_t* inputData0 = (uint8_t*)inputRaw0;
     const uint8_t* inputData1 = (uint8_t*)inputRaw1;
     uint8_t* outputData = (uint8_t*)outputRaw;
-#elif MNN_USE_RVV
+#elif defined(MNN_USE_RVV)
     MNNBinaryMinInt8_RVV(outputRaw, inputRaw0, inputRaw1, inputScalesInt32, inputScalesFp32, params, elementSize, needBroadcast);
     return;
 #else
@@ -2000,7 +2000,7 @@ void MNNBinaryMaxInt8 (int8_t* outputRaw, const int8_t* inputRaw0, const int8_t*
     const uint8_t* inputData0 = (uint8_t*)inputRaw0;
     const uint8_t* inputData1 = (uint8_t*)inputRaw1;
     uint8_t* outputData = (uint8_t*)outputRaw;
-#elif MNN_USE_RVV
+#elif defined(MNN_USE_RVV)
     MNNBinaryMaxInt8_RVV(outputRaw, inputRaw0, inputRaw1, inputScalesInt32, inputScalesFp32, params, elementSize, needBroadcast);
     return;
 #else
@@ -2045,7 +2045,7 @@ void MNNBinarySqdInt8 (int8_t* outputRaw, const int8_t* inputRaw0, const int8_t*
     const uint8_t* inputData0 = (uint8_t*)inputRaw0;
     const uint8_t* inputData1 = (uint8_t*)inputRaw1;
     uint8_t* outputData = (uint8_t*)outputRaw;
-#elif MNN_USE_RVV
+#elif defined(MNN_USE_RVV)
     MNNBinarySqdInt8_RVV(outputRaw, inputRaw0, inputRaw1, inputScalesInt32, inputScalesFp32, params, elementSize, needBroadcast);
     return;
 #else
@@ -2086,7 +2086,7 @@ void MNNScaleAndAddBiasInt8(int8_t* dst, const int8_t* src, const int32_t* bias,
     const uint8_t* srcPtr = (uint8_t*)src;
     uint8_t*       dstPtr = (uint8_t*)dst;
     int offset   = 128;
-#elif MNN_USE_RVV
+#elif defined(MNN_USE_RVV)
     MNNScaleAndAddBiasInt8_RVV(dst, src, bias, alpha, mShiftBits, minValue, maxValue, inputZeroPoint, outputZeroPoint, planeNumber, biasNumber, pack);
     return;
 #else
@@ -2422,7 +2422,7 @@ static void _ArmBasicMNNPackC4ForMatMul_A_L4(int8_t* destOrigin, int8_t const** 
 static void MNNSumByAxisLForMatmul_A(float* dest, int8_t* source, const float* scale, ssize_t realDstCount, SumByAxisParams sumParams) {
 #ifdef MNN_USE_SSE
     uint8_t* srcInt8 = reinterpret_cast<uint8_t*>(source);
-#elif MNN_USE_RVV
+#elif defined(MNN_USE_RVV)
     MNNSumByAxisLForMatmul_A_RVV(dest, source, scale, realDstCount, sumParams);
     return;
 #else
@@ -2613,7 +2613,7 @@ void MNNCoreInt8FunctionInit() {
 #ifdef MNN_USE_RVV
     if (core->supportRVV) {
         gCoreFunc->Int8GemmKernel = MNNGemmInt8AddBiasScale_16x4_Unit_RVV;
-        core->MNNSumByAxisLForMatmul_A = MNNSumByAxisLForMatmul_A
+        core->MNNSumByAxisLForMatmul_A = MNNSumByAxisLForMatmul_A;
         #ifdef MNN_USE_SPARSE_COMPUTE
         // sparse
         gCoreFunc->MNNPackC4Int8ForMatMul_ASparse = _MNNPackC4Int8ForMatMul_ASparse_RVV;
