@@ -630,9 +630,8 @@ void CPULinearAttention::gated_delta_rule_mnn(const std::vector<Tensor*>& inputs
 
                 // out_t is written; state S is updated in-place.
                 int8_t* o_t = outPtr + ((b * L + t) * H * d_v + h * d_v) * bytes;
-                gcore->MNNFusedGatedDelta((float*)state, (float*)k_local, (float*)q_local,
-                                          (float*)v_local, (float*)o_t, decay, beta_t, kq,
-                                          d_k, d_v);
+                gcore->MNNFusedGatedDelta((float*)state, (float*)k_local, (float*)q_local, (float*)v_local, (float*)o_t,
+                                          decay, beta_t, kq, d_k, d_v);
             } // end timestep
         } // end head
     }
@@ -773,8 +772,8 @@ void CPULinearAttention::gated_delta_rule_decode(const std::vector<Tensor*>& inp
             // Pass 1 (read-only): out_k = S^T @ k → localVPred,
             //                     out_q = S^T @ q → o_t (overwritten by correction below).
             int8_t* o_t = outPtr + (b * H * d_v + h * d_v) * bytes;
-            gcore->MNNDualMatVec((float*)state, (float*)k_local, (float*)q_local,
-                                 (float*)localVPred, (float*)o_t, d_k, d_v);
+            gcore->MNNDualMatVec((float*)state, (float*)k_local, (float*)q_local, (float*)localVPred, (float*)o_t, d_k,
+                                 d_v);
 
             // Analytic correction: delta = beta * (v - decay * vPred);
             //                      out   = decay * out_q + dot(k,q) * delta.
@@ -784,16 +783,15 @@ void CPULinearAttention::gated_delta_rule_decode(const std::vector<Tensor*>& inp
             }
             for (int i = 0; i < d_v; ++i) {
                 const float vPred_i = decay * _readElement(localVPred, i, bytes);
-                const float v_i     = _readElement(v_local, i, bytes);
+                const float v_i = _readElement(v_local, i, bytes);
                 const float delta_i = beta_t * (v_i - vPred_i);
-                const float out_i   = decay * _readElement(o_t, i, bytes) + kq * delta_i;
+                const float out_i = decay * _readElement(o_t, i, bytes) + kq * delta_i;
                 _writeElement(localDelta, i, delta_i, bytes);
                 _writeElement(o_t, i, out_i, bytes);
             }
 
             // Pass 2: S = decay * S + k ⊗ delta.
-            gcore->MNNDecayRankOneUpdate((float*)state, (float*)k_local,
-                                         (float*)localDelta, decay, d_k, d_v);
+            gcore->MNNDecayRankOneUpdate((float*)state, (float*)k_local, (float*)localDelta, decay, d_k, d_v);
         }
     }
     MNN_CONCURRENCY_END();

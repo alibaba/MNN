@@ -36,8 +36,8 @@ namespace {
 //   delta = beta * (v - decay * out_k)
 //   out   = decay * (S^T @ q) + dot(k,q) * delta
 //   S     = decay * S + k ⊗ delta
-static void refOneStep(float* S, const float* k, const float* q, const float* v,
-                       float* out, float decay, float beta, int dk, int dv) {
+static void refOneStep(float* S, const float* k, const float* q, const float* v, float* out, float decay, float beta,
+                       int dk, int dv) {
     std::vector<float> outK(dv, 0.0f), outQ(dv, 0.0f), delta(dv, 0.0f);
     for (int i = 0; i < dk; ++i) {
         const float* row = S + i * dv;
@@ -47,11 +47,12 @@ static void refOneStep(float* S, const float* k, const float* q, const float* v,
         }
     }
     float kq = 0.0f;
-    for (int i = 0; i < dk; ++i) kq += k[i] * q[i];
+    for (int i = 0; i < dk; ++i)
+        kq += k[i] * q[i];
     for (int j = 0; j < dv; ++j) {
         float vPred = decay * outK[j];
-        delta[j]    = beta * (v[j] - vPred);
-        out[j]      = decay * outQ[j] + kq * delta[j];
+        delta[j] = beta * (v[j] - vPred);
+        out[j] = decay * outQ[j] + kq * delta[j];
     }
     for (int i = 0; i < dk; ++i) {
         float ki = k[i];
@@ -68,42 +69,48 @@ static void applyL2NormAndScale(float* q, float* k, int dk) {
     const float eps = 1e-6f;
     const float qScale = 1.0f / std::sqrt((float)dk);
     float qSq = 0.0f, kSq = 0.0f;
-    for (int i = 0; i < dk; ++i) { qSq += q[i] * q[i]; kSq += k[i] * k[i]; }
+    for (int i = 0; i < dk; ++i) {
+        qSq += q[i] * q[i];
+        kSq += k[i] * k[i];
+    }
     float qNS = qScale / std::sqrt(qSq + eps);
     float kIN = 1.0f / std::sqrt(kSq + eps);
-    for (int i = 0; i < dk; ++i) { q[i] *= qNS; k[i] *= kIN; }
+    for (int i = 0; i < dk; ++i) {
+        q[i] *= qNS;
+        k[i] *= kIN;
+    }
 }
 
 // Build a LinearAttention op as a Module so we can run forward(). Uses the
 // same FlatBuffers-based construction as LinearAttentionTest.
 static std::shared_ptr<Module> makeModule(int numKHeads, int numVHeads, int dk, int dv) {
-    auto qkv   = _Input();
-    auto gate  = _Input();
-    auto beta  = _Input();
+    auto qkv = _Input();
+    auto gate = _Input();
+    auto beta = _Input();
     auto convW = _Input();
 
     std::shared_ptr<MNN::OpT> op(new MNN::OpT);
-    op->type        = MNN::OpType_LinearAttention;
-    op->main.type   = MNN::OpParameter_LinearAttentionParam;
-    op->main.value  = new MNN::LinearAttentionParamT;
-    auto* p         = op->main.AsLinearAttentionParam();
-    p->attn_type    = "gated_delta_rule";
-    p->num_k_heads  = numKHeads;
-    p->num_v_heads  = numVHeads;
-    p->head_k_dim   = dk;
-    p->head_v_dim   = dv;
+    op->type = MNN::OpType_LinearAttention;
+    op->main.type = MNN::OpParameter_LinearAttentionParam;
+    op->main.value = new MNN::LinearAttentionParamT;
+    auto* p = op->main.AsLinearAttentionParam();
+    p->attn_type = "gated_delta_rule";
+    p->num_k_heads = numKHeads;
+    p->num_v_heads = numVHeads;
+    p->head_k_dim = dk;
+    p->head_v_dim = dv;
     p->use_qk_l2norm = true;
 
-    auto out    = Variable::create(Expr::create(op.get(), {qkv, gate, beta, convW}));
+    auto out = Variable::create(Expr::create(op.get(), {qkv, gate, beta, convW}));
     auto buffer = Variable::save({out});
 
     MNN::ScheduleConfig config;
     auto status = MNNTestSuite::get()->pStaus;
     config.type = (MNNForwardType)status.forwardType;
     MNN::BackendConfig bn;
-    bn.memory    = (MNN::BackendConfig::MemoryMode)status.memory;
+    bn.memory = (MNN::BackendConfig::MemoryMode)status.memory;
     bn.precision = (MNN::BackendConfig::PrecisionMode)status.precision;
-    bn.power     = (MNN::BackendConfig::PowerMode)status.power;
+    bn.power = (MNN::BackendConfig::PowerMode)status.power;
     config.backendConfig = &bn;
     config.numThread = 1;
 
@@ -117,8 +124,8 @@ struct Case {
     int Hv;
     int dk;
     int dv;
-    int L;          // 1 → exercises gated_delta_rule_decode; >1 → gated_delta_rule_mnn (prefill)
-    int numSteps;   // number of forward() invocations; state accumulates across steps
+    int L;        // 1 → exercises gated_delta_rule_decode; >1 → gated_delta_rule_mnn (prefill)
+    int numSteps; // number of forward() invocations; state accumulates across steps
 };
 
 // Run one Case: drives the LinearAttention module forward `numSteps` times,
@@ -132,7 +139,7 @@ static bool runCase(const Case& cs, std::mt19937& rng, float tolerance) {
     const int Hv = cs.Hv;
     const int dk = cs.dk;
     const int dv = cs.dv;
-    const int L  = cs.L;
+    const int L = cs.L;
     const int K_conv = 4;
     const int convStateSize = K_conv - 1;
     const int key_dim = Hk * dk;
@@ -150,7 +157,8 @@ static bool runCase(const Case& cs, std::mt19937& rng, float tolerance) {
     {
         float* w = convWVar->writeMap<float>();
         std::uniform_real_distribution<float> dist(-0.15f, 0.15f);
-        for (int i = 0; i < D * K_conv; ++i) w[i] = dist(rng);
+        for (int i = 0; i < D * K_conv; ++i)
+            w[i] = dist(rng);
     }
 
     // Reference state — module starts from zero on first call.
@@ -158,25 +166,28 @@ static bool runCase(const Case& cs, std::mt19937& rng, float tolerance) {
     std::vector<float> refS(B * Hv * dk * dv, 0.0f);
 
     for (int step = 0; step < cs.numSteps; ++step) {
-        auto qkvVar  = _Input({B, D, L}, NCHW, halide_type_of<float>());
+        auto qkvVar = _Input({B, D, L}, NCHW, halide_type_of<float>());
         auto gateVar = _Input({B, L, Hv}, NCHW, halide_type_of<float>());
         auto betaVar = _Input({B, L, Hv}, NCHW, halide_type_of<float>());
         std::uniform_real_distribution<float> qkvDist(-0.3f, 0.3f);
         {
             float* qkv = qkvVar->writeMap<float>();
-            for (int i = 0; i < B * D * L; ++i) qkv[i] = qkvDist(rng);
+            for (int i = 0; i < B * D * L; ++i)
+                qkv[i] = qkvDist(rng);
             float* g = gateVar->writeMap<float>();
-            for (int i = 0; i < B * L * Hv; ++i) g[i] = -0.1f - 0.05f * (i % 3);
+            for (int i = 0; i < B * L * Hv; ++i)
+                g[i] = -0.1f - 0.05f * (i % 3);
             float* b = betaVar->writeMap<float>();
-            for (int i = 0; i < B * L * Hv; ++i) b[i] = 0.4f + 0.1f * (i % 4);
+            for (int i = 0; i < B * L * Hv; ++i)
+                b[i] = 0.4f + 0.1f * (i % 4);
         }
 
         // ── Reference path ──
         std::vector<float> refOut(B * L * Hv * dv, 0.0f);
         const float* convWPtr = convWVar->readMap<float>();
-        const float* qkvPtr   = qkvVar->readMap<float>();
-        const float* gPtr     = gateVar->readMap<float>();
-        const float* bPtr     = betaVar->readMap<float>();
+        const float* qkvPtr = qkvVar->readMap<float>();
+        const float* gPtr = gateVar->readMap<float>();
+        const float* bPtr = betaVar->readMap<float>();
 
         // Conv1D + SiLU across all L tokens, channel-by-channel.
         // convOut layout matches the runtime: [B, D, L] (channel-major within batch).
@@ -188,11 +199,13 @@ static bool runCase(const Case& cs, std::mt19937& rng, float tolerance) {
                 for (int l = 0; l < L; ++l) {
                     float xnew = qkvPtr[(b * D + d) * L + l];
                     float sum = xnew * w[convStateSize];
-                    for (int kk = 0; kk < convStateSize; ++kk) sum += mState[kk] * w[kk];
+                    for (int kk = 0; kk < convStateSize; ++kk)
+                        sum += mState[kk] * w[kk];
                     float sig = 1.0f / (1.0f + std::exp(-sum));
                     convOut[(b * D + d) * L + l] = sum * sig;
                     // Shift state and append xnew.
-                    for (int kk = 0; kk < convStateSize - 1; ++kk) mState[kk] = mState[kk + 1];
+                    for (int kk = 0; kk < convStateSize - 1; ++kk)
+                        mState[kk] = mState[kk + 1];
                     mState[convStateSize - 1] = xnew;
                 }
             }
@@ -212,12 +225,11 @@ static bool runCase(const Case& cs, std::mt19937& rng, float tolerance) {
                         vLocal[i] = convOut[(b * D + 2 * key_dim + h * dv + i) * L + t];
                     }
                     applyL2NormAndScale(qLocal.data(), kLocal.data(), dk);
-                    float decay  = std::exp(gPtr[b * L * Hv + t * Hv + h]);
+                    float decay = std::exp(gPtr[b * L * Hv + t * Hv + h]);
                     float beta_t = bPtr[b * L * Hv + t * Hv + h];
                     float* state = refS.data() + (b * Hv + h) * dk * dv;
                     float* outSlot = refOut.data() + ((b * L + t) * Hv + h) * dv;
-                    refOneStep(state, kLocal.data(), qLocal.data(), vLocal.data(),
-                               outSlot, decay, beta_t, dk, dv);
+                    refOneStep(state, kLocal.data(), qLocal.data(), vLocal.data(), outSlot, decay, beta_t, dk, dv);
                 }
             }
         }
@@ -233,15 +245,16 @@ static bool runCase(const Case& cs, std::mt19937& rng, float tolerance) {
         for (int i = 0; i < N; ++i) {
             float diff = std::fabs(res[i] - refOut[i]);
             if (diff > tolerance) {
-                MNN_PRINT("FusedGatedDeltaTest[%s] step %d MISMATCH idx=%d "
-                          "ref=%.6f got=%.6f diff=%.4e (tol=%.4e)\n",
-                          cs.name, step, i, refOut[i], res[i], diff, tolerance);
+                MNN_PRINT(
+                    "FusedGatedDeltaTest[%s] step %d MISMATCH idx=%d "
+                    "ref=%.6f got=%.6f diff=%.4e (tol=%.4e)\n",
+                    cs.name, step, i, refOut[i], res[i], diff, tolerance);
                 return false;
             }
         }
     }
-    MNN_PRINT("FusedGatedDeltaTest[%s] Hk=%d Hv=%d dk=%d dv=%d L=%d × %d steps PASSED\n",
-              cs.name, Hk, Hv, dk, dv, L, cs.numSteps);
+    MNN_PRINT("FusedGatedDeltaTest[%s] Hk=%d Hv=%d dk=%d dv=%d L=%d × %d steps PASSED\n", cs.name, Hk, Hv, dk, dv, L,
+              cs.numSteps);
     return true;
 }
 
@@ -257,21 +270,22 @@ public:
         //    gated_delta_rule_mnn path with the shared per-thread buffer
         std::vector<Case> cases = {
             // {name,                    Hk, Hv,  dk,  dv,  L, steps}
-            {"decode_1h_dk64_dv64",       1,  1,  64,  64,  1, 4},
-            {"decode_1h_dk64_dv128",      1,  1,  64, 128,  1, 4},
-            {"decode_1h_dk128_dv64",      1,  1, 128,  64,  1, 4},
-            {"decode_1h_dk128_dv128",     1,  1, 128, 128,  1, 4}, // ← Qwen3-Next shape
-            {"decode_4h_dk128_dv128",     4,  4, 128, 128,  1, 3}, // multi-head decode
-            {"decode_gqa2_dk128_dv128",   2,  4, 128, 128,  1, 3}, // GQA 2:1 decode
-            {"prefill_1h_dk128_dv128",    1,  1, 128, 128,  8, 2}, // L>1 single head
-            {"prefill_4h_dk128_dv128",    4,  4, 128, 128,  8, 2}, // L>1 multi-head
-            {"prefill_gqa2_dk128_dv128",  2,  4, 128, 128,  8, 2}, // L>1 + GQA
+            {"decode_1h_dk64_dv64", 1, 1, 64, 64, 1, 4},
+            {"decode_1h_dk64_dv128", 1, 1, 64, 128, 1, 4},
+            {"decode_1h_dk128_dv64", 1, 1, 128, 64, 1, 4},
+            {"decode_1h_dk128_dv128", 1, 1, 128, 128, 1, 4},    // ← Qwen3-Next shape
+            {"decode_4h_dk128_dv128", 4, 4, 128, 128, 1, 3},    // multi-head decode
+            {"decode_gqa2_dk128_dv128", 2, 4, 128, 128, 1, 3},  // GQA 2:1 decode
+            {"prefill_1h_dk128_dv128", 1, 1, 128, 128, 8, 2},   // L>1 single head
+            {"prefill_4h_dk128_dv128", 4, 4, 128, 128, 8, 2},   // L>1 multi-head
+            {"prefill_gqa2_dk128_dv128", 2, 4, 128, 128, 8, 2}, // L>1 + GQA
         };
 
         // fp16 path accumulates more round-off — loosen tolerance for low-precision.
         float tol = (precision == BackendConfig::Precision_Low) ? 6e-2f : 5e-3f;
         for (auto& cs : cases) {
-            if (!runCase(cs, rng, tol)) return false;
+            if (!runCase(cs, rng, tol))
+                return false;
         }
         return true;
     }

@@ -299,9 +299,8 @@ struct CoreFunctions {
     //     out   = decay * out_q + kq * delta                    [d_v] (written)
     //     S     = decay * S + k ⊗ delta                         [d_k, d_v] (in-place)
     // 'kq' must be precomputed as dot(k,q) by the caller.
-    void(*MNNFusedGatedDelta)(float* S, const float* k, const float* q, const float* v,
-                              float* out, float decay, float beta, float kq,
-                              size_t dk, size_t dv);
+    void (*MNNFusedGatedDelta)(float* S, const float* k, const float* q, const float* v, float* out, float decay,
+                               float beta, float kq, size_t dk, size_t dv);
     void(*MNNCountMaxMinValue)(const float* source, float* minVal, float* maxVal, size_t size);
     void(*MNNDynamicUpdateConvBiasScale)(float* newbias, float* oldbias, float* weightKernelSum, float* inputZero, size_t ocQuad);
     void(*MNNAsyQuantInfo)(float* scale, float* bias, float* qscale, float* qbias, float* dstMin, float* dstMax, const float* src, const size_t* info);

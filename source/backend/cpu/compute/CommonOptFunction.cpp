@@ -4107,9 +4107,8 @@ void MNNDecayRankOneUpdateDefault(float* S, const float* k, const float* delta, 
 // Requires d_v to be a multiple of 16 in fp32 (Qwen3-Next-style heads use
 // d_v ∈ {64, 128, 256}). A scalar tail covers the remainder defensively.
 // ─────────────────────────────────────────────────────────────────────────
-static void MNNFusedGatedDeltaDefault(float* S, const float* k, const float* q, const float* v,
-                                      float* out, float decay, float beta, float kq,
-                                      size_t dk, size_t dv) {
+static void MNNFusedGatedDeltaDefault(float* S, const float* k, const float* q, const float* v, float* out, float decay,
+                                      float beta, float kq, size_t dk, size_t dv) {
 #if defined(__aarch64__) && defined(MNN_USE_NEON)
     // FP32 chunk = 16 elements (4 v.4s registers per accumulator).
     // The inner loop is unrolled by 4 rows so a single vld1q_f32 of
@@ -4117,40 +4116,40 @@ static void MNNFusedGatedDeltaDefault(float* S, const float* k, const float* q, 
     // .s[lane], amortizing the scalar broadcast across 4 row iterations.
     const size_t kChunk = 16;
     const float32x4_t vDecay = vdupq_n_f32(decay);
-    const float32x4_t vBeta  = vdupq_n_f32(beta);
-    const float32x4_t vKq    = vdupq_n_f32(kq);
+    const float32x4_t vBeta = vdupq_n_f32(beta);
+    const float32x4_t vKq = vdupq_n_f32(kq);
 
     size_t j = 0;
     for (; j + kChunk <= dv; j += kChunk) {
         // ── Pass 1: out_k = S^T @ k, out_q = S^T @ q for this column chunk ──
-        float32x4_t ok0 = vdupq_n_f32(0.0f), ok1 = vdupq_n_f32(0.0f),
-                    ok2 = vdupq_n_f32(0.0f), ok3 = vdupq_n_f32(0.0f);
-        float32x4_t oq0 = vdupq_n_f32(0.0f), oq1 = vdupq_n_f32(0.0f),
-                    oq2 = vdupq_n_f32(0.0f), oq3 = vdupq_n_f32(0.0f);
+        float32x4_t ok0 = vdupq_n_f32(0.0f), ok1 = vdupq_n_f32(0.0f), ok2 = vdupq_n_f32(0.0f), ok3 = vdupq_n_f32(0.0f);
+        float32x4_t oq0 = vdupq_n_f32(0.0f), oq1 = vdupq_n_f32(0.0f), oq2 = vdupq_n_f32(0.0f), oq3 = vdupq_n_f32(0.0f);
 
         size_t i = 0;
         for (; i + 4 <= dk; i += 4) {
             float32x4_t kVec = vld1q_f32(k + i);
             float32x4_t qVec = vld1q_f32(q + i);
-            #define LANE_STEP_FP32(lane)                                          \
-                {                                                                  \
-                    const float* row = S + (i + (lane)) * dv + j;                  \
-                    float32x4_t s0 = vld1q_f32(row);                               \
-                    float32x4_t s1 = vld1q_f32(row + 4);                           \
-                    float32x4_t s2 = vld1q_f32(row + 8);                           \
-                    float32x4_t s3 = vld1q_f32(row + 12);                          \
-                    ok0 = vfmaq_laneq_f32(ok0, s0, kVec, (lane));                  \
-                    ok1 = vfmaq_laneq_f32(ok1, s1, kVec, (lane));                  \
-                    ok2 = vfmaq_laneq_f32(ok2, s2, kVec, (lane));                  \
-                    ok3 = vfmaq_laneq_f32(ok3, s3, kVec, (lane));                  \
-                    oq0 = vfmaq_laneq_f32(oq0, s0, qVec, (lane));                  \
-                    oq1 = vfmaq_laneq_f32(oq1, s1, qVec, (lane));                  \
-                    oq2 = vfmaq_laneq_f32(oq2, s2, qVec, (lane));                  \
-                    oq3 = vfmaq_laneq_f32(oq3, s3, qVec, (lane));                  \
-                }
-            LANE_STEP_FP32(0); LANE_STEP_FP32(1);
-            LANE_STEP_FP32(2); LANE_STEP_FP32(3);
-            #undef LANE_STEP_FP32
+#define LANE_STEP_FP32(lane)                          \
+    {                                                 \
+        const float* row = S + (i + (lane)) * dv + j; \
+        float32x4_t s0 = vld1q_f32(row);              \
+        float32x4_t s1 = vld1q_f32(row + 4);          \
+        float32x4_t s2 = vld1q_f32(row + 8);          \
+        float32x4_t s3 = vld1q_f32(row + 12);         \
+        ok0 = vfmaq_laneq_f32(ok0, s0, kVec, (lane)); \
+        ok1 = vfmaq_laneq_f32(ok1, s1, kVec, (lane)); \
+        ok2 = vfmaq_laneq_f32(ok2, s2, kVec, (lane)); \
+        ok3 = vfmaq_laneq_f32(ok3, s3, kVec, (lane)); \
+        oq0 = vfmaq_laneq_f32(oq0, s0, qVec, (lane)); \
+        oq1 = vfmaq_laneq_f32(oq1, s1, qVec, (lane)); \
+        oq2 = vfmaq_laneq_f32(oq2, s2, qVec, (lane)); \
+        oq3 = vfmaq_laneq_f32(oq3, s3, qVec, (lane)); \
+    }
+            LANE_STEP_FP32(0);
+            LANE_STEP_FP32(1);
+            LANE_STEP_FP32(2);
+            LANE_STEP_FP32(3);
+#undef LANE_STEP_FP32
         }
         // Tail rows (dk % 4) — fall back to scalar broadcast form.
         for (; i < dk; ++i) {
@@ -4184,34 +4183,36 @@ static void MNNFusedGatedDeltaDefault(float* S, const float* k, const float* q, 
         float32x4_t o1 = vfmaq_f32(vmulq_f32(vDecay, oq1), vKq, d1);
         float32x4_t o2 = vfmaq_f32(vmulq_f32(vDecay, oq2), vKq, d2);
         float32x4_t o3 = vfmaq_f32(vmulq_f32(vDecay, oq3), vKq, d3);
-        vst1q_f32(out + j,      o0);
-        vst1q_f32(out + j + 4,  o1);
-        vst1q_f32(out + j + 8,  o2);
+        vst1q_f32(out + j, o0);
+        vst1q_f32(out + j + 4, o1);
+        vst1q_f32(out + j + 8, o2);
         vst1q_f32(out + j + 12, o3);
 
         // ── Pass 2: S = decay * S + k ⊗ delta (delta d0..d3 still in regs) ──
         size_t i2 = 0;
         for (; i2 + 4 <= dk; i2 += 4) {
             float32x4_t kVec = vld1q_f32(k + i2);
-            #define ROW_UPDATE_FP32(lane)                                              \
-                {                                                                       \
-                    float* row = S + (i2 + (lane)) * dv + j;                            \
-                    float32x4_t s0 = vld1q_f32(row);                                    \
-                    float32x4_t s1 = vld1q_f32(row + 4);                                \
-                    float32x4_t s2 = vld1q_f32(row + 8);                                \
-                    float32x4_t s3 = vld1q_f32(row + 12);                               \
-                    float32x4_t r0 = vfmaq_laneq_f32(vmulq_f32(vDecay, s0), d0, kVec, (lane)); \
-                    float32x4_t r1 = vfmaq_laneq_f32(vmulq_f32(vDecay, s1), d1, kVec, (lane)); \
-                    float32x4_t r2 = vfmaq_laneq_f32(vmulq_f32(vDecay, s2), d2, kVec, (lane)); \
-                    float32x4_t r3 = vfmaq_laneq_f32(vmulq_f32(vDecay, s3), d3, kVec, (lane)); \
-                    vst1q_f32(row,      r0);                                            \
-                    vst1q_f32(row + 4,  r1);                                            \
-                    vst1q_f32(row + 8,  r2);                                            \
-                    vst1q_f32(row + 12, r3);                                            \
-                }
-            ROW_UPDATE_FP32(0); ROW_UPDATE_FP32(1);
-            ROW_UPDATE_FP32(2); ROW_UPDATE_FP32(3);
-            #undef ROW_UPDATE_FP32
+#define ROW_UPDATE_FP32(lane)                                                      \
+    {                                                                              \
+        float* row = S + (i2 + (lane)) * dv + j;                                   \
+        float32x4_t s0 = vld1q_f32(row);                                           \
+        float32x4_t s1 = vld1q_f32(row + 4);                                       \
+        float32x4_t s2 = vld1q_f32(row + 8);                                       \
+        float32x4_t s3 = vld1q_f32(row + 12);                                      \
+        float32x4_t r0 = vfmaq_laneq_f32(vmulq_f32(vDecay, s0), d0, kVec, (lane)); \
+        float32x4_t r1 = vfmaq_laneq_f32(vmulq_f32(vDecay, s1), d1, kVec, (lane)); \
+        float32x4_t r2 = vfmaq_laneq_f32(vmulq_f32(vDecay, s2), d2, kVec, (lane)); \
+        float32x4_t r3 = vfmaq_laneq_f32(vmulq_f32(vDecay, s3), d3, kVec, (lane)); \
+        vst1q_f32(row, r0);                                                        \
+        vst1q_f32(row + 4, r1);                                                    \
+        vst1q_f32(row + 8, r2);                                                    \
+        vst1q_f32(row + 12, r3);                                                   \
+    }
+            ROW_UPDATE_FP32(0);
+            ROW_UPDATE_FP32(1);
+            ROW_UPDATE_FP32(2);
+            ROW_UPDATE_FP32(3);
+#undef ROW_UPDATE_FP32
         }
         for (; i2 < dk; ++i2) {
             float* row = S + i2 * dv + j;
@@ -4223,9 +4224,9 @@ static void MNNFusedGatedDeltaDefault(float* S, const float* k, const float* q, 
             float32x4_t r1 = vfmaq_n_f32(vmulq_f32(vDecay, s1), d1, k[i2]);
             float32x4_t r2 = vfmaq_n_f32(vmulq_f32(vDecay, s2), d2, k[i2]);
             float32x4_t r3 = vfmaq_n_f32(vmulq_f32(vDecay, s3), d3, k[i2]);
-            vst1q_f32(row,      r0);
-            vst1q_f32(row + 4,  r1);
-            vst1q_f32(row + 8,  r2);
+            vst1q_f32(row, r0);
+            vst1q_f32(row + 4, r1);
+            vst1q_f32(row + 8, r2);
             vst1q_f32(row + 12, r3);
         }
     }

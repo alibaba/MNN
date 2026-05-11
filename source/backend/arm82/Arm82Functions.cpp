@@ -92,55 +92,60 @@ void MNNDecayRankOneUpdateFp16(float* S, const float* k, const float* delta, flo
 // which matters at d_v=128 where holding both out_k and out_q for the
 // whole row would otherwise exceed the 32 NEON v register budget.
 // ──────────────────────────────────────────────────────────────────────────
-static void MNNFusedGatedDeltaFp16(float* S_, const float* k_, const float* q_, const float* v_,
-                                   float* out_, float decay, float beta, float kq,
-                                   size_t dk, size_t dv) {
-    auto S   = reinterpret_cast<__fp16*>(S_);
-    auto k   = reinterpret_cast<const __fp16*>(k_);
-    auto q   = reinterpret_cast<const __fp16*>(q_);
+static void MNNFusedGatedDeltaFp16(float* S_, const float* k_, const float* q_, const float* v_, float* out_,
+                                   float decay, float beta, float kq, size_t dk, size_t dv) {
+    auto S = reinterpret_cast<__fp16*>(S_);
+    auto k = reinterpret_cast<const __fp16*>(k_);
+    auto q = reinterpret_cast<const __fp16*>(q_);
     auto vIn = reinterpret_cast<const __fp16*>(v_);
     auto out = reinterpret_cast<__fp16*>(out_);
 
     const __fp16 decayH = static_cast<__fp16>(decay);
-    const __fp16 betaH  = static_cast<__fp16>(beta);
-    const __fp16 kqH    = static_cast<__fp16>(kq);
+    const __fp16 betaH = static_cast<__fp16>(beta);
+    const __fp16 kqH = static_cast<__fp16>(kq);
     const float16x8_t vDecay = vdupq_n_f16(decayH);
-    const float16x8_t vBeta  = vdupq_n_f16(betaH);
-    const float16x8_t vKq    = vdupq_n_f16(kqH);
+    const float16x8_t vBeta = vdupq_n_f16(betaH);
+    const float16x8_t vKq = vdupq_n_f16(kqH);
 
     const size_t kChunk = 32;
     size_t j = 0;
     for (; j + kChunk <= dv; j += kChunk) {
         // ── Pass 1: out_k = S^T @ k, out_q = S^T @ q for this column chunk ──
-        float16x8_t ok0 = vdupq_n_f16((__fp16)0), ok1 = vdupq_n_f16((__fp16)0),
-                    ok2 = vdupq_n_f16((__fp16)0), ok3 = vdupq_n_f16((__fp16)0);
-        float16x8_t oq0 = vdupq_n_f16((__fp16)0), oq1 = vdupq_n_f16((__fp16)0),
-                    oq2 = vdupq_n_f16((__fp16)0), oq3 = vdupq_n_f16((__fp16)0);
+        float16x8_t ok0 = vdupq_n_f16((__fp16)0), ok1 = vdupq_n_f16((__fp16)0), ok2 = vdupq_n_f16((__fp16)0),
+                    ok3 = vdupq_n_f16((__fp16)0);
+        float16x8_t oq0 = vdupq_n_f16((__fp16)0), oq1 = vdupq_n_f16((__fp16)0), oq2 = vdupq_n_f16((__fp16)0),
+                    oq3 = vdupq_n_f16((__fp16)0);
         size_t i = 0;
         // Unroll i by 8: load 8 k & q scalars at once, then use fma-by-lane
         // to amortize the scalar broadcast across 8 row iterations.
         for (; i + 8 <= dk; i += 8) {
             float16x8_t kVec = vld1q_f16(k + i);
             float16x8_t qVec = vld1q_f16(q + i);
-            #define LANE_STEP(lane)                                              \
-                {                                                                \
-                    const __fp16* row = S + (i + (lane)) * dv + j;               \
-                    float16x8_t s0 = vld1q_f16(row);                             \
-                    float16x8_t s1 = vld1q_f16(row + 8);                         \
-                    float16x8_t s2 = vld1q_f16(row + 16);                        \
-                    float16x8_t s3 = vld1q_f16(row + 24);                        \
-                    ok0 = vfmaq_laneq_f16(ok0, s0, kVec, (lane));                \
-                    ok1 = vfmaq_laneq_f16(ok1, s1, kVec, (lane));                \
-                    ok2 = vfmaq_laneq_f16(ok2, s2, kVec, (lane));                \
-                    ok3 = vfmaq_laneq_f16(ok3, s3, kVec, (lane));                \
-                    oq0 = vfmaq_laneq_f16(oq0, s0, qVec, (lane));                \
-                    oq1 = vfmaq_laneq_f16(oq1, s1, qVec, (lane));                \
-                    oq2 = vfmaq_laneq_f16(oq2, s2, qVec, (lane));                \
-                    oq3 = vfmaq_laneq_f16(oq3, s3, qVec, (lane));                \
-                }
-            LANE_STEP(0); LANE_STEP(1); LANE_STEP(2); LANE_STEP(3);
-            LANE_STEP(4); LANE_STEP(5); LANE_STEP(6); LANE_STEP(7);
-            #undef LANE_STEP
+#define LANE_STEP(lane)                                \
+    {                                                  \
+        const __fp16* row = S + (i + (lane)) * dv + j; \
+        float16x8_t s0 = vld1q_f16(row);               \
+        float16x8_t s1 = vld1q_f16(row + 8);           \
+        float16x8_t s2 = vld1q_f16(row + 16);          \
+        float16x8_t s3 = vld1q_f16(row + 24);          \
+        ok0 = vfmaq_laneq_f16(ok0, s0, kVec, (lane));  \
+        ok1 = vfmaq_laneq_f16(ok1, s1, kVec, (lane));  \
+        ok2 = vfmaq_laneq_f16(ok2, s2, kVec, (lane));  \
+        ok3 = vfmaq_laneq_f16(ok3, s3, kVec, (lane));  \
+        oq0 = vfmaq_laneq_f16(oq0, s0, qVec, (lane));  \
+        oq1 = vfmaq_laneq_f16(oq1, s1, qVec, (lane));  \
+        oq2 = vfmaq_laneq_f16(oq2, s2, qVec, (lane));  \
+        oq3 = vfmaq_laneq_f16(oq3, s3, qVec, (lane));  \
+    }
+            LANE_STEP(0);
+            LANE_STEP(1);
+            LANE_STEP(2);
+            LANE_STEP(3);
+            LANE_STEP(4);
+            LANE_STEP(5);
+            LANE_STEP(6);
+            LANE_STEP(7);
+#undef LANE_STEP
         }
         // Tail rows (dk % 8) — fall back to the broadcast form.
         for (; i < dk; ++i) {
@@ -176,8 +181,8 @@ static void MNNFusedGatedDeltaFp16(float* S_, const float* k_, const float* q_, 
         float16x8_t o1 = vfmaq_f16(vmulq_f16(vDecay, oq1), vKq, d1);
         float16x8_t o2 = vfmaq_f16(vmulq_f16(vDecay, oq2), vKq, d2);
         float16x8_t o3 = vfmaq_f16(vmulq_f16(vDecay, oq3), vKq, d3);
-        vst1q_f16(out + j,      o0);
-        vst1q_f16(out + j + 8,  o1);
+        vst1q_f16(out + j, o0);
+        vst1q_f16(out + j + 8, o1);
         vst1q_f16(out + j + 16, o2);
         vst1q_f16(out + j + 24, o3);
 
@@ -185,25 +190,31 @@ static void MNNFusedGatedDeltaFp16(float* S_, const float* k_, const float* q_, 
         size_t i2 = 0;
         for (; i2 + 8 <= dk; i2 += 8) {
             float16x8_t kVec = vld1q_f16(k + i2);
-            #define ROW_UPDATE(lane)                                              \
-                {                                                                  \
-                    __fp16* row = S + (i2 + (lane)) * dv + j;                      \
-                    float16x8_t s0 = vld1q_f16(row);                               \
-                    float16x8_t s1 = vld1q_f16(row + 8);                           \
-                    float16x8_t s2 = vld1q_f16(row + 16);                          \
-                    float16x8_t s3 = vld1q_f16(row + 24);                          \
-                    float16x8_t r0 = vfmaq_laneq_f16(vmulq_f16(vDecay, s0), d0, kVec, (lane)); \
-                    float16x8_t r1 = vfmaq_laneq_f16(vmulq_f16(vDecay, s1), d1, kVec, (lane)); \
-                    float16x8_t r2 = vfmaq_laneq_f16(vmulq_f16(vDecay, s2), d2, kVec, (lane)); \
-                    float16x8_t r3 = vfmaq_laneq_f16(vmulq_f16(vDecay, s3), d3, kVec, (lane)); \
-                    vst1q_f16(row,      r0);                                       \
-                    vst1q_f16(row + 8,  r1);                                       \
-                    vst1q_f16(row + 16, r2);                                       \
-                    vst1q_f16(row + 24, r3);                                       \
-                }
-            ROW_UPDATE(0); ROW_UPDATE(1); ROW_UPDATE(2); ROW_UPDATE(3);
-            ROW_UPDATE(4); ROW_UPDATE(5); ROW_UPDATE(6); ROW_UPDATE(7);
-            #undef ROW_UPDATE
+#define ROW_UPDATE(lane)                                                           \
+    {                                                                              \
+        __fp16* row = S + (i2 + (lane)) * dv + j;                                  \
+        float16x8_t s0 = vld1q_f16(row);                                           \
+        float16x8_t s1 = vld1q_f16(row + 8);                                       \
+        float16x8_t s2 = vld1q_f16(row + 16);                                      \
+        float16x8_t s3 = vld1q_f16(row + 24);                                      \
+        float16x8_t r0 = vfmaq_laneq_f16(vmulq_f16(vDecay, s0), d0, kVec, (lane)); \
+        float16x8_t r1 = vfmaq_laneq_f16(vmulq_f16(vDecay, s1), d1, kVec, (lane)); \
+        float16x8_t r2 = vfmaq_laneq_f16(vmulq_f16(vDecay, s2), d2, kVec, (lane)); \
+        float16x8_t r3 = vfmaq_laneq_f16(vmulq_f16(vDecay, s3), d3, kVec, (lane)); \
+        vst1q_f16(row, r0);                                                        \
+        vst1q_f16(row + 8, r1);                                                    \
+        vst1q_f16(row + 16, r2);                                                   \
+        vst1q_f16(row + 24, r3);                                                   \
+    }
+            ROW_UPDATE(0);
+            ROW_UPDATE(1);
+            ROW_UPDATE(2);
+            ROW_UPDATE(3);
+            ROW_UPDATE(4);
+            ROW_UPDATE(5);
+            ROW_UPDATE(6);
+            ROW_UPDATE(7);
+#undef ROW_UPDATE
         }
         for (; i2 < dk; ++i2) {
             __fp16* row = S + i2 * dv + j;
@@ -216,8 +227,8 @@ static void MNNFusedGatedDeltaFp16(float* S_, const float* k_, const float* q_, 
             float16x8_t r1 = vfmaq_n_f16(vmulq_f16(vDecay, s1), d1, ki);
             float16x8_t r2 = vfmaq_n_f16(vmulq_f16(vDecay, s2), d2, ki);
             float16x8_t r3 = vfmaq_n_f16(vmulq_f16(vDecay, s3), d3, ki);
-            vst1q_f16(row,      r0);
-            vst1q_f16(row + 8,  r1);
+            vst1q_f16(row, r0);
+            vst1q_f16(row + 8, r1);
             vst1q_f16(row + 16, r2);
             vst1q_f16(row + 24, r3);
         }
@@ -233,8 +244,8 @@ static void MNNFusedGatedDeltaFp16(float* S_, const float* k_, const float* q_, 
             oq = vfmaq_n_f16(oq, s, q[i]);
         }
         float16x8_t vv = vld1q_f16(vIn + j);
-        float16x8_t d  = vmulq_f16(vBeta, vsubq_f16(vv, vmulq_f16(vDecay, ok)));
-        float16x8_t o  = vfmaq_f16(vmulq_f16(vDecay, oq), vKq, d);
+        float16x8_t d = vmulq_f16(vBeta, vsubq_f16(vv, vmulq_f16(vDecay, ok)));
+        float16x8_t o = vfmaq_f16(vmulq_f16(vDecay, oq), vKq, d);
         vst1q_f16(out + j, o);
         for (size_t i = 0; i < dk; ++i) {
             float16x8_t s = vld1q_f16(S + i * dv + j);
@@ -260,8 +271,6 @@ static void MNNFusedGatedDeltaFp16(float* S_, const float* k_, const float* q_, 
     }
 }
 #endif // __aarch64__ && MNN_USE_NEON
-
-
 
 namespace MNN {
 
