@@ -17,8 +17,8 @@ void MNNDynamicQuantFP32(const float* src, int8_t* dst, const float* scale, size
             for (; n > 0; n -= vl, srcZ += vl, dstZ += vl) {
                 vl = __riscv_vsetvl_e32m4(n);
                 vfloat32m4_t v = __riscv_vle32_v_f32m4(srcZ, vl);
-                v = __riscv_vfmul_vf_f32m4(v, scaleVal, vl);
-                v = __riscv_vfadd_vf_f32m4(v, biasVal, vl);
+                vfloat32m4_t vbias = __riscv_vfmv_v_f_f32m4(biasVal, vl);
+                v = __riscv_vfmadd_vf_f32m4(v, scaleVal, vbias, vl);
                 vint32m4_t vi = __riscv_vfcvt_x_f_v_i32m4_rm(v, RV_RNU, vl);
                 vi = __riscv_vmax_vx_i32m4(vi, int8_min, vl);
                 vi = __riscv_vmin_vx_i32m4(vi, int8_max, vl);

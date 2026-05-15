@@ -1,4 +1,4 @@
-#include <riscv_vector.h>
+ï»¿#include <riscv_vector.h>
 #include <cstdint>
 #include <algorithm>
 
@@ -21,6 +21,7 @@ void MNNSumByAxisLForMatmul_A(float* dest, int8_t* source, const float* scale, s
 
     auto lastL = valid ? valid : LP;
     float singlescale = scale[0];
+    const size_t vlmax = __riscv_vsetvlmax_e32m4();
 
     do {
         int step = ALIMIN(EP, realDstCount);
@@ -29,7 +30,7 @@ void MNNSumByAxisLForMatmul_A(float* dest, int8_t* source, const float* scale, s
         for (int k = 0; k < blockNum; ++k) {
             const auto src_x = srcInt8 + k * (step * LP * blockSizeQuad * kernelxy);
 
-            // ?? wÎ¬Õ¹¿ª£¨2Â·£©
+            // ?? wç»´å±•å¼€ï¼ˆ2è·¯ï¼‰
             for (int w = 0; w < step; w += 2) {
                 int w0 = w;
                 int w1 = w + 1;
@@ -52,9 +53,9 @@ void MNNSumByAxisLForMatmul_A(float* dest, int8_t* source, const float* scale, s
                 const auto src_y0 = src_x + w0 * LP;
                 const auto src_y1 = has_w1 ? (src_x + w1 * LP) : nullptr;
 
-                // ?? ÕýÈ·£ºvectorÀÛ¼ÓÆ÷·ÅÔÚ×îÍâ²ã
-                vint32m4_t vacc0 = __riscv_vmv_v_x_i32m4(0, 1);
-                vint32m4_t vacc1 = __riscv_vmv_v_x_i32m4(0, 1);
+                // ?? æ­£ç¡®ï¼švectorç´¯åŠ å™¨æ”¾åœ¨æœ€å¤–å±‚
+                vint32m4_t vacc0 = __riscv_vmv_v_x_i32m4(0, vlmax);
+                vint32m4_t vacc1 = __riscv_vmv_v_x_i32m4(0, vlmax);
 
                 for (int j = 0; j < kernelxy; ++j) {
                     for (int i = 0; i < blockSizeQuad; ++i) {
@@ -94,9 +95,7 @@ void MNNSumByAxisLForMatmul_A(float* dest, int8_t* source, const float* scale, s
                         }
                     }
                 }
-
-                // ?? ÕýÈ·reduce£¨Ê¹ÓÃvlmax£©
-                size_t vlmax = __riscv_vsetvlmax_e32m4();
+                // Reduce full accumulator width.
 
                 vint32m1_t vzero = __riscv_vmv_s_x_i32m1(0, vlmax);
 

@@ -76,3 +76,9 @@ void MNNPackedMatMul_int8(float* C, const float* A, const float* B, const size_t
                           const float* postParameters, const float* bias, const float* k, const float* b) {
     _MNNPackedMatMulRemain_int8(C, A, B, 16, parameter, postParameters, bias, 16, k, b);
 }
+
+void MNNPackedMatMulRemain_int8(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
+                                const float* postParameters, const float* bias, const float* k, const float* b) {
+    const int aStride = static_cast<int>(parameter[0] / sizeof(float));
+    _MNNPackedMatMulRemain_int8(C, A, B, eSize, parameter, postParameters, bias, aStride, k, b);
+}

@@ -52,7 +52,8 @@ void MNNReorderWeightInt4(uint8_t* dest, const uint8_t* source, int32_t* shape, 
     std::vector<uint8_t> buffer(static_cast<size_t>(inside));
 
     for (int32_t i = 0; i < outside; ++i) {
-        std::vector<float> accum(static_cast<size_t>(hp), 0.0f);
+        float* sumBase = kernelsum + i * hp;
+        std::memset(sumBase, 0, static_cast<size_t>(hp) * sizeof(float));
         for (int32_t k = 0; k < lu; ++k) {
             uint8_t* dstBase = dest + (i * lu + k) * inside;
             int32_t j = 0;
@@ -98,8 +99,8 @@ void MNNReorderWeightInt4(uint8_t* dest, const uint8_t* source, int32_t* shape, 
                     const vint32m4_t sum1 = __riscv_vadd_vv_i32m4(__riscv_vwcvt_x_x_v_i32m4(w2_16, vl),
                                                                   __riscv_vwcvt_x_x_v_i32m4(w3_16, vl), vl);
 
-                    accum[static_cast<size_t>(h0)] += static_cast<float>(_rvvReduceAddI32(sum0, vl));
-                    accum[static_cast<size_t>(h1)] += static_cast<float>(_rvvReduceAddI32(sum1, vl));
+                    sumBase[h0] += static_cast<float>(_rvvReduceAddI32(sum0, vl));
+                    sumBase[h1] += static_cast<float>(_rvvReduceAddI32(sum1, vl));
 
                     p += static_cast<int32_t>(vl);
                 }
@@ -107,6 +108,5 @@ void MNNReorderWeightInt4(uint8_t* dest, const uint8_t* source, int32_t* shape, 
             }
             std::memcpy(dstBase, buffer.data(), static_cast<size_t>(inside));
         }
-        std::memcpy(kernelsum + i * hp, accum.data(), static_cast<size_t>(hp) * sizeof(float));
     }
 }

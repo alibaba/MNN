@@ -1,14 +1,13 @@
 #include <riscv_vector.h>
-#include <vector>
 #include <cstring>
 #include <cstdint>
 
 void MNNSumWeightInt8(float* kernelsum, int8_t* source, size_t outside, size_t reduceAxis, size_t hP, size_t lP) {
     size_t inside = hP * lP;
     size_t stride0 = inside * reduceAxis;
-    std::vector<float> accum(hP);
     for (size_t i = 0; i < outside; ++i) {
-        memset(accum.data(), 0, hP * sizeof(float));
+        float* dst = kernelsum + i * hP;
+        memset(dst, 0, hP * sizeof(float));
         for (size_t j = 0; j < reduceAxis; ++j) {
             for (size_t k = 0; k < hP; ++k) {
                 const int8_t* src_ptr = source + i * stride0 + j * inside + k * lP;
@@ -24,9 +23,8 @@ void MNNSumWeightInt8(float* kernelsum, int8_t* source, size_t outside, size_t r
                     sum += __riscv_vmv_x_s_i32m1_i32(vres);
                     x += vl;
                 }
-                accum[k] += (float)sum;
+                dst[k] += (float)sum;
             }
         }
-        memcpy(kernelsum + i * hP, accum.data(), hP * sizeof(float));
     }
 }
