@@ -14,7 +14,7 @@ void MNNAsyQuantFunc(int8_t* dst, const float* src, float* qscale, float* qbias,
     const int int8_max = 127;
     const size_t RV_RNU = 0x4;
 
-    const int EP_TILE = 4; // ?? ¿Éµ÷£¨4»ò8£©
+    const int EP_TILE = 4; // ?? ï¿½Éµï¿½ï¿½ï¿½4ï¿½ï¿½8ï¿½ï¿½
 
     for (int n = 0; n < kernelsize; ++n) {
         for (int bk = 0; bk < blockNum; ++bk) {
@@ -26,11 +26,11 @@ void MNNAsyQuantFunc(int8_t* dst, const float* src, float* qscale, float* qbias,
                 const float* srcBase = src + base;
                 int8_t* dstBase = dst + base;
 
-                // ?? EP ·Ö¿é
+                // ?? EP ï¿½Ö¿ï¿½
                 for (int i = 0; i < EP; i += EP_TILE) {
                     int tile = (i + EP_TILE <= EP) ? EP_TILE : (EP - i);
 
-                    // Ô¤È¡ÏÂÒ»¿é£¨pipeline£©
+                    // Ô¤È¡ï¿½ï¿½Ò»ï¿½é£¨pipelineï¿½ï¿½
                     __builtin_prefetch(srcBase + (i + EP_TILE) * LP, 0, 1);
 
                     for (int t = 0; t < tile; ++t) {
@@ -42,7 +42,7 @@ void MNNAsyQuantFunc(int8_t* dst, const float* src, float* qscale, float* qbias,
 
                         int j = 0;
 
-                        // ?? Ö÷ÏòÁ¿Ñ­»·
+                        // ?? ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ñ­ï¿½ï¿½
                         while (j < LP) {
                             size_t vl = __riscv_vsetvl_e32m4(LP - j);
 
