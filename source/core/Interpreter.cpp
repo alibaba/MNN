@@ -351,11 +351,15 @@ Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& 
 }
 
 Session* Interpreter::createSession(const ScheduleConfig& config) {
-    return createMultiPathSession({config});
+    std::vector<ScheduleConfig> configs(1, config);
+    configs[0].numThread = config.numThread;
+    return createMultiPathSession(configs);
 }
 
 Session* Interpreter::createSession(const ScheduleConfig& config, const RuntimeInfo& runtime) {
-    return createMultiPathSession({config}, runtime);
+    std::vector<ScheduleConfig> configs(1, config);
+    configs[0].numThread = config.numThread;
+    return createMultiPathSession(configs, runtime);
 }
 
 bool Interpreter::releaseSession(Session* session) {
