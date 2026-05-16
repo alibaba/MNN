@@ -1,5 +1,5 @@
 #include <riscv_vector.h>
-void MNNAbsMaxFP32(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack) {
+void MNNAbsMaxFP32_RVV(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack) {
     size_t stride = pack * realSize;
     const size_t vlmax = __riscv_vsetvlmax_e32m1();
     for (size_t i = 0; i < realSize; ++i) {

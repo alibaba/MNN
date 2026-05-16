@@ -14,10 +14,8 @@ static inline void MNNCountMaxMinValue_RVV(const float* src, float* minVal, floa
     while (offset < size) {
         const size_t vl = __riscv_vsetvl_e32m8(size - offset);
         const vfloat32m8_t value = __riscv_vle32_v_f32m8(src + offset, vl);
-        const vfloat32m1_t minReduce =
-            __riscv_vfredmin_vs_f32m8_f32m1(value, __riscv_vfmv_s_f_f32m1(localMin, 1), vl);
-        const vfloat32m1_t maxReduce =
-            __riscv_vfredmax_vs_f32m8_f32m1(value, __riscv_vfmv_s_f_f32m1(localMax, 1), vl);
+        const vfloat32m1_t minReduce = __riscv_vfredmin_vs_f32m8_f32m1(value, __riscv_vfmv_s_f_f32m1(localMin, 1), vl);
+        const vfloat32m1_t maxReduce = __riscv_vfredmax_vs_f32m8_f32m1(value, __riscv_vfmv_s_f_f32m1(localMax, 1), vl);
         localMin = __riscv_vfmv_f_s_f32m1_f32(minReduce);
         localMax = __riscv_vfmv_f_s_f32m1_f32(maxReduce);
         offset += vl;
@@ -26,8 +24,8 @@ static inline void MNNCountMaxMinValue_RVV(const float* src, float* minVal, floa
     *maxVal = localMax;
 }
 
-void MNNAsyQuantInfo_FP32(float* scale, float* bias, float* qscale, float* qbias, float* dstMin, float* dstMax,
-                          const float* src, const size_t* info) {
+void MNNAsyQuantInfo_FP32_RVV(float* scale, float* bias, float* qscale, float* qbias, float* dstMin, float* dstMax,
+                              const float* src, const size_t* info) {
     const size_t blockNum = info[0];
     const size_t plane = info[1];
     const size_t innerSide = info[2];

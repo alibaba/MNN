@@ -2,7 +2,7 @@
 #include <cstring>
 #include <cstdint>
 
-void MNNSumWeightInt8(float* kernelsum, int8_t* source, size_t outside, size_t reduceAxis, size_t hP, size_t lP) {
+void MNNSumWeightInt8_RVV(float* kernelsum, int8_t* source, size_t outside, size_t reduceAxis, size_t hP, size_t lP) {
     size_t inside = hP * lP;
     size_t stride0 = inside * reduceAxis;
     for (size_t i = 0; i < outside; ++i) {

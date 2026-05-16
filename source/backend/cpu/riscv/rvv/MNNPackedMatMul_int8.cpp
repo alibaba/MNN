@@ -6,9 +6,9 @@
 
 #define UP_DIV(x, y) (((x) + (y) - 1) / (y))
 
-void _MNNPackedMatMulRemain_int8(float* C, const float* A, const float* fB, size_t eSize, const size_t* parameter,
-                                 const float* postParameters, const float* bias, int aStride, const float* k,
-                                 const float* b) {
+static void MNNPackedMatMulRemain_int8_RVVImpl(float* C, const float* A, const float* fB, size_t eSize,
+                                               const size_t* parameter, const float* postParameters, const float* bias,
+                                               int aStride, const float* k, const float* b) {
     const int8_t* B = reinterpret_cast<const int8_t*>(fB);
     size_t h = parameter[2];
     size_t l = parameter[1];
@@ -53,15 +53,12 @@ void _MNNPackedMatMulRemain_int8(float* C, const float* A, const float* fB, size
                 float a_val = src[z * aStride];
                 vfloat32m1_t a_v = __riscv_vfmv_v_f_f32m1(a_val, VL);
 
-                // 完全和标量逻辑一致，无精度误差
                 float w_buf[4] = {
                     (float)weight[z * 4 + 0] * alpha[0] + qbias[0], (float)weight[z * 4 + 1] * alpha[1] + qbias[1],
                     (float)weight[z * 4 + 2] * alpha[2] + qbias[2], (float)weight[z * 4 + 3] * alpha[3] + qbias[3]};
 
-                // 正确加载向量（GCC15.1 标准）
                 vfloat32m1_t w_v = __riscv_vle32_v_f32m1(w_buf, VL);
 
-                // 正确 FMA 指令（带 VL）
                 sum_v = __riscv_vfmadd_vv_f32m1(w_v, a_v, sum_v, VL);
             }
 
@@ -72,13 +69,13 @@ void _MNNPackedMatMulRemain_int8(float* C, const float* A, const float* fB, size
     }
 }
 
-void MNNPackedMatMul_int8(float* C, const float* A, const float* B, const size_t* parameter,
-                          const float* postParameters, const float* bias, const float* k, const float* b) {
-    _MNNPackedMatMulRemain_int8(C, A, B, 16, parameter, postParameters, bias, 16, k, b);
+void MNNPackedMatMul_int8_RVV(float* C, const float* A, const float* B, const size_t* parameter,
+                              const float* postParameters, const float* bias, const float* k, const float* b) {
+    MNNPackedMatMulRemain_int8_RVVImpl(C, A, B, 16, parameter, postParameters, bias, 16, k, b);
 }
 
-void MNNPackedMatMulRemain_int8(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
-                                const float* postParameters, const float* bias, const float* k, const float* b) {
+void MNNPackedMatMulRemain_int8_RVV(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
+                                    const float* postParameters, const float* bias, const float* k, const float* b) {
     const int aStride = static_cast<int>(parameter[0] / sizeof(float));
-    _MNNPackedMatMulRemain_int8(C, A, B, eSize, parameter, postParameters, bias, aStride, k, b);
+    MNNPackedMatMulRemain_int8_RVVImpl(C, A, B, eSize, parameter, postParameters, bias, aStride, k, b);
 }

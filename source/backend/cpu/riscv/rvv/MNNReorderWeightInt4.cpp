@@ -14,7 +14,7 @@ static inline int32_t _rvvReduceAddI32(vint32m4_t value, size_t vl) {
     return __riscv_vmv_x_s_i32m1_i32(sum);
 }
 
-void MNNReorderWeightInt4(uint8_t* dest, const uint8_t* source, int32_t* shape, size_t size, float* kernelsum) {
+void MNNReorderWeightInt4_RVV(uint8_t* dest, const uint8_t* source, int32_t* shape, size_t size, float* kernelsum) {
     MNN_ASSERT(size > 4);
     const int32_t blocknum = shape[0];
     const int32_t hu = shape[1];

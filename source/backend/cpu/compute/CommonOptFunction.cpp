@@ -33,6 +33,27 @@ using Vec = MNN::Math::Vec<float, 4>;
 #endif
 #endif
 
+#ifdef MNN_USE_RVV
+extern void MNNAbsMaxFP32_RVV(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack);
+extern void MNNAccumulateSequenceNumber_RVV(float* dst, const float* src, int size);
+extern void MNNAsyQuantFunc_RVV(int8_t* dst, const float* src, float* qscale, float* qbias, const size_t* info);
+extern void MNNAsyQuantInfo_FP32_RVV(float* scale, float* bias, float* qscale, float* qbias, float* dstMin,
+                                     float* dstMax, const float* src, const size_t* info);
+extern void MNNDynamicQuantFP32_RVV(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad,
+                                    size_t realSize, int pack, const float* bias);
+extern void MNNPackedMatMul_int8_RVV(float* C, const float* A, const float* B, const size_t* parameter,
+                                     const float* postParameters, const float* bias, const float* k, const float* b);
+extern void MNNPackedMatMulRemain_int8_RVV(float* C, const float* A, const float* B, size_t eSize,
+                                           const size_t* parameter, const float* postParameters, const float* bias,
+                                           const float* k, const float* b);
+extern void MNNReorderWeightInt4_RVV(uint8_t* dest, const uint8_t* source, int32_t* shape, size_t size,
+                                     float* kernelsum);
+extern void MNNSumByAxisLForMatmul_A_RVV(float* dest, int8_t* source, const float* dequantScale,
+                                         ssize_t realDstCount, SumByAxisParams sumParams);
+extern void MNNSumWeightInt8_RVV(float* kernelsum, int8_t* source, size_t outside, size_t reduceAxis, size_t hP,
+                                 size_t lP);
+#endif
+
 #ifndef MNN_USE_SSE
 void MNNInt8ToInt16(int16_t* dest, const int8_t* source, size_t count) {
     // Should not be called
@@ -4759,6 +4780,24 @@ void MNNCoreFunctionInit() {
 #endif
 #endif
 
+#if defined(__riscv) && defined(MNN_USE_RVV)
+    if (gCoreFunction->supportRVV) {
+        gCoreFunction->MNNAccumulateSequenceNumber = MNNAccumulateSequenceNumber_RVV;
+        gCoreFunction->MNNSumByAxisLForMatmul_A = MNNSumByAxisLForMatmul_A_RVV;
+        gCoreFunction->MNNReorderWeightInt4 = MNNReorderWeightInt4_RVV;
+        gCoreFunction->MNNSumWeightInt8 = MNNSumWeightInt8_RVV;
+#ifdef MNN_CPU_WEIGHT_DEQUANT_GEMM
+        gCoreFunction->MNNPackedMatMul_int8 = MNNPackedMatMul_int8_RVV;
+        gCoreFunction->MNNPackedMatMulRemain_int8 = MNNPackedMatMulRemain_int8_RVV;
+#endif
+#ifdef MNN_LOW_MEMORY
+        gCoreFunction->MNNAbsMax = MNNAbsMaxFP32_RVV;
+        gCoreFunction->MNNDynamicQuant = MNNDynamicQuantFP32_RVV;
+        gCoreFunction->MNNAsyQuantFunc = MNNAsyQuantFunc_RVV;
+        gCoreFunction->MNNAsyQuantInfo = MNNAsyQuantInfo_FP32_RVV;
+#endif
+    }
+#endif
 
 #ifdef __aarch64__
 #ifdef MNN_SME2

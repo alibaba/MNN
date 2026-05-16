@@ -1,9 +1,10 @@
-﻿#include <riscv_vector.h>
+#include <riscv_vector.h>
 #include <cstdint>
 #include <algorithm>
+#include "../../compute/CommonOptFunction.h"
 
-void MNNSumByAxisLForMatmul_A(float* dest, int8_t* source, const float* scale, ssize_t realDstCount,
-                              SumByAxisParams sumParams) {
+void MNNSumByAxisLForMatmul_A_RVV(float* dest, int8_t* source, const float* scale, ssize_t realDstCount,
+                                  SumByAxisParams sumParams) {
     int8_t* srcInt8 = source;
     auto scalePtr = scale;
 
@@ -30,7 +31,6 @@ void MNNSumByAxisLForMatmul_A(float* dest, int8_t* source, const float* scale, s
         for (int k = 0; k < blockNum; ++k) {
             const auto src_x = srcInt8 + k * (step * LP * blockSizeQuad * kernelxy);
 
-            // ?? w维展开（2路）
             for (int w = 0; w < step; w += 2) {
                 int w0 = w;
                 int w1 = w + 1;
@@ -53,7 +53,6 @@ void MNNSumByAxisLForMatmul_A(float* dest, int8_t* source, const float* scale, s
                 const auto src_y0 = src_x + w0 * LP;
                 const auto src_y1 = has_w1 ? (src_x + w1 * LP) : nullptr;
 
-                // ?? 正确：vector累加器放在最外层
                 vint32m4_t vacc0 = __riscv_vmv_v_x_i32m4(0, vlmax);
                 vint32m4_t vacc1 = __riscv_vmv_v_x_i32m4(0, vlmax);
 

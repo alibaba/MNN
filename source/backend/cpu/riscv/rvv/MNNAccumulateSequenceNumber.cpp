@@ -1,5 +1,5 @@
 #include <riscv_vector.h>
-void MNNAccumulateSequenceNumber(float* dst, const float* src, int size) {
+void MNNAccumulateSequenceNumber_RVV(float* dst, const float* src, int size) {
     size_t vl = __riscv_vsetvlmax_e32m1();
     vfloat32m1_t v_sum = __riscv_vfmv_v_f_f32m1(0.0f, vl);
     int n = size;

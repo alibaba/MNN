@@ -1,7 +1,7 @@
 #include <riscv_vector.h>
 
-void MNNDynamicQuantFP32(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize,
-                         int pack, const float* bias) {
+void MNNDynamicQuantFP32_RVV(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize,
+                             int pack, const float* bias) {
     size_t stride = pack * realSize;
     const int int8_min = -128;
     const int int8_max = 127;
