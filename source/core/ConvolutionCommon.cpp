@@ -606,21 +606,21 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op*
                 }
             }
             if (0 != alpha_size) {
-                result->alpha.reset((int)alpha_size);
-                if (nullptr == result->alpha.get()) {
-                    MNN_PRINT("Alloc memory error for extract idst int8\n");
-                    return nullptr;
-                }
-                alpha_ptr = result->alpha.get();
                 if (alphaIsFp16) {
-                    std::vector<uint16_t> tmp(alpha_size);
-                    external_file->read((char*)tmp.data(), alpha_size * sizeof(uint16_t));
-                    auto dst = result->alpha.get();
-                    auto src = reinterpret_cast<half_float::half*>(tmp.data());
-                    for (size_t i = 0; i < alpha_size; ++i) {
-                        dst[i] = float(src[i]);
+                    result->alphaIsFp16 = true;
+                    result->alphaHalf.reset((int)alpha_size);
+                    if (nullptr == result->alphaHalf.get()) {
+                        MNN_PRINT("Alloc memory error for extract idst int8\n");
+                        return nullptr;
                     }
+                    external_file->read((char*)result->alphaHalf.get(), alpha_size * sizeof(int16_t));
                 } else {
+                    result->alpha.reset((int)alpha_size);
+                    if (nullptr == result->alpha.get()) {
+                        MNN_PRINT("Alloc memory error for extract idst int8\n");
+                        return nullptr;
+                    }
+                    alpha_ptr = result->alpha.get();
                     external_file->read((char*)alpha_ptr, alpha_size * sizeof(float));
                 }
             }
@@ -633,17 +633,13 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op*
         if (alphaIsFp16) {
             alpha_size = quan->alphaFp16()->size();
             result->alphaSize = alpha_size;
-            result->alpha.reset((int)alpha_size);
-            if (nullptr == result->alpha.get()) {
+            result->alphaIsFp16 = true;
+            result->alphaHalf.reset((int)alpha_size);
+            if (nullptr == result->alphaHalf.get()) {
                 MNN_PRINT("Alloc memory error for extract idst int8\n");
                 return nullptr;
             }
-            alpha_ptr = result->alpha.get();
-            auto src = reinterpret_cast<const half_float::half*>(quan->alphaFp16()->data());
-            auto dst = result->alpha.get();
-            for (size_t i = 0; i < alpha_size; ++i) {
-                dst[i] = float(src[i]);
-            }
+            ::memcpy(result->alphaHalf.get(), quan->alphaFp16()->data(), alpha_size * sizeof(int16_t));
         } else if (quan->alpha()) {
             alpha_size = quan->alpha()->size();
             alpha_ptr = quan->alpha()->data();
@@ -655,6 +651,10 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op*
             }
             ::memcpy(result->alpha.get(), alpha_ptr, alpha_size * sizeof(float));
         }
+    }
+    // Sparse / forceFloat paths below need fp32 alpha; lazy-fill from alphaHalf if disk was fp16.
+    if (nullptr == alpha_ptr && result->alphaHalf.get() != nullptr) {
+        alpha_ptr = result->getAlphaFloat();
     }
     if (quan->index() != nullptr) {
         if (forceFloat) {
@@ -788,19 +788,21 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op*
         }
         int outputCount = 0;
         if (result->asymmetric) {
-            outputCount = result->alpha.size() / 2;
+            outputCount = result->alphaSize / 2;
         } else {
-            outputCount = result->alpha.size();
+            outputCount = result->alphaSize;
         }
+        // forceFloat needs fp32 alpha; lazy-fill from alphaHalf if disk was fp16.
+        auto alphaF = result->getAlphaFloat();
         int partWeightSize = (int)weightLength / outputCount;
         for (int o = 0; o < outputCount; ++o) {
             float min = 0.0f;
             float alpha = 0.0f;
             if (result->asymmetric) {
-                min = result->alpha.get()[2*o];
-                alpha = result->alpha.get()[2*o+1];
+                min = alphaF[2 * o];
+                alpha = alphaF[2 * o + 1];
             } else {
-                alpha = result->alpha.get()[o];
+                alpha = alphaF[o];
             }
             auto dstW   = result->weightFloat.get() + o * partWeightSize;
             auto srcW   = result->weight.get() + o * partWeightSize;
@@ -810,8 +812,42 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op*
         }
         result->weight.release();
         result->alpha.release();
+        result->alphaHalf.release();
     }
     return result;
+}
+
+const float* ConvolutionCommon::Int8Common::getAlphaFloat() {
+    if (alpha.get() != nullptr) {
+        return alpha.get();
+    }
+    if (alphaHalf.get() != nullptr) {
+        alpha.reset(alphaSize);
+        auto src = reinterpret_cast<const half_float::half*>(alphaHalf.get());
+        auto dst = alpha.get();
+        for (int i = 0; i < alphaSize; ++i) {
+            dst[i] = float(src[i]);
+        }
+        return alpha.get();
+    }
+    return nullptr;
+}
+
+const int16_t* ConvolutionCommon::Int8Common::getAlphaHalf() {
+    if (alphaHalf.get() != nullptr) {
+        return alphaHalf.get();
+    }
+    if (alpha.get() != nullptr) {
+        alphaHalf.reset(alphaSize);
+        auto src = alpha.get();
+        auto dst = alphaHalf.get();
+        for (int i = 0; i < alphaSize; ++i) {
+            half_float::half h(src[i]);
+            ::memcpy(&dst[i], &h, sizeof(int16_t));
+        }
+        return alphaHalf.get();
+    }
+    return nullptr;
 }
 
 void ConvolutionCommon::getConvParameters(std::shared_ptr<Int8Common> *quanCommon, Backend* backend, const MNN::Op *op, const float** originWeight, int* originWeightSize) {
