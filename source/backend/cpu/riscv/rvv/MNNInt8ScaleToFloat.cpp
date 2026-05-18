@@ -9,6 +9,7 @@
 #include <riscv_vector.h>
 #include <stdint.h>
 #include <string.h>
+#include "../../compute/Int8FunctionsOpt.h"
 
 void MNNInt8ScaleToFloat_RVV(float* dst, const int8_t* src, const float* scale, size_t size, const float* zeroPoint,
                              ssize_t quantParamVec) {
