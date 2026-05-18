@@ -232,7 +232,14 @@ class LlmExporter(torch.nn.Module):
                 q_weight_size = (oc * ic * format_bit + 7) // 8
                 alpha_size = oc * block_num * (1 if symmetric else 2) * 4
                 file_size = q_weight_size + alpha_size
-                self.llm_config['tie_embeddings'] = [0, q_weight_size, alpha_size, format_bit, quant_block]
+                self.llm_config['tie_embeddings'] = {
+                    "weight_offset": 0,
+                    "alpha_offset": q_weight_size,
+                    "alpha_size": alpha_size,
+                    "quant_bit": format_bit,
+                    "quant_block": quant_block,
+                    "alpha_dtype": "fp32",
+                }
 
             with open(embedding_file, 'wb') as f:
                 if file_size > 0:
@@ -263,7 +270,14 @@ class LlmExporter(torch.nn.Module):
             with open(embedding_file, 'wb') as f:
                 weight_size = f.write(q_weight.numpy().tobytes())
                 alpha_size = f.write(alpha.numpy().tobytes())
-            self.llm_config['tie_embeddings'] = [0, weight_size, alpha_size, quant_bit, quant_block]
+            self.llm_config['tie_embeddings'] = {
+                "weight_offset": 0,
+                "alpha_offset": weight_size,
+                "alpha_size": alpha_size,
+                "quant_bit": quant_bit,
+                "quant_block": quant_block,
+                "alpha_dtype": "fp32",
+            }
         else:
             raise ValueError(f"Unsupported embedding bit precision: {format_bit}")
 
@@ -820,6 +834,7 @@ def build_args(parser):
     parser.add_argument('--group_conv_native', action='store_true', help='Whether or not to keep native group_conv.')
     parser.add_argument('--smooth', action='store_true', help='Whether or not to use smooth quant.')
     parser.add_argument('--sym', action='store_true', help='Whether or not to using symmetric quant (without zeropoint), default is False.')
+    parser.add_argument('--scale_bit', type=int, default=16, choices=[16, 32], help='Bit-width for quant scale/zero-point storage. Currently supports 16 (fp16, default) and 32 (fp32); 8/4 reserved for future.')
     parser.add_argument('--visual_sym', action='store_true', help='Whether or not to using symmetric quant (without zeropoint) for visual model, default is False.')
     parser.add_argument('--seperate_embed', action='store_true', help='For lm and embed shared model, whether or not to sepearte embed to avoid quant, default is False, if True, embed weight will be seperate to embedding bf16.bin.')
     parser.add_argument('--lora_split', action='store_true', help='Whether or not export lora split, default is False.')

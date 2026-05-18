@@ -576,10 +576,13 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op*
         external->read((char*)(result->weightFloat.get()), param->external()->data()[1]);
         return result;
     }
+    // scaleStorage scalar survives weight externalization, unlike the alphaFp16 vector.
+    const bool alphaIsFp16 = (quan->scaleStorage() == ScaleStorageType_FP16);
     if (USE_EXTERNAL_DATA(conv) && (op->externalPath() || useCachedMmap) && quan->buffer() == nullptr) {
         auto external_info = conv->external()->data();
         buffer_size = external_info[1];
-        alpha_size = external_info[2] / sizeof(float);
+        const size_t alphaElemBytes = alphaIsFp16 ? sizeof(uint16_t) : sizeof(float);
+        alpha_size = external_info[2] / alphaElemBytes;
         result->alphaSize = alpha_size;
         if (useCachedMmap) {
             weightLength = conv->common()->inputCount() * conv->common()->outputCount() * conv->common()->kernelX() * conv->common()->kernelY();
@@ -609,7 +612,17 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op*
                     return nullptr;
                 }
                 alpha_ptr = result->alpha.get();
-                external_file->read((char*)alpha_ptr, alpha_size * sizeof(float));
+                if (alphaIsFp16) {
+                    std::vector<uint16_t> tmp(alpha_size);
+                    external_file->read((char*)tmp.data(), alpha_size * sizeof(uint16_t));
+                    auto dst = result->alpha.get();
+                    auto src = reinterpret_cast<half_float::half*>(tmp.data());
+                    for (size_t i = 0; i < alpha_size; ++i) {
+                        dst[i] = float(src[i]);
+                    }
+                } else {
+                    external_file->read((char*)alpha_ptr, alpha_size * sizeof(float));
+                }
             }
         }
     } else {
@@ -617,7 +630,21 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op*
             buffer_size = quan->buffer()->size();
             buffer_ptr = quan->buffer()->data();
         }
-        if (quan->alpha()) {
+        if (alphaIsFp16) {
+            alpha_size = quan->alphaFp16()->size();
+            result->alphaSize = alpha_size;
+            result->alpha.reset((int)alpha_size);
+            if (nullptr == result->alpha.get()) {
+                MNN_PRINT("Alloc memory error for extract idst int8\n");
+                return nullptr;
+            }
+            alpha_ptr = result->alpha.get();
+            auto src = reinterpret_cast<const half_float::half*>(quan->alphaFp16()->data());
+            auto dst = result->alpha.get();
+            for (size_t i = 0; i < alpha_size; ++i) {
+                dst[i] = float(src[i]);
+            }
+        } else if (quan->alpha()) {
             alpha_size = quan->alpha()->size();
             alpha_ptr = quan->alpha()->data();
             result->alphaSize = alpha_size;

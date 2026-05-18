@@ -37,16 +37,19 @@ void DiskEmbedding::seek_read(uint8_t* dst, size_t size, size_t offset) {
 }
 
 DiskEmbedding::DiskEmbedding(const std::shared_ptr<LlmConfig>& config, std::string fileName, int hiddenSize, std::vector<int64_t> quant_info) {
-    auto tie_embeddings = quant_info.size() == 5 ? quant_info : config->tie_embeddings();
+    // External positional list (e.g. ple_quant) takes precedence; otherwise read structured form from config.
+    LlmConfig::TieEmbeddingsInfo info =
+        quant_info.size() >= 5 ? LlmConfig::parseTieEmbeddings(quant_info) : config->tie_embeddings_info();
     mHiddenSize        = hiddenSize > 0 ? hiddenSize : config->hidden_size();
     if (hiddenSize > 0 && !fileName.empty() && quant_info.empty()) {
         // PLE bf16 path
         mTokenSize = mHiddenSize * sizeof(int16_t);
         mFile.reset(new FileLoader(fileName.c_str(), true));
-    } else if (tie_embeddings.size() == 5) {
-        mWeightOffset     = tie_embeddings[0];
-        mQuantBit         = tie_embeddings[3];
-        mQuantBlock       = tie_embeddings[4];
+    } else if (info.valid) {
+        mWeightOffset = info.weight_offset;
+        mQuantBit = info.quant_bit;
+        mQuantBlock = info.quant_block;
+        const bool alphaIsFp16 = info.alpha_fp16;
         if (mWeightOffset == 0) {
             // embedding_int8/4.bin
             if (fileName.empty()) {
@@ -66,17 +69,31 @@ DiskEmbedding::DiskEmbedding(const std::shared_ptr<LlmConfig>& config, std::stri
                 mBlockNum = mHiddenSize / mQuantBlock;
             }
             mDequantFunc      = mQuantBit == 8 ? q81_dequant_ref : q41_dequant_ref;
-            auto a_offset   = tie_embeddings[1];
-            auto alpha_size = tie_embeddings[2];
+            auto a_offset = info.alpha_offset;
+            auto alpha_size_disk = info.alpha_size;
             size_t oc = (a_offset - mWeightOffset) * (8 / mQuantBit) / mHiddenSize;
 
-            mAlpha.reset(new uint8_t[alpha_size]);
-            seek_read(mAlpha.get(), alpha_size, a_offset);
-            mOffset = -(1 << (mQuantBit-1));
-            if (alpha_size == sizeof(float) * mBlockNum * oc) {
+            // Always store alpha internally as fp32; if disk format is fp16, decode on load.
+            const size_t alphaElemBytes = alphaIsFp16 ? sizeof(uint16_t) : sizeof(float);
+            const size_t alphaElems = alpha_size_disk / alphaElemBytes;
+            const size_t alphaSizeFp32 = alphaElems * sizeof(float);
+            mAlpha.reset(new uint8_t[alphaSizeFp32]);
+            if (alphaIsFp16) {
+                std::vector<uint16_t> tmp(alphaElems);
+                seek_read(reinterpret_cast<uint8_t*>(tmp.data()), alpha_size_disk, a_offset);
+                auto src = reinterpret_cast<half_float::half*>(tmp.data());
+                auto dst = reinterpret_cast<float*>(mAlpha.get());
+                for (size_t i = 0; i < alphaElems; ++i) {
+                    dst[i] = float(src[i]);
+                }
+            } else {
+                seek_read(mAlpha.get(), alpha_size_disk, a_offset);
+            }
+            mOffset = -(1 << (mQuantBit - 1));
+            if (alphaSizeFp32 == sizeof(float) * mBlockNum * oc) {
                 mAsymc = false;
             } else {
-                MNN_ASSERT(alpha_size == 2 * sizeof(float) * mBlockNum * oc);
+                MNN_ASSERT(alphaSizeFp32 == 2 * sizeof(float) * mBlockNum * oc);
                 mAsymc = true;
                 auto alphaPtr = (float*)mAlpha.get();
                 for (int i=0; i<mBlockNum * oc; ++i) {

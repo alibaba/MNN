@@ -41,7 +41,8 @@ static Express::VARP _HybridConv(const std::vector<float>& weight, const std::ve
     }
     int blocknum = alphasize / channel[1];
     int blocksize = kSize / blocknum;
-    conv2D->quanParameter = std::move(IDSTEncoder::encode(weight.data(), alpha, blocksize, kNum * blocknum, async, nullptr, clampMin, nbits, false));
+    conv2D->quanParameter = std::move(IDSTEncoder::encode(weight.data(), alpha, blocksize, kNum * blocknum, async,
+                                                          nullptr, clampMin, {nbits, false}));
     conv2D->common->padMode     = _convertPadMode(pad);
     if (pads.size() == 2) {
         conv2D->common->padX        = pads[0];

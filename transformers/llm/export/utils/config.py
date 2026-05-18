@@ -141,7 +141,7 @@ class LLMExportConfig:
     attention_mask: str = 'float'
     attention_type: str = 'full'
     sliding_window: int = 0
-    tie_embeddings: Optional[List[Union[int]]] = field(default_factory=list)
+    tie_embeddings: Optional[Union[List[int], Dict[str, Any]]] = field(default_factory=list)
     jinja: Dict[str, Any] = field(default_factory=dict)
     vision: Optional[VisionExportConfig] = None
 
