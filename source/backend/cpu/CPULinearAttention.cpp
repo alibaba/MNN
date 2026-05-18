@@ -311,6 +311,20 @@ void CPULinearAttention::gated_delta_rule_ref(const std::vector<Tensor*>& inputs
 }
 
 ErrorCode CPULinearAttention::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    // onResize() may be skipped when shapes are unchanged. Ensure state is reset here too.
+    int seqLen = inputs[0]->length(2);
+    if (seqLen > 1 && mMeta != nullptr && mMeta->previous == mMeta->remove) {
+        bool loadingFromDisk = (mMeta->file_flag == KVMeta::PendingRead && mMeta->file_name.size() > 0);
+        if (!loadingFromDisk) {
+            if (mStateCache->mConvState.get() != nullptr) {
+                ::memset(mStateCache->mConvState->host<int8_t>(), 0, mStateCache->mConvState->elementSize());
+            }
+            if (mStateCache->mRecurrentState.get() != nullptr) {
+                ::memset(mStateCache->mRecurrentState->host<int8_t>(), 0, mStateCache->mRecurrentState->elementSize());
+            }
+        }
+    }
+
     // Load prefix cache from disk (PendingRead)
     if (mMeta != nullptr && mMeta->file_name.size() > 0 && mMeta->file_flag == KVMeta::PendingRead) {
         int layer_index = mMeta->layer_index;

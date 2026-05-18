@@ -13,6 +13,7 @@
 
 #include "backend/opencl/execution/image/CommonExecution.hpp"
 #include "core/OpCommonUtils.hpp"
+#include "core/KVMeta.hpp"
 
 namespace MNN {
 namespace OpenCL {
@@ -47,6 +48,7 @@ private:
 
     // Persistent state buffers shared between prefill and decode via onClone
     std::shared_ptr<OpenCLStateCache> mStateCache;
+    KVMeta* mMeta = nullptr;
     // Temporary conv output: [B * D * L]
     std::shared_ptr<Tensor> mConvOut;
 

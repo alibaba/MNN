@@ -13,6 +13,7 @@
 #import "MetalExecution.hpp"
 #import "MetalBackend.hpp"
 #include "MNN_generated.h"
+#include "core/KVMeta.hpp"
 
 #if MNN_METAL_ENABLED
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
@@ -42,6 +43,8 @@ private:
 
     // Persistent state buffers shared between prefill and decode via onClone
     std::shared_ptr<MetalStateCache> mStateCache;
+
+    KVMeta* mMeta = nullptr;
 
     // Temporary buffer (DYNAMIC)
     std::shared_ptr<Tensor> mConvOut;         // [B, D, L]
