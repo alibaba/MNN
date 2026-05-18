@@ -106,6 +106,7 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &____inputs, con
     mNeedZero = !TensorUtils::regionIsFull(input);
     mTempInputCopy.clear();
     mTempInput.clear();
+    mFastBlit.clear();
 
     mTempOutput = nullptr;
     mOutputPtr = output; 
