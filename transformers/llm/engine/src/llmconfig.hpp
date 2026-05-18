@@ -608,6 +608,27 @@ public:
     int eagle_topk() const {
         return config_.value("eagle_topk", 1);
     }
+    // ========= dflash config start ===============
+    std::string dflash_model() const {
+        return base_dir_ + config_.value("dflash_model", "dflash.mnn");
+    }
+    std::string dflash_fc() const {
+        return base_dir_ + config_.value("dflash_fc", "dflash_fc.mnn");
+    }
+    std::string dflash_lmhead() const {
+        return base_dir_ + config_.value("dflash_lmhead", "");
+    }
+    int dflash_block_size() const {
+        return config_.value("dflash_block_size", 16);
+    }
+    int dflash_mask_token_id() const {
+        return config_.value("dflash_mask_token_id", 0);
+    }
+    std::vector<int> dflash_target_layer_ids() const {
+        return config_.value("dflash_target_layer_ids", std::vector<int>{});
+    }
+    // ========= dflash config end ===============
+
     // speculative decoding config end >
 };
 } // Transformer

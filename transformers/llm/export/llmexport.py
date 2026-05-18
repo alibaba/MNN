@@ -203,6 +203,24 @@ class LlmExporter(torch.nn.Module):
             MNNConverter(self, None).export(eagle_onnx)
             MNNConverter(self, None).export(eagle_fc_onnx)
 
+    def export_dflash(self):
+        if not hasattr(self.args, 'dflash_path') or self.args.dflash_path is None:
+            return
+        from utils.dflash import DFlash
+        self.dflash = DFlash(self.args.dflash_path, self.model)
+        # Set target layer ids on args so model.forward() can use them
+        self.args.dflash_target_layer_ids = self.dflash.target_layer_ids
+        dflash_onnx, dflash_fc_onnx = self.dflash.export(self.onnx_path)
+        if self.mnn_converter:
+            # Disable transformerFuse for dflash model: dflash uses non-causal (bidirectional) attention,
+            # but MNN's fused attention assumes causal masking which breaks dflash's attention pattern.
+            # Use 8-bit quantization for dflash model to balance quality and size.
+            MNNConverter(self, self.dflash.unloaded_ops).export(dflash_onnx, quant_bit=8, transformer_fuse=False)
+            # FC model must NOT be quantized: the input (concatenated hidden states from
+            # multiple target layers) has very large value ranges during prefill, which
+            # causes int8 quantization overflow and produces all-zero outputs.
+            MNNConverter(self, None).export(dflash_fc_onnx, quant_bit=0, transformer_fuse=False)
+
 
     @spinner_run(f'export embedding to ')
     def export_embed(self):
@@ -336,6 +354,14 @@ class LlmExporter(torch.nn.Module):
             if self.args.eagle_path is not None:
                 config['speculative_type'] = 'eagle'
                 config['hidden_states'] = True
+            if hasattr(self.args, 'dflash_path') and self.args.dflash_path is not None:
+                config['speculative_type'] = 'dflash'
+                config['hidden_states'] = True
+                config['dflash_model'] = 'dflash.mnn'
+                config['dflash_fc'] = 'dflash_fc.mnn'
+                config['dflash_block_size'] = self.dflash.block_size
+                config['dflash_mask_token_id'] = self.dflash.mask_token_id
+                config['dflash_target_layer_ids'] = self.dflash.target_layer_ids
             json.dump(config, f, ensure_ascii=False, indent=4)
         return config_json
 
@@ -666,6 +692,7 @@ class LlmExporter(torch.nn.Module):
         self.export_vision()
         self.export_audio()
         self.export_eagle()
+        self.export_dflash()
         self.export_language()
         self.export_mtp()
         self.export_tokenizer()
@@ -812,6 +839,7 @@ def build_args(parser):
                         )
     parser.add_argument('--tokenizer_path', type=str, default=None, help='tokenizer path, default is `None` mean using `--path` value.')
     parser.add_argument('--eagle_path', type=str, default=None, help='eagle model path, default is `None`')
+    parser.add_argument('--dflash_path', type=str, default=None, help='dflash draft model path, default is `None`')
     parser.add_argument('--lora_path', type=str, default=None, help='lora path, default is `None` mean not apply lora.')
     parser.add_argument('--gptq_path', type=str, default=None, help='gptq path, default is `None` mean not apply gptq.')
     parser.add_argument('--dst_path', type=str, default='./model', help='export onnx/mnn model to path, default is `./model`.')

@@ -85,6 +85,9 @@ void Llm::setChatTemplate() {
         }
         mTokenizer->set_chat_template(jinja["chat_template"].get<std::string>(), jinja.value("eos", ""), context);
     }
+    if (jinja.contains("context")) {
+        mTokenizer->set_chat_template_context(jinja["context"].dump());
+    }
 }
 
 bool Llm::set_config(const std::string& content) {

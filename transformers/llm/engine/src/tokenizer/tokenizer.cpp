@@ -974,6 +974,10 @@ void Tokenizer::set_chat_template(const std::string& tpl, const std::string& eos
     chat_template_context_ = context;
 }
 
+void Tokenizer::set_chat_template_context(const std::string& context_json) {
+    chat_template_context_ = context_json;
+}
+
 std::string Tokenizer::apply_chat_template(const ChatMessages& messages, bool add_generation_prompt) const {
     if (chat_template_.empty()) {
         std::string result;

@@ -225,6 +225,7 @@ protected:
     friend class LookaheadGeneration;
     friend class MtpGeneration;
     friend class EagleGeneration;
+    friend class DFlashGeneration;
     friend class Omni;
     std::vector<Express::VARP> forwardVec(const std::vector<int>& input_ids);
     std::vector<Express::VARP> forwardVec(MNN::Express::VARP input_embeds);
