@@ -236,6 +236,8 @@ public:
         return config_.value("talker_speaker", "Chelsie");
     }
 
+    bool interleaved() const { return config_.value("interleaved", false); }
+
     int dit_steps() const {
         return config_.value("dit_steps", 5);
     }
@@ -273,6 +275,30 @@ public:
 
     bool has_deepstack() const {
         return config_.value("has_deepstack", false);
+    }
+
+    bool has_ple() const {
+        return config_.find("ple_embed_file") != config_.end();
+    }
+
+    std::string ple_embed_file() const {
+        return base_dir_ + config_.value("ple_embed_file", "");
+    }
+
+    float ple_embed_scale() const {
+        return config_.value("ple_embed_scale", 1.0f);
+    }
+
+    int ple_embed_dim() const {
+        return config_.value("ple_embed_dim", 0);
+    }
+
+    std::vector<int64_t> ple_quant() const {
+        return config_.value("ple_quant", std::vector<int64_t>{});
+    }
+
+    float attn_scale() const {
+        return config_.value("attn_scale", 0.0f);
     }
 
     bool use_template() const {
@@ -357,7 +383,56 @@ public:
     }
 
     std::vector<int64_t> tie_embeddings() const {
-        return config_.value("tie_embeddings", std::vector<int64_t>{});
+        // Legacy positional getter; only valid if the field is a list.
+        auto v = config_.at("tie_embeddings");
+        if (v.is_array()) {
+            return config_.value("tie_embeddings", std::vector<int64_t>{});
+        }
+        return {};
+    }
+
+    // Structured view for both legacy positional list and new dict format.
+    struct TieEmbeddingsInfo {
+        int64_t weight_offset = 0;
+        int64_t alpha_offset = 0;
+        int64_t alpha_size = 0;
+        int64_t quant_bit = 0;
+        int64_t quant_block = 0;
+        bool alpha_fp16 = false;
+        bool valid = false;
+    };
+
+    static TieEmbeddingsInfo parseTieEmbeddings(const std::vector<int64_t>& v) {
+        TieEmbeddingsInfo info;
+        if (v.size() >= 5) {
+            info.weight_offset = v[0];
+            info.alpha_offset = v[1];
+            info.alpha_size = v[2];
+            info.quant_bit = v[3];
+            info.quant_block = v[4];
+            if (v.size() >= 6)
+                info.alpha_fp16 = (v[5] != 0);
+            info.valid = true;
+        }
+        return info;
+    }
+
+    TieEmbeddingsInfo tie_embeddings_info() const {
+        if (!config_.contains("tie_embeddings"))
+            return {};
+        auto v = config_.at("tie_embeddings");
+        if (v.is_array()) {
+            return parseTieEmbeddings(tie_embeddings());
+        }
+        TieEmbeddingsInfo info;
+        info.weight_offset = v.value("weight_offset", int64_t(0));
+        info.alpha_offset = v.value("alpha_offset", int64_t(0));
+        info.alpha_size = v.value("alpha_size", int64_t(0));
+        info.quant_bit = v.value("quant_bit", int64_t(0));
+        info.quant_block = v.value("quant_block", int64_t(0));
+        info.alpha_fp16 = (v.value("alpha_dtype", std::string("fp32")) == "fp16");
+        info.valid = true;
+        return info;
     }
     // llm model config end >
 
@@ -533,6 +608,27 @@ public:
     int eagle_topk() const {
         return config_.value("eagle_topk", 1);
     }
+    // ========= dflash config start ===============
+    std::string dflash_model() const {
+        return base_dir_ + config_.value("dflash_model", "dflash.mnn");
+    }
+    std::string dflash_fc() const {
+        return base_dir_ + config_.value("dflash_fc", "dflash_fc.mnn");
+    }
+    std::string dflash_lmhead() const {
+        return base_dir_ + config_.value("dflash_lmhead", "");
+    }
+    int dflash_block_size() const {
+        return config_.value("dflash_block_size", 16);
+    }
+    int dflash_mask_token_id() const {
+        return config_.value("dflash_mask_token_id", 0);
+    }
+    std::vector<int> dflash_target_layer_ids() const {
+        return config_.value("dflash_target_layer_ids", std::vector<int>{});
+    }
+    // ========= dflash config end ===============
+
     // speculative decoding config end >
 };
 } // Transformer

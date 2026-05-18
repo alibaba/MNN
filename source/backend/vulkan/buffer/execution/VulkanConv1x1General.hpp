@@ -33,6 +33,7 @@ private:
     uint32_t mBlockStride = 1;
     uint32_t mDecodeWeightStrideWords = 0;
     uint32_t mDecodeSubgroupSize = 1;
+    bool mUseSubgroup = true;
 
     std::shared_ptr<ConvolutionCommon::Int8Common> mQuantCommon;
 

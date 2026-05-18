@@ -1,4 +1,4 @@
-#include "backend/cpu/KleidiAIConvolutionDepthwise.hpp"
+#include "KleidiAIConvolutionDepthwise.hpp"
 
 #ifdef MNN_KLEIDIAI_ENABLED
 
@@ -12,23 +12,23 @@
 
 namespace MNN {
     template<typename T>
-void nchw_to_nhwc_optimized(const T* src, T* dst, 
+void nchw_to_nhwc_optimized(const T* src, T* dst,
                             int batch, int channel, int height, int width) {
     const int hw = height * width;
     const int chw = channel * hw;
     const int wc = width * channel;
-    
+
     for (int n = 0; n < batch; ++n) {
         const T* src_batch = src + n * chw;
         T* dst_batch = dst + n * chw;
-        
+
         for (int c = 0; c < channel; ++c) {
             const T* src_channel = src_batch + c * hw;
-            
+
             for (int h = 0; h < height; ++h) {
                 const T* src_row = src_channel + h * width;
                 T* dst_row = dst_batch + h * wc + c;
-                
+
                 for (int w = 0; w < width; ++w) {
                     dst_row[w * channel] = src_row[w];
                 }
@@ -39,7 +39,7 @@ void nchw_to_nhwc_optimized(const T* src, T* dst,
 
 KleidiAIConvolutionDepthwise::KleidiAIDepthwiseExecution::KleidiAIDepthwiseExecution(const Convolution2DCommon* common, Backend* b,
                                                         const float* originWeight, size_t originWeightSize,
-                                                        const float* bias, size_t biasSize) 
+                                                        const float* bias, size_t biasSize)
     : MNN::CPUConvolution(common, b) {
     int kernel_height  = common->kernelY();
     int kernel_width   = common->kernelX();
@@ -65,7 +65,7 @@ KleidiAIConvolutionDepthwise::KleidiAIDepthwiseExecution::KleidiAIDepthwiseExecu
     kai_run_rhs_dwconv_pack_x32p1vlx1b_x32_x32_sme(kernel_height, kernel_width, kernel_height, kernel_width, channels, weightTempPtr, bias, mPackedRhs.get()->host<void>());
     b->onReleaseBuffer(mWeightTemp.get(), Backend::STATIC);
 }
-    
+
 ErrorCode KleidiAIConvolutionDepthwise::KleidiAIDepthwiseExecution::onResize(const std::vector<Tensor*>& inputs,
                                                                  const std::vector<Tensor*>& outputs) {
     CPUConvolution::onResize(inputs, outputs);
@@ -109,8 +109,8 @@ ErrorCode KleidiAIConvolutionDepthwise::KleidiAIDepthwiseExecution::onExecute(co
     auto postData = getPostParameters();
     auto output_height = outputTensor->height();
     auto core       = static_cast<CPUBackend*>(backend())->functions();
-    auto batch = inputTensor->batch();       
-    
+    auto batch = inputTensor->batch();
+
     MNN_CONCURRENCY_BEGIN(tId, mNumber) {
         CPUTensorConverter::convert(inputTensor, &mInputNHWC, core, tId, mNumber);
     }

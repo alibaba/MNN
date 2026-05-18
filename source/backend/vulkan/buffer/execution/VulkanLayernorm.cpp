@@ -8,7 +8,6 @@
 
 #include "VulkanLayernorm.hpp"
 #include "core/Macro.h"
-#include "core/TensorUtils.hpp"
 
 namespace MNN {
 
@@ -16,24 +15,6 @@ struct Param {
     ivec4 size;
     float eps;
 };
-
-static uint32_t _selectLocalSize(int inside, uint32_t maxSize) {
-    if (inside <= 1) {
-        return 1;
-    }
-    uint32_t target = (uint32_t)inside;
-    if (target > 256) {
-        target = 256;
-    }
-    if (target > maxSize) {
-        target = maxSize;
-    }
-    uint32_t localSize = 1;
-    while ((localSize << 1) <= target) {
-        localSize <<= 1;
-    }
-    return localSize;
-}
 
 VulkanLayernorm::VulkanLayernorm(const Op* op, Backend* backend, Tensor * tensor) : VulkanBasicExecution(backend) {
     auto layer_norm_param = op->main_as_LayerNorm();
@@ -120,6 +101,30 @@ VulkanLayernorm::VulkanLayernorm(const Op* op, Backend* backend, Tensor * tensor
         mOptKey += "FP16_";
     }
     mOptKey += "comp";
+    mOptPipeline = vkbackend->getPipeline(mOptKey, mDesTypes, {}, spec);
+    mOptDesSet.reset(mOptPipeline->createSet());
+}
+
+VulkanLayernorm::VulkanLayernorm(Backend* bn, const VulkanLayernorm* src)
+    : VulkanBasicExecution(bn)
+    , mEps(src->mEps)
+    , mHasScale(src->mHasScale)
+    , mUseRMSNorm(src->mUseRMSNorm)
+    , mGroup(src->mGroup)
+    , mAxisSize(src->mAxisSize)
+    , mFP16(src->mFP16)
+    , mKey(src->mKey)
+    , mOptKey(src->mOptKey)
+    , mDesTypes(src->mDesTypes) {
+    auto vkbackend = static_cast<VulkanBackend*>(bn);
+    mParam = vkbackend->allocUniform();
+    mGamma = src->mGamma;
+    mBias = src->mBias;
+    std::vector<uint32_t> spec = {mUseRMSNorm ? 1u : 0u};
+    mPipeline = vkbackend->getPipeline(mKey, mDesTypes, {}, spec);
+    mDesSet.reset(mPipeline->createSet());
+    mOptPipeline = vkbackend->getPipeline(mOptKey, mDesTypes, {}, spec);
+    mOptDesSet.reset(mOptPipeline->createSet());
 }
 
 VulkanLayernorm::~VulkanLayernorm() {
@@ -127,6 +132,14 @@ VulkanLayernorm::~VulkanLayernorm() {
     vkbackend->recycleUniform(mParam);
 }
 
+bool VulkanLayernorm::onClone(Backend* bn, const Op* op, VulkanBasicExecution** dst) {
+    if (nullptr == dst) {
+        return true;
+    }
+    auto res = new VulkanLayernorm(bn, this);
+    *dst = res;
+    return true;
+}
 
 ErrorCode VulkanLayernorm::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const VulkanCommandPool::Buffer* cmdBuffer) {
@@ -159,21 +172,10 @@ ErrorCode VulkanLayernorm::onEncode(const std::vector<Tensor*>& inputs, const st
     auto inputTensor = vkBn->getBuffer(inputs[0]);
     auto outputTensor = vkBn->getBuffer(outputs[0]);
     auto maxGroupCountX = (int)vkBn->getDevice().proty().limits.maxComputeWorkGroupCount[0];
-    auto maxGroupSizeX = (uint32_t)vkBn->getDevice().proty().limits.maxComputeWorkGroupSize[0];
     // LLM-oriented fast path: 1 workgroup per row (outside), parallel reduce over inside.
     // Requires inside % 4 == 0; fallback when dispatch count might exceed device limits.
     bool useOpt = (outside <= maxGroupCountX) && ((inside & 3) == 0);
     if (useOpt) {
-        auto inside4 = inside >> 2;
-        auto localSize = _selectLocalSize(inside4, maxGroupSizeX);
-        auto sharedSize = localSize;
-        if (mOptPipeline == nullptr || mOptLocalSize != localSize) {
-            std::vector<uint32_t> localSizeVec = {localSize};
-            std::vector<uint32_t> spec = {mUseRMSNorm ? 1u : 0u, sharedSize};
-            mOptPipeline = vkBn->getPipeline(mOptKey, mDesTypes, localSizeVec, spec);
-            mOptDesSet.reset(mOptPipeline->createSet());
-            mOptLocalSize = localSize;
-        }
         mOptDesSet->writeBuffer(outputTensor, 0);
         mOptDesSet->writeBuffer(inputTensor, 1);
         mOptDesSet->writeBuffer(mParam->buffer(), 2, mParam->size());

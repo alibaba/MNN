@@ -7,7 +7,7 @@
 #ifndef KleidiAIConvInt8_hpp
 #define KleidiAIConvInt8_hpp
 #include "backend/cpu/CPUConvolution.hpp"
-#include "backend/cpu/arm/mnn_kleidiai.h"
+#include "mnn_kleidiai.h"
 
 namespace MNN {
 class KleidiAIConvInt8 : public CPUConvolution {

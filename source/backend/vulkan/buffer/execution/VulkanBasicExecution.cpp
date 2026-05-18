@@ -32,7 +32,7 @@ ErrorCode VulkanBasicExecutionDirect::onResize(const std::vector<Tensor *> &inpu
 
     auto vkBn = static_cast<VulkanBackend*>(backend());
     for (auto input : inputs) {
-        auto des = TensorUtils::getDescribe(input);
+        auto des = TensorUtils::getDescribeOrigin(input);
         if (0 == input->deviceId()) {
             continue;
         }
@@ -41,7 +41,7 @@ ErrorCode VulkanBasicExecutionDirect::onResize(const std::vector<Tensor *> &inpu
             // The case occured if we don't need the content of input
             continue;
         }
-        auto offset = des->extra.offset;
+        auto offset = des->offset;
         mCmdBuffer->barrierSource(vkTensor->buffer(), offset, vkBn->getTensorSize(input));
     }
 
@@ -74,12 +74,12 @@ ErrorCode VulkanBasicExecutionInDirect::onResize(const std::vector<Tensor *> &in
     auto vkBn = static_cast<VulkanBackend*>(backend());
     for (auto input : inputs) {
         auto vkTensor = (VulkanBuffer*)(input->deviceId());
-        auto des = TensorUtils::getDescribe(input);
+        auto des = TensorUtils::getDescribeOrigin(input);
         if (nullptr == vkTensor) {
             // The case occured if we don't need the content of input
             continue;
         }
-        auto offset = des->extra.offset;
+        auto offset = des->offset;
         cmdBuffer->barrierSource(vkTensor->buffer(), offset, vkBn->getTensorSize(input));
     }
     ErrorCode code = NO_ERROR;

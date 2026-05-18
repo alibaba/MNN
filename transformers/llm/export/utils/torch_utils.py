@@ -26,16 +26,7 @@ def repack_low_bits(x, iNeedBits, block_size):
             iOffset = 0
     return torch.cat(v, axis=1)
 
-def quant(weight, quant_bit, quant_block, symmetric, awq, hqq):
-
-    try:
-        if torch.cuda.is_available():
-            weight = weight.cuda()
-        if torch.backends.mps.is_available():
-            weight = weight.to('mps')
-    except:
-        print('Failed to move weight to GPU, fallback to CPU')
-
+def _quant_on_device(weight, quant_bit, quant_block, symmetric, awq, hqq):
     oc, ic = weight.shape
     if quant_block == 0:
         block_size = ic
@@ -53,13 +44,12 @@ def quant(weight, quant_bit, quant_block, symmetric, awq, hqq):
         hqq_quantizer = HQQQuantizer(weight, quant_bit, block_size, symmetric, weight.dtype, weight.device)
         hqq_quantizer.quant()
         if not symmetric:
-            q_weight = hqq_quantizer.W_q.flatten().to(torch.uint8)
+            q_weight = hqq_quantizer.W_q.to(torch.uint8).flatten()
             scale = hqq_quantizer.meta['scale'].flatten()
             zeros = scale * offset - scale * hqq_quantizer.meta['zero'].flatten()
-
             alpha = torch.stack([zeros.flatten(), scale.flatten()], axis=-1).flatten()
         else:
-            q_weight = (hqq_quantizer.W_q.flatten() + offset).to(torch.uint8)
+            q_weight = (hqq_quantizer.W_q + offset).to(torch.uint8).flatten()
             scale = hqq_quantizer.meta['scale'].flatten()
             alpha = scale.flatten()
     else:
@@ -91,7 +81,8 @@ def quant(weight, quant_bit, quant_block, symmetric, awq, hqq):
         group_size = 8 // quant_bit
         q_weight = q_weight.reshape(-1, group_size)
         multipliers = [2 ** (quant_bit * (group_size - 1 - i)) for i in range(group_size)]
-        multipliers = torch.tensor(multipliers).to(q_weight.device)
+        # Use uint8 multipliers to avoid uint8->int64 promotion (8x memory blowup)
+        multipliers = torch.tensor(multipliers, dtype=torch.uint8).to(q_weight.device)
         q_weight = (q_weight * multipliers).sum(axis=1).to(torch.uint8)
     elif quant_bit < 8:
         q_weight = repack_low_bits(q_weight.reshape((block_num * oc, block_size)), quant_bit, block_size)
@@ -99,6 +90,37 @@ def quant(weight, quant_bit, quant_block, symmetric, awq, hqq):
     if q_weight.device is not torch.device('cpu'):
         return q_weight.cpu(), alpha.float().cpu()
     return q_weight, alpha.float()
+
+def _quant_dispatch(weight, quant_bit, quant_block, symmetric, awq, hqq):
+    # Try GPU quantization first for speed, fall back to CPU on OOM
+    if torch.cuda.is_available():
+        try:
+            torch.cuda.empty_cache()
+            return _quant_on_device(weight.cuda(), quant_bit, quant_block, symmetric, awq, hqq)
+        except torch.cuda.OutOfMemoryError:
+            torch.cuda.empty_cache()
+    if torch.backends.mps.is_available():
+        try:
+            return _quant_on_device(weight.to('mps'), quant_bit, quant_block, symmetric, awq, hqq)
+        except Exception:
+            pass
+    return _quant_on_device(weight, quant_bit, quant_block, symmetric, awq, hqq)
+
+# Max elements per chunk for quantization (avoid OOM on large embedding tables)
+_QUANT_MAX_ELEMENTS = 256 * 1024 * 1024  # 256M elements
+
+def quant(weight, quant_bit, quant_block, symmetric, awq, hqq):
+    oc, ic = weight.shape
+    if oc * ic <= _QUANT_MAX_ELEMENTS:
+        return _quant_dispatch(weight, quant_bit, quant_block, symmetric, awq, hqq)
+    # Split along oc dimension for large weights
+    chunk_oc = max(1, _QUANT_MAX_ELEMENTS // ic)
+    q_weights, alphas = [], []
+    for i in range(0, oc, chunk_oc):
+        qw, alpha = _quant_dispatch(weight[i:i+chunk_oc], quant_bit, quant_block, symmetric, awq, hqq)
+        q_weights.append(qw)
+        alphas.append(alpha)
+    return torch.cat(q_weights), torch.cat(alphas)
 
 def onnx_export(model, inputs, onnx_model, input_names, output_names, dynamic_axes=None):
     export_kwargs = {

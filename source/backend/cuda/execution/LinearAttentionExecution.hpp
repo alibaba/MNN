@@ -3,6 +3,7 @@
 
 #include "core/Execution.hpp"
 #include "backend/cuda/core/CUDABackend.hpp"
+#include "core/KVMeta.hpp"
 
 namespace MNN {
 namespace CUDA {
@@ -34,6 +35,7 @@ private:
 
     // Persistent state shared between prefill/decode via onClone
     std::shared_ptr<CUDAStateCache> mStateCache;
+    KVMeta* mMeta = nullptr;
 
     // Temporary GPU buffers (DYNAMIC)
     std::shared_ptr<Tensor> mConvOut;           // [B, D, L] conv output after SiLU

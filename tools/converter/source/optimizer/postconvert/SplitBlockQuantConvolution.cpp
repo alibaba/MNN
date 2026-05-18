@@ -80,7 +80,9 @@ public:
                 if (false) {
                     std::vector<float> subalpha(quanInfo->alpha.size());
                     ::memcpy(subalpha.data(), quanInfo->alpha.get(), quanInfo->alpha.size() * sizeof(float));
-                    conv2D->quanParameter = IDSTEncoder::encode(nullptr, subalpha, blockSize * groupCount, oc, quanInfo->asymmetric, quanInfo->weight.get(), conv2D->quanParameter->aMin, quanInfo->originBits);
+                    conv2D->quanParameter = IDSTEncoder::encode(
+                        nullptr, subalpha, blockSize * groupCount, oc, quanInfo->asymmetric, quanInfo->weight.get(),
+                        conv2D->quanParameter->aMin, {quanInfo->originBits, true, config->weightQuantScaleBit});
                     conv2D->external.clear();
                     conv2D->bias = bias;
                     RemoveAndStoreParam(*iter, &dstWeight, currentDstOffset);
@@ -112,7 +114,9 @@ public:
                         ::memcpy(dst, src, blockSize);
                         ::memcpy(subalpha.data() + y * divideNumber, quanInfo->alpha.get() + y * divideNumber * groupCount + i * divideNumber, divideNumber * sizeof(float));
                     }
-                    subOp->main.AsConvolution2D()->quanParameter = IDSTEncoder::encode(nullptr, subalpha, blockSize, oc, quanInfo->asymmetric, subdata.data(), conv2D->quanParameter->aMin, quanInfo->originBits);
+                    subOp->main.AsConvolution2D()->quanParameter = IDSTEncoder::encode(
+                        nullptr, subalpha, blockSize, oc, quanInfo->asymmetric, subdata.data(),
+                        conv2D->quanParameter->aMin, {quanInfo->originBits, true, config->weightQuantScaleBit});
                     if (0 == i) {
                         subOp->main.AsConvolution2D()->bias = bias;
                     } else {

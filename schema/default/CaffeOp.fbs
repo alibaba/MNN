@@ -51,6 +51,13 @@ table SparseCommon {
     args:[Attribute];
 }
 
+// Storage encoding for quant scale/zero-point. Survives weight externalization
+// because it is a scalar field, unlike the data vectors below.
+enum ScaleStorageType : byte {
+    FP32 = 0,
+    FP16 = 1,
+}
+
 // idst param
 table IDSTQuan {
     buffer:[byte];
@@ -69,6 +76,11 @@ table IDSTQuan {
     // For sparse
     weightSize:uint32;
     index:[uint32];
+    // fp16 raw bit pattern (IEEE half). Active only when scaleStorage==FP16.
+    alphaFp16:[ushort];
+    // Storage encoding selector for alpha. FP32 -> read alpha:[float];
+    // FP16 -> read alphaFp16:[ushort] (or external alpha bytes as fp16).
+    scaleStorage:ScaleStorageType = FP32;
 }
 
 enum QuantizeAlgo : byte {

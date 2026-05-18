@@ -217,9 +217,19 @@ EagleGeneration::DraftInfo EagleGeneration::topkGenerate(const std::vector<int>&
             info.attentionMask->writeMap<float>()[i * inputLen + j] = output.attentionMask[i][j] ? 0.0 : std::numeric_limits<float>::lowest();
         }
     }
-    info.positionIds = _Input({1, inputLen}, NCHW, halide_type_of<int>());
-    for (int i = 0; i < inputLen; i++) {
-        info.positionIds->writeMap<int>()[i] = seqLen + output.positionIds[i];
+    if (mLlm->mConfig->is_mrope()) {
+        info.positionIds = _Input({3, inputLen}, NCHW, halide_type_of<int>());
+        for (int i = 0; i < inputLen; i++) {
+            int pos = seqLen + output.positionIds[i];
+            info.positionIds->writeMap<int>()[i] = pos;
+            info.positionIds->writeMap<int>()[inputLen + i] = pos;
+            info.positionIds->writeMap<int>()[2 * inputLen + i] = pos;
+        }
+    } else {
+        info.positionIds = _Input({1, inputLen}, NCHW, halide_type_of<int>());
+        for (int i = 0; i < inputLen; i++) {
+            info.positionIds->writeMap<int>()[i] = seqLen + output.positionIds[i];
+        }
     }
     return info;
 }
@@ -286,7 +296,8 @@ EagleGeneration::DraftInfo EagleGeneration::updateDraft(const AcceptInfo& accept
         mLlm->updateContext(acceptLen, acceptLen);
         mLlm->mMeta->remove = acceptInfo.sampleTokens.size();
         mLlm->mMeta->n_reserve = acceptLen;
-        mLlm->mMeta->reserve = new int[mLlm->mMeta->n_reserve * 2];
+        mLlm->mMeta->reserveHost.resize(acceptLen * 2);
+        mLlm->mMeta->reserve = mLlm->mMeta->reserveHost.data();
         for (size_t i = 0; i < acceptLen; i++) {
             mLlm->mMeta->reserve[2 * i] = acceptInfo.acceptIndices[i];
             mLlm->mMeta->reserve[2 * i + 1] = 1;

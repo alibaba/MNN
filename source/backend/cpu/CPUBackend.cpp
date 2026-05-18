@@ -621,8 +621,8 @@ Backend::MemObj* CPUBackend::allocBuffer(size_t size, Tensor* dest, StorageType 
     }
     if (chunk.ptr()) {
         buffer.host = chunk.ptr();
-    }
-    des->extra.offset = 0;
+     }
+    TensorUtils::getDescribeOrigin(dest)->offset = 0;
     return res;
 }
 

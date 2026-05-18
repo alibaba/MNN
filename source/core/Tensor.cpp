@@ -119,6 +119,7 @@ Tensor::Tensor(bool deepCopy, const Tensor* tensor) {
     mDescribe->mContent = tensor->mDescribe->mContent;
     mDescribe->setBackend(tensor->mDescribe->getBackend());
     mDescribe->mem = tensor->mDescribe->mem;
+    mDescribe->offset = tensor->mDescribe->offset;
     mBuffer.dim = TensorUtils::getDescribe(tensor)->dims;
     mBuffer.type = tensor->getType();
     mBuffer.device = tensor->deviceId();

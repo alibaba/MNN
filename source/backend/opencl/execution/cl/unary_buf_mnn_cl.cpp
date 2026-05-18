@@ -4,6 +4,9 @@ namespace MNN {
 const char* unary_buf = 
 "#ifdef MNN_SUPPORT_FP16\n"
 "#pragma OPENCL EXTENSION cl_khr_fp16 : enable\n"
+"#define CLAMP(a) "" clamp(a,(float4)(-65504.0f),(float4)(65504.0f));\n"
+"#else\n"
+"#define CLAMP(a) a\n"
 "#endif\n"
 "#define GLOBAL_SIZE_2_DIMS "" __private const int global_size_dim0,__private const int global_size_dim1,\n"
 "#define DEAL_NON_UNIFORM_DIM2(input1, input2) "" if (input1 >= global_size_dim0 || input2 >= global_size_dim1) { "" return; "" }\n"
@@ -38,7 +41,7 @@ const char* unary_buf =
 " }else {\n"
 "#endif\n"
 " float4 in=convert_float4(vload4(0,input+offset));\n"
-" float4 out=OPERATOR;\n"
+" float4 out=CLAMP(OPERATOR);\n"
 " vstore4(CONVERT_OUTPUT4(out),0,output+offset);\n"
 "#ifdef PACK_LEAVE\n"
 " }\n"

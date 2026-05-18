@@ -256,6 +256,8 @@ class HQQQuantizer:
             zero  = zero.to(dtype=dtype, device=self.device)
 
         best_error = torch.tensor(torch.inf, dtype=torch.float32, device=self.device)
+        best_scale = scale.clone()
+        best_zero = zero.clone() if not self.sym else None
         W_q = torch.empty_like(W_f)
         W_r = torch.empty_like(W_f)
         W_e = torch.empty_like(W_f)
@@ -269,15 +271,28 @@ class HQQQuantizer:
             if verbose:
                 print(i, current_error.cpu())
 
+            # Check for NaN in error or scale - restore best and stop
+            if torch.isnan(current_error) or torch.any(torch.isnan(scale)) or (not self.sym and torch.any(torch.isnan(zero))):
+                scale.copy_(best_scale)
+                if not self.sym:
+                    zero.copy_(best_zero)
+                break
+
             if current_error < best_error:
                 best_error = current_error
+                best_scale.copy_(scale)
+                if not self.sym:
+                    best_zero.copy_(zero)
             else:
+                scale.copy_(best_scale)
+                if not self.sym:
+                    zero.copy_(best_zero)
                 break
 
         scale = scale.to(W.device)
         if not self.sym:
             zero = zero.to(W.device)
-        del W_f, W_q, W_r
+        del W_f, W_q, W_r, best_scale, best_zero
         if self.device.type == 'cuda':
             torch.cuda.empty_cache()
         elif self.device.type == 'mps':
@@ -290,11 +305,14 @@ class HQQQuantizer:
 
     @torch.inference_mode()
     def _optimize_weights_proximal_legacy_step(self, W_f, scale, zero, min_max, beta, lp_norm, axis, W_q, W_r, W_e):
+        _eps = 1e-8
         torch.mul(W_f, scale, out=W_q)
         torch.add(W_q, zero, out=W_q)
         torch.round(W_q, out=W_q).clamp_(min_max[0], min_max[1])
         torch.sub(W_q, zero, out=W_r)
-        torch.div(W_r, scale, out=W_r)
+        # Guard against division by zero
+        safe_scale = torch.where(scale.abs() < _eps, torch.full_like(scale, _eps), scale)
+        torch.div(W_r, safe_scale, out=W_r)
         torch.sub(W_f, W_r, out=W_e)
         self._shrink_lp_op(W_e, beta, lp_norm, out=W_e)
         torch.sub(W_f, W_e, out=W_r)
@@ -303,17 +321,22 @@ class HQQQuantizer:
         torch.mean(W_r, axis=axis, keepdim=True, out=zero)
 
     @torch.inference_mode()
-    def _optimize_weights_proximal_scale_only(self, W_f, scale, min_max, beta, lp_norm, axis, W_q, W_r, W_e, W_prime, eps=1e-8):
+    def _optimize_weights_proximal_scale_only(self, W_f, scale, min_max, beta, lp_norm, axis, W_q, W_r, W_e, W_prime):
+        _eps = 1e-8
         torch.mul(W_f, scale, out=W_q)
         torch.round(W_q, out=W_q).clamp_(min_max[0], min_max[1])
-        torch.div(W_q, scale, out=W_r)
+        # Guard against division by zero: replace zero scale with eps
+        safe_scale = torch.where(scale.abs() < _eps, torch.full_like(scale, _eps), scale)
+        torch.div(W_q, safe_scale, out=W_r)
         torch.sub(W_f, W_r, out=W_e)
         self._shrink_lp_op(W_e, beta, lp_norm, out=W_e)
         torch.sub(W_f, W_e, out=W_prime)
         w_prime_dot_w_q = torch.sum(W_prime * W_q, axis=axis, keepdim=True)
         w_q_norm_sq = torch.sum(W_q**2, axis=axis, keepdim=True)
-        torch.add(w_prime_dot_w_q, eps, out=w_prime_dot_w_q)
+        torch.add(w_prime_dot_w_q, _eps, out=w_prime_dot_w_q)
         torch.div(w_q_norm_sq, w_prime_dot_w_q, out=scale)
+        # Clamp scale to prevent zero or negative values that cause NaN in next iteration
+        scale.clamp_(min=_eps)
 
     # Shrinking operator
     @torch.inference_mode()

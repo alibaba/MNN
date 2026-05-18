@@ -923,6 +923,7 @@ __global__ void __launch_bounds__(128, 12) GEMV_FpAInt4B_V14(
     const int batch, const int ic, const int ic_p,
     const int oc, const int oc_p, const int num_qg
 ) {
+    // Grid layout: (oc/OC_PER_BLK, batch)
     const int oc_base = blockIdx.x * OC_PER_BLK;
     const int b = blockIdx.y;
     if (oc_base >= oc || b >= batch) return;
@@ -1017,7 +1018,115 @@ __global__ void __launch_bounds__(128, 12) GEMV_FpAInt4B_V14(
     }
 }
 
+// V14_MB: Multi-batch variant — one block processes ALL batch elements for the same OC group.
+// Weights are loaded ONCE and reused across batch elements, reducing memory bandwidth by ~batch×.
+template<typename T, int OC_PER_BLK, int MAX_BATCH>
+__global__ void __launch_bounds__(128, 8) GEMV_FpAInt4B_V14_MB(
+    const T* __restrict__ input,
+    const uint8_t* __restrict__ kernel,
+    const float2* __restrict__ gemv_params,
+    const T* __restrict__ bias,
+    T* __restrict__ output,
+    const float maxV, const float minV,
+    const int batch, const int ic, const int ic_p,
+    const int oc, const int oc_p, const int num_qg
+) {
+    const int oc_base = blockIdx.x * OC_PER_BLK;
+    if (oc_base >= oc) return;
 
+    const int tid = threadIdx.x;
+    const int warp_id = tid / 32;
+    const int lane_id = tid % 32;
+    const int nwarps = blockDim.x / 32;
+
+    const int ic_per_group = ic / num_qg;
+    const int row_bytes = ic_p / 2;
+
+    float accs[MAX_BATCH * OC_PER_BLK];
+    #pragma unroll
+    for (int i = 0; i < MAX_BATCH * OC_PER_BLK; i++)
+        accs[i] = 0.0f;
+
+    const int stride = blockDim.x * 8;
+    for (int k = tid * 8; k < ic; k += stride) {
+        const int gidx = k / ic_per_group;
+
+        // Load weights ONCE for all batch elements
+        uint32_t w_data[OC_PER_BLK];
+        float s_data[OC_PER_BLK], adj_data[OC_PER_BLK];
+        #pragma unroll
+        for (int oi = 0; oi < OC_PER_BLK; oi++) {
+            const int oc_idx = oc_base + oi;
+            if (oc_idx < oc) {
+                w_data[oi] = __ldg(reinterpret_cast<const uint32_t*>(
+                    kernel + oc_idx * row_bytes + k / 2));
+                const float2 p = __ldg(gemv_params + oc_idx * num_qg + gidx);
+                s_data[oi] = p.x;
+                adj_data[oi] = p.y;
+            }
+        }
+
+        // Process each batch element with the cached weights
+        #pragma unroll
+        for (int b = 0; b < MAX_BATCH; b++) {
+            if (b >= batch) break;
+            const T* in_ptr = input + b * ic_p;
+            float in_vals[8];
+            #pragma unroll
+            for (int j = 0; j < 8; j++)
+                in_vals[j] = (float)in_ptr[k + j];
+
+            float input_sum = in_vals[0] + in_vals[1] + in_vals[2] + in_vals[3]
+                            + in_vals[4] + in_vals[5] + in_vals[6] + in_vals[7];
+
+            #pragma unroll
+            for (int oi = 0; oi < OC_PER_BLK; oi++) {
+                if (oc_base + oi >= oc) break;
+                float raw_dot = 0.0f;
+                #pragma unroll
+                for (int j = 0; j < 4; j++) {
+                    const uint32_t packed = (w_data[oi] >> (j * 8)) & 0xFF;
+                    raw_dot += in_vals[j * 2] * (float)(packed >> 4);
+                    raw_dot += in_vals[j * 2 + 1] * (float)(packed & 0x0F);
+                }
+                accs[b * OC_PER_BLK + oi] = fmaf(adj_data[oi], input_sum, fmaf(s_data[oi], raw_dot, accs[b * OC_PER_BLK + oi]));
+            }
+        }
+    }
+
+    // Warp-level reduction for all accumulators
+    #pragma unroll
+    for (int i = 0; i < MAX_BATCH * OC_PER_BLK; i++) {
+        #pragma unroll
+        for (int off = 16; off > 0; off >>= 1)
+            accs[i] += __shfl_xor_sync(0xffffffff, accs[i], off);
+    }
+
+    // Cross-warp reduction using shared memory
+    __shared__ float smem[MAX_BATCH * OC_PER_BLK][4]; // [batch*oc][warp_id], nwarps<=4
+
+    if (lane_id == 0) {
+        #pragma unroll
+        for (int i = 0; i < MAX_BATCH * OC_PER_BLK; i++)
+            smem[i][warp_id] = accs[i];
+    }
+    __syncthreads();
+
+    // First batch*OC_PER_BLK threads each reduce one accumulator
+    const int reduce_count = batch * OC_PER_BLK;
+    if (tid < reduce_count) {
+        const int b = tid / OC_PER_BLK;
+        const int oi = tid % OC_PER_BLK;
+        if (oc_base + oi < oc) {
+            float result = 0.0f;
+            for (int w = 0; w < nwarps; w++) result += smem[tid][w];
+            result += (float)__ldg(&bias[oc_base + oi]);
+            result = fmaxf(result, minV);
+            result = fminf(result, maxV);
+            output[b * oc_p + oc_base + oi] = (T)result;
+        }
+    }
+}
 
 
 
@@ -1711,22 +1820,41 @@ ErrorCode ConvFpAIntBExecution::onExecute(const std::vector<Tensor*> &inputs, co
                 if (batch <= 4) {
                     const int num_qg = (mResource->mQuanC > 0) ? (mResource->mQuanC / oc) : 1;
                     if (mResource->mGemvParams) {
-                        // R7-V14: Factored-dequant multi-OC GEMV
                         constexpr int V14_OC = 4;
-                        dim3 v14_grid((oc + V14_OC - 1) / V14_OC, batch);
-                        dim3 v14_block(128);
-                        if (mFp16Infer) {
-                            GEMV_FpAInt4B_V14<half, V14_OC><<<v14_grid, v14_block>>>(
-                                (const half*)input_addr, (const uint8_t*)mResource->mFilter,
-                                mResource->mGemvParams,
-                                (const half*)bias_addr, (half*)output_addr,
-                                maxV, minV, batch, ic, icp, oc, ocp, num_qg);
-                        } else if (mFp16Fp32MixInfer) {
-                            GEMV_FpAInt4B_V14<float, V14_OC><<<v14_grid, v14_block>>>(
-                                (const float*)input_addr, (const uint8_t*)mResource->mFilter,
-                                mResource->mGemvParams,
-                                (const float*)bias_addr, (float*)output_addr,
-                                maxV, minV, batch, ic, icp, oc, ocp, num_qg);
+                        if (batch > 1) {
+                            // V14_MB: One block processes ALL batch elements, weights loaded once
+                            dim3 mb_grid((oc + V14_OC - 1) / V14_OC);
+                            dim3 mb_block(128);
+                            if (mFp16Infer) {
+                                GEMV_FpAInt4B_V14_MB<half, V14_OC, 4><<<mb_grid, mb_block>>>(
+                                    (const half*)input_addr, (const uint8_t*)mResource->mFilter,
+                                    mResource->mGemvParams,
+                                    (const half*)bias_addr, (half*)output_addr,
+                                    maxV, minV, batch, ic, icp, oc, ocp, num_qg);
+                            } else if (mFp16Fp32MixInfer) {
+                                GEMV_FpAInt4B_V14_MB<float, V14_OC, 4><<<mb_grid, mb_block>>>(
+                                    (const float*)input_addr, (const uint8_t*)mResource->mFilter,
+                                    mResource->mGemvParams,
+                                    (const float*)bias_addr, (float*)output_addr,
+                                    maxV, minV, batch, ic, icp, oc, ocp, num_qg);
+                            }
+                        } else {
+                            // batch=1: original V14
+                            dim3 v14_grid((oc + V14_OC - 1) / V14_OC, batch);
+                            dim3 v14_block(128);
+                            if (mFp16Infer) {
+                                GEMV_FpAInt4B_V14<half, V14_OC><<<v14_grid, v14_block>>>(
+                                    (const half*)input_addr, (const uint8_t*)mResource->mFilter,
+                                    mResource->mGemvParams,
+                                    (const half*)bias_addr, (half*)output_addr,
+                                    maxV, minV, batch, ic, icp, oc, ocp, num_qg);
+                            } else if (mFp16Fp32MixInfer) {
+                                GEMV_FpAInt4B_V14<float, V14_OC><<<v14_grid, v14_block>>>(
+                                    (const float*)input_addr, (const uint8_t*)mResource->mFilter,
+                                    mResource->mGemvParams,
+                                    (const float*)bias_addr, (float*)output_addr,
+                                    maxV, minV, batch, ic, icp, oc, ocp, num_qg);
+                            }
                         }
                     } else {
                         // Fallback to V9/V5

@@ -33,6 +33,7 @@ public:
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
     void gated_delta_rule_ref(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
     void gated_delta_rule_mnn(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
+    void gated_delta_rule_decode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) const;
     void short_conv(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
 private:
     std::string mAttentionType;

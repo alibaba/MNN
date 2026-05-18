@@ -22,6 +22,10 @@ MNN 的模型导出本质上是**对照 HuggingFace transformers 库中原始模
 
 ### 注意事项
 
+> **🚨 严禁将输出错误归因于"量化精度不够"**：4bit 量化的 0.5B 小模型都能正确输出。如果 C++ 输出完全不对（如图片识别不出、输出乱码），**一定是实现细节没有与 HF 对齐**，必须逐步 dump 数据对比定位，不要靠猜。
+
+> **🚨 测试标准要有定力**：每步的通过标准是明确的（如"C++ 能正确描述图片内容"），不能因为"差不多能跑"就跳过。"能感知到一些信号但描述不准确"不等于通过，必须达到与 HF 模型相当的输出质量才算完成。
+
 > **严禁访问以下目录**：`schema/private/` 和 `source/internal/`，包含内部私有代码，**不得读取、修改或引用**。
 
 > **禁止猜测**：如果不确定某个字段名或路径，必须通过工具读取实际文件确认。
@@ -167,6 +171,7 @@ modeling_*.py 中是否有全新的 Attention 类型（非标准 SDPA）?
 | `qwen2_vl`, `qwen2_5_vl`, `qwen3_vl` | 5 | 视觉 |
 | `internvl_chat` | 5 | 视觉 |
 | `gemma3` | 5 | 视觉 |
+| `gemma4` | 5 | 视觉 (PLE + KV共享 + 双Rotary + patch-based vision) |
 | `glm_ocr` | 5 | 视觉 (Gemma2残差 + interleaved M-RoPE) |
 | `smolvlm` | 5 | 视觉 (SigLIP + Perceiver) |
 | `idefics3` | 5 | 视觉 (SigLIP + Perceiver) |

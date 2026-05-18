@@ -27,6 +27,7 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | NATIVE_LIBRARY_OUTPUT | 如果构建为动态库，则指定动态库的输出路径，默认为`OFF` |
 | NATIVE_INCLUDE_OUTPUT | 如果构建为动态库，则指定动态库的头文件路径，默认为`OFF` |
 | MNN_AAPL_FMWK        | 是否构建`MNN.framework`替代`*.dylib`，默认为`OFF` |
+| MNN_GENERATE_PODSPEC  | 是否构建`MNN.podspec`以支持CocoaPods发布，默认为`OFF` |
 | MNN_WITH_PLUGIN      | 是否支持`Plugin算子`，默认为`OFF` |
 | MNN_SKIPBUILD_GEOMETRY   | 是否跳过MNN的几何计算编译，若是，MNN引擎仅支持在模型转换工具时加上 --saveStaticModel 转换出来的固定输入形状的模型，默认为`OFF` |
 | MNN_BUILD_MINI       | 是否构建MNN的最小化版本，若是，开启 `MNN_SKIPBUILD_GEOMETRY` 和 `MNN_REDUCE_SIZE`，默认为`OFF` |
@@ -104,3 +105,8 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_KLEIDIAI         | 是否集成ARM的klediAI加速库，默认为`ON` |
 | MNN_KLEIDIAI_DEFAULT_ON | 是否默认使用KLEIDIAI的Kernel, 默认为`OFF` |
 | MNN_USE_RVV          | 是否启用RISC-V向量扩展支持，默认为`OFF` |
+| MNN_MUSA_QUANT       | 是否开启 MUSA 量化相关代码编译，默认为`OFF` |
+| MNN_MUSA_BF16        | 是否开启 MUSA BFloat16 代码编译，默认为`OFF` |
+| MNN_MUSA_COMPAT_STUB | MUSA 兼容存根模式，仅编译不依赖真实 GPU，默认为`ON` |
+| MNN_MUSA_COMPAT_CUDA | 将 MUSA API 映射到 CUDA 进行编译测试，默认为`OFF` |
+| MNN_MUSA_NATIVE      | 使用原生 MUSA SDK 编译，默认为`OFF` |

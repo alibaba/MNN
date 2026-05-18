@@ -230,6 +230,9 @@ table StringVec {
 
 table AttentionParam {
     kv_cache: bool = true;
+    kv_shared_layer: string;
+    layer_index: int = -1;
+    kv_shared_layer_index: int = -1;
 }
 
 table LinearAttentionParam {

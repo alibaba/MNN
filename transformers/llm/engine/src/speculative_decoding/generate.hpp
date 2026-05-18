@@ -115,6 +115,28 @@ private:
 };
 
 
+class DFlashGeneration : public Generation {
+public:
+    DFlashGeneration(Llm* llm, std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config);
+    virtual ~DFlashGeneration() = default;
+    virtual void load(Module::Config module_config) override;
+    virtual void generate(GenerationParams& param) override;
+private:
+    MNN::Express::VARP dflashForward(const std::vector<int>& block_ids, MNN::Express::VARP context_hidden);
+    MNN::Express::VARP fcForward(MNN::Express::VARP hidden_states);
+
+    std::shared_ptr<MNN::Express::Module> mDFlashModule;   // dflash.mnn (transformer only if lmhead separate)
+    std::shared_ptr<MNN::Express::Module> mFcModule;       // dflash_fc.mnn
+    std::shared_ptr<MNN::Express::Module> mLmHeadModule;   // dflash_lmhead.mnn (optional, separate lm_head)
+    std::shared_ptr<MNN::Express::Executor::RuntimeManager> mFcRuntimeManager; // dedicated CPU runtime for FC
+    int mBlockSize;
+    int mMaskTokenId;
+    int mHiddenStateIndex = -1;
+    // Persistent state across incremental generate() calls
+    MNN::Express::VARP mContextHidden;
+    bool mInitialized = false;
+};
+
 class GenerationStrategyFactory {
 public:
     static std::shared_ptr<Generation> create(Llm* llm, std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config, bool canSpec);

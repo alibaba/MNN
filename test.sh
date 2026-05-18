@@ -152,6 +152,8 @@ static_check() {
     fi
 }
 
+
+
 android_static_build() {
     BASH_FILE="$USER_HOME/.zshrc"
     if [ -f "$BASH_FILE" ]; then
@@ -751,6 +753,7 @@ case "$1" in
         doc_check
         static_check
         py_check
+
         echo_static_success
         ;;
     *)

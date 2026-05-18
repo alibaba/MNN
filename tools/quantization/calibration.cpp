@@ -1197,7 +1197,9 @@ void Calibration::_insertScale() {
         } else if (_weightQuantizeMethod == "ADMM") {
             QuantizeWeightADMM(originWeight, weightSize, quantizedWeight.data(), quantizedWeightScale.data(), outputChannel, _weightClampValue);
         }
-        param->quanParameter = IDSTEncoder::encode(originWeight, quantizedWeightScale, weightSize/channles, channles, false, quantizedWeight.data(), -_weightClampValue, _quant_bits, _quant_bits > 7);
+        param->quanParameter =
+            IDSTEncoder::encode(originWeight, quantizedWeightScale, weightSize / channles, channles, false,
+                                quantizedWeight.data(), -_weightClampValue, {_quant_bits, _quant_bits > 7});
         param->quanParameter->scaleIn = inputScale;
         param->quanParameter->scaleOut = outputScale;
         param->weight.clear();

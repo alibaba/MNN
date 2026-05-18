@@ -35,12 +35,14 @@ class FakeLinear(torch.nn.Module):
 
 class FusedAttentionOp(torch.autograd.Function):
     @staticmethod
-    def symbolic(g, query, key, value, attention_mask, output_dim, kv_cache, name):
+    def symbolic(g, query, key, value, attention_mask, output_dim, kv_cache, name, layer_index, kv_shared_layer_index):
         # These become the operator attributes.
         kwargs = {
             "output_dim_i": output_dim,
             "kv_cache_i": kv_cache,
-            "name_s": name
+            "name_s": name,
+            "layer_index_i": layer_index,
+            "kv_shared_layer_index_i": kv_shared_layer_index,
         }
         from torch.onnx.symbolic_helper import _get_tensor_sizes
         out_sizes = _get_tensor_sizes(query)
@@ -49,19 +51,21 @@ class FusedAttentionOp(torch.autograd.Function):
         return g.op("LlmExporter::FusedAttention", query, key, value, attention_mask, **kwargs).setType(output_type)
 
     @staticmethod
-    def forward(ctx, query, key, value, attention_mask, output_dim, kv_cache, name):
+    def forward(ctx, query, key, value, attention_mask, output_dim, kv_cache, name, layer_index, kv_shared_layer_index):
         out_shape = list(query.shape)[:2] + [output_dim]
         return query.new_zeros(out_shape)
 
 class FusedAttention(torch.nn.Module):
-    def __init__(self, hidden_size, kv_cache, name):
+    def __init__(self, hidden_size, kv_cache, name, layer_index=-1, kv_shared_layer_index=-1):
         super(FusedAttention, self).__init__()
         self.hidden_size = hidden_size
         self.kv_cache = int(kv_cache)
         self.name = name
+        self.layer_index = layer_index
+        self.kv_shared_layer_index = kv_shared_layer_index
 
     def forward(self, query, key, value, attention_mask):
-        return FusedAttentionOp.apply(query, key, value, attention_mask, self.hidden_size, self.kv_cache, self.name)
+        return FusedAttentionOp.apply(query, key, value, attention_mask, self.hidden_size, self.kv_cache, self.name, self.layer_index, self.kv_shared_layer_index)
 
 class MoEOp(torch.autograd.Function):
     @staticmethod

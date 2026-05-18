@@ -45,7 +45,7 @@ class Eagle(torch.nn.Module):
         # self.config.head_dim = self.head_dim
         self.config.rotary = Rotary(self)
         # eagle config params
-        self.padding_idx = self.eagle_config.pad_token_id
+        self.padding_idx = getattr(self.eagle_config, 'pad_token_id', None)
         self.vocab_size = self.eagle_config.vocab_size
         self.draft_vocab_size = self.eagle_config.draft_vocab_size
         # embed_tokens api
@@ -219,12 +219,13 @@ class LlamaEagle(Eagle):
         rotary_pos_emb = self.config.rotary(position_ids)
 
         # Self Attention
-        hidden_states, present_key_value = self.midlayer.self_attn(
+        self.midlayer.self_attn.past_key_value = past_key_values
+        hidden_states = self.midlayer.self_attn(
             hidden_states=hidden_states,
             rotary_pos_emb=rotary_pos_emb,
             attention_mask=attention_mask,
-            past_key_value=past_key_values,
         )
+        present_key_value = self.midlayer.self_attn.past_key_value
 
         hidden_states = residual + hidden_states
         residual = hidden_states

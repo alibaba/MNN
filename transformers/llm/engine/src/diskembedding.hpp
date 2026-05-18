@@ -18,7 +18,7 @@ typedef void (*DequantFunction)(const uint8_t*, float*, float, float, int);
 
 class DiskEmbedding {
 public:
-    explicit DiskEmbedding(const std::shared_ptr<LlmConfig>& config, std::string fileName = "");
+    explicit DiskEmbedding(const std::shared_ptr<LlmConfig>& config, std::string fileName = "", int hiddenSize = 0, std::vector<int64_t> quant_info = {});
     ~DiskEmbedding() {}
     void embedding(const std::vector<int>& input_ids, float* ptr);
 

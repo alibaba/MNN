@@ -78,11 +78,11 @@ ErrorCode MetalConvolutionDepthwise::onResize(const std::vector<Tensor *> &input
     const Tensor* weight = mWeight.get();
     const Tensor* bias = mBias.get();
     int buffer_offset[] = {
-        TensorUtils::getDescribe(input)->extra.offset,
-        TensorUtils::getDescribe(output)->extra.offset,
+        TensorUtils::getDescribeOrigin(input)->offset,
+        TensorUtils::getDescribeOrigin(output)->offset,
         0,
-        TensorUtils::getDescribe(weight)->extra.offset,
-        TensorUtils::getDescribe(bias)->extra.offset
+        TensorUtils::getDescribeOrigin(weight)->offset,
+        TensorUtils::getDescribeOrigin(bias)->offset
     };
 
     std::string name = "conv_depthwise";

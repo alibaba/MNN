@@ -1,7 +1,7 @@
 #ifndef KleidiAIDenseConvolution_hpp
 #define KleidiAIDenseConvolution_hpp
 
-#include "ConvolutionTiledExecutor.hpp"
+#include "backend/cpu/compute/ConvolutionTiledExecutor.hpp"
 #include "backend/cpu/CPUConvolution.hpp"
 
 namespace MNN {

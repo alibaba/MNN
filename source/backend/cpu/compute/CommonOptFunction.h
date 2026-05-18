@@ -290,6 +290,17 @@ struct CoreFunctions {
     void(*MNNDualMatVec)(const float* S, const float* k, const float* q, float* out_k, float* out_q, size_t dk, size_t dv);
     // Fused decay + rank-1 update: S[i,j] = decay * S[i,j] + k[i] * delta[j]
     void(*MNNDecayRankOneUpdate)(float* S, const float* k, const float* delta, float decay, size_t dk, size_t dv);
+    // Fused gated-delta-rule kernel. Computes (all in the backend's native
+    // precision — fp32 in default backend, fp16 in arm82; pointer type is
+    // float* by convention):
+    //     out_k = S^T @ k                                       [d_v]
+    //     out_q = S^T @ q                                       [d_v]
+    //     delta = beta * (v - decay * out_k)                    [d_v]
+    //     out   = decay * out_q + kq * delta                    [d_v] (written)
+    //     S     = decay * S + k ⊗ delta                         [d_k, d_v] (in-place)
+    // 'kq' must be precomputed as dot(k,q) by the caller.
+    void (*MNNFusedGatedDelta)(float* S, const float* k, const float* q, const float* v, float* out, float decay,
+                               float beta, float kq, size_t dk, size_t dv);
     void(*MNNCountMaxMinValue)(const float* source, float* minVal, float* maxVal, size_t size);
     void(*MNNDynamicUpdateConvBiasScale)(float* newbias, float* oldbias, float* weightKernelSum, float* inputZero, size_t ocQuad);
     void(*MNNAsyQuantInfo)(float* scale, float* bias, float* qscale, float* qbias, float* dstMin, float* dstMax, const float* src, const size_t* info);

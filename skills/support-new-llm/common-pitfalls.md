@@ -356,31 +356,41 @@ MNN 的 GatherElements 几何实现正确处理了负数 axis（`if (axis < 0) a
 
 C++ 推理不崩溃，但输出无意义内容（乱码、重复 token、全同字符等），而 Python `--test` 输出正确。
 
-### 排查优先级
+### ⚠️ 关键原则：不要猜测是量化精度问题
+
+**以下归因几乎总是错误的：** "int4/int8/fp16 量化导致精度不够所以输出错误"。实际经验表明，即使 0.5B 的小模型用 int4 量化也能正常工作。如果 C++ 输出和 Python 差异巨大（如完全说不出图片内容），**一定是实现细节没有对齐**，不是量化问题。
+
+### 正确的排查流程
+
+**必须按以下步骤逐一排查，不能跳步：**
 
 ```
-1. 检查 FakeLinear 维度变换问题（参见第 10 节）
-   └─ 用 MNNDump2Json 检查 axis 参数
+步骤 1: 确认 Python 链路是否正确
+   └─ 用 Python `--test` 或手动 forward 验证输出
+   └─ 如果 Python 也不对，先修 Python 链路
+   └─ ⚠️ Python 链路正确是所有后续排查的前提
 
-2. 检查 MoE routing 权重
-   └─ 在 MoEModule.cpp onForward 中临时添加 debug 打印
-   └─ 确认 routing weights 非全零且 sum ≈ 1.0
-   └─ 确认 selected_experts 值在 [0, num_experts) 范围内
+步骤 2: 对比 Vision 模型的输入输出（多模态模型）
+   └─ 把 Python 的 patches/position_ids dump 到文件
+   └─ C++ 加载这些文件作为 vision encoder 输入
+   └─ 对比 vision encoder 输出的 first few values 和 norm
+   └─ 如果不一致 → 定位 patchify/resize 差异
+   └─ 如果一致 → vision encoder 没问题，继续
 
-3. 检查数据格式（NC4HW4 vs NCHW）
-   └─ MNN 的 Convolution 输出为 NC4HW4 格式
-   └─ 部分 geometry op（如 GatherElements）需要 NCHW 输入
-   └─ 检查是否缺少 ConvertTensor
+步骤 3: 对比 LLM 的输入
+   └─ Python dump 完整的 hidden_states（embedding merge 后）
+   └─ C++ 加载 Python 的 hidden_states 直接传入 LLM
+   └─ 如果 C++ 用 Python 输入仍然错误 → 问题在 ONNX 模型本身
+   └─ 如果 C++ 用 Python 输入正确 → 问题在 embedding merge
 
-4. 检查量化精度
-   └─ 用 --quant_bit 8 或不量化重新导出
-   └─ 如果不量化也错误，不是量化问题
-
-5. Dump 中间 tensor 对比
-   └─ Python 侧：用 hook 打印每层中间结果
-   └─ C++ 侧：在 MoEModule / Decoder 中添加临时打印
-   └─ 找到第一个 diff 显著的检查点
+步骤 4: 逐层对比
+   └─ 导出只有 1 层的模型，对比 layer0 输出
+   └─ 找到第一个 diff 显著的位置
 ```
+
+### 多模态模型的特殊排查点
+
+**当图片输入不被识别时：** 逐行阅读 HF 的 `XxxModel.forward()`，找出 vision tokens 在 embedding / attention mask / 其他 per-token 计算中是否有特殊预处理（如 token id 替换、特殊 mask 等），然后确认 MNN 侧是否完全对齐了这些处理。
 
 ---
 

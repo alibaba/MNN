@@ -28,6 +28,7 @@ ErrorCode RasterBufExecution::onEncode(const std::vector<Tensor *> &____inputs, 
     MNN_PRINT("start RasterBufExecution onResize !\n");
 #endif
     mTempInput.clear();
+    mCombineInfo.clear();
     mTempOutput = nullptr;
     MNN_ASSERT(outputs.size() == 1);
     auto output = outputs[0];

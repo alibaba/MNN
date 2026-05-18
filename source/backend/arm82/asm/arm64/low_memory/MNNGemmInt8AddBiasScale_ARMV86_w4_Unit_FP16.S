@@ -887,61 +887,84 @@ TILE1_BLOCKNUM:
     movi v18.4s, #0 // oc:4,5,4,5
     movi v19.4s, #0 // oc:6,7,6,7
 
-cmp x22, #8
-bne LoopSz1_TILE_1_lu1
 cmp x13, #4
 blt LoopSz1_TILE_1_lu1
 
+    movi v24.4s, #0 // oc:0,1,0,1
+    movi v25.4s, #0 // oc:2,3,2,3
+    movi v26.4s, #0 // oc:4,5,4,5
+    movi v27.4s, #0 // oc:6,7,6,7
+
 LoopSz1_TILE_1_lu4:
     ld1 {v5.16b, v6.16b, v7.16b, v8.16b}, [x12], #64     // weight
-    ld1 {v9.16b, v10.16b, v11.16b, v12.16b}, [x12], #64
-    ld1 {v0.8b, v1.8b, v2.8b, v3.8b}, [x11], #32         // src
+    ld1 {v0.8b}, [x11], x22                              // src
+    ld1 {v1.8b}, [x11], x22
 
-    // int4->int8
+    // int4->int8 - first two weight groups
     ushr v4.16b, v5.16b, #4
     ushr v14.16b, v6.16b, #4
     and v13.16b, v5.16b, v30.16b
     and v15.16b, v6.16b, v30.16b
 
+    ld1 {v9.16b, v10.16b, v11.16b, v12.16b}, [x12], #64
+
+    // Second weight group - unpack + SMMLA
     ushr v20.16b, v7.16b, #4
     ushr v21.16b, v8.16b, #4
     and v22.16b, v7.16b, v30.16b
     and v23.16b, v8.16b, v30.16b
 
-    ushr v24.16b, v9.16b, #4
-    ushr v25.16b, v10.16b, #4
-    and v26.16b, v9.16b, v30.16b
-    and v27.16b, v10.16b, v30.16b
 
-    ushr v5.16b, v11.16b, #4
-    ushr v6.16b, v12.16b, #4
-    and v7.16b, v11.16b, v30.16b
-    and v8.16b, v12.16b, v30.16b
-
-    sub x13, x13, #4
-
+    // First weight group SMMLA
     .inst 0x4e84a410 // smmla v16.4s, v0.16b, v4.16b
     .inst 0x4e8ea411 // smmla v17.4s, v0.16b, v14.16b
     .inst 0x4e8da412 // smmla v18.4s, v0.16b, v13.16b
     .inst 0x4e8fa413 // smmla v19.4s, v0.16b, v15.16b
 
-    .inst 0x4e94a430 // smmla v16.4s, v1.16b, v20.16b
-    .inst 0x4e95a431 // smmla v17.4s, v1.16b, v21.16b
-    .inst 0x4e96a432 // smmla v18.4s, v1.16b, v22.16b
-    .inst 0x4e97a433 // smmla v19.4s, v1.16b, v23.16b
-    cmp x13, #4
-    .inst 0x4e98a450 // smmla v16.4s, v2.16b, v24.16b
-    .inst 0x4e99a451 // smmla v17.4s, v2.16b, v25.16b
-    .inst 0x4e9aa452 // smmla v18.4s, v2.16b, v26.16b
-    .inst 0x4e9ba453 // smmla v19.4s, v2.16b, v27.16b
+    ld1 {v2.8b}, [x11], x22
 
-    .inst 0x4e85a470 // smmla v16.4s, v3.16b, v5.16b
-    .inst 0x4e86a471 // smmla v17.4s, v3.16b, v6.16b
-    .inst 0x4e87a472 // smmla v18.4s, v3.16b, v7.16b
-    .inst 0x4e88a473 // smmla v19.4s, v3.16b, v8.16b
+
+    .inst 0x4e94a438 // smmla v24.4s, v1.16b, v20.16b
+    .inst 0x4e95a439 // smmla v25.4s, v1.16b, v21.16b
+    .inst 0x4e96a43a // smmla v26.4s, v1.16b, v22.16b
+    .inst 0x4e97a43b // smmla v27.4s, v1.16b, v23.16b
+
+    ld1 {v3.8b}, [x11], x22
+
+    // Third weight group - unpack + SMMLA
+    ushr v4.16b, v9.16b, #4
+    ushr v14.16b, v10.16b, #4
+    and v13.16b, v9.16b, v30.16b
+    and v15.16b, v10.16b, v30.16b
+
+    // Fourth weight group - unpack + SMMLA
+    ushr v5.16b, v11.16b, #4
+    ushr v6.16b, v12.16b, #4
+    and v7.16b, v11.16b, v30.16b
+    and v8.16b, v12.16b, v30.16b
+
+    .inst 0x4e84a450 // smmla v16.4s, v2.16b, v4.16b
+    .inst 0x4e8ea451 // smmla v17.4s, v2.16b, v14.16b
+    .inst 0x4e8da452 // smmla v18.4s, v2.16b, v13.16b
+    .inst 0x4e8fa453 // smmla v19.4s, v2.16b, v15.16b
+
+
+    .inst 0x4e85a478 // smmla v24.4s, v3.16b, v5.16b
+    .inst 0x4e86a479 // smmla v25.4s, v3.16b, v6.16b
+    .inst 0x4e87a47a // smmla v26.4s, v3.16b, v7.16b
+    .inst 0x4e88a47b // smmla v27.4s, v3.16b, v8.16b
+
+    sub x13, x13, #4
+    cmp x13, #4
 
     bge LoopSz1_TILE_1_lu4
-    cbz x13, LoopSzEnd_TILE_1
+    
+    add v16.4s, v16.4s, v24.4s
+    add v17.4s, v17.4s, v25.4s
+    add v18.4s, v18.4s, v26.4s
+    add v19.4s, v19.4s, v27.4s
+
+cbz x13, LoopSzEnd_TILE_1
 
 LoopSz1_TILE_1_lu1:
     ld1 {v13.16b, v14.16b}, [x12], #32   // weight

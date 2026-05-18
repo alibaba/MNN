@@ -15,6 +15,7 @@ object ModelVendors {
     const val Jina = "Jina"
     const val Internlm = "Internlm"
     const val Gemma = "Gemma"
+    const val Lfm = "LFM"
     const val Mimo = "Mimo"
     const val FastVlm = "FastVlm"
     const val OpenElm = "OpenElm"
@@ -24,6 +25,7 @@ object ModelVendors {
         Qwen,
         DeepSeek,
         Gemma,
+        Lfm,
         Smo,
         FastVlm,
         Phi,

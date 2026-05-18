@@ -22,8 +22,10 @@ public:
     virtual ~VulkanLayernorm();
     virtual ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                        const VulkanCommandPool::Buffer* cmdBuffer) override;
+    virtual bool onClone(Backend* bn, const Op* op, VulkanBasicExecution** dst) override;
 
 private:
+    VulkanLayernorm(Backend* bn, const VulkanLayernorm* src);
     std::shared_ptr<VulkanBuffer> mParam;
     std::shared_ptr<Tensor> mGamma;
     std::shared_ptr<Tensor> mBias;
@@ -34,7 +36,6 @@ private:
     std::string mKey;
     std::string mOptKey;
     std::vector<VkDescriptorType> mDesTypes;
-    uint32_t mOptLocalSize = 0;
     float mEps;
     bool mHasScale = false;
     bool mUseRMSNorm = false;

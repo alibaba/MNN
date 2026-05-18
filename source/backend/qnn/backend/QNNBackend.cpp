@@ -340,6 +340,85 @@ static void doProfile(const QNN_INTERFACE_VER_TYPE& interface, const Qnn_Profile
     // =========================================================
 #endif
 }
+
+// Helper: get byte size per element for a QNN data type
+static uint32_t getQnnDataTypeSize(Qnn_DataType_t dataType) {
+    switch (dataType) {
+        case QNN_DATATYPE_INT_8:
+        case QNN_DATATYPE_UINT_8:
+        case QNN_DATATYPE_BOOL_8:
+        case QNN_DATATYPE_SFIXED_POINT_8:
+        case QNN_DATATYPE_UFIXED_POINT_8:
+            return 1;
+        case QNN_DATATYPE_INT_16:
+        case QNN_DATATYPE_UINT_16:
+        case QNN_DATATYPE_FLOAT_16:
+        case QNN_DATATYPE_SFIXED_POINT_16:
+        case QNN_DATATYPE_UFIXED_POINT_16:
+            return 2;
+        case QNN_DATATYPE_INT_32:
+        case QNN_DATATYPE_UINT_32:
+        case QNN_DATATYPE_FLOAT_32:
+        case QNN_DATATYPE_SFIXED_POINT_32:
+        case QNN_DATATYPE_UFIXED_POINT_32:
+            return 4;
+        case QNN_DATATYPE_INT_64:
+        case QNN_DATATYPE_UINT_64:
+        case QNN_DATATYPE_FLOAT_64:
+            return 8;
+        default:
+            return 0;
+    }
+}
+
+// Helper: calculate total data size in bytes for a QNN tensor
+static size_t calcQnnTensorDataSize(const Qnn_Tensor_t& tensor) {
+    uint32_t rank = QNN_TENSOR_GET_RANK(tensor);
+    uint32_t* dims = QNN_TENSOR_GET_DIMENSIONS(tensor);
+    if (rank == 0 || dims == nullptr) {
+        return 0;
+    }
+    size_t elementCount = 1;
+    for (uint32_t i = 0; i < rank; i++) {
+        elementCount *= dims[i];
+    }
+    uint32_t elementSize = getQnnDataTypeSize(QNN_TENSOR_GET_DATA_TYPE(tensor));
+    return elementCount * elementSize;
+}
+
+// Helper: ensure all output tensors have memory allocated for graphExecute.
+// Returns a vector of (index, pointer) pairs for temporarily allocated buffers that must be freed after execution.
+static std::vector<std::pair<int, void*>> ensureOutputTensorsMemory(Qnn_Tensor_t* outputTensors,
+                                                                    uint32_t numOutputTensors) {
+    std::vector<std::pair<int, void*>> tempBuffers;
+    for (uint32_t i = 0; i < numOutputTensors; i++) {
+        auto& tensor = outputTensors[i];
+        if (QNN_TENSOR_GET_MEM_TYPE(tensor) == QNN_TENSORMEMTYPE_RAW) {
+            auto clientBuf = QNN_TENSOR_GET_CLIENT_BUF(tensor);
+            if (clientBuf.data == nullptr) {
+                size_t dataSize = calcQnnTensorDataSize(tensor);
+                if (dataSize > 0) {
+                    void* tempData = malloc(dataSize);
+                    if (tempData != nullptr) {
+                        Qnn_ClientBuffer_t buf = {tempData, (uint32_t)dataSize};
+                        QNN_TENSOR_SET_CLIENT_BUF(tensor, buf);
+                        tempBuffers.push_back({(int)i, tempData});
+                    }
+                }
+            }
+        }
+    }
+    return tempBuffers;
+}
+
+// Helper: free temporarily allocated output tensor buffers and reset their clientBuf.
+static void freeOutputTensorsTempMemory(Qnn_Tensor_t* outputTensors, std::vector<std::pair<int, void*>>& tempBuffers) {
+    for (auto& p : tempBuffers) {
+        Qnn_ClientBuffer_t emptyBuf = {nullptr, 0};
+        QNN_TENSOR_SET_CLIENT_BUF(outputTensors[p.first], emptyBuf);
+        free(p.second);
+    }
+}
 }
 }
 
@@ -1001,9 +1080,13 @@ public:
     void invokModel(int shapeIndex) {
         GraphInfo* graph = mGraphsInfo[shapeIndex];
         Qnn_GraphHandle_t qnnGraphHandle = mQnnGraphHandleVec[shapeIndex];
+        // Ensure all output tensors have memory allocated; allocate temp buffers for those without.
+        auto tempBuffers = MNN::QNN::ensureOutputTensorsMemory(graph->outputTensors, graph->numOutputTensors);
         CALL_QNN(QNN::gContext.interface.graphExecute(qnnGraphHandle, graph->inputTensors, graph->numInputTensors, \
             graph->outputTensors, graph->numOutputTensors, mQnnProfileHandle, nullptr));
         MNN::QNN::doProfile(QNN::gContext.interface, mQnnProfileHandle);
+        // Free temporarily allocated output tensor buffers.
+        MNN::QNN::freeOutputTensorsTempMemory(graph->outputTensors, tempBuffers);
     }
 };
 
@@ -1694,7 +1777,13 @@ void QnnBackend::executeGraph() const {
         outputs.push_back(*(mQNNTensorWrappers[mOutputTensorIndexes[j]]->getNativeTensor()));
     }
 
+    // Ensure all output tensors have memory allocated; allocate temp buffers for those without.
+    auto tempBuffers = ensureOutputTensorsMemory(outputs.data(), (uint32_t)outputs.size());
+
     CALL_QNN(mRuntime->mQnnInterface.graphExecute(mQnnGraphHandle, inputs.data(), mInputTensorIndexes.size(), outputs.data(), mOutputTensorIndexes.size(), mQnnProfileHandle, mQnnSignalHandle));
+
+    // Free temporarily allocated output tensor buffers.
+    freeOutputTensorsTempMemory(outputs.data(), tempBuffers);
 }
 
 void QnnBackend::freeContextAndGraph() {
