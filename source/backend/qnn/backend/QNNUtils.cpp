@@ -33,7 +33,7 @@ void QnnHalfToFloat(const int16_t* src, float* dst, size_t size) {
     std::vector<half_float::half> halfBatch(batchSize);
 
     for (size_t i = 0; i < size; i += batchSize) {
-        size_t currentBatchSize = std::min(batchSize, size - i);
+        size_t currentBatchSize = min(batchSize, size - i);
 
         ::memcpy(halfBatch.data(), &(src[i]), currentBatchSize * sizeof(int16_t));
 

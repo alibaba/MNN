@@ -7,6 +7,7 @@
 //
 
 #include "QNNLayerNorm.hpp"
+#include <limits>
 
 namespace MNN {
 namespace QNN {
@@ -87,10 +88,10 @@ void QNNLayerNorm::createGammaBeta(Qnn_DataType_t dataType){
         this->createStaticFloatTensor("gamma", dataType, {(uint32_t) mGammaBetaSize}, mGammaData.data());                                      // mTempTensorWrappers[0], gamma
         this->createStaticFloatTensor("beta", dataType, {(uint32_t) mGammaBetaSize}, mBetaData.data());                                        // mTempTensorWrappers[1], beta
     }else{
-        float minGamma = MAXFLOAT;
-        float maxGamma = -MAXFLOAT;
-        float minBeta = MAXFLOAT;
-        float maxBeta = -MAXFLOAT;
+        float minGamma = std::numeric_limits<float>::max();
+        float maxGamma = -std::numeric_limits<float>::max();
+        float minBeta = std::numeric_limits<float>::max();
+        float maxBeta = -std::numeric_limits<float>::max();
         float gammaScale, betaScale;
         int gammaZeroPoint, betaZeroPoint;
         float clampValue = (float)((1 << (16)) - 1);
