@@ -81,11 +81,17 @@ class LlmExporter(torch.nn.Module):
         self.llm_config = {
             'model_type': self.config.model_type,
             'hidden_size' : self.config.hidden_size,
+            'layer_nums': self.config.num_hidden_layers,
             'attention_mask': 'float', # Will be determined by model later
             'attention_type': self.config.attention_type,
             'is_mrope': self.model.rotary.is_mrope
         }
         self.llm_config.update(self.model.get_config())
+        # Attention scaling (gemma4 uses 1.0 instead of 1/sqrt(head_dim))
+        if hasattr(self.model, 'blocks') and len(self.model.blocks) > 0:
+            attn = self.model.blocks[0].self_attn
+            if hasattr(attn, 'attn_scaling') and attn.attn_scaling != 1.0 / (self.config.head_dim ** 0.5):
+                self.llm_config['attn_scale'] = attn.attn_scaling
         if self.config.sliding_window > 0:
             self.llm_config['sliding_window'] = self.config.sliding_window
         if hasattr(self.tokenizer, 'get_chat_template'):
@@ -98,6 +104,13 @@ class LlmExporter(torch.nn.Module):
                      self.llm_config['jinja']['bos'] = self.tokenizer.bos_token
                  if self.tokenizer.eos_token:
                      self.llm_config['jinja']['eos'] = self.tokenizer.eos_token
+        # gemma4's HF template is too complex for minja parser, use simplified version
+        if self.model_type == 'gemma4':
+            self.llm_config['jinja'] = {
+                'chat_template': "{{ bos_token }}{% for message in messages %}{% if message.role == \"system\" %}<|turn>system\n{{ message.content }}<turn|>\n{% elif message.role == \"user\" %}<|turn>user\n{{ message.content }}<turn|>\n{% elif message.role == \"assistant\" %}<|turn>model\n{{ message.content }}<turn|>\n{% endif %}{% endfor %}{% if add_generation_prompt %}<|turn>model\n{% endif %}",
+                'bos': '<bos>',
+                'eos': '<turn|>'
+            }
         # glm_ocr's HF template is too complex for minja parser, use simplified version
         if self.model_type == 'glm_ocr':
             self.llm_config['jinja'] = {
@@ -121,7 +134,6 @@ class LlmExporter(torch.nn.Module):
         # self.imitate_quant()
         self.model.decode_buffer = []
         messages = [
-            {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": query}
         ]
         prompt = self.tokenizer.apply_chat_template(messages)
@@ -129,7 +141,12 @@ class LlmExporter(torch.nn.Module):
             prompt = query
 
         # Use model's tokenizer methods for encoding
-        if self.model.visual is not None:
+        # For models with both visual and audio (e.g., gemma4), check content type
+        has_audio = self.model.audio is not None and '<audio>' in prompt
+        if has_audio:
+            # Process audio first, then let visual handle the rest
+            input_ids = self.model.audio.str_to_ids(prompt)
+        elif self.model.visual is not None:
             input_ids = self.model.visual.str_to_ids(prompt)
         elif self.model.audio is not None:
             input_ids = self.model.audio.str_to_ids(prompt)
@@ -186,6 +203,24 @@ class LlmExporter(torch.nn.Module):
             MNNConverter(self, None).export(eagle_onnx)
             MNNConverter(self, None).export(eagle_fc_onnx)
 
+    def export_dflash(self):
+        if not hasattr(self.args, 'dflash_path') or self.args.dflash_path is None:
+            return
+        from utils.dflash import DFlash
+        self.dflash = DFlash(self.args.dflash_path, self.model)
+        # Set target layer ids on args so model.forward() can use them
+        self.args.dflash_target_layer_ids = self.dflash.target_layer_ids
+        dflash_onnx, dflash_fc_onnx = self.dflash.export(self.onnx_path)
+        if self.mnn_converter:
+            # Disable transformerFuse for dflash model: dflash uses non-causal (bidirectional) attention,
+            # but MNN's fused attention assumes causal masking which breaks dflash's attention pattern.
+            # Use 8-bit quantization for dflash model to balance quality and size.
+            MNNConverter(self, self.dflash.unloaded_ops).export(dflash_onnx, quant_bit=8, transformer_fuse=False)
+            # FC model must NOT be quantized: the input (concatenated hidden states from
+            # multiple target layers) has very large value ranges during prefill, which
+            # causes int8 quantization overflow and produces all-zero outputs.
+            MNNConverter(self, None).export(dflash_fc_onnx, quant_bit=0, transformer_fuse=False)
+
 
     @spinner_run(f'export embedding to ')
     def export_embed(self):
@@ -215,7 +250,14 @@ class LlmExporter(torch.nn.Module):
                 q_weight_size = (oc * ic * format_bit + 7) // 8
                 alpha_size = oc * block_num * (1 if symmetric else 2) * 4
                 file_size = q_weight_size + alpha_size
-                self.llm_config['tie_embeddings'] = [0, q_weight_size, alpha_size, format_bit, quant_block]
+                self.llm_config['tie_embeddings'] = {
+                    "weight_offset": 0,
+                    "alpha_offset": q_weight_size,
+                    "alpha_size": alpha_size,
+                    "quant_bit": format_bit,
+                    "quant_block": quant_block,
+                    "alpha_dtype": "fp32",
+                }
 
             with open(embedding_file, 'wb') as f:
                 if file_size > 0:
@@ -246,7 +288,14 @@ class LlmExporter(torch.nn.Module):
             with open(embedding_file, 'wb') as f:
                 weight_size = f.write(q_weight.numpy().tobytes())
                 alpha_size = f.write(alpha.numpy().tobytes())
-            self.llm_config['tie_embeddings'] = [0, weight_size, alpha_size, quant_bit, quant_block]
+            self.llm_config['tie_embeddings'] = {
+                "weight_offset": 0,
+                "alpha_offset": weight_size,
+                "alpha_size": alpha_size,
+                "quant_bit": quant_bit,
+                "quant_block": quant_block,
+                "alpha_dtype": "fp32",
+            }
         else:
             raise ValueError(f"Unsupported embedding bit precision: {format_bit}")
 
@@ -270,8 +319,19 @@ class LlmExporter(torch.nn.Module):
                 "precision": "low",
                 "memory": "low",
                 # "system_prompt": "You are a helpful assistant.",
-                "sampler_type":'penalty',
-                "penalty":1.1
+                "sampler_type": "mixed",
+                "temperature": 0.8,
+                "top_k": 40,
+                "top_p": 0.9,
+                "min_p": 0.05,
+                "tfs_z": 1.0,
+                "typical": 0.95,
+                "repetition_penalty": 1.0,
+                "presence_penalty": 0.0,
+                "frequency_penalty": 0.0,
+                "penalty_window": 0,
+                "n_gram": 8,
+                "ngram_factor": 1.0
             }
             config['tokenizer_file'] = 'tokenizer.mtok'
             if self.args.embed_bit < 16:
@@ -294,6 +354,14 @@ class LlmExporter(torch.nn.Module):
             if self.args.eagle_path is not None:
                 config['speculative_type'] = 'eagle'
                 config['hidden_states'] = True
+            if hasattr(self.args, 'dflash_path') and self.args.dflash_path is not None:
+                config['speculative_type'] = 'dflash'
+                config['hidden_states'] = True
+                config['dflash_model'] = 'dflash.mnn'
+                config['dflash_fc'] = 'dflash_fc.mnn'
+                config['dflash_block_size'] = self.dflash.block_size
+                config['dflash_mask_token_id'] = self.dflash.mask_token_id
+                config['dflash_target_layer_ids'] = self.dflash.target_layer_ids
             json.dump(config, f, ensure_ascii=False, indent=4)
         return config_json
 
@@ -335,7 +403,7 @@ class LlmExporter(torch.nn.Module):
         self.expert_layer_ids = []
         def build_faker(real, name):
             faker = FakeLinear(real.in_features, real.out_features, real.bias is not None, name)
-            self.unloaded_ops[name] = real
+            self.unloaded_ops[name] = real.cpu()
             return faker
         # replace linear with fakelinear to save export memory and time
         with torch.no_grad():
@@ -352,18 +420,43 @@ class LlmExporter(torch.nn.Module):
                 for name, child in self.model.blocks[i].mlp.named_children():
                     if isinstance(child, torch.nn.Linear):
                         setattr(self.model.blocks[i].mlp, name, build_faker(child, f'/layers.{i}/mlp/{name}/Linear'))
-                    if name == 'shared_expert':
-                        for name, child in self.model.blocks[i].mlp.shared_expert.named_children():
-                            if isinstance(child, torch.nn.Linear):
-                                setattr(self.model.blocks[i].mlp.shared_expert, name, build_faker(child, f'/layers.{i}/mlp/shared_expert/{name}/Linear'))
-                    if is_moe and isinstance(child, torch.nn.ModuleList): # experts
-                        self.experts.append(child)
-                        self.expert_layer_ids.append(i)
-                        for j in range(len(child)):
-                            for name, cchild in child[j].named_children():
-                                if isinstance(cchild, torch.nn.Linear):
-                                    setattr(self.model.blocks[i].mlp.experts[j], name, build_faker(cchild, f'/expert/{i}_{j}/{name}'))
+                # PLE per-layer Linear layers (gemma4)
+                for name in ['per_layer_input_gate', 'per_layer_projection']:
+                    child = getattr(self.model.blocks[i], name, None)
+                    if isinstance(child, torch.nn.Linear):
+                        setattr(self.model.blocks[i], name, build_faker(child, f'/layers.{i}/{name}/Linear'))
+                # shared_expert in MLP-level MoE
+                if is_moe and hasattr(self.model.blocks[i].mlp, 'shared_expert'):
+                    for name, child in self.model.blocks[i].mlp.shared_expert.named_children():
+                        if isinstance(child, torch.nn.Linear):
+                            setattr(self.model.blocks[i].mlp.shared_expert, name, build_faker(child, f'/layers.{i}/mlp/shared_expert/{name}/Linear'))
+                # MLP-level MoE experts
+                if is_moe and hasattr(self.model.blocks[i].mlp, 'experts') and isinstance(self.model.blocks[i].mlp.experts, torch.nn.ModuleList):
+                    self.experts.append(self.model.blocks[i].mlp.experts)
+                    self.expert_layer_ids.append(i)
+                    for j in range(len(self.model.blocks[i].mlp.experts)):
+                        for name, cchild in self.model.blocks[i].mlp.experts[j].named_children():
+                            if isinstance(cchild, torch.nn.Linear):
+                                setattr(self.model.blocks[i].mlp.experts[j], name, build_faker(cchild, f'/expert/{i}_{j}/{name}'))
+                # gemma4 decoder-level MoE (parallel to dense MLP)
+                has_gemma4_moe = getattr(self.model.blocks[i], 'has_gemma4_moe', False)
+                if has_gemma4_moe:
+                    self.model.blocks[i].export_moe = True
+                    # Unload moe_gate Linear
+                    child = self.model.blocks[i].moe_gate
+                    if isinstance(child, torch.nn.Linear):
+                        self.model.blocks[i].moe_gate = build_faker(child, f'/layers.{i}/moe_gate/Linear')
+                    # Unload experts
+                    self.experts.append(self.model.blocks[i].experts)
+                    self.expert_layer_ids.append(i)
+                    for j in range(len(self.model.blocks[i].experts)):
+                        for name, cchild in self.model.blocks[i].experts[j].named_children():
+                            if isinstance(cchild, torch.nn.Linear):
+                                setattr(self.model.blocks[i].experts[j], name, build_faker(cchild, f'/expert/{i}_{j}/{name}'))
             self.model.lm.lm = build_faker(self.model.lm.lm, f'/lm/lm_head/Linear')
+            # PLE model-level Linear (gemma4)
+            if hasattr(self.model, 'per_layer_model_projection') and isinstance(self.model.per_layer_model_projection, torch.nn.Linear):
+                self.model.per_layer_model_projection = build_faker(self.model.per_layer_model_projection, f'/per_layer_model_projection/Linear')
 
     @spinner_run(f'export model weight to ')
     def onnx_load_param(self, onnx_path):
@@ -380,6 +473,10 @@ class LlmExporter(torch.nn.Module):
     def export_onnx(self):
         # unload linear weight to save export memory
         self.unload_param()
+        # move entire model to CPU to free GPU memory for quantization
+        self.model.cpu()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         model = self.model
         seq_len = 3
         new_tokens = 0
@@ -404,6 +501,21 @@ class LlmExporter(torch.nn.Module):
                 onnx_model,
                 input_names=[
                     'input_ids', 'attention_mask', 'position_ids', 'logits_index', 'deepstack_embeds'
+                ],
+                output_names=output_names,
+                dynamic_axes=self.model_dynamic_axes)
+            return onnx_model
+
+        # gemma4: add ple_embeddings + text_embeds_for_ple for PLE (Per-Layer Embeddings)
+        if hasattr(model, 'embed_tokens_per_layer') and model.embed_tokens_per_layer is not None:
+            raw_ids = torch.arange(seq_len, dtype=torch.long).unsqueeze(0)
+            ple_embeddings = model.embed_tokens_per_layer(raw_ids)
+            self.model_dynamic_axes['ple_embeddings'] = {1: 'seq_len'}
+            onnx_export(
+                model, (input_ids, attention_mask, position_ids, logits_index, None, ple_embeddings),
+                onnx_model,
+                input_names=[
+                    'input_ids', 'attention_mask', 'position_ids', 'logits_index', 'ple_embeddings'
                 ],
                 output_names=output_names,
                 dynamic_axes=self.model_dynamic_axes)
@@ -512,12 +624,48 @@ class LlmExporter(torch.nn.Module):
             self.mnn_converter.export(dit_onnx, self.talker.token2wav.quant_bit)
             self.mnn_converter.export(bigvgan_onnx, self.talker.token2wav.quant_bit)
 
+    def export_ple_embed(self):
+        """Export Per-Layer Embedding weights for gemma4."""
+        import ctypes
+        from utils.torch_utils import quant as torch_quant
+        if not hasattr(self.model, 'embed_tokens_per_layer') or self.model.embed_tokens_per_layer is None:
+            return
+        embed = self.model.embed_tokens_per_layer
+        tensor_data = embed.weight.data
+        embed_scale = getattr(embed, 'scalar_embed_scale', 1.0)
+        format_bit = getattr(self.args, 'embed_bit', 16)
+        quant_block = getattr(self.args, 'quant_block', 64)
+        symmetric = getattr(self.args, 'sym', False)
+        if format_bit in [4, 8]:
+            awq = getattr(self.args, 'awq', False)
+            hqq = getattr(self.args, 'hqq', False)
+            q_weight, alpha = torch_quant(tensor_data.float(), format_bit, quant_block, symmetric, awq, hqq)
+            format_name = f'int{format_bit}'
+            ple_file = f'{self.args.dst_path}/ple_embeddings_{format_name}.bin'
+            with open(ple_file, 'wb') as f:
+                weight_size = f.write(q_weight.numpy().tobytes())
+                alpha_size = f.write(alpha.numpy().tobytes())
+            self.llm_config['ple_embed_file'] = f'ple_embeddings_{format_name}.bin'
+            self.llm_config['ple_quant'] = [0, weight_size, alpha_size, format_bit, quant_block]
+        else:
+            tensor_data = tensor_data.bfloat16()
+            data_ptr = tensor_data.untyped_storage().data_ptr()
+            buffer = (ctypes.c_byte * (tensor_data.numel() * 2)).from_address(data_ptr)
+            ple_file = f'{self.args.dst_path}/ple_embeddings_bf16.bin'
+            with open(ple_file, 'wb') as f:
+                f.write(buffer)
+            self.llm_config['ple_embed_file'] = 'ple_embeddings_bf16.bin'
+        self.llm_config['ple_embed_scale'] = embed_scale
+        self.llm_config['ple_embed_dim'] = embed.embedding_dim
+
     def export_language(self):
         # export_embedding
         if self.mnn_converter and self.args.tie_word_embeddings:
             pass # mnn tie_word_embeddings need't export embedding
         else:
             self.export_embed()
+        # export PLE embedding (gemma4)
+        self.export_ple_embed()
         # export transformer
         onnx_model = self.export_onnx()
 
@@ -544,6 +692,7 @@ class LlmExporter(torch.nn.Module):
         self.export_vision()
         self.export_audio()
         self.export_eagle()
+        self.export_dflash()
         self.export_language()
         self.export_mtp()
         self.export_tokenizer()
@@ -690,6 +839,7 @@ def build_args(parser):
                         )
     parser.add_argument('--tokenizer_path', type=str, default=None, help='tokenizer path, default is `None` mean using `--path` value.')
     parser.add_argument('--eagle_path', type=str, default=None, help='eagle model path, default is `None`')
+    parser.add_argument('--dflash_path', type=str, default=None, help='dflash draft model path, default is `None`')
     parser.add_argument('--lora_path', type=str, default=None, help='lora path, default is `None` mean not apply lora.')
     parser.add_argument('--gptq_path', type=str, default=None, help='gptq path, default is `None` mean not apply gptq.')
     parser.add_argument('--dst_path', type=str, default='./model', help='export onnx/mnn model to path, default is `./model`.')
@@ -712,6 +862,7 @@ def build_args(parser):
     parser.add_argument('--group_conv_native', action='store_true', help='Whether or not to keep native group_conv.')
     parser.add_argument('--smooth', action='store_true', help='Whether or not to use smooth quant.')
     parser.add_argument('--sym', action='store_true', help='Whether or not to using symmetric quant (without zeropoint), default is False.')
+    parser.add_argument('--scale_bit', type=int, default=16, choices=[16, 32], help='Bit-width for quant scale/zero-point storage. Currently supports 16 (fp16, default) and 32 (fp32); 8/4 reserved for future.')
     parser.add_argument('--visual_sym', action='store_true', help='Whether or not to using symmetric quant (without zeropoint) for visual model, default is False.')
     parser.add_argument('--seperate_embed', action='store_true', help='For lm and embed shared model, whether or not to sepearte embed to avoid quant, default is False, if True, embed weight will be seperate to embedding bf16.bin.')
     parser.add_argument('--lora_split', action='store_true', help='Whether or not export lora split, default is False.')

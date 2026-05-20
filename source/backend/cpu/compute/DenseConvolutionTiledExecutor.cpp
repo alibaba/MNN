@@ -14,6 +14,7 @@
 #include "ConvOpt.h"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
+#include "half.hpp"
 #include "math/Vec.hpp"
 #include "core/BufferAllocator.hpp"
 #include "core/MemoryFormater.h"
@@ -36,7 +37,7 @@ bool DenseConvolutionTiledExecutor::initQuantizeResource(std::shared_ptr<Convolu
     resource->hP = hP;
     MNN_ASSERT(lP == 1);
     // Save scale bias
-    int dequantCnt = int8Info->alpha.size();
+    int dequantCnt = int8Info->alphaSize;
     int scaleSize = dequantCnt; // real size
     if (int8Info->asymmetric) {
         scaleSize = dequantCnt / 2;
@@ -93,38 +94,72 @@ bool DenseConvolutionTiledExecutor::initQuantizeResource(std::shared_ptr<Convolu
     auto alphaPtr = resource->mDequantize.mScaleBias->host<float>();
     auto biasPtr = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(alphaPtr) + scaleSize * bytes);
     ::memset(alphaPtr, 0, 2 * scaleSize * bytes);
-    int h = int8Info->alpha.size();
     if (bytes == 2) {
-        auto core = static_cast<CPUBackend*>(resource->backend)->functions();
-        std::vector<float> tmpAlpha(scaleSize * 2, 0.0f);
-        if (int8Info->asymmetric) {
-            for (int i = 0; i < blockNum; ++i) {
-                auto dstAlpha = tmpAlpha.data() + i * hU * hP;
-                auto srcAlpha = int8Info->alpha.get();
-                for (int j = 0; j < outputCount; ++j) {
-                    int scaleIndex = j * blockNum + i;
-                    dstAlpha[j] = srcAlpha[2 * scaleIndex + 1];
-                    dstAlpha[j + scaleSize] = srcAlpha[2 * scaleIndex] + (float)originOffset * dstAlpha[j];
+        auto cpuBackend = static_cast<CPUBackend*>(resource->backend);
+        auto core = cpuBackend->functions();
+        // Optimal path: disk alpha is fp16 AND backend is fp16 (Precision_Low).
+        // Read fp16 raw bits directly and write fp16 to mScaleBias, skipping the
+        // fp32 round-trip and the bulk MNNFp32ToLowp call.
+        const bool nativeFp16 = int8Info->alphaIsFp16 && cpuBackend->precisionMode() == BackendConfig::Precision_Low;
+        if (nativeFp16) {
+            auto srcHalf = reinterpret_cast<const half_float::half*>(int8Info->getAlphaHalf());
+            auto dstHalf = reinterpret_cast<half_float::half*>(alphaPtr);
+            const half_float::half offsetH(static_cast<float>(originOffset));
+            if (int8Info->asymmetric) {
+                for (int i = 0; i < blockNum; ++i) {
+                    auto dstAlpha = dstHalf + i * hU * hP;
+                    auto dstBias = dstHalf + scaleSize + i * hU * hP;
+                    for (int j = 0; j < outputCount; ++j) {
+                        int scaleIndex = j * blockNum + i;
+                        dstAlpha[j] = srcHalf[2 * scaleIndex + 1];
+                        dstBias[j] =
+                            half_float::half(float(srcHalf[2 * scaleIndex]) + float(offsetH) * float(dstAlpha[j]));
+                    }
+                }
+            } else {
+                for (int i = 0; i < blockNum; ++i) {
+                    auto dstAlpha = dstHalf + i * hU * hP;
+                    auto dstBias = dstHalf + scaleSize + i * hU * hP;
+                    for (int j = 0; j < outputCount; ++j) {
+                        int scaleIndex = j * blockNum + i;
+                        dstAlpha[j] = srcHalf[scaleIndex];
+                        dstBias[j] = half_float::half(float(offsetH) * float(dstAlpha[j]));
+                    }
                 }
             }
         } else {
-            for (int i = 0; i < blockNum; ++i) {
-                auto dstAlpha = tmpAlpha.data() + i * hU * hP;
-                auto srcAlpha = int8Info->alpha.get();
-                for (int j = 0; j < outputCount; ++j) {
-                    int scaleIndex = j * blockNum + i;
-                    dstAlpha[j] = srcAlpha[scaleIndex];
-                    dstAlpha[j + scaleSize] = (float)originOffset * dstAlpha[j];
+            // bf16 backend, or fp32 disk alpha: keep fp32 reshuffle + MNNFp32ToLowp.
+            // getAlphaFloat() lazy-fills alpha from alphaHalf if needed.
+            auto srcAlpha = int8Info->getAlphaFloat();
+            std::vector<float> tmpAlpha(scaleSize * 2, 0.0f);
+            if (int8Info->asymmetric) {
+                for (int i = 0; i < blockNum; ++i) {
+                    auto dstAlpha = tmpAlpha.data() + i * hU * hP;
+                    for (int j = 0; j < outputCount; ++j) {
+                        int scaleIndex = j * blockNum + i;
+                        dstAlpha[j] = srcAlpha[2 * scaleIndex + 1];
+                        dstAlpha[j + scaleSize] = srcAlpha[2 * scaleIndex] + (float)originOffset * dstAlpha[j];
+                    }
+                }
+            } else {
+                for (int i = 0; i < blockNum; ++i) {
+                    auto dstAlpha = tmpAlpha.data() + i * hU * hP;
+                    for (int j = 0; j < outputCount; ++j) {
+                        int scaleIndex = j * blockNum + i;
+                        dstAlpha[j] = srcAlpha[scaleIndex];
+                        dstAlpha[j + scaleSize] = (float)originOffset * dstAlpha[j];
+                    }
                 }
             }
+            core->MNNFp32ToLowp(tmpAlpha.data(), reinterpret_cast<int16_t*>(alphaPtr), scaleSize * 2);
         }
-        core->MNNFp32ToLowp(tmpAlpha.data(), reinterpret_cast<int16_t*>(alphaPtr), scaleSize * 2);
     } else {
+        // fp32 backend. getAlphaFloat() lazy-fills alpha from alphaHalf if disk was fp16.
+        auto srcAlpha = int8Info->getAlphaFloat();
         if (int8Info->asymmetric) {
             for (int i = 0; i < blockNum; ++i) {
                 auto dstAlpha = alphaPtr + i * hU * hP;
-                auto dstBias  = biasPtr + i * hU * hP;
-                auto srcAlpha = int8Info->alpha.get();
+                auto dstBias = biasPtr + i * hU * hP;
                 for (int j = 0; j < outputCount; ++j) {
                     int scaleIndex = j * blockNum + i;
                     dstAlpha[j] = srcAlpha[2 * scaleIndex + 1];
@@ -134,8 +169,7 @@ bool DenseConvolutionTiledExecutor::initQuantizeResource(std::shared_ptr<Convolu
         } else {
             for (int i = 0; i < blockNum; ++i) {
                 auto dstAlpha = alphaPtr + i * hU * hP;
-                auto dstBias  = biasPtr + i * hU * hP;
-                auto srcAlpha = int8Info->alpha.get();
+                auto dstBias = biasPtr + i * hU * hP;
                 for (int j = 0; j < outputCount; ++j) {
                     int scaleIndex = j * blockNum + i;
                     dstAlpha[j] = srcAlpha[scaleIndex];

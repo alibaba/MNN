@@ -73,9 +73,10 @@ private:
     bool mRemove;
     bool mNewMmap = false;
     bool mSynced = false;
+    bool mSyncValid = false;
 
 public:
-    MmapAllocator(const char* dirName, const char* prefix, const char* posfix, bool autoRemove) {
+    MmapAllocator(const char* dirName, const char* prefix, const char* posfix, bool autoRemove, bool syncValid) {
         if (nullptr != dirName) {
             mFileName = dirName;
             if (!MNNCreateDir(dirName)) {
@@ -89,6 +90,7 @@ public:
             mPosfix = posfix;
         }
         mRemove = autoRemove;
+        mSyncValid = syncValid;
     }
     virtual ~ MmapAllocator() {
         for (auto& iter : mCache) {
@@ -141,14 +143,18 @@ public:
         if (mSynced) {
             return;
         }
-        if (!mRemove && mNewMmap) {
-            for (auto& iter : mCache) {
-                MNNMmapSync(iter.first, std::get<1>(iter.second));
+        if (!mRemove) {
+            if (mNewMmap) {
+                for (auto& iter : mCache) {
+                    MNNMmapSync(iter.first, std::get<1>(iter.second));
+                }
             }
-            std::string cacheName = mPrefix + "sync." + mPosfix;
-            std::string fileName = MNNFilePathConcat(mFileName, cacheName);
-            MNNCreateFile(fileName.c_str());
-            mSynced = true;
+            if (mNewMmap || !mSyncValid) {
+                std::string cacheName = mPrefix + "sync." + mPosfix;
+                std::string fileName = MNNFilePathConcat(mFileName, cacheName);
+                MNNCreateFile(fileName.c_str());
+                mSynced = true;
+            }
         }
     }
 };
@@ -175,9 +181,9 @@ std::shared_ptr<BufferAllocator::Allocator> BufferAllocator::Allocator::createDe
     _res.reset(new DefaultAllocator);
     return _res;
 }
-std::shared_ptr<BufferAllocator::Allocator> BufferAllocator::Allocator::createMmap(const char* dirName, const char* prefix, const char* posfix, bool autoRemove) {
+std::shared_ptr<BufferAllocator::Allocator> BufferAllocator::Allocator::createMmap(const char* dirName, const char* prefix, const char* posfix, bool autoRemove, bool syncValid) {
     std::shared_ptr<BufferAllocator::Allocator> _res;
-    _res.reset(new MmapAllocator(dirName, prefix, posfix, autoRemove));
+    _res.reset(new MmapAllocator(dirName, prefix, posfix, autoRemove, syncValid));
     return _res;
 }
 

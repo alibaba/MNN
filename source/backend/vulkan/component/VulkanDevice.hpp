@@ -174,8 +174,19 @@ public:
         }
     }
 
+    struct SubgroupInfo {
+        uint32_t size = 0;
+        VkShaderStageFlags stages = 0;
+        VkSubgroupFeatureFlags ops = 0;
+        VkBool32 quadAllStages = VK_FALSE;
+    };
+
+    const SubgroupInfo& getSubgroupInfo() const {
+        return mSubgroupInfo;
+    }
+
     uint32_t getSubgroupSize() const {
-        return mSubgroupSize;
+        return mSubgroupInfo.size;
     }
 
     bool getFP16Support() const {
@@ -198,7 +209,7 @@ private:
     VkPhysicalDeviceProperties mDeviceProty;
     VkQueue mQueue;
     VkPhysicalDeviceMemoryProperties mMemoryProty;
-    uint32_t mSubgroupSize;
+    SubgroupInfo mSubgroupInfo{};
     uint32_t mLocalMemorySize = 0;
 
 // FP16 related

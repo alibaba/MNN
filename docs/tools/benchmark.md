@@ -1,6 +1,6 @@
 # Benchmark工具
 ## Linux / macOS / Ubuntu
-[从源码编译](../compile/tools.html#benchmark)，然后执行如下命令:
+[从源码编译](../compile/other.md)，然后执行如下命令:
 ```bash
 ./benchmark.out models_folder loop_count warm_up_count forwardtype numberThread precision weightSparsity weightSparseBlockNumber testQuantizdModel
 ```
@@ -21,7 +21,7 @@
 1. 先准备模型文件，进入tools/script目录下执行脚本`get_model.sh`；
 2. 打开demo/iOS目录下的demo工程，点击benchmark；可通过底部工具栏切换模型、推理类型、线程数。
 ## 基于表达式构建模型的Benchmark
-[从源码编译](../compile/tools.html#benchmark)，运行以下命令查看帮助：
+[从源码编译](../compile/other.md)，运行以下命令查看帮助：
 ```bash
  ./benchmarkExprModels.out help
 ```

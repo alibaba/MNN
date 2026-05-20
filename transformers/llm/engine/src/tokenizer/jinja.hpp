@@ -1029,6 +1029,24 @@ struct BinaryExpr : Expr {
                  if (l.is_number_float() || r.is_number_float()) return l.get<double>() + r.get<double>();
                  return l.get<int64_t>() + r.get<int64_t>();
             }
+            if (l.is_array() && r.is_array()) {
+                json result = json::array();
+                for (const auto& item : l) result.push_back(item);
+                for (const auto& item : r) result.push_back(item);
+                return result;
+            }
+            if (l.is_array() && !r.is_array()) {
+                json result = json::array();
+                for (const auto& item : l) result.push_back(item);
+                result.push_back(r);
+                return result;
+            }
+            if (!l.is_array() && r.is_array()) {
+                json result = json::array();
+                result.push_back(l);
+                for (const auto& item : r) result.push_back(item);
+                return result;
+            }
         }
         if (op == "-") {
             if (l.is_number() && r.is_number()) {

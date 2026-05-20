@@ -1,0 +1,106 @@
+layout(set=0, binding=0) buffer s0 {
+    FLOAT4 data[];
+} uW;
+
+layout(set=0, binding=1) readonly buffer s1 {
+    FLOAT4 data[];
+} uQK;
+
+layout(set=0, binding=2) buffer s2 {
+    float data[];
+} uM;
+
+layout(set=0, binding=3) buffer s3 {
+    float data[];
+} uL;
+
+layout(set=0, binding=4) buffer s4 {
+    float data[];
+} uAlpha;
+
+layout(set=0, binding=5) readonly uniform constBuffer {
+    ivec4 s0; // qLen, kLen, headNum, kvHeadNum
+    ivec4 s1; // headDim, group, pastLen, totalLen
+    ivec4 s2; // maskQlen, maskKvlen, hasMask, cacheMaxLen
+    vec4 f0;  // scale, 0, 0, 0
+} uConst;
+
+layout(push_constant) uniform PushConsts {
+    uint blockLen;
+} pc;
+
+// One workgroup computes one (q, head) row; local threads reduce over k4 blocks (blockLen4/4).
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+shared float sMax[256];
+shared float sSum[256];
+
+void main() {
+    const int h = int(gl_WorkGroupID.x);
+    const int q = int(gl_WorkGroupID.y);
+    const uint tid = gl_LocalInvocationID.x;
+    const uint groupSize = gl_WorkGroupSize.x;
+
+    const int qLen = uConst.s0.x;
+    const int headNum = uConst.s0.z;
+    if (h >= headNum || q >= qLen) {
+        return;
+    }
+
+    const int blockLen = int(pc.blockLen);
+    if (blockLen <= 0) {
+        return;
+    }
+    const int blockLen4 = ((blockLen + 3) / 4) * 4;
+    const int blockLen4_4 = blockLen4 / 4;
+
+    const int row = q * headNum + h;
+    const int base4 = row * blockLen4_4;
+
+    const float mOld = uM.data[row];
+    const float lOld = uL.data[row];
+
+    // block max
+    float mBlock = -3.402823466e38;
+    for (int k4 = int(tid); k4 < blockLen4_4; k4 += int(groupSize)) {
+        vec4 v = vec4(uQK.data[base4 + k4]);
+        mBlock = max(mBlock, max(max(v.x, v.y), max(v.z, v.w)));
+    }
+    sMax[tid] = mBlock;
+    barrier();
+    for (uint stride = (groupSize >> 1); stride > 0; stride >>= 1) {
+        if (tid < stride) {
+            sMax[tid] = max(sMax[tid], sMax[tid + stride]);
+        }
+        barrier();
+    }
+    mBlock = sMax[0];
+
+    const float mNew = max(mOld, mBlock);
+    const float alpha = (lOld > 0.0) ? exp(mOld - mNew) : 0.0;
+
+    // block sum of exp(score - mNew) and write unnormalized weights
+    float sumW = 0.0;
+    for (int k4 = int(tid); k4 < blockLen4_4; k4 += int(groupSize)) {
+        vec4 v = vec4(uQK.data[base4 + k4]);
+        vec4 w = exp(v - vec4(mNew));
+        sumW += w.x + w.y + w.z + w.w;
+        uW.data[base4 + k4] = FLOAT4(w);
+    }
+    sSum[tid] = sumW;
+    barrier();
+    for (uint stride = (groupSize >> 1); stride > 0; stride >>= 1) {
+        if (tid < stride) {
+            sSum[tid] += sSum[tid + stride];
+        }
+        barrier();
+    }
+    const float sumBlock = sSum[0];
+    const float lNew = lOld * alpha + sumBlock;
+
+    if (tid == 0u) {
+        uM.data[row] = mNew;
+        uL.data[row] = lNew;
+        uAlpha.data[row] = alpha;
+    }
+}

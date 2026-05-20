@@ -1015,39 +1015,55 @@ TILE1_BLOCKNUM:
 
     movi v8.16b, #0
     movi v9.16b, #0
-    b L8LoopSz_TILE_1_lu1
+    cmp x13, #4
+    blt L8LoopSz_TILE_1_lu1
+    movi v10.4s, #0
+    movi v11.4s, #0
+    movi v12.4s, #0
+    movi v13.4s, #0
+    movi v30.4s, #0
+    movi v31.4s, #0
 
     L8LoopSz_TILE_1_lu4:
         ld1 {v3.16b, v4.16b, v5.16b, v6.16b}, [x12], #64 // weight: hu=0,1,2,3,pack=0~7
         ld1 {v0.s}[0], [x11], x22 // src
-        ld1 {v0.s}[1], [x11], x22
-        ld1 {v0.s}[2], [x11], x22
-        ld1 {v0.s}[3], [x11], x22
 
         sub x13, x13, #4
         // int4->int8
-        ushr v12.16b, v3.16b, #4
+        ushr v1.16b, v3.16b, #4
         and v22.16b, v3.16b, v7.16b
 
+        ld1 {v0.s}[1], [x11], x22
         ushr v15.16b, v4.16b, #4
         and v23.16b, v4.16b, v7.16b
+
+        ld1 {v0.s}[2], [x11], x22
 
         ushr v18.16b, v5.16b, #4
         and v24.16b, v5.16b, v7.16b
 
+        ld1 {v0.s}[3], [x11], x22
         ushr v21.16b, v6.16b, #4
         and v25.16b, v6.16b, v7.16b
 
-        cmp x13, #4
-        .inst 0x4f80e188 // sdot v8.4s, v12.16b, v0.4b[0]
+        .inst 0x4f80e028 // sdot v8.4s, v1.16b, v0.4b[0]
         .inst 0x4f80e2c9 // sdot v9.4s, v22.16b, v0.4b[0]
-        .inst 0x4fa0e1e8 // sdot v8.4s, v15.16b, v0.4b[1]
-        .inst 0x4fa0e2e9 // sdot v9.4s, v23.16b, v0.4b[1]
-        .inst 0x4f80ea48 // sdot v8.4s, v18.16b, v0.4b[2]
-        .inst 0x4f80eb09 // sdot v9.4s, v24.16b, v0.4b[2]
-        .inst 0x4fa0eaa8 // sdot v8.4s, v21.16b, v0.4b[3]
-        .inst 0x4fa0eb29 // sdot v9.4s, v25.16b, v0.4b[3]
+        .inst 0x4fa0e1ea // sdot v10.4s, v15.16b, v0.4b[1]
+        .inst 0x4fa0e2eb // sdot v11.4s, v23.16b, v0.4b[1]
+        .inst 0x4f80ea4c // sdot v12.4s, v18.16b, v0.4b[2]
+        .inst 0x4f80eb0d // sdot v13.4s, v24.16b, v0.4b[2]
+        .inst 0x4fa0eabe // sdot v30.4s, v21.16b, v0.4b[3]
+        .inst 0x4fa0eb3f // sdot v31.4s, v25.16b, v0.4b[3]
+        cmp x13, #4
         bge L8LoopSz_TILE_1_lu4
+    
+    add v8.4s, v8.4s, v10.4s
+    add v9.4s, v9.4s, v11.4s
+    add v12.4s, v12.4s, v30.4s
+    add v13.4s, v13.4s, v31.4s
+    add v8.4s, v8.4s, v12.4s
+    add v9.4s, v9.4s, v13.4s
+
 
     cbz x13, L8LoopSzEnd_TILE_1
 

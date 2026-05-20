@@ -9,6 +9,8 @@
 #define LLMCONFIG_Hpp
 
 #include <vector>
+#include <unordered_map>
+#include <cstdlib>
 #include <iostream>
 #include <sstream>
 #include <fstream>
@@ -159,6 +161,8 @@ public:
         return config_.value("reuse_kv", false);
     }
 
+    bool prompt_cache() const { return config_.value("prompt_cache", false); }
+
     bool all_logits() const {
         return config_.value("all_logits", false);
     }
@@ -232,6 +236,8 @@ public:
         return config_.value("talker_speaker", "Chelsie");
     }
 
+    bool interleaved() const { return config_.value("interleaved", false); }
+
     int dit_steps() const {
         return config_.value("dit_steps", 5);
     }
@@ -271,6 +277,30 @@ public:
         return config_.value("has_deepstack", false);
     }
 
+    bool has_ple() const {
+        return config_.find("ple_embed_file") != config_.end();
+    }
+
+    std::string ple_embed_file() const {
+        return base_dir_ + config_.value("ple_embed_file", "");
+    }
+
+    float ple_embed_scale() const {
+        return config_.value("ple_embed_scale", 1.0f);
+    }
+
+    int ple_embed_dim() const {
+        return config_.value("ple_embed_dim", 0);
+    }
+
+    std::vector<int64_t> ple_quant() const {
+        return config_.value("ple_quant", std::vector<int64_t>{});
+    }
+
+    float attn_scale() const {
+        return config_.value("attn_scale", 0.0f);
+    }
+
     bool use_template() const {
         return config_.value("use_template", true);
     }
@@ -280,6 +310,9 @@ public:
     }
     bool use_cached_mmap() const {
         return config_.value("use_cached_mmap", true);
+    }
+    int mmap_size() const {
+        return config_.value("mmap_size", 1024);
     }
     int dynamic_option() const {
         return config_.value("dynamic_option", 0);
@@ -350,13 +383,62 @@ public:
     }
 
     std::vector<int64_t> tie_embeddings() const {
-        return config_.value("tie_embeddings", std::vector<int64_t>{});
+        // Legacy positional getter; only valid if the field is a list.
+        auto v = config_.at("tie_embeddings");
+        if (v.is_array()) {
+            return config_.value("tie_embeddings", std::vector<int64_t>{});
+        }
+        return {};
+    }
+
+    // Structured view for both legacy positional list and new dict format.
+    struct TieEmbeddingsInfo {
+        int64_t weight_offset = 0;
+        int64_t alpha_offset = 0;
+        int64_t alpha_size = 0;
+        int64_t quant_bit = 0;
+        int64_t quant_block = 0;
+        bool alpha_fp16 = false;
+        bool valid = false;
+    };
+
+    static TieEmbeddingsInfo parseTieEmbeddings(const std::vector<int64_t>& v) {
+        TieEmbeddingsInfo info;
+        if (v.size() >= 5) {
+            info.weight_offset = v[0];
+            info.alpha_offset = v[1];
+            info.alpha_size = v[2];
+            info.quant_bit = v[3];
+            info.quant_block = v[4];
+            if (v.size() >= 6)
+                info.alpha_fp16 = (v[5] != 0);
+            info.valid = true;
+        }
+        return info;
+    }
+
+    TieEmbeddingsInfo tie_embeddings_info() const {
+        if (!config_.contains("tie_embeddings"))
+            return {};
+        auto v = config_.at("tie_embeddings");
+        if (v.is_array()) {
+            return parseTieEmbeddings(tie_embeddings());
+        }
+        TieEmbeddingsInfo info;
+        info.weight_offset = v.value("weight_offset", int64_t(0));
+        info.alpha_offset = v.value("alpha_offset", int64_t(0));
+        info.alpha_size = v.value("alpha_size", int64_t(0));
+        info.quant_bit = v.value("quant_bit", int64_t(0));
+        info.quant_block = v.value("quant_block", int64_t(0));
+        info.alpha_fp16 = (v.value("alpha_dtype", std::string("fp32")) == "fp16");
+        info.valid = true;
+        return info;
     }
     // llm model config end >
 
     // < sampler config start
     std::string sampler_type() const {
-        return config_.value("sampler_type", "greedy");
+        return config_.value("sampler_type", "mixed");
     }
 
     std::vector<std::string> mixed_samplers() const {
@@ -367,19 +449,31 @@ public:
         return config_.value("temperature", 1.0f);
     }
 
+    // backward compatible: top_k > topK
     int topK() const {
+        int val = config_.value("top_k", -1);
+        if (val >= 0) return val;
         return config_.value("topK", 40);
     }
 
+    // backward compatible: top_p > topP
     float topP() const {
+        float val = config_.value("top_p", -1.0f);
+        if (val >= 0.0f) return val;
         return config_.value("topP", 0.9f);
     }
 
+    // backward compatible: min_p > minP
     float minP() const {
+        float val = config_.value("min_p", -1.0f);
+        if (val >= 0.0f) return val;
         return config_.value("minP", 0.1f);
     }
 
+    // backward compatible: tfs_z > tfsZ
     float tfsZ() const {
+        float val = config_.value("tfs_z", -1.0f);
+        if (val >= 0.0f) return val;
         return config_.value("tfsZ", 1.0f);
     }
 
@@ -387,8 +481,15 @@ public:
         return config_.value("typical", 1.0f);
     }
 
-    float penalty() const {
-        return config_.value("penalty", 0.0f);
+    // backward compatible: repetition_penalty > penalty
+    float repetition_penalty() const {
+        float val = config_.value("repetition_penalty", -1.0f);
+        if (val >= 0.0f) return val;
+        return config_.value("penalty", 1.0f);
+    }
+
+    float presence_penalty() const {
+        return config_.value("presence_penalty", 0.0f);
     }
 
     int ngram() const {
@@ -401,6 +502,30 @@ public:
 
     std::string penalty_sampler() const {
         return config_.value("penalty_sampler", "greedy");
+    }
+
+    float frequency_penalty() const {
+        return config_.value("frequency_penalty", 0.0f);
+    }
+
+    int penalty_window() const {
+        return config_.value("penalty_window", 0);
+    }
+
+    std::unordered_map<int, float> logit_bias() const {
+        std::unordered_map<int, float> result;
+        if (config_.contains("logit_bias")) {
+            auto bias = config_["logit_bias"];
+            for (auto it = bias.begin(); it != bias.end(); ++it) {
+                int key = std::atoi(it.key().c_str());
+                result[key] = it.value().get<float>();
+            }
+        }
+        return result;
+    }
+
+    std::vector<int> banned_tokens() const {
+        return config_.value("banned_tokens", std::vector<int>{});
     }
     // sampler config end >
 
@@ -483,6 +608,27 @@ public:
     int eagle_topk() const {
         return config_.value("eagle_topk", 1);
     }
+    // ========= dflash config start ===============
+    std::string dflash_model() const {
+        return base_dir_ + config_.value("dflash_model", "dflash.mnn");
+    }
+    std::string dflash_fc() const {
+        return base_dir_ + config_.value("dflash_fc", "dflash_fc.mnn");
+    }
+    std::string dflash_lmhead() const {
+        return base_dir_ + config_.value("dflash_lmhead", "");
+    }
+    int dflash_block_size() const {
+        return config_.value("dflash_block_size", 16);
+    }
+    int dflash_mask_token_id() const {
+        return config_.value("dflash_mask_token_id", 0);
+    }
+    std::vector<int> dflash_target_layer_ids() const {
+        return config_.value("dflash_target_layer_ids", std::vector<int>{});
+    }
+    // ========= dflash config end ===============
+
     // speculative decoding config end >
 };
 } // Transformer

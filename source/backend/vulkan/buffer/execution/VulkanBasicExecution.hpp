@@ -27,6 +27,10 @@ public:
     virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                const VulkanCommandPool::Buffer *cmdBuffer) = 0;
 
+    virtual ErrorCode onBeforeExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+        return NO_ERROR;
+    }
+
     Backend* backend() {
         return mBackend;
     }
@@ -80,9 +84,7 @@ class VulkanBasicExecutionInDirect : public Execution {
 public:
     VulkanBasicExecutionInDirect(std::shared_ptr<VulkanBasicExecution> encoder);
     virtual ~ VulkanBasicExecutionInDirect() = default;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
-        return NO_ERROR;
-    }
+    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override {
         if (nullptr == dst) {

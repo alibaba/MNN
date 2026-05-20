@@ -1,0 +1,150 @@
+layout(set=0, binding=0) writeonly buffer s0 {
+    FLOAT4 data[];
+} uQK;
+
+layout(set=0, binding=1) readonly buffer s1 {
+    FLOAT4 data[];
+} uQuery;
+
+layout(set=0, binding=2) readonly buffer s2 {
+    FLOAT4 data[];
+} uCacheKey;
+
+layout(set=0, binding=3) readonly buffer s3 {
+    FLOAT data[];
+} uMask;
+
+layout(set=0, binding=4) readonly uniform constBuffer {
+    ivec4 s0; // qLen, kLen, headNum, kvHeadNum
+    ivec4 s1; // headDim, group, pastLen, totalLen
+    ivec4 s2; // maskQlen, maskKvlen, hasMask, cacheMaxLen
+    vec4 f0;  // scale, 0, 0, 0
+} uConst;
+
+layout(push_constant) uniform PushConsts {
+    uint kStart;
+    uint blockLen; // ignored (assumed 512); kept for ABI compatibility with host push constants
+} pc;
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+const int MAX_D4 = 64; // headDim <= 256
+
+// Fast path for full K-block (blockLen == 512):
+// - No per-lane bounds checks / conditional loads.
+// - Output QK is packed over K (FLOAT4): [qLen, headNum, 512/4, 4].
+void main() {
+    const int k4 = int(gl_GlobalInvocationID.x);
+    const int q4 = int(gl_GlobalInvocationID.y);
+    const int h = int(gl_GlobalInvocationID.z);
+
+    const int q0 = q4 * 4;
+    const int k0 = k4 * 4;
+
+    const int qLen = uConst.s0.x;
+    const int headNum = uConst.s0.z;
+    if (h >= headNum || q0 >= qLen) {
+        return;
+    }
+
+    const int kvHeadNum = uConst.s0.w;
+    const int headDim = uConst.s1.x;
+    const int group = uConst.s1.y;
+    const int totalLen = uConst.s1.w;
+    if (totalLen <= 0) {
+        return;
+    }
+
+    const int maxLen = uConst.s2.w;
+    if (maxLen <= 0) {
+        return;
+    }
+
+    const int kvh = h / group;
+    if (kvh >= kvHeadNum) {
+        return;
+    }
+
+    const int d4Size = headDim / 4;
+    if (d4Size > MAX_D4) {
+        return;
+    }
+
+    const int kStart = int(pc.kStart);
+    const int gk0 = kStart + k0;
+
+    const int qLen4 = ((qLen + 3) / 4) * 4;
+    const int blockLen4_4 = 512 / 4;
+
+    vec4 out0 = vec4(0.0);
+    vec4 out1 = vec4(0.0);
+    vec4 out2 = vec4(0.0);
+    vec4 out3 = vec4(0.0);
+
+    for (int i = 0; i < d4Size; ++i) {
+        const int qBase = (h * d4Size + i) * qLen4 + q0;
+        vec4 qv0 = vec4(uQuery.data[qBase + 0]);
+        vec4 qv1 = vec4(uQuery.data[qBase + 1]);
+        vec4 qv2 = vec4(uQuery.data[qBase + 2]);
+        vec4 qv3 = vec4(uQuery.data[qBase + 3]);
+
+        const int kBase = (kvh * d4Size + i) * maxLen + gk0;
+        vec4 kv0 = vec4(uCacheKey.data[kBase + 0]);
+        vec4 kv1 = vec4(uCacheKey.data[kBase + 1]);
+        vec4 kv2 = vec4(uCacheKey.data[kBase + 2]);
+        vec4 kv3 = vec4(uCacheKey.data[kBase + 3]);
+
+        out0 += vec4(dot(qv0, kv0), dot(qv0, kv1), dot(qv0, kv2), dot(qv0, kv3));
+        out1 += vec4(dot(qv1, kv0), dot(qv1, kv1), dot(qv1, kv2), dot(qv1, kv3));
+        out2 += vec4(dot(qv2, kv0), dot(qv2, kv1), dot(qv2, kv2), dot(qv2, kv3));
+        out3 += vec4(dot(qv3, kv0), dot(qv3, kv1), dot(qv3, kv2), dot(qv3, kv3));
+    }
+
+    const float scale = uConst.f0.x;
+    out0 *= scale;
+    out1 *= scale;
+    out2 *= scale;
+    out3 *= scale;
+
+    // Mask: additive mask, aligned to the last maskKvlen keys.
+    const int hasMask = uConst.s2.z;
+    const int maskQlen = uConst.s2.x;
+    const int maskKvlen = uConst.s2.y;
+    const int maskKStart = (hasMask != 0 && maskKvlen > 0 && totalLen > maskKvlen) ? (totalLen - maskKvlen) : 0;
+
+    if (hasMask != 0 && maskKvlen > 0) {
+        for (int qi = 0; qi < 4; ++qi) {
+            const int q = q0 + qi;
+            if (q >= qLen || q >= maskQlen) {
+                continue;
+            }
+            for (int kj = 0; kj < 4; ++kj) {
+                const int gk = gk0 + kj;
+                const int mk = gk - maskKStart;
+                if (gk >= maskKStart && mk >= 0 && mk < maskKvlen) {
+                    const float m = float(uMask.data[q * maskKvlen + mk]);
+                    if (qi == 0) out0[kj] += m;
+                    if (qi == 1) out1[kj] += m;
+                    if (qi == 2) out2[kj] += m;
+                    if (qi == 3) out3[kj] += m;
+                }
+            }
+        }
+    }
+
+    const int outBase0 = ((q0 + 0) * headNum + h) * blockLen4_4 + k4;
+    uQK.data[outBase0] = FLOAT4(out0);
+    if ((q0 + 1) < qLen) {
+        const int outBase1 = ((q0 + 1) * headNum + h) * blockLen4_4 + k4;
+        uQK.data[outBase1] = FLOAT4(out1);
+    }
+    if ((q0 + 2) < qLen) {
+        const int outBase2 = ((q0 + 2) * headNum + h) * blockLen4_4 + k4;
+        uQK.data[outBase2] = FLOAT4(out2);
+    }
+    if ((q0 + 3) < qLen) {
+        const int outBase3 = ((q0 + 3) * headNum + h) * blockLen4_4 + k4;
+        uQK.data[outBase3] = FLOAT4(out3);
+    }
+}
+

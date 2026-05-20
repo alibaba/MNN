@@ -1,0 +1,50 @@
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(binding = 0) readonly buffer SrcBuffer {
+    uint SrcRaw[];
+};
+
+layout(binding = 1) writeonly buffer DstBuffer {
+    int DstQ4[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint ci;
+    uint co;
+    uint padN;
+    uint weightStride;
+    uint srcBytes;
+} pc;
+
+uint loadByte(uint byteIndex) {
+    if (byteIndex >= pc.srcBytes) {
+        return 0u;
+    }
+    const uint word = SrcRaw[byteIndex >> 2u];
+    return (word >> ((byteIndex & 3u) * 8u)) & 0xFFu;
+}
+
+void main() {
+    const uint k4 = gl_GlobalInvocationID.x;
+    const uint row = gl_GlobalInvocationID.y;
+    if (row >= pc.padN || k4 >= pc.weightStride) {
+        return;
+    }
+
+    const uint kBase = k4 << 2u;
+    uint packed = 0u;
+
+    if (row < pc.co) {
+        const uint rowBase = row * pc.ci;
+        for (uint i = 0u; i < 4u; ++i) {
+            const uint k = kBase + i;
+            uint q = 0u;
+            if (k < pc.ci) {
+                q = loadByte(rowBase + k);
+            }
+            packed |= q << (i * 8u);
+        }
+    }
+
+    DstQ4[row * pc.weightStride + k4] = int(packed);
+}

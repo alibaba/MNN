@@ -1,8 +1,52 @@
 #include "dsprpc_interface.h"
 
-#include <dlfcn.h>
-
 #include <MNN/MNNDefine.h>
+
+#if defined(_MSC_VER) || defined(_WIN32)
+// MSVC / Windows 平台不支持 dlfcn 与 RPC 内存，提供 stub 实现，避免编译失败。
+// 在该平台下 rpcmem_alloc 退化为普通堆分配，rpcmem_to_fd 始终返回 -1，
+// fastrpc_mmap/munmap 始终返回 -1（表示不支持）。
+
+#include <stdlib.h>
+
+extern "C" {
+
+void rpcmem_init(void) {}
+
+void rpcmem_deinit(void) {}
+
+void* rpcmem_alloc(int /*heap_id*/, uint32_t /*flags*/, int size) {
+    if (size <= 0) {
+        return nullptr;
+    }
+    return malloc((size_t)size);
+}
+
+void rpcmem_free(void* p) {
+    if (p) {
+        free(p);
+    }
+}
+
+int rpcmem_to_fd(void* /*p*/) {
+    // Windows 上没有 ION fd 概念，返回 -1 表示不支持。
+    return -1;
+}
+
+int fastrpc_mmap(int /*domain*/, int /*fd*/, void* /*addr*/, int /*offset*/, size_t /*length*/,
+                 enum fastrpc_map_flags /*flags*/) {
+    return -1;
+}
+
+int fastrpc_munmap(int /*domain*/, int /*fd*/, void* /*addr*/, size_t /*length*/) {
+    return -1;
+}
+
+} // extern "C"
+
+#else
+
+#include <dlfcn.h>
 
 using rpcmem_init_t   = decltype(rpcmem_init);
 using rpcmem_deinit_t = decltype(rpcmem_deinit);
@@ -90,3 +134,5 @@ int fastrpc_munmap(int domain, int fd, void * addr, size_t length) {
 }
 
 }  // extern "C"
+
+#endif // !(_MSC_VER || _WIN32)

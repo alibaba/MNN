@@ -85,10 +85,13 @@ Test suite includes: unit tests (`run_test.out`), model tests, conversion tests 
 
 ## Skills
 
-For the following tasks, **read the Skill entry file first** and execute step by step. Each step must pass its tests before proceeding:
+For the following tasks, **read the Skill entry file first** and execute step by step. Each step must pass its tests before proceeding.
+
+**After completing any skill-driven task, run the Retrospective skill** to reflect on mistakes and update the skill with lessons learned.
 
 | Skill | Entry File | Trigger |
 |-------|-----------|---------|
 | Support new LLM | `skills/support-new-llm/SKILL.md` | Add / adapt a new LLM model |
 | Add new op | `skills/add-new-op/SKILL.md` | Add a new operator |
 | ARM CPU optimization | `skills/arm-cpu-optimize/SKILL.md` | Optimize op performance on ARM CPU |
+| Retrospective | `skills/retrospective/SKILL.md` | After any non-trivial task: reflect on mistakes, update relevant skills with lessons learned |

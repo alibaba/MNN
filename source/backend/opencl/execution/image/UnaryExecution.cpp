@@ -69,79 +69,44 @@ public:
                                 const MNN::Op* op, Backend* backend) const override {
         if (op->type() == OpType_UnaryOp) {
             switch (op->main_as_UnaryOp()->opType()) {
-                case UnaryOpOperation_ABS:
-                    return new UnaryExecution("fabs(convert_float4(in))", op, backend);
-                case UnaryOpOperation_SQUARE:
-                    return new UnaryExecution("in*in", op, backend);
-                case UnaryOpOperation_RSQRT:
-                    return new UnaryExecution("rsqrt(convert_float4(in)>(float4)(0.000001)?convert_float4(in):(float4)(0.000001))", op, backend);
-                case UnaryOpOperation_NEG:
-                    return new UnaryExecution("-(in)", op, backend);
-                case UnaryOpOperation_EXP:
-                    return new UnaryExecution("exp(convert_float4(in))", op, backend);
-                case UnaryOpOperation_COS:
-                    return new UnaryExecution("cos(convert_float4(in))", op, backend);
-                case UnaryOpOperation_SIN:
-                    return new UnaryExecution("sin(convert_float4(in))", op, backend);
-                case UnaryOpOperation_TAN:
-                    return new UnaryExecution("tan(convert_float4(in))", op, backend);
-                case UnaryOpOperation_ATAN:
-                    return new UnaryExecution("atan(convert_float4(in))", op, backend);
-                case UnaryOpOperation_SQRT:
-                    return new UnaryExecution("sqrt(convert_float4(in))", op, backend);
-                case UnaryOpOperation_CEIL:
-                    return new UnaryExecution("ceil(convert_float4(in))", op, backend);
-                case UnaryOpOperation_RECIPROCAL:
-                    return new UnaryExecution("native_recip(convert_float4(in))", op, backend);
-                case UnaryOpOperation_LOG1P:
-                    return new UnaryExecution("log1p(convert_float4(in))", op, backend);
-                case UnaryOpOperation_LOG:
-                    return new UnaryExecution("native_log(convert_float4(in)>(float4)(0.0000001)?convert_float4(in):(float4)(0.0000001))", op, backend);
-                case UnaryOpOperation_FLOOR:
-                    return new UnaryExecution("floor(convert_float4(in))", op, backend);
-                case UnaryOpOperation_BNLL:
-                    return new UnaryExecution("in>(float4)((float)0)?(in+native_log(exp(convert_float4(-(in)))+(float4)(1.0))):(native_log(exp(convert_float4(in))+(float4)(1.0)))", op, backend);
-                case UnaryOpOperation_ACOSH:
-                    return new UnaryExecution("acosh(convert_float4(in))", op, backend);
-                case UnaryOpOperation_SINH:
-                    return new UnaryExecution("sinh(convert_float4(in))", op, backend);
-                case UnaryOpOperation_ASINH:
-                    return new UnaryExecution("asinh(convert_float4(in))", op, backend);
-                case UnaryOpOperation_ATANH:
-                    return new UnaryExecution("atanh(convert_float4(in))", op, backend);
-                case UnaryOpOperation_SIGN:
-                    return new UnaryExecution("sign(convert_float4(in))", op, backend);
-                case UnaryOpOperation_ROUND:
-                    return new UnaryExecution("round(convert_float4(in))", op, backend);
-                case UnaryOpOperation_COSH:
-                    return new UnaryExecution("cosh(convert_float4(in))", op, backend);
-               case UnaryOpOperation_ERF:
-                    return new UnaryExecution("erf(convert_float4(in))", op, backend);
-                case UnaryOpOperation_ERFC:
-                    return new UnaryExecution("erfc(convert_float4(in))", op, backend);
-                case UnaryOpOperation_EXPM1:
-                    return new UnaryExecution("expm1(convert_float4(in))", op, backend);
-                case UnaryOpOperation_SIGMOID:
-                    return new UnaryExecution("native_recip((float4)1+native_exp(convert_float4(-in)))", op, backend);
-                case UnaryOpOperation_SILU:
-                    return new UnaryExecution("(convert_float4(in)*native_recip((float4)1+native_exp(convert_float4(-in))))", op, backend);
-                case UnaryOpOperation_TANH:
-                    return new UnaryExecution("tanh(convert_float4(in))", op, backend);
-                case UnaryOpOperation_HARDSWISH:
-                    return new UnaryExecution("convert_float4(in)>(float4)(-3.0f)?(convert_float4(in)<(float4)(3.0f)?((convert_float4(in)*(convert_float4(in)+(float4)3.0f))/(float4)6.0f):convert_float4(in)):(float4)(0.0f)", op, backend);
-                case UnaryOpOperation_GELU:
-                    return new UnaryExecution("gelu(convert_float4(in))", op, backend);
+                case UnaryOpOperation_ABS: OPENCL_CREATOR_CHECK(new UnaryExecution("fabs(convert_float4(in))", op, backend));
+                case UnaryOpOperation_SQUARE: OPENCL_CREATOR_CHECK(new UnaryExecution("in*in", op, backend));
+                case UnaryOpOperation_RSQRT: OPENCL_CREATOR_CHECK(new UnaryExecution("rsqrt(convert_float4(in)>(float4)(0.000001)?convert_float4(in):(float4)(0.000001))", op, backend));
+                case UnaryOpOperation_NEG: OPENCL_CREATOR_CHECK(new UnaryExecution("-(in)", op, backend));
+                case UnaryOpOperation_EXP: OPENCL_CREATOR_CHECK(new UnaryExecution("exp(convert_float4(in))", op, backend));
+                case UnaryOpOperation_COS: OPENCL_CREATOR_CHECK(new UnaryExecution("cos(convert_float4(in))", op, backend));
+                case UnaryOpOperation_SIN: OPENCL_CREATOR_CHECK(new UnaryExecution("sin(convert_float4(in))", op, backend));
+                case UnaryOpOperation_TAN: OPENCL_CREATOR_CHECK(new UnaryExecution("tan(convert_float4(in))", op, backend));
+                case UnaryOpOperation_ATAN: OPENCL_CREATOR_CHECK(new UnaryExecution("atan(convert_float4(in))", op, backend));
+                case UnaryOpOperation_SQRT: OPENCL_CREATOR_CHECK(new UnaryExecution("sqrt(convert_float4(in))", op, backend));
+                case UnaryOpOperation_CEIL: OPENCL_CREATOR_CHECK(new UnaryExecution("ceil(convert_float4(in))", op, backend));
+                case UnaryOpOperation_RECIPROCAL: OPENCL_CREATOR_CHECK(new UnaryExecution("native_recip(convert_float4(in))", op, backend));
+                case UnaryOpOperation_LOG1P: OPENCL_CREATOR_CHECK(new UnaryExecution("log1p(convert_float4(in))", op, backend));
+                case UnaryOpOperation_LOG: OPENCL_CREATOR_CHECK(new UnaryExecution("native_log(convert_float4(in)>(float4)(0.0000001)?convert_float4(in):(float4)(0.0000001))", op, backend));
+                case UnaryOpOperation_FLOOR: OPENCL_CREATOR_CHECK(new UnaryExecution("floor(convert_float4(in))", op, backend));
+                case UnaryOpOperation_BNLL: OPENCL_CREATOR_CHECK(new UnaryExecution("in>(float4)((float)0)?(in+native_log(exp(convert_float4(-(in)))+(float4)(1.0))):(native_log(exp(convert_float4(in))+(float4)(1.0)))", op, backend));
+                case UnaryOpOperation_ACOSH: OPENCL_CREATOR_CHECK(new UnaryExecution("acosh(convert_float4(in))", op, backend));
+                case UnaryOpOperation_SINH: OPENCL_CREATOR_CHECK(new UnaryExecution("sinh(convert_float4(in))", op, backend));
+                case UnaryOpOperation_ASINH: OPENCL_CREATOR_CHECK(new UnaryExecution("asinh(convert_float4(in))", op, backend));
+                case UnaryOpOperation_ATANH: OPENCL_CREATOR_CHECK(new UnaryExecution("atanh(convert_float4(in))", op, backend));
+                case UnaryOpOperation_SIGN: OPENCL_CREATOR_CHECK(new UnaryExecution("sign(convert_float4(in))", op, backend));
+                case UnaryOpOperation_ROUND: OPENCL_CREATOR_CHECK(new UnaryExecution("round(convert_float4(in))", op, backend));
+                case UnaryOpOperation_COSH: OPENCL_CREATOR_CHECK(new UnaryExecution("cosh(convert_float4(in))", op, backend));
+               case UnaryOpOperation_ERF: OPENCL_CREATOR_CHECK(new UnaryExecution("erf(convert_float4(in))", op, backend));
+                case UnaryOpOperation_ERFC: OPENCL_CREATOR_CHECK(new UnaryExecution("erfc(convert_float4(in))", op, backend));
+                case UnaryOpOperation_EXPM1: OPENCL_CREATOR_CHECK(new UnaryExecution("expm1(convert_float4(in))", op, backend));
+                case UnaryOpOperation_SIGMOID: OPENCL_CREATOR_CHECK(new UnaryExecution("native_recip((float4)1+native_exp(convert_float4(-in)))", op, backend));
+                case UnaryOpOperation_SILU: OPENCL_CREATOR_CHECK(new UnaryExecution("(convert_float4(in)*native_recip((float4)1+native_exp(convert_float4(-in))))", op, backend));
+                case UnaryOpOperation_TANH: OPENCL_CREATOR_CHECK(new UnaryExecution("tanh(convert_float4(in))", op, backend));
+                case UnaryOpOperation_HARDSWISH: OPENCL_CREATOR_CHECK(new UnaryExecution("convert_float4(in)>(float4)(-3.0f)?(convert_float4(in)<(float4)(3.0f)?((convert_float4(in)*(convert_float4(in)+(float4)3.0f))/(float4)6.0f):convert_float4(in)):(float4)(0.0f)", op, backend));
+                case UnaryOpOperation_GELU: OPENCL_CREATOR_CHECK(new UnaryExecution("gelu(convert_float4(in))", op, backend));
 		default:
                     break;
             }
             return nullptr;
         }
-        if (op->type() == OpType_Sigmoid) {
-            return new UnaryExecution("native_recip((float4)(1.0)+native_exp(convert_float4(-(in))))", op, backend);
-        }
-        if (op->type() == OpType_TanH) {
-            return new UnaryExecution("tanh(convert_float4(in))", op, backend);
-        }
+        if (op->type() == OpType_Sigmoid) OPENCL_CREATOR_CHECK(new UnaryExecution("native_recip((float4)(1.0)+native_exp(convert_float4(-(in))))", op, backend));
+        if (op->type() == OpType_TanH) OPENCL_CREATOR_CHECK(new UnaryExecution("tanh(convert_float4(in))", op, backend));
         return nullptr;
     }
 };

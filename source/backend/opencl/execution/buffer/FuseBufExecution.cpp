@@ -21,9 +21,7 @@ public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
         auto param = op->main_as_Extra();
-        if(param->type()->str() == "ExtraConvolution2DPrelu"){
-            return new ConvBufExecution(inputs, outputs, op, backend, true);
-        }
+        if(param->type()->str() == "ExtraConvolution2DPrelu")OPENCL_CREATOR_CHECK(new ConvBufExecution(inputs, outputs, op, backend, true));
         return nullptr;
     }
 };

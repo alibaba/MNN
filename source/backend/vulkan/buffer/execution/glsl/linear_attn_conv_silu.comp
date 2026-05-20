@@ -1,17 +1,17 @@
 layout(set=0, binding=0) readonly buffer s0{
-    float data[];
+    FLOAT data[];
 } uQKV;
 
 layout(set=0, binding=1) buffer s1{
-    float data[];
+    FLOAT data[];
 } uConvState;
 
 layout(set=0, binding=2) readonly buffer s2{
-    float data[];
+    FLOAT data[];
 } uConvWeight;
 
 layout(set=0, binding=3) writeonly buffer s3{
-    float data[];
+    FLOAT data[];
 } uConvOut;
 
 layout(set=0, binding=4) readonly uniform constBuffer {
@@ -45,14 +45,14 @@ void main()
         int pos = l + k;
         float input_val;
         if (pos < css) {
-            input_val = uConvState.data[b * D * css + d * css + pos];
+            input_val = float(uConvState.data[b * D * css + d * css + pos]);
         } else {
-            input_val = uQKV.data[b * D * L + d * L + (pos - css)];
+            input_val = float(uQKV.data[b * D * L + d * L + (pos - css)]);
         }
-        sum += input_val * uConvWeight.data[d * K + k];
+        sum += input_val * float(uConvWeight.data[d * K + k]);
     }
 
     // SiLU activation: x * sigmoid(x)
     float sigmoid_val = 1.0 / (1.0 + exp(-sum));
-    uConvOut.data[b * D * L + d * L + l] = sum * sigmoid_val;
+    uConvOut.data[b * D * L + d * L + l] = FLOAT(sum * sigmoid_val);
 }

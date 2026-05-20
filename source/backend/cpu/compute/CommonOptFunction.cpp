@@ -68,6 +68,7 @@ extern void MNNPackForMatMul_B_RVV(float* destC, const float* sourceC, size_t h,
 extern void MNNQuantScaleFP32_RVV(float* absmax, float* quant_scale, float* dequant_scale, size_t thread, size_t batch);
 extern void MNNGetMatMulPackMode_RVV(int* eP, int* lP, int* hP);
 #endif // ADD RVV suport
+#endif
 
 #ifndef MNN_USE_SSE
 void MNNInt8ToInt16(int16_t* dest, const int8_t* source, size_t count) {

@@ -21,13 +21,15 @@ namespace MNN {
 
 class CPUAttention : public Execution {
 public:
-    CPUAttention(Backend *backend, bool kv_cache);
-    virtual ~CPUAttention();
+    CPUAttention(Backend* backend, bool kv_cache);
+    virtual ~CPUAttention() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
+
 private:
     bool mKVCache        = true;
+    bool mIsKVShared = false;
     int mBytes = 4;
     int mThreadNum = 1;
     int mBlockKV = 512;
@@ -41,9 +43,10 @@ private:
     std::shared_ptr<CPUKVCacheManager> mKVCacheManager = nullptr;
     bool mUseFlashAttention = true;
 
-    // quant Query/Key/Value
-    bool mQuantKey   = false;
-    bool mQuantValue = false;
+    // KV cache quantization mode
+    KVQuantMode mKeyQuantMode = KVQuantMode::None;
+    KVQuantMode mValueQuantMode = KVQuantMode::None;
+    std::shared_ptr<Tensor> mTQ3DequantBuf; // shared by TQ3 and TQ4
     int  mBlockNum   = 1;
     MemChunk mSumQ;
     MemChunk mQueryScale, mQueryZeroPoint, mQueryQuantScale, mQueryQuantZero;

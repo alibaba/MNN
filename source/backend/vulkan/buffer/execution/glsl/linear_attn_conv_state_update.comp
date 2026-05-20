@@ -1,9 +1,9 @@
 layout(set=0, binding=0) readonly buffer s0{
-    float data[];
+    FLOAT data[];
 } uQKV;
 
 layout(set=0, binding=1) buffer s1{
-    float data[];
+    FLOAT data[];
 } uConvState;
 
 layout(set=0, binding=2) readonly uniform constBuffer {
@@ -31,7 +31,7 @@ void main()
 
     // new_state[i] = padded[L + i], padded = cat(old_state[css], qkv[L])
     int pos = L + i;
-    float val;
+    FLOAT val;
     if (pos < css) {
         val = uConvState.data[b * D * css + d * css + pos];
     } else {

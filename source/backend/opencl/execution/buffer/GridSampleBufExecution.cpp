@@ -151,7 +151,7 @@ public:
             MNN_PRINT("openCL buffer not support interpolate type: %d, fallback to cpu\n", op->main_as_GridSample()->mode());
             return nullptr;
         }
-        return new GridSampleBufExecution(inputs, op, backend);
+        OPENCL_CREATOR_CHECK(new GridSampleBufExecution(inputs, op, backend));
     }
 };
 

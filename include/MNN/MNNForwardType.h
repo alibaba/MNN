@@ -26,6 +26,9 @@ typedef enum {
     /*NVIDIA GPU API*/
     MNN_FORWARD_CUDA = 2,
 
+    /*Moore Threads GPU API*/
+    MNN_FORWARD_MUSA = 15,
+
     /*Android / Common Device GPU API*/
     MNN_FORWARD_OPENCL = 3,
     MNN_FORWARD_OPENGL = 6,

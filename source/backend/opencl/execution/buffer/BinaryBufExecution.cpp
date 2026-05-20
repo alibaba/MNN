@@ -343,14 +343,10 @@ public:
 #endif /* MNN_SUPPORT_INTEL_SUBGROUP */
         if (op->type() == OpType_Eltwise) {
             switch (op->main_as_Eltwise()->type()) {
-                case EltwiseType_SUM:
-                    return new BinaryBufExecution(inputs, "in0+in1", op, backend);
-                case EltwiseType_PROD:
-                    return new BinaryBufExecution(inputs, "in0*in1", op, backend);
-                case EltwiseType_SUB:
-                    return new BinaryBufExecution(inputs, "in0-in1", op, backend);
-                case EltwiseType_MAXIMUM:
-                    return new BinaryBufExecution(inputs, "in0>in1?in0:in1", op, backend);
+                case EltwiseType_SUM: OPENCL_CREATOR_CHECK(new BinaryBufExecution(inputs, "in0+in1", op, backend));
+                case EltwiseType_PROD: OPENCL_CREATOR_CHECK(new BinaryBufExecution(inputs, "in0*in1", op, backend));
+                case EltwiseType_SUB: OPENCL_CREATOR_CHECK(new BinaryBufExecution(inputs, "in0-in1", op, backend));
+                case EltwiseType_MAXIMUM: OPENCL_CREATOR_CHECK(new BinaryBufExecution(inputs, "in0>in1?in0:in1", op, backend));
                 default:
                     break;
             }
@@ -361,42 +357,24 @@ public:
             MNN_ASSERT(inputs.size() > 1);
 
             switch (op->main_as_BinaryOp()->opType()) {
-                case BinaryOpOperation_MUL:
-                    return new BinaryBufExecution(inputs, "in0*in1", op, backend);
-                case BinaryOpOperation_ADD:
-                    return new BinaryBufExecution(inputs, "in0+in1", op, backend);
-                case BinaryOpOperation_SUB:
-                    return new BinaryBufExecution(inputs, "in0-in1", op, backend);
-                case BinaryOpOperation_REALDIV:
-                    return new BinaryBufExecution(inputs, "sign(in1)*in0/(fabs(in1)>(float4)((float)0.0000001)?fabs(in1):(float4)((float)0.0000001))", op, backend);
-                case BinaryOpOperation_MINIMUM:
-                    return new BinaryBufExecution(inputs, "in0>in1?in1:in0", op, backend);
-                case BinaryOpOperation_MAXIMUM:
-                    return new BinaryBufExecution(inputs, "in0>in1?in0:in1", op, backend);
-                case BinaryOpOperation_GREATER:
-                    return new BinaryBufExecution(inputs, "convert_float4(-isgreater(in0,in1))", op, backend);
-                case BinaryOpOperation_LESS:
-                    return new BinaryBufExecution(inputs, "convert_float4(-isless(in0,in1))", op, backend);
-                case BinaryOpOperation_LESS_EQUAL:
-                    return new BinaryBufExecution(inputs, "convert_float4(-islessequal(in0,in1))", op, backend);
-                case BinaryOpOperation_GREATER_EQUAL:
-                    return new BinaryBufExecution(inputs, "convert_float4(-isgreaterequal(in0,in1))", op, backend);
-                case BinaryOpOperation_EQUAL:
-                    return new BinaryBufExecution(inputs, "convert_float4(-isequal(in0,in1))", op, backend);
-                case BinaryOpOperation_FLOORDIV:
-                    return new BinaryBufExecution(inputs, "floor(sign(in1)*in0/(fabs(in1)>(float4)((float)0.0000001)?fabs(in1):(float4)((float)0.0000001)))", op, backend);
-                case BinaryOpOperation_FLOORMOD:
-                    return new BinaryBufExecution(inputs, "in0-floor(sign(in1)*in0/(fabs(in1)>(float4)((float)0.0000001)?fabs(in1):(float4)((float)0.0000001)))*in1", op, backend);
-                case BinaryOpOperation_POW:
-                    return new BinaryBufExecution(inputs, "pow(in0,in1)", op, backend);
-                case BinaryOpOperation_SquaredDifference:
-                    return new BinaryBufExecution(inputs, "(in0-in1)*(in0-in1)", op, backend);
-                case BinaryOpOperation_ATAN2:
-                    return new BinaryBufExecution(inputs, "(in1==(float)0?(sign(in0)*(float4)(PI/2)):(atan(in0/in1)+(in1>(float4)0?(float4)0:sign(in0)*(float)PI)))", op, backend);
-                case BinaryOpOperation_NOTEQUAL:
-                    return new BinaryBufExecution(inputs, "convert_float4(-isnotequal(in0,in1))", op, backend);
-                case BinaryOpOperation_MOD:
-                    return new BinaryBufExecution(inputs, "in0-floor(sign(in1)*in0/(fabs(in1)>(float4)((float)0.0000001)?fabs(in1):(float4)((float)0.0000001)))*in1", op, backend);
+                case BinaryOpOperation_MUL: OPENCL_CREATOR_CHECK(new BinaryBufExecution(inputs, "in0*in1", op, backend));
+                case BinaryOpOperation_ADD: OPENCL_CREATOR_CHECK(new BinaryBufExecution(inputs, "in0+in1", op, backend));
+                case BinaryOpOperation_SUB: OPENCL_CREATOR_CHECK(new BinaryBufExecution(inputs, "in0-in1", op, backend));
+                case BinaryOpOperation_REALDIV: OPENCL_CREATOR_CHECK(new BinaryBufExecution(inputs, "sign(in1)*in0/(fabs(in1)>(float4)((float)0.0000001)?fabs(in1):(float4)((float)0.0000001))", op, backend));
+                case BinaryOpOperation_MINIMUM: OPENCL_CREATOR_CHECK(new BinaryBufExecution(inputs, "in0>in1?in1:in0", op, backend));
+                case BinaryOpOperation_MAXIMUM: OPENCL_CREATOR_CHECK(new BinaryBufExecution(inputs, "in0>in1?in0:in1", op, backend));
+                case BinaryOpOperation_GREATER: OPENCL_CREATOR_CHECK(new BinaryBufExecution(inputs, "convert_float4(-isgreater(in0,in1))", op, backend));
+                case BinaryOpOperation_LESS: OPENCL_CREATOR_CHECK(new BinaryBufExecution(inputs, "convert_float4(-isless(in0,in1))", op, backend));
+                case BinaryOpOperation_LESS_EQUAL: OPENCL_CREATOR_CHECK(new BinaryBufExecution(inputs, "convert_float4(-islessequal(in0,in1))", op, backend));
+                case BinaryOpOperation_GREATER_EQUAL: OPENCL_CREATOR_CHECK(new BinaryBufExecution(inputs, "convert_float4(-isgreaterequal(in0,in1))", op, backend));
+                case BinaryOpOperation_EQUAL: OPENCL_CREATOR_CHECK(new BinaryBufExecution(inputs, "convert_float4(-isequal(in0,in1))", op, backend));
+                case BinaryOpOperation_FLOORDIV: OPENCL_CREATOR_CHECK(new BinaryBufExecution(inputs, "floor(sign(in1)*in0/(fabs(in1)>(float4)((float)0.0000001)?fabs(in1):(float4)((float)0.0000001)))", op, backend));
+                case BinaryOpOperation_FLOORMOD: OPENCL_CREATOR_CHECK(new BinaryBufExecution(inputs, "in0-floor(sign(in1)*in0/(fabs(in1)>(float4)((float)0.0000001)?fabs(in1):(float4)((float)0.0000001)))*in1", op, backend));
+                case BinaryOpOperation_POW: OPENCL_CREATOR_CHECK(new BinaryBufExecution(inputs, "pow(in0,in1)", op, backend));
+                case BinaryOpOperation_SquaredDifference: OPENCL_CREATOR_CHECK(new BinaryBufExecution(inputs, "(in0-in1)*(in0-in1)", op, backend));
+                case BinaryOpOperation_ATAN2: OPENCL_CREATOR_CHECK(new BinaryBufExecution(inputs, "(in1==(float)0?(sign(in0)*(float4)(PI/2)):(atan(in0/in1)+(in1>(float4)0?(float4)0:sign(in0)*(float)PI)))", op, backend));
+                case BinaryOpOperation_NOTEQUAL: OPENCL_CREATOR_CHECK(new BinaryBufExecution(inputs, "convert_float4(-isnotequal(in0,in1))", op, backend));
+                case BinaryOpOperation_MOD: OPENCL_CREATOR_CHECK(new BinaryBufExecution(inputs, "in0-floor(sign(in1)*in0/(fabs(in1)>(float4)((float)0.0000001)?fabs(in1):(float4)((float)0.0000001)))*in1", op, backend));
                 default:
                     break;
             }

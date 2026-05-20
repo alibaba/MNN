@@ -1,5 +1,5 @@
 # MNN Chat Android App
-[中文版本](./README_CN.md)
+[簡体中文版本](./README_CN.md) | [繁體中文版本](./README_TW.md)
 
 [Download](#releases)  [下载](./README_CN.md#releases)
 
@@ -61,6 +61,32 @@ This is our full multimodal language model (LLM) Android app
   ```
 
 # Releases
+
+## Version 0.8.3
++ Click here to [download](https://meta.alicdn.com/data/mnn/apks/mnn_chat_0_8_3.apk)
++ Highlights:
+  + Add Gemma 4 model entries, including multimodal E2B/E4B and vision 26B-A4B/31B variants.
+  + Add the LFM model family, covering LFM2/LFM2.5 text, task-specific, vision-language, audio, and MoE variants.
+  + Add Qwen3.5 Claude 4.6 Opus reasoning-distilled model entries.
++ Bugfix:
+  + Clean up Android native linking to match the bundled MNN runtime library packaging.
+
+## Version 0.8.2.2
++ Click here to [download](https://meta.alicdn.com/data/mnn/apks/mnn_chat_0_8_2_2.apk)
++ Highlights:
+  + Refresh the bundled MNN runtime with the latest CPU LinearAttention and Arm82 fp16 optimization path.
+  + Improve tokenizer and template rendering compatibility for thinking-mode prompts and array concatenation cases.
+  + Add TopKV2 backend coverage for OpenCL and Metal execution paths.
++ Bugfix:
+  + Fix the crash when tapping Add Local Model on Android.
+  + Avoid deadlocks caused by partially initialized mmap weights during model loading.
+  + Reuse the loaded runtime session when starting API service for the same model to avoid extra reloads that could freeze or crash API startup.
+
+## Version 0.8.2.1
++ Click here to [download](https://meta.alicdn.com/data/mnn/apks/mnn_chat_0_8_2_1.apk)
++ Bugfix:
+  + Fix the Android chat regression that could stop after a single token or fail to continue on the second turn with the prebuilt runtime.
+  + Harden dumpapp and smoke coverage for terminal callback delivery, single-token regression, and thinking-mode divergence checks.
 
 ## Version 0.8.2
 + Click here to [download](https://meta.alicdn.com/data/mnn/apks/mnn_chat_0_8_2.apk)

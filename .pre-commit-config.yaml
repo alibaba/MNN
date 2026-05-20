@@ -1,0 +1,31 @@
+# MNN Pre-commit Hooks
+# Install: pip install pre-commit && pre-commit install
+# Only checks changed lines, does NOT reformat historical code.
+
+repos:
+  - repo: local
+    hooks:
+      # C++ incremental format check (changed LINES only, not whole files)
+      # Uses git-clang-format to only check the lines you actually modified.
+      - id: clang-format-diff
+        name: clang-format (changed lines only)
+        language: script
+        entry: .pre-commit-hooks/clang-format-diff.sh
+        pass_filenames: false
+        always_run: true
+
+      # Commit message format: [Module:Type] Description
+      - id: check-commit-msg
+        name: check commit message format
+        language: script
+        entry: .pre-commit-hooks/check-commit-msg.sh
+        stages: [commit-msg]
+        always_run: true
+
+      # Prevent committing large files (>1MB)
+      - id: check-large-files
+        name: check for large files
+        language: script
+        entry: .pre-commit-hooks/check-large-files.sh
+        pass_filenames: false
+        always_run: true

@@ -216,8 +216,8 @@ Backend::MemObj* CUDABackend::onAcquire(const Tensor* nativeTensor, StorageType 
     };
     auto host = buffer.ptr();
     ((Tensor*)nativeTensor)->buffer().device = (uint64_t)host;
-    auto des = TensorUtils::getDescribe(nativeTensor);
-    des->extra.offset = buffer.second;
+    auto des = TensorUtils::getDescribeOrigin(nativeTensor);
+    des->offset = buffer.second;
     return new CUDAMemObj(allocator, buffer);
 }
 
@@ -423,6 +423,21 @@ void CUDABackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor)
     //MNN_PRINT("%d-%d\n", srcTensor->dimensions(), dstTensor->dimensions());
     bool directCopy = ((srcDimensionFormat == dstDimensionFormat && dstDimensionFormat != MNN_DATA_FORMAT_NC4HW4) || srcTensor->dimensions() <= 1) && \
         (getDataType(srcTensor) == getDataType(dstTensor));
+
+    // OPT: When converting between NC4HW4 and NCHW on device, if area=1 and channel%8==0,
+    // the memory layouts are identical (NHWC8 = NCHW when spatial dims are 1). Skip format conversion.
+    if (!directCopy && srcDevice && dstDevice && (getDataType(srcTensor) == getDataType(dstTensor))) {
+        bool isNC4HW4_NCHW = (srcDimensionFormat == MNN_DATA_FORMAT_NC4HW4 && dstDimensionFormat == MNN_DATA_FORMAT_NCHW) ||
+                             (srcDimensionFormat == MNN_DATA_FORMAT_NCHW && dstDimensionFormat == MNN_DATA_FORMAT_NC4HW4);
+        if (isNC4HW4_NCHW) {
+            int batch_tmp, plane_tmp, channel_tmp;
+            _computeBCA(batch_tmp, plane_tmp, channel_tmp, srcDimensionFormat, srcTensor);
+            if (plane_tmp == 1 && channel_tmp % 8 == 0) {
+                directCopy = true;
+            }
+        }
+    }
+
     if (mPrecision == 2 || mPrecision == 3) { // Fp16 or Bf16
         if (((!srcDevice) || (!dstDevice))){
             if (type.code == halide_type_float) {
@@ -450,9 +465,13 @@ void CUDABackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor)
     if (directCopy) {
         auto gpuSize = realSize(srcTensor) * getBytes(srcTensor);
         if (srcDevice && dstDevice) {
+            // Skip copy if src and dst point to same memory (aliased tensors)
+            if (srcTensor->deviceId() == dstTensor->deviceId()) {
+                return;
+            }
             NVTX_PUSH("DtoD");
             mCUDARuntime->memcpy((void*)(dstTensor->deviceId()), (void*)(srcTensor->deviceId()), gpuSize,
-                                MNNMemcpyDeviceToDevice, true);
+                                MNNMemcpyDeviceToDevice, false);
             NVTX_POP();
         } else if (srcDevice && (!dstDevice)) {
             NVTX_PUSH("DtoH");

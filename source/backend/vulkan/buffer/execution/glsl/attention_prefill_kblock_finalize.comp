@@ -1,0 +1,71 @@
+layout(set=0, binding=0) writeonly buffer s0 {
+    FLOAT data[];
+} uOutput;
+
+layout(set=0, binding=1) readonly buffer s1 {
+    float data[];
+} uOAcc;
+
+layout(set=0, binding=2) readonly buffer s2 {
+    float data[];
+} uL;
+
+layout(set=0, binding=3) readonly uniform constBuffer {
+    ivec4 s0; // qLen, kLen, headNum, kvHeadNum
+    ivec4 s1; // headDim, group, pastLen, totalLen
+    ivec4 s2; // maskQlen, maskKvlen, hasMask, cacheMaxLen
+    vec4 f0;  // scale, 0, 0, 0
+} uConst;
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+const int MAX_D4 = 64; // headDim <= 256
+
+void main() {
+    const int d4 = int(gl_GlobalInvocationID.x);
+    const int q2 = int(gl_GlobalInvocationID.y);
+    const int h = int(gl_GlobalInvocationID.z);
+    const int q0 = q2 * 2;
+
+    const int qLen = uConst.s0.x;
+    const int headNum = uConst.s0.z;
+    if (h >= headNum || q0 >= qLen) {
+        return;
+    }
+
+    const int headDim = uConst.s1.x;
+    const int d4Size = headDim / 4;
+    if (d4Size > MAX_D4 || d4 >= d4Size) {
+        return;
+    }
+
+    const int d = d4 * 4;
+    const int row0 = (q0 + 0) * headNum + h;
+    const int row1 = (q0 + 1) * headNum + h;
+    const bool q1Valid = (q0 + 1) < qLen;
+
+    const float l0 = uL.data[row0];
+    const float inv0 = (l0 > 0.0) ? (1.0 / l0) : 0.0;
+    const int base0 = row0 * headDim + d;
+    vec4 v0 = vec4(uOAcc.data[base0 + 0], uOAcc.data[base0 + 1], uOAcc.data[base0 + 2], uOAcc.data[base0 + 3]) * inv0;
+
+    const int outBase0 = row0 * headDim + d;
+    uOutput.data[outBase0 + 0] = FLOAT(v0.x);
+    uOutput.data[outBase0 + 1] = FLOAT(v0.y);
+    uOutput.data[outBase0 + 2] = FLOAT(v0.z);
+    uOutput.data[outBase0 + 3] = FLOAT(v0.w);
+
+    if (q1Valid) {
+        const float l1 = uL.data[row1];
+        const float inv1 = (l1 > 0.0) ? (1.0 / l1) : 0.0;
+        const int base1 = row1 * headDim + d;
+        vec4 v1 = vec4(uOAcc.data[base1 + 0], uOAcc.data[base1 + 1], uOAcc.data[base1 + 2], uOAcc.data[base1 + 3]) * inv1;
+
+        const int outBase1 = row1 * headDim + d;
+        uOutput.data[outBase1 + 0] = FLOAT(v1.x);
+        uOutput.data[outBase1 + 1] = FLOAT(v1.y);
+        uOutput.data[outBase1 + 2] = FLOAT(v1.z);
+        uOutput.data[outBase1 + 3] = FLOAT(v1.w);
+    }
+}
+

@@ -31,10 +31,10 @@ int MNNMetalGetTensorContent(MNNMetalTensorContent* content, void* tensor) {
         return 0;
     }
     auto t = (MNN::Tensor*)tensor;
-    auto des = MNN::TensorUtils::getDescribe(t);
+    auto des = MNN::TensorUtils::getDescribeOrigin(t);
     content->buffer = ((MNN::MetalRuntimeAllocator::MetalBufferAlloc*)t->deviceId())->getBuffer();
     content->texture = nil;
-    content->offset = des->extra.offset;
+    content->offset = des->offset;
     return 0;
 }
 
@@ -43,8 +43,8 @@ namespace MNN {
 static void _MetalApplyTensor(uint8_t* host, size_t offset, Tensor* t) {
     // ptr of MetalBufferAlloc
     t->buffer().device = (uint64_t)host;
-    auto des = TensorUtils::getDescribe(t);
-    des->extra.offset = offset;
+    auto des = TensorUtils::getDescribeOrigin(t);
+    des->offset = offset;
 }
 BufferAllocator* MetalRuntime::createDynamicAllocator(int index, bool secondResize) const {
     if (hint().memoryAllocatorType == Runtime::Allocator_Defer && secondResize) {
@@ -800,7 +800,7 @@ void MetalBackend::onCopyBuffer(const Tensor *src, const Tensor *dst, id<MTLComp
 
     if (!src->buffer().host && dst->buffer().host) {
         auto device = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)src->deviceId())->getBuffer();
-        auto devicePtr = (uint8_t*)device.contents + TensorUtils::getDescribe(src)->extra.offset;
+        auto devicePtr = (uint8_t*)device.contents + TensorUtils::getDescribeOrigin(src)->offset;
         if (needConvert) {
             auto tDst = const_cast<Tensor*>(dst);
             auto tmpBuffer = getHostBuffer(dst->usize());
@@ -838,7 +838,7 @@ void MetalBackend::onCopyBuffer(const Tensor *src, const Tensor *dst, id<MTLComp
             commit();
         } else {
             auto device = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)dst->deviceId())->getBuffer();
-            auto devicePtr = (uint8_t*)device.contents + TensorUtils::getDescribe(dst)->extra.offset;
+            auto devicePtr = (uint8_t*)device.contents + TensorUtils::getDescribeOrigin(dst)->offset;
             ::memcpy(devicePtr, src->host<void>(), srcSize);
         }
         return;
@@ -869,7 +869,7 @@ id<MTLCommandBuffer> MetalBackend::getCommandBufferForNet() const {
 }
 
 void MetalBackend::setTensor(const MNN::Tensor* tensor, id<MTLComputeCommandEncoder> encoder, int index) {
-    [encoder setBuffer:((MetalRuntimeAllocator::MetalBufferAlloc *)tensor->deviceId())->getBuffer() offset:TensorUtils::getDescribe(tensor)->extra.offset atIndex:index];
+    [encoder setBuffer:((MetalRuntimeAllocator::MetalBufferAlloc *)tensor->deviceId())->getBuffer() offset:TensorUtils::getDescribeOrigin(tensor)->offset atIndex:index];
 }
 void MetalBackend::setMem(const MemChunk& chunk, id<MTLComputeCommandEncoder> encoder, int index) {
     [encoder setBuffer:((MetalRuntimeAllocator::MetalBufferAlloc *)chunk.first)->getBuffer() offset:chunk.second atIndex:index];
@@ -881,7 +881,7 @@ void MetalBackend::setBuffer(id<MTLBuffer> buffer, int offset, id<MTLComputeComm
     [encoder setBuffer:buffer offset:offset atIndex:index];
 }
 std::pair<id<MTLBuffer>, int> MetalBackend::getBuffer(const MNN::Tensor* tensor) {
-    return std::make_pair(((MetalRuntimeAllocator::MetalBufferAlloc *)tensor->deviceId())->getBuffer(), TensorUtils::getDescribe(tensor)->extra.offset);
+    return std::make_pair(((MetalRuntimeAllocator::MetalBufferAlloc *)tensor->deviceId())->getBuffer(), TensorUtils::getDescribeOrigin(tensor)->offset);
 }
 
 
@@ -1067,12 +1067,22 @@ MetalRuntime::MetalRuntime(void* context) {
     mContext = context;
     auto ctx = (__bridge MNNMetalContext *)mContext;
     std::shared_ptr<EagerBufferAllocator::Allocator> allocator(new MetalRuntimeAllocator([ctx device]));
-    mSimdGroupReduce = [[ctx device] supportsFamily:MTLGPUFamilyApple7];
-    mSimdGroupReduce |= [[ctx device] supportsFamily:(MTLGPUFamily)MTLGPUFamilyMetal3_MNN];
-    mSimdGroupMatrix = [[ctx device] supportsFamily:MTLGPUFamilyApple7];
+    // supportsFamily: is available since iOS 13.0 / macOS 10.15, must check before calling
+    if (@available(iOS 13.0, macOS 10.15, *)) {
+        mSimdGroupReduce = [[ctx device] supportsFamily:MTLGPUFamilyApple7];
+        mSimdGroupReduce |= [[ctx device] supportsFamily:(MTLGPUFamily)MTLGPUFamilyMetal3_MNN];
+        mSimdGroupMatrix = [[ctx device] supportsFamily:MTLGPUFamilyApple7];
+    } else {
+        mSimdGroupReduce = false;
+        mSimdGroupMatrix = false;
+    }
     // Metal4 Support M1/A14 and later chips
 #ifdef MNN_METAL_TENSOR
-    mTensorOps = [[ctx device] supportsFamily:(MTLGPUFamily)MTLGPUFamilyMetal4_MNN];
+    if (@available(iOS 13.0, macOS 10.15, *)) {
+        mTensorOps = [[ctx device] supportsFamily:(MTLGPUFamily)MTLGPUFamilyMetal4_MNN];
+    } else {
+        mTensorOps = false;
+    }
 
     // AI TensorCore device support from M5/A19
     bool noAICoreDevice = [[[ctx device] name] containsString:@"M1"] || \

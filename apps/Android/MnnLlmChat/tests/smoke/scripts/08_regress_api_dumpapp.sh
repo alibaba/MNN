@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SMOKE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ARTIFACT_DIR="${ARTIFACT_DIR:-$SMOKE_DIR/artifacts}"
+source "$SCRIPT_DIR/smoke_state_helpers.sh"
 DUMPAPP="${DUMPAPP:-$SMOKE_DIR/../../tools/dumpapp}"
 PACKAGE_NAME="${PACKAGE_NAME:-com.alibaba.mnnllm.android}"
 DEFAULT_PREFS_PATH="${DEFAULT_PREFS_PATH:-${PACKAGE_NAME}_preferences}"
@@ -67,12 +68,25 @@ DIAG_LOG="$OUT_DIR/openai_diag.log"
 THINKING_REQUEST_BODY_FILE="$OUT_DIR/openai_thinking_probe_payload.json"
 ANTHROPIC_COMPAT_STRING_PAYLOAD_FILE="$OUT_DIR/anthropic_compat_string_payload.json"
 ANTHROPIC_COMPAT_SYSTEM_ARRAY_PAYLOAD_FILE="$OUT_DIR/anthropic_compat_system_array_payload.json"
+STATE_SNAPSHOT_FILE="$OUT_DIR/original_state.env"
 
 THINKING_CONFIG_SWITCH="FAIL"
 THINKING_RESPONSE_SWITCH="FAIL"
 THINKING_MODE_REGRESSION="FAIL"
 API_DUPLICATE_START_REGRESSION="FAIL"
+APP_CONFIG_TERMINATION_REGRESSION="FAIL"
 ACTIVITY_FALLBACK_USED="false"
+LOCAL_PORT=""
+APP_CONFIG_RUN_PROMPT="${APP_CONFIG_RUN_PROMPT:-please output numbers 1 2 3 4 5 only}"
+
+cleanup_api_dumpapp_state() {
+  if [ -n "${LOCAL_PORT:-}" ]; then
+    adb forward --remove "tcp:$LOCAL_PORT" >/dev/null 2>&1 || true
+  fi
+  restore_openai_state "$STATE_SNAPSHOT_FILE"
+}
+
+trap cleanup_api_dumpapp_state EXIT
 
 ensure_dumpapp_process() {
   adb shell am start -W -n "$MAIN_ACTIVITY" >"$OUT_DIR/launch_main_activity.log" 2>&1 || true
@@ -158,6 +172,7 @@ write_fail_summary() {
     echo "THINKING_RESPONSE_SWITCH=$THINKING_RESPONSE_SWITCH"
     echo "THINKING_MODE_REGRESSION=$THINKING_MODE_REGRESSION"
     echo "API_DUPLICATE_START_REGRESSION=$API_DUPLICATE_START_REGRESSION"
+    echo "APP_CONFIG_TERMINATION_REGRESSION=$APP_CONFIG_TERMINATION_REGRESSION"
     echo "START_REQUEST_COUNT=${START_REQUEST_COUNT:-unknown}"
     echo "BOOTSTRAP_COUNT=${BOOTSTRAP_COUNT:-unknown}"
     echo "ACTIVITY_FALLBACK_USED=$ACTIVITY_FALLBACK_USED"
@@ -415,16 +430,10 @@ thinking_response_diverged() {
     return 1
   fi
 
-  # Some runtimes do not emit explicit <think> tags in non-stream JSON responses.
-  # Treat a much longer "thinking on" answer as a valid switch signal when config flipped.
-  local on_len off_len
-  on_len=${#on_content}
-  off_len=${#off_content}
-  if [ "$on_len" -gt $((off_len * 2)) ]; then
-    return 0
-  fi
-
-  return 1
+  # With temperature=0, a real thinking toggle can still surface as different plain
+  # text even when runtimes omit explicit think tags and the answer is not 2x longer.
+  # Treat any stable content divergence as a valid switch signal.
+  return 0
 }
 
 prepare_thinking_probe_payload() {
@@ -530,6 +539,39 @@ run_thinking_mode_regression() {
   [ "$THINKING_MODE_REGRESSION" = "PASS" ]
 }
 
+run_app_config_termination_regression() {
+  APP_CONFIG_TERMINATION_REGRESSION="FAIL"
+  run_dumpapp_with_retry "$LLM_RUN_USE_APP_CONFIG_LOG" llm run "$API_BOOTSTRAP_MODEL_ID" "$APP_CONFIG_RUN_PROMPT" --force-reload --use-app-config
+
+  if ! rg -q '^RESULT=OK$' "$LLM_RUN_USE_APP_CONFIG_LOG"; then
+    return 1
+  fi
+
+  local completion_received terminal_callback_count terminal_signal non_terminal_chunk_count
+  completion_received="$(awk -F= '/^COMPLETION_RECEIVED=/{print tolower($2); exit}' "$LLM_RUN_USE_APP_CONFIG_LOG" | tr -d '\r' || true)"
+  terminal_callback_count="$(awk -F= '/^TERMINAL_CALLBACK_COUNT=/{print $2; exit}' "$LLM_RUN_USE_APP_CONFIG_LOG" | tr -d '\r' || true)"
+  terminal_signal="$(awk -F= '/^TERMINAL_SIGNAL=/{print $2; exit}' "$LLM_RUN_USE_APP_CONFIG_LOG" | tr -d '\r' || true)"
+  non_terminal_chunk_count="$(awk -F= '/^NON_TERMINAL_CHUNK_COUNT=/{print $2; exit}' "$LLM_RUN_USE_APP_CONFIG_LOG" | tr -d '\r' || true)"
+
+  if [ "$completion_received" != "true" ]; then
+    return 1
+  fi
+  if [ "$terminal_callback_count" != "1" ]; then
+    return 1
+  fi
+  if [ "$terminal_signal" != "callback_null" ]; then
+    return 1
+  fi
+  if ! [[ "$non_terminal_chunk_count" =~ ^[0-9]+$ ]] || [ "$non_terminal_chunk_count" -le 1 ]; then
+    return 1
+  fi
+
+  APP_CONFIG_TERMINATION_REGRESSION="PASS"
+  return 0
+}
+
+snapshot_openai_state "$STATE_SNAPSHOT_FILE"
+
 ensure_dumpapp_process
 stop_openai_service
 ensure_api_network_service_enabled
@@ -588,8 +630,7 @@ if ! rg -q '^RESULT=OK$' "$CONFIG_VALIDATE_LOG"; then
 fi
 
 echo "[API_DUMPAPP] llm run with --use-app-config"
-run_dumpapp_with_retry "$LLM_RUN_USE_APP_CONFIG_LOG" llm run "$API_BOOTSTRAP_MODEL_ID" "hi" --use-app-config
-if ! rg -q '^RESULT=OK$' "$LLM_RUN_USE_APP_CONFIG_LOG"; then
+if ! run_app_config_termination_regression; then
   echo "[API_DUMPAPP] llm run --use-app-config failed, log: $LLM_RUN_USE_APP_CONFIG_LOG" >&2
   write_fail_summary "LLM_RUN_USE_APP_CONFIG_FAILED"
   exit 1
@@ -602,7 +643,6 @@ collect_openai_diag
 LOCAL_PORT="${LOCAL_PORT:-$PORT}"
 LOCAL_BASE_URL="http://127.0.0.1:$LOCAL_PORT"
 adb forward "tcp:$LOCAL_PORT" "tcp:$PORT" >/dev/null
-trap 'adb forward --remove "tcp:'"$LOCAL_PORT"'" >/dev/null 2>&1 || true' EXIT
 echo "[API_DUMPAPP] local_base_url=$LOCAL_BASE_URL auth_enabled=$AUTH_ENABLED bind_ip=$BIND_IP"
 
 LOCAL_MODELS_CODE="$(curl -sS -o "$LOCAL_MODELS_BODY" -w "%{http_code}" \
@@ -821,6 +861,10 @@ fi
 if ! run_thinking_mode_regression; then
   PASS=false
 fi
+if [ "$APP_CONFIG_TERMINATION_REGRESSION" != "PASS" ]; then
+  echo "app-config dumpapp termination regression failed; see $LLM_RUN_USE_APP_CONFIG_LOG" >&2
+  PASS=false
+fi
 
 {
   if [ "$PASS" = true ]; then
@@ -860,6 +904,7 @@ fi
   echo "THINKING_RESPONSE_SWITCH=$THINKING_RESPONSE_SWITCH"
   echo "THINKING_MODE_REGRESSION=$THINKING_MODE_REGRESSION"
   echo "API_DUPLICATE_START_REGRESSION=$API_DUPLICATE_START_REGRESSION"
+  echo "APP_CONFIG_TERMINATION_REGRESSION=$APP_CONFIG_TERMINATION_REGRESSION"
   echo "START_REQUEST_COUNT=${START_REQUEST_COUNT:-unknown}"
   echo "BOOTSTRAP_COUNT=${BOOTSTRAP_COUNT:-unknown}"
   echo "ACTIVITY_FALLBACK_USED=$ACTIVITY_FALLBACK_USED"

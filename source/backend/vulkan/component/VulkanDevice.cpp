@@ -37,6 +37,24 @@ static bool _hasExtension(const std::vector<VkExtensionProperties>& exts, const 
     });
 }
 
+static VulkanDevice::SubgroupInfo _querySubgroupInfo(VkPhysicalDevice physicalDevice) {
+    VulkanDevice::SubgroupInfo info;
+    VkPhysicalDeviceProperties2 deviceProperties2 = {};
+    deviceProperties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+
+    VkPhysicalDeviceSubgroupProperties subgroupProperties = {};
+    subgroupProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES;
+
+    deviceProperties2.pNext = &subgroupProperties;
+    vkGetPhysicalDeviceProperties2(physicalDevice, &deviceProperties2);
+
+    info.size = subgroupProperties.subgroupSize;
+    info.stages = subgroupProperties.supportedStages;
+    info.ops = subgroupProperties.supportedOperations;
+    info.quadAllStages = subgroupProperties.quadOperationsInAllStages;
+    return info;
+}
+
 VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance)
     : mOwner(true),
       mInstance(instance),
@@ -169,19 +187,7 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance)
     vkGetPhysicalDeviceProperties(mPhysicalDevice, &mDeviceProty);
     vkGetPhysicalDeviceMemoryProperties(mPhysicalDevice, &mMemoryProty);
     mLocalMemorySize = _getLocalMemorySize(mMemoryProty);
-
-    // query subgroupSize
-    {
-        VkPhysicalDeviceProperties2 deviceProperties2 = {};
-        deviceProperties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-
-        VkPhysicalDeviceSubgroupProperties subgroupProperties = {};
-        subgroupProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES;
-
-        deviceProperties2.pNext = &subgroupProperties;
-        vkGetPhysicalDeviceProperties2(mPhysicalDevice, &deviceProperties2);
-        mSubgroupSize = subgroupProperties.subgroupSize;
-    }
+    mSubgroupInfo = _querySubgroupInfo(mPhysicalDevice);
 #ifdef MNN_VULKAN_PRINT_EXT
     uint32_t pPropertyCount;
     vkEnumerateInstanceExtensionProperties(nullptr, &pPropertyCount, nullptr);
@@ -197,6 +203,14 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance)
     FUNC_PRINT(mDeviceProty.limits.maxComputeSharedMemorySize);
     FUNC_PRINT(mLocalMemorySize);
 #endif
+
+{
+    uint32_t extensionCount = 0;
+    vkEnumerateDeviceExtensionProperties(mPhysicalDevice, nullptr, &extensionCount, nullptr);
+    std::vector<VkExtensionProperties> extensions(extensionCount);
+    vkEnumerateDeviceExtensionProperties(mPhysicalDevice, nullptr, &extensionCount, extensions.data());
+}
+
 }
 
 VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance, VkPhysicalDevice physicalDevice, VkDevice device,
@@ -210,6 +224,7 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance, VkPhysicalD
       vkGetPhysicalDeviceProperties(mPhysicalDevice, &mDeviceProty);
       vkGetPhysicalDeviceMemoryProperties(mPhysicalDevice, &mMemoryProty);
       mLocalMemorySize = _getLocalMemorySize(mMemoryProty);
+      mSubgroupInfo = _querySubgroupInfo(mPhysicalDevice);
 }
 
 VulkanDevice::~VulkanDevice() {
@@ -522,10 +537,20 @@ const VkResult VulkanDevice::createDescriptorSetLayout(VkDescriptorSetLayout& se
 const VkResult VulkanDevice::createPipelineLayout(VkPipelineLayout& pipelineLayout,
                                                   const VkDescriptorSetLayout& setLayout,
                                                   const VkAllocationCallbacks* allocator) const {
+    // Always provide a push-constant range. Some shaders rely on push constants, and Vulkan requires
+    // the pipeline layout to declare supported ranges for vkCmdPushConstants.
+    // Vulkan spec minimum maxPushConstantsSize is 128 bytes.
+    VkPushConstantRange pcRange;
+    pcRange.stageFlags = VK_SHADER_STAGE_ALL;
+    pcRange.offset = 0;
+    pcRange.size = 128;
+
     VkPipelineLayoutCreateInfo layoutInfo = {};
-    layoutInfo.sType                      = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    layoutInfo.setLayoutCount             = 1;
-    layoutInfo.pSetLayouts                = &setLayout;
+    layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    layoutInfo.setLayoutCount = 1;
+    layoutInfo.pSetLayouts = &setLayout;
+    layoutInfo.pushConstantRangeCount = 1;
+    layoutInfo.pPushConstantRanges = &pcRange;
     return vkCreatePipelineLayout(mDevice, &layoutInfo, allocator, &pipelineLayout);
 }
 
@@ -609,10 +634,13 @@ void VulkanDevice::checkFP16(const std::vector<VkExtensionProperties>& available
     mFP16Info.enabledVulkan12Features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
     mFP16Info.enabledShaderFloat16Int8Features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES};
     mFP16Info.enabled16BitStorageFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES};
-    
-    PFN_vkGetPhysicalDeviceFeatures2 getFeatures2 = vkGetPhysicalDeviceFeatures2;
+
+    VkInstance instance = mInstance->get();
+    auto getFeatures2 =
+        (PFN_vkGetPhysicalDeviceFeatures2)vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2");
     if (!getFeatures2) {
-        getFeatures2 = vkGetPhysicalDeviceFeatures2KHR;
+        getFeatures2 =
+            (PFN_vkGetPhysicalDeviceFeatures2)vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2KHR");
     }
     if (!getFeatures2) {
         return;
@@ -670,9 +698,12 @@ void VulkanDevice::checkCoopMat(const std::vector<VkExtensionProperties>& availa
     mCoopMatInfo.selectedFP32CoopMatShape.clear();
     mCoopMatInfo.selectedFP16CoopMatShape.clear();
 
-    PFN_vkGetPhysicalDeviceFeatures2 getFeatures2 = vkGetPhysicalDeviceFeatures2;
+    VkInstance instance = mInstance->get();
+    auto getFeatures2 =
+        (PFN_vkGetPhysicalDeviceFeatures2)vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2");
     if (!getFeatures2) {
-        getFeatures2 = vkGetPhysicalDeviceFeatures2KHR;
+        getFeatures2 =
+            (PFN_vkGetPhysicalDeviceFeatures2)vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2KHR");
     }
     if (!getFeatures2) {
         return;
@@ -691,7 +722,6 @@ void VulkanDevice::checkCoopMat(const std::vector<VkExtensionProperties>& availa
     if (mCoopMatInfo.enabledCoopMatFeatures.cooperativeMatrix != VK_TRUE) return;
 
     // 3. Query Properties (Shapes)
-    VkInstance instance = mInstance->get();
     auto fpGetCoopMat = reinterpret_cast<PFN_vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR>(
             vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR"));
 

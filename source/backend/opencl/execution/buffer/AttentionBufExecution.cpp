@@ -1794,6 +1794,7 @@ AttentionBufExecution::AttentionBufExecution(const MNN::Op *op, Backend* backend
     mKVCacheCLManager.reset(new KVCacheCLManager(backend, nullptr != mMeta));
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
     auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("softmax_buf", "softmax_buf", {"-DSOFTMAX_LOCAL_SIZE=512"}, mOpenCLBackend->getPrecision());
+    OPENCL_CHECK_KERNEL_CTOR(kernel);
     mMaxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel));
 }
 
@@ -1801,6 +1802,7 @@ AttentionBufExecution::AttentionBufExecution(std::shared_ptr<KVCacheCLManager> m
     mMeta = (KVMeta*)(backend->getMetaPtr());
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
     auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("softmax_buf", "softmax_buf", {"-DSOFTMAX_LOCAL_SIZE=512"}, mOpenCLBackend->getPrecision());
+    OPENCL_CHECK_KERNEL_CTOR(kernel);
     mMaxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel));
 }
 
@@ -1827,7 +1829,7 @@ public:
             TensorUtils::setTensorSupportPack(outputs[i], false);
         }
         auto param = op->main_as_AttentionParam();
-        return new AttentionBufExecution(op, backend, param->kv_cache());
+        OPENCL_CREATOR_CHECK(new AttentionBufExecution(op, backend, param->kv_cache()));
     }
 };
 REGISTER_OPENCL_OP_CREATOR_TRANSFORMER(AttentionBufCreator, OpType_Attention, BUFFER);

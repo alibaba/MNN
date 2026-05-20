@@ -1435,7 +1435,7 @@ inline const char * const *EnumNamesOpParameter() {
 }
 
 inline const char *EnumNameOpParameter(OpParameter e) {
-  if (e < OpParameter_NONE || e > OpParameter_LinearAttentionParam) return "";
+  if (e < OpParameter_NONE || e > OpParameter_ShapeParam) return "";
   const size_t index = static_cast<int>(e);
   return EnumNamesOpParameter()[index];
 }
@@ -1668,10 +1668,6 @@ template<> struct OpParameterTraits<Resize> {
   static const OpParameter enum_value = OpParameter_Resize;
 };
 
-template<> struct OpParameterTraits<ShapeParam> {
-  static const OpParameter enum_value = OpParameter_ShapeParam;
-};
-
 template<> struct OpParameterTraits<RoiParameters> {
   static const OpParameter enum_value = OpParameter_RoiParameters;
 };
@@ -1846,6 +1842,10 @@ template<> struct OpParameterTraits<StftParam> {
 
 template<> struct OpParameterTraits<LinearAttentionParam> {
   static const OpParameter enum_value = OpParameter_LinearAttentionParam;
+};
+
+template<> struct OpParameterTraits<ShapeParam> {
+  static const OpParameter enum_value = OpParameter_ShapeParam;
 };
 
 struct OpParameterUnion {
@@ -2327,14 +2327,6 @@ struct OpParameterUnion {
     return type == OpParameter_Resize ?
       reinterpret_cast<const ResizeT *>(value) : nullptr;
   }
-  ShapeParamT *AsShapeParam() {
-    return type == OpParameter_ShapeParam ?
-      reinterpret_cast<ShapeParamT *>(value) : nullptr;
-  }
-  const ShapeParamT *AsShapeParam() const {
-    return type == OpParameter_ShapeParam ?
-      reinterpret_cast<const ShapeParamT *>(value) : nullptr;
-  }
   RoiParametersT *AsRoiParameters() {
     return type == OpParameter_RoiParameters ?
       reinterpret_cast<RoiParametersT *>(value) : nullptr;
@@ -2687,6 +2679,14 @@ struct OpParameterUnion {
     return type == OpParameter_LinearAttentionParam ?
       reinterpret_cast<const LinearAttentionParamT *>(value) : nullptr;
   }
+  ShapeParamT *AsShapeParam() {
+    return type == OpParameter_ShapeParam ?
+      reinterpret_cast<ShapeParamT *>(value) : nullptr;
+  }
+  const ShapeParamT *AsShapeParam() const {
+    return type == OpParameter_ShapeParam ?
+      reinterpret_cast<const ShapeParamT *>(value) : nullptr;
+  }
 };
 
 bool VerifyOpParameter(flatbuffers::Verifier &verifier, const void *obj, OpParameter type);
@@ -2996,8 +2996,13 @@ flatbuffers::Offset<StringVec> CreateStringVec(flatbuffers::FlatBufferBuilder &_
 struct AttentionParamT : public flatbuffers::NativeTable {
   typedef AttentionParam TableType;
   bool kv_cache;
+  std::string kv_shared_layer;
+  int32_t layer_index;
+  int32_t kv_shared_layer_index;
   AttentionParamT()
-      : kv_cache(true) {
+      : kv_cache(true),
+        layer_index(-1),
+        kv_shared_layer_index(-1) {
   }
 };
 
@@ -3009,9 +3014,22 @@ struct AttentionParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   bool kv_cache() const {
     return GetField<uint8_t>(4, 1) != 0;
   }
+  const flatbuffers::String *kv_shared_layer() const {
+    return GetPointer<const flatbuffers::String *>(6);
+  }
+  int32_t layer_index() const {
+    return GetField<int32_t>(8, -1);
+  }
+  int32_t kv_shared_layer_index() const {
+    return GetField<int32_t>(10, -1);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<uint8_t>(verifier, 4) &&
+           VerifyOffset(verifier, 6) &&
+           verifier.VerifyString(kv_shared_layer()) &&
+           VerifyField<int32_t>(verifier, 8) &&
+           VerifyField<int32_t>(verifier, 10) &&
            verifier.EndTable();
   }
   AttentionParamT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -3024,6 +3042,15 @@ struct AttentionParamBuilder {
   flatbuffers::uoffset_t start_;
   void add_kv_cache(bool kv_cache) {
     fbb_.AddElement<uint8_t>(4, static_cast<uint8_t>(kv_cache), 1);
+  }
+  void add_kv_shared_layer(flatbuffers::Offset<flatbuffers::String> kv_shared_layer) {
+    fbb_.AddOffset(6, kv_shared_layer);
+  }
+  void add_layer_index(int32_t layer_index) {
+    fbb_.AddElement<int32_t>(8, layer_index, -1);
+  }
+  void add_kv_shared_layer_index(int32_t kv_shared_layer_index) {
+    fbb_.AddElement<int32_t>(10, kv_shared_layer_index, -1);
   }
   explicit AttentionParamBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -3039,8 +3066,14 @@ struct AttentionParamBuilder {
 
 inline flatbuffers::Offset<AttentionParam> CreateAttentionParam(
     flatbuffers::FlatBufferBuilder &_fbb,
-    bool kv_cache = true) {
+    bool kv_cache = true,
+    flatbuffers::Offset<flatbuffers::String> kv_shared_layer = 0,
+    int32_t layer_index = -1,
+    int32_t kv_shared_layer_index = -1) {
   AttentionParamBuilder builder_(_fbb);
+  builder_.add_kv_shared_layer_index(kv_shared_layer_index);
+  builder_.add_layer_index(layer_index);
+  builder_.add_kv_shared_layer(kv_shared_layer);
   builder_.add_kv_cache(kv_cache);
   return builder_.Finish();
 }
@@ -4080,9 +4113,6 @@ struct Op FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const Resize *main_as_Resize() const {
     return main_type() == OpParameter_Resize ? static_cast<const Resize *>(main()) : nullptr;
   }
-  const ShapeParam *main_as_ShapeParam() const {
-    return main_type() == OpParameter_ShapeParam ? static_cast<const ShapeParam *>(main()) : nullptr;
-  }
   const RoiParameters *main_as_RoiParameters() const {
     return main_type() == OpParameter_RoiParameters ? static_cast<const RoiParameters *>(main()) : nullptr;
   }
@@ -4214,6 +4244,9 @@ struct Op FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   }
   const LinearAttentionParam *main_as_LinearAttentionParam() const {
     return main_type() == OpParameter_LinearAttentionParam ? static_cast<const LinearAttentionParam *>(main()) : nullptr;
+  }
+  const ShapeParam *main_as_ShapeParam() const {
+    return main_type() == OpParameter_ShapeParam ? static_cast<const ShapeParam *>(main()) : nullptr;
   }
   const flatbuffers::String *name() const {
     return GetPointer<const flatbuffers::String *>(10);
@@ -4476,10 +4509,6 @@ template<> inline const Resize *Op::main_as<Resize>() const {
   return main_as_Resize();
 }
 
-template<> inline const ShapeParam *Op::main_as<ShapeParam>() const {
-  return main_as_ShapeParam();
-}
-
 template<> inline const RoiParameters *Op::main_as<RoiParameters>() const {
   return main_as_RoiParameters();
 }
@@ -4654,6 +4683,10 @@ template<> inline const StftParam *Op::main_as<StftParam>() const {
 
 template<> inline const LinearAttentionParam *Op::main_as<LinearAttentionParam>() const {
   return main_as_LinearAttentionParam();
+}
+
+template<> inline const ShapeParam *Op::main_as<ShapeParam>() const {
+  return main_as_ShapeParam();
 }
 
 struct OpBuilder {
@@ -5463,6 +5496,9 @@ inline void AttentionParam::UnPackTo(AttentionParamT *_o, const flatbuffers::res
   (void)_o;
   (void)_resolver;
   { auto _e = kv_cache(); _o->kv_cache = _e; };
+  { auto _e = kv_shared_layer(); if (_e) _o->kv_shared_layer = _e->str(); };
+  { auto _e = layer_index(); _o->layer_index = _e; };
+  { auto _e = kv_shared_layer_index(); _o->kv_shared_layer_index = _e; };
 }
 
 inline flatbuffers::Offset<AttentionParam> AttentionParam::Pack(flatbuffers::FlatBufferBuilder &_fbb, const AttentionParamT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -5474,9 +5510,15 @@ inline flatbuffers::Offset<AttentionParam> CreateAttentionParam(flatbuffers::Fla
   (void)_o;
   struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const AttentionParamT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
   auto _kv_cache = _o->kv_cache;
+  auto _kv_shared_layer = _o->kv_shared_layer.empty() ? 0 : _fbb.CreateString(_o->kv_shared_layer);
+  auto _layer_index = _o->layer_index;
+  auto _kv_shared_layer_index = _o->kv_shared_layer_index;
   return MNN::CreateAttentionParam(
       _fbb,
-      _kv_cache);
+      _kv_cache,
+      _kv_shared_layer,
+      _layer_index,
+      _kv_shared_layer_index);
 }
 
 inline LinearAttentionParamT *LinearAttentionParam::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -6319,10 +6361,6 @@ inline bool VerifyOpParameter(flatbuffers::Verifier &verifier, const void *obj, 
       auto ptr = reinterpret_cast<const Resize *>(obj);
       return verifier.VerifyTable(ptr);
     }
-    case OpParameter_ShapeParam: {
-      auto ptr = reinterpret_cast<const ShapeParam *>(obj);
-      return verifier.VerifyTable(ptr);
-    }
     case OpParameter_RoiParameters: {
       auto ptr = reinterpret_cast<const RoiParameters *>(obj);
       return verifier.VerifyTable(ptr);
@@ -6497,6 +6535,10 @@ inline bool VerifyOpParameter(flatbuffers::Verifier &verifier, const void *obj, 
     }
     case OpParameter_LinearAttentionParam: {
       auto ptr = reinterpret_cast<const LinearAttentionParam *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case OpParameter_ShapeParam: {
+      auto ptr = reinterpret_cast<const ShapeParam *>(obj);
       return verifier.VerifyTable(ptr);
     }
     default: return false;
@@ -6741,10 +6783,6 @@ inline void *OpParameterUnion::UnPack(const void *obj, OpParameter type, const f
       auto ptr = reinterpret_cast<const Resize *>(obj);
       return ptr->UnPack(resolver);
     }
-    case OpParameter_ShapeParam: {
-      auto ptr = reinterpret_cast<const ShapeParam *>(obj);
-      return ptr->UnPack(resolver);
-    }
     case OpParameter_RoiParameters: {
       auto ptr = reinterpret_cast<const RoiParameters *>(obj);
       return ptr->UnPack(resolver);
@@ -6919,6 +6957,10 @@ inline void *OpParameterUnion::UnPack(const void *obj, OpParameter type, const f
     }
     case OpParameter_LinearAttentionParam: {
       auto ptr = reinterpret_cast<const LinearAttentionParam *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case OpParameter_ShapeParam: {
+      auto ptr = reinterpret_cast<const ShapeParam *>(obj);
       return ptr->UnPack(resolver);
     }
     default: return nullptr;
@@ -7151,10 +7193,6 @@ inline flatbuffers::Offset<void> OpParameterUnion::Pack(flatbuffers::FlatBufferB
       auto ptr = reinterpret_cast<const ResizeT *>(value);
       return CreateResize(_fbb, ptr, _rehasher).Union();
     }
-    case OpParameter_ShapeParam: {
-      auto ptr = reinterpret_cast<const ShapeParamT *>(value);
-      return CreateShapeParam(_fbb, ptr, _rehasher).Union();
-    }
     case OpParameter_RoiParameters: {
       auto ptr = reinterpret_cast<const RoiParametersT *>(value);
       return CreateRoiParameters(_fbb, ptr, _rehasher).Union();
@@ -7330,6 +7368,10 @@ inline flatbuffers::Offset<void> OpParameterUnion::Pack(flatbuffers::FlatBufferB
     case OpParameter_LinearAttentionParam: {
       auto ptr = reinterpret_cast<const LinearAttentionParamT *>(value);
       return CreateLinearAttentionParam(_fbb, ptr, _rehasher).Union();
+    }
+    case OpParameter_ShapeParam: {
+      auto ptr = reinterpret_cast<const ShapeParamT *>(value);
+      return CreateShapeParam(_fbb, ptr, _rehasher).Union();
     }
     default: return 0;
   }
@@ -7561,10 +7603,6 @@ inline OpParameterUnion::OpParameterUnion(const OpParameterUnion &u) FLATBUFFERS
       value = new ResizeT(*reinterpret_cast<ResizeT *>(u.value));
       break;
     }
-    case OpParameter_ShapeParam: {
-      value = new ShapeParamT(*reinterpret_cast<ShapeParamT *>(u.value));
-      break;
-    }
     case OpParameter_RoiParameters: {
       value = new RoiParametersT(*reinterpret_cast<RoiParametersT *>(u.value));
       break;
@@ -7739,6 +7777,10 @@ inline OpParameterUnion::OpParameterUnion(const OpParameterUnion &u) FLATBUFFERS
     }
     case OpParameter_LinearAttentionParam: {
       value = new LinearAttentionParamT(*reinterpret_cast<LinearAttentionParamT *>(u.value));
+      break;
+    }
+    case OpParameter_ShapeParam: {
+      value = new ShapeParamT(*reinterpret_cast<ShapeParamT *>(u.value));
       break;
     }
     default:
@@ -8028,11 +8070,6 @@ inline void OpParameterUnion::Reset() {
       delete ptr;
       break;
     }
-    case OpParameter_ShapeParam: {
-      auto ptr = reinterpret_cast<ShapeParamT *>(value);
-      delete ptr;
-      break;
-    }
     case OpParameter_RoiParameters: {
       auto ptr = reinterpret_cast<RoiParametersT *>(value);
       delete ptr;
@@ -8250,6 +8287,11 @@ inline void OpParameterUnion::Reset() {
     }
     case OpParameter_LinearAttentionParam: {
       auto ptr = reinterpret_cast<LinearAttentionParamT *>(value);
+      delete ptr;
+      break;
+    }
+    case OpParameter_ShapeParam: {
+      auto ptr = reinterpret_cast<ShapeParamT *>(value);
       delete ptr;
       break;
     }
@@ -9065,13 +9107,19 @@ inline const flatbuffers::TypeTable *StringVecTypeTable() {
 
 inline const flatbuffers::TypeTable *AttentionParamTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
-    { flatbuffers::ET_BOOL, 0, -1 }
+    { flatbuffers::ET_BOOL, 0, -1 },
+    { flatbuffers::ET_STRING, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 }
   };
   static const char * const names[] = {
-    "kv_cache"
+    "kv_cache",
+    "kv_shared_layer",
+    "layer_index",
+    "kv_shared_layer_index"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 1, type_codes, nullptr, nullptr, names
+    flatbuffers::ST_TABLE, 4, type_codes, nullptr, nullptr, names
   };
   return &tt;
 }

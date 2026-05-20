@@ -71,6 +71,7 @@ private:
     std::shared_ptr<ImagePool> mImagePool;
     std::shared_ptr<BufferPool> mBufferPool;
     mutable std::shared_ptr<MmapPool> mMmapPool;
+    mutable bool mUseMmapPool = true;
     BackendConfig::PrecisionMode mPrecision;
     BackendConfig::MemoryMode mMemory;
     bool mCLRuntimeError = false;
@@ -82,7 +83,7 @@ private:
 
 class OpenCLBackend : public Backend {
 public:
-    OpenCLBackend(BackendConfig::PrecisionMode precision, BackendConfig::MemoryMode memory, int gpuMode, std::shared_ptr<ImagePool>imgPool, std::shared_ptr<BufferPool> bufPool, std::shared_ptr<MmapPool> mmapPool, const CLRuntime *runtime);
+    OpenCLBackend(BackendConfig::PrecisionMode precision, BackendConfig::MemoryMode memory, int gpuMode, const CLRuntime *runtime);
     ~OpenCLBackend();
 
     OpenCLRuntime *getOpenCLRuntime();
@@ -115,7 +116,10 @@ public:
     }
     
     std::shared_ptr<MmapPool> getStaticAllocatorMMap() const {
-        return mStaticAllocatorMMap;
+        if(mCLRuntime->mUseMmapPool){
+            return mCLRuntime->mMmapPool;
+        }
+        return nullptr;
     }
     virtual bool onSelectDynamicAllocator(int index, int maxIndex) override;
 
@@ -170,13 +174,10 @@ private:
 
     ImagePool* mImagePool;
     BufferPool* mBufferPool;
-    std::shared_ptr<MmapPool> mStaticAllocatorMMap;
     std::shared_ptr<BufferExecutionPool> mExecutionBufferPool;
 
     std::shared_ptr<ImagePool> mImagePoolFirst;
     std::shared_ptr<BufferPool> mBufferPoolFirst;
-    std::shared_ptr<ImagePool> mStaticImagePool;
-    std::shared_ptr<BufferPool> mStaticBufferPool;
     
     std::shared_ptr<OpenCLRuntime> mOpenCLRuntime;
 

@@ -57,7 +57,7 @@ class ApiServiceCoordinator(private val context: Context) {
 
             if (application != null && _isServerRunning) {
                 if (!modelId.isNullOrBlank()) {
-                    val switchedSession = ensureRuntimeSessionForModel(modelId)
+                    val switchedSession = resolveRuntimeSessionForStart(modelId)
                     if (switchedSession == null) {
                         notificationManager?.updateNotification(
                             context.getString(R.string.api_service_not_started),
@@ -71,21 +71,7 @@ class ApiServiceCoordinator(private val context: Context) {
             }
 
             return runCatching {
-                val runtimeSession = if (!modelId.isNullOrBlank()) {
-                    val session = ensureRuntimeSessionForModel(modelId)
-                    if (session == null) {
-                        notificationManager?.updateNotification(
-                            context.getString(R.string.api_service_not_started),
-                            context.getString(R.string.no_active_session)
-                        )
-                        return false
-                    }
-                    session
-                } else {
-                    ServiceLocator.getLlmRuntimeController().getActiveSession()
-                }
-
-                val session = runtimeSession ?: ServiceLocator.getChatSessionProvider().getLlmSession()
+                val session = resolveRuntimeSessionForStart(modelId)
                 if (session == null) {
                     Timber.Forest.tag(TAG).w("No active LlmSession found")
                     notificationManager?.updateNotification(
@@ -123,6 +109,31 @@ class ApiServiceCoordinator(private val context: Context) {
                 false
             }
         }
+    }
+
+    private fun resolveRuntimeSessionForStart(modelId: String?): LlmSession? {
+        val runtime = ServiceLocator.getLlmRuntimeController()
+        val chatSessionProvider = ServiceLocator.getChatSessionProvider()
+        val activeModelId = runtime.getActiveModelId()
+        val hasLoadedActiveSession = chatSessionProvider.hasActiveSession()
+
+        if (ApiRuntimeSessionStartPolicy.shouldReuseLoadedSession(modelId, activeModelId, hasLoadedActiveSession)) {
+            val activeSession = runtime.getActiveSession() ?: chatSessionProvider.getLlmSession()
+            if (activeSession != null) {
+                Timber.Forest.tag(TAG).i(
+                    "Reusing loaded runtime session for API start, requestedModelId=%s activeModelId=%s",
+                    modelId,
+                    activeModelId
+                )
+                return activeSession
+            }
+        }
+
+        if (!modelId.isNullOrBlank()) {
+            return ensureRuntimeSessionForModel(modelId)
+        }
+
+        return runtime.getActiveSession() ?: chatSessionProvider.getLlmSession()
     }
 
     private fun ensureRuntimeSessionForModel(modelId: String): LlmSession? {

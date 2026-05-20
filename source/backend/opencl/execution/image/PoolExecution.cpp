@@ -57,6 +57,7 @@ PoolExecution::PoolExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
     mPaddings[1] = mPoolParams->padX() * 2;
     mPadType     = mPoolParams->padType();
     unit.kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("pooling", "global_pooling", {"-DLOCAL_SIZE=512"}, mOpenCLBackend->getPrecision());
+    OPENCL_CHECK_KERNEL_CTOR(unit.kernel);
     mMaxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(unit.kernel));
 }
 

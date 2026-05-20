@@ -2,6 +2,7 @@
 #include "core/MNNFileUtils.h"
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
+#include "Profiler.hpp"
 #include <fstream>
 #include <sstream>
 #include <regex>
@@ -207,7 +208,6 @@ struct TestInstance {
         std::transform(cost_us.begin(), cost_us.end(), std::back_inserter(ts), [n_tokens](int64_t t) { return 1e6 * n_tokens / t; });
         return ts;
     }
-
     std::vector<double> getTokensPerSecond(std::vector<int64_t> n_tokens, std::vector<int64_t> cost_us) const {
         std::vector<double> ts(n_tokens.size());
         for (int i = 0; i < n_tokens.size(); ++i) {
@@ -380,6 +380,7 @@ struct markdownPrinter : public Printer {
                 value = buf;
             }  else if (field == "backend") {
                 if (t.backend == 1) value = "METAL";
+                else if (t.backend == 2) value = "CUDA";
                 else if (t.backend == 3) value = "OPENCL";
                 else value = "CPU";
             } else if (field == "test") {
@@ -538,7 +539,7 @@ struct jsonAggregator : public Printer {
 
                 std::vector<double> speed;
                 if (!inst.decodeUs.empty()) {
-                    speed = inst.getTokensPerSecond(inst.nGenerate, inst.decodeUs);
+                    speed = inst.getTokensPerSecond(inst.nGenerates, inst.decodeUs);
                 } else if (!inst.samplesUs.empty()) {
                     speed = inst.getTokensPerSecond(inst.nGenerate, inst.samplesUs);
                 }
@@ -567,7 +568,7 @@ struct jsonAggregator : public Printer {
                     writer.Double(inst.getStdevUs(prefill_speed));
                 }
                 if (!inst.decodeUs.empty()) {
-                    auto decode_speed = inst.getTokensPerSecond(inst.nGenerate, inst.decodeUs);
+                    auto decode_speed = inst.getTokensPerSecond(inst.nGenerates, inst.decodeUs);
                     writer.Key("decode_tps");
                     writer.Double(inst.getAvgUs(decode_speed));
                     writer.Key("decode_std");
@@ -817,10 +818,11 @@ static void printUsage(int /* argc */, char ** argv) {
     printf("  -mr, --mixedSme2NeonRatio <n>             (default: 41) | Note: This parameter is intended to optimize multi-threaded inference performance on backends that support Arm SME instructions. The optimal ratio may vary across different models; we recommend trying values such as 41, 49, 33.\n");
     printf("  -qatten, --quant-attention <0|1>          (default: 0) | Note: if 1, quantize attention's key value to int8; default 0\n");
     printf("  -j, --json <filename>                     (default: llm_bench.json) | Note: if set, output result to a JSON file\n");
+    printf("  --profile                                 Enable operator-level profiling to print detailed timing statistics\n");
 }
 
 
-static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimeParams, TestParameters & testParams, FILE** outfile, bool& helpInfo, bool& jsonMode, std::string& jsonFile) {
+static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimeParams, TestParameters & testParams, FILE** outfile, bool& helpInfo, bool& jsonMode, std::string& jsonFile, bool& enableProfile) {
     std::string       arg;
     bool              invalidParam = false;
     const std::string argPrefix    = "--";
@@ -882,6 +884,8 @@ static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimePa
             for (auto& type: ba) {
                 if (type == "metal") {
                     p.emplace_back(1);
+                } else if (type == "cuda") {
+                    p.emplace_back(2);
                 } else if (type == "opencl") {
                     p.emplace_back(3);
                 } else {
@@ -990,6 +994,8 @@ static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimePa
              if (i + 1 < argc && argv[i+1][0] != '-') {
                  jsonFile = argv[++i];
              }
+        } else if (arg == "--profile") {
+            enableProfile = true;
         }
         else {
             invalidParam = true;
@@ -1061,7 +1067,7 @@ static Llm* buildLLM(const std::string& config_path, int backend, int memory, in
     // Otherwise, mContext->history_tokens retains data after the first run, skewing true prefill performance metrics."
     llmPtr->set_config(R"({"reuse_kv":false})");
     std::map<int, std::string> lever = {{0,"normal"}, {1, "high"}, {2, "low"}};
-    std::map<int, std::string> backend_type = {{0, "cpu"}, {1, "metal"}, {3, "opencl"}};
+    std::map<int, std::string> backend_type = {{0, "cpu"}, {1, "metal"}, {2, "cuda"}, {3, "opencl"}};
     std::map<bool, std::string> mmap = {{true,"true"}, {false, "false"}};
 
     bool setSuccess = true;
@@ -1135,7 +1141,8 @@ int main(int argc, char ** argv) {
     bool helpInfo = false;
     bool jsonMode = false;
     std::string jsonFile = "llm_bench.json";
-    bool parseSuccess = parseCmdParams(argc, argv, runtimeParams, testParams, &outfile, helpInfo, jsonMode, jsonFile);
+    bool enableProfile = false;
+    bool parseSuccess = parseCmdParams(argc, argv, runtimeParams, testParams, &outfile, helpInfo, jsonMode, jsonFile, enableProfile);
     if (!parseSuccess) {
         MNN_ERROR("Parse arguments error\n");
         return -1;
@@ -1177,11 +1184,30 @@ int main(int argc, char ** argv) {
         t.modelSize = MNNGetFileSize(file);
 
         MNN::BackendConfig backendConfig;
-        auto executor = MNN::Express::Executor::newExecutor(MNN_FORWARD_CPU, backendConfig, 1);
+        // Map backend parameter to MNN forward type (0=CPU, 1=METAL, 2=CUDA, 3=OPENCL)
+        MNNForwardType forwardType = static_cast<MNNForwardType>(instance.mCmdParam.backend);
+        auto executor = MNN::Express::Executor::newExecutor(forwardType, backendConfig, 1);
         MNN::Express::ExecutorScope scope(executor);
 
         auto llmPtr = buildLLM(instance.mCmdParam.model, instance.mCmdParam.backend, instance.mCmdParam.memory, instance.mCmdParam.precision, instance.mCmdParam.threads, instance.mCmdParam.power, instance.mCmdParam.dynamicOption, instance.mCmdParam.useMmap, instance.mCmdParam.divisionRatioSme2Neon, instance.mCmdParam.smeCoreNum, instance.mCmdParam.nPrompt, instance.mCmdParam.attentionOption);
         std::unique_ptr<Llm> llm(llmPtr);
+        if (enableProfile) {
+            llm->set_config(R"({"enable_debug":true})");
+            auto profiler = MNN::Profiler::getInstance();
+            llm->setDebugCallback(
+                [profiler](const std::vector<MNN::Tensor*>& inputs, const MNN::OperatorInfo* info) {
+                    profiler->start(info);
+                    return true;
+                },
+                [profiler](const std::vector<MNN::Tensor*>& outputs, const MNN::OperatorInfo* info) {
+                    for (auto o : outputs) {
+                        o->wait(MNN::Tensor::MAP_TENSOR_READ, true);
+                    }
+                    profiler->end(info);
+                    return true;
+                }
+            );
+        }
         if (instance.mCmdParam.loadingTime == "true") {
             for (int k = 0; k < 3; ++k) {
                 Timer loadingCost;
@@ -1193,6 +1219,8 @@ int main(int argc, char ** argv) {
         }
         tuning_prepare(llm.get());
         auto context = llm->getContext();
+        // Ensure GPU sync for accurate timing
+        llm->set_config("{\"async\":false}");
         if (instance.mCmdParam.nGenerate > 0) {
             llm->set_config("{\"max_new_tokens\":1}");
         }
@@ -1257,6 +1285,13 @@ int main(int argc, char ** argv) {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
 
         }
+    }
+
+    if (enableProfile) {
+        auto profiler = MNN::Profiler::getInstance();
+        fprintf(stdout, "\n========== Operator Profile Results ==========\n");
+        // profiler->printTimeByName(1);
+        profiler->printTimeByType(1);
     }
 
     fprintf(stdout, "\n");

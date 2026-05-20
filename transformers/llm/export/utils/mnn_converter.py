@@ -307,7 +307,7 @@ class MNNConverter:
             q_weight = torch.zeros(q_weight_num, dtype=torch.uint8)
             return q_weight, alpha
 
-        q_weight, alpha = torch_quant(weight, quant_bit, quant_block, symmetric, self.args.awq, self.args.hqq)
+        q_weight, alpha = torch_quant(weight.cpu(), quant_bit, quant_block, symmetric, self.args.awq, self.args.hqq)
         return q_weight, alpha
 
     def write_weight(self, data):
@@ -349,14 +349,21 @@ class MNNConverter:
             assert(quant_bit in (1, 2, 4, 8))
             q_weight, alpha = self.quant(linear.weight.data, quant_bit, quant_block, symmetric)
             header_len, shape_int32 = self.write_header(ic, oc, quant_bit)
+            scale_fp16 = (self.args.scale_bit == 16)
+            alpha_dtype_size = 2 if scale_fp16 else 4
             if self.exporter.args.skip_weight:
                 weight_len = len(q_weight) + header_len
                 self.mnn_weight.seek(len(q_weight), 1)
-                alpha_len = len(alpha) * 4
+                alpha_len = len(alpha) * alpha_dtype_size
                 self.mnn_weight.seek(alpha_len, 1)
             else:
                 weight_len = self.write_weight(q_weight) + header_len
-                alpha_len = self.write_weight(alpha)
+                if scale_fp16:
+                    alpha_np = alpha.numpy() if hasattr(alpha, 'numpy') else np.asarray(alpha)
+                    alpha_fp16 = alpha_np.astype(np.float16)
+                    alpha_len = self.write_weight(alpha_fp16)
+                else:
+                    alpha_len = self.write_weight(alpha)
 
         if linear.bias is not None:
             bias_length = (oc * 4)
@@ -429,17 +436,28 @@ class MNNConverter:
 
     def rebuild_attnention(self, op, graph):
         attrs = op['main']['attr']
+        layer_index = -1
+        kv_shared_layer_index = -1
         for attr in attrs:
             if attr['key'] == 'name':
                 name = attr['s']
             elif attr['key'] == 'kv_cache':
                 kv_cache = attr['i']
+            elif attr['key'] == 'layer_index':
+                layer_index = attr.get('i', -1)
+            elif attr['key'] == 'kv_shared_layer_index':
+                kv_shared_layer_index = attr.get('i', -1)
         origin_input = op['inputIndexes']
         origin_output = op['outputIndexes']
+        main_dict = {
+            "kv_cache": bool(kv_cache),
+            "layer_index": layer_index,
+            "kv_shared_layer_index": kv_shared_layer_index,
+        }
         fused_attention = {
             "inputIndexes": origin_input,
             "main_type": "AttentionParam",
-            "main": { "kv_cache": bool(kv_cache) },
+            "main": main_dict,
             "name": name,
             "outputIndexes": origin_output,
             "type": "Attention",
@@ -538,7 +556,14 @@ class MNNConverter:
             weight_offset = external[0] + header_len
             alpha_offset = external[0] + external[1]
             alpha_size = external[2]
-            self.tie_embeddings_info = [weight_offset, alpha_offset, alpha_size, quant_bit, quant_block]
+            self.tie_embeddings_info = {
+                "weight_offset": weight_offset,
+                "alpha_offset": alpha_offset,
+                "alpha_size": alpha_size,
+                "quant_bit": quant_bit,
+                "quant_block": quant_block,
+                "alpha_dtype": "fp16" if self.args.scale_bit == 16 else "fp32",
+            }
 
         origin_input = op['inputIndexes']
         origin_output = op['outputIndexes']
@@ -593,7 +618,8 @@ class MNNConverter:
             quanParameter = {
                 "quantScale": 1.0, "scaleIn": 0.0, "scaleOut": 0.0,
                 "useInt32": False, "has_scaleInt": False, "shapeInt32": shape_int32,
-                "type": 1, "aMaxOrBits": quant_bit, "aMin": aMin, "readType": readType, "weightSize": 0
+                "type": 1, "aMaxOrBits": quant_bit, "aMin": aMin, "readType": readType, "weightSize": 0,
+                "scaleStorage": "FP16" if self.args.scale_bit == 16 else "FP32",
             }
         conv_op = {
             "name": conv_name,

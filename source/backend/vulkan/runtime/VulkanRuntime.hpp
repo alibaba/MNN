@@ -68,7 +68,7 @@ public:
 
 private:
     VulkanRuntime(const Backend::Info& info, std::shared_ptr<VulkanDevice> device, std::shared_ptr<VulkanInstance> instance);
-    Backend::Info mInfo;
+    BackendConfig::PrecisionMode mPrecision = BackendConfig::Precision_Normal;
     std::shared_ptr<BufferAllocator> mBufferPool;
     std::shared_ptr<VulkanPipelineFactory> mPipelineFactory;
     std::shared_ptr<VulkanCommandPool> mCmdPool;

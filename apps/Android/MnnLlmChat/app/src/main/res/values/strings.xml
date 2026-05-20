@@ -94,6 +94,7 @@
     <string name="use_model_scope_download">Use modelscope to download</string>
     <string name="clear_mmap_cache">Clear mmap cache</string>
     <string name="use_mmap">Use mmap</string>
+    <string name="prompt_cache">Prompt Caching</string>
     <string name="sampler">select sampler</string>
     <string name="backend">use opencl</string>
     <string name="local_available">Local Available</string>

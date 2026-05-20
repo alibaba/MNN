@@ -28,11 +28,14 @@ InterpExecution::InterpExecution(const std::vector<Tensor *> &inputs, const MNN:
     std::string kernelName = "interp";
     if (op->main_as_Interp()->resizeType() == 1) {
         unit.kernel                = runtime->buildKernel("nearest", kernelName, buildOptions, mOpenCLBackend->getPrecision());
+        OPENCL_CHECK_KERNEL_CTOR(unit.kernel);
     }else if (op->main_as_Interp()->resizeType() == 4) {
         buildOptions.emplace("-DUSE_ROUND");
         unit.kernel                 = runtime->buildKernel("nearest", kernelName, buildOptions, mOpenCLBackend->getPrecision());
+        OPENCL_CHECK_KERNEL_CTOR(unit.kernel);
     }else {
         unit.kernel                 = runtime->buildKernel("interp", kernelName, buildOptions, mOpenCLBackend->getPrecision());
+        OPENCL_CHECK_KERNEL_CTOR(unit.kernel);
     }
 
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel ));
@@ -100,7 +103,7 @@ public:
             MNN_PRINT("openCL not support interp type:%d, fallback to cpu\n", op->main_as_Interp()->resizeType());
             return nullptr;
         }
-        return new InterpExecution(inputs, op, backend);
+        OPENCL_CREATOR_CHECK(new InterpExecution(inputs, op, backend));
     }
 };
 

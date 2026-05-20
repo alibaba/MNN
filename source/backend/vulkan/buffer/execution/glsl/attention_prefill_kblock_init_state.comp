@@ -1,0 +1,47 @@
+layout(set=0, binding=0) buffer s0 {
+    float data[];
+} uM;
+
+layout(set=0, binding=1) buffer s1 {
+    float data[];
+} uL;
+
+layout(set=0, binding=2) buffer s2 {
+    float data[];
+} uAlpha;
+
+layout(set=0, binding=3) buffer s3 {
+    float data[];
+} uOAcc;
+
+layout(set=0, binding=4) readonly uniform constBuffer {
+    ivec4 s0; // qLen, kLen, headNum, kvHeadNum
+    ivec4 s1; // headDim, group, pastLen, totalLen
+    ivec4 s2; // maskQlen, maskKvlen, hasMask, cacheMaxLen
+    vec4 f0;  // scale, 0, 0, 0
+} uConst;
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+const float NEG_INF = -3.402823466e38;
+
+void main() {
+    const uint idx = gl_GlobalInvocationID.x;
+    const uint qLen = uint(uConst.s0.x);
+    const uint headNum = uint(uConst.s0.z);
+    const uint headDim = uint(uConst.s1.x);
+    if (qLen == 0u || headNum == 0u || headDim == 0u) {
+        return;
+    }
+    const uint rowCount = qLen * headNum;
+    const uint accCount = rowCount * headDim;
+    if (idx < rowCount) {
+        uM.data[idx] = NEG_INF;
+        uL.data[idx] = 0.0;
+        uAlpha.data[idx] = 0.0;
+    }
+    if (idx < accCount) {
+        uOAcc.data[idx] = 0.0;
+    }
+}
+

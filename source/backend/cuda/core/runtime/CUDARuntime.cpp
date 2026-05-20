@@ -45,15 +45,23 @@ CUDARuntime::CUDARuntime(int device_id) {
     mDeviceId = id;
     cuda_check(cudaGetDeviceProperties(&mProp, id));
     MNN_ASSERT(mProp.maxThreadsPerBlock > 0);
+
+    // Initialize cuBLAS handle
+    auto cublasStatus = cublasCreate(&mCublasHandle);
+    if (cublasStatus != CUBLAS_STATUS_SUCCESS) {
+        MNN_ERROR("cublasCreate failed: %d\n", (int)cublasStatus);
+        mCublasHandle = nullptr;
+    }
 }
 
 CUDARuntime::~CUDARuntime() {
 #ifdef LOG_VERBOSE
     MNN_PRINT("start ~CUDARuntime !\n");
 #endif
-#ifdef MNN_CUDA_USE_BLAS
-    cublas_check(cublasDestroy(mCublasHandle));
-#endif
+    if (mCublasHandle) {
+        cublasDestroy(mCublasHandle);
+        mCublasHandle = nullptr;
+    }
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ~CUDARuntime !\n");
 #endif
@@ -155,8 +163,12 @@ void CUDARuntime::memcpy(void *dst, const void *src, size_t size_in_bytes, MNNMe
         default:
             MNN_ERROR("bad cuda memcpy kind\n");
     }
-    //TODO, support Async Afterwards
-    cuda_check(cudaMemcpy(dst, src, size_in_bytes, cuda_kind));
+    // D2D copies use async to avoid host-side blocking (~1µs per call savings)
+    if (kind == MNNMemcpyDeviceToDevice && !sync) {
+        cuda_check(cudaMemcpyAsync(dst, src, size_in_bytes, cuda_kind, 0));
+    } else {
+        cuda_check(cudaMemcpy(dst, src, size_in_bytes, cuda_kind));
+    }
     checkKernelErrors;
 }
 

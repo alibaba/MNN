@@ -1,7 +1,7 @@
 # 示例工程
 
 ## C++ Demo
-[从源码编译](../compile/tools.html#id7)
+[从源码编译](../compile/other.md)
 ### 姿态检测
 代码位置：`demo/exec/multiPose.cpp`
 

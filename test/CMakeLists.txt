@@ -41,7 +41,9 @@ if (NOT MNN_BUILD_SHARED_LIBS)
 else()
   target_link_libraries(run_test.out ${TEST_DEPS})
 endif()
-target_include_directories(run_test.out PRIVATE ${CMAKE_CURRENT_LIST_DIR}/)
+target_include_directories(run_test.out PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/
+    ${CMAKE_CURRENT_LIST_DIR}/../transformers/llm/engine/src/)
 if (APPLE)
   find_library(FOUNDATION Foundation REQUIRED)
   target_link_libraries(run_test.out ${FOUNDATION})

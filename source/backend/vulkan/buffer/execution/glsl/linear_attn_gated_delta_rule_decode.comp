@@ -1,0 +1,87 @@
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+layout(set=0, binding=0) readonly buffer s0 {
+    FLOAT data[];
+} uQ;
+
+layout(set=0, binding=1) readonly buffer s1 {
+    FLOAT data[];
+} uK;
+
+layout(set=0, binding=2) readonly buffer s2 {
+    FLOAT data[];
+} uV;
+
+layout(set=0, binding=3) readonly buffer s3 {
+    FLOAT data[];
+} uGate;
+
+layout(set=0, binding=4) readonly buffer s4 {
+    FLOAT data[];
+} uBeta;
+
+layout(set=0, binding=5) buffer s5 {
+    FLOAT data[];
+} uRecurrentState;
+
+layout(set=0, binding=6) writeonly buffer s6 {
+    FLOAT data[];
+} uOutput;
+
+layout(set=0, binding=7) readonly uniform constBuffer {
+    ivec4 size0; // batch, seq_len, num_v_heads, head_k_dim
+    ivec4 size1; // head_v_dim, total_rows, 0, 0
+} uConstant;
+
+layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
+
+void main() {
+    const uint row = gl_WorkGroupID.x * gl_WorkGroupSize.y + gl_LocalInvocationID.y;
+    const uint lane = gl_SubgroupInvocationID;
+    const uint totalRows = uint(uConstant.size1.y);
+    if (row >= totalRows) {
+        return;
+    }
+
+    const int batch = uConstant.size0.x;
+    const int numVHeads = uConstant.size0.z;
+    const int dk = uConstant.size0.w;
+    const int dv = uConstant.size1.x;
+
+    const int j = int(row % uint(dv));
+    const int bh = int(row / uint(dv));
+    const int h = bh % numVHeads;
+    const int b = bh / numVHeads;
+    const int bth = b * numVHeads + h;
+    const int qBase = bth * dk;
+    const int kBase = qBase;
+    const int vIndex = bth * dv + j;
+    const int stateBase = ((b * numVHeads + h) * dv + j) * dk;
+
+    const float decay = exp(float(uGate.data[bth]));
+    const float beta = float(uBeta.data[bth]);
+    const float vVal = float(uV.data[vIndex]);
+
+    float vPredPartial = 0.0;
+    for (int i = int(lane); i < dk; i += int(gl_SubgroupSize)) {
+        const int stateIndex = stateBase + i;
+        const float stateVal = float(uRecurrentState.data[stateIndex]) * decay;
+        uRecurrentState.data[stateIndex] = FLOAT(stateVal);
+        vPredPartial += stateVal * float(uK.data[kBase + i]);
+    }
+    const float vPred = subgroupAdd(vPredPartial);
+    const float delta = beta * (vVal - vPred);
+
+    float outPartial = 0.0;
+    for (int i = int(lane); i < dk; i += int(gl_SubgroupSize)) {
+        const int stateIndex = stateBase + i;
+        const float updated = float(uRecurrentState.data[stateIndex]) + float(uK.data[kBase + i]) * delta;
+        uRecurrentState.data[stateIndex] = FLOAT(updated);
+        outPartial += updated * float(uQ.data[qBase + i]);
+    }
+    const float outVal = subgroupAdd(outPartial);
+    if (lane == 0u) {
+        uOutput.data[bth * dv + j] = FLOAT(outVal);
+    }
+}

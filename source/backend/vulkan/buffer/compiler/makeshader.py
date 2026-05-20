@@ -8,16 +8,22 @@ import hashlib # md5 sha1
 import configparser # ini (python 3.0 use configparser)
 import fcntl # file lock
 import datetime # format file modify time
+import shutil # which
+import subprocess
 gDefaultPath = "../execution/glsl"
 gOutputHeadFile = "../shaders/AllShader.h"
 gOutputSourceFile = "AllShader.cpp"
 gGeneratedShaderDir = os.path.join(".cache", "shader", "generated")
+
+gEnableSpirvOpt = True
+gSpirvOptArgs = ["-O"]
 
 FP32_HEADER = """#version 450 core
 
 layout(std430) buffer;
 
 #define FLOAT float
+#define FLOAT2 vec2
 #define FLOAT4 vec4
 """
 
@@ -29,12 +35,35 @@ layout(std430) buffer;
 #extension GL_EXT_shader_16bit_storage : require
 
 #define FLOAT float16_t
+#define FLOAT2 f16vec2
 #define FLOAT4 f16vec4
 """
 
 def _ensure_dir(path):
     if path and not os.path.exists(path):
         os.makedirs(path, exist_ok=True)
+
+def _run_cmd(args, stdout_path=None):
+    if stdout_path is not None:
+        with open(stdout_path, "w") as f:
+            proc = subprocess.run(args, stdout=f, stderr=subprocess.STDOUT, text=True)
+            return proc.returncode
+    proc = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    if proc.stdout:
+        print(proc.stdout)
+    return proc.returncode
+
+def _spirv_opt_available():
+    return shutil.which("spirv-opt") is not None
+
+def _spirv_opt_tag():
+    if not gEnableSpirvOpt:
+        return ""
+    if os.environ.get("MNN_VULKAN_DISABLE_SPIRV_OPT", "") == "1":
+        return ""
+    if not _spirv_opt_available():
+        return ""
+    return " ".join(gSpirvOptArgs)
 
 def _build_generated_shader_path(raw, macro, precision):
     fileName = os.path.basename(raw)
@@ -196,6 +225,7 @@ class ShaderCache:
         md5 = ''
         size = 0
         lastmodify = ''
+        spirv_opt = ''
         spirv_file = ''
         spirv_size = 0
         spirv_sha1 = ''
@@ -206,12 +236,14 @@ class ShaderCache:
             md5 = self.configParser.get(shader,'md5')
             size = self.configParser.getint(shader, 'size')
             lastmodify = self.configParser.get(shader, 'lastmodify')
+            if self.configParser.has_option(shader, 'spirv_opt'):
+                spirv_opt = self.configParser.get(shader, 'spirv_opt')
             spirv_file =  self.configParser.get(shader, 'spirv_file')
             spirv_size = self.configParser.getint(shader, 'spirv_size')
             spirv_sha1 = self.configParser.get(shader, 'spirv_sha1')
             spirv_md5 = self.configParser.get(shader, 'spirv_md5')
             spirv_lastmodify = self.configParser.get(shader, 'spirv_lastmodify')
-        return sha1, md5, size, lastmodify, spirv_file, spirv_size, spirv_sha1, spirv_md5, spirv_lastmodify
+        return sha1, md5, size, lastmodify, spirv_opt, spirv_file, spirv_size, spirv_sha1, spirv_md5, spirv_lastmodify
 
     def __readConfigInformation__(self):
         self.cache_valid = False
@@ -277,7 +309,11 @@ class ShaderCache:
             else :
                 name, ext = os.path.splitext(os.path.basename(shader))
             cache_path = os.path.join(self.root_dir, self.shader_dir, self.cache_dir, name + '.spv')
-            sha1, md5, size, lastmodify, spirv_file, spirv_size, spirv_sha1, spirv_md5, spirv_lastmodify = self.__readShaderFileConfigInformation__(shader)
+            sha1, md5, size, lastmodify, spirv_opt, spirv_file, spirv_size, spirv_sha1, spirv_md5, spirv_lastmodify = self.__readShaderFileConfigInformation__(shader)
+            if spirv_opt != self.spirv_opt_tag:
+                    obj.setSpirvFile('')
+                    obj.setSpirvCacheFile(cache_path)
+                    continue
             if len(sha1)<=0 or len(md5)<=0 or size<=0 or len(spirv_file) <= 0 or spirv_size <=0 or len(spirv_md5) <= 0 \
                     or len(spirv_lastmodify) <= 0 or (not os.path.isfile(refFile)) or (not os.path.isfile(spirv_file)) :
                     obj.setSpirvFile('')
@@ -313,6 +349,7 @@ class ShaderCache:
         self.configParser.set(section,'md5',ck_md5)
         self.configParser.set(section, 'size', ck_size)
         self.configParser.set(section, 'lastmodify', ck_lastmodify)
+        self.configParser.set(section, 'spirv_opt', self.spirv_opt_tag)
         self.configParser.set(section, 'spirv_file', spirv)
 
         ck_size, ck_lastmodify, ck_md5, ck_sha1 = self.__calcFileCheckInformation__(spirv)
@@ -353,7 +390,7 @@ class ShaderCache:
             with open(self.configFile, 'w') as cfg:
                 self.configParser.write(cfg)
 
-    def __init__(self,use):
+    def __init__(self,use, spirv_opt_tag):
         self.root_dir = '.cache'
         self.shader_dir = 'shader'
         self.cache_dir = 'cache'
@@ -365,6 +402,7 @@ class ShaderCache:
         self.cache_valid = False # bool, is cache valid
         self.config_sha1 = '' # sha1 for '.cache/shader/config' ,check if  '.cache/shader/config' is changed
         self.use_cache = use
+        self.spirv_opt_tag = spirv_opt_tag
 
         self.sha1 = '' # string, self sha1
         self.md5 = '' # string, self md5
@@ -485,12 +523,38 @@ def genCppFile(objs, inc, dst):
             if len(spirv_save) > 0:
                 out = spirv_save
                 rm = False
-            print(os.popen("glslangValidator -V " + s + " -Os -o " + out).read())
+            extra_flags = ""
+            target_env_args = []
+            try:
+                with open(s, "r") as rf:
+                    body = rf.read()
+                    if "GL_KHR_shader_subgroup" in body:
+                        target_env_args = ["--target-env", "vulkan1.1"]
+            except:
+                target_env_args = []
+
+            spirv_opt_tag = _spirv_opt_tag()
+            enable_spirv_opt = len(spirv_opt_tag) > 0
+            raw_out = out
+            need_remove_raw = False
+            if enable_spirv_opt:
+                raw_out = out + ".raw"
+                need_remove_raw = True
+
+            _run_cmd(["glslangValidator", "-V"] + target_env_args + [s, "-o", raw_out])
+            if enable_spirv_opt:
+                ret = _run_cmd(["spirv-opt"] + gSpirvOptArgs + [raw_out, "-o", out])
+                if ret != 0:
+                    print("spirv-opt failed, fallback to unoptimized spirv: " + s)
+                    os.replace(raw_out, out)
+                    need_remove_raw = False
+            if need_remove_raw and os.path.exists(raw_out) and os.path.isfile(raw_out):
+                os.remove(raw_out)
         else:
             out = spirv_cache
             rm = False
         cpp_tmp_file = 'temp.spv.cpp'
-        os.popen("xxd -i "+ out +" > " + cpp_tmp_file).read()
+        _run_cmd(["xxd", "-i", out], stdout_path=cpp_tmp_file)
         with open(cpp_tmp_file) as f:
             rep = out.replace(os.sep,'_')
             rep = rep.replace('.','_')
@@ -549,13 +613,17 @@ def parseArgs(argv):
 if __name__ == '__main__':
     use_cache = parseArgs(sys.argv[1:])
 
-    shaderCache = ShaderCache(use_cache)
+    spirv_opt_tag = _spirv_opt_tag()
+    if gEnableSpirvOpt and os.environ.get("MNN_VULKAN_DISABLE_SPIRV_OPT", "") != "1" and not _spirv_opt_available():
+        print("spirv-opt not found, skip -O optimization (install spirv-tools to enable).")
+    shaderCache = ShaderCache(use_cache, spirv_opt_tag)
     if use_cache :
         if not shaderCache.initlizateShaderCache() :
             print("cache init failed,do't use cache")
 
     shaders = findAllShader(gDefaultPath)
     jsonFile = open(gDefaultPath +'/macro.json', 'r')
+    print(gDefaultPath)
     macros = json.loads(jsonFile.read())
     jsonFile.close()
     generateFile(gOutputHeadFile, gOutputSourceFile, shaders, macros, shaderCache)

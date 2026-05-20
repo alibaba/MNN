@@ -1,5 +1,9 @@
 #ifdef MNN_SUPPORT_FP16
 #pragma OPENCL EXTENSION cl_khr_fp16 : enable
+#define CLAMP(a) \
+    clamp(a, (float4)(-65504.0f), (float4)(65504.0f));
+#else
+#define CLAMP(a) a
 #endif
 
 #define GLOBAL_SIZE_2_DIMS \
@@ -42,7 +46,7 @@ __kernel void unary_buf(GLOBAL_SIZE_2_DIMS
     }else {
 #endif
         float4 in = convert_float4(vload4(0, input + offset));
-        float4 out = OPERATOR;
+        float4 out = CLAMP(OPERATOR);
         vstore4(CONVERT_OUTPUT4(out), 0, output + offset);
 #ifdef PACK_LEAVE
     }

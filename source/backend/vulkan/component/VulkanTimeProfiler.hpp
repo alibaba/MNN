@@ -162,7 +162,7 @@ inline void VulkanTimeProfiler::_printKind(Kind kind, const std::vector<uint64_t
         float timeCurr = (float)((timestamps[record.end] - timestamps[record.begin]) * tickToMs);
         timeTable[record.name] += timeCurr;
         timeTotal += timeCurr;
-        MNN_PRINT("%-30s time is %4.2f ms.\n", record.name.c_str(), timeCurr);
+        MNN_PRINT("%-30s time is %4.3f ms.\n", record.name.c_str(), timeCurr);
     }
 
     std::vector<std::pair<std::string, float>> timeVectorForSort(timeTable.begin(), timeTable.end());
@@ -171,9 +171,9 @@ inline void VulkanTimeProfiler::_printKind(Kind kind, const std::vector<uint64_t
 
     MNN_PRINT("\nSummary:\n");
     for (const auto& it : timeVectorForSort) {
-        MNN_PRINT("%-30s time is %4.2f ms.\n", it.first.c_str(), it.second);
+        MNN_PRINT("%-30s time is %4.3f ms.\n", it.first.c_str(), it.second);
     }
-    MNN_PRINT("\nTotal time summed up is %6.2f ms\n", timeTotal);
+    MNN_PRINT("\nTotal time summed up is %6.3f ms\n", timeTotal);
 }
 
 inline void VulkanTimeProfiler::printTimeProfile() const {
@@ -209,9 +209,9 @@ inline void VulkanTimeProfiler::printTimeProfile() const {
         }
     }
     if (hasShader) {
-        MNN_PRINT("\n[Shader Profiling (start)]\n");
+        MNN_PRINT("\n[Shader Profileing (start)]\n");
         _printKind(Kind::Shader, timestamps, tickToMs);
-        MNN_PRINT("\n[Shader Profiling (end)]\n");
+        MNN_PRINT("\n[Shader Profileing (end)]\n");
     }
 }
 

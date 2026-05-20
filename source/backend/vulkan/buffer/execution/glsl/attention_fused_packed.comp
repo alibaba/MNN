@@ -1,0 +1,144 @@
+layout(set=0, binding=0) writeonly buffer s0 {
+    FLOAT data[];
+} uOutput;
+
+layout(set=0, binding=1) readonly buffer s1 {
+    FLOAT data[];
+} uQuery;
+
+layout(set=0, binding=2) readonly buffer s2 {
+    FLOAT data[];
+} uKey;
+
+layout(set=0, binding=3) readonly buffer s3 {
+    FLOAT data[];
+} uValue;
+
+layout(set=0, binding=4) readonly buffer s4 {
+    FLOAT4 data[];
+} uCacheKey;
+
+layout(set=0, binding=5) readonly buffer s5 {
+    FLOAT4 data[];
+} uCacheValue;
+
+layout(set=0, binding=6) readonly buffer s6 {
+    FLOAT data[];
+} uMask;
+
+layout(set=0, binding=7) readonly uniform constBuffer {
+    ivec4 s0; // qLen, kLen, headNum, kvHeadNum
+    ivec4 s1; // headDim, group, pastLen, totalLen
+    ivec4 s2; // maskQlen, maskKvlen, hasMask, cacheMaxLen
+    vec4 f0;  // scale, 0, 0, 0
+} uConst;
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+const int MAX_D4 = 64; // headDim <= 256
+
+void main() {
+    const int h = int(gl_GlobalInvocationID.x);
+    const int q = int(gl_GlobalInvocationID.y);
+
+    const int qLen = uConst.s0.x;
+    const int kLen = uConst.s0.y;
+    const int headNum = uConst.s0.z;
+    const int kvHeadNum = uConst.s0.w;
+
+    if (h >= headNum || q >= qLen) {
+        return;
+    }
+
+    const int headDim = uConst.s1.x;
+    const int group = uConst.s1.y;
+    const int pastLen = uConst.s1.z;
+    const int totalLen = uConst.s1.w;
+
+    const int hasMask = uConst.s2.z;
+    const int maskQlen = uConst.s2.x;
+    const int maskKvlen = uConst.s2.y;
+    const int maxLen = uConst.s2.w;
+
+    const float scale = uConst.f0.x;
+
+    const int kvh = h / group;
+    if (kvh >= kvHeadNum) {
+        return;
+    }
+    const int d4Size = headDim / 4;
+    if (d4Size > MAX_D4) {
+        return;
+    }
+    if (maxLen <= 0) {
+        return;
+    }
+
+    // query: [1, qLen, headNum, headDim]
+    const int qBase = (q * headNum + h) * headDim;
+    vec4 outVec[MAX_D4];
+    for (int i = 0; i < d4Size; ++i) {
+        outVec[i] = vec4(0.0);
+    }
+
+    float m = -3.402823466e38;
+    float s = 0.0;
+
+    const int kStart = (hasMask != 0 && maskKvlen > 0 && totalLen > maskKvlen) ? (totalLen - maskKvlen) : 0;
+
+    for (int k = 0; k < totalLen; ++k) {
+        float dotSum = 0.0;
+        for (int i = 0; i < d4Size; ++i) {
+            const int d = i * 4;
+            const int qOff = qBase + d;
+            // cacheK (packed): [kvHeadNum, headDim/4, maxLen, 4]
+            const int kOff = (kvh * d4Size + i) * maxLen + k;
+            vec4 qv = vec4(float(uQuery.data[qOff + 0]), float(uQuery.data[qOff + 1]), float(uQuery.data[qOff + 2]),
+                           float(uQuery.data[qOff + 3]));
+            vec4 kv = vec4(uCacheKey.data[kOff]);
+            dotSum += dot(qv, kv);
+        }
+        float score = dotSum * scale;
+        if (hasMask != 0) {
+            if (q < maskQlen && maskKvlen > 0 && k >= kStart) {
+                const int mk = k - kStart;
+                if (mk >= 0 && mk < maskKvlen) {
+                    score += float(uMask.data[q * maskKvlen + mk]);
+                }
+            }
+        }
+
+        float w = 0.0;
+        if (score > m) {
+            float factor = exp(m - score);
+            for (int i = 0; i < d4Size; ++i) {
+                outVec[i] *= factor;
+            }
+            s = s * factor + 1.0;
+            m = score;
+            w = 1.0;
+        } else {
+            w = exp(score - m);
+            s += w;
+        }
+
+        // cacheV (kvh-major, packed-D): [kvHeadNum, maxLen, headDim/4, 4]
+        const int vOff4Base = ((kvh * maxLen + k) * d4Size);
+        for (int i = 0; i < d4Size; ++i) {
+            vec4 vv = vec4(uCacheValue.data[vOff4Base + i]);
+            outVec[i] += w * vv;
+        }
+    }
+
+    float invS = 1.0 / s;
+    // output: [1, qLen, headNum * headDim]
+    const int outBase = (q * headNum + h) * headDim;
+    for (int i = 0; i < d4Size; ++i) {
+        vec4 v = outVec[i] * invS;
+        const int d = i * 4;
+        uOutput.data[outBase + d + 0] = FLOAT(v.x);
+        uOutput.data[outBase + d + 1] = FLOAT(v.y);
+        uOutput.data[outBase + d + 2] = FLOAT(v.z);
+        uOutput.data[outBase + d + 3] = FLOAT(v.w);
+    }
+}

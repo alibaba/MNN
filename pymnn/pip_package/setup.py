@@ -138,7 +138,7 @@ def configure_extension_build():
         # /wdXXXX disables warning no. XXXX
         # Some macro (related with __VA_ARGS__) defined in pymnn/src/util.h can not be process correctly
         # becase of MSVC bug, enable /experimental:preprocessor fix it (And Windows SDK >= 10.0.18362.1)
-        extra_compile_args = ['/MT', '/Zi',
+        extra_compile_args = ['/MT',
                               '/EHa', '/DNOMINMAX',
                               '/wd4267', '/wd4251', '/wd4522', '/wd4522', '/wd4838',
                               '/wd4305', '/wd4244', '/wd4190', '/wd4101', '/wd4996',
@@ -224,6 +224,7 @@ def configure_extension_build():
     # llm include
     engine_include_dirs += [os.path.join(root_dir, "transformers", "llm", "engine", "include")]
     engine_include_dirs += [os.path.join(root_dir, "3rd_party")]
+    engine_include_dirs += [os.path.join(root_dir, "3rd_party", "half")]
     if has_numpy:
         engine_include_dirs += [np.get_include()]
 
@@ -312,6 +313,7 @@ def configure_extension_build():
     tools_include_dirs += [os.path.join(root_dir, "3rd_party",\
                                           "flatbuffers", "include")]
     tools_include_dirs += [os.path.join(root_dir, "3rd_party")]
+    tools_include_dirs += [os.path.join(root_dir, "3rd_party", "half")]
     tools_include_dirs += [os.path.join(root_dir, "3rd_party", "imageHelper")]
     tools_include_dirs += [os.path.join(root_dir, "source", "core")]
     tools_include_dirs += [os.path.join(root_dir, "schema", "current")]
@@ -363,8 +365,7 @@ def configure_extension_build():
 
     if BUILD_TYPE == 'REL_WITH_DEB_INFO':
         if IS_WINDOWS:
-            extra_compile_args += ['/DEBUG']
-            extra_link_args += ['/DEBUG', '/OPT:REF', '/OPT:ICF']
+            pass  # skip /DEBUG on Windows to avoid .pdb files bloating the wheel
         else:
             extra_compile_args += ['-g']
             extra_link_args += ['-g']

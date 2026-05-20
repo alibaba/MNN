@@ -28,6 +28,7 @@ LayerNormExecution::LayerNormExecution(const std::vector<Tensor *> &inputs, cons
     mResource->RMSNorm = layer_norm_param->useRMSNorm();
     auto bufferUnitSize = mOpenCLBackend->getPrecision() != BackendConfig::Precision_High ? sizeof(half_float::half) : sizeof(float);
     unit.kernel = runtime->buildKernel("layernorm", "layernorm_w", {"-DLOCAL_SIZE=512"}, mOpenCLBackend->getPrecision());
+    OPENCL_CHECK_KERNEL_CTOR(unit.kernel);
     mResource->mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
     mResource->has_gamma_beta_ = (layer_norm_param->gamma() && layer_norm_param->beta());
@@ -217,7 +218,7 @@ public:
         if(group > 1){
 			return nullptr;
         }
-        return new LayerNormExecution(inputs, op, backend);
+        OPENCL_CREATOR_CHECK(new LayerNormExecution(inputs, op, backend));
     }
 };
 

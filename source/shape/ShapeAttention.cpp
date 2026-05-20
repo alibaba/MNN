@@ -107,6 +107,22 @@ class LinearAttentionSizeComputer : public SizeComputer {
         TensorUtils::getDescribe(output)->dimensionFormat = TensorUtils::getDescribe(input)->dimensionFormat;
         return true;
     }
+    virtual float onComputeFlops(const MNN::Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) const override {
+        auto param = op->main_as_LinearAttentionParam();
+        auto input = inputs[0];
+        float L = static_cast<float>(input->length(2));
+        float D = static_cast<float>(input->length(1));
+        int H = param->num_v_heads();
+        int dk = param->head_k_dim();
+        int dv = param->head_v_dim();
+        int K = inputs[3]->length(2);
+        float flops = 0.f;
+        // Conv1D + SiLU: D * L * (2*K + 4)
+        flops += D * L * (2.f * K + 4.f);
+        // Per timestep per head: DualMatVec (4*dk*dv) + DecayRankOneUpdate (3*dk*dv) + delta (3*dv)
+        flops += L * H * (7.f * dk * dv + 3.f * dv);
+        return flops / FLOPS_M;
+    }
 };
 
 REGISTER_SHAPE_INPUTS_TRANSFORMER_FUSE(FmhaV2SizeComputer, OpType_FmhaV2);

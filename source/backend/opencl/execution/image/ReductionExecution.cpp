@@ -42,6 +42,7 @@ ReductionExecution::ReductionExecution(const std::vector<Tensor *> &inputs, cons
             break;
     }
     unit.kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("reduction", "reduct_width", {"-DOPERATE(a,b)=(a+b)","-DVALUE=0","-DLOCAL_SIZE=512"}, mOpenCLBackend->getPrecision(), inputs[0], outputs[0]);
+    OPENCL_CHECK_KERNEL_CTOR(unit.kernel);
     mMaxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(unit.kernel));
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ReductionExecution init !\n");
@@ -231,7 +232,7 @@ public:
                 return NULL;
                 break;
         }
-        return new ReductionExecution(inputs, outputs, op, backend);
+        OPENCL_CREATOR_CHECK(new ReductionExecution(inputs, outputs, op, backend));
         return NULL;
     }
 };

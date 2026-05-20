@@ -160,27 +160,20 @@ struct LinearAttnParam {
     float q_scale;
 };
 
-// Kernel 3: Gated Delta Rule (Steps 2-5 fused)
-// Each thread processes one (batch, head) pair across all timesteps
-// Inputs:
-//   conv_out [B, D, L] - output of conv+silu
-//   gate [B, L, H] - log-space decay
-//   beta [B, L, H] - learning rate
-//   recurrent_state [B, H, d_k, d_v] - persistent state S
-// Output: attn_out [B, L, H_v, d_v]
-kernel void linear_attn_gated_delta_rule(
+// Kernel 3: Extract Q, K, V and normalize/scale
+// Each thread processes one (batch, L, head)
+// Avoids fixed-size local arrays to support arbitrary d_k/d_v
+kernel void linear_attn_qkv_prep(
     const device ftype* conv_out         [[buffer(0)]],
-    const device ftype* gate             [[buffer(1)]],
-    const device ftype* beta             [[buffer(2)]],
-    device ftype* recurrent_state        [[buffer(3)]],
-    device ftype* attn_out               [[buffer(4)]],
-    constant LinearAttnParam& param      [[buffer(5)]],
+    device ftype* q_out                  [[buffer(1)]],
+    device ftype* k_out                  [[buffer(2)]],
+    device ftype* v_out                  [[buffer(3)]],
+    constant LinearAttnParam& param      [[buffer(4)]],
     uint gid [[thread_position_in_grid]])
 {
     const int B = param.batch;
     const int D = param.conv_dim;
     const int L = param.seq_len;
-    const int H_k = param.num_k_heads;
     const int H = param.num_v_heads;
     const int d_k = param.head_k_dim;
     const int d_v = param.head_v_dim;
@@ -189,95 +182,374 @@ kernel void linear_attn_gated_delta_rule(
     const int use_l2norm = param.use_l2norm;
     const float q_scale = param.q_scale;
 
-    const int total_heads = B * H;
-    if ((int)gid >= total_heads) return;
+    const int total = B * L * H;
+    if ((int)gid >= total) return;
 
-    const int b = gid / H;
-    const int h = gid % H;          // V-head index
-    const int k_head = h / gqa_factor; // GQA: corresponding K-head
+    const int b = gid / (L * H);
+    const int rem = gid % (L * H);
+    const int t = rem / H;
+    const int h = rem % H;
+    const int k_head = h / gqa_factor;
 
-    // State pointer: [B, H, d_k, d_v]
-    device ftype* state = recurrent_state + (b * H + h) * d_k * d_v;
+    const device ftype* conv_base = conv_out + b * D * L;
+    device ftype* dst_q = q_out + gid * d_k;
+    device ftype* dst_k = k_out + gid * d_k;
+    device ftype* dst_v = v_out + gid * d_v;
+
+    if (use_l2norm) {
+        const float eps = 1e-6f;
+        // Pass 1: compute L2 norms for Q and K
+        float sumSqQ = 0.0f, sumSqK = 0.0f;
+        for (int i = 0; i < d_k; ++i) {
+            float q_val = (float)conv_base[(k_head * d_k + i) * L + t];
+            float k_val = (float)conv_base[(key_dim + k_head * d_k + i) * L + t];
+            sumSqQ += q_val * q_val;
+            sumSqK += k_val * k_val;
+        }
+        float invNormQ = rsqrt(sumSqQ + eps) * q_scale;
+        float invNormK = rsqrt(sumSqK + eps);
+        // Pass 2: normalize, scale, and write Q/K
+        for (int i = 0; i < d_k; ++i) {
+            dst_q[i] = (ftype)((float)conv_base[(k_head * d_k + i) * L + t] * invNormQ);
+            dst_k[i] = (ftype)((float)conv_base[(key_dim + k_head * d_k + i) * L + t] * invNormK);
+        }
+    } else {
+        // No L2 norm: single pass read, scale Q, write
+        for (int i = 0; i < d_k; ++i) {
+            dst_q[i] = (ftype)((float)conv_base[(k_head * d_k + i) * L + t] * q_scale);
+            dst_k[i] = (ftype)conv_base[(key_dim + k_head * d_k + i) * L + t];
+        }
+    }
+    // V: direct copy
+    for (int i = 0; i < d_v; ++i) {
+        dst_v[i] = conv_base[(2 * key_dim + h * d_v + i) * L + t];
+    }
+}
+
+// Kernel 4: Gated Delta Rule (Step 5 Recurrence)
+// Each thread processes one (batch, head, j) across all timesteps
+kernel void linear_attn_gated_delta_rule(
+    const device ftype* q                [[buffer(0)]],
+    const device ftype* k                [[buffer(1)]],
+    const device ftype* v                [[buffer(2)]],
+    const device ftype* gate             [[buffer(3)]],
+    const device ftype* beta             [[buffer(4)]],
+    device ftype* recurrent_state        [[buffer(5)]],
+    device ftype* attn_out               [[buffer(6)]],
+    constant LinearAttnParam& param      [[buffer(7)]],
+    uint gid [[thread_position_in_grid]])
+{
+    const int B = param.batch;
+    const int L = param.seq_len;
+    const int H = param.num_v_heads;
+    const int d_k = param.head_k_dim;
+    const int d_v = param.head_v_dim;
+
+    const int total = B * H * d_v;
+    if ((int)gid >= total) return;
+
+    const int j = gid % d_v;
+    const int b_h = gid / d_v;
+    const int h = b_h % H;
+    const int b = b_h / H;
+
+    // Transposed state layout: [B, H, d_v, d_k]
+    // (matches simdgroup-optimized kernel layout)
+    device ftype* state = recurrent_state + (b * H + h) * d_v * d_k + j * d_k;
 
     // Process each timestep sequentially
     for (int t = 0; t < L; ++t) {
-        // Step 2: Extract q_t, k_t, v_t from conv_out (transpose on the fly)
-        // conv_out layout: [B, D, L], access: conv_out[b*D*L + channel*L + t]
-        float q_local[256]; // max d_k
-        float k_local[256];
-        float v_local[256]; // max d_v
+        const device ftype* q_t = q + (b * L * H + t * H + h) * d_k;
+        const device ftype* k_t = k + (b * L * H + t * H + h) * d_k;
+        float v_t_j = (float)v[(b * L * H + t * H + h) * d_v + j];
 
-        const device ftype* conv_base = conv_out + b * D * L;
-
-        for (int i = 0; i < d_k; ++i) {
-            q_local[i] = (float)conv_base[(k_head * d_k + i) * L + t];
-            k_local[i] = (float)conv_base[(key_dim + k_head * d_k + i) * L + t];
-        }
-        for (int i = 0; i < d_v; ++i) {
-            v_local[i] = (float)conv_base[(2 * key_dim + h * d_v + i) * L + t];
-        }
-
-        // Step 3: Optional L2 Normalization on q_t and k_t
-        if (use_l2norm) {
-            const float eps = 1e-6f;
-            float sumSq = 0.0f;
-            for (int i = 0; i < d_k; ++i) sumSq += q_local[i] * q_local[i];
-            float invNorm = 1.0f / sqrt(sumSq + eps);
-            for (int i = 0; i < d_k; ++i) q_local[i] *= invNorm;
-
-            sumSq = 0.0f;
-            for (int i = 0; i < d_k; ++i) sumSq += k_local[i] * k_local[i];
-            invNorm = 1.0f / sqrt(sumSq + eps);
-            for (int i = 0; i < d_k; ++i) k_local[i] *= invNorm;
-        }
-
-        // Step 4: Scale q_t by 1/sqrt(d_k)
-        for (int i = 0; i < d_k; ++i) q_local[i] *= q_scale;
-
-        // Step 5: Gated Delta Rule recurrence
         float g_t    = (float)gate[b * L * H + t * H + h];
         float beta_t = (float)beta[b * L * H + t * H + h];
 
-        // 5.1 Decay: S = S * exp(g_t)
         float decay_val = exp(g_t);
-        for (int i = 0; i < d_k * d_v; ++i) {
-            state[i] = (ftype)((float)state[i] * decay_val);
-        }
 
-        // 5.2 Read: v_pred = S^T @ k_t
-        float v_pred[256]; // max d_v
-        for (int j = 0; j < d_v; ++j) {
-            float sum = 0.0f;
-            for (int i = 0; i < d_k; ++i) {
-                sum += (float)state[i * d_v + j] * k_local[i];
-            }
-            v_pred[j] = sum;
-        }
-
-        // 5.3 Delta: delta = beta_t * (v_t - v_pred)
-        float delta[256]; // max d_v
-        for (int j = 0; j < d_v; ++j) {
-            delta[j] = beta_t * (v_local[j] - v_pred[j]);
-        }
-
-        // 5.4 Write: S += k_t @ delta^T (outer product)
+        // 5.1 & 5.2
+        float v_pred_j = 0.0f;
         for (int i = 0; i < d_k; ++i) {
-            float k_val = k_local[i];
-            for (int j = 0; j < d_v; ++j) {
-                state[i * d_v + j] = (ftype)((float)state[i * d_v + j] + k_val * delta[j]);
+            float s_val = (float)state[i] * decay_val;
+            state[i] = (ftype)s_val;
+            v_pred_j += s_val * (float)k_t[i];
+        }
+
+        // 5.3
+        float delta_j = beta_t * (v_t_j - v_pred_j);
+
+        // 5.4 & 5.5
+        float o_t_j = 0.0f;
+        for (int i = 0; i < d_k; ++i) {
+            float s_val = (float)state[i] + (float)k_t[i] * delta_j;
+            state[i] = (ftype)s_val;
+            o_t_j += s_val * (float)q_t[i];
+        }
+
+        attn_out[(b * L * H + t * H + h) * d_v + j] = (ftype)o_t_j;
+    }
+}
+)metal";
+
+// Non-fused simdgroup-optimized Gated Delta Rule (for prefill, reads pre-arranged Q/K/V)
+// Each simdgroup (32 threads) handles one (batch, head, j) element
+// State layout: [B, H, d_v, d_k] for coalesced simd access
+static const char* gLinearAttnGatedDeltaRuleSG = R"metal(
+#include <metal_stdlib>
+using namespace metal;
+
+#if MNN_METAL_FLOAT16_STORAGE
+typedef half ftype;
+#else
+typedef float ftype;
+#endif
+
+struct LinearAttnParam {
+    int batch;
+    int conv_dim;
+    int seq_len;
+    int kernel_size;
+    int conv_state_size;
+    int num_k_heads;
+    int num_v_heads;
+    int head_k_dim;
+    int head_v_dim;
+    int key_dim;
+    int val_dim;
+    int gqa_factor;
+    int use_l2norm;
+    float q_scale;
+};
+
+// SIMD_ITERS is injected as a compile-time macro from C++ side: (d_k + 31) / 32
+
+kernel void linear_attn_gated_delta_rule_sg(
+    const device ftype* q                [[buffer(0)]],
+    const device ftype* k                [[buffer(1)]],
+    const device ftype* v                [[buffer(2)]],
+    const device ftype* gate             [[buffer(3)]],
+    const device ftype* beta             [[buffer(4)]],
+    device ftype* recurrent_state        [[buffer(5)]],
+    device ftype* attn_out               [[buffer(6)]],
+    constant LinearAttnParam& param      [[buffer(7)]],
+    uint3 tgpig [[threadgroup_position_in_grid]],
+    uint sgitg [[simdgroup_index_in_threadgroup]],
+    uint lane [[thread_index_in_simdgroup]])
+{
+    const int B = param.batch;
+    const int L = param.seq_len;
+    const int H = param.num_v_heads;
+    const int d_k = param.head_k_dim;
+    const int d_v = param.head_v_dim;
+
+    int idx = tgpig.x * 4 + sgitg;
+    const int total = B * H * d_v;
+    if (idx >= total) return;
+
+    const int j = idx % d_v;
+    const int b_h = idx / d_v;
+    const int h = b_h % H;
+    const int b = b_h / H;
+
+    // Transposed state: [B, H, d_v, d_k]
+    device ftype* state = recurrent_state + (b * H + h) * d_v * d_k + j * d_k;
+    const int n_iters = (d_k + 31) / 32;
+
+    for (int t = 0; t < L; ++t) {
+        const int bth = b * L * H + t * H + h;
+        const device ftype* q_t = q + bth * d_k;
+        const device ftype* k_t = k + bth * d_k;
+        float v_t_j = (float)v[bth * d_v + j];
+        float decay_val = exp((float)gate[bth]);
+        float beta_t = (float)beta[bth];
+
+        float k_reg[SIMD_ITERS], q_reg[SIMD_ITERS];
+        for (int ii = 0; ii < n_iters; ii++) {
+            int i = lane + ii * 32;
+            if (i < d_k) {
+                k_reg[ii] = (float)k_t[i];
+                q_reg[ii] = (float)q_t[i];
             }
         }
 
-        // 5.5 Query: o_t = S^T @ q_t
-        device ftype* o_t = attn_out + (b * L + t) * H * d_v + h * d_v;
-        for (int j = 0; j < d_v; ++j) {
-            float sum = 0.0f;
-            for (int i = 0; i < d_k; ++i) {
-                sum += (float)state[i * d_v + j] * q_local[i];
+        float v_pred_j = 0.0f;
+        for (int ii = 0; ii < n_iters; ii++) {
+            int i = lane + ii * 32;
+            if (i < d_k) {
+                float s_val = (float)state[i] * decay_val;
+                state[i] = (ftype)s_val;
+                v_pred_j += s_val * k_reg[ii];
             }
-            o_t[j] = (ftype)sum;
         }
-    } // end timestep
+        v_pred_j = simd_sum(v_pred_j);
+        float delta_j = beta_t * (v_t_j - v_pred_j);
+
+        float o_t_j = 0.0f;
+        for (int ii = 0; ii < n_iters; ii++) {
+            int i = lane + ii * 32;
+            if (i < d_k) {
+                float s_val = (float)state[i] + k_reg[ii] * delta_j;
+                state[i] = (ftype)s_val;
+                o_t_j += s_val * q_reg[ii];
+            }
+        }
+        o_t_j = simd_sum(o_t_j);
+
+        if (lane == 0) {
+            attn_out[bth * d_v + j] = (ftype)o_t_j;
+        }
+    }
+}
+)metal";
+
+// Fused QKV-prep + Gated Delta Rule (for decode, reads directly from conv_out)
+// Eliminates intermediate Q, K, V buffers and the qkv_prep kernel launch
+// Best for decode (L=1) where conv_out stride = 1 (coalesced)
+// Each simdgroup (32 threads) handles one (batch, head, j) element
+// State layout: [B, H, d_v, d_k] for coalesced simd access
+static const char* gLinearAttnFusedSG = R"metal(
+#include <metal_stdlib>
+using namespace metal;
+
+#if MNN_METAL_FLOAT16_STORAGE
+typedef half ftype;
+#else
+typedef float ftype;
+#endif
+
+struct LinearAttnParam {
+    int batch;
+    int conv_dim;
+    int seq_len;
+    int kernel_size;
+    int conv_state_size;
+    int num_k_heads;
+    int num_v_heads;
+    int head_k_dim;
+    int head_v_dim;
+    int key_dim;
+    int val_dim;
+    int gqa_factor;
+    int use_l2norm;
+    float q_scale;
+};
+
+// SIMD_ITERS is injected as a compile-time macro from C++ side: (d_k + 31) / 32
+
+kernel void linear_attn_fused_sg(
+    const device ftype* conv_out         [[buffer(0)]],
+    const device ftype* gate             [[buffer(1)]],
+    const device ftype* beta             [[buffer(2)]],
+    device ftype* recurrent_state        [[buffer(3)]],
+    device ftype* attn_out               [[buffer(4)]],
+    constant LinearAttnParam& param      [[buffer(5)]],
+    uint3 tgpig [[threadgroup_position_in_grid]],
+    uint sgitg [[simdgroup_index_in_threadgroup]],
+    uint lane [[thread_index_in_simdgroup]])
+{
+    const int B = param.batch;
+    const int L = param.seq_len;
+    const int H = param.num_v_heads;
+    const int d_k = param.head_k_dim;
+    const int d_v = param.head_v_dim;
+    const int key_dim = param.key_dim;
+    const int gqa_factor = param.gqa_factor;
+    const int use_l2norm = param.use_l2norm;
+    const float q_scale = param.q_scale;
+    const int D = param.conv_dim;
+
+    // 4 simdgroups per threadgroup
+    int idx = tgpig.x * 4 + sgitg;
+    const int total = B * H * d_v;
+    if (idx >= total) return;
+
+    const int j = idx % d_v;
+    const int b_h = idx / d_v;
+    const int h = b_h % H;
+    const int b = b_h / H;
+    const int k_head = h / gqa_factor;
+
+    // Transposed state layout: [B, H, d_v, d_k]
+    device ftype* state = recurrent_state + (b * H + h) * d_v * d_k + j * d_k;
+
+    const device ftype* conv_base = conv_out + b * D * L;
+    const int n_iters = (d_k + 31) / 32;
+
+    for (int t = 0; t < L; ++t) {
+        // Read Q, K directly from conv_out [B, D, L]
+        float k_reg[SIMD_ITERS];
+        float q_reg[SIMD_ITERS];
+        for (int ii = 0; ii < n_iters; ii++) {
+            int i = lane + ii * 32;
+            if (i < d_k) {
+                q_reg[ii] = (float)conv_base[(k_head * d_k + i) * L + t];
+                k_reg[ii] = (float)conv_base[(key_dim + k_head * d_k + i) * L + t];
+            }
+        }
+
+        // Inline L2 norm for Q and K using simd_sum
+        if (use_l2norm) {
+            const float eps = 1e-6f;
+            float sq = 0.0f;
+            for (int ii = 0; ii < n_iters; ii++)
+                if (lane + ii * 32 < d_k) sq += q_reg[ii] * q_reg[ii];
+            sq = simd_sum(sq);
+            float inv = rsqrt(sq + eps);
+            for (int ii = 0; ii < n_iters; ii++)
+                if (lane + ii * 32 < d_k) q_reg[ii] *= inv;
+
+            sq = 0.0f;
+            for (int ii = 0; ii < n_iters; ii++)
+                if (lane + ii * 32 < d_k) sq += k_reg[ii] * k_reg[ii];
+            sq = simd_sum(sq);
+            inv = rsqrt(sq + eps);
+            for (int ii = 0; ii < n_iters; ii++)
+                if (lane + ii * 32 < d_k) k_reg[ii] *= inv;
+        }
+
+        // Scale Q
+        for (int ii = 0; ii < n_iters; ii++)
+            if (lane + ii * 32 < d_k) q_reg[ii] *= q_scale;
+
+        // V: channel [2*key_dim + h*d_v + j], position t
+        float v_t_j = (float)conv_base[(2 * key_dim + h * d_v + j) * L + t];
+
+        const int bth = b * L * H + t * H + h;
+        float decay_val = exp((float)gate[bth]);
+        float beta_t = (float)beta[bth];
+
+        // Step 1: Decay state + compute v_pred
+        float v_pred_j = 0.0f;
+        for (int ii = 0; ii < n_iters; ii++) {
+            int i = lane + ii * 32;
+            if (i < d_k) {
+                float s_val = (float)state[i] * decay_val;
+                state[i] = (ftype)s_val;
+                v_pred_j += s_val * k_reg[ii];
+            }
+        }
+        v_pred_j = simd_sum(v_pred_j);
+
+        // Step 2: Compute delta
+        float delta_j = beta_t * (v_t_j - v_pred_j);
+
+        // Step 3: Update state + compute output
+        float o_t_j = 0.0f;
+        for (int ii = 0; ii < n_iters; ii++) {
+            int i = lane + ii * 32;
+            if (i < d_k) {
+                float s_val = (float)state[i] + k_reg[ii] * delta_j;
+                state[i] = (ftype)s_val;
+                o_t_j += s_val * q_reg[ii];
+            }
+        }
+        o_t_j = simd_sum(o_t_j);
+
+        if (lane == 0) {
+            attn_out[bth * d_v + j] = (ftype)o_t_j;
+        }
+    }
 }
 )metal";
 

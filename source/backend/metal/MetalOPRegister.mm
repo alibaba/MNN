@@ -5,6 +5,7 @@
   extern void ___MetalArgMaxCreator__OpType_ArgMax__();
   extern void ___MetalArgMaxCreator__OpType_ArgMin__();
   extern void ___MetalSoftmaxCreator__OpType_Softmax__();
+  extern void ___MetalROIAlignCreator__OpType_ROIAlign__();
   extern void ___MetalCastCreator__OpType_Cast__();
   extern void ___MetalSelectCreator__OpType_Select__();
   extern void ___MetalRangeCreator__OpType_Range__();
@@ -14,10 +15,13 @@
   extern void ___MetalLayerNormCreator__OpType_LayerNorm__();
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
   extern void ___AttentionBufCreator__OpType_Attention__();
-  extern void ___MetalLinearAttentionCreator__OpType_LinearAttention__();
 #endif
   extern void ___MetalMatMulCreator__OpType_MatMul__();
   extern void ___MetalBinaryCreator__OpType_BinaryOp__();
+  extern void ___MetalTopKV2Creator__OpType_TopKV2__();
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+  extern void ___MetalLinearAttentionCreator__OpType_LinearAttention__();
+#endif
   extern void ___MetalConvolutionDepthwiseCreator__OpType_ConvolutionDepthwise__();
   extern void ___MetalDeconvolutionCreator__OpType_Deconvolution__();
   extern void ___MetalDeconvolutionCreator__OpType_DeconvolutionDepthwise__();
@@ -39,6 +43,7 @@ void registerMetalOps() {
    ___MetalArgMaxCreator__OpType_ArgMax__();
    ___MetalArgMaxCreator__OpType_ArgMin__();
    ___MetalSoftmaxCreator__OpType_Softmax__();
+   ___MetalROIAlignCreator__OpType_ROIAlign__();
    ___MetalCastCreator__OpType_Cast__();
    ___MetalSelectCreator__OpType_Select__();
    ___MetalRangeCreator__OpType_Range__();
@@ -48,6 +53,7 @@ void registerMetalOps() {
    ___MetalLayerNormCreator__OpType_LayerNorm__();
    ___MetalMatMulCreator__OpType_MatMul__();
    ___MetalBinaryCreator__OpType_BinaryOp__();
+   ___MetalTopKV2Creator__OpType_TopKV2__();
    ___MetalConvolutionDepthwiseCreator__OpType_ConvolutionDepthwise__();
    ___MetalDeconvolutionCreator__OpType_Deconvolution__();
    ___MetalDeconvolutionCreator__OpType_DeconvolutionDepthwise__();

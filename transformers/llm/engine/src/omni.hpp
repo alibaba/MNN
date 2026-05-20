@@ -9,6 +9,7 @@
 #define OMNI_hpp
 
 #include "llm/llm.hpp"
+#include <vector>
 #include <thread>
 #include <mutex>
 #include <condition_variable>
@@ -65,6 +66,8 @@ struct WavChunk {
     int mel_slice_start = 0;
     int mel_slice_size = -1;
     bool is_last = false;
+    std::vector<float> mel;
+    std::vector<int> mel_dims;
 };
 
 class Talker : public Llm {
@@ -84,12 +87,19 @@ public:
     VARP token2wav(const std::vector<int>& codec_tokens);
     void token2wav(bool talker_done = false);
     void generate();
+    void stepPrefill();
+    void stepForward(int stepIdx);
+    void finalize();
     void setPostionIds(const MropeInfo& positionIds);
     void addTalkerEmbeds(VARP talker_embeds);
+    bool hasEmbeds() const { return !mTalkerEmbeds.empty(); }
     // is generate
     bool doGenerate() { return mWavformCallback != nullptr; }
+    int maxNewTokens() const { return mMaxNewTokens; }
     // is decode with token2wav
     bool mStreamWithDecode = false;
+    bool mInterleaved = false;
+
 private:
     int mMaxNewTokens = 2048, mTextBosToken = 151872, mTextEosToken = 151861,
         mTextPadToken = 151859, mCodecBosToken = 8293, mCodecPadToken = 8292;
@@ -111,15 +121,20 @@ private:
     // async token2wav pipeline (true parallelism via cloned modules)
     void startAsyncWorker();
     void stopAsyncWorker();
-    void asyncWorkerLoop();
+    void ditWorkerLoop();
+    void vocoderWorkerLoop();
     void processWavChunk(WavChunk& chunk);
     void trySubmitChunkAsync(bool talker_done);
     VARP ditForwardAsync(const int codec_size, const int* codec_tokens, const float* initial_noise);
     VARP bigvganForwardAsync(VARP mel);
-    std::thread mWavWorkerThread;
+    std::thread mDitWorkerThread;
+    std::thread mVocoderWorkerThread;
     std::mutex mWavQueueMutex;
     std::condition_variable mWavQueueCond;
     std::queue<WavChunk> mWavQueue;
+    std::mutex mMelQueueMutex;
+    std::condition_variable mMelQueueCond;
+    std::queue<WavChunk> mMelQueue;
     std::atomic<bool> mWavWorkerRunning{false};
     std::atomic<bool> mWavLastDone{false};
     bool mAsyncToken2Wav = false;
@@ -150,9 +165,11 @@ public:
     std::vector<int> qwen2VisionProcess(VARP image);
     std::vector<int> smolvlmVisionProcess(VARP image);
     std::vector<int> minicpmVisionProcess(VARP image);
+    std::vector<int> gemma4VisionProcess(VARP image);
 private:
     int mVisionHeight = 448, mVisionWidth = 448, mVisionStart = 151857,
-        mVisionEnd = 151858, mVisionPad = 151859, mAudioPad = 151646;
+        mVisionEnd = 151858, mVisionPad = 151859, mAudioPad = 151646,
+        mAudioStart = -1, mAudioEnd = -1;
     int mVisionGlobal = 49152;
     int mVisionSizeUnit = 1, mVisionMaxSize = 2048;
     int mVisionNum = 0;
@@ -164,9 +181,12 @@ private:
     std::vector<int> audioProcess(MNN::Express::VARP waveform);
     std::vector<int> processImageContent(const std::string& content, const std::map<std::string, PromptImagePart>& images);
     std::vector<int> processAudioContent(const std::string& content, const std::map<std::string, PromptAudioPart>& audios);
+    void responseInterleaved(const std::vector<int>& input_ids, std::ostream* os, const char* end_with,
+                             int max_new_tokens);
     std::shared_ptr<Module> mVisionModule, mAudioModule;
     std::vector<VARP> mExtraArgs, mVisionEmbeddings, mAudioEmbeddings, mDeepStackEmbeddings;
     std::shared_ptr<Talker> mTalker;
+    int64_t mThinkerElapsedUs = 0;
     // m_rope position ids
     void addPositionIds(int t, int h = -1, int w = -1);
     MropeInfo mPositionIds;

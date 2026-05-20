@@ -65,9 +65,9 @@ public:
         auto code = inputs[0]->getType().code;
         switch (code) {
             case halide_type_int:
-                return new RangeBufExecution("-DUSE_INT", op, backend);
+                OPENCL_CREATOR_CHECK(new RangeBufExecution("-DUSE_INT", op, backend));
             case halide_type_float:
-                return new RangeBufExecution("-DUSE_FLOAT", op, backend);
+                OPENCL_CREATOR_CHECK(new RangeBufExecution("-DUSE_FLOAT", op, backend));
             default:
                 return nullptr;
         }

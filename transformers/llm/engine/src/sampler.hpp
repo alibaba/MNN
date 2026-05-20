@@ -4,25 +4,29 @@
 #include <vector>
 #include <memory>
 #include <string>
-#include <fstream>
-#include <sstream>
-#include <iostream>
-#include <streambuf>
 #include <functional>
 #include <unordered_map>
-#include <utility>
+#include <random>
 
 #include <MNN/expr/Expr.hpp>
-#include <MNN/expr/Module.hpp>
-#include <MNN/expr/MathOp.hpp>
-#include <MNN/expr/NeuralNetWorkOp.hpp>
 
 #include "llmconfig.hpp"
 #include "llm/llm.hpp"
 
-
 namespace MNN {
 namespace Transformer {
+
+struct SamplerState {
+    std::vector<int> indices;       // token indices (empty = full vocab)
+    std::vector<float> logits;      // logit values
+    std::vector<float> probs;       // cached softmax probabilities (empty = not computed)
+    int vocab_size = 0;
+    bool is_subset = false;
+    int selected_token = -1;
+
+    void ensureProbs(float temperature);
+    void invalidateProbs();
+};
 
 class Sampler {
 public:
@@ -39,12 +43,18 @@ public:
         float tfsZ = 1.0;
         float typical = 0.95;
         // penalty
-        float penalty = 1.05;
+        float repetition_penalty = 1.0;
+        float presence_penalty = 0.0;
+        float frequency_penalty = 0.0;
+        int penalty_window = 0;
         int ngram = 8;
-        float ngram_factor = 1.02; // panalize repeated ngram with a multiplied ngram_factor.
+        float ngram_factor = 1.02;
         float max_penalty = 10.;
-        std::string sampler = "temperature"; // "greedy", "temperature".
-        std::vector<std::string> mixedSamplers= {"topK", "tfs", "typical", "topP", "min_p", "temperature"};
+        std::string sampler = "temperature";
+        std::vector<std::string> mixedSamplers = {"topK", "tfs", "typical", "topP", "min_p", "temperature"};
+        // logit bias and banned tokens
+        std::unordered_map<int, float> logit_bias;
+        std::vector<int> banned_tokens;
         void configSampler(std::string sampler_type, std::shared_ptr<LlmConfig> llmConfig);
         void configGreedy(std::shared_ptr<LlmConfig> llmConfig);
         void configTemperature(std::shared_ptr<LlmConfig> llmConfig);
@@ -63,20 +73,25 @@ public:
 private:
     std::shared_ptr<LlmContext> mContext;
     SamplerConfig mConfig;
-    struct SubsetLogits penalty(struct SubsetLogits superset);
-    struct SubsetLogits topK(struct SubsetLogits superset);
-    struct SubsetLogits topP(struct SubsetLogits superset);
-    struct SubsetLogits minP(struct SubsetLogits superset);
-    struct SubsetLogits tfs(struct SubsetLogits superset);
-    struct SubsetLogits typical(struct SubsetLogits superset);
-    struct SubsetLogits mixed(struct SubsetLogits subset);
-    struct SubsetLogits subsetSampler(std::string sampler_type, struct SubsetLogits subset);
-    int handleSelect(struct SubsetLogits subset);
+    std::mt19937 mRng;
+    // Pipeline
+    using SamplerStep = std::function<void(SamplerState&)>;
+    std::vector<SamplerStep> mPipeline;
+    void buildPipeline();
+    SamplerState createState(MNN::Express::VARP logits);
+    // Step implementations
+    void stepPenalty(SamplerState& state);
+    void stepTopK(SamplerState& state);
+    void stepTopP(SamplerState& state);
+    void stepMinP(SamplerState& state);
+    void stepTfs(SamplerState& state);
+    void stepTypical(SamplerState& state);
+    void stepLogitBias(SamplerState& state);
+    void stepBannedTokens(SamplerState& state);
+    void stepSelect(SamplerState& state);
 };
-
 
 } // Transformer
 } // MNN
-
 
 #endif // SAMPLER_hpp

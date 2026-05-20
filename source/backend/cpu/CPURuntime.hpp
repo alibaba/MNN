@@ -17,15 +17,23 @@ struct CPUGroup {
     std::vector<int> ids;
 };
 struct MNNCPUInfo {
-    bool fp16arith;
-    bool dot;
-    bool i8mm;
-    bool sve2;
-    bool sme2;
+    bool fp16arith = false;
+    bool dot = false;
+    bool i8mm = false;
+    bool sve2 = false;
+    bool sme2 = false;
     std::vector<CPUGroup> groups;
+ // RVV attributes
+    bool rvv = false;
+    int rvv_vlen = 0;
+    int rvv_version = 0;
+    bool zvfh = false;
+    bool zvkn = false;
+
     int cpuNumber = 0;
     int smeCoreNumber = 0;
 };
+
 using cpu_mask_t = unsigned long;
 int MNNSetSchedAffinity(const int* cpuIDs, int size);
 int MNNGetCurrentPid();

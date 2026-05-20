@@ -28,6 +28,7 @@ PoolBufExecution::PoolBufExecution(const std::vector<Tensor *> &inputs, const MN
     mPaddings[1] = mPoolParams->padX() * 2;
     mPadType     = mPoolParams->padType();
     auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("pooling_buf", "global_pooling_buf", {"-DLOCAL_SIZE=512"}, mOpenCLBackend->getPrecision());
+    OPENCL_CHECK_KERNEL_CTOR(kernel);
     mMaxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel));
 }
 
@@ -335,7 +336,7 @@ public:
             }
         }
 #endif /* MNN_SUPPORT_INTEL_SUBGROUP */
-        return new PoolBufExecution(inputs, op, backend);
+        OPENCL_CREATOR_CHECK(new PoolBufExecution(inputs, op, backend));
     }
 };
 

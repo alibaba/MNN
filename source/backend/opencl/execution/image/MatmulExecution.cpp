@@ -113,7 +113,7 @@ public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
         auto param = op->main_as_MatMul();
-        return new MatMulExecution(inputs, op, backend, param->transposeA(), param->transposeB());
+        OPENCL_CREATOR_CHECK(new MatMulExecution(inputs, op, backend, param->transposeA(), param->transposeB()));
     }
 };
 
