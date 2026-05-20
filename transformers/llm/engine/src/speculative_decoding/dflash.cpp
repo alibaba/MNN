@@ -9,14 +9,9 @@
 //
 
 #include "generate.hpp"
-#include <sys/stat.h>
+#include "core/MNNFileUtils.h"
 
 #define DFLASH_DEBUG 0
-
-static bool fileExists(const char* path) {
-    struct stat st;
-    return stat(path, &st) == 0;
-}
 
 using namespace MNN::Express;
 namespace MNN {
@@ -31,15 +26,9 @@ DFlashGeneration::DFlashGeneration(Llm* llm, std::shared_ptr<LlmContext> context
 void DFlashGeneration::load(Module::Config module_config) {
     // Check if separate lm_head model exists
     std::string lmheadPath = mLlm->mConfig->dflash_lmhead();
-    // Guard against empty config value: base_dir + "" = directory path, which fileExists would match
-    bool hasSeparateLmHead = false;
-    if (!lmheadPath.empty()) {
-        // Check it's actually a file, not just the base directory
-        struct stat st;
-        if (stat(lmheadPath.c_str(), &st) == 0 && S_ISREG(st.st_mode)) {
-            hasSeparateLmHead = true;
-        }
-    }
+    // Guard against empty config value: base_dir + "" = directory path, which MNNFileExist would match
+    bool hasSeparateLmHead =
+        !lmheadPath.empty() && MNNFileExist(lmheadPath.c_str()) && !MNNDirExist(lmheadPath.c_str());
 
     // Load dflash main module
     std::vector<std::string> dflashInputNames{"noise_embedding", "context_hidden", "attention_mask", "q_position_ids", "k_position_ids"};
