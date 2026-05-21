@@ -12,10 +12,16 @@
 # Environment:
 #   ANDROID_NDK         (required for android mode) NDK root. Falls back to
 #                       $HOME/android-ndk-r21 when unset.
-#   LLM_MODEL_REPO      HuggingFace repo id used for the LLM smoke test.
+#   LLM_MODEL_DIR       Path to an existing MNN-format LLM model on disk. When
+#                       set, that directory is used as-is and NO download is
+#                       attempted. Defaults to models/<repo-basename>/.
+#   LLM_MODEL_REPO      Model repo id used for the LLM smoke test.
 #                       Defaults to taobao-mnn/Qwen2.5-0.5B-Instruct-MNN.
-#   LLM_MODEL_URL_BASE  Override the resolve URL prefix (defaults to
-#                       https://huggingface.co/<repo>/resolve/main).
+#   LLM_MODEL_SOURCE    Download source when LLM_MODEL_DIR is not provided:
+#                       'huggingface' (default) or 'modelscope' (CDN reachable
+#                       from mainland China, where huggingface.co is blocked).
+#   LLM_MODEL_URL_BASE  Override the resolve URL prefix outright. Wins over
+#                       LLM_MODEL_SOURCE. Defaults to the source's resolve URL.
 #
 # Notes:
 #   * Replaces project/android/updateTest.sh natively (no shell-out).
@@ -23,6 +29,10 @@
 #     on entry, --delete-session on EXIT, including failure paths).
 #   * Mirrors every OpenCL (backend=3) probe with a Vulkan (backend=7) probe;
 #     skipped (not failed) when the backend library is absent.
+#   * LLM model provisioning is lazy: the download (or LLM_MODEL_DIR check) is
+#     deferred until the llm stage actually runs, so unit / smoke / bench
+#     stages proceed even with no network. A provisioning failure skips the
+#     llm stage rather than aborting the run.
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -52,11 +62,47 @@ SMOKE_MODELS=(
     SqueezeNet/v1.1/squeezenet_v1.1.caffe.mnn
 )
 
+# Capture whether the caller pinned LLM_MODEL_REPO before applying the default,
+# so the ModelScope org remap below only rewrites the project's own default.
+if [[ -n "${LLM_MODEL_REPO:-}" ]]; then LLM_MODEL_REPO_USER_SET=1; else LLM_MODEL_REPO_USER_SET=0; fi
 LLM_MODEL_REPO_DEFAULT="$(python3 -c "import json; print(json.load(open('${STAGES_JSON_FILE}')).get('llm', {}).get('model_repo', 'taobao-mnn/Qwen2.5-0.5B-Instruct-MNN'))" 2>/dev/null || true)"
 LLM_MODEL_REPO="${LLM_MODEL_REPO:-${LLM_MODEL_REPO_DEFAULT:-taobao-mnn/Qwen2.5-0.5B-Instruct-MNN}}"
-LLM_MODEL_URL_BASE="${LLM_MODEL_URL_BASE:-https://huggingface.co/${LLM_MODEL_REPO}/resolve/main}"
-LLM_MODEL_NAME="$(basename "${LLM_MODEL_REPO}")"
-LLM_MODEL_DIR="${MODELS_DIR}/${LLM_MODEL_NAME}"
+
+# Resolve the download URL prefix. An explicit LLM_MODEL_URL_BASE always wins;
+# otherwise it is derived from LLM_MODEL_SOURCE. HuggingFace serves under
+# resolve/main, ModelScope under resolve/master. The MNN team mirrors its
+# HuggingFace 'taobao-mnn/*' models under the 'MNN/*' org on ModelScope, so the
+# built-in default's org is remapped for ModelScope (an explicitly-set
+# LLM_MODEL_REPO is left verbatim). NB: this runs before the log_* helpers are
+# defined, so errors print with a plain echo.
+LLM_MODEL_SOURCE="${LLM_MODEL_SOURCE:-huggingface}"
+if [[ -z "${LLM_MODEL_URL_BASE:-}" ]]; then
+    case "${LLM_MODEL_SOURCE}" in
+        huggingface|hf)
+            LLM_MODEL_URL_BASE="https://huggingface.co/${LLM_MODEL_REPO}/resolve/main" ;;
+        modelscope|ms)
+            LLM_MODEL_MS_REPO="${LLM_MODEL_REPO}"
+            if [[ ${LLM_MODEL_REPO_USER_SET} -eq 0 && "${LLM_MODEL_MS_REPO}" == taobao-mnn/* ]]; then
+                LLM_MODEL_MS_REPO="MNN/${LLM_MODEL_MS_REPO#taobao-mnn/}"
+            fi
+            LLM_MODEL_URL_BASE="https://modelscope.cn/models/${LLM_MODEL_MS_REPO}/resolve/master" ;;
+        *)
+            echo "ERROR: unknown LLM_MODEL_SOURCE='${LLM_MODEL_SOURCE}' (want: huggingface | modelscope)" >&2
+            exit 2 ;;
+    esac
+fi
+
+# LLM_MODEL_DIR may be pre-set by the caller to point at an existing on-disk
+# MNN-format model, in which case no download is ever attempted. When it is
+# left unset we fall back to the per-repo cache under models/ and may download.
+if [[ -n "${LLM_MODEL_DIR:-}" ]]; then
+    LLM_MODEL_DIR_PROVIDED=1
+    LLM_MODEL_NAME="$(basename "${LLM_MODEL_DIR}")"
+else
+    LLM_MODEL_DIR_PROVIDED=0
+    LLM_MODEL_NAME="$(basename "${LLM_MODEL_REPO}")"
+    LLM_MODEL_DIR="${MODELS_DIR}/${LLM_MODEL_NAME}"
+fi
 
 # Files that must be present in a complete MNN-format LLM checkout.
 LLM_MODEL_FILES=(
@@ -176,9 +222,15 @@ Subcommands:
 Environment:
   ANDROID_NDK              NDK root (android mode). Defaults to
                            \$HOME/android-ndk-r21 when unset.
-  LLM_MODEL_REPO           HuggingFace repo id for the LLM smoke test.
+  LLM_MODEL_DIR            Use an existing on-disk MNN LLM model; no download.
+                           Default: models/${LLM_MODEL_NAME}.
+  LLM_MODEL_REPO           Model repo id for the LLM smoke test.
                            Default: ${LLM_MODEL_REPO}.
-  LLM_MODEL_URL_BASE       Override resolve URL prefix.
+  LLM_MODEL_SOURCE         Download source: huggingface (default) | modelscope.
+  LLM_MODEL_URL_BASE       Override resolve URL prefix (wins over _SOURCE).
+
+  The LLM model is fetched lazily — only when the llm stage runs — so the
+  unit / smoke / bench stages proceed even with no network.
 
 Examples:
   $0 local
@@ -186,7 +238,8 @@ Examples:
   $0 android R5CY71BJJ9D opencl-buffer
   $0 android R5CY71BJJ9D cpu
   $0 android R5CY71BJJ9D android-ci      # bench + smoke + llm only
-  LLM_MODEL_REPO=taobao-mnn/Qwen2-0.5B-Instruct-MNN $0 local
+  LLM_MODEL_DIR=/path/to/MNN-model $0 local             # use a local model, no download
+  LLM_MODEL_SOURCE=modelscope $0 android R5CY71BJJ9D    # fetch from ModelScope
 EOF
 }
 
@@ -306,10 +359,15 @@ _on_exit() {
 trap _on_exit EXIT
 
 # ─────────────────────────────────────────────────────────────────────────────
-# LLM model provisioning (HuggingFace)
+# LLM model provisioning (HuggingFace / ModelScope / local dir)
 # ─────────────────────────────────────────────────────────────────────────────
 # Cache layout: ${MODELS_DIR}/<repo-basename>/{config.json,llm.mnn,...}
 # Plus a generated prompt.txt so llm_demo has something to consume.
+#
+# Provisioning is lazy — invoked only once a run reaches the llm stage — and
+# returns non-zero on failure (instead of aborting the whole script) so the
+# caller can skip just the llm stage. When LLM_MODEL_DIR is caller-supplied the
+# directory is used as-is and nothing is downloaded.
 llm_model_complete() {
     local f
     for f in "${LLM_MODEL_FILES[@]}"; do
@@ -319,14 +377,18 @@ llm_model_complete() {
 }
 
 provision_llm_model() {
-    log_step "provisioning LLM model: ${LLM_MODEL_REPO}"
+    log_step "provisioning LLM model: ${LLM_MODEL_NAME}"
     if llm_model_complete; then
-        log_ok "LLM model cache hit at ${LLM_MODEL_DIR}"
+        log_ok "LLM model present at ${LLM_MODEL_DIR}"
+    elif [[ ${LLM_MODEL_DIR_PROVIDED} -eq 1 ]]; then
+        log_err "LLM_MODEL_DIR=${LLM_MODEL_DIR} is missing required files; not downloading (caller-supplied path)"
+        return 1
     else
+        log_info "downloading from ${LLM_MODEL_SOURCE} (${LLM_MODEL_URL_BASE})"
         mkdir -p "${LLM_MODEL_DIR}"
-        local f url tmp
+        local f url tmp dst
         for f in "${LLM_MODEL_FILES[@]}"; do
-            local dst="${LLM_MODEL_DIR}/${f}"
+            dst="${LLM_MODEL_DIR}/${f}"
             if [[ -s "${dst}" ]]; then
                 continue
             fi
@@ -336,17 +398,22 @@ provision_llm_model() {
             if ! curl -fL --retry 3 --retry-delay 2 -o "${tmp}" "${url}"; then
                 log_err "failed to download ${url}"
                 rm -f "${tmp}"
-                exit 1
+                return 1
             fi
             mv "${tmp}" "${dst}"
         done
         log_ok "LLM model staged at ${LLM_MODEL_DIR}"
     fi
-    # Always (re)write a small prompt for the smoke test.
+    # Ensure a small prompt exists for the smoke test. Best-effort: a read-only
+    # caller-supplied model dir is fine as long as it already ships a prompt.
     local prompt_path="${LLM_MODEL_DIR}/prompt.txt"
     if [[ ! -s "${prompt_path}" ]]; then
-        printf 'Hello, who are you?\n' > "${prompt_path}"
+        if ! printf 'Hello, who are you?\n' > "${prompt_path}" 2>/dev/null; then
+            log_err "no prompt.txt in ${LLM_MODEL_DIR} and the directory is not writable"
+            return 1
+        fi
     fi
+    return 0
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -591,12 +658,16 @@ local_run_stages() {
         _run_json_model_stages smokeA local "${PUBLIC_MODELS_DIR}"
     fi
 
-    # LLM smoke test on the public HF model.
-    if [[ -x "${SCRIPT_DIR}/build/llm_demo" ]]; then
+    # LLM smoke test. Model provisioning is lazy: it happens here, after the
+    # unit + smoke stages have already run, so those proceed even with no
+    # network. A failed provision skips just this stage.
+    if [[ ! -x "${SCRIPT_DIR}/build/llm_demo" ]]; then
+        skip_stage "llm/${LLM_MODEL_NAME}" "llm_demo not built"
+    elif ! provision_llm_model; then
+        skip_stage "llm/${LLM_MODEL_NAME}" "model unavailable (see provisioning log above)"
+    else
         run_stage "llm/${LLM_MODEL_NAME}" -- bash -c \
             "cd '${SCRIPT_DIR}/build' && ./llm_demo '${LLM_MODEL_DIR}/config.json' '${LLM_MODEL_DIR}/prompt.txt'"
-    else
-        skip_stage "llm/${LLM_MODEL_NAME}" "llm_demo not built"
     fi
 }
 
@@ -1072,7 +1143,6 @@ android_llm_test() {
 # ─────────────────────────────────────────────────────────────────────────────
 drive_local() {
     log_info "mode=local script_dir=${SCRIPT_DIR}"
-    provision_llm_model
     if [[ ! -x "${SCRIPT_DIR}/build/run_test.out" ]]; then
         local_build
     else
@@ -1089,14 +1159,12 @@ drive_android() {
     detect_adb
     ensure_adbk_session
     verify_device_online
-    provision_llm_model
     # Cache caffe sources on host (small download). The conversion itself
     # runs on device with the arm64 MNNConvert we build below.
     local smoke_ok=1
     provision_smoke_sources || smoke_ok=0
     android_build
     push_artifacts
-    push_llm_model
     if [[ ${smoke_ok} -eq 1 ]]; then
         convert_smoke_on_device || smoke_ok=0
     fi
@@ -1117,8 +1185,16 @@ drive_android() {
         skip_stage "bench"  "smoke source download or on-device conversion failed"
     fi
 
+    # LLM stage. Provisioning + device push are lazy: deferred to here so the
+    # unit / smoke / bench stages run even with no network, and so a missing
+    # model skips only this stage instead of aborting the run.
     if _filter_runs llm; then
-        android_llm_test
+        if provision_llm_model; then
+            push_llm_model
+            android_llm_test
+        else
+            skip_stage "llm/${LLM_MODEL_NAME}" "model unavailable (see provisioning log above)"
+        fi
     fi
 }
 
