@@ -177,6 +177,16 @@ class VulkanDeconvolutionCreator : public VulkanBackend::Creator {
 public:
     virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
                                 Backend* backend) const override {
+        // VulkanDeconvolution only supports constant embedded weights: it
+        // reorders the weight blob into a matmul kernel at construction and
+        // onEncode unconditionally uses that kernel. The backprop / weight-as-
+        // input form (e.g. _Deconv(weight, bias, input), 3 inputs) carries no
+        // embedded weight; report unsupported so MNN falls back to another
+        // backend instead of dereferencing a null weight blob and crashing.
+        auto conv2d = op->main_as_Convolution2D();
+        if (nullptr == conv2d || (nullptr == conv2d->quanParameter() && nullptr == conv2d->weight())) {
+            return nullptr;
+        }
         return new VulkanDeconvolution(backend, inputs, op);
     }
 };

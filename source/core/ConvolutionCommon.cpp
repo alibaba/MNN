@@ -797,7 +797,12 @@ void ConvolutionCommon::getConvParameters(std::shared_ptr<Int8Common> *quanCommo
         *originWeight     = (*quanCommon)->weightFloat.get();
         *originWeightSize = (*quanCommon)->weightFloat.size();
     }
-    if (*originWeight == nullptr) {
+    if (*originWeight == nullptr && nullptr != conv2d->weight()) {
+        // conv2d->weight() is null when the weight is supplied as a runtime
+        // input tensor (e.g. the backprop / weight-as-input deconvolution from
+        // _Deconv(weight, bias, input)). Leave originWeight null in that case
+        // so callers can detect "no embedded weight" instead of dereferencing
+        // a null flatbuffers vector.
         *originWeight = conv2d->weight()->data();
         *originWeightSize = conv2d->weight()->size();
     }
