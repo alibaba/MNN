@@ -14,9 +14,6 @@ MNN::OpParameter ResizeOnnx::type() {
 
 void ResizeOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode, OnnxScope* scope) {
     std::unique_ptr<MNN::InterpT> resizeParam(new MNN::InterpT);
-    bool bakedScales = false;
-    bool bakedSizes = false;
-    bool is3DResize = false;
     std::string resizeMode = "";
     std::string coordMode = "half_pixel";
     std::string nearestMode = "round_prefer_floor";
@@ -67,48 +64,37 @@ void ResizeOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode, OnnxScope
     SET_MODE("asymmetric", Asymmetric);
 #undef SET_MODE
 
-    // If scales / sizes are constant, bake them into Interp and drop extra shape input.
-    if (onnxNode->input_size() >= 3) {
-        const auto& scalesName = onnxNode->input(2);
-        auto iter = scope->mInitializers.find(scalesName);
-        if (iter != scope->mInitializers.end()) {
-            std::unique_ptr<MNN::OpT> tempOp(new MNN::OpT);
-            std::unique_ptr<MNN::BlobT> blob(
-                onnxOpConverter::convertTensorToBlob(iter->second, scope->mModelDir, tempOp.get()));
-            if (blob && !blob->float32s.empty()) {
-                auto size = (int)blob->float32s.size();
-                if (size == 4 || size == 5) {
-                    is3DResize = is3DResize || size == 5;
-                    resizeParam->heightScale = blob->float32s[size - 2];
-                    resizeParam->widthScale = blob->float32s[size - 1];
-                    if (size == 5) {
-                        resizeParam->depthScale = blob->float32s[2];
-                    }
-                    bakedScales = true;
-                }
-            }
+    // Treat an ONNX optional input as "absent" if its name is empty OR it points to a
+    // named-but-empty initializer (shape produces zero elements) — both conventions are
+    // valid ONNX. Otherwise fall back to whatever the producer emits (constant or dynamic).
+    auto isOptionalInputProvided = [&](int idx) -> bool {
+        if (idx >= onnxNode->input_size()) {
+            return false;
         }
-    }
-    if (onnxNode->input_size() >= 4) {
-        const auto& sizesName = onnxNode->input(3);
-        auto iter = scope->mInitializers.find(sizesName);
-        if (iter != scope->mInitializers.end()) {
-            std::unique_ptr<MNN::OpT> tempOp(new MNN::OpT);
-            std::unique_ptr<MNN::BlobT> blob(
-                onnxOpConverter::convertTensorToBlob(iter->second, scope->mModelDir, tempOp.get()));
-            if (blob && !blob->int32s.empty()) {
-                auto size = (int)blob->int32s.size();
-                if (size == 4 || size == 5) {
-                    is3DResize = is3DResize || size == 5;
-                    if (size == 5) {
-                        resizeParam->outputDepth = blob->int32s[2];
-                    }
-                    resizeParam->outputHeight = blob->int32s[size - 2];
-                    resizeParam->outputWidth = blob->int32s[size - 1];
-                    bakedSizes = true;
-                }
-            }
+        const auto& name = onnxNode->input(idx);
+        if (name.empty()) {
+            return false;
         }
+        auto iter = scope->mInitializers.find(name);
+        if (iter == scope->mInitializers.end()) {
+            return true;
+        }
+        int64_t numel = 1;
+        for (int i = 0; i < iter->second->dims_size(); ++i) {
+            numel *= iter->second->dims(i);
+        }
+        return numel > 0;
+    };
+
+    // ONNX opset 10 Resize has only (X, scales). Opset 11+ uses (X, roi, scales, sizes).
+    // sizes (when given) takes precedence over scales.
+    int shapeInputIdx = -1;
+    if (isOptionalInputProvided(3)) {
+        shapeInputIdx = 3;
+    } else if (isOptionalInputProvided(2)) {
+        shapeInputIdx = 2;
+    } else if (onnxNode->input_size() == 2 && isOptionalInputProvided(1)) {
+        shapeInputIdx = 1; // opset 10
     }
 
     std::vector<int> inputIndexes;
@@ -116,21 +102,13 @@ void ResizeOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode, OnnxScope
     if (dataIndex >= 0) {
         inputIndexes.emplace_back(dataIndex);
     }
-    if (!bakedSizes && onnxNode->input_size() >= 4 && !onnxNode->input(3).empty()) {
-        auto sizesIndex = scope->lookupTensor(onnxNode->input(3));
-        if (sizesIndex >= 0) {
-            inputIndexes.emplace_back(sizesIndex);
-        }
-    } else if (!bakedScales && onnxNode->input_size() >= 3 && !onnxNode->input(2).empty()) {
-        auto scalesIndex = scope->lookupTensor(onnxNode->input(2));
-        if (scalesIndex >= 0) {
-            inputIndexes.emplace_back(scalesIndex);
+    if (shapeInputIdx >= 0) {
+        auto shapeIndex = scope->lookupTensor(onnxNode->input(shapeInputIdx));
+        if (shapeIndex >= 0) {
+            inputIndexes.emplace_back(shapeIndex);
         }
     }
     dstOp->inputIndexes = std::move(inputIndexes);
-    if (is3DResize) {
-        dstOp->type = MNN::OpType_Interp3D;
-    }
 
     dstOp->main.value = resizeParam.release();
     dstOp->defaultDimentionFormat = MNN::MNN_DATA_FORMAT_NCHW;
