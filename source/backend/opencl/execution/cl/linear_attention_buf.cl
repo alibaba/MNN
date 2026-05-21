@@ -476,6 +476,7 @@ __kernel void chunk_correct_v(
     __private const int head_k_dim,
     __private const int head_v_dim,
     __private const int key_dim,
+    __private const int gqa_factor,
     __private const int num_chunks)
 {
     const int x = get_global_id(0);
@@ -495,6 +496,7 @@ __kernel void chunk_correct_v(
     const int D = conv_dim;
     const int L = seq_len;
     const int H = num_v_heads;
+    const int k_head = h / gqa_factor;
 
     const int attn_base = ((b * H + h) * num_chunks + c) * C * C + row * C;
     const int g_base = ((b * H + h) * num_chunks + c) * C;
@@ -516,10 +518,10 @@ __kernel void chunk_correct_v(
         v_p.w = (float)conv_out[conv_base + (2 * key_dim + h * dv + j + 3) * L + l_p];
         result0 += ab * v_p;
         float4 k_p;
-        k_p.x = (float)conv_out[conv_base + (key_dim + h * dk + j) * L + l_p];
-        k_p.y = (float)conv_out[conv_base + (key_dim + h * dk + j + 1) * L + l_p];
-        k_p.z = (float)conv_out[conv_base + (key_dim + h * dk + j + 2) * L + l_p];
-        k_p.w = (float)conv_out[conv_base + (key_dim + h * dk + j + 3) * L + l_p];
+        k_p.x = (float)conv_out[conv_base + (key_dim + k_head * dk + j) * L + l_p];
+        k_p.y = (float)conv_out[conv_base + (key_dim + k_head * dk + j + 1) * L + l_p];
+        k_p.z = (float)conv_out[conv_base + (key_dim + k_head * dk + j + 2) * L + l_p];
+        k_p.w = (float)conv_out[conv_base + (key_dim + k_head * dk + j + 3) * L + l_p];
         result1 += coeff * k_p;
     }
 

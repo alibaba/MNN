@@ -200,7 +200,7 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor *> &inp
         }
         mKernell2Norm = runtime->buildKernel("linear_attention_buf", "l2_norm", l2BuildOptions, mOpenCLBackend->getPrecision());
 
-        mGWSl2Norm = {128, (uint32_t)(H * UP_DIV(seqLen, 4)), (uint32_t)(batch * 2)};
+        mGWSl2Norm = {128, (uint32_t)(mNumKHeads * UP_DIV(seqLen, 4)), (uint32_t)(batch * 2)};
         mLWSl2Norm = {128, 1, 1};
         uint32_t idx = 0;
         cl_int ret = CL_SUCCESS;
@@ -208,7 +208,7 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor *> &inp
         ret |= mKernell2Norm->get().setArg(idx++, openCLBuffer(mConvOut.get()));    // conv_out
         ret |= mKernell2Norm->get().setArg(idx++, convDim);
         ret |= mKernell2Norm->get().setArg(idx++, dk);
-        ret |= mKernell2Norm->get().setArg(idx++, gqa_factor);
+        ret |= mKernell2Norm->get().setArg(idx++, 1);
         ret |= mKernell2Norm->get().setArg(idx++, key_dim);
         ret |= mKernell2Norm->get().setArg(idx++, seqLen);
         MNN_CHECK_CL_SUCCESS(ret, "setArg l2 norm");
@@ -442,7 +442,7 @@ ErrorCode LinearAttentionBufExecution::onResizeChunkedPrefill(
         auto l2BuildOptions = buildOptions;
         l2BuildOptions.emplace("-DUSE_VEC");
         mKernell2NormPrefill = runtime->buildKernel("linear_attention_buf", "l2_norm", l2BuildOptions, mOpenCLBackend->getPrecision());
-        mGWSl2NormPrefill = {128, (uint32_t)(H * UP_DIV(seqLen, 4)), (uint32_t)(batch * 2)};
+        mGWSl2NormPrefill = {128, (uint32_t)(mNumKHeads * UP_DIV(seqLen, 4)), (uint32_t)(batch * 2)};
         mLWSl2NormPrefill = {128, 1, 1};
         uint32_t idx = 0;
         cl_int ret = CL_SUCCESS;
@@ -450,7 +450,7 @@ ErrorCode LinearAttentionBufExecution::onResizeChunkedPrefill(
         ret |= mKernell2NormPrefill->get().setArg(idx++, openCLBuffer(mConvOutPrefill.get()));
         ret |= mKernell2NormPrefill->get().setArg(idx++, convDim);
         ret |= mKernell2NormPrefill->get().setArg(idx++, dk);
-        ret |= mKernell2NormPrefill->get().setArg(idx++, gqa_factor);
+        ret |= mKernell2NormPrefill->get().setArg(idx++, 1);
         ret |= mKernell2NormPrefill->get().setArg(idx++, key_dim);
         ret |= mKernell2NormPrefill->get().setArg(idx++, seqLen);
         MNN_CHECK_CL_SUCCESS(ret, "setArg l2 norm (prefill)");
@@ -540,6 +540,7 @@ ErrorCode LinearAttentionBufExecution::onResizeChunkedPrefill(
         ret |= mKernelChunkCorrectV->get().setArg(idx++, dk);
         ret |= mKernelChunkCorrectV->get().setArg(idx++, dv);
         ret |= mKernelChunkCorrectV->get().setArg(idx++, key_dim);
+        ret |= mKernelChunkCorrectV->get().setArg(idx++, gqa_factor);
         ret |= mKernelChunkCorrectV->get().setArg(idx++, numChunks);
         MNN_CHECK_CL_SUCCESS(ret, "setArg chunk_correct_v");
         auto maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernelChunkCorrectV));
@@ -829,4 +830,4 @@ REGISTER_OPENCL_OP_CREATOR_TRANSFORMER(LinearAttentionBufCreator, OpType_LinearA
 
 } // namespace OpenCL
 } // namespace MNN
-#endif/* MNN_SUPPORT_TRANSFORMER_FUSE */
+#endif /* MNN_SUPPORT_TRANSFORMER_FUSE */
