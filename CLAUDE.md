@@ -94,4 +94,5 @@ For the following tasks, **read the Skill entry file first** and execute step by
 | Support new LLM | `skills/support-new-llm/SKILL.md` | Add / adapt a new LLM model |
 | Add new op | `skills/add-new-op/SKILL.md` | Add a new operator |
 | ARM CPU optimization | `skills/arm-cpu-optimize/SKILL.md` | Optimize op performance on ARM CPU |
+| Run tests / CI | `skills/test-ci/SKILL.md` | Run the regression / CI suite (host or on-device), or add / select / retune a test stage |
 | Retrospective | `skills/retrospective/SKILL.md` | After any non-trivial task: reflect on mistakes, update relevant skills with lessons learned |

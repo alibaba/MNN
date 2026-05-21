@@ -13,11 +13,12 @@ end-to-end.
 # Android device (full matrix):
 ./test_ci.sh android <serial>
 
-# Run a subset by filter tag:
-RUNS=cpu          ./test_ci.sh android <serial>   # CPU + lowmem + llm
-RUNS=opencl-image ./test_ci.sh android <serial>   # only OpenCL IMAGE stages
-RUNS=vulkan       ./test_ci.sh android <serial>
-RUNS=lowmem       ./test_ci.sh android <serial>
+# Run a subset — the filter is the optional third positional argument:
+./test_ci.sh android <serial> cpu            # CPU + lowmem + llm
+./test_ci.sh android <serial> opencl-image   # only OpenCL IMAGE stages
+./test_ci.sh android <serial> vulkan
+./test_ci.sh android <serial> lowmem
+./test_ci.sh android <serial> android-ci     # bench + smoke + llm only
 ```
 
 The full matrix is described in `test_stages.json`. Every parameter (forward
@@ -25,6 +26,37 @@ type, precision, gpuMode, thread count, tag, memory mode, dynamic-quant
 option, KleidiAI flag, per-stage skip list, smoke model list, benchmark
 arguments) lives there. Editing the JSON is the supported way to add, drop,
 or retune a stage — no shell edits needed for the common cases.
+
+> This infrastructure is also exposed as the **`test-ci`** Agent Skill
+> (`skills/test-ci/SKILL.md`) so AI coding agents can discover and drive it.
+
+## LLM model provisioning
+
+The `llm` stage runs `llm_demo` against an MNN-format LLM model. Provisioning
+is **lazy** — the model download (or the `LLM_MODEL_DIR` check) is deferred
+until the `llm` stage actually runs, and a provisioning failure skips **only**
+that stage. The unit / smoke / bench stages therefore run fine with no network.
+
+| Env var | Meaning |
+|---------|---------|
+| `LLM_MODEL_DIR` | Path to an existing on-disk MNN-format model. When set, the directory is used **as-is and nothing is downloaded**. Defaults to `models/<repo-basename>/`. |
+| `LLM_MODEL_REPO` | Model repo id. Default `taobao-mnn/Qwen2.5-0.5B-Instruct-MNN` (also set in `test_stages.json → llm.model_repo`). |
+| `LLM_MODEL_SOURCE` | Download source when `LLM_MODEL_DIR` is unset: `huggingface` (default) or `modelscope`. |
+| `LLM_MODEL_URL_BASE` | Override the resolve URL prefix outright (wins over `LLM_MODEL_SOURCE`). |
+
+```bash
+# Already have the model on disk → zero download attempts:
+LLM_MODEL_DIR=/path/to/Qwen2.5-0.5B-Instruct-MNN ./test_ci.sh local
+
+# huggingface.co unreachable (e.g. mainland China) → fetch from ModelScope:
+LLM_MODEL_SOURCE=modelscope ./test_ci.sh android <serial>
+```
+
+HuggingFace serves files under `resolve/main`, ModelScope under
+`resolve/master`. The MNN team mirrors its `taobao-mnn/*` HuggingFace models
+under the `MNN/*` org on ModelScope, so the built-in default's org is remapped
+automatically for ModelScope; an explicitly-set `LLM_MODEL_REPO` is used
+verbatim.
 
 ## Architecture
 
@@ -79,7 +111,7 @@ Flow on android mode:
 | Field             | Meaning                                                                                                                                                              |
 |-------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `name`            | Stage label. Also the per-stage log filename (`/`s flatten to `_`).                                                                                                  |
-| `filter`          | Filter tag. Matched against `RUNS=…` or the implicit `all`.                                                                                                          |
+| `filter`          | Filter tag. Matched against the positional filter argument or the implicit `all`.                                                                                    |
 | `comment`         | Free-form note about why the stage exists / what it covers.                                                                                                          |
 | `binary`          | (smoke/bench only) `run_test` (default), `v2basic`, `backendtest`, or `benchmark`.                                                                                   |
 | `prefix`          | First positional arg to `run_test.out` — test-name prefix or the literal `all`.                                                                                      |
@@ -97,7 +129,7 @@ Flow on android mode:
 
 | Tag              | Meaning                                                                  |
 |------------------|--------------------------------------------------------------------------|
-| `cpu`            | Plain CPU stages (also covers lowmem and llm in `RUNS=cpu`).             |
+| `cpu`            | Plain CPU stages (also covers lowmem and llm under the `cpu` filter).    |
 | `opencl-image`   | OpenCL with `MNN_GPU_MEMORY_IMAGE`.                                      |
 | `opencl-buffer`  | OpenCL with `MNN_GPU_MEMORY_BUFFER`.                                     |
 | `vulkan`         | Vulkan backend.                                                          |
@@ -106,8 +138,8 @@ Flow on android mode:
 | `smoke-vulkan`   | Smoke A/B per model on Vulkan.                                           |
 | `llm`            | LLM smoke test.                                                          |
 
-`RUNS=opencl` is a shortcut for `opencl-image | opencl-buffer | smoke-opencl`.
-`RUNS=gpu` covers everything OpenCL + Vulkan.
+The `opencl` filter is a shortcut for `opencl-image | opencl-buffer | smoke-opencl`.
+`gpu` covers everything OpenCL + Vulkan.
 
 ## Per-stage type — what each kind covers
 
@@ -377,7 +409,7 @@ You've added an int4 grouped-conv kernel and want it covered at FP16 +
    ```
 3. Run:
    ```bash
-   RUNS=lowmem ./test_ci.sh android <serial>
+   ./test_ci.sh android <serial> lowmem
    ```
 
 ### Example B — Cross-backend numeric verification of a new op
@@ -409,7 +441,8 @@ You merged an upstream sync that exposed a per-channel ~1-LSB drift in
 
 | File                                  | What it provides                                             |
 |---------------------------------------|--------------------------------------------------------------|
-| `test_ci.sh`                          | Bash driver. Reads `test_stages.json` for unit/lowmem/smoke/bench/llm. Pushes `libMNNConvertDeps.so` so on-device caffe→mnn conversion works. |
+| `test_ci.sh`                          | Bash driver. Reads `test_stages.json` for unit/lowmem/smoke/bench/llm. Pushes `libMNNConvertDeps.so` so on-device caffe→mnn conversion works. Lazy LLM provisioning (HuggingFace / ModelScope / local `LLM_MODEL_DIR`). |
+| `skills/test-ci/SKILL.md`             | Agent-discoverable Skill entry for this test infrastructure. |
 | `test_stages.json`                    | Every stage parameter, skip lists, smoke model list, bench entries. Self-documenting via `_documentation`. |
 | `test/MNNTestSuite.{h,cpp}`           | `MNN_TEST_SKIP` env-var support; `Status.dynamicOption` so tests can adapt tolerance to the runtime hint. |
 | `test/main.cpp`                       | Propagates `dynamicOption` from argv into `Status`.          |
