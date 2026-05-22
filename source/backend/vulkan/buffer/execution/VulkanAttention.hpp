@@ -22,7 +22,7 @@ private:
     struct GpuParam {
         ivec4 s0; // qLen, kLen, headNum, kvHeadNum
         ivec4 s1; // headDim, group, pastLen, totalLen
-        ivec4 s2; // maskQlen, maskKvlen, hasMask, cacheMaxLen
+        ivec4 s2; // maskQlen, maskKvlen, maskMode(0:none,1:additive,2:causal), cacheMaxLen
         vec4 f0;  // scale, 0, 0, 0
     };
 

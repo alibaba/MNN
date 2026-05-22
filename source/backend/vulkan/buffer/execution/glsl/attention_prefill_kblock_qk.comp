@@ -17,7 +17,7 @@ layout(set=0, binding=3) readonly buffer s3 {
 layout(set=0, binding=4) readonly uniform constBuffer {
     ivec4 s0; // qLen, kLen, headNum, kvHeadNum
     ivec4 s1; // headDim, group, pastLen, totalLen
-    ivec4 s2; // maskQlen, maskKvlen, hasMask, cacheMaxLen
+    ivec4 s2; // maskQlen, maskKvlen, maskMode, cacheMaxLen
     vec4 f0;  // scale, 0, 0, 0
 } uConst;
 
@@ -122,13 +122,14 @@ void main() {
     out2 *= scale;
     out3 *= scale;
 
-    // Mask: additive mask, aligned to the last maskKvlen keys.
-    const int hasMask = uConst.s2.z;
+    // Mask: mode 1 = additive mask aligned to the last maskKvlen keys, mode 2 = causal.
+    const int maskMode = uConst.s2.z;
     const int maskQlen = uConst.s2.x;
     const int maskKvlen = uConst.s2.y;
-    const int maskKStart = (hasMask != 0 && maskKvlen > 0 && totalLen > maskKvlen) ? (totalLen - maskKvlen) : 0;
+    const int pastLen = uConst.s1.z;
+    const int maskKStart = (maskMode == 1 && maskKvlen > 0 && totalLen > maskKvlen) ? (totalLen - maskKvlen) : 0;
 
-    if (hasMask != 0 && maskKvlen > 0) {
+    if (maskMode == 1 && maskKvlen > 0) {
         for (int qi = 0; qi < 4; ++qi) {
             const int q = q0 + qi;
             if (q >= qLen || q >= maskQlen) {
@@ -143,6 +144,23 @@ void main() {
                     if (qi == 1) out1[kj] += m;
                     if (qi == 2) out2[kj] += m;
                     if (qi == 3) out3[kj] += m;
+                }
+            }
+        }
+    } else if (maskMode == 2) {
+        for (int qi = 0; qi < 4; ++qi) {
+            const int q = q0 + qi;
+            if (q >= qLen) {
+                continue;
+            }
+            const int causalEnd = pastLen + q;
+            for (int kj = 0; kj < 4; ++kj) {
+                const int gk = gk0 + kj;
+                if (gk > causalEnd) {
+                    if (qi == 0) out0[kj] = NEG_INF;
+                    if (qi == 1) out1[kj] = NEG_INF;
+                    if (qi == 2) out2[kj] = NEG_INF;
+                    if (qi == 3) out3[kj] = NEG_INF;
                 }
             }
         }
@@ -169,4 +187,3 @@ void main() {
         uQK.data[outBase3] = FLOAT4(out3);
     }
 }
-

@@ -32,7 +32,7 @@ layout(set=0, binding=6) readonly buffer s6 {
 layout(set=0, binding=7) readonly uniform constBuffer {
     ivec4 s0; // qLen, kLen, headNum, kvHeadNum
     ivec4 s1; // headDim, group, pastLen, totalLen
-    ivec4 s2; // maskQlen, maskKvlen, hasMask, cacheMaxLen
+    ivec4 s2; // maskQlen, maskKvlen, maskMode, cacheMaxLen
     vec4 f0;  // scale, 0, 0, 0
 } uConst;
 
@@ -65,10 +65,11 @@ void main() {
         return;
     }
 
-    const int hasMask = uConst.s2.z;
+    const int maskMode = uConst.s2.z;
     const int maskQlen = uConst.s2.x;
     const int maskKvlen = uConst.s2.y;
     const int maxLen = uConst.s2.w;
+    const int pastLen = uConst.s1.z;
     if (maxLen <= 0) {
         return;
     }
@@ -80,7 +81,7 @@ void main() {
 
     const float scale = uConst.f0.x;
     const int qBase = (q * headNum + h) * 128;
-    const int kMaskStart = (hasMask != 0 && maskKvlen > 0 && totalLen > maskKvlen) ? (totalLen - maskKvlen) : 0;
+    const int kMaskStart = (maskMode == 1 && maskKvlen > 0 && totalLen > maskKvlen) ? (totalLen - maskKvlen) : 0;
 
     for (int i = int(lane); i < D4_SIZE; i += int(subgroupSize)) {
         const int d = i * 4;
@@ -106,11 +107,13 @@ void main() {
             dotSum += dot(sQuery[i], kv);
         }
         float score = dotSum * scale;
-        if (hasMask != 0 && q < maskQlen && maskKvlen > 0 && k >= kMaskStart) {
+        if (maskMode == 1 && q < maskQlen && maskKvlen > 0 && k >= kMaskStart) {
             const int mk = k - kMaskStart;
             if (mk >= 0 && mk < maskKvlen) {
                 score += float(uMask.data[q * maskKvlen + mk]);
             }
+        } else if (maskMode == 2 && k > (pastLen + q)) {
+            score = NEG_INF;
         }
 
         float w = 0.0;
