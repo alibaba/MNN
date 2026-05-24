@@ -169,9 +169,9 @@ public:
             // bhwc,bhkc -> bhwk  batch = `bh`, reduce_dim = `c`
 
             // find reduce dim
-            char reduce_dim;
+            char reduce_dim = 0;
             int reduce_dim_pos = -1;
-            for (int i = 0; i < input0.size(); ++i) {
+            for (int i = 0; i < (int)input0.size(); ++i) {
                 auto c = input0[i];
                 if (right.find(c) == std::string::npos) {
                     reduce_dim = c;
@@ -179,15 +179,32 @@ public:
                     break;
                 }
             }
-            bool needTransposeA = false;
-            if (reduce_dim_pos >= 0 && input0.size() >= 2 && reduce_dim_pos == input0.size() - 2) {
-                needTransposeA = true;
+            // Verify the fast path produces correct output order:
+            // MatMul output dims = input0 dims (minus reduce) + input1's unique dim appended.
+            // Only valid when this matches `right` without needing permutation.
+            std::string expectedOutput;
+            for (int i = 0; i < (int)input0.size(); ++i) {
+                if (i != reduce_dim_pos) {
+                    expectedOutput += input0[i];
+                }
             }
-            auto need_transpose = input1.find(reduce_dim) == (input1.size() - 1);
-            // matmul: matmul auto broadcast such: `bhwc @ hkc` -> `bhwc @ bhkc`
-            auto output = _MatMul(var0, var1, needTransposeA, need_transpose);
-            output->setName(expr->name());
-            return output->expr().first;
+            for (int i = 0; i < (int)input1.size(); ++i) {
+                char c = input1[i];
+                if (c != reduce_dim && expectedOutput.find(c) == std::string::npos) {
+                    expectedOutput += c;
+                }
+            }
+            if (reduce_dim_pos >= 0 && right == expectedOutput) {
+                bool needTransposeA = false;
+                if (input0.size() >= 2 && reduce_dim_pos == (int)input0.size() - 2) {
+                    needTransposeA = true;
+                }
+                auto need_transpose = input1.find(reduce_dim) == (input1.size() - 1);
+                auto output = _MatMul(var0, var1, needTransposeA, need_transpose);
+                output->setName(expr->name());
+                return output->expr().first;
+            }
+            // Fall through to general path when output order doesn't match
         }
 
         if (right.size() == 3) {
