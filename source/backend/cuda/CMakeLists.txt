@@ -8,8 +8,8 @@ endif()
 
 if(CUDA_FOUND)
     set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -D_FORCE_INLINES -Wno-deprecated-gpu-targets -w ${EXTRA_LIBS}")
-    if(MNN_SUPPORT_TRANSFORMER_FUSE)    
-        set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} --std=c++17") 
+    if(MNN_SUPPORT_TRANSFORMER_FUSE OR MNN_LOW_MEMORY)
+        set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} --std=c++17")
     endif()
     if(CMAKE_BUILD_TYPE MATCHES Debug)
         set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -O0 -g")
@@ -24,24 +24,31 @@ if(CUDA_FOUND)
     CUDA_SELECT_NVCC_ARCH_FLAGS(CUDA_ARCH_FLAGS ${CUDA_ARCHS})
 
     list(LENGTH CUDA_ARCH_FLAGS_readable_code arch_count)
-    # Current Supported Arch List 
+    # Current Supported Arch List
     IF (MSVC)
      set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -allow-unsupported-compiler")
     ENDIF()
     IF (${arch_count} EQUAL 1)
-        set(support_archs 60 61 62 70 72 75 80 86 87 89)
+        set(support_archs 60 61 62 70 72 75 80 86 87 89 120)
         list(FIND support_archs ${CUDA_ARCH_FLAGS_readable_code} list_index)
         IF (${list_index} EQUAL -1)
             message(FATAL_ERROR "Please add your own sm arch ${CUDA_ARCH_FLAGS_readable_code} to CmakeLists.txt!")
         ENDIF()
     ENDIF()
 
+    # When MNN_CUDA_NATIVE_ARCH is ON, only compile for the auto-detected local
+    # arch (skips the broad gencode list below). Saves compile time and disk.
+    option(MNN_CUDA_NATIVE_ARCH "Only emit gencode for local GPU arch" OFF)
+    IF (MNN_CUDA_NATIVE_ARCH AND ${arch_count} EQUAL 1)
+        set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} ${CUDA_ARCH_FLAGS}")
+        message(STATUS "MNN_CUDA_NATIVE_ARCH=ON, only compile for sm_${CUDA_ARCH_FLAGS_readable_code}")
+    ELSE()
     IF ((CUDA_VERSION VERSION_GREATER "8.0") OR (CUDA_VERSION VERSION_EQUAL "8.0"))
         set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_60,code=sm_60")
         set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_61,code=sm_61")
         set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_62,code=sm_62")
     ENDIF()
-    
+
     IF ((CUDA_VERSION VERSION_GREATER "10.1") OR (CUDA_VERSION VERSION_EQUAL "10.1"))
         set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_70,code=sm_70")
         set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_72,code=sm_72")
@@ -66,6 +73,12 @@ if(CUDA_FOUND)
     IF ((CUDA_VERSION VERSION_GREATER "12.2") OR (CUDA_VERSION VERSION_EQUAL "12.2"))
         set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_89,code=sm_89")
         add_definitions(-DMNN_CUDA_ENABLE_SM89 -DMNN_CUDA_ENABLE_SM89)
+    ENDIF()
+
+    IF ((CUDA_VERSION VERSION_GREATER "12.7") OR (CUDA_VERSION VERSION_EQUAL "12.8"))
+        # Blackwell consumer (e.g. RTX 5090) — sm_120
+        set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_120,code=sm_120")
+    ENDIF()
     ENDIF()
 
     # Limit minimum cuda version for each archs
