@@ -20,7 +20,11 @@ void MNNLineDepthWiseInt8AddBiasScaleUnit_RVV(int8_t* dst, const int8_t* src, co
     const int8_t* srcPtr = src;
     const int8_t* weightPtr = weight;
 
+<<<<<<< HEAD
     const float* bias_z = (const float*)parameters->bias;
+=======
+    const int32_t* bias_z = parameters->bias;
+>>>>>>> d7f9d697 ([CPU:Bugfix] Fix the bug in MNNLineDepthWiseInt8AddBiasScaleUnit )
     const float* scale_z = parameters->scale;
     const int32_t max_val = parameters->maxValue;
     const int32_t min_val = parameters->minValue;
