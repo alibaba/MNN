@@ -75,7 +75,7 @@ if(CUDA_FOUND)
         add_definitions(-DMNN_CUDA_ENABLE_SM89 -DMNN_CUDA_ENABLE_SM89)
     ENDIF()
 
-    IF ((CUDA_VERSION VERSION_GREATER "12.7") OR (CUDA_VERSION VERSION_EQUAL "12.8"))
+    IF (CUDA_VERSION VERSION_GREATER_EQUAL "12.8")
         # Blackwell consumer (e.g. RTX 5090) — sm_120
         set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_120,code=sm_120")
     ENDIF()

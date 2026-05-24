@@ -118,7 +118,7 @@ def build_deps():
         extra_opts += ' -DMNN_INTERNAL=ON ' if USE_INTERNAL else ' '
         extra_opts += ' -DMNN_BUILD_TORCH=ON ' if USE_TORCH else ' '
         if USE_CUDA:
-            extra_opts += ' -DMNN_CUDA=ON -DMNN_CUDA_NATIVE_ARCH=ON -DCUDA_ARCHS=12.0 '
+            extra_opts += ' -DMNN_CUDA=ON -DMNN_CUDA_NATIVE_ARCH=ON '
             if USE_CUDA_TUNE:
                 extra_opts += ' -DMNN_CUDA_TUNE_PARAM=ON '
         extra_opts += ' ' if USE_SSE else ' -DMNN_USE_SSE=OFF '
