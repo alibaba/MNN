@@ -44,6 +44,7 @@ public:
 
         std::shared_ptr<Tensor> midtensor(new Tensor);
         TensorUtils::copyShape(outputs[0], midtensor.get(), true);
+        midtensor->buffer().type = outputs[0]->getType();
         auto midDes = TensorUtils::getDescribe(midtensor.get());
         midDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
         if (!exclusive) {
@@ -144,4 +145,4 @@ static void _create() {
 
 REGISTER_GEOMETRY(GeometryCumSum, _create);
 
-}
+} // namespace MNN

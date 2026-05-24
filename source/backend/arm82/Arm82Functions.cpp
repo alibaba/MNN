@@ -80,6 +80,197 @@ void MNNDualMatVecFp16(const float* S, const float* k, const float* q, float* ou
 void MNNDecayRankOneUpdateFp16(float* S, const float* k, const float* delta, float decay, size_t dk, size_t dv);
 }
 
+#if defined(__aarch64__) && defined(MNN_USE_NEON)
+// ──────────────────────────────────────────────────────────────────────────
+// MNNFusedGatedDeltaFp16 — FP16 specialization of the fused gated-delta-rule
+// kernel. See documentation in CommonOptFunction.h for the math.
+//
+// Pointers are typed `float*` for ABI uniformity with the FP32 version (the
+// dispatch table holds a single function pointer signature), but the
+// underlying memory is fp16. d_v is processed in chunks of 32 (= 4 v.8h
+// registers per accumulator) to keep all per-chunk state in registers,
+// which matters at d_v=128 where holding both out_k and out_q for the
+// whole row would otherwise exceed the 32 NEON v register budget.
+// ──────────────────────────────────────────────────────────────────────────
+static void MNNFusedGatedDeltaFp16(float* S_, const float* k_, const float* q_, const float* v_, float* out_,
+                                   float decay, float beta, float kq, size_t dk, size_t dv) {
+    auto S = reinterpret_cast<__fp16*>(S_);
+    auto k = reinterpret_cast<const __fp16*>(k_);
+    auto q = reinterpret_cast<const __fp16*>(q_);
+    auto vIn = reinterpret_cast<const __fp16*>(v_);
+    auto out = reinterpret_cast<__fp16*>(out_);
+
+    const __fp16 decayH = static_cast<__fp16>(decay);
+    const __fp16 betaH = static_cast<__fp16>(beta);
+    const __fp16 kqH = static_cast<__fp16>(kq);
+    const float16x8_t vDecay = vdupq_n_f16(decayH);
+    const float16x8_t vBeta = vdupq_n_f16(betaH);
+    const float16x8_t vKq = vdupq_n_f16(kqH);
+
+    const size_t kChunk = 32;
+    size_t j = 0;
+    for (; j + kChunk <= dv; j += kChunk) {
+        // ── Pass 1: out_k = S^T @ k, out_q = S^T @ q for this column chunk ──
+        float16x8_t ok0 = vdupq_n_f16((__fp16)0), ok1 = vdupq_n_f16((__fp16)0), ok2 = vdupq_n_f16((__fp16)0),
+                    ok3 = vdupq_n_f16((__fp16)0);
+        float16x8_t oq0 = vdupq_n_f16((__fp16)0), oq1 = vdupq_n_f16((__fp16)0), oq2 = vdupq_n_f16((__fp16)0),
+                    oq3 = vdupq_n_f16((__fp16)0);
+        size_t i = 0;
+        // Unroll i by 8: load 8 k & q scalars at once, then use fma-by-lane
+        // to amortize the scalar broadcast across 8 row iterations.
+        for (; i + 8 <= dk; i += 8) {
+            float16x8_t kVec = vld1q_f16(k + i);
+            float16x8_t qVec = vld1q_f16(q + i);
+#define LANE_STEP(lane)                                \
+    {                                                  \
+        const __fp16* row = S + (i + (lane)) * dv + j; \
+        float16x8_t s0 = vld1q_f16(row);               \
+        float16x8_t s1 = vld1q_f16(row + 8);           \
+        float16x8_t s2 = vld1q_f16(row + 16);          \
+        float16x8_t s3 = vld1q_f16(row + 24);          \
+        ok0 = vfmaq_laneq_f16(ok0, s0, kVec, (lane));  \
+        ok1 = vfmaq_laneq_f16(ok1, s1, kVec, (lane));  \
+        ok2 = vfmaq_laneq_f16(ok2, s2, kVec, (lane));  \
+        ok3 = vfmaq_laneq_f16(ok3, s3, kVec, (lane));  \
+        oq0 = vfmaq_laneq_f16(oq0, s0, qVec, (lane));  \
+        oq1 = vfmaq_laneq_f16(oq1, s1, qVec, (lane));  \
+        oq2 = vfmaq_laneq_f16(oq2, s2, qVec, (lane));  \
+        oq3 = vfmaq_laneq_f16(oq3, s3, qVec, (lane));  \
+    }
+            LANE_STEP(0);
+            LANE_STEP(1);
+            LANE_STEP(2);
+            LANE_STEP(3);
+            LANE_STEP(4);
+            LANE_STEP(5);
+            LANE_STEP(6);
+            LANE_STEP(7);
+#undef LANE_STEP
+        }
+        // Tail rows (dk % 8) — fall back to the broadcast form.
+        for (; i < dk; ++i) {
+            const __fp16* row = S + i * dv + j;
+            float16x8_t s0 = vld1q_f16(row);
+            float16x8_t s1 = vld1q_f16(row + 8);
+            float16x8_t s2 = vld1q_f16(row + 16);
+            float16x8_t s3 = vld1q_f16(row + 24);
+            __fp16 ki = k[i];
+            __fp16 qi = q[i];
+            ok0 = vfmaq_n_f16(ok0, s0, ki);
+            ok1 = vfmaq_n_f16(ok1, s1, ki);
+            ok2 = vfmaq_n_f16(ok2, s2, ki);
+            ok3 = vfmaq_n_f16(ok3, s3, ki);
+            oq0 = vfmaq_n_f16(oq0, s0, qi);
+            oq1 = vfmaq_n_f16(oq1, s1, qi);
+            oq2 = vfmaq_n_f16(oq2, s2, qi);
+            oq3 = vfmaq_n_f16(oq3, s3, qi);
+        }
+
+        // ── Inline analytic correction (regs only) ──
+        float16x8_t v0 = vld1q_f16(vIn + j);
+        float16x8_t v1 = vld1q_f16(vIn + j + 8);
+        float16x8_t v2 = vld1q_f16(vIn + j + 16);
+        float16x8_t v3 = vld1q_f16(vIn + j + 24);
+        // delta = beta * (v - decay * out_k)
+        float16x8_t d0 = vmulq_f16(vBeta, vsubq_f16(v0, vmulq_f16(vDecay, ok0)));
+        float16x8_t d1 = vmulq_f16(vBeta, vsubq_f16(v1, vmulq_f16(vDecay, ok1)));
+        float16x8_t d2 = vmulq_f16(vBeta, vsubq_f16(v2, vmulq_f16(vDecay, ok2)));
+        float16x8_t d3 = vmulq_f16(vBeta, vsubq_f16(v3, vmulq_f16(vDecay, ok3)));
+        // out = decay * out_q + kq * delta
+        float16x8_t o0 = vfmaq_f16(vmulq_f16(vDecay, oq0), vKq, d0);
+        float16x8_t o1 = vfmaq_f16(vmulq_f16(vDecay, oq1), vKq, d1);
+        float16x8_t o2 = vfmaq_f16(vmulq_f16(vDecay, oq2), vKq, d2);
+        float16x8_t o3 = vfmaq_f16(vmulq_f16(vDecay, oq3), vKq, d3);
+        vst1q_f16(out + j, o0);
+        vst1q_f16(out + j + 8, o1);
+        vst1q_f16(out + j + 16, o2);
+        vst1q_f16(out + j + 24, o3);
+
+        // ── Pass 2: S = decay * S + k ⊗ delta (delta still in regs) ──
+        size_t i2 = 0;
+        for (; i2 + 8 <= dk; i2 += 8) {
+            float16x8_t kVec = vld1q_f16(k + i2);
+#define ROW_UPDATE(lane)                                                           \
+    {                                                                              \
+        __fp16* row = S + (i2 + (lane)) * dv + j;                                  \
+        float16x8_t s0 = vld1q_f16(row);                                           \
+        float16x8_t s1 = vld1q_f16(row + 8);                                       \
+        float16x8_t s2 = vld1q_f16(row + 16);                                      \
+        float16x8_t s3 = vld1q_f16(row + 24);                                      \
+        float16x8_t r0 = vfmaq_laneq_f16(vmulq_f16(vDecay, s0), d0, kVec, (lane)); \
+        float16x8_t r1 = vfmaq_laneq_f16(vmulq_f16(vDecay, s1), d1, kVec, (lane)); \
+        float16x8_t r2 = vfmaq_laneq_f16(vmulq_f16(vDecay, s2), d2, kVec, (lane)); \
+        float16x8_t r3 = vfmaq_laneq_f16(vmulq_f16(vDecay, s3), d3, kVec, (lane)); \
+        vst1q_f16(row, r0);                                                        \
+        vst1q_f16(row + 8, r1);                                                    \
+        vst1q_f16(row + 16, r2);                                                   \
+        vst1q_f16(row + 24, r3);                                                   \
+    }
+            ROW_UPDATE(0);
+            ROW_UPDATE(1);
+            ROW_UPDATE(2);
+            ROW_UPDATE(3);
+            ROW_UPDATE(4);
+            ROW_UPDATE(5);
+            ROW_UPDATE(6);
+            ROW_UPDATE(7);
+#undef ROW_UPDATE
+        }
+        for (; i2 < dk; ++i2) {
+            __fp16* row = S + i2 * dv + j;
+            float16x8_t s0 = vld1q_f16(row);
+            float16x8_t s1 = vld1q_f16(row + 8);
+            float16x8_t s2 = vld1q_f16(row + 16);
+            float16x8_t s3 = vld1q_f16(row + 24);
+            __fp16 ki = k[i2];
+            float16x8_t r0 = vfmaq_n_f16(vmulq_f16(vDecay, s0), d0, ki);
+            float16x8_t r1 = vfmaq_n_f16(vmulq_f16(vDecay, s1), d1, ki);
+            float16x8_t r2 = vfmaq_n_f16(vmulq_f16(vDecay, s2), d2, ki);
+            float16x8_t r3 = vfmaq_n_f16(vmulq_f16(vDecay, s3), d3, ki);
+            vst1q_f16(row, r0);
+            vst1q_f16(row + 8, r1);
+            vst1q_f16(row + 16, r2);
+            vst1q_f16(row + 24, r3);
+        }
+    }
+
+    // ── Tail (chunks of 8) ──
+    for (; j + 8 <= dv; j += 8) {
+        float16x8_t ok = vdupq_n_f16((__fp16)0);
+        float16x8_t oq = vdupq_n_f16((__fp16)0);
+        for (size_t i = 0; i < dk; ++i) {
+            float16x8_t s = vld1q_f16(S + i * dv + j);
+            ok = vfmaq_n_f16(ok, s, k[i]);
+            oq = vfmaq_n_f16(oq, s, q[i]);
+        }
+        float16x8_t vv = vld1q_f16(vIn + j);
+        float16x8_t d = vmulq_f16(vBeta, vsubq_f16(vv, vmulq_f16(vDecay, ok)));
+        float16x8_t o = vfmaq_f16(vmulq_f16(vDecay, oq), vKq, d);
+        vst1q_f16(out + j, o);
+        for (size_t i = 0; i < dk; ++i) {
+            float16x8_t s = vld1q_f16(S + i * dv + j);
+            float16x8_t r = vfmaq_n_f16(vmulq_f16(vDecay, s), d, k[i]);
+            vst1q_f16(S + i * dv + j, r);
+        }
+    }
+
+    // ── Scalar tail (defensive; d_v < multiple of 8 not used in current models) ──
+    for (; j < dv; ++j) {
+        float ok = 0.0f, oq = 0.0f;
+        for (size_t i = 0; i < dk; ++i) {
+            float s = (float)S[i * dv + j];
+            ok += s * (float)k[i];
+            oq += s * (float)q[i];
+        }
+        float delta_j = beta * ((float)vIn[j] - decay * ok);
+        out[j] = (__fp16)(decay * oq + kq * delta_j);
+        for (size_t i = 0; i < dk; ++i) {
+            float s = (float)S[i * dv + j];
+            S[i * dv + j] = (__fp16)(decay * s + (float)k[i] * delta_j);
+        }
+    }
+}
+#endif // __aarch64__ && MNN_USE_NEON
 
 namespace MNN {
 
@@ -2730,6 +2921,11 @@ bool Arm82Functions::init() {
     FUNC_PTR_ASSIGN(gInstance->MNNRankOneUpdate, MNNRankOneUpdateFp16);
     FUNC_PTR_ASSIGN(gInstance->MNNDualMatVec, MNNDualMatVecFp16);
     FUNC_PTR_ASSIGN(gInstance->MNNDecayRankOneUpdate, MNNDecayRankOneUpdateFp16);
+#if defined(__aarch64__) && defined(MNN_USE_NEON)
+    // Fused kernel uses NEON intrinsics directly (not extern asm), so the
+    // assignment must follow the same guard as the function body above.
+    FUNC_PTR_ASSIGN(gInstance->MNNFusedGatedDelta, MNNFusedGatedDeltaFp16);
+#endif
 #endif // MNN_SUPPORT_TRANSFORMER_FUSE
 
     gInstance->MNNComputeMatMulForH_1 = _MNNComputeMatMulForH_1_FP16;

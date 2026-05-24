@@ -80,6 +80,16 @@ class LlmConfig(PretrainedConfig):
         if llm_config.num_key_value_heads is None:
             llm_config.num_key_value_heads = llm_config.num_attention_heads
 
+        # Compatibility: transformers>=5.x moved rope_theta into rope_parameters dict
+        if llm_config.rope_theta is None or llm_config.rope_theta == 10000.0:
+            # Try rope_parameters (transformers 5.x style)
+            rp = getattr(config, 'rope_parameters', None) or getattr(config, 'rope_scaling', None)
+            if isinstance(rp, dict) and 'rope_theta' in rp:
+                llm_config.rope_theta = rp['rope_theta']
+            # Fallback to raw config JSON
+            elif 'rope_theta' in raw_config:
+                llm_config.rope_theta = raw_config['rope_theta']
+
         if llm_config.rope_theta is None:
             llm_config.rope_theta = 10000.0
 
@@ -141,7 +151,7 @@ class LLMExportConfig:
     attention_mask: str = 'float'
     attention_type: str = 'full'
     sliding_window: int = 0
-    tie_embeddings: Optional[List[Union[int]]] = field(default_factory=list)
+    tie_embeddings: Optional[Union[List[int], Dict[str, Any]]] = field(default_factory=list)
     jinja: Dict[str, Any] = field(default_factory=dict)
     vision: Optional[VisionExportConfig] = None
 

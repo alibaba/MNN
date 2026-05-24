@@ -105,7 +105,12 @@ ErrorCode CPULinearAttention::onResize(const std::vector<Tensor*>& inputs, const
     if (needRecurrentState) {
         int dk = mHeadKDim, dv = mHeadVDim;
         int threadNum = static_cast<CPUBackend*>(backend())->threadNumber();
-        int perThread = 2 * dk + 3 * dv; // q_local + k_local + v_local + vpred + delta
+        // Per-thread scratch holds q_local + k_local + v_local + vPred + delta.
+        // Prefill uses MNNFusedGatedDelta (only needs first 2*dk+dv) but decode
+        // falls back to the legacy two-call path (MNNDualMatVec + scalar
+        // correction + MNNDecayRankOneUpdate) which needs the full 2*dk+3*dv:
+        // the fused kernel regressed FP32 decode by ~3.5% on small L=1 shapes.
+        int perThread = 2 * dk + 3 * dv;
         mThreadLocalBuf.reset(Tensor::createDevice<int8_t>({threadNum * perThread * mBytes}));
         success = backend()->onAcquireBuffer(mThreadLocalBuf.get(), Backend::DYNAMIC);
         if (!success) return OUT_OF_MEMORY;
@@ -306,6 +311,20 @@ void CPULinearAttention::gated_delta_rule_ref(const std::vector<Tensor*>& inputs
 }
 
 ErrorCode CPULinearAttention::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    // onResize() may be skipped when shapes are unchanged. Ensure state is reset here too.
+    int seqLen = inputs[0]->length(2);
+    if (seqLen > 1 && mMeta != nullptr && mMeta->previous == mMeta->remove) {
+        bool loadingFromDisk = (mMeta->file_flag == KVMeta::PendingRead && mMeta->file_name.size() > 0);
+        if (!loadingFromDisk) {
+            if (mStateCache->mConvState.get() != nullptr) {
+                ::memset(mStateCache->mConvState->host<int8_t>(), 0, mStateCache->mConvState->elementSize());
+            }
+            if (mStateCache->mRecurrentState.get() != nullptr) {
+                ::memset(mStateCache->mRecurrentState->host<int8_t>(), 0, mStateCache->mRecurrentState->elementSize());
+            }
+        }
+    }
+
     // Load prefix cache from disk (PendingRead)
     if (mMeta != nullptr && mMeta->file_name.size() > 0 && mMeta->file_flag == KVMeta::PendingRead) {
         int layer_index = mMeta->layer_index;
@@ -554,16 +573,16 @@ void CPULinearAttention::gated_delta_rule_mnn(const std::vector<Tensor*>& inputs
     const int totalHeads = B * H;
 
     int8_t* threadBufBase = mThreadLocalBuf->host<int8_t>();
+    // Prefill uses fused kernel (only first 2*dk+dv touched) but the per-thread
+    // stride must match the larger allocation (decode's 2*dk+3*dv).
     const int perThread = 2 * d_k + 3 * d_v;
 
     MNN_CONCURRENCY_BEGIN(tId, threadNum) {
         int8_t* tBuf = threadBufBase + (int)tId * perThread * bytes;
         // Local buffers in native format (fp16 or fp32)
-        int8_t* q_local    = tBuf;
-        int8_t* k_local    = tBuf + d_k * bytes;
-        int8_t* v_local    = tBuf + 2 * d_k * bytes;
-        int8_t* localVPred = tBuf + (2 * d_k + d_v) * bytes;
-        int8_t* localDelta = tBuf + (2 * d_k + 2 * d_v) * bytes;
+        int8_t* q_local = tBuf;
+        int8_t* k_local = tBuf + d_k * bytes;
+        int8_t* v_local = tBuf + 2 * d_k * bytes;
 
         for (int idx = (int)tId; idx < totalHeads; idx += threadNum) {
             int b = idx / H;
@@ -613,32 +632,20 @@ void CPULinearAttention::gated_delta_rule_mnn(const std::vector<Tensor*>& inputs
                     }
                 }
 
-                // ── Step 5: Gated Delta Rule recurrence (optimized 2-pass) ──
+                // ── Step 5: Gated Delta Rule recurrence ──
                 float decay  = decayPtr[b * L * H + t * H + h];
                 float beta_t = _readElement(betaPtr, b * L * H + t * H + h, bytes);
 
-                // Pass 1 (read-only): compute S^T@k and S^T@q simultaneously
-                int8_t* o_t = outPtr + ((b * L + t) * H * d_v + h * d_v) * bytes;
-                gcore->MNNDualMatVec((float*)state, (float*)k_local, (float*)q_local,
-                                     (float*)localVPred, (float*)o_t, d_k, d_v);
-
-                // Analytic: vPred = decay * (S^T@k), out = decay * (S^T@q) + dot(k,q) * delta
+                // dot(k, q) — small reduction in fp32 for precision.
                 float kq = 0.0f;
                 for (int i = 0; i < d_k; ++i) {
                     kq += _readElement(k_local, i, bytes) * _readElement(q_local, i, bytes);
                 }
-                for (int i = 0; i < d_v; ++i) {
-                    float vPred_i = decay * _readElement(localVPred, i, bytes);
-                    float v_i     = _readElement(v_local, i, bytes);
-                    float delta_i = beta_t * (v_i - vPred_i);
-                    float out_i   = decay * _readElement(o_t, i, bytes) + kq * delta_i;
-                    _writeElement(localDelta, i, delta_i, bytes);
-                    _writeElement(o_t, i, out_i, bytes);
-                }
 
-                // Pass 2: S = decay*S + k⊗delta
-                gcore->MNNDecayRankOneUpdate((float*)state, (float*)k_local,
-                                             (float*)localDelta, decay, d_k, d_v);
+                // out_t is written; state S is updated in-place.
+                int8_t* o_t = outPtr + ((b * L + t) * H * d_v + h * d_v) * bytes;
+                gcore->MNNFusedGatedDelta((float*)state, (float*)k_local, (float*)q_local, (float*)v_local, (float*)o_t,
+                                          decay, beta_t, kq, d_k, d_v);
             } // end timestep
         } // end head
     }
@@ -720,6 +727,8 @@ void CPULinearAttention::gated_delta_rule_decode(const std::vector<Tensor*>& inp
 
     const int totalHeads = B * H;
     auto* threadBufBase = mThreadLocalBuf->host<int8_t>();
+    // Decode (L=1) keeps the legacy two-call path: the fused kernel regressed
+    // FP32 decode by ~3.5% on this shape (small d_v, single timestep).
     const int perThread = 2 * d_k + 3 * d_v;
 
     MNN_CONCURRENCY_BEGIN(tId, threadNum) {
@@ -770,16 +779,18 @@ void CPULinearAttention::gated_delta_rule_decode(const std::vector<Tensor*>& inp
                 }
             }
 
-            // ── Step 5: Gated Delta Rule (inline decay, no pre-computed buffer) ──
+            // ── Step 5: Gated Delta Rule (legacy two-call path) ──
             const float decay = expf(_readElement(gatePtr, b * H + h, bytes));
             const float beta_t = _readElement(betaPtr, b * H + h, bytes);
 
-            // Pass 1 (read-only): compute S^T@k and S^T@q simultaneously
+            // Pass 1 (read-only): out_k = S^T @ k → localVPred,
+            //                     out_q = S^T @ q → o_t (overwritten by correction below).
             int8_t* o_t = outPtr + (b * H * d_v + h * d_v) * bytes;
             gcore->MNNDualMatVec((float*)state, (float*)k_local, (float*)q_local, (float*)localVPred, (float*)o_t, d_k,
                                  d_v);
 
-            // Analytic correction
+            // Analytic correction: delta = beta * (v - decay * vPred);
+            //                      out   = decay * out_q + dot(k,q) * delta.
             float kq = 0.0f;
             for (int i = 0; i < d_k; ++i) {
                 kq += _readElement(k_local, i, bytes) * _readElement(q_local, i, bytes);
@@ -793,7 +804,7 @@ void CPULinearAttention::gated_delta_rule_decode(const std::vector<Tensor*>& inp
                 _writeElement(o_t, i, out_i, bytes);
             }
 
-            // Pass 2: S = decay*S + k⊗delta
+            // Pass 2: S = decay * S + k ⊗ delta.
             gcore->MNNDecayRankOneUpdate((float*)state, (float*)k_local, (float*)localDelta, decay, d_k, d_v);
         }
     }

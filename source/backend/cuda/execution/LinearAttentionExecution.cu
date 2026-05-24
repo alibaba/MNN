@@ -385,6 +385,7 @@ void gated_delta_rule_prefill_kernel(
 
 CUDALinearAttention::CUDALinearAttention(Backend* backend, const MNN::Op* op) : Execution(backend) {
     mCudaBackend = static_cast<CUDABackend*>(backend);
+    mMeta = (KVMeta*)(backend->getMetaPtr());
     auto param = op->main_as_LinearAttentionParam();
     mAttentionType = param->attn_type()->str();
     mNumKHeads = param->num_k_heads();
@@ -427,11 +428,18 @@ ErrorCode CUDALinearAttention::onResize(const std::vector<Tensor*>& inputs, cons
         if (!success) { MNN_ERROR("LinearAttention: recurrentState STATIC alloc failed\n"); return OUT_OF_MEMORY; }
         cudaMemset(getDevPtr<void>(mStateCache->mRecurrentState.get()), 0, rnnStateTotal * sizeof(float));
     } else if (seqLen > 1) {
-        if (mStateCache->mConvState.get() != nullptr)
-            cudaMemset(getDevPtr<void>(mStateCache->mConvState.get()), 0,
-                       mStateCache->mConvState->elementSize() * sizeof(float));
-        cudaMemset(getDevPtr<void>(mStateCache->mRecurrentState.get()), 0,
-                   mStateCache->mRecurrentState->elementSize() * sizeof(float));
+        // Prefill: reset state for new sequence, UNLESS:
+        // 1. Loading from prefix cache (PendingRead), or
+        // 2. Reusing KV from previous inference (reuse_kv=true, i.e. previous != remove)
+        bool loadingFromDisk = (mMeta != nullptr && mMeta->file_flag == KVMeta::PendingRead && mMeta->file_name.size() > 0);
+        bool reusingKV = (mMeta != nullptr && mMeta->previous != mMeta->remove);
+        if (!loadingFromDisk && !reusingKV) {
+            if (mStateCache->mConvState.get() != nullptr)
+                cudaMemset(getDevPtr<void>(mStateCache->mConvState.get()), 0,
+                           mStateCache->mConvState->elementSize() * sizeof(float));
+            cudaMemset(getDevPtr<void>(mStateCache->mRecurrentState.get()), 0,
+                       mStateCache->mRecurrentState->elementSize() * sizeof(float));
+        }
     }
 
     int convOutSize = batch * convDim * seqLen;
@@ -451,6 +459,20 @@ ErrorCode CUDALinearAttention::onResize(const std::vector<Tensor*>& inputs, cons
 }
 
 ErrorCode CUDALinearAttention::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    // onResize() may be skipped when shapes are unchanged. Ensure state is reset here too.
+    int seqLen = inputs[0]->length(2);
+    if (seqLen > 1 && mMeta != nullptr && mMeta->previous == mMeta->remove) {
+        bool loadingFromDisk = (mMeta->file_flag == KVMeta::PendingRead && mMeta->file_name.size() > 0);
+        if (!loadingFromDisk) {
+            if (mStateCache->mConvState.get() != nullptr) {
+                cudaMemset(getDevPtr<void>(mStateCache->mConvState.get()), 0,
+                           mStateCache->mConvState->elementSize() * sizeof(float));
+            }
+            cudaMemset(getDevPtr<void>(mStateCache->mRecurrentState.get()), 0,
+                       mStateCache->mRecurrentState->elementSize() * sizeof(float));
+        }
+    }
+
     auto qkvTensor = inputs[0];
     auto gateTensor = inputs[1];
     auto betaTensor = inputs[2];

@@ -29,13 +29,14 @@ layout(set=0, binding=6) readonly buffer s6 {
 layout(set=0, binding=7) readonly uniform constBuffer {
     ivec4 s0; // qLen, kLen, headNum, kvHeadNum
     ivec4 s1; // headDim, group, pastLen, totalLen
-    ivec4 s2; // maskQlen, maskKvlen, hasMask, cacheMaxLen
+    ivec4 s2; // maskQlen, maskKvlen, maskMode, cacheMaxLen
     vec4 f0;  // scale, 0, 0, 0
 } uConst;
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 const int MAX_D4 = 64; // headDim <= 256
+const float NEG_INF = -3.402823466e38;
 
 void main() {
     const int h = int(gl_GlobalInvocationID.x);
@@ -55,7 +56,7 @@ void main() {
     const int pastLen = uConst.s1.z;
     const int totalLen = uConst.s1.w;
 
-    const int hasMask = uConst.s2.z;
+    const int maskMode = uConst.s2.z;
     const int maskQlen = uConst.s2.x;
     const int maskKvlen = uConst.s2.y;
 
@@ -80,7 +81,7 @@ void main() {
     float m = -3.402823466e38;
     float s = 0.0;
 
-    const int kStart = (hasMask != 0 && maskKvlen > 0 && totalLen > maskKvlen) ? (totalLen - maskKvlen) : 0;
+    const int kStart = (maskMode == 1 && maskKvlen > 0 && totalLen > maskKvlen) ? (totalLen - maskKvlen) : 0;
 
     for (int k = 0; k < totalLen; ++k) {
         float dotSum = 0.0;
@@ -95,13 +96,15 @@ void main() {
             dotSum += dot(qv, kv);
         }
         float score = dotSum * scale;
-        if (hasMask != 0) {
+        if (maskMode == 1) {
             if (q < maskQlen && maskKvlen > 0 && k >= kStart) {
                 const int mk = k - kStart;
                 if (mk >= 0 && mk < maskKvlen) {
                     score += float(uMask.data[q * maskKvlen + mk]);
                 }
             }
+        } else if (maskMode == 2 && k > (pastLen + q)) {
+            score = NEG_INF;
         }
 
         float w = 0.0;

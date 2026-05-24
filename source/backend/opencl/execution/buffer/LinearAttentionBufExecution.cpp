@@ -18,6 +18,7 @@ namespace OpenCL {
 LinearAttentionBufExecution::LinearAttentionBufExecution(const MNN::Op *op, Backend *backend)
     : CommonExecution(backend, op) {
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
+    mMeta = (KVMeta*)(backend->getMetaPtr());
     auto param = op->main_as_LinearAttentionParam();
     mAttentionType = param->attn_type()->str();
     mNumKHeads = param->num_k_heads();
@@ -88,25 +89,31 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor *> &inp
             }
         }
     } else if (seqLen > 1) {
-        // Prefill (seqLen > 1): reset state for new sequence
-        {
-            cl_int res;
-            int bufferBytes = mStateCache->mRecurrentState->elementSize() * bytesPerElement;
-            void* mapPtr = runtime->commandQueue().enqueueMapBuffer(
-                openCLBuffer(mStateCache->mRecurrentState.get()), true, CL_MAP_WRITE, 0, bufferBytes, nullptr, nullptr, &res);
-            if (mapPtr != nullptr && res == CL_SUCCESS) {
-                ::memset(mapPtr, 0, bufferBytes);
-                runtime->commandQueue().enqueueUnmapMemObject(openCLBuffer(mStateCache->mRecurrentState.get()), mapPtr);
+        // Prefill: reset state for new sequence, UNLESS:
+        // 1. Loading from prefix cache (PendingRead), or
+        // 2. Reusing KV from previous inference (reuse_kv=true, i.e. previous != remove)
+        bool loadingFromDisk = (mMeta != nullptr && mMeta->file_flag == KVMeta::PendingRead && mMeta->file_name.size() > 0);
+        bool reusingKV = (mMeta != nullptr && mMeta->previous != mMeta->remove);
+        if (!loadingFromDisk && !reusingKV) {
+            {
+                cl_int res;
+                int bufferBytes = mStateCache->mRecurrentState->elementSize() * bytesPerElement;
+                void* mapPtr = runtime->commandQueue().enqueueMapBuffer(
+                    openCLBuffer(mStateCache->mRecurrentState.get()), true, CL_MAP_WRITE, 0, bufferBytes, nullptr, nullptr, &res);
+                if (mapPtr != nullptr && res == CL_SUCCESS) {
+                    ::memset(mapPtr, 0, bufferBytes);
+                    runtime->commandQueue().enqueueUnmapMemObject(openCLBuffer(mStateCache->mRecurrentState.get()), mapPtr);
+                }
             }
-        }
-        if (mStateCache->mConvState.get() != nullptr) {
-            cl_int res;
-            int bufferBytes = mStateCache->mConvState->elementSize() * bytesPerElement;
-            void* mapPtr = runtime->commandQueue().enqueueMapBuffer(
-                openCLBuffer(mStateCache->mConvState.get()), true, CL_MAP_WRITE, 0, bufferBytes, nullptr, nullptr, &res);
-            if (mapPtr != nullptr && res == CL_SUCCESS) {
-                ::memset(mapPtr, 0, bufferBytes);
-                runtime->commandQueue().enqueueUnmapMemObject(openCLBuffer(mStateCache->mConvState.get()), mapPtr);
+            if (mStateCache->mConvState.get() != nullptr) {
+                cl_int res;
+                int bufferBytes = mStateCache->mConvState->elementSize() * bytesPerElement;
+                void* mapPtr = runtime->commandQueue().enqueueMapBuffer(
+                    openCLBuffer(mStateCache->mConvState.get()), true, CL_MAP_WRITE, 0, bufferBytes, nullptr, nullptr, &res);
+                if (mapPtr != nullptr && res == CL_SUCCESS) {
+                    ::memset(mapPtr, 0, bufferBytes);
+                    runtime->commandQueue().enqueueUnmapMemObject(openCLBuffer(mStateCache->mConvState.get()), mapPtr);
+                }
             }
         }
     }
@@ -193,7 +200,7 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor *> &inp
         }
         mKernell2Norm = runtime->buildKernel("linear_attention_buf", "l2_norm", l2BuildOptions, mOpenCLBackend->getPrecision());
 
-        mGWSl2Norm = {128, (uint32_t)(H * UP_DIV(seqLen, 4)), (uint32_t)(batch * 2)};
+        mGWSl2Norm = {128, (uint32_t)(mNumKHeads * UP_DIV(seqLen, 4)), (uint32_t)(batch * 2)};
         mLWSl2Norm = {128, 1, 1};
         uint32_t idx = 0;
         cl_int ret = CL_SUCCESS;
@@ -201,7 +208,7 @@ ErrorCode LinearAttentionBufExecution::onResize(const std::vector<Tensor *> &inp
         ret |= mKernell2Norm->get().setArg(idx++, openCLBuffer(mConvOut.get()));    // conv_out
         ret |= mKernell2Norm->get().setArg(idx++, convDim);
         ret |= mKernell2Norm->get().setArg(idx++, dk);
-        ret |= mKernell2Norm->get().setArg(idx++, gqa_factor);
+        ret |= mKernell2Norm->get().setArg(idx++, 1);
         ret |= mKernell2Norm->get().setArg(idx++, key_dim);
         ret |= mKernell2Norm->get().setArg(idx++, seqLen);
         MNN_CHECK_CL_SUCCESS(ret, "setArg l2 norm");
@@ -435,7 +442,7 @@ ErrorCode LinearAttentionBufExecution::onResizeChunkedPrefill(
         auto l2BuildOptions = buildOptions;
         l2BuildOptions.emplace("-DUSE_VEC");
         mKernell2NormPrefill = runtime->buildKernel("linear_attention_buf", "l2_norm", l2BuildOptions, mOpenCLBackend->getPrecision());
-        mGWSl2NormPrefill = {128, (uint32_t)(H * UP_DIV(seqLen, 4)), (uint32_t)(batch * 2)};
+        mGWSl2NormPrefill = {128, (uint32_t)(mNumKHeads * UP_DIV(seqLen, 4)), (uint32_t)(batch * 2)};
         mLWSl2NormPrefill = {128, 1, 1};
         uint32_t idx = 0;
         cl_int ret = CL_SUCCESS;
@@ -443,7 +450,7 @@ ErrorCode LinearAttentionBufExecution::onResizeChunkedPrefill(
         ret |= mKernell2NormPrefill->get().setArg(idx++, openCLBuffer(mConvOutPrefill.get()));
         ret |= mKernell2NormPrefill->get().setArg(idx++, convDim);
         ret |= mKernell2NormPrefill->get().setArg(idx++, dk);
-        ret |= mKernell2NormPrefill->get().setArg(idx++, gqa_factor);
+        ret |= mKernell2NormPrefill->get().setArg(idx++, 1);
         ret |= mKernell2NormPrefill->get().setArg(idx++, key_dim);
         ret |= mKernell2NormPrefill->get().setArg(idx++, seqLen);
         MNN_CHECK_CL_SUCCESS(ret, "setArg l2 norm (prefill)");
@@ -533,6 +540,7 @@ ErrorCode LinearAttentionBufExecution::onResizeChunkedPrefill(
         ret |= mKernelChunkCorrectV->get().setArg(idx++, dk);
         ret |= mKernelChunkCorrectV->get().setArg(idx++, dv);
         ret |= mKernelChunkCorrectV->get().setArg(idx++, key_dim);
+        ret |= mKernelChunkCorrectV->get().setArg(idx++, gqa_factor);
         ret |= mKernelChunkCorrectV->get().setArg(idx++, numChunks);
         MNN_CHECK_CL_SUCCESS(ret, "setArg chunk_correct_v");
         auto maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernelChunkCorrectV));
@@ -718,9 +726,40 @@ ErrorCode LinearAttentionBufExecution::onExecuteChunkedPrefill(const std::vector
 }
 
 ErrorCode LinearAttentionBufExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    // onResize() may be skipped when shapes are unchanged. Ensure state is reset here too.
+    int seqLen = inputs[0]->length(2);
+    if (seqLen > 1 && mMeta != nullptr && mMeta->previous == mMeta->remove) {
+        bool loadingFromDisk = (mMeta->file_flag == KVMeta::PendingRead && mMeta->file_name.size() > 0);
+        if (!loadingFromDisk) {
+            auto runtime = mOpenCLBackend->getOpenCLRuntime();
+            int bytesPerElement = mOpenCLBackend->fpBytes();
+            if (mStateCache->mConvState.get() != nullptr) {
+                cl_int res;
+                int bufferBytes = mStateCache->mConvState->elementSize() * bytesPerElement;
+                void* mapPtr = runtime->commandQueue().enqueueMapBuffer(
+                    openCLBuffer(mStateCache->mConvState.get()), true, CL_MAP_WRITE, 0, bufferBytes, nullptr, nullptr, &res);
+                if (mapPtr != nullptr && res == CL_SUCCESS) {
+                    ::memset(mapPtr, 0, bufferBytes);
+                    runtime->commandQueue().enqueueUnmapMemObject(openCLBuffer(mStateCache->mConvState.get()), mapPtr);
+                }
+            }
+            {
+                cl_int res;
+                int bufferBytes = mStateCache->mRecurrentState->elementSize() * bytesPerElement;
+                void* mapPtr = runtime->commandQueue().enqueueMapBuffer(
+                    openCLBuffer(mStateCache->mRecurrentState.get()), true, CL_MAP_WRITE, 0, bufferBytes, nullptr, nullptr, &res);
+                if (mapPtr != nullptr && res == CL_SUCCESS) {
+                    ::memset(mapPtr, 0, bufferBytes);
+                    runtime->commandQueue().enqueueUnmapMemObject(openCLBuffer(mStateCache->mRecurrentState.get()), mapPtr);
+                }
+            }
+        }
+    }
+
     if (mUseChunkedPrefill) {
         return onExecuteChunkedPrefill(inputs, outputs);
     }
+
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
     int convStateSize = inputs[3]->length(2) - 1;
 
@@ -791,4 +830,4 @@ REGISTER_OPENCL_OP_CREATOR_TRANSFORMER(LinearAttentionBufCreator, OpType_LinearA
 
 } // namespace OpenCL
 } // namespace MNN
-#endif/* MNN_SUPPORT_TRANSFORMER_FUSE */
+#endif /* MNN_SUPPORT_TRANSFORMER_FUSE */

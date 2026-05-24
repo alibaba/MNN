@@ -991,6 +991,24 @@ class Qwen3Vision(Qwen2Vision):
         self.pos_embed = visual.pos_embed
         self.deepstack_merger_list = visual.deepstack_merger_list
 
+        # --- 修改点 1: 将 Patch_Embed 从 Conv3d 转换为 Linear ---
+        if hasattr(visual.patch_embed, 'proj'):
+            old_conv = visual.patch_embed.proj  # 重点：访问 .proj
+        else:
+            old_conv = visual.patch_embed       # 备选方案，防止某些版本结构不同
+        
+        out_channels, in_channels, kD, kH, kW = old_conv.weight.shape
+        in_features = in_channels * kD * kH * kW # 1536
+        
+        # 创建新的线性层
+        self.patch_embed = nn.Linear(in_features, out_channels)
+        
+        # 复制并转换权重 (C,D,H,W 展开顺序与 view(-1) 一致)
+        with torch.no_grad():
+            self.patch_embed.weight.copy_(old_conv.weight.view(out_channels, -1))
+            if old_conv.bias is not None:
+                self.patch_embed.bias.copy_(old_conv.bias)
+
         # deepstack
         self.deepstack_feature_list = []
         self.deepstack_embeds = None
@@ -1075,7 +1093,11 @@ class Qwen3Vision(Qwen2Vision):
 
     def forward(self, flatten_patches, position_ids, attention_mask, idx_tensor, weight_tensor):
         rotary_pos_emb = self.rotary(position_ids)
-        hidden_states = self.patch_embed(flatten_patches)
+        # --- 修改点 2: 使用线性层处理输入 ---
+        # 无论输入是 5D [B,3,2,16,16] 还是 2D [B,1536]，view 都能将其安全转为 2D
+        x = flatten_patches.view(flatten_patches.size(0), -1)
+        hidden_states = self.patch_embed(x) # 输出: [B, 1024]
+        # ------------------------------------
         pos_embeds = self.pos_embed(idx_tensor) * weight_tensor.unsqueeze(2)
         pos_embeds = torch.sum(pos_embeds, 0, False)
         hidden_states = hidden_states + pos_embeds
@@ -1137,6 +1159,23 @@ class Qwen3_5Vision(Qwen2Vision):
         self.llm_config['image_norm'] = image_norm.tolist()
         self.llm_config['num_grid_per_side'] = self.num_grid_per_side
         self.llm_config['has_deepstack'] = True
+        # --- 修改点 1: 将 Patch_Embed 从 Conv3d 转换为 Linear ---
+        if hasattr(visual.patch_embed, 'proj'):
+            old_conv = visual.patch_embed.proj  # 重点：访问 .proj
+        else:
+            old_conv = visual.patch_embed       # 备选方案，防止某些版本结构不同
+        
+        out_channels, in_channels, kD, kH, kW = old_conv.weight.shape
+        in_features = in_channels * kD * kH * kW 
+        
+        # 创建新的线性层
+        self.patch_embed = nn.Linear(in_features, out_channels)
+        
+        # 复制并转换权重 (C,D,H,W 展开顺序与 view(-1) 一致)
+        with torch.no_grad():
+            self.patch_embed.weight.copy_(old_conv.weight.view(out_channels, -1))
+            if old_conv.bias is not None:
+                self.patch_embed.bias.copy_(old_conv.bias)
 
     def get_idx_weight(self, grid_thw):
         grid_ts, grid_hs, grid_ws = grid_thw[:, 0], grid_thw[:, 1], grid_thw[:, 2]
@@ -1201,7 +1240,8 @@ class Qwen3_5Vision(Qwen2Vision):
 
     def forward(self, flatten_patches, position_ids, attention_mask, idx_tensor, weight_tensor):
         rotary_pos_emb = self.rotary(position_ids)
-        hidden_states = self.patch_embed(flatten_patches)
+        x = flatten_patches.view(flatten_patches.size(0), -1)
+        hidden_states = self.patch_embed(x)
         pos_embeds = self.pos_embed(idx_tensor) * weight_tensor.unsqueeze(2)
         pos_embeds = torch.sum(pos_embeds, 0, False)
         hidden_states = hidden_states + pos_embeds

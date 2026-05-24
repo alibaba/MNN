@@ -21,7 +21,11 @@ project(MNN VERSION ${MNN_VERSION} LANGUAGES C CXX ASM)
 # complier options
 set(CMAKE_C_STANDARD 99)
 IF (NOT (CMAKE_CXX_STANDARD EQUAL 17))
-  set(CMAKE_CXX_STANDARD 11)
+  if(MSVC AND MNN_QNN)
+    set(CMAKE_CXX_STANDARD 20)
+  else()
+    set(CMAKE_CXX_STANDARD 11)
+  endif()
 ENDIF()
 set(CMAKE_MODULE_PATH
   ${CMAKE_MODULE_PATH}
@@ -81,6 +85,7 @@ option(MNN_CPU_WEIGHT_DEQUANT_GEMM "Build MNN CPU weight dequant related gemm ke
 option(MNN_BUILD_AUDIO "Build audio api in MNN." OFF)
 option(MNN_SME2 "Use Arm sme2 instructions" ON)
 option(MNN_METAL_TENSOR "Use Metal4 tensor instructions" ON)
+option(MNN_GENERATE_PODSPEC "Generate iOS podspec file from CMake configuration" OFF)
 
 if (MNN_BUILD_MINI)
     set(MNN_SKIPBUILD_GEOMETRY ON CACHE BOOL "<docstring>" FORCE)
@@ -1084,4 +1089,9 @@ ELSE()
 ENDIF()
 if (MNN_JNI)
     add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/source/jni/)
+endif()
+
+if (MNN_GENERATE_PODSPEC)
+    include(${CMAKE_CURRENT_LIST_DIR}/cmake/generate_podspec.cmake)
+    generate_mnn_podspec_from_targets()
 endif()

@@ -20,13 +20,13 @@ public:
         std::vector<float> scales;
         int scalesSize = 1;
 
-        auto op            = expr->get();
-        auto extraParam    = op->main_as_Extra();
+        auto op = expr->get();
+        auto extraParam = op->main_as_Extra();
         const int attrSize = extraParam->attr()->size();
         std::string interpMode;
         std::string coordMode = ""; // detect align_corner attribute
         for (int i = 0; i < attrSize; ++i) {
-            auto attr       = extraParam->attr()->GetAs<Attribute>(i);
+            auto attr = extraParam->attr()->GetAs<Attribute>(i);
             const auto& key = attr->key()->str();
             if (key == "mode") {
                 interpMode = attr->s()->str();
@@ -40,8 +40,8 @@ public:
         }
 
         std::unique_ptr<OpT> mergeredUpsample(new OpT);
-        mergeredUpsample->name      = expr->name();
-        mergeredUpsample->type      = OpType_Interp;
+        mergeredUpsample->name = expr->name();
+        mergeredUpsample->type = OpType_Interp;
         mergeredUpsample->main.type = OpParameter_Interp;
 
         std::unique_ptr<InterpT> interpParam(new InterpT);
@@ -49,8 +49,8 @@ public:
         const float* scaleDataPtr = scales.data();
 
         if (inputs.size() == 2) {
-            auto scale     = inputs[1];
-            scaleDataPtr   = scale->readMap<float>();
+            auto scale = inputs[1];
+            scaleDataPtr = scale->readMap<float>();
             auto scaleInfo = scale->getInfo();
 
             if (!scaleDataPtr) {
@@ -62,16 +62,16 @@ public:
             scalesSize = scaleInfo->size;
         }
 
-        interpParam->widthScale  = 1.0f;
+        interpParam->widthScale = 1.0f;
         interpParam->heightScale = 1.0f;
         if (scalesSize >= 2 && scalesSize <= 4) {
             MNN_THROW_CHECK(scaleDataPtr[1] == 1.0f, "MNN NOT SUPPORT Upsamle along with channle");
             if (scalesSize >= 3) {
                 interpParam->heightScale = scaleDataPtr[2];
             }
-            if (scalesSize == 4){
-                interpParam->widthScale  = scaleDataPtr[3];
-            } 
+            if (scalesSize == 4) {
+                interpParam->widthScale = scaleDataPtr[3];
+            }
         } else {
             MNN_ERROR("MNN Not support Upsample when scale size = %d\n", scalesSize);
         }
@@ -89,8 +89,8 @@ public:
         }
 
         mergeredUpsample->main.value = interpParam.release();
-        auto newInput                = inputs[0];
-        auto tempOutput              = Variable::create(Expr::create(mergeredUpsample.get(), {newInput}));
+        auto newInput = inputs[0];
+        auto tempOutput = Variable::create(Expr::create(mergeredUpsample.get(), {newInput}));
         tempOutput->setName(expr->name());
 
         auto output = tempOutput;
@@ -105,15 +105,15 @@ public:
         // input, roi, scales, sizes
         // for more information, please reference from https://github.com/onnx/onnx/blob/master/docs/Operators.md#Resize
         MNN_THROW_CHECK((inputs.size() >= 2), "Onnx Resize should have 2/3/4 inputs!");
-        std::string resizeMode  = "";
-        std::string coordMode   = "half_pixel"; // detect align_corner attribute
+        std::string resizeMode = "";
+        std::string coordMode = "half_pixel"; // detect align_corner attribute
         std::string nearestMode = "round_prefer_floor";
-        auto op                 = expr->get();
-        auto extraParam         = op->main_as_Extra();
-        const int attrSize      = extraParam->attr()->size();
-        float cubicFactor       = -0.75f;
+        auto op = expr->get();
+        auto extraParam = op->main_as_Extra();
+        const int attrSize = extraParam->attr()->size();
+        float cubicFactor = -0.75f;
         for (int i = 0; i < attrSize; ++i) {
-            auto attr       = extraParam->attr()->GetAs<Attribute>(i);
+            auto attr = extraParam->attr()->GetAs<Attribute>(i);
             const auto& key = attr->key()->str();
             if (key == "mode") {
                 resizeMode = attr->s()->str();
@@ -127,7 +127,7 @@ public:
         }
 
         std::unique_ptr<OpT> mergeredResize(new OpT);
-        mergeredResize->type      = OpType_Interp;
+        mergeredResize->type = OpType_Interp;
         mergeredResize->main.type = OpParameter_Interp;
 
         std::unique_ptr<InterpT> resizeParam(new InterpT);
@@ -144,14 +144,14 @@ public:
         } else if (resizeMode == "bilinear" || resizeMode == "linear") {
             resizeParam->resizeType = 2;
         } else if (resizeMode == "cubic") {
-            resizeParam->resizeType  = 3;
+            resizeParam->resizeType = 3;
             resizeParam->cubicCoeffA = cubicFactor;
         } else {
             MNN_ERROR("Unsupported Upsample mode! ==> %s, use bilinear instead\n", resizeMode.c_str());
             resizeParam->resizeType = 2;
         }
         // For compability of old mnn
-        resizeParam->alignCorners     = (coordMode == "align_corners");
+        resizeParam->alignCorners = (coordMode == "align_corners");
         resizeParam->halfPixelCenters = (coordMode == "half_pixel");
 
         /*
@@ -206,16 +206,16 @@ public:
             auto scaleT = inputs[2];
             // Compute shape dynamic
             mergeredResize->main.value = resizeParam.release();
-            auto resizeExpr            = Expr::create(mergeredResize.get(), {inputs[0], {inputs[2]}});
+            auto resizeExpr = Expr::create(mergeredResize.get(), {inputs[0], {inputs[2]}});
             resizeExpr->setName(expr->name());
             output = Variable::create(resizeExpr);
             return output->expr().first;
         }
         if (inputs.size() == 4) {
-            auto sizes                 = inputs[3];
-            auto name                  = sizes->name();
+            auto sizes = inputs[3];
+            auto name = sizes->name();
             mergeredResize->main.value = resizeParam.release();
-            auto resizeExpr            = Expr::create(mergeredResize.get(), {inputs[0], inputs[3]});
+            auto resizeExpr = Expr::create(mergeredResize.get(), {inputs[0], inputs[3]});
             resizeExpr->setName(expr->name());
             output = Variable::create(resizeExpr);
             return output->expr().first;
@@ -228,6 +228,8 @@ static auto gRigister = []() {
     OnnxExtraManager::get()->insert("Upsample",
                                     std::shared_ptr<OnnxExtraManager::Transform>(new OnnxUpSampleTransform));
 
+    // Resize has a dedicated ONNX converter. Keep this legacy extra transform registered only for old models
+    // that may still carry Resize as an Extra op.
     OnnxExtraManager::get()->insert("Resize", std::shared_ptr<OnnxExtraManager::Transform>(new OnnxReiszeTransform));
     return true;
 }();

@@ -45,6 +45,7 @@ mMaps.insert(std::make_pair("glsl_gridSampleBilinear_FP16_comp", std::make_pair(
 mMaps.insert(std::make_pair("glsl_gridSampleBilinear_PAD_MODE_ZEROS_FP16_comp", std::make_pair(glsl_gridSampleBilinear_PAD_MODE_ZEROS_FP16_comp,glsl_gridSampleBilinear_PAD_MODE_ZEROS_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_attention_fused_packed_comp", std::make_pair(glsl_attention_fused_packed_comp,glsl_attention_fused_packed_comp_len)));
 mMaps.insert(std::make_pair("glsl_attention_fused_packed_FP16_comp", std::make_pair(glsl_attention_fused_packed_FP16_comp,glsl_attention_fused_packed_FP16_comp_len)));
+mMaps.insert(std::make_pair("glsl_conv1x1_int4_weight_sumK_comp", std::make_pair(glsl_conv1x1_int4_weight_sumK_comp,glsl_conv1x1_int4_weight_sumK_comp_len)));
 mMaps.insert(std::make_pair("glsl_conv1x1_int4_weight_prepare_comp", std::make_pair(glsl_conv1x1_int4_weight_prepare_comp,glsl_conv1x1_int4_weight_prepare_comp_len)));
 mMaps.insert(std::make_pair("glsl_gridSampleNearest_comp", std::make_pair(glsl_gridSampleNearest_comp,glsl_gridSampleNearest_comp_len)));
 mMaps.insert(std::make_pair("glsl_gridSampleNearest_PAD_MODE_ZEROS_comp", std::make_pair(glsl_gridSampleNearest_PAD_MODE_ZEROS_comp,glsl_gridSampleNearest_PAD_MODE_ZEROS_comp_len)));
@@ -103,14 +104,17 @@ mMaps.insert(std::make_pair("glsl_convolution_RELU6_comp", std::make_pair(glsl_c
 mMaps.insert(std::make_pair("glsl_convolution_FP16_comp", std::make_pair(glsl_convolution_FP16_comp,glsl_convolution_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_convolution_RELU_FP16_comp", std::make_pair(glsl_convolution_RELU_FP16_comp,glsl_convolution_RELU_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_convolution_RELU6_FP16_comp", std::make_pair(glsl_convolution_RELU6_FP16_comp,glsl_convolution_RELU6_FP16_comp_len)));
+mMaps.insert(std::make_pair("glsl_dynamic_w8a8_coop_gemm_comp", std::make_pair(glsl_dynamic_w8a8_coop_gemm_comp,glsl_dynamic_w8a8_coop_gemm_comp_len)));
 mMaps.insert(std::make_pair("glsl_attention_prefill_kblock_qk_comp", std::make_pair(glsl_attention_prefill_kblock_qk_comp,glsl_attention_prefill_kblock_qk_comp_len)));
 mMaps.insert(std::make_pair("glsl_attention_prefill_kblock_qk_FP16_comp", std::make_pair(glsl_attention_prefill_kblock_qk_FP16_comp,glsl_attention_prefill_kblock_qk_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_attention_prefill_kblock_qkv_acc_comp", std::make_pair(glsl_attention_prefill_kblock_qkv_acc_comp,glsl_attention_prefill_kblock_qkv_acc_comp_len)));
 mMaps.insert(std::make_pair("glsl_attention_prefill_kblock_qkv_acc_FP16_comp", std::make_pair(glsl_attention_prefill_kblock_qkv_acc_FP16_comp,glsl_attention_prefill_kblock_qkv_acc_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_linear_attn_conv_state_update_comp", std::make_pair(glsl_linear_attn_conv_state_update_comp,glsl_linear_attn_conv_state_update_comp_len)));
 mMaps.insert(std::make_pair("glsl_linear_attn_conv_state_update_FP16_comp", std::make_pair(glsl_linear_attn_conv_state_update_FP16_comp,glsl_linear_attn_conv_state_update_FP16_comp_len)));
+mMaps.insert(std::make_pair("glsl_dynamic_quant_reduce_sum_comp", std::make_pair(glsl_dynamic_quant_reduce_sum_comp,glsl_dynamic_quant_reduce_sum_comp_len)));
 mMaps.insert(std::make_pair("glsl_linear_attn_gated_delta_rule_decode_comp", std::make_pair(glsl_linear_attn_gated_delta_rule_decode_comp,glsl_linear_attn_gated_delta_rule_decode_comp_len)));
 mMaps.insert(std::make_pair("glsl_linear_attn_gated_delta_rule_decode_FP16_comp", std::make_pair(glsl_linear_attn_gated_delta_rule_decode_FP16_comp,glsl_linear_attn_gated_delta_rule_decode_FP16_comp_len)));
+mMaps.insert(std::make_pair("glsl_dynamic_int4_to_int8_unpack_comp", std::make_pair(glsl_dynamic_int4_to_int8_unpack_comp,glsl_dynamic_int4_to_int8_unpack_comp_len)));
 mMaps.insert(std::make_pair("glsl_linear_attn_gated_delta_rule_prefill_comp", std::make_pair(glsl_linear_attn_gated_delta_rule_prefill_comp,glsl_linear_attn_gated_delta_rule_prefill_comp_len)));
 mMaps.insert(std::make_pair("glsl_linear_attn_gated_delta_rule_prefill_FP16_comp", std::make_pair(glsl_linear_attn_gated_delta_rule_prefill_FP16_comp,glsl_linear_attn_gated_delta_rule_prefill_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_attention_kvcache_update_comp", std::make_pair(glsl_attention_kvcache_update_comp,glsl_attention_kvcache_update_comp_len)));
@@ -229,8 +233,12 @@ mMaps.insert(std::make_pair("glsl_nchwTonc4hw4_comp", std::make_pair(glsl_nchwTo
 mMaps.insert(std::make_pair("glsl_nchwTonc4hw4_FP16_comp", std::make_pair(glsl_nchwTonc4hw4_FP16_comp,glsl_nchwTonc4hw4_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_nc4hw4Tonchw_comp", std::make_pair(glsl_nc4hw4Tonchw_comp,glsl_nc4hw4Tonchw_comp_len)));
 mMaps.insert(std::make_pair("glsl_nc4hw4Tonchw_FP16_comp", std::make_pair(glsl_nc4hw4Tonchw_FP16_comp,glsl_nc4hw4Tonchw_FP16_comp_len)));
+mMaps.insert(std::make_pair("glsl_dynamic_quant_pack_comp", std::make_pair(glsl_dynamic_quant_pack_comp,glsl_dynamic_quant_pack_comp_len)));
+mMaps.insert(std::make_pair("glsl_dynamic_quant_pack_FP16_comp", std::make_pair(glsl_dynamic_quant_pack_FP16_comp,glsl_dynamic_quant_pack_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_C4_to_COOP_comp", std::make_pair(glsl_C4_to_COOP_comp,glsl_C4_to_COOP_comp_len)));
 mMaps.insert(std::make_pair("glsl_C4_to_COOP_FP16_comp", std::make_pair(glsl_C4_to_COOP_FP16_comp,glsl_C4_to_COOP_FP16_comp_len)));
+mMaps.insert(std::make_pair("glsl_dynamic_w8a8_dequant_correction_comp", std::make_pair(glsl_dynamic_w8a8_dequant_correction_comp,glsl_dynamic_w8a8_dequant_correction_comp_len)));
+mMaps.insert(std::make_pair("glsl_dynamic_w8a8_dequant_correction_FP16_comp", std::make_pair(glsl_dynamic_w8a8_dequant_correction_FP16_comp,glsl_dynamic_w8a8_dequant_correction_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_matmulunit_comp", std::make_pair(glsl_matmulunit_comp,glsl_matmulunit_comp_len)));
 mMaps.insert(std::make_pair("glsl_matmulunit_FP16_comp", std::make_pair(glsl_matmulunit_FP16_comp,glsl_matmulunit_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_blitregion_comp", std::make_pair(glsl_blitregion_comp,glsl_blitregion_comp_len)));
@@ -275,6 +283,7 @@ mMaps.insert(std::make_pair("glsl_attention_prefill_kblock_init_state_comp", std
 mMaps.insert(std::make_pair("glsl_attention_prefill_kblock_init_state_FP16_comp", std::make_pair(glsl_attention_prefill_kblock_init_state_FP16_comp,glsl_attention_prefill_kblock_init_state_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_onehot_comp", std::make_pair(glsl_onehot_comp,glsl_onehot_comp_len)));
 mMaps.insert(std::make_pair("glsl_onehot_FP16_comp", std::make_pair(glsl_onehot_FP16_comp,glsl_onehot_FP16_comp_len)));
+mMaps.insert(std::make_pair("glsl_conv1x1_int8_weight_sumK_comp", std::make_pair(glsl_conv1x1_int8_weight_sumK_comp,glsl_conv1x1_int8_weight_sumK_comp_len)));
 mMaps.insert(std::make_pair("glsl_attention_fused_comp", std::make_pair(glsl_attention_fused_comp,glsl_attention_fused_comp_len)));
 mMaps.insert(std::make_pair("glsl_attention_fused_FP16_comp", std::make_pair(glsl_attention_fused_FP16_comp,glsl_attention_fused_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_linear_attn_gated_delta_rule_decode_nosubgroup_comp", std::make_pair(glsl_linear_attn_gated_delta_rule_decode_nosubgroup_comp,glsl_linear_attn_gated_delta_rule_decode_nosubgroup_comp_len)));
@@ -317,6 +326,8 @@ mMaps.insert(std::make_pair("glsl_binary_blit_NOTEQUAL_FP16_comp", std::make_pai
 mMaps.insert(std::make_pair("glsl_binary_blit_VMOD_FP16_comp", std::make_pair(glsl_binary_blit_VMOD_FP16_comp,glsl_binary_blit_VMOD_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_binary_blit_FLOORDIV_FP16_comp", std::make_pair(glsl_binary_blit_FLOORDIV_FP16_comp,glsl_binary_blit_FLOORDIV_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_binary_blit_FLOORMOD_FP16_comp", std::make_pair(glsl_binary_blit_FLOORMOD_FP16_comp,glsl_binary_blit_FLOORMOD_FP16_comp_len)));
+mMaps.insert(std::make_pair("glsl_dynamic_quant_minmax_comp", std::make_pair(glsl_dynamic_quant_minmax_comp,glsl_dynamic_quant_minmax_comp_len)));
+mMaps.insert(std::make_pair("glsl_dynamic_quant_minmax_FP16_comp", std::make_pair(glsl_dynamic_quant_minmax_FP16_comp,glsl_dynamic_quant_minmax_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_pack_a_k4m4_to_m64k4_comp", std::make_pair(glsl_pack_a_k4m4_to_m64k4_comp,glsl_pack_a_k4m4_to_m64k4_comp_len)));
 mMaps.insert(std::make_pair("glsl_pack_a_k4m4_to_m64k4_FP16_comp", std::make_pair(glsl_pack_a_k4m4_to_m64k4_FP16_comp,glsl_pack_a_k4m4_to_m64k4_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_attention_decode_q1_subgroup_comp", std::make_pair(glsl_attention_decode_q1_subgroup_comp,glsl_attention_decode_q1_subgroup_comp_len)));
@@ -371,5 +382,7 @@ mMaps.insert(std::make_pair("glsl_binary_blit_int_GREATEREQUAL_comp", std::make_
 mMaps.insert(std::make_pair("glsl_binary_blit_int_EQUAL_comp", std::make_pair(glsl_binary_blit_int_EQUAL_comp,glsl_binary_blit_int_EQUAL_comp_len)));
 mMaps.insert(std::make_pair("glsl_binary_blit_int_NOTEQUAL_comp", std::make_pair(glsl_binary_blit_int_NOTEQUAL_comp,glsl_binary_blit_int_NOTEQUAL_comp_len)));
 mMaps.insert(std::make_pair("glsl_binary_blit_int_VMOD_comp", std::make_pair(glsl_binary_blit_int_VMOD_comp,glsl_binary_blit_int_VMOD_comp_len)));
+mMaps.insert(std::make_pair("glsl_dynamic_quant_reduce_minmax_comp", std::make_pair(glsl_dynamic_quant_reduce_minmax_comp,glsl_dynamic_quant_reduce_minmax_comp_len)));
+mMaps.insert(std::make_pair("glsl_dynamic_quant_reduce_minmax_FP16_comp", std::make_pair(glsl_dynamic_quant_reduce_minmax_FP16_comp,glsl_dynamic_quant_reduce_minmax_FP16_comp_len)));
 }
 }

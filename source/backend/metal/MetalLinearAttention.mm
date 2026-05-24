@@ -46,6 +46,7 @@ MetalLinearAttention::MetalLinearAttention(Backend *backend, const MNN::Op* op)
     mStateCache.reset(new MetalStateCache);
 
     auto mtbn = static_cast<MetalBackend *>(backend);
+    mMeta = (KVMeta*)(mtbn->getMetaPtr());
     auto context = (__bridge MNNMetalContext *)mtbn->context();
     mParamBuffer = [context newDeviceBuffer:sizeof(LinearAttnParam) access:CPUWriteOnly];
 
@@ -166,15 +167,21 @@ ErrorCode MetalLinearAttention::onResize(const std::vector<Tensor *> &inputs, co
         auto rnnPtr = (uint8_t*)rnnDevice.contents + TensorUtils::getDescribeOrigin(mStateCache->mRecurrentState.get())->offset;
         ::memset(rnnPtr, 0, batch * H * dk * dv * bytesPerElement);
     } else if (seqLen > 1) {
-        // Prefill (seqLen > 1): reset state for new sequence
-        if (mStateCache->mConvState.get() != nullptr) {
-            auto convDevice = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mStateCache->mConvState->deviceId())->getBuffer();
-            auto convPtr = (uint8_t*)convDevice.contents + TensorUtils::getDescribeOrigin(mStateCache->mConvState.get())->offset;
-            ::memset(convPtr, 0, mStateCache->mConvState->elementSize() * bytesPerElement);
+        // Prefill: reset state for new sequence, UNLESS:
+        // 1. Loading from prefix cache (PendingRead), or
+        // 2. Reusing KV from previous inference (reuse_kv=true, i.e. previous != remove)
+        bool loadingFromDisk = (mMeta != nullptr && mMeta->file_flag == KVMeta::PendingRead && mMeta->file_name.size() > 0);
+        bool reusingKV = (mMeta != nullptr && mMeta->previous != mMeta->remove);
+        if (!loadingFromDisk && !reusingKV) {
+            if (mStateCache->mConvState.get() != nullptr) {
+                auto convDevice = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mStateCache->mConvState->deviceId())->getBuffer();
+                auto convPtr = (uint8_t*)convDevice.contents + TensorUtils::getDescribeOrigin(mStateCache->mConvState.get())->offset;
+                ::memset(convPtr, 0, mStateCache->mConvState->elementSize() * bytesPerElement);
+            }
+            auto rnnDevice = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mStateCache->mRecurrentState->deviceId())->getBuffer();
+            auto rnnPtr = (uint8_t*)rnnDevice.contents + TensorUtils::getDescribeOrigin(mStateCache->mRecurrentState.get())->offset;
+            ::memset(rnnPtr, 0, mStateCache->mRecurrentState->elementSize() * bytesPerElement);
         }
-        auto rnnDevice = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mStateCache->mRecurrentState->deviceId())->getBuffer();
-        auto rnnPtr = (uint8_t*)rnnDevice.contents + TensorUtils::getDescribeOrigin(mStateCache->mRecurrentState.get())->offset;
-        ::memset(rnnPtr, 0, mStateCache->mRecurrentState->elementSize() * bytesPerElement);
     }
     // Decode (seqLen == 1): keep existing state untouched
 
@@ -204,6 +211,23 @@ ErrorCode MetalLinearAttention::onResize(const std::vector<Tensor *> &inputs, co
 }
 
 void MetalLinearAttention::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
+    // onResize() may be skipped when shapes are unchanged. Ensure state is reset here too.
+    if (inputs[0]->length(2) > 1 && mMeta != nullptr && mMeta->previous == mMeta->remove) {
+        bool loadingFromDisk = (mMeta->file_flag == KVMeta::PendingRead && mMeta->file_name.size() > 0);
+        if (!loadingFromDisk) {
+            auto mtbn = static_cast<MetalBackend *>(backend());
+            int bytesPerElement = mtbn->useFp16InsteadFp32() ? 2 : 4;
+            if (mStateCache->mConvState.get() != nullptr) {
+                auto convDevice = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mStateCache->mConvState->deviceId())->getBuffer();
+                auto convPtr = (uint8_t*)convDevice.contents + TensorUtils::getDescribeOrigin(mStateCache->mConvState.get())->offset;
+                ::memset(convPtr, 0, mStateCache->mConvState->elementSize() * bytesPerElement);
+            }
+            auto rnnDevice = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mStateCache->mRecurrentState->deviceId())->getBuffer();
+            auto rnnPtr = (uint8_t*)rnnDevice.contents + TensorUtils::getDescribeOrigin(mStateCache->mRecurrentState.get())->offset;
+            ::memset(rnnPtr, 0, mStateCache->mRecurrentState->elementSize() * bytesPerElement);
+        }
+    }
+
     auto qkv = inputs[0];
     int batch = qkv->length(0);
     int convDim = qkv->length(1);

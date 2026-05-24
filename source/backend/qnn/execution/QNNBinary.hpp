@@ -21,6 +21,7 @@ public:
     QNNBinary(Backend *backend, const Op *op, const std::string & binaryTypeName) : QNNCommonExecution(backend, op), mBinaryTypeName(binaryTypeName) {}
     virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 private:
+    ErrorCode onEncodeBinaryMod(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
     ErrorCode onEncodeScalarOptimize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, int fullIndex);
     ErrorCode onEncodeBroadcast(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, int fullIndex);
 private:

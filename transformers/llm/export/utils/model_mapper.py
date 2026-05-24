@@ -370,6 +370,10 @@ class ModelMapper:
                 'num_hidden_layers': 'text_config.num_hidden_layers',
                 'num_key_value_heads': 'text_config.num_key_value_heads',
                 'rope_theta': 'text_config.rope_theta',
+                'rope_parameters': 'text_config.rope_parameters',
+                'max_position_embeddings': 'text_config.max_position_embeddings',
+                'layer_types': 'text_config.layer_types',
+                'sliding_window': 'text_config.sliding_window',
 
                 'image_size': 'vision_config.image_size',
                 'num_channels': 'vision_config.num_channels',
@@ -416,6 +420,7 @@ class ModelMapper:
                 'num_hidden_layers': 'num_hidden_layers',
                 'num_key_value_heads': 'num_key_value_heads',
                 'rope_theta': 'rope_theta',
+                'rope_parameters': 'rope_parameters',
                 'max_position_embeddings': 'max_position_embeddings',
                 'model_type': 'model_type',
                 'vocab_size': 'vocab_size',

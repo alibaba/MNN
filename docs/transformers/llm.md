@@ -936,14 +936,108 @@ make -j16
 ```
 
 
-使用 `npu/generate_llm_qnn.py` 构建 qnn 模型
-eg:
+使用 `npu/generate_llm_qnn.py` 构建 qnn 模型。该脚本支持三种使用模式：转换 LLM 语言模型、转换 Visual 视觉模型、以及通过自定义 `input_json` 转换任意模型。
 
-```
+##### 参数说明
+
+| 参数 | 类型 | 默认值 | 说明 |
+| :--- | :--- | :----- | :--- |
+| `--model` | str | (必填) | MNN 模型所在目录路径 |
+| `--soc_id` | int | (必填) | 目标设备的 SOC ID，如 8Gen3 为 57 |
+| `--dsp_arch` | str | (必填) | 目标设备的 DSP 架构，如 8Gen3 为 v75 |
+| `--model_name` | str | `llm.mnn` | 要转换的模型文件名，如 `llm.mnn` 或 `visual.mnn` |
+| `--image_sizes` | str | `512x512` | 视觉模型的输入图片尺寸，支持多尺寸，如 `"224x224,384x384,512x512"` |
+| `--input_json` | str | `""` | 自定义输入 shape 的 JSON 文件路径，非空时使用自定义模式 |
+| `--external_file` | str | `""` | 外部权重文件名（相对于 `--model` 目录），配合 `--input_json` 使用 |
+| `--mnn_path` | str | `../../../build/` | MNN 编译产物路径 |
+| `--cache_path` | str | `tmp` | 转换过程中的临时缓存目录 |
+| `--chunk_size` | int | `128` | NPU 的 chunk 大小 |
+| `--max_history_token` | int | `0` | 最大历史 token 数，0 表示不限制 |
+
+##### 用法一：转换 LLM 语言模型
+
+默认模式，将 `llm.mnn` 转换为 QNN 模型。脚本会自动从模型目录下的 `llm_config.json` 读取 `hidden_size` 等配置信息，生成对应的输入描述并完成转换。
+
+```bash
 cd ${MNN_ROOT}
 cd transformers/llm/export
-python3 npu/generate_llm_qnn.py --model model --soc_id=57 --dsp_arch=v75
+python3 npu/generate_llm_qnn.py \
+    --model /path/to/Qwen3.5-2B-MNN/ \
+    --soc_id=57 \
+    --dsp_arch=v75
 ```
+
+转换完成后，会在模型目录下生成 `qnn/` 子目录和 `config_qnn.json` 配置文件。
+
+##### 用法二：转换 Visual 视觉模型
+
+通过指定 `--model_name visual.mnn` 进入视觉模型转换模式。需要通过 `--image_sizes` 指定支持的输入图片尺寸（格式为 `WxH`，多个尺寸用逗号分隔）。目前支持 Qwen2.5-VL、Qwen3-VL、Qwen3.5-VL 和 FastVLM 系列视觉模型。
+
+```bash
+cd ${MNN_ROOT}
+cd transformers/llm/export
+python3 npu/generate_llm_qnn.py \
+    --model /path/to/Qwen2.5-VL-3B-MNN/ \
+    --soc_id=57 \
+    --dsp_arch=v75 \
+    --image_sizes 256x256 \
+    --model_name visual.mnn
+```
+
+支持多个图片尺寸：
+```bash
+python3 npu/generate_llm_qnn.py \
+    --model /path/to/Qwen2.5-VL-3B-MNN/ \
+    --soc_id=57 \
+    --dsp_arch=v75 \
+    --image_sizes "224x224,384x384,512x512" \
+    --model_name visual.mnn
+```
+
+转换完成后，会在模型目录下生成 `qnn/` 子目录和 `config_qnn.json`（其中 `visual_model` 字段指向转换后的 QNN 视觉模型）。
+
+##### 用法三：使用自定义 input_json 转换任意模型
+
+当需要转换非标准模型或自定义输入 shape 时，可以通过 `--input_json` 指定一个 JSON 文件来描述模型的输入输出信息。此模式下需要同时指定 `--model_name`（模型文件名）和 `--external_file`（权重文件名）。
+
+input_json 文件格式示例：
+```json
+{
+    "configs": [
+        {
+            "inputs": [
+                {"name": "input_0", "shape": [1, 3, 224, 224]},
+                {"name": "input_1", "shape": [1, 10], "type": "int"}
+            ],
+            "outputs": ["output_0"]
+        },
+        {
+            "inputs": [
+                {"name": "input_0", "shape": [1, 3, 384, 384]},
+                {"name": "input_1", "shape": [1, 20], "type": "int"}
+            ],
+            "outputs": ["output_0"]
+        }
+    ]
+}
+```
+
+其中 `configs` 数组中的每个元素代表一组输入 shape 配置，脚本会为每组配置生成对应的 QNN 模型。`type` 字段可选，默认为 float，支持 `"int"` 等类型。
+
+使用示例：
+```bash
+cd ${MNN_ROOT}
+cd transformers/llm/export
+python3 npu/generate_llm_qnn.py \
+    --model /path/to/MyModel-MNN/ \
+    --soc_id=57 \
+    --dsp_arch=v75 \
+    --input_json /path/to/input.json \
+    --model_name my_model.mnn \
+    --external_file my_model.mnn.weight
+```
+
+> **注意**：使用 `--input_json` 模式时，脚本不会自动生成 `config_qnn.json`，需要用户自行配置运行时的配置文件。
 
 目标设备`soc_id` 和 `dsp_arch` 可在高通官方查询，如下为一些设备的参考
 

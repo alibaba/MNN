@@ -10,7 +10,8 @@
 #include "core/Macro.h"
 #include "VulkanConvolutionImpl.hpp"
 #include "core/ConvolutionCommon.hpp"
-#include "VulkanConv1x1Coop.hpp"
+#include "VulkanConv1x1CoopAFP16.hpp"
+#include "VulkanConv1x1CoopA8.hpp"
 #include "VulkanConv1x1General.hpp"
 namespace MNN {
 int VulkanConvolutionCommon::gImage2ColLocal = 256;
@@ -577,6 +578,20 @@ public:
                 bool singleInput = (inputs.size() == 1);
                 if (useInt8Conv && is1x1 && singleInput) {
                     if (coopMatInfo.supportCoopMat && supportSubgroupArithmetic && extra->gpuType() == VulkanRuntime::ADRENO) {
+                        // W8A8 path: per-channel asym int8 OR int4 (decode + prefill share
+                        // body; INT4 inserts a runtime nibble unpack stage) + S8S8->S32
+                        // cooperative matrix on Adreno. alpha layout for asym is (offset,
+                        // scale) per channel-block; per-channel == alpha.size() ==
+                        // outputCount * 2 (block-quant has size outputCount * blockCount * 2,
+                        // which excludes it from this branch).
+                        const bool perChannelAsym = (quanWeight != nullptr)
+                            && quanWeight->asymmetric
+                            && (int)quanWeight->alpha.size() == outputCount * 2
+                            && extra->getDevice().getInt8Support();
+                        if (perChannelAsym && coopMatInfo.supportS8S8S32) {
+                            return new VulkanConv1x1CoopA8(extra, convCommonParam, biasPtr,
+                                                           srcCount, outputCount, coopMatInfo, quanWeight);
+                        }
                         return new VulkanConv1x1Coop(extra, convCommonParam, nullptr, biasPtr, srcCount, outputCount, coopMatInfo,
                                                      quanWeight);
                     }

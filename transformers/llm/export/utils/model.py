@@ -142,8 +142,14 @@ class LlmModel(PreTrainedModel):
 
         model.embed = Embedding(model.embed, config)
 
-        # gemma4: dual rotary for sliding vs full attention layers
-        if model_type == 'gemma4' and hasattr(config, 'rope_parameters') and config.rope_parameters is not None:
+        # gemma3/gemma3_text/gemma4: dual rotary for sliding vs full attention layers
+        # rope_parameters has form {'sliding_attention': {'rope_theta': ...}, 'full_attention': {'rope_theta': ...}}
+        _rp = getattr(config, 'rope_parameters', None)
+        _is_dual_rope = (model_type in ('gemma3', 'gemma3_text', 'gemma4')
+                         and _rp is not None
+                         and isinstance(_rp, dict)
+                         and any(isinstance(v, dict) for v in _rp.values()))
+        if _is_dual_rope:
             rp = config.rope_parameters
             origin_config = config.origin_config
             text_config = origin_config.text_config if hasattr(origin_config, 'text_config') else origin_config
@@ -153,7 +159,7 @@ class LlmModel(PreTrainedModel):
                 'rope_theta': sliding_rp.get('rope_theta', 10000.0),
                 'rope_ratio': None,
                 'head_dim': text_config.head_dim,
-                'model_type': 'gemma4',
+                'model_type': model_type,
                 'rope_parameters': None,
                 'rope_scaling': None,
                 'max_position_embeddings': config.max_position_embeddings if hasattr(config, 'max_position_embeddings') else 131072,
@@ -167,7 +173,7 @@ class LlmModel(PreTrainedModel):
                 'rope_theta': full_rp.get('rope_theta', 1000000.0),
                 'rope_ratio': None,
                 'head_dim': global_head_dim,
-                'model_type': 'gemma4',
+                'model_type': model_type,
                 'rope_parameters': None,
                 'rope_scaling': None,
                 'max_position_embeddings': config.max_position_embeddings if hasattr(config, 'max_position_embeddings') else 131072,
@@ -331,7 +337,14 @@ class LlmModel(PreTrainedModel):
         if self.scale_emb is not None:
             hidden_states = hidden_states * self.scale_emb
 
-        eagle_hidden_states = []
+        spec_hidden_states = []
+        eagle_layer_ids = set()
+        dflash_layer_ids = set()
+        if self.args and self.args.eagle_path:
+            eagle_layer_ids = {len(self.blocks)-3, len(self.blocks)//2, 2}
+        elif self.args and hasattr(self.args, 'dflash_target_layer_ids') and self.args.dflash_target_layer_ids:
+            dflash_layer_ids = set(self.args.dflash_target_layer_ids)
+
         rotary_pos_emb = self.rotary(position_ids)
         if self.args and self.args.test and rotary_pos_emb.dtype != hidden_states.dtype:
             rotary_pos_emb = rotary_pos_emb.type(hidden_states.dtype)
@@ -350,10 +363,9 @@ class LlmModel(PreTrainedModel):
             if hasattr(self.blocks[i].self_attn, 'is_kv_shared_layer'):
                 self.blocks[i].self_attn._shared_kv_cache = shared_kv_cache
 
-            # eagle3 hidden states
-            if self.args and self.args.eagle_path and (i == len(self.blocks)-3 or i == len(self.blocks)//2 or i==2):
-                eagle_hidden_states.append(hidden_states)
-
+            # eagle: collect hidden states BEFORE the layer (input to layer)
+            if i in eagle_layer_ids:
+                spec_hidden_states.append(hidden_states)
             # sliding or full attn mask
             if self.config.attention_type == 'mix':
                 is_sliding = i in self.config.sliding_attn_layers
@@ -373,6 +385,10 @@ class LlmModel(PreTrainedModel):
             hidden_states = self.blocks[i](hidden_states, layer_rotary, layer_attention_mask)
             if deepstack_embeds is not None and i in range(deepstack_embeds.shape[0]):
                 hidden_states += deepstack_embeds[i]
+
+            # dflash: collect hidden states AFTER the layer (output of layer)
+            if i in dflash_layer_ids:
+                spec_hidden_states.append(hidden_states)
 
         talker_embeds = None
         if hasattr(self, 'talker') and self.talker is not None:
@@ -396,8 +412,8 @@ class LlmModel(PreTrainedModel):
             hidden_states = hidden_states[:, logits_index_long:, :]
         logits = self.lm(hidden_states)
 
-        if self.args and self.args.eagle_path is not None:
-            final_layernorm = torch.cat(eagle_hidden_states, dim=-1)
+        if self.args and (self.args.eagle_path is not None or (hasattr(self.args, 'dflash_target_layer_ids') and self.args.dflash_target_layer_ids)):
+            final_layernorm = torch.cat(spec_hidden_states, dim=-1)
 
         return logits, final_layernorm, talker_embeds
 

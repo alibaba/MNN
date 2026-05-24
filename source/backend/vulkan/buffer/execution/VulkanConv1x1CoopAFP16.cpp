@@ -1,4 +1,4 @@
-#include "VulkanConv1x1Coop.hpp"
+#include "VulkanConv1x1CoopAFP16.hpp"
 #include "core/TensorUtils.hpp"
 #include "core/Macro.h"
 #include "VulkanBackend.hpp"

@@ -193,11 +193,17 @@ public:
         return mFP16Info.supportFP16;
     }
 
+    bool getInt8Support() const {
+        return mInt8Info.supportInt8;
+    }
+
 private:
     // Set mFP16Info
     void checkFP16(const std::vector<VkExtensionProperties>& availableExts);
     // Set mCoopMatInfo
     void checkCoopMat(const std::vector<VkExtensionProperties>& availableExts);
+    // Set mInt8Info
+    void checkInt8(const std::vector<VkExtensionProperties>& availableExts);
 
 
 private:
@@ -233,6 +239,10 @@ public:
         std::vector<std::vector<uint32_t>> fp16CoopMatShape;
         std::vector<uint32_t> selectedFP32CoopMatShape; // {M, N, K}
         std::vector<uint32_t> selectedFP16CoopMatShape; // {M, N, K}
+        // S8S8->S32 cooperative matrix (used by W8A8 conv1x1 prefill path)
+        bool supportS8S8S32{false};
+        std::vector<std::vector<uint32_t>> s8CoopMatShape;
+        std::vector<uint32_t> selectedS8CoopMatShape; // {M, N, K}
     };
 private:
     CoopMatInfo mCoopMatInfo{};
@@ -240,6 +250,20 @@ public:
     CoopMatInfo getCoopMatInfo() const {
         return mCoopMatInfo;
     }
+
+// Int8 storage / arithmetic related (independent of FP16 path)
+private:
+    struct Int8Info {
+        bool supportInt8{false};
+        // Reuses the same VkPhysicalDeviceShaderFloat16Int8Features struct
+        // family as FP16, but only the shaderInt8 bit is configured here so
+        // the FP16 path remains unaffected.
+        VkPhysicalDeviceShaderFloat16Int8Features enabledShaderInt8Features{};
+        VkPhysicalDevice8BitStorageFeatures enabled8BitStorageFeatures{};
+        bool int8FromExtension{false};
+        VkPhysicalDeviceVulkan12Features enabledVulkan12Int8Features{};
+    };
+    Int8Info mInt8Info{};
 };
 } // namespace MNN
 #endif /* VulkanDevice_hpp */

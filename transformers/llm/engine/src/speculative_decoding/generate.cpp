@@ -25,6 +25,8 @@ std::shared_ptr<Generation> GenerationStrategyFactory::create(Llm* llm, std::sha
             res.reset(new MtpGeneration(llm, context, config));
         } else if(config->speculative_type() == "eagle") {
             res.reset(new EagleGeneration(llm, context, config));
+        } else if(config->speculative_type() == "dflash") {
+            res.reset(new DFlashGeneration(llm, context, config));
         } else {
             // autoregressive generation
             res.reset(new ArGeneration(llm, context, config));
@@ -42,6 +44,9 @@ ArGeneration::ArGeneration(Llm* llm, std::shared_ptr<LlmContext> context, std::s
 void ArGeneration::generate(GenerationParams& param) {
     int max_token = param.max_new_tokens;
     int len = 0;
+#ifdef DUMP_PROFILE_INFO
+    int64_t ar_forward_us = 0, ar_sample_us = 0, ar_other_us = 0;
+#endif
     while (len < max_token) {
         if(mContext->status == LlmStatus::USER_CANCEL || mContext->status == LlmStatus::INTERNAL_ERROR) {
             break;
@@ -52,7 +57,13 @@ void ArGeneration::generate(GenerationParams& param) {
         }
         AUTOTIME;
         // Update gen seq
+#ifdef DUMP_PROFILE_INFO
+        MNN::Timer _t_sample;
+#endif
         mContext->current_token = mLlm->sample(param.outputs[0], param.validLogitStart, param.validLogitSize);
+#ifdef DUMP_PROFILE_INFO
+        ar_sample_us += _t_sample.durationInUs();
+#endif
         mContext->history_tokens.push_back(mContext->current_token);
         mContext->output_tokens.push_back(mContext->current_token);
         mLlm->updateContext(0, 1);
@@ -71,10 +82,16 @@ void ArGeneration::generate(GenerationParams& param) {
             *mContext->os << std::flush;
         }
         // Compute Next Logits
+#ifdef DUMP_PROFILE_INFO
+        MNN::Timer _t_fwd;
+#endif
         auto outputs = mLlm->forwardVec({mContext->current_token});
         if(outputs.empty()) {
             break;
         }
+#ifdef DUMP_PROFILE_INFO
+        ar_forward_us += _t_fwd.durationInUs();
+#endif
         // Update input seq
         mLlm->updateContext(1, 0);
         mContext->decode_us += _t.durationInUs();
@@ -83,6 +100,19 @@ void ArGeneration::generate(GenerationParams& param) {
     if(len >= max_token) {
         mContext->status = LlmStatus::MAX_TOKENS_FINISHED;
     }
+#ifdef DUMP_PROFILE_INFO
+    ar_other_us = mContext->decode_us - ar_forward_us - ar_sample_us;
+    MNN_PRINT("\n============== AR Decoding Statistics Start ===============\n");
+    MNN_PRINT("Total tokens: %d\n", len);
+    MNN_PRINT("Phase timing (ms): forward=%.1f, sample=%.1f, other=%.1f\n",
+              ar_forward_us / 1000.0f, ar_sample_us / 1000.0f, ar_other_us / 1000.0f);
+    MNN_PRINT("Per-token avg (ms): forward=%.2f, sample=%.2f, other=%.2f, total=%.2f\n",
+              len > 0 ? ar_forward_us / 1000.0f / len : 0,
+              len > 0 ? ar_sample_us / 1000.0f / len : 0,
+              len > 0 ? ar_other_us / 1000.0f / len : 0,
+              len > 0 ? mContext->decode_us / 1000.0f / len : 0);
+    MNN_PRINT("============== AR Decoding Statistics End =================\n");
+#endif
 }
 
 int Generation::draftVerify(VARP logits, const std::vector<int> &drafts, bool& stop) {

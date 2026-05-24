@@ -25,9 +25,9 @@
 #include "backend/cpu/compute/ConvInt8TiledExecutor.hpp"
 
 #ifdef MNN_KLEIDIAI_ENABLED
-#include "backend/cpu/compute/KleidiAIConvInt8.hpp"
-#include "backend/cpu/compute/KleidiAIConvolution.hpp"
-#include "backend/cpu/compute/KleidiAIDenseConvolution.hpp"
+#include "backend/cpu/kleidiai/KleidiAIConvInt8.hpp"
+#include "backend/cpu/kleidiai/KleidiAIConvolution.hpp"
+#include "backend/cpu/kleidiai/KleidiAIDenseConvolution.hpp"
 #endif //MNN_KLEIDIAI_ENABLED
 
 namespace MNN {

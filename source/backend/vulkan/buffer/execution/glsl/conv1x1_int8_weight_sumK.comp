@@ -1,0 +1,40 @@
+// Static prepare: SumWq[n] = sum_k Wq[n, k] over the prepared int8 weight
+// buffer (`mQuantWeightBuffer`, layout [padN, padK/4] uint32 with each uint32
+// packing 4 contiguous int8 along K). Padding rows (n >= co) and padding K
+// (k >= ci) are already zero in the weight buffer, so this kernel can simply
+// stride the entire padded extent without bounds checks past padN.
+//
+// Dispatch: groupCount = (ceil(padN / 64), 1, 1), localSize = (64, 1, 1).
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(binding = 0) readonly buffer WeightBuffer {
+    int Wp[]; // [padN, padK/4]; each int packs 4x int8 along K.
+};
+
+layout(binding = 1) writeonly buffer SumWeight {
+    int SumWq[]; // [padN]
+};
+
+layout(push_constant) uniform PushConstants {
+    uint padN;
+    uint weightStride; // padK / 4
+} pc;
+
+void main() {
+    uint n = gl_GlobalInvocationID.x;
+    if (n >= pc.padN) {
+        return;
+    }
+
+    int sum = 0;
+    uint base = n * pc.weightStride;
+    for (uint i = 0u; i < pc.weightStride; ++i) {
+        int packed = Wp[base + i];
+        sum += bitfieldExtract(packed, 0, 8)
+             + bitfieldExtract(packed, 8, 8)
+             + bitfieldExtract(packed, 16, 8)
+             + bitfieldExtract(packed, 24, 8);
+    }
+    SumWq[n] = sum;
+}

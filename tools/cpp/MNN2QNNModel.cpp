@@ -11,7 +11,9 @@
 #include "rapidjson/prettywriter.h"
 #include "rapidjson/stringbuffer.h"
 #include "core/MNNFileUtils.h"
+#ifndef _WIN32
 #include <sys/utsname.h>
+#endif
 
 using namespace rapidjson;
 
@@ -129,6 +131,12 @@ static bool parseDims(const std::string& s, std::vector<std::vector<int>>& out) 
 }
 
 static bool checkSystem() {
+#ifdef _WIN32
+    // On Windows, skip the system check as this tool is primarily for Linux
+    // but we allow it to compile on Windows for development purposes
+    MNN_PRINT("Warning: This tool is designed for x86_64 Linux systems. Running on Windows may have limitations.\n");
+    return true;
+#else
     struct utsname buf;
     if (uname(&buf) != 0) {
         MNN_ERROR("uname error\n");
@@ -139,6 +147,7 @@ static bool checkSystem() {
     }
     MNN_ERROR("This program must be run on a x86_64 Linux system. Current system: %s %s\n", buf.sysname, buf.machine);
     return false;
+#endif
 }
 
 int main(int argc, const char* argv[]) {

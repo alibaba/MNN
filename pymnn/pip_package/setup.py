@@ -224,6 +224,7 @@ def configure_extension_build():
     # llm include
     engine_include_dirs += [os.path.join(root_dir, "transformers", "llm", "engine", "include")]
     engine_include_dirs += [os.path.join(root_dir, "3rd_party")]
+    engine_include_dirs += [os.path.join(root_dir, "3rd_party", "half")]
     if has_numpy:
         engine_include_dirs += [np.get_include()]
 
@@ -312,6 +313,7 @@ def configure_extension_build():
     tools_include_dirs += [os.path.join(root_dir, "3rd_party",\
                                           "flatbuffers", "include")]
     tools_include_dirs += [os.path.join(root_dir, "3rd_party")]
+    tools_include_dirs += [os.path.join(root_dir, "3rd_party", "half")]
     tools_include_dirs += [os.path.join(root_dir, "3rd_party", "imageHelper")]
     tools_include_dirs += [os.path.join(root_dir, "source", "core")]
     tools_include_dirs += [os.path.join(root_dir, "schema", "current")]

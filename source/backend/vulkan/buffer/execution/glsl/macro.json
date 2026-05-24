@@ -451,5 +451,32 @@
     },
     "gemm_m8n4.comp": {
         "useFP16": true
+    },
+    "conv1x1_int8_weight_sumK.comp": {
+        "useFP16": false
+    },
+    "conv1x1_int4_weight_sumK.comp": {
+        "useFP16": false
+    },
+    "dynamic_int4_to_int8_unpack.comp": {
+        "useFP16": false
+    },
+    "dynamic_quant_minmax.comp": {
+        "useFP16": true
+    },
+    "dynamic_quant_reduce_minmax.comp": {
+        "useFP16": true
+    },
+    "dynamic_quant_pack.comp": {
+        "useFP16": true
+    },
+    "dynamic_quant_reduce_sum.comp": {
+        "useFP16": false
+    },
+    "dynamic_w8a8_coop_gemm.comp": {
+        "useFP16": false
+    },
+    "dynamic_w8a8_dequant_correction.comp": {
+        "useFP16": true
     }
 }

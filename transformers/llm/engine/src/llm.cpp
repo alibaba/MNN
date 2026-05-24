@@ -85,6 +85,9 @@ void Llm::setChatTemplate() {
         }
         mTokenizer->set_chat_template(jinja["chat_template"].get<std::string>(), jinja.value("eos", ""), context);
     }
+    if (jinja.contains("context")) {
+        mTokenizer->set_chat_template_context(jinja["context"].dump());
+    }
 }
 
 bool Llm::set_config(const std::string& content) {
@@ -120,7 +123,7 @@ void Llm::setDebugCallback(MNN::TensorCallBackWithInfo&& before, MNN::TensorCall
     mExecutor->setCallBack(std::move(before), std::move(after));
 }
 
-void Llm::setRuntimeHint(std::shared_ptr<Express::Executor::RuntimeManager> &rtg) {
+void Llm::setRuntimeHint(std::shared_ptr<Express::Executor::RuntimeManager> &rtg, bool mllm) {
     rtg->setHint(MNN::Interpreter::INIT_THREAD_NUMBER, 4);
 
     rtg->setHint(MNN::Interpreter::MEM_ALLOCATOR_TYPE, 0);
@@ -151,7 +154,7 @@ void Llm::setRuntimeHint(std::shared_ptr<Express::Executor::RuntimeManager> &rtg
     rtg->setHint(MNN::Interpreter::DYNAMIC_QUANT_OPTIONS, mConfig->config_.value("dynamic_option", 0));
 
     rtg->setHintPtr(Interpreter::KVCACHE_INFO, mMeta.get());
-    if (backend_type_convert(mConfig->backend_type()) != 0) { // not cpu
+    if (backend_type_convert(mConfig->backend_type(mllm)) != 0) { // not cpu
         std::string cacheFilePath = tmpPath.length() != 0 ? tmpPath : ".";
         rtg->setCache(cacheFilePath + "/mnn_cachefile.bin");
     }
@@ -1218,6 +1221,71 @@ bool Llm::setPrefixCacheFile(const std::string& filename, int flag) {
             break;
         }
     }
+
+    // Further check: the real .k/.v data files must exist, be non-empty, and have consistent
+    // sizes across layers. This guards against cases where _sync markers remain but the
+    // actual data files were deleted / truncated / partially written, which would otherwise
+    // lead to a crash in CPUKVCacheManager::onAlloc (e.g. memset on a null mmap address).
+    if (mIsPrefixFileExist) {
+        size_t refKeySize = 0;
+        size_t refValueSize = 0;
+        for (int i = 0; i < mConfig->layer_nums(); i++) {
+            auto base = MNNFilePathConcat(mConfig->prefix_cache_path(), mPrefixCacheFileName) + "_" + std::to_string(i);
+            auto k_data = base + ".k";
+            auto v_data = base + ".v";
+            if (!MNNFileExist(k_data.c_str()) || !MNNFileExist(v_data.c_str())) {
+                MNN_PRINT("Prefix cache data file missing: %s or %s\n", k_data.c_str(), v_data.c_str());
+                mIsPrefixFileExist = false;
+                break;
+            }
+            auto kfd = MNNOpenFile(k_data.c_str(), MNN_FILE_READ);
+            auto vfd = MNNOpenFile(v_data.c_str(), MNN_FILE_READ);
+            size_t kSize = (kfd == INVALID_FILE) ? INVALID_SIZE : MNNGetFileSize(kfd);
+            size_t vSize = (vfd == INVALID_FILE) ? INVALID_SIZE : MNNGetFileSize(vfd);
+            if (kfd != INVALID_FILE)
+                MNNCloseFile(kfd);
+            if (vfd != INVALID_FILE)
+                MNNCloseFile(vfd);
+            if (kSize == INVALID_SIZE || kSize == 0 || vSize == INVALID_SIZE || vSize == 0) {
+                MNN_PRINT("Prefix cache data file has invalid size: %s(%zu) %s(%zu)\n", k_data.c_str(), kSize,
+                          v_data.c_str(), vSize);
+                mIsPrefixFileExist = false;
+                break;
+            }
+            if (i == 0) {
+                refKeySize = kSize;
+                refValueSize = vSize;
+            } else if (kSize != refKeySize || vSize != refValueSize) {
+                // All layers share the same model shape, so their .k (and .v) files must
+                // have identical sizes. Any mismatch means the cache directory has been
+                // corrupted / partially overwritten and must be rebuilt.
+                MNN_PRINT("Prefix cache size mismatch at layer %d: k=%zu(ref=%zu) v=%zu(ref=%zu)\n", i, kSize,
+                          refKeySize, vSize, refValueSize);
+                mIsPrefixFileExist = false;
+                break;
+            }
+        }
+    }
+
+    // If the cache is deemed unusable (missing / truncated / size-mismatched /
+    // partially written), wipe all related files under prefix_cache_path for this
+    // filename so that the subsequent PendingWrite path starts from a clean slate.
+    // This is especially important for the _sync.k / _sync.v markers, which would
+    // otherwise remain and mislead the next run into thinking the cache is valid.
+    // MNNRemoveFile is a no-op on non-existent files, so this is safe to run
+    // unconditionally whenever mIsPrefixFileExist is false.
+    if (!mIsPrefixFileExist) {
+        for (int i = 0; i < mConfig->layer_nums(); i++) {
+            auto base = MNNFilePathConcat(mConfig->prefix_cache_path(), mPrefixCacheFileName) + "_" + std::to_string(i);
+            MNNRemoveFile((base + ".k").c_str());
+            MNNRemoveFile((base + ".v").c_str());
+            MNNRemoveFile((base + "_sync.k").c_str());
+            MNNRemoveFile((base + "_sync.v").c_str());
+        }
+        MNN_PRINT("Prefix cache unusable, cleaned up stale files under %s for %s\n",
+                  mConfig->prefix_cache_path().c_str(), mPrefixCacheFileName.c_str());
+    }
+
     return mIsPrefixFileExist;
 }
 
@@ -1352,7 +1420,7 @@ VARP Llm::gen_attention_mask(int seq_len) {
             if(seq_len == 1) {
                 return mAttentionMaskVarVec[0];
             }
-            if (mAttentionMaskVarVec.size() > 1 && seq_len == mDraftLength) {
+            if (mAttentionMaskVarVec.size() > 1 && seq_len == mDraftLength + 1) {
                 return mAttentionMaskVarVec[1];
             }
         }
@@ -1433,7 +1501,7 @@ VARP Llm::gen_position_ids(int seq_len) {
             }
             return mPositionIdsVarVec[0];
         }
-        if(mPositionIdsVarVec.size() > 1 && seq_len == mDraftLength) {
+        if (mPositionIdsVarVec.size() > 1 && seq_len == mDraftLength + 1) {
             auto ptr = mPositionIdsVarVec[1]->writeMap<int>();
             for (int i = 0; i < seq_len; i++) {
                 ptr[i] = i + mContext->all_seq_len;

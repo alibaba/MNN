@@ -159,7 +159,7 @@ def extract_tensor_as_int8(weight):
         return weight_main, weight_scale, 32, 5
     return None
 
-def write_external_weight(weight, mnn_weight_file, mnn_weight_offset):
+def write_external_weight(weight, mnn_weight_file, mnn_weight_offset, scale_bit=32):
     ic = int(weight.shape[0])
     oc = int(weight.shape[1])
     bias_length = oc * 4
@@ -204,7 +204,7 @@ def write_external_weight(weight, mnn_weight_file, mnn_weight_offset):
 
         # shuffle weight
         weight_main = shuffle_weight_int4(weight_main)
-        conv, header_len, mnn_weight_offset = write_quant_parameters(quant_bit, False, mnn_weight_file, ic, oc, weight_main, weight_scale, mnn_weight_offset)
+        conv, header_len, mnn_weight_offset = write_quant_parameters(quant_bit, False, mnn_weight_file, ic, oc, weight_main, weight_scale, mnn_weight_offset, scale_bit=scale_bit)
     elif weight.tensor_type == constants.GGMLQuantizationType.Q4_1:
         quant_bit = 4
         tie_embedding = True
@@ -223,7 +223,7 @@ def write_external_weight(weight, mnn_weight_file, mnn_weight_offset):
         weight_bias = numpy.frombuffer(weight_bias.tobytes(), numpy.float16).reshape((block_number, 1))
         scalebias = numpy.concatenate((weight_bias, weight_scale), axis=1).astype(numpy.float32)
 
-        conv, header_len, mnn_weight_offset = write_quant_parameters(quant_bit, True, mnn_weight_file, ic, oc, weight_main, scalebias, mnn_weight_offset)
+        conv, header_len, mnn_weight_offset = write_quant_parameters(quant_bit, True, mnn_weight_file, ic, oc, weight_main, scalebias, mnn_weight_offset, scale_bit=scale_bit)
     elif weight.tensor_type == constants.GGMLQuantizationType.Q4_K:
         quant_bit = 4
         tie_embedding = True
@@ -272,7 +272,7 @@ def write_external_weight(weight, mnn_weight_file, mnn_weight_offset):
 
         block_size = 32
 
-        conv, header_len, mnn_weight_offset = write_quant_parameters(quant_bit, True, mnn_weight_file, ic, oc, weight_main, scalebias, mnn_weight_offset)
+        conv, header_len, mnn_weight_offset = write_quant_parameters(quant_bit, True, mnn_weight_file, ic, oc, weight_main, scalebias, mnn_weight_offset, scale_bit=scale_bit)
 
     elif weight.tensor_type == constants.GGMLQuantizationType.Q8_0:
         quant_bit = 8
@@ -285,7 +285,7 @@ def write_external_weight(weight, mnn_weight_file, mnn_weight_offset):
         weight_scale = numpy.frombuffer(weight_scale.tobytes(), numpy.float16).astype(numpy.float32)
         weight_main = numpy.frombuffer(weight_main.tobytes(), numpy.int8).astype(numpy.int16) + 128
         weight_main = weight_main.astype(numpy.uint8)
-        conv, header_len, mnn_weight_offset = write_quant_parameters(quant_bit, False, mnn_weight_file, ic, oc, weight_main, weight_scale, mnn_weight_offset)
+        conv, header_len, mnn_weight_offset = write_quant_parameters(quant_bit, False, mnn_weight_file, ic, oc, weight_main, weight_scale, mnn_weight_offset, scale_bit=scale_bit)
 
     elif weight.tensor_type == constants.GGMLQuantizationType.Q5_0:
         tie_embedding = False
@@ -297,7 +297,7 @@ def write_external_weight(weight, mnn_weight_file, mnn_weight_offset):
         weight_scale = weight[:, 0:2]
         weight_scale = numpy.frombuffer(weight_scale.tobytes(), numpy.float16).astype(numpy.float32)
         quant_bit = 5
-        conv, header_len, mnn_weight_offset = write_quant_parameters(quant_bit, False, mnn_weight_file, ic, oc, weight_main, weight_scale, mnn_weight_offset)
+        conv, header_len, mnn_weight_offset = write_quant_parameters(quant_bit, False, mnn_weight_file, ic, oc, weight_main, weight_scale, mnn_weight_offset, scale_bit=scale_bit)
 
     elif weight.tensor_type == constants.GGMLQuantizationType.Q5_1:
         tie_embedding = False
@@ -313,14 +313,14 @@ def write_external_weight(weight, mnn_weight_file, mnn_weight_offset):
         weight_bias = numpy.frombuffer(weight_bias.tobytes(), numpy.float16).reshape((block_number, 1))
         weight_scale = numpy.concatenate((weight_bias, weight_scale), axis=1).astype(numpy.float32)
         quant_bit = 5
-        conv, header_len, mnn_weight_offset = write_quant_parameters(quant_bit, True, mnn_weight_file, ic, oc, weight_main, weight_scale, mnn_weight_offset)
+        conv, header_len, mnn_weight_offset = write_quant_parameters(quant_bit, True, mnn_weight_file, ic, oc, weight_main, weight_scale, mnn_weight_offset, scale_bit=scale_bit)
     elif weight.tensor_type == constants.GGMLQuantizationType.Q6_K:
         block_size, type_size = constants.GGML_QUANT_SIZES[weight.tensor_type]
         block_number = oc * ic // block_size
         q_raw, weight_scale, block_size, bits = extract_tensor_as_int8(weight)
         weight_main = repack_low_bits(q_raw, 6, 256)
         quant_bit = 6
-        conv, header_len, mnn_weight_offset = write_quant_parameters(quant_bit, False, mnn_weight_file, ic, oc, weight_main, weight_scale, mnn_weight_offset)
+        conv, header_len, mnn_weight_offset = write_quant_parameters(quant_bit, False, mnn_weight_file, ic, oc, weight_main, weight_scale, mnn_weight_offset, scale_bit=scale_bit)
 
     else:
         print('Not support type: ',  weight.tensor_type)
@@ -406,7 +406,7 @@ def convert(args):
                 if subop['inputIndexes'][0] == outputIndex and subop['type'] == 'Reshape':
                     subop['main']['dims'][2] = ochannel
                     break
-        mnn_weight_offset, conv_new, can_tie_embedding, block_size, quant_bit, header_len = write_external_weight(weight, mnn_weight_file, mnn_weight_offset)
+        mnn_weight_offset, conv_new, can_tie_embedding, block_size, quant_bit, header_len = write_external_weight(weight, mnn_weight_file, mnn_weight_offset, scale_bit=args.scale_bit)
         if not can_tie_embedding:
             tie_embedding = False
         conv['quanParameter'] = conv_new['quanParameter']
@@ -427,7 +427,14 @@ def convert(args):
             weight_offset = external[0] + header_len
             alpha_offset = external[0] + external[1]
             alpha_size = external[2]
-            llm_config['tie_embeddings'] = [weight_offset, alpha_offset, alpha_size, quant_bit, 32]
+            llm_config['tie_embeddings'] = {
+                "weight_offset": weight_offset,
+                "alpha_offset": alpha_offset,
+                "alpha_size": alpha_size,
+                "quant_bit": quant_bit,
+                "quant_block": 32,
+                "alpha_dtype": "fp16" if args.scale_bit == 16 else "fp32",
+            }
     embedding_file = os.path.join(mnn_dir, "embeddings_bf16.bin")
 
     embeding_in_weight = True
@@ -444,12 +451,19 @@ def convert(args):
             with open(embedding_file, 'wb') as f:
                 f.write(weight.tobytes())
         elif weight.tensor_type == constants.GGMLQuantizationType.Q8_0 or weight.tensor_type == constants.GGMLQuantizationType.Q4_0 or weight.tensor_type == constants.GGMLQuantizationType.Q4_1:
-            mnn_weight_offset, conv, can_tie_embedding, block_size, quant_bit, header_len = write_external_weight(weight, mnn_weight_file, mnn_weight_offset)
+            mnn_weight_offset, conv, can_tie_embedding, block_size, quant_bit, header_len = write_external_weight(weight, mnn_weight_file, mnn_weight_offset, scale_bit=args.scale_bit)
             external = conv['external']
             weight_offset = external[0] + header_len
             alpha_offset = external[0] + external[1]
             alpha_size = external[2]
-            llm_config['tie_embeddings'] = [weight_offset, alpha_offset, alpha_size, quant_bit, block_size]
+            llm_config['tie_embeddings'] = {
+                "weight_offset": weight_offset,
+                "alpha_offset": alpha_offset,
+                "alpha_size": alpha_size,
+                "quant_bit": quant_bit,
+                "quant_block": block_size,
+                "alpha_dtype": "fp16" if args.scale_bit == 16 else "fp32",
+            }
         elif weight.tensor_type == constants.GGMLQuantizationType.Q6_K or weight.tensor_type == constants.GGMLQuantizationType.Q5_0:
             q_raw, weight_scale, block_size, bits = extract_tensor_as_int8(weight)
             # embeding_in_weight = False
@@ -459,12 +473,19 @@ def convert(args):
             q_raw = repack_low_bits(q_raw, 8, q_raw.shape[1])
             q_raw = q_raw + (128-offset)
             quant_bit = 8
-            conv, header_len, mnn_weight_offset = write_quant_parameters(quant_bit, False, mnn_weight_file, ic, oc, q_raw, weight_scale, mnn_weight_offset)
+            conv, header_len, mnn_weight_offset = write_quant_parameters(quant_bit, False, mnn_weight_file, ic, oc, q_raw, weight_scale, mnn_weight_offset, scale_bit=args.scale_bit)
             external = conv['external']
             weight_offset = external[0] + header_len
             alpha_offset = external[0] + external[1]
             alpha_size = external[2]
-            llm_config['tie_embeddings'] = [weight_offset, alpha_offset, alpha_size, quant_bit, block_size]
+            llm_config['tie_embeddings'] = {
+                "weight_offset": weight_offset,
+                "alpha_offset": alpha_offset,
+                "alpha_size": alpha_size,
+                "quant_bit": quant_bit,
+                "quant_block": block_size,
+                "alpha_dtype": "fp16" if args.scale_bit == 16 else "fp32",
+            }
         else:
             assert(False)
 
@@ -498,6 +519,7 @@ if __name__ == '__main__':
     parser.add_argument('--gguf', type=str, required=True,help='src gguf model')
     parser.add_argument('--mnn_dir', type=str, required=True,help='mnn llm dir')
     parser.add_argument('--load_token', type=bool, default = False, help='Override tokenizer.txt from gguf')
+    parser.add_argument('--scale_bit', type=int, default=16, choices=[16, 32], help='Bit-width for quant scale/zero-point storage. Currently supports 16 (fp16, default) and 32 (fp32); 8/4 reserved for future.')
     args = parser.parse_args()
     import time
     sta = time.time()
