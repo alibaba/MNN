@@ -228,10 +228,10 @@ optional arguments:
                         local mnnconvert path, if invalid, using pymnn.
   --ppl                 Whether or not to get all logits of input tokens.
   --awq                 Whether or not to use awq quant.
-  --sym                 Whether or not to using symmetric quant (without zeropoint), defualt is False.
-  --visual_sym          Whether or not to using symmetric quant (without zeropoint) for visual model, defualt is False.
-  --seperate_embed      For lm and embed shared model, whether or not to sepearte embed to avoid quant, defualt is False, if True, embed weight will be seperate to embeddingbf16.bin.
-  --lora_split          Whether or not export lora split, defualt is False.
+  --sym                 Whether or not to using symmetric quant (without zeropoint), default is False.
+  --visual_sym          Whether or not to using symmetric quant (without zeropoint) for visual model, default is False.
+  --seperate_embed      For lm and embed shared model, whether or not to separate embed to avoid quant, default is False, if True, embed weight will be separated to embeddingbf16.bin.
+  --lora_split          Whether or not export lora split, default is False.
 ```
 
 
