@@ -171,7 +171,7 @@ def pick_wan_config(configs):
     return None, None
 
 
-def patch_t5_for_export(text_encoder):
+def patch_t5_for_export(text_encoder, text_len=512):
     """Patch T5 encoder to pre-compute pos_bias as a buffer for ONNX export."""
     if text_encoder is None:
         return
@@ -194,7 +194,7 @@ def patch_t5_for_export(text_encoder):
         if pos_embedding is not None and hasattr(pos_embedding, 'forward'):
             # Compute pos_bias for the max sequence length (512)
             with torch.no_grad():
-                pos_bias = pos_embedding(512, 512)
+                pos_bias = pos_embedding(text_len, text_len)
                 # Register as buffer so it becomes a constant in ONNX
                 encoder_model.register_buffer('_export_pos_bias', pos_bias)
 
@@ -384,7 +384,7 @@ def load_official_wan(model_path, dtype, device, errors):
                 checkpoint_path=(Path(model_path) / config.t5_checkpoint).as_posix(),
                 tokenizer_path=(Path(model_path) / config.t5_tokenizer).as_posix(),
             )
-            patch_t5_for_export(text_encoder)
+            patch_t5_for_export(text_encoder, getattr(config, "text_len", 512))
             transformer = model_mod.WanModel.from_pretrained(model_path)
             transformer.eval().requires_grad_(False)
             patch_official_wan_for_export(

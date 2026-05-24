@@ -47,7 +47,7 @@ public:
                   std::function<void(int)> progressCallback) override;
 
 private:
-    VARP encodePrompt(const std::string& prompt, int* seqLen);
+    VARP encodePrompt(const std::string& prompt, int* seqLen, VARP* outMask);
     VARP transformer(VARP hiddenStates, VARP timestep, VARP encoderHiddenStates, VARP encoderAttentionMask);
     VARP vaeDecoder(VARP latent);
     VARP stepFlowMatch(VARP sample, VARP modelOutput, int index);

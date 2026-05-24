@@ -120,7 +120,7 @@ bool WanDiffusion::load() {
     return true;
 }
 
-VARP WanDiffusion::encodePrompt(const std::string& prompt, int* seqLen) {
+VARP WanDiffusion::encodePrompt(const std::string& prompt, int* seqLen, VARP* outMask) {
     if (!mTokenizer || mModules.size() < 1 || !mModules[0]) {
         MNN_ERROR("Wan text encoder is not ready\n");
         return nullptr;
@@ -139,6 +139,16 @@ VARP WanDiffusion::encodePrompt(const std::string& prompt, int* seqLen) {
     ::memset(inputPtr, 0, 2 * mMaxTextLen * sizeof(int));
     ::memcpy(inputPtr, uncond.data(), mMaxTextLen * sizeof(int));
     ::memcpy(inputPtr + mMaxTextLen, cond.data(), mMaxTextLen * sizeof(int));
+
+    // Build attention mask from token ids: 1.0 where id != 0, 0.0 for padding
+    VARP mask = _Input({2, mMaxTextLen}, NCHW, halide_type_of<float>());
+    float* maskData = mask->writeMap<float>();
+    for (int i = 0; i < 2 * mMaxTextLen; ++i) {
+        maskData[i] = (inputPtr[i] != 0) ? 1.0f : 0.0f;
+    }
+    if (outMask) {
+        *outMask = mask;
+    }
 
     auto outputs = mModules[0]->onForward({inputIds});
     if (outputs.empty() || outputs[0].get() == nullptr) {
@@ -159,7 +169,7 @@ VARP WanDiffusion::encodePrompt(const std::string& prompt, int* seqLen) {
 VARP WanDiffusion::transformer(VARP hiddenStates, VARP timestep, VARP encoderHiddenStates,
                                VARP encoderAttentionMask) {
     auto outputs = mModules[1]->onForward({hiddenStates, timestep, encoderHiddenStates, encoderAttentionMask});
-    if (outputs.empty()) {
+    if (outputs.empty() || outputs[0].get() == nullptr) {
         return nullptr;
     }
     return _Convert(outputs[0], NCHW);
@@ -167,7 +177,7 @@ VARP WanDiffusion::transformer(VARP hiddenStates, VARP timestep, VARP encoderHid
 
 VARP WanDiffusion::vaeDecoder(VARP latent) {
     auto outputs = mModules[2]->onForward({latent});
-    if (outputs.empty()) {
+    if (outputs.empty() || outputs[0].get() == nullptr) {
         return nullptr;
     }
     return _Convert(outputs[0], NCHW);
@@ -278,7 +288,8 @@ bool WanDiffusion::runVideo(const std::string& prompt, const std::string& output
     }
 
     int seqLen = mMaxTextLen;
-    auto encoderHiddenStates = encodePrompt(prompt, &seqLen);
+    VARP encoderAttentionMask;
+    auto encoderHiddenStates = encodePrompt(prompt, &seqLen, &encoderAttentionMask);
     if (encoderHiddenStates.get() == nullptr) {
         return false;
     }
@@ -303,10 +314,6 @@ bool WanDiffusion::runVideo(const std::string& prompt, const std::string& output
 
     VARP latent = _Input({1, latentChannels, latentFrames, latentH, latentW}, NCHW, halide_type_of<float>());
     ::memcpy(latent->writeMap<float>(), noise.data(), noise.size() * sizeof(float));
-
-    VARP encoderAttentionMask = _Input({2, seqLen}, NCHW, halide_type_of<float>());
-    float* maskPtr = encoderAttentionMask->writeMap<float>();
-    std::fill(maskPtr, maskPtr + 2 * seqLen, 1.0f);
 
     mTimesteps.resize(steps);
     if (steps == 1) {
