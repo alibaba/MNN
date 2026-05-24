@@ -57,6 +57,11 @@ private:
 private:
     std::unique_ptr<Tokenizer> mTokenizer;
     int mMaxTextLen = 512;
+    // Latent channel count for the Wan VAE/transformer pair. 16 matches the
+    // Wan2.1-T2V-1.3B variant used today; for other Wan variants (e.g. 5B)
+    // this should be sourced from model metadata or WanComponents.
+    // TODO: read from a config file once metadata plumbing lands.
+    int mLatentChannels = 16;
     std::vector<float> mTimesteps;
 };
 

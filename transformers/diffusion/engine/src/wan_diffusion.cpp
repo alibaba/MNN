@@ -126,6 +126,14 @@ VARP WanDiffusion::encodePrompt(const std::string& prompt, int* seqLen, VARP* ou
         return nullptr;
     }
 
+    // Defensive: peek at the un-padded token count first so we can warn the
+    // caller when the prompt is truncated. mTokenizer->encode pads/truncates
+    // silently when maxlen > 0; passing maxlen=0 returns the raw ids.
+    std::vector<int> rawTokens = mTokenizer->encode(prompt, 0);
+    if ((int)rawTokens.size() > mMaxTextLen) {
+        MNN_PRINT("Wan: prompt truncated from %d to %d tokens\n", (int)rawTokens.size(), mMaxTextLen);
+    }
+
     std::vector<int> uncond = mTokenizer->encode("", mMaxTextLen);
     std::vector<int> cond = mTokenizer->encode(prompt, mMaxTextLen);
     if ((int)uncond.size() < mMaxTextLen || (int)cond.size() < mMaxTextLen) {
@@ -140,11 +148,12 @@ VARP WanDiffusion::encodePrompt(const std::string& prompt, int* seqLen, VARP* ou
     ::memcpy(inputPtr, uncond.data(), mMaxTextLen * sizeof(int));
     ::memcpy(inputPtr + mMaxTextLen, cond.data(), mMaxTextLen * sizeof(int));
 
-    // Build attention mask from token ids: 1.0 where id != 0, 0.0 for padding
-    VARP mask = _Input({2, mMaxTextLen}, NCHW, halide_type_of<float>());
-    float* maskData = mask->writeMap<float>();
+    // Build attention mask from token ids: 1 where id != 0, 0 for padding.
+    // Dtype must be int32 to match the ONNX export (see wan_onnx_export.py).
+    VARP mask = _Input({2, mMaxTextLen}, NCHW, halide_type_of<int>());
+    int* maskData = mask->writeMap<int>();
     for (int i = 0; i < 2 * mMaxTextLen; ++i) {
-        maskData[i] = (inputPtr[i] != 0) ? 1.0f : 0.0f;
+        maskData[i] = (inputPtr[i] != 0) ? 1 : 0;
     }
     if (outMask) {
         *outMask = mask;
@@ -301,7 +310,7 @@ bool WanDiffusion::runVideo(const std::string& prompt, const std::string& output
     int latentFrames = std::max(1, (frames + 3) / 4);
     int latentH = height / vaeScaleFactor;
     int latentW = width / vaeScaleFactor;
-    int latentChannels = 16;
+    int latentChannels = mLatentChannels;
     int latentSize = latentChannels * latentFrames * latentH * latentW;
 
     std::vector<float> noise(latentSize);

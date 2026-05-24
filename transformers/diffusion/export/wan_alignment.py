@@ -296,12 +296,22 @@ def deterministic_latent(shape, seed, dtype=np.float32):
     return rng.standard_normal(shape, dtype=np.float32).astype(dtype)
 
 
-def deterministic_timesteps(steps):
+def deterministic_timesteps(steps, shift=3.0):
+    """Build the FlowMatch timestep schedule used by Wan2.1 inference.
+
+    This must mirror WanDiffusion::runVideo in C++ exactly so the alignment
+    harness reflects real on-device behaviour: linear t in [1.0, 0.001]
+    re-mapped through the shifted scheduler then scaled to [0, 1000].
+    """
     if steps <= 0:
         raise ValueError("--steps must be > 0")
-    values = np.linspace(1.0, 0.0, num=steps, endpoint=False, dtype=np.float32)
     if steps == 1:
-        values[0] = 1.0
+        return np.array([1000.0], dtype=np.float32)
+    values = np.empty(steps, dtype=np.float32)
+    for i in range(steps):
+        t_linear = 1.0 + i * (0.001 - 1.0) / (steps - 1)
+        t_shifted = (shift * t_linear) / (1.0 + (shift - 1.0) * t_linear)
+        values[i] = t_shifted * 1000.0
     return values
 
 
@@ -598,7 +608,6 @@ def run_e2e_case(runner, metadata, input_ids, attention_mask):
     latent_shape = metadata["latent_shape"]
     sample = deterministic_latent(latent_shape, metadata["seed"])
     timesteps = deterministic_timesteps(metadata["steps"])
-    step_scale = np.float32(1.0 / max(1, metadata["steps"]))
     steps = []
     current = sample.astype(np.float32, copy=True)
     for index, timestep_value in enumerate(timesteps):
@@ -611,7 +620,11 @@ def run_e2e_case(runner, metadata, input_ids, attention_mask):
         noise_pred_uncond = noise_pred[0:1].astype(np.float32, copy=True)
         noise_pred_cond = noise_pred[1:2].astype(np.float32, copy=True)
         guided_noise = noise_pred_uncond + np.float32(metadata["cfg_scale"]) * (noise_pred_cond - noise_pred_uncond)
-        sample_after = sample_before - step_scale * guided_noise
+        # Match WanDiffusion::stepFlowMatch in C++:
+        #   sample + modelOutput * (nextT - t) / 1000.0
+        next_timestep_value = float(timesteps[index + 1]) if index + 1 < len(timesteps) else 0.0
+        delta = np.float32((next_timestep_value - float(timestep_value)) / 1000.0)
+        sample_after = sample_before + delta * guided_noise
         steps.append(
             {
                 "index": index,

@@ -45,6 +45,10 @@ int main(int argc, const char* argv[]) {
 
     std::unique_ptr<Diffusion> diffusion(
         Diffusion::createDiffusion(resourcePath, WAN2_1_T2V, backendType, memoryMode));
+    if (!diffusion) {
+        MNN_ERROR("Failed to create Wan diffusion instance\n");
+        return -1;
+    }
     if (!diffusion->load()) {
         MNN_ERROR("Failed to load Wan diffusion models\n");
         return -1;

@@ -684,7 +684,9 @@ class VaeDecoderWrapper:
             return latent_sample
         mean = latent_sample.new_tensor(mean).view(1, z_dim, 1, 1, 1)
         inv_std = 1.0 / latent_sample.new_tensor(std).view(1, z_dim, 1, 1, 1)
-        return latent_sample / inv_std + mean
+        # Wan2.1 official de-normalization: z = latent / std + mean
+        # Equivalently: z = latent * inv_std + mean
+        return latent_sample * inv_std + mean
 
     @staticmethod
     def _normalize_output(output):
