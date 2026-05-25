@@ -45,13 +45,19 @@ public:
         // Need Broadcast or same shape
         bool input0Broadcast = false;
         bool input1Broadcast = false;
+        // MNN: also force the broadcast on Vulkan. The Vulkan binary kernel
+        // does not handle non-equal-rank inputs (e.g. {4} broadcast onto
+        // {1,1,4}) — without this, AddBroast on Vulkan reads the wrong
+        // image plane and outputs `input0` instead of `input0+input1`.
+        bool gpuNeedsBroadcast = (MNN_DATA_FORMAT_NC4HW4 == outFormat
+                                  || context.forwardType() == MNN_FORWARD_OPENCL
+                                  || context.forwardType() == MNN_FORWARD_VULKAN);
         if (outputSize != inputL0 || inp0format != outFormat ||
-            (output->dimensions() != input0->dimensions() && (MNN_DATA_FORMAT_NC4HW4 == outFormat || context.forwardType() == MNN_FORWARD_OPENCL))// OpenCL default format is MNN_DATA_FORMAT_NC4HW4
-            ) {
+            (output->dimensions() != input0->dimensions() && gpuNeedsBroadcast)) {
             input0Broadcast = true;
         }
         if (outputSize != inputL1 || inp1format != outFormat ||
-                (output->dimensions() != input1->dimensions() && (MNN_DATA_FORMAT_NC4HW4 == outFormat || context.forwardType() == MNN_FORWARD_OPENCL))) {// OpenCL default format is MNN_DATA_FORMAT_NC4HW4
+            (output->dimensions() != input1->dimensions() && gpuNeedsBroadcast)) {
             input1Broadcast = true;
         }
         auto cacheTensor = std::move(res.extras);
@@ -114,13 +120,19 @@ public:
         // Need Broadcast or same shape
         bool input0Broadcast = false;
         bool input1Broadcast = false;
+        // MNN: also force the broadcast on Vulkan. The Vulkan binary kernel
+        // does not handle non-equal-rank inputs (e.g. {4} broadcast onto
+        // {1,1,4}) — without this, AddBroast on Vulkan reads the wrong
+        // image plane and outputs `input0` instead of `input0+input1`.
+        bool gpuNeedsBroadcast = (MNN_DATA_FORMAT_NC4HW4 == outFormat
+                                  || context.forwardType() == MNN_FORWARD_OPENCL
+                                  || context.forwardType() == MNN_FORWARD_VULKAN);
         if (outputSize != inputL0 || inp0format != outFormat ||
-            (output->dimensions() != input0->dimensions() && (MNN_DATA_FORMAT_NC4HW4 == outFormat || context.forwardType() == MNN_FORWARD_OPENCL))// OpenCL default format is MNN_DATA_FORMAT_NC4HW4
-            ) {
+            (output->dimensions() != input0->dimensions() && gpuNeedsBroadcast)) {
             input0Broadcast = true;
         }
         if (outputSize != inputL1 || inp1format != outFormat ||
-                (output->dimensions() != input1->dimensions() && (MNN_DATA_FORMAT_NC4HW4 == outFormat || context.forwardType() == MNN_FORWARD_OPENCL))) {// OpenCL default format is MNN_DATA_FORMAT_NC4HW4
+            (output->dimensions() != input1->dimensions() && gpuNeedsBroadcast)) {
             input1Broadcast = true;
         }
 #ifdef MNN_BINARY_LOOP_OPT

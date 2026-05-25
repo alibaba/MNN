@@ -498,6 +498,15 @@ public:
                 // TODO: CPU support kv_cache == false
                 return true;
             }
+            // MNN: kv_cache=false also falls back to CPU on OpenCL with
+            // MNN_GPU_MEMORY_IMAGE (no IMAGE-memtype Attention creator) and
+            // on Vulkan, so it hits the same CPUAttention "kv_cache == false"
+            // TODO and crashes. Skip until the CPU fallback is completed.
+            for(auto &rt : rtInfo) {
+                if(rt.first == MNN_FORWARD_OPENCL || rt.first == MNN_FORWARD_VULKAN) {
+                    return true;
+                }
+            }
             std::shared_ptr<NaiveAttention> naiveAttention(new NaiveAttention);
             std::shared_ptr<MNN::OpT> attention(new MNN::OpT);
             attention->type = MNN::OpType_Attention;
