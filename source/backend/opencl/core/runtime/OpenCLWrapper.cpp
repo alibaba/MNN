@@ -288,6 +288,16 @@ bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
     MNN_LOAD_FUNCTION_PTR(clGetExtensionFunctionAddress);
     MNN_LOAD_FUNCTION_PTR(clGetExtensionFunctionAddressForPlatform);
 
+    // clCreateImage is OpenCL 1.2+, load as optional (won't set mIsError)
+#if defined(_WIN32)
+    clCreateImage = reinterpret_cast<clCreateImageFunc>(GetProcAddress(handle_, "clCreateImage"));
+#else
+    clCreateImage = reinterpret_cast<clCreateImageFunc>(dlsym(handle_, "clCreateImage"));
+    if (clCreateImage == nullptr && loadOpenCLPointer != nullptr) {
+        clCreateImage = reinterpret_cast<clCreateImageFunc>(loadOpenCLPointer("clCreateImage"));
+    }
+#endif
+
     MNN_LOAD_PROP_PTR(clCreateCommandQueueWithProperties);
     MNN_LOAD_SVM_PTR(clSVMAlloc);
     MNN_LOAD_SVM_PTR(clSVMFree);
@@ -673,6 +683,17 @@ cl_mem CL_API_CALL clCreateImage2D(cl_context context, cl_mem_flags flags, const
     return func(context, flags, image_format, imageWidth, imageHeight, image_row_pitch, host_ptr, errcode_ret);
 }
 
+cl_mem CL_API_CALL clCreateImage(cl_context context, cl_mem_flags flags, const cl_image_format* image_format,
+                                 const cl_image_desc* image_desc, void* host_ptr, cl_int* errcode_ret) {
+    auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clCreateImage;
+    if (func == nullptr) {
+        if (errcode_ret)
+            *errcode_ret = CL_INVALID_OPERATION;
+        return nullptr;
+    }
+    return func(context, flags, image_format, image_desc, host_ptr, errcode_ret);
+}
+
 cl_command_queue CL_API_CALL clCreateCommandQueue(cl_context context, cl_device_id device, cl_command_queue_properties properties,
                                       cl_int *errcode_ret) {
     auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clCreateCommandQueue;
@@ -804,4 +825,4 @@ void MNN::MNNAHardwareBuffer_describe(const AHardwareBuffer* buffer, AHardwareBu
 }
 #endif
 
-#endif //MNN_USE_LIB_WRAPPER
+#endif // MNN_USE_LIB_WRAPPER

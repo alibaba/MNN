@@ -400,6 +400,14 @@ bool OpenCLRuntime::isSupportedFP16() const {
     return mIsSupportedFP16;
 }
 
+bool OpenCLRuntime::isClCreateImageAvailable() const {
+#ifdef MNN_USE_LIB_WRAPPER
+    return OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clCreateImage != nullptr;
+#else
+    return true; // clCreateImage is available when statically linked with OpenCL 1.2+
+#endif
+}
+
 bool OpenCLRuntime::isDeviceSupportedLowPower() const {
     return mIsDeviceSupportedLowPower;
 }
