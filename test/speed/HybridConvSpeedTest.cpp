@@ -424,7 +424,7 @@ public:
         INTS strides = {1, 1}, dilate = {1, 1}, pad = {0, 0}, inputShape = {1, 1}; // {w, h}
         std::vector<int> batch = {1};
         std::vector<std::vector<int>> kernels = {{1, 1}};
-        std::vector<int> weightBits = {4};
+        std::vector<int> weightBits = {2, 3, 4, 8};
         std::vector<int> blocks = {0, 32};
         bool lowmemory = true;
         int n = 0;
@@ -495,8 +495,50 @@ public:
     }
 };
 
+// Low-bit sanity test for LLM-like block sizes without allocating full lm_head
+// tensors.  The cases below keep K/block and OC-tail coverage while staying
+// small enough for CI.
+class LowBitScaleTest : public HybridConvSpeedTestCommon {
+public:
+    virtual bool run(int precision) {
+        INTS strides = {1, 1}, dilate = {1, 1}, pad = {0, 0}, inputShape = {1, 1};
+        INTS kernel = {1, 1};
+        std::vector<std::vector<int>> channels = {
+            {64, 8},     // one block, exact OC unit
+            {64, 9},     // one block, OC tail
+            {1024, 151}, // kv-like K with OC tail
+            {4096, 257}, // hidden-size K with many blocks and OC tail
+            {14336, 64}, // ffn-size K with many blocks
+        };
+        std::vector<int> blocks = {64}; // matches LLM quant_block
+        std::vector<int> batches = {1, 4};
+        bool correct = true;
+        std::vector<int> weightBits = {2, 3};
+        for (auto bits : weightBits) {
+            for (auto& channel : channels) {
+                for (auto block : blocks) {
+                    if (block > 0 && channel[0] % block != 0) {
+                        continue;
+                    }
+                    for (auto batch : batches) {
+                        auto res = testKernel("LowBitScale:", inputShape, kernel, channel, pad, strides, dilate, batch,
+                                              bits, precision, false, block);
+                        if (!res) {
+                            MNN_ERROR("Error: LowBitScale bits=%d ic=%d oc=%d block=%d batch=%d\n", bits, channel[0],
+                                      channel[1], block, batch);
+                            correct = false;
+                        }
+                    }
+                }
+            }
+        }
+        return correct;
+    }
+};
+
 MNNTestSuiteRegister(DenseConvInt8Test, "op/lowMemory/DenseConv");
 MNNTestSuiteRegister(HybridConvInt8Test, "op/lowMemory/HybridConv");
 MNNTestSuiteRegister(HybridConvSpeedInt8Test, "speed/HybridConv");
 MNNTestSuiteRegister(ConvInt8BlockQuantTest, "op/lowMemory/blockConv");
 MNNTestSuiteRegister(ConvInt8MixedKernelTest, "op/lowMemory/mixedKernel");
+MNNTestSuiteRegister(LowBitScaleTest, "op/lowMemory/lowBitScale");

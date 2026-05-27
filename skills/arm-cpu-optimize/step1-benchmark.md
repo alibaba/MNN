@@ -1,225 +1,111 @@
-# 步骤 1：建立性能基准
+# 步骤 1：建立基线与验证矩阵
 
-> **目标**：编写性能基准测试，获取优化前的基线数据。
->
-> **前置条件**：明确待优化的算子和目标参数。
->
-> **复杂度**：低（需要编译运行）
+> **目标**：在优化前拿到可复现的正确性和性能基线，避免靠模型输出或单次耗时猜测。
 
 ---
 
-## 1.1 确定优化目标
+## 1.1 优先使用已有测试
 
-```
-待优化算子：____（例如 MatMul, Attention, Convolution）
-目标数据类型：____（FP32 / FP16 / INT8）
-典型参数：____（例如 M=1, K=4096, N=4096）
-目标平台：____（例如 Cortex-A78, Apple M1）
-当前性能：____（如已知）
-目标性能：____（如已知，理论峰值的 xx%）
-```
-
----
-
-## 1.2 编写性能测试
-
-在 `test/speed/` 下创建 `XxxSpeedTest.cpp`，参考 `MatMulSpeed.cpp` 的模板：
-
-```cpp
-//
-//  XxxSpeedTest.cpp
-//  MNNTests
-//
-
-#include <math.h>
-#include <MNN/expr/Expr.hpp>
-#include <MNN/expr/ExprCreator.hpp>
-#include "MNNTestSuite.h"
-#include "MNN_generated.h"
-#define MNN_OPEN_TIME_TRACE
-#include <MNN/AutoTime.hpp>
-
-using namespace MNN::Express;
-
-class XxxSpeedTest : public MNNTestCase {
-public:
-    virtual bool run(int precision) {
-        // ===== 1. 定义测试用例 =====
-        // 用真实场景的参数组合
-        struct TestCase {
-            int param1, param2, param3;
-            const char* name;
-        };
-        std::vector<TestCase> cases = {
-            {1, 4096, 4096, "decode_1token"},     // LLM decode
-            {128, 4096, 4096, "prefill_128"},      // LLM prefill
-            {1024, 4096, 4096, "prefill_1024"},    // LLM long prefill
-            {1, 4096, 11008, "ffn_decode"},        // FFN decode
-        };
-
-        for (auto& tc : cases) {
-            auto res = _runBenchmark(tc.param1, tc.param2, tc.param3, tc.name);
-            if (!res) return false;
-        }
-        return true;
-    }
-
-    bool _runBenchmark(int M, int K, int N, const char* name) {
-        // ===== 2. 创建算子 =====
-        // 根据具体算子修改
-        std::unique_ptr<MNN::OpT> op(new MNN::OpT);
-        op->type = MNN::OpType_MatMul;
-        op->main.type = MNN::OpParameter_MatMul;
-        op->main.value = new MNN::MatMulT;
-        auto param = op->main.AsMatMul();
-        param->transposeA = false;
-        param->transposeB = false;
-
-        auto x0 = _Input({}, NHWC, halide_type_of<float>());
-        auto x1 = _Input({}, NHWC, halide_type_of<float>());
-        x0->resize({M, K});
-        x1->resize({K, N});
-        auto y = Variable::create(Expr::create(op.get(), {x0, x1}));
-        Variable::prepareCompute({y});
-
-        // ===== 3. 正确性验证（首次运行）=====
-        // 用小规模数据验证正确性
-        {
-            auto ptr0 = x0->writeMap<float>();
-            auto ptr1 = x1->writeMap<float>();
-            for (int i = 0; i < M * K; ++i) ptr0[i] = ((float)(i % 100)) / 10000.0f;
-            for (int i = 0; i < K * N; ++i) ptr1[i] = ((float)(i % 100)) / 10000.0f;
-            y->readMap<float>();
-            // TODO: 添加正确性检查（对比参考实现）
-        }
-
-        // ===== 4. 性能测试（多次运行取平均）=====
-        const int warmup = 3;
-        const int repeat = 10;
-
-        // Warmup
-        for (int t = 0; t < warmup; ++t) {
-            x0->writeMap<float>();
-            x1->writeMap<float>();
-            y->readMap<float>();
-        }
-
-        // Benchmark
-        MNN::Timer _t;
-        for (int t = 0; t < repeat; ++t) {
-            x0->writeMap<float>();
-            x1->writeMap<float>();
-            y->readMap<float>();
-        }
-        float avgMs = _t.durationInUs() / 1000.0f / (float)repeat;
-
-        // ===== 5. 输出结果 =====
-        float gflops = 2.0f * (float)M * (float)K * (float)N / avgMs / 1e6f;
-        MNN_PRINT("[%s] M=%d K=%d N=%d, Avg time: %.3f ms, GFLOPS: %.2f\n",
-                  name, M, K, N, avgMs, gflops);
-
-        return true;
-    }
-};
-
-MNNTestSuiteRegister(XxxSpeedTest, "speed/XxxSpeed");
-```
-
-### 测试模板要点
-
-1. **正确性 + 性能**：先验证结果正确，再做性能计时
-2. **Warmup**：前几次运行不计入（排除 cache 冷启动）
-3. **多次运行取平均**：至少 10 次，减少波动
-4. **输出 GFLOPS**：方便与理论峰值对比
-5. **多参数组合**：覆盖 decode（M=1）和 prefill（M 大）场景
-
-### 非标准算子的 benchmark
-
-上述模板基于 `Expr::create` 创建算子，适用于标准 OpType。对于 Fuse 算子或多输入/有状态算子（如 LinearAttention、Mamba），如果无法通过 Expr 直接创建，可以用 `CPUBackend` + `Tensor` 手动构造输入输出，直接调用 `onResize` + `onExecute` 来 benchmark。具体做法参考对应算子的单元测试代码。
-
----
-
-## 1.3 编译并运行
+不要默认新建 speed test。先查当前仓库已有测试是否覆盖目标路径：
 
 ```bash
-# 编译（确保开启 ARM 优化）
-cd build
-cmake .. -DMNN_BUILD_TEST=ON -DMNN_ARM82=ON -DMNN_LOW_MEMORY=ON -DMNN_SUPPORT_TRANSFORMER_FUSE=ON
-make -j$(nproc)
-
-# 运行性能测试
-./run_test.out speed/XxxSpeed
+rg -n "LinearRoofline|MatMul|lowMemory|HybridConv|blockConv" test source/backend/cpu
 ```
 
-### macOS Apple Silicon（本身就是 ARM64）
+常用低 bit LLM kernel 基线：
 
 ```bash
 cd build
-cmake .. -DMNN_BUILD_TEST=ON -DMNN_ARM82=ON -DMNN_LOW_MEMORY=ON -DMNN_SUPPORT_TRANSFORMER_FUSE=ON
-make -j$(sysctl -n hw.ncpu)
-./run_test.out speed/XxxSpeed
+./run_test.out op/lowMemory/blockConv 0 1 4
+./run_test.out op/lowMemory/HybridConv 0 1 4
+./run_test.out op/lowMemory/blockConv 0 1 4  # 在 SDOT 目标设备/构建配置上复跑
+./run_test.out op/lowMemory/HybridConv 0 1 4  # 在 SDOT 目标设备/构建配置上复跑
+
+./run_test.out speed/GemvBW 0 2
 ```
 
-### 交叉编译到 Android ARM 设备
-
-```bash
-mkdir build_arm && cd build_arm
-cmake .. -DCMAKE_TOOLCHAIN_FILE=<toolchain> \
-    -DMNN_BUILD_TEST=ON -DMNN_ARM82=ON -DMNN_LOW_MEMORY=ON
-
-# push 到设备
-adb push run_test.out /data/local/tmp/
-adb shell "cd /data/local/tmp && ./run_test.out speed/XxxSpeed"
-```
-
-### 无 ARM 设备时
-
-如果当前环境无法编译运行 ARM 代码，可以先完成代码优化和分析，将性能测试标注为"待实测"并写好测试命令，后续在 ARM 设备上补测。
+如果已有测试不能覆盖目标 shape，再新增 focused test。
 
 ---
 
-## 1.4 记录基线数据
+## 1.2 正确性基线
 
-将结果保存为基准，后续每次优化都与之对比：
+普通算子至少记录：
+
+- 输入 shape、precision、线程数。
+- 参考实现或已有后端输出。
+- 误差阈值和失败样例。
+
+低 bit LLM kernel 额外记录：
+
+| 维度 | 必测组合 |
+|------|----------|
+| bit | w2、w3，如任务只涉及一个 bit 则只测该 bit |
+| ISA | I8MM、SDOT、SME2 等目标路径 |
+| block | block32、block64、per-channel 中任务涉及的组合 |
+| 后处理 | fp32 min/max、bias/scale/zp、add-dst 如存在 |
+| 模型 | 一个短 prompt 的 no-thinking/greedy sanity |
+
+模型输出异常时，先固定采样变量，再判断 kernel 是否错误。
+
+---
+
+## 1.3 性能基线
+
+记录可解释的指标，不只记录耗时：
+
+| 指标 | 说明 |
+|------|------|
+| `us/iter` | 端到端 kernel 或 test 平均耗时 |
+| bytes/elem | 包括权重和 metadata 的真实字节 |
+| eff GB/s | 用真实读取字节估算 |
+| `%peak` | 对比 streaming bandwidth |
+| GFLOPS / AI | 判断 compute/issue/memory 倾向 |
+| threads | 线程数必须固定 |
+
+w2/w3 的 eff GB/s 低时，不要直接判定内存带宽不足。先看 unpack 指令数、寄存器压力、metadata load 和 postprocess。
+
+---
+
+## 1.4 需要新增 speed test 时
+
+只有已有测试不能回答问题时才新增。新增测试要小而准：
+
+- 覆盖目标 shape，而不是泛化一堆无关 case。
+- 能选择目标 ISA 路径，或在对应能力设备上分别验证。
+- 输出真实 bytes/elem、eff GB/s、GFLOPS。
+- 对 cold-cache / warm-cache 做出明确选择。
+- 首次运行要有 correctness check。
+
+低 bit GEMV 可优先写 roofline 风格测试，而不是完整模型 benchmark。
+
+---
+
+## 1.5 输出基线
 
 ```markdown
-## 基线数据
+## Baseline
 
-平台: Cortex-A78 (4x big + 4x little)
-日期: <填写实际日期>
-编译选项: MNN_ARM82=ON, MNN_LOW_MEMORY=ON
+commit:
+platform:
+build options:
+threads:
+ISA path:
+shape/block:
 
-| 用例 | M | K | N | 时间(ms) | GFLOPS |
-|------|---|---|---|---------|--------|
-| decode_1token | 1 | 4096 | 4096 | xx.xx | xx.xx |
-| prefill_128 | 128 | 4096 | 4096 | xx.xx | xx.xx |
-| ... | | | | | |
+| test | bit | ISA | us/iter | bytes/elem | eff GB/s | GFLOPS | note |
+|------|-----|-----|---------|------------|----------|--------|------|
 
-理论峰值: xx GFLOPS (FP32) / xx GFLOPS (FP16)
-当前效率: xx%
+Correctness:
+- op test:
+- model sanity:
 ```
 
 ---
 
-## 步骤 1 测试标准
+## 通过标准
 
-### 通过标准
-
-- [ ] 性能测试文件已创建并可编译
-- [ ] `./run_test.out speed/XxxSpeed` 能稳定运行（如无 ARM 设备，标注"待实测"并给出完整测试命令）
-- [ ] 基线数据已记录（至少包含 3 组不同参数）
-- [ ] 多次运行结果波动 < 5%（如无法实测，此项跳过）
-
-### 常见问题
-
-| 问题 | 原因 | 修复 |
-|------|------|------|
-| 性能数据波动大 | CPU 频率调度、后台任务 | 锁频 + 绑核 + 增加 repeat 次数 |
-| 编译找不到头文件 | cmake 选项未开启 | 确认 `MNN_BUILD_TEST=ON` |
-| 设备上运行段错误 | 交叉编译工具链不匹配 | 检查 ABI 和系统版本 |
-
----
-
-## 下一步
-
-**步骤 1 通过后，进入 `step2-analyze.md`（步骤 2：分析瓶颈与制定方案）。**
+- 已有正确性基线，且覆盖目标 ISA/path。
+- 已有性能基线，且线程数、shape、precision 可复现。
+- 如果无法在当前设备实测，已给出准确命令并标注待实测。
+- 没有把 mixed sampling 下的模型复读直接当成 kernel 错误。

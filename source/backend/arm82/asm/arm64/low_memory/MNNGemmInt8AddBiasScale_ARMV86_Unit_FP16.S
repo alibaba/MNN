@@ -853,6 +853,11 @@ TILE_1:
 LoopDz_TILE_1:
     mov x11, x1 // src
     mov x19, #0
+    // running fp32 accumulator across blocks within this OC chunk -- replaces the
+    // [x10] AccumBuffer stack ping-pong.  v22/v23 are unused inside w8's TILE_1
+    // inner loop (only v2 / v8..v11 / v16..v19 are touched there).
+    movi v22.4s, #0 // oc:0-3 running accum
+    movi v23.4s, #0 // oc:4-7 running accum
 TILE1_BLOCKNUM:
     mov x13, x3 // src_depth_quad
 
@@ -878,49 +883,51 @@ LoopSzEnd_TILE_1:
     scvtf v26.4s, v26.4s
 
 Tile1Quan:
+    // v22/v23 hold the per-OC-chunk running fp32 accumulator (zeroed at LoopDz_TILE_1
+    // entry).  The [x10] AccumBuffer is gone for TILE_1: each block's dequant chain
+    // fmla's straight into v22/v23, so we save 1 ld + 1 st per block AND avoid the
+    // need for a first-block branch that the [x10]-based path required.
     ld1 {v0.4s, v1.4s}, [x12], #32  // scale
-    ld1 {v6.s}[0], [x8] // x kernel sum
-    ld1 {v8.4s, v9.4s}, [x12], #32 // weight quan zeropoint
-    fmul v25.4s, v25.4s, v0.4s
-    fmul v26.4s, v26.4s, v1.4s
+    ld1 {v4.s}[0], [x23], x25       // input scale (loaded earlier for scale_eff fusion)
+    ld1 {v6.s}[0], [x8]             // x kernel sum
+    ld1 {v8.4s, v9.4s}, [x12], #32  // weight quan zeropoint
     add x8, x8, x22, LSR #1
 
-    ld1 {v4.s}[0], [x23], x25
-    fmul v25.4s, v25.4s, v4.s[0]
-    fmul v26.4s, v26.4s, v4.s[0]
+    // P1.2 scale_eff fusion: scale * input_scale off the v22/v23 critical path.
+    fmul v0.4s, v0.4s, v4.s[0]
+    fmul v1.4s, v1.4s, v4.s[0]
+
+    // Per-block dequant chain into v22/v23 directly.
+    fmla v22.4s, v25.4s, v0.4s      // v22 += accum_fp * scale_eff
+    fmla v23.4s, v26.4s, v1.4s
     TILE1_MLA:
-    MLA_WEIGHTZERO v25, v6, v8, 0 // tile:0, oc:0-3
-    MLA_WEIGHTZERO v26, v6, v9, 0 // tile:0, oc:4-7
+    MLA_WEIGHTZERO v22, v6, v8, 0   // v22 += zp * xks
+    MLA_WEIGHTZERO v23, v6, v9, 0
 
     cbz x27, TILE1_ADD_DSTV
-    ld1 {v6.s}[0], [x27], x25 // input dequant bias
-    ld1 {v8.4s, v9.4s}, [x28], #32 // weight kernel sum
-    MLA_WEIGHTZERO v25, v6, v8, 0 // tile:0, oc:0-3
-    MLA_WEIGHTZERO v26, v6, v9, 0 // tile:0, oc:4-7
+    ld1 {v6.s}[0], [x27], x25       // input dequant bias
+    ld1 {v8.4s, v9.4s}, [x28], #32  // weight kernel sum
+    MLA_WEIGHTZERO v22, v6, v8, 0   // v22 += wks * inputBias
+    MLA_WEIGHTZERO v23, v6, v9, 0
 
     TILE1_ADD_DSTV:
-    cbz x19, TILE1_TEMP_BUFFER
-    ld1 {v16.4s, v17.4s}, [x10]
-    fadd v25.4s, v25.4s, v16.4s
-    fadd v26.4s, v26.4s, v17.4s
+    // v22/v23 already hold the updated running accum.
 
     TILE1_TEMP_BUFFER:
     add x19, x19, #1
     cmp x19, x26
-    beq TILE1_POST
-    st1 {v25.4s, v26.4s}, [x10]
-    b TILE1_BLOCKNUM
+    bne TILE1_BLOCKNUM
 
     TILE1_POST:
     sub x24, x24, #1
     cbz x9, TILE1_CVT_FP16
     ld1 {v16.4s, v17.4s}, [x20], #32 // bias
-    fadd v25.4s, v25.4s, v16.4s
-    fadd v26.4s, v26.4s, v17.4s
+    fadd v22.4s, v22.4s, v16.4s
+    fadd v23.4s, v23.4s, v17.4s
 
     TILE1_CVT_FP16:
-    fcvtn v0.4h, v25.4s
-    fcvtn2 v0.8h, v26.4s
+    fcvtn v0.4h, v22.4s
+    fcvtn2 v0.8h, v23.4s
     cbz x14, TILE1_STORE
     fmax v0.8h, v0.8h, v29.8h
     fmin v0.8h, v0.8h, v31.8h
