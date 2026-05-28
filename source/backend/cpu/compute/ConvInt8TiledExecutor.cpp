@@ -184,7 +184,10 @@ void ConvInt8TiledExecutor::packWeightAndQuantInfo(int8_t* dstbuffer, const int8
     }
 }
 
-static void _computeReorderQuantInfo(float* weightKernelSum, int32_t* paramsKernelSum, bool blockQuantInput, bool canUseInt4, bool asyQuantWeight, float* quanInfoPtr, int outputCount, int kernelCount, int pack, AutoStorage<int8_t>& reorderedQuantInfo, float* ikernelSum, int HP, bool realInt4OrInt8) {
+static void _computeReorderQuantInfo(float* weightKernelSum, int32_t* paramsKernelSum, bool blockQuantInput,
+                                     int weightBits, bool asyQuantWeight, float* quanInfoPtr, int outputCount,
+                                     int kernelCount, int pack, AutoStorage<int8_t>& reorderedQuantInfo,
+                                     float* ikernelSum, int HP, bool realInt4OrInt8) {
     // Only used for dynamic quant:
     // copy gemm bias
     // copy/compute real dequant bias/scale
@@ -197,8 +200,13 @@ static void _computeReorderQuantInfo(float* weightKernelSum, int32_t* paramsKern
     int scaleSize = blockNum * ocUp4; // pack size.
     int blockSize = kernelCount / blockNum;
     int originOffset = 0;
-    if (canUseInt4) {
+    if (weightBits == 4) {
         originOffset = -8;
+    } else if (weightBits == 3) {
+        // w3 kernels produce unsigned 0..7; -4 re-centers to signed [-4, 3].
+        originOffset = -4;
+    } else if (weightBits == 2) {
+        originOffset = -2;
     }
     // Save weight quant alpha and zero: wf=alpha*wi+zero
     auto alphaPtr = reinterpret_cast<float*>(reorderedQuantInfo.get());
@@ -420,6 +428,31 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
         shapeBranch[4] = SRC_UNITBranch / 2;
         mResourceInt8->mWeightBits = 4;
         mResourceInt8->mWeightAsymmetricQuant = true; // offset: 8 from uint8_t
+    } else if (quanCommon && quanCommon->canUseInt2 &&
+               ((gcore->bytes == 2 && gcore->pack == 8 &&
+                 mRelatedFunctions.MNNGemmInt8AddBiasScale_w2_Unit_FP16 != nullptr) ||
+                mRelatedFunctions.Int8GemmKernel_W2 != nullptr)) {
+        // FP16 path uses MNNGemmInt8AddBiasScale_w2_Unit_FP16; FP32 path uses Int8GemmKernel_W2.
+        // Backends without either kernel fall through to the int8 (loader-expanded) path.
+        shapeMain[4] = SRC_UNITMain / 4;
+        shapeBranch[4] = SRC_UNITBranch / 4;
+        mResourceInt8->mWeightBits = 2;
+        mResourceInt8->mWeightAsymmetricQuant = true; // offset: 2 from uint8_t
+    } else if (quanCommon && quanCommon->canUseInt3 &&
+               ((gcore->bytes == 2 && gcore->pack == 8 &&
+                 mRelatedFunctions.MNNGemmInt8AddBiasScale_w3_Unit_FP16 != nullptr) ||
+                mRelatedFunctions.Int8GemmKernel_W3 != nullptr)) {
+        // bit-plane (2 + 1) split: per-cell layout is [main | aux] + optional padding.
+        //   i8mm (SRC_UNIT=8): 16B main + 8B aux = 24 bytes (shape[4] = 3, exact).
+        //   sdot (SRC_UNIT=4):  8B main + 4B aux = 12 bytes; 12/8 isn't integer, so we
+        //     ceil-round shape[4] to 2 (= 16-byte cell) and pad the trailing 4 bytes with
+        //     zero.  The kernel skips those bytes after the aux load.  Without ceiling,
+        //     truncating to 1 undersizes the buffer by 33% and the packer/kernel write
+        //     past the end → SIGSEGV in a later malloc/memset.
+        shapeMain[4] = (SRC_UNITMain * 3 + 7) / 8;
+        shapeBranch[4] = (SRC_UNITBranch * 3 + 7) / 8;
+        mResourceInt8->mWeightBits = 3;
+        mResourceInt8->mWeightAsymmetricQuant = true; // offset: 4 from uint8_t
     }
     mResourceInt8->mDynamicQuant = isDynamicQuant ? true : false;
 
@@ -535,6 +568,161 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
                         dst0[j] = d;
                     }
                 }
+            } else if (target->mWeightBits == 2) {
+                // Loader gave us signed int8 in [-2, 1]; convert to unsigned [0, 3], reorder via int8
+                // path, then pack 4 weights/byte into the kernel-expected layout.
+                originOffset = -2;
+                std::vector<uint8_t> tmpWeight(oc * ic * kernelCount);
+                for (int idx = 0; idx < oc * ic * kernelCount; ++idx) {
+                    tmpWeight[idx] = (uint8_t)((int)((int8_t*)srcPtr)[idx] + 2);
+                }
+                AutoStorage<uint8_t> packedInt8weight(weightlen * 4);
+                if (packedInt8weight.get() == nullptr) {
+                    MNN_ERROR("Weight reorder memory not enough!\n");
+                    return -1;
+                }
+                reorderWeight(packedInt8weight.get(), (uint8_t*)tmpWeight.data(), info, 0, (float*)kernelsum.get(),
+                              sumFunc);
+
+                int permuteUnit = UNIT * SRC_UNIT; // 64 for ARMV86 (UNIT=8, SRC_UNIT=8); 32 for ARMV82 sdot (8x4)
+                int quarterPermuteStride = permuteUnit / 4; // 16 bytes for ARMV86, 8 bytes for sdot
+                int leng = weightlen * 4;                   // unsigned int8 stage size
+                auto srcw2Ptr = (uint8_t*)packedInt8weight.get();
+                auto dstw2Ptr = (uint8_t*)weightReordered.get();
+                MNN_ASSERT(UNIT == 8 && (SRC_UNIT == 8 || SRC_UNIT == 4));
+                if (SRC_UNIT == 8) {
+                    // ARMV86 i8mm layout. 16 bytes per cell:
+                    //   bytes 0..7  : bits[6:7]=oc0, [4:5]=oc2, [2:3]=oc4, [0:1]=oc6  (at IC = b)
+                    //   bytes 8..15 : bits[6:7]=oc1, [4:5]=oc3, [2:3]=oc5, [0:1]=oc7  (at IC = b-8)
+                    for (int i = 0; i < leng / permuteUnit; ++i) {
+                        auto src0 = srcw2Ptr + i * permuteUnit;
+                        auto dst0 = dstw2Ptr + i * quarterPermuteStride;
+                        for (int b = 0; b < quarterPermuteStride; ++b) {
+                            int ic_in_cell = b % 8;
+                            int oc_offset = b / 8;
+                            uint8_t out = 0;
+                            out |= ((uint8_t)(src0[(0 + oc_offset) * 8 + ic_in_cell] & 0x3) << 6);
+                            out |= ((uint8_t)(src0[(2 + oc_offset) * 8 + ic_in_cell] & 0x3) << 4);
+                            out |= ((uint8_t)(src0[(4 + oc_offset) * 8 + ic_in_cell] & 0x3) << 2);
+                            out |= ((uint8_t)(src0[(6 + oc_offset) * 8 + ic_in_cell] & 0x3) << 0);
+                            dst0[b] = out;
+                        }
+                    }
+                } else { // SRC_UNIT == 4 (ARMV82 sdot)
+                    // 8 bytes per cell:
+                    //   bytes 0..3 : bits[6:7]=oc0, [4:5]=oc1, [2:3]=oc2, [0:1]=oc3  (at IC = b)
+                    //   bytes 4..7 : bits[6:7]=oc4, [4:5]=oc5, [2:3]=oc6, [0:1]=oc7  (at IC = b-4)
+                    for (int i = 0; i < leng / permuteUnit; ++i) {
+                        auto src0 = srcw2Ptr + i * permuteUnit;
+                        auto dst0 = dstw2Ptr + i * quarterPermuteStride;
+                        for (int b = 0; b < quarterPermuteStride; ++b) {
+                            int ic_in_cell = b % 4;
+                            int oc_offset = (b / 4) * 4;
+                            uint8_t out = 0;
+                            out |= ((uint8_t)(src0[(oc_offset + 0) * 4 + ic_in_cell] & 0x3) << 6);
+                            out |= ((uint8_t)(src0[(oc_offset + 1) * 4 + ic_in_cell] & 0x3) << 4);
+                            out |= ((uint8_t)(src0[(oc_offset + 2) * 4 + ic_in_cell] & 0x3) << 2);
+                            out |= ((uint8_t)(src0[(oc_offset + 3) * 4 + ic_in_cell] & 0x3) << 0);
+                            dst0[b] = out;
+                        }
+                    }
+                }
+            } else if (target->mWeightBits == 3) {
+                // Loader gave us signed int8 in [-4, 3]; convert to unsigned [0, 7].
+                // Reorder via int8 path, then split into 2-bit main plane (16B) + 1-bit aux plane (8B)
+                // per (UNIT * SRC_UNIT) cell, contiguously laid out as [main | aux].
+                // The kernel produces unsigned [0, 7]; _computeReorderQuantInfo applies
+                // originOffset = -4 in the post-process bias term to re-center to signed [-4, 3].
+                originOffset = -4;
+                std::vector<uint8_t> tmpWeight(oc * ic * kernelCount);
+                for (int idx = 0; idx < oc * ic * kernelCount; ++idx) {
+                    tmpWeight[idx] = (uint8_t)((int)((int8_t*)srcPtr)[idx] + 4);
+                }
+                // Stage int8 buffer holds reorderWeight output (1 byte per weight).
+                // Cell stride in dst depends on SRC_UNIT: i8mm packs 24B exactly per cell;
+                // sdot's 12B doesn't divide UNIT, so shape[4] is rounded up to 2 -> 16B cell
+                // with 4 trailing pad bytes (already zeroed by reorderWeight's memset).
+                int permuteUnit = UNIT * SRC_UNIT; // 64 i8mm / 32 sdot
+                int cellStride = UNIT * shape[4];  // 24 i8mm / 16 sdot
+                int cellCount = weightlen / cellStride;
+                int int8WeightLen = cellCount * permuteUnit;
+                AutoStorage<uint8_t> packedInt8weight(int8WeightLen);
+                if (packedInt8weight.get() == nullptr) {
+                    MNN_ERROR("Weight reorder memory not enough!\n");
+                    return -1;
+                }
+                reorderWeight(packedInt8weight.get(), (uint8_t*)tmpWeight.data(), info, 0, (float*)kernelsum.get(),
+                              sumFunc);
+
+                // Per cell layout (useful bytes; remainder up to cellStride is zero-pad):
+                //   i8mm (8x8 cell, 64 weights): 16B main + 8B aux  = 24 useful, cellStride=24
+                //   sdot (8x4 cell, 32 weights):  8B main + 4B aux  = 12 useful, cellStride=16
+                int cellMain = (SRC_UNIT == 8) ? 16 : 8;
+                int cellAux = (SRC_UNIT == 8) ? 8 : 4;
+                auto srcStgPtr = (uint8_t*)packedInt8weight.get();
+                auto dstPtr = (uint8_t*)weightReordered.get();
+                MNN_ASSERT(UNIT == 8 && (SRC_UNIT == 8 || SRC_UNIT == 4));
+                if (SRC_UNIT == 8) {
+                    for (int i = 0; i < cellCount; ++i) {
+                        auto src0 = srcStgPtr + i * permuteUnit; // 64 unsigned int8 in [0, 7]
+                        auto dst0 = dstPtr + i * cellStride;     // main, aux, [pad]
+                        // Main plane (2-bit), bytes 0..7 OC even, 8..15 OC odd, IC interleaved
+                        for (int b = 0; b < cellMain; ++b) {
+                            int ic_in_cell = b % 8;
+                            int oc_offset = b / 8;
+                            uint8_t out = 0;
+                            out |= ((uint8_t)(src0[(0 + oc_offset) * 8 + ic_in_cell] & 0x3) << 6);
+                            out |= ((uint8_t)(src0[(2 + oc_offset) * 8 + ic_in_cell] & 0x3) << 4);
+                            out |= ((uint8_t)(src0[(4 + oc_offset) * 8 + ic_in_cell] & 0x3) << 2);
+                            out |= ((uint8_t)(src0[(6 + oc_offset) * 8 + ic_in_cell] & 0x3) << 0);
+                            dst0[b] = out;
+                        }
+                        // Aux plane (1-bit, IC-major): byte ic, bit (7 - oc) is the high bit.
+                        // This lets the i8mm w3 kernel unpack all OC pairs with vector shifts instead of tbl/ext.
+                        for (int icIdx = 0; icIdx < 8; ++icIdx) {
+                            uint8_t out = 0;
+                            for (int oc = 0; oc < 8; ++oc) {
+                                uint8_t hi = (uint8_t)((src0[oc * 8 + icIdx] >> 2) & 1);
+                                out |= (hi << (7 - oc));
+                            }
+                            dst0[cellMain + icIdx] = out;
+                        }
+                    }
+                } else { // SRC_UNIT == 4 (ARMV82 sdot)
+                    // Main bytes 0..3: bits[6:7]=oc0, [4:5]=oc1, [2:3]=oc2, [0:1]=oc3 at IC=b
+                    // Main bytes 4..7: bits[6:7]=oc4, ..., [0:1]=oc7 at IC=b-4
+                    // Aux byte 0: bits[3:0]=oc0_aux at IC[0..3], bits[7:4]=oc1_aux
+                    // Aux byte 1: bits[3:0]=oc2_aux, bits[7:4]=oc3_aux
+                    // Aux byte 2..3: oc4..oc7 (same pattern)
+                    // Bytes 12..15: zero pad (cellStride - useful = 4 bytes).
+                    for (int i = 0; i < cellCount; ++i) {
+                        auto src0 = srcStgPtr + i * permuteUnit; // 32 unsigned int8 in [0, 7]
+                        auto dst0 = dstPtr + i * cellStride;     // main, aux, [pad]
+                        // Main plane
+                        for (int b = 0; b < cellMain; ++b) {
+                            int ic_in_cell = b % 4;
+                            int oc_offset = (b / 4) * 4;
+                            uint8_t out = 0;
+                            out |= ((uint8_t)(src0[(oc_offset + 0) * 4 + ic_in_cell] & 0x3) << 6);
+                            out |= ((uint8_t)(src0[(oc_offset + 1) * 4 + ic_in_cell] & 0x3) << 4);
+                            out |= ((uint8_t)(src0[(oc_offset + 2) * 4 + ic_in_cell] & 0x3) << 2);
+                            out |= ((uint8_t)(src0[(oc_offset + 3) * 4 + ic_in_cell] & 0x3) << 0);
+                            dst0[b] = out;
+                        }
+                        // Aux plane: each output byte holds 2 OCs * 4 IC = 8 bits.
+                        for (int b = 0; b < cellAux; ++b) {
+                            int ocPair = b * 2; // OC pair at this aux byte: ocPair / ocPair+1
+                            uint8_t out = 0;
+                            for (int icIdx = 0; icIdx < 4; ++icIdx) {
+                                uint8_t hi0 = (uint8_t)((src0[(ocPair + 0) * 4 + icIdx] >> 2) & 1);
+                                uint8_t hi1 = (uint8_t)((src0[(ocPair + 1) * 4 + icIdx] >> 2) & 1);
+                                out |= (hi0 << icIdx);       // bits[3:0] = OC[ocPair]
+                                out |= (hi1 << (icIdx + 4)); // bits[7:4] = OC[ocPair+1]
+                            }
+                            dst0[cellMain + b] = out;
+                        }
+                    }
+                }
             } else { // int8 weight
                 reorderWeight((uint8_t*)weightReordered.get(), srcPtr, info, 0, (float*)kernelsum.get(), sumFunc);
             }
@@ -558,7 +746,9 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
         int32_t paramsKernelSum[2] = {blockNum, inputBlockNum * ROUND_UP(oc, UNIT)};
         float* weightKernelSum = (float*)addressPtr[2];
         float* quanScalePtr = (float*)addressPtr[3];
-        _computeReorderQuantInfo(weightKernelSum, paramsKernelSum, (inputBlockQuantOption == 2), target->mWeightBits == 4, asyWeight, quanScalePtr, oc, kernelCount * ic, pack, reorderedQuantInfo, (float*)kernelsum.get(), UNIT, notConvertInt4ToInt8);
+        _computeReorderQuantInfo(weightKernelSum, paramsKernelSum, (inputBlockQuantOption == 2), target->mWeightBits,
+                                 asyWeight, quanScalePtr, oc, kernelCount * ic, pack, reorderedQuantInfo,
+                                 (float*)kernelsum.get(), UNIT, notConvertInt4ToInt8);
         /* 3. put weight and quantInfo together */
         int32_t params[6] = {shape[0], shape[1], shape[2], shape[3], shape[4], ROUND_UP(oc, pack)};
         int8_t* weightInt8 = addressPtr[1];
@@ -749,7 +939,15 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
         }
     }
 
-    float weightBytes = mResourceInt8->mWeightBits == 4 ? 0.5 : 1;
+    float weightBytes = 1.0f;
+    if (mResourceInt8->mWeightBits == 4) {
+        weightBytes = 0.5f;
+    } else if (mResourceInt8->mWeightBits == 3) {
+        auto packedBytesPerOc = (SRC_UNIT * 3 + 7) / 8;
+        weightBytes = static_cast<float>(packedBytesPerOc) / SRC_UNIT;
+    } else if (mResourceInt8->mWeightBits == 2) {
+        weightBytes = 0.25f;
+    }
     mBlockNum = mResourceInt8->mBlockNum;
 
     CPUConvolution::onResize(inputs, outputs);
@@ -910,6 +1108,10 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
             if (mOnlineReorderWeightSme && planeSize == 1) {
                 mGemmKernel = mRelatedFunctions.MNNGemmInt8AddBiasScale_w4_Unit_FP32_DecodeMax;
             }
+        } else if (mResourceInt8->mWeightBits == 2 && mRelatedFunctions.Int8GemmKernel_W2 != nullptr) {
+            mGemmKernel = mRelatedFunctions.Int8GemmKernel_W2;
+        } else if (mResourceInt8->mWeightBits == 3 && mRelatedFunctions.Int8GemmKernel_W3 != nullptr) {
+            mGemmKernel = mRelatedFunctions.Int8GemmKernel_W3;
         }
         mQuantFunc = core->MNNFloat2Int8;
         if (gcore->bytes == 2 && gcore->pack == 8) {
@@ -922,6 +1124,12 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
                 if (mOnlineReorderWeightSme && planeSize == 1) {
                     mGemmKernel = mRelatedFunctions.MNNGemmInt8AddBiasScale_w4_Unit_FP16_DecodeMax;
                 }
+            } else if (mResourceInt8->mWeightBits == 2 &&
+                       mRelatedFunctions.MNNGemmInt8AddBiasScale_w2_Unit_FP16 != nullptr) {
+                mGemmKernel = mRelatedFunctions.MNNGemmInt8AddBiasScale_w2_Unit_FP16;
+            } else if (mResourceInt8->mWeightBits == 3 &&
+                       mRelatedFunctions.MNNGemmInt8AddBiasScale_w3_Unit_FP16 != nullptr) {
+                mGemmKernel = mRelatedFunctions.MNNGemmInt8AddBiasScale_w3_Unit_FP16;
             }
             mQuantFunc = core->DynamicQuanInput_ARM82;
             mQuantAndReorderFunc = core->DynamicQuanInputAndReorder_ARM82;
@@ -936,6 +1144,15 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
             if (mResourceInt8->mWeightBits == 4) {
                 mGemmKernels[0] = mRelatedFunctions.MNNGemmInt8AddBiasScale_w4_Unit_FP32_DecodeMax;
                 mGemmKernels[1] = mArm82Functions.Int8GemmKernel_W4;
+            } else if (mResourceInt8->mWeightBits == 2 && mRelatedFunctions.Int8GemmKernel_W2 != nullptr) {
+                // No SME2 DecodeMax for w2 yet; reuse plain w2 for both branches.
+                mGemmKernels[0] = mRelatedFunctions.Int8GemmKernel_W2;
+                mGemmKernels[1] = mArm82Functions.Int8GemmKernel_W2 != nullptr ? mArm82Functions.Int8GemmKernel_W2
+                                                                               : mRelatedFunctions.Int8GemmKernel_W2;
+            } else if (mResourceInt8->mWeightBits == 3 && mRelatedFunctions.Int8GemmKernel_W3 != nullptr) {
+                mGemmKernels[0] = mRelatedFunctions.Int8GemmKernel_W3;
+                mGemmKernels[1] = mArm82Functions.Int8GemmKernel_W3 != nullptr ? mArm82Functions.Int8GemmKernel_W3
+                                                                               : mRelatedFunctions.Int8GemmKernel_W3;
             }
         } else { // Prefill
             mGemmKernels.push_back(mRelatedFunctions.Int8GemmKernel);
@@ -943,6 +1160,14 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
             if (mResourceInt8->mWeightBits == 4) {
                 mGemmKernels[0] = mRelatedFunctions.Int8GemmKernel_W4;
                 mGemmKernels[1] = mArm82Functions.Int8GemmKernel_W4;
+            } else if (mResourceInt8->mWeightBits == 2 && mRelatedFunctions.Int8GemmKernel_W2 != nullptr) {
+                mGemmKernels[0] = mRelatedFunctions.Int8GemmKernel_W2;
+                mGemmKernels[1] = mArm82Functions.Int8GemmKernel_W2 != nullptr ? mArm82Functions.Int8GemmKernel_W2
+                                                                               : mRelatedFunctions.Int8GemmKernel_W2;
+            } else if (mResourceInt8->mWeightBits == 3 && mRelatedFunctions.Int8GemmKernel_W3 != nullptr) {
+                mGemmKernels[0] = mRelatedFunctions.Int8GemmKernel_W3;
+                mGemmKernels[1] = mArm82Functions.Int8GemmKernel_W3 != nullptr ? mArm82Functions.Int8GemmKernel_W3
+                                                                               : mRelatedFunctions.Int8GemmKernel_W3;
             }
         }
         mQuantFunc = core->MNNFloat2Int8;
@@ -955,6 +1180,15 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
                 if (mResourceInt8->mWeightBits == 4) {
                     mGemmKernels[0] = mRelatedFunctions.MNNGemmInt8AddBiasScale_w4_Unit_FP16_DecodeMax;
                     mGemmKernels[1] = mArm82Functions.MNNGemmInt8AddBiasScale_w4_Unit_FP16;
+                } else if (mResourceInt8->mWeightBits == 2 &&
+                           mArm82Functions.MNNGemmInt8AddBiasScale_w2_Unit_FP16 != nullptr) {
+                    // No SME2 DecodeMax for w2 yet; reuse plain ARMV86 for both branches.
+                    mGemmKernels[0] = mArm82Functions.MNNGemmInt8AddBiasScale_w2_Unit_FP16;
+                    mGemmKernels[1] = mArm82Functions.MNNGemmInt8AddBiasScale_w2_Unit_FP16;
+                } else if (mResourceInt8->mWeightBits == 3 &&
+                           mArm82Functions.MNNGemmInt8AddBiasScale_w3_Unit_FP16 != nullptr) {
+                    mGemmKernels[0] = mArm82Functions.MNNGemmInt8AddBiasScale_w3_Unit_FP16;
+                    mGemmKernels[1] = mArm82Functions.MNNGemmInt8AddBiasScale_w3_Unit_FP16;
                 }
             } else { // Prefill
                 mGemmKernels[0] = mRelatedFunctions.MNNGemmInt8AddBiasScale_Unit_FP16;
@@ -962,6 +1196,14 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
                 if (mResourceInt8->mWeightBits == 4) {
                     mGemmKernels[0] = mRelatedFunctions.MNNGemmInt8AddBiasScale_w4_Unit_FP16;
                     mGemmKernels[1] = mArm82Functions.MNNGemmInt8AddBiasScale_w4_Unit_FP16;
+                } else if (mResourceInt8->mWeightBits == 2 &&
+                           mArm82Functions.MNNGemmInt8AddBiasScale_w2_Unit_FP16 != nullptr) {
+                    mGemmKernels[0] = mRelatedFunctions.MNNGemmInt8AddBiasScale_w2_Unit_FP16;
+                    mGemmKernels[1] = mArm82Functions.MNNGemmInt8AddBiasScale_w2_Unit_FP16;
+                } else if (mResourceInt8->mWeightBits == 3 &&
+                           mArm82Functions.MNNGemmInt8AddBiasScale_w3_Unit_FP16 != nullptr) {
+                    mGemmKernels[0] = mRelatedFunctions.MNNGemmInt8AddBiasScale_w3_Unit_FP16;
+                    mGemmKernels[1] = mArm82Functions.MNNGemmInt8AddBiasScale_w3_Unit_FP16;
                 }
             }
             mQuantFunc = core->DynamicQuanInput_ARM82;
@@ -1745,6 +1987,13 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
     if (mResourceInt8->mWeightBits == 4) {
         weightBytes   = 0.5;
         weightStepY /= 2;
+    } else if (mResourceInt8->mWeightBits == 3) {
+        auto packedBytesPerOc = (SRC_UNIT * 3 + 7) / 8;
+        weightBytes = static_cast<float>(packedBytesPerOc) / SRC_UNIT;
+        weightStepY = UNIT * packedBytesPerOc;
+    } else if (mResourceInt8->mWeightBits == 2) {
+        weightBytes = 0.25f;
+        weightStepY /= 4;
     }
     int blockunit = ocUp4 * 2 * QUANT_INFO_BYTES + blockL * weightStepY * UP_DIV(output->channel(), UNIT);
     auto inputchannel = input->channel();

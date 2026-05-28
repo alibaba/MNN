@@ -1,138 +1,91 @@
-# 步骤 2：分析瓶颈与制定方案
+# 步骤 2：瓶颈分析与方案选择
 
-> **目标**：分析算子的计算特性和瓶颈，制定具体的优化策略。
->
-> **前置条件**：步骤 1 已通过（基线数据已获取）。
->
-> **复杂度**：中（纯分析，不需要编译运行）
+> **目标**：根据基线判断该优化该改哪里，避免盲目写汇编或盲目加 unroll。
 
 ---
 
-## 2.1 分析计算特性
+## 2.1 先分类瓶颈
 
-### 计算访存比分析
+| 类型 | 常见信号 | 优先方向 |
+|------|----------|----------|
+| memory bound | eff GB/s 接近 memcpy roofline | 减少字节、改善连续访问、减少 metadata |
+| unpack/issue bound | eff GB/s 低但指令很多 | 减少 bit unpack、常量复用、调整 layout |
+| compute bound | GFLOPS 接近指令峰值 | 更大 tile、更多 accumulator、ISA 指令 |
+| postprocess bound | dot 快但 scale/minmax/store 慢 | 合并后处理、缩短 min/max live range |
+| dispatch/pack 错配 | 质量错或某 ISA 独坏 | 检查 packer、unit、kernel pointer |
 
-```
-计算量 (FLOPs): ____
-访存量 (Bytes): ____
-计算访存比 (FLOPs/Byte): ____
-
-判断: ☐ 计算密集（比值高，如 MatMul）
-      ☐ 访存密集（比值低，如 element-wise）
-      ☐ 混合型
-```
-
-**典型参考**：
-- MatMul `[M, K] x [K, N]`：计算 2MKN FLOPs，访存 (MK + KN + MN) * bytes
-- Softmax：计算 ~5N FLOPs（exp + sum + div），访存 ~2N * bytes
-- ReLU：计算 N FLOPs，访存 2N * bytes
-
-### 当前实现分析
-
-阅读当前所要优化的算子的代码，回答：
-
-```
-1. 当前是否使用多线程？________________________________
-2. 数据排布是否 Pack 友好？____________________________
-3. 是否有不必要的数据拷贝/转换？______________________
-4. 循环是否可以向量化？______________________________
-5. 是否有跨 cache line 的访存？_______________________
-```
+w2/w3 常见是 unpack/issue bound，不是单纯 bandwidth bound。
 
 ---
 
-## 2.2 确定优化方向
+## 2.2 低 bit kernel 专项分析
 
-根据计算特性选择优化方向：
+分析以下问题：
 
-### 计算密集型算子（如 MatMul, Conv）
+- packed cell 的真实字节数是多少？是否有 padding？
+- block32、block64、per-channel 的 metadata stride 是否不同？
+- OC split 时 `weightPtr` 是否按真实 cell stride 前进？
+- i8mm 和 sdot 是否共享 packer？共享是否安全？
+- `sdot`/`smmla` 的 lane 分组和 pack layout 是否完全匹配？
+- fp32 min/max、scale、bias、zp 是否被 unpack 临时寄存器覆盖？
+- E=1 decode 是否走了和 E>1 不同的 kernel？
 
-优先顺序：
-1. **数据排布优化**：Pack 为 SIMD 友好的格式（eP × lP × hP）
-2. **SIMD 指令**：使用 NEON/FP16/SDOT/I8MM
-3. **分块 Tiling**：适配 L1/L2 Cache 大小
-4. **多线程**：按 M 维度或 H 维度划分
-
-### 访存密集型算子（如 Softmax, LayerNorm）
-
-优先顺序：
-1. **减少访存**：合并多个 pass 为一个
-2. **SIMD 向量化**：一次处理 4/8 个元素
-3. **多线程**：注意避免 false sharing
-4. **预取指令**：`__builtin_prefetch`
+如果质量问题只出现在一个 ISA，优先查 dispatch/pack/register lifetime。
+如果 no-thinking/greedy 正常但 mixed sampling 复读，先不要判定 kernel 错。
 
 ---
 
-## 2.3 制定具体方案
+## 2.3 方案优先级
+
+按风险从低到高选择：
+
+1. 修正确认的 correctness bug：stride、tail、register clobber、dispatch 错配。
+2. 复用已有 CoreFunctions 或已有 kernel 分支。
+3. C++ 层减少拷贝、修正线程拆分、避免 onExecute 分配。
+4. block64/default case 专用分支。
+5. 常量 hoist、`ld1r` replicate load、减少重复 unpack。
+6. 调整 pack layout，但不增加 packed bytes。
+7. 扩大 unroll 或新增 asm tile。
+8. 增加 packed bytes 或改变量化格式，只有用户明确接受时才做。
+
+---
+
+## 2.4 写方案时必须包含
 
 ```markdown
-## 优化方案
+## 方案
 
-### 目标
-将 Xxx 算子在 ARM64 上的性能从 xx GFLOPS 提升到 xx GFLOPS
+目标路径：
+当前瓶颈：
+不优化的路径：
 
-### 方案
-1. C++ 层：
-   - [ ] 添加多线程支持（按 xxx 维度划分）
-   - [ ] 优化数据排布（Pack 为 NC4HW4 / eP×lP）
-   - [ ] 减少不必要的内存分配
+Correctness guard:
+- C++ oracle:
+- op tests:
+- model sanity:
 
-2. 汇编层：
-   - [ ] FP32 NEON：实现 xxx 的核心内循环
-   - [ ] FP16：利用 ARMv8.2 FP16 指令，Pack8
-   - [ ] SDOT/I8MM：INT8 量化版本（如需要）
-   - [ ] SME2：利用矩阵扩展（如平台支持）
+实现计划:
+1.
+2.
+3.
 
-3. 大小核调度：
-   - [ ] 大核使用 FP16 + I8MM
-   - [ ] 小核使用 FP32 NEON
+性能目标:
+- metric:
+- expected direction:
 
-### 预期提升
-| 指令集 | 预期 GFLOPS | 预期提升 |
-|--------|------------|---------|
-| C++ 多线程 | xx | ~Nx |
-| FP32 NEON | xx | ~Nx |
-| FP16 | xx | ~2x over FP32 |
-| SDOT | xx | ~Nx |
+风险:
+- register lifetime:
+- pack/dispatch:
+- tail/block:
 ```
+
+性能目标可以是方向性的，例如减少 unpack 指令或提升 eff GB/s，不要编造未实测数字。
 
 ---
 
-## 2.4 理解 MNN 的 Pack 参数
+## 通过标准
 
-MNN 的矩阵乘核心函数使用 `eP, lP, hP` 三个参数来描述分块策略：
-
-```
-A 矩阵 [M, K] → Pack 为 [M/eP, K/lP, eP, lP]
-B 矩阵 [K, N] → Pack 为 [N/hP, K/lP, lP, hP]
-C 矩阵 [M, N] → Pack 为 [N/hP, M, hP]
-```
-
-不同指令集的 Pack 参数：
-
-| 指令集 | eP | lP | hP | 主 Kernel 大小 |
-|--------|----|----|----|--------------|
-| FP32 NEON | 12 | 4 | 8 | 12×8 Tile |
-| FP16 | 24 | 8 | 8 | 24×8 Tile |
-| SDOT INT8 | 12 | 4 | 8 | 12×8 Tile |
-| I8MM INT8 | 12 | 8 | 8 | 12×8 Tile |
-| SME2 FP32 | 取决于 SVL | 取决于 SVL | 取决于 SVL | 可变 Tile |
-
-> **查看实际值**：调用 `gcore->MNNGetMatMulPackMode(&eP, &lP, &hP)` 获取当前运行时的 Pack 参数。
-
----
-
-## 步骤 2 测试标准
-
-### 通过标准
-
-- [ ] 计算特性分析完成（计算密集 / 访存密集）
-- [ ] 优化方案文档已编写
-- [ ] 方案中明确了要优化的指令集版本
-- [ ] 方案中有预期提升的估算
-
----
-
-## 下一步
-
-**步骤 2 通过后，进入 `step3-cpp-opt.md`（步骤 3：C++ 优化）。**
+- 已用数据解释瓶颈，而不是凭直觉。
+- 已明确哪些路径不在本次范围。
+- 已有 correctness guard，能在每个小改动后快速验证。
+- 方案没有依赖用户未接受的格式变化，例如扩大 w2/w3 字节。
