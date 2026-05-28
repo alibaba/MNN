@@ -686,6 +686,7 @@ size_t CPUBackend::getTensorSize(const Tensor* tensor, bool multiBytes) const {
     for (int i = 0; i < tensor->dimensions(); i++) {
         size_t currentDimSize = tensor->length(i);
         if (des->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 && 1 == i) {
+            TensorUtils::setTensorChannelPack(tensor, core->pack);
             currentDimSize = UP_DIV(currentDimSize, core->pack) * core->pack;
         }
         dataSize *= currentDimSize;

@@ -1521,6 +1521,7 @@ static void _getRISCVInfoAux(MNNCPUInfo* cpuinfo) {
     // 安全读取 VLEN
     uint32_t vlenb = _safe_read_vlenb();
     cpuinfo->rvv_vlen = (int)(vlenb * 8);
+    cpuinfo->channel_pack = std::max(4, std::min(32, cpuinfo->rvv_vlen / 32));
 
     // RVV 版本
 #if defined(__riscv_v)
@@ -1590,6 +1591,12 @@ static void _fillInfo(MNNCPUInfo* cpuinfo_isa) {
     cpuinfo_isa->i8mm = false;
     cpuinfo_isa->sve2 = false;
     cpuinfo_isa->sme2 = false;
+    cpuinfo_isa->rvv = false;
+    cpuinfo_isa->rvv_vlen = 0;
+    cpuinfo_isa->rvv_version = 0;
+    cpuinfo_isa->channel_pack = 4;
+    cpuinfo_isa->zvfh = false;
+    cpuinfo_isa->zvkn = false;
     // android
     /**Get CPU Info*/
 #ifdef __linux__
@@ -1693,7 +1700,9 @@ static void _fillInfo(MNNCPUInfo* cpuinfo_isa) {
     cpuinfo_isa->dot = true;
 #endif
 
-    MNN_PRINT("The device supports: i8sdot:%d, fp16:%d, i8mm: %d, sve2: %d, sme2: %d\n",
-            cpuinfo_isa->dot, cpuinfo_isa->fp16arith, cpuinfo_isa->i8mm, cpuinfo_isa->sve2, cpuinfo_isa->sme2);
+    MNN_PRINT("The device supports: i8sdot:%d, fp16:%d, i8mm: %d, sve2: %d, sme2: %d, rvv: %d, "
+              "rvv_vlen: %d, channel_pack: %d\n",
+            cpuinfo_isa->dot, cpuinfo_isa->fp16arith, cpuinfo_isa->i8mm, cpuinfo_isa->sve2, cpuinfo_isa->sme2,
+            cpuinfo_isa->rvv, cpuinfo_isa->rvv_vlen, cpuinfo_isa->channel_pack);
     return;
 }

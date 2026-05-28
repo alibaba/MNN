@@ -52,6 +52,32 @@ extern void MNNSumByAxisLForMatmul_A_RVV(float* dest, int8_t* source, const floa
                                          ssize_t realDstCount, SumByAxisParams sumParams);
 extern void MNNSumWeightInt8_RVV(float* kernelsum, int8_t* source, size_t outside, size_t reduceAxis, size_t hP,
                                  size_t lP);
+extern void MNNGetMatMulPackMode_RVV(int* eP, int* lP, int* hP);
+extern void MNNPackC4ForMatMul_A_RVV(float* destOrigin, float const** sourceGroup, const int32_t* info,
+                                     const int32_t* el);
+extern void MNNPackForMatMul_B_RVV(float* dest, const float* source, size_t h, size_t kernelsize, size_t ic,
+                                   bool transpose);
+extern void MNNPackedMatMul_RVV(float* C, const float* A, const float* B, const size_t* parameter,
+                                const float* postParameters, const float* bias, const float* k, const float* b);
+extern void MNNPackedMatMulRemain_RVV(float* C, const float* A, const float* B, size_t eSize,
+                                      const size_t* parameter, const float* postParameters, const float* bias,
+                                      const float* k, const float* b);
+extern void MNNPackCUnit_RVV(float* dst, const float* src, size_t area, size_t depth, int* areaOffset);
+extern void MNNUnpackCUnit_RVV(float* dst, const float* src, size_t area, size_t depth, int* areaOffset);
+extern void MNNPackCUnitTranspose_RVV(float* dst, const float* src, size_t area, size_t depth, int* areaOffset);
+extern void MNNUnpackCUnitTranspose_RVV(float* dst, const float* src, size_t area, size_t depth, int* areaOffset);
+extern void MNNPackCUnitInt8_RVV(int8_t* dst, const int8_t* src, size_t area, size_t depth, int* areaOffset);
+extern void MNNUnpackCUnitInt8_RVV(int8_t* dst, const int8_t* src, size_t area, size_t depth, int* areaOffset);
+extern void MNNPackCUnitTransposeInt8_RVV(int8_t* dst, const int8_t* src, size_t area, size_t depth,
+                                          int* areaOffset);
+extern void MNNUnpackCUnitTransposeInt8_RVV(int8_t* dst, const int8_t* src, size_t area, size_t depth,
+                                            int* areaOffset);
+extern void MNNPackCUnitInt16_RVV(int16_t* dst, const int16_t* src, size_t area, size_t depth, int* areaOffset);
+extern void MNNUnpackCUnitInt16_RVV(int16_t* dst, const int16_t* src, size_t area, size_t depth, int* areaOffset);
+extern void MNNPackCUnitTransposeInt16_RVV(int16_t* dst, const int16_t* src, size_t area, size_t depth,
+                                           int* areaOffset);
+extern void MNNUnpackCUnitTransposeInt16_RVV(int16_t* dst, const int16_t* src, size_t area, size_t depth,
+                                             int* areaOffset);
 #endif
 
 #ifndef MNN_USE_SSE
@@ -4961,6 +4987,24 @@ void MNNCoreFunctionInit() {
 
 #if defined(__riscv) && defined(MNN_USE_RVV)
     if (gCoreFunction->supportRVV) {
+        gCoreFunction->pack = gCPUInfo.channel_pack;
+        gCoreFunction->MNNGetMatMulPackMode = MNNGetMatMulPackMode_RVV;
+        gCoreFunction->MNNPackC4ForMatMul_A = MNNPackC4ForMatMul_A_RVV;
+        gCoreFunction->MNNPackForMatMul_B = MNNPackForMatMul_B_RVV;
+        gCoreFunction->MNNPackedMatMul = MNNPackedMatMul_RVV;
+        gCoreFunction->MNNPackedMatMulRemain = MNNPackedMatMulRemain_RVV;
+        gCoreFunction->MNNPackCUnit = MNNPackCUnit_RVV;
+        gCoreFunction->MNNUnpackCUnit = MNNUnpackCUnit_RVV;
+        gCoreFunction->MNNPackCUnitTranspose = MNNPackCUnitTranspose_RVV;
+        gCoreFunction->MNNUnpackCUnitTranspose = MNNUnpackCUnitTranspose_RVV;
+        gCoreFunction->MNNPackCUnitInt8 = MNNPackCUnitInt8_RVV;
+        gCoreFunction->MNNUnpackCUnitInt8 = MNNUnpackCUnitInt8_RVV;
+        gCoreFunction->MNNPackCUnitTransposeInt8 = MNNPackCUnitTransposeInt8_RVV;
+        gCoreFunction->MNNUnpackCUnitTransposeInt8 = MNNUnpackCUnitTransposeInt8_RVV;
+        gCoreFunction->MNNPackCUnitInt16 = MNNPackCUnitInt16_RVV;
+        gCoreFunction->MNNUnpackCUnitInt16 = MNNUnpackCUnitInt16_RVV;
+        gCoreFunction->MNNPackCUnitTransposeInt16 = MNNPackCUnitTransposeInt16_RVV;
+        gCoreFunction->MNNUnpackCUnitTransposeInt16 = MNNUnpackCUnitTransposeInt16_RVV;
         gCoreFunction->MNNAccumulateSequenceNumber = MNNAccumulateSequenceNumber_RVV;
         gCoreFunction->MNNSumByAxisLForMatmul_A = MNNSumByAxisLForMatmul_A_RVV;
         gCoreFunction->MNNReorderWeightInt4 = MNNReorderWeightInt4_RVV;
@@ -5021,6 +5065,11 @@ void MNNUnpackC4Origin(float* dst, const float* src, size_t area, size_t depth, 
         areaOffset,
         areaOffset,
     };
+    auto core = MNN::MNNGetCoreFunctions();
+    if (nullptr != core && core->pack != 4 && nullptr != core->MNNUnpackCUnit) {
+        core->MNNUnpackCUnit(dst, src, area, depth, offset);
+        return;
+    }
     MNNUnpackC4(dst, src, area, depth, offset);
 }
 void MNNPackC4Origin(float* dst, const float* src, size_t area, size_t depth, int areaOffset) {
@@ -5028,6 +5077,11 @@ void MNNPackC4Origin(float* dst, const float* src, size_t area, size_t depth, in
         areaOffset,
         areaOffset,
     };
+    auto core = MNN::MNNGetCoreFunctions();
+    if (nullptr != core && core->pack != 4 && nullptr != core->MNNPackCUnit) {
+        core->MNNPackCUnit(dst, src, area, depth, offset);
+        return;
+    }
     MNNPackC4(dst, src, area, depth, offset);
 }
 

@@ -27,6 +27,7 @@ struct MNNCPUInfo {
     bool rvv = false;
     int rvv_vlen = 0;
     int rvv_version = 0;
+    int channel_pack = 4;
     bool zvfh = false;
     bool zvkn = false;
 

@@ -103,7 +103,7 @@ struct Tensor::InsideDescribe {
         bool overlap = false; // Only used by strideSliceWrite now
         int index = -1;
         int group = 0;
-		int channel_pack_num = 4;
+        int channel_pack_num = 0;
         bool support_pack16 = true;
         pad mPads;
         // For isMutable = false Tensor , determine whether the content can be convert to main backend

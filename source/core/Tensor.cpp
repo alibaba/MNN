@@ -300,10 +300,10 @@ void printData(const Tensor* tensor, const void* data, const char* fmt) {
             }
         }
     } else if (TensorUtils::getDescribe(tensor)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) { // NC/4HW4
-        auto components    = 4;
+        auto components    = TensorUtils::getTensorChannelPack(tensor);
         auto bytesPerRow   = width * components * unit;
         auto bytesPerImage = height * bytesPerRow;
-        auto bytesPerBatch = UP_DIV(channel, 4) * bytesPerImage;
+        auto bytesPerBatch = UP_DIV(channel, components) * bytesPerImage;
 
         for (int b = 0; b < batch; b++) {
             auto bytes = buffer + b * bytesPerBatch / unit;
@@ -413,7 +413,8 @@ size_t Tensor::usize() const {
     for (int i = 0; i < this->buffer().dimensions; i++) {
         int currentDimSize = mBuffer.dim[i].extent;
         if (nativeDescribe->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 && 1 == i) {
-            currentDimSize = ALIGN_UP4(currentDimSize);
+            auto pack = TensorUtils::getTensorChannelPack(this);
+            currentDimSize = UP_DIV(currentDimSize, pack) * pack;
         }
         dataSize *= currentDimSize;
     }

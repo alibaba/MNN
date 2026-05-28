@@ -972,12 +972,15 @@ void TensorUtils::setRasterInputs(Command* cmd) {
 
 int TensorUtils::getTensorChannelPack(const Tensor* tensor) {
     auto srcDes = TensorUtils::getDescribe(tensor);
-    return srcDes->support_pack16 ? srcDes->channel_pack_num : 4;
+    if (!srcDes->support_pack16) {
+        return 4;
+    }
+    return srcDes->channel_pack_num > 0 ? srcDes->channel_pack_num : 4;
 }
 
 void TensorUtils::setTensorChannelPack(const Tensor* tensor, int pack) {
     auto srcDes = TensorUtils::getDescribe(tensor);
-    srcDes->channel_pack_num = srcDes->support_pack16 ? pack : 4;
+    srcDes->channel_pack_num = srcDes->support_pack16 ? std::max(pack, 4) : 4;
 }
 
 void TensorUtils::setTensorSupportPack(const Tensor* tensor, bool flag) {
