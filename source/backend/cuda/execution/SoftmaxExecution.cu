@@ -205,11 +205,17 @@ ErrorCode SoftmaxExecution::onExecute(const std::vector<Tensor *> &inputs, const
     int block_num = runtime->blocks_num(count);
     int threads_num = runtime->threads_num();
 
+    bool isHalf = (inputs[0]->getType().bits == 16);
+
     if (axis <= 64) {
-        SOFTMAX<<<block_num, threads_num>>>((const float*)input, (float*)dst, inside, axis, outside, count);
+        if (isHalf) {
+            SOFTMAX<<<block_num, threads_num>>>((const half*)input, (half*)dst, inside, axis, outside, count);
+        } else {
+            SOFTMAX<<<block_num, threads_num>>>((const float*)input, (float*)dst, inside, axis, outside, count);
+        }
         checkKernelErrors;
-    } else if (static_cast<CUDABackend*>(backend())->useFp16()) {
-	if(axis % 256 == 0 || axis >= 768) {
+    } else if (isHalf) {
+        if(axis % 256 == 0 || axis >= 768) {
             block_num = count;
             int calc_multi_num = (axis + 255) / 256;
             SOFTMAX_AXIS_REDUCE<<<block_num, 256>>>((const half*)input, (half*)dst, inside, axis, 256, calc_multi_num, outside, count);
