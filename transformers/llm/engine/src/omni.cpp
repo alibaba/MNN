@@ -864,7 +864,18 @@ std::vector<int> Omni::audioProcess(MNN::Express::VARP waveform) {
     // not affected by the LLM's kvcache metadata.
     mProcessorRuntimeManager->setHintPtr(Interpreter::KVCACHE_INFO, nullptr);
     VARP audio_embedding;
-    if (mAudioModule->getInfo()->inputNames.size() > 1) {
+    auto audio_inputs = mAudioModule->getInfo()->inputNames.size();
+    if (audio_type == "qwen3_asr") {
+        if (input_features->getInfo()->dim.size() > 0 && input_features->getInfo()->dim[0] == 1) {
+            input_features = _Squeeze(input_features, {0});
+        }
+        if (input_features == nullptr || input_features->getInfo() == nullptr) {
+            MNN_ERROR("[Error][audioProcess:encoder] qwen3_asr input_features squeeze failed\n");
+            mContext->status = LlmStatus::INTERNAL_ERROR;
+            return std::vector<int>(0);
+        }
+        audio_embedding = mAudioModule->forward(input_features);
+    } else if (audio_inputs > 1) {
         int seqlen = UP_DIV(input_features->getInfo()->dim[2], 2);
         constexpr int n_window = 100;
         std::vector<int> cu_seqlens;
@@ -897,6 +908,11 @@ std::vector<int> Omni::audioProcess(MNN::Express::VARP waveform) {
             input_features = _Slice(input_features, _var<int>({0, 0, 0}, {3}), _var<int>({-1, -1, 3000}, {3}));
         }
         audio_embedding = mAudioModule->forward(input_features);
+    }
+    if (audio_embedding == nullptr || audio_embedding->getInfo() == nullptr) {
+        MNN_ERROR("[Error][audioProcess:encoder] audio encoder returned null embedding\n");
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return std::vector<int>(0);
     }
 
     // Permute to [T, 1, H]
@@ -1018,7 +1034,6 @@ void Omni::addPositionIds(int t, int h, int w) {
 
 std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input) {
     std::string prompt = multimodal_input.prompt_template;
-    // MNN_PRINT("tokenizer_encode(MultimodalPrompt) prompt: %s", prompt.c_str());
     std::regex multimode_regex("<(img|audio)>(.*?)</\\1>");
     std::string::const_iterator searchStart(prompt.cbegin());
     std::smatch match;
@@ -1034,10 +1049,8 @@ std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input
         std::vector<int> mul_ids;
         if (mode == "img") {
             mul_ids = processImageContent(content, multimodal_input.images);
-            // MNN_PRINT("tokenizer_encode(MultimodalPrompt) image mul_ids size: %lu", mul_ids.size());
         } else if (mode == "audio") {
             mul_ids = processAudioContent(content, multimodal_input.audios);
-            // MNN_PRINT("tokenizer_encode(MultimodalPrompt) audio mul_ids size: %lu", mul_ids.size());
         }
 
         ids.insert(ids.end(), mul_ids.begin(), mul_ids.end());
@@ -1186,10 +1199,23 @@ VARP Omni::embedding(const std::vector<int>& input_ids) {
         deepstacksTxt();
     }
     auto mergedEmbed = Express::_Concat(embeddings, 0);
+    if (mergedEmbed == nullptr || mergedEmbed->getInfo() == nullptr) {
+        MNN_ERROR("[Error]: failed to build merged multimodal embeddings. text_chunks=%zu, vision_embeds=%zu, audio_embeds=%zu\n",
+                  embeddings.size(), mVisionEmbeddings.size(), mAudioEmbeddings.size());
+        return nullptr;
+    }
     // Deep copy: materialize the lazy concat so vision data persists after clear
     {
         auto cInfo = mergedEmbed->getInfo();
         auto cPtr = mergedEmbed->readMap<float>();
+        if (cPtr == nullptr) {
+            MNN_ERROR("[Error]: merged multimodal embeddings are not readable. dims=[%d,%d,%d,%d]\n",
+                      cInfo->dim.size() > 0 ? cInfo->dim[0] : -1,
+                      cInfo->dim.size() > 1 ? cInfo->dim[1] : -1,
+                      cInfo->dim.size() > 2 ? cInfo->dim[2] : -1,
+                      cInfo->dim.size() > 3 ? cInfo->dim[3] : -1);
+            return nullptr;
+        }
         auto freshEmbed = _Input(cInfo->dim, cInfo->order);
         ::memcpy(freshEmbed->writeMap<float>(), cPtr, cInfo->size * sizeof(float));
         mergedEmbed = freshEmbed;
@@ -1277,6 +1303,8 @@ void Omni::responseInterleaved(const std::vector<int>& input_ids, std::ostream* 
     // ---- 1. Thinker Prefill ----
     auto input_embeds = embedding(input_ids);
     if (input_embeds == nullptr) {
+        MNN_ERROR("[Error]: Omni embedding returned nullptr. input_ids=%zu, audio_embeds=%zu, vision_embeds=%zu\n",
+                  input_ids.size(), mAudioEmbeddings.size(), mVisionEmbeddings.size());
         return;
     }
     int seqLen = input_embeds->getInfo()->dim[mSeqLenIndex];

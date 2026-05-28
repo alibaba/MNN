@@ -524,12 +524,39 @@ std::vector<Express::VARP> Llm::forwardRaw(Express::VARP hiddenState, Express::V
     std::vector<Express::VARP> outputs = selectModule->onForward(inputs);
 
     if (outputs.empty()) {
+        MNN_ERROR("[Error]: onForward returned no outputs. seqLen=%d, inDecode=%d, inputs=%zu, moduleKey=(%d,%d)\n",
+                  seqLen, (int)inDecode, inputs.size(), seqLenKey, (int)isAllLogists);
+        if (hiddenState.get() != nullptr && hiddenState->getInfo()) {
+            auto info = hiddenState->getInfo();
+            MNN_ERROR("[Error]: hiddenState dims=[%d,%d,%d,%d]\n",
+                      info->dim.size() > 0 ? info->dim[0] : -1,
+                      info->dim.size() > 1 ? info->dim[1] : -1,
+                      info->dim.size() > 2 ? info->dim[2] : -1,
+                      info->dim.size() > 3 ? info->dim[3] : -1);
+        }
+        if (mask.get() != nullptr && mask->getInfo()) {
+            auto info = mask->getInfo();
+            MNN_ERROR("[Error]: attention_mask dims=[%d,%d,%d,%d]\n",
+                      info->dim.size() > 0 ? info->dim[0] : -1,
+                      info->dim.size() > 1 ? info->dim[1] : -1,
+                      info->dim.size() > 2 ? info->dim[2] : -1,
+                      info->dim.size() > 3 ? info->dim[3] : -1);
+        }
+        if (inputPos.get() != nullptr && inputPos->getInfo()) {
+            auto info = inputPos->getInfo();
+            MNN_ERROR("[Error]: position_ids dims=[%d,%d,%d,%d]\n",
+                      info->dim.size() > 0 ? info->dim[0] : -1,
+                      info->dim.size() > 1 ? info->dim[1] : -1,
+                      info->dim.size() > 2 ? info->dim[2] : -1,
+                      info->dim.size() > 3 ? info->dim[3] : -1);
+        }
         mContext->status = LlmStatus::INTERNAL_ERROR;
         return outputs;
     }
     // Validate output VARP and readMap
     for (auto o : outputs) {
         if(nullptr == o || nullptr == o->readMap<float>()) {
+            MNN_ERROR("[Error]: invalid output tensor from onForward. output_count=%zu\n", outputs.size());
             mContext->status = LlmStatus::INTERNAL_ERROR;
             return outputs;
         }
@@ -1003,6 +1030,11 @@ void Llm::response(const std::vector<int>& input_ids, std::ostream* os, const ch
     if (!end_with) { end_with = "\n"; }
     generate_init(os, end_with);
     CHECK_LLM_RUNNING(mContext);
+    if (input_ids.empty()) {
+        MNN_ERROR("[Error]: empty input_ids in Llm::response\n");
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return;
+    }
     generate(input_ids, max_new_tokens);
 }
 
@@ -1025,6 +1057,11 @@ void Llm::response(const std::string& user_content, std::ostream* os, const char
         }
     }
     std::vector<int> input_ids = tokenizer_encode(prompt);
+    if (input_ids.empty()) {
+        MNN_ERROR("[Error]: empty input_ids after tokenizer_encode in Llm::response(text)\n");
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return;
+    }
     response(input_ids, os, end_with, max_new_tokens);
 }
 

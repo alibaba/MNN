@@ -44,6 +44,7 @@ class LlmModel(PreTrainedModel):
             'qwen3_5_moe': 'Qwen3_5MoeForConditionalGeneration',
             'qwen3_vl': 'Qwen3VLForConditionalGeneration',
             'qwen3_vl_moe': 'Qwen3VLMoeForConditionalGeneration',
+            'qwen3_asr': 'AutoModel',
             'qwen2_5_omni': 'Qwen2_5OmniForConditionalGeneration',
             'qwen2_5_vl': 'Qwen2_5_VLForConditionalGeneration',
             'qwen2_vl': 'Qwen2VLForConditionalGeneration',

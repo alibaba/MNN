@@ -32,13 +32,15 @@ class LlmConfig(PretrainedConfig):
     def _register_external_model(model_type: str):
         EXTERNAL_MODEL_REGISTRY = {
             'funaudiochat': ('funaudiochat.register', 'register_funaudiochat'),
+            'qwen3_asr': ('qwen_asr.inference.qwen3_asr', None),
         }
         if model_type in EXTERNAL_MODEL_REGISTRY:
             module_path, func_name = EXTERNAL_MODEL_REGISTRY[model_type]
             try:
                 import importlib
                 module = importlib.import_module(module_path)
-                getattr(module, func_name)()
+                if func_name is not None:
+                    getattr(module, func_name)()
             except ImportError:
                 raise ImportError(
                     f"{model_type} requires external package. "
