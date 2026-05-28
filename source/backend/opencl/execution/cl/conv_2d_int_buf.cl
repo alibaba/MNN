@@ -76,7 +76,7 @@ void conv_2d_int_c4h1w1(GLOBAL_SIZE_2_DIMS
         COMPUTE_FLOAT4 offset = (COMPUTE_FLOAT4)(ScaleOffset.s1, ScaleOffset.s3, ScaleOffset.s5, ScaleOffset.s7);
         #else
         COMPUTE_FLOAT4 scale = CONVERT_COMPUTE_FLOAT4(convert_float4(vload4(out_c_idx, dequantScaleOffset + (in_c_idx * 4) / blockDim * out_c_blocks * 4)) / coef);
-        COMPUTE_FLOAT4 offset = 0;
+        COMPUTE_FLOAT4 offset = -8 * scale;
         #endif
         //weights  NC4HW4  [1,  4*icC4,  ocC4*kh*kw,  1] xic4
         //index:   [0, 4*in_c_idx, out_c_idx*kh*kw + kh_start*kw + kw_start, 0]
@@ -106,22 +106,22 @@ void conv_2d_int_c4h1w1(GLOBAL_SIZE_2_DIMS
                 char4 charWeight1 = (char4)(0, 0, 0, 0);
                 char4 charWeight2 = (char4)(0, 0, 0, 0);
                 char4 charWeight3 = (char4)(0, 0, 0, 0);
-                charWeight0.x = (charWeightInt40.s0 >> 4) - 8;
-                charWeight0.y = (charWeightInt40.s0 & MOD_NUM) - 8;
-                charWeight0.z = (charWeightInt40.s1 >> 4) - 8;
-                charWeight0.w = (charWeightInt40.s1 & MOD_NUM) - 8;
-                charWeight1.x = (charWeightInt41.s0 >> 4) - 8;
-                charWeight1.y = (charWeightInt41.s0 & MOD_NUM) - 8;
-                charWeight1.z = (charWeightInt41.s1 >> 4) - 8;
-                charWeight1.w = (charWeightInt41.s1 & MOD_NUM) - 8;
-                charWeight2.x = (charWeightInt42.s0 >> 4) - 8;
-                charWeight2.y = (charWeightInt42.s0 & MOD_NUM) - 8;
-                charWeight2.z = (charWeightInt42.s1 >> 4) - 8;
-                charWeight2.w = (charWeightInt42.s1 & MOD_NUM) - 8;
-                charWeight3.x = (charWeightInt43.s0 >> 4) - 8;
-                charWeight3.y = (charWeightInt43.s0 & MOD_NUM) - 8;
-                charWeight3.z = (charWeightInt43.s1 >> 4) - 8;
-                charWeight3.w = (charWeightInt43.s1 & MOD_NUM) - 8;
+                charWeight0.x = (charWeightInt40.s0 >> 4);
+                charWeight0.y = (charWeightInt40.s0 & MOD_NUM);
+                charWeight0.z = (charWeightInt40.s1 >> 4);
+                charWeight0.w = (charWeightInt40.s1 & MOD_NUM);
+                charWeight1.x = (charWeightInt41.s0 >> 4);
+                charWeight1.y = (charWeightInt41.s0 & MOD_NUM);
+                charWeight1.z = (charWeightInt41.s1 >> 4);
+                charWeight1.w = (charWeightInt41.s1 & MOD_NUM);
+                charWeight2.x = (charWeightInt42.s0 >> 4);
+                charWeight2.y = (charWeightInt42.s0 & MOD_NUM);
+                charWeight2.z = (charWeightInt42.s1 >> 4);
+                charWeight2.w = (charWeightInt42.s1 & MOD_NUM);
+                charWeight3.x = (charWeightInt43.s0 >> 4);
+                charWeight3.y = (charWeightInt43.s0 & MOD_NUM);
+                charWeight3.z = (charWeightInt43.s1 >> 4);
+                charWeight3.w = (charWeightInt43.s1 & MOD_NUM);
                 COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0) * scale + offset;
                 COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1) * scale + offset;
                 COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2) * scale + offset;
@@ -208,7 +208,7 @@ void conv_2d_int_c4h1w2(GLOBAL_SIZE_2_DIMS
         COMPUTE_FLOAT4 offset = (COMPUTE_FLOAT4)(ScaleOffset.s1, ScaleOffset.s3, ScaleOffset.s5, ScaleOffset.s7);
         #else
         COMPUTE_FLOAT4 scale = CONVERT_COMPUTE_FLOAT4(convert_float4(vload4(out_c_idx, dequantScaleOffset + (in_c_idx * 4) / blockDim * out_c_blocks * 4)) / coef);
-        COMPUTE_FLOAT4 offset = 0;
+        COMPUTE_FLOAT4 offset = -8 * scale;
         #endif
         //weights  NC4HW4  [1,  4*icC4,  ocC4*kh*kw,  1] xic4
         //index:   [0, 4*in_c_idx, out_c_idx*kh*kw + kh_start*kw + kw_start, 0]
@@ -242,22 +242,22 @@ void conv_2d_int_c4h1w2(GLOBAL_SIZE_2_DIMS
                 char4 charWeight1 = (char4)(0, 0, 0, 0);
                 char4 charWeight2 = (char4)(0, 0, 0, 0);
                 char4 charWeight3 = (char4)(0, 0, 0, 0);
-                charWeight0.x = (charWeightInt40.s0 >> 4) - 8;
-                charWeight0.y = (charWeightInt40.s0 & MOD_NUM) - 8;
-                charWeight0.z = (charWeightInt40.s1 >> 4) - 8;
-                charWeight0.w = (charWeightInt40.s1 & MOD_NUM) - 8;
-                charWeight1.x = (charWeightInt41.s0 >> 4) - 8;
-                charWeight1.y = (charWeightInt41.s0 & MOD_NUM) - 8;
-                charWeight1.z = (charWeightInt41.s1 >> 4) - 8;
-                charWeight1.w = (charWeightInt41.s1 & MOD_NUM) - 8;
-                charWeight2.x = (charWeightInt42.s0 >> 4) - 8;
-                charWeight2.y = (charWeightInt42.s0 & MOD_NUM) - 8;
-                charWeight2.z = (charWeightInt42.s1 >> 4) - 8;
-                charWeight2.w = (charWeightInt42.s1 & MOD_NUM) - 8;
-                charWeight3.x = (charWeightInt43.s0 >> 4) - 8;
-                charWeight3.y = (charWeightInt43.s0 & MOD_NUM) - 8;
-                charWeight3.z = (charWeightInt43.s1 >> 4) - 8;
-                charWeight3.w = (charWeightInt43.s1 & MOD_NUM) - 8;
+                charWeight0.x = (charWeightInt40.s0 >> 4);
+                charWeight0.y = (charWeightInt40.s0 & MOD_NUM);
+                charWeight0.z = (charWeightInt40.s1 >> 4);
+                charWeight0.w = (charWeightInt40.s1 & MOD_NUM);
+                charWeight1.x = (charWeightInt41.s0 >> 4);
+                charWeight1.y = (charWeightInt41.s0 & MOD_NUM);
+                charWeight1.z = (charWeightInt41.s1 >> 4);
+                charWeight1.w = (charWeightInt41.s1 & MOD_NUM);
+                charWeight2.x = (charWeightInt42.s0 >> 4);
+                charWeight2.y = (charWeightInt42.s0 & MOD_NUM);
+                charWeight2.z = (charWeightInt42.s1 >> 4);
+                charWeight2.w = (charWeightInt42.s1 & MOD_NUM);
+                charWeight3.x = (charWeightInt43.s0 >> 4);
+                charWeight3.y = (charWeightInt43.s0 & MOD_NUM);
+                charWeight3.z = (charWeightInt43.s1 >> 4);
+                charWeight3.w = (charWeightInt43.s1 & MOD_NUM);
                 COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0) * scale + offset;
                 COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1) * scale + offset;
                 COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2) * scale + offset;
@@ -360,7 +360,7 @@ void conv_2d_int_c4h1w4(GLOBAL_SIZE_2_DIMS
         COMPUTE_FLOAT4 offset = (COMPUTE_FLOAT4)(ScaleOffset.s1, ScaleOffset.s3, ScaleOffset.s5, ScaleOffset.s7);
         #else
         COMPUTE_FLOAT4 scale = CONVERT_COMPUTE_FLOAT4(convert_float4(vload4(out_c_idx, dequantScaleOffset + (in_c_idx * 4) / blockDim * out_c_blocks * 4)) / coef);
-        COMPUTE_FLOAT4 offset = 0;
+        COMPUTE_FLOAT4 offset = -8 * scale;
         #endif
         //weights  NC4HW4  [1,  4*icC4,  ocC4*kh*kw,  1] xic4
         //index:   [0, 4*in_c_idx, out_c_idx*kh*kw + kh_start*kw + kw_start, 0]
@@ -398,22 +398,22 @@ void conv_2d_int_c4h1w4(GLOBAL_SIZE_2_DIMS
                 char4 charWeight1 = (char4)(0, 0, 0, 0);
                 char4 charWeight2 = (char4)(0, 0, 0, 0);
                 char4 charWeight3 = (char4)(0, 0, 0, 0);
-                charWeight0.x = (charWeightInt40.s0 >> 4) - 8;
-                charWeight0.y = (charWeightInt40.s0 & MOD_NUM) - 8;
-                charWeight0.z = (charWeightInt40.s1 >> 4) - 8;
-                charWeight0.w = (charWeightInt40.s1 & MOD_NUM) - 8;
-                charWeight1.x = (charWeightInt41.s0 >> 4) - 8;
-                charWeight1.y = (charWeightInt41.s0 & MOD_NUM) - 8;
-                charWeight1.z = (charWeightInt41.s1 >> 4) - 8;
-                charWeight1.w = (charWeightInt41.s1 & MOD_NUM) - 8;
-                charWeight2.x = (charWeightInt42.s0 >> 4) - 8;
-                charWeight2.y = (charWeightInt42.s0 & MOD_NUM) - 8;
-                charWeight2.z = (charWeightInt42.s1 >> 4) - 8;
-                charWeight2.w = (charWeightInt42.s1 & MOD_NUM) - 8;
-                charWeight3.x = (charWeightInt43.s0 >> 4) - 8;
-                charWeight3.y = (charWeightInt43.s0 & MOD_NUM) - 8;
-                charWeight3.z = (charWeightInt43.s1 >> 4) - 8;
-                charWeight3.w = (charWeightInt43.s1 & MOD_NUM) - 8;
+                charWeight0.x = (charWeightInt40.s0 >> 4);
+                charWeight0.y = (charWeightInt40.s0 & MOD_NUM);
+                charWeight0.z = (charWeightInt40.s1 >> 4);
+                charWeight0.w = (charWeightInt40.s1 & MOD_NUM);
+                charWeight1.x = (charWeightInt41.s0 >> 4);
+                charWeight1.y = (charWeightInt41.s0 & MOD_NUM);
+                charWeight1.z = (charWeightInt41.s1 >> 4);
+                charWeight1.w = (charWeightInt41.s1 & MOD_NUM);
+                charWeight2.x = (charWeightInt42.s0 >> 4);
+                charWeight2.y = (charWeightInt42.s0 & MOD_NUM);
+                charWeight2.z = (charWeightInt42.s1 >> 4);
+                charWeight2.w = (charWeightInt42.s1 & MOD_NUM);
+                charWeight3.x = (charWeightInt43.s0 >> 4);
+                charWeight3.y = (charWeightInt43.s0 & MOD_NUM);
+                charWeight3.z = (charWeightInt43.s1 >> 4);
+                charWeight3.w = (charWeightInt43.s1 & MOD_NUM);
                 COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0) * scale + offset;
                 COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1) * scale + offset;
                 COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2) * scale + offset;
@@ -559,7 +559,7 @@ void conv_2d_int_c8h1w4(GLOBAL_SIZE_2_DIMS
         #else
         COMPUTE_FLOAT4 scale1 = CONVERT_COMPUTE_FLOAT4(convert_float4(vload4(out_c_idx_1, dequantScaleOffset + (in_c_idx * 4) / blockDim * out_c_blocks * 4)) / coef);
         #endif
-        COMPUTE_FLOAT4 offset0 = 0,  offset1 = 0;
+        COMPUTE_FLOAT4 offset0 = -8 * scale0,  offset1 = -8 * scale1;
         #endif
         //weights  NC4HW4  [1,  4*icC4,  ocC4*kh*kw,  1] xic4
         //index:   [0, 4*in_c_idx, out_c_idx_0*kh*kw + kh_start*kw + kw_start, 0]
@@ -597,22 +597,22 @@ void conv_2d_int_c8h1w4(GLOBAL_SIZE_2_DIMS
                 char4 charWeight1 = (char4)(0, 0, 0, 0);
                 char4 charWeight2 = (char4)(0, 0, 0, 0);
                 char4 charWeight3 = (char4)(0, 0, 0, 0);
-                charWeight0.x = (charWeightInt40.s0 >> 4) - 8;
-                charWeight0.y = (charWeightInt40.s0 & MOD_NUM) - 8;
-                charWeight0.z = (charWeightInt40.s1 >> 4) - 8;
-                charWeight0.w = (charWeightInt40.s1 & MOD_NUM) - 8;
-                charWeight1.x = (charWeightInt41.s0 >> 4) - 8;
-                charWeight1.y = (charWeightInt41.s0 & MOD_NUM) - 8;
-                charWeight1.z = (charWeightInt41.s1 >> 4) - 8;
-                charWeight1.w = (charWeightInt41.s1 & MOD_NUM) - 8;
-                charWeight2.x = (charWeightInt42.s0 >> 4) - 8;
-                charWeight2.y = (charWeightInt42.s0 & MOD_NUM) - 8;
-                charWeight2.z = (charWeightInt42.s1 >> 4) - 8;
-                charWeight2.w = (charWeightInt42.s1 & MOD_NUM) - 8;
-                charWeight3.x = (charWeightInt43.s0 >> 4) - 8;
-                charWeight3.y = (charWeightInt43.s0 & MOD_NUM) - 8;
-                charWeight3.z = (charWeightInt43.s1 >> 4) - 8;
-                charWeight3.w = (charWeightInt43.s1 & MOD_NUM) - 8;
+                charWeight0.x = (charWeightInt40.s0 >> 4);
+                charWeight0.y = (charWeightInt40.s0 & MOD_NUM);
+                charWeight0.z = (charWeightInt40.s1 >> 4);
+                charWeight0.w = (charWeightInt40.s1 & MOD_NUM);
+                charWeight1.x = (charWeightInt41.s0 >> 4);
+                charWeight1.y = (charWeightInt41.s0 & MOD_NUM);
+                charWeight1.z = (charWeightInt41.s1 >> 4);
+                charWeight1.w = (charWeightInt41.s1 & MOD_NUM);
+                charWeight2.x = (charWeightInt42.s0 >> 4);
+                charWeight2.y = (charWeightInt42.s0 & MOD_NUM);
+                charWeight2.z = (charWeightInt42.s1 >> 4);
+                charWeight2.w = (charWeightInt42.s1 & MOD_NUM);
+                charWeight3.x = (charWeightInt43.s0 >> 4);
+                charWeight3.y = (charWeightInt43.s0 & MOD_NUM);
+                charWeight3.z = (charWeightInt43.s1 >> 4);
+                charWeight3.w = (charWeightInt43.s1 & MOD_NUM);
                 COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0) * scale0 + offset0;
                 COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1) * scale0 + offset0;
                 COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2) * scale0 + offset0;
@@ -665,22 +665,22 @@ void conv_2d_int_c8h1w4(GLOBAL_SIZE_2_DIMS
                 charWeight1 = (char4)(0, 0, 0, 0);
                 charWeight2 = (char4)(0, 0, 0, 0);
                 charWeight3 = (char4)(0, 0, 0, 0);
-                charWeight0.x = (charWeightInt40.s0 >> 4) - 8;
-                charWeight0.y = (charWeightInt40.s0 & MOD_NUM) - 8;
-                charWeight0.z = (charWeightInt40.s1 >> 4) - 8;
-                charWeight0.w = (charWeightInt40.s1 & MOD_NUM) - 8;
-                charWeight1.x = (charWeightInt41.s0 >> 4) - 8;
-                charWeight1.y = (charWeightInt41.s0 & MOD_NUM)- 8;
-                charWeight1.z = (charWeightInt41.s1 >> 4) - 8;
-                charWeight1.w = (charWeightInt41.s1 & MOD_NUM) - 8;
-                charWeight2.x = (charWeightInt42.s0 >> 4) - 8;
-                charWeight2.y = (charWeightInt42.s0 & MOD_NUM) - 8;
-                charWeight2.z = (charWeightInt42.s1 >> 4) - 8;
-                charWeight2.w = (charWeightInt42.s1 & MOD_NUM) - 8;
-                charWeight3.x = (charWeightInt43.s0 >> 4) - 8;
-                charWeight3.y = (charWeightInt43.s0 & MOD_NUM) - 8;
-                charWeight3.z = (charWeightInt43.s1 >> 4) - 8;
-                charWeight3.w = (charWeightInt43.s1 & MOD_NUM) - 8;
+                charWeight0.x = (charWeightInt40.s0 >> 4);
+                charWeight0.y = (charWeightInt40.s0 & MOD_NUM);
+                charWeight0.z = (charWeightInt40.s1 >> 4);
+                charWeight0.w = (charWeightInt40.s1 & MOD_NUM);
+                charWeight1.x = (charWeightInt41.s0 >> 4);
+                charWeight1.y = (charWeightInt41.s0 & MOD_NUM);
+                charWeight1.z = (charWeightInt41.s1 >> 4);
+                charWeight1.w = (charWeightInt41.s1 & MOD_NUM);
+                charWeight2.x = (charWeightInt42.s0 >> 4);
+                charWeight2.y = (charWeightInt42.s0 & MOD_NUM);
+                charWeight2.z = (charWeightInt42.s1 >> 4);
+                charWeight2.w = (charWeightInt42.s1 & MOD_NUM);
+                charWeight3.x = (charWeightInt43.s0 >> 4);
+                charWeight3.y = (charWeightInt43.s0 & MOD_NUM);
+                charWeight3.z = (charWeightInt43.s1 >> 4);
+                charWeight3.w = (charWeightInt43.s1 & MOD_NUM);
                 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0) * scale1 + offset1;
                 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1) * scale1 + offset1;
                 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2) * scale1 + offset1;

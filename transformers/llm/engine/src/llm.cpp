@@ -826,6 +826,10 @@ void Llm::generate(int max_token) {
     if (is_stop(mContext->current_token)) {
         return;
     }
+    // Enable record queue during decode for better performance
+    if (mConfig->backend_type() == "opencl") {
+        mRuntimeManager->setHint(MNN::Interpreter::OP_ENCODER_NUMBER_FOR_COMMIT, 512);
+    }
     mGenerateParam->max_new_tokens = max_token;
     mGenerationStrategy->generate(*mGenerateParam);
 }
@@ -940,6 +944,10 @@ std::vector<int> Llm::generate(MNN::Express::VARP input_embeds, int max_tokens) 
     int seqLen = input_embeds->getInfo()->dim[mSeqLenIndex];
     mContext->prompt_len = seqLen;
 
+    // Disable record queue during prefill for better performance
+    if (mConfig->backend_type() == "opencl") {
+        mRuntimeManager->setHint(MNN::Interpreter::OP_ENCODER_NUMBER_FOR_COMMIT, 0);
+    }
     Timer _t;
     auto outputs = forwardVec(input_embeds);
     if(mGenerateParam->outputs.size() < 1) {
@@ -992,6 +1000,10 @@ std::vector<int> Llm::generate(MNN::Express::VARP input_embeds, int max_tokens) 
     }
     // call generation function
     if (0 < max_tokens) {
+        // Enable record queue during decode for better performance
+        if (mConfig->backend_type() == "opencl") {
+            mRuntimeManager->setHint(MNN::Interpreter::OP_ENCODER_NUMBER_FOR_COMMIT, 512);
+        }
         mGenerateParam->max_new_tokens = max_tokens;
         mGenerationStrategy->generate(*mGenerateParam);
     }

@@ -89,6 +89,7 @@ public:
     OpenCLRuntime &operator=(const OpenCLRuntime &) = delete;
 
     bool isSupportedFP16() const;
+    bool isClCreateImageAvailable() const;
     bool isDeviceSupportedLowPower() const;
     bool isSupportedDotInt8() const;
     bool isSupportedDotAccInt8() const;
@@ -246,4 +247,4 @@ private:
 };
 
 } // namespace MNN
-#endif  /* OpenCLRuntime_hpp */
+#endif /* OpenCLRuntime_hpp */
