@@ -519,6 +519,14 @@ class EmbeddingModel(LlmModel):
         model.blocks = transformer.layer
         # some wrapper
         model.num_hidden_layers = len(model.blocks)
+        # transformers>=5.x zeroes non-persistent buffers during from_pretrained,
+        # force-recompute RoPE inv_freq / cos_sin cache so the exported graph carries valid values.
+        rope = getattr(model.embed, 'rotary_emb', None)
+        if rope is not None and hasattr(rope, '_set_cos_sin_cache') and rope.inv_freq.abs().sum().item() == 0:
+            max_pos = rope.max_position_embeddings
+            if hasattr(rope, 'scaling_factor'):
+                max_pos = int(max_pos * rope.scaling_factor)
+            rope._set_cos_sin_cache(max_pos, rope.inv_freq.device, torch.float32)
         return model
 
     def forward(self, inputs_embeds, attention_mask, position_ids):
