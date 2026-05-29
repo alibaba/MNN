@@ -1,178 +1,113 @@
-# 步骤 0：计算拆解（最关键的步骤）
+# 步骤 0：计算拆解与路径确认
 
-> **目标**：阅读待优化算子的源码，将每一段计算逻辑映射到 MNN 已有的高性能函数。
+> **目标**：在写代码前确认优化入口、数据布局、已有函数可复用性和必须覆盖的正确性路径。
 >
-> **前置条件**：明确待优化的算子文件路径。
->
-> **复杂度**：中（纯代码分析，不需要编译运行）
->
-> **这一步决定了优化质量的上限**。如果这一步做不好，后面的工作方向就是错的。
-
-## 0.0 必读参考（在写任何代码之前）
-
-**必须先阅读以下两个文件**，理解 MNN 的优化范式：
-
-1. **`source/backend/cpu/CPUAttention.cpp`** — 学习它如何：
-   - 通过 `gcore->MNNComputeMatMulForE_1` 做矩阵向量乘（而不是写循环）
-   - 通过 `MNNScaleAndAddBiasScalar` 做标量乘（而不是写循环）
-   - 通过 `MNNSoftmax` 做 Softmax（而不是写循环）
-   - 在 `onResize` 中用 `Tensor + Backend` 分配缓存（而不是 std::vector）
-   - 用 `MNN_CONCURRENCY_BEGIN/END` 做多线程
-
-2. **`source/backend/cpu/compute/CommonOptFunction.h`** — 了解所有可用的高性能函数
-
-> ⚠️ **强烈建议：你的优化代码应该像 `CPUAttention.cpp` 一样，优先通过调用 `CoreFunctions` 已有函数实现高性能。只有在确实无法使用已有函数时，才考虑利用 AI 能力编写 NEON intrinsic 或 Vec4 循环。**
+> **适用场景**：普通 ARM CPU 算子优化、低 bit GEMM/GEMV kernel、dispatch/pack review。
 
 ---
 
-## 0.1 阅读源码，列出所有计算逻辑
+## 0.1 先确认目标路径
 
-逐行阅读算子的 `onExecute` 函数，将每一段计算逻辑提取出来。
+记录这次任务实际覆盖的路径，不要默认所有 ISA 和所有 shape 都相关。
+
+| 项目 | 需要写清楚 |
+|------|------------|
+| 入口 | executor、CoreFunctions 指针、asm symbol、packer |
+| 数据 | FP32/FP16/INT8/w2/w3/w4，per-channel/per-block |
+| shape | E=1 decode、E>1 prefill、block32、block64、tail、OC split |
+| ISA | NEON、SDOT、I8MM、SME2、fallback、runtime disable flag |
+| 后处理 | bias、scale、zero point、add-dst、fp32 min/max、ReLU/ReLU6 |
+| 验收 | op test、模型 prompt、roofline/speed test |
+
+低 bit LLM kernel 尤其要明确：权重 pack layout、cell stride、metadata stride、block size、是否有 padding。
+
+---
+
+## 0.2 读取最少必要代码
+
+优先读取和当前入口直接相关的文件：
+
+- `source/backend/cpu/compute/CommonOptFunction.h`：函数指针、参数结构、pack mode。
+- 当前 executor 或 packer 文件：确认调度、线程划分、metadata 布局。
+- 当前 ISA 的 asm 文件：确认真实寄存器、tile、tail、postprocess。
+- `source/backend/cpu/CPUAttention.cpp`：仅在需要 CoreFunctions 复用范式时参考。
+
+不要读取或依赖 `schema/private/`、`source/internal/`。
+
+---
+
+## 0.3 判断是否已有函数可复用
+
+普通算子优先复用 CoreFunctions；低 bit kernel 则先确认已有 kernel/packer 是否只需修正或特化。
+
+| 代码模式 | 优先考虑 |
+|----------|----------|
+| 大规模 GEMM | `MNNPackedMatMul` / `MNNPackedMatMulRemain` |
+| E=1 GEMV / decode | `MNNComputeMatMulForE_1` |
+| scale + bias | `MNNScaleAndAddBias` / `MNNScaleAndAddBiasScalar` |
+| softmax / norm / activation | `MNNSoftmax` / `MNNNorm` / `MNNExp` / `MNNSiLu` |
+| NC4/NC8 或 MatMul pack | `MNNPackCUnit` / `MNNUnpackCUnit` / MatMul pack helpers |
+| 没有函数覆盖的核心热点 | C++ oracle -> C++ SIMD 模拟 -> asm |
+
+替换前必须确认：
+
+- 数学语义完全一致，不只是函数名相似。
+- layout、转置、stride、tail 和输出格式匹配。
+- `dst == src` 时该函数是否 in-place 安全；不确定就读实现或写小测试。
+- 小 shape 是否值得付出 pack/function call 开销。
+
+---
+
+## 0.4 建立 correctness oracle 计划
+
+复杂 kernel 不要直接写 asm。先决定 oracle 怎么做：
+
+| 层级 | 用途 |
+|------|------|
+| C++ 标量 oracle | 固定数学语义、pack 解码、metadata 读取 |
+| C++ SIMD/寄存器模拟 | 固定 `sdot`/`smmla` lane 分组、unpack 顺序、tail |
+| asm kernel | 只迁移已经验证过的语义 |
+
+低 bit kernel 的 oracle 至少覆盖：
+
+- 单 block32 和 block64。
+- 单 OC group 和 `tId>0` 的 OC chunk。
+- fp32 min/max 非空路径。
+- multi-block 累加路径。
+- i8mm 和 sdot 路径（分别在对应能力的设备或构建配置上验证）。
+
+---
+
+## 0.5 输出本步骤结论
+
+用短表即可，不需要长报告。
 
 ```markdown
-## 计算逻辑清单
+## 路径结论
 
-| # | 代码位置 | 计算描述 | 代码模式 |
-|---|---------|---------|---------|
-| 1 | Lxx-Lyy | 描述这段代码做什么计算 | 循环模式（如：双重循环乘加、单循环乘标量） |
-| 2 | ... | ... | ... |
+入口：
+ISA：
+shape：
+pack/cell stride：
+后处理：
+
+## 复用判断
+
+| 逻辑 | 复用现有函数/保留/新增 kernel | 原因 |
+|------|-------------------------------|------|
+
+## correctness oracle
+
+| 对比点 | 方法 | 覆盖 case |
+|--------|------|-----------|
 ```
 
 ---
 
-## 0.2 对每个计算逻辑，查找可用的 MNN 函数
+## 通过标准
 
-在 `source/backend/cpu/compute/CommonOptFunction.h` 中查找匹配的函数。
-使用 **优化决策树**：
-
-```
-看到一段循环代码 →
-  ├─ 是双重循环的乘加？
-  │   ├─ 有一个维度为 1（MatVec）？ → 用 MNNComputeMatMulForE_1（无需 Pack）
-  │   ├─ 数据规模大（值得 Pack 开销）？ → 用 MNNPackedMatMul
-  │   └─ 数据规模小（Pack 开销 > 计算）？ → 保持朴素循环
-  ├─ 是单循环乘标量/加标量？ → 用 MNNScaleAndAddBiasScalar
-  ├─ 是循环调用 expf/silu/sigmoid？ → 用 MNNExp/MNNSiLu
-  ├─ 是循环做卷积？ → 用 MNNConvRunForLineDepthwise
-  ├─ 是循环做数据重排/转置？ → 用 MNNPackCUnit/MNNUnpackCUnit/MNNTranspose32Bit
-  ├─ 是循环做范数归一化？ → 用 MNNNorm（先验证语义匹配！）
-  ├─ 是 std::vector 临时内存？ → 替换为 Tensor + Backend 内存池
-  └─ 以上都不匹配？
-      ├─ 能拆解为已有函数的组合？ → 组合调用
-      ├─ 计算量极小？ → 保持朴素循环
-      ├─ 是性能热点且可向量化？ → 用 Vec4 循环
-      └─ 都不行且是核心热点？ → 标记为"需要新汇编 kernel"
-```
-
----
-
-## 0.3 输出映射表
-
-```markdown
-## 函数映射表
-
-| # | 原始代码 | 替换为 MNN 函数 | 说明 |
-|---|---------|----------------|------|
-| 1 | memcpy 循环 | memcpy（保持不变） | 已经是最优 |
-| 2 | XXX 循环 | `MNN 函数名` | 替换理由 |
-| ... | ... | ... | ... |
-
-### 无法直接替换的计算
-
-| # | 计算 | 原因 | 建议方案 |
-|---|------|------|---------|
-| X | 某个循环 | 语义不匹配 / 规模太小 / 无对应函数 | A) 保持手动循环  B) 写新 kernel |
-```
-
----
-
-## 0.4 验证检查（每个替换都必须过这三关）
-
-### ✅ 语义验证
-
-对映射表中的每一条替换，回答以下问题：
-
-```
-□ 函数的数学语义与原始循环完全一致？
-  - 参数含义是否匹配（如转置、通道顺序）？
-  - 归一化方式是否匹配（如 sum vs mean、L1 vs L2）？
-  - 输出格式是否与下游代码兼容？
-□ 如果语义不完全一致，是否已标记为"保持手动实现"并注释原因？
-```
-
-### ✅ in-place 安全性检查
-
-```
-□ 替换后的代码中是否有 dst==src 的调用？
-□ 如有，该 MNN 函数是否支持 in-place？
-  （参考 SKILL.md 中的 in-place 安全性表）
-□ 如不支持 in-place，是否已安排 scratch buffer？
-```
-
-### ✅ 数据规模检查
-
-```
-□ 对于双重循环替换为 MNNPackedMatMul 的情况：
-  - 数据规模是否足够大，使 Pack/Unpack 开销值得？
-  - 如果规模小，是否已标记为"保持朴素循环"？
-□ 对于 MatVec，是否优先使用无需 Pack 的 MNNComputeMatMulForE_1？
-```
-
----
-
-## 0.5 额外全局检查
-
-### 内存分配检查
-
-```
-是否使用了 std::vector 作为临时缓存？ → 替换为 onResize 中的 Tensor + Backend 内存池
-是否在 onExecute 中有 new/malloc？ → 移到 onResize
-是否有不必要的数据拷贝？ → 尝试 in-place 计算或虚拟 Tensor
-多个小 buffer 是否可合并为一块预分配？ → 用连续内存 + 偏移量切分
-```
-
-### 多线程检查
-
-```
-算子是否已经使用了 MNN_CONCURRENCY_BEGIN/END？ → 检查划分是否合理
-是否有可以按 Head/Batch 并行的循环？ → 添加多线程
-线程间是否有写冲突？ → 确保每个线程有独立的写目标
-```
-
-### 数据排布检查
-
-```
-State 矩阵的排布是否对 MatMul 友好？ → 如果需要反复做 S^T @ vec，考虑存储 S^T
-是否有频繁的转置操作？ → 考虑改变存储格式避免转置
-是否有跨 stride 的不连续访问？ → 考虑预先 Pack 为连续内存
-```
-
----
-
-## 步骤 0 测试标准
-
-### 通过标准
-
-- [ ] 算子的所有计算逻辑已列出（无遗漏）
-- [ ] 每个计算逻辑都已对应到 MNN 函数（或标记为"保持手动实现"并说明原因）
-- [ ] 每条替换都通过了语义验证、in-place 检查、数据规模检查
-- [ ] 内存分配、多线程、数据排布检查已完成
-- [ ] 映射表已输出
-
-### 常见错误
-
-| 错误 | 原因 | 修复 |
-|------|------|------|
-| 把所有循环都用 Vec4 包装 | 没有查找已有函数 | 先查 CommonOptFunction.h |
-| 用裸 NEON intrinsic (vmlaq_f32 等) 替代已有功能 | 以为 intrinsic 一定更快 | 优先检查已有函数，MNN 内置汇编往往经过更深入的调优 |
-| 不验证函数语义就替换 | 函数名匹配 ≠ 语义匹配 | 阅读函数实现确认数学计算一致 |
-| 不验证 in-place 安全性 | 假设所有函数都支持 dst==src | 查阅 in-place 表，不确定时用 scratch |
-| 小规模数据用重量级函数 | 没考虑 Pack/Unpack 开销 | 小规模保持朴素循环 |
-| 漏掉了 SiLU/Exp/Conv 的替换 | 没有逐行审查代码 | 逐行检查每个数学函数和循环 |
-| 只在终端打印报告 | 没有写入文件 | 必须写入 `<算子>_optimization.md` |
-
----
-
-## 下一步
-
-**步骤 0 通过后，进入 `step1-benchmark.md`（步骤 1：建立性能基准）。**
+- 已确认当前任务的真实入口和 ISA 路径。
+- 已确认 pack/cell stride/metadata stride。
+- 已判断哪些逻辑复用 CoreFunctions，哪些必须新增或修改 kernel。
+- 已有 C++ 标量 oracle 或明确了如何补 oracle。
+- 已列出必须跑的正确性和性能验证命令。

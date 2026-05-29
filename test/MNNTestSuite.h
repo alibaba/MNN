@@ -69,6 +69,7 @@ public:
         int power = 0;
         int forwardType = 0;
         int dynamicOption = 0;
+        int thread = 0;
     };
     Status pStaus;
 

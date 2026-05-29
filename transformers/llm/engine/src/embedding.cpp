@@ -10,6 +10,7 @@
 #include "llmconfig.hpp"
 #include "tokenizer/tokenizer.hpp"
 #include "diskembedding.hpp"
+#include "core/KVMeta.hpp"
 
 namespace MNN {
 using namespace Express;
@@ -91,6 +92,11 @@ VARP Embedding::ids_embedding(const std::vector<int>& ids) {
     if(mContext->status == LlmStatus::INTERNAL_ERROR) {
         return nullptr;
     }
+    // Reset KV cache and set add length for independent forward passes
+    setKVCacheInfo(0, getCurrentHistory());
+    reset();
+    mContext->prompt_len = ids.size();
+    mContext->all_seq_len = ids.size();
 
     int prompt_len           = ids.size();
     mMeta->add = prompt_len;

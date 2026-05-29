@@ -1,9 +1,20 @@
 //
-//  MNNGemmInt8AddBiasScale_ARMV86_w4_Unit_FP16.S
+//  MNNGemmInt8AddBiasScale_ARMV86_w3_Unit_FP16.S
 //  MNN
 //
-//  Created by MNN on 2022/09/26.
+//  Created by MNN on 2026/05/18.
 //  Copyright © 2018, Alibaba Group Holding Limited
+//
+//  3-bit weight variant using bit-plane (2 + 1) split storage.
+//  Per inner-loop cell: 16 bytes "main plane" (2-bit) + 8 bytes "aux plane" (1-bit) = 24 B.
+//  Main plane same as w2 layout (bits[6:7]=oc0,1, [4:5]=oc2,3, [2:3]=oc4,5, [0:1]=oc6,7).
+//  Aux plane: byte i (i=0..7) holds 8 weights for IC=i, where bit (7-j) = high bit of OC j.
+//
+//  Per inner iter: weight pointer x2 advances by 24 (16 main + 8 aux).
+//  Unpack: produce 4 NEON regs of 16 int8 each holding final 3-bit values [0, 7]:
+//    aux portion = (extracted 1-bit) << 2, then ORR with main 2-bit unpack.
+//  Order: do aux unpack first (using v3-v7 as scratch BEFORE src is loaded),
+//         then 2-bit unpack with merge, then load src and run smmla.
 //
 
 #if defined(__aarch64__)
@@ -91,6 +102,121 @@
     fcvtn2 \d1\().8h, \s3\().4s
 .endm
 
+// ============================================================================
+// W3 unpack — IC-major aux version
+//
+// Aux is duplicated to both halves before entry.  `shifts` starts at {-5,-4}
+// for OC0/1 and `idx` is a byte vector of +2, so each following OC pair is
+// extracted by adding 2 to the signed shift counts.  The high bit lands at bit2
+// and `mask1` is therefore the value 4.
+// ============================================================================
+.macro W3_UNPACK_SERIAL main, aux_dup, mask1, idx, shifts, mask3, t, \
+                       oc01, oc23, oc45, oc67
+    // Aux high-bit unpack.  Each pair is independent after its shift vector is ready.
+    ushl \oc01\().16b, \aux_dup\().16b, \shifts\().16b
+    add  \t\().16b,    \shifts\().16b,  \idx\().16b
+    ushl \oc23\().16b, \aux_dup\().16b, \t\().16b
+    add  \t\().16b,    \t\().16b,       \idx\().16b
+    ushl \oc45\().16b, \aux_dup\().16b, \t\().16b
+    add  \t\().16b,    \t\().16b,       \idx\().16b
+    ushl \oc67\().16b, \aux_dup\().16b, \t\().16b
+    and  \oc01\().16b, \oc01\().16b,    \mask1\().16b
+    and  \oc23\().16b, \oc23\().16b,    \mask1\().16b
+    and  \oc45\().16b, \oc45\().16b,    \mask1\().16b
+    and  \oc67\().16b, \oc67\().16b,    \mask1\().16b
+
+    // Main 2-bit unpack and combine.
+    ushr \t\().16b,    \main\().16b, #6
+    add  \oc01\().16b, \oc01\().16b, \t\().16b
+    ushr \t\().16b,    \main\().16b, #4
+    and  \t\().16b,    \t\().16b,    \mask3\().16b
+    add  \oc23\().16b, \oc23\().16b, \t\().16b
+    ushr \t\().16b,    \main\().16b, #2
+    and  \t\().16b,    \t\().16b,    \mask3\().16b
+    add  \oc45\().16b, \oc45\().16b, \t\().16b
+    and  \t\().16b,    \main\().16b, \mask3\().16b
+    add  \oc67\().16b, \oc67\().16b, \t\().16b
+.endm
+
+// Keep the wider-register TILE_1 call sites on the same implementation.  The
+// old parallel path helped only the OC-major aux layout; IC-major aux already
+// has short dependency chains and fewer instructions.
+.macro W3_UNPACK_PARALLEL main, aux_dup, aux2, aux4, aux6, mask1, idx, shifts, mask3, t, \
+                          oc01, oc23, oc45, oc67
+    W3_UNPACK_SERIAL \main, \aux_dup, \mask1, \idx, \shifts, \mask3, \t, \oc01, \oc23, \oc45, \oc67
+.endm
+
+.macro W3_UNPACK_PAIR main0, aux0, main1, aux1, mask1, idx, shifts, mask3, t0, t1, \
+                      a01, a23, a45, a67, b01, b23, b45, b67
+    ushl \a01\().16b, \aux0\().16b, \shifts\().16b
+    ushl \b01\().16b, \aux1\().16b, \shifts\().16b
+    add  \t0\().16b,  \shifts\().16b, \idx\().16b
+    ushl \a23\().16b, \aux0\().16b, \t0\().16b
+    ushl \b23\().16b, \aux1\().16b, \t0\().16b
+    add  \t0\().16b,  \t0\().16b, \idx\().16b
+    ushl \a45\().16b, \aux0\().16b, \t0\().16b
+    ushl \b45\().16b, \aux1\().16b, \t0\().16b
+    add  \t0\().16b,  \t0\().16b, \idx\().16b
+    ushl \a67\().16b, \aux0\().16b, \t0\().16b
+    ushl \b67\().16b, \aux1\().16b, \t0\().16b
+    and  \a01\().16b, \a01\().16b, \mask1\().16b
+    and  \b01\().16b, \b01\().16b, \mask1\().16b
+    and  \a23\().16b, \a23\().16b, \mask1\().16b
+    and  \b23\().16b, \b23\().16b, \mask1\().16b
+    and  \a45\().16b, \a45\().16b, \mask1\().16b
+    and  \b45\().16b, \b45\().16b, \mask1\().16b
+    and  \a67\().16b, \a67\().16b, \mask1\().16b
+    and  \b67\().16b, \b67\().16b, \mask1\().16b
+
+    ushr \t0\().16b,  \main0\().16b, #6
+    ushr \t1\().16b,  \main1\().16b, #6
+    add  \a01\().16b, \a01\().16b, \t0\().16b
+    add  \b01\().16b, \b01\().16b, \t1\().16b
+    ushr \t0\().16b,  \main0\().16b, #4
+    ushr \t1\().16b,  \main1\().16b, #4
+    and  \t0\().16b,  \t0\().16b, \mask3\().16b
+    and  \t1\().16b,  \t1\().16b, \mask3\().16b
+    add  \a23\().16b, \a23\().16b, \t0\().16b
+    add  \b23\().16b, \b23\().16b, \t1\().16b
+    ushr \t0\().16b,  \main0\().16b, #2
+    ushr \t1\().16b,  \main1\().16b, #2
+    and  \t0\().16b,  \t0\().16b, \mask3\().16b
+    and  \t1\().16b,  \t1\().16b, \mask3\().16b
+    add  \a45\().16b, \a45\().16b, \t0\().16b
+    add  \b45\().16b, \b45\().16b, \t1\().16b
+    and  \t0\().16b,  \main0\().16b, \mask3\().16b
+    and  \t1\().16b,  \main1\().16b, \mask3\().16b
+    add  \a67\().16b, \a67\().16b, \t0\().16b
+    add  \b67\().16b, \b67\().16b, \t1\().16b
+.endm
+
+.macro W3_TILE1_LU2_STEP
+    // 2 cells of w3 weight stored as [main0(16) | aux0(8) | main1(16) | aux1(8)]
+    ld1 {v5.16b}, [x12], #16              // main plane cell 0
+    ld1 {v7.8b},  [x12], #8               // aux plane cell 0
+    ld1 {v6.16b}, [x12], #16              // main plane cell 1
+    ld1 {v8.8b},  [x12], #8               // aux plane cell 1
+    mov v7.d[1], v7.d[0]                  // replicate aux cell 0 to 16 bytes
+    mov v8.d[1], v8.d[0]                  // replicate aux cell 1
+    ld1 {v2.8b}, [x11], x22               // src tile 0
+    ld1 {v3.8b}, [x11], x22               // src tile 1
+
+    // Cell 0/1: unpack into two independent register sets.
+    W3_UNPACK_PAIR v5, v7, v6, v8, v15, v13, v14, v30, v21, v28, v9, v10, v11, v12, v0, v1, v4, v20
+
+    // Cell 0: smmla into set 0
+    .inst 0x4e89a450 // smmla v16.4s, v2.16b, v9.16b
+    .inst 0x4e8aa451 // smmla v17.4s, v2.16b, v10.16b
+    .inst 0x4e8ba452 // smmla v18.4s, v2.16b, v11.16b
+    .inst 0x4e8ca453 // smmla v19.4s, v2.16b, v12.16b
+
+    // Cell 1: smmla into set 1
+    .inst 0x4e80a478 // smmla v24.4s, v3.16b, v0.16b
+    .inst 0x4e81a479 // smmla v25.4s, v3.16b, v1.16b
+    .inst 0x4e84a47a // smmla v26.4s, v3.16b, v4.16b
+    .inst 0x4e94a47b // smmla v27.4s, v3.16b, v20.16b
+.endm
+
 .macro REVERT_INPUT_DEQUANT_BIAS rg0, rg1, rg2, rg3
 mul \rg1, \rg2, \rg3
 sub \rg0, \rg0, \rg1
@@ -100,7 +226,7 @@ sub \rg0, \rg0, \rg1
 mul \rg1, \rg2, \rg3 // blocknum * ocUp8 * sizeof(float)
 sub \rg0, \rg0, \rg1, LSL #5 // revert weight kernel sum
 .endm
-asm_function MNNGemmInt8AddBiasScale_ARMV86_w4_Unit_FP16
+asm_function MNNGemmInt8AddBiasScale_ARMV86_w3_Unit_FP16
 /* 
 struct QuanPostTreatParameters {
     const float* scale;
@@ -118,7 +244,7 @@ struct QuanPostTreatParameters {
     const float* extraScale = nullptr;
 };
 */
-//void MNNGemmInt8AddBiasScale_ARMV86_w4_Unit(int8_t* dst, const int8_t* src,
+//void MNNGemmInt8AddBiasScale_ARMV86_w3_Unit_FP16(int8_t* dst, const int8_t* src,
 //    const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
 // const QuanPostTreatParameters* parameters, size_t realDstCount);
 
@@ -154,6 +280,8 @@ ldr x10, [x6, #96]  // accumbuffer
 mov x15, x8      // input kernel sum
 mov x21, x23     // input dequant scale
 mov x24, #-32       // inputBlockNum=1
+// Load address of W3 unpack constants once. x16 stays valid throughout the function.
+adr x16, .L_w3_unpack_consts
 cbz x27, TILE_10
 mov x24, #8         // inputBlockNum>1
 
@@ -171,7 +299,7 @@ LoopDz_TILE_10:
 
 TILE10_BLOCKNUM:
     mov x13, x3 // src_depth_quad
-    movi v2.16b, #15
+    movi v2.16b, #3
 
     SET_0_5 v12, v16, v20, v24, v28 // oc:0,1,0,1
     SET_0_5 v13, v17, v21, v25, v29 // oc:2,3,2,3
@@ -179,14 +307,14 @@ TILE10_BLOCKNUM:
     SET_0_5 v15, v19, v23, v27, v31 // oc:6,7,6,7
 
 LoopSz_TILE_10:
-    ld1 {v0.16b, v1.16b}, [x2], #32                    // weight
+    ld1 {v0.16b}, [x2], #16                            // main plane: 16B
+    ld1 {v1.8b},  [x2], #8                             // aux plane:  8B
+    mov v1.d[1], v1.d[0]                                // replicate aux to 16 bytes
+    movi v3.16b, #4                                     // aux high-bit mask (will be clobbered by src load)
+    ld1 {v4.16b, v5.16b}, [x16]                         // shift step, initial shifts
+    W3_UNPACK_SERIAL v0, v1, v3, v4, v5, v2, v6, v8, v9, v10, v11
     ld1 {v3.16b, v4.16b, v5.16b, v6.16b}, [x11], #64    // src: E0-E9
     ld1 {v7.16b}, [x11], #16
-    // int4->int8
-    ushr v8.16b, v0.16b, #4 // oc:0-1
-    ushr v9.16b, v1.16b, #4 // oc:2-3
-    and v10.16b, v0.16b, v2.16b // oc:4-5
-    and v11.16b, v1.16b, v2.16b // oc:6-7
 
     subs x13, x13, #1
     .inst 0x4e88a46c // smmla v12.4s, v3.16b, v8.16b // tile0-oc0, tile0-oc1, tile1-oc0, tile1-oc1
@@ -405,7 +533,7 @@ TILE_8:
     ld1r {v31.8h}, [x14] // f32 max
     sub x14, x14, #2
     TILE_Remain:
-    movi v30.16b, #15
+    movi v30.16b, #3
     cmp x7, #8
     blt TILE_4
     sub x4, x4, #64 // just for Tile8, revert it when Tile8end
@@ -426,15 +554,14 @@ TILE8_BLOCKNUM:
     SET_0_4 v14, v18, v22, v26 // oc:4,5,4,5
     SET_0_4 v15, v19, v23, v27 // oc:6,7,6,7
 LoopSz_TILE_8:
-    ld1 {v0.16b, v1.16b}, [x12], #32                    // weight
+    ld1 {v0.16b}, [x12], #16                            // main plane: 16B
+    ld1 {v1.8b},  [x12], #8                             // aux plane:  8B
+    mov v1.d[1], v1.d[0]                                // replicate aux to 16 bytes
+    movi v7.16b, #4                                     // aux high-bit mask (TILE_8 doesn't use v7 for src)
+    ld1 {v3.16b, v4.16b}, [x16]                         // shift step, initial shifts
+    W3_UNPACK_SERIAL v0, v1, v7, v3, v4, v30, v2, v8, v9, v10, v11
     ld1 {v3.16b, v4.16b, v5.16b, v6.16b}, [x11], x22    // src: E0-E7
-
-    // int4->int8
     subs x13, x13, #1
-    ushr v8.16b, v0.16b, #4 // oc:0-1
-    ushr v9.16b, v1.16b, #4 // oc:2-3
-    and v10.16b, v0.16b, v30.16b // oc:4-5
-    and v11.16b, v1.16b, v30.16b // oc:6-7
 
     .inst 0x4e88a46c // smmla v12.4s, v3.16b, v8.16b // tile0-oc0, tile0-oc1, tile1-oc0, tile1-oc1
     .inst 0x4e89a46d // smmla v13.4s, v3.16b, v9.16b // tile0-oc2, tile0-oc3, tile1-oc2, tile1-oc3
@@ -627,13 +754,13 @@ TILE4_BLOCKNUM:
     SET_0_4 v16, v17, v18, v19
 
 LoopSz_TILE_4:
-    ld1 {v2.16b, v3.16b}, [x12], #32   // weight
+    ld1 {v2.16b}, [x12], #16          // main plane: 16B
+    ld1 {v0.8b},  [x12], #8           // aux plane:  8B
+    mov v0.d[1], v0.d[0]               // replicate aux to 16 bytes
+    movi v1.16b, #4                    // aux high-bit mask
+    ld1 {v6.16b, v7.16b}, [x16]        // shift step, initial shifts
+    W3_UNPACK_SERIAL v2, v0, v1, v6, v7, v30, v3, v8, v9, v10, v11
     ld1 {v4.16b, v5.16b}, [x11], x22   // src
-    // int4->int8
-    ushr v8.16b, v2.16b, #4
-    ushr v9.16b, v3.16b, #4
-    and v10.16b, v2.16b, v30.16b
-    and v11.16b, v3.16b, v30.16b
     subs x13, x13, #1
     .inst 0x4e88a48c // smmla v12.4s, v4.16b, v8.16b // tile0-oc0, tile0-oc1, tile1-oc0, tile1-oc1
     .inst 0x4e89a48d // smmla v13.4s, v4.16b, v9.16b // tile0-oc2, tile0-oc3, tile1-oc2, tile1-oc3
@@ -764,13 +891,13 @@ TILE2_BLOCKNUM:
     mov x13, x3 // src_depth_quad
     SET_0_4 v12, v13, v14, v15
 LoopSz_TILE_2:
-    ld1 {v2.16b, v3.16b}, [x12], #32   // weight
-    ld1 {v4.16b}, [x11], x22           // src
-    // int4->int8
-    ushr v8.16b, v2.16b, #4
-    ushr v9.16b, v3.16b, #4
-    and v10.16b, v2.16b, v30.16b
-    and v11.16b, v3.16b, v30.16b
+    ld1 {v2.16b}, [x12], #16           // main plane: 16B
+    ld1 {v0.8b},  [x12], #8            // aux plane:  8B
+    mov v0.d[1], v0.d[0]                // replicate aux to 16 bytes
+    movi v1.16b, #4                     // aux high-bit mask
+    ld1 {v5.16b, v6.16b}, [x16]         // shift step, initial shifts
+    W3_UNPACK_SERIAL v2, v0, v1, v5, v6, v30, v3, v8, v9, v10, v11
+    ld1 {v4.16b}, [x11], x22            // src
 
     .inst 0x4e88a48c // smmla v12.4s, v4.16b, v8.16b // tile0-oc0, tile0-oc1, tile1-oc0, tile1-oc1
     .inst 0x4e89a48d // smmla v13.4s, v4.16b, v9.16b // tile0-oc2, tile0-oc3, tile1-oc2, tile1-oc3
@@ -879,108 +1006,71 @@ TILE_1:
 LoopDz_TILE_1:
     mov x11, x1 // src
     mov x19, #0
+    // running fp32 accumulator across blocks within this OC chunk
+    movi v22.4s, #0 // oc:0-3 running accum
+    movi v23.4s, #0 // oc:4-7 running accum
+    // W3 unpack constants stay live across all blockNum iterations in TILE_1.
+    movi v15.16b, #4                     // aux high-bit mask
+    ld1 {v13.16b, v14.16b}, [x16]        // v13 = shift step, v14 = initial shifts
 TILE1_BLOCKNUM:
     mov x13, x3 // src_depth_quad
 
-    movi v16.4s, #0 // oc:0,1,0,1
+    movi v16.4s, #0 // oc:0,1,0,1 (set 0)
     movi v17.4s, #0 // oc:2,3,2,3
     movi v18.4s, #0 // oc:4,5,4,5
     movi v19.4s, #0 // oc:6,7,6,7
 
-cmp x13, #4
-blt LoopSz1_TILE_1_lu1
+    cmp x13, #2
+    blt LoopSz1_TILE_1_lu1
 
-    movi v24.4s, #0 // oc:0,1,0,1
-    movi v25.4s, #0 // oc:2,3,2,3
-    movi v26.4s, #0 // oc:4,5,4,5
-    movi v27.4s, #0 // oc:6,7,6,7
+    movi v24.4s, #0                      // shadow accumulators for lu2
+    movi v25.4s, #0
+    movi v26.4s, #0
+    movi v27.4s, #0
 
-LoopSz1_TILE_1_lu4:
-    ld1 {v5.16b, v6.16b, v7.16b, v8.16b}, [x12], #64     // weight
-    ld1 {v0.8b}, [x11], x22                              // src
-    ld1 {v1.8b}, [x11], x22
+    cmp x13, #8
+    beq LoopSz1_TILE_1_b64
 
-    // int4->int8 - first two weight groups
-    ushr v4.16b, v5.16b, #4
-    ushr v14.16b, v6.16b, #4
-    and v13.16b, v5.16b, v30.16b
-    and v15.16b, v6.16b, v30.16b
+LoopSz1_TILE_1_lu2:
+    W3_TILE1_LU2_STEP
 
-    ld1 {v9.16b, v10.16b, v11.16b, v12.16b}, [x12], #64
+    sub x13, x13, #2
+    cmp x13, #2
+    bge LoopSz1_TILE_1_lu2
 
-    // Second weight group - unpack + SMMLA
-    ushr v20.16b, v7.16b, #4
-    ushr v21.16b, v8.16b, #4
-    and v22.16b, v7.16b, v30.16b
-    and v23.16b, v8.16b, v30.16b
+    b LoopSz1_TILE_1_lu2_merge
 
+LoopSz1_TILE_1_b64:
+    W3_TILE1_LU2_STEP
+    W3_TILE1_LU2_STEP
+    W3_TILE1_LU2_STEP
+    W3_TILE1_LU2_STEP
+    mov x13, #0
 
-    // First weight group SMMLA
-    .inst 0x4e84a410 // smmla v16.4s, v0.16b, v4.16b
-    .inst 0x4e8ea411 // smmla v17.4s, v0.16b, v14.16b
-    .inst 0x4e8da412 // smmla v18.4s, v0.16b, v13.16b
-    .inst 0x4e8fa413 // smmla v19.4s, v0.16b, v15.16b
-
-    ld1 {v2.8b}, [x11], x22
-
-
-    .inst 0x4e94a438 // smmla v24.4s, v1.16b, v20.16b
-    .inst 0x4e95a439 // smmla v25.4s, v1.16b, v21.16b
-    .inst 0x4e96a43a // smmla v26.4s, v1.16b, v22.16b
-    .inst 0x4e97a43b // smmla v27.4s, v1.16b, v23.16b
-
-    ld1 {v3.8b}, [x11], x22
-
-    // Third weight group - unpack + SMMLA
-    ushr v4.16b, v9.16b, #4
-    ushr v14.16b, v10.16b, #4
-    and v13.16b, v9.16b, v30.16b
-    and v15.16b, v10.16b, v30.16b
-
-    // Fourth weight group - unpack + SMMLA
-    ushr v5.16b, v11.16b, #4
-    ushr v6.16b, v12.16b, #4
-    and v7.16b, v11.16b, v30.16b
-    and v8.16b, v12.16b, v30.16b
-
-    .inst 0x4e84a450 // smmla v16.4s, v2.16b, v4.16b
-    .inst 0x4e8ea451 // smmla v17.4s, v2.16b, v14.16b
-    .inst 0x4e8da452 // smmla v18.4s, v2.16b, v13.16b
-    .inst 0x4e8fa453 // smmla v19.4s, v2.16b, v15.16b
-
-
-    .inst 0x4e85a478 // smmla v24.4s, v3.16b, v5.16b
-    .inst 0x4e86a479 // smmla v25.4s, v3.16b, v6.16b
-    .inst 0x4e87a47a // smmla v26.4s, v3.16b, v7.16b
-    .inst 0x4e88a47b // smmla v27.4s, v3.16b, v8.16b
-
-    sub x13, x13, #4
-    cmp x13, #4
-
-    bge LoopSz1_TILE_1_lu4
-    
+LoopSz1_TILE_1_lu2_merge:
     add v16.4s, v16.4s, v24.4s
     add v17.4s, v17.4s, v25.4s
     add v18.4s, v18.4s, v26.4s
     add v19.4s, v19.4s, v27.4s
 
-cbz x13, LoopSzEnd_TILE_1
+    cbz x13, LoopSzEnd_TILE_1
 
 LoopSz1_TILE_1_lu1:
-    ld1 {v13.16b, v14.16b}, [x12], #32   // weight
+    // v13/v14/v15 hold W3 unpack constants; load main/aux into other regs.
+    ld1 {v5.16b}, [x12], #16             // main plane: 16B
+    ld1 {v6.8b},  [x12], #8              // aux plane:  8B
+    mov v6.d[1], v6.d[0]                  // replicate aux to 16 bytes
+    // TILE_1 lu1 keeps the same call shape as the old parallel macro; IC-major aux ignores aux scratch regs.
+    // t=v7, outputs=v0,v1,v3,v4 (matching smmla operands)
+    W3_UNPACK_PARALLEL v5, v6, v8, v9, v10, v15, v13, v14, v30, v7, v0, v1, v3, v4
     ld1 {v2.8b}, [x11], x22              // src
-    // int4->int8
-    ushr v0.16b, v13.16b, #4
-    and v3.16b, v13.16b, v30.16b
-    ushr v1.16b, v14.16b, #4
-    and v4.16b, v14.16b, v30.16b
     subs x13, x13, #1
 
     .inst 0x4e80a450 // smmla v16.4s, v2.16b, v0.16b
     .inst 0x4e81a451 // smmla v17.4s, v2.16b, v1.16b
     .inst 0x4e83a452 // smmla v18.4s, v2.16b, v3.16b
     .inst 0x4e84a453 // smmla v19.4s, v2.16b, v4.16b
-    
+
     bne LoopSz1_TILE_1_lu1
 
 LoopSzEnd_TILE_1:
@@ -990,61 +1080,44 @@ LoopSzEnd_TILE_1:
     scvtf v26.4s, v26.4s
 
 Tile1Quan:
-    // v16/v17 hold the per-OC-chunk running fp32 accumulator across blocks.  The
-    // [x10] buffer carries the running sum across blocks within ONE OC chunk; conv
-    // exec only memsets accumbuff once per kernel call (or not at all for blockNum=1)
-    // so the FIRST block of each OC chunk must zero-init v16/v17 explicitly instead
-    // of loading from [x10] (which still holds the previous OC chunk's tail).
     ld1 {v0.4s, v1.4s}, [x12], #32  // scale
     ld1 {v4.s}[0], [x23], x25       // input scale
     ld1 {v6.s}[0], [x8]             // x kernel sum
     ld1 {v8.4s, v9.4s}, [x12], #32  // weight quan zeropoint
-    cbz x19, _w4_first_block_zero
-    ld1 {v16.4s, v17.4s}, [x10]     // running fp32 accum from prior block
-    b _w4_init_done
-_w4_first_block_zero:
-    movi v16.4s, #0                 // first block of this OC chunk
-    movi v17.4s, #0
-_w4_init_done:
     add x8, x8, x22, LSR #1
 
-    // P1.2 scale_eff fusion: scale * input_scale off the v16/v17 critical path.
-    fmul v0.4s, v0.4s, v4.s[0]
+    fmul v0.4s, v0.4s, v4.s[0]      // scale_eff
     fmul v1.4s, v1.4s, v4.s[0]
-
-    // Per-block dequant chain into v16/v17 directly (replaces fmul v25 + fadd v16 + ...).
-    fmla v16.4s, v25.4s, v0.4s      // v16 += accum_fp * scale_eff
-    fmla v17.4s, v26.4s, v1.4s
+    fmla v22.4s, v25.4s, v0.4s
+    fmla v23.4s, v26.4s, v1.4s
     TILE1_MLA:
-    MLA_WEIGHTZERO v16, v6, v8, 0   // v16 += zp * xks
-    MLA_WEIGHTZERO v17, v6, v9, 0
+    MLA_WEIGHTZERO v22, v6, v8, 0 // tile:0, oc:0-3
+    MLA_WEIGHTZERO v23, v6, v9, 0 // tile:0, oc:4-7
 
     cbz x27, TILE1_ADD_DSTV
-    ld1 {v6.s}[0], [x27], x25       // input dequant bias
-    ld1 {v8.4s, v9.4s}, [x28], #32  // weight kernel sum
-    MLA_WEIGHTZERO v16, v6, v8, 0   // v16 += wks * inputBias
-    MLA_WEIGHTZERO v17, v6, v9, 0
+    ld1 {v6.s}[0], [x27], x25 // input dequant bias
+    ld1 {v8.4s, v9.4s}, [x28], #32 // weight kernel sum
+    MLA_WEIGHTZERO v22, v6, v8, 0 // tile:0, oc:0-3
+    MLA_WEIGHTZERO v23, v6, v9, 0 // tile:0, oc:4-7
 
     TILE1_ADD_DSTV:
-    // v16/v17 already hold the updated running accum; nothing more to do.
+    // v22/v23 already hold the running per-OC-chunk accumulator.
 
     TILE1_TEMP_BUFFER:
     add x19, x19, #1
     cmp x19, x26
-    beq TILE1_POST
-    st1 {v16.4s, v17.4s}, [x10]
-    b TILE1_BLOCKNUM
+    bne TILE1_BLOCKNUM
 
     TILE1_POST:
     sub x24, x24, #1
     cbz x9, TILE1_CVT_FP16
-    ld1 {v8.4s, v9.4s}, [x20], #32  // bias (use v8/v9 since v16/v17 hold result)
-    fadd v16.4s, v16.4s, v8.4s
-    fadd v17.4s, v17.4s, v9.4s
+    ld1 {v16.4s, v17.4s}, [x20], #32 // bias
+    fadd v22.4s, v22.4s, v16.4s
+    fadd v23.4s, v23.4s, v17.4s
 
     TILE1_CVT_FP16:
-    fcvtn v0.4h, v16.4s
-    fcvtn2 v0.8h, v17.4s
+    fcvtn v0.4h, v22.4s
+    fcvtn2 v0.8h, v23.4s
     cbz x14, TILE1_STORE
     fmax v0.8h, v0.8h, v29.8h
     fmin v0.8h, v0.8h, v31.8h
@@ -1070,5 +1143,18 @@ ldp d10, d11, [sp, #(16 * 2)]
 ldp d12, d13, [sp, #(16 * 1)]
 ldp d14, d15, [sp], #(16 * 10)
 ret
+
+// ===== W3 unpack constant table =====
+// Lives in .text (read-only) right after the function so adr-relative load works on
+// both Mach-O (macOS) and ELF (Linux/Android) without needing a separate section.
+.align 4
+.L_w3_unpack_consts:
+    // First 16 bytes: signed shift-count increment from one OC pair to the next.
+    .byte 2,2,2,2,2,2,2,2
+    .byte 2,2,2,2,2,2,2,2
+    // Next 16 bytes: initial signed shift counts for OC0/1.  Aux byte bit7 is
+    // OC0 and bit6 is OC1; both are shifted into bit2, then masked with 4.
+    .byte -5,-5,-5,-5,-5,-5,-5,-5
+    .byte -4,-4,-4,-4,-4,-4,-4,-4
 
 #endif // __aarch64__

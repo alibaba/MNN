@@ -243,11 +243,23 @@ struct MatmulRelatedFunctions {
     void(*MNNPackC4Int8ForMatMul_A)(int8_t* destOrigin, int8_t const** sourceGroup, const int32_t* info, const int32_t* el) = nullptr;
     void(*MNNGemmInt8AddBiasScale_Unit_FP16)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDstCount) = nullptr;
     void(*MNNGemmInt8AddBiasScale_w4_Unit_FP16)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDstCount) = nullptr;
+    void (*MNNGemmInt8AddBiasScale_w2_Unit_FP16)(int8_t* dst, const int8_t* src, const int8_t* weight,
+                                                 size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
+                                                 const QuanPostTreatParameters* post, size_t realDstCount) = nullptr;
+    void (*MNNGemmInt8AddBiasScale_w3_Unit_FP16)(int8_t* dst, const int8_t* src, const int8_t* weight,
+                                                 size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
+                                                 const QuanPostTreatParameters* post, size_t realDstCount) = nullptr;
     void(*MNNGemmInt8AddBiasScale_Unit_FP16_DecodeMax)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDstCount) = nullptr;
     void(*MNNGemmInt8AddBiasScale_Unit_FP32_DecodeMax)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDstCount) = nullptr;
     void(*MNNGemmInt8AddBiasScale_w4_Unit_FP16_DecodeMax)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDstCount) = nullptr;
     void(*MNNGemmInt8AddBiasScale_w4_Unit_FP32_DecodeMax)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDstCount) = nullptr;
     void(*Int8GemmKernel_W4)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDstCount) = nullptr;
+    void (*Int8GemmKernel_W2)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad,
+                              size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post,
+                              size_t realDstCount) = nullptr;
+    void (*Int8GemmKernel_W3)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad,
+                              size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post,
+                              size_t realDstCount) = nullptr;
     void(*MNNSumByAxisLForMatmul_A)(float* dest, int8_t* source, const float* dequantScale, ssize_t realDstCount, SumByAxisParams sumParams) = nullptr;
 
     int eP;
