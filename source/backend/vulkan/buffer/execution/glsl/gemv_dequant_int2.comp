@@ -1,0 +1,126 @@
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
+layout(constant_id = 3) const uint ACTIVATION = 0; // 0:none 1:relu 2:relu6
+
+layout(std430, binding = 0) readonly buffer ActivationBuffer {
+    FLOAT4 X4[];
+};
+
+layout(std430, binding = 1) readonly buffer WeightBuffer {
+    uint Wp[]; // [padN, padK/16], 16x int2(unsigned, value=signed+2) per uint32
+};
+
+layout(std430, binding = 2) readonly buffer MetaBuffer {
+    FLOAT Meta[]; // [padN, blockStride, 2] => [scale, offset]
+};
+
+layout(std430, binding = 3) readonly buffer BiasBuffer {
+    FLOAT Bias[];
+};
+
+layout(std430, binding = 4) writeonly buffer OutputBuffer {
+    FLOAT Y[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint K;
+    uint N;
+    uint blockSize;
+    uint blockStride;
+    uint weightStride;
+} pc;
+
+void main() {
+    const uint row = gl_WorkGroupID.x;
+    if (row >= pc.N) {
+        return;
+    }
+
+    const uint lane = gl_LocalInvocationID.x;
+    const uint stride = gl_SubgroupSize;
+
+    const uint K16 = pc.K >> 4u;
+    const uint safeBlockSize = max(pc.blockSize, 1u);
+    const uint block16 = max(safeBlockSize >> 4u, 1u);
+
+    const uint baseW = row * pc.weightStride;
+    const uint baseM = row * pc.blockStride;
+
+    float sum = 0.0;
+
+    for (uint idx = lane; idx < K16; idx += stride) {
+        const uint kb = idx / block16;
+        const uint metaBase = (baseM + kb) * 2u;
+        const float scale = float(Meta[metaBase + 0u]);
+        const float offset = float(Meta[metaBase + 1u]);
+
+        const uint packedW = Wp[baseW + idx];
+        // Unpack 16 unsigned [0,3] values, subtract 2 to get signed [-2,1].
+        vec4 w0 = vec4(
+            float((packedW >>  0u) & 3u) - 2.0,
+            float((packedW >>  2u) & 3u) - 2.0,
+            float((packedW >>  4u) & 3u) - 2.0,
+            float((packedW >>  6u) & 3u) - 2.0);
+        vec4 w1 = vec4(
+            float((packedW >>  8u) & 3u) - 2.0,
+            float((packedW >> 10u) & 3u) - 2.0,
+            float((packedW >> 12u) & 3u) - 2.0,
+            float((packedW >> 14u) & 3u) - 2.0);
+        vec4 w2v = vec4(
+            float((packedW >> 16u) & 3u) - 2.0,
+            float((packedW >> 18u) & 3u) - 2.0,
+            float((packedW >> 20u) & 3u) - 2.0,
+            float((packedW >> 22u) & 3u) - 2.0);
+        vec4 w3 = vec4(
+            float((packedW >> 24u) & 3u) - 2.0,
+            float((packedW >> 26u) & 3u) - 2.0,
+            float((packedW >> 28u) & 3u) - 2.0,
+            float((packedW >> 30u) & 3u) - 2.0);
+
+        w0 = w0 * scale + vec4(offset);
+        w1 = w1 * scale + vec4(offset);
+        w2v = w2v * scale + vec4(offset);
+        w3 = w3 * scale + vec4(offset);
+
+        const uint xBase = idx << 2u; // 16 / 4 = 4 vec4 inputs
+        vec4 x0 = vec4(X4[xBase + 0u]);
+        vec4 x1 = vec4(X4[xBase + 1u]);
+        vec4 x2 = vec4(X4[xBase + 2u]);
+        vec4 x3 = vec4(X4[xBase + 3u]);
+        sum += dot(w0, x0) + dot(w1, x1) + dot(w2v, x2) + dot(w3, x3);
+    }
+
+    // Tail K handling for K % 16 != 0.
+    const uint tail = pc.K & 15u;
+    if (tail > 0u && gl_SubgroupInvocationID == 0u) {
+        const uint idx = K16;
+        const uint packedW = Wp[baseW + idx];
+        const uint kBase = idx << 4u;
+        for (uint t = 0u; t < tail; ++t) {
+            const uint k = kBase + t;
+            const uint kb = k / safeBlockSize;
+            const uint metaBase = (baseM + kb) * 2u;
+            const float scale = float(Meta[metaBase + 0u]);
+            const float offset = float(Meta[metaBase + 1u]);
+            const float q = float((packedW >> (t * 2u)) & 3u) - 2.0;
+            const uint xVec = k >> 2u;
+            const uint xLane = k & 3u;
+            const float x = float(X4[xVec][int(xLane)]);
+            sum += (q * scale + offset) * x;
+        }
+    }
+
+    sum = subgroupAdd(sum);
+
+    if (gl_SubgroupInvocationID == 0u) {
+        float y = sum + float(Bias[row]);
+        if (ACTIVATION == 1u) {
+            y = max(y, 0.0);
+        } else if (ACTIVATION == 2u) {
+            y = clamp(y, 0.0, 6.0);
+        }
+        Y[row] = FLOAT(y);
+    }
+}

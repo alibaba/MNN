@@ -134,6 +134,14 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
     // if M is small, dequant weight in shader
     // if device not support simdgroup matrix, only support dequant in shader
     bool dequantInShader = (area < 128) || !(rt->supportSimdGroupMatrix());
+    // Native W_QUANT_2/3 paths are only implemented in conv1x1_gemv_g8_wquant_sg (decode,
+    // area==1). For multi-token prefill we route through the outer-dequant + fp gemm
+    // path instead, which has a real W_QUANT_2/3 dequant in conv1x1_w_dequant.
+    // The outer-dequant path itself uses simdgroup-matrix; only override when the device
+    // supports it, otherwise stay on the in-shader path.
+    if ((mDequantBits == 2 || mDequantBits == 3) && area > 1 && rt->supportSimdGroupMatrix()) {
+        dequantInShader = false;
+    }
     mPreDequantWeight = false;
     
 #ifdef MNN_LOW_MEMORY
@@ -144,24 +152,32 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
         std::string sgrWqShader  = gConv1x1WqSgReduce;
 
         NSMutableDictionary *dic = [baseDic mutableCopy];
-        if(mDequantBits == 4) {
+        if(mDequantBits == 2) {
+            [dic setValue:@"1" forKey:@"W_QUANT_2"];
+        } else if(mDequantBits == 3) {
+            [dic setValue:@"1" forKey:@"W_QUANT_3"];
+        } else if(mDequantBits == 4) {
             [dic setValue:@"1" forKey:@"W_QUANT_4"];
         } else if(mDequantBits == 8) {
             [dic setValue:@"1" forKey:@"W_QUANT_8"];
         }
         option.preprocessorMacros = dic;
-        
+
         NSUInteger gid_x = UP_DIV(ow * oh, 4);
         NSUInteger gid_y = oc_4;
         NSUInteger gid_z = ob;
         std::string name = "conv1x1_g1z4_w8";
         mPipeline = [context pipelineWithName:@"conv1x1_g1z4_w8" fp16:backend->useFp16InsteadFp32()];
-        
-        if (mDequantBits == 4 || mDequantBits == 8) {
+
+        if (mDequantBits == 2 || mDequantBits == 3 || mDequantBits == 4 || mDequantBits == 8) {
             // TODO: define short_seq more accurately
             int short_seq = 6;
-            
-            if(mDequantBits == 4) {
+
+            if(mDequantBits == 2) {
+                baseKeys.emplace_back("conv1x1_wquant_2");
+            } else if(mDequantBits == 3) {
+                baseKeys.emplace_back("conv1x1_wquant_3");
+            } else if(mDequantBits == 4) {
                 baseKeys.emplace_back("conv1x1_wquant_4");
             } else if(mDequantBits == 8) {
                 baseKeys.emplace_back("conv1x1_wquant_8");
@@ -195,8 +211,8 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                     }
                     mPipeline = pipeline;
                     mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 4), piece, 1), MTLSizeMake(32, 1, 1));
-                } else if(oc > 16384 && oc_4 % 2 == 0) {
-                    // unrool c for avoid memory exceed
+                } else if(mDequantBits != 2 && mDequantBits != 3 && oc > 16384 && oc_4 % 2 == 0) {
+                    // g16 path not extended for W_QUANT_2/3 — fall back to g8.
                     auto keys = baseKeys;
                     keys.emplace_back("conv1x1_gemv_g16_wquant_sg");
                     auto pipeline = rt->findPipeline(keys);
@@ -350,7 +366,13 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
             
             auto keys = baseKeys;
             keys.emplace_back("conv1x1_w_dequant");
-            if(mDequantBits == 4) {
+            if(mDequantBits == 2) {
+                [dic setValue:@"1" forKey:@"W_QUANT_2"];
+                keys.emplace_back("W_QUANT_2");
+            } else if(mDequantBits == 3) {
+                [dic setValue:@"1" forKey:@"W_QUANT_3"];
+                keys.emplace_back("W_QUANT_3");
+            } else if(mDequantBits == 4) {
                 [dic setValue:@"1" forKey:@"W_QUANT_4"];
                 keys.emplace_back("W_QUANT_4");
             } else if(mDequantBits == 8) {

@@ -24,7 +24,11 @@ void ConvBufLowMemoryExecution::getInfoFromOpLowMemory(void *weight_ptr) {
         return;
     }
     // set mResource->mNumQuantBit
-    if(quanCommon->canUseInt4){
+    if(quanCommon->canUseInt2){
+        mResource->mNumQuantBit = 2;
+    } else if(quanCommon->canUseInt3){
+        mResource->mNumQuantBit = 3;
+    } else if(quanCommon->canUseInt4){
         mResource->mNumQuantBit = 4;
     }else{
         mResource->mNumQuantBit = 8;
@@ -178,6 +182,10 @@ bool ConvBufLowMemoryExecution::convertToQuantWeight1x1Buffer(cl::Buffer input) 
     } else if (mResource->mNumQuantBit == 4){
         // int4 case
         buildOptions.emplace("-DUSE_LOW_BIT_WEIGHT_INT4");
+    } else if (mResource->mNumQuantBit == 3){
+        buildOptions.emplace("-DUSE_LOW_BIT_WEIGHT_INT3");
+    } else if (mResource->mNumQuantBit == 2){
+        buildOptions.emplace("-DUSE_LOW_BIT_WEIGHT_INT2");
     } else {/* More types to be supported. */}
 
     mBufferToConv1x1Kernel = runtime->buildKernelWithCache("buffer_convert_quant", kernelName, buildOptions, mOpenCLBackend->getPrecision());
@@ -242,25 +250,41 @@ void ConvBufLowMemoryExecution::set1x1WeightLowMemory() {
     }
     cl_int res = CL_SUCCESS;
     std::shared_ptr<Tensor> filterBuffer(Tensor::createDevice<float>({ROUND_UP(mResource->mOutputChannel, PACK_COUT), ROUND_UP(mResource->mInputChannel, PACK_CIN), 1, 1}));
-    size_t buffer_size = filterBuffer->usize() / sizeof(float);
+    const size_t orig_bytes = filterBuffer->usize() / sizeof(float); // OC_align * IC_align bytes (1B per weight)
+    size_t staging_size = orig_bytes;
+    size_t output_size = orig_bytes;
     size_t cpy_size = mResource->mOutputChannel * mResource->mInputChannel;
     int actual_packCin = PACK_CIN;
     // shared part for all cases
     if (mResource->mNumQuantBit == 4){
         // int4 case
-        buffer_size /= 2;
+        staging_size /= 2;
+        output_size /= 2;
         cpy_size = UP_DIV(cpy_size, 2);
+    } else if(mResource->mNumQuantBit == 3){
+        // int3 case: 3/8 byte per weight in packed output, staging is 1B per weight
+        output_size = (output_size * 3) / 8;
+        actual_packCin = PACK_CIN * 2; // 8, forces image off for w3 (vload12 hard on image)
+    } else if(mResource->mNumQuantBit == 2){
+        // int2 case: 1/4 byte per weight in packed output, staging is 1B per weight
+        output_size /= 4;
+        actual_packCin = PACK_CIN * 2; // 8
     } else if(mResource->mNumQuantBit == 8){
         actual_packCin /= 2;
     } else {/* More types to be supported. */}
     if(mOpenCLBackend->getRuntime()->hint().useCachedMmap <= 1){
-        cl::Buffer filterBufferCL(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size);
-        void *mapPtr = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(filterBufferCL, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &res);
+        cl::Buffer filterBufferCL(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, staging_size);
+        void *mapPtr = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(filterBufferCL, true, CL_MAP_WRITE, 0, staging_size, nullptr, nullptr, &res);
         if(mapPtr != nullptr && res == CL_SUCCESS){
             if(preAllocGpuMem){
                 getInfoFromOpLowMemory(mapPtr);
                 if(mValid == false){
                     return;
+                }
+                // For 2/3bit forceQuant, ConvolutionCommon::load keeps the blob in a separate
+                // allocation (mFilterDataPtr) instead of writing into mapPtr. Copy it now.
+                if(mResource->mNumQuantBit == 2 || mResource->mNumQuantBit == 3){
+                    ::memcpy(mapPtr, mFilterDataPtr, cpy_size);
                 }
             } else{
                 ::memcpy(mapPtr, mFilterDataPtr, cpy_size);
@@ -270,9 +294,11 @@ void ConvBufLowMemoryExecution::set1x1WeightLowMemory() {
             MNN_ASSERT(false);
         }
         mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(filterBufferCL, mapPtr);
-        // Use Image load weights
-        if(UP_DIV(mResource->mInputChannel, actual_packCin) <= 16384 && ROUND_UP(mResource->mOutputChannel, PACK_COUT) <= 16384){
-            mResource->mUseImage = true;
+        // Use Image load weights (only for 4bit/8bit; 2/3bit stick to buffer)
+        if(mResource->mNumQuantBit == 4 || mResource->mNumQuantBit == 8){
+            if(UP_DIV(mResource->mInputChannel, actual_packCin) <= 16384 && ROUND_UP(mResource->mOutputChannel, PACK_COUT) <= 16384){
+                mResource->mUseImage = true;
+            }
         }
         auto staticMapAlloc = mOpenCLBackend->getStaticAllocatorMMap();
         if(mResource->mUseImage){
@@ -288,9 +314,9 @@ void ConvBufLowMemoryExecution::set1x1WeightLowMemory() {
             }
         }else{
             if(mOpenCLBackend->getRuntime()->hint().useCachedMmap && staticMapAlloc != nullptr){
-                mResource->mKernelBuffer = staticMapAlloc.get()->allocBuffer(buffer_size);
+                mResource->mKernelBuffer = staticMapAlloc.get()->allocBuffer(output_size);
             }else{
-                mResource->mKernelBuffer.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size));
+                mResource->mKernelBuffer.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, output_size));
             }
         }
         convertToQuantWeight1x1Buffer(filterBufferCL);
@@ -301,9 +327,11 @@ void ConvBufLowMemoryExecution::set1x1WeightLowMemory() {
                 return;
             }
         }
-        // Use Image load weights
-        if(UP_DIV(mResource->mInputChannel, actual_packCin) <= 16384 && ROUND_UP(mResource->mOutputChannel, PACK_COUT) <= 16384){
-            mResource->mUseImage = true;
+        // Use Image load weights (only for 4bit/8bit; 2/3bit stick to buffer)
+        if(mResource->mNumQuantBit == 4 || mResource->mNumQuantBit == 8){
+            if(UP_DIV(mResource->mInputChannel, actual_packCin) <= 16384 && ROUND_UP(mResource->mOutputChannel, PACK_COUT) <= 16384){
+                mResource->mUseImage = true;
+            }
         }
         auto staticMapAlloc = mOpenCLBackend->getStaticAllocatorMMap();
         if(mResource->mUseImage){
@@ -319,9 +347,9 @@ void ConvBufLowMemoryExecution::set1x1WeightLowMemory() {
             }
         }else{
             if(mOpenCLBackend->getRuntime()->hint().useCachedMmap && staticMapAlloc != nullptr){
-                mResource->mKernelBuffer = staticMapAlloc.get()->allocBuffer(buffer_size);
+                mResource->mKernelBuffer = staticMapAlloc.get()->allocBuffer(output_size);
             }else{
-                mResource->mKernelBuffer.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size));
+                mResource->mKernelBuffer.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, output_size));
             }
         }
     }
@@ -550,7 +578,7 @@ void ConvBufLowMemoryExecution::useFPWeightGemmLowMemory(Tensor * input, Tensor 
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
     int channelPack = 2;
-    if(mResource->mNumQuantBit == 4){
+    if(mResource->mNumQuantBit == 4 || mResource->mNumQuantBit == 3 || mResource->mNumQuantBit == 2){
         channelPack = 4;
     }
     int area = inputShape.at(1) * inputShape.at(2);
@@ -733,7 +761,7 @@ void ConvBufLowMemoryExecution::tuneGemvLowMemory(Tensor * input, Tensor * outpu
     std::string info = std::to_string(inputChannels) + "_" + std::to_string(outChannel);
     std::set<std::string> buildOption = mResource->mBuildOptions;
     int inputChannelLeaves = 0;
-    if(mResource->mNumQuantBit == 4){
+    if(mResource->mNumQuantBit == 4 || mResource->mNumQuantBit == 3 || mResource->mNumQuantBit == 2){
         inputChannelLeaves = useLocalMem ? (inputChannels % 4) : (blockDim % 4);
     } else {
         inputChannelLeaves = useLocalMem ? (inputChannels % 2) : (blockDim % 2);
@@ -1202,36 +1230,42 @@ ErrorCode ConvBufLowMemoryExecution::onResize(const std::vector<Tensor *> &input
         if(batch == 1){
             tuneGemvLowMemory(input, output);
         } else {
-            std::pair<std::vector<uint32_t>, uint32_t> tuneInfo;
-            std::string info = "convBufLowMemory_" + std::to_string(mResource->mInputChannel) + "_" + std::to_string(mResource->mOutputChannel);
-            if(batch > 16){
-                if(getTunedInfo(info, {static_cast<unsigned int>(batch)}, tuneInfo, mOpenCLBackend->getOpenCLRuntime())){
-                    mUseFPWeight = tuneInfo.first[0];
-                } else{
-                    if((mOpenCLBackend->getCLTuneLevel() == Heavy || mOpenCLBackend->getCLTuneLevel() == Wide)){
-                        setRecordClose closeRecord(mOpenCLBackend);
-                        tuneGemmLowMemory(input, output);
-                        auto shortBatchTime = getExecuteTime();
-                        mUseFPWeight = true;
-                        useFPWeightGemmLowMemory(input, output);
-                        auto longBatchTime = getExecuteTime();
-                        mUseFPWeight = false;
-                        if(longBatchTime < shortBatchTime){
-                            mUseFPWeight = true;
-                        }
-                        std::pair<std::vector<uint32_t>, uint32_t> tuneInfoTmp = std::make_pair<std::vector<uint32_t>, uint32_t>({mUseFPWeight}, 0);
-                        setTunedInfo(info, {static_cast<unsigned int>(batch)}, tuneInfoTmp, mOpenCLBackend->getOpenCLRuntime(), "gemm_conv1x1_buf");
+            // 2/3 bit have no dedicated GEMM kernel yet; always fall back to inverse-quant + FP gemm.
+            if(mResource->mNumQuantBit == 2 || mResource->mNumQuantBit == 3){
+                mUseFPWeight = true;
+                useFPWeightGemmLowMemory(input, output);
+            } else {
+                std::pair<std::vector<uint32_t>, uint32_t> tuneInfo;
+                std::string info = "convBufLowMemory_" + std::to_string(mResource->mInputChannel) + "_" + std::to_string(mResource->mOutputChannel);
+                if(batch > 16){
+                    if(getTunedInfo(info, {static_cast<unsigned int>(batch)}, tuneInfo, mOpenCLBackend->getOpenCLRuntime())){
+                        mUseFPWeight = tuneInfo.first[0];
                     } else{
-                        if(batch > 512){
+                        if((mOpenCLBackend->getCLTuneLevel() == Heavy || mOpenCLBackend->getCLTuneLevel() == Wide)){
+                            setRecordClose closeRecord(mOpenCLBackend);
+                            tuneGemmLowMemory(input, output);
+                            auto shortBatchTime = getExecuteTime();
                             mUseFPWeight = true;
+                            useFPWeightGemmLowMemory(input, output);
+                            auto longBatchTime = getExecuteTime();
+                            mUseFPWeight = false;
+                            if(longBatchTime < shortBatchTime){
+                                mUseFPWeight = true;
+                            }
+                            std::pair<std::vector<uint32_t>, uint32_t> tuneInfoTmp = std::make_pair<std::vector<uint32_t>, uint32_t>({mUseFPWeight}, 0);
+                            setTunedInfo(info, {static_cast<unsigned int>(batch)}, tuneInfoTmp, mOpenCLBackend->getOpenCLRuntime(), "gemm_conv1x1_buf");
+                        } else{
+                            if(batch > 512){
+                                mUseFPWeight = true;
+                            }
                         }
                     }
                 }
-            }
-            if(mUseFPWeight){
-                useFPWeightGemmLowMemory(input, output);
-            }else{
-                tuneGemmLowMemory(input, output);
+                if(mUseFPWeight){
+                    useFPWeightGemmLowMemory(input, output);
+                }else{
+                    tuneGemmLowMemory(input, output);
+                }
             }
         }
     } else {
