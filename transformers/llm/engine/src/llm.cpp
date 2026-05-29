@@ -57,6 +57,79 @@ static inline VARP _var(std::vector<T> vec, const std::vector<int> &dims) {
     return _Const(vec.data(), dims, NHWC, halide_type_of<T>());
 }
 
+static inline bool contains_audio_tag(const std::string& text) {
+    return text.find("<audio>") != std::string::npos &&
+           text.find("</audio>") != std::string::npos;
+}
+
+static inline bool is_qwen3_asr_formatted_prompt(const std::string& text) {
+    return text.find("<asr_text>") != std::string::npos ||
+           text.find("<|im_start|>") != std::string::npos;
+}
+
+static inline bool use_qwen3_asr_audio_template(const std::shared_ptr<LlmConfig>& config,
+                                                const std::string& text) {
+    if (!config || !config->is_audio()) {
+        return false;
+    }
+    if (config->audio_type() != "qwen3_asr") {
+        return false;
+    }
+    if (!config->asr_use_audio_template()) {
+        return false;
+    }
+    if (is_qwen3_asr_formatted_prompt(text)) {
+        return false;
+    }
+    return contains_audio_tag(text);
+}
+
+static inline std::string build_qwen3_asr_prompt(const std::string& audio_prompt,
+                                                 const std::string& language,
+                                                 bool add_generation_prompt,
+                                                 const std::string& assistant_text = "") {
+    std::string prompt = "<|im_start|>system<|im_end|>"
+                         "<|im_start|>user" + audio_prompt + "<|im_end|>";
+    if (!assistant_text.empty() || add_generation_prompt) {
+        prompt += "<|im_start|>assistantlanguage " + language + "<asr_text>";
+        prompt += assistant_text;
+    }
+    return prompt;
+}
+
+static inline bool try_build_qwen3_asr_chat_prompt(const std::shared_ptr<LlmConfig>& config,
+                                                   const ChatMessages& chat_prompts,
+                                                   bool add_generation_prompt,
+                                                   std::string* prompt) {
+    if (prompt == nullptr || chat_prompts.empty()) {
+        return false;
+    }
+    int audio_user_index = -1;
+    for (int i = static_cast<int>(chat_prompts.size()) - 1; i >= 0; --i) {
+        if (chat_prompts[i].first == "user" && use_qwen3_asr_audio_template(config, chat_prompts[i].second)) {
+            audio_user_index = i;
+            break;
+        }
+    }
+    if (audio_user_index < 0) {
+        return false;
+    }
+    std::string assistant_text;
+    for (size_t i = audio_user_index + 1; i < chat_prompts.size(); ++i) {
+        const auto& msg = chat_prompts[i];
+        if (msg.first == "assistant") {
+            assistant_text += msg.second;
+            continue;
+        }
+        return false;
+    }
+    *prompt = build_qwen3_asr_prompt(chat_prompts[audio_user_index].second,
+                                     config->asr_language(),
+                                     add_generation_prompt,
+                                     assistant_text);
+    return true;
+}
+
 Llm* Llm::createLLM(const std::string& config_path) {
     std::shared_ptr<LlmConfig> config(new LlmConfig(config_path));
     Llm* llm = nullptr;
@@ -1050,7 +1123,9 @@ void Llm::response(const std::string& user_content, std::ostream* os, const char
     CHECK_LLM_RUNNING(mContext);
     MNN::Express::ExecutorScope s(mExecutor);
     auto prompt = user_content;
-    if (mConfig->use_template()) {
+    if (use_qwen3_asr_audio_template(mConfig, user_content)) {
+        prompt = build_qwen3_asr_prompt(user_content, mConfig->asr_language(), true);
+    } else if (mConfig->use_template()) {
         prompt = apply_chat_template(user_content);
         if (prompt.empty()) {
             prompt = user_content;
@@ -1071,7 +1146,11 @@ void Llm::response(const ChatMessages& chat_prompts, std::ostream* os, const cha
     if (chat_prompts.empty()) {
         return;
     }
-    auto prompt = apply_chat_template(chat_prompts);
+    std::string prompt;
+    bool use_asr_prompt = try_build_qwen3_asr_chat_prompt(mConfig, chat_prompts, true, &prompt);
+    if (!use_asr_prompt) {
+        prompt = apply_chat_template(chat_prompts);
+    }
 
     // Prompt cache: compare current prompt text against the previous turn's to
     // find the common prefix, then only tokenize and prefill the new suffix.
@@ -1079,7 +1158,10 @@ void Llm::response(const ChatMessages& chat_prompts, std::ostream* os, const cha
         // Use add_generation_prompt=false for comparison to avoid enable_thinking
         // asymmetry: the template adds <think> to the LAST assistant message only
         // when true. Using false renders all messages consistently.
-        auto prompt_for_compare = mTokenizer->apply_chat_template(chat_prompts, false);
+        std::string prompt_for_compare;
+        if (!try_build_qwen3_asr_chat_prompt(mConfig, chat_prompts, false, &prompt_for_compare)) {
+            prompt_for_compare = mTokenizer->apply_chat_template(chat_prompts, false);
+        }
         size_t text_common = 0;
         size_t text_max = std::min(mCachedPromptText.size(), prompt_for_compare.size());
         while (text_common < text_max && mCachedPromptText[text_common] == prompt_for_compare[text_common])
@@ -1195,7 +1277,9 @@ void Llm::updateCachedPromptText(const ChatMessages& chat_prompts, size_t histor
     if (!response_text.empty()) {
         msgs_with_response.emplace_back("assistant", response_text);
     }
-    mCachedPromptText = mTokenizer->apply_chat_template(msgs_with_response, false);
+    if (!try_build_qwen3_asr_chat_prompt(mConfig, msgs_with_response, false, &mCachedPromptText)) {
+        mCachedPromptText = mTokenizer->apply_chat_template(msgs_with_response, false);
+    }
     MNN::Transformer::stripThinkBlocks(mCachedPromptText);
 }
 
@@ -1360,7 +1444,9 @@ void Llm::syncPromptCache(const ChatMessages& chat_prompts) {
     // Override cached text with caller-provided messages (e.g. after
     // deleteThinkPart processing in Android). Uses the same rendering
     // and <think> stripping as updateCachedPromptText.
-    mCachedPromptText = mTokenizer->apply_chat_template(chat_prompts, false);
+    if (!try_build_qwen3_asr_chat_prompt(mConfig, chat_prompts, false, &mCachedPromptText)) {
+        mCachedPromptText = mTokenizer->apply_chat_template(chat_prompts, false);
+    }
     MNN::Transformer::stripThinkBlocks(mCachedPromptText);
 }
 
