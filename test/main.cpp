@@ -93,6 +93,7 @@ int main(int argc, char* argv[]) {
     MNNTestSuite::get()->pStaus.precision = precision;
     MNNTestSuite::get()->pStaus.forwardType = type;
     MNNTestSuite::get()->pStaus.dynamicOption = dynamicOption;
+    MNNTestSuite::get()->pStaus.thread = argc > 4 ? thread : 0;
     if (argc > 1) {
         auto name = argv[1];
         if (strcmp(name, "all") == 0) {

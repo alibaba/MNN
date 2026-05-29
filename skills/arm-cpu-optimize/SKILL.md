@@ -1,327 +1,168 @@
 ---
 name: arm-cpu-optimize
-description: MNN ARM CPU 算子性能优化。涵盖计算拆解、函数复用、多线程、数据排布、ARM 汇编编写。采用"先正确，再加速"原则，基于性能基准测试驱动优化。
+description: MNN ARM CPU 算子和低 bit kernel 性能优化。重点覆盖正确性基线、C++ 标量 oracle、C++ SIMD 模拟、寄存器规划、ARM 汇编实现、dispatch/pack 集成、模型级回归和 roofline 性能分析。
 ---
 
-# MNN ARM CPU 性能优化 SKILL
+# MNN ARM CPU 性能优化 Skill
 
-> **触发条件**：当用户请求优化某个算子/内核在 ARM CPU 上的性能时触发。常见表述包括："优化xxx的ARM性能"、"加速xxx算子"、"写xxx的NEON实现"、"用SME2实现xxx"等。
+> **触发条件**：用户请求优化 ARM CPU 上的 MNN 算子、低 bit GEMM/GEMV kernel、NEON/SDOT/I8MM/SME2 实现，或要求 review ARM 汇编/dispatch/pack 性能问题。
 
-## 概述
+> **边界**：不要读取、修改或依赖 `schema/private/` 和 `source/internal/`。
 
-本 SKILL 指导 AI Agent 对 MNN 的 ARM CPU 后端进行性能优化。遵循 **"先正确，再加速"** 原则，每次优化都要保证结果不变。
+## 核心原则
 
-### 核心原则
+1. **先正确，再加速**：任何性能改动都必须有可复现的正确性门禁。LLM 低 bit kernel 还要做模型级 sanity check，不能只依赖 op 单测。
+2. **先写可读参考实现，再写汇编**：复杂 kernel 不要直接上汇编。先用 C++ 标量实现跑通，再用 C++ 模拟目标 SIMD/pack/寄存器行为，最后才分配寄存器并写 `.S`。
+3. **优先复用已有 CoreFunctions**：普通算子先拆解为 `MNNPackedMatMul`、`MNNComputeMatMulForE_1`、`MNNScaleAndAddBias`、`MNNSoftmax`、`MNNNorm`、pack/unpack 等已有高性能函数。只有现有函数无法覆盖热点时才新增 Vec4/intrinsic/asm。
+4. **替换前验证精确语义**：不能只看函数名。确认参数含义、layout、转置、归一化方式、in-place 安全性、尾部行为和量化后处理完全一致。
+5. **数据驱动优化**：每次改动前后记录正确性结果、耗时、有效带宽、GFLOPS/AI。低 bit kernel 要区分 DRAM bound、unpack/issue bound、postprocess bound。
+6. **每条 ISA 路径独立验证**：目标设备上的 I8MM、SDOT、FP16/FP32 后处理、SME2 dispatch 都可能走不同 pack 和 kernel，不能用一条路径代表全部。
+7. **pack mode 和 kernel 指针必须配套**：新增或调整低 bit ISA 支持时，packer、cell stride、`MNNGetGemmUnit`、kernel 注册、mixed/online reorder 选择必须同步更新。
+8. **寄存器生命周期先于 unroll**：加 unroll、hoist 常量、复用临时寄存器前，先写 live range 表。min/max、scale、bias、zero point、accumulator、unpack 常量不能被 postprocess 前的临时逻辑误覆盖。
 
-1. **正确性第一**：任何优化都必须通过正确性验证
-2. **有数据支撑**：每次优化前后都要有**实测**性能数据对比
-3. **优先复用已有函数（最重要）**：见下方详细说明
-4. **替换前验证语义**：用 MNN 函数替换循环之前，必须确认函数的**精确数学语义**与原始代码一致（参数含义、归一化方式、边界行为等）。不要只看函数名就假设可以替换
-5. **考虑数据规模**：函数调用和 Pack/Unpack 有固定开销。对小规模数据，朴素循环（编译器自动向量化）可能比调用 MNN 函数更快
-6. **渐进式优化**：复用已有函数 → 多线程 → 数据排布 → 汇编（仅在必要时）
+## 推荐执行流程
 
-### ⚠️ 最重要的原则：优先复用已有函数
+### 0. 明确目标路径
 
-MNN 的 CoreFunctions 中已经包含了**经过汇编深度优化的高性能基础函数**。这些函数已经针对不同指令集（NEON/FP16/SDOT/I8MM/SME2）编写了专门的汇编内核，性能远超任何 C++ 循环或 Vec4 包装。
+开始前先写清楚这次优化覆盖哪些组合：
 
-**优化的核心思路是：将算子的计算逻辑拆解为这些已有函数的组合调用，而不是自己写循环。**
+| 维度 | 需要确认 |
+|------|----------|
+| 算子/入口 | 哪个 executor、CoreFunctions 指针、asm symbol |
+| 数据类型 | FP32、FP16、INT8、w2/w3/w4、per-channel/per-block |
+| shape 热点 | E=1 decode、E>1 prefill、block size 32/64、OC split、tail |
+| ISA | NEON、SDOT、I8MM、SME2，以及 runtime disable flag |
+| 后处理 | bias、scale、zero point、fp32 min/max、add-dst、ReLU/ReLU6 |
+| 验收 | op test、模型 prompt、roofline 或 speed test |
 
-#### 已有高性能函数清单
+### 1. 建立 correctness oracle
 
-| 函数 | 作用 | 替代了什么 |
-|------|------|----------|
-| `gcore->MNNPackedMatMul` | 矩阵乘 C = A × B（已有 NEON/FP16/SME2 汇编） | 任何双重循环的矩阵乘 |
-| `gcore->MNNPackedMatMulRemain` | 矩阵乘余数处理 | MatMul 的尾部处理 |
-| `gcore->MNNComputeMatMulForE_1` | 矩阵向量乘 y = A × x（E=1 时专用） | 循环实现的 MatVec |
-| `gcore->MNNComputeMatMulForH_1` | 向量矩阵乘 y = x × B（H=1 时专用） | 循环实现的 VecMat |
-| `MNNScaleAndAddBiasScalar` | y = x * scale + bias | 循环乘标量/加标量 |
-| `gcore->MNNScaleAndAddBias` | 按通道 scale + bias | 循环乘/加 |
-| `MNNExp` | 批量 exp(x) | 循环调用 expf() |
-| `MNNSiLu` / `MNNSiLuLowp` | 批量 SiLU 激活 | 循环 x*sigmoid(x) |
-| `MNNSoftmax` | Softmax（含 Flash Attention 支持） | 循环 exp + sum + div |
-| `MNNNorm` | LayerNorm / RMSNorm | 循环求范数 |
-| `gcore->MNNPackCUnit` / `MNNUnpackCUnit` | NC4HW4 Pack/Unpack | 循环数据重排 |
-| `gcore->MNNPackC4ForMatMul_A` | MatMul 的 A 矩阵 Pack | 循环重排 A |
-| `gcore->MNNPackForMatMul_B` | MatMul 的 B 矩阵 Pack | 循环重排 B |
-| `gcore->MNNConvRunForLineDepthwise` | Depthwise 卷积 | 循环卷积 |
-| `MNNMatrixAdd` / `MNNMatrixSub` | 矩阵加减 | 循环加减 |
-| `MNN_CONCURRENCY_BEGIN/END` | 多线程并行 | 单线程循环 |
+- 先保留或补一个最直接的 C++ 标量路径，作为 bit-exact 或误差可解释的参考实现。
+- 对低 bit 权重，标量 oracle 必须按真实 pack layout、cell stride、block metadata 读取，覆盖 `tId>0` 的 OC chunk。
+- 比较点尽量靠近 kernel 输出：accumulator、dequant 后 FP32、postprocess 后 dst 分开看，避免把 pack、kernel、采样混在一起。
+- 临时 debug oracle 可以不作为最终提交的一部分，但在写 asm 前必须先跑通。
 
-#### ⚠️ 替换前必须验证的两件事
+### 2. 用 C++ 模拟 SIMD/pack 行为
 
-**1. 函数语义完全匹配**
+在正式写汇编前，用 C++ 写一个“寄存器级”的模拟实现：
 
-在用 MNN 函数替换循环前，必须阅读函数签名和实现，确认数学语义完全一致。常见陷阱：
-- 函数的归一化方式（sum vs mean）与你的需求不同
-- 函数的参数含义（转置？通道顺序？）与你的数据布局不同
-- 函数的输出格式与下游代码不兼容
+- 用小的 `std::array`/局部数组模拟 `v0..v31` 的 lane，而不是依赖编译器自动向量化。
+- 显式模拟 `sdot`/`smmla` 的输入排列、每 4 byte dot 的分组、w2/w3 bit-plane unpack、sign/zero point 处理。
+- 每次改变 pack layout 或 unroll 前，先让模拟版和标量 oracle 对齐，再迁移到 asm。
+- 调试 w2/w3 时优先比较单个 block64、单个 output channel group、单个 K tile，避免模型输出才暴露问题。
 
-**不要只看函数名就假设可以替换。** 如果语义不匹配，应寻找其他函数、调整数据，实在不行才退回手动实现并注释说明。
+### 3. 做寄存器和 ABI 计划
 
-**2. in-place 安全性**
+写 asm 前先列一张寄存器表：
 
-部分 MNN 函数不支持 `dst == src`（in-place 调用），因为内部实现会先写 dst 再读 src：
+| 寄存器 | 用途 | live 范围 | 可否复用 | 风险 |
+|--------|------|-----------|----------|------|
+| `x*` | 指针、loop counter、stride、metadata | 哪个 loop/分支 | 是否跨 call/branch | 指针恢复、tail |
+| `v*` | accumulator、input、unpack tmp、scale、min/max | unpack、compute、postprocess | 是否可被 clobber | ReLU/minmax、add-dst |
 
-| 函数 | in-place (dst==src) | 说明 |
-|------|:---:|------|
-| `MNNScaleAndAddBiasScalar` | ✅ 安全 | 逐元素操作 |
-| `MNNSiLu` / `MNNSiLuLowp` | ❌ 不安全 | 内部先写 dst 再读 src |
-| `MNNExp` | ❌ 不安全 | 同上 |
-| `MNNNorm` | ✅ 安全 | 只读 src，只写 dst |
-| `gcore->MNNComputeMatMulForE_1` | ✅ 安全 | 输出独立于输入 |
+特别注意：
 
-> 当函数不支持 in-place 时，需要 scratch buffer（可复用 onResize 预分配的 buffer）。
-> 判断方法：阅读函数实现或写小测试验证 `dst==src` 时结果是否正确。
+- AArch64 `x19-x28`、`d8-d15` 的 callee-saved 规则。
+- 不要把 fp32 min/max、scale、bias 等跨 postprocess 的值当作 unpack scratch。
+- hoist 常量前，确认所有 tile 分支、tail 分支、`fp32minmax != nullptr` 分支都不会覆盖它。
 
-#### ❌ 反面案例：避免以下做法
+### 4. 实现最小 asm kernel
 
-```cpp
-// ❌ 错误1：已有 MNN 函数时用 Vec4 替代（MNN 函数有汇编优化，Vec4 只是 intrinsic 包装）
-using Vec4 = Math::Vec<float, 4>;
-for (int i = 0; i + 3 < size; i += 4) {
-    Vec4 v = Vec4::load(data + i);
-    v = v * Vec4(scale);
-    Vec4::save(data + i, v);
-}
-// ✅ 正确：直接调用已有函数
-MNNScaleAndAddBiasScalar(data, data, 0.0f, scale, size);
+- 一次只引入一个 tile/ISA 的 asm 改动，先让最小路径正确，再扩大 unroll 或加 block64 分支。
+- 对 w2/w3，先保持 packed bytes 不变，再优化 unpack 指令数；扩大字节只有在用户明确接受时才考虑。
+- block64 如果是默认量化 case，可以写专门分支，但必须保留 block32/per-channel 的安全路径。
+- 常见低风险优化：常量 hoist、减少重复 unpack、`ld1r {.2d}` 替代 `ld1 {.8b}` + `mov d[1]`、消除不必要的 pointer restore。
 
-// ❌ 错误2：不考虑数据规模，总是用重量级函数
-// MNNPackedMatMul 需要 Pack/Unpack，对小矩阵开销可能大于计算
-// ✅ 正确：根据数据规模选择策略
-//   大规模 → 用 MNN 函数（Pack 开销可摊薄）
-//   小规模 → 保持朴素循环（编译器自动向量化，零额外开销）
-//   MatVec（一个维度为1） → 用 MNNComputeMatMulForE_1（无需 Pack）
+### 5. 集成 dispatch/pack
 
-// ❌ 错误3：用循环实现 MatVec（S^T @ q）
-for (int j = 0; j < dv; ++j) {
-    float sum = 0;
-    for (int i = 0; i < dk; ++i)
-        sum += S[i*dv+j] * q[i];
-    out[j] = sum;
-}
-// ✅ 正确：直接调用
-gcore->MNNComputeMatMulForE_1(q, S, out, nullptr, &matParam, 0);
+新增或替换 kernel 时同时检查：
 
-// ❌ 错误4：用循环实现 exp
-for (int i = 0; i < size; ++i) dst[i] = expf(src[i]);
-// ✅ 正确：
-MNNExp(dst, src, offset, size);
+- `CoreFunctions`/arm init 中的函数指针注册。
+- `MNNGetGemmUnit`、`UNIT/SRC_UNIT/DST_XUNIT`、weight reorder、online reorder 是否和 kernel 期望一致。
+- 低 bit cell stride 是否使用真实 packed cell 字节数，而不是 useful payload 比例。
+- i8mm、sdot、sme2、fallback 是否各自有匹配 packer；不要让 SME2 packer 喂给 i8mm/sdot kernel。
 
-// ❌ 错误5：用 std::vector 分配临时缓存
-std::vector<float> temp(size);  // 每次调用都 malloc/free
-// ✅ 正确：在 onResize 中用 Backend 的内存池
-mTemp.reset(Tensor::createDevice<float>({size}));
-backend()->onAcquireBuffer(mTemp.get(), Backend::DYNAMIC);
-backend()->onReleaseBuffer(mTemp.get(), Backend::DYNAMIC);
+### 6. 验证矩阵
 
-// ❌ 错误6：用裸 NEON intrinsic 写循环（仅在没有 MNN 函数且性能敏感时才考虑，且更推荐写 .S 汇编）
-#include "core/SimdHeader.h"
-float32x4_t vsum = vdupq_n_f32(0.0f);
+最少验证：
 
-// ❌ 错误7：不验证 in-place 安全性就用 dst==src 调用
-// 部分 MNN 函数不支持 in-place，会静默产生错误结果
-// ✅ 正确：查阅上方 in-place 安全性表，不确定时使用 scratch buffer
-
-// ❌ 错误8：不验证函数语义就替换（函数名匹配 ≠ 数学语义匹配）
-// ✅ 正确：替换前阅读函数签名/实现，确认参数含义和计算逻辑完全一致
+```bash
+cmake --build build -j 8
+cd build
+./run_test.out op/lowMemory/blockConv 0 1 4
+./run_test.out op/lowMemory/HybridConv 0 1 4
+./run_test.out op/lowMemory/blockConv 0 1 4  # 在 SDOT 目标设备/构建配置上复跑
+./run_test.out op/lowMemory/HybridConv 0 1 4  # 在 SDOT 目标设备/构建配置上复跑
 ```
 
-#### 🚫 分层实施策略
+LLM 低 bit kernel 额外验证：
 
-**强烈不建议的做法：**
-
-| 避免使用 | 原因 | 应该用什么 |
-|---------|------|----------|
-| `#include "core/SimdHeader.h"` | 裸 NEON intrinsic 性能不一定最优且绑定平台 | 优先用 MNN 已有函数 或 编写 .S 汇编文件 |
-| `std::vector<float>` 在 onExecute 中 | 每次运行都 malloc/free 开销巨大 | `Tensor + Backend 内存池` 用在 onResize |
-| `#ifdef MNN_USE_NEON ... #else ... #endif` | 增加代码分支，维护困难 | 封装到底层函数，上层统一调用 |
-
-**有条件允许 —— `Vec4` 循环：**
-
-| 场景 | 是否允许 | 说明 |
-|------|:------:|------|
-| 已有 MNN 函数能覆盖 | ❌ | 必须用 MNN 函数，禁止用 Vec4 替代 |
-| 没有对应 MNN 函数，且是性能热点 | ✅ | Vec4 作为中间方案，优于朴素循环 |
-| 没有对应 MNN 函数，且计算量极小 | ❌ | 保持朴素循环，编译器自动向量化即可 |
-
-> Vec4（`#include "math/Vec.hpp"`）本质是 intrinsic 的跨平台包装，性能不如专门调优的汇编函数，但**远优于朴素标量循环**。当 MNN 没有对应的已有函数且评估手写汇编成本过高时，Vec4 是合理的优化手段。
-
-#### 优化决策树
-
-```
-看到一段循环代码 →
-  ├─ 是双重循环的乘加？
-  │   ├─ 有一个维度为 1（MatVec）？ → 用 MNNComputeMatMulForE_1（无需 Pack）
-  │   ├─ 数据规模大（值得 Pack 开销）？ → 用 MNNPackedMatMul
-  │   └─ 数据规模小（Pack 开销 > 计算）？ → 保持朴素循环
-  ├─ 是单循环乘标量/加标量？ → 用 MNNScaleAndAddBiasScalar
-  ├─ 是循环调用 expf/silu/sigmoid？ → 用 MNNExp/MNNSiLu
-  ├─ 是循环做卷积？ → 用 MNNConvRunForLineDepthwise
-  ├─ 是循环做数据重排？ → 用 MNNPackCUnit/MNNUnpackCUnit
-  ├─ 是循环做 softmax？ → 用 MNNSoftmax
-  ├─ 是循环做范数/归一化？ → 用 MNNNorm（先验证语义匹配！）
-  ├─ 以上都不匹配？
-  │   ├─ 能拆解为已有函数的组合？ → 组合调用（如外积 = MatMul 的特例）
-  │   ├─ 计算量极小？ → 保持朴素循环（编译器自动向量化）
-  │   ├─ 是性能热点且可向量化？ → 用 Vec4 循环作为中间方案
-  │   └─ Vec4 也不够且是核心热点？ → 写新的 .S 汇编 kernel
-  │
-  ⚠️ 替换前：1) 验证函数语义匹配  2) 确认 in-place 安全性
+```bash
+./llm_demo /path/to/w3/config.json prompt.txt 64 1
+./llm_demo /path/to/w3/config.json prompt.txt 64 1  # 在 SDOT 目标设备/构建配置上复跑
+./llm_demo /path/to/w2/config.json prompt.txt 64 1
+./llm_demo /path/to/w2/config.json prompt.txt 64 1  # 在 SDOT 目标设备/构建配置上复跑
 ```
 
-### 注意事项
+说明：
 
-> **核心限制**：`schema/private/` 和 `source/internal/` 目录不应对 AI 公开或被随意修改。
+- `64 1` 代表短 decode 且关闭 thinking 的 sanity 方式，具体参数以当前 `llm_demo` 为准。
+- 判断 kernel 错误前先固定采样变量：greedy 或 no-thinking 对照。w2/w3 低 bit logits 在 mixed sampling 下的复读，不一定是 kernel 算错。
+- 如果模型输出乱码、重复、质量变差，要同时比较 FP16/FP32，并分别在 I8MM、SDOT、SME2 等目标路径定位，先判断是实现问题还是量化/采样问题。
 
-> MNN 使用 **NC4HW4** 数据格式作为默认 CPU 布局，pack 大小由 `CoreFunctions::pack` 决定（FP32=4, FP16=8）
+性能验证：
 
-> **参考学习**：在开始优化前，强烈建议阅读 `source/backend/cpu/CPUAttention.cpp`，学习它如何调用 `gcore->MNNComputeMatMulForE_1`、`MNNScaleAndAddBiasScalar`、`MNNSoftmax` 等函数。你的优化代码应该通过调用 CoreFunctions 来实现高性能。
-
-> **报告文件**：优化完成后请将性能报告写入 `<算子名>_optimization.md`，而不是仅在终端打印。
-
----
-
-## ARM 指令集层级
-
-从低到高，每级都向下兼容：
-
-| 指令集 | 编译宏/检测 | Pack 大小 | 典型场景 | 代表芯片 |
-|--------|-----------|----------|------------|---------|
-| **ARMv7 NEON** | `__arm__` | 4 (FP32) | 基础 SIMD | Cortex-A7/A15 |
-| **ARMv8 NEON** | `__aarch64__` | 4 (FP32) | 标准 64 位 | Cortex-A53/A72 |
-| **ARMv8.2 FP16** | `MNN_ARM82` / `supportFp16arith` | 8 (FP16) | 半精度加速 | A55/A76/A78 |
-| **ARMv8.2 SDOT** | `supportSDot` | - | INT8 点积加速 | A75+, A55r1+ |
-| **ARMv8.6 I8MM** | `MNN_ARM86` / `supportI8mm` | - | INT8 矩阵乘加速 | A78C/X2/X3 |
-| **ARMv9 SME2** | `MNN_SME2` / `supportSME2` | 可变 | 矩阵扩展引擎 | X4/X925 |
-
----
-
-## 核心架构元素
-
-### CoreFunctions 结构
-
-所有 CPU 函数指针都注册在 `CoreFunctions` 中（`source/backend/cpu/compute/CommonOptFunction.h`）。运行时根据 CPU 能力选择最优实现：
-
-```cpp
-struct CoreFunctions {
-    // CPU 特性检测
-    bool supportFp16arith;
-    bool supportSDot;
-    bool supportI8mm;
-    bool supportSME2;
-
-    // Pack 参数
-    int pack;     // FP32=4, FP16=8
-    int bytes;    // FP32=4, FP16=2
-
-    // 关键函数指针
-    void(*MNNPackedMatMul)(...);         // 矩阵乘主核心
-    void(*MNNPackedMatMulRemain)(...);   // 矩阵乘余数处理
-    void(*MNNPackC4ForMatMul_A)(...);    // 输入数据 Pack
-    void(*MNNPackForMatMul_B)(...);      // 权重数据 Pack
-    void(*MNNGetMatMulPackMode)(&eP, &lP, &hP); // 获取 Pack 参数
-    // ...
-};
+```bash
+./run_test.out speed/GemvBW 0 2
 ```
 
-### 数据排布
+记录 `us/iter`、`W MiB`、`bytes/elem`、`eff GB/s`、`%peak`、`GFLOPS`。w2/w3 的 eff BW 低时，优先检查 unpack 指令/字节比和 issue 压力，而不是直接假设 memory bandwidth 不足。
 
-| 排布 | 说明 | 使用场景 |
-|------|------|---------  |
-| **NC4HW4** / **NC8HW8** | 通道方向 Pack4/8，SIMD 友好 | 卷积、Pooling 等 |
-| **[e/eP, l/lP, eP, lP]** | MatMul 的 A 矩阵 Pack | GEMM 优化 |
-| **[h/hP, l/lP, lP, hP]** | MatMul 的 B 矩阵 Pack | 权重重排 |
-| **NCHW** | 标准线性布局 | 形状计算、非 Pack 算子 |
+## CoreFunctions 复用清单
 
-### 文件组织
+| 函数 | 优先用途 | 注意点 |
+|------|----------|--------|
+| `gcore->MNNPackedMatMul` | 大规模 GEMM | Pack 开销要能摊薄 |
+| `gcore->MNNPackedMatMulRemain` | GEMM tail | 和主 kernel layout 一致 |
+| `gcore->MNNComputeMatMulForE_1` | E=1 GEMV/decode | LLM decode 优先看这里 |
+| `gcore->MNNComputeMatMulForH_1` | H=1 VecMat | 确认矩阵方向 |
+| `gcore->MNNScaleAndAddBias` / `MNNScaleAndAddBiasScalar` | scale+bias | 检查 in-place |
+| `MNNSoftmax` | softmax | 确认 axis/layout |
+| `MNNNorm` | LayerNorm/RMSNorm | 确认 mean/rms 语义 |
+| `MNNExp` / `MNNSiLu` | 激活 | 部分函数不支持 in-place |
+| `gcore->MNNPackCUnit` / `MNNUnpackCUnit` | NC4/NC8 重排 | pack size 由 runtime 决定 |
+| `gcore->MNNPackC4ForMatMul_A` / `MNNPackForMatMul_B` | MatMul pack | 和 kernel pack mode 配套 |
+| `MNN_CONCURRENCY_BEGIN/END` | 多线程 | 注意 per-thread pointer 偏移 |
 
-```
-source/backend/cpu/
-├── CPUXxx.cpp/.hpp              ← 算子主逻辑（调度、多线程）
-├── compute/
-│   ├── CommonOptFunction.h      ← CoreFunctions 定义
-│   ├── CommonOptFunction.cpp    ← 默认 C++ 实现
-│   ├── ConvOpt.h                ← 卷积相关函数声明
-│   └── ...
-├── arm/
-│   ├── arm64/
-│   │   ├── MNNPackedMatMul.S            ← FP32 NEON 矩阵乘
-│   │   ├── MNNPackedMatMulFP16.S        ← FP16 矩阵乘
-│   │   ├── MNNGemmInt8AddBiasScale_*.S  ← INT8 GEMM
-│   │   ├── MNNPackedMatMul_int8.S       ← SDOT 矩阵乘
-│   │   ├── MNNPackedMatMulRemain_int8.S ← SDOT 余数
-│   │   └── ...
-│   └── arm32/
-│       ├── MNNGemmInt8*.S               ← 32 位 INT8 GEMM
-│       └── ...
-└── x86_64/
-    └── ...                              ← x86 SSE/AVX 实现
-```
+## 常见陷阱
 
----
-
-## 分步流程总览
-
-```
-┌──────────────────────────────────────────────────────────┐
-│  步骤 0: 计算拆解 (step0-decompose.md) ★ 最关键的步骤     │
-│  输入: 算子源码                                           │
-│  输出: 每个计算逻辑对应的 MNN 已有函数映射表               │
-│  测试: 所有可复用的函数已识别，不存在遗漏                   │
-├──────────────────────────────────────────────────────────┤
-│  步骤 1: 建立性能基准 (step1-benchmark.md)               │
-│  输入: 待优化的算子名和参数                                │
-│  输出: test/speed/ 下的基准测试 + 基线数据                 │
-│  测试: 基准测试能稳定运行，数据可复现                       │
-├──────────────────────────────────────────────────────────┤
-│  步骤 2: 分析瓶颈与制定方案 (step2-analyze.md)            │
-│  输入: 步骤 0 的映射表 + 步骤 1 的基线数据                 │
-│  输出: 优化方案（哪些换函数、哪些改排布、哪些需要新汇编）    │
-│  测试: 方案可行性论证                                     │
-├──────────────────────────────────────────────────────────┤
-│  步骤 3: C++ 优化（函数替换 + 多线程 + 排布）              │
-│  输入: 步骤 2 的优化方案                                  │
-│  输出: 用 MNN 函数替换循环 + 多线程 + 内存池               │
-│  测试: 正确性验证 + 性能对比                               │
-├──────────────────────────────────────────────────────────┤
-│  步骤 4: ARM 汇编优化 (step4-asm.md)（仅在必要时）        │
-│  输入: 步骤 3 中无法用已有函数覆盖的热点                    │
-│  输出: ARM NEON/FP16/SDOT/I8MM/SME2 汇编实现             │
-│  测试: 正确性验证 + 性能对比 + 多指令集覆盖               │
-├──────────────────────────────────────────────────────────┤
-│  步骤 5: 集成与回归测试 (step5-integrate.md)              │
-│  输入: 步骤 3 或 4 通过                                   │
-│  输出: 全量回归测试                                       │
-│  测试: 所有相关算子测试通过 + 性能报告                     │
-└──────────────────────────────────────────────────────────┘
-```
-
-**说明**：步骤 4（汇编）往往不是必须的。如果通过步骤 3（利用现有 MNN 工具、重排版数据并应用多线程）已经达到了优异的性能提升，便可以直接进入集成测试阶段（步骤 5）。
-
-### 失败回退
-
-| 情况 | 处理方式 |
-|------|---------|
-| step3 某个替换导致性能下降 | 回退该替换，保持原实现，重新评估原因（如小数据规模开销大） |
-| step3 实施时发现 step0 映射有误 | 修正映射表，选择更适合的函数或退回到手动循环 |
-| 无法在 ARM 设备上实测性能 | 明确标记"待实测"，给出测试指令，并在力所能及的平台上做验证 |
-| step4 汇编写出来但正确性不过 | 回退到安全 C++/Vec4 实现，确保可用性为先 |
-
----
+| 陷阱 | 规避方式 |
+|------|----------|
+| op 单测通过但 LLM 输出乱码 | 增加 E=1、block64、fp32 min/max、multi-block、模型 prompt 验证 |
+| w3 i8mm 错但 sdot 对 | 分开在 I8MM 和 SDOT 路径定位，不要混合定位 |
+| min/max 被 unpack scratch 覆盖 | postprocess 前重新检查 live range，必要时延迟加载 min/max |
+| 低 bit OC 分线程错位 | pointer 偏移用真实 packed cell stride，测试 `mSplitByOc=true` 和 `tId>0` |
+| SME2 pack/kernel 不匹配 | packer、kernel 注册、unit 参数同时改，同时测 fallback |
+| w2 偶发复读误判为 kernel bug | 用 greedy/no-thinking、FP16 对照、短 prompt 做区分 |
+| 只堆 unroll 性能反降 | 先看寄存器压力、unpack issue、load/store、branch 和 postprocess |
+| 小 shape 调用重型函数变慢 | 小规模保留朴素/Vec4 路径，大规模才用 pack+matmul |
 
 ## 参考文件
 
-| 文件 | 参考价值 | 优先级 |
-|------|---------|-------|
-| `source/backend/cpu/CPUAttention.cpp` | **推荐阅读**：多线程 + CoreFunctions 调用的标杆实现 | ★★★ |
-| `source/backend/cpu/compute/CommonOptFunction.h` | **必备**：CoreFunctions 定义及可用函数签名 | ★★★ |
-| `source/backend/cpu/compute/DenseConvolutionTiledExecutor.cpp` | MatMul Tiling + Pack + 多线程参考 | ★★ |
-| `test/speed/MatMulSpeed.cpp` | 性能基准测试参考模板 | ★★ |
-| `source/backend/cpu/arm/arm64/MNNPackedMatMul.S` | 汇编编写参考案例 | ★ |
+| 文件 | 用途 |
+|------|------|
+| `source/backend/cpu/compute/CommonOptFunction.h` | CoreFunctions 定义和函数签名 |
+| `source/backend/cpu/CPUAttention.cpp` | MatMul/Softmax/Norm/多线程复用参考 |
+| `source/backend/cpu/compute/DenseConvolutionTiledExecutor.cpp` | pack、tiling、线程拆分参考 |
+| `source/backend/cpu/arm/arm64/MNNPackedMatMul.S` | AArch64 asm 风格参考 |
+| `source/backend/cpu/arm/arm64/MNNPackedMatMul_int8.S` | SDOT/int8 matmul 参考 |
+| `test/speed/MatMulSpeed.cpp` | speed test 组织方式参考 |
 
----
+## 子步骤文档
 
-## 开始执行
-
-**现在请打开 `skills/arm-cpu-optimize/step0-decompose.md`，开始步骤 0。**
+- `skills/arm-cpu-optimize/step0-decompose.md`：计算拆解和 CoreFunctions 映射。
+- `skills/arm-cpu-optimize/step1-benchmark.md`：建立 baseline 和 speed test。
+- `skills/arm-cpu-optimize/step2-analyze.md`：瓶颈分析和方案选择。
+- `skills/arm-cpu-optimize/step3-cpp-opt.md`：C++ 层函数复用、多线程、内存池。
+- `skills/arm-cpu-optimize/step4-asm.md`：C++ oracle/SIMD 模拟/寄存器规划/asm 实现。
+- `skills/arm-cpu-optimize/step5-integrate.md`：集成、回归和性能报告。

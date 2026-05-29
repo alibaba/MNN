@@ -354,7 +354,7 @@ static int8_t *ReadQuanData_c(BaseLoader* s, size_t* len, ConvolutionCommon::Int
             if (len) {
                 *len = blob ? dataCnt : 0;
             }
-            if (result->originBits <= 4 && forceQuant) {
+            if (result->originBits == 4 && forceQuant) {
                 // Reduce blob to 4 bit
                 result->canUseInt4 = true;
                 auto sizeDiv2 = UP_DIV(dataCnt, 2);
@@ -371,6 +371,13 @@ static int8_t *ReadQuanData_c(BaseLoader* s, size_t* len, ConvolutionCommon::Int
                 }
                 MNNMemoryFreeAlign(blob);
                 blob = newBlob;
+            } else if ((result->originBits == 2 || result->originBits == 3) && forceQuant) {
+                // Keep blob as one byte per weight; conv executor will pack to w2/w3 layout.
+                if (result->originBits == 2) {
+                    result->canUseInt2 = true;
+                } else {
+                    result->canUseInt3 = true;
+                }
             }
         }
     } while (0);

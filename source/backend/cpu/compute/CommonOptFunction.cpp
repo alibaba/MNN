@@ -2883,6 +2883,7 @@ void MNNUnpackC4(float* dst, const float* src, size_t area, size_t depth, int* a
     MNNUnpackC4Common<float>(dst, src, area, depth, areaOffset);
 }
 
+#ifndef MNN_USE_RVV
 void MNNExpC8(float* dest, const float* source, float* offset, const float* parameters, size_t countC8) {
     auto count = countC8 * 8;
     auto param = parameters[0];
@@ -2907,6 +2908,7 @@ void MNNExpC8(float* dest, const float* source, float* offset, const float* para
     }
     offset[3] = summer;
 }
+#endif
 
 void MNNSoftmax(float* softmaxDst, const float* softmaxSrc, float* runningMax, float* runningSum, float* updateScale, int outside, int reduceSize, int kvSeqOffset, int validOffset, int pack, bool mask) {
 
@@ -4590,6 +4592,7 @@ void MNNSigmoid(float* dst, const float* src, size_t dataSize) {
     }
 }
 
+#ifndef MNN_USE_RVV
 void MNNSiLu(float* dst, const float* src, size_t dataSize) {
     float offset[4] = {
        -1.0f,
@@ -4602,6 +4605,7 @@ void MNNSiLu(float* dst, const float* src, size_t dataSize) {
         dst[i] = src[i] / (1.0f + dst[i]);
     }
 }
+#endif
 
 /**
  Modified from https://github.com/alibaba/MNN/pull/1359
@@ -4648,6 +4652,7 @@ void MNNSigmoidLowp(float* dst, const float* src, size_t dataSize) {
 #endif
 }
 
+#ifndef MNN_USE_RVV
 void MNNSiLuLowp(float* dst, const float* src, size_t dataSize) {
     float offset[4] = {
        -1.0f,
@@ -4695,6 +4700,7 @@ void MNNSiLuLowp(float* dst, const float* src, size_t dataSize) {
     }
 #endif
 }
+#endif
 
 static void _MNNAdjustOptimalSparseKernel(int& sparseBlockOC, MNN::CoreFunctions::MNNPackedSparseMatMul& packedSparseMatMul) {
     if(sparseBlockOC == 4) {

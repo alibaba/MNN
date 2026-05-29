@@ -27,6 +27,8 @@ public:
         bool alphaIsFp16 = false;
         std::vector<int8_t> weightMap;
         bool canUseInt4 = false;
+        bool canUseInt3 = false;
+        bool canUseInt2 = false;
         Backend* backend = nullptr;
         int originBits = 8;
         int alphaSize;

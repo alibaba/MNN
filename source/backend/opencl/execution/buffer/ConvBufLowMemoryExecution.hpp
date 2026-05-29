@@ -45,6 +45,8 @@ private:
     std::shared_ptr<KernelWrap> mBufferToConv1x1Kernel = nullptr;
     uint32_t batchConvMode = 0; // batch > 1 convolution input arrage mode. 0 is need tune; 1 arrage to n/4chw4; 2 arrage to c/4hwn4
     std::shared_ptr<StrassenMatrixComputor> mStrassenComputor;
+    cl_mem mInputImage1d = nullptr;
+    cl_mem mGemmInputImage1d = nullptr;
 };
 
 } // namespace OpenCL

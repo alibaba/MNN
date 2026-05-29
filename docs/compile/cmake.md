@@ -55,6 +55,7 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_CUDA_QUANT       | 是否打开CUDA 量化文件编译，默认为`OFF` |
 | MNN_CUDA_BF16        | 是否打开CUDA Bf16文件编译，默认为`OFF` |
 | MNN_CUDA_TUNE_PARAM  | 是否打开CUDA TUNE相关文件编译，目前仅支持安培及以上架构，默认为`OFF` |
+| MNN_CUDA_NATIVE_ARCH | 是否仅编译本机检测到的CUDA架构(单显卡环境下加快构建)，默认为`OFF` |
 | MNN_TENSORRT         | 是否构建`TensorRT`后端，默认为`OFF` |
 | MNN_COREML           | 是否构建`CoreML`后端，默认为`OFF` |
 | MNN_NNAPI            | 是否构建`NNAPI`后端，默认为`OFF`  |

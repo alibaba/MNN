@@ -346,7 +346,7 @@ class MNNConverter:
             alpha_len, q_min, shape_int32, header_len = 0, 0, False, 0
         else:
             q_min = 1
-            assert(quant_bit in (1, 2, 4, 8))
+            assert(quant_bit in (1, 2, 3, 4, 8))
             q_weight, alpha = self.quant(linear.weight.data, quant_bit, quant_block, symmetric)
             header_len, shape_int32 = self.write_header(ic, oc, quant_bit)
             scale_fp16 = (self.args.scale_bit == 16)

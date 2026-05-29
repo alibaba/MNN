@@ -1,9 +1,21 @@
 //
-//  MNNGemmInt8AddBiasScale_ARMV86_w4_Unit_FP16.S
+//  MNNGemmInt8AddBiasScale_ARMV86_w2_Unit_FP16.S
 //  MNN
 //
-//  Created by MNN on 2022/09/26.
+//  Created by MNN on 2026/05/18.
 //  Copyright © 2018, Alibaba Group Holding Limited
+//
+//  2-bit weight variant of MNNGemmInt8AddBiasScale_ARMV86_w4_Unit_FP16.S.
+//  Layout per inner-loop tile: 16 bytes pack 64 weights (4 weights/byte).
+//  Per byte b in [0, 16):
+//    bits[6:7] -> OC group {0,1} weight at IC=b%8
+//    bits[4:5] -> OC group {2,3}
+//    bits[2:3] -> OC group {4,5}
+//    bits[0:1] -> OC group {6,7}
+//    (bytes 0..7 hold OCs 0,2,4,6 across 8 ICs;
+//     bytes 8..15 hold OCs 1,3,5,7 across 8 ICs)
+//  Unpacking each 16-byte source reg yields 4 NEON regs of 16 int8 each (2 OC × 8 IC),
+//  matching the smmla operand layout used by the w4 kernel.
 //
 
 #if defined(__aarch64__)
@@ -100,7 +112,62 @@ sub \rg0, \rg0, \rg1
 mul \rg1, \rg2, \rg3 // blocknum * ocUp8 * sizeof(float)
 sub \rg0, \rg0, \rg1, LSL #5 // revert weight kernel sum
 .endm
-asm_function MNNGemmInt8AddBiasScale_ARMV86_w4_Unit_FP16
+
+.macro W2_TILE1_LU4_STEP
+    prfm pldl1keep, [x12, #512]
+    ld1 {v5.16b, v6.16b, v7.16b, v8.16b}, [x12], #64     // 4 cells of w2 weight
+    ld1 {v0.8b}, [x11], x22                              // src tile 0
+    ld1 {v1.8b}, [x11], x22                              // src tile 1
+    ld1 {v2.8b}, [x11], x22                              // src tile 2
+    ld1 {v3.8b}, [x11], x22                              // src tile 3
+
+    // Cell 0/1: unpack into two independent register sets before smmla.
+    ushr v9.16b,  v5.16b, #6
+    ushr v10.16b, v5.16b, #4
+    ushr v11.16b, v5.16b, #2
+    and  v12.16b, v5.16b, v30.16b
+    and  v10.16b, v10.16b, v30.16b
+    and  v11.16b, v11.16b, v30.16b
+    ushr v13.16b, v6.16b, #6
+    ushr v14.16b, v6.16b, #4
+    ushr v15.16b, v6.16b, #2
+    and  v20.16b, v6.16b, v30.16b
+    and  v14.16b, v14.16b, v30.16b
+    and  v15.16b, v15.16b, v30.16b
+
+    .inst 0x4e89a410 // smmla v16.4s, v0.16b, v9.16b
+    .inst 0x4e8aa411 // smmla v17.4s, v0.16b, v10.16b
+    .inst 0x4e8ba412 // smmla v18.4s, v0.16b, v11.16b
+    .inst 0x4e8ca413 // smmla v19.4s, v0.16b, v12.16b
+    .inst 0x4e8da438 // smmla v24.4s, v1.16b, v13.16b
+    .inst 0x4e8ea439 // smmla v25.4s, v1.16b, v14.16b
+    .inst 0x4e8fa43a // smmla v26.4s, v1.16b, v15.16b
+    .inst 0x4e94a43b // smmla v27.4s, v1.16b, v20.16b
+
+    // Cell 2/3: same two-set scheduling.
+    ushr v9.16b,  v7.16b, #6
+    ushr v10.16b, v7.16b, #4
+    ushr v11.16b, v7.16b, #2
+    and  v12.16b, v7.16b, v30.16b
+    and  v10.16b, v10.16b, v30.16b
+    and  v11.16b, v11.16b, v30.16b
+    ushr v13.16b, v8.16b, #6
+    ushr v14.16b, v8.16b, #4
+    ushr v15.16b, v8.16b, #2
+    and  v20.16b, v8.16b, v30.16b
+    and  v14.16b, v14.16b, v30.16b
+    and  v15.16b, v15.16b, v30.16b
+
+    .inst 0x4e89a450 // smmla v16.4s, v2.16b, v9.16b
+    .inst 0x4e8aa451 // smmla v17.4s, v2.16b, v10.16b
+    .inst 0x4e8ba452 // smmla v18.4s, v2.16b, v11.16b
+    .inst 0x4e8ca453 // smmla v19.4s, v2.16b, v12.16b
+    .inst 0x4e8da478 // smmla v24.4s, v3.16b, v13.16b
+    .inst 0x4e8ea479 // smmla v25.4s, v3.16b, v14.16b
+    .inst 0x4e8fa47a // smmla v26.4s, v3.16b, v15.16b
+    .inst 0x4e94a47b // smmla v27.4s, v3.16b, v20.16b
+.endm
+asm_function MNNGemmInt8AddBiasScale_ARMV86_w2_Unit_FP16
 /* 
 struct QuanPostTreatParameters {
     const float* scale;
@@ -118,7 +185,7 @@ struct QuanPostTreatParameters {
     const float* extraScale = nullptr;
 };
 */
-//void MNNGemmInt8AddBiasScale_ARMV86_w4_Unit(int8_t* dst, const int8_t* src,
+//void MNNGemmInt8AddBiasScale_ARMV86_w2_Unit_FP16(int8_t* dst, const int8_t* src,
 //    const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
 // const QuanPostTreatParameters* parameters, size_t realDstCount);
 
@@ -171,7 +238,7 @@ LoopDz_TILE_10:
 
 TILE10_BLOCKNUM:
     mov x13, x3 // src_depth_quad
-    movi v2.16b, #15
+    movi v2.16b, #3
 
     SET_0_5 v12, v16, v20, v24, v28 // oc:0,1,0,1
     SET_0_5 v13, v17, v21, v25, v29 // oc:2,3,2,3
@@ -179,14 +246,17 @@ TILE10_BLOCKNUM:
     SET_0_5 v15, v19, v23, v27, v31 // oc:6,7,6,7
 
 LoopSz_TILE_10:
-    ld1 {v0.16b, v1.16b}, [x2], #32                    // weight
-    ld1 {v3.16b, v4.16b, v5.16b, v6.16b}, [x11], #64    // src: E0-E9
+    ld1 {v0.16b}, [x2], #16                            // weight: 16B = 64 weights of 2-bit
+    // Issue 3 ushr ops first (all independent — read v0, write different regs)
+    // Reordering avoids the back-to-back ushr→and stalls of the naive sequence.
+    ushr v8.16b,  v0.16b, #6                           // oc:0-1, bits[6:7]
+    ushr v9.16b,  v0.16b, #4                           // (will be masked)
+    ld1 {v3.16b, v4.16b, v5.16b, v6.16b}, [x11], #64    // src: E0-E9 (loads in parallel with NEON ALU)
+    ushr v10.16b, v0.16b, #2                           // (will be masked)
+    and  v11.16b, v0.16b, v2.16b                       // oc:6-7, bits[0:1] (independent of ushrs above)
     ld1 {v7.16b}, [x11], #16
-    // int4->int8
-    ushr v8.16b, v0.16b, #4 // oc:0-1
-    ushr v9.16b, v1.16b, #4 // oc:2-3
-    and v10.16b, v0.16b, v2.16b // oc:4-5
-    and v11.16b, v1.16b, v2.16b // oc:6-7
+    and  v9.16b,  v9.16b, v2.16b                        // oc:2-3, bits[4:5]
+    and  v10.16b, v10.16b, v2.16b                       // oc:4-5, bits[2:3]
 
     subs x13, x13, #1
     .inst 0x4e88a46c // smmla v12.4s, v3.16b, v8.16b // tile0-oc0, tile0-oc1, tile1-oc0, tile1-oc1
@@ -405,7 +475,7 @@ TILE_8:
     ld1r {v31.8h}, [x14] // f32 max
     sub x14, x14, #2
     TILE_Remain:
-    movi v30.16b, #15
+    movi v30.16b, #3
     cmp x7, #8
     blt TILE_4
     sub x4, x4, #64 // just for Tile8, revert it when Tile8end
@@ -426,15 +496,16 @@ TILE8_BLOCKNUM:
     SET_0_4 v14, v18, v22, v26 // oc:4,5,4,5
     SET_0_4 v15, v19, v23, v27 // oc:6,7,6,7
 LoopSz_TILE_8:
-    ld1 {v0.16b, v1.16b}, [x12], #32                    // weight
-    ld1 {v3.16b, v4.16b, v5.16b, v6.16b}, [x11], x22    // src: E0-E7
-
-    // int4->int8
+    ld1 {v0.16b}, [x12], #16                            // weight: 16B = 64 weights of 2-bit
+    // ushr ops first (all independent), interleave src load
+    ushr v8.16b,  v0.16b, #6                            // oc:0-1
+    ushr v9.16b,  v0.16b, #4
+    ld1 {v3.16b, v4.16b, v5.16b, v6.16b}, [x11], x22    // src in parallel with NEON
+    ushr v10.16b, v0.16b, #2
+    and  v11.16b, v0.16b, v30.16b                       // oc:6-7 (independent of v9/v10)
     subs x13, x13, #1
-    ushr v8.16b, v0.16b, #4 // oc:0-1
-    ushr v9.16b, v1.16b, #4 // oc:2-3
-    and v10.16b, v0.16b, v30.16b // oc:4-5
-    and v11.16b, v1.16b, v30.16b // oc:6-7
+    and  v9.16b,  v9.16b, v30.16b                       // oc:2-3
+    and  v10.16b, v10.16b, v30.16b                      // oc:4-5
 
     .inst 0x4e88a46c // smmla v12.4s, v3.16b, v8.16b // tile0-oc0, tile0-oc1, tile1-oc0, tile1-oc1
     .inst 0x4e89a46d // smmla v13.4s, v3.16b, v9.16b // tile0-oc2, tile0-oc3, tile1-oc2, tile1-oc3
@@ -627,14 +698,16 @@ TILE4_BLOCKNUM:
     SET_0_4 v16, v17, v18, v19
 
 LoopSz_TILE_4:
-    ld1 {v2.16b, v3.16b}, [x12], #32   // weight
-    ld1 {v4.16b, v5.16b}, [x11], x22   // src
-    // int4->int8
-    ushr v8.16b, v2.16b, #4
-    ushr v9.16b, v3.16b, #4
-    and v10.16b, v2.16b, v30.16b
-    and v11.16b, v3.16b, v30.16b
+    ld1 {v2.16b}, [x12], #16          // weight: 16B = 64 weights of 2-bit
+    // 3 ushr first, then load src + 3 and (independent → fills bubble)
+    ushr v8.16b,  v2.16b, #6
+    ushr v9.16b,  v2.16b, #4
+    ld1 {v4.16b, v5.16b}, [x11], x22  // src in parallel with NEON
+    ushr v10.16b, v2.16b, #2
+    and  v11.16b, v2.16b, v30.16b     // oc:6-7 (independent)
     subs x13, x13, #1
+    and  v9.16b,  v9.16b, v30.16b
+    and  v10.16b, v10.16b, v30.16b
     .inst 0x4e88a48c // smmla v12.4s, v4.16b, v8.16b // tile0-oc0, tile0-oc1, tile1-oc0, tile1-oc1
     .inst 0x4e89a48d // smmla v13.4s, v4.16b, v9.16b // tile0-oc2, tile0-oc3, tile1-oc2, tile1-oc3
     .inst 0x4e8aa48e // smmla v14.4s, v4.16b, v10.16b // tile0-oc4, tile0-oc5, tile1-oc4, tile1-oc5
@@ -764,13 +837,15 @@ TILE2_BLOCKNUM:
     mov x13, x3 // src_depth_quad
     SET_0_4 v12, v13, v14, v15
 LoopSz_TILE_2:
-    ld1 {v2.16b, v3.16b}, [x12], #32   // weight
-    ld1 {v4.16b}, [x11], x22           // src
-    // int4->int8
-    ushr v8.16b, v2.16b, #4
-    ushr v9.16b, v3.16b, #4
-    and v10.16b, v2.16b, v30.16b
-    and v11.16b, v3.16b, v30.16b
+    ld1 {v2.16b}, [x12], #16           // weight: 16B = 64 weights of 2-bit
+    // ushr ops first (independent), src load + and v11 (independent) fills the bubble
+    ushr v8.16b,  v2.16b, #6
+    ushr v9.16b,  v2.16b, #4
+    ld1 {v4.16b}, [x11], x22           // src in parallel with NEON
+    ushr v10.16b, v2.16b, #2
+    and  v11.16b, v2.16b, v30.16b      // oc:6-7 (independent)
+    and  v9.16b,  v9.16b, v30.16b
+    and  v10.16b, v10.16b, v30.16b
 
     .inst 0x4e88a48c // smmla v12.4s, v4.16b, v8.16b // tile0-oc0, tile0-oc1, tile1-oc0, tile1-oc1
     .inst 0x4e89a48d // smmla v13.4s, v4.16b, v9.16b // tile0-oc2, tile0-oc3, tile1-oc2, tile1-oc3
@@ -879,6 +954,9 @@ TILE_1:
 LoopDz_TILE_1:
     mov x11, x1 // src
     mov x19, #0
+    // running fp32 accumulator across blocks within this OC chunk
+    movi v22.4s, #0 // oc:0-3 running accum
+    movi v23.4s, #0 // oc:4-7 running accum
 TILE1_BLOCKNUM:
     mov x13, x3 // src_depth_quad
 
@@ -890,97 +968,54 @@ TILE1_BLOCKNUM:
 cmp x13, #4
 blt LoopSz1_TILE_1_lu1
 
-    movi v24.4s, #0 // oc:0,1,0,1
-    movi v25.4s, #0 // oc:2,3,2,3
-    movi v26.4s, #0 // oc:4,5,4,5
-    movi v27.4s, #0 // oc:6,7,6,7
+    movi v24.4s, #0 // shadow accumulators for pipelined lu4 path
+    movi v25.4s, #0
+    movi v26.4s, #0
+    movi v27.4s, #0
+
+    cmp x13, #8
+    beq LoopSz1_TILE_1_b64
 
 LoopSz1_TILE_1_lu4:
-    ld1 {v5.16b, v6.16b, v7.16b, v8.16b}, [x12], #64     // weight
-    ld1 {v0.8b}, [x11], x22                              // src
-    ld1 {v1.8b}, [x11], x22
-
-    // int4->int8 - first two weight groups
-    ushr v4.16b, v5.16b, #4
-    ushr v14.16b, v6.16b, #4
-    and v13.16b, v5.16b, v30.16b
-    and v15.16b, v6.16b, v30.16b
-
-    ld1 {v9.16b, v10.16b, v11.16b, v12.16b}, [x12], #64
-
-    // Second weight group - unpack + SMMLA
-    ushr v20.16b, v7.16b, #4
-    ushr v21.16b, v8.16b, #4
-    and v22.16b, v7.16b, v30.16b
-    and v23.16b, v8.16b, v30.16b
-
-
-    // First weight group SMMLA
-    .inst 0x4e84a410 // smmla v16.4s, v0.16b, v4.16b
-    .inst 0x4e8ea411 // smmla v17.4s, v0.16b, v14.16b
-    .inst 0x4e8da412 // smmla v18.4s, v0.16b, v13.16b
-    .inst 0x4e8fa413 // smmla v19.4s, v0.16b, v15.16b
-
-    ld1 {v2.8b}, [x11], x22
-
-
-    .inst 0x4e94a438 // smmla v24.4s, v1.16b, v20.16b
-    .inst 0x4e95a439 // smmla v25.4s, v1.16b, v21.16b
-    .inst 0x4e96a43a // smmla v26.4s, v1.16b, v22.16b
-    .inst 0x4e97a43b // smmla v27.4s, v1.16b, v23.16b
-
-    ld1 {v3.8b}, [x11], x22
-
-    // Third weight group - unpack + SMMLA
-    ushr v4.16b, v9.16b, #4
-    ushr v14.16b, v10.16b, #4
-    and v13.16b, v9.16b, v30.16b
-    and v15.16b, v10.16b, v30.16b
-
-    // Fourth weight group - unpack + SMMLA
-    ushr v5.16b, v11.16b, #4
-    ushr v6.16b, v12.16b, #4
-    and v7.16b, v11.16b, v30.16b
-    and v8.16b, v12.16b, v30.16b
-
-    .inst 0x4e84a450 // smmla v16.4s, v2.16b, v4.16b
-    .inst 0x4e8ea451 // smmla v17.4s, v2.16b, v14.16b
-    .inst 0x4e8da452 // smmla v18.4s, v2.16b, v13.16b
-    .inst 0x4e8fa453 // smmla v19.4s, v2.16b, v15.16b
-
-
-    .inst 0x4e85a478 // smmla v24.4s, v3.16b, v5.16b
-    .inst 0x4e86a479 // smmla v25.4s, v3.16b, v6.16b
-    .inst 0x4e87a47a // smmla v26.4s, v3.16b, v7.16b
-    .inst 0x4e88a47b // smmla v27.4s, v3.16b, v8.16b
+    W2_TILE1_LU4_STEP
 
     sub x13, x13, #4
     cmp x13, #4
-
     bge LoopSz1_TILE_1_lu4
-    
+
+    b LoopSz1_TILE_1_lu4_merge
+
+LoopSz1_TILE_1_b64:
+    W2_TILE1_LU4_STEP
+    W2_TILE1_LU4_STEP
+    mov x13, #0
+
+LoopSz1_TILE_1_lu4_merge:
+    // Merge accumulator sets
     add v16.4s, v16.4s, v24.4s
     add v17.4s, v17.4s, v25.4s
     add v18.4s, v18.4s, v26.4s
     add v19.4s, v19.4s, v27.4s
 
-cbz x13, LoopSzEnd_TILE_1
+    cbz x13, LoopSzEnd_TILE_1
 
 LoopSz1_TILE_1_lu1:
-    ld1 {v13.16b, v14.16b}, [x12], #32   // weight
-    ld1 {v2.8b}, [x11], x22              // src
-    // int4->int8
-    ushr v0.16b, v13.16b, #4
-    and v3.16b, v13.16b, v30.16b
-    ushr v1.16b, v14.16b, #4
-    and v4.16b, v14.16b, v30.16b
+    ld1 {v13.16b}, [x12], #16            // weight: 16B = 64 weights of 2-bit
+    // ushr group first, src load + and v4 fill the bubble
+    ushr v0.16b, v13.16b, #6             // oc:0-1
+    ushr v1.16b, v13.16b, #4
+    ld1 {v2.8b}, [x11], x22              // src in parallel with NEON
+    ushr v3.16b, v13.16b, #2
+    and  v4.16b, v13.16b, v30.16b        // oc:6-7 (independent)
     subs x13, x13, #1
+    and  v1.16b, v1.16b, v30.16b         // oc:2-3
+    and  v3.16b, v3.16b, v30.16b         // oc:4-5
 
     .inst 0x4e80a450 // smmla v16.4s, v2.16b, v0.16b
     .inst 0x4e81a451 // smmla v17.4s, v2.16b, v1.16b
     .inst 0x4e83a452 // smmla v18.4s, v2.16b, v3.16b
     .inst 0x4e84a453 // smmla v19.4s, v2.16b, v4.16b
-    
+
     bne LoopSz1_TILE_1_lu1
 
 LoopSzEnd_TILE_1:
@@ -990,61 +1025,47 @@ LoopSzEnd_TILE_1:
     scvtf v26.4s, v26.4s
 
 Tile1Quan:
-    // v16/v17 hold the per-OC-chunk running fp32 accumulator across blocks.  The
-    // [x10] buffer carries the running sum across blocks within ONE OC chunk; conv
-    // exec only memsets accumbuff once per kernel call (or not at all for blockNum=1)
-    // so the FIRST block of each OC chunk must zero-init v16/v17 explicitly instead
-    // of loading from [x10] (which still holds the previous OC chunk's tail).
     ld1 {v0.4s, v1.4s}, [x12], #32  // scale
-    ld1 {v4.s}[0], [x23], x25       // input scale
+    ld1 {v4.s}[0], [x23], x25       // input scale (loaded earlier)
     ld1 {v6.s}[0], [x8]             // x kernel sum
     ld1 {v8.4s, v9.4s}, [x12], #32  // weight quan zeropoint
-    cbz x19, _w4_first_block_zero
-    ld1 {v16.4s, v17.4s}, [x10]     // running fp32 accum from prior block
-    b _w4_init_done
-_w4_first_block_zero:
-    movi v16.4s, #0                 // first block of this OC chunk
-    movi v17.4s, #0
-_w4_init_done:
     add x8, x8, x22, LSR #1
-
-    // P1.2 scale_eff fusion: scale * input_scale off the v16/v17 critical path.
-    fmul v0.4s, v0.4s, v4.s[0]
+    // Fuse the per-block dequant chain directly into v22/v23 via fmla.
+    // v22 += v25 * scale_eff   replaces  (fmul v25, scale_eff; fadd v22, v22, v25),
+    // saving 1 fp op per OC group per block.  Subsequent zp / weight-kernel-sum
+    // terms are also fmla'd straight into v22/v23.
+    fmul v0.4s, v0.4s, v4.s[0]      // scale_eff (off v22/v23 path)
     fmul v1.4s, v1.4s, v4.s[0]
-
-    // Per-block dequant chain into v16/v17 directly (replaces fmul v25 + fadd v16 + ...).
-    fmla v16.4s, v25.4s, v0.4s      // v16 += accum_fp * scale_eff
-    fmla v17.4s, v26.4s, v1.4s
+    fmla v22.4s, v25.4s, v0.4s      // v22 += accum * scale_eff
+    fmla v23.4s, v26.4s, v1.4s
     TILE1_MLA:
-    MLA_WEIGHTZERO v16, v6, v8, 0   // v16 += zp * xks
-    MLA_WEIGHTZERO v17, v6, v9, 0
+    MLA_WEIGHTZERO v22, v6, v8, 0 // tile:0, oc:0-3
+    MLA_WEIGHTZERO v23, v6, v9, 0 // tile:0, oc:4-7
 
     cbz x27, TILE1_ADD_DSTV
-    ld1 {v6.s}[0], [x27], x25       // input dequant bias
-    ld1 {v8.4s, v9.4s}, [x28], #32  // weight kernel sum
-    MLA_WEIGHTZERO v16, v6, v8, 0   // v16 += wks * inputBias
-    MLA_WEIGHTZERO v17, v6, v9, 0
+    ld1 {v6.s}[0], [x27], x25 // input dequant bias
+    ld1 {v8.4s, v9.4s}, [x28], #32 // weight kernel sum
+    MLA_WEIGHTZERO v22, v6, v8, 0 // tile:0, oc:0-3
+    MLA_WEIGHTZERO v23, v6, v9, 0 // tile:0, oc:4-7
 
     TILE1_ADD_DSTV:
-    // v16/v17 already hold the updated running accum; nothing more to do.
+    // v22/v23 already hold the running per-OC-chunk accumulator -- no fadd needed.
 
     TILE1_TEMP_BUFFER:
     add x19, x19, #1
     cmp x19, x26
-    beq TILE1_POST
-    st1 {v16.4s, v17.4s}, [x10]
-    b TILE1_BLOCKNUM
+    bne TILE1_BLOCKNUM
 
     TILE1_POST:
     sub x24, x24, #1
     cbz x9, TILE1_CVT_FP16
-    ld1 {v8.4s, v9.4s}, [x20], #32  // bias (use v8/v9 since v16/v17 hold result)
-    fadd v16.4s, v16.4s, v8.4s
-    fadd v17.4s, v17.4s, v9.4s
+    ld1 {v16.4s, v17.4s}, [x20], #32 // bias
+    fadd v22.4s, v22.4s, v16.4s
+    fadd v23.4s, v23.4s, v17.4s
 
     TILE1_CVT_FP16:
-    fcvtn v0.4h, v16.4s
-    fcvtn2 v0.8h, v17.4s
+    fcvtn v0.4h, v22.4s
+    fcvtn2 v0.8h, v23.4s
     cbz x14, TILE1_STORE
     fmax v0.8h, v0.8h, v29.8h
     fmin v0.8h, v0.8h, v31.8h

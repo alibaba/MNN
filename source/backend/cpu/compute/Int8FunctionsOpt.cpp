@@ -62,7 +62,19 @@ void MNNSumByAxisLForMatmul_A_SME2_Hp64(float* dest, int8_t* source, const float
 void MNNGemmInt8AddBiasScale_ARMV82_w4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad,
                                             size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post,
                                             size_t realDstCount);
+void MNNGemmInt8AddBiasScale_ARMV82_w2_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad,
+                                            size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post,
+                                            size_t realDstCount);
+void MNNGemmInt8AddBiasScale_ARMV82_w3_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad,
+                                            size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post,
+                                            size_t realDstCount);
 void MNNGemmInt8AddBiasScale_ARMV86_w4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad,
+                                            size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post,
+                                            size_t realDstCount);
+void MNNGemmInt8AddBiasScale_ARMV86_w2_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad,
+                                            size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post,
+                                            size_t realDstCount);
+void MNNGemmInt8AddBiasScale_ARMV86_w3_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad,
                                             size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post,
                                             size_t realDstCount);
 void MNNGemmInt8AddBiasScale_16x4_w4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad,
@@ -79,10 +91,22 @@ void MNNGemmInt8AddBiasScale_ARMV82_Unit_FP16(int8_t* dst, const int8_t* src, co
 void MNNGemmInt8AddBiasScale_ARMV82_w4_Unit_FP16(int8_t* dst, const int8_t* src, const int8_t* weight,
                                                  size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
                                                  const QuanPostTreatParameters* post, size_t realDstCount);
+void MNNGemmInt8AddBiasScale_ARMV82_w2_Unit_FP16(int8_t* dst, const int8_t* src, const int8_t* weight,
+                                                 size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
+                                                 const QuanPostTreatParameters* post, size_t realDstCount);
+void MNNGemmInt8AddBiasScale_ARMV82_w3_Unit_FP16(int8_t* dst, const int8_t* src, const int8_t* weight,
+                                                 size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
+                                                 const QuanPostTreatParameters* post, size_t realDstCount);
 void MNNGemmInt8AddBiasScale_ARMV86_Unit_FP16(int8_t* dst, const int8_t* src, const int8_t* weight,
                                               size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
                                               const QuanPostTreatParameters* post, size_t realDstCount);
 void MNNGemmInt8AddBiasScale_ARMV86_w4_Unit_FP16(int8_t* dst, const int8_t* src, const int8_t* weight,
+                                                 size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
+                                                 const QuanPostTreatParameters* post, size_t realDstCount);
+void MNNGemmInt8AddBiasScale_ARMV86_w2_Unit_FP16(int8_t* dst, const int8_t* src, const int8_t* weight,
+                                                 size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
+                                                 const QuanPostTreatParameters* post, size_t realDstCount);
+void MNNGemmInt8AddBiasScale_ARMV86_w3_Unit_FP16(int8_t* dst, const int8_t* src, const int8_t* weight,
                                                  size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
                                                  const QuanPostTreatParameters* post, size_t realDstCount);
 void DynamicQuanInputAndReorder_ARM82(const float* src, int8_t* dst, size_t planeSize, const float* scale, ssize_t aMin,
@@ -2673,14 +2697,24 @@ void MNNCoreInt8FunctionInit() {
         gCoreFunc->DynamicQuanInput_ARM82 = DynamicQuanInput_ARM82;
         gCoreFunc->MNNGemmInt8AddBiasScale_Unit_FP16 = MNNGemmInt8AddBiasScale_ARMV82_Unit_FP16;
         gCoreFunc->MNNGemmInt8AddBiasScale_w4_Unit_FP16 = MNNGemmInt8AddBiasScale_ARMV82_w4_Unit_FP16;
+        gCoreFunc->MNNGemmInt8AddBiasScale_w2_Unit_FP16 = MNNGemmInt8AddBiasScale_ARMV82_w2_Unit_FP16;
+        gCoreFunc->MNNGemmInt8AddBiasScale_w3_Unit_FP16 = MNNGemmInt8AddBiasScale_ARMV82_w3_Unit_FP16;
         gCoreFunc->DynamicQuanInputAndReorder_ARM82 = DynamicQuanInputAndReorder_ARM82;
         core->arm82MatmulRelatedFunctions.MNNGemmInt8AddBiasScale_Unit_FP16 =
             gCoreFunc->MNNGemmInt8AddBiasScale_Unit_FP16;
         core->arm82MatmulRelatedFunctions.MNNGemmInt8AddBiasScale_w4_Unit_FP16 =
             gCoreFunc->MNNGemmInt8AddBiasScale_w4_Unit_FP16;
+        core->arm82MatmulRelatedFunctions.MNNGemmInt8AddBiasScale_w2_Unit_FP16 =
+            gCoreFunc->MNNGemmInt8AddBiasScale_w2_Unit_FP16;
+        core->arm82MatmulRelatedFunctions.MNNGemmInt8AddBiasScale_w3_Unit_FP16 =
+            gCoreFunc->MNNGemmInt8AddBiasScale_w3_Unit_FP16;
 #endif
         gCoreFunc->Int8GemmKernel_W4 = MNNGemmInt8AddBiasScale_ARMV82_w4_Unit;
+        gCoreFunc->Int8GemmKernel_W2 = MNNGemmInt8AddBiasScale_ARMV82_w2_Unit;
+        gCoreFunc->Int8GemmKernel_W3 = MNNGemmInt8AddBiasScale_ARMV82_w3_Unit;
         core->arm82MatmulRelatedFunctions.Int8GemmKernel_W4 = gCoreFunc->Int8GemmKernel_W4;
+        core->arm82MatmulRelatedFunctions.Int8GemmKernel_W2 = gCoreFunc->Int8GemmKernel_W2;
+        core->arm82MatmulRelatedFunctions.Int8GemmKernel_W3 = gCoreFunc->Int8GemmKernel_W3;
 #endif
     }
     if (core->supportI8mm) {
@@ -2693,10 +2727,14 @@ void MNNCoreInt8FunctionInit() {
 
 #if defined(MNN_LOW_MEMORY)
         gCoreFunc->Int8GemmKernel_W4 = MNNGemmInt8AddBiasScale_ARMV86_w4_Unit;
+        gCoreFunc->Int8GemmKernel_W2 = MNNGemmInt8AddBiasScale_ARMV86_w2_Unit;
+        gCoreFunc->Int8GemmKernel_W3 = MNNGemmInt8AddBiasScale_ARMV86_w3_Unit;
 
 #ifdef MNN_USE_ARMV82
         gCoreFunc->MNNGemmInt8AddBiasScale_Unit_FP16 = MNNGemmInt8AddBiasScale_ARMV86_Unit_FP16;
         gCoreFunc->MNNGemmInt8AddBiasScale_w4_Unit_FP16 = MNNGemmInt8AddBiasScale_ARMV86_w4_Unit_FP16;
+        gCoreFunc->MNNGemmInt8AddBiasScale_w2_Unit_FP16 = MNNGemmInt8AddBiasScale_ARMV86_w2_Unit_FP16;
+        gCoreFunc->MNNGemmInt8AddBiasScale_w3_Unit_FP16 = MNNGemmInt8AddBiasScale_ARMV86_w3_Unit_FP16;
 #endif
 #endif
         // Im2Col
@@ -2708,10 +2746,16 @@ void MNNCoreInt8FunctionInit() {
         core->int8MatmulRelatedFunctions.Int8GemmKernel = gCoreFunc->Int8GemmKernel;
         core->int8MatmulRelatedFunctions.Int8GemmKernelFast = gCoreFunc->Int8GemmKernelFast;
         core->int8MatmulRelatedFunctions.Int8GemmKernel_W4 = gCoreFunc->Int8GemmKernel_W4;
+        core->int8MatmulRelatedFunctions.Int8GemmKernel_W2 = gCoreFunc->Int8GemmKernel_W2;
+        core->int8MatmulRelatedFunctions.Int8GemmKernel_W3 = gCoreFunc->Int8GemmKernel_W3;
         core->int8MatmulRelatedFunctions.MNNGemmInt8AddBiasScale_Unit_FP16 =
             gCoreFunc->MNNGemmInt8AddBiasScale_Unit_FP16;
         core->int8MatmulRelatedFunctions.MNNGemmInt8AddBiasScale_w4_Unit_FP16 =
             gCoreFunc->MNNGemmInt8AddBiasScale_w4_Unit_FP16;
+        core->int8MatmulRelatedFunctions.MNNGemmInt8AddBiasScale_w2_Unit_FP16 =
+            gCoreFunc->MNNGemmInt8AddBiasScale_w2_Unit_FP16;
+        core->int8MatmulRelatedFunctions.MNNGemmInt8AddBiasScale_w3_Unit_FP16 =
+            gCoreFunc->MNNGemmInt8AddBiasScale_w3_Unit_FP16;
         core->int8MatmulRelatedFunctions.MNNGetGemmUnit = gCoreFunc->MNNGetGemmUnit;
         core->int8MatmulRelatedFunctions.MNNPackC4Int8ForMatMul_A = gCoreFunc->MNNPackC4Int8ForMatMul_A;
 
@@ -2763,10 +2807,16 @@ void MNNCoreInt8FunctionInit() {
         core->int8MatmulRelatedFunctions.Int8GemmKernel = gCoreFunc->Int8GemmKernel;
         core->int8MatmulRelatedFunctions.Int8GemmKernelFast = gCoreFunc->Int8GemmKernelFast;
         core->int8MatmulRelatedFunctions.Int8GemmKernel_W4 = gCoreFunc->Int8GemmKernel_W4;
+        core->int8MatmulRelatedFunctions.Int8GemmKernel_W2 = gCoreFunc->Int8GemmKernel_W2;
+        core->int8MatmulRelatedFunctions.Int8GemmKernel_W3 = gCoreFunc->Int8GemmKernel_W3;
         core->int8MatmulRelatedFunctions.MNNGemmInt8AddBiasScale_Unit_FP16 =
             gCoreFunc->MNNGemmInt8AddBiasScale_Unit_FP16;
         core->int8MatmulRelatedFunctions.MNNGemmInt8AddBiasScale_w4_Unit_FP16 =
             gCoreFunc->MNNGemmInt8AddBiasScale_w4_Unit_FP16;
+        core->int8MatmulRelatedFunctions.MNNGemmInt8AddBiasScale_w2_Unit_FP16 =
+            gCoreFunc->MNNGemmInt8AddBiasScale_w2_Unit_FP16;
+        core->int8MatmulRelatedFunctions.MNNGemmInt8AddBiasScale_w3_Unit_FP16 =
+            gCoreFunc->MNNGemmInt8AddBiasScale_w3_Unit_FP16;
         core->int8MatmulRelatedFunctions.MNNGetGemmUnit = gCoreFunc->MNNGetGemmUnit;
         core->int8MatmulRelatedFunctions.MNNPackC4Int8ForMatMul_A = gCoreFunc->MNNPackC4Int8ForMatMul_A;
 

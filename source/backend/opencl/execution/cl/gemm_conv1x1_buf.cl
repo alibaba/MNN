@@ -11,9 +11,22 @@
     }
 
 #define UCHAR4_TO_CHAR8(a, c) \
-    a.s0 = (c.s0 >> 4) - 8; a.s1 = (c.s0 & 15) - 8; a.s2 = (c.s1 >> 4) - 8; a.s3 = (c.s1 & 15) - 8; a.s4 = (c.s2 >> 4) - 8; a.s5 = (c.s2 & 15) - 8; a.s6 = (c.s3 >> 4) - 8; a.s7 = (c.s3 & 15) - 8;
+    a.s0 = (c.s0 >> 4); a.s1 = (c.s0 & 15); a.s2 = (c.s1 >> 4); a.s3 = (c.s1 & 15); a.s4 = (c.s2 >> 4); a.s5 = (c.s2 & 15); a.s6 = (c.s3 >> 4); a.s7 = (c.s3 & 15);
 
 __constant sampler_t SAMPLER = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP | CLK_FILTER_NEAREST;
+
+#ifdef USE_IMAGE1D_INPUT
+#ifdef MNN_SUPPORT_FP16
+#define RI_F(i, coord) read_imageh(i, coord)
+#else
+#define RI_F(i, coord) read_imagef(i, coord)
+#endif
+#define LOAD_INPUT4(offset) CONVERT_COMPUTE_FLOAT4(RI_F(input, (offset) >> 2))
+#define LOAD_INPUT16(offset) (COMPUTE_FLOAT16)(LOAD_INPUT4(offset), LOAD_INPUT4((offset) + 4), LOAD_INPUT4((offset) + 8), LOAD_INPUT4((offset) + 12))
+#else
+#define LOAD_INPUT4(offset) CONVERT_COMPUTE_FLOAT4(vload4(0, input + (offset)))
+#define LOAD_INPUT16(offset) CONVERT_COMPUTE_FLOAT16(vload16(0, input + (offset)))
+#endif
 __kernel void inverse_quant_weight(GLOBAL_SIZE_DIM2
     #ifdef USE_IMAGE
     __read_only image2d_t weight,
@@ -51,6 +64,7 @@ __kernel void inverse_quant_weight(GLOBAL_SIZE_DIM2
     }
     #else
     COMPUTE_FLOAT8 scale = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(0, dequantScaleOffset + (ic / blockDim) * outputChannel4Align + oc)) / coef);
+    COMPUTE_FLOAT8 offset = (COMPUTE_FLOAT8)(-8) * scale;
     #endif
     COMPUTE_FLOAT8 weights0, weights1, weights2, weights3;
     {
@@ -60,7 +74,6 @@ __kernel void inverse_quant_weight(GLOBAL_SIZE_DIM2
         uchar16 charWeightsInt40 = vload16(x, weight + y * inputChannel4Align * 4);
         #endif
         char8 charWeights0;
-        #ifdef ASYMMETRIC
         UCHAR4_TO_CHAR8(charWeights0, charWeightsInt40.s0123);
         weights0 = CONVERT_COMPUTE_FLOAT8(charWeights0) * scale + offset;
         
@@ -72,19 +85,6 @@ __kernel void inverse_quant_weight(GLOBAL_SIZE_DIM2
         
         UCHAR4_TO_CHAR8(charWeights0, charWeightsInt40.scdef);
         weights3 = ic + 3 >= inputChannel ? 0 : CONVERT_COMPUTE_FLOAT8(charWeights0) * scale + offset;
-        #else
-        UCHAR4_TO_CHAR8(charWeights0, charWeightsInt40.s0123);
-        weights0 = CONVERT_COMPUTE_FLOAT8(charWeights0) * scale;
-        
-        UCHAR4_TO_CHAR8(charWeights0, charWeightsInt40.s4567);
-        weights1 = ic + 1 >= inputChannel ? 0 : CONVERT_COMPUTE_FLOAT8(charWeights0) * scale;
-        
-        UCHAR4_TO_CHAR8(charWeights0, charWeightsInt40.s89ab);
-        weights2 = ic + 2 >= inputChannel ? 0 : CONVERT_COMPUTE_FLOAT8(charWeights0) * scale;
-        
-        UCHAR4_TO_CHAR8(charWeights0, charWeightsInt40.scdef);
-        weights3 = ic + 3 >= inputChannel ? 0 : CONVERT_COMPUTE_FLOAT8(charWeights0) * scale;
-        #endif
     }
     vstore8(CONVERT_FLOAT8(weights0), 0, output+output_offset);
     vstore8(CONVERT_FLOAT8(weights1), 0, output+output_offset+outputChannelAlign);
@@ -203,18 +203,22 @@ __private const int channelAlign
 }
 
 #define UCHAR4_TO_FLOAT8(b, scale, offset) \
-    wei.s0 = CONVERT_FLOAT((b.s0 >> 4) - 8); \
-    wei.s1 = CONVERT_FLOAT((b.s0 & 15) - 8); \
-    wei.s2 = CONVERT_FLOAT((b.s1 >> 4) - 8); \
-    wei.s3 = CONVERT_FLOAT((b.s1 & 15) - 8); \
-    wei.s4 = CONVERT_FLOAT((b.s2 >> 4) - 8); \
-    wei.s5 = CONVERT_FLOAT((b.s2 & 15) - 8); \
-    wei.s6 = CONVERT_FLOAT((b.s3 >> 4) - 8); \
-    wei.s7 = CONVERT_FLOAT((b.s3 & 15) - 8); \
+    wei.s0 = CONVERT_FLOAT((b.s0 >> 4)); \
+    wei.s1 = CONVERT_FLOAT((b.s0 & 15)); \
+    wei.s2 = CONVERT_FLOAT((b.s1 >> 4)); \
+    wei.s3 = CONVERT_FLOAT((b.s1 & 15)); \
+    wei.s4 = CONVERT_FLOAT((b.s2 >> 4)); \
+    wei.s5 = CONVERT_FLOAT((b.s2 & 15)); \
+    wei.s6 = CONVERT_FLOAT((b.s3 >> 4)); \
+    wei.s7 = CONVERT_FLOAT((b.s3 & 15)); \
     wei = wei * scale + offset;
 
 __kernel void gemm_b4_c8_int4_buf(GLOBAL_SIZE_DIM2
+#ifdef USE_IMAGE1D_INPUT
+                        __read_only image1d_buffer_t input,
+#else
                         __global const FLOAT* input,
+#endif
 #ifdef USE_IMAGE
                         __read_only image2d_t weight,
 #else
@@ -267,7 +271,7 @@ __kernel void gemm_b4_c8_int4_buf(GLOBAL_SIZE_DIM2
             }
             #else
             COMPUTE_FLOAT8 scale = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(0, dequantScaleOffset + (out_c_idx << 2) + i * dstChannelAlign)) / coef);
-            COMPUTE_FLOAT8 offset = 0;
+            COMPUTE_FLOAT8 offset = (COMPUTE_FLOAT8)(-8) * scale;
             #endif
             for (int j = 0; j < loop_end; j++) {
                 int k = i * loop + j;
@@ -277,12 +281,12 @@ __kernel void gemm_b4_c8_int4_buf(GLOBAL_SIZE_DIM2
                 #else
                 uchar16 charWeightsInt40 = vload16(k, weight + weight_offset);
                 #endif
-                COMPUTE_FLOAT4 in0 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + k * bhw4));
+                COMPUTE_FLOAT4 in0 = LOAD_INPUT4(input_offset + k * bhw4);
                 #if INPUT_BATCH_LEAVES_NUM >= 2
-                COMPUTE_FLOAT4 in1 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + k * bhw4 + 4));
+                COMPUTE_FLOAT4 in1 = LOAD_INPUT4(input_offset + k * bhw4 + 4);
                 #endif
                 #if INPUT_BATCH_LEAVES_NUM >= 3
-                COMPUTE_FLOAT4 in2 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + k * bhw4 + 8));
+                COMPUTE_FLOAT4 in2 = LOAD_INPUT4(input_offset + k * bhw4 + 8);
                 #endif
                 {
                     UCHAR4_TO_FLOAT8(charWeightsInt40.s0123, scale, offset);
@@ -329,12 +333,12 @@ __kernel void gemm_b4_c8_int4_buf(GLOBAL_SIZE_DIM2
             {
                 int k = i * loop + loop_end;
                 COMPUTE_FLOAT8 wei;
-                COMPUTE_FLOAT4 in0 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + k * bhw4));
+                COMPUTE_FLOAT4 in0 = LOAD_INPUT4(input_offset + k * bhw4);
                 #if INPUT_BATCH_LEAVES_NUM >= 2
-                COMPUTE_FLOAT4 in1 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + k * bhw4 + 4));
+                COMPUTE_FLOAT4 in1 = LOAD_INPUT4(input_offset + k * bhw4 + 4);
                 #endif
                 #if INPUT_BATCH_LEAVES_NUM >= 3
-                COMPUTE_FLOAT4 in2 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + k * bhw4 + 8));
+                COMPUTE_FLOAT4 in2 = LOAD_INPUT4(input_offset + k * bhw4 + 8);
                 #endif
                 #ifdef USE_IMAGE
                 uchar16 charWeightsInt40 = as_uchar16(read_imagei(weight, SAMPLER, (int2)(k, y)));
@@ -390,12 +394,12 @@ __kernel void gemm_b4_c8_int4_buf(GLOBAL_SIZE_DIM2
         }
         #else
         COMPUTE_FLOAT8 scale = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(0, dequantScaleOffset + (out_c_idx << 2) + i * dstChannelAlign)) / coef);
-        COMPUTE_FLOAT8 offset = 0;
+        COMPUTE_FLOAT8 offset = (COMPUTE_FLOAT8)(-8) * scale;
         #endif
         for (int j = 0; j < loop_end; j++) {
             int k = i * loop + j;
             COMPUTE_FLOAT8 wei;
-            COMPUTE_FLOAT16 in = CONVERT_COMPUTE_FLOAT16(vload16(0, input + input_offset + k * bhw4));
+            COMPUTE_FLOAT16 in = LOAD_INPUT16(input_offset + k * bhw4);
             #ifdef USE_IMAGE
             uchar16 charWeightsInt40 = as_uchar16(read_imagei(weight, SAMPLER, (int2)(k, y)));
             #else
@@ -434,7 +438,7 @@ __kernel void gemm_b4_c8_int4_buf(GLOBAL_SIZE_DIM2
         {
             int k = i * loop + loop_end;
             COMPUTE_FLOAT8 wei;
-            COMPUTE_FLOAT16 in = CONVERT_COMPUTE_FLOAT16(vload16(0, input + input_offset + k * bhw4));
+            COMPUTE_FLOAT16 in = LOAD_INPUT16(input_offset + k * bhw4);
             #ifdef USE_IMAGE
             uchar16 charWeightsInt40 = as_uchar16(read_imagei(weight, SAMPLER, (int2)(k, y)));
             #else
@@ -518,7 +522,11 @@ __kernel void gemm_b4_c8_int4_buf(GLOBAL_SIZE_DIM2
 }
 
 __kernel void gemm_b4_c8_int8_buf(GLOBAL_SIZE_DIM2
+#ifdef USE_IMAGE1D_INPUT
+                        __read_only image1d_buffer_t input,
+#else
                         __global const FLOAT* input,
+#endif
 #ifdef USE_IMAGE
                         __read_only image2d_t weight,
 #else
@@ -584,12 +592,12 @@ __kernel void gemm_b4_c8_int8_buf(GLOBAL_SIZE_DIM2
                 COMPUTE_FLOAT16 wei0 = CONVERT_COMPUTE_FLOAT16(vload16(k2, weight + weight_offset)) * scale + offset;
                 COMPUTE_FLOAT16 wei1 = CONVERT_COMPUTE_FLOAT16(vload16(k2 + 1, weight + weight_offset)) * scale + offset;
                 #endif
-                COMPUTE_FLOAT4 in0 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + k * bhw4));
+                COMPUTE_FLOAT4 in0 = LOAD_INPUT4(input_offset + k * bhw4);
                 #if INPUT_BATCH_LEAVES_NUM >= 2
-                COMPUTE_FLOAT4 in1 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + k * bhw4 + 4));
+                COMPUTE_FLOAT4 in1 = LOAD_INPUT4(input_offset + k * bhw4 + 4);
                 #endif
                 #if INPUT_BATCH_LEAVES_NUM >= 3
-                COMPUTE_FLOAT4 in2 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + k * bhw4 + 8));
+                COMPUTE_FLOAT4 in2 = LOAD_INPUT4(input_offset + k * bhw4 + 8);
                 #endif
                 {
                     out0 = mad((COMPUTE_FLOAT8)in0.s0, wei0.s01234567, out0);
@@ -632,12 +640,12 @@ __kernel void gemm_b4_c8_int8_buf(GLOBAL_SIZE_DIM2
             {
                 int k = i * loop + loop_end;
                 int k2 = k << 1;
-                COMPUTE_FLOAT4 in0 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + k * bhw4));
+                COMPUTE_FLOAT4 in0 = LOAD_INPUT4(input_offset + k * bhw4);
                 #if INPUT_BATCH_LEAVES_NUM >= 2
-                COMPUTE_FLOAT4 in1 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + k * bhw4 + 4));
+                COMPUTE_FLOAT4 in1 = LOAD_INPUT4(input_offset + k * bhw4 + 4);
                 #endif
                 #if INPUT_BATCH_LEAVES_NUM >= 3
-                COMPUTE_FLOAT4 in2 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + k * bhw4 + 8));
+                COMPUTE_FLOAT4 in2 = LOAD_INPUT4(input_offset + k * bhw4 + 8);
                 #endif
                 #ifdef USE_IMAGE
                 COMPUTE_FLOAT16 wei0 = CONVERT_COMPUTE_FLOAT16(as_char16(read_imagei(weight, SAMPLER, (int2)(k2, y)))) * scale + offset;
@@ -698,7 +706,7 @@ __kernel void gemm_b4_c8_int8_buf(GLOBAL_SIZE_DIM2
         for (int j = 0; j < loop_end; j++) {
             int k = i * loop + j;
             int k2 = k << 1;
-            COMPUTE_FLOAT16 in = CONVERT_COMPUTE_FLOAT16(vload16(0, input + input_offset + k * bhw4));
+            COMPUTE_FLOAT16 in = LOAD_INPUT16(input_offset + k * bhw4);
             #ifdef USE_IMAGE
             COMPUTE_FLOAT16 wei0 = CONVERT_COMPUTE_FLOAT16(as_char16(read_imagei(weight, SAMPLER, (int2)(k2, y)))) * scale + offset;
             COMPUTE_FLOAT16 wei1 = CONVERT_COMPUTE_FLOAT16(as_char16(read_imagei(weight, SAMPLER, (int2)(k2 + 1, y)))) * scale + offset;
@@ -735,7 +743,7 @@ __kernel void gemm_b4_c8_int8_buf(GLOBAL_SIZE_DIM2
         {
             int k = i * loop + loop_end;
             int k2 = k << 1;
-            COMPUTE_FLOAT16 in = CONVERT_COMPUTE_FLOAT16(vload16(0, input + input_offset + k * bhw4));
+            COMPUTE_FLOAT16 in = LOAD_INPUT16(input_offset + k * bhw4);
             #ifdef USE_IMAGE
             COMPUTE_FLOAT16 wei0 = CONVERT_COMPUTE_FLOAT16(as_char16(read_imagei(weight, SAMPLER, (int2)(k2, y)))) * scale + offset;
             COMPUTE_FLOAT16 wei1 = CONVERT_COMPUTE_FLOAT16(as_char16(read_imagei(weight, SAMPLER, (int2)(k2 + 1, y)))) * scale + offset;
