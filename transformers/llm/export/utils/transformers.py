@@ -73,6 +73,11 @@ class Attention(torch.nn.Module):
             self.num_key_value_heads = config.num_key_value_heads
         self.num_key_value_groups = self.num_heads // self.num_key_value_heads
         ModelMapper.do_map(self, attn, mapper['attention'])
+        self.qk_norm_after_rope = getattr(config, 'qk_norm_after_rope', False)
+        if not self.qk_norm_after_rope:
+            self.qk_norm_after_rope = (
+                hasattr(attn, 'query_layernorm') and hasattr(attn, 'key_layernorm')
+            )
 
         # Read attention scaling from the original HF attention module
         if hasattr(attn, 'scaling'):
@@ -173,9 +178,10 @@ class Attention(torch.nn.Module):
         else:
             gate = None
 
+        qk_norm_after_rope = getattr(self, 'qk_norm_after_rope', getattr(self.config, 'qk_norm_after_rope', False))
         query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim)
-        # q_norm (openelm, gemma3/4, qwen3, etc.)
-        if hasattr(self, 'q_norm') and self.q_norm is not None:
+        # Most models apply q_norm before rotary, but HunYuan applies it after rotary.
+        if not qk_norm_after_rope and hasattr(self, 'q_norm') and self.q_norm is not None:
             query_states = self.q_norm(query_states)
 
         # KV sharing: for shared layers, reuse KV from source layer (test mode only)
@@ -194,7 +200,7 @@ class Attention(torch.nn.Module):
                 value_states = self.v_proj(hidden_states)
             key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim)
             value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim)
-            if hasattr(self, 'k_norm') and self.k_norm is not None:
+            if not qk_norm_after_rope and hasattr(self, 'k_norm') and self.k_norm is not None:
                 key_states = self.k_norm(key_states)
             # gemma4 has v_norm (RMSNorm without scale)
             if hasattr(self, 'v_norm') and self.v_norm is not None:
@@ -214,6 +220,12 @@ class Attention(torch.nn.Module):
             query_states = self.rotary.apply_rotary_pos(query_states, cos, sin)
             if not use_shared_kv and self.k_proj is not None:
                 key_states = self.rotary.apply_rotary_pos(key_states, cos, sin)
+
+        if qk_norm_after_rope:
+            if hasattr(self, 'q_norm') and self.q_norm is not None:
+                query_states = self.q_norm(query_states)
+            if not use_shared_kv and self.k_proj is not None and hasattr(self, 'k_norm') and self.k_norm is not None:
+                key_states = self.k_norm(key_states)
 
         # MobileLLM model llama4_text has qk_norm after rotary
         if hasattr(self, 'qk_norm') and self.qk_norm is not None :
