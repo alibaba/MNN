@@ -38,6 +38,22 @@ static inline VARP _var(std::vector<T> vec, const std::vector<int> &dims) {
     return _Const(vec.data(), dims, NHWC, halide_type_of<T>());
 }
 
+static bool needVarWithShape(VARP var, const std::vector<int>& dims) {
+    if (var == nullptr || var->getInfo() == nullptr) {
+        return true;
+    }
+    const auto& current = var->getInfo()->dim;
+    if (current.size() != dims.size()) {
+        return true;
+    }
+    for (int i = 0; i < dims.size(); ++i) {
+        if (current[i] != dims[i]) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static MNNForwardType backend_type_convert(const std::string& type_str) {
     if (type_str == "cpu")
         return MNN_FORWARD_CPU;
@@ -56,7 +72,8 @@ static MNNForwardType backend_type_convert(const std::string& type_str) {
     return MNN_FORWARD_AUTO;
 }
 
-Omni::Omni(std::shared_ptr<LlmConfig> config) : Llm(config) {
+Omni::Omni(std::shared_ptr<LlmConfig> config) : Embedding(config) {
+    mIsEmbedding = config->config_.value("is_embedding", false);
     if (config->is_visual()) {
         mVisionHeight = config->config_.value("image_size", mVisionHeight);
         mVisionWidth  = mVisionHeight;
@@ -68,6 +85,7 @@ Omni::Omni(std::shared_ptr<LlmConfig> config) : Llm(config) {
         mVisionSizeUnit = config->config_.value("image_size_unit", mVisionSizeUnit);
         mVisionMaxSize = config->config_.value("image_max_size", mVisionMaxSize);
         mVisionGlobal = config->config_.value("global_image", mVisionGlobal);
+        mNumGridPerSide = config->config_.value("num_grid_per_side", mNumGridPerSide);
     }
     if (config->is_audio()) {
         mAudioPad = config->config_.value("audio_pad", mAudioPad);
@@ -78,10 +96,53 @@ Omni::Omni(std::shared_ptr<LlmConfig> config) : Llm(config) {
 
 bool Omni::load() {
     MNN::Express::ExecutorScope s(mExecutor);
-    auto res = Llm::load();
-    if (!res) {
-        return false;
+    bool res = true;
+    if (mIsEmbedding) {
+        initRuntime();
+        mTokenizer.reset(Tokenizer::createTokenizer(mConfig->tokenizer_file()));
+        mDiskEmbedding.reset(new DiskEmbedding(mConfig));
+        setChatTemplate();
+    } else {
+        res = Llm::load();
+        if (!res) { return false; }
     }
+    res = initProcessorRuntime();
+    if (!res) { return false; }
+    if (mConfig->has_talker()) {
+        mTalker.reset(new Talker(mConfig, this));
+        mTalker->setProcessorRuntimeManager(mProcessorRuntimeManager);
+        res = mTalker->load();
+        if (!res) { return false; }
+    }
+    if (mConfig->has_deepstack()) {
+        mExtraArgs.emplace_back(Express::_Fill(_var<int>({3, 1, 1}, {3}), _Scalar<float>(0.0)));
+    }
+    if (mIsEmbedding) {
+        Module::Config module_config;
+        if (mConfig->backend_type() == "npu") {
+            module_config.shapeMutable = false;
+        } else {
+            module_config.shapeMutable = true;
+        }
+        module_config.rearrange = true;
+        auto model_path = mConfig->llm_model();
+        auto weight_path = mConfig->llm_weight();
+        MNN_PRINT("load %s ... ", model_path.c_str());
+        mRuntimeManager->setExternalFile(weight_path);
+        mModule.reset(Module::load({"input_ids", "attention_mask", "position_ids", "deepstack_embeds"},
+                                   {"sentence_embeddings"}, model_path.c_str(), mRuntimeManager, &module_config));
+        mRuntimeManager->setExternalFile("");
+        if (nullptr == mModule.get()) {
+            MNN_ERROR("[Omni:embedding] Module::load failed for %s\n", model_path.c_str());
+            return false;
+        }
+        MNN_PRINT("Done!\n");
+    }
+    mContext->status = LlmStatus::RUNNING;
+    return true;
+}
+
+bool Omni::initProcessorRuntime() {
     ScheduleConfig config;
     if (mConfig->mllm_config_.is_null()) {
         mProcessorRuntimeManager = mRuntimeManager;
@@ -89,64 +150,32 @@ bool Omni::load() {
         BackendConfig cpuBackendConfig;
         config.type      = backend_type_convert(mConfig->backend_type(true));
         config.numThread = mConfig->thread_num(true);
-        if(config.type == 3){
-            config.numThread |= 64;
-        }
-        if (mConfig->power(true) == "high") {
-            cpuBackendConfig.power = BackendConfig::Power_High;
-        } else if (mConfig->power(true) == "low") {
-            cpuBackendConfig.power = BackendConfig::Power_Low;
-        }
-        if (mConfig->memory(true) == "high") {
-            cpuBackendConfig.memory = BackendConfig::Memory_High;
-        } else if (mConfig->memory(true) == "low") {
-            cpuBackendConfig.memory = BackendConfig::Memory_Low;
-        }
-        if (mConfig->precision(true) == "high") {
-            cpuBackendConfig.precision = BackendConfig::Precision_High;
-        } else if (mConfig->precision(true) == "low") {
-            cpuBackendConfig.precision = BackendConfig::Precision_Low;
-        }
+        if(config.type == 3){ config.numThread |= 64; }
+        if (mConfig->power(true) == "high") { cpuBackendConfig.power = BackendConfig::Power_High; }
+        else if (mConfig->power(true) == "low") { cpuBackendConfig.power = BackendConfig::Power_Low; }
+        if (mConfig->memory(true) == "high") { cpuBackendConfig.memory = BackendConfig::Memory_High; }
+        else if (mConfig->memory(true) == "low") { cpuBackendConfig.memory = BackendConfig::Memory_Low; }
+        if (mConfig->precision(true) == "high") { cpuBackendConfig.precision = BackendConfig::Precision_High; }
+        else if (mConfig->precision(true) == "low") { cpuBackendConfig.precision = BackendConfig::Precision_Low; }
         config.backendConfig = &cpuBackendConfig;
         mProcessorRuntimeManager.reset(Executor::RuntimeManager::createRuntimeManager(config));
         setRuntimeHint(mProcessorRuntimeManager, true);
     }
-    if (mConfig->has_talker()) {
-        mTalker.reset(new Talker(mConfig, this));
-        mTalker->setProcessorRuntimeManager(mProcessorRuntimeManager);
-        res = mTalker->load();
-    }
-    if (!res) {
-        return false;
-    }
-    if (mConfig->has_deepstack()) {
-        mExtraArgs.emplace_back(Express::_Fill(_var<int>({3, 1, 1}, {3}), _Scalar<float>(0.0)));
-    }
     Module::Config module_config;
     if(config.type == MNN_FORWARD_NN) {
-        module_config.shapeMutable = false;
-        module_config.rearrange    = false;
+        module_config.shapeMutable = false; module_config.rearrange = false;
     } else {
-        module_config.shapeMutable = true;
-        module_config.rearrange    = true;
+        module_config.shapeMutable = true; module_config.rearrange = true;
     }
-    // Reset KVCACHE_INFO to nullptr so vision encoder's self-attention is
-    // not affected by the LLM's kvcache metadata. Otherwise past-kv from LLM
-    // accumulates during each vision forward, causing inference time to grow.
     mProcessorRuntimeManager->setHintPtr(Interpreter::KVCACHE_INFO, nullptr);
     if (mConfig->is_visual()) {
         mVisionModule.reset(Module::load({}, {}, mConfig->visual_model().c_str(), mProcessorRuntimeManager, &module_config));
-        if (nullptr == mVisionModule.get()) {
-            return false;
-        }
+        if (nullptr == mVisionModule.get()) return false;
     }
     if (mConfig->is_audio()) {
         mAudioModule.reset(Module::load({}, {}, mConfig->audio_model().c_str(), mProcessorRuntimeManager, &module_config));
-        if (nullptr == mAudioModule.get()) {
-            return false;
-        }
+        if (nullptr == mAudioModule.get()) return false;
     }
-    mContext->status = LlmStatus::RUNNING;  // Set status to RUNNING after successful load
     return true;
 }
 
@@ -302,11 +331,21 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
     constexpr int temporal_patch_size = 2;
     constexpr int merge_size = 2;
     const int align_size = patch_size * merge_size;
-    // Qwen2-VL / Qwen2.5-VL / Qwen3-VL
+    // Use actual image dimensions (matching Python Qwen3VLProcessor)
+    auto imgInfo = image->getInfo();
+    if (imgInfo && imgInfo->dim.size() >= 2) {
+        mVisionHeight = imgInfo->dim[0];
+        mVisionWidth = imgInfo->dim[1];
+        if (imgInfo->dim.size() >= 3 && imgInfo->dim[2] == 4) {
+            image = _Slice(image, _var<int>({0, 0, 0}, {3}), _var<int>({-1, -1, 3}, {3}));
+            imgInfo = image->getInfo();
+        }
+    }
     mVisionHeight = round(mVisionHeight / (float)align_size) * align_size;
     mVisionWidth = round(mVisionWidth / (float)align_size) * align_size;
+    auto interp = isQwen3VL ? MNN::CV::INTER_CUBIC : MNN::CV::INTER_LINEAR;
     image = MNN::CV::resize(image, {mVisionWidth, mVisionHeight}, 0, 0,
-                            MNN::CV::INTER_LINEAR, MNN::CV::COLOR_BGR2RGB,
+                            interp, MNN::CV::COLOR_BGR2RGB,
                             mVisionMean, mVisionNorm);
     image = Express::_Unsqueeze(image, {0});
     image = Express::_Convert(image, NCHW);
@@ -336,7 +375,10 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
     // build position_ids
     const int wblock_size = merge_size * merge_size;
     const int hblock_size = wblock_size * grid_w / merge_size;
-    VARP position_ids = Express::_Input({2, seq_len}, NCHW, halide_type_of<int>());
+    if (needVarWithShape(mVisionPositionIdsCache, {2, seq_len})) {
+        mVisionPositionIdsCache = Express::_Input({2, seq_len}, NCHW, halide_type_of<int>());
+    }
+    VARP position_ids = mVisionPositionIdsCache;
     auto hpos_ptr = position_ids->writeMap<int>();
     auto wpos_ptr = hpos_ptr + seq_len;
     for (int i = 0; i < grid_h; i++) {
@@ -352,7 +394,10 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
     VARPS moduleInputs= {patches, position_ids};
     if (hasWindowIndex) {
         // Qwen2.5-VL: build window_index
-        window_index = Express::_Input({seq_len / 4}, NCHW, halide_type_of<int>());
+        if (needVarWithShape(mVisionWindowIndexCache, {seq_len / 4})) {
+            mVisionWindowIndexCache = Express::_Input({seq_len / 4}, NCHW, halide_type_of<int>());
+        }
+        window_index = mVisionWindowIndexCache;
         auto window_index_ptr = window_index->writeMap<int>();
         const int merge_unit = merge_size * merge_size;
         const int vit_merger_window_size = 4;
@@ -392,7 +437,10 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
             prev = cu_window_seqlens.back();
         }
         // build attention_mask
-        attention_mask = Express::_Input({2, 1, seq_len, seq_len}, NCHW);
+        if (needVarWithShape(mVisionWindowAttentionMaskCache, {2, 1, seq_len, seq_len})) {
+            mVisionWindowAttentionMaskCache = Express::_Input({2, 1, seq_len, seq_len}, NCHW);
+        }
+        attention_mask = mVisionWindowAttentionMaskCache;
         auto attention_mask_ptr = attention_mask->writeMap<float>();
         ::memset(attention_mask_ptr, 0, seq_len * seq_len * sizeof(float));
         attention_mask_ptr = attention_mask_ptr + seq_len * seq_len;
@@ -410,7 +458,10 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
         moduleInputs.push_back(window_index);
     } else {
         // build attention_mask
-        attention_mask = Express::_Input({1, seq_len, seq_len}, NCHW);
+        if (needVarWithShape(mVisionAttentionMaskCache, {1, seq_len, seq_len})) {
+            mVisionAttentionMaskCache = Express::_Input({1, seq_len, seq_len}, NCHW);
+        }
+        attention_mask = mVisionAttentionMaskCache;
         ::memset(attention_mask->writeMap<float>(), 0, seq_len * seq_len * sizeof(float));
         moduleInputs.push_back(attention_mask);
     }
@@ -426,8 +477,14 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
         for (int i = 0; i < grid_w; ++i) {
             w_idxs[i] = static_cast<float>(i) * (num_grid - 1) / (grid_w - 1);
         }
-        auto idx_tensor = Express::_Input({4, num_patches}, NCHW, halide_type_of<int>());
-        auto weight_tensor = Express::_Input({4, num_patches}, NCHW, halide_type_of<float>());
+        if (needVarWithShape(mVisionIdxTensorCache, {4, num_patches})) {
+            mVisionIdxTensorCache = Express::_Input({4, num_patches}, NCHW, halide_type_of<int>());
+        }
+        if (needVarWithShape(mVisionWeightTensorCache, {4, num_patches})) {
+            mVisionWeightTensorCache = Express::_Input({4, num_patches}, NCHW, halide_type_of<float>());
+        }
+        auto idx_tensor = mVisionIdxTensorCache;
+        auto weight_tensor = mVisionWeightTensorCache;
         auto idx_ptr = idx_tensor->writeMap<int>();
         auto weight_ptr = weight_tensor->writeMap<float>();
         for (int i = 0; i < grid_h; ++i) {
@@ -1041,7 +1098,7 @@ std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input
     mPositionIds.clear();
 
     while (std::regex_search(searchStart, prompt.cend(), match, multimode_regex)) {
-        auto txt_ids = mTokenizer->encode(match.prefix().str());
+        auto txt_ids = mTokenizer->encode(match.prefix().str(), false);
         addPositionIds(txt_ids.size());
         ids.insert(ids.end(), txt_ids.begin(), txt_ids.end());
         std::string mode = match[1].str();
@@ -1057,10 +1114,11 @@ std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input
         searchStart = match.suffix().first;
     }
     if (searchStart != prompt.cend()) {
-        auto txt_ids = mTokenizer->encode(std::string(searchStart, prompt.cend()));
+        auto txt_ids = mTokenizer->encode(std::string(searchStart, prompt.cend()), false);
         addPositionIds(txt_ids.size());
         ids.insert(ids.end(), txt_ids.begin(), txt_ids.end());
     }
+    mTokenizer->post_process(ids);
     return ids;
 }
 
@@ -1284,6 +1342,13 @@ VARP Omni::gen_position_ids(int seq_len) {
 std::vector<Express::VARP> Omni::forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos, Express::VARPS extraArgs) {
     MNN::Express::ExecutorScope s(mExecutor);
     extraArgs.insert(extraArgs.end(), mExtraArgs.begin(), mExtraArgs.end());
+    if (mIsEmbedding) {
+        std::vector<VARP> inputs{hiddenState, mask, inputPos};
+        if (!extraArgs.empty()) {
+            inputs.insert(inputs.end(), extraArgs.begin(), extraArgs.end());
+        }
+        return mModule->onForward(inputs);
+    }
     auto outputs = Llm::forwardRaw(hiddenState, mask, inputPos, extraArgs);
     if (mTalker && outputs.size() > 1) {
         mTalker->addTalkerEmbeds(outputs[1]);
@@ -1531,6 +1596,20 @@ void Omni::generateWavform() {
 #endif
         }
     }
+}
+
+VARP Omni::ids_embedding(const std::vector<int>& ids) {
+    MNN::Express::ExecutorScope s(mExecutor);
+    if (mContext->status == LlmStatus::INTERNAL_ERROR) {
+        return nullptr;
+    }
+    int prompt_len = static_cast<int>(ids.size());
+    auto inputs_ids = embedding(ids);
+    auto attention_mask = gen_attention_mask(prompt_len);
+    auto position_ids = gen_position_ids(prompt_len);
+    auto outputs = forwardRaw(inputs_ids, attention_mask, position_ids);
+    if (outputs.empty()) { return nullptr; }
+    return outputs[0];
 }
 
 bool Talker::load() {

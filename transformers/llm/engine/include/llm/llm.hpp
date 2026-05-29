@@ -260,7 +260,7 @@ public:
     static float cos_sim(Express::VARP var0, Express::VARP var1);
     virtual bool load() override;
 
-    Express::VARP ids_embedding(const std::vector<int>& ids);
+    virtual Express::VARP ids_embedding(const std::vector<int>& ids);
     Express::VARP txt_embedding(const std::string& txt);
     std::vector<Express::VARP> forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos, Express::VARPS extraArgs = {}) override;
     int dim() const;
