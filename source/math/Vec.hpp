@@ -202,7 +202,307 @@ struct Vec {
     }
 };
 
-#ifdef MNN_USE_NEON
+#if defined(MNN_USE_RVV) && defined(__riscv)
+static inline size_t MNNRvvVec4Vl() {
+    return __riscv_vsetvl_e32m1(4);
+}
+
+static inline vint32m1_t MNNRvvMaskToI32(vbool32_t mask, size_t vl) {
+    auto zero = __riscv_vmv_v_x_i32m1(0, vl);
+    auto one = __riscv_vmv_v_x_i32m1(1, vl);
+    return __riscv_vadd_vv_i32m1_mu(mask, zero, zero, one, vl);
+}
+
+static inline void MNNRvvTranspose4I32(vint32m1_t& vec0, vint32m1_t& vec1, vint32m1_t& vec2, vint32m1_t& vec3) {
+    const size_t vl = MNNRvvVec4Vl();
+    int32_t source[16];
+    __riscv_vse32_v_i32m1(source + 0, vec0, vl);
+    __riscv_vse32_v_i32m1(source + 4, vec1, vl);
+    __riscv_vse32_v_i32m1(source + 8, vec2, vl);
+    __riscv_vse32_v_i32m1(source + 12, vec3, vl);
+    const int32_t dest[16] = {
+        source[0], source[4], source[8], source[12],
+        source[1], source[5], source[9], source[13],
+        source[2], source[6], source[10], source[14],
+        source[3], source[7], source[11], source[15],
+    };
+    vec0 = __riscv_vle32_v_i32m1(dest + 0, vl);
+    vec1 = __riscv_vle32_v_i32m1(dest + 4, vl);
+    vec2 = __riscv_vle32_v_i32m1(dest + 8, vl);
+    vec3 = __riscv_vle32_v_i32m1(dest + 12, vl);
+}
+
+template<>
+struct Vec<int32_t, 4> {
+    using VecType = Vec<int32_t, 4>;
+    using VecTypeArray = std::array<VecType, 4>;
+    vint32m1_t value;
+    Vec() {
+    }
+    Vec(const int32_t v) {
+        value = __riscv_vmv_v_x_i32m1(v, MNNRvvVec4Vl());
+    }
+    Vec(const float v) {
+        value = __riscv_vmv_v_x_i32m1((int32_t)v, MNNRvvVec4Vl());
+    }
+    Vec(const vint32m1_t v) {
+        value = v;
+    }
+    Vec(const VecType& lr) {
+        value = lr.value;
+    }
+    Vec(const VecType&& lr) {
+        value = std::move(lr.value);
+    }
+    float operator[](size_t i) {
+        int32_t temp[4];
+        __riscv_vse32_v_i32m1(temp, value, MNNRvvVec4Vl());
+        return temp[i];
+    }
+    static VecType load(const float* addr) {
+        const size_t vl = MNNRvvVec4Vl();
+        return VecType(__riscv_vreinterpret_v_f32m1_i32m1(__riscv_vle32_v_f32m1(addr, vl)));
+    }
+    static VecType broadcast(const float* addr) {
+        const size_t vl = MNNRvvVec4Vl();
+        return VecType(__riscv_vreinterpret_v_f32m1_i32m1(__riscv_vfmv_v_f_f32m1(addr[0], vl)));
+    }
+    static VecType broadcast(const int32_t* addr) {
+        return VecType(__riscv_vmv_v_x_i32m1(addr[0], MNNRvvVec4Vl()));
+    }
+    static VecType load(const int32_t* addr) {
+        return VecType(__riscv_vle32_v_i32m1(addr, MNNRvvVec4Vl()));
+    }
+    static void save(float* addr, const VecType& v) {
+        const size_t vl = MNNRvvVec4Vl();
+        __riscv_vse32_v_f32m1(addr, __riscv_vreinterpret_v_i32m1_f32m1(v.value), vl);
+    }
+    static void save(int32_t* addr, const VecType& v) {
+        __riscv_vse32_v_i32m1(addr, v.value, MNNRvvVec4Vl());
+    }
+    static VecType max(const VecType& v1, const VecType& v2) {
+        return VecType(__riscv_vmax_vv_i32m1(v1.value, v2.value, MNNRvvVec4Vl()));
+    }
+    static VecType min(const VecType& v1, const VecType& v2) {
+        return VecType(__riscv_vmin_vv_i32m1(v1.value, v2.value, MNNRvvVec4Vl()));
+    }
+    static VecType fma(const VecType& v1, const VecType& v2, const VecType& v3) {
+        return VecType(__riscv_vmacc_vv_i32m1(v1.value, v2.value, v3.value, MNNRvvVec4Vl()));
+    }
+    static VecType fms(const VecType& v1, const VecType& v2, const VecType& v3) {
+        return VecType(__riscv_vnmsac_vv_i32m1(v1.value, v2.value, v3.value, MNNRvvVec4Vl()));
+    }
+    static inline void transpose4(VecType& vec0, VecType& vec1, VecType& vec2, VecType& vec3) {
+        MNNRvvTranspose4I32(vec0.value, vec1.value, vec2.value, vec3.value);
+    }
+
+    VecType operator+(const VecType& lr) const {
+        VecType dst = { __riscv_vadd_vv_i32m1(value, lr.value, MNNRvvVec4Vl()) };
+        return dst;
+    }
+    VecType operator-(const VecType& lr) const {
+        VecType dst = { __riscv_vsub_vv_i32m1(value, lr.value, MNNRvvVec4Vl()) };
+        return dst;
+    }
+    VecType operator+=(const VecType& lr) {
+        value = __riscv_vadd_vv_i32m1(value, lr.value, MNNRvvVec4Vl());
+        return *this;
+    }
+    VecType operator-=(const VecType& lr) {
+        value = __riscv_vsub_vv_i32m1(value, lr.value, MNNRvvVec4Vl());
+        return *this;
+    }
+    VecType operator*(int32_t lr) const {
+        VecType dst = { __riscv_vmul_vx_i32m1(value, lr, MNNRvvVec4Vl()) };
+        return dst;
+    }
+    VecType operator*(float lr) const {
+        VecType dst = { __riscv_vmul_vx_i32m1(value, (int32_t)lr, MNNRvvVec4Vl()) };
+        return dst;
+    }
+    VecType operator*(const VecType& lr) const {
+        VecType dst = { __riscv_vmul_vv_i32m1(value, lr.value, MNNRvvVec4Vl()) };
+        return dst;
+    }
+    VecType& operator=(const VecType& lr) {
+        value = lr.value;
+        return *this;
+    }
+    VecType& operator=(const VecType&& lr) {
+        value = std::move(lr.value);
+        return *this;
+    }
+    VecType operator-() {
+        const size_t vl = MNNRvvVec4Vl();
+        VecType dst = { __riscv_vsub_vv_i32m1(__riscv_vmv_v_x_i32m1(0, vl), value, vl) };
+        return dst;
+    }
+    VecType operator<(const VecType& lr) const {
+        const size_t vl = MNNRvvVec4Vl();
+        VecType dst = { MNNRvvMaskToI32(__riscv_vmslt_vv_i32m1_b32(value, lr.value, vl), vl) };
+        return dst;
+    }
+    VecType operator>(const VecType& lr) const {
+        const size_t vl = MNNRvvVec4Vl();
+        VecType dst = { MNNRvvMaskToI32(__riscv_vmsgt_vv_i32m1_b32(value, lr.value, vl), vl) };
+        return dst;
+    }
+    VecType operator<=(const VecType& lr) const {
+        const size_t vl = MNNRvvVec4Vl();
+        VecType dst = { MNNRvvMaskToI32(__riscv_vmsle_vv_i32m1_b32(value, lr.value, vl), vl) };
+        return dst;
+    }
+    VecType operator>=(const VecType& lr) const {
+        const size_t vl = MNNRvvVec4Vl();
+        VecType dst = { MNNRvvMaskToI32(__riscv_vmsge_vv_i32m1_b32(value, lr.value, vl), vl) };
+        return dst;
+    }
+    VecType operator==(const VecType& lr) const {
+        const size_t vl = MNNRvvVec4Vl();
+        VecType dst = { MNNRvvMaskToI32(__riscv_vmseq_vv_i32m1_b32(value, lr.value, vl), vl) };
+        return dst;
+    }
+};
+
+template<>
+struct Vec<float, 4> {
+    using VecType = Vec<float, 4>;
+    using VecTypeInt32 = Vec<int32_t, 4>;
+    using VecTypeArray = std::array<VecType, 4>;
+    vfloat32m1_t value;
+    Vec() = default;
+    Vec(const float v) {
+        value = __riscv_vfmv_v_f_f32m1(v, MNNRvvVec4Vl());
+    }
+    Vec(const vfloat32m1_t v) {
+        value = v;
+    }
+    Vec(const VecType& lr) {
+        value = lr.value;
+    }
+    Vec(const VecType&& lr) {
+        value = std::move(lr.value);
+    }
+    float operator[](size_t i) {
+        float temp[4];
+        __riscv_vse32_v_f32m1(temp, value, MNNRvvVec4Vl());
+        return temp[i];
+    }
+    static VecType load(const float* addr) {
+        return VecType(__riscv_vle32_v_f32m1(addr, MNNRvvVec4Vl()));
+    }
+    static VecType broadcast(const float* addr) {
+        return VecType(__riscv_vfmv_v_f_f32m1(addr[0], MNNRvvVec4Vl()));
+    }
+    static VecType load(const int32_t* addr) {
+        const size_t vl = MNNRvvVec4Vl();
+        return VecType(__riscv_vfcvt_f_x_v_f32m1(__riscv_vle32_v_i32m1(addr, vl), vl));
+    }
+    static void save(float* addr, const VecType& v) {
+        __riscv_vse32_v_f32m1(addr, v.value, MNNRvvVec4Vl());
+    }
+    static void save(float* addr, const VecTypeInt32& v) {
+        const size_t vl = MNNRvvVec4Vl();
+        __riscv_vse32_v_f32m1(addr, __riscv_vreinterpret_v_i32m1_f32m1(v.value), vl);
+    }
+    static void save(int32_t* addr, const VecType& v) {
+        const size_t vl = MNNRvvVec4Vl();
+        __riscv_vse32_v_i32m1(addr, __riscv_vreinterpret_v_f32m1_i32m1(v.value), vl);
+    }
+    static VecType max(const VecType& v1, const VecType& v2) {
+        return VecType(__riscv_vfmax_vv_f32m1(v1.value, v2.value, MNNRvvVec4Vl()));
+    }
+    static VecType min(const VecType& v1, const VecType& v2) {
+        return VecType(__riscv_vfmin_vv_f32m1(v1.value, v2.value, MNNRvvVec4Vl()));
+    }
+    static VecType fma(const VecType& v1, const VecType& v2, const VecType& v3) {
+        return VecType(__riscv_vfmacc_vv_f32m1(v1.value, v2.value, v3.value, MNNRvvVec4Vl()));
+    }
+    static VecType fms(const VecType& v1, const VecType& v2, const VecType& v3) {
+        return VecType(__riscv_vfnmsub_vv_f32m1(v2.value, v3.value, v1.value, MNNRvvVec4Vl()));
+    }
+    static inline void transpose4(VecType& vec0, VecType& vec1, VecType& vec2, VecType& vec3) {
+        auto v0 = __riscv_vreinterpret_v_f32m1_i32m1(vec0.value);
+        auto v1 = __riscv_vreinterpret_v_f32m1_i32m1(vec1.value);
+        auto v2 = __riscv_vreinterpret_v_f32m1_i32m1(vec2.value);
+        auto v3 = __riscv_vreinterpret_v_f32m1_i32m1(vec3.value);
+        MNNRvvTranspose4I32(v0, v1, v2, v3);
+        vec0.value = __riscv_vreinterpret_v_i32m1_f32m1(v0);
+        vec1.value = __riscv_vreinterpret_v_i32m1_f32m1(v1);
+        vec2.value = __riscv_vreinterpret_v_i32m1_f32m1(v2);
+        vec3.value = __riscv_vreinterpret_v_i32m1_f32m1(v3);
+    }
+
+    VecType operator+(const VecType& lr) const {
+        VecType dst = { __riscv_vfadd_vv_f32m1(value, lr.value, MNNRvvVec4Vl()) };
+        return dst;
+    }
+    VecType operator-(const VecType& lr) const {
+        VecType dst = { __riscv_vfsub_vv_f32m1(value, lr.value, MNNRvvVec4Vl()) };
+        return dst;
+    }
+    VecType operator+=(const VecType& lr) {
+        value = __riscv_vfadd_vv_f32m1(value, lr.value, MNNRvvVec4Vl());
+        return *this;
+    }
+    VecType operator-=(const VecType& lr) {
+        value = __riscv_vfsub_vv_f32m1(value, lr.value, MNNRvvVec4Vl());
+        return *this;
+    }
+    VecType operator*(float lr) const {
+        VecType dst = { __riscv_vfmul_vf_f32m1(value, lr, MNNRvvVec4Vl()) };
+        return dst;
+    }
+    VecType operator*(const VecType& lr) const {
+        VecType dst = { __riscv_vfmul_vv_f32m1(value, lr.value, MNNRvvVec4Vl()) };
+        return dst;
+    }
+    VecType& operator=(const VecType& lr) {
+        value = lr.value;
+        return *this;
+    }
+    VecType& operator=(const VecType&& lr) {
+        value = std::move(lr.value);
+        return *this;
+    }
+    VecType operator-() {
+        const size_t vl = MNNRvvVec4Vl();
+        VecType dst = { __riscv_vfsub_vv_f32m1(__riscv_vfmv_v_f_f32m1(0.0f, vl), value, vl) };
+        return dst;
+    }
+    VecType operator<(const VecType& lr) const {
+        const size_t vl = MNNRvvVec4Vl();
+        VecType dst = {
+            __riscv_vreinterpret_v_i32m1_f32m1(MNNRvvMaskToI32(__riscv_vmflt_vv_f32m1_b32(value, lr.value, vl), vl)) };
+        return dst;
+    }
+    VecType operator>(const VecType& lr) const {
+        const size_t vl = MNNRvvVec4Vl();
+        VecType dst = {
+            __riscv_vreinterpret_v_i32m1_f32m1(MNNRvvMaskToI32(__riscv_vmfgt_vv_f32m1_b32(value, lr.value, vl), vl)) };
+        return dst;
+    }
+    VecType operator<=(const VecType& lr) const {
+        const size_t vl = MNNRvvVec4Vl();
+        VecType dst = {
+            __riscv_vreinterpret_v_i32m1_f32m1(MNNRvvMaskToI32(__riscv_vmfle_vv_f32m1_b32(value, lr.value, vl), vl)) };
+        return dst;
+    }
+    VecType operator>=(const VecType& lr) const {
+        const size_t vl = MNNRvvVec4Vl();
+        VecType dst = {
+            __riscv_vreinterpret_v_i32m1_f32m1(MNNRvvMaskToI32(__riscv_vmfge_vv_f32m1_b32(value, lr.value, vl), vl)) };
+        return dst;
+    }
+    VecType operator==(const VecType& lr) const {
+        const size_t vl = MNNRvvVec4Vl();
+        VecType dst = {
+            __riscv_vreinterpret_v_i32m1_f32m1(MNNRvvMaskToI32(__riscv_vmfeq_vv_f32m1_b32(value, lr.value, vl), vl)) };
+        return dst;
+    }
+};
+
+#elif defined(MNN_USE_NEON)
 template<>
 struct Vec<int32_t, 4> {
     using VecType = Vec<int32_t, 4>;

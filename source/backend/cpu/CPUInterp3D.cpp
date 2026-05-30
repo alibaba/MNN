@@ -45,6 +45,8 @@ ErrorCode CPUInterp3D::onExecute(const std::vector<Tensor *> &inputs, const std:
     auto channel_input = inputs[0]->channel();
     int inD = inputs[0]->buffer().dim[2].extent;
     int outD = outputs[0]->buffer().dim[2].extent;
+    auto area_in = inD * inputs[0]->width() * inputs[0]->height();
+    auto area_out = outD * outputs[0]->width() * outputs[0]->height();
     auto plane_in = inD * inputs[0]->width() * inputs[0]->height() * inputs[0]->batch();
     auto plane_out = outD * outputs[0]->width() * outputs[0]->height() * outputs[0]->batch();
     auto depth = UP_DIV(channel_input, core->pack);
@@ -63,6 +65,14 @@ ErrorCode CPUInterp3D::onExecute(const std::vector<Tensor *> &inputs, const std:
             }
             else if (core->pack == 16) {
                 CPUResizeNearestneighborC4<int8_t>(inputs, outputs, mWidthScale, mHeightScale, mWidthOffset, mHeightOffset);
+            } else {
+                repackInt8(inputs[0]->host<int8_t>(), mInputTemp.get()->host<int8_t>(), inputs[0]->batch(), area_in,
+                           channel_input, core->pack, 16);
+                CPUResizeNearestneighbor3DC4<int8_t>({mInputTemp.get()}, {mOutputTemp.get()}, mWidthScale,
+                                                     mHeightScale, mDepthScale, mWidthOffset, mHeightOffset,
+                                                     mDepthOffset);
+                repackInt8(mOutputTemp.get()->host<int8_t>(), outputs[0]->host<int8_t>(), outputs[0]->batch(),
+                           area_out, outputs[0]->channel(), 16, core->pack);
             }
         } else {
             CPUResizeNearestneighbor3DC4<float>(inputs, outputs, mWidthScale, mHeightScale, mDepthScale,
@@ -94,6 +104,14 @@ ErrorCode CPUInterp3D::onExecute(const std::vector<Tensor *> &inputs, const std:
             }
             else if (core->pack == 16) {
                 CPUResizeNearestneighbor3DRoundC4<int8_t>(inputs, outputs, mWidthScale, mHeightScale, mDepthScale, mWidthOffset, mHeightOffset, mDepthOffset);
+            } else {
+                repackInt8(inputs[0]->host<int8_t>(), mInputTemp.get()->host<int8_t>(), inputs[0]->batch(), area_in,
+                           channel_input, core->pack, 16);
+                CPUResizeNearestneighbor3DRoundC4<int8_t>({mInputTemp.get()}, {mOutputTemp.get()}, mWidthScale,
+                                                          mHeightScale, mDepthScale, mWidthOffset, mHeightOffset,
+                                                          mDepthOffset);
+                repackInt8(mOutputTemp.get()->host<int8_t>(), outputs[0]->host<int8_t>(), outputs[0]->batch(),
+                           area_out, outputs[0]->channel(), 16, core->pack);
             }
         } else {
             CPUResizeNearestneighbor3DRoundC4<float>(inputs, outputs, mWidthScale, mHeightScale, mDepthScale, mWidthOffset, mHeightOffset, mDepthOffset);

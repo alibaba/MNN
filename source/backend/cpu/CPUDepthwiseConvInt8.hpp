@@ -15,11 +15,13 @@ namespace MNN {
 
 class CPUDepthwiseConvInt8 : public CPUConvolution {
 public:
-    CPUDepthwiseConvInt8(Backend *backend, const Convolution2DCommon* common, std::shared_ptr<ResourceInt8> res);
+    CPUDepthwiseConvInt8(Backend* backend, const Convolution2DCommon* common, std::shared_ptr<ResourceInt8> res,
+                         int pack = 16);
     virtual ~CPUDepthwiseConvInt8();
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
+    virtual ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
+
 private:
     int mThreadNumber;
     int mPack = 16;
@@ -36,8 +38,10 @@ private:
     std::shared_ptr<Tensor> mOutputTemp;
     std::shared_ptr<Tensor> mWeightTemp;
     void fastDepthwiseInt8(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
-    std::function<void(int8_t* dst, const int8_t* src, const int8_t* weight, const QuanPostTreatParameters* parameters, size_t width,
-                       size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, int8_t* idxOrder)> mThreadFunction;
+    std::function<void(int8_t* dst, const int8_t* src, const int8_t* weight, const QuanPostTreatParameters* parameters,
+                       size_t width, size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step,
+                       int8_t* idxOrder)>
+        mThreadFunction;
     std::vector<int8_t> mOrder;
     std::vector<int32_t> mBiasExtend;
 };

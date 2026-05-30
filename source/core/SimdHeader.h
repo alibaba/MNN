@@ -12,4 +12,7 @@
 #include <x86intrin.h>
 #endif
 #endif
+#if defined(MNN_USE_RVV) && defined(__riscv)
+#include <riscv_vector.h>
+#endif
 #endif

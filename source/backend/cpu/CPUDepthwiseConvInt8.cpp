@@ -14,6 +14,7 @@
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
 #include <math.h>
+#include <string.h>
 #ifdef MNN_USE_SSE
 #define BASIC_TYPE int16_t
 #else
@@ -21,32 +22,61 @@
 #endif
 namespace MNN {
 
+static void MNNLineDepthWiseInt8AddBiasScaleUnitPack(int8_t* dst, const int8_t* src, const int8_t* weight,
+                                                     const QuanPostTreatParameters* parameters, size_t width,
+                                                     size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step,
+                                                     size_t dilateY_step, int pack) {
+    auto bias_z = parameters->bias;
+    auto scale_z = parameters->scale;
+    for (int dx = 0; dx < width; ++dx) {
+        auto dst_x = dst + dx * pack;
+        int32_t dstInt32[32];
+        ::memset(dstInt32, 0, pack * sizeof(int32_t));
+        const auto src_z = src + src_w_step * dx;
+        for (int fy = 0; fy < fh; ++fy) {
+            const auto src_y = src_z + fy * dilateY_step;
+            const auto weight_y = weight + fy * fw * pack;
+            for (int fx = 0; fx < fw; ++fx) {
+                const auto src_x = src_y + fx * dilateX_step;
+                const auto weight_x = weight_y + pack * fx;
+                for (int c = 0; c < pack; ++c) {
+                    dstInt32[c] += static_cast<int32_t>(src_x[c]) * static_cast<int32_t>(weight_x[c]);
+                }
+            }
+        }
+        for (int c = 0; c < pack; ++c) {
+            float val = (dstInt32[c] + bias_z[c]) * scale_z[c];
+            int valOut = roundf(val);
+            valOut = ALIMIN(valOut, parameters->maxValue);
+            valOut = ALIMAX(valOut, parameters->minValue);
+            dst_x[c] = static_cast<int8_t>(valOut);
+        }
+    }
+}
+
 void CPUDepthwiseConvInt8::fastDepthwiseInt8(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    auto core = static_cast<CPUBackend*>(backend())->int8Functions();
     int UNIT = mPack;
     if (mUse3x3Kernel) {
         UNIT = 4;
     }
 
-    auto input           = inputs[0];
-    auto output          = outputs[0];
-    const int batch      = input->batch();
-    const int src_b_step = input->stride(0);
-    const int dst_b_step = output->stride(0);
+    auto input = inputs[0];
+    auto output = outputs[0];
+    const int batch = input->batch();
 
     const auto inputPtr = input->host<int8_t>();
-    auto outputPtr      = output->host<int8_t>();
+    auto outputPtr = output->host<int8_t>();
     const int dst_depth_quad = UP_DIV(output->channel(), UNIT);
-    const int src_width      = input->width();
-    const int src_height     = input->height();
-    const int dst_width      = output->width();
-    const int dst_height     = output->height();
-    const int dst_z_step     = dst_width * dst_height * UNIT;
-    const int src_z_step     = src_width * src_height * UNIT;
-    const auto weightPtr     = mResource->mWeightInt8->host<BASIC_TYPE>();
+    const int src_width = input->width();
+    const int src_height = input->height();
+    const int dst_width = output->width();
+    const int dst_height = output->height();
+    const int dst_z_step = dst_width * dst_height * UNIT;
+    const int src_z_step = src_width * src_height * UNIT;
+    const auto weightPtr = mResource->mWeightInt8->host<BASIC_TYPE>();
     // const auto biasPtr       = mMutableResource.mBiasInt32->host<int32_t>();
-    const auto biasPtr       = mBiasExtend.data();
-    const auto scalePtr      = mMutableResource.mScaleFloat->host<float>();
+    const auto biasPtr = mBiasExtend.data();
+    const auto scalePtr = mMutableResource.mScaleFloat->host<float>();
     auto totalCount = batch * dst_depth_quad;
 
     MNN_CONCURRENCY_BEGIN(tId, mThreadNumber) {
@@ -62,7 +92,7 @@ void CPUDepthwiseConvInt8::fastDepthwiseInt8(const std::vector<Tensor*>& inputs,
         for (int index = tId; index < totalCount; index += mThreadNumber) {
             int dz = index / batch;
             const auto srcOrigin = inputPtr + index * src_z_step;
-            auto dstOrigin       = outputPtr + index * dst_z_step;
+            auto dstOrigin = outputPtr + index * dst_z_step;
 #ifdef MNN_USE_SSE
             auto inputPadPtrCopy = (int8_t*)inputPadPtr + mInputPad->stride(0);
             ::memset(inputPadPtrCopy, mMutableResource.mInputZeroPoint + 128, mInputPad->stride(0) * sizeof(int8_t));
@@ -82,23 +112,27 @@ void CPUDepthwiseConvInt8::fastDepthwiseInt8(const std::vector<Tensor*>& inputs,
 #endif
             // Compute
             const auto weight_dz = weightPtr + dz * mKernels.first * mKernels.second * UNIT;
-            const auto bias_dz   = biasPtr + dz * 16;
-            const auto scale_dz  = scalePtr + dz * UNIT;
+            const auto bias_dz = biasPtr + dz * (mUse3x3Kernel ? 16 : UNIT);
+            const auto scale_dz = scalePtr + dz * UNIT;
             quanParameters.bias = bias_dz;
             quanParameters.scale = scale_dz;
             for (int dy = 0; dy < dst_height; ++dy) {
                 const int srcStartY = dy * mStrides.second;
-                const auto src_dy   = inputPadPtr + srcStartY * mPaddedSize.first * UNIT;
-                auto dst_y          = dstOrigin + dy * dst_width * UNIT;
-                mThreadFunction(dst_y, (const int8_t*)src_dy, (const int8_t*)weight_dz, &quanParameters, dst_width, mStrides.first * UNIT, mKernels.first, mKernels.second, mDilates.first * UNIT, mDilates.second * UNIT * mPaddedSize.first, mOrder.data());
+                const auto src_dy = inputPadPtr + srcStartY * mPaddedSize.first * UNIT;
+                auto dst_y = dstOrigin + dy * dst_width * UNIT;
+                mThreadFunction(dst_y, (const int8_t*)src_dy, (const int8_t*)weight_dz, &quanParameters, dst_width,
+                                mStrides.first * UNIT, mKernels.first, mKernels.second, mDilates.first * UNIT,
+                                mDilates.second * UNIT * mPaddedSize.first, mOrder.data());
             }
         }
     }
     MNN_CONCURRENCY_END();
 }
 
-CPUDepthwiseConvInt8::CPUDepthwiseConvInt8(Backend* backend, const Convolution2DCommon* common, std::shared_ptr<ResourceInt8> res): CPUConvolution(common, backend), mResource(res), mMutableResource(res, backend) {
-    mValid        = mMutableResource.mValid;
+CPUDepthwiseConvInt8::CPUDepthwiseConvInt8(Backend* backend, const Convolution2DCommon* common,
+                                           std::shared_ptr<ResourceInt8> res, int pack)
+    : CPUConvolution(common, backend), mPack(pack), mResource(res), mMutableResource(res, backend) {
+    mValid = mMutableResource.mValid;
 }
 CPUDepthwiseConvInt8::~CPUDepthwiseConvInt8() {
     // Do nothing
@@ -108,13 +142,13 @@ bool CPUDepthwiseConvInt8::onClone(Backend* bn, const Op* op, Execution** dst) {
     if (nullptr == dst) {
         return true;
     }
-    auto exe = new CPUDepthwiseConvInt8(bn, op->main_as_Convolution2D()->common(), mResource);
+    auto exe = new CPUDepthwiseConvInt8(bn, op->main_as_Convolution2D()->common(), mResource, mPack);
     *dst = exe;
     return true;
 }
 
 ErrorCode CPUDepthwiseConvInt8::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    auto input  = inputs[0];
+    auto input = inputs[0];
     auto output = outputs[0];
     std::vector<float> inputQuantInfo = TensorUtils::getQuantInfo(input);
     std::vector<float> outputQuantInfo = TensorUtils::getQuantInfo(output);
@@ -125,34 +159,42 @@ ErrorCode CPUDepthwiseConvInt8::onResize(const std::vector<Tensor*>& inputs, con
     int padY = std::get<1>(pads);
     mPads = std::make_pair(padX, padY);
     auto core = static_cast<CPUBackend*>(backend())->int8Functions();
-    auto gcore = static_cast<CPUBackend*>(backend())->functions();
     int UNIT = mPack;
-    mThreadFunction = core->ConvDepthwiseLineInt8;
+    mUse3x3Kernel = false;
+    if (UNIT > 16) {
+        mThreadFunction = [UNIT](int8_t* dst, const int8_t* src, const int8_t* weight,
+                                 const QuanPostTreatParameters* parameters, size_t width, size_t src_w_step, size_t fw,
+                                 size_t fh, size_t dilateX_step, size_t dilateY_step, int8_t* idxOrder) {
+            MNNLineDepthWiseInt8AddBiasScaleUnitPack(dst, src, weight, parameters, width, src_w_step, fw, fh,
+                                                     dilateX_step, dilateY_step, UNIT);
+        };
+    } else {
+        mThreadFunction = core->ConvDepthwiseLineInt8;
+    }
 
-    const int src_width      = input->width();
-    const int src_height     = input->height();
-    const int dst_width      = output->width();
-    const int dst_height     = output->height();
-    const int strideY        = mCommon->strideY();
-    const int strideX        = mCommon->strideX();
-    const int dilateY        = mCommon->dilateY();
-    const int dilateX        = mCommon->dilateX();
-    const int kernel_height  = mCommon->kernelY();
-    const int kernel_width   = mCommon->kernelX();
+    const int src_width = input->width();
+    const int src_height = input->height();
+    const int dst_width = output->width();
+    const int dst_height = output->height();
+    const int strideY = mCommon->strideY();
+    const int strideX = mCommon->strideX();
+    const int dilateY = mCommon->dilateY();
+    const int dilateX = mCommon->dilateX();
+    const int kernel_height = mCommon->kernelY();
+    const int kernel_width = mCommon->kernelX();
 
     int size_ = mMutableResource.mBiasInt32->length(0);
     if (core->ConvDepthwise3x3LineInt8_ARM82) {
-        if (kernel_width == 3 && kernel_height == 3 && strideX == 1 && strideY == 1 && dilateX == 1 && dilateY == 1 && dst_width >= 2 && dst_height >= 2) {
-            mUse3x3Kernel   = true;
+        if (kernel_width == 3 && kernel_height == 3 && strideX == 1 && strideY == 1 && dilateX == 1 && dilateY == 1 &&
+            dst_width >= 2 && dst_height >= 2) {
+            mUse3x3Kernel = true;
             mThreadFunction = core->ConvDepthwise3x3LineInt8_ARM82;
             UNIT = 4;
             mOrder.resize(64);
-            mOrder = { 0, 4, 8, 16, 1, 5, 9, 17, 2, 6, 10, 18, 3, 7, 11, 19, 
-                       4, 8, 16, 20, 5, 9, 17, 21, 6, 10, 18, 22, 7, 11, 19, 23,
-                       4, 8, 12, 20, 5, 9, 13, 21, 6, 10, 14, 22, 7, 11, 15, 23,
-                       8, 12, 20, 24, 9, 13, 21, 25, 10, 14, 22, 26, 11, 15, 23, 27
-                    };
-            
+            mOrder = {0,  4,  8,  16, 1,  5,  9,  17, 2,  6,  10, 18, 3,  7,  11, 19, 4,  8,  16, 20, 5,  9,
+                      17, 21, 6,  10, 18, 22, 7,  11, 19, 23, 4,  8,  12, 20, 5,  9,  13, 21, 6,  10, 14, 22,
+                      7,  11, 15, 23, 8,  12, 20, 24, 9,  13, 21, 25, 10, 14, 22, 26, 11, 15, 23, 27};
+
             int32_t* biasPtr = mMutableResource.mBiasInt32->host<int32_t>();
             mBiasExtend.resize(size_ * 4);
             int32_t* dstPtr = mBiasExtend.data();
@@ -169,14 +211,13 @@ ErrorCode CPUDepthwiseConvInt8::onResize(const std::vector<Tensor*>& inputs, con
     if (!mUse3x3Kernel) {
         mBiasExtend.resize(size_);
         int32_t* biasPtr = mMutableResource.mBiasInt32->host<int32_t>();
-        int32_t* dstPtr  = mBiasExtend.data();
+        int32_t* dstPtr = mBiasExtend.data();
         ::memcpy(dstPtr, biasPtr, sizeof(int32_t) * size_);
     }
 
-
     const int dst_depth_quad = UP_DIV(output->channel(), UNIT);
     const int threadNumber = static_cast<CPUBackend*>(backend())->threadNumber();
-    mThreadNumber          = std::min(threadNumber, dst_depth_quad * input->batch());
+    mThreadNumber = std::min(threadNumber, dst_depth_quad * input->batch());
     int paddedWidth = std::get<0>(pads) + std::get<2>(pads) + input->width();
     int paddedHeight = std::get<1>(pads) + std::get<3>(pads) + input->height();
     mInputPad.reset(Tensor::createDevice<BASIC_TYPE>({mThreadNumber, paddedWidth * paddedHeight * UNIT}));
@@ -190,10 +231,12 @@ ErrorCode CPUDepthwiseConvInt8::onResize(const std::vector<Tensor*>& inputs, con
         return OUT_OF_MEMORY;
     }
 
-    mInputTemp.reset(Tensor::createDevice<BASIC_TYPE>({input->batch(), src_height, src_width, UP_DIV(output->channel(), UNIT) * UNIT}));
-    mOutputTemp.reset(Tensor::createDevice<BASIC_TYPE>({output->batch(), dst_height, dst_width, UP_DIV(output->channel(), UNIT) * UNIT}));
-    bool res = backend()->onAcquireBuffer(mInputTemp.get(), Backend::DYNAMIC)
-            && backend()->onAcquireBuffer(mOutputTemp.get(), Backend::DYNAMIC);
+    mInputTemp.reset(Tensor::createDevice<BASIC_TYPE>(
+        {input->batch(), src_height, src_width, UP_DIV(output->channel(), UNIT) * UNIT}));
+    mOutputTemp.reset(Tensor::createDevice<BASIC_TYPE>(
+        {output->batch(), dst_height, dst_width, UP_DIV(output->channel(), UNIT) * UNIT}));
+    bool res = backend()->onAcquireBuffer(mInputTemp.get(), Backend::DYNAMIC) &&
+               backend()->onAcquireBuffer(mOutputTemp.get(), Backend::DYNAMIC);
     if (!res) {
         return OUT_OF_MEMORY;
     }
@@ -206,9 +249,10 @@ ErrorCode CPUDepthwiseConvInt8::onResize(const std::vector<Tensor*>& inputs, con
 
 ErrorCode CPUDepthwiseConvInt8::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto core = static_cast<CPUBackend*>(backend())->functions();
-    auto coreInt8 = static_cast<CPUBackend*>(backend())->int8Functions();
     auto input = inputs[0];
     auto output = outputs[0];
+    auto area_in = input->width() * input->height();
+    auto area_out = output->width() * output->height();
     auto plane_in = input->width() * input->height() * input->batch();
     auto plane_out = output->width() * output->height() * output->batch();
     auto depth = UP_DIV(input->channel(), core->pack);
@@ -222,15 +266,20 @@ ErrorCode CPUDepthwiseConvInt8::onExecute(const std::vector<Tensor*>& inputs, co
         MNNPackC4Origin(mInputTemp.get()->host<float>(), input->host<float>(), plane_in, depth, plane_in);
         CPUDepthwiseConvInt8::fastDepthwiseInt8({mInputTemp.get()}, {mOutputTemp.get()});
         MNNUnpackC4Origin(output->host<float>(), mOutputTemp.get()->host<float>(), plane_out, depth, plane_out);
-    }
-    else if (core->pack == 8) {
+    } else if (core->pack == 8) {
         MNNPackC2Origin(mInputTemp.get()->host<double>(), input->host<double>(), plane_in, depth, plane_in);
         CPUDepthwiseConvInt8::fastDepthwiseInt8({mInputTemp.get()}, {mOutputTemp.get()});
         MNNUnpackC2Origin(output->host<double>(), mOutputTemp.get()->host<double>(), plane_out, depth, plane_out);
-    } else if (core->pack == 16) {
+    } else if (core->pack == mPack) {
         CPUDepthwiseConvInt8::fastDepthwiseInt8(inputs, outputs);
+    } else {
+        repackInt8(input->host<int8_t>(), mInputTemp.get()->host<int8_t>(), input->batch(), area_in, input->channel(),
+                   core->pack, mPack);
+        CPUDepthwiseConvInt8::fastDepthwiseInt8({mInputTemp.get()}, {mOutputTemp.get()});
+        repackInt8(mOutputTemp.get()->host<int8_t>(), output->host<int8_t>(), output->batch(), area_out,
+                   output->channel(), mPack, core->pack);
     }
-    
+
     return NO_ERROR;
 }
 
@@ -244,18 +293,22 @@ public:
         auto common = convOp->common();
         bool use3x3kernel = false;
         int UNIT = 16;
-        
+
         if (core->ConvDepthwise3x3LineInt8_ARM82) {
-           if (common->kernelX() == 3 && common->kernelY() == 3 && common->strideX() == 1 && common->strideY() == 1 && common->dilateX() == 1
-               && common->dilateY() == 1 && outputs[0]->width() >= 2 && outputs[0]->height() >= 2) {
-               use3x3kernel = true;
-               UNIT = 4;
-           }
+            if (common->kernelX() == 3 && common->kernelY() == 3 && common->strideX() == 1 && common->strideY() == 1 &&
+                common->dilateX() == 1 && common->dilateY() == 1 && outputs[0]->width() >= 2 &&
+                outputs[0]->height() >= 2) {
+                use3x3kernel = true;
+                UNIT = 4;
+            }
+        }
+        if (!use3x3kernel && gcore->pack > UNIT) {
+            UNIT = gcore->pack;
         }
         auto res = CPUConvolution::makeResourceInt8(backend, op, UNIT);
-        const int kernelSize      = common->kernelX() * common->kernelY();
-        const int outputCount     = common->outputCount();
-        const int ocDivUnit       = UP_DIV(outputCount, UNIT);
+        const int kernelSize = common->kernelX() * common->kernelY();
+        const int outputCount = common->outputCount();
+        const int ocDivUnit = UP_DIV(outputCount, UNIT);
         const int weightSizeAlign = ocDivUnit * UNIT * kernelSize;
 
         std::shared_ptr<Tensor> weight(Tensor::createDevice<BASIC_TYPE>({weightSizeAlign}));
@@ -272,8 +325,8 @@ public:
             int kernelOrder[8] = {0, 1, 2, 3, 4, 5, 6, 7};
             for (int dz = 0; dz < outputCount; ++dz) {
                 const int dzDivUnit = dz / gcore->pack;
-                const int my        = dz % gcore->pack;
-                auto dstDz          = weightPtr + dzDivUnit * kernelSize * gcore->pack;
+                const int my = dz % gcore->pack;
+                auto dstDz = weightPtr + dzDivUnit * kernelSize * gcore->pack;
                 for (int i = 0; i < 4; ++i) { // kernelSize = 9
                     int k = kernelOrder[i];
                     dstDz[i + my * 4] = (BASIC_TYPE)(originWeight[dz * kernelSize + k]);
@@ -284,22 +337,22 @@ public:
                 }
                 dstDz[8 * gcore->pack + my] = (BASIC_TYPE)(originWeight[dz * kernelSize + 8]);
             }
-             res->mWeightInt8.swap(weight);
-             backend->onReleaseBuffer(weight.get(), Backend::STATIC);
-             return new CPUDepthwiseConvInt8(backend, convOp->common(), res);
+            res->mWeightInt8.swap(weight);
+            backend->onReleaseBuffer(weight.get(), Backend::STATIC);
+            return new CPUDepthwiseConvInt8(backend, convOp->common(), res, UNIT);
         }
 
         for (int dz = 0; dz < outputCount; ++dz) {
             const int dzDivUnit = dz / UNIT;
-            const int my        = dz % UNIT;
-            auto dstDz          = weightPtr + dzDivUnit * kernelSize * UNIT;
+            const int my = dz % UNIT;
+            auto dstDz = weightPtr + dzDivUnit * kernelSize * UNIT;
             for (int i = 0; i < kernelSize; ++i) {
                 dstDz[i * UNIT + my] = (BASIC_TYPE)(originWeight[dz * kernelSize + i]);
             }
         }
         res->mWeightInt8.swap(weight);
         backend->onReleaseBuffer(weight.get(), Backend::STATIC);
-        return new CPUDepthwiseConvInt8(backend, convOp->common(), res);
+        return new CPUDepthwiseConvInt8(backend, convOp->common(), res, UNIT);
     }
 };
 

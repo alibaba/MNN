@@ -229,6 +229,36 @@ typedef void(*MNNBinaryExecInt8)(int8_t* outputRaw, const int8_t* inputRaw0, con
 constexpr int InputTileMax = 14; // same value from DynamicGemm.h, cannot include from different backend code.
 
 namespace MNN {
+static inline void repackInt8(const int8_t* src, int8_t* dst, int batch, int area, int channel, int srcPack,
+                              int dstPack) {
+    if (srcPack == dstPack) {
+        if (src != dst) {
+            const int depth = UP_DIV(channel, srcPack);
+            ::memcpy(dst, src, static_cast<size_t>(batch) * depth * area * srcPack);
+        }
+        return;
+    }
+    const int srcDepth = UP_DIV(channel, srcPack);
+    const int dstDepth = UP_DIV(channel, dstPack);
+    const size_t dstBatchSize = static_cast<size_t>(dstDepth) * area * dstPack;
+    ::memset(dst, 0, static_cast<size_t>(batch) * dstBatchSize);
+    for (int b = 0; b < batch; ++b) {
+        const int8_t* srcBatch = src + static_cast<size_t>(b) * srcDepth * area * srcPack;
+        int8_t* dstBatch = dst + static_cast<size_t>(b) * dstDepth * area * dstPack;
+        for (int c = 0; c < channel; ++c) {
+            const int srcC = c / srcPack;
+            const int srcR = c % srcPack;
+            const int dstC = c / dstPack;
+            const int dstR = c % dstPack;
+            const int8_t* srcChannel = srcBatch + static_cast<size_t>(srcC) * area * srcPack + srcR;
+            int8_t* dstChannel = dstBatch + static_cast<size_t>(dstC) * area * dstPack + dstR;
+            for (int x = 0; x < area; ++x) {
+                dstChannel[static_cast<size_t>(x) * dstPack] = srcChannel[static_cast<size_t>(x) * srcPack];
+            }
+        }
+    }
+}
+
 struct MatmulRelatedFunctions {
     // from coreFunctions
     void (*MNNSumWeightInt8)(float* kernelsum, int8_t* source, size_t outside, size_t reduceAxis, size_t hP, size_t lP) = nullptr;

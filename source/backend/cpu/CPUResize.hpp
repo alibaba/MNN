@@ -22,16 +22,21 @@ using Vec4 = MNN::Math::Vec<float, 4>;
 #ifdef __cplusplus
 extern "C" {
 #endif
-void CPUBilinearSampleC4(const float* src, float* dst, const int32_t* position, const float* factor, int8_t* zeroPoint, size_t number);
+void CPUBilinearSampleC4(const float* src, float* dst, const int32_t* position, const float* factor, int8_t* zeroPoint,
+                         size_t number);
 void CPUBilinearLineC4(float* dst, const float* A, const float* B, const float* t, int8_t* zeroPoint, size_t number);
-void MNNBilinearSampleC8(const int8_t* src, int16_t* dst, const int32_t* position, const float* factor, int8_t* zeroPoint, size_t number);
-void MNNBilinearLineC8(int8_t* dst, const int16_t* A, const int16_t* B, const float* t, int8_t* zeroPoint, size_t number);
-void MNNCubicSampleC4(const float* src, float* dst, int32_t* position, const float* factor, int8_t* zeroPoint, size_t number);
-void MNNCubicLineC4(float* dst, const float* A, const float* B, const float* C, const float* D, float* t, int8_t* zeroPoint,
-                    size_t number, ssize_t minValue, ssize_t maxValue);
-void MNNCubicSampleC16(const int8_t* src, float* dst, int32_t* position, const float* factor, int8_t* zeroPoint, size_t number);
-void MNNCubicLineC16(int8_t* dst, const float* A, const float* B, const float* C, const float* D, float* t, int8_t* zeroPoint,
-                     size_t number, ssize_t minValue, ssize_t maxValue);
+void MNNBilinearSampleC8(const int8_t* src, int16_t* dst, const int32_t* position, const float* factor,
+                         int8_t* zeroPoint, size_t number);
+void MNNBilinearLineC8(int8_t* dst, const int16_t* A, const int16_t* B, const float* t, int8_t* zeroPoint,
+                       size_t number);
+void MNNCubicSampleC4(const float* src, float* dst, int32_t* position, const float* factor, int8_t* zeroPoint,
+                      size_t number);
+void MNNCubicLineC4(float* dst, const float* A, const float* B, const float* C, const float* D, float* t,
+                    int8_t* zeroPoint, size_t number, ssize_t minValue, ssize_t maxValue);
+void MNNCubicSampleC16(const int8_t* src, float* dst, int32_t* position, const float* factor, int8_t* zeroPoint,
+                       size_t number);
+void MNNCubicLineC16(int8_t* dst, const float* A, const float* B, const float* C, const float* D, float* t,
+                     int8_t* zeroPoint, size_t number, ssize_t minValue, ssize_t maxValue);
 #ifdef __cplusplus
 }
 #endif
@@ -47,40 +52,44 @@ static int CLAMP(int v, int min, int max) {
 }
 class CPUResizeCommon : public Execution {
 public:
-    CPUResizeCommon(Backend *backend) : Execution(backend) {
+    CPUResizeCommon(Backend* backend) : Execution(backend) {
         // Do nothing
     }
-    virtual ~CPUResizeCommon()                                                                             = default;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) = 0;
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs)  = 0;
+    virtual ~CPUResizeCommon() = default;
+    virtual ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) = 0;
+    virtual ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) = 0;
 
-    template<typename T, typename U>
-    void CPUResizeBilinearC4(void sampleFunction(const T*, U*, const int32_t*, const float*, int8_t*, size_t), void lineFunction(T*, const U*, const U*, const float*, int8_t*, size_t), const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, const int* widthPosition, const float* widthFactor, const int* heightPosition,
-        const float* heightFactor, U* lineBuffer, int threadNumber, int8_t* inputQuantZero, int8_t* outputQuantZero) {
+    template <typename T, typename U>
+    void CPUResizeBilinearC4(void sampleFunction(const T*, U*, const int32_t*, const float*, int8_t*, size_t),
+                             void lineFunction(T*, const U*, const U*, const float*, int8_t*, size_t),
+                             const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                             const int* widthPosition, const float* widthFactor, const int* heightPosition,
+                             const float* heightFactor, U* lineBuffer, int threadNumber, int8_t* inputQuantZero,
+                             int8_t* outputQuantZero) {
         auto input = inputs[0];
         auto output = outputs[0];
-        const int batches         = input->batch();
-        const int inW             = input->width();
-        const int inH             = input->height();
-        const int outW            = output->width();
-        const int outH            = output->height();
+        const int batches = input->batch();
+        const int inW = input->width();
+        const int inH = input->height();
+        const int outW = output->width();
+        const int outH = output->height();
         int pack = 4;
-        if(sizeof(T) == 1) {
+        if (sizeof(T) == 1) {
             pack = 8;
         }
         int depthQuad = UP_DIV(input->channel(), pack) * batches;
         auto threadFunction = [&](size_t tId) {
             for (int n = (int)tId; n < depthQuad; n += threadNumber) {
                 U* _lineBuffer = lineBuffer + 2 * pack * outW * tId;
-                U* _line0      = _lineBuffer + pack * outW * 0;
-                U* _line1      = _lineBuffer + pack * outW * 1;
-                int yUsed[2]     = {0, 0};
-                int yCache[2]    = {-1, -1};
+                U* _line0 = _lineBuffer + pack * outW * 0;
+                U* _line1 = _lineBuffer + pack * outW * 1;
+                int yUsed[2] = {0, 0};
+                int yCache[2] = {-1, -1};
 
-                U* yCacheLine[2]          = {_line0, _line1};
+                U* yCacheLine[2] = {_line0, _line1};
                 U* const yCacheStorage[2] = {_line0, _line1};
 
-                const T* bottomData = reinterpret_cast<const T*>(input->host<uint8_t>())  + (int)n * pack * inW * inH;
+                const T* bottomData = reinterpret_cast<const T*>(input->host<uint8_t>()) + (int)n * pack * inW * inH;
                 T* topData = reinterpret_cast<T*>(output->host<uint8_t>()) + (int)n * pack * outW * outH;
                 for (int dy = 0; dy < outH; dy++) {
                     int yp[2];
@@ -94,9 +103,9 @@ public:
                         int find = 0;
                         for (int k = 0; k < 2; ++k) {
                             if (yp[j] == yCache[k]) {
-                                yUsed[k]      = 1;
+                                yUsed[k] = 1;
                                 yCacheLine[j] = yCacheStorage[k];
-                                find          = 1;
+                                find = 1;
                                 break;
                             }
                         }
@@ -104,10 +113,11 @@ public:
                             const T* bottomY0 = bottomData + yp[j] * inW * pack;
                             for (int k = 0; k < 2; ++k) {
                                 if (!yUsed[k]) {
-                                    yCache[k]     = yp[j];
-                                    yUsed[k]      = 1;
+                                    yCache[k] = yp[j];
+                                    yUsed[k] = 1;
                                     yCacheLine[j] = yCacheStorage[k];
-                                    sampleFunction(bottomY0, yCacheLine[j], widthPosition, widthFactor, inputQuantZero, outW);
+                                    sampleFunction(bottomY0, yCacheLine[j], widthPosition, widthFactor, inputQuantZero,
+                                                   outW);
                                     break;
                                 }
                             }
@@ -116,7 +126,6 @@ public:
                     T* topY = topData + outW * pack * dy;
                     // Sample Input
                     lineFunction(topY, yCacheLine[0], yCacheLine[1], &heightFactor[dy], outputQuantZero, outW);
-                    
                 }
             }
         };
@@ -126,32 +135,36 @@ public:
         MNN_CONCURRENCY_END();
     }
 
-    template<typename T>
-    void CPUResizeCubicC4(void sampleFunction(const T*, float*, int32_t*, const float*, int8_t*, size_t), void lineFunction(T*, const float*, const float*, const float*, const float*, float*, int8_t*, size_t, ssize_t, ssize_t),
-                          const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, float xFactor, float yFactor, float wOffset, float hOffset, int8_t* inputQuantZero, int8_t* outputQuantZero, ssize_t minValue, ssize_t maxValue) {
+    template <typename T>
+    void CPUResizeCubicC4(void sampleFunction(const T*, float*, int32_t*, const float*, int8_t*, size_t),
+                          void lineFunction(T*, const float*, const float*, const float*, const float*, float*, int8_t*,
+                                            size_t, ssize_t, ssize_t),
+                          const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, float xFactor,
+                          float yFactor, float wOffset, float hOffset, int8_t* inputQuantZero, int8_t* outputQuantZero,
+                          ssize_t minValue, ssize_t maxValue) {
         auto input = inputs[0];
         auto output = outputs[0];
-        const int batches      = input->batch();
-        const int inBatchSize  = input->stride(0);
+        const int batches = input->batch();
+        const int inBatchSize = input->stride(0);
         const int outBatchSize = output->stride(0);
-        const int inW          = input->width();
-        const int inH          = input->height();
-        const int N            = input->channel();
-        const int outW         = output->width();
-        const int outH         = output->height();
-        int pack = 16/sizeof(T);
-        const int depthQuad    = UP_DIV(N, pack);
+        const int inW = input->width();
+        const int inH = input->height();
+        const int N = input->channel();
+        const int outW = output->width();
+        const int outH = output->height();
+        int pack = 16 / sizeof(T);
+        const int depthQuad = UP_DIV(N, pack);
 
         AutoStorage<int> linePosition(4 * outW);
         AutoStorage<float> lineFactor(outW);
         auto _linePosition = linePosition.get();
-        auto _lineFactor   = lineFactor.get();
+        auto _lineFactor = lineFactor.get();
 
         // Compute Line Position
         for (int dx = 0; dx < outW; ++dx) {
-            float x                   = (float)dx * xFactor + wOffset;
-            int xInt                  = (int)x;
-            _lineFactor[dx]           = (float)(x - floor(x));
+            float x = (float)dx * xFactor + wOffset;
+            int xInt = (int)x;
+            _lineFactor[dx] = (float)(x - floor(x));
             _linePosition[4 * dx + 0] = CLAMP(xInt - 1, 0, inW - 1);
             _linePosition[4 * dx + 1] = CLAMP(xInt + 0, 0, inW - 1);
             _linePosition[4 * dx + 2] = CLAMP(xInt + 1, 0, inW - 1);
@@ -161,21 +174,23 @@ public:
         for (int b = 0; b < batches; ++b) {
             MNN_CONCURRENCY_BEGIN(n, depthQuad);
             {
-                int yUsed[4]  = {0, 0, 0, 0};
+                int yUsed[4] = {0, 0, 0, 0};
                 int yCache[4] = {-1, -1, -1, -1};
 
                 AutoStorage<float> lineBuffer(4 * pack * outW);
-                auto _lineBuffer              = lineBuffer.get();
-                auto _line0                   = _lineBuffer + pack * outW * 0;
-                auto _line1                   = _lineBuffer + pack * outW * 1;
-                auto _line2                   = _lineBuffer + pack * outW * 2;
-                auto _line3                   = _lineBuffer + pack * outW * 3;
-                float* yCacheLine[4]          = {_line0, _line1, _line2, _line3};
+                auto _lineBuffer = lineBuffer.get();
+                auto _line0 = _lineBuffer + pack * outW * 0;
+                auto _line1 = _lineBuffer + pack * outW * 1;
+                auto _line2 = _lineBuffer + pack * outW * 2;
+                auto _line3 = _lineBuffer + pack * outW * 3;
+                float* yCacheLine[4] = {_line0, _line1, _line2, _line3};
                 float* const yCacheStorage[4] = {_line0, _line1, _line2, _line3};
-                auto bottomData = reinterpret_cast<const T*>(input->host<uint8_t>()) + b * inBatchSize + (int)n * pack * inW * inH;
-                auto topData    = reinterpret_cast<T*>(output->host<uint8_t>()) + b * outBatchSize + (int)n * pack * outW * outH;
+                auto bottomData =
+                    reinterpret_cast<const T*>(input->host<uint8_t>()) + b * inBatchSize + (int)n * pack * inW * inH;
+                auto topData =
+                    reinterpret_cast<T*>(output->host<uint8_t>()) + b * outBatchSize + (int)n * pack * outW * outH;
                 for (int dy = 0; dy < outH; dy++) {
-                    float y  = (float)dy * yFactor + hOffset;
+                    float y = (float)dy * yFactor + hOffset;
                     int yInt = (int)y;
                     int yp[4];
                     yp[0] = CLAMP(yInt - 1, 0, inH - 1);
@@ -190,9 +205,9 @@ public:
                         int find = 0;
                         for (int k = 0; k < 4; ++k) {
                             if (yp[j] == yCache[k]) {
-                                yUsed[k]      = 1;
+                                yUsed[k] = 1;
                                 yCacheLine[j] = yCacheStorage[k];
-                                find          = 1;
+                                find = 1;
                                 break;
                             }
                         }
@@ -200,10 +215,11 @@ public:
                             const T* bottomY0 = bottomData + yp[j] * inW * pack;
                             for (int k = 0; k < 4; ++k) {
                                 if (!yUsed[k]) {
-                                    yCache[k]     = yp[j];
-                                    yUsed[k]      = 1;
+                                    yCache[k] = yp[j];
+                                    yUsed[k] = 1;
                                     yCacheLine[j] = yCacheStorage[k];
-                                    sampleFunction(bottomY0, yCacheLine[j], _linePosition, _lineFactor, inputQuantZero, outW);
+                                    sampleFunction(bottomY0, yCacheLine[j], _linePosition, _lineFactor, inputQuantZero,
+                                                   outW);
                                     break;
                                 }
                             }
@@ -212,47 +228,359 @@ public:
 
                     // Sample Input
                     float yFract = (float)(y - floor(y));
-                    auto topY    = topData + outW * pack * dy;
-                    lineFunction(topY, yCacheLine[0], yCacheLine[1], yCacheLine[2], yCacheLine[3], &yFract, outputQuantZero, outW, minValue, maxValue);
+                    auto topY = topData + outW * pack * dy;
+                    lineFunction(topY, yCacheLine[0], yCacheLine[1], yCacheLine[2], yCacheLine[3], &yFract,
+                                 outputQuantZero, outW, minValue, maxValue);
                 }
             }
             MNN_CONCURRENCY_END();
         }
     }
 
-    template<typename T>
-    void CPUResizeNearestneighborRoundC4(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, float wScale, float hScale, float wOffset, float hOffset) {
+    void CPUResizeBilinearCUnitInt8(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                    const int* widthPosition, const float* widthFactor, const int* heightPosition,
+                                    const float* heightFactor, int16_t* lineBuffer, int threadNumber,
+                                    int8_t* inputQuantZero, int8_t* outputQuantZero, int pack) {
         auto input = inputs[0];
         auto output = outputs[0];
-        const int batches         = input->batch();
-        const int inputBatchSize  = input->stride(0);
+        const int batches = input->batch();
+        const int inW = input->width();
+        const int inH = input->height();
+        const int outW = output->width();
+        const int outH = output->height();
+        const int inputZeroPoint = *inputQuantZero;
+        const int outputZeroPoint = *outputQuantZero;
+        const int depthQuad = UP_DIV(input->channel(), pack) * batches;
+
+        auto sampleLine = [&](const int8_t* src, int16_t* dst) {
+            for (int dx = 0; dx < outW; ++dx) {
+                int16_t df = widthFactor[dx] * 128;
+                int16_t sf = (1.0f - widthFactor[dx]) * 128;
+                auto aPtr = src + widthPosition[2 * dx + 0] * pack;
+                auto bPtr = src + widthPosition[2 * dx + 1] * pack;
+                auto dstPtr = dst + dx * pack;
+                for (int c = 0; c < pack; ++c) {
+                    int a = static_cast<int32_t>(aPtr[c]) - inputZeroPoint;
+                    int b = static_cast<int32_t>(bPtr[c]) - inputZeroPoint;
+                    dstPtr[c] = static_cast<int16_t>(a * sf + b * df);
+                }
+            }
+        };
+
+        auto lineFunction = [&](int8_t* dst, const int16_t* A, const int16_t* B, const float* t) {
+            int16_t df = (*t) * 128;
+            int16_t sf = (1.0f - *t) * 128;
+            for (int dx = 0; dx < outW; ++dx) {
+                auto aPtr = A + dx * pack;
+                auto bPtr = B + dx * pack;
+                auto dstPtr = dst + dx * pack;
+                for (int c = 0; c < pack; ++c) {
+                    int32_t val = aPtr[c] * sf + bPtr[c] * df;
+                    int8_t valOut = (val + (1 << 13)) / (1 << 14);
+                    if (val < 0) {
+                        valOut = (val - (1 << 13)) / (1 << 14);
+                    }
+                    dstPtr[c] = valOut + outputZeroPoint;
+                }
+            }
+        };
+
+        auto threadFunction = [&](size_t tId) {
+            for (int n = (int)tId; n < depthQuad; n += threadNumber) {
+                int16_t* _lineBuffer = lineBuffer + 2 * pack * outW * tId;
+                int16_t* _line0 = _lineBuffer + pack * outW * 0;
+                int16_t* _line1 = _lineBuffer + pack * outW * 1;
+                int yUsed[2] = {0, 0};
+                int yCache[2] = {-1, -1};
+
+                int16_t* yCacheLine[2] = {_line0, _line1};
+                int16_t* const yCacheStorage[2] = {_line0, _line1};
+
+                const int8_t* bottomData = input->host<int8_t>() + (int)n * pack * inW * inH;
+                int8_t* topData = output->host<int8_t>() + (int)n * pack * outW * outH;
+                for (int dy = 0; dy < outH; dy++) {
+                    int yp[2];
+                    yp[0] = heightPosition[2 * dy + 0];
+                    yp[1] = heightPosition[2 * dy + 1];
+                    for (int j = 0; j < 2; ++j) {
+                        yUsed[j] = 0;
+                    }
+                    for (int j = 0; j < 2; ++j) {
+                        int find = 0;
+                        for (int k = 0; k < 2; ++k) {
+                            if (yp[j] == yCache[k]) {
+                                yUsed[k] = 1;
+                                yCacheLine[j] = yCacheStorage[k];
+                                find = 1;
+                                break;
+                            }
+                        }
+                        if (!find) {
+                            const int8_t* bottomY0 = bottomData + yp[j] * inW * pack;
+                            for (int k = 0; k < 2; ++k) {
+                                if (!yUsed[k]) {
+                                    yCache[k] = yp[j];
+                                    yUsed[k] = 1;
+                                    yCacheLine[j] = yCacheStorage[k];
+                                    sampleLine(bottomY0, yCacheLine[j]);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    auto topY = topData + outW * pack * dy;
+                    lineFunction(topY, yCacheLine[0], yCacheLine[1], &heightFactor[dy]);
+                }
+            }
+        };
+        MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
+            threadFunction(tId);
+        }
+        MNN_CONCURRENCY_END();
+    }
+
+    void CPUResizeCubicCUnitInt8(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, float xFactor,
+                                 float yFactor, float wOffset, float hOffset, int8_t* inputQuantZero,
+                                 int8_t* outputQuantZero, ssize_t minValue, ssize_t maxValue, int pack) {
+        auto input = inputs[0];
+        auto output = outputs[0];
+        const int batches = input->batch();
+        const int inBatchSize = input->stride(0);
+        const int outBatchSize = output->stride(0);
+        const int inW = input->width();
+        const int inH = input->height();
+        const int N = input->channel();
+        const int outW = output->width();
+        const int outH = output->height();
+        const int depthQuad = UP_DIV(N, pack);
+        const int inputZeroPoint = *inputQuantZero;
+        const int outputZeroPoint = *outputQuantZero;
+
+        AutoStorage<int> linePosition(4 * outW);
+        AutoStorage<float> lineFactor(outW);
+        auto _linePosition = linePosition.get();
+        auto _lineFactor = lineFactor.get();
+
+        for (int dx = 0; dx < outW; ++dx) {
+            float x = (float)dx * xFactor + wOffset;
+            int xInt = (int)x;
+            _lineFactor[dx] = (float)(x - floor(x));
+            _linePosition[4 * dx + 0] = CLAMP(xInt - 1, 0, inW - 1);
+            _linePosition[4 * dx + 1] = CLAMP(xInt + 0, 0, inW - 1);
+            _linePosition[4 * dx + 2] = CLAMP(xInt + 1, 0, inW - 1);
+            _linePosition[4 * dx + 3] = CLAMP(xInt + 2, 0, inW - 1);
+        }
+
+        auto cubicInterpolation = [](float A, float B, float C, float D, float t) {
+            float b0 = 1.0f - 2.25f * t * t + 1.25f * t * t * t;
+            float c0 = 1.0f - 2.25f * (1.0f - t) * (1.0f - t) + 1.25f * (1.0f - t) * (1.0f - t) * (1.0f - t);
+            auto tA = 1.0f + t;
+            auto tD = 2.0f - t;
+            auto a0 = 3.0f - 6.0f * tA + 5.0f * 0.75f * tA * tA - 0.75f * tA * tA * tA;
+            auto d0 = 3.0f - 6.0f * tD + 5.0f * 0.75f * tD * tD - 0.75f * tD * tD * tD;
+            return A * a0 + B * b0 + C * c0 + D * d0;
+        };
+
+        for (int b = 0; b < batches; ++b) {
+            MNN_CONCURRENCY_BEGIN(n, depthQuad) {
+                int yUsed[4] = {0, 0, 0, 0};
+                int yCache[4] = {-1, -1, -1, -1};
+
+                AutoStorage<float> lineBuffer(4 * pack * outW);
+                auto _lineBuffer = lineBuffer.get();
+                auto _line0 = _lineBuffer + pack * outW * 0;
+                auto _line1 = _lineBuffer + pack * outW * 1;
+                auto _line2 = _lineBuffer + pack * outW * 2;
+                auto _line3 = _lineBuffer + pack * outW * 3;
+                float* yCacheLine[4] = {_line0, _line1, _line2, _line3};
+                float* const yCacheStorage[4] = {_line0, _line1, _line2, _line3};
+
+                auto bottomData = input->host<int8_t>() + b * inBatchSize + (int)n * pack * inW * inH;
+                auto topData = output->host<int8_t>() + b * outBatchSize + (int)n * pack * outW * outH;
+                auto sampleLine = [&](const int8_t* src, float* dst) {
+                    for (int dx = 0; dx < outW; ++dx) {
+                        float f = _lineFactor[dx];
+                        auto aPtr = src + pack * _linePosition[4 * dx + 0];
+                        auto bPtr = src + pack * _linePosition[4 * dx + 1];
+                        auto cPtr = src + pack * _linePosition[4 * dx + 2];
+                        auto dPtr = src + pack * _linePosition[4 * dx + 3];
+                        auto dstPtr = dst + dx * pack;
+                        for (int c = 0; c < pack; ++c) {
+                            float A = static_cast<float>(aPtr[c] - inputZeroPoint);
+                            float B = static_cast<float>(bPtr[c] - inputZeroPoint);
+                            float C = static_cast<float>(cPtr[c] - inputZeroPoint);
+                            float D = static_cast<float>(dPtr[c] - inputZeroPoint);
+                            dstPtr[c] = cubicInterpolation(A, B, C, D, f);
+                        }
+                    }
+                };
+
+                for (int dy = 0; dy < outH; dy++) {
+                    float y = (float)dy * yFactor + hOffset;
+                    int yInt = (int)y;
+                    int yp[4];
+                    yp[0] = CLAMP(yInt - 1, 0, inH - 1);
+                    yp[1] = CLAMP(yInt, 0, inH - 1);
+                    yp[2] = CLAMP(yInt + 1, 0, inH - 1);
+                    yp[3] = CLAMP(yInt + 2, 0, inH - 1);
+                    for (int j = 0; j < 4; ++j) {
+                        yUsed[j] = 0;
+                    }
+                    for (int j = 0; j < 4; ++j) {
+                        int find = 0;
+                        for (int k = 0; k < 4; ++k) {
+                            if (yp[j] == yCache[k]) {
+                                yUsed[k] = 1;
+                                yCacheLine[j] = yCacheStorage[k];
+                                find = 1;
+                                break;
+                            }
+                        }
+                        if (!find) {
+                            const int8_t* bottomY0 = bottomData + yp[j] * inW * pack;
+                            for (int k = 0; k < 4; ++k) {
+                                if (!yUsed[k]) {
+                                    yCache[k] = yp[j];
+                                    yUsed[k] = 1;
+                                    yCacheLine[j] = yCacheStorage[k];
+                                    sampleLine(bottomY0, yCacheLine[j]);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    float yFract = (float)(y - floor(y));
+                    auto topY = topData + outW * pack * dy;
+                    for (int dx = 0; dx < outW; ++dx) {
+                        auto dstPtr = topY + dx * pack;
+                        for (int c = 0; c < pack; ++c) {
+                            auto val =
+                                cubicInterpolation(yCacheLine[0][dx * pack + c], yCacheLine[1][dx * pack + c],
+                                                   yCacheLine[2][dx * pack + c], yCacheLine[3][dx * pack + c], yFract);
+                            int valOut = (int)roundf(val) + outputZeroPoint;
+                            valOut = ALIMIN(valOut, (int)maxValue);
+                            valOut = ALIMAX(valOut, (int)minValue);
+                            dstPtr[c] = static_cast<int8_t>(valOut);
+                        }
+                    }
+                }
+            }
+            MNN_CONCURRENCY_END();
+        }
+    }
+
+    void CPUResizeNearestneighborRoundCUnitInt8(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                                float wScale, float hScale, float wOffset, float hOffset, int pack) {
+        auto input = inputs[0];
+        auto output = outputs[0];
+        const int batches = input->batch();
+        const int inputBatchSize = input->stride(0);
         const int outputBatchSize = output->stride(0);
-        const int inW             = input->width();
-        const int inH             = input->height();
-        const int outW            = output->width();
-        const int outH            = output->height();
-        const float xScaling      = wScale;
-        const float yScaling      = hScale;
-        int pack = 16/sizeof(T);
-        const int depthQuad       = UP_DIV(input->channel(), pack);
+        const int inW = input->width();
+        const int inH = input->height();
+        const int outW = output->width();
+        const int outH = output->height();
+        const int depthQuad = UP_DIV(input->channel(), pack);
 
         AutoStorage<int> linePosition(outW);
         auto _linePosition = linePosition.get();
         for (int x = 0; x < outW; ++x) {
-            float src_x      = x * xScaling + wOffset;
-            int x1           = static_cast<int>(floorf(src_x + 0.499f));
+            float src_x = x * wScale + wOffset;
+            int x1 = static_cast<int>(floorf(src_x + 0.499f));
             _linePosition[x] = CLAMP(x1, 0, inW - 1);
         }
 
         for (int b = 0; b < batches; ++b) {
             MNN_CONCURRENCY_BEGIN(n, depthQuad) {
-                auto srcData =
-                    reinterpret_cast<const T*>(input->host<uint8_t>()) + b * inputBatchSize + static_cast<int>(n) * pack * inW * inH;
-                auto dstData =
-                    reinterpret_cast<T*>(output->host<uint8_t>()) + b * outputBatchSize + static_cast<int>(n) * pack * outW * outH;
+                auto srcData = input->host<int8_t>() + b * inputBatchSize + static_cast<int>(n) * pack * inW * inH;
+                auto dstData = output->host<int8_t>() + b * outputBatchSize + static_cast<int>(n) * pack * outW * outH;
                 for (int dy = 0; dy < outH; ++dy) {
-                    float srcY       = dy * yScaling + hOffset;
-                    const int y_     = CLAMP(static_cast<int>(floorf(srcY + 0.499f)), 0, inH - 1);
+                    float srcY = dy * hScale + hOffset;
+                    const int y_ = CLAMP(static_cast<int>(floorf(srcY + 0.499f)), 0, inH - 1);
+                    auto srcDataLine = srcData + inW * pack * y_;
+                    auto dstDataLine = dstData + outW * pack * dy;
+                    for (int dx = 0; dx < outW; ++dx) {
+                        ::memcpy(dstDataLine + dx * pack, srcDataLine + _linePosition[dx] * pack, pack);
+                    }
+                }
+            }
+            MNN_CONCURRENCY_END();
+        }
+    }
+
+    void CPUResizeNearestneighborCUnitInt8(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                           float wScale, float hScale, float wOffset, float hOffset, int pack) {
+        auto input = inputs[0];
+        auto output = outputs[0];
+        const int batches = input->batch();
+        const int inputBatchSize = input->stride(0);
+        const int outputBatchSize = output->stride(0);
+        const int inW = input->width();
+        const int inH = input->height();
+        const int outW = output->width();
+        const int outH = output->height();
+        const int depthQuad = UP_DIV(input->channel(), pack);
+
+        AutoStorage<int> linePosition(outW);
+        auto _linePosition = linePosition.get();
+        for (int x = 0; x < outW; ++x) {
+            float src_x = x * wScale + wOffset;
+            int x1 = static_cast<int>(floor(src_x));
+            _linePosition[x] = CLAMP(x1, 0, inW - 1);
+        }
+
+        for (int b = 0; b < batches; ++b) {
+            MNN_CONCURRENCY_BEGIN(n, depthQuad) {
+                auto srcData = input->host<int8_t>() + b * inputBatchSize + static_cast<int>(n) * pack * inW * inH;
+                auto dstData = output->host<int8_t>() + b * outputBatchSize + static_cast<int>(n) * pack * outW * outH;
+                for (int dy = 0; dy < outH; ++dy) {
+                    float srcY = dy * hScale + hOffset;
+                    const int y_ = CLAMP(static_cast<int>(floor(srcY)), 0, inH - 1);
+                    auto srcDataLine = srcData + inW * pack * y_;
+                    auto dstDataLine = dstData + outW * pack * dy;
+                    for (int dx = 0; dx < outW; ++dx) {
+                        ::memcpy(dstDataLine + dx * pack, srcDataLine + _linePosition[dx] * pack, pack);
+                    }
+                }
+            }
+            MNN_CONCURRENCY_END();
+        }
+    }
+
+    template <typename T>
+    void CPUResizeNearestneighborRoundC4(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                         float wScale, float hScale, float wOffset, float hOffset) {
+        auto input = inputs[0];
+        auto output = outputs[0];
+        const int batches = input->batch();
+        const int inputBatchSize = input->stride(0);
+        const int outputBatchSize = output->stride(0);
+        const int inW = input->width();
+        const int inH = input->height();
+        const int outW = output->width();
+        const int outH = output->height();
+        const float xScaling = wScale;
+        const float yScaling = hScale;
+        int pack = 16 / sizeof(T);
+        const int depthQuad = UP_DIV(input->channel(), pack);
+
+        AutoStorage<int> linePosition(outW);
+        auto _linePosition = linePosition.get();
+        for (int x = 0; x < outW; ++x) {
+            float src_x = x * xScaling + wOffset;
+            int x1 = static_cast<int>(floorf(src_x + 0.499f));
+            _linePosition[x] = CLAMP(x1, 0, inW - 1);
+        }
+
+        for (int b = 0; b < batches; ++b) {
+            MNN_CONCURRENCY_BEGIN(n, depthQuad) {
+                auto srcData = reinterpret_cast<const T*>(input->host<uint8_t>()) + b * inputBatchSize +
+                               static_cast<int>(n) * pack * inW * inH;
+                auto dstData = reinterpret_cast<T*>(output->host<uint8_t>()) + b * outputBatchSize +
+                               static_cast<int>(n) * pack * outW * outH;
+                for (int dy = 0; dy < outH; ++dy) {
+                    float srcY = dy * yScaling + hOffset;
+                    const int y_ = CLAMP(static_cast<int>(floorf(srcY + 0.499f)), 0, inH - 1);
                     auto srcDataLine = srcData + inW * pack * y_;
                     auto dstDataLine = dstData + outW * pack * dy;
                     for (int dx = 0; dx < outW; ++dx) {
@@ -263,44 +591,44 @@ public:
             MNN_CONCURRENCY_END();
         }
     }
-    
-    template<typename T>
-    void CPUResizeNearestneighborC4(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
+
+    template <typename T>
+    void CPUResizeNearestneighborC4(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                     float wScale, float hScale, float wOffset, float hOffset) {
         auto input = inputs[0];
         auto output = outputs[0];
-        const int batches         = input->batch();
-        const int inputBatchSize  = input->stride(0);
+        const int batches = input->batch();
+        const int inputBatchSize = input->stride(0);
         const int outputBatchSize = output->stride(0);
-        const int inW             = input->width();
-        const int inH             = input->height();
-        const int outW            = output->width();
-        const int outH            = output->height();
-        const float xScaling      = wScale;
-        const float yScaling      = hScale;
+        const int inW = input->width();
+        const int inH = input->height();
+        const int outW = output->width();
+        const int outH = output->height();
+        const float xScaling = wScale;
+        const float yScaling = hScale;
         int pack = 4;
         if (sizeof(T) == 1) {
             pack = 8;
         }
-        const int depthQuad       = UP_DIV(input->channel(), pack);
+        const int depthQuad = UP_DIV(input->channel(), pack);
 
         AutoStorage<int> linePosition(outW);
         auto _linePosition = linePosition.get();
         for (int x = 0; x < outW; ++x) {
-            float src_x      = x * xScaling + wOffset;
-            int x1           = static_cast<int>(floor(src_x));
+            float src_x = x * xScaling + wOffset;
+            int x1 = static_cast<int>(floor(src_x));
             _linePosition[x] = CLAMP(x1, 0, inW - 1);
         }
 
         for (int b = 0; b < batches; ++b) {
             MNN_CONCURRENCY_BEGIN(n, depthQuad) {
-                auto srcData =
-                    reinterpret_cast<const T*>(input->host<uint8_t>()) + b * inputBatchSize + static_cast<int>(n) * pack * inW * inH;
-                auto dstData =
-                    reinterpret_cast<T*>(output->host<uint8_t>()) + b * outputBatchSize + static_cast<int>(n) * pack * outW * outH;
+                auto srcData = reinterpret_cast<const T*>(input->host<uint8_t>()) + b * inputBatchSize +
+                               static_cast<int>(n) * pack * inW * inH;
+                auto dstData = reinterpret_cast<T*>(output->host<uint8_t>()) + b * outputBatchSize +
+                               static_cast<int>(n) * pack * outW * outH;
                 for (int dy = 0; dy < outH; ++dy) {
-                    float srcY       = dy * yScaling + hOffset;
-                    const int y_     = CLAMP(static_cast<int>(floor(srcY)), 0, inH - 1);
+                    float srcY = dy * yScaling + hOffset;
+                    const int y_ = CLAMP(static_cast<int>(floor(srcY)), 0, inH - 1);
                     auto srcDataLine = srcData + inW * pack * y_;
                     auto dstDataLine = dstData + outW * pack * dy;
                     for (int dx = 0; dx < outW; ++dx) {
@@ -311,54 +639,54 @@ public:
             MNN_CONCURRENCY_END();
         }
     }
-    
-    template<typename T>
-    void CPUResizeNearestneighbor3DRoundC4(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
-                                                            float wScale, float hScale, float dScale,
-                                                            float wOffset, float hOffset, float dOffset) {
+
+    template <typename T>
+    void CPUResizeNearestneighbor3DRoundC4(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                           float wScale, float hScale, float dScale, float wOffset, float hOffset,
+                                           float dOffset) {
         auto input = inputs[0];
         auto output = outputs[0];
-        
-        const int batches         = input->buffer().dim[0].extent;
-        const int inputBatchSize  = input->buffer().dim[0].stride;
+
+        const int batches = input->buffer().dim[0].extent;
+        const int inputBatchSize = input->buffer().dim[0].stride;
         const int outputBatchSize = output->buffer().dim[0].stride;
-        const int inW             = input->buffer().dim[4].extent;
-        const int inH             = input->buffer().dim[3].extent;
-        const int inD             = input->buffer().dim[2].extent;
-        const int outW            = output->buffer().dim[4].extent;
-        const int outH            = output->buffer().dim[3].extent;
-        const int outD            = output->buffer().dim[2].extent;
-        const float xScaling      = wScale;
-        const float yScaling      = hScale;
-        const float zScaling      = dScale;
+        const int inW = input->buffer().dim[4].extent;
+        const int inH = input->buffer().dim[3].extent;
+        const int inD = input->buffer().dim[2].extent;
+        const int outW = output->buffer().dim[4].extent;
+        const int outH = output->buffer().dim[3].extent;
+        const int outD = output->buffer().dim[2].extent;
+        const float xScaling = wScale;
+        const float yScaling = hScale;
+        const float zScaling = dScale;
         int pack = 16 / sizeof(T);
-        const int depthQuad       = UP_DIV(input->buffer().dim[1].extent, pack);
+        const int depthQuad = UP_DIV(input->buffer().dim[1].extent, pack);
 
         AutoStorage<int> linePosition(outW);
         auto _linePosition = linePosition.get();
         for (int x = 0; x < outW; ++x) {
-            float src_x      = x * xScaling + wOffset;
-            int x1           = static_cast<int>(floorf(src_x + 0.499f));
+            float src_x = x * xScaling + wOffset;
+            int x1 = static_cast<int>(floorf(src_x + 0.499f));
             _linePosition[x] = CLAMP(x1, 0, inW - 1);
         }
 
         AutoStorage<int> columnPosition(outH);
         auto _columnPosition = columnPosition.get();
         for (int y = 0; y < outH; ++y) {
-            float src_y      = y * yScaling + hOffset;
-            int y1           = static_cast<int>(floorf(src_y + 0.499f));
+            float src_y = y * yScaling + hOffset;
+            int y1 = static_cast<int>(floorf(src_y + 0.499f));
             _columnPosition[y] = CLAMP(y1, 0, inH - 1);
         }
 
         for (int b = 0; b < batches; ++b) {
             MNN_CONCURRENCY_BEGIN(n, depthQuad) {
-                auto srcData = reinterpret_cast<const T*>(input->host<uint8_t>())
-                        + b * inputBatchSize + static_cast<int>(n) * pack * inW * inH * inD;
-                auto dstData = reinterpret_cast<T*>(output->host<uint8_t>())
-                        + b * outputBatchSize + static_cast<int>(n) * pack * outW * outH * inD;
+                auto srcData = reinterpret_cast<const T*>(input->host<uint8_t>()) + b * inputBatchSize +
+                               static_cast<int>(n) * pack * inW * inH * inD;
+                auto dstData = reinterpret_cast<T*>(output->host<uint8_t>()) + b * outputBatchSize +
+                               static_cast<int>(n) * pack * outW * outH * inD;
                 for (int dz = 0; dz < outD; ++dz) {
-                    float srcZ       = dz * zScaling + dOffset;
-                    const int z_     = CLAMP(static_cast<int>(floorf(srcZ + 0.499f)), 0, inD - 1);
+                    float srcZ = dz * zScaling + dOffset;
+                    const int z_ = CLAMP(static_cast<int>(floorf(srcZ + 0.499f)), 0, inD - 1);
                     auto srcDataArea = srcData + inH * inW * pack * z_;
                     auto dstDataArea = dstData + outH * outW * pack * dz;
                     for (int dy = 0; dy < outH; ++dy) {
@@ -369,58 +697,57 @@ public:
                         }
                     }
                 }
-
             }
             MNN_CONCURRENCY_END();
         }
     }
-    
-    template<typename T>
-    void CPUResizeNearestneighbor3DC4(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
-                                     float wScale, float hScale, float dScale,
-                                     float wOffset, float hOffset, float dOffset) {
+
+    template <typename T>
+    void CPUResizeNearestneighbor3DC4(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                      float wScale, float hScale, float dScale, float wOffset, float hOffset,
+                                      float dOffset) {
         auto input = inputs[0];
         auto output = outputs[0];
-        const int batches         = input->buffer().dim[0].extent;
-        const int inputBatchSize  = input->buffer().dim[0].stride;
+        const int batches = input->buffer().dim[0].extent;
+        const int inputBatchSize = input->buffer().dim[0].stride;
         const int outputBatchSize = output->buffer().dim[0].stride;
-        const int inW             = input->buffer().dim[4].extent;
-        const int inH             = input->buffer().dim[3].extent;
-        const int inD             = input->buffer().dim[2].extent;
-        const int outW            = output->buffer().dim[4].extent;
-        const int outH            = output->buffer().dim[3].extent;
-        const int outD            = output->buffer().dim[2].extent;
-        const float xScaling      = wScale;
-        const float yScaling      = hScale;
-        const float zScaling      = dScale;
+        const int inW = input->buffer().dim[4].extent;
+        const int inH = input->buffer().dim[3].extent;
+        const int inD = input->buffer().dim[2].extent;
+        const int outW = output->buffer().dim[4].extent;
+        const int outH = output->buffer().dim[3].extent;
+        const int outD = output->buffer().dim[2].extent;
+        const float xScaling = wScale;
+        const float yScaling = hScale;
+        const float zScaling = dScale;
         int pack = 16 / sizeof(T);
-        const int depthQuad       = UP_DIV(input->buffer().dim[1].extent, pack);
+        const int depthQuad = UP_DIV(input->buffer().dim[1].extent, pack);
 
         AutoStorage<int> linePosition(outW);
         auto _linePosition = linePosition.get();
         for (int x = 0; x < outW; ++x) {
-            float src_x      = x * xScaling + wOffset;
-            int x1           = static_cast<int>(floor(src_x));
+            float src_x = x * xScaling + wOffset;
+            int x1 = static_cast<int>(floor(src_x));
             _linePosition[x] = CLAMP(x1, 0, inW - 1);
         }
 
         AutoStorage<int> columnPosition(outH);
         auto _columnPosition = columnPosition.get();
         for (int y = 0; y < outH; ++y) {
-            float src_y      = y * yScaling + hOffset;
-            int y1           = static_cast<int>(floor(src_y));
+            float src_y = y * yScaling + hOffset;
+            int y1 = static_cast<int>(floor(src_y));
             _columnPosition[y] = CLAMP(y1, 0, inH - 1);
         }
 
         for (int b = 0; b < batches; ++b) {
             MNN_CONCURRENCY_BEGIN(n, depthQuad) {
-                auto srcData = reinterpret_cast<const T*>(input->host<uint8_t>())
-                        + b * inputBatchSize + static_cast<int>(n) * pack * inW * inH * inD;
-                auto dstData = reinterpret_cast<T*>(output->host<uint8_t>())
-                        + b * outputBatchSize + static_cast<int>(n) * pack * outW * outH * outD;
-                for (int dz = 0; dz < outD; ++dz){
-                    float srcZ       = dz * zScaling + dOffset;
-                    const int z_     = CLAMP(static_cast<int>(floor(srcZ)), 0, inD - 1);
+                auto srcData = reinterpret_cast<const T*>(input->host<uint8_t>()) + b * inputBatchSize +
+                               static_cast<int>(n) * pack * inW * inH * inD;
+                auto dstData = reinterpret_cast<T*>(output->host<uint8_t>()) + b * outputBatchSize +
+                               static_cast<int>(n) * pack * outW * outH * outD;
+                for (int dz = 0; dz < outD; ++dz) {
+                    float srcZ = dz * zScaling + dOffset;
+                    const int z_ = CLAMP(static_cast<int>(floor(srcZ)), 0, inD - 1);
                     auto srcDataArea = srcData + inH * inW * pack * z_;
                     auto dstDataArea = dstData + outH * outW * pack * dz;
                     for (int dy = 0; dy < outH; ++dy) {
@@ -431,12 +758,10 @@ public:
                         }
                     }
                 }
-
             }
             MNN_CONCURRENCY_END();
         }
     }
-
 };
 } // namespace MNN
 
