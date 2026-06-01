@@ -114,7 +114,9 @@ class LlmModel(PreTrainedModel):
         # print(f"Loading model type: {model_type}\n{original_model}")
 
         # LoRA
-        if args.lora_path is not None and not args.lora_split:
+        if (args is not None
+                and hasattr(args, 'lora_path') and args.lora_path is not None
+                and (not hasattr(args, 'lora_split') or not args.lora_split)):
             from peft import PeftModel
             adapter = PeftModel.from_pretrained(original_model, model_id=args.lora_path)
             original_model = adapter.merge_and_unload(progressbar=True)
