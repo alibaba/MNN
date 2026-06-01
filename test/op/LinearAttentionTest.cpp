@@ -14,10 +14,12 @@
 #include "MNNTestSuite.h"
 #include "TestUtils.h"
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <vector>
 #include <numeric>
 #include <algorithm>
+#include <sys/stat.h>
 
 using namespace MNN::Express;
 
@@ -847,5 +849,468 @@ public:
 };
 
 MNNTestSuiteRegister(LinearAttentionDecodeTest, "op/linear_attention_decode");
+
+// ─── Local mirror of MNN::Transformer::KVMeta (must match layout) ───
+// Used to drive the rollback signal mMeta->remove without depending on the
+// internal Llm header. See test/op/AttentionTest.cpp for the same pattern.
+struct LATestKVMeta {
+    enum { NoChange, PendingWrite, PendingRead } file_operation;
+    size_t block = 4096;
+    size_t previous = 0;
+    size_t remove = 0;
+    int* reserve = nullptr;
+    int n_reserve = 0;
+    size_t add = 0;
+    std::string file_name = "";
+    int file_flag = NoChange;
+    int seqlen_in_disk = 0;
+    int layer_index = 0;
+    int layer_nums = 0;
+    std::vector<int> reserveHost;
+};
+
+// Variant of _makeLinearAttentionModule that wires a caller-owned KVMeta
+// pointer via the runtime KVCACHE_INFO hint. The CPULinearAttention op reads
+// this through backend->getMetaPtr() in its constructor.
+static std::shared_ptr<Module> _makeLinearAttentionModuleWithMeta(int numKHeads, int numVHeads, int headKDim,
+                                                                  int headVDim, bool useL2Norm, LATestKVMeta* meta) {
+    auto qkv = _Input();
+    auto gate = _Input();
+    auto beta = _Input();
+    auto convW = _Input();
+
+    std::shared_ptr<MNN::OpT> op(new MNN::OpT);
+    op->type = MNN::OpType_LinearAttention;
+    op->main.type = MNN::OpParameter_LinearAttentionParam;
+    op->main.value = new MNN::LinearAttentionParamT;
+    auto* param = op->main.AsLinearAttentionParam();
+    param->attn_type = "gated_delta_rule";
+    param->num_k_heads = numKHeads;
+    param->num_v_heads = numVHeads;
+    param->head_k_dim = headKDim;
+    param->head_v_dim = headVDim;
+    param->use_qk_l2norm = useL2Norm;
+
+    auto o = Variable::create(Expr::create(op.get(), {qkv, gate, beta, convW}));
+    auto buffer = Variable::save({o});
+
+    MNN::ScheduleConfig config;
+    auto status = MNNTestSuite::get()->pStaus;
+    config.type = (MNNForwardType)status.forwardType;
+    MNN::BackendConfig bnConfig;
+    bnConfig.memory = (MNN::BackendConfig::MemoryMode)status.memory;
+    bnConfig.precision = (MNN::BackendConfig::PrecisionMode)status.precision;
+    bnConfig.power = (MNN::BackendConfig::PowerMode)status.power;
+    config.backendConfig = &bnConfig;
+    config.numThread = 1;
+
+    std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
+    rtmgr->setHintPtr(MNN::Interpreter::KVCACHE_INFO, meta);
+    std::shared_ptr<Module> m(Module::load({}, {}, (uint8_t*)buffer.data(), buffer.size(), rtmgr));
+    return m;
+}
+
+// ─── Rollback test: verify the explicit-rollback path in CPULinearAttention::onResize ───
+//
+// Background: LinearAttention's recurrent state has no token-level structure,
+// so Llm::eraseHistory() cannot truncate it. The fix introduces:
+//   (a) a snapshot of the post-prefix state taken inside the prefix-cache
+//       disk file_flag branches (PendingRead/PendingWrite), and
+//   (b) an explicit-rollback branch in onResize that, when mMeta->remove > 0,
+//       restores from the snapshot if mSnapshotValid is true, otherwise zeros
+//       the state.
+//
+// This test covers branch (b) without snapshot (mSnapshotValid=false), the
+// most common rollback path when prefix cache is not in use:
+//
+//   Module A: prefill(X)  -> internal state advances  (no snapshot taken,
+//                            since file_flag stays NoChange throughout)
+//             [simulate Llm: meta.previous = X.len, meta.remove = X.len]
+//             prefill(Y)  -> isExplicitRollback fires, mSnapshotValid=false,
+//                            so state is zeroed before Y is applied.
+//
+//   Module B: prefill(Y) on a brand-new module starting from zero state.
+//
+// Module A's second-prefill output and Module B's only-prefill output must
+// match byte-for-byte (within float tolerance), proving:
+//   - the rollback branch is hit when remove>0 in prefill,
+//   - it correctly clears state to zero when no snapshot is available, and
+//   - subsequent computation is equivalent to a fresh-init module.
+//
+// The "snapshot exists" path (mSnapshotValid=true) requires real prefix-cache
+// disk files (.k/.v + setExternalPath(EXTERNAL_PATH_PREFIXCACHE_DIR, ...)) and
+// is exercised by rollback_demo Stage 3 against actual model bundles.
+class LinearAttentionRollbackTest : public MNNTestCase {
+public:
+    LinearAttentionRollbackTest() = default;
+    virtual ~LinearAttentionRollbackTest() = default;
+
+    virtual bool run(int precision) {
+        const int B = 1, numKHeads = 2, numVHeads = 2;
+        const int headKDim = 4, headVDim = 4, K_conv = 4;
+        const int key_dim = numKHeads * headKDim;
+        const int val_dim = numVHeads * headVDim;
+        const int D = 2 * key_dim + val_dim;
+        const int prefillLen = 4;
+        const float tolerance = 0.001f;
+        const int outSize = B * prefillLen * numVHeads * headVDim;
+
+        // Shared conv weight across both modules so the only variable is state.
+        auto convWVar = _Input({D, 1, K_conv}, NCHW, halide_type_of<float>());
+        fillConvWeight(convWVar->writeMap<float>(), D * 1 * K_conv);
+
+        // ─── Module A: prefill(X) -> simulate eraseHistory -> prefill(Y) ───
+        LATestKVMeta metaA;
+        auto moduleA = _makeLinearAttentionModuleWithMeta(numKHeads, numVHeads, headKDim, headVDim, true, &metaA);
+        if (!moduleA) {
+            MNN_PRINT("RollbackTest: failed to create moduleA\n");
+            return false;
+        }
+
+        // Step 1: prefill X. metaA.previous=0 here makes onResize treat this as
+        // a fresh prefill (zeros state, drops any snapshot — none yet anyway).
+        {
+            auto qkvVar = _Input({B, D, prefillLen}, NCHW, halide_type_of<float>());
+            auto gateVar = _Input({B, prefillLen, numVHeads}, NCHW, halide_type_of<float>());
+            auto betaVar = _Input({B, prefillLen, numVHeads}, NCHW, halide_type_of<float>());
+            fillDeterministic(qkvVar->writeMap<float>(), B * D * prefillLen, 0.07f, 0.0f);
+            fillGate(gateVar->writeMap<float>(), B * prefillLen * numVHeads);
+            fillBeta(betaVar->writeMap<float>(), B * prefillLen * numVHeads);
+            auto outputs = moduleA->onForward({qkvVar, gateVar, betaVar, convWVar});
+            if (outputs.empty()) {
+                MNN_PRINT("RollbackTest: moduleA prefill X returned empty output\n");
+                return false;
+            }
+            // Force evaluation so internal state is fully updated before next call.
+            (void)outputs[0]->readMap<float>();
+        }
+
+        // Step 2: simulate the meta updates Llm performs around eraseHistory.
+        //   - updateContext after prefill X: meta.previous += prefillLen
+        //   - eraseHistory(0, previous): meta.remove = previous
+        metaA.previous = prefillLen;
+        metaA.remove = prefillLen;
+
+        // Step 3: prefill Y. onResize sees remove>0 -> isExplicitRollback;
+        // mSnapshotValid=false (no PendingRead/PendingWrite ever fired), so
+        // the rollback branch zeros mConvState/mRecurrentState before forward.
+        std::vector<float> outputA(outSize, 0.0f);
+        {
+            auto qkvVar = _Input({B, D, prefillLen}, NCHW, halide_type_of<float>());
+            auto gateVar = _Input({B, prefillLen, numVHeads}, NCHW, halide_type_of<float>());
+            auto betaVar = _Input({B, prefillLen, numVHeads}, NCHW, halide_type_of<float>());
+            // Use distinct input from X so we don't accidentally pass the test
+            // when the rollback is silently skipped (state would carry X's effect).
+            fillDeterministic(qkvVar->writeMap<float>(), B * D * prefillLen, 0.05f, 0.1f);
+            fillGate(gateVar->writeMap<float>(), B * prefillLen * numVHeads);
+            fillBeta(betaVar->writeMap<float>(), B * prefillLen * numVHeads);
+            auto outputs = moduleA->onForward({qkvVar, gateVar, betaVar, convWVar});
+            if (outputs.empty()) {
+                MNN_PRINT("RollbackTest: moduleA prefill Y after rollback returned empty output\n");
+                return false;
+            }
+            const float* p = outputs[0]->readMap<float>();
+            ::memcpy(outputA.data(), p, outSize * sizeof(float));
+        }
+
+        // ─── Module B: fresh prefill(Y) baseline ───
+        LATestKVMeta metaB;
+        auto moduleB = _makeLinearAttentionModuleWithMeta(numKHeads, numVHeads, headKDim, headVDim, true, &metaB);
+        if (!moduleB) {
+            MNN_PRINT("RollbackTest: failed to create moduleB\n");
+            return false;
+        }
+        std::vector<float> outputB(outSize, 0.0f);
+        {
+            auto qkvVar = _Input({B, D, prefillLen}, NCHW, halide_type_of<float>());
+            auto gateVar = _Input({B, prefillLen, numVHeads}, NCHW, halide_type_of<float>());
+            auto betaVar = _Input({B, prefillLen, numVHeads}, NCHW, halide_type_of<float>());
+            // Identical Y inputs as moduleA's step 3.
+            fillDeterministic(qkvVar->writeMap<float>(), B * D * prefillLen, 0.05f, 0.1f);
+            fillGate(gateVar->writeMap<float>(), B * prefillLen * numVHeads);
+            fillBeta(betaVar->writeMap<float>(), B * prefillLen * numVHeads);
+            auto outputs = moduleB->onForward({qkvVar, gateVar, betaVar, convWVar});
+            if (outputs.empty()) {
+                MNN_PRINT("RollbackTest: moduleB fresh prefill Y returned empty output\n");
+                return false;
+            }
+            const float* p = outputs[0]->readMap<float>();
+            ::memcpy(outputB.data(), p, outSize * sizeof(float));
+        }
+
+        // ─── Compare: A's post-rollback prefill must equal B's fresh prefill ───
+        for (int i = 0; i < outSize; ++i) {
+            float diff = fabs(outputA[i] - outputB[i]);
+            if (diff > tolerance) {
+                MNN_PRINT(
+                    "Rollback (mSnapshotValid=false) FAILED at index %d: "
+                    "rollback=%.6f fresh=%.6f diff=%.6f\n",
+                    i, outputA[i], outputB[i], diff);
+                return false;
+            }
+        }
+        MNN_PRINT("LinearAttention Rollback (no snapshot, state zeroed) PASSED\n");
+        return true;
+    }
+};
+
+MNNTestSuiteRegister(LinearAttentionRollbackTest, "op/linear_attention_rollback");
+
+// ─── Chunked prefix-cache layer_index drift test ───
+//
+// Background: prefix-cache file naming uses mMeta->layer_index as a counter
+// that each layer's onExecute advances by 1, wrapping mod layer_nums. The
+// counter is shared between LinearAttention and CPUKVCacheManager (Full
+// Attention). CPUKVCacheManager advances it ONLY inside onAlloc, which fires
+// on chunk 1 (when mMeta->previous == mMeta->remove); chunks 2..N go through
+// onRealloc, which does NOT touch layer_index.
+//
+// Before the fix, CPULinearAttention advanced layer_index inside its
+// PendingWrite/PendingRead branches on EVERY chunk's onExecute. In hybrid
+// models (attention_type="mix"), this caused LinearAttention's counter to
+// drift past Full Attention's layer positions on chunks 2..N — LA would
+// compute the wrong file index and overwrite Full Attention's prefix cache
+// .k/.v files, corrupting their live mmap regions and triggering SIGBUS on
+// subsequent FA access.
+//
+// The fix captures layer_index ONCE per session (when previous == remove)
+// into mStateCache->mPrefixLayerIndex; subsequent chunks reuse the cached
+// value and do NOT touch mMeta->layer_index. This mirrors CPUKVCacheManager's
+// once-per-session advancement semantics so the two co-exist correctly.
+//
+// This test exercises the layer_index lifecycle directly on a single
+// LinearAttention op (no FA dependency needed to expose the regression):
+//   chunk 1 (previous == remove == 0): expect layer_index to advance by 1.
+//   chunk 2 (previous > 0, remove == 0): expect layer_index UNCHANGED.
+// A failure here means chunks 2..N would clobber some other layer's file.
+class LinearAttentionChunkedLayerIndexTest : public MNNTestCase {
+public:
+    LinearAttentionChunkedLayerIndexTest() = default;
+    virtual ~LinearAttentionChunkedLayerIndexTest() = default;
+
+    virtual bool run(int precision) {
+        const int B = 1, numKHeads = 2, numVHeads = 2;
+        const int headKDim = 4, headVDim = 4, K_conv = 4;
+        const int key_dim = numKHeads * headKDim;
+        const int val_dim = numVHeads * headVDim;
+        const int D = 2 * key_dim + val_dim;
+        const int prefillLen = 4;
+        // Starting layer_index value chosen to be non-zero so we can
+        // distinguish "no advance" from "reset to zero".
+        const int kInitialLayerIndex = 5;
+        const int kLayerNums = 24;
+
+        // Shared conv weight across both chunks.
+        auto convWVar = _Input({D, 1, K_conv}, NCHW, halide_type_of<float>());
+        fillConvWeight(convWVar->writeMap<float>(), D * 1 * K_conv);
+
+        // Simulate the meta state at the start of a chunked prefix-cache
+        // write session:
+        //   - file_name + file_flag=PendingWrite trigger the prefix-cache
+        //     write branch in CPULinearAttention::onExecute.
+        //   - layer_index = 5 simulates this op being not-first in a multi-
+        //     layer forward pass (previous layers' onExecute have already
+        //     advanced the counter).
+        //   - previous = 0, remove = 0 marks "first chunk" — the per-session
+        //     capture-and-advance block should fire on this call only.
+        LATestKVMeta meta;
+        meta.file_name = "test_chunked_layer_index";
+        meta.file_flag = LATestKVMeta::PendingWrite;
+        meta.layer_index = kInitialLayerIndex;
+        meta.layer_nums = kLayerNums;
+        meta.previous = 0;
+        meta.remove = 0;
+
+        auto module = _makeLinearAttentionModuleWithMeta(numKHeads, numVHeads, headKDim, headVDim, true, &meta);
+        if (!module) {
+            MNN_PRINT("ChunkedLayerIndexTest: failed to create module\n");
+            return false;
+        }
+
+        auto runChunk = [&](float seed_offset) -> bool {
+            auto qkvVar = _Input({B, D, prefillLen}, NCHW, halide_type_of<float>());
+            auto gateVar = _Input({B, prefillLen, numVHeads}, NCHW, halide_type_of<float>());
+            auto betaVar = _Input({B, prefillLen, numVHeads}, NCHW, halide_type_of<float>());
+            fillDeterministic(qkvVar->writeMap<float>(), B * D * prefillLen, 0.07f, seed_offset);
+            fillGate(gateVar->writeMap<float>(), B * prefillLen * numVHeads);
+            fillBeta(betaVar->writeMap<float>(), B * prefillLen * numVHeads);
+            auto outputs = module->onForward({qkvVar, gateVar, betaVar, convWVar});
+            if (outputs.empty()) {
+                return false;
+            }
+            // Force evaluation so onExecute (and its meta-state mutations) runs.
+            (void)outputs[0]->readMap<float>();
+            return true;
+        };
+
+        // ─── Chunk 1: should capture layer_index=5 and advance to 6 ───
+        if (!runChunk(0.0f)) {
+            MNN_PRINT("ChunkedLayerIndexTest: chunk 1 forward failed\n");
+            return false;
+        }
+        if (meta.layer_index != kInitialLayerIndex + 1) {
+            MNN_PRINT(
+                "ChunkedLayerIndexTest FAIL: after chunk 1, layer_index = %d, "
+                "expected %d (capture-and-advance must bump once on the first "
+                "PendingWrite call of a session)\n",
+                meta.layer_index, kInitialLayerIndex + 1);
+            return false;
+        }
+
+        // ─── Between chunks: simulate the meta updates Llm performs ───
+        //   sync() at end of forwardRaw: previous += add (= prefillLen), remove resets
+        // layer_index is intentionally NOT touched here — in real hybrid
+        // models, FA layers' onRealloc on chunks 2..N also does NOT touch it.
+        meta.previous = prefillLen;
+        meta.remove = 0;
+        int layer_index_before_chunk2 = meta.layer_index;
+
+        // ─── Chunk 2: must NOT re-advance layer_index ───
+        if (!runChunk(0.1f)) {
+            MNN_PRINT("ChunkedLayerIndexTest: chunk 2 forward failed\n");
+            return false;
+        }
+        if (meta.layer_index != layer_index_before_chunk2) {
+            MNN_PRINT(
+                "ChunkedLayerIndexTest FAIL: after chunk 2, layer_index = %d, "
+                "expected %d (chunks 2..N must reuse mStateCache->mPrefixLayerIndex "
+                "without re-advancing mMeta->layer_index — the drift was the "
+                "root cause of LA overwriting FA's prefix cache files in hybrid "
+                "models, manifesting as SIGBUS on subsequent FA mmap access)\n",
+                meta.layer_index, layer_index_before_chunk2);
+            return false;
+        }
+
+        // Cleanup: PendingWrite branch writes the per-layer prefix cache files
+        // as a side effect. Default prefix cache dir relative to CWD is
+        // "prefixcache/". Remove them so we don't leave artifacts behind.
+        ::remove("prefixcache/test_chunked_layer_index_5.k");
+        ::remove("prefixcache/test_chunked_layer_index_5.v");
+        // (leave the empty prefixcache/ dir behind; harmless and cross-platform-friendly)
+
+        MNN_PRINT("LinearAttention Chunked LayerIndex (per-session capture) PASSED\n");
+        return true;
+    }
+};
+MNNTestSuiteRegister(LinearAttentionChunkedLayerIndexTest, "op/linear_attention_chunked_layer_index");
+
+// ─── Edge case: PendingWrite when previous != remove (capture must be skipped) ───
+//
+// The capture-and-advance block in CPULinearAttention::onExecute only fires
+// when (file_name set, file_flag in {PendingWrite, PendingRead}, previous ==
+// remove). The `previous == remove` predicate identifies "first call of a
+// fresh-or-fully-rolled-back session" (chunk 1 of a new write, or chunk 1
+// after eraseHistory(0, previous)).
+//
+// If something triggers PendingWrite/PendingRead outside that entry path
+// (e.g. partial eraseHistory(begin>0, end) followed by a forced cache write
+// while `mMeta->remove < mMeta->previous`), the capture block is skipped and
+// mStateCache->mPrefixLayerIndex stays at its initial sentinel -1.
+//
+// The PendingWrite branch then constructs a file path using -1 as the layer
+// index, writing junk to "<dir>/<name>_-1.k". This corrupts the prefix cache
+// directory layout — silent on success but reads as a phantom layer to any
+// future PendingRead pass.
+//
+// This test pins down the desired behavior on that mismatched-meta path:
+//   (a) mMeta->layer_index must NOT advance (consistent with all advancement
+//       being moved into the capture block), and
+//   (b) no junk "_-1.{k,v}" file should be created.
+//
+// Failure on (b) means production code needs either a fallback (use
+// mMeta->layer_index when mPrefixLayerIndex == -1) or an early-out guard
+// inside the PendingWrite/PendingRead branches. The test cleans up any junk
+// it may have produced so subsequent runs are not affected by today's bug.
+class LinearAttentionPendingWriteUnsyncedTest : public MNNTestCase {
+public:
+    LinearAttentionPendingWriteUnsyncedTest() = default;
+    virtual ~LinearAttentionPendingWriteUnsyncedTest() = default;
+
+    virtual bool run(int precision) {
+        const int B = 1, numKHeads = 2, numVHeads = 2;
+        const int headKDim = 4, headVDim = 4, K_conv = 4;
+        const int key_dim = numKHeads * headKDim;
+        const int val_dim = numVHeads * headVDim;
+        const int D = 2 * key_dim + val_dim;
+        const int prefillLen = 4;
+        const int kInitialLayerIndex = 5;
+        const int kLayerNums = 24;
+        const std::string cacheName = "test_pending_write_unsynced";
+        const std::string junkK = "prefixcache/" + cacheName + "_-1.k";
+        const std::string junkV = "prefixcache/" + cacheName + "_-1.v";
+
+        // Defensive: remove any pre-existing junk from a previous failing run
+        // so we measure THIS run's behavior.
+        ::remove(junkK.c_str());
+        ::remove(junkV.c_str());
+
+        auto convWVar = _Input({D, 1, K_conv}, NCHW, halide_type_of<float>());
+        fillConvWeight(convWVar->writeMap<float>(), D * 1 * K_conv);
+
+        // Construct meta where PendingWrite fires but the capture-and-advance
+        // condition fails (previous != remove). 4/2 mimics a partial
+        // eraseHistory(begin=2, end=4) followed by a forced cache write.
+        LATestKVMeta meta;
+        meta.file_name = cacheName;
+        meta.file_flag = LATestKVMeta::PendingWrite;
+        meta.layer_index = kInitialLayerIndex;
+        meta.layer_nums = kLayerNums;
+        meta.previous = 4;
+        meta.remove = 2;
+
+        auto module = _makeLinearAttentionModuleWithMeta(numKHeads, numVHeads, headKDim, headVDim, true, &meta);
+        if (!module) {
+            MNN_PRINT("PendingWriteUnsyncedTest: failed to create module\n");
+            return false;
+        }
+
+        auto qkvVar = _Input({B, D, prefillLen}, NCHW, halide_type_of<float>());
+        auto gateVar = _Input({B, prefillLen, numVHeads}, NCHW, halide_type_of<float>());
+        auto betaVar = _Input({B, prefillLen, numVHeads}, NCHW, halide_type_of<float>());
+        fillDeterministic(qkvVar->writeMap<float>(), B * D * prefillLen, 0.07f, 0.0f);
+        fillGate(gateVar->writeMap<float>(), B * prefillLen * numVHeads);
+        fillBeta(betaVar->writeMap<float>(), B * prefillLen * numVHeads);
+
+        auto outputs = module->onForward({qkvVar, gateVar, betaVar, convWVar});
+        if (outputs.empty()) {
+            MNN_PRINT("PendingWriteUnsyncedTest: forward failed\n");
+            return false;
+        }
+        (void)outputs[0]->readMap<float>();
+
+        // (a) layer_index must NOT have advanced
+        bool layerIndexOk = (meta.layer_index == kInitialLayerIndex);
+        if (!layerIndexOk) {
+            MNN_PRINT(
+                "PendingWriteUnsyncedTest FAIL (a): layer_index = %d, expected %d "
+                "(capture-and-advance must not fire when previous != remove)\n",
+                meta.layer_index, kInitialLayerIndex);
+        }
+
+        // (b) no junk "_-1.{k,v}" file should be written
+        struct stat st;
+        bool junkKExists = (::stat(junkK.c_str(), &st) == 0);
+        bool junkVExists = (::stat(junkV.c_str(), &st) == 0);
+        bool junkOk = !junkKExists && !junkVExists;
+        if (!junkOk) {
+            MNN_PRINT(
+                "PendingWriteUnsyncedTest FAIL (b): junk files written at sentinel "
+                "index -1: %s=%d %s=%d. Production code should either skip the disk "
+                "write or fall back to mMeta->layer_index when mPrefixLayerIndex is -1.\n",
+                junkK.c_str(), (int)junkKExists, junkV.c_str(), (int)junkVExists);
+        }
+
+        // Cleanup regardless of pass/fail so subsequent runs start clean.
+        ::remove(junkK.c_str());
+        ::remove(junkV.c_str());
+
+        bool ok = layerIndexOk && junkOk;
+        if (ok) {
+            MNN_PRINT("LinearAttention PendingWrite-Unsynced (no capture, no junk write) PASSED\n");
+        }
+        return ok;
+    }
+};
+MNNTestSuiteRegister(LinearAttentionPendingWriteUnsyncedTest, "op/linear_attention_pending_write_unsynced");
 
 #endif // MNN_SUPPORT_TRANSFORMER_FUSE
