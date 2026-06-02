@@ -41,11 +41,6 @@ extern void MNNAsyQuantInfo_FP32_RVV(float* scale, float* bias, float* qscale, f
                                      float* dstMax, const float* src, const size_t* info);
 extern void MNNDynamicQuantFP32_RVV(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad,
                                     size_t realSize, int pack, const float* bias);
-extern void MNNPackedMatMul_int8_RVV(float* C, const float* A, const float* B, const size_t* parameter,
-                                     const float* postParameters, const float* bias, const float* k, const float* b);
-extern void MNNPackedMatMulRemain_int8_RVV(float* C, const float* A, const float* B, size_t eSize,
-                                           const size_t* parameter, const float* postParameters, const float* bias,
-                                           const float* k, const float* b);
 extern void MNNReorderWeightInt4_RVV(uint8_t* dest, const uint8_t* source, int32_t* shape, size_t size,
                                      float* kernelsum);
 extern void MNNSumByAxisLForMatmul_A_RVV(float* dest, int8_t* source, const float* dequantScale,
@@ -62,162 +57,6 @@ void MNNInt8ToInt16(int16_t* dest, const int8_t* source, size_t count) {
 #endif
 
 #ifndef __aarch64__
-#ifdef MNN_CPU_WEIGHT_DEQUANT_GEMM
-static void _MNNPackedMatMulRemain_int4(float* C, const float* A, const float* fB, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, int aStride, const float* k, const float* b) {
-    auto B = reinterpret_cast<const uint8_t*>(fB);
-    auto h = parameter[2];
-    auto l = parameter[1];
-    auto cStride = parameter[3] / sizeof(float);
-    auto hRemain = parameter[4];
-    float weightBytes = 0.5; // sizeof(int4_t)
-    auto bExtraStride = static_cast<int32_t>(parameter[5] / weightBytes);
-    auto bStride = bExtraStride + 4 * l;
-    auto hC4 = UP_DIV(h, 4);
-    float minValue = -std::numeric_limits<float>().max();
-    float maxValue = std::numeric_limits<float>().max();
-    if (nullptr != postParameters) {
-        minValue = postParameters[2];
-        maxValue = postParameters[3];
-    }
-    int blockId = parameter[6];
-
-    for (int x=0; x<eSize; ++x) {
-        auto dst = C + 4 * x;
-        auto src = A + x;
-        for (int y=0; y<hC4; ++y) {
-            auto dstY = dst + y * cStride;
-            auto weight = B + y * bStride / 2;
-            auto alpha = k + y * 4;
-            auto qbias  = b + y * 4;
-            float summer[4] = {
-                0.0f,
-                0.0f,
-                0.0f,
-                0.0f,
-            };
-            if (blockId > 0) {
-                summer[0] = dstY[0];
-                summer[1] = dstY[1];
-                summer[2] = dstY[2];
-                summer[3] = dstY[3];
-            }
-            if (nullptr != bias && nullptr != postParameters) {
-                for (int v=0; v<4; ++v) {
-                    summer[v] += bias[4 * y + v];
-                }
-            }
-            for (int z=0; z<l; ++z) {
-                auto aZ = src + z * aStride;
-                auto i4wZ = weight + z * 2;
-                float wZ[4];
-                {
-                    auto w01    = i4wZ[0];
-                    auto w23    = i4wZ[1];
-                    int iw01    = w01;
-                    int iw23    = w23;
-                    int iw0     = iw01 / 16;
-                    int iw1     = iw01 % 16;
-                    int iw2     = iw23 / 16;
-                    int iw3     = iw23 % 16;
-                    wZ[0]       = iw0 * alpha[0] + qbias[0];
-                    wZ[1]       = iw1 * alpha[1] + qbias[1];
-                    wZ[2]       = iw2 * alpha[2] + qbias[2];
-                    wZ[3]       = iw3 * alpha[3] + qbias[3];
-                }
-                summer[0] += wZ[0] * aZ[0];
-                summer[1] += wZ[1] * aZ[0];
-                summer[2] += wZ[2] * aZ[0];
-                summer[3] += wZ[3] * aZ[0];
-            }
-            for (int v=0; v<4; ++v) {
-                auto dstValue = std::min(summer[v], maxValue);
-                dstValue = std::max(dstValue, minValue);
-                dstY[v] = dstValue;
-            }
-        }
-    }
-}
-static void _MNNPackedMatMulRemain_int8(float* C, const float* A, const float* fB, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, int aStride, const float* k, const float* b) {
-    auto B = reinterpret_cast<const int8_t*>(fB);
-    auto h = parameter[2];
-    auto l = parameter[1];
-    auto cStride = parameter[3] / sizeof(float);
-    auto hRemain = parameter[4];
-    float weightBytes = 1; // sizeof(int8_t)
-    auto bExtraStride = static_cast<int32_t>(parameter[5] / weightBytes);
-    auto bStride = bExtraStride + 4 * l;
-    auto hC4 = UP_DIV(h, 4);
-    float minValue = -std::numeric_limits<float>().max();
-    float maxValue = std::numeric_limits<float>().max();
-    if (nullptr != postParameters) {
-        minValue = postParameters[2];
-        maxValue = postParameters[3];
-    }
-    int blockId = parameter[6];
-
-    for (int x=0; x<eSize; ++x) {
-        auto dst = C + 4 * x;
-        auto src = A + x;
-        for (int y=0; y<hC4; ++y) {
-            auto dstY = dst + y * cStride;
-            auto weight = B + y * bStride;
-            auto alpha = k + y * 4;
-            auto qbias  = b + y * 4;
-            float summer[4] = {
-                0.0f,
-                0.0f,
-                0.0f,
-                0.0f,
-            };
-            if (blockId > 0) {
-                summer[0] = dstY[0];
-                summer[1] = dstY[1];
-                summer[2] = dstY[2];
-                summer[3] = dstY[3];
-            }
-            if (nullptr != bias && nullptr != postParameters) {
-                for (int v=0; v<4; ++v) {
-                    summer[v] += bias[4 * y + v];
-                }
-            }
-            for (int z=0; z<l; ++z) {
-                auto aZ = src + z * aStride;
-                auto i8wZ = weight + z * 4;
-                float wZ[4];
-                {
-                    wZ[0]       = i8wZ[0] * alpha[0] + qbias[0];
-                    wZ[1]       = i8wZ[1] * alpha[1] + qbias[1];
-                    wZ[2]       = i8wZ[2] * alpha[2] + qbias[2];
-                    wZ[3]       = i8wZ[3] * alpha[3] + qbias[3];
-                }
-                summer[0] += wZ[0] * aZ[0];
-                summer[1] += wZ[1] * aZ[0];
-                summer[2] += wZ[2] * aZ[0];
-                summer[3] += wZ[3] * aZ[0];
-            }
-            for (int v=0; v<4; ++v) {
-                auto dstValue = std::min(summer[v], maxValue);
-                dstValue = std::max(dstValue, minValue);
-                dstY[v] = dstValue;
-            }
-        }
-    }
-}
-void MNNPackedMatMul_int4(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b) {
-    _MNNPackedMatMulRemain_int4(C, A, B, 16, parameter, postParameters, bias, 16, k, b);
-}
-void MNNPackedMatMulRemain_int4(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b) {
-    auto aStride = parameter[0] / sizeof(float);
-    _MNNPackedMatMulRemain_int4(C, A, B, eSize, parameter, postParameters, bias, aStride, k, b);
-}
-void MNNPackedMatMul_int8(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b) {
-    _MNNPackedMatMulRemain_int8(C, A, B, 16, parameter, postParameters, bias, 16, k, b);
-}
-void MNNPackedMatMulRemain_int8(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b) {
-    auto aStride = parameter[0] / sizeof(float);
-    _MNNPackedMatMulRemain_int8(C, A, B, eSize, parameter, postParameters, bias, aStride, k, b);
-}
-#endif // MNN_CPU_WEIGHT_DEQUANT_GEMM
 
 #ifdef MNN_LOW_MEMORY
 void MNNQuantScaleFP32(float* absmax, float* quant_scale, float* dequant_scale, size_t thread, size_t batch) {
@@ -4941,11 +4780,6 @@ void MNNCoreFunctionInit() {
         gCoreFunction->MNNSumWeightInt8 = MNNSumWeightInt8Arm86;
     }
 #endif
-#ifdef MNN_CPU_WEIGHT_DEQUANT_GEMM
-    // Weight Dequant Gemm Kernels
-    gCoreFunction->MNNPackedMatMul_int8 = MNNPackedMatMul_int8;
-    gCoreFunction->MNNPackedMatMulRemain_int8 = MNNPackedMatMulRemain_int8;
-#endif
 #ifdef MNN_LOW_MEMORY
     gCoreFunction->MNNAbsMax = MNNAbsMaxFP32;                      // abs max value for [icDiv4,plane,4] -> abs max:[plane]
     gCoreFunction->MNNDynamicQuant = MNNDynamicQuantFP32;          // symmetric 'batch' quant for [icDiv4,plane,4]
@@ -4971,10 +4805,6 @@ void MNNCoreFunctionInit() {
         gCoreFunction->MNNSumByAxisLForMatmul_A = MNNSumByAxisLForMatmul_A_RVV;
         gCoreFunction->MNNReorderWeightInt4 = MNNReorderWeightInt4_RVV;
         gCoreFunction->MNNSumWeightInt8 = MNNSumWeightInt8_RVV;
-#ifdef MNN_CPU_WEIGHT_DEQUANT_GEMM
-        gCoreFunction->MNNPackedMatMul_int8 = MNNPackedMatMul_int8_RVV;
-        gCoreFunction->MNNPackedMatMulRemain_int8 = MNNPackedMatMulRemain_int8_RVV;
-#endif
 #ifdef MNN_LOW_MEMORY
         gCoreFunction->MNNAbsMax = MNNAbsMaxFP32_RVV;
         gCoreFunction->MNNDynamicQuant = MNNDynamicQuantFP32_RVV;

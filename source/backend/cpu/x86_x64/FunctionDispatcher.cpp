@@ -50,10 +50,6 @@ void MNNFunctionInit() {
         coreFunction->MNNGetMatMulPackMode = _SSEMNNGetMatMulPackMode;
         coreFunction->MNNPackedMatMul       = _SSE_MNNPackedMatMul;
         coreFunction->MNNPackedMatMulRemain = _SSE_MNNPackedMatMulRemain;
-#ifdef MNN_CPU_WEIGHT_DEQUANT_GEMM
-        coreFunction->MNNPackedMatMul_int8       = _SSE_MNNPackedMatMul_int8;
-        coreFunction->MNNPackedMatMulRemain_int8 = _SSE_MNNPackedMatMulRemain_int8;
-#endif
 
 #ifdef MNN_LOW_MEMORY
         coreFunction->MNNAbsMax = _SSE_MNNAbsMaxFP32;

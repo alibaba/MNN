@@ -154,10 +154,10 @@ if [ "$BUILD_ANDROID" = true ]; then
         echo -e "${RED}示例: $0 --android --ndk ~/Library/Android/sdk/ndk/29.0.13599879${NC}"
         exit 1
     fi
-    
+
     # 展开路径中的 ~
     ANDROID_NDK="${ANDROID_NDK/#\~/$HOME}"
-    
+
     if [ ! -d "$ANDROID_NDK" ]; then
         echo -e "${RED}错误: NDK 路径不存在: $ANDROID_NDK${NC}"
         exit 1
@@ -177,7 +177,7 @@ find_harmony_toolchain() {
             return 0
         fi
     fi
-    
+
     # 优先查找 ~/Library/OpenHarmony/Sdk，支持版本号目录
     local sdk_base="$HOME/Library/OpenHarmony/Sdk"
     if [ -d "$sdk_base" ]; then
@@ -198,7 +198,7 @@ find_harmony_toolchain() {
             fi
         done
     fi
-    
+
     # 其他可能的路径
     local possible_paths=(
         "$HOME/Library/OpenHarmony/Sdk/native"
@@ -208,7 +208,7 @@ find_harmony_toolchain() {
         "/usr/local/HarmonyOS/Sdk/native"
         "$HOME/Library/HarmonyOS/Sdk/native"
     )
-    
+
     # 尝试查找
     for path in "${possible_paths[@]}"; do
         if [ -n "$path" ] && [ -f "$path/build/cmake/ohos.toolchain.cmake" ]; then
@@ -216,7 +216,7 @@ find_harmony_toolchain() {
             return 0
         fi
     done
-    
+
     # 限制搜索范围，只在 OpenHarmony/Sdk 目录下快速查找
     # 避免在整个 OpenHarmony 目录下递归查找，这可能会很慢
     local found=$(find "$HOME/Library/OpenHarmony/Sdk" -maxdepth 4 -type f -name "ohos.toolchain.cmake" 2>/dev/null | head -1)
@@ -232,7 +232,7 @@ find_harmony_toolchain() {
         echo "$found"
         return 0
     fi
-    
+
     return 1
 }
 
@@ -242,7 +242,7 @@ if [ "$BUILD_HARMONY" = true ]; then
     if [ -n "$HARMONY_HOME" ]; then
         HARMONY_HOME="${HARMONY_HOME/#\~/$HOME}"
     fi
-    
+
     # 尝试查找工具链
     if [ -z "$HARMONY_HOME" ] || [ ! -f "$HARMONY_HOME/build/cmake/ohos.toolchain.cmake" ]; then
         # 检查是否在 native 子目录下
@@ -251,7 +251,7 @@ if [ "$BUILD_HARMONY" = true ]; then
         else
             echo -e "${YELLOW}正在查找鸿蒙工具链...${NC}"
             HARMONY_HOME=$(find_harmony_toolchain)
-            
+
             if [ -z "$HARMONY_HOME" ]; then
                 echo -e "${RED}错误: 找不到鸿蒙工具链${NC}"
                 echo -e "${RED}默认查找路径: ~/Library/OpenHarmony/Sdk/*/native${NC}"
@@ -259,16 +259,16 @@ if [ "$BUILD_HARMONY" = true ]; then
                 echo -e "${RED}工具链文件应位于: <HARMONY_HOME>/build/cmake/ohos.toolchain.cmake 或 <HARMONY_HOME>/native/build/cmake/ohos.toolchain.cmake${NC}"
                 exit 1
             fi
-            
+
             # 如果找到的是带 native 的路径，需要调整
             if [ -f "$HARMONY_HOME/native/build/cmake/ohos.toolchain.cmake" ]; then
                 HARMONY_HOME="$HARMONY_HOME/native"
             fi
         fi
-        
+
         echo -e "${GREEN}找到鸿蒙工具链: $HARMONY_HOME${NC}"
     fi
-    
+
     # 验证工具链文件存在
     if [ ! -f "$HARMONY_HOME/build/cmake/ohos.toolchain.cmake" ]; then
         echo -e "${RED}错误: 鸿蒙工具链文件不存在: $HARMONY_HOME/build/cmake/ohos.toolchain.cmake${NC}"
@@ -300,23 +300,23 @@ if [ "$BUILD_ANDROID" = true ]; then
     echo -e "${GREEN}========================================${NC}"
     echo -e "${GREEN}开始构建 Android 版本${NC}"
     echo -e "${GREEN}========================================${NC}"
-    
+
     export ANDROID_NDK
-    
+
     ANDROID_BUILD_DIR="project/android"
     ANDROID_OUTPUT_DIR="$OUTPUT_DIR/android"
-    
+
     cd "$ANDROID_BUILD_DIR"
-    
+
     # 清理
     if [ "$CLEAN_BUILD" = true ]; then
         echo -e "${YELLOW}清理之前的 Android 构建...${NC}"
         rm -rf build_32 build_64 export
     fi
-    
+
     # 在项目根目录创建输出目录
     mkdir -p "$PROJECT_ROOT/$ANDROID_OUTPUT_DIR"
-    
+
     # 构建 armeabi-v7a
     echo -e "${BLUE}构建 armeabi-v7a...${NC}"
     mkdir -p build_32
@@ -335,7 +335,6 @@ if [ "$BUILD_ANDROID" = true ]; then
         -DMNN_LOW_MEMORY=ON \
         -DMNN_SUPPORT_TRANSFORMER_FUSE=ON \
         -DMNN_BUILD_LLM=ON \
-        -DMNN_CPU_WEIGHT_DEQUANT_GEMM=ON \
         -DMNN_BUILD_DIFFUSION=ON \
         -DMNN_OPENCL=OFF \
         -DMNN_SEP_BUILD=OFF \
@@ -348,10 +347,10 @@ if [ "$BUILD_ANDROID" = true ]; then
         -DNATIVE_LIBRARY_OUTPUT=. \
         -DNATIVE_INCLUDE_OUTPUT=. \
         > /dev/null
-    
+
     make -j4 MNN > /dev/null
     cd ..
-    
+
     # 构建 arm64-v8a
     echo -e "${BLUE}构建 arm64-v8a...${NC}"
     mkdir -p build_64
@@ -371,7 +370,6 @@ if [ "$BUILD_ANDROID" = true ]; then
         -DMNN_LOW_MEMORY=ON \
         -DMNN_SUPPORT_TRANSFORMER_FUSE=ON \
         -DMNN_BUILD_LLM=ON \
-        -DMNN_CPU_WEIGHT_DEQUANT_GEMM=ON \
         -DMNN_BUILD_DIFFUSION=ON \
         -DMNN_OPENCL=OFF \
         -DMNN_SEP_BUILD=OFF \
@@ -384,18 +382,18 @@ if [ "$BUILD_ANDROID" = true ]; then
         -DNATIVE_LIBRARY_OUTPUT=. \
         -DNATIVE_INCLUDE_OUTPUT=. \
         > /dev/null
-    
+
     make -j4 MNN > /dev/null
     cd ..
-    
+
     # 导出文件
     echo -e "${BLUE}导出 Android 库文件...${NC}"
     mkdir -p export/android/{armeabi-v7a,arm64-v8a}/libs export/android/include/MNN
-    
+
     cp build_32/*.so export/android/armeabi-v7a/libs/ 2>/dev/null || true
     cp build_64/*.so export/android/arm64-v8a/libs/ 2>/dev/null || true
     cp -r ../../include/MNN/* export/android/include/MNN/
-    
+
     # 复制到统一输出目录
     # 如果目标路径存在但不是目录，先删除
     if [ -e "$PROJECT_ROOT/$ANDROID_OUTPUT_DIR" ] && [ ! -d "$PROJECT_ROOT/$ANDROID_OUTPUT_DIR" ]; then
@@ -403,7 +401,7 @@ if [ "$BUILD_ANDROID" = true ]; then
     fi
     mkdir -p "$PROJECT_ROOT/$ANDROID_OUTPUT_DIR"
     cp -r export/android/* "$PROJECT_ROOT/$ANDROID_OUTPUT_DIR/"
-    
+
     echo -e "${GREEN}Android 构建完成！${NC}"
     echo "输出位置: $ANDROID_OUTPUT_DIR"
     cd "$PROJECT_ROOT"
@@ -416,34 +414,34 @@ if [ "$BUILD_IOS" = true ]; then
     echo -e "${GREEN}========================================${NC}"
     echo -e "${GREEN}开始构建 iOS 真机版本${NC}"
     echo -e "${GREEN}========================================${NC}"
-    
+
     # 检查是否在 macOS 上
     if [[ "$OSTYPE" != "darwin"* ]]; then
         echo -e "${RED}错误: iOS 构建只能在 macOS 上执行${NC}"
         exit 1
     fi
-    
+
     # 检查 Xcode
     if ! command -v xcodebuild &> /dev/null; then
         echo -e "${RED}错误: 找不到 Xcode，请先安装 Xcode${NC}"
         exit 1
     fi
-    
+
     IOS_BUILD_DIR="project/ios"
     IOS_OUTPUT_DIR="$OUTPUT_DIR/ios/device"
-    
+
     cd "$IOS_BUILD_DIR"
-    
+
     # 清理
     if [ "$CLEAN_BUILD" = true ]; then
         echo -e "${YELLOW}清理之前的 iOS 真机构建...${NC}"
         rm -rf MNN-iOS-CPU-GPU/Static/ios_64
         find "$PROJECT_ROOT" -name "CMakeCache.txt" -path "*/ios_64/*" 2>/dev/null | xargs rm -f 2>/dev/null || true
     fi
-    
+
     mkdir -p MNN-iOS-CPU-GPU/Static
     cd MNN-iOS-CPU-GPU/Static
-    
+
     # 构建真机版本 (arm64)
     echo -e "${BLUE}构建 iOS 真机版本 (arm64)...${NC}"
     rm -rf ios_64
@@ -463,7 +461,6 @@ if [ "$BUILD_IOS" = true ]; then
         -DMNN_LOW_MEMORY=ON \
         -DMNN_SUPPORT_TRANSFORMER_FUSE=ON \
         -DMNN_BUILD_LLM=ON \
-        -DMNN_CPU_WEIGHT_DEQUANT_GEMM=ON \
         -DMNN_METAL=ON \
         -DMNN_BUILD_DIFFUSION=ON \
         -DMNN_OPENCL=OFF \
@@ -475,15 +472,15 @@ if [ "$BUILD_IOS" = true ]; then
         > /dev/null
     make MNN -j8 > /dev/null
     cd ..
-    
+
     # 输出真机版本
     mkdir -p "$PROJECT_ROOT/$IOS_OUTPUT_DIR"
     rm -rf "$PROJECT_ROOT/$IOS_OUTPUT_DIR/MNN.framework"
     cp -R ios_64/MNN.framework "$PROJECT_ROOT/$IOS_OUTPUT_DIR/"
-    
+
     # 清理
     rm -rf ios_64
-    
+
     echo -e "${GREEN}iOS 真机构建完成！${NC}"
     echo "输出位置: $IOS_OUTPUT_DIR/MNN.framework"
     cd "$PROJECT_ROOT"
@@ -496,34 +493,34 @@ if [ "$BUILD_IOS_SIMULATOR" = true ]; then
     echo -e "${GREEN}========================================${NC}"
     echo -e "${GREEN}开始构建 iOS 模拟器版本${NC}"
     echo -e "${GREEN}========================================${NC}"
-    
+
     # 检查是否在 macOS 上
     if [[ "$OSTYPE" != "darwin"* ]]; then
         echo -e "${RED}错误: iOS 构建只能在 macOS 上执行${NC}"
         exit 1
     fi
-    
+
     # 检查 Xcode
     if ! command -v xcodebuild &> /dev/null; then
         echo -e "${RED}错误: 找不到 Xcode，请先安装 Xcode${NC}"
         exit 1
     fi
-    
+
     IOS_BUILD_DIR="project/ios"
     IOS_OUTPUT_DIR="$OUTPUT_DIR/ios/simulator"
-    
+
     cd "$IOS_BUILD_DIR"
-    
+
     # 清理
     if [ "$CLEAN_BUILD" = true ]; then
         echo -e "${YELLOW}清理之前的 iOS 模拟器构建...${NC}"
         rm -rf MNN-iOS-CPU-GPU/Static/ios_simulator*
         find "$PROJECT_ROOT" -name "CMakeCache.txt" -path "*/ios_simulator*/*" 2>/dev/null | xargs rm -f 2>/dev/null || true
     fi
-    
+
     mkdir -p MNN-iOS-CPU-GPU/Static
     cd MNN-iOS-CPU-GPU/Static
-    
+
     # 构建 x86_64 模拟器版本（尝试构建，失败则跳过）
     BUILD_X86_64=false
     echo -e "${BLUE}构建 iOS 模拟器版本 (x86_64)...${NC}"
@@ -544,7 +541,6 @@ if [ "$BUILD_IOS_SIMULATOR" = true ]; then
         -DMNN_LOW_MEMORY=ON \
         -DMNN_SUPPORT_TRANSFORMER_FUSE=ON \
         -DMNN_BUILD_LLM=ON \
-        -DMNN_CPU_WEIGHT_DEQUANT_GEMM=ON \
         -DMNN_METAL=OFF \
         -DMNN_BUILD_DIFFUSION=ON \
         -DMNN_OPENCL=OFF \
@@ -568,7 +564,7 @@ if [ "$BUILD_IOS_SIMULATOR" = true ]; then
         cd ..
         rm -rf ios_simulator_x86
     fi
-    
+
     # 构建 arm64 模拟器版本
     echo -e "${BLUE}构建 iOS 模拟器版本 (arm64)...${NC}"
     rm -rf ios_simulator_arm64
@@ -588,7 +584,6 @@ if [ "$BUILD_IOS_SIMULATOR" = true ]; then
         -DMNN_LOW_MEMORY=ON \
         -DMNN_SUPPORT_TRANSFORMER_FUSE=ON \
         -DMNN_BUILD_LLM=ON \
-        -DMNN_CPU_WEIGHT_DEQUANT_GEMM=ON \
         -DMNN_METAL=OFF \
         -DMNN_BUILD_DIFFUSION=ON \
         -DMNN_OPENCL=OFF \
@@ -607,19 +602,19 @@ if [ "$BUILD_IOS_SIMULATOR" = true ]; then
         exit 1
     fi
     cd ..
-    
+
     # 验证构建产物
     if [ ! -f "ios_simulator_arm64/MNN.framework/MNN" ]; then
         echo -e "${RED}错误: 未找到 arm64 模拟器框架文件${NC}"
         cd "$PROJECT_ROOT"
         exit 1
     fi
-    
+
     # 合并模拟器架构
     echo -e "${BLUE}合并模拟器架构...${NC}"
     rm -rf ios_simulator
     mkdir ios_simulator
-    
+
     if [ "$BUILD_X86_64" = true ] && [ -f "ios_simulator_x86/MNN.framework/MNN" ]; then
         # 合并 x86_64 + arm64
         echo -e "${BLUE}合并 x86_64 + arm64 架构...${NC}"
@@ -636,15 +631,15 @@ if [ "$BUILD_IOS_SIMULATOR" = true ]; then
         echo -e "${BLUE}仅使用 arm64 架构（x86_64 不可用）...${NC}"
         cp -R ios_simulator_arm64/MNN.framework ios_simulator/MNN.framework
     fi
-    
+
     # 输出模拟器版本
     mkdir -p "$PROJECT_ROOT/$IOS_OUTPUT_DIR"
     rm -rf "$PROJECT_ROOT/$IOS_OUTPUT_DIR/MNN.framework"
     cp -R ios_simulator/MNN.framework "$PROJECT_ROOT/$IOS_OUTPUT_DIR/"
-    
+
     # 清理临时目录
     rm -rf ios_simulator ios_simulator_x86 ios_simulator_arm64
-    
+
     echo -e "${GREEN}iOS 模拟器构建完成！${NC}"
     echo "输出位置: $IOS_OUTPUT_DIR/MNN.framework"
     cd "$PROJECT_ROOT"
@@ -657,28 +652,28 @@ if [ "$BUILD_HARMONY" = true ]; then
     echo -e "${GREEN}========================================${NC}"
     echo -e "${GREEN}开始构建鸿蒙版本${NC}"
     echo -e "${GREEN}========================================${NC}"
-    
+
     export HARMONY_HOME
-    
+
     HARMONY_BUILD_DIR="project/harmony"
     HARMONY_OUTPUT_DIR="$OUTPUT_DIR/harmony"
-    
+
     cd "$HARMONY_BUILD_DIR"
-    
+
     # 清理
     if [ "$CLEAN_BUILD" = true ]; then
         echo -e "${YELLOW}清理之前的鸿蒙构建...${NC}"
         rm -rf build_64 export
     fi
-    
+
     # 在项目根目录创建输出目录
     mkdir -p "$PROJECT_ROOT/$HARMONY_OUTPUT_DIR"
-    
+
     # 构建 arm64-v8a
     echo -e "${BLUE}构建 arm64-v8a...${NC}"
     mkdir -p build_64
     cd build_64
-    
+
     cmake "$PROJECT_ROOT" \
         -DCMAKE_TOOLCHAIN_FILE=$HARMONY_HOME/build/cmake/ohos.toolchain.cmake \
         -DCMAKE_BUILD_TYPE=Release \
@@ -693,7 +688,6 @@ if [ "$BUILD_HARMONY" = true ]; then
         -DMNN_LOW_MEMORY=ON \
         -DMNN_SUPPORT_TRANSFORMER_FUSE=ON \
         -DMNN_BUILD_LLM=ON \
-        -DMNN_CPU_WEIGHT_DEQUANT_GEMM=ON \
         -DMNN_BUILD_DIFFUSION=ON \
         -DMNN_OPENCL=OFF \
         -DMNN_SEP_BUILD=OFF \
@@ -706,17 +700,17 @@ if [ "$BUILD_HARMONY" = true ]; then
         -DNATIVE_LIBRARY_OUTPUT=. \
         -DNATIVE_INCLUDE_OUTPUT=. \
         > /dev/null
-    
+
     make -j4 MNN > /dev/null
     cd ..
-    
+
     # 导出文件
     echo -e "${BLUE}导出鸿蒙库文件...${NC}"
     mkdir -p export/harmony/arm64-v8a/libs export/harmony/include/MNN
-    
+
     cp build_64/*.so export/harmony/arm64-v8a/libs/ 2>/dev/null || true
     cp -r ../../include/MNN/* export/harmony/include/MNN/
-    
+
     # 复制到统一输出目录
     # 如果目标路径存在但不是目录，先删除
     if [ -e "$PROJECT_ROOT/$HARMONY_OUTPUT_DIR" ] && [ ! -d "$PROJECT_ROOT/$HARMONY_OUTPUT_DIR" ]; then
@@ -724,7 +718,7 @@ if [ "$BUILD_HARMONY" = true ]; then
     fi
     mkdir -p "$PROJECT_ROOT/$HARMONY_OUTPUT_DIR"
     cp -r export/harmony/* "$PROJECT_ROOT/$HARMONY_OUTPUT_DIR/"
-    
+
     echo -e "${GREEN}鸿蒙构建完成！${NC}"
     echo "输出位置: $HARMONY_OUTPUT_DIR"
     cd "$PROJECT_ROOT"
@@ -737,15 +731,15 @@ if [ "$BUILD_PYTHON" = true ]; then
     echo -e "${GREEN}========================================${NC}"
     echo -e "${GREEN}开始构建 Python 版本${NC}"
     echo -e "${GREEN}========================================${NC}"
-    
+
     # 检查 Python
     if ! command -v $PYTHON_CMD &> /dev/null; then
         echo -e "${RED}错误: 找不到 Python 命令 '$PYTHON_CMD'${NC}"
         exit 1
     fi
-    
+
     PYTHON_OUTPUT_DIR="$OUTPUT_DIR/python"
-    
+
     # 使用之前创建的 build_pymnn.sh 脚本
     if [ -f "$PROJECT_ROOT/build_pymnn.sh" ]; then
         PYTHON_BUILD_ARGS="-o $PYTHON_OUTPUT_DIR"
@@ -753,36 +747,36 @@ if [ "$BUILD_PYTHON" = true ]; then
         [ -n "$DEPS_OPTIONS" ] && PYTHON_BUILD_ARGS="$PYTHON_BUILD_ARGS -d $DEPS_OPTIONS"
         [ "$CLEAN_BUILD" = false ] && PYTHON_BUILD_ARGS="$PYTHON_BUILD_ARGS --no-clean"
         PYTHON_BUILD_ARGS="$PYTHON_BUILD_ARGS --python $PYTHON_CMD"
-        
+
         bash "$PROJECT_ROOT/build_pymnn.sh" $PYTHON_BUILD_ARGS
     else
         echo -e "${YELLOW}警告: 未找到 build_pymnn.sh，使用基本构建方式...${NC}"
-        
+
         cd pymnn/pip_package
-        
+
         # 构建依赖
         if [ -n "$DEPS_OPTIONS" ]; then
             $PYTHON_CMD build_deps.py $DEPS_OPTIONS
         else
             $PYTHON_CMD build_deps.py
         fi
-        
+
         # 构建 wheel
         $PYTHON_CMD -m pip install -U numpy wheel setuptools --quiet
         rm -rf build dist
-        
+
         BUILD_ARGS=""
         [ -n "$VERSION" ] && BUILD_ARGS="--version $VERSION"
         [ -n "$DEPS_OPTIONS" ] && BUILD_ARGS="$BUILD_ARGS --deps $DEPS_OPTIONS"
-        
+
         $PYTHON_CMD setup.py bdist_wheel $BUILD_ARGS
-        
+
         mkdir -p "$PROJECT_ROOT/$PYTHON_OUTPUT_DIR"
         cp dist/*.whl "$PROJECT_ROOT/$PYTHON_OUTPUT_DIR/"
-        
+
         cd "$PROJECT_ROOT"
     fi
-    
+
     echo -e "${GREEN}Python 构建完成！${NC}"
     echo "输出位置: $PYTHON_OUTPUT_DIR"
 fi
