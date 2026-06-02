@@ -199,9 +199,6 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
     bool lowMemory = false;
 #endif
 
-#ifdef MNN_CPU_WEIGHT_DEQUANT_GEMM
-    lowMemory = lowMemory || (static_cast<CPUBackend*>(backend)->memoryMode() != BackendConfig::Memory_High);
-#endif
     const float* originWeight = nullptr;
     const float* originBias   = nullptr;
     int originWeightSize   = 0;
