@@ -228,3 +228,4 @@ sh ../tools/script/get_model.sh
 - [SuperGlue关键点匹配](https://github.com/Hanson0910/MNNSuperGlue)
 - [OCR](https://github.com/DayBreak-u/chineseocr_lite/tree/onnx/android_projects/OcrLiteAndroidMNN)
 - [Bert-VITS2-MNN](https://github.com/Voine/Bert-VITS2-MNN)
+- [VirtualFaceCapture-MNN/虚拟角色面捕系统](https://github.com/Voine/VirtualFaceCapture-MNN)

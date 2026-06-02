@@ -22,9 +22,9 @@ function (download_kleidiai_and_collect_sources)
     # Disable the KleidiAI tests
     set(KLEIDIAI_BUILD_TESTS OFF)
 
-    set(KLEIDIAI_COMMIT_SHA "1.14.0")
+    set(KLEIDIAI_COMMIT_SHA "1.16.0")
     set(KLEIDIAI_DOWNLOAD_URL "https://github.com/ARM-software/kleidiai/archive/refs/tags/v${KLEIDIAI_COMMIT_SHA}.tar.gz")
-    set(KLEIDIAI_ARCHIVE_MD5 "45e110675d93f99f82c23a1afcca76bc")
+    set(KLEIDIAI_ARCHIVE_MD5 "0a9e9008adb6031f9e8cf70dff4a3321")
 
     set(_kleidiai_src_dir "")
     if(DEFINED KLEIDIAI_SRC_DIR AND EXISTS "${KLEIDIAI_SRC_DIR}")
