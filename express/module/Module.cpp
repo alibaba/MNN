@@ -284,6 +284,8 @@ public:
             config.numThread = origin->mContent->mNumberThread;
             std::shared_ptr<Executor::RuntimeManager> newRt (Executor::RuntimeManager::createRuntimeManager(config));
             const_cast<RuntimeAttr*>(newRt->getInside())->mContent = origin->mContent;
+            // Inherit pMeta so cloned modules don't push a stale nullptr at forward time.
+            const_cast<RuntimeAttr*>(newRt->getInside())->mMeta = origin->mMeta;
             ctx->pRuntimeManager = newRt;
         }
         std::shared_ptr<Module::Info> newInfo(new Module::Info);

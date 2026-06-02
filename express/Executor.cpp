@@ -247,10 +247,14 @@ void Executor::RuntimeManager::setExternalPath(std::string path, int type) {
     mInside->mContent->modes.setExternalPath(path, type);
 }
 void Executor::RuntimeManager::setHintPtr(Interpreter::HintMode mode, void* value) {
-    auto current = ExecutorScope::Current();
-    auto rt = current->getRuntime();
-    for (auto& iter : rt.first) {
-        iter.second->pMeta = value;
+    if (mode == Interpreter::KVCACHE_INFO) {
+        mInside->mMeta = value;
+    }
+}
+
+void Executor::RuntimeManager::applyMetaToRuntime() const {
+    for (auto& iter : mInside->mRuntime.first) {
+        iter.second->pMeta = mInside->mMeta;
     }
 }
 

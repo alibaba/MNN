@@ -23,6 +23,8 @@ struct RuntimeAttr {
     RuntimeInfo mRuntime;
     std::shared_ptr<Runtime> mInfo;
     std::shared_ptr<Cache> mCache;
+    // Per-RTM KVCache meta; pushed to the (pooled) Runtime by applyMetaToRuntime().
+    void* mMeta = nullptr;
     // Use for static module to compute flops
     float mFlops;
     mutable int mResizeStatus = 0;
