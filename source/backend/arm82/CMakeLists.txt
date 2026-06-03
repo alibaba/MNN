@@ -10,9 +10,6 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^aarch64" OR ARCHS STREQUAL "arm64" OR AR
     if (MNN_LOW_MEMORY)
         file(GLOB MNN_ARM82_SRCS_ASM ${MNN_ARM82_SRCS_ASM} ${CMAKE_CURRENT_LIST_DIR}/asm/arm64/low_memory/*)
     endif()
-    if (MNN_CPU_WEIGHT_DEQUANT_GEMM)
-        file(GLOB MNN_ARM82_SRCS_ASM ${MNN_ARM82_SRCS_ASM} ${CMAKE_CURRENT_LIST_DIR}/asm/arm64/normal_memory/*)
-    endif()
     if (MNN_SME2)
         file(GLOB MNN_SME2_SRCS_ASM_FP16 ${MNN_SME2_SRCS_ASM_FP16} ${CMAKE_CURRENT_LIST_DIR}/asm/arm64/sme2_asm/*)
         #set_source_files_properties(${MNN_SME2_SRCS_ASM_FP16} PROPERTIES COMPILE_OPTIONS "-fno-tree-vectorize;-march=armv8.6-a+sve+sve2+sme+sme2+fp16")
@@ -26,9 +23,6 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^aarch64" OR ARCHS STREQUAL "arm64" OR AR
         target_compile_options(MNN_Arm82 PRIVATE -DMNN_LOW_MEMORY)
     endif()
 
-    if (MNN_CPU_WEIGHT_DEQUANT_GEMM)
-        target_compile_options(MNN_Arm82 PRIVATE -DMNN_CPU_WEIGHT_DEQUANT_GEMM)
-    endif()
     target_compile_options(MNN_Arm82 PRIVATE -march=armv8.2-a+fp16 -DENABLE_ARMV82)
 else()
 # Building fat binary requires multiple separate builds and lipo-by-hand under CMake's design
