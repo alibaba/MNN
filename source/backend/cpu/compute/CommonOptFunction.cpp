@@ -3138,6 +3138,7 @@ void MNNGridSampleComputeCord3D(float* dst, const float* src, size_t inD, size_t
 }
 
 #ifndef MNN_USE_SSE
+#ifndef MNN_USE_RVV
 void MNNNorm(float *dst, const float *src, const float *gamma, const float *beta, float epsilon, size_t size, bool RMSNorm) {
     float mean = 0;
     if(false == RMSNorm){
@@ -3323,7 +3324,8 @@ void MNNNorm(float *dst, const float *src, const float *gamma, const float *beta
     }
 #endif
 }
-#endif
+#endif // MNN_USE_RVV
+#endif // MNN_USE_SSE
 
 void MNNRoiPoolingMax(float* dst, const float* src, int hLen, int wLen, int iw) {
     Vec4 max = Vec4(-FLT_MAX);
