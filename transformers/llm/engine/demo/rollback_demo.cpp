@@ -166,6 +166,42 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_
         MNN_PRINT("prefill speed = %.2f tok/s\n", prompt_len / prefill_s);
         MNN_PRINT(" decode speed = %.2f tok/s\n", decode_len / decode_s);
         MNN_PRINT("##################################\n");
+
+        // step 6 (Stage 3): full clear after prefix load + new prompt.
+        // Exercises the only path where the alignment block (PR #4424 reset)
+        // in CPULinearAttention::onExecute changes behavior vs. the prior
+        // snapshot restore: previous == remove > 0 AND not loading from disk.
+        // We then reset + re-run the same prompt to get a clean-session
+        // baseline, and compare textually.
+        if (prompts.size() >= 4) {
+            MNN_PRINT("\n[Stage 3] Full clear after prefix load, then new prompt\n");
+            const auto& new_prompt = prompts[3];
+
+            // Path A: from current prefix-loaded session, full clear then re-prefill+decode.
+            // max_new_tokens=-1 lets response() decode to EOS (the demo's other decode
+            // calls do the same via default arg). Passing 0 here would prefill-only.
+            llm->eraseHistory(0, llm->getCurrentHistory());
+            std::ostringstream after_clear_out;
+            llm->response(new_prompt, &after_clear_out, nullptr, -1);
+            std::string after_clear_text = after_clear_out.str();
+            MNN_PRINT("[Stage 3] Response after full clear:\n%s\n", after_clear_text.c_str());
+
+            // Path B: reset to a fully clean state and run the same prompt.
+            llm->reset();
+            llm->eraseHistory(0, 0);
+            std::ostringstream baseline_out;
+            llm->response(new_prompt, &baseline_out, nullptr, -1);
+            std::string baseline_text = baseline_out.str();
+            MNN_PRINT("[Stage 3] Baseline (clean session) response:\n%s\n", baseline_text.c_str());
+
+            if (after_clear_text == baseline_text) {
+                MNN_PRINT("[TEST PASS] Stage 3: full clear after prefix load matches clean session.\n");
+            } else {
+                MNN_PRINT("[TEST FAIL] Stage 3: output mismatch after full clear vs clean session.\n");
+            }
+        } else {
+            MNN_PRINT("[Stage 3] Skipped: needs at least 4 prompts (got %zu)\n", prompts.size());
+        }
     } else {
         
         MNN_PRINT("Prefill\n");

@@ -958,6 +958,20 @@ std::vector<int> Llm::generate(MNN::Express::VARP input_embeds, int max_tokens) 
     mContext->prefill_us += _t.durationInUs();
     MNN::Express::ExecutorScope::Current()->gc(); // after prefill
 
+    // Clear file_flag after prefill, before the decode loop. Otherwise each
+    // L=1 decode step re-enters op-level PendingWrite and overwrites the
+    // on-disk prefix with post-decode state.
+    //
+    // The max_tokens > 0 gate distinguishes the two call paths:
+    //   non-chunked (max_tokens > 0, prefill+decode in one call): clear here
+    //   chunked (max_tokens == 0 per chunk): don't clear — chunks 2..N must
+    //   keep writing; completePrefixWrite() in the caller clears after the loop.
+    if (mPrefixCacheMode && mCallIndex == 1 && mMeta->file_flag == KVMeta::PendingWrite && max_tokens > 0) {
+        mMeta->file_name = "";
+        mMeta->file_flag = KVMeta::NoChange;
+        mMeta->layer_index = 0;
+    }
+
     // prefix cache mode and response second time
     if(mPrefixCacheMode && mCallIndex == 2) {
         if(mIsPrefixFileExist) {
@@ -1214,6 +1228,16 @@ std::vector<Express::VARP> Llm::getOutputs() const {
 }
 
 bool Llm::setPrefixCacheFile(const std::string& filename, int flag) {
+    // Prefix cache requires kvcache_mmap. Without it mKVCacheDir is unset and
+    // the disk-backed alloc in CPUKVCacheManager::onAlloc crashes with a
+    // nullptr mmap. Reject up-front instead of crashing deep in the backend.
+    if (!mConfig->kvcache_mmap()) {
+        MNN_ERROR(
+            "setPrefixCacheFile requires kvcache_mmap=true in config. "
+            "Prefix cache is a disk-backed feature; please enable kvcache_mmap.\n");
+        return false;
+    }
+
     mPrefixCacheFileName = filename;
     mCallIndex = 0;
     mPrefixCacheMode = true;
@@ -1239,6 +1263,11 @@ bool Llm::setPrefixCacheFile(const std::string& filename, int flag) {
     // actual data files were deleted / truncated / partially written, which would otherwise
     // lead to a crash in CPUKVCacheManager::onAlloc (e.g. memset on a null mmap address).
     if (mIsPrefixFileExist) {
+        // Only "mix" (LA + regular attention) has intrinsically non-uniform
+        // per-layer KV sizes. Everything else (full / sliding / unset → "full")
+        // stays under the cross-layer uniformity check that catches partial or
+        // corrupted writes.
+        const bool isHybrid = (mConfig->attention_type() == "mix");
         size_t refKeySize = 0;
         size_t refValueSize = 0;
         for (int i = 0; i < mConfig->layer_nums(); i++) {
@@ -1264,17 +1293,19 @@ bool Llm::setPrefixCacheFile(const std::string& filename, int flag) {
                 mIsPrefixFileExist = false;
                 break;
             }
-            if (i == 0) {
-                refKeySize = kSize;
-                refValueSize = vSize;
-            } else if (kSize != refKeySize || vSize != refValueSize) {
-                // All layers share the same model shape, so their .k (and .v) files must
-                // have identical sizes. Any mismatch means the cache directory has been
-                // corrupted / partially overwritten and must be rebuilt.
-                MNN_PRINT("Prefix cache size mismatch at layer %d: k=%zu(ref=%zu) v=%zu(ref=%zu)\n", i, kSize,
-                          refKeySize, vSize, refValueSize);
-                mIsPrefixFileExist = false;
-                break;
+            if (!isHybrid) {
+                if (i == 0) {
+                    refKeySize = kSize;
+                    refValueSize = vSize;
+                } else if (kSize != refKeySize || vSize != refValueSize) {
+                    // Non-hybrid: all layers share the same model shape, so their .k (and .v)
+                    // files must have identical sizes. Any mismatch means the cache directory
+                    // has been corrupted / partially overwritten and must be rebuilt.
+                    MNN_PRINT("Prefix cache size mismatch at layer %d: k=%zu(ref=%zu) v=%zu(ref=%zu)\n", i, kSize,
+                              refKeySize, vSize, refValueSize);
+                    mIsPrefixFileExist = false;
+                    break;
+                }
             }
         }
     }
