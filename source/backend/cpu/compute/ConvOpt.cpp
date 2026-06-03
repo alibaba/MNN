@@ -12,7 +12,7 @@
 #include "core/Macro.h"
 #include "math/Vec.hpp"
 using Vec4 = MNN::Math::Vec<float, 4>;
-#ifndef MNN_USE_NEON
+#if !defined(MNN_USE_NEON) && !defined(MNN_USE_RVV)
 
 void MNNMatrixSub(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
                   size_t bStride, size_t height) {
