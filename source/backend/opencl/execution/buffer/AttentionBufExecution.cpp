@@ -25,7 +25,10 @@ void KVCacheCLManager::allocKVCache(const KVMeta* meta, int seqlen) {
     if(mOpenCLBackend->getPrecision() != BackendConfig::Precision_High){
         mByte = 2;
     }
-    reallocKVCache(meta, seqlen, false);
+    // Fully execute reallocKVCache (including Remove and mPastLength update)
+    // in resize phase so that LWS tuning kernels use the same args as execute.
+    reallocKVCache(meta, seqlen, true);
+    mReallocDone = true;
 }
 
 bool KVCacheCLManager::reallocKVCache(const KVMeta* meta, int seqlen, bool isExecute) {
@@ -37,7 +40,12 @@ bool KVCacheCLManager::reallocKVCache(const KVMeta* meta, int seqlen, bool isExe
     cl_int res;
 
     // latest length larger than maxLen
-    if(kvSeqlen > mMaxLength){
+    // Also check if the 4-aligned write range exceeds the buffer's aligned capacity.
+    // Kernels write in groups of 4 along seq_len, so past_len + ROUND_UP(seqlen, 4)
+    // must not exceed ROUND_UP(mMaxLength, 4) to avoid out-of-bounds GPU memory access.
+    int pastLen = meta->previous - meta->remove + meta->computeReverseSize();
+    int alignedWriteEnd = pastLen + ROUND_UP(seqlen, 4);
+    if (kvSeqlen > mMaxLength || alignedWriteEnd > (int)ROUND_UP(mMaxLength, 4)) {
         int copylen = mPastLength - meta->remove + meta->computeReverseSize();
         bool needCopy = copylen > 0;
 
@@ -105,8 +113,10 @@ bool KVCacheCLManager::reallocKVCache(const KVMeta* meta, int seqlen, bool isExe
         }
 
         size_t pastkvSize = mKvNumHead * UP_DIV(mMaxLength, 4) * mHeadDim * 4 * mByte;
-        char *keyPtr = (char*)mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(*mPastKey.get(), true, CL_MAP_READ, 0, pastkvSize, nullptr, nullptr, &res);
-        char *valuePtr = (char*)mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(*mPastValue.get(), true, CL_MAP_READ, 0, pastkvSize, nullptr, nullptr, &res);
+        char* keyPtr = (char*)mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
+            *mPastKey.get(), true, CL_MAP_READ | CL_MAP_WRITE, 0, pastkvSize, nullptr, nullptr, &res);
+        char* valuePtr = (char*)mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
+            *mPastValue.get(), true, CL_MAP_READ | CL_MAP_WRITE, 0, pastkvSize, nullptr, nullptr, &res);
 
         // TODO: need to ensure reserve info is sorted
         for (int n = 0; n < meta->n_reserve; ++n) {
@@ -127,6 +137,8 @@ bool KVCacheCLManager::reallocKVCache(const KVMeta* meta, int seqlen, bool isExe
             }
             start += length;
         }
+        mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(*mPastKey.get(), keyPtr);
+        mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(*mPastValue.get(), valuePtr);
         mPastLength = (int)start;
     }
     return true;
@@ -1676,9 +1688,16 @@ ErrorCode AttentionBufExecution::onExecute(const std::vector<Tensor *> &inputs, 
     MNN_PRINT("start AttentionBufExecution onExecute !\n");
 #endif
     if(nullptr != mMeta){
-        auto shape = inputs[0]->shape();
-        int seqlen = shape[1];
-        mKVCacheCLManager->reallocKVCache(mMeta, seqlen);
+        // If allocKVCache already ran reallocKVCache(true) during resize phase,
+        // skip it here to avoid double-executing Remove. For subsequent decode
+        // iterations (no resize), mReallocDone is false so we still run it.
+        if (mKVCacheCLManager->isReallocDone()) {
+            mKVCacheCLManager->clearReallocDone();
+        } else {
+            auto shape = inputs[0]->shape();
+            int seqlen = shape[1];
+            mKVCacheCLManager->reallocKVCache(mMeta, seqlen);
+        }
     }
     UpdateArgs(inputs, outputs);
 #ifdef ENABLE_OPENCL_TIME_PROFILER
@@ -1836,4 +1855,4 @@ REGISTER_OPENCL_OP_CREATOR_TRANSFORMER(AttentionBufCreator, OpType_Attention, BU
 
 } // namespace OpenCL
 } // namespace MNN
-#endif/* MNN_SUPPORT_TRANSFORMER_FUSE */
+#endif /* MNN_SUPPORT_TRANSFORMER_FUSE */
