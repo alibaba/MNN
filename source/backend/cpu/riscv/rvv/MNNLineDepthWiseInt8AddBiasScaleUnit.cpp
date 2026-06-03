@@ -20,7 +20,7 @@ void MNNLineDepthWiseInt8AddBiasScaleUnit_RVV(int8_t* dst, const int8_t* src, co
     const int8_t* srcPtr = src;
     const int8_t* weightPtr = weight;
 
-    const float* bias_z = parameters->bias;
+    const int32_t* bias_z = parameters->bias;
     const float* scale_z = parameters->scale;
     const int32_t max_val = parameters->maxValue;
     const int32_t min_val = parameters->minValue;
@@ -55,7 +55,9 @@ void MNNLineDepthWiseInt8AddBiasScaleUnit_RVV(int8_t* dst, const int8_t* src, co
             }
         }
 
-        vfloat32m4_t vec_bias = __riscv_vle32_v_f32m4(bias_z, vl);
+        // vfloat32m4_t vec_bias = __riscv_vle32_v_f32m4(bias_z, vl);
+        vint32m4_t vec_bias_int = __riscv_vle32_v_i32m4(bias_z, vl);
+        vfloat32m4_t vec_bias = __riscv_vfcvt_f_x_v_f32m4(vec_bias_int, vl);
         vfloat32m4_t f_sum = __riscv_vfcvt_f_x_v_f32m4(vec_sum, vl);
         f_sum = __riscv_vfadd_vv_f32m4(f_sum, vec_bias, vl);
 
