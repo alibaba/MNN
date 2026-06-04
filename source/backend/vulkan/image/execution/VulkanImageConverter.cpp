@@ -20,28 +20,31 @@ VulkanImageConverter::VulkanImageConverter(const VulkanBackend* bn) {
 
 void VulkanImageConverter::_setUpPipeline(MNN_DATA_FORMAT sourceFormat, MNN_DATA_FORMAT destFormat, TYPE type,
                                           halide_type_t datatype) {
-    if (nullptr != mPipeline && sourceFormat == mCurrentSource && destFormat == mCurrentDest && mConvertImage == type) {
+    bool isInt = (datatype.code == halide_type_int || datatype.code == halide_type_uint);
+    if (nullptr != mPipeline && sourceFormat == mCurrentSource && destFormat == mCurrentDest && mConvertImage == type && mIsInt == isInt) {
         return;
     }
     mCurrentDest   = destFormat;
     mCurrentSource = sourceFormat;
     mConvertImage  = type;
+    mIsInt         = isInt;
 
     std::vector<VkDescriptorType> types{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                                         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
+    std::string suffix = isInt ? "_INT_comp" : "_comp";
     std::string name;
     if (type == BUFFER_TO_IMAGE) {
         types[0] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         if (sourceFormat == MNN_DATA_FORMAT_NC4HW4) {
-            name = "glsl_nc4hw4toimage_comp";
+            name = "glsl_nc4hw4toimage" + suffix;
         } else {
-            name = "glsl_nchwToimage_comp";
+            name = "glsl_nchwToimage" + suffix;
         }
     } else {
         if (destFormat == MNN_DATA_FORMAT_NC4HW4) {
-            name = "glsl_imageTonc4hw4_comp";
+            name = "glsl_imageTonc4hw4" + suffix;
         } else {
-            name = "glsl_imageTonchw_comp";
+            name = "glsl_imageTonchw" + suffix;
         }
     }
 //    FUNC_PRINT_ALL(name.c_str(), s);

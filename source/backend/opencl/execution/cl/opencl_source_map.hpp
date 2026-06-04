@@ -162,6 +162,7 @@ extern const char* buffer_convert_buf;
 #endif
 extern const char* matmul;
 extern const char* binary;
+extern const char* topkv2;
 extern const char* roi_pooling;
 extern const char* depthwise_conv2d;
 extern const char* layernorm;
@@ -335,6 +336,7 @@ const std::map<std::string, const char*> OpenCLProgramMap =
 #endif
   { "matmul", matmul },
   { "binary", binary },
+  { "topkv2", topkv2 },
   { "roi_pooling", roi_pooling },
   { "depthwise_conv2d", depthwise_conv2d },
   { "layernorm", layernorm },
@@ -416,6 +418,7 @@ const std::map<std::string, std::string> OpenCLProgramMd5Map =
   { "buffer_convert_buf", "e633544642a1a9a61755c913cfe77017" },
   { "matmul", "a3e51ece4be2eb0f28266718b313c24e" },
   { "binary", "5683a6a6fd24660f0d05a70938fa6a62" },
+  { "topkv2", "8cea07bb2956df69992691127dbf2f84" },
   { "roi_pooling", "ba4a81b7ec7058d14afb377c18674a76" },
   { "depthwise_conv2d", "a23dd590e0bdcdd60987e8bab5ed529f" },
   { "layernorm", "bd457b4bd4f3c57818bc17e073b09e74" },

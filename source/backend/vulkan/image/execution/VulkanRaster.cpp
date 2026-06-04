@@ -40,8 +40,10 @@ void VulkanRaster::onEncodeFast(const Tensor* input, const Tensor* output, const
     mBlitImages.resize(des->regions.size());
     auto vkBn = static_cast<VulkanBackend*>(backend());
     auto dstTensor = reinterpret_cast<VulkanTensor*>(output->deviceId());
+    bool isInt = output->getType().code == halide_type_int || output->getType().code == halide_type_uint;
     if (zero) {
-        auto fillPipeline = vkBn->getPipeline("glsl_fill_image_comp", {
+        std::string fillName = isInt ? "glsl_fill_image_INT_comp" : "glsl_fill_image_comp";
+        auto fillPipeline = vkBn->getPipeline(fillName, {
             VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
         });
@@ -67,8 +69,9 @@ void VulkanRaster::onEncodeFast(const Tensor* input, const Tensor* output, const
         image->barrierWrite(cmdBuffer->get());
         vkCmdDispatch(cmdBuffer->get(), totalSize, 1, 1);
     }
-    
-    auto blitPipeline = vkBn->getPipeline("glsl_blit_image_comp", {
+
+    std::string blitName = isInt ? "glsl_blit_image_INT_comp" : "glsl_blit_image_comp";
+    auto blitPipeline = vkBn->getPipeline(blitName, {
         VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
         VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
@@ -176,7 +179,9 @@ ErrorCode VulkanRaster::onEncode(const std::vector<Tensor *> &___inputs, const s
     if (nullptr != mOutputBuffer.buffer) {
         mOutputBuffer.buffer->release();
     }
-    auto blitPipeline = vkBn->getPipeline("glsl_blit_comp", {
+    bool isInt = output->getType().code == halide_type_int || output->getType().code == halide_type_uint;
+    std::string blitName = isInt ? "glsl_blit_INT_comp" : "glsl_blit_comp";
+    auto blitPipeline = vkBn->getPipeline(blitName, {
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
