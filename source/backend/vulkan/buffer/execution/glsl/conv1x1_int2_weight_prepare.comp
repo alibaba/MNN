@@ -1,0 +1,55 @@
+// Convert 1B-per-weight signed bytes (range [-2, 1]) into packed 2-bit unsigned [0,3]
+// stored as [N, padK/16] uint32. Each uint32 packs 16 weights, 2 bits per weight,
+// bits [1:0]=k0, [3:2]=k1, ..., [31:30]=k15. Stored value = signed_weight + 2.
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(binding = 0) readonly buffer SrcBuffer {
+    uint SrcRaw[];
+};
+
+layout(binding = 1) writeonly buffer DstBuffer {
+    uint DstQ16[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint ci;
+    uint co;
+    uint padN;
+    uint weightStride;
+    uint srcBytes;
+} pc;
+
+uint loadByte(uint byteIndex) {
+    if (byteIndex >= pc.srcBytes) {
+        return 0u;
+    }
+    const uint word = SrcRaw[byteIndex >> 2u];
+    return (word >> ((byteIndex & 3u) * 8u)) & 0xFFu;
+}
+
+void main() {
+    const uint k16 = gl_GlobalInvocationID.x;
+    const uint row = gl_GlobalInvocationID.y;
+    if (row >= pc.padN || k16 >= pc.weightStride) {
+        return;
+    }
+
+    const uint kBase = k16 << 4u; // *16
+    uint packed = 0u;
+
+    if (row < pc.co) {
+        const uint rowBase = row * pc.ci;
+        for (uint i = 0u; i < 16u; ++i) {
+            const uint k = kBase + i;
+            uint q = 2u; // unsigned for signed=0
+            if (k < pc.ci) {
+                // signed byte in [-2, 1]; bit pattern as unsigned char in [0..255], we extract sign-extended low 8.
+                int sb = int(bitfieldExtract(int(loadByte(rowBase + k)), 0, 8));
+                q = uint(sb + 2) & 3u; // unsigned [0,3]
+            }
+            packed |= q << (i * 2u);
+        }
+    }
+
+    DstQ16[row * pc.weightStride + k16] = packed;
+}

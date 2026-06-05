@@ -3,12 +3,18 @@
 #include "AllShader.h"
 namespace MNN {
 void VulkanShaderMap::init() {
+mMaps.insert(std::make_pair("glsl_int3_weight_to_pack_comp", std::make_pair(glsl_int3_weight_to_pack_comp,glsl_int3_weight_to_pack_comp_len)));
+mMaps.insert(std::make_pair("glsl_int3_weight_to_pack_FP16_comp", std::make_pair(glsl_int3_weight_to_pack_FP16_comp,glsl_int3_weight_to_pack_FP16_comp_len)));
+mMaps.insert(std::make_pair("glsl_conv1x1_int2_weight_prepare_comp", std::make_pair(glsl_conv1x1_int2_weight_prepare_comp,glsl_conv1x1_int2_weight_prepare_comp_len)));
 mMaps.insert(std::make_pair("glsl_attention_prefill_kblock_softmax_online_comp", std::make_pair(glsl_attention_prefill_kblock_softmax_online_comp,glsl_attention_prefill_kblock_softmax_online_comp_len)));
 mMaps.insert(std::make_pair("glsl_attention_prefill_kblock_softmax_online_FP16_comp", std::make_pair(glsl_attention_prefill_kblock_softmax_online_FP16_comp,glsl_attention_prefill_kblock_softmax_online_FP16_comp_len)));
+mMaps.insert(std::make_pair("glsl_int2_weight_to_pack_comp", std::make_pair(glsl_int2_weight_to_pack_comp,glsl_int2_weight_to_pack_comp_len)));
+mMaps.insert(std::make_pair("glsl_int2_weight_to_pack_FP16_comp", std::make_pair(glsl_int2_weight_to_pack_FP16_comp,glsl_int2_weight_to_pack_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_dwweightcopy_comp", std::make_pair(glsl_dwweightcopy_comp,glsl_dwweightcopy_comp_len)));
 mMaps.insert(std::make_pair("glsl_dwweightcopy_FP16_comp", std::make_pair(glsl_dwweightcopy_FP16_comp,glsl_dwweightcopy_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_gemv_dequant_int8_nosubgroup_comp", std::make_pair(glsl_gemv_dequant_int8_nosubgroup_comp,glsl_gemv_dequant_int8_nosubgroup_comp_len)));
 mMaps.insert(std::make_pair("glsl_gemv_dequant_int8_nosubgroup_FP16_comp", std::make_pair(glsl_gemv_dequant_int8_nosubgroup_FP16_comp,glsl_gemv_dequant_int8_nosubgroup_FP16_comp_len)));
+mMaps.insert(std::make_pair("glsl_conv1x1_int3_weight_prepare_comp", std::make_pair(glsl_conv1x1_int3_weight_prepare_comp,glsl_conv1x1_int3_weight_prepare_comp_len)));
 mMaps.insert(std::make_pair("glsl_deconvolution_comp", std::make_pair(glsl_deconvolution_comp,glsl_deconvolution_comp_len)));
 mMaps.insert(std::make_pair("glsl_deconvolution_RELU_comp", std::make_pair(glsl_deconvolution_RELU_comp,glsl_deconvolution_RELU_comp_len)));
 mMaps.insert(std::make_pair("glsl_deconvolution_RELU6_comp", std::make_pair(glsl_deconvolution_RELU6_comp,glsl_deconvolution_RELU6_comp_len)));
@@ -206,6 +212,8 @@ mMaps.insert(std::make_pair("glsl_unary_CLAMP_FP16_comp", std::make_pair(glsl_un
 mMaps.insert(std::make_pair("glsl_unary_HARDSWISH_FP16_comp", std::make_pair(glsl_unary_HARDSWISH_FP16_comp,glsl_unary_HARDSWISH_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_unary_GELU_FP16_comp", std::make_pair(glsl_unary_GELU_FP16_comp,glsl_unary_GELU_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_unary_SILU_FP16_comp", std::make_pair(glsl_unary_SILU_FP16_comp,glsl_unary_SILU_FP16_comp_len)));
+mMaps.insert(std::make_pair("glsl_gemv_dequant_int3_nosubgroup_comp", std::make_pair(glsl_gemv_dequant_int3_nosubgroup_comp,glsl_gemv_dequant_int3_nosubgroup_comp_len)));
+mMaps.insert(std::make_pair("glsl_gemv_dequant_int3_nosubgroup_FP16_comp", std::make_pair(glsl_gemv_dequant_int3_nosubgroup_FP16_comp,glsl_gemv_dequant_int3_nosubgroup_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_int4_weight_to_coop_comp", std::make_pair(glsl_int4_weight_to_coop_comp,glsl_int4_weight_to_coop_comp_len)));
 mMaps.insert(std::make_pair("glsl_int4_weight_to_coop_FP16_comp", std::make_pair(glsl_int4_weight_to_coop_FP16_comp,glsl_int4_weight_to_coop_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_softmaxHeight_NHWC_comp", std::make_pair(glsl_softmaxHeight_NHWC_comp,glsl_softmaxHeight_NHWC_comp_len)));
@@ -226,6 +234,8 @@ mMaps.insert(std::make_pair("glsl_reduce_VMIN_FP16_comp", std::make_pair(glsl_re
 mMaps.insert(std::make_pair("glsl_reduce_MEAN_FP16_comp", std::make_pair(glsl_reduce_MEAN_FP16_comp,glsl_reduce_MEAN_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_reduce_PROD_FP16_comp", std::make_pair(glsl_reduce_PROD_FP16_comp,glsl_reduce_PROD_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_reduce_SUM_FP16_comp", std::make_pair(glsl_reduce_SUM_FP16_comp,glsl_reduce_SUM_FP16_comp_len)));
+mMaps.insert(std::make_pair("glsl_gemv_dequant_int3_comp", std::make_pair(glsl_gemv_dequant_int3_comp,glsl_gemv_dequant_int3_comp_len)));
+mMaps.insert(std::make_pair("glsl_gemv_dequant_int3_FP16_comp", std::make_pair(glsl_gemv_dequant_int3_FP16_comp,glsl_gemv_dequant_int3_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_resizeBilinear_comp", std::make_pair(glsl_resizeBilinear_comp,glsl_resizeBilinear_comp_len)));
 mMaps.insert(std::make_pair("glsl_resizeBilinear_FP16_comp", std::make_pair(glsl_resizeBilinear_FP16_comp,glsl_resizeBilinear_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_cast_int_bool_comp", std::make_pair(glsl_cast_int_bool_comp,glsl_cast_int_bool_comp_len)));
@@ -257,6 +267,8 @@ mMaps.insert(std::make_pair("glsl_attention_decode_q1_subgroup_hd128_comp", std:
 mMaps.insert(std::make_pair("glsl_attention_decode_q1_subgroup_hd128_FP16_comp", std::make_pair(glsl_attention_decode_q1_subgroup_hd128_FP16_comp,glsl_attention_decode_q1_subgroup_hd128_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_gemm_m8n4_comp", std::make_pair(glsl_gemm_m8n4_comp,glsl_gemm_m8n4_comp_len)));
 mMaps.insert(std::make_pair("glsl_gemm_m8n4_FP16_comp", std::make_pair(glsl_gemm_m8n4_FP16_comp,glsl_gemm_m8n4_FP16_comp_len)));
+mMaps.insert(std::make_pair("glsl_gemv_dequant_int2_comp", std::make_pair(glsl_gemv_dequant_int2_comp,glsl_gemv_dequant_int2_comp_len)));
+mMaps.insert(std::make_pair("glsl_gemv_dequant_int2_FP16_comp", std::make_pair(glsl_gemv_dequant_int2_FP16_comp,glsl_gemv_dequant_int2_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_avgpool_comp", std::make_pair(glsl_avgpool_comp,glsl_avgpool_comp_len)));
 mMaps.insert(std::make_pair("glsl_avgpool_FP16_comp", std::make_pair(glsl_avgpool_FP16_comp,glsl_avgpool_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_conv1x1_quant_meta_prepare_comp", std::make_pair(glsl_conv1x1_quant_meta_prepare_comp,glsl_conv1x1_quant_meta_prepare_comp_len)));
@@ -341,6 +353,8 @@ mMaps.insert(std::make_pair("glsl_gemv_dequant_int4_comp", std::make_pair(glsl_g
 mMaps.insert(std::make_pair("glsl_gemv_dequant_int4_FP16_comp", std::make_pair(glsl_gemv_dequant_int4_FP16_comp,glsl_gemv_dequant_int4_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_matmul_coop_comp", std::make_pair(glsl_matmul_coop_comp,glsl_matmul_coop_comp_len)));
 mMaps.insert(std::make_pair("glsl_matmul_coop_FP16_comp", std::make_pair(glsl_matmul_coop_FP16_comp,glsl_matmul_coop_FP16_comp_len)));
+mMaps.insert(std::make_pair("glsl_gemv_dequant_int2_nosubgroup_comp", std::make_pair(glsl_gemv_dequant_int2_nosubgroup_comp,glsl_gemv_dequant_int2_nosubgroup_comp_len)));
+mMaps.insert(std::make_pair("glsl_gemv_dequant_int2_nosubgroup_FP16_comp", std::make_pair(glsl_gemv_dequant_int2_nosubgroup_FP16_comp,glsl_gemv_dequant_int2_nosubgroup_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_deconvolutionDepthwise_comp", std::make_pair(glsl_deconvolutionDepthwise_comp,glsl_deconvolutionDepthwise_comp_len)));
 mMaps.insert(std::make_pair("glsl_deconvolutionDepthwise_RELU_comp", std::make_pair(glsl_deconvolutionDepthwise_RELU_comp,glsl_deconvolutionDepthwise_RELU_comp_len)));
 mMaps.insert(std::make_pair("glsl_deconvolutionDepthwise_RELU6_comp", std::make_pair(glsl_deconvolutionDepthwise_RELU6_comp,glsl_deconvolutionDepthwise_RELU6_comp_len)));
