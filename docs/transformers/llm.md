@@ -38,6 +38,7 @@
     *   **LoRA**：通过 `--lora_path` 合并或分离 LoRA 权重。
     *   **Embeding**：对于目前主流的8b以下模型，采用了`Tie-Embeding`技术，默认不会导出`embeddings_bf16.bin`，而是复用`llm.mnn.weight`中的`lm`权重，需要提升embed精度可以设置 `--seperate_embed` 分离出`embeddings_bf16.bin`。
     *   **GPTQ**：通过 `--gptq_path` 应用预量化好的 GPTQ 权重。
+    *   **MNNConvert 工具**：推荐优先使用本地编译的 `MNNConvert`（在 MNN 根目录下 `mkdir build && cd build && cmake .. -DMNN_BUILD_CONVERTER=ON && make -j16`），`llmexport.py` 默认会到 `../../../build/` 下查找，也可通过 `--mnnconvert` 显式指定路径。
     *   **手动转换**：如果直接导出 `mnn` 失败，或者需要fp16/fp32精度的模型，可先导出 `onnx`，再用 `MNNConvert` 工具手动转换。
 
 ---
@@ -172,7 +173,12 @@ python llmexport.py \
 ```
 
 ### 功能
-- 直接转为mnn模型，使用`--export mnn`，注意，你需要先安装pymnn或者通过`--mnnconvert`选项指定MNNConvert工具的地址，两种条件必须满足其中一个。如果没有安装pymnn并且没有通过`--mnnconvert`指定MNNConvert工具的地址，那么llmexport.py脚本会在目录"../../../build/"下寻找MNNConvert工具，需保证该目录下存在MNNConvert文件。此方案目前支持导出4bit和8bit模型
+- 直接转为mnn模型，使用`--export mnn`。**推荐优先使用本地编译的 MNNConvert 工具**：在 MNN 根目录下创建 `build/` 目录并执行编译，编译时需打开 `-DMNN_BUILD_CONVERTER=ON`，例如：
+  ```bash
+  mkdir build && cd build
+  cmake .. -DMNN_BUILD_CONVERTER=ON && make -j16
+  ```
+  编译完成后 `build/` 目录下会生成 `MNNConvert` 可执行文件，`llmexport.py` 默认会在 `../../../build/` 下查找该工具；也可以通过 `--mnnconvert` 选项显式指定 MNNConvert 路径。若未提供本地 MNNConvert，脚本会回退到 pymnn（需先安装 `pip install MNN`）。此方案目前支持导出4bit和8bit模型。
 - 如果直接转为mnn模型遇到问题，或者需要其他bits数的量化（如5bit/6bit），可以先将模型先转为onnx模型，使用`--export onnx`，然后使用./MNNConvert工具将onnx模型转为mnn模型:
 
 ```
