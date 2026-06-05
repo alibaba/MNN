@@ -1070,6 +1070,7 @@ void OpenCLRuntime::printEventTime(){
         
         kernels[i] = std::make_pair(mEvents[i].first, kernel_time);
     }
+#ifndef MNN_GPU_PROFILE_SILENT
 #ifdef SORT_PROFILE_TIME
     for(int i = 0; i < mEvents.size(); i++) {
         for(int j = i+1; j < mEvents.size(); j++) {
@@ -1086,8 +1087,9 @@ void OpenCLRuntime::printEventTime(){
     for(int i = 0; i < mEvents.size(); i++) {
         MNN_PRINT("kernel time = %d    us %s\n", kernels[i].second, kernels[i].first.c_str());
     }
-    mEvents.clear();
     MNN_PRINT("total kernel time = %d  us, conv time = %d us (gemm2:%d us, gemm1:%d us, 1x1:%d us, ori:%d us, wino: %d us, other: %d us), while gemm time = %d us (core gemm time: %d us, softmax:%d us), ori softmax: %d us, raster[%d] time: %d us\n", mKernelTime, conv_time, conv_gemm2_buf_time, conv_gemm1_buf_time, conv_1x1_buf_time, conv_ori_buf_time, wino_gemm_time, conv_time-conv_gemm2_buf_time-conv_gemm1_buf_time-conv_1x1_buf_time-conv_ori_buf_time-wino_gemm_time, loop_bg_time, loop_bg_gemm_time, loop_softmax_time, ori_softmax_time, raster_num, raster_time);
+#endif // MNN_GPU_PROFILE_SILENT
+    mEvents.clear();
 #endif
 }
 } // namespace MNN
