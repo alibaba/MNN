@@ -11,7 +11,12 @@ import com.alibaba.mnnllm.android.llm.ChatService
 import com.alibaba.mnnllm.android.llm.ChatSession
 import com.alibaba.mnnllm.api.openai.di.ServiceLocator
 import com.alibaba.mnnllm.api.openai.manager.ServerEventManager
+import com.alibaba.mnnllm.android.agent.AgenticPrompts
+import com.alibaba.mnnllm.android.agent.AgenticOutputParser
+import com.alibaba.mnnllm.android.agent.AgenticToolExecutor
+import com.alibaba.mnnllm.android.agent.AgentSystemCall
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
+import com.alibaba.mnnllm.android.chat.model.ChatFileAttachment
 import com.alibaba.mnnllm.android.chat.model.ChatDataManager
 import com.alibaba.mnnllm.android.chat.chatlist.ChatViewHolders
 import com.alibaba.mnnllm.android.llm.GenerateProgressListener
@@ -24,6 +29,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Random
@@ -45,6 +52,7 @@ class ChatPresenter(
     private val presenterScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var generateListener:GenerateListener? = null
     private val additionalListeners = mutableListOf<GenerateListener>()
+    private var agentEnabled: Boolean = false
     
     /**
      * Get LLM session instance
@@ -65,6 +73,25 @@ class ChatPresenter(
      */
     fun getSessionId(): String? {
         return sessionId
+    }
+
+    fun setAgentEnabled(enabled: Boolean) {
+        agentEnabled = enabled
+        sessionId?.let {
+            chatDataManager?.updateSessionMode(
+                it,
+                if (enabled) {
+                    com.alibaba.mnnllm.android.chat.model.ChatDatabaseHelper.SESSION_MODE_AGENT
+                } else {
+                    com.alibaba.mnnllm.android.chat.model.ChatDatabaseHelper.SESSION_MODE_NORMAL
+                }
+            )
+        }
+        applySystemPromptForCurrentMode()
+    }
+
+    fun isAgentEnabled(): Boolean {
+        return agentEnabled
     }
     
     /**
@@ -152,6 +179,7 @@ class ChatPresenter(
                 } else {
                     chatSession.load()
                 }
+                applySystemPromptForCurrentMode()
                 chatActivity.lifecycleScope.launch {
                     chatActivity.onLoadingChanged(false)
                 }
@@ -190,8 +218,29 @@ class ChatPresenter(
         }
     }
 
+    private fun applySystemPromptForCurrentMode() {
+        val llmSession = getLlmSession() ?: return
+        val currentModelId = chatActivity.modelId ?: modelId
+        val currentModelName = chatActivity.modelName.ifBlank { modelName }
+        val systemPrompt = if (agentEnabled) {
+            AgenticPrompts.buildSystemPromptForModel(
+                modelName = currentModelName,
+                modelId = currentModelId,
+                memoryBlock = chatDataManager?.buildAgentMemoryBlock().orEmpty(),
+                skillBlock = chatDataManager?.buildAgentSkillBlock().orEmpty()
+            )
+        } else {
+            ModelConfig.loadConfig(currentModelId)?.systemPrompt
+                ?: ModelConfig.defaultConfig.systemPrompt
+                ?: "You are a helpful assistant."
+        }
+        llmSession.updateSystemPrompt(systemPrompt)
+        Log.d(TAG, "Agent mode ${if (agentEnabled) "enabled" else "disabled"} for model=$currentModelId")
+    }
+
     private fun submitDiffusionRequest(input: String, userData: ChatDataItem): HashMap<String, Any> {
-        val prompt = resolveDiffusionPrompt(input, modelId)
+        val currentModelId = chatActivity.modelId ?: modelId
+        val prompt = resolveDiffusionPrompt(input, currentModelId)
         val diffusionDestPath = FileUtils.generateDestDiffusionFilePath(
             chatActivity,
             sessionId!!
@@ -200,7 +249,7 @@ class ChatPresenter(
             FileUtils.getPathForUri(it)
         } ?: ""
 
-        val config = ModelConfig.loadConfig(modelId)
+        val config = ModelConfig.loadConfig(currentModelId)
         val steps = config?.diffusionSteps ?: ModelConfig.defaultConfig.diffusionSteps ?: 20
         val seed = if (config?.diffusionSeed != null && config.diffusionSeed!! != -1L) {
             config.diffusionSeed!!.toInt()
@@ -230,16 +279,18 @@ class ChatPresenter(
         )
     }
 
-    private fun submitLlmRequest(prompt:String): HashMap<String, Any> {
+    private fun submitLlmRequest(prompt:String, emitProgress: Boolean = true): HashMap<String, Any> {
         val generateResultProcessor =
             GenerateResultProcessor()
         generateResultProcessor.generateBegin()
         val result = chatSession.generate(prompt, mapOf(), object: GenerateProgressListener {
             override fun onProgress(progress: String?): Boolean {
                 generateResultProcessor.process(progress)
-                chatActivity.lifecycleScope.launch {
-                    this@ChatPresenter.generateListener?.onLlmGenerateProgress(progress, generateResultProcessor)
-                    additionalListeners.forEach { it.onLlmGenerateProgress(progress, generateResultProcessor) }
+                if (emitProgress) {
+                    chatActivity.lifecycleScope.launch {
+                        this@ChatPresenter.generateListener?.onLlmGenerateProgress(progress, generateResultProcessor)
+                        additionalListeners.forEach { it.onLlmGenerateProgress(progress, generateResultProcessor) }
+                    }
                 }
                 if (stopGenerating) {
                     Log.d(TAG, "stopGenerating requested")
@@ -251,13 +302,209 @@ class ChatPresenter(
         return result
     }
 
-    private fun submitRequest(input: String, userData: ChatDataItem): HashMap<String, Any> {
+    private suspend fun submitAgenticLlmRequest(input: String): HashMap<String, Any> {
+        val statusLog = StringBuilder()
+        val searchedQueries = mutableSetOf<String>()
+        val visitedUrls = mutableSetOf<String>()
+        val executedPythonKeys = mutableSetOf<String>()
+        var totalToolCalls = 0
+        var totalBrowserCalls = 0
+        var totalPythonCalls = 0
+        val aggregateMetrics = HashMap<String, Any>()
+        val generatedFiles = mutableListOf<ChatFileAttachment>()
+        val budget = AgenticPrompts.defaultLoopBudget
+
+        fun appendStatus(line: String) {
+            statusLog.appendLine(line)
+            emitAgentStatus(statusLog.toString().trimEnd())
+        }
+
+        fun ensureNotStopped() {
+            if (stopGenerating) {
+                throw kotlinx.coroutines.CancellationException("Agent generation stopped")
+            }
+        }
+
+        appendStatus("[Agent] 规划中...")
+        ensureNotStopped()
+        applySystemPromptForCurrentMode()
+        var llmResult = submitLlmRequest(input, emitProgress = false)
+        mergeLlmMetrics(aggregateMetrics, llmResult)
+        var raw = llmResult["response"] as? String ?: ""
+        var parsed = AgenticOutputParser.parse(raw)
+
+        for (pass in 1..budget.maxPasses) {
+            currentCoroutineContext().ensureActive()
+            ensureNotStopped()
+            val calls = parsed?.systemCalls.orEmpty()
+            if (calls.isEmpty()) break
+
+            appendStatus("[Agent] 第 $pass 轮计划：${calls.size} 个工具调用")
+            val executableCalls = mutableListOf<AgentSystemCall>()
+            for (call in calls) {
+                val type = call.type.orEmpty().trim().lowercase()
+                val isSearch = type == "web_search"
+                val isBrowse = type == "browser_url" || type == "browse_url" || type == "web_browse" || type == "open_url"
+                val isPython = type == "python_exec" || type == "run_python" || type == "python"
+                val key = when {
+                    isSearch -> call.query.orEmpty().trim().lowercase()
+                    isBrowse -> call.url.orEmpty().ifBlank { call.query.orEmpty() }.trim().lowercase()
+                    isPython -> type + ":" + call.code.orEmpty().take(500) + ":" + call.input.orEmpty().take(500)
+                    else -> type
+                }
+                val duplicate = (isSearch && key in searchedQueries) ||
+                    (isBrowse && key in visitedUrls) ||
+                    (isPython && key in executedPythonKeys)
+                val budgetBlocked = totalToolCalls >= budget.maxToolCalls ||
+                    (isBrowse && totalBrowserCalls >= budget.maxBrowserCalls) ||
+                    (isPython && totalPythonCalls >= budget.maxPythonCalls)
+                when {
+                    duplicate -> appendStatus("[Agent] 跳过重复调用：$key")
+                    budgetBlocked -> appendStatus("[Agent] 跳过工具调用：预算已用尽")
+                    else -> {
+                        if (isSearch) searchedQueries += key
+                        if (isBrowse) {
+                            visitedUrls += key
+                            totalBrowserCalls += 1
+                        }
+                        if (isPython) {
+                            executedPythonKeys += key
+                            totalPythonCalls += 1
+                        }
+                        totalToolCalls += 1
+                        executableCalls += call
+                    }
+                }
+            }
+
+            if (executableCalls.isEmpty()) break
+
+            ensureNotStopped()
+            val toolExecutionResult = AgenticToolExecutor.execute(executableCalls) { event ->
+                when (event.type) {
+                    AgenticToolExecutor.ToolStepEvent.Type.STARTED ->
+                        appendStatus("[Agent] ${event.title}：${event.detail}")
+                    AgenticToolExecutor.ToolStepEvent.Type.FINISHED ->
+                        appendStatus("[Agent] ${event.title}完成：${event.detail}")
+                    AgenticToolExecutor.ToolStepEvent.Type.FAILED ->
+                        appendStatus("[Agent] ${event.title}失败：${event.detail}")
+                }
+            }
+            generatedFiles.addAll(toolExecutionResult.generatedFiles)
+
+            val remaining = budget.maxToolCalls - totalToolCalls
+            appendStatus("[Agent] 已获得工具结果，继续推理...")
+            ensureNotStopped()
+            val continuationInput = buildString {
+                appendLine("system_calls 执行结果：")
+                appendLine(toolExecutionResult.observations)
+                appendLine()
+                if (remaining > 0) {
+                    appendLine("Tool budget: remaining=$remaining. Continue from the existing conversation context and KV cache. Do not restate or re-send the original user question unless needed for the final answer. You may continue calling get_current_time, web_search, browser_url, or python_exec if useful. Prefer primary sources, use Python for calculation/data work, and avoid duplicate queries, URLs, or code. Return final reply when the answer is sufficiently supported.")
+                } else {
+                    appendLine("Tool budget: remaining=0. Do not call more tools. Continue from the existing conversation context and return the best final reply from the available results.")
+                }
+            }
+            llmResult = submitLlmRequest(continuationInput, emitProgress = false)
+            mergeLlmMetrics(aggregateMetrics, llmResult)
+            raw = llmResult["response"] as? String ?: ""
+            parsed = AgenticOutputParser.parse(raw)
+        }
+
+        if (parsed?.hasToolCalls() == true && parsed?.reply.isNullOrBlank()) {
+            appendStatus("[Agent] 工具预算结束，整理最终回答...")
+            ensureNotStopped()
+            val finalOnlyPrompt = buildString {
+                appendLine("Tool budget is exhausted. Do not call tools again. Continue from the existing conversation context and KV cache. Return the best final user-facing reply based on the observations already in this conversation. Do not expose JSON.")
+            }
+            llmResult = submitLlmRequest(finalOnlyPrompt, emitProgress = false)
+            mergeLlmMetrics(aggregateMetrics, llmResult)
+            raw = llmResult["response"] as? String ?: ""
+            parsed = AgenticOutputParser.parse(raw)
+        }
+
+        persistAgentUpdates(parsed)
+        val localSkillHints = chatDataManager?.runLocalAgentSkills(input).orEmpty()
+        val baseReply = parsed?.reply?.takeIf { it.isNotBlank() } ?: raw
+        val finalReply = if (localSkillHints.isBlank()) {
+            baseReply
+        } else {
+            "$baseReply\n\n$localSkillHints"
+        }
+        generatedFiles.addAll(AgenticToolExecutor.resolveMentionedWorkspaceFiles(finalReply))
+        applySystemPromptForCurrentMode()
+        return HashMap<String, Any>().apply {
+            putAll(aggregateMetrics)
+            put("response", finalReply)
+            put("replace_display", true)
+            put("agent_steps", statusLog.toString().trimEnd())
+            if (generatedFiles.isNotEmpty()) {
+                put("generated_files", generatedFiles.distinctBy { it.path })
+            }
+        }
+    }
+
+    private fun mergeLlmMetrics(target: HashMap<String, Any>, source: HashMap<String, Any>) {
+        listOf("input_len", "prompt_len", "decode_len", "prefill_time", "decode_time", "vision_time", "audio_time").forEach { key ->
+            val sourceValue = metricAsLong(source[key])
+            if (sourceValue > 0L) {
+                target[key] = metricAsLong(target[key]) + sourceValue
+            }
+        }
+    }
+
+    private fun metricAsLong(value: Any?): Long {
+        return when (value) {
+            is Long -> value
+            is Int -> value.toLong()
+            is Number -> value.toLong()
+            is String -> value.toLongOrNull() ?: 0L
+            else -> 0L
+        }
+    }
+
+    private fun persistAgentUpdates(parsed: com.alibaba.mnnllm.android.agent.AgenticResponse?) {
+        val manager = chatDataManager ?: return
+        parsed?.memoryUpdates.orEmpty().forEach { update ->
+            manager.upsertAgentMemory(update.category, update.content, source = "agent")
+        }
+        parsed?.skillUpdates.orEmpty().forEach { update ->
+            manager.upsertAgentSkill(
+                name = update.name,
+                description = update.description,
+                triggerKeywords = update.triggerKeywords,
+                actionTemplate = update.actionTemplate
+            )
+        }
+    }
+
+    private fun emitAgentStatus(status: String) {
+        chatActivity.lifecycleScope.launch {
+            this@ChatPresenter.generateListener?.onAgentStatus(status)
+            additionalListeners.forEach { it.onAgentStatus(status) }
+        }
+    }
+
+    private suspend fun submitRequest(input: String, userData: ChatDataItem): HashMap<String, Any> {
         stopGenerating = false
         val benchMarkResult = try {
-            if (ModelTypeUtils.isDiffusionModel(this.modelName)) {
+            val currentModelName = chatActivity.modelName.ifBlank { modelName }
+            if (ModelTypeUtils.isDiffusionModel(currentModelName)) {
                 submitDiffusionRequest(input, userData)
+            } else if (agentEnabled && getLlmSession() != null) {
+                submitAgenticLlmRequest(input)
             } else {
                 submitLlmRequest(input)
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            if (!stopGenerating) {
+                throw e
+            }
+            Log.d(TAG, "Agent generation cancelled", e)
+            HashMap<String, Any>().apply {
+                put("error", true)
+                put("message", "已停止")
+                put("response", "已停止")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error during generation request", e)
@@ -277,7 +524,15 @@ class ChatPresenter(
     }
 
     private fun updateSession(sessionId: String, modelId: String?, sessionName: String) {
-        chatDataManager!!.addOrUpdateSession(sessionId, modelId)
+        chatDataManager!!.addOrUpdateSession(
+            sessionId,
+            modelId,
+            if (agentEnabled) {
+                com.alibaba.mnnllm.android.chat.model.ChatDatabaseHelper.SESSION_MODE_AGENT
+            } else {
+                com.alibaba.mnnllm.android.chat.model.ChatDatabaseHelper.SESSION_MODE_NORMAL
+            }
+        )
         chatDataManager!!.updateSessionName(this.sessionId!!, this.sessionName)
     }
 
@@ -290,7 +545,7 @@ class ChatPresenter(
         try {
             if (this.sessionName.isNullOrEmpty()) {
                 this.sessionName = SessionUtils.generateSessionName(userData)
-                updateSession(sessionId!!, modelId, sessionName!!)
+                updateSession(sessionId!!, chatActivity.modelId ?: modelId, sessionName!!)
             }
             
             // Always save user input to database first
@@ -362,6 +617,12 @@ class ChatPresenter(
         override fun onGenerateFinished(benchMarkResult: HashMap<String, Any>) {
             chatActivity.lifecycleScope.launch {
                 chatActivity.onGenerateFinished(benchMarkResult)
+            }
+        }
+
+        override fun onAgentStatus(status: String) {
+            chatActivity.lifecycleScope.launch {
+                chatActivity.onAgentStatus(status)
             }
         }
     }
@@ -449,6 +710,7 @@ class ChatPresenter(
                     !(newSession as com.alibaba.mnnllm.android.llm.LlmSession).isModelLoaded()) {
                     newSession.load()
                 }
+                applySystemPromptForCurrentMode()
                 chatActivity.lifecycleScope.launch {
                     onSwitchComplete(newSession)
                     chatActivity.onLoadingChanged(false)
@@ -533,5 +795,6 @@ class ChatPresenter(
         fun onGenerateStart()
         fun onGenerateFinished(benchMarkResult: HashMap<String, Any>)
         fun onLlmGenerateProgress(progress: String?, generateResultProcessor: GenerateResultProcessor)
+        fun onAgentStatus(status: String) {}
     }
 }

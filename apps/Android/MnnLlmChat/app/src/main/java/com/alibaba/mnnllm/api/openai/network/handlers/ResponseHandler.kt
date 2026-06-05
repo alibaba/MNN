@@ -35,7 +35,7 @@ class ResponseHandler {
     /** * processwithhistorymessagestreamingresponse * * @param call Ktorapplicationcallcontext * @param history historymessagelist * @param traceId traceID*/
     suspend fun handleStreamResponseWithFullHistory(
         call: ApplicationCall,
-        history: List<android.util.Pair<String, String>>,
+        history: List<Pair<String, String>>,
         traceId: String
     ) {
         val responseMetadata = createResponseMetadata()
@@ -175,7 +175,7 @@ class ResponseHandler {
     /** * processwithhistorymessagenon-streamingresponse * * @param call Ktorapplicationcallcontext * @param history historymessagelist*/
     suspend fun handleNonStreamResponseWithFullHistory(
         call: ApplicationCall,
-        history: List<android.util.Pair<String, String>>
+        history: List<Pair<String, String>>
     ) {
         val fullResponse = StringBuilder()
         val responseMetadata = createResponseMetadata()
@@ -228,7 +228,7 @@ class ResponseHandler {
     /** * processnon-streaminggenerate*/
     private fun processNonStreamGeneration(
         llmSession: LlmSession,
-        history: List<android.util.Pair<String, String>>,
+        history: List<Pair<String, String>>,
         fullResponse: StringBuilder
     ): HashMap<String, Any> {
         return llmSession.submitFullHistory(history, object : GenerateProgressListener {

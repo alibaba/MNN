@@ -35,6 +35,11 @@
     <string name="press_to_chat">按住說話</string>
     <string name="start_new_chat">開啟新對話</string>
     <string name="new_conversation_started">已開啟新對話</string>
+    <string name="new_agent_conversation_started">已開啟新的 Agent 對話</string>
+    <string name="new_conversation_mode_title">開啟新對話</string>
+    <string name="new_conversation_mode_message">選擇這個對話是否啟用 Agent 能力。普通聊天會保持既有路徑。</string>
+    <string name="new_conversation_normal_mode">普通聊天</string>
+    <string name="new_conversation_agent_mode">Agent 模式</string>
     <string name="take_photo">拍照</string>
     <string name="choose_image">圖片</string>
     <string name="select_audio">音訊 (wav)</string>
@@ -51,6 +56,9 @@
     <string name="models">模型清單</string>
     <string name="models_market">模型市集</string>
     <string name="history">對話歷史</string>
+    <string name="workspace_files">工作區檔案</string>
+    <string name="workspace_files_empty">暫無工作區檔案。</string>
+    <string name="workspace_file_open_failed">沒有應用可以開啟此檔案。</string>
     <string name="history_title">對話歷史</string>
     <string name="history_delete_success">歷史記錄已刪除</string>
     <string name="diffusion_generated_message">圖片已生成：</string>

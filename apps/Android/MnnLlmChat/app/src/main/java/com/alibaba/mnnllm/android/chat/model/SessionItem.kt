@@ -5,4 +5,8 @@ package com.alibaba.mnnllm.android.chat.model
 class SessionItem(@JvmField val sessionId: String,
                   @JvmField val modelId: String,
                   @JvmField var title: String,
-                  @JvmField val lastChatTime: Long = 0L)
+                  @JvmField val lastChatTime: Long = 0L,
+                  @JvmField val sessionMode: String = ChatDatabaseHelper.SESSION_MODE_NORMAL) {
+    val isAgentMode: Boolean
+        get() = sessionMode == ChatDatabaseHelper.SESSION_MODE_AGENT
+}
