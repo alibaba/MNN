@@ -349,6 +349,8 @@ StaticModule::StaticModule(std::vector<int> inputs,
     mResource.reset(new Resource);
     mRuntimeManager = rtm;
     MNN_ASSERT(nullptr != rtm);
+    // Apply before createPipelineBackend creates Backends.
+    rtm->applyMetaToRuntime();
     auto rt = rtm->getInside()->mRuntime;
     mResource->mSharedConst = sharedConst;
     mResource->mModes = std::move(mode);
@@ -594,6 +596,10 @@ ErrorCode StaticModule::_execute() {
 std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VARP>& inputs) {
 
     AUTOTIME;
+    // Apply before resize/clone may construct new Backends (e.g. onClone path).
+    if (mRuntimeManager) {
+        mRuntimeManager->applyMetaToRuntime();
+    }
     std::vector<Express::VARP> outputs;
     bool runResize = (!mShapeInferSeperate) || inputs.size() > 0;
     bool runCompute = (!mShapeInferSeperate) || inputs.size() == 0;
@@ -674,6 +680,8 @@ Module* StaticModule::clone(CloneContext* ctx) const {
     if (mResource->mOutputFromTensor.empty()) {
         return this->cloneBaseTo(ctx, module);
     }
+    // mSession->clone may construct new Backends.
+    ctx->pRuntimeManager->applyMetaToRuntime();
     auto rt = ctx->pRuntimeManager->getInside()->mRuntime;
     module->mSession.reset(mSession->clone(std::move(rt), mResource->mSharedConst));
     module->resetInputOutputs();

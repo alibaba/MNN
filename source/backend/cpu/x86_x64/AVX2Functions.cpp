@@ -45,10 +45,6 @@ bool AVX2Functions::init(int cpuFlags) {
 
     coreFunction->MNNPackedMatMul       = _AVX_MNNPackedMatMul;
     coreFunction->MNNPackedMatMulRemain = _AVX_MNNPackedMatMulRemain;
-#ifdef MNN_CPU_WEIGHT_DEQUANT_GEMM
-    coreFunction->MNNPackedMatMul_int8       = _AVX_MNNPackedMatMul_int8;
-    coreFunction->MNNPackedMatMulRemain_int8 = _AVX_MNNPackedMatMulRemain_int8;
-#endif
 
 #ifdef MNN_LOW_MEMORY
     coreFunction->MNNAbsMax = _AVX_MNNAbsMaxFP32;

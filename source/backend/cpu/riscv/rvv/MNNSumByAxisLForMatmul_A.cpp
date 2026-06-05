@@ -1,6 +1,7 @@
 #include <riscv_vector.h>
 #include <cstdint>
 #include <algorithm>
+#include <sys/types.h>
 #include "../../compute/CommonOptFunction.h"
 
 void MNNSumByAxisLForMatmul_A_RVV(float* dest, int8_t* source, const float* scale, ssize_t realDstCount,

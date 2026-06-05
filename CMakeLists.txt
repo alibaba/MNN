@@ -81,11 +81,14 @@ option(MNN_INTERNAL "Build with MNN internal features, such as model authenticat
 option(MNN_JNI "Build MNN Jni for java to use" OFF)
 option(MNN_SUPPORT_BF16 "Enable MNN's bf16 op" OFF)
 option(MNN_LOW_MEMORY "Build MNN support low memory for weight quant model." OFF)
-option(MNN_CPU_WEIGHT_DEQUANT_GEMM "Build MNN CPU weight dequant related gemm kernels." OFF)
 option(MNN_BUILD_AUDIO "Build audio api in MNN." OFF)
 option(MNN_SME2 "Use Arm sme2 instructions" ON)
 option(MNN_METAL_TENSOR "Use Metal4 tensor instructions" ON)
 option(MNN_GENERATE_PODSPEC "Generate iOS podspec file from CMake configuration" OFF)
+
+# NOTE: MNN_CPU_WEIGHT_DEQUANT_GEMM has been permanently removed.
+# The weight-dequant GEMM kernels (int4/int8) are no longer maintained.
+# Use MNN_LOW_MEMORY for low-memory weight quantization inference instead.
 
 if (MNN_BUILD_MINI)
     set(MNN_SKIPBUILD_GEOMETRY ON CACHE BOOL "<docstring>" FORCE)

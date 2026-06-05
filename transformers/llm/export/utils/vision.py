@@ -1073,7 +1073,9 @@ class Qwen3Vision(Qwen2Vision):
             input_embeds[image_mask] = torch.concat(self.image_embeds, dim=0).to(input_embeds.dtype)
             # deepsatck_embeds
             self.deepstack_embeds = torch.zeros_like(input_embeds).transpose(0, 1).repeat(3, 1, 1)
-            self.deepstack_embeds[:, image_mask, :] = torch.concat(self.deepstack_feature_list, dim=1)
+            self.deepstack_embeds[:, image_mask, :] = torch.concat(self.deepstack_feature_list, dim=1).to(
+                self.deepstack_embeds.dtype
+            )
         return input_embeds
 
     def deepstacks(self):

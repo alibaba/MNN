@@ -7,6 +7,7 @@
 //
 #include <riscv_vector.h>
 #include <stdint.h>
+#include <sys/types.h>
 #include <limits.h>
 
 void MNNAvgPoolInt8_RVV(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely,

@@ -7,6 +7,7 @@
 //
 #include <riscv_vector.h>
 #include <stdint.h>
+#include <sys/types.h>
 
 void MNNFloat2Int8_RVV(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minValue,
                        ssize_t maxValue, const float* zeroPoint, ssize_t quanParamVec) {

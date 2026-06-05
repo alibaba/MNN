@@ -125,7 +125,7 @@ git clone https://github.com/alibaba/MNN.git
 # 编译
 cd MNN
 mkdir build && cd build
-cmake .. -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true
+cmake .. -DMNN_LOW_MEMORY=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true
 make -j
 
 # 运行
@@ -183,7 +183,7 @@ git clone https://github.com/alibaba/MNN.git
 # compile
 cd MNN
 mkdir build && cd build
-cmake .. -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true
+cmake .. -DMNN_LOW_MEMORY=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true
 make -j
 
 # run
@@ -237,7 +237,7 @@ git clone https://github.com/alibaba/MNN.git
 # 编译
 cd MNN
 mkdir build && cd build
-cmake .. -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true
+cmake .. -DMNN_LOW_MEMORY=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true
 make -j
 
 # 运行

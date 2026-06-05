@@ -716,6 +716,8 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
 Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, std::shared_ptr<BufferStorage> bufferStorage, std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config* config, std::map<std::string, SubGraph>& subGraphMap) {
     MNN_ASSERT(nullptr != rtMgr);
     MNN_ASSERT(nullptr != config);
+    // Apply before constReplaceBackend / submodule Backends are created.
+    rtMgr->applyMetaToRuntime();
     std::shared_ptr<Schedule::ScheduleInfo> sharedConst;
     auto buffer = bufferStorage->buffer();
     auto length = bufferStorage->size();

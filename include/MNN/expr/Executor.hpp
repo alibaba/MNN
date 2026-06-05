@@ -129,6 +129,9 @@ public:
         void setHint(Interpreter::HintMode mode, int value);
         void setHint(Interpreter::HintMode mode, int* value, size_t size);
         void setHintPtr(Interpreter::HintMode mode, void* value);
+        // Push this RTM's KVCACHE_INFO meta onto its Runtime; call before any
+        // path that creates or clones Backends (Backends capture pMeta at ctor).
+        void applyMetaToRuntime() const;
         bool getInfo(Interpreter::SessionInfoCode code, void* ptr);
         static bool getDeviceInfo(const std::string& deviceKey, const MNNForwardType type, std::string& deviceValue);
         BackendConfig* getBnConfig();

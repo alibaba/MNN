@@ -48,8 +48,14 @@ public:
         return mPastValue.get();
     }
 
+    // Called after allocKVCache completes reallocKVCache in resize phase.
+    // onExecute checks this to avoid double-executing realloc/Remove.
+    bool isReallocDone() const { return mReallocDone; }
+    void clearReallocDone() { mReallocDone = false; }
+
 private:
     bool mKVCache;
+    bool mReallocDone = false;
     const int mExpandChunk = 64;
     std::shared_ptr<cl::Buffer> mPastKey, mPastValue;
     int mPastLength = 0, mMaxLength = 0, mNumHead = 0, mKvNumHead = 0, mHeadDim = 0;
@@ -159,4 +165,4 @@ private:
 } // namespace OpenCL
 } // namespace MNN
 #endif /* AttentionBufExecution_hpp */
-#endif/* MNN_SUPPORT_TRANSFORMER_FUSE */
+#endif /* MNN_SUPPORT_TRANSFORMER_FUSE */

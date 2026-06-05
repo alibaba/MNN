@@ -168,6 +168,8 @@ bool Omni::initProcessorRuntime() {
         module_config.shapeMutable = true; module_config.rearrange = true;
     }
     mProcessorRuntimeManager->setHintPtr(Interpreter::KVCACHE_INFO, nullptr);
+    // pMeta isolation between LLM and processor RTMs is now provided by
+    // per-RTM RuntimeAttr::mPMeta + applyMetaToRuntime; no manual reset needed.
     if (mConfig->is_visual()) {
         mVisionModule.reset(Module::load({}, {}, mConfig->visual_model().c_str(), mProcessorRuntimeManager, &module_config));
         if (nullptr == mVisionModule.get()) return false;
@@ -917,9 +919,7 @@ std::vector<int> Omni::audioProcess(MNN::Express::VARP waveform) {
         ::memcpy(fresh->writeMap<float>(), ptr, info->size * sizeof(float));
         input_features = fresh;
     }
-    // Reset KVCACHE_INFO to nullptr so audio encoder's self-attention is
-    // not affected by the LLM's kvcache metadata.
-    mProcessorRuntimeManager->setHintPtr(Interpreter::KVCACHE_INFO, nullptr);
+    // pMeta isolation handled by per-RTM RuntimeAttr::mPMeta; no reset needed.
     VARP audio_embedding;
     auto audio_inputs = mAudioModule->getInfo()->inputNames.size();
     if (audio_type == "qwen3_asr") {

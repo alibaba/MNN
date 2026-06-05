@@ -28,165 +28,8 @@ void DenseConvolutionTiledExecutor::initWeight(float *dest, const float *source,
     function->MNNPackForMatMul_B(dest, cache, outputCount, kernelSize, depth, true);
 
 }
-bool DenseConvolutionTiledExecutor::initQuantizeResource(std::shared_ptr<ConvolutionCommon::Int8Common> int8Info, std::shared_ptr<CPUConvolution::Resource> resource, int hU, int hP, int lU, int lP, int outputCount, int srcChannel, int kernelSize, int bytes) {
-    int weightLength = hU * lU * hP * lP;
-    resource->mDequantize.bits = 8;
-    resource->lU = lU;
-    resource->hU = hU;
-    resource->lP = lP;
-    resource->hP = hP;
-    MNN_ASSERT(lP == 1);
-    // Save scale bias
-    int dequantCnt = int8Info->alphaSize;
-    int scaleSize = dequantCnt; // real size
-    if (int8Info->asymmetric) {
-        scaleSize = dequantCnt / 2;
-
-    }
-    int blockNum = scaleSize / outputCount;
-    scaleSize = blockNum * hU * hP; // pack size
-    resource->mDequantize.mScaleBias.reset(MNN::Tensor::createDevice<uint8_t>({scaleSize * 2 * bytes}));
-    auto res = resource->backend->onAcquireBuffer(resource->mDequantize.mScaleBias.get(), Backend::STATIC);
-    if (!res) {
-        return false;
-    }
-    int originOffset = 0;
-    auto srcWInt8 = int8Info->weight.get();
-    std::vector<int8_t> blob;
-    if (int8Info->canUseInt4) {
-        // Revert int4 to int8
-        auto size = int8Info->weight.size();
-        blob.resize(int8Info->weight.size() * 2);
-        auto idxBuf = (uint8_t*)srcWInt8;
-        for (int i=0; i<size; ++i) {
-            int val = idxBuf[i];
-            int x1 = val / 16;
-            int x2 = val % 16;
-            blob[2 * i] = x1 - 8;
-            blob[2 * i + 1] = x2 - 8;
-
-        }
-        srcWInt8 = blob.data();
-    }
-    {
-        resource->mWeight.reset(Tensor::createDevice<int8_t>(std::vector<int>{hU, lU * lP, hP}));
-        auto res = resource->backend->onAcquireBuffer(resource->mWeight.get(), Backend::STATIC);
-        if (!res) {
-            return false;
-        }
-        // Reorder weight for int8
-        auto dstWInt8 = resource->mWeight->host<int8_t>();
-        ::memset(dstWInt8, 0, resource->mWeight->usize());
-        for (int y=0; y<outputCount; ++y) {
-            int yo = y / hP;
-            int yi = y % hP;
-            auto srcY = srcWInt8 + y * srcChannel * kernelSize;
-            auto dstY = dstWInt8 + yo * lP * hP * lU + yi;
-            for (int iz=0; iz<srcChannel; ++iz) {
-                for (int k=0; k<kernelSize; ++k) {
-                    int sx = iz * kernelSize + k;
-                    int dx = iz + k * srcChannel;
-                    dstY[dx * hP] = srcY[sx];
-                }
-            }
-        }
-    }
-    auto alphaPtr = resource->mDequantize.mScaleBias->host<float>();
-    auto biasPtr = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(alphaPtr) + scaleSize * bytes);
-    ::memset(alphaPtr, 0, 2 * scaleSize * bytes);
-    if (bytes == 2) {
-        auto cpuBackend = static_cast<CPUBackend*>(resource->backend);
-        auto core = cpuBackend->functions();
-        // Optimal path: disk alpha is fp16 AND backend is fp16 (Precision_Low).
-        // Read fp16 raw bits directly and write fp16 to mScaleBias, skipping the
-        // fp32 round-trip and the bulk MNNFp32ToLowp call.
-        const bool nativeFp16 = int8Info->alphaIsFp16 && cpuBackend->precisionMode() == BackendConfig::Precision_Low;
-        if (nativeFp16) {
-            auto srcHalf = reinterpret_cast<const half_float::half*>(int8Info->getAlphaHalf());
-            auto dstHalf = reinterpret_cast<half_float::half*>(alphaPtr);
-            const half_float::half offsetH(static_cast<float>(originOffset));
-            if (int8Info->asymmetric) {
-                for (int i = 0; i < blockNum; ++i) {
-                    auto dstAlpha = dstHalf + i * hU * hP;
-                    auto dstBias = dstHalf + scaleSize + i * hU * hP;
-                    for (int j = 0; j < outputCount; ++j) {
-                        int scaleIndex = j * blockNum + i;
-                        dstAlpha[j] = srcHalf[2 * scaleIndex + 1];
-                        dstBias[j] =
-                            half_float::half(float(srcHalf[2 * scaleIndex]) + float(offsetH) * float(dstAlpha[j]));
-                    }
-                }
-            } else {
-                for (int i = 0; i < blockNum; ++i) {
-                    auto dstAlpha = dstHalf + i * hU * hP;
-                    auto dstBias = dstHalf + scaleSize + i * hU * hP;
-                    for (int j = 0; j < outputCount; ++j) {
-                        int scaleIndex = j * blockNum + i;
-                        dstAlpha[j] = srcHalf[scaleIndex];
-                        dstBias[j] = half_float::half(float(offsetH) * float(dstAlpha[j]));
-                    }
-                }
-            }
-        } else {
-            // bf16 backend, or fp32 disk alpha: keep fp32 reshuffle + MNNFp32ToLowp.
-            // getAlphaFloat() lazy-fills alpha from alphaHalf if needed.
-            auto srcAlpha = int8Info->getAlphaFloat();
-            std::vector<float> tmpAlpha(scaleSize * 2, 0.0f);
-            if (int8Info->asymmetric) {
-                for (int i = 0; i < blockNum; ++i) {
-                    auto dstAlpha = tmpAlpha.data() + i * hU * hP;
-                    for (int j = 0; j < outputCount; ++j) {
-                        int scaleIndex = j * blockNum + i;
-                        dstAlpha[j] = srcAlpha[2 * scaleIndex + 1];
-                        dstAlpha[j + scaleSize] = srcAlpha[2 * scaleIndex] + (float)originOffset * dstAlpha[j];
-                    }
-                }
-            } else {
-                for (int i = 0; i < blockNum; ++i) {
-                    auto dstAlpha = tmpAlpha.data() + i * hU * hP;
-                    for (int j = 0; j < outputCount; ++j) {
-                        int scaleIndex = j * blockNum + i;
-                        dstAlpha[j] = srcAlpha[scaleIndex];
-                        dstAlpha[j + scaleSize] = (float)originOffset * dstAlpha[j];
-                    }
-                }
-            }
-            core->MNNFp32ToLowp(tmpAlpha.data(), reinterpret_cast<int16_t*>(alphaPtr), scaleSize * 2);
-        }
-    } else {
-        // fp32 backend. getAlphaFloat() lazy-fills alpha from alphaHalf if disk was fp16.
-        auto srcAlpha = int8Info->getAlphaFloat();
-        if (int8Info->asymmetric) {
-            for (int i = 0; i < blockNum; ++i) {
-                auto dstAlpha = alphaPtr + i * hU * hP;
-                auto dstBias = biasPtr + i * hU * hP;
-                for (int j = 0; j < outputCount; ++j) {
-                    int scaleIndex = j * blockNum + i;
-                    dstAlpha[j] = srcAlpha[2 * scaleIndex + 1];
-                    dstBias[j] = srcAlpha[2 * scaleIndex] + (float)originOffset * dstAlpha[j];
-                }
-            }
-        } else {
-            for (int i = 0; i < blockNum; ++i) {
-                auto dstAlpha = alphaPtr + i * hU * hP;
-                auto dstBias = biasPtr + i * hU * hP;
-                for (int j = 0; j < outputCount; ++j) {
-                    int scaleIndex = j * blockNum + i;
-                    dstAlpha[j] = srcAlpha[scaleIndex];
-                    dstBias[j] = (float)originOffset * dstAlpha[j];
-                }
-            }
-        }
-    }
-    return true;
-}
 
 void DenseConvolutionTiledExecutor::selectLowMemoryMatmulFunc(lowMemoryMatmulUnit* matmulUnit, lowMemoryMatmulRemain* matmulRemain, float* weightBytes, int32_t weightQuantBits, const CoreFunctions* core) {
-    if (weightQuantBits == 8) {
-        *matmulUnit = core->MNNPackedMatMul_int8;
-        *matmulRemain = core->MNNPackedMatMulRemain_int8;
-        *weightBytes  = 1;
-    }
 }
 
 DenseConvolutionTiledExecutor::DenseConvolutionTiledExecutor(const Convolution2DCommon* common, Backend* b,
@@ -199,11 +42,6 @@ DenseConvolutionTiledExecutor::DenseConvolutionTiledExecutor(const Convolution2D
     auto core = static_cast<CPUBackend*>(b)->functions();
     int bytes = core->bytes;
     core->MNNGetMatMulPackMode(&eP, &lP, &hP);
-    bool useInt8Weight = 0 == originWeightSize;
-    if (useInt8Weight) {
-        MNN_ASSERT(nullptr != int8Info.get());
-        originWeightSize = int8Info->weight.size();
-    }
     if (int8Info && int8Info->canUseInt4) {
         originWeightSize *= 2;
     }
@@ -212,33 +50,26 @@ DenseConvolutionTiledExecutor::DenseConvolutionTiledExecutor(const Convolution2D
     auto lSize = srcCount * common->kernelX() * common->kernelY();
     auto hU = UP_DIV(outputCount, hP);
     auto lU = UP_DIV(srcCount, lP) * common->kernelX() * common->kernelY();
-    if (useInt8Weight) {
-        // Quantize weight to int8
-        auto allocSuccess = DenseConvolutionTiledExecutor::initQuantizeResource(int8Info, mResource, hU, hP, lU, lP, outputCount, srcCount, common->kernelX() * common->kernelY(), bytes);
-        if (!allocSuccess) {
-            mValid = false;
-            return;
-        }
-    } else {
-        if (core->matmulBytes != 0) {
-            bytes = core->matmulBytes;
-        }
-        mResource->mWeight.reset(Tensor::createDevice<uint8_t>(
-            {hU * hP, lU * lP, bytes}));
-        mValid = mValid && backend()->onAcquireBuffer(mResource->mWeight.get(), Backend::STATIC);
-        if (!mValid) {
-            return;
-        }
-        std::shared_ptr<Tensor> cache(Tensor::createDevice<uint8_t>({outputCount, srcCount * common->kernelX() * common->kernelY(), (int)sizeof(float)})); // cache must be float
-        mValid = mValid && backend()->onAcquireBuffer(cache.get(), Backend::STATIC);
-        if (!mValid) {
-            return;
-        }
-        initWeight(mResource->mWeight->host<float>(), originWeight, cache->host<float>(), srcCount, outputCount, common->kernelX() * common->kernelY(), core);
-        // MNN_PRINT("srcCount:%d, outputCount:%d, dense weight matrix tile:", srcCount, outputCount);
-        // formatMatrix(mResource->mWeight->host<float>(), {UP_DIV(outputCount, hP), lSize, hP});
-        backend()->onReleaseBuffer(cache.get(), Backend::STATIC);
+
+    if (core->matmulBytes != 0) {
+        bytes = core->matmulBytes;
     }
+    mResource->mWeight.reset(Tensor::createDevice<uint8_t>(
+        {hU * hP, lU * lP, bytes}));
+    mValid = mValid && backend()->onAcquireBuffer(mResource->mWeight.get(), Backend::STATIC);
+    if (!mValid) {
+        return;
+    }
+    std::shared_ptr<Tensor> cache(Tensor::createDevice<uint8_t>({outputCount, srcCount * common->kernelX() * common->kernelY(), (int)sizeof(float)})); // cache must be float
+    mValid = mValid && backend()->onAcquireBuffer(cache.get(), Backend::STATIC);
+    if (!mValid) {
+        return;
+    }
+    initWeight(mResource->mWeight->host<float>(), originWeight, cache->host<float>(), srcCount, outputCount, common->kernelX() * common->kernelY(), core);
+    // MNN_PRINT("srcCount:%d, outputCount:%d, dense weight matrix tile:", srcCount, outputCount);
+    // formatMatrix(mResource->mWeight->host<float>(), {UP_DIV(outputCount, hP), lSize, hP});
+    backend()->onReleaseBuffer(cache.get(), Backend::STATIC);
+    
     mProxy.reset(new DenseConvolutionTiledImpl(common, b, mResource.get()));
 }
 

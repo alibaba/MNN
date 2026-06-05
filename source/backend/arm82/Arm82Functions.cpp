@@ -36,12 +36,6 @@ void MNNPackedMatMulFP16(float* C, const float* A, const float* B, const size_t*
 // parameter: [aStride, l, h, cStride, bExtraStride]
 void MNNPackedMatMulRemainFP16(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
 
-#ifdef MNN_CPU_WEIGHT_DEQUANT_GEMM
-void MNNPackedMatMulFP16_int4(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
-void MNNPackedMatMulRemainFP16_int4(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
-void MNNPackedMatMulFP16_int8(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
-void MNNPackedMatMulRemainFP16_int8(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
-#endif
 
 #ifdef __aarch64__
 #ifdef MNN_LOW_MEMORY
@@ -2883,11 +2877,6 @@ bool Arm82Functions::init() {
     gInstance->supportI8mm = origin->supportI8mm;
     gInstance->supportSME2 = origin->supportSME2;
     gInstance->smeCoreNumber = origin->smeCoreNumber;
-#ifdef MNN_CPU_WEIGHT_DEQUANT_GEMM
-    // Weight Dequant Gemm Kernels
-    FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMul_int8, MNNPackedMatMulFP16_int8);
-    FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMulRemain_int8, MNNPackedMatMulRemainFP16_int8);
-#endif
 #ifdef MNN_LOW_MEMORY
     // Dynamic Qaunt Helper Functions
     FUNC_PTR_ASSIGN(gInstance->MNNAbsMax, MNNAbsMaxFP16);

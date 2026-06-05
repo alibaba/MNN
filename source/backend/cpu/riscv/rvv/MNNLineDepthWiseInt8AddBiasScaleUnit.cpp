@@ -20,7 +20,7 @@ void MNNLineDepthWiseInt8AddBiasScaleUnit_RVV(int8_t* dst, const int8_t* src, co
     const int8_t* srcPtr = src;
     const int8_t* weightPtr = weight;
 
-    const float* bias_z = parameters->bias;
+    const float* bias_z = (const float*)parameters->bias;
     const float* scale_z = parameters->scale;
     const int32_t max_val = parameters->maxValue;
     const int32_t min_val = parameters->minValue;
