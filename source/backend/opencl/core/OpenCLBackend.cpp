@@ -732,6 +732,11 @@ void OpenCLBackend::onExecuteEnd() const {
     clearRecord();
     enqeueRecord();
     mOpenCLRuntime->printEventTime();
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+    // Store GPU kernel time so callers can query it via
+    // Runtime::onGetLastGpuTimeMs() without parsing printed output.
+    mCLRuntime->mLastGpuTimeMs = (float)mOpenCLRuntime->mKernelTime / 1000.0f;
+#endif
 }
 
 
@@ -822,7 +827,12 @@ void OpenCLBackend::copyFromDeviceInt8(const Tensor* srcTensor, const Tensor* ds
 #endif
 
 #ifdef ENABLE_OPENCL_TIME_PROFILER
+    // Store GPU kernel time so callers can query it via
+    // Runtime::onGetLastGpuTimeMs() without parsing printed output.
+    mCLRuntime->mLastGpuTimeMs = (float)mOpenCLRuntime->mKernelTime / 1000.0f;
+#ifndef MNN_GPU_PROFILE_SILENT
     MNN_PRINT("total kernel time:%d us\n", (int)mOpenCLRuntime->mKernelTime);
+#endif
 #endif
 }
 
@@ -935,7 +945,7 @@ void OpenCLBackend::copyFromDevice(const Tensor* srcTensor, const Tensor* dstTen
     mOpenCLRuntime->printEventTime();
 
     cl_int res;
-#ifdef ENABLE_OPENCL_TIME_PROFILER
+#if defined(ENABLE_OPENCL_TIME_PROFILER) && !defined(MNN_GPU_PROFILE_SILENT)
     mOpenCLRuntime->commandQueue().finish();
     {
         AUTOTIME;
@@ -1039,19 +1049,19 @@ void OpenCLBackend::copyToDevice(const Tensor* srcTensor, const Tensor* dstTenso
     interTensor.buffer().device = (uint64_t)mHostBuffer.second.get();
     TensorUtils::getDescribe(&interTensor)->dimensionFormat = srcDimensionFormat;
 
-    #ifdef ENABLE_OPENCL_TIME_PROFILER
+#if defined(ENABLE_OPENCL_TIME_PROFILER) && !defined(MNN_GPU_PROFILE_SILENT)
     mOpenCLRuntime->commandQueue().finish();
     {
         AUTOTIME;
         mOpenCLRuntime->commandQueue().enqueueWriteBuffer(*mHostBuffer.second, CL_TRUE, 0, needSize, hostPtr);
     }
-    #else
+#else
     auto res = mOpenCLRuntime->commandQueue().enqueueWriteBuffer(*mHostBuffer.second, CL_TRUE, 0, needSize, hostPtr);
     if(res != CL_SUCCESS) {
         MNN_ERROR("OpenCL enqueue write error:%d\n", res);
         return;
     }
-    #endif
+#endif
 
     //Covert format
     mCLRuntime->convertToDevice((const Tensor*)&interTensor, dstTensor, srcDimensionFormat, mPrecision, mMemType, false);

@@ -48,6 +48,11 @@ public:
 
     void printTimeProfile() const;
 
+    // Return total GPU time in milliseconds for the given Kind.
+    // Must be called after GPU work is finished (fence waited) so that
+    // query results are available.  Returns -1.0f on error.
+    float getTotalTime(Kind kind) const;
+
 private:
     struct Record {
         std::string name;
@@ -174,6 +179,35 @@ inline void VulkanTimeProfiler::_printKind(Kind kind, const std::vector<uint64_t
         MNN_PRINT("%-30s time is %4.3f ms.\n", it.first.c_str(), it.second);
     }
     MNN_PRINT("\nTotal time summed up is %6.3f ms\n", timeTotal);
+}
+
+inline float VulkanTimeProfiler::getTotalTime(Kind kind) const {
+    if (mNext == 0 || mQueryPool == VK_NULL_HANDLE) {
+        return -1.0f;
+    }
+
+    std::vector<uint64_t> timestamps(mNext);
+    auto res =
+        vkGetQueryPoolResults(mDevice.get(), mQueryPool, 0, mNext, sizeof(uint64_t) * timestamps.size(),
+                              timestamps.data(), sizeof(uint64_t), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+    if (VK_SUCCESS != res) {
+        return -1.0f;
+    }
+
+    double timestampPeriod = mDevice.getTimestampPeriod(); // ns per tick
+    double tickToMs = timestampPeriod / double(1e6);
+
+    double timeTotal = 0.0;
+    for (const auto& record : mRecords) {
+        if (record.kind != kind) {
+            continue;
+        }
+        if (record.end >= timestamps.size() || record.begin >= timestamps.size()) {
+            continue;
+        }
+        timeTotal += (timestamps[record.end] - timestamps[record.begin]) * tickToMs;
+    }
+    return (float)timeTotal;
 }
 
 inline void VulkanTimeProfiler::printTimeProfile() const {

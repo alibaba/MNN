@@ -284,6 +284,7 @@ option(MNN_QNN "Enable QNN" OFF)
 option(MNN_QNN_ONLINE_FINALIZE "Enable QNN Online Finalize" ON)
 
 option(MNN_GPU_TIME_PROFILE "Enable time profiling for the OpenCL backend and Vulkan backend." OFF)
+option(MNN_GPU_PROFILE_SILENT "When GPU time profiling is enabled, only accumulate total time without printing per-kernel details." OFF)
 
 option(MNN_CUDA_PROFILE "Enable CUDA profile" OFF)
 
