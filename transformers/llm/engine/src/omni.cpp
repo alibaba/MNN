@@ -1161,9 +1161,11 @@ std::vector<int> Omni::processAudioContent(const std::string& content, const std
 
 VARP Omni::embedding(const std::vector<int>& input_ids) {
     MNN::Express::ExecutorScope s(mExecutor);
-    if (input_ids.size() == 1) {
+    bool hasMultimodalEmbeds = !mVisionEmbeddings.empty() || !mAudioEmbeddings.empty();
+    if (!hasMultimodalEmbeds) {
         if (mConfig->has_deepstack() && mExtraArgs.size() == 1) {
-            mExtraArgs[0] = Express::_Fill(_var<int>({3, 1, 1}, {3}), _Scalar<float>(0.0));
+            mExtraArgs[0] = Express::_Fill(_var<int>({3, static_cast<int>(input_ids.size()), mConfig->hidden_size()}, {3}),
+                                           _Scalar<float>(0.0));
         }
         return Llm::embedding(input_ids);
     }
@@ -1603,10 +1605,15 @@ VARP Omni::ids_embedding(const std::vector<int>& ids) {
     if (mContext->status == LlmStatus::INTERNAL_ERROR) {
         return nullptr;
     }
-    int prompt_len = static_cast<int>(ids.size());
     auto inputs_ids = embedding(ids);
-    auto attention_mask = gen_attention_mask(prompt_len);
-    auto position_ids = gen_position_ids(prompt_len);
+    if (inputs_ids == nullptr || inputs_ids->getInfo() == nullptr) {
+        return nullptr;
+    }
+    int seqLen = inputs_ids->getInfo()->dim[mSeqLenIndex];
+    mMeta->add = seqLen;
+    mContext->prompt_len = seqLen;
+    auto attention_mask = gen_attention_mask(seqLen);
+    auto position_ids = gen_position_ids(seqLen);
     auto outputs = forwardRaw(inputs_ids, attention_mask, position_ids);
     if (outputs.empty()) { return nullptr; }
     return outputs[0];
