@@ -372,6 +372,27 @@ class Llm:
     def reset(self):
         self._c_obj.reset()
 
+    def get_log(self):
+        '''
+        Get and clear the accumulated log buffer.
+        Requires LLM_LOG_TO_STRING to be enabled at compile time.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        log : str
+            The accumulated log string. Empty if LLM_LOG_TO_STRING is not enabled.
+
+        Example:
+        -------
+        >>> log = llm.get_log()
+        >>> print(log)
+        '''
+        return self._c_obj.get_log()
+
     def stoped(self):
         '''
         Check if the generation has stopped
