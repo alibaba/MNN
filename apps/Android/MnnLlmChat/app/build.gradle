@@ -2,6 +2,7 @@ plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
     id 'org.jetbrains.kotlin.plugin.serialization' version '2.1.21'
+    id 'com.chaquo.python'
 }
 
 def enableFirebase = (project.findProperty("ENABLE_FIREBASE")?.toString()?.toBoolean() ?: false)
@@ -127,7 +128,7 @@ android {
             }
         }
     }
-    
+
     productFlavors {
         standard {
             dimension "store"
@@ -179,6 +180,17 @@ android {
         unitTests.includeAndroidResources = true
         unitTests.all {
             jvmArgs '--add-opens', 'java.base/java.lang=ALL-UNNAMED'
+        }
+    }
+}
+
+chaquopy {
+    defaultConfig {
+        version "3.11"
+        pip {
+            install "openpyxl==3.1.5"
+            install "numpy"
+            install "pandas"
         }
     }
 }

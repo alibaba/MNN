@@ -5,16 +5,17 @@ import android.view.MenuItem
 import android.view.View
 import android.view.View.OnLongClickListener
 import android.widget.TextView
-import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.PopupMenu
+import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mls.api.ModelItem
 import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mls.api.download.DownloadInfo
 import com.alibaba.mls.api.download.DownloadState
 import com.alibaba.mnnllm.android.R
+import com.alibaba.mnnllm.android.chat.ChatRouter
+import com.alibaba.mnnllm.android.chat.model.ChatDataManager
 import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.modelsettings.SettingsBottomSheetFragment
@@ -22,6 +23,7 @@ import com.alibaba.mnnllm.android.modelsettings.DiffusionSettingsBottomSheetFrag
 import com.alibaba.mnnllm.android.utils.DialogUtils
 import com.alibaba.mnnllm.android.widgets.ModelAvatarView
 import com.alibaba.mnnllm.android.widgets.TagsLayout
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -181,40 +183,52 @@ class ModelItemHolder(
                     }
                 }
             } else if (item.itemId == R.id.menu_show_model_info) {
-                // Show model info directly
                 val context = v.context
-                val info = StringBuilder()
-                
-                info.append("Model Name: ${modelItem.modelName ?: modelItem.modelId}\n\n")
-                
-                // Show storage path
-                val storagePath = modelItem.localPath
-                info.append("Storage Location:\n$storagePath\n\n")
-                
-                // Show size
-                val sizeInfo = currentModelWrapper?.let {
-                    ModelListItemUiStateFactory.getFormattedFileSize(it, modelDownloadManager)
-                } ?: "Unknown"
-                info.append("Size: ${if (sizeInfo.isNotEmpty()) sizeInfo else "Unknown"}\n")
-                
-                // Show last chat time
-                if ((currentModelWrapper?.lastChatTime ?: 0) > 0) {
-                    val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-                    info.append("Last Chat Time: ${dateFormat.format(Date(currentModelWrapper!!.lastChatTime))}\n")
+                val dialogView = View.inflate(context, R.layout.dialog_model_info, null)
+                val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+                val tvModelName = dialogView.findViewById<TextView>(R.id.tv_model_name)
+                val tvDownloadTime = dialogView.findViewById<TextView>(R.id.tv_download_time)
+                val tvLastChatTime = dialogView.findViewById<TextView>(R.id.tv_last_chat_time)
+                val rvChatSessions = dialogView.findViewById<RecyclerView>(R.id.rv_chat_sessions)
+                val tvNoChatHistory = dialogView.findViewById<TextView>(R.id.tv_no_chat_history)
+
+                tvModelName.text = modelItem.modelName ?: modelItem.modelId
+                val downloadTime = currentModelWrapper?.downloadTime ?: 0L
+                tvDownloadTime.text = if (downloadTime > 0) {
+                    dateFormat.format(Date(downloadTime))
                 } else {
-                    info.append("Last Chat Time: Never\n")
+                    context.getString(R.string.never_chatted)
                 }
-                
-                if ((currentModelWrapper?.downloadTime ?: 0) > 0) {
-                    val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-                    info.append("Downloaded Time: ${dateFormat.format(Date(currentModelWrapper!!.downloadTime))}\n")
+                val lastChatTime = currentModelWrapper?.lastChatTime ?: 0L
+                tvLastChatTime.text = if (lastChatTime > 0) {
+                    dateFormat.format(Date(lastChatTime))
+                } else {
+                    context.getString(R.string.never_chatted)
                 }
-                
-                AlertDialog.Builder(context)
+
+                val sessions = modelItem.modelId?.let {
+                    ChatDataManager.getInstance(context).getSessionsForModel(it)
+                }.orEmpty()
+                val dialog = MaterialAlertDialogBuilder(context)
                     .setTitle(R.string.menu_show_model_info_title)
-                    .setMessage(info.toString())
+                    .setView(dialogView)
                     .setPositiveButton(android.R.string.ok, null)
-                    .show()
+                    .create()
+
+                if (sessions.isEmpty()) {
+                    rvChatSessions.visibility = View.GONE
+                    tvNoChatHistory.visibility = View.VISIBLE
+                } else {
+                    rvChatSessions.visibility = View.VISIBLE
+                    tvNoChatHistory.visibility = View.GONE
+                    rvChatSessions.layoutManager = LinearLayoutManager(context)
+                    rvChatSessions.adapter = SessionAdapter(sessions) { session ->
+                        dialog.dismiss()
+                        ChatRouter.startRun(context, session.modelId, null, session.sessionId)
+                    }
+                }
+
+                dialog.show()
             } else if (item.itemId == R.id.menu_update_model) {
                 // Handle update action
                 modelItemListener.onItemUpdate(modelItem)

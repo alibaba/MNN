@@ -36,6 +36,11 @@
     <string name="press_to_chat">Press To Talk</string>
     <string name="start_new_chat">Start New Conversation</string>
     <string name="new_conversation_started">New conversation started</string>
+    <string name="new_agent_conversation_started">New Agent conversation started</string>
+    <string name="new_conversation_mode_title">Start new conversation</string>
+    <string name="new_conversation_mode_message">Choose whether this conversation should use Agent capabilities. Normal chat keeps the existing path.</string>
+    <string name="new_conversation_normal_mode">Normal chat</string>
+    <string name="new_conversation_agent_mode">Agent mode</string>
     <string name="take_photo">Photo</string>
     <string name="choose_image">Image</string>
     <string name="select_audio">Audio(wav)</string>
@@ -53,6 +58,9 @@
     <string name="models">Models</string>
     <string name="models_market">Models Market</string>
     <string name="history">History</string>
+    <string name="workspace_files">Workspace files</string>
+    <string name="workspace_files_empty">No workspace files yet.</string>
+    <string name="workspace_file_open_failed">No app can open this file.</string>
     <string name="history_title">Chat History</string>
     <string name="history_delete_success">History Delete Success</string>
     <string name="diffusion_generated_message">Here\'s the generated image</string>

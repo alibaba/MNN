@@ -35,6 +35,30 @@ This is our full multimodal language model (LLM) Android app
 
  !!!warning!!! This version has been tested exclusively on the OnePlus 13 and Xiaomi 14 Ultra, Due to the demanding performance requirements of large language models (LLMs), many budget or low-spec devices may experience issues such as slow inference speeds, application instability, or even failure to run entirely. and its stability on other devices cannot be guaranteed. If you encounter any issues, please feel free to open an issue for assistance.
 
+## Agentic Capability
+
+The Android app includes an optional session-level Agent mode inspired by the ActMe project:
+
++ 核心技术来源 / Core technical source: `https://github.com/huangzhengxiang/ActMe.git`
++ Normal chat and Agent chat are different conversation modes. The mode is selected when a conversation is created and is persisted with that session.
++ Existing history created before this feature is treated as normal chat.
++ Agent mode runs a lightweight local agentic loop: model planning, `system_calls` parsing, visible tool execution, tool observations, and final answer generation.
++ Current MnnLlmChat tool scope is adapted from ActMe but excludes ADB: `get_current_time`, `web_search`, `browser_url`, and `python_exec`.
++ Built-in Python includes Excel helpers plus `numpy`, `pandas`, and `openpyxl` for local data analysis.
++ Agent mode persists lightweight Memory and Skill updates in the MnnLlmChat chat database and injects them into future Agent prompts.
++ Local ChatActivity conversations rely on the live native MNN session for KV/prompt-cache reuse. Each turn submits only new input; stored chat history is for UI display. Reloading an old session does not currently restore a persisted prompt cache.
+
+Design notes:
+
++ [Agentic loop design](./docs/agentic_design.md)
++ [Built-in browser design](./docs/builtin_browser_design.md)
++ [Built-in Python design](./docs/builtin_python_design.md)
++ [Skill and memory design](./docs/skill_memory_design.md)
++ [Development notes](./docs/development_notes.md)
++ [Iteration roadmap](./docs/iteration_roadmap.md)
+
+ADB control is intentionally not included in this MnnLlmChat port.
+
 
 # Development
 + Prepare
