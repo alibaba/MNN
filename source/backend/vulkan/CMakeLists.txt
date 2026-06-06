@@ -7,6 +7,9 @@ endif()
 
 if(MNN_GPU_TIME_PROFILE)
     add_definitions(-DENABLE_VULKAN_TIME_PROFILE)
+    IF (MNN_GPU_PROFILE_SILENT)
+        add_definitions(-DMNN_GPU_PROFILE_SILENT)
+    ENDIF()
 ENDIF()
 
 

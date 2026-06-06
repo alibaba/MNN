@@ -51,6 +51,13 @@ void Executor::setGlobalExecutorConfig(MNNForwardType type, const BackendConfig&
 int Executor::getCurrentRuntimeStatus(RuntimeStatus statusEnum) {
     return mRuntimeInfo.first[mAttr->firstType]->onGetRuntimeStatus(statusEnum);
 }
+float Executor::getLastGpuTimeMs() const {
+    auto iter = mRuntimeInfo.first.find(mAttr->firstType);
+    if (iter == mRuntimeInfo.first.end()) {
+        return -1.0f;
+    }
+    return iter->second->onGetLastGpuTimeMs();
+}
 std::shared_ptr<Runtime> Executor::_getOrCreateRuntime(MNNForwardType type, const BackendConfig* config, int numberThread, bool reset) {
     auto iter = mRuntimeInfo.first.find(type);
     if (iter != mRuntimeInfo.first.end()) {

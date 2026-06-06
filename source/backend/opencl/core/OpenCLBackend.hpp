@@ -57,6 +57,7 @@ public:
     virtual bool onSetCache(const void* buffer, size_t size) override;
     bool isCLRuntimeError();
     int onGetRuntimeStatus(RuntimeStatus statusEnum) const override;
+    float onGetLastGpuTimeMs() const override { return mLastGpuTimeMs; }
     virtual bool onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                            const MNN::Op* op, OpInfo& dstInfo) const override;
     virtual void onMaskOpReady(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
@@ -75,6 +76,7 @@ private:
     BackendConfig::PrecisionMode mPrecision;
     BackendConfig::MemoryMode mMemory;
     bool mCLRuntimeError = false;
+    mutable float mLastGpuTimeMs = -1.0f;
 
     friend class OpenCLBackend;
     TuneInfo* mTunedInfo;
@@ -287,4 +289,4 @@ private:
 
 } // namespace OpenCL
 } // namespace MNN
-#endif  /* OpenCLBackend_hpp */
+#endif /* OpenCLBackend_hpp */

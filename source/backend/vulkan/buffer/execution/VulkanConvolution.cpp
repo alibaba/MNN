@@ -577,7 +577,11 @@ public:
                              inputs[0]->width() == outputs[0]->width() && inputs[0]->height() == outputs[0]->height();
                 bool singleInput = (inputs.size() == 1);
                 if (useInt8Conv && is1x1 && singleInput) {
-                    if (coopMatInfo.supportCoopMat && supportSubgroupArithmetic && extra->gpuType() == VulkanRuntime::ADRENO) {
+                    // CoopMat path only supports int4/int8 weight. For 2/3-bit, go to
+                    // VulkanConv1x1General which has the native int2/int3 packed path.
+                    const bool isLowBit23 = (quanWeight != nullptr)
+                        && (quanWeight->canUseInt2 || quanWeight->canUseInt3);
+                    if (!isLowBit23 && coopMatInfo.supportCoopMat && supportSubgroupArithmetic && extra->gpuType() == VulkanRuntime::ADRENO) {
                         // W8A8 path: per-channel asym int8 OR int4 (decode + prefill share
                         // body; INT4 inserts a runtime nibble unpack stage) + S8S8->S32
                         // cooperative matrix on Adreno. alpha layout for asym is (offset,

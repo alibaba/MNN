@@ -45,6 +45,13 @@ endif()
 # jinja.cpp template engine (always enabled, header-only)
 target_compile_definitions(llm PRIVATE LLM_USE_JINJA)
 
+# Option to store MNN_PRINT/MNN_ERROR output into a string buffer.
+# Only enabled on Android. Pass -DLLM_LOG_TO_STRING=ON at cmake configure time.
+option(LLM_LOG_TO_STRING "Store MNN_PRINT/MNN_ERROR to string buffer (Android only)" OFF)
+if (LLM_LOG_TO_STRING AND CMAKE_SYSTEM_NAME MATCHES "^Android")
+    target_compile_definitions(llm PRIVATE LLM_LOG_TO_STRING)
+endif()
+
 # apply_template demo (uses jinja)
 add_executable(apply_template ${CMAKE_CURRENT_LIST_DIR}/demo/apply_template.cpp)
 target_link_libraries(apply_template ${LLM_DEPS})

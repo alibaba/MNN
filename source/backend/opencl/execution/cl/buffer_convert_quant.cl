@@ -163,7 +163,7 @@ __kernel void conv2d_1x1_weight_quant_image(GLOBAL_SIZE_2_DIMS
 }
 
 __kernel void conv2d_1x1_weight_quant_buffer(GLOBAL_SIZE_2_DIMS
-#ifdef USE_LOW_BIT_WEIGHT_INT4
+#if defined(USE_LOW_BIT_WEIGHT_INT4)
                                             __global const uchar *input_ptr,
 #else
                                             __global const char *input_ptr,
@@ -179,7 +179,51 @@ __kernel void conv2d_1x1_weight_quant_buffer(GLOBAL_SIZE_2_DIMS
     const int yin = y << 3;
     const int outputChannelC8 = (output_channel + 7) >> 3;
     const int inputChannelC4 = (input_channel + 3) >> 2;
-#ifdef USE_LOW_BIT_WEIGHT_INT4
+#if defined(USE_LOW_BIT_WEIGHT_INT2)
+    // 2bit packed: 8 bytes per (4IC, 8OC) tile.
+    // For each IC i in 0..3, byte 2*i covers OC[0..3] (bits [7:6]=OC0, [5:4]=OC1, [3:2]=OC2, [1:0]=OC3),
+    // byte 2*i+1 covers OC[4..7]. Stored value = signed_weight + 2 in [0,3].
+    __global uchar* outU = (__global uchar*)output_ptr + (y * inputChannelC4 + x) * 8;
+    for (int i = 0; i < 4; ++i) {
+        for (int k = 0; k < 2; ++k) {
+            uchar packed = 0;
+            for (int j = 0; j < 4; ++j) {
+                int oc = yin + k * 4 + j;
+                int ic = xin + i;
+                int v = 0;
+                if (oc < output_channel && ic < input_channel) {
+                    v = (int)input_ptr[oc * input_channel + ic] + 2;
+                }
+                packed |= ((uchar)(v & 3)) << (6 - j * 2);
+            }
+            outU[i * 2 + k] = packed;
+        }
+    }
+#elif defined(USE_LOW_BIT_WEIGHT_INT3)
+    // 3bit packed: 12 bytes per (4IC, 8OC) tile.
+    // Bytes 0..7  = low 2 bits (same layout as w2 above).
+    // Bytes 8..11 = high 1 bit, byte i covers IC i with bit position (7-(k*4+j)) for OC (k*4+j).
+    // Stored value = signed_weight + 4 in [0,7].
+    __global uchar* outU = (__global uchar*)output_ptr + (y * inputChannelC4 + x) * 12;
+    for (int i = 0; i < 4; ++i) {
+        uchar hi = 0;
+        for (int k = 0; k < 2; ++k) {
+            uchar packed_lo = 0;
+            for (int j = 0; j < 4; ++j) {
+                int oc = yin + k * 4 + j;
+                int ic = xin + i;
+                int v = 0;
+                if (oc < output_channel && ic < input_channel) {
+                    v = (int)input_ptr[oc * input_channel + ic] + 4;
+                }
+                packed_lo |= ((uchar)(v & 3)) << (6 - j * 2);
+                hi |= ((uchar)((v >> 2) & 1)) << (7 - (k * 4 + j));
+            }
+            outU[i * 2 + k] = packed_lo;
+        }
+        outU[8 + i] = hi;
+    }
+#elif defined(USE_LOW_BIT_WEIGHT_INT4)
     uchar16 out = 0;
     uchar *out_ptr = (uchar*)&out;
     for(int i = 0; i < 4; ++i){

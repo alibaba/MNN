@@ -55,6 +55,9 @@ public:
     void setLazyComputeMode(uint32_t mode);
     void setGlobalExecutorConfig(MNNForwardType type, const BackendConfig& config, int numberThread);
     int getCurrentRuntimeStatus(RuntimeStatus statusEnum);
+    // Get last GPU execution time in ms (measured by GPU timestamps).
+    // Returns -1.0f if profiling is not supported or not enabled.
+    float getLastGpuTimeMs() const;
     enum GCFlag {
         FULL,
         PART

@@ -33,7 +33,7 @@ static size_t _alignUp4(size_t size) {
 
 static bool _prepareQuantBuffersGPU(VulkanBackend* vkBn, const ConvolutionCommon::Int8Common* quantCommon,
                                     bool useFP16, int ci, int co, uint32_t padN, uint32_t blockStride,
-                                    uint32_t decodeWeightStrideWords, bool isInt4,
+                                    uint32_t decodeWeightStrideWords, int quantBits,
                                     std::shared_ptr<VulkanBuffer>& quantWeightBuffer,
                                     std::shared_ptr<VulkanBuffer>& quantMetaBuffer) {
     if (nullptr == vkBn || nullptr == quantCommon || nullptr == quantCommon->weight.get()) {
@@ -47,8 +47,11 @@ static bool _prepareQuantBuffersGPU(VulkanBackend* vkBn, const ConvolutionCommon
     const int8_t* qWeight = quantCommon->weight.get();
     const size_t rawWeightBytes = static_cast<size_t>(quantCommon->weight.size());
     const size_t alignedWeightBytes = std::max<size_t>(4u, _alignUp4(rawWeightBytes));
+    // int3 stores 2 uints per group of 16 weights; others store 1 uint per group.
+    const uint32_t wordsPerGroup = (quantBits == 3) ? 2u : 1u;
     const size_t decodeWeightBytes =
-        static_cast<size_t>(padN) * static_cast<size_t>(decodeWeightStrideWords) * sizeof(uint32_t);
+        static_cast<size_t>(padN) * static_cast<size_t>(decodeWeightStrideWords) *
+        static_cast<size_t>(wordsPerGroup) * sizeof(uint32_t);
     const size_t metaElem = static_cast<size_t>(padN) * static_cast<size_t>(blockStride) * 2u;
     const size_t metaBytes = metaElem * (useFP16 ? sizeof(int16_t) : sizeof(float));
 
@@ -85,7 +88,13 @@ static bool _prepareQuantBuffersGPU(VulkanBackend* vkBn, const ConvolutionCommon
     quantMetaBuffer.reset(new VulkanBuffer(vkBn->getMemoryPool(), false, metaBytes, nullptr,
                                            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_SHARING_MODE_EXCLUSIVE, 0));
 
-    const char* weightShader = isInt4 ? "glsl_conv1x1_int4_weight_prepare_comp" : "glsl_conv1x1_int8_weight_prepare_comp";
+    const char* weightShader = nullptr;
+    switch (quantBits) {
+        case 2: weightShader = "glsl_conv1x1_int2_weight_prepare_comp"; break;
+        case 3: weightShader = "glsl_conv1x1_int3_weight_prepare_comp"; break;
+        case 4: weightShader = "glsl_conv1x1_int4_weight_prepare_comp"; break;
+        default: weightShader = "glsl_conv1x1_int8_weight_prepare_comp"; break;
+    }
     const char* metaShader = useFP16 ? "glsl_conv1x1_quant_meta_prepare_FP16_comp"
                                      : "glsl_conv1x1_quant_meta_prepare_comp";
 
@@ -176,7 +185,16 @@ bool VulkanConv1x1General::_init(const float* biasPtr, bool initStaticResource) 
     }
 
     const bool useFP16 = vkBn->useFP16();
-    mIsInt4 = mQuantCommon->canUseInt4;
+    // Precedence: int2 > int3 > int4 > int8 (default).
+    if (mQuantCommon->canUseInt2) {
+        mQuantBits = 2;
+    } else if (mQuantCommon->canUseInt3) {
+        mQuantBits = 3;
+    } else if (mQuantCommon->canUseInt4) {
+        mQuantBits = 4;
+    } else {
+        mQuantBits = 8;
+    }
     mPadK = ROUND_UP(static_cast<uint32_t>(mCi), 4u);
     mPadN = ROUND_UP(static_cast<uint32_t>(mCo), 32u);
 
@@ -204,11 +222,15 @@ bool VulkanConv1x1General::_init(const float* biasPtr, bool initStaticResource) 
         return false;
     }
     mBlockStride = mPadK / mBlockSize;
-    mDecodeWeightStrideWords = mIsInt4 ? UP_DIV(mPadK, 8u) : (mPadK / 4u);
+    // For int2/int3, weightStride counts groups-of-16; int3 uses 2 uints per group, int2 uses 1.
+    mDecodeWeightStrideWords = (mQuantBits == 2 || mQuantBits == 3) ? UP_DIV(mPadK, 16u)
+                              : (mQuantBits == 4)                   ? UP_DIV(mPadK, 8u)
+                                                                    : (mPadK / 4u);
 
     if (initStaticResource) {
         if (!_prepareQuantBuffersGPU(vkBn, mQuantCommon.get(), useFP16, mCi, mCo, mPadN, mBlockStride,
-                                     mDecodeWeightStrideWords, mIsInt4, mQuantWeightBuffer, mQuantMetaBuffer)) {
+                                     mDecodeWeightStrideWords, mQuantBits,
+                                     mQuantWeightBuffer, mQuantMetaBuffer)) {
             return false;
         }
 
@@ -265,19 +287,21 @@ bool VulkanConv1x1General::_init(const float* biasPtr, bool initStaticResource) 
         const char* shader = nullptr;
         if (mUseSubgroup) {
             std::vector<uint32_t> spec = {static_cast<uint32_t>(activation)};
-            if (mIsInt4) {
-                shader = useFP16 ? "glsl_gemv_dequant_int4_FP16_comp" : "glsl_gemv_dequant_int4_comp";
-            } else {
-                shader = useFP16 ? "glsl_gemv_dequant_int8_FP16_comp" : "glsl_gemv_dequant_int8_comp";
+            switch (mQuantBits) {
+                case 2: shader = useFP16 ? "glsl_gemv_dequant_int2_FP16_comp" : "glsl_gemv_dequant_int2_comp"; break;
+                case 3: shader = useFP16 ? "glsl_gemv_dequant_int3_FP16_comp" : "glsl_gemv_dequant_int3_comp"; break;
+                case 4: shader = useFP16 ? "glsl_gemv_dequant_int4_FP16_comp" : "glsl_gemv_dequant_int4_comp"; break;
+                default: shader = useFP16 ? "glsl_gemv_dequant_int8_FP16_comp" : "glsl_gemv_dequant_int8_comp"; break;
             }
             mDecodePipeline = vkBn->getPipeline(shader, types, {mDecodeSubgroupSize, 1, 1}, spec);
         } else {
             uint32_t localSize = 64u;
             std::vector<uint32_t> spec = {static_cast<uint32_t>(activation), localSize};
-            if (mIsInt4) {
-                shader = useFP16 ? "glsl_gemv_dequant_int4_nosubgroup_FP16_comp" : "glsl_gemv_dequant_int4_nosubgroup_comp";
-            } else {
-                shader = useFP16 ? "glsl_gemv_dequant_int8_nosubgroup_FP16_comp" : "glsl_gemv_dequant_int8_nosubgroup_comp";
+            switch (mQuantBits) {
+                case 2: shader = useFP16 ? "glsl_gemv_dequant_int2_nosubgroup_FP16_comp" : "glsl_gemv_dequant_int2_nosubgroup_comp"; break;
+                case 3: shader = useFP16 ? "glsl_gemv_dequant_int3_nosubgroup_FP16_comp" : "glsl_gemv_dequant_int3_nosubgroup_comp"; break;
+                case 4: shader = useFP16 ? "glsl_gemv_dequant_int4_nosubgroup_FP16_comp" : "glsl_gemv_dequant_int4_nosubgroup_comp"; break;
+                default: shader = useFP16 ? "glsl_gemv_dequant_int8_nosubgroup_FP16_comp" : "glsl_gemv_dequant_int8_nosubgroup_comp"; break;
             }
             mDecodePipeline = vkBn->getPipeline(shader, types, {localSize, 1, 1}, spec);
         }
@@ -307,10 +331,11 @@ bool VulkanConv1x1General::_init(const float* biasPtr, bool initStaticResource) 
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         };
         const char* shader = nullptr;
-        if (mIsInt4) {
-            shader = useFP16 ? "glsl_int4_weight_to_pack_FP16_comp" : "glsl_int4_weight_to_pack_comp";
-        } else {
-            shader = useFP16 ? "glsl_int8_weight_to_pack_FP16_comp" : "glsl_int8_weight_to_pack_comp";
+        switch (mQuantBits) {
+            case 2: shader = useFP16 ? "glsl_int2_weight_to_pack_FP16_comp" : "glsl_int2_weight_to_pack_comp"; break;
+            case 3: shader = useFP16 ? "glsl_int3_weight_to_pack_FP16_comp" : "glsl_int3_weight_to_pack_comp"; break;
+            case 4: shader = useFP16 ? "glsl_int4_weight_to_pack_FP16_comp" : "glsl_int4_weight_to_pack_comp"; break;
+            default: shader = useFP16 ? "glsl_int8_weight_to_pack_FP16_comp" : "glsl_int8_weight_to_pack_comp"; break;
         }
         mWeightToPackPipeline = vkBn->getPipeline(shader, types);
         if (nullptr == mWeightToPackPipeline) {
@@ -348,7 +373,7 @@ bool VulkanConv1x1General::onClone(Backend* bn, const Op* op, VulkanBasicExecuti
         return false;
     }
     auto res = new VulkanConv1x1General(vkBn, conv2D->common(), mCi, mCo, mQuantCommon, false);
-    res->mIsInt4 = mIsInt4;
+    res->mQuantBits = mQuantBits;
     res->mPadK = mPadK;
     res->mPadN = mPadN;
     res->mBlockSize = mBlockSize;
