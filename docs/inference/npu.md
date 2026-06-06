@@ -150,17 +150,17 @@ cd ${MNN}
 cd project/android
 mkdir build && cd build
 ../build_64.sh -DMNN_USE_LOGCAT=ON -DMNN_NNAPI=ON
-``` 
+```
 
 ### NNAPI 后端使用
 backend type设置成：MNN_FORWARD_NN
 
 
-## 华为 HIAI 
+## 华为 HIAI
 适用于 Android 系统， Kirlin芯片
 
 ### HIAI 环境准备
-1. 从如下链接下载 DDK 
+1. 从如下链接下载 DDK
 https://developer.huawei.com/consumer/cn/doc/hiai-Library/ddk-download-0000001053590180
 
 
@@ -175,6 +175,6 @@ cp -r ${DDK}/include ${MNN}/source/backend/hiai/3rdParty/include
 ```
 
 ### HIAI 编译执行
-1. cmake 参数打开npu开关： -DMNN_NPU=true 
+1. cmake 参数打开npu开关： -DMNN_NPU=ON
 2. backend type设置成：MNN_FORWARD_USER_0
 3. 执行可执行程序（需动态加载：libMNN_NPU.so, libhiai_ir_build.so, libhiai_ir.so, libhiai.so）

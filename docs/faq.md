@@ -109,7 +109,7 @@ opConverter ==> MNN Converter NOT_SUPPORTED_OP: [ ANY_OP_NAME ]
 
 - 若原始模型为 tflite / caffe（含自定义算子） ， 改成 MNN 支持较好的 Tensorflow pb 格式导出或转成 Onnx ，再转 MNN
 - 提 Issue 等待我们支持，并关注 MNN 的更新
-- 参考[自定义算子](./contribute/op.md) 
+- 参考[自定义算子](./contribute/op.md)
 
 ### 模型转换后与原框架结果不一致
 先使用MNN中的模型一致性验证脚本进行测试，确定不是调用方法或其他错误，[使用方法](./tools/convert.html#id3)
@@ -148,7 +148,7 @@ delete srcTensorHost;
 // ... set other inputs, if exist
 net->runSession(session);
 
-auto dstTensor = net->getSessionOutput(session, "prob"); 
+auto dstTensor = net->getSessionOutput(session, "prob");
 auto dstTensorHost = new Tensor(dstTensor, Tensor::TENSORFLOW);
 dstTensor->copyToHostTensor(dstTensorHost);
 // ... use dstTensorHost data
@@ -199,7 +199,7 @@ TensorArray 和控制流支持需要借助 MNN-Express ，
 
 ### OpenCL 或 Vulkan 后端无法使用
 Linux系统上的简单解决方案:
-cmake .. -DMNN_USE_SYSTEM_LIB=true -DMNN_SEP_BUILD=false
+cmake .. -DMNN_USE_SYSTEM_LIB=ON -DMNN_SEP_BUILD=false
 
 Windows 系统上参考 MNN 静态库的使用，需要加静态库全链接选项
 
@@ -281,7 +281,7 @@ GPU 后端调用 copy 的时间包含两个部分
 在数据被用户要求可见之时，会等待相应的异步操作完成。
 因此有可能 复制 output tensor 的过程包括了等待 GPU 算子异步执行完成，导致看上去缓慢。
 ### GPU 为什么比 CPU 跑得慢？
-有如下原因： 
+有如下原因：
 
 1. 相当一部分移动端设备 (如 pre-iPhone 8), GPU 算力不足，加以内存带宽的限制，本身不如 CPU.
 
@@ -289,7 +289,7 @@ GPU 后端调用 copy 的时间包含两个部分
 
 2. 存在 GPU 不支持的算子，这些算子会切换到 CPU 执行，相应的输入输出需要 CPU - GPU 之间的内存拷贝，产生额外耗时
 2. 模型本身计算量小或者不易并行，发挥不了 GPU 并行计算的优势.
-2. GPU 被其他程序占用，或者系统限制了 GPU 频率 
+2. GPU 被其他程序占用，或者系统限制了 GPU 频率
 ### 模型量化后为什么比浮点慢
 这个需要从浮点和量化两个方面说明
 
@@ -324,7 +324,7 @@ GPU 后端调用 copy 的时间包含两个部分
 
 ```
 # 产出 op.txt
-./GetMNNInfo x0.mnn 
+./GetMNNInfo x0.mnn
 # 追加 op.txt
 ./GetMNNInfo x1.mnn
 ./GetMNNInfo x2.mnn
