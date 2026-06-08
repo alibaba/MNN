@@ -48,6 +48,9 @@ extern void registerNNAPIRuntimeCreator();
 #if MNN_QNN_ENABLED
 extern void registerQNNRuntimeCreator();
 #endif
+#if MNN_RKNN_ENABLED
+extern void registerRKNNRuntimeCreator();
+#endif
 #ifdef MNN_NEUROPILOT
 extern void registerNeuroPilot();
 #endif
@@ -70,6 +73,9 @@ void registerBackend() {
 #endif
 #if MNN_QNN_ENABLED
     registerQNNRuntimeCreator();
+#endif
+#if MNN_RKNN_ENABLED
+        registerRKNNRuntimeCreator();
 #endif
 #if MNN_OPENCL_ENABLED
         OpenCL::registerOpenCLRuntimeCreator();
