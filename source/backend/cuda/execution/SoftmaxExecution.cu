@@ -207,14 +207,7 @@ ErrorCode SoftmaxExecution::onExecute(const std::vector<Tensor *> &inputs, const
 
     bool isHalf = (inputs[0]->getType().bits == 16);
 
-    if (axis <= 64) {
-        if (isHalf) {
-            SOFTMAX<<<block_num, threads_num>>>((const half*)input, (half*)dst, inside, axis, outside, count);
-        } else {
-            SOFTMAX<<<block_num, threads_num>>>((const float*)input, (float*)dst, inside, axis, outside, count);
-        }
-        checkKernelErrors;
-    } else if (isHalf) {
+    if (isHalf) {
         if(axis % 256 == 0 || axis >= 768) {
             block_num = count;
             int calc_multi_num = (axis + 255) / 256;
