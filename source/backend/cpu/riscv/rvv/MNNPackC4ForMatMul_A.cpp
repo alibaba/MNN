@@ -4,7 +4,15 @@
 #include <limits>
 #include <stddef.h>
 #include <string.h>
+#if defined(__has_include)
+#if __has_include("backend/cpu/CPURuntime.hpp")
 #include "backend/cpu/CPURuntime.hpp"
+#elif __has_include("CPURuntime.hpp")
+#include "CPURuntime.hpp"
+#endif
+#else
+#include "backend/cpu/CPURuntime.hpp"
+#endif
 
 static inline int _rvvChannelPack() {
     auto cpuInfo = MNNGetCPUInfo();
