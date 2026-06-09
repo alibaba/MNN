@@ -1,5 +1,3 @@
-#include "RKNNBackend.hpp"
-
 #include <cstdlib>
 #include <cstring>
 #include <dlfcn.h>
@@ -8,36 +6,24 @@
 #include <string>
 #include <vector>
 
-#include "MNN_generated.h"
+#include "MNN/plugin/PluginContext.hpp"
+#include "MNN/plugin/PluginKernel.hpp"
+#include "MNN/plugin/PluginShapeInference.hpp"
+#include "core/Backend.hpp"
 #include "core/MNNFileUtils.h"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
 #include "rknn_api.h"
+#include "shape/SizeComputer.hpp"
 
+#ifdef MNN_WITH_PLUGIN
 namespace MNN {
 namespace RKNN {
 namespace {
 
 static const char* kRuntimeLibEnv = "MNN_RKNN_RUNTIME_LIB";
-static const char* kExtraTypeName = "RKNN";
+static const char* kPluginTypeName = "RKNN";
 static const char* kModelPathAttr = "model_path";
-
-class HostMemObj : public Backend::MemObj {
-public:
-    explicit HostMemObj(size_t size) : mPtr(std::malloc(size)) {
-    }
-    ~HostMemObj() override {
-        std::free(mPtr);
-    }
-    MemChunk chunk() override {
-        return MemChunk(mPtr, 0);
-    }
-    bool valid() const {
-        return nullptr != mPtr;
-    }
-private:
-    void* mPtr = nullptr;
-};
 
 struct RKNNApi {
     using Init = int (*)(rknn_context*, void*, uint32_t, uint32_t, rknn_init_extend*);
@@ -64,7 +50,7 @@ static const RKNNApi* loadApi() {
     static RKNNApi api;
     std::call_once(once, []() {
         auto libPath = std::getenv(kRuntimeLibEnv);
-        if (nullptr == libPath || libPath[0] == '\0') {
+        if (nullptr == libPath || libPath[0] == 0) {
             MNN_ERROR("MNN_RKNN: missing environment variable %s\n", kRuntimeLibEnv);
             return;
         }
@@ -76,7 +62,7 @@ static const RKNNApi* loadApi() {
 #define MNN_RKNN_LOAD_SYMBOL(typeName, field, symbol)                                               \
         api.field = reinterpret_cast<RKNNApi::typeName>(dlsym(api.handle, symbol));                 \
         if (nullptr == api.field) {                                                                  \
-            MNN_ERROR("MNN_RKNN: dlsym failed for %s\n", symbol);                                   \
+            MNN_ERROR("MNN_RKNN: dlsym failed for %s\n", symbol);                                 \
             return;                                                                                  \
         }
         MNN_RKNN_LOAD_SYMBOL(Init, init, "rknn_init");
@@ -92,30 +78,22 @@ static const RKNNApi* loadApi() {
     return api.loaded ? &api : nullptr;
 }
 
-static std::string getStringAttr(const Extra* extra, const char* key) {
-    if (nullptr == extra || nullptr == extra->attr()) {
+static std::string getStringAttr(const plugin::PluginContext* ctx, const char* key) {
+    auto attr = ctx->getAttr(key);
+    if (nullptr == attr || nullptr == attr->s()) {
         return "";
     }
-    for (int i = 0; i < extra->attr()->size(); ++i) {
-        auto attr = extra->attr()->GetAs<Attribute>(i);
-        if (nullptr == attr || nullptr == attr->key()) {
-            continue;
-        }
-        if (attr->key()->str() == key && nullptr != attr->s()) {
-            return attr->s()->str();
-        }
-    }
-    return "";
+    return attr->s()->str();
 }
 
-static std::string resolveModelPath(const Backend* backend, const std::string& path) {
+static std::string resolveModelPath(const std::string& dirPath, const std::string& path) {
     if (path.empty()) {
         return "";
     }
-    if (!path.empty() && path[0] == '/') {
+    if (path[0] == '/') {
         return path;
     }
-    return MNNFilePathConcat(backend->pNPUModelDirPath, path);
+    return MNNFilePathConcat(dirPath, path);
 }
 
 static rknn_tensor_type mapTensorType(const Tensor* tensor) {
@@ -147,40 +125,62 @@ static Tensor::DimensionType getHostTensorDimType(const Tensor* tensor) {
     return tensor->getDimensionType();
 }
 
-class RKNNExecution : public Execution {
+class RKNNPluginShape : public plugin::InferShapeKernel {
 public:
-    RKNNExecution(Backend* backend, const Op* op, const RKNNApi* api) : Execution(backend), mApi(api) {
-        if (nullptr == op || op->type() != OpType_Extra || nullptr == op->main_as_Extra()) {
-            MNN_ERROR("MNN_RKNN: invalid op for RKNN execution\n");
-            mValid = false;
-            return;
+    bool compute(plugin::InferShapeContext* ctx) override {
+        for (int i = 0; i < ctx->outputs().size(); ++i) {
+            auto key = std::string("o_") + std::to_string(i);
+            auto attr = ctx->getAttr(key);
+            if (nullptr == attr || nullptr == attr->tensor()) {
+                MNN_ERROR("MNN_RKNN: missing output shape attr %s\n", key.c_str());
+                return false;
+            }
+            auto blob = attr->tensor();
+            auto dst = ctx->output(i);
+            dst->setType(blob->dataType());
+            if (nullptr != blob->dims()) {
+                dst->buffer().dimensions = blob->dims()->size();
+                for (int j = 0; j < blob->dims()->size(); ++j) {
+                    dst->setLength(j, blob->dims()->data()[j]);
+                }
+            } else {
+                dst->buffer().dimensions = 0;
+            }
+            TensorUtils::getDescribe(dst)->dimensionFormat = blob->dataFormat();
         }
-        auto extra = op->main_as_Extra();
-        if (extra->type()->str() != kExtraTypeName) {
-            MNN_ERROR("MNN_RKNN: unsupported Extra type\n");
-            mValid = false;
-            return;
+        return true;
+    }
+};
+
+class RKNNPluginExecute : public plugin::CPUComputeKernel {
+public:
+    ~RKNNPluginExecute() override {
+        if (mContext != 0 && nullptr != mApi) {
+            mApi->destroy(mContext);
         }
-        mModelPath = resolveModelPath(backend, getStringAttr(extra, kModelPathAttr));
+    }
+
+    bool init(plugin::CPUKernelContext* ctx) override {
+        mApi = loadApi();
+        if (nullptr == mApi) {
+            return false;
+        }
+        mModelPath = resolveModelPath(ctx->dir_path(), getStringAttr(ctx, kModelPathAttr));
         if (mModelPath.empty()) {
-            MNN_ERROR("MNN_RKNN: Extra(%s) requires attr '%s'\n", kExtraTypeName, kModelPathAttr);
-            mValid = false;
-            return;
+            MNN_ERROR("MNN_RKNN: Plugin(%s) requires attr %s\n", kPluginTypeName, kModelPathAttr);
+            return false;
         }
         if (!MNNFileExist(mModelPath.c_str())) {
             MNN_ERROR("MNN_RKNN: model file does not exist: %s\n", mModelPath.c_str());
-            mValid = false;
-            return;
+            return false;
         }
         if (mApi->init(&mContext, (void*)mModelPath.c_str(), 0, 0, nullptr) != RKNN_SUCC) {
             MNN_ERROR("MNN_RKNN: rknn_init failed for %s\n", mModelPath.c_str());
-            mValid = false;
-            return;
+            return false;
         }
         if (mApi->query(mContext, RKNN_QUERY_IN_OUT_NUM, &mIoNum, sizeof(mIoNum)) != RKNN_SUCC) {
             MNN_ERROR("MNN_RKNN: query in/out num failed\n");
-            mValid = false;
-            return;
+            return false;
         }
         mInputAttrs.resize(mIoNum.n_input);
         mOutputAttrs.resize(mIoNum.n_output);
@@ -189,8 +189,7 @@ public:
             mInputAttrs[i].index = i;
             if (mApi->query(mContext, RKNN_QUERY_INPUT_ATTR, &mInputAttrs[i], sizeof(rknn_tensor_attr)) != RKNN_SUCC) {
                 MNN_ERROR("MNN_RKNN: query input attr failed: %u\n", i);
-                mValid = false;
-                return;
+                return false;
             }
         }
         for (uint32_t i = 0; i < mIoNum.n_output; ++i) {
@@ -198,35 +197,30 @@ public:
             mOutputAttrs[i].index = i;
             if (mApi->query(mContext, RKNN_QUERY_OUTPUT_ATTR, &mOutputAttrs[i], sizeof(rknn_tensor_attr)) != RKNN_SUCC) {
                 MNN_ERROR("MNN_RKNN: query output attr failed: %u\n", i);
-                mValid = false;
-                return;
+                return false;
             }
         }
+        return true;
     }
 
-    ~RKNNExecution() override {
-        if (mContext != 0 && nullptr != mApi) {
-            mApi->destroy(mContext);
-        }
-    }
-
-    ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override {
-        if ((uint32_t)inputs.size() != mIoNum.n_input || (uint32_t)outputs.size() != mIoNum.n_output) {
+    bool resize(plugin::CPUKernelContext* ctx) override {
+        if ((uint32_t)ctx->inputs().size() != mIoNum.n_input || (uint32_t)ctx->outputs().size() != mIoNum.n_output) {
             MNN_ERROR("MNN_RKNN: input/output count mismatch, expect %u/%u, got %zu/%zu\n",
-                      mIoNum.n_input, mIoNum.n_output, inputs.size(), outputs.size());
-            return INVALID_VALUE;
+                      mIoNum.n_input, mIoNum.n_output, ctx->inputs().size(), ctx->outputs().size());
+            return false;
         }
-        return NO_ERROR;
+        return true;
     }
 
-    ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override {
+    bool compute(plugin::CPUKernelContext* ctx) override {
         std::vector<std::unique_ptr<Tensor>> hostInputs;
-        std::vector<rknn_input> rknnInputs(inputs.size());
-        for (size_t i = 0; i < inputs.size(); ++i) {
-            hostInputs.emplace_back(new Tensor(inputs[i], getHostTensorDimType(inputs[i])));
-            if (!MNNCPUCopyBuffer(inputs[i], hostInputs.back().get())) {
+        std::vector<rknn_input> rknnInputs(ctx->inputs().size());
+        for (size_t i = 0; i < ctx->inputs().size(); ++i) {
+            auto src = ctx->input((int)i);
+            hostInputs.emplace_back(new Tensor(src, getHostTensorDimType(src)));
+            if (!MNNCPUCopyBuffer(src, hostInputs.back().get())) {
                 MNN_ERROR("MNN_RKNN: failed to copy input tensor %zu to host\n", i);
-                return INVALID_VALUE;
+                return false;
             }
             std::memset(&rknnInputs[i], 0, sizeof(rknn_input));
             rknnInputs[i].index = (uint32_t)i;
@@ -238,15 +232,15 @@ public:
         }
         if (mApi->inputsSet(mContext, (uint32_t)rknnInputs.size(), rknnInputs.data()) != RKNN_SUCC) {
             MNN_ERROR("MNN_RKNN: rknn_inputs_set failed\n");
-            return INVALID_VALUE;
+            return false;
         }
         if (mApi->run(mContext, nullptr) != RKNN_SUCC) {
             MNN_ERROR("MNN_RKNN: rknn_run failed\n");
-            return INVALID_VALUE;
+            return false;
         }
 
-        std::vector<rknn_output> rknnOutputs(outputs.size());
-        for (size_t i = 0; i < outputs.size(); ++i) {
+        std::vector<rknn_output> rknnOutputs(ctx->outputs().size());
+        for (size_t i = 0; i < ctx->outputs().size(); ++i) {
             std::memset(&rknnOutputs[i], 0, sizeof(rknn_output));
             rknnOutputs[i].index = (uint32_t)i;
             rknnOutputs[i].want_float = 1;
@@ -254,26 +248,27 @@ public:
         }
         if (mApi->outputsGet(mContext, (uint32_t)rknnOutputs.size(), rknnOutputs.data(), nullptr) != RKNN_SUCC) {
             MNN_ERROR("MNN_RKNN: rknn_outputs_get failed\n");
-            return INVALID_VALUE;
+            return false;
         }
 
-        for (size_t i = 0; i < outputs.size(); ++i) {
-            if (outputs[i]->getType().code != halide_type_float || outputs[i]->getType().bits != 32) {
-                MNN_ERROR("MNN_RKNN: only float32 outputs are supported in the first runtime version\n");
+        for (size_t i = 0; i < ctx->outputs().size(); ++i) {
+            auto dst = ctx->output((int)i);
+            if (dst->getType().code != halide_type_float || dst->getType().bits != 32) {
+                MNN_ERROR("MNN_RKNN: only float32 outputs are supported in the first plugin version\n");
                 mApi->outputsRelease(mContext, (uint32_t)rknnOutputs.size(), rknnOutputs.data());
-                return NOT_SUPPORT;
+                return false;
             }
-            Tensor hostOutput(outputs[i], getHostTensorDimType(outputs[i]));
+            Tensor hostOutput(dst, getHostTensorDimType(dst));
             auto copySize = ALIMIN((int)hostOutput.size(), (int)rknnOutputs[i].size);
             std::memcpy(hostOutput.buffer().host, rknnOutputs[i].buf, copySize);
-            if (!MNNCPUCopyBuffer(&hostOutput, outputs[i])) {
+            if (!MNNCPUCopyBuffer(&hostOutput, dst)) {
                 MNN_ERROR("MNN_RKNN: failed to copy output tensor %zu from host\n", i);
                 mApi->outputsRelease(mContext, (uint32_t)rknnOutputs.size(), rknnOutputs.data());
-                return INVALID_VALUE;
+                return false;
             }
         }
         mApi->outputsRelease(mContext, (uint32_t)rknnOutputs.size(), rknnOutputs.data());
-        return NO_ERROR;
+        return true;
     }
 
 private:
@@ -285,95 +280,12 @@ private:
     std::vector<rknn_tensor_attr> mOutputAttrs;
 };
 
+static auto _rknn_plugin_shape_registrar __attribute__((unused)) =
+    MNN::plugin::InferShapeKernelRegistrar<RKNNPluginShape>("RKNN");
+static auto _rknn_plugin_compute_registrar __attribute__((unused)) =
+    MNN::plugin::ComputeKernelRegistrar<RKNNPluginExecute>("RKNN");
+
 } // namespace
-
-RKNNBackend::RKNNBackend(const RKNNRuntime* runtime) : Backend(MNN_FORWARD_USER_2), mRuntime(runtime) {
-}
-
-Execution* RKNNBackend::onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op) {
-    auto api = loadApi();
-    if (nullptr == api) {
-        return nullptr;
-    }
-    if (nullptr == op || op->type() != OpType_Extra || nullptr == op->main_as_Extra()) {
-        return nullptr;
-    }
-    auto extra = op->main_as_Extra();
-    if (extra->type()->str() != kExtraTypeName) {
-        return nullptr;
-    }
-    auto exe = new RKNNExecution(this, op, api);
-    if (!exe->valid()) {
-        delete exe;
-        return nullptr;
-    }
-    return exe;
-}
-
-void RKNNBackend::onResizeBegin() {
-}
-
-ErrorCode RKNNBackend::onResizeEnd() {
-    return NO_ERROR;
-}
-
-void RKNNBackend::onExecuteBegin() const {
-}
-
-void RKNNBackend::onExecuteEnd() const {
-}
-
-Backend::MemObj* RKNNBackend::onAcquire(const Tensor* tensor, StorageType storageType) {
-    auto mem = new HostMemObj(tensor->size());
-    if (!mem->valid()) {
-        delete mem;
-        return nullptr;
-    }
-    return mem;
-}
-
-bool RKNNBackend::onClearBuffer() {
-    return true;
-}
-
-void RKNNBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const {
-    MNNCPUCopyBuffer(srcTensor, dstTensor);
-}
-
-const Runtime* RKNNBackend::getRuntime() {
-    return mRuntime;
-}
-
-RKNNRuntime::RKNNRuntime(const Backend::Info& info) : mInfo(info) {
-}
-
-Backend* RKNNRuntime::onCreate(const BackendConfig* config, Backend* origin) const {
-    return new RKNNBackend(this);
-}
-
-void RKNNRuntime::onGabageCollect(int level) {
-}
-
-Runtime::CompilerType RKNNRuntime::onGetCompilerType() const {
-    return Runtime::Compiler_Origin;
-}
-
-Runtime* RKNNRuntimeCreator::onCreate(const Backend::Info& info) const {
-    if (nullptr == loadApi()) {
-        return nullptr;
-    }
-    return new RKNNRuntime(info);
-}
-
-bool RKNNRuntimeCreator::onValid(Backend::Info& info) const {
-    info.mode = Backend::Info::DIRECT;
-    return true;
-}
-
 } // namespace RKNN
-
-void registerRKNNRuntimeCreator() {
-    MNNInsertExtraRuntimeCreator(MNN_FORWARD_USER_2, new RKNN::RKNNRuntimeCreator, false);
-}
-
 } // namespace MNN
+#endif

@@ -185,12 +185,12 @@ cp -r ${DDK}/include ${MNN}/source/backend/hiai/3rdParty/include
 - 包装后的 `.mnn`
 - sidecar `.rknn`
 
-其中 `.mnn` 内部只保留 `Input + Extra(type="RKNN")` 包装图，运行时由 MNN 的 RKNN backend 调用 RKNN C API 执行 `.rknn`。
+其中 `.mnn` 内部保留 `Input + Plugin(type="RKNN")` 包装图，运行时由 MNN 的 CPU Plugin 框架调用 RKNN C API 执行 `.rknn`。
 
 ### RKNN 后端整体介绍
 
 - Host 侧通过 `MNNConvert --rknn` 完成双产物生成，不走 `compilefornpu` 的 `MNN -> NPU` 逐算子编译链路。
-- Device 侧通过 RKNN C API 加载 `.rknn` 并执行，当前 backend 注册为 `MNN_FORWARD_USER_2`。
+- Device 侧通过 MNN 的 CPU Plugin 框架调用 RKNN C API 加载 `.rknn` 并执行；应用侧 Session backend 仍使用 `MNN_FORWARD_CPU`。
 - RKNN backend 读取 runtime 库路径、转换脚本路径、目标平台等信息时，不做硬编码，全部从环境变量读取；缺失时直接报 `MNN_ERROR`。
 
 ### 编译
@@ -268,13 +268,13 @@ ${BUILD_DIR}/MNNConvert \
   - 指向目标板上的 `librknnrt.so`
 
 并在创建 Session 时选择：
-- backend type = `MNN_FORWARD_USER_2`
+- backend type = `MNN_FORWARD_CPU`
 
 如果 `.rknn` 路径在 wrapper `.mnn` 中是相对路径，则需要确保模型外部路径设置正确，使 MNN 能解析 sidecar 所在目录。
 
 ### 当前限制
 
-- 当前 RKNN backend 只执行 `Extra(type="RKNN")` 节点，不支持逐算子 RKNN backend。
+- 当前 RKNN 路径执行 `Plugin(type="RKNN")` 节点，不支持逐算子 RKNN backend。
 - 当前实现走 host buffer copy 路径，尚未做 zero-copy。
 - 当前输出路径按 `float32` 处理。
 - 当前主目标是板端运行；PC 侧如果没有可用的 x86 `librknnrt.so`，则不能直接用 MNN runtime 在 Host 上模拟执行 RKNN backend。

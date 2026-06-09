@@ -12,6 +12,7 @@
 #include "CommonUtils.hpp"
 #include "MNN/ErrorCode.hpp"
 #include "MNN_generated.h"
+#include "../optimizer/Program.hpp"
 #include "core/MNNFileUtils.h"
 #include "logkit.h"
 
@@ -41,7 +42,7 @@ static bool loadRequiredEnv(std::string& dst, const char* name) {
 static std::string shellEscape(const std::string& input) {
     std::string escaped = "'";
     for (char c : input) {
-        if ('\'' == c) {
+        if (c == '\'') {
             escaped += "'\\''";
         } else {
             escaped.push_back(c);
@@ -60,8 +61,14 @@ static std::string basenameWithoutExtension(const std::string& path) {
     }
     return name.substr(0, dot);
 }
-
 struct InputInfo {
+    std::string name;
+    std::vector<int> dims;
+    MNN::DataType dtype = MNN::DataType_DT_FLOAT;
+    MNN::MNN_DATA_FORMAT dformat = MNN::MNN_DATA_FORMAT_NC4HW4;
+};
+
+struct OutputInfo {
     std::string name;
     std::vector<int> dims;
     MNN::DataType dtype = MNN::DataType_DT_FLOAT;
@@ -123,11 +130,122 @@ static std::vector<std::string> collectOutputNames(const MNN::NetT& net) {
     return outputNames;
 }
 
+static MNN::DataType mapExprDataType(const halide_type_t& type) {
+    if (type.code == halide_type_float) {
+        if (type.bits == 16) {
+            return MNN::DataType_DT_HALF;
+        }
+        if (type.bits == 64) {
+            return MNN::DataType_DT_DOUBLE;
+        }
+        return MNN::DataType_DT_FLOAT;
+    }
+    if (type.code == halide_type_uint) {
+        if (type.bits == 8) {
+            return MNN::DataType_DT_UINT8;
+        }
+        if (type.bits == 16) {
+            return MNN::DataType_DT_UINT16;
+        }
+        if (type.bits == 32) {
+            return MNN::DataType_DT_INT32;
+        }
+        return MNN::DataType_DT_INT32;
+    }
+    if (type.code == halide_type_int) {
+        if (type.bits == 8) {
+            return MNN::DataType_DT_INT8;
+        }
+        if (type.bits == 16) {
+            return MNN::DataType_DT_INT16;
+        }
+        if (type.bits == 64) {
+            return MNN::DataType_DT_INT64;
+        }
+        return MNN::DataType_DT_INT32;
+    }
+    if (type.code == halide_type_handle) {
+        return MNN::DataType_DT_STRING;
+    }
+    return MNN::DataType_DT_FLOAT;
+}
+
+static MNN::MNN_DATA_FORMAT mapExprFormat(MNN::Express::Dimensionformat format) {
+    switch (format) {
+        case MNN::Express::NHWC:
+            return MNN::MNN_DATA_FORMAT_NHWC;
+        case MNN::Express::NC4HW4:
+            return MNN::MNN_DATA_FORMAT_NC4HW4;
+        case MNN::Express::NCHW:
+        default:
+            return MNN::MNN_DATA_FORMAT_NCHW;
+    }
+}
+
+static std::vector<OutputInfo> collectOutputInfos(const MNN::NetT& net) {
+    auto outputNames = collectOutputNames(net);
+    if (outputNames.empty()) {
+        return {};
+    }
+    auto program = MNN::Express::Program::create(&net, true, true);
+    if (nullptr == program) {
+        MNN_ERROR("RKNN wrapper: failed to build Program for output shape inference\n");
+        return {};
+    }
+
+    std::map<std::string, const MNN::Express::Variable::Info*> infoMap;
+    for (const auto& output : program->outputs()) {
+        if (output == nullptr) {
+            continue;
+        }
+        auto info = output->getInfo();
+        if (nullptr == info) {
+            continue;
+        }
+        infoMap.insert(std::make_pair(output->name(), info));
+    }
+
+    std::vector<OutputInfo> outputs;
+    outputs.reserve(outputNames.size());
+    for (const auto& name : outputNames) {
+        auto infoIter = infoMap.find(name);
+        if (infoIter == infoMap.end() || nullptr == infoIter->second) {
+            MNN_ERROR("RKNN wrapper: failed to infer output info for tensor %s\n", name.c_str());
+            return {};
+        }
+        OutputInfo info;
+        info.name = name;
+        info.dims.assign(infoIter->second->dim.begin(), infoIter->second->dim.end());
+        info.dtype = mapExprDataType(infoIter->second->type);
+        info.dformat = mapExprFormat(infoIter->second->order);
+        outputs.emplace_back(std::move(info));
+    }
+    return outputs;
+}
+
 static std::unique_ptr<MNN::AttributeT> makeStringAttr(const std::string& key, const std::string& value) {
     std::unique_ptr<MNN::AttributeT> attr(new MNN::AttributeT);
     attr->key = key;
     attr->s = value;
     attr->type = MNN::DataType_DT_STRING;
+    return attr;
+}
+
+static std::unique_ptr<MNN::AttributeT> makeStringListAttr(const std::string& key, const std::vector<std::string>& values) {
+    std::unique_ptr<MNN::AttributeT> attr(new MNN::AttributeT);
+    attr->key = key;
+    attr->list.reset(new MNN::ListValueT);
+    attr->list->s = values;
+    return attr;
+}
+
+static std::unique_ptr<MNN::AttributeT> makeBlobAttr(const std::string& key, const OutputInfo& info) {
+    std::unique_ptr<MNN::AttributeT> attr(new MNN::AttributeT);
+    attr->key = key;
+    attr->tensor.reset(new MNN::BlobT);
+    attr->tensor->dataType = info.dtype;
+    attr->tensor->dims = info.dims;
+    attr->tensor->dataFormat = info.dformat;
     return attr;
 }
 
@@ -242,7 +360,7 @@ std::unique_ptr<NetT> BuildRKNNWrapperNet(const NetT& sourceNet, const modelConf
         MNN_ERROR("RKNN wrapper: failed to collect input tensors from source net\n");
         return nullptr;
     }
-    auto outputs = collectOutputNames(sourceNet);
+    auto outputs = collectOutputInfos(sourceNet);
     if (outputs.empty()) {
         MNN_ERROR("RKNN wrapper: failed to collect output tensors from source net\n");
         return nullptr;
@@ -257,10 +375,13 @@ std::unique_ptr<NetT> BuildRKNNWrapperNet(const NetT& sourceNet, const modelConf
     std::map<std::string, int> tensorMap;
     std::vector<int> inputIndexes;
     std::vector<int> outputIndexes;
+    std::vector<std::string> inputNames;
+    std::vector<std::string> outputNames;
 
     for (const auto& input : inputs) {
         const int tensorIndex = ensureTensorIndex(input.name, &tensorMap, &wrapper->tensorName);
         inputIndexes.emplace_back(tensorIndex);
+        inputNames.emplace_back(input.name);
 
         std::unique_ptr<OpT> inputOp(new OpT);
         inputOp->name = input.name;
@@ -276,25 +397,30 @@ std::unique_ptr<NetT> BuildRKNNWrapperNet(const NetT& sourceNet, const modelConf
     }
 
     for (const auto& output : outputs) {
-        outputIndexes.emplace_back(ensureTensorIndex(output, &tensorMap, &wrapper->tensorName));
+        outputIndexes.emplace_back(ensureTensorIndex(output.name, &tensorMap, &wrapper->tensorName));
+        outputNames.emplace_back(output.name);
     }
 
     std::unique_ptr<OpT> rknnOp(new OpT);
     rknnOp->name = "RKNNSubgraph";
-    rknnOp->type = OpType_Extra;
-    rknnOp->main.type = OpParameter_Extra;
-    rknnOp->main.value = new ExtraT;
-    rknnOp->main.AsExtra()->type = "RKNN";
-    rknnOp->main.AsExtra()->engine = "MNN";
-    rknnOp->main.AsExtra()->attr.emplace_back(makeStringAttr("model_path", bundlePaths.rknnPath));
-    rknnOp->main.AsExtra()->attr.emplace_back(makeStringAttr("bundle_manifest", bundlePaths.manifestPath));
-    rknnOp->main.AsExtra()->attr.emplace_back(makeStringAttr("target", modelPath.rknnTarget));
+    rknnOp->type = OpType_Plugin;
+    rknnOp->main.type = OpParameter_Plugin;
+    rknnOp->main.value = new PluginT;
+    rknnOp->main.AsPlugin()->type = "RKNN";
+    rknnOp->main.AsPlugin()->attr.emplace_back(makeStringAttr("model_path", bundlePaths.rknnPath));
+    rknnOp->main.AsPlugin()->attr.emplace_back(makeStringAttr("bundle_manifest", bundlePaths.manifestPath));
+    rknnOp->main.AsPlugin()->attr.emplace_back(makeStringAttr("target", modelPath.rknnTarget));
+    rknnOp->main.AsPlugin()->attr.emplace_back(makeStringListAttr("inputs", inputNames));
+    rknnOp->main.AsPlugin()->attr.emplace_back(makeStringListAttr("outputs", outputNames));
+    for (int i = 0; i < outputs.size(); ++i) {
+        rknnOp->main.AsPlugin()->attr.emplace_back(makeBlobAttr("o_" + std::to_string(i), outputs[i]));
+    }
     rknnOp->inputIndexes = inputIndexes;
     rknnOp->outputIndexes = outputIndexes;
     wrapper->oplists.emplace_back(std::move(rknnOp));
 
-    wrapper->outputName = outputs;
+    wrapper->outputName = outputNames;
     wrapper->tensorNumber = static_cast<int>(wrapper->tensorName.size());
     return wrapper;
 }
-}
+} // namespace MNN
