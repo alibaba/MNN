@@ -21,7 +21,6 @@
 #include <chrono>
 #include <cstring>
 #include <cstdio>
-#include <string>
 #include <thread>
 #include <vector>
 #include <MNN/expr/ExprCreator.hpp>
@@ -82,11 +81,12 @@ struct GemvResult {
 
 // One GEMV measurement: 1x1 hybrid conv with batch=1 input, oc=M, ic=K.
 // Returns best avg us/iter over 3 outer reps of `iters` cold-cache runs.
-static GemvResult benchGemv(int M, int K, int nbit, int blocksize, int precision, int threads, int iters) {
+static GemvResult benchGemv(int M, int K, int nbit, int blocksize, int precision, int threads, int iters,
+                            MNNForwardType forwardType) {
     BackendConfig bnConfig;
     bnConfig.precision = (BackendConfig::PrecisionMode)precision;
     bnConfig.memory = BackendConfig::Memory_Low;
-    auto exe = Executor::newExecutor(MNN_FORWARD_CPU, bnConfig, threads);
+    auto exe = Executor::newExecutor(forwardType, bnConfig, threads);
     ExecutorScope scope(exe);
 
     INTS strides = {1, 1}, dilate = {1, 1}, pad = {0, 0}, kernel = {1, 1};
@@ -187,11 +187,15 @@ public:
         int K = 14336;
 
         int threads = MNNTestSuite::get()->pStaus.thread > 0 ? MNNTestSuite::get()->pStaus.thread : 4;
+        MNNForwardType forwardType = (MNNForwardType)MNNTestSuite::get()->pStaus.forwardType;
+        const char* backendName = forwardType == MNN_FORWARD_METAL ? "Metal"
+                                  : forwardType == MNN_FORWARD_CPU ? "CPU"
+                                                                   : "Other";
 
         const int blocksize = 64;
         const int iters = 200;
 
-        std::printf("\n## GemvBW (precision=%d, blocksize=%d)\n", precision, blocksize);
+        std::printf("\n## GemvBW (backend=%s, precision=%d, blocksize=%d)\n", backendName, precision, blocksize);
 
         // Streaming bandwidth roofline for the selected thread count.
         std::printf("\n## Peak streaming bandwidth (memcpy, 256 MiB buffer)\n");
@@ -205,9 +209,12 @@ public:
         std::printf("type | thr |   us/iter |  W MiB | bytes/elem | eff GB/s | %%peak |  GFLOPS |  AI (op/B)\n");
         std::printf("-----|----:|----------:|-------:|-----------:|---------:|------:|--------:|----------:\n");
 
-        std::vector<int> bitsList = {8, 4, 3, 2};
+        // Metal backend currently only supports w4 / w8 hybrid quant kernels
+        // (see MetalConvolution1x1.mm: mDequantBits == 4 || == 8).
+        std::vector<int> bitsList =
+            (forwardType == MNN_FORWARD_CPU) ? std::vector<int>{8, 4, 3, 2} : std::vector<int>{8, 4};
         for (int nbit : bitsList) {
-            GemvResult r = benchGemv(M, K, nbit, blocksize, precision, threads, iters);
+            GemvResult r = benchGemv(M, K, nbit, blocksize, precision, threads, iters, forwardType);
             double bpe = r.weightBytes / ((double)M * K);
             double pct = 100.0 * r.effBwGBs / peakBw;
             double ai = 2.0 / bpe;
@@ -220,6 +227,8 @@ public:
         std::printf(" * W MiB / bytes/elem include weight + per-block (alpha + zp) fp16 metadata.\n");
         std::printf(" * AI = 2/bpe (1 mul + 1 add per weight, weight bytes drive the ratio).\n");
         std::printf(" * %%peak compares against the best (sweep-max) memcpy bandwidth.\n");
+        std::printf(" * On GPU backends (e.g. Metal) flushCache() only evicts CPU caches; weights may stay\n");
+        std::printf("   resident in GPU/unified caches, so eff GB/s is closer to a warm-cache estimate.\n");
         return true;
     }
 };

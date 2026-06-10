@@ -129,6 +129,32 @@ static inline bool try_build_qwen3_asr_chat_prompt(const std::shared_ptr<LlmConf
                                      assistant_text);
     return true;
 }
+// Redefine MNN_PRINT/MNN_ERROR for Llm member methods to capture log into mContext->log_buffer.
+// All code below this point that uses MNN_PRINT/MNN_ERROR must be Llm class member methods.
+#ifdef LLM_LOG_TO_STRING
+static inline void _llmOrigPrint(const char* msg) {
+    MNN_PRINT("%s", msg);
+}
+static inline void _llmOrigError(const char* msg) {
+    MNN_ERROR("%s", msg);
+}
+#undef MNN_PRINT
+#undef MNN_ERROR
+#define MNN_PRINT(format, ...)                                       \
+    do {                                                             \
+        char _log_buf[4096];                                         \
+        snprintf(_log_buf, sizeof(_log_buf), format, ##__VA_ARGS__); \
+        _llmOrigPrint(_log_buf);                                     \
+        mContext->log_buffer += _log_buf;                            \
+    } while (0)
+#define MNN_ERROR(format, ...)                                       \
+    do {                                                             \
+        char _log_buf[4096];                                         \
+        snprintf(_log_buf, sizeof(_log_buf), format, ##__VA_ARGS__); \
+        _llmOrigError(_log_buf);                                     \
+        mContext->log_buffer += _log_buf;                            \
+    } while (0)
+#endif // LLM_LOG_TO_STRING
 
 Llm* Llm::createLLM(const std::string& config_path) {
     std::shared_ptr<LlmConfig> config(new LlmConfig(config_path));
@@ -142,6 +168,11 @@ Llm* Llm::createLLM(const std::string& config_path) {
 }
 void Llm::destroy(Llm* llm) {
     delete llm;
+}
+
+std::string Llm::getLog() {
+    std::string log = std::move(mContext->log_buffer);
+    return log;
 }
 
 std::string Llm::dump_config() {
@@ -309,7 +340,7 @@ void Llm::setSpeculativeConfig() {
     }
 }
 
-static bool checkFile(const std::string& path, const char* name) {
+bool Llm::checkFile(const std::string& path, const char* name) {
     if (!MNNFileExist(path.c_str())) {
         MNN_ERROR("[Error]: %s not found: %s\n", name, path.c_str());
         return false;

@@ -397,6 +397,10 @@ public:
     mutable int pCurrentStatus = 0; // NO_ERROR
     mutable int pExecutionStatus = 0; // NO_ERROR
 
+    // GPU profiling: last execution time in ms measured by GPU timestamps.
+    // Returns -1.0f if profiling is not supported or not enabled.
+    virtual float onGetLastGpuTimeMs() const { return -1.0f; }
+
     // TODO: Move to Backend
     void* pMeta = nullptr;
 private:

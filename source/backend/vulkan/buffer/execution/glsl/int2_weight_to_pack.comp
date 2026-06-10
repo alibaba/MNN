@@ -1,0 +1,74 @@
+// Dequantize int2 [padN, padK/16] uint32 packed weights into FLOAT4 B [K/4, N/32, 4, 8].
+// Each uint32 word holds 16 int2 unsigned values (signed = unsigned - 2).
+layout(local_size_x = 16, local_size_y = 8, local_size_z = 1) in;
+
+layout(binding = 0) readonly buffer WeightBuffer {
+    uint SrcQ16[]; // [padN, UP_DIV(K, 16)], 16x int2 per uint32
+};
+
+layout(binding = 1) readonly buffer MetaBuffer {
+    FLOAT2 Meta[]; // [padN, KBlocks], each is [scale, offset]
+};
+
+layout(binding = 2) writeonly buffer DstBuffer {
+    FLOAT4 DstB4[]; // [K/4, N/32, 4, 8]
+};
+
+layout(push_constant) uniform PushConstants {
+    uint N;
+    uint K;
+    uint blockSize;
+    uint KBlocks;
+} pc;
+
+void main() {
+    const uint nVec = gl_GlobalInvocationID.x;
+    const uint k4 = gl_GlobalInvocationID.y;
+    const uint nVec4Count = pc.N >> 2u;
+    const uint K4 = pc.K >> 2u;
+    const uint nBlock32Count = pc.N >> 5u;
+    if (nVec >= nVec4Count || k4 >= K4) {
+        return;
+    }
+
+    const uint nBlock32 = nVec >> 3u;
+    const uint nVecIn32 = nVec & 7u;
+    const uint nBase = nVec << 2u;
+    const uint gkBase = k4 << 2u;
+
+    const uint wordsPerRow = (pc.K + 15u) >> 4u;
+    const uint wordOffset = gkBase >> 4u;       // gkBase / 16
+    const uint startBitInWord = (gkBase & 15u) * 2u; // 0, 8, 16, or 24
+
+    const uint row0 = nBase + 0u;
+    const uint row1 = nBase + 1u;
+    const uint row2 = nBase + 2u;
+    const uint row3 = nBase + 3u;
+
+    const uint w0 = SrcQ16[row0 * wordsPerRow + wordOffset];
+    const uint w1 = SrcQ16[row1 * wordsPerRow + wordOffset];
+    const uint w2 = SrcQ16[row2 * wordsPerRow + wordOffset];
+    const uint w3 = SrcQ16[row3 * wordsPerRow + wordOffset];
+
+    for (uint kIn4 = 0u; kIn4 < 4u; ++kIn4) {
+        const uint gk = gkBase + kIn4;
+        const uint kb = gk / max(pc.blockSize, 1u);
+        const FLOAT2 m0 = Meta[row0 * pc.KBlocks + kb];
+        const FLOAT2 m1 = Meta[row1 * pc.KBlocks + kb];
+        const FLOAT2 m2 = Meta[row2 * pc.KBlocks + kb];
+        const FLOAT2 m3 = Meta[row3 * pc.KBlocks + kb];
+
+        const uint shift = startBitInWord + kIn4 * 2u;
+        const float q0 = float((w0 >> shift) & 3u) - 2.0;
+        const float q1 = float((w1 >> shift) & 3u) - 2.0;
+        const float q2 = float((w2 >> shift) & 3u) - 2.0;
+        const float q3 = float((w3 >> shift) & 3u) - 2.0;
+
+        const uint outIdx = (((k4 * nBlock32Count + nBlock32) * 4u + kIn4) * 8u + nVecIn32);
+        DstB4[outIdx] = FLOAT4(
+            FLOAT(q0) * m0.x + m0.y,
+            FLOAT(q1) * m1.x + m1.y,
+            FLOAT(q2) * m2.x + m2.y,
+            FLOAT(q3) * m3.x + m3.y);
+    }
+}

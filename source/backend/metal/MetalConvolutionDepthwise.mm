@@ -129,7 +129,7 @@ bool MetalConvolutionDepthwise::onClone(Backend* bn, const Op* op, Execution** d
     return true;
 }
 
-std::shared_ptr<MNN::Tensor> MetalConvolutionDepthwise::weightTransform(int group, int oc, int ic, int kh, int kw, const float *src, bool int8Weight, bool int4Weight, id<MTLBuffer> srcGpuBuffer) {
+std::shared_ptr<MNN::Tensor> MetalConvolutionDepthwise::weightTransform(int group, int oc, int ic, int kh, int kw, const float *src, bool int8Weight, bool int4Weight, id<MTLBuffer> srcGpuBuffer, int subBits) {
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();
     auto length = UP_DIV(group, 4) * 4 * kw * kh;

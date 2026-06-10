@@ -38,6 +38,7 @@
     *   **LoRA**：通过 `--lora_path` 合并或分离 LoRA 权重。
     *   **Embeding**：对于目前主流的8b以下模型，采用了`Tie-Embeding`技术，默认不会导出`embeddings_bf16.bin`，而是复用`llm.mnn.weight`中的`lm`权重，需要提升embed精度可以设置 `--seperate_embed` 分离出`embeddings_bf16.bin`。
     *   **GPTQ**：通过 `--gptq_path` 应用预量化好的 GPTQ 权重。
+    *   **MNNConvert 工具**：推荐优先使用本地编译的 `MNNConvert`（在 MNN 根目录下 `mkdir build && cd build && cmake .. -DMNN_BUILD_CONVERTER=ON && make -j16`），`llmexport.py` 默认会到 `../../../build/` 下查找，也可通过 `--mnnconvert` 显式指定路径。
     *   **手动转换**：如果直接导出 `mnn` 失败，或者需要fp16/fp32精度的模型，可先导出 `onnx`，再用 `MNNConvert` 工具手动转换。
 
 ---
@@ -47,11 +48,11 @@
 此步骤是编译 MNN 的 C++ 推理引擎，使其支持 LLM 推理功能。
 
 1.  **配置编译选项**：
-    在标准的 MNN 编译命令中，**必须添加 `-DMNN_BUILD_LLM=true`** 以启用 LLM 支持。
+    在标准的 MNN 编译命令中，**必须添加 `-DMNN_BUILD_LLM=ON`** 以启用 LLM 支持。
     *   **Omni 模型**：如果需要支持图像/音频输入，还需添加 `-DMNN_BUILD_LLM_OMNI=ON`。
     *   **平台优化**：
-        *   **x86 (Mac/Linux)**：可添加 `-DMNN_AVX512=true` 以利用 AVX512 指令集加速。
-        *   **Android**：可添加 `-DMNN_OPENCL=true` 以利用 GPU 加速。
+        *   **x86 (Mac/Linux)**：可添加 `-DMNN_AVX512=ON` 以利用 AVX512 指令集加速。
+        *   **Android**：可添加 `-DMNN_OPENCL=ON` 以利用 GPU 加速。
         *   **iOS**：可添加 `-DMNN_METAL=ON` 以利用 GPU 加速。
         *   **Web (WASM)**：使用 `emcmake` 并配置 `-DMNN_FORBID_MULTI_THREAD=ON` 等特定选项。
 
@@ -59,7 +60,7 @@
     以 Linux/Mac 为例：
     ```bash
     mkdir build && cd build
-    cmake .. -DMNN_BUILD_LLM=true -DMNN_AVX512=true # 根据平台调整选项
+    cmake .. -DMNN_BUILD_LLM=ON -DMNN_AVX512=ON # 根据平台调整选项
     make -j16
     ```
     编译完成后，会生成核心库文件（如 `libMNN.so`, `libllm.so`）。
@@ -172,7 +173,12 @@ python llmexport.py \
 ```
 
 ### 功能
-- 直接转为mnn模型，使用`--export mnn`，注意，你需要先安装pymnn或者通过`--mnnconvert`选项指定MNNConvert工具的地址，两种条件必须满足其中一个。如果没有安装pymnn并且没有通过`--mnnconvert`指定MNNConvert工具的地址，那么llmexport.py脚本会在目录"../../../build/"下寻找MNNConvert工具，需保证该目录下存在MNNConvert文件。此方案目前支持导出4bit和8bit模型
+- 直接转为mnn模型，使用`--export mnn`。**推荐优先使用本地编译的 MNNConvert 工具**：在 MNN 根目录下创建 `build/` 目录并执行编译，编译时需打开 `-DMNN_BUILD_CONVERTER=ON`，例如：
+  ```bash
+  mkdir build && cd build
+  cmake .. -DMNN_BUILD_CONVERTER=ON && make -j16
+  ```
+  编译完成后 `build/` 目录下会生成 `MNNConvert` 可执行文件，`llmexport.py` 默认会在 `../../../build/` 下查找该工具；也可以通过 `--mnnconvert` 选项显式指定 MNNConvert 路径。若未提供本地 MNNConvert，脚本会回退到 pymnn（需先安装 `pip install MNN`）。此方案目前支持导出4bit和8bit模型。
 - 如果直接转为mnn模型遇到问题，或者需要其他bits数的量化（如5bit/6bit），可以先将模型先转为onnx模型，使用`--export onnx`，然后使用./MNNConvert工具将onnx模型转为mnn模型:
 
 ```
@@ -282,7 +288,7 @@ python3 gguf2mnn.py --gguf ~/third/llama.cpp/build/ggml-model-Q4_K.gguf --mnn_di
 
 若需要开启Omni功能（支持图像/音频输入），增加`MNN_BUILD_LLM_OMNI`选项
 ```
--DMNN_BUILD_LLM=ON -D MNN_BUILD_LLM_OMNI=ON
+-DMNN_BUILD_LLM=ON -DMNN_BUILD_LLM_OMNI=ON
 ```
 
 #### mac / linux / windows
@@ -291,7 +297,7 @@ python3 gguf2mnn.py --gguf ~/third/llama.cpp/build/ggml-model-Q4_K.gguf --mnn_di
 ```
 make build
 cd build
-cmake ../ -DMNN_BUILD_LLM=true
+cmake ../ -DMNN_BUILD_LLM=ON
 make -j16
 ```
 
@@ -299,7 +305,7 @@ x86架构额外加 `MNN_AVX512` 的宏：
 ```
 make build
 cd build
-cmake ../ -DMNN_BUILD_LLM=true -DMNN_AVX512=true
+cmake ../ -DMNN_BUILD_LLM=ON -DMNN_AVX512=ON
 make -j16
 ```
 
@@ -307,7 +313,7 @@ make -j16
 ```
 cd project/android
 mkdir build_64
-../build_64.sh -DMNN_BUILD_LLM=true -DMNN_OPENCL=true -DMNN_USE_LOGCAT=true
+../build_64.sh -DMNN_BUILD_LLM=ON -DMNN_OPENCL=ON -DMNN_USE_LOGCAT=ON
 ```
 高通设备部分视觉模型支持NPU功能，可增加`MNN_QNN`宏启用QNN功能。QNN运行分2种模式：
 - 在线编译QNN模型：运行其它后端统一的mnn模型，运行时进行编译构图，通过需要较长的构图启动时间，主要用于功能正确性验证。
@@ -315,12 +321,12 @@ mkdir build_64
 ```
 cd project/android
 mkdir build_64
-../build_64.sh -DMNN_BUILD_LLM=true -DMNN_OPENCL=true -DMNN_QNN=true -DMNN_WITH_PLUGIN=true -DMNN_USE_LOGCAT=true
+../build_64.sh -DMNN_BUILD_LLM=ON -DMNN_OPENCL=ON -DMNN_QNN=ON -DMNN_WITH_PLUGIN=ON -DMNN_USE_LOGCAT=ON
 ```
 
 #### iOS: 参考 transformers/llm/engine/ios/README.md
 ```
-sh package_scripts/ios/buildiOS.sh -DMNN_BUILD_LLM=true
+sh package_scripts/ios/buildiOS.sh -DMNN_BUILD_LLM=ON
 ```
 
 #### Web
@@ -330,7 +336,7 @@ sh package_scripts/ios/buildiOS.sh -DMNN_BUILD_LLM=true
 
 ```
 mkdir buildweb
-emcmake cmake .. -DCMAKE_BUILD_TYPE=Release -DMNN_FORBID_MULTI_THREAD=ON -DMNN_USE_THREAD_POOL=OFF -DMNN_USE_SSE=OFF -DMNN_BUILD_LLM=true
+emcmake cmake .. -DCMAKE_BUILD_TYPE=Release -DMNN_FORBID_MULTI_THREAD=ON -DMNN_USE_THREAD_POOL=OFF -DMNN_USE_SSE=OFF -DMNN_BUILD_LLM=ON
 make -j16
 ```
 
