@@ -66,6 +66,20 @@ Valid filters: `all` (default) · `cpu` · `opencl` · `opencl-image` ·
   `logs/test_ci-<UTC-timestamp>/<stage>.log` — read the named log of a failing
   stage for the trailing output. `rc=137` ≈ OOM-kill, `rc=139` ≈ SIGSEGV.
 
+## Important pitfall for rebuild-driven smoke tests
+
+When a verification depends on a freshly rebuilt binary (for example `llm_demo`
+or `embedding_demo` after resolving a merge conflict), do not trust smoke-test
+results gathered while the target is still compiling or before the final link
+step has completed. A stale executable can report an old runtime failure and
+send debugging in the wrong direction.
+
+Preferred flow:
+
+1. Wait for the target build to finish and confirm the final executable link
+   step succeeded.
+2. Only then rerun the smoke test and treat that result as authoritative.
+
 ## Important pitfall for `llm_demo` prompt-file smoke tests
 
 `transformers/llm/engine/demo/llm_demo.cpp` reads prompt files **one line per
