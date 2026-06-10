@@ -12,6 +12,9 @@ option(MNN_OPENCL_SIZE_CUT "Disable MNN OpenCL Buffer Opt" OFF)
 
 IF (MNN_GPU_TIME_PROFILE)
     add_definitions(-DENABLE_OPENCL_TIME_PROFILER)
+    IF (MNN_GPU_PROFILE_SILENT)
+        add_definitions(-DMNN_GPU_PROFILE_SILENT)
+    ENDIF()
 ENDIF()
 
 IF (MNN_OPENCL_SIZE_CUT)

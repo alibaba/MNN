@@ -60,6 +60,7 @@ public:
     virtual void onGabageCollect(int level) override;
     virtual float onGetMemoryInMB() override;
     int onGetRuntimeStatus(RuntimeStatus statusEnum) const override;
+    float onGetLastGpuTimeMs() const override { return mLastGpuTimeMs; }
     std::shared_ptr<VulkanBuffer> allocUniform(const void* src = nullptr, int size = 0);
     void recycleUniform(std::shared_ptr<VulkanBuffer> buffer);
     static VulkanRuntime* create(const Backend::Info& info);
@@ -84,6 +85,7 @@ private:
     int mCacheUniformLimitSize = 1024;
     float mFlops = 0.0f;
     friend class VulkanBackend;
+    mutable float mLastGpuTimeMs = -1.0f;
     GPUType mGpuType = OTHER;
     int mGpuMode;
 // member variables related to auto tuning

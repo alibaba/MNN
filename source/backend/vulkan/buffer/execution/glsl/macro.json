@@ -425,6 +425,18 @@
     "gemv_dequant_int4_nosubgroup.comp": {
         "useFP16": true
     },
+    "gemv_dequant_int2.comp": {
+        "useFP16": true
+    },
+    "gemv_dequant_int2_nosubgroup.comp": {
+        "useFP16": true
+    },
+    "gemv_dequant_int3.comp": {
+        "useFP16": true
+    },
+    "gemv_dequant_int3_nosubgroup.comp": {
+        "useFP16": true
+    },
     "gemv_dequant_int8.comp": {
         "useFP16": true
     },
@@ -440,10 +452,22 @@
     "int8_weight_to_pack.comp": {
         "useFP16": true
     },
+    "int2_weight_to_pack.comp": {
+        "useFP16": true
+    },
+    "int3_weight_to_pack.comp": {
+        "useFP16": true
+    },
     "conv1x1_int4_weight_prepare.comp": {
         "useFP16": false
     },
     "conv1x1_int8_weight_prepare.comp": {
+        "useFP16": false
+    },
+    "conv1x1_int2_weight_prepare.comp": {
+        "useFP16": false
+    },
+    "conv1x1_int3_weight_prepare.comp": {
         "useFP16": false
     },
     "conv1x1_quant_meta_prepare.comp": {
