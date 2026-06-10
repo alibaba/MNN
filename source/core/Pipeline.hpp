@@ -62,6 +62,9 @@ public:
     MNNForwardType getMainForwardType() const  {
         return mInfo.first.cache.first->type();
     }
+    Backend* getMainBackend() const {
+        return mInfo.first.cache.second.get();
+    }
     typedef std::map<std::pair<Tensor::InsideDescribe::NativeInsideDescribe*, Backend*>, std::pair<std::weak_ptr<Tensor::InsideDescribe::NativeInsideDescribe>, std::shared_ptr<Tensor>>> WrapTensorCache;
 private:
     ErrorCode _allocForTensor(int index, bool allocInput);

@@ -193,6 +193,10 @@ cp -r ${DDK}/include ${MNN}/source/backend/hiai/3rdParty/include
 - Device 侧通过 MNN 的 CPU Plugin 框架调用 RKNN C API 加载 `.rknn` 并执行；应用侧 Session backend 仍使用 `MNN_FORWARD_CPU`。
 - RKNN backend 读取 runtime 库路径、转换脚本路径、目标平台等信息时，不做硬编码，全部从环境变量读取；缺失时直接报 `MNN_ERROR`。
 
+更完整的 RKNN 说明、包内容、示例代码与板端运行方式，请参考：
+- `source/backend/rknn/README.md`
+  - 包含 Host 转换、aarch64 交叉编译、Plugin 运行机制、独立示例代码、板端包内容与运行方式。
+
 ### 编译
 
 #### Host，编译带 RKNN 转换能力的 MNNConvert
@@ -270,7 +274,26 @@ ${BUILD_DIR}/MNNConvert \
 并在创建 Session 时选择：
 - backend type = `MNN_FORWARD_CPU`
 
+**注意：在 RK 板上执行任何真正调用 NPU 的命令时，必须使用 `sudo`。**
+
 如果 `.rknn` 路径在 wrapper `.mnn` 中是相对路径，则需要确保模型外部路径设置正确，使 MNN 能解析 sidecar 所在目录。
+
+### Device，Profiling
+
+RKNN internal profiling 通过 MNN 的公开 hint / info 接口暴露：
+
+- 开启 profiling：
+  - `Interpreter::setSessionHint(Interpreter::RKNN_PROFILE, 1)`
+  - 或 `Executor::RuntimeManager::setHint(Interpreter::RKNN_PROFILE, 1)`
+- 读取 profiling 文本：
+  - `Interpreter::getSessionInfo(session, Interpreter::BACKEND_PROFILE, &ptr)`
+  - 或 `Executor::RuntimeManager::getInfo(Interpreter::BACKEND_PROFILE, &ptr)`
+
+其中：
+- `RKNN_PROFILE` 会在 RKNN plugin 内部打开 `RKNN_FLAG_COLLECT_PERF_MASK`
+- `BACKEND_PROFILE` 返回的是 `const char*`，内容包含 RKNN 导出的 `npu_run` 和 `perf_detail` 文本
+- 因为它是普通文本，所以应用层可以直接打印，也可以原样写入文件做持久化
+- 如果当前 backend 不支持 profiling，或者尚未产生 profile，返回值可能为空
 
 ### 当前限制
 

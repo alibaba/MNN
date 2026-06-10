@@ -325,14 +325,22 @@ bool GenerateRKNNBundle(const modelConfig& modelPath, RKNNBundlePaths* bundlePat
         MNN_ERROR("Open RKNN manifest failed: %s\n", manifestPath.c_str());
         return false;
     }
+    auto onnxSlash = modelPath.modelFile.find_last_of("/\\");
+    auto mnnSlash = modelPath.MNNModel.find_last_of("/\\");
+    auto rknnSlash = rknnPath.find_last_of("/\\");
+    const auto onnxModelName = (onnxSlash == std::string::npos) ? modelPath.modelFile : modelPath.modelFile.substr(onnxSlash + 1);
+    const auto mnnModelName = (mnnSlash == std::string::npos) ? modelPath.MNNModel : modelPath.MNNModel.substr(mnnSlash + 1);
+    const auto rknnModelName = (rknnSlash == std::string::npos) ? rknnPath : rknnPath.substr(rknnSlash + 1);
     manifest << "{\n";
-    manifest << "  \"onnx_model\": \"" << modelPath.modelFile << "\",\n";
-    manifest << "  \"mnn_model\": \"" << modelPath.MNNModel << "\",\n";
-    manifest << "  \"rknn_model\": \"" << rknnPath << "\",\n";
+    manifest << "  \"onnx_model\": \"" << onnxModelName << "\",\n";
+    manifest << "  \"mnn_model\": \"" << mnnModelName << "\",\n";
+    manifest << "  \"rknn_model\": \"" << rknnModelName << "\",\n";
     manifest << "  \"target\": \"" << modelPath.rknnTarget << "\"";
     const auto weightPath = modelPath.MNNModel + ".weight";
     if (MNNFileExist(weightPath.c_str())) {
-        manifest << ",\n  \"mnn_external_weight\": \"" << weightPath << "\"\n";
+        auto weightSlash = weightPath.find_last_of("/\\");
+        const auto weightName = (weightSlash == std::string::npos) ? weightPath : weightPath.substr(weightSlash + 1);
+        manifest << ",\n  \"mnn_external_weight\": \"" << weightName << "\"\n";
     } else {
         manifest << "\n";
     }
@@ -407,8 +415,8 @@ std::unique_ptr<NetT> BuildRKNNWrapperNet(const NetT& sourceNet, const modelConf
     rknnOp->main.type = OpParameter_Plugin;
     rknnOp->main.value = new PluginT;
     rknnOp->main.AsPlugin()->type = "RKNN";
-    rknnOp->main.AsPlugin()->attr.emplace_back(makeStringAttr("model_path", bundlePaths.rknnPath));
-    rknnOp->main.AsPlugin()->attr.emplace_back(makeStringAttr("bundle_manifest", bundlePaths.manifestPath));
+    rknnOp->main.AsPlugin()->attr.emplace_back(makeStringAttr("model_path", basenameWithoutExtension(bundlePaths.rknnPath) + ".rknn"));
+    rknnOp->main.AsPlugin()->attr.emplace_back(makeStringAttr("bundle_manifest", basenameWithoutExtension(bundlePaths.manifestPath) + ".json"));
     rknnOp->main.AsPlugin()->attr.emplace_back(makeStringAttr("target", modelPath.rknnTarget));
     rknnOp->main.AsPlugin()->attr.emplace_back(makeStringListAttr("inputs", inputNames));
     rknnOp->main.AsPlugin()->attr.emplace_back(makeStringListAttr("outputs", outputNames));
