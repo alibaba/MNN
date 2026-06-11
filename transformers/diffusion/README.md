@@ -224,7 +224,7 @@ wan_onnx/
 `wan_onnx_export.py` 会优先尝试从本地 diffusers Wan pipeline 加载；如果不可用，再尝试从 `--model_path` 或当前 Python 环境中导入官方 `wan` 包和 `WanT2V` 组件。
 
 ```bash
-cd transformers/diffusion/export
+cd transformers/diffusion/export/wan
 python wan_onnx_export.py \
   --model_path /path/to/Wan2.1-T2V-1.3B \
   --output_path /path/to/wan_onnx \
@@ -247,7 +247,7 @@ python wan_onnx_export.py \
 #### 转换 MNN
 
 ```bash
-cd transformers/diffusion/export
+cd transformers/diffusion/export/wan
 python wan_convert_mnn.py \
   --onnx_path /path/to/wan_onnx \
   --mnn_root /path/to/models/wan2.1-t2v-1.3b

@@ -38,7 +38,7 @@ def parse_args():
 def find_mnnconvert(explicit_path=None):
     if explicit_path:
         return explicit_path
-    repo_root = Path(__file__).resolve().parents[3]
+    repo_root = Path(__file__).resolve().parents[4]
     local = repo_root / "build" / "MNNConvert"
     if local.exists():
         return local.as_posix()
@@ -207,8 +207,8 @@ def materialize_tokenizer_json(tokenizer_dir):
 
 
 def export_wan_mtok(tokenizer_src_root, mnn_root):
-    this_dir = Path(__file__).resolve().parent
-    llm_export_dir = (this_dir / "../../llm/export").resolve()
+    repo_root = Path(__file__).resolve().parents[4]
+    llm_export_dir = repo_root / "transformers" / "llm" / "export"
     if str(llm_export_dir) not in sys.path:
         sys.path.insert(0, str(llm_export_dir))
 
