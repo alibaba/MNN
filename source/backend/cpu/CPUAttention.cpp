@@ -93,7 +93,6 @@ static void _maskQK(float * qkPacked, const float* scale, size_t seqLen, size_t 
     constexpr float NEG_INF = -std::numeric_limits<float>::infinity();
     auto source = (T*)qkPacked;
     float scaleVal = scale[0];
-    int gapLen = (mask->elementSize() == (seqLen + padKvSeqLen) * (kvSeqLen + padKvSeqLen)) ? 0 : static_cast<int>(kvSeqLen - seqLen);
 
     auto kvBlockCount = UP_DIV(processedKvSeq, pack);
     auto qkSize = ROUND_UP(processedKvSeq, pack) * seqLen;
@@ -109,9 +108,8 @@ static void _maskQK(float * qkPacked, const float* scale, size_t seqLen, size_t 
         return;
     }
 
+    int gapLen = (mask->elementSize() == (seqLen + padKvSeqLen) * (kvSeqLen + padKvSeqLen)) ? 0 : static_cast<int>(kvSeqLen - seqLen);
     auto maskPtr = mask->host<T>();
-
-    // not lower triangular
     auto maskCols = (mask->elementSize() == (seqLen + padKvSeqLen) * (kvSeqLen + padKvSeqLen)) ? kvSeqLen + padKvSeqLen : seqLen + padKvSeqLen;
     for (int i = 0; i < kvBlockCount; ++i) {
         T* blockDataPtr = source + (i * seqLen * pack);
