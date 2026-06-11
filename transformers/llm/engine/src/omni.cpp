@@ -15,7 +15,6 @@
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
 #include "omni.hpp"
-#include "omni_audio_utils.hpp"
 #include "kvmeta.hpp"
 #include "llmconfig.hpp"
 #include "tokenizer/tokenizer.hpp"
@@ -38,6 +37,26 @@ template <typename T>
 static inline VARP _var(std::vector<T> vec, const std::vector<int> &dims) {
     return _Const(vec.data(), dims, NHWC, halide_type_of<T>());
 }
+
+#ifdef LLM_SUPPORT_AUDIO
+static std::vector<int> buildOmniAudioWindowBoundaries(int seqlen, int n_window) {
+    const int clampedSeqlen = std::max(seqlen, 0);
+    std::vector<int> boundaries(1, 0);
+    if (n_window <= 0) {
+        if (clampedSeqlen > 0) {
+            boundaries.push_back(clampedSeqlen);
+        }
+        return boundaries;
+    }
+    for (int curseq = n_window; curseq < clampedSeqlen; curseq += n_window) {
+        boundaries.push_back(curseq);
+    }
+    if (boundaries.back() != clampedSeqlen) {
+        boundaries.push_back(clampedSeqlen);
+    }
+    return boundaries;
+}
+#endif
 
 static MNNForwardType backend_type_convert(const std::string& type_str) {
     if (type_str == "cpu")
