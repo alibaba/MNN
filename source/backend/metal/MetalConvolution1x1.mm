@@ -133,7 +133,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
     
     // if M is small, dequant weight in shader
     // if device not support simdgroup matrix, only support dequant in shader
-    bool dequantInShader = (area < 128) || !(rt->supportSimdGroupMatrix());
+    bool dequantInShader = (area < 64) || !(rt->supportSimdGroupMatrix());
     // Native W_QUANT_2/3 paths are only implemented in conv1x1_gemv_g8_wquant_sg (decode,
     // area==1). For multi-token prefill we route through the outer-dequant + fp gemm
     // path instead, which has a real W_QUANT_2/3 dequant in conv1x1_w_dequant.
@@ -171,7 +171,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
 
         if (mDequantBits == 2 || mDequantBits == 3 || mDequantBits == 4 || mDequantBits == 8) {
             // TODO: define short_seq more accurately
-            int short_seq = 6;
+            int short_seq = 16;
 
             if(mDequantBits == 2) {
                 baseKeys.emplace_back("conv1x1_wquant_2");
@@ -235,7 +235,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                     mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 8), area, 1), MTLSizeMake(128, 1, 1));
                 }
                 return NO_ERROR;
-            } else if(rt->supportSimdGroupMatrix()  && area > short_seq && oc > 8 && ic_4 % 8 == 0) {
+            } else if(rt->supportSimdGroupMatrix()  && area > short_seq && oc > 8 && (ic_4 % 8 == 0 || ic_4 % 2 == 0)) {
                 baseKeys.emplace_back("conv1x1_wquant_sg_matrix");
 
                 std::string sgmWqStr = basicShaderPrefix + sgmWqShader;
@@ -243,7 +243,17 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                 // Generally threadgroup memory >= 16KB
                 auto smem_size = [[context device] maxThreadgroupMemoryLength];
                 // choose different tile for different computation
-                if(area >= 128 && oc >= 512 && area * oc > 512 * 2048 && smem_size >= 8192) {
+                if(ic_4 % 8 != 0) {
+                    auto keys = baseKeys;
+                    keys.emplace_back("conv1x1_gemm_8x16_wquant_sg");
+                    auto pipeline = rt->findPipeline(keys);
+                    if (nil == pipeline) {
+                        pipeline = backend->makeComputePipelineWithSourceOption(sgmWqStr.c_str(), "conv1x1_gemm_8x16_wquant_sg", option);
+                        rt->insertPipeline(keys, pipeline);
+                    }
+                    mPipeline = pipeline;
+                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(area, 8), UP_DIV(oc, 16), 1), MTLSizeMake(32, 1, 1));
+                } else if(area >= 128 && oc >= 512 && area * oc > 512 * 2048 && smem_size >= 8192) {
                     auto keys = baseKeys;
                     keys.emplace_back("conv1x1_gemm_32x64_wquant_split_k_sg");
                     auto pipeline = rt->findPipeline(keys);
