@@ -40,6 +40,7 @@ public:
 
 private:
     VARP step_plms(VARP sample, VARP model_output, int index);
+    std::vector<VARP> forwardWithResizeCache(int index, const std::vector<VARP>& inputs);
     VARP text_encoder(const std::vector<int>& ids);
     VARP unet(VARP text_embeddings, int iterNum, int randomSeed, std::function<void(int)> progressCallback);
     VARP vae_decoder(VARP latent);
@@ -51,6 +52,7 @@ private:
     VARP mSample;
     VARP mLatentVar, mPromptVar, mTimestepVar, mSampleVar;
     std::vector<float> mInitNoise;
+    std::vector<bool> mResizeCachePrepared;
     int mMaxTextLen = 77;
     std::unique_ptr<Tokenizer> mTokenizer;
 };
