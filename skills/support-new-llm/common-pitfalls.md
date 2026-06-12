@@ -418,6 +418,16 @@ VL（Vision-Language）模型的 `config.json` 通常是嵌套结构（`text_con
 |------|-----------|-----------|------------|------------|
 | gemma3 | `text_config.` | `language_model.model.embed_tokens` | `language_model.model.layers` | `vision_tower.vision_model` |
 | lfm2_vl | `text_config.` | `model.language_model.embed_tokens` | `model.language_model.layers` | `model.vision_tower` |
+| smolvlm | `text_config.` | `model.text_model.embed_tokens` | `model.text_model.layers` | `model.vision_model` |
+| qwen2_vl | _(无前缀)_ | `model.embed_tokens` | `model.layers` | `model.visual` |
+
+> **Qwen2-VL 是例外**：它的文本配置直接在顶层，不需要 `text_config.` 前缀。
+
+### 易犯错误
+
+- 从已有纯文本模型（如 `lfm2`）复制映射到 VL 变体（如 `lfm2_vl`）时，忘记给 config 加 `text_config.` 前缀
+- 忘记给 model 路径加 `model.language_model.` 前缀，导致权重全部加载为 None
+- decoder / attention / linear_attention 等子映射**不需要**加前缀（它们是相对于 block 的局部路径）
 
 ---
 
@@ -429,26 +439,13 @@ VL（Vision-Language）模型的 `config.json` 通常是嵌套结构（`text_con
 
 典型现象：
 
-- `config.json` 顶层能看到 `audio_start_token_id`
-- 但运行时真正可访问的字段在 `thinker_config.audio_start_token_id`
-- 或者 `transformers.models.<name>` 根本不存在，必须先 import 外部包注册模块
-
-如果直接按 JSON 顶层字段写导出逻辑，常见结果是：
-
 - `AutoConfig.from_pretrained()` 无法识别模型
 - audio / vision wrapper 初始化时报 `AttributeError`
-- 多模态 placeholder token 读错层级，导致 embed merge 失败
 
 ### 解决方案
 
 1. **先确认模型是否需要外部包注册。**
-   如果 README/官方用法要求通过独立包加载，不要继续猜 `transformers` 原生是否支持，直接在 `config.py` 的外部 registry 中 import 对应注册模块。
-
-2. **不要只相信 `config.json`。**
-   在 step2 前，必须打印运行时 `config` 对象，确认 text/audio/vision 相关字段的真实层级。
-
-3. **多模态 wrapper 读取 token id 时优先跟随运行时子配置。**
-   例如顶层 config 是组合壳子，真正的音频 token id 在 `thinker_config`，就应该在 wrapper 初始化时切换到该子配置读取。
+   如果模型的 README/官方用法要求通过独立包加载，不要继续猜 `transformers` 原生是否支持，直接下载包并在 `config.py` 的外部 registry 中 import 对应注册模块。
 
 ### 最小检查
 
@@ -464,20 +461,10 @@ print(type(cfg.origin_config), cfg.origin_config)
 
 - 外部包注册已生效
 - 运行时 config 的字段层级和 mapper / audio / vision wrapper 使用的路径一致
-| smolvlm | `text_config.` | `model.text_model.embed_tokens` | `model.text_model.layers` | `model.vision_model` |
-| qwen2_vl | _(无前缀)_ | `model.embed_tokens` | `model.layers` | `model.visual` |
-
-> **Qwen2-VL 是例外**：它的文本配置直接在顶层，不需要 `text_config.` 前缀。
-
-### 易犯错误
-
-- 从已有纯文本模型（如 `lfm2`）复制映射到 VL 变体（如 `lfm2_vl`）时，忘记给 config 加 `text_config.` 前缀
-- 忘记给 model 路径加 `model.language_model.` 前缀，导致权重全部加载为 None
-- decoder / attention / linear_attention 等子映射**不需要**加前缀（它们是相对于 block 的局部路径）
 
 ---
 
-## 13. do_map 静默失败与 rope_theta 间接存储
+## 14. do_map 静默失败与 rope_theta 间接存储
 
 `ModelMapper.do_map()` 在源属性不存在时**不会报错**，静默设为 `None`，post-processing 再用默认值覆盖。最常见的受害者是 **rope_theta**：部分模型（如 LFM2）将 `rope_theta` 存在 `rope_parameters` dict 中而非顶层，导致映射 `'rope_theta': 'rope_theta'` 静默失败，rope_theta 被错误回退为 10000。
 
@@ -487,7 +474,7 @@ print(type(cfg.origin_config), cfg.origin_config)
 
 ---
 
-## 14. 非标准模型加载方式
+## 15. 非标准模型加载方式
 
 ### 问题描述
 
@@ -520,36 +507,21 @@ elif model_type == 'lfm2_audio':
 
 ---
 
-## 15. Audio encoder 导出接口与 C++ runtime 输入约定不一致
+## 16. Audio encoder 导出接口与 C++ runtime 输入约定不一致
 
 ### 问题描述
 
 新增音频模型时，Python 导出侧的 audio encoder 接口很容易和 C++ `Omni::audioProcess()` 的既有假设不一致。常见错位包括：
 
-- 导出模型实际只有 `1` 个输入，但 runtime 误按 `2` 输入（`input_features + attention_mask`）喂数据
-- 导出模型期望 `input_features` 形状是 `[F, T]`，runtime 却沿用旧模型的 `[1, F, T]`
-- 导出配置偷用已有 `audio_type`，导致 runtime 走错分支
+- 导出模型输入个数、形状没对齐
+- 导出配置用已有 `audio_type`，导致 runtime 走错分支
 
-这类问题的表象通常不是“结果稍有偏差”，而是：
-
-- `<audio>...</audio>` prompt 下直接崩溃或 `INTERNAL_ERROR`
-- 音频文件加载和 fbank 正常，但在 `mAudioModule->forward()` / `onForward()` 附近失败
-
-### 判断方法
-
-支持新音频模型时，必须同时核对三件事：
-
-1. `export/utils/audio.py` 中导出的 ONNX/MNN 模型输入个数
-2. 导出模型的 `input_features` 真实 shape 约定
-3. `llm_config.json` 中 `audio_type` 是否足够区分 C++ runtime 分支
-
-不要只验证 Python 侧 `audio_process()` 成功。那只能说明 HF/PyTorch 路径正确，不能说明 C++ runtime 喂给 `audio.mnn` 的输入也正确。
 
 ### 解决方案
 
 - 为接口不兼容的模型定义独立 `audio_type`，不要复用已有类型名
+- 核对`export/utils/audio.py` 中导出的 ONNX/MNN 模型输入个数，以及导出模型的 `input_features` 真实 shape 约定
 - 在 `Omni::audioProcess()` 中按该模型的真实导出接口单独处理输入 shape / 输入数量
-- 对 `tokenizer_encode()` 产出的空 `input_ids` 加保护，避免音频读取失败时直接崩溃
 
 ### 最小验证
 

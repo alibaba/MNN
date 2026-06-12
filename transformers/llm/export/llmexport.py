@@ -35,6 +35,7 @@ class LlmExporter(torch.nn.Module):
         self.args = args
         self.max_new_tokens = 1024
         self.dst_name = 'llm'
+        self.exported_tokenizer_file = 'tokenizer.mtok'
         # load config from args
         self.onnx_path = os.path.join(self.args.dst_path, 'onnx')
         if self.args.tokenizer_path is None:
@@ -49,6 +50,17 @@ class LlmExporter(torch.nn.Module):
             os.makedirs(self.args.dst_path)
         if not os.path.exists(self.onnx_path):
             os.makedirs(self.onnx_path)
+
+    @staticmethod
+    def qwen3_asr_chat_template():
+        return (
+            "{%- set content = messages[-1].content -%}"
+            "<|im_start|>system<|im_end|>"
+            "<|im_start|>user{{ content }}<|im_end|>"
+            "{%- if add_generation_prompt and content is string and '<audio>' in content and '</audio>' in content -%}"
+            "<|im_start|>assistantlanguage {{ asr_language }}<asr_text>"
+            "{%- endif -%}"
+        )
 
     @spinner_run(f'load pretrained model ', True)
     def load_model(self, model_path):
@@ -117,6 +129,16 @@ class LlmExporter(torch.nn.Module):
                 'chat_template': "[gMASK]<sop>{% for message in messages %}{% if message.role == \"user\" %}<|user|>\n{{ message.content }}{% elif message.role == \"assistant\" %}<|assistant|>\n{{ message.content }}{% elif message.role == \"system\" %}<|system|>\n{{ message.content }}{% endif %}{% endfor %}{% if add_generation_prompt %}<|assistant|>\n{% endif %}",
                 'eos': '<|endoftext|>'
             }
+        if self.model_type == 'qwen3_asr':
+            self.llm_config['asr_language'] = self.llm_config.get('asr_language', 'Chinese')
+            self.llm_config['jinja'] = {
+                'chat_template': self.qwen3_asr_chat_template(),
+                'context': {
+                    'asr_language': self.llm_config['asr_language']
+                }
+            }
+            if self.tokenizer.eos_token:
+                self.llm_config['jinja']['eos'] = self.tokenizer.eos_token
 
         # tie word embeddings
         self.args.tie_word_embeddings = not self.args.seperate_embed and self.model.lm.lm.weight.equal(self.model.embed.embed.weight)
@@ -136,7 +158,14 @@ class LlmExporter(torch.nn.Module):
         messages = [
             {"role": "user", "content": query}
         ]
-        prompt = self.tokenizer.apply_chat_template(messages)
+        if self.model_type == 'qwen3_asr':
+            prompt = self.tokenizer.apply_chat_template(
+                messages,
+                chat_template=self.qwen3_asr_chat_template(),
+                asr_language=self.llm_config.get('asr_language', 'Chinese')
+            )
+        else:
+            prompt = self.tokenizer.apply_chat_template(messages)
         if query not in prompt:
             prompt = query
 
@@ -333,7 +362,7 @@ class LlmExporter(torch.nn.Module):
                 "n_gram": 8,
                 "ngram_factor": 1.0
             }
-            config['tokenizer_file'] = 'tokenizer.mtok'
+            config['tokenizer_file'] = self.exported_tokenizer_file
             if self.args.embed_bit < 16:
                 config['embedding_file'] = f"embeddings_int{self.args.embed_bit}.bin"
             if hasattr(self, 'talker') and self.talker is not None:
@@ -708,7 +737,9 @@ class LlmExporter(torch.nn.Module):
 
     @spinner_run(f'export tokenizer to ')
     def export_tokenizer(self):
-        return self.tokenizer.export(self.args.dst_path)
+        tokenizer_path = self.tokenizer.export(self.args.dst_path)
+        self.exported_tokenizer_file = os.path.basename(tokenizer_path)
+        return tokenizer_path
 
 class EmbeddingExporter(LlmExporter):
     def __init__(self, args):
