@@ -7,6 +7,7 @@
 //
 
 #include <limits>
+#include <cstdlib>
 #include "avx512/FunctionSummary.hpp"
 #include "avx/FunctionSummary.hpp"
 #include "AVX2Functions.hpp"
@@ -33,6 +34,43 @@ struct FunctionGroup {
 
 static FunctionGroup gFunc;
 
+static int _MNNApplyCpuTarget(int cpuFlags) {
+#ifdef MNN_PIPELINE_PROFILE
+    const char* cpuTarget = std::getenv("MNN_CPU_TARGET");
+    if (cpuTarget == nullptr) {
+        return cpuFlags;
+    }
+    int target = ::atoi(cpuTarget);
+    if (target < 0) {
+        target = 0;
+    } else if (target > 4) {
+        target = 4;
+    }
+    if (target < 4) {
+        cpuFlags &= ~libyuv::kCpuHasAVX512VNNI;
+    }
+    if (target < 3) {
+        cpuFlags &= ~(libyuv::kCpuHasAVX512BW | libyuv::kCpuHasAVX512VL | libyuv::kCpuHasAVX512VBMI |
+                      libyuv::kCpuHasAVX512VBMI2 | libyuv::kCpuHasAVX512VBITALG |
+                      libyuv::kCpuHasAVX512VPOPCNTDQ);
+    }
+    if (target < 2) {
+        cpuFlags &= ~libyuv::kCpuHasFMA3;
+    }
+    if (target < 1) {
+        cpuFlags &= ~libyuv::kCpuHasAVX2;
+    }
+    MNN_PRINT("MNN_CPU_TARGET=%d effective x86 features: SSE=%d, AVX2=%d, FMA=%d, AVX512=%d, AVX512VNNI=%d\n",
+              target, !!(cpuFlags & libyuv::kCpuHasSSE41), !!(cpuFlags & libyuv::kCpuHasAVX2),
+              !!(cpuFlags & libyuv::kCpuHasFMA3),
+              !!(cpuFlags & (libyuv::kCpuHasAVX512BW | libyuv::kCpuHasAVX512VL |
+                             libyuv::kCpuHasAVX512VBMI | libyuv::kCpuHasAVX512VBMI2 |
+                             libyuv::kCpuHasAVX512VBITALG | libyuv::kCpuHasAVX512VPOPCNTDQ)),
+              !!(cpuFlags & libyuv::kCpuHasAVX512VNNI));
+#endif
+    return cpuFlags;
+}
+
 void _SSEMNNGetMatMulPackMode(int* eP, int *lP, int* hP) {
     *eP = gFunc.eP;
     *lP = gFunc.lP;
@@ -45,6 +83,7 @@ void MNNFunctionInit() {
     cpuFlags |= libyuv::kCpuHasSSE41;
     cpuFlags |= libyuv::kCpuHasSSSE3;
 #endif
+    cpuFlags = _MNNApplyCpuTarget(cpuFlags);
     auto coreFunction = MNN::MNNGetCoreFunctions();
     if (cpuFlags & libyuv::kCpuHasSSSE3) {
         coreFunction->MNNGetMatMulPackMode = _SSEMNNGetMatMulPackMode;
@@ -129,6 +168,7 @@ void MNNMaxPoolInt8_(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputW
 
 void MNNInt8FunctionInit() {
     auto cpuFlags = libyuv::InitCpuFlags();
+    cpuFlags = _MNNApplyCpuTarget(cpuFlags);
     auto core = MNN::MNNGetInt8CoreFunctions();
     auto gcore = MNN::MNNGetCoreFunctions();
     core->MNNAvgPoolInt8 = MNNAvgPoolUint8;

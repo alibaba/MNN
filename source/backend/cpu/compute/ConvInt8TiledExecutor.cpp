@@ -95,7 +95,7 @@ void ConvInt8TiledExecutor::reorderWeight(uint8_t* dst, const uint8_t* src, int3
 
     auto hU = UP_DIV(oc, UNIT);
     auto lU = UP_DIV(ic / blockNum, SRC_UNIT) * kernelCount;
-    bool fast = (kernelCount == 1 && ROUND_UP(oc, UNIT) == oc && ROUND_UP(ic, SRC_UNIT) == ic);
+    bool fast = (kernelCount == 1 && ROUND_UP(oc, UNIT) == oc && (ic % (blockNum * SRC_UNIT)) == 0);
     if (fast) {
         for (int i = 0; i < hU; ++i) {
             for (int k = 0; k < UNIT; ++k) {
@@ -109,42 +109,35 @@ void ConvInt8TiledExecutor::reorderWeight(uint8_t* dst, const uint8_t* src, int3
             }
         }
     } else {
-        AutoStorage<uint8_t> tmpBuffer(ic * kernelCount * ROUND_UP(oc, UNIT));
-        memset(tmpBuffer.get(), 0, tmpBuffer.size());
-
-        auto area = ic * kernelCount;
-        // [oc, ic, k2] -> [hU, ic, k2, hP]
-        for (int i = 0; i < oc; ++i) {
-            auto outId = i / UNIT;
-            auto inId  = i % UNIT;
-            for (int j = 0; j < area; ++j) {
-                tmpBuffer.get()[outId * area * UNIT + j * UNIT + inId] = src[i * area + j];
-            }
-        }
-        // [hU, ic, (k2, hP)] -> [hU, blocknum, lU, (k2, hP), lP]
-        AutoStorage<uint8_t> packedBuffer(weightlen);
-        memset(packedBuffer.get(), 0, weightlen);
-        area = kernelCount * UNIT;
         auto blockic = ic / blockNum;
-        for (int i = 0; i < hU; ++i) {
-            for (int j = 0; j < ic; ++j) {
-                int bk = j / blockic;
-                int blu = (j % blockic) / SRC_UNIT;
-                int blp = (j % blockic) % SRC_UNIT;
-                for (int k = 0; k < area; ++k) {
-                    int dstindex = i * stride0 + bk * stride1 + blu * kernelCount * stride2 + k * SRC_UNIT + blp;
-                    int srcindex = i * ic * area + j * area + k;
-                    packedBuffer.get()[dstindex] = tmpBuffer.get()[srcindex];
-                }
-            }
-        }
-        // [(hU, blocknum), lU, k2, (hP, lP)] -> [(hU, blocknum), k2, lU, (hP, lP)]
-        area = UNIT * SRC_UNIT;
-        auto bklU = UP_DIV(ic, SRC_UNIT) / blockNum;
-        for (int bk = 0; bk < blockNum * hU; ++bk) {
-            for (int i = 0; i < kernelCount; ++i) {
-                for (int j = 0; j < bklU; ++j) {
-                    memcpy(dst + bk * stride1 + i * bklU * area + j * area, packedBuffer.get() + bk * stride1 + i * area + j * kernelCount * area, area);
+        auto bklU = UP_DIV(blockic, SRC_UNIT);
+        for (int i_hU = 0; i_hU < hU; ++i_hU) {
+            int dst_i_hU = i_hU * stride0;
+            for (int bk = 0; bk < blockNum; ++bk) {
+                int dst_bk = dst_i_hU + bk * stride1;
+                int src_bk = bk * blockic * kernelCount;
+                for (int k2 = 0; k2 < kernelCount; ++k2) {
+                    int dst_k2 = dst_bk + k2 * bklU * stride2;
+                    int src_k2 = src_bk + k2;
+                    for (int blu = 0; blu < bklU; ++blu) {
+                        int dst_blu = dst_k2 + blu * stride2;
+                        int src_blu = src_k2 + blu * SRC_UNIT * kernelCount;
+                        for (int inId = 0; inId < UNIT; ++inId) {
+                            int i = i_hU * UNIT + inId;
+                            if (i >= oc) continue;
+                            int dst_inId = dst_blu + inId * SRC_UNIT;
+                            int src_inId = src_blu + i * ic * kernelCount;
+                            
+                            for (int blp = 0; blp < SRC_UNIT; ++blp) {
+                                int j_in_block = blu * SRC_UNIT + blp;
+                                if (j_in_block >= blockic) continue;
+                                
+                                int dstindex = dst_inId + blp;
+                                int srcindex = src_inId + blp * kernelCount;
+                                dst[dstindex] = src[srcindex];
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -502,6 +495,7 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
     if (convOp->bias()) {
         ::memcpy(mResourceInt8->mOriginBias->host<float>(), convOp->bias()->data(), convOp->bias()->size() * sizeof(float));
     }
+    auto coreFuncs = static_cast<CPUBackend*>(backend)->functions();
 
     auto reorderFunc = [=](decltype(mRelatedFunctions) funcs, std::vector<int> shape, int UNIT, int SRC_UNIT, int DST_XUNIT, int weightlen, int scaleSize, int oc, int offsetTg, bool fastReadWeight, int8_t** addressPtr, weightSummerFuncion sumFunc) -> int {
         auto sh = shape;
@@ -525,47 +519,63 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
             int originOffset = 0;
             int32_t info[6] = {blockNum, oc, ic, kernelCount, UNIT, SRC_UNIT};
             if (target->mWeightBits == 4) {
-                originOffset = -8;
-                std::vector<uint8_t> tmpWeight(oc * ic * kernelCount);
-                for (int j = 0; j < oc; ++j) {
-                    for (int k = 0; k < blockNum; ++k) {
-                        for (int i = 0; i < blocksize; ++i) {
-                            int index = j * blockNum * blocksize + k * blocksize + i;
-                            uint8_t w_ = srcPtr[index / 2];
-                            int truew = index % 2 ? (w_ & 0x0f) : (w_ >> 4);
-                            tmpWeight[index] = truew;
+                if (kernelCount == 1 && ROUND_UP(ic, SRC_UNIT) == ic) {
+                    int ocUp = ROUND_UP(oc, UNIT);
+                    int rowBytes = ic * kernelCount / 2;
+                    AutoStorage<uint8_t> paddedWeight(ocUp * rowBytes);
+                    if (paddedWeight.get() == nullptr) {
+                        MNN_ERROR("Weight reorder memory not enough!\n");
+                        return -1;
+                    }
+                    ::memset(paddedWeight.get(), 0, ocUp * rowBytes);
+                    for (int o = 0; o < oc; ++o) {
+                        ::memcpy(paddedWeight.get() + o * rowBytes, srcPtr + o * rowBytes, rowBytes);
+                    }
+                    funcs.MNNReorderWeightInt4(reinterpret_cast<uint8_t*>(weightReordered.get()), paddedWeight.get(),
+                                               sh.data(), sh.size(), reinterpret_cast<float*>(kernelsum.get()));
+                } else {
+                    originOffset = -8;
+                    std::vector<uint8_t> tmpWeight(oc * ic * kernelCount);
+                    for (int j = 0; j < oc; ++j) {
+                        for (int k = 0; k < blockNum; ++k) {
+                            for (int i = 0; i < blocksize; ++i) {
+                                int index = j * blockNum * blocksize + k * blocksize + i;
+                                uint8_t w_ = srcPtr[index / 2];
+                                int truew = index % 2 ? (w_ & 0x0f) : (w_ >> 4);
+                                tmpWeight[index] = truew;
+                            }
                         }
                     }
-                }
-                AutoStorage<uint8_t> packedInt8weight(weightlen * 2);
-                if (packedInt8weight.get() == nullptr) {
-                    MNN_ERROR("Weight reorder memory not enough!\n");
-                    return -1;
-                }
+                    AutoStorage<uint8_t> packedInt8weight(weightlen * 2);
+                    if (packedInt8weight.get() == nullptr) {
+                        MNN_ERROR("Weight reorder memory not enough!\n");
+                        return -1;
+                    }
 
-                reorderWeight(packedInt8weight.get(), (uint8_t*)tmpWeight.data(), info, 0, (float*)kernelsum.get(), sumFunc);
+                    reorderWeight(packedInt8weight.get(), (uint8_t*)tmpWeight.data(), info, 0, (float*)kernelsum.get(), sumFunc);
 
-                // pack two int4 to int8
-                int leng = weightlen * 2;
-                auto srcint4Ptr = (uint8_t*)packedInt8weight.get();
-                auto dstint4Ptr = (uint8_t*)weightReordered.get();
-                int permuteUnit = UNIT * SRC_UNIT;
-                int halfPermuteStride = static_cast<int32_t>(permuteUnit / 2);
-                for (int i = 0; i < leng / permuteUnit; ++i) {
-                    auto src0 = srcint4Ptr + i * permuteUnit;
-                    auto dst0 = dstint4Ptr + i * halfPermuteStride;
-                    for (int j = 0; j < halfPermuteStride; ++j) {
-                        int s0, s1, d;
-                        if (DST_XUNIT == GEMM_INT8_DST_XUNIT_SME2) { // SME2
-                            s0 = src0[2 * j + 0];
-                            s1 = src0[2 * j + 1];
-                            d = s0 + (s1) * 16;
-                        } else {
-                            s0 = src0[j];
-                            s1 = src0[j + halfPermuteStride];
-                            d = (s0) * 16 + (s1);
+                    // pack two int4 to int8
+                    int leng = weightlen * 2;
+                    auto srcint4Ptr = (uint8_t*)packedInt8weight.get();
+                    auto dstint4Ptr = (uint8_t*)weightReordered.get();
+                    int permuteUnit = UNIT * SRC_UNIT;
+                    int halfPermuteStride = static_cast<int32_t>(permuteUnit / 2);
+                    for (int i = 0; i < leng / permuteUnit; ++i) {
+                        auto src0 = srcint4Ptr + i * permuteUnit;
+                        auto dst0 = dstint4Ptr + i * halfPermuteStride;
+                        for (int j = 0; j < halfPermuteStride; ++j) {
+                            int s0, s1, d;
+                            if (DST_XUNIT == GEMM_INT8_DST_XUNIT_SME2) { // SME2
+                                s0 = src0[2 * j + 0];
+                                s1 = src0[2 * j + 1];
+                                d = s0 + (s1) * 16;
+                            } else {
+                                s0 = src0[j];
+                                s1 = src0[j + halfPermuteStride];
+                                d = (s0) * 16 + (s1);
+                            }
+                            dst0[j] = d;
                         }
-                        dst0[j] = d;
                     }
                 }
             } else if (target->mWeightBits == 2) {
