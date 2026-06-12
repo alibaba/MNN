@@ -69,6 +69,11 @@ public:
     bool mnn2json = false;
     bool dumpInfo = false;
     bool saveExternalData = false;
+    bool rknnSidecar = false;
+    std::string rknnTarget = "";
+    std::string rknnPython = "";
+    std::string rknnScript = "";
+    std::string rknnOutputDir = "";
     bool inSubGraph = false;
     // using external data when convert
     int64_t externalTreshold = 1024 * 64;
@@ -79,6 +84,7 @@ public:
     bool splitQuantBlock = false;
     // Enable verbose output for each optimization pass (like LLVM's -debug-pass)
     bool dumpPass = false;
+    int cliExitCode = 1;
 };
 
 #endif // CONFIG_HPP

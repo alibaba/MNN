@@ -264,7 +264,10 @@ public:
         CPU_SME2_NEON_DIVISION_RATIO = 17,
 
         // Set SME cores, default is 2, if supports sme
-        CPU_SME_CORES = 18
+        CPU_SME_CORES = 18,
+
+        // Enable backend-side profiling export for runtimes that support it.
+        RKNN_PROFILE = 19
     };
 
     enum ExternalPathType {
@@ -462,6 +465,9 @@ public:
 
         /** Mode / NumberThread, int* */
         THREAD_NUMBER = 4,
+
+        /** Backend-specific profile text, const char** */
+        BACKEND_PROFILE = 5,
 
         ALL
     };
