@@ -251,6 +251,7 @@ class Qwen3ASRAudio(Audio):
         self.llm_config['audio_start'] = self.audio_start_id
         self.llm_config['audio_end'] = self.audio_end_id
         self.llm_config['audio_pad'] = self.audio_pad_id
+        self.llm_config['asr_language'] = 'Chinese'
         self.export_model = Qwen3ASRAudioExportModel(self.audio_tower)
 
     def forward(self, input_features):
