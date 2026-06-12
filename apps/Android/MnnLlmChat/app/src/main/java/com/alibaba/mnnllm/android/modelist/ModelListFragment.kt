@@ -418,7 +418,6 @@ class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
                 modelName = modelMarketItem.modelName,
                 modelSize = modelMarketItem.sizeB,
                 onConfirm = {
-                    // User confirmed, proceed with running the model
                     ChatRouter.startRun(requireContext(), modelId!!, destPath, null)
                 },
                 onCancel = {
@@ -426,7 +425,6 @@ class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
                 }
             )
         } else {
-            // Model is not large or size info not available, run directly
             ChatRouter.startRun(requireContext(), modelId!!, destPath, null)
         }
     }

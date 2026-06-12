@@ -22,10 +22,29 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:layout_below="@id/history_title"
+        android:layout_above="@id/button_workspace_files"
         android:visibility="visible"
         android:overScrollMode="never"
         android:clipToPadding="false"
         android:paddingBottom="8dp" />
+
+    <TextView
+        android:id="@+id/button_workspace_files"
+        android:layout_width="match_parent"
+        android:layout_height="76dp"
+        android:layout_alignParentBottom="true"
+        android:gravity="center"
+        android:drawableTop="@drawable/ic_folder_24dp"
+        android:drawablePadding="4dp"
+        android:drawableTint="?colorPrimary"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:text="@string/workspace_files"
+        android:textColor="?colorPrimary"
+        android:textSize="15sp" />
+
     <TextView
         android:id="@+id/text_no_history"
         android:layout_width="wrap_content"
