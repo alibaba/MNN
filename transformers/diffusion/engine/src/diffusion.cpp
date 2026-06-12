@@ -4,6 +4,7 @@
 #include "diffusion/diffusion.hpp"
 #include "diffusion/stable_diffusion.hpp"
 #include "diffusion/sana_diffusion.hpp"
+#include "diffusion/wan_diffusion.hpp"
 
 #if defined(_MSC_VER)
 #include <Windows.h>
@@ -38,10 +39,27 @@ Diffusion::~Diffusion() {
     runtime_manager_.reset();
 }
 
+bool Diffusion::runVideo(const std::string& prompt, const std::string& outputDir, int width, int height, int frames,
+                         int steps, int seed, float cfgScale, std::function<void(int)> progressCallback) {
+    (void)prompt;
+    (void)outputDir;
+    (void)width;
+    (void)height;
+    (void)frames;
+    (void)steps;
+    (void)seed;
+    (void)cfgScale;
+    (void)progressCallback;
+    MNN_ERROR("This diffusion model does not support video generation.\n");
+    return false;
+}
+
 // Factory Method
 Diffusion* Diffusion::createDiffusion(std::string modelPath, DiffusionModelType modelType, MNNForwardType backendType, int memoryMode) {
     if (modelType == SANA_DIFFUSION) {
         return new SanaDiffusion(modelPath, modelType, backendType, memoryMode);
+    } else if (modelType == WAN2_1_T2V) {
+        return new WanDiffusion(modelPath, modelType, backendType, memoryMode);
     } else {
         return new StableDiffusion(modelPath, modelType, backendType, memoryMode);
     }

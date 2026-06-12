@@ -17,6 +17,7 @@
 #include <math.h>
 #include "math/Vec.hpp"
 #include <vector>
+#include <cstdlib>
 #include "../CPURuntime.hpp"
 #include "core/MemoryFormater.h"
 // TODO: Find better way to optimize it
@@ -4745,6 +4746,22 @@ void MNNCoreFunctionInit() {
     gCoreFunction->supportRVV = gCPUInfo.rvv;
 
     gCoreFunction->smeCoreNumber = gCPUInfo.smeCoreNumber;
+#ifdef MNN_PIPELINE_PROFILE
+    if (const char* cpuTarget = std::getenv("MNN_CPU_TARGET")) {
+        int target = ::atoi(cpuTarget);
+        target = std::max(0, std::min(target, 3));
+        gCoreFunction->supportFp16arith = gCoreFunction->supportFp16arith && target >= 1;
+        gCoreFunction->supportSDot = gCoreFunction->supportSDot && target >= 1;
+        gCoreFunction->supportI8mm = gCoreFunction->supportI8mm && target >= 2;
+        gCoreFunction->supportSME2 = gCoreFunction->supportSME2 && target >= 3;
+        if (!gCoreFunction->supportSME2) {
+            gCoreFunction->smeCoreNumber = 0;
+        }
+        MNN_PRINT("MNN_CPU_TARGET=%d effective ARM features: fp16=%d, i8sdot=%d, i8mm=%d, sme2=%d\n",
+                  target, gCoreFunction->supportFp16arith, gCoreFunction->supportSDot,
+                  gCoreFunction->supportI8mm, gCoreFunction->supportSME2);
+    }
+#endif
     gCoreFunction->MNNSumByAxisLForMatmul_A = MNNSumByAxisLForMatmul_A;
     gCoreFunction->MNNReorderWeightInt4 = MNNReorderWeightInt4;
     gCoreFunction->MNNSumWeightInt8 = MNNSumWeightInt8;

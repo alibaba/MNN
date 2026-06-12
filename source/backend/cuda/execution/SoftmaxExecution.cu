@@ -183,7 +183,6 @@ ErrorCode SoftmaxExecution::onResize(const std::vector<Tensor *> &inputs, const 
     mCpuParam.outside = outside;
     mCpuParam.axis = input->length(axis);
 
-    // printf("\nsoftmax:%d-%d-%d, %d-%d\n", mCpuParam.inside, mCpuParam.outside, mCpuParam.axis, mNeedUnpackC4, axis);
     return NO_ERROR;
 }
 
@@ -198,9 +197,6 @@ ErrorCode SoftmaxExecution::onExecute(const std::vector<Tensor *> &inputs, const
         dst = (void*)mStorage.deviceId();
     }
 
-    //MNN_PRINT("softmax input dims:%d, size:%d-%d-%d-%d\n", inputs[0]->dimensions(), inputs[0]->batch(), inputs[0]->height(), inputs[0]->width(), inputs[0]->channel());
-    //MNN_PRINT("softmax storage dims:%d, size:%d-%d-%d-%d\n", mStorage.dimensions(), mStorage.batch(), mStorage.height(), mStorage.width(), mStorage.channel());
-
     auto runtime = static_cast<CUDABackend*>(backend())->getCUDARuntime();
     int inside = mCpuParam.inside;
     int outside = mCpuParam.outside;
@@ -208,8 +204,11 @@ ErrorCode SoftmaxExecution::onExecute(const std::vector<Tensor *> &inputs, const
     int count = inside * outside;
     int block_num = runtime->blocks_num(count);
     int threads_num = runtime->threads_num();
-    if (static_cast<CUDABackend*>(backend())->useFp16()) {
-	if(axis % 256 == 0 || axis >= 768) {
+
+    bool isHalf = (inputs[0]->getType().bits == 16);
+
+    if (isHalf) {
+        if(axis % 256 == 0 || axis >= 768) {
             block_num = count;
             int calc_multi_num = (axis + 255) / 256;
             SOFTMAX_AXIS_REDUCE<<<block_num, 256>>>((const half*)input, (half*)dst, inside, axis, 256, calc_multi_num, outside, count);
@@ -249,6 +248,7 @@ ErrorCode SoftmaxExecution::onExecute(const std::vector<Tensor *> &inputs, const
             checkKernelErrors;
         }
     }
+
     if (mNeedUnpackC4) {
         backend()->onCopyBuffer(&mStorage, outputs[0]);
     }
@@ -271,5 +271,12 @@ public:
 };
 
 static CUDACreatorRegister<SoftmaxCreator> __init(OpType_Softmax);
+
+template __global__ void SOFTMAX<float>(const float*, float*, const int, const int, const int, const int);
+template __global__ void SOFTMAX_WARP_32<float>(const float*, float*, const int, const int, const int, const int);
+template __global__ void SOFTMAX_AXIS_REDUCE<float>(const float*, float*, const int, const int, const int, const int, const int, const int);
+template __global__ void SOFTMAX<half>(const half*, half*, const int, const int, const int, const int);
+template __global__ void SOFTMAX_WARP_32<half>(const half*, half*, const int, const int, const int, const int);
+template __global__ void SOFTMAX_AXIS_REDUCE<half>(const half*, half*, const int, const int, const int, const int, const int, const int);
 }
 }
