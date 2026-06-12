@@ -263,7 +263,6 @@ VARP StableDiffusion::unet(VARP text_embeddings, int iterNum, int randomSeed, st
     auto scaleptr = scalevar->writeMap<float>();
     scaleptr[0] = 7.5;
 
-    
     auto floatVar = _Input({1}, NCHW, halide_type_of<float>());
     auto ptr = floatVar->writeMap<float>();
     auto plms = mLatentVar;
