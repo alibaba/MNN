@@ -12,8 +12,9 @@ using namespace MNN::DIFFUSION;
 
 int main(int argc, const char* argv[]) {
     if (argc < 12) {
-        MNN_PRINT("Usage: ./wan_diffusion_demo <resource_path> <memory_mode> <backend_type> <steps> <seed> "
-                  "<width> <height> <frames> <cfg_scale> <output_dir> <prompt_text>\n");
+        MNN_PRINT(
+            "Usage: ./wan_diffusion_demo <resource_path> <memory_mode> <backend_type> <steps> <seed> "
+            "<width> <height> <frames> <cfg_scale> <output_dir> <prompt_text>\n");
         return 0;
     }
 
@@ -43,8 +44,7 @@ int main(int argc, const char* argv[]) {
     MNN_PRINT("Output dir: %s\n", outputDir.c_str());
     MNN_PRINT("Prompt: %s\n", prompt.c_str());
 
-    std::unique_ptr<Diffusion> diffusion(
-        Diffusion::createDiffusion(resourcePath, WAN2_1_T2V, backendType, memoryMode));
+    std::unique_ptr<Diffusion> diffusion(Diffusion::createDiffusion(resourcePath, WAN2_1_T2V, backendType, memoryMode));
     if (!diffusion) {
         MNN_ERROR("Failed to create Wan diffusion instance\n");
         return -1;
@@ -54,11 +54,11 @@ int main(int argc, const char* argv[]) {
         return -1;
     }
 
-    bool success = diffusion->runVideo(prompt, outputDir, width, height, frames, steps, seed, cfgScale,
-                                       [](int progress) {
-                                           printf("Progress: %d%%\r", progress);
-                                           fflush(stdout);
-                                       });
+    bool success =
+        diffusion->runVideo(prompt, outputDir, width, height, frames, steps, seed, cfgScale, [](int progress) {
+            printf("Progress: %d%%\r", progress);
+            fflush(stdout);
+        });
     printf("\n");
     if (!success) {
         MNN_ERROR("Wan video generation failed\n");

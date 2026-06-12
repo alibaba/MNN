@@ -67,16 +67,9 @@ public:
                     float cfg_scale,
                     std::function<void(int)> progressCallback) = 0;
 
-    virtual bool runVideo(const std::string& prompt,
-                          const std::string& outputDir,
-                          int width,
-                          int height,
-                          int frames,
-                          int steps,
-                          int seed,
-                          float cfgScale,
-                          std::function<void(int)> progressCallback);
-    
+    virtual bool runVideo(const std::string& prompt, const std::string& outputDir, int width, int height, int frames,
+                          int steps, int seed, float cfgScale, std::function<void(int)> progressCallback);
+
     virtual bool load() = 0;
 
 protected:

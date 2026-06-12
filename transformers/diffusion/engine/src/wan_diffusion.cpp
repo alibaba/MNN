@@ -87,8 +87,8 @@ bool WanDiffusion::load() {
     mModules.resize(3);
     {
         std::string modelPath = mModelPath + "/text_encoder.mnn";
-        mModules[0].reset(Module::load({"input_ids"}, {"last_hidden_state"}, modelPath.c_str(), runtime_manager_,
-                                        &moduleConfig));
+        mModules[0].reset(
+            Module::load({"input_ids"}, {"last_hidden_state"}, modelPath.c_str(), runtime_manager_, &moduleConfig));
         if (!mModules[0]) {
             MNN_ERROR("Failed to load Wan text_encoder from %s\n", modelPath.c_str());
             return false;
@@ -96,9 +96,8 @@ bool WanDiffusion::load() {
     }
     {
         std::string modelPath = mModelPath + "/transformer.mnn";
-        mModules[1].reset(Module::load({"hidden_states", "timestep", "encoder_hidden_states",
-                                         "encoder_attention_mask"},
-                                        {"noise_pred"}, modelPath.c_str(), runtime_manager_, &moduleConfig));
+        mModules[1].reset(Module::load({"hidden_states", "timestep", "encoder_hidden_states", "encoder_attention_mask"},
+                                       {"noise_pred"}, modelPath.c_str(), runtime_manager_, &moduleConfig));
         if (!mModules[1]) {
             MNN_ERROR("Failed to load Wan transformer from %s\n", modelPath.c_str());
             return false;
@@ -106,8 +105,8 @@ bool WanDiffusion::load() {
     }
     {
         std::string modelPath = mModelPath + "/vae_decoder.mnn";
-        mModules[2].reset(Module::load({"latent_sample"}, {"sample"}, modelPath.c_str(), runtime_manager_,
-                                        &moduleConfig));
+        mModules[2].reset(
+            Module::load({"latent_sample"}, {"sample"}, modelPath.c_str(), runtime_manager_, &moduleConfig));
         if (!mModules[2]) {
             MNN_ERROR("Failed to load Wan vae_decoder from %s\n", modelPath.c_str());
             return false;
@@ -175,8 +174,7 @@ VARP WanDiffusion::encodePrompt(const std::string& prompt, int* seqLen, VARP* ou
     return hiddenStates;
 }
 
-VARP WanDiffusion::transformer(VARP hiddenStates, VARP timestep, VARP encoderHiddenStates,
-                               VARP encoderAttentionMask) {
+VARP WanDiffusion::transformer(VARP hiddenStates, VARP timestep, VARP encoderHiddenStates, VARP encoderAttentionMask) {
     auto outputs = mModules[1]->onForward({hiddenStates, timestep, encoderHiddenStates, encoderAttentionMask});
     if (outputs.empty() || outputs[0].get() == nullptr) {
         return nullptr;
@@ -240,8 +238,9 @@ bool WanDiffusion::saveVideoFrames(VARP sample, const std::string& outputDir, in
     }
 
     if (info->dim[1] != 3) {
-        MNN_PRINT("Warning: Wan VAE 5D output shape is not NCTHW with C=3; frame saving is not implemented for "
-                  "this layout\n");
+        MNN_PRINT(
+            "Warning: Wan VAE 5D output shape is not NCTHW with C=3; frame saving is not implemented for "
+            "this layout\n");
         return false;
     }
 
@@ -272,9 +271,8 @@ bool WanDiffusion::saveVideoFrames(VARP sample, const std::string& outputDir, in
     return saved > 0;
 }
 
-bool WanDiffusion::runVideo(const std::string& prompt, const std::string& outputDir, int width, int height,
-                            int frames, int steps, int seed, float cfgScale,
-                            std::function<void(int)> progressCallback) {
+bool WanDiffusion::runVideo(const std::string& prompt, const std::string& outputDir, int width, int height, int frames,
+                            int steps, int seed, float cfgScale, std::function<void(int)> progressCallback) {
     AUTOTIME;
     if (mModules.size() < 3 || !mModules[0] || !mModules[1] || !mModules[2]) {
         MNN_ERROR("Wan modules are not loaded. Please call load() first.\n");

@@ -24,27 +24,12 @@ public:
     virtual bool run(const std::string prompt, const std::string imagePath, int iterNum, int randomSeed,
                      std::function<void(int)> progressCallback) override;
 
-    virtual bool run(const VARP input_embeds,
-                     const std::string& mode,
-                     const std::string& inputImagePath,
-                     const std::string& outputImagePath,
-                     int width,
-                     int height,
-                     int iterNum,
-                     int randomSeed,
-                     bool use_cfg,
-                     float cfg_scale,
-                     std::function<void(int)> progressCallback) override;
+    virtual bool run(const VARP input_embeds, const std::string& mode, const std::string& inputImagePath,
+                     const std::string& outputImagePath, int width, int height, int iterNum, int randomSeed,
+                     bool use_cfg, float cfg_scale, std::function<void(int)> progressCallback) override;
 
-    bool runVideo(const std::string& prompt,
-                  const std::string& outputDir,
-                  int width,
-                  int height,
-                  int frames,
-                  int steps,
-                  int seed,
-                  float cfgScale,
-                  std::function<void(int)> progressCallback) override;
+    bool runVideo(const std::string& prompt, const std::string& outputDir, int width, int height, int frames, int steps,
+                  int seed, float cfgScale, std::function<void(int)> progressCallback) override;
 
 private:
     VARP encodePrompt(const std::string& prompt, int* seqLen, VARP* outMask);
