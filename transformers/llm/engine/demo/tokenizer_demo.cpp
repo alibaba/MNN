@@ -12,7 +12,7 @@ using namespace MNN::Transformer;
 
 int main(int argc, const char* argv[]) {
     if (argc < 2) {
-        std::cout << "Usage: " << argv[0] << " tokenizer.txt [bench|test]" << std::endl;
+        std::cout << "Usage: " << argv[0] << " tokenizer.txt [bench|test|encode] [text]" << std::endl;
         return 0;
     }
     std::string tokenizer_path = argv[1];
@@ -93,6 +93,23 @@ int main(int argc, const char* argv[]) {
         }
         printf("Decode: avg %.4f ms / token (%d tokens x %d rounds)\n",
                decode_total / (decode_rounds * sample_ids.size()), (int)sample_ids.size(), decode_rounds);
+        return 0;
+    }
+
+    if (mode == "encode") {
+        if (argc < 4) {
+            std::cerr << "Usage: " << argv[0] << " tokenizer.txt encode \"text\"" << std::endl;
+            return 1;
+        }
+        std::unique_ptr<Tokenizer> tokenizer(Tokenizer::createTokenizer(tokenizer_path));
+        auto ids = tokenizer->encode(argv[3]);
+        std::cout << "len=" << ids.size() << std::endl;
+        std::cout << "ids=[";
+        for (size_t i = 0; i < ids.size(); ++i) {
+            if (i > 0) std::cout << ", ";
+            std::cout << ids[i];
+        }
+        std::cout << "]" << std::endl;
         return 0;
     }
 

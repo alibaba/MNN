@@ -66,6 +66,36 @@ Valid filters: `all` (default) · `cpu` · `opencl` · `opencl-image` ·
   `logs/test_ci-<UTC-timestamp>/<stage>.log` — read the named log of a failing
   stage for the trailing output. `rc=137` ≈ OOM-kill, `rc=139` ≈ SIGSEGV.
 
+## Important pitfall for rebuild-driven smoke tests
+
+When a verification depends on a freshly rebuilt binary (for example `llm_demo`
+or `embedding_demo` after resolving a merge conflict), do not trust smoke-test
+results gathered while the target is still compiling or before the final link
+step has completed. A stale executable can report an old runtime failure and
+send debugging in the wrong direction.
+
+Preferred flow:
+
+1. Wait for the target build to finish and confirm the final executable link
+   step succeeded.
+2. Only then rerun the smoke test and treat that result as authoritative.
+
+## Important pitfall for `llm_demo` prompt-file smoke tests
+
+`transformers/llm/engine/demo/llm_demo.cpp` reads prompt files **one line per
+prompt** in the default build. That means a multiline chat template (for
+example an ASR prompt laid out across several lines with `<|im_start|>` /
+`<|im_end|>`) is silently split into multiple independent prompts and usually
+fails or produces empty output.
+
+For multimodal / ASR smoke tests:
+
+* Prefer a **single-line** prompt file for `llm_demo`.
+* If a model requires a full chat template, collapse it to one line before
+  running the test.
+* Do not treat an empty decode or `decode tokens num = 1` from a multiline
+  prompt file as a model failure until you have retried with a one-line prompt.
+
 ## Environment variables
 
 | Var | Mode | Meaning |
