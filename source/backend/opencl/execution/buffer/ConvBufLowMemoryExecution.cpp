@@ -1238,10 +1238,13 @@ ErrorCode ConvBufLowMemoryExecution::onResize(const std::vector<Tensor *> &input
                 std::pair<std::vector<uint32_t>, uint32_t> tuneInfo;
                 std::string info = "convBufLowMemory_" + std::to_string(mResource->mInputChannel) + "_" + std::to_string(mResource->mOutputChannel);
                 if(batch > 16){
-                    if(getTunedInfo(info, {static_cast<unsigned int>(batch)}, tuneInfo, mOpenCLBackend->getOpenCLRuntime())){
+                    if (getTunedInfo(info, {static_cast<unsigned int>(batch)}, tuneInfo,
+                                     mOpenCLBackend->getOpenCLRuntime(), mOpenCLBackend->getCLTuneLevel())) {
                         mUseFPWeight = tuneInfo.first[0];
-                    } else{
-                        if((mOpenCLBackend->getCLTuneLevel() == Heavy || mOpenCLBackend->getCLTuneLevel() == Wide)){
+                    } else {
+                        // The Fast level expects to compare the performance of two branches during the resize stage.
+                        // Since this uses heuristic settings, tuning is skipped.
+                        if (mOpenCLBackend->getCLTuneLevel() != None) {
                             setRecordClose closeRecord(mOpenCLBackend);
                             tuneGemmLowMemory(input, output);
                             auto shortBatchTime = getExecuteTime();
@@ -1254,7 +1257,7 @@ ErrorCode ConvBufLowMemoryExecution::onResize(const std::vector<Tensor *> &input
                             }
                             std::pair<std::vector<uint32_t>, uint32_t> tuneInfoTmp = std::make_pair<std::vector<uint32_t>, uint32_t>({mUseFPWeight}, 0);
                             setTunedInfo(info, {static_cast<unsigned int>(batch)}, tuneInfoTmp, mOpenCLBackend->getOpenCLRuntime(), "gemm_conv1x1_buf");
-                        } else{
+                        } else {
                             if(batch > 512){
                                 mUseFPWeight = true;
                             }

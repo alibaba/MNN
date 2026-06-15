@@ -106,12 +106,13 @@ class LlmConfig(PretrainedConfig):
                 llm_config.head_dim = llm_config.hidden_size // llm_config.num_attention_heads
 
         # Determine attention type.
-        # Qwen3.5 mixed-attention models mark non-full layers as
-        # `linear_attention`; reuse the existing mix path for them.
+        # Only `sliding_attention` layers need a sliding-window mask and
+        # therefore the "mix" path.  `linear_attention` layers (e.g. Qwen3.5)
+        # do not use the attention mask at all, so they are treated as full.
         sliding_attn_layers = []
         if hasattr(llm_config, 'layer_types') and llm_config.layer_types:
             for i in range(len(llm_config.layer_types)):
-                if llm_config.layer_types[i] in ('sliding_attention', 'linear_attention'):
+                if llm_config.layer_types[i] == 'sliding_attention':
                     sliding_attn_layers.append(i)
 
         if llm_config.num_hidden_layers and len(sliding_attn_layers) >= llm_config.num_hidden_layers:
@@ -121,7 +122,6 @@ class LlmConfig(PretrainedConfig):
             llm_config.sliding_attn_layers = sliding_attn_layers
         else:
             llm_config.attention_type = 'full'
-
         return llm_config
 
 # export config
