@@ -7,6 +7,7 @@
 //
 
 #include "backend/opencl/core/OpenCLRunningUtils.hpp"
+#include "backend/opencl/core/OpenCLTuneHeuristic.hpp"
 #include <algorithm>
 #include <string>
 #include <math.h>
@@ -274,8 +275,23 @@ std::vector<uint32_t> getGemmParams(const std::vector<uint32_t> &gemmSize, const
     if(thread_ratio >= 1.0 && is_div) {
         params_prefer.assign({16, 2, 16, 16, 64 , 8 , 8 , 32 , 0, 0, 0, 0, 4, 4});
     }
-    
-    if(tuneLevel == None) {
+
+    if (tuneLevel == None || tuneLevel == Fast) {
+        // Use heuristic Xgemm parameters based on GPU type and level
+        {
+            auto heuristicParams = getHeuristicXgemmParams(gemmSize[0], gemmSize[1], gemmSize[2], gemmSize[4],
+                                                           runtime->getGpuType(), runtime->getGpuLevel());
+            // Validate the heuristic params (empty means no recommendation for this device)
+            if (heuristicParams.size() == 14 &&
+                isCandidateValid(heuristicParams[0], heuristicParams[1], heuristicParams[4], heuristicParams[3],
+                                 heuristicParams[12], heuristicParams[7], heuristicParams[6], heuristicParams[13],
+                                 heuristicParams[2], heuristicParams[5], heuristicParams[8], heuristicParams[9],
+                                 runtime, gemmSize, precision)) {
+                return heuristicParams;
+            }
+        }
+
+        // Fallback to original simple heuristic
         float multiNum = 1.0 * gemmSize[0] / 512.0 * gemmSize[1] / 512.0 * gemmSize[2] / 512.0;
         int maxDivsorM = getMaxDivisor(gemmSize[0]);
         int maxDivsorN = getMaxDivisor(gemmSize[1]);
