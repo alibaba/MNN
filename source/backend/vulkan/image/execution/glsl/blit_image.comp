@@ -1,7 +1,12 @@
 #version 440 core
 layout(std430) buffer;
+#ifdef INT
+layout(set=0, binding=0) writeonly uniform iimage2D uOutput;
+layout(set=0, binding=1) uniform isampler2D uInput;
+#else
 layout(set=0, binding=0) writeonly uniform image2D uOutput;
 layout(set=0, binding=1) uniform sampler2D uInput;
+#endif
 
 layout(set=0, binding=2) uniform constBuffer{
     ivec4 stride;
@@ -28,7 +33,7 @@ void main()
             + uConstant.stride.y * pos.y
             + uConstant.stride.x * pos.x
             ;
-        
+
         int dstOffset = uConstant.extent.w
             + pos.x * uConstant.extent.x
             + pos.y * uConstant.extent.y
@@ -45,7 +50,12 @@ void main()
         int dstZ = dstOffset / (uConstant.imageSize.z * uConstant.imageSize.w);
         int dstB = dstZ / uConstant.depth.y;
         dstZ = dstZ % uConstant.depth.y;
+#ifdef INT
+        ivec4 color = texelFetch(uInput, ivec2(srcX+srcZ*uConstant.imageSize.x, srcY+srcB*uConstant.imageSize.y), 0);
+        imageStore(uOutput, ivec2(dstX+dstZ*uConstant.imageSize.z, dstY+dstB*uConstant.imageSize.w), color);
+#else
         vec4 color = texelFetch(uInput, ivec2(srcX+srcZ*uConstant.imageSize.x, srcY+srcB*uConstant.imageSize.y), 0);
         imageStore(uOutput, ivec2(dstX+dstZ*uConstant.imageSize.z, dstY+dstB*uConstant.imageSize.w), color);
+#endif
     }
 }

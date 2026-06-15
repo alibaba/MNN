@@ -62,6 +62,7 @@ extern void ___OpenCLInterp3DCreator__OpType_Interp3D__IMAGE__();
 extern void ___OpenCLCastCreator__OpType_Cast__IMAGE__();
 extern void ___OpenCLInterpCreator__OpType_Interp__IMAGE__();
 extern void ___OpenCLGridSampleCreator__OpType_GridSample__IMAGE__();
+extern void ___OpenCLTopKV2Creator__OpType_TopKV2__IMAGE__();
 
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 extern void ___OpenCLSelfAttentionBufCreator__OpType_FmhaV2__BUFFER__();
@@ -131,6 +132,7 @@ ___OpenCLInterp3DCreator__OpType_Interp3D__IMAGE__();
 ___OpenCLCastCreator__OpType_Cast__IMAGE__();
 ___OpenCLInterpCreator__OpType_Interp__IMAGE__();
 ___OpenCLGridSampleCreator__OpType_GridSample__IMAGE__();
+___OpenCLTopKV2Creator__OpType_TopKV2__IMAGE__();
 
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 ___OpenCLSelfAttentionBufCreator__OpType_FmhaV2__BUFFER__();
