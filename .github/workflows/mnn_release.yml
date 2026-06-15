@@ -38,7 +38,7 @@ jobs:
       run: |
         # j24 -> j4 avoid ld signal 9
         sed -i "s/-j24/-j4/g" package_scripts/linux/build_lib.sh
-        # LLM (+ omni multi-modal) is enabled by default in build_lib.sh
+        # LLM (+ vision/audio) is already enabled in build_lib.sh by default.
         ./package_scripts/linux/build_lib.sh -o ${{ env.PACKAGENAME }}/lib -b opencl,vulkan -s -c
     - name: package
       run: |
@@ -64,7 +64,8 @@ jobs:
       uses: ilammy/msvc-dev-cmd@v1
 
     - name: build
-      # LLM (+ omni multi-modal) + OpenCL + Vulkan + AVX512 are enabled by default in build_lib_release.ps1
+      # LLM (+ vision/audio) + OpenCL + Vulkan + AVX512 are already enabled in
+      # build_lib_release.ps1 by default.
       run: powershell .\package_scripts\win\build_lib_release.ps1 -path ${{ env.PACKAGENAME }}
     - name: package
       run: 7z a -r ${{ env.PACKAGENAME }}.zip ${{ env.PACKAGENAME }}
@@ -85,8 +86,16 @@ jobs:
         submodules: true
 
     - name: build
-      # LLM (+ omni multi-modal) + SME2 are enabled by default in buildFrameWork.sh
-      run: ./package_scripts/mac/buildFrameWork.sh
+      # Pass release-specific cmake args via `$*` (forwarded to cmake by buildFrameWork.sh).
+      # - MNN_BUILD_LLM=ON  implicitly enables MNN_LOW_MEMORY + MNN_SUPPORT_TRANSFORMER_FUSE
+      # - MNN_BUILD_LLM_OMNI=ON implicitly enables MNN_BUILD_OPENCV / MNN_BUILD_AUDIO / MNN_IMGCODECS
+      #   (vision + audio multi-modal capabilities)
+      run: |
+        ./package_scripts/mac/buildFrameWork.sh \
+          -DMNN_BUILD_LLM=ON \
+          -DMNN_BUILD_LLM_OMNI=ON \
+          -DLLM_SUPPORT_VISION=ON \
+          -DLLM_SUPPORT_AUDIO=ON
     - name: package
       run: |
         rm -rf ${{ env.PACKAGENAME }}
@@ -112,14 +121,23 @@ jobs:
       uses: nttld/setup-ndk@v1
       id: setup-ndk
       with:
+        # NDK r27+ is required for 16KB page-size support (Android 15+).
+        # r27 dropped support for API < 21, so 32-bit armv7 must use API >= 21.
         ndk-version: r27c
         add-to-path: false
     - name: build
-      # LLM (+ omni multi-modal) and 16K page-size support are enabled by default in build.sh
-      # NDK r27+ is required for 16K page-size support (Android 15+)
+      # build.sh already enables LLM + OpenCV + Vulkan + OpenCL + multi-modal by default.
+      # We inject the following extras via sed (script kept unchanged):
+      #   * -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON  -- enables 16KB page size
+      #     (Google Play requirement starting Nov 2025)
+      #   * Bump 32-bit armv7 API level android-14 -> android-21 (NDK r27 minimum)
       env:
         ANDROID_NDK: ${{ steps.setup-ndk.outputs.ndk-path }}
-      run: ./package_scripts/android/build.sh -o ${{ env.PACKAGENAME }}
+      run: |
+        sed -i 's|^CMAKEARGS="\(.*\)"$|CMAKEARGS="\1 -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"|' \
+          package_scripts/android/build.sh
+        sed -i 's|android-14|android-21|g' package_scripts/android/build.sh
+        ./package_scripts/android/build.sh -o ${{ env.PACKAGENAME }}
     - name: package
       run: |
         rm -f ${{ env.PACKAGENAME }}.zip
@@ -141,10 +159,16 @@ jobs:
         submodules: true
 
     - name: build
-      # LLM (+ omni multi-modal) + SME2 are enabled by default in buildiOS.sh
+      # Pass release-specific cmake args via `$*` (forwarded to cmake by buildiOS.sh).
+      # - MNN_BUILD_LLM=ON  implicitly enables MNN_LOW_MEMORY + MNN_SUPPORT_TRANSFORMER_FUSE
+      # - MNN_BUILD_LLM_OMNI=ON implicitly enables MNN_BUILD_OPENCV / MNN_BUILD_AUDIO / MNN_IMGCODECS
       run: |
         brew install coreutils
-        ./package_scripts/ios/buildiOS.sh
+        ./package_scripts/ios/buildiOS.sh \
+          -DMNN_BUILD_LLM=ON \
+          -DMNN_BUILD_LLM_OMNI=ON \
+          -DLLM_SUPPORT_VISION=ON \
+          -DLLM_SUPPORT_AUDIO=ON
 
     - name: package
       run: |
