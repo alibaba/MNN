@@ -1599,12 +1599,15 @@ ErrorCode AttentionBufExecution::onResize(const std::vector<Tensor *> &inputs, c
             std::pair<std::vector<uint32_t>, uint32_t> tuneInfo;
             std::string info = "attention_" + std::to_string(batch) + "_" + std::to_string(numHead) + "_" + std::to_string(headDim) + "_" + std::to_string(kvNumHead);
             if(seqlen > 16){
-                if(getTunedInfo(info, {static_cast<unsigned int>(seqlen)}, tuneInfo, mOpenCLBackend->getOpenCLRuntime())){
+                if (getTunedInfo(info, {static_cast<unsigned int>(seqlen)}, tuneInfo,
+                                 mOpenCLBackend->getOpenCLRuntime(), mOpenCLBackend->getCLTuneLevel())) {
                     mLongPrefill = tuneInfo.first[0];
-                } else{
-                    if (mOpenCLBackend->getCLTuneLevel() == Heavy || mOpenCLBackend->getCLTuneLevel() == Wide){
+                } else {
+                    // The Fast level expects to compare the performance of two branches during the resize stage. Since
+                    // this uses heuristic settings, tuning is skipped.
+                    if (mOpenCLBackend->getCLTuneLevel() != None) {
                         setRecordClose closeRecord(mOpenCLBackend);
-                        // tunning choose use witch preill
+                        // tuning choose use which prefill
                         prefillResize(inputs, outputs);
                         auto shortPrefillTime = getExecuteTime();
                         init();
@@ -1618,7 +1621,7 @@ ErrorCode AttentionBufExecution::onResize(const std::vector<Tensor *> &inputs, c
                         std::pair<std::vector<uint32_t>, uint32_t> tuneInfoTmp = std::make_pair<std::vector<uint32_t>, uint32_t>({mLongPrefill}, 0);
                         setTunedInfo(info, {static_cast<unsigned int>(seqlen)}, tuneInfoTmp, mOpenCLBackend->getOpenCLRuntime(), "attention_buf");
                         init();
-                    }else{
+                    } else {
                         if(seqlen > 512){
                             mLongPrefill = true;
                         }
