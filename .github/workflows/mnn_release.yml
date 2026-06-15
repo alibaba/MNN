@@ -29,7 +29,7 @@ jobs:
     needs: [setup]
     runs-on: ubuntu-latest
     env:
-      PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_linux_x64_cpu_opencl
+      PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_linux_x64_cpu_opencl_vulkan_llm
     steps:
     - uses: actions/checkout@v3
       with:
@@ -38,7 +38,8 @@ jobs:
       run: |
         # j24 -> j4 avoid ld signal 9
         sed -i "s/-j24/-j4/g" package_scripts/linux/build_lib.sh
-        ./package_scripts/linux/build_lib.sh -o ${{ env.PACKAGENAME }}/lib -b opencl -s -c
+        # LLM (+ omni multi-modal) is enabled by default in build_lib.sh
+        ./package_scripts/linux/build_lib.sh -o ${{ env.PACKAGENAME }}/lib -b opencl,vulkan -s -c
     - name: package
       run: |
         rm -f ${{ env.PACKAGENAME }}.zip
@@ -53,7 +54,7 @@ jobs:
     needs: [setup]
     runs-on: windows-latest
     env:
-      PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_windows_x64_cpu_opencl
+      PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_windows_x64_cpu_opencl_vulkan_avx512_llm
     steps:
     - uses: actions/checkout@v4
       with:
@@ -63,6 +64,7 @@ jobs:
       uses: ilammy/msvc-dev-cmd@v1
 
     - name: build
+      # LLM (+ omni multi-modal) + OpenCL + Vulkan + AVX512 are enabled by default in build_lib_release.ps1
       run: powershell .\package_scripts\win\build_lib_release.ps1 -path ${{ env.PACKAGENAME }}
     - name: package
       run: 7z a -r ${{ env.PACKAGENAME }}.zip ${{ env.PACKAGENAME }}
@@ -76,14 +78,15 @@ jobs:
     needs: [setup]
     runs-on: macos-latest
     env:
-      PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_macos_x64_arm82_cpu_opencl_metal
+      PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_macos_x64_arm82_cpu_opencl_metal_llm
     steps:
     - uses: actions/checkout@v3
       with:
         submodules: true
 
     - name: build
-      run: ./package_scripts/mac/buildFrameWork.sh -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true
+      # LLM (+ omni multi-modal) + SME2 are enabled by default in buildFrameWork.sh
+      run: ./package_scripts/mac/buildFrameWork.sh
     - name: package
       run: |
         rm -rf ${{ env.PACKAGENAME }}
@@ -100,12 +103,22 @@ jobs:
     needs: [setup]
     runs-on: ubuntu-latest
     env:
-      PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_android_armv7_armv8_cpu_opencl_vulkan
+      PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_android_armv7_armv8_cpu_opencl_vulkan_llm
     steps:
     - uses: actions/checkout@v3
       with:
         submodules: true
+    - name: setup-ndk
+      uses: nttld/setup-ndk@v1
+      id: setup-ndk
+      with:
+        ndk-version: r27c
+        add-to-path: false
     - name: build
+      # LLM (+ omni multi-modal) and 16K page-size support are enabled by default in build.sh
+      # NDK r27+ is required for 16K page-size support (Android 15+)
+      env:
+        ANDROID_NDK: ${{ steps.setup-ndk.outputs.ndk-path }}
       run: ./package_scripts/android/build.sh -o ${{ env.PACKAGENAME }}
     - name: package
       run: |
@@ -121,16 +134,17 @@ jobs:
     needs: [setup]
     runs-on: macos-latest
     env:
-      PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_ios_armv82_cpu_metal_coreml
+      PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_ios_armv82_cpu_metal_llm
     steps:
     - uses: actions/checkout@v3
       with:
         submodules: true
 
     - name: build
+      # LLM (+ omni multi-modal) + SME2 are enabled by default in buildiOS.sh
       run: |
         brew install coreutils
-        ./package_scripts/ios/buildiOS.sh -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true
+        ./package_scripts/ios/buildiOS.sh
 
     - name: package
       run: |
