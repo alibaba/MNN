@@ -29,7 +29,7 @@ jobs:
     needs: [setup]
     runs-on: ubuntu-latest
     env:
-      PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_linux_x64_cpu_opencl_vulkan_llm
+      PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_linux_x64_cpu_opencl_vulkan
     steps:
     - uses: actions/checkout@v3
       with:
@@ -54,7 +54,7 @@ jobs:
     needs: [setup]
     runs-on: windows-latest
     env:
-      PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_windows_x64_cpu_opencl_vulkan_avx512_llm
+      PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_windows_x64_cpu_opencl_vulkan_avx512
     steps:
     - uses: actions/checkout@v4
       with:
@@ -78,7 +78,7 @@ jobs:
     needs: [setup]
     runs-on: macos-latest
     env:
-      PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_macos_x64_arm82_cpu_opencl_metal_llm
+      PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_macos_x64_arm82_cpu_opencl_metal
     steps:
     - uses: actions/checkout@v3
       with:
@@ -103,7 +103,7 @@ jobs:
     needs: [setup]
     runs-on: ubuntu-latest
     env:
-      PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_android_armv7_armv8_cpu_opencl_vulkan_llm
+      PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_android_armv7_armv8_cpu_opencl_vulkan
     steps:
     - uses: actions/checkout@v3
       with:
@@ -134,7 +134,7 @@ jobs:
     needs: [setup]
     runs-on: macos-latest
     env:
-      PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_ios_armv82_cpu_metal_llm
+      PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_ios_armv82_cpu_metal_coreml
     steps:
     - uses: actions/checkout@v3
       with:
