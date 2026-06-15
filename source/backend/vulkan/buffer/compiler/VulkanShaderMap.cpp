@@ -31,6 +31,12 @@ mMaps.insert(std::make_pair("glsl_select_comp", std::make_pair(glsl_select_comp,
 mMaps.insert(std::make_pair("glsl_select_FP16_comp", std::make_pair(glsl_select_FP16_comp,glsl_select_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_attention_prefill_kblock_finalize_comp", std::make_pair(glsl_attention_prefill_kblock_finalize_comp,glsl_attention_prefill_kblock_finalize_comp_len)));
 mMaps.insert(std::make_pair("glsl_attention_prefill_kblock_finalize_FP16_comp", std::make_pair(glsl_attention_prefill_kblock_finalize_FP16_comp,glsl_attention_prefill_kblock_finalize_FP16_comp_len)));
+mMaps.insert(std::make_pair("glsl_topkv2_comp", std::make_pair(glsl_topkv2_comp, glsl_topkv2_comp_len)));
+mMaps.insert(std::make_pair("glsl_topkv2_SORT_DESC_comp",
+                            std::make_pair(glsl_topkv2_SORT_DESC_comp, glsl_topkv2_SORT_DESC_comp_len)));
+mMaps.insert(std::make_pair("glsl_topkv2_FP16_comp", std::make_pair(glsl_topkv2_FP16_comp, glsl_topkv2_FP16_comp_len)));
+mMaps.insert(std::make_pair("glsl_topkv2_SORT_DESC_FP16_comp",
+                            std::make_pair(glsl_topkv2_SORT_DESC_FP16_comp, glsl_topkv2_SORT_DESC_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_norm_comp", std::make_pair(glsl_norm_comp,glsl_norm_comp_len)));
 mMaps.insert(std::make_pair("glsl_norm_LAYERNORM_SCALE_comp", std::make_pair(glsl_norm_LAYERNORM_SCALE_comp,glsl_norm_LAYERNORM_SCALE_comp_len)));
 mMaps.insert(std::make_pair("glsl_norm_FP16_comp", std::make_pair(glsl_norm_FP16_comp,glsl_norm_FP16_comp_len)));

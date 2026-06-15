@@ -502,5 +502,11 @@
     },
     "dynamic_w8a8_dequant_correction.comp": {
         "useFP16": true
+    },
+    "topkv2.comp": {
+        "useFP16": true,
+        "macro": [
+            "SORT_DESC"
+        ]
     }
 }
