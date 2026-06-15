@@ -1,0 +1,137 @@
+layout(set=0, binding=0) buffer outValueBuffer {
+    FLOAT data[];
+} uOutValue;
+
+layout(set=0, binding=1) buffer outIndexBuffer {
+    int data[];
+} uOutIndex;
+
+layout(set=0, binding=2) readonly buffer sourceBuffer {
+    FLOAT data[];
+} uInput;
+
+layout(set=0, binding=3) uniform constBuffer {
+    int rowSize;
+    int k;
+    int numRows;
+    int pad;
+} uConst;
+
+#define THREAD_NUMBER 128
+#define LOCAL_K 8
+#define CANDIDATE_NUMBER (THREAD_NUMBER * LOCAL_K)
+
+shared FLOAT sharedValue[CANDIDATE_NUMBER];
+shared int sharedIndex[CANDIDATE_NUMBER];
+
+layout(local_size_x = THREAD_NUMBER, local_size_y = 1, local_size_z = 1) in;
+
+bool afterAsc(FLOAT aValue, int aIndex, FLOAT bValue, int bIndex) {
+    if (aValue > bValue) return true;
+    if (aValue < bValue) return false;
+    return aIndex > bIndex;
+}
+
+bool better(FLOAT aValue, int aIndex, FLOAT bValue, int bIndex) {
+    if (bIndex < 0) return true;
+    if (aIndex < 0) return false;
+#ifdef SORT_DESC
+    if (aValue > bValue) return true;
+    if (aValue < bValue) return false;
+#else
+    if (aValue < bValue) return true;
+    if (aValue > bValue) return false;
+#endif
+    return aIndex < bIndex;
+}
+
+void main() {
+    int tid = int(gl_LocalInvocationID.x);
+    int row = int(gl_WorkGroupID.y);
+
+    if (row >= uConst.numRows) return;
+
+    int rowOffset = row * uConst.rowSize;
+
+    // Initialize per-thread top-k
+#ifdef SORT_DESC
+    FLOAT initVal = FLOAT(-1e38);
+#else
+    FLOAT initVal = FLOAT(1e38);
+#endif
+
+    FLOAT localValue[LOCAL_K];
+    int localIndex[LOCAL_K];
+    for (int i = 0; i < LOCAL_K; ++i) {
+        localValue[i] = initVal;
+        localIndex[i] = -1;
+    }
+
+    // Read input and build per-thread top-k
+    for (int c = tid; c < uConst.rowSize; c += THREAD_NUMBER) {
+        FLOAT value = uInput.data[rowOffset + c];
+        int idx = c;
+
+        if (!better(value, idx, localValue[LOCAL_K - 1], localIndex[LOCAL_K - 1])) continue;
+
+        int insertPos = LOCAL_K;
+        for (int j = 0; j < LOCAL_K; ++j) {
+            if (better(value, idx, localValue[j], localIndex[j])) {
+                insertPos = j;
+                break;
+            }
+        }
+        if (insertPos >= LOCAL_K) continue;
+
+        for (int j = LOCAL_K - 1; j > insertPos; --j) {
+            localValue[j] = localValue[j - 1];
+            localIndex[j] = localIndex[j - 1];
+        }
+        localValue[insertPos] = value;
+        localIndex[insertPos] = idx;
+    }
+
+    // Scatter to shared memory
+    int base = tid * LOCAL_K;
+    for (int i = 0; i < LOCAL_K; ++i) {
+        sharedValue[base + i] = localValue[i];
+        sharedIndex[base + i] = localIndex[i];
+    }
+    barrier();
+
+    // Bitonic sort in shared memory
+    for (uint size = 2; size <= CANDIDATE_NUMBER; size <<= 1) {
+        for (uint stride = size >> 1; stride > 0; stride >>= 1) {
+            for (uint sIdx = uint(tid); sIdx < CANDIDATE_NUMBER; sIdx += THREAD_NUMBER) {
+                uint ixj = sIdx ^ stride;
+                if (ixj <= sIdx) continue;
+
+                bool up = ((sIdx & size) == 0u);
+#ifdef SORT_DESC
+                up = !up;
+#endif
+                bool after = afterAsc(sharedValue[sIdx], sharedIndex[sIdx],
+                                      sharedValue[ixj], sharedIndex[ixj]);
+                if (up == after) {
+                    FLOAT tValue = sharedValue[sIdx];
+                    sharedValue[sIdx] = sharedValue[ixj];
+                    sharedValue[ixj] = tValue;
+                    int tIndex = sharedIndex[sIdx];
+                    sharedIndex[sIdx] = sharedIndex[ixj];
+                    sharedIndex[ixj] = tIndex;
+                }
+            }
+            barrier();
+        }
+    }
+
+    // Thread 0 writes output
+    if (tid == 0) {
+        int realK = min(uConst.k, uConst.rowSize);
+        int outOffset = row * uConst.k;
+        for (int i = 0; i < realK; ++i) {
+            uOutValue.data[outOffset + i] = sharedValue[i];
+            uOutIndex.data[outOffset + i] = sharedIndex[i];
+        }
+    }
+}

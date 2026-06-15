@@ -125,14 +125,16 @@ std::vector<uint32_t> getGemmParams(const std::vector<uint32_t> &gemmSize, const
 std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize,
                                        OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernel, int tuneLevel, const std::string programName);
 
-bool localWSTune(const std::map<std::string, std::vector<TuneInfo>> &tuneMap, const std::vector<uint32_t> &gws, const std::string &kernelName, std::pair<std::vector<uint32_t>, uint32_t> &res);
+bool localWSTune(const std::map<std::string, std::vector<TuneInfo>>& tuneMap, const std::vector<uint32_t>& gws,
+                 const std::string& kernelName, std::pair<std::vector<uint32_t>, uint32_t>& res, int tuneLevel = Heavy);
 
 uint32_t get2DUseLocalMemTime(const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws, OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernelW, const std::string programName);
 
 std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize,
                                        OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernel, int tuneLevel, const std::string programName);
 
-bool getTunedInfo(const std::string kernelName, const std::vector<uint32_t> &gws, std::pair<std::vector<uint32_t>, uint32_t> &tuneInfo, OpenCLRuntime *runtime);
+bool getTunedInfo(const std::string kernelName, const std::vector<uint32_t>& gws,
+                  std::pair<std::vector<uint32_t>, uint32_t>& tuneInfo, OpenCLRuntime* runtime, int tuneLevel = Heavy);
 
 void setTunedInfo(const std::string kernelName, const std::vector<uint32_t> &gws, std::pair<std::vector<uint32_t>, uint32_t> &tuneInfo, OpenCLRuntime *runtime, const std::string programName);
 
@@ -140,4 +142,4 @@ void copyBufferToImage(OpenCLRuntime *runtime, const cl::Buffer &buffer, const c
 
 } // namespace OpenCL
 } // namespace MNN
-#endif  /* OpenCLRunningUtils_hpp */
+#endif /* OpenCLRunningUtils_hpp */
