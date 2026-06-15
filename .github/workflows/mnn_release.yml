@@ -89,13 +89,11 @@ jobs:
       # Pass release-specific cmake args via `$*` (forwarded to cmake by buildFrameWork.sh).
       # - MNN_BUILD_LLM=ON  implicitly enables MNN_LOW_MEMORY + MNN_SUPPORT_TRANSFORMER_FUSE
       # - MNN_BUILD_LLM_OMNI=ON implicitly enables MNN_BUILD_OPENCV / MNN_BUILD_AUDIO / MNN_IMGCODECS
-      #   (vision + audio multi-modal capabilities)
+      #   which in turn auto-define LLM_SUPPORT_VISION / LLM_SUPPORT_AUDIO inside the llm engine.
       run: |
         ./package_scripts/mac/buildFrameWork.sh \
           -DMNN_BUILD_LLM=ON \
-          -DMNN_BUILD_LLM_OMNI=ON \
-          -DLLM_SUPPORT_VISION=ON \
-          -DLLM_SUPPORT_AUDIO=ON
+          -DMNN_BUILD_LLM_OMNI=ON
     - name: package
       run: |
         rm -rf ${{ env.PACKAGENAME }}
@@ -162,13 +160,12 @@ jobs:
       # Pass release-specific cmake args via `$*` (forwarded to cmake by buildiOS.sh).
       # - MNN_BUILD_LLM=ON  implicitly enables MNN_LOW_MEMORY + MNN_SUPPORT_TRANSFORMER_FUSE
       # - MNN_BUILD_LLM_OMNI=ON implicitly enables MNN_BUILD_OPENCV / MNN_BUILD_AUDIO / MNN_IMGCODECS
+      #   which in turn auto-define LLM_SUPPORT_VISION / LLM_SUPPORT_AUDIO inside the llm engine.
       run: |
         brew install coreutils
         ./package_scripts/ios/buildiOS.sh \
           -DMNN_BUILD_LLM=ON \
-          -DMNN_BUILD_LLM_OMNI=ON \
-          -DLLM_SUPPORT_VISION=ON \
-          -DLLM_SUPPORT_AUDIO=ON
+          -DMNN_BUILD_LLM_OMNI=ON
 
     - name: package
       run: |
