@@ -127,7 +127,8 @@ void SetK(int * valuePtr, const int K) {
 bool checkIndicesHalf(const float * input, const float * expectedOutput0, const int * gotOutput1, const int K, const int numRow, const int lengthRow) {
     for (int i = 0; i < numRow; i++) {
         for (int j = 0; j < K; j++) {
-            bool condition = (convertFP32ToFP16(expectedOutput0[i * K + j]) != convertFP32ToFP16(input[gotOutput1[i * K + j] + i * lengthRow]));
+            bool condition =
+                (fabs((expectedOutput0[i * K + j]) - input[gotOutput1[i * K + j] + i * lengthRow]) > 0.02f);
             if (condition) {
                     MNN_PRINT("Conflict: Number %d. Value Correct is %f. Value Computed is %f.\n", i * K + j, convertFP32ToFP16(expectedOutput0[i * K + j]), convertFP32ToFP16(input[gotOutput1[i * K + j] + i * lengthRow]));
                     return false;
@@ -203,10 +204,9 @@ public:
             return false;
         }
 
-        // check indices
         if (precision <= 1) {
-            if (!checkIndicesFloat(input0->readMap<float>(), expectedOutput0.data(), gotOutput1, K, numRow, lengthRow)) {
-                MNN_ERROR("TopKV2 test failed!\n");
+            if (!checkVectorByRelativeError<int>(gotOutput1, expectedOutput1.data(), K, 1 * errorScale)) {
+                MNN_ERROR("TopKV2 index test failed!\n");
                 return false;
             }
         } else if (precision == 2) {

@@ -1,10 +1,18 @@
 #version 440 core
 layout(std430) buffer;
+#ifdef INT
+layout(set=0, binding=0) uniform isampler2D uInput;
+
+layout(set=0, binding=1) writeonly buffer destBuffer{
+    ivec4 data[];
+} uOutBuffer;
+#else
 layout(set=0, binding=0) uniform sampler2D uInput;
 
 layout(set=0, binding=1) writeonly buffer destBuffer{
     vec4 data[];
 } uOutBuffer;
+#endif
 
 layout(set=0, binding=2) uniform constBuffer{
     ivec4 size; // w, h, c, n
@@ -26,7 +34,11 @@ void main()
         ivec2 pos;
         pos.x = posX % uOffset.size.x;
         pos.y = posX / uOffset.size.x;
+#ifdef INT
+        ivec4 color = texelFetch(uInput, pos, 0);
+#else
         vec4 color = texelFetch(uInput, pos, 0);
+#endif
         ivec2 spos = pos + uOffset.offset.xy;
         int n = spos.y / uConstant.size.y;
         int h = spos.y % uConstant.size.y;

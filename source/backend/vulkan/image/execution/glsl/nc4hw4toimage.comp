@@ -1,10 +1,18 @@
 #version 440 core
 layout(std430) buffer;
+#ifdef INT
+layout(set=0, binding=0) writeonly uniform iimage2D uOutput;
+
+layout(set=0, binding=1) readonly buffer destBuffer{
+    ivec4 data[];
+} uInBuffer;
+#else
 layout(set=0, binding=0) writeonly uniform image2D uOutput;
 
 layout(set=0, binding=1) readonly buffer destBuffer{
     vec4 data[];
 } uInBuffer;
+#endif
 
 layout(set=0, binding=2) uniform constBuffer{
     ivec4 size; // w, h, c, n
