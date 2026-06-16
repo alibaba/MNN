@@ -1272,3 +1272,93 @@ class ImageProcessSpeed: public MNNTestCase {
     }
 };
 // MNNTestSuiteRegister(ImageProcessSpeed, "cv/image_process/speed");
+
+// ========== Test: Stride Mismatch ==========
+class StrideMismatchTest : public MNNTestCase {
+public:
+    virtual bool run(int precision) {
+        const int W = 5, H = 5;  // Non-power-of-2 to test stride alignment
+        const int channels = 3;
+        // Use a wider stride (padded rows)
+        const int srcStride = W * channels + 4; // Extra padding
+        std::vector<uint8_t> src(H * srcStride, 0);
+
+        // Fill valid pixel data
+        for (int y = 0; y < H; ++y) {
+            for (int x = 0; x < W; ++x) {
+                for (int c = 0; c < channels; ++c) {
+                    src[y * srcStride + x * channels + c] =
+                        static_cast<uint8_t>((y * 31 + x * 17 + c * 7) % 256);
+                }
+            }
+        }
+
+        ImageProcess::Config config;
+        config.sourceFormat = RGB;
+        config.destFormat = RGB;
+        config.filterType = NEAREST;
+        config.wrap = CLAMP_TO_EDGE;
+
+        std::unique_ptr<ImageProcess> process(ImageProcess::create(config));
+        MNNTEST_ASSERT(process.get() != nullptr);
+
+        Matrix tr;
+        process->setMatrix(tr);
+
+        std::vector<uint8_t> dst(W * H * channels);
+        // Pass explicit stride
+        process->convert(src.data(), W, H, srcStride, dst.data(), W, H, channels * W, RGB);
+
+        // Verify pixels match despite stride mismatch
+        for (int y = 0; y < H; ++y) {
+            for (int x = 0; x < W; ++x) {
+                for (int c = 0; c < channels; ++c) {
+                    uint8_t expected = src[y * srcStride + x * channels + c];
+                    uint8_t actual = dst[(y * W + x) * channels + c];
+                    MNNTEST_ASSERT(expected == actual);
+                }
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(StrideMismatchTest, "cv/image_process/stride_mismatch");
+
+// ========== Test: Single-pixel Image ==========
+class SinglePixelResizeTest : public MNNTestCase {
+public:
+    virtual bool run(int precision) {
+        const int channels = 4;
+        uint8_t src[4] = {100, 150, 200, 255};
+
+        ImageProcess::Config config;
+        config.sourceFormat = RGBA;
+        config.destFormat = RGBA;
+        config.filterType = BILINEAR;
+        config.wrap = CLAMP_TO_EDGE;
+
+        std::unique_ptr<ImageProcess> process(ImageProcess::create(config));
+        MNNTEST_ASSERT(process.get() != nullptr);
+
+        // Resize 1x1 -> 4x4: all output pixels should equal the source pixel
+        const int dstW = 4, dstH = 4;
+        Matrix tr;
+        float fx = 1.0f / dstW;
+        float fy = 1.0f / dstH;
+        tr.postScale(fx, fy);
+        tr.postTranslate(0.5f * (fx - 1), 0.5f * (fy - 1));
+        process->setMatrix(tr);
+
+        std::vector<uint8_t> dst(dstW * dstH * channels);
+        process->convert(src, 1, 1, 0, dst.data(), dstW, dstH, channels * dstW, RGBA);
+
+        for (int i = 0; i < dstW * dstH; ++i) {
+            for (int c = 0; c < channels; ++c) {
+                // All pixels should be the same as the single source pixel
+                MNNTEST_ASSERT(std::abs((int)dst[i * channels + c] - (int)src[c]) <= 1);
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(SinglePixelResizeTest, "cv/image_process/single_pixel_resize");
