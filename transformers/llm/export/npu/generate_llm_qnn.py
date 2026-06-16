@@ -7,6 +7,7 @@ import subprocess
 import json
 import shutil
 import time
+import glob
 
 def makeIO(args, model_name, inputjson, external_file = None):
     exe = os.path.join(os.getcwd(), args.mnn_path, "generateIO")
@@ -256,12 +257,27 @@ def compile_qnn(args):
     process.wait()
     return process.returncode
 
+def clean_stale_files(file_path):
+    for file in glob.glob(file_path):
+        if os.path.isfile(file):
+            os.remove(file)
+
 def output_qnn(args, model_name=None):
-    if os.path.exists(os.path.join(args.model, 'qnn')):
-        shutil.rmtree(os.path.join(args.model, 'qnn'))
+    if not args.reuse_config_qnn_json:
+        if os.path.exists(os.path.join(args.model, 'qnn')):
+            shutil.rmtree(os.path.join(args.model, 'qnn'))
         shutil.move(os.path.join(args.cache_path, 'qnn'), os.path.join(args.model, 'qnn'))
     else:
+        model_name = model_name or args.model_name
+        is_visual = model_name == "visual.mnn"
+        if is_visual:
+            clean_stale_files(os.path.join(args.model, "qnn/graphvisual*.bin"))
+        else:
+            clean_stale_files(os.path.join(args.model, "qnn/graphllm*.bin"))
+        if os.path.exists(os.path.join(args.model, "qnn", model_name)):
+            os.remove(os.path.join(args.model, "qnn", model_name))
         shutil.copytree(os.path.join(args.cache_path, 'qnn'), os.path.join(args.model, 'qnn'), dirs_exist_ok=True)
+
     if args.need_config_json is True:
         config_path = {}
         if args.reuse_config_qnn_json:
@@ -429,7 +445,7 @@ def main():
     parser.add_argument('--need_config_json', type=bool, default=True,
                         help='wheather generate config json'
                         )
-    parser.add_argument('--reuse_config_qnn_json', type=bool, default=False,
+    parser.add_argument('--reuse_config_qnn_json', action="store_true",
                         help='wheather to overwrite config_qnn.json for convert both llm/visual model to same qnn folder'
                         )
     args = parser.parse_args()
