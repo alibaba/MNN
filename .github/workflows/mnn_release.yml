@@ -29,7 +29,7 @@ jobs:
     needs: [setup]
     runs-on: ubuntu-latest
     env:
-      PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_linux_x64_cpu_opencl
+      PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_linux_x64_cpu_opencl_vulkan
     steps:
     - uses: actions/checkout@v3
       with:
@@ -38,7 +38,8 @@ jobs:
       run: |
         # j24 -> j4 avoid ld signal 9
         sed -i "s/-j24/-j4/g" package_scripts/linux/build_lib.sh
-        ./package_scripts/linux/build_lib.sh -o ${{ env.PACKAGENAME }}/lib -b opencl -s -c
+        # LLM (+ vision/audio) is already enabled in build_lib.sh by default.
+        ./package_scripts/linux/build_lib.sh -o ${{ env.PACKAGENAME }}/lib -b opencl,vulkan -s -c
     - name: package
       run: |
         rm -f ${{ env.PACKAGENAME }}.zip
@@ -53,7 +54,7 @@ jobs:
     needs: [setup]
     runs-on: windows-latest
     env:
-      PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_windows_x64_cpu_opencl
+      PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_windows_x64_cpu_opencl_vulkan_avx512
     steps:
     - uses: actions/checkout@v4
       with:
@@ -63,6 +64,8 @@ jobs:
       uses: ilammy/msvc-dev-cmd@v1
 
     - name: build
+      # LLM (+ vision/audio) + OpenCL + Vulkan + AVX512 are already enabled in
+      # build_lib_release.ps1 by default.
       run: powershell .\package_scripts\win\build_lib_release.ps1 -path ${{ env.PACKAGENAME }}
     - name: package
       run: 7z a -r ${{ env.PACKAGENAME }}.zip ${{ env.PACKAGENAME }}
@@ -83,7 +86,14 @@ jobs:
         submodules: true
 
     - name: build
-      run: ./package_scripts/mac/buildFrameWork.sh -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true
+      # Pass release-specific cmake args via `$*` (forwarded to cmake by buildFrameWork.sh).
+      # - MNN_BUILD_LLM=ON  implicitly enables MNN_LOW_MEMORY + MNN_SUPPORT_TRANSFORMER_FUSE
+      # - MNN_BUILD_LLM_OMNI=ON implicitly enables MNN_BUILD_OPENCV / MNN_BUILD_AUDIO / MNN_IMGCODECS
+      #   which in turn auto-define LLM_SUPPORT_VISION / LLM_SUPPORT_AUDIO inside the llm engine.
+      run: |
+        ./package_scripts/mac/buildFrameWork.sh \
+          -DMNN_BUILD_LLM=ON \
+          -DMNN_BUILD_LLM_OMNI=ON
     - name: package
       run: |
         rm -rf ${{ env.PACKAGENAME }}
@@ -105,8 +115,59 @@ jobs:
     - uses: actions/checkout@v3
       with:
         submodules: true
+    - name: setup-ndk
+      uses: nttld/setup-ndk@v1
+      id: setup-ndk
+      with:
+        # NDK r27+ is required for 16KB page-size support (Android 15+).
+        # r27 dropped support for API < 21, so 32-bit armv7 must use API >= 21.
+        ndk-version: r27c
+        add-to-path: false
     - name: build
-      run: ./package_scripts/android/build.sh -o ${{ env.PACKAGENAME }}
+      # build.sh already enables LLM + OpenCV + Vulkan + OpenCL + multi-modal by default.
+      # We inject the following extras via sed (script kept unchanged):
+      #   * -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON  -- enables 16KB page size
+      #     (Google Play requirement starting Nov 2025)
+      #   * Bump 32-bit armv7 API level android-14 -> android-21 (NDK r27 minimum)
+      env:
+        ANDROID_NDK: ${{ steps.setup-ndk.outputs.ndk-path }}
+      run: |
+        sed -i 's|^CMAKEARGS="\(.*\)"$|CMAKEARGS="\1 -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"|' \
+          package_scripts/android/build.sh
+        sed -i 's|android-14|android-21|g' package_scripts/android/build.sh
+        ./package_scripts/android/build.sh -o ${{ env.PACKAGENAME }}
+    - name: package
+      run: |
+        rm -f ${{ env.PACKAGENAME }}.zip
+        zip -9 -y -r ${{ env.PACKAGENAME }}.zip ${{ env.PACKAGENAME }}
+    - name: upload-zip
+      uses: actions/upload-artifact@v4
+      with:
+        name: artifact-${{ env.PACKAGENAME }}
+        path: ${{ env.PACKAGENAME }}.zip
+
+  harmony-release:
+    needs: [setup]
+    runs-on: ubuntu-latest
+    env:
+      PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_harmony_arm64_cpu
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: true
+    - name: Setup OpenHarmony SDK
+      id: setup-ohos
+      uses: openharmony-rs/setup-ohos-sdk@v1.0.0
+      with:
+        # OpenHarmony 5.0.0 == API 12. Bump when a newer SDK is well tested.
+        version: '5.0.0'
+    - name: build
+      # package_scripts/harmony/build.sh already enables LLM + multi-modal +
+      # ARM82 + SME2 + BF16. It reads $OHOS_SDK_NATIVE (set below) to locate
+      # the OHOS cmake toolchain file.
+      env:
+        OHOS_SDK_NATIVE: ${{ steps.setup-ohos.outputs.ohos_sdk_native }}
+      run: ./package_scripts/harmony/build.sh -o ${{ env.PACKAGENAME }}
     - name: package
       run: |
         rm -f ${{ env.PACKAGENAME }}.zip
@@ -128,9 +189,15 @@ jobs:
         submodules: true
 
     - name: build
+      # Pass release-specific cmake args via `$*` (forwarded to cmake by buildiOS.sh).
+      # - MNN_BUILD_LLM=ON  implicitly enables MNN_LOW_MEMORY + MNN_SUPPORT_TRANSFORMER_FUSE
+      # - MNN_BUILD_LLM_OMNI=ON implicitly enables MNN_BUILD_OPENCV / MNN_BUILD_AUDIO / MNN_IMGCODECS
+      #   which in turn auto-define LLM_SUPPORT_VISION / LLM_SUPPORT_AUDIO inside the llm engine.
       run: |
         brew install coreutils
-        ./package_scripts/ios/buildiOS.sh -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true
+        ./package_scripts/ios/buildiOS.sh \
+          -DMNN_BUILD_LLM=ON \
+          -DMNN_BUILD_LLM_OMNI=ON
 
     - name: package
       run: |
@@ -144,7 +211,7 @@ jobs:
 
   upload-release:
     name: upload_to_release
-    needs: [linux-release, windows-release, macos-release, android-release, ios-release]
+    needs: [linux-release, windows-release, macos-release, android-release, ios-release, harmony-release]
     runs-on: ubuntu-latest
     steps:
     - uses: actions/download-artifact@v4
