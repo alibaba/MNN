@@ -744,7 +744,11 @@ class EmbeddingExporter(LlmExporter):
         self.llm_config = {
             'model_type': self.config.model_type,
             'hidden_size' : self.config.hidden_size,
-            'attention_mask': 'int',
+            # qwen3 embedding is a causal decoder (last-token pooling) and needs a
+            # causal mask; bert/gte encoders are bidirectional and use the all-ones
+            # ('int') mask. Using 'int' for qwen3 makes attention bidirectional and
+            # degrades the embeddings (see issue: identical/low-quality vectors).
+            'attention_mask': 'float' if self.config.model_type == 'qwen3' else 'int',
             "jinja": {
                 "chat_template": self.build_prompt("{{ messages | map(attribute='content') | join('') }}")
             },
