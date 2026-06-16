@@ -146,6 +146,62 @@ jobs:
         name: artifact-${{ env.PACKAGENAME }}
         path: ${{ env.PACKAGENAME }}.zip
 
+  harmony-release:
+    needs: [setup]
+    runs-on: ubuntu-latest
+    env:
+      PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_harmony_arm64_cpu
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: true
+    - name: Setup OpenHarmony SDK
+      id: setup-ohos
+      uses: openharmony-rs/setup-ohos-sdk@v1.0.0
+      with:
+        # OpenHarmony 5.0.0 == API 12. Bump when a newer SDK is well tested.
+        version: '5.0.0'
+    - name: build
+      # No package_scripts/harmony/* exists yet, so the cmake invocation is
+      # written inline here (mirroring project/harmony/build_64.sh).
+      # - MNN_BUILD_LLM=ON      auto-enables MNN_LOW_MEMORY + MNN_SUPPORT_TRANSFORMER_FUSE
+      # - MNN_BUILD_LLM_OMNI=ON auto-enables MNN_BUILD_OPENCV / MNN_BUILD_AUDIO / MNN_IMGCODECS
+      # - MNN_ARM82 / MNN_SME2 / MNN_SUPPORT_BF16: arm64 CPU acceleration
+      run: |
+        mkdir -p ${{ env.PACKAGENAME }}/arm64-v8a
+        mkdir -p build_harmony && cd build_harmony
+        cmake .. \
+          -DCMAKE_TOOLCHAIN_FILE=${{ steps.setup-ohos.outputs.ohos_sdk_native }}/build/cmake/ohos.toolchain.cmake \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DOHOS_ARCH=arm64-v8a \
+          -DOHOS_STL=c++_shared \
+          -DOHOS_PLATFORM_LEVEL=12 \
+          -DMNN_USE_LOGCAT=ON \
+          -DMNN_USE_SSE=OFF \
+          -DMNN_ARM82=ON \
+          -DMNN_SME2=ON \
+          -DMNN_SUPPORT_BF16=ON \
+          -DMNN_BUILD_LLM=ON \
+          -DMNN_BUILD_LLM_OMNI=ON \
+          -DMNN_SEP_BUILD=OFF \
+          -DMNN_BUILD_SHARED_LIBS=ON
+        make -j$(nproc)
+        cp libMNN.so ../${{ env.PACKAGENAME }}/arm64-v8a/
+        # Optional companion libs (best-effort; some may be statically linked into libMNN.so)
+        cp libllm.so                  ../${{ env.PACKAGENAME }}/arm64-v8a/ 2>/dev/null || true
+        cp express/libMNN_Express.so  ../${{ env.PACKAGENAME }}/arm64-v8a/ 2>/dev/null || true
+        cp tools/cv/libMNNOpenCV.so   ../${{ env.PACKAGENAME }}/arm64-v8a/ 2>/dev/null || true
+        cp tools/audio/libMNNAudio.so ../${{ env.PACKAGENAME }}/arm64-v8a/ 2>/dev/null || true
+    - name: package
+      run: |
+        rm -f ${{ env.PACKAGENAME }}.zip
+        zip -9 -y -r ${{ env.PACKAGENAME }}.zip ${{ env.PACKAGENAME }}
+    - name: upload-zip
+      uses: actions/upload-artifact@v4
+      with:
+        name: artifact-${{ env.PACKAGENAME }}
+        path: ${{ env.PACKAGENAME }}.zip
+
   ios-release:
     needs: [setup]
     runs-on: macos-latest
@@ -179,7 +235,7 @@ jobs:
 
   upload-release:
     name: upload_to_release
-    needs: [linux-release, windows-release, macos-release, android-release, ios-release]
+    needs: [linux-release, windows-release, macos-release, android-release, ios-release, harmony-release]
     runs-on: ubuntu-latest
     steps:
     - uses: actions/download-artifact@v4
