@@ -1296,7 +1296,7 @@ public:
         ImageProcess::Config config;
         config.sourceFormat = RGB;
         config.destFormat = RGB;
-        config.filterType = NEAREST;
+        config.filterType = MNN::CV::Filter::NEAREST;
         config.wrap = CLAMP_TO_EDGE;
 
         std::unique_ptr<ImageProcess> process(ImageProcess::create(config));
@@ -1307,7 +1307,7 @@ public:
 
         std::vector<uint8_t> dst(W * H * channels);
         // Pass explicit stride
-        process->convert(src.data(), W, H, srcStride, dst.data(), W, H, channels * W, RGB);
+        process->convert(src.data(), W, H, srcStride, dst.data(), W, H, channels, 0, halide_type_of<uint8_t>());
 
         // Verify pixels match despite stride mismatch
         for (int y = 0; y < H; ++y) {
@@ -1334,7 +1334,7 @@ public:
         ImageProcess::Config config;
         config.sourceFormat = RGBA;
         config.destFormat = RGBA;
-        config.filterType = BILINEAR;
+        config.filterType = MNN::CV::Filter::BILINEAR;
         config.wrap = CLAMP_TO_EDGE;
 
         std::unique_ptr<ImageProcess> process(ImageProcess::create(config));
@@ -1350,7 +1350,7 @@ public:
         process->setMatrix(tr);
 
         std::vector<uint8_t> dst(dstW * dstH * channels);
-        process->convert(src, 1, 1, 0, dst.data(), dstW, dstH, channels * dstW, RGBA);
+        process->convert(src, 1, 1, 0, dst.data(), dstW, dstH, channels, 0, halide_type_of<uint8_t>());
 
         for (int i = 0; i < dstW * dstH; ++i) {
             for (int c = 0; c < channels; ++c) {
