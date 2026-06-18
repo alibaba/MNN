@@ -23,6 +23,9 @@
 #include "diskembedding.hpp"
 #include "sampler.hpp"
 #include "omni.hpp"
+#ifdef MNN_LLM_SUPPORT_SEGMENT
+#include "segment.hpp"
+#endif
 #include "speculative_decoding/generate.hpp"
 #include "core/MNNFileUtils.h"
 
@@ -87,6 +90,16 @@ static inline void _llmOrigError(const char* msg) {
 Llm* Llm::createLLM(const std::string& config_path) {
     std::shared_ptr<LlmConfig> config(new LlmConfig(config_path));
     Llm* llm = nullptr;
+    const auto llmVersion = config->mnn_llm_version();
+#ifdef MNN_LLM_SUPPORT_SEGMENT
+    if (llmVersion == "segment") {
+        return createSegmentLlm(config);
+    }
+#else
+    if (llmVersion == "segment") {
+        MNN_ERROR("[Error]: mnn_llm_version=segment requires MNN_LLM_SUPPORT_SEGMENT.\n");
+    }
+#endif
     if (config->is_visual() || config->is_audio() || config->has_talker()) {
         llm = new Omni(config);
     } else {

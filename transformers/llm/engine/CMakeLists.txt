@@ -1,6 +1,7 @@
 option(BUILD_MLS "Build PC Commandline." OFF)
 option(MNN_LLM_BUILD_DEMO "Build LLM demo" ON)
 option(LLM_SUPPORT_HTTP_RESOURCE "Support HTTP resource download" ON)
+option(MNN_LLM_SUPPORT_SEGMENT "Enable mnn_llm_version=segment runtime path." ON)
 
 set(LLM_DEPS ${MNN_DEPS})
 if (MNN_BUILD_OPENCV)
@@ -44,6 +45,9 @@ else()
 endif()
 # jinja.cpp template engine (always enabled, header-only)
 target_compile_definitions(llm PRIVATE LLM_USE_JINJA)
+if (MNN_LLM_SUPPORT_SEGMENT)
+    target_compile_definitions(llm PRIVATE MNN_LLM_SUPPORT_SEGMENT)
+endif()
 
 # Option to store MNN_PRINT/MNN_ERROR output into a string buffer.
 # Only enabled on Android. Pass -DLLM_LOG_TO_STRING=ON at cmake configure time.

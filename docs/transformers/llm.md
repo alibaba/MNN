@@ -179,6 +179,39 @@ python llmexport.py \
   cmake .. -DMNN_BUILD_CONVERTER=ON && make -j16
   ```
   编译完成后 `build/` 目录下会生成 `MNNConvert` 可执行文件，`llmexport.py` 默认会在 `../../../build/` 下查找该工具；也可以通过 `--mnnconvert` 选项显式指定 MNNConvert 路径。若未提供本地 MNNConvert，脚本会回退到 pymnn（需先安装 `pip install MNN`）。此方案目前支持导出4bit和8bit模型。
+- 导出 segment 形式的 MNN LLM，使用 `--export mnn --segment`。该模式从 safetensors 权重和 workflow JSON 直接生成多个 MNN 子图，跳过 ONNX 中间文件，适合在 Metal 等后端上复用 decoder、logit、embedding 等 segment 模型。默认会在 `resource/*.json` 中查找匹配的 workflow，也可以通过 `--workflow /path/to/workflow.json` 显式指定。
+
+  ```bash
+  cd transformers/llm/export
+  python3 llmexport.py \
+      --path /path/to/Qwen3-0.6B \
+      --export mnn \
+      --segment \
+      --dst_path ./model
+  ```
+
+  segment 导出目录包含：
+
+  ```text
+  model/
+  ├── config.json              # llm_demo 入口配置，包含 "mnn_llm_version": "segment"
+  ├── llm_config.json          # 模型结构和模板配置
+  ├── tokenizer.mtok
+  ├── embed.mnn
+  ├── decoder.mnn
+  ├── decoder.mnn.weight
+  ├── logit.mnn
+  ├── logit.mnn.weight
+  └── logit_topkv_1.mnn
+  ```
+
+  运行 segment 模型时需要使用生成的 `config.json`：
+
+  ```bash
+  ./llm_demo transformers/llm/export/model/config.json /path/to/prompt.txt
+  ```
+
+  C++ 运行时需启用 `MNN_BUILD_LLM=ON`，并打开 `MNN_LLM_SUPPORT_SEGMENT`（默认开启）。segment 路径当前仅支持 `--export mnn`，不支持 `--export onnx`。
 - 如果直接转为mnn模型遇到问题，或者需要其他bits数的量化（如5bit/6bit），可以先将模型先转为onnx模型，使用`--export onnx`，然后使用./MNNConvert工具将onnx模型转为mnn模型:
 
 ```
@@ -197,7 +230,7 @@ usage: llmexport.py [-h] --path PATH [--type TYPE] [--tokenizer_path TOKENIZER_P
                     [--gptq_path GPTQ_PATH] [--dst_path DST_PATH] [--verbose] [--test TEST] [--export EXPORT]
                     [--onnx_slim] [--quant_bit QUANT_BIT] [--quant_block QUANT_BLOCK]
                     [--lm_quant_bit LM_QUANT_BIT] [--mnnconvert MNNCONVERT] [--ppl] [--awq] [--omni] [--sym] [--seperate_embed]
-                    [--lora_split]
+                    [--lora_split] [--segment] [--workflow WORKFLOW]
 
 llm_exporter
 
@@ -219,6 +252,8 @@ optional arguments:
   --verbose             Whether or not to print verbose.
   --test TEST           test model inference with query `TEST`.
   --export EXPORT       export model to an onnx/mnn model.
+  --segment             export segment MNN LLM from safetensors workflow directly, without ONNX export.
+  --workflow WORKFLOW   workflow json for --segment safetensors conversion. If absent, search resource/*.json.
   --onnx_slim           Whether or not to use onnx-slim.
   --quant_bit QUANT_BIT
                         mnn quant bit, 4 or 8, default is 4.
