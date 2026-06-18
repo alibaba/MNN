@@ -74,16 +74,12 @@ def _build_generated_shader_path(raw, macro, precision):
     return os.path.join(gGeneratedShaderDir, fileName)
 
 def findAllShader(path):
-    cmd = "find " + path + " -name \"*.comp\""
-    vexs = os.popen(cmd).read().split('\n')
-    cmd = "find " + path + " -name \"*.frag\""
-    vexs += os.popen(cmd).read().split('\n')
-    cmd = "find " + path + " -name \"*.vert\""
-    vexs += os.popen(cmd).read().split('\n')
     output = []
-    for f in vexs:
-        if len(f) > 1:
-            output.append(f)
+    extensions = [".comp", ".frag", ".vert"]
+    for root, dirs, files in os.walk(path):
+        for file in files:
+            if any(file.endswith(ext) for ext in extensions):
+                output.append(os.path.join(root, file))
     return output
 
 
@@ -95,22 +91,22 @@ def getName(fileName):
 
 
 def generateFileAsm(headfile, sourcefile, asmdirs):
-    cmd = "find " + asmdirs + " -name \"*.spirv\""
-    vexs = os.popen(cmd).read().split('\n')
     output = []
-    for f in vexs:
-        if len(f) > 1:
-            output.append(f)
+    for root, dirs, files in os.walk(asmdirs):
+        for file in files:
+            if file.endswith(".spirv"):
+                output.append(os.path.join(root, file))
     h = "#ifndef SPRIV_SHADER_AUTO_GENERATE_H\n#define SPRIV_SHADER_AUTO_GENERATE_H\n"
 
     cpp = "#include \"" + headfile + "\"\n"
     for s in output:
         name = getName(s)
         print(name)
-        print(os.popen("spirv-as " + s + " -o tempspv --target-env vulkan1.0").read())
+        subprocess.run(["spirv-as", s, "-o", "tempspv", "--target-env", "vulkan1.0"])
         h += "extern const unsigned char " + name + "[];\n"
         h += 'extern unsigned int ' + name + '_len;\n'
-        print(os.popen("xxd -i tempspv > temp.spv.cpp").read())
+        with open("temp.spv.cpp", "w") as tmp_cpp:
+            subprocess.run(["xxd", "-i", "tempspv"], stdout=tmp_cpp)
         with open('temp.spv.cpp') as f:
             allContent = f.read().replace('tempspv', name)
         cpp += 'const ' + allContent + '\n'
@@ -119,8 +115,8 @@ def generateFileAsm(headfile, sourcefile, asmdirs):
         f.write(h)
     with open(sourcefile, "w") as f:
         f.write(cpp)
-    os.popen('rm temp.spv.cpp').read()
-    os.popen('rm tempspv').read()
+    if os.path.exists('temp.spv.cpp'): os.remove('temp.spv.cpp')
+    if os.path.exists('tempspv'): os.remove('tempspv')
 
 
 class ShaderFile:

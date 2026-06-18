@@ -1,16 +1,17 @@
 #!/usr/bin/python
 import sys
 import os
+import subprocess
+
 gDefaultPath = sys.argv[1]#"glsl"
 gOutputHeadFile = sys.argv[2]#"AllShader.hpp"
 gOutputSourceFile = sys.argv[3]#"AllShader.cpp"
 def findAllShader(path):
-    cmd = "find " + path + " -name \"*.glsl\""
-    vexs = os.popen(cmd).read().split('\n')
     output = []
-    for f in vexs:
-        if len(f)>1:
-            output.append(f)
+    for root, dirs, files in os.walk(path):
+        for file in files:
+            if file.endswith(".glsl"):
+                output.append(os.path.join(root, file))
     return output
 
 def getName(fileName):
