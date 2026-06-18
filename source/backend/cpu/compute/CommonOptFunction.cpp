@@ -48,6 +48,19 @@ extern void MNNSumByAxisLForMatmul_A_RVV(float* dest, int8_t* source, const floa
                                          SumByAxisParams sumParams);
 extern void MNNSumWeightInt8_RVV(float* kernelsum, int8_t* source, size_t outside, size_t reduceAxis, size_t hP,
                                  size_t lP);
+extern void generalIm2col_RVV(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el,
+                              int LP, int pack);
+extern void MNNDynamicUpdateConvBiasScale_RVV(float* newbias, float* oldbias, float* weightKernelSum, float* inputBias,
+                                              size_t ocQuad);
+extern void MNNPackedMatMulFP32_RVV(float* C, const float* A, const float* B, const size_t* parameter,
+                                    const float* postParameters, const float* bias, const float* k, const float* b);
+extern void MNNPackedMatMulRemainFP32_RVV(float* C, const float* A, const float* B, size_t eSize,
+                                          const size_t* parameter, const float* postParameters, const float* bias,
+                                          const float* k, const float* b);
+extern void MNNPackForMatMul_B_RVV(float* destC, const float* sourceC, size_t h, size_t kernelsize, size_t ic,
+                                   bool transpose);
+extern void MNNQuantScaleFP32_RVV(float* absmax, float* quant_scale, float* dequant_scale, size_t thread, size_t batch);
+extern void MNNGetMatMulPackMode_RVV(int* eP, int* lP, int* hP);
 #endif
 
 #ifndef MNN_USE_SSE
@@ -4804,11 +4817,18 @@ void MNNCoreFunctionInit() {
         gCoreFunction->MNNSumByAxisLForMatmul_A = MNNSumByAxisLForMatmul_A_RVV;
         gCoreFunction->MNNReorderWeightInt4 = MNNReorderWeightInt4_RVV;
         gCoreFunction->MNNSumWeightInt8 = MNNSumWeightInt8_RVV;
+        gCoreFunction->MNNPackedMatMul = MNNPackedMatMulFP32_RVV;
+        gCoreFunction->MNNPackedMatMulRemain = MNNPackedMatMulRemainFP32_RVV;
+        gCoreFunction->MNNPackForMatMul_B = MNNPackForMatMul_B_RVV;
+        gCoreFunction->MNNGetMatMulPackMode = MNNGetMatMulPackMode_RVV;
 #ifdef MNN_LOW_MEMORY
         gCoreFunction->MNNAbsMax = MNNAbsMaxFP32_RVV;
         gCoreFunction->MNNDynamicQuant = MNNDynamicQuantFP32_RVV;
         gCoreFunction->MNNAsyQuantFunc = MNNAsyQuantFunc_RVV;
         gCoreFunction->MNNAsyQuantInfo = MNNAsyQuantInfo_FP32_RVV;
+        gCoreFunction->MNNGeneralIm2Col = generalIm2col_RVV;
+        gCoreFunction->MNNDynamicUpdateConvBiasScale = MNNDynamicUpdateConvBiasScale_RVV;
+        gCoreFunction->MNNQuantScale = MNNQuantScaleFP32_RVV;
 #endif
     }
 #endif
