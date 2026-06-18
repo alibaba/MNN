@@ -8,6 +8,7 @@
 
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/ExprCreator.hpp>
+#include <cmath>
 #include "MNNTestSuite.h"
 #include "TestUtils.h"
 #include "MNN_generated.h"
@@ -205,6 +206,21 @@ public:
         res = test<float, float>(MNN::Express::_Multiply, "MultiplyInt8Test", 0.01, inp1, inp2, rightResult,
                                   {16}, {16}, {16}, {0.4, 0.4, 0.16}, {1., 2., 3.});
         return res;
+    }
+};
+
+class MultiplySiluTest : public BinaryTestCommon {
+public:
+    virtual ~MultiplySiluTest() = default;
+    virtual bool run(int precision) {
+        std::vector<float> x = {-2.0f, -1.0f, 0.5f, 1.5f, 2.0f, -3.0f};
+        std::vector<float> y = {-1.5f, -0.5f, 0.25f, 1.0f, 2.0f, 3.0f};
+        std::vector<float> expected(x.size());
+        for (int i = 0; i < expected.size(); ++i) {
+            expected[i] = x[i] * (y[i] / (1.0f + std::exp(-y[i])));
+        }
+        return test<float, float>(MNN::Express::_MulSilu, "MultiplySiluTest", 0.01f, x, y, expected, {2, 3}, {2, 3},
+                                  {2, 3});
     }
 };
 
@@ -714,6 +730,7 @@ MNNTestSuiteRegister(BinaryBroadcastShapeTest, "op/binary/broadcastShapeTest");
 MNNTestSuiteRegister(AddTest, "op/binary/add");
 MNNTestSuiteRegister(SubtractTest, "op/binary/subtract");
 MNNTestSuiteRegister(MultiplyTest, "op/binary/multiply");
+MNNTestSuiteRegister(MultiplySiluTest, "op/binary/mulsilu");
 MNNTestSuiteRegister(DivideTest, "op/binary/divide");
 MNNTestSuiteRegister(PowTest, "op/binary/pow");
 MNNTestSuiteRegister(MinimumTest, "op/binary/minimum");
@@ -752,4 +769,3 @@ MNNTestSuiteRegister(SquaredDifferenceInt8Test, "op/binary/sqdInt8");
 
 MNNTestSuiteRegister(AddC4Test, "op/binary/addC4");
 MNNTestSuiteRegister(AddBroastTest, "op/binary/AddBroast");
-

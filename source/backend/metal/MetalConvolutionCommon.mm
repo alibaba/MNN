@@ -415,21 +415,19 @@ std::shared_ptr<MNN::Tensor> MetalConvolutionCommon::weightTransform(int group, 
 #ifdef MNN_LOW_MEMORY
     if (subBits == 3) {
         // 3-bit packed: 6 bytes / (4 OC, 4 IC) tile.
-        // Bytes 0..3: low 2 bits. Byte ro holds OC=ro, bits [7:6]=IC0..[1:0]=IC3, value=signed+4 lower 2 bits.
-        // Bytes 4..5: high 1 bit. Byte 4 holds OC{0,1}, byte 5 holds OC{2,3}.
-        //   Within high-byte: upper nibble [7..4] = OC even (i%2==0), bit (3-k) = IC k high bit.
-        //                    lower nibble [3..0] = OC odd  (i%2==1), bit (3-k) = IC k high bit.
         size_t weight_bytes = (size_t)group * goc_4 * gic_4 * kh * kw * 6;
         std::shared_ptr<MNN::Tensor> weightLow(MNN::Tensor::createDevice<int8_t>({(int)weight_bytes}));
         if (!backend->onAcquireBuffer(weightLow.get(), Backend::STATIC)) {
             MNN_ERROR("Memory alloc error!\n");
             return nullptr;
         }
-        if (nil == src) return weightLow;
+        if (nil == src) {
+            return weightLow;
+        }
         auto buf = MetalBackend::getBuffer(weightLow.get());
         auto dstPtr = (uint8_t*)[buf.first contents] + buf.second;
         ::memset(dstPtr, 0, weight_bytes);
-        auto srcPtr = (const int8_t*)src; // signed [-4,3] per weight
+        auto srcPtr = (const int8_t*)src;
         for (int g = 0; g < group; g++) {
             for (int o = 0; o < goc; o++) {
                 int zo = o / 4, ro = o % 4;
@@ -438,11 +436,9 @@ std::shared_ptr<MNN::Tensor> MetalConvolutionCommon::weightTransform(int group, 
                     for (int h = 0; h < kh; h++) {
                         for (int w = 0; w < kw; w++) {
                             int srcIdx = ((g * goc + o) * gic + i) * kh * kw + h * kw + w;
-                            int sv = (int)srcPtr[srcIdx] + 4; // unsigned [0,7]
+                            int sv = (int)srcPtr[srcIdx] + 4;
                             int tileBase = (((g * goc_4 + zo) * gic_4 + zi) * kh + h) * kw * 6 + w * 6;
-                            // low 2 bits
                             dstPtr[tileBase + ro] |= (uint8_t)((sv & 3) << (6 - ri * 2));
-                            // high 1 bit
                             int hiByte = tileBase + 4 + (ro / 2);
                             int hiShift = (ro % 2 == 0 ? 4 : 0) + (3 - ri);
                             dstPtr[hiByte] |= (uint8_t)(((sv >> 2) & 1) << hiShift);
@@ -454,20 +450,20 @@ std::shared_ptr<MNN::Tensor> MetalConvolutionCommon::weightTransform(int group, 
         return weightLow;
     }
     if (subBits == 2) {
-        // 2-bit packed: 4 bytes / (4 OC, 4 IC) tile. Byte ro holds 1 OC's 4 IC values.
-        // Bits [7:6]=IC0, [5:4]=IC1, [3:2]=IC2, [1:0]=IC3, value = signed_weight + 2 in [0,3].
-        // Mirrors W_QUANT_8 tile order: byte index ro within a tile = OC inner.
+        // 2-bit packed: 4 bytes / (4 OC, 4 IC) tile.
         size_t weight_bytes = (size_t)group * goc_4 * gic_4 * kh * kw * 4;
         std::shared_ptr<MNN::Tensor> weightLow(MNN::Tensor::createDevice<int8_t>({(int)weight_bytes}));
         if (!backend->onAcquireBuffer(weightLow.get(), Backend::STATIC)) {
             MNN_ERROR("Memory alloc error!\n");
             return nullptr;
         }
-        if (nil == src) return weightLow;
+        if (nil == src) {
+            return weightLow;
+        }
         auto buf = MetalBackend::getBuffer(weightLow.get());
         auto dstPtr = (uint8_t*)[buf.first contents] + buf.second;
         ::memset(dstPtr, 0, weight_bytes);
-        auto srcPtr = (const int8_t*)src; // signed [-2,1] per weight
+        auto srcPtr = (const int8_t*)src;
         for (int g = 0; g < group; g++) {
             for (int o = 0; o < goc; o++) {
                 int zo = o / 4, ro = o % 4;
@@ -478,8 +474,7 @@ std::shared_ptr<MNN::Tensor> MetalConvolutionCommon::weightTransform(int group, 
                             int srcIdx = ((g * goc + o) * gic + i) * kh * kw + h * kw + w;
                             int sv = (int)srcPtr[srcIdx] + 2;
                             int tileBase = (((g * goc_4 + zo) * gic_4 + zi) * kh + h) * kw * 4 + w * 4;
-                            int byteIdx = tileBase + ro;
-                            dstPtr[byteIdx] |= (uint8_t)((sv & 3) << (6 - ri * 2));
+                            dstPtr[tileBase + ro] |= (uint8_t)((sv & 3) << (6 - ri * 2));
                         }
                     }
                 }

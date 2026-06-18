@@ -66,6 +66,12 @@ NSString* MetalBinary::convert(int originOp, bool inputFloat) {
          */
         return @"select(V0%V1,(V0%V1)+V1,(V0%V1<0&&V1>0)||(V0%V1>0&&V1<0))";
     }
+    if (BinaryOpOperation_MUL_SILU == originOp) {
+        if (!inputFloat) {
+            return nil;
+        }
+        return @"V0*(V1/(1.0f+exp(-V1)))";
+    }
     CHECK(BinaryOpOperation_ADD, @"V0+V1");
     CHECK(BinaryOpOperation_ATAN2, @"atan2(V0,V1)");
     CHECK(BinaryOpOperation_SUB, @"V0-V1");

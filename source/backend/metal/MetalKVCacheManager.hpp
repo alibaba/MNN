@@ -1,4 +1,3 @@
-
 //
 //  MetalKVCacheManager.hpp
 //  MNN
@@ -21,10 +20,17 @@ namespace MNN {
 
 class MetalKVCacheManager : public KVCacheManager{
 private:
-    id<MTLBuffer> mKeyBuffer;
-    id<MTLBuffer> mValueBuffer;
-    size_t mCurrentTotalSize;
-    
+    id<MTLBuffer> mKeyBuffer = nil;
+    id<MTLBuffer> mValueBuffer = nil;
+    id<MTLBuffer> mKScaleBuffer = nil;
+    id<MTLBuffer> mVScaleBuffer = nil;
+    // Only used when KV cache is stored on disk. For in-memory path V may use int8.
+    size_t mCurrentTotalSize = 0;
+
+    bool mQuantValue = false; // whether V is stored as int8 in cache
+    bool mQuantKey = false;   // whether K is stored as int8 in cache
+    std::shared_ptr<KVQuantParameter> mKVQuantParameter = nullptr;
+
 private:
     void expandKVCacheInDisk(size_t oldSize, size_t curSize, size_t old_piece_stride, size_t old_piece_size, size_t new_piece_stride, bool need_copy, file_t specKeyFile = INVALID_FILE, file_t specValueFile = INVALID_FILE);
     void expandKVCacheInMem(size_t oldSize, size_t old_piece_stride, size_t old_piece_size, size_t new_piece_stride, bool need_copy);
@@ -44,12 +50,32 @@ public:
     id<MTLBuffer> getKeyBuffer() {
         return mKeyBuffer;
     }
+    id<MTLBuffer> getKScaleBuffer() {
+        return mKScaleBuffer;
+    }
+    id<MTLBuffer> getVScaleBuffer() {
+        return mVScaleBuffer;
+    }
     id<MTLBuffer> getValueBuffer() {
         return mValueBuffer;
     }
-    
+
     void setPastLength(int length) {
         mPastLength = length;
+    }
+
+    void setKVQuantParameter(std::shared_ptr<KVQuantParameter> p) {
+        mKVQuantParameter = p;
+    }
+    void setAttenQuantKeyValue(bool quantKey, bool quantValue) {
+        mQuantKey = quantKey;
+        mQuantValue = quantValue;
+    }
+    bool useDynamicScaleBuffer() const {
+        return (mQuantKey || mQuantValue) && mKVQuantParameter == nullptr;
+    }
+    bool quantValue() const {
+        return mQuantValue;
     }
 
     virtual void onResize(int kv_num_head, int head_dim);

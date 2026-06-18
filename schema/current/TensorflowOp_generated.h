@@ -234,11 +234,12 @@ enum BinaryOpOperation {
   BinaryOpOperation_LOGICALXOR = 26,
   BinaryOpOperation_LEFTSHIFT = 27,
   BinaryOpOperation_RIGHTSHIFT = 28,
+  BinaryOpOperation_MUL_SILU = 29,
   BinaryOpOperation_MIN = BinaryOpOperation_ADD,
-  BinaryOpOperation_MAX = BinaryOpOperation_RIGHTSHIFT
+  BinaryOpOperation_MAX = BinaryOpOperation_MUL_SILU
 };
 
-inline const BinaryOpOperation (&EnumValuesBinaryOpOperation())[28] {
+inline const BinaryOpOperation (&EnumValuesBinaryOpOperation())[29] {
   static const BinaryOpOperation values[] = {
     BinaryOpOperation_ADD,
     BinaryOpOperation_SUB,
@@ -267,7 +268,8 @@ inline const BinaryOpOperation (&EnumValuesBinaryOpOperation())[28] {
     BinaryOpOperation_BITWISE_XOR,
     BinaryOpOperation_LOGICALXOR,
     BinaryOpOperation_LEFTSHIFT,
-    BinaryOpOperation_RIGHTSHIFT
+    BinaryOpOperation_RIGHTSHIFT,
+    BinaryOpOperation_MUL_SILU
   };
   return values;
 }
@@ -303,13 +305,14 @@ inline const char * const *EnumNamesBinaryOpOperation() {
     "LOGICALXOR",
     "LEFTSHIFT",
     "RIGHTSHIFT",
+    "MUL_SILU",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameBinaryOpOperation(BinaryOpOperation e) {
-  if (e < BinaryOpOperation_ADD || e > BinaryOpOperation_RIGHTSHIFT) return "";
+  if (e < BinaryOpOperation_ADD || e > BinaryOpOperation_MUL_SILU) return "";
   const size_t index = static_cast<int>(e);
   return EnumNamesBinaryOpOperation()[index];
 }
@@ -4957,12 +4960,13 @@ inline const flatbuffers::TypeTable *BinaryOpOperationTypeTable() {
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     BinaryOpOperationTypeTable
   };
-  static const int64_t values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28 };
+  static const int64_t values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29 };
   static const char * const names[] = {
     "ADD",
     "SUB",
@@ -4991,10 +4995,11 @@ inline const flatbuffers::TypeTable *BinaryOpOperationTypeTable() {
     "BITWISE_XOR",
     "LOGICALXOR",
     "LEFTSHIFT",
-    "RIGHTSHIFT"
+    "RIGHTSHIFT",
+    "MUL_SILU"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_ENUM, 28, type_codes, type_refs, values, names
+    flatbuffers::ST_ENUM, 29, type_codes, type_refs, values, names
   };
   return &tt;
 }

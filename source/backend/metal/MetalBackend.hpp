@@ -89,6 +89,10 @@ public:
     BufferAllocator* createDynamicAllocator(int index, bool secondResize) const;
     mutable id<MTLCommandBuffer> _waiting = nil;
 
+    size_t maxThreadSize() const {
+        return mMaxThreadSize;
+    }
+
 private:
     MetalRuntime(void* context);
     void* mContext = nullptr;
@@ -114,6 +118,7 @@ private:
     bool mSimdGroupReduce;
     bool mSimdGroupMatrix;
     bool mTensorOps;
+    size_t mMaxThreadSize;
 };
 
 
@@ -284,6 +289,7 @@ private:
     bool mUseFloatAsFp16;
     bool mIsIphone = false;
     BufferAllocator* mCurrentAllocator = nullptr;
+    std::shared_ptr<BufferAllocator> mExecutionBufferPool;
 
 };
 
