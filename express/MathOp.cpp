@@ -584,6 +584,10 @@ VARP _Multiply(VARP x, VARP y) {
     return _Binary(x, y, BinaryOpOperation_MUL);
 }
 
+VARP _MulSilu(VARP x, VARP y) {
+    return _Binary(x, y, BinaryOpOperation_MUL_SILU);
+}
+
 /*Computes Python style division of x by y.
 Args:
 x: A variable. Must be one of the following types:

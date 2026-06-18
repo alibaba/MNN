@@ -141,6 +141,53 @@ static bool testKernel (std::vector<float> inputdata, std::vector<float> targetd
     }
     return true;
 }
+
+static int nc4hw4Offset(int n, int c, int plane, int batch) {
+    return (c % 4) + 4 * plane * n + 4 * plane * batch * (c / 4);
+}
+
+static void computeChannelLayerNorm(const std::vector<float>& input, std::vector<float>& output, int batch, int channel,
+                                    const std::vector<float>& gamma, const std::vector<float>& beta) {
+    output.resize(batch * channel);
+    for (int n = 0; n < batch; ++n) {
+        float mean = 0.0f;
+        for (int c = 0; c < channel; ++c) {
+            mean += input[n * channel + c];
+        }
+        mean /= channel;
+        float variance = 0.0f;
+        for (int c = 0; c < channel; ++c) {
+            float v = input[n * channel + c] - mean;
+            variance += v * v;
+        }
+        variance /= channel;
+        float inv = 1.0f / std::sqrt(variance + eps);
+        for (int c = 0; c < channel; ++c) {
+            float v = (input[n * channel + c] - mean) * inv;
+            if (!gamma.empty()) {
+                v = v * gamma[c] + (beta.empty() ? 0.0f : beta[c]);
+            }
+            output[n * channel + c] = v;
+        }
+    }
+}
+
+static bool checkNC4HW4Logical(VARP output, const std::vector<float>& expected, int batch, int channel,
+                               const char* testName) {
+    auto ptr = output->readMap<float>();
+    std::vector<float> actual(batch * channel);
+    for (int n = 0; n < batch; ++n) {
+        for (int c = 0; c < channel; ++c) {
+            actual[n * channel + c] = ptr[nc4hw4Offset(n, c, 1, batch)];
+        }
+    }
+    if (!checkVector<float>(actual.data(), expected.data(), batch * channel, 0.02f)) {
+        MNN_ERROR("%s failed!\n", testName);
+        return false;
+    }
+    return true;
+}
+
 class LayerNormTest : public MNNTestCase {
 public:
     virtual ~LayerNormTest() = default;
@@ -241,3 +288,92 @@ public:
     }
 };
 MNNTestSuiteRegister(LayerNormTest, "op/layernorm");
+
+class LayerNormC4Test : public MNNTestCase {
+public:
+    virtual ~LayerNormC4Test() = default;
+    virtual bool run(int precision) {
+        const int batch = 2;
+        const int channel = 8;
+        const int physicalSize = batch * UP_DIV(channel, 4) * 4;
+        std::vector<float> logical = {-1.0f, 0.5f, 2.0f, -0.5f, 1.5f, 0.25f, -1.25f, 0.75f,
+                                      3.0f,  1.0f, -2.0f, 0.0f,  4.0f, -1.5f, 2.5f,  -0.25f};
+        std::vector<float> packed(physicalSize, 0.0f);
+        for (int n = 0; n < batch; ++n) {
+            for (int c = 0; c < channel; ++c) {
+                packed[nc4hw4Offset(n, c, 1, batch)] = logical[n * channel + c];
+            }
+        }
+        std::vector<float> gamma = {0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 0.8f, 1.2f, 0.6f};
+        std::vector<float> beta = {0.1f, -0.2f, 0.3f, -0.4f, 0.5f, 0.05f, -0.15f, 0.25f};
+        auto input = _Input({batch, channel, 1, 1}, NC4HW4);
+        ::memcpy(input->writeMap<float>(), packed.data(), packed.size() * sizeof(float));
+        input->unMap();
+        std::unique_ptr<OpT> op(new OpT);
+        op->main.type = OpParameter_LayerNorm;
+        op->type = OpType_LayerNorm;
+        op->defaultDimentionFormat = MNN_DATA_FORMAT_NC4HW4;
+        op->main.value = new LayerNormT;
+        op->main.AsLayerNorm()->gamma = gamma;
+        op->main.AsLayerNorm()->beta = beta;
+        op->main.AsLayerNorm()->epsilon = eps;
+        op->main.AsLayerNorm()->axis = {1};
+        auto output = Variable::create(Expr::create(std::move(op), {input}));
+        std::vector<float> expected;
+        computeChannelLayerNorm(logical, expected, batch, channel, gamma, beta);
+        return checkNC4HW4Logical(output, expected, batch, channel, "LayerNormC4Test");
+    }
+};
+
+class BinaryLayerNormC4Test : public MNNTestCase {
+public:
+    virtual ~BinaryLayerNormC4Test() = default;
+    virtual bool run(int precision) {
+        const int batch = 2;
+        const int channel = 8;
+        const int physicalSize = batch * UP_DIV(channel, 4) * 4;
+        std::vector<float> logical0 = {-1.0f, 0.5f, 2.0f, -0.5f, 1.5f, 0.25f, -1.25f, 0.75f,
+                                       3.0f,  1.0f, -2.0f, 0.0f,  4.0f, -1.5f, 2.5f,  -0.25f};
+        std::vector<float> logical1 = {0.25f,  -0.5f, 0.75f, 1.0f,  -1.25f, 0.5f,  -0.75f, 1.25f,
+                                       -0.75f, 0.5f,  1.25f, -1.0f, 0.25f,  0.75f, -0.5f,  1.5f};
+        std::vector<float> packed0(physicalSize, 0.0f), packed1(physicalSize, 0.0f), sumLogical(batch * channel);
+        for (int n = 0; n < batch; ++n) {
+            for (int c = 0; c < channel; ++c) {
+                int logicalIndex = n * channel + c;
+                int packedIndex = nc4hw4Offset(n, c, 1, batch);
+                packed0[packedIndex] = logical0[logicalIndex];
+                packed1[packedIndex] = logical1[logicalIndex];
+                sumLogical[logicalIndex] = logical0[logicalIndex] + logical1[logicalIndex];
+            }
+        }
+        std::vector<float> gamma = {1.0f, 0.5f, 1.5f, 0.75f, 1.25f, 0.8f, 1.2f, 0.6f};
+        std::vector<float> beta(channel, 0.0f);
+        auto input0 = _Input({batch, channel, 1, 1}, NC4HW4);
+        auto input1 = _Input({batch, channel, 1, 1}, NC4HW4);
+        ::memcpy(input0->writeMap<float>(), packed0.data(), packed0.size() * sizeof(float));
+        ::memcpy(input1->writeMap<float>(), packed1.data(), packed1.size() * sizeof(float));
+        input0->unMap();
+        input1->unMap();
+
+        std::unique_ptr<OpT> op(new OpT);
+        op->main.type = OpParameter_LayerNorm;
+        op->type = OpType_LayerNorm;
+        op->defaultDimentionFormat = MNN_DATA_FORMAT_NC4HW4;
+        op->main.value = new LayerNormT;
+        op->main.AsLayerNorm()->gamma = gamma;
+        op->main.AsLayerNorm()->beta = beta;
+        op->main.AsLayerNorm()->epsilon = eps;
+        op->main.AsLayerNorm()->axis = {1};
+        auto expr = Expr::create(std::move(op), {input0, input1}, 2);
+        auto sumOutput = Variable::create(expr, 0);
+        auto normOutput = Variable::create(expr, 1);
+
+        std::vector<float> expectedNorm;
+        computeChannelLayerNorm(sumLogical, expectedNorm, batch, channel, gamma, beta);
+        return checkNC4HW4Logical(sumOutput, sumLogical, batch, channel, "BinaryLayerNormC4SumTest") &&
+               checkNC4HW4Logical(normOutput, expectedNorm, batch, channel, "BinaryLayerNormC4NormTest");
+    }
+};
+
+MNNTestSuiteRegister(LayerNormC4Test, "op/layernorm/c4");
+MNNTestSuiteRegister(BinaryLayerNormC4Test, "op/layernorm/c4_binary");

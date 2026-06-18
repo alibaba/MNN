@@ -131,12 +131,21 @@ class GeometryGather : public GeometryComputer {
 public:
     virtual bool onCompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                            Context& context, CommandBuffer& res) const override {
+        if (inputs.size() == 1) {
+            std::shared_ptr<Command> cmdP(new Command);
+            auto& cmd = *cmdP;
+            cmd.op = op;
+            cmd.inputs = inputs;
+            cmd.outputs = outputs;
+            res.command.emplace_back(std::move(cmdP));
+            return true;
+        }
         _computeGather(inputs, outputs, context, res, op);
         return true;
     }
     virtual bool onRecompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                              Context& context, CommandBuffer& cmd) const override {
-        if (cmd.command.size() != 1) {
+        if (cmd.command.size() != 1 || inputs.size() == 1) {
             return false;
         }
         int axis = 0;
@@ -362,23 +371,25 @@ public:
             paramSize = dimCount;
         }
         // recompute reshape
-        auto des = TensorUtils::getDescribeOrigin(reshapeIndice.get());
-        des->offset = 0;
-        auto nativeDes = TensorUtils::getDescribe(reshapeIndice.get());
-        nativeDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
-        nativeDes->regions = {GeometryComputerUtils::makeRawAddressRef(indice, 0, mSliceN * indiceNd)};
+        auto desOrigin = TensorUtils::getDescribeOrigin(reshapeIndice.get());
+        desOrigin->mem = nullptr;
+        auto des = TensorUtils::getDescribe(reshapeIndice.get());
+        desOrigin->offset = 0;
+        des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        des->regions = {GeometryComputerUtils::makeRawAddressRef(indice, 0, mSliceN * indiceNd)};
         // recompute broadcast
-        des = TensorUtils::getDescribeOrigin(broadcastStride.get());
-        des->offset = 0;
-        nativeDes = TensorUtils::getDescribe(broadcastStride.get());
-        nativeDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
-        nativeDes->regions[0].origin = constStride.get();
-        nativeDes->regions[0].size[0] = 1;
-        nativeDes->regions[0].size[1] = mSliceN;
-        nativeDes->regions[0].size[2] = indiceNd;
-        nativeDes->regions[0].dst.stride[0] = indiceNd*mSliceN;
-        nativeDes->regions[0].dst.stride[1] = indiceNd;
-        nativeDes->regions[0].dst.stride[2] = 1;
+        desOrigin = TensorUtils::getDescribeOrigin(broadcastStride.get());
+        desOrigin->mem = nullptr;
+        des = TensorUtils::getDescribe(broadcastStride.get());
+        desOrigin->offset = 0;
+        des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        des->regions[0].origin = constStride.get();
+        des->regions[0].size[0] = 1;
+        des->regions[0].size[1] = mSliceN;
+        des->regions[0].size[2] = indiceNd;
+        des->regions[0].dst.stride[0] = indiceNd*mSliceN;
+        des->regions[0].dst.stride[1] = indiceNd;
+        des->regions[0].dst.stride[2] = 1;
         // recompute loop
         auto loopCmd = cmd.command[cmd.command.size() - 1];
         auto param = loopCmd->op->main_as_LoopParam();
