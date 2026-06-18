@@ -16,18 +16,18 @@ public:
     virtual bool onCompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                            Context& context, CommandBuffer& res) const override {
         /* Target: Ensure reduce dimensions must be a sequence subset [-rank,...,rank-1] */
-        MNN_ASSERT(1 == outputs.size());
-        MNN_ASSERT(1 == inputs.size());
         auto layernorm          = op->main_as_LayerNorm();
-        if (!layernorm->axis()) {
+        if (!layernorm->axis() || op->defaultDimentionFormat() == MNN_DATA_FORMAT_NC4HW4) {
             std::shared_ptr<Command> cmdP(new Command);
             auto& cmd = *cmdP;
             cmd.op      = op;
-            cmd.inputs  = {inputs[0]};
+            cmd.inputs  = inputs;
             cmd.outputs = std::move(outputs);
             res.command.emplace_back(std::move(cmdP));
             return true;
         }
+        MNN_ASSERT(1 == outputs.size());
+        MNN_ASSERT(1 == inputs.size());
         auto reduceDims = layernorm->axis()->data();
         int reduceDimensionCount = layernorm->axis()->size();
         auto inputShape = inputs[0]->shape();
