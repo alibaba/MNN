@@ -7,11 +7,8 @@
 //
 #include <riscv_vector.h>
 #include <stdint.h>
-<<<<<<< HEAD
 #include <sys/types.h>
-=======
 #include "../../compute/Int8FunctionsOpt.h"
->>>>>>> fc26945b ([CPU:Bugfix] supplement missing headfile, and fix a bug in MNNLineDepthWiseInt8AddBiasScaleUnit which causse the error below:)
 
 void MNNFloat2Int8_RVV(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minValue,
                        ssize_t maxValue, const float* zeroPoint, ssize_t quanParamVec) {
