@@ -133,6 +133,7 @@ void Llm::setChatTemplate() {
 
 bool Llm::set_config(const std::string& content) {
     mConfig->config_.merge(ujson::json::parse(content));
+    mConfig->mllm_config_ = mConfig->config_.contains("mllm") ? mConfig->config_["mllm"] : ujson::json();
     setChatTemplate();
     mAsync = mConfig->config_.value("async", true);
     mGenerateParam->timeout_ms = mConfig->timeout_ms();
