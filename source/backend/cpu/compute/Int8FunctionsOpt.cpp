@@ -1873,7 +1873,7 @@ static void MNNLineDepthWiseInt8AddBiasScaleUnit3x3(int8_t* dst, const int8_t* s
 }
 #endif
 
-#ifndef MNN_USE_NEON
+#if !defined(MNN_USE_NEON) && !defined(MNN_USE_RVV)
 void MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minValue,
                    ssize_t maxValue, const float* zeroPoint, ssize_t quanParamVec) {
     // quanParamVec:
@@ -1983,10 +1983,6 @@ void MNNBinaryAddInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* 
     const uint8_t* inputData0 = (uint8_t*)inputRaw0;
     const uint8_t* inputData1 = (uint8_t*)inputRaw1;
     uint8_t* outputData = (uint8_t*)outputRaw;
-#elif MNN_USE_RVV
-    MNNBinaryAddInt8_RVV(outputRaw, inputRaw0, inputRaw1, inputScalesInt32, inputScalesFp32, params, elementSize,
-                         needBroadcast);
-    return;
 #else
     const int offset = 0;
     const int8_t* inputData0 = inputRaw0;
@@ -2035,10 +2031,6 @@ void MNNBinarySubInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* 
     const uint8_t* inputData0 = (uint8_t*)inputRaw0;
     const uint8_t* inputData1 = (uint8_t*)inputRaw1;
     uint8_t* outputData = (uint8_t*)outputRaw;
-#elif MNN_USE_RVV
-    MNNBinarySubInt8_RVV(outputRaw, inputRaw0, inputRaw1, inputScalesInt32, inputScalesFp32, params, elementSize,
-                         needBroadcast);
-    return;
 #else
     const int offset = 0;
     const int8_t* inputData0 = inputRaw0;
@@ -2087,10 +2079,6 @@ void MNNBinaryMulInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* 
     const uint8_t* inputData0 = (uint8_t*)inputRaw0;
     const uint8_t* inputData1 = (uint8_t*)inputRaw1;
     uint8_t* outputData = (uint8_t*)outputRaw;
-#elif MNN_USE_RVV
-    MNNBinaryMulInt8_RVV(outputRaw, inputRaw0, inputRaw1, inputScalesInt32, inputScalesFp32, params, elementSize,
-                         needBroadcast);
-    return;
 #else
     const int offset = 0;
     const int8_t* inputData0 = inputRaw0;
@@ -2133,10 +2121,6 @@ void MNNBinaryMinInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* 
     const uint8_t* inputData0 = (uint8_t*)inputRaw0;
     const uint8_t* inputData1 = (uint8_t*)inputRaw1;
     uint8_t* outputData = (uint8_t*)outputRaw;
-#elif MNN_USE_RVV
-    MNNBinaryMinInt8_RVV(outputRaw, inputRaw0, inputRaw1, inputScalesInt32, inputScalesFp32, params, elementSize,
-                         needBroadcast);
-    return;
 #else
     const int offset = 0;
     const int8_t* inputData0 = inputRaw0;
@@ -2188,10 +2172,6 @@ void MNNBinaryMaxInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* 
     const uint8_t* inputData0 = (uint8_t*)inputRaw0;
     const uint8_t* inputData1 = (uint8_t*)inputRaw1;
     uint8_t* outputData = (uint8_t*)outputRaw;
-#elif MNN_USE_RVV
-    MNNBinaryMaxInt8_RVV(outputRaw, inputRaw0, inputRaw1, inputScalesInt32, inputScalesFp32, params, elementSize,
-                         needBroadcast);
-    return;
 #else
     const int offset = 0;
     const int8_t* inputData0 = inputRaw0;
@@ -2242,10 +2222,6 @@ void MNNBinarySqdInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* 
     const uint8_t* inputData0 = (uint8_t*)inputRaw0;
     const uint8_t* inputData1 = (uint8_t*)inputRaw1;
     uint8_t* outputData = (uint8_t*)outputRaw;
-#elif MNN_USE_RVV
-    MNNBinarySqdInt8_RVV(outputRaw, inputRaw0, inputRaw1, inputScalesInt32, inputScalesFp32, params, elementSize,
-                         needBroadcast);
-    return;
 #else
     const int offset = 0;
     const int8_t* inputData0 = inputRaw0;
@@ -2286,10 +2262,6 @@ void MNNScaleAndAddBiasInt8(int8_t* dst, const int8_t* src, const int32_t* bias,
     const uint8_t* srcPtr = (uint8_t*)src;
     uint8_t* dstPtr = (uint8_t*)dst;
     int offset = 128;
-#elif MNN_USE_RVV
-    MNNScaleAndAddBiasInt8_RVV(dst, src, bias, alpha, mShiftBits, minValue, maxValue, inputZeroPoint, outputZeroPoint,
-                               planeNumber, biasNumber, pack);
-    return;
 #else
     const int8_t* srcPtr = src;
     int8_t* dstPtr = dst;
@@ -2337,8 +2309,74 @@ void MNNScaleAndAddBiasInt8(int8_t* dst, const int8_t* src, const int32_t* bias,
 void MNNInt8FunctionInit() {
     // do nothing
 }
-#endif // #ifndef MNN_USE_SSE
+#endif // #if !defined(MNN_USE_SSE) && !defined(MNN_USE_RVV)
 
+#ifdef MNN_USE_RVV
+void MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minValue,
+                   ssize_t maxValue, const float* zeroPoint, ssize_t quanParamVec) {
+    MNNFloat2Int8_RVV(src, dst, sizeQuad, scalep, minValue, maxValue, zeroPoint, quanParamVec);
+}
+
+void MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size_t size, const float* zeroPoint,
+                         ssize_t quantParamVec) {
+    MNNInt8ScaleToFloat_RVV(dst, src, scale, size, zeroPoint, quantParamVec);
+}
+
+void MNNBinaryAddInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, ssize_t* inputScalesInt32,
+                      float* inputScalesFp32, const QuanPrePostParameters* params, size_t elementSize,
+                      size_t needBroadcast) {
+    MNNBinaryAddInt8_RVV(outputRaw, inputRaw0, inputRaw1, inputScalesInt32, inputScalesFp32, params, elementSize,
+                         needBroadcast);
+    return;
+}
+
+void MNNBinarySubInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, ssize_t* inputScalesInt32,
+                      float* inputScalesFp32, const QuanPrePostParameters* params, size_t elementSize,
+                      size_t needBroadcast) {
+    MNNBinarySubInt8_RVV(outputRaw, inputRaw0, inputRaw1, inputScalesInt32, inputScalesFp32, params, elementSize,
+                         needBroadcast);
+    return;
+}
+
+void MNNBinaryMulInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, ssize_t* inputScalesInt32,
+                      float* inputScalesFp32, const QuanPrePostParameters* params, size_t elementSize,
+                      size_t needBroadcast) {
+    MNNBinaryMulInt8_RVV(outputRaw, inputRaw0, inputRaw1, inputScalesInt32, inputScalesFp32, params, elementSize,
+                         needBroadcast);
+    return;
+}
+
+void MNNBinaryMinInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, ssize_t* inputScalesInt32,
+                      float* inputScalesFp32, const QuanPrePostParameters* params, size_t elementSize,
+                      size_t needBroadcast) {
+    MNNBinaryMinInt8_RVV(outputRaw, inputRaw0, inputRaw1, inputScalesInt32, inputScalesFp32, params, elementSize,
+                         needBroadcast);
+    return;
+}
+
+void MNNBinaryMaxInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, ssize_t* inputScalesInt32,
+                      float* inputScalesFp32, const QuanPrePostParameters* params, size_t elementSize,
+                      size_t needBroadcast) {
+    MNNBinaryMaxInt8_RVV(outputRaw, inputRaw0, inputRaw1, inputScalesInt32, inputScalesFp32, params, elementSize,
+                         needBroadcast);
+    return;
+}
+void MNNBinarySqdInt8(int8_t* outputRaw, const int8_t* inputRaw0, const int8_t* inputRaw1, ssize_t* inputScalesInt32,
+                      float* inputScalesFp32, const QuanPrePostParameters* params, size_t elementSize,
+                      size_t needBroadcast) {
+    MNNBinarySqdInt8_RVV(outputRaw, inputRaw0, inputRaw1, inputScalesInt32, inputScalesFp32, params, elementSize,
+                         needBroadcast);
+    return;
+}
+
+void MNNScaleAndAddBiasInt8(int8_t* dst, const int8_t* src, const int32_t* bias, const int32_t* alpha,
+                            int32_t mShiftBits, ssize_t minValue, ssize_t maxValue, int8_t* inputZeroPoint,
+                            int8_t* outputZeroPoint, ssize_t planeNumber, ssize_t biasNumber, ssize_t pack) {
+    MNNScaleAndAddBiasInt8_RVV(dst, src, bias, alpha, mShiftBits, minValue, maxValue, inputZeroPoint, outputZeroPoint,
+                               planeNumber, biasNumber, pack);
+    return;
+}
+#endif
 template <int EP, int LP, int HP>
 static void _ArmBasicMNNPackC4ForMatMul_A(int8_t* destOrigin, int8_t const** sourceGroup, const int32_t* info,
                                           const int32_t* el) {
@@ -2626,9 +2664,6 @@ static void MNNSumByAxisLForMatmul_A(float* dest, int8_t* source, const float* s
                                      SumByAxisParams sumParams) {
 #ifdef MNN_USE_SSE
     uint8_t* srcInt8 = reinterpret_cast<uint8_t*>(source);
-#elif MNN_USE_RVV
-    MNNSumByAxisLForMatmul_A_RVV(dest, source, scale, realDstCount, sumParams);
-    return;
 #else
     int8_t* srcInt8 = source;
 #endif
@@ -2706,8 +2741,10 @@ void MNNCoreInt8FunctionInit() {
         _ArmBasicMNNPackC4ForMatMul_A<GEMM_INT8_DST_XUNIT, GEMM_INT8_SRC_UNIT, GEMM_INT8_UNIT>;
     // conv depthwise
     gCoreFunc->ConvDepthwiseLineInt8 = MNNLineDepthWiseInt8AddBiasScaleUnit;
+#ifndef MNN_USE_RVV
     gCoreFunc->MNNFloat2Int8 = MNNFloat2Int8;
     gCoreFunc->MNNInt8ScaleToFloat = MNNInt8ScaleToFloat;
+#endif
 
 #ifdef MNN_USE_SPARSE_COMPUTE
     // sparse
@@ -2718,9 +2755,11 @@ void MNNCoreInt8FunctionInit() {
     gCoreFunc->MNNPackC4Int8ForMatMul_ASparse = _MNNPackC4Int8ForMatMul_ASparse;
 #endif
 
+#ifndef MNN_USE_RVV
     // pooling
     gCoreFunc->MNNAvgPoolInt8 = MNNAvgPoolInt8;
     gCoreFunc->MNNMaxPoolInt8 = MNNMaxPoolInt8;
+#endif
 
 #ifdef MNN_SUPPORT_QUANT_EXTEND
     // ReluWithSlopeChannel
@@ -2854,7 +2893,7 @@ void MNNCoreInt8FunctionInit() {
         gCoreFunc->ConvDepthwiseLineInt8 = MNNLineDepthWiseInt8AddBiasScaleUnit_RVV;
         gCoreFunc->MNNMaxPoolInt8 = MNNMaxPoolInt8_RVV;
         gCoreFunc->MNNReluWithSlopeChannelInt8 = MNNReluWithSlopeChannelInt8_RVV;
-        core->MNNSumByAxisLForMatmul_A = MNNSumByAxisLForMatmul_A;
+        core->MNNSumByAxisLForMatmul_A = MNNSumByAxisLForMatmul_A_RVV;
 #ifdef MNN_USE_SPARSE_COMPUTE // sparse
         gCoreFunc->MNNPackC4Int8ForMatMul_ASparse = _MNNPackC4Int8ForMatMul_ASparse_RVV;
 #endif
