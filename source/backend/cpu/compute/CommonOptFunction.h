@@ -132,6 +132,7 @@ void MNNGeluCommon(float* dst, const float* src, size_t size);
 void MNNGeluStandardCommon(float* dst, const float* src, size_t size);
 void MNNNorm(float* dest, const float* source, const float* gamma, const float* beta, float epsilon, size_t size,
              bool RMSNorm = false);
+void MNNAddAndRMSNorm(float* dst, const float* src0, const float* src1, const float* gamma, float epsilon, size_t size);
 void MNNSoftmax(float* softmaxDst, const float* input, float* runningMax, float* runningSum, float* updateScale,
                 int outside, int reduceSize, int kvSeqOffset, int validOffset, int pack = 1, bool mask = false);
 

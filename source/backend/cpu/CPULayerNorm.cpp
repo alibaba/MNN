@@ -164,7 +164,13 @@ ErrorCode CPULayerNorm::onExecute(const std::vector<Tensor*>& inputs, const std:
                     core->MNNFp32ToLowp(tmpOutput, (int16_t*)inner_output, mInnerSize);
                 }
             } else {
-                MNNNorm(inner_output, inner_input, gamma, beta, mResource->mEpsilon, mInnerSize, mResource->mRMSNorm);
+                // Fused Add + RMSNorm path (2 inputs = data + residual)
+                if (inputs.size() >= 2 && mResource->mRMSNorm) {
+                    const float* residual = (const float*)(inputs[1]->host<uint8_t>() + tId * mInnerSize * bytes);
+                    MNNAddAndRMSNorm(inner_output, inner_input, residual, gamma, mResource->mEpsilon, mInnerSize);
+                } else {
+                    MNNNorm(inner_output, inner_input, gamma, beta, mResource->mEpsilon, mInnerSize, mResource->mRMSNorm);
+                }
             }
         }
     }
