@@ -654,7 +654,7 @@ VARP whisper_fbank(VARP waveform, int sample_rate, int n_mels, int n_fft, int ho
     auto mel_specgram      = mel_spectrogram(waveform, &mel_params, &spec_params);
     mel_specgram =
         _Slice(mel_specgram, _var<int>({0, 0}, {2}), _var<int>({mel_specgram->getInfo()->dim[0] - 1, -1}, {2}));
-    auto log_specgram = _Log(mel_specgram) / _Log(_Scalar<float>(10.0));
+    auto log_specgram = _Log(_Maximum(mel_specgram, _Scalar<float>(1e-10f))) / _Log(_Scalar<float>(10.0));
     log_specgram      = _Maximum(log_specgram, _ReduceMax(log_specgram) - _Scalar<float>(8.0));
     log_specgram      = (log_specgram + _Scalar<float>(4.0)) / _Scalar<float>(4.0);
     // NHWC -> NCHW

@@ -1,0 +1,153 @@
+#version 440 core
+
+layout(std430) buffer;
+
+layout(set=0, binding=0) writeonly uniform image2D uOutValue;
+layout(set=0, binding=1) writeonly uniform iimage2D uOutIndex;
+layout(set=0, binding=2) uniform sampler2D uInput;
+
+layout(set=0, binding=3) uniform constBuffer {
+    int rowSize;
+    int k;
+    int numRows;
+    int C4; // UP_DIV(rowSize, 4)
+} uConst;
+
+#define THREAD_NUMBER 128
+#define LOCAL_K 8
+#define CANDIDATE_NUMBER 1024
+
+shared float sharedValue[CANDIDATE_NUMBER];
+shared int sharedIndex[CANDIDATE_NUMBER];
+
+layout(local_size_x = THREAD_NUMBER, local_size_y = 1, local_size_z = 1) in;
+
+float readValue(int row, int idx) {
+    int c4 = idx >> 2;
+    int c = idx & 3;
+    vec4 v = texelFetch(uInput, ivec2(c4, row), 0);
+    if (c == 0) return v.x;
+    if (c == 1) return v.y;
+    if (c == 2) return v.z;
+    return v.w;
+}
+
+bool afterAsc(float aValue, int aIndex, float bValue, int bIndex) {
+    if (aValue > bValue) return true;
+    if (aValue < bValue) return false;
+    return aIndex > bIndex;
+}
+
+bool better(float aValue, int aIndex, float bValue, int bIndex) {
+    if (bIndex < 0) return true;
+    if (aIndex < 0) return false;
+#ifdef SORT_DESC
+    if (aValue > bValue) return true;
+    if (aValue < bValue) return false;
+#else
+    if (aValue < bValue) return true;
+    if (aValue > bValue) return false;
+#endif
+    return aIndex < bIndex;
+}
+
+void main() {
+    int tid = int(gl_LocalInvocationID.x);
+    int row = int(gl_WorkGroupID.y);
+
+    if (tid >= THREAD_NUMBER || row >= uConst.numRows) {
+        return;
+    }
+
+    int rowSize = uConst.rowSize;
+    int k = uConst.k;
+
+    float initWorst = 3.402823466e+38;
+    float initBestWorst = -3.402823466e+38;
+
+    float localValue[LOCAL_K];
+    int localIndex[LOCAL_K];
+#ifdef SORT_DESC
+    for (int i = 0; i < LOCAL_K; ++i) {
+        localValue[i] = initBestWorst;
+        localIndex[i] = -1;
+    }
+#else
+    for (int i = 0; i < LOCAL_K; ++i) {
+        localValue[i] = initWorst;
+        localIndex[i] = -1;
+    }
+#endif
+
+    for (int i = tid; i < rowSize; i += THREAD_NUMBER) {
+        float value = readValue(row, i);
+        if (!better(value, i, localValue[LOCAL_K - 1], localIndex[LOCAL_K - 1])) {
+            continue;
+        }
+
+        int insertPos = LOCAL_K;
+        for (int j = 0; j < LOCAL_K; ++j) {
+            if (better(value, i, localValue[j], localIndex[j])) {
+                insertPos = j;
+                break;
+            }
+        }
+        if (insertPos >= LOCAL_K) {
+            continue;
+        }
+        for (int j = LOCAL_K - 1; j > insertPos; --j) {
+            localValue[j] = localValue[j - 1];
+            localIndex[j] = localIndex[j - 1];
+        }
+        localValue[insertPos] = value;
+        localIndex[insertPos] = i;
+    }
+
+    int base = tid * LOCAL_K;
+    for (int i = 0; i < LOCAL_K; ++i) {
+        sharedValue[base + i] = localValue[i];
+        sharedIndex[base + i] = localIndex[i];
+    }
+    barrier();
+
+    for (int size = 2; size <= CANDIDATE_NUMBER; size <<= 1) {
+        for (int stride = size >> 1; stride > 0; stride >>= 1) {
+            for (int idx = tid; idx < CANDIDATE_NUMBER; idx += THREAD_NUMBER) {
+                int ixj = idx ^ stride;
+                if (ixj <= idx) {
+                    continue;
+                }
+                bool up = ((idx & size) == 0);
+#ifdef SORT_DESC
+                up = !up;
+#endif
+
+                bool after = afterAsc(sharedValue[idx], sharedIndex[idx], sharedValue[ixj], sharedIndex[ixj]);
+                if (up == after) {
+                    float tValue = sharedValue[idx];
+                    sharedValue[idx] = sharedValue[ixj];
+                    sharedValue[ixj] = tValue;
+                    int tIndex = sharedIndex[idx];
+                    sharedIndex[idx] = sharedIndex[ixj];
+                    sharedIndex[ixj] = tIndex;
+                }
+            }
+            barrier();
+        }
+    }
+
+    if (tid == 0) {
+        int realK = min(k, rowSize);
+        for (int i = 0; i < realK; i += 4) {
+            vec4 values = vec4(0.0);
+            ivec4 indices = ivec4(0);
+            int count = min(4, realK - i);
+            for (int j = 0; j < count; ++j) {
+                values[j] = sharedValue[i + j];
+                indices[j] = sharedIndex[i + j];
+            }
+            imageStore(uOutValue, ivec2(i >> 2, row), values);
+            imageStore(uOutIndex, ivec2(i >> 2, row), indices);
+        }
+    }
+}

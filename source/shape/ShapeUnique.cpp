@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include <unordered_set>
+#include <set>
 #include "shape/SizeComputer.hpp"
 #include "core/Macro.h"
 
@@ -27,26 +27,31 @@ class ShapeUnique : public SizeComputer {
         if (inputs[0]->host<int32_t>() == nullptr) {
             return false;
         }
-        std::unordered_set<int> values;
+        std::set<int> values;
         auto eleSize = inputs[0]->elementSize();
         for (int i = 0; i < eleSize; i++) {
             values.insert(inputs[0]->host<int32_t>()[i]);
         }
         ob.dim[0].extent = values.size();
         if (outputs.size() > 1) {
-            TensorUtils::copyShape(outputs[0], outputs[1], true);
+            outputs[1]->buffer().dimensions = 1;
+            outputs[1]->buffer().dim[0].extent = outputs.size() <= 2 ? eleSize : (int)values.size();
+            TensorUtils::getDescribe(outputs[1])->dimensionFormat =
+                TensorUtils::getDescribe(inputs[0])->dimensionFormat;
             outputs[1]->buffer().type = halide_type_of<int>();
         }
         if (outputs.size() > 2) {
             outputs[2]->buffer().dimensions = 1;
             outputs[2]->buffer().dim[0].extent = eleSize;
-            TensorUtils::getDescribe(outputs[2])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+            TensorUtils::getDescribe(outputs[2])->dimensionFormat =
+                TensorUtils::getDescribe(inputs[0])->dimensionFormat;
             outputs[2]->buffer().type = halide_type_of<int>();
         }
         if (outputs.size() > 3) {
             outputs[3]->buffer().dimensions = 1;
             outputs[3]->buffer().dim[0].extent = (int)values.size();
-            TensorUtils::getDescribe(outputs[3])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+            TensorUtils::getDescribe(outputs[3])->dimensionFormat =
+                TensorUtils::getDescribe(inputs[0])->dimensionFormat;
             outputs[3]->buffer().type = halide_type_of<int>();
         }
         return true;

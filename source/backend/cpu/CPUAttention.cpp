@@ -21,18 +21,18 @@
 #include "core/BufferAllocator.hpp"
 #include "compute/ConvolutionTiledExecutor.hpp"
 
-#if defined (__aarch64__)
+#if defined(__aarch64__)
 #define FLOAT16_T __fp16
 #else
 #define FLOAT16_T float
 #endif
 
-
-
 namespace MNN {
 
 template <typename T>
-static void _maskQK(float * qkPacked, const float* scale, size_t seqLen, size_t processedKvSeq, int pack, int kvSeqLen, int kvoffset, int padKvSeqLen, const float* sinksPtr, const Tensor* mask, bool quantKey, bool isLowerTriangular) {
+static void _maskQK(float* qkPacked, const float* scale, size_t seqLen, size_t processedKvSeq, int pack, int kvSeqLen,
+                    int kvoffset, int padKvSeqLen, const float* sinksPtr, const Tensor* mask, bool quantKey,
+                    bool isLowerTriangular) {
     /*
      * FIGURE 1: mask->elementSize() == seqLen * maskStride
      * Context: Cross Attention or Prefill stage (Full Context).
@@ -52,7 +52,6 @@ static void _maskQK(float * qkPacked, const float* scale, size_t seqLen, size_t 
      *   '0' : Visible (Value = Scale * QK)
      *   'X' : Masked  (Value = -inf)
      */
-
 
     /*
      * FIGURE 2: mask->elementSize() != seqLen * maskStride
@@ -93,7 +92,6 @@ static void _maskQK(float * qkPacked, const float* scale, size_t seqLen, size_t 
     constexpr float NEG_INF = -std::numeric_limits<float>::infinity();
     auto source = (T*)qkPacked;
     float scaleVal = scale[0];
-    int gapLen = (mask->elementSize() == (seqLen + padKvSeqLen) * (kvSeqLen + padKvSeqLen)) ? 0 : static_cast<int>(kvSeqLen - seqLen);
 
     auto kvBlockCount = UP_DIV(processedKvSeq, pack);
     auto qkSize = ROUND_UP(processedKvSeq, pack) * seqLen;
@@ -109,10 +107,12 @@ static void _maskQK(float * qkPacked, const float* scale, size_t seqLen, size_t 
         return;
     }
 
+    int gapLen = (mask->elementSize() == (seqLen + padKvSeqLen) * (kvSeqLen + padKvSeqLen))
+                     ? 0
+                     : static_cast<int>(kvSeqLen - seqLen);
     auto maskPtr = mask->host<T>();
-
-    // not lower triangular
-    auto maskCols = (mask->elementSize() == (seqLen + padKvSeqLen) * (kvSeqLen + padKvSeqLen)) ? kvSeqLen + padKvSeqLen : seqLen + padKvSeqLen;
+    auto maskCols = (mask->elementSize() == (seqLen + padKvSeqLen) * (kvSeqLen + padKvSeqLen)) ? kvSeqLen + padKvSeqLen
+                                                                                               : seqLen + padKvSeqLen;
     for (int i = 0; i < kvBlockCount; ++i) {
         T* blockDataPtr = source + (i * seqLen * pack);
 
@@ -137,20 +137,19 @@ static void _maskQK(float * qkPacked, const float* scale, size_t seqLen, size_t 
 
                 val += (float)currentMaskRow[currentKvSeqIndx - gapLen];
                 dataPtr[k] = (T)val;
-
             }
         }
     }
 }
 
 ErrorCode CPUAttention::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    auto gcore = static_cast<CPUBackend *>(backend())->functions();
+    auto gcore = static_cast<CPUBackend*>(backend())->functions();
     auto core = static_cast<CPUBackend*>(backend())->int8Functions();
     gcore->MNNGetMatMulPackMode(&eP, &lP, &hP);
-    mThreadNum = ((CPUBackend *)backend())->threadNumber();
-    mPack  = gcore->pack;
+    mThreadNum = ((CPUBackend*)backend())->threadNumber();
+    mPack = gcore->pack;
     mBytes = gcore->bytes;
-    int attentionOption = static_cast<CPUBackend *>(backend())->getRuntime()->hint().attentionOption;
+    int attentionOption = static_cast<CPUBackend*>(backend())->getRuntime()->hint().attentionOption;
     mUseFlashAttention = (attentionOption / 8 == 1);
 
     // attentionOption % 8:
@@ -191,7 +190,7 @@ ErrorCode CPUAttention::onResize(const std::vector<Tensor*>& inputs, const std::
     static_cast<CPUBackend*>(backend())->int8Functions()->MNNGetGemmUnit(&hP8, &lP8, &eP8);
 
     auto query = inputs[0];
-    auto key   = inputs[1];
+    auto key = inputs[1];
     int seqLen = query->length(1);
     int mBlockNum = 1;
     mNumHead = query->length(2);
@@ -262,7 +261,8 @@ ErrorCode CPUAttention::onResize(const std::vector<Tensor*>& inputs, const std::
             }
         }
 
-        if (mSumQ.invalid() || mQueryScale.invalid() || mQueryQuantZero.invalid() || mQueryZeroPoint.invalid() || mQueryQuantScale.invalid() || mQuantQuery.invalid()) {
+        if (mSumQ.invalid() || mQueryScale.invalid() || mQueryQuantZero.invalid() || mQueryZeroPoint.invalid() ||
+            mQueryQuantScale.invalid() || mQuantQuery.invalid()) {
             return OUT_OF_MEMORY;
         }
 
@@ -296,7 +296,8 @@ ErrorCode CPUAttention::onResize(const std::vector<Tensor*>& inputs, const std::
             }
         }
     } else {
-        mPackQ.reset(Tensor::createDevice<int8_t>({mThreadNum, UP_DIV(seqLen, eP), ROUND_UP(mHeadDim, lP), eP * mBytes}));
+        mPackQ.reset(
+            Tensor::createDevice<int8_t>({mThreadNum, UP_DIV(seqLen, eP), ROUND_UP(mHeadDim, lP), eP * mBytes}));
         backend()->onAcquireBuffer(mPackQ.get(), Backend::DYNAMIC);
         backend()->onAcquireBuffer(mPackQKV.get(), Backend::DYNAMIC);
     }
@@ -349,10 +350,11 @@ ErrorCode CPUAttention::onResize(const std::vector<Tensor*>& inputs, const std::
 }
 
 ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    auto gcore  = static_cast<CPUBackend *>(backend())->functions();
-    auto core   = static_cast<CPUBackend*>(backend())->int8Functions();
+    auto gcore = static_cast<CPUBackend*>(backend())->functions();
+    auto core = static_cast<CPUBackend*>(backend())->int8Functions();
+    bool outputC4 = TensorUtils::getDescribe(outputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4;
     auto query = inputs[0];
-    auto key   = inputs[1];
+    auto key = inputs[1];
     auto value = inputs[2];
     int seqLen = query->length(1);
     const Tensor* mask = nullptr;
@@ -374,7 +376,8 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
         // reduce the value of 'query' to 'query * FP16_QSCALE', avoid fp16 overflow
         FLOAT16_T minValue;
         FLOAT16_T maxValue;
-        gcore->MNNCountMaxMinValue(query->host<float>(), (float*)(&minValue), (float*)(&maxValue), query->elementSize());
+        gcore->MNNCountMaxMinValue(query->host<float>(), (float*)(&minValue), (float*)(&maxValue),
+                                   query->elementSize());
         float maxV = maxValue;
         float minV = minValue;
         float absMax = ALIMAX(fabsf(maxV), fabsf(minV));
@@ -415,7 +418,7 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     // Constant Initialization
     auto padSeqLength = seqLen - insertLen;
     seqLen = insertLen;
-    int kvSeqLen  = mKVCacheManager->kvLength();
+    int kvSeqLen = mKVCacheManager->kvLength();
     int maxLen = mKVCacheManager->maxLength();
     int32_t units[2] = {eP, lP};
     const float* sinksPtr = sinks ? sinks->host<float>() : nullptr;
@@ -423,14 +426,17 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
 
     // Temporary tensors for intermediate results
     std::shared_ptr<Tensor> unpackQK(Tensor::createDevice<int32_t>({mThreadNum, seqLen, mBlockKV}));
-    std::shared_ptr<Tensor> softmMaxQ(Tensor::createDevice<int32_t>({mThreadNum, seqLen, ROUND_UP(mBlockKV, mPack)})); // [mBlockKV/mPack, seqLen, mPack ]
+    std::shared_ptr<Tensor> softmMaxQ(Tensor::createDevice<int32_t>(
+        {mThreadNum, seqLen, ROUND_UP(mBlockKV, mPack)})); // [mBlockKV/mPack, seqLen, mPack ]
     std::shared_ptr<Tensor> newPackQK;
     if (mValueQuantMode != KVQuantMode::Int8) {
         newPackQK.reset(Tensor::createDevice<int8_t>({mThreadNum, eP * ROUND_UP(mBlockKV, lP) * mBytes}));
     } else {
-        newPackQK.reset(Tensor::createDevice<int8_t>({mThreadNum, eP8 * ROUND_UP(MNN_FLASH_ATTENTION_BLOCK_SIZE, lP8)}));
+        newPackQK.reset(
+            Tensor::createDevice<int8_t>({mThreadNum, eP8 * ROUND_UP(MNN_FLASH_ATTENTION_BLOCK_SIZE, lP8)}));
     }
-    std::shared_ptr<Tensor> mTempQKBlock(Tensor::createDevice<int8_t>({mThreadNum, UP_DIV(mBlockKV, mPack), seqLen, mPack * mBytes}));
+    std::shared_ptr<Tensor> mTempQKBlock(
+        Tensor::createDevice<int8_t>({mThreadNum, UP_DIV(mBlockKV, mPack), seqLen, mPack * mBytes}));
     backend()->onAcquireBuffer(unpackQK.get(), Backend::STATIC);
     backend()->onAcquireBuffer(softmMaxQ.get(), Backend::STATIC);
     backend()->onAcquireBuffer(newPackQK.get(), Backend::STATIC);
@@ -451,13 +457,12 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
         // quantQ: [seqLen,numHead,headDim]
         auto queryPtr = query->host<int8_t>();
         int divPart = UP_DIV(seqLen * mNumHead, mThreadNum);
-        MNN_CONCURRENCY_BEGIN (tId, mThreadNum) {
+        MNN_CONCURRENCY_BEGIN(tId, mThreadNum) {
             size_t info[9] = {1, (size_t)mHeadDim, 1, 1, 1, 1, 1, 1, 0};
             auto remainLu = seqLen * mNumHead - tId * divPart;
             if (remainLu > 0) {
                 remainLu = ALIMIN(divPart, remainLu);
                 for (int i = tId * divPart; i < tId * divPart + remainLu; ++i) {
-
                     // address
                     auto srcFloatPtr = (float*)(queryPtr + i * mHeadDim * mBytes);
                     auto dstInt8Ptr = (int8_t*)(mQuantQuery.ptr() + i * mHeadDim);
@@ -469,17 +474,19 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                     auto scalePtr = (float*)(mQueryScale.ptr() + indexQ * QUANT_INFO_BYTES);
                     auto zeroPtr = (float*)(mQueryZeroPoint.ptr() + indexQ * QUANT_INFO_BYTES);
 
-
                     // compute the quant/dequant scale/bias
-                    gcore->MNNAsyQuantInfo(scalePtr, zeroPtr, quantScalePtr, quantZeroPtr, nullptr, nullptr, srcFloatPtr, info);
+                    gcore->MNNAsyQuantInfo(scalePtr, zeroPtr, quantScalePtr, quantZeroPtr, nullptr, nullptr,
+                                           srcFloatPtr, info);
                     scalePtr[0] *= mScale;
                     zeroPtr[0] *= mScale;
 
                     // quantize the float query to int8_t query
-                    mQuantFunc(srcFloatPtr, dstInt8Ptr, UP_DIV(mHeadDim, gcore->pack), quantScalePtr, -128, 127, quantZeroPtr, 0);
+                    mQuantFunc(srcFloatPtr, dstInt8Ptr, UP_DIV(mHeadDim, gcore->pack), quantScalePtr, -128, 127,
+                               quantZeroPtr, 0);
                 }
             }
-        } MNN_CONCURRENCY_END();
+        }
+        MNN_CONCURRENCY_END();
 
         // source int8_t query: [seqLen,numHead,headDim]
         // dest int8_t query: [numHead,seqLen/eP,headDim/lP,eP,lP]
@@ -506,19 +513,15 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                         continue;
                     }
 
-                    int8_t* dst_block_ptr = dst_base_ptr +
-                                          outputOffset +
-                                          (size_t)dimBlock * (eunit * lP8);
+                    int8_t* dst_block_ptr = dst_base_ptr + outputOffset + (size_t)dimBlock * (eunit * lP8);
 
                     const size_t src_row_stride = (size_t)mNumHead * mHeadDim;
 
                     for (int seqLocal = 0; seqLocal < eunit; ++seqLocal) {
                         int innerSeq = seqBase + seqLocal;
 
-                        const int8_t* src_row_ptr = src_base_ptr +
-                                                    (size_t)innerSeq * src_row_stride +
-                                                    (size_t)h * mHeadDim +
-                                                    dimBase;
+                        const int8_t* src_row_ptr =
+                            src_base_ptr + (size_t)innerSeq * src_row_stride + (size_t)h * mHeadDim + dimBase;
 
                         int8_t* dst_row_ptr = dst_block_ptr + seqLocal * lP8;
 
@@ -541,7 +544,7 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
             for (int k = 0; k < eP8; ++k) {
                 scalePtr[k] = 1.f / 255.f;
 #ifdef MNN_USE_SSE
-                zeroPtr[k] =0;
+                zeroPtr[k] = 0;
 #else
                 zeroPtr[k] = 128.f / 255.f;
 #endif
@@ -551,21 +554,22 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
 
     std::function<void(int)> mCompute = [=](int tId) {
         int8_t* qReordered = nullptr;
-        auto qkPacked     = mTempQKBlock->host<int8_t>() + tId * mTempQKBlock->stride(0);
-        auto qkFlatten   = unpackQK->host<float>() + tId * unpackQK->stride(0);
-        auto qkSoftmax  = softmMaxQ->host<float>() + tId * softmMaxQ->stride(0);
+        auto qkPacked = mTempQKBlock->host<int8_t>() + tId * mTempQKBlock->stride(0);
+        auto qkFlatten = unpackQK->host<float>() + tId * unpackQK->stride(0);
+        auto qkSoftmax = softmMaxQ->host<float>() + tId * softmMaxQ->stride(0);
         auto qkReordered = newPackQK->host<int8_t>() + tId * newPackQK->stride(0);
-        auto qkvPacked    = mPackQKV->host<int8_t>() + tId * mPackQKV->stride(0);
-        int  headIndex  = tId * numHeadDiv;
-        int  headsToCompute = ALIMIN(numHeadDiv, mNumHead - headIndex);
+        auto qkvPacked = mPackQKV->host<int8_t>() + tId * mPackQKV->stride(0);
+        int headIndex = tId * numHeadDiv;
+        int headsToCompute = ALIMIN(numHeadDiv, mNumHead - headIndex);
 
         // Flash Attention
         auto runningMax = mRunningMax ? (float*)(mRunningMax->host<int8_t>() + tId * mRunningMax->stride(0)) : nullptr;
         auto runningSum = mRunningSum ? (float*)(mRunningSum->host<int8_t>() + tId * mRunningSum->stride(0)) : nullptr;
-        auto diffScale = mExpfDiffMax ? (float*)(mExpfDiffMax->host<int8_t>() + tId * mExpfDiffMax->stride(0)) : nullptr;
+        auto diffScale =
+            mExpfDiffMax ? (float*)(mExpfDiffMax->host<int8_t>() + tId * mExpfDiffMax->stride(0)) : nullptr;
         auto outputPacked = mTempOut ? mTempOut->host<int8_t>() + tId * mTempOut->stride(0) : qkvPacked;
-        
-        int  kvBlocks = UP_DIV(kvSeqLen, mBlockKV);
+
+        int kvBlocks = UP_DIV(kvSeqLen, mBlockKV);
 
         bool isLowerTriangular = (mask == nullptr);
         if (mask != nullptr && mask->shape().empty()) {
@@ -609,7 +613,6 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
             sumParams4QxK.kernelCountUnitDouble = UP_DIV(mHeadDim, lP8);
             sumParams4QxK.valid = mHeadDim % lP8;
 
-
             if (mBlockNum > 1) {
                 accumbuff = (float*)(mAccumBuffer.ptr() + tId * eP8 * hP8 * QUANT_INFO_BYTES);
             }
@@ -637,7 +640,8 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
 
         size_t vstride0 = ROUND_UP(mHeadDim, hP) * ROUND_UP(MNN_FLASH_ATTENTION_BLOCK_SIZE, lP);
         if (mValueQuantMode == KVQuantMode::Int8) {
-            vstride0 = (ROUND_UP(mHeadDim, hP8) * ROUND_UP(mKVCacheManager->getFlashAttentionBlockKv(), lP8) + 2 * QUANT_INFO_BYTES * mBlockNum * ROUND_UP(mHeadDim, hP8));
+            vstride0 = (ROUND_UP(mHeadDim, hP8) * ROUND_UP(mKVCacheManager->getFlashAttentionBlockKv(), lP8) +
+                        2 * QUANT_INFO_BYTES * mBlockNum * ROUND_UP(mHeadDim, hP8));
         }
 
         // use for V
@@ -646,9 +650,9 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
         float vQuantScale[1] = {255.f};
         float vQuantBias[1] = {-128.f};
         int32_t infoInt8V[5];
-        infoInt8V[0] = 1;       // number
+        infoInt8V[0] = 1; // number
         infoInt8V[2] = static_cast<int32_t>(sumParams4QKxV.unitColBufferSize);
-        infoInt8V[3] = 1;       // stride
+        infoInt8V[3] = 1; // stride
         int32_t elInt8V[4] = {eP8, ROUND_UP(MNN_FLASH_ATTENTION_BLOCK_SIZE, lP8), 0, 0};
 
         // only used for float V
@@ -661,6 +665,13 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
         int offset[2] = {seqLen, mNumHead * mHeadDim};
 
         for (int h = headIndex; h < headIndex + headsToCompute; h++) {
+            auto dstStep = mBytes * seqLen * mPack;
+            if (outputC4) {
+                outputPacked = outputs[0]->host<int8_t>() + h * mHeadDim * seqLen * mBytes;
+                if (!mUseFlashAttention) {
+                    qkvPacked = outputPacked;
+                }
+            }
             // Prepare for flash attention
             if (runningSum && runningMax) {
                 if (sinksPtr == nullptr) {
@@ -685,16 +696,18 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
             }
 
             // Compute the current addresses
-            int    kvHeadIndex = h / group_size;
-            int8_t * keyAddr   = mKVCacheManager->addrOfKey(kvHeadIndex);
-            int8_t * keySum    = mKVCacheManager->addrOfKeySum(kvHeadIndex);
-            int8_t * valueAddr = mKVCacheManager->addrOfValue(kvHeadIndex);
-            float* valueSum    = (float*)mKVCacheManager->addrOfValueSum(kvHeadIndex);
+            int kvHeadIndex = h / group_size;
+            int8_t* keyAddr = mKVCacheManager->addrOfKey(kvHeadIndex);
+            int8_t* keySum = mKVCacheManager->addrOfKeySum(kvHeadIndex);
+            int8_t* valueAddr = mKVCacheManager->addrOfValue(kvHeadIndex);
+            float* valueSum = (float*)mKVCacheManager->addrOfValueSum(kvHeadIndex);
 
             // Get packed Q
             if (mKeyQuantMode != KVQuantMode::Int8) {
-                qReordered      = mPackQ->host<int8_t>() + tId * mPackQ->stride(0);
-                gcore->MNNAttenPackAndScaleSingleHead((float*)qReordered, (float*)(query->host<int8_t>() + h * mHeadDim * mBytes), mHeadDim * mNumHead, &q_scale, units, seqLen, mHeadDim);
+                qReordered = mPackQ->host<int8_t>() + tId * mPackQ->stride(0);
+                gcore->MNNAttenPackAndScaleSingleHead((float*)qReordered,
+                                                      (float*)(query->host<int8_t>() + h * mHeadDim * mBytes),
+                                                      mHeadDim * mNumHead, &q_scale, units, seqLen, mHeadDim);
             } else {
                 qReordered = mPackQ->host<int8_t>() + h * mPackQ->stride(0);
                 qSumAddr = (float*)(mSumQ.ptr() + tId * ROUND_UP(seqLen, eP8) * mBlockNum * QUANT_INFO_BYTES);
@@ -811,25 +824,37 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                     int loop_e = seqLen / eP;
                     int remain = seqLen % eP;
                     auto qStride0 = ROUND_UP(mHeadDim, lP) * eP * mBytes;
-                    size_t shapeParameters[7] = {(size_t)eP * lP *  mBytes, ROUND_UP((size_t)mHeadDim, lP), (size_t)subKvSeqLen, (size_t)seqLen * mPack * mBytes, 0, 0, 0};
-                    for (int ei = 0 ; ei < loop_e; ei++) {
-                        gcore->MNNPackedMatMul((float*)(qkPacked + (ei * eP * mPack) * mBytes), (float*)(qReordered + ei * qStride0), (float*)keyPtr, shapeParameters, nullptr, nullptr, nullptr, nullptr);
+                    size_t shapeParameters[7] = {(size_t)eP * lP * mBytes,
+                                                 ROUND_UP((size_t)mHeadDim, lP),
+                                                 (size_t)subKvSeqLen,
+                                                 (size_t)seqLen * mPack * mBytes,
+                                                 0,
+                                                 0,
+                                                 0};
+                    for (int ei = 0; ei < loop_e; ei++) {
+                        gcore->MNNPackedMatMul((float*)(qkPacked + (ei * eP * mPack) * mBytes),
+                                               (float*)(qReordered + ei * qStride0), (float*)keyPtr, shapeParameters,
+                                               nullptr, nullptr, nullptr, nullptr);
                     }
                     if (remain > 0) {
-                        gcore->MNNPackedMatMulRemain((float*)(qkPacked + (loop_e * eP * mPack) * mBytes), (float*)(qReordered + loop_e * qStride0), (float*)keyPtr, remain, shapeParameters, nullptr, nullptr, nullptr, nullptr);
+                        gcore->MNNPackedMatMulRemain((float*)(qkPacked + (loop_e * eP * mPack) * mBytes),
+                                                     (float*)(qReordered + loop_e * qStride0), (float*)keyPtr, remain,
+                                                     shapeParameters, nullptr, nullptr, nullptr, nullptr);
                     }
                 } else {
                     auto eRemain = seqLen;
                     auto srcInt8 = qReordered;
                     auto dstInt8 = qkPacked;
-                    auto keyPtr = keyAddr + i * UP_DIV(mBlockKV, hP8) * (ROUND_UP(mHeadDim, lP8) * hP8 + 2 * hP8 * QUANT_INFO_BYTES);
+                    auto keyPtr = keyAddr + i * UP_DIV(mBlockKV, hP8) *
+                                                (ROUND_UP(mHeadDim, lP8) * hP8 + 2 * hP8 * QUANT_INFO_BYTES);
                     gemmParam4QxK.weightKernelSum = (float*)(keySum + i * mBlockKV * QUANT_INFO_BYTES);
-                    gemmParam4QxK.inputScale   = qScale;
-                    gemmParam4QxK.inputBias    = qBias;
+                    gemmParam4QxK.inputScale = qScale;
+                    gemmParam4QxK.inputBias = qBias;
                     gemmParam4QxK.srcKernelSum = qSumAddr;
                     while (eRemain > 0) {
                         auto eSize = ALIMIN(eP8, eRemain);
-                        mInt8GemmKernel(dstInt8, srcInt8, keyPtr, UP_DIV(mHeadDim, lP8), mBytes * seqLen * mPack, UP_DIV(subKvSeqLen, mPack), &gemmParam4QxK, eSize);
+                        mInt8GemmKernel(dstInt8, srcInt8, keyPtr, UP_DIV(mHeadDim, lP8), mBytes * seqLen * mPack,
+                                        UP_DIV(subKvSeqLen, mPack), &gemmParam4QxK, eSize);
                         eRemain -= eP8;
                         gemmParam4QxK.inputScale += eP8;
                         gemmParam4QxK.inputBias += eP8;
@@ -855,11 +880,13 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                                            (mKeyQuantMode == KVQuantMode::Int8), isLowerTriangular);
                         }
                     }
-                    gcore->MNNSoftmax(qkSoftmax, (float*)qkPacked, runningMax, runningSum, diffScale, seqLen, subKvSeqLen, i * mBlockKV, kvValidOffset, mPack, useMaskInSoftmax);
+                    gcore->MNNSoftmax(qkSoftmax, (float*)qkPacked, runningMax, runningSum, diffScale, seqLen,
+                                      subKvSeqLen, i * mBlockKV, kvValidOffset, mPack, useMaskInSoftmax);
                 }
                 // 3. qk @ v
                 auto qkStride0 = ROUND_UP(subKvSeqLen, lP) * eP * mBytes;
-                auto rowStart = (!isLowerTriangular || i * mBlockKV < kvValidOffset)? 0 : (i * mBlockKV - kvValidOffset);
+                auto rowStart =
+                    (!isLowerTriangular || i * mBlockKV < kvValidOffset) ? 0 : (i * mBlockKV - kvValidOffset);
 
                 if (mValueQuantMode == KVQuantMode::TQ3) {
                     // Vec_dot Value fusion: accumulate in rotated domain, WHT_inverse once
@@ -955,8 +982,18 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                     }
                 } else if (mValueQuantMode != KVQuantMode::Int8) {
                     auto valuePtr = valueAddr + i * vstride0 * mBytes;
-                    size_t shapeParameters[7] = {(size_t)eP * lP * mBytes, ROUND_UP((size_t)subKvSeqLen, lP), (size_t)mHeadDim, (size_t)seqLen * mPack * mBytes, 0, 0, 0};
-                    size_t bExtraStride = (i < kvBlocks - 1) ? 0 : (ROUND_UP(mKVCacheManager->getFlashAttentionBlockKv(), lP) - ROUND_UP(subKvSeqLen, lP)) * hP * mBytes;
+                    size_t shapeParameters[7] = {(size_t)eP * lP * mBytes,
+                                                 ROUND_UP((size_t)subKvSeqLen, lP),
+                                                 (size_t)mHeadDim,
+                                                 (size_t)dstStep,
+                                                 0,
+                                                 0,
+                                                 0};
+                    size_t bExtraStride =
+                        (i < kvBlocks - 1)
+                            ? 0
+                            : (ROUND_UP(mKVCacheManager->getFlashAttentionBlockKv(), lP) - ROUND_UP(subKvSeqLen, lP)) *
+                                  hP * mBytes;
                     shapeParameters[5] = bExtraStride;
 
                     int loop_e = (seqLen - rowStart) / eP;
@@ -966,10 +1003,12 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                     elFloatV[0] = eP;
                     elFloatV[1] = ROUND_UP(subKvSeqLen, lP);
                     infoFloatV[2] = eP;
-                    for ( ; ei < loop_e; ei++) {
+                    for (; ei < loop_e; ei++) {
                         srcPtr[0] = (float const*)((int8_t*)qkSoftmax + (ei * eP + rowStart) * mPack * mBytes);
                         gcore->MNNPackC4ForMatMul_A((float*)qkReordered, srcPtr, infoFloatV, elFloatV);
-                        gcore->MNNPackedMatMul((float*)(qkvPacked + (ei * eP + rowStart) * mPack * mBytes), (float*)qkReordered, (float*)valuePtr, shapeParameters, nullptr, nullptr, nullptr, nullptr);
+                        gcore->MNNPackedMatMul((float*)(qkvPacked + (ei * eP + rowStart) * mPack * mBytes),
+                                               (float*)qkReordered, (float*)valuePtr, shapeParameters, nullptr, nullptr,
+                                               nullptr, nullptr);
                     }
                     if (remain > 0) {
                         elFloatV[0] = remain;
@@ -977,18 +1016,22 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                         srcPtr[0] = (float const*)((int8_t*)qkSoftmax + (loop_e * eP + rowStart) * mPack * mBytes);
                         shapeParameters[0] = remain * lP * mBytes;
                         gcore->MNNPackC4ForMatMul_A((float*)qkReordered, srcPtr, infoFloatV, elFloatV);
-                        gcore->MNNPackedMatMulRemain((float*)(qkvPacked + (loop_e * eP + rowStart) * mPack * mBytes), (float*)qkReordered, (float*)valuePtr, remain, shapeParameters, nullptr, nullptr, nullptr, nullptr);
+                        gcore->MNNPackedMatMulRemain((float*)(qkvPacked + (loop_e * eP + rowStart) * mPack * mBytes),
+                                                     (float*)qkReordered, (float*)valuePtr, remain, shapeParameters,
+                                                     nullptr, nullptr, nullptr, nullptr);
                     }
                 } else { // use int8 kernel to compute qk@ v
                     auto valuePtr = valueAddr + i * vstride0;
                     auto eRemain = seqLen - rowStart;
-                    auto qkPtr = (int8_t*)(qkSoftmax) + rowStart * mPack * mBytes; // [UP_DIV(subKvSeqLen,pack),seqLen,pack]
+                    auto qkPtr =
+                        (int8_t*)(qkSoftmax) + rowStart * mPack * mBytes; // [UP_DIV(subKvSeqLen,pack),seqLen,pack]
                     auto qkvFloat = qkvPacked + rowStart * mPack * mBytes;
                     gemmParam4QKxV.weightKernelSum = valueSum + i * ROUND_UP(mHeadDim, hP8);
                     sumParams4QKxV.valid = subKvSeqLen % lP8;
                     sumParams4QKxV.LU = UP_DIV(subKvSeqLen, lP8);
 
-                    auto dstInt8Ptr = (int8_t*)mQuantQK.ptr() + tId * eP8 * ROUND_UP(MNN_FLASH_ATTENTION_BLOCK_SIZE, mPack);
+                    auto dstInt8Ptr =
+                        (int8_t*)mQuantQK.ptr() + tId * eP8 * ROUND_UP(MNN_FLASH_ATTENTION_BLOCK_SIZE, mPack);
                     srcPtr[0] = (const float*)(dstInt8Ptr);
 
                     while (eRemain > 0) {
@@ -1000,14 +1043,16 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                         infoInt8V[4] = eSize; // e to process
                         elInt8V[0] = eSize;   // e to process
 
-
                         for (int qi = 0; qi < UP_DIV(subKvSeqLen, mPack); ++qi) {
-                            mQuantFunc((float*)(qkPtr + qi * seqLen * mPack * mBytes), dstInt8Ptr + qi * eSize * mPack, eSize, vQuantScale, -128, 127, vQuantBias, 0);
+                            mQuantFunc((float*)(qkPtr + qi * seqLen * mPack * mBytes), dstInt8Ptr + qi * eSize * mPack,
+                                       eSize, vQuantScale, -128, 127, vQuantBias, 0);
                         }
-                        core->MNNPackC4Int8ForMatMul_A(qkReordered, (int8_t const **)srcPtr, infoInt8V, elInt8V);
+                        core->MNNPackC4Int8ForMatMul_A(qkReordered, (int8_t const**)srcPtr, infoInt8V, elInt8V);
                         // mSumQK
-                        gcore->MNNSumByAxisLForMatmul_A(gemmParam4QKxV.srcKernelSum, qkReordered, (float*)mQKScale.ptr(), eSize, sumParams4QKxV);
-                        mInt8GemmKernel(qkvFloat, qkReordered, valuePtr, UP_DIV(MNN_FLASH_ATTENTION_BLOCK_SIZE, lP8), mBytes * seqLen * mPack, UP_DIV(mHeadDim, mPack), &gemmParam4QKxV, eSize);
+                        gcore->MNNSumByAxisLForMatmul_A(gemmParam4QKxV.srcKernelSum, qkReordered,
+                                                        (float*)mQKScale.ptr(), eSize, sumParams4QKxV);
+                        mInt8GemmKernel(qkvFloat, qkReordered, valuePtr, UP_DIV(MNN_FLASH_ATTENTION_BLOCK_SIZE, lP8),
+                                        dstStep, UP_DIV(mHeadDim, mPack), &gemmParam4QKxV, eSize);
 
                         eRemain -= eSize;
                         qkPtr += (eSize * mPack * mBytes);
@@ -1017,14 +1062,18 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
 
                 // 4. flash attention, update each sub kvSeq's final results
                 if (runningMax != nullptr && runningSum != nullptr && diffScale != nullptr) {
-                    gcore->MNNFlashAttentionUpdateBlockOutput((float*)outputPacked, (float*)qkvPacked, diffScale, runningSum, UP_DIV(mHeadDim, mPack), seqLen, mPack, i, kvBlocks, mPackQKV->stride(0) / mBytes, mBytes, rowStart);
+                    gcore->MNNFlashAttentionUpdateBlockOutput((float*)outputPacked, (float*)qkvPacked, diffScale,
+                                                              runningSum, UP_DIV(mHeadDim, mPack), seqLen, mPack, i,
+                                                              kvBlocks, mPackQKV->stride(0) / mBytes, mBytes, rowStart);
                 }
             }
 
             // Final results writing: [head_dim/mPack, seq_len, mPack] -> [seq_len, num_head, head_dim]
-            auto dstPtr = outputs[0]->host<int8_t>() + h * mHeadDim * mBytes;
-            // offset = {seqLen, mNumHead * mHeadDim};
-            gcore->MNNUnpackCUnitTranspose((float*)dstPtr, (float*)outputPacked, seqLen, mHeadDim, offset);
+            if (!outputC4) {
+                auto dstPtr = outputs[0]->host<int8_t>() + h * mHeadDim * mBytes;
+                // offset = {seqLen, mNumHead * mHeadDim};
+                gcore->MNNUnpackCUnitTranspose((float*)dstPtr, (float*)outputPacked, seqLen, mHeadDim, offset);
+            }
         }
     };
 
@@ -1041,9 +1090,12 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     if (!mKVCache) {
         mKVCacheManager->onClear();
     }
-    auto ptr = outputs[0]->host<float>();
-    if (seqLen < outputs[0]->length(1)) {
-        ::memset(outputs[0]->host<uint8_t>() + seqLen * mHeadDim * mNumHead * mBytes, 0, (outputs[0]->length(1)-seqLen) * mHeadDim * mNumHead * mBytes);
+    if (!outputC4) {
+        auto ptr = outputs[0]->host<float>();
+        if (seqLen < outputs[0]->length(1)) {
+            ::memset(outputs[0]->host<uint8_t>() + seqLen * mHeadDim * mNumHead * mBytes, 0,
+                     (outputs[0]->length(1) - seqLen) * mHeadDim * mNumHead * mBytes);
+        }
     }
     return NO_ERROR;
 }
@@ -1084,8 +1136,8 @@ CPUAttention::CPUAttention(Backend* backend, bool kv_cache) : Execution(backend)
     // attentionOption / 8:
     // 0: do not use flash attention
     // 1: use flash attention
-    kvconfig.mKVCacheDir = static_cast<CPUBackend *>(backend)->getRuntime()->hint().kvcacheDirPath;
-    kvconfig.mPrefixCacheDir = static_cast<CPUBackend *>(backend)->getRuntime()->hint().prefixcacheDirPath;
+    kvconfig.mKVCacheDir = static_cast<CPUBackend*>(backend)->getRuntime()->hint().kvcacheDirPath;
+    kvconfig.mPrefixCacheDir = static_cast<CPUBackend*>(backend)->getRuntime()->hint().prefixcacheDirPath;
     kvconfig.mExpandChunk = 64;
     kvconfig.mBlockNum = 1;
     mKVCacheManager.reset(new CPUKVCacheManager(backend, kvconfig));
@@ -1105,4 +1157,3 @@ REGISTER_CPU_OP_CREATOR_TRANSFORMER(CPUAttentionCreator, OpType_Attention);
 } // namespace MNN
 
 #endif // MNN_SUPPORT_TRANSFORMER_FUSE
-

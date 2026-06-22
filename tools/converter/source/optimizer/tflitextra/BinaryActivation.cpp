@@ -25,8 +25,8 @@ public:
         auto activationType = static_cast<tflite::ActivationFunctionType>(extra->attr()->Get(1)->i());
         auto inputs = expr->inputs();
         MNN_ASSERT(inputs.size() == 2);
-        auto input0    = inputs[0];
-        auto input1    = inputs[1];
+        auto input0 = inputs[0];
+        auto input1 = inputs[1];
         VARP newOutput;
         switch (opType) {
             case tflite::BuiltinOperator_POW: {
@@ -74,14 +74,14 @@ public:
                 break;
             }
             case tflite::BuiltinOperator_GREATER: {
-                newOutput = _GreaterEqual(input0, input1);
+                newOutput = _Greater(input0, input1);
                 break;
             }
             case tflite::BuiltinOperator_EQUAL: {
                 newOutput = _Equal(input0, input1);
                 break;
             }
-            case tflite::BuiltinOperator_NOT_EQUAL:{
+            case tflite::BuiltinOperator_NOT_EQUAL: {
                 newOutput = _NotEqual(input0, input1);
                 break;
             }
@@ -102,8 +102,10 @@ public:
         }
         switch (activationType) {
             case tflite::ActivationFunctionType_RELU:
-            case tflite::ActivationFunctionType_RELU_N1_TO_1:
                 newOutput = _Relu(newOutput);
+                break;
+            case tflite::ActivationFunctionType_RELU_N1_TO_1:
+                newOutput = _Relu6(newOutput, -1.0f, 1.0f);
                 break;
             case tflite::ActivationFunctionType_RELU6:
                 newOutput = _Relu6(newOutput);
@@ -122,7 +124,8 @@ public:
     }
 };
 static auto gRegister = []() {
-    TFliteExtraManager::get()->insert("BinaryActivation", std::shared_ptr<TFliteExtraManager::Transform>(new BinaryActivationTransform));
+    TFliteExtraManager::get()->insert("BinaryActivation",
+                                      std::shared_ptr<TFliteExtraManager::Transform>(new BinaryActivationTransform));
     return true;
 }();
 } // namespace Express

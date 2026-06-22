@@ -586,7 +586,7 @@ void MatMulExecution::setArguments(const std::vector<Tensor *> &inputs, const st
             }
             mInfo.epilogueVectorize = true;
             mInfo.epilogueType = 0;// Linear
-            mInfo.precisionType = 2;// FP16_FP16
+            mInfo.precisionType = (mFp16Fp32MixInfer || mFp32Infer) ? 0 : 2;// FP16_FP32 or FP16_FP16
             mInfo.backend = mBackend;
 
             if(mUseRRLayout) {

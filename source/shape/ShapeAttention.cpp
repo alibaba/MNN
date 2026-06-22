@@ -12,6 +12,16 @@
 
 namespace MNN {
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+class RoPESizeComputer : public SizeComputer {
+    virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
+                               const std::vector<Tensor*>& outputs) const override {
+        MNN_ASSERT(inputs.size() == 6);
+        MNN_ASSERT(outputs.size() == 2);
+        TensorUtils::copyShape(inputs[0], outputs[0], true);
+        TensorUtils::copyShape(inputs[1], outputs[1], true);
+        return true;
+    }
+};
 
 class FmhaV2SizeComputer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
@@ -63,12 +73,22 @@ class AttentionSizeComputer : public SizeComputer {
                                const std::vector<Tensor*>& outputs) const override {
         auto input = inputs[0], output = outputs[0];
         MNN_ASSERT(input->buffer().dimensions == 4);
-        output->buffer().dim[0].extent = input->buffer().dim[0].extent;
-        output->buffer().dim[1].extent = input->buffer().dim[1].extent;
-        output->buffer().dim[2].extent = input->buffer().dim[2].extent * input->buffer().dim[3].extent;
-        output->buffer().dimensions = 3;
-        output->buffer().type = input->buffer().type;
-        TensorUtils::getDescribe(output)->dimensionFormat = TensorUtils::getDescribe(input)->dimensionFormat;
+        if (op->main_as_AttentionParam()->output_c4()) {
+            output->buffer().dim[0].extent = input->buffer().dim[0].extent * input->buffer().dim[1].extent;
+            output->buffer().dim[1].extent = input->buffer().dim[2].extent * input->buffer().dim[3].extent;
+            output->buffer().dim[2].extent = 1;
+            output->buffer().dim[3].extent = 1;
+            output->buffer().dimensions = 4;
+            output->buffer().type = input->buffer().type;
+            TensorUtils::getDescribe(output)->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
+        } else {
+            output->buffer().dim[0].extent = input->buffer().dim[0].extent;
+            output->buffer().dim[1].extent = input->buffer().dim[1].extent;
+            output->buffer().dim[2].extent = input->buffer().dim[2].extent * input->buffer().dim[3].extent;
+            output->buffer().dimensions = 3;
+            output->buffer().type = input->buffer().type;
+            TensorUtils::getDescribe(output)->dimensionFormat = TensorUtils::getDescribe(input)->dimensionFormat;
+        }
         return true;
     }
     virtual float onComputeFlops(const MNN::Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) const override {
@@ -127,9 +147,9 @@ class LinearAttentionSizeComputer : public SizeComputer {
 
 REGISTER_SHAPE_INPUTS_TRANSFORMER_FUSE(FmhaV2SizeComputer, OpType_FmhaV2);
 REGISTER_SHAPE_INPUTS_TRANSFORMER_FUSE(FmhcaSizeComputer, OpType_Fmhca);
+REGISTER_SHAPE_INPUTS_TRANSFORMER_FUSE(RoPESizeComputer, OpType_RoPE);
 REGISTER_SHAPE_INPUTS_TRANSFORMER_FUSE(AttentionSizeComputer, OpType_Attention);
 REGISTER_SHAPE_INPUTS_TRANSFORMER_FUSE(LinearAttentionSizeComputer, OpType_LinearAttention);
 #endif
 
 } // namespace MNN
-
