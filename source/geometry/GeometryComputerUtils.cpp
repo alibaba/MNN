@@ -400,7 +400,26 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
         }
     }
 
-    
+
+    // ── Fuse BinaryOp(Add) + LayerNorm in NCHW path ──
+    for (auto& info : infos) {
+        auto& cmds = info.executeBuffer.command;
+        for (int i = 0; i + 1 < (int)cmds.size(); i++) {
+            auto& c0 = cmds[i];
+            auto& c1 = cmds[i + 1];
+            if (c0->op->type() != OpType_BinaryOp || c1->op->type() != OpType_LayerNorm) continue;
+            auto bin = c0->op->main_as_BinaryOp();
+            if (bin->opType() != BinaryOpOperation_ADD) continue;
+            if (c0->outputs.empty() || c1->inputs.empty()) continue;
+            if (c0->outputs[0] != c1->inputs[0]) continue;
+            if (c1->inputs.size() != 1 || c0->inputs.size() < 2) continue;
+            // Fuse: LayerNorm takes data + residual from Add's inputs
+            c1->inputs = {c0->inputs[0], c0->inputs[1]};
+            cmds.erase(cmds.begin() + i);
+            i--;
+        }
+    }
+
 #ifdef MNN_BUILD_CODEGEN
     if(permitCodegen) {
         #ifdef LOG_VERPOSE
