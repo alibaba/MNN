@@ -573,9 +573,19 @@ bool Cli::convertModel(modelConfig& modelPath) {
     metaOp->main.AsExtra()->engine = "MNN";
     std::vector<std::string> inputNames;
     if (modelPath.model == modelConfig::CAFFE) {
+#ifdef MNN_BUILD_CONVERTER_CAFFE
         parseRes = caffe2MNNNet(modelPath.prototxtFile, modelPath.modelFile, modelPath.bizCode, netT);
+#else
+        MNN_ERROR("[ERROR] Caffe frontend not built (MNN_BUILD_CONVERTER_CAFFE=OFF)\n");
+        return false;
+#endif
     } else if (modelPath.model == modelConfig::TENSORFLOW) {
+#ifdef MNN_BUILD_CONVERTER_TENSORFLOW
         parseRes = tensorflow2MNNNet(modelPath.modelFile, modelPath.bizCode, netT);
+#else
+        MNN_ERROR("[ERROR] TensorFlow frontend not built (MNN_BUILD_CONVERTER_TENSORFLOW=OFF)\n");
+        return false;
+#endif
     } else if (modelPath.model == modelConfig::MNN) {
         if (modelPath.mnn2json) {
             if (mnn2json(modelPath.modelFile.c_str(), modelPath.MNNModel.c_str())) {
@@ -589,8 +599,14 @@ bool Cli::convertModel(modelConfig& modelPath) {
             parseRes = addBizCode(modelPath.modelFile, modelPath.bizCode, netT);
         }
     } else if (modelPath.model == modelConfig::ONNX) {
+#ifdef MNN_BUILD_CONVERTER_ONNX
         parseRes = onnx2MNNNet(modelPath.modelFile, modelPath.bizCode, netT, metaOp.get(), inputNames);
+#else
+        MNN_ERROR("[ERROR] ONNX frontend not built (MNN_BUILD_CONVERTER_ONNX=OFF)\n");
+        return false;
+#endif
     } else if (modelPath.model == modelConfig::TFLITE) {
+#ifdef MNN_BUILD_CONVERTER_TFLITE
         if (modelPath.mnn2json) {
             if (dumpTflite2Json(modelPath.modelFile.c_str(), modelPath.MNNModel.c_str())) {
                 MNN_PRINT("Tflite %s has convert to JsonFile %s.\n", modelPath.modelFile.c_str(), modelPath.MNNModel.c_str());
@@ -602,6 +618,10 @@ bool Cli::convertModel(modelConfig& modelPath) {
         } else {
             parseRes = tflite2MNNNet(modelPath.modelFile, modelPath.bizCode, netT);
         }
+#else
+        MNN_ERROR("[ERROR] TFLite frontend not built (MNN_BUILD_CONVERTER_TFLITE=OFF)\n");
+        return false;
+#endif
 #ifdef MNN_BUILD_TORCH
     } else if (modelPath.model == modelConfig::TORCH) {
         parseRes = torch2MNNNet(modelPath.modelFile, modelPath.bizCode, netT, modelPath.customOpLibs);
