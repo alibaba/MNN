@@ -64,6 +64,12 @@ extern void MNNGetMatMulPackMode_RVV(int* eP, int* lP, int* hP);
 namespace MNN {
 void MNNRvvInitializeFastPathFunctions(CoreFunctions* core);
 }
+extern void MNNRankOneUpdate_RVV(float* S, const float* k, const float* delta, size_t dk, size_t dv);
+extern void MNNDualMatVec_RVV(const float* S, const float* k, const float* q, float* out_k, float* out_q, size_t dk,
+                              size_t dv);
+extern void MNNDecayRankOneUpdate_RVV(float* S, const float* k, const float* delta, float decay, size_t dk, size_t dv);
+extern void MNNFusedGatedDelta_RVV(float* S, const float* k, const float* q, const float* v, float* out, float decay,
+                                   float beta, float kq, size_t dk, size_t dv);
 #endif
 
 #ifndef MNN_USE_SSE
@@ -5139,6 +5145,10 @@ void MNNCoreFunctionInit() {
         gCoreFunction->MNNPackForMatMul_B = MNNPackForMatMul_B_RVV;
         gCoreFunction->MNNGetMatMulPackMode = MNNGetMatMulPackMode_RVV;
         MNNRvvInitializeFastPathFunctions(gCoreFunction);
+        gCoreFunction->MNNRankOneUpdate = MNNRankOneUpdate_RVV;
+        gCoreFunction->MNNDualMatVec = MNNDualMatVec_RVV;
+        gCoreFunction->MNNDecayRankOneUpdate = MNNDecayRankOneUpdate_RVV;
+        gCoreFunction->MNNFusedGatedDelta = MNNFusedGatedDelta_RVV;
 #ifdef MNN_LOW_MEMORY
         gCoreFunction->MNNAbsMax = MNNAbsMaxFP32_RVV;
         gCoreFunction->MNNDynamicQuant = MNNDynamicQuantFP32_RVV;
