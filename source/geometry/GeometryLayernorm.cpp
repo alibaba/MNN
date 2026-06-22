@@ -27,7 +27,8 @@ public:
             return true;
         }
         MNN_ASSERT(1 == outputs.size());
-        MNN_ASSERT(1 == inputs.size());
+        // Support 2 inputs for fused Add+LayerNorm (data + residual)
+        MNN_ASSERT(1 == inputs.size() || 2 == inputs.size());
         auto reduceDims = layernorm->axis()->data();
         int reduceDimensionCount = layernorm->axis()->size();
         auto inputShape = inputs[0]->shape();
@@ -53,7 +54,7 @@ public:
             std::shared_ptr<Command> cmdP(new Command);
             auto& cmd = *cmdP;
             cmd.op      = op;
-            cmd.inputs  = {inputs[0]};
+            cmd.inputs  = inputs;
             cmd.outputs = std::move(outputs);
             res.command.emplace_back(std::move(cmdP));
             return true;
