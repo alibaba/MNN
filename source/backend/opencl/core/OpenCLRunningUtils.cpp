@@ -7,6 +7,7 @@
 //
 
 #include "backend/opencl/core/OpenCLRunningUtils.hpp"
+#include "backend/opencl/core/OpenCLTuneHeuristic.hpp"
 #include "backend/opencl/execution/cl/opencl_source_map.hpp"
 #include <algorithm>
 #include <string>
@@ -59,15 +60,61 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
         return std::make_pair(tuneinfo.localSize, tuneinfo.timeCost);
     }
     std::pair<std::vector<uint32_t>, uint32_t> tuneLwsRes;
-    if(localWSTune(tuneLws, gws, kernelName, tuneLwsRes)){
+    if (localWSTune(tuneLws, gws, kernelName, tuneLwsRes, tuneLevel)) {
         return tuneLwsRes;
     }
-    
+
     std::vector<uint32_t> lws(3, 1);
     std::vector<uint32_t> lws_prefer(4, 1);
     uint32_t min_cost = UINT_MAX;
+    bool heuristicUsed = false;
 
-    if(tuneLevel == Heavy) {
+    // For Fast/None: try heuristic first
+    if (tuneLevel == Fast || tuneLevel == None) {
+        auto heuristicLws = getHeuristicLocalSize(kernelName, gws, runtime->getGpuType(), runtime->getGpuLevel());
+        // Check if heuristic matched (non-zero means matched)
+        bool matched = false;
+        for (auto v : heuristicLws) {
+            if (v != 0) {
+                matched = true;
+                break;
+            }
+        }
+        if (matched && heuristicLws.size() >= 3) {
+            heuristicUsed = true;
+            for (size_t i = 0; i < heuristicLws.size() && i < 4; ++i) {
+                lws_prefer[i] = heuristicLws[i];
+            }
+            // Validate against hardware limits
+            uint64_t totalWG = 1;
+            for (size_t i = 0; i < 3; ++i) {
+                if (lws_prefer[i] > 0)
+                    totalWG *= static_cast<uint64_t>(lws_prefer[i]);
+            }
+            if (totalWG > maxWorkGroupSize || (lws_prefer[0] > 0 && lws_prefer[0] > maxWorkItemSizes[0]) ||
+                (lws_prefer[1] > 0 && lws_prefer[1] > maxWorkItemSizes[1]) ||
+                (lws_prefer[2] > 0 && lws_prefer[2] > maxWorkItemSizes[2])) {
+                lws_prefer[0] = 0;
+                lws_prefer[1] = 0;
+                lws_prefer[2] = 0;
+                heuristicUsed = false;
+            }
+            min_cost = 0;
+        } else if (tuneLevel == None) {
+            // None with no heuristic match: let driver decide
+            heuristicUsed = true;
+            lws_prefer[0] = 0;
+            lws_prefer[1] = 0;
+            lws_prefer[2] = 0;
+            lws_prefer[3] = 0;
+            min_cost = 0;
+        }
+        // Fast with no match: heuristicUsed stays false, fall through to Normal tuning
+    }
+
+    if (heuristicUsed) {
+        // Skip tuning, use heuristic result
+    } else if (tuneLevel == Heavy) {
         while(lws[2] <= gws[2] || lws[2] <= 6) {
             lws[1] = 1;
             while(lws[1] <= gws[1] || lws[1] <= 6) {
@@ -103,7 +150,7 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
             }
             lws[2]<<=1;
         }
-    } else if(tuneLevel == Wide) {
+    } else if (tuneLevel == Wide) {
         while(lws[2] <= gws[2] || lws[2] <= 6) {
             lws[1] = 1;
             while(lws[1] <= gws[1] || lws[1] <= 6) {
@@ -148,7 +195,7 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
             }
             while(((2*gws[2])%lws[2] > 1) && (lws[2] & (lws[2] - 1)) != 0 && (lws[2] <= gws[2]) && (lws[2] > 6));//divisible powOfTwo lessThanSix
         }
-    } else if(tuneLevel == Normal) {
+    } else if (tuneLevel == Normal) {
         while(lws[2] <= gws[2] && lws[2] <= 8) {
             lws[1] = 1;
             while(lws[1] <= gws[1] || lws[1] <= 6) {
@@ -193,7 +240,7 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
             }
             while(((2*gws[2])%lws[2] > 1) && (lws[2] & (lws[2] - 1)) != 0 && (lws[2] <= gws[2]) && (lws[2] <= 6));//divisible powOfTwo lessThanSix
         }
-    } else if(tuneLevel == Fast) {
+    } else if (tuneLevel == Fast) {
         while(lws[2] <= gws[2] && lws[2] <= 8) {
             lws[1] = 1;
             while(lws[1] <= gws[1] && lws[1] <= 16) {
@@ -247,15 +294,15 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
             }
             while(((2*gws[2])%lws[2] > 1) && (lws[2] & (lws[2] - 1)) != 0 && (lws[2] <= gws[2]) && (lws[2] <= 6));//divisible powOfTwo lessThanSix
         }
-    } else if(tuneLevel == None) {
+    } else if (tuneLevel == None) {
         // define not tune method to choose lws
         lws_prefer[0] = 0;
         lws_prefer[1] = 0;
         lws_prefer[2] = 0;
         min_cost = 0;
     }
-    
-    if(tuneLevel != None) {
+
+    if (tuneLevel != None && !heuristicUsed) {
         cl::Event event;
         cl_int res = runtime->commandQueue().enqueueNDRangeKernel(
                         mKernel, cl::NullRange,
@@ -275,9 +322,8 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
             min_cost = cost_time;
         }
     }
-    
-    if (tunedLws.find(info) == tunedLws.end() && tuneLevel != None) {
-//        printf("3dLocalWS %d Insert! gws:%d %d %d, lws:%d %d %d\n", (int)tunedLws.size(), gws[0], gws[1], gws[2], lws_prefer[0], lws_prefer[1], lws_prefer[2]);
+
+    if (tunedLws.find(info) == tunedLws.end() && tuneLevel != None && !heuristicUsed) {
         TuneInfo tuneInfo;
         tuneInfo.programName = programName;
         auto iter = OpenCLProgramMd5Map.find(programName);
@@ -309,15 +355,54 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
         return std::make_pair(tuneinfo.localSize, tuneinfo.timeCost);
     }
     std::pair<std::vector<uint32_t>, uint32_t> tuneLwsRes;
-    if(localWSTune(tuneLws, gws, kernelName, tuneLwsRes)){
+    if (localWSTune(tuneLws, gws, kernelName, tuneLwsRes, tuneLevel)) {
         return tuneLwsRes;
     }
-    
+
     std::vector<uint32_t> lws(3, 1);
     std::vector<uint32_t> lws_prefer(2, 1);
     uint32_t min_cost = UINT_MAX;
-    
-    if(tuneLevel == Heavy) {
+    bool heuristicUsed = false;
+
+    // For Fast/None: try heuristic first
+    if (tuneLevel == Fast || tuneLevel == None) {
+        auto heuristicLws = getHeuristicLocalSize(kernelName, gws, runtime->getGpuType(), runtime->getGpuLevel());
+        bool matched = false;
+        for (auto v : heuristicLws) {
+            if (v != 0) {
+                matched = true;
+                break;
+            }
+        }
+        if (matched && heuristicLws.size() >= 2) {
+            heuristicUsed = true;
+            for (size_t i = 0; i < heuristicLws.size() && i < 2; ++i) {
+                lws_prefer[i] = heuristicLws[i];
+            }
+            uint64_t totalWG = 1;
+            for (size_t i = 0; i < 2; ++i) {
+                if (lws_prefer[i] > 0)
+                    totalWG *= static_cast<uint64_t>(lws_prefer[i]);
+            }
+            if (totalWG > maxWorkGroupSize || (lws_prefer[0] > 0 && lws_prefer[0] > maxWorkItemSizes[0]) ||
+                (lws_prefer[1] > 0 && lws_prefer[1] > maxWorkItemSizes[1])) {
+                lws_prefer[0] = 0;
+                lws_prefer[1] = 0;
+                heuristicUsed = false;
+            }
+            min_cost = 0;
+        } else if (tuneLevel == None) {
+            heuristicUsed = true;
+            lws_prefer[0] = 0;
+            lws_prefer[1] = 0;
+            min_cost = 0;
+        }
+        // Fast with no match: fall through to Normal tuning
+    }
+
+    if (heuristicUsed) {
+        // Skip tuning, use heuristic result
+    } else if (tuneLevel == Heavy) {
         while(lws[1] <= gws[1] || lws[1] <= 6) {
             lws[0] = 1;
             while(lws[0] <= gws[0] || lws[0] <= 6) {
@@ -348,7 +433,7 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
             }
             lws[1]<<=1;
         }
-    } else if(tuneLevel == Wide) {
+    } else if (tuneLevel == Wide) {
         while(lws[1] <= gws[1] || lws[1] <= 6) {
             lws[0] = 1;
             while(lws[0] <= gws[0] || lws[0] <= 6) {
@@ -385,7 +470,7 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
             }
             while(((2*gws[1])%lws[1] > 1) && (lws[1] & (lws[1] - 1)) != 0 && (lws[1] <= gws[1]) && (lws[1] > 6));//divisible powOfTwo lessThanSix
         }
-    } else if(tuneLevel == Normal) {
+    } else if (tuneLevel == Normal) {
         while(lws[1] <= gws[1] && lws[1] <= 8) {
             lws[0] = 1;
             while(lws[0] <= gws[0] || lws[0] <= 6) {
@@ -422,7 +507,7 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
             }
             while(((2*gws[1])%lws[1] > 1) && (lws[1] & (lws[1] - 1)) != 0 && (lws[1] <= gws[1]) && (lws[1] <= 6));//divisible powOfTwo lessThanSix
         }
-    } else if(tuneLevel == Fast) {
+    } else if (tuneLevel == Fast) {
         while(lws[1] <= gws[1] && lws[1] <= 8) {
             lws[0] = 1;
             while(lws[0] <= gws[0] && lws[0] <= 8) {
@@ -469,14 +554,14 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
             }
             while(((2*gws[1])%lws[1] > 1) && (lws[1] & (lws[1] - 1)) != 0 && (lws[1] <= gws[1]) && (lws[1] <= 6));//divisible powOfTwo lessThanSix
         }
-    } else if(tuneLevel == None) {
+    } else if (tuneLevel == None) {
         // define not tune method to choose lws
         lws_prefer[0] = 0;
         lws_prefer[1] = 0;
         min_cost = 0;
     }
 
-    if(tuneLevel != None) {
+    if (tuneLevel != None && !heuristicUsed) {
         cl::Event event;
         cl_int res = runtime->commandQueue().enqueueNDRangeKernel(
                         mKernel, cl::NullRange,
@@ -495,9 +580,8 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
             min_cost = cost_time;
         }
     }
-    
-    if (tunedLws.find(info) == tunedLws.end() && tuneLevel != None) {
-//        printf("2dLocalWS %d Insert! gws:%d %d, lws:%d %d\n", (int)tunedLws.size(), gws[0], gws[1], lws_prefer[0], lws_prefer[1]);
+
+    if (tunedLws.find(info) == tunedLws.end() && tuneLevel != None && !heuristicUsed) {
         TuneInfo tuneInfo;
         tuneInfo.programName = programName;
         auto iter = OpenCLProgramMd5Map.find(programName);
@@ -637,7 +721,8 @@ void copyBufferToImage(OpenCLRuntime *runtime, const cl::Buffer &buffer, const c
     comandQueue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(w, h, 1));
 }
 
-bool localWSTune(const std::map<std::string, std::vector<TuneInfo>> &tuneMap, const std::vector<uint32_t> &gws, const std::string &kernelName, std::pair<std::vector<uint32_t>, uint32_t>& res){
+bool localWSTune(const std::map<std::string, std::vector<TuneInfo>>& tuneMap, const std::vector<uint32_t>& gws,
+                 const std::string& kernelName, std::pair<std::vector<uint32_t>, uint32_t>& res, int tuneLevel) {
     float minScale = 0.1;
     auto iter = tuneMap.find(kernelName);
     if(iter == tuneMap.end()){
@@ -645,6 +730,7 @@ bool localWSTune(const std::map<std::string, std::vector<TuneInfo>> &tuneMap, co
     }
     auto tuneInfoVec = iter->second;
     int size = gws.size();
+    bool exactMatch = (tuneLevel == Fast || tuneLevel == None);
     uint32_t minPoint = UINT_MAX;
     int index = -1;
     for(int i = 0; i < tuneInfoVec.size(); ++i){
@@ -655,6 +741,9 @@ bool localWSTune(const std::map<std::string, std::vector<TuneInfo>> &tuneMap, co
         for(int j = 0; j < size; ++j){
             point += std::abs(static_cast<int>(gws[j]) - static_cast<int>(tuneInfoVec[i].globalSize[j]));
         }
+        if (exactMatch && point != 0) {
+            continue;
+        }
         if(point < minPoint){
             index = i;
             minPoint = point;
@@ -662,11 +751,13 @@ bool localWSTune(const std::map<std::string, std::vector<TuneInfo>> &tuneMap, co
     }
     if(index != -1){
         res = std::make_pair(tuneInfoVec[index].localSize, tuneInfoVec[index].timeCost);
+        return true;
     }
-    return true;
+    return !exactMatch; // For non-exact mode, return true even if no match (legacy behavior)
 }
 
-bool getTunedInfo(const std::string kernelName, const std::vector<uint32_t> &gws, std::pair<std::vector<uint32_t>, uint32_t> &tuneInfo, OpenCLRuntime *runtime){
+bool getTunedInfo(const std::string kernelName, const std::vector<uint32_t>& gws,
+                  std::pair<std::vector<uint32_t>, uint32_t>& tuneInfo, OpenCLRuntime* runtime, int tuneLevel) {
     auto& tunedLws = runtime->tunedLwsMap();
     auto& tuneLws = runtime->getTuneLwsMap();
     std::pair<std::string, std::vector<uint32_t>> info = std::make_pair(kernelName, gws);
@@ -674,7 +765,7 @@ bool getTunedInfo(const std::string kernelName, const std::vector<uint32_t> &gws
         tuneInfo = std::make_pair(tunedLws[info].localSize, tunedLws[info].timeCost);
         return true;
     }
-    return localWSTune(tuneLws, gws, kernelName, tuneInfo);
+    return localWSTune(tuneLws, gws, kernelName, tuneInfo, tuneLevel);
 }
 
 void setTunedInfo(const std::string kernelName, const std::vector<uint32_t> &gws, std::pair<std::vector<uint32_t>, uint32_t> &tuneInfo, OpenCLRuntime *runtime, const std::string programName){

@@ -550,6 +550,9 @@ class ShortConvAttention(torch.nn.Module):
         hidden_states: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
+        # Note: ShortConvAttention is mask-free; `attention_mask` is accepted
+        # only to keep the call signature uniform with `Attention.forward` and
+        # is intentionally unused.
         batch_size, seq_len, _ = hidden_states.shape
 
         # in_proj: [B, L, H] -> [B, L, 3H]
@@ -636,6 +639,9 @@ class LinearAttention(torch.nn.Module):
         hidden_states: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        # Note: LinearAttention is mask-free; `attention_mask` is accepted
+        # only to keep the call signature uniform with `Attention.forward` and
+        # is intentionally unused.
         batch_size, seq_len, _ = hidden_states.shape
 
         # 1. Linear Projections

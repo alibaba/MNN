@@ -10,6 +10,8 @@ mMaps.insert(std::make_pair("glsl_softmaxImage_AXIS_N_comp", std::make_pair(glsl
 mMaps.insert(std::make_pair("glsl_softmaxImage_AXIS_H_comp", std::make_pair(glsl_softmaxImage_AXIS_H_comp,glsl_softmaxImage_AXIS_H_comp_len)));
 mMaps.insert(std::make_pair("glsl_softmaxImage_AXIS_W_comp", std::make_pair(glsl_softmaxImage_AXIS_W_comp,glsl_softmaxImage_AXIS_W_comp_len)));
 mMaps.insert(std::make_pair("glsl_softmaxImage_AXIS_C_comp", std::make_pair(glsl_softmaxImage_AXIS_C_comp,glsl_softmaxImage_AXIS_C_comp_len)));
+mMaps.insert(std::make_pair("glsl_topkv2_comp", std::make_pair(glsl_topkv2_comp,glsl_topkv2_comp_len)));
+mMaps.insert(std::make_pair("glsl_topkv2_SORT_DESC_comp", std::make_pair(glsl_topkv2_SORT_DESC_comp,glsl_topkv2_SORT_DESC_comp_len)));
 mMaps.insert(std::make_pair("glsl_relu_comp", std::make_pair(glsl_relu_comp,glsl_relu_comp_len)));
 mMaps.insert(std::make_pair("glsl_unaryImage_comp", std::make_pair(glsl_unaryImage_comp,glsl_unaryImage_comp_len)));
 mMaps.insert(std::make_pair("glsl_unaryImage_SIGMOID_comp", std::make_pair(glsl_unaryImage_SIGMOID_comp,glsl_unaryImage_SIGMOID_comp_len)));
@@ -74,13 +76,18 @@ mMaps.insert(std::make_pair("glsl_binaryImage_VMIN_comp", std::make_pair(glsl_bi
 mMaps.insert(std::make_pair("glsl_matmul_input_comp", std::make_pair(glsl_matmul_input_comp,glsl_matmul_input_comp_len)));
 mMaps.insert(std::make_pair("glsl_matmul_input_TRANSPOSE_comp", std::make_pair(glsl_matmul_input_TRANSPOSE_comp,glsl_matmul_input_TRANSPOSE_comp_len)));
 mMaps.insert(std::make_pair("glsl_nchwToimage_comp", std::make_pair(glsl_nchwToimage_comp,glsl_nchwToimage_comp_len)));
+mMaps.insert(std::make_pair("glsl_nchwToimage_INT_comp", std::make_pair(glsl_nchwToimage_INT_comp,glsl_nchwToimage_INT_comp_len)));
 mMaps.insert(std::make_pair("glsl_packAsImage4x4_comp", std::make_pair(glsl_packAsImage4x4_comp,glsl_packAsImage4x4_comp_len)));
 mMaps.insert(std::make_pair("glsl_packAsImage4x4_TRANSPOSE_comp", std::make_pair(glsl_packAsImage4x4_TRANSPOSE_comp,glsl_packAsImage4x4_TRANSPOSE_comp_len)));
 mMaps.insert(std::make_pair("glsl_roipooling_comp", std::make_pair(glsl_roipooling_comp,glsl_roipooling_comp_len)));
 mMaps.insert(std::make_pair("glsl_blit_comp", std::make_pair(glsl_blit_comp,glsl_blit_comp_len)));
+mMaps.insert(std::make_pair("glsl_blit_INT_comp", std::make_pair(glsl_blit_INT_comp,glsl_blit_INT_comp_len)));
 mMaps.insert(std::make_pair("glsl_blit_image_comp", std::make_pair(glsl_blit_image_comp,glsl_blit_image_comp_len)));
+mMaps.insert(std::make_pair("glsl_blit_image_INT_comp", std::make_pair(glsl_blit_image_INT_comp,glsl_blit_image_INT_comp_len)));
 mMaps.insert(std::make_pair("glsl_fill_image_comp", std::make_pair(glsl_fill_image_comp,glsl_fill_image_comp_len)));
+mMaps.insert(std::make_pair("glsl_fill_image_INT_comp", std::make_pair(glsl_fill_image_INT_comp,glsl_fill_image_INT_comp_len)));
 mMaps.insert(std::make_pair("glsl_imageTonchw_comp", std::make_pair(glsl_imageTonchw_comp,glsl_imageTonchw_comp_len)));
+mMaps.insert(std::make_pair("glsl_imageTonchw_INT_comp", std::make_pair(glsl_imageTonchw_INT_comp,glsl_imageTonchw_INT_comp_len)));
 mMaps.insert(std::make_pair("glsl_resizeNearest_comp", std::make_pair(glsl_resizeNearest_comp,glsl_resizeNearest_comp_len)));
 mMaps.insert(std::make_pair("glsl_resizeNearest_NEAREST_ROUND_comp", std::make_pair(glsl_resizeNearest_NEAREST_ROUND_comp,glsl_resizeNearest_NEAREST_ROUND_comp_len)));
 mMaps.insert(std::make_pair("glsl_reduce_comp", std::make_pair(glsl_reduce_comp,glsl_reduce_comp_len)));
@@ -113,7 +120,9 @@ mMaps.insert(std::make_pair("glsl_col2Im_comp", std::make_pair(glsl_col2Im_comp,
 mMaps.insert(std::make_pair("glsl_col2Im_RELU_comp", std::make_pair(glsl_col2Im_RELU_comp,glsl_col2Im_RELU_comp_len)));
 mMaps.insert(std::make_pair("glsl_col2Im_RELU6_comp", std::make_pair(glsl_col2Im_RELU6_comp,glsl_col2Im_RELU6_comp_len)));
 mMaps.insert(std::make_pair("glsl_nc4hw4toimage_comp", std::make_pair(glsl_nc4hw4toimage_comp,glsl_nc4hw4toimage_comp_len)));
+mMaps.insert(std::make_pair("glsl_nc4hw4toimage_INT_comp", std::make_pair(glsl_nc4hw4toimage_INT_comp,glsl_nc4hw4toimage_INT_comp_len)));
 mMaps.insert(std::make_pair("glsl_imageTonc4hw4_comp", std::make_pair(glsl_imageTonc4hw4_comp,glsl_imageTonc4hw4_comp_len)));
+mMaps.insert(std::make_pair("glsl_imageTonc4hw4_INT_comp", std::make_pair(glsl_imageTonc4hw4_INT_comp,glsl_imageTonc4hw4_INT_comp_len)));
 mMaps.insert(std::make_pair("glsl_binary_blit_comp", std::make_pair(glsl_binary_blit_comp,glsl_binary_blit_comp_len)));
 mMaps.insert(std::make_pair("glsl_binary_blit_ADD_comp", std::make_pair(glsl_binary_blit_ADD_comp,glsl_binary_blit_ADD_comp_len)));
 mMaps.insert(std::make_pair("glsl_binary_blit_SUB_comp", std::make_pair(glsl_binary_blit_SUB_comp,glsl_binary_blit_SUB_comp_len)));

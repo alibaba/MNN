@@ -289,6 +289,7 @@ enum OpType {
   OpType_SplitGeLU = 303,
   OpType_GroupNorm = 304,
   OpType_LinearAttention = 305,
+  OpType_RoPE = 306,
   OpType_Extra = 512,
   OpType_ConvInt8 = 513,
   OpType_Int8ToFloat = 514,
@@ -303,7 +304,7 @@ enum OpType {
   OpType_MAX = OpType_GridSample
 };
 
-inline const OpType (&EnumValuesOpType())[183] {
+inline const OpType (&EnumValuesOpType())[184] {
   static const OpType values[] = {
     OpType_AbsVal,
     OpType_QuantizedAdd,
@@ -478,6 +479,7 @@ inline const OpType (&EnumValuesOpType())[183] {
     OpType_SplitGeLU,
     OpType_GroupNorm,
     OpType_LinearAttention,
+    OpType_RoPE,
     OpType_Extra,
     OpType_ConvInt8,
     OpType_Int8ToFloat,
@@ -800,7 +802,7 @@ inline const char * const *EnumNamesOpType() {
     "SplitGeLU",
     "GroupNorm",
     "LinearAttention",
-    "",
+    "RoPE",
     "",
     "",
     "",
@@ -2999,10 +3001,15 @@ struct AttentionParamT : public flatbuffers::NativeTable {
   std::string kv_shared_layer;
   int32_t layer_index;
   int32_t kv_shared_layer_index;
+  std::vector<std::unique_ptr<TensorQuantInfoT>> mhq_quant;
+  bool output_c4;
+  float attnScale;
   AttentionParamT()
       : kv_cache(true),
         layer_index(-1),
-        kv_shared_layer_index(-1) {
+        kv_shared_layer_index(-1),
+        output_c4(false),
+        attnScale(0.0f) {
   }
 };
 
@@ -3023,6 +3030,15 @@ struct AttentionParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   int32_t kv_shared_layer_index() const {
     return GetField<int32_t>(10, -1);
   }
+  const flatbuffers::Vector<flatbuffers::Offset<TensorQuantInfo>> *mhq_quant() const {
+    return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<TensorQuantInfo>> *>(12);
+  }
+  bool output_c4() const {
+    return GetField<uint8_t>(14, 0) != 0;
+  }
+  float attnScale() const {
+    return GetField<float>(16, 0.0f);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<uint8_t>(verifier, 4) &&
@@ -3030,6 +3046,11 @@ struct AttentionParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            verifier.VerifyString(kv_shared_layer()) &&
            VerifyField<int32_t>(verifier, 8) &&
            VerifyField<int32_t>(verifier, 10) &&
+           VerifyOffset(verifier, 12) &&
+           verifier.VerifyVector(mhq_quant()) &&
+           verifier.VerifyVectorOfTables(mhq_quant()) &&
+           VerifyField<uint8_t>(verifier, 14) &&
+           VerifyField<float>(verifier, 16) &&
            verifier.EndTable();
   }
   AttentionParamT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -3052,6 +3073,15 @@ struct AttentionParamBuilder {
   void add_kv_shared_layer_index(int32_t kv_shared_layer_index) {
     fbb_.AddElement<int32_t>(10, kv_shared_layer_index, -1);
   }
+  void add_mhq_quant(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<TensorQuantInfo>>> mhq_quant) {
+    fbb_.AddOffset(12, mhq_quant);
+  }
+  void add_output_c4(bool output_c4) {
+    fbb_.AddElement<uint8_t>(14, static_cast<uint8_t>(output_c4), 0);
+  }
+  void add_attnScale(float attnScale) {
+    fbb_.AddElement<float>(16, attnScale, 0.0f);
+  }
   explicit AttentionParamBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -3069,11 +3099,17 @@ inline flatbuffers::Offset<AttentionParam> CreateAttentionParam(
     bool kv_cache = true,
     flatbuffers::Offset<flatbuffers::String> kv_shared_layer = 0,
     int32_t layer_index = -1,
-    int32_t kv_shared_layer_index = -1) {
+    int32_t kv_shared_layer_index = -1,
+    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<TensorQuantInfo>>> mhq_quant = 0,
+    bool output_c4 = false,
+    float attnScale = 0.0f) {
   AttentionParamBuilder builder_(_fbb);
+  builder_.add_attnScale(attnScale);
+  builder_.add_mhq_quant(mhq_quant);
   builder_.add_kv_shared_layer_index(kv_shared_layer_index);
   builder_.add_layer_index(layer_index);
   builder_.add_kv_shared_layer(kv_shared_layer);
+  builder_.add_output_c4(output_c4);
   builder_.add_kv_cache(kv_cache);
   return builder_.Finish();
 }
@@ -5499,6 +5535,9 @@ inline void AttentionParam::UnPackTo(AttentionParamT *_o, const flatbuffers::res
   { auto _e = kv_shared_layer(); if (_e) _o->kv_shared_layer = _e->str(); };
   { auto _e = layer_index(); _o->layer_index = _e; };
   { auto _e = kv_shared_layer_index(); _o->kv_shared_layer_index = _e; };
+  { auto _e = mhq_quant(); if (_e) { _o->mhq_quant.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->mhq_quant[_i] = std::unique_ptr<TensorQuantInfoT>(_e->Get(_i)->UnPack(_resolver)); } } };
+  { auto _e = output_c4(); _o->output_c4 = _e; };
+  { auto _e = attnScale(); _o->attnScale = _e; };
 }
 
 inline flatbuffers::Offset<AttentionParam> AttentionParam::Pack(flatbuffers::FlatBufferBuilder &_fbb, const AttentionParamT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -5513,12 +5552,18 @@ inline flatbuffers::Offset<AttentionParam> CreateAttentionParam(flatbuffers::Fla
   auto _kv_shared_layer = _o->kv_shared_layer.empty() ? 0 : _fbb.CreateString(_o->kv_shared_layer);
   auto _layer_index = _o->layer_index;
   auto _kv_shared_layer_index = _o->kv_shared_layer_index;
+  auto _mhq_quant = _o->mhq_quant.size() ? _fbb.CreateVector<flatbuffers::Offset<TensorQuantInfo>> (_o->mhq_quant.size(), [](size_t i, _VectorArgs *__va) { return CreateTensorQuantInfo(*__va->__fbb, __va->__o->mhq_quant[i].get(), __va->__rehasher); }, &_va ) : 0;
+  auto _output_c4 = _o->output_c4;
+  auto _attnScale = _o->attnScale;
   return MNN::CreateAttentionParam(
       _fbb,
       _kv_cache,
       _kv_shared_layer,
       _layer_index,
-      _kv_shared_layer_index);
+      _kv_shared_layer_index,
+      _mhq_quant,
+      _output_c4,
+      _attnScale);
 }
 
 inline LinearAttentionParamT *LinearAttentionParam::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -7768,7 +7813,7 @@ inline OpParameterUnion::OpParameterUnion(const OpParameterUnion &u) FLATBUFFERS
       break;
     }
     case OpParameter_AttentionParam: {
-      value = new AttentionParamT(*reinterpret_cast<AttentionParamT *>(u.value));
+      FLATBUFFERS_ASSERT(false);  // AttentionParamT not copyable.
       break;
     }
     case OpParameter_StftParam: {
@@ -8485,12 +8530,13 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     OpTypeTypeTable
   };
-  static const int64_t values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 269, 299, 300, 301, 302, 303, 304, 305, 512, 513, 514, 515, 517, 518, 600, 601, 603, 604 };
+  static const int64_t values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 269, 299, 300, 301, 302, 303, 304, 305, 306, 512, 513, 514, 515, 517, 518, 600, 601, 603, 604 };
   static const char * const names[] = {
     "AbsVal",
     "QuantizedAdd",
@@ -8665,6 +8711,7 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "SplitGeLU",
     "GroupNorm",
     "LinearAttention",
+    "RoPE",
     "Extra",
     "ConvInt8",
     "Int8ToFloat",
@@ -8677,7 +8724,7 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "GridSample"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_ENUM, 183, type_codes, type_refs, values, names
+    flatbuffers::ST_ENUM, 184, type_codes, type_refs, values, names
   };
   return &tt;
 }
@@ -9110,16 +9157,25 @@ inline const flatbuffers::TypeTable *AttentionParamTypeTable() {
     { flatbuffers::ET_BOOL, 0, -1 },
     { flatbuffers::ET_STRING, 0, -1 },
     { flatbuffers::ET_INT, 0, -1 },
-    { flatbuffers::ET_INT, 0, -1 }
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_SEQUENCE, 1, 0 },
+    { flatbuffers::ET_BOOL, 0, -1 },
+    { flatbuffers::ET_FLOAT, 0, -1 }
+  };
+  static const flatbuffers::TypeFunction type_refs[] = {
+    TensorQuantInfoTypeTable
   };
   static const char * const names[] = {
     "kv_cache",
     "kv_shared_layer",
     "layer_index",
-    "kv_shared_layer_index"
+    "kv_shared_layer_index",
+    "mhq_quant",
+    "output_c4",
+    "attnScale"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 4, type_codes, nullptr, nullptr, names
+    flatbuffers::ST_TABLE, 7, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

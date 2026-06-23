@@ -27,17 +27,19 @@ public:
     CPULayerNorm(std::shared_ptr<Resource> res, Backend* backend);
     virtual ~CPULayerNorm();
 
-    virtual ErrorCode onExecute(const std::vector<Tensor*> &inputs, const std::vector<Tensor*> &outputs) override;
-    virtual ErrorCode onResize(const std::vector<Tensor*> &inputs, const std::vector<Tensor*> &outputs) override;
+    virtual ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
+    virtual ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 
     static std::shared_ptr<Resource> makeResource(const MNN::Op* op, Backend* backend);
+
 private:
     std::shared_ptr<Resource> mResource;
     int mInnerSize = 1;
     int mOutterSize = 1;
     MemChunk mTmpInputFloat;
     MemChunk mTmpOutputFloat;
+    bool mNeedUnpackC4 = false;
 };
 } // namespace MNN
 #endif /* CPULayerNorm_hpp */

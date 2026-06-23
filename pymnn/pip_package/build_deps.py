@@ -100,7 +100,11 @@ def build_deps():
     if USE_OPENCL:
         extra_opts += ' -DMNN_OPENCL=ON'
     if USE_LLM:
-        extra_opts += ' -DMNN_BUILD_LLM=ON -DMNN_LOW_MEMORY=ON -DMNN_SUPPORT_TRANSFORMER_FUSE=ON -DLLM_SUPPORT_VISION=ON -DLLM_SUPPORT_AUDIO=ON'
+        # -DMNN_BUILD_LLM=ON      -> auto-enables MNN_LOW_MEMORY + MNN_SUPPORT_TRANSFORMER_FUSE
+        # -DMNN_BUILD_LLM_OMNI=ON -> auto-enables MNN_BUILD_OPENCV / MNN_BUILD_AUDIO / MNN_IMGCODECS
+        #   which in turn auto-define LLM_SUPPORT_VISION / LLM_SUPPORT_AUDIO inside the llm engine
+        #   (those LLM_SUPPORT_* are compile-time defines, not standalone cmake options).
+        extra_opts += ' -DMNN_BUILD_LLM=ON -DMNN_BUILD_LLM_OMNI=ON'
     if USE_ARM82:
         extra_opts += ' -DMNN_ARM82=ON'
     extra_opts += ' -DMNN_USE_THREAD_POOL=OFF -DMNN_OPENMP=ON' if USE_OPENMP else ' -DMNN_USE_THREAD_POOL=ON -DMNN_OPENMP=OFF'

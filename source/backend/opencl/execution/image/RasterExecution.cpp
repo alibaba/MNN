@@ -145,7 +145,14 @@ ErrorCode RasterExecution::onEncode(const std::vector<Tensor *> &____inputs, con
     bool cancombine = CanCombine(outputs);
     // Alloc Temp buffer
     auto bufferPool     = ((OpenCLBackend *)backend())->getBufferPool();
-    auto bufferUnitSize = mOpenCLBackend->getPrecision() != BackendConfig::Precision_High ? sizeof(half_float::half) : sizeof(float);
+    auto outputType = output->getType();
+    auto bufferUnitSize = 0;
+    if (outputType.code == halide_type_int || outputType.code == halide_type_uint) {
+        bufferUnitSize = outputType.bytes();
+    } else {
+        bufferUnitSize =
+            mOpenCLBackend->getPrecision() != BackendConfig::Precision_High ? sizeof(half_float::half) : sizeof(float);
+    }
     for(int i=0; i< regionNum; ++i)
     {
         auto origin = des->regions[i].origin;

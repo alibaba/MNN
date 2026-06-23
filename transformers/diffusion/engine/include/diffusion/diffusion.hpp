@@ -26,6 +26,7 @@ typedef enum {
     STABLE_DIFFUSION_1_5 = 0,
     STABLE_DIFFUSION_TAIYI_CHINESE = 1,
     SANA_DIFFUSION = 2,
+    WAN2_1_T2V = 3,
     DIFFUSION_MODEL_USER
 } DiffusionModelType;
 
@@ -65,7 +66,10 @@ public:
                     bool use_cfg,
                     float cfg_scale,
                     std::function<void(int)> progressCallback) = 0;
-    
+
+    virtual bool runVideo(const std::string& prompt, const std::string& outputDir, int width, int height, int frames,
+                          int steps, int seed, float cfgScale, std::function<void(int)> progressCallback);
+
     virtual bool load() = 0;
 
 protected:

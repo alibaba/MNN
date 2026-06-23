@@ -38,6 +38,26 @@ static inline VARP _var(std::vector<T> vec, const std::vector<int> &dims) {
     return _Const(vec.data(), dims, NHWC, halide_type_of<T>());
 }
 
+#ifdef LLM_SUPPORT_AUDIO
+static std::vector<int> buildOmniAudioWindowBoundaries(int seqlen, int n_window) {
+    const int clampedSeqlen = std::max(seqlen, 0);
+    std::vector<int> boundaries(1, 0);
+    if (n_window <= 0) {
+        if (clampedSeqlen > 0) {
+            boundaries.push_back(clampedSeqlen);
+        }
+        return boundaries;
+    }
+    for (int curseq = n_window; curseq < clampedSeqlen; curseq += n_window) {
+        boundaries.push_back(curseq);
+    }
+    if (boundaries.back() != clampedSeqlen) {
+        boundaries.push_back(clampedSeqlen);
+    }
+    return boundaries;
+}
+#endif
+
 static MNNForwardType backend_type_convert(const std::string& type_str) {
     if (type_str == "cpu")
         return MNN_FORWARD_CPU;
@@ -863,15 +883,7 @@ std::vector<int> Omni::audioProcess(MNN::Express::VARP waveform) {
     if (mAudioModule->getInfo()->inputNames.size() > 1) {
         int seqlen = UP_DIV(input_features->getInfo()->dim[2], 2);
         constexpr int n_window = 100;
-        std::vector<int> cu_seqlens;
-        int curseq = 0;
-        while (curseq < seqlen) {
-            cu_seqlens.push_back(curseq);
-            curseq += n_window;
-        }
-        if (seqlen % n_window != 0) {
-            cu_seqlens.push_back(seqlen);
-        }
+        std::vector<int> cu_seqlens = buildOmniAudioWindowBoundaries(seqlen, n_window);
         VARP attention_mask = _Input({1, seqlen, seqlen}, NCHW, halide_type_of<float>());
         auto ptr = attention_mask->writeMap<float>();
         for (int i = 0; i < seqlen; i++) {

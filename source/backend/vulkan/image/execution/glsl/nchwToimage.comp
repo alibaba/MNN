@@ -1,10 +1,18 @@
 #version 450 core
 layout(std430) buffer;
+#ifdef INT
+layout(set=0, binding=0) writeonly uniform iimage2D uOutput;
+
+layout(set=0, binding=1) readonly buffer sourceBuffer{
+    int data[];
+} uInBuffer;
+#else
 layout(set=0, binding=0) writeonly uniform image2D uOutput;
 
 layout(set=0, binding=1) readonly buffer sourceBuffer{
     float data[];
 } uInBuffer;
+#endif
 
 
 layout(set=0, binding=2) uniform constBuffer{
@@ -38,6 +46,20 @@ void main()
             + h * uConstant.stride.y
             + w * uConstant.stride.x;
 
+#ifdef INT
+        ivec4 color = ivec4(0);
+        color.r = uInBuffer.data[basicOffset+0];
+        int imgHW = uConstant.stride.z;
+        if (4 * c + 1 < uConstant.size.z) {
+            color.g = uInBuffer.data[basicOffset+1*imgHW];
+        }
+        if (4 * c + 2 < uConstant.size.z) {
+            color.b = uInBuffer.data[basicOffset+2*imgHW];
+        }
+        if (4 * c + 3 < uConstant.size.z) {
+            color.a = uInBuffer.data[basicOffset+3*imgHW];
+        }
+#else
         vec4 color = vec4(0);
         color.r = uInBuffer.data[basicOffset+0];
         int imgHW = uConstant.stride.z;
@@ -50,6 +72,7 @@ void main()
         if (4 * c + 3 < uConstant.size.z) {
             color.a = uInBuffer.data[basicOffset+3*imgHW];
         }
+#endif
         imageStore(uOutput, pos, color);
     }
 }

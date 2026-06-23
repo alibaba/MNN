@@ -9,6 +9,7 @@
 #import "backend/metal/MetalConvolution1x1.hpp"
 #import "core/Macro.h"
 #import "backend/metal/MetalBackend.hpp"
+#import "backend/metal/MetalSharedGather.hpp"
 #import "ConvSimdGroupShader.hpp"
 
 #if MNN_METAL_ENABLED
@@ -51,6 +52,17 @@ bool MetalConvolution1x1::onClone(Backend* bn, const Op* op, Execution** dst) {
         return false;
     }
     if (nullptr == dst) {
+        return true;
+    }
+    if (op->type() == OpType_GatherV2) {
+        // SharedGather path: reuse quantized weight and dequant resources
+        if (!mDequantScaleBias.get() || (mDequantBits != 4 && mDequantBits != 8)) {
+            // Quantized weight is required for SharedGather
+            return false;
+        }
+        auto conv2D = mOp->main_as_Convolution2D();
+        int oc = conv2D->common()->outputCount();
+        *dst = new MetalSharedGather(bn, oc, mWeight, mDequantScaleBias, mDequantBits, mScaleCoef);
         return true;
     }
     *dst = new MetalConvolution1x1(bn, op, mWeight, mBias, mDequantScaleBias, mDequantBits, mScaleCoef);
@@ -130,10 +142,10 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
 
     MetalRuntime* rt = (MetalRuntime *)backend->runtime();
     std::string basicShaderPrefix = gBasicConvPrefix;
-    
+
     // if M is small, dequant weight in shader
     // if device not support simdgroup matrix, only support dequant in shader
-    bool dequantInShader = (area < 128) || !(rt->supportSimdGroupMatrix());
+    bool dequantInShader = (area < 64) || !(rt->supportSimdGroupMatrix());
     // Native W_QUANT_2/3 paths are only implemented in conv1x1_gemv_g8_wquant_sg (decode,
     // area==1). For multi-token prefill we route through the outer-dequant + fp gemm
     // path instead, which has a real W_QUANT_2/3 dequant in conv1x1_w_dequant.
@@ -143,11 +155,11 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
         dequantInShader = false;
     }
     mPreDequantWeight = false;
-    
+
 #ifdef MNN_LOW_MEMORY
     if (mDequantScaleBias.get() && dequantInShader) {
         //printf("inner dequant MNK: %d %d %d %d\n", area, oc, ic, blockSize);
-        
+
         std::string sgmWqShader  = gConv1x1WqSgMatrix;
         std::string sgrWqShader  = gConv1x1WqSgReduce;
 
@@ -171,7 +183,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
 
         if (mDequantBits == 2 || mDequantBits == 3 || mDequantBits == 4 || mDequantBits == 8) {
             // TODO: define short_seq more accurately
-            int short_seq = 6;
+            int short_seq = 16;
 
             if(mDequantBits == 2) {
                 baseKeys.emplace_back("conv1x1_wquant_2");
@@ -184,7 +196,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
             }
             if(rt->supportSimdGroupReduce() && area <= short_seq) {
                 baseKeys.emplace_back("conv1x1_wquant_sg_reduce");
-                
+
                 std::string sgrWqStr = basicShaderPrefix + sgrWqShader;
                 if(area > 1) {
                     auto keys = baseKeys;
@@ -212,7 +224,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                     mPipeline = pipeline;
                     mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 4), piece, 1), MTLSizeMake(32, 1, 1));
                 } else if(mDequantBits != 2 && mDequantBits != 3 && oc > 16384 && oc_4 % 2 == 0) {
-                    // g16 path not extended for W_QUANT_2/3 — fall back to g8.
+                    // g16 path not extended for W_QUANT_2/3, fall back to g8.
                     auto keys = baseKeys;
                     keys.emplace_back("conv1x1_gemv_g16_wquant_sg");
                     auto pipeline = rt->findPipeline(keys);
@@ -235,7 +247,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                     mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 8), area, 1), MTLSizeMake(128, 1, 1));
                 }
                 return NO_ERROR;
-            } else if(rt->supportSimdGroupMatrix()  && area > short_seq && oc > 8 && ic_4 % 8 == 0) {
+            } else if(rt->supportSimdGroupMatrix()  && area > short_seq && oc > 8 && (ic_4 % 8 == 0 || ic_4 % 2 == 0)) {
                 baseKeys.emplace_back("conv1x1_wquant_sg_matrix");
 
                 std::string sgmWqStr = basicShaderPrefix + sgmWqShader;
@@ -243,7 +255,17 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                 // Generally threadgroup memory >= 16KB
                 auto smem_size = [[context device] maxThreadgroupMemoryLength];
                 // choose different tile for different computation
-                if(area >= 128 && oc >= 512 && area * oc > 512 * 2048 && smem_size >= 8192) {
+                if(ic_4 % 8 != 0) {
+                    auto keys = baseKeys;
+                    keys.emplace_back("conv1x1_gemm_8x16_wquant_sg");
+                    auto pipeline = rt->findPipeline(keys);
+                    if (nil == pipeline) {
+                        pipeline = backend->makeComputePipelineWithSourceOption(sgmWqStr.c_str(), "conv1x1_gemm_8x16_wquant_sg", option);
+                        rt->insertPipeline(keys, pipeline);
+                    }
+                    mPipeline = pipeline;
+                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(area, 8), UP_DIV(oc, 16), 1), MTLSizeMake(32, 1, 1));
+                } else if(area >= 128 && oc >= 512 && area * oc > 512 * 2048 && smem_size >= 8192) {
                     auto keys = baseKeys;
                     keys.emplace_back("conv1x1_gemm_32x64_wquant_split_k_sg");
                     auto pipeline = rt->findPipeline(keys);
@@ -253,7 +275,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                     }
                     mPipeline = pipeline;
                     mThreads = std::make_pair(MTLSizeMake(UP_DIV(area, 32), UP_DIV(oc, 64), 1), MTLSizeMake(128, 1, 1));
-                                        
+
                 } else if(area >= 32 && area * oc > 128 * 2048) {
                     auto keys = baseKeys;
                     keys.emplace_back("conv1x1_gemm_32x16_wquant_sg");
@@ -354,16 +376,16 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
 
     std::string sgmWfpShader = gConv1x1WfpSgMatrix;
     std::string sgrWfpShader = gConv1x1WfpSgReduce;
-    
+
     // Dequant using single shader
     if (mDequantScaleBias.get()) {
         baseKeys.emplace_back("conv1x1_dequant_weight_outter");
         std::string sgmWfpStr = basicShaderPrefix + sgmWfpShader;
-        
+
         mPreDequantWeight = true;
         {
             NSMutableDictionary *dic = [baseDic mutableCopy];
-            
+
             auto keys = baseKeys;
             keys.emplace_back("conv1x1_w_dequant");
             if(mDequantBits == 2) {
@@ -384,27 +406,27 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                 keys.emplace_back("W_ALIGN_K16_PROTECT");
             }
             option.preprocessorMacros = dic;
-            
+
             int bytes = backend->useFp16InsteadFp32() ? 2 : 4;
             // accquire space
-            mTempWeight.reset(Tensor::createDevice<uint8_t>(std::vector<int>{ROUND_UP(oc, 4) * ROUND_UP(ic, 16) * bytes}));
+            mTempWeight.reset(Tensor::createDevice<uint8_t>(std::vector<int>{ROUND_UP(oc, 4) * ROUND_UP(ic, 32) * bytes}));
             backend->onAcquireBuffer(mTempWeight.get(), Backend::DYNAMIC);
             backend->onReleaseBuffer(mTempWeight.get(), Backend::DYNAMIC);
-            
+
             auto pipeline = rt->findPipeline(keys);
             if (nil == pipeline) {
                 pipeline = backend->makeComputePipelineWithSourceOption(sgmWfpStr.c_str(), "conv1x1_w_dequant", option);
                 rt->insertPipeline(keys, pipeline);
             }
             mDequantPipeline = pipeline;
-            
+
             mDequantThreads = [context computeBestGroupAndLocal:pipeline threads:MTLSizeMake(UP_DIV(oc, 1),  UP_DIV(ic, 16), 1)];
         }
-        
+
         {
             auto keys = baseKeys;
             keys.emplace_back("conv1x1_gemm_32x64_split_k_sg");
-            
+
             NSMutableDictionary *dic = [baseDic mutableCopy];
             if (ic_4 % 8 != 0) {
                 [dic setValue:@"1" forKey:@"MNN_METAL_SRC_PROTECT"];
@@ -429,10 +451,10 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
             mThreads = std::make_pair(MTLSizeMake(UP_DIV(area, 32), UP_DIV(oc, 64), 1), MTLSizeMake(128, 1, 1));
             //printf("out dequant MNK: %d %d %d %d\n", area, oc, ic, blockSize);
         }
-            
+
         return NO_ERROR;
     }
-    
+
     option.preprocessorMacros = baseDic;
 
     if(rt->supportSimdGroupMatrix()) {
@@ -607,7 +629,7 @@ void MetalConvolution1x1::onEncode(const std::vector<Tensor *> &inputs, const st
             static_cast<MetalBackend*>(backend())->flushEncoder();
             static_cast<MetalBackend*>(backend())->commit_net();
             static_cast<MetalBackend*>(backend())->wait();
-            
+
             auto buffer = static_cast<MetalBackend*>(backend())->getBuffer(input);
             auto ptr = (float*)((int8_t*)buffer.first.contents + buffer.second);
             for(int i=0; i<64; i++) {
@@ -631,7 +653,7 @@ void MetalConvolution1x1::onEncode(const std::vector<Tensor *> &inputs, const st
             }
             printf("\n\n");
         }
-        
+
         {
             auto buffer = static_cast<MetalBackend*>(backend())->getBuffer(output);
             auto ptr = (float*)((int8_t*)buffer.first.contents + buffer.second);

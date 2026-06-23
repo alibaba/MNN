@@ -401,10 +401,10 @@ apps/iOS/MNNLLMChat/MNNLLMiOS/LocalModel/Qwen2.5-Omni-3B-MNN
 # oneday scoder
 .oneday/
 
-# test_ci.sh per-run artifacts
+# test.sh per-run artifacts
 /logs/
 /smoke_sources/
 /models/
-# smoke models converted on the host by ./test_ci.sh local (sources are fetched
+# smoke models converted on the host by ./test.sh local (sources are fetched
 # into /smoke_sources/, then MNNConvert writes the .caffe.mnn here)
 /resource/model/**/*.caffe.mnn

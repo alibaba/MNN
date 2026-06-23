@@ -114,7 +114,7 @@ L8LoopSz_TILE_1_lu1:
 
 ### 2.3 W3 `W3_UNPACK_SERIAL` 详解
 
-```asm
+```text
 ; aux_dup 已是 ld1r 复制后的 16B; main 是 16B
 ushl oc01, aux_dup, shifts            ; shifts = {-7,-6,-5,-4,-3,-2,-1,0, ...}
 add  t,    shifts,  idx (=2)

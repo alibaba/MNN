@@ -147,8 +147,13 @@ OpenCLRuntime::OpenCLRuntime(int platformSize, int platformId, int deviceId, voi
                     isSetWorkGroupAttribute = true;
                 }
                 // 8Gen1 and after
-                if(adrenoVersion >= "730") {
+                int adrenoVersionNum = std::atoi(adrenoVersion.c_str());
+                if (adrenoVersionNum >= 600) {
                     mGpuLevel = TOP;
+                } else if (adrenoVersionNum >= 540) {
+                    mGpuLevel = MEDIUM;
+                } else if (adrenoVersionNum < 540) {
+                    mGpuLevel = LOW;
                 }
                 mDeviceInfo = deviceVersion.size() <= 14 ? deviceVersion : deviceVersion.substr(deviceVersion.size()-14);
             } else if (deviceName.find("Mali") != std::string::npos) {

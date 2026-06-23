@@ -245,7 +245,7 @@ class Qwen2_5OmniAudio(Qwen2Audio):
         _, _, seq_len = input_features.shape
         seq_len = int(seq_len // 2)
         cu_seqlens = [i for i in range(0, seq_len, self.n_window)]
-        if seq_len % self.n_window != 0:
+        if not cu_seqlens or cu_seqlens[-1] != seq_len:
             cu_seqlens.append(seq_len)
         cu_seqlens = torch.tensor(cu_seqlens)
         attention_mask = torch.full(

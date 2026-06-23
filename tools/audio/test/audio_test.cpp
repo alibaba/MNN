@@ -13,6 +13,7 @@
 #include <numeric>
 #include <iterator>
 #include <algorithm>
+#include <cmath>
 #include <functional>
 
 #include <MNN/expr/NeuralNetWorkOp.hpp>
@@ -216,6 +217,19 @@ TEST(whisper_fbank, default) {
     auto mean = _ReduceMean(feat)->readMap<float>()[0];
     bool res = std::vector<int>({1, 128, 3000}) == feat->getInfo()->dim && nearly(mean, -0.451097);
     EXPECT_TRUE(res);
+}
+
+TEST(whisper_fbank, silence_is_finite) {
+    auto sample = _var(std::vector<float>(32000, 0.0f), {32000});
+    auto feat = whisper_fbank(sample, 16000, 128, 400, 160, 2);
+    ASSERT_TRUE(feat.get() != nullptr);
+    auto info = feat->getInfo();
+    ASSERT_NE(info, nullptr);
+    EXPECT_EQ(std::vector<int>({1, 128, 200}), info->dim);
+    auto ptr = feat->readMap<float>();
+    ASSERT_NE(ptr, nullptr);
+    bool all_finite = std::all_of(ptr, ptr + info->size, [](float value) { return std::isfinite(value); });
+    EXPECT_TRUE(all_finite);
 }
 
 int main(int argc, char** argv) {

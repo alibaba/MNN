@@ -14,8 +14,32 @@ namespace MNN {
 class GatherV2Computer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
-        auto params  = inputs[0];
-        auto indices = inputs[1];
+        Tensor* indices = nullptr;
+        int32_t paramShape[MNN_MAX_TENSOR_DIM];
+        int32_t paramDim = 0;
+        if (inputs.size() == 1) {
+            if (nullptr == op->main_as_Input()) {
+                MNN_ERROR("One input GatherV2 should has blob parameter\n");
+                return false;
+            }
+            indices = inputs[0];
+            auto blob = op->main_as_Input();
+            outputs[0]->setType(blob->dtype());
+            if (nullptr != blob->dims()) {
+                paramDim = blob->dims()->size();
+                ::memcpy(paramShape, blob->dims()->data(), paramDim * sizeof(int));
+            }
+            TensorUtils::getDescribe(outputs[0])->dimensionFormat = blob->dformat();
+        } else {
+            auto params = inputs[0];
+            indices = inputs[1];
+            paramDim = params->dimensions();
+            for (int i = 0; i < params->dimensions(); ++i) {
+                paramShape[i] = params->length(i);
+            }
+            outputs[0]->buffer().type = params->buffer().type;
+            TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+        }
         if (indices->getType().code != halide_type_int) {
             return false;
         }
@@ -28,41 +52,39 @@ class GatherV2Computer : public SizeComputer {
             axis = op->main_as_Axis()->axis();
         }
 
-        if( axis <= -params->buffer().dimensions || axis >= params->buffer().dimensions) {
+        if( axis <= -paramDim || axis >= paramDim) {
             return false;
         }
 
         if (axis < 0) {
-            axis = params->buffer().dimensions + axis;
+            axis = paramDim + axis;
         }
 
-        const int gather_dim_size = params->buffer().dim[axis].extent;
+        const int gather_dim_size = paramShape[axis];
         MNN_ASSERT(gather_dim_size <= std::numeric_limits<int32_t>::max());
 
-        const int numDimensions = params->buffer().dimensions + indices->buffer().dimensions - 1;
+        const int numDimensions = paramDim + indices->buffer().dimensions - 1;
         MNN_ASSERT(axis <= numDimensions);
 
         std::vector<int> result_shape;
 
         for (int i = 0; i < axis; i++) {
-            result_shape.push_back(params->buffer().dim[i].extent);
+            result_shape.push_back(paramShape[i]);
         }
 
         for (int i = 0; i < indices->buffer().dimensions; i++) {
             result_shape.push_back(indices->buffer().dim[i].extent);
         }
 
-        for (int i = axis + 1; i < params->buffer().dimensions; i++) {
-            result_shape.push_back(params->buffer().dim[i].extent);
+        for (int i = axis + 1; i < paramDim; i++) {
+            result_shape.push_back(paramShape[i]);
         }
 
         outputs[0]->buffer().dimensions = (int)result_shape.size();
-        outputs[0]->buffer().type       = params->buffer().type;
         for (int i = 0; i < result_shape.size(); i++) {
             outputs[0]->buffer().dim[i].extent = result_shape.at(i);
         }
 
-        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         return true;
     }
 };

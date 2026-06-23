@@ -22,35 +22,81 @@
 namespace MNN {
 namespace Express {
 
-static const StaticModule* getStaticModule(const Module* m) {
-    if (m->type() == "StaticModule") {
-        return static_cast<const StaticModule*>(m);
-    }
-    if (m->getChildren().empty()) {
-        return nullptr;
-    }
-    return getStaticModule(m->getChildren()[0].get());
+using ExecutionCacheKey = std::tuple<std::string, int, int>;
+using ExecutionCacheMap = std::map<ExecutionCacheKey, std::shared_ptr<Execution>>;
+
+static ExecutionCacheKey makeExecutionCacheKey(const Op* op) {
+    return std::make_tuple(op->name()->str(), static_cast<int>(op->type()), static_cast<int>(op->main_type()));
 }
 
-static std::vector<std::shared_ptr<BufferStorage>> preRearrangeWeights( // NOLINT
-                                                                       Schedule::ScheduleInfo& scheduleInfo, Backend* firstbackend, Backend* backupBackend, const Module* base = nullptr) {
-    std::map<const std::string, std::shared_ptr<Execution>> base_executions;
-    if (base != nullptr) {
-        // has base module
-        auto static_module = getStaticModule(base);
-        if (static_module) {
-            auto session = static_module->getSession();
-            std::vector<Schedule::OpCacheInfo> op_caches = session->getPipelineInfo(0).second;
-            for (auto& op_cache : op_caches) {
-                const auto& exe_cache = op_cache.executionCache;
-                for (const auto& exe_item : exe_cache) {
-                    if (exe_item.first->name()) {
-                        base_executions.insert(std::make_pair(exe_item.first->name()->str(), exe_item.second));
-                    }
-                }
+static bool supportPrearrangeClone(const Op* op) {
+    return op->main_type() == OpParameter_Convolution2D || op->main_type() == OpParameter_LayerNorm ||
+           op->type() == OpType_Attention || op->type() == OpType_Scale || op->type() == OpType_RoPE ||
+           op->type() == OpType_GatherV2;
+}
+
+static void collectStaticModuleExecutions(const StaticModule* module, ExecutionCacheMap& executeMap) {
+    auto session = module->getSession();
+    std::vector<Schedule::OpCacheInfo> opCaches = session->getPipelineInfo(0).second;
+    for (auto& opCache : opCaches) {
+        const auto& exeCache = opCache.executionCache;
+        for (const auto& exeItem : exeCache) {
+            if (supportPrearrangeClone(exeItem.first) && exeItem.first->name()) {
+                executeMap.insert(std::make_pair(makeExecutionCacheKey(exeItem.first), exeItem.second));
             }
         }
     }
+}
+
+static void collectBaseExecutions(const Module* base, ExecutionCacheMap& executeMap) {
+    if (base == nullptr) {
+        return;
+    }
+    if (base->type() == "StaticModule") {
+        collectStaticModuleExecutions(static_cast<const StaticModule*>(base), executeMap);
+        return;
+    }
+    for (const auto& child : base->getChildren()) {
+        collectBaseExecutions(child.get(), executeMap);
+    }
+}
+
+static bool cloneBaseExecution(std::shared_ptr<Execution>& exe, const ExecutionCacheMap& baseExecutions, const Op* op,
+                               Backend* backend, Backend* backupBackend) {
+    if (baseExecutions.empty() || !op->name()) {
+        return false;
+    }
+    auto iter = baseExecutions.find(makeExecutionCacheKey(op));
+    if (iter == baseExecutions.end() && op->type() == OpType_GatherV2) {
+        for (auto candidate = baseExecutions.begin(); candidate != baseExecutions.end(); ++candidate) {
+            if (std::get<0>(candidate->first) == op->name()->str() &&
+                std::get<2>(candidate->first) == OpParameter_Convolution2D) {
+                iter = candidate;
+                break;
+            }
+        }
+    }
+    if (iter == baseExecutions.end()) {
+        return false;
+    }
+    Execution* copyExecution = nullptr;
+    auto baseExe = iter->second.get();
+    baseExe->onClone(backend, op, &copyExecution);
+    if (copyExecution == nullptr) {
+        baseExe->onClone(backupBackend, op, &copyExecution);
+    }
+    std::unique_ptr<Execution> cloned(copyExecution);
+    if (cloned == nullptr || !cloned->onClone(nullptr, op, nullptr)) {
+        return false;
+    }
+    exe.reset(cloned.release());
+    return true;
+}
+
+static std::vector<std::shared_ptr<BufferStorage>> preRearrangeWeights( // NOLINT
+    Schedule::ScheduleInfo& scheduleInfo, Backend* firstbackend, Backend* backupBackend, const Module::Config& config) {
+    ExecutionCacheMap base_executions;
+    collectBaseExecutions(config.base, base_executions);
     FileLoader loader(scheduleInfo.externalWeightPath.c_str());
     auto&& pipelineInfo = scheduleInfo.pipelineInfo[0].second;
     std::vector<std::shared_ptr<BufferStorage>> splitOps(pipelineInfo.size());
@@ -58,32 +104,22 @@ static std::vector<std::shared_ptr<BufferStorage>> preRearrangeWeights( // NOLIN
     std::map<int, std::shared_ptr<Execution>> kvAttentionRegistry;
     for (int i = 0; i < pipelineInfo.size(); ++i) {
         auto& info = pipelineInfo[i];
-        auto op    = pipelineInfo[i].op;
+        auto op = pipelineInfo[i].op;
         std::unique_ptr<OpT> op_table(op->UnPack());
         std::shared_ptr<Execution> exe;
         Backend* backend = firstbackend;
         if (info.type == Schedule::CONSTANT) {
             backend = backupBackend;
         }
+        if (op->type() == MNN::OpType_GatherV2) {
+            cloneBaseExecution(exe, base_executions, op, backend, backupBackend);
+        }
         switch (op->type()) {
             case MNN::OpType_DepthwiseConvInt8:
             case MNN::OpType_ConvInt8:
             case MNN::OpType_ConvolutionDepthwise:
             case MNN::OpType_Convolution: {
-                if (!base_executions.empty() && op->name()) {
-                    auto iter = base_executions.find(op->name()->str());
-                    if (iter != base_executions.end()) {
-                        auto base_exe = iter->second.get();
-                        Execution* copyExecution = nullptr;
-                        base_exe->onClone(backend, op, &copyExecution);
-                        if (copyExecution == nullptr) {
-                            base_exe->onClone(backupBackend, op, &copyExecution);
-                        }
-                        if (copyExecution != nullptr && copyExecution->onClone(nullptr, op, nullptr)) {
-                            exe.reset(copyExecution);
-                        }
-                    }
-                }
+                cloneBaseExecution(exe, base_executions, op, backend, backupBackend);
                 if (exe == nullptr) {
                     DataType type = DataType_DT_FLOAT;
                     auto conv2d = op->main_as_Convolution2D();
@@ -96,21 +132,23 @@ static std::vector<std::shared_ptr<BufferStorage>> preRearrangeWeights( // NOLIN
                         int ow = 2, oh = 2;
                         int iw = (common->kernelX() - 1) * common->dilateX() + common->strideX() * (ow - 1) + 1;
                         int ih = (common->kernelY() - 1) * common->dilateY() + common->strideY() * (oh - 1) + 1;
-                        TensorUtils::getDescribe(tempInput)->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;;
+                        TensorUtils::getDescribe(tempInput)->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
                         tempInput->setLength(0, 1);
                         tempInput->setLength(1, conv2d->common()->inputCount());
                         tempInput->setLength(2, ih);
                         tempInput->setLength(3, iw);
-                        TensorUtils::getDescribe(tempOutput)->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;;
+                        TensorUtils::getDescribe(tempOutput)->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
                         tempOutput->setLength(0, 1);
                         tempOutput->setLength(1, conv2d->common()->outputCount());
                         tempOutput->setLength(2, oh);
                         tempOutput->setLength(3, ow);
                     }
                     std::shared_ptr<BufferStorage> tmpstorage;
-                    exe.reset(OpCommonUtils::createExecutionWithExternal(backend, info.inputs, info.outputs, op, &loader, tmpstorage));
+                    exe.reset(OpCommonUtils::createExecutionWithExternal(backend, info.inputs, info.outputs, op,
+                                                                         &loader, tmpstorage));
                     if (exe.get() == nullptr) {
-                        exe.reset(OpCommonUtils::createExecutionWithExternal(backupBackend, info.inputs, info.outputs, op, &loader, tmpstorage));
+                        exe.reset(OpCommonUtils::createExecutionWithExternal(backupBackend, info.inputs, info.outputs,
+                                                                             op, &loader, tmpstorage));
                     }
                     if (nullptr == exe) {
                         break;
@@ -136,8 +174,7 @@ static std::vector<std::shared_ptr<BufferStorage>> preRearrangeWeights( // NOLIN
                 break;
             }
             case MNN::OpType_Attention:
-            case MNN::OpType_LinearAttention:
-            {
+            case MNN::OpType_LinearAttention: {
                 // KV Cache sharing: clone from source Attention's execution instead of creating new
                 if (op->type() == OpType_Attention && op->main_type() == OpParameter_AttentionParam) {
                     auto param = op->main_as_AttentionParam();
@@ -176,26 +213,17 @@ static std::vector<std::shared_ptr<BufferStorage>> preRearrangeWeights( // NOLIN
                 }
                 break;
             }
-            case MNN::OpType_LayerNorm: {
-                if (!base_executions.empty() && op->name()) {
-                    auto iter = base_executions.find(op->name()->str());
-                    if (iter != base_executions.end()) {
-                        auto base_exe = iter->second.get();
-                        Execution* copyExecution = nullptr;
-                        base_exe->onClone(backend, op, &copyExecution);
-                        if (copyExecution == nullptr) {
-                            base_exe->onClone(backupBackend, op, &copyExecution);
-                        }
-                        if (copyExecution != nullptr && copyExecution->onClone(nullptr, op, nullptr)) {
-                            exe.reset(copyExecution);
-                        }
-                    }
-                }
+            case MNN::OpType_LayerNorm:
+            case MNN::OpType_Scale:
+            case MNN::OpType_RoPE: {
+                cloneBaseExecution(exe, base_executions, op, backend, backupBackend);
                 if (exe == nullptr) {
                     std::shared_ptr<BufferStorage> tmpstorage;
-                    exe.reset(OpCommonUtils::createExecutionWithExternal(backend, info.inputs, info.outputs, op, &loader, tmpstorage));
+                    exe.reset(OpCommonUtils::createExecutionWithExternal(backend, info.inputs, info.outputs, op,
+                                                                         &loader, tmpstorage));
                     if (exe.get() == nullptr) {
-                        exe.reset(OpCommonUtils::createExecutionWithExternal(backupBackend, info.inputs, info.outputs, op, &loader, tmpstorage));
+                        exe.reset(OpCommonUtils::createExecutionWithExternal(backupBackend, info.inputs, info.outputs,
+                                                                             op, &loader, tmpstorage));
                     }
                     if (nullptr == exe) {
                         break;
@@ -279,7 +307,8 @@ void StaticModule::resetInputOutputs() {
         if (des->usage != Tensor::InsideDescribe::CONSTANT && des->usage != Tensor::InsideDescribe::TRAINABLE) {
             des->usage = Tensor::InsideDescribe::INPUT;
         }
-        pipelineInfo.first.inputTensorCopyCache.insert(std::make_pair(mInputTensors[i], std::make_tuple(nullptr, nullptr, true, true)));
+        pipelineInfo.first.inputTensorCopyCache.insert(
+            std::make_pair(mInputTensors[i], std::make_tuple(nullptr, nullptr, true, true)));
         mPrevInputTensor[i].first = nullptr;
         mPrevInputTensor[i].second = MNN_FORWARD_CPU;
     }
@@ -317,14 +346,14 @@ void StaticModule::resetInputOutputs() {
         mOutputTensors[i] = mSession->getTensor(mResource->mOutputs[mResource->mOutputFromTensor[i]]);
         auto des = TensorUtils::getDescribe(mOutputTensors[i]);
         if (des->usage == Tensor::InsideDescribe::CONSTANT && des->isMutable) {
-            des->useCount ++;
+            des->useCount++;
         }
     }
     for (auto& info : infos.second) {
         if (info.type != Schedule::Type::CONSTANT) {
             continue;
         }
-        for (int v=0; v<info.inputs.size(); ++v) {
+        for (int v = 0; v < info.inputs.size(); ++v) {
             auto des = TensorUtils::getDescribe(info.inputs[v]);
             if (des->usage == Tensor::InsideDescribe::CONSTANT && des->isMutable) {
                 des->useCount--;
@@ -336,15 +365,10 @@ void StaticModule::resetInputOutputs() {
     }
 }
 
-StaticModule::StaticModule(std::vector<int> inputs,
-                           std::vector<int> outputs,
-                           std::vector<std::shared_ptr<BufferStorage>>&& buffer,
-                           Schedule::ScheduleInfo&& scheduleInfo,
-                           std::shared_ptr<Schedule::ScheduleInfo> sharedConst,
-                           Session::ModeGroup&& mode,
-                           std::shared_ptr<Executor::RuntimeManager> rtm,
-                           const Module::Config& config
-                           ) {
+StaticModule::StaticModule(std::vector<int> inputs, std::vector<int> outputs,
+                           std::vector<std::shared_ptr<BufferStorage>>&& buffer, Schedule::ScheduleInfo&& scheduleInfo,
+                           std::shared_ptr<Schedule::ScheduleInfo> sharedConst, Session::ModeGroup&& mode,
+                           std::shared_ptr<Executor::RuntimeManager> rtm, const Module::Config& config) {
     setType("StaticModule");
     mResource.reset(new Resource);
     mRuntimeManager = rtm;
@@ -355,7 +379,8 @@ StaticModule::StaticModule(std::vector<int> inputs,
     mResource->mSharedConst = sharedConst;
     mResource->mModes = std::move(mode);
     mResource->mBnInfo.user = &mResource->mBnConfig;
-    mResource->mModes.inputMode = config.shapeMutable ? Interpreter::Session_Input_User : Interpreter::Session_Input_Inside;
+    mResource->mModes.inputMode =
+        config.shapeMutable ? Interpreter::Session_Input_User : Interpreter::Session_Input_Inside;
     mResource->mModes.outputMode = Interpreter::Session_Output_User;
     std::shared_ptr<BufferStorage> net_storage;
     std::map<const Op*, std::pair<std::shared_ptr<Execution>, DataType>> exeCache;
@@ -370,7 +395,8 @@ StaticModule::StaticModule(std::vector<int> inputs,
     bnCache.cache.first->pNPUModelDirPath = rtm->getInside()->mContent->mNpuDir;
     bnCache.cache.second->pNPUModelDirPath = rtm->getInside()->mContent->mNpuDir;
     if (config.rearrange) {
-        mResource->mBuffer = preRearrangeWeights(scheduleInfo, bnCache.cache.first.get(), bnCache.cache.second.get(), config.base);
+        mResource->mBuffer =
+            preRearrangeWeights(scheduleInfo, bnCache.cache.first.get(), bnCache.cache.second.get(), config);
     } else {
         mResource->mBuffer = std::move(buffer);
     }
@@ -380,7 +406,7 @@ StaticModule::StaticModule(std::vector<int> inputs,
      std::vector<int, int> mOutputFromInput;
      */
     for (int i = 0; i < outputs.size(); ++i) {
-        auto& t        = outputs[i];
+        auto& t = outputs[i];
         bool fromInput = false;
         for (int j = 0; j < inputs.size(); ++j) {
             if (inputs[j] == t) {
@@ -403,11 +429,11 @@ StaticModule::StaticModule(std::vector<int> inputs,
     }
     mResource->mInputs = std::move(inputs);
     mResource->mInputNeedCPU.resize(mResource->mInputs.size());
-    for (int i=0; i<mResource->mInputs.size(); ++i) {
+    for (int i = 0; i < mResource->mInputs.size(); ++i) {
         mResource->mInputNeedCPU[i] = false;
     }
     if (mResource->mUseContentInputs) {
-        for (int i=0; i<mResource->mInputs.size(); ++i) {
+        for (int i = 0; i < mResource->mInputs.size(); ++i) {
             auto subT = scheduleInfo.allTensors[mResource->mInputs[i]].get();
             if (TensorUtils::getDescribe(subT)->usage == Tensor::InsideDescribe::CONSTANT) {
                 mResource->mInputNeedCPU[i] = true;
@@ -424,11 +450,11 @@ StaticModule::StaticModule(std::vector<int> inputs,
     }
 }
 StaticModule::~StaticModule() {
-    mSession         = nullptr;
+    mSession = nullptr;
 }
 void StaticModule::onClearCache() {
     if (nullptr != mSession) {
-        for (int i=0; i<mPrevInputTensor.size(); ++i) {
+        for (int i = 0; i < mPrevInputTensor.size(); ++i) {
             mPrevInputTensor[i].first = nullptr;
         }
         for (auto& iter : mSession->getPipelineInfo(0).first.inputTensorCopyCache) {
@@ -465,7 +491,8 @@ ErrorCode StaticModule::_resize(const std::vector<Express::VARP>& inputs) {
                 std::get<3>(cacheIter->second) = true;
                 mPrevInputTensor[i] = std::make_pair(inputTensor, newType);
                 if (std::get<1>(*cacheTensor) != nullptr) {
-                    if (!WrapExecution::needWrap(inputTensor,   TensorUtils::getDescribeOrigin(std::get<0>(*cacheTensor))->getBackend())) {
+                    if (!WrapExecution::needWrap(
+                            inputTensor, TensorUtils::getDescribeOrigin(std::get<0>(*cacheTensor))->getBackend())) {
                         // No need copy now, reset it
                         cacheIter->second = std::make_tuple(nullptr, nullptr, true, true);
                     }
@@ -523,8 +550,8 @@ ErrorCode StaticModule::_resize(const std::vector<Express::VARP>& inputs) {
             mSession->setNeedResize();
         }
         if (!needResize) {
-            // Check if output is used by other vars. If used, must realloc output to avoid the content dirty for output vars
-            // If resized, the output's memory will be all released in Session::resize, don't need clear here
+            // Check if output is used by other vars. If used, must realloc output to avoid the content dirty for output
+            // vars If resized, the output's memory will be all released in Session::resize, don't need clear here
             for (auto& output : mOutputTensors) {
                 auto desOrigin = TensorUtils::getDescribeOrigin(output);
                 if ((!desOrigin->mContent->isMutable) || nullptr == desOrigin->mem.get()) {
@@ -534,7 +561,8 @@ ErrorCode StaticModule::_resize(const std::vector<Express::VARP>& inputs) {
                 if (nullptr == bn) {
                     continue;
                 }
-                if (desOrigin->mContent.use_count() > 1 && desOrigin->mContent->usage != Tensor::InsideDescribe::CONSTANT) {
+                if (desOrigin->mContent.use_count() > 1 &&
+                    desOrigin->mContent->usage != Tensor::InsideDescribe::CONSTANT) {
                     desOrigin->mem = nullptr;
                     auto res = bn->onAcquireBuffer(output, Backend::STATIC);
                     if (!res) {
@@ -568,7 +596,7 @@ ErrorCode StaticModule::_resize(const std::vector<Express::VARP>& inputs) {
             if (nullptr == mInputTensors[i]) {
                 continue;
             }
-            auto exprInfo    = inputs[i]->expr();
+            auto exprInfo = inputs[i]->expr();
             auto inputTensor = Utils::getTensor(inputs[i]);
             mInputTensors[i]->copyFromHostTensor(inputTensor);
         }
@@ -594,7 +622,6 @@ ErrorCode StaticModule::_execute() {
 }
 
 std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VARP>& inputs) {
-
     AUTOTIME;
     // Apply before resize/clone may construct new Backends (e.g. onClone path).
     if (mRuntimeManager) {
@@ -651,13 +678,17 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
         outputs[mResource->mOutputFromTensor[i]] = Express::Variable::create(Express::Expr::create(tensor, true));
         auto backend = TensorUtils::getDescribeOrigin(tensor)->getBackend();
         if (backend == pipelineInfo.first.cache.first.get()) {
-            outputs[mResource->mOutputFromTensor[i]]->expr().first->inside()->mHoldBackend = pipelineInfo.first.cache.first;
+            outputs[mResource->mOutputFromTensor[i]]->expr().first->inside()->mHoldBackend =
+                pipelineInfo.first.cache.first;
         } else if (backend == pipelineInfo.first.cache.second.get()) {
-            outputs[mResource->mOutputFromTensor[i]]->expr().first->inside()->mHoldBackend = pipelineInfo.first.cache.second;
+            outputs[mResource->mOutputFromTensor[i]]->expr().first->inside()->mHoldBackend =
+                pipelineInfo.first.cache.second;
         } else if (backend == mResource->mSharedConst->defaultBackend.get()) {
-            outputs[mResource->mOutputFromTensor[i]]->expr().first->inside()->mHoldBackend = mResource->mSharedConst->defaultBackend;
+            outputs[mResource->mOutputFromTensor[i]]->expr().first->inside()->mHoldBackend =
+                mResource->mSharedConst->defaultBackend;
         } else if (backend == mResource->mSharedConst->constReplaceBackend.get()) {
-            outputs[mResource->mOutputFromTensor[i]]->expr().first->inside()->mHoldBackend = mResource->mSharedConst->constReplaceBackend;
+            outputs[mResource->mOutputFromTensor[i]]->expr().first->inside()->mHoldBackend =
+                mResource->mSharedConst->constReplaceBackend;
         }
     }
     if (mShapeInferSeperate && runResize) {
@@ -697,7 +728,8 @@ int StaticModule::onOptimize(Interpreter::SessionMode stage) {
             mSession->fixResizeCache();
             break;
         case MNN::Interpreter::Module_Forward_Separate:
-            if (mResource->mUseContentInputs || mResource->mModes.inputMode != Interpreter::Session_Input_User || mResource->mOutputFromTensor.empty()) {
+            if (mResource->mUseContentInputs || mResource->mModes.inputMode != Interpreter::Session_Input_User ||
+                mResource->mOutputFromTensor.empty()) {
                 res = NOT_SUPPORT;
                 break;
             }
