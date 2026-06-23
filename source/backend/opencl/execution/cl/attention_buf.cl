@@ -493,6 +493,8 @@ __kernel void matmul_qk_div_mask_prefill(GLOBAL_SIZE_3_DIMS
                               __global const FLOAT* mask,
                               #elif defined(SET_MASK)
                               __global const int* mask, // [1 1 query_seq_len mask_key_seq_len]
+                              #else
+                              __global const FLOAT* mask,
                               #endif
                               __global FLOAT *qk, // [batch head_num kv_seq_length query_seq_len_4]
                               __private const float scale,
@@ -573,6 +575,34 @@ __kernel void matmul_qk_div_mask_prefill(GLOBAL_SIZE_3_DIMS
         out1 = (mask1 == (float4)0) ? (float4)(-FLT_MAX) : out1;
         out2 = (mask2 == (float4)0) ? (float4)(-FLT_MAX) : out2;
         out3 = (mask3 == (float4)0) ? (float4)(-FLT_MAX) : out3;
+        #elif defined(DEFAULT_MASK)
+        {
+            int kv_valid_offset = key_seq_len - query_seq_len;
+            int k0 = y4 + 0;
+            int k1 = y4 + 1;
+            int k2 = y4 + 2;
+            int k3 = y4 + 3;
+            int q0 = x4 + 0;
+            int q1 = x4 + 1;
+            int q2 = x4 + 2;
+            int q3 = x4 + 3;
+            if (k0 > kv_valid_offset + q0) { out0.s0 = -FLT_MAX; }
+            if (k1 > kv_valid_offset + q0) { out1.s0 = -FLT_MAX; }
+            if (k2 > kv_valid_offset + q0) { out2.s0 = -FLT_MAX; }
+            if (k3 > kv_valid_offset + q0) { out3.s0 = -FLT_MAX; }
+            if (k0 > kv_valid_offset + q1) { out0.s1 = -FLT_MAX; }
+            if (k1 > kv_valid_offset + q1) { out1.s1 = -FLT_MAX; }
+            if (k2 > kv_valid_offset + q1) { out2.s1 = -FLT_MAX; }
+            if (k3 > kv_valid_offset + q1) { out3.s1 = -FLT_MAX; }
+            if (k0 > kv_valid_offset + q2) { out0.s2 = -FLT_MAX; }
+            if (k1 > kv_valid_offset + q2) { out1.s2 = -FLT_MAX; }
+            if (k2 > kv_valid_offset + q2) { out2.s2 = -FLT_MAX; }
+            if (k3 > kv_valid_offset + q2) { out3.s2 = -FLT_MAX; }
+            if (k0 > kv_valid_offset + q3) { out0.s3 = -FLT_MAX; }
+            if (k1 > kv_valid_offset + q3) { out1.s3 = -FLT_MAX; }
+            if (k2 > kv_valid_offset + q3) { out2.s3 = -FLT_MAX; }
+            if (k3 > kv_valid_offset + q3) { out3.s3 = -FLT_MAX; }
+        }
         #endif
     }
     
@@ -644,7 +674,8 @@ __kernel void matmul_qkv_prefill(GLOBAL_SIZE_3_DIMS
                               __private const int max_len,
                               __private const int head_num,
                               __private const int kv_head_num,
-                              __private const int head_dim) {
+                              __private const int head_dim,
+                              __private const int batch) {
                                   
     const int x = get_global_id(0); // head_dim
     const int y = get_global_id(1); // query_seq_len
@@ -704,6 +735,24 @@ __kernel void matmul_qkv_prefill(GLOBAL_SIZE_3_DIMS
         out3 = mad((COMPUTE_FLOAT8)qk_vec.s3, past_vec, out3);
     }
     
+#ifdef ATTENTION_C4
+    int output_offset = (z * head_dim + x8) * query_seq_len * batch + (b * query_seq_len + y4) * 4;
+    const int stride = query_seq_len * batch * 4;
+    vstore4(CONVERT_FLOAT4(out0.lo), 0, output + output_offset);
+    vstore4(CONVERT_FLOAT4(out0.hi), 0, output + output_offset + stride);
+    if(y4 + 1 >= query_seq_len) return;
+    output_offset += 4;
+    vstore4(CONVERT_FLOAT4(out1.lo), 0, output + output_offset);
+    vstore4(CONVERT_FLOAT4(out1.hi), 0, output + output_offset + stride);
+    if(y4 + 2 >= query_seq_len) return;
+    output_offset += 4;
+    vstore4(CONVERT_FLOAT4(out2.lo), 0, output + output_offset);
+    vstore4(CONVERT_FLOAT4(out2.hi), 0, output + output_offset + stride);
+    if(y4 + 3 >= query_seq_len) return;
+    output_offset += 4;
+    vstore4(CONVERT_FLOAT4(out3.lo), 0, output + output_offset);
+    vstore4(CONVERT_FLOAT4(out3.hi), 0, output + output_offset + stride);
+#else
     const int output_offset = ((b * query_seq_len + y4) * head_num + z) * head_dim + x8;
     const int stride = head_num * head_dim;
     vstore8(CONVERT_FLOAT8(out0), 0, output + output_offset);
@@ -713,6 +762,7 @@ __kernel void matmul_qkv_prefill(GLOBAL_SIZE_3_DIMS
     vstore8(CONVERT_FLOAT8(out2), 0, output + output_offset + stride + stride);
     if(y4 + 3 >= query_seq_len) return;
     vstore8(CONVERT_FLOAT8(out3), 0, output + output_offset + stride + stride + stride);
+#endif
 }
 
 
@@ -865,4 +915,3 @@ __kernel void matmul_qkv_decode_b4(GLOBAL_SIZE_2_DIMS
     const int output_offset = y * head_dim + x4;
     vstore4(CONVERT_FLOAT4(out0), 0, output + output_offset);
 }
-

@@ -45,6 +45,7 @@ MNN 是一个高效、轻量的深度学习推理引擎，支持 CNN / Transform
 
    tools/convert
    tools/compress
+   tools/mnncompress
    tools/quant
    tools/benchmark
    tools/test
@@ -70,6 +71,16 @@ MNN 是一个高效、轻量的深度学习推理引擎，支持 CNN / Transform
    compile/cmake
    compile/other
    compile/pymnn
+   tools/podspec
+
+.. toctree::
+   :maxdepth: 1
+   :caption: 性能与基准
+
+   perf/README
+   perf/gemm_speed_benchmark
+   perf/gemv_bw_benchmark
+   perf/arm_low_bit_gemm
 
 .. toctree::
    :maxdepth: 1
@@ -88,6 +99,13 @@ MNN 是一个高效、轻量的深度学习推理引擎，支持 CNN / Transform
    contribute/code
    contribute/op
    contribute/backend
+   contribute/ai-agent
+
+.. toctree::
+   :maxdepth: 1
+   :caption: 测试与 CI
+
+   testing.md
 
 .. toctree::
    :maxdepth: 1

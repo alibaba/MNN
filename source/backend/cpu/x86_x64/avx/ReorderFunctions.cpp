@@ -472,6 +472,170 @@ void _AVX_MNNUnpackCUnitTransposeInt8(int8_t* dst, const int8_t* src, size_t are
         }
     }
 }
+static void _AVX_MNNSumWeightInt8(float* kernelsum, int8_t* source, size_t outside, size_t reduceAxis, size_t hP, size_t lP) {
+    auto inside = hP * lP;
+    auto stride0 = inside * reduceAxis;
+    if (lP == 4 && hP % 8 == 0) {
+        for (int i = 0; i < outside; ++i) {
+            memset(kernelsum + i * hP, 0, hP * sizeof(float));
+            for (int j = 0; j < reduceAxis; ++j) {
+                int8_t* src_j = source + j * inside + i * stride0;
+                for (int k = 0; k < hP; k += 8) {
+                    __m256i v = _mm256_loadu_si256((const __m256i*)(src_j + k * lP));
+                    __m128i v_lo = _mm256_castsi256_si128(v);
+                    __m128i v_hi = _mm256_extracti128_si256(v, 1);
+                    __m256i v16_0 = _mm256_cvtepi8_epi16(v_lo);
+                    __m256i v16_1 = _mm256_cvtepi8_epi16(v_hi);
+                    __m256i ones = _mm256_set1_epi16(1);
+                    __m256i sum32_0 = _mm256_madd_epi16(v16_0, ones);
+                    __m256i sum32_1 = _mm256_madd_epi16(v16_1, ones);
+                    __m256i final32_0 = _mm256_add_epi32(sum32_0, _mm256_srli_epi64(sum32_0, 32));
+                    __m256i final32_1 = _mm256_add_epi32(sum32_1, _mm256_srli_epi64(sum32_1, 32));
+                    __m256 final_f0 = _mm256_cvtepi32_ps(final32_0);
+                    __m256 final_f1 = _mm256_cvtepi32_ps(final32_1);
+                    __m256 packed = _mm256_shuffle_ps(final_f0, final_f1, _MM_SHUFFLE(2, 0, 2, 0));
+                    __m256 result = _mm256_permutevar8x32_ps(packed, _mm256_setr_epi32(0, 1, 4, 5, 2, 3, 6, 7));
+                    __m256 acc = _mm256_loadu_ps(kernelsum + i * hP + k);
+                    acc = _mm256_add_ps(acc, result);
+                    _mm256_storeu_ps(kernelsum + i * hP + k, acc);
+                }
+            }
+        }
+        return;
+    }
+    std::vector<float> accum(hP);
+    for (int i = 0; i < outside; ++i) {
+        memset(accum.data(), 0, hP * sizeof(float));
+        for (int j = 0; j < reduceAxis; ++j) {
+            for (int k = 0; k < hP; ++k) {
+                for (int x = 0; x < lP; ++x) {
+                    accum[k] += (float)source[x + k * lP + j * inside + i * stride0];
+                }
+            }
+        }
+        memcpy(kernelsum + i * hP, accum.data(), hP * sizeof(float));
+    }
+}
+
+static void _AVX_MNNReorderWeightInt4(uint8_t* dest, const uint8_t* source, int32_t* shape, size_t size, float* kernelsum) {
+    auto blocknum = shape[0];
+    auto hu       = shape[1];
+    auto lu       = shape[2];
+    auto hp       = shape[3];
+    auto lp       = shape[4];
+    auto ic       = blocknum * lu * lp;
+    auto stride0  = blocknum * hp * lu * lp;
+    auto stride1  = lu * hp * lp;
+    auto stride2  = hp * lp;
+    for (int i = 0; i < hu; ++i) {
+        for (int bl = 0; bl < blocknum; ++bl) {
+            for (int j = 0; j < lu; ++j) {
+                int srcindex_base = i * hp * ic + bl * lu * lp + j * lp;
+                int dstindex_base = i * stride0 + bl * stride1 + j * stride2;
+                if (lp == 2 && hp == 64) {
+                    uint16_t* dst16 = (uint16_t*)(dest + dstindex_base);
+                    const uint8_t* src8 = source + srcindex_base;
+                    for (int k = 0; k < 64; ++k) {
+                        dst16[k] = *(const uint16_t*)(src8 + k * ic);
+                    }
+                } else {
+                    for (int k = 0; k < hp; ++k) {
+                        int srcindex = srcindex_base + k * ic;
+                        int dstindex = dstindex_base + k * lp;
+                        memcpy(dest + dstindex, source + srcindex, lp);
+                    }
+                }
+            }
+        }
+    }
+    auto inside = lp * hp;
+    auto outside = blocknum * hu;
+    if (lp == 2 && hp == 64) {
+        for (int i = 0; i < outside; ++i) {
+            memset(kernelsum + i * hp, 0, hp * sizeof(float));
+            for (int k = 0; k < lu; ++k) {
+                uint8_t* D = dest + (i * lu + k) * inside;
+                __m256i v1 = _mm256_loadu_si256((const __m256i*)(D)); 
+                __m256i v2 = _mm256_loadu_si256((const __m256i*)(D + 64)); 
+                __m256i mask_0f = _mm256_set1_epi8(0x0f);
+                __m256i w0 = _mm256_and_si256(_mm256_srli_epi16(v1, 4), mask_0f); 
+                __m256i w1 = _mm256_and_si256(v1, mask_0f);
+                __m256i w2 = _mm256_and_si256(_mm256_srli_epi16(v2, 4), mask_0f);
+                __m256i w3 = _mm256_and_si256(v2, mask_0f);
+                __m256i b0 = _mm256_or_si256(_mm256_slli_epi16(w0, 4), w2);
+                __m256i b1 = _mm256_or_si256(_mm256_slli_epi16(w1, 4), w3);
+                __m256i lo = _mm256_unpacklo_epi8(b0, b1);
+                __m256i hi = _mm256_unpackhi_epi8(b0, b1);
+                __m256i out0 = _mm256_permute2x128_si256(lo, hi, 0x20); 
+                __m256i out1 = _mm256_permute2x128_si256(lo, hi, 0x31); 
+                __m256i v3 = _mm256_loadu_si256((const __m256i*)(D + 32)); 
+                __m256i v4 = _mm256_loadu_si256((const __m256i*)(D + 96)); 
+                __m256i w0_2 = _mm256_and_si256(_mm256_srli_epi16(v3, 4), mask_0f); 
+                __m256i w1_2 = _mm256_and_si256(v3, mask_0f);
+                __m256i w2_2 = _mm256_and_si256(_mm256_srli_epi16(v4, 4), mask_0f);
+                __m256i w3_2 = _mm256_and_si256(v4, mask_0f);
+                __m256i b0_2 = _mm256_or_si256(_mm256_slli_epi16(w0_2, 4), w2_2);
+                __m256i b1_2 = _mm256_or_si256(_mm256_slli_epi16(w1_2, 4), w3_2);
+                __m256i lo_2 = _mm256_unpacklo_epi8(b0_2, b1_2);
+                __m256i hi_2 = _mm256_unpackhi_epi8(b0_2, b1_2);
+                __m256i out2 = _mm256_permute2x128_si256(lo_2, hi_2, 0x20); 
+                __m256i out3 = _mm256_permute2x128_si256(lo_2, hi_2, 0x31); 
+                _mm256_storeu_si256((__m256i*)(D), out0);
+                _mm256_storeu_si256((__m256i*)(D + 32), out1);
+                _mm256_storeu_si256((__m256i*)(D + 64), out2);
+                _mm256_storeu_si256((__m256i*)(D + 96), out3);
+                
+                auto do_acc = [&](__m256i a0, __m256i a1, __m256i a2, __m256i a3, int off) {
+                    __m256i sum1 = _mm256_add_epi8(a0, a1);
+                    __m256i sum1_16 = _mm256_maddubs_epi16(sum1, _mm256_set1_epi8(1));
+                    __m256i sum1_lo = _mm256_cvtepi16_epi32(_mm256_castsi256_si128(sum1_16));
+                    __m256i sum1_hi = _mm256_cvtepi16_epi32(_mm256_extracti128_si256(sum1_16, 1));
+                    __m256 acc_lo = _mm256_loadu_ps(kernelsum + i * hp + off);
+                    __m256 acc_hi = _mm256_loadu_ps(kernelsum + i * hp + off + 8);
+                    acc_lo = _mm256_add_ps(acc_lo, _mm256_cvtepi32_ps(sum1_lo));
+                    acc_hi = _mm256_add_ps(acc_hi, _mm256_cvtepi32_ps(sum1_hi));
+                    _mm256_storeu_ps(kernelsum + i * hp + off, acc_lo);
+                    _mm256_storeu_ps(kernelsum + i * hp + off + 8, acc_hi);
+                    
+                    __m256i sum2 = _mm256_add_epi8(a2, a3);
+                    __m256i sum2_16 = _mm256_maddubs_epi16(sum2, _mm256_set1_epi8(1));
+                    __m256i sum2_lo = _mm256_cvtepi16_epi32(_mm256_castsi256_si128(sum2_16));
+                    __m256i sum2_hi = _mm256_cvtepi16_epi32(_mm256_extracti128_si256(sum2_16, 1));
+                    __m256 acc2_lo = _mm256_loadu_ps(kernelsum + i * hp + off + 32);
+                    __m256 acc2_hi = _mm256_loadu_ps(kernelsum + i * hp + off + 40);
+                    acc2_lo = _mm256_add_ps(acc2_lo, _mm256_cvtepi32_ps(sum2_lo));
+                    acc2_hi = _mm256_add_ps(acc2_hi, _mm256_cvtepi32_ps(sum2_hi));
+                    _mm256_storeu_ps(kernelsum + i * hp + off + 32, acc2_lo);
+                    _mm256_storeu_ps(kernelsum + i * hp + off + 40, acc2_hi);
+                };
+                do_acc(w0, w1, w2, w3, 0);
+                do_acc(w0_2, w1_2, w2_2, w3_2, 16);
+            }
+        }
+        return;
+    }
+
+    std::vector<uint8_t> buffer(inside);
+    std::vector<float> accum(hp);
+    for (int i = 0; i < outside; ++i) {
+        memset(accum.data(), 0, hp * sizeof(float));
+        for (int k = 0; k < lu; ++k) {
+            for (int j = 0; j < inside / 2; ++j) {
+                auto w0 = dest[j + (i * lu + k) * inside] >> 4;
+                auto w1 = dest[j + (i * lu + k) * inside] & 0x0f;
+                auto w2 = dest[(i * lu + k) * inside + j + inside / 2] >> 4;
+                auto w3 = dest[(i * lu + k) * inside + j + inside / 2] & 0x0f;
+                buffer[2 * j + 0] = w0 * 16 + w2;
+                buffer[2 * j + 1] = w1 * 16 + w3;
+                accum[j / lp] += ((float)w0 + (float)w1);
+                accum[(j + inside / 2) / lp] += ((float)w2 + (float)w3);
+            }
+            memcpy(dest + (i * lu + k) * inside, buffer.data(), inside);
+        }
+        memcpy(kernelsum + i * hp, accum.data(), hp * sizeof(float));
+    }
+}
+
 void _AVX_ReorderInit(void* functions) {
     auto coreFunction = static_cast<MNN::CoreFunctions*>(functions);
     coreFunction->MNNPackCUnit = _AVX_MNNPackCUnit;
@@ -483,4 +647,7 @@ void _AVX_ReorderInit(void* functions) {
     coreFunction->MNNPackCUnitInt8 = _AVX_MNNPackCUnitInt8;
     coreFunction->MNNUnpackCUnitInt8 = _AVX_MNNUnpackCUnitInt8;
     coreFunction->MNNPackCUnitTransposeInt8 = _AVX_MNNPackCUnitTransposeInt8;
+
+    coreFunction->int8MatmulRelatedFunctions.MNNSumWeightInt8 = _AVX_MNNSumWeightInt8;
+    coreFunction->int8MatmulRelatedFunctions.MNNReorderWeightInt4 = _AVX_MNNReorderWeightInt4;
 }

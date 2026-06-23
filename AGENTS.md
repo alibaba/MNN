@@ -81,7 +81,7 @@ cd build
 ./llm_bench -m /path/to/MODEL/config.json
 ```
 
-Test suite includes: unit tests (`run_test.out`), model tests, conversion tests (ONNX/TF/TFLite/Torch), quantization tests, LLM tests, PyMNN tests. See `test.sh` and `test/` directory for details.
+Test suite includes: unit tests (`run_test.out`), model tests, conversion tests (ONNX/TF/TFLite/Torch), quantization tests, LLM tests, PyMNN tests. See `test.sh`, `test_stages.json`, and `test/` directory for details.
 
 ## Commit Message
 

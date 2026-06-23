@@ -6,64 +6,70 @@
 //  Copyright © 2018 Alibaba. All rights reserved.
 //
 
-#include <unordered_map>
+#include <map>
 #include "backend/cpu/CPUUnique.hpp"
 namespace MNN {
 
-ErrorCode CPUUnique::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    auto input  = inputs[0];
+ErrorCode CPUUnique::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    auto input = inputs[0];
     auto output = outputs[0];
-    auto outputPtr  = output->host<int32_t>();
-    int outputSize  = 0;
+    auto outputPtr = output->host<int32_t>();
+    int outputSize = 0;
     auto eleSize = input->elementSize();
     if (outputs.size() <= 2) {
-        std::unordered_map<int, int> idx_map;
+        std::map<int, int> idx_map;
         for (int i = 0; i < eleSize; ++i) {
             auto value = input->host<int32_t>()[i];
-            if (idx_map.find(value) == idx_map.end()) {
-                outputPtr[outputSize] = value;
-                idx_map[value] = outputSize++;
-            }
+            idx_map[value];
         }
-        outputSize  = 0;
+        for (auto& kv : idx_map) {
+            kv.second = outputSize;
+            outputPtr[outputSize++] = kv.first;
+        }
         if (outputs.size() > 1) {
             auto outIdx = outputs[1]->host<int>();
             for (int i = 0; i < eleSize; ++i) {
                 auto value = input->host<int32_t>()[i];
-                if (idx_map.find(value) == idx_map.end()) {
-                    outIdx[outputSize] = idx_map[value];
-                    outputSize++;
-                }
+                outIdx[i] = idx_map[value];
             }
         }
     } else {
-        MNN_ASSERT(4 == outputs.size());
+        MNN_ASSERT(outputs.size() <= 4);
         auto outIdx = outputs[1]->host<int>();
         auto reverseIdx = outputs[2]->host<int>();
-        auto count = outputs[3]->host<int>();
-        ::memset(count, 0, outputs[3]->usize());
-        std::unordered_map<int, int> idx_map;
+        int* count = nullptr;
+        if (outputs.size() > 3) {
+            count = outputs[3]->host<int>();
+            ::memset(count, 0, outputs[3]->usize());
+        }
+        std::map<int, int> idx_map;
         for (int i = 0; i < eleSize; ++i) {
             auto value = input->host<int32_t>()[i];
-            auto iter = idx_map.find(value);
-            int pos;
-            if (iter == idx_map.end()) {
-                outputPtr[outputSize] = value;
-                outIdx[outputSize] = i;
-                pos = outputSize;
-                idx_map[value] = outputSize++;
-            } else {
-                pos = iter->second;
-            }
+            idx_map[value];
+        }
+        for (auto& kv : idx_map) {
+            outIdx[outputSize] = -1;
+            kv.second = outputSize;
+            outputPtr[outputSize++] = kv.first;
+        }
+        for (int i = 0; i < eleSize; ++i) {
+            auto value = input->host<int32_t>()[i];
+            int pos = idx_map[value];
             reverseIdx[i] = pos;
+            if (outIdx[pos] < 0) {
+                outIdx[pos] = i;
+            }
+            if (nullptr != count) {
+                count[pos]++;
+            }
         }
     }
     return NO_ERROR;
 }
 class CPUUniqueCreator : public CPUBackend::Creator {
 public:
-    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
-                                const MNN::Op *op, Backend *backend) const {
+    virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                const MNN::Op* op, Backend* backend) const {
         return new CPUUnique(backend);
     }
 };
