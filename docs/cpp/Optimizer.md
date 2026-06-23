@@ -21,7 +21,6 @@ enum Device {
 | 3 | `AUTO` | 自定义 |
 
 ## 成员函数
----
 ### Optimizer
 构造函数
 ```cpp
@@ -33,7 +32,6 @@ Optimizer() = default;
 
 返回：Optimizer对象
 
----
 ### ~Optimizer
 析构函数
 ```cpp
@@ -45,7 +43,6 @@ virtual ~Optimizer() = default;
 
 返回：Optimizer对象
 
----
 ### create
 ```cpp
 static std::shared_ptr<Optimizer> create(Config config);
@@ -57,7 +54,6 @@ static std::shared_ptr<Optimizer> create(Config config);
 
 返回：Optimizer对象
 
----
 ### onGetParameters
 ```cpp
 virtual std::shared_ptr<Parameters> onGetParameters(const std::vector<VARP>& outputs) {
@@ -71,7 +67,6 @@ virtual std::shared_ptr<Parameters> onGetParameters(const std::vector<VARP>& out
 
 返回：Optimizer对象的参数
 
----
 ### onMeasure
 ```cpp
 virtual Cost onMeasure(const std::vector<VARP>& outputs, std::shared_ptr<Parameters> parameters = nullptr) = 0;
@@ -84,7 +79,6 @@ virtual Cost onMeasure(const std::vector<VARP>& outputs, std::shared_ptr<Paramet
 
 返回：Cost对象信息
 
----
 ### onExecute
 ```cpp
 virtual bool onExecute(const std::vector<VARP>& outputs, std::shared_ptr<Parameters> parameters = nullptr) = 0;
@@ -103,7 +97,6 @@ class Parameters
 ```
 ## 成员函数
 
----
 ### Parameters
 ```cpp
 Parameters(int n);
@@ -115,11 +108,9 @@ Parameters(int n);
 
 返回：Parameters对象
 
----
 ### ~Parameters
 析构函数
 
----
 ### get
 ```cpp
 float* get() const {
@@ -132,7 +123,6 @@ float* get() const {
 
 返回：Parameters对象成员数量
 
----
 ### size
 ```cpp
 int size() const {

@@ -208,7 +208,7 @@ std::vector<MNN::Express::VARP> onForward(const std::vector<MNN::Express::VARP>&
 示例代码：
 
 ```cpp
-int dim = 224；
+int dim = 224;
 std::vector<VARP> inputs(3);
 // 对于 tensoflow 转换过来的模型用 NHWC ，由 onnx 转换过来的模型用 NCHW
 inputs[0] = MNN::Express::_Input({1, dim}, NHWC, halide_type_of<int>());
