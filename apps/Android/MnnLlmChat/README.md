@@ -48,7 +48,9 @@ The Android app includes an optional session-level Agent mode inspired by the Ac
 + Agent mode persists lightweight Memory and Skill updates in the MnnLlmChat chat database and injects them into future Agent prompts.
 + Local ChatActivity conversations rely on the live native MNN session for KV/prompt-cache reuse. Each turn submits only new input; stored chat history is for UI display. Reloading an old session does not currently restore a persisted prompt cache.
 
-![Agent Demo](https://meta.alicdn.com/data/mnn/assets/Agent.gif)
+<p align="center">
+  <img width="20%" alt="Icon"  src="https://meta.alicdn.com/data/mnn/assets/Agent.gif" style="margin: 0 10px;">
+</p>
 
 Design notes:
 
