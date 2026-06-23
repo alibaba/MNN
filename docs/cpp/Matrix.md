@@ -23,7 +23,6 @@ enum TypeMask {
 | 3 | `kAffine_Mask` | 倾斜或旋转矩阵 |
 | 4 | `kPerspective_Mask` | 透视矩阵 |
 
----
 ### ScaleToFit
 ```cpp
 enum ScaleToFit {
@@ -43,7 +42,6 @@ enum ScaleToFit {
 
 ## 成员函数
 
----
 ### MakeScale
 ```cpp
 static Matrix MakeScale(float sx, float sy) {
@@ -62,7 +60,6 @@ static Matrix MakeScale(float sx, float sy) {
 
 返回：缩放矩阵
 
----
 ### MakeScale
 ```cpp
 static Matrix MakeScale(float scale) {
@@ -80,7 +77,6 @@ static Matrix MakeScale(float scale) {
 
 返回：缩放矩阵
 
----
 ### MakeTrans
 ```cpp
 static Matrix MakeTrans(float dx, float dy) {
@@ -99,7 +95,6 @@ static Matrix MakeTrans(float dx, float dy) {
 
 返回：平移矩阵
 
----
 ### MakeAll
 ```cpp
 static Matrix MakeAll(float scaleX, float skewX, float transX, float skewY, float scaleY, float transY, float pers0,
@@ -126,7 +121,6 @@ static Matrix MakeAll(float scaleX, float skewX, float transX, float skewY, floa
 
 返回：矩阵
 
----
 ### getType
 ```cpp
 TypeMask getType() const {
@@ -142,7 +136,6 @@ TypeMask getType() const {
 
 返回：kIdentity_Mask或kTranslate_Mask、kScale_Mask、kIdentity_Mask的组合kAffine_Mask, kPerspective_Mask
 
----
 ### isIdentity
 ```cpp
 bool isIdentity() const {
@@ -157,7 +150,6 @@ bool isIdentity() const {
 
 返回：如果矩阵是一致的则返回true
 
----
 ### isScaleTranslate
 ```cpp
 bool isScaleTranslate() const {
@@ -172,7 +164,6 @@ bool isScaleTranslate() const {
 
 返回：如果矩阵是一致的，或者缩放，平移，或者两者兼而有之，则返回true
 
----
 ### isTranslate
 ```cpp
 bool isTranslate() const {
@@ -187,7 +178,6 @@ bool isTranslate() const {
 
 返回：如果矩阵是一致的或者平移的，则返回true
 
----
 ### rectStaysRect
 ```cpp
 bool rectStaysRect() const {
@@ -213,7 +203,6 @@ bool rectStaysRect() const {
 
 返回：如果矩阵将一个矩形映射到另一个，则返回true
 
----
 ### preservesAxisAlignment
 ```cpp
 bool preservesAxisAlignment() const {
@@ -236,7 +225,6 @@ bool preservesAxisAlignment() const {
 
 返回：如果矩阵将一个矩形映射到另一个，则返回true
 
----
 ### operator
 ```cpp
 float operator[](int index) const {
@@ -251,7 +239,6 @@ float operator[](int index) const {
 
 返回：索引对应的值
 
----
 ### get
 ```cpp
 float get(int index) const {
@@ -266,7 +253,6 @@ float get(int index) const {
 
 返回：索引对应的值
 
----
 ### getScaleX
 ```cpp
 float getScaleX() const {
@@ -279,7 +265,6 @@ float getScaleX() const {
 
 返回：水平缩放因子
 
----
 ### getScaleY
 ```cpp
 float getScaleY() const {
@@ -292,7 +277,6 @@ float getScaleY() const {
 
 返回：垂直缩放因子
 
----
 ### getSkewY
 ```cpp
 float getSkewY() const {
@@ -305,7 +289,6 @@ float getSkewY() const {
 
 返回：垂直倾斜因子
 
----
 ### getSkewX
 ```cpp
 float getSkewX() const {
@@ -318,7 +301,6 @@ float getSkewX() const {
 
 返回：水平倾斜因子
 
----
 ### getTranslateX
 ```cpp
 float getTranslateX() const {
@@ -331,7 +313,6 @@ float getTranslateX() const {
 
 返回：水平移动因子
 
----
 ### getTranslateY
 ```cpp
 float getTranslateY() const {
@@ -344,7 +325,6 @@ float getTranslateY() const {
 
 返回：垂直移动因子
 
----
 ### getPerspX
 ```cpp
 float getPerspX() const {
@@ -357,7 +337,6 @@ float getPerspX() const {
 
 返回：x轴输入的角度因子
 
----
 ### getPerspY
 ```cpp
 float getPerspY() const {
@@ -370,7 +349,6 @@ float getPerspY() const {
 
 返回：y轴输入的角度因子
 
----
 ### operator
 ```cpp
 float& operator[](int index) {
@@ -386,7 +364,6 @@ float& operator[](int index) {
 
 返回：索引对应的可写值
 
----
 ### set
 ```cpp
 void set(int index, float value) {
@@ -403,7 +380,6 @@ void set(int index, float value) {
 
 返回：`void`
 
----
 ### setScaleX
 ```cpp
 void setScaleX(float v) {
@@ -417,7 +393,6 @@ void setScaleX(float v) {
 
 返回：`void`
 
----
 ### setScaleY
 ```cpp
 void setScaleY(float v) {
@@ -431,7 +406,6 @@ void setScaleY(float v) {
 
 返回：`void`
 
----
 ### setSkewY
 ```cpp
 void setSkewY(float v) {
@@ -445,7 +419,6 @@ void setSkewY(float v) {
 
 返回：`void`
 
----
 ### setSkewX
 ```cpp
 void setSkewX(float v) {
@@ -459,7 +432,6 @@ void setSkewX(float v) {
 
 返回：`void`
 
----
 ### setTranslateX
 ```cpp
 void setTranslateX(float v) {
@@ -473,7 +445,6 @@ void setTranslateX(float v) {
 
 返回：`void`
 
----
 ### setTranslateY
 ```cpp
 void setTranslateY(float v) {
@@ -487,7 +458,6 @@ void setTranslateY(float v) {
 
 返回：`void`
 
----
 ### setPerspX
 ```cpp
 void setPerspX(float v) {
@@ -501,7 +471,6 @@ void setPerspX(float v) {
 
 返回：`void`
 
----
 ### setPerspY
 ```cpp
 void setPerspY(float v) {
@@ -515,7 +484,6 @@ void setPerspY(float v) {
 
 返回：`void`
 
----
 ### setAll
 ```cpp
 void setAll(float scaleX, float skewX, float transX, float skewY, float scaleY, float transY, float persp0,
@@ -549,7 +517,6 @@ void setAll(float scaleX, float skewX, float transX, float skewY, float scaleY, 
 
 返回：矩阵
 
----
 ### get9
 ```cpp
 void get9(float buffer[9]) const {
@@ -563,7 +530,6 @@ void get9(float buffer[9]) const {
 
 返回：`void`
 
----
 ### set9
 ```cpp
 void set9(const float buffer[9]);
@@ -581,7 +547,6 @@ kMScaleX, kMSkewX, kMTransX, kMSkewY, kMScaleY, kMTransY, kMPersp0, kMPersp1, kM
 
 返回：`void`
 
----
 ### reset
 ```cpp
 void reset();
@@ -595,7 +560,6 @@ void reset();
 
 返回：`void`
 
----
 ### setIdentity
 ```cpp
 void setIdentity() {
@@ -611,7 +575,6 @@ void setIdentity() {
 
 返回：`void`
 
----
 ### setTranslate
 ```cpp
 void setTranslate(float dx, float dy);
@@ -624,7 +587,6 @@ void setTranslate(float dx, float dy);
 
 返回：`void`
 
----
 ### setScale
 ```cpp
 void setScale(float sx, float sy, float px, float py);
@@ -639,7 +601,6 @@ void setScale(float sx, float sy, float px, float py);
 
 返回：`void`
 
----
 ### setScale
 ```cpp
 void setScale(float sx, float sy);
@@ -652,7 +613,6 @@ void setScale(float sx, float sy);
 
 返回：`void`
 
----
 ### setRotate
 ```cpp
 void setRotate(float degrees, float px, float py);
@@ -666,7 +626,6 @@ void setRotate(float degrees, float px, float py);
 
 返回：`void`
 
----
 ### setSinCos
 ```cpp
 void setSinCos(float sinValue, float cosValue, float px, float py);
@@ -681,7 +640,6 @@ void setSinCos(float sinValue, float cosValue, float px, float py);
 
 返回：`void`
 
----
 ### setSinCos
 ```cpp
 void setSinCos(float sinValue, float cosValue);
@@ -694,7 +652,6 @@ void setSinCos(float sinValue, float cosValue);
 
 返回：`void`
 
----
 ### setSkew
 ```cpp
 void setSkew(float kx, float ky, float px, float py);
@@ -709,7 +666,6 @@ void setSkew(float kx, float ky, float px, float py);
 
 返回：`void`
 
----
 ### setConcat
 ```cpp
 void setConcat(const Matrix& a, const Matrix& b);
@@ -730,7 +686,6 @@ void setConcat(const Matrix& a, const Matrix& b);
 
 返回：`void`
 
----
 ### preTranslate
 ```cpp
 void preTranslate(float dx, float dy);
@@ -751,7 +706,6 @@ void preTranslate(float dx, float dy);
 
 返回：`void`
 
----
 ### preScale
 ```cpp
 void preScale(float sx, float sy, float px, float py);
@@ -778,7 +732,6 @@ void preScale(float sx, float sy, float px, float py);
 
 返回：`void`
 
----
 ### preScale
 ```cpp
 void preScale(float sx, float sy);
@@ -804,7 +757,6 @@ void preScale(float sx, float sy);
 
 返回：`void`
 
----
 ### preRotate
 ```cpp
 void preRotate(float degrees, float px, float py);
@@ -832,7 +784,6 @@ void preRotate(float degrees, float px, float py);
 
 返回：`void`
 
----
 ### preRotate
 ```cpp
 void preRotate(float degrees);
@@ -855,7 +806,6 @@ void preRotate(float degrees);
 
 返回：`void`
 
----
 ### preSkew
 ```cpp
 void preSkew(float kx, float ky, float px, float py);
@@ -881,7 +831,6 @@ void preSkew(float kx, float ky, float px, float py);
 
 返回：`void`
 
----
 ### preSkew
 ```cpp
 void preSkew(float kx, float ky);
@@ -902,7 +851,6 @@ void preSkew(float kx, float ky);
 
 返回：`void`
 
----
 ### preConcat
 ```cpp
 void preConcat(const Matrix& other);
@@ -922,7 +870,6 @@ void preConcat(const Matrix& other);
 
 返回：`void`
 
----
 ### postTranslate
 ```cpp
 void postTranslate(float dx, float dy);
@@ -943,7 +890,6 @@ void postTranslate(float dx, float dy);
 
 返回：`void`
 
----
 ### postScale
 ```cpp
 void postScale(float sx, float sy, float px, float py);
@@ -968,7 +914,6 @@ void postScale(float sx, float sy, float px, float py);
 
 返回：`void`
 
----
 ### postScale
 ```cpp
 void postScale(float sx, float sy);
@@ -988,7 +933,6 @@ void postScale(float sx, float sy);
 
 返回：`void`
 
----
 ### postIDiv
 ```cpp
 bool postIDiv(int divx, int divy);
@@ -1011,7 +955,6 @@ bool postIDiv(int divx, int divy);
 
 返回：缩放成功返回true
 
----
 ### postRotate
 ```cpp
 void postRotate(float degrees, float px, float py);
@@ -1037,7 +980,6 @@ void postRotate(float degrees, float px, float py);
 
 返回：`void`
 
----
 ### postRotate
 ```cpp
 void postRotate(float degrees);
@@ -1059,7 +1001,6 @@ void postRotate(float degrees);
 
 返回：`void`
 
----
 ### postSkew
 ```cpp
 void postSkew(float kx, float ky, float px, float py);
@@ -1084,7 +1025,6 @@ void postSkew(float kx, float ky, float px, float py);
 
 返回：`void`
 
----
 ### postSkew
 ```cpp
 void postSkew(float kx, float ky);
@@ -1104,7 +1044,6 @@ void postSkew(float kx, float ky);
 
 返回：`void`
 
----
 ### postConcat
 ```cpp
 void postConcat(const Matrix& other);
@@ -1123,7 +1062,6 @@ void postConcat(const Matrix& other);
 
 返回：`void`
 
----
 ### setRectToRect
 ```cpp
 bool setRectToRect(const Rect& src, const Rect& dst, ScaleToFit stf);
@@ -1139,7 +1077,6 @@ bool setRectToRect(const Rect& src, const Rect& dst, ScaleToFit stf);
 
 返回：如果矩阵可以表示Rect映射，则为true
 
----
 ### MakeRectToRect
 ```cpp
 static Matrix MakeRectToRect(const Rect& src, const Rect& dst, ScaleToFit stf) {
@@ -1158,7 +1095,6 @@ static Matrix MakeRectToRect(const Rect& src, const Rect& dst, ScaleToFit stf) {
 
 返回：将src映射到dst的矩阵
 
----
 ### setPolyToPoly
 ```cpp
 bool setPolyToPoly(const Point src[], const Point dst[], int count);
@@ -1176,7 +1112,6 @@ bool setPolyToPoly(const Point src[], const Point dst[], int count);
 
 返回：如果矩阵构造成功，返回true
 
----
 ### invert
 ```cpp
 bool invert(Matrix* inverse) const {
@@ -1196,7 +1131,6 @@ bool invert(Matrix* inverse) const {
 
 返回：矩阵反转成功，返回true
 
----
 ### SetAffineIdentity
 ```cpp
 static void SetAffineIdentity(float affine[6]);
@@ -1212,7 +1146,6 @@ OpenGL和XPS在主序列中仿射3x2矩阵
 
 返回：`void`
 
----
 ### asAffine
 ```cpp
 bool asAffine(float affine[6]) const;
@@ -1228,7 +1161,6 @@ bool asAffine(float affine[6]) const;
 
 返回：如果矩阵不包含透视图，则返回true
 
----
 ### setAffine
 ```cpp
 void setAffine(const float affine[6]);
@@ -1249,7 +1181,6 @@ void setAffine(const float affine[6]);
 
 返回：`void`
 
----
 ### mapPoints
 ```cpp
 void mapPoints(Point dst[], const Point src[], int count) const {
@@ -1281,7 +1212,6 @@ SRC和DST可能指向相同的存储空间
 
 返回：`void`
 
----
 ### mapPoints
 ```cpp
 void mapPoints(Point pts[], int count) const {
@@ -1310,7 +1240,6 @@ SRC和DST可能指向相同的存储空间
 
 返回：`void`
 
----
 ### mapXY
 ```cpp
 void mapXY(float x, float y, Point* result) const {
@@ -1334,7 +1263,6 @@ void mapXY(float x, float y, Point* result) const {
 
 返回：`void`
 
----
 ### mapXY
 ```cpp
 Point mapXY(float x, float y) const {
@@ -1359,7 +1287,6 @@ Point mapXY(float x, float y) const {
 
 返回：映射点
 
----
 ### mapRect
 ```cpp
 bool mapRect(Rect* dst, const Rect& src) const;
@@ -1372,7 +1299,6 @@ bool mapRect(Rect* dst, const Rect& src) const;
 
 返回：如果DST等价于映射的SRC，则为True
 
----
 ### mapRect
 ```cpp
 bool mapRect(Rect* rect) const {
@@ -1386,7 +1312,6 @@ bool mapRect(Rect* rect) const {
 
 返回：如果结果等价于映射的SRC，则为True
 
----
 ### mapRect
 ```cpp
 Rect mapRect(const Rect& src) const {
@@ -1402,7 +1327,6 @@ Rect mapRect(const Rect& src) const {
 
 返回：映射的边界
 
----
 ### mapRectScaleTranslate
 ```cpp
 void mapRectScaleTranslate(Rect* dst, const Rect& src) const;
@@ -1415,7 +1339,6 @@ void mapRectScaleTranslate(Rect* dst, const Rect& src) const;
 
 返回：`void`
 
----
 ### cheapEqualTo
 ```cpp
 bool cheapEqualTo(const Matrix& m) const {
@@ -1429,7 +1352,6 @@ bool cheapEqualTo(const Matrix& m) const {
 
 返回：如果m和矩阵由相同的位模式表示，则为true
 
----
 ### operator==
 ```cpp
 friend MNN_PUBLIC bool operator==(const Matrix& a, const Matrix& b);
@@ -1442,7 +1364,6 @@ friend MNN_PUBLIC bool operator==(const Matrix& a, const Matrix& b);
 
 返回：当矩阵a和矩阵b在数值上相等时为true
 
----
 ### operator!=
 ```cpp
 friend MNN_PUBLIC bool operator!=(const Matrix& a, const Matrix& b) {
@@ -1457,7 +1378,6 @@ friend MNN_PUBLIC bool operator!=(const Matrix& a, const Matrix& b) {
 
 返回：如果矩阵a和矩阵b在数值上不相等，则为true
 
----
 ### dump
 ```cpp
 void dump() const;
@@ -1468,7 +1388,6 @@ void dump() const;
 
 返回：`void`
 
----
 ### getMinScale
 ```cpp
 float getMinScale() const;
@@ -1479,7 +1398,6 @@ float getMinScale() const;
 
 返回：最小缩放因子
 
----
 ### getMaxScale
 ```cpp
 float getMaxScale() const;
@@ -1490,7 +1408,6 @@ float getMaxScale() const;
 
 返回：最大缩放因子
 
----
 ### getMinMaxScales
 ```cpp
 bool getMinMaxScales(float scaleFactors[2]) const;
@@ -1502,7 +1419,6 @@ bool getMinMaxScales(float scaleFactors[2]) const;
 
 返回：如果缩放因子计算正确，则返回true
 
----
 ### I
 ```cpp
 static const Matrix& I();
@@ -1516,7 +1432,6 @@ static const Matrix& I();
 
 返回：单位矩阵常量
 
----
 ### InvalidMatrix
 ```cpp
 static const Matrix& InvalidMatrix();
@@ -1530,7 +1445,6 @@ static const Matrix& InvalidMatrix();
 
 返回：无效的常量矩阵
 
----
 ### Concat
 ```cpp
 static Matrix Concat(const Matrix& a, const Matrix& b) {
@@ -1555,7 +1469,6 @@ static Matrix Concat(const Matrix& a, const Matrix& b) {
 
 返回：无效的常量矩阵
 
----
 ### dirtyMatrixTypeCache
 ```cpp
 void dirtyMatrixTypeCache() {
@@ -1568,7 +1481,6 @@ void dirtyMatrixTypeCache() {
 
 返回：`void`
 
----
 ### setScaleTranslate
 ```cpp
 void setScaleTranslate(float sx, float sy, float tx, float ty) {
