@@ -194,6 +194,8 @@ extern const unsigned char glsl_nc4hw4Tonchw_comp[];
 extern unsigned int glsl_nc4hw4Tonchw_comp_len;
 extern const unsigned char glsl_buffer2Image2D_comp[];
 extern unsigned int glsl_buffer2Image2D_comp_len;
+extern const unsigned char glsl_range_comp[];
+extern unsigned int glsl_range_comp_len;
 extern const unsigned char glsl_im2col1x1_comp[];
 extern unsigned int glsl_im2col1x1_comp_len;
 extern const unsigned char glsl_avgpool_comp[];
