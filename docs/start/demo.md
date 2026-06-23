@@ -52,7 +52,7 @@
 ![TestMe.jpg.png](../../resource/images/TestMe.jpg)
 
 输出：
-```bash
+```text
 Can't Find type=4 backend, use 0 instead
 For Image: TestMe.jpg
 386, 0.419250

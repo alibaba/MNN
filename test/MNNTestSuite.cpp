@@ -40,7 +40,7 @@ static void printTestResult(int wrong, int right, const char* flag) {
 }
 
 // MNN: optionally skip tests whose exact name appears in the comma-separated
-// MNN_TEST_SKIP env var. Used by test_ci.sh to drop tests that hit
+// MNN_TEST_SKIP env var. Used by test.sh to drop tests that hit
 // device-specific upstream bugs (e.g. Mali OpenCL BUFFER-mode loop kernels)
 // without losing coverage for the rest of the suite.
 static bool _mnn_test_should_skip(const std::string& name) {

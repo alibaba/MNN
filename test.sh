@@ -1,764 +1,1330 @@
-# test script for MNN-Release
+#!/usr/bin/env bash
+# test.sh - Focused static + local-host + Android-arm64 CI driver for MNN.
 #
-# 0. arg = local: [ test for your local build ]
-#       1. unit-test;
-#       2. model-test;
-#       3. onnx convert test
-#       4. tf convert test
-#       5. tflite convert test
-#       6. torch convert test
-#       7. ptq test
-#       8. pymnn test
+# Subcommands:
+#   ./test.sh static                 Run lightweight doc / cppcheck /
+#                                       PyMNN wrapper-resource checks.
+#   ./test.sh local                  Run host-side regression: build + the
+#                                       built-in unit-test suite (CPU) and the
+#                                       LLM smoke test.
+#   ./test.sh android <serial>       Build for arm64-v8a, push artefacts and
+#                                       the LLM model to /data/local/tmp, then
+#                                       run the on-device matrix.
 #
-# 1. arg = linux: [ all test on linux with coverage ]
-#       0. static check (if source change)
-#       1. pyc check (if *.py change)
-#       2. build for linux;
-#       3. unit-test;
-#       4. model-test;
-#       5. onnx convert test
-#       6. tf convert test
-#       7. tflite convert test
-#       8. torch convert test
-#       9. ptq test
-#      10. pymnn test (if pymnn change)
-#      11. opencv test (if opencv change)
-#      12. convert-report;
+# Environment:
+#   ANDROID_NDK         (required for android mode) NDK root. Falls back to
+#                       $HOME/android-ndk-r21 when unset.
+#   LLM_MODEL_DIR       Path to an existing MNN-format LLM model on disk. When
+#                       set, that directory is used as-is and NO download is
+#                       attempted. Defaults to models/<repo-basename>/.
+#   LLM_MODEL_REPO      Model repo id used for the LLM smoke test.
+#                       Defaults to taobao-mnn/Qwen2.5-0.5B-Instruct-MNN.
+#   LLM_MODEL_SOURCE    Download source when LLM_MODEL_DIR is not provided:
+#                       'huggingface' (default) or 'modelscope' (CDN reachable
+#                       from mainland China, where huggingface.co is blocked).
+#   LLM_MODEL_URL_BASE  Override the resolve URL prefix outright. Wins over
+#                       LLM_MODEL_SOURCE. Defaults to the source's resolve URL.
 #
-# 2. arg = android: [ simple test on android ]
-#       1. build Android with static_stl
-#       2. build Android arm64
-#       3. unit-test for Android arm64
-#       4. build Android arm32
-#       5. unit-test for Android arm32
+# Notes:
+#   * Replaces project/android/updateTest.sh natively (no shell-out).
+#   * Prefers `adbk` over `adb` and manages session lifecycle (--create-session
+#     on entry, --delete-session on EXIT, including failure paths).
+#   * Mirrors every OpenCL (backend=3) probe with a Vulkan (backend=7) probe;
+#     skipped (not failed) when the backend library is absent.
+#   * LLM model provisioning is lazy: the download (or LLM_MODEL_DIR check) is
+#     deferred until the llm stage actually runs, so unit / smoke / bench
+#     stages proceed even with no network. A provisioning failure skips the
+#     llm stage rather than aborting the run.
 
-# 0. build for android
-USER_NAME=`whoami`
-USER_HOME="$(echo -n $(bash -c "cd ~${USER_NAME} && pwd"))"
+set -euo pipefail
+IFS=$'\n\t'
+umask 022
 
-# detect change
-SOURCE_CHANGE=$(git show --name-only | grep -E "^source/(internal|backend|core|common|cv|geometry|math|plugin|shape|utils)/.*\.(cpp|cc|c|hpp)$" | \
-                grep -Ev "aliyun-log-c-sdk|hiai|tensorrt|Backend|FunctionDispatcher|ThreadPool")
-PYMNN_CHANGE=$(git show --name-only | grep -E "^pymnn/.*\.(cpp|cc|c|h|hpp|py)$")
-PY_CHANGE=$(git show --name-only | grep -E "^pymnn/pip_package/MNN/.*\.(py)$")
-OPENCV_CHANGE=$(git show --name-only | grep -E "^tools/cv/.*\.(cpp|cc|c|h|hpp)$")
-# OPENCL_CHANGE=$(git show --name-only | grep -E "^source/backend/opencl/.*\.(cpp|cc|c|h|hpp)$")
-OPENCL_CHANGE=true
-failed() {
+# ─────────────────────────────────────────────────────────────────────────────
+# Globals
+# ─────────────────────────────────────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MODELS_DIR="${SCRIPT_DIR}/models"
+# Declarative stage list — see test_stages.json for the schema and rationale
+# behind each entry. Editing the JSON is the supported way to add, drop, or
+# reconfigure unit/lowmem stages. Smoke and bench stages stay in shell since
+# they iterate over external model files rather than a fixed parameter grid.
+STAGES_JSON_FILE="${SCRIPT_DIR}/test_stages.json"
+PUBLIC_MODELS_DIR="${SCRIPT_DIR}/resource/model"
+DEVICE_DIR="/data/local/tmp/MNN"
+DEVICE_MODEL_DIR="/data/local/tmp/MNN/models"
+DEVICE_PUBLIC_MODELS_DIR="/data/local/tmp/MNN/public_models"
+
+# Public smoke-test models. Populated by tools/script/get_model.sh from
+# upstream MobileNet/SqueezeNet GitHub repos and the TensorFlow model zoo.
+SMOKE_MODELS=(
+    MobileNet/v1/mobilenet_v1.caffe.mnn
+    MobileNet/v2/mobilenet_v2.caffe.mnn
+    SqueezeNet/v1.0/squeezenet_v1.0.caffe.mnn
+    SqueezeNet/v1.1/squeezenet_v1.1.caffe.mnn
+)
+
+# Capture whether the caller pinned LLM_MODEL_REPO before applying the default,
+# so the ModelScope org remap below only rewrites the project's own default.
+if [[ -n "${LLM_MODEL_REPO:-}" ]]; then LLM_MODEL_REPO_USER_SET=1; else LLM_MODEL_REPO_USER_SET=0; fi
+LLM_MODEL_REPO_DEFAULT="$(python3 -c "import json; print(json.load(open('${STAGES_JSON_FILE}')).get('llm', {}).get('model_repo', 'taobao-mnn/Qwen2.5-0.5B-Instruct-MNN'))" 2>/dev/null || true)"
+LLM_MODEL_REPO="${LLM_MODEL_REPO:-${LLM_MODEL_REPO_DEFAULT:-taobao-mnn/Qwen2.5-0.5B-Instruct-MNN}}"
+
+# Resolve the download URL prefix. An explicit LLM_MODEL_URL_BASE always wins;
+# otherwise it is derived from LLM_MODEL_SOURCE. HuggingFace serves under
+# resolve/main, ModelScope under resolve/master. The MNN team mirrors its
+# HuggingFace 'taobao-mnn/*' models under the 'MNN/*' org on ModelScope, so the
+# built-in default's org is remapped for ModelScope (an explicitly-set
+# LLM_MODEL_REPO is left verbatim). NB: this runs before the log_* helpers are
+# defined, so errors print with a plain echo.
+LLM_MODEL_SOURCE="${LLM_MODEL_SOURCE:-huggingface}"
+if [[ -z "${LLM_MODEL_URL_BASE:-}" ]]; then
+    case "${LLM_MODEL_SOURCE}" in
+        huggingface|hf)
+            LLM_MODEL_URL_BASE="https://huggingface.co/${LLM_MODEL_REPO}/resolve/main" ;;
+        modelscope|ms)
+            LLM_MODEL_MS_REPO="${LLM_MODEL_REPO}"
+            if [[ ${LLM_MODEL_REPO_USER_SET} -eq 0 && "${LLM_MODEL_MS_REPO}" == taobao-mnn/* ]]; then
+                LLM_MODEL_MS_REPO="MNN/${LLM_MODEL_MS_REPO#taobao-mnn/}"
+            fi
+            LLM_MODEL_URL_BASE="https://modelscope.cn/models/${LLM_MODEL_MS_REPO}/resolve/master" ;;
+        *)
+            echo "ERROR: unknown LLM_MODEL_SOURCE='${LLM_MODEL_SOURCE}' (want: huggingface | modelscope)" >&2
+            exit 2 ;;
+    esac
+fi
+
+# LLM_MODEL_DIR may be pre-set by the caller to point at an existing on-disk
+# MNN-format model, in which case no download is ever attempted. When it is
+# left unset we fall back to the per-repo cache under models/ and may download.
+if [[ -n "${LLM_MODEL_DIR:-}" ]]; then
+    LLM_MODEL_DIR_PROVIDED=1
+    LLM_MODEL_NAME="$(basename "${LLM_MODEL_DIR}")"
+else
+    LLM_MODEL_DIR_PROVIDED=0
+    LLM_MODEL_NAME="$(basename "${LLM_MODEL_REPO}")"
+    LLM_MODEL_DIR="${MODELS_DIR}/${LLM_MODEL_NAME}"
+fi
+
+# Files that must be present in a complete MNN-format LLM checkout.
+LLM_MODEL_FILES=(
+    config.json
+    llm_config.json
+    llm.mnn
+    llm.mnn.json
+    llm.mnn.weight
+    embeddings_bf16.bin
+    tokenizer.txt
+)
+
+MODE=""
+FILTER="all"
+DEVICE=""
+ADB_BIN=""
+USE_ADBK=0
+SESSION_CREATED=0
+
+STAGE_PASS=0
+STAGE_FAIL=0
+STAGE_SKIP=0
+declare -a STAGE_LOG=()
+
+# Per-run log directory; each stage's combined stdout/stderr lands here.
+LOG_DIR="${SCRIPT_DIR}/logs/test-$(date -u +%Y%m%d-%H%M%S)"
+mkdir -p "${LOG_DIR}"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Logging
+# ─────────────────────────────────────────────────────────────────────────────
+if [[ -t 1 ]]; then
+    C_RST=$'\033[0m'; C_DIM=$'\033[2m'; C_RED=$'\033[31m'
+    C_GRN=$'\033[32m'; C_YLW=$'\033[33m'; C_CYN=$'\033[36m'; C_BLD=$'\033[1m'
+else
+    C_RST=""; C_DIM=""; C_RED=""; C_GRN=""; C_YLW=""; C_CYN=""; C_BLD=""
+fi
+
+_ts() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
+log_info() { printf "%s %sINFO%s  %s\n" "$(_ts)" "${C_CYN}" "${C_RST}" "$*"; }
+log_ok()   { printf "%s %sOK%s    %s\n" "$(_ts)" "${C_GRN}" "${C_RST}" "$*"; }
+log_warn() { printf "%s %sWARN%s  %s\n" "$(_ts)" "${C_YLW}" "${C_RST}" "$*" >&2; }
+log_err()  { printf "%s %sERROR%s %s\n" "$(_ts)" "${C_RED}" "${C_RST}" "$*" >&2; }
+log_step() {
+    printf "\n%s%s═══ %s ═══%s\n" "${C_BLD}" "${C_CYN}" "$*" "${C_RST}"
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage runner
+# ─────────────────────────────────────────────────────────────────────────────
+# Usage: run_stage <name> -- <cmd...>
+# Prints a delimited block, captures status, never aborts the script.
+run_stage() {
+    local name="$1"; shift
+    [[ "${1:-}" == "--" ]] && shift
+    log_step "stage: ${name}"
+    # Mirror combined stdout/stderr into a per-stage log so failures stay
+    # diagnosable after the run. Stage names contain '/'; flatten to '_'.
+    local logname="${name//\//_}"
+    local logfile="${LOG_DIR}/${logname}.log"
+    local rc=0
+    if "$@" 2>&1 | tee "${logfile}"; then
+        rc=0
+    else
+        # PIPESTATUS[0] is the command's rc; tee almost always returns 0.
+        rc=${PIPESTATUS[0]}
+    fi
+    if [[ $rc -eq 0 ]]; then
+        STAGE_PASS=$((STAGE_PASS + 1))
+        STAGE_LOG+=("PASS  ${name}")
+        log_ok "stage '${name}' passed"
+    else
+        STAGE_FAIL=$((STAGE_FAIL + 1))
+        STAGE_LOG+=("FAIL  ${name} (rc=${rc}, log=${logfile})")
+        log_err "stage '${name}' failed (rc=${rc}); log: ${logfile}"
+        if [[ $rc -eq 137 ]]; then
+            log_warn "rc=137 = SIGKILL — likely OOM-killed. Check 'dmesg | tail' on Linux"
+        elif [[ $rc -eq 139 ]]; then
+            log_warn "rc=139 = SIGSEGV — process crashed. See ${logfile} for trailing output"
+        fi
+    fi
+    return 0
+}
+
+skip_stage() {
+    local name="$1" reason="${2:-no reason given}"
+    STAGE_SKIP=$((STAGE_SKIP + 1))
+    STAGE_LOG+=("SKIP  ${name} (${reason})")
+    log_warn "stage '${name}' skipped: ${reason}"
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Usage / arg parsing
+# ─────────────────────────────────────────────────────────────────────────────
+usage() {
+    cat <<EOF
+Usage: $0 <subcommand> [args]
+
+Subcommands:
+  static                   Run lightweight static checks.
+  local                    Run host-side regression suite.
+  android <device_serial> [filter]
+                           Build arm64-v8a, push and test on device.
+                           filter (optional, default 'all'):
+                             all      — every stage (cpu+opencl+vulkan+lowmem+llm+smoke).
+                             cpu      — CPU unit + lowmem + llm only.
+                             opencl   — OpenCL unit (IMAGE + BUFFER) + opencl smoke.
+                             opencl-image  — only OpenCL IMAGE-mem stage.
+                             opencl-buffer — only OpenCL BUFFER-mem stage.
+                             vulkan   — Vulkan unit + vulkan smoke.
+                             gpu      — opencl + vulkan unit + smoke.
+                             unit     — all unit/op stages, no lowmem/smoke/llm.
+                             lowmem   — only lowmem matrix.
+                             android-ci
+                                      — bench + smoke (cpu/opencl/vulkan) + llm only;
+                                        skips unit-test and lowmem stages.
+
+Environment:
+  ANDROID_NDK              NDK root (android mode). Defaults to
+                           \$HOME/android-ndk-r21 when unset.
+  LLM_MODEL_DIR            Use an existing on-disk MNN LLM model; no download.
+                           Default: models/${LLM_MODEL_NAME}.
+  LLM_MODEL_REPO           Model repo id for the LLM smoke test.
+                           Default: ${LLM_MODEL_REPO}.
+  LLM_MODEL_SOURCE         Download source: huggingface (default) | modelscope.
+  LLM_MODEL_URL_BASE       Override resolve URL prefix (wins over _SOURCE).
+
+  The LLM model is fetched lazily — only when the llm stage runs — so the
+  unit / smoke / bench stages proceed even with no network.
+
+Examples:
+  $0 static
+  $0 local
+  $0 android emulator-5554
+  $0 android R5CY71BJJ9D opencl-buffer
+  $0 android R5CY71BJJ9D cpu
+  $0 android R5CY71BJJ9D android-ci      # bench + smoke + llm only
+  LLM_MODEL_DIR=/path/to/MNN-model $0 local             # use a local model, no download
+  LLM_MODEL_SOURCE=modelscope $0 android R5CY71BJJ9D    # fetch from ModelScope
+EOF
+}
+
+parse_args() {
+    if [[ $# -lt 1 ]]; then usage; exit 2; fi
+    MODE="$1"; shift
+    case "${MODE}" in
+        static) ;;
+        local) ;;
+        android)
+            if [[ $# -lt 1 || -z "${1:-}" ]]; then
+                log_err "android mode requires a device serial"
+                usage; exit 2
+            fi
+            DEVICE="$1"; shift
+            if [[ $# -ge 1 && -n "${1:-}" ]]; then
+                FILTER="$1"; shift
+            fi
+            case "${FILTER}" in
+                all|cpu|opencl|opencl-image|opencl-buffer|vulkan|gpu|unit|lowmem|android-ci) ;;
+                *) log_err "unknown filter: ${FILTER}"; usage; exit 2 ;;
+            esac
+            ;;
+        -h|--help|help) usage; exit 0 ;;
+        *) log_err "unknown subcommand: ${MODE}"; usage; exit 2 ;;
+    esac
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# adb / adbk wrapper
+# ─────────────────────────────────────────────────────────────────────────────
+detect_adb() {
+    local adbk_path adb_path
+    adbk_path="$(command -v adbk || true)"
+    adb_path="$(command -v adb || true)"
+    if [[ -n "${adbk_path}" ]]; then
+        ADB_BIN="${adbk_path}"
+        USE_ADBK=1
+        log_info "using adbk at ${adbk_path}"
+    elif [[ -n "${adb_path}" ]]; then
+        ADB_BIN="${adb_path}"
+        USE_ADBK=0
+        log_info "using adb at ${adb_path} (adbk not found)"
+    else
+        log_err "neither adbk nor adb found on PATH"
+        exit 1
+    fi
+}
+
+ad() { "${ADB_BIN}" -s "${DEVICE}" "$@"; }
+
+ensure_adbk_session() {
+    [[ ${USE_ADBK} -eq 1 ]] || return 0
+    local user current
+    user="${USER:-$(id -un)}"
+    if current="$("${ADB_BIN}" --status 2>/dev/null)"; then
+        if printf '%s\n' "${current}" | grep -q "${DEVICE}.*Session.*${user}"; then
+            log_info "reusing existing adbk session for ${DEVICE}"
+            return 0
+        fi
+    fi
+    log_info "creating adbk session for ${DEVICE}"
+    if ! "${ADB_BIN}" -s "${DEVICE}" --create-session >/dev/null; then
+        log_err "adbk --create-session failed"
+        exit 1
+    fi
+    SESSION_CREATED=1
+    log_ok "adbk session created"
+}
+
+teardown_adbk_session() {
+    [[ ${USE_ADBK} -eq 1 && ${SESSION_CREATED} -eq 1 ]] || return 0
+    log_info "deleting adbk session for ${DEVICE}"
+    "${ADB_BIN}" -s "${DEVICE}" --delete-session >/dev/null 2>&1 || true
+}
+
+verify_device_online() {
+    if ! ad shell echo ok >/dev/null 2>&1; then
+        log_err "device ${DEVICE} is not reachable via ${ADB_BIN}"
+        exit 1
+    fi
+    log_ok "device ${DEVICE} online"
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Exit handling
+# ─────────────────────────────────────────────────────────────────────────────
+print_summary() {
+    local total=$((STAGE_PASS + STAGE_FAIL + STAGE_SKIP))
+    printf "\n%s════════════════ test.sh summary ════════════════%s\n" "${C_BLD}" "${C_RST}"
+    printf "  mode    : %s\n" "${MODE}"
+    [[ "${MODE}" == "android" ]] && printf "  device  : %s\n" "${DEVICE}"
+    printf "  total   : %d\n" "${total}"
+    printf "  %spassed %s : %d\n" "${C_GRN}" "${C_RST}" "${STAGE_PASS}"
+    printf "  %sfailed %s : %d\n" "${C_RED}" "${C_RST}" "${STAGE_FAIL}"
+    printf "  %sskipped%s : %d\n" "${C_YLW}" "${C_RST}" "${STAGE_SKIP}"
+    if [[ ${#STAGE_LOG[@]} -gt 0 ]]; then
+        printf "  %sstages%s :\n" "${C_DIM}" "${C_RST}"
+        local line
+        for line in "${STAGE_LOG[@]}"; do
+            printf "    %s\n" "${line}"
+        done
+    fi
+    printf "%s════════════════════════════════════════════════════%s\n" "${C_BLD}" "${C_RST}"
+}
+
+_on_exit() {
+    local rc=$?
+    teardown_adbk_session
+    # Suppress the summary on usage / arg-parse errors (no stages attempted).
+    local total=$((STAGE_PASS + STAGE_FAIL + STAGE_SKIP))
+    if [[ ${total} -gt 0 ]]; then
+        print_summary
+    fi
+    if [[ ${STAGE_FAIL} -gt 0 ]]; then exit 1; fi
+    exit "${rc}"
+}
+trap _on_exit EXIT
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Static checks
+# ─────────────────────────────────────────────────────────────────────────────
+_changed_files() {
+    git show --name-only --format= 2>/dev/null || true
+}
+
+_emit_static_success() {
+    echo 'TEST_CASE={"name":"静态检查", "failed":0, "passed":3}'
+}
+
+_fail_static() {
     printf "TEST_NAME_EXCEPTION: Exception\nTEST_CASE_AMOUNT_EXCEPTION: {\"blocked\":0,\"failed\":1,\"passed\":0,\"skipped\":0}\n"
     exit 1
 }
 
-echo_static_success() {
-    echo "TEST_CASE={\"name\":\"静态检查\", \"failed\":0, \"passed\":3}"
-}
-
-#############################################################################################
-#                                                                                           #
-#                                  Linux Test Functions                                     #
-#                                                                                           #
-#############################################################################################
 doc_check() {
-    echo 'doc_check'
-    # 1. CHECK CMakeLists.txt:
-    cmake_files=$(find tools source demo test benchmark  -name "CMakeLists.txt")
-    cmake_files="$cmake_files CMakeLists.txt"
-    macros=''
-    executables=''
-    for cmake_file in $cmake_files
-    do
-        executables="$executables $(cat $cmake_file | grep -oE "add_executable\((.+) " | awk '{print $1}' | awk -F "(" '{print $2}')"
-        macros="$macros $(cat $cmake_file | grep -oE "option\((.+) " | awk '{print $1}' | awk -F "(" '{print $2}')"
-    done
-    # 1.1 check all macro
-    for macro in $macros
-    do
-        if [ $(grep -c $macro ./docs/compile/cmake.md) -le 0 ]; then
-            echo 'DOC CHECK FAILED:' $macro 'not in ./docs/compile/cmake.md'
-            failed
+    local IFS=$' \n\t'
+    log_step "doc_check"
+    local cmake_files
+    cmake_files="$(find tools source demo test benchmark \
+        \( -path source/internal -o -path schema/private \) -prune -o \
+        -name CMakeLists.txt -type f -print)"
+    cmake_files="${cmake_files}"$'\n'"CMakeLists.txt"
+
+    local macros executables cmake_file macro executable
+    macros=""
+    executables=""
+    while IFS= read -r cmake_file; do
+        [[ -n "${cmake_file}" && -f "${cmake_file}" ]] || continue
+        executables="${executables} $(grep -oE "add_executable\((.+) " "${cmake_file}" | awk '{print $1}' | awk -F "(" '{print $2}' || true)"
+        macros="${macros} $(grep -oE "option\((.+) " "${cmake_file}" | awk '{print $1}' | awk -F "(" '{print $2}' || true)"
+    done <<<"${cmake_files}"
+
+    for macro in ${macros}; do
+        if [[ $(grep -c "${macro}" ./docs/compile/cmake.md || true) -le 0 ]]; then
+            echo "DOC CHECK FAILED: ${macro} not in ./docs/compile/cmake.md"
+            _fail_static
         fi
     done
-    # 1.2 check executable
-    for executable in $executables
-    do
-        if [ $(grep -c $executable ./docs/compile/other.md) -le 0 ]; then
-            echo 'DOC CHECK FAILED:' $executable 'not in ./docs/compile/other.md'
-            failed
+    for executable in ${executables}; do
+        if [[ $(grep -c "${executable}" ./docs/compile/other.md || true) -le 0 ]]; then
+            echo "DOC CHECK FAILED: ${executable} not in ./docs/compile/other.md"
+            _fail_static
         fi
     done
-    # 2. CHECK Pymnn API:
-    # 2.1 check cv api
-    cv_apis=$(cat pymnn/src/cv.h | grep -oE "        .+, \".+\"" | awk '{ print $1 }' | awk -F ',' '{ print $1 }')
-    cv_apis="$cv_apis $(cat pymnn/pip_package/MNN/cv/__init__.py | grep -oE "def .+\(" | awk '{ print $2 }' | awk -F '(' '{print $1}' | grep -v "__")"
-    for cv_api in $cv_apis
-    do
-        if [ $(grep -c $cv_api ./docs/pymnn/cv.md) -le 0 ]; then
-            echo 'DOC CHECK FAILED:' $cv_api 'not in ./docs/pymnn/cv.md'
-            failed
+
+    local cv_apis expr_apis cv_api expr_api
+    cv_apis="$(grep -oE "        .+, \".+\"" pymnn/src/cv.h | awk '{ print $1 }' | awk -F ',' '{ print $1 }' || true)"
+    cv_apis="${cv_apis} $(grep -oE "def .+\(" pymnn/pip_package/MNN/cv/__init__.py | awk '{ print $2 }' | awk -F '(' '{print $1}' | grep -v "__" || true)"
+    for cv_api in ${cv_apis}; do
+        if [[ $(grep -c "${cv_api}" ./docs/pymnn/cv.md || true) -le 0 ]]; then
+            echo "DOC CHECK FAILED: ${cv_api} not in ./docs/pymnn/cv.md"
+            _fail_static
         fi
     done
-    # 2.2 check numpy api
-    # np_apis=$(cat pymnn/pip_package/MNN/numpy/__init__.py | grep -oE "def .+\(" | grep -v "__" | awk '{ print $2 }' | awk -F '(' '{print $1}')
-    # for np_api in $np_apis
-    # do
-    #     if [ $(grep -c $np_api ./docs/pymnn/numpy.md) -le 0 ]; then
-    #         echo 'DOC CHECK FAILED:' $np_api 'not in ./docs/pymnn/numpy.md'
-    #         # failed
-    #     fi
-    # done
-    # 2.3 check expr api
-    expr_apis=$(cat pymnn/src/expr.h | grep -oE "        [a-z_]+, \"" | awk '{ print $1 }' | awk -F ',' '{ print $1 }')
-    for expr_api in $expr_apis
-    do
-        if [ $(grep -c $expr_api ./docs/pymnn/expr.md) -le 0 ]; then
-            echo 'DOC CHECK FAILED:' $expr_api 'not in ./docs/pymnn/expr.md'
-            # failed
+
+    expr_apis="$(grep -oE "        [a-z_]+, \"" pymnn/src/expr.h | awk '{ print $1 }' | awk -F ',' '{ print $1 }' || true)"
+    for expr_api in ${expr_apis}; do
+        if [[ $(grep -c "${expr_api}" ./docs/pymnn/expr.md || true) -le 0 ]]; then
+            echo "DOC CHECK WARNING: ${expr_api} not in ./docs/pymnn/expr.md"
         fi
     done
-    # 3. CHECK C++ API:
-    # 3.1 check Interpreter
-    # 3.2 check Tensor
 }
 
 py_check() {
-    echo 'py_check'
-    if [ -z "$PY_CHANGE" ]; then
-        return
-    fi
-    pushd pymnn
-    ./update_mnn_wrapper_assets.sh -c
-    pyc_check_wrong=$[$? > 0]
-    printf "TEST_NAME_PYC_CHECK: pyc资源文件校验\nTEST_CASE_AMOUNT_PYC_CHECK: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" \
-           $pyc_check_wrong $[1 - $pyc_check_wrong]
-    if [ $pyc_check_wrong -ne 0 ]; then
+    log_step "py_check"
+    local py_change
+    py_change="$(_changed_files | grep -E "^pymnn/pip_package/MNN/.*\.(py)$" || true)"
+    [[ -n "${py_change}" ]] || return 0
+
+    pushd pymnn >/dev/null
+    if ./update_mnn_wrapper_assets.sh -c; then
+        printf "TEST_NAME_PYC_CHECK: pyc资源文件校验\nTEST_CASE_AMOUNT_PYC_CHECK: {\"blocked\":0,\"failed\":0,\"passed\":1,\"skipped\":0}\n"
+    else
+        printf "TEST_NAME_PYC_CHECK: pyc资源文件校验\nTEST_CASE_AMOUNT_PYC_CHECK: {\"blocked\":0,\"failed\":1,\"passed\":0,\"skipped\":0}\n"
+        popd >/dev/null
         echo '### pyc资源文件校验失败，测试终止！'
-        failed
+        _fail_static
     fi
-    popd
+    popd >/dev/null
 }
 
 static_check() {
-    echo 'static_check'
-    if [ -z "$SOURCE_CHANGE" ]; then
-        return
-    fi
-    cppcheck --error-exitcode=1 --language=c++ --std=c++14 $SOURCE_CHANGE 1> /dev/null
-    static_check_wrong=$[$? > 0]
-    printf "TEST_NAME_STATIC_CHECK: cppcheck静态分析\nTEST_CASE_AMOUNT_STATIC_CHECK: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" \
-           $static_check_wrong $[1 - $static_check_wrong]
-    if [ $static_check_wrong -ne 0 ]; then
-        echo '### cppcheck静态分析失败，测试终止！'
-        failed
-    fi
-}
+    log_step "static_check"
+    local source_change
+    source_change="$(_changed_files \
+        | grep -E "^source/(backend|core|common|cv|geometry|math|plugin|shape|utils)/.*\.(cpp|cc|c|hpp)$" \
+        | grep -Ev "aliyun-log-c-sdk|hiai|tensorrt|Backend|FunctionDispatcher|ThreadPool" || true)"
+    [[ -n "${source_change}" ]] || return 0
 
-
-
-android_static_build() {
-    BASH_FILE="$USER_HOME/.zshrc"
-    if [ -f "$BASH_FILE" ]; then
-        source $BASH_FILE
+    if ! command -v cppcheck >/dev/null 2>&1; then
+        log_err "cppcheck is required for static_check"
+        _fail_static
     fi
-    if [ ! $ANDROID_NDK ] || [ ! -d $ANDROID_NDK ]; then
-        export ANDROID_NDK="$USER_HOME/android-ndk-r21"
-    fi
-    mkdir android_build
-    pushd android_build
-    cmake .. \
-    -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake \
-    -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DANDROID_ABI="arm64-v8a" \
-    -DANDROID_STL=c++_static \
-    -DMNN_INTERNAL=ON \
-    -DMNN_USE_LOGCAT=false \
-    -DMNN_BUILD_BENCHMARK=ON \
-    -DANDROID_NATIVE_API_LEVEL=android-26  \
-    -DMNN_BUILD_FOR_ANDROID_COMMAND=true \
-    -DMNN_OPENGL=true \
-    -DMNN_BUILD_TRAIN=true \
-    -DMNN_VULKAN=true \
-    -DMNN_OPENCL=true \
-    -DMNN_SUPPORT_BF16=true \
-    -DMNN_OPENCL=true -DMNN_ARM82=true \
-    -DMNN_SUPPORT_TRANSFORMER_FUSE=ON \
-    -DNATIVE_LIBRARY_OUTPUT=. -DNATIVE_INCLUDE_OUTPUT=. $1 $2 $3
-    make -j16
-    android_build_wrong=$[$? > 0]
-    printf "TEST_NAME_ANDROID_STATIC: AndroidStatic编译测试\nTEST_CASE_AMOUNT_ANDROID_STATIC: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" \
-           $android_build_wrong $[1 - $android_build_wrong]
-    if [ $android_build_wrong -ne 0 ]; then
-        echo '### AndroidStatic编译失败，测试终止！'
-        failed
-    fi
-    popd
-
-    mkdir android_build_32
-    pushd android_build_32
-    cmake .. \
-    -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake \
-    -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DANDROID_ABI="armeabi-v7a" \
-    -DANDROID_STL=c++_shared \
-    -DMNN_USE_LOGCAT=false \
-    -DMNN_BUILD_BENCHMARK=ON \
-    -DMNN_INTERNAL=ON \
-    -DANDROID_NATIVE_API_LEVEL=android-26  \
-    -DMNN_BUILD_FOR_ANDROID_COMMAND=true \
-    -DMNN_OPENGL=true \
-    -DMNN_BUILD_TRAIN=true \
-    -DMNN_VULKAN=true \
-    -DMNN_OPENCL=true \
-    -DMNN_BUILD_MINI=true \
-    -DMNN_SUPPORT_BF16=true \
-    -DMNN_ARM82=false \
-    -DMNN_OPENCL=true \
-    -DMNN_SUPPORT_TRANSFORMER_FUSE=ON \
-    -DNATIVE_LIBRARY_OUTPUT=. -DNATIVE_INCLUDE_OUTPUT=.
-    make -j16
-    android_build_wrong=$[$? > 0]
-    printf "TEST_NAME_ANDROID_32: Android 32-Mini 编译测试\nTEST_CASE_AMOUNT_ANDROID_32: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" $android_build_wrong $[1 - $android_build_wrong]
-    if [ $android_build_wrong -ne 0 ]; then
-        echo '### Android编译失败，测试终止！'
-        failed
-    fi
-    popd
-}
-
-linux_build() {
-    if [ $# -gt 0 ]; then
-        COVERAGE=ON
+    if cppcheck --error-exitcode=1 --language=c++ --std=c++14 ${source_change} >/dev/null; then
+        printf "TEST_NAME_STATIC_CHECK: cppcheck静态分析\nTEST_CASE_AMOUNT_STATIC_CHECK: {\"blocked\":0,\"failed\":0,\"passed\":1,\"skipped\":0}\n"
     else
-        COVERAGE=OFF
+        printf "TEST_NAME_STATIC_CHECK: cppcheck静态分析\nTEST_CASE_AMOUNT_STATIC_CHECK: {\"blocked\":0,\"failed\":1,\"passed\":0,\"skipped\":0}\n"
+        echo '### cppcheck静态分析失败，测试终止！'
+        _fail_static
     fi
+}
 
-    mkdir build_non_sse
-    pushd build_non_sse
-    cmake .. -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DMNN_USE_SSE=OFF && make -j16
+drive_static() {
+    log_info "mode=static script_dir=${SCRIPT_DIR}"
+    doc_check
+    static_check
+    py_check
+    _emit_static_success
+}
 
-    linux_build_wrong=$[$? > 0]
-    popd
+# ─────────────────────────────────────────────────────────────────────────────
+# LLM model provisioning (HuggingFace / ModelScope / local dir)
+# ─────────────────────────────────────────────────────────────────────────────
+# Cache layout: ${MODELS_DIR}/<repo-basename>/{config.json,llm.mnn,...}
+# Plus a generated prompt.txt so llm_demo has something to consume.
+#
+# Provisioning is lazy — invoked only once a run reaches the llm stage — and
+# returns non-zero on failure (instead of aborting the whole script) so the
+# caller can skip just the llm stage. When LLM_MODEL_DIR is caller-supplied the
+# directory is used as-is and nothing is downloaded.
+llm_model_complete() {
+    local f
+    for f in "${LLM_MODEL_FILES[@]}"; do
+        [[ -s "${LLM_MODEL_DIR}/${f}" ]] || return 1
+    done
+    return 0
+}
 
-    mkdir build
-    pushd build
-    # copy libtorch avoid wget, speed up ci build
-    cp ~/libtorch-cxx11-abi-shared-with-deps-1.9.0+cpu.zip .
+provision_llm_model() {
+    log_step "provisioning LLM model: ${LLM_MODEL_NAME}"
+    if llm_model_complete; then
+        log_ok "LLM model present at ${LLM_MODEL_DIR}"
+    elif [[ ${LLM_MODEL_DIR_PROVIDED} -eq 1 ]]; then
+        log_err "LLM_MODEL_DIR=${LLM_MODEL_DIR} is missing required files; not downloading (caller-supplied path)"
+        return 1
+    else
+        log_info "downloading from ${LLM_MODEL_SOURCE} (${LLM_MODEL_URL_BASE})"
+        mkdir -p "${LLM_MODEL_DIR}"
+        local f url tmp dst
+        for f in "${LLM_MODEL_FILES[@]}"; do
+            dst="${LLM_MODEL_DIR}/${f}"
+            if [[ -s "${dst}" ]]; then
+                continue
+            fi
+            url="${LLM_MODEL_URL_BASE}/${f}"
+            tmp="${dst}.part"
+            log_info "fetching ${f}"
+            if ! curl -fL --retry 3 --retry-delay 2 -o "${tmp}" "${url}"; then
+                log_err "failed to download ${url}"
+                rm -f "${tmp}"
+                return 1
+            fi
+            mv "${tmp}" "${dst}"
+        done
+        log_ok "LLM model staged at ${LLM_MODEL_DIR}"
+    fi
+    # Ensure a small prompt exists for the smoke test. Best-effort: a read-only
+    # caller-supplied model dir is fine as long as it already ships a prompt.
+    local prompt_path="${LLM_MODEL_DIR}/prompt.txt"
+    if [[ ! -s "${prompt_path}" ]]; then
+        if ! printf 'Hello, who are you?\n' > "${prompt_path}" 2>/dev/null; then
+            log_err "no prompt.txt in ${LLM_MODEL_DIR} and the directory is not writable"
+            return 1
+        fi
+    fi
+    return 0
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Public smoke models (resource/model/) — Caffe MobileNet/SqueezeNet pairs
+# fetched from upstream GitHub repos and converted with our local MNNConvert.
+# We deliberately do NOT use tools/script/get_model.sh: it pulls extra TFLite
+# tarballs from URLs that frequently 404 / 503, producing noisy gzip + parser
+# errors (and an MNNConvert SIGSEGV on a corrupt .tflite payload) even when
+# the four .mnn files we actually need have already been converted.
+# ─────────────────────────────────────────────────────────────────────────────
+public_models_complete() {
+    local m
+    for m in "${SMOKE_MODELS[@]}"; do
+        [[ -s "${PUBLIC_MODELS_DIR}/${m}" ]] || return 1
+    done
+    return 0
+}
+
+# Convert a caffemodel/prototxt pair to ${PUBLIC_MODELS_DIR}/<relpath>.
+# Args: 1=caffemodel basename, 2=prototxt basename, 3=output relpath
+_local_convert_caffe_pair() {
+    local caffemodel="$1" prototxt="$2" relpath="$3"
+    local src_caffe="${SMOKE_SOURCES_DIR}/${caffemodel}"
+    local src_proto="${SMOKE_SOURCES_DIR}/${prototxt}"
+    local dst="${PUBLIC_MODELS_DIR}/${relpath}"
+    if [[ -s "${dst}" ]]; then
+        return 0
+    fi
+    if [[ ! -s "${src_caffe}" || ! -s "${src_proto}" ]]; then
+        log_err "missing source: ${src_caffe} or ${src_proto}"
+        return 1
+    fi
+    mkdir -p "$(dirname "${dst}")"
+    log_info "converting ${relpath}"
+    "${SCRIPT_DIR}/build/MNNConvert" \
+        -f CAFFE \
+        --modelFile "${src_caffe}" \
+        --prototxt "${src_proto}" \
+        --MNNModel "${dst}" \
+        --bizCode 0000 \
+        --keepInputFormat=0 >/dev/null
+}
+
+# Returns 0 if the public smoke set is ready, 1 otherwise. Caller decides
+# whether to skip downstream stages.
+provision_public_models() {
+    log_step "provisioning public smoke models"
+    if public_models_complete; then
+        log_ok "public model cache hit at ${PUBLIC_MODELS_DIR}"
+        return 0
+    fi
+    if [[ ! -x "${SCRIPT_DIR}/build/MNNConvert" ]]; then
+        log_warn "build/MNNConvert missing — smoke stages will skip"
+        return 1
+    fi
+    if ! provision_smoke_sources; then
+        log_warn "smoke source download failed — smoke stages will skip"
+        return 1
+    fi
+    local rc=0
+    _local_convert_caffe_pair mobilenet_v1.caffemodel mobilenet_v1.prototxt \
+        MobileNet/v1/mobilenet_v1.caffe.mnn || rc=1
+    _local_convert_caffe_pair mobilenet_v2.caffemodel mobilenet_v2.prototxt \
+        MobileNet/v2/mobilenet_v2.caffe.mnn || rc=1
+    _local_convert_caffe_pair squeezenet_v1.0.caffemodel squeezenet_v1.0.prototxt \
+        SqueezeNet/v1.0/squeezenet_v1.0.caffe.mnn || rc=1
+    _local_convert_caffe_pair squeezenet_v1.1.caffemodel squeezenet_v1.1.prototxt \
+        SqueezeNet/v1.1/squeezenet_v1.1.caffe.mnn || rc=1
+    if [[ ${rc} -ne 0 ]]; then
+        log_warn "one or more conversions failed — smoke stages will skip"
+        return 1
+    fi
+    if ! public_models_complete; then
+        log_warn "expected .mnn files missing after conversion — smoke stages will skip"
+        return 1
+    fi
+    log_ok "public smoke models ready"
+    return 0
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NDK helpers
+# ─────────────────────────────────────────────────────────────────────────────
+ensure_android_ndk() {
+    if [[ -n "${ANDROID_NDK:-}" && -d "${ANDROID_NDK}" ]]; then
+        log_info "using ANDROID_NDK=${ANDROID_NDK}"
+        return 0
+    fi
+    local fallback="${HOME}/android-ndk-r21"
+    if [[ -d "${fallback}" ]]; then
+        export ANDROID_NDK="${fallback}"
+        log_warn "ANDROID_NDK unset; falling back to ${fallback}"
+        return 0
+    fi
+    log_err "ANDROID_NDK not set and ${fallback} does not exist"
+    exit 1
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Local-mode build
+# ─────────────────────────────────────────────────────────────────────────────
+_host_jobs() {
+    if command -v nproc >/dev/null 2>&1; then
+        nproc
+    else
+        sysctl -n hw.ncpu 2>/dev/null || echo 4
+    fi
+}
+
+local_build() {
+    log_step "configuring + building host (build/) [CPU-only]"
+    local build_dir="${SCRIPT_DIR}/build"
+    mkdir -p "${build_dir}"
+    pushd "${build_dir}" >/dev/null
+    # On macOS, CMake fails to auto-pick the SDK when CMAKE_CXX_COMPILER
+    # resolves to /usr/bin/c++ (the Apple shim), leaving CMAKE_OSX_SYSROOT
+    # empty and the OBJECT-library targets (e.g. MNNARM64) unable to find
+    # <vector>/<map>. Pass the active SDK path explicitly.
+    #
+    # Additionally, partially-upgraded Command Line Tools installs leave a
+    # stale /Library/Developer/CommandLineTools/usr/include/c++/v1 with only
+    # a few legacy files. clang's internal-isystem hits that dir first and
+    # stops searching, so the SDK's complete libc++ headers are never seen.
+    # Prepend the SDK's libc++ via CPLUS_INCLUDE_PATH to force a hit.
+    local -a platform_args=()
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        local sdkpath
+        sdkpath="$(xcrun --show-sdk-path 2>/dev/null || true)"
+        if [[ -n "${sdkpath}" ]]; then
+            platform_args+=("-DCMAKE_OSX_SYSROOT=${sdkpath}")
+            local sdk_libcxx="${sdkpath}/usr/include/c++/v1"
+            if [[ -d "${sdk_libcxx}" && ! -f "/Library/Developer/CommandLineTools/usr/include/c++/v1/vector" ]]; then
+                export CPLUS_INCLUDE_PATH="${sdk_libcxx}${CPLUS_INCLUDE_PATH:+:${CPLUS_INCLUDE_PATH}}"
+                log_warn "host CommandLineTools libc++ is incomplete; prepending ${sdk_libcxx} to CPLUS_INCLUDE_PATH"
+            fi
+        fi
+    fi
+    # Local mode is CPU-only: host GPU drivers are usually unavailable or
+    # unreliable on dev machines, so we omit OpenCL/Vulkan to keep the
+    # build fast and the test surface meaningful.
     cmake .. \
-        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
         -DCMAKE_BUILD_TYPE=Release \
         -DMNN_BUILD_TEST=ON \
-        -DMNN_CUDA=ON \
-        -DMNN_OPENCL=ON \
-        -DMNN_BUILD_QUANTOOLS=ON \
-        -DMNN_BUILD_DEMO=ON \
-        -DMNN_BUILD_TRAIN=ON \
-        -DMNN_BUILD_CONVERTER=ON \
-        -DMNN_BUILD_TORCH=ON \
-        -DMNN_BUILD_OPENCV=ON \
         -DMNN_LOW_MEMORY=ON \
-        -DMNN_IMGCODECS=ON \
         -DMNN_SUPPORT_TRANSFORMER_FUSE=ON \
-        -DMNN_ENABLE_COVERAGE=$COVERAGE
-    make -j16
-
-    linux_build_wrong+=$[$? > 0]
-    printf "TEST_NAME_LINUX: Linux编译测试\nTEST_CASE_AMOUNT_LINUX: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" $linux_build_wrong $[2 - $linux_build_wrong]
-    if [ $linux_build_wrong -ne 0 ]; then
-        echo '### Linux编译失败，测试终止！'
-        failed
-    fi
-
-    # Don't remove this! It turn off MNN_CUDA and MNN_TENSORRT in build, workaround some bug in PTQTest
-    cmake .. -DMNN_CUDA=OFF -DMNN_TENSORRT=OFF && make -j16
+        -DMNN_BUILD_LLM=ON \
+        -DMNN_BUILD_CONVERTER=ON \
+        "${platform_args[@]}"
+    make -j"$(_host_jobs)"
+    popd >/dev/null
+    log_ok "host build complete"
 }
 
-unit_test() {
-    ./run_test.out
-    if [ $? -ne 0 ]; then
-        echo '### 单元测试失败，测试终止！'
-        failed
-    fi
+# Source archives for the smoke corpus. Hosts the upstream URLs that
+# tools/script/get_model.sh hits. Format per row:
+#   <url> <local_basename> <output_mnn_relpath> <framework>
+# framework is "CAFFE" (paired prototxt download follows immediately) or
+# "TFLITE" (single .tflite payload).
+# Total payload ~40 MB.
+SMOKE_SOURCES=(
+    "https://raw.githubusercontent.com/shicai/MobileNet-Caffe/master/mobilenet.caffemodel|mobilenet_v1.caffemodel|MobileNet/v1/mobilenet_v1.caffe.mnn|CAFFE"
+    "https://raw.githubusercontent.com/shicai/MobileNet-Caffe/master/mobilenet_deploy.prototxt|mobilenet_v1.prototxt|MobileNet/v1/mobilenet_v1.caffe.mnn|CAFFE_PROTOTXT"
+    "https://raw.githubusercontent.com/shicai/MobileNet-Caffe/master/mobilenet_v2.caffemodel|mobilenet_v2.caffemodel|MobileNet/v2/mobilenet_v2.caffe.mnn|CAFFE"
+    "https://raw.githubusercontent.com/shicai/MobileNet-Caffe/master/mobilenet_v2_deploy.prototxt|mobilenet_v2.prototxt|MobileNet/v2/mobilenet_v2.caffe.mnn|CAFFE_PROTOTXT"
+    "https://raw.githubusercontent.com/DeepScale/SqueezeNet/master/SqueezeNet_v1.0/squeezenet_v1.0.caffemodel|squeezenet_v1.0.caffemodel|SqueezeNet/v1.0/squeezenet_v1.0.caffe.mnn|CAFFE"
+    "https://raw.githubusercontent.com/DeepScale/SqueezeNet/master/SqueezeNet_v1.0/deploy.prototxt|squeezenet_v1.0.prototxt|SqueezeNet/v1.0/squeezenet_v1.0.caffe.mnn|CAFFE_PROTOTXT"
+    "https://raw.githubusercontent.com/DeepScale/SqueezeNet/master/SqueezeNet_v1.1/squeezenet_v1.1.caffemodel|squeezenet_v1.1.caffemodel|SqueezeNet/v1.1/squeezenet_v1.1.caffe.mnn|CAFFE"
+    "https://raw.githubusercontent.com/DeepScale/SqueezeNet/b6b5ae2ce884a3866c21efd31e103defde8631ae/SqueezeNet_v1.1/deploy.prototxt|squeezenet_v1.1.prototxt|SqueezeNet/v1.1/squeezenet_v1.1.caffe.mnn|CAFFE_PROTOTXT"
+)
+SMOKE_SOURCES_DIR="${SCRIPT_DIR}/smoke_sources"
 
-    ./run_test.out op 0 0 4
-    if [ $? -ne 0 ]; then
-        echo '### 多线程单元测试失败，测试终止！'
-        failed
-    fi
-    if [ "$OPENCL_CHANGE" ]; then
-        ./run_test.out op 3 1 4
-        if [ $? -ne 0 ]; then
-            echo '### OpenCL单元测试失败，测试终止！'
-            failed
+# Map MNN-output relpath -> (caffemodel, prototxt) basenames. Mirrors the
+# pairing in SMOKE_SOURCES above and is consumed by android conversion.
+_smoke_pair_for() {
+    case "$1" in
+        MobileNet/v1/mobilenet_v1.caffe.mnn)
+            printf '%s\n%s\n' mobilenet_v1.caffemodel mobilenet_v1.prototxt ;;
+        MobileNet/v2/mobilenet_v2.caffe.mnn)
+            printf '%s\n%s\n' mobilenet_v2.caffemodel mobilenet_v2.prototxt ;;
+        SqueezeNet/v1.0/squeezenet_v1.0.caffe.mnn)
+            printf '%s\n%s\n' squeezenet_v1.0.caffemodel squeezenet_v1.0.prototxt ;;
+        SqueezeNet/v1.1/squeezenet_v1.1.caffe.mnn)
+            printf '%s\n%s\n' squeezenet_v1.1.caffemodel squeezenet_v1.1.prototxt ;;
+        *)
+            return 1 ;;
+    esac
+}
+
+# Download upstream caffe sources to the host cache. Skips files already
+# present. Returns non-zero if any download fails.
+provision_smoke_sources() {
+    log_step "fetching smoke-model sources"
+    mkdir -p "${SMOKE_SOURCES_DIR}"
+    local entry url fname rest
+    for entry in "${SMOKE_SOURCES[@]}"; do
+        url="${entry%%|*}"
+        rest="${entry#*|}"
+        fname="${rest%%|*}"
+        local dst="${SMOKE_SOURCES_DIR}/${fname}"
+        if [[ -s "${dst}" ]]; then
+            continue
         fi
-    fi
-}
-
-model_test() {
-    ../tools/script/modelTest.py ~/AliNNModel 0 0.002
-    if [ $? -ne 0 ]; then
-        echo '### 模型测试失败，测试终止！'
-        failed
-    fi
-
-    ../tools/script/modelTest.py ~/AliNNModel 0 0.002 0 1
-    if [ $? -ne 0 ]; then
-        echo '### 静态模型测试失败，测试终止！'
-        failed
-    fi
-
-    if [ "$OPENCL_CHANGE" ]; then
-        ../tools/script/modelTest.py ~/AliNNModel 3 0.002 1
-        if [ $? -ne 0 ]; then
-            echo '### OpenCL模型测试失败，测试终止！'
-            failed
+        log_info "fetching ${fname}"
+        if ! curl -fL --retry 3 --retry-delay 2 -o "${dst}.part" "${url}"; then
+            log_err "failed to download ${url}"
+            rm -f "${dst}.part"
+            return 1
         fi
-    fi
+        mv "${dst}.part" "${dst}"
+    done
+    log_ok "smoke sources cached at ${SMOKE_SOURCES_DIR}"
+    return 0
 }
 
-onnx_convert_test() {
-    ../tools/script/convertOnnxTest.py ~/AliNNModel
-    if [ $? -ne 0 ]; then
-        echo '### ONNXConvert测试失败，测试终止！'
-        failed
-    fi
+# ─────────────────────────────────────────────────────────────────────────────
+# Local-mode runners — invoked by the JSON dispatch table; one wrapper per
+# binary, named symmetrically with the remote/_remote_* counterparts.
+# ─────────────────────────────────────────────────────────────────────────────
+_local_run_test() {
+    (cd "${SCRIPT_DIR}/build" && ./run_test.out "$@");
+}
+_local_v2basic() {
+    (cd "${SCRIPT_DIR}/build" && ./MNNV2Basic.out "$@")
+}
+_local_backendtest() {
+    (cd "${SCRIPT_DIR}/build" && ./backendTest.out "$@")
 }
 
-tf_convert_test() {
-    ../tools/script/convertTfTest.py ~/AliNNModel
-    if [ $? -ne 0 ]; then
-        echo '### TFConvert测试失败，测试终止！'
-        failed
-    fi
-}
+local_run_stages() {
+    # Local mode is CPU-only by design — see local_build() comment.
+    # Unit and smoke stages flow through the JSON config (section: "local").
+    _run_json_stages local _local_run_test
 
-tflite_convert_test() {
-    ../tools/script/convertTfliteTest.py ~/AliNNModel
-    if [ $? -ne 0 ]; then
-        echo '### TFLITEConvert测试失败，测试终止！'
-        failed
-    fi
-}
-
-torch_convert_test() {
-    ../tools/script/convertTorchTest.py ~/AliNNModel
-    if [ $? -ne 0 ]; then
-        echo '### TORCHConvert测试失败，测试终止！'
-        failed
-    fi
-}
-
-ptq_test() {
-    ../tools/script/testPTQ.py ~/AliNNModel
-    if [ $? -ne 0 ]; then
-        echo '### PTQ测试失败，测试终止！'
-        failed
-    fi
-}
-
-pymnn_test() {
-    if [ -z "$PYMNN_CHANGE" ]; then
-        return
-    fi
-    popd
-    pushd pymnn
-    # 1. build pymnn
-    pushd pip_package
-    python3 build_deps.py
-    # uninstall original MNN
-    pip uninstall --yes MNN MNN-Internal
-    python3 setup.py install --version 1.0 --install-lib=/usr/lib/python3/dist-packages
-    pymnn_build_wrong=$[$? > 0]
-    printf "TEST_NAME_PYMNN_BUILD: PYMNN编译测试\nTEST_CASE_AMOUNT_PYMNN_BUILD: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" \
-            $pymnn_build_wrong $[1 - $pymnn_build_wrong]
-    if [ $pymnn_build_wrong -ne 0 ]; then
-        echo '### PYMNN编译失败，测试终止！'
-        failed
-    fi
-    popd
-    # 2. unit test
-    pushd test
-    python3 unit_test.py
-    if [ $? -ne 0 ]; then
-        echo '### PYMNN单元测试失败，测试终止！'
-        failed
-    fi
-    # 3. model test
-    python3 model_test.py ~/AliNNModel
-    if [ $? -ne 0 ]; then
-        echo '### PYMNN模型测试失败，测试终止！'
-        failed
-    fi
-    # 4. train test
-    ./train_test.sh
-    # 5. uninstall pymnn
-    pip uninstall --yes MNN-Internal
-    popd
-    popd
-    pushd build
-}
-
-opencv_test() {
-    if [ -z "$OPENCV_CHANGE" ]; then
-        return
-    fi
-    # 1. build opencv-test
-    cmake -DMNN_OPENCV_TEST=ON ..
-    make -j8
-    opencv_build_wrong=$[$? > 0]
-    printf "TEST_NAME_OPENCV_BUILD: OPENCV编译测试\nTEST_CASE_AMOUNT_OPENCV_BUILD: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" \
-            $opencv_build_wrong $[1 - $opencv_build_wrong]
-    if [ $opencv_build_wrong -ne 0 ]; then
-        echo '### OPENCV编译失败，测试终止！'
-        failed
-    fi
-    # 2. run opencv unit test
-    ./opencv_test
-    if [ $? -gt 0 ]; then
-        echo '### OPENCV单元测试失败，测试终止！'
-        failed
-    fi
-}
-
-llm_test() {
-    # 1. build llm with low memory
-    cmake -DMNN_LOW_MEMORY=ON -DMNN_BUILD_LLM=ON -DMNN_SUPPORT_TRANSFORMER_FUSE=ON ..
-    make -j8
-    llm_build_wrong=$[$? > 0]
-    printf "TEST_NAME_LLM_BUILD: LLM编译测试\nTEST_CASE_AMOUNT_LLM_BUILD: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" \
-            $llm_build_wrong $[1 - $llm_build_wrong]
-    if [ $llm_build_wrong -ne 0 ]; then
-        echo '### LLM编译失败，测试终止！'
-        failed
-    fi
-    # 2. run llm model test
-    ./llm_demo ~/AliNNModel/qwen1.5-0.5b-int4/config.json ~/AliNNModel/qwen1.5-0.5b-int4/prompt.txt
-    if [ $? -gt 0 ]; then
-        echo '### LLM模型测试失败，测试终止！'
-        failed
-    fi
-}
-
-coverage_init() {
-    popd
-    lcov -c -i -d ./ -o init.info
-    pushd build
-}
-
-coverage_report() {
-    popd
-    cover_report_dir="../../../../CoverageReport"
-    lcov -c -d ./ -o cover.info
-    lcov -a init.info -a cover.info -o total.info
-    lcov --remove total.info \
-    '*/usr/include/*' '*/usr/lib/*' '*/usr/lib64/*' '*/usr/local/*'  \
-    '*/3rd_party/*' '*/build/*' '*/schema/*' '*/test/*' '/tmp/*' \
-    '*/demo/*' '*/tools/cpp/*' '*/tools/train/*' '*/source/backend/cuda/*' \
-    -o final.info
-    commitId=$(git log | head -n1 | awk '{print $2}')
-    genhtml -o cover_report --legend --title "MNN Coverage Report [commit SHA1:${commitId}]" --prefix=`pwd` final.info
-    coverage_wrong=$[$? > 0]
-    printf "TEST_NAME_COVERAGE: 代码覆盖率(点击\"通过\"查看报告)\nTEST_CASE_AMOUNT_COVERAGE: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" $coverage_wrong $[1 - $coverage_wrong]
-    if [ $coverage_wrong -ne 0 ]; then
-        echo '### 代码覆盖率生成失败，测试终止！'
-        failed
+    # Stage A on CPU: forward-smoke per public model. Stage B (CPU-vs-
+    # backend) is meaningless without a GPU build, so the local section of
+    # the JSON only declares smoke_a_stages.
+    if [[ ! -x "${SCRIPT_DIR}/build/MNNV2Basic.out" ]]; then
+        skip_stage "smokeA" "build/MNNV2Basic.out not built (check MNN_BUILD_TOOLS)"
+    elif ! public_models_complete; then
+        skip_stage "smokeA" "public smoke models missing under ${PUBLIC_MODELS_DIR} (get_model.sh failed?)"
     else
-        hostIp=$(cat .aoneci.yml | grep host -m 1 | awk '{print $2}')
-        testId=$(pwd | awk -F "/" '{print $(NF-1)}')
-        mv cover_report $cover_report_dir/$testId
-        echo "TEST_REPORT_COVERAGE: http://$hostIp/$testId"
+        _run_json_model_stages smokeA local "${PUBLIC_MODELS_DIR}"
     fi
-    # clean test dir
-    cd ../.. && rm -rf $testId
+
+    # LLM smoke test. Model provisioning is lazy: it happens here, after the
+    # unit + smoke stages have already run, so those proceed even with no
+    # network. A failed provision skips just this stage.
+    if [[ ! -x "${SCRIPT_DIR}/build/llm_demo" ]]; then
+        skip_stage "llm/${LLM_MODEL_NAME}" "llm_demo not built"
+    elif ! provision_llm_model; then
+        skip_stage "llm/${LLM_MODEL_NAME}" "model unavailable (see provisioning log above)"
+    else
+        run_stage "llm/${LLM_MODEL_NAME}" -- bash -c \
+            "cd '${SCRIPT_DIR}/build' && ./llm_demo '${LLM_MODEL_DIR}/config.json' '${LLM_MODEL_DIR}/prompt.txt'"
+    fi
 }
 
-#############################################################################################
-#                                                                                           #
-#                                  Android Test Functions                                   #
-#                                                                                           #
-#############################################################################################
-android_unit_test() {
-    memory_mode=$2
-    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out all 0 0 1 $1 $memory_mode"
-    if [ $? -ne 0 ]; then
-        echo '### Android单元测试失败，测试终止！'
-        failed
+# ─────────────────────────────────────────────────────────────────────────────
+# Android-mode build
+# ─────────────────────────────────────────────────────────────────────────────
+ANDROID_BUILD_DIR="${SCRIPT_DIR}/project/android/build_64"
+
+android_build() {
+    log_step "building MNN for arm64-v8a"
+    ensure_android_ndk
+    mkdir -p "${ANDROID_BUILD_DIR}"
+    pushd "${ANDROID_BUILD_DIR}" >/dev/null
+    # ANDROID_EXTRA_CMAKE lets the caller append/override cmake flags, e.g.
+    # to bisect a suspected backend regression:
+    #   ANDROID_EXTRA_CMAKE="-DMNN_SME2=OFF -DMNN_KLEIDIAI=OFF" \
+    #       ./test.sh android <serial>
+    local -a extra=()
+    if [[ -n "${ANDROID_EXTRA_CMAKE:-}" ]]; then
+        # shellcheck disable=SC2206
+        extra=(${ANDROID_EXTRA_CMAKE})
     fi
-    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op 0 0 4 multi$1 $memory_mode"
-    if [ $? -ne 0 ]; then
-        echo '### Android单元测试多线程失败，测试终止！'
-        failed
-    fi
-    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/convolution 0 2 4 fp16multi$1 $memory_mode"
-    if [ $? -ne 0 ]; then
-        echo '### Android单元测试卷积FP16多线程失败，测试终止！'
-        failed
-    fi
-    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/col2im 0 2 4 fp16col2im$1 $memory_mode"
-    if [ $? -ne 0 ]; then
-        echo '### Android单元测试FP16-col2im多线程失败，测试终止！'
-        failed
-    fi
-    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/R 0 2 4 fp16roipooling$1 $memory_mode"
-    if [ $? -ne 0 ]; then
-        echo '### Android单元测试FP16-roipooling多线程失败，测试终止！'
-        failed
-    fi
-    if [ "$OPENCL_CHANGE" ]; then
-        adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op 3 1 4 $1 $memory_mode"
-        if [ $? -ne 0 ]; then
-            echo '### Android单元测试OpenCL失败，测试终止！'
-            failed
-        fi
-    fi
+    bash ../build_64.sh \
+        -DMNN_BUILD_TRAIN=OFF \
+        -DMNN_ARM82=true \
+        -DMNN_OPENCL=true \
+        -DMNN_VULKAN=true \
+        -DMNN_LOW_MEMORY=true \
+        -DMNN_SUPPORT_TRANSFORMER_FUSE=ON \
+        -DMNN_BUILD_LLM=ON \
+        -DMNN_BUILD_CONVERTER=ON \
+        "${extra[@]}"
+    # build_64.sh hard-codes `make -j4`; respin with all cores so subsequent
+    # incremental work uses full parallelism.
+    make -j"$(_host_jobs)"
+    popd >/dev/null
+    log_ok "android build complete"
 }
-android_model_test() {
-    fail_num=0
-    pass_num=0
-    fail_cl_num=0
-    pass_cl_num=0
-    models=`adb shell ls /data/local/tmp/AliNNModel/OpTestResource/`
-    for model in $models
-    do
-        adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModel.out ../AliNNModel/OpTestResource/$model/temp.bin ../AliNNModel/OpTestResource/$model/input_0.txt ../AliNNModel/OpTestResource/$model/output_0.txt 0 0.002"
-        if [ $? -ne 0 ]; then
-            fail_num=$[$fail_num+1]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Native push (replaces project/android/updateTest.sh; NPU dropped)
+# ─────────────────────────────────────────────────────────────────────────────
+ANDROID_BIN_LIST=(
+    libllm.so
+    llm_demo
+    libMNN.so
+    libMNN_CL.so
+    libMNN_Vulkan.so
+    libMNN_Express.so
+    MNNV2Basic.out
+    ModuleBasic.out
+    testModel.out
+    testModelWithDescribe.out
+    backendTest.out
+    timeProfile.out
+    benchmark.out
+    benchmarkExprModels.out
+    run_test.out
+    MNNConvert
+    # MNNConvert dynamically links against libMNNConvertDeps.so which is
+    # built under tools/converter/. Without this push the on-device caffe->
+    # mnn conversion fails ("library libMNNConvertDeps.so not found"),
+    # causing smokeA / smokeB / bench to be skipped.
+    tools/converter/libMNNConvertDeps.so
+)
+DEVICE_SMOKE_SRC_DIR="/data/local/tmp/MNN/smoke_sources"
+
+push_artifacts() {
+    log_step "pushing artefacts to ${DEVICE_DIR}"
+    ad shell "mkdir -p ${DEVICE_DIR} && rm -rf ${DEVICE_DIR}/output && mkdir -p ${DEVICE_DIR}/output" >/dev/null
+    local pushed=0 missing=0
+    local rel src dst
+    for rel in "${ANDROID_BIN_LIST[@]}"; do
+        src="${ANDROID_BUILD_DIR}/${rel}"
+        dst="${DEVICE_DIR}/$(basename "${rel}")"
+        if [[ -e "${src}" ]]; then
+            ad push "${src}" "${dst}" >/dev/null
+            pushed=$((pushed + 1))
         else
-            pass_num=$[$pass_num+1]
+            log_warn "missing artefact: ${rel} (skipped)"
+            missing=$((missing + 1))
         fi
-        if [ "$OPENCL_CHANGE" ]; then
-            adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModel.out ../AliNNModel/OpTestResource/$model/temp.bin ../AliNNModel/OpTestResource/$model/input_0.txt ../AliNNModel/OpTestResource/$model/output_0.txt 3 0.002 1"
-            if [ $? -ne 0 ]; then
-                fail_cl_num=$[$fail_cl_num+1]
-            else
-                pass_cl_num=$[$pass_cl_num+1]
-            fi
+    done
+    log_ok "pushed ${pushed} artefact(s); ${missing} missing"
+}
+
+# Push the cached caffe sources (.caffemodel + .prototxt) to the device,
+# then drive the on-device MNNConvert binary to produce .mnn files. Avoids
+# requiring a host MNNConvert.
+convert_smoke_on_device() {
+    log_step "converting smoke models on device (arm64 MNNConvert)"
+
+    if ! ad shell "[ -x ${DEVICE_DIR}/MNNConvert ]" 2>/dev/null; then
+        log_warn "device MNNConvert missing; cannot convert smoke models"
+        return 1
+    fi
+
+    ad shell "mkdir -p ${DEVICE_SMOKE_SRC_DIR} ${DEVICE_PUBLIC_MODELS_DIR}" >/dev/null
+
+    # Push every source file we have cached. Idempotent: skip when the size
+    # matches what's already on device.
+    local f local_path remote_path
+    for f in "${SMOKE_SOURCES_DIR}"/*; do
+        [[ -f "${f}" ]] || continue
+        local_path="${f}"
+        remote_path="${DEVICE_SMOKE_SRC_DIR}/$(basename "${f}")"
+        local local_size remote_size
+        local_size="$(stat -f%z "${local_path}" 2>/dev/null || stat -c%s "${local_path}" 2>/dev/null || echo 0)"
+        remote_size="$(ad shell "stat -c%s ${remote_path} 2>/dev/null || echo 0" 2>/dev/null \
+            | tr -d '[:space:]\r' || echo 0)"
+        if [[ "${local_size}" != "${remote_size}" ]]; then
+            ad push "${local_path}" "${remote_path}" >/dev/null
         fi
     done
 
-    models=`adb shell ls /data/local/tmp/AliNNModel/TestResource/`
-    for model in $models
-    do
-        if [ $model == 'mobilenetv1quan' ]; then
-            adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModel.out ../AliNNModel/TestResource/$model/temp.bin ../AliNNModel/TestResource/$model/input_0.txt ../AliNNModel/TestResource/$model/output.txt 0 0.1"
-        else
-            adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModel.out ../AliNNModel/TestResource/$model/temp.bin ../AliNNModel/TestResource/$model/input_0.txt ../AliNNModel/TestResource/$model/output.txt 0 0.002"
+    # Convert each model on device. Skip if the .mnn already exists with
+    # non-zero size (idempotent on re-runs).
+    local m short ok=0 fail=0
+    for m in "${SMOKE_MODELS[@]}"; do
+        short="${m##*/}"
+        # Flat layout on device: benchmark.out's findModelFiles() does a
+        # non-recursive readdir() of its dir argument and trips over any
+        # subdirectories, so all .mnn files must sit at the same level.
+        # _emit_json_smoke_stages is section-aware and uses basename for
+        # android paths to match.
+        local mnn_remote="${DEVICE_PUBLIC_MODELS_DIR}/${short}"
+        if ad shell "[ -s ${mnn_remote} ]" 2>/dev/null; then
+            log_info "skip convert ${short} (already on device)"
+            ok=$((ok + 1))
+            continue
         fi
-        if [ $? -ne 0 ]; then
-            fail_num=$[$fail_num+1]
-        else
-            pass_num=$[$pass_num+1]
+        local pair_caffe pair_proto
+        pair_caffe="$(_smoke_pair_for "${m}" | sed -n '1p')"
+        pair_proto="$(_smoke_pair_for "${m}" | sed -n '2p')"
+        if [[ -z "${pair_caffe}" || -z "${pair_proto}" ]]; then
+            log_warn "no source pairing known for ${m}; skipping"
+            fail=$((fail + 1))
+            continue
         fi
-        if [ "$OPENCL_CHANGE" ]; then
-        if [ $model == 'mobilenetv1quan' ]; then
-            adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModel.out ../AliNNModel/TestResource/$model/temp.bin ../AliNNModel/TestResource/$model/input_0.txt ../AliNNModel/TestResource/$model/output.txt 3 0.1 1"
+        local cmd="cd ${DEVICE_DIR} && export LD_LIBRARY_PATH=. && ./MNNConvert -f CAFFE \
+            --modelFile ${DEVICE_SMOKE_SRC_DIR}/${pair_caffe} \
+            --prototxt ${DEVICE_SMOKE_SRC_DIR}/${pair_proto} \
+            --MNNModel ${mnn_remote} \
+            --bizCode 0000 --keepInputFormat=0"
+        log_info "converting ${short}"
+        if ad shell "${cmd}" >/dev/null 2>&1; then
+            ok=$((ok + 1))
         else
-            adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModel.out ../AliNNModel/TestResource/$model/temp.bin ../AliNNModel/TestResource/$model/input_0.txt ../AliNNModel/TestResource/$model/output.txt 3 0.002 1"
-        fi
-            if [ $? -ne 0 ]; then
-                fail_cl_num=$[$fail_cl_num+1]
-            else
-                pass_cl_num=$[$pass_cl_num+1]
-            fi
+            log_warn "conversion failed for ${short}"
+            fail=$((fail + 1))
         fi
     done
+    log_ok "on-device conversion complete (${ok} ok, ${fail} failed)"
+    [[ ${fail} -eq 0 ]]
+}
 
-    models=`adb shell ls /data/local/tmp/AliNNModel/TestWithDescribe/`
-    for model in $models
-    do
-        adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModelWithDescribe.out ../AliNNModel/TestWithDescribe/$model/temp.bin ../AliNNModel/TestWithDescribe/$model/config.txt 0 0.002"
-        if [ $? -ne 0 ]; then
-            fail_num=$[$fail_num+1]
-        else
-            pass_num=$[$pass_num+1]
+push_llm_model() {
+    log_step "pushing LLM model ${LLM_MODEL_NAME} to device"
+    local remote="${DEVICE_MODEL_DIR}/${LLM_MODEL_NAME}"
+    ad shell "mkdir -p ${DEVICE_MODEL_DIR}" >/dev/null
+
+    local local_count remote_count
+    local_count="$(find "${LLM_MODEL_DIR}" -type f | wc -l | tr -d '[:space:]')"
+    remote_count="$(ad shell "find ${remote} -type f 2>/dev/null | wc -l" 2>/dev/null \
+        | tr -d '[:space:]\r' || echo 0)"
+    if [[ "${remote_count}" == "${local_count}" && "${local_count}" -gt 0 ]]; then
+        log_info "skip push (already on device, ${local_count} files)"
+        return 0
+    fi
+    ad shell "rm -rf ${remote}" >/dev/null
+    ad push "${LLM_MODEL_DIR}" "${remote}" >/dev/null
+    log_ok "LLM model pushed (${local_count} files)"
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Android on-device stages
+# ─────────────────────────────────────────────────────────────────────────────
+# NOTE: the script-wide IFS is set to $'\n\t', so unquoted "$*" would join
+# args with newlines. Embedded in an `adb shell` command string those
+# newlines split into separate remote commands, breaking the run with rc=127
+# on the trailing tokens. Force a local space-only IFS for the join.
+_remote_run_test() {
+    local IFS=' '
+    # MNN_TEST_SKIP is honored by MNNTestSuite::run() to omit named tests
+    # from the in-process loop. Used by the OpenCL BUFFER stage to drop
+    # ops that hit Mali driver bugs in BUFFER-mode loop kernels.
+    local skip_env=""
+    if [[ -n "${MNN_TEST_SKIP:-}" ]]; then
+        skip_env="export MNN_TEST_SKIP='${MNN_TEST_SKIP}' && "
+    fi
+    ad shell "cd ${DEVICE_DIR} && export LD_LIBRARY_PATH=. && ${skip_env}./run_test.out $*"
+}
+
+_remote_v2basic() {
+    local IFS=' '
+    ad shell "cd ${DEVICE_DIR} && export LD_LIBRARY_PATH=. && ./MNNV2Basic.out $*"
+}
+
+_remote_backendtest() {
+    local IFS=' '
+    ad shell "cd ${DEVICE_DIR} && export LD_LIBRARY_PATH=. && ./backendTest.out $*"
+}
+
+_remote_benchmark() {
+    local IFS=' '
+    ad shell "cd ${DEVICE_DIR} && export LD_LIBRARY_PATH=. && ./benchmark.out $*"
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# JSON dispatch — every stage in test_stages.json is materialised to a row
+# (name|filter|binary|argv) and dispatched through one of two binary maps.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Map JSON 'binary' string -> shell function that invokes the on-device tool.
+_remote_for_binary() {
+    case "$1" in
+        run_test)    echo _remote_run_test ;;
+        v2basic)     echo _remote_v2basic ;;
+        backendtest) echo _remote_backendtest ;;
+        benchmark)   echo _remote_benchmark ;;
+        *)           return 1 ;;
+    esac
+}
+
+# Map JSON 'binary' string -> shell function that invokes the host tool.
+# Local mode has no benchmark.out (not built); benchmark stages live in
+# JSON's android section only, so this map intentionally omits it.
+_local_for_binary() {
+    case "$1" in
+        run_test)    echo _local_run_test ;;
+        v2basic)     echo _local_v2basic ;;
+        backendtest) echo _local_backendtest ;;
+        *)           return 1 ;;
+    esac
+}
+
+# Materialize per-model smoke stage rows. One TAB-separated row per
+# (smoke_a or smoke_b stage) × (model). Columns:
+#   1: stage name (with model short-name suffix)
+#   2: filter tag
+#   3: shell function name (_remote_v2basic / _remote_backendtest)
+#   4: shell-quoted argv (with {model} / {models_dir} substituted)
+_emit_json_smoke_stages() {
+    local section_root="$1"      # "android" or "local"
+    local stages_key="$2"        # "smoke_a_stages" or "smoke_b_stages"
+    local models_dir="$3"        # device or host public_models dir
+    SMOKE_SECTION_ROOT="${section_root}" SMOKE_STAGES_KEY="${stages_key}" \
+    SMOKE_MODELS_DIR="${models_dir}" \
+        python3 - "${STAGES_JSON_FILE}" <<'PY'
+import json, os, shlex, sys
+root       = os.environ["SMOKE_SECTION_ROOT"]
+key        = os.environ["SMOKE_STAGES_KEY"]
+models_dir = os.environ["SMOKE_MODELS_DIR"]
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+node   = data.get(root, {})
+models = node.get("smoke_models", []) or data.get("android", {}).get("smoke_models", [])
+stages = node.get(key, [])
+for m in models:
+    short = m.split("/")[-1]
+    # Local mode keeps host's nested layout (resource/model/MobileNet/v1/...).
+    # Android mode keeps a flat layout under DEVICE_PUBLIC_MODELS_DIR because
+    # benchmark.out's findModelFiles() is non-recursive (see benchmark.cpp:54).
+    device_path = f"{models_dir}/{m}" if root == "local" else f"{models_dir}/{short}"
+    for st in stages:
+        argv = [
+            a.replace("{model}", device_path).replace("{models_dir}", models_dir)
+            for a in st["args"]
+        ]
+        name = f"{st['name']}/{short}"
+        quoted = " ".join(shlex.quote(a) for a in argv)
+        print(f"{name}|{st['filter']}|{st['binary']}|{quoted}")
+PY
+}
+
+# Materialize bench stage rows (one per backend, models_dir substituted).
+_emit_json_bench_stages() {
+    local section_root="$1"      # "android"
+    local models_dir="$2"
+    BENCH_SECTION_ROOT="${section_root}" BENCH_MODELS_DIR="${models_dir}" \
+        python3 - "${STAGES_JSON_FILE}" <<'PY'
+import json, os, shlex, sys
+root       = os.environ["BENCH_SECTION_ROOT"]
+models_dir = os.environ["BENCH_MODELS_DIR"]
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+for st in data.get(root, {}).get("bench_stages", []):
+    argv = [a.replace("{models_dir}", models_dir) for a in st["args"]]
+    print(f"{st['name']}|{st['filter']}|{st['binary']}|{' '.join(shlex.quote(a) for a in argv)}")
+PY
+}
+
+# Driver for smoke A / smoke B / bench JSON-defined stages. Buffers rows
+# into an array first so adb's stdin can't close the read loop early
+# (the classic `while read … | tee | adb` gotcha).
+_run_json_model_stages() {
+    local kind="$1"                # smokeA | smokeB | bench
+    local section_root="${2:-android}"
+    local models_dir="${3:-${DEVICE_PUBLIC_MODELS_DIR}}"
+    local -a rows=()
+    local row
+    case "${kind}" in
+        smokeA)
+            while IFS= read -r row; do rows+=("${row}"); done \
+                < <(_emit_json_smoke_stages "${section_root}" smoke_a_stages "${models_dir}") ;;
+        smokeB)
+            while IFS= read -r row; do rows+=("${row}"); done \
+                < <(_emit_json_smoke_stages "${section_root}" smoke_b_stages "${models_dir}") ;;
+        bench)
+            while IFS= read -r row; do rows+=("${row}"); done \
+                < <(_emit_json_bench_stages "${section_root}" "${models_dir}") ;;
+        *) return 1 ;;
+    esac
+    local name filt binary argv runner
+    for row in "${rows[@]}"; do
+        IFS='|' read -r name filt binary argv <<<"${row}"
+        [[ -z "${name}" ]] && continue
+        if ! _filter_runs "${filt}"; then
+            continue
         fi
-        if [ "$OPENCL_CHANGE" ]; then
-            adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModelWithDescribe.out ../AliNNModel/TestWithDescribe/$model/temp.bin ../AliNNModel/TestWithDescribe/$model/config.txt 3 0.002 1"
-            if [ $? -ne 0 ]; then
-                fail_cl_num=$[$fail_cl_num+1]
-            else
-                pass_cl_num=$[$pass_cl_num+1]
-            fi
+        if [[ "${section_root}" == "local" ]]; then
+            runner="$(_local_for_binary "${binary}")" || continue
+        else
+            runner="$(_remote_for_binary "${binary}")" || continue
+        fi
+        # ${argv} is shell-quoted by Python's shlex.quote, so eval-driven
+        # word-splitting is required to honour the original token
+        # boundaries. \$name defers expansion to eval's parse pass.
+        eval "run_stage \"\$name\" -- ${runner} ${argv}"
+    done
+}
+
+android_benchmarks() {
+    if ! ad shell "[ -d ${DEVICE_PUBLIC_MODELS_DIR} ]" 2>/dev/null; then
+        skip_stage "bench" "public_models dir absent on device"
+        return 0
+    fi
+    _run_json_model_stages bench android "${DEVICE_PUBLIC_MODELS_DIR}"
+}
+
+# Backwards-compatible wrappers — drive_android still calls these.
+android_smoke_a_stages() {
+    _run_json_model_stages smokeA android "${DEVICE_PUBLIC_MODELS_DIR}"
+}
+
+android_smoke_b_stages() {
+    _run_json_model_stages smokeB android "${DEVICE_PUBLIC_MODELS_DIR}"
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Filter logic — translates the user-supplied --filter (FILTER global) into a
+# per-stage admission decision based on the row's tag.
+#
+# Unit-test matrix for the Android arm64 on-device driver.
+#
+# IMPORTANT: argv[4] of run_test.out has DIFFERENT semantics per backend.
+#   - CPU (type 0)        -> thread count (we use 1 or 4).
+#   - OpenCL (type 3)     -> gpuMode bitmask (MNN_GPU_TUNING_* | MNN_GPU_MEMORY_*).
+#                            132 = TUNING_WIDE (4) | MEMORY_IMAGE (128) — the
+#                            recommended OpenCL default. Plain 4 leaves memory
+#                            mode unset, which on some drivers segfaults.
+#   - Vulkan (type 7)     -> gpuMode bitmask, but only TUNING_* bits are valid.
+#                            4 = TUNING_WIDE.
+# ─────────────────────────────────────────────────────────────────────────────
+_filter_runs() {
+    # arg1 = backend tag (cpu|opencl-image|opencl-buffer|vulkan|lowmem|smoke|llm)
+    # returns 0 (truthy in bash if-statements) if the stage should run.
+    local tag="$1"
+    case "${FILTER}" in
+        all)            return 0 ;;
+        cpu)            [[ "${tag}" == "cpu" || "${tag}" == "lowmem" || "${tag}" == "llm" ]] ;;
+        opencl)         [[ "${tag}" == "opencl-image" || "${tag}" == "opencl-buffer" || "${tag}" == "smoke-opencl" ]] ;;
+        opencl-image)   [[ "${tag}" == "opencl-image" ]] ;;
+        opencl-buffer)  [[ "${tag}" == "opencl-buffer" ]] ;;
+        vulkan)         [[ "${tag}" == "vulkan" || "${tag}" == "smoke-vulkan" ]] ;;
+        gpu)            [[ "${tag}" == "opencl-image" || "${tag}" == "opencl-buffer" || "${tag}" == "vulkan" || "${tag}" == "smoke-opencl" || "${tag}" == "smoke-vulkan" ]] ;;
+        unit)           [[ "${tag}" == "cpu" || "${tag}" == "opencl-image" || "${tag}" == "opencl-buffer" || "${tag}" == "vulkan" ]] ;;
+        lowmem)         [[ "${tag}" == "lowmem" ]] ;;
+        # android-ci: bench (filter=cpu inside bench_stages) + smokeA/B
+        # (cpu, smoke-opencl, smoke-vulkan) + llm. Unit/lowmem are skipped at
+        # the drive_android level by gating android_tests, so accepting "cpu"
+        # here only lets bench and smokeA/cpu rows through.
+        android-ci)     [[ "${tag}" == "cpu" || "${tag}" == "smoke-opencl" || "${tag}" == "smoke-vulkan" || "${tag}" == "llm" ]] ;;
+    esac
+}
+
+# Materialize each stage from a $section.stages array in test_stages.json
+# into one shell-quoted line per stage. Columns are pipe-delimited because
+# `read` collapses runs of whitespace IFS chars (tab/space/newline) into a
+# single separator — using '|' (non-whitespace) keeps empty fields like
+# 'skip' addressable instead of losing them.
+#   1: name
+#   2: filter tag
+#   3: skip-list (comma-joined; empty if none)
+#   4: positional argv for the chosen binary, already shell-quoted
+_emit_json_stages() {
+    local section="${1:-android}"
+    JSON_SECTION="${section}" python3 - "${STAGES_JSON_FILE}" <<'PY'
+import json, os, shlex, sys
+section = os.environ["JSON_SECTION"]
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+node = data.get(section, {})
+for st in node.get("stages", []):
+    name   = st["name"]
+    filt   = st["filter"]
+    skip   = ",".join(st.get("skip") or [])
+    argv = [
+        str(st["prefix"]),
+        str(st["type"]),
+        str(st["precision"]),
+        str(st["threadOrGpuMode"]),
+        str(st["tag"]),
+    ]
+    if st.get("memory") is not None:
+        argv.append(str(st["memory"]))
+        if st.get("dynamicOption") is not None:
+            argv.append(str(st["dynamicOption"]))
+            if st.get("kleidiAi") is not None:
+                argv.append(str(st["kleidiAi"]))
+    quoted = " ".join(shlex.quote(a) for a in argv)
+    print(f"{name}|{filt}|{skip}|{quoted}")
+PY
+}
+
+# Iterate JSON-defined stages from the named section and dispatch each one.
+# Honours --runs filter via `_filter_runs` and the per-stage skip list via
+# MNN_TEST_SKIP. The stage list is captured up-front into an array so the
+# inner adb-shell calls in run_stage can't eat the read loop's stdin
+# (classic gotcha with `while read … done < <(generator)` + ssh/adb).
+_run_json_stages() {
+    local section="${1:-android}"
+    local runner="${2:-_remote_run_test}"
+    local -a rows=()
+    local row
+    while IFS= read -r row; do
+        rows+=("${row}")
+    done < <(_emit_json_stages "${section}")
+    local name filt skip argv
+    for row in "${rows[@]}"; do
+        IFS='|' read -r name filt skip argv <<<"${row}"
+        [[ -z "${name}" ]] && continue
+        if ! _filter_runs "${filt}"; then
+            continue
+        fi
+        # ${argv} is shell-quoted by Python's shlex.quote, so eval-driven
+        # word-splitting is required to honour the original token
+        # boundaries. \$name defers expansion to eval's parse pass.
+        if [[ -n "${skip}" ]]; then
+            MNN_TEST_SKIP="${skip}" eval "run_stage \"\$name\" -- ${runner} ${argv}"
+        else
+            eval "run_stage \"\$name\" -- ${runner} ${argv}"
         fi
     done
-    printf "TEST_NAME_ANDROID_MODEL_TEST_$1: Android_$1模型测试\nTEST_CASE_AMOUNT_ANDROID_MODEL_TEST_$1: {\"blocked\":0,\"failed\":$fail_num,\"passed\":$pass_num,\"skipped\":0}\n"
-    if [ $fail_num -ne 0 ]; then
-        echo '### Android模型测试失败，测试终止！'
-        failed
+}
+
+android_tests() {
+    _run_json_stages android _remote_run_test
+}
+
+android_llm_test() {
+    local remote="${DEVICE_MODEL_DIR}/${LLM_MODEL_NAME}"
+    if ad shell "[ -f ${remote}/config.json ]" 2>/dev/null; then
+        run_stage "llm/${LLM_MODEL_NAME}" -- ad shell \
+            "cd ${DEVICE_DIR} && export LD_LIBRARY_PATH=. && ./llm_demo ${remote}/config.json ${remote}/prompt.txt"
+    else
+        skip_stage "llm/${LLM_MODEL_NAME}" "model dir absent on device"
     fi
-    if [ "$OPENCL_CHANGE" ]; then
-        printf "TEST_NAME_ANDROID_MODEL_OPENCL_TEST_$1: Android_$1模型测试\nTEST_CASE_AMOUNT_ANDROID_MODEL_TEST_$1: {\"blocked\":0,\"failed\":$fail_cl_num,\"passed\":$pass_cl_num,\"skipped\":0}\n"
-        if [ $fail_cl_num -ne 0 ]; then
-            echo '### Android OpenCL后端模型测试失败，测试终止！'
-            failed
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Drivers
+# ─────────────────────────────────────────────────────────────────────────────
+drive_local() {
+    log_info "mode=local script_dir=${SCRIPT_DIR}"
+    if [[ ! -x "${SCRIPT_DIR}/build/run_test.out" ]]; then
+        local_build
+    else
+        log_info "reusing existing build/ (delete it to force a rebuild)"
+    fi
+    # Try to populate the public smoke set after the build (MNNConvert is
+    # produced by the build). Stages downstream gate on availability.
+    provision_public_models || true
+    local_run_stages
+}
+
+drive_android() {
+    log_info "mode=android device=${DEVICE} script_dir=${SCRIPT_DIR}"
+    detect_adb
+    ensure_adbk_session
+    verify_device_online
+    # Cache caffe sources on host (small download). The conversion itself
+    # runs on device with the arm64 MNNConvert we build below.
+    local smoke_ok=1
+    provision_smoke_sources || smoke_ok=0
+    android_build
+    push_artifacts
+    if [[ ${smoke_ok} -eq 1 ]]; then
+        convert_smoke_on_device || smoke_ok=0
+    fi
+    # Unit/op + lowmem matrix. android-ci skips these so the on-device run
+    # stays focused on bench / smoke / llm.
+    if [[ "${FILTER}" != "android-ci" ]]; then
+        android_tests
+    fi
+    if [[ ${smoke_ok} -eq 1 ]]; then
+        # Each driver iterates the JSON-defined backend list and applies
+        # _filter_runs internally, so a single call covers cpu/opencl/vulkan.
+        android_smoke_a_stages
+        android_smoke_b_stages
+        android_benchmarks
+    else
+        skip_stage "smokeA" "smoke source download or on-device conversion failed"
+        skip_stage "smokeB" "smoke source download or on-device conversion failed"
+        skip_stage "bench"  "smoke source download or on-device conversion failed"
+    fi
+
+    # LLM stage. Provisioning + device push are lazy: deferred to here so the
+    # unit / smoke / bench stages run even with no network, and so a missing
+    # model skips only this stage instead of aborting the run.
+    if _filter_runs llm; then
+        if provision_llm_model; then
+            push_llm_model
+            android_llm_test
+        else
+            skip_stage "llm/${LLM_MODEL_NAME}" "model unavailable (see provisioning log above)"
         fi
     fi
 }
-android_unit_test_low_memory_armv8() {
-    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/lowMemory 0 1 1 $1 2"
-    if [ $? -ne 0 ]; then
-        echo '### Android 64位Low Memory,动态量化, precision=1, thread=1 单元测试失败，测试终止！'
-        failed
-    fi
-    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/lowMemory 0 2 1 $1 2"
-    if [ $? -ne 0 ]; then
-        echo '### Android 64位Low Memory,动态量化, precision=2, thread=1 单元测试失败，测试终止！'
-        failed
-    fi
-    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/lowMemory 0 1 4 $1 2"
-    if [ $? -ne 0 ]; then
-        echo '### Android 64位Low Memory,动态量化, precision=1, thread=4 单元测试失败，测试终止！'
-        failed
-    fi
-    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/lowMemory 0 2 4 $1 2"
-    if [ $? -ne 0 ]; then
-        echo '### Android 64位Low Memory,动态量化, precision=2, thread=4 单元测试失败，测试终止！'
-        failed
-    fi
-    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/lowMemory 0 1 1 $1"
-    if [ $? -ne 0 ]; then
-        echo '### Android 64位Low Memory 权重反量化, precision=1 单元测试失败，测试终止！'
-        failed
-    fi
-    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/lowMemory 0 2 1 $1"
-    if [ $? -ne 0 ]; then
-        echo '### Android 64位Low Memory 权重反量化, precision=2 单元测试失败，测试终止！'
-        failed
-    fi
-    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/convolution/weighti8i4conv2d 0 2 4 $1 2 1"
-    if [ $? -ne 0 ]; then
-        echo '### Android 64位Low Memory 设置dynamicOption=1, precision=2 4线程测试失败，测试终止！'
-        failed
-    fi
-    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/convolution/weighti8i4conv2d 0 1 4 $1 2 1"
-    if [ $? -ne 0 ]; then
-        echo '### Android 64位Low Memory 设置dynamicOption=1, precision=1 4线程测试失败，测试终止！'
-        failed
-    fi
-    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/convolution/weighti8i4conv2d 0 2 4 $1 2 2"
-    if [ $? -ne 0 ]; then
-        echo '### Android 64位Low Memory 设置dynamicOption=2, precision=2 4线程测试失败，测试终止！'
-        failed
-    fi
-    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/convolution/weighti8i4conv2d 0 1 4 $1 2 2"
-    if [ $? -ne 0 ]; then
-        echo '### Android 64位Low Memory 设置dynamicOption=2, precision=1 4线程测试失败，测试终止！'
-        failed
-    fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Entry point
+# ─────────────────────────────────────────────────────────────────────────────
+main() {
+    parse_args "$@"
+    case "${MODE}" in
+        static)  drive_static ;;
+        local)   drive_local ;;
+        android) drive_android ;;
+    esac
 }
 
-android_unit_test_low_memory_armv7() {
-    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/lowMemory 0 1 1 $1 2"
-    if [ $? -ne 0 ]; then
-        echo '### Android 32位Low Memory,动态量化, precision=1, thread=1 单元测试失败，测试终止！'
-        failed
-    fi
-    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/lowMemory 0 2 1 $1 2"
-    if [ $? -ne 0 ]; then
-        echo '### Android 32位Low Memory,动态量化, precision=2, thread=1 单元测试失败，测试终止！'
-        failed
-    fi
-    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/lowMemory 0 1 4 $1 2"
-    if [ $? -ne 0 ]; then
-        echo '### Android 32位Low Memory,动态量化, precision=1, thread=4 单元测试失败，测试终止！'
-        failed
-    fi
-    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/lowMemory 0 2 4 $1 2"
-    if [ $? -ne 0 ]; then
-        echo '### Android 32位Low Memory,动态量化, precision=2, thread=4 单元测试失败，测试终止！'
-        failed
-    fi
-}
-
-android_test() {
-    pushd project/android
-    # 1. build Android32
-    mkdir build_32
-    pushd build_32
-    ../build_32.sh -DMNN_BUILD_TRAIN=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DMNN_OPENCL=true -DMNN_LOW_MEMORY=ON -DMNN_SUPPORT_TRANSFORMER_FUSE=ON -DMNN_ARM82=OFF
-    android32_build_wrong=$[$? > 0]
-    mnn32_size=$(ls -lh libMNN.so | awk '{print $5}')
-    expr32_size=$(ls -lh libMNN_Express.so | awk '{print $5}')
-    printf "TEST_NAME_ANDROID_32: Android32编译测试(libMNN.so - %s, libMNN_Express.so - %s)\nTEST_CASE_AMOUNT_ANDROID_32: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" \
-           $mnn32_size $expr32_size $android32_build_wrong $[1 - $android32_build_wrong]
-    if [ $android32_build_wrong -ne 0 ]; then
-        echo '### Android32编译失败，测试终止！'
-        failed
-    fi
-    ../updateTest.sh
-    android_unit_test 32bit 1
-    android_unit_test_low_memory_armv7 32bit
-    android_model_test 32
-    popd
-
-    # 3. build Android64
-    mkdir build_64
-    pushd build_64
-    ../build_64.sh -DMNN_BUILD_TRAIN=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DMNN_ARM82=true -DMNN_OPENCL=true -DMNN_LOW_MEMORY=true -DMNN_SUPPORT_TRANSFORMER_FUSE=ON
-    android64_build_wrong=$[$? > 0]
-    mnn64_size=$(ls -lh libMNN.so | awk '{print $5}')
-    expr64_size=$(ls -lh libMNN_Express.so | awk '{print $5}')
-    printf "TEST_NAME_ANDROID_64: Android64编译测试(libMNN.so - %s, libMNN_Express.so - %s)\nTEST_CASE_AMOUNT_ANDROID_64: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" \
-            $mnn64_size $expr64_size $android64_build_wrong $[1 - $android64_build_wrong]
-    if [ $android64_build_wrong -ne 0 ]; then
-        echo '### Android64编译失败，测试终止！'
-        failed
-    fi
-
-    # 4. test Android64
-    ../updateTest.sh
-    android_unit_test 64 0
-    android_unit_test_low_memory_armv8 64
-    android_model_test 64
-    popd
-
-    popd
-}
-
-case "$1" in
-    local)
-        pushd build
-        unit_test
-        model_test
-        onnx_convert_test
-        tf_convert_test
-        tflite_convert_test
-        torch_convert_test
-        ptq_test
-        pymnn_test
-        ;;
-    linux)
-        doc_check
-        static_check
-        py_check
-        linux_build 1
-        coverage_init
-        unit_test
-        model_test
-        onnx_convert_test
-        tf_convert_test
-        tflite_convert_test
-        torch_convert_test
-        ptq_test
-        pymnn_test
-        opencv_test
-        llm_test
-        coverage_report
-        ;;
-    android)
-        android_static_build
-        android_test
-        ;;
-    static)
-        doc_check
-        static_check
-        py_check
-
-        echo_static_success
-        ;;
-    *)
-        $1
-        echo $"Usage: $0 {local|linux|android|func}"
-        exit 2
-esac
-exit $?
+main "$@"
