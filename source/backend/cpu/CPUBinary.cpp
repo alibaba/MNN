@@ -189,11 +189,58 @@ MNNBinaryExecute CPUBinary::selectForInt(int type) {
     return nullptr;
 }
 
+class MulSilu : public Execution {
+public:
+    MulSilu(Backend *b) : Execution(b) {
+        auto func = static_cast<CPUBackend *>(backend())->functions();
+        auto precision = static_cast<CPUBackend *>(backend())->precisionMode();
+        mSilu = func->MNNSelectUnaryFunctionForFloat(UnaryOpOperation_SILU, precision);
+        mMul = func->MNNSelectBinaryFunctionForFloat(BinaryOpOperation_MUL);
+    }
+    virtual ~MulSilu() = default;
+    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs,
+                                const std::vector<Tensor *> &outputs) override {
+        auto input0 = inputs[0];
+        auto input1 = inputs[1];
+        auto output = outputs[0];
+        auto size = static_cast<CPUBackend *>(backend())->getTensorSize(input0);
+        auto schedule = static_cast<CPUBackend *>(backend())->multiThreadDivide(size);
+        auto bytes = static_cast<CPUBackend *>(backend())->functions()->bytes;
+        auto i0 = input0->host<int8_t>();
+        auto i1 = input1->host<int8_t>();
+        auto o0 = output->host<int8_t>();
+
+        MNN_CONCURRENCY_BEGIN(tId, schedule.second) {
+            int start = schedule.first * (int)tId;
+            int realSize = schedule.first;
+            if (tId == schedule.second - 1) {
+                realSize = size - start;
+            }
+            if (realSize > 0) {
+                auto inp = i0 + start * bytes;
+                auto inp1 = i1 + start * bytes;
+                auto out = o0 + start * bytes;
+                mSilu((float *)out, (float *)inp1, realSize);
+                mMul((float *)out, (float *)out, (float *)inp, realSize, -1);
+            }
+        }
+        MNN_CONCURRENCY_END();
+        return NO_ERROR;
+    }
+
+private:
+    MNNBinaryExecute mMul;
+    MNNUnaryExecute mSilu;
+};
+
 class CPUBinaryCreator : public CPUBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
         int32_t type = op->main_as_BinaryOp()->opType();
+        if (BinaryOpOperation_MUL_SILU == type) {
+            return new MulSilu(backend);
+        }
         auto dataType = inputs[0]->getType();
         auto core = static_cast<CPUBackend*>(backend)->functions();
 #ifdef MNN_SUPPORT_QUANT_EXTEND

@@ -30,6 +30,7 @@ enum BinaryOpOperation : int {
     LOGICALXOR = 26,
     LEFTSHIFT = 27,
     RIGHTSHIFT = 28,
+    MUL_SILU = 29,
 }
 
 table BinaryOp {

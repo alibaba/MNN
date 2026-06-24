@@ -28,7 +28,31 @@ struct Param {
     int max_kv_len;
     int batch;
     int kv_align_len;
+    int mask_batch;
+    int mask_head_num;
+    int mask_q_len;
+    int mask_k_len;
+    float v_scale;
+    float k_scale;
 };
+
+static inline bool attention_mask_hit(constant Param& param, int k) {
+    if (param.mask_k_len <= 1) {
+        return true;
+    }
+    int mask_k_start = max(param.key_seq_len - param.mask_k_len, 0);
+    int local_k = k - mask_k_start;
+    return local_k >= 0 && local_k < param.mask_k_len;
+}
+
+static inline int attention_mask_offset(constant Param& param, int b, int hn, int q, int k) {
+    int mask_b = param.mask_batch <= 1 ? 0 : b;
+    int mask_h = param.mask_head_num <= 1 ? 0 : hn;
+    int mask_q = param.mask_q_len <= 1 ? 0 : min(q, param.mask_q_len - 1);
+    int mask_k_start = max(param.key_seq_len - param.mask_k_len, 0);
+    int local_k = param.mask_k_len <= 1 ? 0 : clamp(k - mask_k_start, 0, param.mask_k_len - 1);
+    return ((mask_b * param.mask_head_num + mask_h) * param.mask_q_len + mask_q) * param.mask_k_len + local_k;
+}
 
 #if MNN_METAL_FLOAT16_STORAGE
 typedef simdgroup_half8x8 simdgroup_T8x8;
@@ -37,7 +61,18 @@ typedef simdgroup_float8x8 simdgroup_T8x8;
 #endif
 
 #define SIMD_GROUP_WIDTH 32
-
+#ifdef QUANT_K
+#ifdef DYNAMIC_QUANT_K
+#define GETK(v, token_idx) ftype((float(v) * k_scales[(token_idx) * 2] + k_scales[(token_idx) * 2 + 1]))
+#define GETK4(v, token_idx) (float4(v) * k_scales[(token_idx) * 2] + k_scales[(token_idx) * 2 + 1])
+#else
+#define GETK(v, token_idx) ftype((float(v) * param.k_scale))
+#define GETK4(v, token_idx) (float4(v) * param.k_scale)
+#endif
+#else
+#define GETK(v, token_idx) v
+#define GETK4(v, token_idx) v
+#endif
 #ifdef USE_METAL_TENSOR_OPS
 kernel void prefill_qk_tensor(const device ftype4* input0 [[buffer(0)]],
     device ftype* output [[buffer(1)]],
@@ -51,6 +86,8 @@ kernel void prefill_qk_tensor(const device ftype4* input0 [[buffer(0)]],
 #elif defined(SET_MASK)
     const device int* mask [[buffer(7)]],
 #endif
+    device ftype* k_scales [[buffer(8)]],
+    device ftype* v_scales [[buffer(9)]],
     uint3 gid[[threadgroup_position_in_grid]],
     uint tiitg[[thread_index_in_threadgroup]],
     uint tiisg[[thread_index_in_simdgroup]],
@@ -65,7 +102,7 @@ kernel void prefill_qk_tensor(const device ftype4* input0 [[buffer(0)]],
      */
     threadgroup ftype sdata[2048] = {0.f};
 
-    const int K = 32, M = 32, N = 32; 
+    const int K = 32, M = 32, N = 32;
     const int tb_offset = M * K;
     auto tA = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata, dextents<int32_t, 2>(K, M));//[M, K]
     auto tB = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata + tb_offset, dextents<int32_t, 2>(K, N));//[N, K]
@@ -133,14 +170,18 @@ kernel void prefill_qk_tensor(const device ftype4* input0 [[buffer(0)]],
     auto A_offset = input0 + ((b * q_seq_len + idx_slq) * head_num + hn) * head_dim / 4 + (0 * 4 + kl) * 2 + 0;
 
     // [mKvSeqLen, mBatch, mKvNumHead, mHeadDim]
+#ifdef QUANT_K
+    auto B_offset = (const device char4*)past_key + ((idx_slk * param.batch + b)* head_num / group + zin) * head_dim / 4 + (0 * 4 + kl) * 2 + 0;
+#else
     auto B_offset = past_key + ((idx_slk * param.batch + b)* head_num / group + zin) * head_dim / 4 + (0 * 4 + kl) * 2 + 0;
+#endif
 
     for(int i = 0; i < head_dim/4; i += 8){
         ((threadgroup ftype4*)sdata)[(ml * 4 + kl) * 2 + 0] = A_offset[i + 0];
         ((threadgroup ftype4*)sdata)[(ml * 4 + kl) * 2 + 1] = A_offset[i + 1];
 
-        ((threadgroup ftype4*)sdata)[256 + (nl * 4 + kl) * 2 + 0] = B_offset[i + 0];
-        ((threadgroup ftype4*)sdata)[256 + (nl * 4 + kl) * 2 + 1] = B_offset[i + 1];
+        ((threadgroup ftype4*)sdata)[256 + (nl * 4 + kl) * 2 + 0] = (ftype4)GETK4(B_offset[i + 0], idx_slk * param.batch + b);
+        ((threadgroup ftype4*)sdata)[256 + (nl * 4 + kl) * 2 + 1] = (ftype4)GETK4(B_offset[i + 1], idx_slk * param.batch + b);
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
         auto sA = tA.slice(0, 0);
@@ -161,6 +202,10 @@ kernel void prefill_qk_tensor(const device ftype4* input0 [[buffer(0)]],
 
     float Vscale = (float)param.scale;
 
+#if defined(DEFAULT_MASK)
+    int kv_valid_offset = max(k_seq_len - q_seq_len, 0);
+#endif
+
     int base_k_idx =  (slk * 4 + ncl) * 8 + 0;
     auto xy_out = output + (z * q_seq_piece_len + slq * 32 + mcl) * output_k_len + base_k_idx + 0;
     if(slq * 32 + mcl < q_seq_piece_len &&  seq_idx * q_seq_piece_len + slq * 32 + mcl < q_seq_len) {
@@ -168,97 +213,152 @@ kernel void prefill_qk_tensor(const device ftype4* input0 [[buffer(0)]],
         if(base_k_idx + 0 < output_k_len) {
             auto out0 =  ((threadgroup float*)sdata)[sindex_base + 0] * Vscale;
             #ifdef ADD_MASK
-                auto mask_val = (kv_start + base_k_idx + 0) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (kv_start + base_k_idx + 0) - k_seq_len + q_seq_len)] : 0.0;
-                out0 = mask_val + out0;
+                if (attention_mask_hit(param, kv_start + base_k_idx + 0)) {
+                    auto mask_val = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + base_k_idx + 0)];
+                    out0 = mask_val + out0;
+                }
             #elif defined(SET_MASK)
-                out0 = mask[(ori_q_idx * k_seq_len + (kv_start + base_k_idx + 0))] == 0 ? -FLT_MAX : out0;
-            #elif defined(CAUSAL_MASK)
-                // keep if j <= i + (k_len - q_len), else -inf
-                out0 = (kv_start + base_k_idx + 0) > (ori_q_idx + (k_seq_len - q_seq_len)) ? -FLT_MAX : out0;
+                if (attention_mask_hit(param, kv_start + base_k_idx + 0)) {
+                    out0 = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + base_k_idx + 0)] == 0 ? -FLT_MAX : out0;
+                }
+            #elif defined(DEFAULT_MASK)
+                int k_global = kv_start + base_k_idx + 0;
+                if (k_global > kv_valid_offset + ori_q_idx) {
+                    out0 = -FLT_MAX;
+                }
             #endif
             xy_out[0] = out0;
         }
         if(base_k_idx + 1 < output_k_len) {
             auto out0 =  ((threadgroup float*)sdata)[sindex_base + 1] * Vscale;
             #ifdef ADD_MASK
-                auto mask_val = (kv_start + base_k_idx + 1) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (kv_start + base_k_idx + 1) - k_seq_len + q_seq_len)] : 0.0;
-                out0 = mask_val + out0;
+                if (attention_mask_hit(param, kv_start + base_k_idx + 1)) {
+                    auto mask_val = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + base_k_idx + 1)];
+                    out0 = mask_val + out0;
+                }
             #elif defined(SET_MASK)
-                out0 = mask[(ori_q_idx * k_seq_len + (kv_start + base_k_idx + 1))] == 0 ? -FLT_MAX : out0;
-            #elif defined(CAUSAL_MASK)
-                out0 = (kv_start + base_k_idx + 1) > (ori_q_idx + (k_seq_len - q_seq_len)) ? -FLT_MAX : out0;
+                if (attention_mask_hit(param, kv_start + base_k_idx + 1)) {
+                    out0 = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + base_k_idx + 1)] == 0 ? -FLT_MAX : out0;
+                }
+            #elif defined(DEFAULT_MASK)
+                int k_global = kv_start + base_k_idx + 1;
+                if (k_global > kv_valid_offset + ori_q_idx) {
+                    out0 = -FLT_MAX;
+                }
             #endif
             xy_out[1] = out0;
         }
         if(base_k_idx + 2 < output_k_len) {
             auto out0 =  ((threadgroup float*)sdata)[sindex_base + 2] * Vscale;
             #ifdef ADD_MASK
-                auto mask_val = (kv_start + base_k_idx + 2) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (kv_start + base_k_idx + 2) - k_seq_len + q_seq_len)] : 0.0;
-                out0 = mask_val + out0;
+                if (attention_mask_hit(param, kv_start + base_k_idx + 2)) {
+                    auto mask_val = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + base_k_idx + 2)];
+                    out0 = mask_val + out0;
+                }
             #elif defined(SET_MASK)
-                out0 = mask[(ori_q_idx * k_seq_len + (kv_start + base_k_idx + 2))] == 0 ? -FLT_MAX : out0;
-            #elif defined(CAUSAL_MASK)
-                out0 = (kv_start + base_k_idx + 2) > (ori_q_idx + (k_seq_len - q_seq_len)) ? -FLT_MAX : out0;
+                if (attention_mask_hit(param, kv_start + base_k_idx + 2)) {
+                    out0 = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + base_k_idx + 2)] == 0 ? -FLT_MAX : out0;
+                }
+            #elif defined(DEFAULT_MASK)
+                int k_global = kv_start + base_k_idx + 2;
+                if (k_global > kv_valid_offset + ori_q_idx) {
+                    out0 = -FLT_MAX;
+                }
             #endif
             xy_out[2] = out0;
         }
         if(base_k_idx + 3 < output_k_len) {
             auto out0 =  ((threadgroup float*)sdata)[sindex_base + 3] * Vscale;
             #ifdef ADD_MASK
-                auto mask_val = (kv_start + base_k_idx + 3) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (kv_start + base_k_idx + 3) - k_seq_len + q_seq_len)] : 0.0;
-                out0 = mask_val + out0;
+                if (attention_mask_hit(param, kv_start + base_k_idx + 3)) {
+                    auto mask_val = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + base_k_idx + 3)];
+                    out0 = mask_val + out0;
+                }
             #elif defined(SET_MASK)
-                out0 = mask[(ori_q_idx * k_seq_len + (kv_start + base_k_idx + 3))] == 0 ? -FLT_MAX : out0;
-            #elif defined(CAUSAL_MASK)
-                out0 = (kv_start + base_k_idx + 3) > (ori_q_idx + (k_seq_len - q_seq_len)) ? -FLT_MAX : out0;
+                if (attention_mask_hit(param, kv_start + base_k_idx + 3)) {
+                    out0 = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + base_k_idx + 3)] == 0 ? -FLT_MAX : out0;
+                }
+            #elif defined(DEFAULT_MASK)
+                int k_global = kv_start + base_k_idx + 3;
+                if (k_global > kv_valid_offset + ori_q_idx) {
+                    out0 = -FLT_MAX;
+                }
             #endif
             xy_out[3] = out0;
         }
         if(base_k_idx + 4 < output_k_len) {
             auto out0 =  ((threadgroup float*)sdata)[sindex_base + 4] * Vscale;
             #ifdef ADD_MASK
-                auto mask_val = (kv_start + base_k_idx + 4) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (kv_start + base_k_idx + 4) - k_seq_len + q_seq_len)] : 0.0;
-                out0 = mask_val + out0;
+                if (attention_mask_hit(param, kv_start + base_k_idx + 4)) {
+                    auto mask_val = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + base_k_idx + 4)];
+                    out0 = mask_val + out0;
+                }
             #elif defined(SET_MASK)
-                out0 = mask[(ori_q_idx * k_seq_len + (kv_start + base_k_idx + 4))] == 0 ? -FLT_MAX : out0;
-            #elif defined(CAUSAL_MASK)
-                out0 = (kv_start + base_k_idx + 4) > (ori_q_idx + (k_seq_len - q_seq_len)) ? -FLT_MAX : out0;
+                if (attention_mask_hit(param, kv_start + base_k_idx + 4)) {
+                    out0 = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + base_k_idx + 4)] == 0 ? -FLT_MAX : out0;
+                }
+            #elif defined(DEFAULT_MASK)
+                int k_global = kv_start + base_k_idx + 4;
+                if (k_global > kv_valid_offset + ori_q_idx) {
+                    out0 = -FLT_MAX;
+                }
             #endif
             xy_out[4] = out0;
         }
         if(base_k_idx + 5 < output_k_len) {
             auto out0 =  ((threadgroup float*)sdata)[sindex_base + 5] * Vscale;
             #ifdef ADD_MASK
-                auto mask_val = (kv_start + base_k_idx + 5) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (kv_start + base_k_idx + 5) - k_seq_len + q_seq_len)] : 0.0;
-                out0 = mask_val + out0;
+                if (attention_mask_hit(param, kv_start + base_k_idx + 5)) {
+                    auto mask_val = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + base_k_idx + 5)];
+                    out0 = mask_val + out0;
+                }
             #elif defined(SET_MASK)
-                out0 = mask[(ori_q_idx * k_seq_len + (kv_start + base_k_idx + 5))] == 0 ? -FLT_MAX : out0;
-            #elif defined(CAUSAL_MASK)
-                out0 = (kv_start + base_k_idx + 5) > (ori_q_idx + (k_seq_len - q_seq_len)) ? -FLT_MAX : out0;
+                if (attention_mask_hit(param, kv_start + base_k_idx + 5)) {
+                    out0 = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + base_k_idx + 5)] == 0 ? -FLT_MAX : out0;
+                }
+            #elif defined(DEFAULT_MASK)
+                int k_global = kv_start + base_k_idx + 5;
+                if (k_global > kv_valid_offset + ori_q_idx) {
+                    out0 = -FLT_MAX;
+                }
             #endif
             xy_out[5] = out0;
         }
         if(base_k_idx + 6 < output_k_len) {
             auto out0 =  ((threadgroup float*)sdata)[sindex_base + 6] * Vscale;
             #ifdef ADD_MASK
-                auto mask_val = (kv_start + base_k_idx + 6) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (kv_start + base_k_idx + 6) - k_seq_len + q_seq_len)] : 0.0;
-                out0 = mask_val + out0;
+                if (attention_mask_hit(param, kv_start + base_k_idx + 6)) {
+                    auto mask_val = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + base_k_idx + 6)];
+                    out0 = mask_val + out0;
+                }
             #elif defined(SET_MASK)
-                out0 = mask[(ori_q_idx * k_seq_len + (kv_start + base_k_idx + 6))] == 0 ? -FLT_MAX : out0;
-            #elif defined(CAUSAL_MASK)
-                out0 = (kv_start + base_k_idx + 6) > (ori_q_idx + (k_seq_len - q_seq_len)) ? -FLT_MAX : out0;
+                if (attention_mask_hit(param, kv_start + base_k_idx + 6)) {
+                    out0 = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + base_k_idx + 6)] == 0 ? -FLT_MAX : out0;
+                }
+            #elif defined(DEFAULT_MASK)
+                int k_global = kv_start + base_k_idx + 6;
+                if (k_global > kv_valid_offset + ori_q_idx) {
+                    out0 = -FLT_MAX;
+                }
             #endif
             xy_out[6] = out0;
         }
         if(base_k_idx + 7 < output_k_len) {
             auto out0 =  ((threadgroup float*)sdata)[sindex_base + 7] * Vscale;
             #ifdef ADD_MASK
-                auto mask_val = (kv_start + base_k_idx + 7) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (kv_start + base_k_idx + 7) - k_seq_len + q_seq_len)] : 0.0;
-                out0 = mask_val + out0;
+                if (attention_mask_hit(param, kv_start + base_k_idx + 7)) {
+                    auto mask_val = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + base_k_idx + 7)];
+                    out0 = mask_val + out0;
+                }
             #elif defined(SET_MASK)
-                out0 = mask[(ori_q_idx * k_seq_len + (kv_start + base_k_idx + 7))] == 0 ? -FLT_MAX : out0;
-            #elif defined(CAUSAL_MASK)
-                out0 = (kv_start + base_k_idx + 7) > (ori_q_idx + (k_seq_len - q_seq_len)) ? -FLT_MAX : out0;
+                if (attention_mask_hit(param, kv_start + base_k_idx + 7)) {
+                    out0 = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + base_k_idx + 7)] == 0 ? -FLT_MAX : out0;
+                }
+            #elif defined(DEFAULT_MASK)
+                int k_global = kv_start + base_k_idx + 7;
+                if (k_global > kv_valid_offset + ori_q_idx) {
+                    out0 = -FLT_MAX;
+                }
             #endif
             xy_out[7] = out0;
         }
@@ -281,6 +381,8 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
 #elif defined(SET_MASK)
     const device int* mask [[buffer(7)]],
 #endif
+    device ftype* k_scales [[buffer(8)]],
+    device ftype* v_scales [[buffer(9)]],
 #ifdef SIMD_GROUP_MATRIX
     uint3 gid[[threadgroup_position_in_grid]],
     uint tiitg[[thread_index_in_threadgroup]],
@@ -304,7 +406,7 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
 
 #ifdef USE_METAL_TENSOR_OPS
 
-    const int K = 8, M = 16, N = 16; 
+    const int K = 8, M = 16, N = 16;
     auto tA = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata, dextents<int32_t, 2>(K, M));//[M, K]
     auto tB = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata + 128, dextents<int32_t, 2>(N, K));//[K, N]
 
@@ -369,18 +471,20 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
     auto A_offset = input0 + ((b * q_seq_len + idx_slq) * head_num + hn) * head_dim + (0 * 2 + kl) * 4 + 0;
 
     // [mKvSeqLen, mBatch, mKvNumHead, mHeadDim]
+#ifdef QUANT_K
+    auto B_offset = (const device char*)past_key + ((idx_slk * param.batch + b)* head_num / group + zin) * head_dim + 0 * 8 + kl * 4 + 0;
+#else
     auto B_offset = past_key + ((idx_slk * param.batch + b)* head_num / group + zin) * head_dim + 0 * 8 + kl * 4 + 0;
+#endif
 
     for(int i = 0; i < head_dim; i += 8){
-        ((threadgroup ftype*)sdata)[rcl * 8 + kl * 4 + 0] = A_offset[i + 0];
-        ((threadgroup ftype*)sdata)[rcl * 8 + kl * 4 + 1] = A_offset[i + 1];
-        ((threadgroup ftype*)sdata)[rcl * 8 + kl * 4 + 2] = A_offset[i + 2];
-        ((threadgroup ftype*)sdata)[rcl * 8 + kl * 4 + 3] = A_offset[i + 3];
+        // 向量化写入 Q（4 元素一组）
+        *((threadgroup ftype4*)(&((threadgroup ftype*)sdata)[rcl * 8 + kl * 4])) = *((const device ftype4*)(&A_offset[i]));
 
-        ((threadgroup ftype*)sdata)[128 + (kl * 4 + 0) * 16 + rcl] = B_offset[i + 0];
-        ((threadgroup ftype*)sdata)[128 + (kl * 4 + 1) * 16 + rcl] = B_offset[i + 1];
-        ((threadgroup ftype*)sdata)[128 + (kl * 4 + 2) * 16 + rcl] = B_offset[i + 2];
-        ((threadgroup ftype*)sdata)[128 + (kl * 4 + 3) * 16 + rcl] = B_offset[i + 3];
+        ((threadgroup ftype*)sdata)[128 + (kl * 4 + 0) * 16 + rcl] = GETK(B_offset[i + 0], idx_slk * param.batch + b);
+        ((threadgroup ftype*)sdata)[128 + (kl * 4 + 1) * 16 + rcl] = GETK(B_offset[i + 1], idx_slk * param.batch + b);
+        ((threadgroup ftype*)sdata)[128 + (kl * 4 + 2) * 16 + rcl] = GETK(B_offset[i + 2], idx_slk * param.batch + b);
+        ((threadgroup ftype*)sdata)[128 + (kl * 4 + 3) * 16 + rcl] = GETK(B_offset[i + 3], idx_slk * param.batch + b);
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
 #ifdef USE_METAL_TENSOR_OPS
@@ -391,10 +495,10 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
 #else
         simdgroup_load(sga[0], (const threadgroup ftype*)sdata, 8);
         simdgroup_load(sga[1], ((const threadgroup ftype*)sdata) + 64, 8);
-        
+
         simdgroup_load(sgb[0], ((const threadgroup ftype*)sdata) + 128, 16);
         simdgroup_load(sgb[1], ((const threadgroup ftype*)sdata) + 136, 16);
-        
+
         simdgroup_multiply_accumulate(sgd[0], sga[0], sgb[0], sgd[0]);
         simdgroup_multiply_accumulate(sgd[1], sga[1], sgb[0], sgd[1]);
         simdgroup_multiply_accumulate(sgd[2], sga[0], sgb[1], sgd[2]);
@@ -426,111 +530,162 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
 
     float Vscale = (float)param.scale;
 
+#if defined(DEFAULT_MASK)
+    int kv_valid_offset = k_seq_len - q_seq_len;
+#endif
+
     auto xy_out = output + (z * q_seq_piece_len + slq * 16 + rcl) * output_k_len + slk * 16 + kl * 8 + 0;
     if(slq * 16 + rcl < q_seq_piece_len &&  seq_idx * q_seq_piece_len + slq * 16 + rcl < q_seq_len) {
         int ori_q_idx = seq_idx * q_seq_piece_len + slq * 16 + rcl;
         if(slk * 16 + kl * 8 + 0 < output_k_len) {
             auto out0 =  ((threadgroup float*)sdata)[sindex_base + 0] * Vscale;
             #ifdef ADD_MASK
-                auto mask_val = (kv_start + slk * 16 + kl * 8 + 0) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (kv_start + slk * 16 + kl * 8 + 0) - k_seq_len + q_seq_len)] : 0.0;
-                out0 = mask_val + out0;
+                if (attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 0)) {
+                    auto mask_val = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + slk * 16 + kl * 8 + 0)];
+                    out0 = mask_val + out0;
+                }
             #elif defined(SET_MASK)
-                out0 = mask[(ori_q_idx * k_seq_len + (kv_start + slk * 16 + kl * 8 + 0))] == 0 ? -FLT_MAX : out0;
-            #elif defined(CAUSAL_MASK)
-                // Causal mask: keep if key_pos <= query_pos + (kv_len - q_len), else -inf
-                int key_pos = kv_start + slk * 16 + kl * 8 + 0;
-                if (key_pos > (ori_q_idx + (k_seq_len - q_seq_len))) out0 = -FLT_MAX;
+                if (attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 0)) {
+                    out0 = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + slk * 16 + kl * 8 + 0)] == 0 ? -FLT_MAX : out0;
+                }
+            #elif defined(DEFAULT_MASK)
+                int k_global = kv_start + slk * 16 + kl * 8 + 0;
+                if (k_global > kv_valid_offset + ori_q_idx) {
+                    out0 = -FLT_MAX;
+                }
             #endif
             xy_out[0] = out0;
         }
         if(slk * 16 + kl * 8 + 1 < output_k_len) {
             auto out0 =  ((threadgroup float*)sdata)[sindex_base + 1] * Vscale;
             #ifdef ADD_MASK
-                auto mask_val = (kv_start + slk * 16 + kl * 8 + 1) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (kv_start + slk * 16 + kl * 8 + 1) - k_seq_len + q_seq_len)] : 0.0;
-                out0 = mask_val + out0;
+                if (attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 1)) {
+                    auto mask_val = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + slk * 16 + kl * 8 + 1)];
+                    out0 = mask_val + out0;
+                }
             #elif defined(SET_MASK)
-                out0 = mask[(ori_q_idx * k_seq_len + (kv_start + slk * 16 + kl * 8 + 1))] == 0 ? -FLT_MAX : out0;
-            #elif defined(CAUSAL_MASK)
-                int key_pos = kv_start + slk * 16 + kl * 8 + 1;
-                if (key_pos > (ori_q_idx + (k_seq_len - q_seq_len))) out0 = -FLT_MAX;
+                if (attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 1)) {
+                    out0 = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + slk * 16 + kl * 8 + 1)] == 0 ? -FLT_MAX : out0;
+                }
+            #elif defined(DEFAULT_MASK)
+                int k_global = kv_start + slk * 16 + kl * 8 + 1;
+                if (k_global > kv_valid_offset + ori_q_idx) {
+                    out0 = -FLT_MAX;
+                }
             #endif
             xy_out[1] = out0;
         }
         if(slk * 16 + kl * 8 + 2 < output_k_len) {
             auto out0 =  ((threadgroup float*)sdata)[sindex_base + 2] * Vscale;
             #ifdef ADD_MASK
-                auto mask_val = (kv_start + slk * 16 + kl * 8 + 2) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (kv_start + slk * 16 + kl * 8 + 2) - k_seq_len + q_seq_len)] : 0.0;
-                out0 = mask_val + out0;
+                if (attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 2)) {
+                    auto mask_val = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + slk * 16 + kl * 8 + 2)];
+                    out0 = mask_val + out0;
+                }
             #elif defined(SET_MASK)
-                out0 = mask[(ori_q_idx * k_seq_len + (kv_start + slk * 16 + kl * 8 + 2))] == 0 ? -FLT_MAX : out0;
-            #elif defined(CAUSAL_MASK)
-                int key_pos = kv_start + slk * 16 + kl * 8 + 2;
-                if (key_pos > (ori_q_idx + (k_seq_len - q_seq_len))) out0 = -FLT_MAX;
+                if (attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 2)) {
+                    out0 = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + slk * 16 + kl * 8 + 2)] == 0 ? -FLT_MAX : out0;
+                }
+            #elif defined(DEFAULT_MASK)
+                int k_global = kv_start + slk * 16 + kl * 8 + 2;
+                if (k_global > kv_valid_offset + ori_q_idx) {
+                    out0 = -FLT_MAX;
+                }
             #endif
             xy_out[2] = out0;
         }
         if(slk * 16 + kl * 8 + 3 < output_k_len) {
             auto out0 =  ((threadgroup float*)sdata)[sindex_base + 3] * Vscale;
             #ifdef ADD_MASK
-                auto mask_val = (kv_start + slk * 16 + kl * 8 + 3) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (kv_start + slk * 16 + kl * 8 + 3) - k_seq_len + q_seq_len)] : 0.0;
-                out0 = mask_val + out0;
+                if (attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 3)) {
+                    auto mask_val = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + slk * 16 + kl * 8 + 3)];
+                    out0 = mask_val + out0;
+                }
             #elif defined(SET_MASK)
-                out0 = mask[(ori_q_idx * k_seq_len + (kv_start + slk * 16 + kl * 8 + 3))] == 0 ? -FLT_MAX : out0;
-            #elif defined(CAUSAL_MASK)
-                int key_pos = kv_start + slk * 16 + kl * 8 + 3;
-                if (key_pos > (ori_q_idx + (k_seq_len - q_seq_len))) out0 = -FLT_MAX;
+                if (attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 3)) {
+                    out0 = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + slk * 16 + kl * 8 + 3)] == 0 ? -FLT_MAX : out0;
+                }
+            #elif defined(DEFAULT_MASK)
+                int k_global = kv_start + slk * 16 + kl * 8 + 3;
+                if (k_global > kv_valid_offset + ori_q_idx) {
+                    out0 = -FLT_MAX;
+                }
             #endif
             xy_out[3] = out0;
         }
         if(slk * 16 + kl * 8 + 4 < output_k_len) {
             auto out0 =  ((threadgroup float*)sdata)[sindex_base + 4] * Vscale;
             #ifdef ADD_MASK
-                auto mask_val = (kv_start + slk * 16 + kl * 8 + 4) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (kv_start + slk * 16 + kl * 8 + 4) - k_seq_len + q_seq_len)] : 0.0;
-                out0 = mask_val + out0;
+                if (attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 4)) {
+                    auto mask_val = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + slk * 16 + kl * 8 + 4)];
+                    out0 = mask_val + out0;
+                }
             #elif defined(SET_MASK)
-                out0 = mask[(ori_q_idx * k_seq_len + (kv_start + slk * 16 + kl * 8 + 4))] == 0 ? -FLT_MAX : out0;
-            #elif defined(CAUSAL_MASK)
-                int key_pos = kv_start + slk * 16 + kl * 8 + 4;
-                if (key_pos > (ori_q_idx + (k_seq_len - q_seq_len))) out0 = -FLT_MAX;
+                if (attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 4)) {
+                    out0 = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + slk * 16 + kl * 8 + 4)] == 0 ? -FLT_MAX : out0;
+                }
+            #elif defined(DEFAULT_MASK)
+                int k_global = kv_start + slk * 16 + kl * 8 + 4;
+                if (k_global > kv_valid_offset + ori_q_idx) {
+                    out0 = -FLT_MAX;
+                }
             #endif
             xy_out[4] = out0;
         }
         if(slk * 16 + kl * 8 + 5 < output_k_len) {
             auto out0 =  ((threadgroup float*)sdata)[sindex_base + 5] * Vscale;
             #ifdef ADD_MASK
-                auto mask_val = (kv_start + slk * 16 + kl * 8 + 5) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (kv_start + slk * 16 + kl * 8 + 5) - k_seq_len + q_seq_len)] : 0.0;
-                out0 = mask_val + out0;
+                if (attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 5)) {
+                    auto mask_val = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + slk * 16 + kl * 8 + 5)];
+                    out0 = mask_val + out0;
+                }
             #elif defined(SET_MASK)
-                out0 = mask[(ori_q_idx * k_seq_len + (kv_start + slk * 16 + kl * 8 + 5))] == 0 ? -FLT_MAX : out0;
-            #elif defined(CAUSAL_MASK)
-                int key_pos = kv_start + slk * 16 + kl * 8 + 5;
-                if (key_pos > (ori_q_idx + (k_seq_len - q_seq_len))) out0 = -FLT_MAX;
+                if (attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 5)) {
+                    out0 = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + slk * 16 + kl * 8 + 5)] == 0 ? -FLT_MAX : out0;
+                }
+            #elif defined(DEFAULT_MASK)
+                int k_global = kv_start + slk * 16 + kl * 8 + 5;
+                if (k_global > kv_valid_offset + ori_q_idx) {
+                    out0 = -FLT_MAX;
+                }
             #endif
             xy_out[5] = out0;
         }
         if(slk * 16 + kl * 8 + 6 < output_k_len) {
             auto out0 =  ((threadgroup float*)sdata)[sindex_base + 6] * Vscale;
             #ifdef ADD_MASK
-                auto mask_val = (kv_start + slk * 16 + kl * 8 + 6) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (kv_start + slk * 16 + kl * 8 + 6) - k_seq_len + q_seq_len)] : 0.0;
-                out0 = mask_val + out0;
+                if (attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 6)) {
+                    auto mask_val = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + slk * 16 + kl * 8 + 6)];
+                    out0 = mask_val + out0;
+                }
             #elif defined(SET_MASK)
-                out0 = mask[(ori_q_idx * k_seq_len + (kv_start + slk * 16 + kl * 8 + 6))] == 0 ? -FLT_MAX : out0;
-            #elif defined(CAUSAL_MASK)
-                int key_pos = kv_start + slk * 16 + kl * 8 + 6;
-                if (key_pos > (ori_q_idx + (k_seq_len - q_seq_len))) out0 = -FLT_MAX;
+                if (attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 6)) {
+                    out0 = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + slk * 16 + kl * 8 + 6)] == 0 ? -FLT_MAX : out0;
+                }
+            #elif defined(DEFAULT_MASK)
+                int k_global = kv_start + slk * 16 + kl * 8 + 6;
+                if (k_global > kv_valid_offset + ori_q_idx) {
+                    out0 = -FLT_MAX;
+                }
             #endif
             xy_out[6] = out0;
         }
         if(slk * 16 + kl * 8 + 7 < output_k_len) {
             auto out0 =  ((threadgroup float*)sdata)[sindex_base + 7] * Vscale;
             #ifdef ADD_MASK
-                auto mask_val = (kv_start + slk * 16 + kl * 8 + 7) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (kv_start + slk * 16 + kl * 8 + 7) - k_seq_len + q_seq_len)] : 0.0;
-                out0 = mask_val + out0;
+                if (attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 7)) {
+                    auto mask_val = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + slk * 16 + kl * 8 + 7)];
+                    out0 = mask_val + out0;
+                }
             #elif defined(SET_MASK)
-                out0 = mask[(ori_q_idx * k_seq_len + (kv_start + slk * 16 + kl * 8 + 7))] == 0 ? -FLT_MAX : out0;
-            #elif defined(CAUSAL_MASK)
-                int key_pos = kv_start + slk * 16 + kl * 8 + 7;
-                if (key_pos > (ori_q_idx + (k_seq_len - q_seq_len))) out0 = -FLT_MAX;
+                if (attention_mask_hit(param, kv_start + slk * 16 + kl * 8 + 7)) {
+                    out0 = mask[attention_mask_offset(param, b, hn, ori_q_idx, kv_start + slk * 16 + kl * 8 + 7)] == 0 ? -FLT_MAX : out0;
+                }
+            #elif defined(DEFAULT_MASK)
+                int k_global = kv_start + slk * 16 + kl * 8 + 7;
+                if (k_global > kv_valid_offset + ori_q_idx) {
+                    out0 = -FLT_MAX;
+                }
             #endif
             xy_out[7] = out0;
         }
@@ -540,7 +695,7 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
     const int x = gid.x; // query_seq_len
     const int y = gid.y; // head_num * batch
     const int z = gid.z; // key_seq_len
-    
+
     int q_idx = seq_idx * param.q_seq_piece_len + x;
     int z_global = kv_start + z;
     if (x >= param.q_seq_piece_len || q_idx >= param.query_seq_len || y >= param.head_num * param.batch || z_global >= param.key_seq_len) {
@@ -553,7 +708,7 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
     int head_dim = param.head_dim;
     int b  = y / head_num;
     int hn = y % head_num;
-    
+
     const int offset = head_num * head_dim;
     const int offset_head = y * head_dim;
     const int offset_head_kv = (hn / group) * head_dim;
@@ -562,27 +717,55 @@ kernel void prefill_qk(const device ftype* input0 [[buffer(0)]],
 
     float Vscale = (float)param.scale;
     // [mKvSeqLen, mBatch, mKvNumHead, mHeadDim]
+#ifdef QUANT_K
+    const device char* B_offset = (const device char*)past_key + ((z_global * param.batch + b) * offset / group + offset_head_kv);
+#else
     device const ftype* B_offset = past_key + (z_global * param.batch + b) * offset / group + offset_head_kv;
+#endif
     const int output_offset = y * param.q_seq_piece_len * output_k_len;
     float out0 = 0.0;
-    
-    for(int i = 0; i < head_dim; ++i){
-        float A = (float)(A_offset[i]);
-        float B = (float)(B_offset[i]);
-        out0 += B * A;
+
+    // 两路流水：每次处理 8 个标量（两个 float4），减少循环开销
+    int itN = head_dim / 8; // head_dim 保证 16 对齐，因此 /8 为整数
+    const device ftype4* A4p = (const device ftype4*)A_offset;
+#ifdef QUANT_K
+    const device char4* B4p_c = (const device char4*)B_offset;
+#else
+    const device ftype4* B4p = (const device ftype4*)B_offset;
+#endif
+    for (int i = 0; i < itN; ++i) {
+#ifdef QUANT_K
+        float4 B0 = GETK4(B4p_c[i * 2 + 0], z_global * param.batch + b);
+        float4 B1 = GETK4(B4p_c[i * 2 + 1], z_global * param.batch + b);
+#else
+        float4 B0 = float4(B4p[i * 2 + 0]);
+        float4 B1 = float4(B4p[i * 2 + 1]);
+#endif
+        float4 A0 = float4(A4p[i * 2 + 0]);
+        float4 A1 = float4(A4p[i * 2 + 1]);
+        out0 += dot(A0, B0) + dot(A1, B1);
     }
-    
+
     out0 *= Vscale;
-    
- #ifdef ADD_MASK
-    auto mask_val = z_global >= key_seq_len - query_seq_len ? mask[((q_idx + 0) * query_seq_len + (z_global - key_seq_len + query_seq_len))] : 0.0;
-    out0 = mask_val + out0;
- #elif defined(SET_MASK)
-    out0 = mask[((q_idx + 0) * key_seq_len + (z_global + 0))] == 0 ? -FLT_MAX : out0;
- #elif defined(CAUSAL_MASK)
-    // keep if j <= i + (k_len - q_len), else -inf
-    out0 = z_global > (q_idx + (key_seq_len - query_seq_len)) ? -FLT_MAX : out0;
- #endif
+
+#ifdef ADD_MASK
+    if (attention_mask_hit(param, z_global)) {
+        auto mask_val = mask[attention_mask_offset(param, b, hn, q_idx, z_global)];
+        out0 = mask_val + out0;
+    }
+#elif defined(SET_MASK)
+    if (attention_mask_hit(param, z_global)) {
+        out0 = mask[attention_mask_offset(param, b, hn, q_idx, z_global)] == 0 ? -FLT_MAX : out0;
+    }
+#elif defined(DEFAULT_MASK)
+    {
+        int kv_valid_offset = max(key_seq_len - query_seq_len, 0);
+        int k_global = z_global;
+        if (k_global > kv_valid_offset + q_idx) {
+            out0 = -FLT_MAX;
+        }
+    }
+#endif
     output[output_offset + x * output_k_len + z] = (ftype)out0;
 #endif
 }
@@ -600,11 +783,25 @@ kernel void decode_qk(const device ftype* input0 [[buffer(0)]],
 #elif defined(SET_MASK)
     const device int* mask [[buffer(7)]],
 #endif
+    device ftype* k_scales [[buffer(8)]],
+    device ftype* v_scales [[buffer(9)]],
+#ifdef SIMD_GROUP_REDUCE
+    uint3 gid[[threadgroup_position_in_grid]],
+    uint  tiisg[[thread_index_in_simdgroup]],
+    uint  sgitg[[simdgroup_index_in_threadgroup]]
+#else
     uint3 gid[[thread_position_in_grid]]
+#endif
 ) {
+#ifdef SIMD_GROUP_REDUCE
     int x = gid.x; // query_seq_len
     int y = gid.y; // head_num * batch
     int z = gid.z; // key_seq_len
+#else
+    int x = gid.x; // query_seq_len
+    int y = gid.y; // head_num * batch
+    int z = gid.z; // key_seq_len
+#endif
     int group = param.group;
     int kv_head_num = param.head_num / group;
     if (x >= param.query_seq_len || y >= kv_head_num * param.batch || z >= param.key_seq_len) {
@@ -614,7 +811,7 @@ kernel void decode_qk(const device ftype* input0 [[buffer(0)]],
     int key_seq_len = param.key_seq_len;
     int head_num = param.head_num;
     int head_dim = param.head_dim;
-    
+
     int b  = y / kv_head_num;
     int kv_hn = y % kv_head_num;
     const int offset = head_num * head_dim;
@@ -624,49 +821,107 @@ kernel void decode_qk(const device ftype* input0 [[buffer(0)]],
     // [mBatch, mSeqLen, mNumHead, mHeadDim]
     const device ftype* A_offset = input0 + (b * param.query_seq_len + x) * offset + offset_head;
     // [mKvSeqLen, mBatch, mKvNumHead, mHeadDim]
+#ifdef QUANT_K
+    const device char* Pastkey_offset = (const device char*)past_key + ((z * param.batch + b) * offset / group + offset_head_kv);
+#else
     device ftype* Pastkey_offset = past_key + (z * param.batch + b) * offset / group + offset_head_kv;
+#endif
     float Vscale = (float)param.scale;
 
 
 
+    // 保持与原 Mask 分支一致的计算路径，避免提前返回带来的数值波动
     float out[GROUP_SIZE] = {0.0};
-    #ifdef HEAD_DIM_UNALIGNED_4
+#if defined(QUANT_K) && defined(DYNAMIC_QUANT_K)
+    int k_token_idx = z * param.batch + b;
+    float k_scale = k_scales[k_token_idx * 2];
+    float k_bias = k_scales[k_token_idx * 2 + 1];
+#endif
+
+#ifdef SIMD_GROUP_REDUCE
     {
-        for(int i = 0; i < head_dim; i++){
-            float B = (float)Pastkey_offset[i];
-            for(int j = 0; j < group; j++) {
-                float A = A_offset[i + head_dim * j];
-                out[j] += A * B;
+        int itN = head_dim / 8;
+        for (int i = tiisg; i < itN; i+=SIMD_GROUP_WIDTH) {
+#ifdef QUANT_K
+#ifdef DYNAMIC_QUANT_K
+            float4 B0 = float4(((const device char4*)Pastkey_offset)[i * 2 + 0]) * k_scale + k_bias;
+            float4 B1 = float4(((const device char4*)Pastkey_offset)[i * 2 + 1]) * k_scale + k_bias;
+#else
+            float4 B0 = GETK4(((const device char4*)Pastkey_offset)[i * 2 + 0], z * param.batch + b);
+            float4 B1 = GETK4(((const device char4*)Pastkey_offset)[i * 2 + 1], z * param.batch + b);
+#endif
+#else
+            float4 B0 = float4(((const device ftype4*)Pastkey_offset)[i * 2 + 0]);
+            float4 B1 = float4(((const device ftype4*)Pastkey_offset)[i * 2 + 1]);
+#endif
+            for (int j = 0; j < group; j++) {
+                const device ftype4* Ajp = (const device ftype4*)(A_offset + head_dim * j);
+                float4 A0 = float4(Ajp[i * 2 + 0]);
+                float4 A1 = float4(Ajp[i * 2 + 1]);
+                out[j] += dot(A0, B0) + dot(A1, B1);
             }
         }
     }
-    #else
+    for(int j = 0; j < group; j++) {
+        out[j] = simd_sum(out[j]);
+    }
+#else
     {
-        for(int i = 0; i < head_dim/4; i++){
-            float4 B = float4(((const device ftype4*)Pastkey_offset)[i]);
-            for(int j = 0; j < group; j++) {
-                float4 A = float4(((const device ftype4*)(A_offset + head_dim * j))[i]);
-                out[j] += dot(A, B);
+        // 统一使用 float4 向量化点积（QUANT_K 走 GETK4）
+        int itN = head_dim / 8;
+        for (int i = 0; i < itN; ++i) {
+#ifdef QUANT_K
+#ifdef DYNAMIC_QUANT_K
+            float4 B0 = float4(((const device char4*)Pastkey_offset)[i * 2 + 0]) * k_scale + k_bias;
+            float4 B1 = float4(((const device char4*)Pastkey_offset)[i * 2 + 1]) * k_scale + k_bias;
+#else
+            float4 B0 = GETK4(((const device char4*)Pastkey_offset)[i * 2 + 0], z * param.batch + b);
+            float4 B1 = GETK4(((const device char4*)Pastkey_offset)[i * 2 + 1], z * param.batch + b);
+#endif
+#else
+            float4 B0 = float4(((const device ftype4*)Pastkey_offset)[i * 2 + 0]);
+            float4 B1 = float4(((const device ftype4*)Pastkey_offset)[i * 2 + 1]);
+#endif
+            for (int j = 0; j < group; j++) {
+                const device ftype4* Ajp = (const device ftype4*)(A_offset + head_dim * j);
+                float4 A0 = float4(Ajp[i * 2 + 0]);
+                float4 A1 = float4(Ajp[i * 2 + 1]);
+                out[j] += dot(A0, B0) + dot(A1, B1);
             }
         }
     }
-    #endif
-    #ifdef ADD_MASK
-        float mask_val = z >= key_seq_len - param.query_seq_len ? mask[((x + 0) * param.query_seq_len + (z - key_seq_len + param.query_seq_len))] : 0.0;
-    #elif defined(SET_MASK)
-        int mask_val = mask[((x + 0) * key_seq_len + (z + 0))];
-    #endif
+#endif
+
+#ifdef SIMD_GROUP_REDUCE
+    if (tiisg == 0) {
+#endif
+
     for(int j = 0; j < group; j++) {
         out[j] *= Vscale;
         #ifdef ADD_MASK
-            out[j] += mask_val;
+            if (attention_mask_hit(param, z)) {
+                float mask_val = mask[attention_mask_offset(param, b, kv_hn * group + j, x, z)];
+                out[j] += mask_val;
+            }
         #elif defined(SET_MASK)
-            out[j] = mask_val == 0 ? -FLT_MAX : out[j];
-        #elif defined(CAUSAL_MASK)
-            out[j] = z > (x + (key_seq_len - param.query_seq_len)) ? -FLT_MAX : out[j];
+            if (attention_mask_hit(param, z)) {
+                int mask_val = mask[attention_mask_offset(param, b, kv_hn * group + j, x, z)];
+                out[j] = mask_val == 0 ? -FLT_MAX : out[j];
+            }
+        #elif defined(DEFAULT_MASK)
+        {
+            int kv_valid_offset = max(key_seq_len - param.query_seq_len, 0);
+            int k_global = z;
+            if (k_global > kv_valid_offset + x) {
+                out[j] = -FLT_MAX;
+            }
+        }
         #endif
         output[((y * group + j) * param.query_seq_len + x) * key_seq_len + z] = (ftype)out[j];
     }
+#ifdef SIMD_GROUP_REDUCE
+    }
+#endif
 }
 
 )metal";
@@ -681,16 +936,264 @@ struct Param {
     int dst_k_offset;
     int dst_v_offset;
     int batch;
+    float v_scale;
+    float k_scale;
 };
 // Key:   [batch, kv_seq_len, head_num / group * head_dim] -> [max_kv_len, batch, head_num / group * head_dim]
 // Value: [batch, kv_seq_len, head_num / group * head_dim] -> [batch, head_num / group * head_dim, max_kv_len]
+
+#ifdef KV_QUANT_K
+#define KOUT_TYPE char
+#else
+#define KOUT_TYPE ftype
+#endif
+
+#ifdef KV_QUANT_V
+#define VOUT_TYPE char
+#else
+#define VOUT_TYPE ftype
+#endif
+
+
 kernel void copy(const device ftype* input0 [[buffer(0)]],
     const device ftype* input1 [[buffer(1)]],
-    device ftype* output0 [[buffer(2)]],
-    device ftype* output1 [[buffer(3)]],
+    device KOUT_TYPE* output0 [[buffer(2)]],
+    device VOUT_TYPE* output1 [[buffer(3)]],
     constant Param& param [[buffer(4)]],
+    device ftype* k_scales [[buffer(8)]],
+    device ftype* v_scales [[buffer(9)]],
+#ifdef DYNAMIC_QUANT
+    uint3 gid[[threadgroup_position_in_grid]],
+    uint tiisg[[thread_index_in_simdgroup]],
+    uint titg[[thread_index_in_threadgroup]],
+    uint sgitg[[simdgroup_index_in_threadgroup]],
+    uint3 tptg_3d[[threads_per_threadgroup]]
+#else
     uint3 gid[[thread_position_in_grid]]
+#endif
 ) {
+#ifdef DYNAMIC_QUANT
+    const int y = gid.y; // kv_seq_len
+    const int b = gid.z; // batch
+    const uint tptg = tptg_3d.x * tptg_3d.y * tptg_3d.z;
+    if (y >= param.kv_seq_len || b >= param.batch) {
+        return;
+    }
+
+#if defined(KV_QUANT_K) || defined(KV_QUANT_V)
+    float k_scale = param.k_scale;
+    float k_bias = 0.0f;
+    float v_scale = param.v_scale;
+    float v_bias = 0.0f;
+
+#ifdef DYNAMIC_QUANT
+    // Dynamic quantization scale calculation
+    {
+#ifdef KV_QUANT_K
+        float min_k = 1000000.0f;
+        float max_k = -1000000.0f;
+#endif
+#ifdef KV_QUANT_V
+        float min_v = 1000000.0f;
+        float max_v = -1000000.0f;
+#endif
+
+        int vector_end = (param.head_count / 4) * 4;
+        for (int x = int(titg) * 4; x < vector_end; x += int(tptg) * 4) {
+            const int in_idx  = (b * param.kv_seq_len + y) * param.head_count + x;
+#ifdef KV_QUANT_K
+            float4 k4 = float4(((const device ftype4*)(input0 + in_idx))[0]);
+            float k_min = metal::min(metal::min(k4.x, k4.y), metal::min(k4.z, k4.w));
+            float k_max = metal::max(metal::max(k4.x, k4.y), metal::max(k4.z, k4.w));
+            min_k = metal::min(min_k, k_min);
+            max_k = metal::max(max_k, k_max);
+#endif
+#ifdef KV_QUANT_V
+            float4 v4 = float4(((const device ftype4*)(input1 + in_idx))[0]);
+            float v_min = metal::min(metal::min(v4.x, v4.y), metal::min(v4.z, v4.w));
+            float v_max = metal::max(metal::max(v4.x, v4.y), metal::max(v4.z, v4.w));
+            min_v = metal::min(min_v, v_min);
+            max_v = metal::max(max_v, v_max);
+#endif
+        }
+        for (int x = vector_end + int(titg); x < param.head_count; x += int(tptg)) {
+            const int in_idx  = (b * param.kv_seq_len + y) * param.head_count + x;
+#ifdef KV_QUANT_K
+            float k = (float)input0[in_idx];
+            min_k = metal::min(min_k, k);
+            max_k = metal::max(max_k, k);
+#endif
+#ifdef KV_QUANT_V
+            float v = (float)input1[in_idx];
+            min_v = metal::min(min_v, v);
+            max_v = metal::max(max_v, v);
+#endif
+        }
+
+#ifdef SIMD_GROUP_REDUCE
+#ifdef KV_QUANT_K
+        min_k = simd_min(min_k);
+        max_k = simd_max(max_k);
+#endif
+#ifdef KV_QUANT_V
+        min_v = simd_min(min_v);
+        max_v = simd_max(max_v);
+#endif
+#else
+#ifdef KV_QUANT_K
+        threadgroup float tg_min_k[256];
+        threadgroup float tg_max_k[256];
+#endif
+#ifdef KV_QUANT_V
+        threadgroup float tg_min_v[256];
+        threadgroup float tg_max_v[256];
+#endif
+
+#ifdef KV_QUANT_K
+        tg_min_k[titg] = min_k;
+        tg_max_k[titg] = max_k;
+#endif
+#ifdef KV_QUANT_V
+        tg_min_v[titg] = min_v;
+        tg_max_v[titg] = max_v;
+#endif
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        if (titg == 0) {
+            for (uint i = 1; i < tptg; i++) {
+#ifdef KV_QUANT_K
+                min_k = metal::min(min_k, tg_min_k[i]);
+                max_k = metal::max(max_k, tg_max_k[i]);
+#endif
+#ifdef KV_QUANT_V
+                min_v = metal::min(min_v, tg_min_v[i]);
+                max_v = metal::max(max_v, tg_max_v[i]);
+#endif
+            }
+#ifdef KV_QUANT_K
+            tg_min_k[0] = min_k;
+            tg_max_k[0] = max_k;
+#endif
+#ifdef KV_QUANT_V
+            tg_min_v[0] = min_v;
+            tg_max_v[0] = max_v;
+#endif
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+#ifdef KV_QUANT_K
+        min_k = tg_min_k[0];
+        max_k = tg_max_k[0];
+#endif
+#ifdef KV_QUANT_V
+        min_v = tg_min_v[0];
+        max_v = tg_max_v[0];
+#endif
+#endif
+#ifdef KV_QUANT_K
+        k_scale = (max_k - min_k) / 255.0f;
+        if (k_scale < 1e-6f) k_scale = 1e-6f;
+        k_bias = min_k + 128.0f * k_scale;
+#endif
+#ifdef KV_QUANT_V
+        v_scale = (max_v - min_v) / 255.0f;
+        if (v_scale < 1e-6f) v_scale = 1e-6f;
+        v_bias = min_v + 128.0f * v_scale;
+#endif
+
+        if (titg == 0) {
+#ifdef KV_QUANT_K
+            int k_tok_idx = param.dst_k_offset / param.head_count + (y * param.batch + b);
+            k_scales[k_tok_idx * 2 + 0] = k_scale;
+            k_scales[k_tok_idx * 2 + 1] = k_bias;
+#endif
+#ifdef KV_QUANT_V
+            int v_tok_idx = b * param.max_kv_len + (param.dst_k_offset / param.head_count + y);
+            v_scales[v_tok_idx * 2 + 0] = v_scale;
+            v_scales[v_tok_idx * 2 + 1] = v_bias;
+#endif
+        }
+    }
+#endif // DYNAMIC_QUANT
+#endif // KV_QUANT_K || KV_QUANT_V
+
+    int vector_end = (param.head_count / 4) * 4;
+    for (int x = int(titg) * 4; x < vector_end; x += int(tptg) * 4) {
+        const int in_idx  = (b * param.kv_seq_len + y) * param.head_count + x;
+
+        // Write K
+        int out_idx_k = param.dst_k_offset + (y * param.batch + b) * param.head_count + x;
+#ifdef KV_QUANT_K
+        float4 k = float4(((const device ftype4*)(input0 + in_idx))[0]);
+        if (k_scale == 0.0f) {
+            ((device char4*)(output0 + out_idx_k))[0] = char4(0);
+        } else {
+            int4 qi = int4(rint((k - k_bias) / k_scale));
+            qi = clamp(qi, int4(-128), int4(127));
+            ((device char4*)(output0 + out_idx_k))[0] = char4(qi);
+        }
+#else
+        ((device ftype4*)(output0 + out_idx_k))[0] = ((const device ftype4*)(input0 + in_idx))[0];
+#endif
+
+        // Write V
+        int out_idx_v = param.dst_v_offset + (b * param.head_count + x) * param.max_kv_len + y;
+#ifdef KV_QUANT_V
+        float4 v = float4(((const device ftype4*)(input1 + in_idx))[0]);
+        if (v_scale == 0.0f) {
+            output1[out_idx_v] = (char)0;
+            output1[out_idx_v + param.max_kv_len] = (char)0;
+            output1[out_idx_v + param.max_kv_len * 2] = (char)0;
+            output1[out_idx_v + param.max_kv_len * 3] = (char)0;
+        } else {
+            int4 qi = int4(rint((v - v_bias) / v_scale));
+            qi = clamp(qi, int4(-128), int4(127));
+            output1[out_idx_v] = (char)qi.x;
+            output1[out_idx_v + param.max_kv_len] = (char)qi.y;
+            output1[out_idx_v + param.max_kv_len * 2] = (char)qi.z;
+            output1[out_idx_v + param.max_kv_len * 3] = (char)qi.w;
+        }
+#else
+        output1[out_idx_v] = input1[in_idx];
+        output1[out_idx_v + param.max_kv_len] = input1[in_idx + 1];
+        output1[out_idx_v + param.max_kv_len * 2] = input1[in_idx + 2];
+        output1[out_idx_v + param.max_kv_len * 3] = input1[in_idx + 3];
+#endif
+    }
+    for (int x = vector_end + int(titg); x < param.head_count; x += int(tptg)) {
+        const int in_idx  = (b * param.kv_seq_len + y) * param.head_count + x;
+
+        int out_idx_k = param.dst_k_offset + (y * param.batch + b) * param.head_count + x;
+#ifdef KV_QUANT_K
+        float k = (float)input0[in_idx];
+        if (k_scale == 0.0f) {
+            output0[out_idx_k] = (char)0;
+        } else {
+            float q = (k - k_bias) / k_scale;
+            int qi = (int)rint(q);
+            qi = clamp(qi, -128, 127);
+            output0[out_idx_k] = (char)qi;
+        }
+#else
+        output0[out_idx_k] = input0[in_idx];
+#endif
+
+        int out_idx_v = param.dst_v_offset + (b * param.head_count + x) * param.max_kv_len + y;
+#ifdef KV_QUANT_V
+        float v = (float)input1[in_idx];
+        if (v_scale == 0.0f) {
+            output1[out_idx_v] = (char)0;
+        } else {
+            float q = (v - v_bias) / v_scale;
+            int qi = (int)rint(q);
+            qi = clamp(qi, -128, 127);
+            output1[out_idx_v] = (char)qi;
+        }
+#else
+        output1[out_idx_v] = input1[in_idx];
+#endif
+    }
+#else
     const int x = gid.x; // head_num / group * head_dim
     const int y = gid.y; // kv_seq_len
     const int b = gid.z; // batch
@@ -698,12 +1201,41 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
         return;
     }
     const int in_idx  = (b * param.kv_seq_len + y) * param.head_count + x;
-    int out_idx = param.dst_k_offset + (y * param.batch + b) * param.head_count + x;
-    output0[out_idx] = input0[in_idx];
 
-    out_idx = param.dst_v_offset + (b * param.head_count + x) * param.max_kv_len + y;
-    output1[out_idx] = input1[in_idx];
+    int out_idx_k = param.dst_k_offset + (y * param.batch + b) * param.head_count + x;
+#ifdef KV_QUANT_K
+    float k = (float)input0[in_idx];
+    if (param.k_scale == 0.0f) {
+        output0[out_idx_k] = (char)0;
+    } else {
+        float q = k / param.k_scale;
+        int qi = (int)rint(q);
+        qi = clamp(qi, -128, 127);
+        output0[out_idx_k] = (char)qi;
+    }
+#else
+    output0[out_idx_k] = input0[in_idx];
+#endif
+
+    int out_idx_v = param.dst_v_offset + (b * param.head_count + x) * param.max_kv_len + y;
+#ifdef KV_QUANT_V
+    float v = (float)input1[in_idx];
+    if (param.v_scale == 0.0f) {
+        output1[out_idx_v] = (char)0;
+    } else {
+        float q = v / param.v_scale;
+        int qi = (int)rint(q);
+        qi = clamp(qi, -128, 127);
+        output1[out_idx_v] = (char)qi;
+    }
+#else
+    output1[out_idx_v] = input1[in_idx];
+#endif
+#endif
 }
+
+#undef KOUT_TYPE
+#undef VOUT_TYPE
 )metal";
 
 const char* gMatMulQKV = R"metal(
@@ -725,11 +1257,30 @@ struct Param {
     int max_kv_len;
     int batch;
     int kv_align_len;
+    int mask_batch;
+    int mask_head_num;
+    int mask_q_len;
+    int mask_k_len;
+    float v_scale;
+    float k_scale;
 };
 #if MNN_METAL_FLOAT16_STORAGE
 typedef simdgroup_half8x8 simdgroup_T8x8;
 #else
 typedef simdgroup_float8x8 simdgroup_T8x8;
+#endif
+#ifdef QUANT_V
+#ifdef DYNAMIC_QUANT_V
+#define GETV(v, tok_idx) ftype((float(v) * v_scales[(tok_idx) * 2] + v_scales[(tok_idx) * 2 + 1]))
+#define GETV4(v, tok_idx) (float4(v) * float4(v_scales[(tok_idx) * 2], v_scales[((tok_idx) + 1) * 2], v_scales[((tok_idx) + 2) * 2], v_scales[((tok_idx) + 3) * 2]) + \
+     float4(v_scales[(tok_idx) * 2 + 1], v_scales[((tok_idx) + 1) * 2 + 1], v_scales[((tok_idx) + 2) * 2 + 1], v_scales[((tok_idx) + 3) * 2 + 1]))
+#else
+#define GETV(v, tok_idx) ftype((float(v) * param.v_scale))
+#define GETV4(v, tok_idx) (float4(v) * param.v_scale)
+#endif
+#else
+#define GETV(v, tok_idx) v
+#define GETV4(v, tok_idx) v
 #endif
 
 #ifdef USE_METAL_TENSOR_OPS
@@ -738,6 +1289,8 @@ kernel void prefill_qkv_tensor(const device ftype* input0 [[buffer(0)]],
     device ftype4* past_value [[buffer(2)]],
     constant int &seq_idx [[buffer(3)]],
     constant Param& param [[buffer(4)]],
+    device ftype* k_scales [[buffer(8)]],
+    device ftype* v_scales [[buffer(9)]],
     uint3 gid[[threadgroup_position_in_grid]],
     uint tiitg[[thread_index_in_threadgroup]],
     uint tiisg[[thread_index_in_simdgroup]],
@@ -753,7 +1306,7 @@ kernel void prefill_qkv_tensor(const device ftype* input0 [[buffer(0)]],
 
     threadgroup ftype sdata[2048] = {0.f};
 
-    const int K = 32, M = 32, N = 32; 
+    const int K = 32, M = 32, N = 32;
     const int tb_offset = M * K;
     auto tA = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata, dextents<int32_t, 2>(K, M));//[M, K]
     auto tB = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata + tb_offset, dextents<int32_t, 2>(K, N));//[N, K]
@@ -764,7 +1317,7 @@ kernel void prefill_qkv_tensor(const device ftype* input0 [[buffer(0)]],
 
     auto cT = mmOps.get_destination_cooperative_tensor<decltype(tA), decltype(tB), float>();
 
-    // QK:[32, 4] 
+    // QK:[32, 4]
     int ml = tiitg / 4;// 0~31
     int kl = tiitg % 4;// 0~3
 
@@ -820,21 +1373,20 @@ kernel void prefill_qkv_tensor(const device ftype* input0 [[buffer(0)]],
     int idx_qk_sl = sl * 32 + ml < q_seq_piece_len ? (sl * 32 + ml) : q_seq_piece_len - 1;
 
     auto A_offset = input0 + (z * q_seq_piece_len + idx_qk_sl) * align_value_len + (0 * 4 + kl) * 8 + 0;
+#ifdef QUANT_V
+    auto B_offset = (const device char4*)past_value + (zin * head_dim + hm * 32 + nl) * param.max_kv_len / 4 + (0 * 4 + kvl) * 2 + 0;
+#else
     auto B_offset = past_value + (zin * head_dim + hm * 32 + nl) * param.max_kv_len / 4 + (0 * 4 + kvl) * 2 + 0;
-    
+#endif
+
 
     for(int i = 0; i < (value_seq_len+3)/4; i += 8){
-        ((threadgroup ftype*)sdata)[(ml * 4 + kl) * 8 + 0] = A_offset[4*i + 0];
-        ((threadgroup ftype*)sdata)[(ml * 4 + kl) * 8 + 1] = A_offset[4*i + 1];
-        ((threadgroup ftype*)sdata)[(ml * 4 + kl) * 8 + 2] = A_offset[4*i + 2];
-        ((threadgroup ftype*)sdata)[(ml * 4 + kl) * 8 + 3] = A_offset[4*i + 3];
-        ((threadgroup ftype*)sdata)[(ml * 4 + kl) * 8 + 4] = A_offset[4*i + 4];
-        ((threadgroup ftype*)sdata)[(ml * 4 + kl) * 8 + 5] = A_offset[4*i + 5];
-        ((threadgroup ftype*)sdata)[(ml * 4 + kl) * 8 + 6] = A_offset[4*i + 6];
-        ((threadgroup ftype*)sdata)[(ml * 4 + kl) * 8 + 7] = A_offset[4*i + 7];
+        // 向量化写入 P（两次 ftype4，覆盖 8 个标量）
+        *((threadgroup ftype4*)(&((threadgroup ftype*)sdata)[(ml * 4 + kl) * 8 + 0])) = *((const device ftype4*)(&A_offset[4*i + 0]));
+        *((threadgroup ftype4*)(&((threadgroup ftype*)sdata)[(ml * 4 + kl) * 8 + 4])) = *((const device ftype4*)(&A_offset[4*i + 4]));
 
-        ((threadgroup ftype4*)sdata)[256 + (nl * 4 + kvl) * 2 + 0] = B_offset[i + 0];
-        ((threadgroup ftype4*)sdata)[256 + (nl * 4 + kvl) * 2 + 1] = B_offset[i + 1];
+        ((threadgroup ftype4*)sdata)[256 + (nl * 4 + kvl) * 2 + 0] = (ftype4)GETV4(B_offset[i + 0], b * param.max_kv_len + i * 4 + 0);
+        ((threadgroup ftype4*)sdata)[256 + (nl * 4 + kvl) * 2 + 1] = (ftype4)GETV4(B_offset[i + 1], b * param.max_kv_len + i * 4 + 4);
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
@@ -849,7 +1401,7 @@ kernel void prefill_qkv_tensor(const device ftype* input0 [[buffer(0)]],
     auto tC = tensor<threadgroup float, dextents<int32_t, 2>, tensor_inline>((threadgroup float*)sdata, dextents<int32_t, 2>(N, M)); // [M , N]
     cT.store(tC);
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    
+
     // [M32, N4, N2, n4]
     auto sindex_base = (mcl * 4 + ncl) * 2 + 0;
 
@@ -874,6 +1426,8 @@ kernel void prefill_qkv(const device ftype* input0 [[buffer(0)]],
     device ftype* past_value [[buffer(2)]],
     constant int &seq_idx [[buffer(3)]],
     constant Param& param [[buffer(4)]],
+    device ftype* k_scales [[buffer(8)]],
+    device ftype* v_scales [[buffer(9)]],
 #ifdef SIMD_GROUP_MATRIX
     uint3 gid[[threadgroup_position_in_grid]],
     uint tiitg[[thread_index_in_threadgroup]],
@@ -896,7 +1450,7 @@ kernel void prefill_qkv(const device ftype* input0 [[buffer(0)]],
 
 #ifdef USE_METAL_TENSOR_OPS
 
-    const int K = 8, M = 16, N = 16; 
+    const int K = 8, M = 16, N = 16;
     auto tA = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata, dextents<int32_t, 2>(K, M));//[M, K]
     auto tB = tensor<threadgroup ftype, dextents<int32_t, 2>, tensor_inline>((threadgroup ftype*)sdata + 128, dextents<int32_t, 2>(N, K));//[K, N]
 
@@ -960,19 +1514,19 @@ kernel void prefill_qkv(const device ftype* input0 [[buffer(0)]],
     int idx_qk_sl = sl * 16 + rcl < q_seq_piece_len ? (sl * 16 + rcl) : q_seq_piece_len - 1;
 
     auto A_offset = input0 + (z * q_seq_piece_len + idx_qk_sl) * align_value_len + (0 * 2 + kl) * 4 + 0;
+#ifdef QUANT_V
+    auto B_offset = (const device char*)past_value + (zin * head_dim + hm * 16 + nl * 4 + 0) * param.max_kv_len + (0 * 8 + kcl);
+#else
     auto B_offset = past_value + (zin * head_dim + hm * 16 + nl * 4 + 0) * param.max_kv_len + (0 * 8 + kcl);
-    
+#endif
 
-    for(int i = 0; i < value_seq_len; i += 8){
-        ((threadgroup ftype*)sdata)[rcl * 8 + kl * 4 + 0] = A_offset[i + 0];
-        ((threadgroup ftype*)sdata)[rcl * 8 + kl * 4 + 1] = A_offset[i + 1];
-        ((threadgroup ftype*)sdata)[rcl * 8 + kl * 4 + 2] = A_offset[i + 2];
-        ((threadgroup ftype*)sdata)[rcl * 8 + kl * 4 + 3] = A_offset[i + 3];
-        
-        ((threadgroup ftype*)sdata)[128 + kcl * 16 + nl * 4 + 0] = B_offset[i + 0 * param.max_kv_len];
-        ((threadgroup ftype*)sdata)[128 + kcl * 16 + nl * 4 + 1] = B_offset[i + 1 * param.max_kv_len];
-        ((threadgroup ftype*)sdata)[128 + kcl * 16 + nl * 4 + 2] = B_offset[i + 2 * param.max_kv_len];
-        ((threadgroup ftype*)sdata)[128 + kcl * 16 + nl * 4 + 3] = B_offset[i + 3 * param.max_kv_len];
+    for(int i = 0; i < align_value_len; i += 8){
+        *((threadgroup ftype4*)(&((threadgroup ftype*)sdata)[rcl * 8 + kl * 4 + 0])) = *((const device ftype4*)(&A_offset[i + 0]));
+
+        ((threadgroup ftype*)sdata)[128 + kcl * 16 + nl * 4 + 0] = GETV(B_offset[i + 0 * param.max_kv_len], b * param.max_kv_len + i);
+        ((threadgroup ftype*)sdata)[128 + kcl * 16 + nl * 4 + 1] = GETV(B_offset[i + 1 * param.max_kv_len], b * param.max_kv_len + i);
+        ((threadgroup ftype*)sdata)[128 + kcl * 16 + nl * 4 + 2] = GETV(B_offset[i + 2 * param.max_kv_len], b * param.max_kv_len + i);
+        ((threadgroup ftype*)sdata)[128 + kcl * 16 + nl * 4 + 3] = GETV(B_offset[i + 3 * param.max_kv_len], b * param.max_kv_len + i);
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
@@ -984,10 +1538,10 @@ kernel void prefill_qkv(const device ftype* input0 [[buffer(0)]],
 #else
         simdgroup_load(sga[0], (const threadgroup ftype*)sdata, 8);
         simdgroup_load(sga[1], ((const threadgroup ftype*)sdata) + 64, 8);
-        
+
         simdgroup_load(sgb[0], ((const threadgroup ftype*)sdata) + 128, 16);
         simdgroup_load(sgb[1], ((const threadgroup ftype*)sdata) + 136, 16);
-        
+
         simdgroup_multiply_accumulate(sgd[0], sga[0], sgb[0], sgd[0]);
         simdgroup_multiply_accumulate(sgd[1], sga[1], sgb[0], sgd[1]);
         simdgroup_multiply_accumulate(sgd[2], sga[0], sgb[1], sgd[2]);
@@ -1018,6 +1572,36 @@ kernel void prefill_qkv(const device ftype* input0 [[buffer(0)]],
 #endif
 
     // [N2, M2, M8, N8]
+#ifdef ATTENTION_C4
+    // [mNumHead * (mHeadDim / 4), mBatch * mSeqLen, 4]
+    auto xy_out = output + (b * q_seq_len + seq_idx * q_seq_piece_len + sl * 16 + rcl) * 4 + (hn * head_dim / 4 + hm * 4 + kl * 2) * 4 * param.batch * q_seq_len + 0;
+    if(sl * 16 + rcl < q_seq_piece_len && seq_idx * q_seq_piece_len + sl * 16 + rcl < q_seq_len) {
+        if(hm * 16 + kl * 8 + 0 < head_dim) {
+            xy_out[0] =  ((threadgroup float*)sdata)[sindex_base + 0];
+        }
+        if(hm * 16 + kl * 8 + 1 < head_dim) {
+            xy_out[1] =  ((threadgroup float*)sdata)[sindex_base + 1];
+        }
+        if(hm * 16 + kl * 8 + 2 < head_dim) {
+            xy_out[2] =  ((threadgroup float*)sdata)[sindex_base + 2];
+        }
+        if(hm * 16 + kl * 8 + 3 < head_dim) {
+            xy_out[3] =  ((threadgroup float*)sdata)[sindex_base + 3];
+        }
+        if(hm * 16 + kl * 8 + 4 < head_dim) {
+            xy_out[q_seq_len * 4 + 0] =  ((threadgroup float*)sdata)[sindex_base + 4];
+        }
+        if(hm * 16 + kl * 8 + 5 < head_dim) {
+            xy_out[q_seq_len * 4 + 1] =  ((threadgroup float*)sdata)[sindex_base + 5];
+        }
+        if(hm * 16 + kl * 8 + 6 < head_dim) {
+            xy_out[q_seq_len * 4 + 2] =  ((threadgroup float*)sdata)[sindex_base + 6];
+        }
+        if(hm * 16 + kl * 8 + 7 < head_dim) {
+            xy_out[q_seq_len * 4 + 3] =  ((threadgroup float*)sdata)[sindex_base + 7];
+        }
+    }
+#else
     // [mBatch, mSeqLen, mNumHead, mHeadDim]
     auto xy_out = output + ((b * q_seq_len + seq_idx * q_seq_piece_len + sl * 16 + rcl) * head_num + hn) * head_dim + hm * 16 + kl * 8 + 0;
     if(sl * 16 + rcl < q_seq_piece_len && seq_idx * q_seq_piece_len + sl * 16 + rcl < q_seq_len) {
@@ -1046,6 +1630,7 @@ kernel void prefill_qkv(const device ftype* input0 [[buffer(0)]],
             xy_out[7] =  ((threadgroup float*)sdata)[sindex_base + 7];
         }
     }
+#endif
 
 #else
     const int x = gid.x; // q_seq_len
@@ -1073,16 +1658,35 @@ kernel void prefill_qkv(const device ftype* input0 [[buffer(0)]],
 
     // [mBatch, mNumHead, mSeqLen, mKvSeqLen]
     device const ftype *A_offset = input0 + (y * q_seq_piece_len + x) * align_value_len;
+#ifdef QUANT_V
+    const device char *B_offset = ((const device char*)past_value) + offset_head * param.max_kv_len;
+#else
     device const ftype *B_offset = past_value + offset_head * param.max_kv_len;
-    float out = 0.0;
-    
-    for(int i = 0; i < value_seq_len; ++i){
-        float A0 = (float)A_offset[i];
-        float B = (float)B_offset[i];
-        out += A0 * B;
+#endif
+    float4 out4 = 0.0;
+
+    for(int i = 0; i < align_value_len; i += 4){
+        float4 A = float4(((const device ftype4*)(A_offset + i))[0]);
+#ifdef QUANT_V
+        float4 B = GETV4(((const device char4*)(B_offset + i))[0], b * param.max_kv_len + i);
+#else
+        float4 B = float4(((const device ftype4*)(B_offset + i))[0]);
+#endif
+        out4 += A * B;
     }
+    float out = out4.x + out4.y + out4.z + out4.w;
+#ifdef ATTENTION_C4
+    // [mNumHead * (mHeadDim / 4), mBatch * mSeqLen, 4]
+    {
+        int c = hn * head_dim + z;
+        int co = c / 4;
+        int ci = c % 4;
+        output[(b * q_seq_len + x) * 4 + ci + co * param.batch * q_seq_len * 4] = (ftype)out;
+    }
+#else
     // [mBatch, mSeqLen, mNumHead, mHeadDim]
     output[(b * q_seq_len + q_idx) * stride * group + (hn * head_dim + z)] = out;
+#endif
 #endif
 }
 
@@ -1092,6 +1696,8 @@ kernel void decode_qkv(const device ftype* input0 [[buffer(0)]],
     // docode actually not compute in block
     constant int &seq_idx [[buffer(3)]],
     constant Param& param [[buffer(4)]],
+    device ftype* k_scales [[buffer(8)]],
+    device ftype* v_scales [[buffer(9)]],
 #ifdef SIMD_GROUP_REDUCE
     uint3 gid[[threadgroup_position_in_grid]],
     uint  tiisg[[thread_index_in_simdgroup]],
@@ -1120,1006 +1726,332 @@ kernel void decode_qkv(const device ftype* input0 [[buffer(0)]],
     const int offset_head = (yin * head_dim + z) * param.max_kv_len;
 
     device const ftype *A_offset = input0 + (y * q_seq_len + x) * align_value_len;
+#ifdef QUANT_V
+    const device char *Pastvalue_offset8 = ((const device char*)past_value) + offset_head;
+#else
     device ftype *Pastvalue_offset = past_value + offset_head;
+#endif
     float out = 0;
-    
+
 #ifdef SIMD_GROUP_REDUCE
-    for(int i = tiisg; i < value_seq_len; i+=SIMD_GROUP_WIDTH){
-        float A = (float)A_offset[i];
-        float B = (float)Pastvalue_offset[i];
-        
-        out += A * B;
+    float4 out4 = 0;
+    for(int i = tiisg * 4; i < align_value_len; i+=SIMD_GROUP_WIDTH * 4){
+        float4 A = float4(((const device ftype4*)(A_offset + i))[0]);
+#ifdef QUANT_V
+        float4 B = GETV4(((const device char4*)(Pastvalue_offset8 + i))[0], b * param.max_kv_len + i);
+#else
+        float4 B = float4(((const device ftype4*)(Pastvalue_offset + i))[0]);
+#endif
+        out4 += A * B;
     }
+    out = out4.x + out4.y + out4.z + out4.w;
     out = simd_sum(out);
     if(tiisg == 0) {
+#ifdef ATTENTION_C4
+        // [mNumHead * (mHeadDim / 4), mBatch * mSeqLen, 4]
+        {
+            int c = hn * head_dim + z;
+            int co = c / 4;
+            int ci = c % 4;
+            output[(b * q_seq_len + x) * 4 + ci + co * param.batch * q_seq_len * 4] = (ftype)out;
+        }
+#else
         // [mBatch, mSeqLen, mNumHead, mHeadDim]
         output[((b * q_seq_len + x) * head_num + hn) * head_dim + z] = (ftype)out;
+#endif
     }
 #else
-    for(int i = 0; i < value_seq_len; i++){
-        float A = (float)A_offset[i];
-        float B = (float)Pastvalue_offset[i];
-        
-        out += A * B;
+    float4 out4 = 0;
+    for(int i = 0; i < align_value_len; i += 4){
+        float4 A = float4(((const device ftype4*)(A_offset + i))[0]);
+#ifdef QUANT_V
+        float4 B = GETV4(((const device char4*)(Pastvalue_offset8 + i))[0], b * param.max_kv_len + i);
+#else
+        float4 B = float4(((const device ftype4*)(Pastvalue_offset + i))[0]);
+#endif
+        out4 += A * B;
     }
+    out = out4.x + out4.y + out4.z + out4.w;
+#ifdef ATTENTION_C4
+    // [mNumHead * (mHeadDim / 4), mBatch * mSeqLen, 4]
+    {
+        int c = hn * head_dim + z;
+        int co = c / 4;
+        int ci = c % 4;
+        output[(b * q_seq_len + x) * 4 + ci + co * param.batch * q_seq_len * 4] = (ftype)out;
+    }
+#else
     output[((b * q_seq_len + x) * head_num + hn) * head_dim + z] = (ftype)out;
 #endif
+#endif
 }
+
+kernel void decode_qkv_c2(const device ftype* input0 [[buffer(0)]],
+    device ftype* output [[buffer(1)]],
+    device ftype* past_value [[buffer(2)]],
+    constant int &seq_idx [[buffer(3)]],
+    constant Param& param [[buffer(4)]],
+    device ftype* k_scales [[buffer(8)]],
+    device ftype* v_scales [[buffer(9)]],
+    uint3 gid[[threadgroup_position_in_grid]],
+    uint  tiisg[[thread_index_in_simdgroup]]
+) {
+    const int x = gid.x;
+    const int y = gid.y;
+    const int z = gid.z * 2;
+    if (x >= param.query_seq_len || y >= param.head_num * param.batch || z >= param.head_dim) {
+        return;
+    }
+    int head_dim = param.head_dim;
+    int head_num = param.head_num;
+    int q_seq_len = param.query_seq_len;
+    int group = param.group;
+    int b = y / head_num;
+    int hn = y % head_num;
+
+    int yin = b * (head_num / group) + hn / group;
+    int value_seq_len = param.key_seq_len;
+    int align_value_len = ((value_seq_len + param.kv_align_len - 1) / param.kv_align_len) * param.kv_align_len;
+
+    device const ftype *A_offset = input0 + (y * q_seq_len + x) * align_value_len;
+#ifdef QUANT_V
+    const device char *B0 = ((const device char*)past_value) + (yin * head_dim + z + 0) * param.max_kv_len;
+    const device char *B1 = ((const device char*)past_value) + (yin * head_dim + z + 1) * param.max_kv_len;
+#else
+    device const ftype *B0 = past_value + (yin * head_dim + z + 0) * param.max_kv_len;
+    device const ftype *B1 = past_value + (yin * head_dim + z + 1) * param.max_kv_len;
+#endif
+
+    float4 out0 = 0;
+    float4 out1 = 0;
+    for(int i = tiisg * 4; i < align_value_len; i += SIMD_GROUP_WIDTH * 4){
+        float4 A = float4(((const device ftype4*)(A_offset + i))[0]);
+#ifdef QUANT_V
+#ifdef DYNAMIC_QUANT_V
+        int tok_idx = b * param.max_kv_len + i;
+        float4 scale4 = float4(v_scales[tok_idx * 2], v_scales[(tok_idx + 1) * 2],
+                               v_scales[(tok_idx + 2) * 2], v_scales[(tok_idx + 3) * 2]);
+        float4 bias4 = float4(v_scales[tok_idx * 2 + 1], v_scales[(tok_idx + 1) * 2 + 1],
+                              v_scales[(tok_idx + 2) * 2 + 1], v_scales[(tok_idx + 3) * 2 + 1]);
+        out0 += A * (float4(((const device char4*)(B0 + i))[0]) * scale4 + bias4);
+        out1 += A * (float4(((const device char4*)(B1 + i))[0]) * scale4 + bias4);
+#else
+        out0 += A * GETV4(((const device char4*)(B0 + i))[0], b * param.max_kv_len + i);
+        out1 += A * GETV4(((const device char4*)(B1 + i))[0], b * param.max_kv_len + i);
+#endif
+#else
+        out0 += A * float4(((const device ftype4*)(B0 + i))[0]);
+        out1 += A * float4(((const device ftype4*)(B1 + i))[0]);
+#endif
+    }
+    float r0 = out0.x + out0.y + out0.z + out0.w;
+    float r1 = out1.x + out1.y + out1.z + out1.w;
+    r0 = simd_sum(r0);
+    r1 = simd_sum(r1);
+    if(tiisg == 0) {
+        int c0 = hn * head_dim + z;
+        int co0 = c0 / 4;
+        int ci0 = c0 % 4;
+        output[(b * q_seq_len + x) * 4 + ci0 + co0 * param.batch * q_seq_len * 4] = (ftype)r0;
+        if (z + 1 < head_dim) {
+            int c1 = c0 + 1;
+            int co1 = c1 / 4;
+            int ci1 = c1 % 4;
+            output[(b * q_seq_len + x) * 4 + ci1 + co1 * param.batch * q_seq_len * 4] = (ftype)r1;
+        }
+    }
+}
+
 )metal";
 
-const char* gSoftmaxSgReduce = R"metal(
+const char* gDecodeQkSoftmax = R"metal(
 #include <metal_stdlib>
+#include <simd/simd.h>
 using namespace metal;
-struct softmax_shape {
-    int inside_size;
-    int axis_length;
-    int outside_size;
-    int axis_align_length;
+struct Param {
+    int query_seq_len;
+    int q_seq_piece_len;
+    int key_seq_len;
+    int head_num;
+    int group;
+    int head_dim;
+    float scale;
+    int max_kv_len;
+    int batch;
+    int kv_align_len;
+    int mask_batch;
+    int mask_head_num;
+    int mask_q_len;
+    int mask_k_len;
+    float v_scale;
+    float k_scale;
 };
 #define SIMD_GROUP_WIDTH 32
 
-kernel void softmax_plane_sg(const device ftype *in     [[buffer(0)]],
-                        device ftype *out          [[buffer(1)]],
-                        constant softmax_shape& s   [[buffer(2)]],
-                        uint2 gid[[threadgroup_position_in_grid]],
-                        uint  tiisg[[thread_index_in_simdgroup]],
-                        uint  sgitg[[simdgroup_index_in_threadgroup]]
-    ) {
-    // threadgroup contain one simdgroup
-    // simdgroup compute axis data
-    if ((int)gid.x >= s.inside_size || (int)gid.y >= s.outside_size) return;
-    
-    auto in_offset = gid.y * s.axis_length * s.inside_size + gid.x;
-    auto out_offset = gid.y * s.axis_align_length * s.inside_size + gid.x;
-    auto axis_in  = in + in_offset;
-    auto axis_out = out + out_offset;
-    
-    // get max
-    float max1 = -FLT_MAX;
-    for (int i = tiisg; i < s.axis_length; i+=SIMD_GROUP_WIDTH) {
-        max1 = max(max1, float(axis_in[i * s.inside_size]));
-    }
-    max1 = simd_max(max1);
-
-    // get sum
-    float sum1 = 0;
-    for (int i = tiisg; i < s.axis_length; i+=SIMD_GROUP_WIDTH) {
-        sum1 += exp(float(axis_in[i * s.inside_size]) - float(max1));
-    }
-    sum1 = simd_sum(sum1);
-
-    // output
-    for (int i = tiisg; i < s.axis_align_length; i+=SIMD_GROUP_WIDTH) {
-        axis_out[i * s.inside_size] = i >= s.axis_length ? ftype(0.0) : ftype(exp(float(axis_in[i * s.inside_size]) - float(max1)) / sum1);
-    }
-}
-
-
-)metal";
-
-const char* gFlashSoftmax = R"metal(
-#include <metal_stdlib>
-using namespace metal;
-
-struct Param {
-    int query_seq_len;
-    int q_seq_piece_len;
-    int key_seq_len;
-    int head_num;
-    int group;
-    int head_dim;
-    float scale;
-    int max_kv_len;
-    int batch;
-    int kv_align_len;
-};
-
-kernel void flash_softmax(
-    const device ftype* input [[buffer(0)]],
+kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
     device ftype* output [[buffer(1)]],
-    device float* runningStats [[buffer(2)]],
-    device float* correctionScale [[buffer(3)]],
-    constant int& block_len [[buffer(4)]],
-    constant Param& param [[buffer(5)]],
-    constant int& kv_start [[buffer(6)]],
-#ifdef SIMD_GROUP_REDUCE
-    uint2 gid [[threadgroup_position_in_grid]],
-    uint  tiisg [[thread_index_in_simdgroup]]
-#else
-    uint3 gid [[thread_position_in_grid]]
+    device ftype* past_key [[buffer(2)]],
+    constant int &seq_idx [[buffer(3)]],
+    constant Param& param [[buffer(4)]],
+#if defined(QUANT_K) && defined(DYNAMIC_QUANT_K)
+    device ftype* k_scales [[buffer(8)]],
 #endif
-) {
-#ifdef SIMD_GROUP_REDUCE
-    int s = gid.x;
-    int bh = gid.y;
-#else
-    int s = gid.x;
-    int bh = gid.y;
-#endif
-    
-    if (s >= param.query_seq_len || bh >= param.batch * param.head_num) {
-        return;
-    }
-    
-    int seq_len = param.query_seq_len;
-    int stat_idx = (bh * seq_len + s) * 2;
-    int block_offset = (bh * seq_len + s) * block_len;
-    
-    float prev_max = (float)runningStats[stat_idx];
-    float prev_sum = (float)runningStats[stat_idx + 1];
-    
-    float safe_min = -10000.0;
-    if (kv_start == 0) {
-        prev_max = safe_min;
-        prev_sum = 0;
-    }
-    
-    float block_max = safe_min;
-#ifdef SIMD_GROUP_REDUCE
-    for (int i = tiisg; i < block_len; i += 32) {
-        block_max = max(block_max, float(input[block_offset + i]));
-    }
-    block_max = simd_max(block_max);
-#else
-    for (int i = 0; i < block_len; ++i) {
-        block_max = max(block_max, float(input[block_offset + i]));
-    }
-#endif
-    
-    float new_max = max(prev_max, block_max);
-    float scale = exp(prev_max - new_max);
-    
-    float block_sum = 0;
-#ifdef SIMD_GROUP_REDUCE
-    for (int i = tiisg; i < block_len; i += 32) {
-        float val = exp(float(input[block_offset + i]) - new_max);
-        output[block_offset + i] = (ftype)val;
-        block_sum += val;
-    }
-    block_sum = simd_sum(block_sum);
-#else
-    for (int i = 0; i < block_len; ++i) {
-        float val = exp(float(input[block_offset + i]) - new_max);
-        output[block_offset + i] = (ftype)val;
-        block_sum += val;
-    }
-#endif
-    
-    float new_sum = prev_sum * scale + block_sum;
-    
-#ifdef SIMD_GROUP_REDUCE
-    if (tiisg == 0) {
-#endif
-    runningStats[stat_idx] = (float)new_max;
-    runningStats[stat_idx + 1] = (float)new_sum;
-    correctionScale[bh * seq_len + s] = (float)scale;
-#ifdef SIMD_GROUP_REDUCE
-    }
-#endif
-}
-)metal";
-
-const char* gFlashMatMulQKV = R"metal(
-#include <metal_stdlib>
-#include <simd/simd.h>
-using namespace metal;
-struct Param {
-    int query_seq_len;
-    int q_seq_piece_len;
-    int key_seq_len;
-    int head_num;
-    int group;
-    int head_dim;
-    float scale;
-    int max_kv_len;
-    int batch;
-    int kv_align_len;
-};
-
-#if MNN_METAL_FLOAT16_STORAGE
-typedef simdgroup_half8x8 simdgroup_T8x8;
-#else
-typedef simdgroup_float8x8 simdgroup_T8x8;
-#endif
-
-
-kernel void flash_matmul_qkv(
-    const device ftype* P_block [[buffer(0)]],
-    device float* Output [[buffer(1)]],
-    const device ftype* V_block [[buffer(2)]],
-    const device float* correctionScale [[buffer(3)]],
-    constant int& kv_start [[buffer(4)]],
-    constant int& block_len [[buffer(5)]],
-    constant Param& param [[buffer(6)]],
-#if defined(SIMD_GROUP_MATRIX)
     uint3 gid[[threadgroup_position_in_grid]],
-    uint tiitg[[thread_index_in_threadgroup]],
+    uint tid[[thread_index_in_threadgroup]],
     uint tiisg[[thread_index_in_simdgroup]],
-    uint sgitg[[simdgroup_index_in_threadgroup]]
-#elif defined(SIMD_GROUP_REDUCE)
-    uint3 gid[[threadgroup_position_in_grid]],
-    uint tiisg[[thread_index_in_simdgroup]]
-#else
-    uint3 gid [[thread_position_in_grid]]
-#endif
+    uint sgitg[[simdgroup_index_in_threadgroup]],
+    uint3 tptg_3d[[threads_per_threadgroup]]
 ) {
-#if defined(SIMD_GROUP_MATRIX)
-    threadgroup float sdata[256 + 128] = {0.f}; // 128 for A, 128 for B, 128 for C scaling
-    simdgroup_float8x8 sgd[4];
-    for (int i = 0; i < 4; i++){
-        sgd[i] = make_filled_simdgroup_matrix<float, 8>(0.f);
-    }
-    
-    const int sl = gid.x; // s / 16
-    const int hm = gid.y; // d / 16
-    const int bh = gid.z;
-    
-    int b = bh / param.head_num;
-    int h = bh % param.head_num;
-    int kv_h = h / param.group;
-    int yin = b * (param.head_num / param.group) + kv_h;
-    
-    int rcl = tiitg / 2; // 0~15
-    int kl = tiitg % 2;  // 0~1
-    int nl = tiitg / 8;  // 0~3
-    int kcl = tiitg % 8; // 0~7
-    
-    int head_dim = param.head_dim;
-    int q_seq_len = param.query_seq_len;
-    
-    if (sl * 16 >= q_seq_len || hm * 16 >= head_dim) return;
+    threadgroup float scores0[2048];
+    threadgroup float scores1[2048];
+    threadgroup float reduce0[32];
+    threadgroup float reduce1[32];
 
-    // 0. Load old Output and scale
-    if (kv_start > 0) {
-        for (int i = 0; i < 8; ++i) {
-            int idx = tiitg * 8 + i;
-            int local_s = idx / 16;
-            int local_d = idx % 16;
-            // Map threads to 16x16 block of Output
-            int cur_s = sl * 16 + local_s;
-            int cur_d = hm * 16 + local_d;
-            if (cur_s < q_seq_len && cur_d < head_dim) {
-                float scale = correctionScale[bh * q_seq_len + cur_s];
-                int out_idx = ((b * q_seq_len + cur_s) * param.head_num + h) * head_dim + cur_d;
-                float val = Output[out_idx] * scale;
-                // Store to sdata for loading into sgd
-                ((threadgroup float*)sdata)[local_s * 16 + local_d] = val;
-            } else {
-                ((threadgroup float*)sdata)[local_s * 16 + local_d] = 0.f;
-            }
+    const int tptg = int(tptg_3d.x * tptg_3d.y * tptg_3d.z);
+    const int sg_count = tptg / SIMD_GROUP_WIDTH;
+    const int kv_head_num = param.head_num / GROUP_SIZE;
+    const int b = int(gid.x) / kv_head_num;
+    const int kv_hn = int(gid.x) - b * kv_head_num;
+#ifdef HEAD_DIM
+    const int head_dim = HEAD_DIM;
+#else
+    const int head_dim = param.head_dim;
+#endif
+    const int key_seq_len = param.key_seq_len;
+    const int align_key_len = ((key_seq_len + param.kv_align_len - 1) / param.kv_align_len) * param.kv_align_len;
+    const int x = int(gid.y);
+    const int q_idx = seq_idx * param.q_seq_piece_len + x;
+
+    if (b >= param.batch || kv_hn >= kv_head_num || x >= param.q_seq_piece_len || q_idx >= param.query_seq_len) {
+        return;
+    }
+
+    const int head0 = kv_hn * GROUP_SIZE;
+    const int head1 = head0 + 1;
+    const int query_offset = (b * param.query_seq_len + q_idx) * param.head_num * head_dim;
+    const device ftype* query0 = input0 + query_offset + head0 * head_dim;
+    const device ftype* query1 = input0 + query_offset + head1 * head_dim;
+    const int key_head_offset = kv_hn * head_dim;
+    const int key_stride = kv_head_num * head_dim;
+
+    float local_max0 = -FLT_MAX;
+    float local_max1 = -FLT_MAX;
+    const int kv_valid_limit = max(key_seq_len - param.query_seq_len, 0) + q_idx;
+    for (int k = int(tid); k < key_seq_len; k += tptg) {
+#ifdef QUANT_K
+        const device char* key = (const device char*)past_key + (k * param.batch + b) * key_stride + key_head_offset;
+#else
+        const device ftype* key = past_key + (k * param.batch + b) * key_stride + key_head_offset;
+#endif
+        float s0 = 0.0f;
+        float s1 = 0.0f;
+        const device ftype4* q04 = (const device ftype4*)query0;
+        const device ftype4* q14 = (const device ftype4*)query1;
+#ifdef QUANT_K
+        const device char4* k4 = (const device char4*)key;
+#ifdef DYNAMIC_QUANT_K
+        const int k_token_idx = k * param.batch + b;
+        const float k_scale = float(k_scales[k_token_idx * 2]);
+        const float k_bias = float(k_scales[k_token_idx * 2 + 1]);
+#endif
+#else
+        const device ftype4* k4 = (const device ftype4*)key;
+#endif
+        for (int d = 0; d < head_dim / 8; ++d) {
+#ifdef QUANT_K
+#ifdef DYNAMIC_QUANT_K
+            float4 k0 = float4(k4[d * 2 + 0]) * k_scale + k_bias;
+            float4 k1 = float4(k4[d * 2 + 1]) * k_scale + k_bias;
+#else
+            float4 k0 = float4(k4[d * 2 + 0]) * param.k_scale;
+            float4 k1 = float4(k4[d * 2 + 1]) * param.k_scale;
+#endif
+#else
+            float4 k0 = float4(k4[d * 2 + 0]);
+            float4 k1 = float4(k4[d * 2 + 1]);
+#endif
+            s0 += dot(float4(q04[d * 2 + 0]), k0) + dot(float4(q04[d * 2 + 1]), k1);
+            s1 += dot(float4(q14[d * 2 + 0]), k0) + dot(float4(q14[d * 2 + 1]), k1);
         }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-        simdgroup_load(sgd[0], (threadgroup float*)sdata, 16);
-        simdgroup_load(sgd[1], (threadgroup float*)sdata + 128, 16);
-        simdgroup_load(sgd[2], (threadgroup float*)sdata + 8, 16);
-        simdgroup_load(sgd[3], (threadgroup float*)sdata + 136, 16);
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-    }
-
-    auto A_offset = P_block + (bh * q_seq_len + sl * 16 + rcl) * block_len + (0 * 2 + kl) * 4 + 0;
-    auto B_offset = V_block + (yin * head_dim + hm * 16 + nl * 4 + 0) * param.max_kv_len + (kv_start + (0 * 8 + kcl));
-
-    for (int i = 0; i < block_len; i += 8) {
-        ((threadgroup ftype*)sdata)[rcl * 8 + kl * 4 + 0] = A_offset[i + 0];
-        ((threadgroup ftype*)sdata)[rcl * 8 + kl * 4 + 1] = A_offset[i + 1];
-        ((threadgroup ftype*)sdata)[rcl * 8 + kl * 4 + 2] = A_offset[i + 2];
-        ((threadgroup ftype*)sdata)[rcl * 8 + kl * 4 + 3] = A_offset[i + 3];
-        
-        ((threadgroup ftype*)sdata)[128 + kcl * 16 + nl * 4 + 0] = B_offset[i + 0 * param.max_kv_len];
-        ((threadgroup ftype*)sdata)[128 + kcl * 16 + nl * 4 + 1] = B_offset[i + 1 * param.max_kv_len];
-        ((threadgroup ftype*)sdata)[128 + kcl * 16 + nl * 4 + 2] = B_offset[i + 2 * param.max_kv_len];
-        ((threadgroup ftype*)sdata)[128 + kcl * 16 + nl * 4 + 3] = B_offset[i + 3 * param.max_kv_len];
-
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-
-        simdgroup_T8x8 sga[2], sgb[2];
-        simdgroup_load(sga[0], (const threadgroup ftype*)sdata, 8);
-        simdgroup_load(sga[1], ((const threadgroup ftype*)sdata) + 64, 8);
-        simdgroup_load(sgb[0], ((const threadgroup ftype*)sdata) + 128, 16);
-        simdgroup_load(sgb[1], ((const threadgroup ftype*)sdata) + 136, 16);
-        
-        simdgroup_multiply_accumulate(sgd[0], sga[0], sgb[0], sgd[0]);
-        simdgroup_multiply_accumulate(sgd[1], sga[1], sgb[0], sgd[1]);
-        simdgroup_multiply_accumulate(sgd[2], sga[0], sgb[1], sgd[2]);
-        simdgroup_multiply_accumulate(sgd[3], sga[1], sgb[1], sgd[3]);
-        
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-    }
-
-    simdgroup_store(sgd[0], (threadgroup float*)sdata, 16);
-    simdgroup_store(sgd[1], (threadgroup float*)sdata + 128, 16);
-    simdgroup_store(sgd[2], (threadgroup float*)sdata + 8, 16);
-    simdgroup_store(sgd[3], (threadgroup float*)sdata + 136, 16);
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-
-    for (int i = 0; i < 8; ++i) {
-        int idx = tiitg * 8 + i;
-        int local_s = idx / 16;
-        int local_d = idx % 16;
-        int cur_s = sl * 16 + local_s;
-        int cur_d = hm * 16 + local_d;
-        if (cur_s < q_seq_len && cur_d < head_dim) {
-            int out_idx = ((b * q_seq_len + cur_s) * param.head_num + h) * head_dim + cur_d;
-            Output[out_idx] = ((threadgroup float*)sdata)[local_s * 16 + local_d];
+        s0 *= param.scale;
+        s1 *= param.scale;
+        if (k > kv_valid_limit) {
+            s0 = -FLT_MAX;
+            s1 = -FLT_MAX;
         }
+        scores0[k] = s0;
+        scores1[k] = s1;
+        local_max0 = max(local_max0, s0);
+        local_max1 = max(local_max1, s1);
     }
 
-#elif defined(SIMD_GROUP_REDUCE)
-    int d_vec = gid.x;
-    int s = gid.y;
-    int bh = gid.z;
-    
-    int head_dim = param.head_dim;
-    if (d_vec * 4 >= head_dim || s >= param.query_seq_len || bh >= param.batch * param.head_num) return;
-    
-    int b = bh / param.head_num;
-    int h = bh % param.head_num;
-    int kv_h = h / param.group;
-    int yin = b * (param.head_num / param.group) + kv_h;
-    int v_base_offset = yin * head_dim * param.max_kv_len;
-    
-    int p_offset = (bh * param.query_seq_len + s) * block_len;
-    int out_idx = ((b * param.query_seq_len + s) * param.head_num + h) * head_dim + d_vec * 4;
-    
-    float4 acc = 0;
-    if (kv_start > 0 && tiisg == 0) {
-        acc = float4(Output[out_idx], Output[out_idx+1], Output[out_idx+2], Output[out_idx+3]);
-        acc *= correctionScale[bh * param.query_seq_len + s];
-    }
-    
-    float4 p_v_acc = 0;
-    for (int k = tiisg; k < block_len; k += 32) {
-        ftype p_val = P_block[p_offset + k];
-        int seq_idx = kv_start + k;
-        float4 v;
-        v.x = (float)V_block[v_base_offset + (d_vec * 4 + 0) * param.max_kv_len + seq_idx];
-        v.y = (float)V_block[v_base_offset + (d_vec * 4 + 1) * param.max_kv_len + seq_idx];
-        v.z = (float)V_block[v_base_offset + (d_vec * 4 + 2) * param.max_kv_len + seq_idx];
-        v.w = (float)V_block[v_base_offset + (d_vec * 4 + 3) * param.max_kv_len + seq_idx];
-        p_v_acc += (float)p_val * v;
-    }
-    p_v_acc.x = simd_sum(p_v_acc.x);
-    p_v_acc.y = simd_sum(p_v_acc.y);
-    p_v_acc.z = simd_sum(p_v_acc.z);
-    p_v_acc.w = simd_sum(p_v_acc.w);
-    
+    local_max0 = simd_max(local_max0);
+    local_max1 = simd_max(local_max1);
     if (tiisg == 0) {
-        acc += p_v_acc;
-        Output[out_idx]   = acc.x;
-        Output[out_idx+1] = acc.y;
-        Output[out_idx+2] = acc.z;
-        Output[out_idx+3] = acc.w;
-    }
-#else
-    int d_vec = gid.x;
-    int s = gid.y;
-    int bh = gid.z;
-    
-    int head_dim = param.head_dim;
-    if (d_vec * 4 >= head_dim || s >= param.query_seq_len || bh >= param.batch * param.head_num) {
-        return;
-    }
-    
-    int b = bh / param.head_num;
-    int h = bh % param.head_num;
-    int kv_h = h / param.group;
-    
-    int p_offset = (bh * param.query_seq_len + s) * block_len;
-    // V layout: [batch, kv_num_head * head_dim, max_kv_len]
-    // Same as decode_qkv: offset_head = (yin * head_dim + z) * max_kv_len, where yin = b * kv_num_head + kv_h
-    // So for (batch, kv_head, head_dim_idx), base offset = (b * kv_num_head + kv_h) * head_dim * max_kv_len
-    int yin = b * (param.head_num / param.group) + kv_h;
-    int v_base_offset = yin * head_dim * param.max_kv_len;
-    
-    int out_idx = ((b * param.query_seq_len + s) * param.head_num + h) * head_dim + d_vec * 4;
-    float scale = (float)correctionScale[bh * param.query_seq_len + s];
-    
-    float4 acc = 0;
-    if (kv_start > 0) {
-        acc = float4(Output[out_idx], Output[out_idx+1], Output[out_idx+2], Output[out_idx+3]);
-        acc *= (float)scale;
-    }
-    
-    for (int k = 0; k < block_len; ++k) {
-        ftype p_val = P_block[p_offset + k];
-        int seq_idx = kv_start + k;
-        
-        // V layout: [batch, kv_num_head * head_dim, max_kv_len]
-        // For (batch, kv_head, head_dim_idx, seq_idx): offset = ((b * kv_num_head + kv_h) * head_dim + head_dim_idx) * max_kv_len + seq_idx
-        float v0 = 0, v1 = 0, v2 = 0, v3 = 0;
-        int d0 = d_vec * 4 + 0;
-        int d1 = d_vec * 4 + 1;
-        int d2 = d_vec * 4 + 2;
-        int d3 = d_vec * 4 + 3;
-        
-        if (d0 < head_dim) {
-            int v_idx0 = v_base_offset + d0 * param.max_kv_len + seq_idx;
-            v0 = (float)V_block[v_idx0];
-        }
-        if (d1 < head_dim) {
-            int v_idx1 = v_base_offset + d1 * param.max_kv_len + seq_idx;
-            v1 = (float)V_block[v_idx1];
-        }
-        if (d2 < head_dim) {
-            int v_idx2 = v_base_offset + d2 * param.max_kv_len + seq_idx;
-            v2 = (float)V_block[v_idx2];
-        }
-        if (d3 < head_dim) {
-            int v_idx3 = v_base_offset + d3 * param.max_kv_len + seq_idx;
-            v3 = (float)V_block[v_idx3];
-        }
-        
-        acc += (float)p_val * float4(v0, v1, v2, v3);
-    }
-    
-    Output[out_idx]   = (float)acc.x;
-    Output[out_idx+1] = (float)acc.y;
-    Output[out_idx+2] = (float)acc.z;
-    Output[out_idx+3] = (float)acc.w;
-#endif
-}
-)metal";
-
-const char* gFlashScale = R"metal(
-#include <metal_stdlib>
-using namespace metal;
-
-struct Param {
-    int query_seq_len;
-    int q_seq_piece_len;
-    int key_seq_len;
-    int head_num;
-    int group;
-    int head_dim;
-    float scale;
-    int max_kv_len;
-    int batch;
-    int kv_align_len;
-};
-
-kernel void flash_scale(
-    const device float* Input [[buffer(0)]],
-    device ftype* Output [[buffer(1)]],
-    const device float* runningStats [[buffer(2)]],
-    constant Param& param [[buffer(3)]],
-    uint3 gid [[thread_position_in_grid]]
-) {
-    int d_vec = gid.x;
-    int s = gid.y;
-    int bh = gid.z;
-    
-    if (d_vec * 4 >= param.head_dim || s >= param.query_seq_len || bh >= param.batch * param.head_num) {
-        return;
-    }
-    
-    int stat_idx = (bh * param.query_seq_len + s) * 2;
-    float sum = (float)runningStats[stat_idx + 1];
-    float inv_sum = 1.0 / sum;
-    
-    int b = bh / param.head_num;
-    int h = bh % param.head_num;
-    
-    int out_idx = ((b * param.query_seq_len + s) * param.head_num + h) * param.head_dim + d_vec * 4;
-    
-    Output[out_idx]   = (ftype)(inv_sum * (float)Input[out_idx]  );
-    Output[out_idx+1] = (ftype)(inv_sum * (float)Input[out_idx+1]);
-    Output[out_idx+2] = (ftype)(inv_sum * (float)Input[out_idx+2]);
-    Output[out_idx+3] = (ftype)(inv_sum * (float)Input[out_idx+3]);
-}
-)metal";
-
-
-const char* gFlashAttentionFused = R"metal(
-#include <metal_stdlib>
-#include <simd/simd.h>
-using namespace metal;
-
-struct Param {
-    int query_seq_len;
-    int q_seq_piece_len;
-    int key_seq_len;
-    int head_num;
-    int group;
-    int head_dim;
-    float scale;
-    int max_kv_len;
-    int batch;
-    int kv_align_len;
-};
-
-#if MNN_METAL_FLOAT16_STORAGE
-typedef simdgroup_half8x8 simdgroup_T8x8;
-#else
-typedef simdgroup_float8x8 simdgroup_T8x8;
-#endif
-
-// 定义支持缓存的最大 Head Dim
-#define MAX_HEAD_DIM 128
-// Padding 步长，避免 Shared Memory Bank Conflict
-// 128 + 8 = 136，错开 Bank 索引
-#define Q_SMEM_STRIDE (MAX_HEAD_DIM + 8)
-
-// 优化配置
-#define Q_BLOCK 8
-#define K_BLOCK_16 16
-#define TG_SIZE 128
-#define SIMD_GROUPS 4
-#define K_BLOCK 64
-
-
-
-#define HEAD_DIM 128
-typedef uint4 vec_128b; 
-
-
-// 调整为 5120 (20KB)，M4 缓存充足
-#define SMEM_SIZE 4096 
-
-kernel void flash_attention_fused(
-    const device ftype* query [[buffer(0)]],
-    const device ftype* key [[buffer(1)]],
-    const device ftype* value [[buffer(2)]],
-    const device ftype* mask [[buffer(3)]],
-    device ftype* output [[buffer(4)]],
-    constant Param& param [[buffer(5)]],
-    uint ltid [[thread_index_in_threadgroup]],      // 0..127 global inside group
-#if defined(SIMD_GROUP_REDUCE)
-    uint3 gid [[thread_position_in_grid]],
-    uint3 tgid [[threadgroup_position_in_grid]],
-    uint tiisg [[thread_index_in_simdgroup]],
-    uint sgitg [[simdgroup_index_in_threadgroup]]
-#else
-    uint3 gid [[thread_position_in_grid]],
-    uint3 tgid [[threadgroup_position_in_grid]],
-    uint tiisg [[thread_index_in_simdgroup]],
-    uint sgitg [[simdgroup_index_in_threadgroup]]
-#endif
-) {
-#ifdef SIMD_GROUP_MATRIX
-
-    // 8个query threadgroup=128 K_BLOCK=16
-    // Shared Memory 布局
-    threadgroup ftype sdata[4096]; 
-    threadgroup ftype* sdata_q = sdata;
-    threadgroup float* sdata_work = (threadgroup float*)(sdata + Q_BLOCK * Q_SMEM_STRIDE);
-
-    threadgroup float* sdata_partials = sdata_work + 128; 
-    threadgroup float* sdata_scale = sdata_work + 128;    
-    threadgroup float* sdata_final_sum = sdata_work + 136; 
-    threadgroup float* sdata_scratch = sdata_work + 512;  
-
-    int sl_blk = tgid.x; 
-    int bh = tgid.y;
-    int head_dim = param.head_dim;
-    int q_seq_len = param.query_seq_len;
-
-    if (sl_blk * Q_BLOCK >= q_seq_len) return;
-
-    int b = bh / param.head_num;
-    int h = bh % param.head_num;
-    int kv_h = h / param.group;
-    int kv_len = param.key_seq_len;
-    int max_kv_len = param.max_kv_len;
-
-    // 1. 协作加载 Query
-    {
-        int q_base_offset = ((b * q_seq_len + sl_blk * Q_BLOCK) * param.head_num + h) * head_dim;
-        const device ftype* q_ptr_base = query + q_base_offset;
-        int q_global_stride = param.head_num * head_dim;
-        
-        for (int i = ltid; i < Q_BLOCK * head_dim; i += TG_SIZE) {
-            int r = i / head_dim;
-            int c = i % head_dim;
-            
-            // [Fix] 检查 Query 是否越界，越界部分填充 0 避免计算错误
-            int global_r = sl_blk * Q_BLOCK + r;
-            if (global_r < q_seq_len) {
-                sdata_q[r * Q_SMEM_STRIDE + c] = q_ptr_base[r * q_global_stride + c];
-            } else {
-                sdata_q[r * Q_SMEM_STRIDE + c] = 0.0f;
-            }
-        }
+        reduce0[sgitg] = local_max0;
+        reduce1[sgitg] = local_max1;
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
-
-
-    // 2. 状态初始化
-    float row_max = -FLT_MAX;
-    float row_sum = 0.0f;
-
-    simdgroup_float8x8 acc_reg[2][2]; 
-    for(int i=0; i<2; ++i) for(int j=0; j<2; ++j) acc_reg[i][j] = make_filled_simdgroup_matrix<float, 8>(0.f);
-
-    int k_seq_stride = param.batch * (param.head_num / param.group) * head_dim; 
-    int k_base = (b * (param.head_num / param.group) + kv_h) * head_dim;
-    int v_base = (b * (param.head_num / param.group) + kv_h) * head_dim * max_kv_len;
-
-
-    const int global_r = sl_blk * Q_BLOCK + Q_BLOCK - 1 + kv_len - param.query_seq_len;
-
-    // 3. 主循环 K Block
-    // ==========================================
-    for (int t_blk = 0; t_blk < kv_len; t_blk += K_BLOCK_16) {
-        
-        bool skip_block = false;
-
-        // Block mask all -inf
-        if(t_blk > global_r) {
-            skip_block = true;
+    if (sgitg == 0 && tiisg == 0) {
+        float max0 = -FLT_MAX;
+        float max1 = -FLT_MAX;
+        for (int i = 0; i < sg_count; ++i) {
+            max0 = max(max0, reduce0[i]);
+            max1 = max(max1, reduce1[i]);
         }
-
-#if 0
-        // ============================================================
-        // [Optimization] Fast & Safe Mask Check (Hybrid Version)
-        // ============================================================
-        {
-            // 1. 内存安全：将 scratch 移至 +1024，避开 partials (0~640)
-            threadgroup float* sdata_flag = sdata_work + 1024;
-
-            // 2. 每个线程计算局部最大值
-            float my_max = -FLT_MAX;
-
-            // 循环 stride 覆盖 (兼容 TG_SIZE < 128)
-            for (int i = ltid; i < 128; i += TG_SIZE) {
-                int r_local = i / 16; 
-                int c_local = i % 16; 
-                
-                int global_r = sl_blk * Q_BLOCK + r_local;
-                int global_c = t_blk + c_local;
-
-                if (global_c < kv_len) {
-                    #ifdef ADD_MASK
-                        int mask_offset = global_c - kv_len + param.query_seq_len;
-                        if (global_r < q_seq_len) {
-                             // 如果 mask_offset 有效，读取 Mask
-                             if (mask_offset >= 0 && mask_offset < param.query_seq_len) {
-                                 float m_val = (float)mask[global_r * param.query_seq_len + mask_offset];
-                                 my_max = max(my_max, m_val);
-                             } else {
-                                 // 越界 (通常是左侧非Mask区) = 有效 (0.0f) -> 不能跳过
-                                 my_max = max(my_max, 0.0f);
-                             }
-                        }
-                    #elif defined(SET_MASK)
-                        if (global_r < q_seq_len) {
-                             float m_val = (float)mask[global_r * kv_len + global_c];
-                             // SET_MASK: 0 表示 Mask, 非0 表示 Keep
-                             if (m_val != 0.0f) my_max = max(my_max, 0.0f);
-                        }
-                    #else
-                        my_max = 0.0f; // 无 Mask 宏，始终 Active
-                    #endif
-                }
-            }
-
-            // 3. SIMD Group 内快速归约
-            float sg_max = simd_max(my_max);
-
-            // 4. 写入 Shared Memory (仅每个SG的第一个线程写)
-            if (tiisg == 0) {
-                sdata_flag[sgitg] = sg_max;
-            }
-            threadgroup_barrier(mem_flags::mem_threadgroup);
-
-            // 5. Thread 0 汇总 (仅需检查 4 个值)
-            if (ltid == 0) {
-                float block_max = -FLT_MAX;
-                int num_sg = (TG_SIZE + 31) / 32; 
-                
-                for (int i = 0; i < num_sg; ++i) {
-                    block_max = max(block_max, sdata_flag[i]);
-                }
-
-                // 阈值判定：只有全为极小值时才跳过
-                // 写入 1.0f 表示跳过
-                sdata_flag[0] = (block_max <= -10000.0f) ? 1.0f : 0.0f;
-            }
-            threadgroup_barrier(mem_flags::mem_threadgroup);
-
-            // 6. 读取跳过标志
-            if (sdata_flag[0] > 0.5f) {
-                skip_block = true;
-            }
-        }
-#endif
-        // ============================================================
-
-        // 使用 if 包裹，而非 continue，确保控制流绝对安全
-        if (!skip_block) {
-            
-            // --- Step A: Q * K^T ---
-            simdgroup_float8x8 sg_score[2]; 
-            sg_score[0] = make_filled_simdgroup_matrix<float, 8>(0.f);
-            sg_score[1] = make_filled_simdgroup_matrix<float, 8>(0.f);
-            
-            int d_start = sgitg * 32;
-            int d_end = min(d_start + 32, head_dim);
-
-            for (int d = d_start; d < d_end; d += 8) {
-                simdgroup_T8x8 sgq; 
-                simdgroup_T8x8 sgk[2]; 
-
-                simdgroup_load(sgq, sdata_q + d, Q_SMEM_STRIDE, ulong2(0), false);
-
-                const device ftype* k_curr = key + k_base + t_blk * k_seq_stride + d;
-                ulong k_stride = ulong(k_seq_stride);
-                
-                simdgroup_barrier(mem_flags::mem_none);
-                simdgroup_load(sgk[0], k_curr, k_stride, ulong2(0), true); 
-                simdgroup_load(sgk[1], k_curr + 8 * k_seq_stride, k_stride, ulong2(0), true);
-                simdgroup_barrier(mem_flags::mem_none);
-
-                simdgroup_multiply_accumulate(sg_score[0], sgq, sgk[0], sg_score[0]);
-                simdgroup_multiply_accumulate(sg_score[1], sgq, sgk[1], sg_score[1]);
-            }
-
-            int smem_score_offset = sgitg * 128; 
-            simdgroup_store(sg_score[0], sdata_partials + smem_score_offset, 16);
-            simdgroup_store(sg_score[1], sdata_partials + smem_score_offset + 8, 16);
-            
-            threadgroup_barrier(mem_flags::mem_threadgroup);
-
-            // --- Step B: Reduction ---
-            if (ltid < 128) {
-                float sum = 0.0f;
-                #pragma unroll
-                for (int i = 0; i < SIMD_GROUPS; ++i) {
-                    sum += sdata_partials[i * 128 + ltid];
-                }
-                sdata_work[ltid] = sum;
-            }
-            threadgroup_barrier(mem_flags::mem_threadgroup);
-
-            // --- Step C: Softmax & P (SG0 Only) ---
-            if (ltid < 8) { 
-                float m_prev = row_max;
-                float s_prev = row_sum;
-                float m_curr = -FLT_MAX;
-                
-                for (int j=0; j<16; ++j) {
-                    float val = sdata_work[ltid * 16 + j] * param.scale;
-                    int ti = t_blk + j;
-                    
-                    #ifdef ADD_MASK
-                        int mask_offset = ti - kv_len + param.query_seq_len;
-                        if (ti < kv_len && mask_offset >= 0 && mask_offset < param.query_seq_len)
-                            val += (float)mask[(sl_blk * Q_BLOCK + ltid) * param.query_seq_len + mask_offset];
-                        else if (ti >= kv_len) val = -FLT_MAX;
-                    #elif defined(SET_MASK)
-                        if (ti >= kv_len || mask[(sl_blk * Q_BLOCK + ltid) * kv_len + ti] == 0) val = -FLT_MAX;
-                    #elif defined(CAUSAL_MASK)
-                        // Causal mask: keep if ti <= query_pos + (kv_len - query_seq_len), else -inf
-                        int query_pos = sl_blk * Q_BLOCK + ltid;
-                        if (ti > query_pos + (kv_len - param.query_seq_len)) val = -FLT_MAX;
-                    #endif
-                    
-                    sdata_work[ltid * 16 + j] = val;
-                    m_curr = max(m_curr, val);
-                }
-                
-                float m_new = max(m_prev, m_curr);
-                float exp_diff = exp(m_prev - m_new);
-                float s_curr = 0.0f;
-                
-                threadgroup ftype* sdata_p_out = (threadgroup ftype*)sdata_work;
-                for (int j=0; j<16; ++j) {
-                    float p = exp(sdata_work[ltid * 16 + j] - m_new);
-                    sdata_p_out[ltid * 16 + j] = (ftype)p; 
-                    s_curr += p;
-                }
-                
-                row_max = m_new;
-                row_sum = s_prev * exp_diff + s_curr;
-                sdata_scale[ltid] = exp_diff;
-            }
-            threadgroup_barrier(mem_flags::mem_threadgroup);
-
-            // --- Step D: P * V ---
-            for (int iter = 0; iter < 2; ++iter) { 
-                int d_tile = sgitg * 2 + iter;
-                if (d_tile * 16 >= head_dim) continue;
-                
-                // 注意：这里继续使用 sdata_scratch (offset 512) 没问题，
-                // 因为它只在 Block 计算内部使用，不会跨 Block 影响 Skip 逻辑。
-                // 且 Skip Flag 已经用完了。
-                threadgroup float* my_scratch = sdata_work + 512 + sgitg * 128;
-                
-                simdgroup_store(acc_reg[iter][0], my_scratch, 16);     
-                simdgroup_store(acc_reg[iter][1], my_scratch + 8, 16); 
-                threadgroup_barrier(mem_flags::mem_threadgroup);
-                
-                if (tiisg < 8) {
-                    float sc = sdata_scale[tiisg];
-                    #pragma unroll
-                    for (int j=0; j<16; ++j) my_scratch[tiisg * 16 + j] *= sc;
-                }
-                threadgroup_barrier(mem_flags::mem_threadgroup);
-                
-                simdgroup_load(acc_reg[iter][0], my_scratch, 16);
-                simdgroup_load(acc_reg[iter][1], my_scratch + 8, 16);
-
-                threadgroup ftype* sdata_p = (threadgroup ftype*)sdata_work;
-                simdgroup_T8x8 sgp[2];
-                simdgroup_load(sgp[0], sdata_p, 16, ulong2(0), false); 
-                simdgroup_load(sgp[1], sdata_p + 8, 16, ulong2(0), false); 
-
-                int d_start = d_tile * 16;
-                const device ftype* v_curr = value + v_base + d_start * max_kv_len + t_blk;
-                
-                simdgroup_T8x8 sgv[4];
-                simdgroup_barrier(mem_flags::mem_none);
-                simdgroup_load(sgv[0], v_curr, max_kv_len, ulong2(0), true);
-                simdgroup_load(sgv[1], v_curr + 8 * max_kv_len, max_kv_len, ulong2(0), true);
-                simdgroup_load(sgv[2], v_curr + 8, max_kv_len, ulong2(0), true);
-                simdgroup_load(sgv[3], v_curr + 8 * max_kv_len + 8, max_kv_len, ulong2(0), true);
-                simdgroup_barrier(mem_flags::mem_none);
-                
-                simdgroup_multiply_accumulate(acc_reg[iter][0], sgp[0], sgv[0], acc_reg[iter][0]);
-                simdgroup_multiply_accumulate(acc_reg[iter][0], sgp[1], sgv[2], acc_reg[iter][0]);
-                simdgroup_multiply_accumulate(acc_reg[iter][1], sgp[0], sgv[1], acc_reg[iter][1]);
-                simdgroup_multiply_accumulate(acc_reg[iter][1], sgp[1], sgv[3], acc_reg[iter][1]);
-            }
-            threadgroup_barrier(mem_flags::mem_threadgroup);
-        } // End of if (!skip_block)
-    } // End K Loop
-
-    // 4. Output Finalization (保持不变)
-    if (ltid < 8) {
-        sdata_final_sum[ltid] = row_sum;
+        reduce0[0] = max0;
+        reduce1[0] = max1;
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    
-    threadgroup float* my_out_buf = sdata_scratch + sgitg * 128;
-    
-    for (int iter = 0; iter < 2; ++iter) {
-        int d_tile = sgitg * 2 + iter; 
-        if (d_tile * 16 >= head_dim) continue;
-        
-        simdgroup_store(acc_reg[iter][0], my_out_buf, 16);
-        simdgroup_store(acc_reg[iter][1], my_out_buf + 8, 16);
-        simdgroup_barrier(mem_flags::mem_threadgroup);
-        
-        if (tiisg < 8) {
-            float inv_sum = 1.0f / sdata_final_sum[tiisg];
-            int qi = sl_blk * Q_BLOCK + tiisg;
-            if (qi < q_seq_len) {
-                device ftype* out_ptr = output + ((b * q_seq_len + qi) * param.head_num + h) * head_dim + d_tile * 16;
-                #pragma unroll
-                for (int j=0; j<16; ++j) {
-                    if (d_tile * 16 + j < head_dim) {
-                        out_ptr[j] = (ftype)(my_out_buf[tiisg * 16 + j] * inv_sum);
-                    }
-                }
-            }
-        }
-        simdgroup_barrier(mem_flags::mem_threadgroup);
+    const float max0 = reduce0[0];
+    const float max1 = reduce1[0];
+
+    float local_sum0 = 0.0f;
+    float local_sum1 = 0.0f;
+    for (int k = int(tid); k < key_seq_len; k += tptg) {
+        float v0 = exp(scores0[k] - max0);
+        float v1 = exp(scores1[k] - max1);
+        scores0[k] = v0;
+        scores1[k] = v1;
+        local_sum0 += v0;
+        local_sum1 += v1;
     }
 
-#else
-    // ===== Optimized Basic Version: Threadgroup parallel without simd_sum =====
-    // Grid: [SeqLen, Batch*Head, 1], Threadgroup: [THREADS_PER_GROUP, 1, 1]
-    // Each threadgroup processes one Q token, threads cooperate on dimension reduction
-    
-    threadgroup float shared_reduce[256]; // For manual reduction, max 256 threads
-    
-    int s = tgid.x;      // query sequence position
-    int bh = tgid.y;     // batch * head_num
-    uint tid = tiisg;    // thread index in simdgroup (0-31)
-    uint threads_per_group = sgitg * 32 + tiisg; // global thread index in threadgroup
-    
-    if (s >= param.query_seq_len || bh >= param.batch * param.head_num) return;
-    
-    int b = bh / param.head_num;
-    int h = bh % param.head_num;
-    int kv_h = h / param.group;
-    
-    int head_dim = param.head_dim;
-    int kv_len = param.key_seq_len;
-    int max_kv_len = param.max_kv_len;
-    int group = param.group;
-    
-    int q_offset = ((b * param.query_seq_len + s) * param.head_num + h) * head_dim;
-    
-    // Each thread processes multiple dimensions
-    int d_per_thread = (head_dim + 31) / 32; // Assume 32 threads per group
-    
-    float acc[8] = {0.0f}; 
-    
-    // Load Q values for this thread's dimensions
-    float q_local[8] = {0.0f};
-    for (int i = 0; i < d_per_thread; ++i) {
-        int d = tid + i * 32;
-        if (d < head_dim) {
-            q_local[i] = (float)query[q_offset + d];
-        }
+    local_sum0 = simd_sum(local_sum0);
+    local_sum1 = simd_sum(local_sum1);
+    if (tiisg == 0) {
+        reduce0[sgitg] = local_sum0;
+        reduce1[sgitg] = local_sum1;
     }
-    
-    float cur_max = -FLT_MAX; 
-    float cur_sum = 0.0f;
-    
-    // K/V offsets
-    int kv_head_num = param.head_num / group;
-    int k_seq_stride = param.batch * kv_head_num * head_dim;
-    int k_base_offset = (b * kv_head_num + kv_h) * head_dim;
-    auto k_ptr_start = key + k_base_offset;
-    
-    int v_base_offset = (b * kv_head_num + kv_h) * head_dim * max_kv_len;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (sgitg == 0 && tiisg == 0) {
+        float sum0 = 0.0f;
+        float sum1 = 0.0f;
+        for (int i = 0; i < sg_count; ++i) {
+            sum0 += reduce0[i];
+            sum1 += reduce1[i];
+        }
+        reduce0[0] = sum0;
+        reduce1[0] = sum1;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    const float inv_sum0 = 1.0f / reduce0[0];
+    const float inv_sum1 = 1.0f / reduce1[0];
 
-    for (int t = 0; t < kv_len; ++t) {
-        auto k_ptr_t = k_ptr_start + t * k_seq_stride;
-        
-        // Each thread computes partial dot product for its dimensions
-        float partial_dot = 0.0f;
-        for (int i = 0; i < d_per_thread; ++i) {
-            int d = tid + i * 32;
-            if (d < head_dim) {
-                partial_dot += q_local[i] * (float)k_ptr_t[d];
-            }
-        }
-        
-        // Manual reduction across threads (no simd_sum)
-        shared_reduce[tid] = partial_dot;
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-        
-        // Tree reduction in threadgroup memory
-        float score = 0.0f;
-        if (tid == 0) {
-            for (int i = 0; i < 32; ++i) {
-                score += shared_reduce[i];
-            }
-            score *= param.scale;
-            
-            #ifdef ADD_MASK
-            int mask_offset = t - kv_len + param.query_seq_len;
-            if (mask_offset >= 0 && mask_offset < param.query_seq_len) {
-                 float m = (float)mask[s * param.query_seq_len + mask_offset];
-                 score += m;
-            }
-            #elif defined(SET_MASK)
-            int mask_val = mask[s * kv_len + t];
-            if (mask_val == 0) score = -FLT_MAX;
-            #elif defined(CAUSAL_MASK)
-            // Causal mask: keep if t <= s + (kv_len - query_seq_len), else -inf
-            if (t > s + (kv_len - param.query_seq_len)) score = -FLT_MAX;
-            #endif
-            
-            shared_reduce[0] = score; // Store score for all threads
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-        score = shared_reduce[0]; // All threads read the score
-        
-        // Online softmax update
-        float new_max = max(cur_max, score);
-        float exp_score = exp(score - new_max);
-        float running_scale = exp(cur_max - new_max);
-        
-        cur_sum = cur_sum * running_scale + exp_score;
-        cur_max = new_max;
-        
-        // Update accumulator for each dimension
-        for (int i = 0; i < d_per_thread; ++i) {
-            int d = tid + i * 32;
-            if (d < head_dim) {
-                float v_val = (float)value[v_base_offset + d * max_kv_len + t];
-                acc[i] = acc[i] * running_scale + v_val * exp_score;
-            }
-        }
+    const int base0 = ((b * param.head_num + head0) * param.query_seq_len + q_idx) * align_key_len;
+    const int base1 = ((b * param.head_num + head1) * param.query_seq_len + q_idx) * align_key_len;
+    for (int k = int(tid); k < key_seq_len; k += tptg) {
+        output[base0 + k] = (ftype)(scores0[k] * inv_sum0);
+        output[base1 + k] = (ftype)(scores1[k] * inv_sum1);
     }
-    
-    float inv_sum = 1.0f / cur_sum;
-    
-    // Write output
-    auto out_ptr = output + ((b * param.query_seq_len + s) * param.head_num + h) * head_dim;
-    for (int i = 0; i < d_per_thread; ++i) {
-        int d = tid + i * 32;
-        if (d < head_dim) {
-            out_ptr[d] = (ftype)(acc[i] * inv_sum);
-        }
+    for (int k = int(tid) + key_seq_len; k < align_key_len; k += tptg) {
+        output[base0 + k] = (ftype)0.0f;
+        output[base1 + k] = (ftype)0.0f;
     }
-#endif
 }
 )metal";
 
-#endif/* MNN_SUPPORT_TRANSFORMER_FUSE */
-#endif
+// softmax sg reduce source moved to MetalSoftmaxShader.cpp
 
+#endif /* MNN_SUPPORT_TRANSFORMER_FUSE */
+#endif
