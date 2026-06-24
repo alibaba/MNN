@@ -6,6 +6,7 @@ import subprocess
 import json
 import concurrent.futures
 import multiprocessing
+import resource
 post_treat = {}
 qnn_sdk = os.environ["QNN_SDK_ROOT"]
 print(qnn_sdk)
@@ -22,6 +23,21 @@ cache_dir = 'res'
 if 'cache' in post_treat:
     cache_dir = post_treat['cache']
 clean_tmp = True
+
+
+def raise_stack_limit():
+    try:
+        soft, hard = resource.getrlimit(resource.RLIMIT_STACK)
+        if soft == resource.RLIM_INFINITY:
+            return
+        target = hard
+        if hard == resource.RLIM_INFINITY:
+            target = resource.RLIM_INFINITY
+        if target > soft or target == resource.RLIM_INFINITY:
+            resource.setrlimit(resource.RLIMIT_STACK, (target, hard))
+            print(f"[QNN] raise stack limit: {soft} -> {target}", flush=True)
+    except Exception as e:
+        print(f"[QNN] skip raising stack limit: {e}", flush=True)
 
 
 def run_subprocess(cmd, cwd=None, retries=3):
@@ -176,6 +192,7 @@ def process_merge(key, merge_index):
                 raise RuntimeError(f"Remove workdir failed: {workdir}")
 
 merge_keys = list(post_treat["merge"])
+raise_stack_limit()
 merge_workers = max(1, min(os.cpu_count()//2 or 1, len(merge_keys)))
 print(f"[Merge Parallel] running {len(merge_keys)} merge task(s), max_workers={merge_workers}", flush=True)
 
