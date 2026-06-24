@@ -24,6 +24,7 @@ public:
 
         bool mHasGammaBeta = false;
         bool mRMSNorm = false;
+        int mGammaSize = 0;
         std::shared_ptr<Tensor> mGammaBuffer;
         std::shared_ptr<Tensor> mBetaBuffer;
     };
@@ -37,6 +38,9 @@ public:
 private:
     int mOutside;
     int mInside;
+    bool mIsNC4HW4 = false;
+    bool mIsBinaryNCHW = false;
+    int mChannelUnit;
     std::shared_ptr<Resource> mResource;
     id<MTLBuffer> mShapeBuffer;
     id<MTLComputePipelineState> mPipeline;

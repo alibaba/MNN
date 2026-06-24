@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include <unordered_set>
+#include <set>
 #include "shape/SizeComputer.hpp"
 #include "core/Macro.h"
 
@@ -27,7 +27,7 @@ class ShapeUnique : public SizeComputer {
         if (inputs[0]->host<int32_t>() == nullptr) {
             return false;
         }
-        std::unordered_set<int> values;
+        std::set<int> values;
         auto eleSize = inputs[0]->elementSize();
         for (int i = 0; i < eleSize; i++) {
             values.insert(inputs[0]->host<int32_t>()[i]);

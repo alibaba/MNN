@@ -27,6 +27,9 @@ void UniqueOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode,
         if (attributeName == "axis") {
             MNN_ERROR("Don't support onnx Unique with axis\n");
         }
+        if (attributeName == "sorted" && attributeProto.i() == 0) {
+            MNN_ERROR("Don't support onnx Unique with sorted=0\n");
+        }
     }
     return;
 }

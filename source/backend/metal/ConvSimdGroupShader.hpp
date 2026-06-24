@@ -8,7 +8,7 @@
 
 #if MNN_METAL_ENABLED
 
-const char* gBasicConvPrefix = R"metal(
+static const char* gBasicConvPrefix = R"metal(
 #include <metal_stdlib>
 #include <simd/simd.h>
 
@@ -205,7 +205,7 @@ typedef half4x4 FLOAT4x4;
 )metal";
 
 
-const char* gConv1x1WqSgMatrix = R"metal(
+static const char* gConv1x1WqSgMatrix = R"metal(
 // W_QUANT_2/3 fall through to W_QUANT_4 macros for unimplemented gemm kernels so that
 // the source still compiles. Only conv1x1_gemv_g8_wquant_sg has true W_QUANT_2/3 paths.
 #if (defined(W_QUANT_2) || defined(W_QUANT_3)) && !defined(W_QUANT_4) && !defined(W_QUANT_8)
@@ -1256,7 +1256,7 @@ kernel void conv1x1_gemm_32x64_wquant_sg(const device ftype2 *in            [[bu
 }
 )metal";
 
-const char* gConv1x1WfpSgMatrix = R"metal(
+static const char* gConv1x1WfpSgMatrix = R"metal(
 #ifdef USE_METAL_TENSOR_OPS
 #include <metal_tensor>
 #include <MetalPerformancePrimitives/MetalPerformancePrimitives.h>
@@ -1305,8 +1305,6 @@ kernel void conv1x1_w_dequant(
     FLOAT dequant_bias = FLOAT(((const device ftype *)dequantScale)[((idx_n4 * cst.block_size + bi) * 2 + 1) * 4 + idx_nl]) / (FLOAT)cst.scale_coef;
 
 #ifdef W_QUANT_3
-    // W_QUANT_3 layout: 6 bytes per (4 OC, 4 IC) tile.
-    // Tile base byte = (idx_n4 * input_slice + idx_k4) * 6.
     auto wt_base = wi + (idx_n4 * cst.input_slice + idx_k4) * 6;
 #else
     auto xy_wi = wi + (idx_n4 * cst.input_slice + idx_k4) * 4 + idx_nl;// [N/4, K/4, N4, K4]
@@ -1314,19 +1312,16 @@ kernel void conv1x1_w_dequant(
     auto xy_wf = wf + ((idx_n4 * ((cst.input_slice+3)/4) + idx_k16) * 4 + idx_nl) * 4;// [N/4, K/4, N4, K4]
 
     #ifdef W_QUANT_2
-    // W_QUANT_2 layout: 1 byte per (OC, 4 IC); bits [7:6]=IC0..[1:0]=IC3, value=signed+2.
-    // xy_wi (uchar*) points at byte (idx_n4*K/4+idx_k4)*4 + idx_nl (OC=idx_n4*4+idx_nl).
     for(int k = 0; k < 4; k++) {
         #if W_ALIGN_K16_PROTECT
         if(idx_k4 + k >= cst.input_slice) { xy_wf[k] = ftype4(0); continue; }
         #endif
-        uchar b = xy_wi[4*k]; // byte for K4 group (idx_k4+k)
+        uchar b = xy_wi[4*k];
         FLOAT4 w4 = FLOAT4((float)((b >> 6) & 3) - 2, (float)((b >> 4) & 3) - 2,
                             (float)((b >> 2) & 3) - 2, (float)( b       & 3) - 2);
         xy_wf[k] = (ftype4)(w4 * scale + dequant_bias);
     }
     #elif defined(W_QUANT_3)
-    // W_QUANT_3: 6 bytes/tile; OC=idx_nl, IC=k_inner extracted.
     for(int k = 0; k < 4; k++) {
         #if W_ALIGN_K16_PROTECT
         if(idx_k4 + k >= cst.input_slice) { xy_wf[k] = ftype4(0); continue; }
@@ -2134,7 +2129,7 @@ kernel void conv1x1_gemm_32x16_sg(const device ftype4 *in            [[buffer(0)
 )metal";
 
 
-const char* gConv1x1WfpSgReduce = R"metal(
+static const char* gConv1x1WfpSgReduce = R"metal(
 kernel void conv1x1_z4_sg(const device ftype4 *in            [[buffer(0)]],
                          device ftype4 *out                 [[buffer(1)]],
                          constant conv1x1_constants& cst    [[buffer(2)]],
@@ -2166,7 +2161,7 @@ kernel void conv1x1_z4_sg(const device ftype4 *in            [[buffer(0)]],
 }
 )metal";
 
-const char* gConv1x1WqSgReduce = R"metal(
+static const char* gConv1x1WqSgReduce = R"metal(
 
 // W_QUANT_2/3 fall through to W_QUANT_4 macros for unimplemented kernels.
 #if (defined(W_QUANT_2) || defined(W_QUANT_3)) && !defined(W_QUANT_4) && !defined(W_QUANT_8)
@@ -2303,7 +2298,7 @@ kernel void conv1x1_gemv_g8_wquant_sg(const device ftype4 *in            [[buffe
 
     int rx = gid.y;
 #ifdef W_QUANT_3
-    auto xy_wt = wt + uz * cst.input_slice * 6; // 6 bytes per tile
+    auto xy_wt = wt + uz * cst.input_slice * 6;
 #else
     auto xy_wt = wt + uz * cst.input_slice;
 #endif
@@ -2329,7 +2324,6 @@ kernel void conv1x1_gemv_g8_wquant_sg(const device ftype4 *in            [[buffe
                 FLOAT4 in40 = (FLOAT4)*(xy_in0 + z * area_size);
                 
                 #ifdef W_QUANT_2
-                    // 4 bytes / tile, byte i = OC i, bits [7:6]=IC0..[1:0]=IC3, signed=unsigned-2.
                     uchar4 w_b = xy_wt[z];
                     FLOAT4x4 w_dequant;
                     for (int i = 0; i < 4; ++i) {
@@ -2339,8 +2333,6 @@ kernel void conv1x1_gemv_g8_wquant_sg(const device ftype4 *in            [[buffe
                         w_dequant[i] = w4 * scale[i] + dequant_bias[i];
                     }
                 #elif defined(W_QUANT_3)
-                    // 6 bytes / tile: bytes 0..3 low 2bit (OC i, 4 IC), bytes 4..5 high 1bit
-                    // (byte 4 OC{0,1}, byte 5 OC{2,3}; upper nibble = OC even, lower = OC odd; bit (3-k)=IC k high).
                     const device uchar* tilePtr = xy_wt + z * 6;
                     uchar lo0 = tilePtr[0], lo1 = tilePtr[1], lo2 = tilePtr[2], lo3 = tilePtr[3];
                     uchar hi01 = tilePtr[4], hi23 = tilePtr[5];
@@ -2349,9 +2341,7 @@ kernel void conv1x1_gemv_g8_wquant_sg(const device ftype4 *in            [[buffe
                     for (int i = 0; i < 4; ++i) {
                         uchar b = lo[i];
                         uchar h = (i < 2) ? hi01 : hi23;
-                        // upper nibble for OC even (i%2==0), lower for OC odd (i%2==1).
                         uchar hShifted = (i % 2 == 0) ? (h >> 4) : (h & 0xF);
-                        // hShifted bit (3-k) = IC k high bit
                         FLOAT4 w4 = FLOAT4(
                             (float)( ((b >> 6) & 3) | (((hShifted >> 3) & 1) << 2) ) - 4,
                             (float)( ((b >> 4) & 3) | (((hShifted >> 2) & 1) << 2) ) - 4,
@@ -2501,4 +2491,3 @@ kernel void conv1x1_gemv_g16_wquant_sg(const device ftype4 *in            [[buff
 
 
 #endif
-
