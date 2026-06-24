@@ -18,8 +18,11 @@ def main(args):
     model.enable_collection_mode(2, args.output_path)
 
     eval_dataset = args.eval_dataset
-    dataset_name = eval_dataset.split("/")[0]
-    dataset_dir = eval_dataset.split("/")[1]
+    dataset_parts = eval_dataset.split("/")
+    if len(dataset_parts) < 2:
+        raise ValueError("eval_dataset must be formatted as dataset/config or namespace/dataset/config.")
+    dataset_name = "/".join(dataset_parts[:-1])
+    dataset_dir = dataset_parts[-1]
 
     dataset = load_dataset(dataset_name, dataset_dir, split="test")
     input_ids = model.tokenizer_encode("\n\n".join(dataset["text"]))
@@ -39,7 +42,7 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "-d", "--eval_dataset", type=str, default='wikitext/wikitext-2-raw-v1', help="dataset, default is `wikitext/wikitext-2-raw-v1`."
+        "-d", "--eval_dataset", type=str, default='Salesforce/wikitext/wikitext-2-raw-v1', help="dataset, default is `Salesforce/wikitext/wikitext-2-raw-v1`."
     )
 
     parser.add_argument(

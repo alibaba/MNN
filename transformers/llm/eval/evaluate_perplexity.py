@@ -21,8 +21,11 @@ def main(args):
         print("Loading dataset from disk: {}".format(eval_dataset))
         dataset = load_from_disk(eval_dataset)
     else:
-        dataset_name = eval_dataset.split("/")[0]
-        dataset_dir = eval_dataset.split("/")[1]
+        dataset_parts = eval_dataset.split("/")
+        if len(dataset_parts) < 2:
+            raise ValueError("eval_dataset must be formatted as dataset/config or namespace/dataset/config.")
+        dataset_name = "/".join(dataset_parts[:-1])
+        dataset_dir = dataset_parts[-1]
         dataset = load_dataset(dataset_name, dataset_dir, split="test")
 
     input_ids = model.tokenizer_encode("\n\n".join(dataset["text"]))
@@ -69,7 +72,7 @@ if __name__ == "__main__":
     # Provide extra arguments required for tasks
     group = parser.add_argument_group(title="Evaluation options")
     group.add_argument(
-        "-d", "--eval_dataset", type=str, default='wikitext/wikitext-2-raw-v1', help="Evaluation dataset, default is `wikitext/wikitext-2-raw-v1`."
+        "-d", "--eval_dataset", type=str, default='Salesforce/wikitext/wikitext-2-raw-v1', help="Evaluation dataset, default is `Salesforce/wikitext/wikitext-2-raw-v1`."
     )
     group.add_argument(
         "--attention_mode",
