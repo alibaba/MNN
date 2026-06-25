@@ -431,7 +431,40 @@ VL（Vision-Language）模型的 `config.json` 通常是嵌套结构（`text_con
 
 ---
 
-## 13. do_map 静默失败与 rope_theta 间接存储
+## 13. 外部包模型的注册与复合配置嵌套
+
+### 问题描述
+
+有些模型并不直接由 `transformers` 主包提供，而是依赖外部包在 import 时执行 `AutoConfig.register(...)` / `AutoModel.register(...)` / `AutoProcessor.register(...)`。同时，这类模型的 **原始 `config.json` 字段布局** 和 **运行时 `PretrainedConfig` 对象的属性布局** 可能并不一致。
+
+典型现象：
+
+- `AutoConfig.from_pretrained()` 无法识别模型
+- audio / vision wrapper 初始化时报 `AttributeError`
+
+### 解决方案
+
+1. **先确认模型是否需要外部包注册。**
+   如果模型的 README/官方用法要求通过独立包加载，不要继续猜 `transformers` 原生是否支持，直接下载包并在 `config.py` 的外部 registry 中 import 对应注册模块。
+
+### 最小检查
+
+实现映射后，至少执行一次：
+
+```python
+cfg = LlmConfig.from_pretrained(model_path)
+print(cfg.model_type)
+print(type(cfg.origin_config), cfg.origin_config)
+```
+
+确认：
+
+- 外部包注册已生效
+- 运行时 config 的字段层级和 mapper / audio / vision wrapper 使用的路径一致
+
+---
+
+## 14. do_map 静默失败与 rope_theta 间接存储
 
 `ModelMapper.do_map()` 在源属性不存在时**不会报错**，静默设为 `None`，post-processing 再用默认值覆盖。最常见的受害者是 **rope_theta**：部分模型（如 LFM2）将 `rope_theta` 存在 `rope_parameters` dict 中而非顶层，导致映射 `'rope_theta': 'rope_theta'` 静默失败，rope_theta 被错误回退为 10000。
 
@@ -441,7 +474,7 @@ VL（Vision-Language）模型的 `config.json` 通常是嵌套结构（`text_con
 
 ---
 
-## 14. 非标准模型加载方式
+## 15. 非标准模型加载方式
 
 ### 问题描述
 
@@ -471,3 +504,30 @@ elif model_type == 'lfm2_audio':
 - 非标准加载的模型**权重路径可能不同**于标准 HF 模型，需要通过 `print(original_model)` 或 `state_dict().keys()` 确认实际路径
 - 嵌套的 config 结构可能需要在 `config.py` 的 `from_pretrained` 中手动提取子配置
 - 某些包的注意力实现默认使用 `flash_attention_2`，CPU 上需要手动切换为 `sdpa` 或 `eager`
+
+---
+
+## 16. Audio encoder 导出接口与 C++ runtime 输入约定不一致
+
+### 问题描述
+
+新增音频模型时，Python 导出侧的 audio encoder 接口很容易和 C++ `Omni::audioProcess()` 的既有假设不一致。常见错位包括：
+
+- 导出模型输入个数、形状没对齐
+- 导出配置用已有 `audio_type`，导致 runtime 走错分支
+
+
+### 解决方案
+
+- 为接口不兼容的模型定义独立 `audio_type`，不要复用已有类型名
+- 核对`export/utils/audio.py` 中导出的 ONNX/MNN 模型输入个数，以及导出模型的 `input_features` 真实 shape 约定
+- 在 `Omni::audioProcess()` 中按该模型的真实导出接口单独处理输入 shape / 输入数量
+
+### 最小验证
+
+至少做两步：
+
+1. `audio-only` prompt + `max_token_number=0`
+   验证音频文件加载、fbank、audio encoder prefill 能走通
+2. 单行 ASR 模板 prompt
+   验证实际 decode 文本与 Python 基线一致
