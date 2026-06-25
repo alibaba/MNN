@@ -21,6 +21,10 @@
 //#define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 
+#if defined(__riscv) && defined(MNN_USE_RVV)
+extern void MNNDeconvTransformWeightC4_RVV(const float* src, float* dst, int outputCount, int srcCount, int area);
+#endif
+
 namespace MNN {
 
 CPUDeconvolutionBasic::CPUDeconvolutionBasic(int inputChannel, const Op* convOp, Backend* b)
@@ -42,17 +46,25 @@ ErrorCode CPUDeconvolutionBasic::onResize(const std::vector<Tensor*>& inputs, co
 static void _transformWeight(const uint8_t* tempWeight, uint8_t* dest, int outputCount, int srcCount, int fh, int fw,
                              uint8_t* cache, const CoreFunctions* core) {
     auto outputC4 = UP_DIV(outputCount, core->pack);
-    int offset[] = {
-        (int)(fw * fh),
-        (int)(fw * fh),
-    };
-    // c, n, h, w-> c, n/4 * 4, h, w
-    for (int c=0; c<srcCount; ++c) {
-        auto dst = cache + c * outputC4 * fw * fh * core->pack * core->bytes;
-        auto src = tempWeight + c * outputCount * fw * fh * core->bytes;
-        core->MNNPackCUnit((float*)dst, (const float*)src, fw*fh, outputCount, offset);
+#if defined(__riscv) && defined(MNN_USE_RVV)
+    if (core->supportRVV && core->bytes == 4 && core->pack == 4) {
+        MNNDeconvTransformWeightC4_RVV((const float*)tempWeight, (float*)cache, outputCount, srcCount, fh * fw);
+    } else
+#endif
+    {
+        int offset[] = {
+            (int)(fw * fh),
+            (int)(fw * fh),
+        };
+        // c, n, h, w-> c, n/4 * 4, h, w
+        for (int c = 0; c < srcCount; ++c) {
+            auto dst = cache + c * outputC4 * fw * fh * core->pack * core->bytes;
+            auto src = tempWeight + c * outputCount * fw * fh * core->bytes;
+            core->MNNPackCUnit((float*)dst, (const float*)src, fw * fh, outputCount, offset);
+        }
     }
-    //printf("%d - %d - %d - %d\n", outputCount, srcCount, fh, fw);
+
+    // printf("%d - %d - %d - %d\n", outputCount, srcCount, fh, fw);
     core->MNNPackForMatMul_B((float*)dest, (const float*)cache, outputC4 * fw * fh * core->pack, 1, srcCount, false);
 }
 std::shared_ptr<DeconvolutionResource> CPUDeconvolution::makeResource(int srcCount, const Op *convOp, Backend* backend, bool dynamic) {
