@@ -122,7 +122,7 @@ class AnthropicMessagesService {
 
     private suspend fun handleNonStreamResponse(
         call: ApplicationCall,
-        history: List<android.util.Pair<String, String>>,
+        history: List<Pair<String, String>>,
         model: String,
         llmSession: LlmSession
     ) {
@@ -147,7 +147,7 @@ class AnthropicMessagesService {
 
     private suspend fun handleStreamResponse(
         call: ApplicationCall,
-        history: List<android.util.Pair<String, String>>,
+        history: List<Pair<String, String>>,
         model: String,
         traceId: String,
         llmSession: LlmSession

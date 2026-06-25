@@ -21,6 +21,7 @@ import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.chat.ChatActivity
 import com.alibaba.mnnllm.android.chat.PromptUtils
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
+import com.alibaba.mnnllm.android.chat.model.ChatFileAttachment
 import com.alibaba.mnnllm.android.chat.SelectTextActivity
 import com.alibaba.mnnllm.android.chat.chatlist.VideoPlayerComponent
 import com.alibaba.mnnllm.android.utils.ClipboardUtils
@@ -37,6 +38,9 @@ import io.noties.markwon.ext.latex.JLatexMathTheme
 import io.noties.markwon.ext.tables.TablePlugin
 import io.noties.markwon.inlineparser.MarkwonInlineParserPlugin
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.color.MaterialColors
+import androidx.core.content.FileProvider
+import java.io.File
 import java.util.Locale
 
 object ChatViewHolders {
@@ -188,6 +192,8 @@ object ChatViewHolders {
 
         private val imageGenerated: ImageView =
             view.findViewById(R.id.image_generated)
+        private val generatedFilesLayout: LinearLayout =
+            view.findViewById(R.id.ll_generated_files)
 
         // Action buttons
         private val actionButtonsLayout: LinearLayout = view.findViewById(R.id.ll_action_buttons)
@@ -322,6 +328,7 @@ object ChatViewHolders {
                     imageGenerated.setImageURI(data.imageUri)
                 }
                 shareImageButton.visibility = if (data.imageUri != null) View.VISIBLE else View.GONE
+                bindGeneratedFiles(data)
                 return
             }
 
@@ -363,6 +370,7 @@ object ChatViewHolders {
             if (data.imageUri != null) {
                 imageGenerated.setImageURI(data.imageUri)
             }
+            bindGeneratedFiles(data)
             val drawableId = ModelUtils.getDrawableId(modelName)
             headerIcon.setImageResource(if (drawableId > 0) drawableId else R.drawable.ic_launcher)
             imageGenerated.tag = data
@@ -376,6 +384,82 @@ object ChatViewHolders {
             toggleBenchmarkButton.tag = data
             replayAudioButton.tag = data
             shareImageButton.tag = data
+        }
+
+        private fun bindGeneratedFiles(data: ChatDataItem) {
+            val files = data.generatedFiles.orEmpty().filter { it.path.isNotBlank() }
+            generatedFilesLayout.removeAllViews()
+            generatedFilesLayout.visibility = if (files.isEmpty()) View.GONE else View.VISIBLE
+            files.forEach { file ->
+                val item = TextView(itemView.context).apply {
+                    text = buildString {
+                        append("[File] ")
+                        append(file.name.ifBlank { File(file.path).name })
+                        if (file.sizeBytes > 0) {
+                            append(" (")
+                            append(formatFileSize(file.sizeBytes))
+                            append(")")
+                        }
+                    }
+                    textSize = 14f
+                    setTextColor(MaterialColors.getColor(itemView, com.google.android.material.R.attr.colorPrimary))
+                    setPadding(16, 10, 16, 10)
+                    maxLines = 2
+                    ellipsize = TextUtils.TruncateAt.MIDDLE
+                    setOnClickListener { openGeneratedFile(file) }
+                }
+                val params = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    topMargin = 6
+                }
+                generatedFilesLayout.addView(item, params)
+            }
+        }
+
+        private fun openGeneratedFile(file: ChatFileAttachment) {
+            try {
+                val localFile = File(file.path)
+                if (!localFile.exists()) {
+                    Toast.makeText(itemView.context, "File not found", Toast.LENGTH_SHORT).show()
+                    return
+                }
+                val uri = FileProvider.getUriForFile(
+                    itemView.context,
+                    itemView.context.packageName + ".fileprovider",
+                    localFile
+                )
+                val mimeType = file.mimeType.ifBlank { guessMimeType(localFile.name) }
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, mimeType)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                itemView.context.startActivity(Intent.createChooser(intent, localFile.name))
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to open generated file: ${file.path}", e)
+                Toast.makeText(itemView.context, "No app can open this file", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        private fun guessMimeType(name: String): String {
+            val lower = name.lowercase(Locale.US)
+            return when {
+                lower.endsWith(".xlsx") -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                lower.endsWith(".xls") -> "application/vnd.ms-excel"
+                lower.endsWith(".csv") -> "text/csv"
+                lower.endsWith(".pdf") -> "application/pdf"
+                lower.endsWith(".txt") -> "text/plain"
+                lower.endsWith(".json") -> "application/json"
+                else -> "*/*"
+            }
+        }
+
+        private fun formatFileSize(bytes: Long): String {
+            if (bytes < 1024) return "$bytes B"
+            val kb = bytes / 1024.0
+            if (kb < 1024) return String.format(Locale.US, "%.1f KB", kb)
+            return String.format(Locale.US, "%.1f MB", kb / 1024.0)
         }
         
         private fun updateThinkingView(data: ChatDataItem, context: android.content.Context) {

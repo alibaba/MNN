@@ -167,6 +167,7 @@ JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_submitN
     if (!onProgressMethod) {
         MNN_DEBUG("ProgressListener onProgress method not found.");
     }
+    int64_t input_len = llm->CountInputTokens(input_str);
     auto *context = llm->Response(input_str, [&, progressListener, onProgressMethod](
             const std::string &response, bool is_eop) {
         if (progressListener && onProgressMethod) {
@@ -185,6 +186,17 @@ JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_submitN
     int64_t audio_time = 0;
     int64_t prefill_time = 0;
     int64_t decode_time = 0;
+    if (context == nullptr) {
+        env->ReleaseStringUTFChars(inputStr, input_str);
+        jclass hashMapClass = env->FindClass("java/util/HashMap");
+        jmethodID hashMapInit = env->GetMethodID(hashMapClass, "<init>", "()V");
+        jmethodID putMethod = env->GetMethodID(hashMapClass, "put",
+                                               "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
+        jobject hashMap = env->NewObject(hashMapClass, hashMapInit);
+        env->CallObjectMethod(hashMap, putMethod, env->NewStringUTF("error"),
+                              env->NewStringUTF("Generation failed"));
+        return hashMap;
+    }
     prompt_len += context->prompt_len;
     decode_len += context->gen_seq_len;
     vision_time += context->vision_us;
@@ -198,6 +210,10 @@ JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_submitN
     jobject hashMap = env->NewObject(hashMapClass, hashMapInit);
 
     // Add metrics to the HashMap
+    env->CallObjectMethod(hashMap, putMethod, env->NewStringUTF("input_len"),
+                          env->NewObject(env->FindClass("java/lang/Long"),
+                                         env->GetMethodID(env->FindClass("java/lang/Long"),
+                                                          "<init>", "(J)V"), input_len));
     env->CallObjectMethod(hashMap, putMethod, env->NewStringUTF("prompt_len"),
                           env->NewObject(env->FindClass("java/lang/Long"),
                                          env->GetMethodID(env->FindClass("java/lang/Long"),
@@ -222,6 +238,7 @@ JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_submitN
                           env->NewObject(env->FindClass("java/lang/Long"),
                                          env->GetMethodID(env->FindClass("java/lang/Long"),
                                                           "<init>", "(J)V"), decode_time));
+    env->ReleaseStringUTFChars(inputStr, input_str);
     return hashMap;
 }
 
