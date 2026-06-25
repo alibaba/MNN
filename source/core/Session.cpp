@@ -121,6 +121,9 @@ void Session::ModeGroup::setHint(Interpreter::HintMode hint, int value) {
         case Interpreter::CPU_SME_CORES:
             runtimeHint.smeCores = value;
             break;
+        case Interpreter::HintMode::RKNN_PROFILE:
+            runtimeHint.enableBackendProfile = value > 0;
+            break;
         default:
             break;
     }
@@ -395,6 +398,20 @@ bool Session::getInfo(Interpreter::SessionInfoCode code, void* ptr) const {
             }
             *dst = mPipelines[0]->getPipelineInfo().first.info.numThread;
             return true;
+        }
+        case Interpreter::BACKEND_PROFILE: {
+            for (auto& pipeline : mPipelines) {
+                auto backend = pipeline->getMainBackend();
+                if (nullptr != backend && backend->onGetSessionInfo((int)code, ptr)) {
+                    return true;
+                }
+            }
+            for (auto& r : mRuntime.first) {
+                if (r.second != nullptr && r.second->onGetRuntimeInfo((int)code, ptr)) {
+                    return true;
+                }
+            }
+            return false;
         }
         // TODO: Support other debug info
         default:

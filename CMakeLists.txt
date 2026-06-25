@@ -282,6 +282,7 @@ option(MNN_COREML "Enable CoreML" OFF)
 option(MNN_NNAPI "Enable NNAPI" OFF)
 option(MNN_QNN "Enable QNN" OFF)
 option(MNN_QNN_ONLINE_FINALIZE "Enable QNN Online Finalize" ON)
+option(MNN_RKNN "Enable RKNN runtime backend" OFF)
 
 option(MNN_GPU_TIME_PROFILE "Enable time profiling for the OpenCL backend and Vulkan backend." OFF)
 option(MNN_GPU_PROFILE_SILENT "When GPU time profiling is enabled, only accumulate total time without printing per-kernel details." OFF)
@@ -678,6 +679,13 @@ IF(MNN_QNN)
     add_definitions(-DMNN_QNN_ENABLED=1)
     add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/source/backend/qnn/)
     list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNN_QNN>)
+ENDIF()
+
+# RKNN
+IF(MNN_RKNN)
+    add_definitions(-DMNN_RKNN_ENABLED=1)
+    add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/source/backend/rknn/)
+    list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNN_RKNN>)
 ENDIF()
 
 # NEUROPILOT
