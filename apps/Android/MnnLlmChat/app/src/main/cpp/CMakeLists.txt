@@ -30,6 +30,10 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         llm_session.cpp
         crash_util.cpp
         processor.cpp
+        diffusion_jni.cpp
+        diffusion_session.cpp
+        sana_jni.cpp
+        sana_session.cpp
         # Video processing files (moved to video/ directory)
         video/video_decoder.cpp
         video/byte_buffer_decoder.cpp
