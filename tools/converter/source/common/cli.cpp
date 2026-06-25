@@ -39,6 +39,7 @@
 #include <sstream>
 #include <cmath>
 #include "core/MemoryFormater.h"
+#include "../safetensors/SafetensorConverter.hpp"
 modelConfig::~modelConfig() {
     if (nullptr != compressInfo) {
         delete compressInfo;
@@ -148,12 +149,12 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
                                                        "Convert Other Model Format To MNN Model\n")(
         std::make_pair("v", "version"), "show current version")(std::make_pair("f", "framework"),
 #ifdef MNN_BUILD_TORCH
-                                                                "model type, ex: [TF,CAFFE,ONNX,TFLITE,MNN,TORCH,JSON]",
+                                                                "model type, ex: [TF,CAFFE,ONNX,TFLITE,MNN,TORCH,JSON,ST]",
 #else
-                                                                "model type, ex: [TF,CAFFE,ONNX,TFLITE,MNN,JSON]",
+                                                                "model type, ex: [TF,CAFFE,ONNX,TFLITE,MNN,JSON,ST]",
 #endif
                                                                 cxxopts::value<std::string>())(
-        "modelFile", "tensorflow Pb or caffeModel, ex: *.pb,*caffemodel", cxxopts::value<std::string>())(
+        std::make_pair("i", "modelFile"), "tensorflow Pb or caffeModel, ex: *.pb,*caffemodel", cxxopts::value<std::vector<std::string>>())(
         "batch", "if model input's batch is not set, set as the batch size you set", cxxopts::value<int>())(
         "keepInputFormat", "keep input dimension format or not, default: true", cxxopts::value<bool>())(
         "optimizeLevel",
@@ -161,7 +162,7 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
         "every input case is right, 2: normally right but some case may be wrong, default 1",
         cxxopts::value<int>())("optimizePrefer", "graph optimize option, 0 for normal, 1 for smalleset, 2 for fastest",
                                cxxopts::value<int>())("prototxt", "only used for caffe, ex: *.prototxt",
-                                                      cxxopts::value<std::string>())("MNNModel", "MNN model, ex: *.mnn",
+                                                      cxxopts::value<std::string>())(std::make_pair("o", "MNNModel"), "MNN model, ex: *.mnn",
                                                                                      cxxopts::value<std::string>())(
         "fp16", "save Conv's weight/bias in half_float data type")(
         "benchmarkModel",
@@ -259,6 +260,8 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
 #endif
         } else if ("JSON" == frameWork) {
             modelPath.model = modelConfig::JSON;
+        } else if ("ST" == frameWork) {
+            modelPath.model = modelConfig::SAFETENSORS;
         } else {
             std::cout << "Framework Input ERROR or Not Support This Model Type Now!" << std::endl;
             return false;
@@ -283,7 +286,13 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
 
     // model file path
     if (result.count("modelFile")) {
-        const std::string modelFile = result["modelFile"].as<std::string>();
+        auto files = result["modelFile"].as<std::vector<std::string>>();
+        modelPath.modelFiles = files;
+        if (files.empty()) {
+            DLOG(INFO) << "modelFile Not set Invalid, use --modelFile to set!";
+            return false;
+        }
+        const std::string modelFile = files[0];
         if (CommonKit::FileIsExist(modelFile)) {
             modelPath.modelFile = modelFile;
         } else {
@@ -560,6 +569,24 @@ static void _reorderInputs(const std::vector<std::string>& inputNames, MNN::NetT
 bool Cli::convertModel(modelConfig& modelPath) {
     if (modelPath.dumpInfo) {
         dumpModelInfo(modelPath.modelFile.c_str());
+        return true;
+    }
+    if (modelPath.model == modelConfig::SAFETENSORS) {
+        std::cout << "Create Converter with config: " << modelPath.modelFiles[0] << std::endl;
+        MNN::SafeTensors::Converter converter(modelPath.modelFiles[0]);
+        auto models = converter.listModels();
+        for (int i = 1; i < modelPath.modelFiles.size(); ++i) {
+            std::cout << "Load Safetensors " << modelPath.modelFiles[i] << std::endl;
+            converter.loadSafeTensors(modelPath.modelFiles[i]);
+        }
+        for (auto& name : models) {
+            auto newConfig = modelPath;
+            newConfig.MNNModel = modelPath.MNNModel + "/";
+            if (!converter.convert(name, newConfig)) {
+                std::cout << "Convert " << name << " Failed" << std::endl;
+                return false;
+            }
+        }
         return true;
     }
     std::cout << "Start to Convert Other Model Format To MNN Model..., target version: " << modelPath.targetVersion << std::endl;
