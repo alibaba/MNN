@@ -115,7 +115,7 @@ class SmoothQuantizer:
             if data == "pileval":
                 dataset = load_dataset("mit-han-lab/pile-val-backup", split="validation")
             elif data == "wikitext":
-                dataset = load_dataset('wikitext', 'wikitext-2-raw-v1', split=split)
+                dataset = load_dataset("Salesforce/wikitext", "wikitext-2-raw-v1", split=split)
             else:
                 custom_calib_data = True
                 # dataset = load_dataset(data, split=split)
