@@ -1278,24 +1278,27 @@ class StrideMismatchTest : public MNNTestCase {
 public:
     virtual bool run(int precision) {
         const int W = 5, H = 5;  // Non-power-of-2 to test stride alignment
-        const int channels = 3;
+        const int srcChannels = 3;
+        const int dstChannels = 4;
         // Use a wider stride (padded rows)
-        const int srcStride = W * channels + 4; // Extra padding
+        const int srcStride = W * srcChannels + 4; // Extra padding
         std::vector<uint8_t> src(H * srcStride, 0);
 
         // Fill valid pixel data
         for (int y = 0; y < H; ++y) {
             for (int x = 0; x < W; ++x) {
-                for (int c = 0; c < channels; ++c) {
-                    src[y * srcStride + x * channels + c] =
+                for (int c = 0; c < srcChannels; ++c) {
+                    src[y * srcStride + x * srcChannels + c] =
                         static_cast<uint8_t>((y * 31 + x * 17 + c * 7) % 256);
                 }
             }
         }
 
+        // Use RGB->RGBA conversion to avoid the identity optimization path
+        // that skips the sampler/blitter pipeline entirely.
         ImageProcess::Config config;
         config.sourceFormat = RGB;
-        config.destFormat = RGB;
+        config.destFormat = RGBA;
         config.filterType = MNN::CV::Filter::NEAREST;
         config.wrap = CLAMP_TO_EDGE;
 
@@ -1305,18 +1308,21 @@ public:
         Matrix tr;
         process->setMatrix(tr);
 
-        std::vector<uint8_t> dst(W * H * channels);
-        // Pass explicit stride
-        process->convert(src.data(), W, H, srcStride, dst.data(), W, H, channels, 0, halide_type_of<uint8_t>());
+        std::vector<uint8_t> dst(W * H * dstChannels, 0);
+        // Pass explicit stride for source; use default for output
+        process->convert(src.data(), W, H, srcStride, dst.data(), W, H, dstChannels, 0, halide_type_of<uint8_t>());
 
-        // Verify pixels match despite stride mismatch
+        // Verify RGB channels match despite stride mismatch, alpha should be 255
         for (int y = 0; y < H; ++y) {
             for (int x = 0; x < W; ++x) {
-                for (int c = 0; c < channels; ++c) {
-                    uint8_t expected = src[y * srcStride + x * channels + c];
-                    uint8_t actual = dst[(y * W + x) * channels + c];
+                for (int c = 0; c < srcChannels; ++c) {
+                    uint8_t expected = src[y * srcStride + x * srcChannels + c];
+                    uint8_t actual = dst[(y * W + x) * dstChannels + c];
                     MNNTEST_ASSERT(expected == actual);
                 }
+                // Alpha channel should be filled (typically 255)
+                uint8_t alpha = dst[(y * W + x) * dstChannels + 3];
+                MNNTEST_ASSERT(alpha == 255);
             }
         }
         return true;
