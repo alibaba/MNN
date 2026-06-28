@@ -1,4 +1,4 @@
-option(MNN_VULKAN_IMAGE "Use Image as basic type" ON)
+option(MNN_VULKAN_IMAGE "Use Image as basic type" OFF)
 if (MNN_VULKAN_IMAGE)
     FILE(GLOB_RECURSE MNN_Vulkan_SRC ${CMAKE_CURRENT_LIST_DIR}/image/* ${CMAKE_CURRENT_LIST_DIR}/component/* ${CMAKE_CURRENT_LIST_DIR}/runtime/* ${CMAKE_CURRENT_LIST_DIR}/vulkan/*)
 else()
@@ -11,6 +11,9 @@ if(MNN_GPU_TIME_PROFILE)
         add_definitions(-DMNN_GPU_PROFILE_SILENT)
     ENDIF()
 ENDIF()
+if(MNN_PIPELINE_PROFILE)
+    add_definitions(-DMNN_PIPELINE_PROFILE)
+endif()
 
 
 include_directories("./")

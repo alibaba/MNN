@@ -48,5 +48,6 @@ void main() {
         }
     }
 
-    DstQ8[row * pc.weightStride + k8] = packed;
+    const uint dst = ((row >> 2u) * pc.weightStride + k8) * 4u + (row & 3u);
+    DstQ8[dst] = packed;
 }

@@ -27,8 +27,8 @@ namespace Express {
 
 void Executor::setGlobalExecutorConfig(MNNForwardType type, const BackendConfig& config, int numberThread) {
     std::lock_guard<std::mutex> _l(mMutex);
-    
-    if(type == MNN_FORWARD_AUTO) {
+
+    if (type == MNN_FORWARD_AUTO) {
         ScheduleConfig sConfig;
         sConfig.type = type;
         type = Schedule::getAppropriateType(sConfig);
@@ -58,7 +58,8 @@ float Executor::getLastGpuTimeMs() const {
     }
     return iter->second->onGetLastGpuTimeMs();
 }
-std::shared_ptr<Runtime> Executor::_getOrCreateRuntime(MNNForwardType type, const BackendConfig* config, int numberThread, bool reset) {
+std::shared_ptr<Runtime> Executor::_getOrCreateRuntime(MNNForwardType type, const BackendConfig* config,
+                                                       int numberThread, bool reset) {
     auto iter = mRuntimeInfo.first.find(type);
     if (iter != mRuntimeInfo.first.end()) {
         iter->second->onReset(numberThread, config, reset);
@@ -104,7 +105,7 @@ Executor::Executor(std::shared_ptr<Runtime> runtime, MNNForwardType type, int nu
     std::shared_ptr<Backend> defaultBackend(mRuntimeInfo.second->onCreate(&defaultConfig));
     mAttr->constantBackend = defaultBackend;
 }
-Executor::~Executor(){
+Executor::~Executor() {
     // Do nothing
 }
 
@@ -122,13 +123,13 @@ Executor::Requirement Executor::getRequirement(Expr* expr) const {
     if (op->type() == OpType_Extra) {
         for (int i = 0; i < inputSize; ++i) {
             req.contentNeedContent[i] = true;
-            req.shapeNeedContent[i]   = false;
+            req.shapeNeedContent[i] = false;
         }
         return req;
     }
     for (int i = 0; i < inputSize; ++i) {
         req.contentNeedContent[i] = OpCommonUtils::opNeedContent(op, i);
-        req.shapeNeedContent[i]   = false;
+        req.shapeNeedContent[i] = false;
     }
     auto needIndexId = SizeComputer::needInputContent(op, inputSize);
     for (auto index : needIndexId) {
@@ -149,7 +150,7 @@ std::shared_ptr<Executor> Executor::getGlobalExecutor() {
         info.numThread = 1;
         std::shared_ptr<Runtime> bn(creator->onCreate(info));
         RuntimeHint hint;
-        hint.memoryAllocatorType = 0;// Defer
+        hint.memoryAllocatorType = 0; // Defer
         bn->setRuntimeHint(hint);
         gExecutor = new std::shared_ptr<Executor>;
         gExecutor->reset(new Executor(bn, MNN_FORWARD_CPU, 1));
@@ -157,11 +158,9 @@ std::shared_ptr<Executor> Executor::getGlobalExecutor() {
     return *gExecutor;
 }
 
-std::shared_ptr<Executor> Executor::newExecutor(MNNForwardType type,
-                                                const BackendConfig& config,
-                                                int numberThread) {
+std::shared_ptr<Executor> Executor::newExecutor(MNNForwardType type, const BackendConfig& config, int numberThread) {
     auto creator = MNNGetExtraRuntimeCreator(type);
-    if(nullptr == creator) {
+    if (nullptr == creator) {
         MNN_ERROR("Don't support %d\n", type);
         return nullptr;
     }
@@ -192,14 +191,14 @@ bool Executor::getComputeInfo(EXPRP expr, Interpreter::SessionInfoCode code, voi
     return session->getInfo(code, ptr);
 }
 
-static bool loadCache(std::shared_ptr<Runtime> &rt, const void* buffer, size_t size) {
+static bool loadCache(std::shared_ptr<Runtime>& rt, const void* buffer, size_t size) {
     auto res = rt->onSetCache(buffer, size);
     if (res) {
         return true;
     }
     return false;
 }
-static std::pair<const void*, size_t> getCache(std::shared_ptr<Runtime> &rt) {
+static std::pair<const void*, size_t> getCache(std::shared_ptr<Runtime>& rt) {
     auto res = rt->onGetCache();
     if (res.first != nullptr) {
         return res;
@@ -255,13 +254,13 @@ void Executor::RuntimeManager::setExternalPath(std::string path, int type) {
 }
 void Executor::RuntimeManager::setHintPtr(Interpreter::HintMode mode, void* value) {
     if (mode == Interpreter::KVCACHE_INFO) {
-        mInside->mMeta = value;
+        mInside->mContent->pMeta = value;
     }
 }
 
 void Executor::RuntimeManager::applyMetaToRuntime() const {
     for (auto& iter : mInside->mRuntime.first) {
-        iter.second->pMeta = mInside->mMeta;
+        iter.second->pMeta = mInside->mContent->pMeta;
     }
 }
 
@@ -269,7 +268,7 @@ bool Executor::RuntimeManager::getInfo(Interpreter::SessionInfoCode code, void* 
     // Only support get memory
     switch (code) {
         case Interpreter::MEMORY: {
-            auto dst     = (float*)ptr;
+            auto dst = (float*)ptr;
             float summer = mInside->mRuntime.second->onGetMemoryInMB();
             for (auto& r : mInside->mRuntime.first) {
                 if (r.second.get() != mInside->mRuntime.second.get()) {
@@ -296,11 +295,12 @@ bool Executor::RuntimeManager::getInfo(Interpreter::SessionInfoCode code, void* 
     return false;
 }
 
-bool Executor::RuntimeManager::getDeviceInfo(const std::string& deviceKey, const MNNForwardType type, std::string& deviceValue) {
+bool Executor::RuntimeManager::getDeviceInfo(const std::string& deviceKey, const MNNForwardType type,
+                                             std::string& deviceValue) {
     auto creator = MNNGetExtraRuntimeCreator(type);
     if (creator != nullptr) {
         auto res = creator->onGetDeviceInfo(deviceKey, deviceValue);
-        if(res) {
+        if (res) {
             return true;
         }
     }
@@ -319,15 +319,15 @@ Executor::RuntimeManager::~RuntimeManager() {
     updateCache();
     delete mInside;
 }
-Executor::RuntimeManager* Executor::RuntimeManager::createRuntimeManager(const ScheduleConfig &config) {
+Executor::RuntimeManager* Executor::RuntimeManager::createRuntimeManager(const ScheduleConfig& config) {
     auto res = new RuntimeManager;
     auto glo = ExecutorScope::Current();
     std::lock_guard<std::mutex> _l(glo->mMutex);
     auto& originRt = glo->mRuntimeInfo;
-    auto type      = Schedule::getAppropriateType(config);
+    auto type = Schedule::getAppropriateType(config);
     int numThread = config.numThread;
-    if(config.type == MNN_FORWARD_AUTO) {
-        if(type == MNN_FORWARD_OPENCL || type == MNN_FORWARD_METAL) {
+    if (config.type == MNN_FORWARD_AUTO) {
+        if (type == MNN_FORWARD_OPENCL || type == MNN_FORWARD_METAL) {
             // AUTO set default gpu-mode MNN_GPU_TUNING_FAST
             numThread = 16;
         }
@@ -355,7 +355,6 @@ BackendConfig* Executor::RuntimeManager::getBnConfig() {
     }
     return nullptr;
 }
-
 
 void Executor::RuntimeManager::setCache(std::string cacheName) {
     std::lock_guard<std::mutex> _l(mLock);
@@ -390,7 +389,7 @@ void Executor::RuntimeManager::setCache(std::string cacheName) {
     // load cache
     bool valid = loadCache(mInside->mInfo, mInside->mCache->cacheBuffer.get() + mInside->mCache->cacheOffset,
                            mInside->mCache->cacheBuffer.size() - mInside->mCache->cacheOffset);
-    if(!valid) {
+    if (!valid) {
         // Reset cache
         loadCache(mInside->mInfo, nullptr, 0);
         MNN_PRINT("Cache invalid, will be reset\n");
@@ -410,7 +409,8 @@ void Executor::RuntimeManager::updateCache() {
     std::lock_guard<std::mutex> _l(mLock);
 
     // Backend_Auto and no Async work, then don't need updateCache
-    if(mInside->mContent->modes.backendMode == Interpreter::Session_Backend_Auto && !(mInside->mInfo->hasAsyncWork())) {
+    if (mInside->mContent->modes.backendMode == Interpreter::Session_Backend_Auto &&
+        !(mInside->mInfo->hasAsyncWork())) {
         return;
     }
 
@@ -419,7 +419,7 @@ void Executor::RuntimeManager::updateCache() {
     mInside->mInfo->waitAsyncWork();
     auto buffer = getCache(mInside->mInfo);
 
-    //When current cacheSize bigger than previous, update
+    // When current cacheSize bigger than previous, update
     if (buffer.first != nullptr && buffer.second > mInside->mCache->lastCacheSize) {
         MNN_PRINT("Update cache to %s, size = %zu\n", mInside->mCache->cacheFile.c_str(), buffer.second);
         writeCacheFile(mInside->mCache, buffer);
@@ -450,7 +450,7 @@ ErrorCode Executor::computeInfo(Expr* expr) {
     }
     auto op = expr->get();
     std::vector<Tensor*> inputTensors(expr->inputs().size());
-    for (int i=0; i<inputTensors.size(); ++i) {
+    for (int i = 0; i < inputTensors.size(); ++i) {
         auto inputExpr = expr->inputs()[i]->expr();
         inputTensors[i] = inputExpr.first->inside()->mOutputTensors[inputExpr.second];
     }
@@ -469,7 +469,7 @@ ErrorCode Executor::computeInfo(Expr* expr) {
     for (int i = 0; i < expr->outputSize(); ++i) {
         auto tensor = expr->inside()->mOutputTensors[i];
         TensorUtils::setLinearLayout(tensor);
-        auto shape  = expr->outputInfo(i);
+        auto shape = expr->outputInfo(i);
         Utils::copyTensorToInfo(shape, tensor);
     }
     return NO_ERROR;
@@ -540,7 +540,7 @@ void Executor::_makeCache(const std::vector<EXPRP>& expr, bool forceCPU) {
         opInfo.inputs.resize(inputs.size());
         opInfo.outputs.resize(expr->outputSize());
         int offset = scheduleInfo.allTensors.size();
-        for (int i=0; i<opInfo.outputs.size(); ++i) {
+        for (int i = 0; i < opInfo.outputs.size(); ++i) {
             std::shared_ptr<Tensor> tensor(new Tensor);
             opInfo.outputs[i] = tensor.get();
             auto srcTensor = expr->inside()->mOutputTensors[i];
@@ -557,7 +557,7 @@ void Executor::_makeCache(const std::vector<EXPRP>& expr, bool forceCPU) {
         auto dstIter = dstExpr.find(expr);
         if (dstIter != dstExpr.end()) {
             dstIter->second = offset;
-            for (int i=0; i<opInfo.outputs.size(); ++i) {
+            for (int i = 0; i < opInfo.outputs.size(); ++i) {
                 TensorUtils::getDescribe(opInfo.outputs[i])->usage = Tensor::InsideDescribe::OUTPUT;
             }
         }
@@ -615,7 +615,7 @@ void Executor::_makeCache(const std::vector<EXPRP>& expr, bool forceCPU) {
 }
 
 void Executor::makeCache(const std::vector<EXPRP>& expr, bool forceCPU) {
-    //FUNC_PRINT(mCaches.size());
+    // FUNC_PRINT(mCaches.size());
     _makeCache(expr, forceCPU);
 }
 
@@ -635,14 +635,14 @@ bool Executor::registerSubGraph(const std::string& submoduleName, VARPS outputs,
     std::shared_ptr<SubGraph> graph(new SubGraph);
     std::vector<std::string> subInputs(inputs.size());
     std::vector<std::string> subOutputs(outputs.size());
-    for (int i=0; i<inputs.size(); ++i) {
+    for (int i = 0; i < inputs.size(); ++i) {
         if (inputs[i]->name().empty()) {
             MNN_PRINT("Executor Error: input %d name empty\n", i);
             return false;
         }
         subInputs[i] = inputs[i]->name();
     }
-    for (int i=0; i<outputs.size(); ++i) {
+    for (int i = 0; i < outputs.size(); ++i) {
         if (outputs[i]->name().empty()) {
             MNN_PRINT("Executor Error: output %d name empty\n", i);
             return false;
@@ -656,20 +656,20 @@ bool Executor::registerSubGraph(const std::string& submoduleName, VARPS outputs,
     combine.insert(combine.end(), outputs.begin(), outputs.end());
     Variable::save(combine, subNet.get());
     std::map<std::string, int> subTensorMap;
-    for (int i=0; i<subNet->tensorName.size(); ++i) {
+    for (int i = 0; i < subNet->tensorName.size(); ++i) {
         subTensorMap.insert(std::make_pair(subNet->tensorName[i], i));
     }
     subInfo->tensors = std::move(subNet->tensorName);
     subInfo->inputs.resize(inputs.size());
-    for (int i=0; i<inputs.size(); ++i) {
+    for (int i = 0; i < inputs.size(); ++i) {
         subInfo->inputs[i] = subTensorMap[subInputs[i]];
     }
     subInfo->outputs.resize(outputs.size());
-    for (int i=0; i<outputs.size(); ++i) {
+    for (int i = 0; i < outputs.size(); ++i) {
         subInfo->outputs[i] = subTensorMap[subOutputs[i]];
     }
     subInfo->nodes = std::move(subNet->oplists);
-    for (int i=0; i<subNet->subgraphs.size(); ++i) {
+    for (int i = 0; i < subNet->subgraphs.size(); ++i) {
         graph->depends.emplace_back(subNet->subgraphs[i]->name);
     }
     graph->info = std::move(subInfo);

@@ -9,7 +9,9 @@
 #include "backend/vulkan/component/VulkanDevice.hpp"
 #include <string.h>
 #include <algorithm>
-//#define MNN_VULKAN_PRINT_EXT
+#include <cstdio>
+#include <cstdlib>
+// #define MNN_VULKAN_PRINT_EXT
 namespace MNN {
 static uint32_t _getLocalMemorySize(const VkPhysicalDeviceMemoryProperties& memProty) {
 #ifdef __APPLE__
@@ -17,7 +19,7 @@ static uint32_t _getLocalMemorySize(const VkPhysicalDeviceMemoryProperties& memP
     return 16384;
 #else
     int32_t localMemorySize = 0;
-    for (int i=0; i<memProty.memoryHeapCount; ++i) {
+    for (int i = 0; i < memProty.memoryHeapCount; ++i) {
         auto& heap = memProty.memoryHeaps[i];
         if (heap.flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) {
             auto size = (int32_t)heap.size;
@@ -32,9 +34,8 @@ static uint32_t _getLocalMemorySize(const VkPhysicalDeviceMemoryProperties& memP
 }
 
 static bool _hasExtension(const std::vector<VkExtensionProperties>& exts, const char* name) {
-    return std::any_of(exts.begin(), exts.end(), [&](const VkExtensionProperties& ext) {
-        return std::strcmp(ext.extensionName, name) == 0;
-    });
+    return std::any_of(exts.begin(), exts.end(),
+                       [&](const VkExtensionProperties& ext) { return std::strcmp(ext.extensionName, name) == 0; });
 }
 
 static VulkanDevice::SubgroupInfo _querySubgroupInfo(VkPhysicalDevice physicalDevice) {
@@ -106,7 +107,7 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance)
     // Set device features.
     VkPhysicalDeviceFeatures deviceFeatures{};
     deviceFeatures.shaderStorageImageWriteWithoutFormat = VK_TRUE;
-    
+
     VkPhysicalDeviceFeatures2 deviceFeatures2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
     deviceFeatures2.features = deviceFeatures;
 
@@ -119,11 +120,12 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance)
         uint32_t extCount = 0;
         CALL_VK(vkEnumerateDeviceExtensionProperties(mPhysicalDevice, nullptr, &extCount, nullptr));
         availableDeviceExtensions.resize(extCount);
-        CALL_VK(vkEnumerateDeviceExtensionProperties(mPhysicalDevice, nullptr, &extCount, availableDeviceExtensions.data()));
+        CALL_VK(vkEnumerateDeviceExtensionProperties(mPhysicalDevice, nullptr, &extCount,
+                                                     availableDeviceExtensions.data()));
     }
 
     // Configure VK_KHR_portability_subset
-    const char * portabilityExtName = "VK_KHR_portability_subset";
+    const char* portabilityExtName = "VK_KHR_portability_subset";
     if (_hasExtension(availableDeviceExtensions, portabilityExtName)) {
         deviceExtensions.push_back(portabilityExtName);
     }
@@ -138,7 +140,7 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance)
             // Chain KHR structs
             mFP16Info.enabledShaderFloat16Int8Features.pNext = pNextChain;
             pNextChain = &mFP16Info.enabledShaderFloat16Int8Features;
-            
+
             mFP16Info.enabled16BitStorageFeatures.pNext = pNextChain;
             pNextChain = &mFP16Info.enabled16BitStorageFeatures;
         } else {
@@ -166,7 +168,8 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance)
     if (mInt8Info.supportInt8) {
         auto pushExtIfMissing = [&](const char* name) {
             for (const char* e : deviceExtensions) {
-                if (std::strcmp(e, name) == 0) return;
+                if (std::strcmp(e, name) == 0)
+                    return;
             }
             deviceExtensions.push_back(name);
         };
@@ -227,9 +230,9 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance)
     vkEnumerateInstanceExtensionProperties(nullptr, &pPropertyCount, nullptr);
     std::vector<VkExtensionProperties> properties(pPropertyCount);
     vkEnumerateInstanceExtensionProperties(nullptr, &pPropertyCount, properties.data());
-    for (int i=0; i<pPropertyCount; ++i) {
-      auto& p = properties[i];
-      FUNC_PRINT_ALL(p.extensionName, s);
+    for (int i = 0; i < pPropertyCount; ++i) {
+        auto& p = properties[i];
+        FUNC_PRINT_ALL(p.extensionName, s);
     }
     FUNC_PRINT(mDeviceProty.limits.maxComputeWorkGroupSize[0]);
     FUNC_PRINT(mDeviceProty.limits.maxComputeWorkGroupCount[0]);
@@ -237,14 +240,6 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance)
     FUNC_PRINT(mDeviceProty.limits.maxComputeSharedMemorySize);
     FUNC_PRINT(mLocalMemorySize);
 #endif
-
-{
-    uint32_t extensionCount = 0;
-    vkEnumerateDeviceExtensionProperties(mPhysicalDevice, nullptr, &extensionCount, nullptr);
-    std::vector<VkExtensionProperties> extensions(extensionCount);
-    vkEnumerateDeviceExtensionProperties(mPhysicalDevice, nullptr, &extensionCount, extensions.data());
-}
-
 }
 
 VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance, VkPhysicalDevice physicalDevice, VkDevice device,
@@ -255,10 +250,10 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance, VkPhysicalD
       mPhysicalDevice(physicalDevice),
       mDevice(device),
       mQueue(queue) {
-      vkGetPhysicalDeviceProperties(mPhysicalDevice, &mDeviceProty);
-      vkGetPhysicalDeviceMemoryProperties(mPhysicalDevice, &mMemoryProty);
-      mLocalMemorySize = _getLocalMemorySize(mMemoryProty);
-      mSubgroupInfo = _querySubgroupInfo(mPhysicalDevice);
+    vkGetPhysicalDeviceProperties(mPhysicalDevice, &mDeviceProty);
+    vkGetPhysicalDeviceMemoryProperties(mPhysicalDevice, &mMemoryProty);
+    mLocalMemorySize = _getLocalMemorySize(mMemoryProty);
+    mSubgroupInfo = _querySubgroupInfo(mPhysicalDevice);
 }
 
 VulkanDevice::~VulkanDevice() {
@@ -278,14 +273,14 @@ const VkQueue VulkanDevice::acquireDefaultDevQueue() const {
 
 const VkResult VulkanDevice::createBuffer(VkBuffer& buffer, const size_t size, const VkBufferUsageFlags usage,
                                           const VkSharingMode shared, const VkAllocationCallbacks* allocator) const {
-    VkBufferCreateInfo info    = {};
-    info.sType                 = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    info.pNext                 = nullptr;
-    info.flags                 = 0;
-    info.size                  = (VkDeviceSize)size;
-    info.usage                 = usage;
-    info.sharingMode           = shared;
-    info.pQueueFamilyIndices   = &mQueueFamilyIndex;
+    VkBufferCreateInfo info = {};
+    info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    info.pNext = nullptr;
+    info.flags = 0;
+    info.size = (VkDeviceSize)size;
+    info.usage = usage;
+    info.sharingMode = shared;
+    info.pQueueFamilyIndices = &mQueueFamilyIndex;
     info.queueFamilyIndexCount = 1;
     return vkCreateBuffer(mDevice, &info, allocator, &buffer);
 }
@@ -383,8 +378,8 @@ const VkResult VulkanDevice::createFence(VkFence& fence, const VkAllocationCallb
     efci.sType = VK_EXTERNAL_FENCE_HANDLE_TYPE_OPAQUE_WIN32_BIT_KHR;
 #else
     VkExportFenceCreateInfoKHR efci;
-    efci.sType       = VK_STRUCTURE_TYPE_EXPORT_FENCE_CREATE_INFO;
-    efci.pNext       = NULL;
+    efci.sType = VK_STRUCTURE_TYPE_EXPORT_FENCE_CREATE_INFO;
+    efci.pNext = NULL;
 #if VK_USE_PLATFORM_ANDROID_KHR // current android only support VK_EXTERNAL_FENCE_HANDLE_TYPE_SYNC_FD_BIT
     efci.handleTypes = VK_EXTERNAL_FENCE_HANDLE_TYPE_SYNC_FD_BIT;
 #else
@@ -420,9 +415,9 @@ const VkResult VulkanDevice::resetFence(const VkFence& fence) const {
 
 const VkResult VulkanDevice::createSemaphore(VkSemaphore& semaphore, const VkAllocationCallbacks* allocator) const {
     VkSemaphoreCreateInfo semaphoreInfo = {};
-    semaphoreInfo.sType                 = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-    semaphoreInfo.flags                 = 0;
-    semaphoreInfo.pNext                 = nullptr;
+    semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    semaphoreInfo.flags = 0;
+    semaphoreInfo.pNext = nullptr;
     return vkCreateSemaphore(mDevice, &semaphoreInfo, allocator, &semaphore);
 }
 
@@ -431,23 +426,23 @@ const void VulkanDevice::destroySemaphore(const VkSemaphore& semaphore, const Vk
 }
 
 const VkResult VulkanDevice::createImage(VkImage& image, const VkImageType imageType, const uint32_t width,
-                                         const uint32_t height, const uint32_t depth, const VkFormat format, VkImageUsageFlags usage,
-                                         const VkAllocationCallbacks* allocator) const {
+                                         const uint32_t height, const uint32_t depth, const VkFormat format,
+                                         VkImageUsageFlags usage, const VkAllocationCallbacks* allocator) const {
     VkImageCreateInfo info = {};
-    info.sType             = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    info.imageType         = imageType;
-    info.extent.width      = width;
-    info.extent.height     = height;
-    info.extent.depth      = depth;
-    info.mipLevels         = 1;
-    info.arrayLayers       = 1;
-    info.format            = format;
-    info.tiling            = VK_IMAGE_TILING_OPTIMAL;
-    info.initialLayout     = VK_IMAGE_LAYOUT_UNDEFINED;
-    info.usage             = usage;
-    info.samples           = VK_SAMPLE_COUNT_1_BIT;
-    info.sharingMode       = VK_SHARING_MODE_EXCLUSIVE;
-    info.pNext             = nullptr;
+    info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    info.imageType = imageType;
+    info.extent.width = width;
+    info.extent.height = height;
+    info.extent.depth = depth;
+    info.mipLevels = 1;
+    info.arrayLayers = 1;
+    info.format = format;
+    info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    info.usage = usage;
+    info.samples = VK_SAMPLE_COUNT_1_BIT;
+    info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    info.pNext = nullptr;
     return vkCreateImage(mDevice, &info, allocator, &image);
 }
 
@@ -467,16 +462,16 @@ const void VulkanDevice::bindImageMemory(const VkImage& image, const VkDeviceMem
 
 const VkResult VulkanDevice::createImageView(VkImageView& view, const VkImage& image, const VkImageViewType& viewType,
                                              const VkFormat& format, const VkAllocationCallbacks* allocator) const {
-    VkImageViewCreateInfo info           = {};
-    info.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    info.image                           = image;
-    info.viewType                        = viewType;
-    info.format                          = format;
-    info.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
-    info.subresourceRange.baseMipLevel   = 0;
-    info.subresourceRange.levelCount     = 1;
+    VkImageViewCreateInfo info = {};
+    info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    info.image = image;
+    info.viewType = viewType;
+    info.format = format;
+    info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    info.subresourceRange.baseMipLevel = 0;
+    info.subresourceRange.levelCount = 1;
     info.subresourceRange.baseArrayLayer = 0;
-    info.subresourceRange.layerCount     = 1;
+    info.subresourceRange.layerCount = 1;
 
     return vkCreateImageView(mDevice, &info, allocator, &view);
 }
@@ -489,20 +484,20 @@ const VkResult VulkanDevice::createSampler(VkSampler& sampler, const VkFilter& f
                                            const VkAllocationCallbacks* allocator) const {
     VkSamplerCreateInfo samplerInfo;
     ::memset(&samplerInfo, 0, sizeof(samplerInfo));
-    samplerInfo.sType            = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    samplerInfo.magFilter        = filter;
-    samplerInfo.minFilter        = filter;
-    samplerInfo.mipmapMode       = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-    samplerInfo.addressModeU     = mode;
-    samplerInfo.addressModeV     = mode;
-    samplerInfo.addressModeW     = mode;
-    samplerInfo.mipLodBias       = 0.0f;
-    samplerInfo.borderColor      = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
+    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerInfo.magFilter = filter;
+    samplerInfo.minFilter = filter;
+    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    samplerInfo.addressModeU = mode;
+    samplerInfo.addressModeV = mode;
+    samplerInfo.addressModeW = mode;
+    samplerInfo.mipLodBias = 0.0f;
+    samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
     samplerInfo.anisotropyEnable = VK_FALSE;
-    samplerInfo.maxAnisotropy    = 1.0f;
-    samplerInfo.compareEnable    = VK_FALSE;
-    samplerInfo.minLod           = 0.0f;
-    samplerInfo.maxLod           = 0.0f;
+    samplerInfo.maxAnisotropy = 1.0f;
+    samplerInfo.compareEnable = VK_FALSE;
+    samplerInfo.minLod = 0.0f;
+    samplerInfo.maxLod = 0.0f;
     return vkCreateSampler(mDevice, &samplerInfo, allocator, &sampler);
 }
 
@@ -560,10 +555,10 @@ const VkResult VulkanDevice::createDescriptorSetLayout(VkDescriptorSetLayout& se
                                                        const VkAllocationCallbacks* allocator) const {
     VkDescriptorSetLayoutCreateInfo info;
     info.bindingCount = bindingCount;
-    info.pBindings    = bindings;
-    info.pNext        = nullptr;
-    info.flags        = 0;
-    info.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    info.pBindings = bindings;
+    info.pNext = nullptr;
+    info.flags = 0;
+    info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
 
     return vkCreateDescriptorSetLayout(mDevice, &info, allocator, &setLayout);
 }
@@ -608,12 +603,12 @@ const VkResult VulkanDevice::createComputePipeline(VkPipeline& pipeline, const V
                                                    const VkAllocationCallbacks* allocator) const {
     VkComputePipelineCreateInfo info;
     ::memset(&info, 0, sizeof(info));
-    info.sType                     = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-    info.stage.sType               = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    info.stage.stage               = VK_SHADER_STAGE_COMPUTE_BIT;
-    info.stage.module              = shaderMoule;
-    info.stage.pName               = "main";
-    info.layout                    = pipelineLayout;
+    info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    info.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    info.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    info.stage.module = shaderMoule;
+    info.stage.pName = "main";
+    info.layout = pipelineLayout;
     info.stage.pSpecializationInfo = pSpecializationInfo;
 
     return createComputePipelines(&pipeline, &info, 1, pipelineCache, allocator);
@@ -631,10 +626,10 @@ const VkResult VulkanDevice::createDescriptorPool(VkDescriptorPool& descriptorPo
                                                   const VkDescriptorPoolSize* pPoolSizes,
                                                   const VkAllocationCallbacks* allocator) const {
     VkDescriptorPoolCreateInfo poolInfo = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-    poolInfo.poolSizeCount              = poolSizeCount;
-    poolInfo.pPoolSizes                 = pPoolSizes;
-    poolInfo.maxSets                    = 1;
-    poolInfo.flags                      = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    poolInfo.poolSizeCount = poolSizeCount;
+    poolInfo.pPoolSizes = pPoolSizes;
+    poolInfo.maxSets = 1;
+    poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
     return vkCreateDescriptorPool(mDevice, &poolInfo, allocator, &descriptorPool);
 }
 
@@ -642,11 +637,11 @@ const VkResult VulkanDevice::allocateDescriptorSet(VkDescriptorSet& descriptorSe
                                                    const VkDescriptorSetLayout& setLayout) const {
     VkDescriptorSetAllocateInfo allocInfo;
     ::memset(&allocInfo, 0, sizeof(allocInfo));
-    allocInfo.pNext              = nullptr;
-    allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    allocInfo.descriptorPool     = descPool;
+    allocInfo.pNext = nullptr;
+    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocInfo.descriptorPool = descPool;
     allocInfo.descriptorSetCount = 1;
-    allocInfo.pSetLayouts        = &setLayout;
+    allocInfo.pSetLayouts = &setLayout;
     return vkAllocateDescriptorSets(mDevice, &allocInfo, &descriptorSet);
 }
 
@@ -705,7 +700,8 @@ void VulkanDevice::checkFP16(const std::vector<VkExtensionProperties>& available
             return;
         }
 
-        VkPhysicalDeviceShaderFloat16Int8Features khrFloat16 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES};
+        VkPhysicalDeviceShaderFloat16Int8Features khrFloat16 = {
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES};
         VkPhysicalDevice16BitStorageFeatures khrStorage = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES};
         khrFloat16.pNext = &khrStorage;
 
@@ -753,19 +749,22 @@ void VulkanDevice::checkCoopMat(const std::vector<VkExtensionProperties>& availa
     // 2. Check Feature
     VkPhysicalDeviceFeatures2 features2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
     features2.pNext = &mCoopMatInfo.enabledCoopMatFeatures;
-    
+
     getFeatures2(mPhysicalDevice, &features2);
 
-    if (mCoopMatInfo.enabledCoopMatFeatures.cooperativeMatrix != VK_TRUE) return;
+    if (mCoopMatInfo.enabledCoopMatFeatures.cooperativeMatrix != VK_TRUE)
+        return;
 
     // 3. Query Properties (Shapes)
     auto fpGetCoopMat = reinterpret_cast<PFN_vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR>(
-            vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR"));
+        vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR"));
 
-    if (!fpGetCoopMat) return;
+    if (!fpGetCoopMat)
+        return;
 
     uint32_t propCount = 0;
-    if (fpGetCoopMat(mPhysicalDevice, &propCount, nullptr) != VK_SUCCESS || propCount == 0) return;
+    if (fpGetCoopMat(mPhysicalDevice, &propCount, nullptr) != VK_SUCCESS || propCount == 0)
+        return;
 
     std::vector<VkCooperativeMatrixPropertiesKHR> props(propCount);
     for (auto& p : props) {
@@ -776,14 +775,18 @@ void VulkanDevice::checkCoopMat(const std::vector<VkExtensionProperties>& availa
 
     uint32_t maxFP16Size = 0;
     uint32_t maxFP32Size = 0;
-    uint32_t maxS8Size = 0;
+    uint32_t maxS8MKSize = 0;
 
-    for (const auto & p : props) {
-        if (p.scope != VK_SCOPE_SUBGROUP_KHR || p.saturatingAccumulation != VK_FALSE) continue;
+    for (const auto& p : props) {
+        if (p.scope != VK_SCOPE_SUBGROUP_KHR || p.saturatingAccumulation != VK_FALSE)
+            continue;
 
-        bool isFP16 = (p.AType == VK_COMPONENT_TYPE_FLOAT16_KHR && p.BType == VK_COMPONENT_TYPE_FLOAT16_KHR && p.CType == VK_COMPONENT_TYPE_FLOAT16_KHR && p.ResultType == VK_COMPONENT_TYPE_FLOAT16_KHR);
-        bool isFP32 = (p.AType == VK_COMPONENT_TYPE_FLOAT32_KHR && p.BType == VK_COMPONENT_TYPE_FLOAT32_KHR && p.CType == VK_COMPONENT_TYPE_FLOAT32_KHR && p.ResultType == VK_COMPONENT_TYPE_FLOAT32_KHR);
-        bool isS8S8S32 = (p.AType == VK_COMPONENT_TYPE_SINT8_KHR && p.BType == VK_COMPONENT_TYPE_SINT8_KHR && p.CType == VK_COMPONENT_TYPE_SINT32_KHR && p.ResultType == VK_COMPONENT_TYPE_SINT32_KHR);
+        bool isFP16 = (p.AType == VK_COMPONENT_TYPE_FLOAT16_KHR && p.BType == VK_COMPONENT_TYPE_FLOAT16_KHR &&
+                       p.CType == VK_COMPONENT_TYPE_FLOAT16_KHR && p.ResultType == VK_COMPONENT_TYPE_FLOAT16_KHR);
+        bool isFP32 = (p.AType == VK_COMPONENT_TYPE_FLOAT32_KHR && p.BType == VK_COMPONENT_TYPE_FLOAT32_KHR &&
+                       p.CType == VK_COMPONENT_TYPE_FLOAT32_KHR && p.ResultType == VK_COMPONENT_TYPE_FLOAT32_KHR);
+        bool isS8S8S32 = (p.AType == VK_COMPONENT_TYPE_SINT8_KHR && p.BType == VK_COMPONENT_TYPE_SINT8_KHR &&
+                          p.CType == VK_COMPONENT_TYPE_SINT32_KHR && p.ResultType == VK_COMPONENT_TYPE_SINT32_KHR);
 
         uint32_t size = p.MSize * p.NSize * p.KSize;
 
@@ -803,12 +806,51 @@ void VulkanDevice::checkCoopMat(const std::vector<VkExtensionProperties>& availa
         }
         if (isS8S8S32) {
             mCoopMatInfo.s8CoopMatShape.push_back({p.MSize, p.NSize, p.KSize});
-            if (size > maxS8Size) {
-                maxS8Size = size;
+            uint32_t mkSize = p.MSize * p.KSize;
+            const uint32_t targetN = 16;
+            const auto betterN = [&](uint32_t currentN) {
+                if (mCoopMatInfo.selectedS8CoopMatShape.empty()) {
+                    return true;
+                }
+                uint32_t selectedN = mCoopMatInfo.selectedS8CoopMatShape[1];
+                uint32_t currentDistance = currentN > targetN ? currentN - targetN : targetN - currentN;
+                uint32_t selectedDistance = selectedN > targetN ? selectedN - targetN : targetN - selectedN;
+                return currentDistance < selectedDistance ||
+                       (currentDistance == selectedDistance && currentN > selectedN);
+            };
+            if (mkSize > maxS8MKSize || (mkSize == maxS8MKSize && betterN(p.NSize))) {
+                maxS8MKSize = mkSize;
                 mCoopMatInfo.selectedS8CoopMatShape = {p.MSize, p.NSize, p.KSize};
             }
         }
     }
+#ifdef MNN_PIPELINE_PROFILE
+    if (const char* forced = std::getenv("MNN_VULKAN_FORCE_S8_COOP_SHAPE")) {
+        uint32_t m = 0, n = 0, k = 0;
+        if (std::sscanf(forced, "%u,%u,%u", &m, &n, &k) == 3) {
+            for (const auto& shape : mCoopMatInfo.s8CoopMatShape) {
+                if (shape.size() == 3 && shape[0] == m && shape[1] == n && shape[2] == k) {
+                    mCoopMatInfo.selectedS8CoopMatShape = shape;
+                    break;
+                }
+            }
+        }
+    }
+    if (nullptr != std::getenv("MNN_VULKAN_DUMP_COOP_SHAPES")) {
+        MNN_PRINT("Vulkan coop S8 shapes:");
+        for (const auto& shape : mCoopMatInfo.s8CoopMatShape) {
+            if (shape.size() == 3) {
+                MNN_PRINT(" %ux%ux%u", shape[0], shape[1], shape[2]);
+            }
+        }
+        if (mCoopMatInfo.selectedS8CoopMatShape.size() == 3) {
+            MNN_PRINT(", selected=%ux%ux%u\n", mCoopMatInfo.selectedS8CoopMatShape[0],
+                      mCoopMatInfo.selectedS8CoopMatShape[1], mCoopMatInfo.selectedS8CoopMatShape[2]);
+        } else {
+            MNN_PRINT(", selected=<none>\n");
+        }
+    }
+#endif
 
     mCoopMatInfo.supportCoopMat = true;
     mCoopMatInfo.supportS8S8S32 = !mCoopMatInfo.s8CoopMatShape.empty();
@@ -853,7 +895,8 @@ void VulkanDevice::checkInt8(const std::vector<VkExtensionProperties>& available
             return;
         }
 
-        VkPhysicalDeviceShaderFloat16Int8Features khrFloat16Int8 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES};
+        VkPhysicalDeviceShaderFloat16Int8Features khrFloat16Int8 = {
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES};
         VkPhysicalDevice8BitStorageFeatures khr8Bit = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES};
         khrFloat16Int8.pNext = &khr8Bit;
 

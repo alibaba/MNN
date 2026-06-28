@@ -11,7 +11,7 @@
 #include "core/OpCommonUtils.hpp"
 namespace MNN {
 struct ConstBuffer {
-    ivec4 inShape;  // inW, inH
+    ivec4 inShape; // inW, inH
 };
 
 class VulkanFuse : public VulkanBasicExecution {
@@ -26,7 +26,7 @@ public:
         // Find shader
         const uint8_t* data = nullptr;
         size_t dataSize = 0;
-        for (int i=0; i<extra->attr()->size(); ++i) {
+        for (int i = 0; i < extra->attr()->size(); ++i) {
             auto attr = extra->attr()->GetAs<Attribute>(i);
             if (attr->key()->str() == "spirv") {
                 data = (uint8_t*)attr->tensor()->int8s()->data();
@@ -34,7 +34,7 @@ public:
                 break;
             }
         }
-        for (int i=0; i<extra->attr()->size(); ++i) {
+        for (int i = 0; i < extra->attr()->size(); ++i) {
             auto attr = extra->attr()->GetAs<Attribute>(i);
             if (attr->key()->str() == "global_size") {
                 // Use Auto set group size
@@ -47,7 +47,7 @@ public:
             }
         }
         // If Has group_size, can't auto tuning
-        for (int i=0; i<extra->attr()->size(); ++i) {
+        for (int i = 0; i < extra->attr()->size(); ++i) {
             auto attr = extra->attr()->GetAs<Attribute>(i);
             if (attr->key()->str() == "group_size") {
                 auto ptr = attr->tensor()->int32s()->data();
@@ -61,7 +61,7 @@ public:
 
         std::vector<VkDescriptorType> types;
         int maxIndex = -1;
-        for (int i=0; i<extra->attr()->size(); ++i) {
+        for (int i = 0; i < extra->attr()->size(); ++i) {
             auto attr = extra->attr()->GetAs<Attribute>(i);
             if (attr->key()->str() == "input") {
                 maxIndex = ALIMAX(maxIndex, attr->i());
@@ -69,10 +69,10 @@ public:
                 maxIndex = ALIMAX(maxIndex, attr->i());
             }
         }
-        types.resize(maxIndex+1);
+        types.resize(maxIndex + 1);
         std::vector<std::tuple<int, void*, size_t>> constStoragePtrs;
         std::vector<std::tuple<int, void*, size_t>> constUniformPtrs;
-        for (int i=0; i<extra->attr()->size(); ++i) {
+        for (int i = 0; i < extra->attr()->size(); ++i) {
             auto attr = extra->attr()->GetAs<Attribute>(i);
             if (attr->key()->str() == "input") {
                 auto list = attr->list()->i()->data();
@@ -119,11 +119,12 @@ public:
         }
         auto alignSize = vkBn->device().proty().limits.minMemoryMapAlignment;
         size_t offset = 0;
-        std::shared_ptr<VulkanCommandPool::Buffer> cmdbuffer( vkBn->getPool().allocBuffer());
+        std::shared_ptr<VulkanCommandPool::Buffer> cmdbuffer(vkBn->getPool().allocBuffer());
         cmdbuffer->begin(0);
         auto merge = [&](const std::vector<std::tuple<int, void*, size_t>>& constPtrs, VkDescriptorType type) {
             if (constPtrs.empty()) {
-                return std::make_tuple(std::vector<std::tuple<int, size_t, size_t>>{}, std::shared_ptr<VulkanBuffer>(nullptr), std::shared_ptr<VulkanBuffer>(nullptr));
+                return std::make_tuple(std::vector<std::tuple<int, size_t, size_t>>{},
+                                       std::shared_ptr<VulkanBuffer>(nullptr), std::shared_ptr<VulkanBuffer>(nullptr));
             }
             std::vector<std::tuple<int, size_t, size_t>> mConstOffset;
             for (auto& constAttr : constPtrs) {
@@ -131,19 +132,23 @@ public:
                 mConstOffset.emplace_back(std::make_tuple(std::get<0>(constAttr), size, offset));
                 offset += size;
             }
-            std::shared_ptr<VulkanBuffer> hostBuffer(new VulkanBuffer(vkBn->getMemoryPool(), false, offset, nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_SHARING_MODE_EXCLUSIVE, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT));
+            std::shared_ptr<VulkanBuffer> hostBuffer(
+                new VulkanBuffer(vkBn->getMemoryPool(), false, offset, nullptr,
+                                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                                     VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                 VK_SHARING_MODE_EXCLUSIVE, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT));
             auto ptr = (uint8_t*)hostBuffer->map();
-            for (int i=0; i<constPtrs.size(); ++i) {
+            for (int i = 0; i < constPtrs.size(); ++i) {
                 ::memcpy(ptr + std::get<2>(mConstOffset[i]), std::get<1>(constPtrs[i]), std::get<2>(constPtrs[i]));
             }
             hostBuffer->unmap();
-            std::shared_ptr<VulkanBuffer> vkBuffer(new VulkanBuffer(vkBn->getMemoryPool(), false, offset, nullptr, type, VK_SHARING_MODE_EXCLUSIVE, 0));
+            std::shared_ptr<VulkanBuffer> vkBuffer(
+                new VulkanBuffer(vkBn->getMemoryPool(), false, offset, nullptr, type, VK_SHARING_MODE_EXCLUSIVE, 0));
             VkBufferCopy bufferCopy;
             bufferCopy.size = offset;
             bufferCopy.dstOffset = 0;
             bufferCopy.srcOffset = 0;
-            vkCmdCopyBuffer(cmdbuffer->get(), hostBuffer->buffer(), vkBuffer->buffer(),
-                            1, &bufferCopy);
+            vkCmdCopyBuffer(cmdbuffer->get(), hostBuffer->buffer(), vkBuffer->buffer(), 1, &bufferCopy);
             return std::make_tuple(mConstOffset, vkBuffer, hostBuffer);
         };
         mConstStorageOffset.clear();
@@ -165,20 +170,44 @@ public:
         // Remove set firstly before destroy pipeline
         mDescriptorSet = nullptr;
     }
+    VulkanFuse(Backend* bn, const VulkanFuse* src) : VulkanBasicExecution(bn) {
+        mGroupSize = src->mGroupSize;
+        mGlobalSize = src->mGlobalSize;
+        mInputBinding = src->mInputBinding;
+        mOutputBinding = src->mOutputBinding;
+        mConstStorageBuffer = src->mConstStorageBuffer;
+        mConstUniformBuffer = src->mConstUniformBuffer;
+        mConstStorageOffset = src->mConstStorageOffset;
+        mConstUniformOffset = src->mConstUniformOffset;
+        mPipeline = src->mPipeline;
+        mNeedAutoTuning = src->mNeedAutoTuning;
+        if (nullptr != mPipeline.get()) {
+            mDescriptorSet = mPipeline->createSet();
+        }
+    }
+    virtual bool onClone(Backend* bn, const Op* op, VulkanBasicExecution** dst) override {
+        if (nullptr == dst) {
+            return nullptr != mPipeline.get();
+        }
+        *dst = new VulkanFuse(bn, this);
+        return true;
+    }
     virtual ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                const VulkanCommandPool::Buffer* cmdBuffer) override {
         auto vkBn = static_cast<VulkanBackend*>(backend());
-        for (int i=0; i<inputs.size(); ++i) {
+        for (int i = 0; i < inputs.size(); ++i) {
             mDescriptorSet->writeBuffer(vkBn->getBuffer(inputs[i]), mInputBinding[i]);
         }
-        for (int i=0; i<outputs.size(); ++i) {
+        for (int i = 0; i < outputs.size(); ++i) {
             mDescriptorSet->writeBuffer(vkBn->getBuffer(outputs[i]), mOutputBinding[i]);
         }
         for (auto& iter : mConstStorageOffset) {
-            mDescriptorSet->writeBuffer(mConstStorageBuffer->buffer(), std::get<0>(iter), std::get<1>(iter), std::get<2>(iter));
+            mDescriptorSet->writeBuffer(mConstStorageBuffer->buffer(), std::get<0>(iter), std::get<1>(iter),
+                                        std::get<2>(iter));
         }
         for (auto& iter : mConstUniformOffset) {
-            mDescriptorSet->writeBuffer(mConstUniformBuffer->buffer(), std::get<0>(iter), std::get<1>(iter), std::get<2>(iter));
+            mDescriptorSet->writeBuffer(mConstUniformBuffer->buffer(), std::get<0>(iter), std::get<1>(iter),
+                                        std::get<2>(iter));
         }
         if (mNeedAutoTuning) {
             auto localSize = vkBn->autoTunePipeline(mPipeline.get(), mDescriptorSet, mGlobalSize);
@@ -191,6 +220,7 @@ public:
         vkCmdDispatch(cmdBuffer->get(), mGroupSize[0], mGroupSize[1], mGroupSize[2]);
         return NO_ERROR;
     }
+
 private:
     std::vector<int> mGroupSize;
     std::vector<int> mGlobalSize;
@@ -208,8 +238,8 @@ private:
 
 class VulkanFuseCreator : public VulkanBackend::Creator {
 public:
-    virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
-                                Backend* backend) const override {
+    virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                           const MNN::Op* op, Backend* backend) const override {
         auto extra = op->main_as_Extra();
         if (nullptr == extra) {
             return nullptr;
@@ -217,7 +247,7 @@ public:
         if (nullptr == extra->attr()) {
             return nullptr;
         }
-        if(extra->type()->str() == "ExtraConvolution2DPrelu"){
+        if (extra->type()->str() == "ExtraConvolution2DPrelu") {
             return nullptr;
         }
 
@@ -231,4 +261,3 @@ static bool gResistor = []() {
 }();
 
 } // namespace MNN
-

@@ -43,12 +43,11 @@ public:
         void setMode(Interpreter::SessionMode mode);
         void setExternalPath(std::string path, int type);
     };
-    Session(Schedule::ScheduleInfo&& info, const ModeGroup& mode,
-            RuntimeInfo&& runtime);
+    Session(Schedule::ScheduleInfo&& info, const ModeGroup& mode, RuntimeInfo&& runtime);
     ~Session();
 
-    Session* clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::ScheduleInfo> sharedConst);
-    static void createPipelineBackend(Schedule::PipelineInfo& iter, RuntimeInfo& runtime);
+    Session* clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::ScheduleInfo> sharedConst, void* meta = nullptr);
+    static void createPipelineBackend(Schedule::PipelineInfo& iter, RuntimeInfo& runtime, void* meta = nullptr);
 
 public:
     /**
@@ -70,6 +69,7 @@ public:
 
     void openResizeCheck();
     ErrorCode fixResizeCache();
+
 public:
     /**
      * @brief resize tensors and buffers responding to input changes.
@@ -81,20 +81,12 @@ public:
      * @brief set if needs resize.
      * @param flag  needs resize or not.
      */
-    void setNeedResize(bool flag = true) {
-        mNeedResize = flag;
-    }
+    void setNeedResize(bool flag = true) { mNeedResize = flag; }
 
-    void setNeedMalloc(bool flag = true) {
-        mNeedMalloc = flag;
-    }
+    void setNeedMalloc(bool flag = true) { mNeedMalloc = flag; }
 
-    Runtime* getCPURuntime() {
-        return mRuntime.second.get();
-    }
-    const RuntimeInfo& getRuntime() const {
-        return mRuntime;
-    }
+    Runtime* getCPURuntime() { return mRuntime.second.get(); }
+    const RuntimeInfo& getRuntime() const { return mRuntime; }
 
 public:
     /**
@@ -129,9 +121,7 @@ public:
      * @brief check session is valid or not.
      * @return session is valid or not.
      */
-    inline bool valid() const {
-        return mValid;
-    }
+    inline bool valid() const { return mValid; }
 
     /**
      * @brief update the session's const value to origin model's const blob.
@@ -146,10 +136,9 @@ public:
 
     Tensor* getTensor(int index) const;
     Schedule::PipelineInfo& getPipelineInfo(int index) const;
+
 protected:
-    const std::vector<std::shared_ptr<Pipeline>>& getPipelines() const {
-        return this->mPipelines;
-    }
+    const std::vector<std::shared_ptr<Pipeline>>& getPipelines() const { return this->mPipelines; }
 
 private:
     void _setUpTensorInfo(const Schedule::ScheduleInfo& info);
@@ -158,7 +147,7 @@ private:
     RuntimeInfo mRuntime;
     std::vector<std::shared_ptr<Pipeline>> mPipelines;
     bool mNeedResize = true;
-    bool mValid      = true;
+    bool mValid = true;
     bool mNeedMalloc = true;
     Interpreter::SessionMode mCallBackMode;
     Interpreter::SessionMode mMemoryUsageMode;

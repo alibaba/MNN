@@ -34,9 +34,9 @@
 
 #ifndef MNN_USE_ARMV82
 namespace MNN {
-    void _VKFloatToHalf(const float* src, int16_t* dst, size_t size);
-    void _VKHalfToFloat(const int16_t* src, float* dst, size_t size);
-}
+void _VKFloatToHalf(const float* src, int16_t* dst, size_t size);
+void _VKHalfToFloat(const int16_t* src, float* dst, size_t size);
+} // namespace MNN
 #endif
 
 namespace MNN {
@@ -58,53 +58,48 @@ public:
     virtual void onResizeBegin() override;
     virtual ErrorCode onResizeEnd() override;
     virtual void onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const override;
-    virtual const Runtime* getRuntime() override {
-        return mRuntime;
-    }
+    virtual const Runtime* getRuntime() override { return mRuntime; }
     virtual int onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTensor) override;
 
     const VulkanPipelineFactory* getPipelineFactory() const;
     const VulkanPipeline* getPipeline(const std::string& key, const std::vector<VkDescriptorType>& types,
                                       const std::vector<uint32_t>& localSize = std::vector<uint32_t>(),
                                       const std::vector<uint32_t>& specConstants = std::vector<uint32_t>()) const;
-    SharedPtr<VulkanPipeline> getPrivatePipeline(const std::string& key, const std::vector<VkDescriptorType>& types, const std::vector<uint32_t>& specConstants = std::vector<uint32_t>());
+    SharedPtr<VulkanPipeline> getPrivatePipeline(const std::string& key, const std::vector<VkDescriptorType>& types,
+                                                 const std::vector<uint32_t>& specConstants = std::vector<uint32_t>());
 
-    const VulkanCommandPool& getPool() const {
-        return (* mRuntime->mCmdPool);
-    }
-    const VulkanMemoryPool& getMemoryPool() const {
-        return (* mRuntime->mMemoryPool);
-    }
-    const VulkanDevice& getDevice() const {
-        return (* mRuntime->mDevice);
-    }
+    const VulkanCommandPool& getPool() const { return (*mRuntime->mCmdPool); }
+    const VulkanMemoryPool& getMemoryPool() const { return (*mRuntime->mMemoryPool); }
+    const VulkanDevice& getDevice() const { return (*mRuntime->mDevice); }
 
-    BufferAllocator* getDynamicMemoryPool() const {
-        return mCurrentDynamicBufferPool;
-    }
+    BufferAllocator* getDynamicMemoryPool() const { return mCurrentDynamicBufferPool; }
     virtual bool onGetTensorInfo(const Tensor* tensor, void* dstInfo) override;
-    
-    std::vector<uint32_t> autoTunePipeline(const VulkanPipeline* pipeline, SharedPtr<VulkanLayout::DescriptorSet> des, std::vector<int> gws);
-    
-    float getPipelineTime(const VulkanPipeline* pipeline, SharedPtr<VulkanLayout::DescriptorSet> des, std::vector<int> groupSize);
 
-    bool isSupportAutotune(){
-        return mUseAutoTune;
-    }
+    std::vector<uint32_t> autoTunePipeline(const VulkanPipeline* pipeline, SharedPtr<VulkanLayout::DescriptorSet> des,
+                                           std::vector<int> gws);
+
+    float getPipelineTime(const VulkanPipeline* pipeline, SharedPtr<VulkanLayout::DescriptorSet> des,
+                          std::vector<int> groupSize);
+
+    bool isSupportAutotune() { return mUseAutoTune; }
 
     class Creator {
     public:
-        virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op, Backend* backend) const = 0;
+        virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                               const MNN::Op* op, Backend* backend) const = 0;
     };
     static bool addCreator(OpType t, Creator* c);
 
     void pushCommand(VkCommandBuffer buffer) const;
+    void submitCommand(std::shared_ptr<VulkanCommandPool::Buffer> buffer,
+                       std::vector<std::shared_ptr<VulkanBuffer>> keepBuffers,
+                       std::vector<std::shared_ptr<VulkanLayout::DescriptorSet>> keepSets) const;
     std::shared_ptr<VulkanCommandPool::Buffer> acquireIndirectSegmentForRecord();
     void finishIndirectRecordedOp();
 
-    inline VulkanRuntime::GPUType gpuType() const {
-        return mRuntime->mGpuType;
-    }
+    inline VulkanRuntime::GPUType gpuType() const { return mRuntime->mGpuType; }
+
+    inline BackendConfig::MemoryMode memoryMode() const { return mRuntime->mMemory; }
 
     const VulkanSampler* getCommonSampler(bool clamp = false) const {
         if (clamp) {
@@ -113,32 +108,34 @@ public:
         return mRuntime->mSampler.get();
     }
 
-    const VkPhysicalDeviceProperties& proty() const {
-        return device().proty();
-    }
+    const VkPhysicalDeviceProperties& proty() const { return device().proty(); }
     // Buffer, offset
     std::pair<const VulkanBuffer*, size_t> getTensorBuffer(const Tensor* tensor) const;
     size_t getTensorSize(const Tensor* tensor) const;
     VULKAN_TENSOR getBuffer(const Tensor* tensor) const;
     std::shared_ptr<VulkanBuffer> allocUniform(const void* src = nullptr, int size = 0);
     void recycleUniform(std::shared_ptr<VulkanBuffer> buffer);
-    void copyGPUToGPUBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size, VkDeviceSize srcOffset, VkDeviceSize dstOffset) const;
-    void copyGPUToGPUBufferRegions(VkBuffer srcBuffer, VkBuffer dstBuffer, const VkBufferCopy* regions, uint32_t regionCount) const;
+    void copyGPUToGPUBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size, VkDeviceSize srcOffset,
+                            VkDeviceSize dstOffset) const;
+    void copyGPUToGPUBufferRegions(VkBuffer srcBuffer, VkBuffer dstBuffer, const VkBufferCopy* regions,
+                                   uint32_t regionCount) const;
     void copyToGPUBuffer(const void* src, VkBuffer buffer, VkDeviceSize size, VkDeviceSize offset) const;
     std::shared_ptr<VulkanBuffer> createHostBuffer(size_t size) const;
 
     const VulkanDevice& device() const;
 #ifdef ENABLE_VULKAN_TIME_PROFILE
-    VulkanTimeProfiler* timeProfiler() const {
-        return mTimeProfiler.get();
-    }
+    VulkanTimeProfiler* timeProfiler() const { return mTimeProfiler.get(); }
 #endif
 
-    bool useFP16() const {
-        return mUseFP16;
-    }
+    bool useFP16() const { return mUseFP16; }
 
 private:
+    struct PendingCommand {
+        std::shared_ptr<VulkanCommandPool::Buffer> command;
+        std::shared_ptr<VulkanFence> fence;
+        std::vector<std::shared_ptr<VulkanBuffer>> keepBuffers;
+        std::vector<std::shared_ptr<VulkanLayout::DescriptorSet>> keepSets;
+    };
     void _finish() const;
     void _requireHostBuffer(size_t size) const;
     void _resetIndirectSegments();
@@ -151,14 +148,16 @@ private:
     std::vector<std::shared_ptr<VulkanCommandPool::Buffer>> mIndirectSegments;
     std::shared_ptr<VulkanCommandPool::Buffer> mCurrentIndirectSegment;
     int mCurrentIndirectSegmentOpCount = 0;
+    int mIndirectRecordedOpTotal = 0;
 
     mutable std::vector<VkCommandBuffer> mCmdBuffers;
+    mutable std::vector<PendingCommand> mPendingCommands;
     mutable std::shared_ptr<VulkanFence> mFence;
 
     bool mDirect;
     const VulkanRuntime* mRuntime;
     bool mUseAutoTune = true;
-    static constexpr int kIndirectSegmentOpLimit = 10;
+    static constexpr int kIndirectSegmentOpLimit = 1024;
 
     bool mUseFP16{false};
 
@@ -166,7 +165,6 @@ private:
     std::shared_ptr<VulkanTimeProfiler> mTimeProfiler;
 #endif
 };
-
 
 } // namespace MNN
 

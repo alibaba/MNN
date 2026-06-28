@@ -29,7 +29,7 @@ namespace MNN {
 namespace Express {
 static MNN::Express::Executor::RuntimeManager* _createDefaultRuntimeManager(const Module::Config* config) {
     ScheduleConfig sche_config;
-    if(nullptr != config && config->backend != nullptr) {
+    if (nullptr != config && config->backend != nullptr) {
         sche_config.type = config->backend->type;
         sche_config.backendConfig = config->backend->config;
     } else {
@@ -42,7 +42,10 @@ static MNN::Express::Executor::RuntimeManager* _createDefaultRuntimeManager(cons
     return Executor::RuntimeManager::createRuntimeManager(sche_config);
 }
 
-static Module* loadInternal(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> _rtMgr, const Module::Config* config);
+static Module* loadInternal(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs,
+                            const uint8_t* buffer, size_t length,
+                            const std::shared_ptr<MNN::Express::Executor::RuntimeManager> _rtMgr,
+                            const Module::Config* config);
 
 class EmptyModule : public Module {
 public:
@@ -54,9 +57,7 @@ public:
     virtual ~EmptyModule() {
         // Do nothing
     }
-    virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override {
-        return {};
-    }
+    virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override { return {}; }
 
 protected:
     EmptyModule() = default;
@@ -91,7 +92,7 @@ bool Module::loadParameters(const std::vector<Express::VARP>& parameters) {
         MNN_ERROR("Error parameters, empty or parameter size not match \n");
         return false;
     }
-    for (int i=0; i<parameters.size(); ++i) {
+    for (int i = 0; i < parameters.size(); ++i) {
         if (nullptr != result[i].get()) {
             // Check Origin parameter's size
             auto dstInfo = result[i]->getInfo();
@@ -152,17 +153,20 @@ void Module::clearCache() {
     this->onClearCache();
 }
 
-Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const char* fileName, const Module::Config* config) {
+Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs,
+                     const char* fileName, const Module::Config* config) {
     return load(inputs, outputs, fileName, nullptr, config);
 }
 
-Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const Module::Config* config) {
+Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs,
+                     const uint8_t* buffer, size_t length, const Module::Config* config) {
     return load(inputs, outputs, buffer, length, nullptr, config);
 }
 
 class NetModule : public Module {
 public:
-    NetModule(std::shared_ptr<Module> m, std::shared_ptr<Module::Info> info, const MNN::Net* net, size_t size, float costTime) {
+    NetModule(std::shared_ptr<Module> m, std::shared_ptr<Module::Info> info, const MNN::Net* net, size_t size,
+              float costTime) {
         mChildren = {m};
         auto mModule = mChildren[0];
         mInfo = info;
@@ -187,21 +191,21 @@ public:
                     precision = config->precision;
                 }
             }
-            mLogInfo.emplace("Backend",  std::to_string(backend));
-            mLogInfo.emplace("Mode",  std::to_string(mode));
+            mLogInfo.emplace("Backend", std::to_string(backend));
+            mLogInfo.emplace("Mode", std::to_string(mode));
             mLogInfo.emplace("Precision", std::to_string(precision));
             if (shouldLog(FREQ_HIGH)) {
                 std::map<std::string, std::string> metrics = mLogInfo;
                 metrics.emplace("Time", std::to_string(costTime));
                 auto sizeInMB = (float)size / 1024.0f / 1024.0f;
-                metrics.emplace("ModelSize",  std::to_string(sizeInMB));
+                metrics.emplace("ModelSize", std::to_string(sizeInMB));
                 metrics.emplace("API", "Express::Module::NetModule");
                 logAsync(metrics);
             }
         }
 #endif // MNN_INTERNAL_ENABLED
     }
-    virtual ~ NetModule(){
+    virtual ~NetModule() {
         mChildren.clear();
         mInfo.reset();
         auto exe = ExecutorScope::Current();
@@ -222,7 +226,7 @@ public:
             Executor::RuntimeExecuteWrap wrap(mInfo->runTimeManager->getInside()->mRuntime);
             outputs = mModule->onForward(inputs);
         }
-        
+
         // Check execution status after forward
         if (!outputs.empty()) {
             bool hasNoExecution = false;
@@ -245,7 +249,7 @@ public:
                 outputs.clear();
             }
         }
-        
+
 #ifdef MNN_INTERNAL_ENABLED
         do {
             if (outputs.empty()) {
@@ -269,7 +273,7 @@ public:
             }
             logAsync(metrics);
             MNN_PRINT("Cost time with log: %f\n", (float)_time.durationInUs() / 1000.0f);
-        } while(false);
+        } while (false);
 #endif
 
         mModule->clearCache();
@@ -282,10 +286,8 @@ public:
             ScheduleConfig config;
             config.type = origin->mRuntime.first.begin()->first;
             config.numThread = origin->mContent->mNumberThread;
-            std::shared_ptr<Executor::RuntimeManager> newRt (Executor::RuntimeManager::createRuntimeManager(config));
+            std::shared_ptr<Executor::RuntimeManager> newRt(Executor::RuntimeManager::createRuntimeManager(config));
             const_cast<RuntimeAttr*>(newRt->getInside())->mContent = origin->mContent;
-            // Inherit pMeta so cloned modules don't push a stale nullptr at forward time.
-            const_cast<RuntimeAttr*>(newRt->getInside())->mMeta = origin->mMeta;
             ctx->pRuntimeManager = newRt;
         }
         std::shared_ptr<Module::Info> newInfo(new Module::Info);
@@ -298,9 +300,7 @@ public:
 #endif
         return this->cloneBaseTo(ctx, module);
     }
-    const Module::Info* info() const {
-        return mInfo.get();
-    }
+    const Module::Info* info() const { return mInfo.get(); }
 
 private:
     std::shared_ptr<Module::Info> mInfo;
@@ -326,7 +326,7 @@ static void _loadInputs(Module::Info* info, const std::vector<std::string>& inpu
     }
     info->inputs.resize(inputs.size());
     std::map<std::string, Variable::Info> allInputs;
-    for (int i=0; i<net->oplists()->size(); ++i) {
+    for (int i = 0; i < net->oplists()->size(); ++i) {
         auto op = net->oplists()->GetAs<Op>(i);
         if (op->type() == OpType_Input && op->main_as_Input() != nullptr) {
             auto name = net->tensorName()->GetAsString(op->outputIndexes()->data()[0])->str();
@@ -334,7 +334,7 @@ static void _loadInputs(Module::Info* info, const std::vector<std::string>& inpu
             std::vector<int> dims;
             if (nullptr != inputInfo->dims()) {
                 dims.resize(inputInfo->dims()->size());
-                for (int v=0; v<dims.size(); ++v) {
+                for (int v = 0; v < dims.size(); ++v) {
                     dims[v] = inputInfo->dims()->data()[v];
                 }
             }
@@ -347,7 +347,7 @@ static void _loadInputs(Module::Info* info, const std::vector<std::string>& inpu
             allInputs.insert(std::make_pair(name, std::move(vinfo)));
         }
     }
-    for (int i=0; i<inputs.size(); ++i) {
+    for (int i = 0; i < inputs.size(); ++i) {
         auto iter = allInputs.find(inputs[i]);
         if (iter != allInputs.end()) {
             info->inputs[i] = iter->second;
@@ -355,7 +355,9 @@ static void _loadInputs(Module::Info* info, const std::vector<std::string>& inpu
     }
 }
 
-Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const char* fileName, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> _rtMgr, const Module::Config* config) {
+Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs,
+                     const char* fileName, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> _rtMgr,
+                     const Module::Config* config) {
     AutoStorage<uint8_t> buffer;
     {
         FileLoader loader(fileName, true);
@@ -389,7 +391,10 @@ Module* Module::load(const std::vector<std::string>& inputs, const std::vector<s
     return res;
 }
 
-Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> _rtMgr, const Module::Config* config) {
+Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs,
+                     const uint8_t* buffer, size_t length,
+                     const std::shared_ptr<MNN::Express::Executor::RuntimeManager> _rtMgr,
+                     const Module::Config* config) {
     auto rtmgr = _rtMgr;
     if (nullptr == rtmgr) {
         rtmgr.reset(_createDefaultRuntimeManager(config));
@@ -397,7 +402,10 @@ Module* Module::load(const std::vector<std::string>& inputs, const std::vector<s
     return loadInternal(inputs, outputs, buffer, length, rtmgr, config);
 }
 
-static Module* loadInternal(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> _rtMgr, const Module::Config* config) {
+static Module* loadInternal(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs,
+                            const uint8_t* buffer, size_t length,
+                            const std::shared_ptr<MNN::Express::Executor::RuntimeManager> _rtMgr,
+                            const Module::Config* config) {
     // Check if runtime is valid
     if (nullptr == _rtMgr || _rtMgr->getInside()->mRuntime.first.empty()) {
         MNN_ERROR("Invalid runtime\n");
@@ -428,7 +436,7 @@ static Module* loadInternal(const std::vector<std::string>& inputs, const std::v
         if (net->extraInfo()->buffer()) {
             auto extra = flatbuffers::GetRoot<Extra>(net->extraInfo()->buffer()->data());
             if (nullptr != extra->attr()) {
-                for (int i=0; i<extra->attr()->size(); ++i) {
+                for (int i = 0; i < extra->attr()->size(); ++i) {
                     auto attr = extra->attr()->GetAs<Attribute>(i);
                     if (nullptr != attr->key() && nullptr != attr->s()) {
                         // The model may be incomplete, avoid crash
@@ -459,19 +467,19 @@ static Module* loadInternal(const std::vector<std::string>& inputs, const std::v
     }
     std::set<int> inputIdx, outputIdx, realOutput;
     std::vector<int> realInput;
-    for (int i=0; i< net->oplists()->size(); ++i) {
+    for (int i = 0; i < net->oplists()->size(); ++i) {
         auto op = net->oplists()->GetAs<Op>(i);
         if (nullptr != op->inputIndexes()) {
             auto data = op->inputIndexes()->data();
             auto size = op->inputIndexes()->size();
-            for (int j=0; j<size; ++j) {
+            for (int j = 0; j < size; ++j) {
                 inputIdx.insert(data[j]);
             }
         }
         if (nullptr != op->outputIndexes()) {
             auto data = op->outputIndexes()->data();
             auto size = op->outputIndexes()->size();
-            for (int j=0; j<size; ++j) {
+            for (int j = 0; j < size; ++j) {
                 outputIdx.insert(data[j]);
                 if (op->type() == OpType_Input) {
                     realInput.emplace_back(data[j]);
@@ -486,11 +494,12 @@ static Module* loadInternal(const std::vector<std::string>& inputs, const std::v
     }
     if (info->outputNames.empty()) {
         if (nullptr != net->outputName()) {
-            for (int i=0; i<net->outputName()->size(); ++i) {
+            for (int i = 0; i < net->outputName()->size(); ++i) {
                 info->outputNames.emplace_back(net->outputName()->GetAsString(i)->str());
             }
         } else {
-            std::set_difference(outputIdx.begin(), outputIdx.end(), inputIdx.begin(), inputIdx.end(), std::inserter(realOutput, realOutput.begin()));
+            std::set_difference(outputIdx.begin(), outputIdx.end(), inputIdx.begin(), inputIdx.end(),
+                                std::inserter(realOutput, realOutput.begin()));
             for (auto index : realOutput) {
                 info->outputNames.emplace_back(net->tensorName()->GetAsString(index)->str());
             }
@@ -517,7 +526,8 @@ Module* Module::cloneBaseTo(CloneContext* ctx, Module* module) const {
     return module;
 }
 
-Module* Module::extract(std::vector<Express::VARP> inputs, std::vector<Express::VARP> outputs, bool fortrain, const std::map<std::string, SubGraph>& subGraph) {
+Module* Module::extract(std::vector<Express::VARP> inputs, std::vector<Express::VARP> outputs, bool fortrain,
+                        const std::map<std::string, SubGraph>& subGraph) {
     return new PipelineModule(inputs, outputs);
 }
 int Module::traceOrOptimize(Interpreter::SessionMode stage) {
@@ -534,7 +544,6 @@ int Module::traceOrOptimize(Interpreter::SessionMode stage) {
     }
     return code;
 }
-
 
 } // namespace Express
 } // namespace MNN

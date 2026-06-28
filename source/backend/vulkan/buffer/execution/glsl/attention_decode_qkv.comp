@@ -1,0 +1,113 @@
+#extension GL_KHR_shader_subgroup_basic : enable
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+
+layout(set=0, binding=0) writeonly buffer s0 {
+    FLOAT data[];
+} uOutput;
+
+layout(set=0, binding=1) readonly buffer s1 {
+    FLOAT data[];
+} uSoftmax;
+
+layout(set=0, binding=2) readonly buffer s2 {
+    FLOAT4 data[];
+} uCacheValue;
+
+layout(set=0, binding=3) readonly uniform constBuffer {
+    ivec4 s0; // qLen, kLen, headNum, kvHeadNum
+    ivec4 s1; // headDim, group, pastLen, totalLen
+    ivec4 s2; // maskQlen, maskKvlen, maskMode, cacheMaxLen
+    vec4 f0;  // scale, outputC4, decodeTwoStageEnabled, 0
+} uConst;
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+layout(constant_id = 3) const uint OUTPUT_C4_MODE = 0u; // 0: runtime, 1: linear, 2: C4
+layout(constant_id = 4) const uint GROUP_SIZE_CONST = 0u; // 0: runtime, otherwise fixed GQA group
+layout(constant_id = 5) const uint SOFTMAX_STRIDE_CONST = 2048u;
+
+const int DECODE_TWO_STAGE_MAX_LEN = 2048;
+const int QKV_D4_PACK = 2;
+
+void main() {
+    const int d4Base = int(gl_WorkGroupID.x) * QKV_D4_PACK;
+    const int h = int(gl_WorkGroupID.y);
+    const uint lane = gl_SubgroupInvocationID;
+    const uint subgroupSize = gl_SubgroupSize;
+
+    const int qLen = uConst.s0.x;
+    const int headNum = uConst.s0.z;
+    const int kvHeadNum = uConst.s0.w;
+    const int headDim = uConst.s1.x;
+    const int d4Size = headDim / 4;
+    const int group = GROUP_SIZE_CONST != 0u ? int(GROUP_SIZE_CONST) : uConst.s1.y;
+    if (qLen != 1 || h >= headNum || d4Base >= d4Size || (d4Size % QKV_D4_PACK) != 0 || group <= 0) {
+        return;
+    }
+
+    const int kvh = h / group;
+    if (kvh >= kvHeadNum) {
+        return;
+    }
+
+    const int totalLen = uConst.s1.w;
+    const int pastLen = uConst.s1.z;
+    const int maxLen = uConst.s2.w;
+    if (totalLen <= 0 || totalLen > DECODE_TWO_STAGE_MAX_LEN || maxLen <= 0) {
+        return;
+    }
+
+    const int maskMode = uConst.s2.z;
+    const int scanLen = (maskMode == 2 && pastLen + 1 < totalLen) ? (pastLen + 1) : totalLen;
+    if (scanLen <= 0) {
+        return;
+    }
+
+    const int softmaxBase = h * int(SOFTMAX_STRIDE_CONST);
+    vec4 acc0 = vec4(0.0);
+    vec4 acc1 = vec4(0.0);
+    for (int k = int(lane); k < scanLen; k += int(subgroupSize)) {
+        const float w = float(uSoftmax.data[softmaxBase + k]);
+        const int vBase = (kvh * maxLen + k) * d4Size + d4Base;
+        acc0 += w * vec4(uCacheValue.data[vBase + 0]);
+        acc1 += w * vec4(uCacheValue.data[vBase + 1]);
+    }
+
+    vec4 reduced0;
+    reduced0.x = subgroupAdd(acc0.x);
+    reduced0.y = subgroupAdd(acc0.y);
+    reduced0.z = subgroupAdd(acc0.z);
+    reduced0.w = subgroupAdd(acc0.w);
+
+    vec4 reduced1;
+    reduced1.x = subgroupAdd(acc1.x);
+    reduced1.y = subgroupAdd(acc1.y);
+    reduced1.z = subgroupAdd(acc1.z);
+    reduced1.w = subgroupAdd(acc1.w);
+
+    if (lane == 0u) {
+        const bool outputC4 = (OUTPUT_C4_MODE == 2u) || (OUTPUT_C4_MODE == 0u && uConst.f0.y != 0.0);
+        if (outputC4) {
+            int outC4Base = (h * d4Size + d4Base) * qLen * 4;
+            uOutput.data[outC4Base + 0] = FLOAT(reduced0.x);
+            uOutput.data[outC4Base + 1] = FLOAT(reduced0.y);
+            uOutput.data[outC4Base + 2] = FLOAT(reduced0.z);
+            uOutput.data[outC4Base + 3] = FLOAT(reduced0.w);
+            outC4Base += qLen * 4;
+            uOutput.data[outC4Base + 0] = FLOAT(reduced1.x);
+            uOutput.data[outC4Base + 1] = FLOAT(reduced1.y);
+            uOutput.data[outC4Base + 2] = FLOAT(reduced1.z);
+            uOutput.data[outC4Base + 3] = FLOAT(reduced1.w);
+        } else {
+            int outBase = h * headDim + d4Base * 4;
+            uOutput.data[outBase + 0] = FLOAT(reduced0.x);
+            uOutput.data[outBase + 1] = FLOAT(reduced0.y);
+            uOutput.data[outBase + 2] = FLOAT(reduced0.z);
+            uOutput.data[outBase + 3] = FLOAT(reduced0.w);
+            outBase += 4;
+            uOutput.data[outBase + 0] = FLOAT(reduced1.x);
+            uOutput.data[outBase + 1] = FLOAT(reduced1.y);
+            uOutput.data[outBase + 2] = FLOAT(reduced1.z);
+            uOutput.data[outBase + 3] = FLOAT(reduced1.w);
+        }
+    }
+}

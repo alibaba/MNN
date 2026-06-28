@@ -25,6 +25,11 @@ humans:
 # Static checks only:
 ./test.sh static
 
+# PR Code Format workflow parity:
+# 1) commit subjects must match "[Module:Type] Description"
+# 2) changed C/C++ lines must pass git-clang-format, including generated Vulkan shader files.
+git clang-format --diff master --extensions cpp,c,h,hpp,cc,m,mm
+
 # Host regression (CPU only): build + unit suite + smoke + LLM smoke.
 ./test.sh local
 
@@ -65,6 +70,16 @@ Valid filters: `all` (default) · `cpu` · `opencl` · `opencl-image` ·
 * Combined stdout/stderr for every stage is saved under
   `logs/test-<UTC-timestamp>/<stage>.log` — read the named log of a failing
   stage for the trailing output. `rc=137` ≈ OOM-kill, `rc=139` ≈ SIGSEGV.
+* For GPU/OpenCL smoke tests, verify that the intended backend actually loaded
+  (for example, OpenCL tuning/backend logs are present). A correct model output
+  alone is not sufficient when CPU fallback is possible.
+* For Vulkan LLM cooperative-matrix checks, verify the build is using the
+  buffer backend (`-DMNN_VULKAN_IMAGE=OFF`). The image backend can still build
+  and run Vulkan, but it does not compile `source/backend/vulkan/buffer/*`
+  cooperative-matrix kernels.
+* After syncing code from another checkout with timestamp-preserving tools such
+  as `rsync -a`, force the touched backend to rebuild. Otherwise CMake/Make can
+  reuse newer stale object files even though file contents changed.
 
 ## Environment variables
 

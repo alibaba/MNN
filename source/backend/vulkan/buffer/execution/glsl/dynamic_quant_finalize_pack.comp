@@ -1,0 +1,132 @@
+// Reduce per-row partial min/max, quantize activation into cooperative-tile
+// layout, and write full-row sumAq in one dispatch.
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+layout(constant_id = 3) const uint COOP_M = 64;
+layout(constant_id = 4) const uint COOP_K = 32;
+
+layout(binding = 0) readonly buffer SrcActivation {
+    FLOAT4 A4[];
+};
+
+layout(binding = 1) readonly buffer PartialMinBuffer {
+    FLOAT PartialMin[];
+};
+
+layout(binding = 2) readonly buffer PartialMaxBuffer {
+    FLOAT PartialMax[];
+};
+
+layout(binding = 3) writeonly buffer ScaleActivation {
+    FLOAT ScaleA[];
+};
+
+layout(binding = 4) writeonly buffer OffsetActivation {
+    FLOAT OffsetA[];
+};
+
+layout(binding = 5) writeonly buffer QuantActivation {
+    uint AqPacked[];
+};
+
+layout(binding = 6) writeonly buffer SumActivation {
+    int SumAq[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint K;
+    uint padM;
+    uint padK;
+    uint partialBlocks;
+    uint reserved0;
+    uint reserved1;
+    uint reserved2;
+} pc;
+
+shared int localSum[256];
+shared float sharedScale;
+shared float sharedOffset;
+
+uint packInt8x4(int q0, int q1, int q2, int q3) {
+    return (uint(q0) & 0xFFu) |
+           ((uint(q1) & 0xFFu) << 8) |
+           ((uint(q2) & 0xFFu) << 16) |
+           ((uint(q3) & 0xFFu) << 24);
+}
+
+void main() {
+    const uint m = gl_WorkGroupID.x;
+    const uint tid = gl_LocalInvocationID.x;
+    const uint tilesK = pc.padK / COOP_K;
+    const uint k4Count = pc.padK >> 2u;
+    const uint tileM = m / COOP_M;
+    const uint mLocal = m - tileM * COOP_M;
+
+    if (tid == 0u) {
+        float minV = 3.402823466e+38;
+        float maxV = -3.402823466e+38;
+        if (m < pc.M) {
+            uint idx = m;
+            for (uint block = 0u; block < pc.partialBlocks; ++block) {
+                minV = min(minV, float(PartialMin[idx]));
+                maxV = max(maxV, float(PartialMax[idx]));
+                idx += pc.padM;
+            }
+        }
+        float scale = 1.0 / 255.0;
+        float offset = 0.0;
+        if (m < pc.M) {
+            const float rangeV = maxV - minV;
+            scale = rangeV > 1.0e-8 ? rangeV / 255.0 : 1.0 / 255.0;
+            const float quantBias = round(-minV / scale) - 128.0;
+            offset = -quantBias * scale;
+        }
+        sharedScale = scale;
+        sharedOffset = offset;
+        if (m < pc.padM) {
+            ScaleA[m] = FLOAT(scale);
+            OffsetA[m] = FLOAT(offset);
+        }
+    }
+    localSum[tid] = 0;
+    barrier();
+
+    int sum = 0;
+    for (uint k4 = tid; k4 < k4Count; k4 += gl_WorkGroupSize.x) {
+        vec4 v = vec4(0.0);
+        if (m < pc.M && k4 * 4u < pc.K) {
+            v = vec4(A4[k4 * pc.M + m]);
+        }
+        const uint k = k4 << 2u;
+        int q0 = 0;
+        int q1 = 0;
+        int q2 = 0;
+        int q3 = 0;
+        if (m < pc.M) {
+            if (k + 0u < pc.K) q0 = clamp(int(round((v.x - sharedOffset) / sharedScale)), -128, 127);
+            if (k + 1u < pc.K) q1 = clamp(int(round((v.y - sharedOffset) / sharedScale)), -128, 127);
+            if (k + 2u < pc.K) q2 = clamp(int(round((v.z - sharedOffset) / sharedScale)), -128, 127);
+            if (k + 3u < pc.K) q3 = clamp(int(round((v.w - sharedOffset) / sharedScale)), -128, 127);
+            sum += q0 + q1 + q2 + q3;
+        }
+
+        const uint tileK = k / COOP_K;
+        const uint k4In = (k - tileK * COOP_K) >> 2u;
+        const uint dstByteBase = (tileM * tilesK + tileK) * COOP_M * COOP_K + mLocal * COOP_K;
+        AqPacked[(dstByteBase >> 2u) + k4In] = packInt8x4(q0, q1, q2, q3);
+    }
+
+    localSum[tid] = sum;
+    barrier();
+    for (uint stride = gl_WorkGroupSize.x >> 1u; stride > 0u; stride >>= 1u) {
+        if (tid < stride) {
+            localSum[tid] += localSum[tid + stride];
+        }
+        barrier();
+    }
+    if (tid == 0u && m < pc.padM) {
+        SumAq[m] = localSum[0];
+    }
+}

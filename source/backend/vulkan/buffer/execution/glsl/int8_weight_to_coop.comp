@@ -46,11 +46,11 @@ void main() {
     FLOAT zA = FLOAT(0.0);
     FLOAT sB = FLOAT(0.0);
     FLOAT zB = FLOAT(0.0);
-    if (gn < pc.N) {
+    if (gn < pc.N && tileKBase < pc.K) {
         const uint baseA = (gn * pc.blockStride + blkA) * 2;
         sA = Meta[baseA + 0];
         zA = Meta[baseA + 1];
-        if (useTwoBlocks) {
+        if (useTwoBlocks && blkB < pc.blockStride) {
             const uint baseB = (gn * pc.blockStride + blkB) * 2;
             sB = Meta[baseB + 0];
             zB = Meta[baseB + 1];

@@ -62,6 +62,7 @@ void main() {
     const int maxLen = uConst.s2.w;
 
     const float scale = uConst.f0.x;
+    const bool outputC4 = uConst.f0.y != 0.0;
 
     const int kvh = h / group;
     if (kvh >= kvHeadNum) {
@@ -134,14 +135,23 @@ void main() {
     }
 
     float invS = 1.0 / s;
-    // output: [1, qLen, headNum * headDim]
+    // output: linear [1, qLen, headNum * headDim], or C4 packed [C/4, qLen, 4].
     const int outBase = (q * headNum + h) * headDim;
     for (int i = 0; i < d4Size; ++i) {
         vec4 v = outVec[i] * invS;
         const int d = i * 4;
-        uOutput.data[outBase + d + 0] = FLOAT(v.x);
-        uOutput.data[outBase + d + 1] = FLOAT(v.y);
-        uOutput.data[outBase + d + 2] = FLOAT(v.z);
-        uOutput.data[outBase + d + 3] = FLOAT(v.w);
+        if (outputC4) {
+            const int c4 = (h * headDim + d) / 4;
+            const int outC4Base = (c4 * qLen + q) * 4;
+            uOutput.data[outC4Base + 0] = FLOAT(v.x);
+            uOutput.data[outC4Base + 1] = FLOAT(v.y);
+            uOutput.data[outC4Base + 2] = FLOAT(v.z);
+            uOutput.data[outC4Base + 3] = FLOAT(v.w);
+        } else {
+            uOutput.data[outBase + d + 0] = FLOAT(v.x);
+            uOutput.data[outBase + d + 1] = FLOAT(v.y);
+            uOutput.data[outBase + d + 2] = FLOAT(v.z);
+            uOutput.data[outBase + d + 3] = FLOAT(v.w);
+        }
     }
 }

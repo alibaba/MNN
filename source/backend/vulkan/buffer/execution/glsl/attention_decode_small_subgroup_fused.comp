@@ -1,6 +1,16 @@
 #extension GL_KHR_shader_subgroup_basic : enable
 #extension GL_KHR_shader_subgroup_arithmetic : enable
 
+#ifdef D256
+#define D4_SIZE 64
+#elif defined(D192)
+#define D4_SIZE 48
+#elif defined(D128)
+#define D4_SIZE 32
+#else
+#define D4_SIZE 16
+#endif
+
 layout(set=0, binding=0) writeonly buffer s0 {
     FLOAT data[];
 } uOutput;
@@ -33,29 +43,32 @@ layout(set=0, binding=7) readonly uniform constBuffer {
     ivec4 s0; // qLen, kLen, headNum, kvHeadNum
     ivec4 s1; // headDim, group, pastLen, totalLen
     ivec4 s2; // maskQlen, maskKvlen, maskMode, cacheMaxLen
-    vec4 f0;  // scale, 0, 0, 0
+    vec4 f0;  // scale, outputC4, 0, 0
 } uConst;
 
 layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
 
-const int MAX_D4 = 64; // headDim <= 256
 const float NEG_INF = -3.402823466e38;
-shared vec4 sQuery[MAX_D4];
+shared vec4 sQuery[D4_SIZE];
 
 void main() {
     const int h = int(gl_WorkGroupID.x);
+    const int q = int(gl_WorkGroupID.y);
     const uint lane = gl_SubgroupInvocationID;
     const uint subgroupSize = gl_SubgroupSize;
 
     const int qLen = uConst.s0.x;
     const int headNum = uConst.s0.z;
     const int kvHeadNum = uConst.s0.w;
-    if (h >= headNum || qLen <= 0) {
+    if (h >= headNum || q >= qLen) {
         return;
     }
-    const int q = 0; // decode fast path: qLen == 1
 
     const int headDim = uConst.s1.x;
+    const int headDimConst = D4_SIZE * 4;
+    if (headDim != headDimConst) {
+        return;
+    }
     const int group = uConst.s1.y;
     const int totalLen = uConst.s1.w;
     if (totalLen <= 0) {
@@ -76,16 +89,14 @@ void main() {
         return;
     }
 
-    const int d4Size = headDim / 4;
-    if (d4Size <= 0 || d4Size > MAX_D4) {
-        return;
-    }
-
     const float scale = uConst.f0.x;
-    const int qBase = (q * headNum + h) * headDim;
-    const int kMaskStart = (maskMode == 1 && maskKvlen > 0 && totalLen > maskKvlen) ? (totalLen - maskKvlen) : 0;
+    const bool outputC4 = uConst.f0.y != 0.0;
+    const int qBase = (q * headNum + h) * headDimConst;
+    const bool useAddMask = (maskMode == 1 && q < maskQlen && maskKvlen > 0);
+    const int scanLen = (maskMode == 2 && pastLen + q + 1 < totalLen) ? (pastLen + q + 1) : totalLen;
+    const int kMaskStart = (useAddMask && totalLen > maskKvlen) ? (totalLen - maskKvlen) : 0;
 
-    for (int i = int(lane); i < d4Size; i += int(subgroupSize)) {
+    for (int i = int(lane); i < D4_SIZE; i += int(subgroupSize)) {
         const int d = i * 4;
         const int qOff = qBase + d;
         sQuery[i] = vec4(float(uQuery.data[qOff + 0]), float(uQuery.data[qOff + 1]), float(uQuery.data[qOff + 2]),
@@ -93,35 +104,33 @@ void main() {
     }
     barrier();
 
-    vec4 outVec[MAX_D4];
-    for (int i = 0; i < d4Size; ++i) {
+    vec4 outVec[D4_SIZE];
+    for (int i = 0; i < D4_SIZE; ++i) {
         outVec[i] = vec4(0.0);
     }
 
     float m = NEG_INF;
     float l = 0.0;
 
-    for (int k = int(lane); k < totalLen; k += int(subgroupSize)) {
+    for (int k = int(lane); k < scanLen; k += int(subgroupSize)) {
         float dotSum = 0.0;
-        for (int i = 0; i < d4Size; ++i) {
-            const int kOff = (kvh * d4Size + i) * maxLen + k;
+        for (int i = 0; i < D4_SIZE; ++i) {
+            const int kOff = (kvh * D4_SIZE + i) * maxLen + k;
             vec4 kv = vec4(uCacheKey.data[kOff]);
             dotSum += dot(sQuery[i], kv);
         }
         float score = dotSum * scale;
-        if (maskMode == 1 && q < maskQlen && maskKvlen > 0 && k >= kMaskStart) {
+        if (useAddMask && k >= kMaskStart) {
             const int mk = k - kMaskStart;
             if (mk >= 0 && mk < maskKvlen) {
                 score += float(uMask.data[q * maskKvlen + mk]);
             }
-        } else if (maskMode == 2 && k > (pastLen + q)) {
-            score = NEG_INF;
         }
 
         float w = 0.0;
         if (score > m) {
             const float factor = exp(m - score);
-            for (int i = 0; i < d4Size; ++i) {
+            for (int i = 0; i < D4_SIZE; ++i) {
                 outVec[i] *= factor;
             }
             l = l * factor + 1.0;
@@ -132,8 +141,8 @@ void main() {
             l += w;
         }
 
-        const int vBase = (kvh * maxLen + k) * d4Size;
-        for (int i = 0; i < d4Size; ++i) {
+        const int vBase = (kvh * maxLen + k) * D4_SIZE;
+        for (int i = 0; i < D4_SIZE; ++i) {
             vec4 vv = vec4(uCacheValue.data[vBase + i]);
             outVec[i] += w * vv;
         }
@@ -143,9 +152,9 @@ void main() {
     const float laneScale = (l > 0.0) ? exp(m - mGlobal) : 0.0;
     const float lGlobal = subgroupAdd(l * laneScale);
     const float invL = (lGlobal > 0.0) ? (1.0 / lGlobal) : 0.0;
-    const int outBase = (q * headNum + h) * headDim;
+    const int outBase = (q * headNum + h) * headDimConst;
 
-    for (int i = 0; i < d4Size; ++i) {
+    for (int i = 0; i < D4_SIZE; ++i) {
         vec4 scaled = outVec[i] * laneScale;
         vec4 reduced;
         reduced.x = subgroupAdd(scaled.x);
@@ -155,10 +164,18 @@ void main() {
         if (lane == 0u) {
             vec4 v = reduced * invL;
             const int d = i * 4;
-            uOutput.data[outBase + d + 0] = FLOAT(v.x);
-            uOutput.data[outBase + d + 1] = FLOAT(v.y);
-            uOutput.data[outBase + d + 2] = FLOAT(v.z);
-            uOutput.data[outBase + d + 3] = FLOAT(v.w);
+            if (outputC4) {
+                const int outC4Base = ((h * D4_SIZE + i) * qLen + q) * 4;
+                uOutput.data[outC4Base + 0] = FLOAT(v.x);
+                uOutput.data[outC4Base + 1] = FLOAT(v.y);
+                uOutput.data[outC4Base + 2] = FLOAT(v.z);
+                uOutput.data[outC4Base + 3] = FLOAT(v.w);
+            } else {
+                uOutput.data[outBase + d + 0] = FLOAT(v.x);
+                uOutput.data[outBase + d + 1] = FLOAT(v.y);
+                uOutput.data[outBase + d + 2] = FLOAT(v.z);
+                uOutput.data[outBase + d + 3] = FLOAT(v.w);
+            }
         }
     }
 }

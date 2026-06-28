@@ -1,0 +1,206 @@
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+#ifdef Q_NORM_K_NORM
+#define Q_NORM
+#define K_NORM
+#endif
+
+shared float sNormSum[64];
+
+layout(binding = 0) readonly buffer QBuffer {
+    FLOAT Q[];
+};
+
+layout(binding = 1) readonly buffer KBuffer {
+    FLOAT K[];
+};
+
+layout(binding = 2) readonly buffer CosEvenBuffer {
+    FLOAT CosEven[];
+};
+
+layout(binding = 3) readonly buffer CosOddBuffer {
+    FLOAT CosOdd[];
+};
+
+layout(binding = 4) readonly buffer SinEvenBuffer {
+    FLOAT SinEven[];
+};
+
+layout(binding = 5) readonly buffer SinOddBuffer {
+    FLOAT SinOdd[];
+};
+
+layout(binding = 6) writeonly buffer QOutBuffer {
+    FLOAT QOut[];
+};
+
+layout(binding = 7) writeonly buffer KOutBuffer {
+    FLOAT KOut[];
+};
+
+layout(binding = 8) uniform ParamBuffer {
+    int outerSize;
+    int halfD;
+    int ropeHalfD;
+    int headDim;
+    int numHead;
+    int kvNumHead;
+    float qEps;
+    float kEps;
+} uParam;
+
+#ifdef Q_NORM
+layout(binding = 9) readonly buffer QGammaBuffer {
+    float QGamma[];
+};
+#endif
+
+#if defined(K_NORM) && defined(Q_NORM)
+layout(binding = 10) readonly buffer KGammaBuffer {
+    float KGamma[];
+};
+#elif defined(K_NORM)
+layout(binding = 9) readonly buffer KGammaBuffer {
+    float KGamma[];
+};
+#endif
+
+void applyRope(uint y, uint z, uint x) {
+    const bool isQ = int(z) < uParam.numHead;
+    const uint head = isQ ? z : (z - uint(uParam.numHead));
+    const uint d = uint(uParam.headDim);
+    const uint halfD = uint(uParam.halfD);
+    const uint base = isQ ? ((y * uint(uParam.numHead) + head) * d)
+                          : ((y * uint(uParam.kvNumHead) + head) * d);
+
+    const uint cosIndex = y * halfD + x;
+    FLOAT evenVal = isQ ? Q[base + x] : K[base + x];
+    FLOAT oddVal = isQ ? Q[base + x + halfD] : K[base + x + halfD];
+
+    if (x < uint(uParam.ropeHalfD)) {
+        const FLOAT cEven = CosEven[cosIndex];
+        const FLOAT cOdd = CosOdd[cosIndex];
+        const FLOAT sEven = SinEven[cosIndex];
+        const FLOAT sOdd = SinOdd[cosIndex];
+        const FLOAT v0 = evenVal * cEven - oddVal * sEven;
+        const FLOAT v1 = oddVal * cOdd + evenVal * sOdd;
+        if (isQ) {
+            QOut[base + x] = v0;
+            QOut[base + x + halfD] = v1;
+        } else {
+            KOut[base + x] = v0;
+            KOut[base + x + halfD] = v1;
+        }
+    } else {
+        if (isQ) {
+            QOut[base + x] = evenVal;
+            QOut[base + x + halfD] = oddVal;
+        } else {
+            KOut[base + x] = evenVal;
+            KOut[base + x + halfD] = oddVal;
+        }
+    }
+}
+
+void applyNormAndRope(uint y, uint z) {
+    const uint tid = gl_LocalInvocationID.x;
+    const uint groupSize = gl_WorkGroupSize.x;
+    const bool isQ = int(z) < uParam.numHead;
+    const uint head = isQ ? z : (z - uint(uParam.numHead));
+    const uint d = uint(uParam.headDim);
+    const uint halfD = uint(uParam.halfD);
+    const uint base = isQ ? ((y * uint(uParam.numHead) + head) * d)
+                          : ((y * uint(uParam.kvNumHead) + head) * d);
+
+    float sum = 0.0;
+#ifdef Q_NORM
+    if (isQ) {
+        for (uint i = tid; i < d; i += groupSize) {
+            const float v = float(Q[base + i]);
+            sum += v * v;
+        }
+    }
+#endif
+#ifdef K_NORM
+    if (!isQ) {
+        for (uint i = tid; i < d; i += groupSize) {
+            const float v = float(K[base + i]);
+            sum += v * v;
+        }
+    }
+#endif
+    sNormSum[tid] = sum;
+    barrier();
+    for (uint stride = groupSize >> 1u; stride > 0u; stride >>= 1u) {
+        if (tid < stride) {
+            sNormSum[tid] += sNormSum[tid + stride];
+        }
+        barrier();
+    }
+    float eps = uParam.qEps;
+#ifdef K_NORM
+    if (!isQ) {
+        eps = uParam.kEps;
+    }
+#endif
+    const float inv = inversesqrt(sNormSum[0] / float(d) + eps);
+
+    for (uint x = tid; x < halfD; x += groupSize) {
+        const uint cosIndex = y * halfD + x;
+        FLOAT evenVal = isQ ? Q[base + x] : K[base + x];
+        FLOAT oddVal = isQ ? Q[base + x + halfD] : K[base + x + halfD];
+#ifdef Q_NORM
+        if (isQ) {
+            evenVal = FLOAT(float(evenVal) * inv * QGamma[x]);
+            oddVal = FLOAT(float(oddVal) * inv * QGamma[x + halfD]);
+        }
+#endif
+#ifdef K_NORM
+        if (!isQ) {
+            evenVal = FLOAT(float(evenVal) * inv * KGamma[x]);
+            oddVal = FLOAT(float(oddVal) * inv * KGamma[x + halfD]);
+        }
+#endif
+        if (x < uint(uParam.ropeHalfD)) {
+            const FLOAT cEven = CosEven[cosIndex];
+            const FLOAT cOdd = CosOdd[cosIndex];
+            const FLOAT sEven = SinEven[cosIndex];
+            const FLOAT sOdd = SinOdd[cosIndex];
+            const FLOAT v0 = evenVal * cEven - oddVal * sEven;
+            const FLOAT v1 = oddVal * cOdd + evenVal * sOdd;
+            if (isQ) {
+                QOut[base + x] = v0;
+                QOut[base + x + halfD] = v1;
+            } else {
+                KOut[base + x] = v0;
+                KOut[base + x + halfD] = v1;
+            }
+        } else {
+            if (isQ) {
+                QOut[base + x] = evenVal;
+                QOut[base + x + halfD] = oddVal;
+            } else {
+                KOut[base + x] = evenVal;
+                KOut[base + x + halfD] = oddVal;
+            }
+        }
+    }
+}
+
+void main() {
+    const uint x = gl_GlobalInvocationID.x;
+    const uint y = gl_GlobalInvocationID.y;
+    const uint z = gl_GlobalInvocationID.z;
+    if (y >= uint(uParam.outerSize) || z >= uint(uParam.numHead + uParam.kvNumHead)) {
+        return;
+    }
+#if defined(Q_NORM) || defined(K_NORM)
+    applyNormAndRope(y, z);
+#else
+    if (x >= uint(uParam.halfD)) {
+        return;
+    }
+    applyRope(y, z, x);
+#endif
+}

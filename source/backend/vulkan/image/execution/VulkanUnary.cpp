@@ -29,19 +29,18 @@ VulkanUnary::VulkanUnary(const std::string& midType, Backend* bn, bool image) : 
     mUnaryPipeline = vkbackend->getPipeline(prefix + midType + posfix, types);
 }
 
-VulkanUnary::~VulkanUnary() {
-}
+VulkanUnary::~VulkanUnary() {}
 
 static std::string _getMidType(const Op* op) {
     std::string midType = "";
-    if (op->type() == OpType_TanH) {
-        midType = "TANH";
-    } else if (op->type() == OpType_Sigmoid) {
-        midType = "SIGMOID";
-    } else {
+    {
         // unary op
         auto unaryType = op->main_as_UnaryOp()->opType();
-#define SETTYPE(type, name) if (unaryType == type) {midType = name; break;}
+#define SETTYPE(type, name)  \
+    if (unaryType == type) { \
+        midType = name;      \
+        break;               \
+    }
         do {
             SETTYPE(UnaryOpOperation_SIGMOID, "SIGMOID");
             SETTYPE(UnaryOpOperation_TANH, "TANH");
@@ -70,28 +69,30 @@ static std::string _getMidType(const Op* op) {
             SETTYPE(UnaryOpOperation_ATAN, "ATAN");
             SETTYPE(UnaryOpOperation_ATANH, "ATANH");
             SETTYPE(UnaryOpOperation_LOG1P, "LOG1P");
-            
+
             SETTYPE(UnaryOpOperation_ROUND, "ROUND");
             SETTYPE(UnaryOpOperation_HARDSWISH, "HARDSWISH");
             SETTYPE(UnaryOpOperation_GELU, "GELU");
-            // Since SPIR-V lacks a built-in erf (gauss error function) instruction and the existing shader implementation of GELU is essentially an approximation of erf, there is no need to add a new implementation of GELU_STANDARD.
+            // Since SPIR-V lacks a built-in erf (gauss error function) instruction and the existing shader
+            // implementation of GELU is essentially an approximation of erf, there is no need to add a new
+            // implementation of GELU_STANDARD.
             SETTYPE(UnaryOpOperation_GELU_STANDARD, "GELU");
             SETTYPE(UnaryOpOperation_SILU, "SILU");
-        } while(false);
+        } while (false);
 #undef SETTYPE
     }
     return midType;
 }
 
-bool VulkanUnary::encode(const Tensor* input, const Tensor* output, const VulkanCommandPool::Buffer* cmdBuffer, const Tensor::InsideDescribe::Region* region) {
+bool VulkanUnary::encode(const Tensor* input, const Tensor* output, const VulkanCommandPool::Buffer* cmdBuffer,
+                         const Tensor::InsideDescribe::Region* region) {
     return true;
 }
-bool VulkanUnary::encoderSingle(const VulkanCommandPool::Buffer* cmdBuffer, const VulkanImage* dest, const VulkanImage* source,
-                                const std::array<int, 3>& size
-                   ) {
+bool VulkanUnary::encoderSingle(const VulkanCommandPool::Buffer* cmdBuffer, const VulkanImage* dest,
+                                const VulkanImage* source, const std::array<int, 3>& size) {
     auto vkbackend = static_cast<VulkanBackend*>(backend());
     auto param = std::make_shared<VulkanBuffer>(vkbackend->getMemoryPool(), false, sizeof(Param), nullptr,
-                                            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+                                                VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
     auto paramOrigin = (Param*)param->map();
     paramOrigin->size[0] = size[0] * size[1] * size[2];
     paramOrigin->size[1] = size[2]; // depth
@@ -121,7 +122,7 @@ ErrorCode VulkanUnary::onEncode(const std::vector<Tensor*>& inputs, const std::v
     auto outputTensor = (VulkanTensor*)(outputs[0]->deviceId());
     mDesSet.clear();
     mParams.clear();
-    for (int n=0; n<inputTensor->imageSize(); ++n) {
+    for (int n = 0; n < inputTensor->imageSize(); ++n) {
         auto inputT = inputTensor->image(n);
         auto outputT = outputTensor->image(n);
         encoderSingle(cmdBuffer, outputT, inputT, {outputT->width(), outputT->height(), 1});
@@ -131,7 +132,8 @@ ErrorCode VulkanUnary::onEncode(const std::vector<Tensor*>& inputs, const std::v
 
 class VulkanUnaryCreator : public VulkanBackend::Creator {
 public:
-    virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op, Backend* bn) const override {
+    virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                           const MNN::Op* op, Backend* bn) const override {
         if (inputs[0]->buffer().type.code != halide_type_float) {
             return nullptr;
         }
@@ -145,8 +147,6 @@ public:
 
 static bool gResistor = []() {
     VulkanBackend::addCreator(OpType_UnaryOp, new VulkanUnaryCreator);
-    VulkanBackend::addCreator(OpType_TanH, new VulkanUnaryCreator);
-    VulkanBackend::addCreator(OpType_Sigmoid, new VulkanUnaryCreator);
     return true;
 }();
 

@@ -17,11 +17,12 @@ struct Param {
     vec4 slope;
 };
 
-VulkanUnary::VulkanUnary(const std::string& midType, Backend* bn, bool isInt, float slope0, float slope1, bool iscast) : VulkanBasicExecution(bn) {
+VulkanUnary::VulkanUnary(const std::string& midType, Backend* bn, bool isInt, float slope0, float slope1, bool iscast)
+    : VulkanBasicExecution(bn) {
     mSlopes[0] = slope0;
     mSlopes[1] = slope1;
     auto vkbackend = static_cast<VulkanBackend*>(bn);
-    mParam         = std::make_shared<VulkanBuffer>(vkbackend->getMemoryPool(), false, sizeof(Param), nullptr,
+    mParam = std::make_shared<VulkanBuffer>(vkbackend->getMemoryPool(), false, sizeof(Param), nullptr,
                                             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
     auto types = {
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -51,19 +52,18 @@ VulkanUnary::VulkanUnary(const std::string& midType, Backend* bn, bool isInt, fl
     mDesSet.reset(mUnaryPipeline->createSet());
 }
 
-VulkanUnary::~VulkanUnary() {
-}
+VulkanUnary::~VulkanUnary() {}
 
 static std::string _getMidType(const Op* op) {
     std::string midType = "";
-    if (op->type() == OpType_TanH) {
-        midType = "TANH";
-    } else if (op->type() == OpType_Sigmoid) {
-        midType = "SIGMOID";
-    } else {
+    {
         // unary op
         auto unaryType = op->main_as_UnaryOp()->opType();
-#define SETTYPE(type, name) if (unaryType == type) {midType = name; break;}
+#define SETTYPE(type, name)  \
+    if (unaryType == type) { \
+        midType = name;      \
+        break;               \
+    }
         do {
             SETTYPE(UnaryOpOperation_SIGMOID, "SIGMOID");
             SETTYPE(UnaryOpOperation_TANH, "TANH");
@@ -76,7 +76,9 @@ static std::string _getMidType(const Op* op) {
             SETTYPE(UnaryOpOperation_SQUARE, "SQUARE");
             SETTYPE(UnaryOpOperation_LOG, "LOG");
             SETTYPE(UnaryOpOperation_GELU, "GELU");
-            // Since SPIR-V lacks a built-in erf (gauss error function) instruction and the existing shader implementation of GELU is essentially an approximation of erf, there is no need to add a new implementation of GELU_STANDARD.
+            // Since SPIR-V lacks a built-in erf (gauss error function) instruction and the existing shader
+            // implementation of GELU is essentially an approximation of erf, there is no need to add a new
+            // implementation of GELU_STANDARD.
             SETTYPE(UnaryOpOperation_GELU_STANDARD, "GELU");
             SETTYPE(UnaryOpOperation_SILU, "SILU");
 
@@ -97,10 +99,10 @@ static std::string _getMidType(const Op* op) {
             SETTYPE(UnaryOpOperation_ATAN, "ATAN");
             SETTYPE(UnaryOpOperation_ATANH, "ATANH");
             SETTYPE(UnaryOpOperation_LOG1P, "LOG1P");
-            
+
             SETTYPE(UnaryOpOperation_ROUND, "ROUND");
             SETTYPE(UnaryOpOperation_HARDSWISH, "HARDSWISH");
-        } while(false);
+        } while (false);
 #undef SETTYPE
     }
     return midType;
@@ -129,8 +131,9 @@ ErrorCode VulkanUnary::onEncode(const std::vector<Tensor*>& inputs, const std::v
 
 class VulkanUnaryCreator : public VulkanBackend::Creator {
 public:
-    virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op, Backend* bn) const override {
-        auto vkBn = static_cast<VulkanBackend *>(bn);
+    virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                           const MNN::Op* op, Backend* bn) const override {
+        auto vkBn = static_cast<VulkanBackend*>(bn);
         if (op->type() == OpType_ReLU6) {
             float minValue = 0.0f;
             float maxValue = 6.0f;
@@ -189,8 +192,6 @@ static bool gResistor = []() {
     VulkanBackend::addCreator(OpType_ReLU, new VulkanUnaryCreator);
     VulkanBackend::addCreator(OpType_Cast, new VulkanUnaryCreator);
     VulkanBackend::addCreator(OpType_UnaryOp, new VulkanUnaryCreator);
-    VulkanBackend::addCreator(OpType_TanH, new VulkanUnaryCreator);
-    VulkanBackend::addCreator(OpType_Sigmoid, new VulkanUnaryCreator);
     return true;
 }();
 
