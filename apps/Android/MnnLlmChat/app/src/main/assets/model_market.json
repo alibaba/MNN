@@ -1,5 +1,5 @@
 {
-    "version": "22",
+    "version": "23",
     "tagTranslations": {
         "Vision": "图像理解",
         "Video": "视频理解",
@@ -26,6 +26,7 @@
         "DeepSeek",
         "Gemma",
         "LFM",
+        "Mistral",
         "Smol",
         "stability.ai",
         "Llama",
@@ -463,6 +464,21 @@
             "size_gb": 1.5,
             "vendor": "LFM",
             "file_size": 828120793
+        },
+        {
+            "modelName": "Ministral-3-3B-Base-Q4-MNN",
+            "tags": [],
+            "categories": [
+                "chat",
+                "mistral"
+            ],
+            "sources": {
+                "HuggingFace": "shefowl/Ministral-3-3B-Base-Q4-MNN"
+            },
+            "min_app_version": "0.8.3",
+            "size_gb": 3.3,
+            "vendor": "Mistral",
+            "file_size": 1936851423
         },
         {
             "modelName": "Qwen3.5-0.8B-Claude-4.6-Opus-Reasoning-Distilled-MNN",
