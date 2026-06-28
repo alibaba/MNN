@@ -263,7 +263,9 @@ class Qwen2Vision(Vision):
         self.min_pixels = 3136
         self.max_pixels = 12845056
         self.image_embeds = []
+        self.video_embeds = []
         self.image_grid_thw = []
+        self.vision_segments = []
         super().__init__(visual, base)
         self.quant_bit = 4
 
@@ -271,13 +273,19 @@ class Qwen2Vision(Vision):
         self.vision_start_id = self.config.vision_start_token_id
         self.vision_end_id = self.config.vision_end_token_id
         self.image_pad_id = self.config.image_token_id
+        self.video_pad_id = getattr(self.config, 'video_token_id', None)
         self.llm_config['image_size'] = self.image_height
         self.llm_config['vision_start'] = self.vision_start_id
         self.llm_config['vision_end'] = self.vision_end_id
         self.llm_config['image_pad'] = self.image_pad_id
+        if self.video_pad_id is not None:
+            self.llm_config['video_pad'] = self.video_pad_id
+            self.llm_config['video_fps'] = 2.0
+            self.llm_config['video_max_frames'] = 768
         self.vision_start_token = '<|vision_start|>'
         self.vision_end_token = '<|vision_end|>'
         self.image_pad_token = '<|image_pad|>'
+        self.video_pad_token = '<|video_pad|>'
         # load model
         config = self.visual.config
         if hasattr(config, "embed_dim"):
@@ -310,15 +318,27 @@ class Qwen2Vision(Vision):
         self.merger = self.visual.merger
 
     def str_to_ids(self, prompt):
-        if '<img>' in prompt and '</img>' in prompt:
+        if ('<img>' in prompt and '</img>' in prompt) or ('<video>' in prompt and '</video>' in prompt):
             import re
             import requests
             from PIL import Image
-            pattern = r'(<img>.*?</img>)'
+            pattern = r'(<(img|video)>.*?</\2>)'
             parts = re.split(pattern, prompt)
             txt_prompt = ''
             for part in parts:
+                if not part or part in ('img', 'video'):
+                    continue
                 if re.match(pattern, part):
+                    mode = re.search(pattern, part).group(2)
+                    if mode == 'video':
+                        if self.video_pad_id is None:
+                            raise RuntimeError("Qwen video prompts require video_token_id in model config.")
+                        video_content = re.search(r'<video>(.*?)</video>', part).group(1)
+                        video_segments = self.video_process(video_content)
+                        for timestamp, video_pad_len in video_segments:
+                            video_pad_str = self.video_pad_token * video_pad_len
+                            txt_prompt += f'<{timestamp:.1f} seconds>{self.vision_start_token}{video_pad_str}{self.vision_end_token}'
+                        continue
                     img_content = re.search(r'<img>(.*?)</img>', part).group(1)
                     # find <hw></hw> in image_content
                     match = re.search(r'<hw>(.*?)</hw>', img_content)
@@ -331,6 +351,7 @@ class Qwen2Vision(Vision):
                     else:
                         image_obj = Image.open(img_content)
                     img_pad_len = self.img_process(image_obj)
+                    self.vision_segments.append({'type': 'image', 'grid': self.image_grid_thw[-1]})
                     img_pad_str = self.image_pad_token * img_pad_len
                     img_str = f'{self.vision_start_token}{img_pad_str}{self.vision_end_token}'
                     txt_prompt += img_str
@@ -346,10 +367,14 @@ class Qwen2Vision(Vision):
             position_ids = torch.tensor([[seq_len - 1]] * 3, dtype=torch.int)
             return position_ids
         input_ids = input_ids.flatten()
+        pad_ids = {self.image_pad_id}
+        if getattr(self, 'video_pad_id', None) is not None:
+            pad_ids.add(self.video_pad_id)
         txt_len, vision_idx, cur_idx = 0, 0, 0
         position_ids_list = []
         for i, token in enumerate(input_ids):
-            if token != self.image_pad_id:
+            token = int(token)
+            if token not in pad_ids:
                 txt_len += 1
             if token == self.vision_start_id:
                 text_index = torch.arange(cur_idx, cur_idx + txt_len, dtype=torch.int)
@@ -357,20 +382,96 @@ class Qwen2Vision(Vision):
                 txt_len = 0
                 position_ids_list.append(torch.stack([text_index, text_index, text_index]))
             elif token == self.vision_end_id:
-                t, h, w = self.image_grid_thw[vision_idx]
+                if hasattr(self, 'vision_segments') and vision_idx < len(self.vision_segments):
+                    t, h, w = self.vision_segments[vision_idx]['grid']
+                else:
+                    t, h, w = self.image_grid_thw[vision_idx]
                 h = h // self.merge_size
                 w = w // self.merge_size
                 t_index = torch.arange(t).view(-1, 1).expand(-1, h * w).flatten()
                 h_index = torch.arange(h).view(1, -1, 1).expand(t, -1, w).flatten()
                 w_index = torch.arange(w).view(1, 1, -1).expand(t, h, -1).flatten()
                 position_ids_list.append(torch.stack([t_index, h_index, w_index]) + cur_idx)
-                cur_idx += w
+                cur_idx += max(t, h, w)
                 vision_idx += 1
         if txt_len > 0:
             text_index = torch.arange(cur_idx, cur_idx + txt_len, dtype=torch.int)
             position_ids_list.append(torch.stack([text_index, text_index, text_index]))
         position_ids = torch.cat(position_ids_list, dim=1)
         return position_ids
+
+    def video_process(self, video):
+        try:
+            import cv2
+        except ImportError as exc:
+            raise RuntimeError("Qwen video processing requires cv2 for local video sampling.") from exc
+        from PIL import Image
+
+        cap = cv2.VideoCapture(video)
+        if not cap.isOpened():
+            raise RuntimeError(f"can't open video: {video}")
+        native_fps = cap.get(cv2.CAP_PROP_FPS)
+        if native_fps <= 0:
+            native_fps = 24.0
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        sample_indices = self.video_sample_indices(total_frames, native_fps)
+        old_height, old_width = self.image_height, self.image_width
+        source_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        source_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        if source_width > 0 and source_height > 0:
+            self.image_width = source_width
+            self.image_height = source_height
+        frames, timestamps = [], []
+        frame_idx = 0
+        sample_idx = 0
+        try:
+            while sample_idx < len(sample_indices):
+                ok, frame = cap.read()
+                if not ok:
+                    break
+                if frame_idx == sample_indices[sample_idx]:
+                    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    frames.append(self.image_to_tensor(Image.fromarray(frame)))
+                    timestamps.append(frame_idx / native_fps)
+                    sample_idx += 1
+                frame_idx += 1
+            cap.release()
+            if not frames:
+                raise RuntimeError(f"no frames sampled from video: {video}")
+            if len(frames) % self.temporal_patch_size:
+                frames.append(frames[-1])
+                timestamps.append(timestamps[-1])
+
+            video_embed = self.videos_forward(frames)
+            self.video_embeds.append(video_embed)
+            grid_t = len(frames) // self.temporal_patch_size
+            grid_h = frames[0].shape[2] // self.patch_size
+            grid_w = frames[0].shape[3] // self.patch_size
+            frame_seqlen = video_embed.shape[0] // grid_t
+            segments = []
+            for t in range(grid_t):
+                start = t * self.temporal_patch_size
+                timestamp = sum(timestamps[start:start + self.temporal_patch_size]) / self.temporal_patch_size
+                segments.append((timestamp, frame_seqlen))
+                self.vision_segments.append({'type': 'video', 'grid': [1, grid_h, grid_w]})
+            return segments
+        finally:
+            cap.release()
+            self.image_height, self.image_width = old_height, old_width
+
+    def video_sample_indices(self, total_frames, native_fps):
+        if total_frames <= 0:
+            return []
+        if native_fps <= 0:
+            native_fps = 24.0
+        target_fps = getattr(self, 'video_fps', 2.0)
+        min_frames = getattr(self, 'video_min_frames', 4)
+        max_frames = getattr(self, 'video_max_frames', 768)
+        num_frames = int(total_frames / native_fps * target_fps)
+        num_frames = min(max(num_frames, min_frames), max_frames, total_frames)
+        if num_frames <= 1:
+            return [0]
+        return torch.linspace(0, total_frames - 1, num_frames).round().to(torch.int64).tolist()
 
     def vision_position_ids(self, grid_thw):
         pos_ids = []
@@ -380,12 +481,12 @@ class Qwen2Vision(Vision):
             hpos_ids = torch.arange(h).unsqueeze(1).expand(-1, w)
             hpos_ids = hpos_ids.reshape(llm_h, self.merge_size, llm_w, self.merge_size)
             hpos_ids = hpos_ids.permute(0, 2, 1, 3)
-            hpos_ids = hpos_ids.flatten()
+            hpos_ids = hpos_ids.flatten().repeat(t)
 
             wpos_ids = torch.arange(w).unsqueeze(0).expand(h, -1)
             wpos_ids = wpos_ids.reshape(llm_h, self.merge_size, llm_w, self.merge_size)
             wpos_ids = wpos_ids.permute(0, 2, 1, 3)
-            wpos_ids = wpos_ids.flatten()
+            wpos_ids = wpos_ids.flatten().repeat(t)
             pos_ids.append(torch.stack([hpos_ids, wpos_ids]))
         position_ids = torch.cat(pos_ids, dim=0)
         return position_ids
@@ -433,6 +534,35 @@ class Qwen2Vision(Vision):
         attention_mask = self.vision_attention_mask(grid_thw)
         return self.forward(flatten_patches, position_ids, attention_mask)
 
+    def video_reshape(self, frames):
+        patches = torch.concat(frames, axis=0)
+        _, channel, height, width = patches.shape
+        grid_t = patches.shape[0] // self.temporal_patch_size
+        grid_h, grid_w = height // self.patch_size, width // self.patch_size
+        patches = patches.reshape(
+            grid_t,
+            self.temporal_patch_size,
+            channel,
+            grid_h // self.merge_size,
+            self.merge_size,
+            self.patch_size,
+            grid_w // self.merge_size,
+            self.merge_size,
+            self.patch_size,
+        )
+        patches = patches.permute(0, 3, 6, 4, 7, 2, 1, 5, 8)
+        flatten_patches = patches.reshape(
+            grid_t * grid_h * grid_w, channel * self.temporal_patch_size * self.patch_size * self.patch_size
+        )
+        return flatten_patches, torch.tensor([[grid_t, grid_h, grid_w]])
+
+    def videos_forward(self, frames):
+        flatten_patches, grid_thw = self.video_reshape(frames)
+        position_ids = self.vision_position_ids(grid_thw)
+        attention_mask = self.vision_attention_mask(grid_thw)
+        output = self.forward(flatten_patches, position_ids, attention_mask)
+        return output[0] if isinstance(output, tuple) else output
+
     def forward(self, flatten_patches, position_ids, attention_mask):
         rotary_pos_emb = self.rotary(position_ids)
         hidden_states = self.patch_embed(flatten_patches)
@@ -463,7 +593,7 @@ class Qwen2Vision(Vision):
             w_bar = math.ceil(width * beta / factor) * factor
         return h_bar, w_bar
 
-    def img_process(self, image):
+    def image_to_tensor(self, image):
         from transformers.image_transforms import (
             convert_to_rgb,
             resize,
@@ -485,7 +615,10 @@ class Qwen2Vision(Vision):
         image = normalize(image=image, mean=self.norm_mean, std=self.norm_std, input_data_format=format)
         image = np.expand_dims(image, [0])
         image = image.transpose(0, 3, 1, 2)
-        image = torch.from_numpy(image)
+        return torch.from_numpy(image)
+
+    def img_process(self, image):
+        image = self.image_to_tensor(image)
         image_embed = self.images_forward(image)
         self.image_embeds.append(image_embed)
         return image_embed.shape[0]
@@ -495,6 +628,9 @@ class Qwen2Vision(Vision):
         if self.image_embeds is not None and len(self.image_embeds) > 0:
             image_mask = (input_ids == self.image_pad_id).squeeze()
             input_embeds[image_mask] = torch.concat(self.image_embeds, dim=0).to(input_embeds.dtype)
+        if self.video_embeds is not None and len(self.video_embeds) > 0:
+            video_mask = (input_ids == self.video_pad_id).squeeze()
+            input_embeds[video_mask] = torch.concat(self.video_embeds, dim=0).to(input_embeds.dtype)
         return input_embeds
 
     @spinner_run(f'export visual to ')
@@ -1160,7 +1296,8 @@ class Qwen3_5Vision(Qwen2Vision):
         self.llm_config['image_mean'] = image_mean.tolist()
         self.llm_config['image_norm'] = image_norm.tolist()
         self.llm_config['num_grid_per_side'] = self.num_grid_per_side
-        self.llm_config['has_deepstack'] = True
+        if len(getattr(visual, 'deepstack_visual_indexes', [])) > 0:
+            self.llm_config['has_deepstack'] = True
         # --- 修改点 1: 将 Patch_Embed 从 Conv3d 转换为 Linear ---
         if hasattr(visual.patch_embed, 'proj'):
             old_conv = visual.patch_embed.proj  # 重点：访问 .proj
@@ -1230,6 +1367,9 @@ class Qwen3_5Vision(Qwen2Vision):
         if self.image_embeds is not None and len(self.image_embeds) > 0:
             image_mask = (input_ids == self.image_pad_id).squeeze()
             input_embeds[image_mask] = torch.concat(self.image_embeds, dim=0).to(input_embeds.dtype)
+        if self.video_embeds is not None and len(self.video_embeds) > 0:
+            video_mask = (input_ids == self.video_pad_id).squeeze()
+            input_embeds[video_mask] = torch.concat(self.video_embeds, dim=0).to(input_embeds.dtype)
         return input_embeds
 
     def images_forward(self, images):
@@ -1239,6 +1379,14 @@ class Qwen3_5Vision(Qwen2Vision):
         attention_mask = self.vision_attention_mask(grid_thw)
         image_embeds = self.forward(flatten_patches, position_ids, attention_mask, idx_tensor, weight_tensor)
         return image_embeds
+
+    def videos_forward(self, frames):
+        flatten_patches, grid_thw = self.video_reshape(frames)
+        idx_tensor, weight_tensor = self.get_idx_weight(grid_thw)
+        position_ids = self.vision_position_ids(grid_thw)
+        attention_mask = self.vision_attention_mask(grid_thw)
+        video_embeds = self.forward(flatten_patches, position_ids, attention_mask, idx_tensor, weight_tensor)
+        return video_embeds
 
     def forward(self, flatten_patches, position_ids, attention_mask, idx_tensor, weight_tensor):
         rotary_pos_emb = self.rotary(position_ids)

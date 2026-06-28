@@ -12,6 +12,7 @@
 #include <memory>
 #include <string>
 #include <fstream>
+#include <map>
 #include <sstream>
 #include <iostream>
 #include <streambuf>
@@ -45,28 +46,22 @@ class Sampler;
 class Generation;
 class EagleGeneration;
 struct TimePerformance;
-#define CHECK_LLM_RUNNING_RET(ctx, ret)                         \
-{                                                               \
-    if ((ctx)->status == LlmStatus::NOT_LOADED ||               \
-    (ctx)->status == LlmStatus::INTERNAL_ERROR ||               \
-    (ctx)->status == LlmStatus::TIMEOUT ||                      \
-    (ctx)->status == LlmStatus::USER_CANCEL) {                  \
-        MNN_ERROR("[Error]: LLM in error state. Status: %d\n", \
-                  static_cast<int>((ctx)->status));             \
-        return (ret);                                           \
-    }                                                           \
-}
-#define CHECK_LLM_RUNNING(ctx)                                  \
-{                                                               \
-    if ((ctx)->status == LlmStatus::NOT_LOADED ||               \
-    (ctx)->status == LlmStatus::INTERNAL_ERROR ||               \
-    (ctx)->status == LlmStatus::TIMEOUT ||                      \
-    (ctx)->status == LlmStatus::USER_CANCEL) {                  \
-        MNN_ERROR("[Error]: LLM in error state. Status: %d\n", \
-                  static_cast<int>((ctx)->status));             \
-        return;                                                 \
-    }                                                           \
-}
+#define CHECK_LLM_RUNNING_RET(ctx, ret)                                                              \
+    {                                                                                                \
+        if ((ctx)->status == LlmStatus::NOT_LOADED || (ctx)->status == LlmStatus::INTERNAL_ERROR ||  \
+            (ctx)->status == LlmStatus::TIMEOUT || (ctx)->status == LlmStatus::USER_CANCEL) {        \
+            MNN_ERROR("[Error]: LLM in error state. Status: %d\n", static_cast<int>((ctx)->status)); \
+            return (ret);                                                                            \
+        }                                                                                            \
+    }
+#define CHECK_LLM_RUNNING(ctx)                                                                       \
+    {                                                                                                \
+        if ((ctx)->status == LlmStatus::NOT_LOADED || (ctx)->status == LlmStatus::INTERNAL_ERROR ||  \
+            (ctx)->status == LlmStatus::TIMEOUT || (ctx)->status == LlmStatus::USER_CANCEL) {        \
+            MNN_ERROR("[Error]: LLM in error state. Status: %d\n", static_cast<int>((ctx)->status)); \
+            return;                                                                                  \
+        }                                                                                            \
+    }
 
 struct MNN_PUBLIC PromptImagePart {
     MNN::Express::VARP image_data;
@@ -79,10 +74,24 @@ struct MNN_PUBLIC PromptAudioPart {
     MNN::Express::VARP waveform;
 };
 
+struct MNN_PUBLIC PromptVideoPart {
+    // file_path is decoded and sampled by Omni using the model video_fps/video_max_frames config.
+    std::string file_path;
+    // In-memory frames are expected to be already sampled in chronological order; timestamps, when provided,
+    // are seconds for those sampled frames.
+    std::vector<MNN::Express::VARP> frames;
+    std::vector<float> timestamps;
+    int width = 0;
+    int height = 0;
+    float fps = 2.0f;
+    int max_frames = 768;
+};
+
 struct MNN_PUBLIC MultimodalPrompt {
     std::string prompt_template;
     std::map<std::string, PromptImagePart> images;
     std::map<std::string, PromptAudioPart> audios;
+    std::map<std::string, PromptVideoPart> videos;
 };
 
 enum TuneType {
@@ -131,15 +140,12 @@ struct LlmContext {
 struct GenerationParams;
 class MNN_PUBLIC Llm {
 public:
-    enum Stage {
-        Prefill,
-        Decode
-    };
+    enum Stage { Prefill, Decode };
     // Log buffer interface: retrieve accumulated log and clear the buffer.
     // Only effective when LLM_LOG_TO_STRING macro is enabled during compilation.
     std::string getLog();
     static Llm* createLLM(const std::string& config_path);
-    static void destroy(Llm* llm);// For Windows RT mode should use destroy
+    static void destroy(Llm* llm); // For Windows RT mode should use destroy
     Llm(std::shared_ptr<LlmConfig> config);
     virtual ~Llm();
     virtual bool load();
@@ -151,7 +157,8 @@ public:
     int getOutputIndex(const std::string& name) const;
     void reset();
     void tuning(TuneType type, std::vector<int> candidates);
-    virtual std::vector<Express::VARP> forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos, Express::VARPS extraArgs = {});
+    virtual std::vector<Express::VARP> forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos,
+                                                  Express::VARPS extraArgs = {});
     Express::VARP forward(const std::vector<int>& input_ids, bool is_prefill = true);
     Express::VARP forward(MNN::Express::VARP input_embeds);
     void switchMode(Stage stage);
@@ -159,10 +166,14 @@ public:
     size_t getCurrentHistory() const;
     void eraseHistory(size_t begin, size_t end);
     bool setPrefixCacheFile(const std::string& filename, int flag = 0);
-    virtual void response(const std::vector<int>& input_ids, std::ostream* os = &std::cout, const char* end_with = nullptr, int max_new_tokens = -1);
-    void response(const std::string& user_content, std::ostream* os = &std::cout, const char* end_with = nullptr, int max_new_tokens = -1);
-    void response(const ChatMessages& chat_prompts, std::ostream* os = &std::cout, const char* end_with = nullptr, int max_new_tokens = -1);
-    void response(MNN::Express::VARP input_embeds, std::ostream* os = &std::cout, const char* end_with = nullptr, int max_new_tokens = -1);
+    virtual void response(const std::vector<int>& input_ids, std::ostream* os = &std::cout,
+                          const char* end_with = nullptr, int max_new_tokens = -1);
+    void response(const std::string& user_content, std::ostream* os = &std::cout, const char* end_with = nullptr,
+                  int max_new_tokens = -1);
+    void response(const ChatMessages& chat_prompts, std::ostream* os = &std::cout, const char* end_with = nullptr,
+                  int max_new_tokens = -1);
+    void response(MNN::Express::VARP input_embeds, std::ostream* os = &std::cout, const char* end_with = nullptr,
+                  int max_new_tokens = -1);
     virtual void generate_init(std::ostream* os = nullptr, const char* end_with = nullptr);
     void generate(int max_token);
     std::vector<int> generate(const std::vector<int>& input_ids, int max_new_tokens = -1);
@@ -188,26 +199,23 @@ public:
     // ptompt functions
     std::string apply_chat_template(const std::string& user_content) const;
     std::string apply_chat_template(const ChatMessages& chat_prompts) const;
-    void response(const MultimodalPrompt& multimodal_input,
-                  std::ostream* os = &std::cout,
-                  const char* end_with = nullptr,
-                  int max_new_tokens = -1);
-    const LlmContext* getContext() const {
-        return mContext.get();
-    }
+    void response(const MultimodalPrompt& multimodal_input, std::ostream* os = &std::cout,
+                  const char* end_with = nullptr, int max_new_tokens = -1);
+    const LlmContext* getContext() const { return mContext.get(); }
     virtual void setWavformCallback(std::function<bool(const float*, size_t, bool)> callback) {}
     virtual void generateWavform() {}
+
 protected:
     void setChatTemplate();
     void initRuntime();
-    void setRuntimeHint(std::shared_ptr<Express::Executor::RuntimeManager> &rtg, bool mllm = false);
+    void setRuntimeHint(std::shared_ptr<Express::Executor::RuntimeManager>& rtg, bool mllm = false);
     std::shared_ptr<LlmContext> mContext;
     std::shared_ptr<KVMeta> mMeta;
     std::shared_ptr<LlmConfig> mConfig;
     std::shared_ptr<Tokenizer> mTokenizer;
     std::shared_ptr<DiskEmbedding> mDiskEmbedding;
     std::shared_ptr<DiskEmbedding> mPleEmbedding;
-    Express::VARP mPleInput; // PLE embeddings for current input
+    Express::VARP mPleInput;         // PLE embeddings for current input
     Express::VARP mTextEmbedsForPle; // Pure text embeddings for PLE projection
     std::shared_ptr<Sampler> mSampler;
     std::shared_ptr<Express::Executor::RuntimeManager> mRuntimeManager, mProcessorRuntimeManager;
@@ -225,6 +233,7 @@ protected:
     Express::VARP logitsAllIdx, logitsLastIdx;
     int mSeqLenIndex = 0;
     std::shared_ptr<MNN::Express::Executor> mExecutor;
+
 protected:
     friend class ArGeneration;
     friend class LookaheadGeneration;
@@ -234,6 +243,7 @@ protected:
     friend class Omni;
     std::vector<Express::VARP> forwardVec(const std::vector<int>& input_ids);
     std::vector<Express::VARP> forwardVec(MNN::Express::VARP input_embeds);
+
 private:
     std::shared_ptr<Generation> mGenerationStrategy;
     void setSpeculativeConfig();
@@ -269,13 +279,14 @@ public:
 
     Express::VARP ids_embedding(const std::vector<int>& ids);
     Express::VARP txt_embedding(const std::string& txt);
-    std::vector<Express::VARP> forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos, Express::VARPS extraArgs = {}) override;
+    std::vector<Express::VARP> forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos,
+                                          Express::VARPS extraArgs = {}) override;
     int dim() const;
     virtual Express::VARP gen_attention_mask(int seq_len) override;
     virtual Express::VARP gen_position_ids(int seq_len) override;
 };
 // Embedding end
-}
-}
+} // namespace Transformer
+} // namespace MNN
 
 #endif // LLM_hpp

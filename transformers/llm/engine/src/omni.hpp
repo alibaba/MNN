@@ -9,6 +9,7 @@
 #define OMNI_hpp
 
 #include "llm/llm.hpp"
+#include <algorithm>
 #include <vector>
 #include <thread>
 #include <mutex>
@@ -19,6 +20,12 @@
 namespace MNN {
 using namespace Express;
 namespace Transformer {
+
+static const char* const kOmniMultimodalRegex = "<(img|audio|video)>(.*?)</\\1>";
+
+std::vector<int> qwenVideoSampleIndices(int totalFrames, double nativeFps, float targetFps, int minFrames,
+                                        int maxFrames);
+void fillQwenVisionAttentionMask(float* mask, int gridT, int tokensPerTemporal);
 
 class MropeInfo {
 public:
@@ -32,7 +39,7 @@ public:
         if (mW.empty()) {
             return 0;
         }
-        return mW.back();
+        return std::max(mT.back(), std::max(mH.back(), mW.back()));
     }
     int currentIdx() {
         if (mW.empty()) {
@@ -45,9 +52,7 @@ public:
         mH.push_back(h);
         mW.push_back(w);
     }
-    void push_back(int t) {
-        push_back(t, t, t);
-    }
+    void push_back(int t) { push_back(t, t, t); }
     void push_back() {
         int cur_idx = currentIdx();
         push_back(cur_idx, cur_idx, cur_idx);
@@ -101,8 +106,8 @@ public:
     bool mInterleaved = false;
 
 private:
-    int mMaxNewTokens = 2048, mTextBosToken = 151872, mTextEosToken = 151861,
-        mTextPadToken = 151859, mCodecBosToken = 8293, mCodecPadToken = 8292;
+    int mMaxNewTokens = 2048, mTextBosToken = 151872, mTextEosToken = 151861, mTextPadToken = 151859,
+        mCodecBosToken = 8293, mCodecPadToken = 8292;
     VARP mTextBos, mTextEos, mTextPad, mCodecBos, mCodecPad, mSpk, mCond;
     MropeInfo mPositionIds;
     std::vector<VARP> mTalkerEmbeds;
@@ -112,10 +117,9 @@ private:
     // stream generate
     std::vector<float> mInitialNoise, mWaveformBuffer;
     VARP mMelBuffer = nullptr;
-    const int dit_chunk_size = 60, dit_left_context = 24,
-        dit_right_context = 12, dit_right_padding = dit_right_context,
-        vocoder_left_context = 8, vocoder_right_context = 8,
-        vocoder_right_pad = vocoder_right_context, vocoder_upsample_rate = 240;
+    const int dit_chunk_size = 60, dit_left_context = 24, dit_right_context = 12, dit_right_padding = dit_right_context,
+              vocoder_left_context = 8, vocoder_right_context = 8, vocoder_right_pad = vocoder_right_context,
+              vocoder_upsample_rate = 240;
     int dit_left_padding = 0, dit_start_index = 0, vocoder_left_pad = 0;
     std::function<bool(const float*, size_t, bool)> mWavformCallback = nullptr;
     // async token2wav pipeline (true parallelism via cloned modules)
@@ -151,12 +155,14 @@ public:
         mAudioModule.reset();
     }
     virtual bool load() override;
-    virtual std::vector<Express::VARP> forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos, Express::VARPS extraArgs) override;
+    virtual std::vector<Express::VARP> forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos,
+                                                  Express::VARPS extraArgs) override;
     virtual std::vector<int> tokenizer_encode(const std::string& query) override;
     virtual std::vector<int> tokenizer_encode(const MultimodalPrompt& multimodal_input) override;
     virtual Express::VARP embedding(const std::vector<int>& input_ids) override;
     virtual Express::VARP gen_position_ids(int seq_len) override;
-    virtual void response(const std::vector<int>& input_ids, std::ostream* os = &std::cout, const char* end_with = nullptr, int max_new_tokens = -1) override;
+    virtual void response(const std::vector<int>& input_ids, std::ostream* os = &std::cout,
+                          const char* end_with = nullptr, int max_new_tokens = -1) override;
     virtual void setWavformCallback(std::function<bool(const float*, size_t, bool)> callback) override;
     virtual void generateWavform() override;
     // some models preprocess function
@@ -166,21 +172,30 @@ public:
     std::vector<int> smolvlmVisionProcess(VARP image);
     std::vector<int> minicpmVisionProcess(VARP image);
     std::vector<int> gemma4VisionProcess(VARP image);
+    std::vector<int> qwenVideoProcess(const std::vector<VARP>& frames, const std::vector<float>& timestamps);
+
 private:
-    int mVisionHeight = 448, mVisionWidth = 448, mVisionStart = 151857,
-        mVisionEnd = 151858, mVisionPad = 151859, mAudioPad = 151646,
-        mAudioStart = -1, mAudioEnd = -1;
+    int mVisionHeight = 448, mVisionWidth = 448, mVisionStart = 151857, mVisionEnd = 151858, mVisionPad = 151859,
+        mAudioPad = 151646, mAudioStart = -1, mAudioEnd = -1, mVideoPad = -1;
     int mVisionGlobal = 49152;
     int mVisionSizeUnit = 1, mVisionMaxSize = 2048;
+    float mVideoFps = 2.0f;
+    int mVideoMaxFrames = 768;
     int mVisionNum = 0;
     std::vector<float> mVisionMean{122.7709383, 116.7460125, 104.09373615};
     std::vector<float> mVisionNorm{0.01459843, 0.01500777, 0.01422007};
     std::vector<int> multimodeProcess(const std::string& mode, std::string info);
     std::vector<int> visionProcess(const std::string& file);
+    std::vector<int> videoProcess(const std::string& file);
+    std::vector<int> videoProcess(const PromptVideoPart& video);
     std::vector<int> audioProcess(const std::string& file);
     std::vector<int> audioProcess(MNN::Express::VARP waveform);
-    std::vector<int> processImageContent(const std::string& content, const std::map<std::string, PromptImagePart>& images);
-    std::vector<int> processAudioContent(const std::string& content, const std::map<std::string, PromptAudioPart>& audios);
+    std::vector<int> processImageContent(const std::string& content,
+                                         const std::map<std::string, PromptImagePart>& images);
+    std::vector<int> processAudioContent(const std::string& content,
+                                         const std::map<std::string, PromptAudioPart>& audios);
+    std::vector<int> processVideoContent(const std::string& content,
+                                         const std::map<std::string, PromptVideoPart>& videos);
     void responseInterleaved(const std::vector<int>& input_ids, std::ostream* os, const char* end_with,
                              int max_new_tokens);
     std::shared_ptr<Module> mVisionModule, mAudioModule;
@@ -192,6 +207,6 @@ private:
     MropeInfo mPositionIds;
 };
 
-}
-}
+} // namespace Transformer
+} // namespace MNN
 #endif // OMNI_hpp
