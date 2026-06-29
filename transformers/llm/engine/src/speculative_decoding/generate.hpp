@@ -37,6 +37,9 @@ public:
         // do nothing
     };
     virtual void generate(GenerationParams& param) = 0;
+    virtual void reset() {
+        // do nothing
+    };
 protected:
     int draftVerify(MNN::Express::VARP logits, const std::vector<int>& drafts, bool& stop);
     std::shared_ptr<LlmContext> mContext;
@@ -121,6 +124,7 @@ public:
     virtual ~DFlashGeneration() = default;
     virtual void load(Module::Config module_config) override;
     virtual void generate(GenerationParams& param) override;
+    virtual void reset() override;
 private:
     MNN::Express::VARP dflashForward(const std::vector<int>& block_ids, MNN::Express::VARP context_hidden);
     MNN::Express::VARP fcForward(MNN::Express::VARP hidden_states);

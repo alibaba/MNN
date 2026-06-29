@@ -835,6 +835,9 @@ void Llm::generate_init(std::ostream* os, const char* end_with) {
         mContext->all_seq_len = 0;
         mMeta->remove = mMeta->previous;
     }
+    if (mGenerationStrategy) {
+        mGenerationStrategy->reset();
+    }
     if(mContext->status != LlmStatus::NOT_LOADED) {
         mContext->status = LlmStatus::RUNNING;
     }
