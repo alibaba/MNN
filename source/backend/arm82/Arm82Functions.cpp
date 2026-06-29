@@ -2,6 +2,7 @@
 #include <math.h>
 #include <float.h>
 #include "Arm82Functions.hpp"
+#include "compute/Arm82Pack.hpp"
 #include "Arm82OptFunc.hpp"
 #include "Arm82WinogradOptFunc.hpp"
 #include "Arm82Vec.hpp"
@@ -1338,23 +1339,31 @@ static void Sme2MNNPackC4ForMatMul_A_FP16(float* destOrigin, float const** sourc
         const int eHandled = eMain * eTile;
         const int lHandled = lMain * lTile;
 
-        // Process remaining rows
-        for (int y = eHandled; y < e; ++y) {
-            int yR = y % eDest;
-            for (int x = 0; x < l; ++x) {
-                int xR = x % pack;
-                int xC = x / pack;
-                destBase[(x / lP) * dstColBlockStride + yR * lP + (x % lP)] = sourceBase[xC * srcColBlockStride + y * srcRowStride + xR];
+        if (lMain == 0 && l <= pack) {
+            // Fast path: all channels fit in one NC8HW8 slice (e.g., ic=3 first conv).
+            // The helper preserves row wrapping while avoiding per-element address division/modulo.
+            Arm82::packSmallChannelForMatMulA(destBase, sourceBase, e, l, eDest, srcRowStride);
+        } else {
+            // Process remaining rows
+            for (int y = eHandled; y < e; ++y) {
+                int yR = y % eDest;
+                for (int x = 0; x < l; ++x) {
+                    int xR = x % pack;
+                    int xC = x / pack;
+                    destBase[(x / lP) * dstColBlockStride + yR * lP + (x % lP)] =
+                        sourceBase[xC * srcColBlockStride + y * srcRowStride + xR];
+                }
             }
-        }
 
-        // Process remaining columns for the already handled rows
-        for (int y = 0; y < eHandled; ++y) {
-            int yR = y % eDest;
-            for (int x = lHandled; x < l; ++x) {
-                int xR = x % pack;
-                int xC = x / pack;
-                destBase[(x / lP) * dstColBlockStride + yR * lP + (x % lP)] = sourceBase[xC * srcColBlockStride + y * srcRowStride + xR];
+            // Process remaining columns for the already handled rows
+            for (int y = 0; y < eHandled; ++y) {
+                int yR = y % eDest;
+                for (int x = lHandled; x < l; ++x) {
+                    int xR = x % pack;
+                    int xC = x / pack;
+                    destBase[(x / lP) * dstColBlockStride + yR * lP + (x % lP)] =
+                        sourceBase[xC * srcColBlockStride + y * srcRowStride + xR];
+                }
             }
         }
     }
