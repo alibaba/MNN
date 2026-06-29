@@ -19,7 +19,7 @@
 #include "utils/InitNet.hpp"
 
 namespace MNN {
-void Session::createPipelineBackend(Schedule::PipelineInfo& iter, RuntimeInfo& runtime) {
+void Session::createPipelineBackend(Schedule::PipelineInfo& iter, RuntimeInfo& runtime, void* meta) {
     if (iter.first.cache.first != nullptr) {
         return;
     }
@@ -30,6 +30,7 @@ void Session::createPipelineBackend(Schedule::PipelineInfo& iter, RuntimeInfo& r
         specialUsage = iter.first.info.user->flags > 0;
     }
     iter.first.cache.first.reset(rt->onCreate(iter.first.info.user));
+    iter.first.cache.first->setMetaPtr(meta);
     std::shared_ptr<Backend> second;
     if (iter.first.cache.first->type() == MNN_FORWARD_CPU && (!specialUsage)) {
         iter.first.cache.second = iter.first.cache.first;
@@ -49,6 +50,7 @@ void Session::createPipelineBackend(Schedule::PipelineInfo& iter, RuntimeInfo& r
             origin = iter.first.cache.first.get();
         }
         iter.first.cache.second.reset(cpuRuntime->onCreate(&defaultConfig, origin));
+        iter.first.cache.second->setMetaPtr(meta);
     }
 }
 void Session::ModeGroup::setMode(Interpreter::SessionMode mode) {
@@ -500,7 +502,7 @@ static void initTensors(std::vector<std::shared_ptr<Tensor>>& tensors,
     }
 }
 
-Session* Session::clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::ScheduleInfo> sharedConst) {
+Session* Session::clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::ScheduleInfo> sharedConst, void* meta) {
     // TODO: Currently only valid for Module api's onClone
     Schedule::ScheduleInfo scheduleInfo;
     scheduleInfo.defaultBackend = mInfo.defaultBackend;
@@ -520,7 +522,7 @@ Session* Session::clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::Schedul
     pipelineInfo.first.info.user = &pipelineInfo.first.config;
     auto& oplists                = pipelineInfo.second;
     oplists.resize(opCaches.size());
-    createPipelineBackend(pipelineInfo, runtime);
+    createPipelineBackend(pipelineInfo, runtime, meta);
     auto first  = pipelineInfo.first.cache.first;
     auto second = pipelineInfo.first.cache.second;
     for (int i = 0; i < opCaches.size(); ++i) {
