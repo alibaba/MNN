@@ -23,6 +23,11 @@ DFlashGeneration::DFlashGeneration(Llm* llm, std::shared_ptr<LlmContext> context
     mMaskTokenId = config->dflash_mask_token_id();
 }
 
+void DFlashGeneration::reset() {
+    mInitialized = false;
+    mContextHidden = nullptr;
+}
+
 void DFlashGeneration::load(Module::Config module_config) {
     // Check if separate lm_head model exists
     std::string lmheadPath = mLlm->mConfig->dflash_lmhead();
