@@ -92,15 +92,12 @@ ErrorCode QNNStridedSlice::onEncode(const std::vector<Tensor *> &inputs, const s
         }
         return NO_ERROR;
     }
-    if (TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
-        MNN_ERROR("[QNN] Don't Support NC4HW4 stridedslice now\n");
-        return NOT_SUPPORT;
-    }
+    bool isNC4HW4 = (TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4);
 
     auto param = mOp->main_as_StridedSliceParam();
     mNodeType = "StridedSlice";
 
-    // Deal with ranges.
+    // Deal with ranges (in MNN's NCHW logical order).
     std::vector<int> beginRaw(mInputDim, 0);
     std::vector<int> endRaw = inputTensor->shape();
     std::vector<int> strideRaw(mInputDim, 1);
@@ -108,6 +105,30 @@ ErrorCode QNNStridedSlice::onEncode(const std::vector<Tensor *> &inputs, const s
         this->computeRangesType0(inputs, beginRaw, endRaw, strideRaw);
     } else {
         this->computeRangesType1(inputs, beginRaw, endRaw, strideRaw);
+    }
+
+    // NC4HW4 layout: QNN sees NHWC, so remap ranges from NCHW → NHWC
+    if (isNC4HW4 && mInputDim >= 2) {
+        // NCHW order: [N, C, H, W, ...]  →  NHWC order: [N, H, W, ..., C]
+        // Save channel (axis=1) values
+        int beginC = beginRaw[1], endC = endRaw[1], strideC = strideRaw[1];
+        // Shift spatial dims left: axis 2..N-1 → axis 1..N-2
+        for (int i = 2; i < mInputDim; i++) {
+            beginRaw[i - 1]  = beginRaw[i];
+            endRaw[i - 1]    = endRaw[i];
+            strideRaw[i - 1] = strideRaw[i];
+        }
+        // Channel becomes last
+        beginRaw[mInputDim - 1]  = beginC;
+        endRaw[mInputDim - 1]    = endC;
+        strideRaw[mInputDim - 1] = strideC;
+
+        // Also remap endRaw to use NHWC shape from inputShape (already remapped above)
+        for (int i = 0; i < mInputDim; i++) {
+            if (endRaw[i] > inputShape[i]) {
+                endRaw[i] = inputShape[i];
+            }
+        }
     }
 
     std::vector<int> rangeData(mInputDim * 3, 0);
@@ -166,21 +187,26 @@ void QNNStridedSlice::computeRangesType1(const std::vector<Tensor *> &inputs, st
     auto inputTensor = inputs[0];
     auto beginTensor = inputs[1];
     auto endTensor = inputs[2];
-    auto strideTensor = inputs[4];
     auto beginRawSource = beginTensor->host<int>();
     auto endRawSource = endTensor->host<int>();
-    auto strideRawSource = strideTensor->host<int>();
+
+    // fromType=1: inputs = [data, begin, end, axes, (stride)]
+    // stride is optional — when absent (4 inputs), default all strides to 1
+    bool hasStride = (inputs.size() >= 5);
+    int* strideRawSource = nullptr;
+    if (hasStride) {
+        strideRawSource = inputs[4]->host<int>();
+    }
 
     auto axisTensor = inputs[3];
     int sliceDim = beginTensor->length(0);
-    MNN_ASSERT(sliceDim == endTensor->length(0) && sliceDim == axisTensor->length(0) && sliceDim == strideTensor->length(0));
 
     for (int i = 0; i < sliceDim; i++) {
         int tempAxis = axisTensor->host<int>()[i];
         tempAxis = tempAxis >= 0 ? tempAxis : (tempAxis + mInputDim);
         beginRaw[tempAxis] = CLIP(beginRawSource[i], 0, inputs[0]->length(tempAxis) - 1);
         endRaw[tempAxis] = CLIP(endRawSource[i], 1, inputs[0]->length(tempAxis));
-        strideRaw[tempAxis] = strideRawSource[i];
+        strideRaw[tempAxis] = hasStride ? strideRawSource[i] : 1;
     }
     return;
 }
@@ -206,25 +232,43 @@ public:
             return new QNNStridedSlice(backend, op);
         }
         auto param = op->main_as_StridedSliceParam();
+        if (nullptr == param) {
+            MNN_PRINT("MNN_QNN StridedSlice: param is null\n");
+            return nullptr;
+        }
+
+        MNN_PRINT("MNN_QNN StridedSlice: fromType=%d, inputs=%zu, beginMask=%d, endMask=%d, shrinkMask=%d, newAxisMask=%d, ellipsisMask=%d\n",
+                   param->fromType(), inputs.size(), param->beginMask(), param->endMask(),
+                   param->shrinkAxisMask(), param->newAxisMask(), param->ellipsisMask());
 
         // <begin>, <end> and <stride> should be static.
         for (int i = 1; i < inputs.size(); i++) {
-            MNN_ASSERT(TensorUtils::getDescribe(inputs[i])->usage == Tensor::InsideDescribe::Usage::CONSTANT);
+            if (TensorUtils::getDescribe(inputs[i])->usage != Tensor::InsideDescribe::Usage::CONSTANT) {
+                MNN_PRINT("MNN_QNN StridedSlice: input[%d] is NOT constant (usage=%d), skip\n", i, (int)TensorUtils::getDescribe(inputs[i])->usage);
+                return nullptr;
+            }
         }
 
         if (param->fromType() == 1) {
-            MNN_ASSERT(param->shrinkAxisMask() == 0 && param->newAxisMask() == 0 && param->ellipsisMask() == 0);
-            if (inputs.size() != 5) {
+            if (param->shrinkAxisMask() != 0 || param->newAxisMask() != 0 || param->ellipsisMask() != 0) {
+                MNN_PRINT("MNN_QNN StridedSlice: fromType1 unsupported masks\n");
+                return nullptr;
+            }
+            // fromType=1: inputs = [data, begin, end, axes, (stride)]
+            // stride is optional — default to 1 when absent (4 inputs)
+            if (inputs.size() != 4 && inputs.size() != 5) {
+                MNN_PRINT("MNN_QNN StridedSlice: fromType1 inputs.size=%zu, need 4 or 5\n", inputs.size());
                 return nullptr;
             }
             return new QNNStridedSlice(backend, op);
         }
 
-        // [TODO] 把newAxisMask和ellipsisMask考虑在内
         if (param->fromType() == 0) {
             if (inputs.size() == 4 && param->newAxisMask() == 0 && param->ellipsisMask() == 0) {
                 return new QNNStridedSlice(backend, op);
             } else {
+                MNN_PRINT("MNN_QNN StridedSlice: fromType0 rejected: inputs=%zu, newAxisMask=%d, ellipsisMask=%d\n",
+                           inputs.size(), param->newAxisMask(), param->ellipsisMask());
                 return nullptr;
             }
         }
