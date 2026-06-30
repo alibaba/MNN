@@ -111,7 +111,7 @@ FuseAttention::FuseAttention() {
         } else {
             has_sinks = false;
         }
-        // mask
+        // mask (optional)
         if (helpers::IsSelect(x)) {
             mask = x->inputs().at(0);
             x = x->inputs().at(1)->expr().first;
@@ -119,7 +119,8 @@ FuseAttention::FuseAttention() {
             mask = x->inputs().at(1);
             x = x->inputs().at(0)->expr().first;
         } else {
-            return false;
+            mask = nullptr;
+            // no mask: x should directly be div(q@k, scale)
         }
 
         // div
@@ -181,7 +182,13 @@ FuseAttention::FuseAttention() {
         param->kv_cache       = kvcache;
         attention->main.value = param;
 
-        VARPS inputs = {query, key, value, mask};
+        VARPS inputs = {query, key, value};
+        if (mask.get() != nullptr) {
+            inputs.push_back(mask);
+        } else {
+            // no mask: push a placeholder nullptr VARP
+            inputs.push_back(VARP(nullptr));
+        }
         if (has_sinks) {
             inputs.push_back(sinks);
         }
