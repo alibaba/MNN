@@ -5,6 +5,15 @@ on:
       - '*'
       - '!Android*'
   workflow_dispatch:
+    inputs:
+      target:
+        description: Release target to build
+        required: false
+        default: all
+        type: choice
+        options:
+          - all
+          - windows
 
 jobs:
   setup:
@@ -13,6 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       VERSION: ${{ steps.get_version.outputs.VERSION }}
+      TARGET: ${{ steps.get_target.outputs.TARGET }}
     steps:
     - name: get-version
       id: get_version
@@ -24,9 +34,18 @@ jobs:
           # 如果不是标签，则设置版本为 'dev'
           echo "VERSION=dev" >> $GITHUB_OUTPUT
         fi
+    - name: get-target
+      id: get_target
+      run: |
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ github.event.inputs.target }}" ]]; then
+          echo "TARGET=${{ github.event.inputs.target }}" >> $GITHUB_OUTPUT
+        else
+          echo "TARGET=all" >> $GITHUB_OUTPUT
+        fi
 
   linux-release:
     needs: [setup]
+    if: ${{ needs.setup.outputs.TARGET == 'all' }}
     runs-on: ubuntu-latest
     env:
       PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_linux_x64_cpu_opencl_vulkan
@@ -52,6 +71,7 @@ jobs:
 
   windows-release:
     needs: [setup]
+    if: ${{ needs.setup.outputs.TARGET == 'all' || needs.setup.outputs.TARGET == 'windows' }}
     runs-on: windows-latest
     steps:
     - uses: actions/checkout@v4
@@ -98,6 +118,7 @@ jobs:
 
   macos-release:
     needs: [setup]
+    if: ${{ needs.setup.outputs.TARGET == 'all' }}
     runs-on: macos-latest
     env:
       PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_macos_x64_arm82_cpu_opencl_metal
@@ -129,6 +150,7 @@ jobs:
 
   android-release:
     needs: [setup]
+    if: ${{ needs.setup.outputs.TARGET == 'all' }}
     runs-on: ubuntu-latest
     env:
       PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_android_armv7_armv8_cpu_opencl_vulkan
@@ -169,6 +191,7 @@ jobs:
 
   harmony-release:
     needs: [setup]
+    if: ${{ needs.setup.outputs.TARGET == 'all' }}
     runs-on: ubuntu-latest
     env:
       PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_harmony_arm64_cpu
@@ -201,6 +224,7 @@ jobs:
 
   ios-release:
     needs: [setup]
+    if: ${{ needs.setup.outputs.TARGET == 'all' }}
     runs-on: macos-latest
     env:
       PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_ios_armv82_cpu_metal_coreml
@@ -232,7 +256,8 @@ jobs:
 
   upload-release:
     name: upload_to_release
-    needs: [linux-release, windows-release, macos-release, android-release, ios-release, harmony-release]
+    needs: [setup, linux-release, windows-release, macos-release, android-release, ios-release, harmony-release]
+    if: ${{ needs.setup.outputs.TARGET == 'all' }}
     runs-on: ubuntu-latest
     steps:
     - uses: actions/download-artifact@v4
