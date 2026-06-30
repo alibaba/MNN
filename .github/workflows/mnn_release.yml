@@ -53,8 +53,6 @@ jobs:
   windows-release:
     needs: [setup]
     runs-on: windows-latest
-    env:
-      PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_windows_x64_cpu_opencl_vulkan_avx512
     steps:
     - uses: actions/checkout@v4
       with:
@@ -63,17 +61,40 @@ jobs:
     - name: using msvc
       uses: ilammy/msvc-dev-cmd@v1
 
+    - name: set package name
+      id: package
+      shell: pwsh
+      run: |
+        $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+        $vsYear = ""
+        if (Test-Path $vswhere) {
+          $vsYear = (& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property catalog_productLineVersion | Select-Object -First 1)
+        }
+        if ([string]::IsNullOrWhiteSpace($vsYear)) {
+          switch -Regex ($env:VisualStudioVersion) {
+            '^16\.' { $vsYear = '2019' }
+            '^17\.' { $vsYear = '2022' }
+            '^18\.' { $vsYear = '2026' }
+            default { throw "Unable to determine Visual Studio version from VisualStudioVersion=$env:VisualStudioVersion" }
+          }
+        }
+        $vsYear = ([string]$vsYear).Trim()
+        $packageName = "mnn_${{ needs.setup.outputs.VERSION }}_windows_x64_vs${vsYear}_cpu_opencl_vulkan_avx512"
+        "PACKAGENAME=$packageName" >> $env:GITHUB_ENV
+        "name=$packageName" >> $env:GITHUB_OUTPUT
+        "Windows package name: $packageName"
+
     - name: build
       # LLM (+ vision/audio) + OpenCL + Vulkan + AVX512 are already enabled in
       # build_lib_release.ps1 by default.
-      run: powershell .\package_scripts\win\build_lib_release.ps1 -path ${{ env.PACKAGENAME }}
+      run: powershell .\package_scripts\win\build_lib_release.ps1 -path ${{ steps.package.outputs.name }}
     - name: package
-      run: 7z a -r ${{ env.PACKAGENAME }}.zip ${{ env.PACKAGENAME }}
+      run: 7z a -r ${{ steps.package.outputs.name }}.zip ${{ steps.package.outputs.name }}
     - name: upload-zip
       uses: actions/upload-artifact@v4
       with:
-        name: artifact-${{ env.PACKAGENAME }}
-        path: ${{ env.PACKAGENAME }}.zip
+        name: artifact-${{ steps.package.outputs.name }}
+        path: ${{ steps.package.outputs.name }}.zip
 
   macos-release:
     needs: [setup]
