@@ -86,19 +86,20 @@ jobs:
       shell: pwsh
       run: |
         $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-        $vsYear = ""
+        $vsVersion = ""
         if (Test-Path $vswhere) {
-          $vsYear = (& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property catalog_productLineVersion | Select-Object -First 1)
+          $vsVersion = (& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property catalog_productLineVersion | Select-Object -First 1)
         }
-        if ([string]::IsNullOrWhiteSpace($vsYear)) {
-          switch -Regex ($env:VisualStudioVersion) {
-            '^16\.' { $vsYear = '2019' }
-            '^17\.' { $vsYear = '2022' }
-            '^18\.' { $vsYear = '2026' }
-            default { throw "Unable to determine Visual Studio version from VisualStudioVersion=$env:VisualStudioVersion" }
-          }
+        if ([string]::IsNullOrWhiteSpace($vsVersion)) {
+          $vsVersion = $env:VisualStudioVersion
         }
-        $vsYear = ([string]$vsYear).Trim()
+        $vsVersion = ([string]$vsVersion).Trim()
+        switch -Regex ($vsVersion) {
+          '^2019$|^16(\.|$)' { $vsYear = '2019' }
+          '^2022$|^17(\.|$)' { $vsYear = '2022' }
+          '^2026$|^18(\.|$)' { $vsYear = '2026' }
+          default { throw "Unable to determine Visual Studio year from version=$vsVersion" }
+        }
         $packageName = "mnn_${{ needs.setup.outputs.VERSION }}_windows_x64_vs${vsYear}_cpu_opencl_vulkan_avx512"
         "PACKAGENAME=$packageName" >> $env:GITHUB_ENV
         "name=$packageName" >> $env:GITHUB_OUTPUT
