@@ -93,12 +93,17 @@ Example: `[LLM:Feature] Add streaming support`
 
 For the following tasks, **read the Skill entry file first** and execute step by step. Each step must pass its tests before proceeding.
 
-**After completing any skill-driven task, run the Retrospective skill** to reflect on mistakes and update the skill with lessons learned.
+**After non-trivial skill-driven tasks, run Retrospective only when there are reusable lessons.**
+
+Public skills are listed below. Environment-dependent skills may exist under `skills/*/SKILL.md`.
 
 | Skill | Entry File | Trigger |
 |-------|-----------|---------|
 | Support new LLM | `skills/support-new-llm/SKILL.md` | Add / adapt a new LLM model |
 | Add new op | `skills/add-new-op/SKILL.md` | Add a new operator |
 | ARM CPU optimization | `skills/arm-cpu-optimize/SKILL.md` | Optimize op performance on ARM CPU |
+| OpenCL optimization | `skills/opencl-optimize/SKILL.md` | Optimize op performance on OpenCL |
+| Vulkan optimization | `skills/vulkan-optimize/SKILL.md` | Optimize op performance on Vulkan |
+| Metal optimization | `skills/metal-optimize/SKILL.md` | Optimize op performance on Metal |
 | Run tests / CI | `skills/test-ci/SKILL.md` | Run the regression / CI suite (host or on-device), or add / select / retune a test stage |
-| Retrospective | `skills/retrospective/SKILL.md` | After any non-trivial task: reflect on mistakes, update relevant skills with lessons learned |
+| Retrospective | `skills/retrospective/SKILL.md` | After non-trivial tasks with reusable lessons |
