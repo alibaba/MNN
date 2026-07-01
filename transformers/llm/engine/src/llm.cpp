@@ -963,6 +963,7 @@ void Llm::response(const MultimodalPrompt& multimodal_input,
         multimodal_input_copy.prompt_template = apply_chat_template(multimodal_input_copy.prompt_template);
     }
     std::vector<int> input_ids = tokenizer_encode(multimodal_input_copy);
+    CHECK_LLM_RUNNING(mContext);
     response(input_ids, os, end_with, max_new_tokens);
 }
 
@@ -1059,6 +1060,7 @@ std::vector<int> Llm::generate(MNN::Express::VARP input_embeds, int max_tokens) 
 void Llm::response(const std::vector<int>& input_ids, std::ostream* os, const char* end_with, int max_new_tokens) {
     MNN::Express::ExecutorScope s(mExecutor);
     if (!end_with) { end_with = "\n"; }
+    CHECK_LLM_RUNNING(mContext);
     generate_init(os, end_with);
     CHECK_LLM_RUNNING(mContext);
     generate(input_ids, max_new_tokens);
@@ -1083,6 +1085,7 @@ void Llm::response(const std::string& user_content, std::ostream* os, const char
         }
     }
     std::vector<int> input_ids = tokenizer_encode(prompt);
+    CHECK_LLM_RUNNING(mContext);
     response(input_ids, os, end_with, max_new_tokens);
 }
 
