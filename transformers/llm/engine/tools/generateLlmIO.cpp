@@ -102,26 +102,63 @@ static void createInputsForEmbedding(int seqLen, int hiddenSize, const std::stri
     inputs.push_back(positionIds);
 }
 
-static bool isEmbeddingModel(const rapidjson::Document& doc) {
-    if (doc.HasMember("output_names") && doc["output_names"].IsArray()) {
-        for (auto iter = doc["output_names"].Begin(); iter != doc["output_names"].End(); ++iter) {
-            if (iter->IsString() && std::string(iter->GetString()) == "sentence_embeddings") {
-                return true;
-            }
+static bool hasStringValue(const rapidjson::Document& doc, const char* key, const std::string& value) {
+    if (!doc.HasMember(key)) {
+        return false;
+    }
+    auto& member = doc[key];
+    if (member.IsString()) {
+        return member.GetString() == value;
+    }
+    if (!member.IsArray()) {
+        return false;
+    }
+    for (auto iter = member.Begin(); iter != member.End(); ++iter) {
+        if (iter->IsString() && iter->GetString() == value) {
+            return true;
         }
     }
+    return false;
+}
+
+static bool isEmbeddingModel(const rapidjson::Document& doc, const std::string& modelDir) {
+    if (doc.HasMember("is_embedding") && doc["is_embedding"].IsBool() && doc["is_embedding"].GetBool()) {
+        return true;
+    }
+    if (hasStringValue(doc, "output_names", "sentence_embeddings")) {
+        return true;
+    }
+    if (doc.HasMember("llm_model") && doc["llm_model"].IsString()) {
+        auto modelName = std::string(doc["llm_model"].GetString());
+        if (modelName.find("embedding.mnn") != std::string::npos) {
+            return true;
+        }
+    }
+    if (doc.HasMember("embedding_model") && doc["embedding_model"].IsString()) {
+        auto modelName = std::string(doc["embedding_model"].GetString());
+        if (modelName.find("embedding.mnn") != std::string::npos) {
+            return true;
+        }
+    }
+    if (MNNFileExist(MNNFilePathConcat(modelDir, "embedding.mnn").c_str())) {
+        return true;
+    }
     auto modelType = std::string(doc.HasMember("model_type") && doc["model_type"].IsString() ? doc["model_type"].GetString() : "");
-    if (modelType == "bert" || modelType == "new" || modelType == "qwen3") {
+    if (modelType == "bert" || modelType == "new") {
+        return true;
+    }
+    if (modelType == "qwen3" && !doc.HasMember("layer_nums") && !doc.HasMember("attention_type") && !doc.HasMember("is_mrope")) {
         return true;
     }
     return false;
 }
 
-static bool generateForModel(const std::string& modelPath, const std::string& outputDir, const std::string& jsonPath, int blockSize) {
+static bool generateForModel(const std::string& modelDir, const std::string& outputDir, const std::string& jsonPath, int blockSize) {
     std::shared_ptr<MNN::Express::Module> net;
     std::vector<std::string> inputNames;
     std::vector<std::string> outputNames;
     bool isEmbedding = false;
+    std::string modelPath;
 
     int hiddenSize;
     std::string attentionMaskType;
@@ -152,8 +189,17 @@ static bool generateForModel(const std::string& modelPath, const std::string& ou
         }
         attentionMaskType = doc["attention_mask"].GetString();
 
-        isEmbedding = isEmbeddingModel(doc);
+        isEmbedding = isEmbeddingModel(doc, modelDir);
     }
+
+    modelPath = MNNFilePathConcat(modelDir, isEmbedding ? "embedding.mnn" : "llm.mnn");
+    if (isEmbedding && !MNNFileExist(modelPath.c_str())) {
+        auto llmModelPath = MNNFilePathConcat(modelDir, "llm.mnn");
+        if (MNNFileExist(llmModelPath.c_str())) {
+            modelPath = llmModelPath;
+        }
+    }
+    FUNC_PRINT_ALL(modelPath.c_str(), s);
 
     MNN::ScheduleConfig config;
     std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtmgr(MNN::Express::Executor::RuntimeManager::createRuntimeManager(config));
@@ -229,9 +275,8 @@ int main(int argc, char* argv[]) {
     }
     FUNC_PRINT(blockSize);
 
-    std::string modelPath = std::string(argv[1]) + "/llm.mnn";
-    std::string llmConfigPath = std::string(argv[1]) + "/llm_config.json";
-    FUNC_PRINT_ALL(modelPath.c_str(), s);
+    std::string modelDir = argv[1];
+    std::string llmConfigPath = MNNFilePathConcat(modelDir, "llm_config.json");
     FUNC_PRINT_ALL(llmConfigPath.c_str(), s);
     std::string outputDir = argv[2];
 
@@ -239,7 +284,7 @@ int main(int argc, char* argv[]) {
         MNN_PRINT("Failed to create dir %s.\n", outputDir.c_str());
     }
 
-    if (!generateForModel(modelPath, outputDir, llmConfigPath, blockSize)) {
+    if (!generateForModel(modelDir, outputDir, llmConfigPath, blockSize)) {
         return 1;
     }
 
