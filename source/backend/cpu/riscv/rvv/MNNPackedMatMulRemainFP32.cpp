@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <limits>
 #include <stddef.h>
+#include "../../compute/Int8FunctionsOpt.h"
 void MNNPackedMatMulRemainFP32_RVV(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
                                    const float* postParameters, const float* bias, const float* k, const float* b) {
     if (eSize == 0)
