@@ -177,6 +177,27 @@ SamplerState Sampler::createState(Express::VARP logits) {
     return state;
 }
 
+SamplerState Sampler::createState(Express::VARP logits, const std::vector<int>& indices) {
+    SamplerState state;
+    auto ptr = logits->readMap<float>();
+    auto info = logits->getInfo();
+    if (!ptr || !info) {
+        return state;
+    }
+    state.vocab_size = info->dim.empty() ? 0 : info->dim.back();
+    state.indices.reserve(indices.size());
+    state.logits.reserve(indices.size());
+    for (int index : indices) {
+        if (index < 0 || index >= info->size) {
+            continue;
+        }
+        state.indices.push_back(index);
+        state.logits.push_back(ptr[index]);
+    }
+    state.is_subset = true;
+    return state;
+}
+
 void Sampler::buildPipeline() {
     auto addStep = [this](const std::string& name) {
         if (name == "penalty") {
@@ -219,6 +240,19 @@ void Sampler::buildPipeline() {
 int Sampler::sample(Express::VARP logits) {
     Timer _t;
     SamplerState state = createState(logits);
+    for (auto& step : mPipeline) {
+        step(state);
+    }
+    mContext->sample_us += _t.durationInUs();
+    return state.selected_token;
+}
+
+int Sampler::sample(Express::VARP logits, const std::vector<int>& indices) {
+    Timer _t;
+    SamplerState state = createState(logits, indices);
+    if (state.logits.empty()) {
+        return -1;
+    }
     for (auto& step : mPipeline) {
         step(state);
     }

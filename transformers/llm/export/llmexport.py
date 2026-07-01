@@ -646,12 +646,30 @@ class LlmExporter(torch.nn.Module):
         if self.talker is None:
             return
         talker_onnx = self.talker.export(self.onnx_path)
-        predit_onnx, dit_onnx, bigvgan_onnx = self.talker.token2wav.export(self.onnx_path)
+        talker_onnx_list = talker_onnx if isinstance(talker_onnx, list) else [talker_onnx]
         if self.mnn_converter:
-            self.mnn_converter.export(talker_onnx, self.talker.quant_bit)
-            self.mnn_converter.export(predit_onnx, self.talker.token2wav.quant_bit)
-            self.mnn_converter.export(dit_onnx, self.talker.token2wav.quant_bit)
-            self.mnn_converter.export(bigvgan_onnx, self.talker.token2wav.quant_bit)
+            for onnx_path in talker_onnx_list:
+                weight_ops = None
+                if self.model_type == 'qwen3_tts':
+                    onnx_name = os.path.basename(onnx_path)
+                    if onnx_name == 'talker.onnx':
+                        weight_ops = getattr(self.talker, 'unloaded_ops', None)
+                    elif onnx_name == 'code_predictor.onnx' and hasattr(self.talker, 'code_predictor'):
+                        weight_ops = getattr(self.talker.code_predictor, 'unloaded_ops', None)
+                converter = MNNConverter(self, weight_ops) if weight_ops is not None else self.mnn_converter
+                converter.export(onnx_path, self.talker.quant_bit)
+                if weight_ops is not None:
+                    mnn_json = os.path.join(
+                        self.args.dst_path, os.path.basename(onnx_path).replace('.onnx', '.mnn.json'))
+                    if os.path.exists(mnn_json):
+                        os.remove(mnn_json)
+        if self.talker.token2wav is None:
+            return
+        token2wav_onnx = self.talker.token2wav.export(self.onnx_path)
+        token2wav_onnx_list = token2wav_onnx if isinstance(token2wav_onnx, (list, tuple)) else [token2wav_onnx]
+        if self.mnn_converter:
+            for onnx_path in token2wav_onnx_list:
+                self.mnn_converter.export(onnx_path, self.talker.token2wav.quant_bit)
 
     def export_ple_embed(self):
         """Export Per-Layer Embedding weights for gemma4."""
@@ -688,6 +706,8 @@ class LlmExporter(torch.nn.Module):
         self.llm_config['ple_embed_dim'] = embed.embedding_dim
 
     def export_language(self):
+        if self.model_type == 'qwen3_tts':
+            return # qwen3_tts is talker-only and do not need export language model
         # export_embedding
         if self.mnn_converter and self.args.tie_word_embeddings:
             pass # mnn tie_word_embeddings need't export embedding

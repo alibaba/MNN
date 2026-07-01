@@ -1,4 +1,5 @@
 import os
+import types
 import torch
 import torch.nn.functional as F
 torch.set_printoptions(precision=4, sci_mode=False)
@@ -6,6 +7,24 @@ from .model_mapper import ModelMapper
 from .transformers import Rotary, Embedding, Decoder, Attention
 from .spinner import spinner_run
 from .torch_utils import onnx_export
+
+
+def _load_prefixed_state_dict(path, prefix):
+    from safetensors.torch import load_file
+
+    tensors = load_file(path, device='cpu')
+    return {name[len(prefix):]: value for name, value in tensors.items() if name.startswith(prefix)}
+
+def _patch_qwen3_tts_dynamic_causal_conv(module, causal_conv_cls):
+    def dynamic_forward(self, hidden_state):
+        length = torch._shape_as_tensor(hidden_state)[-1]
+        extra_padding = torch.remainder(self.stride - torch.remainder(length, self.stride), self.stride)
+        hidden_state = F.pad(hidden_state, (self.padding, extra_padding), mode="constant", value=0)
+        return self.conv(hidden_state).contiguous()
+
+    for child in module.modules():
+        if isinstance(child, causal_conv_cls):
+            child.forward = types.MethodType(dynamic_forward, child)
 
 class Token2Wav(torch.nn.Module):
     def __init__(self,token2wav, base):
@@ -484,3 +503,108 @@ class Qwen2_5OmniToken2Wav(Token2Wav):
         dit = self.export_dit(onnx_path)
         bigvgan = self.export_bigvgan(onnx_path)
         return predit, dit, bigvgan
+
+class Qwen3TTSSpeechDecoderWrapper(torch.nn.Module):
+    def __init__(self, decoder):
+        super().__init__()
+        self.decoder = decoder.float()
+
+    def forward(self, codes):
+        hidden = self.decoder.quantizer.decode(codes)
+        hidden = self.decoder.pre_conv(hidden).transpose(1, 2)
+        seq_len = hidden.shape[1]
+        position_ids = torch.arange(seq_len, dtype=torch.long, device=hidden.device).unsqueeze(0)
+        query = torch.arange(seq_len, device=hidden.device).unsqueeze(1)
+        key = torch.arange(seq_len, device=hidden.device).unsqueeze(0)
+        min_value = torch.finfo(hidden.dtype).min
+        full_mask = torch.where(key > query, min_value, 0.0).reshape(1, 1, seq_len, seq_len)
+        window = self.decoder.pre_transformer.config.sliding_window
+        sliding_mask = torch.where((key > query) | (key <= query - window), min_value, 0.0).reshape(1, 1, seq_len, seq_len)
+        hidden = self.decoder.pre_transformer(
+            inputs_embeds=hidden,
+            attention_mask={'full_attention': full_mask, 'sliding_attention': sliding_mask},
+            position_ids=position_ids,
+            cache_position=position_ids[0],
+            use_cache=False).last_hidden_state
+        hidden = hidden.permute(0, 2, 1)
+        for blocks in self.decoder.upsample:
+            for block in blocks:
+                hidden = block(hidden)
+        wav = hidden
+        for block in self.decoder.decoder:
+            wav = block(wav)
+        return wav.clamp(min=-1, max=1).squeeze(1)
+
+
+class Qwen3TTSSpeakerEncoderWrapper(torch.nn.Module):
+    def __init__(self, speaker_encoder):
+        super().__init__()
+        self.speaker_encoder = speaker_encoder.float()
+
+    def forward(self, mels):
+        return self.speaker_encoder(mels)
+
+
+class Qwen3TTSToken2Wav(torch.nn.Module):
+    def __init__(self, base):
+        super().__init__()
+        self.args = base.args
+        self.config = base.config
+        self.quant_bit = base.quant_bit
+        self.speech_decoder = None
+        self.speaker_encoder = None
+        self.decode_upsample_rate = 1920
+        self.load()
+
+    def load(self):
+        from qwen_tts.core.models.configuration_qwen3_tts import Qwen3TTSConfig
+        from qwen_tts.core.models.modeling_qwen3_tts import Qwen3TTSSpeakerEncoder
+        from qwen_tts.core.tokenizer_12hz.configuration_qwen3_tts_tokenizer_v2 import Qwen3TTSTokenizerV2Config
+        from qwen_tts.core.tokenizer_12hz.modeling_qwen3_tts_tokenizer_v2 import (
+            Qwen3TTSTokenizerV2CausalConvNet,
+            Qwen3TTSTokenizerV2Decoder,
+        )
+
+        tokenizer_config = Qwen3TTSTokenizerV2Config.from_pretrained(os.path.join(self.args.path, 'speech_tokenizer'))
+        self.decode_upsample_rate = tokenizer_config.decode_upsample_rate
+        speech_decoder = Qwen3TTSTokenizerV2Decoder._from_config(tokenizer_config.decoder_config)
+        speech_decoder.load_state_dict(
+            _load_prefixed_state_dict(os.path.join(self.args.path, 'speech_tokenizer', 'model.safetensors'), 'decoder.'),
+            strict=True)
+        _patch_qwen3_tts_dynamic_causal_conv(speech_decoder, Qwen3TTSTokenizerV2CausalConvNet)
+        self.speech_decoder = Qwen3TTSSpeechDecoderWrapper(speech_decoder).eval()
+
+        model_config = Qwen3TTSConfig.from_pretrained(self.args.path)
+        speaker_encoder = Qwen3TTSSpeakerEncoder(model_config.speaker_encoder_config)
+        speaker_encoder.load_state_dict(
+            _load_prefixed_state_dict(os.path.join(self.args.path, 'model.safetensors'), 'speaker_encoder.'),
+            strict=True)
+        self.speaker_encoder = Qwen3TTSSpeakerEncoderWrapper(speaker_encoder).eval()
+
+    @spinner_run(f'export qwen3_tts speech decoder to ')
+    def export_speech_decoder(self, onnx_path):
+        codes = torch.zeros([1, 16, 4], dtype=torch.long)
+        onnx_model = f'{onnx_path}/speech_decoder.onnx'
+        onnx_export(self.speech_decoder, (codes,), onnx_model,
+                    input_names=['codes'],
+                    output_names=['waveform'],
+                    dynamic_axes={
+                        'codes': { 2: 'size' },
+                        'waveform': { 1: 'samples' },
+                    })
+        return onnx_model
+
+    @spinner_run(f'export qwen3_tts speaker encoder to ')
+    def export_speaker_encoder(self, onnx_path):
+        mels = torch.randn([1, 64, 128], dtype=torch.float32)
+        onnx_model = f'{onnx_path}/speaker_encoder.onnx'
+        onnx_export(self.speaker_encoder, (mels,), onnx_model,
+                    input_names=['mels'],
+                    output_names=['speaker_embedding'],
+                    dynamic_axes={
+                        'mels': { 1: 'frames' },
+                    })
+        return onnx_model
+
+    def export(self, onnx_path):
+        return [self.export_speech_decoder(onnx_path), self.export_speaker_encoder(onnx_path)]

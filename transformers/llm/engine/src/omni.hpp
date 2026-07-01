@@ -87,6 +87,7 @@ public:
     VARP token2wav(const std::vector<int>& codec_tokens);
     void token2wav(bool talker_done = false);
     void generate();
+    bool generateQwen3TTS(const std::string& prompt, int maxFrames);
     void stepPrefill();
     void stepForward(int stepIdx);
     void finalize();
@@ -107,8 +108,10 @@ private:
     MropeInfo mPositionIds;
     std::vector<VARP> mTalkerEmbeds;
     std::shared_ptr<Module> mPreDit, mDit, mBigvgan;
+    std::shared_ptr<Module> mQwen3PromptEmbedder, mQwen3CodePredictor, mQwen3CodecEmbedder, mQwen3SpeechDecoder;
+    std::shared_ptr<DiskEmbedding> mQwen3TextEmbedding, mQwen3CodePredictorEmbedding;
     Llm* mThinker;
-    std::shared_ptr<Executor::RuntimeManager> mProcessorRuntimeManager;
+    std::shared_ptr<Executor::RuntimeManager> mProcessorRuntimeManager, mQwen3RuntimeManager;
     // stream generate
     std::vector<float> mInitialNoise, mWaveformBuffer;
     VARP mMelBuffer = nullptr;
@@ -159,6 +162,7 @@ public:
     virtual void response(const std::vector<int>& input_ids, std::ostream* os = &std::cout, const char* end_with = nullptr, int max_new_tokens = -1) override;
     virtual void setWavformCallback(std::function<bool(const float*, size_t, bool)> callback) override;
     virtual void generateWavform() override;
+    virtual bool generateTTS(const std::string& text, const std::string& language = "english", int max_new_tokens = -1) override;
     // Embedding API — single ExecutorScope wrapping the forward pass (same pattern as forwardVec)
     virtual Express::VARP ids_embedding(const std::vector<int>& ids) override;
     // some models preprocess function

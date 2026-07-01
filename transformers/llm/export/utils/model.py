@@ -22,6 +22,7 @@ class LlmModel(PreTrainedModel):
         self.visual = None
         self.audio = None
         self.talker = None
+        self.token2wav = None
         self.mtp = None
         self.scale_emb = None
 
@@ -46,6 +47,7 @@ class LlmModel(PreTrainedModel):
             'qwen3_vl': 'Qwen3VLForConditionalGeneration',
             'qwen3_vl_moe': 'Qwen3VLMoeForConditionalGeneration',
             'qwen3_asr': 'AutoModel',
+            'qwen3_tts': 'AutoModel',
             'qwen2_5_omni': 'Qwen2_5OmniForConditionalGeneration',
             'qwen2_5_vl': 'Qwen2_5_VLForConditionalGeneration',
             'qwen2_vl': 'Qwen2VLForConditionalGeneration',
@@ -224,7 +226,11 @@ class LlmModel(PreTrainedModel):
                 model.audio = None
         if hasattr(model, 'talker') and model.talker is not None:
             from utils.talker import Talker
-            model.talker = Talker.get_talker(model_type)(model.talker, model.token2wav, model)
+            talker_cls = Talker.get_talker(model_type)
+            if talker_cls is not None:
+                model.talker = talker_cls(model.talker, getattr(model, 'token2wav', None), model)
+            else:
+                model.talker = None
         if model_type == 'poi_qwen2_mtp':
             model.mtp = [model.mtp1, model.mtp2]
         if model.mtp is not None:
