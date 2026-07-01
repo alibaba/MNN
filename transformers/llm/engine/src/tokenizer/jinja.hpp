@@ -1005,6 +1005,30 @@ struct FilterExpr : Expr {
                  }
                  return res;
              }
+        } else if (name == "join") {
+             if (val.is_array()) {
+                 std::string sep;
+                 if (!args.empty()) {
+                     json v = args[0].second->evaluate(context);
+                     if (v.is_string()) {
+                         sep = v.get<std::string>();
+                     }
+                 }
+                 std::string out;
+                 bool first = true;
+                 for (const auto& item : val) {
+                     if (!first) {
+                         out += sep;
+                     }
+                     if (item.is_string()) {
+                         out += item.get<std::string>();
+                     } else {
+                         out += to_python_string(item);
+                     }
+                     first = false;
+                 }
+                 return out;
+             }
         }
         return val; // Unknown filter pass-through
     }
