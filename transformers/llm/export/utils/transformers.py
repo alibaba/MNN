@@ -1019,7 +1019,8 @@ class Rotary(torch.nn.Module):
 
             # mrope for multimode
             if 'mrope_section' in scaling_config:
-                self.mrope_interleaved = scaling_config.get('mrope_interleaved', False)
+                self.mrope_interleaved = scaling_config.get('mrope_interleaved',
+                                                             scaling_config.get('interleaved', False))
                 self.mrope_section = scaling_config['mrope_section']
                 self.mrope_axes = len(self.mrope_section)
                 self.theta = get_theta().unsqueeze(0)
