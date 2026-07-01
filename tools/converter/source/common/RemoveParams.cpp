@@ -70,6 +70,8 @@ void RemoveAndStoreParam(std::unique_ptr<MNN::OpT>& op, std::ofstream* fs, int64
             }
             break;
         }
+// It will some case cause error
+#ifdef MNN_SUPPORT_CONST_EXTERNAL
         case MNN::OpParameter_Blob: {
             auto param = op->main.AsBlob();
             size_t totalSize = 1;
@@ -100,6 +102,7 @@ void RemoveAndStoreParam(std::unique_ptr<MNN::OpT>& op, std::ofstream* fs, int64
             }
             break;
         }
+#endif
         default:
             break;
     }

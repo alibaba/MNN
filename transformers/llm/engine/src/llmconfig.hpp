@@ -81,6 +81,18 @@ public:
             } else {
                 config_ = ujson::json::parse("{}");
                 base_dir_ = path;
+                if (!base_dir_.empty() && base_dir_.back() != '/' && base_dir_.back() != '\\') {
+                    base_dir_ += "/";
+                }
+                std::ifstream config_file(base_dir_ + "config.json");
+                if (config_file.is_open()) {
+                    std::ostringstream ostr;
+                    ostr << config_file.rdbuf();
+                    auto model_config = ujson::json::parse(ostr.str());
+                    if (model_config.contains("mnn_llm_version")) {
+                        config_.merge(model_config);
+                    }
+                }
             }
         }
         // using config's base_dir
@@ -145,6 +157,10 @@ public:
 
     std::string context_file() const {
         return base_dir_ + config_.value("context_file", "context.json");
+    }
+
+    std::string mnn_llm_version() const {
+        return config_.value("mnn_llm_version", "");
     }
     // model file config end >
 

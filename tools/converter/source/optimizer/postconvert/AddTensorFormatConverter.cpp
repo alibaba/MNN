@@ -20,6 +20,7 @@ static void _setInputFormat(std::vector<MNN_DATA_FORMAT>& tensorFormat, int inde
 enum FormatSetType {
     NC4HW4_SINGLE, // only first input / output is nc4hw4
     NC4HW4_FULL, // all nc4hw4
+    NC4HW4_OUTPUT, // output nc4hw4
     COMPABILIT_SINGLE, // only first input / output is compability
     COMPABILIT_FULL, // all format should be same
     ORIGIN
@@ -38,6 +39,18 @@ static FormatSetType _getFormatType(const OpT* op, MNN_DATA_FORMAT originFormat)
         case MNN::OpType_PReLU:
         case MNN::OpType_Dilation2D:
             return NC4HW4_SINGLE;
+        case MNN::OpType_Attention:
+            if (op->main.AsAttentionParam()->output_c4) {
+                return NC4HW4_OUTPUT;
+            } else {
+                return ORIGIN;
+            }
+        case MNN::OpType_LayerNorm:
+            if (op->defaultDimentionFormat == MNN_DATA_FORMAT_NC4HW4) {
+                return NC4HW4_FULL;
+            } else {
+                return ORIGIN;
+            }
         case MNN::OpType_ConvInt8:
         case MNN::OpType_Pooling:
         case MNN::OpType_Pooling3D:
@@ -136,6 +149,8 @@ static MNN_DATA_FORMAT _getRequireFormat(FormatSetType type, int inputIndex, MNN
             return originFormat;
         case NC4HW4_FULL:
             return MNN_DATA_FORMAT_NC4HW4;
+        case NC4HW4_OUTPUT:
+            return originFormat;
         case NC4HW4_SINGLE:
             if (inputIndex == 0) {
                 return MNN_DATA_FORMAT_NC4HW4;
@@ -208,6 +223,16 @@ static bool _computeTensorFormat(std::vector<MNN_DATA_FORMAT>& tensorFormat, std
         {
             for (int i=0; i<op->inputIndexes.size(); ++i) {
                 _setInputFormat(tensorFormat, op->inputIndexes[i], MNN_DATA_FORMAT_NC4HW4);
+            }
+            for (int i=0; i<op->outputIndexes.size(); ++i) {
+                tensorFormat[op->outputIndexes[i]] = MNN_DATA_FORMAT_NC4HW4;
+            }
+            return true;
+        }
+        case NC4HW4_OUTPUT:
+        {
+            for (int i=0; i<op->inputIndexes.size(); ++i) {
+                _setInputFormat(tensorFormat, op->inputIndexes[i], originFormat);
             }
             for (int i=0; i<op->outputIndexes.size(); ++i) {
                 tensorFormat[op->outputIndexes[i]] = MNN_DATA_FORMAT_NC4HW4;

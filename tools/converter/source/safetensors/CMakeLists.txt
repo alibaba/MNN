@@ -1,0 +1,12 @@
+file(GLOB SafeTensors_SRC CONFIGURE_DEPENDS
+    ${CMAKE_CURRENT_LIST_DIR}/*.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/*.c
+    ${CMAKE_CURRENT_LIST_DIR}/*.cc
+    ${CMAKE_CURRENT_LIST_DIR}/*.h
+    ${CMAKE_CURRENT_LIST_DIR}/*.hpp
+)
+
+add_library(MNNConverterSafeTensors OBJECT ${SafeTensors_SRC})
+
+list(APPEND MNN_CONVERTER_BACKENDS_OBJECTS $<TARGET_OBJECTS:MNNConverterSafeTensors>)
+list(APPEND MNN_CONVERTER_BACKENDS_TARGETS MNNConverterSafeTensors)

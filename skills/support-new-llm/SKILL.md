@@ -1,11 +1,11 @@
 ---
 name: support-new-llm
-description: 为 MNN 框架添加新的 LLM 模型支持。支持从 HuggingFace/ModelScope 下载模型，分析架构，添加映射，Hook 对齐测试，导出 MNN 模型。采用 TDD 模式，分 6 步执行，每步有独立测试标准。
+description: 为 MNN 框架添加新的 LLM 模型支持。支持从 HuggingFace/ModelScope 下载模型，分析架构，添加映射，Hook 对齐测试，导出 MNN 模型；当用户明确要求 safetensors/segment/workflow/MNNConvert -f ST 时，走 safetensors segment 补充分支。采用 TDD 模式，分 6 步执行，每步有独立测试标准。
 ---
 
 # MNN LLM 新模型支持 SKILL
 
-> **触发条件**：当用户请求支持/添加/适配一个新的 LLM 模型时触发。常见表述包括："支持xxx模型"、"添加xxx模型支持"、"适配xxx"、"导出xxx模型"等。
+> **触发条件**：当用户请求支持/添加/适配一个新的 LLM 模型时触发。常见表述包括："支持xxx模型"、"添加xxx模型支持"、"适配xxx"、"导出xxx模型"等。若用户明确提到 `safetensors`、`--segment`、`workflow.json`、`MNNConvert -f ST` 或“绕过 ONNX 直接转换”，先读 `safetensors-segment.md`。
 
 ## 概述
 
@@ -19,6 +19,8 @@ MNN 的模型导出本质上是**对照 HuggingFace transformers 库中原始模
 2. 在 `model_mapper.py` 中注册字段映射
 3. 用 Python `--test` 验证映射正确性
 4. 导出 MNN 模型并用 C++ 引擎验证
+
+默认导出链路是 `llmexport.py --export mnn`。如果目标是 safetensors segment 格式，则使用 `llmexport.py --export mnn --segment`，按 `safetensors-segment.md` 先校验 workflow、safetensors key 和 builder 约定。
 
 ### 注意事项
 
@@ -44,6 +46,9 @@ MNN 的模型导出本质上是**对照 HuggingFace transformers 库中原始模
 | `transformers/llm/export/utils/audio.py` | Audio Encoder 实现 | 音频模型 |
 | `transformers/llm/export/utils/custom_op.py` | 自定义算子导出 | 新算子时 |
 | `transformers/llm/export/llmexport.py` | 导出主流程入口 | 偶尔 |
+| `transformers/llm/export/segment.py` | safetensors segment 导出入口 | segment 分支 |
+| `resource/*.json` | safetensors workflow 模板 | segment 分支 |
+| `tools/converter/source/safetensors/*.cpp` | safetensors converter / builder 实现 | segment 分支 |
 
 ---
 
@@ -98,6 +103,7 @@ MNN 的模型导出本质上是**对照 HuggingFace transformers 库中原始模
 | Tier 4 (音频模型) | 1 → 2 → 3 → 5 → 4 | 需要 audio.py |
 | Tier 5 (视觉模型) | 1 → 2 → 3 → 5 → 4 | 需要 vision.py |
 | Tier 6 (全新架构) | 1 → 2 → 6 → 3 → 4 | 需要新算子（如叠加 Tier 4/5 则加入 step5） |
+| Safetensors segment | 1 → S1/S2/S3 → S4/S5 | 明确要求 `--segment` / workflow / `MNNConvert -f ST` 时，参见 `safetensors-segment.md` |
 
 ---
 
@@ -185,8 +191,10 @@ modeling_*.py 中是否有全新的 Attention 类型（非标准 SDPA）?
 
 **在开始之前，建议先浏览 `common-pitfalls.md`**，了解已知的常见问题和解决方案（RoPE 变体、dtype 级联、Jinja 限制、stop token、残差模式、MoE 支持要点、FakeLinear axis 陷阱、**do_map 静默失败与 rope_theta 间接存储**、非标准模型加载等）。
 
+**Safetensors segment 分支的常见问题**：workflow 超参与权重 shape 不匹配、builder 预期 key 前缀不存在、自动 workflow 匹配选错、segment runtime 没启用。详见 `safetensors-segment.md`。
+
 ---
 
 ## 开始执行
 
-**现在请打开 `skills/support-new-llm/step1-analyze.md`，开始步骤 1。**
+**现在请打开 `skills/support-new-llm/step1-analyze.md`，开始步骤 1。若用户明确要求 safetensors segment 导出，同时打开 `skills/support-new-llm/safetensors-segment.md`。**

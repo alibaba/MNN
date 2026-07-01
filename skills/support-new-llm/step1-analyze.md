@@ -11,6 +11,8 @@
 
 根据用户提供的输入，选择对应的方式：
 
+> **Safetensors segment 分支**：如果用户明确要求 `safetensors`、`--segment`、`workflow.json` 或 `MNNConvert -f ST`，本步骤仍需下载/确认模型目录和参考推理，但后续映射与导出要按 `safetensors-segment.md` 执行，而不是默认 ONNX 导出路径。
+
 ### 情况 A：用户提供本地路径
 
 ```
@@ -71,6 +73,17 @@ snapshot_download(
   - `config.json`（必须有）
   - `*.safetensors` 或 `pytorch_model*.bin`（模型权重）
   - `tokenizer.json` 或 `tokenizer.model`（tokenizer 文件）
+
+### Safetensors segment 输入补充
+
+命中 segment 分支时，还需要记录：
+
+- safetensors 是单文件、`model.safetensors`，还是 sharded safetensors + `*.safetensors.index.json`
+- 是否已有 workflow JSON；没有则先从 `resource/*.json` 中找最接近模板
+- embedding / blocks / norm / lm_head 的实际 safetensors key
+- 是否需要显式传 `--workflow`，避免自动匹配选错
+
+具体 key/shape 校验脚本见 `safetensors-segment.md`。
 
 ---
 
