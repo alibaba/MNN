@@ -951,6 +951,7 @@ make -j16
 | `--model` | str | (必填) | MNN 模型所在目录路径 |
 | `--soc_id` | int | (必填) | 目标设备的 SOC ID，如 8Gen3 为 57 |
 | `--dsp_arch` | str | (必填) | 目标设备的 DSP 架构，如 8Gen3 为 v75 |
+| `--vtcm_mb` | int | (选填) | 目标设备上用于缓存graph的vtcm_mb大小，默认配置为8 |
 | `--model_name` | str | `llm.mnn` | 要转换的模型文件名，如 `llm.mnn` 或 `visual.mnn` |
 | `--image_sizes` | str | `512x512` | 视觉模型的输入图片尺寸，支持多尺寸，如 `"224x224,384x384,512x512"` |
 | `--input_json` | str | `""` | 自定义输入 shape 的 JSON 文件路径，非空时使用自定义模式 |

@@ -232,7 +232,7 @@ def seperate(args, model_name, ids):
 def compile_qnn(args):
     exe = os.path.join(os.getcwd(), args.mnn_path, "..", "source", "backend", "qnn", "npu_convert.py")
     cache = os.path.join(os.getcwd(), args.cache_path)
-    process = subprocess.Popen("python3 " + exe + ' npu_postreat.json %d ' %args.soc_id + ' ' + args.dsp_arch, bufsize=1, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd = cache, text=True, shell=True)
+    process = subprocess.Popen("python3 " + exe + ' npu_postreat.json %d ' %args.soc_id + ' ' + args.dsp_arch + ' %d '  %args.vtcm_mb, bufsize=1, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd = cache, text=True, shell=True)
     for line in process.stdout:
         print(line, end='')
     process.wait()
@@ -366,6 +366,10 @@ def main():
     parser.add_argument('--dsp_arch', type=str, required=True,
                         help='type(`str`, *optional*):'
                         '\n\tThe dsp_arch, for 8gen3 is v75.'
+                        )
+    parser.add_argument('--vtcm_mb', type=int, default=8,
+                        help='type(`int`, *optional*):'
+                        '\n\tThe vtcm_mb size, default is 8'
                         )
     parser.add_argument('--mnn_path', type=str, default="../../../build/",
                         help='mnn build path(`str` or `os.PathLike`):\nCan be either:'
