@@ -1,17 +1,16 @@
 #include <riscv_vector.h>
+
 void MNNAccumulateSequenceNumber_RVV(float* dst, const float* src, int size) {
-    size_t vl = __riscv_vsetvlmax_e32m1();
-    vfloat32m1_t v_sum = __riscv_vfmv_v_f_f32m1(0.0f, vl);
-    int n = size;
-    for (; n > 0;) {
-        vl = __riscv_vsetvl_e32m1(n);
-        vfloat32m1_t v_src = __riscv_vle32_v_f32m1(src, vl);
-        v_sum = __riscv_vfadd_vv_f32m1(v_sum, v_src, vl);
-        n -= vl;
-        src += vl;
+    size_t vlmax = __riscv_vsetvlmax_e32m8();
+    vfloat32m8_t acc = __riscv_vfmv_v_f_f32m8(0.0f, vlmax);
+    size_t i = 0;
+    while (i < size) {
+        size_t vl = __riscv_vsetvl_e32m8(size - i);
+        vfloat32m8_t vs = __riscv_vle32_v_f32m8(src + i, vl);
+        acc = __riscv_vfadd_vv_f32m8_tu(acc, vs, vl);
+        i += vl;
     }
-    vl = __riscv_vsetvlmax_e32m1();
-    vfloat32m1_t v_total = __riscv_vfredusum_vs_f32m1_f32m1(v_sum, __riscv_vfmv_s_f_f32m1(0.0f, vl), vl);
-    float sum = __riscv_vfmv_f_s_f32m1_f32(v_total);
-    *dst = sum;
+    vfloat32m1_t sum = __riscv_vfmv_s_f_f32m1(0.0f, 1);
+    sum = __riscv_vfredusum_vs_f32m8_f32m1(acc, sun, vlmax);
+    *dst = __riscv_vfmv_f_s_f32m1_f32(sum);
 }
