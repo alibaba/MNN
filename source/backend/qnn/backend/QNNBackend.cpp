@@ -12,6 +12,9 @@
 // #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 #include "core/FileLoader.hpp"
+#include <dlfcn.h>
+#include <cstdlib>
+#include <string>
 // #define QNN_PROFILE_OP
 // #define QNN_PROFILE_SUMMARIZE
 // #define QNN_VERBOSE
@@ -25,7 +28,7 @@ namespace MNN {
 static std::string gExtraIoPrefix = "_mnn";
 namespace QNN {
 struct QnnContext {
-    QNN_INTERFACE_VER_TYPE QnnInterface{};
+    QNN_INTERFACE_VER_TYPE interface{};
     QNN_SYSTEM_INTERFACE_VER_TYPE systemInterface{};
     Qnn_LogHandle_t logHandle = nullptr;
     Qnn_BackendHandle_t backendHandle = nullptr;
@@ -37,8 +40,45 @@ struct QnnContext {
 static QnnContext gContext;
 static std::mutex gQnnContextMutex;
 
+static void setupAdspLibraryPath() {
+    // ADSP_LIBRARY_PATH 决定 DSP/Hexagon 去哪些目录找 skel(.so)。
+    // 必须让 App/命令行自带的 skel 排在最前，确保 stub 和 skel 版本一致。
+    // 若系统目录排前面，DSP 会加载系统预装的旧版 skel（如 v2.25），
+    // 和 MNN 编译时链接的新版 stub（如 v2.37）不匹配，导致 "Skel lib id mismatch" 错误。
+    std::string adspPath;
+
+    // 优先：App 自带 skel 所在目录（libQnnHtp.so 的同目录）
+    Dl_info dlInfo;
+    void* htpHandle = dlopen("libQnnHtp.so", RTLD_NOW | RTLD_NOLOAD);
+    if (htpHandle != nullptr) {
+        void* sym = dlsym(htpHandle, "QnnInterface_getProviders");
+        if (sym != nullptr && dladdr(sym, &dlInfo) != 0 && dlInfo.dli_fname != nullptr) {
+            std::string libPath(dlInfo.dli_fname);
+            auto lastSlash = libPath.rfind('/');
+            if (lastSlash != std::string::npos) {
+                adspPath = libPath.substr(0, lastSlash);
+            }
+        }
+        dlclose(htpHandle);
+    }
+
+    // 其次：/data/local/tmp/（命令行测试常用）
+    if (!adspPath.empty()) adspPath += ";";
+    adspPath += "/data/local/tmp/";
+
+    // 最后：系统目录（兜底，版本可能不匹配但总比找不到 skel 好）
+    adspPath += ";/odm/lib64/rfsa/;/vendor/lib/rfsa/adsp/;/vendor/dsp/cdsp/";
+
+    setenv("ADSP_LIBRARY_PATH", adspPath.c_str(), 1);
+    MNN_PRINT("MNN_QNN: Set ADSP_LIBRARY_PATH=%s\n", adspPath.c_str());
+}
+
 static void createQnnContext(){
     std::lock_guard<std::mutex> lck(gQnnContextMutex);
+
+    // Set ADSP_LIBRARY_PATH so HTP runtime can find Skel .so for DSP
+    setupAdspLibraryPath();
+
     QNN_INTERFACE_VER_TYPE qnnInterface{};
 #ifndef ENABLE_QNN_CONVERT_MODE
     {
@@ -104,11 +144,67 @@ static void createQnnContext(){
         // Check whether the device API is supported.
         bool supportDevice = QNN::checkCapability(qnnInterface, QNN_PROPERTY_GROUP_DEVICE);
         if (supportDevice) {
-            const QnnDevice_Config_t ** deviceConfig = nullptr;
+            const QnnDevice_Config_t **deviceConfig = nullptr;
             auto qnnStatus = qnnInterface.deviceCreate(logHandle, deviceConfig, &deviceHandle);
-            if(qnnStatus != QNN_SUCCESS || (deviceHandle == nullptr)) {
-                MNN_PRINT("MNN_QNN: Failed to create the device, error:%lu\n", (unsigned long)qnnStatus);
-                return;
+            if (qnnStatus != QNN_SUCCESS || deviceHandle == nullptr) {
+                MNN_PRINT("MNN_QNN: Failed to create the device with default config, error:%lu\n", (unsigned long)qnnStatus);
+
+                // Exhaustive fallback: try multiple SOC/Arch/SignedPD combinations
+                struct DeviceFallback {
+                    uint32_t socModel;
+                    QnnHtpDevice_Arch_t arch;
+                    bool signedPd;
+                    const char* name;
+                };
+                const DeviceFallback fallbacks[] = {
+                    {69, QNN_HTP_DEVICE_ARCH_V79, false, "SM8750/v79/unsignedPD"},
+                    {69, QNN_HTP_DEVICE_ARCH_V79, true,  "SM8750/v79/signedPD"},
+                    {57, QNN_HTP_DEVICE_ARCH_V75, false, "SM8650/v75/unsignedPD"},
+                    {57, QNN_HTP_DEVICE_ARCH_V75, true,  "SM8650/v75/signedPD"},
+                };
+                bool deviceCreated = false;
+                for (const auto& fb : fallbacks) {
+                    QnnHtpDevice_CustomConfig_t htpSocConfig{};
+                    htpSocConfig.option = QNN_HTP_DEVICE_CONFIG_OPTION_SOC;
+                    htpSocConfig.socModel = fb.socModel;
+                    QnnDevice_Config_t qnnSocConfig = QNN_DEVICE_CONFIG_INIT;
+                    qnnSocConfig.option = QNN_DEVICE_CONFIG_OPTION_CUSTOM;
+                    qnnSocConfig.customConfig = &htpSocConfig;
+
+                    QnnHtpDevice_CustomConfig_t htpArchConfig{};
+                    htpArchConfig.option = QNN_HTP_DEVICE_CONFIG_OPTION_ARCH;
+                    htpArchConfig.arch.deviceId = 0;
+                    htpArchConfig.arch.arch = fb.arch;
+                    QnnDevice_Config_t qnnArchConfig = QNN_DEVICE_CONFIG_INIT;
+                    qnnArchConfig.option = QNN_DEVICE_CONFIG_OPTION_CUSTOM;
+                    qnnArchConfig.customConfig = &htpArchConfig;
+
+                    QnnHtpDevice_CustomConfig_t htpSignedPdConfig{};
+                    htpSignedPdConfig.option = QNN_HTP_DEVICE_CONFIG_OPTION_SIGNEDPD;
+                    htpSignedPdConfig.useSignedProcessDomain.deviceId = 0;
+                    htpSignedPdConfig.useSignedProcessDomain.useSignedProcessDomain = fb.signedPd;
+                    QnnDevice_Config_t qnnSignedPdConfig = QNN_DEVICE_CONFIG_INIT;
+                    qnnSignedPdConfig.option = QNN_DEVICE_CONFIG_OPTION_CUSTOM;
+                    qnnSignedPdConfig.customConfig = &htpSignedPdConfig;
+
+                    const QnnDevice_Config_t *explicitDeviceConfig[] = {
+                        &qnnSocConfig,
+                        &qnnArchConfig,
+                        &qnnSignedPdConfig,
+                        nullptr
+                    };
+                    qnnStatus = qnnInterface.deviceCreate(logHandle, explicitDeviceConfig, &deviceHandle);
+                    if (qnnStatus == QNN_SUCCESS && deviceHandle != nullptr) {
+                        MNN_PRINT("MNN_QNN: Created device with %s config.\n", fb.name);
+                        deviceCreated = true;
+                        break;
+                    }
+                    MNN_PRINT("MNN_QNN: Failed %s, error:%lu\n", fb.name, (unsigned long)qnnStatus);
+                }
+                if (!deviceCreated) {
+                    MNN_PRINT("MNN_QNN: All device creation attempts failed, continuing without device handle.\n");
+                    // Don't return - proceed with deviceHandle=nullptr and let downstream handle it
+                }
             }
 
             if (qnnInterface.deviceGetPlatformInfo == nullptr) {
@@ -169,7 +265,8 @@ static void createQnnContext(){
     systemInterface = QNN::gQnnConvertorSystemInterface;
 #endif
 
-    QNN::gContext.QnnInterface = qnnInterface;
+
+    QNN::gContext.interface = qnnInterface;
     QNN::gContext.systemInterface = systemInterface;
     QNN::gContext.backendHandle = backendHandle;
     QNN::gContext.deviceHandle = deviceHandle;
@@ -195,29 +292,28 @@ static std::string getOpTypeFromName(const std::string& nodeName) {
 }
 #endif
 
-static void createProfileHandle(const QNN_INTERFACE_VER_TYPE& QnnInterface, const Qnn_BackendHandle_t& backend_handle,
-                                Qnn_ProfileHandle_t* profile_handle_ptr) {
-#if defined(QNN_PROFILE_SUMMARIZE) || defined(QNN_PROFILE_OP)
+static void createProfileHandle(const QNN_INTERFACE_VER_TYPE& interface, const Qnn_BackendHandle_t& backend_handle, Qnn_ProfileHandle_t* profile_handle_ptr) {
+    #if defined(QNN_PROFILE_SUMMARIZE) || defined(QNN_PROFILE_OP)
     if (*profile_handle_ptr == nullptr) {
         // set QNN_PROFILE_LEVEL_DETAILED
         QnnProfile_Level_t profileLevel = QNN_PROFILE_LEVEL_DETAILED;
         MNN_PRINT("[QNN Profile] Creating QNN Profile Handle with DETAILED level.\n");
-        auto profile_err = QnnInterface.profileCreate(backend_handle, profileLevel, profile_handle_ptr);
+        auto profile_err = interface.profileCreate(backend_handle, profileLevel, profile_handle_ptr);
         if (profile_err != QNN_SUCCESS || *profile_handle_ptr == nullptr) {
             MNN_ERROR("[QNN Profile] Failed to create QNN Profile Handle, error: %d\n", (int)profile_err);
             *profile_handle_ptr = nullptr;
         }
     }
-#endif
+    #endif
 }
 
-static void doProfile(const QNN_INTERFACE_VER_TYPE& QnnInterface, const Qnn_ProfileHandle_t& profile_handle) {
+static void doProfile(const QNN_INTERFACE_VER_TYPE& interface, const Qnn_ProfileHandle_t& profile_handle) {
 #ifdef QNN_PROFILE_OP
     if (profile_handle) {
         uint32_t numTopLevelEvents = 0;
         const QnnProfile_EventId_t* topLevelEvents = nullptr;
 
-        auto get_err = QnnInterface.profileGetEvents(profile_handle, &topLevelEvents, &numTopLevelEvents);
+        auto get_err = interface.profileGetEvents(profile_handle, &topLevelEvents, &numTopLevelEvents);
         if (get_err != QNN_SUCCESS) {
             MNN_PRINT("[QNN Profile] Failed to get top-level events. Error: %d\n", (int)get_err);
             return;
@@ -228,7 +324,7 @@ static void doProfile(const QNN_INTERFACE_VER_TYPE& QnnInterface, const Qnn_Prof
 
         for (uint32_t i = 0; i < numTopLevelEvents; ++i) {
             QnnProfile_EventData_t eventData = QNN_PROFILE_EVENT_DATA_INIT;
-            QnnInterface.profileGetEventData(topLevelEvents[i], &eventData);
+            interface.profileGetEventData(topLevelEvents[i], &eventData);
 
             if (eventData.type) {
                 MNN_PRINT("Found EXECUTE event. Total time: %llu us. Querying sub-events...\n", (unsigned long long)eventData.value);
@@ -237,7 +333,7 @@ static void doProfile(const QNN_INTERFACE_VER_TYPE& QnnInterface, const Qnn_Prof
                 const QnnProfile_EventId_t* subEvents = nullptr;
 
                 // 3. GetSubEvents
-                auto get_sub_err = QnnInterface.profileGetSubEvents(topLevelEvents[i], &subEvents, &numSubEvents);
+                auto get_sub_err = interface.profileGetSubEvents(topLevelEvents[i], &subEvents, &numSubEvents);
                 if (get_sub_err != QNN_SUCCESS) {
                     MNN_PRINT("[QNN Profile] Failed to get sub-events for EXECUTE event. Error: %d\n", (int)get_sub_err);
                     continue;
@@ -245,7 +341,7 @@ static void doProfile(const QNN_INTERFACE_VER_TYPE& QnnInterface, const Qnn_Prof
 
                 for (uint32_t j = 0; j < numSubEvents; ++j) {
                     QnnProfile_EventData_t subEventData = QNN_PROFILE_EVENT_DATA_INIT;
-                    QnnInterface.profileGetEventData(subEvents[j], &subEventData);
+                    interface.profileGetEventData(subEvents[j], &subEventData);
 
                     if (subEventData.type == QNN_PROFILE_EVENTTYPE_NODE) {
                         foundNodeData = true;
@@ -288,7 +384,7 @@ static void doProfile(const QNN_INTERFACE_VER_TYPE& QnnInterface, const Qnn_Prof
         uint32_t numTopLevelEvents = 0;
         const QnnProfile_EventId_t* topLevelEvents = nullptr;
 
-        auto get_err = QnnInterface.profileGetEvents(profile_handle, &topLevelEvents, &numTopLevelEvents);
+        auto get_err = interface.profileGetEvents(profile_handle, &topLevelEvents, &numTopLevelEvents);
         if (get_err != QNN_SUCCESS) {
             MNN_PRINT("[QNN Profile] Failed to get top-level events. Error: %d\n", (int)get_err);
             return;
@@ -296,17 +392,17 @@ static void doProfile(const QNN_INTERFACE_VER_TYPE& QnnInterface, const Qnn_Prof
 
         for (uint32_t i = 0; i < numTopLevelEvents; ++i) {
             QnnProfile_EventData_t eventData = QNN_PROFILE_EVENT_DATA_INIT;
-            QnnInterface.profileGetEventData(topLevelEvents[i], &eventData);
+            interface.profileGetEventData(topLevelEvents[i], &eventData);
 
             if (eventData.type) { // == QNN_PROFILE_EVENTTYPE_EXECUTE) {
                 uint32_t numSubEvents = 0;
                 const QnnProfile_EventId_t* subEvents = nullptr;
-                auto get_sub_err = QnnInterface.profileGetSubEvents(topLevelEvents[i], &subEvents, &numSubEvents);
+                auto get_sub_err = interface.profileGetSubEvents(topLevelEvents[i], &subEvents, &numSubEvents);
                 if (get_sub_err != QNN_SUCCESS) continue;
 
                 for (uint32_t j = 0; j < numSubEvents; ++j) {
                     QnnProfile_EventData_t subEventData = QNN_PROFILE_EVENT_DATA_INIT;
-                    QnnInterface.profileGetEventData(subEvents[j], &subEventData);
+                    interface.profileGetEventData(subEvents[j], &subEventData);
 
                     if (subEventData.type == QNN_PROFILE_EVENTTYPE_NODE) {
                         if (subEventData.identifier) {
@@ -432,41 +528,6 @@ static void freeOutputTensorsTempMemory(Qnn_Tensor_t* outputTensors, std::vector
 #include "core/OpCommonUtils.hpp"
 #include "dsprpc_interface.h"
 
-// 在 MSVC / Windows 平台上没有 RPC (ION) 内存机制，定义 MNN_QNN_NO_RPC_MEM 进入退化分支：
-//   - 直接使用普通堆内存 (malloc / free) 替代 rpcmem_alloc / rpcmem_free
-//   - setToTensor 走 QNN_TENSORMEMTYPE_RAW + clientBuf 路径，避免调用 memRegister(ION fd)
-// 该退化主要用于让代码在 MSVC 上能够编译通过；真正运行 QNN 推理仍需在 Android/Linux DSP 平台。
-#if defined(_MSC_VER) || defined(_WIN32)
-#define MNN_QNN_NO_RPC_MEM 1
-#endif
-
-// MSVC 不支持 __fp16 扩展类型，需要用 uint16_t + 软件转换替代。
-// 其它平台（GCC/Clang on ARM 等）保持原生 __fp16 行为。
-#if defined(_MSC_VER) || defined(_WIN32)
-#include "half.hpp"
-namespace MNN {
-namespace plugin {
-typedef uint16_t mnn_qnn_fp16_t;
-static inline mnn_qnn_fp16_t mnn_qnn_float_to_fp16(float v) {
-    half_float::half h(v);
-    mnn_qnn_fp16_t bits = 0;
-    static_assert(sizeof(half_float::half) == sizeof(uint16_t), "half size mismatch");
-    ::memcpy(&bits, &h, sizeof(uint16_t));
-    return bits;
-}
-} // namespace plugin
-} // namespace MNN
-#else
-namespace MNN {
-namespace plugin {
-typedef __fp16 mnn_qnn_fp16_t;
-static inline mnn_qnn_fp16_t mnn_qnn_float_to_fp16(float v) {
-    return (__fp16)v;
-}
-} // namespace plugin
-} // namespace MNN
-#endif
-
 namespace MNN {
 namespace plugin {
 
@@ -478,25 +539,9 @@ public:
     bool mReg = false;
     Qnn_MemHandle_t mHandle;
     ~ RPCBuffer() {
-#ifdef MNN_QNN_NO_RPC_MEM
-        if (mPtr) {
-            free(mPtr);
-            mPtr = nullptr;
-        }
-#else
         rpcmem_free(mPtr);
-#endif
     }
     static RPCBuffer* alloc(size_t size) {
-#ifdef MNN_QNN_NO_RPC_MEM
-        // MSVC / Windows 上使用普通堆内存，fd 设为 -1（无效）。
-        void* data = malloc(size);
-        if (nullptr == data) {
-            FUNC_PRINT(1);
-            return nullptr;
-        }
-        return new RPCBuffer(data, -1, size);
-#else
         void * data = rpcmem_alloc(RPCMEM_HEAP_ID_SYSTEM, RPCMEM_FLAG_UNCACHED, size);
         if (nullptr == data) {
             FUNC_PRINT(1);
@@ -509,16 +554,8 @@ public:
             return nullptr;
         }
         return new RPCBuffer(data, fd, size);
-#endif
     }
-    bool setToTensor(Qnn_Tensor_t* tensor, QNN_INTERFACE_VER_TYPE* QnnInterface, Qnn_ContextHandle_t context) {
-#ifdef MNN_QNN_NO_RPC_MEM
-        // Windows 平台没有 ION fd，使用 RAW client buffer 模式，让普通内存直接作为 tensor 数据。
-        QNN_TENSOR_SET_MEM_TYPE(tensor, QNN_TENSORMEMTYPE_RAW);
-        Qnn_ClientBuffer_t clientBuf = {mPtr, (uint32_t)mSize};
-        QNN_TENSOR_SET_CLIENT_BUF(tensor, clientBuf);
-        return true;
-#else
+    bool setToTensor(Qnn_Tensor_t* tensor, QNN_INTERFACE_VER_TYPE* interface, Qnn_ContextHandle_t context) {
         if (!mReg) {
             Qnn_MemDescriptor_t memDescriptor = {
                 {QNN_TENSOR_GET_RANK(tensor), QNN_TENSOR_GET_DIMENSIONS(tensor), nullptr},
@@ -531,7 +568,7 @@ public:
             QNN_TENSOR_SET_MEM_HANDLE(tensor, nullptr);
 
             mHandle = QNN_TENSOR_GET_MEM_HANDLE(tensor);
-            auto res = QnnInterface->memRegister(context, &memDescriptor, 1, &(mHandle));
+            auto res = interface->memRegister(context, &memDescriptor, 1, &(mHandle));
             if (res != QNN_SUCCESS) {
                 const char* tname = QNN_TENSOR_GET_NAME(tensor);
                 MNN_ERROR("memRegister fail %s (ctx=%p fd=%d), error: %llu\n", tname, context, curFd, res);
@@ -542,9 +579,7 @@ public:
         QNN_TENSOR_SET_MEM_TYPE(tensor, QNN_TENSORMEMTYPE_MEMHANDLE);
         QNN_TENSOR_SET_MEM_HANDLE(tensor, mHandle);
         return true;
-#endif
     }
-
 private:
     RPCBuffer(void* ptr, int fd, size_t size) {
         mPtr = ptr;
@@ -765,11 +800,11 @@ static bool copyTensorsInfo(const Qnn_Tensor_t *tensorsInfoSrc,
   }
   if (returnStatus) {
     for (size_t tIdx = 0; tIdx < tensorsCount; tIdx++) {
-#ifdef QNN_VERBOSE
-        MNN_PRINT("Extracting tensorInfo for tensor Idx: %d.\n", (int)tIdx);
-#endif
-        tensorWrappers[tIdx] = QNN_TENSOR_INIT;
-        deepCopyQnnTensorInfo(&tensorWrappers[tIdx], &tensorsInfoSrc[tIdx]);
+      #ifdef QNN_VERBOSE
+      MNN_PRINT("Extracting tensorInfo for tensor Idx: %d.\n", (int) tIdx);
+      #endif
+      tensorWrappers[tIdx] = QNN_TENSOR_INIT;
+      deepCopyQnnTensorInfo(&tensorWrappers[tIdx], &tensorsInfoSrc[tIdx]);
     }
   }
   return returnStatus;
@@ -821,15 +856,15 @@ static bool copyGraphsInfo(const QnnSystemContext_GraphInfo_t *graphsInput,
   }
   if (true == returnStatus) {
     for (size_t gIdx = 0; gIdx < numGraphs; gIdx++) {
-#ifdef QNN_VERBOSE
-        MNN_PRINT("Extracting graphsInfo for graph Idx: %d", (int)gIdx);
-#endif
-        if (graphsInput[gIdx].version == QNN_SYSTEM_CONTEXT_GRAPH_INFO_VERSION_1) {
-            copyGraphsInfoFromSrc(&graphsInput[gIdx].graphInfoV1, &graphInfoArr[gIdx]);
-        } else if (graphsInput[gIdx].version == QNN_SYSTEM_CONTEXT_GRAPH_INFO_VERSION_3) {
-            copyGraphsInfoFromSrc(&graphsInput[gIdx].graphInfoV3, &graphInfoArr[gIdx]);
-        }
-        graphsInfo[gIdx] = graphInfoArr + gIdx;
+      #ifdef QNN_VERBOSE
+      MNN_PRINT("Extracting graphsInfo for graph Idx: %d", (int) gIdx);
+      #endif
+      if (graphsInput[gIdx].version == QNN_SYSTEM_CONTEXT_GRAPH_INFO_VERSION_1) {
+        copyGraphsInfoFromSrc(&graphsInput[gIdx].graphInfoV1, &graphInfoArr[gIdx]);
+      } else if (graphsInput[gIdx].version == QNN_SYSTEM_CONTEXT_GRAPH_INFO_VERSION_3) {
+        copyGraphsInfoFromSrc(&graphsInput[gIdx].graphInfoV3, &graphInfoArr[gIdx]);
+      }
+      graphsInfo[gIdx] = graphInfoArr + gIdx;
     }
   }
   if (true != returnStatus) {
@@ -957,17 +992,17 @@ private:
 
 public:
     RawExecutorWrapper() {
-        mPerf = QNN::QNNPerf::create(&QNN::gContext.QnnInterface);
+        mPerf = QNN::QNNPerf::create(&QNN::gContext.interface);
         mPerf->setPowerConfigBurst();
         mPerf->setRpcLatencyAndPolling();
     }
     ~ RawExecutorWrapper() {
         if (mQnnProfileHandle) {
-            QNN::gContext.QnnInterface.profileFree(mQnnProfileHandle);
+            QNN::gContext.interface.profileFree(mQnnProfileHandle);
             mQnnProfileHandle = nullptr;
         }
         if (nullptr != mQnnContextHandle) {
-            CALL_QNN(QNN::gContext.QnnInterface.contextFree(mQnnContextHandle, nullptr));
+            CALL_QNN(QNN::gContext.interface.contextFree(mQnnContextHandle, nullptr));
         }
         freeGraphsInfo(&mGraphsInfo, mGraphCount);
     }
@@ -1007,19 +1042,16 @@ public:
 
         // 2. Retrieve graphs.
         {
-            auto error = QNN::gContext.QnnInterface.contextValidateBinary(
-                QNN::gContext.backendHandle, QNN::gContext.deviceHandle, mQnnContextConfig, buffer, size);
+            auto error = QNN::gContext.interface.contextValidateBinary(QNN::gContext.backendHandle, QNN::gContext.deviceHandle, mQnnContextConfig, buffer, size);
             if (QNN_SUCCESS != error) {
                 MNN_ERROR("QNN: Failed to validate binary: %d\n", (int) error);
                 return false;
             }
 
             // Create Graph profile
-            MNN::QNN::createProfileHandle(QNN::gContext.QnnInterface, QNN::gContext.backendHandle, &mQnnProfileHandle);
+            MNN::QNN::createProfileHandle(QNN::gContext.interface, QNN::gContext.backendHandle, &mQnnProfileHandle);
 
-            CALL_QNN(QNN::gContext.QnnInterface.contextCreateFromBinary(
-                QNN::gContext.backendHandle, QNN::gContext.deviceHandle, mQnnContextConfig, buffer, size,
-                &mQnnContextHandle, mQnnProfileHandle));
+            CALL_QNN(QNN::gContext.interface.contextCreateFromBinary(QNN::gContext.backendHandle, QNN::gContext.deviceHandle, mQnnContextConfig, buffer, size, &mQnnContextHandle, mQnnProfileHandle));
 
             mQnnGraphHandleVec.resize(mGraphCount, nullptr);
 
@@ -1039,8 +1071,7 @@ public:
             }
 
             for (int i = 0; i < mGraphCount; i++) {
-                CALL_QNN(QNN::gContext.QnnInterface.graphRetrieve(mQnnContextHandle, mGraphsInfo[i]->graphName,
-                                                                  &(mQnnGraphHandleVec[i])));
+                CALL_QNN(QNN::gContext.interface.graphRetrieve(mQnnContextHandle, mGraphsInfo[i]->graphName, &(mQnnGraphHandleVec[i])));
             }
         }
 
@@ -1051,9 +1082,9 @@ public:
         GraphInfo* graph = mGraphsInfo[index];
         for (int j=0; j<graph->numInputTensors; ++j) {
             auto& dstT = graph->inputTensors[j];
-#ifdef QNN_VERBOSE
+            #ifdef QNN_VERBOSE
             MNN_PRINT("input name: %s %s\n", inputs[i].second.c_str(), dstT.v1.name);
-#endif
+            #endif
             if (name == dstT.v1.name) {
                 return &dstT;
             }
@@ -1064,9 +1095,9 @@ public:
         GraphInfo* graph = mGraphsInfo[index];
         for (int j=0; j<graph->numOutputTensors; ++j) {
             auto& dstT = graph->outputTensors[j];
-#ifdef QNN_VERBOSE
+            #ifdef QNN_VERBOSE
             MNN_PRINT("input name: %s %s\n", inputs[i].second.c_str(), dstT.v1.name);
-#endif
+            #endif
             if (name == dstT.v1.name) {
                 return &dstT;
             }
@@ -1083,9 +1114,9 @@ public:
             bool find = false;
             for (int j=0; j<graph->numInputTensors; ++j) {
                 auto& dstT = graph->inputTensors[j];
-#ifdef QNN_VERBOSE
+                #ifdef QNN_VERBOSE
                 MNN_PRINT("input name: %s %s\n", inputs[i].second.c_str(), dstT.v1.name);
-#endif
+                #endif
                 if (inputs[i].second == dstT.v1.name) {
                     dstT.v1.clientBuf.data = t->host<void>();
                     dstT.v1.clientBuf.dataSize = t->usize();
@@ -1102,9 +1133,9 @@ public:
             bool find = false;
             for (int j=0; j<graph->numOutputTensors; ++j) {
                 auto& dstT = graph->outputTensors[j];
-#ifdef QNN_VERBOSE
+                #ifdef QNN_VERBOSE
                 MNN_PRINT("output name: %s %s\n", outputs[i].second.c_str(), dstT.v1.name);
-#endif
+                #endif
                 if (outputs[i].second == dstT.v1.name) {
                     dstT.v1.clientBuf.data = t->host<void>();
                     dstT.v1.clientBuf.dataSize = t->usize();
@@ -1123,14 +1154,14 @@ public:
             MNN_ERROR("Can't find mask from qnn model\n");
             return;
         }
-        mask->setToTensor(maskTensor, &QNN::gContext.QnnInterface, mQnnContextHandle);
+        mask->setToTensor(maskTensor, &QNN::gContext.interface, mQnnContextHandle);
         for (int i=0; i<statesInputs.size(); ++i) {
             auto t = _findInput(gExtraIoPrefix + "_i" + std::to_string(i), index);
             if (nullptr == t) {
                 MNN_ERROR("Can't find %d input tensor of state\n", i);
                 continue;
             }
-            statesInputs[i]->setToTensor(t, &QNN::gContext.QnnInterface, mQnnContextHandle);
+            statesInputs[i]->setToTensor(t, &QNN::gContext.interface, mQnnContextHandle);
         }
         for (int i=0; i<statesOutput.size(); ++i) {
             auto t = _findOutput(gExtraIoPrefix + "_o" + std::to_string(i), index);
@@ -1138,7 +1169,7 @@ public:
                 MNN_ERROR("Can't find %d output tensor of state\n", i);
                 continue;
             }
-            statesOutput[i]->setToTensor(t, &QNN::gContext.QnnInterface, mQnnContextHandle);
+            statesOutput[i]->setToTensor(t, &QNN::gContext.interface, mQnnContextHandle);
         }
     }
 
@@ -1147,10 +1178,9 @@ public:
         Qnn_GraphHandle_t qnnGraphHandle = mQnnGraphHandleVec[shapeIndex];
         // Ensure all output tensors have memory allocated; allocate temp buffers for those without.
         auto tempBuffers = MNN::QNN::ensureOutputTensorsMemory(graph->outputTensors, graph->numOutputTensors);
-        CALL_QNN(QNN::gContext.QnnInterface.graphExecute(qnnGraphHandle, graph->inputTensors, graph->numInputTensors,
-                                                         graph->outputTensors, graph->numOutputTensors,
-                                                         mQnnProfileHandle, nullptr));
-        MNN::QNN::doProfile(QNN::gContext.QnnInterface, mQnnProfileHandle);
+        CALL_QNN(QNN::gContext.interface.graphExecute(qnnGraphHandle, graph->inputTensors, graph->numInputTensors, \
+            graph->outputTensors, graph->numOutputTensors, mQnnProfileHandle, nullptr));
+        MNN::QNN::doProfile(QNN::gContext.interface, mQnnProfileHandle);
         // Free temporarily allocated output tensor buffers.
         MNN::QNN::freeOutputTensorsTempMemory(graph->outputTensors, tempBuffers);
     }
@@ -1181,19 +1211,16 @@ private:
         if (stateNumber == 0) {
             return;
         }
-        mMask.reset(RPCBuffer::alloc(mStateMaxSize * sizeof(mnn_qnn_fp16_t)));
-        auto maskPtr = (mnn_qnn_fp16_t*)mMask->mPtr;
-        const mnn_qnn_fp16_t minValueFp16 = mnn_qnn_float_to_fp16(mMinValue);
+        mMask.reset(RPCBuffer::alloc(mStateMaxSize * sizeof(__fp16)));
+        auto maskPtr = (__fp16*)mMask->mPtr;
         for (int i=0; i<mStateMaxSize; ++i) {
-            maskPtr[i] = minValueFp16;
+            maskPtr[i] = mMinValue;
         }
         for (int i=0; i<mStateInput.size(); ++i) {
-            mStateInput[i].data.reset(RPCBuffer::alloc(mStateMaxSize * mStateInput[i].inside * mStateInput[i].outside *
-                                                       sizeof(mnn_qnn_fp16_t)));
+            mStateInput[i].data.reset(RPCBuffer::alloc(mStateMaxSize * mStateInput[i].inside * mStateInput[i].outside * sizeof(__fp16)));
             mStateInput[i].update.resize(seqLen.size());
             for (int j=0; j<seqLen.size(); ++j) {
-                mStateInput[i].update[j].reset(RPCBuffer::alloc(mStateInput[i].inside * mStateInput[i].outside *
-                                                                seqLen[j] * sizeof(mnn_qnn_fp16_t)));
+                mStateInput[i].update[j].reset(RPCBuffer::alloc(mStateInput[i].inside * mStateInput[i].outside * seqLen[j] * sizeof(__fp16)));
             }
         }
     }
@@ -1363,9 +1390,9 @@ public:
         int shapeIndex = mShapeIndex;
         std::string graphName = ctx->getAttr("allGraphName")->list()->s()->GetAsString(shapeIndex)->str();
 
-#ifdef QNN_VERBOSE
+        #ifdef QNN_VERBOSE
         MNN_PRINT("Graph name:%s, %d\n", graphName.c_str(), shapeIndex);
-#endif
+        #endif
         auto inputTensor = ctx->inputs();
         auto outputTensor = ctx->outputs();
 
@@ -1375,16 +1402,15 @@ public:
         // If has remove, remove invalid state
         auto meta = (KVMeta*)(ctx->backend()->getMetaPtr());
         if (nullptr != meta && mStateInput.size() > 0) {
-            auto maskPtr = (mnn_qnn_fp16_t*)mMask->mPtr;
+            auto maskPtr = (__fp16*)mMask->mPtr;
             if (meta->remove > 0) {
                 if (meta->remove > mStateCurrent) {
                     MNN_ERROR("QNN: Error: Remove %d larger than current = %d\n", meta->remove, mStateCurrent);
                     return false;
                 }
                 mStateCurrent-= meta->remove;
-                const mnn_qnn_fp16_t minValueFp16 = mnn_qnn_float_to_fp16(mMinValue);
                 for (int i=0; i<meta->remove; ++i) {
-                    maskPtr[i + mStateCurrent] = minValueFp16;
+                    maskPtr[i+mStateCurrent] = mMinValue;
                 }
             }
         }
@@ -1394,14 +1420,13 @@ public:
         }
         // Update State
         if (nullptr != meta && mStateInput.size() > 0) {
-            auto maskPtr = (mnn_qnn_fp16_t*)mMask->mPtr;
+            auto maskPtr = (__fp16*)mMask->mPtr;
             if (meta->add + mStateCurrent > mStateMaxSize) {
                 MNN_ERROR("QNN: Error: KV length %d larger than max size = %d\n", meta->add + mStateCurrent, mStateMaxSize);
                 return false;
             }
-            const mnn_qnn_fp16_t zeroFp16 = mnn_qnn_float_to_fp16(0.0f);
             for (int i=0; i<meta->add; ++i) {
-                maskPtr[i + mStateCurrent] = zeroFp16;
+                maskPtr[i+mStateCurrent] = 0.0f;
             }
             // Temply use StateOutputs[0] size to compute seq_len
             int bytes = 2;
@@ -2128,9 +2153,17 @@ QnnRuntime* QnnRuntime::create(const Backend::Info& info) {
     if (QNN::gContext.deviceHandle == nullptr){
         QNN::createQnnContext();
     }
-    // Create Interface.
-    return new QnnRuntime(info, gContext.QnnInterface, gContext.logHandle, gContext.backendHandle,
-                          gContext.deviceHandle);
+    if (gContext.logHandle == nullptr || gContext.backendHandle == nullptr) {
+        MNN_PRINT("MNN_QNN: Failed to create runtime because QNN context is incomplete. log=%p backend=%p device=%p\n",
+                  gContext.logHandle,
+                  gContext.backendHandle,
+                  gContext.deviceHandle);
+        return nullptr;
+    }
+    if (gContext.deviceHandle == nullptr) {
+        MNN_PRINT("MNN_QNN: Warning: device handle is null, attempting runtime creation without device.\n");
+    }
+    return new QnnRuntime(info, gContext.interface, gContext.logHandle, gContext.backendHandle, gContext.deviceHandle);
 }
 
 // Do nothing
