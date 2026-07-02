@@ -1,0 +1,86 @@
+// Runtime block-quant INT4 -> row-quant INT8 conversion for W8A8 coop GEMM.
+//
+// This keeps the persistent weight compressed. The expanded INT8 tensor is a
+// transient encode buffer consumed immediately by dynamic_w8a8_coop_gemm.
+
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_EXT_shader_8bit_storage : require
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+layout(binding = 0) readonly buffer PackedWeight {
+    uint W4[];
+};
+
+layout(binding = 1) readonly buffer BlockMeta {
+    FLOAT Meta[];
+};
+
+layout(binding = 2) readonly buffer RequantMeta {
+    FLOAT RowMeta[];
+};
+
+layout(binding = 3) writeonly buffer RequantWeight {
+    int8_t W8[];
+};
+
+layout(binding = 4) writeonly buffer SumWeight {
+    int SumWq[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint K;
+    uint N;
+    uint padK;
+    uint padN;
+    uint blockSize;
+    uint blockStride;
+    uint weightStride;
+} pc;
+
+shared int LocalSum[256];
+
+int quantOne(uint n, uint k) {
+    if (n >= pc.N || k >= pc.K) {
+        return 0;
+    }
+    const uint word = W4[((n >> 2u) * pc.weightStride + (k >> 3u)) * 4u + (n & 3u)];
+    const int q4 = int((word >> ((k & 7u) * 4u)) & 0xFu) - 8;
+    const uint block = min(k / pc.blockSize, pc.blockStride - 1u);
+    const uint metaBase = (n * pc.blockStride + block) * 2u;
+    const float srcScale = float(Meta[metaBase + 0u]);
+    const float srcOffset = float(Meta[metaBase + 1u]);
+    const float dstScale = float(RowMeta[n * 2u + 0u]);
+    const float dstOffset = float(RowMeta[n * 2u + 1u]);
+    const float realW = float(q4) * srcScale + srcOffset;
+    return clamp(int(round((realW - dstOffset) / dstScale)), -128, 127);
+}
+
+void main() {
+    const uint n = gl_WorkGroupID.x;
+    const uint tid = gl_LocalInvocationID.x;
+    const uint localSize = gl_WorkGroupSize.x;
+    int sum = 0;
+
+    if (n < pc.padN) {
+        for (uint k = tid; k < pc.padK; k += localSize) {
+            const int q = quantOne(n, k);
+            W8[n * pc.padK + k] = int8_t(q);
+            sum += q;
+        }
+    }
+
+    LocalSum[tid] = sum;
+    barrier();
+
+    for (uint stride = localSize >> 1u; stride > 0u; stride >>= 1u) {
+        if (tid < stride) {
+            LocalSum[tid] += LocalSum[tid + stride];
+        }
+        barrier();
+    }
+
+    if (tid == 0u && n < pc.padN) {
+        SumWq[n] = LocalSum[0];
+    }
+}

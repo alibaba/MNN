@@ -1,0 +1,78 @@
+layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
+layout(constant_id = 3) const uint QUANT_BITS_CONST = 0u;
+layout(constant_id = 4) const uint BLOCK_SIZE_CONST = 0u;
+layout(constant_id = 5) const uint BLOCK_STRIDE_CONST = 0u;
+layout(constant_id = 6) const uint OFFSET_MODE = 0u; // 1: offset is zero
+
+layout(binding = 0) writeonly buffer OutputBuffer {
+    FLOAT Output[];
+};
+
+layout(binding = 1) readonly buffer WeightBuffer {
+    uint Weight[];
+};
+
+layout(binding = 2) readonly buffer IndicesBuffer {
+    int Indices[];
+};
+
+layout(binding = 3) readonly buffer MetaBuffer {
+    FLOAT Meta[];
+};
+
+layout(push_constant) uniform ParamBuffer {
+    uint selectSize;
+    uint ic;
+    uint oc;
+    uint blockSize;
+    uint blockStride;
+    uint weightStride;
+    uint quantBits;
+    uint pad;
+} uParam;
+
+float loadWeight(uint row, uint k) {
+    const uint quantBits = QUANT_BITS_CONST != 0u ? QUANT_BITS_CONST : uParam.quantBits;
+    if (quantBits == 4u) {
+        const uint packed = Weight[((row >> 2u) * uParam.weightStride + (k >> 3u)) * 4u + (row & 3u)];
+        const uint raw = (packed >> ((k & 7u) * 4u)) & 0xFu;
+        return float(raw) - 8.0;
+    }
+    const uint packed = Weight[row * uParam.weightStride + (k >> 2u)];
+    int raw = int((packed >> ((k & 3u) * 8u)) & 0xFFu);
+    if (raw >= 128) {
+        raw -= 256;
+    }
+    return float(raw);
+}
+
+void main() {
+    const uint k4 = gl_GlobalInvocationID.x;
+    const uint select = gl_GlobalInvocationID.y;
+    const uint kBase = k4 << 2u;
+    if (select >= uParam.selectSize || kBase >= uParam.ic) {
+        return;
+    }
+
+    const int index = Indices[select];
+    const uint blockSize = BLOCK_SIZE_CONST != 0u ? BLOCK_SIZE_CONST : max(uParam.blockSize, 1u);
+    const uint blockStride = BLOCK_STRIDE_CONST != 0u ? BLOCK_STRIDE_CONST : uParam.blockStride;
+    for (uint i = 0u; i < 4u; ++i) {
+        const uint k = kBase + i;
+        if (k >= uParam.ic) {
+            return;
+        }
+        float value = 0.0;
+        if (index >= 0 && uint(index) < uParam.oc) {
+            const uint row = uint(index);
+            const uint block = k / blockSize;
+            const uint metaBase = (row * blockStride + block) * 2u;
+            const float scale = float(Meta[metaBase + 0u]);
+            value = loadWeight(row, k) * scale;
+            if (OFFSET_MODE == 0u) {
+                value += float(Meta[metaBase + 1u]);
+            }
+        }
+        Output[select * uParam.ic + k] = FLOAT(value);
+    }
+}

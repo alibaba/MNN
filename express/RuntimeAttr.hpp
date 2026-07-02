@@ -1,7 +1,7 @@
 #ifndef RuntimeAttr_hpp
 #define RuntimeAttr_hpp
 #include "core/Session.hpp"
-namespace MNN{
+namespace MNN {
 namespace Express {
 struct Cache {
     AutoStorage<uint8_t> modelBuffer;
@@ -18,13 +18,12 @@ struct RuntimeAttr {
         int mNumberThread;
         std::string mExternalFile;
         std::string mNpuDir;
+        void* pMeta = nullptr;
     };
     std::shared_ptr<Immutable> mContent;
     RuntimeInfo mRuntime;
     std::shared_ptr<Runtime> mInfo;
     std::shared_ptr<Cache> mCache;
-    // Per-RTM KVCache meta; pushed to the (pooled) Runtime by applyMetaToRuntime().
-    void* mMeta = nullptr;
     // Use for static module to compute flops
     float mFlops;
     mutable int mResizeStatus = 0;
@@ -36,8 +35,7 @@ struct ExecutorAttr {
     BackendConfig config;
     std::string externalFile;
 };
-};
-};
-
+}; // namespace Express
+}; // namespace MNN
 
 #endif

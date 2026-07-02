@@ -56,8 +56,7 @@ struct LinearAttnRecurrentParams {
 
 } // namespace
 
-VulkanLinearAttention::VulkanLinearAttention(const MNN::Op* op, Backend* backend)
-    : VulkanBasicExecution(backend) {
+VulkanLinearAttention::VulkanLinearAttention(const MNN::Op* op, Backend* backend) : VulkanBasicExecution(backend) {
     auto param = op->main_as_LinearAttentionParam();
     mAttentionType = param->attn_type()->str();
     mNumKHeads = param->num_k_heads();
@@ -85,11 +84,8 @@ VulkanLinearAttention::VulkanLinearAttention(const MNN::Op* op, Backend* backend
 
     {
         std::vector<VkDescriptorType> types{
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
         };
         mConvSiluPipeline = vkBn->getPipeline(shaderKey("glsl_linear_attn_conv_silu"), types);
         MNN_ASSERT(nullptr != mConvSiluPipeline);
@@ -109,11 +105,8 @@ VulkanLinearAttention::VulkanLinearAttention(const MNN::Op* op, Backend* backend
     }
     {
         std::vector<VkDescriptorType> types{
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
         };
         mQKVPrepPipeline = vkBn->getPipeline(shaderKey("glsl_linear_attn_qkv_prep"), types);
         MNN_ASSERT(nullptr != mQKVPrepPipeline);
@@ -122,23 +115,16 @@ VulkanLinearAttention::VulkanLinearAttention(const MNN::Op* op, Backend* backend
     }
     {
         std::vector<VkDescriptorType> types{
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
         };
         const char* prefillBase = mUseSubgroup ? "glsl_linear_attn_gated_delta_rule_prefill"
                                                : "glsl_linear_attn_gated_delta_rule_prefill_nosubgroup";
-        const char* decodeBase  = mUseSubgroup ? "glsl_linear_attn_gated_delta_rule_decode"
-                                               : "glsl_linear_attn_gated_delta_rule_decode_nosubgroup";
-        mPrefillPipeline = vkBn->getPipeline(shaderKey(prefillBase), types,
-                                             {mLaneCount, mSubgroupsPerWorkgroup, 1});
-        mDecodePipeline = vkBn->getPipeline(shaderKey(decodeBase), types,
-                                            {mLaneCount, mSubgroupsPerWorkgroup, 1});
+        const char* decodeBase = mUseSubgroup ? "glsl_linear_attn_gated_delta_rule_decode"
+                                              : "glsl_linear_attn_gated_delta_rule_decode_nosubgroup";
+        mPrefillPipeline = vkBn->getPipeline(shaderKey(prefillBase), types, {mLaneCount, mSubgroupsPerWorkgroup, 1});
+        mDecodePipeline = vkBn->getPipeline(shaderKey(decodeBase), types, {mLaneCount, mSubgroupsPerWorkgroup, 1});
 #ifdef MNN_VULKAN_LINEAR_ATTN_VERBOSE
         MNN_PRINT("[VulkanLinearAttention] path=%s, laneCount=%u, rowsPerGroup=%u\n",
                   mUseSubgroup ? "subgroup" : "shared_memory", mLaneCount, mSubgroupsPerWorkgroup);
@@ -234,7 +220,8 @@ ErrorCode VulkanLinearAttention::onEncode(const std::vector<Tensor*>& inputs, co
         return code;
     }
     const bool reusingKV = (nullptr != mMeta && mMeta->previous != mMeta->remove);
-    const bool loadingFromDisk = (mMeta != nullptr && mMeta->file_flag == KVMeta::PendingRead && mMeta->file_name.size() > 0);
+    const bool loadingFromDisk =
+        (mMeta != nullptr && mMeta->file_flag == KVMeta::PendingRead && mMeta->file_name.size() > 0);
     if (seqLen > 1 && !reusingKV && !loadingFromDisk) {
         code = resetPersistentState(vkBn);
         if (NO_ERROR != code) {
@@ -395,7 +382,8 @@ ErrorCode VulkanLinearAttention::onEncode(const std::vector<Tensor*>& inputs, co
 
         auto recurrentPipeline = seqLen == 1 ? mDecodePipeline : mPrefillPipeline;
         const uint32_t groupsX = UP_DIV((uint32_t)(batch * mNumVHeads * mHeadVDim), mSubgroupsPerWorkgroup);
-        dispatchWithProfile(seqLen == 1 ? "linear_attn_gated_delta_rule_decode" : "linear_attn_gated_delta_rule_prefill",
+        dispatchWithProfile(seqLen == 1 ? "linear_attn_gated_delta_rule_decode"
+                                        : "linear_attn_gated_delta_rule_prefill",
                             recurrentPipeline, recurrentSet, groupsX, 1, 1);
         cmdBuffer->barrierSource(vkBn->getBuffer(mStateCache->mRecurrentState.get()));
     }
@@ -408,7 +396,6 @@ bool VulkanLinearAttention::onClone(Backend* bn, const Op* op, VulkanBasicExecut
         return true;
     }
     auto res = new VulkanLinearAttention(op, bn);
-    res->mStateCache = mStateCache;
     *dst = res;
     return true;
 }

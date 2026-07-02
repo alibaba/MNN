@@ -23,7 +23,7 @@ layout(set=0, binding=4) readonly uniform constBuffer {
 
 layout(push_constant) uniform PushConsts {
     uint kStart;
-    uint blockLen; // ignored (assumed 512); kept for ABI compatibility with host push constants
+    uint blockLen; // ignored (assumed PREFILL_K_BLOCK); kept for ABI compatibility with host push constants
 } pc;
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
@@ -31,9 +31,11 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 const int MAX_D4 = 64; // headDim <= 256
 const float NEG_INF = -3.402823466e38;
 
-// Fast path for full K-block (blockLen == 512):
+const int PREFILL_K_BLOCK = 512;
+
+// Fast path for full K-block (blockLen == PREFILL_K_BLOCK):
 // - No per-lane bounds checks / conditional loads.
-// - Output QK is packed over K (FLOAT4): [qLen, headNum, 512/4, 4].
+// - Output QK is packed over K (FLOAT4): [qLen, headNum, PREFILL_K_BLOCK/4, 4].
 void main() {
     const int k4 = int(gl_GlobalInvocationID.x);
     const int q4 = int(gl_GlobalInvocationID.y);
@@ -73,9 +75,32 @@ void main() {
 
     const int kStart = int(pc.kStart);
     const int gk0 = kStart + k0;
+    const int maskMode = uConst.s2.z;
+    const int pastLen = uConst.s1.z;
+    if (maskMode == 2 && (pastLen + min(q0 + 3, qLen - 1)) < kStart) {
+        return;
+    }
 
     const int qLen4 = ((qLen + 3) / 4) * 4;
-    const int blockLen4_4 = 512 / 4;
+    const int blockLen4_4 = PREFILL_K_BLOCK / 4;
+    if (maskMode == 2 && gk0 > (pastLen + min(q0 + 3, qLen - 1))) {
+        const vec4 neg = vec4(NEG_INF);
+        const int outBase0 = ((q0 + 0) * headNum + h) * blockLen4_4 + k4;
+        uQK.data[outBase0] = FLOAT4(neg);
+        if ((q0 + 1) < qLen) {
+            const int outBase1 = ((q0 + 1) * headNum + h) * blockLen4_4 + k4;
+            uQK.data[outBase1] = FLOAT4(neg);
+        }
+        if ((q0 + 2) < qLen) {
+            const int outBase2 = ((q0 + 2) * headNum + h) * blockLen4_4 + k4;
+            uQK.data[outBase2] = FLOAT4(neg);
+        }
+        if ((q0 + 3) < qLen) {
+            const int outBase3 = ((q0 + 3) * headNum + h) * blockLen4_4 + k4;
+            uQK.data[outBase3] = FLOAT4(neg);
+        }
+        return;
+    }
 
     vec4 out0 = vec4(0.0);
     vec4 out1 = vec4(0.0);
@@ -108,10 +133,8 @@ void main() {
     out3 *= scale;
 
     // Mask: mode 1 = additive mask aligned to the last maskKvlen keys, mode 2 = causal.
-    const int maskMode = uConst.s2.z;
     const int maskQlen = uConst.s2.x;
     const int maskKvlen = uConst.s2.y;
-    const int pastLen = uConst.s1.z;
     const int maskKStart = (maskMode == 1 && maskKvlen > 0 && totalLen > maskKvlen) ? (totalLen - maskKvlen) : 0;
 
     if (maskMode == 1 && maskKvlen > 0) {

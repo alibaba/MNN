@@ -15,12 +15,14 @@
 namespace MNN {
 class VulkanScale : public VulkanBasicExecution {
 public:
-    VulkanScale(const Op* op, Backend* bn, Tensor * output);
+    VulkanScale(const Op* op, Backend* bn, Tensor* output);
     virtual ~VulkanScale();
     ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                        const VulkanCommandPool::Buffer* cmdBuffer) override;
+    bool onClone(Backend* bn, const Op* op, VulkanBasicExecution** dst) override;
 
 private:
+    VulkanScale(Backend* bn, const VulkanScale* src);
     std::shared_ptr<VulkanBuffer> mScaleParam;
     const VulkanPipeline* mScalePipeline;
     std::shared_ptr<VulkanLayout::DescriptorSet> mDescriptorSet;

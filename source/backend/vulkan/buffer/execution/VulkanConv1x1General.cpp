@@ -1,10 +1,15 @@
 #include "VulkanConv1x1General.hpp"
 #include "VulkanBackend.hpp"
+#include "VulkanSharedGather.hpp"
 #include "core/Macro.h"
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <vector>
+
+#ifdef ENABLE_VULKAN_TIME_PROFILE
+#include "backend/vulkan/component/VulkanTimeProfiler.hpp"
+#endif
 
 namespace MNN {
 
@@ -31,15 +36,14 @@ static size_t _alignUp4(size_t size) {
     return (size + 3u) & ~size_t(3u);
 }
 
-static bool _prepareQuantBuffersGPU(VulkanBackend* vkBn, const ConvolutionCommon::Int8Common* quantCommon,
-                                    bool useFP16, int ci, int co, uint32_t padN, uint32_t blockStride,
+static bool _prepareQuantBuffersGPU(VulkanBackend* vkBn, const ConvolutionCommon::Int8Common* quantCommon, bool useFP16,
+                                    int ci, int co, uint32_t padN, uint32_t blockStride,
                                     uint32_t decodeWeightStrideWords, int quantBits,
                                     std::shared_ptr<VulkanBuffer>& quantWeightBuffer,
                                     std::shared_ptr<VulkanBuffer>& quantMetaBuffer) {
     if (nullptr == vkBn || nullptr == quantCommon || nullptr == quantCommon->weight.get()) {
         return false;
     }
-
     const int soSize = quantCommon->asymmetric ? 2 : 1;
     const int alphaSize = quantCommon->alpha.size();
     const int alphaDenominator = std::max(1, co * soSize);
@@ -47,11 +51,9 @@ static bool _prepareQuantBuffersGPU(VulkanBackend* vkBn, const ConvolutionCommon
     const int8_t* qWeight = quantCommon->weight.get();
     const size_t rawWeightBytes = static_cast<size_t>(quantCommon->weight.size());
     const size_t alignedWeightBytes = std::max<size_t>(4u, _alignUp4(rawWeightBytes));
-    // int3 stores 2 uints per group of 16 weights; others store 1 uint per group.
     const uint32_t wordsPerGroup = (quantBits == 3) ? 2u : 1u;
-    const size_t decodeWeightBytes =
-        static_cast<size_t>(padN) * static_cast<size_t>(decodeWeightStrideWords) *
-        static_cast<size_t>(wordsPerGroup) * sizeof(uint32_t);
+    const size_t decodeWeightBytes = static_cast<size_t>(padN) * static_cast<size_t>(decodeWeightStrideWords) *
+                                     static_cast<size_t>(wordsPerGroup) * sizeof(uint32_t);
     const size_t metaElem = static_cast<size_t>(padN) * static_cast<size_t>(blockStride) * 2u;
     const size_t metaBytes = metaElem * (useFP16 ? sizeof(int16_t) : sizeof(float));
 
@@ -65,38 +67,47 @@ static bool _prepareQuantBuffersGPU(VulkanBackend* vkBn, const ConvolutionCommon
         rawWeightSrc = weightAlignedHost.data();
     }
 
+    std::shared_ptr<VulkanBuffer> stagingWeightBuffer = vkBn->createHostBuffer(alignedWeightBytes);
+    ::memcpy(stagingWeightBuffer->map(), rawWeightSrc, alignedWeightBytes);
+    stagingWeightBuffer->unmap();
     std::shared_ptr<VulkanBuffer> rawWeightBuffer(new VulkanBuffer(
         vkBn->getMemoryPool(), false, alignedWeightBytes, nullptr,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_SHARING_MODE_EXCLUSIVE, 0));
-    vkBn->copyToGPUBuffer(rawWeightSrc, rawWeightBuffer->buffer(), alignedWeightBytes, 0);
 
     quantWeightBuffer.reset(new VulkanBuffer(vkBn->getMemoryPool(), false, decodeWeightBytes, nullptr,
                                              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_SHARING_MODE_EXCLUSIVE, 0));
 
     const float* alphaPtr = quantCommon->alpha.get();
     const size_t rawAlphaBytes = static_cast<size_t>(std::max(alphaSize, 1)) * sizeof(float);
+    const float zero = 0.0f;
+    const void* rawAlphaSrc = (alphaSize > 0 && nullptr != alphaPtr) ? alphaPtr : &zero;
+    std::shared_ptr<VulkanBuffer> stagingAlphaBuffer = vkBn->createHostBuffer(rawAlphaBytes);
+    ::memcpy(stagingAlphaBuffer->map(), rawAlphaSrc, rawAlphaBytes);
+    stagingAlphaBuffer->unmap();
     std::shared_ptr<VulkanBuffer> rawAlphaBuffer(new VulkanBuffer(
         vkBn->getMemoryPool(), false, rawAlphaBytes, nullptr,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_SHARING_MODE_EXCLUSIVE, 0));
-    if (alphaSize > 0 && nullptr != alphaPtr) {
-        vkBn->copyToGPUBuffer(alphaPtr, rawAlphaBuffer->buffer(), static_cast<size_t>(alphaSize) * sizeof(float), 0);
-    } else {
-        const float zero = 0.0f;
-        vkBn->copyToGPUBuffer(&zero, rawAlphaBuffer->buffer(), sizeof(float), 0);
-    }
 
     quantMetaBuffer.reset(new VulkanBuffer(vkBn->getMemoryPool(), false, metaBytes, nullptr,
                                            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_SHARING_MODE_EXCLUSIVE, 0));
 
     const char* weightShader = nullptr;
     switch (quantBits) {
-        case 2: weightShader = "glsl_conv1x1_int2_weight_prepare_comp"; break;
-        case 3: weightShader = "glsl_conv1x1_int3_weight_prepare_comp"; break;
-        case 4: weightShader = "glsl_conv1x1_int4_weight_prepare_comp"; break;
-        default: weightShader = "glsl_conv1x1_int8_weight_prepare_comp"; break;
+        case 2:
+            weightShader = "glsl_conv1x1_int2_weight_prepare_comp";
+            break;
+        case 3:
+            weightShader = "glsl_conv1x1_int3_weight_prepare_comp";
+            break;
+        case 4:
+            weightShader = "glsl_conv1x1_int4_weight_prepare_comp";
+            break;
+        default:
+            weightShader = "glsl_conv1x1_int8_weight_prepare_comp";
+            break;
     }
-    const char* metaShader = useFP16 ? "glsl_conv1x1_quant_meta_prepare_FP16_comp"
-                                     : "glsl_conv1x1_quant_meta_prepare_comp";
+    const char* metaShader =
+        useFP16 ? "glsl_conv1x1_quant_meta_prepare_FP16_comp" : "glsl_conv1x1_quant_meta_prepare_comp";
 
     std::vector<VkDescriptorType> prepareTypes = {
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -118,6 +129,18 @@ static bool _prepareQuantBuffersGPU(VulkanBackend* vkBn, const ConvolutionCommon
     prepareCmd->begin(0);
 
     {
+        VkBufferCopy copy;
+        copy.srcOffset = 0;
+        copy.dstOffset = 0;
+        copy.size = alignedWeightBytes;
+        vkCmdCopyBuffer(prepareCmd->get(), stagingWeightBuffer->buffer(), rawWeightBuffer->buffer(), 1, &copy);
+        copy.size = rawAlphaBytes;
+        vkCmdCopyBuffer(prepareCmd->get(), stagingAlphaBuffer->buffer(), rawAlphaBuffer->buffer(), 1, &copy);
+        prepareCmd->barrierSource(rawWeightBuffer->buffer(), 0, rawWeightBuffer->size());
+        prepareCmd->barrierSource(rawAlphaBuffer->buffer(), 0, rawAlphaBuffer->size());
+    }
+
+    {
         QuantWeightPrepareParams pc;
         pc.ci = static_cast<uint32_t>(ci);
         pc.co = static_cast<uint32_t>(co);
@@ -128,7 +151,8 @@ static bool _prepareQuantBuffersGPU(VulkanBackend* vkBn, const ConvolutionCommon
         weightSet->writeBuffer(rawWeightBuffer->buffer(), 0, rawWeightBuffer->size());
         weightSet->writeBuffer(quantWeightBuffer->buffer(), 1, quantWeightBuffer->size());
         weightPipeline->bind(prepareCmd->get(), weightSet->get());
-        vkCmdPushConstants(prepareCmd->get(), weightPipeline->layout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+        vkCmdPushConstants(prepareCmd->get(), weightPipeline->layout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc),
+                           &pc);
         vkCmdDispatch(prepareCmd->get(), UP_DIV(decodeWeightStrideWords, 16u), UP_DIV(padN, 16u), 1);
         prepareCmd->barrierSource(quantWeightBuffer->buffer(), 0, quantWeightBuffer->size());
     }
@@ -151,7 +175,8 @@ static bool _prepareQuantBuffersGPU(VulkanBackend* vkBn, const ConvolutionCommon
     }
 
     prepareCmd->end();
-    vkBn->getPool().submitAndWait(prepareCmd->get());
+    vkBn->submitCommand(prepareCmd, {stagingWeightBuffer, stagingAlphaBuffer, rawWeightBuffer, rawAlphaBuffer},
+                        {weightSet, metaSet});
     return true;
 }
 
@@ -163,6 +188,7 @@ VulkanConv1x1General::VulkanConv1x1General(VulkanBackend* backend, const Convolu
     : VulkanBasicExecution(backend), mCommon(convOption), mCi(ci), mCo(co), mQuantCommon(std::move(quantInfo)) {
     if (!_init(biasPtr, true)) {
         MNN_ERROR("VulkanConv1x1General init failed\n");
+        MNN_ASSERT(false);
     }
 }
 
@@ -172,11 +198,11 @@ VulkanConv1x1General::VulkanConv1x1General(VulkanBackend* backend, const Convolu
     : VulkanBasicExecution(backend), mCommon(convOption), mCi(ci), mCo(co), mQuantCommon(std::move(quantInfo)) {
     if (!_init(nullptr, initStaticResource)) {
         MNN_ERROR("VulkanConv1x1General clone init failed\n");
+        MNN_ASSERT(false);
     }
 }
 
-VulkanConv1x1General::~VulkanConv1x1General() {
-}
+VulkanConv1x1General::~VulkanConv1x1General() {}
 
 bool VulkanConv1x1General::_init(const float* biasPtr, bool initStaticResource) {
     auto vkBn = static_cast<VulkanBackend*>(backend());
@@ -185,7 +211,6 @@ bool VulkanConv1x1General::_init(const float* biasPtr, bool initStaticResource) 
     }
 
     const bool useFP16 = vkBn->useFP16();
-    // Precedence: int2 > int3 > int4 > int8 (default).
     if (mQuantCommon->canUseInt2) {
         mQuantBits = 2;
     } else if (mQuantCommon->canUseInt3) {
@@ -209,49 +234,36 @@ bool VulkanConv1x1General::_init(const float* biasPtr, bool initStaticResource) 
     const int blockCount = std::max(1, alphaSize / alphaDenominator);
     mBlockSize = std::max<uint32_t>(1u, static_cast<uint32_t>(UP_DIV(mCi, blockCount)));
 
-    if ((mBlockSize & 3u) != 0u) {
-        MNN_ERROR("VulkanConv1x1General requires blockSize %% 4 == 0, blockSize=%u\n", mBlockSize);
-        return false;
-    }
-    if (mCi % static_cast<int>(mBlockSize) != 0) {
-        MNN_ERROR("VulkanConv1x1General requires K %% blockSize == 0, K=%d, blockSize=%u\n", mCi, mBlockSize);
-        return false;
-    }
-    if ((mPadK % mBlockSize) != 0u) {
-        MNN_ERROR("VulkanConv1x1General requires padK %% blockSize == 0, padK=%u, blockSize=%u\n", mPadK, mBlockSize);
-        return false;
-    }
-    mBlockStride = mPadK / mBlockSize;
-    // For int2/int3, weightStride counts groups-of-16; int3 uses 2 uints per group, int2 uses 1.
+    mBlockStride = UP_DIV(mPadK, mBlockSize);
     mDecodeWeightStrideWords = (mQuantBits == 2 || mQuantBits == 3) ? UP_DIV(mPadK, 16u)
-                              : (mQuantBits == 4)                   ? UP_DIV(mPadK, 8u)
+                               : (mQuantBits == 4)                  ? UP_DIV(mPadK, 8u)
                                                                     : (mPadK / 4u);
 
     if (initStaticResource) {
-        if (!_prepareQuantBuffersGPU(vkBn, mQuantCommon.get(), useFP16, mCi, mCo, mPadN, mBlockStride,
-                                     mDecodeWeightStrideWords, mQuantBits,
-                                     mQuantWeightBuffer, mQuantMetaBuffer)) {
-            return false;
-        }
-
         std::vector<float> biasHost(mPadN, 0.0f);
         if (nullptr != biasPtr) {
             ::memcpy(biasHost.data(), biasPtr, static_cast<size_t>(mCo) * sizeof(float));
         }
+        const size_t elementSize = useFP16 ? sizeof(int16_t) : sizeof(float);
+        mBiasBuffer.reset(new VulkanBuffer(vkBn->getMemoryPool(), true, mPadN * elementSize, nullptr,
+                                           VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
+        auto biasMap = mBiasBuffer->map();
+        if (nullptr == biasMap) {
+            return false;
+        }
+        ::memset(biasMap, 0, mPadN * elementSize);
         if (useFP16) {
             std::vector<int16_t> biasHalf(mPadN);
             FLOAT_TO_HALF(biasHost.data(), biasHalf.data(), static_cast<int>(mPadN));
-            mBiasBuffer.reset(new VulkanBuffer(vkBn->getMemoryPool(), false, mPadN * sizeof(int16_t), nullptr,
-                                               VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-                                                   VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                                               VK_SHARING_MODE_EXCLUSIVE, 0));
-            vkBn->copyToGPUBuffer(biasHalf.data(), mBiasBuffer->buffer(), mPadN * sizeof(int16_t), 0);
+            ::memcpy(biasMap, biasHalf.data(), mPadN * sizeof(int16_t));
         } else {
-            mBiasBuffer.reset(new VulkanBuffer(vkBn->getMemoryPool(), false, mPadN * sizeof(float), nullptr,
-                                               VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-                                                   VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                                               VK_SHARING_MODE_EXCLUSIVE, 0));
-            vkBn->copyToGPUBuffer(biasHost.data(), mBiasBuffer->buffer(), mPadN * sizeof(float), 0);
+            ::memcpy(biasMap, biasHost.data(), mPadN * sizeof(float));
+        }
+        mBiasBuffer->unmap();
+
+        if (!_prepareQuantBuffersGPU(vkBn, mQuantCommon.get(), useFP16, mCi, mCo, mPadN, mBlockStride,
+                                     mDecodeWeightStrideWords, mQuantBits, mQuantWeightBuffer, mQuantMetaBuffer)) {
+            return false;
         }
     }
 
@@ -266,8 +278,7 @@ bool VulkanConv1x1General::_init(const float* biasPtr, bool initStaticResource) 
     {
         const auto& subgroup = vkBn->getDevice().getSubgroupInfo();
         const VkSubgroupFeatureFlags requiredOps = VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_ARITHMETIC_BIT;
-        mUseSubgroup = subgroup.size > 0 &&
-                       (subgroup.stages & VK_SHADER_STAGE_COMPUTE_BIT) &&
+        mUseSubgroup = subgroup.size > 0 && (subgroup.stages & VK_SHADER_STAGE_COMPUTE_BIT) &&
                        ((subgroup.ops & requiredOps) == requiredOps);
     }
 
@@ -278,30 +289,57 @@ bool VulkanConv1x1General::_init(const float* biasPtr, bool initStaticResource) 
 
     {
         std::vector<VkDescriptorType> types = {
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         };
         const char* shader = nullptr;
         if (mUseSubgroup) {
             std::vector<uint32_t> spec = {static_cast<uint32_t>(activation)};
             switch (mQuantBits) {
-                case 2: shader = useFP16 ? "glsl_gemv_dequant_int2_FP16_comp" : "glsl_gemv_dequant_int2_comp"; break;
-                case 3: shader = useFP16 ? "glsl_gemv_dequant_int3_FP16_comp" : "glsl_gemv_dequant_int3_comp"; break;
-                case 4: shader = useFP16 ? "glsl_gemv_dequant_int4_FP16_comp" : "glsl_gemv_dequant_int4_comp"; break;
-                default: shader = useFP16 ? "glsl_gemv_dequant_int8_FP16_comp" : "glsl_gemv_dequant_int8_comp"; break;
+                case 2:
+                    shader = useFP16 ? "glsl_gemv_dequant_int2_FP16_comp" : "glsl_gemv_dequant_int2_comp";
+                    break;
+                case 3:
+                    shader = useFP16 ? "glsl_gemv_dequant_int3_FP16_comp" : "glsl_gemv_dequant_int3_comp";
+                    break;
+                case 4:
+                    shader = useFP16 ? "glsl_gemv_dequant_int4_FP16_comp" : "glsl_gemv_dequant_int4_comp";
+                    mDecodeRowsPerGroup = (mBlockSize == 64u) ? 6u : 1u;
+                    spec.push_back(mBlockSize);
+                    spec.push_back(mBlockStride);
+                    spec.push_back((mQuantCommon != nullptr && !mQuantCommon->asymmetric) ? 1u : 0u);
+                    spec.push_back(static_cast<uint32_t>(mCi));
+                    spec.push_back(mDecodeWeightStrideWords);
+                    spec.push_back(static_cast<uint32_t>(mCo));
+                    break;
+                default:
+                    shader = useFP16 ? "glsl_gemv_dequant_int8_FP16_comp" : "glsl_gemv_dequant_int8_comp";
+                    break;
             }
-            mDecodePipeline = vkBn->getPipeline(shader, types, {mDecodeSubgroupSize, 1, 1}, spec);
+            if (mQuantBits != 4) {
+                mDecodeRowsPerGroup = 1u;
+            }
+            mDecodePipeline = vkBn->getPipeline(shader, types, {mDecodeSubgroupSize * mDecodeRowsPerGroup, 1, 1}, spec);
         } else {
             uint32_t localSize = 64u;
             std::vector<uint32_t> spec = {static_cast<uint32_t>(activation), localSize};
             switch (mQuantBits) {
-                case 2: shader = useFP16 ? "glsl_gemv_dequant_int2_nosubgroup_FP16_comp" : "glsl_gemv_dequant_int2_nosubgroup_comp"; break;
-                case 3: shader = useFP16 ? "glsl_gemv_dequant_int3_nosubgroup_FP16_comp" : "glsl_gemv_dequant_int3_nosubgroup_comp"; break;
-                case 4: shader = useFP16 ? "glsl_gemv_dequant_int4_nosubgroup_FP16_comp" : "glsl_gemv_dequant_int4_nosubgroup_comp"; break;
-                default: shader = useFP16 ? "glsl_gemv_dequant_int8_nosubgroup_FP16_comp" : "glsl_gemv_dequant_int8_nosubgroup_comp"; break;
+                case 2:
+                    shader = useFP16 ? "glsl_gemv_dequant_int2_nosubgroup_FP16_comp"
+                                     : "glsl_gemv_dequant_int2_nosubgroup_comp";
+                    break;
+                case 3:
+                    shader = useFP16 ? "glsl_gemv_dequant_int3_nosubgroup_FP16_comp"
+                                     : "glsl_gemv_dequant_int3_nosubgroup_comp";
+                    break;
+                case 4:
+                    shader = useFP16 ? "glsl_gemv_dequant_int4_nosubgroup_FP16_comp"
+                                     : "glsl_gemv_dequant_int4_nosubgroup_comp";
+                    break;
+                default:
+                    shader = useFP16 ? "glsl_gemv_dequant_int8_nosubgroup_FP16_comp"
+                                     : "glsl_gemv_dequant_int8_nosubgroup_comp";
+                    break;
             }
             mDecodePipeline = vkBn->getPipeline(shader, types, {localSize, 1, 1}, spec);
         }
@@ -332,10 +370,18 @@ bool VulkanConv1x1General::_init(const float* biasPtr, bool initStaticResource) 
         };
         const char* shader = nullptr;
         switch (mQuantBits) {
-            case 2: shader = useFP16 ? "glsl_int2_weight_to_pack_FP16_comp" : "glsl_int2_weight_to_pack_comp"; break;
-            case 3: shader = useFP16 ? "glsl_int3_weight_to_pack_FP16_comp" : "glsl_int3_weight_to_pack_comp"; break;
-            case 4: shader = useFP16 ? "glsl_int4_weight_to_pack_FP16_comp" : "glsl_int4_weight_to_pack_comp"; break;
-            default: shader = useFP16 ? "glsl_int8_weight_to_pack_FP16_comp" : "glsl_int8_weight_to_pack_comp"; break;
+            case 2:
+                shader = useFP16 ? "glsl_int2_weight_to_pack_FP16_comp" : "glsl_int2_weight_to_pack_comp";
+                break;
+            case 3:
+                shader = useFP16 ? "glsl_int3_weight_to_pack_FP16_comp" : "glsl_int3_weight_to_pack_comp";
+                break;
+            case 4:
+                shader = useFP16 ? "glsl_int4_weight_to_pack_FP16_comp" : "glsl_int4_weight_to_pack_comp";
+                break;
+            default:
+                shader = useFP16 ? "glsl_int8_weight_to_pack_FP16_comp" : "glsl_int8_weight_to_pack_comp";
+                break;
         }
         mWeightToPackPipeline = vkBn->getPipeline(shader, types);
         if (nullptr == mWeightToPackPipeline) {
@@ -368,6 +414,12 @@ bool VulkanConv1x1General::onClone(Backend* bn, const Op* op, VulkanBasicExecuti
         return true;
     }
     auto vkBn = static_cast<VulkanBackend*>(bn);
+    if (nullptr != op && op->type() == OpType_GatherV2) {
+        const bool offsetZero = (mQuantCommon != nullptr && !mQuantCommon->asymmetric);
+        *dst = new VulkanSharedGather(vkBn, mCi, mCo, mQuantBits, mPadN, mBlockSize, mBlockStride,
+                                      mDecodeWeightStrideWords, offsetZero, mQuantWeightBuffer, mQuantMetaBuffer);
+        return true;
+    }
     auto conv2D = op->main_as_Convolution2D();
     if (nullptr == conv2D || nullptr == conv2D->common()) {
         return false;
@@ -380,6 +432,7 @@ bool VulkanConv1x1General::onClone(Backend* bn, const Op* op, VulkanBasicExecuti
     res->mBlockStride = mBlockStride;
     res->mDecodeWeightStrideWords = mDecodeWeightStrideWords;
     res->mDecodeSubgroupSize = mDecodeSubgroupSize;
+    res->mDecodeRowsPerGroup = mDecodeRowsPerGroup;
     res->mUseSubgroup = mUseSubgroup;
     res->mQuantWeightBuffer = mQuantWeightBuffer;
     res->mQuantMetaBuffer = mQuantMetaBuffer;
@@ -405,6 +458,31 @@ ErrorCode VulkanConv1x1General::onEncode(const std::vector<Tensor*>& inputs, con
     auto vkBn = static_cast<VulkanBackend*>(backend());
     auto srcBuffer = vkBn->getTensorBuffer(input);
     auto dstBuffer = vkBn->getTensorBuffer(output);
+    const bool useFP16 = vkBn->useFP16();
+
+    auto dispatchWithProfile = [&](const char* name, const VulkanPipeline* pipeline,
+                                   const std::shared_ptr<VulkanLayout::DescriptorSet>& set, uint32_t gx, uint32_t gy,
+                                   uint32_t gz, const void* pc, uint32_t pcSize) {
+#ifdef ENABLE_VULKAN_TIME_PROFILE
+        auto* profiler = vkBn->timeProfiler();
+        if (nullptr != profiler) {
+            VulkanTimeProfileScope scope(profiler, cmdBuffer->get(), name, VulkanTimeProfiler::Kind::Shader);
+            pipeline->bind(cmdBuffer->get(), set->get());
+            if (nullptr != pc) {
+                vkCmdPushConstants(cmdBuffer->get(), pipeline->layout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, pcSize, pc);
+            }
+            vkCmdDispatch(cmdBuffer->get(), gx, gy, gz);
+            return;
+        }
+#else
+        (void)name;
+#endif
+        pipeline->bind(cmdBuffer->get(), set->get());
+        if (nullptr != pc) {
+            vkCmdPushConstants(cmdBuffer->get(), pipeline->layout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, pcSize, pc);
+        }
+        vkCmdDispatch(cmdBuffer->get(), gx, gy, gz);
+    };
 
     if (M == 1) {
         struct DecodeParams {
@@ -425,10 +503,45 @@ ErrorCode VulkanConv1x1General::onEncode(const std::vector<Tensor*>& inputs, con
         mDecodeSet->writeBuffer(mQuantMetaBuffer->buffer(), 2, mQuantMetaBuffer->size());
         mDecodeSet->writeBuffer(mBiasBuffer->buffer(), 3, mBiasBuffer->size());
         mDecodeSet->writeBuffer(dstBuffer.first->buffer(), 4, vkBn->getTensorSize(output), dstBuffer.second);
-        mDecodePipeline->bind(cmdBuffer->get(), mDecodeSet->get());
-        vkCmdPushConstants(cmdBuffer->get(), mDecodePipeline->layout(), VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                           sizeof(DecodeParams), &pc);
-        vkCmdDispatch(cmdBuffer->get(), static_cast<uint32_t>(mCo), 1, 1);
+        const char* decodeName = nullptr;
+        if (mUseSubgroup) {
+            switch (mQuantBits) {
+                case 2:
+                    decodeName = useFP16 ? "glsl_gemv_dequant_int2_FP16_comp" : "glsl_gemv_dequant_int2_comp";
+                    break;
+                case 3:
+                    decodeName = useFP16 ? "glsl_gemv_dequant_int3_FP16_comp" : "glsl_gemv_dequant_int3_comp";
+                    break;
+                case 4:
+                    decodeName = useFP16 ? "glsl_gemv_dequant_int4_FP16_comp" : "glsl_gemv_dequant_int4_comp";
+                    break;
+                default:
+                    decodeName = useFP16 ? "glsl_gemv_dequant_int8_FP16_comp" : "glsl_gemv_dequant_int8_comp";
+                    break;
+            }
+        } else {
+            switch (mQuantBits) {
+                case 2:
+                    decodeName = useFP16 ? "glsl_gemv_dequant_int2_nosubgroup_FP16_comp"
+                                         : "glsl_gemv_dequant_int2_nosubgroup_comp";
+                    break;
+                case 3:
+                    decodeName = useFP16 ? "glsl_gemv_dequant_int3_nosubgroup_FP16_comp"
+                                         : "glsl_gemv_dequant_int3_nosubgroup_comp";
+                    break;
+                case 4:
+                    decodeName = useFP16 ? "glsl_gemv_dequant_int4_nosubgroup_FP16_comp"
+                                         : "glsl_gemv_dequant_int4_nosubgroup_comp";
+                    break;
+                default:
+                    decodeName = useFP16 ? "glsl_gemv_dequant_int8_nosubgroup_FP16_comp"
+                                         : "glsl_gemv_dequant_int8_nosubgroup_comp";
+                    break;
+            }
+        }
+        const uint32_t decodeRowsPerGroup = mUseSubgroup ? mDecodeRowsPerGroup : 1u;
+        dispatchWithProfile(decodeName, mDecodePipeline, mDecodeSet,
+                            UP_DIV(static_cast<uint32_t>(mCo), decodeRowsPerGroup), 1, 1, &pc, sizeof(pc));
         return NO_ERROR;
     }
 
@@ -484,10 +597,8 @@ ErrorCode VulkanConv1x1General::onEncode(const std::vector<Tensor*>& inputs, con
 
         mPackASet->writeBuffer(srcBuffer.first->buffer(), 0, vkBn->getTensorSize(input), srcBuffer.second);
         mPackASet->writeBuffer(packedABuffer.first->buffer(), 1, packedASize, packedABuffer.second);
-        mPackAPipeline->bind(cmdBuffer->get(), mPackASet->get());
-        vkCmdPushConstants(cmdBuffer->get(), mPackAPipeline->layout(), VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                           sizeof(PackAParams), &pc);
-        vkCmdDispatch(cmdBuffer->get(), mPadK / 4u, padM / 64u, 1);
+        dispatchWithProfile(useFP16 ? "glsl_pack_a_k4m4_to_m64k4_FP16_comp" : "glsl_pack_a_k4m4_to_m64k4_comp",
+                            mPackAPipeline, mPackASet, mPadK / 4u, padM / 64u, 1, &pc, sizeof(pc));
         cmdBuffer->barrierSource(packedABuffer.first->buffer(), packedABuffer.second, packedASize);
     }
 
@@ -499,17 +610,30 @@ ErrorCode VulkanConv1x1General::onEncode(const std::vector<Tensor*>& inputs, con
             uint32_t KBlocks;
         } pc;
         pc.N = mPadN;
-        pc.K = mPadK;
+        pc.K = (mQuantBits == 2 || mQuantBits == 3) ? mPadK : static_cast<uint32_t>(mCi);
         pc.blockSize = mBlockSize;
         pc.KBlocks = mBlockStride;
 
         mWeightToPackSet->writeBuffer(mQuantWeightBuffer->buffer(), 0, mQuantWeightBuffer->size());
         mWeightToPackSet->writeBuffer(mQuantMetaBuffer->buffer(), 1, mQuantMetaBuffer->size());
         mWeightToPackSet->writeBuffer(packedBBuffer.first->buffer(), 2, packedBSize, packedBBuffer.second);
-        mWeightToPackPipeline->bind(cmdBuffer->get(), mWeightToPackSet->get());
-        vkCmdPushConstants(cmdBuffer->get(), mWeightToPackPipeline->layout(), VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                           sizeof(WeightToPackParams), &pc);
-        vkCmdDispatch(cmdBuffer->get(), UP_DIV(mPadN / 4u, 16u), UP_DIV(mPadK / 4u, 8u), 1);
+        const char* weightPackName = nullptr;
+        switch (mQuantBits) {
+            case 2:
+                weightPackName = useFP16 ? "glsl_int2_weight_to_pack_FP16_comp" : "glsl_int2_weight_to_pack_comp";
+                break;
+            case 3:
+                weightPackName = useFP16 ? "glsl_int3_weight_to_pack_FP16_comp" : "glsl_int3_weight_to_pack_comp";
+                break;
+            case 4:
+                weightPackName = useFP16 ? "glsl_int4_weight_to_pack_FP16_comp" : "glsl_int4_weight_to_pack_comp";
+                break;
+            default:
+                weightPackName = useFP16 ? "glsl_int8_weight_to_pack_FP16_comp" : "glsl_int8_weight_to_pack_comp";
+                break;
+        }
+        dispatchWithProfile(weightPackName, mWeightToPackPipeline, mWeightToPackSet, UP_DIV(mPadN / 4u, 16u),
+                            UP_DIV(mPadK / 4u, 8u), 1, &pc, sizeof(pc));
         cmdBuffer->barrierSource(packedBBuffer.first->buffer(), packedBBuffer.second, packedBSize);
     }
 
@@ -529,10 +653,8 @@ ErrorCode VulkanConv1x1General::onEncode(const std::vector<Tensor*>& inputs, con
         mGemmSet->writeBuffer(packedBBuffer.first->buffer(), 1, packedBSize, packedBBuffer.second);
         mGemmSet->writeBuffer(mBiasBuffer->buffer(), 2, mBiasBuffer->size());
         mGemmSet->writeBuffer(dstBuffer.first->buffer(), 3, vkBn->getTensorSize(output), dstBuffer.second);
-        mGemmPipeline->bind(cmdBuffer->get(), mGemmSet->get());
-        vkCmdPushConstants(cmdBuffer->get(), mGemmPipeline->layout(), VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                           sizeof(GemmParams), &pc);
-        vkCmdDispatch(cmdBuffer->get(), mPadN / 32u, padM / 64u, 1);
+        dispatchWithProfile(useFP16 ? "glsl_gemm_m8n4_FP16_comp" : "glsl_gemm_m8n4_comp", mGemmPipeline, mGemmSet,
+                            mPadN / 32u, UP_DIV(static_cast<uint32_t>(M), 8u), 1, &pc, sizeof(pc));
     }
 
     releaseTemp();

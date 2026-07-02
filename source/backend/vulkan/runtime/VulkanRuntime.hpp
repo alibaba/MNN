@@ -31,9 +31,7 @@ struct VKTuneKey {
     std::string shaderName;
     std::array<uint32_t, 3> gws;
 
-    bool operator==(const VKTuneKey & other) const {
-        return (shaderName == other.shaderName) && (gws == other.gws);
-    }
+    bool operator==(const VKTuneKey& other) const { return (shaderName == other.shaderName) && (gws == other.gws); }
 };
 
 struct VKTuneValue {
@@ -42,7 +40,7 @@ struct VKTuneValue {
 };
 
 struct VkTuneHash {
-    size_t operator()(const VKTuneKey & key) const {
+    size_t operator()(const VKTuneKey& key) const {
         size_t hs = std::hash<std::string>()(key.shaderName);
         size_t h0 = std::hash<uint32_t>()(key.gws[0]);
         size_t h1 = std::hash<uint32_t>()(key.gws[1]);
@@ -53,14 +51,13 @@ struct VkTuneHash {
 
 class VulkanRuntime : public Runtime {
 public:
-    virtual ~ VulkanRuntime();
+    virtual ~VulkanRuntime();
 
     virtual Backend* onCreate(const BackendConfig* config, Backend* origin) const override;
     enum GPUType { ADRENO = 0, MALI = 1, OTHER = 2 };
     virtual void onGabageCollect(int level) override;
     virtual float onGetMemoryInMB() override;
     int onGetRuntimeStatus(RuntimeStatus statusEnum) const override;
-    float onGetLastGpuTimeMs() const override { return mLastGpuTimeMs; }
     std::shared_ptr<VulkanBuffer> allocUniform(const void* src = nullptr, int size = 0);
     void recycleUniform(std::shared_ptr<VulkanBuffer> buffer);
     static VulkanRuntime* create(const Backend::Info& info);
@@ -68,8 +65,10 @@ public:
     virtual bool onSetCache(const void* buffer, size_t size) override;
 
 private:
-    VulkanRuntime(const Backend::Info& info, std::shared_ptr<VulkanDevice> device, std::shared_ptr<VulkanInstance> instance);
+    VulkanRuntime(const Backend::Info& info, std::shared_ptr<VulkanDevice> device,
+                  std::shared_ptr<VulkanInstance> instance);
     BackendConfig::PrecisionMode mPrecision = BackendConfig::Precision_Normal;
+    BackendConfig::MemoryMode mMemory = BackendConfig::Memory_Normal;
     std::shared_ptr<BufferAllocator> mBufferPool;
     std::shared_ptr<VulkanPipelineFactory> mPipelineFactory;
     std::shared_ptr<VulkanCommandPool> mCmdPool;
@@ -85,13 +84,12 @@ private:
     int mCacheUniformLimitSize = 1024;
     float mFlops = 0.0f;
     friend class VulkanBackend;
-    mutable float mLastGpuTimeMs = -1.0f;
     GPUType mGpuType = OTHER;
     int mGpuMode;
-// member variables related to auto tuning
+    // member variables related to auto tuning
 private:
     mutable std::unordered_map<VKTuneKey, VKTuneValue, VkTuneHash> mTuneMap;
     std::vector<uint8_t> mTuneBuffer;
 };
-}
+} // namespace MNN
 #endif

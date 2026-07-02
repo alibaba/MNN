@@ -19,11 +19,18 @@ public:
     bool onClone(Backend* bn, const Op* op, VulkanBasicExecution** dst) override;
 
 private:
+    bool ensureLegacyPipeline(VulkanBackend* vkBn);
+    bool ensureUpdatePipeline(VulkanBackend* vkBn);
+    bool ensurePrefillPipelines(VulkanBackend* vkBn);
+    bool ensureAttentionPipeline(VulkanBackend* vkBn);
+    bool ensureDecodeSmallFusedPipelines(VulkanBackend* vkBn);
+    bool ensureDecodeTwoStagePipelines(VulkanBackend* vkBn);
+
     struct GpuParam {
         ivec4 s0; // qLen, kLen, headNum, kvHeadNum
         ivec4 s1; // headDim, group, pastLen, totalLen
         ivec4 s2; // maskQlen, maskKvlen, maskMode(0:none,1:additive,2:causal), cacheMaxLen
-        vec4 f0;  // scale, 0, 0, 0
+        vec4 f0;  // scale, outputC4, decodeTwoStage, 0
     };
 
     struct KVCache {
@@ -36,12 +43,13 @@ private:
         std::shared_ptr<VulkanBuffer> value;
 
         void reset();
-        void ensureCapacity(VulkanBackend* vkBn, int requiredLen, int kvH, int d, bool useFP16);
+        bool ensureCapacity(VulkanBackend* vkBn, int requiredLen, int kvH, int d, bool useFP16);
     };
 
-    const Op* mOp = nullptr;
     bool mNeedKvCache = false;
+    bool mOutputC4 = false;
     bool mUseFP16 = false;
+    float mAttnScale = 0.0f;
     KVMeta* mMeta = nullptr;
 
     int mQueryLen = 0;
@@ -55,18 +63,31 @@ private:
     std::shared_ptr<VulkanBuffer> mParam;
     const VulkanPipeline* mAttentionPipeline = nullptr;
     const VulkanPipeline* mAttentionLegacyPipeline = nullptr;
-    const VulkanPipeline* mDecodeQ1SubgroupPipeline = nullptr;
-    const VulkanPipeline* mDecodeQ1SubgroupHD128Pipeline = nullptr;
+    const VulkanPipeline* mDecodeSingleFusedPipelines[4] = {};
+    const VulkanPipeline* mDecodeSmallFusedPipelines[4] = {};
+    const VulkanPipeline* mDecodeQkSoftmaxPipelines[4] = {};
+    const VulkanPipeline* mDecodeQkvPipeline = nullptr;
     const VulkanPipeline* mUpdatePipeline = nullptr;
     std::shared_ptr<VulkanLayout::DescriptorSet> mAttentionSet;
     std::shared_ptr<VulkanLayout::DescriptorSet> mAttentionLegacySet;
-    std::shared_ptr<VulkanLayout::DescriptorSet> mDecodeQ1SubgroupSet;
-    std::shared_ptr<VulkanLayout::DescriptorSet> mDecodeQ1SubgroupHD128Set;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mDecodeSingleFusedSets[4];
+    std::shared_ptr<VulkanLayout::DescriptorSet> mDecodeSmallFusedSets[4];
+    std::shared_ptr<VulkanLayout::DescriptorSet> mDecodeQkSoftmaxSets[4];
+    std::shared_ptr<VulkanLayout::DescriptorSet> mDecodeQkvSet;
     std::shared_ptr<VulkanLayout::DescriptorSet> mUpdateSet;
 
     bool mUsePrefill = false;
+    bool mUseDecodeTwoStageIndirect = false;
+    bool mUseDecodeTwoStageDirect = false;
+    int mDecodeMaskMode = 0;
+    int mDecodeTwoStagePipelineMaskMode = -1;
+    int mDecodeIndirectCmdCount = 0;
+    bool mDecodeIndirectCmdInitialized = false;
+    bool mDecodeIndirectLastActive = false;
+    std::shared_ptr<VulkanBuffer> mDecodeIndirectBuffer;
+    std::shared_ptr<Tensor> mTempDecodeSoftmax;
     int mPrefillTotalLen = 0; // encoded totalLen for prefill multi-pass
-    int mQueryLen4 = 0; // padded qLen for rearranged Qtmp (multiple of 4)
+    int mQueryLen4 = 0;       // padded qLen for rearranged Qtmp (multiple of 4)
     std::shared_ptr<Tensor> mTempQuery;
 
     // Prefill K-block mode temporaries (avoid O(qLen*totalLen) intermediates).
@@ -76,6 +97,8 @@ private:
     std::shared_ptr<Tensor> mTempL;
     std::shared_ptr<Tensor> mTempAlpha;
     std::shared_ptr<Tensor> mTempOAcc;
+    std::shared_ptr<Tensor> mTempCacheKey;
+    std::shared_ptr<Tensor> mTempCacheValue;
 
     const VulkanPipeline* mRearrangeQPipeline = nullptr;
     std::shared_ptr<VulkanLayout::DescriptorSet> mRearrangeQSet;
@@ -86,6 +109,7 @@ private:
     const VulkanPipeline* mSoftmaxOnlinePipeline = nullptr;
     const VulkanPipeline* mQKVAccFullPipeline = nullptr;
     const VulkanPipeline* mQKVAccPipeline = nullptr;
+    const VulkanPipeline* mQKVAccFinalFullPipeline = nullptr;
     const VulkanPipeline* mFinalizePipeline = nullptr;
     std::shared_ptr<VulkanLayout::DescriptorSet> mInitStateSet;
     std::shared_ptr<VulkanLayout::DescriptorSet> mQKBlockFullSet;
@@ -93,10 +117,11 @@ private:
     std::shared_ptr<VulkanLayout::DescriptorSet> mSoftmaxOnlineSet;
     std::shared_ptr<VulkanLayout::DescriptorSet> mQKVAccFullSet;
     std::shared_ptr<VulkanLayout::DescriptorSet> mQKVAccSet;
+    std::shared_ptr<VulkanLayout::DescriptorSet> mQKVAccFinalFullSet;
     std::shared_ptr<VulkanLayout::DescriptorSet> mFinalizeSet;
 
     uint32_t mSoftmaxOnlineLocalSize = 0;
-    uint32_t mDecodeQ1SubgroupLocalSize = 0;
+    uint32_t mDecodeSubgroupLocalSize = 0;
 };
 
 } // namespace MNN

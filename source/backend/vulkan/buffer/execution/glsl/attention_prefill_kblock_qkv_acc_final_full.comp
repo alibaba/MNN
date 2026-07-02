@@ -1,0 +1,167 @@
+layout(set=0, binding=0) writeonly buffer s0 {
+    FLOAT data[];
+} uOutput;
+
+layout(set=0, binding=1) readonly buffer s1 {
+    float data[];
+} uOAcc;
+
+layout(set=0, binding=2) readonly buffer s2 {
+    FLOAT4 data[];
+} uW;
+
+layout(set=0, binding=3) readonly buffer s3 {
+    FLOAT4 data[];
+} uCacheValue;
+
+layout(set=0, binding=4) readonly buffer s4 {
+    float data[];
+} uAlpha;
+
+layout(set=0, binding=5) readonly buffer s5 {
+    float data[];
+} uL;
+
+layout(set=0, binding=6) readonly uniform constBuffer {
+    ivec4 s0; // qLen, kLen, headNum, kvHeadNum
+    ivec4 s1; // headDim, group, pastLen, totalLen
+    ivec4 s2; // maskQlen, maskKvlen, hasMask, cacheMaxLen
+    vec4 f0;  // scale, outputC4, 0, 0
+} uConst;
+
+layout(push_constant) uniform PushConsts {
+    uint kStart;
+    uint blockLen; // ignored (assumed PREFILL_K_BLOCK); kept for ABI compatibility with host push constants
+} pc;
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+const int MAX_D4 = 64; // headDim <= 256
+const int PREFILL_K_BLOCK = 512;
+
+void storeOutput(vec4 v, int row, int q, int h, int d4, int d, int qLen, int headDim, bool outputC4) {
+    if (outputC4) {
+        const int outC4Base = ((h * (headDim / 4) + d4) * qLen + q) * 4;
+        uOutput.data[outC4Base + 0] = FLOAT(v.x);
+        uOutput.data[outC4Base + 1] = FLOAT(v.y);
+        uOutput.data[outC4Base + 2] = FLOAT(v.z);
+        uOutput.data[outC4Base + 3] = FLOAT(v.w);
+    } else {
+        const int outBase = row * headDim + d;
+        uOutput.data[outBase + 0] = FLOAT(v.x);
+        uOutput.data[outBase + 1] = FLOAT(v.y);
+        uOutput.data[outBase + 2] = FLOAT(v.z);
+        uOutput.data[outBase + 3] = FLOAT(v.w);
+    }
+}
+
+void main() {
+    const int d4 = int(gl_GlobalInvocationID.x);
+    const int q2 = int(gl_GlobalInvocationID.y);
+    const int h = int(gl_GlobalInvocationID.z);
+    const int q0 = q2 * 2;
+
+    const int qLen = uConst.s0.x;
+    const int headNum = uConst.s0.z;
+    const int kvHeadNum = uConst.s0.w;
+    if (h >= headNum || q0 >= qLen) {
+        return;
+    }
+
+    const int headDim = uConst.s1.x;
+    const int group = uConst.s1.y;
+    const int totalLen = uConst.s1.w;
+    if (totalLen <= 0) {
+        return;
+    }
+
+    const int kvh = h / group;
+    if (kvh >= kvHeadNum) {
+        return;
+    }
+
+    const int d4Size = headDim / 4;
+    if (d4Size > MAX_D4 || d4 >= d4Size) {
+        return;
+    }
+
+    const int maxLen = uConst.s2.w;
+    if (maxLen <= 0) {
+        return;
+    }
+
+    const int kStart = int(pc.kStart);
+    if (kStart < 0 || kStart >= totalLen) {
+        return;
+    }
+
+    const int blockLen4_4 = PREFILL_K_BLOCK / 4;
+    const int d = d4 * 4;
+
+    const int row0 = (q0 + 0) * headNum + h;
+    const int row1 = (q0 + 1) * headNum + h;
+    const bool q1Valid = (q0 + 1) < qLen;
+    const int maskMode = uConst.s2.z;
+    const int pastLen = uConst.s1.z;
+    const bool q0CausalValid = (maskMode != 2) || ((pastLen + q0) >= kStart);
+    const bool q1CausalValid = q1Valid && ((maskMode != 2) || ((pastLen + q0 + 1) >= kStart));
+
+    const float alpha0 = q0CausalValid ? uAlpha.data[row0] : 1.0;
+    const float alpha1 = q1CausalValid ? uAlpha.data[row1] : 1.0;
+
+    const int accBase0 = row0 * headDim + d;
+    vec4 outVec0 = vec4(uOAcc.data[accBase0 + 0], uOAcc.data[accBase0 + 1], uOAcc.data[accBase0 + 2],
+                        uOAcc.data[accBase0 + 3]) * alpha0;
+
+    vec4 outVec1 = vec4(0.0);
+    int accBase1 = 0;
+    if (q1Valid) {
+        accBase1 = row1 * headDim + d;
+        outVec1 = vec4(uOAcc.data[accBase1 + 0], uOAcc.data[accBase1 + 1], uOAcc.data[accBase1 + 2],
+                       uOAcc.data[accBase1 + 3]) * alpha1;
+    }
+
+    const int wBase0 = row0 * blockLen4_4;
+    const int wBase1 = row1 * blockLen4_4;
+    int loopK4 = blockLen4_4;
+    if (maskMode == 2) {
+        const int maxQ = q1CausalValid ? (q0 + 1) : q0;
+        const int validK = min(PREFILL_K_BLOCK, max(0, pastLen + maxQ - kStart + 1));
+        loopK4 = (validK + 3) / 4;
+    }
+
+    if (q0CausalValid || q1CausalValid) {
+        for (int k4 = 0; k4 < loopK4; ++k4) {
+            const int k0 = k4 * 4;
+            const int gk0 = kStart + k0;
+
+            vec4 w0 = q0CausalValid ? vec4(uW.data[wBase0 + k4]) : vec4(0.0);
+            vec4 w1 = q1CausalValid ? vec4(uW.data[wBase1 + k4]) : vec4(0.0);
+
+            const int vOff40 = ((kvh * maxLen + (gk0 + 0)) * d4Size) + d4;
+            const int vOff41 = ((kvh * maxLen + (gk0 + 1)) * d4Size) + d4;
+            const int vOff42 = ((kvh * maxLen + (gk0 + 2)) * d4Size) + d4;
+            const int vOff43 = ((kvh * maxLen + (gk0 + 3)) * d4Size) + d4;
+            vec4 v0 = vec4(uCacheValue.data[vOff40]);
+            vec4 v1v = vec4(uCacheValue.data[vOff41]);
+            vec4 v2 = vec4(uCacheValue.data[vOff42]);
+            vec4 v3 = vec4(uCacheValue.data[vOff43]);
+
+            if (q0CausalValid) {
+                outVec0 += w0.x * v0 + w0.y * v1v + w0.z * v2 + w0.w * v3;
+            }
+            if (q1CausalValid) {
+                outVec1 += w1.x * v0 + w1.y * v1v + w1.z * v2 + w1.w * v3;
+            }
+        }
+    }
+
+    const bool outputC4 = uConst.f0.y != 0.0;
+    const float inv0 = (uL.data[row0] > 0.0) ? (1.0 / uL.data[row0]) : 0.0;
+    storeOutput(outVec0 * inv0, row0, q0 + 0, h, d4, d, qLen, headDim, outputC4);
+
+    if (q1Valid) {
+        const float inv1 = (uL.data[row1] > 0.0) ? (1.0 / uL.data[row1]) : 0.0;
+        storeOutput(outVec1 * inv1, row1, q0 + 1, h, d4, d, qLen, headDim, outputC4);
+    }
+}

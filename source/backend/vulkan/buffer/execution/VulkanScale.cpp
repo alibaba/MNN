@@ -16,17 +16,13 @@ struct gpuScaleParam {
     ivec4 imgSize;
 };
 
-VulkanScale::VulkanScale(const Op* op, Backend* bn, Tensor * output) : VulkanBasicExecution(bn) {
-    const auto scale   = op->main_as_Scale();
+VulkanScale::VulkanScale(const Op* op, Backend* bn, Tensor* output) : VulkanBasicExecution(bn) {
+    const auto scale = op->main_as_Scale();
     const int channels = scale->scaleData()->size();
 
-    std::vector<VkDescriptorType> types{
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
-    };
+    std::vector<VkDescriptorType> types{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
 
     auto extra = static_cast<VulkanBackend*>(bn);
 
@@ -39,34 +35,49 @@ VulkanScale::VulkanScale(const Op* op, Backend* bn, Tensor * output) : VulkanBas
     pKey += "comp";
 
     mScalePipeline = extra->getPipeline(pKey, types);
-    mScaleParam    = extra->allocUniform();
+    mScaleParam = extra->allocUniform();
     auto channelsAlign = ALIGN_UP4(channels);
     size_t bytes = useFP16 ? sizeof(uint16_t) : sizeof(float);
-    mScaleBuffer   = std::make_shared<VulkanBuffer>(extra->getMemoryPool(), false, bytes * channelsAlign,
-                                                  nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    mBiasBuffer   = std::make_shared<VulkanBuffer>(extra->getMemoryPool(), false, bytes * channelsAlign,
-                                                  nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    mScaleBuffer = std::make_shared<VulkanBuffer>(extra->getMemoryPool(), false, bytes * channelsAlign, nullptr,
+                                                  VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    mBiasBuffer = std::make_shared<VulkanBuffer>(extra->getMemoryPool(), false, bytes * channelsAlign, nullptr,
+                                                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     {
         auto ptr = mScaleBuffer->map();
         ::memset(ptr, 0, bytes * channelsAlign);
         if (!useFP16) {
-            ::memcpy(ptr, scale->scaleData()->data(), channels* sizeof(float));
+            ::memcpy(ptr, scale->scaleData()->data(), channels * sizeof(float));
         } else {
-            FLOAT_TO_HALF(scale->scaleData()->data(), (int16_t *) ptr, channels);
+            FLOAT_TO_HALF(scale->scaleData()->data(), (int16_t*)ptr, channels);
         }
         mScaleBuffer->unmap();
     }
     {
-        auto ptr = (float*)mBiasBuffer->map();
+        auto ptr = mBiasBuffer->map();
         ::memset(ptr, 0, bytes * channelsAlign);
-        if (!useFP16) {
-            ::memcpy(ptr, scale->biasData()->data(), channels* sizeof(float));
-        } else {
-            FLOAT_TO_HALF(scale->biasData()->data(), (int16_t *) ptr, channels);
+        auto biasData = scale->biasData();
+        if (nullptr != biasData && biasData->size() >= channels) {
+            if (!useFP16) {
+                ::memcpy(ptr, biasData->data(), channels * sizeof(float));
+            } else {
+                FLOAT_TO_HALF(biasData->data(), (int16_t*)ptr, channels);
+            }
         }
         mBiasBuffer->unmap();
     }
     mDescriptorSet.reset(mScalePipeline->createSet());
+}
+
+VulkanScale::VulkanScale(Backend* bn, const VulkanScale* src) : VulkanBasicExecution(bn) {
+    auto extra = static_cast<VulkanBackend*>(bn);
+    mScaleParam = extra->allocUniform();
+    mScalePipeline = src->mScalePipeline;
+    mScaleBuffer = src->mScaleBuffer;
+    mBiasBuffer = src->mBiasBuffer;
+    mSampler = src->mSampler;
+    if (nullptr != mScalePipeline) {
+        mDescriptorSet.reset(mScalePipeline->createSet());
+    }
 }
 
 VulkanScale::~VulkanScale() {
@@ -74,9 +85,17 @@ VulkanScale::~VulkanScale() {
     extra->recycleUniform(mScaleParam);
 }
 
+bool VulkanScale::onClone(Backend* bn, const Op* op, VulkanBasicExecution** dst) {
+    if (nullptr == dst) {
+        return nullptr != mScalePipeline && nullptr != mScaleBuffer && nullptr != mBiasBuffer;
+    }
+    *dst = new VulkanScale(bn, this);
+    return true;
+}
+
 ErrorCode VulkanScale::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const VulkanCommandPool::Buffer* cmdBuffer) {
-    auto input  = inputs[0];
+    auto input = inputs[0];
     auto output = outputs[0];
 
     MNN_ASSERT(MNN_DATA_FORMAT_NC4HW4 == TensorUtils::getDescribe(input)->dimensionFormat);
@@ -109,7 +128,8 @@ ErrorCode VulkanScale::onEncode(const std::vector<Tensor*>& inputs, const std::v
 
 class VulkanScaleCreator : public VulkanBackend::Creator {
 public:
-    virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op, Backend* bn) const override {
+    virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                           const MNN::Op* op, Backend* bn) const override {
         return new VulkanScale(op, bn, outputs[0]);
     }
 };

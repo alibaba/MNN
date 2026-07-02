@@ -2,10 +2,15 @@
 #include "core/TensorUtils.hpp"
 #include "core/Macro.h"
 #include "VulkanBackend.hpp"
+#include "VulkanSharedGather.hpp"
 #include "backend/vulkan/vulkan/vulkan_wrapper.h"
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+
+#ifdef ENABLE_VULKAN_TIME_PROFILE
+#include "backend/vulkan/component/VulkanTimeProfiler.hpp"
+#endif
 
 namespace MNN {
 
@@ -32,8 +37,8 @@ static size_t _alignUp4(size_t size) {
     return (size + 3u) & ~size_t(3u);
 }
 
-static bool _prepareQuantBuffersGPU(VulkanBackend* vkBn, const ConvolutionCommon::Int8Common* quantCommon,
-                                    bool useFP16, int ci, int co, uint32_t padN, uint32_t blockStride,
+static bool _prepareQuantBuffersGPU(VulkanBackend* vkBn, const ConvolutionCommon::Int8Common* quantCommon, bool useFP16,
+                                    int ci, int co, uint32_t padN, uint32_t blockStride,
                                     uint32_t decodeWeightStrideWords, bool isInt4,
                                     std::shared_ptr<VulkanBuffer>& quantWeightBuffer,
                                     std::shared_ptr<VulkanBuffer>& quantMetaBuffer) {
@@ -63,32 +68,34 @@ static bool _prepareQuantBuffersGPU(VulkanBackend* vkBn, const ConvolutionCommon
         rawWeightSrc = weightAlignedHost.data();
     }
 
+    std::shared_ptr<VulkanBuffer> stagingWeightBuffer = vkBn->createHostBuffer(alignedWeightBytes);
+    ::memcpy(stagingWeightBuffer->map(), rawWeightSrc, alignedWeightBytes);
+    stagingWeightBuffer->unmap();
     std::shared_ptr<VulkanBuffer> rawWeightBuffer(new VulkanBuffer(
         vkBn->getMemoryPool(), false, alignedWeightBytes, nullptr,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_SHARING_MODE_EXCLUSIVE, 0));
-    vkBn->copyToGPUBuffer(rawWeightSrc, rawWeightBuffer->buffer(), alignedWeightBytes, 0);
 
     quantWeightBuffer.reset(new VulkanBuffer(vkBn->getMemoryPool(), false, decodeWeightBytes, nullptr,
                                              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_SHARING_MODE_EXCLUSIVE, 0));
 
     const float* alphaPtr = quantCommon->alpha.get();
     const size_t rawAlphaBytes = static_cast<size_t>(std::max(alphaSize, 1)) * sizeof(float);
+    const float zero = 0.0f;
+    const void* rawAlphaSrc = (alphaSize > 0 && nullptr != alphaPtr) ? alphaPtr : &zero;
+    std::shared_ptr<VulkanBuffer> stagingAlphaBuffer = vkBn->createHostBuffer(rawAlphaBytes);
+    ::memcpy(stagingAlphaBuffer->map(), rawAlphaSrc, rawAlphaBytes);
+    stagingAlphaBuffer->unmap();
     std::shared_ptr<VulkanBuffer> rawAlphaBuffer(new VulkanBuffer(
         vkBn->getMemoryPool(), false, rawAlphaBytes, nullptr,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_SHARING_MODE_EXCLUSIVE, 0));
-    if (alphaSize > 0 && nullptr != alphaPtr) {
-        vkBn->copyToGPUBuffer(alphaPtr, rawAlphaBuffer->buffer(), static_cast<size_t>(alphaSize) * sizeof(float), 0);
-    } else {
-        const float zero = 0.0f;
-        vkBn->copyToGPUBuffer(&zero, rawAlphaBuffer->buffer(), sizeof(float), 0);
-    }
 
     quantMetaBuffer.reset(new VulkanBuffer(vkBn->getMemoryPool(), false, metaBytes, nullptr,
                                            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_SHARING_MODE_EXCLUSIVE, 0));
 
-    const char* weightShader = isInt4 ? "glsl_conv1x1_int4_weight_prepare_comp" : "glsl_conv1x1_int8_weight_prepare_comp";
-    const char* metaShader = useFP16 ? "glsl_conv1x1_quant_meta_prepare_FP16_comp"
-                                     : "glsl_conv1x1_quant_meta_prepare_comp";
+    const char* weightShader =
+        isInt4 ? "glsl_conv1x1_int4_weight_prepare_comp" : "glsl_conv1x1_int8_weight_prepare_comp";
+    const char* metaShader =
+        useFP16 ? "glsl_conv1x1_quant_meta_prepare_FP16_comp" : "glsl_conv1x1_quant_meta_prepare_comp";
 
     std::vector<VkDescriptorType> prepareTypes = {
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -110,6 +117,18 @@ static bool _prepareQuantBuffersGPU(VulkanBackend* vkBn, const ConvolutionCommon
     prepareCmd->begin(0);
 
     {
+        VkBufferCopy copy;
+        copy.srcOffset = 0;
+        copy.dstOffset = 0;
+        copy.size = alignedWeightBytes;
+        vkCmdCopyBuffer(prepareCmd->get(), stagingWeightBuffer->buffer(), rawWeightBuffer->buffer(), 1, &copy);
+        copy.size = rawAlphaBytes;
+        vkCmdCopyBuffer(prepareCmd->get(), stagingAlphaBuffer->buffer(), rawAlphaBuffer->buffer(), 1, &copy);
+        prepareCmd->barrierSource(rawWeightBuffer->buffer(), 0, rawWeightBuffer->size());
+        prepareCmd->barrierSource(rawAlphaBuffer->buffer(), 0, rawAlphaBuffer->size());
+    }
+
+    {
         QuantWeightPrepareParams pc;
         pc.ci = static_cast<uint32_t>(ci);
         pc.co = static_cast<uint32_t>(co);
@@ -120,7 +139,8 @@ static bool _prepareQuantBuffersGPU(VulkanBackend* vkBn, const ConvolutionCommon
         weightSet->writeBuffer(rawWeightBuffer->buffer(), 0, rawWeightBuffer->size());
         weightSet->writeBuffer(quantWeightBuffer->buffer(), 1, quantWeightBuffer->size());
         weightPipeline->bind(prepareCmd->get(), weightSet->get());
-        vkCmdPushConstants(prepareCmd->get(), weightPipeline->layout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+        vkCmdPushConstants(prepareCmd->get(), weightPipeline->layout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc),
+                           &pc);
         vkCmdDispatch(prepareCmd->get(), UP_DIV(decodeWeightStrideWords, 16u), UP_DIV(padN, 16u), 1);
         prepareCmd->barrierSource(quantWeightBuffer->buffer(), 0, quantWeightBuffer->size());
     }
@@ -143,18 +163,28 @@ static bool _prepareQuantBuffersGPU(VulkanBackend* vkBn, const ConvolutionCommon
     }
 
     prepareCmd->end();
-    vkBn->getPool().submitAndWait(prepareCmd->get());
+    vkBn->submitCommand(prepareCmd, {stagingWeightBuffer, stagingAlphaBuffer, rawWeightBuffer, rawAlphaBuffer},
+                        {weightSet, metaSet});
     return true;
 }
 
 } // namespace
 
-VulkanConv1x1Coop::VulkanConv1x1Coop(VulkanBackend* backend, const Convolution2DCommon* convOption, const float* weightPtr, const float* biasPtr, int ci, int co, VulkanDevice::CoopMatInfo coopMatInfo, std::shared_ptr<ConvolutionCommon::Int8Common> quantInfo)
-    : VulkanBasicExecution(backend), mCommon(convOption), mCi(ci), mCo(co), mIsQuant(quantInfo != nullptr), mQuantCommon(std::move(quantInfo)) {
-    const std::vector<uint32_t>& selectedShape = backend->useFP16() ? coopMatInfo.selectedFP16CoopMatShape : coopMatInfo.selectedFP32CoopMatShape;
-    COOP_M = selectedShape[0];
-    COOP_N = selectedShape[1];
-    COOP_K = selectedShape[2];
+VulkanConv1x1Coop::VulkanConv1x1Coop(VulkanBackend* backend, const Convolution2DCommon* convOption,
+                                     const float* weightPtr, const float* biasPtr, int ci, int co,
+                                     VulkanDevice::CoopMatInfo coopMatInfo,
+                                     std::shared_ptr<ConvolutionCommon::Int8Common> quantInfo)
+    : VulkanBasicExecution(backend),
+      mCommon(convOption),
+      mCi(ci),
+      mCo(co),
+      mIsQuant(quantInfo != nullptr),
+      mQuantCommon(std::move(quantInfo)) {
+    const std::vector<uint32_t>& selectedShape =
+        backend->useFP16() ? coopMatInfo.selectedFP16CoopMatShape : coopMatInfo.selectedFP32CoopMatShape;
+    mCoopM = selectedShape[0];
+    mCoopN = selectedShape[1];
+    mCoopK = selectedShape[2];
     uint32_t subgroupSize = backend->getDevice().getSubgroupSize();
     if (subgroupSize == 0) {
         subgroupSize = 64;
@@ -165,17 +195,16 @@ VulkanConv1x1Coop::VulkanConv1x1Coop(VulkanBackend* backend, const Convolution2D
 
 VulkanConv1x1Coop::VulkanConv1x1Coop(VulkanBackend* backend, const Convolution2DCommon* convOption, int ci, int co,
                                      uint32_t coopM, uint32_t coopN, uint32_t coopK, uint32_t subgroupSize,
-                                     std::shared_ptr<ConvolutionCommon::Int8Common> quantInfo,
-                                     bool initStaticResource)
+                                     std::shared_ptr<ConvolutionCommon::Int8Common> quantInfo, bool initStaticResource)
     : VulkanBasicExecution(backend),
       mCommon(convOption),
       mCi(ci),
       mCo(co),
       mIsQuant(quantInfo != nullptr),
       mQuantCommon(std::move(quantInfo)) {
-    COOP_M = coopM;
-    COOP_N = coopN;
-    COOP_K = coopK;
+    mCoopM = coopM;
+    mCoopN = coopN;
+    mCoopK = coopK;
     if (subgroupSize == 0) {
         subgroupSize = 64;
     }
@@ -183,23 +212,39 @@ VulkanConv1x1Coop::VulkanConv1x1Coop(VulkanBackend* backend, const Convolution2D
     _init(nullptr, nullptr, initStaticResource);
 }
 
-VulkanConv1x1Coop::~VulkanConv1x1Coop() {
-}
+VulkanConv1x1Coop::~VulkanConv1x1Coop() {}
 
 bool VulkanConv1x1Coop::onClone(Backend* bn, const Op* op, VulkanBasicExecution** dst) {
     if (nullptr == dst) {
         return true;
     }
     auto vkBn = static_cast<VulkanBackend*>(bn);
+    if (nullptr != op && op->type() == OpType_GatherV2) {
+        if (!mIsQuant || nullptr == mQuantCommon.get() || nullptr == mQuantWeightBuffer.get() ||
+            nullptr == mQuantMetaBuffer.get() || mBlockSize == 0) {
+            return false;
+        }
+        const int quantBits = mQuantCommon->canUseInt4 ? 4 : 8;
+        const uint32_t blockStride = UP_DIV(mPadK, mBlockSize);
+        const uint32_t weightStride = (quantBits == 4) ? (mPadK / 8u) : (mPadK / 4u);
+        const bool offsetZero = !mQuantCommon->asymmetric;
+        *dst = new VulkanSharedGather(vkBn, mCi, mCo, quantBits, mPadN, mBlockSize, blockStride, weightStride,
+                                      offsetZero, mQuantWeightBuffer, mQuantMetaBuffer);
+        return true;
+    }
+    if (nullptr == op) {
+        return false;
+    }
     auto conv2D = op->main_as_Convolution2D();
     if (nullptr == conv2D || nullptr == conv2D->common()) {
         return false;
     }
-    auto res = new VulkanConv1x1Coop(vkBn, conv2D->common(), mCi, mCo, COOP_M, COOP_N, COOP_K, mSubgroupSize, mQuantCommon,
-                                     false);
+    auto res = new VulkanConv1x1Coop(vkBn, conv2D->common(), mCi, mCo, mCoopM, mCoopN, mCoopK, mSubgroupSize,
+                                     mQuantCommon, false);
     res->mPadK = mPadK;
     res->mPadN = mPadN;
     res->mBlockSize = mBlockSize;
+    res->mDecodeRowsPerGroup = mDecodeRowsPerGroup;
     res->mQuantConverted = mQuantConverted;
     res->mWeightBuffer = mWeightBuffer;
     res->mBiasBuffer = mBiasBuffer;
@@ -215,14 +260,14 @@ bool VulkanConv1x1Coop::_init(const float* weightPtr, const float* biasPtr, bool
 
     const uint32_t K = mCi;
     const uint32_t N = mCo;
-    mPadK = ROUND_UP(K, COOP_K);
-    mPadN = ROUND_UP(N, COOP_N);
+    mPadK = ROUND_UP(K, mCoopK);
+    mPadN = ROUND_UP(N, mCoopN);
 
     const size_t elementSize = useFP16 ? sizeof(int16_t) : sizeof(float);
     const size_t weightSize = mPadK * mPadN;
 
     if (initStaticResource && !mIsQuant) {
-        // [N, K] -> coop packed [Kt, Nt, COOP_K, COOP_N]
+        // [N, K] -> coop packed [Kt, Nt, mCoopK, mCoopN]
         mWeightBuffer = std::make_shared<VulkanBuffer>(vkBn->getMemoryPool(), false, elementSize * weightSize, nullptr,
                                                        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
         auto weightMap = mWeightBuffer->map();
@@ -233,18 +278,18 @@ bool VulkanConv1x1Coop::_init(const float* weightPtr, const float* biasPtr, bool
         auto ptrFP16 = reinterpret_cast<int16_t*>(hostWeights.data());
         auto ptrFP32 = reinterpret_cast<float*>(weightMap);
 
-        const uint32_t tilesN = mPadN / COOP_N;
+        const uint32_t tilesN = mPadN / mCoopN;
         for (uint32_t n = 0; n < mPadN; ++n) {
-            const uint32_t tn = n / COOP_N;
-            const uint32_t col = n % COOP_N;
+            const uint32_t tn = n / mCoopN;
+            const uint32_t col = n % mCoopN;
             for (uint32_t k = 0; k < mPadK; ++k) {
-                const uint32_t tk = k / COOP_K;
-                const uint32_t row = k % COOP_K;
+                const uint32_t tk = k / mCoopK;
+                const uint32_t row = k % mCoopK;
                 float val = 0.0f;
                 if (nullptr != weightPtr && k < K && n < N) {
                     val = weightPtr[n * K + k];
                 }
-                const uint32_t dstIdx = (tk * tilesN + tn) * (COOP_K * COOP_N) + row * COOP_N + col;
+                const uint32_t dstIdx = (tk * tilesN + tn) * (mCoopK * mCoopN) + row * mCoopN + col;
                 if (useFP16) {
                     ((half_float::half*)ptrFP16)[dstIdx] = (half_float::half)val;
                 } else {
@@ -284,7 +329,7 @@ bool VulkanConv1x1Coop::_init(const float* weightPtr, const float* biasPtr, bool
         const uint32_t kBlockStride = UP_DIV(mPadK, mBlockSize);
 
         MNN_ASSERT(mBlockSize > 0);
-        MNN_ASSERT((mBlockSize % COOP_K) == 0);
+        MNN_ASSERT((mBlockSize % mCoopK) == 0);
 
         if (initStaticResource) {
             const bool isInt4 = mQuantCommon->canUseInt4;
@@ -297,13 +342,11 @@ bool VulkanConv1x1Coop::_init(const float* weightPtr, const float* biasPtr, bool
 
         // Prefill dequant pipeline: Q + Meta -> coop-packed weight
         {
-            std::vector<VkDescriptorType> types = {
-                VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                VK_DESCRIPTOR_TYPE_STORAGE_BUFFER
-            };
-            std::vector<uint32_t> localSize = {mSubgroupSize, 1, 1};
-            std::vector<uint32_t> spec = {COOP_K, COOP_N};
+            std::vector<VkDescriptorType> types = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                   VK_DESCRIPTOR_TYPE_STORAGE_BUFFER};
+            std::vector<uint32_t> localSize = {mQuantCommon->canUseInt4 ? std::max(mSubgroupSize, 128u) : mSubgroupSize,
+                                               1, 1};
+            std::vector<uint32_t> spec = {mCoopK, mCoopN};
             const char* shader = nullptr;
             if (mQuantCommon->canUseInt4) {
                 shader = useFP16 ? "glsl_int4_weight_to_coop_FP16_comp" : "glsl_int4_weight_to_coop_comp";
@@ -323,18 +366,22 @@ bool VulkanConv1x1Coop::_init(const float* weightPtr, const float* biasPtr, bool
             if (mCommon->relu6()) {
                 activation = 2;
             }
-            std::vector<VkDescriptorType> types = {
-                VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                VK_DESCRIPTOR_TYPE_STORAGE_BUFFER
-            };
-            std::vector<uint32_t> localSize = {mSubgroupSize, 1, 1};
+            std::vector<VkDescriptorType> types = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                   VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                   VK_DESCRIPTOR_TYPE_STORAGE_BUFFER};
+            mDecodeRowsPerGroup = (mQuantCommon->canUseInt4 && mBlockSize == 64u) ? 6u : 1u;
+            std::vector<uint32_t> localSize = {mSubgroupSize * mDecodeRowsPerGroup, 1, 1};
             std::vector<uint32_t> spec = {(uint32_t)activation};
             const char* shader = nullptr;
             if (mQuantCommon->canUseInt4) {
                 shader = useFP16 ? "glsl_gemv_dequant_int4_FP16_comp" : "glsl_gemv_dequant_int4_comp";
+                const uint32_t offsetMode = !mQuantCommon->asymmetric ? 1u : 0u;
+                spec.push_back(mBlockSize);
+                spec.push_back(kBlockStride);
+                spec.push_back(offsetMode);
+                spec.push_back(static_cast<uint32_t>(mCi));
+                spec.push_back((mPadK / 8u));
+                spec.push_back(static_cast<uint32_t>(mCo));
             } else {
                 shader = useFP16 ? "glsl_gemv_dequant_int8_FP16_comp" : "glsl_gemv_dequant_int8_comp";
             }
@@ -345,13 +392,10 @@ bool VulkanConv1x1Coop::_init(const float* weightPtr, const float* biasPtr, bool
 
     // Pack: C4 -> coop A
     {
-        std::vector<VkDescriptorType> types = {
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
-        };
+        std::vector<VkDescriptorType> types = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                               VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
         std::vector<uint32_t> localSize = {mSubgroupSize * 4, 1, 1};
-        std::vector<uint32_t> packSpec = {COOP_M, COOP_K};
+        std::vector<uint32_t> packSpec = {mCoopM, mCoopK};
         std::string shader = useFP16 ? "glsl_C4_to_COOP_FP16_comp" : "glsl_C4_to_COOP_comp";
         mPackPipeline = vkBn->getPipeline(shader, types, localSize, packSpec);
         mPackSet.reset(mPackPipeline->createSet());
@@ -359,15 +403,11 @@ bool VulkanConv1x1Coop::_init(const float* weightPtr, const float* biasPtr, bool
 
     // Coop matmul
     {
-        std::vector<VkDescriptorType> types = {
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
-        };
         std::vector<uint32_t> localSize = {mSubgroupSize, 1, 1};
-        std::vector<uint32_t> matmulSpec = {COOP_M, COOP_N, COOP_K};
+        std::vector<uint32_t> matmulSpec = {mCoopM, mCoopN, mCoopK};
+        std::vector<VkDescriptorType> types = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                               VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                               VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
         std::string shader = useFP16 ? "glsl_matmul_coop_FP16_comp" : "glsl_matmul_coop_comp";
         mMatMulPipeline = vkBn->getPipeline(shader, types, localSize, matmulSpec);
         mMatMulSet.reset(mMatMulPipeline->createSet());
@@ -375,11 +415,8 @@ bool VulkanConv1x1Coop::_init(const float* weightPtr, const float* biasPtr, bool
 
     // Unpack: coop C -> C4
     {
-        std::vector<VkDescriptorType> types = {
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
-        };
+        std::vector<VkDescriptorType> types = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                               VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
         std::vector<uint32_t> localSize = {mSubgroupSize, 4, 1};
         int activation = 0;
         if (mCommon->relu()) {
@@ -410,16 +447,41 @@ ErrorCode VulkanConv1x1Coop::onEncode(const std::vector<Tensor*>& inputs, const 
     const int K = mCi;
     const int N = mCo;
 
-    const uint32_t padM = ROUND_UP(M, COOP_M);
+    const uint32_t padM = ROUND_UP(M, mCoopM);
     const uint32_t padK = mPadK;
     const uint32_t padN = mPadN;
 
     auto srcBuffer = vkBn->getTensorBuffer(input);
     auto dstBuffer = vkBn->getTensorBuffer(output);
+    const bool useFP16 = vkBn->useFP16();
+
+    auto dispatchWithProfile = [&](const char* name, const VulkanPipeline* pipeline,
+                                   const std::shared_ptr<VulkanLayout::DescriptorSet>& set, uint32_t gx, uint32_t gy,
+                                   uint32_t gz, const void* pc, uint32_t pcSize) {
+#ifdef ENABLE_VULKAN_TIME_PROFILE
+        auto* profiler = vkBn->timeProfiler();
+        if (nullptr != profiler) {
+            VulkanTimeProfileScope scope(profiler, cmdBuffer->get(), name, VulkanTimeProfiler::Kind::Shader);
+            pipeline->bind(cmdBuffer->get(), set->get());
+            if (nullptr != pc) {
+                vkCmdPushConstants(cmdBuffer->get(), pipeline->layout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, pcSize, pc);
+            }
+            vkCmdDispatch(cmdBuffer->get(), gx, gy, gz);
+            return;
+        }
+#else
+        (void)name;
+#endif
+        pipeline->bind(cmdBuffer->get(), set->get());
+        if (nullptr != pc) {
+            vkCmdPushConstants(cmdBuffer->get(), pipeline->layout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, pcSize, pc);
+        }
+        vkCmdDispatch(cmdBuffer->get(), gx, gy, gz);
+    };
 
     if (mIsQuant && M == 1) {
         // Decode path: fused dequant + gemv, write output directly.
-        MNN_ASSERT((mBlockSize % COOP_K) == 0);
+        MNN_ASSERT((mBlockSize % mCoopK) == 0);
 
         struct DecodeParams {
             uint32_t K;
@@ -439,9 +501,14 @@ ErrorCode VulkanConv1x1Coop::onEncode(const std::vector<Tensor*>& inputs, const 
         mDecodeSet->writeBuffer(mQuantMetaBuffer->buffer(), 2, mQuantMetaBuffer->size());
         mDecodeSet->writeBuffer(mBiasBuffer->buffer(), 3, mBiasBuffer->size());
         mDecodeSet->writeBuffer(dstBuffer.first->buffer(), 4, vkBn->getTensorSize(output), dstBuffer.second);
-        mDecodePipeline->bind(cmdBuffer->get(), mDecodeSet->get());
-        vkCmdPushConstants(cmdBuffer->get(), mDecodePipeline->layout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(DecodeParams), &pc);
-        vkCmdDispatch(cmdBuffer->get(), (uint32_t)N, 1, 1);
+        const char* decodeName = nullptr;
+        if (mQuantCommon->canUseInt4) {
+            decodeName = useFP16 ? "glsl_gemv_dequant_int4_FP16_comp" : "glsl_gemv_dequant_int4_comp";
+        } else {
+            decodeName = useFP16 ? "glsl_gemv_dequant_int8_FP16_comp" : "glsl_gemv_dequant_int8_comp";
+        }
+        dispatchWithProfile(decodeName, mDecodePipeline, mDecodeSet, UP_DIV((uint32_t)N, mDecodeRowsPerGroup), 1, 1,
+                            &pc, sizeof(pc));
         return NO_ERROR;
     }
 
@@ -465,7 +532,7 @@ ErrorCode VulkanConv1x1Coop::onEncode(const std::vector<Tensor*>& inputs, const 
     size_t weightBufferSize = 0;
     if (mIsQuant) {
         if (!mTempWeight) {
-            if (vkBn->useFP16()) {
+            if (useFP16) {
                 mTempWeight.reset(Tensor::createDevice<int16_t>({(int)padK, (int)padN}));
             } else {
                 mTempWeight.reset(Tensor::createDevice<float>({(int)padK, (int)padN}));
@@ -504,10 +571,14 @@ ErrorCode VulkanConv1x1Coop::onEncode(const std::vector<Tensor*>& inputs, const 
         mPrefillDequantSet->writeBuffer(mQuantWeightBuffer->buffer(), 0, mQuantWeightBuffer->size());
         mPrefillDequantSet->writeBuffer(mQuantMetaBuffer->buffer(), 1, mQuantMetaBuffer->size());
         mPrefillDequantSet->writeBuffer(weightBufferPair.first->buffer(), 2, weightBufferSize, weightBufferPair.second);
-        mPrefillDequantPipeline->bind(cmdBuffer->get(), mPrefillDequantSet->get());
-        vkCmdPushConstants(cmdBuffer->get(), mPrefillDequantPipeline->layout(), VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                           sizeof(DequantParams), &pc);
-        vkCmdDispatch(cmdBuffer->get(), padN / COOP_N, padK / COOP_K, 1);
+        const char* dequantName = nullptr;
+        if (mQuantCommon->canUseInt4) {
+            dequantName = useFP16 ? "glsl_int4_weight_to_coop_FP16_comp" : "glsl_int4_weight_to_coop_comp";
+        } else {
+            dequantName = useFP16 ? "glsl_int8_weight_to_coop_FP16_comp" : "glsl_int8_weight_to_coop_comp";
+        }
+        dispatchWithProfile(dequantName, mPrefillDequantPipeline, mPrefillDequantSet, padN / mCoopN, padK / mCoopK, 1,
+                            &pc, sizeof(pc));
         cmdBuffer->barrierSource(weightBufferPair.first->buffer(), weightBufferPair.second, weightBufferSize);
     }
 
@@ -525,11 +596,13 @@ ErrorCode VulkanConv1x1Coop::onEncode(const std::vector<Tensor*>& inputs, const 
         mPackConst = vkBn->allocUniform(&pc, sizeof(pc));
 
         mPackSet->writeBuffer(srcBuffer.first->buffer(), 0, vkBn->getTensorSize(input), srcBuffer.second);
-        mPackSet->writeBuffer(tempInBuffer.first->buffer(), 1, vkBn->getTensorSize(mTempInput.get()), tempInBuffer.second);
+        mPackSet->writeBuffer(tempInBuffer.first->buffer(), 1, vkBn->getTensorSize(mTempInput.get()),
+                              tempInBuffer.second);
         mPackSet->writeBuffer(mPackConst->buffer(), 2, mPackConst->size());
-        mPackPipeline->bind(cmdBuffer->get(), mPackSet->get());
-        vkCmdDispatch(cmdBuffer->get(), padK / COOP_K, padM / COOP_M, 1);
-        cmdBuffer->barrierSource(tempInBuffer.first->buffer(), tempInBuffer.second, vkBn->getTensorSize(mTempInput.get()));
+        dispatchWithProfile(useFP16 ? "glsl_C4_to_COOP_FP16_comp" : "glsl_C4_to_COOP_comp", mPackPipeline, mPackSet,
+                            padK / mCoopK, padM / mCoopM, 1, nullptr, 0);
+        cmdBuffer->barrierSource(tempInBuffer.first->buffer(), tempInBuffer.second,
+                                 vkBn->getTensorSize(mTempInput.get()));
     }
 
     {
@@ -545,14 +618,17 @@ ErrorCode VulkanConv1x1Coop::onEncode(const std::vector<Tensor*>& inputs, const 
         pc.padding = 0;
 
         mMatMulConst = vkBn->allocUniform(&pc, sizeof(pc));
-        mMatMulSet->writeBuffer(tempInBuffer.first->buffer(), 0, vkBn->getTensorSize(mTempInput.get()), tempInBuffer.second);
+        mMatMulSet->writeBuffer(tempInBuffer.first->buffer(), 0, vkBn->getTensorSize(mTempInput.get()),
+                                tempInBuffer.second);
         mMatMulSet->writeBuffer(weightBufferPair.first->buffer(), 1, weightBufferSize, weightBufferPair.second);
         mMatMulSet->writeBuffer(mBiasBuffer->buffer(), 2, mBiasBuffer->size());
-        mMatMulSet->writeBuffer(tempOutBuffer.first->buffer(), 3, vkBn->getTensorSize(mTempOutput.get()), tempOutBuffer.second);
+        mMatMulSet->writeBuffer(tempOutBuffer.first->buffer(), 3, vkBn->getTensorSize(mTempOutput.get()),
+                                tempOutBuffer.second);
         mMatMulSet->writeBuffer(mMatMulConst->buffer(), 4, mMatMulConst->size());
-        mMatMulPipeline->bind(cmdBuffer->get(), mMatMulSet->get());
-        vkCmdDispatch(cmdBuffer->get(), padN / COOP_N, padM / COOP_M, 1);
-        cmdBuffer->barrierSource(tempOutBuffer.first->buffer(), tempOutBuffer.second, vkBn->getTensorSize(mTempOutput.get()));
+        dispatchWithProfile(useFP16 ? "glsl_matmul_coop_FP16_comp" : "glsl_matmul_coop_comp", mMatMulPipeline,
+                            mMatMulSet, padN / mCoopN, padM / mCoopM, 1, nullptr, 0);
+        cmdBuffer->barrierSource(tempOutBuffer.first->buffer(), tempOutBuffer.second,
+                                 vkBn->getTensorSize(mTempOutput.get()));
     }
 
     {
@@ -568,16 +644,17 @@ ErrorCode VulkanConv1x1Coop::onEncode(const std::vector<Tensor*>& inputs, const 
         pc.padN = padN;
 
         mUnpackConst = vkBn->allocUniform(&pc, sizeof(pc));
-        mUnpackSet->writeBuffer(tempOutBuffer.first->buffer(), 0, vkBn->getTensorSize(mTempOutput.get()), tempOutBuffer.second);
+        mUnpackSet->writeBuffer(tempOutBuffer.first->buffer(), 0, vkBn->getTensorSize(mTempOutput.get()),
+                                tempOutBuffer.second);
         mUnpackSet->writeBuffer(dstBuffer.first->buffer(), 1, vkBn->getTensorSize(output), dstBuffer.second);
         mUnpackSet->writeBuffer(mUnpackConst->buffer(), 2, mUnpackConst->size());
-        mUnpackPipeline->bind(cmdBuffer->get(), mUnpackSet->get());
-        vkCmdDispatch(cmdBuffer->get(), ROUND_UP(padN, 32) / 32, ROUND_UP(padM, 32) / 32, 1);
+        dispatchWithProfile(useFP16 ? "glsl_COOP_to_C4_FP16_comp" : "glsl_COOP_to_C4_comp", mUnpackPipeline, mUnpackSet,
+                            ROUND_UP(padN, 32) / 32, ROUND_UP(padM, 32) / 32, 1, nullptr, 0);
     }
 
     vkBn->onReleaseBuffer(mTempInput.get(), Backend::DYNAMIC);
     vkBn->onReleaseBuffer(mTempOutput.get(), Backend::DYNAMIC);
-    if (mIsQuant) {
+    if (mIsQuant && mTempWeight.get()) {
         vkBn->onReleaseBuffer(mTempWeight.get(), Backend::DYNAMIC);
     }
 

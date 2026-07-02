@@ -7,7 +7,7 @@ layout(std430, binding = 0) readonly buffer ActivationBuffer {
 };
 
 layout(std430, binding = 1) readonly buffer WeightBuffer {
-    uint Wp[]; // [padN, padK/8], 8x int4(raw) per uint32
+    uint Wp[]; // [padN/4, padK/8, 4], 8x int4(raw) per uint32
 };
 
 layout(std430, binding = 2) readonly buffer MetaBuffer {
@@ -32,6 +32,29 @@ layout(push_constant) uniform PushConstants {
 
 shared float sdata[LOCAL_SIZE];
 
+float dotPackedInt4Block(uint packedW, uint wordIndex, uint baseM, uint block8) {
+    const uint xBase = wordIndex << 1u;
+    const vec4 x0 = vec4(X4[xBase + 0u]);
+    const vec4 x1 = vec4(X4[xBase + 1u]);
+    const vec4 w0 = vec4(
+        float((packedW >> 0u) & 0xFu),
+        float((packedW >> 4u) & 0xFu),
+        float((packedW >> 8u) & 0xFu),
+        float((packedW >> 12u) & 0xFu)) - vec4(8.0);
+    const vec4 w1 = vec4(
+        float((packedW >> 16u) & 0xFu),
+        float((packedW >> 20u) & 0xFu),
+        float((packedW >> 24u) & 0xFu),
+        float((packedW >> 28u) & 0xFu)) - vec4(8.0);
+    const uint kb = wordIndex / block8;
+    const uint metaBase = (baseM + kb) * 2u;
+    const float scale = float(Meta[metaBase + 0u]);
+    const float offset = float(Meta[metaBase + 1u]);
+    const float qdot = dot(w0, x0) + dot(w1, x1);
+    const float xsum = dot(x0, vec4(1.0)) + dot(x1, vec4(1.0));
+    return qdot * scale + xsum * offset;
+}
+
 void main() {
     const uint row = gl_WorkGroupID.x;
     if (row >= pc.N) {
@@ -39,108 +62,45 @@ void main() {
     }
 
     const uint lane = gl_LocalInvocationID.x;
-    const uint stride = LOCAL_SIZE;
-
-    const uint K8 = pc.K >> 3;
-    const uint safeBlockSize = max(pc.blockSize, 1u);
-    const uint block8 = max(safeBlockSize >> 3, 1u);
-
-    const uint baseW = row * pc.weightStride;
+    const uint K8 = pc.K >> 3u;
+    const uint block8 = pc.blockSize >> 3u;
+    const uint baseW = ((row >> 2u) * pc.weightStride) * 4u + (row & 3u);
     const uint baseM = row * pc.blockStride;
 
     float sum = 0.0;
 
-    for (uint idx = lane; idx < K8; idx += stride * 2u) {
+    for (uint idx = lane; idx < K8; idx += LOCAL_SIZE * 2u) {
         const uint i0 = idx;
-        const uint i1 = idx + stride;
-
+        const uint i1 = idx + LOCAL_SIZE;
         if (i0 < K8) {
-            const uint kb = i0 / block8;
-            const uint metaBase = (baseM + kb) * 2;
-            const float scale = float(Meta[metaBase + 0]);
-            const float offset = float(Meta[metaBase + 1]);
-
-            const uint packedW = Wp[baseW + i0];
-            vec4 w0 = vec4(
-                float((packedW >> 0u) & 0xFu),
-                float((packedW >> 4u) & 0xFu),
-                float((packedW >> 8u) & 0xFu),
-                float((packedW >> 12u) & 0xFu));
-            vec4 w1 = vec4(
-                float((packedW >> 16u) & 0xFu),
-                float((packedW >> 20u) & 0xFu),
-                float((packedW >> 24u) & 0xFu),
-                float((packedW >> 28u) & 0xFu));
-
-            w0 = (w0 - vec4(8.0)) * scale + vec4(offset);
-            w1 = (w1 - vec4(8.0)) * scale + vec4(offset);
-
-            const uint xBase = i0 << 1;
-            vec4 x0 = vec4(X4[xBase + 0u]);
-            vec4 x1 = vec4(X4[xBase + 1u]);
-            sum += dot(w0, x0) + dot(w1, x1);
+            sum += dotPackedInt4Block(Wp[baseW + i0 * 4u], i0, baseM, block8);
         }
-
         if (i1 < K8) {
-            const uint kb = i1 / block8;
-            const uint metaBase = (baseM + kb) * 2;
-            const float scale = float(Meta[metaBase + 0]);
-            const float offset = float(Meta[metaBase + 1]);
-
-            const uint packedW = Wp[baseW + i1];
-            vec4 w0 = vec4(
-                float((packedW >> 0u) & 0xFu),
-                float((packedW >> 4u) & 0xFu),
-                float((packedW >> 8u) & 0xFu),
-                float((packedW >> 12u) & 0xFu));
-            vec4 w1 = vec4(
-                float((packedW >> 16u) & 0xFu),
-                float((packedW >> 20u) & 0xFu),
-                float((packedW >> 24u) & 0xFu),
-                float((packedW >> 28u) & 0xFu));
-
-            w0 = (w0 - vec4(8.0)) * scale + vec4(offset);
-            w1 = (w1 - vec4(8.0)) * scale + vec4(offset);
-
-            const uint xBase = i1 << 1;
-            vec4 x0 = vec4(X4[xBase + 0u]);
-            vec4 x1 = vec4(X4[xBase + 1u]);
-            sum += dot(w0, x0) + dot(w1, x1);
+            sum += dotPackedInt4Block(Wp[baseW + i1 * 4u], i1, baseM, block8);
         }
     }
 
-    // Tail K handling for K % 8 != 0.
     const uint tail = pc.K & 7u;
     if (tail > 0u && lane == 0u) {
         const uint idx = K8;
-        const uint packedW = Wp[baseW + idx];
-        const uint kBase = idx << 3;
-        vec4 x0 = vec4(X4[idx << 1]);
-        vec4 x1 = vec4(0.0);
-        if (tail > 4u) {
-            x1 = vec4(X4[(idx << 1) + 1u]);
-        }
+        const uint packedW = Wp[baseW + idx * 4u];
+        const uint kBase = idx << 3u;
+        const uint kb = kBase / pc.blockSize;
+        const uint metaBase = (baseM + kb) * 2u;
+        const float scale = float(Meta[metaBase + 0u]);
+        const float offset = float(Meta[metaBase + 1u]);
+        const vec4 x0 = vec4(X4[idx << 1u]);
+        const vec4 x1 = tail > 4u ? vec4(X4[(idx << 1u) + 1u]) : vec4(0.0);
         for (uint t = 0u; t < tail; ++t) {
-            const uint k = kBase + t;
-            const uint kb = k / safeBlockSize;
-            const uint metaBase = (baseM + kb) * 2u;
-            const float scale = float(Meta[metaBase + 0u]);
-            const float offset = float(Meta[metaBase + 1u]);
             const float q = float((packedW >> (t * 4u)) & 0xFu) - 8.0;
-            float x = 0.0;
-            if (t < 4u) {
-                x = x0[int(t)];
-            } else {
-                x = x1[int(t - 4u)];
-            }
+            const float x = t < 4u ? x0[int(t)] : x1[int(t - 4u)];
             sum += (q * scale + offset) * x;
         }
     }
 
-    // Shared memory reduction instead of subgroupAdd
     sdata[lane] = sum;
     barrier();
-    for (uint s = LOCAL_SIZE >> 1; s > 0u; s >>= 1) {
+    for (uint s = LOCAL_SIZE >> 1u; s > 0u; s >>= 1u) {
         if (lane < s) {
             sdata[lane] += sdata[lane + s];
         }

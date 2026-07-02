@@ -10,8 +10,8 @@ namespace MNN {
 
 class VulkanConv1x1General : public VulkanBasicExecution {
 public:
-    VulkanConv1x1General(VulkanBackend* backend, const Convolution2DCommon* convOption, const float* biasPtr, int ci, int co,
-                         std::shared_ptr<ConvolutionCommon::Int8Common> quantInfo);
+    VulkanConv1x1General(VulkanBackend* backend, const Convolution2DCommon* convOption, const float* biasPtr, int ci,
+                         int co, std::shared_ptr<ConvolutionCommon::Int8Common> quantInfo);
     virtual ~VulkanConv1x1General();
     virtual ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                const VulkanCommandPool::Buffer* cmdBuffer) override;
@@ -34,6 +34,7 @@ private:
     uint32_t mBlockStride = 1;
     uint32_t mDecodeWeightStrideWords = 0;
     uint32_t mDecodeSubgroupSize = 1;
+    uint32_t mDecodeRowsPerGroup = 1;
     bool mUseSubgroup = true;
 
     std::shared_ptr<ConvolutionCommon::Int8Common> mQuantCommon;

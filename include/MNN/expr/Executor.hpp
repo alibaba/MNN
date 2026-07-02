@@ -45,29 +45,22 @@ public:
         LAZY_FULL = 0,
         // Don't compute content until user needed.
         LAZY_CONTENT = 1 << 0,
-        
+
         // Expr can only compute once, it can reduce the create cost of expr
         LAZY_COMPUTE_ONCE = 1 << 1,
     };
-    uint32_t getLazyMode() const {
-        return mLazyMode;
-    }
+    uint32_t getLazyMode() const { return mLazyMode; }
     void setLazyComputeMode(uint32_t mode);
     void setGlobalExecutorConfig(MNNForwardType type, const BackendConfig& config, int numberThread);
     int getCurrentRuntimeStatus(RuntimeStatus statusEnum);
     // Get last GPU execution time in ms (measured by GPU timestamps).
     // Returns -1.0f if profiling is not supported or not enabled.
     float getLastGpuTimeMs() const;
-    enum GCFlag {
-        FULL,
-        PART
-    };
+    enum GCFlag { FULL, PART };
     void gc(GCFlag flag = FULL);
     static std::shared_ptr<Executor> getGlobalExecutor();
 
-    static std::shared_ptr<Executor> newExecutor(MNNForwardType type,
-                                                 const BackendConfig& config,
-                                                 int numberThread);
+    static std::shared_ptr<Executor> newExecutor(MNNForwardType type, const BackendConfig& config, int numberThread);
     void resetProfile();
     void dumpProfile();
 
@@ -76,9 +69,7 @@ public:
     std::shared_ptr<SubGraph> findSubGraph(const std::string& submoduleName);
     static RuntimeInfo getRuntime();
     void setCallBack(TensorCallBackWithInfo&& before, TensorCallBackWithInfo&& after);
-    const DebugTools* getDebugTools() const {
-        return mDebug.get();
-    }
+    const DebugTools* getDebugTools() const { return mDebug.get(); }
     ExecutorAttr* getAttr() const;
     class MNN_PUBLIC RuntimeManager {
     public:
@@ -88,7 +79,7 @@ public:
          * @param cacheName : full path for cache file. Note: should choose location for reading and writing.
          */
         static RuntimeManager* createRuntimeManager(const ScheduleConfig& config);
-        
+
         /**
          * @param rtmgr : the rtmgr to destroy
          */
@@ -107,14 +98,14 @@ public:
          * Calling Position: calling after createRuntimeManager.
          */
         void setCache(std::string cacheName);
-        
+
         /**
          * @brief set the path of external files or directory
          * @param path -- The path of a file or directory on disk
          * @param type -- Type of the external path (see "enum ExternalPathType" in Interpreter.hpp)
          */
         void setExternalPath(std::string path, int type);
-        
+
         /**
          * @brief set external file.
          */
@@ -132,15 +123,14 @@ public:
         void setHint(Interpreter::HintMode mode, int value);
         void setHint(Interpreter::HintMode mode, int* value, size_t size);
         void setHintPtr(Interpreter::HintMode mode, void* value);
-        // Push this RTM's KVCACHE_INFO meta onto its Runtime; call before any
-        // path that creates or clones Backends (Backends capture pMeta at ctor).
+        // Keep Runtime::pMeta in sync for backend runtimes that still read it during onCreate.
+        // Session also sets the meta on created Backends through the common backend creation path.
         void applyMetaToRuntime() const;
         bool getInfo(Interpreter::SessionInfoCode code, void* ptr);
         static bool getDeviceInfo(const std::string& deviceKey, const MNNForwardType type, std::string& deviceValue);
         BackendConfig* getBnConfig();
-        const RuntimeAttr* getInside() const {
-            return mInside;
-        }
+        const RuntimeAttr* getInside() const { return mInside; }
+
     private:
         std::mutex mLock;
         RuntimeAttr* mInside;
@@ -149,12 +139,11 @@ public:
     };
     static bool getComputeInfo(EXPRP expr, Interpreter::SessionInfoCode code, void* ptr);
 #ifndef MNN_REDUCE_SIZE
-    std::map<std::string, std::shared_ptr<SubGraph>>& subgraph() {
-        return mSubGraph;
-    };
+    std::map<std::string, std::shared_ptr<SubGraph>>& subgraph() { return mSubGraph; };
 #endif
 private:
-    std::shared_ptr<Runtime> _getOrCreateRuntime(MNNForwardType type, const BackendConfig* config, int numberThread, bool reset = true);
+    std::shared_ptr<Runtime> _getOrCreateRuntime(MNNForwardType type, const BackendConfig* config, int numberThread,
+                                                 bool reset = true);
     Executor(std::shared_ptr<Runtime> backend, MNNForwardType type, int numberThread);
     void _makeCache(const std::vector<EXPRP>& outputs, bool forceCPU);
 

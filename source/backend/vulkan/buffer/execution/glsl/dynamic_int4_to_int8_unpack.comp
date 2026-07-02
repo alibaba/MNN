@@ -5,49 +5,67 @@
 // Encoding (host-side +8 unsigned offset; padding nibble = 0x8 -> decoded 0):
 //   stored value = unsigned (q + 8), so 0..15 represents -8..7.
 //
-// The same memory is re-bound here as `int8_t[]` (8bit-storage view); on
-// little-endian devices nibble (2k) lives in the low half of byte k and
-// nibble (2k+1) in the high half, so each invocation reads one byte and
-// emits two int8 outputs without an inner loop.
+// One invocation reads one uint32 containing 8 int4 values and emits two
+// uint32 words containing 8 sign-extended int8 values. The output is written
+// in B tile-linear layout [tileN, tileK, COOP_N, COOP_K], column-major inside
+// each cooperative matrix tile.
 //
-// Output: a [padN, padK] int8 buffer the W8A8 GEMM consumes in place of the
-// per-channel quantized weight, keeping the GEMM's existing linear B layout.
+// Output: a [tileN, tileK, COOP_N, COOP_K] int8 buffer the W8A8 GEMM consumes
+// in place of the per-channel quantized weight.
 //
-// Dispatch: groupCount = (UP_DIV(padK/2, 16), UP_DIV(padN, 16), 1),
+// Dispatch: groupCount = (UP_DIV(padK/8, 16), UP_DIV(padN, 16), 1),
 //           localSize  = (16, 16, 1).
-
-#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
-#extension GL_EXT_shader_8bit_storage : require
 
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
 layout(binding = 0) readonly buffer Packed4 {
-    int8_t W4[]; // size = padN * (padK/2), one byte per pair of nibbles
+    uint W4[]; // size = padN * (padK/8), one word per 8 nibbles
 };
 
 layout(binding = 1) writeonly buffer Unpacked8 {
-    int8_t W8[]; // size = padN * padK
+    uint W8[]; // size = padN * (padK/4), one word per 4 int8 values
 };
 
 layout(push_constant) uniform PushConstants {
     uint padN;
     uint padK;
-    uint halfK; // padK / 2
+    uint wordsK; // padK / 8
+    uint coopN;
+    uint coopK;
 } pc;
 
+uint packInt8x4(int q0, int q1, int q2, int q3) {
+    return (uint(q0) & 0xFFu) |
+           ((uint(q1) & 0xFFu) << 8) |
+           ((uint(q2) & 0xFFu) << 16) |
+           ((uint(q3) & 0xFFu) << 24);
+}
+
 void main() {
-    const uint k2 = gl_GlobalInvocationID.x;
+    const uint k8 = gl_GlobalInvocationID.x;
     const uint n  = gl_GlobalInvocationID.y;
-    if (n >= pc.padN || k2 >= pc.halfK) {
+    if (n >= pc.padN || k8 >= pc.wordsK) {
         return;
     }
 
-    const uint srcIdx = n * pc.halfK + k2;
-    const int byteVal = int(W4[srcIdx]) & 0xFF;
-    const int q0 = (byteVal & 0xF) - 8;
-    const int q1 = ((byteVal >> 4) & 0xF) - 8;
+    const uint packed = W4[((n >> 2u) * pc.wordsK + k8) * 4u + (n & 3u)];
+    const int q0 = int((packed >>  0u) & 0xFu) - 8;
+    const int q1 = int((packed >>  4u) & 0xFu) - 8;
+    const int q2 = int((packed >>  8u) & 0xFu) - 8;
+    const int q3 = int((packed >> 12u) & 0xFu) - 8;
+    const int q4 = int((packed >> 16u) & 0xFu) - 8;
+    const int q5 = int((packed >> 20u) & 0xFu) - 8;
+    const int q6 = int((packed >> 24u) & 0xFu) - 8;
+    const int q7 = int((packed >> 28u) & 0xFu) - 8;
 
-    const uint dstBase = n * pc.padK + (k2 << 1u);
-    W8[dstBase + 0u] = int8_t(q0);
-    W8[dstBase + 1u] = int8_t(q1);
+    const uint tilesK = pc.padK / pc.coopK;
+    const uint tileN = n / pc.coopN;
+    const uint nLocal = n - tileN * pc.coopN;
+    const uint k = k8 << 3u;
+    const uint tileK = k / pc.coopK;
+    const uint kWordInTile = (k - tileK * pc.coopK) >> 3u;
+    const uint dstBase = ((tileN * tilesK + tileK) * pc.coopN * pc.coopK
+                         + nLocal * pc.coopK + (kWordInTile << 3u)) >> 2u;
+    W8[dstBase + 0u] = packInt8x4(q0, q1, q2, q3);
+    W8[dstBase + 1u] = packInt8x4(q4, q5, q6, q7);
 }

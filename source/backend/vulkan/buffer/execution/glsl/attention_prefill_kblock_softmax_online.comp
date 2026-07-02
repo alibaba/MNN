@@ -26,6 +26,7 @@ layout(set=0, binding=5) readonly uniform constBuffer {
 } uConst;
 
 layout(push_constant) uniform PushConsts {
+    uint kStart;
     uint blockLen;
 } pc;
 
@@ -55,6 +56,15 @@ void main() {
     const int blockLen4_4 = blockLen4 / 4;
 
     const int row = q * headNum + h;
+    const int maskMode = uConst.s2.z;
+    const int pastLen = uConst.s1.z;
+    if (maskMode == 2 && (pastLen + q) < int(pc.kStart)) {
+        if (tid == 0u) {
+            uAlpha.data[row] = 1.0;
+        }
+        return;
+    }
+
     const int base4 = row * blockLen4_4;
 
     const float mOld = uM.data[row];

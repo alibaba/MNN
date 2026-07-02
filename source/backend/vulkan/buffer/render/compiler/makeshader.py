@@ -8,20 +8,22 @@ import hashlib # md5 sha1
 import configparser # ini (python 3.0 use configparser)
 import fcntl # file lock
 import datetime # format file modify time
-import subprocess
-
 gDefaultPath = "../glsl"
 gOutputHeadFile = "AllShaderRender.h"
 gOutputSourceFile = "AllShaderRender.cpp"
 mapFile = "VulkanShaderMapRender.cpp"
 
 def findAllShader(path):
+    cmd = "find " + path + " -name \"*.comp\""
+    vexs = os.popen(cmd).read().split('\n')
+    cmd = "find " + path + " -name \"*.frag\""
+    vexs += os.popen(cmd).read().split('\n')
+    cmd = "find " + path + " -name \"*.vert\""
+    vexs += os.popen(cmd).read().split('\n')
     output = []
-    extensions = [".comp", ".frag", ".vert"]
-    for root, dirs, files in os.walk(path):
-        for file in files:
-            if any(file.endswith(ext) for ext in extensions):
-                output.append(os.path.join(root, file))
+    for f in vexs:
+        if len(f) > 1:
+            output.append(f)
     return output
 
 
@@ -33,22 +35,22 @@ def getName(fileName):
 
 
 def generateFileAsm(headfile, sourcefile, asmdirs):
+    cmd = "find " + asmdirs + " -name \"*.spirv\""
+    vexs = os.popen(cmd).read().split('\n')
     output = []
-    for root, dirs, files in os.walk(asmdirs):
-        for file in files:
-            if file.endswith(".spirv"):
-                output.append(os.path.join(root, file))
+    for f in vexs:
+        if len(f) > 1:
+            output.append(f)
     h = "#ifndef SPRIV_SHADER_AUTO_GENERATE_H\n#define SPRIV_SHADER_AUTO_GENERATE_H\n"
 
     cpp = "#include \"" + headfile + "\"\n"
     for s in output:
         name = getName(s)
         print(name)
-        subprocess.run(["spirv-as", s, "-o", "tempspv", "--target-env", "vulkan1.0"])
+        print(os.popen("spirv-as " + s + " -o tempspv --target-env vulkan1.0").read())
         h += "extern const unsigned char " + name + "[];\n"
         h += 'extern unsigned int ' + name + '_len;\n'
-        with open("temp.spv.cpp", "w") as tmp_cpp:
-            subprocess.run(["xxd", "-i", "tempspv"], stdout=tmp_cpp)
+        print(os.popen("xxd -i tempspv > temp.spv.cpp").read())
         with open('temp.spv.cpp') as f:
             allContent = f.read().replace('tempspv', name)
         cpp += 'const ' + allContent + '\n'
@@ -57,8 +59,8 @@ def generateFileAsm(headfile, sourcefile, asmdirs):
         f.write(h)
     with open(sourcefile, "w") as f:
         f.write(cpp)
-    if os.path.exists('temp.spv.cpp'): os.remove('temp.spv.cpp')
-    if os.path.exists('tempspv'): os.remove('tempspv')
+    os.popen('rm temp.spv.cpp').read()
+    os.popen('rm tempspv').read()
 
 
 class ShaderFile:
@@ -408,13 +410,12 @@ def genCppFile(objs, inc, dst):
             if len(spirv_save) > 0:
                 out = spirv_save
                 rm = False
-            subprocess.run(["glslangValidator", "-V", s, "-Os", "-o", out])
+            print(os.popen("glslangValidator -V " + s + " -Os -o " + out).read())
         else:
             out = spirv_cache
             rm = False
         cpp_tmp_file = 'temp.spv.cpp'
-        with open(cpp_tmp_file, "w") as tmp_cpp:
-            subprocess.run(["xxd", "-i", out], stdout=tmp_cpp)
+        os.popen("xxd -i "+ out +" > " + cpp_tmp_file).read()
         with open(cpp_tmp_file) as f:
             rep = out.replace(os.sep,'_')
             rep = rep.replace('.','_')

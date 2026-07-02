@@ -35,7 +35,7 @@ layout(push_constant) uniform PushConstants {
     uint padK;
 } pc;
 
-shared int rowSum[64];
+shared int rowSum[256];
 
 uint packInt8x4(int q0, int q1, int q2, int q3) {
     return (uint(q0) & 0xFFu) |

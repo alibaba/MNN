@@ -19,17 +19,18 @@
 #include "utils/InitNet.hpp"
 
 namespace MNN {
-void Session::createPipelineBackend(Schedule::PipelineInfo& iter, RuntimeInfo& runtime) {
+void Session::createPipelineBackend(Schedule::PipelineInfo& iter, RuntimeInfo& runtime, void* meta) {
     if (iter.first.cache.first != nullptr) {
         return;
     }
-    auto rt           = runtime.first.find(iter.first.info.type)->second.get();
-    auto cpuRuntime   = runtime.second;
+    auto rt = runtime.first.find(iter.first.info.type)->second.get();
+    auto cpuRuntime = runtime.second;
     bool specialUsage = false;
     if (iter.first.info.user != nullptr) {
         specialUsage = iter.first.info.user->flags > 0;
     }
     iter.first.cache.first.reset(rt->onCreate(iter.first.info.user));
+    iter.first.cache.first->setMetaPtr(meta);
     std::shared_ptr<Backend> second;
     if (iter.first.cache.first->type() == MNN_FORWARD_CPU && (!specialUsage)) {
         iter.first.cache.second = iter.first.cache.first;
@@ -42,13 +43,14 @@ void Session::createPipelineBackend(Schedule::PipelineInfo& iter, RuntimeInfo& r
         if (iter.first.info.user != nullptr) {
             // Don't change default Precision
             defaultConfig.memory = iter.first.info.user->memory;
-            defaultConfig.power  = iter.first.info.user->power;
+            defaultConfig.power = iter.first.info.user->power;
         }
         Backend* origin = nullptr;
         if (cpuRuntime.get() == rt) {
             origin = iter.first.cache.first.get();
         }
         iter.first.cache.second.reset(cpuRuntime->onCreate(&defaultConfig, origin));
+        iter.first.cache.second->setMetaPtr(meta);
     }
 }
 void Session::ModeGroup::setMode(Interpreter::SessionMode mode) {
@@ -155,7 +157,7 @@ void Session::ModeGroup::setExternalPath(std::string path, int type) {
 }
 
 Session::Session(Schedule::ScheduleInfo&& info, const ModeGroup& mode, RuntimeInfo&& runtime) {
-    mMode    = mode;
+    mMode = mode;
     mRuntime = std::move(runtime);
     if (info.pipelineInfo.empty()) {
         mValid = false;
@@ -166,10 +168,10 @@ Session::Session(Schedule::ScheduleInfo&& info, const ModeGroup& mode, RuntimeIn
         createPipelineBackend(iter, mRuntime);
         Pipeline::TuningAttr attr;
         attr.maxTuningNumber = mode.maxTuningNumber;
-        attr.autoSetOpType   = mode.backendMode == Interpreter::Session_Backend_Auto;
-        auto rt              = mRuntime.first.find(iter.first.info.type)->second.get();
-        auto cpuRuntime      = mRuntime.second;
-        auto geoMask         = mMode.geometryMask;
+        attr.autoSetOpType = mode.backendMode == Interpreter::Session_Backend_Auto;
+        auto rt = mRuntime.first.find(iter.first.info.type)->second.get();
+        auto cpuRuntime = mRuntime.second;
+        auto geoMask = mMode.geometryMask;
         if (rt->onGetCompilerType() != Runtime::Compiler_Loop) {
             geoMask = 0;
         }
@@ -178,9 +180,9 @@ Session::Session(Schedule::ScheduleInfo&& info, const ModeGroup& mode, RuntimeIn
                          mode.outputMode == Interpreter::Session_Output_User, attr, rt, cpuRuntime.get(), geoMask));
         mPipelines.emplace_back(std::move(newPipeline));
     }
-    mCallBackMode    = mode.callBackMode;
+    mCallBackMode = mode.callBackMode;
     mMemoryUsageMode = mode.memoryUsageMode;
-    mCodegenMode     = mode.codegenMode;
+    mCodegenMode = mode.codegenMode;
 }
 
 Session::~Session() {
@@ -349,7 +351,7 @@ ErrorCode Session::fixResizeCache() {
 bool Session::getInfo(Interpreter::SessionInfoCode code, void* ptr) const {
     switch (code) {
         case Interpreter::MEMORY: {
-            auto dst     = (float*)ptr;
+            auto dst = (float*)ptr;
             float summer = mRuntime.second->onGetMemoryInMB();
             for (auto& r : mRuntime.first) {
                 if (r.second.get() != mRuntime.second.get()) {
@@ -360,10 +362,10 @@ bool Session::getInfo(Interpreter::SessionInfoCode code, void* ptr) const {
             return true;
         } break;
         case Interpreter::BACKENDS: {
-            int pos  = 0;
+            int pos = 0;
             auto res = (int32_t*)ptr;
             for (auto& r : mPipelines) {
-                auto type  = r->getMainForwardType();
+                auto type = r->getMainForwardType();
                 res[pos++] = type;
             }
             return true;
@@ -374,7 +376,7 @@ bool Session::getInfo(Interpreter::SessionInfoCode code, void* ptr) const {
                 flo += iter->flops();
             }
             auto dst = (float*)ptr;
-            *dst     = flo;
+            *dst = flo;
             return true;
         } break;
         case Interpreter::RESIZE_STATUS: {
@@ -459,7 +461,7 @@ ErrorCode Session::updateToModel(Net* net) const {
             continue;
         }
         auto index = op->outputIndexes()->data()[0];
-        auto blob  = op->main_as_Blob();
+        auto blob = op->main_as_Blob();
         if (blob->dataType() != DataType_DT_FLOAT) {
             continue;
         }
@@ -500,34 +502,34 @@ static void initTensors(std::vector<std::shared_ptr<Tensor>>& tensors,
     }
 }
 
-Session* Session::clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::ScheduleInfo> sharedConst) {
+Session* Session::clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::ScheduleInfo> sharedConst, void* meta) {
     // TODO: Currently only valid for Module api's onClone
     Schedule::ScheduleInfo scheduleInfo;
     scheduleInfo.defaultBackend = mInfo.defaultBackend;
     scheduleInfo.pipelineInfo.resize(1);
     scheduleInfo.externalWeightPath = mInfo.externalWeightPath;
     Session::ModeGroup modes;
-    scheduleInfo.defaultBackend      = sharedConst->defaultBackend;
+    scheduleInfo.defaultBackend = sharedConst->defaultBackend;
     scheduleInfo.constReplaceBackend = sharedConst->constReplaceBackend;
-    scheduleInfo.allTensors          = sharedConst->allTensors;
+    scheduleInfo.allTensors = sharedConst->allTensors;
     initTensors(scheduleInfo.allTensors, mInfo.allTensors);
     MNN_ASSERT(1 == mPipelines.size());
-    auto& srcPipelineInfo        = mPipelines[0]->getPipelineInfo();
-    auto& opCaches               = srcPipelineInfo.second;
-    auto& pipelineInfo           = scheduleInfo.pipelineInfo[0];
-    pipelineInfo.first.info      = srcPipelineInfo.first.info;
-    pipelineInfo.first.config    = srcPipelineInfo.first.config;
+    auto& srcPipelineInfo = mPipelines[0]->getPipelineInfo();
+    auto& opCaches = srcPipelineInfo.second;
+    auto& pipelineInfo = scheduleInfo.pipelineInfo[0];
+    pipelineInfo.first.info = srcPipelineInfo.first.info;
+    pipelineInfo.first.config = srcPipelineInfo.first.config;
     pipelineInfo.first.info.user = &pipelineInfo.first.config;
-    auto& oplists                = pipelineInfo.second;
+    auto& oplists = pipelineInfo.second;
     oplists.resize(opCaches.size());
-    createPipelineBackend(pipelineInfo, runtime);
-    auto first  = pipelineInfo.first.cache.first;
+    createPipelineBackend(pipelineInfo, runtime, meta);
+    auto first = pipelineInfo.first.cache.first;
     auto second = pipelineInfo.first.cache.second;
     for (int i = 0; i < opCaches.size(); ++i) {
         auto& srcOpInfo = opCaches[i];
-        auto& opInfo    = oplists[i];
-        opInfo.op       = opCaches[i].op;
-        opInfo.type     = srcOpInfo.type;
+        auto& opInfo = oplists[i];
+        opInfo.op = opCaches[i].op;
+        opInfo.type = srcOpInfo.type;
         opInfo.computeCache.copyImmutable(srcOpInfo.computeCache);
         auto op = opInfo.op;
         if (nullptr != op->outputIndexes()) {
@@ -554,7 +556,7 @@ Session* Session::clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::Schedul
         // Clone cache
         for (auto& iter : srcOpInfo.executionCache) {
             Execution* copyExecution = nullptr;
-            bool valid               = false;
+            bool valid = false;
             if (first->type() == iter.second->backend()->type()) {
                 valid = iter.second->onClone(first.get(), iter.first, &copyExecution);
             } else {

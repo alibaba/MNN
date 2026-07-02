@@ -17,7 +17,7 @@ struct ConstBuffer {
     ivec4 stride00;
     int activationType = 0;
 };
-std::string VulkanBinary::getMidName(const Op *op) {
+std::string VulkanBinary::getMidName(const Op* op) {
     std::string mid = "";
     if (op->type() == OpType_Eltwise) {
         if (op->main_as_Eltwise()->coeff() != nullptr) {
@@ -59,6 +59,9 @@ std::string VulkanBinary::getMidName(const Op *op) {
                 break;
             case BinaryOpOperation_MUL:
                 mid = "MUL";
+                break;
+            case BinaryOpOperation_MUL_SILU:
+                mid = "MUL_SILU";
                 break;
             case BinaryOpOperation_POW:
                 mid = "POW";
@@ -125,26 +128,24 @@ static std::string _getShaderName(const Op* op, bool isInt, bool useFP16) {
     return result;
 }
 
-VulkanBinary::VulkanBinary(const std::string& shaderName, Backend* bn, int activationType, int inputSize) : VulkanBasicExecution(bn) {
+VulkanBinary::VulkanBinary(const std::string& shaderName, Backend* bn, int activationType, int inputSize)
+    : VulkanBasicExecution(bn) {
     MNN_ASSERT(inputSize >= 2);
-    auto vkBn   = static_cast<VulkanBackend*>(bn);
-    mBinaryPipeline = vkBn->getPipeline(shaderName, {
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
-    });
+    auto vkBn = static_cast<VulkanBackend*>(bn);
+    mBinaryPipeline =
+        vkBn->getPipeline(shaderName, {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                       VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER});
     mActivationType = activationType;
     mConstBuffer.resize(inputSize - 1);
     mDescriptorSet.resize(inputSize - 1);
-    for (int i=0; i<mConstBuffer.size(); ++i) {
+    for (int i = 0; i < mConstBuffer.size(); ++i) {
         mConstBuffer[i] = vkBn->allocUniform();
         mDescriptorSet[i].reset(mBinaryPipeline->createSet());
     }
 }
 
 VulkanBinary::~VulkanBinary() {
-    auto vkBn   = static_cast<VulkanBackend*>(backend());
+    auto vkBn = static_cast<VulkanBackend*>(backend());
     for (auto buffer : mConstBuffer) {
         vkBn->recycleUniform(buffer);
     }
@@ -160,7 +161,8 @@ ErrorCode VulkanBinary::onEncode(const std::vector<Tensor*>& inputs, const std::
 
     auto input0Scalar = input0DataCount == 1;
     auto input1Scalar = input1DataCount == 1;
-    auto writeBinary = [&](const VULKAN_TENSOR& input0, const VULKAN_TENSOR& input1, const VULKAN_TENSOR& output, int index) {
+    auto writeBinary = [&](const VULKAN_TENSOR& input0, const VULKAN_TENSOR& input1, const VULKAN_TENSOR& output,
+                           int index) {
         auto constBuffer = mConstBuffer[index];
         int eleSize = sizeof(float);
         if (vkBn->useFP16() && outputs[0]->getType().code == halide_type_float) {
@@ -195,8 +197,8 @@ ErrorCode VulkanBinary::onEncode(const std::vector<Tensor*>& inputs, const std::
     auto outputT = vkBn->getBuffer(outputs[0]);
     writeBinary(input0T, input1T, outputT, 0);
     if (inputs.size() > 2) {
-        for (int i=2; i<inputs.size(); ++i) {
-            writeBinary(vkBn->getBuffer(outputs[0]), vkBn->getBuffer(inputs[i]), vkBn->getBuffer(outputs[0]), i-1);
+        for (int i = 2; i < inputs.size(); ++i) {
+            writeBinary(vkBn->getBuffer(outputs[0]), vkBn->getBuffer(inputs[i]), vkBn->getBuffer(outputs[0]), i - 1);
         }
     }
     return NO_ERROR;
@@ -204,10 +206,11 @@ ErrorCode VulkanBinary::onEncode(const std::vector<Tensor*>& inputs, const std::
 
 class VulkanBinaryCreator : public VulkanBackend::Creator {
 public:
-    virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
-                                Backend* backend) const override {
+    virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                           const MNN::Op* op, Backend* backend) const override {
         auto input0 = inputs[0];
-        auto shader = _getShaderName(op, input0->getType().code == halide_type_int, (static_cast<VulkanBackend *>(backend))->useFP16());
+        auto shader = _getShaderName(op, input0->getType().code == halide_type_int,
+                                     (static_cast<VulkanBackend*>(backend))->useFP16());
         if (shader.empty()) {
             return nullptr;
         }
