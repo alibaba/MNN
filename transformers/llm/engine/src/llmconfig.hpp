@@ -267,6 +267,14 @@ public:
         return config_.value("speech_decoder_upsample_rate", 1920);
     }
 
+    std::string speaker_encoder_model() const {
+        return base_dir_ + config_.value("speaker_encoder_model", "speaker_encoder.mnn");
+    }
+
+    std::string speaker_encoder_weight() const {
+        return base_dir_ + config_.value("speaker_encoder_weight", "speaker_encoder.mnn.weight");
+    }
+
     int speaker_encoder_sample_rate() const {
         return config_.value("speaker_encoder_sample_rate", 24000);
     }
