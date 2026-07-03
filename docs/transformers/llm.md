@@ -603,9 +603,9 @@ messages.emplace_back("tool", R"({"temperature": 72, "condition": "sunny"})");
 
 `qwen3_tts_demo` 用于 Qwen3-TTS 文本转语音端到端示例，参数为：
 ```
-./qwen3_tts_demo model_dir --text <text> [max_frames] [dump_dir] [language] [--normalize [target_peak]]
+./qwen3_tts_demo model_dir --text <text> [max_frames] [dump_dir] [language] [--ref_audio <wav>] [--normalize [target_peak]]
 ```
-其中 `model_dir` 是 Qwen3-TTS MNN 模型目录，`text` 是要合成的文本，`max_frames` 是最多生成的 codec 帧数（每帧约 80ms，短句建议 64-128，长句可提高，遇到 EOS 会提前停止），`dump_dir` 用于保存 wav/bin 调试输出，`language` 默认是 `auto`，可选 `auto/chinese/english/german/italian/portuguese/spanish/japanese/korean/french/russian`，`--normalize [target_peak]` 只对保存的 wav 做峰值归一化，不填值时为 1。
+其中 `model_dir` 是 Qwen3-TTS MNN 模型目录，`text` 是要合成的文本，`max_frames` 是最多生成的 codec 帧数（每帧约 80ms，短句建议 64-128，长句可提高，遇到 EOS 会提前停止），`dump_dir` 用于保存 wav/bin 调试输出，`language` 默认是 `auto`，可选 `auto/chinese/english/german/italian/portuguese/spanish/japanese/korean/french/russian`，`--ref_audio <wav>` 指定参考音色 wav（加载时会重采样到 24 kHz），`--normalize [target_peak]` 只对保存的 wav 做峰值归一化，不填值时为 1。
 
 - 对于视觉大模型，在prompt中嵌入图片输入
 ```

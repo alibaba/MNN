@@ -98,6 +98,98 @@ static VARP makeEmbeddingInput(DiskEmbedding* embedding, const std::vector<int>&
     return var;
 }
 
+static VARP materializeFloatVar(VARP var) {
+    auto info = var.get() ? var->getInfo() : nullptr;
+    auto values = readTensorVector<float>(var);
+    if (!info || values.empty()) {
+        return nullptr;
+    }
+    return makeTensorInputFromVector<float>(info->dim, values);
+}
+
+static VARP makeQwen3TTSCodecEmbeds(DiskEmbedding* embedding, const std::vector<int>& codecPrefix,
+                                    VARP speakerEmbedding, int hiddenSize) {
+    if (speakerEmbedding.get() == nullptr) {
+        return makeEmbeddingInput(embedding, codecPrefix, hiddenSize);
+    }
+    if (codecPrefix.size() <= 2) {
+        return nullptr;
+    }
+    std::vector<int> headIds(codecPrefix.begin(), codecPrefix.end() - 2);
+    std::vector<int> tailIds(codecPrefix.end() - 2, codecPrefix.end());
+    auto head = makeEmbeddingInput(embedding, headIds, hiddenSize);
+    auto tail = makeEmbeddingInput(embedding, tailIds, hiddenSize);
+    auto headValues = readTensorVector<float>(head);
+    auto speakerValues = readTensorVector<float>(speakerEmbedding);
+    auto tailValues = readTensorVector<float>(tail);
+    if (headValues.empty() || speakerValues.size() != hiddenSize || tailValues.empty()) {
+        return nullptr;
+    }
+    std::vector<float> values;
+    values.reserve((codecPrefix.size() + 1) * hiddenSize);
+    values.insert(values.end(), headValues.begin(), headValues.end());
+    values.insert(values.end(), speakerValues.begin(), speakerValues.end());
+    values.insert(values.end(), tailValues.begin(), tailValues.end());
+    return makeTensorInputFromVector<float>({1, static_cast<int>(codecPrefix.size()) + 1, hiddenSize}, values);
+}
+
+#ifdef LLM_SUPPORT_AUDIO
+static VARP makeQwen3TTSSpeakerEmbedding(Module* speakerEncoder, const std::string& refAudio, int sampleRate,
+                                         int hiddenSize) {
+    if (!speakerEncoder || refAudio.empty()) {
+        return nullptr;
+    }
+    auto audioData = MNN::AUDIO::load(refAudio, sampleRate);
+    auto waveform = audioData.first;
+    if (waveform.get() == nullptr || !waveform->getInfo() || audioData.second != sampleRate) {
+        MNN_ERROR("[Error]: failed to load Qwen3-TTS ref audio: %s\n", refAudio.c_str());
+        return nullptr;
+    }
+
+    constexpr int nFft = 1024;
+    constexpr int hopSize = 256;
+    constexpr int winSize = 1024;
+    auto padded = _Pad(waveform, _var<int>({(nFft - hopSize) / 2, (nFft - hopSize) / 2}, {2}), REFLECT);
+
+    MNN::AUDIO::MelscaleParams melParams;
+    melParams.n_mels = 128;
+    melParams.n_fft = nFft;
+    melParams.sample_rate = sampleRate;
+    melParams.htk = false;
+    melParams.norm = true;
+    melParams.f_min = 0.0f;
+    melParams.f_max = 12000.0f;
+
+    MNN::AUDIO::SpectrogramParams specParams;
+    specParams.n_fft = nFft;
+    specParams.hop_length = hopSize;
+    specParams.win_length = winSize;
+    specParams.window_type = MNN::AUDIO::HANNING;
+    specParams.center = false;
+    specParams.normalized = false;
+    specParams.power = 1.0f;
+
+    auto mel = MNN::AUDIO::mel_spectrogram(padded, &melParams, &specParams);
+    mel = _Log(_Maximum(mel, _Scalar<float>(1e-5f)));
+    mel = materializeFloatVar(mel);
+    if (mel.get() == nullptr || !mel->getInfo() || mel->getInfo()->dim.size() != 2) {
+        MNN_ERROR("[Error]: failed to build Qwen3-TTS ref mel\n");
+        return nullptr;
+    }
+    auto outputs = speakerEncoder->onForward({_Unsqueeze(mel, {0})});
+    if (outputs.size() != 1) {
+        MNN_ERROR("[Error]: Qwen3-TTS speaker encoder output size mismatch: %zu\n", outputs.size());
+        return nullptr;
+    }
+    auto speakerValues = readTensorVector<float>(outputs[0]);
+    if (speakerValues.size() != hiddenSize) {
+        MNN_ERROR("[Error]: invalid Qwen3-TTS speaker embedding size: %zu\n", speakerValues.size());
+        return nullptr;
+    }
+    return makeTensorInputFromVector<float>({1, 1, hiddenSize}, speakerValues);
+}
+#endif
+
 static VARP makeQwen3CodePredictorCodecEmbeds(DiskEmbedding* firstEmbedding, DiskEmbedding* predictorEmbedding,
                                                 const std::vector<int>& codes, int codeGroups, int vocabSize,
                                                 int hiddenSize) {
@@ -1731,7 +1823,8 @@ static std::string qwen3TTSNormalizeLanguage(std::string language) {
     return "";
 }
 
-bool Omni::generateTTS(const std::string& text, const std::string& language, int max_new_tokens) {
+bool Omni::generateTTS(const std::string& text, const std::string& language, int max_new_tokens,
+                       const std::string& ref_audio) {
     MNN::Express::ExecutorScope s(mExecutor);
     if (!mTalker || !isQwen3TTSTalker(mConfig)) {
         MNN_ERROR("[Error]: current model does not support Qwen3-TTS generation\n");
@@ -1754,7 +1847,7 @@ bool Omni::generateTTS(const std::string& text, const std::string& language, int
         MNN_ERROR("[Error]: Qwen3-TTS chat template produced empty prompt\n");
         return false;
     }
-    bool ok = mTalker->generateQwen3TTS(prompt, max_new_tokens);
+    bool ok = mTalker->generateQwen3TTS(prompt, max_new_tokens, ref_audio);
     const auto* talkerContext = mTalker->getContext();
     if (talkerContext) {
         mContext->prompt_len = talkerContext->prompt_len;
@@ -1831,8 +1924,15 @@ bool Talker::load() {
                                                mQwen3RuntimeManager, &module_config),
                                   Module::destroy);
         mQwen3RuntimeManager->setExternalFile("");
+
+        mQwen3RuntimeManager->setExternalFile(mConfig->speaker_encoder_weight().c_str());
+        mQwen3SpeakerEncoder.reset(Module::load({"mels"}, {"speaker_embedding"},
+                                                mConfig->speaker_encoder_model().c_str(), mQwen3RuntimeManager,
+                                                &module_config),
+                                   Module::destroy);
+        mQwen3RuntimeManager->setExternalFile("");
         if (!mModule || !mQwen3PromptEmbedder || !mQwen3CodePredictor || !mQwen3CodecEmbedder ||
-            !mQwen3SpeechDecoder) {
+            !mQwen3SpeechDecoder || !mQwen3SpeakerEncoder) {
             return false;
         }
         mDiskEmbedding.reset(new DiskEmbedding(mConfig, mConfig->talker_embedding_file()));
@@ -2342,7 +2442,7 @@ int Talker::sample(Express::VARP logits, int offset, int size) {
     return token;
 }
 
-bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames) {
+bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const std::string& refAudio) {
     CHECK_LLM_RUNNING_RET(mContext, false);
     MNN::Express::ExecutorScope s(mExecutor);
     if (!isQwen3TTSTalker(mConfig)) {
@@ -2386,7 +2486,23 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames) {
     std::vector<int> textIds(inputIds.begin() + 6, inputIds.end());
     std::vector<int> ttsIds {mConfig->tts_bos_token_id(), mConfig->tts_eos_token_id(),
                              mConfig->tts_pad_token_id()};
-    auto codecEmbeds = makeEmbeddingInput(mDiskEmbedding.get(), codecPrefix, hiddenSize);
+    VARP speakerEmbedding = nullptr;
+    if (!refAudio.empty()) {
+#ifdef LLM_SUPPORT_AUDIO
+        speakerEmbedding = makeQwen3TTSSpeakerEmbedding(mQwen3SpeakerEncoder.get(), refAudio,
+                                                        mConfig->speaker_encoder_sample_rate(), hiddenSize);
+        if (speakerEmbedding.get() == nullptr) {
+            MNN_ERROR("[Error]: failed to build Qwen3-TTS speaker embedding\n");
+            mContext->status = LlmStatus::INTERNAL_ERROR;
+            return false;
+        }
+#else
+        MNN_ERROR("[Error]: Qwen3-TTS ref_audio requires LLM_SUPPORT_AUDIO\n");
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return false;
+#endif
+    }
+    auto codecEmbeds = makeQwen3TTSCodecEmbeds(mDiskEmbedding.get(), codecPrefix, speakerEmbedding, hiddenSize);
     auto textRawEmbeds = makeEmbeddingInput(mQwen3TextEmbedding.get(), textIds, mConfig->talker_text_hidden_size());
     auto ttsRawEmbeds = makeEmbeddingInput(mQwen3TextEmbedding.get(), ttsIds, mConfig->talker_text_hidden_size());
     if (codecEmbeds.get() == nullptr || textRawEmbeds.get() == nullptr || ttsRawEmbeds.get() == nullptr) {

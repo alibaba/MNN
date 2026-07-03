@@ -96,7 +96,8 @@ static bool isOption(const char* arg) {
 }
 
 static int runTextMode(const std::string& modelDir, const std::string& text, const std::string& language,
-                       int maxFrames, const std::string& dumpDir, float normalizePeak) {
+                       int maxFrames, const std::string& dumpDir, float normalizePeak,
+                       const std::string& refAudio) {
     std::unique_ptr<Llm> llm(Llm::createLLM(joinPath(modelDir, "config.json")));
     llm->set_config("{\"tmp_path\":\"tmp\",\"async\":false}");
     if (!llm->load()) {
@@ -112,7 +113,7 @@ static int runTextMode(const std::string& modelDir, const std::string& text, con
         return true;
     });
 
-    if (!llm->generateTTS(text, language, maxFrames)) {
+    if (!llm->generateTTS(text, language, maxFrames, refAudio)) {
         MNN_ERROR("Qwen3-TTS generation failed\n");
         return 1;
     }
@@ -148,8 +149,8 @@ static int runTextMode(const std::string& modelDir, const std::string& text, con
 
 int main(int argc, char** argv) {
     if (argc < 4 || std::strcmp(argv[2], "--text") != 0) {
-        MNN_PRINT("Usage: %s <model_dir> --text <text> [max_frames] [dump_dir] [language] [--normalize [target_peak]]\n",
-                  argv[0]);
+        MNN_PRINT("Usage: %s <model_dir> --text <text> [max_frames] [dump_dir] [language] "
+                  "[--ref_audio <wav>] [--normalize [target_peak]]\n", argv[0]);
         return 1;
     }
     std::string modelDir = argv[1];
@@ -159,6 +160,7 @@ int main(int argc, char** argv) {
     std::string language = "auto";
     float normalizePeak = -1.0f;
     bool normalizeRequested = false;
+    std::string refAudio;
 
     int index = 4;
     if (index < argc && !isOption(argv[index])) {
@@ -171,16 +173,26 @@ int main(int argc, char** argv) {
         language = argv[index++];
     }
     while (index < argc) {
-        if (std::strcmp(argv[index], "--normalize") != 0) {
-            MNN_ERROR("unknown option: %s\n", argv[index]);
-            return 1;
+        if (std::strcmp(argv[index], "--ref_audio") == 0) {
+            ++index;
+            if (index >= argc || isOption(argv[index])) {
+                MNN_ERROR("--ref_audio requires a wav path\n");
+                return 1;
+            }
+            refAudio = argv[index++];
+            continue;
         }
-        normalizeRequested = true;
-        normalizePeak = 1.0f;
-        ++index;
-        if (index < argc && !isOption(argv[index])) {
-            normalizePeak = static_cast<float>(std::atof(argv[index++]));
+        if (std::strcmp(argv[index], "--normalize") == 0) {
+            normalizeRequested = true;
+            normalizePeak = 1.0f;
+            ++index;
+            if (index < argc && !isOption(argv[index])) {
+                normalizePeak = static_cast<float>(std::atof(argv[index++]));
+            }
+            continue;
         }
+        MNN_ERROR("unknown option: %s\n", argv[index]);
+        return 1;
     }
     if (maxFrames <= 0) {
         MNN_ERROR("max_frames must be positive\n");
@@ -190,5 +202,5 @@ int main(int argc, char** argv) {
         MNN_ERROR("normalize target_peak must be in (0, 1]\n");
         return 1;
     }
-    return runTextMode(modelDir, text, language, maxFrames, dumpDir, normalizePeak);
+    return runTextMode(modelDir, text, language, maxFrames, dumpDir, normalizePeak, refAudio);
 }

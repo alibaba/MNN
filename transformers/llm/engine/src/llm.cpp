@@ -165,7 +165,12 @@ void Llm::setDebugCallback(MNN::TensorCallBackWithInfo&& before, MNN::TensorCall
     mExecutor->setCallBack(std::move(before), std::move(after));
 }
 
-bool Llm::generateTTS(const std::string& text, const std::string& language, int max_new_tokens) {
+bool Llm::generateTTS(const std::string& text, const std::string& language, int max_new_tokens,
+                      const std::string& ref_audio) {
+    (void)text;
+    (void)language;
+    (void)max_new_tokens;
+    (void)ref_audio;
     MNN_ERROR("[Error]: current model does not support TTS generation\n");
     return false;
 }
