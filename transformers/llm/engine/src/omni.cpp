@@ -56,7 +56,6 @@ static bool needVarWithShape(VARP var, const std::vector<int>& dims) {
     return false;
 }
 
-
 static bool isQwen3TTSTalker(const std::shared_ptr<LlmConfig>& config) {
     return config->talker_type() == "qwen3_tts" || config->config_.value("model_type", "") == "qwen3_tts";
 }
@@ -140,7 +139,7 @@ static VARP makeQwen3TTSSpeakerEmbedding(Module* speakerEncoder, const std::stri
     if (!speakerEncoder || refAudio.empty()) {
         return nullptr;
     }
-    auto audioData = MNN::AUDIO::load(refAudio, sampleRate);
+    auto audioData = MNN::AUDIO::load(refAudio, sampleRate, 0, -1, MNN::AUDIO::RESAMPLE_SOXR_HQ);
     auto waveform = audioData.first;
     if (waveform.get() == nullptr || !waveform->getInfo() || audioData.second != sampleRate) {
         MNN_ERROR("[Error]: failed to load Qwen3-TTS ref audio: %s\n", refAudio.c_str());
@@ -192,8 +191,8 @@ static VARP makeQwen3TTSSpeakerEmbedding(Module* speakerEncoder, const std::stri
 #endif
 
 static VARP makeQwen3CodePredictorCodecEmbeds(DiskEmbedding* firstEmbedding, DiskEmbedding* predictorEmbedding,
-                                                const std::vector<int>& codes, int codeGroups, int vocabSize,
-                                                int hiddenSize) {
+                                              const std::vector<int>& codes, int codeGroups, int vocabSize,
+                                              int hiddenSize) {
     if (!firstEmbedding || !predictorEmbedding || static_cast<int>(codes.size()) < codeGroups - 1 || codeGroups <= 1) {
         return nullptr;
     }
@@ -2028,9 +2027,9 @@ void Omni::generateWavform() {
 
 static std::string qwen3TTSNormalizeLanguage(std::string language) {
     std::transform(language.begin(), language.end(), language.begin(), [](unsigned char c) { return std::tolower(c); });
-    static const std::vector<std::string> supported = {
-        "auto", "chinese", "english", "german", "italian", "portuguese",
-        "spanish", "japanese", "korean", "french", "russian"};
+    static const std::vector<std::string> supported = {"auto",    "chinese",    "english", "german",
+                                                       "italian", "portuguese", "spanish", "japanese",
+                                                       "korean",  "french",     "russian"};
     for (const auto& item : supported) {
         if (language == item) {
             return language;
@@ -2117,23 +2116,21 @@ bool Talker::load() {
         mQwen3RuntimeManager->setExternalFile(mConfig->talker_weight().c_str());
         mQwen3PromptEmbedder.reset(Module::load({"codec_embeds", "text_raw_embeds", "tts_raw_embeds"},
                                                 {"prompt_inputs_embeds", "trailing_text_hidden", "tts_pad_embed"},
-                                                mConfig->talker_model().c_str(), mQwen3RuntimeManager,
-                                                &module_config),
+                                                mConfig->talker_model().c_str(), mQwen3RuntimeManager, &module_config),
                                    Module::destroy);
         mQwen3RuntimeManager->setExternalFile("");
 
         mQwen3RuntimeManager->setExternalFile(mConfig->code_predictor_weight().c_str());
-        mQwen3CodePredictor.reset(Module::load({"talker_hidden_states", "codec_embeds", "attention_mask",
-                                                "position_ids"},
-                                               {"logits"}, mConfig->code_predictor_model().c_str(),
-                                               mQwen3RuntimeManager, &module_config),
-                                  Module::destroy);
+        mQwen3CodePredictor.reset(
+            Module::load({"talker_hidden_states", "codec_embeds", "attention_mask", "position_ids"}, {"logits"},
+                         mConfig->code_predictor_model().c_str(), mQwen3RuntimeManager, &module_config),
+            Module::destroy);
         mQwen3RuntimeManager->setExternalFile("");
 
         mQwen3RuntimeManager->setExternalFile(mConfig->codec_embedder_weight().c_str());
         mQwen3CodecEmbedder.reset(Module::load({"codec_embeds", "text_hidden"}, {"inputs_embeds"},
-                                              mConfig->codec_embedder_model().c_str(), mQwen3RuntimeManager,
-                                              &module_config),
+                                               mConfig->codec_embedder_model().c_str(), mQwen3RuntimeManager,
+                                               &module_config),
                                   Module::destroy);
         mQwen3RuntimeManager->setExternalFile("");
 
@@ -2149,15 +2146,15 @@ bool Talker::load() {
                                                 &module_config),
                                    Module::destroy);
         mQwen3RuntimeManager->setExternalFile("");
-        if (!mModule || !mQwen3PromptEmbedder || !mQwen3CodePredictor || !mQwen3CodecEmbedder ||
-            !mQwen3SpeechDecoder || !mQwen3SpeakerEncoder) {
+        if (!mModule || !mQwen3PromptEmbedder || !mQwen3CodePredictor || !mQwen3CodecEmbedder || !mQwen3SpeechDecoder ||
+            !mQwen3SpeakerEncoder) {
             return false;
         }
         mDiskEmbedding.reset(new DiskEmbedding(mConfig, mConfig->talker_embedding_file()));
-        mQwen3TextEmbedding.reset(new DiskEmbedding(mConfig, mConfig->talker_text_embedding_file(),
-                                                    mConfig->talker_text_hidden_size()));
-        mQwen3CodePredictorEmbedding.reset(new DiskEmbedding(mConfig, mConfig->code_predictor_embedding_file(),
-                                                             hiddenSize));
+        mQwen3TextEmbedding.reset(
+            new DiskEmbedding(mConfig, mConfig->talker_text_embedding_file(), mConfig->talker_text_hidden_size()));
+        mQwen3CodePredictorEmbedding.reset(
+            new DiskEmbedding(mConfig, mConfig->code_predictor_embedding_file(), hiddenSize));
         mMaxNewTokens = mConfig->talker_max_new_tokens();
         set_config("{\"sampler_type\":\"greedy\"}");
         mSampler.reset(Sampler::createSampler(mContext, mConfig));
@@ -2702,8 +2699,7 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
     }
     std::vector<int> codecPrefix(inputIds.begin(), inputIds.begin() + 6);
     std::vector<int> textIds(inputIds.begin() + 6, inputIds.end());
-    std::vector<int> ttsIds {mConfig->tts_bos_token_id(), mConfig->tts_eos_token_id(),
-                             mConfig->tts_pad_token_id()};
+    std::vector<int> ttsIds{mConfig->tts_bos_token_id(), mConfig->tts_eos_token_id(), mConfig->tts_pad_token_id()};
     VARP speakerEmbedding = nullptr;
     if (!refAudio.empty()) {
 #ifdef LLM_SUPPORT_AUDIO
@@ -2773,19 +2769,19 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
         std::vector<int> frameCodes(codeGroups, 0);
         frameCodes[0] = firstCode;
         for (int group = 1; group < codeGroups; ++group) {
-            auto codePredictorEmbeds = makeQwen3CodePredictorCodecEmbeds(
-                mDiskEmbedding.get(), mQwen3CodePredictorEmbedding.get(), frameCodes, codeGroups,
-                mConfig->code_predictor_vocab_size(), hiddenSize);
+            auto codePredictorEmbeds =
+                makeQwen3CodePredictorCodecEmbeds(mDiskEmbedding.get(), mQwen3CodePredictorEmbedding.get(), frameCodes,
+                                                  codeGroups, mConfig->code_predictor_vocab_size(), hiddenSize);
             if (codePredictorEmbeds.get() == nullptr) {
-                MNN_ERROR("[Error]: failed to build qwen3_tts code predictor embeddings at frame %d group %d\n",
-                          step, group);
+                MNN_ERROR("[Error]: failed to build qwen3_tts code predictor embeddings at frame %d group %d\n", step,
+                          group);
                 mContext->status = LlmStatus::INTERNAL_ERROR;
                 return false;
             }
             auto cpOutputs = mQwen3CodePredictor->onForward({talkerOutputs[1], codePredictorEmbeds, cpMask, cpPos});
             if (cpOutputs.size() != 1) {
-                MNN_ERROR("[Error]: qwen3_tts code predictor output size mismatch at frame %d group %d: %zu\n",
-                          step, group, cpOutputs.size());
+                MNN_ERROR("[Error]: qwen3_tts code predictor output size mismatch at frame %d group %d: %zu\n", step,
+                          group, cpOutputs.size());
                 mContext->status = LlmStatus::INTERNAL_ERROR;
                 return false;
             }
@@ -2797,13 +2793,13 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
         mContext->gen_seq_len = step + 1;
 
         auto textHidden = selectTextHidden(promptOutputs[1], promptOutputs[2], step, hiddenSize);
-        auto codecFrameEmbeds = makeQwen3CodePredictorCodecEmbeds(
-            mDiskEmbedding.get(), mQwen3CodePredictorEmbedding.get(), frameCodes, codeGroups + 1,
-            mConfig->code_predictor_vocab_size(), hiddenSize);
+        auto codecFrameEmbeds =
+            makeQwen3CodePredictorCodecEmbeds(mDiskEmbedding.get(), mQwen3CodePredictorEmbedding.get(), frameCodes,
+                                              codeGroups + 1, mConfig->code_predictor_vocab_size(), hiddenSize);
         auto codecOutputs = mQwen3CodecEmbedder->onForward({codecFrameEmbeds, textHidden});
         if (codecOutputs.size() != 1) {
-            MNN_ERROR("[Error]: qwen3_tts codec embedder output size mismatch at frame %d: %zu\n",
-                      step, codecOutputs.size());
+            MNN_ERROR("[Error]: qwen3_tts codec embedder output size mismatch at frame %d: %zu\n", step,
+                      codecOutputs.size());
             mContext->status = LlmStatus::INTERNAL_ERROR;
             return false;
         }

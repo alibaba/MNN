@@ -95,9 +95,8 @@ static bool isOption(const char* arg) {
     return std::strncmp(arg, "--", 2) == 0;
 }
 
-static int runTextMode(const std::string& modelDir, const std::string& text, const std::string& language,
-                       int maxFrames, const std::string& dumpDir, float normalizePeak,
-                       const std::string& refAudio) {
+static int runTextMode(const std::string& modelDir, const std::string& text, const std::string& language, int maxFrames,
+                       const std::string& dumpDir, float normalizePeak, const std::string& refAudio) {
     std::unique_ptr<Llm> llm(Llm::createLLM(joinPath(modelDir, "config.json")));
     llm->set_config("{\"tmp_path\":\"tmp\",\"async\":false}");
     if (!llm->load()) {
@@ -137,8 +136,8 @@ static int runTextMode(const std::string& modelDir, const std::string& text, con
         if (normalizePeak > 0.0f) {
             dumpFloatVector(joinPath(dumpDir, "mnn_text_waveform_normalized.bin"), waveformToSave);
         }
-        auto waveformVar = _Const(waveformToSave.data(), {static_cast<int>(waveformToSave.size())}, NCHW,
-                                  halide_type_of<float>());
+        auto waveformVar =
+            _Const(waveformToSave.data(), {static_cast<int>(waveformToSave.size())}, NCHW, halide_type_of<float>());
         MNN::AUDIO::save(joinPath(dumpDir, "qwen3_tts_text.wav"), waveformVar, 24000);
         MNN_PRINT("saved wav: %s\n", joinPath(dumpDir, "qwen3_tts_text.wav").c_str());
     }
@@ -149,8 +148,10 @@ static int runTextMode(const std::string& modelDir, const std::string& text, con
 
 int main(int argc, char** argv) {
     if (argc < 4 || std::strcmp(argv[2], "--text") != 0) {
-        MNN_PRINT("Usage: %s <model_dir> --text <text> [max_frames] [dump_dir] [language] "
-                  "[--ref_audio <wav>] [--normalize [target_peak]]\n", argv[0]);
+        MNN_PRINT(
+            "Usage: %s <model_dir> --text <text> [max_frames] [dump_dir] [language] "
+            "[--ref_audio <wav>] [--normalize [target_peak]]\n",
+            argv[0]);
         return 1;
     }
     std::string modelDir = argv[1];

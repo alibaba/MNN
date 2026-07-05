@@ -71,6 +71,7 @@ public:
     Sampler(std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config);
     int sample(MNN::Express::VARP logits);
     int sample(MNN::Express::VARP logits, const std::vector<int>& indices);
+
 private:
     std::shared_ptr<LlmContext> mContext;
     SamplerConfig mConfig;

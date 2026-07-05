@@ -208,6 +208,7 @@ public:
     virtual void generateWavform() {}
     virtual bool generateTTS(const std::string& text, const std::string& language = "english", int max_new_tokens = -1,
                              const std::string& ref_audio = "");
+
 protected:
     void setChatTemplate();
     void initRuntime();

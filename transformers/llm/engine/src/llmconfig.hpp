@@ -215,25 +215,15 @@ public:
         return base_dir_ + config_.value("talker_text_embedding_file", "talker_text_embeddings_bf16.bin");
     }
 
-    int talker_text_hidden_size() const {
-        return config_.value("talker_text_hidden_size", 2048);
-    }
+    int talker_text_hidden_size() const { return config_.value("talker_text_hidden_size", 2048); }
 
-    int tts_bos_token_id() const {
-        return config_.value("tts_bos_token_id", 151672);
-    }
+    int tts_bos_token_id() const { return config_.value("tts_bos_token_id", 151672); }
 
-    int tts_eos_token_id() const {
-        return config_.value("tts_eos_token_id", 151673);
-    }
+    int tts_eos_token_id() const { return config_.value("tts_eos_token_id", 151673); }
 
-    int tts_pad_token_id() const {
-        return config_.value("tts_pad_token_id", 151671);
-    }
+    int tts_pad_token_id() const { return config_.value("tts_pad_token_id", 151671); }
 
-    std::string talker_type() const {
-        return config_.value("talker_type", "");
-    }
+    std::string talker_type() const { return config_.value("talker_type", ""); }
 
     std::string code_predictor_model() const {
         return base_dir_ + config_.value("code_predictor_model", "code_predictor.mnn");
@@ -247,13 +237,9 @@ public:
         return base_dir_ + config_.value("code_predictor_embedding_file", "code_predictor_embeddings_bf16.bin");
     }
 
-    int code_predictor_vocab_size() const {
-        return config_.value("code_predictor_vocab_size", 2048);
-    }
+    int code_predictor_vocab_size() const { return config_.value("code_predictor_vocab_size", 2048); }
 
-    int code_predictor_groups() const {
-        return config_.value("code_predictor_groups", 16);
-    }
+    int code_predictor_groups() const { return config_.value("code_predictor_groups", 16); }
 
     std::string speech_decoder_model() const {
         return base_dir_ + config_.value("speech_decoder_model", "speech_decoder.mnn");
@@ -263,9 +249,7 @@ public:
         return base_dir_ + config_.value("speech_decoder_weight", "speech_decoder.mnn.weight");
     }
 
-    int speech_decoder_upsample_rate() const {
-        return config_.value("speech_decoder_upsample_rate", 1920);
-    }
+    int speech_decoder_upsample_rate() const { return config_.value("speech_decoder_upsample_rate", 1920); }
 
     std::string speaker_encoder_model() const {
         return base_dir_ + config_.value("speaker_encoder_model", "speaker_encoder.mnn");
@@ -275,9 +259,7 @@ public:
         return base_dir_ + config_.value("speaker_encoder_weight", "speaker_encoder.mnn.weight");
     }
 
-    int speaker_encoder_sample_rate() const {
-        return config_.value("speaker_encoder_sample_rate", 24000);
-    }
+    int speaker_encoder_sample_rate() const { return config_.value("speaker_encoder_sample_rate", 24000); }
 
     std::string prompt_embedder_model() const {
         return base_dir_ + config_.value("prompt_embedder_model", "prompt_embedder.mnn");
