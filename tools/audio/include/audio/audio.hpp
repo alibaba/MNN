@@ -20,6 +20,8 @@ using namespace Express;
 
 enum WINDOW_TYPE { HAMMING = 0, HANNING = 1, POVEY = 2, RECTANGULAR = 3, BLACKMAN = 4 };
 
+enum ResampleMode { RESAMPLE_LINEAR = 0, RESAMPLE_SOXR_HQ = 1 };
+
 /**
  * Structure to store parameters for the `melscale_fbanks`.
  */
@@ -83,7 +85,7 @@ struct SpectrogramParams {
  * @return pair<audio tensor, sample rate>
  */
 MNN_PUBLIC std::pair<VARP, int> load(const std::string& filename, int sr = 0, int frame_offset = 0,
-                                     int num_frames = -1);
+                                     int num_frames = -1, ResampleMode resample_mode = RESAMPLE_LINEAR);
 
 /**
  * @brief save audio to file

@@ -43,6 +43,100 @@ inline uint32_t mnn_clz( uint32_t value ) {
     return __builtin_clz(value);
 }
 #endif
+
+static double besselI0(double x) {
+    double sum = 1.0;
+    double y = x * x / 4.0;
+    double t = 1.0;
+    for (int i = 1; i <= 32; ++i) {
+        t *= y / (i * i);
+        sum += t;
+        if (t < sum * 1e-16) {
+            break;
+        }
+    }
+    return sum;
+}
+
+static double sinc(double x) {
+    if (std::abs(x) < 1e-12) {
+        return 1.0;
+    }
+    double pix = M_PI * x;
+    return std::sin(pix) / pix;
+}
+
+static int gcdInt(int a, int b) {
+    while (b != 0) {
+        int t = a % b;
+        a = b;
+        b = t;
+    }
+    return a < 0 ? -a : a;
+}
+
+static void resampleLinear(const float* src, int srcSize, int srcRate, int dstRate, std::vector<float>& dst) {
+    float ratio = static_cast<float>(dstRate) / srcRate;
+    int dstSize = static_cast<int>(srcSize * ratio);
+    dst.resize(dstSize);
+    for (int i = 0; i < dstSize; ++i) {
+        float interpIndex = i / ratio;
+        int lowIndex = static_cast<int>(interpIndex);
+        int highIndex = std::min(lowIndex + 1, srcSize - 1);
+        float frac = interpIndex - lowIndex;
+        dst[i] = (1 - frac) * src[lowIndex] + frac * src[highIndex];
+    }
+}
+
+static void resampleSoxrHQ(const float* src, int srcSize, int srcRate, int dstRate, std::vector<float>& dst) {
+    constexpr int radius = 32;
+    constexpr int taps = radius * 2 + 1;
+    constexpr double beta = 10.0;
+    int divisor = gcdInt(srcRate, dstRate);
+    int up = dstRate / divisor;
+    int down = srcRate / divisor;
+    double ratio = static_cast<double>(dstRate) / srcRate;
+    int dstSize = static_cast<int>(std::ceil(srcSize * ratio));
+    double cutoff = std::min(1.0, ratio);
+    double invI0 = 1.0 / besselI0(beta);
+    std::vector<float> table(up * taps);
+    for (int p = 0; p < up; ++p) {
+        double frac = static_cast<double>(p) / up;
+        for (int k = -radius; k <= radius; ++k) {
+            double d = frac - k;
+            double windowX = d / radius;
+            double value = 0.0;
+            if (std::abs(windowX) <= 1.0) {
+                double window = besselI0(beta * std::sqrt(std::max(0.0, 1.0 - windowX * windowX))) * invI0;
+                value = cutoff * sinc(cutoff * d) * window;
+            }
+            table[p * taps + k + radius] = static_cast<float>(value);
+        }
+    }
+    dst.assign(dstSize, 0.0f);
+    for (int n = 0; n < dstSize; ++n) {
+        int pos = n * down;
+        int base = pos / up;
+        int phase = pos - base * up;
+        const float* coeff = table.data() + phase * taps;
+        float acc = 0.0f;
+        if (base >= radius && base + radius < srcSize) {
+            const float* srcPtr = src + base - radius;
+            for (int i = 0; i < taps; ++i) {
+                acc += srcPtr[i] * coeff[i];
+            }
+        } else {
+            for (int k = -radius; k <= radius; ++k) {
+                int idx = base + k;
+                if (idx >= 0 && idx < srcSize) {
+                    acc += src[idx] * coeff[k + radius];
+                }
+            }
+        }
+        dst[n] = acc;
+    }
+}
+
 struct WaveHeader {
     void SeekToDataChunk(std::istream &is) {
         //                              a t a d
@@ -67,7 +161,8 @@ struct WaveHeader {
     int32_t subchunk2_size;
 };
 
-std::pair<VARP, int> load(const std::string &filename, int sr, int frame_offset, int num_frames) {
+std::pair<VARP, int> load(const std::string &filename, int sr, int frame_offset, int num_frames,
+                          ResampleMode resample_mode) {
     std::ifstream is(filename, std::ifstream::binary);
     auto ret = std::make_pair<VARP, int>(nullptr, 0);
     if (!is) {
@@ -221,19 +316,19 @@ std::pair<VARP, int> load(const std::string &filename, int sr, int frame_offset,
     }
 
     if (sr > 0 && sr != ret.second) {
-        // resample
-        float resample_ratio    = static_cast<float>(sr) / header.sample_rate;
-        int resample_num_frames = static_cast<int>(num_frames * resample_ratio);
-        auto resampled_data     = _Input({resample_num_frames}, NHWC);
-        auto src                = ret.first->readMap<float>();
-        auto dst                = resampled_data->writeMap<float>();
-        for (int i = 0; i < resample_num_frames; ++i) {
-            float interp_index = i / resample_ratio;
-            int low_index      = static_cast<int>(interp_index);
-            int high_index     = std::min(low_index + 1, num_frames - 1);
-            float frac         = interp_index - low_index;
-            dst[i]             = (1 - frac) * src[low_index] + frac * src[high_index];
+        auto src = ret.first->readMap<float>();
+        if (src == nullptr) {
+            return ret;
         }
+        std::vector<float> resampled;
+        if (resample_mode == RESAMPLE_SOXR_HQ) {
+            resampleSoxrHQ(src, num_frames, header.sample_rate, sr, resampled);
+        } else {
+            resampleLinear(src, num_frames, header.sample_rate, sr, resampled);
+        }
+        auto resampled_data = _Input({static_cast<int>(resampled.size())}, NHWC);
+        auto dst            = resampled_data->writeMap<float>();
+        std::copy(resampled.begin(), resampled.end(), dst);
         ret.first  = resampled_data;
         ret.second = sr;
     }

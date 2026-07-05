@@ -286,7 +286,7 @@ The usage of `llm_demo` is as follows:
 ```
 ./qwen3_tts_demo model_dir --text <text> [max_frames] [dump_dir] [language] [--ref_audio <wav>] [--normalize [target_peak]]
 ```
-Here `model_dir` is the Qwen3-TTS MNN model directory, `text` is the input sentence, `max_frames` caps generated codec frames (about 80 ms per frame; use 64-128 for short text and raise it for longer text, EOS may stop earlier), `dump_dir` saves wav/bin debug outputs, `language` defaults to `auto` and supports `auto/chinese/english/german/italian/portuguese/spanish/japanese/korean/french/russian`, `--ref_audio <wav>` supplies a 24 kHz reference voice (resampled on load), and `--normalize [target_peak]` peak-normalizes only the saved wav with default target 1.
+Here `model_dir` is the Qwen3-TTS MNN model directory, `text` is the input sentence, `max_frames` caps generated codec frames (about 80 ms per frame; use 64-128 for short text and raise it for longer text, EOS may stop earlier), `dump_dir` saves wav/bin debug outputs, `language` defaults to `auto` and supports `auto/chinese/english/german/italian/portuguese/spanish/japanese/korean/french/russian`, `--ref_audio <wav>` supplies a reference voice wav; Qwen3-TTS resamples it to 24 kHz with the soxr-like high-quality resampler on load, and `--normalize [target_peak]` peak-normalizes only the saved wav with default target 1.
 
 - For Visual Models
 Embed image input in the prompt as follows:

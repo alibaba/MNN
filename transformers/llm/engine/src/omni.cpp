@@ -139,7 +139,7 @@ static VARP makeQwen3TTSSpeakerEmbedding(Module* speakerEncoder, const std::stri
     if (!speakerEncoder || refAudio.empty()) {
         return nullptr;
     }
-    auto audioData = MNN::AUDIO::load(refAudio, sampleRate);
+    auto audioData = MNN::AUDIO::load(refAudio, sampleRate, 0, -1, MNN::AUDIO::RESAMPLE_SOXR_HQ);
     auto waveform = audioData.first;
     if (waveform.get() == nullptr || !waveform->getInfo() || audioData.second != sampleRate) {
         MNN_ERROR("[Error]: failed to load Qwen3-TTS ref audio: %s\n", refAudio.c_str());
