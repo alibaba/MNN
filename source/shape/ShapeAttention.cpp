@@ -9,16 +9,41 @@
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
 
-
 namespace MNN {
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 class RoPESizeComputer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
-        MNN_ASSERT(inputs.size() == 6);
+        MNN_ASSERT(inputs.size() == 4);
         MNN_ASSERT(outputs.size() == 2);
-        TensorUtils::copyShape(inputs[0], outputs[0], true);
-        TensorUtils::copyShape(inputs[1], outputs[1], true);
+        auto param = op->main_as_RoPEParam();
+        if (param == nullptr || param->num_head() <= 0 || param->kv_num_head() <= 0 || param->head_dim() <= 0) {
+            MNN_ERROR("RoPE: invalid C4 head config.\n");
+            return false;
+        }
+        auto q = inputs[0], k = inputs[1];
+        if (TensorUtils::getDescribe(q)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4 ||
+            TensorUtils::getDescribe(k)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4 || q->dimensions() < 2 ||
+            k->dimensions() < 2 || q->length(1) != param->num_head() * param->head_dim() ||
+            k->length(1) != param->kv_num_head() * param->head_dim()) {
+            MNN_ERROR("RoPE: input must be C4 packed q/k tensors.\n");
+            return false;
+        }
+        auto qo = outputs[0], ko = outputs[1];
+        qo->buffer().dimensions = 4;
+        qo->buffer().dim[0].extent = 1;
+        qo->buffer().dim[1].extent = q->length(0);
+        qo->buffer().dim[2].extent = param->num_head();
+        qo->buffer().dim[3].extent = param->head_dim();
+        qo->buffer().type = q->buffer().type;
+        TensorUtils::getDescribe(qo)->dimensionFormat = MNN_DATA_FORMAT_NHWC;
+        ko->buffer().dimensions = 4;
+        ko->buffer().dim[0].extent = 1;
+        ko->buffer().dim[1].extent = k->length(0);
+        ko->buffer().dim[2].extent = param->kv_num_head();
+        ko->buffer().dim[3].extent = param->head_dim();
+        ko->buffer().type = k->buffer().type;
+        TensorUtils::getDescribe(ko)->dimensionFormat = MNN_DATA_FORMAT_NHWC;
         return true;
     }
 };
@@ -32,13 +57,16 @@ class FmhaV2SizeComputer : public SizeComputer {
 
         output0->buffer().dim[0].extent = input0->buffer().dim[0].extent;
         output0->buffer().dim[1].extent = input0->buffer().dim[1].extent;
-        output0->buffer().dim[2].extent = input0->buffer().dim[2].extent/3;
+        output0->buffer().dim[2].extent = input0->buffer().dim[2].extent / 3;
         output0->buffer().dimensions = 3;
-        //MNN_PRINT("fmhaV2 shape:%d %d, %d %d %d %d %d\n", input0->buffer().dimensions, output0->buffer().dimensions, input0->buffer().dim[0].extent, input0->buffer().dim[1].extent, input0->buffer().dim[2].extent, input0->buffer().dim[3].extent, input0->buffer().dim[4].extent);
-        //MNN_ASSERT(input0->buffer().dim[3].extent == 3);
+        // MNN_PRINT("fmhaV2 shape:%d %d, %d %d %d %d %d\n", input0->buffer().dimensions, output0->buffer().dimensions,
+        // input0->buffer().dim[0].extent, input0->buffer().dim[1].extent, input0->buffer().dim[2].extent,
+        // input0->buffer().dim[3].extent, input0->buffer().dim[4].extent); MNN_ASSERT(input0->buffer().dim[3].extent ==
+        // 3);
         output0->buffer().type = input0->buffer().type;
         TensorUtils::getDescribe(output0)->dimensionFormat = TensorUtils::getDescribe(input0)->dimensionFormat;
-        //printf("fmhaV2 shape:%d %d, %d %d %d\n", input0->buffer().dimensions, output0->buffer().dimensions, input0->buffer().dim[0].extent, input0->buffer().dim[1].extent, input0->buffer().dim[2].extent);
+        // printf("fmhaV2 shape:%d %d, %d %d %d\n", input0->buffer().dimensions, output0->buffer().dimensions,
+        // input0->buffer().dim[0].extent, input0->buffer().dim[1].extent, input0->buffer().dim[2].extent);
         return true;
     }
 };
@@ -58,12 +86,14 @@ class FmhcaSizeComputer : public SizeComputer {
         output0->buffer().dim[1].extent = input0->buffer().dim[1].extent;
         output0->buffer().dim[2].extent = input0->buffer().dim[2].extent;
         output0->buffer().dimensions = 3;
-        //MNN_ASSERT(input1->buffer().dim[0].extent == input0->buffer().dim[0].extent);
-        //MNN_ASSERT(input1->buffer().dim[2].extent == input0->buffer().dim[2].extent);
-        //MNN_ASSERT(input1->buffer().dim[4].extent == input0->buffer().dim[3].extent);
+        // MNN_ASSERT(input1->buffer().dim[0].extent == input0->buffer().dim[0].extent);
+        // MNN_ASSERT(input1->buffer().dim[2].extent == input0->buffer().dim[2].extent);
+        // MNN_ASSERT(input1->buffer().dim[4].extent == input0->buffer().dim[3].extent);
         output0->buffer().type = input0->buffer().type;
         TensorUtils::getDescribe(output0)->dimensionFormat = TensorUtils::getDescribe(input0)->dimensionFormat;
-        //printf("fmhca shape:%d %d %d, %d %d %d\n", input0->buffer().dimensions, input1->buffer().dimensions, output0->buffer().dimensions, input0->buffer().dim[0].extent, input0->buffer().dim[1].extent, input0->buffer().dim[2].extent);
+        // printf("fmhca shape:%d %d %d, %d %d %d\n", input0->buffer().dimensions, input1->buffer().dimensions,
+        // output0->buffer().dimensions, input0->buffer().dim[0].extent, input0->buffer().dim[1].extent,
+        // input0->buffer().dim[2].extent);
         return true;
     }
 };
@@ -91,7 +121,8 @@ class AttentionSizeComputer : public SizeComputer {
         }
         return true;
     }
-    virtual float onComputeFlops(const MNN::Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) const override {
+    virtual float onComputeFlops(const MNN::Op* op, const std::vector<Tensor*>& inputs,
+                                 const std::vector<Tensor*>& outputs) const override {
         auto seqLen = static_cast<float>(outputs[0]->length(1));
         auto headDim = static_cast<float>(outputs[0]->length(2));
         float flops = 0.f;
@@ -102,7 +133,6 @@ class AttentionSizeComputer : public SizeComputer {
         return flops / FLOPS_M;
     }
 };
-
 
 class LinearAttentionSizeComputer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
@@ -127,7 +157,8 @@ class LinearAttentionSizeComputer : public SizeComputer {
         TensorUtils::getDescribe(output)->dimensionFormat = TensorUtils::getDescribe(input)->dimensionFormat;
         return true;
     }
-    virtual float onComputeFlops(const MNN::Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) const override {
+    virtual float onComputeFlops(const MNN::Op* op, const std::vector<Tensor*>& inputs,
+                                 const std::vector<Tensor*>& outputs) const override {
         auto param = op->main_as_LinearAttentionParam();
         auto input = inputs[0];
         float L = static_cast<float>(input->length(2));
