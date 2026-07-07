@@ -342,6 +342,16 @@ public:
             quanCommon = ConvolutionCommon::load(op, backend, false, true);
 
         }
+        // A ConvInt8 op must carry quantized weight data, either as quanCommon
+        // (from quanParameter / external) or as an inline symmetricQuan weight.
+        // Without either, DenseConvInt8TiledExecutor would dereference a null
+        // weight pointer and crash. Reject explicitly instead.
+        if (nullptr == quanCommon &&
+            (nullptr == convOp->symmetricQuan() || nullptr == convOp->symmetricQuan()->weight())) {
+            MNN_ERROR("CPUConvInt8Creator: op '%s' has no quantized weight data for ConvInt8 execution\n",
+                      op->name() ? op->name()->c_str() : "unknown");
+            return nullptr;
+        }
         // auto res = CPUConvolution::makeResourceInt8(backend, op, core->pack);
         // return new DenseConvInt8TiledExecutor(backend, op, res);
 
