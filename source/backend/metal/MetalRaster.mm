@@ -228,65 +228,7 @@ kernel void sraster(const device T *in [[buffer(0)]],
     }
 }
 )metal";
-
-static const char* gFastC4ToNCHWTemplate = R"metal(
-#include <metal_stdlib>
-#include <simd/simd.h>
-using namespace metal;
-struct FastC4ToNCHWInfo {
-    uint element;
-    uint srcBatch;
-    uint srcChannel;
-    uint srcArea;
-};
-kernel void c4_to_nchw(const device T *in [[buffer(0)]],
-                       device T *out [[buffer(1)]],
-                       constant FastC4ToNCHWInfo& info [[buffer(2)]],
-                       uint gid [[thread_position_in_grid]]) {
-    if (gid >= info.element) {
-        return;
-    }
-    if (info.srcArea == 1 && info.srcBatch == 1) {
-        out[gid] = in[gid];
-        return;
-    }
-    uint areaIndex = gid % info.srcArea;
-    uint channelBatch = gid / info.srcArea;
-    uint channel = channelBatch % info.srcChannel;
-    uint batch = channelBatch / info.srcChannel;
-    uint srcOffset = (((channel / 4) * info.srcBatch + batch) * info.srcArea + areaIndex) * 4 + (channel % 4);
-    out[gid] = in[srcOffset];
-}
-)metal";
-
-static const char* gFastRawCopyTemplate = R"metal(
-#include <metal_stdlib>
-#include <simd/simd.h>
-using namespace metal;
-struct FastRawCopyInfo {
-    uint count;
-};
-kernel void raw_copy_int4(const device int4 *in [[buffer(0)]],
-                          device int4 *out [[buffer(1)]],
-                          constant FastRawCopyInfo& info [[buffer(2)]],
-                          uint gid [[thread_position_in_grid]]) {
-    if (gid >= info.count) {
-        return;
-    }
-    out[gid] = in[gid];
-}
-)metal";
-
-static bool isFullCopyRegion(const Tensor::InsideDescribe::Region& region, const Tensor* output) {
-    if (region.src.offset != 0 || region.dst.offset != 0) {
-        return false;
-    }
-    if (!TensorUtils::isCopyRegion(region)) {
-        return false;
-    }
-    return region.size[0] * region.size[1] * region.size[2] == TensorUtils::getRawSize(output);
-}
-
+    
 static const char* gFillInt4 = R"metal(
 #include <metal_stdlib>
 #include <simd/simd.h>
@@ -340,22 +282,11 @@ void MetalRaster::_clear() {
         mtbn->returnConstBuffer(mZeroCopy);
         mZeroCopy = nil;
     }
-    if (nil != mFastC4ToNCHWParam) {
-        mtbn->returnConstBuffer(mFastC4ToNCHWParam);
-        mFastC4ToNCHWParam = nil;
-    }
-    if (nil != mFastRawCopyParam) {
-        mtbn->returnConstBuffer(mFastRawCopyParam);
-        mFastRawCopyParam = nil;
-    }
     auto bufferAlloc = mtbn->getStaticBufferPool();
     for(auto& iter : mTempInputCopy) {
         bufferAlloc->free(iter.second.blit);
     }
     mTempInputCopy.clear();
-    mFastC4ToNCHW = false;
-    mFastRawCopy = false;
-    mFastInput = nullptr;
 }
 MetalRaster::MetalRaster(Backend *backend) : MetalExecution(backend) {
     // Do nothing
@@ -388,7 +319,6 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &____inputs, const s
             bytes = 2;
         }
     }
-    std::string unitName = getUnitName(bytes);
     if (mNeedZero) {
         std::vector<std::string> keys = {
             "fill_int4"
@@ -403,68 +333,6 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &____inputs, const s
     }
 
     mOutputPtr = output;
-    if (!mNeedZero && des->regions.size() == 1 && outputDes->dimensionFormat == MNN_DATA_FORMAT_NCHW) {
-        auto& slice = des->regions[0];
-        auto origin = slice.origin;
-        if (origin != nullptr && TensorUtils::getDescribe(origin)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 &&
-            isFullCopyRegion(slice, output) && TensorUtils::getRawSize(origin) == TensorUtils::getRawSize(output)) {
-            int srcArea = 1;
-            for (int i = 2; i < origin->dimensions(); ++i) {
-                srcArea *= origin->length(i);
-            }
-            if (origin->length(0) > 0 && origin->length(1) > 0 && srcArea > 0) {
-                size_t rawBytes = (size_t)TensorUtils::getRawSize(output) * bytes;
-                if (srcArea == 1 && origin->length(0) == 1 && rawBytes >= 65536 && rawBytes % 16 == 0) {
-                    struct FastRawCopyInfo {
-                        uint32_t count;
-                    };
-                    mFastRawCopy = true;
-                    mFastInput = origin;
-                    mFastRawCopyParam = mtbn->getConstBuffer(sizeof(FastRawCopyInfo));
-                    auto info = (FastRawCopyInfo*)mFastRawCopyParam.contents;
-                    info->count = (uint32_t)(rawBytes / 16);
-                    std::vector<std::string> keys = {"fast_raw_copy_int4"};
-                    auto pipeline = mtbn->runtime()->findPipeline(keys);
-                    if (nil == pipeline) {
-                        pipeline = mtbn->makeComputePipelineWithSourceOption(gFastRawCopyTemplate, "raw_copy_int4",
-                                                                              nil);
-                        mtbn->runtime()->insertPipeline(keys, pipeline);
-                    }
-                    mFastRawCopyPipeline = pipeline;
-                    mFastRawCopyThreads = [context computeBestGroupAndLocal:pipeline
-                                                                     threads:MTLSizeMake(info->count, 1, 1)];
-                    return NO_ERROR;
-                }
-                struct FastC4ToNCHWInfo {
-                    uint32_t element;
-                    uint32_t srcBatch;
-                    uint32_t srcChannel;
-                    uint32_t srcArea;
-                };
-                mFastC4ToNCHW = true;
-                mFastInput = origin;
-                mFastC4ToNCHWParam = mtbn->getConstBuffer(sizeof(FastC4ToNCHWInfo));
-                auto info = (FastC4ToNCHWInfo*)mFastC4ToNCHWParam.contents;
-                info->element = (uint32_t)TensorUtils::getRawSize(output);
-                info->srcBatch = (uint32_t)origin->length(0);
-                info->srcChannel = (uint32_t)origin->length(1);
-                info->srcArea = (uint32_t)srcArea;
-                std::vector<std::string> keys = {unitName, "fast_c4_to_nchw"};
-                auto pipeline = mtbn->runtime()->findPipeline(keys);
-                if (nil == pipeline) {
-                    MTLCompileOptions *options = [[MTLCompileOptions alloc] init];
-                    options.preprocessorMacros = @{@"T" : @(unitName.c_str())};
-                    pipeline = mtbn->makeComputePipelineWithSourceOption(gFastC4ToNCHWTemplate, "c4_to_nchw",
-                                                                          options);
-                    mtbn->runtime()->insertPipeline(keys, pipeline);
-                }
-                mFastC4ToNCHWPipeline = pipeline;
-                mFastC4ToNCHWThreads = [context computeBestGroupAndLocal:pipeline
-                                                                  threads:MTLSizeMake(info->element, 1, 1)];
-                return NO_ERROR;
-            }
-        }
-    }
 #ifndef MNN_METAL_FORBID_RASTER_C4
     if (outputDes->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
         bool fast = true;
@@ -551,6 +419,7 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &____inputs, const s
     } else {
         output_format = @"OUTPUT_FORMAT_C4NHW4";
     }
+    std::string unitName = getUnitName(bytes);
     mBlitPipeline.resize(collectForTensor.size());
     int index = 0;
     for (auto& iter : collectForTensor) {
@@ -649,22 +518,6 @@ void MetalRaster::onEncode(const std::vector<Tensor *> &inputs, const std::vecto
         MetalBackend::setTensor(mOutputPtr, encoder, 0);
         [encoder setBuffer: mZeroCopy offset:0 atIndex: 1];
         [encoder dispatchThreadgroups:MTLSizeMake(UP_DIV(size, 256), 1, 1) threadsPerThreadgroup:MTLSizeMake(256, 1, 1)];
-    }
-    if (mFastRawCopy) {
-        [encoder setComputePipelineState:mFastRawCopyPipeline];
-        MetalBackend::setTensor(mFastInput, encoder, 0);
-        MetalBackend::setTensor(mOutputPtr, encoder, 1);
-        [encoder setBuffer:mFastRawCopyParam offset:0 atIndex:2];
-        [encoder dispatchThreadgroups:mFastRawCopyThreads.first threadsPerThreadgroup:mFastRawCopyThreads.second];
-        return;
-    }
-    if (mFastC4ToNCHW) {
-        [encoder setComputePipelineState:mFastC4ToNCHWPipeline];
-        MetalBackend::setTensor(mFastInput, encoder, 0);
-        MetalBackend::setTensor(mOutputPtr, encoder, 1);
-        [encoder setBuffer:mFastC4ToNCHWParam offset:0 atIndex:2];
-        [encoder dispatchThreadgroups:mFastC4ToNCHWThreads.first threadsPerThreadgroup:mFastC4ToNCHWThreads.second];
-        return;
     }
     
     bool singlePipeline = false;

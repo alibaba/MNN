@@ -96,14 +96,6 @@ LLM_MODEL_SOURCE=modelscope ./test.sh android <serial>
 For the built-in default model the ModelScope org is remapped automatically
 (`taobao-mnn/*` → `MNN/*`); an explicitly-set `LLM_MODEL_REPO` is used verbatim.
 
-### LLM backend/layout smoke
-
-For backend or tensor-layout optimizations, do not stop at operator tests. Run
-an end-to-end `llm_demo` correctness smoke with a short prompt and another
-prompt long enough to cross backend prefill branch thresholds. This catches
-real exported-graph layout bugs where an op test covers only the output format,
-but the graph also changes an input tensor format.
-
 ## Configuring stages
 
 Editing [`test_stages.json`](../../test_stages.json) is the supported way to

@@ -292,24 +292,20 @@ MNNTestSuiteRegister(LayerNormTest, "op/layernorm");
 class LayerNormC4Test : public MNNTestCase {
 public:
     virtual ~LayerNormC4Test() = default;
-    bool runOne(int batch, int channel) {
+    virtual bool run(int precision) {
+        const int batch = 2;
+        const int channel = 8;
         const int physicalSize = batch * UP_DIV(channel, 4) * 4;
-        std::vector<float> logical(batch * channel);
+        std::vector<float> logical = {-1.0f, 0.5f, 2.0f, -0.5f, 1.5f, 0.25f, -1.25f, 0.75f,
+                                      3.0f,  1.0f, -2.0f, 0.0f,  4.0f, -1.5f, 2.5f,  -0.25f};
         std::vector<float> packed(physicalSize, 0.0f);
-        std::vector<float> gamma(channel);
-        std::vector<float> beta(channel);
-        for (int i = 0; i < (int)logical.size(); ++i) {
-            logical[i] = (float)((i % 17) - 8) * 0.11f + (float)(i % 5) * 0.03f;
-        }
-        for (int c = 0; c < channel; ++c) {
-            gamma[c] = 0.7f + (float)(c % 11) * 0.05f;
-            beta[c] = -0.2f + (float)(c % 7) * 0.04f;
-        }
         for (int n = 0; n < batch; ++n) {
             for (int c = 0; c < channel; ++c) {
                 packed[nc4hw4Offset(n, c, 1, batch)] = logical[n * channel + c];
             }
         }
+        std::vector<float> gamma = {0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 0.8f, 1.2f, 0.6f};
+        std::vector<float> beta = {0.1f, -0.2f, 0.3f, -0.4f, 0.5f, 0.05f, -0.15f, 0.25f};
         auto input = _Input({batch, channel, 1, 1}, NC4HW4);
         ::memcpy(input->writeMap<float>(), packed.data(), packed.size() * sizeof(float));
         input->unMap();
@@ -327,24 +323,20 @@ public:
         computeChannelLayerNorm(logical, expected, batch, channel, gamma, beta);
         return checkNC4HW4Logical(output, expected, batch, channel, "LayerNormC4Test");
     }
-
-    virtual bool run(int precision) {
-        return runOne(2, 8) && runOne(13, 1024);
-    }
 };
 
 class BinaryLayerNormC4Test : public MNNTestCase {
 public:
     virtual ~BinaryLayerNormC4Test() = default;
-    bool runOne(int batch, int channel) {
+    virtual bool run(int precision) {
+        const int batch = 2;
+        const int channel = 8;
         const int physicalSize = batch * UP_DIV(channel, 4) * 4;
-        std::vector<float> logical0(batch * channel);
-        std::vector<float> logical1(batch * channel);
+        std::vector<float> logical0 = {-1.0f, 0.5f, 2.0f, -0.5f, 1.5f, 0.25f, -1.25f, 0.75f,
+                                       3.0f,  1.0f, -2.0f, 0.0f,  4.0f, -1.5f, 2.5f,  -0.25f};
+        std::vector<float> logical1 = {0.25f,  -0.5f, 0.75f, 1.0f,  -1.25f, 0.5f,  -0.75f, 1.25f,
+                                       -0.75f, 0.5f,  1.25f, -1.0f, 0.25f,  0.75f, -0.5f,  1.5f};
         std::vector<float> packed0(physicalSize, 0.0f), packed1(physicalSize, 0.0f), sumLogical(batch * channel);
-        for (int i = 0; i < (int)logical0.size(); ++i) {
-            logical0[i] = (float)((i % 17) - 8) * 0.11f + (float)(i % 5) * 0.03f;
-            logical1[i] = (float)((i % 13) - 6) * -0.07f + (float)(i % 3) * 0.02f;
-        }
         for (int n = 0; n < batch; ++n) {
             for (int c = 0; c < channel; ++c) {
                 int logicalIndex = n * channel + c;
@@ -354,11 +346,8 @@ public:
                 sumLogical[logicalIndex] = logical0[logicalIndex] + logical1[logicalIndex];
             }
         }
-        std::vector<float> gamma(channel);
+        std::vector<float> gamma = {1.0f, 0.5f, 1.5f, 0.75f, 1.25f, 0.8f, 1.2f, 0.6f};
         std::vector<float> beta(channel, 0.0f);
-        for (int c = 0; c < channel; ++c) {
-            gamma[c] = 0.7f + (float)(c % 11) * 0.05f;
-        }
         auto input0 = _Input({batch, channel, 1, 1}, NC4HW4);
         auto input1 = _Input({batch, channel, 1, 1}, NC4HW4);
         ::memcpy(input0->writeMap<float>(), packed0.data(), packed0.size() * sizeof(float));
@@ -383,10 +372,6 @@ public:
         computeChannelLayerNorm(sumLogical, expectedNorm, batch, channel, gamma, beta);
         return checkNC4HW4Logical(sumOutput, sumLogical, batch, channel, "BinaryLayerNormC4SumTest") &&
                checkNC4HW4Logical(normOutput, expectedNorm, batch, channel, "BinaryLayerNormC4NormTest");
-    }
-
-    virtual bool run(int precision) {
-        return runOne(2, 8) && runOne(13, 1024);
     }
 };
 

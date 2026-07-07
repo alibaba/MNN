@@ -248,15 +248,6 @@ table LinearAttentionParam {
     use_qk_l2norm: bool;
 }
 
-table RoPEParam {
-    rope_cut_head_dim: int = 0;
-    num_head: int = 0;
-    kv_num_head: int = 0;
-    head_dim: int = 0;
-    q_norm: LayerNorm;
-    k_norm: LayerNorm;
-}
-
 table FmhaV2Param {
     heads: int;
 }
@@ -456,8 +447,7 @@ union OpParameter {
     AttentionParam,
     StftParam,
     LinearAttentionParam,
-    ShapeParam,
-    RoPEParam
+    ShapeParam
 }
 
 table Op {

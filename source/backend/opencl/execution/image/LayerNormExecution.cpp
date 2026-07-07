@@ -213,10 +213,6 @@ public:
     virtual ~LayerNormCreator() = default;
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
-        if (inputs.size() != 1 || outputs.size() != 1 ||
-            TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
-            return nullptr;
-        }
         const auto* layer_norm_param = op->main_as_LayerNorm();
         int group = layer_norm_param->group();
         if(group > 1){

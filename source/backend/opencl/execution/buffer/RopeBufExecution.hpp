@@ -18,8 +18,8 @@ namespace OpenCL {
 class RopeBufExecution : public CommonExecution {
 public:
     RopeBufExecution(const MNN::Op* op, Backend* backend);
-    RopeBufExecution(const MNN::Op* op, Backend* backend, int ropeCutHeadDim, int numHead, int kvNumHead, int headDim,
-                     std::shared_ptr<cl::Buffer> qGamma, float qEps, std::shared_ptr<cl::Buffer> kGamma, float kEps);
+    RopeBufExecution(const MNN::Op* op, Backend* backend, int ropeCutHeadDim, std::shared_ptr<cl::Buffer> qGamma,
+                     float qEps, std::shared_ptr<cl::Buffer> kGamma, float kEps);
     virtual ~RopeBufExecution() = default;
 
     virtual ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
@@ -31,9 +31,6 @@ private:
     std::vector<uint32_t> mGlobalWorkSize = {1, 1, 1};
     std::vector<uint32_t> mLocalWorkSize = {1, 1, 1};
     int mRopeCutHeadDim = 0;
-    int mNumHead = 0;
-    int mKvNumHead = 0;
-    int mHeadDim = 0;
     std::shared_ptr<cl::Buffer> mQGamma;
     std::shared_ptr<cl::Buffer> mKGamma;
     float mQEps = 0.0f;

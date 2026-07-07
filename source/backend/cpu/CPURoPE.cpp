@@ -13,73 +13,35 @@
 #include "core/Concurrency.h"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
-#include <cstring>
 
 namespace MNN {
-static std::shared_ptr<CPULayerNorm::Resource> makeRopeNormResource(const LayerNorm* layerNorm, Backend* backend) {
-    if (nullptr == layerNorm || nullptr == layerNorm->gamma()) {
-        return nullptr;
-    }
-    int gammaSize = layerNorm->gamma()->size();
-    if (gammaSize <= 0) {
-        return nullptr;
-    }
-    auto res = std::make_shared<CPULayerNorm::Resource>();
-    res->mGroup = layerNorm->group();
-    res->mEpsilon = layerNorm->epsilon();
-    res->mRMSNorm = layerNorm->useRMSNorm();
-    res->mAxis = layerNorm->axis() == nullptr ? 1 : layerNorm->axis()->size();
-    res->mIniGammaBeta = true;
-    res->mGamma.reset(Tensor::createDevice<uint8_t>({gammaSize * (int)sizeof(float)}));
-    res->mBeta.reset(Tensor::createDevice<uint8_t>({gammaSize * (int)sizeof(float)}));
-    auto status = backend->onAcquireBuffer(res->mGamma.get(), Backend::STATIC) &&
-                  backend->onAcquireBuffer(res->mBeta.get(), Backend::STATIC);
-    if (!status) {
-        MNN_ERROR("CPURoPE: alloc q/k norm gamma buffer error.\n");
-        return nullptr;
-    }
-    ::memcpy(res->mGamma->host<float>(), layerNorm->gamma()->data(), gammaSize * sizeof(float));
-    if (layerNorm->beta() != nullptr && layerNorm->beta()->size() == gammaSize) {
-        ::memcpy(res->mBeta->host<float>(), layerNorm->beta()->data(), gammaSize * sizeof(float));
-    } else {
-        ::memset(res->mBeta->host<float>(), 0, gammaSize * sizeof(float));
-    }
-    return res;
-}
-
-static void unpackC4Token(const uint8_t* src, uint8_t* dst, int token, int seqLen, int channel, int bytes, int pack,
-                          int channelOffset = 0) {
-    for (int c = 0; c < channel; ++c) {
-        int srcChannel = channelOffset + c;
-        int c4 = srcChannel / pack;
-        int ci = srcChannel % pack;
-        ::memcpy(dst + c * bytes, src + (c4 * seqLen * pack + token * pack + ci) * bytes, bytes);
-    }
-}
-
-static bool validRopeC4Input(const Tensor* q, const Tensor* k, int numHead, int kvNumHead, int headDim) {
-    if (q == nullptr || k == nullptr || numHead <= 0 || kvNumHead <= 0 || headDim <= 0) {
-        return false;
-    }
-    if (TensorUtils::getDescribe(q)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4 ||
-        TensorUtils::getDescribe(k)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
-        return false;
-    }
-    if (q->dimensions() < 2 || k->dimensions() < 2) {
-        return false;
-    }
-    return q->length(1) == numHead * headDim && k->length(1) == kvNumHead * headDim;
-}
-
 CPURoPE::CPURoPE(const Op* op, Backend* bn) : MNN::Execution(bn) {
-    auto param = op == nullptr ? nullptr : op->main_as_RoPEParam();
-    if (param != nullptr) {
-        mRopeCutHeadDim = param->rope_cut_head_dim();
-        mNumHead = param->num_head();
-        mKvNumHead = param->kv_num_head();
-        mHeadDim = param->head_dim();
-        mQNorm = makeRopeNormResource(param->q_norm(), bn);
-        mKNorm = makeRopeNormResource(param->k_norm(), bn);
+    const Op* qLayernorm = nullptr;
+    const Op* kLayernorm = nullptr;
+    if (nullptr != op && OpParameter_Extra == op->main_type()) {
+        auto extra = op->main_as_Extra();
+        if (nullptr != extra && nullptr != extra->attr()) {
+            for (int i = 0; i < extra->attr()->size(); ++i) {
+                auto attr = extra->attr()->GetAs<Attribute>(i);
+                if (nullptr == attr || nullptr == attr->key()) {
+                    continue;
+                }
+                if (attr->key()->str() == "rope_cut_head_dim") {
+                    mRopeCutHeadDim = attr->i();
+                    continue;
+                }
+                if (attr->key()->str() == "q_norm") {
+                    qLayernorm = flatbuffers::GetRoot<Op>(attr->tensor()->int8s()->data());
+                    mQNorm = CPULayerNorm::makeResource(qLayernorm, bn);
+                    continue;
+                }
+                if (attr->key()->str() == "k_norm") {
+                    kLayernorm = flatbuffers::GetRoot<Op>(attr->tensor()->int8s()->data());
+                    mKNorm = CPULayerNorm::makeResource(kLayernorm, bn);
+                    continue;
+                }
+            }
+        }
     }
 }
 
@@ -92,28 +54,22 @@ CPURoPE::CPURoPE(Backend* bn) : Execution(bn) {
 }
 
 ErrorCode CPURoPE::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    auto Q = inputs[0];
-    auto K = inputs[1];
-    if (!validRopeC4Input(Q, K, mNumHead, mKvNumHead, mHeadDim)) {
-        MNN_ERROR("CPURoPE: invalid C4 head config, numHead=%d, kvNumHead=%d, headDim=%d.\n", mNumHead, mKvNumHead,
-                  mHeadDim);
-        return NOT_SUPPORT;
-    }
     auto bn = static_cast<CPUBackend*>(backend());
     auto threadNumber = bn->threadNumber();
     auto buf = bn->getBufferAllocator();
-    auto bytes = bn->functions()->bytes;
-    mTmpQC4 = buf->alloc(threadNumber * mNumHead * mHeadDim * bytes);
-    buf->free(mTmpQC4);
-    mTmpKC4 = buf->alloc(threadNumber * mKvNumHead * mHeadDim * bytes);
-    buf->free(mTmpKC4);
-    if (bytes != 4) {
+    if (bn->functions()->bytes != 4) {
         if (mQNorm) {
-            mTmpQFloat = buf->alloc(threadNumber * mNumHead * mHeadDim * sizeof(float));
+            auto Q = inputs[0];
+            int numHead = Q->length(2);
+            int headDim = Q->length(3);
+            mTmpQFloat = buf->alloc(threadNumber * numHead * headDim * sizeof(float));
             buf->free(mTmpQFloat);
         }
         if (mKNorm) {
-            mTmpKFloat = buf->alloc(threadNumber * mKvNumHead * mHeadDim * sizeof(float));
+            auto K = inputs[1];
+            int kvnumHead = K->length(2);
+            int headDim = K->length(3);
+            mTmpKFloat = buf->alloc(threadNumber * kvnumHead * headDim * sizeof(float));
             buf->free(mTmpKFloat);
         }
     }
@@ -126,9 +82,6 @@ bool CPURoPE::onClone(Backend* bn, const Op* op, Execution** dst) {
     }
     auto rope = new CPURoPE(bn);
     rope->mRopeCutHeadDim = mRopeCutHeadDim;
-    rope->mNumHead = mNumHead;
-    rope->mKvNumHead = mKvNumHead;
-    rope->mHeadDim = mHeadDim;
     rope->mQNorm = mQNorm;
     rope->mKNorm = mKNorm;
     *dst = rope;
@@ -138,20 +91,18 @@ bool CPURoPE::onClone(Backend* bn, const Op* op, Execution** dst) {
 ErrorCode CPURoPE::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto Q = inputs[0];
     auto K = inputs[1];
-    if (!validRopeC4Input(Q, K, mNumHead, mKvNumHead, mHeadDim)) {
-        MNN_ERROR("CPURoPE: invalid C4 input, numHead=%d, kvNumHead=%d, headDim=%d.\n", mNumHead, mKvNumHead, mHeadDim);
-        return NOT_SUPPORT;
-    }
-    auto cos = inputs[2];
-    auto sin = inputs[3];
+    auto cosEven = inputs[2];
+    auto cosOdd = inputs[3];
+    auto sinEven = inputs[4];
+    auto sinOdd = inputs[5];
 
     auto QOutput = outputs[0];
     auto KOutput = outputs[1];
-    int batch = 1;
-    int seqLen = Q->length(0);
-    int numHead = mNumHead;
-    int headDim = mHeadDim;
-    int kvnumHead = mKvNumHead;
+    int batch = Q->length(0);
+    int seqLen = Q->length(1);
+    int numHead = Q->length(2);
+    int headDim = Q->length(3);
+    int kvnumHead = K->length(2);
     auto halfHeadDim = headDim / 2;
     int threadNum = static_cast<CPUBackend*>(backend())->threadNumber();
     int totalWork = batch * seqLen;
@@ -162,17 +113,12 @@ ErrorCode CPURoPE::onExecute(const std::vector<Tensor*>& inputs, const std::vect
         int start = tId * totalWork / threadNum;
         int end = (tId + 1) * totalWork / threadNum;
         for (int i = start; i < end; ++i) {
-            auto cosPtr = static_cast<const uint8_t*>(cos->host<void>()) + i * headDim * core->bytes;
-            auto sinPtr = static_cast<const uint8_t*>(sin->host<void>()) + i * headDim * core->bytes;
-            auto cosEvenPtr = cosPtr;
-            auto cosOddPtr = cosPtr + halfHeadDim * core->bytes;
-            auto sinEvenPtr = sinPtr;
-            auto sinOddPtr = sinPtr + halfHeadDim * core->bytes;
-            auto qPtr = static_cast<const uint8_t*>(Q->host<void>());
+            auto cosEvenPtr = static_cast<const uint8_t*>(cosEven->host<void>()) + i * halfHeadDim * core->bytes;
+            auto cosOddPtr = static_cast<const uint8_t*>(cosOdd->host<void>()) + i * halfHeadDim * core->bytes;
+            auto sinEvenPtr = static_cast<const uint8_t*>(sinEven->host<void>()) + i * halfHeadDim * core->bytes;
+            auto sinOddPtr = static_cast<const uint8_t*>(sinOdd->host<void>()) + i * halfHeadDim * core->bytes;
+            auto qPtr = static_cast<const uint8_t*>(Q->host<void>()) + i * numHead * headDim * core->bytes;
             auto qPtrOut = static_cast<uint8_t*>(QOutput->host<void>()) + i * numHead * headDim * core->bytes;
-            auto qTmp = static_cast<uint8_t*>(mTmpQC4.ptr()) + tId * numHead * headDim * core->bytes;
-            unpackC4Token(qPtr, qTmp, i, seqLen, numHead * headDim, core->bytes, core->pack);
-            qPtr = qTmp;
 
             if (mQNorm) {
                 int size = headDim;
@@ -200,11 +146,8 @@ ErrorCode CPURoPE::onExecute(const std::vector<Tensor*>& inputs, const std::vect
             core->MNNRoPECompute(qPtrOut, qPtr, cosEvenPtr, cosOddPtr, sinEvenPtr, sinOddPtr, numHead, headDim,
                                  mRopeCutHeadDim);
 
-            qPtr = static_cast<const uint8_t*>(K->host<void>());
+            qPtr = static_cast<const uint8_t*>(K->host<void>()) + i * kvnumHead * headDim * core->bytes;
             qPtrOut = static_cast<uint8_t*>(KOutput->host<void>()) + i * kvnumHead * headDim * core->bytes;
-            auto kTmp = static_cast<uint8_t*>(mTmpKC4.ptr()) + tId * kvnumHead * headDim * core->bytes;
-            unpackC4Token(qPtr, kTmp, i, seqLen, kvnumHead * headDim, core->bytes, core->pack);
-            qPtr = kTmp;
 
             if (mKNorm) {
                 int size = headDim;

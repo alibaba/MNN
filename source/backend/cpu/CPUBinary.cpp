@@ -32,8 +32,8 @@ ErrorCode CPUBinary::onResize(const std::vector<Tensor*>& inputs, const std::vec
         mNeedBroadcastIndex = 1;
     }
     mTotalSize = ((CPUBackend*)backend())->getTensorSize(outputs[0]);
-
-    if (mActivationType == 1 && outputs[0]->getType().code == halide_type_float) {
+    
+    if(mActivationType == 1 && outputs[0]->getType().code == halide_type_float) {
         mActivationExe.reset(new CPURelu(backend(), 0.0));
         mActivationExe->onResize(outputs, outputs);
     }
@@ -54,41 +54,39 @@ ErrorCode CPUBinary::onResize(const std::vector<Tensor*>& inputs, const std::vec
         outBytes = static_cast<CPUBackend*>(backend())->functions()->bytes;
     }
     bool outputInt = outputs[0]->getType().code == halide_type_int;
-    mTask = std::make_pair(
-        [this, inpBytes, outBytes, outputInt](int tId) {
-            int start = tId * mWorkDiv;
-            int realSize = ALIMIN(mWorkDiv, mTotalSize - start);
-            if (realSize > 0) {
-                auto inp0 = mInput0Ptr + start * inpBytes;
-                auto inp1 = mInput1Ptr + start * inpBytes;
-                if (mNeedBroadcastIndex == 0) {
-                    inp0 = mInput0Ptr;
-                } else if (mNeedBroadcastIndex == 1) {
-                    inp1 = mInput1Ptr;
-                }
-                auto out = mOutputPtr + start * outBytes;
-                mProc(out, inp0, inp1, realSize, mNeedBroadcastIndex);
-                if (mActivationType == 1 && outputInt) {
-                    for (int i = 0; i < realSize; i++) {
-                        auto val = ((int32_t*)out)[i];
-                        auto res = val > 0 ? val : 0;
-                        ((int32_t*)out)[i] = res;
-                    }
+    mTask = std::make_pair([this, inpBytes, outBytes, outputInt](int tId) {
+        int start = tId * mWorkDiv;
+        int realSize = ALIMIN(mWorkDiv, mTotalSize - start);
+        if (realSize > 0) {
+            auto inp0 = mInput0Ptr + start * inpBytes;
+            auto inp1 = mInput1Ptr + start * inpBytes;
+            if (mNeedBroadcastIndex == 0) {
+                inp0 = mInput0Ptr;
+            } else if (mNeedBroadcastIndex == 1) {
+                inp1 = mInput1Ptr;
+            }
+            auto out = mOutputPtr + start * outBytes;
+            mProc(out, inp0, inp1, realSize, mNeedBroadcastIndex);
+            if(mActivationType == 1 && outputInt) {
+                for(int i=0; i<realSize; i++) {
+                    auto val = ((int32_t *)out)[i];
+                    auto res = val > 0 ? val : 0;
+                    ((int32_t *)out)[i] = res;
                 }
             }
-        },
-        mThreadNum);
+        }
+    } , mThreadNum);
     return NO_ERROR;
 }
 
 ErrorCode CPUBinary::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    auto input = inputs[0];
+    auto input  = inputs[0];
     auto input1 = inputs[1];
     auto output = outputs[0];
 
     auto input0Ptr = input->host<uint8_t>();
     auto input1Ptr = input1->host<uint8_t>();
-
+    
     auto outputPtr = outputs[0]->host<uint8_t>();
 
     int inpBytes = input->getType().bytes();
@@ -104,7 +102,7 @@ ErrorCode CPUBinary::onExecute(const std::vector<Tensor*>& inputs, const std::ve
     mInput1Ptr = input1Ptr;
     mOutputPtr = outputPtr;
     MNN_CONCURRENCY_ENQUEUE(mTask);
-    if (mActivationType == 1 && output->getType().code == halide_type_float) {
+    if(mActivationType == 1 && output->getType().code == halide_type_float) {
         mActivationExe->onExecute(outputs, outputs);
     }
     return NO_ERROR;
@@ -193,23 +191,24 @@ MNNBinaryExecute CPUBinary::selectForInt(int type) {
 
 class MulSilu : public Execution {
 public:
-    MulSilu(Backend* b) : Execution(b) {
-        auto func = static_cast<CPUBackend*>(backend())->functions();
-        auto precision = static_cast<CPUBackend*>(backend())->precisionMode();
+    MulSilu(Backend *b) : Execution(b) {
+        auto func = static_cast<CPUBackend *>(backend())->functions();
+        auto precision = static_cast<CPUBackend *>(backend())->precisionMode();
         mSilu = func->MNNSelectUnaryFunctionForFloat(UnaryOpOperation_SILU, precision);
         mMul = func->MNNSelectBinaryFunctionForFloat(BinaryOpOperation_MUL);
     }
     virtual ~MulSilu() = default;
-    virtual ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override {
+    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs,
+                                const std::vector<Tensor *> &outputs) override {
         auto input0 = inputs[0];
-        auto output = outputs[0];
-        auto size = static_cast<CPUBackend*>(backend())->getTensorSize(output);
-        auto schedule = static_cast<CPUBackend*>(backend())->multiThreadDivide(size);
-        auto bytes = static_cast<CPUBackend*>(backend())->functions()->bytes;
-        auto i0 = input0->host<int8_t>();
-        auto o0 = output->host<int8_t>();
         auto input1 = inputs[1];
+        auto output = outputs[0];
+        auto size = static_cast<CPUBackend *>(backend())->getTensorSize(input0);
+        auto schedule = static_cast<CPUBackend *>(backend())->multiThreadDivide(size);
+        auto bytes = static_cast<CPUBackend *>(backend())->functions()->bytes;
+        auto i0 = input0->host<int8_t>();
         auto i1 = input1->host<int8_t>();
+        auto o0 = output->host<int8_t>();
 
         MNN_CONCURRENCY_BEGIN(tId, schedule.second) {
             int start = schedule.first * (int)tId;
@@ -221,8 +220,8 @@ public:
                 auto inp = i0 + start * bytes;
                 auto inp1 = i1 + start * bytes;
                 auto out = o0 + start * bytes;
-                mSilu((float*)out, (float*)inp1, realSize);
-                mMul((float*)out, (float*)out, (float*)inp, realSize, -1);
+                mSilu((float *)out, (float *)inp1, realSize);
+                mMul((float *)out, (float *)out, (float *)inp, realSize, -1);
             }
         }
         MNN_CONCURRENCY_END();
@@ -272,7 +271,8 @@ public:
                 return new CPUBinary(backend, func, op->main_as_BinaryOp()->activationType());
             }
         }
-        MNN_ERROR("CpuBinary: unsupported data type (bits: %d, code: %d)\n", dataType.bits, dataType.code);
+        MNN_ERROR("CpuBinary: unsupported data type (bits: %d, code: %d)\n",
+                  dataType.bits, dataType.code);
         return nullptr;
     }
 };

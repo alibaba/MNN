@@ -23,7 +23,6 @@ class LlmConfig(PretrainedConfig):
         self.layer_types = kwargs.pop("layer_types", [])
         self.attention_type = kwargs.pop("attention_type", 'full')
         self.tie_word_embeddings = kwargs.pop("tie_word_embeddings", False)
-        self.scale_emb = kwargs.pop("scale_emb", None)
         self.conv_L_cache = kwargs.pop("conv_L_cache", 0)
         self.rope_parameters = kwargs.pop("rope_parameters", None)
         self.qk_norm_after_rope = kwargs.pop("qk_norm_after_rope", False)

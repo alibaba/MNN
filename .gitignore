@@ -235,7 +235,6 @@ celerybeat-schedule
 
 # Environments
 .env
-.copybara_sync.env
 .venv
 env/
 venv/

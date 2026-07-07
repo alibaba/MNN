@@ -1227,17 +1227,12 @@ int main(int argc, char ** argv) {
 
         auto prompt_tokens = instance.mCmdParam.nPrompt;
         auto decodeTokens = instance.mCmdParam.nGenerate;
-        bool isOpenCL = (instance.mCmdParam.backend == 3); // MNN_FORWARD_OPENCL
 
         // llm_demo test
         if (instance.mCmdParam.kvCache == "true") {
             std::vector<int> tokens(prompt_tokens, 16);
 
             for (int i = 0; i < instance.mCmdParam.nRepeat + 1; ++i) {
-                // switchMode handles OpenCL record queue: off for prefill, on for decode
-                if (isOpenCL) {
-                    llm->switchMode(Llm::Prefill);
-                }
                 llm->response(tokens, nullptr, nullptr, decodeTokens);
                 auto prefillTime = context->prefill_us;
                 auto decodeTime = context->decode_us;
@@ -1269,18 +1264,10 @@ int main(int argc, char ** argv) {
             for (int i = 0; i < instance.mCmdParam.nRepeat + 1; ++i) {
                 int64_t sampler_us = 0;
                 if (prompt_tokens) {
-                    // Disable record queue during prefill for OpenCL
-                    if (isOpenCL) {
-                        llm->switchMode(Llm::Prefill);
-                    }
                     llm->response(tokens, nullptr, nullptr, 1);
                     sampler_us += context->prefill_us;
                 }
                 if (decodeTokens) {
-                    // Enable record queue during decode for OpenCL
-                    if (isOpenCL) {
-                        llm->switchMode(Llm::Decode);
-                    }
                     llm->response(tokens1, nullptr, nullptr, decodeTokens);
                     sampler_us += context->decode_us;
                 }

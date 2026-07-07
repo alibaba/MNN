@@ -144,6 +144,8 @@ int LayerNormBufExecution::getLocalSize(int size, int maxGroupSize) {
 }
 
 ErrorCode LayerNormBufExecution::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    mUnits.resize(1);
+    auto& unit = mUnits[0];
     Tensor* input = inputs[0];
     Tensor* output = outputs[0];
     auto runtime = ((OpenCLBackend*)backend())->getOpenCLRuntime();
@@ -184,16 +186,14 @@ ErrorCode LayerNormBufExecution::onEncode(const std::vector<Tensor*>& inputs, co
             }
         }
     }
-    bool splitBinaryLN = (isNC4HW4 && inputs.size() == 2 && outputs.size() == 2);
 
     int local_size;
     std::string kernelName;
     if (isNC4HW4) {
         int channelUnit = UP_DIV(inner_size, 4);
         local_size = getLocalSize(channelUnit, MaxLocalSize);
-        if (splitBinaryLN) {
-            // The second stage kernel (LayerNorm only)
-            kernelName = "layernorm_c4_buf";
+        if (inputs.size() == 2 && outputs.size() == 2) {
+            kernelName = "binary_layernorm_c4_buf";
         } else {
             kernelName = "layernorm_c4_buf";
         }
@@ -214,71 +214,6 @@ ErrorCode LayerNormBufExecution::onEncode(const std::vector<Tensor*>& inputs, co
         buildOptions.emplace("-DPACK_LEAVE");
     }
 
-    if (splitBinaryLN) {
-        // ---------- Two-kernel SPLIT path ----------
-        int total_size_float = outter_size * inner_size;
-        int gws_x = UP_DIV(total_size_float, 4);
-        mUnits.resize(2);
-
-        // unit[0]: binary_add_c4_buf (1D + vload4, following binary_buf.cl pattern)
-        {
-            auto& u0 = mUnits[0];
-            std::set<std::string> addOpts;
-            if (total_size_float % 4 != 0) {
-                addOpts.emplace("-DPACK_LEAVE");
-            }
-            u0.kernel =
-                runtime->buildKernel("layernorm_buf", "binary_add_c4_buf", addOpts, mOpenCLBackend->getPrecision());
-            OPENCL_CHECK_KERNEL(u0.kernel);
-            std::vector<uint32_t> gwsVec = {(uint32_t)gws_x, 1u};
-            uint32_t maxWGS = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(u0.kernel));
-            uint32_t aidx = 0;
-            cl_int aret = CL_SUCCESS;
-            aret |= u0.kernel->get().setArg(aidx++, gws_x);
-            aret |= u0.kernel->get().setArg(aidx++, openCLBuffer(inputs[0]));
-            aret |= u0.kernel->get().setArg(aidx++, openCLBuffer(inputs[1]));
-            aret |= u0.kernel->get().setArg(aidx++, openCLBuffer(outputs[0]));
-            aret |= u0.kernel->get().setArg(aidx++, total_size_float);
-            MNN_CHECK_CL_SUCCESS(aret, "setArg binary_add_c4_buf");
-            std::vector<uint32_t> lwsVec = localWS2DDefault(gwsVec, maxWGS, runtime, "binary_add_c4_buf", u0.kernel,
-                                                            mOpenCLBackend->getCLTuneLevel(), "layernorm_buf")
-                                               .first;
-            mOpenCLBackend->recordKernel2d(u0.kernel, gwsVec, lwsVec);
-            u0.globalWorkSize = {gwsVec[0], gwsVec[1]};
-            u0.localWorkSize = {lwsVec[0], lwsVec[1]};
-        }
-
-        // unit[1]: layernorm_c4_buf (reads output0 residual, writes output1 norm)
-        {
-            auto& u1 = mUnits[1];
-            u1.kernel =
-                runtime->buildKernel("layernorm_buf", "layernorm_c4_buf", buildOptions, mOpenCLBackend->getPrecision());
-            OPENCL_CHECK_KERNEL(u1.kernel);
-            mGWS = {(uint32_t)local_size, (uint32_t)outter_size};
-            mLWS = {(uint32_t)local_size, 1};
-            uint32_t lidx = 0;
-            cl_int lret = CL_SUCCESS;
-            lret |= u1.kernel->get().setArg(lidx++, mGWS[0]);
-            lret |= u1.kernel->get().setArg(lidx++, mGWS[1]);
-            lret |= u1.kernel->get().setArg(lidx++, openCLBuffer(outputs[0])); // input = residual
-            lret |= u1.kernel->get().setArg(lidx++, openCLBuffer(outputs[1])); // output = norm
-            lret |= u1.kernel->get().setArg(lidx++, (int32_t)inner_size);
-            if (mResource->has_gamma_beta_) {
-                lret |= u1.kernel->get().setArg(lidx++, *mResource->mGammaBuffer.get());
-                lret |= u1.kernel->get().setArg(lidx++, *mResource->mBetaBuffer.get());
-            }
-            lret |= u1.kernel->get().setArg(lidx++, mResource->epsilon_);
-            MNN_CHECK_CL_SUCCESS(lret, "setArg layernorm_c4_buf (SPLIT)");
-            mOpenCLBackend->recordKernel2d(u1.kernel, mGWS, mLWS);
-            u1.globalWorkSize = {mGWS[0], mGWS[1]};
-            u1.localWorkSize = {mLWS[0], mLWS[1]};
-        }
-        return NO_ERROR;
-    }
-
-    // ---------- Single-kernel path (no residual add, or non-NC4HW4) ----------
-    mUnits.resize(1);
-    auto& unit = mUnits[0];
     unit.kernel = runtime->buildKernel("layernorm_buf", kernelName, buildOptions, mOpenCLBackend->getPrecision());
     OPENCL_CHECK_KERNEL(unit.kernel);
     mGWS = {static_cast<uint32_t>(local_size), static_cast<uint32_t>(outter_size)};
@@ -288,8 +223,15 @@ ErrorCode LayerNormBufExecution::onEncode(const std::vector<Tensor*>& inputs, co
     cl_int ret = CL_SUCCESS;
     ret |= unit.kernel->get().setArg(idx++, mGWS[0]);
     ret |= unit.kernel->get().setArg(idx++, mGWS[1]);
-    ret |= unit.kernel->get().setArg(idx++, openCLBuffer(input));
-    ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
+    if (isNC4HW4 && inputs.size() == 2 && outputs.size() == 2) {
+        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(inputs[0]));
+        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(inputs[1]));
+        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(outputs[0]));
+        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(outputs[1]));
+    } else {
+        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(input));
+        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
+    }
     ret |= unit.kernel->get().setArg(idx++, static_cast<int32_t>(inner_size));
     if (mResource->has_gamma_beta_) {
         ret |= unit.kernel->get().setArg(idx++, *mResource->mGammaBuffer.get());

@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from typing import Optional, Tuple
 
 from .model_mapper import ModelMapper
-from .custom_op import FusedAttention, FusedRoPE, MoE, FusedLinearAttention
+from .custom_op import FusedAttention, MoE, FusedLinearAttention
 
 class Embedding(torch.nn.Module):
     def __init__(self, embed, config):
@@ -12,10 +12,7 @@ class Embedding(torch.nn.Module):
         self.hidden_size = config.hidden_size
         self.embed = embed
         self.embed_scale = 1.0
-        config_embed_scale = getattr(config, 'scale_emb', None)
-        if config_embed_scale is not None:
-            self.embed_scale = config_embed_scale
-        elif config.model_type == 'gemma' or config.model_type == 'gemma2':
+        if config.model_type == 'gemma' or config.model_type == 'gemma2':
             self.embed_scale = self.hidden_size**0.5
         if hasattr(embed, 'embed_scale'):
             self.embed_scale = embed.embed_scale
@@ -65,8 +62,6 @@ class Attention(torch.nn.Module):
         self.kv_cache = True
         self.layer_id = layer_id
         self.rotary = rotary
-        export_args = getattr(config, 'export_args', None)
-        self.export_fused_rope = getattr(export_args, 'transformer_c4', False)
         self.hidden_size = config.hidden_size
         self.head_dim = config.head_dim
         if isinstance(config.num_attention_heads, list):
@@ -118,7 +113,6 @@ class Attention(torch.nn.Module):
         # Create FusedAttention with KV sharing info
         kv_shared_idx = self.kv_shared_layer_index if self.is_kv_shared_layer else -1
         self.fused_attn = FusedAttention(self.num_heads * self.head_dim, self.kv_cache, f'/layers.{layer_id}/self_attn/FusedAttention', layer_id, kv_shared_idx)
-        self.fused_rope = FusedRoPE(self.head_dim, f'/layers.{layer_id}/self_attn/FusedRoPE')
 
         if hasattr(self, 'qkv_proj') and self.qkv_proj is not None:
             # split qkv linear to q, k, v
@@ -177,8 +171,6 @@ class Attention(torch.nn.Module):
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         bsz, q_len, _ = hidden_states.size()
         query_states = self.q_proj(hidden_states)
-        key_states = None
-        value_states = None
         if self.q_proj.out_features == 2 * self.num_heads * self.head_dim:
             reshaped = query_states.view(bsz, q_len, self.num_heads, self.head_dim * 2)
             query_states, gate = torch.split(reshaped, self.head_dim, dim=-1)
@@ -188,14 +180,15 @@ class Attention(torch.nn.Module):
 
         qk_norm_after_rope = getattr(self, 'qk_norm_after_rope', getattr(self.config, 'qk_norm_after_rope', False))
         query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim)
-        q_norm_before_rope = not qk_norm_after_rope and hasattr(self, 'q_norm') and self.q_norm is not None
+        # Most models apply q_norm before rotary, but HunYuan applies it after rotary.
+        if not qk_norm_after_rope and hasattr(self, 'q_norm') and self.q_norm is not None:
+            query_states = self.q_norm(query_states)
 
         # KV sharing: for shared layers, reuse KV from source layer (test mode only)
         shared_kv_cache = getattr(self, '_shared_kv_cache', None)
         use_shared_kv = (self.is_kv_shared_layer and shared_kv_cache is not None
                          and self.kv_shared_layer_index in shared_kv_cache
                          and not torch.onnx.is_in_onnx_export())
-        k_norm_before_rope = False
 
         if use_shared_kv:
             key_states, value_states = shared_kv_cache[self.kv_shared_layer_index]
@@ -207,7 +200,8 @@ class Attention(torch.nn.Module):
                 value_states = self.v_proj(hidden_states)
             key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim)
             value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim)
-            k_norm_before_rope = not qk_norm_after_rope and hasattr(self, 'k_norm') and self.k_norm is not None
+            if not qk_norm_after_rope and hasattr(self, 'k_norm') and self.k_norm is not None:
+                key_states = self.k_norm(key_states)
             # gemma4 has v_norm (RMSNorm without scale)
             if hasattr(self, 'v_norm') and self.v_norm is not None:
                 value_states = self.v_norm(value_states)
@@ -216,7 +210,6 @@ class Attention(torch.nn.Module):
             # Dummy K/V for ONNX tracing; FusedAttention handles sharing via kv_shared_layer_index
             key_states = query_states.new_zeros(bsz, q_len, self.num_key_value_heads, self.head_dim)
             value_states = key_states
-            k_norm_before_rope = False
 
         kv_seq_len = key_states.shape[1]
         if self.past_key_value is not None:
@@ -224,45 +217,9 @@ class Attention(torch.nn.Module):
         # rope
         if self.rotary is not None:
             cos, sin = rotary_pos_emb[0], rotary_pos_emb[1]
-            use_fused_rope = (
-                self.export_fused_attn and torch.onnx.is_in_onnx_export()
-                and self.export_fused_rope
-                and not qk_norm_after_rope
-                and not use_shared_kv
-                and self.k_proj is not None
-                and self.rotary.model_type not in ['chatglm', 'chatglm2', 'ernie4_5', 'glm_ocr']
-                and cos.shape[-1] == self.head_dim
-                and sin.shape[-1] == self.head_dim
-            )
-            fuse_qk_norm = use_fused_rope and q_norm_before_rope and k_norm_before_rope
-            if use_fused_rope:
-                if not fuse_qk_norm:
-                    if q_norm_before_rope:
-                        query_states = self.q_norm(query_states)
-                    if k_norm_before_rope:
-                        key_states = self.k_norm(key_states)
-                query_states, key_states = self.fused_rope(
-                    query_states,
-                    key_states,
-                    cos,
-                    sin,
-                    self.q_norm if fuse_qk_norm else None,
-                    self.k_norm if fuse_qk_norm else None,
-                )
-            else:
-                # Most models apply q/k norm before rotary, but HunYuan applies it after rotary.
-                if q_norm_before_rope:
-                    query_states = self.q_norm(query_states)
-                if k_norm_before_rope:
-                    key_states = self.k_norm(key_states)
-                query_states = self.rotary.apply_rotary_pos(query_states, cos, sin)
-                if not use_shared_kv and self.k_proj is not None:
-                    key_states = self.rotary.apply_rotary_pos(key_states, cos, sin)
-        elif q_norm_before_rope or k_norm_before_rope:
-            if q_norm_before_rope:
-                query_states = self.q_norm(query_states)
-            if k_norm_before_rope:
-                key_states = self.k_norm(key_states)
+            query_states = self.rotary.apply_rotary_pos(query_states, cos, sin)
+            if not use_shared_kv and self.k_proj is not None:
+                key_states = self.rotary.apply_rotary_pos(key_states, cos, sin)
 
         if qk_norm_after_rope:
             if hasattr(self, 'q_norm') and self.q_norm is not None:

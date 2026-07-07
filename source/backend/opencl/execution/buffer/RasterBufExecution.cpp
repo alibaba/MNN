@@ -160,140 +160,51 @@ ErrorCode RasterBufExecution::onEncode(const std::vector<Tensor *> &____inputs, 
         auto inputShape = tensorShapeFormat(origin);
         buildOptions.emplace("-DINPUT_FORMAT=" + std::to_string(TensorUtils::getDescribe(origin)->dimensionFormat));
         buildOptions.emplace("-DOUTPUT_FORMAT=" + std::to_string(outputDes->dimensionFormat));
-
-        // Detect L2 cache-set thrashing in NC4HW4 tensors:
-        // When NC4HW4 tensor has N (batch) as power-of-2 and H*W=1,
-        // channel groups are spaced N*4 elements apart. Consecutive work-items
-        // access consecutive channels → different channel groups → same cache set.
-        // Fix: reshape 1D traversal into 2D (batch × channel) so consecutive
-        // work-items walk the batch dimension (contiguous in NC4HW4 memory).
-        bool inputIsNC4HW4 = TensorUtils::getDescribe(origin)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4;
-        bool outputIsNC4HW4 = outputDes->dimensionFormat == MNN_DATA_FORMAT_NC4HW4;
-        auto isPow2 = [](int v) { return v > 0 && (v & (v - 1)) == 0; };
-
-        // Check if we have a 1D raster with NC4HW4 tensor whose batch dim is power-of-2
-        int nc4_N = 0, nc4_C = 0;
-        bool needTranspose = false;
-        if (slice.size[0] == 1 && slice.size[1] == 1 && slice.src.stride[2] == 1 && slice.dst.stride[2] == 1) {
-            if (inputIsNC4HW4 && inputShape[1] * inputShape[2] == 1) {
-                // Input is NC4HW4 with H*W=1, N=inputShape[0], C=inputShape[3]
-                nc4_N = inputShape[0];
-                nc4_C = inputShape[3];
-            } else if (outputIsNC4HW4 && outputShape[1] * outputShape[2] == 1) {
-                // Output is NC4HW4 with H*W=1, N=outputShape[0], C=outputShape[3]
-                nc4_N = outputShape[0];
-                nc4_C = outputShape[3];
-            }
-            if (nc4_N >= 256 && isPow2(nc4_N) && nc4_C > 4 && nc4_N * nc4_C == slice.size[2]) {
-                needTranspose = true;
-            }
-        }
-
+        
         Unit &unit          = mUnits[kernel_idx++];
         unit.kernel         = runtime->buildKernel("raster_buf", "raster_direct_buffer", buildOptions, mOpenCLBackend->getPrecision(), origin, output);
-
-        if (needTranspose) {
-            // 2D traversal: x=batch(N), y=channel(C)
-            // inputIndex = x * C + y  (instead of original x where in_c = x%C, in_b = x/C)
-            // This makes consecutive work-items access same channel group, different batches
-            const std::vector<uint32_t> gws = {(uint32_t)nc4_N * nums, (uint32_t)nc4_C, 1u};
-            uint32_t mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
-
-            // Transposed strides: x walks batch (stride=C), y walks channel (stride=1)
-            int srcStride0_t = slice.src.stride[0];
-            int srcStride1_t = 1;
-            int srcStride2_t = nc4_C;
-            int dstStride0_t = slice.dst.stride[0];
-            int dstStride1_t = 1;
-            int dstStride2_t = nc4_C;
-
-            uint32_t idx = 0;
-            cl_int ret = CL_SUCCESS;
-            ret |= unit.kernel->get().setArg(idx++, gws[0]);
-            ret |= unit.kernel->get().setArg(idx++, gws[1]);
-            ret |= unit.kernel->get().setArg(idx++, gws[2]);
-            ret |= unit.kernel->get().setArg(idx++, (int)nc4_N); // size_x = N (batch per combine group)
-            ret |= unit.kernel->get().setArg(idx++, openCLBuffer(origin));
-            ret |= unit.kernel->get().setArg(idx++, slice.src.offset);
-            ret |= unit.kernel->get().setArg(idx++, src_offset);
-            ret |= unit.kernel->get().setArg(idx++, srcStride0_t);
-            ret |= unit.kernel->get().setArg(idx++, srcStride1_t);
-            ret |= unit.kernel->get().setArg(idx++, srcStride2_t);
-            ret |= unit.kernel->get().setArg(idx++, inputShape[2]);
-            ret |= unit.kernel->get().setArg(idx++, inputShape[1]);
-            ret |= unit.kernel->get().setArg(idx++, inputShape[3]);
-            ret |= unit.kernel->get().setArg(idx++, inputShape[0]);
-            ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
-            ret |= unit.kernel->get().setArg(idx++, slice.dst.offset);
-            ret |= unit.kernel->get().setArg(idx++, dst_offset);
-            ret |= unit.kernel->get().setArg(idx++, dstStride0_t);
-            ret |= unit.kernel->get().setArg(idx++, dstStride1_t);
-            ret |= unit.kernel->get().setArg(idx++, dstStride2_t);
-            ret |= unit.kernel->get().setArg(idx++, outputShape[2]);
-            ret |= unit.kernel->get().setArg(idx++, outputShape[1]);
-            ret |= unit.kernel->get().setArg(idx++, outputShape[3]);
-            ret |= unit.kernel->get().setArg(idx++, outputShape[0]);
-            if (ret != CL_SUCCESS) {
-                MNN_PRINT("setArg err %d\n", (int)ret);
-            }
-
-            std::string name = "raster_buffer_transpose";
-            const std::vector<uint32_t> lws =
-                localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel,
-                                 mOpenCLBackend->getCLTuneLevel(), "raster_buf")
-                    .first;
-
-            unit.localWorkSize = {lws[0], lws[1], lws[2]};
-            unit.globalWorkSize = {ROUND_UP(gws[0], std::max((uint32_t)1, lws[0])),
-                                   ROUND_UP(gws[1], std::max((uint32_t)1, lws[1])),
-                                   ROUND_UP(gws[2], std::max((uint32_t)1, lws[2]))};
-            mOpenCLBackend->recordKernel3d(unit.kernel, gws, lws);
-        } else {
-            // Original path
-            const std::vector<uint32_t> gws = {(uint32_t)slice.size[2] * nums, (uint32_t)slice.size[1],
-                                               (uint32_t)slice.size[0]};
-            uint32_t mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
-
-            uint32_t idx = 0;
-            cl_int ret = CL_SUCCESS;
-            ret |= unit.kernel->get().setArg(idx++, gws[0]);
-            ret |= unit.kernel->get().setArg(idx++, gws[1]);
-            ret |= unit.kernel->get().setArg(idx++, gws[2]);
-            ret |= unit.kernel->get().setArg(idx++, slice.size[2]);
-            ret |= unit.kernel->get().setArg(idx++, openCLBuffer(origin));
-            ret |= unit.kernel->get().setArg(idx++, slice.src.offset);
-            ret |= unit.kernel->get().setArg(idx++, src_offset);
-            ret |= unit.kernel->get().setArg(idx++, slice.src.stride[0]);
-            ret |= unit.kernel->get().setArg(idx++, slice.src.stride[1]);
-            ret |= unit.kernel->get().setArg(idx++, slice.src.stride[2]);
-            ret |= unit.kernel->get().setArg(idx++, inputShape[2]);
-            ret |= unit.kernel->get().setArg(idx++, inputShape[1]);
-            ret |= unit.kernel->get().setArg(idx++, inputShape[3]);
-            ret |= unit.kernel->get().setArg(idx++, inputShape[0]);
-            ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
-            ret |= unit.kernel->get().setArg(idx++, slice.dst.offset);
-            ret |= unit.kernel->get().setArg(idx++, dst_offset);
-            ret |= unit.kernel->get().setArg(idx++, slice.dst.stride[0]);
-            ret |= unit.kernel->get().setArg(idx++, slice.dst.stride[1]);
-            ret |= unit.kernel->get().setArg(idx++, slice.dst.stride[2]);
-            ret |= unit.kernel->get().setArg(idx++, outputShape[2]);
-            ret |= unit.kernel->get().setArg(idx++, outputShape[1]);
-            ret |= unit.kernel->get().setArg(idx++, outputShape[3]);
-            ret |= unit.kernel->get().setArg(idx++, outputShape[0]);
-            if (ret != CL_SUCCESS) {
-                MNN_PRINT("setArg err %d\n", (int)ret);
-            }
-
-            std::string name = "raster_buffer";
-            const std::vector<uint32_t> lws =
-                localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel,
-                                 mOpenCLBackend->getCLTuneLevel(), "raster_buf")
-                    .first;
-
-            unit.localWorkSize = {lws[0], lws[1], lws[2]};
-            unit.globalWorkSize = {gws[0], gws[1], gws[2]};
-            mOpenCLBackend->recordKernel3d(unit.kernel, gws, lws);
+        const std::vector<uint32_t> gws =  {(uint32_t)slice.size[2] * nums,
+            (uint32_t)slice.size[1],
+            (uint32_t)slice.size[0]};
+        uint32_t mMaxWorkGroupSize      = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
+        
+        uint32_t idx   = 0;
+        cl_int ret = CL_SUCCESS;
+        ret |= unit.kernel->get().setArg(idx++, gws[0]);
+        ret |= unit.kernel->get().setArg(idx++, gws[1]);
+        ret |= unit.kernel->get().setArg(idx++, gws[2]);
+        ret |= unit.kernel->get().setArg(idx++, slice.size[2]);
+        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(origin));
+        ret |= unit.kernel->get().setArg(idx++, slice.src.offset);
+        ret |= unit.kernel->get().setArg(idx++, src_offset);
+        ret |= unit.kernel->get().setArg(idx++, slice.src.stride[0]);
+        ret |= unit.kernel->get().setArg(idx++, slice.src.stride[1]);
+        ret |= unit.kernel->get().setArg(idx++, slice.src.stride[2]);
+        ret |= unit.kernel->get().setArg(idx++, inputShape[2]);
+        ret |= unit.kernel->get().setArg(idx++, inputShape[1]);
+        ret |= unit.kernel->get().setArg(idx++, inputShape[3]);
+        ret |= unit.kernel->get().setArg(idx++, inputShape[0]);
+        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
+        ret |= unit.kernel->get().setArg(idx++, slice.dst.offset);
+        ret |= unit.kernel->get().setArg(idx++, dst_offset);
+        ret |= unit.kernel->get().setArg(idx++, slice.dst.stride[0]);
+        ret |= unit.kernel->get().setArg(idx++, slice.dst.stride[1]);
+        ret |= unit.kernel->get().setArg(idx++, slice.dst.stride[2]);
+        ret |= unit.kernel->get().setArg(idx++, outputShape[2]);
+        ret |= unit.kernel->get().setArg(idx++, outputShape[1]);
+        ret |= unit.kernel->get().setArg(idx++, outputShape[3]);
+        ret |= unit.kernel->get().setArg(idx++, outputShape[0]);
+        if(ret != CL_SUCCESS)
+        {
+            MNN_PRINT("setArg err %d\n", (int)ret);
         }
+        
+        std::string name = "raster_buffer";
+        const std::vector<uint32_t> lws = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel(), "raster_buf").first;
+        
+        unit.localWorkSize = {lws[0], lws[1], lws[2]};
+        unit.globalWorkSize = {gws[0], gws[1], gws[2]};
+        mOpenCLBackend->recordKernel3d(unit.kernel, gws, lws);
     }
 #ifdef LOG_VERBOSE
     MNN_PRINT("end RasterBufExecution onResize !\n");

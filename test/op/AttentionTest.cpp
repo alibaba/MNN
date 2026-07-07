@@ -159,26 +159,6 @@ VARP vector_to_var(std::vector< std::vector< std::vector<float> > > & a) {
     return var;
 }
 
-VARP vector_to_c4_value(std::vector< std::vector< std::vector<float> > > & a) {
-    int seqLen = a.size();
-    int kvNumHead = a[0].size();
-    int headDim = a[0][0].size();
-    int channel = kvNumHead * headDim;
-    std::vector<float> packed(((channel + 3) / 4) * seqLen * 4, 0.0f);
-    for (int s = 0; s < seqLen; ++s) {
-        for (int h = 0; h < kvNumHead; ++h) {
-            for (int d = 0; d < headDim; ++d) {
-                int c = h * headDim + d;
-                packed[(c / 4) * seqLen * 4 + s * 4 + (c % 4)] = a[s][h][d];
-            }
-        }
-    }
-    VARP var = _Input({seqLen, channel, 1, 1}, NC4HW4, halide_type_of<float>());
-    ::memcpy(var->writeMap<float>(), packed.data(), packed.size() * sizeof(float));
-    var->unMap();
-    return var;
-}
-
 VARP vector_to_var(std::vector< std::vector<int> > & a) {
     int H = a.size();
     int W = a[0].size();
@@ -632,35 +612,20 @@ public:
         return true;
     }
 
-    bool runOne(int seqLen, int precision) {
+    virtual bool run(int precision) {
+        srand(2024);
+        const int seqLen = 10;
         std::shared_ptr<NaiveAttention> naiveAttention(new NaiveAttention);
         generateInput(seqLen, precision);
         generateMask(seqLen, seqLen);
         expected_result = naiveAttention->onExecute(query, key, value, mask, seqLen);
-
         gMeta.previous = 0;
         gMeta.remove = 0;
         gMeta.add = seqLen;
         auto attn = _makeAttentionModule(8, true);
         Output = attn->onForward({Query, Key, Value, Mask})[0];
         gMeta.sync();
-        if (!compareC4Result(seqLen)) {
-            return false;
-        }
-
-        auto valueC4 = vector_to_c4_value(value);
-        gMeta.previous = 0;
-        gMeta.remove = 0;
-        gMeta.add = seqLen;
-        auto attnValueC4 = _makeAttentionModule(8, true);
-        Output = attnValueC4->onForward({Query, Key, valueC4, Mask})[0];
-        gMeta.sync();
         return compareC4Result(seqLen);
-    }
-
-    virtual bool run(int precision) {
-        srand(2024);
-        return runOne(10, precision) && runOne(32, precision);
     }
 };
 

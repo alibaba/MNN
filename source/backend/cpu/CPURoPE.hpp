@@ -25,13 +25,8 @@ public:
 private:
     CPURoPE(Backend* bn);
     int mRopeCutHeadDim = 0;
-    int mNumHead = 0;
-    int mKvNumHead = 0;
-    int mHeadDim = 0;
     std::shared_ptr<CPULayerNorm::Resource> mQNorm;
     std::shared_ptr<CPULayerNorm::Resource> mKNorm;
-    MemChunk mTmpQC4;
-    MemChunk mTmpKC4;
     MemChunk mTmpQFloat;
     MemChunk mTmpKFloat;
 };
