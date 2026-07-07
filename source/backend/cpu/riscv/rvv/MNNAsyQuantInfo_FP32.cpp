@@ -2,6 +2,7 @@
 #include <cfloat>
 #include <cmath>
 #include <cstddef>
+#include "core/Macro.h"
 
 #ifndef ALIMIN
 #define ALIMIN(a, b) ((a) < (b) ? (a) : (b))
