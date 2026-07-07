@@ -2,7 +2,7 @@
 #include <cstdint>
 #include <cstring>
 #include <vector>
-
+#include "core/Macro.h"
 #ifndef MNN_ASSERT
 #define MNN_ASSERT(x)
 #endif

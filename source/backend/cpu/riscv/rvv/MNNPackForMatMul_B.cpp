@@ -2,6 +2,7 @@
 #include <cstring>
 #include <stdint.h>
 #include <stddef.h>
+#include "core/Macro.h"
 
 #define RVV_MATMUL_LP 1
 #define RVV_MATMUL_HP 4
