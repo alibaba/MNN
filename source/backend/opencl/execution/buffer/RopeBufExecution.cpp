@@ -15,71 +15,73 @@
 namespace MNN {
 namespace OpenCL {
 
+static std::shared_ptr<cl::Buffer> makeRopeNormGamma(OpenCLBackend* backend, const LayerNorm* layerNorm) {
+    if (nullptr == layerNorm || nullptr == layerNorm->gamma()) {
+        return nullptr;
+    }
+    int size = layerNorm->gamma()->size();
+    if (size <= 0) {
+        return nullptr;
+    }
+    std::shared_ptr<cl::Buffer> gamma(new cl::Buffer(backend->getOpenCLRuntime()->context(),
+                                                     CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR,
+                                                     ALIGN_UP4(size) * sizeof(float)));
+    auto error = CL_SUCCESS;
+    auto ptr = backend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
+        *gamma, true, CL_MAP_WRITE, 0, ALIGN_UP4(size) * sizeof(float), nullptr, nullptr, &error);
+    if (ptr == nullptr || error != CL_SUCCESS) {
+        return nullptr;
+    }
+    ::memset(ptr, 0, ALIGN_UP4(size) * sizeof(float));
+    ::memcpy(ptr, layerNorm->gamma()->data(), size * sizeof(float));
+    backend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(*gamma, ptr);
+    return gamma;
+}
+
+static bool validRopeC4Input(const Tensor* q, const Tensor* k, int numHead, int kvNumHead, int headDim) {
+    if (q == nullptr || k == nullptr || numHead <= 0 || kvNumHead <= 0 || headDim <= 0) {
+        return false;
+    }
+    if (TensorUtils::getDescribe(q)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4 ||
+        TensorUtils::getDescribe(k)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
+        return false;
+    }
+    if (q->dimensions() < 2 || k->dimensions() < 2) {
+        return false;
+    }
+    return q->length(1) == numHead * headDim && k->length(1) == kvNumHead * headDim;
+}
+
 RopeBufExecution::RopeBufExecution(const MNN::Op* op, Backend* backend) : CommonExecution(backend, op) {
     mOpenCLBackend = static_cast<OpenCLBackend*>(backend);
 
-    if (nullptr != op && OpParameter_Extra == op->main_type()) {
-        auto extra = op->main_as_Extra();
-        if (nullptr != extra && nullptr != extra->attr()) {
-            for (int i = 0; i < extra->attr()->size(); ++i) {
-                auto attr = extra->attr()->GetAs<Attribute>(i);
-                if (nullptr == attr || nullptr == attr->key()) {
-                    continue;
-                }
-                if (attr->key()->str() == "rope_cut_head_dim") {
-                    mRopeCutHeadDim = attr->i();
-                    continue;
-                }
-                if (attr->key()->str() == "q_norm") {
-                    auto qLayernorm = flatbuffers::GetRoot<Op>(attr->tensor()->int8s()->data());
-                    auto param = qLayernorm->main_as_LayerNorm();
-                    mQEps = param->epsilon();
-                    if (param->gamma()) {
-                        int size = param->gamma()->size();
-                        mQGamma.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(),
-                                                     CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR,
-                                                     ALIGN_UP4(size) * sizeof(float)));
-                        auto error = CL_SUCCESS;
-                        auto ptr = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
-                            *mQGamma, true, CL_MAP_WRITE, 0, ALIGN_UP4(size) * sizeof(float), nullptr, nullptr, &error);
-                        if (ptr != nullptr && error == CL_SUCCESS) {
-                            ::memset(ptr, 0, ALIGN_UP4(size) * sizeof(float));
-                            ::memcpy(ptr, param->gamma()->data(), size * sizeof(float));
-                        }
-                        mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(*mQGamma, ptr);
-                    }
-                    continue;
-                }
-                if (attr->key()->str() == "k_norm") {
-                    auto kLayernorm = flatbuffers::GetRoot<Op>(attr->tensor()->int8s()->data());
-                    auto param = kLayernorm->main_as_LayerNorm();
-                    mKEps = param->epsilon();
-                    if (param->gamma()) {
-                        int size = param->gamma()->size();
-                        mKGamma.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(),
-                                                     CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR,
-                                                     ALIGN_UP4(size) * sizeof(float)));
-                        auto error = CL_SUCCESS;
-                        auto ptr = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
-                            *mKGamma, true, CL_MAP_WRITE, 0, ALIGN_UP4(size) * sizeof(float), nullptr, nullptr, &error);
-                        if (ptr != nullptr && error == CL_SUCCESS) {
-                            ::memset(ptr, 0, ALIGN_UP4(size) * sizeof(float));
-                            ::memcpy(ptr, param->gamma()->data(), size * sizeof(float));
-                        }
-                        mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(*mKGamma, ptr);
-                    }
-                    continue;
-                }
-            }
+    auto param = op == nullptr ? nullptr : op->main_as_RoPEParam();
+    if (param != nullptr) {
+        mRopeCutHeadDim = param->rope_cut_head_dim();
+        mNumHead = param->num_head();
+        mKvNumHead = param->kv_num_head();
+        mHeadDim = param->head_dim();
+        auto qNorm = param->q_norm();
+        auto kNorm = param->k_norm();
+        if (qNorm != nullptr) {
+            mQEps = qNorm->epsilon();
+            mQGamma = makeRopeNormGamma(mOpenCLBackend, qNorm);
+        }
+        if (kNorm != nullptr) {
+            mKEps = kNorm->epsilon();
+            mKGamma = makeRopeNormGamma(mOpenCLBackend, kNorm);
         }
     }
 }
 
-RopeBufExecution::RopeBufExecution(const MNN::Op* op, Backend* backend, int ropeCutHeadDim,
-                                   std::shared_ptr<cl::Buffer> qGamma, float qEps, std::shared_ptr<cl::Buffer> kGamma,
-                                   float kEps)
+RopeBufExecution::RopeBufExecution(const MNN::Op* op, Backend* backend, int ropeCutHeadDim, int numHead, int kvNumHead,
+                                   int headDim, std::shared_ptr<cl::Buffer> qGamma, float qEps,
+                                   std::shared_ptr<cl::Buffer> kGamma, float kEps)
     : CommonExecution(backend, op),
       mRopeCutHeadDim(ropeCutHeadDim),
+      mNumHead(numHead),
+      mKvNumHead(kvNumHead),
+      mHeadDim(headDim),
       mQGamma(qGamma),
       mKGamma(kGamma),
       mQEps(qEps),
@@ -91,22 +93,28 @@ bool RopeBufExecution::onClone(Backend* bn, const Op* op, Execution** dst) {
     if (nullptr == dst) {
         return true;
     }
-    *dst = new RopeBufExecution(op, bn, mRopeCutHeadDim, mQGamma, mQEps, mKGamma, mKEps);
+    *dst =
+        new RopeBufExecution(op, bn, mRopeCutHeadDim, mNumHead, mKvNumHead, mHeadDim, mQGamma, mQEps, mKGamma, mKEps);
     return true;
 }
 
 ErrorCode RopeBufExecution::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    MNN_ASSERT(inputs.size() == 6);
+    MNN_ASSERT(inputs.size() == 4);
     MNN_ASSERT(outputs.size() == 2);
 
     auto q = inputs[0];
     auto k = inputs[1];
+    if (!validRopeC4Input(q, k, mNumHead, mKvNumHead, mHeadDim)) {
+        MNN_ERROR("RopeBufExecution: invalid C4 input, numHead=%d, kvNumHead=%d, headDim=%d.\n", mNumHead, mKvNumHead,
+                  mHeadDim);
+        return NOT_SUPPORT;
+    }
 
-    int batch = q->length(0);
-    int seqLen = q->length(1);
-    int numHead = q->length(2);
-    int headDim = q->length(3);
-    int kvNumHead = k->length(2);
+    int batch = 1;
+    int seqLen = q->length(0);
+    int numHead = mNumHead;
+    int headDim = mHeadDim;
+    int kvNumHead = mKvNumHead;
 
     int halfD = headDim / 2;
     int ropeDim = mRopeCutHeadDim;
@@ -154,8 +162,6 @@ ErrorCode RopeBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
     ret |= unit.kernel->get().setArg(idx++, openCLBuffer(inputs[1]));
     ret |= unit.kernel->get().setArg(idx++, openCLBuffer(inputs[2]));
     ret |= unit.kernel->get().setArg(idx++, openCLBuffer(inputs[3]));
-    ret |= unit.kernel->get().setArg(idx++, openCLBuffer(inputs[4]));
-    ret |= unit.kernel->get().setArg(idx++, openCLBuffer(inputs[5]));
     ret |= unit.kernel->get().setArg(idx++, openCLBuffer(outputs[0]));
     ret |= unit.kernel->get().setArg(idx++, openCLBuffer(outputs[1]));
     ret |= unit.kernel->get().setArg(idx++, outerSize);

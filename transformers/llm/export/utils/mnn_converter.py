@@ -396,6 +396,8 @@ class MNNConverter:
             return self.rebuild_linear(op, graph)
         if op_type == 'FusedAttention':
             return self.rebuild_attnention(op, graph)
+        if op_type == 'FusedRoPE':
+            return self.rebuild_rope(op, graph)
         if op_type == 'FusedLinearAttention':
             return self.rebuild_linear_attnention(op, graph)
         if op_type == "LayerNorm":
@@ -403,6 +405,80 @@ class MNNConverter:
         if op_type == 'MoE':
             return self.rebuild_moe(op, graph)
         return None
+
+    def const_float_data(self, graph, tensor_index):
+        op_key = 'oplists' if 'oplists' in graph else 'nodes'
+        for op in graph[op_key]:
+            if tensor_index not in op.get('outputIndexes', []):
+                continue
+            if op.get('type') != 'Const':
+                break
+            main = op.get('main', {})
+            if 'float32s' in main:
+                return main['float32s']
+            break
+        return None
+
+    def rebuild_rope(self, op, graph):
+        attrs = op['main']['attr']
+        name = op['name']
+        rope_cut_head_dim = 0
+        q_norm = False
+        k_norm = False
+        q_norm_eps = 0.0
+        k_norm_eps = 0.0
+        for attr in attrs:
+            if attr['key'] == 'name':
+                name = attr['s']
+            elif attr['key'] == 'rope_cut_head_dim':
+                rope_cut_head_dim = attr['i']
+            elif attr['key'] == 'q_norm':
+                q_norm = bool(attr['i'])
+            elif attr['key'] == 'k_norm':
+                k_norm = bool(attr['i'])
+            elif attr['key'] == 'q_norm_eps':
+                q_norm_eps = attr['f']
+            elif attr['key'] == 'k_norm_eps':
+                k_norm_eps = attr['f']
+
+        rope_param = {
+            "rope_cut_head_dim": rope_cut_head_dim,
+        }
+        input_indexes = op['inputIndexes']
+        if q_norm or k_norm:
+            if len(input_indexes) < 6:
+                raise RuntimeError(f'FusedRoPE {name} misses q/k norm inputs')
+            if q_norm:
+                q_gamma = self.const_float_data(graph, input_indexes[4])
+                if q_gamma is None:
+                    raise RuntimeError(f'FusedRoPE {name} misses q_norm gamma const')
+                rope_param["q_norm"] = {
+                    "axis": [-1],
+                    "epsilon": q_norm_eps,
+                    "gamma": q_gamma,
+                    "useRMSNorm": True
+                }
+            if k_norm:
+                k_gamma = self.const_float_data(graph, input_indexes[5])
+                if k_gamma is None:
+                    raise RuntimeError(f'FusedRoPE {name} misses k_norm gamma const')
+                rope_param["k_norm"] = {
+                    "axis": [-1],
+                    "epsilon": k_norm_eps,
+                    "gamma": k_gamma,
+                    "useRMSNorm": True
+                }
+
+        rope_op = {
+            "inputIndexes": input_indexes[:4],
+            "main_type": "RoPEParam",
+            "main": rope_param,
+            "name": name,
+            "outputIndexes": op['outputIndexes'],
+            "type": "RoPE",
+            "defaultDimentionFormat": op['defaultDimentionFormat']
+        }
+        return [rope_op]
 
     def rebuild_moe(self, op, graph):
         moe = copy.deepcopy(op)
@@ -514,6 +590,18 @@ class MNNConverter:
             "defaultDimentionFormat": "NHWC"
         }
         return [fused_linear_attention]
+
+    def get_extra_attr(self, op, key, default=None):
+        for attr in op.get('main', {}).get('attr', []):
+            if attr.get('key') != key:
+                continue
+            if 's' in attr:
+                return attr['s']
+            if 'i' in attr:
+                return attr['i']
+            if 'f' in attr:
+                return attr['f']
+        return default
 
     def rebuild_linear(self, op, graph):
         attrs = op['main']['attr']

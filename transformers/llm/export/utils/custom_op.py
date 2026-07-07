@@ -67,6 +67,70 @@ class FusedAttention(torch.nn.Module):
     def forward(self, query, key, value, attention_mask):
         return FusedAttentionOp.apply(query, key, value, attention_mask, self.hidden_size, self.kv_cache, self.name, self.layer_index, self.kv_shared_layer_index)
 
+class FusedRoPEOp(torch.autograd.Function):
+    @staticmethod
+    def symbolic(g, query, key, cos, sin, q_norm_weight, k_norm_weight, rope_cut_head_dim, q_norm_eps, k_norm_eps,
+                 q_norm, k_norm, name):
+        kwargs = {
+            "rope_cut_head_dim_i": rope_cut_head_dim,
+            "q_norm_eps_f": q_norm_eps,
+            "k_norm_eps_f": k_norm_eps,
+            "q_norm_i": q_norm,
+            "k_norm_i": k_norm,
+            "name_s": name,
+        }
+        query_output, key_output = g.op(
+            "LlmExporter::FusedRoPE",
+            query,
+            key,
+            cos,
+            sin,
+            q_norm_weight,
+            k_norm_weight,
+            **kwargs,
+            outputs=2,
+        )
+        query_output.setType(query.type())
+        key_output.setType(key.type())
+        return query_output, key_output
+
+    @staticmethod
+    def forward(ctx, query, key, cos, sin, q_norm_weight, k_norm_weight, rope_cut_head_dim, q_norm_eps, k_norm_eps,
+                q_norm, k_norm, name):
+        return query, key
+
+class FusedRoPE(torch.nn.Module):
+    def __init__(self, rope_cut_head_dim, name):
+        super(FusedRoPE, self).__init__()
+        self.rope_cut_head_dim = int(rope_cut_head_dim)
+        self.name = name
+
+    @staticmethod
+    def norm_eps(norm):
+        if hasattr(norm, 'variance_epsilon'):
+            return float(norm.variance_epsilon)
+        return float(norm.eps)
+
+    def forward(self, query, key, cos, sin, q_norm=None, k_norm=None):
+        q_norm_weight = query.new_empty((0,)) if q_norm is None else q_norm.weight
+        k_norm_weight = key.new_empty((0,)) if k_norm is None else k_norm.weight
+        q_norm_eps = 0.0 if q_norm is None else self.norm_eps(q_norm)
+        k_norm_eps = 0.0 if k_norm is None else self.norm_eps(k_norm)
+        return FusedRoPEOp.apply(
+            query,
+            key,
+            cos,
+            sin,
+            q_norm_weight,
+            k_norm_weight,
+            self.rope_cut_head_dim,
+            q_norm_eps,
+            k_norm_eps,
+            int(q_norm is not None),
+            int(k_norm is not None),
+            self.name,
+        )
+
 class MoEOp(torch.autograd.Function):
     @staticmethod
     def symbolic(g, hidden_states, routing_weights, selected_experts, num_experts, top_k, layer_id):

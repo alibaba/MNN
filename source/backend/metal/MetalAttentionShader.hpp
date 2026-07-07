@@ -936,6 +936,7 @@ struct Param {
     int dst_k_offset;
     int dst_v_offset;
     int batch;
+    int value_c4;
     float v_scale;
     float k_scale;
 };
@@ -953,6 +954,26 @@ struct Param {
 #else
 #define VOUT_TYPE ftype
 #endif
+
+static inline int value_c4_offset(int token, int channel, int seq_len) {
+    return (channel / 4) * seq_len * 4 + token * 4 + (channel % 4);
+}
+
+static inline ftype load_value(const device ftype* input, constant Param& param, int b, int y, int x) {
+    if (param.value_c4 != 0) {
+        int token = b * param.kv_seq_len + y;
+        return input[value_c4_offset(token, x, param.kv_seq_len * param.batch)];
+    }
+    return input[(b * param.kv_seq_len + y) * param.head_count + x];
+}
+
+static inline ftype4 load_value4(const device ftype* input, constant Param& param, int b, int y, int x) {
+    if (param.value_c4 != 0) {
+        int token = b * param.kv_seq_len + y;
+        return ((const device ftype4*)(input + value_c4_offset(token, x, param.kv_seq_len * param.batch)))[0];
+    }
+    return ((const device ftype4*)(input + (b * param.kv_seq_len + y) * param.head_count + x))[0];
+}
 
 
 kernel void copy(const device ftype* input0 [[buffer(0)]],
@@ -1009,7 +1030,7 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
             max_k = metal::max(max_k, k_max);
 #endif
 #ifdef KV_QUANT_V
-            float4 v4 = float4(((const device ftype4*)(input1 + in_idx))[0]);
+            float4 v4 = float4(load_value4(input1, param, b, y, x));
             float v_min = metal::min(metal::min(v4.x, v4.y), metal::min(v4.z, v4.w));
             float v_max = metal::max(metal::max(v4.x, v4.y), metal::max(v4.z, v4.w));
             min_v = metal::min(min_v, v_min);
@@ -1024,7 +1045,7 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
             max_k = metal::max(max_k, k);
 #endif
 #ifdef KV_QUANT_V
-            float v = (float)input1[in_idx];
+            float v = (float)load_value(input1, param, b, y, x);
             min_v = metal::min(min_v, v);
             max_v = metal::max(max_v, v);
 #endif
@@ -1138,8 +1159,9 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
 
         // Write V
         int out_idx_v = param.dst_v_offset + (b * param.head_count + x) * param.max_kv_len + y;
+        ftype4 v4 = load_value4(input1, param, b, y, x);
 #ifdef KV_QUANT_V
-        float4 v = float4(((const device ftype4*)(input1 + in_idx))[0]);
+        float4 v = float4(v4);
         if (v_scale == 0.0f) {
             output1[out_idx_v] = (char)0;
             output1[out_idx_v + param.max_kv_len] = (char)0;
@@ -1154,10 +1176,10 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
             output1[out_idx_v + param.max_kv_len * 3] = (char)qi.w;
         }
 #else
-        output1[out_idx_v] = input1[in_idx];
-        output1[out_idx_v + param.max_kv_len] = input1[in_idx + 1];
-        output1[out_idx_v + param.max_kv_len * 2] = input1[in_idx + 2];
-        output1[out_idx_v + param.max_kv_len * 3] = input1[in_idx + 3];
+        output1[out_idx_v] = v4.x;
+        output1[out_idx_v + param.max_kv_len] = v4.y;
+        output1[out_idx_v + param.max_kv_len * 2] = v4.z;
+        output1[out_idx_v + param.max_kv_len * 3] = v4.w;
 #endif
     }
     for (int x = vector_end + int(titg); x < param.head_count; x += int(tptg)) {
@@ -1179,8 +1201,9 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
 #endif
 
         int out_idx_v = param.dst_v_offset + (b * param.head_count + x) * param.max_kv_len + y;
+        ftype value = load_value(input1, param, b, y, x);
 #ifdef KV_QUANT_V
-        float v = (float)input1[in_idx];
+        float v = (float)value;
         if (v_scale == 0.0f) {
             output1[out_idx_v] = (char)0;
         } else {
@@ -1190,7 +1213,7 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
             output1[out_idx_v] = (char)qi;
         }
 #else
-        output1[out_idx_v] = input1[in_idx];
+        output1[out_idx_v] = value;
 #endif
     }
 #else
@@ -1218,8 +1241,9 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
 #endif
 
     int out_idx_v = param.dst_v_offset + (b * param.head_count + x) * param.max_kv_len + y;
+    ftype value = load_value(input1, param, b, y, x);
 #ifdef KV_QUANT_V
-    float v = (float)input1[in_idx];
+    float v = (float)value;
     if (param.v_scale == 0.0f) {
         output1[out_idx_v] = (char)0;
     } else {
@@ -1229,7 +1253,7 @@ kernel void copy(const device ftype* input0 [[buffer(0)]],
         output1[out_idx_v] = (char)qi;
     }
 #else
-    output1[out_idx_v] = input1[in_idx];
+    output1[out_idx_v] = value;
 #endif
 #endif
 }
@@ -1887,6 +1911,11 @@ struct Param {
     float k_scale;
 };
 #define SIMD_GROUP_WIDTH 32
+#ifdef SHORT_KV_128
+#define DECODE_QK_SOFTMAX_MAX_KV 128
+#else
+#define DECODE_QK_SOFTMAX_MAX_KV 2048
+#endif
 
 kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
     device ftype* output [[buffer(1)]],
@@ -1902,8 +1931,8 @@ kernel void decode_qk_softmax(const device ftype* input0 [[buffer(0)]],
     uint sgitg[[simdgroup_index_in_threadgroup]],
     uint3 tptg_3d[[threads_per_threadgroup]]
 ) {
-    threadgroup float scores0[2048];
-    threadgroup float scores1[2048];
+    threadgroup float scores0[DECODE_QK_SOFTMAX_MAX_KV];
+    threadgroup float scores1[DECODE_QK_SOFTMAX_MAX_KV];
     threadgroup float reduce0[32];
     threadgroup float reduce1[32];
 

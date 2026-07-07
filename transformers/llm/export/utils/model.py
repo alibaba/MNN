@@ -27,6 +27,28 @@ class LlmModel(PreTrainedModel):
     def _init_weights(self, module):
         pass
 
+    @staticmethod
+    def _sanitize_skip_weight_tensors(model):
+        # Some small parameters remain ONNX Consts even in skeleton mode; keep them finite for JSON export.
+        def fill_tensor(name, tensor):
+            if tensor is None or getattr(tensor, "is_meta", False):
+                return
+            if not tensor.is_floating_point() or tensor.dim() > 1:
+                return
+            try:
+                with torch.no_grad():
+                    if name.endswith("weight") or name.endswith("gamma") or "scale" in name:
+                        tensor.fill_(1.0)
+                    else:
+                        tensor.zero_()
+            except (NotImplementedError, RuntimeError):
+                pass
+
+        for name, param in model.named_parameters():
+            fill_tensor(name, param)
+        for name, buffer in model.named_buffers():
+            fill_tensor(name, buffer)
+
     def get_config(self):
         llm_config = {}
         models = ['visual', 'audio', 'talker']
@@ -67,6 +89,7 @@ class LlmModel(PreTrainedModel):
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, args=None, **kwargs):
         config = LlmConfig.from_pretrained(pretrained_model_name_or_path, **kwargs)
+        config.export_args = args
         model_type = config.model_type
         model_class = cls.get_model_class(model_type)
 
@@ -95,6 +118,7 @@ class LlmModel(PreTrainedModel):
                 else:
                     original_model = AutoModelForCausalLM.from_config(original_config, trust_remote_code=True)
                 original_model.to_empty(device="cpu")
+                cls._sanitize_skip_weight_tensors(original_model)
         elif model_type == 'lfm2_audio':
             # LFM2-Audio uses liquid_audio package, not standard HF class
             from pathlib import Path

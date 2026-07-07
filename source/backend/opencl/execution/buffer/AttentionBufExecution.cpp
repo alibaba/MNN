@@ -607,6 +607,9 @@ ErrorCode AttentionBufExecution::longPrefillResize(const std::vector<Tensor*>& i
     // rearrange qkv
     {
         std::set<std::string> buildOption;
+        if (TensorUtils::getDescribe(value)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+            buildOption.emplace("-DVALUE_C4");
+        }
         if ((headDim % 4) != 0) {
             buildOption.emplace("-DHEADDIM_LEAVE");
         }
@@ -1356,6 +1359,9 @@ ErrorCode AttentionBufExecution::prefillResize(const std::vector<Tensor*>& input
         std::set<std::string> buildOption;
 
         buildOption.emplace("-DOPENCL_PREFILL_ATTENTION");
+        if (TensorUtils::getDescribe(value)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+            buildOption.emplace("-DVALUE_C4");
+        }
         mKernel_rearrangeV = runtime->buildKernel("attention_buf", "rearrange_v", buildOption,
                                                   mOpenCLBackend->getPrecision(), inputs[0], outputs[0]);
         auto maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel_rearrangeV));
@@ -1623,6 +1629,9 @@ ErrorCode AttentionBufExecution::decodeResize(const std::vector<Tensor*>& inputs
         // rearrange value
         std::set<std::string> buildOption;
 
+        if (TensorUtils::getDescribe(value)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+            buildOption.emplace("-DVALUE_C4");
+        }
         mKernel_rearrangeV = runtime->buildKernel("attention_buf", "rearrange_v", buildOption,
                                                   mOpenCLBackend->getPrecision(), inputs[0], outputs[0]);
         auto maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel_rearrangeV));
