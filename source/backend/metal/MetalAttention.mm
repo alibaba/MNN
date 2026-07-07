@@ -11,6 +11,7 @@
 #import "MetalAttentionShader.hpp"
 #import "MetalSoftmaxShader.hpp"
 #import "MetalAttention.hpp"
+#include "core/TensorUtils.hpp"
 
 #if MNN_METAL_ENABLED
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
@@ -42,6 +43,7 @@ struct CopyParam {
     int dst_k_offset;
     int dst_v_offset;
     int batch;
+    int value_c4;
     float v_scale;
     float k_scale;
 };
@@ -239,6 +241,9 @@ void AttentionBufExecution::compilerShader(const std::vector<Tensor*>& inputs) {
     if (mDecodeQkSoftmax) {
         std::string head_dim_str = std::to_string(mHeadDim);
         std::vector<std::string> keys = {"decode_qk_softmax", ftype, group_str, "HEAD_DIM_" + head_dim_str};
+        if (mKvSeqLen <= 128) {
+            keys.emplace_back("SHORT_KV_128");
+        }
         if (mQuantKey) {
             keys.emplace_back("QUANT_K");
             if (dynamicQuantK) {
@@ -430,8 +435,9 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
     mQkvSimdReduce = supportSimdReduce && mShortSeq && mHeadDim * mNumHead < mKvSeqLen * 32;
     mQkvSimdMatrix = supportSimdMatrix && mSeqLen >= 16;
     mCopySimdReduce = mKVCache && supportSimdReduce && mKVCacheManager->useDynamicScaleBuffer();
+    bool trivialFloatMask = mHasMask && mIsAddMask && mSeqLen == 1 && inputs[3]->elementSize() == 1;
     mDecodeQkSoftmax = mKVCache && mShortSeq && mSeqLen <= 8 &&
-                       !mHasMask && !mKvInDisk &&
+                       (!mHasMask || trivialFloatMask) && !mKvInDisk &&
                        group_size == 2 && mHeadDim % 8 == 0 && mKvSeqLen <= 2048;
 
     // start to compile attention shaders
@@ -453,6 +459,8 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
         copyp->dst_k_offset = pastLength * copyp->head_count;
         copyp->dst_v_offset = pastLength;
         copyp->batch = mBatch;
+        copyp->value_c4 =
+            TensorUtils::getDescribe(value)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ? 1 : 0;
         if (mQuantValue && mKVQuantParameter != nullptr) {
             copyp->v_scale = mKVQuantParameter->vScale;
         } else {
@@ -538,7 +546,7 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
             }
             int qkGroups = mBatch * (mNumHead / group_size) * seqLenPiece;
             int maxLocalSize = ALIMAX(32, ((int)mKernel_qk_softmax.maxTotalThreadsPerThreadgroup / 32) * 32);
-            int localSize = qkGroups <= 8 ? ALIMIN(1024, maxLocalSize) :
+            int localSize = qkGroups <= 8 ? ALIMIN(maxLocalSize, ALIMAX(128, ROUND_UP(mKvSeqLen, 32))) :
                             ALIMIN(maxLocalSize, ALIMAX(64, ROUND_UP(UP_DIV(mKvSeqLen, 6), 32)));
             auto gl = std::make_pair(MTLSizeMake(mBatch * (mNumHead / group_size), seqLenPiece, 1), MTLSizeMake(localSize, 1, 1));
             [encoder dispatchThreadgroups:gl.first threadsPerThreadgroup:gl.second];

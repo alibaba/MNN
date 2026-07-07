@@ -643,6 +643,7 @@ bool Cli::convertModel(modelConfig& modelPath) {
     if (1 == modelPath.optimizeLevel && modelPath.model == modelConfig::MNN) {
         expectedPass = {
             "TranslateJsonOp",
+            "FuseTransformerC4",
             "FuseDupOp",
             "RemoveInvalidCast",
         };

@@ -31,9 +31,18 @@ private:
     void _clear();
     std::vector<std::pair<Tensor*, BlitInfo>> mTempInputCopy;
     bool mNeedZero = false;
+    bool mFastC4ToNCHW = false;
+    bool mFastRawCopy = false;
+    Tensor* mFastInput = nullptr;
     Tensor* mOutputPtr = nullptr;
     std::vector<id<MTLComputePipelineState>> mBlitPipeline;
     id<MTLBuffer> mZeroCopy = nil;
+    id<MTLBuffer> mFastC4ToNCHWParam = nil;
+    id<MTLBuffer> mFastRawCopyParam = nil;
+    id<MTLComputePipelineState> mFastC4ToNCHWPipeline = nil;
+    id<MTLComputePipelineState> mFastRawCopyPipeline = nil;
+    std::pair<MTLSize, MTLSize> mFastC4ToNCHWThreads;
+    std::pair<MTLSize, MTLSize> mFastRawCopyThreads;
     id<MTLComputePipelineState> mZeroPipeline;
 };
 

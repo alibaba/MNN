@@ -10,30 +10,21 @@
         return;                                                                                   \
     }
 
-__kernel void rope_buf(GLOBAL_SIZE_3_DIMS
-                       __global const FLOAT *q,
-                       __global const FLOAT *k,
-                       __global const FLOAT *cosEven,
-                       __global const FLOAT *cosOdd,
-                       __global const FLOAT *sinEven,
-                       __global const FLOAT *sinOdd,
-                       __global FLOAT *q_out,
-                       __global FLOAT *k_out,
-                       __private const int outerSize,
-                       __private const int halfD,
-                       __private const int ropeHalfD,
-                       __private const int headDim,
-                       __private const int numHead,
-                       __private const int kvNumHead
+#define C4_OFFSET(token, channel, seqLen) (((channel) / 4) * (seqLen) * 4 + (token) * 4 + ((channel) % 4))
+
+__kernel void rope_buf(GLOBAL_SIZE_3_DIMS __global const FLOAT* q, __global const FLOAT* k, __global const FLOAT* cos,
+                       __global const FLOAT* sin, __global FLOAT* q_out, __global FLOAT* k_out,
+                       __private const int outerSize, __private const int halfD, __private const int ropeHalfD,
+                       __private const int headDim, __private const int numHead, __private const int kvNumHead
 #ifdef Q_NORM
-                       , __global const float *qGamma
-                       , __private const float qEps
+                       ,
+                       __global const float* qGamma, __private const float qEps
 #endif
 #ifdef K_NORM
-                       , __global const float *kGamma
-                       , __private const float kEps
+                       ,
+                       __global const float* kGamma, __private const float kEps
 #endif
-                       ) {
+) {
     const int x = get_global_id(0);
     const int y = get_global_id(1);
     const int z = get_global_id(2);
@@ -52,14 +43,15 @@ __kernel void rope_buf(GLOBAL_SIZE_3_DIMS
 
     const int D = headDim;
     bool isQ = (z < numHead);
-    __global const FLOAT *in_ptr = isQ ? (q + (y * numHead + z) * D) : (k + (y * kvNumHead + z - numHead) * D);
-    __global FLOAT *out_ptr = isQ ? (q_out + (y * numHead + z) * D) : (k_out + (y * kvNumHead + z - numHead) * D);
+    __global const FLOAT* in_ptr = isQ ? q : k;
+    const int inBase = isQ ? (z * D) : ((z - numHead) * D);
+    __global FLOAT* out_ptr = isQ ? (q_out + (y * numHead + z) * D) : (k_out + (y * kvNumHead + z - numHead) * D);
 
     float var = 0.0f;
 #ifdef Q_NORM
     if (isQ) {
         for (int i = 0; i < D; ++i) {
-            float val = (float)in_ptr[i];
+            float val = (float)in_ptr[C4_OFFSET(y, inBase + i, outerSize)];
             var += val * val;
         }
         var = 1.0f / sqrt(var / D + qEps);
@@ -68,7 +60,7 @@ __kernel void rope_buf(GLOBAL_SIZE_3_DIMS
 #ifdef K_NORM
     if (!isQ) {
         for (int i = 0; i < D; ++i) {
-            float val = (float)in_ptr[i];
+            float val = (float)in_ptr[C4_OFFSET(y, inBase + i, outerSize)];
             var += val * val;
         }
         var = 1.0f / sqrt(var / D + kEps);
@@ -77,14 +69,14 @@ __kernel void rope_buf(GLOBAL_SIZE_3_DIMS
 
 #if defined(Q_NORM) || defined(K_NORM)
     for (int i = 0; i < halfD; ++i) {
-        const int cosIndex = y * halfD + i;
-        FLOAT cEven = cosEven[cosIndex];
-        FLOAT cOdd = cosOdd[cosIndex];
-        FLOAT sEven = sinEven[cosIndex];
-        FLOAT sOdd = sinOdd[cosIndex];
+        const int cosIndex = y * headDim + i;
+        FLOAT cEven = cos[cosIndex];
+        FLOAT cOdd = cos[cosIndex + halfD];
+        FLOAT sEven = sin[cosIndex];
+        FLOAT sOdd = sin[cosIndex + halfD];
 
-        FLOAT evenVal = in_ptr[i];
-        FLOAT oddVal = in_ptr[i + halfD];
+        FLOAT evenVal = in_ptr[C4_OFFSET(y, inBase + i, outerSize)];
+        FLOAT oddVal = in_ptr[C4_OFFSET(y, inBase + i + halfD, outerSize)];
 #ifdef Q_NORM
         if (isQ) {
             evenVal = (FLOAT)((float)evenVal * var * qGamma[i]);
@@ -109,14 +101,14 @@ __kernel void rope_buf(GLOBAL_SIZE_3_DIMS
         }
     }
 #else
-    const int cosIndex = y * halfD + x;
-    FLOAT cEven = cosEven[cosIndex];
-    FLOAT cOdd = cosOdd[cosIndex];
-    FLOAT sEven = sinEven[cosIndex];
-    FLOAT sOdd = sinOdd[cosIndex];
+    const int cosIndex = y * headDim + x;
+    FLOAT cEven = cos[cosIndex];
+    FLOAT cOdd = cos[cosIndex + halfD];
+    FLOAT sEven = sin[cosIndex];
+    FLOAT sOdd = sin[cosIndex + halfD];
 
-    FLOAT evenVal = in_ptr[x];
-    FLOAT oddVal = in_ptr[x + halfD];
+    FLOAT evenVal = in_ptr[C4_OFFSET(y, inBase + x, outerSize)];
+    FLOAT oddVal = in_ptr[C4_OFFSET(y, inBase + x + halfD, outerSize)];
 
     if (x < ropeHalfD) {
         FLOAT v0 = evenVal * cEven - oddVal * sEven;
