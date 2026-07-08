@@ -809,13 +809,6 @@ size_t CPUKVCacheManager::keyIndex(int seq, int dim) const {
            (dim % lP);
 }
 
-// size_t CPUKVCacheManager::valueIndex(int seq, int dim) const {
-//     return (dim / hP) * ROUND_UP(mMaxLength, lP) * hP +
-//            (seq / lP) * hP * lP +
-//            (dim % hP) * lP +
-//            (seq % lP);
-// }
-
 size_t CPUKVCacheManager::valueIndex(int seq, int dim) const {
     auto stride1 = UP_DIV((int32_t)mFlashAttentionUpperKv, lP) * hP * lP;
     auto stride0 = stride1 * UP_DIV(mHeadDim, hP);
