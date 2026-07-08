@@ -385,7 +385,7 @@ const std::map<std::string, std::string> OpenCLProgramMd5Map = {
     {"binary_subgroup_buf", "8444f988543cd4a4d9b124442f02f999"},
     {"depthwise_conv2d_subgroup_buf", "3e37457e72b7e629655aa04bd03e559e"},
     {"nearest", "e8b2081c5e50ae6d370989f816cda543"},
-    {"rope_buf", "bc211ff80619392e567e1bb9b1a2c80f"},
+    {"rope_buf", "53bf78d17da88a70d89f769ef16dbda7"},
     {"pooling_subgroup_buf", "9c935c0caabe2ee20822fcfd7722472e"},
     {"pooling_buf", "806c95095431e361be2af7f4e9eae65e"},
     {"winogradTransformSource2_5_1", "f0ee12556faf4fe0222e2a4e64c53c5c"},
