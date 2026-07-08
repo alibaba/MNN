@@ -33,88 +33,72 @@
 namespace MNN {
 
 #ifdef MNN_KLEIDIAI_ENABLED
+#ifdef MNN_LOW_MEMORY
+// Try to build a KleidiAI int4 dynamic-quant convolution. Returns nullptr when unsupported.
+static Execution* _createKleidiAIConvInt8(Backend* backend, const Op* op,
+                                          std::shared_ptr<ConvolutionCommon::Int8Common> weightQuantInfo) {
+    if (!weightQuantInfo->canUseInt4) {
+        return nullptr;
+    }
+    auto common = op->main_as_Convolution2D()->common();
+    auto core   = static_cast<CPUBackend*>(backend)->functions();
+    int oc      = common->outputCount();
+    int ic      = common->inputCount();
+
+    int dequantCnt = weightQuantInfo->alphaSize;
+    if (weightQuantInfo->asymmetric) {
+        dequantCnt /= 2;
+    }
+    int blockNum   = dequantCnt / oc;
+    size_t blkSize = blockNum == 1 ? 0 : ic / blockNum;
+
+    auto kernelType = KleidiAIConvInt8::getKernelType(4, weightQuantInfo->asymmetric, blkSize, core->bytes);
+    if (!KleidiAIConvInt8::isSupported(kernelType, common)) {
+        return nullptr;
+    }
+    return new KleidiAIConvInt8(backend, op, weightQuantInfo, true, kernelType, blockNum);
+}
+#endif // MNN_LOW_MEMORY
+
 static Execution* _createKleidiAIUnit(const Tensor* input, const Tensor* output, Backend* backend, const Op* op,
                                       const float* originWeight, size_t originWeightSize, const float* bias,
                                       size_t biasSize, std::shared_ptr<ConvolutionCommon::Int8Common> weightQuantInfo,
                                       bool supportSparse, bool lowMemory) {
     auto cpuBackend = (CPUBackend*)backend;
-    auto conv2d     = op->main_as_Convolution2D();
-    auto common     = conv2d->common();
+    auto common     = op->main_as_Convolution2D()->common();
+    bool memoryLow  = cpuBackend->memoryMode() == BackendConfig::Memory_Low;
 
-    bool fastWay = common->kernelY() == 1 && common->kernelX() == 1 && output->width() == input->width() &&
-                   output->height() == input->height() && common->strideX() == 1 && common->strideY() == 1;
-
-#ifdef MNN_LOW_MEMORY
-    if (lowMemory && nullptr != weightQuantInfo.get() && originWeightSize == 0) {
-        if (cpuBackend->memoryMode() == BackendConfig::Memory_Low) {
-            do {
-                if (!weightQuantInfo->canUseInt4) {
-                    break;
-                }
-                auto convOp = op->main_as_Convolution2D();
-                auto core   = static_cast<CPUBackend*>(backend)->functions();
-                int oc      = convOp->common()->outputCount();
-                int ic      = convOp->common()->inputCount();
-
-                int blockNum   = 1;
-                int dequantCnt = weightQuantInfo->alphaSize;
-                if (weightQuantInfo->asymmetric) {
-                    dequantCnt /= 2;
-                }
-                blockNum = dequantCnt / oc;
-
-                bool bAsym     = weightQuantInfo->asymmetric;
-                size_t blkSize = blockNum == 1 ? 0 : ic / blockNum;
-
-                KleidiAI::AccelType accelType = KleidiAI::getQIntAccelType(4, bAsym, blkSize, core->bytes);
-
-                KleidiAI& kai = KleidiAI::getInstance(*MNNGetCPUInfo());
-                if (!kai.canAccelerate(accelType, convOp->common())) {
-                    break;
-                }
-
-                if (!kai.isLoaded(accelType)) {
-                    kai.setLoaded(accelType);
-                    kai.printInfo(accelType);
-                }
-
-                return new KleidiAIConvInt8(backend, op, weightQuantInfo, true, kai, accelType, blockNum);
-            } while (0);
-        }
-
-        // Have not supported the quantized weight.
-        return nullptr;
-    }
-#else
-    if (cpuBackend->memoryMode() == BackendConfig::Memory_Low) {
+    auto createDense = [&]() -> Execution* {
         if (MNNGetCPUInfo()->sme2 && !weightQuantInfo) {
             return new KleidiAIDenseConvolution(common, backend, originWeight, originWeightSize, bias, biasSize,
                                                 weightQuantInfo);
         }
-
-        // Do nothing and fallback.
         return nullptr;
+    };
+
+#ifdef MNN_LOW_MEMORY
+    // Quantized weight is only handled in Memory_Low mode; otherwise it is unsupported here.
+    if (lowMemory && nullptr != weightQuantInfo.get() && originWeightSize == 0) {
+        return memoryLow ? _createKleidiAIConvInt8(backend, op, weightQuantInfo) : nullptr;
+    }
+#else
+    if (memoryLow) {
+        return createDense();
     }
 #endif
 
-    // This is different with original impl. It's a corresponding impl for strassen,
-    // which is called when built without MNN_REDUCE_SIZE. But for KleidiAI,
-    // need not to care about this.
+    bool fastWay = common->kernelY() == 1 && common->kernelX() == 1 && output->width() == input->width() &&
+                   output->height() == input->height() && common->strideX() == 1 && common->strideY() == 1;
+
+    // Original impl has a strassen path here (built without MNN_REDUCE_SIZE); KleidiAI need not care about it.
     if (fastWay && cpuBackend->functions()->matmulBytes == 0) {
-        auto bytes     = cpuBackend->functions()->bytes;
-        auto accelType = (bytes == 2) ? KleidiAI::AccelType::FP16 : KleidiAI::AccelType::FP32;
-        KleidiAI& kai  = KleidiAI::getInstance(*MNNGetCPUInfo());
-        if (kai.canAccelerate(accelType)) {
+        bool bFP16 = cpuBackend->functions()->bytes == 2;
+        if (KleidiAIConvolution::isSupported(bFP16)) {
             return new KleidiAIConvolution(common, backend, originWeight, originWeightSize, bias, biasSize);
         }
     }
 
-    if (MNNGetCPUInfo()->sme2 && !weightQuantInfo) {
-        return new KleidiAIDenseConvolution(common, backend, originWeight, originWeightSize, bias, biasSize,
-                                            weightQuantInfo);
-    }
-
-    return nullptr;
+    return createDense();
 }
 #endif //MNN_KLEIDIAI_ENABLED
 
