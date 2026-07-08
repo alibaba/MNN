@@ -776,6 +776,60 @@ static void _sampleBilinearCommon(const unsigned char* source, unsigned char* de
     }
 }
 
+static inline float _cubicWeight(float x) {
+    const float a = -0.5f;
+    x = ::fabsf(x);
+    if (x <= 1.0f) {
+        return ((a + 2.0f) * x - (a + 3.0f)) * x * x + 1.0f;
+    }
+    if (x < 2.0f) {
+        return ((a * x - 5.0f * a) * x + 8.0f * a) * x - 4.0f * a;
+    }
+    return 0.0f;
+}
+
+static void _sampleCubicCommon(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t count,
+                               size_t iw, size_t ih, size_t yStride, size_t bpp) {
+    float dy   = points[1].fY;
+    float dx   = points[1].fX;
+    float xMax = iw - 1;
+    float yMax = ih - 1;
+
+    MNN::CV::Point curPoints;
+    curPoints.fX = points[0].fX;
+    curPoints.fY = points[0].fY;
+    for (int i = 0; i < count; ++i) {
+        float y = __clamp(curPoints.fY, 0, yMax);
+        float x = __clamp(curPoints.fX, 0, xMax);
+        int xBase = (int)floorf(x);
+        int yBase = (int)floorf(y);
+        float xF = x - (float)xBase;
+        float yF = y - (float)yBase;
+
+        float wx[4], wy[4];
+        for (int k = 0; k < 4; ++k) {
+            wx[k] = _cubicWeight((float)(k - 1) - xF);
+            wy[k] = _cubicWeight((float)(k - 1) - yF);
+        }
+
+        for (int b = 0; b < bpp; ++b) {
+            float v = 0.0f;
+            for (int ky = 0; ky < 4; ++ky) {
+                int sy = std::max(0, std::min((int)yMax, yBase + ky - 1));
+                float wyv = wy[ky];
+                for (int kx = 0; kx < 4; ++kx) {
+                    int sx = std::max(0, std::min((int)xMax, xBase + kx - 1));
+                    v += wyv * wx[kx] * source[sy * yStride + bpp * sx + b];
+                }
+            }
+            v = std::min(std::max(v, 0.0f), 255.0f);
+            dest[bpp * i + b] = (unsigned char)roundf(v);
+        }
+        curPoints.fY += dy;
+        curPoints.fX += dx;
+    }
+}
+
 void MNNSamplerC4Bilinear(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t sta,
                           size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride) {
 #ifdef MNN_USE_NEON
@@ -795,6 +849,18 @@ void MNNSamplerC1Bilinear(const unsigned char* source, unsigned char* dest, MNN:
 #else
     _sampleBilinearCommon(source, dest + sta, points, count, iw, ih, yStride, 1);
 #endif
+}
+void MNNSamplerC4Cubic(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t sta,
+                       size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride) {
+    _sampleCubicCommon(source, dest + 4 * sta, points, count, iw, ih, yStride, 4);
+}
+void MNNSamplerC3Cubic(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t sta,
+                       size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride) {
+    _sampleCubicCommon(source, dest + 3 * sta, points, count, iw, ih, yStride, 3);
+}
+void MNNSamplerC1Cubic(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t sta,
+                       size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride) {
+    _sampleCubicCommon(source, dest + sta, points, count, iw, ih, yStride, 1);
 }
 void MNNSamplerNearest(const unsigned char* source, unsigned char* dest, MNN::CV::Point* points, size_t sta, size_t count,
                        size_t iw, size_t ih, size_t yStride, int bpp) {

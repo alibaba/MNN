@@ -6,6 +6,7 @@
 //
 
 #include "llm/llm.hpp"
+#include "omni.hpp"
 #include "llmconfig.hpp"
 #include "tokenizer/tokenizer.hpp"
 #include "diskembedding.hpp"
@@ -31,7 +32,8 @@ float Embedding::cos_sim(VARP var0, VARP var1) {
 
 Embedding* Embedding::createEmbedding(const std::string& config_path, bool load) {
     std::shared_ptr<LlmConfig> config(new LlmConfig(config_path));
-    Embedding* embedding = new Embedding(config);
+    Embedding* embedding = config->is_visual() ? static_cast<Embedding*>(new Omni(config))
+                                               : new Embedding(config);
     if (load) {
         embedding->load();
     }
@@ -53,11 +55,8 @@ bool Embedding::load() {
     }
 
     initRuntime();
-    printf("load tokenizer\n");
-    std::cout << mConfig->tokenizer_file() << std::endl;
     // 1. load vocab
     mTokenizer.reset(Tokenizer::createTokenizer(mConfig->tokenizer_file()));
-    printf("load tokenizer Done\n");
     mDiskEmbedding.reset(new DiskEmbedding(mConfig));
     setChatTemplate();
     // 2. load model
@@ -69,9 +68,12 @@ bool Embedding::load() {
     }
     module_config.rearrange    = true;
     auto model_path            = mConfig->llm_model();
+    auto weight_path           = mConfig->llm_weight();
     MNN_PRINT("load %s ... ", model_path.c_str());
+    mRuntimeManager->setExternalFile(weight_path);
     mModule.reset(Module::load({"input_ids", "attention_mask", "position_ids"}, {"sentence_embeddings"},
                                    model_path.c_str(), mRuntimeManager, &module_config));
+    mRuntimeManager->setExternalFile("");
     if (nullptr == mModule.get()) {
         return false;
     }

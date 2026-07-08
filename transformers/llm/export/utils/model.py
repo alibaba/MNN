@@ -1,3 +1,4 @@
+import os
 import torch
 import importlib
 from packaging.version import Version
@@ -66,6 +67,7 @@ class LlmModel(PreTrainedModel):
             'qwen3_5_moe': 'Qwen3_5MoeForConditionalGeneration',
             'qwen3_vl': 'Qwen3VLForConditionalGeneration',
             'qwen3_vl_moe': 'Qwen3VLMoeForConditionalGeneration',
+            'qwen3_asr': 'AutoModel',
             'qwen2_5_omni': 'Qwen2_5OmniForConditionalGeneration',
             'qwen2_5_vl': 'Qwen2_5_VLForConditionalGeneration',
             'qwen2_vl': 'Qwen2VLForConditionalGeneration',
@@ -518,6 +520,8 @@ class EmbeddingModel(LlmModel):
     def from_pretrained(cls, pretrained_model_name_or_path, args=None, **kwargs):
         config = AutoConfig.from_pretrained(pretrained_model_name_or_path, trust_remote_code=True)
         model_type = config.model_type
+        if model_type == 'qwen3_vl':
+            return cls._from_qwen3_vl_embedding(pretrained_model_name_or_path, args=args, **kwargs)
         if model_type == 'qwen3':
             model = super(EmbeddingModel, cls).from_pretrained(pretrained_model_name_or_path, args=args).float().eval()
             return model
@@ -555,13 +559,66 @@ class EmbeddingModel(LlmModel):
             rope._set_cos_sin_cache(max_pos, rope.inv_freq.device, torch.float32)
         return model
 
-    def forward(self, inputs_embeds, attention_mask, position_ids):
+    @classmethod
+    def _from_qwen3_vl_embedding(cls, pretrained_model_name_or_path, args=None, **kwargs):
+        from safetensors.torch import load_file
+        from accelerate import init_empty_weights
+        from transformers.models.qwen3_vl.modeling_qwen3_vl import Qwen3VLModel
+
+        class Qwen3VLForEmbeddingWrapper(torch.nn.Module):
+            def __init__(self, cfg):
+                super().__init__()
+                self.model = Qwen3VLModel(cfg)
+
+        config = LlmConfig.from_pretrained(pretrained_model_name_or_path, **kwargs)
+        origin_config = AutoConfig.from_pretrained(pretrained_model_name_or_path, trust_remote_code=True)
+        origin_config._attn_implementation = 'eager'
+        skip_weight = args is not None and hasattr(args, 'skip_weight') and args.skip_weight
+        if skip_weight:
+            with init_empty_weights():
+                original_model = Qwen3VLForEmbeddingWrapper(origin_config)
+                original_model.to_empty(device='cpu')
+        else:
+            original_model = Qwen3VLForEmbeddingWrapper(origin_config)
+            model_file = os.path.join(pretrained_model_name_or_path, 'model.safetensors')
+            state_dict = load_file(model_file)
+            missing, unexpected = original_model.load_state_dict(state_dict, strict=False)
+            if missing or unexpected:
+                raise RuntimeError(f'Failed to load qwen3_vl embedding checkpoint correctly. missing={missing[:8]}, unexpected={unexpected[:8]}')
+            original_model = original_model.eval()
+
+        original_model = original_model.float()
+        model = cls(config, args)
+        ModelMapper.do_map(model, original_model, config.model_map['model'])
+
+        model.tokenizer = LlmTokenizer.from_pretrained(
+            pretrained_model_name_or_path,
+            model_type=config.model_type
+        )
+        model.embed = Embedding(model.embed, config)
+        model.rotary = Rotary(config)
+        model.rotary_sliding = None
+        model.rotary_full = None
+        model.blocks = torch.nn.ModuleList([
+            Decoder(block, i, config, model.rotary, config.model_map) for i, block in enumerate(model.blocks.children())
+        ])
+        if model.visual is not None:
+            from utils.vision import Vision
+            vision_cls = Vision.get_vision(config.model_type)
+            model.visual = vision_cls(model.visual.float(), model).float() if vision_cls is not None else None
+        model.hidden_size = config.hidden_size
+        model.num_hidden_layers = len(model.blocks)
+        return model
+
+    def forward(self, inputs_embeds, attention_mask, position_ids, deepstack_embeds=None):
         if self.config.model_type == 'bert':
             return self.bge_forward(inputs_embeds, attention_mask, position_ids)
         if self.config.model_type == 'new':
             return self.gte_forward(inputs_embeds, attention_mask, position_ids)
         if self.config.model_type == 'qwen3':
             return self.qwen3_forward(inputs_embeds, attention_mask, position_ids)
+        if self.config.model_type == 'qwen3_vl':
+            return self.qwen3_vl_forward(inputs_embeds, attention_mask, position_ids, deepstack_embeds)
         raise RuntimeError(f'Not support embedding model: {self.config.model_type}!')
 
     def word_embed(self, input_ids):
@@ -618,10 +675,29 @@ class EmbeddingModel(LlmModel):
         last_hidden_states = self.final_layernorm(last_hidden_states)
         return last_hidden_states
 
-    def get_position_ids(self, seq_len) -> torch.Tensor:
+    def qwen3_vl_forward(self, inputs_embeds, attention_mask, position_ids, deepstack_embeds=None):
+        hidden_states = inputs_embeds
+        rotary_pos_emb = self.rotary(position_ids)
+        if rotary_pos_emb.dtype != hidden_states.dtype:
+            rotary_pos_emb = rotary_pos_emb.to(hidden_states.dtype)
+        if attention_mask.dtype not in (torch.bool, torch.int32) and attention_mask.dtype != hidden_states.dtype:
+            attention_mask = attention_mask.to(hidden_states.dtype)
+        if deepstack_embeds is not None and deepstack_embeds.dtype != hidden_states.dtype:
+            deepstack_embeds = deepstack_embeds.to(hidden_states.dtype)
+        for i in range(len(self.blocks)):
+            hidden_states = self.blocks[i](hidden_states, rotary_pos_emb, attention_mask)
+            if deepstack_embeds is not None and i in range(deepstack_embeds.shape[0]):
+                hidden_states += deepstack_embeds[i]
+        last_hidden_states = hidden_states[:, -1, :]
+        last_hidden_states = self.final_layernorm(last_hidden_states)
+        return torch.nn.functional.normalize(last_hidden_states, p=2, dim=1)
+
+    def get_position_ids(self, seq_len, input_ids=None) -> torch.Tensor:
+        if self.config.model_type == 'qwen3_vl' and self.visual is not None:
+            return super().get_position_ids(seq_len, 0, input_ids)
         return torch.arange(seq_len, dtype=torch.long).unsqueeze(0)
 
     def get_attention_mask(self, seq_len) -> torch.Tensor:
-        if self.config.model_type == 'qwen3':
+        if self.config.model_type in ('qwen3', 'qwen3_vl'):
             return super().get_attention_mask(seq_len, 0)
         return torch.ones([1, 1, seq_len, seq_len], dtype=torch.float)

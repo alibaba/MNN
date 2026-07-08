@@ -177,6 +177,20 @@ SAMPLER ImageProcessUtils::choose(ImageFormat format, Filter type, bool identity
                 break;
         }
     }
+    if (FilterType_BICUBIC == filterType) {
+        switch (formatType) {
+            case ImageFormatType_RGBA:
+            case ImageFormatType_BGRA:
+                return MNNSamplerC4Cubic;
+            case ImageFormatType_GRAY:
+                return MNNSamplerC1Cubic;
+            case ImageFormatType_RGB:
+            case ImageFormatType_BGR:
+                return MNNSamplerC3Cubic;
+            default:
+                break;
+        }
+    }
 
     // Nearest
     switch (formatType) {
