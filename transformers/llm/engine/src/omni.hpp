@@ -87,6 +87,7 @@ public:
     VARP token2wav(const std::vector<int>& codec_tokens);
     void token2wav(bool talker_done = false);
     void generate();
+    bool generateQwen3TTS(const std::string& prompt, int maxFrames, const std::string& refAudio);
     void stepPrefill();
     void stepForward(int stepIdx);
     void finalize();
@@ -107,8 +108,11 @@ private:
     MropeInfo mPositionIds;
     std::vector<VARP> mTalkerEmbeds;
     std::shared_ptr<Module> mPreDit, mDit, mBigvgan;
+    std::shared_ptr<Module> mQwen3PromptEmbedder, mQwen3CodePredictor, mQwen3CodecEmbedder, mQwen3SpeechDecoder;
+    std::shared_ptr<Module> mQwen3SpeakerEncoder;
+    std::shared_ptr<DiskEmbedding> mQwen3TextEmbedding, mQwen3CodePredictorEmbedding;
     Llm* mThinker;
-    std::shared_ptr<Executor::RuntimeManager> mProcessorRuntimeManager;
+    std::shared_ptr<Executor::RuntimeManager> mProcessorRuntimeManager, mQwen3RuntimeManager;
     // stream generate
     std::vector<float> mInitialNoise, mWaveformBuffer;
     VARP mMelBuffer = nullptr;
@@ -143,7 +147,7 @@ private:
     VARP mSpk_async, mCond_async;
 };
 
-class Omni : public Llm {
+class Omni : public Embedding {
 public:
     Omni(std::shared_ptr<LlmConfig> config);
     ~Omni() {
@@ -151,7 +155,7 @@ public:
         mAudioModule.reset();
     }
     virtual bool load() override;
-    virtual std::vector<Express::VARP> forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos, Express::VARPS extraArgs) override;
+    virtual std::vector<Express::VARP> forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos, Express::VARPS extraArgs = {}) override;
     virtual std::vector<int> tokenizer_encode(const std::string& query) override;
     virtual std::vector<int> tokenizer_encode(const MultimodalPrompt& multimodal_input) override;
     virtual Express::VARP embedding(const std::vector<int>& input_ids) override;
@@ -159,6 +163,10 @@ public:
     virtual void response(const std::vector<int>& input_ids, std::ostream* os = &std::cout, const char* end_with = nullptr, int max_new_tokens = -1) override;
     virtual void setWavformCallback(std::function<bool(const float*, size_t, bool)> callback) override;
     virtual void generateWavform() override;
+    virtual bool generateTTS(const std::string& text, const std::string& language = "english", int max_new_tokens = -1,
+                             const std::string& ref_audio = "") override;
+    // Embedding API — single ExecutorScope wrapping the forward pass (same pattern as forwardVec)
+    virtual Express::VARP ids_embedding(const std::vector<int>& ids) override;
     // some models preprocess function
     std::vector<int> visionProcess(VARP image);
     std::vector<int> defaultVisionProcess(VARP image);
@@ -167,12 +175,14 @@ public:
     std::vector<int> minicpmVisionProcess(VARP image);
     std::vector<int> gemma4VisionProcess(VARP image);
 private:
+    bool initProcessorRuntime();
     int mVisionHeight = 448, mVisionWidth = 448, mVisionStart = 151857,
         mVisionEnd = 151858, mVisionPad = 151859, mAudioPad = 151646,
         mAudioStart = -1, mAudioEnd = -1;
     int mVisionGlobal = 49152;
     int mVisionSizeUnit = 1, mVisionMaxSize = 2048;
     int mVisionNum = 0;
+    int mNumGridPerSide = 1;
     std::vector<float> mVisionMean{122.7709383, 116.7460125, 104.09373615};
     std::vector<float> mVisionNorm{0.01459843, 0.01500777, 0.01422007};
     std::vector<int> multimodeProcess(const std::string& mode, std::string info);
@@ -185,11 +195,14 @@ private:
                              int max_new_tokens);
     std::shared_ptr<Module> mVisionModule, mAudioModule;
     std::vector<VARP> mExtraArgs, mVisionEmbeddings, mAudioEmbeddings, mDeepStackEmbeddings;
+    VARP mVisionPositionIdsCache, mVisionAttentionMaskCache, mVisionWindowAttentionMaskCache;
+    VARP mVisionIdxTensorCache, mVisionWeightTensorCache, mVisionWindowIndexCache;
     std::shared_ptr<Talker> mTalker;
     int64_t mThinkerElapsedUs = 0;
     // m_rope position ids
     void addPositionIds(int t, int h = -1, int w = -1);
     MropeInfo mPositionIds;
+    bool mIsEmbedding = false;
 };
 
 }

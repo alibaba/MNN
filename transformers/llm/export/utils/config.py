@@ -1,6 +1,6 @@
 import os
 import json
-from transformers import PretrainedConfig, AutoConfig
+from transformers import PretrainedConfig, AutoConfig, AutoModel
 from utils.model_mapper import ModelMapper
 from typing import Optional, List, Dict, Any, Union
 from dataclasses import dataclass, field, asdict
@@ -33,18 +33,33 @@ class LlmConfig(PretrainedConfig):
     def _register_external_model(model_type: str):
         EXTERNAL_MODEL_REGISTRY = {
             'funaudiochat': ('funaudiochat.register', 'register_funaudiochat'),
+            'qwen3_asr': ('qwen_asr.inference.qwen3_asr', None),
+            'qwen3_tts': ('qwen_tts.core.models', None),
         }
         if model_type in EXTERNAL_MODEL_REGISTRY:
             module_path, func_name = EXTERNAL_MODEL_REGISTRY[model_type]
             try:
                 import importlib
                 module = importlib.import_module(module_path)
-                getattr(module, func_name)()
+                if model_type == 'qwen3_tts':
+                    # qwen_tts imports model classes but does not register AutoModel by itself.
+                    AutoConfig.register('qwen3_tts', module.Qwen3TTSConfig)
+                    AutoModel.register(module.Qwen3TTSConfig, module.Qwen3TTSForConditionalGeneration)
+                if func_name is not None:
+                    getattr(module, func_name)()
             except ImportError:
                 raise ImportError(
                     f"{model_type} requires external package. "
                     f"Please clone it from GitHub and set PYTHONPATH accordingly."
                 )
+
+    @staticmethod
+    def _namespace_to_dict(value):
+        if hasattr(value, '__dict__'):
+            return {k: LlmConfig._namespace_to_dict(v) for k, v in vars(value).items()}
+        if isinstance(value, list):
+            return [LlmConfig._namespace_to_dict(v) for v in value]
+        return value
 
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, **kwargs):
@@ -76,6 +91,11 @@ class LlmConfig(PretrainedConfig):
         llm_config = cls(**llm_config_kwargs)
         # rename attribute for different models
         ModelMapper.do_map(llm_config, config, model_map['config'])
+
+        if hasattr(llm_config.rope_scaling, '__dict__'):
+            llm_config.rope_scaling = cls._namespace_to_dict(llm_config.rope_scaling)
+        if hasattr(llm_config.rope_parameters, '__dict__'):
+            llm_config.rope_parameters = cls._namespace_to_dict(llm_config.rope_parameters)
 
         # Post-processing and setting defaults
         if llm_config.num_key_value_heads is None:

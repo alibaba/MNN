@@ -26,7 +26,19 @@ MNN 的模型导出本质上是**对照 HuggingFace transformers 库中原始模
 
 > **🚨 测试标准要有定力**：每步的通过标准是明确的（如"C++ 能正确描述图片内容"），不能因为"差不多能跑"就跳过。"能感知到一些信号但描述不准确"不等于通过，必须达到与 HF 模型相当的输出质量才算完成。
 
+> **🚨 多模态/embedding 对齐先看 C++ 端真实输入输出**：不要只比 Python 导出逻辑。先直接打印并比对 C++ 运行时的 chat template、token ids、以及必要时的中间输入，确认 runtime tokenizer/Jinja/post_processor 与 HuggingFace 完全一致，再继续看视觉或量化路径。
+
+> **🚨 改导出模板先做“临时 config 覆盖”验证**：当修改 `llm_config.json` / `config.json` 里的 `jinja.chat_template` 时，不要一上来全量重导出模型。先用现有 MNN 模型目录配一个临时 `config.json` 覆盖 `base_dir + jinja/context`，直接跑 C++ `llm_demo`/`embedding_demo` 验证 prompt token 数、构造出的语义和最终结果是否与基线一致，再决定是否全量 re-export。
+
+> **🚨 ASR 模型默认按单轮接口设计**：除非用户明确要求多轮 ASR 会话，否则用户侧一次 `response` 结束后就应立即 `reset` 清空状态，不要把 ASR prompt/template 设计成依赖 trailing assistant、多轮裁剪或 prompt-cache 续写的形态。
+
 > **严禁访问以下目录**：`schema/private/` 和 `source/internal/`，包含内部私有代码，**不得读取、修改或引用**。
+
+> **多模态/音频子模块跑通后要及时回收临时代码**：新增 talker/token2wav/codec 等导出 wrapper 时，优先复用已有 `Decoder`、`Rotary`、`FakeLinear`、`RMSNorm`、`onnx_export` 等导出原语；只为权重命名或外部包加载保留最小 skeleton，避免固化第二套 LLM 导出框架。
+
+> **外部包恢复可 import 后要删除兼容绕路**：如果前期因为依赖版本问题临时使用 `importlib.util` 按路径加载模型源码、stub module、monkey patch transformers API，依赖修好后必须改回官方 package import，并用完整 `llmexport.py --export mnn` 验证。
+
+> **导出后必须检查 `.mnn` 本体是否残留大权重**：使用 `MNNDump2Json` 按 `Const` 数据量排序；如果 `.mnn` 内出现 embedding、lm/head、projection 等大 Const，说明没有走 `FakeLinear`/外置 embedding/`.mnn.weight` 路径，不能只因为生成了 `.mnn.weight` 就认为权重已正确外置。
 
 > **禁止猜测**：如果不确定某个字段名或路径，必须通过工具读取实际文件确认。
 
@@ -183,7 +195,7 @@ modeling_*.py 中是否有全新的 Attention 类型（非标准 SDPA）?
 
 ## 常见陷阱
 
-**在开始之前，建议先浏览 `common-pitfalls.md`**，了解已知的常见问题和解决方案（RoPE 变体、dtype 级联、Jinja 限制、stop token、残差模式、MoE 支持要点、FakeLinear axis 陷阱、**do_map 静默失败与 rope_theta 间接存储**、非标准模型加载等）。
+**在开始之前，建议先浏览 `common-pitfalls.md`**，了解已知的常见问题和解决方案（RoPE 变体、dtype 级联、Jinja 限制、tokenizer `post_processor` 对齐、stop token、残差模式、MoE 支持要点、FakeLinear axis 陷阱、**do_map 静默失败与 rope_theta 间接存储**、非标准模型加载等）。
 
 ---
 

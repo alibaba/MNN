@@ -11,6 +11,7 @@
 #endif
 #include <regex>
 #include <algorithm>
+#include <cctype>
 #include <random>
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
@@ -36,6 +37,217 @@ namespace Transformer {
 template <typename T>
 static inline VARP _var(std::vector<T> vec, const std::vector<int> &dims) {
     return _Const(vec.data(), dims, NHWC, halide_type_of<T>());
+}
+
+static bool needVarWithShape(VARP var, const std::vector<int>& dims) {
+    if (var == nullptr || var->getInfo() == nullptr) {
+        return true;
+    }
+    const auto& current = var->getInfo()->dim;
+    if (current.size() != dims.size()) {
+        return true;
+    }
+    for (int i = 0; i < dims.size(); ++i) {
+        if (current[i] != dims[i]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+
+static bool isQwen3TTSTalker(const std::shared_ptr<LlmConfig>& config) {
+    return config->talker_type() == "qwen3_tts" || config->config_.value("model_type", "") == "qwen3_tts";
+}
+
+template <typename T>
+static VARP makeTensorInput(const std::vector<int>& dims) {
+    return _Input(dims, NCHW, halide_type_of<T>());
+}
+
+template <typename T>
+static VARP makeTensorInputFromVector(const std::vector<int>& dims, const std::vector<T>& values) {
+    auto var = makeTensorInput<T>(dims);
+    auto info = var->getInfo();
+    auto ptr = var->template writeMap<T>();
+    if (!info || !ptr || info->size != values.size()) {
+        return nullptr;
+    }
+    std::copy(values.begin(), values.end(), ptr);
+    return var;
+}
+
+template <typename T>
+static std::vector<T> readTensorVector(VARP var) {
+    std::vector<T> values;
+    auto info = var->getInfo();
+    auto ptr = var->template readMap<T>();
+    if (!info || !ptr) {
+        return values;
+    }
+    values.assign(ptr, ptr + info->size);
+    return values;
+}
+
+static VARP makeEmbeddingInput(DiskEmbedding* embedding, const std::vector<int>& ids, int hiddenSize) {
+    auto var = makeTensorInput<float>({1, static_cast<int>(ids.size()), hiddenSize});
+    if (!embedding || var.get() == nullptr || !var->writeMap<float>()) {
+        return nullptr;
+    }
+    embedding->embedding(ids, var->writeMap<float>());
+    return var;
+}
+
+static VARP materializeFloatVar(VARP var) {
+    auto info = var.get() ? var->getInfo() : nullptr;
+    auto values = readTensorVector<float>(var);
+    if (!info || values.empty()) {
+        return nullptr;
+    }
+    return makeTensorInputFromVector<float>(info->dim, values);
+}
+
+static VARP makeQwen3TTSCodecEmbeds(DiskEmbedding* embedding, const std::vector<int>& codecPrefix,
+                                    VARP speakerEmbedding, int hiddenSize) {
+    if (speakerEmbedding.get() == nullptr) {
+        return makeEmbeddingInput(embedding, codecPrefix, hiddenSize);
+    }
+    if (codecPrefix.size() <= 2) {
+        return nullptr;
+    }
+    std::vector<int> headIds(codecPrefix.begin(), codecPrefix.end() - 2);
+    std::vector<int> tailIds(codecPrefix.end() - 2, codecPrefix.end());
+    auto head = makeEmbeddingInput(embedding, headIds, hiddenSize);
+    auto tail = makeEmbeddingInput(embedding, tailIds, hiddenSize);
+    auto headValues = readTensorVector<float>(head);
+    auto speakerValues = readTensorVector<float>(speakerEmbedding);
+    auto tailValues = readTensorVector<float>(tail);
+    if (headValues.empty() || speakerValues.size() != hiddenSize || tailValues.empty()) {
+        return nullptr;
+    }
+    std::vector<float> values;
+    values.reserve((codecPrefix.size() + 1) * hiddenSize);
+    values.insert(values.end(), headValues.begin(), headValues.end());
+    values.insert(values.end(), speakerValues.begin(), speakerValues.end());
+    values.insert(values.end(), tailValues.begin(), tailValues.end());
+    return makeTensorInputFromVector<float>({1, static_cast<int>(codecPrefix.size()) + 1, hiddenSize}, values);
+}
+
+#ifdef LLM_SUPPORT_AUDIO
+static VARP makeQwen3TTSSpeakerEmbedding(Module* speakerEncoder, const std::string& refAudio, int sampleRate,
+                                         int hiddenSize) {
+    if (!speakerEncoder || refAudio.empty()) {
+        return nullptr;
+    }
+    auto audioData = MNN::AUDIO::load(refAudio, sampleRate, 0, -1, MNN::AUDIO::RESAMPLE_SOXR_HQ);
+    auto waveform = audioData.first;
+    if (waveform.get() == nullptr || !waveform->getInfo() || audioData.second != sampleRate) {
+        MNN_ERROR("[Error]: failed to load Qwen3-TTS ref audio: %s\n", refAudio.c_str());
+        return nullptr;
+    }
+
+    constexpr int nFft = 1024;
+    constexpr int hopSize = 256;
+    constexpr int winSize = 1024;
+    auto padded = _Pad(waveform, _var<int>({(nFft - hopSize) / 2, (nFft - hopSize) / 2}, {2}), REFLECT);
+
+    MNN::AUDIO::MelscaleParams melParams;
+    melParams.n_mels = 128;
+    melParams.n_fft = nFft;
+    melParams.sample_rate = sampleRate;
+    melParams.htk = false;
+    melParams.norm = true;
+    melParams.f_min = 0.0f;
+    melParams.f_max = 12000.0f;
+
+    MNN::AUDIO::SpectrogramParams specParams;
+    specParams.n_fft = nFft;
+    specParams.hop_length = hopSize;
+    specParams.win_length = winSize;
+    specParams.window_type = MNN::AUDIO::HANNING;
+    specParams.center = false;
+    specParams.normalized = false;
+    specParams.power = 1.0f;
+
+    auto mel = MNN::AUDIO::mel_spectrogram(padded, &melParams, &specParams);
+    mel = _Log(_Maximum(mel, _Scalar<float>(1e-5f)));
+    mel = materializeFloatVar(mel);
+    if (mel.get() == nullptr || !mel->getInfo() || mel->getInfo()->dim.size() != 2) {
+        MNN_ERROR("[Error]: failed to build Qwen3-TTS ref mel\n");
+        return nullptr;
+    }
+    auto outputs = speakerEncoder->onForward({_Unsqueeze(mel, {0})});
+    if (outputs.size() != 1) {
+        MNN_ERROR("[Error]: Qwen3-TTS speaker encoder output size mismatch: %zu\n", outputs.size());
+        return nullptr;
+    }
+    auto speakerValues = readTensorVector<float>(outputs[0]);
+    if (speakerValues.size() != hiddenSize) {
+        MNN_ERROR("[Error]: invalid Qwen3-TTS speaker embedding size: %zu\n", speakerValues.size());
+        return nullptr;
+    }
+    return makeTensorInputFromVector<float>({1, 1, hiddenSize}, speakerValues);
+}
+#endif
+
+static VARP makeQwen3CodePredictorCodecEmbeds(DiskEmbedding* firstEmbedding, DiskEmbedding* predictorEmbedding,
+                                                const std::vector<int>& codes, int codeGroups, int vocabSize,
+                                                int hiddenSize) {
+    if (!firstEmbedding || !predictorEmbedding || static_cast<int>(codes.size()) < codeGroups - 1 || codeGroups <= 1) {
+        return nullptr;
+    }
+    auto var = makeTensorInput<float>({1, codeGroups - 1, hiddenSize});
+    if (var.get() == nullptr || !var->writeMap<float>()) {
+        return nullptr;
+    }
+    auto ptr = var->writeMap<float>();
+    firstEmbedding->embedding({codes[0]}, ptr);
+    for (int group = 1; group < codeGroups - 1; ++group) {
+        int embeddingId = (group - 1) * vocabSize + codes[group];
+        predictorEmbedding->embedding({embeddingId}, ptr + group * hiddenSize);
+    }
+    return var;
+}
+
+static void fillCausalMask(VARP var, int seqLen) {
+    auto ptr = var->writeMap<float>();
+    const float lowest = std::numeric_limits<float>::lowest();
+    for (int i = 0; i < seqLen; ++i) {
+        for (int j = 0; j < seqLen; ++j) {
+            ptr[i * seqLen + j] = j > i ? lowest : 0.0f;
+        }
+    }
+}
+
+static void fillPositionIds(VARP var, int rows, int seqLen) {
+    auto ptr = var->writeMap<int>();
+    for (int r = 0; r < rows; ++r) {
+        for (int i = 0; i < seqLen; ++i) {
+            ptr[r * seqLen + i] = i;
+        }
+    }
+}
+
+static void makeCausalInputs(int seqLen, int positionRows, VARP& mask, VARP& positionIds) {
+    mask = makeTensorInput<float>({1, 1, seqLen, seqLen});
+    positionIds = makeTensorInput<int>({positionRows, seqLen});
+    fillCausalMask(mask, seqLen);
+    fillPositionIds(positionIds, positionRows, seqLen);
+}
+
+static VARP selectTextHidden(VARP trailingTextHidden, VARP ttsPadEmbed, int step, int hiddenSize) {
+    auto trailingInfo = trailingTextHidden->getInfo();
+    auto trailingPtr = trailingTextHidden->readMap<float>();
+    auto padPtr = ttsPadEmbed->readMap<float>();
+    auto out = makeTensorInput<float>({1, hiddenSize});
+    auto outPtr = out->writeMap<float>();
+    if (!trailingInfo || !trailingPtr || !padPtr || !outPtr) {
+        return nullptr;
+    }
+    int trailingLen = trailingInfo->dim.size() > 1 ? trailingInfo->dim[1] : 0;
+    const float* src = step < trailingLen ? trailingPtr + step * hiddenSize : padPtr;
+    std::copy(src, src + hiddenSize, outPtr);
+    return out;
 }
 
 #ifdef LLM_SUPPORT_AUDIO
@@ -76,7 +288,8 @@ static MNNForwardType backend_type_convert(const std::string& type_str) {
     return MNN_FORWARD_AUTO;
 }
 
-Omni::Omni(std::shared_ptr<LlmConfig> config) : Llm(config) {
+Omni::Omni(std::shared_ptr<LlmConfig> config) : Embedding(config) {
+    mIsEmbedding = config->config_.value("is_embedding", false);
     if (config->is_visual()) {
         mVisionHeight = config->config_.value("image_size", mVisionHeight);
         mVisionWidth  = mVisionHeight;
@@ -88,6 +301,7 @@ Omni::Omni(std::shared_ptr<LlmConfig> config) : Llm(config) {
         mVisionSizeUnit = config->config_.value("image_size_unit", mVisionSizeUnit);
         mVisionMaxSize = config->config_.value("image_max_size", mVisionMaxSize);
         mVisionGlobal = config->config_.value("global_image", mVisionGlobal);
+        mNumGridPerSide = config->config_.value("num_grid_per_side", mNumGridPerSide);
     }
     if (config->is_audio()) {
         mAudioPad = config->config_.value("audio_pad", mAudioPad);
@@ -98,10 +312,55 @@ Omni::Omni(std::shared_ptr<LlmConfig> config) : Llm(config) {
 
 bool Omni::load() {
     MNN::Express::ExecutorScope s(mExecutor);
-    auto res = Llm::load();
-    if (!res) {
-        return false;
+    bool res = true;
+    if (mIsEmbedding || isQwen3TTSTalker(mConfig)) {
+        initRuntime();
+        mTokenizer.reset(Tokenizer::createTokenizer(mConfig->tokenizer_file()));
+        if (mIsEmbedding) {
+            mDiskEmbedding.reset(new DiskEmbedding(mConfig));
+        }
+        setChatTemplate();
+    } else {
+        res = Llm::load();
+        if (!res) { return false; }
     }
+    res = initProcessorRuntime();
+    if (!res) { return false; }
+    if (mConfig->has_talker()) {
+        mTalker.reset(new Talker(mConfig, this));
+        mTalker->setProcessorRuntimeManager(mProcessorRuntimeManager);
+        res = mTalker->load();
+        if (!res) { return false; }
+    }
+    if (mConfig->has_deepstack()) {
+        mExtraArgs.emplace_back(Express::_Fill(_var<int>({3, 1, 1}, {3}), _Scalar<float>(0.0)));
+    }
+    if (mIsEmbedding) {
+        Module::Config module_config;
+        if (mConfig->backend_type() == "npu") {
+            module_config.shapeMutable = false;
+        } else {
+            module_config.shapeMutable = true;
+        }
+        module_config.rearrange = true;
+        auto model_path = mConfig->llm_model();
+        auto weight_path = mConfig->llm_weight();
+        MNN_PRINT("load %s ... ", model_path.c_str());
+        mRuntimeManager->setExternalFile(weight_path);
+        mModule.reset(Module::load({"input_ids", "attention_mask", "position_ids", "deepstack_embeds"},
+                                   {"sentence_embeddings"}, model_path.c_str(), mRuntimeManager, &module_config));
+        mRuntimeManager->setExternalFile("");
+        if (nullptr == mModule.get()) {
+            MNN_ERROR("[Omni:embedding] Module::load failed for %s\n", model_path.c_str());
+            return false;
+        }
+        MNN_PRINT("Done!\n");
+    }
+    mContext->status = LlmStatus::RUNNING;
+    return true;
+}
+
+bool Omni::initProcessorRuntime() {
     ScheduleConfig config;
     if (mConfig->mllm_config_.is_null()) {
         mProcessorRuntimeManager = mRuntimeManager;
@@ -109,62 +368,34 @@ bool Omni::load() {
         BackendConfig cpuBackendConfig;
         config.type      = backend_type_convert(mConfig->backend_type(true));
         config.numThread = mConfig->thread_num(true);
-        if(config.type == 3){
-            config.numThread |= 64;
-        }
-        if (mConfig->power(true) == "high") {
-            cpuBackendConfig.power = BackendConfig::Power_High;
-        } else if (mConfig->power(true) == "low") {
-            cpuBackendConfig.power = BackendConfig::Power_Low;
-        }
-        if (mConfig->memory(true) == "high") {
-            cpuBackendConfig.memory = BackendConfig::Memory_High;
-        } else if (mConfig->memory(true) == "low") {
-            cpuBackendConfig.memory = BackendConfig::Memory_Low;
-        }
-        if (mConfig->precision(true) == "high") {
-            cpuBackendConfig.precision = BackendConfig::Precision_High;
-        } else if (mConfig->precision(true) == "low") {
-            cpuBackendConfig.precision = BackendConfig::Precision_Low;
-        }
+        if(config.type == 3){ config.numThread |= 64; }
+        if (mConfig->power(true) == "high") { cpuBackendConfig.power = BackendConfig::Power_High; }
+        else if (mConfig->power(true) == "low") { cpuBackendConfig.power = BackendConfig::Power_Low; }
+        if (mConfig->memory(true) == "high") { cpuBackendConfig.memory = BackendConfig::Memory_High; }
+        else if (mConfig->memory(true) == "low") { cpuBackendConfig.memory = BackendConfig::Memory_Low; }
+        if (mConfig->precision(true) == "high") { cpuBackendConfig.precision = BackendConfig::Precision_High; }
+        else if (mConfig->precision(true) == "low") { cpuBackendConfig.precision = BackendConfig::Precision_Low; }
         config.backendConfig = &cpuBackendConfig;
         mProcessorRuntimeManager.reset(Executor::RuntimeManager::createRuntimeManager(config));
         setRuntimeHint(mProcessorRuntimeManager, true);
     }
-    if (mConfig->has_talker()) {
-        mTalker.reset(new Talker(mConfig, this));
-        mTalker->setProcessorRuntimeManager(mProcessorRuntimeManager);
-        res = mTalker->load();
-    }
-    if (!res) {
-        return false;
-    }
-    if (mConfig->has_deepstack()) {
-        mExtraArgs.emplace_back(Express::_Fill(_var<int>({3, 1, 1}, {3}), _Scalar<float>(0.0)));
-    }
     Module::Config module_config;
     if(config.type == MNN_FORWARD_NN) {
-        module_config.shapeMutable = false;
-        module_config.rearrange    = false;
+        module_config.shapeMutable = false; module_config.rearrange = false;
     } else {
-        module_config.shapeMutable = true;
-        module_config.rearrange    = true;
+        module_config.shapeMutable = true; module_config.rearrange = true;
     }
+    mProcessorRuntimeManager->setHintPtr(Interpreter::KVCACHE_INFO, nullptr);
     // pMeta isolation between LLM and processor RTMs is now provided by
     // per-RTM RuntimeAttr::mPMeta + applyMetaToRuntime; no manual reset needed.
     if (mConfig->is_visual()) {
         mVisionModule.reset(Module::load({}, {}, mConfig->visual_model().c_str(), mProcessorRuntimeManager, &module_config));
-        if (nullptr == mVisionModule.get()) {
-            return false;
-        }
+        if (nullptr == mVisionModule.get()) return false;
     }
     if (mConfig->is_audio()) {
         mAudioModule.reset(Module::load({}, {}, mConfig->audio_model().c_str(), mProcessorRuntimeManager, &module_config));
-        if (nullptr == mAudioModule.get()) {
-            return false;
-        }
+        if (nullptr == mAudioModule.get()) return false;
     }
-    mContext->status = LlmStatus::RUNNING;  // Set status to RUNNING after successful load
     return true;
 }
 
@@ -320,11 +551,21 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
     constexpr int temporal_patch_size = 2;
     constexpr int merge_size = 2;
     const int align_size = patch_size * merge_size;
-    // Qwen2-VL / Qwen2.5-VL / Qwen3-VL
+    // Use actual image dimensions (matching Python Qwen3VLProcessor)
+    auto imgInfo = image->getInfo();
+    if (imgInfo && imgInfo->dim.size() >= 2) {
+        mVisionHeight = imgInfo->dim[0];
+        mVisionWidth = imgInfo->dim[1];
+        if (imgInfo->dim.size() >= 3 && imgInfo->dim[2] == 4) {
+            image = _Slice(image, _var<int>({0, 0, 0}, {3}), _var<int>({-1, -1, 3}, {3}));
+            imgInfo = image->getInfo();
+        }
+    }
     mVisionHeight = round(mVisionHeight / (float)align_size) * align_size;
     mVisionWidth = round(mVisionWidth / (float)align_size) * align_size;
+    auto interp = isQwen3VL ? MNN::CV::INTER_CUBIC : MNN::CV::INTER_LINEAR;
     image = MNN::CV::resize(image, {mVisionWidth, mVisionHeight}, 0, 0,
-                            MNN::CV::INTER_LINEAR, MNN::CV::COLOR_BGR2RGB,
+                            interp, MNN::CV::COLOR_BGR2RGB,
                             mVisionMean, mVisionNorm);
     image = Express::_Unsqueeze(image, {0});
     image = Express::_Convert(image, NCHW);
@@ -354,7 +595,10 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
     // build position_ids
     const int wblock_size = merge_size * merge_size;
     const int hblock_size = wblock_size * grid_w / merge_size;
-    VARP position_ids = Express::_Input({2, seq_len}, NCHW, halide_type_of<int>());
+    if (needVarWithShape(mVisionPositionIdsCache, {2, seq_len})) {
+        mVisionPositionIdsCache = Express::_Input({2, seq_len}, NCHW, halide_type_of<int>());
+    }
+    VARP position_ids = mVisionPositionIdsCache;
     auto hpos_ptr = position_ids->writeMap<int>();
     auto wpos_ptr = hpos_ptr + seq_len;
     for (int i = 0; i < grid_h; i++) {
@@ -370,7 +614,10 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
     VARPS moduleInputs= {patches, position_ids};
     if (hasWindowIndex) {
         // Qwen2.5-VL: build window_index
-        window_index = Express::_Input({seq_len / 4}, NCHW, halide_type_of<int>());
+        if (needVarWithShape(mVisionWindowIndexCache, {seq_len / 4})) {
+            mVisionWindowIndexCache = Express::_Input({seq_len / 4}, NCHW, halide_type_of<int>());
+        }
+        window_index = mVisionWindowIndexCache;
         auto window_index_ptr = window_index->writeMap<int>();
         const int merge_unit = merge_size * merge_size;
         const int vit_merger_window_size = 4;
@@ -410,7 +657,10 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
             prev = cu_window_seqlens.back();
         }
         // build attention_mask
-        attention_mask = Express::_Input({2, 1, seq_len, seq_len}, NCHW);
+        if (needVarWithShape(mVisionWindowAttentionMaskCache, {2, 1, seq_len, seq_len})) {
+            mVisionWindowAttentionMaskCache = Express::_Input({2, 1, seq_len, seq_len}, NCHW);
+        }
+        attention_mask = mVisionWindowAttentionMaskCache;
         auto attention_mask_ptr = attention_mask->writeMap<float>();
         ::memset(attention_mask_ptr, 0, seq_len * seq_len * sizeof(float));
         attention_mask_ptr = attention_mask_ptr + seq_len * seq_len;
@@ -428,7 +678,10 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
         moduleInputs.push_back(window_index);
     } else {
         // build attention_mask
-        attention_mask = Express::_Input({1, seq_len, seq_len}, NCHW);
+        if (needVarWithShape(mVisionAttentionMaskCache, {1, seq_len, seq_len})) {
+            mVisionAttentionMaskCache = Express::_Input({1, seq_len, seq_len}, NCHW);
+        }
+        attention_mask = mVisionAttentionMaskCache;
         ::memset(attention_mask->writeMap<float>(), 0, seq_len * seq_len * sizeof(float));
         moduleInputs.push_back(attention_mask);
     }
@@ -444,8 +697,14 @@ std::vector<int> Omni::qwen2VisionProcess(VARP image) {
         for (int i = 0; i < grid_w; ++i) {
             w_idxs[i] = static_cast<float>(i) * (num_grid - 1) / (grid_w - 1);
         }
-        auto idx_tensor = Express::_Input({4, num_patches}, NCHW, halide_type_of<int>());
-        auto weight_tensor = Express::_Input({4, num_patches}, NCHW, halide_type_of<float>());
+        if (needVarWithShape(mVisionIdxTensorCache, {4, num_patches})) {
+            mVisionIdxTensorCache = Express::_Input({4, num_patches}, NCHW, halide_type_of<int>());
+        }
+        if (needVarWithShape(mVisionWeightTensorCache, {4, num_patches})) {
+            mVisionWeightTensorCache = Express::_Input({4, num_patches}, NCHW, halide_type_of<float>());
+        }
+        auto idx_tensor = mVisionIdxTensorCache;
+        auto weight_tensor = mVisionWeightTensorCache;
         auto idx_ptr = idx_tensor->writeMap<int>();
         auto weight_ptr = weight_tensor->writeMap<float>();
         for (int i = 0; i < grid_h; ++i) {
@@ -880,7 +1139,18 @@ std::vector<int> Omni::audioProcess(MNN::Express::VARP waveform) {
     }
     // pMeta isolation handled by per-RTM RuntimeAttr::mPMeta; no reset needed.
     VARP audio_embedding;
-    if (mAudioModule->getInfo()->inputNames.size() > 1) {
+    auto audio_inputs = mAudioModule->getInfo()->inputNames.size();
+    if (audio_type == "qwen3_asr") {
+        if (input_features->getInfo()->dim.size() > 0 && input_features->getInfo()->dim[0] == 1) {
+            input_features = _Squeeze(input_features, {0});
+        }
+        if (input_features == nullptr || input_features->getInfo() == nullptr) {
+            MNN_ERROR("[Error][audioProcess:encoder] qwen3_asr input_features squeeze failed\n");
+            mContext->status = LlmStatus::INTERNAL_ERROR;
+            return std::vector<int>(0);
+        }
+        audio_embedding = mAudioModule->forward(input_features);
+    } else if (audio_inputs > 1) {
         int seqlen = UP_DIV(input_features->getInfo()->dim[2], 2);
         constexpr int n_window = 100;
         std::vector<int> cu_seqlens = buildOmniAudioWindowBoundaries(seqlen, n_window);
@@ -905,6 +1175,11 @@ std::vector<int> Omni::audioProcess(MNN::Express::VARP waveform) {
             input_features = _Slice(input_features, _var<int>({0, 0, 0}, {3}), _var<int>({-1, -1, 3000}, {3}));
         }
         audio_embedding = mAudioModule->forward(input_features);
+    }
+    if (audio_embedding == nullptr || audio_embedding->getInfo() == nullptr) {
+        MNN_ERROR("[Error][audioProcess:encoder] audio encoder returned null embedding\n");
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return std::vector<int>(0);
     }
 
     // Permute to [T, 1, H]
@@ -1026,7 +1301,6 @@ void Omni::addPositionIds(int t, int h, int w) {
 
 std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input) {
     std::string prompt = multimodal_input.prompt_template;
-    // MNN_PRINT("tokenizer_encode(MultimodalPrompt) prompt: %s", prompt.c_str());
     std::regex multimode_regex("<(img|audio)>(.*?)</\\1>");
     std::string::const_iterator searchStart(prompt.cbegin());
     std::smatch match;
@@ -1034,7 +1308,7 @@ std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input
     mPositionIds.clear();
 
     while (std::regex_search(searchStart, prompt.cend(), match, multimode_regex)) {
-        auto txt_ids = mTokenizer->encode(match.prefix().str());
+        auto txt_ids = mTokenizer->encode(match.prefix().str(), false);
         addPositionIds(txt_ids.size());
         ids.insert(ids.end(), txt_ids.begin(), txt_ids.end());
         std::string mode = match[1].str();
@@ -1042,20 +1316,19 @@ std::vector<int> Omni::tokenizer_encode(const MultimodalPrompt& multimodal_input
         std::vector<int> mul_ids;
         if (mode == "img") {
             mul_ids = processImageContent(content, multimodal_input.images);
-            // MNN_PRINT("tokenizer_encode(MultimodalPrompt) image mul_ids size: %lu", mul_ids.size());
         } else if (mode == "audio") {
             mul_ids = processAudioContent(content, multimodal_input.audios);
-            // MNN_PRINT("tokenizer_encode(MultimodalPrompt) audio mul_ids size: %lu", mul_ids.size());
         }
 
         ids.insert(ids.end(), mul_ids.begin(), mul_ids.end());
         searchStart = match.suffix().first;
     }
     if (searchStart != prompt.cend()) {
-        auto txt_ids = mTokenizer->encode(std::string(searchStart, prompt.cend()));
+        auto txt_ids = mTokenizer->encode(std::string(searchStart, prompt.cend()), false);
         addPositionIds(txt_ids.size());
         ids.insert(ids.end(), txt_ids.begin(), txt_ids.end());
     }
+    mTokenizer->post_process(ids);
     return ids;
 }
 
@@ -1098,9 +1371,11 @@ std::vector<int> Omni::processAudioContent(const std::string& content, const std
 
 VARP Omni::embedding(const std::vector<int>& input_ids) {
     MNN::Express::ExecutorScope s(mExecutor);
-    if (input_ids.size() == 1) {
+    bool hasMultimodalEmbeds = !mVisionEmbeddings.empty() || !mAudioEmbeddings.empty();
+    if (!hasMultimodalEmbeds) {
         if (mConfig->has_deepstack() && mExtraArgs.size() == 1) {
-            mExtraArgs[0] = Express::_Fill(_var<int>({3, 1, 1}, {3}), _Scalar<float>(0.0));
+            mExtraArgs[0] = Express::_Fill(_var<int>({3, static_cast<int>(input_ids.size()), mConfig->hidden_size()}, {3}),
+                                           _Scalar<float>(0.0));
         }
         return Llm::embedding(input_ids);
     }
@@ -1194,10 +1469,23 @@ VARP Omni::embedding(const std::vector<int>& input_ids) {
         deepstacksTxt();
     }
     auto mergedEmbed = Express::_Concat(embeddings, 0);
+    if (mergedEmbed == nullptr || mergedEmbed->getInfo() == nullptr) {
+        MNN_ERROR("[Error]: failed to build merged multimodal embeddings. text_chunks=%zu, vision_embeds=%zu, audio_embeds=%zu\n",
+                  embeddings.size(), mVisionEmbeddings.size(), mAudioEmbeddings.size());
+        return nullptr;
+    }
     // Deep copy: materialize the lazy concat so vision data persists after clear
     {
         auto cInfo = mergedEmbed->getInfo();
         auto cPtr = mergedEmbed->readMap<float>();
+        if (cPtr == nullptr) {
+            MNN_ERROR("[Error]: merged multimodal embeddings are not readable. dims=[%d,%d,%d,%d]\n",
+                      cInfo->dim.size() > 0 ? cInfo->dim[0] : -1,
+                      cInfo->dim.size() > 1 ? cInfo->dim[1] : -1,
+                      cInfo->dim.size() > 2 ? cInfo->dim[2] : -1,
+                      cInfo->dim.size() > 3 ? cInfo->dim[3] : -1);
+            return nullptr;
+        }
         auto freshEmbed = _Input(cInfo->dim, cInfo->order);
         ::memcpy(freshEmbed->writeMap<float>(), cPtr, cInfo->size * sizeof(float));
         mergedEmbed = freshEmbed;
@@ -1266,6 +1554,13 @@ VARP Omni::gen_position_ids(int seq_len) {
 std::vector<Express::VARP> Omni::forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos, Express::VARPS extraArgs) {
     MNN::Express::ExecutorScope s(mExecutor);
     extraArgs.insert(extraArgs.end(), mExtraArgs.begin(), mExtraArgs.end());
+    if (mIsEmbedding) {
+        std::vector<VARP> inputs{hiddenState, mask, inputPos};
+        if (!extraArgs.empty()) {
+            inputs.insert(inputs.end(), extraArgs.begin(), extraArgs.end());
+        }
+        return mModule->onForward(inputs);
+    }
     auto outputs = Llm::forwardRaw(hiddenState, mask, inputPos, extraArgs);
     if (mTalker && outputs.size() > 1) {
         mTalker->addTalkerEmbeds(outputs[1]);
@@ -1285,6 +1580,8 @@ void Omni::responseInterleaved(const std::vector<int>& input_ids, std::ostream* 
     // ---- 1. Thinker Prefill ----
     auto input_embeds = embedding(input_ids);
     if (input_embeds == nullptr) {
+        MNN_ERROR("[Error]: Omni embedding returned nullptr. input_ids=%zu, audio_embeds=%zu, vision_embeds=%zu\n",
+                  input_ids.size(), mAudioEmbeddings.size(), mVisionEmbeddings.size());
         return;
     }
     int seqLen = input_embeds->getInfo()->dim[mSeqLenIndex];
@@ -1513,10 +1810,142 @@ void Omni::generateWavform() {
     }
 }
 
+static std::string qwen3TTSNormalizeLanguage(std::string language) {
+    std::transform(language.begin(), language.end(), language.begin(), [](unsigned char c) { return std::tolower(c); });
+    static const std::vector<std::string> supported = {
+        "auto", "chinese", "english", "german", "italian", "portuguese",
+        "spanish", "japanese", "korean", "french", "russian"};
+    for (const auto& item : supported) {
+        if (language == item) {
+            return language;
+        }
+    }
+    return "";
+}
+
+bool Omni::generateTTS(const std::string& text, const std::string& language, int max_new_tokens,
+                       const std::string& ref_audio) {
+    MNN::Express::ExecutorScope s(mExecutor);
+    if (!mTalker || !isQwen3TTSTalker(mConfig)) {
+        MNN_ERROR("[Error]: current model does not support Qwen3-TTS generation\n");
+        return false;
+    }
+    if (!mTokenizer) {
+        MNN_ERROR("[Error]: Qwen3-TTS tokenizer is not loaded\n");
+        return false;
+    }
+    std::string normalizedLanguage = qwen3TTSNormalizeLanguage(language);
+    if (normalizedLanguage.empty()) {
+        MNN_ERROR("[Error]: unsupported Qwen3-TTS language: %s\n", language.c_str());
+        return false;
+    }
+    mTokenizer->set_chat_template_context("{\"qwen3_tts_language\":\"" + normalizedLanguage + "\"}");
+    ChatMessages messages;
+    messages.emplace_back("assistant", text);
+    std::string prompt = mTokenizer->apply_chat_template(messages, true);
+    if (prompt.empty()) {
+        MNN_ERROR("[Error]: Qwen3-TTS chat template produced empty prompt\n");
+        return false;
+    }
+    bool ok = mTalker->generateQwen3TTS(prompt, max_new_tokens, ref_audio);
+    const auto* talkerContext = mTalker->getContext();
+    if (talkerContext) {
+        mContext->prompt_len = talkerContext->prompt_len;
+        mContext->gen_seq_len = talkerContext->gen_seq_len;
+        mContext->audio_us = talkerContext->audio_us;
+        mContext->decode_us = talkerContext->decode_us;
+        mContext->status = talkerContext->status;
+    }
+    return ok;
+}
+
+VARP Omni::ids_embedding(const std::vector<int>& ids) {
+    MNN::Express::ExecutorScope s(mExecutor);
+    if (mContext->status == LlmStatus::INTERNAL_ERROR) {
+        return nullptr;
+    }
+    auto inputs_ids = embedding(ids);
+    if (inputs_ids == nullptr || inputs_ids->getInfo() == nullptr) {
+        return nullptr;
+    }
+    int seqLen = inputs_ids->getInfo()->dim[mSeqLenIndex];
+    mMeta->add = seqLen;
+    mContext->prompt_len = seqLen;
+    auto attention_mask = gen_attention_mask(seqLen);
+    auto position_ids = gen_position_ids(seqLen);
+    auto outputs = forwardRaw(inputs_ids, attention_mask, position_ids);
+    if (outputs.empty()) { return nullptr; }
+    return outputs[0];
+}
+
 bool Talker::load() {
     MNN::Express::ExecutorScope s(mExecutor);
     initRuntime();
     mSeqLenIndex = 1;
+    if (isQwen3TTSTalker(mConfig)) {
+        ScheduleConfig qwen3ScheduleConfig;
+        mQwen3RuntimeManager.reset(Executor::RuntimeManager::createRuntimeManager(qwen3ScheduleConfig));
+        Module::Config module_config;
+        module_config.shapeMutable = true;
+        module_config.rearrange = true;
+        constexpr int hiddenSize = 1024;
+
+        mQwen3RuntimeManager->setExternalFile(mConfig->talker_weight().c_str());
+        mModule.reset(Module::load({"inputs_embeds", "attention_mask", "position_ids"}, {"logits", "hidden_states"},
+                                   mConfig->talker_model().c_str(), mQwen3RuntimeManager, &module_config),
+                      Module::destroy);
+        mQwen3RuntimeManager->setExternalFile("");
+
+        mQwen3RuntimeManager->setExternalFile(mConfig->talker_weight().c_str());
+        mQwen3PromptEmbedder.reset(Module::load({"codec_embeds", "text_raw_embeds", "tts_raw_embeds"},
+                                                {"prompt_inputs_embeds", "trailing_text_hidden", "tts_pad_embed"},
+                                                mConfig->talker_model().c_str(), mQwen3RuntimeManager,
+                                                &module_config),
+                                   Module::destroy);
+        mQwen3RuntimeManager->setExternalFile("");
+
+        mQwen3RuntimeManager->setExternalFile(mConfig->code_predictor_weight().c_str());
+        mQwen3CodePredictor.reset(Module::load({"talker_hidden_states", "codec_embeds", "attention_mask",
+                                                "position_ids"},
+                                               {"logits"}, mConfig->code_predictor_model().c_str(),
+                                               mQwen3RuntimeManager, &module_config),
+                                  Module::destroy);
+        mQwen3RuntimeManager->setExternalFile("");
+
+        mQwen3RuntimeManager->setExternalFile(mConfig->codec_embedder_weight().c_str());
+        mQwen3CodecEmbedder.reset(Module::load({"codec_embeds", "text_hidden"}, {"inputs_embeds"},
+                                              mConfig->codec_embedder_model().c_str(), mQwen3RuntimeManager,
+                                              &module_config),
+                                  Module::destroy);
+        mQwen3RuntimeManager->setExternalFile("");
+
+        mQwen3RuntimeManager->setExternalFile(mConfig->speech_decoder_weight().c_str());
+        mQwen3SpeechDecoder.reset(Module::load({"codes"}, {"waveform"}, mConfig->speech_decoder_model().c_str(),
+                                               mQwen3RuntimeManager, &module_config),
+                                  Module::destroy);
+        mQwen3RuntimeManager->setExternalFile("");
+
+        mQwen3RuntimeManager->setExternalFile(mConfig->speaker_encoder_weight().c_str());
+        mQwen3SpeakerEncoder.reset(Module::load({"mels"}, {"speaker_embedding"},
+                                                mConfig->speaker_encoder_model().c_str(), mQwen3RuntimeManager,
+                                                &module_config),
+                                   Module::destroy);
+        mQwen3RuntimeManager->setExternalFile("");
+        if (!mModule || !mQwen3PromptEmbedder || !mQwen3CodePredictor || !mQwen3CodecEmbedder ||
+            !mQwen3SpeechDecoder || !mQwen3SpeakerEncoder) {
+            return false;
+        }
+        mDiskEmbedding.reset(new DiskEmbedding(mConfig, mConfig->talker_embedding_file()));
+        mQwen3TextEmbedding.reset(new DiskEmbedding(mConfig, mConfig->talker_text_embedding_file(),
+                                                    mConfig->talker_text_hidden_size()));
+        mQwen3CodePredictorEmbedding.reset(new DiskEmbedding(mConfig, mConfig->code_predictor_embedding_file(),
+                                                             hiddenSize));
+        mMaxNewTokens = mConfig->talker_max_new_tokens();
+        set_config("{\"sampler_type\":\"greedy\"}");
+        mSampler.reset(Sampler::createSampler(mContext, mConfig));
+        mContext->status = LlmStatus::RUNNING;
+        return true;
+    }
     set_config("{\"sampler_type\": \"mixed\", \"temperature\": 0.9, \"topK\": 40, \"topP\": 0.8, \"penalty\": 1.05}");
     mSampler.reset(Sampler::createSampler(mContext, mConfig));
     mDiskEmbedding.reset(new DiskEmbedding(mConfig, mConfig->talker_embedding_file()));
@@ -2011,6 +2440,192 @@ int Talker::sample(Express::VARP logits, int offset, int size) {
         token2wav();
     }
     return token;
+}
+
+bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const std::string& refAudio) {
+    CHECK_LLM_RUNNING_RET(mContext, false);
+    MNN::Express::ExecutorScope s(mExecutor);
+    if (!isQwen3TTSTalker(mConfig)) {
+        MNN_ERROR("[Error]: generateQwen3TTS called on non-qwen3_tts talker\n");
+        return false;
+    }
+    if (!mWavformCallback) {
+        MNN_ERROR("[Error]: Qwen3-TTS waveform callback is not set\n");
+        return false;
+    }
+    if (maxFrames <= 0) {
+        maxFrames = mMaxNewTokens;
+    }
+    constexpr int hiddenSize = 1024;
+    constexpr int codecEosToken = 2150;
+    const int codeGroups = mConfig->code_predictor_groups();
+    const int codePredictorSeq = codeGroups;
+    std::vector<int> firstCodeCandidates(2049);
+    for (int i = 0; i < 2048; ++i) {
+        firstCodeCandidates[i] = i;
+    }
+    firstCodeCandidates[2048] = codecEosToken;
+
+    auto inputIds = mThinker->tokenizer_encode(prompt);
+    if (inputIds.empty()) {
+        MNN_ERROR("[Error]: empty qwen3_tts prompt ids\n");
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return false;
+    }
+    mContext->prompt_len = static_cast<int>(inputIds.size());
+    mContext->history_tokens = inputIds;
+    mContext->output_tokens.clear();
+    mContext->gen_seq_len = 0;
+
+    if (inputIds.size() <= 6) {
+        MNN_ERROR("[Error]: qwen3_tts prompt ids too short: %zu\n", inputIds.size());
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return false;
+    }
+    std::vector<int> codecPrefix(inputIds.begin(), inputIds.begin() + 6);
+    std::vector<int> textIds(inputIds.begin() + 6, inputIds.end());
+    std::vector<int> ttsIds {mConfig->tts_bos_token_id(), mConfig->tts_eos_token_id(),
+                             mConfig->tts_pad_token_id()};
+    VARP speakerEmbedding = nullptr;
+    if (!refAudio.empty()) {
+#ifdef LLM_SUPPORT_AUDIO
+        speakerEmbedding = makeQwen3TTSSpeakerEmbedding(mQwen3SpeakerEncoder.get(), refAudio,
+                                                        mConfig->speaker_encoder_sample_rate(), hiddenSize);
+        if (speakerEmbedding.get() == nullptr) {
+            MNN_ERROR("[Error]: failed to build Qwen3-TTS speaker embedding\n");
+            mContext->status = LlmStatus::INTERNAL_ERROR;
+            return false;
+        }
+#else
+        MNN_ERROR("[Error]: Qwen3-TTS ref_audio requires LLM_SUPPORT_AUDIO\n");
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return false;
+#endif
+    }
+    auto codecEmbeds = makeQwen3TTSCodecEmbeds(mDiskEmbedding.get(), codecPrefix, speakerEmbedding, hiddenSize);
+    auto textRawEmbeds = makeEmbeddingInput(mQwen3TextEmbedding.get(), textIds, mConfig->talker_text_hidden_size());
+    auto ttsRawEmbeds = makeEmbeddingInput(mQwen3TextEmbedding.get(), ttsIds, mConfig->talker_text_hidden_size());
+    if (codecEmbeds.get() == nullptr || textRawEmbeds.get() == nullptr || ttsRawEmbeds.get() == nullptr) {
+        MNN_ERROR("[Error]: failed to build qwen3_tts prompt embeddings\n");
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return false;
+    }
+    auto promptOutputs = mQwen3PromptEmbedder->onForward({codecEmbeds, textRawEmbeds, ttsRawEmbeds});
+    if (promptOutputs.size() != 3) {
+        MNN_ERROR("[Error]: qwen3_tts prompt embedder output size mismatch: %zu\n", promptOutputs.size());
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return false;
+    }
+    auto promptInfo = promptOutputs[0]->getInfo();
+    auto embeddings = readTensorVector<float>(promptOutputs[0]);
+    if (!promptInfo || promptInfo->dim.size() != 3 || embeddings.empty()) {
+        MNN_ERROR("[Error]: invalid qwen3_tts prompt embeddings\n");
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return false;
+    }
+    int seqLen = promptInfo->dim[1];
+    std::vector<int> generatedCodes;
+    generatedCodes.reserve(maxFrames * codeGroups);
+
+    VARP cpMask, cpPos;
+    makeCausalInputs(codePredictorSeq, 1, cpMask, cpPos);
+
+    MNN::Timer decodeTimer;
+    for (int step = 0; step < maxFrames; ++step) {
+        auto inputsEmbeds = makeTensorInputFromVector<float>({1, seqLen, hiddenSize}, embeddings);
+        VARP talkerMask, talkerPos;
+        makeCausalInputs(seqLen, 3, talkerMask, talkerPos);
+
+        auto talkerOutputs = mModule->onForward({inputsEmbeds, talkerMask, talkerPos});
+        if (talkerOutputs.size() != 2) {
+            MNN_ERROR("[Error]: qwen3_tts talker output size mismatch at step %d: %zu\n", step, talkerOutputs.size());
+            mContext->status = LlmStatus::INTERNAL_ERROR;
+            return false;
+        }
+        int firstCode = mSampler->sample(talkerOutputs[0], firstCodeCandidates);
+        if (firstCode == codecEosToken) {
+            break;
+        }
+        if (firstCode < 0) {
+            MNN_ERROR("[Error]: invalid qwen3_tts first code at frame %d\n", step);
+            mContext->status = LlmStatus::INTERNAL_ERROR;
+            return false;
+        }
+
+        std::vector<int> frameCodes(codeGroups, 0);
+        frameCodes[0] = firstCode;
+        for (int group = 1; group < codeGroups; ++group) {
+            auto codePredictorEmbeds = makeQwen3CodePredictorCodecEmbeds(
+                mDiskEmbedding.get(), mQwen3CodePredictorEmbedding.get(), frameCodes, codeGroups,
+                mConfig->code_predictor_vocab_size(), hiddenSize);
+            if (codePredictorEmbeds.get() == nullptr) {
+                MNN_ERROR("[Error]: failed to build qwen3_tts code predictor embeddings at frame %d group %d\n",
+                          step, group);
+                mContext->status = LlmStatus::INTERNAL_ERROR;
+                return false;
+            }
+            auto cpOutputs = mQwen3CodePredictor->onForward({talkerOutputs[1], codePredictorEmbeds, cpMask, cpPos});
+            if (cpOutputs.size() != 1) {
+                MNN_ERROR("[Error]: qwen3_tts code predictor output size mismatch at frame %d group %d: %zu\n",
+                          step, group, cpOutputs.size());
+                mContext->status = LlmStatus::INTERNAL_ERROR;
+                return false;
+            }
+            int token = sample(cpOutputs[0], (group - 1) * 2048, 2048);
+            frameCodes[group] = token < 0 ? 0 : token;
+        }
+        generatedCodes.insert(generatedCodes.end(), frameCodes.begin(), frameCodes.end());
+        mContext->output_tokens.insert(mContext->output_tokens.end(), frameCodes.begin(), frameCodes.end());
+        mContext->gen_seq_len = step + 1;
+
+        auto textHidden = selectTextHidden(promptOutputs[1], promptOutputs[2], step, hiddenSize);
+        auto codecFrameEmbeds = makeQwen3CodePredictorCodecEmbeds(
+            mDiskEmbedding.get(), mQwen3CodePredictorEmbedding.get(), frameCodes, codeGroups + 1,
+            mConfig->code_predictor_vocab_size(), hiddenSize);
+        auto codecOutputs = mQwen3CodecEmbedder->onForward({codecFrameEmbeds, textHidden});
+        if (codecOutputs.size() != 1) {
+            MNN_ERROR("[Error]: qwen3_tts codec embedder output size mismatch at frame %d: %zu\n",
+                      step, codecOutputs.size());
+            mContext->status = LlmStatus::INTERNAL_ERROR;
+            return false;
+        }
+        auto nextEmbed = readTensorVector<float>(codecOutputs[0]);
+        if (nextEmbed.size() != hiddenSize) {
+            MNN_ERROR("[Error]: invalid qwen3_tts codec embed size at frame %d: %zu\n", step, nextEmbed.size());
+            mContext->status = LlmStatus::INTERNAL_ERROR;
+            return false;
+        }
+        embeddings.insert(embeddings.end(), nextEmbed.begin(), nextEmbed.end());
+        seqLen += 1;
+    }
+    mContext->decode_us += decodeTimer.durationInUs();
+
+    int frames = static_cast<int>(generatedCodes.size() / codeGroups);
+    if (frames <= 0) {
+        MNN_ERROR("[Error]: no qwen3_tts codec frame generated\n");
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return false;
+    }
+    auto decoderCodes = makeTensorInput<int>({1, codeGroups, frames});
+    auto codePtr = decoderCodes->writeMap<int>();
+    for (int g = 0; g < codeGroups; ++g) {
+        for (int t = 0; t < frames; ++t) {
+            codePtr[g * frames + t] = generatedCodes[t * codeGroups + g];
+        }
+    }
+
+    MNN::Timer wavTimer;
+    auto wavOutputs = mQwen3SpeechDecoder->onForward({decoderCodes});
+    mContext->audio_us += wavTimer.durationInUs();
+    if (wavOutputs.size() != 1 || !wavOutputs[0]->getInfo() || !wavOutputs[0]->readMap<float>()) {
+        MNN_ERROR("[Error]: invalid qwen3_tts speech decoder output\n");
+        mContext->status = LlmStatus::INTERNAL_ERROR;
+        return false;
+    }
+    auto info = wavOutputs[0]->getInfo();
+    bool callbackOk = mWavformCallback(wavOutputs[0]->readMap<float>(), info->size, true);
+    mContext->status = callbackOk ? LlmStatus::NORMAL_FINISHED : LlmStatus::USER_CANCEL;
+    return callbackOk;
 }
 
 void Talker::stepPrefill() {
