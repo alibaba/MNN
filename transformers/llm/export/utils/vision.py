@@ -370,7 +370,7 @@ class Qwen2Vision(Vision):
                 h_index = torch.arange(h).view(1, -1, 1).expand(t, -1, w).flatten()
                 w_index = torch.arange(w).view(1, 1, -1).expand(t, h, -1).flatten()
                 position_ids_list.append(torch.stack([t_index, h_index, w_index]) + cur_idx)
-                cur_idx += w
+                cur_idx += max(h, w)
                 vision_idx += 1
         if txt_len > 0:
             text_index = torch.arange(cur_idx, cur_idx + txt_len, dtype=torch.int)
