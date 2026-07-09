@@ -988,8 +988,14 @@ void ConvBufLowMemoryExecution::tuneGemmLowMemory(Tensor* input, Tensor* output)
     std::string kernelName = "gemm_b4_c8";
     std::set<std::string> buildOption = mResource->mBuildOptions;
     int inputChannelLeaves = 0;
-    int inputBatchLeaves = global_y % 4;
-    if (mResource->mNumQuantBit == 4) {
+    int batchTile = 4;
+    // Use b8 kernel for int4 when batch is large enough
+    if (mResource->mNumQuantBit == 4 && global_y >= 32) {
+        batchTile = 8;
+        kernelName = "gemm_b8_c8";
+    }
+    int inputBatchLeaves = global_y % batchTile;
+    if(mResource->mNumQuantBit == 4){
         inputChannelLeaves = blockDim % 4;
         kernelName += "_int4_buf";
     } else {
@@ -1001,16 +1007,31 @@ void ConvBufLowMemoryExecution::tuneGemmLowMemory(Tensor* input, Tensor* output)
     if (mResource->mUseImage) {
         buildOption.emplace("-DUSE_IMAGE");
     }
-    // generate cache for every option
-    for (int i = 0; i < 4; i++) {
-        std::set<std::string> option = mResource->mBuildOptions;
-        if (mResource->mUseImage) {
-            option.emplace("-DUSE_IMAGE");
+    // generate cache for every option (both b4 and b8 for int4)
+    if (mResource->mNumQuantBit == 4) {
+        const char* kernelNames[] = {"gemm_b4_c8_int4_buf", "gemm_b8_c8_int4_buf"};
+        int batchTiles[] = {4, 8};
+        for (int k = 0; k < 2; k++) {
+            for (int i = 0; i < batchTiles[k]; i++) {
+                std::set<std::string> option = mResource->mBuildOptions;
+                if (mResource->mUseImage)
+                    option.emplace("-DUSE_IMAGE");
+                option.emplace("-DINPUT_CHANNEL_LEAVES_NUM=" + std::to_string(inputChannelLeaves));
+                option.emplace("-DINPUT_BATCH_LEAVES_NUM=" + std::to_string(i));
+                mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemm_conv1x1_buf", kernelNames[k], option,
+                                                                mOpenCLBackend->getPrecision());
+            }
         }
-        option.emplace("-DINPUT_CHANNEL_LEAVES_NUM=" + std::to_string(inputChannelLeaves));
-        option.emplace("-DINPUT_BATCH_LEAVES_NUM=" + std::to_string(i));
-        auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemm_conv1x1_buf", kernelName, option,
-                                                                      mOpenCLBackend->getPrecision());
+    } else {
+        for (int i = 0; i < batchTile; i++) {
+            std::set<std::string> option = mResource->mBuildOptions;
+            if (mResource->mUseImage)
+                option.emplace("-DUSE_IMAGE");
+            option.emplace("-DINPUT_CHANNEL_LEAVES_NUM=" + std::to_string(inputChannelLeaves));
+            option.emplace("-DINPUT_BATCH_LEAVES_NUM=" + std::to_string(i));
+            mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemm_conv1x1_buf", kernelName, option,
+                                                            mOpenCLBackend->getPrecision());
+        }
     }
     std::string info = std::to_string(inputChannels) + "_" + std::to_string(outChannel);
     if (global_y <= 16) {
@@ -1200,12 +1221,74 @@ void ConvBufLowMemoryExecution::tuneGemmLowMemory(Tensor* input, Tensor* output)
             }
         }
     }
-    unit.kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemm_conv1x1_buf", kernelName, buildOption,
-                                                                  mOpenCLBackend->getPrecision());
-    uint32_t maxWorkGroupSize =
-        static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(unit.kernel));
+    // Tune b4 vs b8 for int4 when tuning is enabled
+    if (mResource->mNumQuantBit == 4 && global_y >= 8 && mOpenCLBackend->getCLTuneLevel() != None) {
+        int minTime = INT_MAX;
+        int bestBatchTile = batchTile;
+        for (int bt : {4, 8}) {
+            std::string kn = "gemm_b" + std::to_string(bt) + "_c8_int4_buf";
+            int leaves = global_y % bt;
+            std::set<std::string> opt = mResource->mBuildOptions;
+            opt.emplace("-DINPUT_CHANNEL_LEAVES_NUM=" + std::to_string(inputChannelLeaves));
+            opt.emplace("-DINPUT_BATCH_LEAVES_NUM=" + std::to_string(leaves));
+            if (mResource->mUseImage)
+                opt.emplace("-DUSE_IMAGE");
+            if (mGemmInputImage1d != nullptr)
+                opt.emplace("-DUSE_IMAGE1D_INPUT");
+            auto tuneKernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemm_conv1x1_buf", kn, opt,
+                                                                              mOpenCLBackend->getPrecision());
+            uint32_t maxWGS =
+                static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(tuneKernel));
+            std::vector<uint32_t> gws = {static_cast<uint32_t>(UP_DIV(global_y, bt)),
+                                         static_cast<uint32_t>(UP_DIV(outChannel, 8))};
+            uint32_t tidx = 0;
+            cl_int tret = CL_SUCCESS;
+            tret |= tuneKernel->get().setArg(tidx++, gws[0]);
+            tret |= tuneKernel->get().setArg(tidx++, gws[1]);
+            if (mGemmInputImage1d != nullptr) {
+                tret |= tuneKernel->get().setArg(tidx++, sizeof(cl_mem), &mGemmInputImage1d);
+            } else {
+                tret |= tuneKernel->get().setArg(tidx++, openCLBuffer(input));
+            }
+            if (mResource->mUseImage) {
+                tret |= tuneKernel->get().setArg(tidx++, *mResource->mKernelImage.get());
+            } else {
+                tret |= tuneKernel->get().setArg(tidx++, *mResource->mKernelBuffer.get());
+            }
+            tret |= tuneKernel->get().setArg(tidx++, *mResource->mDequantScaleOffsetBuffer.get());
+            tret |= tuneKernel->get().setArg(tidx++, openCLBuffer(mResource->mBias.get()));
+            tret |= tuneKernel->get().setArg(tidx++, openCLBuffer(output));
+            tret |= tuneKernel->get().setArg(tidx++, static_cast<int>(global_y));
+            tret |= tuneKernel->get().setArg(tidx++, static_cast<int>(outputChannelAlign));
+            tret |= tuneKernel->get().setArg(tidx++, static_cast<int>(inputChannelAlign));
+            tret |= tuneKernel->get().setArg(tidx++, static_cast<int>(blockNum));
+            tret |= tuneKernel->get().setArg(tidx++, static_cast<int>(blockDim));
+            tret |= tuneKernel->get().setArg(tidx++, mResource->mCoef);
+            MNN_CHECK_CL_SUCCESS(tret, "setArg gemm_conv1x1_buf tune");
+            auto retTune = localWS2DDefault(gws, maxWGS, mOpenCLBackend->getOpenCLRuntime(), kn + info, tuneKernel,
+                                            mOpenCLBackend->getCLTuneLevel(), "gemm_conv1x1_buf");
+            if (retTune.second < minTime) {
+                minTime = retTune.second;
+                bestBatchTile = bt;
+            }
+        }
+        // Update selection based on tuning result
+        batchTile = bestBatchTile;
+        kernelName = "gemm_b" + std::to_string(batchTile) + "_c8_int4_buf";
+        inputBatchLeaves = global_y % batchTile;
+        buildOption = mResource->mBuildOptions;
+        buildOption.emplace("-DINPUT_CHANNEL_LEAVES_NUM=" + std::to_string(inputChannelLeaves));
+        buildOption.emplace("-DINPUT_BATCH_LEAVES_NUM=" + std::to_string(inputBatchLeaves));
+        if (mResource->mUseImage)
+            buildOption.emplace("-DUSE_IMAGE");
+        if (mGemmInputImage1d != nullptr)
+            buildOption.emplace("-DUSE_IMAGE1D_INPUT");
+    }
+    unit.kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemm_conv1x1_buf", kernelName, buildOption, mOpenCLBackend->getPrecision());
+    uint32_t maxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(unit.kernel));
 
-    mGlobalWorkSize = {static_cast<uint32_t>(UP_DIV(global_y, 4)), static_cast<uint32_t>(UP_DIV(outChannel, 8))};
+    mGlobalWorkSize = {static_cast<uint32_t>(UP_DIV(global_y, batchTile)),
+                       static_cast<uint32_t>(UP_DIV(outChannel, 8))};
     uint32_t idx = 0;
     cl_int ret = CL_SUCCESS;
     ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[0]);
