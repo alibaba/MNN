@@ -155,6 +155,55 @@ public:
 };
 MNNTestSuiteRegister(BlitC4Test, "op/blitc4");
 
+class RasterC4ToNCHWRegionTest : public MNNTestCase {
+public:
+    virtual ~RasterC4ToNCHWRegionTest() = default;
+    bool _run(int precision, bool lazy) {
+        const int n = 2;
+        const int c = 4;
+        auto input = _Input({n, c, 1, 1}, NCHW);
+        auto inputPtr = input->writeMap<float>();
+        for (int i = 0; i < n; ++i) {
+            for (int j = 0; j < c; ++j) {
+                inputPtr[i * c + j] = (float)(i * 10 + j);
+            }
+        }
+
+        input = _Convert(input, NC4HW4);
+        auto output = _RasterRaw({input}, {
+            0, c, 1, 1, 0, 1, n, 1, n, c, 1,
+        }, {c, n, 1, 1}, halide_type_of<float>(), NCHW);
+        const std::vector<float> expected = {
+            0.0f, 10.0f, 1.0f, 11.0f, 2.0f, 12.0f, 3.0f, 13.0f,
+        };
+        auto outputPtr = output->readMap<float>();
+        if (!checkVector<float>(outputPtr, expected.data(), expected.size(), 0.01f)) {
+            MNN_ERROR("raster c4 to nchw region test failed!\n");
+            return false;
+        }
+        return true;
+    }
+    virtual bool run(int precision) {
+        ExecutorScope::Current()->lazyEval = false;
+        auto res = _run(precision, false);
+        if (!res) {
+            FUNC_PRINT(1);
+            return false;
+        }
+        ExecutorScope::Current()->lazyEval = true;
+        ExecutorScope::Current()->setLazyComputeMode(MNN::Express::Executor::LAZY_CONTENT);
+        res = _run(precision, true);
+        if (!res) {
+            FUNC_PRINT(1);
+            return false;
+        }
+        ExecutorScope::Current()->setLazyComputeMode(MNN::Express::Executor::LAZY_FULL);
+        res = _run(precision, true);
+        return res;
+    }
+};
+MNNTestSuiteRegister(RasterC4ToNCHWRegionTest, "op/raster_c4_to_nchw_region");
+
 class ReduceBlitTest : public MNNTestCase {
 public:
     virtual ~ReduceBlitTest() = default;

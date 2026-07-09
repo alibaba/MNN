@@ -21,6 +21,24 @@ static bool sameConsumers(const std::unordered_map<int, std::vector<int>>& consu
     return iter != consumers.end() && iter->second.size() == 1 && iter->second[0] == opIdx;
 }
 
+static std::unique_ptr<OpT> cloneOp(const OpT* op) {
+    if (op == nullptr) {
+        return nullptr;
+    }
+    flatbuffers::FlatBufferBuilder builder(1024);
+    builder.Finish(Op::Pack(builder, op));
+    return std::unique_ptr<OpT>(flatbuffers::GetRoot<Op>(builder.GetBufferPointer())->UnPack());
+}
+
+static std::vector<std::unique_ptr<OpT>> cloneOps(const std::vector<std::unique_ptr<OpT>>& ops) {
+    std::vector<std::unique_ptr<OpT>> copy;
+    copy.reserve(ops.size());
+    for (auto& op : ops) {
+        copy.emplace_back(cloneOp(op.get()));
+    }
+    return copy;
+}
+
 struct PreConvertMatch {
     bool valid;
     int reshapeIdx;
@@ -56,9 +74,14 @@ public:
         : mOps(ops), mTensors(tensors) {}
 
     bool run() {
-        if (!shouldRun()) {
+        if (!canFuseAsKnownTransformerGraph()) {
             return false;
         }
+        return runFusePipeline();
+    }
+
+private:
+    bool runFusePipeline() {
         bool changed = false;
         changed |= fuseAttentionOutputC4();
         changed |= fuseMulSilu();
@@ -71,7 +94,6 @@ public:
         return changed;
     }
 
-private:
     std::vector<std::unique_ptr<OpT>>& mOps;
     std::vector<std::string>& mTensors;
     std::unordered_map<int, int> mProducer;
@@ -242,25 +264,6 @@ private:
             }
         }
         return -1;
-    }
-
-    bool shouldRun() const {
-        for (auto& opPtr : mOps) {
-            auto op = opPtr.get();
-            if (op == nullptr) {
-                continue;
-            }
-            if (op->type == OpType_Attention || op->type == OpType_RoPE) {
-                return true;
-            }
-            if (op->type == OpType_BinaryOp && op->main.type == OpParameter_BinaryOp &&
-                op->main.AsBinaryOp() != nullptr &&
-                (op->main.AsBinaryOp()->opType == BinaryOpOperation_MUL ||
-                 op->main.AsBinaryOp()->opType == BinaryOpOperation_MUL_SILU)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     RoPEParamT* ropeParam(OpT* op) const {
@@ -1217,21 +1220,64 @@ private:
         return plans->size() == candidates.size();
     }
 
-    bool fuseHiddenStateC4() {
+    bool validateHiddenPlans(std::vector<HiddenBlockPlan>* plans) {
         rebuildMaps();
-        std::vector<HiddenBlockPlan> plans;
-        if (!buildHiddenBlockChain(&plans)) {
+        if (!buildHiddenBlockChain(plans) || plans->empty()) {
             return false;
         }
-        int hiddenSize = plans[0].hiddenSize;
+        int hiddenSize = (*plans)[0].hiddenSize;
         if (hiddenSize <= 0 || hiddenSize % 4 != 0) {
             return false;
         }
-        for (auto& plan : plans) {
+        for (auto& plan : *plans) {
             if (plan.hiddenSize != hiddenSize) {
                 return false;
             }
         }
+        return findSliceConsumer(plans->back().mlpAddOut) >= 0;
+    }
+
+    bool isCurrentGraphKnownTransformerC4Candidate() {
+        std::vector<HiddenBlockPlan> plans;
+        if (!validateHiddenPlans(&plans)) {
+            return false;
+        }
+        int attentionCount = 0;
+        int sequenceMixerCount = 0;
+        for (auto& opPtr : mOps) {
+            auto op = opPtr.get();
+            if (op == nullptr) {
+                continue;
+            }
+            if (op->type == OpType_Attention) {
+                ++attentionCount;
+                ++sequenceMixerCount;
+            } else if (op->type == OpType_LinearAttention) {
+                ++sequenceMixerCount;
+            }
+        }
+        return attentionCount > 0 && attentionCount == (int)plans.size() && sequenceMixerCount == attentionCount;
+    }
+
+    bool canFuseAsKnownTransformerGraph() const {
+        auto dryRunOps = cloneOps(mOps);
+        auto dryRunTensors = mTensors;
+        TransformerC4Graph dryRunGraph(dryRunOps, dryRunTensors);
+        dryRunGraph.fuseAttentionOutputC4();
+        dryRunGraph.fuseMulSilu();
+        dryRunGraph.fuseMlpOutputC4();
+        dryRunGraph.fuseRoPEInputC4();
+        dryRunGraph.fuseAttentionValueC4();
+        dryRunGraph.fuseBinaryLayerNormC4();
+        return dryRunGraph.isCurrentGraphKnownTransformerC4Candidate();
+    }
+
+    bool fuseHiddenStateC4() {
+        std::vector<HiddenBlockPlan> plans;
+        if (!validateHiddenPlans(&plans)) {
+            return false;
+        }
+        int hiddenSize = plans[0].hiddenSize;
         int firstHidden = plans[0].blockHidden;
         int firstLayerNormIdx = plans[0].inputLnIdx;
         int currentC4 = plans.back().mlpAddOut;
