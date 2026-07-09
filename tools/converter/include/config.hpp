@@ -59,6 +59,7 @@ public:
     bool convertMatmulToConv = true;
     bool useGeluApproximation = true;
     bool transformerFuse = false;
+    bool transformerFuseC4 = false;
     bool allowCustomOp = false;
     bool groupConvNative = false;
     std::string customOpLibs = "";

@@ -62,6 +62,8 @@ class Attention(torch.nn.Module):
         self.kv_cache = True
         self.layer_id = layer_id
         self.rotary = rotary
+        export_args = getattr(config, 'export_args', None)
+        self.export_fused_rope = getattr(export_args, 'transformer_c4', False)
         self.hidden_size = config.hidden_size
         self.head_dim = config.head_dim
         if isinstance(config.num_attention_heads, list):
@@ -221,6 +223,7 @@ class Attention(torch.nn.Module):
             cos, sin = rotary_pos_emb[0], rotary_pos_emb[1]
             use_fused_rope = (
                 self.export_fused_attn and torch.onnx.is_in_onnx_export()
+                and self.export_fused_rope
                 and not qk_norm_after_rope
                 and not use_shared_kv
                 and self.k_proj is not None

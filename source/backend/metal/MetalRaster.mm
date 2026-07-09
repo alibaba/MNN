@@ -277,6 +277,16 @@ kernel void raw_copy_int4(const device int4 *in [[buffer(0)]],
 }
 )metal";
 
+static bool isFullCopyRegion(const Tensor::InsideDescribe::Region& region, const Tensor* output) {
+    if (region.src.offset != 0 || region.dst.offset != 0) {
+        return false;
+    }
+    if (!TensorUtils::isCopyRegion(region)) {
+        return false;
+    }
+    return region.size[0] * region.size[1] * region.size[2] == TensorUtils::getRawSize(output);
+}
+
 static const char* gFillInt4 = R"metal(
 #include <metal_stdlib>
 #include <simd/simd.h>
@@ -397,7 +407,7 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &____inputs, const s
         auto& slice = des->regions[0];
         auto origin = slice.origin;
         if (origin != nullptr && TensorUtils::getDescribe(origin)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 &&
-            TensorUtils::regionIsFull(output) && TensorUtils::getRawSize(origin) == TensorUtils::getRawSize(output)) {
+            isFullCopyRegion(slice, output) && TensorUtils::getRawSize(origin) == TensorUtils::getRawSize(output)) {
             int srcArea = 1;
             for (int i = 2; i < origin->dimensions(); ++i) {
                 srcArea *= origin->length(i);
