@@ -26,15 +26,61 @@ def repack_low_bits(x, iNeedBits, block_size):
             iOffset = 0
     return torch.cat(v, axis=1)
 
-def _quant_on_device(weight, quant_bit, quant_block, symmetric, awq, hqq):
-    oc, ic = weight.shape
+def _get_quant_block_size(ic, quant_block):
     if quant_block == 0:
         block_size = ic
     else:
         block_size = quant_block
     while ic % block_size != 0:
         block_size /= 2
-    block_size = int(block_size)
+    return int(block_size)
+
+
+def _pack_quant_weight(q_weight, quant_bit, block_num, oc, block_size):
+    if quant_bit < 8 and 8 % quant_bit == 0:
+        group_size = 8 // quant_bit
+        q_weight = q_weight.reshape(-1, group_size)
+        multipliers = [2 ** (quant_bit * (group_size - 1 - i)) for i in range(group_size)]
+        # Use uint8 multipliers to avoid uint8->int64 promotion (8x memory blowup)
+        multipliers = torch.tensor(multipliers, dtype=torch.uint8).to(q_weight.device)
+        q_weight = (q_weight * multipliers).sum(axis=1).to(torch.uint8)
+    elif quant_bit < 8:
+        q_weight = repack_low_bits(q_weight.reshape((block_num * oc, block_size)), quant_bit, block_size)
+    return q_weight
+
+
+def quant_from_encoding(weight, quant_bit, quant_block, symmetric, scale, zero=None):
+    device = weight.device
+    oc, ic = weight.shape
+    block_size = _get_quant_block_size(ic, quant_block)
+    block_num = ic // block_size
+    weight = weight.reshape(oc, block_num, block_size)
+    scale = scale.to(device=device, dtype=weight.dtype).reshape(oc, block_num, 1)
+
+    offset = 1 << (quant_bit - 1)
+    clip_max = offset - 1
+    if symmetric:
+        clip_min = -clip_max
+        q_weight = torch.round(weight / scale).clamp(clip_min, clip_max)
+        alpha = scale.flatten()
+    else:
+        clip_min = -offset
+        zero = zero.to(device=device, dtype=weight.dtype).reshape(oc, block_num, 1)
+        q_weight = torch.round((weight - zero) / scale) + clip_min
+        q_weight = q_weight.clamp(clip_min, clip_max)
+        dequant_zero = zero - scale * clip_min
+        alpha = torch.stack([dequant_zero.flatten(), scale.flatten()], axis=-1).flatten()
+
+    q_weight = (q_weight.flatten() + offset).to(torch.uint8)
+    q_weight = _pack_quant_weight(q_weight, quant_bit, block_num, oc, block_size)
+    if q_weight.device is not torch.device('cpu'):
+        return q_weight.cpu(), alpha.float().cpu()
+    return q_weight, alpha.float()
+
+
+def _quant_on_device(weight, quant_bit, quant_block, symmetric, awq, hqq):
+    oc, ic = weight.shape
+    block_size = _get_quant_block_size(ic, quant_block)
     block_num = ic // block_size
 
     offset = 1 << (quant_bit - 1)
@@ -77,15 +123,7 @@ def _quant_on_device(weight, quant_bit, quant_block, symmetric, awq, hqq):
             q_weight = (torch.clamp(q_weight.flatten(), clip_min, clip_max) + offset).to(torch.uint8)
             alpha = torch.stack([zeros.flatten(), scale.flatten()], axis=-1).flatten()
 
-    if quant_bit < 8 and 8 % quant_bit == 0:
-        group_size = 8 // quant_bit
-        q_weight = q_weight.reshape(-1, group_size)
-        multipliers = [2 ** (quant_bit * (group_size - 1 - i)) for i in range(group_size)]
-        # Use uint8 multipliers to avoid uint8->int64 promotion (8x memory blowup)
-        multipliers = torch.tensor(multipliers, dtype=torch.uint8).to(q_weight.device)
-        q_weight = (q_weight * multipliers).sum(axis=1).to(torch.uint8)
-    elif quant_bit < 8:
-        q_weight = repack_low_bits(q_weight.reshape((block_num * oc, block_size)), quant_bit, block_size)
+    q_weight = _pack_quant_weight(q_weight, quant_bit, block_num, oc, block_size)
 
     if q_weight.device is not torch.device('cpu'):
         return q_weight.cpu(), alpha.float().cpu()

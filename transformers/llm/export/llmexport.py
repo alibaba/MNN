@@ -20,6 +20,7 @@ from utils.mnn_converter import MNNConverter
 from utils.awq_quantizer import AwqQuantizer
 from utils.smooth_quantizer import SmoothQuantizer
 from utils.omni_quantizer import OmniQuantizer
+from utils.seqmse_quantizer import SeqMSEQuantizer
 from utils.torch_utils import onnx_export
 
 class LlmExporter(torch.nn.Module):
@@ -584,6 +585,27 @@ class LlmExporter(torch.nn.Module):
         self.smooth_quantizer = SmoothQuantizer(model = self.model, max_calib_samples = calib_samples, act_bit=self.args.act_bit, act_sym=self.args.act_sym, generate_for_npu=self.args.generate_for_npu)
         self.smooth_quantizer.quantize()
 
+    def seqmse_quant(self):
+        total_lines = 8
+        if self.args.calib_data:
+            print(f"检测到 calib_data: {self.args.calib_data}，开始读取...")
+            self.model.args.calib_data = self.args.calib_data
+            if os.path.exists(self.args.calib_data):
+                with open(self.args.calib_data, 'r', encoding='utf-8') as f:
+                    total_lines = sum(1 for _ in f)
+            else:
+                print(f"错误：找不到文件 {self.args.calib_data}")
+
+        calib_samples = min(total_lines, self.args.seqmse_samples)
+        self.seqmse_quantizer = SeqMSEQuantizer(
+            model=self.model,
+            max_calib_samples=calib_samples,
+            max_calib_seq_len=self.args.seqmse_seq_len,
+            num_candidates=self.args.seqmse_candidates,
+            max_tokens_per_linear=self.args.seqmse_tokens,
+        )
+        self.seqmse_quantizer.quantize()
+
     def export_vision(self):
         if self.visual is None:
             return
@@ -686,6 +708,8 @@ class LlmExporter(torch.nn.Module):
                 self.awq_quant()
             if self.args.smooth:
                 self.smooth_quant()
+            if self.args.seqmse:
+                self.seqmse_quant()
         export_mnn = export_type == 'mnn'
         self.mnn_converter = MNNConverter(self) if export_mnn else None
         self.export_talker()
@@ -861,6 +885,11 @@ def build_args(parser):
     parser.add_argument('--ppl', action='store_true', help='Whether or not to get all logits of input tokens.')
     parser.add_argument('--awq', action='store_true', help='Whether or not to use awq quant.')
     parser.add_argument('--hqq', action='store_true', help='Whether or not to use hqq quant.')
+    parser.add_argument('--seqmse', action='store_true', help='Whether or not to use SeqMSE weight encoding search.')
+    parser.add_argument('--seqmse_candidates', type=int, default=20, help='Number of SeqMSE clipping candidates, default is 20.')
+    parser.add_argument('--seqmse_samples', type=int, default=8, help='Number of calibration samples for SeqMSE, default is 8.')
+    parser.add_argument('--seqmse_seq_len', type=int, default=256, help='Max calibration sequence length for SeqMSE, default is 256.')
+    parser.add_argument('--seqmse_tokens', type=int, default=512, help='Max tokens kept per Linear during SeqMSE search, default is 512.')
     parser.add_argument('--omni', action='store_true', help='Whether or not to use omni quant.')
     parser.add_argument('--transformer_fuse', action='store_true', help='Whether or not to fuse vision transformer op.')
     parser.add_argument('--group_conv_native', action='store_true', help='Whether or not to keep native group_conv.')

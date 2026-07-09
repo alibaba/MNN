@@ -6,6 +6,7 @@ import torch
 import numpy as np
 
 from .torch_utils import quant as torch_quant
+from .torch_utils import quant_from_encoding
 from .torch_utils import onnx_export
 from tqdm import tqdm
 from .spinner import spinner_run
@@ -289,7 +290,7 @@ class MNNConverter:
             json.dump(mnn_graph, file, ensure_ascii=False, indent=4)
         return self.mnn_weight_path
 
-    def quant(self, weight, quant_bit, quant_block, symmetric):
+    def quant(self, weight, quant_bit, quant_block, symmetric, name=None):
         if self.exporter.args.skip_weight:
             # Skip expensive quantization when skip_weight is enabled
             oc, ic = weight.shape
@@ -306,6 +307,21 @@ class MNNConverter:
             q_weight_num = (oc * ic * quant_bit + 7) // 8
             q_weight = torch.zeros(q_weight_num, dtype=torch.uint8)
             return q_weight, alpha
+
+        encodings = getattr(self.exporter.model, 'seqmse_encodings', None)
+        if encodings is not None and name in encodings:
+            encoding = encodings[name]
+            if (encoding["quant_bit"] == quant_bit and
+                    encoding["quant_block"] == quant_block and
+                    encoding["symmetric"] == symmetric):
+                return quant_from_encoding(
+                    weight.cpu(),
+                    quant_bit,
+                    quant_block,
+                    symmetric,
+                    encoding["scale"],
+                    encoding["zero"],
+                )
 
         q_weight, alpha = torch_quant(weight.cpu(), quant_bit, quant_block, symmetric, self.args.awq, self.args.hqq)
         return q_weight, alpha
@@ -333,7 +349,7 @@ class MNNConverter:
         header_length = dim_num + dim_length + map_length
         return header_length, shape_dtype == np.int32
 
-    def build_weight(self, linear, quant_bit, quant_block, symmetric):
+    def build_weight(self, linear, quant_bit, quant_block, symmetric, name=None):
         ic, oc = linear.in_features, linear.out_features
         if quant_bit == 16:
             if self.exporter.args.skip_weight:
@@ -347,7 +363,7 @@ class MNNConverter:
         else:
             q_min = 1
             assert(quant_bit in (1, 2, 3, 4, 8))
-            q_weight, alpha = self.quant(linear.weight.data, quant_bit, quant_block, symmetric)
+            q_weight, alpha = self.quant(linear.weight.data, quant_bit, quant_block, symmetric, name)
             header_len, shape_int32 = self.write_header(ic, oc, quant_bit)
             scale_fp16 = (self.args.scale_bit == 16)
             alpha_dtype_size = 2 if scale_fp16 else 4
@@ -549,7 +565,7 @@ class MNNConverter:
         if is_lm and self.lm_weight is not None:
             external, q_min, shape_int32, header_len = self.lm_weight
         else:
-            external, q_min, shape_int32, header_len = self.build_weight(linear, quant_bit, quant_block, quant_sym)
+            external, q_min, shape_int32, header_len = self.build_weight(linear, quant_bit, quant_block, quant_sym, name)
         if is_lm and self.lm_weight is None:
             self.lm_weight = [external, q_min, shape_int32, header_len]
         if is_lm and self.args.tie_word_embeddings:
