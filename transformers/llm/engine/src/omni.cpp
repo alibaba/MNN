@@ -111,6 +111,7 @@ bool Omni::load() {
         config.numThread = mConfig->thread_num(true);
         if(config.type == 3){
             config.numThread |= 64;
+            config.numThread |= 512;
         }
         if (mConfig->power(true) == "high") {
             cpuBackendConfig.power = BackendConfig::Power_High;

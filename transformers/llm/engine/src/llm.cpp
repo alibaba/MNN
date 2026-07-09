@@ -203,6 +203,7 @@ void Llm::initRuntime() {
     if(config.type == 3){
         // opencl need set numThread = 64(buffer mode)
         config.numThread |= 64;
+        config.numThread |= 512;
     }
     if (mConfig->power() == "high") {
         cpuBackendConfig.power = BackendConfig::Power_High;
@@ -501,8 +502,15 @@ void Llm::tuning(TuneType type, std::vector<int> candidates) {
 }
 
 void Llm::switchMode(Llm::Stage stage) {
-    // do nothing, only reserve api
-    return;
+    if (mConfig->backend_type() == "opencl") {
+        if (stage == Prefill) {
+            // Disable record queue during prefill
+            mRuntimeManager->setHint(MNN::Interpreter::OP_ENCODER_NUMBER_FOR_COMMIT, 0);
+        } else if (stage == Decode) {
+            // Enable record queue during decode for better performance, use max record queue size 512 for decode stage
+            mRuntimeManager->setHint(MNN::Interpreter::OP_ENCODER_NUMBER_FOR_COMMIT, 512);
+        }
+    }
 }
 
 void Llm::setKVCacheInfo(size_t add, size_t remove, int* reserve, int n_reserve) {
