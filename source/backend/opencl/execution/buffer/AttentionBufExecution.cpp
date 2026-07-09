@@ -939,8 +939,12 @@ ErrorCode AttentionBufExecution::longPrefillResize(const std::vector<Tensor*>& i
             std::set<std::string> buildOptions;
 
             uint32_t layout = 0;
+            // NOTE: mTempV holds only batch*kvNumHead heads (GQA). The tuning kernel must divide the
+            // batch index by group_size when indexing V, otherwise it reads out of bounds (Mali
+            // GROUP_ERROR_FATAL). Encode group_size into gemmSize[5] as the qk path does (biasType == 0 here).
             auto param = getGemmParams(
-                {(uint32_t)e_pack_piece, (uint32_t)h_pack, (uint32_t)l_pack, layout, (uint32_t)loop, (uint32_t)0},
+                {(uint32_t)e_pack_piece, (uint32_t)h_pack, (uint32_t)l_pack, layout, (uint32_t)loop,
+                 (uint32_t)(10 * (group_size - 1))},
                 {openCLBuffer(mTempQK.get()), openCLBuffer(mTempV.get()), openCLBuffer(mTempQKV.get())},
                 mOpenCLBackend->getOpenCLRuntime(), mOpenCLBackend->getPrecision(), mOpenCLBackend->getCLTuneLevel());
 
@@ -1020,6 +1024,9 @@ ErrorCode AttentionBufExecution::longPrefillResize(const std::vector<Tensor*>& i
         // QKV :   [Batch * numHead, ROUND_UP(headDim, mAlignHDN), ROUND_UP(seqLenQ, mAlignQ)] -> [B, N, M]
         // output: [batch, seqLenQ/4, headNum, headDim, seqLenQ_4]
         std::set<std::string> buildOption;
+        if (mOutputC4) {
+            buildOption.emplace("-DATTENTION_C4");
+        }
 
         mKernel_clip_vec[seq_idx] = runtime->buildKernel("attention_buf", "qkv_transpose_output", buildOption,
                                                          mOpenCLBackend->getPrecision(), inputs[0], outputs[0]);
@@ -1040,6 +1047,7 @@ ErrorCode AttentionBufExecution::longPrefillResize(const std::vector<Tensor*>& i
         ret |= mKernel_clip_vec[seq_idx]->get().setArg(index++, seqlen);
         ret |= mKernel_clip_vec[seq_idx]->get().setArg(index++, numHead);
         ret |= mKernel_clip_vec[seq_idx]->get().setArg(index++, headDim);
+        ret |= mKernel_clip_vec[seq_idx]->get().setArg(index++, batch);
 
         mLwsClipVec[seq_idx] =
             localWS3DDefault(mGwsClipVec[seq_idx], maxWorkGroupSize, runtime, "qkv_transpose_output",

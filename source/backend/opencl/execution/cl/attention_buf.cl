@@ -296,35 +296,49 @@ __kernel void rearrange_mask(GLOBAL_SIZE_3_DIMS
 
 __kernel void qkv_transpose_output(GLOBAL_SIZE_3_DIMS
           __global const FLOAT *input, // [Batch * mNumHead, ROUND_UP(mHeadDim, mTileHDN), ROUND_UP(seqLen, mTileQ)]
-          __global FLOAT *output, // [Batch, seqLen/4, mNumHead， mHeadDim, 4]
+          __global FLOAT *output, // [Batch, seqLen/4, mNumHead， mHeadDim, 4]  (or NC4HW4 when ATTENTION_C4)
           __private const int tile_q,
           __private const int tile_hdn,
           __private const int seq_len,
           __private const int head_num,
-          __private const int head_dim
+          __private const int head_dim,
+          __private const int batch
 ) {
-    
+
     const int sl = get_global_id(0); // seqLen_4
     const int hd = get_global_id(1); // mHeadDim_4
     const int z = get_global_id(2); // Batch * mNumHead
     DEAL_NON_UNIFORM_DIM3(sl, hd, z);
-    
+
     const int b = z / head_num;
     const int hn = z % head_num;
-        
+
     const int seq_len_pack = ((seq_len + tile_q - 1) / tile_q) * tile_q;
     const int head_dim_pack = ((head_dim + tile_hdn - 1) / tile_hdn) * tile_hdn;
-    
+
     const int offset_inp = ((b * head_num + hn) * head_dim_pack + 4 * hd) * seq_len_pack + 4 * sl;
-    
-    const int offset_out = (((b * seq_len + sl*4) * head_num + hn) * head_dim + 4 * hd);
-    
+
     // Q
     FLOAT4 temp_0 = vload4(0, input + offset_inp);
     FLOAT4 temp_1 = vload4(0, input + offset_inp + seq_len_pack);
     FLOAT4 temp_2 = vload4(0, input + offset_inp + 2 * seq_len_pack);
     FLOAT4 temp_3 = vload4(0, input + offset_inp + 3 * seq_len_pack);
-    
+
+#ifdef ATTENTION_C4
+    // output is NC4HW4: [(head_num*head_dim)/4, batch*seq_len, 4], channel = hn*head_dim + 4*hd.
+    // Must match matmul_qkv_prefill's ATTENTION_C4 output layout so o_proj reads it correctly.
+    const int channel4 = (hn * head_dim + 4 * hd) >> 2;
+    const int seq_storage = seq_len * batch;
+    const int output_offset = (channel4 * seq_storage + (b * seq_len + sl * 4)) * 4;
+    vstore4((FLOAT4)(temp_0.s0, temp_1.s0, temp_2.s0, temp_3.s0), 0, output + output_offset);
+    if(4 * sl + 1 >= seq_len) return;
+    vstore4((FLOAT4)(temp_0.s1, temp_1.s1, temp_2.s1, temp_3.s1), 0, output + output_offset + 4);
+    if(4 * sl + 2 >= seq_len) return;
+    vstore4((FLOAT4)(temp_0.s2, temp_1.s2, temp_2.s2, temp_3.s2), 0, output + output_offset + 8);
+    if(4 * sl + 3 >= seq_len) return;
+    vstore4((FLOAT4)(temp_0.s3, temp_1.s3, temp_2.s3, temp_3.s3), 0, output + output_offset + 12);
+#else
+    const int offset_out = (((b * seq_len + sl*4) * head_num + hn) * head_dim + 4 * hd);
     vstore4((FLOAT4)(temp_0.s0, temp_1.s0, temp_2.s0, temp_3.s0), 0, output + offset_out);
     if(4 * sl + 1 >= seq_len) return;
     vstore4((FLOAT4)(temp_0.s1, temp_1.s1, temp_2.s1, temp_3.s1), 0, output + offset_out + head_num*head_dim);
@@ -332,6 +346,7 @@ __kernel void qkv_transpose_output(GLOBAL_SIZE_3_DIMS
     vstore4((FLOAT4)(temp_0.s2, temp_1.s2, temp_2.s2, temp_3.s2), 0, output + offset_out + 2*head_num*head_dim);
     if(4 * sl + 3 >= seq_len) return;
     vstore4((FLOAT4)(temp_0.s3, temp_1.s3, temp_2.s3, temp_3.s3), 0, output + offset_out + 3*head_num*head_dim);
+#endif
 
 }
 
