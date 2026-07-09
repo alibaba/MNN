@@ -49,5 +49,4 @@ private:
 } // namespace MNN
 #endif /* LayerNormBufExecution_hpp */
 
-
 #endif /* MNN_OPENCL_BUFFER_CLOSED */
