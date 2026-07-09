@@ -216,12 +216,15 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
         "convertMatmulToConv", "if 1, converter matmul with constant input to convolution. default: 1, range: {0, 1}",
         cxxopts::value<int>())("transformerFuse", "fuse key transformer op, like attention. default: false",
                                cxxopts::value<bool>())(
-        "groupConvNative", "keep native group convolution. default: false", cxxopts::value<bool>())(
-        "allowCustomOp", "allow custom op when convert. default: false",
-        cxxopts::value<bool>())("useOriginRNNImpl",
-                                "Don't use While Module to Implement LSTM or GRU, use origin OP, if open it, LSTM and "
-                                "GRU can't be quantized or use other compress method",
-                                cxxopts::value<bool>())("splitBlockQuant", "Split Block Quant Convolution")(
+        "transformerFuseC4",
+        "fuse LLM transformer tensors to C4 format for faster runtime. default: false, set 1 to enable",
+        cxxopts::value<int>())("groupConvNative", "keep native group convolution. default: false",
+                               cxxopts::value<bool>())("allowCustomOp", "allow custom op when convert. default: false",
+                                                       cxxopts::value<bool>())(
+        "useOriginRNNImpl",
+        "Don't use While Module to Implement LSTM or GRU, use origin OP, if open it, LSTM and "
+        "GRU can't be quantized or use other compress method",
+        cxxopts::value<bool>())("splitBlockQuant", "Split Block Quant Convolution")(
         "dumpPass",
         "Enable verbose output for each optimization pass, showing what changes each pass made (like LLVM's "
         "-debug-pass)");
@@ -436,6 +439,9 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
     if (result.count("transformerFuse")) {
         modelPath.transformerFuse = true;
     }
+    if (result.count("transformerFuseC4")) {
+        modelPath.transformerFuseC4 = result["transformerFuseC4"].as<int>() != 0;
+    }
     if (result.count("groupConvNative")) {
         modelPath.groupConvNative = true;
     }
@@ -643,10 +649,12 @@ bool Cli::convertModel(modelConfig& modelPath) {
     if (1 == modelPath.optimizeLevel && modelPath.model == modelConfig::MNN) {
         expectedPass = {
             "TranslateJsonOp",
-            "FuseTransformerC4",
             "FuseDupOp",
             "RemoveInvalidCast",
         };
+        if (modelPath.transformerFuseC4) {
+            expectedPass.insert(expectedPass.begin() + 1, "FuseTransformerC4");
+        }
     }
     if (modelPath.splitQuantBlock) {
         expectedPass.emplace_back("SplitBlockQuantConvolution");

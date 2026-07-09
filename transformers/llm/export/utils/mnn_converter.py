@@ -27,6 +27,11 @@ class MNNConverter:
         self.lm_weight = None
         self.tie_embeddings_info = None
 
+    def transformer_c4_args(self):
+        if getattr(self.args, 'transformer_c4', False):
+            return ['--transformerFuseC4=1']
+        return []
+
     def convert(self, convert_args):
         import contextlib
         log_fp = open(EXPORT_LOG, "a")
@@ -82,6 +87,7 @@ class MNNConverter:
             convert_args += ['--saveExternalData']
         if self.args.hqq:
             convert_args += ['--hqq']
+        convert_args += self.transformer_c4_args()
         convert_args += args
         self.convert(convert_args)
         return mnn_path
@@ -109,6 +115,7 @@ class MNNConverter:
             '--MNNModel',
             str(mnn_path)
         ]
+        convert_args += self.transformer_c4_args()
         self.convert(convert_args)
         return mnn_path
 
@@ -123,6 +130,7 @@ class MNNConverter:
             str(mnn_path),
             '--optimizeLevel=1'
         ]
+        convert_args += self.transformer_c4_args()
         self.convert(convert_args)
         return mnn_path
 
